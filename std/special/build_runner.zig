@@ -49,14 +49,14 @@ pub fn main() !void {
 
     var stderr_file = io.getStdErr();
     var stderr_file_stream: io.FileOutStream = undefined;
-    var stderr_stream = if (stderr_file) |*f| x: {
+    var stderr_stream = if (stderr_file) |f| x: {
         stderr_file_stream = io.FileOutStream.init(f);
         break :x &stderr_file_stream.stream;
     } else |err| err;
 
     var stdout_file = io.getStdOut();
     var stdout_file_stream: io.FileOutStream = undefined;
-    var stdout_stream = if (stdout_file) |*f| x: {
+    var stdout_stream = if (stdout_file) |f| x: {
         stdout_file_stream = io.FileOutStream.init(f);
         break :x &stdout_file_stream.stream;
     } else |err| err;
@@ -72,10 +72,10 @@ pub fn main() !void {
             if (mem.indexOfScalar(u8, option_contents, '=')) |name_end| {
                 const option_name = option_contents[0..name_end];
                 const option_value = option_contents[name_end + 1 ..];
-                if (builder.addUserInputOption(option_name, option_value))
+                if (try builder.addUserInputOption(option_name, option_value))
                     return usageAndErr(&builder, false, try stderr_stream);
             } else {
-                if (builder.addUserInputFlag(option_contents))
+                if (try builder.addUserInputFlag(option_contents))
                     return usageAndErr(&builder, false, try stderr_stream);
             }
         } else if (mem.startsWith(u8, arg, "-")) {

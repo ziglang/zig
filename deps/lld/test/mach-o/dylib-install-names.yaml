@@ -1,23 +1,23 @@
 # Check we accept -install_name correctly:
-# RUN: lld -flavor darwin -arch x86_64 -install_name libwibble.dylib -dylib \
+# RUN: ld64.lld -arch x86_64 -install_name libwibble.dylib -dylib \
 # RUN:     -compatibility_version 2.0 -current_version 5.3 \
 # RUN:     %p/Inputs/x86_64/libSystem.yaml %s -o %t.dylib
 # RUN: llvm-objdump -private-headers %t.dylib | FileCheck %s --check-prefix=CHECK-BINARY-WRITE
 
 # Check we read LC_ID_DYLIB correctly:
-# RUN: lld -flavor darwin -arch x86_64 %p/Inputs/use-dylib-install-names.yaml \
+# RUN: ld64.lld -arch x86_64 %p/Inputs/use-dylib-install-names.yaml \
 # RUN:      %p/Inputs/x86_64/libSystem.yaml %t.dylib -dylib -o %t2.dylib
 # RUN: llvm-objdump -private-headers %t2.dylib | FileCheck %s --check-prefix=CHECK-BINARY-READ
 
 # Check we default the install-name to the output file:
-# RUN: lld -flavor darwin -arch x86_64 -dylib %s -o libwibble.dylib \
+# RUN: ld64.lld -arch x86_64 -dylib %s -o libwibble.dylib \
 # RUN:     -compatibility_version 2.0 -current_version 5.3 \
 # RUN:     %p/Inputs/x86_64/libSystem.yaml
 # RUN: llvm-objdump -private-headers libwibble.dylib | FileCheck %s --check-prefix=CHECK-BINARY-WRITE
 # RUN: rm -f libwibble.dylib
 
 # Check -single_module does nothing
-# RUN: lld -flavor darwin -arch x86_64 -dylib %s -install_name libwibble.dylib \
+# RUN: ld64.lld -arch x86_64 -dylib %s -install_name libwibble.dylib \
 # RUN:     -compatibility_version 2.0 -current_version 5.3 \
 # RUN:     -single_module -o %t2.dylib %p/Inputs/x86_64/libSystem.yaml
 # RUN: llvm-objdump -private-headers %t2.dylib | FileCheck %s --check-prefix=CHECK-BINARY-WRITE

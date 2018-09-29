@@ -1,6 +1,6 @@
 ; REQUIRES: x86
 ; RUN: llvm-as %s -o %t.o
-; RUN: not ld.lld -m elf_x86_64 %t.o %t.o -o %t.so -shared 2>&1 | FileCheck %s
+; RUN: not ld.lld %t.o %t.o -o %t.so -shared 2>&1 | FileCheck %s
 
 ; CHECK:      duplicate symbol: f
 ; CHECK-NEXT: >>> defined in {{.*}}.o

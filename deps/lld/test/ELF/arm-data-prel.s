@@ -1,3 +1,4 @@
+// REQUIRES: arm
 // RUN: llvm-mc %s -triple=armv7-unknown-linux-gnueabi -filetype=obj -o %t.o
 // RUN: echo "SECTIONS { \
 // RUN:          .text : { *(.text) } \
@@ -6,7 +7,6 @@
 // RUN:          .TEST1 : { *(.TEST1) } } " > %t.script
 // RUN: ld.lld --script %t.script %t.o -o %t
 // RUN: llvm-readobj -s -sd %t | FileCheck --check-prefix=CHECK %s
-// REQUIRES: arm
 
 // The R_ARM_PREL31 relocation is used in by the .ARM.exidx exception tables
 // bit31 of the place denotes whether the field is an inline table entry

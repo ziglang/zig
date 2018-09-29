@@ -18,7 +18,7 @@
 namespace lld {
 class File;
 
-/// \brief The fundamental unit of linking.
+/// The fundamental unit of linking.
 ///
 /// A C function or global variable is an atom.  An atom has content and
 /// attributes. The content of a function atom is the instructions that
@@ -179,10 +179,10 @@ public:
   };
 
   enum DynamicExport {
-    /// \brief The linker may or may not export this atom dynamically depending
+    /// The linker may or may not export this atom dynamically depending
     ///   on the output type and other context of the link.
     dynamicExportNormal,
-    /// \brief The linker will always export this atom dynamically.
+    /// The linker will always export this atom dynamically.
     dynamicExportAlways,
   };
 
@@ -212,26 +212,26 @@ public:
     }
   };
 
-  /// \brief returns a value for the order of this Atom within its file.
+  /// returns a value for the order of this Atom within its file.
   ///
   /// This is used by the linker to order the layout of Atoms so that the
   /// resulting image is stable and reproducible.
   virtual uint64_t ordinal() const = 0;
 
-  /// \brief the number of bytes of space this atom's content will occupy in the
+  /// the number of bytes of space this atom's content will occupy in the
   /// final linked image.
   ///
   /// For a function atom, it is the number of bytes of code in the function.
   virtual uint64_t size() const = 0;
 
-  /// \brief The size of the section from which the atom is instantiated.
+  /// The size of the section from which the atom is instantiated.
   ///
   /// Merge::mergeByLargestSection is defined in terms of section size
   /// and not in terms of atom size, so we need this function separate
   /// from size().
   virtual uint64_t sectionSize() const { return 0; }
 
-  /// \brief The visibility of this atom to other atoms.
+  /// The visibility of this atom to other atoms.
   ///
   /// C static functions have scope scopeTranslationUnit.  Regular C functions
   /// have scope scopeGlobal.  Functions compiled with visibility=hidden have
@@ -239,48 +239,48 @@ public:
   /// not by the OS loader.
   virtual Scope scope() const = 0;
 
-  /// \brief Whether the linker should use direct or indirect access to this
+  /// Whether the linker should use direct or indirect access to this
   /// atom.
   virtual Interposable interposable() const = 0;
 
-  /// \brief how the linker should handle if multiple atoms have the same name.
+  /// how the linker should handle if multiple atoms have the same name.
   virtual Merge merge() const = 0;
 
-  /// \brief The type of this atom, such as code or data.
+  /// The type of this atom, such as code or data.
   virtual ContentType contentType() const = 0;
 
-  /// \brief The alignment constraints on how this atom must be laid out in the
+  /// The alignment constraints on how this atom must be laid out in the
   /// final linked image (e.g. 16-byte aligned).
   virtual Alignment alignment() const = 0;
 
-  /// \brief Whether this atom must be in a specially named section in the final
+  /// Whether this atom must be in a specially named section in the final
   /// linked image, or if the linker can infer the section based on the
   /// contentType().
   virtual SectionChoice sectionChoice() const = 0;
 
-  /// \brief If sectionChoice() != sectionBasedOnContent, then this return the
+  /// If sectionChoice() != sectionBasedOnContent, then this return the
   /// name of the section the atom should be placed into.
   virtual StringRef customSectionName() const = 0;
 
-  /// \brief constraints on whether the linker may dead strip away this atom.
+  /// constraints on whether the linker may dead strip away this atom.
   virtual DeadStripKind deadStrip() const = 0;
 
-  /// \brief Under which conditions should this atom be dynamically exported.
+  /// Under which conditions should this atom be dynamically exported.
   virtual DynamicExport dynamicExport() const {
     return dynamicExportNormal;
   }
 
-  /// \brief Code model used by the atom.
+  /// Code model used by the atom.
   virtual CodeModel codeModel() const { return codeNA; }
 
-  /// \brief Returns the OS memory protections required for this atom's content
+  /// Returns the OS memory protections required for this atom's content
   /// at runtime.
   ///
   /// A function atom is R_X, a global variable is RW_, and a read-only constant
   /// is R__.
   virtual ContentPermissions permissions() const;
 
-  /// \brief returns a reference to the raw (unrelocated) bytes of this Atom's
+  /// returns a reference to the raw (unrelocated) bytes of this Atom's
   /// content.
   virtual ArrayRef<uint8_t> rawContent() const = 0;
 
@@ -317,10 +317,10 @@ public:
     const void *_it;
   };
 
-  /// \brief Returns an iterator to the beginning of this Atom's References.
+  /// Returns an iterator to the beginning of this Atom's References.
   virtual reference_iterator begin() const = 0;
 
-  /// \brief Returns an iterator to the end of this Atom's References.
+  /// Returns an iterator to the end of this Atom's References.
   virtual reference_iterator end() const = 0;
 
   /// Adds a reference to this atom.
@@ -361,11 +361,11 @@ protected:
 
   ~DefinedAtom() override = default;
 
-  /// \brief Returns a pointer to the Reference object that the abstract
+  /// Returns a pointer to the Reference object that the abstract
   /// iterator "points" to.
   virtual const Reference *derefIterator(const void *iter) const = 0;
 
-  /// \brief Adjusts the abstract iterator to "point" to the next Reference
+  /// Adjusts the abstract iterator to "point" to the next Reference
   /// object for this Atom.
   virtual void incrementIterator(const void *&iter) const = 0;
 };

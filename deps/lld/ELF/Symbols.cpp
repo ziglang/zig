@@ -14,7 +14,6 @@
 #include "SyntheticSections.h"
 #include "Target.h"
 #include "Writer.h"
-
 #include "lld/Common/ErrorHandler.h"
 #include "lld/Common/Strings.h"
 #include "llvm/ADT/STLExtras.h"
@@ -39,6 +38,7 @@ Defined *ElfSym::GlobalOffsetTable;
 Defined *ElfSym::MipsGp;
 Defined *ElfSym::MipsGpDisp;
 Defined *ElfSym::MipsLocalGp;
+Defined *ElfSym::RelaIpltEnd;
 
 static uint64_t getSymVA(const Symbol &Sym, int64_t &Addend) {
   switch (Sym.kind()) {
@@ -58,6 +58,7 @@ static uint64_t getSymVA(const Symbol &Sym, int64_t &Addend) {
       return D.Value;
 
     IS = IS->Repl;
+
     uint64_t Offset = D.Value;
 
     // An object in an SHF_MERGE section might be referenced via a
@@ -76,8 +77,6 @@ static uint64_t getSymVA(const Symbol &Sym, int64_t &Addend) {
       Addend = 0;
     }
 
-    const OutputSection *OutSec = IS->getOutputSection();
-
     // In the typical case, this is actually very simple and boils
     // down to adding together 3 numbers:
     // 1. The address of the output section.
@@ -88,7 +87,7 @@ static uint64_t getSymVA(const Symbol &Sym, int64_t &Addend) {
     // If you understand the data structures involved with this next
     // line (and how they get built), then you have a pretty good
     // understanding of the linker.
-    uint64_t VA = (OutSec ? OutSec->Addr : 0) + IS->getOffset(Offset);
+    uint64_t VA = IS->getVA(Offset);
 
     if (D.isTls() && !Config->Relocatable) {
       if (!Out::TlsPhdr)
@@ -98,20 +97,12 @@ static uint64_t getSymVA(const Symbol &Sym, int64_t &Addend) {
     }
     return VA;
   }
-  case Symbol::SharedKind: {
-    auto &SS = cast<SharedSymbol>(Sym);
-    if (SS.CopyRelSec)
-      return SS.CopyRelSec->getParent()->Addr + SS.CopyRelSec->OutSecOff;
-    if (SS.NeedsPltAddr)
-      return Sym.getPltVA();
-    return 0;
-  }
+  case Symbol::SharedKind:
   case Symbol::UndefinedKind:
     return 0;
   case Symbol::LazyArchiveKind:
   case Symbol::LazyObjectKind:
-    assert(Sym.IsUsedInRegularObj && "lazy symbol reached writer");
-    return 0;
+    llvm_unreachable("lazy symbol reached writer");
   }
   llvm_unreachable("invalid symbol kind");
 }
@@ -134,22 +125,26 @@ uint64_t Symbol::getGotPltVA() const {
 }
 
 uint64_t Symbol::getGotPltOffset() const {
-  return GotPltIndex * Target->GotPltEntrySize;
+  if (IsInIgot)
+    return PltIndex * Target->GotPltEntrySize;
+  return (PltIndex + Target->GotPltHeaderEntriesNum) * Target->GotPltEntrySize;
 }
 
 uint64_t Symbol::getPltVA() const {
   if (this->IsInIplt)
     return InX::Iplt->getVA() + PltIndex * Target->PltEntrySize;
-  return InX::Plt->getVA() + Target->PltHeaderSize +
-         PltIndex * Target->PltEntrySize;
+  return InX::Plt->getVA() + Target->getPltEntryOffset(PltIndex);
+}
+
+uint64_t Symbol::getPltOffset() const {
+  assert(!this->IsInIplt);
+  return Target->getPltEntryOffset(PltIndex);
 }
 
 uint64_t Symbol::getSize() const {
   if (const auto *DR = dyn_cast<Defined>(this))
     return DR->Size;
-  if (const auto *S = dyn_cast<SharedSymbol>(this))
-    return S->Size;
-  return 0;
+  return cast<SharedSymbol>(this)->Size;
 }
 
 OutputSection *Symbol::getOutputSection() const {
@@ -158,13 +153,6 @@ OutputSection *Symbol::getOutputSection() const {
       return Sec->Repl->getOutputSection();
     return nullptr;
   }
-
-  if (auto *S = dyn_cast<SharedSymbol>(this)) {
-    if (S->CopyRelSec)
-      return S->CopyRelSec->getParent();
-    return nullptr;
-  }
-
   return nullptr;
 }
 
@@ -180,7 +168,7 @@ void Symbol::parseSymbolVersion() {
     return;
 
   // Truncate the symbol name so that it doesn't include the version string.
-  Name = {S.data(), Pos};
+  NameSize = Pos;
 
   // If this is not in this DSO, it is not a definition.
   if (!isDefined())
@@ -206,33 +194,15 @@ void Symbol::parseSymbolVersion() {
   // It is an error if the specified version is not defined.
   // Usually version script is not provided when linking executable,
   // but we may still want to override a versioned symbol from DSO,
-  // so we do not report error in this case.
-  if (Config->Shared)
+  // so we do not report error in this case. We also do not error
+  // if the symbol has a local version as it won't be in the dynamic
+  // symbol table.
+  if (Config->Shared && VersionId != VER_NDX_LOCAL)
     error(toString(File) + ": symbol " + S + " has undefined version " +
           Verstr);
 }
 
-InputFile *Lazy::fetch() {
-  if (auto *S = dyn_cast<LazyArchive>(this))
-    return S->fetch();
-  return cast<LazyObject>(this)->fetch();
-}
-
-ArchiveFile &LazyArchive::getFile() { return *cast<ArchiveFile>(File); }
-
-InputFile *LazyArchive::fetch() {
-  std::pair<MemoryBufferRef, uint64_t> MBInfo = getFile().getMember(&Sym);
-
-  // getMember returns an empty buffer if the member was already
-  // read from the library.
-  if (MBInfo.first.getBuffer().empty())
-    return nullptr;
-  return createObjectFile(MBInfo.first, getFile().getName(), MBInfo.second);
-}
-
-LazyObjFile &LazyObject::getFile() { return *cast<LazyObjFile>(File); }
-
-InputFile *LazyObject::fetch() { return getFile().fetch(); }
+InputFile *LazyArchive::fetch() { return cast<ArchiveFile>(File)->fetch(Sym); }
 
 uint8_t Symbol::computeBinding() const {
   if (Config->Relocatable)
@@ -241,7 +211,7 @@ uint8_t Symbol::computeBinding() const {
     return STB_LOCAL;
   if (VersionId == VER_NDX_LOCAL && isDefined())
     return STB_LOCAL;
-  if (Config->NoGnuUnique && Binding == STB_GNU_UNIQUE)
+  if (!Config->GnuUnique && Binding == STB_GNU_UNIQUE)
     return STB_GLOBAL;
   return Binding;
 }
@@ -271,6 +241,27 @@ void elf::printTraceSymbol(Symbol *Sym) {
     S = ": definition of ";
 
   message(toString(Sym->File) + S + Sym->getName());
+}
+
+void elf::warnUnorderableSymbol(const Symbol *Sym) {
+  if (!Config->WarnSymbolOrdering)
+    return;
+
+  const InputFile *File = Sym->File;
+  auto *D = dyn_cast<Defined>(Sym);
+
+  auto Warn = [&](StringRef S) { warn(toString(File) + S + Sym->getName()); };
+
+  if (Sym->isUndefined())
+    Warn(": unable to order undefined symbol: ");
+  else if (Sym->isShared())
+    Warn(": unable to order shared symbol: ");
+  else if (D && !D->Section)
+    Warn(": unable to order absolute symbol: ");
+  else if (D && isa<OutputSection>(D->Section))
+    Warn(": unable to order synthetic symbol: ");
+  else if (D && !D->Section->Repl->Live)
+    Warn(": unable to order discarded symbol: ");
 }
 
 // Returns a symbol for an error message.

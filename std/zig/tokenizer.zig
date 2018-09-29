@@ -73,16 +73,11 @@ pub const Token = struct {
         return null;
     }
 
-    const StrLitKind = enum {
-        Normal,
-        C,
-    };
-
-    pub const Id = union(enum) {
+    pub const Id = enum {
         Invalid,
         Identifier,
-        StringLiteral: StrLitKind,
-        MultilineStringLiteralLine: StrLitKind,
+        StringLiteral,
+        MultilineStringLiteralLine,
         CharLiteral,
         Eof,
         Builtin,
@@ -144,6 +139,7 @@ pub const Token = struct {
         LineComment,
         DocComment,
         BracketStarBracket,
+        ShebangLine,
         Keyword_align,
         Keyword_and,
         Keyword_asm,
@@ -207,11 +203,24 @@ pub const Tokenizer = struct {
     }
 
     pub fn init(buffer: []const u8) Tokenizer {
-        return Tokenizer{
-            .buffer = buffer,
-            .index = 0,
-            .pending_invalid_token = null,
-        };
+        if (mem.startsWith(u8, buffer, "#!")) {
+            const src_start = if (mem.indexOfScalar(u8, buffer, '\n')) |i| i + 1 else buffer.len;
+            return Tokenizer{
+                .buffer = buffer,
+                .index = src_start,
+                .pending_invalid_token = Token{
+                    .id = Token.Id.ShebangLine,
+                    .start = 0,
+                    .end = src_start,
+                },
+            };
+        } else {
+            return Tokenizer{
+                .buffer = buffer,
+                .index = 0,
+                .pending_invalid_token = null,
+            };
+        }
     }
 
     const State = enum {
@@ -296,7 +305,7 @@ pub const Tokenizer = struct {
                     },
                     '"' => {
                         state = State.StringLiteral;
-                        result.id = Token.Id{ .StringLiteral = Token.StrLitKind.Normal };
+                        result.id = Token.Id.StringLiteral;
                     },
                     '\'' => {
                         state = State.CharLiteral;
@@ -375,7 +384,7 @@ pub const Tokenizer = struct {
                     },
                     '\\' => {
                         state = State.Backslash;
-                        result.id = Token.Id{ .MultilineStringLiteralLine = Token.StrLitKind.Normal };
+                        result.id = Token.Id.MultilineStringLiteralLine;
                     },
                     '{' => {
                         result.id = Token.Id.LBrace;
@@ -576,11 +585,11 @@ pub const Tokenizer = struct {
                 State.C => switch (c) {
                     '\\' => {
                         state = State.Backslash;
-                        result.id = Token.Id{ .MultilineStringLiteralLine = Token.StrLitKind.C };
+                        result.id = Token.Id.MultilineStringLiteralLine;
                     },
                     '"' => {
                         state = State.StringLiteral;
-                        result.id = Token.Id{ .StringLiteral = Token.StrLitKind.C };
+                        result.id = Token.Id.StringLiteral;
                     },
                     'a'...'z', 'A'...'Z', '_', '0'...'9' => {
                         state = State.Identifier;
@@ -1203,7 +1212,7 @@ test "tokenizer - invalid token characters" {
 
 test "tokenizer - invalid literal/comment characters" {
     testTokenize("\"\x00\"", []Token.Id{
-        Token.Id{ .StringLiteral = Token.StrLitKind.Normal },
+        Token.Id.StringLiteral,
         Token.Id.Invalid,
     });
     testTokenize("//\x00", []Token.Id{
@@ -1289,7 +1298,7 @@ test "tokenizer - string identifier and builtin fns" {
         Token.Id.Equal,
         Token.Id.Builtin,
         Token.Id.LParen,
-        Token.Id{ .StringLiteral = Token.StrLitKind.Normal },
+        Token.Id.StringLiteral,
         Token.Id.RParen,
         Token.Id.Semicolon,
     });
@@ -1329,17 +1338,8 @@ fn testTokenize(source: []const u8, expected_tokens: []const Token.Id) void {
     var tokenizer = Tokenizer.init(source);
     for (expected_tokens) |expected_token_id| {
         const token = tokenizer.next();
-        if (@TagType(Token.Id)(token.id) != @TagType(Token.Id)(expected_token_id)) {
-            std.debug.panic("expected {}, found {}\n", @tagName(@TagType(Token.Id)(expected_token_id)), @tagName(@TagType(Token.Id)(token.id)));
-        }
-        switch (expected_token_id) {
-            Token.Id.StringLiteral => |expected_kind| {
-                std.debug.assert(expected_kind == switch (token.id) {
-                    Token.Id.StringLiteral => |kind| kind,
-                    else => unreachable,
-                });
-            },
-            else => {},
+        if (token.id != expected_token_id) {
+            std.debug.panic("expected {}, found {}\n", @tagName(expected_token_id), @tagName(token.id));
         }
     }
     const last_token = tokenizer.next();

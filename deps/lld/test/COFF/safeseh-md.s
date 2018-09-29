@@ -1,3 +1,4 @@
+# REQUIRES: x86
 # RUN: llvm-mc -triple i686-windows-msvc %s -filetype=obj -o %t.obj
 # RUN: lld-link %t.obj %S/Inputs/except_handler3.lib -safeseh -out:%t.exe -opt:noref -entry:main
 # RUN: llvm-readobj -coff-load-config %t.exe | FileCheck %s

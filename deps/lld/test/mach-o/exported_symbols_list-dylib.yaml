@@ -1,19 +1,19 @@
-# RUN: lld -flavor darwin -arch x86_64 -macosx_version_min 10.8 -dylib \
+# RUN: ld64.lld -arch x86_64 -macosx_version_min 10.8 -dylib \
 # RUN:      %s %p/Inputs/x86_64/libSystem.yaml -o %t \
 # RUN:      -exported_symbols_list %p/Inputs/exported_symbols_list.exp && \
 # RUN: llvm-nm -m %t | FileCheck %s
 #
-# RUN: lld -flavor darwin -arch x86_64 -macosx_version_min 10.8 -dylib \
+# RUN: ld64.lld -arch x86_64 -macosx_version_min 10.8 -dylib \
 # RUN:      %s %p/Inputs/x86_64/libSystem.yaml -o %t2 \
 # RUN:      -exported_symbol _foo -exported_symbol _b  && \
 # RUN: llvm-nm -m %t2 | FileCheck %s
 #
-# RUN: lld -flavor darwin -arch x86_64 -macosx_version_min 10.8 -dylib \
+# RUN: ld64.lld -arch x86_64 -macosx_version_min 10.8 -dylib \
 # RUN:      %s %p/Inputs/x86_64/libSystem.yaml -o %t3 \
 # RUN:      -unexported_symbol _bar -unexported_symbol _a  && \
 # RUN: llvm-nm -m %t3 | FileCheck %s
 #
-# RUN: lld -flavor darwin -arch x86_64 -macosx_version_min 10.8 -dylib \
+# RUN: ld64.lld -arch x86_64 -macosx_version_min 10.8 -dylib \
 # RUN:      %s %p/Inputs/x86_64/libSystem.yaml -dead_strip -o %t \
 # RUN:      -exported_symbols_list %p/Inputs/exported_symbols_list.exp && \
 # RUN: llvm-nm -m %t | FileCheck -check-prefix=CHECK_DEAD %s

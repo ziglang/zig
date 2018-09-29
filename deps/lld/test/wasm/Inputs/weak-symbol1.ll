@@ -1,3 +1,5 @@
+target triple = "wasm32-unknown-unknown"
+
 define weak i32 @weakFn() #0 {
 entry:
   ret i32 1

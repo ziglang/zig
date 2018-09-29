@@ -29,10 +29,10 @@
 #define __SHAINTRIN_H
 
 /* Define the default attributes for the functions in this file. */
-#define __DEFAULT_FN_ATTRS __attribute__((__always_inline__, __nodebug__, __target__("sha")))
+#define __DEFAULT_FN_ATTRS __attribute__((__always_inline__, __nodebug__, __target__("sha"), __min_vector_width__(128)))
 
-#define _mm_sha1rnds4_epu32(V1, V2, M) __extension__ ({ \
-  __builtin_ia32_sha1rnds4((__v4si)(__m128i)(V1), (__v4si)(__m128i)(V2), (M)); })
+#define _mm_sha1rnds4_epu32(V1, V2, M) \
+  __builtin_ia32_sha1rnds4((__v4si)(__m128i)(V1), (__v4si)(__m128i)(V2), (M))
 
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_sha1nexte_epu32(__m128i __X, __m128i __Y)

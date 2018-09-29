@@ -7,35 +7,35 @@
 IMPORT:      DelayImport {
 IMPORT-NEXT:   Name: std64.dll
 IMPORT-NEXT:   Attributes: 0x1
-IMPORT-NEXT:   ModuleHandle: 0x1018
-IMPORT-NEXT:   ImportAddressTable: 0x1020
-IMPORT-NEXT:   ImportNameTable: 0x3040
+IMPORT-NEXT:   ModuleHandle: 0x3018
+IMPORT-NEXT:   ImportAddressTable: 0x3020
+IMPORT-NEXT:   ImportNameTable: 0x2040
 IMPORT-NEXT:   BoundDelayImportTable: 0x0
 IMPORT-NEXT:   UnloadDelayImportTable: 0x0
 IMPORT-NEXT:   Import {
 IMPORT-NEXT:     Symbol: ExitProcess (0)
-IMPORT-NEXT:     Address: 0x140002066
+IMPORT-NEXT:     Address: 0x140001066
 IMPORT-NEXT:   }
 IMPORT-NEXT:   Import {
 IMPORT-NEXT:     Symbol:  (50)
-IMPORT-NEXT:     Address: 0x1400020BD
+IMPORT-NEXT:     Address: 0x1400010BD
 IMPORT-NEXT:   }
 IMPORT-NEXT:   Import {
 IMPORT-NEXT:     Symbol: MessageBoxA (0)
-IMPORT-NEXT:     Address: 0x140002114
+IMPORT-NEXT:     Address: 0x140001114
 IMPORT-NEXT:   }
 IMPORT-NEXT: }
 
 BASEREL:      BaseReloc [
 BASEREL-NEXT:   Entry {
 BASEREL-NEXT:     Type: DIR64
-BASEREL-NEXT:     Address: 0x1020
+BASEREL-NEXT:     Address: 0x3020
 BASEREL-NEXT:   }
 BASEREL-NEXT:   Entry {
 BASEREL-NEXT:     Type: DIR64
-BASEREL-NEXT:     Address: 0x1028
+BASEREL-NEXT:     Address: 0x3028
 BASEREL-NEXT:   }
 BASEREL-NEXT:   Entry {
 BASEREL-NEXT:     Type: DIR64
-BASEREL-NEXT:     Address: 0x1030
+BASEREL-NEXT:     Address: 0x3030
 BASEREL-NEXT:   }

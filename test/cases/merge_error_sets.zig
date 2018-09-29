@@ -1,5 +1,5 @@
 const A = error{
-    PathNotFound,
+    FileNotFound,
     NotDir,
 };
 const B = error{OutOfMemory};
@@ -15,7 +15,7 @@ test "merge error sets" {
         @panic("unexpected");
     } else |err| switch (err) {
         error.OutOfMemory => @panic("unexpected"),
-        error.PathNotFound => @panic("unexpected"),
+        error.FileNotFound => @panic("unexpected"),
         error.NotDir => {},
     }
 }

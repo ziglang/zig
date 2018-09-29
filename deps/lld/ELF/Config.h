@@ -10,6 +10,7 @@
 #ifndef LLD_ELF_CONFIG_H
 #define LLD_ELF_CONFIG_H
 
+#include "lld/Common/ErrorHandler.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringSet.h"
@@ -17,13 +18,13 @@
 #include "llvm/Support/CachePruning.h"
 #include "llvm/Support/CodeGen.h"
 #include "llvm/Support/Endian.h"
-
 #include <vector>
 
 namespace lld {
 namespace elf {
 
 class InputFile;
+class InputSectionBase;
 
 enum ELFKind {
   ELFNoneKind,
@@ -39,6 +40,9 @@ enum class BuildIdKind { None, Fast, Md5, Sha1, Hexstring, Uuid };
 // For --discard-{all,locals,none}.
 enum class DiscardPolicy { Default, All, Locals, None };
 
+// For --icf={none,safe,all}.
+enum class ICFLevel { None, Safe, All };
+
 // For --strip-{all,debug}.
 enum class StripPolicy { None, All, Debug };
 
@@ -53,6 +57,9 @@ enum class SortSectionPolicy { Default, None, Alignment, Name, Priority };
 
 // For --target2
 enum class Target2Policy { Abs, Rel, GotRel };
+
+// For tracking ARM Float Argument PCS
+enum class ARMVFPArgKind { Default, Base, VFP, ToolChain };
 
 struct SymbolVersion {
   llvm::StringRef Name;
@@ -79,21 +86,27 @@ struct Configuration {
   llvm::StringMap<uint64_t> SectionStartMap;
   llvm::StringRef Chroot;
   llvm::StringRef DynamicLinker;
+  llvm::StringRef DwoDir;
   llvm::StringRef Entry;
   llvm::StringRef Emulation;
   llvm::StringRef Fini;
   llvm::StringRef Init;
   llvm::StringRef LTOAAPipeline;
   llvm::StringRef LTONewPmPasses;
+  llvm::StringRef LTOObjPath;
+  llvm::StringRef LTOSampleProfile;
   llvm::StringRef MapFile;
   llvm::StringRef OutputFile;
   llvm::StringRef OptRemarksFilename;
+  llvm::StringRef ProgName;
   llvm::StringRef SoName;
   llvm::StringRef Sysroot;
   llvm::StringRef ThinLTOCacheDir;
+  llvm::StringRef ThinLTOIndexOnlyArg;
+  std::pair<llvm::StringRef, llvm::StringRef> ThinLTOObjectSuffixReplace;
+  std::pair<llvm::StringRef, llvm::StringRef> ThinLTOPrefixReplace;
   std::string Rpath;
   std::vector<VersionDefinition> VersionDefinitions;
-  std::vector<llvm::StringRef> Argv;
   std::vector<llvm::StringRef> AuxiliaryList;
   std::vector<llvm::StringRef> FilterList;
   std::vector<llvm::StringRef> SearchPaths;
@@ -103,34 +116,41 @@ struct Configuration {
   std::vector<SymbolVersion> VersionScriptGlobals;
   std::vector<SymbolVersion> VersionScriptLocals;
   std::vector<uint8_t> BuildIdVector;
+  llvm::MapVector<std::pair<const InputSectionBase *, const InputSectionBase *>,
+                  uint64_t>
+      CallGraphProfile;
   bool AllowMultipleDefinition;
-  bool AndroidPackDynRelocs = false;
+  bool AndroidPackDynRelocs;
   bool ARMHasBlx = false;
   bool ARMHasMovtMovw = false;
   bool ARMJ1J2BranchEncoding = false;
   bool AsNeeded = false;
   bool Bsymbolic;
   bool BsymbolicFunctions;
+  bool CheckSections;
   bool CompressDebugSections;
+  bool Cref;
   bool DefineCommon;
   bool Demangle = true;
   bool DisableVerify;
   bool EhFrameHdr;
   bool EmitRelocs;
   bool EnableNewDtags;
+  bool ExecuteOnly;
   bool ExportDynamic;
   bool FixCortexA53Errata843419;
   bool GcSections;
   bool GdbIndex;
   bool GnuHash = false;
+  bool GnuUnique;
   bool HasDynamicList = false;
   bool HasDynSymTab;
-  bool ICF;
-  bool ICFData;
+  bool IgnoreDataAddressEquality;
+  bool IgnoreFunctionAddressEquality;
+  bool LTODebugPassManager;
+  bool LTONewPassManager;
   bool MergeArmExidx;
   bool MipsN32Abi = false;
-  bool NoGnuUnique;
-  bool NoUndefinedVersion;
   bool NoinhibitExec;
   bool Nostdlib;
   bool OFormatBinary;
@@ -138,7 +158,9 @@ struct Configuration {
   bool OptRemarksWithHotness;
   bool Pie;
   bool PrintGcSections;
+  bool PrintIcfSections;
   bool Relocatable;
+  bool RelrPackDynRelocs;
   bool SaveTemps;
   bool SingleRoRx;
   bool Shared;
@@ -146,12 +168,21 @@ struct Configuration {
   bool SysvHash = false;
   bool Target1Rel;
   bool Trace;
-  bool Verbose;
+  bool ThinLTOEmitImportsFiles;
+  bool ThinLTOIndexOnly;
+  bool UndefinedVersion;
+  bool UseAndroidRelrTags = false;
+  bool WarnBackrefs;
   bool WarnCommon;
   bool WarnMissingEntry;
+  bool WarnSymbolOrdering;
+  bool WriteAddends;
   bool ZCombreloc;
+  bool ZCopyreloc;
   bool ZExecstack;
-  bool ZNocopyreloc;
+  bool ZHazardplt;
+  bool ZInitfirst;
+  bool ZKeepTextSectionPrefix;
   bool ZNodelete;
   bool ZNodlopen;
   bool ZNow;
@@ -160,20 +191,22 @@ struct Configuration {
   bool ZRodynamic;
   bool ZText;
   bool ZRetpolineplt;
-  bool ExitEarly;
   bool ZWxneeded;
   DiscardPolicy Discard;
+  ICFLevel ICF;
   OrphanHandlingPolicy OrphanHandling;
   SortSectionPolicy SortSection;
   StripPolicy Strip;
   UnresolvedPolicy UnresolvedSymbols;
   Target2Policy Target2;
+  ARMVFPArgKind ARMVFPArgs = ARMVFPArgKind::Default;
   BuildIdKind BuildId = BuildIdKind::None;
   ELFKind EKind = ELFNoneKind;
   uint16_t DefaultSymbolVersion = llvm::ELF::VER_NDX_GLOBAL;
   uint16_t EMachine = llvm::ELF::EM_NONE;
   llvm::Optional<uint64_t> ImageBase;
   uint64_t MaxPageSize;
+  uint64_t MipsGotSize;
   uint64_t ZStackSize;
   unsigned LTOPartitions;
   unsigned LTOO;
@@ -239,6 +272,12 @@ struct Configuration {
 // The only instance of Configuration struct.
 extern Configuration *Config;
 
+static inline void errorOrWarn(const Twine &Msg) {
+  if (!Config->NoinhibitExec)
+    error(Msg);
+  else
+    warn(Msg);
+}
 } // namespace elf
 } // namespace lld
 

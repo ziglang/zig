@@ -1,5 +1,5 @@
-# Having an R_MIPS_64 relocation in eh_frame would previously crash LLD
 # REQUIRES: mips
+# Having an R_MIPS_64 relocation in eh_frame would previously crash LLD
 # RUN: llvm-mc -filetype=obj -triple=mips64-unknown-freebsd %s -o %t.o
 # RUN: llvm-readobj -r %t.o | FileCheck %s -check-prefix OBJ
 # RUN: ld.lld --eh-frame-hdr -shared -z notext -o %t.so %t.o
@@ -20,8 +20,8 @@
 # OBJ-NEXT:  }
 
 # PIC-RELOCS: Relocations [
-# PIC-RELOCS-NEXT:  Section (7) .rela.dyn {
-# PIC-RELOCS-NEXT:    {{0x.+}} R_MIPS_REL32/R_MIPS_64/R_MIPS_NONE - 0x10000
+# PIC-RELOCS-NEXT:  Section (7) .rel.dyn {
+# PIC-RELOCS-NEXT:    {{0x.+}} R_MIPS_REL32/R_MIPS_64/R_MIPS_NONE - 0x0
 # PIC-RELOCS-NEXT:  }
 # PIC-RELOCS-NEXT:]
 

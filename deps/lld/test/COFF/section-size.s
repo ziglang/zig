@@ -7,7 +7,7 @@
 # Run: lld-link -entry:main %tmain.obj %t3.obj -out:%t.exe
 
 # RUN: not lld-link -entry:main %tmain.obj %t1.obj %t2.obj -out:%t.exe 2>&1 | FileCheck %s
-# CHECK: error: section larger than 4 GiB: .bss
+# CHECK: error: section larger than 4 GiB: .data
 
 .globl main
 main:

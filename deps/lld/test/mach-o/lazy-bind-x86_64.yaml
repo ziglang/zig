@@ -1,6 +1,6 @@
 # REQUIRES: x86
 
-# RUN: lld -flavor darwin -arch x86_64 -macosx_version_min 10.8 %s \
+# RUN: ld64.lld -arch x86_64 -macosx_version_min 10.8 %s \
 # RUN: %p/Inputs/lazy-bind-x86_64.yaml  %p/Inputs/lazy-bind-x86_64-2.yaml \
 # RUN: %p/Inputs/lazy-bind-x86_64-3.yaml -o %t  \
 # RUN:   %p/Inputs/x86_64/libSystem.yaml

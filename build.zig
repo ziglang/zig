@@ -16,11 +16,12 @@ pub fn build(b: *Builder) !void {
     var docgen_exe = b.addExecutable("docgen", "doc/docgen.zig");
 
     const rel_zig_exe = try os.path.relative(b.allocator, b.build_root, b.zig_exe);
+    const langref_out_path = os.path.join(b.allocator, b.cache_root, "langref.html") catch unreachable;
     var docgen_cmd = b.addCommand(null, b.env_map, [][]const u8{
         docgen_exe.getOutputPath(),
         rel_zig_exe,
-        "doc/langref.html.in",
-        os.path.join(b.allocator, b.cache_root, "langref.html") catch unreachable,
+        "doc" ++ os.path.sep_str ++ "langref.html.in",
+        langref_out_path,
     });
     docgen_cmd.step.dependOn(&docgen_exe.step);
 
@@ -45,6 +46,7 @@ pub fn build(b: *Builder) !void {
         .c_header_files = nextValue(&index, build_info),
         .dia_guids_lib = nextValue(&index, build_info),
         .llvm = undefined,
+        .no_rosegment = b.option(bool, "no-rosegment", "Workaround to enable valgrind builds") orelse false,
     };
     ctx.llvm = try findLLVM(b, ctx.llvm_config_exe);
 
@@ -59,6 +61,10 @@ pub fn build(b: *Builder) !void {
 
     b.default_step.dependOn(&exe.step);
 
+    const skip_release = b.option(bool, "skip-release", "Main test suite skips release builds") orelse false;
+    const skip_release_small = b.option(bool, "skip-release-small", "Main test suite skips release-small builds") orelse skip_release;
+    const skip_release_fast = b.option(bool, "skip-release-fast", "Main test suite skips release-fast builds") orelse skip_release;
+    const skip_release_safe = b.option(bool, "skip-release-safe", "Main test suite skips release-safe builds") orelse skip_release;
     const skip_self_hosted = b.option(bool, "skip-self-hosted", "Main test suite skips building self hosted compiler") orelse false;
     if (!skip_self_hosted) {
         test_step.dependOn(&exe.step);
@@ -71,27 +77,48 @@ pub fn build(b: *Builder) !void {
     installCHeaders(b, ctx.c_header_files);
 
     const test_filter = b.option([]const u8, "test-filter", "Skip tests that do not match filter");
-    const with_lldb = b.option(bool, "with-lldb", "Run tests in LLDB to get a backtrace if one fails") orelse false;
 
     const test_stage2_step = b.step("test-stage2", "Run the stage2 compiler tests");
     test_stage2_step.dependOn(&test_stage2.step);
-    test_step.dependOn(test_stage2_step);
 
-    test_step.dependOn(docs_step);
+    // TODO see https://github.com/ziglang/zig/issues/1364
+    if (false) {
+        test_step.dependOn(test_stage2_step);
+    }
 
-    test_step.dependOn(tests.addPkgTests(b, test_filter, "test/behavior.zig", "behavior", "Run the behavior tests", with_lldb));
+    var chosen_modes: [4]builtin.Mode = undefined;
+    var chosen_mode_index: usize = 0;
+    chosen_modes[chosen_mode_index] = builtin.Mode.Debug;
+    chosen_mode_index += 1;
+    if (!skip_release_safe) {
+        chosen_modes[chosen_mode_index] = builtin.Mode.ReleaseSafe;
+        chosen_mode_index += 1;
+    }
+    if (!skip_release_fast) {
+        chosen_modes[chosen_mode_index] = builtin.Mode.ReleaseFast;
+        chosen_mode_index += 1;
+    }
+    if (!skip_release_small) {
+        chosen_modes[chosen_mode_index] = builtin.Mode.ReleaseSmall;
+        chosen_mode_index += 1;
+    }
+    const modes = chosen_modes[0..chosen_mode_index];
 
-    test_step.dependOn(tests.addPkgTests(b, test_filter, "std/index.zig", "std", "Run the standard library tests", with_lldb));
+    test_step.dependOn(tests.addPkgTests(b, test_filter, "test/behavior.zig", "behavior", "Run the behavior tests", modes));
 
-    test_step.dependOn(tests.addPkgTests(b, test_filter, "std/special/compiler_rt/index.zig", "compiler-rt", "Run the compiler_rt tests", with_lldb));
+    test_step.dependOn(tests.addPkgTests(b, test_filter, "std/index.zig", "std", "Run the standard library tests", modes));
 
-    test_step.dependOn(tests.addCompareOutputTests(b, test_filter));
-    test_step.dependOn(tests.addBuildExampleTests(b, test_filter));
-    test_step.dependOn(tests.addCompileErrorTests(b, test_filter));
-    test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter));
-    test_step.dependOn(tests.addRuntimeSafetyTests(b, test_filter));
+    test_step.dependOn(tests.addPkgTests(b, test_filter, "std/special/compiler_rt/index.zig", "compiler-rt", "Run the compiler_rt tests", modes));
+
+    test_step.dependOn(tests.addCompareOutputTests(b, test_filter, modes));
+    test_step.dependOn(tests.addBuildExampleTests(b, test_filter, modes));
+    test_step.dependOn(tests.addCliTests(b, test_filter, modes));
+    test_step.dependOn(tests.addCompileErrorTests(b, test_filter, modes));
+    test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter, modes));
+    test_step.dependOn(tests.addRuntimeSafetyTests(b, test_filter, modes));
     test_step.dependOn(tests.addTranslateCTests(b, test_filter));
     test_step.dependOn(tests.addGenHTests(b, test_filter));
+    test_step.dependOn(docs_step);
 }
 
 fn dependOnLib(lib_exe_obj: var, dep: *const LibraryDep) void {
@@ -221,6 +248,8 @@ fn configureStage2(b: *Builder, exe: var, ctx: Context) !void {
     // TODO turn this into -Dextra-lib-path=/lib option
     exe.addLibPath("/lib");
 
+    exe.setNoRoSegment(ctx.no_rosegment);
+
     exe.addIncludeDir("src");
     exe.addIncludeDir(ctx.cmake_binary_dir);
     addCppLib(b, exe, ctx.cmake_binary_dir, "zig_cpp");
@@ -279,4 +308,5 @@ const Context = struct {
     c_header_files: []const u8,
     dia_guids_lib: []const u8,
     llvm: LibraryDep,
+    no_rosegment: bool,
 };

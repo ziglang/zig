@@ -62,7 +62,7 @@
 #include "cuda.h"
 #if !defined(CUDA_VERSION)
 #error "cuda.h did not define CUDA_VERSION"
-#elif CUDA_VERSION < 7000 || CUDA_VERSION > 9000
+#elif CUDA_VERSION < 7000 || CUDA_VERSION > 9020
 #error "Unsupported CUDA version!"
 #endif
 
@@ -84,6 +84,9 @@
 #define __DEVICE_FUNCTIONS_H__
 #define __MATH_FUNCTIONS_H__
 #define __COMMON_FUNCTIONS_H__
+// device_functions_decls is replaced by __clang_cuda_device_functions.h
+// included below.
+#define __DEVICE_FUNCTIONS_DECLS_H__
 
 #undef __CUDACC__
 #if CUDA_VERSION < 9000
@@ -97,11 +100,17 @@
 #include "host_config.h"
 #include "host_defines.h"
 
+// Temporarily replace "nv_weak" with weak, so __attribute__((nv_weak)) in
+// cuda_device_runtime_api.h ends up being __attribute__((weak)) which is the
+// functional equivalent of what we need.
+#pragma push_macro("nv_weak")
+#define nv_weak weak
 #undef __CUDABE__
 #undef __CUDA_LIBDEVICE__
 #define __CUDACC__
 #include "cuda_runtime.h"
 
+#pragma pop_macro("nv_weak")
 #undef __CUDACC__
 #define __CUDABE__
 
@@ -137,20 +146,22 @@ inline __host__ double __signbitd(double x) {
 }
 #endif
 
-// We need decls for functions in CUDA's libdevice with __device__
-// attribute only. Alas they come either as __host__ __device__ or
-// with no attributes at all. To work around that, define __CUDA_RTC__
-// which produces HD variant and undef __host__ which gives us desided
-// decls with __device__ attribute.
-#pragma push_macro("__host__")
-#define __host__
-#define __CUDACC_RTC__
-#include "device_functions_decls.h"
-#undef __CUDACC_RTC__
+// CUDA 9.1 no longer provides declarations for libdevice functions, so we need
+// to provide our own.
+#include <__clang_cuda_libdevice_declares.h>
 
-// Temporarily poison __host__ macro to ensure it's not used by any of
-// the headers we're about to include.
-#define __host__ UNEXPECTED_HOST_ATTRIBUTE
+// Wrappers for many device-side standard library functions became compiler
+// builtins in CUDA-9 and have been removed from the CUDA headers. Clang now
+// provides its own implementation of the wrappers.
+#if CUDA_VERSION >= 9000
+#include <__clang_cuda_device_functions.h>
+#endif
+
+// __THROW is redefined to be empty by device_functions_decls.h in CUDA. Clang's
+// counterpart does not do it, so we need to make it empty here to keep
+// following CUDA includes happy.
+#undef __THROW
+#define __THROW
 
 // CUDA 8.0.41 relies on __USE_FAST_MATH__ and __CUDA_PREC_DIV's values.
 // Previous versions used to check whether they are defined or not.
@@ -167,24 +178,20 @@ inline __host__ double __signbitd(double x) {
 #endif
 #endif
 
+// Temporarily poison __host__ macro to ensure it's not used by any of
+// the headers we're about to include.
+#pragma push_macro("__host__")
+#define __host__ UNEXPECTED_HOST_ATTRIBUTE
+
 // device_functions.hpp and math_functions*.hpp use 'static
 // __forceinline__' (with no __device__) for definitions of device
 // functions. Temporarily redefine __forceinline__ to include
 // __device__.
 #pragma push_macro("__forceinline__")
 #define __forceinline__ __device__ __inline__ __attribute__((always_inline))
-
-#pragma push_macro("__float2half_rn")
-#if CUDA_VERSION >= 9000
-// CUDA-9 has conflicting prototypes for __float2half_rn(float f) in
-// cuda_fp16.h[pp] and device_functions.hpp. We need to get the one in
-// device_functions.hpp out of the way.
-#define __float2half_rn  __float2half_rn_disabled
-#endif
-
+#if CUDA_VERSION < 9000
 #include "device_functions.hpp"
-#pragma pop_macro("__float2half_rn")
-
+#endif
 
 // math_function.hpp uses the __USE_FAST_MATH__ macro to determine whether we
 // get the slow-but-accurate or fast-but-inaccurate versions of functions like
@@ -196,17 +203,32 @@ inline __host__ double __signbitd(double x) {
 #if defined(__CLANG_CUDA_APPROX_TRANSCENDENTALS__)
 #define __USE_FAST_MATH__ 1
 #endif
+
+#if CUDA_VERSION >= 9000
+// CUDA-9.2 needs host-side memcpy for some host functions in
+// device_functions.hpp
+#if CUDA_VERSION >= 9020
+#include <string.h>
+#endif
+#include "crt/math_functions.hpp"
+#else
 #include "math_functions.hpp"
+#endif
+
 #pragma pop_macro("__USE_FAST_MATH__")
 
+#if CUDA_VERSION < 9000
 #include "math_functions_dbl_ptx3.hpp"
+#endif
 #pragma pop_macro("__forceinline__")
 
 // Pull in host-only functions that are only available when neither
 // __CUDACC__ nor __CUDABE__ are defined.
 #undef __MATH_FUNCTIONS_HPP__
 #undef __CUDABE__
+#if CUDA_VERSION < 9000
 #include "math_functions.hpp"
+#endif
 // Alas, additional overloads for these functions are hard to get to.
 // Considering that we only need these overloads for a few functions,
 // we can provide them here.
@@ -222,22 +244,36 @@ static inline float normcdfinv(float __a) { return normcdfinvf(__a); }
 static inline float normcdf(float __a) { return normcdff(__a); }
 static inline float erfcx(float __a) { return erfcxf(__a); }
 
+#if CUDA_VERSION < 9000
 // For some reason single-argument variant is not always declared by
 // CUDA headers. Alas, device_functions.hpp included below needs it.
 static inline __device__ void __brkpt(int __c) { __brkpt(); }
+#endif
 
 // Now include *.hpp with definitions of various GPU functions.  Alas,
 // a lot of thins get declared/defined with __host__ attribute which
 // we don't want and we have to define it out. We also have to include
 // {device,math}_functions.hpp again in order to extract the other
 // branch of #if/else inside.
-
 #define __host__
 #undef __CUDABE__
 #define __CUDACC__
+#if CUDA_VERSION >= 9000
+// Some atomic functions became compiler builtins in CUDA-9 , so we need their
+// declarations.
+#include "device_atomic_functions.h"
+#endif
 #undef __DEVICE_FUNCTIONS_HPP__
 #include "device_atomic_functions.hpp"
+#if CUDA_VERSION >= 9000
+#include "crt/device_functions.hpp"
+#include "crt/device_double_functions.hpp"
+#else
 #include "device_functions.hpp"
+#define __CUDABE__
+#include "device_double_functions.h"
+#undef __CUDABE__
+#endif
 #include "sm_20_atomic_functions.hpp"
 #include "sm_20_intrinsics.hpp"
 #include "sm_32_atomic_functions.hpp"
@@ -251,8 +287,11 @@ static inline __device__ void __brkpt(int __c) { __brkpt(); }
 // reason about our code.
 
 #if CUDA_VERSION >= 8000
+#pragma push_macro("__CUDA_ARCH__")
+#undef __CUDA_ARCH__
 #include "sm_60_atomic_functions.hpp"
 #include "sm_61_intrinsics.hpp"
+#pragma pop_macro("__CUDA_ARCH__")
 #endif
 
 #undef __MATH_FUNCTIONS_HPP__
@@ -279,7 +318,11 @@ static inline __device__ void __brkpt(int __c) { __brkpt(); }
 #endif
 #endif
 
+#if CUDA_VERSION >= 9000
+#include "crt/math_functions.hpp"
+#else
 #include "math_functions.hpp"
+#endif
 #pragma pop_macro("_GLIBCXX_MATH_H")
 #pragma pop_macro("_LIBCPP_VERSION")
 #pragma pop_macro("__GNUC__")

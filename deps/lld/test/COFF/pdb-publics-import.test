@@ -6,7 +6,8 @@ RUN: yaml2obj < %p/Inputs/export.yaml > %t1.obj
 RUN: lld-link /out:%t1.dll /dll %t1.obj /implib:%t1.lib \
 RUN:   /export:exportfn1 /export:exportfn2
 RUN: yaml2obj < %p/Inputs/import.yaml > %t2.obj
-RUN: lld-link /out:%t2.exe /pdb:%t2.pdb /debug /entry:main %t2.obj %t1.lib
+RUN: lld-link /out:%t2.exe /pdb:%t2.pdb /pdbaltpath:test.pdb \
+RUN:   /debug /entry:main %t2.obj %t1.lib
 RUN: llvm-pdbutil dump %t2.pdb -publics -section-contribs | FileCheck %s
 
 CHECK:                             Public Symbols
@@ -19,9 +20,9 @@ CHECK-NEXT:            flags = function, addr = 0001:0016
 CHECK-NEXT:       88 | S_PUB32 [size = 24] `exportfn2`
 CHECK-NEXT:            flags = function, addr = 0001:0032
 CHECK-NEXT:       32 | S_PUB32 [size = 32] `__imp_exportfn2`
-CHECK-NEXT:            flags = none, addr = 0003:0072
+CHECK-NEXT:            flags = none, addr = 0002:0136
 CHECK-NEXT:        0 | S_PUB32 [size = 32] `__imp_exportfn1`
-CHECK-NEXT:            flags = none, addr = 0003:0064
+CHECK-NEXT:            flags = none, addr = 0002:0128
 
 CHECK:                         Section Contributions
 CHECK-NEXT: ============================================================
@@ -38,5 +39,5 @@ CHECK-NEXT:                 IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE | IMAGE_S
     .rdata debug directory data chunks
 CHECK-NEXT:   SC[.rdata]  | mod = 1, 0002:0000, size = 28, data crc = 0, reloc crc = 0
 CHECK-NEXT:                 IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ
-CHECK-NEXT:   SC[.rdata]  | mod = 1, 0002:0028, size = {{.*}}, data crc = 0, reloc crc = 0
+CHECK-NEXT:   SC[.rdata]  | mod = 1, 0002:0028, size = 33, data crc = 0, reloc crc = 0
 CHECK-NEXT:                 IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ

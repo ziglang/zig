@@ -1,3 +1,5 @@
+target triple = "wasm32-unknown-unknown"
+
 ; Wasm module generated from the following C code:
 ;   void puts(const char*);
 ;   void hello() { puts("hello\n"); }

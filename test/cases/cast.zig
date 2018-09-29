@@ -64,7 +64,7 @@ test "implicitly cast a container to a const pointer of it" {
 
 fn Struct(comptime T: type) type {
     return struct {
-        const Self = this;
+        const Self = @This();
         x: T,
 
         fn pointer(self: *const Self) Self {
@@ -106,7 +106,7 @@ const Enum = enum {
 
 test "implicitly cast indirect pointer to maybe-indirect pointer" {
     const S = struct {
-        const Self = this;
+        const Self = @This();
         x: u8,
         fn constConst(p: *const *const Self) u8 {
             return p.*.x;
@@ -356,6 +356,7 @@ fn testFloatToInts() void {
     expectFloatToInt(f32, 255.1, u8, 255);
     expectFloatToInt(f32, 127.2, i8, 127);
     expectFloatToInt(f32, -128.2, i8, -128);
+    expectFloatToInt(comptime_int, 1234, i16, 1234);
 }
 
 fn expectFloatToInt(comptime F: type, f: F, comptime I: type, i: I) void {
@@ -399,7 +400,7 @@ test "single-item pointer of array to slice and to unknown length pointer" {
 }
 
 fn testCastPtrOfArrayToSliceAndPtr() void {
-    var array = "ao" ++ "eu"; // TODO https://github.com/ziglang/zig/issues/1076
+    var array = "aoeu";
     const x: [*]u8 = &array;
     x[0] += 1;
     assert(mem.eql(u8, array[0..], "boeu"));
@@ -467,4 +468,82 @@ test "@intCast i32 to u7" {
     var y: i32 = 120;
     var z = x >> @intCast(u7, y);
     assert(z == 0xff);
+}
+
+test "implicit cast undefined to optional" {
+    assert(MakeType(void).getNull() == null);
+    assert(MakeType(void).getNonNull() != null);
+}
+
+fn MakeType(comptime T: type) type {
+    return struct {
+        fn getNull() ?T {
+            return null;
+        }
+
+        fn getNonNull() ?T {
+            return T(undefined);
+        }
+    };
+}
+
+test "implicit cast from *[N]T to ?[*]T" {
+    var x: ?[*]u16 = null;
+    var y: [4]u16 = [4]u16{ 0, 1, 2, 3 };
+
+    x = &y;
+    assert(std.mem.eql(u16, x.?[0..4], y[0..4]));
+    x.?[0] = 8;
+    y[3] = 6;
+    assert(std.mem.eql(u16, x.?[0..4], y[0..4]));
+}
+
+test "implicit cast from *T to ?*c_void" {
+    var a: u8 = 1;
+    incrementVoidPtrValue(&a);
+    std.debug.assert(a == 2);
+}
+
+fn incrementVoidPtrValue(value: ?*c_void) void {
+    @ptrCast(*u8, value.?).* += 1;
+}
+
+test "implicit cast from [*]T to ?*c_void" {
+    var a = []u8{ 3, 2, 1 };
+    incrementVoidPtrArray(a[0..].ptr, 3);
+    assert(std.mem.eql(u8, a, []u8{ 4, 3, 2 }));
+}
+
+fn incrementVoidPtrArray(array: ?*c_void, len: usize) void {
+    var n: usize = 0;
+    while (n < len) : (n += 1) {
+        @ptrCast([*]u8, array.?)[n] += 1;
+    }
+}
+
+test "*usize to *void" {
+    var i = usize(0);
+    var v = @ptrCast(*void, &i);
+    v.* = {};
+}
+
+test "compile time int to ptr of function" {
+    foobar(FUNCTION_CONSTANT);
+}
+
+pub const FUNCTION_CONSTANT = @intToPtr(PFN_void, @maxValue(usize));
+pub const PFN_void = extern fn (*c_void) void;
+
+fn foobar(func: PFN_void) void {
+    std.debug.assert(@ptrToInt(func) == @maxValue(usize));
+}
+
+test "implicit ptr to *c_void" {
+    var a: u32 = 1;
+    var ptr: *c_void = &a;
+    var b: *u32 = @ptrCast(*u32, ptr);
+    assert(b.* == 1);
+    var ptr2: ?*c_void = &a;
+    var c: *u32 = @ptrCast(*u32, ptr2.?);
+    assert(c.* == 1);
 }

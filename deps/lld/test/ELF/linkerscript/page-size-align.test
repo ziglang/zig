@@ -1,0 +1,21 @@
+# REQUIRES: x86
+# RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux /dev/null -o %t.o
+# RUN: ld.lld -T %s -z max-page-size=0x4000 %t.o -o %t.so -shared
+# RUN: llvm-readobj -s %t.so | FileCheck %s
+
+SECTIONS {
+  . = SIZEOF_HEADERS;
+  .text : { *(.text) }
+  . = ALIGN(CONSTANT(MAXPAGESIZE));
+  . = . + 0x3000;
+  .dynamic : { *(.dynamic) }
+}
+
+# CHECK:      Name: .dynamic
+# CHECK-NEXT: Type: SHT_DYNAMIC
+# CHECK-NEXT: Flags [
+# CHECK-NEXT:   SHF_ALLOC
+# CHECK-NEXT:   SHF_WRITE
+# CHECK-NEXT: ]
+# CHECK-NEXT: Address: 0x7000
+# CHECK-NEXT: Offset: 0x3000

@@ -1,6 +1,6 @@
 ; REQUIRES: x86
 ; RUN: llvm-as %s -o %t1.o
-; RUN: ld.lld -m elf_x86_64 %t1.o -o %t -shared -save-temps
+; RUN: ld.lld %t1.o -o %t -shared -save-temps
 ; RUN: llvm-dis < %t.0.2.internalize.bc | FileCheck %s
 ; RUN: llvm-readobj -t %t | FileCheck %s --check-prefix=SHARED
 

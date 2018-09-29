@@ -1,3 +1,4 @@
+; REQUIRES: x86
 ; RUN: llvm-as -o %t.obj %s
 ; RUN: llvm-mc -triple=x86_64-pc-windows-msvc -filetype=obj -o %T/lto-chkstk-foo.obj %S/Inputs/lto-chkstk-foo.s
 ; RUN: llvm-mc -triple=x86_64-pc-windows-msvc -filetype=obj -o %T/lto-chkstk-chkstk.obj %S/Inputs/lto-chkstk-chkstk.s

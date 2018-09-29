@@ -1,5 +1,8 @@
+const macho = @import("../macho.zig");
+
 extern "c" fn __error() *c_int;
 pub extern "c" fn _NSGetExecutablePath(buf: [*]u8, bufsize: *u32) c_int;
+pub extern "c" fn _dyld_get_image_header(image_index: u32) ?*mach_header;
 
 pub extern "c" fn __getdirentries64(fd: c_int, buf_ptr: [*]u8, buf_len: usize, basep: *i64) usize;
 
@@ -30,9 +33,44 @@ pub extern "c" fn sysctl(name: [*]c_int, namelen: c_uint, oldp: ?*c_void, oldlen
 pub extern "c" fn sysctlbyname(name: [*]const u8, oldp: ?*c_void, oldlenp: ?*usize, newp: ?*c_void, newlen: usize) c_int;
 pub extern "c" fn sysctlnametomib(name: [*]const u8, mibp: ?*c_int, sizep: ?*usize) c_int;
 
-pub use @import("../os/darwin_errno.zig");
+pub extern "c" fn bind(socket: c_int, address: ?*const sockaddr, address_len: socklen_t) c_int;
+pub extern "c" fn socket(domain: c_int, type: c_int, protocol: c_int) c_int;
+
+/// The value of the link editor defined symbol _MH_EXECUTE_SYM is the address
+/// of the mach header in a Mach-O executable file type.  It does not appear in
+/// any file type other than a MH_EXECUTE file type.  The type of the symbol is
+/// absolute as the header is not part of any section.
+pub extern "c" var _mh_execute_header: if (@sizeOf(usize) == 8) mach_header_64 else mach_header;
+
+pub const mach_header_64 = macho.mach_header_64;
+pub const mach_header = macho.mach_header;
+
+pub use @import("../os/darwin/errno.zig");
 
 pub const _errno = __error;
+
+pub const in_port_t = u16;
+pub const sa_family_t = u8;
+pub const socklen_t = u32;
+pub const sockaddr = extern union {
+    in: sockaddr_in,
+    in6: sockaddr_in6,
+};
+pub const sockaddr_in = extern struct {
+    len: u8,
+    family: sa_family_t,
+    port: in_port_t,
+    addr: u32,
+    zero: [8]u8,
+};
+pub const sockaddr_in6 = extern struct {
+    len: u8,
+    family: sa_family_t,
+    port: in_port_t,
+    flowinfo: u32,
+    addr: [16]u8,
+    scope_id: u32,
+};
 
 pub const timeval = extern struct {
     tv_sec: isize,
@@ -44,7 +82,7 @@ pub const timezone = extern struct {
     tz_dsttime: i32,
 };
 
-pub const mach_timebase_info_data = struct {
+pub const mach_timebase_info_data = extern struct {
     numer: u32,
     denom: u32,
 };
@@ -98,14 +136,6 @@ pub const dirent = extern struct {
     d_name: u8, // field address is address of first byte of name
 };
 
-pub const sockaddr = extern struct {
-    sa_len: u8,
-    sa_family: sa_family_t,
-    sa_data: [14]u8,
-};
-
-pub const sa_family_t = u8;
-
 pub const pthread_attr_t = extern struct {
     __sig: c_long,
     __opaque: [56]u8,
@@ -128,12 +158,12 @@ const std = @import("../index.zig");
 const assert = std.debug.assert;
 
 comptime {
-    assert(@offsetOf(Kevent, "ident") == 0);
-    assert(@offsetOf(Kevent, "filter") == 8);
-    assert(@offsetOf(Kevent, "flags") == 10);
-    assert(@offsetOf(Kevent, "fflags") == 12);
-    assert(@offsetOf(Kevent, "data") == 16);
-    assert(@offsetOf(Kevent, "udata") == 24);
+    assert(@byteOffsetOf(Kevent, "ident") == 0);
+    assert(@byteOffsetOf(Kevent, "filter") == 8);
+    assert(@byteOffsetOf(Kevent, "flags") == 10);
+    assert(@byteOffsetOf(Kevent, "fflags") == 12);
+    assert(@byteOffsetOf(Kevent, "data") == 16);
+    assert(@byteOffsetOf(Kevent, "udata") == 24);
 }
 
 pub const kevent64_s = extern struct {
@@ -150,11 +180,11 @@ pub const kevent64_s = extern struct {
 // to make sure the struct is laid out the same. These values were
 // produced from C code using the offsetof macro.
 comptime {
-    assert(@offsetOf(kevent64_s, "ident") == 0);
-    assert(@offsetOf(kevent64_s, "filter") == 8);
-    assert(@offsetOf(kevent64_s, "flags") == 10);
-    assert(@offsetOf(kevent64_s, "fflags") == 12);
-    assert(@offsetOf(kevent64_s, "data") == 16);
-    assert(@offsetOf(kevent64_s, "udata") == 24);
-    assert(@offsetOf(kevent64_s, "ext") == 32);
+    assert(@byteOffsetOf(kevent64_s, "ident") == 0);
+    assert(@byteOffsetOf(kevent64_s, "filter") == 8);
+    assert(@byteOffsetOf(kevent64_s, "flags") == 10);
+    assert(@byteOffsetOf(kevent64_s, "fflags") == 12);
+    assert(@byteOffsetOf(kevent64_s, "data") == 16);
+    assert(@byteOffsetOf(kevent64_s, "udata") == 24);
+    assert(@byteOffsetOf(kevent64_s, "ext") == 32);
 }

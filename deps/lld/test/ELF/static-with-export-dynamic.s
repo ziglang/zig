@@ -1,7 +1,7 @@
+// REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=i686-unknown-cloudabi %s -o %t.o
 // RUN: ld.lld --export-dynamic %t.o -o %t
 // RUN: llvm-readobj -dyn-symbols %t | FileCheck %s
-// REQUIRES: x86
 
 // Ensure that a dynamic symbol table is present when --export-dynamic
 // is passed in, even when creating statically linked executables.

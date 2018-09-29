@@ -32,6 +32,12 @@ pub const Tree = struct {
         return self.source[token.start..token.end];
     }
 
+    pub fn getNodeSource(self: *const Tree, node: *const Node) []const u8 {
+        const first_token = self.tokens.at(node.firstToken());
+        const last_token = self.tokens.at(node.lastToken());
+        return self.source[first_token.start..last_token.end];
+    }
+
     pub const Location = struct {
         line: usize,
         column: usize,
@@ -205,7 +211,7 @@ pub const Error = union(enum) {
 
     pub const ExpectedToken = struct {
         token: TokenIndex,
-        expected_id: @TagType(Token.Id),
+        expected_id: Token.Id,
 
         pub fn render(self: *const ExpectedToken, tokens: *Tree.TokenList, stream: var) !void {
             const token_name = @tagName(tokens.at(self.token).id);
@@ -215,7 +221,7 @@ pub const Error = union(enum) {
 
     pub const ExpectedCommaOrEnd = struct {
         token: TokenIndex,
-        end_id: @TagType(Token.Id),
+        end_id: Token.Id,
 
         pub fn render(self: *const ExpectedCommaOrEnd, tokens: *Tree.TokenList, stream: var) !void {
             const token_name = @tagName(tokens.at(self.token).id);
@@ -225,7 +231,7 @@ pub const Error = union(enum) {
 
     fn SingleTokenError(comptime msg: []const u8) type {
         return struct {
-            const ThisError = this;
+            const ThisError = @This();
 
             token: TokenIndex,
 
@@ -238,7 +244,7 @@ pub const Error = union(enum) {
 
     fn SimpleError(comptime msg: []const u8) type {
         return struct {
-            const ThisError = this;
+            const ThisError = @This();
 
             token: TokenIndex,
 
@@ -338,7 +344,7 @@ pub const Node = struct {
         unreachable;
     }
 
-    pub fn firstToken(base: *Node) TokenIndex {
+    pub fn firstToken(base: *const Node) TokenIndex {
         comptime var i = 0;
         inline while (i < @memberCount(Id)) : (i += 1) {
             if (base.id == @field(Id, @memberName(Id, i))) {
@@ -349,7 +355,7 @@ pub const Node = struct {
         unreachable;
     }
 
-    pub fn lastToken(base: *Node) TokenIndex {
+    pub fn lastToken(base: *const Node) TokenIndex {
         comptime var i = 0;
         inline while (i < @memberCount(Id)) : (i += 1) {
             if (base.id == @field(Id, @memberName(Id, i))) {
@@ -463,6 +469,7 @@ pub const Node = struct {
         doc_comments: ?*DocComment,
         decls: DeclList,
         eof_token: TokenIndex,
+        shebang: ?TokenIndex,
 
         pub const DeclList = SegmentedList(*Node, 4);
 
@@ -473,11 +480,12 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *Root) TokenIndex {
+        pub fn firstToken(self: *const Root) TokenIndex {
+            if (self.shebang) |shebang| return shebang;
             return if (self.decls.len == 0) self.eof_token else (self.decls.at(0).*).firstToken();
         }
 
-        pub fn lastToken(self: *Root) TokenIndex {
+        pub fn lastToken(self: *const Root) TokenIndex {
             return if (self.decls.len == 0) self.eof_token else (self.decls.at(self.decls.len - 1).*).lastToken();
         }
     };
@@ -518,7 +526,7 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *VarDecl) TokenIndex {
+        pub fn firstToken(self: *const VarDecl) TokenIndex {
             if (self.visib_token) |visib_token| return visib_token;
             if (self.comptime_token) |comptime_token| return comptime_token;
             if (self.extern_export_token) |extern_export_token| return extern_export_token;
@@ -526,7 +534,7 @@ pub const Node = struct {
             return self.mut_token;
         }
 
-        pub fn lastToken(self: *VarDecl) TokenIndex {
+        pub fn lastToken(self: *const VarDecl) TokenIndex {
             return self.semicolon_token;
         }
     };
@@ -548,12 +556,12 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *Use) TokenIndex {
+        pub fn firstToken(self: *const Use) TokenIndex {
             if (self.visib_token) |visib_token| return visib_token;
             return self.use_token;
         }
 
-        pub fn lastToken(self: *Use) TokenIndex {
+        pub fn lastToken(self: *const Use) TokenIndex {
             return self.semicolon_token;
         }
     };
@@ -575,11 +583,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *ErrorSetDecl) TokenIndex {
+        pub fn firstToken(self: *const ErrorSetDecl) TokenIndex {
             return self.error_token;
         }
 
-        pub fn lastToken(self: *ErrorSetDecl) TokenIndex {
+        pub fn lastToken(self: *const ErrorSetDecl) TokenIndex {
             return self.rbrace_token;
         }
     };
@@ -618,14 +626,14 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *ContainerDecl) TokenIndex {
+        pub fn firstToken(self: *const ContainerDecl) TokenIndex {
             if (self.layout_token) |layout_token| {
                 return layout_token;
             }
             return self.kind_token;
         }
 
-        pub fn lastToken(self: *ContainerDecl) TokenIndex {
+        pub fn lastToken(self: *const ContainerDecl) TokenIndex {
             return self.rbrace_token;
         }
     };
@@ -646,12 +654,12 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *StructField) TokenIndex {
+        pub fn firstToken(self: *const StructField) TokenIndex {
             if (self.visib_token) |visib_token| return visib_token;
             return self.name_token;
         }
 
-        pub fn lastToken(self: *StructField) TokenIndex {
+        pub fn lastToken(self: *const StructField) TokenIndex {
             return self.type_expr.lastToken();
         }
     };
@@ -679,11 +687,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *UnionTag) TokenIndex {
+        pub fn firstToken(self: *const UnionTag) TokenIndex {
             return self.name_token;
         }
 
-        pub fn lastToken(self: *UnionTag) TokenIndex {
+        pub fn lastToken(self: *const UnionTag) TokenIndex {
             if (self.value_expr) |value_expr| {
                 return value_expr.lastToken();
             }
@@ -712,11 +720,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *EnumTag) TokenIndex {
+        pub fn firstToken(self: *const EnumTag) TokenIndex {
             return self.name_token;
         }
 
-        pub fn lastToken(self: *EnumTag) TokenIndex {
+        pub fn lastToken(self: *const EnumTag) TokenIndex {
             if (self.value) |value| {
                 return value.lastToken();
             }
@@ -741,11 +749,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *ErrorTag) TokenIndex {
+        pub fn firstToken(self: *const ErrorTag) TokenIndex {
             return self.name_token;
         }
 
-        pub fn lastToken(self: *ErrorTag) TokenIndex {
+        pub fn lastToken(self: *const ErrorTag) TokenIndex {
             return self.name_token;
         }
     };
@@ -758,11 +766,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *Identifier) TokenIndex {
+        pub fn firstToken(self: *const Identifier) TokenIndex {
             return self.token;
         }
 
-        pub fn lastToken(self: *Identifier) TokenIndex {
+        pub fn lastToken(self: *const Identifier) TokenIndex {
             return self.token;
         }
     };
@@ -784,11 +792,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *AsyncAttribute) TokenIndex {
+        pub fn firstToken(self: *const AsyncAttribute) TokenIndex {
             return self.async_token;
         }
 
-        pub fn lastToken(self: *AsyncAttribute) TokenIndex {
+        pub fn lastToken(self: *const AsyncAttribute) TokenIndex {
             if (self.rangle_bracket) |rangle_bracket| {
                 return rangle_bracket;
             }
@@ -856,7 +864,7 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *FnProto) TokenIndex {
+        pub fn firstToken(self: *const FnProto) TokenIndex {
             if (self.visib_token) |visib_token| return visib_token;
             if (self.async_attr) |async_attr| return async_attr.firstToken();
             if (self.extern_export_inline_token) |extern_export_inline_token| return extern_export_inline_token;
@@ -865,7 +873,7 @@ pub const Node = struct {
             return self.fn_token;
         }
 
-        pub fn lastToken(self: *FnProto) TokenIndex {
+        pub fn lastToken(self: *const FnProto) TokenIndex {
             if (self.body_node) |body_node| return body_node.lastToken();
             switch (self.return_type) {
                 // TODO allow this and next prong to share bodies since the types are the same
@@ -896,11 +904,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *PromiseType) TokenIndex {
+        pub fn firstToken(self: *const PromiseType) TokenIndex {
             return self.promise_token;
         }
 
-        pub fn lastToken(self: *PromiseType) TokenIndex {
+        pub fn lastToken(self: *const PromiseType) TokenIndex {
             if (self.result) |result| return result.return_type.lastToken();
             return self.promise_token;
         }
@@ -923,14 +931,14 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *ParamDecl) TokenIndex {
+        pub fn firstToken(self: *const ParamDecl) TokenIndex {
             if (self.comptime_token) |comptime_token| return comptime_token;
             if (self.noalias_token) |noalias_token| return noalias_token;
             if (self.name_token) |name_token| return name_token;
             return self.type_node.firstToken();
         }
 
-        pub fn lastToken(self: *ParamDecl) TokenIndex {
+        pub fn lastToken(self: *const ParamDecl) TokenIndex {
             if (self.var_args_token) |var_args_token| return var_args_token;
             return self.type_node.lastToken();
         }
@@ -954,7 +962,7 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *Block) TokenIndex {
+        pub fn firstToken(self: *const Block) TokenIndex {
             if (self.label) |label| {
                 return label;
             }
@@ -962,7 +970,7 @@ pub const Node = struct {
             return self.lbrace;
         }
 
-        pub fn lastToken(self: *Block) TokenIndex {
+        pub fn lastToken(self: *const Block) TokenIndex {
             return self.rbrace;
         }
     };
@@ -970,13 +978,7 @@ pub const Node = struct {
     pub const Defer = struct {
         base: Node,
         defer_token: TokenIndex,
-        kind: Kind,
         expr: *Node,
-
-        const Kind = enum {
-            Error,
-            Unconditional,
-        };
 
         pub fn iterate(self: *Defer, index: usize) ?*Node {
             var i = index;
@@ -987,11 +989,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *Defer) TokenIndex {
+        pub fn firstToken(self: *const Defer) TokenIndex {
             return self.defer_token;
         }
 
-        pub fn lastToken(self: *Defer) TokenIndex {
+        pub fn lastToken(self: *const Defer) TokenIndex {
             return self.expr.lastToken();
         }
     };
@@ -1011,11 +1013,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *Comptime) TokenIndex {
+        pub fn firstToken(self: *const Comptime) TokenIndex {
             return self.comptime_token;
         }
 
-        pub fn lastToken(self: *Comptime) TokenIndex {
+        pub fn lastToken(self: *const Comptime) TokenIndex {
             return self.expr.lastToken();
         }
     };
@@ -1035,11 +1037,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *Payload) TokenIndex {
+        pub fn firstToken(self: *const Payload) TokenIndex {
             return self.lpipe;
         }
 
-        pub fn lastToken(self: *Payload) TokenIndex {
+        pub fn lastToken(self: *const Payload) TokenIndex {
             return self.rpipe;
         }
     };
@@ -1060,11 +1062,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *PointerPayload) TokenIndex {
+        pub fn firstToken(self: *const PointerPayload) TokenIndex {
             return self.lpipe;
         }
 
-        pub fn lastToken(self: *PointerPayload) TokenIndex {
+        pub fn lastToken(self: *const PointerPayload) TokenIndex {
             return self.rpipe;
         }
     };
@@ -1091,11 +1093,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *PointerIndexPayload) TokenIndex {
+        pub fn firstToken(self: *const PointerIndexPayload) TokenIndex {
             return self.lpipe;
         }
 
-        pub fn lastToken(self: *PointerIndexPayload) TokenIndex {
+        pub fn lastToken(self: *const PointerIndexPayload) TokenIndex {
             return self.rpipe;
         }
     };
@@ -1120,11 +1122,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *Else) TokenIndex {
+        pub fn firstToken(self: *const Else) TokenIndex {
             return self.else_token;
         }
 
-        pub fn lastToken(self: *Else) TokenIndex {
+        pub fn lastToken(self: *const Else) TokenIndex {
             return self.body.lastToken();
         }
     };
@@ -1152,11 +1154,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *Switch) TokenIndex {
+        pub fn firstToken(self: *const Switch) TokenIndex {
             return self.switch_token;
         }
 
-        pub fn lastToken(self: *Switch) TokenIndex {
+        pub fn lastToken(self: *const Switch) TokenIndex {
             return self.rbrace;
         }
     };
@@ -1187,11 +1189,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *SwitchCase) TokenIndex {
+        pub fn firstToken(self: *const SwitchCase) TokenIndex {
             return (self.items.at(0).*).firstToken();
         }
 
-        pub fn lastToken(self: *SwitchCase) TokenIndex {
+        pub fn lastToken(self: *const SwitchCase) TokenIndex {
             return self.expr.lastToken();
         }
     };
@@ -1204,11 +1206,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *SwitchElse) TokenIndex {
+        pub fn firstToken(self: *const SwitchElse) TokenIndex {
             return self.token;
         }
 
-        pub fn lastToken(self: *SwitchElse) TokenIndex {
+        pub fn lastToken(self: *const SwitchElse) TokenIndex {
             return self.token;
         }
     };
@@ -1251,7 +1253,7 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *While) TokenIndex {
+        pub fn firstToken(self: *const While) TokenIndex {
             if (self.label) |label| {
                 return label;
             }
@@ -1263,7 +1265,7 @@ pub const Node = struct {
             return self.while_token;
         }
 
-        pub fn lastToken(self: *While) TokenIndex {
+        pub fn lastToken(self: *const While) TokenIndex {
             if (self.@"else") |@"else"| {
                 return @"else".body.lastToken();
             }
@@ -1304,7 +1306,7 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *For) TokenIndex {
+        pub fn firstToken(self: *const For) TokenIndex {
             if (self.label) |label| {
                 return label;
             }
@@ -1316,7 +1318,7 @@ pub const Node = struct {
             return self.for_token;
         }
 
-        pub fn lastToken(self: *For) TokenIndex {
+        pub fn lastToken(self: *const For) TokenIndex {
             if (self.@"else") |@"else"| {
                 return @"else".body.lastToken();
             }
@@ -1355,11 +1357,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *If) TokenIndex {
+        pub fn firstToken(self: *const If) TokenIndex {
             return self.if_token;
         }
 
-        pub fn lastToken(self: *If) TokenIndex {
+        pub fn lastToken(self: *const If) TokenIndex {
             if (self.@"else") |@"else"| {
                 return @"else".body.lastToken();
             }
@@ -1486,11 +1488,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *InfixOp) TokenIndex {
+        pub fn firstToken(self: *const InfixOp) TokenIndex {
             return self.lhs.firstToken();
         }
 
-        pub fn lastToken(self: *InfixOp) TokenIndex {
+        pub fn lastToken(self: *const InfixOp) TokenIndex {
             return self.rhs.lastToken();
         }
     };
@@ -1576,11 +1578,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *PrefixOp) TokenIndex {
+        pub fn firstToken(self: *const PrefixOp) TokenIndex {
             return self.op_token;
         }
 
-        pub fn lastToken(self: *PrefixOp) TokenIndex {
+        pub fn lastToken(self: *const PrefixOp) TokenIndex {
             return self.rhs.lastToken();
         }
     };
@@ -1600,11 +1602,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *FieldInitializer) TokenIndex {
+        pub fn firstToken(self: *const FieldInitializer) TokenIndex {
             return self.period_token;
         }
 
-        pub fn lastToken(self: *FieldInitializer) TokenIndex {
+        pub fn lastToken(self: *const FieldInitializer) TokenIndex {
             return self.expr.lastToken();
         }
     };
@@ -1679,7 +1681,7 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *SuffixOp) TokenIndex {
+        pub fn firstToken(self: *const SuffixOp) TokenIndex {
             switch (self.op) {
                 @TagType(Op).Call => |*call_info| if (call_info.async_attr) |async_attr| return async_attr.firstToken(),
                 else => {},
@@ -1687,7 +1689,7 @@ pub const Node = struct {
             return self.lhs.firstToken();
         }
 
-        pub fn lastToken(self: *SuffixOp) TokenIndex {
+        pub fn lastToken(self: *const SuffixOp) TokenIndex {
             return self.rtoken;
         }
     };
@@ -1707,11 +1709,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *GroupedExpression) TokenIndex {
+        pub fn firstToken(self: *const GroupedExpression) TokenIndex {
             return self.lparen;
         }
 
-        pub fn lastToken(self: *GroupedExpression) TokenIndex {
+        pub fn lastToken(self: *const GroupedExpression) TokenIndex {
             return self.rparen;
         }
     };
@@ -1755,11 +1757,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *ControlFlowExpression) TokenIndex {
+        pub fn firstToken(self: *const ControlFlowExpression) TokenIndex {
             return self.ltoken;
         }
 
-        pub fn lastToken(self: *ControlFlowExpression) TokenIndex {
+        pub fn lastToken(self: *const ControlFlowExpression) TokenIndex {
             if (self.rhs) |rhs| {
                 return rhs.lastToken();
             }
@@ -1784,18 +1786,11 @@ pub const Node = struct {
 
     pub const Suspend = struct {
         base: Node,
-        label: ?TokenIndex,
         suspend_token: TokenIndex,
-        payload: ?*Node,
         body: ?*Node,
 
         pub fn iterate(self: *Suspend, index: usize) ?*Node {
             var i = index;
-
-            if (self.payload) |payload| {
-                if (i < 1) return payload;
-                i -= 1;
-            }
 
             if (self.body) |body| {
                 if (i < 1) return body;
@@ -1805,18 +1800,13 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *Suspend) TokenIndex {
-            if (self.label) |label| return label;
+        pub fn firstToken(self: *const Suspend) TokenIndex {
             return self.suspend_token;
         }
 
-        pub fn lastToken(self: *Suspend) TokenIndex {
+        pub fn lastToken(self: *const Suspend) TokenIndex {
             if (self.body) |body| {
                 return body.lastToken();
-            }
-
-            if (self.payload) |payload| {
-                return payload.lastToken();
             }
 
             return self.suspend_token;
@@ -1831,11 +1821,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *IntegerLiteral) TokenIndex {
+        pub fn firstToken(self: *const IntegerLiteral) TokenIndex {
             return self.token;
         }
 
-        pub fn lastToken(self: *IntegerLiteral) TokenIndex {
+        pub fn lastToken(self: *const IntegerLiteral) TokenIndex {
             return self.token;
         }
     };
@@ -1848,11 +1838,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *FloatLiteral) TokenIndex {
+        pub fn firstToken(self: *const FloatLiteral) TokenIndex {
             return self.token;
         }
 
-        pub fn lastToken(self: *FloatLiteral) TokenIndex {
+        pub fn lastToken(self: *const FloatLiteral) TokenIndex {
             return self.token;
         }
     };
@@ -1874,11 +1864,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *BuiltinCall) TokenIndex {
+        pub fn firstToken(self: *const BuiltinCall) TokenIndex {
             return self.builtin_token;
         }
 
-        pub fn lastToken(self: *BuiltinCall) TokenIndex {
+        pub fn lastToken(self: *const BuiltinCall) TokenIndex {
             return self.rparen_token;
         }
     };
@@ -1891,11 +1881,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *StringLiteral) TokenIndex {
+        pub fn firstToken(self: *const StringLiteral) TokenIndex {
             return self.token;
         }
 
-        pub fn lastToken(self: *StringLiteral) TokenIndex {
+        pub fn lastToken(self: *const StringLiteral) TokenIndex {
             return self.token;
         }
     };
@@ -1910,11 +1900,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *MultilineStringLiteral) TokenIndex {
+        pub fn firstToken(self: *const MultilineStringLiteral) TokenIndex {
             return self.lines.at(0).*;
         }
 
-        pub fn lastToken(self: *MultilineStringLiteral) TokenIndex {
+        pub fn lastToken(self: *const MultilineStringLiteral) TokenIndex {
             return self.lines.at(self.lines.len - 1).*;
         }
     };
@@ -1927,11 +1917,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *CharLiteral) TokenIndex {
+        pub fn firstToken(self: *const CharLiteral) TokenIndex {
             return self.token;
         }
 
-        pub fn lastToken(self: *CharLiteral) TokenIndex {
+        pub fn lastToken(self: *const CharLiteral) TokenIndex {
             return self.token;
         }
     };
@@ -1944,11 +1934,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *BoolLiteral) TokenIndex {
+        pub fn firstToken(self: *const BoolLiteral) TokenIndex {
             return self.token;
         }
 
-        pub fn lastToken(self: *BoolLiteral) TokenIndex {
+        pub fn lastToken(self: *const BoolLiteral) TokenIndex {
             return self.token;
         }
     };
@@ -1961,11 +1951,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *NullLiteral) TokenIndex {
+        pub fn firstToken(self: *const NullLiteral) TokenIndex {
             return self.token;
         }
 
-        pub fn lastToken(self: *NullLiteral) TokenIndex {
+        pub fn lastToken(self: *const NullLiteral) TokenIndex {
             return self.token;
         }
     };
@@ -1978,11 +1968,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *UndefinedLiteral) TokenIndex {
+        pub fn firstToken(self: *const UndefinedLiteral) TokenIndex {
             return self.token;
         }
 
-        pub fn lastToken(self: *UndefinedLiteral) TokenIndex {
+        pub fn lastToken(self: *const UndefinedLiteral) TokenIndex {
             return self.token;
         }
     };
@@ -1995,11 +1985,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *ThisLiteral) TokenIndex {
+        pub fn firstToken(self: *const ThisLiteral) TokenIndex {
             return self.token;
         }
 
-        pub fn lastToken(self: *ThisLiteral) TokenIndex {
+        pub fn lastToken(self: *const ThisLiteral) TokenIndex {
             return self.token;
         }
     };
@@ -2040,11 +2030,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *AsmOutput) TokenIndex {
+        pub fn firstToken(self: *const AsmOutput) TokenIndex {
             return self.lbracket;
         }
 
-        pub fn lastToken(self: *AsmOutput) TokenIndex {
+        pub fn lastToken(self: *const AsmOutput) TokenIndex {
             return self.rparen;
         }
     };
@@ -2072,11 +2062,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *AsmInput) TokenIndex {
+        pub fn firstToken(self: *const AsmInput) TokenIndex {
             return self.lbracket;
         }
 
-        pub fn lastToken(self: *AsmInput) TokenIndex {
+        pub fn lastToken(self: *const AsmInput) TokenIndex {
             return self.rparen;
         }
     };
@@ -2107,11 +2097,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *Asm) TokenIndex {
+        pub fn firstToken(self: *const Asm) TokenIndex {
             return self.asm_token;
         }
 
-        pub fn lastToken(self: *Asm) TokenIndex {
+        pub fn lastToken(self: *const Asm) TokenIndex {
             return self.rparen;
         }
     };
@@ -2124,11 +2114,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *Unreachable) TokenIndex {
+        pub fn firstToken(self: *const Unreachable) TokenIndex {
             return self.token;
         }
 
-        pub fn lastToken(self: *Unreachable) TokenIndex {
+        pub fn lastToken(self: *const Unreachable) TokenIndex {
             return self.token;
         }
     };
@@ -2141,11 +2131,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *ErrorType) TokenIndex {
+        pub fn firstToken(self: *const ErrorType) TokenIndex {
             return self.token;
         }
 
-        pub fn lastToken(self: *ErrorType) TokenIndex {
+        pub fn lastToken(self: *const ErrorType) TokenIndex {
             return self.token;
         }
     };
@@ -2158,11 +2148,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *VarType) TokenIndex {
+        pub fn firstToken(self: *const VarType) TokenIndex {
             return self.token;
         }
 
-        pub fn lastToken(self: *VarType) TokenIndex {
+        pub fn lastToken(self: *const VarType) TokenIndex {
             return self.token;
         }
     };
@@ -2177,11 +2167,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *DocComment) TokenIndex {
+        pub fn firstToken(self: *const DocComment) TokenIndex {
             return self.lines.at(0).*;
         }
 
-        pub fn lastToken(self: *DocComment) TokenIndex {
+        pub fn lastToken(self: *const DocComment) TokenIndex {
             return self.lines.at(self.lines.len - 1).*;
         }
     };
@@ -2202,11 +2192,11 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *TestDecl) TokenIndex {
+        pub fn firstToken(self: *const TestDecl) TokenIndex {
             return self.test_token;
         }
 
-        pub fn lastToken(self: *TestDecl) TokenIndex {
+        pub fn lastToken(self: *const TestDecl) TokenIndex {
             return self.body_node.lastToken();
         }
     };
@@ -2218,6 +2208,7 @@ test "iterate" {
         .doc_comments = null,
         .decls = Node.Root.DeclList.init(std.debug.global_allocator),
         .eof_token = 0,
+        .shebang = null,
     };
     var base = &root.base;
     assert(base.iterate(0) == null);

@@ -2,7 +2,7 @@
 ; This test checks that symbols which are specified in "-u" switches
 ; are kept over LTO if we link an executable.
 ; RUN: llvm-as %s -o %t.o
-; RUN: ld.lld -m elf_x86_64 %t.o -o %tout -u foo
+; RUN: ld.lld %t.o -o %tout -u foo
 ; RUN: llvm-nm %tout | FileCheck %s
 
 ; CHECK: T foo

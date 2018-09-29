@@ -28,7 +28,7 @@ public:
   X86_64();
   RelExpr getRelExpr(RelType Type, const Symbol &S,
                      const uint8_t *Loc) const override;
-  bool isPicRel(RelType Type) const override;
+  RelType getDynRel(RelType Type) const override;
   void writeGotPltHeader(uint8_t *Buf) const override;
   void writeGotPlt(uint8_t *Buf, const Symbol &S) const override;
   void writePltHeader(uint8_t *Buf) const override;
@@ -43,6 +43,8 @@ public:
   void relaxTlsGdToLe(uint8_t *Loc, RelType Type, uint64_t Val) const override;
   void relaxTlsIeToLe(uint8_t *Loc, RelType Type, uint64_t Val) const override;
   void relaxTlsLdToLe(uint8_t *Loc, RelType Type, uint64_t Val) const override;
+  bool adjustPrologueForCrossSplitStack(uint8_t *Loc,
+                                        uint8_t *End) const override;
 
 private:
   void relaxGotNoPic(uint8_t *Loc, uint64_t Val, uint8_t Op,
@@ -51,7 +53,6 @@ private:
 } // namespace
 
 template <class ELFT> X86_64<ELFT>::X86_64() {
-  GotBaseSymOff = -1;
   CopyRel = R_X86_64_COPY;
   GotRel = R_X86_64_GLOB_DAT;
   PltRel = R_X86_64_JUMP_SLOT;
@@ -106,6 +107,11 @@ RelExpr X86_64<ELFT>::getRelExpr(RelType Type, const Symbol &S,
   case R_X86_64_REX_GOTPCRELX:
   case R_X86_64_GOTTPOFF:
     return R_GOT_PC;
+  case R_X86_64_GOTOFF64:
+    return R_GOTREL_FROM_END;
+  case R_X86_64_GOTPC32:
+  case R_X86_64_GOTPC64:
+    return R_GOTONLY_PC_FROM_END;
   case R_X86_64_NONE:
     return R_NONE;
   default:
@@ -124,7 +130,7 @@ template <class ELFT> void X86_64<ELFT>::writeGotPltHeader(uint8_t *Buf) const {
 template <class ELFT>
 void X86_64<ELFT>::writeGotPlt(uint8_t *Buf, const Symbol &S) const {
   // See comments in X86::writeGotPlt.
-  write32le(Buf, S.getPltVA() + 6);
+  write64le(Buf, S.getPltVA() + 6);
 }
 
 template <class ELFT> void X86_64<ELFT>::writePltHeader(uint8_t *Buf) const {
@@ -153,12 +159,14 @@ void X86_64<ELFT>::writePlt(uint8_t *Buf, uint64_t GotPltEntryAddr,
 
   write32le(Buf + 2, GotPltEntryAddr - PltEntryAddr - 6);
   write32le(Buf + 7, Index);
-  write32le(Buf + 12, -Index * PltEntrySize - PltHeaderSize - 16);
+  write32le(Buf + 12, -getPltEntryOffset(Index) - 16);
 }
 
-template <class ELFT> bool X86_64<ELFT>::isPicRel(RelType Type) const {
-  return Type != R_X86_64_PC32 && Type != R_X86_64_32 &&
-         Type != R_X86_64_TPOFF32;
+template <class ELFT> RelType X86_64<ELFT>::getDynRel(RelType Type) const {
+  if (Type == R_X86_64_64 || Type == R_X86_64_PC64 || Type == R_X86_64_SIZE32 ||
+      Type == R_X86_64_SIZE64)
+    return Type;
+  return R_X86_64_NONE;
 }
 
 template <class ELFT>
@@ -285,20 +293,21 @@ template <class ELFT>
 void X86_64<ELFT>::relocateOne(uint8_t *Loc, RelType Type, uint64_t Val) const {
   switch (Type) {
   case R_X86_64_8:
-    checkUInt<8>(Loc, Val, Type);
+    checkUInt(Loc, Val, 8, Type);
     *Loc = Val;
     break;
   case R_X86_64_16:
-    checkUInt<16>(Loc, Val, Type);
+    checkUInt(Loc, Val, 16, Type);
     write16le(Loc, Val);
     break;
   case R_X86_64_32:
-    checkUInt<32>(Loc, Val, Type);
+    checkUInt(Loc, Val, 32, Type);
     write32le(Loc, Val);
     break;
   case R_X86_64_32S:
   case R_X86_64_TPOFF32:
   case R_X86_64_GOT32:
+  case R_X86_64_GOTPC32:
   case R_X86_64_GOTPCREL:
   case R_X86_64_GOTPCRELX:
   case R_X86_64_REX_GOTPCRELX:
@@ -309,7 +318,7 @@ void X86_64<ELFT>::relocateOne(uint8_t *Loc, RelType Type, uint64_t Val) const {
   case R_X86_64_TLSLD:
   case R_X86_64_DTPOFF32:
   case R_X86_64_SIZE32:
-    checkInt<32>(Loc, Val, Type);
+    checkInt(Loc, Val, 32, Type);
     write32le(Loc, Val);
     break;
   case R_X86_64_64:
@@ -318,6 +327,8 @@ void X86_64<ELFT>::relocateOne(uint8_t *Loc, RelType Type, uint64_t Val) const {
   case R_X86_64_PC64:
   case R_X86_64_SIZE64:
   case R_X86_64_GOT64:
+  case R_X86_64_GOTOFF64:
+  case R_X86_64_GOTPC64:
     write64le(Loc, Val);
     break;
   default:
@@ -460,6 +471,55 @@ void X86_64<ELFT>::relaxGot(uint8_t *Loc, uint64_t Val) const {
   write32le(Loc - 1, Val + 1);
 }
 
+// This anonymous namespace works around a warning bug in
+// old versions of gcc. See https://gcc.gnu.org/bugzilla/show_bug.cgi?id=56480
+namespace {
+
+// A split-stack prologue starts by checking the amount of stack remaining
+// in one of two ways:
+// A) Comparing of the stack pointer to a field in the tcb.
+// B) Or a load of a stack pointer offset with an lea to r10 or r11.
+template <>
+bool X86_64<ELF64LE>::adjustPrologueForCrossSplitStack(uint8_t *Loc,
+                                                       uint8_t *End) const {
+  // Replace "cmp %fs:0x70,%rsp" and subsequent branch
+  // with "stc, nopl 0x0(%rax,%rax,1)"
+  if (Loc + 8 < End && memcmp(Loc, "\x64\x48\x3b\x24\x25", 4) == 0) {
+    memcpy(Loc, "\xf9\x0f\x1f\x84\x00\x00\x00\x00", 8);
+    return true;
+  }
+
+  // Adjust "lea -0x200(%rsp),%r10" to lea "-0x4200(%rsp),%r10"
+  if (Loc + 7 < End && memcmp(Loc, "\x4c\x8d\x94\x24\x00\xfe\xff", 7) == 0) {
+    memcpy(Loc, "\x4c\x8d\x94\x24\x00\xbe\xff", 7);
+    return true;
+  }
+
+  // Adjust "lea -0x200(%rsp),%r11" to lea "-0x4200(%rsp),%r11"
+  if (Loc + 7 < End && memcmp(Loc, "\x4c\x8d\x9c\x24\x00\xfe\xff", 7) == 0) {
+    memcpy(Loc, "\x4c\x8d\x9c\x24\x00\xbe\xff", 7);
+    return true;
+  }
+  return false;
+}
+
+template <>
+bool X86_64<ELF32LE>::adjustPrologueForCrossSplitStack(uint8_t *Loc,
+                                                       uint8_t *End) const {
+  llvm_unreachable("Target doesn't support split stacks.");
+}
+
+} // namespace
+
+// These nonstandard PLT entries are to migtigate Spectre v2 security
+// vulnerability. In order to mitigate Spectre v2, we want to avoid indirect
+// branch instructions such as `jmp *GOTPLT(%rip)`. So, in the following PLT
+// entries, we use a CALL followed by MOV and RET to do the same thing as an
+// indirect jump. That instruction sequence is so-called "retpoline".
+//
+// We have two types of retpoline PLTs as a size optimization. If `-z now`
+// is specified, all dynamic symbols are resolved at load-time. Thus, when
+// that option is given, we can omit code for symbol lazy resolution.
 namespace {
 template <class ELFT> class Retpoline : public X86_64<ELFT> {
 public:
@@ -487,7 +547,7 @@ template <class ELFT> Retpoline<ELFT>::Retpoline() {
 
 template <class ELFT>
 void Retpoline<ELFT>::writeGotPlt(uint8_t *Buf, const Symbol &S) const {
-  write32le(Buf, S.getPltVA() + 17);
+  write64le(Buf, S.getPltVA() + 17);
 }
 
 template <class ELFT> void Retpoline<ELFT>::writePltHeader(uint8_t *Buf) const {
@@ -501,6 +561,8 @@ template <class ELFT> void Retpoline<ELFT>::writePltHeader(uint8_t *Buf) const {
       0xcc, 0xcc, 0xcc, 0xcc, 0xcc, 0xcc, 0xcc, // 19:   int3; .align 16
       0x4c, 0x89, 0x1c, 0x24,                   // 20: next: mov %r11, (%rsp)
       0xc3,                                     // 24:   ret
+      0xcc, 0xcc, 0xcc, 0xcc, 0xcc, 0xcc, 0xcc, // 25:   int3; padding
+      0xcc, 0xcc, 0xcc, 0xcc,                   // 2c:   int3; padding
   };
   memcpy(Buf, Insn, sizeof(Insn));
 
@@ -516,14 +578,15 @@ void Retpoline<ELFT>::writePlt(uint8_t *Buf, uint64_t GotPltEntryAddr,
                                unsigned RelOff) const {
   const uint8_t Insn[] = {
       0x4c, 0x8b, 0x1d, 0, 0, 0, 0, // 0:  mov foo@GOTPLT(%rip), %r11
-      0xe8, 0,    0,    0, 0,       // 7:  callq plt+0x20
-      0xe9, 0,    0,    0, 0,       // c:  jmp plt+0x12
-      0x68, 0,    0,    0, 0,       // 11: pushq <relocation index>
-      0xe9, 0,    0,    0, 0,       // 16: jmp plt+0
+      0xe8, 0,    0,    0,    0,    // 7:  callq plt+0x20
+      0xe9, 0,    0,    0,    0,    // c:  jmp plt+0x12
+      0x68, 0,    0,    0,    0,    // 11: pushq <relocation index>
+      0xe9, 0,    0,    0,    0,    // 16: jmp plt+0
+      0xcc, 0xcc, 0xcc, 0xcc, 0xcc, // 1b: int3; padding
   };
   memcpy(Buf, Insn, sizeof(Insn));
 
-  uint64_t Off = TargetInfo::PltHeaderSize + TargetInfo::PltEntrySize * Index;
+  uint64_t Off = TargetInfo::getPltEntryOffset(Index);
 
   write32le(Buf + 3, GotPltEntryAddr - PltEntryAddr - 7);
   write32le(Buf + 8, -Off - 12 + 32);
@@ -547,6 +610,9 @@ void RetpolineZNow<ELFT>::writePltHeader(uint8_t *Buf) const {
       0xcc, 0xcc, 0xcc, 0xcc,       // c:    int3; .align 16
       0x4c, 0x89, 0x1c, 0x24,       // 10: next: mov %r11, (%rsp)
       0xc3,                         // 14:   ret
+      0xcc, 0xcc, 0xcc, 0xcc, 0xcc, // 15:   int3; padding
+      0xcc, 0xcc, 0xcc, 0xcc, 0xcc, // 1a:   int3; padding
+      0xcc,                         // 1f:   int3; padding
   };
   memcpy(Buf, Insn, sizeof(Insn));
 }
@@ -556,17 +622,17 @@ void RetpolineZNow<ELFT>::writePlt(uint8_t *Buf, uint64_t GotPltEntryAddr,
                                    uint64_t PltEntryAddr, int32_t Index,
                                    unsigned RelOff) const {
   const uint8_t Insn[] = {
-      0x4c, 0x8b, 0x1d, 0, 0, 0, 0, // mov foo@GOTPLT(%rip), %r11
-      0xe9, 0,    0,    0, 0,       // jmp plt+0
+      0x4c, 0x8b, 0x1d, 0,    0, 0, 0, // mov foo@GOTPLT(%rip), %r11
+      0xe9, 0,    0,    0,    0,       // jmp plt+0
+      0xcc, 0xcc, 0xcc, 0xcc,          // int3; padding
   };
   memcpy(Buf, Insn, sizeof(Insn));
 
   write32le(Buf + 3, GotPltEntryAddr - PltEntryAddr - 7);
-  write32le(Buf + 8,
-            -Index * TargetInfo::PltEntrySize - TargetInfo::PltHeaderSize - 12);
+  write32le(Buf + 8, -TargetInfo::getPltEntryOffset(Index) - 12);
 }
 
-template <class ELFT> TargetInfo *getTargetInfo() {
+template <class ELFT> static TargetInfo *getTargetInfo() {
   if (Config->ZRetpolineplt) {
     if (Config->ZNow) {
       static RetpolineZNow<ELFT> T;

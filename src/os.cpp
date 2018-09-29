@@ -23,10 +23,18 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 
+#if !defined(_WIN32_WINNT)
+#define _WIN32_WINNT 0x600
+#endif
+
+#if !defined(NTDDI_VERSION)
+#define NTDDI_VERSION 0x06000000
+#endif
+
 #include <windows.h>
+#include <shlobj.h>
 #include <io.h>
 #include <fcntl.h>
-#include "windows_com.hpp"
 
 typedef SSIZE_T ssize_t;
 #else
@@ -39,6 +47,10 @@ typedef SSIZE_T ssize_t;
 #include <fcntl.h>
 #include <limits.h>
 
+#endif
+
+#if defined(ZIG_OS_LINUX)
+#include <link.h>
 #endif
 
 
@@ -267,15 +279,31 @@ int os_path_real(Buf *rel_path, Buf *out_abs_path) {
 #endif
 }
 
+#if defined(ZIG_OS_WINDOWS)
+// Ported from std/os/path.zig
+static bool isAbsoluteWindows(Slice<uint8_t> path) {
+    if (path.ptr[0] == '/')
+        return true;
+
+    if (path.ptr[0] == '\\') {
+        return true;
+    }
+    if (path.len < 3) {
+        return false;
+    }
+    if (path.ptr[1] == ':') {
+        if (path.ptr[2] == '/')
+            return true;
+        if (path.ptr[2] == '\\')
+            return true;
+    }
+    return false;
+}
+#endif
+
 bool os_path_is_absolute(Buf *path) {
 #if defined(ZIG_OS_WINDOWS)
-    if (buf_starts_with_str(path, "/") || buf_starts_with_str(path, "\\"))
-        return true;
-
-    if (buf_len(path) >= 3 && buf_ptr(path)[1] == ':')
-        return true;
-
-    return false;
+    return isAbsoluteWindows(buf_to_slice(path));
 #elif defined(ZIG_OS_POSIX)
     return buf_ptr(path)[0] == '/';
 #else
@@ -283,17 +311,426 @@ bool os_path_is_absolute(Buf *path) {
 #endif
 }
 
-void os_path_resolve(Buf *ref_path, Buf *target_path, Buf *out_abs_path) {
-    if (os_path_is_absolute(target_path)) {
-        buf_init_from_buf(out_abs_path, target_path);
-        return;
+#if defined(ZIG_OS_WINDOWS)
+
+enum WindowsPathKind {
+    WindowsPathKindNone,
+    WindowsPathKindDrive,
+    WindowsPathKindNetworkShare,
+};
+
+struct WindowsPath {
+    Slice<uint8_t> disk_designator;
+    WindowsPathKind kind;
+    bool is_abs;
+};
+
+
+// Ported from std/os/path.zig
+static WindowsPath windowsParsePath(Slice<uint8_t> path) {
+    if (path.len >= 2 && path.ptr[1] == ':') {
+        return WindowsPath{
+            path.slice(0, 2),
+            WindowsPathKindDrive,
+            isAbsoluteWindows(path),
+        };
+    }
+    if (path.len >= 1 && (path.ptr[0] == '/' || path.ptr[0] == '\\') &&
+        (path.len == 1 || (path.ptr[1] != '/' && path.ptr[1] != '\\')))
+    {
+        return WindowsPath{
+            path.slice(0, 0),
+            WindowsPathKindNone,
+            true,
+        };
+    }
+    WindowsPath relative_path = {
+        str(""),
+        WindowsPathKindNone,
+        false,
+    };
+    if (path.len < strlen("//a/b")) {
+        return relative_path;
     }
 
-    os_path_join(ref_path, target_path, out_abs_path);
-    return;
+    {
+        if (memStartsWith(path, str("//"))) {
+            if (path.ptr[2] == '/') {
+                return relative_path;
+            }
+
+            SplitIterator it = memSplit(path, str("/"));
+            {
+                Optional<Slice<uint8_t>> opt_component = SplitIterator_next(&it);
+                if (!opt_component.is_some) return relative_path;
+            }
+            {
+                Optional<Slice<uint8_t>> opt_component = SplitIterator_next(&it);
+                if (!opt_component.is_some) return relative_path;
+            }
+            return WindowsPath{
+                path.slice(0, it.index),
+                WindowsPathKindNetworkShare,
+                isAbsoluteWindows(path),
+            };
+        }
+    }
+    {
+        if (memStartsWith(path, str("\\\\"))) {
+            if (path.ptr[2] == '\\') {
+                return relative_path;
+            }
+
+            SplitIterator it = memSplit(path, str("\\"));
+            {
+                Optional<Slice<uint8_t>> opt_component = SplitIterator_next(&it);
+                if (!opt_component.is_some) return relative_path;
+            }
+            {
+                Optional<Slice<uint8_t>> opt_component = SplitIterator_next(&it);
+                if (!opt_component.is_some) return relative_path;
+            }
+            return WindowsPath{
+                path.slice(0, it.index),
+                WindowsPathKindNetworkShare,
+                isAbsoluteWindows(path),
+            };
+        }
+    }
+    return relative_path;
 }
 
-int os_fetch_file(FILE *f, Buf *out_buf, bool skip_shebang) {
+// Ported from std/os/path.zig
+static uint8_t asciiUpper(uint8_t byte) {
+    if (byte >= 'a' && byte <= 'z') {
+        return 'A' + (byte - 'a');
+    }
+    return byte;
+}
+
+// Ported from std/os/path.zig
+static bool asciiEqlIgnoreCase(Slice<uint8_t> s1, Slice<uint8_t> s2) {
+    if (s1.len != s2.len)
+        return false;
+    for (size_t i = 0; i < s1.len; i += 1) {
+        if (asciiUpper(s1.ptr[i]) != asciiUpper(s2.ptr[i]))
+            return false;
+    }
+    return true;
+}
+
+// Ported from std/os/path.zig
+static bool compareDiskDesignators(WindowsPathKind kind, Slice<uint8_t> p1, Slice<uint8_t> p2) {
+    switch (kind) {
+        case WindowsPathKindNone:
+            assert(p1.len == 0);
+            assert(p2.len == 0);
+            return true;
+        case WindowsPathKindDrive:
+            return asciiUpper(p1.ptr[0]) == asciiUpper(p2.ptr[0]);
+        case WindowsPathKindNetworkShare:
+            uint8_t sep1 = p1.ptr[0];
+            uint8_t sep2 = p2.ptr[0];
+
+            SplitIterator it1 = memSplit(p1, {&sep1, 1});
+            SplitIterator it2 = memSplit(p2, {&sep2, 1});
+
+            // TODO ASCII is wrong, we actually need full unicode support to compare paths.
+            return asciiEqlIgnoreCase(SplitIterator_next(&it1).value, SplitIterator_next(&it2).value) &&
+                asciiEqlIgnoreCase(SplitIterator_next(&it1).value, SplitIterator_next(&it2).value);
+    }
+    zig_unreachable();
+}
+
+// Ported from std/os/path.zig
+static Buf os_path_resolve_windows(Buf **paths_ptr, size_t paths_len) {
+    if (paths_len == 0) {
+        Buf cwd = BUF_INIT;
+        int err;
+        if ((err = os_get_cwd(&cwd))) {
+            zig_panic("get cwd failed");
+        }
+        return cwd;
+    }
+
+    // determine which disk designator we will result with, if any
+    char result_drive_buf[3] = {'_', ':', '\0'}; // 0 needed for strlen later
+    Slice<uint8_t> result_disk_designator = str("");
+    WindowsPathKind have_drive_kind = WindowsPathKindNone;
+    bool have_abs_path = false;
+    size_t first_index = 0;
+    size_t max_size = 0;
+    for (size_t i = 0; i < paths_len; i += 1) {
+        Slice<uint8_t> p = buf_to_slice(paths_ptr[i]);
+        WindowsPath parsed = windowsParsePath(p);
+        if (parsed.is_abs) {
+            have_abs_path = true;
+            first_index = i;
+            max_size = result_disk_designator.len;
+        }
+        switch (parsed.kind) {
+            case WindowsPathKindDrive:
+                result_drive_buf[0] = asciiUpper(parsed.disk_designator.ptr[0]);
+                result_disk_designator = str(result_drive_buf);
+                have_drive_kind = WindowsPathKindDrive;
+                break;
+            case WindowsPathKindNetworkShare:
+                result_disk_designator = parsed.disk_designator;
+                have_drive_kind = WindowsPathKindNetworkShare;
+                break;
+            case WindowsPathKindNone:
+                break;
+        }
+        max_size += p.len + 1;
+    }
+
+    // if we will result with a disk designator, loop again to determine
+    // which is the last time the disk designator is absolutely specified, if any
+    // and count up the max bytes for paths related to this disk designator
+    if (have_drive_kind != WindowsPathKindNone) {
+        have_abs_path = false;
+        first_index = 0;
+        max_size = result_disk_designator.len;
+        bool correct_disk_designator = false;
+
+        for (size_t i = 0; i < paths_len; i += 1) {
+            Slice<uint8_t> p = buf_to_slice(paths_ptr[i]);
+            WindowsPath parsed = windowsParsePath(p);
+            if (parsed.kind != WindowsPathKindNone) {
+                if (parsed.kind == have_drive_kind) {
+                    correct_disk_designator = compareDiskDesignators(have_drive_kind, result_disk_designator, parsed.disk_designator);
+                } else {
+                    continue;
+                }
+            }
+            if (!correct_disk_designator) {
+                continue;
+            }
+            if (parsed.is_abs) {
+                first_index = i;
+                max_size = result_disk_designator.len;
+                have_abs_path = true;
+            }
+            max_size += p.len + 1;
+        }
+    }
+
+    // Allocate result and fill in the disk designator, calling getCwd if we have to.
+    Slice<uint8_t> result;
+    size_t result_index = 0;
+
+    if (have_abs_path) {
+        switch (have_drive_kind) {
+            case WindowsPathKindDrive: {
+                result = Slice<uint8_t>::alloc(max_size);
+
+                memCopy(result, result_disk_designator);
+                result_index += result_disk_designator.len;
+                break;
+            }
+            case WindowsPathKindNetworkShare: {
+                result = Slice<uint8_t>::alloc(max_size);
+                SplitIterator it = memSplit(buf_to_slice(paths_ptr[first_index]), str("/\\"));
+                Slice<uint8_t> server_name = SplitIterator_next(&it).value;
+                Slice<uint8_t> other_name = SplitIterator_next(&it).value;
+
+                result.ptr[result_index] = '\\';
+                result_index += 1;
+                result.ptr[result_index] = '\\';
+                result_index += 1;
+                memCopy(result.sliceFrom(result_index), server_name);
+                result_index += server_name.len;
+                result.ptr[result_index] = '\\';
+                result_index += 1;
+                memCopy(result.sliceFrom(result_index), other_name);
+                result_index += other_name.len;
+
+                result_disk_designator = result.slice(0, result_index);
+                break;
+            }
+            case WindowsPathKindNone: {
+                Buf cwd = BUF_INIT;
+                int err;
+                if ((err = os_get_cwd(&cwd))) {
+                    zig_panic("get cwd failed");
+                }
+                WindowsPath parsed_cwd = windowsParsePath(buf_to_slice(&cwd));
+                result = Slice<uint8_t>::alloc(max_size + parsed_cwd.disk_designator.len + 1);
+                memCopy(result, parsed_cwd.disk_designator);
+                result_index += parsed_cwd.disk_designator.len;
+                result_disk_designator = result.slice(0, parsed_cwd.disk_designator.len);
+                if (parsed_cwd.kind == WindowsPathKindDrive) {
+                    result.ptr[0] = asciiUpper(result.ptr[0]);
+                }
+                have_drive_kind = parsed_cwd.kind;
+                break;
+            }
+        }
+    } else {
+        // TODO call get cwd for the result_disk_designator instead of the global one
+        Buf cwd = BUF_INIT;
+        int err;
+        if ((err = os_get_cwd(&cwd))) {
+            zig_panic("get cwd failed");
+        }
+        result = Slice<uint8_t>::alloc(max_size + buf_len(&cwd) + 1);
+
+        memCopy(result, buf_to_slice(&cwd));
+        result_index += buf_len(&cwd);
+        WindowsPath parsed_cwd = windowsParsePath(result.slice(0, result_index));
+        result_disk_designator = parsed_cwd.disk_designator;
+        if (parsed_cwd.kind == WindowsPathKindDrive) {
+            result.ptr[0] = asciiUpper(result.ptr[0]);
+        }
+        have_drive_kind = parsed_cwd.kind;
+    }
+
+    // Now we know the disk designator to use, if any, and what kind it is. And our result
+    // is big enough to append all the paths to.
+    bool correct_disk_designator = true;
+    for (size_t i = 0; i < paths_len; i += 1) {
+        Slice<uint8_t> p = buf_to_slice(paths_ptr[i]);
+        WindowsPath parsed = windowsParsePath(p);
+
+        if (parsed.kind != WindowsPathKindNone) {
+            if (parsed.kind == have_drive_kind) {
+                correct_disk_designator = compareDiskDesignators(have_drive_kind, result_disk_designator, parsed.disk_designator);
+            } else {
+                continue;
+            }
+        }
+        if (!correct_disk_designator) {
+            continue;
+        }
+        SplitIterator it = memSplit(p.sliceFrom(parsed.disk_designator.len), str("/\\"));
+        while (true) {
+            Optional<Slice<uint8_t>> opt_component = SplitIterator_next(&it);
+            if (!opt_component.is_some) break;
+            Slice<uint8_t> component = opt_component.value;
+            if (memEql(component, str("."))) {
+                continue;
+            } else if (memEql(component, str(".."))) {
+                while (true) {
+                    if (result_index == 0 || result_index == result_disk_designator.len)
+                        break;
+                    result_index -= 1;
+                    if (result.ptr[result_index] == '\\' || result.ptr[result_index] == '/')
+                        break;
+                }
+            } else {
+                result.ptr[result_index] = '\\';
+                result_index += 1;
+                memCopy(result.sliceFrom(result_index), component);
+                result_index += component.len;
+            }
+        }
+    }
+
+    if (result_index == result_disk_designator.len) {
+        result.ptr[result_index] = '\\';
+        result_index += 1;
+    }
+
+    Buf return_value = BUF_INIT;
+    buf_init_from_mem(&return_value, (char *)result.ptr, result_index);
+    return return_value;
+}
+#endif
+
+#if defined(ZIG_OS_POSIX)
+// Ported from std/os/path.zig
+static Buf os_path_resolve_posix(Buf **paths_ptr, size_t paths_len) {
+    if (paths_len == 0) {
+        Buf cwd = BUF_INIT;
+        int err;
+        if ((err = os_get_cwd(&cwd))) {
+            zig_panic("get cwd failed");
+        }
+        return cwd;
+    }
+
+    size_t first_index = 0;
+    bool have_abs = false;
+    size_t max_size = 0;
+    for (size_t i = 0; i < paths_len; i += 1) {
+        Buf *p = paths_ptr[i];
+        if (os_path_is_absolute(p)) {
+            first_index = i;
+            have_abs = true;
+            max_size = 0;
+        }
+        max_size += buf_len(p) + 1;
+    }
+
+    uint8_t *result_ptr;
+    size_t result_len;
+    size_t result_index = 0;
+
+    if (have_abs) {
+        result_len = max_size;
+        result_ptr = allocate_nonzero<uint8_t>(result_len);
+    } else {
+        Buf cwd = BUF_INIT;
+        int err;
+        if ((err = os_get_cwd(&cwd))) {
+            zig_panic("get cwd failed");
+        }
+        result_len = max_size + buf_len(&cwd) + 1;
+        result_ptr = allocate_nonzero<uint8_t>(result_len);
+        memcpy(result_ptr, buf_ptr(&cwd), buf_len(&cwd));
+        result_index += buf_len(&cwd);
+    }
+
+    for (size_t i = first_index; i < paths_len; i += 1) {
+        Buf *p = paths_ptr[i];
+        SplitIterator it = memSplit(buf_to_slice(p), str("/"));
+        while (true) {
+            Optional<Slice<uint8_t>> opt_component = SplitIterator_next(&it);
+            if (!opt_component.is_some) break;
+            Slice<uint8_t> component = opt_component.value;
+
+            if (memEql<uint8_t>(component, str("."))) {
+                continue;
+            } else if (memEql<uint8_t>(component, str(".."))) {
+                while (true) {
+                    if (result_index == 0)
+                        break;
+                    result_index -= 1;
+                    if (result_ptr[result_index] == '/')
+                        break;
+                }
+            } else {
+                result_ptr[result_index] = '/';
+                result_index += 1;
+                memcpy(result_ptr + result_index, component.ptr, component.len);
+                result_index += component.len;
+            }
+        }
+    }
+
+    if (result_index == 0) {
+        result_ptr[0] = '/';
+        result_index += 1;
+    }
+
+    Buf return_value = BUF_INIT;
+    buf_init_from_mem(&return_value, (char *)result_ptr, result_index);
+    return return_value;
+}
+#endif
+
+// Ported from std/os/path.zig
+Buf os_path_resolve(Buf **paths_ptr, size_t paths_len) {
+#if defined(ZIG_OS_WINDOWS)
+    return os_path_resolve_windows(paths_ptr, paths_len);
+#elif defined(ZIG_OS_POSIX)
+    return os_path_resolve_posix(paths_ptr, paths_len);
+#else
+#error "missing os_path_resolve implementation"
+#endif
+}
+
+Error os_fetch_file(FILE *f, Buf *out_buf, bool skip_shebang) {
     static const ssize_t buf_size = 0x2000;
     buf_resize(out_buf, buf_size);
     ssize_t actual_buf_len = 0;
@@ -329,7 +766,7 @@ int os_fetch_file(FILE *f, Buf *out_buf, bool skip_shebang) {
         if (amt_read != buf_size) {
             if (feof(f)) {
                 buf_resize(out_buf, actual_buf_len);
-                return 0;
+                return ErrorNone;
             } else {
                 return ErrorFileSystem;
             }
@@ -341,13 +778,13 @@ int os_fetch_file(FILE *f, Buf *out_buf, bool skip_shebang) {
     zig_unreachable();
 }
 
-int os_file_exists(Buf *full_path, bool *result) {
+Error os_file_exists(Buf *full_path, bool *result) {
 #if defined(ZIG_OS_WINDOWS)
     *result = GetFileAttributes(buf_ptr(full_path)) != INVALID_FILE_ATTRIBUTES;
-    return 0;
+    return ErrorNone;
 #else
     *result = access(buf_ptr(full_path), F_OK) != -1;
-    return 0;
+    return ErrorNone;
 #endif
 }
 
@@ -406,13 +843,15 @@ static int os_exec_process_posix(const char *exe, ZigList<const char *> &args,
 
         FILE *stdout_f = fdopen(stdout_pipe[0], "rb");
         FILE *stderr_f = fdopen(stderr_pipe[0], "rb");
-        os_fetch_file(stdout_f, out_stdout, false);
-        os_fetch_file(stderr_f, out_stderr, false);
+        Error err1 = os_fetch_file(stdout_f, out_stdout, false);
+        Error err2 = os_fetch_file(stderr_f, out_stderr, false);
 
         fclose(stdout_f);
         fclose(stderr_f);
 
-        return 0;
+        if (err1) return err1;
+        if (err2) return err2;
+        return ErrorNone;
     }
 }
 #endif
@@ -544,6 +983,22 @@ static int os_exec_process_windows(const char *exe, ZigList<const char *> &args,
 }
 #endif
 
+Error os_execv(const char *exe, const char **argv) {
+#if defined(ZIG_OS_WINDOWS)
+    return ErrorUnsupportedOperatingSystem;
+#else
+    execv(exe, (char *const *)argv);
+    switch (errno) {
+        case ENOMEM:
+            return ErrorSystemResources;
+        case EIO:
+            return ErrorFileSystem;
+        default:
+            return ErrorUnexpected;
+    }
+#endif
+}
+
 int os_exec_process(const char *exe, ZigList<const char *> &args,
         Termination *term, Buf *out_stderr, Buf *out_stdout)
 {
@@ -559,7 +1014,7 @@ int os_exec_process(const char *exe, ZigList<const char *> &args,
 void os_write_file(Buf *full_path, Buf *contents) {
     FILE *f = fopen(buf_ptr(full_path), "wb");
     if (!f) {
-        zig_panic("open failed");
+        zig_panic("os_write_file failed for %s", buf_ptr(full_path));
     }
     size_t amt_written = fwrite(buf_ptr(contents), 1, buf_len(contents), f);
     if (amt_written != (size_t)buf_len(contents))
@@ -620,7 +1075,7 @@ int os_copy_file(Buf *src_path, Buf *dest_path) {
     }
 }
 
-int os_fetch_file_path(Buf *full_path, Buf *out_contents, bool skip_shebang) {
+Error os_fetch_file_path(Buf *full_path, Buf *out_contents, bool skip_shebang) {
     FILE *f = fopen(buf_ptr(full_path), "rb");
     if (!f) {
         switch (errno) {
@@ -639,29 +1094,27 @@ int os_fetch_file_path(Buf *full_path, Buf *out_contents, bool skip_shebang) {
                 return ErrorFileSystem;
         }
     }
-    int result = os_fetch_file(f, out_contents, skip_shebang);
+    Error result = os_fetch_file(f, out_contents, skip_shebang);
     fclose(f);
     return result;
 }
 
-int os_get_cwd(Buf *out_cwd) {
+Error os_get_cwd(Buf *out_cwd) {
 #if defined(ZIG_OS_WINDOWS)
-    buf_resize(out_cwd, 4096);
-    if (GetCurrentDirectory(buf_len(out_cwd), buf_ptr(out_cwd)) == 0) {
+    char buf[4096];
+    if (GetCurrentDirectory(4096, buf) == 0) {
         zig_panic("GetCurrentDirectory failed");
     }
-    return 0;
+    buf_init_from_str(out_cwd, buf);
+    return ErrorNone;
 #elif defined(ZIG_OS_POSIX)
-    int err = ERANGE;
-    buf_resize(out_cwd, 512);
-    while (err == ERANGE) {
-        buf_resize(out_cwd, buf_len(out_cwd) * 2);
-        err = getcwd(buf_ptr(out_cwd), buf_len(out_cwd)) ? 0 : errno;
+    char buf[PATH_MAX];
+    char *res = getcwd(buf, PATH_MAX);
+    if (res == nullptr) {
+        zig_panic("unable to get cwd: %s", strerror(errno));
     }
-    if (err)
-        zig_panic("unable to get cwd: %s", strerror(err));
-
-    return 0;
+    buf_init_from_str(out_cwd, res);
+    return ErrorNone;
 #else
 #error "missing os_get_cwd implementation"
 #endif
@@ -812,44 +1265,6 @@ int os_buf_to_tmp_file(Buf *contents, Buf *suffix, Buf *out_tmp_path) {
 #endif
 }
 
-#if defined(ZIG_OS_POSIX)
-int os_get_global_cache_directory(Buf *out_tmp_path) {
-    const char *tmp_dir = getenv("TMPDIR");
-    if (!tmp_dir) {
-        tmp_dir = P_tmpdir;
-    }
-
-    Buf *tmp_dir_buf = buf_create_from_str(tmp_dir);
-    Buf *cache_dirname_buf = buf_create_from_str("zig-cache");
-
-    buf_resize(out_tmp_path, 0);
-    os_path_join(tmp_dir_buf, cache_dirname_buf, out_tmp_path);
-
-    buf_deinit(tmp_dir_buf);
-    buf_deinit(cache_dirname_buf);
-    return 0;
-}
-#endif
-
-#if defined(ZIG_OS_WINDOWS)
-int os_get_global_cache_directory(Buf *out_tmp_path) {
-    char tmp_dir[MAX_PATH + 1];
-    if (GetTempPath(MAX_PATH, tmp_dir) == 0) {
-        zig_panic("GetTempPath failed");
-    }
-
-    Buf *tmp_dir_buf = buf_create_from_str(tmp_dir);
-    Buf *cache_dirname_buf = buf_create_from_str("zig-cache");
-
-    buf_resize(out_tmp_path, 0);
-    os_path_join(tmp_dir_buf, cache_dirname_buf, out_tmp_path);
-
-    buf_deinit(tmp_dir_buf);
-    buf_deinit(cache_dirname_buf);
-    return 0;
-}
-#endif
-
 int os_delete_file(Buf *path) {
     if (remove(buf_ptr(path))) {
         return ErrorFileSystem;
@@ -898,22 +1313,21 @@ double os_get_time(void) {
 #endif
 }
 
-int os_make_path(Buf *path) {
-    Buf *resolved_path = buf_alloc();
-    os_path_resolve(buf_create_from_str("."), path, resolved_path);
+Error os_make_path(Buf *path) {
+    Buf resolved_path = os_path_resolve(&path, 1);
 
-    size_t end_index = buf_len(resolved_path);
-    int err;
+    size_t end_index = buf_len(&resolved_path);
+    Error err;
     while (true) {
-        if ((err = os_make_dir(buf_slice(resolved_path, 0, end_index)))) {
+        if ((err = os_make_dir(buf_slice(&resolved_path, 0, end_index)))) {
             if (err == ErrorPathAlreadyExists) {
-                if (end_index == buf_len(resolved_path))
-                    return 0;
+                if (end_index == buf_len(&resolved_path))
+                    return ErrorNone;
             } else if (err == ErrorFileNotFound) {
                 // march end_index backward until next path component
                 while (true) {
                     end_index -= 1;
-                    if (os_is_sep(buf_ptr(resolved_path)[end_index]))
+                    if (os_is_sep(buf_ptr(&resolved_path)[end_index]))
                         break;
                 }
                 continue;
@@ -921,19 +1335,19 @@ int os_make_path(Buf *path) {
                 return err;
             }
         }
-        if (end_index == buf_len(resolved_path))
-            return 0;
+        if (end_index == buf_len(&resolved_path))
+            return ErrorNone;
         // march end_index forward until next path component
         while (true) {
             end_index += 1;
-            if (end_index == buf_len(resolved_path) || os_is_sep(buf_ptr(resolved_path)[end_index]))
+            if (end_index == buf_len(&resolved_path) || os_is_sep(buf_ptr(&resolved_path)[end_index]))
                 break;
         }
     }
-    return 0;
+    return ErrorNone;
 }
 
-int os_make_dir(Buf *path) {
+Error os_make_dir(Buf *path) {
 #if defined(ZIG_OS_WINDOWS)
     if (!CreateDirectory(buf_ptr(path), NULL)) {
         if (GetLastError() == ERROR_ALREADY_EXISTS)
@@ -944,7 +1358,7 @@ int os_make_dir(Buf *path) {
             return ErrorAccess;
         return ErrorUnexpected;
     }
-    return 0;
+    return ErrorNone;
 #else
     if (mkdir(buf_ptr(path), 0755) == -1) {
         if (errno == EEXIST)
@@ -955,7 +1369,7 @@ int os_make_dir(Buf *path) {
             return ErrorAccess;
         return ErrorUnexpected;
     }
-    return 0;
+    return ErrorNone;
 #endif
 }
 
@@ -964,8 +1378,6 @@ int os_init(void) {
 #if defined(ZIG_OS_WINDOWS)
     _setmode(fileno(stdout), _O_BINARY);
     _setmode(fileno(stderr), _O_BINARY);
-#endif
-#if defined(ZIG_OS_WINDOWS)
     unsigned __int64 frequency;
     if (QueryPerformanceFrequency((LARGE_INTEGER*) &frequency)) {
         win32_time_resolution = 1.0 / (double) frequency;
@@ -978,7 +1390,7 @@ int os_init(void) {
     return 0;
 }
 
-int os_self_exe_path(Buf *out_path) {
+Error os_self_exe_path(Buf *out_path) {
 #if defined(ZIG_OS_WINDOWS)
     buf_resize(out_path, 256);
     for (;;) {
@@ -988,7 +1400,7 @@ int os_self_exe_path(Buf *out_path) {
         }
         if (copied_amt < buf_len(out_path)) {
             buf_resize(out_path, copied_amt);
-            return 0;
+            return ErrorNone;
         }
         buf_resize(out_path, buf_len(out_path) * 2);
     }
@@ -1011,27 +1423,21 @@ int os_self_exe_path(Buf *out_path) {
     char *real_path = realpath(buf_ptr(tmp), buf_ptr(out_path));
     if (!real_path) {
         buf_init_from_buf(out_path, tmp);
-        return 0;
+        return ErrorNone;
     }
 
     // Resize out_path for the correct length.
     buf_resize(out_path, strlen(buf_ptr(out_path)));
 
-    return 0;
+    return ErrorNone;
 #elif defined(ZIG_OS_LINUX)
-    buf_resize(out_path, 256);
-    for (;;) {
-        ssize_t amt = readlink("/proc/self/exe", buf_ptr(out_path), buf_len(out_path));
-        if (amt == -1) {
-            return ErrorUnexpected;
-        }
-        if (amt == (ssize_t)buf_len(out_path)) {
-            buf_resize(out_path, buf_len(out_path) * 2);
-            continue;
-        }
-        buf_resize(out_path, amt);
-        return 0;
+    buf_resize(out_path, PATH_MAX);
+    ssize_t amt = readlink("/proc/self/exe", buf_ptr(out_path), buf_len(out_path));
+    if (amt == -1) {
+        return ErrorUnexpected;
     }
+    buf_resize(out_path, amt);
+    return ErrorNone;
 #endif
     return ErrorFileNotFound;
 }
@@ -1115,249 +1521,10 @@ void os_stderr_set_color(TermColor color) {
 #endif
 }
 
-int os_find_windows_sdk(ZigWindowsSDK **out_sdk) {
-#if defined(ZIG_OS_WINDOWS)
-    ZigWindowsSDK *result_sdk = allocate<ZigWindowsSDK>(1);
-    buf_resize(&result_sdk->path10, 0);
-    buf_resize(&result_sdk->path81, 0);
-
-    HKEY key;
-    HRESULT rc;
-    rc = RegOpenKeyEx(HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\Windows Kits\\Installed Roots", 0, KEY_QUERY_VALUE | KEY_WOW64_32KEY | KEY_ENUMERATE_SUB_KEYS, &key);
-    if (rc != ERROR_SUCCESS) {
-        return ErrorFileNotFound;
-    }
-
-    {
-        DWORD tmp_buf_len = MAX_PATH;
-        buf_resize(&result_sdk->path10, tmp_buf_len);
-        rc = RegQueryValueEx(key, "KitsRoot10", NULL, NULL, (LPBYTE)buf_ptr(&result_sdk->path10), &tmp_buf_len);
-        if (rc == ERROR_FILE_NOT_FOUND) {
-            buf_resize(&result_sdk->path10, 0);
-        } else {
-            buf_resize(&result_sdk->path10, tmp_buf_len);
-        }
-    }
-    {
-        DWORD tmp_buf_len = MAX_PATH;
-        buf_resize(&result_sdk->path81, tmp_buf_len);
-        rc = RegQueryValueEx(key, "KitsRoot81", NULL, NULL, (LPBYTE)buf_ptr(&result_sdk->path81), &tmp_buf_len);
-        if (rc == ERROR_FILE_NOT_FOUND) {
-            buf_resize(&result_sdk->path81, 0);
-        } else {
-            buf_resize(&result_sdk->path81, tmp_buf_len);
-        }
-    }
-
-    if (buf_len(&result_sdk->path10) != 0) {
-        Buf *sdk_lib_dir = buf_sprintf("%s\\Lib\\*", buf_ptr(&result_sdk->path10));
-
-        // enumerate files in sdk path looking for latest version
-        WIN32_FIND_DATA ffd;
-        HANDLE hFind = FindFirstFileA(buf_ptr(sdk_lib_dir), &ffd);
-        if (hFind == INVALID_HANDLE_VALUE) {
-            return ErrorFileNotFound;
-        }
-        int v0 = 0, v1 = 0, v2 = 0, v3 = 0;
-        bool found_version_dir = false;
-        for (;;) {
-            if (ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-                int c0 = 0, c1 = 0, c2 = 0, c3 = 0;
-                sscanf(ffd.cFileName, "%d.%d.%d.%d", &c0, &c1, &c2, &c3);
-                if (c0 == 10 && c1 == 0 && c2 == 10240 && c3 == 0) {
-                    // Microsoft released 26624 as 10240 accidentally.
-                    // https://developer.microsoft.com/en-us/windows/downloads/sdk-archive
-                    c2 = 26624;
-                }
-                if ((c0 > v0) || (c1 > v1) || (c2 > v2) || (c3 > v3)) {
-                    v0 = c0, v1 = c1, v2 = c2, v3 = c3;
-                    buf_init_from_str(&result_sdk->version10, ffd.cFileName);
-                    found_version_dir = true;
-                }
-            }
-            if (FindNextFile(hFind, &ffd) == 0) {
-                FindClose(hFind);
-                break;
-            }
-        }
-        if (!found_version_dir) {
-            buf_resize(&result_sdk->path10, 0);
-        }
-    }
-
-    if (buf_len(&result_sdk->path81) != 0) {
-        Buf *sdk_lib_dir = buf_sprintf("%s\\Lib\\winv*", buf_ptr(&result_sdk->path81));
-
-        // enumerate files in sdk path looking for latest version
-        WIN32_FIND_DATA ffd;
-        HANDLE hFind = FindFirstFileA(buf_ptr(sdk_lib_dir), &ffd);
-        if (hFind == INVALID_HANDLE_VALUE) {
-            return ErrorFileNotFound;
-        }
-        int v0 = 0, v1 = 0;
-        bool found_version_dir = false;
-        for (;;) {
-            if (ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-                int c0 = 0, c1 = 0;
-                sscanf(ffd.cFileName, "winv%d.%d", &c0, &c1);
-                if ((c0 > v0) || (c1 > v1)) {
-                    v0 = c0, v1 = c1;
-                    buf_init_from_str(&result_sdk->version81, ffd.cFileName);
-                    found_version_dir = true;
-                }
-            }
-            if (FindNextFile(hFind, &ffd) == 0) {
-                FindClose(hFind);
-                break;
-            }
-        }
-        if (!found_version_dir) {
-            buf_resize(&result_sdk->path81, 0);
-        }
-    }
-
-    *out_sdk = result_sdk;
-    return 0;
-#else
-    return ErrorFileNotFound;
-#endif
-}
-
-int os_get_win32_vcruntime_path(Buf* output_buf, ZigLLVM_ArchType platform_type) {
-#if defined(ZIG_OS_WINDOWS)
-    buf_resize(output_buf, 0);
-    //COM Smart Pointerse requires explicit scope
-    {
-        HRESULT rc;
-        rc = CoInitializeEx(NULL, COINIT_MULTITHREADED);
-        if (rc != S_OK) {
-            goto com_done;
-        }
-
-        //This COM class is installed when a VS2017
-        ISetupConfigurationPtr setup_config;
-        rc = setup_config.CreateInstance(__uuidof(SetupConfiguration));
-        if (rc != S_OK) {
-            goto com_done;
-        }
-
-        IEnumSetupInstancesPtr all_instances;
-        rc = setup_config->EnumInstances(&all_instances);
-        if (rc != S_OK) {
-            goto com_done;
-        }
-
-        ISetupInstance* curr_instance;
-        ULONG found_inst;
-        while ((rc = all_instances->Next(1, &curr_instance, &found_inst) == S_OK)) {
-            BSTR bstr_inst_path;
-            rc = curr_instance->GetInstallationPath(&bstr_inst_path);
-            if (rc != S_OK) {
-                goto com_done;
-            }
-            //BSTRs are UTF-16 encoded, so we need to convert the string & adjust the length
-            UINT bstr_path_len = *((UINT*)bstr_inst_path - 1);
-            ULONG tmp_path_len = bstr_path_len / 2 + 1;
-            char* conv_path = (char*)bstr_inst_path;
-            char *tmp_path = (char*)alloca(tmp_path_len);
-            memset(tmp_path, 0, tmp_path_len);
-            uint32_t c = 0;
-            for (uint32_t i = 0; i < bstr_path_len; i += 2) {
-                tmp_path[c] = conv_path[i];
-                ++c;
-                assert(c != tmp_path_len);
-            }
-
-            buf_append_str(output_buf, tmp_path);
-            buf_append_char(output_buf, '\\');
-
-            Buf* tmp_buf = buf_alloc();
-            buf_append_buf(tmp_buf, output_buf);
-            buf_append_str(tmp_buf, "VC\\Auxiliary\\Build\\Microsoft.VCToolsVersion.default.txt");
-            FILE* tools_file = fopen(buf_ptr(tmp_buf), "r");
-            if (!tools_file) {
-                goto com_done;
-            }
-            memset(tmp_path, 0, tmp_path_len);
-            fgets(tmp_path, tmp_path_len, tools_file);
-            strtok(tmp_path, " \r\n");
-            fclose(tools_file);
-            buf_appendf(output_buf, "VC\\Tools\\MSVC\\%s\\lib\\", tmp_path);
-            switch (platform_type) {
-            case ZigLLVM_x86:
-                buf_append_str(output_buf, "x86\\");
-                break;
-            case ZigLLVM_x86_64:
-                buf_append_str(output_buf, "x64\\");
-                break;
-            case ZigLLVM_arm:
-                buf_append_str(output_buf, "arm\\");
-                break;
-            default:
-                zig_panic("Attemped to use vcruntime for non-supported platform.");
-            }
-            buf_resize(tmp_buf, 0);
-            buf_append_buf(tmp_buf, output_buf);
-            buf_append_str(tmp_buf, "vcruntime.lib");
-
-            if (GetFileAttributesA(buf_ptr(tmp_buf)) != INVALID_FILE_ATTRIBUTES) {
-                return 0;
-            }
-        }
-    }
-
-com_done:;
-    HKEY key;
-    HRESULT rc;
-    rc = RegOpenKeyEx(HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\VisualStudio\\SxS\\VS7", 0, KEY_QUERY_VALUE | KEY_WOW64_32KEY, &key);
-    if (rc != ERROR_SUCCESS) {
-        return ErrorFileNotFound;
-    }
-
-    DWORD dw_type = 0;
-    DWORD cb_data = 0;
-    rc = RegQueryValueEx(key, "14.0", NULL, &dw_type, NULL, &cb_data);
-    if ((rc == ERROR_FILE_NOT_FOUND) || (REG_SZ != dw_type)) {
-        return ErrorFileNotFound;
-    }
-
-    Buf* tmp_buf = buf_alloc_fixed(cb_data);
-    RegQueryValueExA(key, "14.0", NULL, NULL, (LPBYTE)buf_ptr(tmp_buf), &cb_data);
-    //RegQueryValueExA returns the length of the string INCLUDING the null terminator
-    buf_resize(tmp_buf, cb_data-1);
-    buf_append_str(tmp_buf, "VC\\Lib\\");
-    switch (platform_type) {
-    case ZigLLVM_x86:
-        //x86 is in the root of the Lib folder
-        break;
-    case ZigLLVM_x86_64:
-        buf_append_str(tmp_buf, "amd64\\");
-        break;
-    case ZigLLVM_arm:
-        buf_append_str(tmp_buf, "arm\\");
-        break;
-    default:
-        zig_panic("Attemped to use vcruntime for non-supported platform.");
-    }
-
-    buf_append_buf(output_buf, tmp_buf);
-    buf_append_str(tmp_buf, "vcruntime.lib");
-
-    if (GetFileAttributesA(buf_ptr(tmp_buf)) != INVALID_FILE_ATTRIBUTES) {
-        return 0;
-    } else {
-        buf_resize(output_buf, 0);
-        return ErrorFileNotFound;
-    }
-#else
-    return ErrorFileNotFound;
-#endif
-}
-
 int os_get_win32_ucrt_lib_path(ZigWindowsSDK *sdk, Buf* output_buf, ZigLLVM_ArchType platform_type) {
 #if defined(ZIG_OS_WINDOWS)
     buf_resize(output_buf, 0);
-    buf_appendf(output_buf, "%s\\Lib\\%s\\ucrt\\", buf_ptr(&sdk->path10), buf_ptr(&sdk->version10));
+    buf_appendf(output_buf, "%s\\Lib\\%s\\ucrt\\", sdk->path10_ptr, sdk->version10_ptr);
     switch (platform_type) {
     case ZigLLVM_x86:
         buf_append_str(output_buf, "x86\\");
@@ -1389,7 +1556,7 @@ int os_get_win32_ucrt_lib_path(ZigWindowsSDK *sdk, Buf* output_buf, ZigLLVM_Arch
 int os_get_win32_ucrt_include_path(ZigWindowsSDK *sdk, Buf* output_buf) {
 #if defined(ZIG_OS_WINDOWS)
     buf_resize(output_buf, 0);
-    buf_appendf(output_buf, "%s\\Include\\%s\\ucrt", buf_ptr(&sdk->path10), buf_ptr(&sdk->version10));
+    buf_appendf(output_buf, "%s\\Include\\%s\\ucrt", sdk->path10_ptr, sdk->version10_ptr);
     if (GetFileAttributesA(buf_ptr(output_buf)) != INVALID_FILE_ATTRIBUTES) {
         return 0;
     }
@@ -1406,7 +1573,7 @@ int os_get_win32_kern32_path(ZigWindowsSDK *sdk, Buf* output_buf, ZigLLVM_ArchTy
 #if defined(ZIG_OS_WINDOWS)
     {
         buf_resize(output_buf, 0);
-        buf_appendf(output_buf, "%s\\Lib\\%s\\um\\", buf_ptr(&sdk->path10), buf_ptr(&sdk->version10));
+        buf_appendf(output_buf, "%s\\Lib\\%s\\um\\", sdk->path10_ptr, sdk->version10_ptr);
         switch (platform_type) {
         case ZigLLVM_x86:
             buf_append_str(output_buf, "x86\\");
@@ -1429,7 +1596,7 @@ int os_get_win32_kern32_path(ZigWindowsSDK *sdk, Buf* output_buf, ZigLLVM_ArchTy
     }
     {
         buf_resize(output_buf, 0);
-        buf_appendf(output_buf, "%s\\Lib\\%s\\um\\", buf_ptr(&sdk->path81), buf_ptr(&sdk->version81));
+        buf_appendf(output_buf, "%s\\Lib\\%s\\um\\", sdk->path81_ptr, sdk->version81_ptr);
         switch (platform_type) {
         case ZigLLVM_x86:
             buf_append_str(output_buf, "x86\\");
@@ -1453,5 +1620,433 @@ int os_get_win32_kern32_path(ZigWindowsSDK *sdk, Buf* output_buf, ZigLLVM_ArchTy
     return ErrorFileNotFound;
 #else
     return ErrorFileNotFound;
+#endif
+}
+
+#if defined(ZIG_OS_WINDOWS)
+// Ported from std/unicode.zig
+struct Utf16LeIterator {
+    uint8_t *bytes;
+    size_t i;
+};
+
+// Ported from std/unicode.zig
+static Utf16LeIterator Utf16LeIterator_init(WCHAR *ptr) {
+    return {(uint8_t*)ptr, 0};
+}
+
+// Ported from std/unicode.zig
+static Optional<uint32_t> Utf16LeIterator_nextCodepoint(Utf16LeIterator *it) {
+    if (it->bytes[it->i] == 0 && it->bytes[it->i + 1] == 0)
+        return {};
+    uint32_t c0 = ((uint32_t)it->bytes[it->i]) | (((uint32_t)it->bytes[it->i + 1]) << 8);
+    if ((c0 & ~((uint32_t)0x03ff)) == 0xd800) {
+        // surrogate pair
+        it->i += 2;
+        assert(it->bytes[it->i] != 0 || it->bytes[it->i + 1] != 0);
+        uint32_t c1 = ((uint32_t)it->bytes[it->i]) | (((uint32_t)it->bytes[it->i + 1]) << 8);
+        assert((c1 & ~((uint32_t)0x03ff)) == 0xdc00);
+        it->i += 2;
+        return Optional<uint32_t>::some(0x10000 + (((c0 & 0x03ff) << 10) | (c1 & 0x03ff)));
+    } else {
+        assert((c0 & ~((uint32_t)0x03ff)) != 0xdc00);
+        it->i += 2;
+        return Optional<uint32_t>::some(c0);
+    }
+}
+
+// Ported from std/unicode.zig
+static uint8_t utf8CodepointSequenceLength(uint32_t c) {
+    if (c < 0x80) return 1;
+    if (c < 0x800) return 2;
+    if (c < 0x10000) return 3;
+    if (c < 0x110000) return 4;
+    zig_unreachable();
+}
+
+// Ported from std/unicode.zig
+static size_t utf8Encode(uint32_t c, Slice<uint8_t> out) {
+    size_t length = utf8CodepointSequenceLength(c);
+    assert(out.len >= length);
+    switch (length) {
+        // The pattern for each is the same
+        // - Increasing the initial shift by 6 each time
+        // - Each time after the first shorten the shifted
+        //   value to a max of 0b111111 (63)
+        case 1:
+            out.ptr[0] = c; // Can just do 0 + codepoint for initial range
+            break;
+        case 2:
+            out.ptr[0] = 0b11000000 | (c >> 6);
+            out.ptr[1] = 0b10000000 | (c & 0b111111);
+            break;
+        case 3:
+            assert(!(0xd800 <= c && c <= 0xdfff));
+            out.ptr[0] = 0b11100000 | (c >> 12);
+            out.ptr[1] = 0b10000000 | ((c >> 6) & 0b111111);
+            out.ptr[2] = 0b10000000 | (c & 0b111111);
+            break;
+        case 4:
+            out.ptr[0] = 0b11110000 | (c >> 18);
+            out.ptr[1] = 0b10000000 | ((c >> 12) & 0b111111);
+            out.ptr[2] = 0b10000000 | ((c >> 6) & 0b111111);
+            out.ptr[3] = 0b10000000 | (c & 0b111111);
+            break;
+        default:
+            zig_unreachable();
+    }
+    return length;
+}
+
+// Ported from std.unicode.utf16leToUtf8Alloc
+static void utf16le_ptr_to_utf8(Buf *out, WCHAR *utf16le) {
+    // optimistically guess that it will all be ascii.
+    buf_resize(out, 0);
+    size_t out_index = 0;
+    Utf16LeIterator it = Utf16LeIterator_init(utf16le);
+    for (;;) {
+        Optional<uint32_t> opt_codepoint = Utf16LeIterator_nextCodepoint(&it);
+        if (!opt_codepoint.is_some) break;
+        uint32_t codepoint = opt_codepoint.value;
+
+        size_t utf8_len = utf8CodepointSequenceLength(codepoint);
+        buf_resize(out, buf_len(out) + utf8_len);
+        utf8Encode(codepoint, {(uint8_t*)buf_ptr(out)+out_index, buf_len(out)-out_index});
+        out_index += utf8_len;
+    }
+}
+#endif
+
+// Ported from std.os.getAppDataDir
+Error os_get_app_data_dir(Buf *out_path, const char *appname) {
+#if defined(ZIG_OS_WINDOWS)
+    WCHAR *dir_path_ptr;
+    switch (SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_CREATE, nullptr, &dir_path_ptr)) {
+        case S_OK:
+            // defer os.windows.CoTaskMemFree(@ptrCast(*c_void, dir_path_ptr));
+            utf16le_ptr_to_utf8(out_path, dir_path_ptr);
+            CoTaskMemFree(dir_path_ptr);
+            buf_appendf(out_path, "\\%s", appname);
+            return ErrorNone;
+        case E_OUTOFMEMORY:
+            return ErrorNoMem;
+        default:
+            return ErrorUnexpected;
+    }
+    zig_unreachable();
+#elif defined(ZIG_OS_DARWIN)
+    const char *home_dir = getenv("HOME");
+    if (home_dir == nullptr) {
+        // TODO use /etc/passwd
+        return ErrorFileNotFound;
+    }
+    buf_resize(out_path, 0);
+    buf_appendf(out_path, "%s/Library/Application Support/%s", home_dir, appname);
+    return ErrorNone;
+#elif defined(ZIG_OS_LINUX)
+    const char *home_dir = getenv("HOME");
+    if (home_dir == nullptr) {
+        // TODO use /etc/passwd
+        return ErrorFileNotFound;
+    }
+    buf_resize(out_path, 0);
+    buf_appendf(out_path, "%s/.local/share/%s", home_dir, appname);
+    return ErrorNone;
+#endif
+}
+
+
+#if defined(ZIG_OS_LINUX)
+static int self_exe_shared_libs_callback(struct dl_phdr_info *info, size_t size, void *data) {
+    ZigList<Buf *> *libs = reinterpret_cast< ZigList<Buf *> *>(data);
+    if (info->dlpi_name[0] == '/') {
+        libs->append(buf_create_from_str(info->dlpi_name));
+    }
+    return 0;
+}
+#endif
+
+Error os_self_exe_shared_libs(ZigList<Buf *> &paths) {
+#if defined(ZIG_OS_LINUX)
+    paths.resize(0);
+    dl_iterate_phdr(self_exe_shared_libs_callback, &paths);
+    return ErrorNone;
+#elif defined(ZIG_OS_DARWIN)
+    paths.resize(0);
+    uint32_t img_count = _dyld_image_count();
+    for (uint32_t i = 0; i != img_count; i += 1) {
+        const char *name = _dyld_get_image_name(i);
+        paths.append(buf_create_from_str(name));
+    }
+    return ErrorNone;
+#elif defined(ZIG_OS_WINDOWS)
+    // zig is built statically on windows, so we can return an empty list
+    paths.resize(0);
+    return ErrorNone;
+#else
+#error unimplemented
+#endif
+}
+
+Error os_file_open_r(Buf *full_path, OsFile *out_file) {
+#if defined(ZIG_OS_WINDOWS)
+    // TODO use CreateFileW
+    HANDLE result = CreateFileA(buf_ptr(full_path), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+
+    if (result == INVALID_HANDLE_VALUE) {
+        DWORD err = GetLastError();
+        switch (err) {
+            case ERROR_SHARING_VIOLATION:
+                return ErrorSharingViolation;
+            case ERROR_ALREADY_EXISTS:
+                return ErrorPathAlreadyExists;
+            case ERROR_FILE_EXISTS:
+                return ErrorPathAlreadyExists;
+            case ERROR_FILE_NOT_FOUND:
+                return ErrorFileNotFound;
+            case ERROR_PATH_NOT_FOUND:
+                return ErrorFileNotFound;
+            case ERROR_ACCESS_DENIED:
+                return ErrorAccess;
+            case ERROR_PIPE_BUSY:
+                return ErrorPipeBusy;
+            default:
+                return ErrorUnexpected;
+        }
+    }
+
+    *out_file = result;
+    return ErrorNone;
+#else
+    for (;;) {
+        int fd = open(buf_ptr(full_path), O_RDONLY|O_CLOEXEC);
+        if (fd == -1) {
+            switch (errno) {
+                case EINTR:
+                    continue;
+                case EINVAL:
+                    zig_unreachable();
+                case EFAULT:
+                    zig_unreachable();
+                case EACCES:
+                    return ErrorAccess;
+                case EISDIR:
+                    return ErrorIsDir;
+                case ENOENT:
+                    return ErrorFileNotFound;
+                default:
+                    return ErrorFileSystem;
+            }
+        }
+        *out_file = fd;
+        return ErrorNone;
+    }
+#endif
+}
+
+Error os_file_open_lock_rw(Buf *full_path, OsFile *out_file) {
+#if defined(ZIG_OS_WINDOWS)
+    for (;;) {
+        HANDLE result = CreateFileA(buf_ptr(full_path), GENERIC_READ | GENERIC_WRITE,
+            0, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+
+        if (result == INVALID_HANDLE_VALUE) {
+            DWORD err = GetLastError();
+            switch (err) {
+                case ERROR_SHARING_VIOLATION:
+                    // TODO wait for the lock instead of sleeping
+                    Sleep(10);
+                    continue;
+                case ERROR_ALREADY_EXISTS:
+                    return ErrorPathAlreadyExists;
+                case ERROR_FILE_EXISTS:
+                    return ErrorPathAlreadyExists;
+                case ERROR_FILE_NOT_FOUND:
+                    return ErrorFileNotFound;
+                case ERROR_PATH_NOT_FOUND:
+                    return ErrorFileNotFound;
+                case ERROR_ACCESS_DENIED:
+                    return ErrorAccess;
+                case ERROR_PIPE_BUSY:
+                    return ErrorPipeBusy;
+                default:
+                    return ErrorUnexpected;
+            }
+        }
+        *out_file = result;
+        return ErrorNone;
+    }
+#else
+    int fd;
+    for (;;) {
+        fd = open(buf_ptr(full_path), O_RDWR|O_CLOEXEC|O_CREAT, 0666);
+        if (fd == -1) {
+            switch (errno) {
+                case EINTR:
+                    continue;
+                case EINVAL:
+                    zig_unreachable();
+                case EFAULT:
+                    zig_unreachable();
+                case EACCES:
+                    return ErrorAccess;
+                case EISDIR:
+                    return ErrorIsDir;
+                case ENOENT:
+                    return ErrorFileNotFound;
+                default:
+                    return ErrorFileSystem;
+            }
+        }
+        break;
+    }
+    for (;;) {
+        struct flock lock;
+        lock.l_type = F_WRLCK;
+        lock.l_whence = SEEK_SET;
+        lock.l_start = 0;
+        lock.l_len = 0;
+        if (fcntl(fd, F_SETLKW, &lock) == -1) {
+            switch (errno) {
+                case EINTR:
+                    continue;
+                case EBADF:
+                    zig_unreachable();
+                case EFAULT:
+                    zig_unreachable();
+                case EINVAL:
+                    zig_unreachable();
+                default:
+                    close(fd);
+                    return ErrorFileSystem;
+            }
+        }
+        break;
+    }
+    *out_file = fd;
+    return ErrorNone;
+#endif
+}
+
+Error os_file_mtime(OsFile file, OsTimeStamp *mtime) {
+#if defined(ZIG_OS_WINDOWS)
+    FILETIME last_write_time;
+    if (!GetFileTime(file, nullptr, nullptr, &last_write_time))
+        return ErrorUnexpected;
+    mtime->sec = (((ULONGLONG) last_write_time.dwHighDateTime) << 32) + last_write_time.dwLowDateTime;
+    mtime->nsec = 0;
+    return ErrorNone;
+#elif defined(ZIG_OS_LINUX)
+    struct stat statbuf;
+    if (fstat(file, &statbuf) == -1)
+        return ErrorFileSystem;
+
+    mtime->sec = statbuf.st_mtim.tv_sec;
+    mtime->nsec = statbuf.st_mtim.tv_nsec;
+    return ErrorNone;
+#elif defined(ZIG_OS_DARWIN)
+    struct stat statbuf;
+    if (fstat(file, &statbuf) == -1)
+        return ErrorFileSystem;
+
+    mtime->sec = statbuf.st_mtimespec.tv_sec;
+    mtime->nsec = statbuf.st_mtimespec.tv_nsec;
+    return ErrorNone;
+#else
+#error unimplemented
+#endif
+}
+
+Error os_file_read(OsFile file, void *ptr, size_t *len) {
+#if defined(ZIG_OS_WINDOWS)
+    DWORD amt_read;
+    if (ReadFile(file, ptr, *len, &amt_read, nullptr) == 0)
+        return ErrorUnexpected;
+    *len = amt_read;
+    return ErrorNone;
+#else
+    for (;;) {
+        ssize_t rc = read(file, ptr, *len);
+        if (rc == -1) {
+            switch (errno) {
+                case EINTR:
+                    continue;
+                case EBADF:
+                    zig_unreachable();
+                case EFAULT:
+                    zig_unreachable();
+                case EISDIR:
+                    zig_unreachable();
+                default:
+                    return ErrorFileSystem;
+            }
+        }
+        *len = rc;
+        return ErrorNone;
+    }
+#endif
+}
+
+Error os_file_read_all(OsFile file, Buf *contents) {
+    Error err;
+    size_t index = 0;
+    for (;;) {
+        size_t amt = buf_len(contents) - index;
+
+        if (amt < 4096) {
+            buf_resize(contents, buf_len(contents) + (4096 - amt));
+            amt = buf_len(contents) - index;
+        }
+
+        if ((err = os_file_read(file, buf_ptr(contents) + index, &amt)))
+            return err;
+
+        if (amt == 0) {
+            buf_resize(contents, index);
+            return ErrorNone;
+        }
+
+        index += amt;
+    }
+}
+
+Error os_file_overwrite(OsFile file, Buf *contents) {
+#if defined(ZIG_OS_WINDOWS)
+    if (SetFilePointer(file, 0, nullptr, FILE_BEGIN) == INVALID_SET_FILE_POINTER)
+        return ErrorFileSystem;
+    if (!SetEndOfFile(file))
+        return ErrorFileSystem;
+    DWORD bytes_written;
+    if (!WriteFile(file, buf_ptr(contents), buf_len(contents), &bytes_written, nullptr))
+        return ErrorFileSystem;
+    return ErrorNone;
+#else
+    if (lseek(file, 0, SEEK_SET) == -1)
+        return ErrorFileSystem;
+    if (ftruncate(file, 0) == -1)
+        return ErrorFileSystem;
+    for (;;) {
+        if (write(file, buf_ptr(contents), buf_len(contents)) == -1) {
+            switch (errno) {
+                case EINTR:
+                    continue;
+                case EINVAL:
+                    zig_unreachable();
+                case EBADF:
+                    zig_unreachable();
+                default:
+                    return ErrorFileSystem;
+            }
+        }
+        return ErrorNone;
+    }
+#endif
+}
+
+void os_file_close(OsFile file) {
+#if defined(ZIG_OS_WINDOWS)
+    CloseHandle(file);
+#else
+    close(file);
 #endif
 }

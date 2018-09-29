@@ -1,6 +1,6 @@
-# RUN: not lld -flavor darwin -arch x86_64 -macosx_version_min 10.9 -twolevel_namespace -undefined warning %s -o %t %p/Inputs/x86_64/libSystem.yaml 2>&1 | \
+# RUN: not ld64.lld -arch x86_64 -macosx_version_min 10.9 -twolevel_namespace -undefined warning %s -o %t %p/Inputs/x86_64/libSystem.yaml 2>&1 | \
 # RUN:   FileCheck --check-prefix=CHECK-WARNING %s
-# RUN: not lld -flavor darwin -arch x86_64 -macosx_version_min 10.9 -twolevel_namespace -undefined suppress %s -o %t %p/Inputs/x86_64/libSystem.yaml 2>&1 | \
+# RUN: not ld64.lld -arch x86_64 -macosx_version_min 10.9 -twolevel_namespace -undefined suppress %s -o %t %p/Inputs/x86_64/libSystem.yaml 2>&1 | \
 # RUN:   FileCheck --check-prefix=CHECK-SUPPRESS %s
 
 --- !native

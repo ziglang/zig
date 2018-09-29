@@ -11,7 +11,7 @@ pub fn ArrayList(comptime T: type) type {
 
 pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
     return struct {
-        const Self = this;
+        const Self = @This();
 
         /// Use toSlice instead of slicing this directly, because if you don't
         /// specify the end position of the slice, this will potentially give
@@ -41,8 +41,8 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
             return self.items[0..self.len];
         }
 
-        pub fn at(self: Self, n: usize) T {
-            return self.toSliceConst()[n];
+        pub fn at(self: Self, i: usize) T {
+            return self.toSliceConst()[i];
         }
 
         /// Sets the value at index `i`, or returns `error.OutOfBounds` if
@@ -60,6 +60,10 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
 
         pub fn count(self: Self) usize {
             return self.len;
+        }
+
+        pub fn capacity(self: Self) usize {
+            return self.items.len;
         }
 
         /// ArrayList takes ownership of the passed in slice. The slice must have been
@@ -85,7 +89,7 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
             try self.ensureCapacity(self.len + 1);
             self.len += 1;
 
-            mem.copy(T, self.items[n + 1 .. self.len], self.items[n .. self.len - 1]);
+            mem.copyBackwards(T, self.items[n + 1 .. self.len], self.items[n .. self.len - 1]);
             self.items[n] = item;
         }
 
@@ -93,13 +97,37 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
             try self.ensureCapacity(self.len + items.len);
             self.len += items.len;
 
-            mem.copy(T, self.items[n + items.len .. self.len], self.items[n .. self.len - items.len]);
+            mem.copyBackwards(T, self.items[n + items.len .. self.len], self.items[n .. self.len - items.len]);
             mem.copy(T, self.items[n .. n + items.len], items);
         }
 
         pub fn append(self: *Self, item: T) !void {
             const new_item_ptr = try self.addOne();
             new_item_ptr.* = item;
+        }
+
+        pub fn appendAssumeCapacity(self: *Self, item: T) void {
+            const new_item_ptr = self.addOneAssumeCapacity();
+            new_item_ptr.* = item;
+        }
+
+        /// Removes the element at the specified index and returns it.
+        /// The empty slot is filled from the end of the list.
+        pub fn swapRemove(self: *Self, i: usize) T {
+            if (self.len - 1 == i) return self.pop();
+
+            const slice = self.toSlice();
+            const old_item = slice[i];
+            slice[i] = self.pop();
+            return old_item;
+        }
+
+        /// Removes the element at the specified index and returns it
+        /// or an error.OutOfBounds is returned. If no error then
+        /// the empty slot is filled from the end of the list.
+        pub fn swapRemoveOrError(self: *Self, i: usize) !T {
+            if (i >= self.len) return error.OutOfBounds;
+            return self.swapRemove(i);
         }
 
         pub fn appendSlice(self: *Self, items: []align(A) const T) !void {
@@ -119,7 +147,7 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
         }
 
         pub fn ensureCapacity(self: *Self, new_capacity: usize) !void {
-            var better_capacity = self.items.len;
+            var better_capacity = self.capacity();
             if (better_capacity >= new_capacity) return;
             while (true) {
                 better_capacity += better_capacity / 2 + 8;
@@ -131,8 +159,13 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
         pub fn addOne(self: *Self) !*T {
             const new_length = self.len + 1;
             try self.ensureCapacity(new_length);
+            return self.addOneAssumeCapacity();
+        }
+
+        pub fn addOneAssumeCapacity(self: *Self) *T {
+            assert(self.count() < self.capacity());
             const result = &self.items[self.len];
-            self.len = new_length;
+            self.len += 1;
             return result;
         }
 
@@ -172,7 +205,18 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
     };
 }
 
-test "basic ArrayList test" {
+test "std.ArrayList.init" {
+    var bytes: [1024]u8 = undefined;
+    const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
+
+    var list = ArrayList(i32).init(allocator);
+    defer list.deinit();
+
+    assert(list.count() == 0);
+    assert(list.capacity() == 0);
+}
+
+test "std.ArrayList.basic" {
     var bytes: [1024]u8 = undefined;
     const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
 
@@ -232,7 +276,62 @@ test "basic ArrayList test" {
     assert(list.pop() == 33);
 }
 
-test "iterator ArrayList test" {
+test "std.ArrayList.swapRemove" {
+    var list = ArrayList(i32).init(debug.global_allocator);
+    defer list.deinit();
+
+    try list.append(1);
+    try list.append(2);
+    try list.append(3);
+    try list.append(4);
+    try list.append(5);
+    try list.append(6);
+    try list.append(7);
+
+    //remove from middle
+    assert(list.swapRemove(3) == 4);
+    assert(list.at(3) == 7);
+    assert(list.len == 6);
+
+    //remove from end
+    assert(list.swapRemove(5) == 6);
+    assert(list.len == 5);
+
+    //remove from front
+    assert(list.swapRemove(0) == 1);
+    assert(list.at(0) == 5);
+    assert(list.len == 4);
+}
+
+test "std.ArrayList.swapRemoveOrError" {
+    var list = ArrayList(i32).init(debug.global_allocator);
+    defer list.deinit();
+
+    // Test just after initialization
+    assertError(list.swapRemoveOrError(0), error.OutOfBounds);
+
+    // Test after adding one item and remote it
+    try list.append(1);
+    assert((try list.swapRemoveOrError(0)) == 1);
+    assertError(list.swapRemoveOrError(0), error.OutOfBounds);
+
+    // Test after adding two items and remote both
+    try list.append(1);
+    try list.append(2);
+    assert((try list.swapRemoveOrError(1)) == 2);
+    assert((try list.swapRemoveOrError(0)) == 1);
+    assertError(list.swapRemoveOrError(0), error.OutOfBounds);
+
+    // Test out of bounds with one item
+    try list.append(1);
+    assertError(list.swapRemoveOrError(1), error.OutOfBounds);
+
+    // Test out of bounds with two items
+    try list.append(2);
+    assertError(list.swapRemoveOrError(2), error.OutOfBounds);
+}
+
+test "std.ArrayList.iterator" {
     var list = ArrayList(i32).init(debug.global_allocator);
     defer list.deinit();
 
@@ -261,24 +360,41 @@ test "iterator ArrayList test" {
     assert(it.next().? == 1);
 }
 
-test "insert ArrayList test" {
+test "std.ArrayList.insert" {
     var list = ArrayList(i32).init(debug.global_allocator);
     defer list.deinit();
 
     try list.append(1);
+    try list.append(2);
+    try list.append(3);
     try list.insert(0, 5);
     assert(list.items[0] == 5);
     assert(list.items[1] == 1);
+    assert(list.items[2] == 2);
+    assert(list.items[3] == 3);
+}
 
+test "std.ArrayList.insertSlice" {
+    var list = ArrayList(i32).init(debug.global_allocator);
+    defer list.deinit();
+
+    try list.append(1);
+    try list.append(2);
+    try list.append(3);
+    try list.append(4);
     try list.insertSlice(1, []const i32{
         9,
         8,
     });
-    assert(list.items[0] == 5);
+    assert(list.items[0] == 1);
     assert(list.items[1] == 9);
     assert(list.items[2] == 8);
+    assert(list.items[3] == 2);
+    assert(list.items[4] == 3);
+    assert(list.items[5] == 4);
 
     const items = []const i32{1};
     try list.insertSlice(0, items[0..0]);
-    assert(list.items[0] == 5);
+    assert(list.len == 6);
+    assert(list.items[0] == 1);
 }

@@ -567,6 +567,37 @@ pub const MNT_DETACH = 2;
 pub const MNT_EXPIRE = 4;
 pub const UMOUNT_NOFOLLOW = 8;
 
+pub const IN_CLOEXEC = O_CLOEXEC;
+pub const IN_NONBLOCK = O_NONBLOCK;
+
+pub const IN_ACCESS = 0x00000001;
+pub const IN_MODIFY = 0x00000002;
+pub const IN_ATTRIB = 0x00000004;
+pub const IN_CLOSE_WRITE = 0x00000008;
+pub const IN_CLOSE_NOWRITE = 0x00000010;
+pub const IN_CLOSE = IN_CLOSE_WRITE | IN_CLOSE_NOWRITE;
+pub const IN_OPEN = 0x00000020;
+pub const IN_MOVED_FROM = 0x00000040;
+pub const IN_MOVED_TO = 0x00000080;
+pub const IN_MOVE = IN_MOVED_FROM | IN_MOVED_TO;
+pub const IN_CREATE = 0x00000100;
+pub const IN_DELETE = 0x00000200;
+pub const IN_DELETE_SELF = 0x00000400;
+pub const IN_MOVE_SELF = 0x00000800;
+pub const IN_ALL_EVENTS = 0x00000fff;
+
+pub const IN_UNMOUNT = 0x00002000;
+pub const IN_Q_OVERFLOW = 0x00004000;
+pub const IN_IGNORED = 0x00008000;
+
+pub const IN_ONLYDIR = 0x01000000;
+pub const IN_DONT_FOLLOW = 0x02000000;
+pub const IN_EXCL_UNLINK = 0x04000000;
+pub const IN_MASK_ADD = 0x20000000;
+
+pub const IN_ISDIR = 0x40000000;
+pub const IN_ONESHOT = 0x80000000;
+
 pub const S_IFMT = 0o170000;
 
 pub const S_IFDIR = 0o040000;
@@ -692,12 +723,28 @@ pub fn futex_wait(uaddr: usize, futex_op: u32, val: i32, timeout: ?*timespec) us
     return syscall4(SYS_futex, uaddr, futex_op, @bitCast(u32, val), @ptrToInt(timeout));
 }
 
+pub fn futex_wake(uaddr: usize, futex_op: u32, val: i32) usize {
+    return syscall3(SYS_futex, uaddr, futex_op, @bitCast(u32, val));
+}
+
 pub fn getcwd(buf: [*]u8, size: usize) usize {
     return syscall2(SYS_getcwd, @ptrToInt(buf), size);
 }
 
 pub fn getdents(fd: i32, dirp: [*]u8, count: usize) usize {
     return syscall3(SYS_getdents, @intCast(usize, fd), @ptrToInt(dirp), count);
+}
+
+pub fn inotify_init1(flags: u32) usize {
+    return syscall1(SYS_inotify_init1, flags);
+}
+
+pub fn inotify_add_watch(fd: i32, pathname: [*]const u8, mask: u32) usize {
+    return syscall3(SYS_inotify_add_watch, @intCast(usize, fd), @ptrToInt(pathname), mask);
+}
+
+pub fn inotify_rm_watch(fd: i32, wd: i32) usize {
+    return syscall2(SYS_inotify_rm_watch, @intCast(usize, fd), @intCast(usize, wd));
 }
 
 pub fn isatty(fd: i32) bool {
@@ -740,6 +787,14 @@ pub fn munmap(address: usize, length: usize) usize {
 
 pub fn read(fd: i32, buf: [*]u8, count: usize) usize {
     return syscall3(SYS_read, @intCast(usize, fd), @ptrToInt(buf), count);
+}
+
+pub fn preadv(fd: i32, iov: [*]const iovec, count: usize, offset: u64) usize {
+    return syscall4(SYS_preadv, @intCast(usize, fd), @ptrToInt(iov), count, offset);
+}
+
+pub fn pwritev(fd: i32, iov: [*]const iovec_const, count: usize, offset: u64) usize {
+    return syscall4(SYS_pwritev, @intCast(usize, fd), @ptrToInt(iov), count, offset);
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
@@ -944,7 +999,11 @@ pub fn setgroups(size: usize, list: *const u32) usize {
 }
 
 pub fn getpid() i32 {
-    return @bitCast(i32, u32(syscall0(SYS_getpid)));
+    return @bitCast(i32, @truncate(u32, syscall0(SYS_getpid)));
+}
+
+pub fn gettid() i32 {
+    return @bitCast(i32, @truncate(u32, syscall0(SYS_gettid)));
 }
 
 pub fn sigprocmask(flags: u32, noalias set: *const sigset_t, noalias oldset: ?*sigset_t) usize {
@@ -1035,6 +1094,7 @@ pub const in_port_t = u16;
 pub const sa_family_t = u16;
 pub const socklen_t = u32;
 
+/// This intentionally only has ip4 and ip6
 pub const sockaddr = extern union {
     in: sockaddr_in,
     in6: sockaddr_in6,
@@ -1055,8 +1115,18 @@ pub const sockaddr_in6 = extern struct {
     scope_id: u32,
 };
 
+pub const sockaddr_un = extern struct {
+    family: sa_family_t,
+    path: [108]u8,
+};
+
 pub const iovec = extern struct {
     iov_base: [*]u8,
+    iov_len: usize,
+};
+
+pub const iovec_const = extern struct {
+    iov_base: [*]const u8,
     iov_len: usize,
 };
 
@@ -1084,8 +1154,8 @@ pub fn sendmsg(fd: i32, msg: *const msghdr, flags: u32) usize {
     return syscall3(SYS_sendmsg, @intCast(usize, fd), @ptrToInt(msg), flags);
 }
 
-pub fn connect(fd: i32, addr: *const sockaddr, len: socklen_t) usize {
-    return syscall3(SYS_connect, @intCast(usize, fd), @ptrToInt(addr), @intCast(usize, len));
+pub fn connect(fd: i32, addr: *const c_void, len: socklen_t) usize {
+    return syscall3(SYS_connect, @intCast(usize, fd), @ptrToInt(addr), len);
 }
 
 pub fn recvmsg(fd: i32, msg: *msghdr, flags: u32) usize {
@@ -1367,6 +1437,14 @@ pub fn capget(hdrp: *cap_user_header_t, datap: *cap_user_data_t) usize {
 pub fn capset(hdrp: *cap_user_header_t, datap: *const cap_user_data_t) usize {
     return syscall2(SYS_capset, @ptrToInt(hdrp), @ptrToInt(datap));
 }
+
+pub const inotify_event = extern struct {
+    wd: i32,
+    mask: u32,
+    cookie: u32,
+    len: u32,
+    //name: [?]u8,
+};
 
 test "import" {
     if (builtin.os == builtin.Os.linux) {

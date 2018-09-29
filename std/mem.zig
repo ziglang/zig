@@ -3,7 +3,7 @@ const debug = std.debug;
 const assert = debug.assert;
 const math = std.math;
 const builtin = @import("builtin");
-const mem = this;
+const mem = @This();
 
 pub const Allocator = struct {
     pub const Error = error{OutOfMemory};
@@ -23,7 +23,10 @@ pub const Allocator = struct {
     /// * this function must return successfully.
     /// * alignment <= alignment of old_mem.ptr
     ///
-    /// The returned newly allocated memory is undefined.
+    /// When `reallocFn` returns,
+    /// `return_value[0..min(old_mem.len, new_byte_count)]` must be the same
+    /// as `old_mem` was when `reallocFn` is called. The bytes of
+    /// `return_value[old_mem.len..]` have undefined values.
     /// `alignment` is guaranteed to be >= 1
     /// `alignment` is guaranteed to be a power of 2
     reallocFn: fn (self: *Allocator, old_mem: []u8, new_byte_count: usize, alignment: u29) Error![]u8,
@@ -32,6 +35,7 @@ pub const Allocator = struct {
     freeFn: fn (self: *Allocator, old_mem: []u8) void,
 
     /// Call `destroy` with the result
+    /// TODO this is deprecated. use createOne instead
     pub fn create(self: *Allocator, init: var) Error!*@typeOf(init) {
         const T = @typeOf(init);
         if (@sizeOf(T) == 0) return &(T{});
@@ -39,6 +43,14 @@ pub const Allocator = struct {
         const ptr = &slice[0];
         ptr.* = init;
         return ptr;
+    }
+
+    /// Call `destroy` with the result.
+    /// Returns undefined memory.
+    pub fn createOne(self: *Allocator, comptime T: type) Error!*T {
+        if (@sizeOf(T) == 0) return &(T{});
+        const slice = try self.alloc(T, 1);
+        return &slice[0];
     }
 
     /// `ptr` should be the return value of `create`
@@ -71,7 +83,7 @@ pub const Allocator = struct {
 
     pub fn alignedRealloc(self: *Allocator, comptime T: type, comptime alignment: u29, old_mem: []align(alignment) T, n: usize) ![]align(alignment) T {
         if (old_mem.len == 0) {
-            return self.alloc(T, n);
+            return self.alignedAlloc(T, alignment, n);
         }
         if (n == 0) {
             self.free(old_mem);
@@ -123,8 +135,15 @@ pub const Allocator = struct {
     }
 };
 
+pub const Compare = enum {
+    LessThan,
+    Equal,
+    GreaterThan,
+};
+
 /// Copy all of source into dest at position 0.
 /// dest.len must be >= source.len.
+/// dest.ptr must be <= src.ptr.
 pub fn copy(comptime T: type, dest: []T, source: []const T) void {
     // TODO instead of manually doing this check for the whole array
     // and turning off runtime safety, the compiler should detect loops like
@@ -135,21 +154,85 @@ pub fn copy(comptime T: type, dest: []T, source: []const T) void {
         dest[i] = s;
 }
 
+/// Copy all of source into dest at position 0.
+/// dest.len must be >= source.len.
+/// dest.ptr must be >= src.ptr.
+pub fn copyBackwards(comptime T: type, dest: []T, source: []const T) void {
+    // TODO instead of manually doing this check for the whole array
+    // and turning off runtime safety, the compiler should detect loops like
+    // this and automatically omit safety checks for loops
+    @setRuntimeSafety(false);
+    assert(dest.len >= source.len);
+    var i = source.len;
+    while (i > 0) {
+        i -= 1;
+        dest[i] = source[i];
+    }
+}
+
 pub fn set(comptime T: type, dest: []T, value: T) void {
     for (dest) |*d|
         d.* = value;
 }
 
-/// Returns true if lhs < rhs, false otherwise
-pub fn lessThan(comptime T: type, lhs: []const T, rhs: []const T) bool {
+pub fn secureZero(comptime T: type, s: []T) void {
+    // NOTE: We do not use a volatile slice cast here since LLVM cannot
+    // see that it can be replaced by a memset.
+    const ptr = @ptrCast([*]volatile u8, s.ptr);
+    const length = s.len * @sizeOf(T);
+    @memset(ptr, 0, length);
+}
+
+test "mem.secureZero" {
+    var a = []u8{0xfe} ** 8;
+    var b = []u8{0xfe} ** 8;
+
+    set(u8, a[0..], 0);
+    secureZero(u8, b[0..]);
+
+    assert(eql(u8, a[0..], b[0..]));
+}
+
+pub fn compare(comptime T: type, lhs: []const T, rhs: []const T) Compare {
     const n = math.min(lhs.len, rhs.len);
     var i: usize = 0;
     while (i < n) : (i += 1) {
-        if (lhs[i] == rhs[i]) continue;
-        return lhs[i] < rhs[i];
+        if (lhs[i] == rhs[i]) {
+            continue;
+        } else if (lhs[i] < rhs[i]) {
+            return Compare.LessThan;
+        } else if (lhs[i] > rhs[i]) {
+            return Compare.GreaterThan;
+        } else {
+            unreachable;
+        }
     }
 
-    return lhs.len < rhs.len;
+    if (lhs.len == rhs.len) {
+        return Compare.Equal;
+    } else if (lhs.len < rhs.len) {
+        return Compare.LessThan;
+    } else if (lhs.len > rhs.len) {
+        return Compare.GreaterThan;
+    }
+    unreachable;
+}
+
+test "mem.compare" {
+    assert(compare(u8, "abcd", "bee") == Compare.LessThan);
+    assert(compare(u8, "abc", "abc") == Compare.Equal);
+    assert(compare(u8, "abc", "abc0") == Compare.LessThan);
+    assert(compare(u8, "", "") == Compare.Equal);
+    assert(compare(u8, "", "a") == Compare.LessThan);
+}
+
+/// Returns true if lhs < rhs, false otherwise
+pub fn lessThan(comptime T: type, lhs: []const T, rhs: []const T) bool {
+    var result = compare(T, lhs, rhs);
+    if (result == Compare.LessThan) {
+        return true;
+    } else
+        return false;
 }
 
 test "mem.lessThan" {
@@ -167,6 +250,20 @@ pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
         if (b[index] != item) return false;
     }
     return true;
+}
+
+pub fn len(comptime T: type, ptr: [*]const T) usize {
+    var count: usize = 0;
+    while (ptr[count] != 0) : (count += 1) {}
+    return count;
+}
+
+pub fn toSliceConst(comptime T: type, ptr: [*]const T) []const T {
+    return ptr[0..len(T, ptr)];
+}
+
+pub fn toSlice(comptime T: type, ptr: [*]T) []T {
+    return ptr[0..len(T, ptr)];
 }
 
 /// Returns true if all elements in a slice are equal to the scalar value provided
@@ -512,7 +609,7 @@ pub fn join(allocator: *Allocator, sep: u8, strings: ...) ![]u8 {
         }
     }
 
-    return buf[0..buf_index];
+    return allocator.shrink(u8, buf, buf_index);
 }
 
 test "mem.join" {
@@ -582,10 +679,38 @@ test "testWriteInt" {
     comptime testWriteIntImpl();
 }
 fn testWriteIntImpl() void {
-    var bytes: [4]u8 = undefined;
+    var bytes: [8]u8 = undefined;
+
+    writeInt(bytes[0..], u64(0x12345678CAFEBABE), builtin.Endian.Big);
+    assert(eql(u8, bytes, []u8{
+        0x12,
+        0x34,
+        0x56,
+        0x78,
+        0xCA,
+        0xFE,
+        0xBA,
+        0xBE,
+    }));
+
+    writeInt(bytes[0..], u64(0xBEBAFECA78563412), builtin.Endian.Little);
+    assert(eql(u8, bytes, []u8{
+        0x12,
+        0x34,
+        0x56,
+        0x78,
+        0xCA,
+        0xFE,
+        0xBA,
+        0xBE,
+    }));
 
     writeInt(bytes[0..], u32(0x12345678), builtin.Endian.Big);
     assert(eql(u8, bytes, []u8{
+        0x00,
+        0x00,
+        0x00,
+        0x00,
         0x12,
         0x34,
         0x56,
@@ -598,10 +723,18 @@ fn testWriteIntImpl() void {
         0x34,
         0x56,
         0x78,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
     }));
 
     writeInt(bytes[0..], u16(0x1234), builtin.Endian.Big);
     assert(eql(u8, bytes, []u8{
+        0x00,
+        0x00,
+        0x00,
+        0x00,
         0x00,
         0x00,
         0x12,
@@ -612,6 +745,10 @@ fn testWriteIntImpl() void {
     assert(eql(u8, bytes, []u8{
         0x34,
         0x12,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
         0x00,
         0x00,
     }));
@@ -726,3 +863,4 @@ pub fn endianSwap(comptime T: type, x: T) T {
 test "std.mem.endianSwap" {
     assert(endianSwap(u32, 0xDEADBEEF) == 0xEFBEADDE);
 }
+

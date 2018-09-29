@@ -227,6 +227,14 @@ def t : Flag<["-"], "t">,
      HelpText<"Print the names of the input files as ld processes them">;
 def v : Flag<["-"], "v">,
      HelpText<"Print linker information">;
+def error_limit : Separate<["-", "--"], "error-limit">,
+     MetaVarName<"<number>">,
+     HelpText<"Maximum number of errors to emit before stopping (0 = no limit)">;
+
+// Ignored options
+def lto_library : Separate<["-"], "lto_library">,
+    MetaVarName<"<path>">,
+    HelpText<"Ignored for compatibility with other linkers">;
 
 // Obsolete options
 def grp_obsolete : OptionGroup<"obsolete">, HelpText<"OBSOLETE OPTIONS">;

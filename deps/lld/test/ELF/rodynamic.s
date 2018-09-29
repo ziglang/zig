@@ -1,3 +1,4 @@
+# REQUIRES: x86
 # RUN: llvm-mc %s -o %t.o -filetype=obj -triple=x86_64-pc-linux
 # RUN: llvm-mc %p/Inputs/rodynamic.s -o %t.so.o -filetype=obj -triple=x86_64-pc-linux
 

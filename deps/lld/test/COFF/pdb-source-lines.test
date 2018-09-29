@@ -26,11 +26,11 @@ RUN: llvm-pdbutil pdb2yaml -modules -module-files -subsections=lines,fc %t.pdb |
 CHECK-LABEL: DbiStream:
 CHECK-NEXT:   VerHeader:       V70
 CHECK-NEXT:   Age:             1
-CHECK-NEXT:   BuildNumber:     0
+CHECK-NEXT:   BuildNumber:     36363
 CHECK-NEXT:   PdbDllVersion:   0
 CHECK-NEXT:   PdbDllRbld:      0
 CHECK-NEXT:   Flags:           0
-CHECK-NEXT:   MachineType:     x86
+CHECK-NEXT:   MachineType:     Amd64
 CHECK-NEXT:   Modules:
 
 CHECK-LABEL:    - Module:          {{.*}}pdb_lines_1.obj
@@ -43,7 +43,7 @@ CHECK-NEXT:         - !Lines
 CHECK-NEXT:           CodeSize:        19
 CHECK-NEXT:           Flags:           [  ]
 CHECK-NEXT:           RelocOffset:     0
-CHECK-NEXT:           RelocSegment:    2
+CHECK-NEXT:           RelocSegment:    1
 CHECK-NEXT:           Blocks:
 CHECK-NEXT:             - FileName:        '{{.*}}pdb_lines_1.c'
 CHECK-NEXT:               Lines:
@@ -64,19 +64,11 @@ CHECK-NEXT:                   LineStart:       5
 CHECK-NEXT:                   IsStatement:     true
 CHECK-NEXT:                   EndDelta:        0
 CHECK-NEXT:               Columns:
-CHECK-NEXT:         - !FileChecksums
-CHECK-NEXT:           Checksums:
-CHECK-NEXT:             - FileName:        '{{.*}}pdb_lines_1.c'
-CHECK-NEXT:               Kind:            MD5
-CHECK-NEXT:               Checksum:        4EB19DCD86C3BA2238A255C718572E7B
-CHECK-NEXT:             - FileName:        '{{.*}}foo.h'
-CHECK-NEXT:               Kind:            MD5
-CHECK-NEXT:               Checksum:        061EB73ABB642532857A4F1D9CBAC323
 CHECK-NEXT:         - !Lines
 CHECK-NEXT:           CodeSize:        14
 CHECK-NEXT:           Flags:           [  ]
 CHECK-NEXT:           RelocOffset:     32
-CHECK-NEXT:           RelocSegment:    2
+CHECK-NEXT:           RelocSegment:    1
 CHECK-NEXT:           Blocks:
 CHECK-NEXT:             - FileName:        '{{.*}}foo.h'
 CHECK-NEXT:               Lines:
@@ -93,6 +85,14 @@ CHECK-NEXT:                   LineStart:       4
 CHECK-NEXT:                   IsStatement:     true
 CHECK-NEXT:                   EndDelta:        0
 CHECK-NEXT:               Columns:
+CHECK-NEXT:         - !FileChecksums
+CHECK-NEXT:           Checksums:
+CHECK-NEXT:             - FileName:        '{{.*}}pdb_lines_1.c'
+CHECK-NEXT:               Kind:            MD5
+CHECK-NEXT:               Checksum:        4EB19DCD86C3BA2238A255C718572E7B
+CHECK-NEXT:             - FileName:        '{{.*}}foo.h'
+CHECK-NEXT:               Kind:            MD5
+CHECK-NEXT:               Checksum:        061EB73ABB642532857A4F1D9CBAC323
 
 CHECK-LABEL:    - Module:          {{.*}}pdb_lines_2.obj
 CHECK-NEXT:       ObjFile:         {{.*}}pdb_lines_2.obj
@@ -103,7 +103,7 @@ CHECK-NEXT:         - !Lines
 CHECK-NEXT:           CodeSize:        1
 CHECK-NEXT:           Flags:           [  ]
 CHECK-NEXT:           RelocOffset:     48
-CHECK-NEXT:           RelocSegment:    2
+CHECK-NEXT:           RelocSegment:    1
 CHECK-NEXT:           Blocks:
 CHECK-NEXT:             - FileName:        '{{.*}}pdb_lines_2.c'
 CHECK-NEXT:               Lines:

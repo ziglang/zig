@@ -1,12 +1,12 @@
-# RUN: lld -flavor darwin -arch x86_64 -macosx_version_min 10.8 %s \
+# RUN: ld64.lld -arch x86_64 -macosx_version_min 10.8 %s \
 # RUN: %p/Inputs/PIE.yaml -o %t  && \
 # RUN: llvm-objdump -macho -private-headers %t | FileCheck %s
 #
-# RUN: lld -flavor darwin -arch x86_64 -macosx_version_min 10.8 %s \
+# RUN: ld64.lld -arch x86_64 -macosx_version_min 10.8 %s \
 # RUN: %p/Inputs/PIE.yaml -pie -o %t\
 # RUN:  &&  llvm-objdump -macho -private-headers %t | FileCheck %s
 #
-# RUN: lld -flavor darwin -arch x86_64 -macosx_version_min 10.8 %s \
+# RUN: ld64.lld -arch x86_64 -macosx_version_min 10.8 %s \
 # RUN: %p/Inputs/PIE.yaml -no_pie -o %t\
 # RUN:  &&  llvm-objdump -macho -private-headers %t \
 # RUN:  | FileCheck --check-prefix=CHECK_NO_PIE %s

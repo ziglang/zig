@@ -1,10 +1,10 @@
+// REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t.o
 // RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/shared.s -o %t2.o
 // RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/dynamic-reloc.s -o %t3.o
 // RUN: ld.lld -shared %t2.o -o %t2.so
 // RUN: ld.lld --hash-style=sysv %t.o %t3.o %t2.so -o %t
 // RUN: llvm-readobj -dynamic-table -r --expand-relocs -s %t | FileCheck %s
-// REQUIRES: x86
 
 // CHECK:      Index: 1
 // CHECK-NEXT: Name: .dynsym

@@ -3,18 +3,18 @@
 set -x
 set -e
 
-export CC=clang-6.0
-export CXX=clang++-6.0
+export CC=gcc-7
+export CXX=g++-7
 echo $PATH
 mkdir build
 cd build
-cmake .. -DCMAKE_INSTALL_PREFIX=$(pwd)
+cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j2 install
-./zig build --build-file ../build.zig test
+./zig build --build-file ../build.zig test -Dskip-release-small
 
 if [ "${TRAVIS_PULL_REQUEST}" = "false" ]; then
   mkdir $TRAVIS_BUILD_DIR/artifacts
-  docker run -it --mount type=bind,source="$TRAVIS_BUILD_DIR/artifacts",target=/z ziglang/static-base:llvm6-1 -j2 $TRAVIS_COMMIT
+  docker run -it --mount type=bind,source="$TRAVIS_BUILD_DIR/artifacts",target=/z ziglang/static-base:llvm7-1 -j2 $TRAVIS_COMMIT
   echo "access_key = $AWS_ACCESS_KEY_ID" >> ~/.s3cfg
   echo "secret_key = $AWS_SECRET_ACCESS_KEY" >> ~/.s3cfg
   s3cmd put -P $TRAVIS_BUILD_DIR/artifacts/* s3://ziglang.org/builds/

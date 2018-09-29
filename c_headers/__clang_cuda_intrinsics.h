@@ -277,6 +277,9 @@ inline __device__ long long __ldg(const long long *ptr) {
 inline __device__ unsigned char __ldg(const unsigned char *ptr) {
   return __nvvm_ldg_uc(ptr);
 }
+inline __device__ signed char __ldg(const signed char *ptr) {
+  return __nvvm_ldg_uc((const unsigned char *)ptr);
+}
 inline __device__ unsigned short __ldg(const unsigned short *ptr) {
   return __nvvm_ldg_us(ptr);
 }

@@ -1,3 +1,4 @@
+; REQUIRES: x86
 ; RUN: llvm-as -o %t %s
 ; RUN: lld-link /entry:main /subsystem:console /out:%t.exe %t
 ; RUN: llvm-objdump -d %t.exe | FileCheck %s

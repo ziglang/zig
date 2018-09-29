@@ -11,7 +11,7 @@
 # BEFORE:        8: 70 47         bx lr
 
 # AFTER: Disassembly of section .text:
-# AFTER:        0: 41 f2 00 00   movw r0, #4096
+# AFTER:        0: 42 f2 00 00   movw r0, #8192
 # AFTER:        4: c0 f2 40 00   movt r0, #64
 # AFTER:        8: 70 47         bx lr
 

@@ -21,19 +21,19 @@ clarity.
  * Compatible with C libraries with no wrapper necessary. Directly include
    C .h files and get access to the functions and symbols therein.
  * Provides standard library which competes with the C standard library and is
-   always compiled against statically in source form. Compile units do not
+   always compiled against statically in source form. Zig binaries do not
    depend on libc unless explicitly linked.
- * Nullable type instead of null pointers.
+ * Optional type instead of null pointers.
  * Safe unions, tagged unions, and C ABI compatible unions.
  * Generics so that one can write efficient data structures that work for any
    data type.
  * No header files required. Top level declarations are entirely
    order-independent.
  * Compile-time code execution. Compile-time reflection.
- * Partial compile-time function evaluation with eliminates the need for
+ * Partial compile-time function evaluation which eliminates the need for
    a preprocessor or macros.
  * The binaries produced by Zig have complete debugging information so you can,
-   for example, use GDB or MSVC to debug your software.
+   for example, use GDB, MSVC, or LLDB to debug your software.
  * Built-in unit tests with `zig test`.
  * Friendly toward package maintainers. Reproducible build, bootstrapping
    process carefully documented. Issues filed by package maintainers are
@@ -70,47 +70,9 @@ that counts as "freestanding" for the purposes of this table.
 
 ## Community
 
- * IRC: `#zig` on Freenode.
+ * IRC: `#zig` on Freenode ([Channel Logs](https://irclog.whitequark.org/zig/)).
  * Reddit: [/r/zig](https://www.reddit.com/r/zig)
  * Email list: [ziglang@googlegroups.com](https://groups.google.com/forum/#!forum/ziglang)
-
-### Wanted: Windows Developers
-
-Flesh out the standard library for Windows, streamline Zig installation and
-distribution for Windows. Work with LLVM and LLD teams to improve
-PDB/CodeView/MSVC debugging. Implement stack traces for Windows in the MinGW
-environment and the MSVC environment.
-
-### Wanted: MacOS and iOS Developers
-
-Flesh out the standard library for MacOS. Improve the MACH-O linker. Implement
-stack traces for MacOS. Streamline the process of using Zig to build for
-iOS.
-
-### Wanted: Android Developers
-
-Flesh out the standard library for Android. Streamline the process of using
-Zig to build for Android and for depending on Zig code on Android.
-
-### Wanted: Web Developers
-
-Figure out what are the use cases for compiling Zig to WebAssembly. Create demo
-projects with it and streamline experience for users trying to output
-WebAssembly. Work on the documentation generator outputting useful searchable html
-documentation. Create Zig modules for common web tasks such as WebSockets and gzip.
-
-### Wanted: Embedded Developers
-
-Flesh out the standard library for uncommon CPU architectures and OS targets.
-Drive issue discussion for cross compiling and using Zig in constrained
-or unusual environments.
-
-### Wanted: Game Developers
-
-Create cross platform Zig modules to compete with SDL and GLFW. Create an
-OpenGL library that does not depend on libc. Drive the usability of Zig
-for video games. Create a general purpose allocator that does not depend on
-libc. Create demo games using Zig.
 
 ## Building
 
@@ -125,14 +87,14 @@ libc. Create demo games using Zig.
 
  * cmake >= 2.8.5
  * gcc >= 5.0.0 or clang >= 3.6.0
- * LLVM, Clang, LLD development libraries == 6.x, compiled with the same gcc or clang version above
+ * LLVM, Clang, LLD development libraries == 7.x, compiled with the same gcc or clang version above
    - These depend on zlib and libxml2.
 
 ##### Windows
 
  * cmake >= 2.8.5
  * Microsoft Visual Studio 2015
- * LLVM, Clang, LLD development libraries == 6.x, compiled with the same MSVC version above
+ * LLVM, Clang, LLD development libraries == 7.x, compiled with the same MSVC version above
 
 #### Instructions
 
@@ -150,11 +112,11 @@ bin/zig build --build-file ../build.zig test
 ##### MacOS
 
 ```
-brew install cmake llvm@6
-brew outdated llvm@6 || brew upgrade llvm@6
+brew install cmake llvm@7
+brew outdated llvm@7 || brew upgrade llvm@7
 mkdir build
 cd build
-cmake .. -DCMAKE_PREFIX_PATH=/usr/local/opt/llvm@6/
+cmake .. -DCMAKE_PREFIX_PATH=/usr/local/opt/llvm@7/
 make install
 bin/zig build --build-file ../build.zig test
 ```

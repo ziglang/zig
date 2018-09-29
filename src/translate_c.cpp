@@ -15,9 +15,18 @@
 #include "parser.hpp"
 
 
+#if __GNUC__ >= 8
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wclass-memaccess"
+#endif
+
 #include <clang/Frontend/ASTUnit.h>
 #include <clang/Frontend/CompilerInstance.h>
 #include <clang/AST/Expr.h>
+
+#if __GNUC__ >= 8
+#pragma GCC diagnostic pop
+#endif
 
 #include <string.h>
 
@@ -427,7 +436,7 @@ static AstNode *get_global(Context *c, Buf *name) {
         if (entry)
             return entry->value;
     }
-    if (c->codegen->primitive_type_table.maybe_get(name) != nullptr) {
+    if (get_primitive_type(c->codegen, name) != nullptr) {
         return trans_create_node_symbol(c, name);
     }
     return nullptr;
@@ -458,7 +467,13 @@ static const char *decl_name(const Decl *decl) {
 static AstNode *trans_create_node_apint(Context *c, const llvm::APSInt &aps_int) {
     AstNode *node = trans_create_node(c, NodeTypeIntLiteral);
     node->data.int_literal.bigint = allocate<BigInt>(1);
-    bigint_init_data(node->data.int_literal.bigint, aps_int.getRawData(), aps_int.getNumWords(), aps_int.isNegative());
+    bool is_negative = aps_int.isNegative(); 
+    if (!is_negative) {
+        bigint_init_data(node->data.int_literal.bigint, aps_int.getRawData(), aps_int.getNumWords(), false);
+        return node;
+    }
+    llvm::APSInt negated = -aps_int;
+    bigint_init_data(node->data.int_literal.bigint, negated.getRawData(), negated.getNumWords(), true);
     return node;
 
 }
@@ -773,6 +788,7 @@ static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &sou
                     case BuiltinType::Char_U:
                     case BuiltinType::UChar:
                     case BuiltinType::Char_S:
+                    case BuiltinType::Char8:
                         return trans_create_node_symbol_str(c, "u8");
                     case BuiltinType::SChar:
                         return trans_create_node_symbol_str(c, "i8");
@@ -823,6 +839,12 @@ static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &sou
                     case BuiltinType::UnknownAny:
                     case BuiltinType::BuiltinFn:
                     case BuiltinType::ARCUnbridgedCast:
+                    case BuiltinType::ShortAccum:
+                    case BuiltinType::Accum:
+                    case BuiltinType::LongAccum:
+                    case BuiltinType::UShortAccum:
+                    case BuiltinType::UAccum:
+                    case BuiltinType::ULongAccum:
 
                     case BuiltinType::OCLImage1dRO:
                     case BuiltinType::OCLImage1dArrayRO:
@@ -865,6 +887,24 @@ static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &sou
                     case BuiltinType::OCLClkEvent:
                     case BuiltinType::OCLQueue:
                     case BuiltinType::OCLReserveID:
+                    case BuiltinType::ShortFract:
+                    case BuiltinType::Fract:
+                    case BuiltinType::LongFract:
+                    case BuiltinType::UShortFract:
+                    case BuiltinType::UFract:
+                    case BuiltinType::ULongFract:
+                    case BuiltinType::SatShortAccum:
+                    case BuiltinType::SatAccum:
+                    case BuiltinType::SatLongAccum:
+                    case BuiltinType::SatUShortAccum:
+                    case BuiltinType::SatUAccum:
+                    case BuiltinType::SatULongAccum:
+                    case BuiltinType::SatShortFract:
+                    case BuiltinType::SatFract:
+                    case BuiltinType::SatLongFract:
+                    case BuiltinType::SatUShortFract:
+                    case BuiltinType::SatUFract:
+                    case BuiltinType::SatULongFract:
                         emit_warning(c, source_loc, "unsupported builtin type");
                         return nullptr;
                 }
@@ -1109,6 +1149,7 @@ static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &sou
         case Type::ObjCTypeParam:
         case Type::DeducedTemplateSpecialization:
         case Type::DependentAddressSpace:
+        case Type::DependentVector:
             emit_warning(c, source_loc, "unsupported type: '%s'", ty->getTypeClassName());
             return nullptr;
     }
@@ -2376,6 +2417,7 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
                 case BuiltinType::Float128:
                 case BuiltinType::LongDouble:
                 case BuiltinType::WChar_U:
+                case BuiltinType::Char8:
                 case BuiltinType::Char16:
                 case BuiltinType::Char32:
                 case BuiltinType::WChar_S:
@@ -2438,6 +2480,30 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
                 case BuiltinType::OCLClkEvent:
                 case BuiltinType::OCLQueue:
                 case BuiltinType::OCLReserveID:
+                case BuiltinType::ShortAccum:
+                case BuiltinType::Accum:
+                case BuiltinType::LongAccum:
+                case BuiltinType::UShortAccum:
+                case BuiltinType::UAccum:
+                case BuiltinType::ULongAccum:
+                case BuiltinType::ShortFract:
+                case BuiltinType::Fract:
+                case BuiltinType::LongFract:
+                case BuiltinType::UShortFract:
+                case BuiltinType::UFract:
+                case BuiltinType::ULongFract:
+                case BuiltinType::SatShortAccum:
+                case BuiltinType::SatAccum:
+                case BuiltinType::SatLongAccum:
+                case BuiltinType::SatUShortAccum:
+                case BuiltinType::SatUAccum:
+                case BuiltinType::SatULongAccum:
+                case BuiltinType::SatShortFract:
+                case BuiltinType::SatFract:
+                case BuiltinType::SatLongFract:
+                case BuiltinType::SatUShortFract:
+                case BuiltinType::SatUFract:
+                case BuiltinType::SatULongFract:
                     return res;
             }
             break;
@@ -2523,6 +2589,7 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
         case Type::ObjCTypeParam:
         case Type::DeducedTemplateSpecialization:
         case Type::DependentAddressSpace:
+        case Type::DependentVector:
             return res;
     }
     zig_unreachable();
@@ -2707,7 +2774,9 @@ static AstNode *trans_do_loop(Context *c, TransScope *parent_scope, const DoStmt
         AstNode *child_statement;
         child_scope = trans_stmt(c, &child_block_scope->base, stmt->getBody(), &child_statement);
         if (child_scope == nullptr) return nullptr;
-        body_node->data.block.statements.append(child_statement);
+        if (child_statement != nullptr) {
+            body_node->data.block.statements.append(child_statement);
+        }
     }
 
     // if (!cond) break;
@@ -2717,6 +2786,7 @@ static AstNode *trans_do_loop(Context *c, TransScope *parent_scope, const DoStmt
     terminator_node->data.if_bool_expr.condition = trans_create_node_prefix_op(c, PrefixOpBoolNot, condition_node);
     terminator_node->data.if_bool_expr.then_block = trans_create_node(c, NodeTypeBreak);
 
+    assert(terminator_node != nullptr);
     body_node->data.block.statements.append(terminator_node);
 
     while_scope->node->data.while_expr.body = body_node;
@@ -2780,7 +2850,12 @@ static AstNode *trans_for_loop(Context *c, TransScope *parent_scope, const ForSt
     TransScope *body_scope = trans_stmt(c, &while_scope->base, stmt->getBody(), &body_statement);
     if (body_scope == nullptr)
         return nullptr;
-    while_scope->node->data.while_expr.body = body_statement;
+
+    if (body_statement == nullptr) {
+        while_scope->node->data.while_expr.body = trans_create_node(c, NodeTypeBlock);
+    } else {
+        while_scope->node->data.while_expr.body = body_statement;
+    }
 
     return loop_block_node;
 }
@@ -3015,9 +3090,21 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const Stmt *stmt,
                     trans_unary_operator(c, result_used, scope, (const UnaryOperator *)stmt));
         case Stmt::DeclStmtClass:
             return trans_local_declaration(c, scope, (const DeclStmt *)stmt, out_node, out_child_scope);
-        case Stmt::WhileStmtClass:
-            return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_while_loop(c, scope, (const WhileStmt *)stmt));
+        case Stmt::DoStmtClass:
+        case Stmt::WhileStmtClass: {
+            AstNode *while_node = sc == Stmt::DoStmtClass
+                ? trans_do_loop(c, scope, (const DoStmt *)stmt)
+                : trans_while_loop(c, scope, (const WhileStmt *)stmt);
+
+            if (while_node == nullptr)
+                return ErrorUnexpected;
+
+            assert(while_node->type == NodeTypeWhileExpr);
+            if (while_node->data.while_expr.body == nullptr)
+                while_node->data.while_expr.body = trans_create_node(c, NodeTypeBlock);
+
+            return wrap_stmt(out_node, out_child_scope, scope, while_node);
+        }
         case Stmt::IfStmtClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_if_statement(c, scope, (const IfStmt *)stmt));
@@ -3040,12 +3127,10 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const Stmt *stmt,
         case Stmt::UnaryExprOrTypeTraitExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_unary_expr_or_type_trait_expr(c, scope, (const UnaryExprOrTypeTraitExpr *)stmt));
-        case Stmt::DoStmtClass:
-            return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_do_loop(c, scope, (const DoStmt *)stmt));
-        case Stmt::ForStmtClass:
-            return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_for_loop(c, scope, (const ForStmt *)stmt));
+        case Stmt::ForStmtClass: {
+            AstNode *node = trans_for_loop(c, scope, (const ForStmt *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope, node);
+        }
         case Stmt::StringLiteralClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_string_literal(c, scope, (const StringLiteral *)stmt));
@@ -3568,6 +3653,9 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const Stmt *stmt,
             return ErrorUnexpected;
         case Stmt::SEHTryStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C SEHTryStmtClass");
+            return ErrorUnexpected;
+        case Stmt::FixedPointLiteralClass:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C FixedPointLiteralClass");
             return ErrorUnexpected;
     }
     zig_unreachable();
@@ -4694,7 +4782,6 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
 
     std::shared_ptr<PCHContainerOperations> pch_container_ops = std::make_shared<PCHContainerOperations>();
 
-    bool skip_function_bodies = false;
     bool only_local_decls = true;
     bool capture_diagnostics = true;
     bool user_files_are_volatile = true;
@@ -4707,7 +4794,7 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
             &clang_argv.at(0), &clang_argv.last(),
             pch_container_ops, diags, resources_path,
             only_local_decls, capture_diagnostics, None, true, 0, TU_Complete,
-            false, false, allow_pch_with_compiler_errors, skip_function_bodies,
+            false, false, allow_pch_with_compiler_errors, SkipFunctionBodiesScope::None,
             single_file_parse, user_files_are_volatile, for_serialization, None, &err_unit,
             nullptr));
 

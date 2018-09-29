@@ -1,7 +1,7 @@
 // REQUIRES: arm
 // RUN: llvm-mc -filetype=obj -triple=armv7a-none-linux-gnueabi %s -o %t.o
 // RUN: llvm-mc -filetype=obj -triple=armv7a-none-linux-gnueabi %p/Inputs/relocation-copy-arm.s -o %t2.o
-// RUN: ld.lld -shared %t2.o -o %t2.so
+// RUN: ld.lld -shared %t2.o -soname fixed-length-string.so -o %t2.so
 // RUN: ld.lld --hash-style=sysv %t.o %t2.so -o %t3
 // RUN: llvm-readobj -s -r --expand-relocs -symbols %t3 | FileCheck %s
 // RUN: llvm-objdump -d -triple=armv7a-none-linux-gnueabi %t3 | FileCheck -check-prefix=CODE %s
@@ -33,7 +33,7 @@ _start:
 // CHECK-NEXT:     AddressAlignment: 16
 
 // CHECK: Relocations [
-// CHECK-NEXT:  Section (5) .rel.dyn {
+// CHECK-NEXT:  Section {{.*}} .rel.dyn {
 // CHECK-NEXT:    Relocation {
 // CHECK-NEXT:      Offset: 0x13000
 // CHECK-NEXT:      Type: R_ARM_COPY
@@ -78,4 +78,4 @@ _start:
 
 // RODATA: Contents of section .rodata:
 // S(z) = 0x13004
-// RODATA-NEXT: 10114 04300100
+// RODATA-NEXT: 10190 04300100

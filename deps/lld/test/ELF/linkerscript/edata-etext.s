@@ -1,7 +1,7 @@
 # REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 # RUN: echo "SECTIONS { }" > %t.script
-# RUN: not ld.lld %t.o -script %t.script -o %t 2>&1 | FileCheck %s
+# RUN: not ld.lld %t.o -script %t.script -o /dev/null 2>&1 | FileCheck %s
 # CHECK: error: undefined symbol: _edata
 # CHECK: >>> referenced by {{.*}}:(.text+0x0)
 # CHECK: error: undefined symbol: _etext

@@ -275,7 +275,7 @@ test "eval @setFloatMode at compile-time" {
 }
 
 fn fnWithFloatMode() f32 {
-    @setFloatMode(this, builtin.FloatMode.Strict);
+    @setFloatMode(builtin.FloatMode.Strict);
     return 1234.0;
 }
 
@@ -628,7 +628,7 @@ test "call method with comptime pass-by-non-copying-value self parameter" {
     const S = struct {
         a: u8,
 
-        fn b(comptime s: this) u8 {
+        fn b(comptime s: @This()) u8 {
             return s.a;
         }
     };
@@ -641,4 +641,124 @@ test "call method with comptime pass-by-non-copying-value self parameter" {
 test "@tagName of @typeId" {
     const str = @tagName(@typeId(u8));
     assert(std.mem.eql(u8, str, "Int"));
+}
+
+test "setting backward branch quota just before a generic fn call" {
+    @setEvalBranchQuota(1001);
+    loopNTimes(1001);
+}
+
+fn loopNTimes(comptime n: usize) void {
+    comptime var i = 0;
+    inline while (i < n) : (i += 1) {}
+}
+
+test "variable inside inline loop that has different types on different iterations" {
+    testVarInsideInlineLoop(true, u32(42));
+}
+
+fn testVarInsideInlineLoop(args: ...) void {
+    comptime var i = 0;
+    inline while (i < args.len) : (i += 1) {
+        const x = args[i];
+        if (i == 0) assert(x);
+        if (i == 1) assert(x == 42);
+    }
+}
+
+test "inline for with same type but different values" {
+    var res: usize = 0;
+    inline for ([]type{ [2]u8, [1]u8, [2]u8 }) |T| {
+        var a: T = undefined;
+        res += a.len;
+    }
+    assert(res == 5);
+}
+
+test "refer to the type of a generic function" {
+    const Func = fn (type) void;
+    const f: Func = doNothingWithType;
+    f(i32);
+}
+
+fn doNothingWithType(comptime T: type) void {}
+
+test "zero extend from u0 to u1" {
+    var zero_u0: u0 = 0;
+    var zero_u1: u1 = zero_u0;
+    assert(zero_u1 == 0);
+}
+
+test "bit shift a u1" {
+    var x: u1 = 1;
+    var y = x << 0;
+    assert(y == 1);
+}
+
+test "@intCast to a u0" {
+    var x: u8 = 0;
+    var y: u0 = @intCast(u0, x);
+    assert(y == 0);
+}
+
+test "@bytesToslice on a packed struct" {
+    const F = packed struct {
+        a: u8,
+    };
+
+    var b = [1]u8{9};
+    var f = @bytesToSlice(F, b);
+    assert(f[0].a == 9);
+}
+
+test "comptime pointer cast array and then slice" {
+    const array = []u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
+
+    const ptrA: [*]const u8 = @ptrCast([*]const u8, &array);
+    const sliceA: []const u8 = ptrA[0..2];
+
+    const ptrB: [*]const u8 = &array;
+    const sliceB: []const u8 = ptrB[0..2];
+
+    assert(sliceA[1] == 2);
+    assert(sliceB[1] == 2);
+}
+
+test "slice bounds in comptime concatenation" {
+    const bs = comptime blk: {
+        const b = c"11";
+        break :blk b[0..1];
+    };
+    const str = "" ++ bs;
+    assert(str.len == 1);
+    assert(std.mem.eql(u8, str, "1"));
+
+    const str2 = bs ++ "";
+    assert(str2.len == 1);
+    assert(std.mem.eql(u8, str2, "1"));
+}
+
+test "comptime bitwise operators" {
+    comptime {
+        assert(3 & 1 == 1);
+        assert(3 & -1 == 3);
+        assert(-3 & -1 == -3);
+        assert(3 | -1 == -1);
+        assert(-3 | -1 == -1);
+        assert(3 ^ -1 == -4);
+        assert(-3 ^ -1 == 2);
+        assert(~i8(-1) == 0);
+        assert(~i128(-1) == 0);
+        assert(18446744073709551615 & 18446744073709551611 == 18446744073709551611);
+        assert(-18446744073709551615 & -18446744073709551611 == -18446744073709551615);
+        assert(~u128(0) == 0xffffffffffffffffffffffffffffffff);
+    }
+}
+
+test "*align(1) u16 is the same as *align(1:0:2) u16" {
+    comptime {
+        assert(*align(1:0:2) u16 == *align(1) u16);
+        // TODO add parsing support for this syntax
+        //assert(*align(:0:2) u16 == *u16);
+    }
 }

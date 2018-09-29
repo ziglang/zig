@@ -44,12 +44,11 @@ typedef unsigned char __v16qu __attribute__((__vector_size__(16)));
  * appear in the interface though. */
 typedef signed char __v16qs __attribute__((__vector_size__(16)));
 
-#include <f16cintrin.h>
-
 /* Define the default attributes for the functions in this file. */
-#define __DEFAULT_FN_ATTRS __attribute__((__always_inline__, __nodebug__, __target__("sse2")))
+#define __DEFAULT_FN_ATTRS __attribute__((__always_inline__, __nodebug__, __target__("sse2"), __min_vector_width__(128)))
+#define __DEFAULT_FN_ATTRS_MMX __attribute__((__always_inline__, __nodebug__, __target__("mmx,sse2"), __min_vector_width__(64)))
 
-/// \brief Adds lower double-precision values in both operands and returns the
+/// Adds lower double-precision values in both operands and returns the
 ///    sum in the lower 64 bits of the result. The upper 64 bits of the result
 ///    are copied from the upper double-precision value of the first operand.
 ///
@@ -71,7 +70,7 @@ _mm_add_sd(__m128d __a, __m128d __b)
   return __a;
 }
 
-/// \brief Adds two 128-bit vectors of [2 x double].
+/// Adds two 128-bit vectors of [2 x double].
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -89,7 +88,7 @@ _mm_add_pd(__m128d __a, __m128d __b)
   return (__m128d)((__v2df)__a + (__v2df)__b);
 }
 
-/// \brief Subtracts the lower double-precision value of the second operand
+/// Subtracts the lower double-precision value of the second operand
 ///    from the lower double-precision value of the first operand and returns
 ///    the difference in the lower 64 bits of the result. The upper 64 bits of
 ///    the result are copied from the upper double-precision value of the first
@@ -113,7 +112,7 @@ _mm_sub_sd(__m128d __a, __m128d __b)
   return __a;
 }
 
-/// \brief Subtracts two 128-bit vectors of [2 x double].
+/// Subtracts two 128-bit vectors of [2 x double].
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -131,7 +130,7 @@ _mm_sub_pd(__m128d __a, __m128d __b)
   return (__m128d)((__v2df)__a - (__v2df)__b);
 }
 
-/// \brief Multiplies lower double-precision values in both operands and returns
+/// Multiplies lower double-precision values in both operands and returns
 ///    the product in the lower 64 bits of the result. The upper 64 bits of the
 ///    result are copied from the upper double-precision value of the first
 ///    operand.
@@ -154,7 +153,7 @@ _mm_mul_sd(__m128d __a, __m128d __b)
   return __a;
 }
 
-/// \brief Multiplies two 128-bit vectors of [2 x double].
+/// Multiplies two 128-bit vectors of [2 x double].
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -172,7 +171,7 @@ _mm_mul_pd(__m128d __a, __m128d __b)
   return (__m128d)((__v2df)__a * (__v2df)__b);
 }
 
-/// \brief Divides the lower double-precision value of the first operand by the
+/// Divides the lower double-precision value of the first operand by the
 ///    lower double-precision value of the second operand and returns the
 ///    quotient in the lower 64 bits of the result. The upper 64 bits of the
 ///    result are copied from the upper double-precision value of the first
@@ -196,7 +195,7 @@ _mm_div_sd(__m128d __a, __m128d __b)
   return __a;
 }
 
-/// \brief Performs an element-by-element division of two 128-bit vectors of
+/// Performs an element-by-element division of two 128-bit vectors of
 ///    [2 x double].
 ///
 /// \headerfile <x86intrin.h>
@@ -215,7 +214,7 @@ _mm_div_pd(__m128d __a, __m128d __b)
   return (__m128d)((__v2df)__a / (__v2df)__b);
 }
 
-/// \brief Calculates the square root of the lower double-precision value of
+/// Calculates the square root of the lower double-precision value of
 ///    the second operand and returns it in the lower 64 bits of the result.
 ///    The upper 64 bits of the result are copied from the upper
 ///    double-precision value of the first operand.
@@ -238,10 +237,10 @@ static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_sqrt_sd(__m128d __a, __m128d __b)
 {
   __m128d __c = __builtin_ia32_sqrtsd((__v2df)__b);
-  return (__m128d) { __c[0], __a[1] };
+  return __extension__ (__m128d) { __c[0], __a[1] };
 }
 
-/// \brief Calculates the square root of the each of two values stored in a
+/// Calculates the square root of the each of two values stored in a
 ///    128-bit vector of [2 x double].
 ///
 /// \headerfile <x86intrin.h>
@@ -258,7 +257,7 @@ _mm_sqrt_pd(__m128d __a)
   return __builtin_ia32_sqrtpd((__v2df)__a);
 }
 
-/// \brief Compares lower 64-bit double-precision values of both operands, and
+/// Compares lower 64-bit double-precision values of both operands, and
 ///    returns the lesser of the pair of values in the lower 64-bits of the
 ///    result. The upper 64 bits of the result are copied from the upper
 ///    double-precision value of the first operand.
@@ -282,7 +281,7 @@ _mm_min_sd(__m128d __a, __m128d __b)
   return __builtin_ia32_minsd((__v2df)__a, (__v2df)__b);
 }
 
-/// \brief Performs element-by-element comparison of the two 128-bit vectors of
+/// Performs element-by-element comparison of the two 128-bit vectors of
 ///    [2 x double] and returns the vector containing the lesser of each pair of
 ///    values.
 ///
@@ -302,7 +301,7 @@ _mm_min_pd(__m128d __a, __m128d __b)
   return __builtin_ia32_minpd((__v2df)__a, (__v2df)__b);
 }
 
-/// \brief Compares lower 64-bit double-precision values of both operands, and
+/// Compares lower 64-bit double-precision values of both operands, and
 ///    returns the greater of the pair of values in the lower 64-bits of the
 ///    result. The upper 64 bits of the result are copied from the upper
 ///    double-precision value of the first operand.
@@ -326,7 +325,7 @@ _mm_max_sd(__m128d __a, __m128d __b)
   return __builtin_ia32_maxsd((__v2df)__a, (__v2df)__b);
 }
 
-/// \brief Performs element-by-element comparison of the two 128-bit vectors of
+/// Performs element-by-element comparison of the two 128-bit vectors of
 ///    [2 x double] and returns the vector containing the greater of each pair
 ///    of values.
 ///
@@ -346,7 +345,7 @@ _mm_max_pd(__m128d __a, __m128d __b)
   return __builtin_ia32_maxpd((__v2df)__a, (__v2df)__b);
 }
 
-/// \brief Performs a bitwise AND of two 128-bit vectors of [2 x double].
+/// Performs a bitwise AND of two 128-bit vectors of [2 x double].
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -364,7 +363,7 @@ _mm_and_pd(__m128d __a, __m128d __b)
   return (__m128d)((__v2du)__a & (__v2du)__b);
 }
 
-/// \brief Performs a bitwise AND of two 128-bit vectors of [2 x double], using
+/// Performs a bitwise AND of two 128-bit vectors of [2 x double], using
 ///    the one's complement of the values contained in the first source operand.
 ///
 /// \headerfile <x86intrin.h>
@@ -385,7 +384,7 @@ _mm_andnot_pd(__m128d __a, __m128d __b)
   return (__m128d)(~(__v2du)__a & (__v2du)__b);
 }
 
-/// \brief Performs a bitwise OR of two 128-bit vectors of [2 x double].
+/// Performs a bitwise OR of two 128-bit vectors of [2 x double].
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -403,7 +402,7 @@ _mm_or_pd(__m128d __a, __m128d __b)
   return (__m128d)((__v2du)__a | (__v2du)__b);
 }
 
-/// \brief Performs a bitwise XOR of two 128-bit vectors of [2 x double].
+/// Performs a bitwise XOR of two 128-bit vectors of [2 x double].
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -421,9 +420,9 @@ _mm_xor_pd(__m128d __a, __m128d __b)
   return (__m128d)((__v2du)__a ^ (__v2du)__b);
 }
 
-/// \brief Compares each of the corresponding double-precision values of the
-///    128-bit vectors of [2 x double] for equality. Each comparison yields 0h
-///    for false, FFFFFFFFFFFFFFFFh for true.
+/// Compares each of the corresponding double-precision values of the
+///    128-bit vectors of [2 x double] for equality. Each comparison yields 0x0
+///    for false, 0xFFFFFFFFFFFFFFFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -440,10 +439,10 @@ _mm_cmpeq_pd(__m128d __a, __m128d __b)
   return (__m128d)__builtin_ia32_cmpeqpd((__v2df)__a, (__v2df)__b);
 }
 
-/// \brief Compares each of the corresponding double-precision values of the
+/// Compares each of the corresponding double-precision values of the
 ///    128-bit vectors of [2 x double] to determine if the values in the first
 ///    operand are less than those in the second operand. Each comparison
-///    yields 0h for false, FFFFFFFFFFFFFFFFh for true.
+///    yields 0x0 for false, 0xFFFFFFFFFFFFFFFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -460,11 +459,11 @@ _mm_cmplt_pd(__m128d __a, __m128d __b)
   return (__m128d)__builtin_ia32_cmpltpd((__v2df)__a, (__v2df)__b);
 }
 
-/// \brief Compares each of the corresponding double-precision values of the
+/// Compares each of the corresponding double-precision values of the
 ///    128-bit vectors of [2 x double] to determine if the values in the first
 ///    operand are less than or equal to those in the second operand.
 ///
-///    Each comparison yields 0h for false, FFFFFFFFFFFFFFFFh for true.
+///    Each comparison yields 0x0 for false, 0xFFFFFFFFFFFFFFFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -481,11 +480,11 @@ _mm_cmple_pd(__m128d __a, __m128d __b)
   return (__m128d)__builtin_ia32_cmplepd((__v2df)__a, (__v2df)__b);
 }
 
-/// \brief Compares each of the corresponding double-precision values of the
+/// Compares each of the corresponding double-precision values of the
 ///    128-bit vectors of [2 x double] to determine if the values in the first
 ///    operand are greater than those in the second operand.
 ///
-///    Each comparison yields 0h for false, FFFFFFFFFFFFFFFFh for true.
+///    Each comparison yields 0x0 for false, 0xFFFFFFFFFFFFFFFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -502,11 +501,11 @@ _mm_cmpgt_pd(__m128d __a, __m128d __b)
   return (__m128d)__builtin_ia32_cmpltpd((__v2df)__b, (__v2df)__a);
 }
 
-/// \brief Compares each of the corresponding double-precision values of the
+/// Compares each of the corresponding double-precision values of the
 ///    128-bit vectors of [2 x double] to determine if the values in the first
 ///    operand are greater than or equal to those in the second operand.
 ///
-///    Each comparison yields 0h for false, FFFFFFFFFFFFFFFFh for true.
+///    Each comparison yields 0x0 for false, 0xFFFFFFFFFFFFFFFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -523,13 +522,13 @@ _mm_cmpge_pd(__m128d __a, __m128d __b)
   return (__m128d)__builtin_ia32_cmplepd((__v2df)__b, (__v2df)__a);
 }
 
-/// \brief Compares each of the corresponding double-precision values of the
+/// Compares each of the corresponding double-precision values of the
 ///    128-bit vectors of [2 x double] to determine if the values in the first
 ///    operand are ordered with respect to those in the second operand.
 ///
 ///    A pair of double-precision values are "ordered" with respect to each
-///    other if neither value is a NaN. Each comparison yields 0h for false,
-///    FFFFFFFFFFFFFFFFh for true.
+///    other if neither value is a NaN. Each comparison yields 0x0 for false,
+///    0xFFFFFFFFFFFFFFFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -546,13 +545,13 @@ _mm_cmpord_pd(__m128d __a, __m128d __b)
   return (__m128d)__builtin_ia32_cmpordpd((__v2df)__a, (__v2df)__b);
 }
 
-/// \brief Compares each of the corresponding double-precision values of the
+/// Compares each of the corresponding double-precision values of the
 ///    128-bit vectors of [2 x double] to determine if the values in the first
 ///    operand are unordered with respect to those in the second operand.
 ///
 ///    A pair of double-precision values are "unordered" with respect to each
-///    other if one or both values are NaN. Each comparison yields 0h for false,
-///    FFFFFFFFFFFFFFFFh for true.
+///    other if one or both values are NaN. Each comparison yields 0x0 for
+///    false, 0xFFFFFFFFFFFFFFFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -570,11 +569,11 @@ _mm_cmpunord_pd(__m128d __a, __m128d __b)
   return (__m128d)__builtin_ia32_cmpunordpd((__v2df)__a, (__v2df)__b);
 }
 
-/// \brief Compares each of the corresponding double-precision values of the
+/// Compares each of the corresponding double-precision values of the
 ///    128-bit vectors of [2 x double] to determine if the values in the first
 ///    operand are unequal to those in the second operand.
 ///
-///    Each comparison yields 0h for false, FFFFFFFFFFFFFFFFh for true.
+///    Each comparison yields 0x0 for false, 0xFFFFFFFFFFFFFFFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -591,11 +590,11 @@ _mm_cmpneq_pd(__m128d __a, __m128d __b)
   return (__m128d)__builtin_ia32_cmpneqpd((__v2df)__a, (__v2df)__b);
 }
 
-/// \brief Compares each of the corresponding double-precision values of the
+/// Compares each of the corresponding double-precision values of the
 ///    128-bit vectors of [2 x double] to determine if the values in the first
 ///    operand are not less than those in the second operand.
 ///
-///    Each comparison yields 0h for false, FFFFFFFFFFFFFFFFh for true.
+///    Each comparison yields 0x0 for false, 0xFFFFFFFFFFFFFFFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -612,11 +611,11 @@ _mm_cmpnlt_pd(__m128d __a, __m128d __b)
   return (__m128d)__builtin_ia32_cmpnltpd((__v2df)__a, (__v2df)__b);
 }
 
-/// \brief Compares each of the corresponding double-precision values of the
+/// Compares each of the corresponding double-precision values of the
 ///    128-bit vectors of [2 x double] to determine if the values in the first
 ///    operand are not less than or equal to those in the second operand.
 ///
-///    Each comparison yields 0h for false, FFFFFFFFFFFFFFFFh for true.
+///    Each comparison yields 0x0 for false, 0xFFFFFFFFFFFFFFFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -633,11 +632,11 @@ _mm_cmpnle_pd(__m128d __a, __m128d __b)
   return (__m128d)__builtin_ia32_cmpnlepd((__v2df)__a, (__v2df)__b);
 }
 
-/// \brief Compares each of the corresponding double-precision values of the
+/// Compares each of the corresponding double-precision values of the
 ///    128-bit vectors of [2 x double] to determine if the values in the first
 ///    operand are not greater than those in the second operand.
 ///
-///    Each comparison yields 0h for false, FFFFFFFFFFFFFFFFh for true.
+///    Each comparison yields 0x0 for false, 0xFFFFFFFFFFFFFFFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -654,11 +653,11 @@ _mm_cmpngt_pd(__m128d __a, __m128d __b)
   return (__m128d)__builtin_ia32_cmpnltpd((__v2df)__b, (__v2df)__a);
 }
 
-/// \brief Compares each of the corresponding double-precision values of the
+/// Compares each of the corresponding double-precision values of the
 ///    128-bit vectors of [2 x double] to determine if the values in the first
 ///    operand are not greater than or equal to those in the second operand.
 ///
-///    Each comparison yields 0h for false, FFFFFFFFFFFFFFFFh for true.
+///    Each comparison yields 0x0 for false, 0xFFFFFFFFFFFFFFFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -675,10 +674,10 @@ _mm_cmpnge_pd(__m128d __a, __m128d __b)
   return (__m128d)__builtin_ia32_cmpnlepd((__v2df)__b, (__v2df)__a);
 }
 
-/// \brief Compares the lower double-precision floating-point values in each of
+/// Compares the lower double-precision floating-point values in each of
 ///    the two 128-bit floating-point vectors of [2 x double] for equality.
 ///
-///    The comparison yields 0h for false, FFFFFFFFFFFFFFFFh for true.
+///    The comparison yields 0x0 for false, 0xFFFFFFFFFFFFFFFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -698,12 +697,12 @@ _mm_cmpeq_sd(__m128d __a, __m128d __b)
   return (__m128d)__builtin_ia32_cmpeqsd((__v2df)__a, (__v2df)__b);
 }
 
-/// \brief Compares the lower double-precision floating-point values in each of
+/// Compares the lower double-precision floating-point values in each of
 ///    the two 128-bit floating-point vectors of [2 x double] to determine if
 ///    the value in the first parameter is less than the corresponding value in
 ///    the second parameter.
 ///
-///    The comparison yields 0h for false, FFFFFFFFFFFFFFFFh for true.
+///    The comparison yields 0x0 for false, 0xFFFFFFFFFFFFFFFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -723,12 +722,12 @@ _mm_cmplt_sd(__m128d __a, __m128d __b)
   return (__m128d)__builtin_ia32_cmpltsd((__v2df)__a, (__v2df)__b);
 }
 
-/// \brief Compares the lower double-precision floating-point values in each of
+/// Compares the lower double-precision floating-point values in each of
 ///    the two 128-bit floating-point vectors of [2 x double] to determine if
 ///    the value in the first parameter is less than or equal to the
 ///    corresponding value in the second parameter.
 ///
-///    The comparison yields 0h for false, FFFFFFFFFFFFFFFFh for true.
+///    The comparison yields 0x0 for false, 0xFFFFFFFFFFFFFFFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -748,12 +747,12 @@ _mm_cmple_sd(__m128d __a, __m128d __b)
   return (__m128d)__builtin_ia32_cmplesd((__v2df)__a, (__v2df)__b);
 }
 
-/// \brief Compares the lower double-precision floating-point values in each of
+/// Compares the lower double-precision floating-point values in each of
 ///    the two 128-bit floating-point vectors of [2 x double] to determine if
 ///    the value in the first parameter is greater than the corresponding value
 ///    in the second parameter.
 ///
-///    The comparison yields 0h for false, FFFFFFFFFFFFFFFFh for true.
+///    The comparison yields 0x0 for false, 0xFFFFFFFFFFFFFFFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -771,15 +770,15 @@ static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_cmpgt_sd(__m128d __a, __m128d __b)
 {
   __m128d __c = __builtin_ia32_cmpltsd((__v2df)__b, (__v2df)__a);
-  return (__m128d) { __c[0], __a[1] };
+  return __extension__ (__m128d) { __c[0], __a[1] };
 }
 
-/// \brief Compares the lower double-precision floating-point values in each of
+/// Compares the lower double-precision floating-point values in each of
 ///    the two 128-bit floating-point vectors of [2 x double] to determine if
 ///    the value in the first parameter is greater than or equal to the
 ///    corresponding value in the second parameter.
 ///
-///    The comparison yields 0h for false, FFFFFFFFFFFFFFFFh for true.
+///    The comparison yields 0x0 for false, 0xFFFFFFFFFFFFFFFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -797,16 +796,16 @@ static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_cmpge_sd(__m128d __a, __m128d __b)
 {
   __m128d __c = __builtin_ia32_cmplesd((__v2df)__b, (__v2df)__a);
-  return (__m128d) { __c[0], __a[1] };
+  return __extension__ (__m128d) { __c[0], __a[1] };
 }
 
-/// \brief Compares the lower double-precision floating-point values in each of
+/// Compares the lower double-precision floating-point values in each of
 ///    the two 128-bit floating-point vectors of [2 x double] to determine if
 ///    the value in the first parameter is "ordered" with respect to the
 ///    corresponding value in the second parameter.
 ///
-///    The comparison yields 0h for false, FFFFFFFFFFFFFFFFh for true. A pair of
-///    double-precision values are "ordered" with respect to each other if
+///    The comparison yields 0x0 for false, 0xFFFFFFFFFFFFFFFF for true. A pair
+///    of double-precision values are "ordered" with respect to each other if
 ///    neither value is a NaN.
 ///
 /// \headerfile <x86intrin.h>
@@ -827,14 +826,14 @@ _mm_cmpord_sd(__m128d __a, __m128d __b)
   return (__m128d)__builtin_ia32_cmpordsd((__v2df)__a, (__v2df)__b);
 }
 
-/// \brief Compares the lower double-precision floating-point values in each of
+/// Compares the lower double-precision floating-point values in each of
 ///    the two 128-bit floating-point vectors of [2 x double] to determine if
 ///    the value in the first parameter is "unordered" with respect to the
 ///    corresponding value in the second parameter.
 ///
-///    The comparison yields 0h for false, FFFFFFFFFFFFFFFFh for true. A pair of
-///    double-precision values are "unordered" with respect to each other if one
-///    or both values are NaN.
+///    The comparison yields 0x0 for false, 0xFFFFFFFFFFFFFFFF for true. A pair
+///    of double-precision values are "unordered" with respect to each other if
+///    one or both values are NaN.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -855,12 +854,12 @@ _mm_cmpunord_sd(__m128d __a, __m128d __b)
   return (__m128d)__builtin_ia32_cmpunordsd((__v2df)__a, (__v2df)__b);
 }
 
-/// \brief Compares the lower double-precision floating-point values in each of
+/// Compares the lower double-precision floating-point values in each of
 ///    the two 128-bit floating-point vectors of [2 x double] to determine if
 ///    the value in the first parameter is unequal to the corresponding value in
 ///    the second parameter.
 ///
-///    The comparison yields 0h for false, FFFFFFFFFFFFFFFFh for true.
+///    The comparison yields 0x0 for false, 0xFFFFFFFFFFFFFFFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -880,12 +879,12 @@ _mm_cmpneq_sd(__m128d __a, __m128d __b)
   return (__m128d)__builtin_ia32_cmpneqsd((__v2df)__a, (__v2df)__b);
 }
 
-/// \brief Compares the lower double-precision floating-point values in each of
+/// Compares the lower double-precision floating-point values in each of
 ///    the two 128-bit floating-point vectors of [2 x double] to determine if
 ///    the value in the first parameter is not less than the corresponding
 ///    value in the second parameter.
 ///
-///    The comparison yields 0h for false, FFFFFFFFFFFFFFFFh for true.
+///    The comparison yields 0x0 for false, 0xFFFFFFFFFFFFFFFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -905,12 +904,12 @@ _mm_cmpnlt_sd(__m128d __a, __m128d __b)
   return (__m128d)__builtin_ia32_cmpnltsd((__v2df)__a, (__v2df)__b);
 }
 
-/// \brief Compares the lower double-precision floating-point values in each of
+/// Compares the lower double-precision floating-point values in each of
 ///    the two 128-bit floating-point vectors of [2 x double] to determine if
 ///    the value in the first parameter is not less than or equal to the
 ///    corresponding value in the second parameter.
 ///
-///    The comparison yields 0h for false, FFFFFFFFFFFFFFFFh for true.
+///    The comparison yields 0x0 for false, 0xFFFFFFFFFFFFFFFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -930,12 +929,12 @@ _mm_cmpnle_sd(__m128d __a, __m128d __b)
   return (__m128d)__builtin_ia32_cmpnlesd((__v2df)__a, (__v2df)__b);
 }
 
-/// \brief Compares the lower double-precision floating-point values in each of
+/// Compares the lower double-precision floating-point values in each of
 ///    the two 128-bit floating-point vectors of [2 x double] to determine if
 ///    the value in the first parameter is not greater than the corresponding
 ///    value in the second parameter.
 ///
-///    The comparison yields 0h for false, FFFFFFFFFFFFFFFFh for true.
+///    The comparison yields 0x0 for false, 0xFFFFFFFFFFFFFFFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -953,15 +952,15 @@ static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_cmpngt_sd(__m128d __a, __m128d __b)
 {
   __m128d __c = __builtin_ia32_cmpnltsd((__v2df)__b, (__v2df)__a);
-  return (__m128d) { __c[0], __a[1] };
+  return __extension__ (__m128d) { __c[0], __a[1] };
 }
 
-/// \brief Compares the lower double-precision floating-point values in each of
+/// Compares the lower double-precision floating-point values in each of
 ///    the two 128-bit floating-point vectors of [2 x double] to determine if
 ///    the value in the first parameter is not greater than or equal to the
 ///    corresponding value in the second parameter.
 ///
-///    The comparison yields 0h for false, FFFFFFFFFFFFFFFFh for true.
+///    The comparison yields 0x0 for false, 0xFFFFFFFFFFFFFFFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -979,10 +978,10 @@ static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_cmpnge_sd(__m128d __a, __m128d __b)
 {
   __m128d __c = __builtin_ia32_cmpnlesd((__v2df)__b, (__v2df)__a);
-  return (__m128d) { __c[0], __a[1] };
+  return __extension__ (__m128d) { __c[0], __a[1] };
 }
 
-/// \brief Compares the lower double-precision floating-point values in each of
+/// Compares the lower double-precision floating-point values in each of
 ///    the two 128-bit floating-point vectors of [2 x double] for equality.
 ///
 ///    The comparison yields 0 for false, 1 for true. If either of the two
@@ -1006,7 +1005,7 @@ _mm_comieq_sd(__m128d __a, __m128d __b)
   return __builtin_ia32_comisdeq((__v2df)__a, (__v2df)__b);
 }
 
-/// \brief Compares the lower double-precision floating-point values in each of
+/// Compares the lower double-precision floating-point values in each of
 ///    the two 128-bit floating-point vectors of [2 x double] to determine if
 ///    the value in the first parameter is less than the corresponding value in
 ///    the second parameter.
@@ -1032,7 +1031,7 @@ _mm_comilt_sd(__m128d __a, __m128d __b)
   return __builtin_ia32_comisdlt((__v2df)__a, (__v2df)__b);
 }
 
-/// \brief Compares the lower double-precision floating-point values in each of
+/// Compares the lower double-precision floating-point values in each of
 ///    the two 128-bit floating-point vectors of [2 x double] to determine if
 ///    the value in the first parameter is less than or equal to the
 ///    corresponding value in the second parameter.
@@ -1058,7 +1057,7 @@ _mm_comile_sd(__m128d __a, __m128d __b)
   return __builtin_ia32_comisdle((__v2df)__a, (__v2df)__b);
 }
 
-/// \brief Compares the lower double-precision floating-point values in each of
+/// Compares the lower double-precision floating-point values in each of
 ///    the two 128-bit floating-point vectors of [2 x double] to determine if
 ///    the value in the first parameter is greater than the corresponding value
 ///    in the second parameter.
@@ -1084,7 +1083,7 @@ _mm_comigt_sd(__m128d __a, __m128d __b)
   return __builtin_ia32_comisdgt((__v2df)__a, (__v2df)__b);
 }
 
-/// \brief Compares the lower double-precision floating-point values in each of
+/// Compares the lower double-precision floating-point values in each of
 ///    the two 128-bit floating-point vectors of [2 x double] to determine if
 ///    the value in the first parameter is greater than or equal to the
 ///    corresponding value in the second parameter.
@@ -1110,7 +1109,7 @@ _mm_comige_sd(__m128d __a, __m128d __b)
   return __builtin_ia32_comisdge((__v2df)__a, (__v2df)__b);
 }
 
-/// \brief Compares the lower double-precision floating-point values in each of
+/// Compares the lower double-precision floating-point values in each of
 ///    the two 128-bit floating-point vectors of [2 x double] to determine if
 ///    the value in the first parameter is unequal to the corresponding value in
 ///    the second parameter.
@@ -1136,7 +1135,7 @@ _mm_comineq_sd(__m128d __a, __m128d __b)
   return __builtin_ia32_comisdneq((__v2df)__a, (__v2df)__b);
 }
 
-/// \brief Compares the lower double-precision floating-point values in each of
+/// Compares the lower double-precision floating-point values in each of
 ///    the two 128-bit floating-point vectors of [2 x double] for equality. The
 ///    comparison yields 0 for false, 1 for true.
 ///
@@ -1160,7 +1159,7 @@ _mm_ucomieq_sd(__m128d __a, __m128d __b)
   return __builtin_ia32_ucomisdeq((__v2df)__a, (__v2df)__b);
 }
 
-/// \brief Compares the lower double-precision floating-point values in each of
+/// Compares the lower double-precision floating-point values in each of
 ///    the two 128-bit floating-point vectors of [2 x double] to determine if
 ///    the value in the first parameter is less than the corresponding value in
 ///    the second parameter.
@@ -1186,7 +1185,7 @@ _mm_ucomilt_sd(__m128d __a, __m128d __b)
   return __builtin_ia32_ucomisdlt((__v2df)__a, (__v2df)__b);
 }
 
-/// \brief Compares the lower double-precision floating-point values in each of
+/// Compares the lower double-precision floating-point values in each of
 ///    the two 128-bit floating-point vectors of [2 x double] to determine if
 ///    the value in the first parameter is less than or equal to the
 ///    corresponding value in the second parameter.
@@ -1212,7 +1211,7 @@ _mm_ucomile_sd(__m128d __a, __m128d __b)
   return __builtin_ia32_ucomisdle((__v2df)__a, (__v2df)__b);
 }
 
-/// \brief Compares the lower double-precision floating-point values in each of
+/// Compares the lower double-precision floating-point values in each of
 ///    the two 128-bit floating-point vectors of [2 x double] to determine if
 ///    the value in the first parameter is greater than the corresponding value
 ///    in the second parameter.
@@ -1238,7 +1237,7 @@ _mm_ucomigt_sd(__m128d __a, __m128d __b)
   return __builtin_ia32_ucomisdgt((__v2df)__a, (__v2df)__b);
 }
 
-/// \brief Compares the lower double-precision floating-point values in each of
+/// Compares the lower double-precision floating-point values in each of
 ///    the two 128-bit floating-point vectors of [2 x double] to determine if
 ///    the value in the first parameter is greater than or equal to the
 ///    corresponding value in the second parameter.
@@ -1264,7 +1263,7 @@ _mm_ucomige_sd(__m128d __a, __m128d __b)
   return __builtin_ia32_ucomisdge((__v2df)__a, (__v2df)__b);
 }
 
-/// \brief Compares the lower double-precision floating-point values in each of
+/// Compares the lower double-precision floating-point values in each of
 ///    the two 128-bit floating-point vectors of [2 x double] to determine if
 ///    the value in the first parameter is unequal to the corresponding value in
 ///    the second parameter.
@@ -1290,7 +1289,7 @@ _mm_ucomineq_sd(__m128d __a, __m128d __b)
   return __builtin_ia32_ucomisdneq((__v2df)__a, (__v2df)__b);
 }
 
-/// \brief Converts the two double-precision floating-point elements of a
+/// Converts the two double-precision floating-point elements of a
 ///    128-bit vector of [2 x double] into two single-precision floating-point
 ///    values, returned in the lower 64 bits of a 128-bit vector of [4 x float].
 ///    The upper 64 bits of the result vector are set to zero.
@@ -1309,7 +1308,7 @@ _mm_cvtpd_ps(__m128d __a)
   return __builtin_ia32_cvtpd2ps((__v2df)__a);
 }
 
-/// \brief Converts the lower two single-precision floating-point elements of a
+/// Converts the lower two single-precision floating-point elements of a
 ///    128-bit vector of [4 x float] into two double-precision floating-point
 ///    values, returned in a 128-bit vector of [2 x double]. The upper two
 ///    elements of the input vector are unused.
@@ -1330,7 +1329,7 @@ _mm_cvtps_pd(__m128 __a)
       __builtin_shufflevector((__v4sf)__a, (__v4sf)__a, 0, 1), __v2df);
 }
 
-/// \brief Converts the lower two integer elements of a 128-bit vector of
+/// Converts the lower two integer elements of a 128-bit vector of
 ///    [4 x i32] into two double-precision floating-point values, returned in a
 ///    128-bit vector of [2 x double].
 ///
@@ -1353,7 +1352,7 @@ _mm_cvtepi32_pd(__m128i __a)
       __builtin_shufflevector((__v4si)__a, (__v4si)__a, 0, 1), __v2df);
 }
 
-/// \brief Converts the two double-precision floating-point elements of a
+/// Converts the two double-precision floating-point elements of a
 ///    128-bit vector of [2 x double] into two signed 32-bit integer values,
 ///    returned in the lower 64 bits of a 128-bit vector of [4 x i32]. The upper
 ///    64 bits of the result vector are set to zero.
@@ -1372,7 +1371,7 @@ _mm_cvtpd_epi32(__m128d __a)
   return __builtin_ia32_cvtpd2dq((__v2df)__a);
 }
 
-/// \brief Converts the low-order element of a 128-bit vector of [2 x double]
+/// Converts the low-order element of a 128-bit vector of [2 x double]
 ///    into a 32-bit signed integer value.
 ///
 /// \headerfile <x86intrin.h>
@@ -1389,7 +1388,7 @@ _mm_cvtsd_si32(__m128d __a)
   return __builtin_ia32_cvtsd2si((__v2df)__a);
 }
 
-/// \brief Converts the lower double-precision floating-point element of a
+/// Converts the lower double-precision floating-point element of a
 ///    128-bit vector of [2 x double], in the second parameter, into a
 ///    single-precision floating-point value, returned in the lower 32 bits of a
 ///    128-bit vector of [4 x float]. The upper 96 bits of the result vector are
@@ -1414,7 +1413,7 @@ _mm_cvtsd_ss(__m128 __a, __m128d __b)
   return (__m128)__builtin_ia32_cvtsd2ss((__v4sf)__a, (__v2df)__b);
 }
 
-/// \brief Converts a 32-bit signed integer value, in the second parameter, into
+/// Converts a 32-bit signed integer value, in the second parameter, into
 ///    a double-precision floating-point value, returned in the lower 64 bits of
 ///    a 128-bit vector of [2 x double]. The upper 64 bits of the result vector
 ///    are copied from the upper 64 bits of the first parameter.
@@ -1438,7 +1437,7 @@ _mm_cvtsi32_sd(__m128d __a, int __b)
   return __a;
 }
 
-/// \brief Converts the lower single-precision floating-point element of a
+/// Converts the lower single-precision floating-point element of a
 ///    128-bit vector of [4 x float], in the second parameter, into a
 ///    double-precision floating-point value, returned in the lower 64 bits of
 ///    a 128-bit vector of [2 x double]. The upper 64 bits of the result vector
@@ -1464,7 +1463,7 @@ _mm_cvtss_sd(__m128d __a, __m128 __b)
   return __a;
 }
 
-/// \brief Converts the two double-precision floating-point elements of a
+/// Converts the two double-precision floating-point elements of a
 ///    128-bit vector of [2 x double] into two signed 32-bit integer values,
 ///    returned in the lower 64 bits of a 128-bit vector of [4 x i32].
 ///
@@ -1487,7 +1486,7 @@ _mm_cvttpd_epi32(__m128d __a)
   return (__m128i)__builtin_ia32_cvttpd2dq((__v2df)__a);
 }
 
-/// \brief Converts the low-order element of a [2 x double] vector into a 32-bit
+/// Converts the low-order element of a [2 x double] vector into a 32-bit
 ///    signed integer value, truncating the result when it is inexact.
 ///
 /// \headerfile <x86intrin.h>
@@ -1505,7 +1504,7 @@ _mm_cvttsd_si32(__m128d __a)
   return __builtin_ia32_cvttsd2si((__v2df)__a);
 }
 
-/// \brief Converts the two double-precision floating-point elements of a
+/// Converts the two double-precision floating-point elements of a
 ///    128-bit vector of [2 x double] into two signed 32-bit integer values,
 ///    returned in a 64-bit vector of [2 x i32].
 ///
@@ -1516,13 +1515,13 @@ _mm_cvttsd_si32(__m128d __a)
 /// \param __a
 ///    A 128-bit vector of [2 x double].
 /// \returns A 64-bit vector of [2 x i32] containing the converted values.
-static __inline__ __m64 __DEFAULT_FN_ATTRS
+static __inline__ __m64 __DEFAULT_FN_ATTRS_MMX
 _mm_cvtpd_pi32(__m128d __a)
 {
   return (__m64)__builtin_ia32_cvtpd2pi((__v2df)__a);
 }
 
-/// \brief Converts the two double-precision floating-point elements of a
+/// Converts the two double-precision floating-point elements of a
 ///    128-bit vector of [2 x double] into two signed 32-bit integer values,
 ///    returned in a 64-bit vector of [2 x i32].
 ///
@@ -1536,13 +1535,13 @@ _mm_cvtpd_pi32(__m128d __a)
 /// \param __a
 ///    A 128-bit vector of [2 x double].
 /// \returns A 64-bit vector of [2 x i32] containing the converted values.
-static __inline__ __m64 __DEFAULT_FN_ATTRS
+static __inline__ __m64 __DEFAULT_FN_ATTRS_MMX
 _mm_cvttpd_pi32(__m128d __a)
 {
   return (__m64)__builtin_ia32_cvttpd2pi((__v2df)__a);
 }
 
-/// \brief Converts the two signed 32-bit integer elements of a 64-bit vector of
+/// Converts the two signed 32-bit integer elements of a 64-bit vector of
 ///    [2 x i32] into two double-precision floating-point values, returned in a
 ///    128-bit vector of [2 x double].
 ///
@@ -1553,13 +1552,13 @@ _mm_cvttpd_pi32(__m128d __a)
 /// \param __a
 ///    A 64-bit vector of [2 x i32].
 /// \returns A 128-bit vector of [2 x double] containing the converted values.
-static __inline__ __m128d __DEFAULT_FN_ATTRS
+static __inline__ __m128d __DEFAULT_FN_ATTRS_MMX
 _mm_cvtpi32_pd(__m64 __a)
 {
   return __builtin_ia32_cvtpi2pd((__v2si)__a);
 }
 
-/// \brief Returns the low-order element of a 128-bit vector of [2 x double] as
+/// Returns the low-order element of a 128-bit vector of [2 x double] as
 ///    a double-precision floating-point value.
 ///
 /// \headerfile <x86intrin.h>
@@ -1576,7 +1575,7 @@ _mm_cvtsd_f64(__m128d __a)
   return __a[0];
 }
 
-/// \brief Loads a 128-bit floating-point vector of [2 x double] from an aligned
+/// Loads a 128-bit floating-point vector of [2 x double] from an aligned
 ///    memory location.
 ///
 /// \headerfile <x86intrin.h>
@@ -1593,7 +1592,7 @@ _mm_load_pd(double const *__dp)
   return *(__m128d*)__dp;
 }
 
-/// \brief Loads a double-precision floating-point value from a specified memory
+/// Loads a double-precision floating-point value from a specified memory
 ///    location and duplicates it to both vector elements of a 128-bit vector of
 ///    [2 x double].
 ///
@@ -1612,12 +1611,12 @@ _mm_load1_pd(double const *__dp)
     double __u;
   } __attribute__((__packed__, __may_alias__));
   double __u = ((struct __mm_load1_pd_struct*)__dp)->__u;
-  return (__m128d){ __u, __u };
+  return __extension__ (__m128d){ __u, __u };
 }
 
 #define        _mm_load_pd1(dp)        _mm_load1_pd(dp)
 
-/// \brief Loads two double-precision values, in reverse order, from an aligned
+/// Loads two double-precision values, in reverse order, from an aligned
 ///    memory location into a 128-bit vector of [2 x double].
 ///
 /// \headerfile <x86intrin.h>
@@ -1638,7 +1637,7 @@ _mm_loadr_pd(double const *__dp)
   return __builtin_shufflevector((__v2df)__u, (__v2df)__u, 1, 0);
 }
 
-/// \brief Loads a 128-bit floating-point vector of [2 x double] from an
+/// Loads a 128-bit floating-point vector of [2 x double] from an
 ///    unaligned memory location.
 ///
 /// \headerfile <x86intrin.h>
@@ -1658,7 +1657,7 @@ _mm_loadu_pd(double const *__dp)
   return ((struct __loadu_pd*)__dp)->__v;
 }
 
-/// \brief Loads a 64-bit integer value to the low element of a 128-bit integer
+/// Loads a 64-bit integer value to the low element of a 128-bit integer
 ///    vector and clears the upper element.
 ///
 /// \headerfile <x86intrin.h>
@@ -1676,10 +1675,10 @@ _mm_loadu_si64(void const *__a)
     long long __v;
   } __attribute__((__packed__, __may_alias__));
   long long __u = ((struct __loadu_si64*)__a)->__v;
-  return (__m128i){__u, 0L};
+  return __extension__ (__m128i)(__v2di){__u, 0L};
 }
 
-/// \brief Loads a 64-bit double-precision value to the low element of a
+/// Loads a 64-bit double-precision value to the low element of a
 ///    128-bit integer vector and clears the upper element.
 ///
 /// \headerfile <x86intrin.h>
@@ -1697,10 +1696,10 @@ _mm_load_sd(double const *__dp)
     double __u;
   } __attribute__((__packed__, __may_alias__));
   double __u = ((struct __mm_load_sd_struct*)__dp)->__u;
-  return (__m128d){ __u, 0 };
+  return __extension__ (__m128d){ __u, 0 };
 }
 
-/// \brief Loads a double-precision value into the high-order bits of a 128-bit
+/// Loads a double-precision value into the high-order bits of a 128-bit
 ///    vector of [2 x double]. The low-order bits are copied from the low-order
 ///    bits of the first operand.
 ///
@@ -1724,10 +1723,10 @@ _mm_loadh_pd(__m128d __a, double const *__dp)
     double __u;
   } __attribute__((__packed__, __may_alias__));
   double __u = ((struct __mm_loadh_pd_struct*)__dp)->__u;
-  return (__m128d){ __a[0], __u };
+  return __extension__ (__m128d){ __a[0], __u };
 }
 
-/// \brief Loads a double-precision value into the low-order bits of a 128-bit
+/// Loads a double-precision value into the low-order bits of a 128-bit
 ///    vector of [2 x double]. The high-order bits are copied from the
 ///    high-order bits of the first operand.
 ///
@@ -1751,10 +1750,10 @@ _mm_loadl_pd(__m128d __a, double const *__dp)
     double __u;
   } __attribute__((__packed__, __may_alias__));
   double __u = ((struct __mm_loadl_pd_struct*)__dp)->__u;
-  return (__m128d){ __u, __a[1] };
+  return __extension__ (__m128d){ __u, __a[1] };
 }
 
-/// \brief Constructs a 128-bit floating-point vector of [2 x double] with
+/// Constructs a 128-bit floating-point vector of [2 x double] with
 ///    unspecified content. This could be used as an argument to another
 ///    intrinsic function where the argument is required but the value is not
 ///    actually used.
@@ -1771,7 +1770,7 @@ _mm_undefined_pd(void)
   return (__m128d)__builtin_ia32_undef128();
 }
 
-/// \brief Constructs a 128-bit floating-point vector of [2 x double]. The lower
+/// Constructs a 128-bit floating-point vector of [2 x double]. The lower
 ///    64 bits of the vector are initialized with the specified double-precision
 ///    floating-point value. The upper 64 bits are set to zero.
 ///
@@ -1788,10 +1787,10 @@ _mm_undefined_pd(void)
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_set_sd(double __w)
 {
-  return (__m128d){ __w, 0 };
+  return __extension__ (__m128d){ __w, 0 };
 }
 
-/// \brief Constructs a 128-bit floating-point vector of [2 x double], with each
+/// Constructs a 128-bit floating-point vector of [2 x double], with each
 ///    of the two double-precision floating-point vector elements set to the
 ///    specified double-precision floating-point value.
 ///
@@ -1806,10 +1805,10 @@ _mm_set_sd(double __w)
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_set1_pd(double __w)
 {
-  return (__m128d){ __w, __w };
+  return __extension__ (__m128d){ __w, __w };
 }
 
-/// \brief Constructs a 128-bit floating-point vector of [2 x double], with each
+/// Constructs a 128-bit floating-point vector of [2 x double], with each
 ///    of the two double-precision floating-point vector elements set to the
 ///    specified double-precision floating-point value.
 ///
@@ -1827,7 +1826,7 @@ _mm_set_pd1(double __w)
   return _mm_set1_pd(__w);
 }
 
-/// \brief Constructs a 128-bit floating-point vector of [2 x double]
+/// Constructs a 128-bit floating-point vector of [2 x double]
 ///    initialized with the specified double-precision floating-point values.
 ///
 /// \headerfile <x86intrin.h>
@@ -1844,10 +1843,10 @@ _mm_set_pd1(double __w)
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_set_pd(double __w, double __x)
 {
-  return (__m128d){ __x, __w };
+  return __extension__ (__m128d){ __x, __w };
 }
 
-/// \brief Constructs a 128-bit floating-point vector of [2 x double],
+/// Constructs a 128-bit floating-point vector of [2 x double],
 ///    initialized in reverse order with the specified double-precision
 ///    floating-point values.
 ///
@@ -1865,10 +1864,10 @@ _mm_set_pd(double __w, double __x)
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_setr_pd(double __w, double __x)
 {
-  return (__m128d){ __w, __x };
+  return __extension__ (__m128d){ __w, __x };
 }
 
-/// \brief Constructs a 128-bit floating-point vector of [2 x double]
+/// Constructs a 128-bit floating-point vector of [2 x double]
 ///    initialized to zero.
 ///
 /// \headerfile <x86intrin.h>
@@ -1880,10 +1879,10 @@ _mm_setr_pd(double __w, double __x)
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_setzero_pd(void)
 {
-  return (__m128d){ 0, 0 };
+  return __extension__ (__m128d){ 0, 0 };
 }
 
-/// \brief Constructs a 128-bit floating-point vector of [2 x double]. The lower
+/// Constructs a 128-bit floating-point vector of [2 x double]. The lower
 ///    64 bits are set to the lower 64 bits of the second parameter. The upper
 ///    64 bits are set to the upper 64 bits of the first parameter.
 ///
@@ -1901,10 +1900,11 @@ _mm_setzero_pd(void)
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_move_sd(__m128d __a, __m128d __b)
 {
-  return (__m128d){ __b[0], __a[1] };
+  __a[0] = __b[0];
+  return __a;
 }
 
-/// \brief Stores the lower 64 bits of a 128-bit vector of [2 x double] to a
+/// Stores the lower 64 bits of a 128-bit vector of [2 x double] to a
 ///    memory location.
 ///
 /// \headerfile <x86intrin.h>
@@ -1924,7 +1924,7 @@ _mm_store_sd(double *__dp, __m128d __a)
   ((struct __mm_store_sd_struct*)__dp)->__u = __a[0];
 }
 
-/// \brief Moves packed double-precision values from a 128-bit vector of
+/// Moves packed double-precision values from a 128-bit vector of
 ///    [2 x double] to a memory location.
 ///
 /// \headerfile <x86intrin.h>
@@ -1943,7 +1943,7 @@ _mm_store_pd(double *__dp, __m128d __a)
   *(__m128d*)__dp = __a;
 }
 
-/// \brief Moves the lower 64 bits of a 128-bit vector of [2 x double] twice to
+/// Moves the lower 64 bits of a 128-bit vector of [2 x double] twice to
 ///    the upper and lower 64 bits of a memory location.
 ///
 /// \headerfile <x86intrin.h>
@@ -1964,7 +1964,7 @@ _mm_store1_pd(double *__dp, __m128d __a)
   _mm_store_pd(__dp, __a);
 }
 
-/// \brief Moves the lower 64 bits of a 128-bit vector of [2 x double] twice to
+/// Moves the lower 64 bits of a 128-bit vector of [2 x double] twice to
 ///    the upper and lower 64 bits of a memory location.
 ///
 /// \headerfile <x86intrin.h>
@@ -1981,10 +1981,10 @@ _mm_store1_pd(double *__dp, __m128d __a)
 static __inline__ void __DEFAULT_FN_ATTRS
 _mm_store_pd1(double *__dp, __m128d __a)
 {
-  return _mm_store1_pd(__dp, __a);
+  _mm_store1_pd(__dp, __a);
 }
 
-/// \brief Stores a 128-bit vector of [2 x double] into an unaligned memory
+/// Stores a 128-bit vector of [2 x double] into an unaligned memory
 ///    location.
 ///
 /// \headerfile <x86intrin.h>
@@ -2005,7 +2005,7 @@ _mm_storeu_pd(double *__dp, __m128d __a)
   ((struct __storeu_pd*)__dp)->__v = __a;
 }
 
-/// \brief Stores two double-precision values, in reverse order, from a 128-bit
+/// Stores two double-precision values, in reverse order, from a 128-bit
 ///    vector of [2 x double] to a 16-byte aligned memory location.
 ///
 /// \headerfile <x86intrin.h>
@@ -2026,7 +2026,7 @@ _mm_storer_pd(double *__dp, __m128d __a)
   *(__m128d *)__dp = __a;
 }
 
-/// \brief Stores the upper 64 bits of a 128-bit vector of [2 x double] to a
+/// Stores the upper 64 bits of a 128-bit vector of [2 x double] to a
 ///    memory location.
 ///
 /// \headerfile <x86intrin.h>
@@ -2046,7 +2046,7 @@ _mm_storeh_pd(double *__dp, __m128d __a)
   ((struct __mm_storeh_pd_struct*)__dp)->__u = __a[1];
 }
 
-/// \brief Stores the lower 64 bits of a 128-bit vector of [2 x double] to a
+/// Stores the lower 64 bits of a 128-bit vector of [2 x double] to a
 ///    memory location.
 ///
 /// \headerfile <x86intrin.h>
@@ -2066,7 +2066,7 @@ _mm_storel_pd(double *__dp, __m128d __a)
   ((struct __mm_storeh_pd_struct*)__dp)->__u = __a[0];
 }
 
-/// \brief Adds the corresponding elements of two 128-bit vectors of [16 x i8],
+/// Adds the corresponding elements of two 128-bit vectors of [16 x i8],
 ///    saving the lower 8 bits of each sum in the corresponding element of a
 ///    128-bit result vector of [16 x i8].
 ///
@@ -2088,7 +2088,7 @@ _mm_add_epi8(__m128i __a, __m128i __b)
   return (__m128i)((__v16qu)__a + (__v16qu)__b);
 }
 
-/// \brief Adds the corresponding elements of two 128-bit vectors of [8 x i16],
+/// Adds the corresponding elements of two 128-bit vectors of [8 x i16],
 ///    saving the lower 16 bits of each sum in the corresponding element of a
 ///    128-bit result vector of [8 x i16].
 ///
@@ -2110,7 +2110,7 @@ _mm_add_epi16(__m128i __a, __m128i __b)
   return (__m128i)((__v8hu)__a + (__v8hu)__b);
 }
 
-/// \brief Adds the corresponding elements of two 128-bit vectors of [4 x i32],
+/// Adds the corresponding elements of two 128-bit vectors of [4 x i32],
 ///    saving the lower 32 bits of each sum in the corresponding element of a
 ///    128-bit result vector of [4 x i32].
 ///
@@ -2132,7 +2132,7 @@ _mm_add_epi32(__m128i __a, __m128i __b)
   return (__m128i)((__v4su)__a + (__v4su)__b);
 }
 
-/// \brief Adds two signed or unsigned 64-bit integer values, returning the
+/// Adds two signed or unsigned 64-bit integer values, returning the
 ///    lower 64 bits of the sum.
 ///
 /// \headerfile <x86intrin.h>
@@ -2144,13 +2144,13 @@ _mm_add_epi32(__m128i __a, __m128i __b)
 /// \param __b
 ///    A 64-bit integer.
 /// \returns A 64-bit integer containing the sum of both parameters.
-static __inline__ __m64 __DEFAULT_FN_ATTRS
+static __inline__ __m64 __DEFAULT_FN_ATTRS_MMX
 _mm_add_si64(__m64 __a, __m64 __b)
 {
   return (__m64)__builtin_ia32_paddq((__v1di)__a, (__v1di)__b);
 }
 
-/// \brief Adds the corresponding elements of two 128-bit vectors of [2 x i64],
+/// Adds the corresponding elements of two 128-bit vectors of [2 x i64],
 ///    saving the lower 64 bits of each sum in the corresponding element of a
 ///    128-bit result vector of [2 x i64].
 ///
@@ -2172,10 +2172,10 @@ _mm_add_epi64(__m128i __a, __m128i __b)
   return (__m128i)((__v2du)__a + (__v2du)__b);
 }
 
-/// \brief Adds, with saturation, the corresponding elements of two 128-bit
+/// Adds, with saturation, the corresponding elements of two 128-bit
 ///    signed [16 x i8] vectors, saving each sum in the corresponding element of
-///    a 128-bit result vector of [16 x i8]. Positive sums greater than 7Fh are
-///    saturated to 7Fh. Negative sums less than 80h are saturated to 80h.
+///    a 128-bit result vector of [16 x i8]. Positive sums greater than 0x7F are
+///    saturated to 0x7F. Negative sums less than 0x80 are saturated to 0x80.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -2193,11 +2193,11 @@ _mm_adds_epi8(__m128i __a, __m128i __b)
   return (__m128i)__builtin_ia32_paddsb128((__v16qi)__a, (__v16qi)__b);
 }
 
-/// \brief Adds, with saturation, the corresponding elements of two 128-bit
+/// Adds, with saturation, the corresponding elements of two 128-bit
 ///    signed [8 x i16] vectors, saving each sum in the corresponding element of
-///    a 128-bit result vector of [8 x i16]. Positive sums greater than 7FFFh
-///    are saturated to 7FFFh. Negative sums less than 8000h are saturated to
-///    8000h.
+///    a 128-bit result vector of [8 x i16]. Positive sums greater than 0x7FFF
+///    are saturated to 0x7FFF. Negative sums less than 0x8000 are saturated to
+///    0x8000.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -2215,10 +2215,10 @@ _mm_adds_epi16(__m128i __a, __m128i __b)
   return (__m128i)__builtin_ia32_paddsw128((__v8hi)__a, (__v8hi)__b);
 }
 
-/// \brief Adds, with saturation, the corresponding elements of two 128-bit
+/// Adds, with saturation, the corresponding elements of two 128-bit
 ///    unsigned [16 x i8] vectors, saving each sum in the corresponding element
-///    of a 128-bit result vector of [16 x i8]. Positive sums greater than FFh
-///    are saturated to FFh. Negative sums are saturated to 00h.
+///    of a 128-bit result vector of [16 x i8]. Positive sums greater than 0xFF
+///    are saturated to 0xFF. Negative sums are saturated to 0x00.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -2236,10 +2236,10 @@ _mm_adds_epu8(__m128i __a, __m128i __b)
   return (__m128i)__builtin_ia32_paddusb128((__v16qi)__a, (__v16qi)__b);
 }
 
-/// \brief Adds, with saturation, the corresponding elements of two 128-bit
+/// Adds, with saturation, the corresponding elements of two 128-bit
 ///    unsigned [8 x i16] vectors, saving each sum in the corresponding element
-///    of a 128-bit result vector of [8 x i16]. Positive sums greater than FFFFh
-///    are saturated to FFFFh. Negative sums are saturated to 0000h.
+///    of a 128-bit result vector of [8 x i16]. Positive sums greater than
+///    0xFFFF are saturated to 0xFFFF. Negative sums are saturated to 0x0000.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -2257,7 +2257,7 @@ _mm_adds_epu16(__m128i __a, __m128i __b)
   return (__m128i)__builtin_ia32_paddusw128((__v8hi)__a, (__v8hi)__b);
 }
 
-/// \brief Computes the rounded avarages of corresponding elements of two
+/// Computes the rounded avarages of corresponding elements of two
 ///    128-bit unsigned [16 x i8] vectors, saving each result in the
 ///    corresponding element of a 128-bit result vector of [16 x i8].
 ///
@@ -2281,7 +2281,7 @@ _mm_avg_epu8(__m128i __a, __m128i __b)
                  >> 1, __v16qu);
 }
 
-/// \brief Computes the rounded avarages of corresponding elements of two
+/// Computes the rounded avarages of corresponding elements of two
 ///    128-bit unsigned [8 x i16] vectors, saving each result in the
 ///    corresponding element of a 128-bit result vector of [8 x i16].
 ///
@@ -2305,7 +2305,7 @@ _mm_avg_epu16(__m128i __a, __m128i __b)
                  >> 1, __v8hu);
 }
 
-/// \brief Multiplies the corresponding elements of two 128-bit signed [8 x i16]
+/// Multiplies the corresponding elements of two 128-bit signed [8 x i16]
 ///    vectors, producing eight intermediate 32-bit signed integer products, and
 ///    adds the consecutive pairs of 32-bit products to form a 128-bit signed
 ///    [4 x i32] vector.
@@ -2331,7 +2331,7 @@ _mm_madd_epi16(__m128i __a, __m128i __b)
   return (__m128i)__builtin_ia32_pmaddwd128((__v8hi)__a, (__v8hi)__b);
 }
 
-/// \brief Compares corresponding elements of two 128-bit signed [8 x i16]
+/// Compares corresponding elements of two 128-bit signed [8 x i16]
 ///    vectors, saving the greater value from each comparison in the
 ///    corresponding element of a 128-bit result vector of [8 x i16].
 ///
@@ -2351,7 +2351,7 @@ _mm_max_epi16(__m128i __a, __m128i __b)
   return (__m128i)__builtin_ia32_pmaxsw128((__v8hi)__a, (__v8hi)__b);
 }
 
-/// \brief Compares corresponding elements of two 128-bit unsigned [16 x i8]
+/// Compares corresponding elements of two 128-bit unsigned [16 x i8]
 ///    vectors, saving the greater value from each comparison in the
 ///    corresponding element of a 128-bit result vector of [16 x i8].
 ///
@@ -2371,7 +2371,7 @@ _mm_max_epu8(__m128i __a, __m128i __b)
   return (__m128i)__builtin_ia32_pmaxub128((__v16qi)__a, (__v16qi)__b);
 }
 
-/// \brief Compares corresponding elements of two 128-bit signed [8 x i16]
+/// Compares corresponding elements of two 128-bit signed [8 x i16]
 ///    vectors, saving the smaller value from each comparison in the
 ///    corresponding element of a 128-bit result vector of [8 x i16].
 ///
@@ -2391,7 +2391,7 @@ _mm_min_epi16(__m128i __a, __m128i __b)
   return (__m128i)__builtin_ia32_pminsw128((__v8hi)__a, (__v8hi)__b);
 }
 
-/// \brief Compares corresponding elements of two 128-bit unsigned [16 x i8]
+/// Compares corresponding elements of two 128-bit unsigned [16 x i8]
 ///    vectors, saving the smaller value from each comparison in the
 ///    corresponding element of a 128-bit result vector of [16 x i8].
 ///
@@ -2411,7 +2411,7 @@ _mm_min_epu8(__m128i __a, __m128i __b)
   return (__m128i)__builtin_ia32_pminub128((__v16qi)__a, (__v16qi)__b);
 }
 
-/// \brief Multiplies the corresponding elements of two signed [8 x i16]
+/// Multiplies the corresponding elements of two signed [8 x i16]
 ///    vectors, saving the upper 16 bits of each 32-bit product in the
 ///    corresponding element of a 128-bit signed [8 x i16] result vector.
 ///
@@ -2431,7 +2431,7 @@ _mm_mulhi_epi16(__m128i __a, __m128i __b)
   return (__m128i)__builtin_ia32_pmulhw128((__v8hi)__a, (__v8hi)__b);
 }
 
-/// \brief Multiplies the corresponding elements of two unsigned [8 x i16]
+/// Multiplies the corresponding elements of two unsigned [8 x i16]
 ///    vectors, saving the upper 16 bits of each 32-bit product in the
 ///    corresponding element of a 128-bit unsigned [8 x i16] result vector.
 ///
@@ -2451,7 +2451,7 @@ _mm_mulhi_epu16(__m128i __a, __m128i __b)
   return (__m128i)__builtin_ia32_pmulhuw128((__v8hi)__a, (__v8hi)__b);
 }
 
-/// \brief Multiplies the corresponding elements of two signed [8 x i16]
+/// Multiplies the corresponding elements of two signed [8 x i16]
 ///    vectors, saving the lower 16 bits of each 32-bit product in the
 ///    corresponding element of a 128-bit signed [8 x i16] result vector.
 ///
@@ -2471,7 +2471,7 @@ _mm_mullo_epi16(__m128i __a, __m128i __b)
   return (__m128i)((__v8hu)__a * (__v8hu)__b);
 }
 
-/// \brief Multiplies 32-bit unsigned integer values contained in the lower bits
+/// Multiplies 32-bit unsigned integer values contained in the lower bits
 ///    of the two 64-bit integer vectors and returns the 64-bit unsigned
 ///    product.
 ///
@@ -2484,13 +2484,13 @@ _mm_mullo_epi16(__m128i __a, __m128i __b)
 /// \param __b
 ///    A 64-bit integer containing one of the source operands.
 /// \returns A 64-bit integer vector containing the product of both operands.
-static __inline__ __m64 __DEFAULT_FN_ATTRS
+static __inline__ __m64 __DEFAULT_FN_ATTRS_MMX
 _mm_mul_su32(__m64 __a, __m64 __b)
 {
   return __builtin_ia32_pmuludq((__v2si)__a, (__v2si)__b);
 }
 
-/// \brief Multiplies 32-bit unsigned integer values contained in the lower
+/// Multiplies 32-bit unsigned integer values contained in the lower
 ///    bits of the corresponding elements of two [2 x i64] vectors, and returns
 ///    the 64-bit products in the corresponding elements of a [2 x i64] vector.
 ///
@@ -2509,7 +2509,7 @@ _mm_mul_epu32(__m128i __a, __m128i __b)
   return __builtin_ia32_pmuludq128((__v4si)__a, (__v4si)__b);
 }
 
-/// \brief Computes the absolute differences of corresponding 8-bit integer
+/// Computes the absolute differences of corresponding 8-bit integer
 ///    values in two 128-bit vectors. Sums the first 8 absolute differences, and
 ///    separately sums the second 8 absolute differences. Packs these two
 ///    unsigned 16-bit integer sums into the upper and lower elements of a
@@ -2531,7 +2531,7 @@ _mm_sad_epu8(__m128i __a, __m128i __b)
   return __builtin_ia32_psadbw128((__v16qi)__a, (__v16qi)__b);
 }
 
-/// \brief Subtracts the corresponding 8-bit integer values in the operands.
+/// Subtracts the corresponding 8-bit integer values in the operands.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -2549,7 +2549,7 @@ _mm_sub_epi8(__m128i __a, __m128i __b)
   return (__m128i)((__v16qu)__a - (__v16qu)__b);
 }
 
-/// \brief Subtracts the corresponding 16-bit integer values in the operands.
+/// Subtracts the corresponding 16-bit integer values in the operands.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -2567,7 +2567,7 @@ _mm_sub_epi16(__m128i __a, __m128i __b)
   return (__m128i)((__v8hu)__a - (__v8hu)__b);
 }
 
-/// \brief Subtracts the corresponding 32-bit integer values in the operands.
+/// Subtracts the corresponding 32-bit integer values in the operands.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -2585,7 +2585,7 @@ _mm_sub_epi32(__m128i __a, __m128i __b)
   return (__m128i)((__v4su)__a - (__v4su)__b);
 }
 
-/// \brief Subtracts signed or unsigned 64-bit integer values and writes the
+/// Subtracts signed or unsigned 64-bit integer values and writes the
 ///    difference to the corresponding bits in the destination.
 ///
 /// \headerfile <x86intrin.h>
@@ -2598,13 +2598,13 @@ _mm_sub_epi32(__m128i __a, __m128i __b)
 ///    A 64-bit integer vector containing the subtrahend.
 /// \returns A 64-bit integer vector containing the difference of the values in
 ///    the operands.
-static __inline__ __m64 __DEFAULT_FN_ATTRS
+static __inline__ __m64 __DEFAULT_FN_ATTRS_MMX
 _mm_sub_si64(__m64 __a, __m64 __b)
 {
   return (__m64)__builtin_ia32_psubq((__v1di)__a, (__v1di)__b);
 }
 
-/// \brief Subtracts the corresponding elements of two [2 x i64] vectors.
+/// Subtracts the corresponding elements of two [2 x i64] vectors.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -2622,10 +2622,10 @@ _mm_sub_epi64(__m128i __a, __m128i __b)
   return (__m128i)((__v2du)__a - (__v2du)__b);
 }
 
-/// \brief Subtracts corresponding 8-bit signed integer values in the input and
+/// Subtracts corresponding 8-bit signed integer values in the input and
 ///    returns the differences in the corresponding bytes in the destination.
-///    Differences greater than 7Fh are saturated to 7Fh, and differences less
-///    than 80h are saturated to 80h.
+///    Differences greater than 0x7F are saturated to 0x7F, and differences less
+///    than 0x80 are saturated to 0x80.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -2643,10 +2643,10 @@ _mm_subs_epi8(__m128i __a, __m128i __b)
   return (__m128i)__builtin_ia32_psubsb128((__v16qi)__a, (__v16qi)__b);
 }
 
-/// \brief Subtracts corresponding 16-bit signed integer values in the input and
+/// Subtracts corresponding 16-bit signed integer values in the input and
 ///    returns the differences in the corresponding bytes in the destination.
-///    Differences greater than 7FFFh are saturated to 7FFFh, and values less
-///    than 8000h are saturated to 8000h.
+///    Differences greater than 0x7FFF are saturated to 0x7FFF, and values less
+///    than 0x8000 are saturated to 0x8000.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -2664,9 +2664,9 @@ _mm_subs_epi16(__m128i __a, __m128i __b)
   return (__m128i)__builtin_ia32_psubsw128((__v8hi)__a, (__v8hi)__b);
 }
 
-/// \brief Subtracts corresponding 8-bit unsigned integer values in the input
+/// Subtracts corresponding 8-bit unsigned integer values in the input
 ///    and returns the differences in the corresponding bytes in the
-///    destination. Differences less than 00h are saturated to 00h.
+///    destination. Differences less than 0x00 are saturated to 0x00.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -2684,9 +2684,9 @@ _mm_subs_epu8(__m128i __a, __m128i __b)
   return (__m128i)__builtin_ia32_psubusb128((__v16qi)__a, (__v16qi)__b);
 }
 
-/// \brief Subtracts corresponding 16-bit unsigned integer values in the input
+/// Subtracts corresponding 16-bit unsigned integer values in the input
 ///    and returns the differences in the corresponding bytes in the
-///    destination. Differences less than 0000h are saturated to 0000h.
+///    destination. Differences less than 0x0000 are saturated to 0x0000.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -2704,7 +2704,7 @@ _mm_subs_epu16(__m128i __a, __m128i __b)
   return (__m128i)__builtin_ia32_psubusw128((__v8hi)__a, (__v8hi)__b);
 }
 
-/// \brief Performs a bitwise AND of two 128-bit integer vectors.
+/// Performs a bitwise AND of two 128-bit integer vectors.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -2722,7 +2722,7 @@ _mm_and_si128(__m128i __a, __m128i __b)
   return (__m128i)((__v2du)__a & (__v2du)__b);
 }
 
-/// \brief Performs a bitwise AND of two 128-bit integer vectors, using the
+/// Performs a bitwise AND of two 128-bit integer vectors, using the
 ///    one's complement of the values contained in the first source operand.
 ///
 /// \headerfile <x86intrin.h>
@@ -2741,7 +2741,7 @@ _mm_andnot_si128(__m128i __a, __m128i __b)
 {
   return (__m128i)(~(__v2du)__a & (__v2du)__b);
 }
-/// \brief Performs a bitwise OR of two 128-bit integer vectors.
+/// Performs a bitwise OR of two 128-bit integer vectors.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -2759,7 +2759,7 @@ _mm_or_si128(__m128i __a, __m128i __b)
   return (__m128i)((__v2du)__a | (__v2du)__b);
 }
 
-/// \brief Performs a bitwise exclusive OR of two 128-bit integer vectors.
+/// Performs a bitwise exclusive OR of two 128-bit integer vectors.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -2777,7 +2777,7 @@ _mm_xor_si128(__m128i __a, __m128i __b)
   return (__m128i)((__v2du)__a ^ (__v2du)__b);
 }
 
-/// \brief Left-shifts the 128-bit integer vector operand by the specified
+/// Left-shifts the 128-bit integer vector operand by the specified
 ///    number of bytes. Low-order bits are cleared.
 ///
 /// \headerfile <x86intrin.h>
@@ -2794,31 +2794,13 @@ _mm_xor_si128(__m128i __a, __m128i __b)
 ///    An immediate value specifying the number of bytes to left-shift operand
 ///    \a a.
 /// \returns A 128-bit integer vector containing the left-shifted value.
-#define _mm_slli_si128(a, imm) __extension__ ({                              \
-  (__m128i)__builtin_shufflevector(                                          \
-                                 (__v16qi)_mm_setzero_si128(),               \
-                                 (__v16qi)(__m128i)(a),                      \
-                                 ((char)(imm)&0xF0) ?  0 : 16 - (char)(imm), \
-                                 ((char)(imm)&0xF0) ?  1 : 17 - (char)(imm), \
-                                 ((char)(imm)&0xF0) ?  2 : 18 - (char)(imm), \
-                                 ((char)(imm)&0xF0) ?  3 : 19 - (char)(imm), \
-                                 ((char)(imm)&0xF0) ?  4 : 20 - (char)(imm), \
-                                 ((char)(imm)&0xF0) ?  5 : 21 - (char)(imm), \
-                                 ((char)(imm)&0xF0) ?  6 : 22 - (char)(imm), \
-                                 ((char)(imm)&0xF0) ?  7 : 23 - (char)(imm), \
-                                 ((char)(imm)&0xF0) ?  8 : 24 - (char)(imm), \
-                                 ((char)(imm)&0xF0) ?  9 : 25 - (char)(imm), \
-                                 ((char)(imm)&0xF0) ? 10 : 26 - (char)(imm), \
-                                 ((char)(imm)&0xF0) ? 11 : 27 - (char)(imm), \
-                                 ((char)(imm)&0xF0) ? 12 : 28 - (char)(imm), \
-                                 ((char)(imm)&0xF0) ? 13 : 29 - (char)(imm), \
-                                 ((char)(imm)&0xF0) ? 14 : 30 - (char)(imm), \
-                                 ((char)(imm)&0xF0) ? 15 : 31 - (char)(imm)); })
+#define _mm_slli_si128(a, imm) \
+  (__m128i)__builtin_ia32_pslldqi128_byteshift((__v2di)(__m128i)(a), (int)(imm))
 
 #define _mm_bslli_si128(a, imm) \
-  _mm_slli_si128((a), (imm))
+  (__m128i)__builtin_ia32_pslldqi128_byteshift((__v2di)(__m128i)(a), (int)(imm))
 
-/// \brief Left-shifts each 16-bit value in the 128-bit integer vector operand
+/// Left-shifts each 16-bit value in the 128-bit integer vector operand
 ///    by the specified number of bits. Low-order bits are cleared.
 ///
 /// \headerfile <x86intrin.h>
@@ -2837,7 +2819,7 @@ _mm_slli_epi16(__m128i __a, int __count)
   return (__m128i)__builtin_ia32_psllwi128((__v8hi)__a, __count);
 }
 
-/// \brief Left-shifts each 16-bit value in the 128-bit integer vector operand
+/// Left-shifts each 16-bit value in the 128-bit integer vector operand
 ///    by the specified number of bits. Low-order bits are cleared.
 ///
 /// \headerfile <x86intrin.h>
@@ -2856,7 +2838,7 @@ _mm_sll_epi16(__m128i __a, __m128i __count)
   return (__m128i)__builtin_ia32_psllw128((__v8hi)__a, (__v8hi)__count);
 }
 
-/// \brief Left-shifts each 32-bit value in the 128-bit integer vector operand
+/// Left-shifts each 32-bit value in the 128-bit integer vector operand
 ///    by the specified number of bits. Low-order bits are cleared.
 ///
 /// \headerfile <x86intrin.h>
@@ -2875,7 +2857,7 @@ _mm_slli_epi32(__m128i __a, int __count)
   return (__m128i)__builtin_ia32_pslldi128((__v4si)__a, __count);
 }
 
-/// \brief Left-shifts each 32-bit value in the 128-bit integer vector operand
+/// Left-shifts each 32-bit value in the 128-bit integer vector operand
 ///    by the specified number of bits. Low-order bits are cleared.
 ///
 /// \headerfile <x86intrin.h>
@@ -2894,7 +2876,7 @@ _mm_sll_epi32(__m128i __a, __m128i __count)
   return (__m128i)__builtin_ia32_pslld128((__v4si)__a, (__v4si)__count);
 }
 
-/// \brief Left-shifts each 64-bit value in the 128-bit integer vector operand
+/// Left-shifts each 64-bit value in the 128-bit integer vector operand
 ///    by the specified number of bits. Low-order bits are cleared.
 ///
 /// \headerfile <x86intrin.h>
@@ -2913,7 +2895,7 @@ _mm_slli_epi64(__m128i __a, int __count)
   return __builtin_ia32_psllqi128((__v2di)__a, __count);
 }
 
-/// \brief Left-shifts each 64-bit value in the 128-bit integer vector operand
+/// Left-shifts each 64-bit value in the 128-bit integer vector operand
 ///    by the specified number of bits. Low-order bits are cleared.
 ///
 /// \headerfile <x86intrin.h>
@@ -2932,7 +2914,7 @@ _mm_sll_epi64(__m128i __a, __m128i __count)
   return __builtin_ia32_psllq128((__v2di)__a, (__v2di)__count);
 }
 
-/// \brief Right-shifts each 16-bit value in the 128-bit integer vector operand
+/// Right-shifts each 16-bit value in the 128-bit integer vector operand
 ///    by the specified number of bits. High-order bits are filled with the sign
 ///    bit of the initial value.
 ///
@@ -2952,7 +2934,7 @@ _mm_srai_epi16(__m128i __a, int __count)
   return (__m128i)__builtin_ia32_psrawi128((__v8hi)__a, __count);
 }
 
-/// \brief Right-shifts each 16-bit value in the 128-bit integer vector operand
+/// Right-shifts each 16-bit value in the 128-bit integer vector operand
 ///    by the specified number of bits. High-order bits are filled with the sign
 ///    bit of the initial value.
 ///
@@ -2972,7 +2954,7 @@ _mm_sra_epi16(__m128i __a, __m128i __count)
   return (__m128i)__builtin_ia32_psraw128((__v8hi)__a, (__v8hi)__count);
 }
 
-/// \brief Right-shifts each 32-bit value in the 128-bit integer vector operand
+/// Right-shifts each 32-bit value in the 128-bit integer vector operand
 ///    by the specified number of bits. High-order bits are filled with the sign
 ///    bit of the initial value.
 ///
@@ -2992,7 +2974,7 @@ _mm_srai_epi32(__m128i __a, int __count)
   return (__m128i)__builtin_ia32_psradi128((__v4si)__a, __count);
 }
 
-/// \brief Right-shifts each 32-bit value in the 128-bit integer vector operand
+/// Right-shifts each 32-bit value in the 128-bit integer vector operand
 ///    by the specified number of bits. High-order bits are filled with the sign
 ///    bit of the initial value.
 ///
@@ -3012,7 +2994,7 @@ _mm_sra_epi32(__m128i __a, __m128i __count)
   return (__m128i)__builtin_ia32_psrad128((__v4si)__a, (__v4si)__count);
 }
 
-/// \brief Right-shifts the 128-bit integer vector operand by the specified
+/// Right-shifts the 128-bit integer vector operand by the specified
 ///    number of bytes. High-order bits are cleared.
 ///
 /// \headerfile <x86intrin.h>
@@ -3029,31 +3011,13 @@ _mm_sra_epi32(__m128i __a, __m128i __count)
 ///    An immediate value specifying the number of bytes to right-shift operand
 ///    \a a.
 /// \returns A 128-bit integer vector containing the right-shifted value.
-#define _mm_srli_si128(a, imm) __extension__ ({                              \
-  (__m128i)__builtin_shufflevector(                                          \
-                                 (__v16qi)(__m128i)(a),                      \
-                                 (__v16qi)_mm_setzero_si128(),               \
-                                 ((char)(imm)&0xF0) ? 16 : (char)(imm) + 0,  \
-                                 ((char)(imm)&0xF0) ? 17 : (char)(imm) + 1,  \
-                                 ((char)(imm)&0xF0) ? 18 : (char)(imm) + 2,  \
-                                 ((char)(imm)&0xF0) ? 19 : (char)(imm) + 3,  \
-                                 ((char)(imm)&0xF0) ? 20 : (char)(imm) + 4,  \
-                                 ((char)(imm)&0xF0) ? 21 : (char)(imm) + 5,  \
-                                 ((char)(imm)&0xF0) ? 22 : (char)(imm) + 6,  \
-                                 ((char)(imm)&0xF0) ? 23 : (char)(imm) + 7,  \
-                                 ((char)(imm)&0xF0) ? 24 : (char)(imm) + 8,  \
-                                 ((char)(imm)&0xF0) ? 25 : (char)(imm) + 9,  \
-                                 ((char)(imm)&0xF0) ? 26 : (char)(imm) + 10, \
-                                 ((char)(imm)&0xF0) ? 27 : (char)(imm) + 11, \
-                                 ((char)(imm)&0xF0) ? 28 : (char)(imm) + 12, \
-                                 ((char)(imm)&0xF0) ? 29 : (char)(imm) + 13, \
-                                 ((char)(imm)&0xF0) ? 30 : (char)(imm) + 14, \
-                                 ((char)(imm)&0xF0) ? 31 : (char)(imm) + 15); })
+#define _mm_srli_si128(a, imm) \
+  (__m128i)__builtin_ia32_psrldqi128_byteshift((__v2di)(__m128i)(a), (int)(imm))
 
 #define _mm_bsrli_si128(a, imm) \
-  _mm_srli_si128((a), (imm))
+  (__m128i)__builtin_ia32_psrldqi128_byteshift((__v2di)(__m128i)(a), (int)(imm))
 
-/// \brief Right-shifts each of 16-bit values in the 128-bit integer vector
+/// Right-shifts each of 16-bit values in the 128-bit integer vector
 ///    operand by the specified number of bits. High-order bits are cleared.
 ///
 /// \headerfile <x86intrin.h>
@@ -3072,7 +3036,7 @@ _mm_srli_epi16(__m128i __a, int __count)
   return (__m128i)__builtin_ia32_psrlwi128((__v8hi)__a, __count);
 }
 
-/// \brief Right-shifts each of 16-bit values in the 128-bit integer vector
+/// Right-shifts each of 16-bit values in the 128-bit integer vector
 ///    operand by the specified number of bits. High-order bits are cleared.
 ///
 /// \headerfile <x86intrin.h>
@@ -3091,7 +3055,7 @@ _mm_srl_epi16(__m128i __a, __m128i __count)
   return (__m128i)__builtin_ia32_psrlw128((__v8hi)__a, (__v8hi)__count);
 }
 
-/// \brief Right-shifts each of 32-bit values in the 128-bit integer vector
+/// Right-shifts each of 32-bit values in the 128-bit integer vector
 ///    operand by the specified number of bits. High-order bits are cleared.
 ///
 /// \headerfile <x86intrin.h>
@@ -3110,7 +3074,7 @@ _mm_srli_epi32(__m128i __a, int __count)
   return (__m128i)__builtin_ia32_psrldi128((__v4si)__a, __count);
 }
 
-/// \brief Right-shifts each of 32-bit values in the 128-bit integer vector
+/// Right-shifts each of 32-bit values in the 128-bit integer vector
 ///    operand by the specified number of bits. High-order bits are cleared.
 ///
 /// \headerfile <x86intrin.h>
@@ -3129,7 +3093,7 @@ _mm_srl_epi32(__m128i __a, __m128i __count)
   return (__m128i)__builtin_ia32_psrld128((__v4si)__a, (__v4si)__count);
 }
 
-/// \brief Right-shifts each of 64-bit values in the 128-bit integer vector
+/// Right-shifts each of 64-bit values in the 128-bit integer vector
 ///    operand by the specified number of bits. High-order bits are cleared.
 ///
 /// \headerfile <x86intrin.h>
@@ -3148,7 +3112,7 @@ _mm_srli_epi64(__m128i __a, int __count)
   return __builtin_ia32_psrlqi128((__v2di)__a, __count);
 }
 
-/// \brief Right-shifts each of 64-bit values in the 128-bit integer vector
+/// Right-shifts each of 64-bit values in the 128-bit integer vector
 ///    operand by the specified number of bits. High-order bits are cleared.
 ///
 /// \headerfile <x86intrin.h>
@@ -3167,8 +3131,8 @@ _mm_srl_epi64(__m128i __a, __m128i __count)
   return __builtin_ia32_psrlq128((__v2di)__a, (__v2di)__count);
 }
 
-/// \brief Compares each of the corresponding 8-bit values of the 128-bit
-///    integer vectors for equality. Each comparison yields 0h for false, FFh
+/// Compares each of the corresponding 8-bit values of the 128-bit
+///    integer vectors for equality. Each comparison yields 0x0 for false, 0xFF
 ///    for true.
 ///
 /// \headerfile <x86intrin.h>
@@ -3186,9 +3150,9 @@ _mm_cmpeq_epi8(__m128i __a, __m128i __b)
   return (__m128i)((__v16qi)__a == (__v16qi)__b);
 }
 
-/// \brief Compares each of the corresponding 16-bit values of the 128-bit
-///    integer vectors for equality. Each comparison yields 0h for false, FFFFh
-///    for true.
+/// Compares each of the corresponding 16-bit values of the 128-bit
+///    integer vectors for equality. Each comparison yields 0x0 for false,
+///    0xFFFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -3205,9 +3169,9 @@ _mm_cmpeq_epi16(__m128i __a, __m128i __b)
   return (__m128i)((__v8hi)__a == (__v8hi)__b);
 }
 
-/// \brief Compares each of the corresponding 32-bit values of the 128-bit
-///    integer vectors for equality. Each comparison yields 0h for false,
-///    FFFFFFFFh for true.
+/// Compares each of the corresponding 32-bit values of the 128-bit
+///    integer vectors for equality. Each comparison yields 0x0 for false,
+///    0xFFFFFFFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -3224,10 +3188,10 @@ _mm_cmpeq_epi32(__m128i __a, __m128i __b)
   return (__m128i)((__v4si)__a == (__v4si)__b);
 }
 
-/// \brief Compares each of the corresponding signed 8-bit values of the 128-bit
+/// Compares each of the corresponding signed 8-bit values of the 128-bit
 ///    integer vectors to determine if the values in the first operand are
-///    greater than those in the second operand. Each comparison yields 0h for
-///    false, FFh for true.
+///    greater than those in the second operand. Each comparison yields 0x0 for
+///    false, 0xFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -3246,11 +3210,11 @@ _mm_cmpgt_epi8(__m128i __a, __m128i __b)
   return (__m128i)((__v16qs)__a > (__v16qs)__b);
 }
 
-/// \brief Compares each of the corresponding signed 16-bit values of the
+/// Compares each of the corresponding signed 16-bit values of the
 ///    128-bit integer vectors to determine if the values in the first operand
 ///    are greater than those in the second operand.
 ///
-///    Each comparison yields 0h for false, FFFFh for true.
+///    Each comparison yields 0x0 for false, 0xFFFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -3267,11 +3231,11 @@ _mm_cmpgt_epi16(__m128i __a, __m128i __b)
   return (__m128i)((__v8hi)__a > (__v8hi)__b);
 }
 
-/// \brief Compares each of the corresponding signed 32-bit values of the
+/// Compares each of the corresponding signed 32-bit values of the
 ///    128-bit integer vectors to determine if the values in the first operand
 ///    are greater than those in the second operand.
 ///
-///    Each comparison yields 0h for false, FFFFFFFFh for true.
+///    Each comparison yields 0x0 for false, 0xFFFFFFFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -3288,11 +3252,11 @@ _mm_cmpgt_epi32(__m128i __a, __m128i __b)
   return (__m128i)((__v4si)__a > (__v4si)__b);
 }
 
-/// \brief Compares each of the corresponding signed 8-bit values of the 128-bit
+/// Compares each of the corresponding signed 8-bit values of the 128-bit
 ///    integer vectors to determine if the values in the first operand are less
 ///    than those in the second operand.
 ///
-///    Each comparison yields 0h for false, FFh for true.
+///    Each comparison yields 0x0 for false, 0xFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -3309,11 +3273,11 @@ _mm_cmplt_epi8(__m128i __a, __m128i __b)
   return _mm_cmpgt_epi8(__b, __a);
 }
 
-/// \brief Compares each of the corresponding signed 16-bit values of the
+/// Compares each of the corresponding signed 16-bit values of the
 ///    128-bit integer vectors to determine if the values in the first operand
 ///    are less than those in the second operand.
 ///
-///    Each comparison yields 0h for false, FFFFh for true.
+///    Each comparison yields 0x0 for false, 0xFFFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -3330,11 +3294,11 @@ _mm_cmplt_epi16(__m128i __a, __m128i __b)
   return _mm_cmpgt_epi16(__b, __a);
 }
 
-/// \brief Compares each of the corresponding signed 32-bit values of the
+/// Compares each of the corresponding signed 32-bit values of the
 ///    128-bit integer vectors to determine if the values in the first operand
 ///    are less than those in the second operand.
 ///
-///    Each comparison yields 0h for false, FFFFFFFFh for true.
+///    Each comparison yields 0x0 for false, 0xFFFFFFFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -3352,7 +3316,7 @@ _mm_cmplt_epi32(__m128i __a, __m128i __b)
 }
 
 #ifdef __x86_64__
-/// \brief Converts a 64-bit signed integer value from the second operand into a
+/// Converts a 64-bit signed integer value from the second operand into a
 ///    double-precision value and returns it in the lower element of a [2 x
 ///    double] vector; the upper element of the returned vector is copied from
 ///    the upper element of the first operand.
@@ -3376,7 +3340,7 @@ _mm_cvtsi64_sd(__m128d __a, long long __b)
   return __a;
 }
 
-/// \brief Converts the first (lower) element of a vector of [2 x double] into a
+/// Converts the first (lower) element of a vector of [2 x double] into a
 ///    64-bit signed integer value, according to the current rounding mode.
 ///
 /// \headerfile <x86intrin.h>
@@ -3393,7 +3357,7 @@ _mm_cvtsd_si64(__m128d __a)
   return __builtin_ia32_cvtsd2si64((__v2df)__a);
 }
 
-/// \brief Converts the first (lower) element of a vector of [2 x double] into a
+/// Converts the first (lower) element of a vector of [2 x double] into a
 ///    64-bit signed integer value, truncating the result when it is inexact.
 ///
 /// \headerfile <x86intrin.h>
@@ -3412,7 +3376,7 @@ _mm_cvttsd_si64(__m128d __a)
 }
 #endif
 
-/// \brief Converts a vector of [4 x i32] into a vector of [4 x float].
+/// Converts a vector of [4 x i32] into a vector of [4 x float].
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -3424,10 +3388,10 @@ _mm_cvttsd_si64(__m128d __a)
 static __inline__ __m128 __DEFAULT_FN_ATTRS
 _mm_cvtepi32_ps(__m128i __a)
 {
-  return __builtin_ia32_cvtdq2ps((__v4si)__a);
+  return (__m128)__builtin_convertvector((__v4si)__a, __v4sf);
 }
 
-/// \brief Converts a vector of [4 x float] into a vector of [4 x i32].
+/// Converts a vector of [4 x float] into a vector of [4 x i32].
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -3443,7 +3407,7 @@ _mm_cvtps_epi32(__m128 __a)
   return (__m128i)__builtin_ia32_cvtps2dq((__v4sf)__a);
 }
 
-/// \brief Converts a vector of [4 x float] into a vector of [4 x i32],
+/// Converts a vector of [4 x float] into a vector of [4 x i32],
 ///    truncating the result when it is inexact.
 ///
 /// \headerfile <x86intrin.h>
@@ -3460,7 +3424,7 @@ _mm_cvttps_epi32(__m128 __a)
   return (__m128i)__builtin_ia32_cvttps2dq((__v4sf)__a);
 }
 
-/// \brief Returns a vector of [4 x i32] where the lowest element is the input
+/// Returns a vector of [4 x i32] where the lowest element is the input
 ///    operand and the remaining elements are zero.
 ///
 /// \headerfile <x86intrin.h>
@@ -3473,11 +3437,11 @@ _mm_cvttps_epi32(__m128 __a)
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_cvtsi32_si128(int __a)
 {
-  return (__m128i)(__v4si){ __a, 0, 0, 0 };
+  return __extension__ (__m128i)(__v4si){ __a, 0, 0, 0 };
 }
 
 #ifdef __x86_64__
-/// \brief Returns a vector of [2 x i64] where the lower element is the input
+/// Returns a vector of [2 x i64] where the lower element is the input
 ///    operand and the upper element is zero.
 ///
 /// \headerfile <x86intrin.h>
@@ -3490,11 +3454,11 @@ _mm_cvtsi32_si128(int __a)
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_cvtsi64_si128(long long __a)
 {
-  return (__m128i){ __a, 0 };
+  return __extension__ (__m128i)(__v2di){ __a, 0 };
 }
 #endif
 
-/// \brief Moves the least significant 32 bits of a vector of [4 x i32] to a
+/// Moves the least significant 32 bits of a vector of [4 x i32] to a
 ///    32-bit signed integer value.
 ///
 /// \headerfile <x86intrin.h>
@@ -3513,7 +3477,7 @@ _mm_cvtsi128_si32(__m128i __a)
 }
 
 #ifdef __x86_64__
-/// \brief Moves the least significant 64 bits of a vector of [2 x i64] to a
+/// Moves the least significant 64 bits of a vector of [2 x i64] to a
 ///    64-bit signed integer value.
 ///
 /// \headerfile <x86intrin.h>
@@ -3531,7 +3495,7 @@ _mm_cvtsi128_si64(__m128i __a)
 }
 #endif
 
-/// \brief Moves packed integer values from an aligned 128-bit memory location
+/// Moves packed integer values from an aligned 128-bit memory location
 ///    to elements in a 128-bit integer vector.
 ///
 /// \headerfile <x86intrin.h>
@@ -3547,7 +3511,7 @@ _mm_load_si128(__m128i const *__p)
   return *__p;
 }
 
-/// \brief Moves packed integer values from an unaligned 128-bit memory location
+/// Moves packed integer values from an unaligned 128-bit memory location
 ///    to elements in a 128-bit integer vector.
 ///
 /// \headerfile <x86intrin.h>
@@ -3566,7 +3530,7 @@ _mm_loadu_si128(__m128i const *__p)
   return ((struct __loadu_si128*)__p)->__v;
 }
 
-/// \brief Returns a vector of [2 x i64] where the lower element is taken from
+/// Returns a vector of [2 x i64] where the lower element is taken from
 ///    the lower element of the operand, and the upper element is zero.
 ///
 /// \headerfile <x86intrin.h>
@@ -3584,10 +3548,10 @@ _mm_loadl_epi64(__m128i const *__p)
   struct __mm_loadl_epi64_struct {
     long long __u;
   } __attribute__((__packed__, __may_alias__));
-  return (__m128i) { ((struct __mm_loadl_epi64_struct*)__p)->__u, 0};
+  return __extension__ (__m128i) { ((struct __mm_loadl_epi64_struct*)__p)->__u, 0};
 }
 
-/// \brief Generates a 128-bit vector of [4 x i32] with unspecified content.
+/// Generates a 128-bit vector of [4 x i32] with unspecified content.
 ///    This could be used as an argument to another intrinsic function where the
 ///    argument is required but the value is not actually used.
 ///
@@ -3602,7 +3566,7 @@ _mm_undefined_si128(void)
   return (__m128i)__builtin_ia32_undef128();
 }
 
-/// \brief Initializes both 64-bit values in a 128-bit vector of [2 x i64] with
+/// Initializes both 64-bit values in a 128-bit vector of [2 x i64] with
 ///    the specified 64-bit integer values.
 ///
 /// \headerfile <x86intrin.h>
@@ -3621,10 +3585,10 @@ _mm_undefined_si128(void)
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_set_epi64x(long long __q1, long long __q0)
 {
-  return (__m128i){ __q0, __q1 };
+  return __extension__ (__m128i)(__v2di){ __q0, __q1 };
 }
 
-/// \brief Initializes both 64-bit values in a 128-bit vector of [2 x i64] with
+/// Initializes both 64-bit values in a 128-bit vector of [2 x i64] with
 ///    the specified 64-bit integer values.
 ///
 /// \headerfile <x86intrin.h>
@@ -3643,10 +3607,10 @@ _mm_set_epi64x(long long __q1, long long __q0)
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_set_epi64(__m64 __q1, __m64 __q0)
 {
-  return (__m128i){ (long long)__q0, (long long)__q1 };
+  return _mm_set_epi64x((long long)__q1, (long long)__q0);
 }
 
-/// \brief Initializes the 32-bit values in a 128-bit vector of [4 x i32] with
+/// Initializes the 32-bit values in a 128-bit vector of [4 x i32] with
 ///    the specified 32-bit integer values.
 ///
 /// \headerfile <x86intrin.h>
@@ -3671,10 +3635,10 @@ _mm_set_epi64(__m64 __q1, __m64 __q0)
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_set_epi32(int __i3, int __i2, int __i1, int __i0)
 {
-  return (__m128i)(__v4si){ __i0, __i1, __i2, __i3};
+  return __extension__ (__m128i)(__v4si){ __i0, __i1, __i2, __i3};
 }
 
-/// \brief Initializes the 16-bit values in a 128-bit vector of [8 x i16] with
+/// Initializes the 16-bit values in a 128-bit vector of [8 x i16] with
 ///    the specified 16-bit integer values.
 ///
 /// \headerfile <x86intrin.h>
@@ -3711,10 +3675,10 @@ _mm_set_epi32(int __i3, int __i2, int __i1, int __i0)
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_set_epi16(short __w7, short __w6, short __w5, short __w4, short __w3, short __w2, short __w1, short __w0)
 {
-  return (__m128i)(__v8hi){ __w0, __w1, __w2, __w3, __w4, __w5, __w6, __w7 };
+  return __extension__ (__m128i)(__v8hi){ __w0, __w1, __w2, __w3, __w4, __w5, __w6, __w7 };
 }
 
-/// \brief Initializes the 8-bit values in a 128-bit vector of [16 x i8] with
+/// Initializes the 8-bit values in a 128-bit vector of [16 x i8] with
 ///    the specified 8-bit integer values.
 ///
 /// \headerfile <x86intrin.h>
@@ -3759,10 +3723,10 @@ _mm_set_epi16(short __w7, short __w6, short __w5, short __w4, short __w3, short 
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_set_epi8(char __b15, char __b14, char __b13, char __b12, char __b11, char __b10, char __b9, char __b8, char __b7, char __b6, char __b5, char __b4, char __b3, char __b2, char __b1, char __b0)
 {
-  return (__m128i)(__v16qi){ __b0, __b1, __b2, __b3, __b4, __b5, __b6, __b7, __b8, __b9, __b10, __b11, __b12, __b13, __b14, __b15 };
+  return __extension__ (__m128i)(__v16qi){ __b0, __b1, __b2, __b3, __b4, __b5, __b6, __b7, __b8, __b9, __b10, __b11, __b12, __b13, __b14, __b15 };
 }
 
-/// \brief Initializes both values in a 128-bit integer vector with the
+/// Initializes both values in a 128-bit integer vector with the
 ///    specified 64-bit integer value.
 ///
 /// \headerfile <x86intrin.h>
@@ -3778,10 +3742,10 @@ _mm_set_epi8(char __b15, char __b14, char __b13, char __b12, char __b11, char __
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_set1_epi64x(long long __q)
 {
-  return (__m128i){ __q, __q };
+  return _mm_set_epi64x(__q, __q);
 }
 
-/// \brief Initializes both values in a 128-bit vector of [2 x i64] with the
+/// Initializes both values in a 128-bit vector of [2 x i64] with the
 ///    specified 64-bit value.
 ///
 /// \headerfile <x86intrin.h>
@@ -3797,10 +3761,10 @@ _mm_set1_epi64x(long long __q)
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_set1_epi64(__m64 __q)
 {
-  return (__m128i){ (long long)__q, (long long)__q };
+  return _mm_set_epi64(__q, __q);
 }
 
-/// \brief Initializes all values in a 128-bit vector of [4 x i32] with the
+/// Initializes all values in a 128-bit vector of [4 x i32] with the
 ///    specified 32-bit value.
 ///
 /// \headerfile <x86intrin.h>
@@ -3816,10 +3780,10 @@ _mm_set1_epi64(__m64 __q)
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_set1_epi32(int __i)
 {
-  return (__m128i)(__v4si){ __i, __i, __i, __i };
+  return _mm_set_epi32(__i, __i, __i, __i);
 }
 
-/// \brief Initializes all values in a 128-bit vector of [8 x i16] with the
+/// Initializes all values in a 128-bit vector of [8 x i16] with the
 ///    specified 16-bit value.
 ///
 /// \headerfile <x86intrin.h>
@@ -3835,10 +3799,10 @@ _mm_set1_epi32(int __i)
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_set1_epi16(short __w)
 {
-  return (__m128i)(__v8hi){ __w, __w, __w, __w, __w, __w, __w, __w };
+  return _mm_set_epi16(__w, __w, __w, __w, __w, __w, __w, __w);
 }
 
-/// \brief Initializes all values in a 128-bit vector of [16 x i8] with the
+/// Initializes all values in a 128-bit vector of [16 x i8] with the
 ///    specified 8-bit value.
 ///
 /// \headerfile <x86intrin.h>
@@ -3854,10 +3818,10 @@ _mm_set1_epi16(short __w)
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_set1_epi8(char __b)
 {
-  return (__m128i)(__v16qi){ __b, __b, __b, __b, __b, __b, __b, __b, __b, __b, __b, __b, __b, __b, __b, __b };
+  return _mm_set_epi8(__b, __b, __b, __b, __b, __b, __b, __b, __b, __b, __b, __b, __b, __b, __b, __b);
 }
 
-/// \brief Constructs a 128-bit integer vector, initialized in reverse order
+/// Constructs a 128-bit integer vector, initialized in reverse order
 ///     with the specified 64-bit integral values.
 ///
 /// \headerfile <x86intrin.h>
@@ -3874,10 +3838,10 @@ _mm_set1_epi8(char __b)
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_setr_epi64(__m64 __q0, __m64 __q1)
 {
-  return (__m128i){ (long long)__q0, (long long)__q1 };
+  return _mm_set_epi64(__q1, __q0);
 }
 
-/// \brief Constructs a 128-bit integer vector, initialized in reverse order
+/// Constructs a 128-bit integer vector, initialized in reverse order
 ///     with the specified 32-bit integral values.
 ///
 /// \headerfile <x86intrin.h>
@@ -3897,10 +3861,10 @@ _mm_setr_epi64(__m64 __q0, __m64 __q1)
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_setr_epi32(int __i0, int __i1, int __i2, int __i3)
 {
-  return (__m128i)(__v4si){ __i0, __i1, __i2, __i3};
+  return _mm_set_epi32(__i3, __i2, __i1, __i0);
 }
 
-/// \brief Constructs a 128-bit integer vector, initialized in reverse order
+/// Constructs a 128-bit integer vector, initialized in reverse order
 ///     with the specified 16-bit integral values.
 ///
 /// \headerfile <x86intrin.h>
@@ -3928,10 +3892,10 @@ _mm_setr_epi32(int __i0, int __i1, int __i2, int __i3)
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_setr_epi16(short __w0, short __w1, short __w2, short __w3, short __w4, short __w5, short __w6, short __w7)
 {
-  return (__m128i)(__v8hi){ __w0, __w1, __w2, __w3, __w4, __w5, __w6, __w7 };
+  return _mm_set_epi16(__w7, __w6, __w5, __w4, __w3, __w2, __w1, __w0);
 }
 
-/// \brief Constructs a 128-bit integer vector, initialized in reverse order
+/// Constructs a 128-bit integer vector, initialized in reverse order
 ///     with the specified 8-bit integral values.
 ///
 /// \headerfile <x86intrin.h>
@@ -3975,10 +3939,10 @@ _mm_setr_epi16(short __w0, short __w1, short __w2, short __w3, short __w4, short
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_setr_epi8(char __b0, char __b1, char __b2, char __b3, char __b4, char __b5, char __b6, char __b7, char __b8, char __b9, char __b10, char __b11, char __b12, char __b13, char __b14, char __b15)
 {
-  return (__m128i)(__v16qi){ __b0, __b1, __b2, __b3, __b4, __b5, __b6, __b7, __b8, __b9, __b10, __b11, __b12, __b13, __b14, __b15 };
+  return _mm_set_epi8(__b15, __b14, __b13, __b12, __b11, __b10, __b9, __b8, __b7, __b6, __b5, __b4, __b3, __b2, __b1, __b0);
 }
 
-/// \brief Creates a 128-bit integer vector initialized to zero.
+/// Creates a 128-bit integer vector initialized to zero.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -3989,10 +3953,10 @@ _mm_setr_epi8(char __b0, char __b1, char __b2, char __b3, char __b4, char __b5, 
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_setzero_si128(void)
 {
-  return (__m128i){ 0LL, 0LL };
+  return __extension__ (__m128i)(__v2di){ 0LL, 0LL };
 }
 
-/// \brief Stores a 128-bit integer vector to a memory location aligned on a
+/// Stores a 128-bit integer vector to a memory location aligned on a
 ///    128-bit boundary.
 ///
 /// \headerfile <x86intrin.h>
@@ -4010,7 +3974,7 @@ _mm_store_si128(__m128i *__p, __m128i __b)
   *__p = __b;
 }
 
-/// \brief Stores a 128-bit integer vector to an unaligned memory location.
+/// Stores a 128-bit integer vector to an unaligned memory location.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -4029,7 +3993,7 @@ _mm_storeu_si128(__m128i *__p, __m128i __b)
   ((struct __storeu_si128*)__p)->__v = __b;
 }
 
-/// \brief Moves bytes selected by the mask from the first operand to the
+/// Moves bytes selected by the mask from the first operand to the
 ///    specified unaligned memory location. When a mask bit is 1, the
 ///    corresponding byte is written, otherwise it is not written.
 ///
@@ -4056,7 +4020,7 @@ _mm_maskmoveu_si128(__m128i __d, __m128i __n, char *__p)
   __builtin_ia32_maskmovdqu((__v16qi)__d, (__v16qi)__n, __p);
 }
 
-/// \brief Stores the lower 64 bits of a 128-bit integer vector of [2 x i64] to
+/// Stores the lower 64 bits of a 128-bit integer vector of [2 x i64] to
 ///    a memory location.
 ///
 /// \headerfile <x86intrin.h>
@@ -4078,7 +4042,7 @@ _mm_storel_epi64(__m128i *__p, __m128i __a)
   ((struct __mm_storel_epi64_struct*)__p)->__u = __a[0];
 }
 
-/// \brief Stores a 128-bit floating point vector of [2 x double] to a 128-bit
+/// Stores a 128-bit floating point vector of [2 x double] to a 128-bit
 ///    aligned memory location.
 ///
 ///    To minimize caching, the data is flagged as non-temporal (unlikely to be
@@ -4098,7 +4062,7 @@ _mm_stream_pd(double *__p, __m128d __a)
   __builtin_nontemporal_store((__v2df)__a, (__v2df*)__p);
 }
 
-/// \brief Stores a 128-bit integer vector to a 128-bit aligned memory location.
+/// Stores a 128-bit integer vector to a 128-bit aligned memory location.
 ///
 ///    To minimize caching, the data is flagged as non-temporal (unlikely to be
 ///    used again soon).
@@ -4117,7 +4081,7 @@ _mm_stream_si128(__m128i *__p, __m128i __a)
   __builtin_nontemporal_store((__v2di)__a, (__v2di*)__p);
 }
 
-/// \brief Stores a 32-bit integer value in the specified memory location.
+/// Stores a 32-bit integer value in the specified memory location.
 ///
 ///    To minimize caching, the data is flagged as non-temporal (unlikely to be
 ///    used again soon).
@@ -4130,14 +4094,14 @@ _mm_stream_si128(__m128i *__p, __m128i __a)
 ///    A pointer to the 32-bit memory location used to store the value.
 /// \param __a
 ///    A 32-bit integer containing the value to be stored.
-static __inline__ void __DEFAULT_FN_ATTRS
+static __inline__ void __attribute__((__always_inline__, __nodebug__, __target__("sse2")))
 _mm_stream_si32(int *__p, int __a)
 {
   __builtin_ia32_movnti(__p, __a);
 }
 
 #ifdef __x86_64__
-/// \brief Stores a 64-bit integer value in the specified memory location.
+/// Stores a 64-bit integer value in the specified memory location.
 ///
 ///    To minimize caching, the data is flagged as non-temporal (unlikely to be
 ///    used again soon).
@@ -4150,7 +4114,7 @@ _mm_stream_si32(int *__p, int __a)
 ///    A pointer to the 64-bit memory location used to store the value.
 /// \param __a
 ///    A 64-bit integer containing the value to be stored.
-static __inline__ void __DEFAULT_FN_ATTRS
+static __inline__ void __attribute__((__always_inline__, __nodebug__, __target__("sse2")))
 _mm_stream_si64(long long *__p, long long __a)
 {
   __builtin_ia32_movnti64(__p, __a);
@@ -4161,7 +4125,7 @@ _mm_stream_si64(long long *__p, long long __a)
 extern "C" {
 #endif
 
-/// \brief The cache line containing \a __p is flushed and invalidated from all
+/// The cache line containing \a __p is flushed and invalidated from all
 ///    caches in the coherency domain.
 ///
 /// \headerfile <x86intrin.h>
@@ -4173,7 +4137,7 @@ extern "C" {
 ///    flushed.
 void _mm_clflush(void const * __p);
 
-/// \brief Forces strong memory ordering (serialization) between load
+/// Forces strong memory ordering (serialization) between load
 ///    instructions preceding this instruction and load instructions following
 ///    this instruction, ensuring the system completes all previous loads before
 ///    executing subsequent loads.
@@ -4184,7 +4148,7 @@ void _mm_clflush(void const * __p);
 ///
 void _mm_lfence(void);
 
-/// \brief Forces strong memory ordering (serialization) between load and store
+/// Forces strong memory ordering (serialization) between load and store
 ///    instructions preceding this instruction and load and store instructions
 ///    following this instruction, ensuring that the system completes all
 ///    previous memory accesses before executing subsequent memory accesses.
@@ -4199,7 +4163,7 @@ void _mm_mfence(void);
 } // extern "C"
 #endif
 
-/// \brief Converts 16-bit signed integers from both 128-bit integer vector
+/// Converts 16-bit signed integers from both 128-bit integer vector
 ///    operands into 8-bit signed integers, and packs the results into the
 ///    destination. Positive values greater than 0x7F are saturated to 0x7F.
 ///    Negative values less than 0x80 are saturated to 0x80.
@@ -4227,7 +4191,7 @@ _mm_packs_epi16(__m128i __a, __m128i __b)
   return (__m128i)__builtin_ia32_packsswb128((__v8hi)__a, (__v8hi)__b);
 }
 
-/// \brief Converts 32-bit signed integers from both 128-bit integer vector
+/// Converts 32-bit signed integers from both 128-bit integer vector
 ///    operands into 16-bit signed integers, and packs the results into the
 ///    destination. Positive values greater than 0x7FFF are saturated to 0x7FFF.
 ///    Negative values less than 0x8000 are saturated to 0x8000.
@@ -4255,7 +4219,7 @@ _mm_packs_epi32(__m128i __a, __m128i __b)
   return (__m128i)__builtin_ia32_packssdw128((__v4si)__a, (__v4si)__b);
 }
 
-/// \brief Converts 16-bit signed integers from both 128-bit integer vector
+/// Converts 16-bit signed integers from both 128-bit integer vector
 ///    operands into 8-bit unsigned integers, and packs the results into the
 ///    destination. Values greater than 0xFF are saturated to 0xFF. Values less
 ///    than 0x00 are saturated to 0x00.
@@ -4283,7 +4247,7 @@ _mm_packus_epi16(__m128i __a, __m128i __b)
   return (__m128i)__builtin_ia32_packuswb128((__v8hi)__a, (__v8hi)__b);
 }
 
-/// \brief Extracts 16 bits from a 128-bit integer vector of [8 x i16], using
+/// Extracts 16 bits from a 128-bit integer vector of [8 x i16], using
 ///    the immediate-value parameter as a selector.
 ///
 /// \headerfile <x86intrin.h>
@@ -4305,14 +4269,11 @@ _mm_packus_epi16(__m128i __a, __m128i __b)
 ///    111: assign values from bits [127:112] of \a __a.
 /// \returns An integer, whose lower 16 bits are selected from the 128-bit
 ///    integer vector parameter and the remaining bits are assigned zeros.
-static __inline__ int __DEFAULT_FN_ATTRS
-_mm_extract_epi16(__m128i __a, int __imm)
-{
-  __v8hi __b = (__v8hi)__a;
-  return (unsigned short)__b[__imm & 7];
-}
+#define _mm_extract_epi16(a, imm) \
+  (int)(unsigned short)__builtin_ia32_vec_ext_v8hi((__v8hi)(__m128i)(a), \
+                                                   (int)(imm))
 
-/// \brief Constructs a 128-bit integer vector by first making a copy of the
+/// Constructs a 128-bit integer vector by first making a copy of the
 ///    128-bit integer vector parameter, and then inserting the lower 16 bits
 ///    of an integer parameter into an offset specified by the immediate-value
 ///    parameter.
@@ -4332,15 +4293,11 @@ _mm_extract_epi16(__m128i __a, int __imm)
 ///    An immediate value specifying the bit offset in the result at which the
 ///    lower 16 bits of \a __b are written.
 /// \returns A 128-bit integer vector containing the constructed values.
-static __inline__ __m128i __DEFAULT_FN_ATTRS
-_mm_insert_epi16(__m128i __a, int __b, int __imm)
-{
-  __v8hi __c = (__v8hi)__a;
-  __c[__imm & 7] = __b;
-  return (__m128i)__c;
-}
+#define _mm_insert_epi16(a, b, imm) \
+  (__m128i)__builtin_ia32_vec_set_v8hi((__v8hi)(__m128i)(a), (int)(b), \
+                                       (int)(imm))
 
-/// \brief Copies the values of the most significant bits from each 8-bit
+/// Copies the values of the most significant bits from each 8-bit
 ///    element in a 128-bit integer vector of [16 x i8] to create a 16-bit mask
 ///    value, zero-extends the value, and writes it to the destination.
 ///
@@ -4358,7 +4315,7 @@ _mm_movemask_epi8(__m128i __a)
   return __builtin_ia32_pmovmskb128((__v16qi)__a);
 }
 
-/// \brief Constructs a 128-bit integer vector by shuffling four 32-bit
+/// Constructs a 128-bit integer vector by shuffling four 32-bit
 ///    elements of a 128-bit integer vector parameter, using the immediate-value
 ///    parameter as a specifier.
 ///
@@ -4386,13 +4343,10 @@ _mm_movemask_epi8(__m128i __a)
 ///    10: assign values from bits [95:64] of \a a. \n
 ///    11: assign values from bits [127:96] of \a a.
 /// \returns A 128-bit integer vector containing the shuffled values.
-#define _mm_shuffle_epi32(a, imm) __extension__ ({ \
-  (__m128i)__builtin_shufflevector((__v4si)(__m128i)(a), \
-                                   (__v4si)_mm_undefined_si128(), \
-                                   ((imm) >> 0) & 0x3, ((imm) >> 2) & 0x3, \
-                                   ((imm) >> 4) & 0x3, ((imm) >> 6) & 0x3); })
+#define _mm_shuffle_epi32(a, imm) \
+  (__m128i)__builtin_ia32_pshufd((__v4si)(__m128i)(a), (int)(imm))
 
-/// \brief Constructs a 128-bit integer vector by shuffling four lower 16-bit
+/// Constructs a 128-bit integer vector by shuffling four lower 16-bit
 ///    elements of a 128-bit integer vector of [8 x i16], using the immediate
 ///    value parameter as a specifier.
 ///
@@ -4419,14 +4373,10 @@ _mm_movemask_epi8(__m128i __a)
 ///    10: assign values from bits [47:32] of \a a. \n
 ///    11: assign values from bits [63:48] of \a a. \n
 /// \returns A 128-bit integer vector containing the shuffled values.
-#define _mm_shufflelo_epi16(a, imm) __extension__ ({ \
-  (__m128i)__builtin_shufflevector((__v8hi)(__m128i)(a), \
-                                   (__v8hi)_mm_undefined_si128(), \
-                                   ((imm) >> 0) & 0x3, ((imm) >> 2) & 0x3, \
-                                   ((imm) >> 4) & 0x3, ((imm) >> 6) & 0x3, \
-                                   4, 5, 6, 7); })
+#define _mm_shufflelo_epi16(a, imm) \
+  (__m128i)__builtin_ia32_pshuflw((__v8hi)(__m128i)(a), (int)(imm))
 
-/// \brief Constructs a 128-bit integer vector by shuffling four upper 16-bit
+/// Constructs a 128-bit integer vector by shuffling four upper 16-bit
 ///    elements of a 128-bit integer vector of [8 x i16], using the immediate
 ///    value parameter as a specifier.
 ///
@@ -4453,16 +4403,10 @@ _mm_movemask_epi8(__m128i __a)
 ///    10: assign values from bits [111:96] of \a a. \n
 ///    11: assign values from bits [127:112] of \a a. \n
 /// \returns A 128-bit integer vector containing the shuffled values.
-#define _mm_shufflehi_epi16(a, imm) __extension__ ({ \
-  (__m128i)__builtin_shufflevector((__v8hi)(__m128i)(a), \
-                                   (__v8hi)_mm_undefined_si128(), \
-                                   0, 1, 2, 3, \
-                                   4 + (((imm) >> 0) & 0x3), \
-                                   4 + (((imm) >> 2) & 0x3), \
-                                   4 + (((imm) >> 4) & 0x3), \
-                                   4 + (((imm) >> 6) & 0x3)); })
+#define _mm_shufflehi_epi16(a, imm) \
+  (__m128i)__builtin_ia32_pshufhw((__v8hi)(__m128i)(a), (int)(imm))
 
-/// \brief Unpacks the high-order (index 8-15) values from two 128-bit vectors
+/// Unpacks the high-order (index 8-15) values from two 128-bit vectors
 ///    of [16 x i8] and interleaves them into a 128-bit vector of [16 x i8].
 ///
 /// \headerfile <x86intrin.h>
@@ -4497,7 +4441,7 @@ _mm_unpackhi_epi8(__m128i __a, __m128i __b)
   return (__m128i)__builtin_shufflevector((__v16qi)__a, (__v16qi)__b, 8, 16+8, 9, 16+9, 10, 16+10, 11, 16+11, 12, 16+12, 13, 16+13, 14, 16+14, 15, 16+15);
 }
 
-/// \brief Unpacks the high-order (index 4-7) values from two 128-bit vectors of
+/// Unpacks the high-order (index 4-7) values from two 128-bit vectors of
 ///    [8 x i16] and interleaves them into a 128-bit vector of [8 x i16].
 ///
 /// \headerfile <x86intrin.h>
@@ -4524,7 +4468,7 @@ _mm_unpackhi_epi16(__m128i __a, __m128i __b)
   return (__m128i)__builtin_shufflevector((__v8hi)__a, (__v8hi)__b, 4, 8+4, 5, 8+5, 6, 8+6, 7, 8+7);
 }
 
-/// \brief Unpacks the high-order (index 2,3) values from two 128-bit vectors of
+/// Unpacks the high-order (index 2,3) values from two 128-bit vectors of
 ///    [4 x i32] and interleaves them into a 128-bit vector of [4 x i32].
 ///
 /// \headerfile <x86intrin.h>
@@ -4547,7 +4491,7 @@ _mm_unpackhi_epi32(__m128i __a, __m128i __b)
   return (__m128i)__builtin_shufflevector((__v4si)__a, (__v4si)__b, 2, 4+2, 3, 4+3);
 }
 
-/// \brief Unpacks the high-order 64-bit elements from two 128-bit vectors of
+/// Unpacks the high-order 64-bit elements from two 128-bit vectors of
 ///    [2 x i64] and interleaves them into a 128-bit vector of [2 x i64].
 ///
 /// \headerfile <x86intrin.h>
@@ -4568,7 +4512,7 @@ _mm_unpackhi_epi64(__m128i __a, __m128i __b)
   return (__m128i)__builtin_shufflevector((__v2di)__a, (__v2di)__b, 1, 2+1);
 }
 
-/// \brief Unpacks the low-order (index 0-7) values from two 128-bit vectors of
+/// Unpacks the low-order (index 0-7) values from two 128-bit vectors of
 ///    [16 x i8] and interleaves them into a 128-bit vector of [16 x i8].
 ///
 /// \headerfile <x86intrin.h>
@@ -4603,7 +4547,7 @@ _mm_unpacklo_epi8(__m128i __a, __m128i __b)
   return (__m128i)__builtin_shufflevector((__v16qi)__a, (__v16qi)__b, 0, 16+0, 1, 16+1, 2, 16+2, 3, 16+3, 4, 16+4, 5, 16+5, 6, 16+6, 7, 16+7);
 }
 
-/// \brief Unpacks the low-order (index 0-3) values from each of the two 128-bit
+/// Unpacks the low-order (index 0-3) values from each of the two 128-bit
 ///    vectors of [8 x i16] and interleaves them into a 128-bit vector of
 ///    [8 x i16].
 ///
@@ -4631,7 +4575,7 @@ _mm_unpacklo_epi16(__m128i __a, __m128i __b)
   return (__m128i)__builtin_shufflevector((__v8hi)__a, (__v8hi)__b, 0, 8+0, 1, 8+1, 2, 8+2, 3, 8+3);
 }
 
-/// \brief Unpacks the low-order (index 0,1) values from two 128-bit vectors of
+/// Unpacks the low-order (index 0,1) values from two 128-bit vectors of
 ///    [4 x i32] and interleaves them into a 128-bit vector of [4 x i32].
 ///
 /// \headerfile <x86intrin.h>
@@ -4654,7 +4598,7 @@ _mm_unpacklo_epi32(__m128i __a, __m128i __b)
   return (__m128i)__builtin_shufflevector((__v4si)__a, (__v4si)__b, 0, 4+0, 1, 4+1);
 }
 
-/// \brief Unpacks the low-order 64-bit elements from two 128-bit vectors of
+/// Unpacks the low-order 64-bit elements from two 128-bit vectors of
 ///    [2 x i64] and interleaves them into a 128-bit vector of [2 x i64].
 ///
 /// \headerfile <x86intrin.h>
@@ -4675,7 +4619,7 @@ _mm_unpacklo_epi64(__m128i __a, __m128i __b)
   return (__m128i)__builtin_shufflevector((__v2di)__a, (__v2di)__b, 0, 2+0);
 }
 
-/// \brief Returns the lower 64 bits of a 128-bit integer vector as a 64-bit
+/// Returns the lower 64 bits of a 128-bit integer vector as a 64-bit
 ///    integer.
 ///
 /// \headerfile <x86intrin.h>
@@ -4692,7 +4636,7 @@ _mm_movepi64_pi64(__m128i __a)
   return (__m64)__a[0];
 }
 
-/// \brief Moves the 64-bit operand to a 128-bit integer vector, zeroing the
+/// Moves the 64-bit operand to a 128-bit integer vector, zeroing the
 ///    upper bits.
 ///
 /// \headerfile <x86intrin.h>
@@ -4706,10 +4650,10 @@ _mm_movepi64_pi64(__m128i __a)
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_movpi64_epi64(__m64 __a)
 {
-  return (__m128i){ (long long)__a, 0 };
+  return __extension__ (__m128i)(__v2di){ (long long)__a, 0 };
 }
 
-/// \brief Moves the lower 64 bits of a 128-bit integer vector to a 128-bit
+/// Moves the lower 64 bits of a 128-bit integer vector to a 128-bit
 ///    integer vector, zeroing the upper bits.
 ///
 /// \headerfile <x86intrin.h>
@@ -4724,10 +4668,10 @@ _mm_movpi64_epi64(__m64 __a)
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_move_epi64(__m128i __a)
 {
-  return __builtin_shufflevector((__v2di)__a, (__m128i){ 0 }, 0, 2);
+  return __builtin_shufflevector((__v2di)__a, _mm_setzero_si128(), 0, 2);
 }
 
-/// \brief Unpacks the high-order 64-bit elements from two 128-bit vectors of
+/// Unpacks the high-order 64-bit elements from two 128-bit vectors of
 ///    [2 x double] and interleaves them into a 128-bit vector of [2 x
 ///    double].
 ///
@@ -4748,7 +4692,7 @@ _mm_unpackhi_pd(__m128d __a, __m128d __b)
   return __builtin_shufflevector((__v2df)__a, (__v2df)__b, 1, 2+1);
 }
 
-/// \brief Unpacks the low-order 64-bit elements from two 128-bit vectors
+/// Unpacks the low-order 64-bit elements from two 128-bit vectors
 ///    of [2 x double] and interleaves them into a 128-bit vector of [2 x
 ///    double].
 ///
@@ -4769,7 +4713,7 @@ _mm_unpacklo_pd(__m128d __a, __m128d __b)
   return __builtin_shufflevector((__v2df)__a, (__v2df)__b, 0, 2+0);
 }
 
-/// \brief Extracts the sign bits of the double-precision values in the 128-bit
+/// Extracts the sign bits of the double-precision values in the 128-bit
 ///    vector of [2 x double], zero-extends the value, and writes it to the
 ///    low-order bits of the destination.
 ///
@@ -4789,7 +4733,7 @@ _mm_movemask_pd(__m128d __a)
 }
 
 
-/// \brief Constructs a 128-bit floating-point vector of [2 x double] from two
+/// Constructs a 128-bit floating-point vector of [2 x double] from two
 ///    128-bit vector parameters of [2 x double], using the immediate-value
 ///     parameter as a specifier.
 ///
@@ -4813,12 +4757,11 @@ _mm_movemask_pd(__m128d __a)
 ///    Bit[1] = 0: lower element of \a b copied to upper element of result. \n
 ///    Bit[1] = 1: upper element of \a b copied to upper element of result. \n
 /// \returns A 128-bit vector of [2 x double] containing the shuffled values.
-#define _mm_shuffle_pd(a, b, i) __extension__ ({ \
-  (__m128d)__builtin_shufflevector((__v2df)(__m128d)(a), (__v2df)(__m128d)(b), \
-                                   0 + (((i) >> 0) & 0x1), \
-                                   2 + (((i) >> 1) & 0x1)); })
+#define _mm_shuffle_pd(a, b, i) \
+  (__m128d)__builtin_ia32_shufpd((__v2df)(__m128d)(a), (__v2df)(__m128d)(b), \
+                                 (int)(i))
 
-/// \brief Casts a 128-bit floating-point vector of [2 x double] into a 128-bit
+/// Casts a 128-bit floating-point vector of [2 x double] into a 128-bit
 ///    floating-point vector of [4 x float].
 ///
 /// \headerfile <x86intrin.h>
@@ -4835,7 +4778,7 @@ _mm_castpd_ps(__m128d __a)
   return (__m128)__a;
 }
 
-/// \brief Casts a 128-bit floating-point vector of [2 x double] into a 128-bit
+/// Casts a 128-bit floating-point vector of [2 x double] into a 128-bit
 ///    integer vector.
 ///
 /// \headerfile <x86intrin.h>
@@ -4852,7 +4795,7 @@ _mm_castpd_si128(__m128d __a)
   return (__m128i)__a;
 }
 
-/// \brief Casts a 128-bit floating-point vector of [4 x float] into a 128-bit
+/// Casts a 128-bit floating-point vector of [4 x float] into a 128-bit
 ///    floating-point vector of [2 x double].
 ///
 /// \headerfile <x86intrin.h>
@@ -4869,7 +4812,7 @@ _mm_castps_pd(__m128 __a)
   return (__m128d)__a;
 }
 
-/// \brief Casts a 128-bit floating-point vector of [4 x float] into a 128-bit
+/// Casts a 128-bit floating-point vector of [4 x float] into a 128-bit
 ///    integer vector.
 ///
 /// \headerfile <x86intrin.h>
@@ -4886,7 +4829,7 @@ _mm_castps_si128(__m128 __a)
   return (__m128i)__a;
 }
 
-/// \brief Casts a 128-bit integer vector into a 128-bit floating-point vector
+/// Casts a 128-bit integer vector into a 128-bit floating-point vector
 ///    of [4 x float].
 ///
 /// \headerfile <x86intrin.h>
@@ -4903,7 +4846,7 @@ _mm_castsi128_ps(__m128i __a)
   return (__m128)__a;
 }
 
-/// \brief Casts a 128-bit integer vector into a 128-bit floating-point vector
+/// Casts a 128-bit integer vector into a 128-bit floating-point vector
 ///    of [2 x double].
 ///
 /// \headerfile <x86intrin.h>
@@ -4924,7 +4867,7 @@ _mm_castsi128_pd(__m128i __a)
 extern "C" {
 #endif
 
-/// \brief Indicates that a spin loop is being executed for the purposes of
+/// Indicates that a spin loop is being executed for the purposes of
 ///    optimizing power consumption during the loop.
 ///
 /// \headerfile <x86intrin.h>
@@ -4937,6 +4880,7 @@ void _mm_pause(void);
 } // extern "C"
 #endif
 #undef __DEFAULT_FN_ATTRS
+#undef __DEFAULT_FN_ATTRS_MMX
 
 #define _MM_SHUFFLE2(x, y) (((x) << 1) | (y))
 

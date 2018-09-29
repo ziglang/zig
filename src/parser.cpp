@@ -648,30 +648,11 @@ static AstNode *ast_parse_asm_expr(ParseContext *pc, size_t *token_index, bool m
 }
 
 /*
-SuspendExpression(body) = option(Symbol ":") "suspend" option(("|" Symbol "|" body))
+SuspendExpression(body) = "suspend" option( body )
 */
 static AstNode *ast_parse_suspend_block(ParseContext *pc, size_t *token_index, bool mandatory) {
-    size_t orig_token_index = *token_index;
+    Token *suspend_token = &pc->tokens->at(*token_index);
 
-    Token *name_token = nullptr;
-    Token *token = &pc->tokens->at(*token_index);
-    if (token->id == TokenIdSymbol) {
-        *token_index += 1;
-        Token *colon_token = &pc->tokens->at(*token_index);
-        if (colon_token->id == TokenIdColon) {
-            *token_index += 1;
-            name_token = token;
-            token = &pc->tokens->at(*token_index);
-        } else if (mandatory) {
-            ast_expect_token(pc, colon_token, TokenIdColon);
-            zig_unreachable();
-        } else {
-            *token_index = orig_token_index;
-            return nullptr;
-        }
-    }
-
-    Token *suspend_token = token;
     if (suspend_token->id == TokenIdKeywordSuspend) {
         *token_index += 1;
     } else if (mandatory) {
@@ -681,26 +662,18 @@ static AstNode *ast_parse_suspend_block(ParseContext *pc, size_t *token_index, b
         return nullptr;
     }
 
-    Token *bar_token = &pc->tokens->at(*token_index);
-    if (bar_token->id == TokenIdBinOr) {
-        *token_index += 1;
+    Token *lbrace = &pc->tokens->at(*token_index);
+    if (lbrace->id == TokenIdLBrace) {
+        AstNode *node = ast_create_node(pc, NodeTypeSuspend, suspend_token);
+        node->data.suspend.block = ast_parse_block(pc, token_index, true);
+        return node;
     } else if (mandatory) {
-        ast_expect_token(pc, suspend_token, TokenIdBinOr);
+        ast_expect_token(pc, lbrace, TokenIdLBrace);
         zig_unreachable();
     } else {
-        *token_index = orig_token_index;
+        *token_index -= 1;
         return nullptr;
     }
-
-    AstNode *node = ast_create_node(pc, NodeTypeSuspend, suspend_token);
-    if (name_token != nullptr) {
-        node->data.suspend.name = token_buf(name_token);
-    }
-    node->data.suspend.promise_symbol = ast_parse_symbol(pc, token_index);
-    ast_eat_token(pc, token_index, TokenIdBinOr);
-    node->data.suspend.block = ast_parse_block(pc, token_index, true);
-
-    return node;
 }
 
 /*
@@ -727,7 +700,7 @@ static AstNode *ast_parse_comptime_expr(ParseContext *pc, size_t *token_index, b
 
 /*
 PrimaryExpression = Integer | Float | String | CharLiteral | KeywordLiteral | GroupedExpression | BlockExpression(BlockOrExpression) | Symbol | ("@" Symbol FnCallExpression) | ArrayType | FnProto | AsmExpression | ContainerDecl | ("continue" option(":" Symbol)) | ErrorSetDecl | PromiseType
-KeywordLiteral = "true" | "false" | "null" | "undefined" | "error" | "this" | "unreachable" | "suspend"
+KeywordLiteral = "true" | "false" | "null" | "undefined" | "error" | "unreachable" | "suspend"
 ErrorSetDecl = "error" "{" list(Symbol, ",") "}"
 */
 static AstNode *ast_parse_primary_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
@@ -781,10 +754,6 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, size_t *token_index, bo
         return node;
     } else if (token->id == TokenIdKeywordUndefined) {
         AstNode *node = ast_create_node(pc, NodeTypeUndefinedLiteral, token);
-        *token_index += 1;
-        return node;
-    } else if (token->id == TokenIdKeywordThis) {
-        AstNode *node = ast_create_node(pc, NodeTypeThisLiteral, token);
         *token_index += 1;
         return node;
     } else if (token->id == TokenIdKeywordUnreachable) {
@@ -1192,10 +1161,10 @@ static AstNode *ast_parse_pointer_type(ParseContext *pc, size_t *token_index, To
             *token_index += 1;
             Token *bit_offset_start_tok = ast_eat_token(pc, token_index, TokenIdIntLiteral);
             ast_eat_token(pc, token_index, TokenIdColon);
-            Token *bit_offset_end_tok = ast_eat_token(pc, token_index, TokenIdIntLiteral);
+            Token *host_int_bytes_tok = ast_eat_token(pc, token_index, TokenIdIntLiteral);
 
             node->data.pointer_type.bit_offset_start = token_bigint(bit_offset_start_tok);
-            node->data.pointer_type.bit_offset_end = token_bigint(bit_offset_end_tok);
+            node->data.pointer_type.host_int_bytes = token_bigint(host_int_bytes_tok);
         }
         ast_eat_token(pc, token_index, TokenIdRParen);
         token = &pc->tokens->at(*token_index);
@@ -3048,9 +3017,6 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
         case NodeTypeUndefinedLiteral:
             // none
             break;
-        case NodeTypeThisLiteral:
-            // none
-            break;
         case NodeTypeIfBoolExpr:
             visit_field(&node->data.if_bool_expr.condition, visit, context);
             visit_field(&node->data.if_bool_expr.then_block, visit, context);
@@ -3155,7 +3121,6 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             visit_field(&node->data.await_expr.expr, visit, context);
             break;
         case NodeTypeSuspend:
-            visit_field(&node->data.suspend.promise_symbol, visit, context);
             visit_field(&node->data.suspend.block, visit, context);
             break;
     }

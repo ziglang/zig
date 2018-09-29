@@ -29,7 +29,6 @@ public:
   uint32_t calcEFlags() const override;
   RelExpr getRelExpr(RelType Type, const Symbol &S,
                      const uint8_t *Loc) const override;
-  bool isPicRel(RelType Type) const override;
   RelType getDynRel(RelType Type) const override;
   int64_t getImplicitAddend(const uint8_t *Buf, RelType Type) const override;
   void writeGotPlt(uint8_t *Buf, const Symbol &S) const override;
@@ -55,6 +54,7 @@ ARM::ARM() {
   TlsGotRel = R_ARM_TLS_TPOFF32;
   TlsModuleIndexRel = R_ARM_TLS_DTPMOD32;
   TlsOffsetRel = R_ARM_TLS_DTPOFF32;
+  GotBaseSymInGotPlt = false;
   GotEntrySize = 4;
   GotPltEntrySize = 4;
   PltEntrySize = 16;
@@ -97,10 +97,19 @@ ARM::ARM() {
 }
 
 uint32_t ARM::calcEFlags() const {
+  // The ABIFloatType is used by loaders to detect the floating point calling
+  // convention.
+  uint32_t ABIFloatType = 0;
+  if (Config->ARMVFPArgs == ARMVFPArgKind::Base ||
+      Config->ARMVFPArgs == ARMVFPArgKind::Default)
+    ABIFloatType = EF_ARM_ABI_FLOAT_SOFT;
+  else if (Config->ARMVFPArgs == ARMVFPArgKind::VFP)
+    ABIFloatType = EF_ARM_ABI_FLOAT_HARD;
+
   // We don't currently use any features incompatible with EF_ARM_EABI_VER5,
   // but we don't have any firm guarantees of conformance. Linux AArch64
   // kernels (as of 2016) require an EABI version to be set.
-  return EF_ARM_EABI_VER5;
+  return EF_ARM_EABI_VER5 | ABIFloatType;
 }
 
 RelExpr ARM::getRelExpr(RelType Type, const Symbol &S,
@@ -161,18 +170,10 @@ RelExpr ARM::getRelExpr(RelType Type, const Symbol &S,
   }
 }
 
-bool ARM::isPicRel(RelType Type) const {
-  return (Type == R_ARM_TARGET1 && !Config->Target1Rel) ||
-         (Type == R_ARM_ABS32);
-}
-
 RelType ARM::getDynRel(RelType Type) const {
-  if (Type == R_ARM_TARGET1 && !Config->Target1Rel)
+  if ((Type == R_ARM_ABS32) || (Type == R_ARM_TARGET1 && !Config->Target1Rel))
     return R_ARM_ABS32;
-  if (Type == R_ARM_ABS32)
-    return Type;
-  // Keep it going with a dummy value so that we can find more reloc errors.
-  return R_ARM_ABS32;
+  return R_ARM_NONE;
 }
 
 void ARM::writeGotPlt(uint8_t *Buf, const Symbol &) const {
@@ -392,7 +393,7 @@ void ARM::relocateOne(uint8_t *Loc, RelType Type, uint64_t Val) const {
     write32le(Loc, 1);
     break;
   case R_ARM_PREL31:
-    checkInt<31>(Loc, Val, Type);
+    checkInt(Loc, Val, 31, Type);
     write32le(Loc, (read32le(Loc) & 0x80000000) | (Val & ~0x80000000));
     break;
   case R_ARM_CALL:
@@ -401,7 +402,7 @@ void ARM::relocateOne(uint8_t *Loc, RelType Type, uint64_t Val) const {
     if (Val & 1) {
       // If bit 0 of Val is 1 the target is Thumb, we must select a BLX.
       // The BLX encoding is 0xfa:H:imm24 where Val = imm24:H:'1'
-      checkInt<26>(Loc, Val, Type);
+      checkInt(Loc, Val, 26, Type);
       write32le(Loc, 0xfa000000 |                    // opcode
                          ((Val & 2) << 23) |         // H
                          ((Val >> 2) & 0x00ffffff)); // imm24
@@ -416,16 +417,16 @@ void ARM::relocateOne(uint8_t *Loc, RelType Type, uint64_t Val) const {
   case R_ARM_JUMP24:
   case R_ARM_PC24:
   case R_ARM_PLT32:
-    checkInt<26>(Loc, Val, Type);
+    checkInt(Loc, Val, 26, Type);
     write32le(Loc, (read32le(Loc) & ~0x00ffffff) | ((Val >> 2) & 0x00ffffff));
     break;
   case R_ARM_THM_JUMP11:
-    checkInt<12>(Loc, Val, Type);
+    checkInt(Loc, Val, 12, Type);
     write16le(Loc, (read32le(Loc) & 0xf800) | ((Val >> 1) & 0x07ff));
     break;
   case R_ARM_THM_JUMP19:
     // Encoding T3: Val = S:J2:J1:imm6:imm11:0
-    checkInt<21>(Loc, Val, Type);
+    checkInt(Loc, Val, 21, Type);
     write16le(Loc,
               (read16le(Loc) & 0xfbc0) |   // opcode cond
                   ((Val >> 10) & 0x0400) | // S
@@ -451,7 +452,7 @@ void ARM::relocateOne(uint8_t *Loc, RelType Type, uint64_t Val) const {
   case R_ARM_THM_JUMP24:
     // Encoding B  T4, BL T1, BLX T2: Val = S:I1:I2:imm10:imm11:0
     // FIXME: Use of I1 and I2 require v6T2ops
-    checkInt<25>(Loc, Val, Type);
+    checkInt(Loc, Val, 25, Type);
     write16le(Loc,
               0xf000 |                     // opcode
                   ((Val >> 14) & 0x0400) | // S
@@ -469,14 +470,14 @@ void ARM::relocateOne(uint8_t *Loc, RelType Type, uint64_t Val) const {
     break;
   case R_ARM_MOVT_ABS:
   case R_ARM_MOVT_PREL:
-    checkInt<32>(Loc, Val, Type);
+    checkInt(Loc, Val, 32, Type);
     write32le(Loc, (read32le(Loc) & ~0x000f0fff) |
                        (((Val >> 16) & 0xf000) << 4) | ((Val >> 16) & 0xfff));
     break;
   case R_ARM_THM_MOVT_ABS:
   case R_ARM_THM_MOVT_PREL:
     // Encoding T1: A = imm4:i:imm3:imm8
-    checkInt<32>(Loc, Val, Type);
+    checkInt(Loc, Val, 32, Type);
     write16le(Loc,
               0xf2c0 |                     // opcode
                   ((Val >> 17) & 0x0400) | // i

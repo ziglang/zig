@@ -1,9 +1,14 @@
-.section        ".opd","aw"
-.global bar
-bar:
-.quad   .Lbar,.TOC.@tocbase,0
-.quad   .Lbar,0,0
+    .text
+    .abiversion 2
+    .globl  foo
+    .p2align        4
+    .type   foo,@function
 
-.text
-.Lbar:
-        blr
+foo:
+.Lfunc_begin0:
+  li 3, 55
+  blr
+  .long   0
+  .quad   0
+.Lfunc_end0:
+  .size foo, .Lfunc_end0-.Lfunc_begin0

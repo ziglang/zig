@@ -25,7 +25,7 @@ pub const tan = @import("tan.zig").tan;
 
 pub fn Complex(comptime T: type) type {
     return struct {
-        const Self = this;
+        const Self = @This();
 
         re: T,
         im: T,

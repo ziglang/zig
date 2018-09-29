@@ -1,3 +1,4 @@
+// REQUIRES: aarch64
 // RUN: llvm-mc -filetype=obj -triple=aarch64-linux-gnu %s -o %t
 // RUN: echo "SECTIONS { \
 // RUN:       .text_low 0x2000: { *(.text_low) } \
@@ -5,7 +6,6 @@
 // RUN:       } " > %t.script
 // RUN: ld.lld --script %t.script %t -o %t2 2>&1
 // RUN: llvm-objdump -d -triple=aarch64-linux-gnu %t2 | FileCheck %s
-// REQUIRES: aarch64
 
 // Check that we have the out of branch range calculation right. The immediate
 // field is signed so we have a slightly higher negative displacement.

@@ -1,7 +1,11 @@
+// REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
+
 // RUN: ld.lld -static -export-dynamic %t.o -o %tout
 // RUN: llvm-nm -U %tout | FileCheck %s
-// REQUIRES: x86
+
+// RUN: ld.lld -export-dynamic %t.o -o %tout
+// RUN: llvm-nm -U %tout | FileCheck %s
 
 // CHECK: __rela_iplt_end
 // CHECK: __rela_iplt_start

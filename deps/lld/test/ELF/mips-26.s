@@ -1,3 +1,4 @@
+# REQUIRES: mips
 # Check R_MIPS_26 relocation handling.
 
 # RUN: llvm-mc -filetype=obj -triple=mips-unknown-linux %s -o %t1.o
@@ -8,8 +9,6 @@
 # RUN: llvm-objdump -d %t.exe | FileCheck %s
 # RUN: llvm-readobj -dynamic-table -s -r -mips-plt-got %t.exe \
 # RUN:   | FileCheck -check-prefix=REL %s
-
-# REQUIRES: mips
 
 # CHECK:      Disassembly of section .text:
 # CHECK-NEXT: bar:

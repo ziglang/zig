@@ -1,5 +1,5 @@
 # RUN: yaml2obj %s -o %t
-# RUN: ld.lld %t -o %tout
+# RUN: ld.lld %t -o /dev/null
 
 # Verify that lld can handle sections with an alignment of zero.
 

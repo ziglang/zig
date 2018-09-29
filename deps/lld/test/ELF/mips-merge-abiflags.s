@@ -1,3 +1,4 @@
+# REQUIRES: mips
 # Test that lld handles input files with concatenated .MIPS.abiflags sections
 # This happens e.g. with the FreeBSD BFD (BFD 2.17.50 [FreeBSD] 2007-07-03)
 
@@ -8,7 +9,6 @@
 # RUN:     %p/Inputs/mips-concatenated-abiflags.o | \
 # RUN:   FileCheck --check-prefix=INPUT-OBJECT %s
 
-# REQUIRES: mips
         .globl  __start
 __start:
         nop

@@ -60,8 +60,9 @@ pub const Int = struct {
         self.limbs = try self.allocator.realloc(Limb, self.limbs, capacity);
     }
 
-    pub fn deinit(self: Int) void {
+    pub fn deinit(self: *Int) void {
         self.allocator.free(self.limbs);
+        self.* = undefined;
     }
 
     pub fn clone(other: Int) !Int {
@@ -115,13 +116,63 @@ pub const Int = struct {
         return !r.isOdd();
     }
 
-    fn bitcount(self: Int) usize {
-        const u_bit_count = (self.len - 1) * Limb.bit_count + (Limb.bit_count - @clz(self.limbs[self.len - 1]));
-        return usize(@boolToInt(!self.positive)) + u_bit_count;
+    // Returns the number of bits required to represent the absolute value of self.
+    fn bitCountAbs(self: Int) usize {
+        return (self.len - 1) * Limb.bit_count + (Limb.bit_count - @clz(self.limbs[self.len - 1]));
     }
 
+    // Returns the number of bits required to represent the integer in twos-complement form.
+    //
+    // If the integer is negative the value returned is the number of bits needed by a signed
+    // integer to represent the value. If positive the value is the number of bits for an
+    // unsigned integer. Any unsigned integer will fit in the signed integer with bitcount
+    // one greater than the returned value.
+    //
+    // e.g. -127 returns 8 as it will fit in an i8. 127 returns 7 since it fits in a u7.
+    fn bitCountTwosComp(self: Int) usize {
+        var bits = self.bitCountAbs();
+
+        // If the entire value has only one bit set (e.g. 0b100000000) then the negation in twos
+        // complement requires one less bit.
+        if (!self.positive) block: {
+            bits += 1;
+
+            if (@popCount(self.limbs[self.len - 1]) == 1) {
+                for (self.limbs[0 .. self.len - 1]) |limb| {
+                    if (@popCount(limb) != 0) {
+                        break :block;
+                    }
+                }
+
+                bits -= 1;
+            }
+        }
+
+        return bits;
+    }
+
+    pub fn fitsInTwosComp(self: Int, is_signed: bool, bit_count: usize) bool {
+        if (self.eqZero()) {
+            return true;
+        }
+        if (!is_signed and !self.positive) {
+            return false;
+        }
+
+        const req_bits = self.bitCountTwosComp() + @boolToInt(self.positive and is_signed);
+        return bit_count >= req_bits;
+    }
+
+    pub fn fits(self: Int, comptime T: type) bool {
+        return self.fitsInTwosComp(T.is_signed, T.bit_count);
+    }
+
+    // Returns the approximate size of the integer in the given base. Negative values accomodate for
+    // the minus sign. This is used for determining the number of characters needed to print the
+    // value. It is inexact and will exceed the given value by 1-2 digits.
     pub fn sizeInBase(self: Int, base: usize) usize {
-        return (self.bitcount() / math.log2(base)) + 1;
+        const bit_count = usize(@boolToInt(!self.positive)) + self.bitCountAbs();
+        return (bit_count / math.log2(base)) + 1;
     }
 
     pub fn set(self: *Int, value: var) Allocator.Error!void {
@@ -189,9 +240,9 @@ pub const Int = struct {
     pub fn to(self: Int, comptime T: type) ConvertError!T {
         switch (@typeId(T)) {
             TypeId.Int => {
-                const UT = if (T.is_signed) @IntType(false, T.bit_count - 1) else T;
+                const UT = @IntType(false, T.bit_count);
 
-                if (self.bitcount() > 8 * @sizeOf(UT)) {
+                if (self.bitCountTwosComp() > T.bit_count) {
                     return error.TargetTooSmall;
                 }
 
@@ -208,9 +259,17 @@ pub const Int = struct {
                 }
 
                 if (!T.is_signed) {
-                    return if (self.positive) r else error.NegativeIntoUnsigned;
+                    return if (self.positive) @intCast(T, r) else error.NegativeIntoUnsigned;
                 } else {
-                    return if (self.positive) @intCast(T, r) else -@intCast(T, r);
+                    if (self.positive) {
+                        return @intCast(T, r);
+                    } else {
+                        if (math.cast(T, r)) |ok| {
+                            return -ok;
+                        } else |_| {
+                            return @minValue(T);
+                        }
+                    }
                 }
             },
             else => {
@@ -274,6 +333,7 @@ pub const Int = struct {
         self.positive = positive;
     }
 
+    /// TODO make this call format instead of the other way around
     pub fn toString(self: Int, allocator: *Allocator, base: u8) ![]const u8 {
         if (base < 2 or base > 16) {
             return error.InvalidBase;
@@ -354,6 +414,21 @@ pub const Int = struct {
         var s = digits.toOwnedSlice();
         mem.reverse(u8, s);
         return s;
+    }
+
+    /// for the std lib format function
+    /// TODO make this non-allocating
+    pub fn format(
+        self: Int,
+        comptime fmt: []const u8,
+        context: var,
+        comptime FmtError: type,
+        output: fn (@typeOf(context), []const u8) FmtError!void,
+    ) FmtError!void {
+        // TODO look at fmt and support other bases
+        const str = self.toString(self.allocator, 10) catch @panic("TODO make this non allocating");
+        defer self.allocator.free(str);
+        return output(context, str);
     }
 
     // returns -1, 0, 1 if |a| < |b|, |a| == |b| or |a| > |b| respectively.
@@ -996,7 +1071,6 @@ pub const Int = struct {
 // They will still run on larger than this and should pass, but the multi-limb code-paths
 // may be untested in some cases.
 
-const u256 = @IntType(false, 256);
 const al = debug.global_allocator;
 
 test "big.int comptime_int set" {
@@ -1121,22 +1195,86 @@ test "big.int bitcount + sizeInBase" {
     var a = try Int.init(al);
 
     try a.set(0b100);
-    debug.assert(a.bitcount() == 3);
+    debug.assert(a.bitCountAbs() == 3);
     debug.assert(a.sizeInBase(2) >= 3);
     debug.assert(a.sizeInBase(10) >= 1);
 
+    a.negate();
+    debug.assert(a.bitCountAbs() == 3);
+    debug.assert(a.sizeInBase(2) >= 4);
+    debug.assert(a.sizeInBase(10) >= 2);
+
     try a.set(0xffffffff);
-    debug.assert(a.bitcount() == 32);
+    debug.assert(a.bitCountAbs() == 32);
     debug.assert(a.sizeInBase(2) >= 32);
     debug.assert(a.sizeInBase(10) >= 10);
 
     try a.shiftLeft(a, 5000);
-    debug.assert(a.bitcount() == 5032);
+    debug.assert(a.bitCountAbs() == 5032);
     debug.assert(a.sizeInBase(2) >= 5032);
     a.positive = false;
 
-    debug.assert(a.bitcount() == 5033);
+    debug.assert(a.bitCountAbs() == 5032);
     debug.assert(a.sizeInBase(2) >= 5033);
+}
+
+test "big.int bitcount/to" {
+    var a = try Int.init(al);
+
+    try a.set(0);
+    debug.assert(a.bitCountTwosComp() == 0);
+
+    // TODO: stack smashing
+    // debug.assert((try a.to(u0)) == 0);
+    // TODO: sigsegv
+    // debug.assert((try a.to(i0)) == 0);
+
+    try a.set(-1);
+    debug.assert(a.bitCountTwosComp() == 1);
+    debug.assert((try a.to(i1)) == -1);
+
+    try a.set(-8);
+    debug.assert(a.bitCountTwosComp() == 4);
+    debug.assert((try a.to(i4)) == -8);
+
+    try a.set(127);
+    debug.assert(a.bitCountTwosComp() == 7);
+    debug.assert((try a.to(u7)) == 127);
+
+    try a.set(-128);
+    debug.assert(a.bitCountTwosComp() == 8);
+    debug.assert((try a.to(i8)) == -128);
+
+    try a.set(-129);
+    debug.assert(a.bitCountTwosComp() == 9);
+    debug.assert((try a.to(i9)) == -129);
+}
+
+test "big.int fits" {
+    var a = try Int.init(al);
+
+    try a.set(0);
+    debug.assert(a.fits(u0));
+    debug.assert(a.fits(i0));
+
+    try a.set(255);
+    debug.assert(!a.fits(u0));
+    debug.assert(!a.fits(u1));
+    debug.assert(!a.fits(i8));
+    debug.assert(a.fits(u8));
+    debug.assert(a.fits(u9));
+    debug.assert(a.fits(i9));
+
+    try a.set(-128);
+    debug.assert(!a.fits(i7));
+    debug.assert(a.fits(i8));
+    debug.assert(a.fits(i9));
+    debug.assert(!a.fits(u9));
+
+    try a.set(0x1ffffffffeeeeeeee);
+    debug.assert(!a.fits(u32));
+    debug.assert(!a.fits(u64));
+    debug.assert(a.fits(u65));
 }
 
 test "big.int string set" {

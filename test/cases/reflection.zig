@@ -1,6 +1,6 @@
 const assert = @import("std").debug.assert;
 const mem = @import("std").mem;
-const reflection = this;
+const reflection = @This();
 
 test "reflection: array, pointer, optional, error union type child" {
     comptime {

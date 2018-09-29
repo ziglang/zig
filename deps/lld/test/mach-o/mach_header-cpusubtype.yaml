@@ -1,6 +1,6 @@
-# RUN: lld -flavor darwin -arch x86_64 -macosx_version_min 10.4 %s %p/Inputs/hello-world-x86_64.yaml -o %t && llvm-objdump -private-headers %t | FileCheck %s --check-prefix=NO_LIB64
-# RUN: lld -flavor darwin -arch x86_64 -macosx_version_min 10.5 %s %p/Inputs/hello-world-x86_64.yaml -o %t && llvm-objdump -private-headers %t | FileCheck %s --check-prefix=LIB64
-# RUN: lld -flavor darwin -arch x86_64 -dylib -macosx_version_min 10.5 %s %p/Inputs/hello-world-x86_64.yaml -o %t && llvm-objdump -private-headers %t | FileCheck %s --check-prefix=DYLIB
+# RUN: ld64.lld -arch x86_64 -macosx_version_min 10.4 %s %p/Inputs/hello-world-x86_64.yaml -o %t && llvm-objdump -private-headers %t | FileCheck %s --check-prefix=NO_LIB64
+# RUN: ld64.lld -arch x86_64 -macosx_version_min 10.5 %s %p/Inputs/hello-world-x86_64.yaml -o %t && llvm-objdump -private-headers %t | FileCheck %s --check-prefix=LIB64
+# RUN: ld64.lld -arch x86_64 -dylib -macosx_version_min 10.5 %s %p/Inputs/hello-world-x86_64.yaml -o %t && llvm-objdump -private-headers %t | FileCheck %s --check-prefix=DYLIB
 
 --- !mach-o
 arch:            x86_64

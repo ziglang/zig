@@ -4,12 +4,24 @@
 # RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=HEADER %s
 # RUN: llvm-objdump -unwind-info %t.exe | FileCheck -check-prefix=UNWIND %s
 #
-# HEADER: ExceptionTableRVA: 0x1000
+# RUN: lld-link /merge:.pdata=.rdata /out:%t.exe /entry:main %t.obj
+# RUN: llvm-readobj -file-headers -sections %t.exe | FileCheck -check-prefix=HEADER-MERGE %s
+#
+# HEADER: ExceptionTableRVA: 0x3000
+#
+# FIXME: llvm-readobj currently does not understand files with .pdata merged
+# into .rdata. But we can at least check that the section headers look correct.
+#
+# HEADER-MERGE: ExceptionTableRVA: 0x2004
+# HEADER-MERGE-NEXT: ExceptionTableSize: 0x30
+# HEADER-MERGE: Name: .rdata
+# HEADER-MERGE-NEXT: VirtualSize: 0x78
+# HEADER-MERGE-NEXT: VirtualAddress: 0x2000
 #
 # UNWIND: Function Table:
-# UNWIND:   Start Address: 0x2000
-# UNWIND:   End Address: 0x201b
-# UNWIND:   Unwind Info Address: 0x3000
+# UNWIND:   Start Address: 0x1000
+# UNWIND:   End Address: 0x101b
+# UNWIND:   Unwind Info Address: 0x2004
 # UNWIND:     Version: 1
 # UNWIND:     Flags: 1 UNW_ExceptionHandler
 # UNWIND:     Size of prolog: 18
@@ -24,27 +36,27 @@
 # UNWIND:       0x04: UOP_AllocSmall 24
 # UNWIND:       0x00: UOP_PushMachFrame w/o error code
 # UNWIND: Function Table:
-# UNWIND:   Start Address: 0x2012
-# UNWIND:   End Address: 0x2012
-# UNWIND:   Unwind Info Address: 0x301c
+# UNWIND:   Start Address: 0x1012
+# UNWIND:   End Address: 0x1012
+# UNWIND:   Unwind Info Address: 0x2020
 # UNWIND:     Version: 1
 # UNWIND:     Flags: 4 UNW_ChainInfo
 # UNWIND:     Size of prolog: 0
 # UNWIND:     Number of Codes: 0
 # UNWIND:     No frame pointer used
 # UNWIND: Function Table:
-# UNWIND:   Start Address: 0x201b
-# UNWIND:   End Address: 0x201c
-# UNWIND:   Unwind Info Address: 0x302c
+# UNWIND:   Start Address: 0x101b
+# UNWIND:   End Address: 0x101c
+# UNWIND:   Unwind Info Address: 0x2030
 # UNWIND:     Version: 1
 # UNWIND:     Flags: 0
 # UNWIND:     Size of prolog: 0
 # UNWIND:     Number of Codes: 0
 # UNWIND:     No frame pointer used
 # UNWIND: Function Table:
-# UNWIND:   Start Address: 0x201c
-# UNWIND:   End Address: 0x2039
-# UNWIND:   Unwind Info Address: 0x3034
+# UNWIND:   Start Address: 0x101c
+# UNWIND:   End Address: 0x1039
+# UNWIND:   Unwind Info Address: 0x2038
 # UNWIND:     Version: 1
 # UNWIND:     Flags: 0
 # UNWIND:     Size of prolog: 14
@@ -122,6 +134,10 @@ sections:
       - VirtualAddress:  44
         SymbolName:      .xdata
         Type:            IMAGE_REL_AMD64_ADDR32NB
+  - Name:            .rdata
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_READ ]
+    Alignment:       4
+    SectionData:     00000000
 symbols:
   - Name:            .text
     Value:           0

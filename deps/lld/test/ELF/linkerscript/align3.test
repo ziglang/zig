@@ -1,0 +1,18 @@
+# REQUIRES: x86
+# RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/align.s -o %t.o
+# RUN: ld.lld -o %t --script %s %t.o
+# RUN: llvm-objdump -section-headers %t | FileCheck %s
+
+SECTIONS {
+  . = 0x10000;
+  .aaa : { *(.aaa) }
+  .bbb : ALIGN(4096) { *(.bbb) }
+  .ccc : ALIGN(4096 * 4) { *(.ccc) }
+}
+
+# CHECK:      Sections:
+# CHECK-NEXT: Idx Name          Size      Address          Type
+# CHECK-NEXT:   0               00000000 0000000000000000
+# CHECK-NEXT:   1 .aaa          00000008 0000000000010000 DATA
+# CHECK-NEXT:   2 .bbb          00000008 0000000000011000 DATA
+# CHECK-NEXT:   3 .ccc          00000008 0000000000014000 DATA

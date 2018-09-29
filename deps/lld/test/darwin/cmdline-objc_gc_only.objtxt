@@ -1,4 +1,4 @@
-# RUN: not lld -flavor darwin -arch x86_64 -objc_gc_only %s 2>&1 | FileCheck %s
+# RUN: not ld64.lld -arch x86_64 -objc_gc_only %s 2>&1 | FileCheck %s
 #
 # Test that the -objc_gc_only is rejected.
 #

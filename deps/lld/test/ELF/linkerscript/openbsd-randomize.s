@@ -1,3 +1,4 @@
+# REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=i686-unknown-linux %s -o %t.o
 # RUN: echo "PHDRS { text PT_LOAD FILEHDR PHDRS; rand PT_OPENBSD_RANDOMIZE; } \
 # RUN:       SECTIONS { . = SIZEOF_HEADERS; \

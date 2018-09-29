@@ -16,7 +16,7 @@
 # RUN:   FileCheck -check-prefix=SEC-DEFAULT %s
 
 #             Idx Name          Size
-# SEC-DEFAULT: 1 .text         0000000e {{[0-9a-f]*}} TEXT DATA
+# SEC-DEFAULT: 1 .text         0000000e {{[0-9a-f]*}} TEXT
 # SEC-DEFAULT: 2 .data         00000020 {{[0-9a-f]*}} DATA
 # SEC-DEFAULT: 3 other         00000003 {{[0-9a-f]*}} DATA
 # SEC-DEFAULT: 4 .bss          00000002 {{[0-9a-f]*}} BSS
@@ -47,7 +47,7 @@
 # SEC-ORDER: 5 .strtab       00000008 {{[0-9a-f]*}}
 # SEC-ORDER: 6 .comment      00000008 {{[0-9a-f]*}}
 # SEC-ORDER: 7 .data         00000020 {{[0-9a-f]*}} DATA
-# SEC-ORDER: 8 .text         0000000e {{[0-9a-f]*}} TEXT DATA
+# SEC-ORDER: 8 .text         0000000e {{[0-9a-f]*}} TEXT
 
 # .text and .data have swapped names but proper sizes and types.
 # RUN: echo "SECTIONS { \
@@ -58,7 +58,7 @@
 # RUN:   FileCheck -check-prefix=SEC-SWAP-NAMES %s
 
 #                Idx Name          Size
-# SEC-SWAP-NAMES: 1 .data         0000000e {{[0-9a-f]*}} TEXT DATA
+# SEC-SWAP-NAMES: 1 .data         0000000e {{[0-9a-f]*}} TEXT
 # SEC-SWAP-NAMES: 2 .text         00000020 {{[0-9a-f]*}} DATA
 # SEC-SWAP-NAMES: 3 other         00000003 {{[0-9a-f]*}} DATA
 # SEC-SWAP-NAMES: 4 .bss          00000002 {{[0-9a-f]*}} BSS
@@ -80,7 +80,7 @@
 # RUN:   FileCheck -check-prefix=SEC-MULTI %s
 
 #           Idx Name          Size
-# SEC-MULTI:      1 .text         0000000e {{[0-9a-f]*}} TEXT DATA
+# SEC-MULTI:      1 .text         0000000e {{[0-9a-f]*}} TEXT
 # SEC-MULTI-NEXT:   .data         00000020 {{[0-9a-f]*}} DATA
 # SEC-MULTI-NEXT:   .data         00000003 {{[0-9a-f]*}} DATA
 # SEC-MULTI-NEXT:   .bss          00000002 {{[0-9a-f]*}} BSS

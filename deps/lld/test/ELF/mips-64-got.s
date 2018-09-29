@@ -1,3 +1,4 @@
+# REQUIRES: mips
 # Check MIPS N64 ABI GOT relocations
 
 # RUN: llvm-mc -filetype=obj -triple=mips64-unknown-linux \
@@ -7,8 +8,6 @@
 # RUN: ld.lld %t.exe.o %t.so -o %t.exe
 # RUN: llvm-objdump -d -t %t.exe | FileCheck %s
 # RUN: llvm-readobj -r -mips-plt-got %t.exe | FileCheck -check-prefix=GOT %s
-
-# REQUIRES: mips
 
 # CHECK:      __start:
 

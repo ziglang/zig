@@ -1,4 +1,4 @@
-# RUN: lld -flavor darwin -arch i386 %s %p/Inputs/hello-world-x86.yaml -o %t
+# RUN: ld64.lld -arch i386 %s %p/Inputs/hello-world-x86.yaml -o %t
 # RUN: obj2yaml %t | FileCheck %s
 #
 # Test that the string table contains a ' ' as its first symbol

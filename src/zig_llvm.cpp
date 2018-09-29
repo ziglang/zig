@@ -15,6 +15,11 @@
 
 #include "zig_llvm.h"
 
+#if __GNUC__ >= 8
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wclass-memaccess"
+#endif
+
 #include <llvm/Analysis/TargetLibraryInfo.h>
 #include <llvm/Analysis/TargetTransformInfo.h>
 #include <llvm/IR/DIBuilder.h>
@@ -30,6 +35,7 @@
 #include <llvm/PassRegistry.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/TargetParser.h>
+#include <llvm/Support/Timer.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/Transforms/Coroutines.h>
@@ -37,8 +43,13 @@
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
 #include <llvm/Transforms/IPO/AlwaysInliner.h>
 #include <llvm/Transforms/Scalar.h>
+#include <llvm/Transforms/Utils.h>
 
 #include <lld/Common/Driver.h>
+
+#if __GNUC__ >= 8
+#pragma GCC diagnostic pop
+#endif
 
 #include <new>
 
@@ -81,8 +92,11 @@ static const bool assertions_on = false;
 #endif
 
 bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
-        const char *filename, ZigLLVM_EmitOutputType output_type, char **error_message, bool is_debug, bool is_small)
+        const char *filename, ZigLLVM_EmitOutputType output_type, char **error_message, bool is_debug,
+        bool is_small, bool time_report)
 {
+    TimePassesIsEnabled = time_report;
+
     std::error_code EC;
     raw_fd_ostream dest(filename, EC, sys::fs::F_None);
     if (EC) {
@@ -161,7 +175,7 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
                 abort();
         }
 
-        if (target_machine->addPassesToEmitFile(MPM, dest, ft)) {
+        if (target_machine->addPassesToEmitFile(MPM, dest, nullptr, ft)) {
             *error_message = strdup("TargetMachine can't emit a file of this type");
             return true;
         }
@@ -182,6 +196,9 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
         }
     }
 
+    if (time_report) {
+        TimerGroup::printAll(errs());
+    }
     return false;
 }
 
@@ -205,6 +222,20 @@ LLVMValueRef ZigLLVMBuildCall(LLVMBuilderRef B, LLVMValueRef Fn, LLVMValueRef *A
             break;
     }
     return wrap(unwrap(B)->Insert(call_inst));
+}
+
+LLVMValueRef ZigLLVMBuildMemCpy(LLVMBuilderRef B, LLVMValueRef Dst, unsigned DstAlign,
+        LLVMValueRef Src, unsigned SrcAlign, LLVMValueRef Size, bool isVolatile)
+{
+    CallInst *call_inst = unwrap(B)->CreateMemCpy(unwrap(Dst), DstAlign, unwrap(Src), SrcAlign, unwrap(Size), isVolatile);
+    return wrap(call_inst);
+}
+
+LLVMValueRef ZigLLVMBuildMemSet(LLVMBuilderRef B, LLVMValueRef Ptr, LLVMValueRef Val, LLVMValueRef Size,
+        unsigned Align, bool isVolatile)
+{
+    CallInst *call_inst = unwrap(B)->CreateMemSet(unwrap(Ptr), unwrap(Val), unwrap(Size), Align, isVolatile);
+    return wrap(call_inst);
 }
 
 void ZigLLVMFnSetSubprogram(LLVMValueRef fn, ZigLLVMDISubprogram *subprogram) {
@@ -438,6 +469,11 @@ ZigLLVMDIBuilder *ZigLLVMCreateDIBuilder(LLVMModuleRef module, bool allow_unreso
     if (di_builder == nullptr)
         return nullptr;
     return reinterpret_cast<ZigLLVMDIBuilder *>(di_builder);
+}
+
+void ZigLLVMDisposeDIBuilder(ZigLLVMDIBuilder *dbuilder) {
+    DIBuilder *di_builder = reinterpret_cast<DIBuilder *>(dbuilder);
+    delete di_builder;
 }
 
 void ZigLLVMSetCurrentDebugLocation(LLVMBuilderRef builder, int line, int column, ZigLLVMDIScope *scope) {
@@ -692,6 +728,8 @@ const char *ZigLLVMGetSubArchTypeName(ZigLLVM_SubArchType sub_arch) {
     switch (sub_arch) {
         case ZigLLVM_NoSubArch:
             return "(none)";
+        case ZigLLVM_ARMSubArch_v8_4a:
+            return "v8_4a";
         case ZigLLVM_ARMSubArch_v8_3a:
             return "v8_3a";
         case ZigLLVM_ARMSubArch_v8_2a:
@@ -835,7 +873,7 @@ bool ZigLLDLink(ZigLLVM_ObjectFormatType oformat, const char **args, size_t arg_
             return lld::elf::link(array_ref_args, false, diag);
 
         case ZigLLVM_MachO:
-            return lld::mach_o::link(array_ref_args, diag);
+            return lld::mach_o::link(array_ref_args, false, diag);
 
         case ZigLLVM_Wasm:
             return lld::wasm::link(array_ref_args, false, diag);

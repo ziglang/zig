@@ -174,21 +174,33 @@
 .global _start
 .text
 _start:
- call __start_foo
- call __stop_foo
+ .byte 0xe8
+ .long __start_foo - . -4
+ .byte 0xe8
+ .long __stop_foo - . -4
 
- call __start_bar
- call __stop_bar
+ .byte 0xe8
+ .long __start_bar - . -4
+ .byte 0xe8
+ .long __stop_bar - . -4
 
- call __start_doo
- call __stop_doo
+ .byte 0xe8
+ .long __start_doo - . -4
+ .byte 0xe8
+ .long __stop_doo - . -4
 
- call __preinit_array_start
- call __preinit_array_end
- call __init_array_start
- call __init_array_end
- call __fini_array_start
- call __fini_array_end
+ .byte 0xe8
+ .long __preinit_array_start - . -4
+ .byte 0xe8
+ .long __preinit_array_end - . -4
+ .byte 0xe8
+ .long __init_array_start - . -4
+ .byte 0xe8
+ .long __init_array_end - . -4
+ .byte 0xe8
+ .long __fini_array_start - . -4
+ .byte 0xe8
+ .long __fini_array_end - . -4
 
 .section foo,"ax"
  nop

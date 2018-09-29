@@ -40,6 +40,7 @@ OPTION(prefix_2, "dynamicbase", dynamicbase, Flag, INVALID, INVALID, nullptr, 0,
        "Enable ASLR", nullptr, nullptr)
 OPTION(prefix_2, "enable-auto-image-base", enable_auto_image_base, Flag, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
 OPTION(prefix_2, "enable-auto-import", enable_auto_import, Flag, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
+OPTION(prefix_2, "end-group", end_group, Flag, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
 OPTION(prefix_2, "entry", entry, Separate, INVALID, INVALID, nullptr, 0, 0,
        "Name of entry point symbol", "<entry>", nullptr)
 OPTION(prefix_2, "export-all-symbols", export_all_symbols, Flag, INVALID, INVALID, nullptr, 0, 0,
@@ -54,6 +55,8 @@ OPTION(prefix_2, "icf=", icf, Joined, INVALID, INVALID, nullptr, 0, 0,
        "Identical code folding", nullptr, nullptr)
 OPTION(prefix_2, "image-base", image_base, Separate, INVALID, INVALID, nullptr, 0, 0,
        "Base address of the program", nullptr, nullptr)
+OPTION(prefix_2, "kill-at", kill_at, Flag, INVALID, INVALID, nullptr, 0, 0,
+       "Remove @n from exported symbols", nullptr, nullptr)
 OPTION(prefix_3, "large-address-aware", large_address_aware, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Enable large addresses", nullptr, nullptr)
 OPTION(prefix_1, "L", L, JoinedOrSeparate, INVALID, INVALID, nullptr, 0, 0,
@@ -61,6 +64,9 @@ OPTION(prefix_1, "L", L, JoinedOrSeparate, INVALID, INVALID, nullptr, 0, 0,
 OPTION(prefix_1, "l", l, JoinedOrSeparate, INVALID, INVALID, nullptr, 0, 0,
        "Root name of library to use", "<libName>", nullptr)
 OPTION(prefix_2, "major-image-version", major_image_version, Separate, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
+OPTION(prefix_2, "Map=", map_eq, Joined, INVALID, map, nullptr, 0, 0, nullptr, nullptr, nullptr)
+OPTION(prefix_2, "Map", map, Separate, INVALID, INVALID, nullptr, 0, 0,
+       "Output a linker map", nullptr, nullptr)
 OPTION(prefix_2, "minor-image-version", minor_image_version, Separate, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
 OPTION(prefix_2, "mllvm", mllvm, Separate, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
 OPTION(prefix_1, "m", m, JoinedOrSeparate, INVALID, INVALID, nullptr, 0, 0,
@@ -81,16 +87,22 @@ OPTION(prefix_1, "O", O, Joined, INVALID, INVALID, nullptr, 0, 0,
        "Optimize output file size", nullptr, nullptr)
 OPTION(prefix_1, "o", o, JoinedOrSeparate, INVALID, INVALID, nullptr, 0, 0,
        "Path to file to write output", "<path>", nullptr)
+OPTION(prefix_2, "pdb", pdb, Separate, INVALID, INVALID, nullptr, 0, 0,
+       "Specify output PDB debug information file", nullptr, nullptr)
 OPTION(prefix_2, "pic-executable", pic_executable, Flag, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
 OPTION(prefix_2, "shared", shared, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Build a shared object", nullptr, nullptr)
 OPTION(prefix_2, "stack", stack, Separate, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
+OPTION(prefix_2, "start-group", start_group, Flag, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
 OPTION(prefix_2, "strip-all", strip_all, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Omit all symbol information from the output binary", nullptr, nullptr)
+OPTION(prefix_2, "strip-debug", strip_debug, Flag, INVALID, INVALID, nullptr, 0, 0,
+       "Omit all debug information, but keep symbol information", nullptr, nullptr)
 OPTION(prefix_2, "subsystem", subs, Separate, INVALID, INVALID, nullptr, 0, 0,
        "Specify subsystem", nullptr, nullptr)
 OPTION(prefix_2, "sysroot", sysroot, Joined, INVALID, INVALID, nullptr, 0, 0,
        "Sysroot", nullptr, nullptr)
+OPTION(prefix_1, "S", alias_strip_S, Flag, INVALID, strip_debug, nullptr, 0, 0, nullptr, nullptr, nullptr)
 OPTION(prefix_1, "s", alias_strip_s, Flag, INVALID, strip_all, nullptr, 0, 0, nullptr, nullptr, nullptr)
 OPTION(prefix_2, "tsaware", tsaware, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Create Terminal Server aware executable", nullptr, nullptr)

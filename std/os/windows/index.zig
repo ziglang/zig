@@ -1,190 +1,19 @@
+const std = @import("../../index.zig");
+const assert = std.debug.assert;
+
+pub use @import("advapi32.zig");
+pub use @import("kernel32.zig");
+pub use @import("ntdll.zig");
+pub use @import("ole32.zig");
+pub use @import("shell32.zig");
+
 test "import" {
     _ = @import("util.zig");
 }
 
 pub const ERROR = @import("error.zig");
 
-pub extern "advapi32" stdcallcc fn CryptAcquireContextA(
-    phProv: *HCRYPTPROV,
-    pszContainer: ?LPCSTR,
-    pszProvider: ?LPCSTR,
-    dwProvType: DWORD,
-    dwFlags: DWORD,
-) BOOL;
-
-pub extern "advapi32" stdcallcc fn CryptReleaseContext(hProv: HCRYPTPROV, dwFlags: DWORD) BOOL;
-
-pub extern "advapi32" stdcallcc fn CryptGenRandom(hProv: HCRYPTPROV, dwLen: DWORD, pbBuffer: [*]BYTE) BOOL;
-
-pub extern "kernel32" stdcallcc fn CloseHandle(hObject: HANDLE) BOOL;
-
-pub extern "kernel32" stdcallcc fn CreateDirectoryA(
-    lpPathName: LPCSTR,
-    lpSecurityAttributes: ?*SECURITY_ATTRIBUTES,
-) BOOL;
-
-pub extern "kernel32" stdcallcc fn CreateFileA(
-    lpFileName: LPCSTR,
-    dwDesiredAccess: DWORD,
-    dwShareMode: DWORD,
-    lpSecurityAttributes: ?LPSECURITY_ATTRIBUTES,
-    dwCreationDisposition: DWORD,
-    dwFlagsAndAttributes: DWORD,
-    hTemplateFile: ?HANDLE,
-) HANDLE;
-
-pub extern "kernel32" stdcallcc fn CreatePipe(
-    hReadPipe: *HANDLE,
-    hWritePipe: *HANDLE,
-    lpPipeAttributes: *const SECURITY_ATTRIBUTES,
-    nSize: DWORD,
-) BOOL;
-
-pub extern "kernel32" stdcallcc fn CreateProcessA(
-    lpApplicationName: ?LPCSTR,
-    lpCommandLine: LPSTR,
-    lpProcessAttributes: ?*SECURITY_ATTRIBUTES,
-    lpThreadAttributes: ?*SECURITY_ATTRIBUTES,
-    bInheritHandles: BOOL,
-    dwCreationFlags: DWORD,
-    lpEnvironment: ?*c_void,
-    lpCurrentDirectory: ?LPCSTR,
-    lpStartupInfo: *STARTUPINFOA,
-    lpProcessInformation: *PROCESS_INFORMATION,
-) BOOL;
-
-pub extern "kernel32" stdcallcc fn CreateSymbolicLinkA(
-    lpSymlinkFileName: LPCSTR,
-    lpTargetFileName: LPCSTR,
-    dwFlags: DWORD,
-) BOOLEAN;
-
-
-pub extern "kernel32" stdcallcc fn CreateIoCompletionPort(FileHandle: HANDLE, ExistingCompletionPort: ?HANDLE, CompletionKey: ULONG_PTR, NumberOfConcurrentThreads: DWORD) ?HANDLE;
-
-pub extern "kernel32" stdcallcc fn CreateThread(lpThreadAttributes: ?LPSECURITY_ATTRIBUTES, dwStackSize: SIZE_T, lpStartAddress: LPTHREAD_START_ROUTINE, lpParameter: ?LPVOID, dwCreationFlags: DWORD, lpThreadId: ?LPDWORD) ?HANDLE;
-
-pub extern "kernel32" stdcallcc fn DeleteFileA(lpFileName: LPCSTR) BOOL;
-
-pub extern "kernel32" stdcallcc fn ExitProcess(exit_code: UINT) noreturn;
-
-pub extern "kernel32" stdcallcc fn FindFirstFileA(lpFileName: LPCSTR, lpFindFileData: *WIN32_FIND_DATAA) HANDLE;
-pub extern "kernel32" stdcallcc fn FindClose(hFindFile: HANDLE) BOOL;
-pub extern "kernel32" stdcallcc fn FindNextFileA(hFindFile: HANDLE, lpFindFileData: *WIN32_FIND_DATAA) BOOL;
-
-pub extern "kernel32" stdcallcc fn FreeEnvironmentStringsA(penv: [*]u8) BOOL;
-
-pub extern "kernel32" stdcallcc fn GetCommandLineA() LPSTR;
-
-pub extern "kernel32" stdcallcc fn GetConsoleMode(in_hConsoleHandle: HANDLE, out_lpMode: *DWORD) BOOL;
-
-pub extern "kernel32" stdcallcc fn GetCurrentDirectoryA(nBufferLength: WORD, lpBuffer: ?LPSTR) DWORD;
-
-pub extern "kernel32" stdcallcc fn GetEnvironmentStringsA() ?[*]u8;
-
-pub extern "kernel32" stdcallcc fn GetEnvironmentVariableA(lpName: LPCSTR, lpBuffer: LPSTR, nSize: DWORD) DWORD;
-
-pub extern "kernel32" stdcallcc fn GetExitCodeProcess(hProcess: HANDLE, lpExitCode: *DWORD) BOOL;
-
-pub extern "kernel32" stdcallcc fn GetFileSizeEx(hFile: HANDLE, lpFileSize: *LARGE_INTEGER) BOOL;
-
-pub extern "kernel32" stdcallcc fn GetFileAttributesA(lpFileName: LPCSTR) DWORD;
-
-pub extern "kernel32" stdcallcc fn GetModuleFileNameA(hModule: ?HMODULE, lpFilename: LPSTR, nSize: DWORD) DWORD;
-
-pub extern "kernel32" stdcallcc fn GetLastError() DWORD;
-
-pub extern "kernel32" stdcallcc fn GetFileInformationByHandleEx(
-    in_hFile: HANDLE,
-    in_FileInformationClass: FILE_INFO_BY_HANDLE_CLASS,
-    out_lpFileInformation: *c_void,
-    in_dwBufferSize: DWORD,
-) BOOL;
-
-pub extern "kernel32" stdcallcc fn GetFinalPathNameByHandleA(
-    hFile: HANDLE,
-    lpszFilePath: LPSTR,
-    cchFilePath: DWORD,
-    dwFlags: DWORD,
-) DWORD;
-
-pub extern "kernel32" stdcallcc fn GetProcessHeap() ?HANDLE;
-pub extern "kernel32" stdcallcc fn GetQueuedCompletionStatus(CompletionPort: HANDLE, lpNumberOfBytesTransferred: LPDWORD, lpCompletionKey: *ULONG_PTR, lpOverlapped: *?*OVERLAPPED, dwMilliseconds: DWORD) BOOL;
-
-pub extern "kernel32" stdcallcc fn GetSystemInfo(lpSystemInfo: *SYSTEM_INFO) void;
-pub extern "kernel32" stdcallcc fn GetSystemTimeAsFileTime(*FILETIME) void;
-
-pub extern "kernel32" stdcallcc fn HeapCreate(flOptions: DWORD, dwInitialSize: SIZE_T, dwMaximumSize: SIZE_T) ?HANDLE;
-pub extern "kernel32" stdcallcc fn HeapDestroy(hHeap: HANDLE) BOOL;
-pub extern "kernel32" stdcallcc fn HeapReAlloc(hHeap: HANDLE, dwFlags: DWORD, lpMem: *c_void, dwBytes: SIZE_T) ?*c_void;
-pub extern "kernel32" stdcallcc fn HeapSize(hHeap: HANDLE, dwFlags: DWORD, lpMem: *const c_void) SIZE_T;
-pub extern "kernel32" stdcallcc fn HeapValidate(hHeap: HANDLE, dwFlags: DWORD, lpMem: *const c_void) BOOL;
-pub extern "kernel32" stdcallcc fn HeapCompact(hHeap: HANDLE, dwFlags: DWORD) SIZE_T;
-pub extern "kernel32" stdcallcc fn HeapSummary(hHeap: HANDLE, dwFlags: DWORD, lpSummary: LPHEAP_SUMMARY) BOOL;
-
-pub extern "kernel32" stdcallcc fn GetStdHandle(in_nStdHandle: DWORD) ?HANDLE;
-
-pub extern "kernel32" stdcallcc fn HeapAlloc(hHeap: HANDLE, dwFlags: DWORD, dwBytes: SIZE_T) ?*c_void;
-
-pub extern "kernel32" stdcallcc fn HeapFree(hHeap: HANDLE, dwFlags: DWORD, lpMem: *c_void) BOOL;
-
-pub extern "kernel32" stdcallcc fn MoveFileExA(
-    lpExistingFileName: LPCSTR,
-    lpNewFileName: LPCSTR,
-    dwFlags: DWORD,
-) BOOL;
-
-
-pub extern "kernel32" stdcallcc fn PostQueuedCompletionStatus(CompletionPort: HANDLE, dwNumberOfBytesTransferred: DWORD, dwCompletionKey: ULONG_PTR, lpOverlapped: ?*OVERLAPPED) BOOL;
-
-pub extern "kernel32" stdcallcc fn QueryPerformanceCounter(lpPerformanceCount: *LARGE_INTEGER) BOOL;
-
-pub extern "kernel32" stdcallcc fn QueryPerformanceFrequency(lpFrequency: *LARGE_INTEGER) BOOL;
-
-pub extern "kernel32" stdcallcc fn ReadFile(
-    in_hFile: HANDLE,
-    out_lpBuffer: *c_void,
-    in_nNumberOfBytesToRead: DWORD,
-    out_lpNumberOfBytesRead: *DWORD,
-    in_out_lpOverlapped: ?*OVERLAPPED,
-) BOOL;
-
-pub extern "kernel32" stdcallcc fn RemoveDirectoryA(lpPathName: LPCSTR) BOOL;
-
-pub extern "kernel32" stdcallcc fn SetFilePointerEx(
-    in_fFile: HANDLE,
-    in_liDistanceToMove: LARGE_INTEGER,
-    out_opt_ldNewFilePointer: ?*LARGE_INTEGER,
-    in_dwMoveMethod: DWORD,
-) BOOL;
-
-pub extern "kernel32" stdcallcc fn SetHandleInformation(hObject: HANDLE, dwMask: DWORD, dwFlags: DWORD) BOOL;
-
-pub extern "kernel32" stdcallcc fn Sleep(dwMilliseconds: DWORD) void;
-
-pub extern "kernel32" stdcallcc fn TerminateProcess(hProcess: HANDLE, uExitCode: UINT) BOOL;
-
-pub extern "kernel32" stdcallcc fn WaitForSingleObject(hHandle: HANDLE, dwMilliseconds: DWORD) DWORD;
-
-pub extern "kernel32" stdcallcc fn WriteFile(
-    in_hFile: HANDLE,
-    in_lpBuffer: *const c_void,
-    in_nNumberOfBytesToWrite: DWORD,
-    out_lpNumberOfBytesWritten: ?*DWORD,
-    in_out_lpOverlapped: ?*OVERLAPPED,
-) BOOL;
-
-//TODO: call unicode versions instead of relying on ANSI code page
-pub extern "kernel32" stdcallcc fn LoadLibraryA(lpLibFileName: LPCSTR) ?HMODULE;
-
-pub extern "kernel32" stdcallcc fn FreeLibrary(hModule: HMODULE) BOOL;
-
-pub extern "user32" stdcallcc fn MessageBoxA(hWnd: ?HANDLE, lpText: ?LPCTSTR, lpCaption: ?LPCTSTR, uType: UINT) c_int;
-
-pub extern "shlwapi" stdcallcc fn PathFileExistsA(pszPath: ?LPCTSTR) BOOL;
-
-pub const PROV_RSA_FULL = 1;
-
+pub const SHORT = c_short;
 pub const BOOL = c_int;
 pub const BOOLEAN = BYTE;
 pub const BYTE = u8;
@@ -206,6 +35,7 @@ pub const LPSTR = [*]CHAR;
 pub const LPTSTR = if (UNICODE) LPWSTR else LPSTR;
 pub const LPVOID = *c_void;
 pub const LPWSTR = [*]WCHAR;
+pub const LPCWSTR = [*]const WCHAR;
 pub const PVOID = *c_void;
 pub const PWSTR = [*]WCHAR;
 pub const SIZE_T = usize;
@@ -237,8 +67,9 @@ pub const INVALID_FILE_ATTRIBUTES = DWORD(@maxValue(DWORD));
 pub const OVERLAPPED = extern struct {
     Internal: ULONG_PTR,
     InternalHigh: ULONG_PTR,
-    Pointer: PVOID,
-    hEvent: HANDLE,
+    Offset: DWORD,
+    OffsetHigh: DWORD,
+    hEvent: ?HANDLE,
 };
 pub const LPOVERLAPPED = *OVERLAPPED;
 
@@ -341,11 +172,11 @@ pub const PROCESS_INFORMATION = extern struct {
     dwThreadId: DWORD,
 };
 
-pub const STARTUPINFOA = extern struct {
+pub const STARTUPINFOW = extern struct {
     cb: DWORD,
-    lpReserved: ?LPSTR,
-    lpDesktop: ?LPSTR,
-    lpTitle: ?LPSTR,
+    lpReserved: ?LPWSTR,
+    lpDesktop: ?LPWSTR,
+    lpTitle: ?LPWSTR,
     dwX: DWORD,
     dwY: DWORD,
     dwXSize: DWORD,
@@ -405,7 +236,7 @@ pub const HEAP_NO_SERIALIZE = 0x00000001;
 pub const PTHREAD_START_ROUTINE = extern fn (LPVOID) DWORD;
 pub const LPTHREAD_START_ROUTINE = PTHREAD_START_ROUTINE;
 
-pub const WIN32_FIND_DATAA = extern struct {
+pub const WIN32_FIND_DATAW = extern struct {
     dwFileAttributes: DWORD,
     ftCreationTime: FILETIME,
     ftLastAccessTime: FILETIME,
@@ -414,8 +245,8 @@ pub const WIN32_FIND_DATAA = extern struct {
     nFileSizeLow: DWORD,
     dwReserved0: DWORD,
     dwReserved1: DWORD,
-    cFileName: [260]CHAR,
-    cAlternateFileName: [14]CHAR,
+    cFileName: [260]u16,
+    cAlternateFileName: [14]u16,
 };
 
 pub const FILETIME = extern struct {
@@ -441,3 +272,108 @@ pub const SYSTEM_INFO = extern struct {
     wProcessorLevel: WORD,
     wProcessorRevision: WORD,
 };
+
+pub const HRESULT = c_long;
+
+pub const KNOWNFOLDERID = GUID;
+pub const GUID = extern struct {
+    Data1: c_ulong,
+    Data2: c_ushort,
+    Data3: c_ushort,
+    Data4: [8]u8,
+
+    pub fn parse(str: []const u8) GUID {
+        var guid: GUID = undefined;
+        var index: usize = 0;
+        assert(str[index] == '{');
+        index += 1;
+
+        guid.Data1 = std.fmt.parseUnsigned(c_ulong, str[index .. index + 8], 16) catch unreachable;
+        index += 8;
+
+        assert(str[index] == '-');
+        index += 1;
+
+        guid.Data2 = std.fmt.parseUnsigned(c_ushort, str[index .. index + 4], 16) catch unreachable;
+        index += 4;
+
+        assert(str[index] == '-');
+        index += 1;
+
+        guid.Data3 = std.fmt.parseUnsigned(c_ushort, str[index .. index + 4], 16) catch unreachable;
+        index += 4;
+
+        assert(str[index] == '-');
+        index += 1;
+
+        guid.Data4[0] = std.fmt.parseUnsigned(u8, str[index .. index + 2], 16) catch unreachable;
+        index += 2;
+        guid.Data4[1] = std.fmt.parseUnsigned(u8, str[index .. index + 2], 16) catch unreachable;
+        index += 2;
+
+        assert(str[index] == '-');
+        index += 1;
+
+        var i: usize = 2;
+        while (i < guid.Data4.len) : (i += 1) {
+            guid.Data4[i] = std.fmt.parseUnsigned(u8, str[index .. index + 2], 16) catch unreachable;
+            index += 2;
+        }
+
+        assert(str[index] == '}');
+        index += 1;
+        return guid;
+    }
+};
+
+pub const FOLDERID_LocalAppData = GUID.parse("{F1B32785-6FBA-4FCF-9D55-7B8E7F157091}");
+
+pub const KF_FLAG_DEFAULT = 0;
+pub const KF_FLAG_NO_APPCONTAINER_REDIRECTION = 65536;
+pub const KF_FLAG_CREATE = 32768;
+pub const KF_FLAG_DONT_VERIFY = 16384;
+pub const KF_FLAG_DONT_UNEXPAND = 8192;
+pub const KF_FLAG_NO_ALIAS = 4096;
+pub const KF_FLAG_INIT = 2048;
+pub const KF_FLAG_DEFAULT_PATH = 1024;
+pub const KF_FLAG_NOT_PARENT_RELATIVE = 512;
+pub const KF_FLAG_SIMPLE_IDLIST = 256;
+pub const KF_FLAG_ALIAS_ONLY = -2147483648;
+
+pub const S_OK = 0;
+pub const E_NOTIMPL = @bitCast(c_long, c_ulong(0x80004001));
+pub const E_NOINTERFACE = @bitCast(c_long, c_ulong(0x80004002));
+pub const E_POINTER = @bitCast(c_long, c_ulong(0x80004003));
+pub const E_ABORT = @bitCast(c_long, c_ulong(0x80004004));
+pub const E_FAIL = @bitCast(c_long, c_ulong(0x80004005));
+pub const E_UNEXPECTED = @bitCast(c_long, c_ulong(0x8000FFFF));
+pub const E_ACCESSDENIED = @bitCast(c_long, c_ulong(0x80070005));
+pub const E_HANDLE = @bitCast(c_long, c_ulong(0x80070006));
+pub const E_OUTOFMEMORY = @bitCast(c_long, c_ulong(0x8007000E));
+pub const E_INVALIDARG = @bitCast(c_long, c_ulong(0x80070057));
+
+pub const FILE_FLAG_BACKUP_SEMANTICS = 0x02000000;
+pub const FILE_FLAG_DELETE_ON_CLOSE = 0x04000000;
+pub const FILE_FLAG_NO_BUFFERING = 0x20000000;
+pub const FILE_FLAG_OPEN_NO_RECALL = 0x00100000;
+pub const FILE_FLAG_OPEN_REPARSE_POINT = 0x00200000;
+pub const FILE_FLAG_OVERLAPPED = 0x40000000;
+pub const FILE_FLAG_POSIX_SEMANTICS = 0x0100000;
+pub const FILE_FLAG_RANDOM_ACCESS = 0x10000000;
+pub const FILE_FLAG_SESSION_AWARE = 0x00800000;
+pub const FILE_FLAG_SEQUENTIAL_SCAN = 0x08000000;
+pub const FILE_FLAG_WRITE_THROUGH = 0x80000000;
+
+pub const SMALL_RECT = extern struct {
+    Left: SHORT,
+    Top: SHORT,
+    Right: SHORT,
+    Bottom: SHORT,
+};
+
+pub const COORD = extern struct {
+    X: SHORT,
+    Y: SHORT,
+};
+
+pub const CREATE_UNICODE_ENVIRONMENT = 1024;

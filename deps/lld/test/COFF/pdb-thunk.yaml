@@ -84,7 +84,7 @@ sections:
             RegRelativeSym:
               Offset:          8
               Type:            4097
-              Register:        RSP
+              Register:        CVRegRSP
               VarName:         this
           - Kind:            S_PROC_ID_END
             ScopeEndSym:
@@ -124,7 +124,7 @@ sections:
             RegRelativeSym:
               Offset:          8
               Type:            4121
-              Register:        RSP
+              Register:        CVRegRSP
               VarName:         this
           - Kind:            S_PROC_ID_END
             ScopeEndSym:
@@ -164,7 +164,7 @@ sections:
             RegRelativeSym:
               Offset:          48
               Type:            4143
-              Register:        RSP
+              Register:        CVRegRSP
               VarName:         this
           - Kind:            S_PROC_ID_END
             ScopeEndSym:
@@ -208,7 +208,7 @@ sections:
             RegRelativeSym:
               Offset:          8
               Type:            4143
-              Register:        RSP
+              Register:        CVRegRSP
               VarName:         this
           - Kind:            S_PROC_ID_END
             ScopeEndSym:
@@ -2176,7 +2176,7 @@ sections:
             RegRelativeSym:
               Offset:          8
               Type:            4097
-              Register:        RSP
+              Register:        CVRegRSP
               VarName:         this
           - Kind:            S_PROC_ID_END
             ScopeEndSym:
@@ -2222,7 +2222,7 @@ sections:
             RegRelativeSym:
               Offset:          8
               Type:            4121
-              Register:        RSP
+              Register:        CVRegRSP
               VarName:         this
           - Kind:            S_PROC_ID_END
             ScopeEndSym:

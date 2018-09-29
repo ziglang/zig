@@ -5,8 +5,6 @@ const Allocator = mem.Allocator;
 const assert = debug.assert;
 const ArrayList = std.ArrayList;
 
-const fmt = std.fmt;
-
 /// A buffer that allocates memory and maintains a null byte at the end.
 pub const Buffer = struct {
     list: ArrayList(u8),
@@ -54,6 +52,19 @@ pub const Buffer = struct {
         const result = allocator.shrink(u8, self.list.items, self.len());
         self.* = initNull(allocator);
         return result;
+    }
+
+    pub fn allocPrint(allocator: *Allocator, comptime format: []const u8, args: ...) !Buffer {
+        const countSize = struct {
+            fn countSize(size: *usize, bytes: []const u8) (error{}!void) {
+                size.* += bytes.len;
+            }
+        }.countSize;
+        var size: usize = 0;
+        std.fmt.format(&size, error{}, countSize, format, args) catch |err| switch (err) {};
+        var self = try Buffer.initSize(allocator, size);
+        assert((std.fmt.bufPrint(self.list.items, format, args) catch unreachable).len == size);
+        return self;
     }
 
     pub fn deinit(self: *Buffer) void {

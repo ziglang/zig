@@ -23,6 +23,11 @@
 # RUN:   /include:bar /verbose %t.obj > %t.log 2>&1
 # RUN: FileCheck -check-prefix=NOICF %s < %t.log
 
+# /profile disables ICF.
+# RUN: lld-link /profile /entry:foo /out:%t.exe /subsystem:console \
+# RUN:   /include:bar /verbose %t.obj > %t.log 2>&1
+# RUN: FileCheck -check-prefix=NOICF %s < %t.log
+
 # /opt:noref disables ICF.
 # RUN: lld-link /opt:noref /entry:foo /out:%t.exe /subsystem:console \
 # RUN:   /include:bar /verbose %t.obj > %t.log 2>&1

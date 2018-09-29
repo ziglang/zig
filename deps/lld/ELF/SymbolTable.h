@@ -12,7 +12,7 @@
 
 #include "InputFiles.h"
 #include "LTO.h"
-#include "Strings.h"
+#include "lld/Common/Strings.h"
 #include "llvm/ADT/CachedHashString.h"
 #include "llvm/ADT/DenseMap.h"
 
@@ -60,8 +60,8 @@ public:
                  uint32_t VerdefIndex);
 
   template <class ELFT>
-  Symbol *addLazyArchive(StringRef Name, ArchiveFile &F,
-                         const llvm::object::Archive::Symbol S);
+  void addLazyArchive(StringRef Name, ArchiveFile &F,
+                      const llvm::object::Archive::Symbol S);
 
   template <class ELFT> void addLazyObject(StringRef Name, LazyObjFile &Obj);
 
@@ -77,8 +77,8 @@ public:
                                    uint8_t Visibility, bool CanOmitFromDynSym,
                                    InputFile *File);
 
-  template <class ELFT> void fetchIfLazy(StringRef Name);
-  template <class ELFT> void scanShlibUndefined();
+  template <class ELFT> void fetchLazy(Symbol *Sym);
+
   void scanVersionScript();
 
   Symbol *find(StringRef Name);
@@ -90,7 +90,6 @@ public:
 private:
   std::vector<Symbol *> findByVersion(SymbolVersion Ver);
   std::vector<Symbol *> findAllByVersion(SymbolVersion Ver);
-  void defsym(Symbol *Dst, Symbol *Src);
 
   llvm::StringMap<std::vector<Symbol *>> &getDemangledSyms();
   void handleAnonymousVersion();

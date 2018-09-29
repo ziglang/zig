@@ -1,15 +1,28 @@
 # RUN: yaml2obj < %s > %t.obj
 # RUN: lld-link /debug /out:%t.exe /entry:main %t.obj
 # RUN: llvm-readobj -sections %t.exe | FileCheck %s
+# RUN: lld-link /debug:dwarf /out:%t.exe /entry:main %t.obj
+# RUN: llvm-readobj -sections %t.exe | FileCheck %s
+# RUN: lld-link /out:%t.exe /entry:main %t.obj
+# RUN: llvm-readobj -sections %t.exe | FileCheck -check-prefix=NODEBUG %s
+# RUN: lld-link /debug:symtab /out:%t.exe /entry:main %t.obj
+# RUN: llvm-readobj -sections %t.exe | FileCheck -check-prefix=NODEBUG %s
 
 # CHECK: Name: .text
+# CHECK: Name: .reloc
 # CHECK: Name: .debug_abbrev
 # CHECK: Name: .debug_info
 # CHECK: Name: .debug_line
 # CHECK: Name: .debug_pubnames
 # CHECK: Name: .debug_pubtypes
-# CHECK: Name: .reloc
 
+# NODEBUG: Name: .text
+# NODEBUG: Name: .reloc
+# NODEBUG-NOT: Name: .debug_abbrev
+# NODEBUG-NOT: Name: .debug_info
+# NODEBUG-NOT: Name: .debug_line
+# NODEBUG-NOT: Name: .debug_pubnames
+# NODEBUG-NOT: Name: .debug_pubtypes
 
 --- !COFF
 header:

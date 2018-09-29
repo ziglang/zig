@@ -6,18 +6,19 @@ const is_posix = switch (builtin.os) {
     builtin.Os.linux, builtin.Os.macosx => true,
     else => false,
 };
-const os = this;
+const os = @This();
 
 test "std.os" {
     _ = @import("child_process.zig");
     _ = @import("darwin.zig");
-    _ = @import("darwin_errno.zig");
+    _ = @import("darwin/errno.zig");
     _ = @import("get_user_id.zig");
     _ = @import("linux/index.zig");
     _ = @import("path.zig");
     _ = @import("test.zig");
     _ = @import("time.zig");
     _ = @import("windows/index.zig");
+    _ = @import("get_app_data_dir.zig");
 }
 
 pub const windows = @import("windows/index.zig");
@@ -37,17 +38,16 @@ pub const path = @import("path.zig");
 pub const File = @import("file.zig").File;
 pub const time = @import("time.zig");
 
-pub const FileMode = switch (builtin.os) {
-    Os.windows => void,
-    else => u32,
-};
-
-pub const default_file_mode = switch (builtin.os) {
-    Os.windows => {},
-    else => 0o666,
-};
-
 pub const page_size = 4 * 1024;
+pub const MAX_PATH_BYTES = switch (builtin.os) {
+    Os.linux, Os.macosx, Os.ios => posix.PATH_MAX,
+    // Each UTF-16LE character may be expanded to 3 UTF-8 bytes.
+    // If it would require 4 UTF-8 bytes, then there would be a surrogate
+    // pair in the UTF-16LE, and we (over)account 3 bytes for it that way.
+    // +1 for the null byte at the end, which can be encoded in 1 byte.
+    Os.windows => windows_util.PATH_MAX_WIDE * 3 + 1,
+    else => @compileError("Unsupported OS"),
+};
 
 pub const UserInfo = @import("get_user_id.zig").UserInfo;
 pub const getUserInfo = @import("get_user_id.zig").getUserInfo;
@@ -57,6 +57,7 @@ pub const windowsWaitSingle = windows_util.windowsWaitSingle;
 pub const windowsWrite = windows_util.windowsWrite;
 pub const windowsIsCygwinPty = windows_util.windowsIsCygwinPty;
 pub const windowsOpen = windows_util.windowsOpen;
+pub const windowsOpenW = windows_util.windowsOpenW;
 pub const windowsLoadDll = windows_util.windowsLoadDll;
 pub const windowsUnloadDll = windows_util.windowsUnloadDll;
 pub const createWindowsEnvBlock = windows_util.createWindowsEnvBlock;
@@ -75,6 +76,9 @@ pub const WindowsOpenError = windows_util.OpenError;
 pub const WindowsWriteError = windows_util.WriteError;
 
 pub const FileHandle = if (is_windows) windows.HANDLE else i32;
+
+pub const getAppDataDir = @import("get_app_data_dir.zig").getAppDataDir;
+pub const GetAppDataDirError = @import("get_app_data_dir.zig").GetAppDataDirError;
 
 const debug = std.debug;
 const assert = debug.assert;
@@ -126,16 +130,10 @@ pub fn getRandomBytes(buf: []u8) !void {
             try posixRead(fd, buf);
         },
         Os.windows => {
-            var hCryptProv: windows.HCRYPTPROV = undefined;
-            if (windows.CryptAcquireContextA(&hCryptProv, null, null, windows.PROV_RSA_FULL, 0) == 0) {
-                const err = windows.GetLastError();
-                return switch (err) {
-                    else => unexpectedErrorWindows(err),
-                };
-            }
-            defer _ = windows.CryptReleaseContext(hCryptProv, 0);
-
-            if (windows.CryptGenRandom(hCryptProv, @intCast(windows.DWORD, buf.len), buf.ptr) == 0) {
+            // Call RtlGenRandom() instead of CryptGetRandom() on Windows
+            // https://github.com/rust-lang-nursery/rand/issues/111
+            // https://bugzilla.mozilla.org/show_bug.cgi?id=504270
+            if (windows.RtlGenRandom(buf.ptr, buf.len) == 0) {
                 const err = windows.GetLastError();
                 return switch (err) {
                     else => unexpectedErrorWindows(err),
@@ -155,8 +153,14 @@ pub fn getRandomBytes(buf: []u8) !void {
 }
 
 test "os.getRandomBytes" {
-    var buf: [50]u8 = undefined;
-    try getRandomBytes(buf[0..]);
+    var buf_a: [50]u8 = undefined;
+    var buf_b: [50]u8 = undefined;
+    // Call Twice
+    try getRandomBytes(buf_a[0..]);
+    try getRandomBytes(buf_b[0..]);
+
+    // Check if random (not 100% conclusive)
+    assert(!mem.eql(u8, buf_a, buf_b));
 }
 
 /// Raises a signal in the current kernel thread, ending its execution.
@@ -252,6 +256,67 @@ pub fn posixRead(fd: i32, buf: []u8) !void {
     }
 }
 
+/// Number of bytes read is returned. Upon reading end-of-file, zero is returned.
+pub fn posix_preadv(fd: i32, iov: [*]const posix.iovec, count: usize, offset: u64) !usize {
+    switch (builtin.os) {
+        builtin.Os.macosx => {
+            // Darwin does not have preadv but it does have pread.
+            var off: usize = 0;
+            var iov_i: usize = 0;
+            var inner_off: usize = 0;
+            while (true) {
+                const v = iov[iov_i];
+                const rc = darwin.pread(fd, v.iov_base + inner_off, v.iov_len - inner_off, offset + off);
+                const err = darwin.getErrno(rc);
+                switch (err) {
+                    0 => {
+                        off += rc;
+                        inner_off += rc;
+                        if (inner_off == v.iov_len) {
+                            iov_i += 1;
+                            inner_off = 0;
+                            if (iov_i == count) {
+                                return off;
+                            }
+                        }
+                        if (rc == 0) return off; // EOF
+                        continue;
+                    },
+                    posix.EINTR => continue,
+                    posix.EINVAL => unreachable,
+                    posix.EFAULT => unreachable,
+                    posix.ESPIPE => unreachable, // fd is not seekable
+                    posix.EAGAIN => return error.WouldBlock,
+                    posix.EBADF => return error.FileClosed,
+                    posix.EIO => return error.InputOutput,
+                    posix.EISDIR => return error.IsDir,
+                    posix.ENOBUFS => return error.SystemResources,
+                    posix.ENOMEM => return error.SystemResources,
+                    else => return unexpectedErrorPosix(err),
+                }
+            }
+        },
+        builtin.Os.linux, builtin.Os.freebsd => while (true) {
+            const rc = posix.preadv(fd, iov, count, offset);
+            const err = posix.getErrno(rc);
+            switch (err) {
+                0 => return rc,
+                posix.EINTR => continue,
+                posix.EINVAL => unreachable,
+                posix.EFAULT => unreachable,
+                posix.EAGAIN => return error.WouldBlock,
+                posix.EBADF => return error.FileClosed,
+                posix.EIO => return error.InputOutput,
+                posix.EISDIR => return error.IsDir,
+                posix.ENOBUFS => return error.SystemResources,
+                posix.ENOMEM => return error.SystemResources,
+                else => return unexpectedErrorPosix(err),
+            }
+        },
+        else => @compileError("Unsupported OS"),
+    }
+}
+
 pub const PosixWriteError = error{
     WouldBlock,
     FileClosed,
@@ -262,6 +327,8 @@ pub const PosixWriteError = error{
     NoSpaceLeft,
     AccessDenied,
     BrokenPipe,
+
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
@@ -276,28 +343,94 @@ pub fn posixWrite(fd: i32, bytes: []const u8) !void {
         const amt_to_write = math.min(bytes.len - index, usize(max_bytes_len));
         const rc = posix.write(fd, bytes.ptr + index, amt_to_write);
         const write_err = posix.getErrno(rc);
-        if (write_err > 0) {
-            return switch (write_err) {
-                posix.EINTR => continue,
-                posix.EINVAL, posix.EFAULT => unreachable,
-                posix.EAGAIN => PosixWriteError.WouldBlock,
-                posix.EBADF => PosixWriteError.FileClosed,
-                posix.EDESTADDRREQ => PosixWriteError.DestinationAddressRequired,
-                posix.EDQUOT => PosixWriteError.DiskQuota,
-                posix.EFBIG => PosixWriteError.FileTooBig,
-                posix.EIO => PosixWriteError.InputOutput,
-                posix.ENOSPC => PosixWriteError.NoSpaceLeft,
-                posix.EPERM => PosixWriteError.AccessDenied,
-                posix.EPIPE => PosixWriteError.BrokenPipe,
-                else => unexpectedErrorPosix(write_err),
-            };
+        switch (write_err) {
+            0 => {
+                index += rc;
+                continue;
+            },
+            posix.EINTR => continue,
+            posix.EINVAL => unreachable,
+            posix.EFAULT => unreachable,
+            posix.EAGAIN => return PosixWriteError.WouldBlock,
+            posix.EBADF => return PosixWriteError.FileClosed,
+            posix.EDESTADDRREQ => return PosixWriteError.DestinationAddressRequired,
+            posix.EDQUOT => return PosixWriteError.DiskQuota,
+            posix.EFBIG => return PosixWriteError.FileTooBig,
+            posix.EIO => return PosixWriteError.InputOutput,
+            posix.ENOSPC => return PosixWriteError.NoSpaceLeft,
+            posix.EPERM => return PosixWriteError.AccessDenied,
+            posix.EPIPE => return PosixWriteError.BrokenPipe,
+            else => return unexpectedErrorPosix(write_err),
         }
-        index += rc;
+    }
+}
+
+pub fn posix_pwritev(fd: i32, iov: [*]const posix.iovec_const, count: usize, offset: u64) PosixWriteError!void {
+    switch (builtin.os) {
+        builtin.Os.macosx => {
+            // Darwin does not have pwritev but it does have pwrite.
+            var off: usize = 0;
+            var iov_i: usize = 0;
+            var inner_off: usize = 0;
+            while (true) {
+                const v = iov[iov_i];
+                const rc = darwin.pwrite(fd, v.iov_base + inner_off, v.iov_len - inner_off, offset + off);
+                const err = darwin.getErrno(rc);
+                switch (err) {
+                    0 => {
+                        off += rc;
+                        inner_off += rc;
+                        if (inner_off == v.iov_len) {
+                            iov_i += 1;
+                            inner_off = 0;
+                            if (iov_i == count) {
+                                return;
+                            }
+                        }
+                        continue;
+                    },
+                    posix.EINTR => continue,
+                    posix.ESPIPE => unreachable, // fd is not seekable
+                    posix.EINVAL => unreachable,
+                    posix.EFAULT => unreachable,
+                    posix.EAGAIN => return PosixWriteError.WouldBlock,
+                    posix.EBADF => return PosixWriteError.FileClosed,
+                    posix.EDESTADDRREQ => return PosixWriteError.DestinationAddressRequired,
+                    posix.EDQUOT => return PosixWriteError.DiskQuota,
+                    posix.EFBIG => return PosixWriteError.FileTooBig,
+                    posix.EIO => return PosixWriteError.InputOutput,
+                    posix.ENOSPC => return PosixWriteError.NoSpaceLeft,
+                    posix.EPERM => return PosixWriteError.AccessDenied,
+                    posix.EPIPE => return PosixWriteError.BrokenPipe,
+                    else => return unexpectedErrorPosix(err),
+                }
+            }
+        },
+        builtin.Os.linux => while (true) {
+            const rc = posix.pwritev(fd, iov, count, offset);
+            const err = posix.getErrno(rc);
+            switch (err) {
+                0 => return,
+                posix.EINTR => continue,
+                posix.EINVAL => unreachable,
+                posix.EFAULT => unreachable,
+                posix.EAGAIN => return PosixWriteError.WouldBlock,
+                posix.EBADF => return PosixWriteError.FileClosed,
+                posix.EDESTADDRREQ => return PosixWriteError.DestinationAddressRequired,
+                posix.EDQUOT => return PosixWriteError.DiskQuota,
+                posix.EFBIG => return PosixWriteError.FileTooBig,
+                posix.EIO => return PosixWriteError.InputOutput,
+                posix.ENOSPC => return PosixWriteError.NoSpaceLeft,
+                posix.EPERM => return PosixWriteError.AccessDenied,
+                posix.EPIPE => return PosixWriteError.BrokenPipe,
+                else => return unexpectedErrorPosix(err),
+            }
+        },
+        else => @compileError("Unsupported OS"),
     }
 }
 
 pub const PosixOpenError = error{
-    OutOfMemory,
     AccessDenied,
     FileTooBig,
     IsDir,
@@ -306,22 +439,22 @@ pub const PosixOpenError = error{
     NameTooLong,
     SystemFdQuotaExceeded,
     NoDevice,
-    PathNotFound,
+    FileNotFound,
     SystemResources,
     NoSpaceLeft,
     NotDir,
     PathAlreadyExists,
+
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
 /// ::file_path needs to be copied in memory to add a null terminating byte.
 /// Calls POSIX open, keeps trying if it gets interrupted, and translates
 /// the return value into zig errors.
-pub fn posixOpen(allocator: *Allocator, file_path: []const u8, flags: u32, perm: usize) PosixOpenError!i32 {
-    const path_with_null = try cstr.addNullByte(allocator, file_path);
-    defer allocator.free(path_with_null);
-
-    return posixOpenC(path_with_null.ptr, flags, perm);
+pub fn posixOpen(file_path: []const u8, flags: u32, perm: usize) PosixOpenError!i32 {
+    const file_path_c = try toPosixPath(file_path);
+    return posixOpenC(&file_path_c, flags, perm);
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
@@ -343,7 +476,7 @@ pub fn posixOpenC(file_path: [*]const u8, flags: u32, perm: usize) !i32 {
                 posix.ENAMETOOLONG => return PosixOpenError.NameTooLong,
                 posix.ENFILE => return PosixOpenError.SystemFdQuotaExceeded,
                 posix.ENODEV => return PosixOpenError.NoDevice,
-                posix.ENOENT => return PosixOpenError.PathNotFound,
+                posix.ENOENT => return PosixOpenError.FileNotFound,
                 posix.ENOMEM => return PosixOpenError.SystemResources,
                 posix.ENOSPC => return PosixOpenError.NoSpaceLeft,
                 posix.ENOTDIR => return PosixOpenError.NotDir,
@@ -354,6 +487,16 @@ pub fn posixOpenC(file_path: [*]const u8, flags: u32, perm: usize) !i32 {
         }
         return @intCast(i32, result);
     }
+}
+
+/// Used to convert a slice to a null terminated slice on the stack.
+/// TODO well defined copy elision
+pub fn toPosixPath(file_path: []const u8) ![posix.PATH_MAX]u8 {
+    var path_with_null: [posix.PATH_MAX]u8 = undefined;
+    if (file_path.len >= posix.PATH_MAX) return error.NameTooLong;
+    mem.copy(u8, path_with_null[0..], file_path);
+    path_with_null[file_path.len] = 0;
+    return path_with_null;
 }
 
 pub fn posixDup2(old_fd: i32, new_fd: i32) !void {
@@ -471,6 +614,8 @@ pub const PosixExecveError = error{
     FileNotFound,
     NotDir,
     FileBusy,
+
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
@@ -493,7 +638,38 @@ fn posixExecveErrnoToErr(err: usize) PosixExecveError {
 pub var linux_aux_raw = []usize{0} ** 38;
 pub var posix_environ_raw: [][*]u8 = undefined;
 
+/// See std.elf for the constants.
+pub fn linuxGetAuxVal(index: usize) usize {
+    if (builtin.link_libc) {
+        return usize(std.c.getauxval(index));
+    } else {
+        return linux_aux_raw[index];
+    }
+}
+
+pub fn getBaseAddress() usize {
+    switch (builtin.os) {
+        builtin.Os.linux => {
+            const base = linuxGetAuxVal(std.elf.AT_BASE);
+            if (base != 0) {
+                return base;
+            }
+            const phdr = linuxGetAuxVal(std.elf.AT_PHDR);
+            const ElfHeader = switch (@sizeOf(usize)) {
+                4 => std.elf.Elf32_Ehdr,
+                8 => std.elf.Elf64_Ehdr,
+                else => @compileError("Unsupported architecture"),
+            };
+            return phdr - @sizeOf(ElfHeader);
+        },
+        builtin.Os.macosx => return @ptrToInt(&std.c._mh_execute_header),
+        builtin.Os.windows => return @ptrToInt(windows.GetModuleHandleW(null)),
+        else => @compileError("Unsupported OS"),
+    }
+}
+
 /// Caller must free result when done.
+/// TODO make this go through libc when we have it
 pub fn getEnvMap(allocator: *Allocator) !BufMap {
     var result = BufMap.init(allocator);
     errdefer result.deinit();
@@ -537,6 +713,7 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
     }
 }
 
+/// TODO make this go through libc when we have it
 pub fn getEnvPosix(key: []const u8) ?[]const u8 {
     for (posix_environ_raw) |ptr| {
         var line_i: usize = 0;
@@ -559,6 +736,7 @@ pub const GetEnvVarOwnedError = error{
 };
 
 /// Caller must free returned memory.
+/// TODO make this go through libc when we have it
 pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwnedError![]u8 {
     if (is_windows) {
         const key_with_null = try cstr.addNullByte(allocator, key);
@@ -596,43 +774,39 @@ pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwned
 }
 
 /// Caller must free the returned memory.
-pub fn getCwd(allocator: *Allocator) ![]u8 {
+pub fn getCwdAlloc(allocator: *Allocator) ![]u8 {
+    var buf: [MAX_PATH_BYTES]u8 = undefined;
+    return mem.dupe(allocator, u8, try getCwd(&buf));
+}
+
+pub const GetCwdError = error{Unexpected};
+
+/// The result is a slice of out_buffer.
+pub fn getCwd(out_buffer: *[MAX_PATH_BYTES]u8) GetCwdError![]u8 {
     switch (builtin.os) {
         Os.windows => {
-            var buf = try allocator.alloc(u8, 256);
-            errdefer allocator.free(buf);
-
-            while (true) {
-                const result = windows.GetCurrentDirectoryA(@intCast(windows.WORD, buf.len), buf.ptr);
-
-                if (result == 0) {
-                    const err = windows.GetLastError();
-                    return switch (err) {
-                        else => unexpectedErrorWindows(err),
-                    };
+            var utf16le_buf: [windows_util.PATH_MAX_WIDE]u16 = undefined;
+            const casted_len = @intCast(windows.DWORD, utf16le_buf.len); // TODO shouldn't need this cast
+            const casted_ptr = ([*]u16)(&utf16le_buf); // TODO shouldn't need this cast
+            const result = windows.GetCurrentDirectoryW(casted_len, casted_ptr);
+            if (result == 0) {
+                const err = windows.GetLastError();
+                switch (err) {
+                    else => return unexpectedErrorWindows(err),
                 }
-
-                if (result > buf.len) {
-                    buf = try allocator.realloc(u8, buf, result);
-                    continue;
-                }
-
-                return allocator.shrink(u8, buf, result);
             }
+            assert(result <= utf16le_buf.len);
+            const utf16le_slice = utf16le_buf[0..result];
+            // Trust that Windows gives us valid UTF-16LE.
+            const end_index = std.unicode.utf16leToUtf8(out_buffer, utf16le_slice) catch unreachable;
+            return out_buffer[0..end_index];
         },
         else => {
-            var buf = try allocator.alloc(u8, 1024);
-            errdefer allocator.free(buf);
-            while (true) {
-                const err = posix.getErrno(posix.getcwd(buf.ptr, buf.len));
-                if (err == posix.ERANGE) {
-                    buf = try allocator.realloc(u8, buf, buf.len * 2);
-                    continue;
-                } else if (err > 0) {
-                    return unexpectedErrorPosix(err);
-                }
-
-                return allocator.shrink(u8, buf, cstr.len(buf.ptr));
+            const err = posix.getErrno(posix.getcwd(out_buffer, out_buffer.len));
+            switch (err) {
+                0 => return cstr.toSlice(out_buffer),
+                posix.ERANGE => unreachable,
+                else => return unexpectedErrorPosix(err),
             }
         },
     }
@@ -640,40 +814,47 @@ pub fn getCwd(allocator: *Allocator) ![]u8 {
 
 test "os.getCwd" {
     // at least call it so it gets compiled
-    _ = getCwd(debug.global_allocator);
+    _ = getCwdAlloc(debug.global_allocator);
+    var buf: [MAX_PATH_BYTES]u8 = undefined;
+    _ = getCwd(&buf);
 }
 
 pub const SymLinkError = PosixSymLinkError || WindowsSymLinkError;
 
-pub fn symLink(allocator: *Allocator, existing_path: []const u8, new_path: []const u8) SymLinkError!void {
+/// TODO add a symLinkC variant
+pub fn symLink(existing_path: []const u8, new_path: []const u8) SymLinkError!void {
     if (is_windows) {
-        return symLinkWindows(allocator, existing_path, new_path);
+        return symLinkWindows(existing_path, new_path);
     } else {
-        return symLinkPosix(allocator, existing_path, new_path);
+        return symLinkPosix(existing_path, new_path);
     }
 }
 
 pub const WindowsSymLinkError = error{
-    OutOfMemory,
+    NameTooLong,
+    InvalidUtf8,
+    BadPathName,
+
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
-pub fn symLinkWindows(allocator: *Allocator, existing_path: []const u8, new_path: []const u8) WindowsSymLinkError!void {
-    const existing_with_null = try cstr.addNullByte(allocator, existing_path);
-    defer allocator.free(existing_with_null);
-    const new_with_null = try cstr.addNullByte(allocator, new_path);
-    defer allocator.free(new_with_null);
-
-    if (windows.CreateSymbolicLinkA(existing_with_null.ptr, new_with_null.ptr, 0) == 0) {
+pub fn symLinkW(existing_path_w: [*]const u16, new_path_w: [*]const u16) WindowsSymLinkError!void {
+    if (windows.CreateSymbolicLinkW(existing_path_w, new_path_w, 0) == 0) {
         const err = windows.GetLastError();
-        return switch (err) {
-            else => unexpectedErrorWindows(err),
-        };
+        switch (err) {
+            else => return unexpectedErrorWindows(err),
+        }
     }
 }
 
+pub fn symLinkWindows(existing_path: []const u8, new_path: []const u8) WindowsSymLinkError!void {
+    const existing_path_w = try windows_util.sliceToPrefixedFileW(existing_path);
+    const new_path_w = try windows_util.sliceToPrefixedFileW(new_path);
+    return symLinkW(&existing_path_w, &new_path_w);
+}
+
 pub const PosixSymLinkError = error{
-    OutOfMemory,
     AccessDenied,
     DiskQuota,
     PathAlreadyExists,
@@ -685,46 +866,45 @@ pub const PosixSymLinkError = error{
     NoSpaceLeft,
     ReadOnlyFileSystem,
     NotDir,
+
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
-pub fn symLinkPosix(allocator: *Allocator, existing_path: []const u8, new_path: []const u8) PosixSymLinkError!void {
-    const full_buf = try allocator.alloc(u8, existing_path.len + new_path.len + 2);
-    defer allocator.free(full_buf);
-
-    const existing_buf = full_buf;
-    mem.copy(u8, existing_buf, existing_path);
-    existing_buf[existing_path.len] = 0;
-
-    const new_buf = full_buf[existing_path.len + 1 ..];
-    mem.copy(u8, new_buf, new_path);
-    new_buf[new_path.len] = 0;
-
-    const err = posix.getErrno(posix.symlink(existing_buf.ptr, new_buf.ptr));
-    if (err > 0) {
-        return switch (err) {
-            posix.EFAULT, posix.EINVAL => unreachable,
-            posix.EACCES, posix.EPERM => error.AccessDenied,
-            posix.EDQUOT => error.DiskQuota,
-            posix.EEXIST => error.PathAlreadyExists,
-            posix.EIO => error.FileSystem,
-            posix.ELOOP => error.SymLinkLoop,
-            posix.ENAMETOOLONG => error.NameTooLong,
-            posix.ENOENT => error.FileNotFound,
-            posix.ENOTDIR => error.NotDir,
-            posix.ENOMEM => error.SystemResources,
-            posix.ENOSPC => error.NoSpaceLeft,
-            posix.EROFS => error.ReadOnlyFileSystem,
-            else => unexpectedErrorPosix(err),
-        };
+pub fn symLinkPosixC(existing_path: [*]const u8, new_path: [*]const u8) PosixSymLinkError!void {
+    const err = posix.getErrno(posix.symlink(existing_path, new_path));
+    switch (err) {
+        0 => return,
+        posix.EFAULT => unreachable,
+        posix.EINVAL => unreachable,
+        posix.EACCES => return error.AccessDenied,
+        posix.EPERM => return error.AccessDenied,
+        posix.EDQUOT => return error.DiskQuota,
+        posix.EEXIST => return error.PathAlreadyExists,
+        posix.EIO => return error.FileSystem,
+        posix.ELOOP => return error.SymLinkLoop,
+        posix.ENAMETOOLONG => return error.NameTooLong,
+        posix.ENOENT => return error.FileNotFound,
+        posix.ENOTDIR => return error.NotDir,
+        posix.ENOMEM => return error.SystemResources,
+        posix.ENOSPC => return error.NoSpaceLeft,
+        posix.EROFS => return error.ReadOnlyFileSystem,
+        else => return unexpectedErrorPosix(err),
     }
+}
+
+pub fn symLinkPosix(existing_path: []const u8, new_path: []const u8) PosixSymLinkError!void {
+    const existing_path_c = try toPosixPath(existing_path);
+    const new_path_c = try toPosixPath(new_path);
+    return symLinkPosixC(&existing_path_c, &new_path_c);
 }
 
 // here we replace the standard +/ with -_ so that it can be used in a file name
 const b64_fs_encoder = base64.Base64Encoder.init("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_", base64.standard_pad_char);
 
+/// TODO remove the allocator requirement from this API
 pub fn atomicSymLink(allocator: *Allocator, existing_path: []const u8, new_path: []const u8) !void {
-    if (symLink(allocator, existing_path, new_path)) {
+    if (symLink(existing_path, new_path)) {
         return;
     } else |err| switch (err) {
         error.PathAlreadyExists => {},
@@ -742,8 +922,8 @@ pub fn atomicSymLink(allocator: *Allocator, existing_path: []const u8, new_path:
         try getRandomBytes(rand_buf[0..]);
         b64_fs_encoder.encode(tmp_path[dirname.len + 1 ..], rand_buf);
 
-        if (symLink(allocator, existing_path, tmp_path)) {
-            return rename(allocator, tmp_path, new_path);
+        if (symLink(existing_path, tmp_path)) {
+            return rename(tmp_path, new_path);
         } else |err| switch (err) {
             error.PathAlreadyExists => continue,
             else => return err, // TODO zig should know this set does not include PathAlreadyExists
@@ -762,61 +942,65 @@ pub const DeleteFileError = error{
     NotDir,
     SystemResources,
     ReadOnlyFileSystem,
-    OutOfMemory,
 
+    /// On Windows, file paths must be valid Unicode.
+    InvalidUtf8,
+
+    /// On Windows, file paths cannot contain these characters:
+    /// '/', '*', '?', '"', '<', '>', '|'
+    BadPathName,
+
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
-pub fn deleteFile(allocator: *Allocator, file_path: []const u8) DeleteFileError!void {
+pub fn deleteFile(file_path: []const u8) DeleteFileError!void {
     if (builtin.os == Os.windows) {
-        return deleteFileWindows(allocator, file_path);
+        return deleteFileWindows(file_path);
     } else {
-        return deleteFilePosix(allocator, file_path);
+        return deleteFilePosix(file_path);
     }
 }
 
-pub fn deleteFileWindows(allocator: *Allocator, file_path: []const u8) !void {
-    const buf = try allocator.alloc(u8, file_path.len + 1);
-    defer allocator.free(buf);
+pub fn deleteFileWindows(file_path: []const u8) !void {
+    const file_path_w = try windows_util.sliceToPrefixedFileW(file_path);
 
-    mem.copy(u8, buf, file_path);
-    buf[file_path.len] = 0;
-
-    if (windows.DeleteFileA(buf.ptr) == 0) {
+    if (windows.DeleteFileW(&file_path_w) == 0) {
         const err = windows.GetLastError();
-        return switch (err) {
-            windows.ERROR.FILE_NOT_FOUND => error.FileNotFound,
-            windows.ERROR.ACCESS_DENIED => error.AccessDenied,
-            windows.ERROR.FILENAME_EXCED_RANGE, windows.ERROR.INVALID_PARAMETER => error.NameTooLong,
-            else => unexpectedErrorWindows(err),
-        };
+        switch (err) {
+            windows.ERROR.FILE_NOT_FOUND => return error.FileNotFound,
+            windows.ERROR.ACCESS_DENIED => return error.AccessDenied,
+            windows.ERROR.FILENAME_EXCED_RANGE => return error.NameTooLong,
+            windows.ERROR.INVALID_PARAMETER => return error.NameTooLong,
+            else => return unexpectedErrorWindows(err),
+        }
     }
 }
 
-pub fn deleteFilePosix(allocator: *Allocator, file_path: []const u8) !void {
-    const buf = try allocator.alloc(u8, file_path.len + 1);
-    defer allocator.free(buf);
-
-    mem.copy(u8, buf, file_path);
-    buf[file_path.len] = 0;
-
-    const err = posix.getErrno(posix.unlink(buf.ptr));
-    if (err > 0) {
-        return switch (err) {
-            posix.EACCES, posix.EPERM => error.AccessDenied,
-            posix.EBUSY => error.FileBusy,
-            posix.EFAULT, posix.EINVAL => unreachable,
-            posix.EIO => error.FileSystem,
-            posix.EISDIR => error.IsDir,
-            posix.ELOOP => error.SymLinkLoop,
-            posix.ENAMETOOLONG => error.NameTooLong,
-            posix.ENOENT => error.FileNotFound,
-            posix.ENOTDIR => error.NotDir,
-            posix.ENOMEM => error.SystemResources,
-            posix.EROFS => error.ReadOnlyFileSystem,
-            else => unexpectedErrorPosix(err),
-        };
+pub fn deleteFilePosixC(file_path: [*]const u8) !void {
+    const err = posix.getErrno(posix.unlink(file_path));
+    switch (err) {
+        0 => return,
+        posix.EACCES => return error.AccessDenied,
+        posix.EPERM => return error.AccessDenied,
+        posix.EBUSY => return error.FileBusy,
+        posix.EFAULT => unreachable,
+        posix.EINVAL => unreachable,
+        posix.EIO => return error.FileSystem,
+        posix.EISDIR => return error.IsDir,
+        posix.ELOOP => return error.SymLinkLoop,
+        posix.ENAMETOOLONG => return error.NameTooLong,
+        posix.ENOENT => return error.FileNotFound,
+        posix.ENOTDIR => return error.NotDir,
+        posix.ENOMEM => return error.SystemResources,
+        posix.EROFS => return error.ReadOnlyFileSystem,
+        else => return unexpectedErrorPosix(err),
     }
+}
+
+pub fn deleteFilePosix(file_path: []const u8) !void {
+    const file_path_c = try toPosixPath(file_path);
+    return deleteFilePosixC(&file_path_c);
 }
 
 /// Guaranteed to be atomic. However until https://patchwork.kernel.org/patch/9636735/ is
@@ -824,8 +1008,9 @@ pub fn deleteFilePosix(allocator: *Allocator, file_path: []const u8) !void {
 /// there is a possibility of power loss or application termination leaving temporary files present
 /// in the same directory as dest_path.
 /// Destination file will have the same mode as the source file.
+/// TODO investigate if this can work with no allocator
 pub fn copyFile(allocator: *Allocator, source_path: []const u8, dest_path: []const u8) !void {
-    var in_file = try os.File.openRead(allocator, source_path);
+    var in_file = try os.File.openRead(source_path);
     defer in_file.close();
 
     const mode = try in_file.mode();
@@ -846,8 +1031,9 @@ pub fn copyFile(allocator: *Allocator, source_path: []const u8, dest_path: []con
 /// Guaranteed to be atomic. However until https://patchwork.kernel.org/patch/9636735/ is
 /// merged and readily available,
 /// there is a possibility of power loss or application termination leaving temporary files present
-pub fn copyFileMode(allocator: *Allocator, source_path: []const u8, dest_path: []const u8, mode: FileMode) !void {
-    var in_file = try os.File.openRead(allocator, source_path);
+/// TODO investigate if this can work with no allocator
+pub fn copyFileMode(allocator: *Allocator, source_path: []const u8, dest_path: []const u8, mode: File.Mode) !void {
+    var in_file = try os.File.openRead(source_path);
     defer in_file.close();
 
     var atomic_file = try AtomicFile.init(allocator, dest_path, mode);
@@ -864,6 +1050,7 @@ pub fn copyFileMode(allocator: *Allocator, source_path: []const u8, dest_path: [
 }
 
 pub const AtomicFile = struct {
+    /// TODO investigate if we can make this work with no allocator
     allocator: *Allocator,
     file: os.File,
     tmp_path: []u8,
@@ -872,7 +1059,7 @@ pub const AtomicFile = struct {
 
     /// dest_path must remain valid for the lifetime of AtomicFile
     /// call finish to atomically replace dest_path with contents
-    pub fn init(allocator: *Allocator, dest_path: []const u8, mode: FileMode) !AtomicFile {
+    pub fn init(allocator: *Allocator, dest_path: []const u8, mode: File.Mode) !AtomicFile {
         const dirname = os.path.dirname(dest_path);
 
         var rand_buf: [12]u8 = undefined;
@@ -891,7 +1078,7 @@ pub const AtomicFile = struct {
             try getRandomBytes(rand_buf[0..]);
             b64_fs_encoder.encode(tmp_path[dirname_component_len..], rand_buf);
 
-            const file = os.File.openWriteNoClobber(allocator, tmp_path, mode) catch |err| switch (err) {
+            const file = os.File.openWriteNoClobber(tmp_path, mode) catch |err| switch (err) {
                 error.PathAlreadyExists => continue,
                 // TODO zig should figure out that this error set does not include PathAlreadyExists since
                 // it is handled in the above switch
@@ -912,7 +1099,7 @@ pub const AtomicFile = struct {
     pub fn deinit(self: *AtomicFile) void {
         if (!self.finished) {
             self.file.close();
-            deleteFile(self.allocator, self.tmp_path) catch {};
+            deleteFile(self.tmp_path) catch {};
             self.allocator.free(self.tmp_path);
             self.finished = true;
         }
@@ -921,70 +1108,72 @@ pub const AtomicFile = struct {
     pub fn finish(self: *AtomicFile) !void {
         assert(!self.finished);
         self.file.close();
-        try rename(self.allocator, self.tmp_path, self.dest_path);
+        try rename(self.tmp_path, self.dest_path);
         self.allocator.free(self.tmp_path);
         self.finished = true;
     }
 };
 
-pub fn rename(allocator: *Allocator, old_path: []const u8, new_path: []const u8) !void {
-    const full_buf = try allocator.alloc(u8, old_path.len + new_path.len + 2);
-    defer allocator.free(full_buf);
+pub fn renameC(old_path: [*]const u8, new_path: [*]const u8) !void {
+    if (is_windows) {
+        @compileError("TODO implement for windows");
+    } else {
+        const err = posix.getErrno(posix.rename(old_path, new_path));
+        switch (err) {
+            0 => return,
+            posix.EACCES => return error.AccessDenied,
+            posix.EPERM => return error.AccessDenied,
+            posix.EBUSY => return error.FileBusy,
+            posix.EDQUOT => return error.DiskQuota,
+            posix.EFAULT => unreachable,
+            posix.EINVAL => unreachable,
+            posix.EISDIR => return error.IsDir,
+            posix.ELOOP => return error.SymLinkLoop,
+            posix.EMLINK => return error.LinkQuotaExceeded,
+            posix.ENAMETOOLONG => return error.NameTooLong,
+            posix.ENOENT => return error.FileNotFound,
+            posix.ENOTDIR => return error.NotDir,
+            posix.ENOMEM => return error.SystemResources,
+            posix.ENOSPC => return error.NoSpaceLeft,
+            posix.EEXIST => return error.PathAlreadyExists,
+            posix.ENOTEMPTY => return error.PathAlreadyExists,
+            posix.EROFS => return error.ReadOnlyFileSystem,
+            posix.EXDEV => return error.RenameAcrossMountPoints,
+            else => return unexpectedErrorPosix(err),
+        }
+    }
+}
 
-    const old_buf = full_buf;
-    mem.copy(u8, old_buf, old_path);
-    old_buf[old_path.len] = 0;
-
-    const new_buf = full_buf[old_path.len + 1 ..];
-    mem.copy(u8, new_buf, new_path);
-    new_buf[new_path.len] = 0;
-
+pub fn rename(old_path: []const u8, new_path: []const u8) !void {
     if (is_windows) {
         const flags = windows.MOVEFILE_REPLACE_EXISTING | windows.MOVEFILE_WRITE_THROUGH;
-        if (windows.MoveFileExA(old_buf.ptr, new_buf.ptr, flags) == 0) {
+        const old_path_w = try windows_util.sliceToPrefixedFileW(old_path);
+        const new_path_w = try windows_util.sliceToPrefixedFileW(new_path);
+        if (windows.MoveFileExW(&old_path_w, &new_path_w, flags) == 0) {
             const err = windows.GetLastError();
-            return switch (err) {
-                else => unexpectedErrorWindows(err),
-            };
+            switch (err) {
+                else => return unexpectedErrorWindows(err),
+            }
         }
     } else {
-        const err = posix.getErrno(posix.rename(old_buf.ptr, new_buf.ptr));
-        if (err > 0) {
-            return switch (err) {
-                posix.EACCES, posix.EPERM => error.AccessDenied,
-                posix.EBUSY => error.FileBusy,
-                posix.EDQUOT => error.DiskQuota,
-                posix.EFAULT, posix.EINVAL => unreachable,
-                posix.EISDIR => error.IsDir,
-                posix.ELOOP => error.SymLinkLoop,
-                posix.EMLINK => error.LinkQuotaExceeded,
-                posix.ENAMETOOLONG => error.NameTooLong,
-                posix.ENOENT => error.FileNotFound,
-                posix.ENOTDIR => error.NotDir,
-                posix.ENOMEM => error.SystemResources,
-                posix.ENOSPC => error.NoSpaceLeft,
-                posix.EEXIST, posix.ENOTEMPTY => error.PathAlreadyExists,
-                posix.EROFS => error.ReadOnlyFileSystem,
-                posix.EXDEV => error.RenameAcrossMountPoints,
-                else => unexpectedErrorPosix(err),
-            };
-        }
+        const old_path_c = try toPosixPath(old_path);
+        const new_path_c = try toPosixPath(new_path);
+        return renameC(&old_path_c, &new_path_c);
     }
 }
 
-pub fn makeDir(allocator: *Allocator, dir_path: []const u8) !void {
+pub fn makeDir(dir_path: []const u8) !void {
     if (is_windows) {
-        return makeDirWindows(allocator, dir_path);
+        return makeDirWindows(dir_path);
     } else {
-        return makeDirPosix(allocator, dir_path);
+        return makeDirPosix(dir_path);
     }
 }
 
-pub fn makeDirWindows(allocator: *Allocator, dir_path: []const u8) !void {
-    const path_buf = try cstr.addNullByte(allocator, dir_path);
-    defer allocator.free(path_buf);
+pub fn makeDirWindows(dir_path: []const u8) !void {
+    const dir_path_w = try windows_util.sliceToPrefixedFileW(dir_path);
 
-    if (windows.CreateDirectoryA(path_buf.ptr, null) == 0) {
+    if (windows.CreateDirectoryW(&dir_path_w, null) == 0) {
         const err = windows.GetLastError();
         return switch (err) {
             windows.ERROR.ALREADY_EXISTS => error.PathAlreadyExists,
@@ -994,54 +1183,57 @@ pub fn makeDirWindows(allocator: *Allocator, dir_path: []const u8) !void {
     }
 }
 
-pub fn makeDirPosix(allocator: *Allocator, dir_path: []const u8) !void {
-    const path_buf = try cstr.addNullByte(allocator, dir_path);
-    defer allocator.free(path_buf);
-
-    const err = posix.getErrno(posix.mkdir(path_buf.ptr, 0o755));
-    if (err > 0) {
-        return switch (err) {
-            posix.EACCES, posix.EPERM => error.AccessDenied,
-            posix.EDQUOT => error.DiskQuota,
-            posix.EEXIST => error.PathAlreadyExists,
-            posix.EFAULT => unreachable,
-            posix.ELOOP => error.SymLinkLoop,
-            posix.EMLINK => error.LinkQuotaExceeded,
-            posix.ENAMETOOLONG => error.NameTooLong,
-            posix.ENOENT => error.FileNotFound,
-            posix.ENOMEM => error.SystemResources,
-            posix.ENOSPC => error.NoSpaceLeft,
-            posix.ENOTDIR => error.NotDir,
-            posix.EROFS => error.ReadOnlyFileSystem,
-            else => unexpectedErrorPosix(err),
-        };
+pub fn makeDirPosixC(dir_path: [*]const u8) !void {
+    const err = posix.getErrno(posix.mkdir(dir_path, 0o755));
+    switch (err) {
+        0 => return,
+        posix.EACCES => return error.AccessDenied,
+        posix.EPERM => return error.AccessDenied,
+        posix.EDQUOT => return error.DiskQuota,
+        posix.EEXIST => return error.PathAlreadyExists,
+        posix.EFAULT => unreachable,
+        posix.ELOOP => return error.SymLinkLoop,
+        posix.EMLINK => return error.LinkQuotaExceeded,
+        posix.ENAMETOOLONG => return error.NameTooLong,
+        posix.ENOENT => return error.FileNotFound,
+        posix.ENOMEM => return error.SystemResources,
+        posix.ENOSPC => return error.NoSpaceLeft,
+        posix.ENOTDIR => return error.NotDir,
+        posix.EROFS => return error.ReadOnlyFileSystem,
+        else => return unexpectedErrorPosix(err),
     }
+}
+
+pub fn makeDirPosix(dir_path: []const u8) !void {
+    const dir_path_c = try toPosixPath(dir_path);
+    return makeDirPosixC(&dir_path_c);
 }
 
 /// Calls makeDir recursively to make an entire path. Returns success if the path
 /// already exists and is a directory.
+/// TODO determine if we can remove the allocator requirement from this function
 pub fn makePath(allocator: *Allocator, full_path: []const u8) !void {
     const resolved_path = try path.resolve(allocator, full_path);
     defer allocator.free(resolved_path);
 
     var end_index: usize = resolved_path.len;
     while (true) {
-        makeDir(allocator, resolved_path[0..end_index]) catch |err| {
-            if (err == error.PathAlreadyExists) {
+        makeDir(resolved_path[0..end_index]) catch |err| switch (err) {
+            error.PathAlreadyExists => {
                 // TODO stat the file and return an error if it's not a directory
                 // this is important because otherwise a dangling symlink
                 // could cause an infinite loop
                 if (end_index == resolved_path.len) return;
-            } else if (err == error.FileNotFound) {
+            },
+            error.FileNotFound => {
                 // march end_index backward until next path component
                 while (true) {
                     end_index -= 1;
                     if (os.path.isSep(resolved_path[end_index])) break;
                 }
                 continue;
-            } else {
-                return err;
-            }
+            },
+            else => return err,
         };
         if (end_index == resolved_path.len) return;
         // march end_index forward until next path component
@@ -1062,48 +1254,65 @@ pub const DeleteDirError = error{
     NotDir,
     DirNotEmpty,
     ReadOnlyFileSystem,
-    OutOfMemory,
+    InvalidUtf8,
+    BadPathName,
 
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
-/// Returns ::error.DirNotEmpty if the directory is not empty.
-/// To delete a directory recursively, see ::deleteTree
-pub fn deleteDir(allocator: *Allocator, dir_path: []const u8) DeleteDirError!void {
-    const path_buf = try allocator.alloc(u8, dir_path.len + 1);
-    defer allocator.free(path_buf);
-
-    mem.copy(u8, path_buf, dir_path);
-    path_buf[dir_path.len] = 0;
-
+pub fn deleteDirC(dir_path: [*]const u8) DeleteDirError!void {
     switch (builtin.os) {
         Os.windows => {
-            if (windows.RemoveDirectoryA(path_buf.ptr) == 0) {
-                const err = windows.GetLastError();
-                return switch (err) {
-                    windows.ERROR.PATH_NOT_FOUND => error.FileNotFound,
-                    windows.ERROR.DIR_NOT_EMPTY => error.DirNotEmpty,
-                    else => unexpectedErrorWindows(err),
-                };
-            }
+            const dir_path_w = try windows_util.cStrToPrefixedFileW(dir_path);
+            return deleteDirW(&dir_path_w);
         },
         Os.linux, Os.macosx, Os.ios => {
-            const err = posix.getErrno(posix.rmdir(path_buf.ptr));
-            if (err > 0) {
-                return switch (err) {
-                    posix.EACCES, posix.EPERM => error.AccessDenied,
-                    posix.EBUSY => error.FileBusy,
-                    posix.EFAULT, posix.EINVAL => unreachable,
-                    posix.ELOOP => error.SymLinkLoop,
-                    posix.ENAMETOOLONG => error.NameTooLong,
-                    posix.ENOENT => error.FileNotFound,
-                    posix.ENOMEM => error.SystemResources,
-                    posix.ENOTDIR => error.NotDir,
-                    posix.EEXIST, posix.ENOTEMPTY => error.DirNotEmpty,
-                    posix.EROFS => error.ReadOnlyFileSystem,
-                    else => unexpectedErrorPosix(err),
-                };
+            const err = posix.getErrno(posix.rmdir(dir_path));
+            switch (err) {
+                0 => return,
+                posix.EACCES => return error.AccessDenied,
+                posix.EPERM => return error.AccessDenied,
+                posix.EBUSY => return error.FileBusy,
+                posix.EFAULT => unreachable,
+                posix.EINVAL => unreachable,
+                posix.ELOOP => return error.SymLinkLoop,
+                posix.ENAMETOOLONG => return error.NameTooLong,
+                posix.ENOENT => return error.FileNotFound,
+                posix.ENOMEM => return error.SystemResources,
+                posix.ENOTDIR => return error.NotDir,
+                posix.EEXIST => return error.DirNotEmpty,
+                posix.ENOTEMPTY => return error.DirNotEmpty,
+                posix.EROFS => return error.ReadOnlyFileSystem,
+                else => return unexpectedErrorPosix(err),
             }
+        },
+        else => @compileError("unimplemented"),
+    }
+}
+
+pub fn deleteDirW(dir_path_w: [*]const u16) DeleteDirError!void {
+    if (windows.RemoveDirectoryW(dir_path_w) == 0) {
+        const err = windows.GetLastError();
+        switch (err) {
+            windows.ERROR.PATH_NOT_FOUND => return error.FileNotFound,
+            windows.ERROR.DIR_NOT_EMPTY => return error.DirNotEmpty,
+            else => return unexpectedErrorWindows(err),
+        }
+    }
+}
+
+/// Returns ::error.DirNotEmpty if the directory is not empty.
+/// To delete a directory recursively, see ::deleteTree
+pub fn deleteDir(dir_path: []const u8) DeleteDirError!void {
+    switch (builtin.os) {
+        Os.windows => {
+            const dir_path_w = try windows_util.sliceToPrefixedFileW(dir_path);
+            return deleteDirW(&dir_path_w);
+        },
+        Os.linux, Os.macosx, Os.ios => {
+            const dir_path_c = try toPosixPath(dir_path);
+            return deleteDirC(&dir_path_c);
         },
         else => @compileError("unimplemented"),
     }
@@ -1122,7 +1331,6 @@ const DeleteTreeError = error{
     NameTooLong,
     SystemFdQuotaExceeded,
     NoDevice,
-    PathNotFound,
     SystemResources,
     NoSpaceLeft,
     PathAlreadyExists,
@@ -1132,20 +1340,31 @@ const DeleteTreeError = error{
     FileSystem,
     FileBusy,
     DirNotEmpty,
+
+    /// On Windows, file paths must be valid Unicode.
+    InvalidUtf8,
+
+    /// On Windows, file paths cannot contain these characters:
+    /// '/', '*', '?', '"', '<', '>', '|'
+    BadPathName,
+
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
+
+/// TODO determine if we can remove the allocator requirement
 pub fn deleteTree(allocator: *Allocator, full_path: []const u8) DeleteTreeError!void {
     start_over: while (true) {
         var got_access_denied = false;
         // First, try deleting the item as a file. This way we don't follow sym links.
-        if (deleteFile(allocator, full_path)) {
+        if (deleteFile(full_path)) {
             return;
         } else |err| switch (err) {
             error.FileNotFound => return,
             error.IsDir => {},
             error.AccessDenied => got_access_denied = true,
 
-            error.OutOfMemory,
+            error.InvalidUtf8,
             error.SymLinkLoop,
             error.NameTooLong,
             error.SystemResources,
@@ -1153,6 +1372,7 @@ pub fn deleteTree(allocator: *Allocator, full_path: []const u8) DeleteTreeError!
             error.NotDir,
             error.FileSystem,
             error.FileBusy,
+            error.BadPathName,
             error.Unexpected,
             => return err,
         }
@@ -1174,11 +1394,13 @@ pub fn deleteTree(allocator: *Allocator, full_path: []const u8) DeleteTreeError!
                 error.NameTooLong,
                 error.SystemFdQuotaExceeded,
                 error.NoDevice,
-                error.PathNotFound,
+                error.FileNotFound,
                 error.SystemResources,
                 error.NoSpaceLeft,
                 error.PathAlreadyExists,
                 error.Unexpected,
+                error.InvalidUtf8,
+                error.BadPathName,
                 => return err,
             };
             defer dir.close();
@@ -1196,7 +1418,7 @@ pub fn deleteTree(allocator: *Allocator, full_path: []const u8) DeleteTreeError!
                 try deleteTree(allocator, full_entry_path);
             }
         }
-        return deleteDir(allocator, full_path);
+        return deleteDir(full_path);
     }
 }
 
@@ -1220,8 +1442,9 @@ pub const Dir = struct {
         },
         Os.windows => struct {
             handle: windows.HANDLE,
-            find_file_data: windows.WIN32_FIND_DATAA,
+            find_file_data: windows.WIN32_FIND_DATAW,
             first: bool,
+            name_data: [256]u8,
         },
         else => @compileError("unimplemented"),
     };
@@ -1244,7 +1467,7 @@ pub const Dir = struct {
     };
 
     pub const OpenError = error{
-        PathNotFound,
+        FileNotFound,
         NotDir,
         AccessDenied,
         FileTooBig,
@@ -1258,26 +1481,30 @@ pub const Dir = struct {
         NoSpaceLeft,
         PathAlreadyExists,
         OutOfMemory,
+        InvalidUtf8,
+        BadPathName,
 
+        /// See https://github.com/ziglang/zig/issues/1396
         Unexpected,
     };
 
+    /// TODO remove the allocator requirement from this API
     pub fn open(allocator: *Allocator, dir_path: []const u8) OpenError!Dir {
         return Dir{
             .allocator = allocator,
             .handle = switch (builtin.os) {
                 Os.windows => blk: {
-                    var find_file_data: windows.WIN32_FIND_DATAA = undefined;
-                    const handle = try windows_util.windowsFindFirstFile(allocator, dir_path, &find_file_data);
+                    var find_file_data: windows.WIN32_FIND_DATAW = undefined;
+                    const handle = try windows_util.windowsFindFirstFile(dir_path, &find_file_data);
                     break :blk Handle{
                         .handle = handle,
                         .find_file_data = find_file_data, // TODO guaranteed copy elision
                         .first = true,
+                        .name_data = undefined,
                     };
                 },
                 Os.macosx, Os.ios => Handle{
                     .fd = try posixOpen(
-                        allocator,
                         dir_path,
                         posix.O_RDONLY | posix.O_NONBLOCK | posix.O_DIRECTORY | posix.O_CLOEXEC,
                         0,
@@ -1289,7 +1516,6 @@ pub const Dir = struct {
                 },
                 Os.linux => Handle{
                     .fd = try posixOpen(
-                        allocator,
                         dir_path,
                         posix.O_RDONLY | posix.O_DIRECTORY | posix.O_CLOEXEC,
                         0,
@@ -1389,9 +1615,12 @@ pub const Dir = struct {
                 if (!try windows_util.windowsFindNextFile(self.handle.handle, &self.handle.find_file_data))
                     return null;
             }
-            const name = std.cstr.toSlice(self.handle.find_file_data.cFileName[0..].ptr);
-            if (mem.eql(u8, name, ".") or mem.eql(u8, name, ".."))
+            const name_utf16le = mem.toSlice(u16, self.handle.find_file_data.cFileName[0..].ptr);
+            if (mem.eql(u16, name_utf16le, []u16{'.'}) or mem.eql(u16, name_utf16le, []u16{ '.', '.' }))
                 continue;
+            // Trust that Windows gives us valid UTF-16LE
+            const name_utf8_len = std.unicode.utf16leToUtf8(self.handle.name_data[0..], name_utf16le) catch unreachable;
+            const name_utf8 = self.handle.name_data[0..name_utf8_len];
             const kind = blk: {
                 const attrs = self.handle.find_file_data.dwFileAttributes;
                 if (attrs & windows.FILE_ATTRIBUTE_DIRECTORY != 0) break :blk Entry.Kind.Directory;
@@ -1400,7 +1629,7 @@ pub const Dir = struct {
                 break :blk Entry.Kind.Unknown;
             };
             return Entry{
-                .name = name,
+                .name = name_utf8,
                 .kind = kind,
             };
         }
@@ -1486,37 +1715,30 @@ pub fn changeCurDir(allocator: *Allocator, dir_path: []const u8) !void {
 }
 
 /// Read value of a symbolic link.
-pub fn readLink(allocator: *Allocator, pathname: []const u8) ![]u8 {
-    const path_buf = try allocator.alloc(u8, pathname.len + 1);
-    defer allocator.free(path_buf);
-
-    mem.copy(u8, path_buf, pathname);
-    path_buf[pathname.len] = 0;
-
-    var result_buf = try allocator.alloc(u8, 1024);
-    errdefer allocator.free(result_buf);
-    while (true) {
-        const ret_val = posix.readlink(path_buf.ptr, result_buf.ptr, result_buf.len);
-        const err = posix.getErrno(ret_val);
-        if (err > 0) {
-            return switch (err) {
-                posix.EACCES => error.AccessDenied,
-                posix.EFAULT, posix.EINVAL => unreachable,
-                posix.EIO => error.FileSystem,
-                posix.ELOOP => error.SymLinkLoop,
-                posix.ENAMETOOLONG => error.NameTooLong,
-                posix.ENOENT => error.FileNotFound,
-                posix.ENOMEM => error.SystemResources,
-                posix.ENOTDIR => error.NotDir,
-                else => unexpectedErrorPosix(err),
-            };
-        }
-        if (ret_val == result_buf.len) {
-            result_buf = try allocator.realloc(u8, result_buf, result_buf.len * 2);
-            continue;
-        }
-        return allocator.shrink(u8, result_buf, ret_val);
+/// The return value is a slice of out_buffer.
+pub fn readLinkC(out_buffer: *[posix.PATH_MAX]u8, pathname: [*]const u8) ![]u8 {
+    const rc = posix.readlink(pathname, out_buffer, out_buffer.len);
+    const err = posix.getErrno(rc);
+    switch (err) {
+        0 => return out_buffer[0..rc],
+        posix.EACCES => return error.AccessDenied,
+        posix.EFAULT => unreachable,
+        posix.EINVAL => unreachable,
+        posix.EIO => return error.FileSystem,
+        posix.ELOOP => return error.SymLinkLoop,
+        posix.ENAMETOOLONG => unreachable, // out_buffer is at least PATH_MAX
+        posix.ENOENT => return error.FileNotFound,
+        posix.ENOMEM => return error.SystemResources,
+        posix.ENOTDIR => return error.NotDir,
+        else => return unexpectedErrorPosix(err),
     }
+}
+
+/// Read value of a symbolic link.
+/// The return value is a slice of out_buffer.
+pub fn readLink(out_buffer: *[posix.PATH_MAX]u8, file_path: []const u8) ![]u8 {
+    const file_path_c = try toPosixPath(file_path);
+    return readLinkC(out_buffer, &file_path_c);
 }
 
 pub fn posix_setuid(uid: u32) !void {
@@ -1565,6 +1787,8 @@ pub fn posix_setregid(rgid: u32, egid: u32) !void {
 
 pub const WindowsGetStdHandleErrs = error{
     NoStdHandles,
+
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
@@ -1798,7 +2022,7 @@ pub fn args() ArgIterator {
     return ArgIterator.init();
 }
 
-/// Caller must call freeArgs on result.
+/// Caller must call argsFree on result.
 pub fn argsAlloc(allocator: *mem.Allocator) ![]const []u8 {
     // TODO refactor to only make 1 allocation.
     var it = args();
@@ -1894,6 +2118,7 @@ pub fn unexpectedErrorPosix(errno: usize) UnexpectedError {
 pub fn unexpectedErrorWindows(err: windows.DWORD) UnexpectedError {
     if (unexpected_error_tracing) {
         debug.warn("unexpected GetLastError(): {}\n", err);
+        @breakpoint();
         debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;
@@ -1901,17 +2126,17 @@ pub fn unexpectedErrorWindows(err: windows.DWORD) UnexpectedError {
 
 pub fn openSelfExe() !os.File {
     switch (builtin.os) {
-        Os.linux => {
-            const proc_file_path = "/proc/self/exe";
-            var fixed_buffer_mem: [proc_file_path.len + 1]u8 = undefined;
-            var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
-            return os.File.openRead(&fixed_allocator.allocator, proc_file_path);
-        },
+        Os.linux => return os.File.openReadC(c"/proc/self/exe"),
         Os.macosx, Os.ios => {
-            var fixed_buffer_mem: [darwin.PATH_MAX * 2]u8 = undefined;
-            var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
-            const self_exe_path = try selfExePath(&fixed_allocator.allocator);
-            return os.File.openRead(&fixed_allocator.allocator, self_exe_path);
+            var buf: [MAX_PATH_BYTES]u8 = undefined;
+            const self_exe_path = try selfExePath(&buf);
+            buf[self_exe_path.len] = 0;
+            return os.File.openReadC(self_exe_path.ptr);
+        },
+        Os.windows => {
+            var buf: [windows_util.PATH_MAX_WIDE]u16 = undefined;
+            const wide_slice = try selfExePathW(&buf);
+            return os.File.openReadW(wide_slice.ptr);
         },
         else => @compileError("Unsupported OS"),
     }
@@ -1919,9 +2144,22 @@ pub fn openSelfExe() !os.File {
 
 test "openSelfExe" {
     switch (builtin.os) {
-        Os.linux, Os.macosx, Os.ios => (try openSelfExe()).close(),
-        else => return, // Unsupported OS.
+        Os.linux, Os.macosx, Os.ios, Os.windows => (try openSelfExe()).close(),
+        else => return error.SkipZigTest, // Unsupported OS.
     }
+}
+
+pub fn selfExePathW(out_buffer: *[windows_util.PATH_MAX_WIDE]u16) ![]u16 {
+    const casted_len = @intCast(windows.DWORD, out_buffer.len); // TODO shouldn't need this cast
+    const rc = windows.GetModuleFileNameW(null, out_buffer, casted_len);
+    assert(rc <= out_buffer.len);
+    if (rc == 0) {
+        const err = windows.GetLastError();
+        switch (err) {
+            else => return unexpectedErrorWindows(err),
+        }
+    }
+    return out_buffer[0..rc];
 }
 
 /// Get the path to the current executable.
@@ -1929,69 +2167,59 @@ test "openSelfExe" {
 /// If you only want an open file handle, use openSelfExe.
 /// This function may return an error if the current executable
 /// was deleted after spawning.
-/// Caller owns returned memory.
-pub fn selfExePath(allocator: *mem.Allocator) ![]u8 {
+/// Returned value is a slice of out_buffer.
+///
+/// On Linux, depends on procfs being mounted. If the currently executing binary has
+/// been deleted, the file path looks something like `/a/b/c/exe (deleted)`.
+/// TODO make the return type of this a null terminated pointer
+pub fn selfExePath(out_buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
     switch (builtin.os) {
-        Os.linux => {
-            // If the currently executing binary has been deleted,
-            // the file path looks something like `/a/b/c/exe (deleted)`
-            return readLink(allocator, "/proc/self/exe");
-        },
+        Os.linux => return readLink(out_buffer, "/proc/self/exe"),
         Os.windows => {
-            var out_path = try Buffer.initSize(allocator, 0xff);
-            errdefer out_path.deinit();
-            while (true) {
-                const dword_len = try math.cast(windows.DWORD, out_path.len());
-                const copied_amt = windows.GetModuleFileNameA(null, out_path.ptr(), dword_len);
-                if (copied_amt <= 0) {
-                    const err = windows.GetLastError();
-                    return switch (err) {
-                        else => unexpectedErrorWindows(err),
-                    };
-                }
-                if (copied_amt < out_path.len()) {
-                    out_path.shrink(copied_amt);
-                    return out_path.toOwnedSlice();
-                }
-                const new_len = (out_path.len() << 1) | 0b1;
-                try out_path.resize(new_len);
-            }
+            var utf16le_buf: [windows_util.PATH_MAX_WIDE]u16 = undefined;
+            const utf16le_slice = try selfExePathW(&utf16le_buf);
+            // Trust that Windows gives us valid UTF-16LE.
+            const end_index = std.unicode.utf16leToUtf8(out_buffer, utf16le_slice) catch unreachable;
+            return out_buffer[0..end_index];
         },
         Os.macosx, Os.ios => {
-            var u32_len: u32 = 0;
-            const ret1 = c._NSGetExecutablePath(undefined, &u32_len);
-            assert(ret1 != 0);
-            const bytes = try allocator.alloc(u8, u32_len);
-            errdefer allocator.free(bytes);
-            const ret2 = c._NSGetExecutablePath(bytes.ptr, &u32_len);
-            assert(ret2 == 0);
-            return bytes;
+            var u32_len: u32 = @intCast(u32, out_buffer.len); // TODO shouldn't need this cast
+            const rc = c._NSGetExecutablePath(out_buffer, &u32_len);
+            if (rc != 0) return error.NameTooLong;
+            return mem.toSlice(u8, out_buffer);
         },
         else => @compileError("Unsupported OS"),
     }
 }
 
-/// Get the directory path that contains the current executable.
+/// `selfExeDirPath` except allocates the result on the heap.
 /// Caller owns returned memory.
-pub fn selfExeDirPath(allocator: *mem.Allocator) ![]u8 {
+pub fn selfExeDirPathAlloc(allocator: *Allocator) ![]u8 {
+    var buf: [MAX_PATH_BYTES]u8 = undefined;
+    return mem.dupe(allocator, u8, try selfExeDirPath(&buf));
+}
+
+/// Get the directory path that contains the current executable.
+/// Returned value is a slice of out_buffer.
+pub fn selfExeDirPath(out_buffer: *[MAX_PATH_BYTES]u8) ![]const u8 {
     switch (builtin.os) {
         Os.linux => {
             // If the currently executing binary has been deleted,
             // the file path looks something like `/a/b/c/exe (deleted)`
             // This path cannot be opened, but it's valid for determining the directory
             // the executable was in when it was run.
-            const full_exe_path = try readLink(allocator, "/proc/self/exe");
-            errdefer allocator.free(full_exe_path);
-            const dir = path.dirname(full_exe_path) orelse ".";
-            return allocator.shrink(u8, full_exe_path, dir.len);
+            const full_exe_path = try readLinkC(out_buffer, c"/proc/self/exe");
+            // Assume that /proc/self/exe has an absolute path, and therefore dirname
+            // will not return null.
+            return path.dirname(full_exe_path).?;
         },
         Os.windows, Os.macosx, Os.ios => {
-            const self_exe_path = try selfExePath(allocator);
-            errdefer allocator.free(self_exe_path);
-            const dirname = os.path.dirname(self_exe_path) orelse ".";
-            return allocator.shrink(u8, self_exe_path, dirname.len);
+            const self_exe_path = try selfExePath(out_buffer);
+            // Assume that the OS APIs return absolute paths, and therefore dirname
+            // will not return null.
+            return path.dirname(self_exe_path).?;
         },
-        else => @compileError("unimplemented: std.os.selfExeDirPath for " ++ @tagName(builtin.os)),
+        else => @compileError("Unsupported OS"),
     }
 }
 
@@ -2095,6 +2323,7 @@ pub const PosixBindError = error{
     /// The socket inode would reside on a read-only filesystem.
     ReadOnlyFileSystem,
 
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
@@ -2138,6 +2367,7 @@ const PosixListenError = error{
     /// The socket is not of a type that supports the listen() operation.
     OperationNotSupported,
 
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
@@ -2191,6 +2421,7 @@ pub const PosixAcceptError = error{
     /// Firewall rules forbid connection.
     BlockedByFirewall,
 
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
@@ -2236,6 +2467,7 @@ pub const LinuxEpollCreateError = error{
     /// There was insufficient memory to create the kernel object.
     SystemResources,
 
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
@@ -2290,6 +2522,7 @@ pub const LinuxEpollCtlError = error{
     /// for example, a regular file or a directory.
     FileDescriptorIncompatibleWithEpoll,
 
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
@@ -2332,6 +2565,7 @@ pub const LinuxEventFdError = error{
     ProcessFdQuotaExceeded,
     SystemFdQuotaExceeded,
 
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
@@ -2354,6 +2588,7 @@ pub const PosixGetSockNameError = error{
     /// Insufficient resources were available in the system to perform the operation.
     SystemResources,
 
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
@@ -2407,6 +2642,7 @@ pub const PosixConnectError = error{
     /// that for IP sockets the timeout may be very long when syncookies are enabled on the server.
     ConnectionTimedOut,
 
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
@@ -2441,9 +2677,9 @@ pub fn posixConnect(sockfd: i32, sockaddr: *const posix.sockaddr) PosixConnectEr
 
 /// Same as posixConnect except it is for blocking socket file descriptors.
 /// It expects to receive EINPROGRESS.
-pub fn posixConnectAsync(sockfd: i32, sockaddr: *const posix.sockaddr) PosixConnectError!void {
+pub fn posixConnectAsync(sockfd: i32, sockaddr: *const c_void, len: u32) PosixConnectError!void {
     while (true) {
-        const rc = posix.connect(sockfd, sockaddr, @sizeOf(posix.sockaddr));
+        const rc = posix.connect(sockfd, sockaddr, len);
         const err = posix.getErrno(rc);
         switch (err) {
             0, posix.EINPROGRESS => return,
@@ -2509,25 +2745,65 @@ pub const Thread = struct {
     data: Data,
 
     pub const use_pthreads = is_posix and builtin.link_libc;
+
+    /// Represents a kernel thread handle.
+    /// May be an integer or a pointer depending on the platform.
+    /// On Linux and POSIX, this is the same as Id.
+    pub const Handle = if (use_pthreads)
+        c.pthread_t
+    else switch (builtin.os) {
+        builtin.Os.linux => i32,
+        builtin.Os.windows => windows.HANDLE,
+        else => @compileError("Unsupported OS"),
+    };
+
+    /// Represents a unique ID per thread.
+    /// May be an integer or pointer depending on the platform.
+    /// On Linux and POSIX, this is the same as Handle.
+    pub const Id = switch (builtin.os) {
+        builtin.Os.windows => windows.DWORD,
+        else => Handle,
+    };
+
     pub const Data = if (use_pthreads)
         struct {
-            handle: c.pthread_t,
+            handle: Thread.Handle,
             stack_addr: usize,
             stack_len: usize,
         }
     else switch (builtin.os) {
         builtin.Os.linux => struct {
-            pid: i32,
+            handle: Thread.Handle,
             stack_addr: usize,
             stack_len: usize,
         },
         builtin.Os.windows => struct {
-            handle: windows.HANDLE,
+            handle: Thread.Handle,
             alloc_start: *c_void,
             heap_handle: windows.HANDLE,
         },
         else => @compileError("Unsupported OS"),
     };
+
+    /// Returns the ID of the calling thread.
+    /// Makes a syscall every time the function is called.
+    /// On Linux and POSIX, this Id is the same as a Handle.
+    pub fn getCurrentId() Id {
+        if (use_pthreads) {
+            return c.pthread_self();
+        } else
+            return switch (builtin.os) {
+            builtin.Os.linux => linux.gettid(),
+            builtin.Os.windows => windows.GetCurrentThreadId(),
+            else => @compileError("Unsupported OS"),
+        };
+    }
+
+    /// Returns the handle of this thread.
+    /// On Linux and POSIX, this is the same as Id.
+    pub fn handle(self: Thread) Handle {
+        return self.data.handle;
+    }
 
     pub fn wait(self: *const Thread) void {
         if (use_pthreads) {
@@ -2543,9 +2819,9 @@ pub const Thread = struct {
         } else switch (builtin.os) {
             builtin.Os.linux => {
                 while (true) {
-                    const pid_value = @atomicLoad(i32, &self.data.pid, builtin.AtomicOrder.SeqCst);
+                    const pid_value = @atomicLoad(i32, &self.data.handle, builtin.AtomicOrder.SeqCst);
                     if (pid_value == 0) break;
-                    const rc = linux.futex_wait(@ptrToInt(&self.data.pid), linux.FUTEX_WAIT, pid_value, null);
+                    const rc = linux.futex_wait(@ptrToInt(&self.data.handle), linux.FUTEX_WAIT, pid_value, null);
                     switch (linux.getErrno(rc)) {
                         0 => continue,
                         posix.EINTR => continue,
@@ -2588,6 +2864,7 @@ pub const SpawnThreadError = error{
     /// Not enough userland memory to spawn the thread.
     OutOfMemory,
 
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
@@ -2727,7 +3004,7 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
         // use linux API directly.  TODO use posix.CLONE_SETTLS and initialize thread local storage correctly
         const flags = posix.CLONE_VM | posix.CLONE_FS | posix.CLONE_FILES | posix.CLONE_SIGHAND | posix.CLONE_THREAD | posix.CLONE_SYSVSEM | posix.CLONE_PARENT_SETTID | posix.CLONE_CHILD_CLEARTID | posix.CLONE_DETACHED;
         const newtls: usize = 0;
-        const rc = posix.clone(MainFuncs.linuxThreadMain, stack_end, flags, arg, &thread_ptr.data.pid, newtls, &thread_ptr.data.pid);
+        const rc = posix.clone(MainFuncs.linuxThreadMain, stack_end, flags, arg, &thread_ptr.data.handle, newtls, &thread_ptr.data.handle);
         const err = posix.getErrno(rc);
         switch (err) {
             0 => return thread_ptr,
@@ -2763,7 +3040,9 @@ pub fn posixFStat(fd: i32) !posix.Stat {
     const err = posix.getErrno(posix.fstat(fd, &stat));
     if (err > 0) {
         return switch (err) {
-            posix.EBADF => error.BadFd,
+            // We do not make this an error code because if you get EBADF it's always a bug,
+            // since the fd could have been reused.
+            posix.EBADF => unreachable,
             posix.ENOMEM => error.SystemResources,
             else => os.unexpectedErrorPosix(err),
         };
@@ -2775,6 +3054,8 @@ pub fn posixFStat(fd: i32) !posix.Stat {
 pub const CpuCountError = error{
     OutOfMemory,
     PermissionDenied,
+
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
@@ -2783,7 +3064,7 @@ pub fn cpuCount(fallback_allocator: *mem.Allocator) CpuCountError!usize {
         builtin.Os.macosx => {
             var count: c_int = undefined;
             var count_len: usize = @sizeOf(c_int);
-            const rc = posix.sysctlbyname(c"hw.ncpu", @ptrCast(*c_void, &count), &count_len, null, 0);
+            const rc = posix.sysctlbyname(c"hw.logicalcpu", @ptrCast(*c_void, &count), &count_len, null, 0);
             const err = posix.getErrno(rc);
             switch (err) {
                 0 => return @intCast(usize, count),
@@ -2845,6 +3126,7 @@ pub const BsdKQueueError = error{
     /// The system-wide limit on the total number of open files has been reached.
     SystemFdQuotaExceeded,
 
+    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 
@@ -2894,5 +3176,46 @@ pub fn bsdKEvent(
             posix.ESRCH => return BsdKEventError.ProcessNotFound,
             else => unreachable,
         }
+    }
+}
+
+pub fn linuxINotifyInit1(flags: u32) !i32 {
+    const rc = linux.inotify_init1(flags);
+    const err = posix.getErrno(rc);
+    switch (err) {
+        0 => return @intCast(i32, rc),
+        posix.EINVAL => unreachable,
+        posix.EMFILE => return error.ProcessFdQuotaExceeded,
+        posix.ENFILE => return error.SystemFdQuotaExceeded,
+        posix.ENOMEM => return error.SystemResources,
+        else => return unexpectedErrorPosix(err),
+    }
+}
+
+pub fn linuxINotifyAddWatchC(inotify_fd: i32, pathname: [*]const u8, mask: u32) !i32 {
+    const rc = linux.inotify_add_watch(inotify_fd, pathname, mask);
+    const err = posix.getErrno(rc);
+    switch (err) {
+        0 => return @intCast(i32, rc),
+        posix.EACCES => return error.AccessDenied,
+        posix.EBADF => unreachable,
+        posix.EFAULT => unreachable,
+        posix.EINVAL => unreachable,
+        posix.ENAMETOOLONG => return error.NameTooLong,
+        posix.ENOENT => return error.FileNotFound,
+        posix.ENOMEM => return error.SystemResources,
+        posix.ENOSPC => return error.UserResourceLimitReached,
+        else => return unexpectedErrorPosix(err),
+    }
+}
+
+pub fn linuxINotifyRmWatch(inotify_fd: i32, wd: i32) !void {
+    const rc = linux.inotify_rm_watch(inotify_fd, wd);
+    const err = posix.getErrno(rc);
+    switch (err) {
+        0 => return rc,
+        posix.EBADF => unreachable,
+        posix.EINVAL => unreachable,
+        else => unreachable,
     }
 }

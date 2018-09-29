@@ -47,12 +47,13 @@ const test_targets = []TestTarget{
 
 const max_stdout_size = 1 * 1024 * 1024; // 1 MB
 
-pub fn addCompareOutputTests(b: *build.Builder, test_filter: ?[]const u8) *build.Step {
+pub fn addCompareOutputTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
     const cases = b.allocator.create(CompareOutputContext{
         .b = b,
         .step = b.step("test-compare-output", "Run the compare output tests"),
         .test_index = 0,
         .test_filter = test_filter,
+        .modes = modes,
     }) catch unreachable;
 
     compare_output.addCases(cases);
@@ -60,12 +61,13 @@ pub fn addCompareOutputTests(b: *build.Builder, test_filter: ?[]const u8) *build
     return cases.step;
 }
 
-pub fn addRuntimeSafetyTests(b: *build.Builder, test_filter: ?[]const u8) *build.Step {
+pub fn addRuntimeSafetyTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
     const cases = b.allocator.create(CompareOutputContext{
         .b = b,
         .step = b.step("test-runtime-safety", "Run the runtime safety tests"),
         .test_index = 0,
         .test_filter = test_filter,
+        .modes = modes,
     }) catch unreachable;
 
     runtime_safety.addCases(cases);
@@ -73,12 +75,13 @@ pub fn addRuntimeSafetyTests(b: *build.Builder, test_filter: ?[]const u8) *build
     return cases.step;
 }
 
-pub fn addCompileErrorTests(b: *build.Builder, test_filter: ?[]const u8) *build.Step {
+pub fn addCompileErrorTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
     const cases = b.allocator.create(CompileErrorContext{
         .b = b,
         .step = b.step("test-compile-errors", "Run the compile error tests"),
         .test_index = 0,
         .test_filter = test_filter,
+        .modes = modes,
     }) catch unreachable;
 
     compile_errors.addCases(cases);
@@ -86,12 +89,13 @@ pub fn addCompileErrorTests(b: *build.Builder, test_filter: ?[]const u8) *build.
     return cases.step;
 }
 
-pub fn addBuildExampleTests(b: *build.Builder, test_filter: ?[]const u8) *build.Step {
+pub fn addBuildExampleTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
     const cases = b.allocator.create(BuildExamplesContext{
         .b = b,
         .step = b.step("test-build-examples", "Build the examples"),
         .test_index = 0,
         .test_filter = test_filter,
+        .modes = modes,
     }) catch unreachable;
 
     build_examples.addCases(cases);
@@ -99,12 +103,28 @@ pub fn addBuildExampleTests(b: *build.Builder, test_filter: ?[]const u8) *build.
     return cases.step;
 }
 
-pub fn addAssembleAndLinkTests(b: *build.Builder, test_filter: ?[]const u8) *build.Step {
+pub fn addCliTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
+    const step = b.step("test-cli", "Test the command line interface");
+
+    const exe = b.addExecutable("test-cli", "test/cli.zig");
+    const run_cmd = b.addCommand(null, b.env_map, [][]const u8{
+        b.pathFromRoot(exe.getOutputPath()),
+        os.path.realAlloc(b.allocator, b.zig_exe) catch unreachable,
+        b.pathFromRoot(b.cache_root),
+    });
+    run_cmd.step.dependOn(&exe.step);
+
+    step.dependOn(&run_cmd.step);
+    return step;
+}
+
+pub fn addAssembleAndLinkTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
     const cases = b.allocator.create(CompareOutputContext{
         .b = b,
         .step = b.step("test-asm-link", "Run the assemble and link tests"),
         .test_index = 0,
         .test_filter = test_filter,
+        .modes = modes,
     }) catch unreachable;
 
     assemble_and_link.addCases(cases);
@@ -138,16 +158,11 @@ pub fn addGenHTests(b: *build.Builder, test_filter: ?[]const u8) *build.Step {
     return cases.step;
 }
 
-pub fn addPkgTests(b: *build.Builder, test_filter: ?[]const u8, root_src: []const u8, name: []const u8, desc: []const u8, with_lldb: bool) *build.Step {
+pub fn addPkgTests(b: *build.Builder, test_filter: ?[]const u8, root_src: []const u8, name: []const u8, desc: []const u8, modes: []const Mode) *build.Step {
     const step = b.step(b.fmt("test-{}", name), desc);
     for (test_targets) |test_target| {
         const is_native = (test_target.os == builtin.os and test_target.arch == builtin.arch);
-        for ([]Mode{
-            Mode.Debug,
-            Mode.ReleaseSafe,
-            Mode.ReleaseFast,
-            Mode.ReleaseSmall,
-        }) |mode| {
+        for (modes) |mode| {
             for ([]bool{
                 false,
                 true,
@@ -166,18 +181,6 @@ pub fn addPkgTests(b: *build.Builder, test_filter: ?[]const u8, root_src: []cons
                 if (link_libc) {
                     these_tests.linkSystemLibrary("c");
                 }
-                if (with_lldb) {
-                    these_tests.setExecCmd([]?[]const u8{
-                        "lldb",
-                        null,
-                        "-o",
-                        "run",
-                        "-o",
-                        "bt",
-                        "-o",
-                        "exit",
-                    });
-                }
                 step.dependOn(&these_tests.step);
             }
         }
@@ -190,6 +193,7 @@ pub const CompareOutputContext = struct {
     step: *build.Step,
     test_index: usize,
     test_filter: ?[]const u8,
+    modes: []const Mode,
 
     const Special = enum {
         None,
@@ -274,8 +278,8 @@ pub const CompareOutputContext = struct {
             var stdout = Buffer.initNull(b.allocator);
             var stderr = Buffer.initNull(b.allocator);
 
-            var stdout_file_in_stream = io.FileInStream.init(&child.stdout.?);
-            var stderr_file_in_stream = io.FileInStream.init(&child.stderr.?);
+            var stdout_file_in_stream = io.FileInStream.init(child.stdout.?);
+            var stderr_file_in_stream = io.FileInStream.init(child.stderr.?);
 
             stdout_file_in_stream.stream.readAllBuffer(&stdout, max_stdout_size) catch unreachable;
             stderr_file_in_stream.stream.readAllBuffer(&stderr, max_stdout_size) catch unreachable;
@@ -440,12 +444,7 @@ pub const CompareOutputContext = struct {
                 self.step.dependOn(&run_and_cmp_output.step);
             },
             Special.None => {
-                for ([]Mode{
-                    Mode.Debug,
-                    Mode.ReleaseSafe,
-                    Mode.ReleaseFast,
-                    Mode.ReleaseSmall,
-                }) |mode| {
+                for (self.modes) |mode| {
                     const annotated_case_name = fmt.allocPrint(self.b.allocator, "{} {} ({})", "compare-output", case.name, @tagName(mode)) catch unreachable;
                     if (self.test_filter) |filter| {
                         if (mem.indexOf(u8, annotated_case_name, filter) == null) continue;
@@ -500,6 +499,7 @@ pub const CompileErrorContext = struct {
     step: *build.Step,
     test_index: usize,
     test_filter: ?[]const u8,
+    modes: []const Mode,
 
     const TestCase = struct {
         name: []const u8,
@@ -593,8 +593,8 @@ pub const CompileErrorContext = struct {
             var stdout_buf = Buffer.initNull(b.allocator);
             var stderr_buf = Buffer.initNull(b.allocator);
 
-            var stdout_file_in_stream = io.FileInStream.init(&child.stdout.?);
-            var stderr_file_in_stream = io.FileInStream.init(&child.stderr.?);
+            var stdout_file_in_stream = io.FileInStream.init(child.stdout.?);
+            var stderr_file_in_stream = io.FileInStream.init(child.stderr.?);
 
             stdout_file_in_stream.stream.readAllBuffer(&stdout_buf, max_stdout_size) catch unreachable;
             stderr_file_in_stream.stream.readAllBuffer(&stderr_buf, max_stdout_size) catch unreachable;
@@ -690,10 +690,7 @@ pub const CompileErrorContext = struct {
     pub fn addCase(self: *CompileErrorContext, case: *const TestCase) void {
         const b = self.b;
 
-        for ([]Mode{
-            Mode.Debug,
-            Mode.ReleaseFast,
-        }) |mode| {
+        for (self.modes) |mode| {
             const annotated_case_name = fmt.allocPrint(self.b.allocator, "compile-error {} ({})", case.name, @tagName(mode)) catch unreachable;
             if (self.test_filter) |filter| {
                 if (mem.indexOf(u8, annotated_case_name, filter) == null) continue;
@@ -716,6 +713,7 @@ pub const BuildExamplesContext = struct {
     step: *build.Step,
     test_index: usize,
     test_filter: ?[]const u8,
+    modes: []const Mode,
 
     pub fn addC(self: *BuildExamplesContext, root_src: []const u8) void {
         self.addAllArgs(root_src, true);
@@ -758,12 +756,7 @@ pub const BuildExamplesContext = struct {
     pub fn addAllArgs(self: *BuildExamplesContext, root_src: []const u8, link_libc: bool) void {
         const b = self.b;
 
-        for ([]Mode{
-            Mode.Debug,
-            Mode.ReleaseSafe,
-            Mode.ReleaseFast,
-            Mode.ReleaseSmall,
-        }) |mode| {
+        for (self.modes) |mode| {
             const annotated_case_name = fmt.allocPrint(self.b.allocator, "build {} ({})", root_src, @tagName(mode)) catch unreachable;
             if (self.test_filter) |filter| {
                 if (mem.indexOf(u8, annotated_case_name, filter) == null) continue;
@@ -864,8 +857,8 @@ pub const TranslateCContext = struct {
             var stdout_buf = Buffer.initNull(b.allocator);
             var stderr_buf = Buffer.initNull(b.allocator);
 
-            var stdout_file_in_stream = io.FileInStream.init(&child.stdout.?);
-            var stderr_file_in_stream = io.FileInStream.init(&child.stderr.?);
+            var stdout_file_in_stream = io.FileInStream.init(child.stdout.?);
+            var stderr_file_in_stream = io.FileInStream.init(child.stderr.?);
 
             stdout_file_in_stream.stream.readAllBuffer(&stdout_buf, max_stdout_size) catch unreachable;
             stderr_file_in_stream.stream.readAllBuffer(&stderr_buf, max_stdout_size) catch unreachable;

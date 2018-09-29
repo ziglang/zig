@@ -2,7 +2,7 @@
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %p/Inputs/tls-in-archive.s -o %t1.o
 // RUN: llvm-ar cru %t.a %t1.o
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t2.o
-// RUN: ld.lld %t2.o %t.a -o %tout
+// RUN: ld.lld %t2.o %t.a -o /dev/null
 
         .globl  _start
 _start:

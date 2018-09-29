@@ -4,4 +4,4 @@
 
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 # RUN: echo "{ foobar; };" > %t.script
-# RUN: ld.lld --version-script %t.script -shared %t.o -o %t.so
+# RUN: ld.lld --version-script %t.script -shared %t.o -o /dev/null

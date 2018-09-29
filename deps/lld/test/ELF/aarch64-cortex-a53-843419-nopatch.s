@@ -1,6 +1,6 @@
 // REQUIRES: aarch64
 // RUN: llvm-mc -filetype=obj -triple=aarch64-none-linux %s -o %t.o
-// RUN: ld.lld -fix-cortex-a53-843419 -verbose -t %t.o -o %t2 | FileCheck %s
+// RUN: ld.lld -fix-cortex-a53-843419 -verbose -t %t.o -o /dev/null | FileCheck %s
 // Test cases for Cortex-A53 Erratum 843419 that we don't expect to recognize
 // as needing a patch as one or more of the conditions isn't satisfied.
 // See ARM-EPM-048406 Cortex_A53_MPCore_Software_Developers_Errata_Notice.pdf

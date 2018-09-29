@@ -1,4 +1,4 @@
-# RUN: lld -flavor darwin -arch x86_64 -macosx_version_min 10.8 %s \
+# RUN: ld64.lld -arch x86_64 -macosx_version_min 10.8 %s \
 # RUN: %p/Inputs/native-and-mach-o.objtxt  \
 # RUN: %p/Inputs/native-and-mach-o2.objtxt -o %t  && \
 # RUN: llvm-nm %t | FileCheck %s

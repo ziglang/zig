@@ -1,3 +1,4 @@
+// REQUIRES: x86
 // RUN: llvm-mc %s -o %t.o -filetype=obj -triple=x86_64-pc-linux
 // RUN: llvm-mc %p/Inputs/copy-rel-pie.s -o %t2.o -filetype=obj -triple=x86_64-pc-linux
 // RUN: ld.lld %t2.o -o %t2.so -shared
@@ -7,8 +8,10 @@
 
 .global _start
 _start:
-        call bar
-        call foo
+        .byte 0xe8
+        .long bar - . -4
+        .byte 0xe8
+        .long foo - . -4
 
 // CHECK:      Name: .plt
 // CHECK-NEXT: Type: SHT_PROGBITS

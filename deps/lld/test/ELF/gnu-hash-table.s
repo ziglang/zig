@@ -4,30 +4,36 @@
 # RUN: llvm-mc -filetype=obj -triple=i386-pc-linux      %te.s -o %te-i386.o
 # RUN: llvm-mc -filetype=obj -triple=i386-pc-linux      %s    -o %t-i386.o
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux    %s    -o %t-x86_64.o
-# RUN: llvm-mc -filetype=obj -triple=powerpc64-pc-linux %s    -o %t-ppc64.o
+# RUN: llvm-mc -filetype=obj -triple=powerpc64le-unknown-linux %s    -o %t-ppc64le.o
+# RUN: llvm-mc -filetype=obj -triple=powerpc64-unknown-linux %s    -o %t-ppc64.o
 
 # RUN: echo ".global zed; zed:" > %t2.s
 # RUN: llvm-mc -filetype=obj -triple=i386-pc-linux      %t2.s -o %t2-i386.o
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux    %t2.s -o %t2-x86_64.o
-# RUN: llvm-mc -filetype=obj -triple=powerpc64-pc-linux %t2.s -o %t2-ppc64.o
+# RUN: llvm-mc -filetype=obj -triple=powerpc64le-unknown-linux %t2.s -o %t2-ppc64le.o
+# RUN: llvm-mc -filetype=obj -triple=powerpc64-unknown-linux %t2.s -o %t2-ppc64.o
 
 # RUN: rm -f %t2-i386.a %t2-x86_64.a %t2-ppc64.a
 # RUN: llvm-ar rc %t2-i386.a %t2-i386.o
 # RUN: llvm-ar rc %t2-x86_64.a %t2-x86_64.o
+# RUN: llvm-ar rc %t2-ppc64le.a %t2-ppc64le.o
 # RUN: llvm-ar rc %t2-ppc64.a %t2-ppc64.o
 
 # RUN: echo ".global xyz; xyz:" > %t3.s
 # RUN: llvm-mc -filetype=obj -triple=i386-pc-linux      %t3.s -o %t3-i386.o
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux    %t3.s -o %t3-x86_64.o
-# RUN: llvm-mc -filetype=obj -triple=powerpc64-pc-linux %t3.s -o %t3-ppc64.o
+# RUN: llvm-mc -filetype=obj -triple=powerpc64le-unknown-linux %t3.s -o %t3-ppc64le.o
+# RUN: llvm-mc -filetype=obj -triple=powerpc64-unknown-linux %t3.s -o %t3-ppc64.o
 
 # RUN: ld.lld -shared %t3-i386.o   -o %t3-i386.so
 # RUN: ld.lld -shared %t3-x86_64.o -o %t3-x86_64.so
+# RUN: ld.lld -shared %t3-ppc64le.o  -o %t3-ppc64le.so
 # RUN: ld.lld -shared %t3-ppc64.o  -o %t3-ppc64.so
 
 # RUN: ld.lld -shared --hash-style=gnu  -o %te-i386.so  %te-i386.o
 # RUN: ld.lld -shared  -hash-style=gnu  -o %t-i386.so   %t-i386.o   %t2-i386.a   %t3-i386.so
 # RUN: ld.lld -shared  -hash-style=gnu  -o %t-x86_64.so %t-x86_64.o %t2-x86_64.a %t3-x86_64.so
+# RUN: ld.lld -shared --hash-style both -o %t-ppc64le.so  %t-ppc64le.o  %t2-ppc64le.a  %t3-ppc64le.so
 # RUN: ld.lld -shared --hash-style both -o %t-ppc64.so  %t-ppc64.o  %t2-ppc64.a  %t3-ppc64.so
 
 # RUN: llvm-readobj -dyn-symbols -gnu-hash-table %te-i386.so \
@@ -36,6 +42,8 @@
 # RUN:   | FileCheck %s -check-prefix=I386
 # RUN: llvm-readobj -sections -dyn-symbols -gnu-hash-table %t-x86_64.so \
 # RUN:   | FileCheck %s -check-prefix=X86_64
+# RUN: llvm-readobj -sections -dyn-symbols -gnu-hash-table %t-ppc64le.so \
+# RUN:   | FileCheck %s -check-prefix=PPC64
 # RUN: llvm-readobj -sections -dyn-symbols -gnu-hash-table %t-ppc64.so \
 # RUN:   | FileCheck %s -check-prefix=PPC64
 
@@ -51,12 +59,12 @@
 # EMPTY-NEXT:   }
 # EMPTY-NEXT: ]
 # EMPTY:      GnuHashTable {
-# EMPTY-NEXT:   Num Buckets: 0
+# EMPTY-NEXT:   Num Buckets: 1
 # EMPTY-NEXT:   First Hashed Symbol Index: 2
 # EMPTY-NEXT:   Num Mask Words: 1
-# EMPTY-NEXT:   Shift Count: 5
+# EMPTY-NEXT:   Shift Count: 6
 # EMPTY-NEXT:   Bloom Filter: [0x0]
-# EMPTY-NEXT:   Buckets: []
+# EMPTY-NEXT:   Buckets: [0]
 # EMPTY-NEXT:   Values: []
 # EMPTY-NEXT: }
 
@@ -113,8 +121,8 @@
 # I386-NEXT:   Num Buckets: 1
 # I386-NEXT:   First Hashed Symbol Index: 4
 # I386-NEXT:   Num Mask Words: 1
-# I386-NEXT:   Shift Count: 5
-# I386-NEXT:   Bloom Filter: [0x14000220]
+# I386-NEXT:   Shift Count: 6
+# I386-NEXT:   Bloom Filter: [0x4004204]
 # I386-NEXT:   Buckets: [4]
 # I386-NEXT:   Values: [0xB8860BA, 0xB887389]
 # I386-NEXT: }

@@ -1,0 +1,58 @@
+# REQUIRES: x86
+# RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/at2.s -o %t.o
+# RUN: ld.lld -o %t.exe %t.o --script %s
+# RUN: llvm-readobj -program-headers %t.exe | FileCheck %s
+# RUN: llvm-objdump -section-headers %t.exe | FileCheck %s --check-prefix=SECTIONS
+
+MEMORY {
+  AX (ax)    : ORIGIN = 0x2000, LENGTH = 0x100
+  AW (aw)    : ORIGIN = 0x3000, LENGTH = 0x100
+  FLASH (ax) : ORIGIN = 0x6000, LENGTH = 0x100
+  RAM (aw)   : ORIGIN = 0x7000, LENGTH = 0x100
+}
+
+SECTIONS {
+ .foo1 : { *(.foo1) } > AX AT>FLASH
+ .foo2 : { *(.foo2) } > AX
+ .bar1 : { *(.bar1) } > AW AT> RAM
+ .bar2 : { *(.bar2) } > AW AT > RAM
+ .bar3 : { *(.bar3) } > AW AT >RAM
+}
+
+# CHECK:      ProgramHeaders [
+# CHECK-NEXT:   ProgramHeader {
+# CHECK-NEXT:     Type: PT_LOAD
+# CHECK-NEXT:     Offset: 0x1000
+# CHECK-NEXT:     VirtualAddress: 0x2000
+# CHECK-NEXT:     PhysicalAddress: 0x6000
+# CHECK-NEXT:     FileSize: 16
+# CHECK-NEXT:     MemSize: 16
+# CHECK-NEXT:     Flags [
+# CHECK-NEXT:       PF_R
+# CHECK-NEXT:       PF_X
+# CHECK-NEXT:     ]
+# CHECK-NEXT:     Alignment:
+# CHECK-NEXT:   }
+# CHECK-NEXT:   ProgramHeader {
+# CHECK-NEXT:     Type: PT_LOAD
+# CHECK-NEXT:     Offset: 0x2000
+# CHECK-NEXT:     VirtualAddress: 0x3000
+# CHECK-NEXT:     PhysicalAddress: 0x7000
+# CHECK-NEXT:     FileSize: 24
+# CHECK-NEXT:     MemSize: 24
+# CHECK-NEXT:     Flags [
+# CHECK-NEXT:       PF_R
+# CHECK-NEXT:       PF_W
+# CHECK-NEXT:     ]
+# CHECK-NEXT:     Alignment: 4096
+# CHECK-NEXT:   }
+
+# SECTIONS:      Sections:
+# SECTIONS-NEXT: Idx Name          Size      Address
+# SECTIONS-NEXT:   0               00000000 0000000000000000
+# SECTIONS-NEXT:   1 .foo1         00000008 0000000000002000
+# SECTIONS-NEXT:   2 .foo2         00000008 0000000000002008
+# SECTIONS-NEXT:   3 .text         00000000 0000000000002010
+# SECTIONS-NEXT:   4 .bar1         00000008 0000000000003000
+# SECTIONS-NEXT:   5 .bar2         00000008 0000000000003008
+# SECTIONS-NEXT:   6 .bar3         00000008 0000000000003010

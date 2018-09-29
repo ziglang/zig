@@ -154,3 +154,9 @@ test "optional types" {
 const StructWithOptionalType = struct {
     t: ?type,
 };
+
+test "optional pointer to 0 bit type null value at runtime" {
+    const EmptyStruct = struct {};
+    var x: ?*EmptyStruct = null;
+    assert(x == null);
+}

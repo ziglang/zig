@@ -1,5 +1,6 @@
 const std = @import("../index.zig");
 const cstr = std.cstr;
+const unicode = std.unicode;
 const io = std.io;
 const os = std.os;
 const posix = os.posix;
@@ -12,6 +13,7 @@ const Buffer = std.Buffer;
 const builtin = @import("builtin");
 const Os = builtin.Os;
 const LinkedList = std.LinkedList;
+const windows_util = @import("windows/util.zig");
 
 const is_windows = builtin.os == Os.windows;
 
@@ -209,8 +211,8 @@ pub const ChildProcess = struct {
         defer Buffer.deinit(&stdout);
         defer Buffer.deinit(&stderr);
 
-        var stdout_file_in_stream = io.FileInStream.init(&child.stdout.?);
-        var stderr_file_in_stream = io.FileInStream.init(&child.stderr.?);
+        var stdout_file_in_stream = io.FileInStream.init(child.stdout.?);
+        var stderr_file_in_stream = io.FileInStream.init(child.stderr.?);
 
         try stdout_file_in_stream.stream.readAllBuffer(&stdout, max_output_size);
         try stderr_file_in_stream.stream.readAllBuffer(&stderr, max_output_size);
@@ -349,14 +351,7 @@ pub const ChildProcess = struct {
         };
 
         const any_ignore = (self.stdin_behavior == StdIo.Ignore or self.stdout_behavior == StdIo.Ignore or self.stderr_behavior == StdIo.Ignore);
-        const dev_null_fd = if (any_ignore) blk: {
-            const dev_null_path = "/dev/null";
-            var fixed_buffer_mem: [dev_null_path.len + 1]u8 = undefined;
-            var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
-            break :blk try os.posixOpen(&fixed_allocator.allocator, "/dev/null", posix.O_RDWR, 0);
-        } else blk: {
-            break :blk undefined;
-        };
+        const dev_null_fd = if (any_ignore) try os.posixOpenC(c"/dev/null", posix.O_RDWR, 0) else undefined;
         defer {
             if (any_ignore) os.close(dev_null_fd);
         }
@@ -453,10 +448,7 @@ pub const ChildProcess = struct {
         const any_ignore = (self.stdin_behavior == StdIo.Ignore or self.stdout_behavior == StdIo.Ignore or self.stderr_behavior == StdIo.Ignore);
 
         const nul_handle = if (any_ignore) blk: {
-            const nul_file_path = "NUL";
-            var fixed_buffer_mem: [nul_file_path.len + 1]u8 = undefined;
-            var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
-            break :blk try os.windowsOpen(&fixed_allocator.allocator, "NUL", windows.GENERIC_READ, windows.FILE_SHARE_READ, windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL);
+            break :blk try os.windowsOpen("NUL", windows.GENERIC_READ, windows.FILE_SHARE_READ, windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL);
         } else blk: {
             break :blk undefined;
         };
@@ -530,8 +522,8 @@ pub const ChildProcess = struct {
         const cmd_line = try windowsCreateCommandLine(self.allocator, self.argv);
         defer self.allocator.free(cmd_line);
 
-        var siStartInfo = windows.STARTUPINFOA{
-            .cb = @sizeOf(windows.STARTUPINFOA),
+        var siStartInfo = windows.STARTUPINFOW{
+            .cb = @sizeOf(windows.STARTUPINFOW),
             .hStdError = g_hChildStd_ERR_Wr,
             .hStdOutput = g_hChildStd_OUT_Wr,
             .hStdInput = g_hChildStd_IN_Rd,
@@ -555,7 +547,9 @@ pub const ChildProcess = struct {
 
         const cwd_slice = if (self.cwd) |cwd| try cstr.addNullByte(self.allocator, cwd) else null;
         defer if (cwd_slice) |cwd| self.allocator.free(cwd);
-        const cwd_ptr = if (cwd_slice) |cwd| cwd.ptr else null;
+        const cwd_w = if (cwd_slice) |cwd| try unicode.utf8ToUtf16LeWithNull(self.allocator, cwd) else null;
+        defer if (cwd_w) |cwd| self.allocator.free(cwd);
+        const cwd_w_ptr = if (cwd_w) |cwd| cwd.ptr else null;
 
         const maybe_envp_buf = if (self.env_map) |env_map| try os.createWindowsEnvBlock(self.allocator, env_map) else null;
         defer if (maybe_envp_buf) |envp_buf| self.allocator.free(envp_buf);
@@ -574,7 +568,13 @@ pub const ChildProcess = struct {
         };
         defer self.allocator.free(app_name);
 
-        windowsCreateProcess(app_name.ptr, cmd_line.ptr, envp_ptr, cwd_ptr, &siStartInfo, &piProcInfo) catch |no_path_err| {
+        const app_name_w = try unicode.utf8ToUtf16LeWithNull(self.allocator, app_name);
+        defer self.allocator.free(app_name_w);
+
+        const cmd_line_w = try unicode.utf8ToUtf16LeWithNull(self.allocator, cmd_line);
+        defer self.allocator.free(cmd_line_w);
+
+        windowsCreateProcess(app_name_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo) catch |no_path_err| {
             if (no_path_err != error.FileNotFound) return no_path_err;
 
             const PATH = try os.getEnvVarOwned(self.allocator, "PATH");
@@ -585,7 +585,10 @@ pub const ChildProcess = struct {
                 const joined_path = try os.path.join(self.allocator, search_path, app_name);
                 defer self.allocator.free(joined_path);
 
-                if (windowsCreateProcess(joined_path.ptr, cmd_line.ptr, envp_ptr, cwd_ptr, &siStartInfo, &piProcInfo)) |_| {
+                const joined_path_w = try unicode.utf8ToUtf16LeWithNull(self.allocator, app_name);
+                defer self.allocator.free(joined_path_w);
+
+                if (windowsCreateProcess(joined_path_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo)) |_| {
                     break;
                 } else |err| if (err == error.FileNotFound) {
                     continue;
@@ -636,15 +639,44 @@ pub const ChildProcess = struct {
     }
 };
 
-fn windowsCreateProcess(app_name: [*]u8, cmd_line: [*]u8, envp_ptr: ?[*]u8, cwd_ptr: ?[*]u8, lpStartupInfo: *windows.STARTUPINFOA, lpProcessInformation: *windows.PROCESS_INFORMATION) !void {
-    if (windows.CreateProcessA(app_name, cmd_line, null, null, windows.TRUE, 0, @ptrCast(?*c_void, envp_ptr), cwd_ptr, lpStartupInfo, lpProcessInformation) == 0) {
+fn windowsCreateProcess(app_name: [*]u16, cmd_line: [*]u16, envp_ptr: ?[*]u16, cwd_ptr: ?[*]u16, lpStartupInfo: *windows.STARTUPINFOW, lpProcessInformation: *windows.PROCESS_INFORMATION) !void {
+    // TODO the docs for environment pointer say:
+    // > A pointer to the environment block for the new process. If this parameter
+    // > is NULL, the new process uses the environment of the calling process.
+    // > ...
+    // > An environment block can contain either Unicode or ANSI characters. If
+    // > the environment block pointed to by lpEnvironment contains Unicode
+    // > characters, be sure that dwCreationFlags includes CREATE_UNICODE_ENVIRONMENT.
+    // > If this parameter is NULL and the environment block of the parent process
+    // > contains Unicode characters, you must also ensure that dwCreationFlags
+    // > includes CREATE_UNICODE_ENVIRONMENT.
+    // This seems to imply that we have to somehow know whether our process parent passed
+    // CREATE_UNICODE_ENVIRONMENT if we want to pass NULL for the environment parameter.
+    // Since we do not know this information that would imply that we must not pass NULL
+    // for the parameter.
+    // However this would imply that programs compiled with -DUNICODE could not pass
+    // environment variables to programs that were not, which seems unlikely.
+    // More investigation is needed.
+    if (windows.CreateProcessW(
+        app_name,
+        cmd_line,
+        null,
+        null,
+        windows.TRUE,
+        windows.CREATE_UNICODE_ENVIRONMENT,
+        @ptrCast(?*c_void, envp_ptr),
+        cwd_ptr,
+        lpStartupInfo,
+        lpProcessInformation,
+    ) == 0) {
         const err = windows.GetLastError();
-        return switch (err) {
-            windows.ERROR.FILE_NOT_FOUND, windows.ERROR.PATH_NOT_FOUND => error.FileNotFound,
+        switch (err) {
+            windows.ERROR.FILE_NOT_FOUND => return error.FileNotFound,
+            windows.ERROR.PATH_NOT_FOUND => return error.FileNotFound,
             windows.ERROR.INVALID_PARAMETER => unreachable,
-            windows.ERROR.INVALID_NAME => error.InvalidName,
-            else => os.unexpectedErrorWindows(err),
-        };
+            windows.ERROR.INVALID_NAME => return error.InvalidName,
+            else => return os.unexpectedErrorWindows(err),
+        }
     }
 }
 

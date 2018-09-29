@@ -1,0 +1,24 @@
+# REQUIRES: x86
+# RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/extend-pt-load.s -o %t.o
+# RUN: ld.lld --hash-style=sysv -o %t3 --script %s %t.o -shared
+# RUN: llvm-readobj --elf-output-style=GNU -l -s %t3 | FileCheck --check-prefix=CHECK %s
+
+# If the current behavior becomes a problem we should consider just moving the commands out
+# of the section. That is, handle the above like the following test.
+
+SECTIONS {
+  . = SIZEOF_HEADERS;
+  .dynsym : {}
+  .hash : {}
+  .dynstr : {}
+  .text : { *(.text) }
+  . = ALIGN(0x1000);
+  HIDDEN(bar_sym = .);
+  .data.rel.ro : { *(.data.rel.ro) }
+}
+
+# CHECK:      .text        PROGBITS 00000000000001bc 0001bc 000001 00 AX
+# CHECK-NEXT: .data.rel.ro PROGBITS 0000000000001000 001000 000001 00 WA
+
+# CHECK:      LOAD 0x000000 0x0000000000000000 0x0000000000000000 0x0001bd 0x0001bd R E
+# CHECK-NEXT: LOAD 0x001000 0x0000000000001000 0x0000000000001000 0x000068 0x000068 RW

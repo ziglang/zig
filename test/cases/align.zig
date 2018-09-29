@@ -40,7 +40,7 @@ const blah: packed struct {
 } = undefined;
 
 test "bit field alignment" {
-    assert(@typeOf(&blah.b) == *align(1:3:6) const u3);
+    assert(@typeOf(&blah.b) == *align(1:3:1) const u3);
 }
 
 test "default alignment allows unspecified in type syntax" {
@@ -212,3 +212,19 @@ fn fnWithAlignedStack() i32 {
     @setAlignStack(256);
     return 1234;
 }
+
+test "alignment of structs" {
+    assert(@alignOf(struct {
+        a: i32,
+        b: *i32,
+    }) == @alignOf(usize));
+}
+
+test "alignment of extern() void" {
+    var runtime_nothing = nothing;
+    const casted1 = @ptrCast(*const u8, runtime_nothing);
+    const casted2 = @ptrCast(extern fn () void, casted1);
+    casted2();
+}
+
+extern fn nothing() void {}

@@ -28,8 +28,7 @@
 #ifndef __PRFCHWINTRIN_H
 #define __PRFCHWINTRIN_H
 
-#if defined(__PRFCHW__) || defined(__3dNOW__)
-/// \brief Loads a memory sequence containing the specified memory address into
+/// Loads a memory sequence containing the specified memory address into
 ///    all data cache levels. The cache-coherency state is set to exclusive.
 ///    Data can be read from and written to the cache line without additional
 ///    delay.
@@ -46,7 +45,7 @@ _m_prefetch(void *__P)
   __builtin_prefetch (__P, 0, 3 /* _MM_HINT_T0 */);
 }
 
-/// \brief Loads a memory sequence containing the specified memory address into
+/// Loads a memory sequence containing the specified memory address into
 ///    the L1 data cache and sets the cache-coherency to modified. This
 ///    provides a hint to the processor that the cache line will be modified.
 ///    It is intended for use when the cache line will be written to shortly
@@ -66,6 +65,5 @@ _m_prefetchw(void *__P)
 {
   __builtin_prefetch (__P, 1, 3 /* _MM_HINT_T0 */);
 }
-#endif
 
 #endif /* __PRFCHWINTRIN_H */

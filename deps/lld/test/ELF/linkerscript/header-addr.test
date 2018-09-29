@@ -1,0 +1,49 @@
+# REQUIRES: x86
+# RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux /dev/null -o %t.o
+# RUN: ld.lld --hash-style=sysv -o %t.so --script %s %t.o -shared
+# RUN: llvm-readobj -program-headers %t.so | FileCheck %s
+
+PHDRS { all PT_LOAD PHDRS; }
+
+SECTIONS {
+  . = 0x2000 + SIZEOF_HEADERS;
+  .text : {*(.text)} :all
+}
+
+# CHECK:      ProgramHeaders [
+# CHECK-NEXT:   ProgramHeader {
+# CHECK-NEXT:     Type: PT_LOAD
+# CHECK-NEXT:     Offset: 0x40
+# CHECK-NEXT:     VirtualAddress: 0x2040
+# CHECK-NEXT:     PhysicalAddress: 0x2040
+# CHECK-NEXT:     FileSize: 200
+# CHECK-NEXT:     MemSize: 200
+# CHECK-NEXT:     Flags [
+# CHECK-NEXT:       PF_R (0x4)
+# CHECK-NEXT:       PF_W (0x2)
+# CHECK-NEXT:       PF_X (0x1)
+# CHECK-NEXT:     ]
+# CHECK-NEXT:     Alignment: 4096
+# CHECK-NEXT:   }
+# CHECK-NEXT: ]
+
+# RUN: ld.lld --hash-style=sysv -o %t2.so --script %s %t.o -shared -z max-page-size=0x2000
+# RUN: llvm-readobj -program-headers %t2.so \
+# RUN:   | FileCheck --check-prefix=MAXPAGE %s
+
+# MAXPAGE:      ProgramHeaders [
+# MAXPAGE-NEXT:   ProgramHeader {
+# MAXPAGE-NEXT:     Type: PT_LOAD
+# MAXPAGE-NEXT:     Offset: 0x40
+# MAXPAGE-NEXT:     VirtualAddress: 0x2040
+# MAXPAGE-NEXT:     PhysicalAddress: 0x2040
+# MAXPAGE-NEXT:     FileSize: 200
+# MAXPAGE-NEXT:     MemSize: 200
+# MAXPAGE-NEXT:     Flags [
+# MAXPAGE-NEXT:       PF_R
+# MAXPAGE-NEXT:       PF_W
+# MAXPAGE-NEXT:       PF_X
+# MAXPAGE-NEXT:     ]
+# MAXPAGE-NEXT:     Alignment: 8192
+# MAXPAGE-NEXT:   }
+# MAXPAGE-NEXT: ]

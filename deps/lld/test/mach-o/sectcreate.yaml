@@ -1,4 +1,4 @@
-# RUN: lld -flavor darwin -r -arch x86_64 -o %t -sectcreate __DATA __data \
+# RUN: ld64.lld -r -arch x86_64 -o %t -sectcreate __DATA __data \
 # RUN:   %p/Inputs/hw.raw_bytes -print_atoms | FileCheck %s
 
 # CHECK: --- !native

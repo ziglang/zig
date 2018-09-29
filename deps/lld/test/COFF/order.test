@@ -1,15 +1,121 @@
-# RUN: yaml2obj < %p/Inputs/include1a.yaml > %t1.obj
-# RUN: yaml2obj < %p/Inputs/include1b.yaml > %t2.obj
-# RUN: yaml2obj < %p/Inputs/include1c.yaml > %t3.obj
-# RUN: rm -f %t2.lib %t3.lib
-# RUN: llvm-ar cru %t2.lib %t2.obj
-# RUN: llvm-ar cru %t3.lib %t3.obj
-# RUN: lld-link /out:%t.exe /entry:main \
-# RUN:   %t1.obj %t2.lib %t3.obj %t3.lib /verbose >& %t.log
-# RUN: FileCheck %s < %t.log
+# RUN: yaml2obj < %s > %t1.obj
+# RUN: yaml2obj < %p/Inputs/order.yaml > %t2.obj
 
-CHECK: order.test.tmp1.obj
-CHECK: order.test.tmp2.lib
-CHECK: order.test.tmp3.obj
-CHECK: order.test.tmp3.lib
-CHECK: order.test.tmp2.lib(order.test.tmp2.obj) for foo
+# RUN: echo fn1 > %t.order
+# RUN: echo fn2 >> %t.order
+# RUN: echo fn3 >> %t.order
+# RUN: echo fn4 >> %t.order
+
+# RUN: lld-link -entry:fn1 -subsystem:console -opt:noref -debug %t1.obj %t2.obj \
+# RUN:   -lldmap:- -out:%t.exe -order:@%t.order | FileCheck %s
+# CHECK: fn1
+# CHECK: fn2
+# CHECK: fn3
+# CHECK: fn4
+# CHECK: unrelated1
+# CHECK: unrelated2
+
+# RUN: lld-link -entry:fn1 -subsystem:console -opt:noref -debug %t1.obj %t2.obj \
+# RUN:   -lldmap:- -ignore:4037 -out:%t.exe | FileCheck -check-prefix=DEFAULT %s
+# DEFAULT: fn2
+# DEFAULT: fn3
+# DEFAULT: unrelated1
+# DEFAULT: unrelated2
+# DEFAULT: fn4
+# DEFAULT: fn1
+
+# RUN: echo fn1 > %t2.order
+# RUN: echo fn2 >> %t2.order
+# RUN: echo fn3 >> %t2.order
+# RUN: echo fn4 >> %t2.order
+# RUN: echo foo >> %t2.order
+# RUN: lld-link -entry:fn1 -subsystem:console -debug %t1.obj %t2.obj \
+# RUN:   -out:%t.exe -order:@%t2.order 2>&1 | FileCheck -check-prefix=WARN %s
+# WARN: warning: /order:{{.*}} missing symbol: foo
+# WARN-NOT: f2
+# WARN-NOT: f3
+# WARN-NOT: f4
+# RUN: lld-link -entry:fn1 -subsystem:console -debug %t1.obj %t2.obj \
+# RUN:   -out:%t.exe -order:@%t2.order -ignore:4037 2>&1 | \
+# RUN:   FileCheck -allow-empty -check-prefix=NOWARN %s
+# NOWARN-NOT: warning: /order:{{.*}} missing symbol: foo
+# NOWARN-NOT: f2
+# NOWARN-NOT: f3
+# NOWARN-NOT: f4
+
+--- !COFF
+header:
+  Machine:         IMAGE_FILE_MACHINE_AMD64
+  Characteristics: [  ]
+sections:
+  - Name:            .text
+    Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_LNK_COMDAT, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
+    Alignment:       16
+    SectionData:     C3
+  - Name:            .text
+    Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_LNK_COMDAT, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
+    Alignment:       16
+    SectionData:     C3
+  - Name:            .text
+    Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_LNK_COMDAT, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
+    Alignment:       16
+    SectionData:     C3
+symbols:
+  - Name:            .text
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          1
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          1
+      Selection:       IMAGE_COMDAT_SELECT_NODUPLICATES
+  - Name:            fn2
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+  - Name:            .text
+    Value:           0
+    SectionNumber:   2
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          1
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          2
+      Selection:       IMAGE_COMDAT_SELECT_NODUPLICATES
+  - Name:            fn3
+    Value:           0
+    SectionNumber:   2
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+  - Name:            .text
+    Value:           0
+    SectionNumber:   3
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          1
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          3
+      Selection:       IMAGE_COMDAT_SELECT_NODUPLICATES
+  - Name:            unrelated1
+    Value:           0
+    SectionNumber:   3
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+...

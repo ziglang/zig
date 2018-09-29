@@ -1,3 +1,4 @@
+# REQUIRES: mips
 # Check that even if _gp_disp symbol is defined in the shared library
 # we use our own value.
 
@@ -8,8 +9,6 @@
 # RUN:   | FileCheck -check-prefix=EXT-SO %s
 # RUN: llvm-objdump -d -t %t.so | FileCheck -check-prefix=DIS %s
 # RUN: llvm-readobj -relocations %t.so | FileCheck -check-prefix=REL %s
-
-# REQUIRES: mips
 
 # INT-SO:      Name: _gp_disp
 # INT-SO-NEXT: Value:

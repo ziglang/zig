@@ -77,9 +77,9 @@ pub const Sha256 = Sha2_32(Sha256Params);
 
 fn Sha2_32(comptime params: Sha2Params32) type {
     return struct {
-        const Self = this;
-        const block_size = 64;
-        const digest_size = params.out_len / 8;
+        const Self = @This();
+        const block_length = 64;
+        const digest_length = params.out_len / 8;
 
         s: [8]u32,
         // Streaming Cache
@@ -338,8 +338,8 @@ test "sha256 streaming" {
 }
 
 test "sha256 aligned final" {
-    var block = []u8{0} ** Sha256.block_size;
-    var out: [Sha256.digest_size]u8 = undefined;
+    var block = []u8{0} ** Sha256.block_length;
+    var out: [Sha256.digest_length]u8 = undefined;
 
     var h = Sha256.init();
     h.update(block);
@@ -418,9 +418,9 @@ pub const Sha512 = Sha2_64(Sha512Params);
 
 fn Sha2_64(comptime params: Sha2Params64) type {
     return struct {
-        const Self = this;
-        const block_size = 128;
-        const digest_size = params.out_len / 8;
+        const Self = @This();
+        const block_length = 128;
+        const digest_length = params.out_len / 8;
 
         s: [8]u64,
         // Streaming Cache
@@ -715,8 +715,8 @@ test "sha512 streaming" {
 }
 
 test "sha512 aligned final" {
-    var block = []u8{0} ** Sha512.block_size;
-    var out: [Sha512.digest_size]u8 = undefined;
+    var block = []u8{0} ** Sha512.block_length;
+    var out: [Sha512.digest_length]u8 = undefined;
 
     var h = Sha512.init();
     h.update(block);

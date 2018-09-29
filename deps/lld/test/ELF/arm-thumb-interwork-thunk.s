@@ -1,3 +1,4 @@
+// REQUIRES: arm
 // RUN: llvm-mc -filetype=obj -triple=armv7a-none-linux-gnueabi %s -o %t
 // RUN: echo "SECTIONS { \
 // RUN:       . = SIZEOF_HEADERS; \
@@ -8,7 +9,7 @@
 // RUN:       .thumb_caller : { *(.thumb_caller) } \
 // RUN:       .R_ARM_JUMP24_callee_2 : { *(.R_ARM_JUMP24_callee_high) } \
 // RUN:       .R_ARM_THM_JUMP_callee_2 : { *(.R_ARM_THM_JUMP_callee_high) } \
-// RUN:       .got.plt 0x1894 : {  }  } " > %t.script
+// RUN:       .got.plt 0x18b4 : {  }  } " > %t.script
 // RUN: ld.lld --script %t.script %t -o %t2 2>&1
 // RUN: llvm-objdump -d -triple=thumbv7a-none-linux-gnueabi %t2 | FileCheck -check-prefix=CHECK-THUMB -check-prefix=CHECK-ABS-THUMB %s
 // RUN: llvm-objdump -d -triple=armv7a-none-linux-gnueabi %t2 | FileCheck -check-prefix=CHECK-ARM -check-prefix=CHECK-ABS-ARM %s
@@ -19,7 +20,6 @@
 // RUN: llvm-objdump -d -triple=thumbv7a-none-linux-gnueabi %t4 | FileCheck -check-prefix=CHECK-THUMB -check-prefix=CHECK-PI-PLT-THUMB %s
 // RUN: llvm-objdump -d -triple=armv7a-none-linux-gnueabi %t4 | FileCheck -check-prefix=CHECK-ARM -check-prefix=CHECK-PI-PLT-ARM %s
 // RUN: llvm-readobj -s -r %t4 | FileCheck -check-prefix=CHECK-DSO-REL %s
-// REQUIRES: arm
 
 // Test ARM Thumb Interworking
 // The file is linked and checked 3 times to check the following contexts
@@ -368,11 +368,11 @@ _start:
 // CHECK-PI-ARM-PLT-NEXT: 183c:         00 f0 9c e5     ldr     pc, [r12]
 // CHECK-PI-ARM-PLT-NEXT: 1840:         7c 00 00 00
 
-// CHECK-DSO-REL:      0x18A0 R_ARM_JUMP_SLOT arm_caller
-// CHECK-DSO-REL-NEXT: 0x18A4 R_ARM_JUMP_SLOT thumb_caller
-// CHECK-DSO-REL-NEXT: 0x18A8 R_ARM_JUMP_SLOT thumb_callee1
-// CHECK-DSO-REL-NEXT: 0x18AC R_ARM_JUMP_SLOT thumb_callee2
-// CHECK-DSO-REL-NEXT: 0x18B0 R_ARM_JUMP_SLOT thumb_callee3
-// CHECK-DSO-REL-NEXT: 0x18B4 R_ARM_JUMP_SLOT arm_callee1
-// CHECK-DSO-REL-NEXT: 0x18B8 R_ARM_JUMP_SLOT arm_callee2
-// CHECK-DSO-REL-NEXT: 0x18BC R_ARM_JUMP_SLOT arm_callee3
+// CHECK-DSO-REL:      0x18C0 R_ARM_JUMP_SLOT arm_caller
+// CHECK-DSO-REL-NEXT: 0x18C4 R_ARM_JUMP_SLOT thumb_caller
+// CHECK-DSO-REL-NEXT: 0x18C8 R_ARM_JUMP_SLOT thumb_callee1
+// CHECK-DSO-REL-NEXT: 0x18CC R_ARM_JUMP_SLOT thumb_callee2
+// CHECK-DSO-REL-NEXT: 0x18D0 R_ARM_JUMP_SLOT thumb_callee3
+// CHECK-DSO-REL-NEXT: 0x18D4 R_ARM_JUMP_SLOT arm_callee1
+// CHECK-DSO-REL-NEXT: 0x18D8 R_ARM_JUMP_SLOT arm_callee2
+// CHECK-DSO-REL-NEXT: 0x18DC R_ARM_JUMP_SLOT arm_callee3

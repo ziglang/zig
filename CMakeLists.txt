@@ -15,7 +15,7 @@ set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake ${CMAKE_MODULE_PATH})
 
 
 set(ZIG_VERSION_MAJOR 0)
-set(ZIG_VERSION_MINOR 2)
+set(ZIG_VERSION_MINOR 3)
 set(ZIG_VERSION_PATCH 0)
 set(ZIG_VERSION "${ZIG_VERSION_MAJOR}.${ZIG_VERSION_MINOR}.${ZIG_VERSION_PATCH}")
 
@@ -50,6 +50,9 @@ option(ZIG_FORCE_EXTERNAL_LLD "If your system has the LLD patches use it instead
 find_package(llvm)
 find_package(clang)
 
+# TODO fix https://github.com/ziglang/docker-zig/issues/7
+list(REMOVE_ITEM LLVM_LIBRARIES "-l/deps/local/lib/libxml2.a")
+
 if(NOT MSVC)
     find_library(LIBXML2 NAMES xml2 libxml2)
     if(${LIBXML2} STREQUAL "LIBXML2-NOTFOUND")
@@ -63,6 +66,14 @@ if(NOT MSVC)
         message(FATAL_ERROR "Could not find zlib")
     else()
         message("${ZLIB} found")
+    endif()
+
+    if(APPLE AND ZIG_STATIC)
+        list(REMOVE_ITEM LLVM_LIBRARIES "-lz")
+        list(REMOVE_ITEM LLVM_LIBRARIES "-lxml2")
+        list(REMOVE_ITEM LLVM_LIBRARIES "-lcurses")
+        find_library(LIBNCURSES NAMES libncurses.a)
+        list(APPEND LLVM_LIBRARIES "${LIBNCURSES}" "${LIBXML2}" "${ZLIB}")
     endif()
 endif()
 
@@ -88,6 +99,7 @@ else()
         "${CMAKE_SOURCE_DIR}/deps/lld/Common/Strings.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/Common/TargetOptionsCommandFlags.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/Common/Threads.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/Common/Timer.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/Common/Version.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/lib/Core/DefinedAtom.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/lib/Core/Error.cpp"
@@ -126,6 +138,7 @@ else()
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/AMDGPU.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/ARM.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/AVR.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/Hexagon.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/Mips.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/MipsArchTree.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/PPC.cpp"
@@ -133,6 +146,7 @@ else()
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/SPARCV9.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/X86.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/X86_64.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/CallGraphSort.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Driver.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/DriverUtils.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/EhFrame.cpp"
@@ -149,7 +163,6 @@ else()
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Relocations.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/ScriptLexer.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/ScriptParser.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Strings.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/SymbolTable.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Symbols.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/SyntheticSections.cpp"
@@ -170,7 +183,6 @@ else()
         "${CMAKE_SOURCE_DIR}/deps/lld/COFF/MarkLive.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/COFF/MinGW.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/COFF/PDB.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/Strings.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/COFF/SymbolTable.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/COFF/Symbols.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/COFF/Writer.cpp"
@@ -180,11 +192,13 @@ else()
     )
     set(EMBEDDED_LLD_WASM_SOURCES
         "${CMAKE_SOURCE_DIR}/deps/lld/wasm/Driver.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/wasm/InputChunks.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/wasm/InputFiles.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/wasm/InputSegment.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/wasm/LTO.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/wasm/MarkLive.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/wasm/OutputSections.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/wasm/Symbols.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/wasm/SymbolTable.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/wasm/Symbols.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/wasm/Writer.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/wasm/WriterUtils.cpp"
     )
@@ -196,7 +210,7 @@ else()
     if(MSVC)
         set(ZIG_LLD_COMPILE_FLAGS "-std=c++11 -D_CRT_SECURE_NO_WARNINGS /w")
     else()
-      set(ZIG_LLD_COMPILE_FLAGS "-std=c++11 -fno-exceptions -fno-rtti -Wno-comment -Wno-class-memaccess -Wno-unknown-warning-option")
+      set(ZIG_LLD_COMPILE_FLAGS "-std=c++11 -fno-exceptions -fno-rtti -Wno-comment")
     endif()
     set_target_properties(embedded_lld_lib PROPERTIES
         COMPILE_FLAGS ${ZIG_LLD_COMPILE_FLAGS}
@@ -390,7 +404,7 @@ if(MSVC)
     )
 else()
     set_target_properties(embedded_softfloat PROPERTIES
-        COMPILE_FLAGS "-std=c99"
+        COMPILE_FLAGS "-std=c99 -O3"
     )
 endif()
 target_include_directories(embedded_softfloat PUBLIC
@@ -409,7 +423,9 @@ set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/bigint.cpp"
     "${CMAKE_SOURCE_DIR}/src/buffer.cpp"
     "${CMAKE_SOURCE_DIR}/src/c_tokenizer.cpp"
+    "${CMAKE_SOURCE_DIR}/src/cache_hash.cpp"
     "${CMAKE_SOURCE_DIR}/src/codegen.cpp"
+    "${CMAKE_SOURCE_DIR}/src/compiler.cpp"
     "${CMAKE_SOURCE_DIR}/src/errmsg.cpp"
     "${CMAKE_SOURCE_DIR}/src/error.cpp"
     "${CMAKE_SOURCE_DIR}/src/ir.cpp"
@@ -424,16 +440,19 @@ set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/util.cpp"
     "${CMAKE_SOURCE_DIR}/src/translate_c.cpp"
 )
+set(BLAKE_SOURCES
+    "${CMAKE_SOURCE_DIR}/src/blake2b.c"
+)
 set(ZIG_CPP_SOURCES
     "${CMAKE_SOURCE_DIR}/src/zig_llvm.cpp"
+    "${CMAKE_SOURCE_DIR}/src/windows_sdk.cpp"
 )
 
 set(ZIG_STD_FILES
     "array_list.zig"
     "atomic/index.zig"
     "atomic/int.zig"
-    "atomic/queue_mpmc.zig"
-    "atomic/queue_mpsc.zig"
+    "atomic/queue.zig"
     "atomic/stack.zig"
     "base64.zig"
     "buf_map.zig"
@@ -444,13 +463,17 @@ set(ZIG_STD_FILES
     "c/index.zig"
     "c/linux.zig"
     "c/windows.zig"
+    "coff.zig"
     "crypto/blake2.zig"
+    "crypto/chacha20.zig"
     "crypto/hmac.zig"
     "crypto/index.zig"
     "crypto/md5.zig"
     "crypto/sha1.zig"
     "crypto/sha2.zig"
     "crypto/sha3.zig"
+    "crypto/poly1305.zig"
+    "crypto/x25519.zig"
     "cstr.zig"
     "debug/failing_allocator.zig"
     "debug/index.zig"
@@ -460,10 +483,14 @@ set(ZIG_STD_FILES
     "empty.zig"
     "event.zig"
     "event/channel.zig"
+    "event/fs.zig"
+    "event/future.zig"
     "event/group.zig"
     "event/lock.zig"
     "event/locked.zig"
     "event/loop.zig"
+    "event/rwlock.zig"
+    "event/rwlocked.zig"
     "event/tcp.zig"
     "fmt/errol/enum3.zig"
     "fmt/errol/index.zig"
@@ -479,6 +506,7 @@ set(ZIG_STD_FILES
     "index.zig"
     "io.zig"
     "json.zig"
+    "lazy_init.zig"
     "linked_list.zig"
     "macho.zig"
     "math/acos.zig"
@@ -488,6 +516,7 @@ set(ZIG_STD_FILES
     "math/atan.zig"
     "math/atan2.zig"
     "math/atanh.zig"
+    "math/big/index.zig"
     "math/big/int.zig"
     "math/cbrt.zig"
     "math/ceil.zig"
@@ -550,12 +579,14 @@ set(ZIG_STD_FILES
     "math/tanh.zig"
     "math/trunc.zig"
     "mem.zig"
+    "mutex.zig"
     "net.zig"
     "os/child_process.zig"
     "os/darwin.zig"
-    "os/darwin_errno.zig"
+    "os/darwin/errno.zig"
     "os/epoch.zig"
     "os/file.zig"
+    "os/get_app_data_dir.zig"
     "os/get_user_id.zig"
     "os/index.zig"
     "os/linux/errno.zig"
@@ -564,17 +595,22 @@ set(ZIG_STD_FILES
     "os/linux/x86_64.zig"
     "os/path.zig"
     "os/time.zig"
+    "os/windows/advapi32.zig"
     "os/windows/error.zig"
     "os/windows/index.zig"
+    "os/windows/kernel32.zig"
+    "os/windows/ntdll.zig"
+    "os/windows/ole32.zig"
+    "os/windows/shell32.zig"
     "os/windows/util.zig"
     "os/zen.zig"
+    "pdb.zig"
     "rand/index.zig"
     "rand/ziggurat.zig"
     "segmented_list.zig"
     "sort.zig"
     "special/bootstrap.zig"
     "special/bootstrap_lib.zig"
-    "special/build_file_template.zig"
     "special/build_runner.zig"
     "special/builtin.zig"
     "special/compiler_rt/aulldiv.zig"
@@ -592,28 +628,33 @@ set(ZIG_STD_FILES
     "special/compiler_rt/fixunstfdi.zig"
     "special/compiler_rt/fixunstfsi.zig"
     "special/compiler_rt/fixunstfti.zig"
+    "special/compiler_rt/floattidf.zig"
+    "special/compiler_rt/floattisf.zig"
+    "special/compiler_rt/floattitf.zig"
     "special/compiler_rt/floatunditf.zig"
     "special/compiler_rt/floatunsitf.zig"
     "special/compiler_rt/floatuntidf.zig"
     "special/compiler_rt/floatuntisf.zig"
     "special/compiler_rt/floatuntitf.zig"
-    "special/compiler_rt/floattidf.zig"
-    "special/compiler_rt/floattisf.zig"
-    "special/compiler_rt/floattitf.zig"
-    "special/compiler_rt/muloti4.zig"
     "special/compiler_rt/index.zig"
+    "special/compiler_rt/muloti4.zig"
     "special/compiler_rt/truncXfYf2.zig"
     "special/compiler_rt/udivmod.zig"
     "special/compiler_rt/udivmoddi4.zig"
     "special/compiler_rt/udivmodti4.zig"
     "special/compiler_rt/udivti3.zig"
     "special/compiler_rt/umodti3.zig"
+    "special/init-exe/build.zig"
+    "special/init-exe/src/main.zig"
+    "special/init-lib/build.zig"
+    "special/init-lib/src/main.zig"
     "special/panic.zig"
     "special/test_runner.zig"
     "unicode.zig"
     "zig/ast.zig"
     "zig/index.zig"
     "zig/parse.zig"
+    "zig/parse_string_literal.zig"
     "zig/render.zig"
     "zig/tokenizer.zig"
 )
@@ -753,19 +794,28 @@ include_directories(
     "${CMAKE_SOURCE_DIR}/src"
 )
 
-if(MSVC)
-  set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /w")
-elseif(MINGW)
-  set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall -Werror -Wno-error=format= -Wno-error=format -Wno-error=format-extra-args")
-else()
-  set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Werror -Wall")
+# These have to go before the -Wno- flags
+set(EXE_CFLAGS "-std=c++11")
+if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
+    if(MSVC)
+        set(EXE_CFLAGS "${EXE_CFLAGS} /w")
+    elseif(MINGW)
+        set(EXE_CFLAGS "${EXE_CFLAGS} -Wall -Werror -Wno-error=format= -Wno-error=format -Wno-error=format-extra-args")
+    else()
+        set(EXE_CFLAGS "${EXE_CFLAGS} -Werror -Wall")
+    endif()
 endif()
 
 if(MSVC)
-  set(EXE_CFLAGS "-std=c++11")
+  set(EXE_CFLAGS "${EXE_CFLAGS}")
 else()
-  set(EXE_CFLAGS "-std=c++11 -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -D_GNU_SOURCE -fno-exceptions -fno-rtti  -Werror=strict-prototypes -Werror=old-style-definition -Werror=type-limits -Wno-missing-braces")
+  set(EXE_CFLAGS "${EXE_CFLAGS} -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -D_GNU_SOURCE -fno-exceptions -fno-rtti  -Werror=strict-prototypes -Werror=old-style-definition -Werror=type-limits -Wno-missing-braces")
+  if(MINGW)
+      set(EXE_CFLAGS "${EXE_CFLAGS} -D__USE_MINGW_ANSI_STDIO -Wno-pedantic-ms-format")
+  endif()
 endif()
+
+set(BLAKE_CFLAGS "-std=c99")
 
 set(EXE_LDFLAGS " ")
 if(MINGW)
@@ -773,7 +823,11 @@ if(MINGW)
 elseif(MSVC)
     set(EXE_LDFLAGS "/STACK:16777216")
 elseif(ZIG_STATIC)
-    set(EXE_LDFLAGS "-static")
+    if(APPLE)
+        set(EXE_LDFLAGS "-static-libgcc -static-libstdc++")
+    else()
+        set(EXE_LDFLAGS "-static")
+    endif()
 else()
     set(EXE_LDFLAGS " ")
 endif()
@@ -787,6 +841,11 @@ set_target_properties(zig_cpp PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
 )
 
+add_library(embedded_blake STATIC ${BLAKE_SOURCES})
+set_target_properties(embedded_blake PROPERTIES
+    COMPILE_FLAGS "${BLAKE_CFLAGS} -O3"
+)
+
 add_executable(zig ${ZIG_SOURCES})
 set_target_properties(zig PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
@@ -795,6 +854,7 @@ set_target_properties(zig PROPERTIES
 
 target_link_libraries(zig LINK_PUBLIC
     zig_cpp
+    embedded_blake
     ${SOFTFLOAT_LIBRARIES}
     ${CLANG_LIBRARIES}
     ${LLD_LIBRARIES}

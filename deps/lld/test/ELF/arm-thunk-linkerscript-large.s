@@ -79,9 +79,7 @@ _start:
  FUNCTIONL 08
  FUNCTIONL 09
 // CHECK3: __Thumbv7ABSLongThunk_tfuncl24:
-// CHECK3-NEXT:   b00004:	40 f2 01 0c 	movw	r12, #1
-// CHECK3-NEXT:   b00008:	c0 f2 a0 1c 	movt	r12, #416
-// CHECK3-NEXT:   b0000c:	60 47 	bx	r12
+// CHECK3-NEXT:   b00004:      ff f2 fc 97     b.w     #15728632 <tfuncl24>
  FUNCTIONL 10
  FUNCTIONL 11
  FUNCTIONL 12

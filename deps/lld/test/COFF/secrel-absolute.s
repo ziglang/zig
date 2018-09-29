@@ -1,3 +1,4 @@
+# REQUIRES: x86
 # RUN: llvm-mc %s -filetype=obj -triple=x86_64-windows-msvc -o %t.obj
 # RUN: not lld-link -entry:main -nodefaultlib %t.obj -out:%t.exe 2>&1 | FileCheck %s
 

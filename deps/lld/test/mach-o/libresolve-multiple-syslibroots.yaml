@@ -1,4 +1,4 @@
-# RUN: lld -flavor darwin -test_file_usage -v \
+# RUN: ld64.lld -test_file_usage -v \
 # RUN:        -path_exists /usr/lib \
 # RUN:        -path_exists /Applications/MyFirstSDK/usr/local/lib \
 # RUN:        -path_exists /Applications/MySecondSDK/usr/local/lib \

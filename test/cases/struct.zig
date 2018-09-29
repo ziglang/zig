@@ -240,7 +240,6 @@ fn getC(data: *const BitField1) u2 {
     return data.c;
 }
 
-const u24 = @IntType(false, 24);
 const Foo24Bits = packed struct {
     field: u24,
 };
@@ -424,10 +423,10 @@ fn alloc(comptime T: type) []T {
 
 test "call method with mutable reference to struct with no fields" {
     const S = struct {
-        fn doC(s: *const this) bool {
+        fn doC(s: *const @This()) bool {
             return true;
         }
-        fn do(s: *this) bool {
+        fn do(s: *@This()) bool {
             return true;
         }
     };
@@ -437,4 +436,33 @@ test "call method with mutable reference to struct with no fields" {
     assert(s.doC());
     assert(S.do(&s));
     assert(s.do());
+}
+
+test "implicit cast packed struct field to const ptr" {
+    const LevelUpMove = packed struct {
+        move_id: u9,
+        level: u7,
+
+        fn toInt(value: *const u7) u7 {
+            return value.*;
+        }
+    };
+
+    var lup: LevelUpMove = undefined;
+    lup.level = 12;
+    const res = LevelUpMove.toInt(lup.level);
+    assert(res == 12);
+}
+
+test "pointer to packed struct member in a stack variable" {
+    const S = packed struct {
+        a: u2,
+        b: u2,
+    };
+
+    var s = S{ .a = 2, .b = 0 };
+    var b_ptr = &s.b;
+    assert(s.b == 0);
+    b_ptr.* = 2;
+    assert(s.b == 2);
 }

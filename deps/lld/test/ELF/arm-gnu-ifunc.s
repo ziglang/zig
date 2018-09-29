@@ -1,8 +1,8 @@
+// REQUIRES: arm
 // RUN: llvm-mc -filetype=obj -triple=armv7a-none-linux-gnueabi %s -o %t.o
 // RUN: ld.lld -static %t.o -o %tout
 // RUN: llvm-objdump -triple armv7a-none-linux-gnueabi -d %tout | FileCheck %s --check-prefix=DISASM
 // RUN: llvm-readobj -r -symbols -sections %tout | FileCheck %s
-// REQUIRES: arm
  .syntax unified
  .text
  .type foo STT_GNU_IFUNC

@@ -1,3 +1,4 @@
+// REQUIRES: x86,aarch64
 // RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %ta.o
 // RUN: llvm-mc -filetype=obj -triple=i686-unknown-linux %s -o %tb.o
 // RUN: ld.lld -shared %tb.o -o %ti686.so
@@ -49,11 +50,10 @@
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %p/Inputs/archive2.s -o %ta.o
 // RUN: llvm-ar rc %t.a %ta.o
 // RUN: llvm-mc -filetype=obj -triple=i686-linux %s -o %tb.o
-// RUN: not ld.lld %t.a %tb.o 2>&1 | FileCheck --check-prefix=ARCHIVE %s
+// RUN: not ld.lld %t.a %tb.o 2>&1 -o %t | FileCheck --check-prefix=ARCHIVE %s
 // ARCHIVE: .a({{.*}}a.o) is incompatible with {{.*}}b.o
 .global _start
 _start:
 .data
         .long foo
 
-// REQUIRES: x86,aarch64

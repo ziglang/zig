@@ -6,14 +6,14 @@ const AtomicRmwOp = builtin.AtomicRmwOp;
 const AtomicOrder = builtin.AtomicOrder;
 const assert = std.debug.assert;
 
-/// ReturnType should be `void` or `E!void`
+/// ReturnType must be `void` or `E!void`
 pub fn Group(comptime ReturnType: type) type {
     return struct {
         coro_stack: Stack,
         alloc_stack: Stack,
         lock: Lock,
 
-        const Self = this;
+        const Self = @This();
 
         const Error = switch (@typeInfo(ReturnType)) {
             builtin.TypeId.ErrorUnion => |payload| payload.error_set,
@@ -29,6 +29,17 @@ pub fn Group(comptime ReturnType: type) type {
             };
         }
 
+        /// Cancel all the outstanding promises. Can be called even if wait was already called.
+        pub fn deinit(self: *Self) void {
+            while (self.coro_stack.pop()) |node| {
+                cancel node.data;
+            }
+            while (self.alloc_stack.pop()) |node| {
+                cancel node.data;
+                self.lock.loop.allocator.destroy(node);
+            }
+        }
+
         /// Add a promise to the group. Thread-safe.
         pub fn add(self: *Self, handle: promise->ReturnType) (error{OutOfMemory}!void) {
             const node = try self.lock.loop.allocator.create(Stack.Node{
@@ -38,17 +49,26 @@ pub fn Group(comptime ReturnType: type) type {
             self.alloc_stack.push(node);
         }
 
+        /// Add a node to the group. Thread-safe. Cannot fail.
+        /// `node.data` should be the promise handle to add to the group.
+        /// The node's memory should be in the coroutine frame of
+        /// the handle that is in the node, or somewhere guaranteed to live
+        /// at least as long.
+        pub fn addNode(self: *Self, node: *Stack.Node) void {
+            self.coro_stack.push(node);
+        }
+
         /// This is equivalent to an async call, but the async function is added to the group, instead
-        /// of returning a promise. func must be async and have return type void.
+        /// of returning a promise. func must be async and have return type ReturnType.
         /// Thread-safe.
         pub fn call(self: *Self, comptime func: var, args: ...) (error{OutOfMemory}!void) {
             const S = struct {
                 async fn asyncFunc(node: **Stack.Node, args2: ...) ReturnType {
                     // TODO this is a hack to make the memory following be inside the coro frame
-                    suspend |p| {
+                    suspend {
                         var my_node: Stack.Node = undefined;
                         node.* = &my_node;
-                        resume p;
+                        resume @handle();
                     }
 
                     // TODO this allocation elision should be guaranteed because we await it in
@@ -67,6 +87,7 @@ pub fn Group(comptime ReturnType: type) type {
 
         /// Wait for all the calls and promises of the group to complete.
         /// Thread-safe.
+        /// Safe to call any number of times.
         pub async fn wait(self: *Self) ReturnType {
             // TODO catch unreachable because the allocation can be grouped with
             // the coro frame allocation
@@ -78,7 +99,7 @@ pub fn Group(comptime ReturnType: type) type {
                     await node.data;
                 } else {
                     (await node.data) catch |err| {
-                        self.cancelAll();
+                        self.deinit();
                         return err;
                     };
                 }
@@ -90,21 +111,10 @@ pub fn Group(comptime ReturnType: type) type {
                     await handle;
                 } else {
                     (await handle) catch |err| {
-                        self.cancelAll();
+                        self.deinit();
                         return err;
                     };
                 }
-            }
-        }
-
-        /// Cancel all the outstanding promises. May only be called if wait was never called.
-        pub fn cancelAll(self: *Self) void {
-            while (self.coro_stack.pop()) |node| {
-                cancel node.data;
-            }
-            while (self.alloc_stack.pop()) |node| {
-                cancel node.data;
-                self.lock.loop.allocator.destroy(node);
             }
         }
     };

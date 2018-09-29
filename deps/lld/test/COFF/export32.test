@@ -2,6 +2,10 @@
 #
 # RUN: lld-link /out:%t.dll /dll %t.obj /export:exportfn1 /export:exportfn2
 # RUN: llvm-objdump -p %t.dll | FileCheck -check-prefix=CHECK1 %s
+#
+# RUN: lld-link /out:%t.dll /dll %t.obj /export:exportfn1 /export:exportfn2 /merge:.edata=.rdata
+# RUN: llvm-objdump -p %t.dll | FileCheck -check-prefix=CHECK1 %s
+# RUN: llvm-readobj -file-headers -sections %t.dll | FileCheck -check-prefix=HEADER-MERGE %s
 
 # CHECK1:      Export Table:
 # CHECK1:      DLL name: export32.test.tmp.dll
@@ -9,6 +13,12 @@
 # CHECK1-NEXT:       0        0
 # CHECK1-NEXT:       1   0x1008  exportfn1
 # CHECK1-NEXT:       2   0x1010  exportfn2
+
+# HEADER-MERGE: ExportTableRVA: 0x2000
+# HEADER-MERGE-NEXT: ExportTableSize: 0x7E
+# HEADER-MERGE: Name: .rdata
+# HEADER-MERGE-NEXT: VirtualSize: 0x7E
+# HEADER-MERGE-NEXT: VirtualAddress: 0x2000
 
 # RUN: lld-link /out:%t.dll /dll %t.obj /export:exportfn1,@5 \
 # RUN:   /export:exportfn2 /export:mangled

@@ -21,5 +21,14 @@
 // TEST3-NOT: Name: bar
 // TEST3-NOT: Name: foo
 
+// RUN: not ld.lld %t1.o --start-lib --start-lib 2>&1 | FileCheck -check-prefix=NESTED-LIB %s
+// NESTED-LIB: nested --start-lib
+
+// RUN: not ld.lld %t1.o --start-group --start-lib 2>&1 | FileCheck -check-prefix=LIB-IN-GROUP %s
+// LIB-IN-GROUP: may not nest --start-lib in --start-group
+
+// RUN: not ld.lld --end-lib 2>&1 | FileCheck -check-prefix=END %s
+// END: stray --end-lib
+
 .globl _start
 _start:

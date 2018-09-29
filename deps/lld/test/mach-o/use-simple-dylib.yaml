@@ -1,4 +1,4 @@
-# RUN: lld -flavor darwin -arch x86_64 -print_atoms -r %s \
+# RUN: ld64.lld -arch x86_64 -print_atoms -r %s \
 # RUN: %p/Inputs/use-simple-dylib.yaml -o %t | FileCheck %s
 
 

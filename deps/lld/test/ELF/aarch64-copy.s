@@ -1,7 +1,7 @@
 // REQUIRES: aarch64
 // RUN: llvm-mc -filetype=obj -triple=aarch64-pc-freebsd %s -o %t.o
 // RUN: llvm-mc -filetype=obj -triple=aarch64-pc-freebsd %p/Inputs/relocation-copy.s -o %t2.o
-// RUN: ld.lld -shared %t2.o -o %t2.so
+// RUN: ld.lld -shared %t2.o -soname fixed-length-string.so -o %t2.so
 // RUN: ld.lld %t.o %t2.so -o %t3
 // RUN: llvm-readobj -s -r --expand-relocs -symbols %t3 | FileCheck %s
 // RUN: llvm-objdump -d %t3 | FileCheck -check-prefix=CODE %s
@@ -90,4 +90,4 @@ _start:
 
 // RODATA: Contents of section .rodata:
 // S(z) = 0x40014
-// RODATA-NEXT:  101c8 14000400
+// RODATA-NEXT:  102e0 14000400

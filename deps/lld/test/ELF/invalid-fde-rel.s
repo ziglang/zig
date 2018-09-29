@@ -33,4 +33,4 @@
         .long 0x0
         .long 0x0
 
-// CHECK:  1 .eh_frame     00000018
+// CHECK:  1 .eh_frame     0000001c

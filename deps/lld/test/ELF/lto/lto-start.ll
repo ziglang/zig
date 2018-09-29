@@ -1,6 +1,6 @@
 ; REQUIRES: x86
 ; RUN: llvm-as %s -o %t.o
-; RUN: ld.lld -m elf_x86_64 %t.o -o %t2
+; RUN: ld.lld %t.o -o %t2
 ; RUN: llvm-readobj -t %t2 | FileCheck %s
 
 ; CHECK:      Format: ELF64-x86-64

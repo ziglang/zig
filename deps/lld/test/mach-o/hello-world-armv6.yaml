@@ -1,4 +1,4 @@
-# RUN: lld -flavor darwin -arch armv6 %s %p/Inputs/hello-world-armv6.yaml -o %t
+# RUN: ld64.lld -arch armv6 %s %p/Inputs/hello-world-armv6.yaml -o %t
 # RUN: llvm-nm -m %t | FileCheck %s
 #
 # Test that armv6 (arm) hello-world can be linked into a mach-o executable

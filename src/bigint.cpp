@@ -1188,7 +1188,6 @@ void bigint_or(BigInt *dest, const BigInt *op1, const BigInt *op2) {
         return bigint_init_bigint(dest, op1);
     }
     if (op1->is_negative || op2->is_negative) {
-        // TODO this code path is untested
         size_t big_bit_count = max(bigint_bits_needed(op1), bigint_bits_needed(op2));
 
         BigInt twos_comp_op1 = {0};
@@ -1211,13 +1210,9 @@ void bigint_or(BigInt *dest, const BigInt *op1, const BigInt *op2) {
             bigint_normalize(dest);
             return;
         }
-        // TODO this code path is untested
-        uint64_t first_digit = dest->data.digit;
         dest->digit_count = max(op1->digit_count, op2->digit_count);
         dest->data.digits = allocate_nonzero<uint64_t>(dest->digit_count);
-        dest->data.digits[0] = first_digit;
-        size_t i = 1;
-        for (; i < dest->digit_count; i += 1) {
+        for (size_t i = 0; i < dest->digit_count; i += 1) {
             uint64_t digit = 0;
             if (i < op1->digit_count) {
                 digit |= op1_digits[i];
@@ -1236,7 +1231,6 @@ void bigint_and(BigInt *dest, const BigInt *op1, const BigInt *op2) {
         return bigint_init_unsigned(dest, 0);
     }
     if (op1->is_negative || op2->is_negative) {
-        // TODO this code path is untested
         size_t big_bit_count = max(bigint_bits_needed(op1), bigint_bits_needed(op2));
 
         BigInt twos_comp_op1 = {0};
@@ -1282,7 +1276,6 @@ void bigint_xor(BigInt *dest, const BigInt *op1, const BigInt *op2) {
         return bigint_init_bigint(dest, op1);
     }
     if (op1->is_negative || op2->is_negative) {
-        // TODO this code path is untested
         size_t big_bit_count = max(bigint_bits_needed(op1), bigint_bits_needed(op2));
 
         BigInt twos_comp_op1 = {0};
@@ -1301,27 +1294,25 @@ void bigint_xor(BigInt *dest, const BigInt *op1, const BigInt *op2) {
         const uint64_t *op2_digits = bigint_ptr(op2);
 
         assert(op1->digit_count > 0 && op2->digit_count > 0);
-        uint64_t first_digit = op1_digits[0] ^ op2_digits[0];
         if (op1->digit_count == 1 && op2->digit_count == 1) {
             dest->digit_count = 1;
-            dest->data.digit = first_digit;
+            dest->data.digit = op1_digits[0] ^ op2_digits[0];
             bigint_normalize(dest);
             return;
         }
-        // TODO this code path is untested
         dest->digit_count = max(op1->digit_count, op2->digit_count);
         dest->data.digits = allocate_nonzero<uint64_t>(dest->digit_count);
-        dest->data.digits[0] = first_digit;
-        size_t i = 1;
+        size_t i = 0;
         for (; i < op1->digit_count && i < op2->digit_count; i += 1) {
             dest->data.digits[i] = op1_digits[i] ^ op2_digits[i];
         }
         for (; i < dest->digit_count; i += 1) {
             if (i < op1->digit_count) {
                 dest->data.digits[i] = op1_digits[i];
-            }
-            if (i < op2->digit_count) {
+            } else if (i < op2->digit_count) {
                 dest->data.digits[i] = op2_digits[i];
+            } else {
+                zig_unreachable();
             }
         }
         bigint_normalize(dest);
@@ -1485,8 +1476,7 @@ void bigint_not(BigInt *dest, const BigInt *op, size_t bit_count, bool is_signed
         bigint_normalize(dest);
         return;
     }
-    // TODO this code path is untested
-    dest->digit_count = bit_count / 64;
+    dest->digit_count = (bit_count + 63) / 64;
     assert(dest->digit_count >= op->digit_count);
     dest->data.digits = allocate_nonzero<uint64_t>(dest->digit_count);
     size_t i = 0;
@@ -1496,9 +1486,9 @@ void bigint_not(BigInt *dest, const BigInt *op, size_t bit_count, bool is_signed
     for (; i < dest->digit_count; i += 1) {
         dest->data.digits[i] = 0xffffffffffffffffULL;
     }
-    size_t digit_index = dest->digit_count - (bit_count / 64) - 1;
+    size_t digit_index = dest->digit_count - 1;
     size_t digit_bit_index = bit_count % 64;
-    if (digit_index < dest->digit_count) {
+    if (digit_bit_index != 0) {
         uint64_t mask = (1ULL << digit_bit_index) - 1;
         dest->data.digits[digit_index] &= mask;
     }
@@ -1555,7 +1545,6 @@ void bigint_append_buf(Buf *buf, const BigInt *op, uint64_t base) {
         buf_appendf(buf, "%" ZIG_PRI_u64, op->data.digit);
         return;
     }
-    // TODO this code path is untested
     size_t first_digit_index = buf_len(buf);
 
     BigInt digit_bi = {0};

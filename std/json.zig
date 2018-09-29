@@ -6,9 +6,6 @@ const std = @import("index.zig");
 const debug = std.debug;
 const mem = std.mem;
 
-const u1 = @IntType(false, 1);
-const u256 = @IntType(false, 256);
-
 // A single token slice into the parent string.
 //
 // Use `token.slice()` on the input at the current position to get the current slice.
@@ -1321,7 +1318,7 @@ pub const Parser = struct {
                 _ = p.stack.pop();
 
                 var object = &p.stack.items[p.stack.len - 1].Object;
-                _ = try object.put(key, value);
+                _ = try object.put(key, value.*);
                 p.state = State.ObjectKey;
             },
             // Array Parent -> [ ..., <array>, value ]

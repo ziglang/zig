@@ -1,3 +1,4 @@
+# REQUIRES: mips
 # Check the order of dynamic symbols for the MIPS target.
 
 # RUN: llvm-mc -filetype=obj -triple=mips-unknown-linux %s -o %t-be.o
@@ -7,8 +8,6 @@
 # RUN: llvm-mc -filetype=obj -triple=mipsel-unknown-linux %s -o %t-el.o
 # RUN: ld.lld -shared %t-el.o -o %t-el.so
 # RUN: llvm-readobj -symbols -dyn-symbols %t-el.so | FileCheck %s
-
-# REQUIRES: mips
 
   .data
   .globl v1,v2,v3

@@ -1,0 +1,14 @@
+# REQUIRES: x86
+# RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux /dev/null -o %t.o
+# RUN: not ld.lld -o %t.exe %t.o --script %s 2>&1 | FileCheck %s
+
+MEMORY {
+  FLASH (ax) : ORIGIN = 0x2000, LENGTH = 0x100
+  RAM (aw)   : ORIGIN = 0x5000, LENGTH = 0x100
+}
+
+SECTIONS {
+  .foo1 : AT(0x500) { *(.foo1) } > FLASH AT>FLASH
+}
+
+# CHECK: error: section can't have both LMA and a load region

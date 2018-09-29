@@ -191,7 +191,7 @@ static bool compareAtomsSub(const LayoutPass::SortKey &lc,
   // Sort atoms by their ordinal overrides only if they fall in the same
   // chain.
   if (leftRoot == rightRoot) {
-    DEBUG(reason = formatReason("override", lc._override, rc._override));
+    LLVM_DEBUG(reason = formatReason("override", lc._override, rc._override));
     return lc._override < rc._override;
   }
 
@@ -200,8 +200,8 @@ static bool compareAtomsSub(const LayoutPass::SortKey &lc,
   DefinedAtom::ContentPermissions rightPerms = rightRoot->permissions();
 
   if (leftPerms != rightPerms) {
-    DEBUG(reason =
-              formatReason("contentPerms", (int)leftPerms, (int)rightPerms));
+    LLVM_DEBUG(
+        reason = formatReason("contentPerms", (int)leftPerms, (int)rightPerms));
     return leftPerms < rightPerms;
   }
 
@@ -210,7 +210,8 @@ static bool compareAtomsSub(const LayoutPass::SortKey &lc,
   DefinedAtom::ContentType rightType = rightRoot->contentType();
 
   if (leftType != rightType) {
-    DEBUG(reason = formatReason("contentType", (int)leftType, (int)rightType));
+    LLVM_DEBUG(reason =
+                   formatReason("contentType", (int)leftType, (int)rightType));
     return leftType < rightType;
   }
 
@@ -226,8 +227,8 @@ static bool compareAtomsSub(const LayoutPass::SortKey &lc,
   const File *rightFile = &rightRoot->file();
 
   if (leftFile != rightFile) {
-    DEBUG(reason = formatReason(".o order", (int)leftFile->ordinal(),
-                                (int)rightFile->ordinal()));
+    LLVM_DEBUG(reason = formatReason(".o order", (int)leftFile->ordinal(),
+                                     (int)rightFile->ordinal()));
     return leftFile->ordinal() < rightFile->ordinal();
   }
 
@@ -236,8 +237,8 @@ static bool compareAtomsSub(const LayoutPass::SortKey &lc,
   uint64_t rightOrdinal = rightRoot->ordinal();
 
   if (leftOrdinal != rightOrdinal) {
-    DEBUG(reason = formatReason("ordinal", (int)leftRoot->ordinal(),
-                                (int)rightRoot->ordinal()));
+    LLVM_DEBUG(reason = formatReason("ordinal", (int)leftRoot->ordinal(),
+                                     (int)rightRoot->ordinal()));
     return leftOrdinal < rightOrdinal;
   }
 
@@ -251,7 +252,7 @@ static bool compareAtoms(const LayoutPass::SortKey &lc,
                          LayoutPass::SortOverride customSorter) {
   std::string reason;
   bool result = compareAtomsSub(lc, rc, customSorter, reason);
-  DEBUG({
+  LLVM_DEBUG({
     StringRef comp = result ? "<" : ">=";
     llvm::dbgs() << "Layout: '" << lc._atom.get()->name()
                  << "' " << comp << " '"
@@ -441,7 +442,7 @@ void LayoutPass::undecorate(File::AtomRange<DefinedAtom> &atomRange,
 
 /// Perform the actual pass
 llvm::Error LayoutPass::perform(SimpleFile &mergedFile) {
-  DEBUG(llvm::dbgs() << "******** Laying out atoms:\n");
+  LLVM_DEBUG(llvm::dbgs() << "******** Laying out atoms:\n");
   // sort the atoms
   ScopedTask task(getDefaultDomain(), "LayoutPass");
   File::AtomRange<DefinedAtom> atomRange = mergedFile.defined();
@@ -450,12 +451,12 @@ llvm::Error LayoutPass::perform(SimpleFile &mergedFile) {
   buildFollowOnTable(atomRange);
 
   // Check the structure of followon graph if running in debug mode.
-  DEBUG(checkFollowonChain(atomRange));
+  LLVM_DEBUG(checkFollowonChain(atomRange));
 
   // Build override maps
   buildOrdinalOverrideMap(atomRange);
 
-  DEBUG({
+  LLVM_DEBUG({
     llvm::dbgs() << "unsorted atoms:\n";
     printDefinedAtoms(atomRange);
   });
@@ -465,15 +466,15 @@ llvm::Error LayoutPass::perform(SimpleFile &mergedFile) {
        [&](const LayoutPass::SortKey &l, const LayoutPass::SortKey &r) -> bool {
          return compareAtoms(l, r, _customSorter);
        });
-  DEBUG(checkTransitivity(vec, _customSorter));
+  LLVM_DEBUG(checkTransitivity(vec, _customSorter));
   undecorate(atomRange, vec);
 
-  DEBUG({
+  LLVM_DEBUG({
     llvm::dbgs() << "sorted atoms:\n";
     printDefinedAtoms(atomRange);
   });
 
-  DEBUG(llvm::dbgs() << "******** Finished laying out atoms\n");
+  LLVM_DEBUG(llvm::dbgs() << "******** Finished laying out atoms\n");
   return llvm::Error::success();
 }
 

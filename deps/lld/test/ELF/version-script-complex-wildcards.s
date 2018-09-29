@@ -46,7 +46,7 @@
 # RUN: llvm-readobj -V %t8.so | FileCheck %s --check-prefix=ABBABC
 
 # RUN: echo "FOO { global: extern \"C++\" { a[; }; };" > %t9.script
-# RUN: not ld.lld --version-script %t9.script -shared %t.o -o %t9.so 2>&1 \
+# RUN: not ld.lld --version-script %t9.script -shared %t.o -o /dev/null 2>&1 \
 # RUN:   | FileCheck %s --check-prefix=ERROR
 # ERROR: invalid glob pattern: a[
 

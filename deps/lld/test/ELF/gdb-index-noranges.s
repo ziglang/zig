@@ -10,7 +10,7 @@
 ##
 ## Debug information does not contain any address ranges.
 ## We crashed in that case. Check we don't.
-# RUN: ld.lld --gdb-index %t1.o -o %t
+# RUN: ld.lld --gdb-index %t1.o -o /dev/null
 
 .section  .debug_str,"MS",@progbits,1
 .Lskel_string0:

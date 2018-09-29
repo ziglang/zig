@@ -45,6 +45,10 @@ static void ir_print_var_instruction(IrPrint *irp, IrInstruction *instruction) {
 }
 
 static void ir_print_other_instruction(IrPrint *irp, IrInstruction *instruction) {
+    if (instruction == nullptr) {
+        fprintf(irp->f, "(null)");
+        return;
+    }
     if (instruction->value.special != ConstValSpecialRuntime) {
         ir_print_const_value(irp, &instruction->value);
     } else {
@@ -787,6 +791,10 @@ static void ir_print_frame_address(IrPrint *irp, IrInstructionFrameAddress *inst
     fprintf(irp->f, "@frameAddress()");
 }
 
+static void ir_print_handle(IrPrint *irp, IrInstructionHandle *instruction) {
+    fprintf(irp->f, "@handle()");
+}
+
 static void ir_print_return_address(IrPrint *irp, IrInstructionReturnAddress *instruction) {
     fprintf(irp->f, "@returnAddress()");
 }
@@ -949,6 +957,14 @@ static void ir_print_enum_to_int(IrPrint *irp, IrInstructionEnumToInt *instructi
     fprintf(irp->f, ")");
 }
 
+static void ir_print_check_runtime_scope(IrPrint *irp, IrInstructionCheckRuntimeScope *instruction) {
+    fprintf(irp->f, "@checkRuntimeScope(");
+    ir_print_other_instruction(irp, instruction->scope_is_comptime);
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->is_comptime);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_int_to_err(IrPrint *irp, IrInstructionIntToErr *instruction) {
     fprintf(irp->f, "inttoerr ");
     ir_print_other_instruction(irp, instruction->target);
@@ -999,16 +1015,14 @@ static void ir_print_ptr_type(IrPrint *irp, IrInstructionPtrType *instruction) {
     }
     const char *const_str = instruction->is_const ? "const " : "";
     const char *volatile_str = instruction->is_volatile ? "volatile " : "";
-    fprintf(irp->f, ":%" PRIu32 ":%" PRIu32 " %s%s", instruction->bit_offset_start, instruction->bit_offset_end,
+    fprintf(irp->f, ":%" PRIu32 ":%" PRIu32 " %s%s", instruction->bit_offset_start, instruction->host_int_bytes,
             const_str, volatile_str);
     ir_print_other_instruction(irp, instruction->child_type);
 }
 
 static void ir_print_decl_ref(IrPrint *irp, IrInstructionDeclRef *instruction) {
-    const char *ptr_str = instruction->lval.is_ptr ? "ptr " : "";
-    const char *const_str = instruction->lval.is_const ? "const " : "";
-    const char *volatile_str = instruction->lval.is_volatile ? "volatile " : "";
-    fprintf(irp->f, "declref %s%s%s%s", const_str, volatile_str, ptr_str, buf_ptr(instruction->tld->name));
+    const char *ptr_str = (instruction->lval == LValPtr) ? "ptr " : "";
+    fprintf(irp->f, "declref %s%s", ptr_str, buf_ptr(instruction->tld->name));
 }
 
 static void ir_print_panic(IrPrint *irp, IrInstructionPanic *instruction) {
@@ -1027,8 +1041,16 @@ static void ir_print_field_parent_ptr(IrPrint *irp, IrInstructionFieldParentPtr 
     fprintf(irp->f, ")");
 }
 
-static void ir_print_offset_of(IrPrint *irp, IrInstructionOffsetOf *instruction) {
-    fprintf(irp->f, "@offset_of(");
+static void ir_print_byte_offset_of(IrPrint *irp, IrInstructionByteOffsetOf *instruction) {
+    fprintf(irp->f, "@byte_offset_of(");
+    ir_print_other_instruction(irp, instruction->type_value);
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->field_name);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_bit_offset_of(IrPrint *irp, IrInstructionBitOffsetOf *instruction) {
+    fprintf(irp->f, "@bit_offset_of(");
     ir_print_other_instruction(irp, instruction->type_value);
     fprintf(irp->f, ",");
     ir_print_other_instruction(irp, instruction->field_name);
@@ -1554,6 +1576,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdFrameAddress:
             ir_print_frame_address(irp, (IrInstructionFrameAddress *)instruction);
             break;
+        case IrInstructionIdHandle:
+            ir_print_handle(irp, (IrInstructionHandle *)instruction);
+            break;
         case IrInstructionIdAlignOf:
             ir_print_align_of(irp, (IrInstructionAlignOf *)instruction);
             break;
@@ -1632,8 +1657,11 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdFieldParentPtr:
             ir_print_field_parent_ptr(irp, (IrInstructionFieldParentPtr *)instruction);
             break;
-        case IrInstructionIdOffsetOf:
-            ir_print_offset_of(irp, (IrInstructionOffsetOf *)instruction);
+        case IrInstructionIdByteOffsetOf:
+            ir_print_byte_offset_of(irp, (IrInstructionByteOffsetOf *)instruction);
+            break;
+        case IrInstructionIdBitOffsetOf:
+            ir_print_bit_offset_of(irp, (IrInstructionBitOffsetOf *)instruction);
             break;
         case IrInstructionIdTypeInfo:
             ir_print_type_info(irp, (IrInstructionTypeInfo *)instruction);
@@ -1739,6 +1767,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdEnumToInt:
             ir_print_enum_to_int(irp, (IrInstructionEnumToInt *)instruction);
+            break;
+        case IrInstructionIdCheckRuntimeScope:
+            ir_print_check_runtime_scope(irp, (IrInstructionCheckRuntimeScope *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

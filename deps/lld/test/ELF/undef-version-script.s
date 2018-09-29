@@ -1,3 +1,4 @@
+# REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t.o
 # RUN: echo "{ local: *; };" > %t.script
 # RUN: ld.lld --version-script %t.script -shared %t.o -o %t.so

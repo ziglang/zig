@@ -20,7 +20,7 @@ pub fn render(allocator: *mem.Allocator, stream: var, tree: *ast.Tree) (@typeOf(
 
     // make a passthrough stream that checks whether something changed
     const MyStream = struct {
-        const MyStream = this;
+        const MyStream = @This();
         const StreamError = @typeOf(stream).Child.Error;
         const Stream = std.io.OutStream(StreamError);
 
@@ -67,8 +67,14 @@ fn renderRoot(
     stream: var,
     tree: *ast.Tree,
 ) (@typeOf(stream).Child.Error || Error)!void {
-    // render all the line comments at the beginning of the file
     var tok_it = tree.tokens.iterator(0);
+
+    // render the shebang line
+    if (tree.root_node.shebang) |shebang| {
+        try stream.write(tree.tokenSlice(shebang));
+    }
+
+    // render all the line comments at the beginning of the file
     while (tok_it.next()) |token| {
         if (token.id != Token.Id.LineComment) break;
         try stream.print("{}\n", mem.trimRight(u8, tree.tokenSlicePtr(token), " "));
@@ -323,21 +329,7 @@ fn renderExpression(
         ast.Node.Id.Suspend => {
             const suspend_node = @fieldParentPtr(ast.Node.Suspend, "base", base);
 
-            if (suspend_node.label) |label| {
-                try renderToken(tree, stream, label, indent, start_col, Space.None);
-                try renderToken(tree, stream, tree.nextToken(label), indent, start_col, Space.Space);
-            }
-
-            if (suspend_node.payload) |payload| {
-                if (suspend_node.body) |body| {
-                    try renderToken(tree, stream, suspend_node.suspend_token, indent, start_col, Space.Space);
-                    try renderExpression(allocator, stream, tree, indent, start_col, payload, Space.Space);
-                    return renderExpression(allocator, stream, tree, indent, start_col, body, space);
-                } else {
-                    try renderToken(tree, stream, suspend_node.suspend_token, indent, start_col, Space.Space);
-                    return renderExpression(allocator, stream, tree, indent, start_col, payload, space);
-                }
-            } else if (suspend_node.body) |body| {
+            if (suspend_node.body) |body| {
                 try renderToken(tree, stream, suspend_node.suspend_token, indent, start_col, Space.Space);
                 return renderExpression(allocator, stream, tree, indent, start_col, body, space);
             } else {

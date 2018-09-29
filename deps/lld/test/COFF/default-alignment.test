@@ -1,0 +1,21 @@
+# RUN: yaml2obj < %s > %t.obj
+# RUN: lld-link /out:%t.exe %t.obj /entry:__ImageBase /subsystem:console
+# RUN: llvm-objdump -s %t.exe | FileCheck %s
+
+# CHECK: Contents of section .rdata:
+# CHECK-NEXT: 01000000 00000000 00000000 00000000
+# CHECK-NEXT: 02
+
+--- !COFF
+header:
+  Machine:         IMAGE_FILE_MACHINE_AMD64
+  Characteristics: []
+sections:
+  - Name:            .rdata
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_READ ]
+    SectionData:     01
+  - Name:            .rdata
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_READ ]
+    SectionData:     02
+symbols:
+...

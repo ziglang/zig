@@ -1,3 +1,4 @@
+// REQUIRES: arm
 // RUN: llvm-mc -filetype=obj -triple=thumbv7a-none-linux-gnueabi %s -o %t
 // RUN: llvm-mc -filetype=obj -triple=thumbv7a-none-linux-gnueabi %S/Inputs/far-arm-thumb-abs.s -o %tfar
 // RUN: echo "SECTIONS { \
@@ -7,7 +8,6 @@
 // RUN:          .callee2 : { *(.callee_high) } } " > %t.script
 // RUN: ld.lld --script %t.script %t %tfar -o %t2 2>&1
 // RUN: llvm-objdump -d -triple=thumbv7a-none-linux-gnueabi %t2 | FileCheck  %s
-// REQUIRES: arm
 
  .syntax unified
  .thumb

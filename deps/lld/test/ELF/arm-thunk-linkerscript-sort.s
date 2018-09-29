@@ -41,9 +41,7 @@ tfunc\suff\():
  FUNCTION 16
  FUNCTION 15
 // CHECK2: __Thumbv7ABSLongThunk_tfunc31:
-// CHECK2-NEXT:  1000004:       40 f2 01 0c     movw    r12, #1
-// CHECK2-NEXT:  1000008:       c0 f2 00 2c     movt    r12, #512
-// CHECK2-NEXT:  100000c:       60 47   bx      r12
+// CHECK2-NEXT:  1000004:       ff f3 fc 97     b.w     #16777208 <tfunc31>
  FUNCTION 14
  FUNCTION 13
  FUNCTION 12

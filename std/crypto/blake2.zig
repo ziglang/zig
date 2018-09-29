@@ -33,9 +33,9 @@ pub const Blake2s256 = Blake2s(256);
 
 fn Blake2s(comptime out_len: usize) type {
     return struct {
-        const Self = this;
-        const block_size = 64;
-        const digest_size = out_len / 8;
+        const Self = @This();
+        const block_length = 64;
+        const digest_length = out_len / 8;
 
         const iv = [8]u32{
             0x6A09E667,
@@ -250,8 +250,8 @@ test "blake2s256 streaming" {
 }
 
 test "blake2s256 aligned final" {
-    var block = []u8{0} ** Blake2s256.block_size;
-    var out: [Blake2s256.digest_size]u8 = undefined;
+    var block = []u8{0} ** Blake2s256.block_length;
+    var out: [Blake2s256.digest_length]u8 = undefined;
 
     var h = Blake2s256.init();
     h.update(block);
@@ -266,9 +266,9 @@ pub const Blake2b512 = Blake2b(512);
 
 fn Blake2b(comptime out_len: usize) type {
     return struct {
-        const Self = this;
-        const block_size = 128;
-        const digest_size = out_len / 8;
+        const Self = @This();
+        const block_length = 128;
+        const digest_length = out_len / 8;
 
         const iv = [8]u64{
             0x6a09e667f3bcc908,
@@ -483,8 +483,8 @@ test "blake2b512 streaming" {
 }
 
 test "blake2b512 aligned final" {
-    var block = []u8{0} ** Blake2b512.block_size;
-    var out: [Blake2b512.digest_size]u8 = undefined;
+    var block = []u8{0} ** Blake2b512.block_length;
+    var out: [Blake2b512.digest_length]u8 = undefined;
 
     var h = Blake2b512.init();
     h.update(block);

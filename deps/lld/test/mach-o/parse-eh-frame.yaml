@@ -1,4 +1,4 @@
-# RUN: lld -flavor darwin -arch x86_64 -r -print_atoms %s -o %t  | FileCheck %s
+# RUN: ld64.lld -arch x86_64 -r -print_atoms %s -o %t  | FileCheck %s
 #
 # Test parsing of __eh_frame (dwarf unwind) section.
 #

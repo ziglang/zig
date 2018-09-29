@@ -1,3 +1,4 @@
+# REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 # RUN: ld.lld %t.o -shared -F foo.so -F boo.so -o %t1
 # RUN: llvm-readobj --dynamic-table %t1 | FileCheck %s
@@ -15,5 +16,5 @@
 # CHECK-NEXT: 0x000000007FFFFFFF FILTER        Filter library: [foo.so]
 # CHECK-NEXT: 0x000000007FFFFFFF FILTER        Filter library: [boo.so]
 
-# RUN: not ld.lld %t.o -F x -o %t 2>&1 | FileCheck -check-prefix=ERR %s
+# RUN: not ld.lld %t.o -F x -o /dev/null 2>&1 | FileCheck -check-prefix=ERR %s
 # ERR: -F may not be used without -shared

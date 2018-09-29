@@ -28,6 +28,9 @@
 #include <io.h>
 #include <shellapi.h>
 
+// Standard headers
+#include <stdio.h>
+
 // COM support header files
 #include <comdef.h>
 

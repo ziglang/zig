@@ -1,3 +1,4 @@
+# REQUIRES: x86
 # RUN: yaml2obj %s > %t.obj
 # RUN: llvm-as -o %t.lto.obj %S/Inputs/weak-external2.ll
 # RUN: lld-link /out:%t.exe /entry:g /subsystem:console %t.obj %t.lto.obj

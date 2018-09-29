@@ -1,5 +1,4 @@
-/*===------------- avx512vpopcntdqintrin.h - AVX512VPOPCNTDQ intrinsics
- *------------------===
+/*===----- avx512vpopcntdqintrin.h - AVX512VPOPCNTDQ intrinsics-------------===
  *
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -32,8 +31,7 @@
 
 /* Define the default attributes for the functions in this file. */
 #define __DEFAULT_FN_ATTRS                                                     \
-  __attribute__((__always_inline__, __nodebug__, __target__("avx512vpopcntd"   \
-                                                            "q")))
+  __attribute__((__always_inline__, __nodebug__, __target__("avx512vpopcntdq"), __min_vector_width__(512)))
 
 static __inline__ __m512i __DEFAULT_FN_ATTRS _mm512_popcnt_epi64(__m512i __A) {
   return (__m512i)__builtin_ia32_vpopcntq_512((__v8di)__A);

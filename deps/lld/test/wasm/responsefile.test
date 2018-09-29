@@ -1,0 +1,10 @@
+RUN: llc -filetype=obj -o %t.o %p/Inputs/ret32.ll
+
+RUN: echo "%/t.o -o %/t.wasm -e ret32" > %t.rsp
+RUN: wasm-ld @%t.rsp --initial-memory=655360
+RUN: llvm-readobj --sections %t.wasm | FileCheck %s
+CHECK: InitialPages: 10
+
+RUN: echo "blah\foo" > %t.rsp
+RUN: not wasm-ld @%t.rsp 2>&1 | FileCheck --check-prefix=ESCAPE %s
+ESCAPE: error: cannot open blahfoo: {{[Nn]}}o such file or directory

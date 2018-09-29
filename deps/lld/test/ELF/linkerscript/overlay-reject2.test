@@ -1,0 +1,17 @@
+# REQUIRES: x86
+# RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux /dev/null -o %t.o
+# RUN: not ld.lld %t.o --script %s -o %t 2>&1 | FileCheck %s
+
+# CHECK:      {{.*}}.test:{{.*}}: { expected, but got AX
+# CHECK-NEXT: >>>      .out.aaa { *(.aaa) } > AX AT>FLASH
+# CHECK-NEXT: >>>                             ^
+
+MEMORY {
+  AX (ax)    : ORIGIN = 0x3000, LENGTH = 0x4000
+}
+
+SECTIONS {
+  OVERLAY 0x1000 : AT ( 0x2000 ) {
+    .out.aaa { *(.aaa) } > AX AT>FLASH
+  }
+}

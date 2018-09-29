@@ -1,10 +1,10 @@
+// REQUIRES: arm
 // RUN: llvm-mc -filetype=obj -triple=armv7a-none-linux-gnueabi %s -o %t
 // RUN: ld.lld %t -o %t2
 // RUN: llvm-mc %s -o %t.o -filetype=obj -triple=armv7a-linux-gnueabi
 // RUN: llvm-objdump -s %t2 | FileCheck %s
 // RUN: ld.lld --hash-style=sysv %t --shared -o %t3.so
 // RUN: llvm-objdump -s %t3.so | FileCheck -check-prefix=CHECK-SHARED %s
-// REQUIRES: arm
 
 // For an executable, we write the module index 1 and the offset into the TLS
 // directly into the GOT. For a shared library we can only write the offset

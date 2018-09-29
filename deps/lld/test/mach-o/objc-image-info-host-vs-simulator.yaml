@@ -1,4 +1,4 @@
-# RUN: not lld -flavor darwin -arch x86_64 -r %s 2>&1 | FileCheck %s
+# RUN: not ld64.lld -arch x86_64 -r %s 2>&1 | FileCheck %s
 
 # The file is built for the host, but the objc image info flags are for
 # the simulator.

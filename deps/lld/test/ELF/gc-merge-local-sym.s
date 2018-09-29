@@ -1,3 +1,4 @@
+// REQUIRES: x86
 // RUN: llvm-mc %s -o %t.o -filetype=obj -triple=x86_64-pc-linux
 // RUN: ld.lld %t.o -o %t.so -shared -O3 --gc-sections
 // RUN: llvm-readobj -s -section-data -t %t.so | FileCheck %s
@@ -9,7 +10,7 @@
 // CHECK-NEXT:   SHF_MERGE
 // CHECK-NEXT:   SHF_STRINGS
 // CHECK-NEXT: ]
-// CHECK-NEXT: Address: 0x1C8
+// CHECK-NEXT: Address: 0x235
 // CHECK-NEXT: Offset:
 // CHECK-NEXT: Size: 4
 // CHECK-NEXT: Link: 0

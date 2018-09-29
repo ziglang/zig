@@ -1,3 +1,4 @@
+// REQUIRES: aarch64
 // RUN: llvm-mc -filetype=obj -triple=aarch64-pc-freebsd %s -o %t.o
 // RUN: llvm-mc -filetype=obj -triple=aarch64-pc-freebsd %p/Inputs/plt-aarch64.s -o %t2.o
 // RUN: ld.lld -shared %t2.o -o %t2.so
@@ -9,8 +10,6 @@
 // RUN: llvm-readobj -s -r %t.exe | FileCheck --check-prefix=CHECKEXE %s
 // RUN: llvm-objdump -s -section=.got.plt %t.exe | FileCheck --check-prefix=DUMPEXE %s
 // RUN: llvm-objdump -d %t.exe | FileCheck --check-prefix=DISASMEXE %s
-
-// REQUIRES: aarch64
 
 // CHECKDSO:     Name: .plt
 // CHECKDSO-NEXT:     Type: SHT_PROGBITS

@@ -1,16 +1,16 @@
 # RUN: yaml2obj %s > %t.obj
 
 # RUN: rm -f %t.dll %t.pdb
-# RUN: lld-link /debug /dll /out:%t.dll /entry:DllMain %t.obj
+# RUN: lld-link /debug /pdbaltpath:test1.pdb /dll /out:%t.dll /entry:DllMain %t.obj
 # RUN: llvm-readobj -coff-debug-directory %t.dll > %t.1.txt
-# RUN: lld-link /debug /dll /out:%t.dll /entry:DllMain %t.obj
+# RUN: lld-link /debug /pdbaltpath:test2.pdb /dll /out:%t.dll /entry:DllMain %t.obj
 # RUN: llvm-readobj -coff-debug-directory %t.dll > %t.2.txt
 # RUN: cat %t.1.txt %t.2.txt | FileCheck %s
 
 # RUN: rm -f %t.dll %t.pdb
-# RUN: lld-link /debug /pdb:%t.pdb /dll /out:%t.dll /entry:DllMain %t.obj
+# RUN: lld-link /debug /pdb:%t1.pdb /dll /out:%t.dll /entry:DllMain %t.obj
 # RUN: llvm-readobj -coff-debug-directory %t.dll > %t.3.txt
-# RUN: lld-link /debug /pdb:%t.pdb /dll /out:%t.dll /entry:DllMain %t.obj
+# RUN: lld-link /debug /pdb:%t2.pdb /dll /out:%t.dll /entry:DllMain %t.obj
 # RUN: llvm-readobj -coff-debug-directory %t.dll > %t.4.txt
 # RUN: cat %t.3.txt %t.4.txt | FileCheck %s
 
@@ -18,7 +18,7 @@
 # CHECK: DebugDirectory [
 # CHECK:   DebugEntry {
 # CHECK:     Characteristics: 0x0
-# CHECK:     TimeDateStamp: 1970-01-01 00:00:00 (0x0)
+# CHECK:     TimeDateStamp: 
 # CHECK:     MajorVersion: 0x0
 # CHECK:     MinorVersion: 0x0
 # CHECK:     Type: CodeView (0x2)
@@ -29,7 +29,7 @@
 # CHECK:       PDBSignature: 0x53445352
 # CHECK:       PDBGUID: [[GUID:\(([A-Za-z0-9]{2} ?){16}\)]]
 # CHECK:       PDBAge: 1
-# CHECK:       PDBFileName: {{.*}}.pdb
+# CHECK:       PDBFileName: {{.*}}1.pdb
 # CHECK:     }
 # CHECK:   }
 # CHECK: ]
@@ -37,7 +37,7 @@
 # CHECK: DebugDirectory [
 # CHECK:   DebugEntry {
 # CHECK:     Characteristics: 0x0
-# CHECK:     TimeDateStamp: 1970-01-01 00:00:00 (0x0)
+# CHECK:     TimeDateStamp: 
 # CHECK:     MajorVersion: 0x0
 # CHECK:     MinorVersion: 0x0
 # CHECK:     Type: CodeView (0x2)
@@ -48,7 +48,7 @@
 # CHECK:       PDBSignature: 0x53445352
 # CHECK:       PDBGUID: [[GUID]]
 # CHECK:       PDBAge: 2
-# CHECK:       PDBFileName: {{.*}}.pdb
+# CHECK:       PDBFileName: {{.*}}2.pdb
 # CHECK:     }
 # CHECK:   }
 # CHECK: ]

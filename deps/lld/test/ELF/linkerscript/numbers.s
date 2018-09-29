@@ -29,12 +29,12 @@
 
 ## Mailformed number errors.
 # RUN: echo "SECTIONS { . = 0x11h; }" > %t2.script
-# RUN: not ld.lld %t --script %t2.script -o %t3 2>&1 | \
+# RUN: not ld.lld %t --script %t2.script -o /dev/null 2>&1 | \
 # RUN:  FileCheck --check-prefix=ERR1 %s
 # ERR1: malformed number: 0x11h
 
 # RUN: echo "SECTIONS { . = 0x11k; }" > %t3.script
-# RUN: not ld.lld %t --script %t3.script -o %t4 2>&1 | \
+# RUN: not ld.lld %t --script %t3.script -o /dev/null 2>&1 | \
 # RUN:  FileCheck --check-prefix=ERR2 %s
 # ERR2: malformed number: 0x11k
 
@@ -43,13 +43,28 @@
 # RUN:  FileCheck --check-prefix=ERR3 %s
 # ERR3: malformed number: 0x11m
 
+# RUN: echo "SECTIONS { . = 1zh; }" > %t5.script
+# RUN: not ld.lld %t --script %t5.script -o %t5 2>&1 | \
+# RUN:  FileCheck --check-prefix=ERR4 %s
+# ERR4: malformed number: 1zh
+
+# RUN: echo "SECTIONS { . = 1zk; }" > %t6.script
+# RUN: not ld.lld %t --script %t6.script -o %t6 2>&1 | \
+# RUN:  FileCheck --check-prefix=ERR5 %s
+# ERR5: malformed number: 1zk
+
+# RUN: echo "SECTIONS { . = 1zm; }" > %t7.script
+# RUN: not ld.lld %t --script %t7.script -o /dev/null 2>&1 | \
+# RUN:  FileCheck --check-prefix=ERR6 %s
+# ERR6: malformed number: 1zm
+
 ## Make sure that numbers can be followed by a ":" with and without a space,
 ## e.g. "0x100 :" or "0x100:"
 # RUN: echo "SECTIONS { \
 # RUN:  .hex1 0x400 : { *(.hex.1) } \
 # RUN:  .hex2 0x500:{ *(.hex.2) } \
-# RUN: }" > %t5.script
-# RUN: ld.lld %t --script %t5.script -o %t6
+# RUN: }" > %t8.script
+# RUN: ld.lld %t --script %t8.script -o %t6
 # RUN: llvm-objdump -section-headers %t6 | FileCheck -check-prefix=SECADDR %s
 # SECADDR:     Sections:
 # SECADDR-NEXT: Idx Name          Size      Address

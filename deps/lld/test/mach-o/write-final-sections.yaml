@@ -1,4 +1,4 @@
-# RUN: lld -flavor darwin -arch x86_64 %s %p/Inputs/write-final-sections.yaml \
+# RUN: ld64.lld -arch x86_64 %s %p/Inputs/write-final-sections.yaml \
 # RUN: -o %t -e _foo
 # RUN: llvm-readobj -sections -section-data %t | FileCheck %s
 

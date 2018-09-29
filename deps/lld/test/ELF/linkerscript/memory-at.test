@@ -1,0 +1,45 @@
+# REQUIRES: x86
+# RUN: echo '.section .text,"ax"; .quad 0' > %t.s
+# RUN: echo '.section .data,"aw"; .quad 0' >> %t.s
+# RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %t.s -o %t
+# RUN: ld.lld %t --script %s -o %t2
+# RUN: llvm-readobj -program-headers %t2 | FileCheck %s
+
+MEMORY {
+  FLASH (rx) : ORIGIN = 0x1000, LENGTH = 0x100
+  RAM (rwx)  : ORIGIN = 0x2000, LENGTH = 0x100
+}
+
+SECTIONS {
+ .text : { *(.text*) } > FLASH
+ __etext = .;
+ .data : AT (__etext) { *(.data*) } > RAM
+}
+
+# CHECK:      ProgramHeaders [
+# CHECK-NEXT:   ProgramHeader {
+# CHECK-NEXT:     Type: PT_LOAD
+# CHECK-NEXT:     Offset: 0x1000
+# CHECK-NEXT:     VirtualAddress: 0x1000
+# CHECK-NEXT:     PhysicalAddress: 0x1000
+# CHECK-NEXT:     FileSize: 8
+# CHECK-NEXT:     MemSize: 8
+# CHECK-NEXT:     Flags [
+# CHECK-NEXT:       PF_R
+# CHECK-NEXT:       PF_X
+# CHECK-NEXT:     ]
+# CHECK-NEXT:     Alignment:
+# CHECK-NEXT:   }
+# CHECK-NEXT:   ProgramHeader {
+# CHECK-NEXT:     Type: PT_LOAD
+# CHECK-NEXT:     Offset: 0x2000
+# CHECK-NEXT:     VirtualAddress: 0x2000
+# CHECK-NEXT:     PhysicalAddress: 0x1008
+# CHECK-NEXT:     FileSize: 8
+# CHECK-NEXT:     MemSize: 8
+# CHECK-NEXT:     Flags [
+# CHECK-NEXT:       PF_R
+# CHECK-NEXT:       PF_W
+# CHECK-NEXT:     ]
+# CHECK-NEXT:     Alignment:
+# CHECK-NEXT:   }

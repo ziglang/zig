@@ -1,4 +1,4 @@
-/*===---- xsaveintrin.h - XSAVE intrinsic ------------------------------------===
+/*===---- xsaveintrin.h - XSAVE intrinsic ----------------------------------===
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -33,23 +33,23 @@
 
 static __inline__ void __DEFAULT_FN_ATTRS
 _xsave(void *__p, unsigned long long __m) {
-  return __builtin_ia32_xsave(__p, __m);
+  __builtin_ia32_xsave(__p, __m);
 }
 
 static __inline__ void __DEFAULT_FN_ATTRS
 _xrstor(void *__p, unsigned long long __m) {
-  return __builtin_ia32_xrstor(__p, __m);
+  __builtin_ia32_xrstor(__p, __m);
 }
 
 #ifdef __x86_64__
 static __inline__ void __DEFAULT_FN_ATTRS
 _xsave64(void *__p, unsigned long long __m) {
-  return __builtin_ia32_xsave64(__p, __m);
+  __builtin_ia32_xsave64(__p, __m);
 }
 
 static __inline__ void __DEFAULT_FN_ATTRS
 _xrstor64(void *__p, unsigned long long __m) {
-  return __builtin_ia32_xrstor64(__p, __m);
+  __builtin_ia32_xrstor64(__p, __m);
 }
 #endif
 

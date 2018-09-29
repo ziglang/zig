@@ -1,3 +1,4 @@
+# REQUIRES: mips
 # Check R_MIPS_GOT16 relocation calculation.
 
 # RUN: llvm-mc -filetype=obj -triple=mips-unknown-linux %s -o %t-be.o
@@ -29,8 +30,6 @@
 # RUN: llvm-objdump -d %t-el.so | FileCheck -check-prefix=DSO_DIS_EL %s
 # RUN: llvm-readobj -relocations %t-el.so | FileCheck -check-prefix=NORELOC %s
 # RUN: llvm-readobj -sections %t-el.so | FileCheck -check-prefix=SHFLAGS %s
-
-# REQUIRES: mips
 
   .text
   .globl  __start

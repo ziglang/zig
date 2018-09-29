@@ -4,7 +4,7 @@
 # RUN: ld.lld --gc-sections -o %t %t.o --script %t.script
 # RUN: llvm-objdump -t %t | FileCheck %s
 
-# CHECK: 0000000000000011         .rodata                 00000000 bar
+# CHECK: 0000000000000008         .rodata                 00000000 bar
 
 .section .rodata.bar
 .quad 0x1122334455667788

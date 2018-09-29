@@ -1,3 +1,4 @@
+# REQUIRES: x86
 # GNU gold 1.14 (the newest version as of July 2017) seems to create
 # non-standard-compliant SHT_GROUP sections when the -r option is given.
 #

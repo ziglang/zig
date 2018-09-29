@@ -1,0 +1,15 @@
+# REQUIRES: x86
+# RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/define.s -o %t.o
+# RUN: ld.lld -o %t --script %s %t.o
+# RUN: llvm-objdump -section-headers %t | FileCheck %s
+
+SECTIONS {
+  . = DEFINED(defined) ? 0x11000 : .;
+  .foo : { *(.foo*) }
+  . = DEFINED(notdefined) ? 0x12000 : 0x13000;
+  .bar : { *(.bar*) }
+}
+
+# CHECK: 1 .foo  00000008 0000000000011000 DATA
+# CHECK: 2 .bar  00000008 0000000000013000 DATA
+# CHECK: 3 .text 00000000 0000000000013008 TEXT

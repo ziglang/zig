@@ -3,14 +3,14 @@ const Lock = std.event.Lock;
 const Loop = std.event.Loop;
 
 /// Thread-safe async/await lock that protects one piece of data.
-/// Does not make any syscalls - coroutines which are waiting for the lock are suspended, and
+/// coroutines which are waiting for the lock are suspended, and
 /// are resumed when the lock is released, in order.
 pub fn Locked(comptime T: type) type {
     return struct {
         lock: Lock,
         private_data: T,
 
-        const Self = this;
+        const Self = @This();
 
         pub const HeldLock = struct {
             value: *T,

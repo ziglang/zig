@@ -9,9 +9,9 @@
 
 #include "Symbols.h"
 #include "InputFiles.h"
-#include "Strings.h"
 #include "lld/Common/ErrorHandler.h"
 #include "lld/Common/Memory.h"
+#include "lld/Common/Strings.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
@@ -21,7 +21,7 @@ using namespace llvm::object;
 
 // Returns a symbol name for an error message.
 std::string lld::toString(coff::Symbol &B) {
-  if (Optional<std::string> S = coff::demangleMSVC(B.getName()))
+  if (Optional<std::string> S = lld::demangleMSVC(B.getName()))
     return ("\"" + *S + "\" (" + B.getName() + ")").str();
   return B.getName();
 }
@@ -58,7 +58,7 @@ bool Symbol::isLive() const {
   if (auto *Imp = dyn_cast<DefinedImportData>(this))
     return Imp->File->Live;
   if (auto *Imp = dyn_cast<DefinedImportThunk>(this))
-    return Imp->WrappedSym->File->Live;
+    return Imp->WrappedSym->File->ThunkLive;
   // Assume any other kind of symbol is live.
   return true;
 }
@@ -71,7 +71,7 @@ COFFSymbolRef DefinedCOFF::getCOFFSymbol() {
   return COFFSymbolRef(reinterpret_cast<const coff_symbol32 *>(Sym));
 }
 
-uint16_t DefinedAbsolute::OutputSectionIndex = 0;
+uint16_t DefinedAbsolute::NumOutputSections;
 
 static Chunk *makeImportThunk(DefinedImportData *S, uint16_t Machine) {
   if (Machine == AMD64)

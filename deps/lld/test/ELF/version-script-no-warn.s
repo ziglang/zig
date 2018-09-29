@@ -5,7 +5,7 @@
 # RUN: ld.lld -shared %t2.o -soname shared -o %t2.so
 
 # RUN: echo "foo { global: bar;  local: *; };" > %t.script
-# RUN: ld.lld --fatal-warnings --shared --version-script %t.script %t.o %t2.so
+# RUN: ld.lld --fatal-warnings --shared --version-script %t.script %t.o %t2.so -o /dev/null
 
 .global bar
 bar:

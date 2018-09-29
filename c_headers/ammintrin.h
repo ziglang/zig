@@ -27,9 +27,9 @@
 #include <pmmintrin.h>
 
 /* Define the default attributes for the functions in this file. */
-#define __DEFAULT_FN_ATTRS __attribute__((__always_inline__, __nodebug__, __target__("sse4a")))
+#define __DEFAULT_FN_ATTRS __attribute__((__always_inline__, __nodebug__, __target__("sse4a"), __min_vector_width__(128)))
 
-/// \brief Extracts the specified bits from the lower 64 bits of the 128-bit
+/// Extracts the specified bits from the lower 64 bits of the 128-bit
 ///    integer vector operand at the index \a idx and of the length \a len.
 ///
 /// \headerfile <x86intrin.h>
@@ -57,7 +57,7 @@
   ((__m128i)__builtin_ia32_extrqi((__v2di)(__m128i)(x), \
                                   (char)(len), (char)(idx)))
 
-/// \brief Extracts the specified bits from the lower 64 bits of the 128-bit
+/// Extracts the specified bits from the lower 64 bits of the 128-bit
 ///    integer vector operand at the index and of the length specified by
 ///    \a __y.
 ///
@@ -82,7 +82,7 @@ _mm_extract_si64(__m128i __x, __m128i __y)
   return (__m128i)__builtin_ia32_extrq((__v2di)__x, (__v16qi)__y);
 }
 
-/// \brief Inserts bits of a specified length from the source integer vector
+/// Inserts bits of a specified length from the source integer vector
 ///    \a y into the lower 64 bits of the destination integer vector \a x at
 ///    the index \a idx and of the length \a len.
 ///
@@ -120,7 +120,7 @@ _mm_extract_si64(__m128i __x, __m128i __y)
                                     (__v2di)(__m128i)(y), \
                                     (char)(len), (char)(idx)))
 
-/// \brief Inserts bits of a specified length from the source integer vector
+/// Inserts bits of a specified length from the source integer vector
 ///    \a __y into the lower 64 bits of the destination integer vector \a __x
 ///    at the index and of the length specified by \a __y.
 ///
@@ -152,7 +152,7 @@ _mm_insert_si64(__m128i __x, __m128i __y)
   return (__m128i)__builtin_ia32_insertq((__v2di)__x, (__v2di)__y);
 }
 
-/// \brief Stores a 64-bit double-precision value in a 64-bit memory location.
+/// Stores a 64-bit double-precision value in a 64-bit memory location.
 ///    To minimize caching, the data is flagged as non-temporal (unlikely to be
 ///    used again soon).
 ///
@@ -170,7 +170,7 @@ _mm_stream_sd(double *__p, __m128d __a)
   __builtin_ia32_movntsd(__p, (__v2df)__a);
 }
 
-/// \brief Stores a 32-bit single-precision floating-point value in a 32-bit
+/// Stores a 32-bit single-precision floating-point value in a 32-bit
 ///    memory location. To minimize caching, the data is flagged as
 ///    non-temporal (unlikely to be used again soon).
 ///

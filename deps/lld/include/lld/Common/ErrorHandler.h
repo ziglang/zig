@@ -7,21 +7,62 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// In LLD, we have three levels of errors: fatal, error or warn.
+// We designed lld's error handlers with the following goals in mind:
 //
-// Fatal makes the program exit immediately with an error message.
-// You shouldn't use it except for reporting a corrupted input file.
+//  - Errors can occur at any place where we handle user input, but we don't
+//    want them to affect the normal execution path too much. Ideally,
+//    handling errors should be as simple as reporting them and exit (but
+//    without actually doing exit).
 //
-// Error prints out an error message and increment a global variable
-// ErrorCount to record the fact that we met an error condition. It does
-// not exit, so it is safe for a lld-as-a-library use case. It is generally
-// useful because it can report more than one error in a single run.
+//    In particular, the design to wrap all functions that could fail with
+//    ErrorOr<T> is rejected because otherwise we would have to wrap a large
+//    number of functions in lld with ErrorOr. With that approach, if some
+//    function F can fail, not only F but all functions that transitively call
+//    F have to be wrapped with ErrorOr. That seemed too much.
 //
-// Warn doesn't do anything but printing out a given message.
+//  - Finding only one error at a time is not sufficient. We want to find as
+//    many errors as possible with one execution of the linker. That means the
+//    linker needs to keep running after a first error and give up at some
+//    checkpoint (beyond which it would find cascading, false errors caused by
+//    the previous errors).
 //
-// It is not recommended to use llvm::outs() or llvm::errs() directly
-// in LLD because they are not thread-safe. The functions declared in
-// this file are mutually excluded, so you want to use them instead.
+//  - We want a simple interface to report errors. Unlike Clang, the data we
+//    handle is compiled binary, so we don't need an error reporting mechanism
+//    that's as sophisticated as the one that Clang has.
+//
+// The current lld's error handling mechanism is simple:
+//
+//  - When you find an error, report it using error() and continue as far as
+//    you can. An internal error counter is incremented by one every time you
+//    call error().
+//
+//    A common idiom to handle an error is calling error() and then returning
+//    a reasonable default value. For example, if your function handles a
+//    user-supplied alignment value, and if you find an invalid alignment
+//    (e.g. 17 which is not 2^n), you may report it using error() and continue
+//    as if it were alignment 1 (which is the simplest reasonable value).
+//
+//    Note that you should not continue with an invalid value; that breaks the
+//    internal consistency. You need to maintain all variables have some sane
+//    value even after an error occurred. So, when you have to continue with
+//    some value, always use a dummy value.
+//
+//  - Find a reasonable checkpoint at where you want to stop the linker, and
+//    add code to return from the function if errorCount() > 0. In most cases,
+//    a checkpoint already exists, so you don't need to do anything for this.
+//
+// This interface satisfies all the goals that we mentioned above.
+//
+// You should never call fatal() except for reporting a corrupted input file.
+// fatal() immediately terminates the linker, so the function is not desirable
+// if you are using lld as a subroutine in other program, and with that you
+// can find only one error at a time.
+//
+// warn() doesn't do anything but printing out a given message.
+//
+// It is not recommended to use llvm::outs() or llvm::errs() directly in lld
+// because they are not thread-safe. The functions declared in this file are
+// thread-safe.
 //
 //===----------------------------------------------------------------------===//
 
@@ -33,6 +74,10 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/FileOutputBuffer.h"
+
+namespace llvm {
+class DiagnosticInfo;
+}
 
 namespace lld {
 
@@ -73,6 +118,9 @@ inline void warn(const Twine &Msg) { errorHandler().warn(Msg); }
 inline uint64_t errorCount() { return errorHandler().ErrorCount; }
 
 LLVM_ATTRIBUTE_NORETURN void exitLld(int Val);
+
+void diagnosticHandler(const llvm::DiagnosticInfo &DI);
+void checkError(Error E);
 
 // check functions are convenient functions to strip errors
 // from error-or-value objects.

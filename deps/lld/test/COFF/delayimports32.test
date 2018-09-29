@@ -2,7 +2,7 @@
 # RUN: yaml2obj < %p/Inputs/hello32.yaml > %t.obj
 # RUN: lld-link %t.obj %p/Inputs/std32.lib /subsystem:console \
 # RUN:   /entry:main@0 /alternatename:___delayLoadHelper2@8=_main@0 \
-# RUN:   /debug /delayload:std32.dll /out:%t.exe
+# RUN:   /delayload:std32.dll /out:%t.exe
 # RUN: llvm-readobj -coff-imports %t.exe | FileCheck -check-prefix=IMPORT %s
 # RUN: llvm-readobj -coff-basereloc %t.exe | FileCheck -check-prefix=BASEREL %s
 # RUN: llvm-objdump -d %t.exe | FileCheck -check-prefix=DISASM %s
@@ -13,75 +13,75 @@ IMPORT-NEXT: AddressSize: 32bit
 IMPORT-NEXT: DelayImport {
 IMPORT-NEXT:   Name: std32.dll
 IMPORT-NEXT:   Attributes: 0x1
-IMPORT-NEXT:   ModuleHandle: 0x1018
-IMPORT-NEXT:   ImportAddressTable: 0x1020
-IMPORT-NEXT:   ImportNameTable: 0x4040
+IMPORT-NEXT:   ModuleHandle: 0x3018
+IMPORT-NEXT:   ImportAddressTable: 0x3020
+IMPORT-NEXT:   ImportNameTable: 0x2040
 IMPORT-NEXT:   BoundDelayImportTable: 0x0
 IMPORT-NEXT:   UnloadDelayImportTable: 0x0
 IMPORT-NEXT:   Import {
 IMPORT-NEXT:     Symbol: ExitProcess (0)
-IMPORT-NEXT:     Address: 0x402029
+IMPORT-NEXT:     Address: 0x401029
 IMPORT-NEXT:   }
 IMPORT-NEXT:   Import {
 IMPORT-NEXT:     Symbol: MessageBoxA (0)
-IMPORT-NEXT:     Address: 0x40203E
+IMPORT-NEXT:     Address: 0x40103E
 IMPORT-NEXT:   }
 IMPORT-NEXT: }
 
 BASEREL:      BaseReloc [
 BASEREL-NEXT:   Entry {
 BASEREL-NEXT:     Type: HIGHLOW
-BASEREL-NEXT:     Address: 0x1020
+BASEREL-NEXT:     Address: 0x1005
 BASEREL-NEXT:   }
 BASEREL-NEXT:   Entry {
 BASEREL-NEXT:     Type: HIGHLOW
-BASEREL-NEXT:     Address: 0x1024
+BASEREL-NEXT:     Address: 0x100C
 BASEREL-NEXT:   }
 BASEREL-NEXT:   Entry {
 BASEREL-NEXT:     Type: HIGHLOW
-BASEREL-NEXT:     Address: 0x2005
+BASEREL-NEXT:     Address: 0x101F
 BASEREL-NEXT:   }
 BASEREL-NEXT:   Entry {
 BASEREL-NEXT:     Type: HIGHLOW
-BASEREL-NEXT:     Address: 0x200C
+BASEREL-NEXT:     Address: 0x1025
 BASEREL-NEXT:   }
 BASEREL-NEXT:   Entry {
 BASEREL-NEXT:     Type: HIGHLOW
-BASEREL-NEXT:     Address: 0x201F
+BASEREL-NEXT:     Address: 0x102C
 BASEREL-NEXT:   }
 BASEREL-NEXT:   Entry {
 BASEREL-NEXT:     Type: HIGHLOW
-BASEREL-NEXT:     Address: 0x2025
+BASEREL-NEXT:     Address: 0x1031
 BASEREL-NEXT:   }
 BASEREL-NEXT:   Entry {
 BASEREL-NEXT:     Type: HIGHLOW
-BASEREL-NEXT:     Address: 0x202C
+BASEREL-NEXT:     Address: 0x1041
 BASEREL-NEXT:   }
 BASEREL-NEXT:   Entry {
 BASEREL-NEXT:     Type: HIGHLOW
-BASEREL-NEXT:     Address: 0x2031
+BASEREL-NEXT:     Address: 0x1046
 BASEREL-NEXT:   }
 BASEREL-NEXT:   Entry {
 BASEREL-NEXT:     Type: HIGHLOW
-BASEREL-NEXT:     Address: 0x2041
+BASEREL-NEXT:     Address: 0x3020
 BASEREL-NEXT:   }
 BASEREL-NEXT:   Entry {
 BASEREL-NEXT:     Type: HIGHLOW
-BASEREL-NEXT:     Address: 0x2046
+BASEREL-NEXT:     Address: 0x3024
 BASEREL-NEXT:   }
 BASEREL-NEXT: ]
 
-DISASM:      202b:      68 20 10 40 00  pushl   $4198432
-DISASM-NEXT: 2030:      68 00 40 40 00  pushl   $4210688
-DISASM-NEXT: 2035:      e8 c6 ff ff ff  calll   -58 <.text>
-DISASM-NEXT: 203a:      5a      popl    %edx
-DISASM-NEXT: 203b:      59      popl    %ecx
-DISASM-NEXT: 203c:      ff e0   jmpl    *%eax
-DISASM-NEXT: 203e:      51      pushl   %ecx
-DISASM-NEXT: 203f:      52      pushl   %edx
-DISASM-NEXT: 2040:      68 24 10 40 00  pushl   $4198436
-DISASM-NEXT: 2045:      68 00 40 40 00  pushl   $4210688
-DISASM-NEXT: 204a:      e8 b1 ff ff ff  calll   -79 <.text>
-DISASM-NEXT: 204f:      5a      popl    %edx
-DISASM-NEXT: 2050:      59      popl    %ecx
-DISASM-NEXT: 2051:      ff e0   jmpl    *%eax
+DISASM:      102b:      68 20 30 40 00  pushl   $4206624
+DISASM-NEXT: 1030:      68 00 20 40 00  pushl   $4202496
+DISASM-NEXT: 1035:      e8 c6 ff ff ff  calll   -58 <.text>
+DISASM-NEXT: 103a:      5a      popl    %edx
+DISASM-NEXT: 103b:      59      popl    %ecx
+DISASM-NEXT: 103c:      ff e0   jmpl    *%eax
+DISASM-NEXT: 103e:      51      pushl   %ecx
+DISASM-NEXT: 103f:      52      pushl   %edx
+DISASM-NEXT: 1040:      68 24 30 40 00  pushl   $4206628
+DISASM-NEXT: 1045:      68 00 20 40 00  pushl   $4202496
+DISASM-NEXT: 104a:      e8 b1 ff ff ff  calll   -79 <.text>
+DISASM-NEXT: 104f:      5a      popl    %edx
+DISASM-NEXT: 1050:      59      popl    %ecx
+DISASM-NEXT: 1051:      ff e0   jmpl    *%eax

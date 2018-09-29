@@ -3,27 +3,27 @@ RUN:   21 22 2>&1 | FileCheck -check-prefix=DEFAULT %s
 
 DEFAULT:      could not open 01
 DEFAULT:      could not open 20
-DEFAULT-NEXT: too many errors emitted, stopping now (use /ERRORLIMIT:0 to see all errors)
+DEFAULT-NEXT: too many errors emitted, stopping now (use /errorlimit:0 to see all errors)
 DEFAULT-NOT:  could not open 21
 
-RUN: not lld-link /ERRORLIMIT:5 01 02 03 04 05 06 07 08 09 10 2>&1 \
+RUN: not lld-link /errorlimit:5 01 02 03 04 05 06 07 08 09 10 2>&1 \
 RUN:   | FileCheck -check-prefix=LIMIT5 %s
 
 LIMIT5:      could not open 01
 LIMIT5:      could not open 05
-LIMIT5-NEXT: too many errors emitted, stopping now (use /ERRORLIMIT:0 to see all errors)
+LIMIT5-NEXT: too many errors emitted, stopping now (use /errorlimit:0 to see all errors)
 LIMIT5-NOT:  could not open 06
 
-RUN: not lld-link /ERRORLIMIT:0 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 \
+RUN: not lld-link /errorlimit:0 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 \
 RUN:   16 17 18 19 20 21 22 2>&1 | FileCheck -check-prefix=UNLIMITED %s
 
 UNLIMITED:     could not open 01
 UNLIMITED:     could not open 20
 UNLIMITED:     could not open 21
 UNLIMITED:     could not open 22
-UNLIMITED-NOT: too many errors emitted, stopping now (use /ERRORLIMIT:0 to see all errors)
+UNLIMITED-NOT: too many errors emitted, stopping now (use /errorlimit:0 to see all errors)
 
-RUN: not lld-link /ERRORLIMIT:XYZ 01 02 03 04 05 06 07 08 09 10 11 12 13 14 \
+RUN: not lld-link /errorlimit:XYZ 01 02 03 04 05 06 07 08 09 10 11 12 13 14 \
 RUN:   15 16 17 18 19 20 21 22 2>&1 | FileCheck -check-prefix=WRONG %s
 
-WRONG:      /ERRORLIMIT: number expected, but got XYZ
+WRONG:      /errorlimit: number expected, but got XYZ

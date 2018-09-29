@@ -1,3 +1,28 @@
+test "zig fmt: shebang line" {
+    try testCanonical(
+        \\#!/usr/bin/env zig
+        \\pub fn main() void {}
+        \\
+    );
+}
+
+test "zig fmt: correctly move doc comments on struct fields" {
+    try testTransform(
+        \\pub const section_64 = extern struct {
+        \\    sectname: [16]u8, /// name of this section
+        \\    segname: [16]u8,  /// segment this section goes in
+        \\};
+    ,
+        \\pub const section_64 = extern struct {
+        \\    /// name of this section
+        \\    sectname: [16]u8,
+        \\    /// segment this section goes in
+        \\    segname: [16]u8,
+        \\};
+        \\
+    );
+}
+
 test "zig fmt: preserve space between async fn definitions" {
     try testCanonical(
         \\async fn a() void {}
@@ -898,11 +923,11 @@ test "zig fmt: union(enum(u32)) with assigned enum values" {
     );
 }
 
-test "zig fmt: labeled suspend" {
+test "zig fmt: resume from suspend block" {
     try testCanonical(
         \\fn foo() void {
-        \\    s: suspend |p| {
-        \\        break :s;
+        \\    suspend {
+        \\        resume @handle();
         \\    }
         \\}
         \\
@@ -1337,7 +1362,7 @@ test "zig fmt: indexing" {
 test "zig fmt: struct declaration" {
     try testCanonical(
         \\const S = struct {
-        \\    const Self = this;
+        \\    const Self = @This();
         \\    f1: u8,
         \\    pub f3: u8,
         \\
@@ -1784,7 +1809,7 @@ test "zig fmt: coroutines" {
         \\    x += 1;
         \\    suspend;
         \\    x += 1;
-        \\    suspend |p| {}
+        \\    suspend;
         \\    const p: promise->void = async simpleAsyncFn() catch unreachable;
         \\    await p;
         \\}
@@ -1848,7 +1873,7 @@ var fixed_buffer_mem: [100 * 1024]u8 = undefined;
 
 fn testParse(source: []const u8, allocator: *mem.Allocator, anything_changed: *bool) ![]u8 {
     var stderr_file = try io.getStdErr();
-    var stderr = &io.FileOutStream.init(&stderr_file).stream;
+    var stderr = &io.FileOutStream.init(stderr_file).stream;
 
     var tree = try std.zig.parse(allocator, source);
     defer tree.deinit();

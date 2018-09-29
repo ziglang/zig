@@ -28,4 +28,10 @@ pub fn addCases(cases: *tests.BuildExamplesContext) void {
         // TODO figure out how to make this work on darwin - probably libSystem has dlopen/dlsym in it
         cases.addBuildFile("test/standalone/load_dynamic_library/build.zig");
     }
+
+    if (!is_windows // TODO support compiling C files on windows with zig build system
+        and builtin.arch == builtin.Arch.x86_64 // TODO add C ABI support for other architectures
+    ) {
+        cases.addBuildFile("test/stage1/c_abi/build.zig");
+    }
 }

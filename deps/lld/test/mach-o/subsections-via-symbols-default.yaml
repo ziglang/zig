@@ -1,4 +1,4 @@
-# RUN: lld -flavor darwin -ios_simulator_version_min 5.0 -arch x86_64 -r %s -o %t
+# RUN: ld64.lld -ios_simulator_version_min 5.0 -arch x86_64 -r %s -o %t
 # RUN: llvm-readobj -file-headers %t | FileCheck %s
 
 # Make sure that we have an objc image info in the output.  It should have

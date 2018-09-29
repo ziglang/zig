@@ -1,3 +1,4 @@
+// REQUIRES: arm
 // RUN: llvm-mc -filetype=obj -triple=thumbv7a-none-linux-gnueabi %s -o %t
 // RUN: llvm-mc -filetype=obj -triple=thumbv7a-none-linux-gnueabi %S/Inputs/arm-thumb-blx-targets.s -o %ttarget
 // RUN: echo "SECTIONS { \
@@ -9,7 +10,6 @@
 // RUN: ld.lld --script %t.script %t %ttarget -o %t2 2>&1
 // RUN: llvm-objdump -d -triple=thumbv7a-none-linux-gnueabi %t2 | FileCheck -check-prefix=CHECK-THUMB %s
 // RUN: llvm-objdump -d -triple=armv7a-none-linux-gnueabi %t2 | FileCheck -check-prefix=CHECK-ARM %s
-// REQUIRES: arm
 // Test BLX instruction is chosen for Thumb BL/BLX instruction and ARM callee
 // 2 byte nops are used to test the pc-rounding behaviour. As a BLX from a
 // 2 byte aligned destination is defined as Align(PC,4) + immediate:00

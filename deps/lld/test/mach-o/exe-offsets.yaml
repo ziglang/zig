@@ -1,4 +1,4 @@
-# RUN: lld -flavor darwin -arch x86_64 %s -o %t -e start %p/Inputs/x86_64/libSystem.yaml
+# RUN: ld64.lld -arch x86_64 %s -o %t -e start %p/Inputs/x86_64/libSystem.yaml
 # RUN: llvm-readobj -sections %t | FileCheck %s
 
 # Make sure data gets put at offset

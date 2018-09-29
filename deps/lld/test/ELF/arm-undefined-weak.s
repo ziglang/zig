@@ -1,7 +1,7 @@
+// REQUIRES: arm
 // RUN: llvm-mc -filetype=obj -triple=armv7a-none-linux-gnueabi %s -o %t
 // RUN: ld.lld %t -o %t2 2>&1
 // RUN: llvm-objdump -triple=armv7a-none-linux-gnueabi -d %t2 | FileCheck %s
-// REQUIRES: arm
 
 // Check that the ARM ABI rules for undefined weak symbols are applied.
 // Branch instructions are resolved to the next instruction. Undefined

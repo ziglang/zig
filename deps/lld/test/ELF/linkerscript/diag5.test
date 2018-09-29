@@ -1,0 +1,14 @@
+# REQUIRES: x86
+# RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux /dev/null -o %t.o
+# RUN: echo "INCLUDE \"%s\"" > %t.script
+# RUN: not ld.lld -shared %t.o -o %t --script %t.script 2>&1 | FileCheck -strict-whitespace %s
+
+SECTIONS {
+  .text : { *(.text) }
+  .keep : { *(.keep) }
+  boom .temp : { *(.temp) }
+}
+
+# CHECK:      9: malformed number: .temp
+# CHECK-NEXT: >>>   boom .temp : { *(.temp) }
+# CHECK-NEXT: >>>        ^

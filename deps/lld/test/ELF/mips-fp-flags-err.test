@@ -1,0 +1,162 @@
+# REQUIRES: mips
+#
+# Check warning and errors in case of input
+# files with incompatible floating point ABI flags.
+
+# RUN: yaml2obj -docnum 1 %s -o %t-dbl.o
+# RUN: yaml2obj -docnum 2 %s -o %t-sgl.o
+# RUN: yaml2obj -docnum 3 %s -o %t-soft.o
+# RUN: yaml2obj -docnum 4 %s -o %t-fp64.o
+# RUN: yaml2obj -docnum 5 %s -o %t-fp64old.o
+# RUN: yaml2obj -docnum 6 %s -o %t-fp64a.o
+# RUN: yaml2obj -docnum 7 %s -o %t-fpxx.o
+
+# RUN: not ld.lld %t-dbl.o %t-fp64.o -shared -o /dev/null 2>&1 \
+# RUN:   | FileCheck -check-prefixes=DBLFP64 %s
+
+# RUN: not ld.lld %t-sgl.o %t-fp64old.o -shared -o /dev/null 2>&1 \
+# RUN:   | FileCheck -check-prefixes=SGLFP64OLD %s
+
+# RUN: not ld.lld %t-soft.o %t-fp64a.o -shared -o /dev/null 2>&1 \
+# RUN:   | FileCheck -check-prefixes=SOFTFP64A %s
+
+# RUN: not ld.lld %t-sgl.o %t-fpxx.o -shared -o /dev/null 2>&1 \
+# RUN:   | FileCheck -check-prefixes=SGLFPXX %s
+
+# DBLFP64: {{.*}}fp64.o: floating point ABI '-mgp32 -mfp64' is incompatible with target floating point ABI '-mdouble-float'
+# SGLFP64OLD: {{.*}}fp64old.o: floating point ABI '-mgp32 -mfp64 (old)' is incompatible with target floating point ABI '-msingle-float'
+# SOFTFP64A: {{.*}}fp64a.o: floating point ABI '-mgp32 -mfp64  -mno-odd-spreg' is incompatible with target floating point ABI '-msoft-float'
+# SGLFPXX: {{.*}}fpxx.o: floating point ABI '-mfpxx' is incompatible with target floating point ABI '-msingle-float'
+
+# dbl.o
+--- !ELF
+FileHeader:
+  Class:    ELFCLASS64
+  Data:     ELFDATA2MSB
+  Type:     ET_REL
+  Machine:  EM_MIPS
+  Flags:    [ EF_MIPS_ARCH_64 ]
+
+Sections:
+- Name: .MIPS.abiflags
+  Type: SHT_MIPS_ABIFLAGS
+  ISA:          MIPS64
+  ASEs:         []
+  FpABI:        FP_DOUBLE
+  GPRSize:      REG_64
+  CPR1Size:     REG_64
+  CPR2Size:     REG_NONE
+
+# sgl.o
+--- !ELF
+FileHeader:
+  Class:    ELFCLASS64
+  Data:     ELFDATA2MSB
+  Type:     ET_REL
+  Machine:  EM_MIPS
+  Flags:    [ EF_MIPS_ARCH_64 ]
+
+Sections:
+- Name: .MIPS.abiflags
+  Type: SHT_MIPS_ABIFLAGS
+  ISA:          MIPS64
+  ASEs:         []
+  FpABI:        FP_SINGLE
+  GPRSize:      REG_64
+  CPR1Size:     REG_64
+  CPR2Size:     REG_NONE
+
+# soft.o
+--- !ELF
+FileHeader:
+  Class:    ELFCLASS64
+  Data:     ELFDATA2MSB
+  Type:     ET_REL
+  Machine:  EM_MIPS
+  Flags:    [ EF_MIPS_ARCH_64 ]
+
+Sections:
+- Name: .MIPS.abiflags
+  Type: SHT_MIPS_ABIFLAGS
+  ISA:          MIPS64
+  ASEs:         []
+  FpABI:        FP_SOFT
+  GPRSize:      REG_64
+  CPR1Size:     REG_64
+  CPR2Size:     REG_NONE
+
+# fp64.o
+--- !ELF
+FileHeader:
+  Class:    ELFCLASS64
+  Data:     ELFDATA2MSB
+  Type:     ET_REL
+  Machine:  EM_MIPS
+  Flags:    [ EF_MIPS_ARCH_64 ]
+
+Sections:
+- Name: .MIPS.abiflags
+  Type: SHT_MIPS_ABIFLAGS
+  ISA:          MIPS64
+  ASEs:         []
+  FpABI:        FP_64
+  GPRSize:      REG_64
+  CPR1Size:     REG_64
+  CPR2Size:     REG_NONE
+
+# fp64old.o
+--- !ELF
+FileHeader:
+  Class:    ELFCLASS64
+  Data:     ELFDATA2MSB
+  Type:     ET_REL
+  Machine:  EM_MIPS
+  Flags:    [ EF_MIPS_ARCH_64 ]
+
+Sections:
+- Name: .MIPS.abiflags
+  Type: SHT_MIPS_ABIFLAGS
+  ISA:          MIPS64
+  ASEs:         []
+  FpABI:        FP_OLD_64
+  GPRSize:      REG_64
+  CPR1Size:     REG_64
+  CPR2Size:     REG_NONE
+
+# fp64a.o
+--- !ELF
+FileHeader:
+  Class:    ELFCLASS64
+  Data:     ELFDATA2MSB
+  Type:     ET_REL
+  Machine:  EM_MIPS
+  Flags:    [ EF_MIPS_ARCH_64 ]
+
+Sections:
+- Name: .MIPS.abiflags
+  Type: SHT_MIPS_ABIFLAGS
+  ISA:          MIPS64
+  ASEs:         []
+  FpABI:        FP_64A
+  GPRSize:      REG_64
+  CPR1Size:     REG_64
+  CPR2Size:     REG_NONE
+
+# fpxx.o
+--- !ELF
+FileHeader:
+  Class:    ELFCLASS64
+  Data:     ELFDATA2MSB
+  Type:     ET_REL
+  Machine:  EM_MIPS
+  Flags:    [ EF_MIPS_ARCH_64 ]
+
+Sections:
+- Name: .MIPS.abiflags
+  Type: SHT_MIPS_ABIFLAGS
+  ISA:          MIPS64
+  ASEs:         []
+  FpABI:        FP_XX
+  GPRSize:      REG_64
+  CPR1Size:     REG_64
+  CPR2Size:     REG_NONE

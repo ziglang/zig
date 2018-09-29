@@ -2,6 +2,565 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "compile error when evaluating return type of inferred error set",
+        \\const Car = struct {
+        \\    foo: *SymbolThatDoesNotExist,
+        \\    pub fn init() !Car {}
+        \\};
+        \\export fn entry() void {
+        \\    const car = Car.init();
+        \\}
+    ,
+        ".tmp_source.zig:2:11: error: use of undeclared identifier 'SymbolThatDoesNotExist'",
+    );
+
+    cases.add(
+        "don't implicit cast double pointer to *c_void",
+        \\export fn entry() void {
+        \\    var a: u32 = 1;
+        \\    var ptr: *c_void = &a;
+        \\    var b: *u32 = @ptrCast(*u32, ptr);
+        \\    var ptr2: *c_void = &b;
+        \\}
+    ,
+        ".tmp_source.zig:5:26: error: expected type '*c_void', found '**u32'",
+    );
+
+    cases.add(
+        "runtime index into comptime type slice",
+        \\const Struct = struct {
+        \\    a: u32,
+        \\};
+        \\fn getIndex() usize {
+        \\    return 2;
+        \\}
+        \\export fn entry() void {
+        \\    const index = getIndex();
+        \\    const field = @typeInfo(Struct).Struct.fields[index];
+        \\}
+    ,
+        ".tmp_source.zig:9:51: error: values of type 'StructField' must be comptime known, but index value is runtime known",
+    );
+
+    cases.add(
+        "compile log statement inside function which must be comptime evaluated",
+        \\fn Foo(comptime T: type) type {
+        \\    @compileLog(@typeName(T));
+        \\    return T;
+        \\}
+        \\export fn entry() void {
+        \\    _ = Foo(i32);
+        \\    _ = @typeName(Foo(i32));
+        \\}
+    ,
+        ".tmp_source.zig:2:5: error: found compile log statement",
+    );
+
+    cases.add(
+        "comptime slice of an undefined slice",
+        \\comptime {
+        \\    var a: []u8 = undefined;
+        \\    var b = a[0..10];
+        \\}
+    ,
+        ".tmp_source.zig:3:14: error: slice of undefined",
+    );
+
+    cases.add(
+        "implicit cast const array to mutable slice",
+        \\export fn entry() void {
+        \\    const buffer: [1]u8 = []u8{8};
+        \\    const sliceA: []u8 = &buffer;
+        \\}
+    ,
+        ".tmp_source.zig:3:27: error: expected type '[]u8', found '*const [1]u8'",
+    );
+
+    cases.add(
+        "deref slice and get len field",
+        \\export fn entry() void {
+        \\    var a: []u8 = undefined;
+        \\    _ = a.*.len;
+        \\}
+    ,
+        ".tmp_source.zig:3:12: error: attempt to dereference non-pointer type '[]u8'",
+    );
+
+    cases.add(
+        "@ptrCast a 0 bit type to a non- 0 bit type",
+        \\export fn entry() bool {
+        \\    var x: u0 = 0;
+        \\    const p = @ptrCast(?*u0, &x);
+        \\    return p == null;
+        \\}
+    ,
+        ".tmp_source.zig:3:15: error: '*u0' and '?*u0' do not have the same in-memory representation",
+        ".tmp_source.zig:3:31: note: '*u0' has no in-memory bits",
+        ".tmp_source.zig:3:24: note: '?*u0' has in-memory bits",
+    );
+
+    cases.add(
+        "comparing a non-optional pointer against null",
+        \\export fn entry() void {
+        \\    var x: i32 = 1;
+        \\    _ = &x == null;
+        \\}
+    ,
+        ".tmp_source.zig:3:12: error: comparison against null can only be done with optionals",
+    );
+
+    cases.add(
+        "non error sets used in merge error sets operator",
+        \\export fn foo() void {
+        \\    const Errors = u8 || u16;
+        \\}
+        \\export fn bar() void {
+        \\    const Errors = error{} || u16;
+        \\}
+    ,
+        ".tmp_source.zig:2:20: error: expected error set type, found 'u8'",
+        ".tmp_source.zig:5:31: error: expected error set type, found 'u16'",
+    );
+
+    cases.add(
+        "variable initialization compile error then referenced",
+        \\fn Undeclared() type {
+        \\    return T;
+        \\}
+        \\fn Gen() type {
+        \\    const X = Undeclared();
+        \\    return struct {
+        \\        x: X,
+        \\    };
+        \\}
+        \\export fn entry() void {
+        \\    const S = Gen();
+        \\}
+    ,
+        ".tmp_source.zig:2:12: error: use of undeclared identifier 'T'",
+    );
+
+    cases.add(
+        "refer to the type of a generic function",
+        \\export fn entry() void {
+        \\    const Func = fn (type) void;
+        \\    const f: Func = undefined;
+        \\    f(i32);
+        \\}
+    ,
+        ".tmp_source.zig:4:5: error: use of undefined value",
+    );
+
+    cases.add(
+        "accessing runtime parameter from outer function",
+        \\fn outer(y: u32) fn (u32) u32 {
+        \\    const st = struct {
+        \\        fn get(z: u32) u32 {
+        \\            return z + y;
+        \\        }
+        \\    };
+        \\    return st.get;
+        \\}
+        \\export fn entry() void {
+        \\    var func = outer(10);
+        \\    var x = func(3);
+        \\}
+    ,
+        ".tmp_source.zig:4:24: error: 'y' not accessible from inner function",
+        ".tmp_source.zig:3:28: note: crossed function definition here",
+        ".tmp_source.zig:1:10: note: declared here",
+    );
+
+    cases.add(
+        "non int passed to @intToFloat",
+        \\export fn entry() void {
+        \\    const x = @intToFloat(f32, 1.1);
+        \\}
+    ,
+        ".tmp_source.zig:2:32: error: expected int type, found 'comptime_float'",
+    );
+
+    cases.add(
+        "non float passed to @floatToInt",
+        \\export fn entry() void {
+        \\    const x = @floatToInt(i32, i32(54));
+        \\}
+    ,
+        ".tmp_source.zig:2:35: error: expected float type, found 'i32'",
+    );
+
+    cases.add(
+        "out of range comptime_int passed to @floatToInt",
+        \\export fn entry() void {
+        \\    const x = @floatToInt(i8, 200);
+        \\}
+    ,
+        ".tmp_source.zig:2:31: error: integer value 200 cannot be implicitly casted to type 'i8'",
+    );
+
+    cases.add(
+        "load too many bytes from comptime reinterpreted pointer",
+        \\export fn entry() void {
+        \\    const float: f32 = 5.99999999999994648725e-01;
+        \\    const float_ptr = &float;
+        \\    const int_ptr = @ptrCast(*const i64, float_ptr);
+        \\    const int_val = int_ptr.*;
+        \\}
+    ,
+        ".tmp_source.zig:5:28: error: attempt to read 8 bytes from pointer to f32 which is 4 bytes",
+    );
+
+    cases.add(
+        "invalid type used in array type",
+        \\const Item = struct {
+        \\    field: SomeNonexistentType,
+        \\};
+        \\var items: [100]Item = undefined;
+        \\export fn entry() void {
+        \\    const a = items[0];
+        \\}
+    ,
+        ".tmp_source.zig:2:12: error: use of undeclared identifier 'SomeNonexistentType'",
+    );
+
+    cases.add(
+        "@noInlineCall on an inline function",
+        \\inline fn foo() void {}
+        \\
+        \\export fn entry() void {
+        \\    @noInlineCall(foo);
+        \\}
+    ,
+        ".tmp_source.zig:4:5: error: no-inline call of inline function",
+    );
+
+    cases.add(
+        "comptime continue inside runtime switch",
+        \\export fn entry() void {
+        \\    var p: i32 = undefined;
+        \\    comptime var q = true;
+        \\    inline while (q) {
+        \\        switch (p) {
+        \\            11 => continue,
+        \\            else => {},
+        \\        }
+        \\        q = false;
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:6:19: error: comptime control flow inside runtime block",
+        ".tmp_source.zig:5:9: note: runtime block created here",
+    );
+
+    cases.add(
+        "comptime continue inside runtime while error",
+        \\export fn entry() void {
+        \\    var p: error!usize = undefined;
+        \\    comptime var q = true;
+        \\    outer: inline while (q) {
+        \\        while (p) |_| {
+        \\            continue :outer;
+        \\        } else |_| {}
+        \\        q = false;
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:6:13: error: comptime control flow inside runtime block",
+        ".tmp_source.zig:5:9: note: runtime block created here",
+    );
+
+    cases.add(
+        "comptime continue inside runtime while optional",
+        \\export fn entry() void {
+        \\    var p: ?usize = undefined;
+        \\    comptime var q = true;
+        \\    outer: inline while (q) {
+        \\        while (p) |_| continue :outer;
+        \\        q = false;
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:5:23: error: comptime control flow inside runtime block",
+        ".tmp_source.zig:5:9: note: runtime block created here",
+    );
+
+    cases.add(
+        "comptime continue inside runtime while bool",
+        \\export fn entry() void {
+        \\    var p: usize = undefined;
+        \\    comptime var q = true;
+        \\    outer: inline while (q) {
+        \\        while (p == 11) continue :outer;
+        \\        q = false;
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:5:25: error: comptime control flow inside runtime block",
+        ".tmp_source.zig:5:9: note: runtime block created here",
+    );
+
+    cases.add(
+        "comptime continue inside runtime if error",
+        \\export fn entry() void {
+        \\    var p: error!i32 = undefined;
+        \\    comptime var q = true;
+        \\    inline while (q) {
+        \\        if (p) |_| continue else |_| {}
+        \\        q = false;
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:5:20: error: comptime control flow inside runtime block",
+        ".tmp_source.zig:5:9: note: runtime block created here",
+    );
+
+    cases.add(
+        "comptime continue inside runtime if optional",
+        \\export fn entry() void {
+        \\    var p: ?i32 = undefined;
+        \\    comptime var q = true;
+        \\    inline while (q) {
+        \\        if (p) |_| continue;
+        \\        q = false;
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:5:20: error: comptime control flow inside runtime block",
+        ".tmp_source.zig:5:9: note: runtime block created here",
+    );
+
+    cases.add(
+        "comptime continue inside runtime if bool",
+        \\export fn entry() void {
+        \\    var p: usize = undefined;
+        \\    comptime var q = true;
+        \\    inline while (q) {
+        \\        if (p == 11) continue;
+        \\        q = false;
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:5:22: error: comptime control flow inside runtime block",
+        ".tmp_source.zig:5:9: note: runtime block created here",
+    );
+
+    cases.add(
+        "switch with invalid expression parameter",
+        \\export fn entry() void {
+        \\    Test(i32);
+        \\}
+        \\fn Test(comptime T: type) void {
+        \\    const x = switch (T) {
+        \\        []u8 => |x| 123,
+        \\        i32 => |x| 456,
+        \\        else => unreachable,
+        \\    };
+        \\}
+    ,
+        ".tmp_source.zig:7:17: error: switch on type 'type' provides no expression parameter",
+    );
+
+    cases.add(
+        "function protoype with no body",
+        \\fn foo() void;
+        \\export fn entry() void {
+        \\    foo();
+        \\}
+    ,
+        ".tmp_source.zig:1:1: error: non-extern function has no body",
+    );
+
+    cases.add(
+        "@typeInfo causing depend on itself compile error",
+        \\const start = struct {
+        \\    fn crash() bug() {
+        \\        return bug;
+        \\    }
+        \\};
+        \\fn bug() void {
+        \\    _ = @typeInfo(start).Struct;
+        \\}
+        \\export fn entry() void {
+        \\    var boom = start.crash();
+        \\}
+    ,
+        ".tmp_source.zig:2:5: error: 'crash' depends on itself",
+    );
+
+    cases.add(
+        "@handle() called outside of function definition",
+        \\var handle_undef: promise = undefined;
+        \\var handle_dummy: promise = @handle();
+        \\export fn entry() bool {
+        \\    return handle_undef == handle_dummy;
+        \\}
+    ,
+        ".tmp_source.zig:2:29: error: @handle() called outside of function definition",
+    );
+
+    cases.add(
+        "@handle() in non-async function",
+        \\export fn entry() bool {
+        \\    var handle_undef: promise = undefined;
+        \\    return handle_undef == @handle();
+        \\}
+    ,
+        ".tmp_source.zig:3:28: error: @handle() in non-async function",
+    );
+
+    cases.add(
+        "`_` is not a declarable symbol",
+        \\export fn f1() usize {
+        \\    var _: usize = 2;
+        \\    return _;
+        \\}
+    ,
+        ".tmp_source.zig:2:5: error: `_` is not a declarable symbol",
+        ".tmp_source.zig:3:12: error: use of undeclared identifier '_'",
+    );
+
+    cases.add(
+        "`_` should not be usable inside for",
+        \\export fn returns() void {
+        \\    for ([]void{}) |_, i| {
+        \\        for ([]void{}) |_, j| {
+        \\            return _;
+        \\        }
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:4:20: error: use of undeclared identifier '_'",
+    );
+
+    cases.add(
+        "`_` should not be usable inside while",
+        \\export fn returns() void {
+        \\    while (optionalReturn()) |_| {
+        \\        while (optionalReturn()) |_| {
+        \\            return _;
+        \\        }
+        \\    }
+        \\}
+        \\fn optionalReturn() ?u32 {
+        \\    return 1;
+        \\}
+    ,
+        ".tmp_source.zig:4:20: error: use of undeclared identifier '_'",
+    );
+
+    cases.add(
+        "`_` should not be usable inside while else",
+        \\export fn returns() void {
+        \\    while (optionalReturnError()) |_| {
+        \\        while (optionalReturnError()) |_| {
+        \\            return;
+        \\        } else |_| {
+        \\            if (_ == error.optionalReturnError) return;
+        \\        }
+        \\    }
+        \\}
+        \\fn optionalReturnError() !?u32 {
+        \\    return error.optionalReturnError;
+        \\}
+    ,
+        ".tmp_source.zig:6:17: error: use of undeclared identifier '_'",
+    );
+
+    cases.add(
+        "while loop body expression ignored",
+        \\fn returns() usize {
+        \\    return 2;
+        \\}
+        \\export fn f1() void {
+        \\    while (true) returns();
+        \\}
+        \\export fn f2() void {
+        \\    var x: ?i32 = null;
+        \\    while (x) |_| returns();
+        \\}
+        \\export fn f3() void {
+        \\    var x: error!i32 = error.Bad;
+        \\    while (x) |_| returns() else |_| unreachable;
+        \\}
+    ,
+        ".tmp_source.zig:5:25: error: expression value is ignored",
+        ".tmp_source.zig:9:26: error: expression value is ignored",
+        ".tmp_source.zig:13:26: error: expression value is ignored",
+    );
+
+    cases.add(
+        "missing parameter name of generic function",
+        \\fn dump(var) void {}
+        \\export fn entry() void {
+        \\    var a: u8 = 9;
+        \\    dump(a);
+        \\}
+    ,
+        ".tmp_source.zig:1:9: error: missing parameter name",
+    );
+
+    cases.add(
+        "non-inline for loop on a type that requires comptime",
+        \\const Foo = struct {
+        \\    name: []const u8,
+        \\    T: type,
+        \\};
+        \\export fn entry() void {
+        \\    const xx: [2]Foo = undefined;
+        \\    for (xx) |f| {}
+        \\}
+    ,
+        ".tmp_source.zig:7:15: error: variable of type 'Foo' must be const or comptime",
+    );
+
+    cases.add(
+        "generic fn as parameter without comptime keyword",
+        \\fn f(_: fn (var) void) void {}
+        \\fn g(_: var) void {}
+        \\export fn entry() void {
+        \\    f(g);
+        \\}
+    ,
+        ".tmp_source.zig:1:9: error: parameter of type 'fn(var)var' must be declared comptime",
+    );
+
+    cases.add(
+        "optional pointer to void in extern struct",
+        \\comptime {
+        \\    _ = @IntType(false, @maxValue(u32) + 1);
+        \\}
+    ,
+        ".tmp_source.zig:2:40: error: integer value 4294967296 cannot be implicitly casted to type 'u32'",
+    );
+
+    cases.add(
+        "optional pointer to void in extern struct",
+        \\const Foo = extern struct {
+        \\    x: ?*const void,
+        \\};
+        \\const Bar = extern struct {
+        \\    foo: Foo,
+        \\    y: i32,
+        \\};
+        \\export fn entry(bar: *Bar) void {}
+    ,
+        ".tmp_source.zig:2:5: error: extern structs cannot contain fields of type '?*const void'",
+    );
+
+    cases.add(
+        "use of comptime-known undefined function value",
+        \\const Cmd = struct {
+        \\    exec: fn () void,
+        \\};
+        \\export fn entry() void {
+        \\    const command = Cmd{ .exec = undefined };
+        \\    command.exec();
+        \\}
+    ,
+        ".tmp_source.zig:6:12: error: use of undefined value",
+    );
+
+    cases.add(
         "use of comptime-known undefined function value",
         \\const Cmd = struct {
         \\    exec: fn () void,
@@ -122,15 +681,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         ".tmp_source.zig:2:20: error: return type cannot be opaque",
-    );
-
-    cases.add(
-        "non int passed to @intToFloat",
-        \\export fn entry() void {
-        \\    const x = @intToFloat(f32, 1.1);
-        \\}
-    ,
-        ".tmp_source.zig:2:32: error: expected int type, found 'comptime_float'",
     );
 
     cases.add(
@@ -273,8 +823,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\
         \\async fn foo() void {
-        \\    suspend |p| {
-        \\        suspend |p1| {
+        \\    suspend {
+        \\        suspend {
         \\        }
         \\    }
         \\}
@@ -862,6 +1412,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\extern fn bar(x: *void) void { }
     ,
+        ".tmp_source.zig:1:30: error: parameter of type '*void' has 0 bits; not allowed in function with calling convention 'ccc'",
         ".tmp_source.zig:7:18: error: parameter of type '*void' has 0 bits; not allowed in function with calling convention 'ccc'",
     );
 
@@ -2410,7 +2961,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a.*;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value",
+        ".tmp_source.zig:3:9: error: attempt to dereference undefined value",
     );
 
     cases.add(
@@ -2976,11 +3527,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         ".tmp_source.zig:5:5: error: found compile log statement",
-        ".tmp_source.zig:2:17: note: called from here",
         ".tmp_source.zig:6:5: error: found compile log statement",
-        ".tmp_source.zig:2:17: note: called from here",
         ".tmp_source.zig:7:5: error: found compile log statement",
-        ".tmp_source.zig:2:17: note: called from here",
     );
 
     cases.add(
@@ -3001,7 +3549,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
     ,
-        ".tmp_source.zig:8:26: error: expected type '*const u3', found '*align(1:3:6) const u3'",
+        ".tmp_source.zig:8:26: error: expected type '*const u3', found '*align(:3:1) const u3'",
     );
 
     cases.add(
@@ -3277,25 +3825,25 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "@offsetOf - non struct",
+        "@byteOffsetOf - non struct",
         \\const Foo = i32;
         \\export fn foo() usize {
-        \\    return @offsetOf(Foo, "a",);
+        \\    return @byteOffsetOf(Foo, "a",);
         \\}
     ,
-        ".tmp_source.zig:3:22: error: expected struct type, found 'i32'",
+        ".tmp_source.zig:3:26: error: expected struct type, found 'i32'",
     );
 
     cases.add(
-        "@offsetOf - bad field name",
+        "@byteOffsetOf - bad field name",
         \\const Foo = struct {
         \\    derp: i32,
         \\};
         \\export fn foo() usize {
-        \\    return @offsetOf(Foo, "a",);
+        \\    return @byteOffsetOf(Foo, "a",);
         \\}
     ,
-        ".tmp_source.zig:5:27: error: struct 'Foo' has no field 'a'",
+        ".tmp_source.zig:5:31: error: struct 'Foo' has no field 'a'",
     );
 
     cases.addExe(
@@ -3370,11 +3918,11 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return struct {
         \\        b: B(),
         \\
-        \\        const Self = this;
+        \\        const Self = @This();
         \\
         \\        fn B() type {
         \\            return struct {
-        \\                const Self = this;
+        \\                const Self = @This();
         \\            };
         \\        }
         \\    };
@@ -3553,8 +4101,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "@setFloatMode twice for same scope",
         \\export fn foo() void {
-        \\    @setFloatMode(this, @import("builtin").FloatMode.Optimized);
-        \\    @setFloatMode(this, @import("builtin").FloatMode.Optimized);
+        \\    @setFloatMode(@import("builtin").FloatMode.Optimized);
+        \\    @setFloatMode(@import("builtin").FloatMode.Optimized);
         \\}
     ,
         ".tmp_source.zig:3:5: error: float mode set twice for same scope",
@@ -3871,12 +4419,11 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\   var a = undefined;
         \\   var b = 1;
         \\   var c = 1.0;
-        \\   var d = this;
-        \\   var e = null;
-        \\   var f = opaque.*;
-        \\   var g = i32;
-        \\   var h = @import("std",);
-        \\   var i = (Foo {}).bar;
+        \\   var d = null;
+        \\   var e = opaque.*;
+        \\   var f = i32;
+        \\   var g = @import("std",);
+        \\   var h = (Foo {}).bar;
         \\
         \\   var z: noreturn = return;
         \\}
@@ -3889,13 +4436,12 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         ".tmp_source.zig:7:4: error: variable of type '(undefined)' must be const or comptime",
         ".tmp_source.zig:8:4: error: variable of type 'comptime_int' must be const or comptime",
         ".tmp_source.zig:9:4: error: variable of type 'comptime_float' must be const or comptime",
-        ".tmp_source.zig:10:4: error: variable of type '(block)' must be const or comptime",
-        ".tmp_source.zig:11:4: error: variable of type '(null)' must be const or comptime",
-        ".tmp_source.zig:12:4: error: variable of type 'Opaque' not allowed",
-        ".tmp_source.zig:13:4: error: variable of type 'type' must be const or comptime",
-        ".tmp_source.zig:14:4: error: variable of type '(namespace)' must be const or comptime",
-        ".tmp_source.zig:15:4: error: variable of type '(bound fn(*const Foo) void)' must be const or comptime",
-        ".tmp_source.zig:17:4: error: unreachable code",
+        ".tmp_source.zig:10:4: error: variable of type '(null)' must be const or comptime",
+        ".tmp_source.zig:11:4: error: variable of type 'Opaque' not allowed",
+        ".tmp_source.zig:12:4: error: variable of type 'type' must be const or comptime",
+        ".tmp_source.zig:13:4: error: variable of type '(namespace)' must be const or comptime",
+        ".tmp_source.zig:14:4: error: variable of type '(bound fn(*const Foo) void)' must be const or comptime",
+        ".tmp_source.zig:16:4: error: unreachable code",
     );
 
     cases.add(
@@ -4600,15 +5146,27 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "taking offset of void field in struct",
+        "taking byte offset of void field in struct",
         \\const Empty = struct {
         \\    val: void,
         \\};
         \\export fn foo() void {
-        \\    const fieldOffset = @offsetOf(Empty, "val",);
+        \\    const fieldOffset = @byteOffsetOf(Empty, "val",);
         \\}
     ,
-        ".tmp_source.zig:5:42: error: zero-bit field 'val' in struct 'Empty' has no offset",
+        ".tmp_source.zig:5:46: error: zero-bit field 'val' in struct 'Empty' has no offset",
+    );
+
+    cases.add(
+        "taking bit offset of void field in struct",
+        \\const Empty = struct {
+        \\    val: void,
+        \\};
+        \\export fn foo() void {
+        \\    const fieldOffset = @bitOffsetOf(Empty, "val",);
+        \\}
+    ,
+        ".tmp_source.zig:5:45: error: zero-bit field 'val' in struct 'Empty' has no offset",
     );
 
     cases.add(

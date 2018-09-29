@@ -2,7 +2,7 @@ const std = @import("index.zig");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
-// Imagine that `fn at(self: &Self, index: usize) &T` is a customer asking for a box
+// Imagine that `fn at(self: *Self, index: usize) &T` is a customer asking for a box
 // from a warehouse, based on a flat array, boxes ordered from 0 to N - 1.
 // But the warehouse actually stores boxes in shelves of increasing powers of 2 sizes.
 // So when the customer requests a box index, we have to translate it to shelf index
@@ -75,7 +75,7 @@ const Allocator = std.mem.Allocator;
 /// size is small. `prealloc_item_count` must be 0, or a power of 2.
 pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type {
     return struct {
-        const Self = this;
+        const Self = @This();
         const prealloc_exp = blk: {
             // we don't use the prealloc_exp constant when prealloc_item_count is 0.
             assert(prealloc_item_count != 0);
@@ -93,6 +93,14 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
 
         pub const prealloc_count = prealloc_item_count;
 
+        fn AtType(comptime SelfType: type) type {
+            if (@typeInfo(SelfType).Pointer.is_const) {
+                return *const T;
+            } else {
+                return *T;
+            }
+        }
+
         /// Deinitialize with `deinit`
         pub fn init(allocator: *Allocator) Self {
             return Self{
@@ -109,7 +117,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
             self.* = undefined;
         }
 
-        pub fn at(self: *Self, i: usize) *T {
+        pub fn at(self: var, i: usize) AtType(@typeOf(self)) {
             assert(i < self.len);
             return self.uncheckedAt(i);
         }
@@ -133,7 +141,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
             if (self.len == 0) return null;
 
             const index = self.len - 1;
-            const result = self.uncheckedAt(index).*;
+            const result = uncheckedAt(self, index).*;
             self.len = index;
             return result;
         }
@@ -141,7 +149,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
         pub fn addOne(self: *Self) !*T {
             const new_length = self.len + 1;
             try self.growCapacity(new_length);
-            const result = self.uncheckedAt(self.len);
+            const result = uncheckedAt(self, self.len);
             self.len = new_length;
             return result;
         }
@@ -193,7 +201,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
             self.dynamic_segments = self.allocator.shrink([*]T, self.dynamic_segments, new_cap_shelf_count);
         }
 
-        pub fn uncheckedAt(self: *Self, index: usize) *T {
+        pub fn uncheckedAt(self: var, index: usize) AtType(@typeOf(self)) {
             if (index < prealloc_item_count) {
                 return &self.prealloc_segment[index];
             }

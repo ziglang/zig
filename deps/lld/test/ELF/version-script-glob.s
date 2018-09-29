@@ -48,7 +48,7 @@ local:
 # CHECK-NEXT: ]
 
 # RUN: echo "{ global : local; local: *; };" > %t1.script
-# RUN: ld.lld -shared --version-script %t1.script %t.o -o %t1.so
+# RUN: ld.lld -shared --version-script %t1.script %t.o -o /dev/null
 
 # LOCAL:      DynamicSymbols [
 # LOCAL-NEXT:   Symbol {

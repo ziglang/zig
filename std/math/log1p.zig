@@ -6,6 +6,7 @@
 // - log1p(x)     = nan if x < -1
 // - log1p(nan)   = nan
 
+const builtin = @import("builtin");
 const std = @import("../index.zig");
 const math = std.math;
 const assert = std.debug.assert;

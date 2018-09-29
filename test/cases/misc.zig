@@ -58,11 +58,6 @@ test "floating point primitive bit counts" {
     assert(f64.bit_count == 64);
 }
 
-const u1 = @IntType(false, 1);
-const u63 = @IntType(false, 63);
-const i1 = @IntType(true, 1);
-const i63 = @IntType(true, 63);
-
 test "@minValue and @maxValue" {
     assert(@maxValue(u1) == 1);
     assert(@maxValue(u8) == 255);
@@ -515,9 +510,6 @@ test "@typeId" {
         assert(@typeId(AUnion) == Tid.Union);
         assert(@typeId(fn () void) == Tid.Fn);
         assert(@typeId(@typeOf(builtin)) == Tid.Namespace);
-        assert(@typeId(@typeOf(x: {
-            break :x this;
-        })) == Tid.Block);
         // TODO bound fn
         // TODO arg tuple
         // TODO opaque
@@ -706,4 +698,19 @@ test "comptime cast fn to ptr" {
 test "equality compare fn ptrs" {
     var a = emptyFn;
     assert(a == a);
+}
+
+test "self reference through fn ptr field" {
+    const S = struct {
+        const A = struct {
+            f: fn (A) u8,
+        };
+
+        fn foo(a: A) u8 {
+            return 12;
+        }
+    };
+    var a: S.A = undefined;
+    a.f = S.foo;
+    assert(a.f(a) == 12);
 }

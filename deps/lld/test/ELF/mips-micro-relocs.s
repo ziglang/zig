@@ -1,3 +1,4 @@
+# REQUIRES: mips
 # Check handling of microMIPS relocations.
 
 # RUN: llvm-mc -filetype=obj -triple=mips-unknown-linux \
@@ -15,8 +16,6 @@
 # RUN: ld.lld -o %tel.exe %t1el.o %t2el.o
 # RUN: llvm-objdump -d -t -mattr=micromips %tel.exe \
 # RUN:   | FileCheck --check-prefixes=EL,SYM %s
-
-# REQUIRES: mips
 
 # EB:      __start:
 # EB-NEXT:      20010:       41 a3 00 01     lui     $3, 1

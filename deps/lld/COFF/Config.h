@@ -10,6 +10,7 @@
 #ifndef LLD_COFF_CONFIG_H
 #define LLD_COFF_CONFIG_H
 
+#include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Object/COFF.h"
 #include "llvm/Support/CachePruning.h"
@@ -71,6 +72,12 @@ enum class DebugType {
   Fixup = 0x4,  /// Relocation Table
 };
 
+enum class GuardCFLevel {
+  Off,
+  NoLongJmp, // Emit gfids but no longjmp tables
+  Full,      // Enable all protections.
+};
+
 // Global configuration.
 struct Configuration {
   enum ManifestKind { SideBySide, Embed, No };
@@ -85,13 +92,19 @@ struct Configuration {
   std::string ImportName;
   bool DoGC = true;
   bool DoICF = true;
+  bool TailMerge;
   bool Relocatable = true;
   bool Force = false;
   bool Debug = false;
   bool DebugDwarf = false;
   bool DebugGHashes = false;
+  bool DebugSymtab = false;
+  bool ShowTiming = false;
   unsigned DebugTypes = static_cast<unsigned>(DebugType::None);
+  std::vector<std::string> NatvisFiles;
+  llvm::SmallString<128> PDBAltPath;
   llvm::SmallString<128> PDBPath;
+  llvm::SmallString<128> PDBSourcePath;
   std::vector<llvm::StringRef> Argv;
 
   // Symbols in this set are considered as live by the garbage collector.
@@ -110,15 +123,18 @@ struct Configuration {
 
   bool SaveTemps = false;
 
+  // /guard:cf
+  GuardCFLevel GuardCF = GuardCFLevel::Off;
+
   // Used for SafeSEH.
   Symbol *SEHTable = nullptr;
   Symbol *SEHCount = nullptr;
 
   // Used for /opt:lldlto=N
-  unsigned LTOOptLevel = 2;
+  unsigned LTOO = 2;
 
   // Used for /opt:lldltojobs=N
-  unsigned LTOJobs = 0;
+  unsigned ThinLTOJobs = 0;
   // Used for /opt:lldltopartitions=N
   unsigned LTOPartitions = 1;
 
@@ -152,6 +168,9 @@ struct Configuration {
   // Used for /alternatename.
   std::map<StringRef, StringRef> AlternateNames;
 
+  // Used for /order.
+  llvm::StringMap<int> Order;
+
   // Used for /lldmap.
   std::string MapFile;
 
@@ -164,7 +183,7 @@ struct Configuration {
   uint32_t MinorImageVersion = 0;
   uint32_t MajorOSVersion = 6;
   uint32_t MinorOSVersion = 0;
-  bool CanExitEarly = false;
+  uint32_t Timestamp = 0;
   bool DynamicBase = true;
   bool AllowBind = true;
   bool NxCompat = true;
@@ -174,7 +193,12 @@ struct Configuration {
   bool HighEntropyVA = false;
   bool AppContainer = false;
   bool MinGW = false;
+  bool WarnMissingOrderSymbol = true;
   bool WarnLocallyDefinedImported = true;
+  bool Incremental = true;
+  bool IntegrityCheck = false;
+  bool KillAt = false;
+  bool Repro = false;
 };
 
 extern Configuration *Config;

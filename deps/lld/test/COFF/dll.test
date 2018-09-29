@@ -1,3 +1,4 @@
+# REQUIRES: x86
 # RUN: yaml2obj < %p/Inputs/export.yaml > %t.obj
 # RUN: lld-link /out:%t.dll /dll %t.obj /export:exportfn1 /export:exportfn2 \
 # RUN:   /export:mangled
@@ -26,7 +27,7 @@ EXPORT2-NEXT:       1   0x1010  exportfn3
 EXPORT2-NEXT:       2   0x101c  mangled2
 
 # RUN: llvm-as -o %t.lto.obj %p/Inputs/export.ll
-# RUN: lld-link /out:%t.lto.dll /dll %t.lto.obj /export:exportfn1 /export:exportfn2
+# RUN: lld-link -opt:noicf /out:%t.lto.dll /dll %t.lto.obj /export:exportfn1 /export:exportfn2
 # RUN: llvm-objdump -p %t.lto.dll | FileCheck -check-prefix=EXPORT-LTO %s
 
 EXPORT-LTO:      Export Table:

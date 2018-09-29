@@ -1,0 +1,89 @@
+# REQUIRES: mips
+#
+# Check warning and errors in case of input
+# files with incompatible ELF header flags.
+
+# RUN: yaml2obj -docnum 1 %s -o %t-n64.o
+# RUN: yaml2obj -docnum 2 %s -o %t-o64.o
+# RUN: yaml2obj -docnum 3 %s -o %t-n32.o
+# RUN: yaml2obj -docnum 4 %s -o %t-o32.o
+# RUN: yaml2obj -docnum 5 %s -o %t-eabi64.o
+# RUN: yaml2obj -docnum 6 %s -o %t-eabi32.o
+
+# RUN: not ld.lld %t-n64.o %t-eabi64.o -shared -o /dev/null 2>&1 \
+# RUN:   | FileCheck -check-prefixes=MM64,N64EABI64 %s
+#
+# RUN: not ld.lld %t-n64.o %t-o64.o -shared -o /dev/null 2>&1 \
+# RUN:   | FileCheck -check-prefixes=MM64,N64O64 %s
+
+# RUN: not ld.lld %t-o32.o %t-eabi32.o -shared -o /dev/null 2>&1 \
+# RUN:   | FileCheck -check-prefixes=O32EABI32,FP64,CPIC1 %s
+
+# RUN: not ld.lld %t-eabi32.o %t-o32.o -shared -o /dev/null 2>&1 \
+# RUN:   | FileCheck -check-prefix=CPIC2 %s
+
+# MM64: {{.*}}n64.o: microMIPS 64-bit is not supported
+
+# N64EABI64: {{.*}}eabi64.o: ABI 'eabi64' is incompatible with target ABI 'n64'
+# N64O64: {{.*}}o64.o: ABI 'o64' is incompatible with target ABI 'n64'
+# O32EABI32: {{.*}}eabi32.o: ABI 'eabi32' is incompatible with target ABI 'o32'
+
+# NAN: {{.*}}o32.o: -mnan=legacy is incompatible with target -mnan=2008
+# FP64: {{.*}}eabi32.o: -mfp64 is incompatible with target -mfp32
+
+# CPIC1: {{.*}}tmp-eabi32.o: linking non-abicalls code with abicalls code {{.*}}o32.o
+# CPIC2: {{.*}}tmp-o32.o: linking abicalls code with non-abicalls code {{.*}}eabi32.o
+
+# n64.o
+--- !ELF
+FileHeader:
+  Class:    ELFCLASS64
+  Data:     ELFDATA2MSB
+  Type:     ET_REL
+  Machine:  EM_MIPS
+  Flags:    [ EF_MIPS_ARCH_64, EF_MIPS_MICROMIPS ]
+
+# o64.o
+--- !ELF
+FileHeader:
+  Class:    ELFCLASS64
+  Data:     ELFDATA2MSB
+  Type:     ET_REL
+  Machine:  EM_MIPS
+  Flags:    [ EF_MIPS_ABI_O64, EF_MIPS_ARCH_64 ]
+
+# n32.o
+--- !ELF
+FileHeader:
+  Class:    ELFCLASS32
+  Data:     ELFDATA2MSB
+  Type:     ET_REL
+  Machine:  EM_MIPS
+  Flags:    [ EF_MIPS_ARCH_64, EF_MIPS_ABI2, EF_MIPS_NAN2008 ]
+
+# o32.o
+--- !ELF
+FileHeader:
+  Class:    ELFCLASS32
+  Data:     ELFDATA2MSB
+  Type:     ET_REL
+  Machine:  EM_MIPS
+  Flags:    [ EF_MIPS_ARCH_32, EF_MIPS_ABI_O32, EF_MIPS_CPIC ]
+
+# eabi64.o
+--- !ELF
+FileHeader:
+  Class:    ELFCLASS64
+  Data:     ELFDATA2MSB
+  Type:     ET_REL
+  Machine:  EM_MIPS
+  Flags:    [ EF_MIPS_ARCH_64, EF_MIPS_ABI_EABI64 ]
+
+# eabi32.o
+--- !ELF
+FileHeader:
+  Class:    ELFCLASS32
+  Data:     ELFDATA2MSB
+  Type:     ET_REL
+  Machine:  EM_MIPS
+  Flags:    [ EF_MIPS_ARCH_32, EF_MIPS_ABI_EABI32, EF_MIPS_FP64 ]

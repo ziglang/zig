@@ -1,3 +1,4 @@
+// REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/shared.s -o %t.o
 // RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/copy-in-shared.s -o %t2.o
 // RUN: ld.lld -shared %t.o %t2.o -o %t.so
@@ -15,7 +16,6 @@
 // RUN: not ld.lld %t3.o %t.so -z relro -o %t --script=%t.script 2>&1 | FileCheck %s
 // No error when we do not request relro.
 // RUN: ld.lld %t3.o %t.so -z norelro -o %t --script=%t.script
-// REQUIRES: x86
 
 // CHECK: error: section: .bss.rel.ro is not contiguous with other relro sections
         .section .text, "ax", @progbits

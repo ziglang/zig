@@ -4,7 +4,7 @@ lld License
 University of Illinois/NCSA
 Open Source License
 
-Copyright (c) 2011-2016 by the contributors listed in CREDITS.TXT
+Copyright (c) 2011-2018 by the contributors listed in CREDITS.TXT
 All rights reserved.
 
 Developed by:

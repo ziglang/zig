@@ -1,3 +1,4 @@
+# REQUIRES: mips
 # Check number of got entries is adjusted for linker script-added space.
 
 # RUN: llvm-mc -filetype=obj -triple=mips-unknown-linux %s -o %t.o
@@ -5,10 +6,8 @@
 # RUN: ld.lld %t.o -shared -o %t.so -T %t.script
 # RUN: llvm-readobj -mips-plt-got -dynamic-table %t.so | FileCheck %s
 
-# REQUIRES: mips
-
-# CHECK: 0x7000000A MIPS_LOCAL_GOTNO 5
-#                                    ^-- 2 * header + 3 local entries
+# CHECK: 0x7000000A MIPS_LOCAL_GOTNO 4
+#                                    ^-- 2 * header + 2 local entries
 # CHECK:      Local entries [
 # CHECK-NEXT:   Entry {
 # CHECK-NEXT:     Address:
@@ -21,12 +20,6 @@
 # CHECK-NEXT:     Access: -32740
 # CHECK-NEXT:     Initial: 0x10000
 #                          ^-- loc2
-# CHECK-NEXT:   }
-# CHECK-NEXT:   Entry {
-# CHECK-NEXT:     Address:
-# CHECK-NEXT:     Access: -32736
-# CHECK-NEXT:     Initial: 0x20000
-#                          ^-- redundant
 # CHECK-NEXT:   }
 # CHECK-NEXT: ]
 

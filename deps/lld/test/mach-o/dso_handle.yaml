@@ -1,13 +1,13 @@
-# RUN: lld -flavor darwin -arch x86_64  %s  %p/Inputs/x86_64/libSystem.yaml -o %t1
+# RUN: ld64.lld -arch x86_64  %s  %p/Inputs/x86_64/libSystem.yaml -o %t1
 # RUN: llvm-nm -m -n %t1 | FileCheck %s
 #
-# RUN: lld -flavor darwin -arch x86_64  %s %p/Inputs/x86_64/libSystem.yaml -dead_strip -o %t2
+# RUN: ld64.lld -arch x86_64  %s %p/Inputs/x86_64/libSystem.yaml -dead_strip -o %t2
 # RUN: llvm-nm -m -n %t2 | FileCheck %s
 #
-# RUN: lld -flavor darwin -arch x86_64  %s %p/Inputs/x86_64/libSystem.yaml -dylib -o %t3
+# RUN: ld64.lld -arch x86_64  %s %p/Inputs/x86_64/libSystem.yaml -dylib -o %t3
 # RUN: llvm-nm -m -n %t3 | FileCheck %s
 #
-# RUN: lld -flavor darwin -arch x86_64  %s %p/Inputs/x86_64/libSystem.yaml -bundle -o %t4
+# RUN: ld64.lld -arch x86_64  %s %p/Inputs/x86_64/libSystem.yaml -bundle -o %t4
 # RUN: llvm-nm -m -n %t4 | FileCheck %s
 #
 # Test that ___dso_handle symbol is available for executables, bundles, and dylibs

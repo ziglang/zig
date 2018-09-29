@@ -48,6 +48,12 @@ pub const Builder = struct {
     cache_root: []const u8,
     release_mode: ?builtin.Mode,
 
+    pub const CStd = enum {
+        C89,
+        C99,
+        C11,
+    };
+
     const UserInputOptionsMap = HashMap([]const u8, UserInputOption, mem.hash_slice_u8, mem.eql_slice_u8);
     const AvailableOptionsMap = HashMap([]const u8, AvailableOption, mem.hash_slice_u8, mem.eql_slice_u8);
 
@@ -226,6 +232,8 @@ pub const Builder = struct {
     }
 
     pub fn make(self: *Builder, step_names: []const []const u8) !void {
+        try self.makePath(self.cache_root);
+
         var wanted_steps = ArrayList(*Step).init(self.allocator);
         defer wanted_steps.deinit();
 
@@ -267,7 +275,7 @@ pub const Builder = struct {
             if (self.verbose) {
                 warn("rm {}\n", installed_file);
             }
-            _ = os.deleteFile(self.allocator, installed_file);
+            _ = os.deleteFile(installed_file);
         }
 
         // TODO remove empty directories
@@ -424,60 +432,69 @@ pub const Builder = struct {
         return mode;
     }
 
-    pub fn addUserInputOption(self: *Builder, name: []const u8, value: []const u8) bool {
-        if (self.user_input_options.put(name, UserInputOption{
-            .name = name,
-            .value = UserValue{ .Scalar = value },
-            .used = false,
-        }) catch unreachable) |*prev_value| {
-            // option already exists
-            switch (prev_value.value) {
-                UserValue.Scalar => |s| {
-                    // turn it into a list
-                    var list = ArrayList([]const u8).init(self.allocator);
-                    list.append(s) catch unreachable;
-                    list.append(value) catch unreachable;
-                    _ = self.user_input_options.put(name, UserInputOption{
-                        .name = name,
-                        .value = UserValue{ .List = list },
-                        .used = false,
-                    }) catch unreachable;
-                },
-                UserValue.List => |*list| {
-                    // append to the list
-                    list.append(value) catch unreachable;
-                    _ = self.user_input_options.put(name, UserInputOption{
-                        .name = name,
-                        .value = UserValue{ .List = list.* },
-                        .used = false,
-                    }) catch unreachable;
-                },
-                UserValue.Flag => {
-                    warn("Option '-D{}={}' conflicts with flag '-D{}'.\n", name, value, name);
-                    return true;
-                },
-            }
+    pub fn addUserInputOption(self: *Builder, name: []const u8, value: []const u8) !bool {
+        const gop = try self.user_input_options.getOrPut(name);
+        if (!gop.found_existing) {
+            gop.kv.value = UserInputOption{
+                .name = name,
+                .value = UserValue{ .Scalar = value },
+                .used = false,
+            };
+            return false;
+        }
+
+        // option already exists
+        switch (gop.kv.value.value) {
+            UserValue.Scalar => |s| {
+                // turn it into a list
+                var list = ArrayList([]const u8).init(self.allocator);
+                list.append(s) catch unreachable;
+                list.append(value) catch unreachable;
+                _ = self.user_input_options.put(name, UserInputOption{
+                    .name = name,
+                    .value = UserValue{ .List = list },
+                    .used = false,
+                }) catch unreachable;
+            },
+            UserValue.List => |*list| {
+                // append to the list
+                list.append(value) catch unreachable;
+                _ = self.user_input_options.put(name, UserInputOption{
+                    .name = name,
+                    .value = UserValue{ .List = list.* },
+                    .used = false,
+                }) catch unreachable;
+            },
+            UserValue.Flag => {
+                warn("Option '-D{}={}' conflicts with flag '-D{}'.\n", name, value, name);
+                return true;
+            },
         }
         return false;
     }
 
-    pub fn addUserInputFlag(self: *Builder, name: []const u8) bool {
-        if (self.user_input_options.put(name, UserInputOption{
-            .name = name,
-            .value = UserValue{ .Flag = {} },
-            .used = false,
-        }) catch unreachable) |*prev_value| {
-            switch (prev_value.value) {
-                UserValue.Scalar => |s| {
-                    warn("Flag '-D{}' conflicts with option '-D{}={}'.\n", name, name, s);
-                    return true;
-                },
-                UserValue.List => {
-                    warn("Flag '-D{}' conflicts with multiple options of the same name.\n", name);
-                    return true;
-                },
-                UserValue.Flag => {},
-            }
+    pub fn addUserInputFlag(self: *Builder, name: []const u8) !bool {
+        const gop = try self.user_input_options.getOrPut(name);
+        if (!gop.found_existing) {
+            gop.kv.value = UserInputOption{
+                .name = name,
+                .value = UserValue{ .Flag = {} },
+                .used = false,
+            };
+            return false;
+        }
+
+        // option already exists
+        switch (gop.kv.value.value) {
+            UserValue.Scalar => |s| {
+                warn("Flag '-D{}' conflicts with option '-D{}={}'.\n", name, name, s);
+                return true;
+            },
+            UserValue.List => {
+                warn("Flag '-D{}' conflicts with multiple options of the same name.\n", name);
+                return true;
+            },
+            UserValue.Flag => {},
         }
         return false;
     }
@@ -603,10 +620,10 @@ pub const Builder = struct {
     }
 
     fn copyFile(self: *Builder, source_path: []const u8, dest_path: []const u8) !void {
-        return self.copyFileMode(source_path, dest_path, os.default_file_mode);
+        return self.copyFileMode(source_path, dest_path, os.File.default_mode);
     }
 
-    fn copyFileMode(self: *Builder, source_path: []const u8, dest_path: []const u8, mode: os.FileMode) !void {
+    fn copyFileMode(self: *Builder, source_path: []const u8, dest_path: []const u8, mode: os.File.Mode) !void {
         if (self.verbose) {
             warn("cp {} {}\n", source_path, dest_path);
         }
@@ -807,6 +824,8 @@ pub const LibExeObjStep = struct {
     disable_libc: bool,
     frameworks: BufSet,
     verbose_link: bool,
+    no_rosegment: bool,
+    c_std: Builder.CStd,
 
     // zig only stuff
     root_src: ?[]const u8,
@@ -874,6 +893,7 @@ pub const LibExeObjStep = struct {
 
     fn initExtraArgs(builder: *Builder, name: []const u8, root_src: ?[]const u8, kind: Kind, static: bool, ver: *const Version) LibExeObjStep {
         var self = LibExeObjStep{
+            .no_rosegment = false,
             .strip = false,
             .builder = builder,
             .verbose_link = false,
@@ -907,6 +927,7 @@ pub const LibExeObjStep = struct {
             .object_src = undefined,
             .disable_libc = true,
             .build_options_contents = std.Buffer.initSize(builder.allocator, 0) catch unreachable,
+            .c_std = Builder.CStd.C99,
         };
         self.computeOutFileNames();
         return self;
@@ -914,6 +935,7 @@ pub const LibExeObjStep = struct {
 
     fn initC(builder: *Builder, name: []const u8, kind: Kind, version: *const Version, static: bool) LibExeObjStep {
         var self = LibExeObjStep{
+            .no_rosegment = false,
             .builder = builder,
             .name = name,
             .kind = kind,
@@ -940,6 +962,7 @@ pub const LibExeObjStep = struct {
             .disable_libc = false,
             .is_zig = false,
             .linker_script = null,
+            .c_std = Builder.CStd.C99,
 
             .root_src = undefined,
             .verbose_link = false,
@@ -951,6 +974,10 @@ pub const LibExeObjStep = struct {
         };
         self.computeOutFileNames();
         return self;
+    }
+
+    pub fn setNoRoSegment(self: *LibExeObjStep, value: bool) void {
+        self.no_rosegment = value;
     }
 
     fn computeOutFileNames(self: *LibExeObjStep) void {
@@ -1166,7 +1193,7 @@ pub const LibExeObjStep = struct {
 
         if (self.build_options_contents.len() > 0) {
             const build_options_file = try os.path.join(builder.allocator, builder.cache_root, builder.fmt("{}_build_options.zig", self.name));
-            try std.io.writeFile(builder.allocator, build_options_file, self.build_options_contents.toSliceConst());
+            try std.io.writeFile(build_options_file, self.build_options_contents.toSliceConst());
             try zig_args.append("--pkg-begin");
             try zig_args.append("build_options");
             try zig_args.append(builder.pathFromRoot(build_options_file));
@@ -1306,6 +1333,10 @@ pub const LibExeObjStep = struct {
             }
         }
 
+        if (self.no_rosegment) {
+            try zig_args.append("--no-rosegment");
+        }
+
         try builder.spawnChild(zig_args.toSliceConst());
 
         if (self.kind == Kind.Lib and !self.static and self.target.wantSharedLibSymLinks()) {
@@ -1371,6 +1402,13 @@ pub const LibExeObjStep = struct {
         cc_args.append(cc) catch unreachable;
 
         const is_darwin = self.target.isDarwin();
+
+        const c_std_arg = switch (self.c_std) {
+            Builder.CStd.C89 => "-std=c89",
+            Builder.CStd.C99 => "-std=c99",
+            Builder.CStd.C11 => "-std=c11",
+        };
+        try cc_args.append(c_std_arg);
 
         switch (self.kind) {
             Kind.Obj => {
@@ -1471,11 +1509,14 @@ pub const LibExeObjStep = struct {
                     }
 
                     if (!is_darwin) {
-                        const rpath_arg = builder.fmt("-Wl,-rpath,{}", os.path.real(builder.allocator, builder.pathFromRoot(builder.cache_root)) catch unreachable);
+                        const rpath_arg = builder.fmt("-Wl,-rpath,{}", try os.path.realAlloc(
+                            builder.allocator,
+                            builder.pathFromRoot(builder.cache_root),
+                        ));
                         defer builder.allocator.free(rpath_arg);
-                        cc_args.append(rpath_arg) catch unreachable;
+                        try cc_args.append(rpath_arg);
 
-                        cc_args.append("-rdynamic") catch unreachable;
+                        try cc_args.append("-rdynamic");
                     }
 
                     for (self.full_path_libs.toSliceConst()) |full_path_lib| {
@@ -1546,11 +1587,14 @@ pub const LibExeObjStep = struct {
                 cc_args.append("-o") catch unreachable;
                 cc_args.append(output_path) catch unreachable;
 
-                const rpath_arg = builder.fmt("-Wl,-rpath,{}", os.path.real(builder.allocator, builder.pathFromRoot(builder.cache_root)) catch unreachable);
+                const rpath_arg = builder.fmt("-Wl,-rpath,{}", try os.path.realAlloc(
+                    builder.allocator,
+                    builder.pathFromRoot(builder.cache_root),
+                ));
                 defer builder.allocator.free(rpath_arg);
-                cc_args.append(rpath_arg) catch unreachable;
+                try cc_args.append(rpath_arg);
 
-                cc_args.append("-rdynamic") catch unreachable;
+                try cc_args.append("-rdynamic");
 
                 {
                     var it = self.link_libs.iterator();
@@ -1598,6 +1642,8 @@ pub const TestStep = struct {
     include_dirs: ArrayList([]const u8),
     lib_paths: ArrayList([]const u8),
     object_files: ArrayList([]const u8),
+    no_rosegment: bool,
+    output_path: ?[]const u8,
 
     pub fn init(builder: *Builder, root_src: []const u8) TestStep {
         const step_name = builder.fmt("test {}", root_src);
@@ -1615,7 +1661,13 @@ pub const TestStep = struct {
             .include_dirs = ArrayList([]const u8).init(builder.allocator),
             .lib_paths = ArrayList([]const u8).init(builder.allocator),
             .object_files = ArrayList([]const u8).init(builder.allocator),
+            .no_rosegment = false,
+            .output_path = null,
         };
+    }
+
+    pub fn setNoRoSegment(self: *TestStep, value: bool) void {
+        self.no_rosegment = value;
     }
 
     pub fn addLibPath(self: *TestStep, path: []const u8) void {
@@ -1634,6 +1686,24 @@ pub const TestStep = struct {
         self.build_mode = mode;
     }
 
+    pub fn setOutputPath(self: *TestStep, file_path: []const u8) void {
+        self.output_path = file_path;
+
+        // catch a common mistake
+        if (mem.eql(u8, self.builder.pathFromRoot(file_path), self.builder.pathFromRoot("."))) {
+            debug.panic("setOutputPath wants a file path, not a directory\n");
+        }
+    }
+
+    pub fn getOutputPath(self: *TestStep) []const u8 {
+        if (self.output_path) |output_path| {
+            return output_path;
+        } else {
+            const basename = self.builder.fmt("test{}", self.target.exeFileExt());
+            return os.path.join(self.builder.allocator, self.builder.cache_root, basename) catch unreachable;
+        }
+    }
+
     pub fn linkSystemLibrary(self: *TestStep, name: []const u8) void {
         self.link_libs.put(name) catch unreachable;
     }
@@ -1644,6 +1714,17 @@ pub const TestStep = struct {
 
     pub fn setFilter(self: *TestStep, text: ?[]const u8) void {
         self.filter = text;
+    }
+
+    pub fn addObject(self: *TestStep, obj: *LibExeObjStep) void {
+        assert(obj.kind == LibExeObjStep.Kind.Obj);
+
+        self.step.dependOn(&obj.step);
+
+        self.object_files.append(obj.getOutputPath()) catch unreachable;
+
+        // TODO should be some kind of isolated directory that only has this header in it
+        self.include_dirs.append(self.builder.cache_root) catch unreachable;
     }
 
     pub fn addObjectFile(self: *TestStep, path: []const u8) void {
@@ -1686,6 +1767,10 @@ pub const TestStep = struct {
             builtin.Mode.ReleaseFast => try zig_args.append("--release-fast"),
             builtin.Mode.ReleaseSmall => try zig_args.append("--release-small"),
         }
+
+        const output_path = builder.pathFromRoot(self.getOutputPath());
+        try zig_args.append("--output");
+        try zig_args.append(output_path);
 
         switch (self.target) {
             Target.Native => {},
@@ -1761,6 +1846,10 @@ pub const TestStep = struct {
             try zig_args.append(lib_path);
         }
 
+        if (self.no_rosegment) {
+            try zig_args.append("--no-rosegment");
+        }
+
         try builder.spawnChild(zig_args.toSliceConst());
     }
 };
@@ -1801,7 +1890,7 @@ const InstallArtifactStep = struct {
     artifact: *LibExeObjStep,
     dest_file: []const u8,
 
-    const Self = this;
+    const Self = @This();
 
     pub fn create(builder: *Builder, artifact: *LibExeObjStep) *Self {
         const dest_dir = switch (artifact.kind) {
@@ -1887,7 +1976,7 @@ pub const WriteFileStep = struct {
             warn("unable to make path {}: {}\n", full_path_dir, @errorName(err));
             return err;
         };
-        io.writeFile(self.builder.allocator, full_path, self.data) catch |err| {
+        io.writeFile(full_path, self.data) catch |err| {
             warn("unable to write {}: {}\n", full_path, @errorName(err));
             return err;
         };

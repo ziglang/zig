@@ -1,7 +1,7 @@
+# REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=i686-unknown-linux %s -o %t
 # RUN: ld.lld %t -o %t2
 # RUN: llvm-readobj -file-headers -sections -program-headers %t2 | FileCheck %s
-# REQUIRES: x86
 
 # exits with return code 42 on linux
 .globl _start

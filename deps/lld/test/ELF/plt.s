@@ -1,3 +1,4 @@
+// REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t.o
 // RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/shared.s -o %t2.o
 // RUN: ld.lld -shared %t2.o -o %t2.so
@@ -7,8 +8,6 @@
 // RUN: llvm-objdump -d %t | FileCheck --check-prefix=DISASM %s
 // RUN: llvm-readobj -s -r %t3 | FileCheck --check-prefix=CHECK2 %s
 // RUN: llvm-objdump -d %t3 | FileCheck --check-prefix=DISASM2 %s
-
-// REQUIRES: x86
 
 // CHECK:      Name: .plt
 // CHECK-NEXT: Type: SHT_PROGBITS

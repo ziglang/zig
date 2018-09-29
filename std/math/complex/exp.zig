@@ -17,8 +17,6 @@ pub fn exp(z: var) @typeOf(z) {
 }
 
 fn exp32(z: Complex(f32)) Complex(f32) {
-    @setFloatMode(this, @import("builtin").FloatMode.Strict);
-
     const exp_overflow = 0x42b17218; // max_exp * ln2 ~= 88.72283955
     const cexp_overflow = 0x43400074; // (max_exp - min_denom_exp) * ln2
 
@@ -71,7 +69,7 @@ fn exp64(z: Complex(f64)) Complex(f64) {
     const y = z.im;
 
     const fy = @bitCast(u64, y);
-    const hy = u32(fy >> 32) & 0x7fffffff;
+    const hy = @intCast(u32, (fy >> 32) & 0x7fffffff);
     const ly = @truncate(u32, fy);
 
     // cexp(x + i0) = exp(x) + i0
@@ -80,7 +78,7 @@ fn exp64(z: Complex(f64)) Complex(f64) {
     }
 
     const fx = @bitCast(u64, x);
-    const hx = u32(fx >> 32);
+    const hx = @intCast(u32, fx >> 32);
     const lx = @truncate(u32, fx);
 
     // cexp(0 + iy) = cos(y) + isin(y)
@@ -103,8 +101,7 @@ fn exp64(z: Complex(f64)) Complex(f64) {
 
     // 709.7 <= x <= 1454.3 so must scale
     if (hx >= exp_overflow and hx <= cexp_overflow) {
-        const r = ldexp_cexp(z, 0);
-        return r.*;
+        return ldexp_cexp(z, 0);
     } // - x < exp_overflow => exp(x) won't overflow (common)
     // - x > cexp_overflow, so exp(x) * s overflows for s > 0
     // - x = +-inf
@@ -126,7 +123,7 @@ test "complex.cexp32" {
 }
 
 test "complex.cexp64" {
-    const a = Complex(f32).new(5, 3);
+    const a = Complex(f64).new(5, 3);
     const c = exp(a);
 
     debug.assert(math.approxEq(f64, c.re, -146.927917, epsilon));

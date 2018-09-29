@@ -1,3 +1,4 @@
+# REQUIRES: mips
 # Check R_MIPS_HI16 / LO16 relocations calculation against _gp_disp.
 
 # RUN: llvm-mc -filetype=obj -triple=mips-unknown-linux %s -o %t1.o
@@ -7,8 +8,6 @@
 # RUN: llvm-objdump -d -t %t.exe | FileCheck -check-prefix=EXE %s
 # RUN: ld.lld %t1.o %t2.o -shared -o %t.so
 # RUN: llvm-objdump -d -t %t.so | FileCheck -check-prefix=SO %s
-
-# REQUIRES: mips
 
   .text
   .globl  __start

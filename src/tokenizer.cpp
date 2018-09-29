@@ -92,10 +92,9 @@
     case 'c'
 
 #define SYMBOL_CHAR \
-    ALPHA_EXCEPT_C: \
+    ALPHA: \
     case DIGIT: \
-    case '_': \
-    case 'c'
+    case '_'
 
 #define SYMBOL_START \
     ALPHA: \
@@ -146,7 +145,6 @@ static const struct ZigKeyword zig_keywords[] = {
     {"suspend", TokenIdKeywordSuspend},
     {"switch", TokenIdKeywordSwitch},
     {"test", TokenIdKeywordTest},
-    {"this", TokenIdKeywordThis},
     {"true", TokenIdKeywordTrue},
     {"try", TokenIdKeywordTry},
     {"undefined", TokenIdKeywordUndefined},
@@ -460,16 +458,21 @@ static const char* get_escape_shorthand(uint8_t c) {
 static void invalid_char_error(Tokenize *t, uint8_t c) {
     if (c == '\r') {
         tokenize_error(t, "invalid carriage return, only '\\n' line endings are supported");
-    } else if (isprint(c)) {
-        tokenize_error(t, "invalid character: '%c'", c);
-    } else {
-        const char *sh = get_escape_shorthand(c);
-        if (sh) {
-            tokenize_error(t, "invalid character: '%s'", sh);
-        } else {
-            tokenize_error(t, "invalid character: '\\x%x'", c);
-        }
+        return;
     }
+
+    const char *sh = get_escape_shorthand(c);
+    if (sh) {
+        tokenize_error(t, "invalid character: '%s'", sh);
+        return;
+    }
+
+    if (isprint(c)) {
+        tokenize_error(t, "invalid character: '%c'", c);
+        return;
+    }
+
+    tokenize_error(t, "invalid character: '\\x%02x'", c);
 }
 
 void tokenize(Buf *buf, Tokenization *out) {
@@ -1583,7 +1586,6 @@ const char * token_name(TokenId id) {
         case TokenIdKeywordStruct: return "struct";
         case TokenIdKeywordSwitch: return "switch";
         case TokenIdKeywordTest: return "test";
-        case TokenIdKeywordThis: return "this";
         case TokenIdKeywordTrue: return "true";
         case TokenIdKeywordTry: return "try";
         case TokenIdKeywordUndefined: return "undefined";

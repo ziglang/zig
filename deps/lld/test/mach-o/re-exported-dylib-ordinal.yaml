@@ -1,4 +1,4 @@
-# RUN: lld -flavor darwin -arch x86_64 -macosx_version_min 10.8 %s \
+# RUN: ld64.lld -arch x86_64 -macosx_version_min 10.8 %s \
 # RUN: %p/Inputs/re-exported-dylib-ordinal.yaml \
 # RUN: %p/Inputs/re-exported-dylib-ordinal2.yaml \
 # RUN: %p/Inputs/re-exported-dylib-ordinal3.yaml -dylib -o %t \

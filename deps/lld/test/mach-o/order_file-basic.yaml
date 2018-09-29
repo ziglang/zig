@@ -1,4 +1,4 @@
-# RUN: lld -flavor darwin -arch x86_64 %s %p/Inputs/x86_64/libSystem.yaml \
+# RUN: ld64.lld -arch x86_64 %s %p/Inputs/x86_64/libSystem.yaml \
 # RUN:     -order_file %p/Inputs/order_file-basic.order \
 # RUN:     -force_load %p/Inputs/libfoo.a -o %t
 # RUN: llvm-nm -m -n %t | FileCheck %s

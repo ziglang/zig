@@ -1,5 +1,5 @@
-# RUN: lld -flavor darwin -arch arm64 -r -print_atoms %s -o %t
-# RUN: lld -flavor darwin -arch arm64 -r -print_atoms %t -o %t2
+# RUN: ld64.lld -arch arm64 -r -print_atoms %s -o %t
+# RUN: ld64.lld -arch arm64 -r -print_atoms %t -o %t2
 # RUN: llvm-objdump -section-headers %t | FileCheck %s
 # RUN: llvm-objdump -section-headers %t2 | FileCheck %s
 

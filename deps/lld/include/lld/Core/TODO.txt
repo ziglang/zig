@@ -6,9 +6,6 @@ include/lld/Core
   abstraction only works for returning low level OS errors.  It does not
   work for describing formatting issues.
 
-* We need to design a diagnostics interface.  It would be nice to share code
-  with Clang_ where possible.
-
 * We need to add more attributes to File.  In particular, we need cpu
   and OS information (like target triples).  We should also provide explicit
   support for `LLVM IR module flags metadata`__.

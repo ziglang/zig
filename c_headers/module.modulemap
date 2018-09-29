@@ -38,6 +38,7 @@ module _Builtin_intrinsics [system] [extern_c] {
     explicit module neon {
       requires neon
       header "arm_neon.h"
+      header "arm_fp16.h"
       export *
     }
   }
@@ -62,6 +63,17 @@ module _Builtin_intrinsics [system] [extern_c] {
     textual header "fma4intrin.h"
     textual header "mwaitxintrin.h"
     textual header "clzerointrin.h"
+    textual header "wbnoinvdintrin.h"
+    textual header "cldemoteintrin.h"
+    textual header "waitpkgintrin.h"
+    textual header "movdirintrin.h"
+    textual header "pconfigintrin.h"
+    textual header "sgxintrin.h"
+    textual header "ptwriteintrin.h"
+    textual header "invpcidintrin.h"
+
+    textual header "__wmmintrin_aes.h"
+    textual header "__wmmintrin_pclmul.h"
 
     explicit module mm_malloc {
       requires !freestanding
@@ -127,14 +139,6 @@ module _Builtin_intrinsics [system] [extern_c] {
       header "wmmintrin.h"
       export aes
       export pclmul
-    }
-
-    explicit module aes {
-      header "__wmmintrin_aes.h"
-    }
-
-    explicit module pclmul {
-      header "__wmmintrin_pclmul.h"
     }
   }
 

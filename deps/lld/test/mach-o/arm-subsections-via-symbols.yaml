@@ -1,4 +1,4 @@
-# RUN: lld -flavor darwin -arch armv7 %s -r -print_atoms -o %t | FileCheck %s
+# RUN: ld64.lld -arch armv7 %s -r -print_atoms -o %t | FileCheck %s
 #
 # Test that assembly written without .subsections_via_symbols is parsed so
 # that atoms are non-dead-strip and there is a layout-after references

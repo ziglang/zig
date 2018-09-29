@@ -1,11 +1,17 @@
+// REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
-// RUN: cd %S
-// RUN: not ld.lld %t.o --format=binary duplicated-synthetic-sym.s -o %t.elf 2>&1 | FileCheck %s
-// RUN: not ld.lld %t.o --format binary duplicated-synthetic-sym.s -o %t.elf 2>&1 | FileCheck %s
+// RUN: rm -rf %t.dir
+// RUN: mkdir %t.dir
+// RUN: cd %t.dir
+// RUN: echo > file.bin
 
-// CHECK: duplicate symbol: _binary_duplicated_synthetic_sym_s_start
-// CHECK: defined at <internal>:(.data+0x0)
+// RUN: not ld.lld %t.o --format=binary file.bin -o %t.elf 2>&1 | FileCheck %s
+// RUN: not ld.lld %t.o --format binary file.bin -o %t.elf 2>&1 | FileCheck %s
 
-    .globl  _binary_duplicated_synthetic_sym_s_start
-_binary_duplicated_synthetic_sym_s_start:
-    .long   0
+// CHECK:      duplicate symbol: _binary_file_bin_start
+// CHECK-NEXT: defined at {{.*}}.o:(.text+0x0)
+// CHECK-NEXT: defined at file.bin:(.data+0x0)
+
+.globl  _binary_file_bin_start
+_binary_file_bin_start:
+  .long 0

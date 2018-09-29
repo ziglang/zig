@@ -32,6 +32,7 @@ pub const Server = struct {
             .listen_resume_node = event.Loop.ResumeNode{
                 .id = event.Loop.ResumeNode.Id.Basic,
                 .handle = undefined,
+                .overlapped = event.Loop.ResumeNode.overlapped_init,
             },
         };
     }
@@ -55,13 +56,13 @@ pub const Server = struct {
         errdefer cancel self.accept_coro.?;
 
         self.listen_resume_node.handle = self.accept_coro.?;
-        try self.loop.addFd(sockfd, &self.listen_resume_node);
+        try self.loop.linuxAddFd(sockfd, &self.listen_resume_node, posix.EPOLLIN | posix.EPOLLOUT | posix.EPOLLET);
         errdefer self.loop.removeFd(sockfd);
     }
 
     /// Stop listening
     pub fn close(self: *Server) void {
-        self.loop.removeFd(self.sockfd.?);
+        self.loop.linuxRemoveFd(self.sockfd.?);
         std.os.close(self.sockfd.?);
     }
 
@@ -88,8 +89,8 @@ pub const Server = struct {
                 },
                 error.ProcessFdQuotaExceeded => {
                     errdefer std.os.emfile_promise_queue.remove(&self.waiting_for_emfile_node);
-                    suspend |p| {
-                        self.waiting_for_emfile_node = PromiseNode.init(p);
+                    suspend {
+                        self.waiting_for_emfile_node = PromiseNode.init(@handle());
                         std.os.emfile_promise_queue.append(&self.waiting_for_emfile_node);
                     }
                     continue;
@@ -109,14 +110,62 @@ pub const Server = struct {
     }
 };
 
+pub async fn connectUnixSocket(loop: *Loop, path: []const u8) !i32 {
+    const sockfd = try std.os.posixSocket(
+        posix.AF_UNIX,
+        posix.SOCK_STREAM | posix.SOCK_CLOEXEC | posix.SOCK_NONBLOCK,
+        0,
+    );
+    errdefer std.os.close(sockfd);
+
+    var sock_addr = posix.sockaddr{
+        .un = posix.sockaddr_un{
+            .family = posix.AF_UNIX,
+            .path = undefined,
+        },
+    };
+
+    if (path.len > @typeOf(sock_addr.un.path).len) return error.NameTooLong;
+    mem.copy(u8, sock_addr.un.path[0..], path);
+    const size = @intCast(u32, @sizeOf(posix.sa_family_t) + path.len);
+    try std.os.posixConnectAsync(sockfd, &sock_addr, size);
+    try await try async loop.linuxWaitFd(sockfd, posix.EPOLLIN | posix.EPOLLOUT | posix.EPOLLET);
+    try std.os.posixGetSockOptConnectError(sockfd);
+
+    return sockfd;
+}
+
+pub async fn socketRead(loop: *std.event.Loop, fd: i32, buffer: []u8) !void {
+    while (true) {
+        return std.os.posixRead(fd, buffer) catch |err| switch (err) {
+            error.WouldBlock => {
+                try await try async loop.linuxWaitFd(fd, std.os.posix.EPOLLET | std.os.posix.EPOLLIN);
+                continue;
+            },
+            else => return err,
+        };
+    }
+}
+pub async fn socketWrite(loop: *std.event.Loop, fd: i32, buffer: []const u8) !void {
+    while (true) {
+        return std.os.posixWrite(fd, buffer) catch |err| switch (err) {
+            error.WouldBlock => {
+                try await try async loop.linuxWaitFd(fd, std.os.posix.EPOLLET | std.os.posix.EPOLLOUT);
+                continue;
+            },
+            else => return err,
+        };
+    }
+}
+
 pub async fn connect(loop: *Loop, _address: *const std.net.Address) !std.os.File {
     var address = _address.*; // TODO https://github.com/ziglang/zig/issues/733
 
     const sockfd = try std.os.posixSocket(posix.AF_INET, posix.SOCK_STREAM | posix.SOCK_CLOEXEC | posix.SOCK_NONBLOCK, posix.PROTO_tcp);
     errdefer std.os.close(sockfd);
 
-    try std.os.posixConnectAsync(sockfd, &address.os_addr);
-    try await try async loop.waitFd(sockfd);
+    try std.os.posixConnectAsync(sockfd, &address.os_addr, @sizeOf(posix.sockaddr_in));
+    try await try async loop.linuxWaitFd(sockfd, posix.EPOLLIN | posix.EPOLLOUT | posix.EPOLLET);
     try std.os.posixGetSockOptConnectError(sockfd);
 
     return std.os.File.openHandle(sockfd);
@@ -125,12 +174,13 @@ pub async fn connect(loop: *Loop, _address: *const std.net.Address) !std.os.File
 test "listen on a port, send bytes, receive bytes" {
     if (builtin.os != builtin.Os.linux) {
         // TODO build abstractions for other operating systems
-        return;
+        return error.SkipZigTest;
     }
+
     const MyServer = struct {
         tcp_server: Server,
 
-        const Self = this;
+        const Self = @This();
         async<*mem.Allocator> fn handler(tcp_server: *Server, _addr: *const std.net.Address, _socket: *const std.os.File) void {
             const self = @fieldParentPtr(Self, "tcp_server", tcp_server);
             var socket = _socket.*; // TODO https://github.com/ziglang/zig/issues/733
@@ -140,15 +190,15 @@ test "listen on a port, send bytes, receive bytes" {
             (await next_handler) catch |err| {
                 std.debug.panic("unable to handle connection: {}\n", err);
             };
-            suspend |p| {
-                cancel p;
+            suspend {
+                cancel @handle();
             }
         }
-        async fn errorableHandler(self: *Self, _addr: *const std.net.Address, _socket: *const std.os.File) !void {
+        async fn errorableHandler(self: *Self, _addr: *const std.net.Address, _socket: std.os.File) !void {
             const addr = _addr.*; // TODO https://github.com/ziglang/zig/issues/733
-            var socket = _socket.*; // TODO https://github.com/ziglang/zig/issues/733
+            var socket = _socket; // TODO https://github.com/ziglang/zig/issues/733
 
-            var adapter = std.io.FileOutStream.init(&socket);
+            var adapter = std.io.FileOutStream.init(socket);
             var stream = &adapter.stream;
             try stream.print("hello from server\n");
         }
@@ -180,4 +230,3 @@ async fn doAsyncTest(loop: *Loop, address: *const std.net.Address, server: *Serv
     assert(mem.eql(u8, msg, "hello from server\n"));
     server.close();
 }
-

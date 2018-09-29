@@ -1,6 +1,6 @@
-# RUN: lld -flavor darwin -arch armv7 -r -print_atoms %s -o %t  | FileCheck %s
-# RUN: lld -flavor darwin -arch armv7 -r -print_atoms %t -o %t2  | FileCheck %s
-# RUN: lld -flavor darwin -arch armv7 -dylib %s -o %t3.dylib %p/Inputs/armv7/libSystem.yaml \
+# RUN: ld64.lld -arch armv7 -r -print_atoms %s -o %t  | FileCheck %s
+# RUN: ld64.lld -arch armv7 -r -print_atoms %t -o %t2  | FileCheck %s
+# RUN: ld64.lld -arch armv7 -dylib %s -o %t3.dylib %p/Inputs/armv7/libSystem.yaml \
 # RUN:   && llvm-objdump -macho -private-headers %t3.dylib | FileCheck --check-prefix=CHECK2 %s
 #
 # Test parsing LC_DATA_IN_CODE

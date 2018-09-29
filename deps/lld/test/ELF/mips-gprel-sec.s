@@ -1,10 +1,9 @@
+# REQUIRES: mips
 # Check order of gp-relative sections, i.e. sections with SHF_MIPS_GPREL flag.
 
 # RUN: llvm-mc -filetype=obj -triple=mips-unknown-linux %s -o %t.o
 # RUN: ld.lld %t.o -shared -o %t.so
 # RUN: llvm-readobj -s %t.so | FileCheck %s
-
-# REQUIRES: mips
 
   .text
   nop

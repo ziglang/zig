@@ -1,10 +1,11 @@
-RUN: lld-link /debug /pdb:%t.pdb /nodefaultlib /entry:main %S/Inputs/pdb-diff.obj
+RUN: echo "/nodefaultlib" > %t.rsp
+RUN: lld-link /debug /pdb:%t.pdb @%t.rsp /entry:main %S/Inputs/pdb-diff.obj
 RUN: llvm-pdbutil dump -modules %t.pdb | FileCheck --check-prefix=MODS %s
 RUN: llvm-pdbutil dump -symbols %t.pdb | FileCheck --check-prefix=SYMS %s
 
 MODS:      Mod 0001 | `* Linker *`
 MODS-NEXT:             Obj: ``:
-MODS-NEXT:             debug stream: 10, # files: 0, has ec info: false
+MODS-NEXT:             debug stream: 12, # files: 0, has ec info: false
 MODS-NEXT:             pdb file ni: 1 `{{.*}}pdb-linker-module.test.tmp.pdb`, src file ni: 0 ``
 
 SYMS:      Mod 0001 | `* Linker *`

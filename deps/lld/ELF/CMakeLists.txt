@@ -12,6 +12,7 @@ add_lld_library(lldELF
   Arch/AMDGPU.cpp
   Arch/ARM.cpp
   Arch/AVR.cpp
+  Arch/Hexagon.cpp
   Arch/Mips.cpp
   Arch/MipsArchTree.cpp
   Arch/PPC.cpp
@@ -19,6 +20,7 @@ add_lld_library(lldELF
   Arch/SPARCV9.cpp
   Arch/X86.cpp
   Arch/X86_64.cpp
+  CallGraphSort.cpp
   Driver.cpp
   DriverUtils.cpp
   EhFrame.cpp
@@ -35,7 +37,6 @@ add_lld_library(lldELF
   Relocations.cpp
   ScriptLexer.cpp
   ScriptParser.cpp
-  Strings.cpp
   SymbolTable.cpp
   Symbols.cpp
   SyntheticSections.cpp
@@ -46,6 +47,7 @@ add_lld_library(lldELF
   LINK_COMPONENTS
   ${LLVM_TARGETS_TO_BUILD}
   BinaryFormat
+  BitWriter
   Core
   DebugInfoDWARF
   LTO

@@ -12,14 +12,17 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/BinaryFormat/MachO.h"
 #include "llvm/Support/Error.h"
+#include "llvm/Support/FileSystem.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/YAMLTraits.h"
 #include "gtest/gtest.h"
 #include <cstdint>
 #include <memory>
 
+using llvm::SmallString;
 using llvm::StringRef;
 using llvm::MemoryBuffer;
+using llvm::Twine;
 
 using namespace lld::mach_o::normalized;
 using namespace llvm::MachO;
@@ -741,9 +744,11 @@ TEST(BinaryReaderTest, hello_obj_ppc) {
   EXPECT_EQ(printfLabel.type, N_UNDF);
   EXPECT_EQ(printfLabel.scope, SymbolScope(N_EXT));
 
-  auto ec = writeBinary(*f, "/tmp/foo.o");
-  // FIXME: We want to do EXPECT_FALSE(ec) but that fails on some Windows bots,
-  // probably due to /tmp not being available.
-  // For now just consume the error without checking it.
-  consumeError(std::move(ec));
+  SmallString<128> tmpFl;
+  std::error_code ec =
+      llvm::sys::fs::createTemporaryFile(Twine("xx"), "o", tmpFl);
+  EXPECT_FALSE(ec);
+  llvm::Error ec2 = writeBinary(*f, tmpFl);
+  EXPECT_FALSE(ec2);
+  llvm::sys::fs::remove(tmpFl);
 }

@@ -11,7 +11,7 @@ HEADER-NEXT: AddressSize: 32bit
 HEADER-NEXT: ImageFileHeader {
 HEADER-NEXT:   Machine: IMAGE_FILE_MACHINE_I386 (0x14C)
 HEADER-NEXT:   SectionCount: 4
-HEADER-NEXT:   TimeDateStamp: 1970-01-01 00:00:00 (0x0)
+HEADER-NEXT:   TimeDateStamp: 
 HEADER-NEXT:   PointerToSymbolTable: 0x0
 HEADER-NEXT:   SymbolCount: 0
 HEADER-NEXT:   OptionalHeaderSize: 224
@@ -27,8 +27,8 @@ HEADER-NEXT:   MinorLinkerVersion: 0
 HEADER-NEXT:   SizeOfCode: 512
 HEADER-NEXT:   SizeOfInitializedData: 1536
 HEADER-NEXT:   SizeOfUninitializedData: 0
-HEADER-NEXT:   AddressOfEntryPoint: 0x2000
-HEADER-NEXT:   BaseOfCode: 0x2000
+HEADER-NEXT:   AddressOfEntryPoint: 0x1000
+HEADER-NEXT:   BaseOfCode: 0x1000
 HEADER-NEXT:   BaseOfData: 0x0
 HEADER-NEXT:   ImageBase: 0x400000
 HEADER-NEXT:   SectionAlignment: 4096
@@ -40,7 +40,7 @@ HEADER-NEXT:   MinorImageVersion: 0
 HEADER-NEXT:   MajorSubsystemVersion: 6
 HEADER-NEXT:   MinorSubsystemVersion: 0
 HEADER-NEXT:   SizeOfImage: 20480
-HEADER-NEXT:   SizeOfHeaders: 512
+HEADER-NEXT:   SizeOfHeaders: 1024
 HEADER-NEXT:   Subsystem: IMAGE_SUBSYSTEM_WINDOWS_CUI (0x3)
 HEADER-NEXT:   Characteristics [ (0x9540)
 HEADER-NEXT:     IMAGE_DLL_CHARACTERISTICS_APPCONTAINER (0x1000)
@@ -57,7 +57,7 @@ HEADER-NEXT:   NumberOfRvaAndSize: 16
 HEADER-NEXT:   DataDirectory {
 HEADER-NEXT:     ExportTableRVA: 0x0
 HEADER-NEXT:     ExportTableSize: 0x0
-HEADER-NEXT:     ImportTableRVA: 0x3000
+HEADER-NEXT:     ImportTableRVA: 0x2000
 HEADER-NEXT:     ImportTableSize: 0x28
 HEADER-NEXT:     ResourceTableRVA: 0x0
 HEADER-NEXT:     ResourceTableSize: 0x0
@@ -79,7 +79,7 @@ HEADER-NEXT:     LoadConfigTableRVA: 0x0
 HEADER-NEXT:     LoadConfigTableSize: 0x0
 HEADER-NEXT:     BoundImportRVA: 0x0
 HEADER-NEXT:     BoundImportSize: 0x0
-HEADER-NEXT:     IATRVA: 0x3034
+HEADER-NEXT:     IATRVA: 0x2034
 HEADER-NEXT:     IATSize: 0xC
 HEADER-NEXT:     DelayImportDescriptorRVA: 0x0
 HEADER-NEXT:     DelayImportDescriptorSize: 0x0
@@ -91,10 +91,10 @@ HEADER-NEXT:   }
 HEADER-NEXT: }
 HEADER-NEXT: DOSHeader {
 HEADER-NEXT:   Magic: MZ
-HEADER-NEXT:   UsedBytesInTheLastPage: 0
-HEADER-NEXT:   FileSizeInPages: 0
+HEADER-NEXT:   UsedBytesInTheLastPage: 120
+HEADER-NEXT:   FileSizeInPages: 1
 HEADER-NEXT:   NumberOfRelocationItems: 0
-HEADER-NEXT:   HeaderSizeInParagraphs: 0
+HEADER-NEXT:   HeaderSizeInParagraphs: 4
 HEADER-NEXT:   MinimumExtraParagraphs: 0
 HEADER-NEXT:   MaximumExtraParagraphs: 0
 HEADER-NEXT:   InitialRelativeSS: 0
@@ -106,7 +106,7 @@ HEADER-NEXT:   AddressOfRelocationTable: 64
 HEADER-NEXT:   OverlayNumber: 0
 HEADER-NEXT:   OEMid: 0
 HEADER-NEXT:   OEMinfo: 0
-HEADER-NEXT:   AddressOfNewExeHeader: 64
+HEADER-NEXT:   AddressOfNewExeHeader: 120
 HEADER-NEXT: }
 
 IMPORTS: Format: COFF-i386
@@ -114,8 +114,8 @@ IMPORTS: Arch: i386
 IMPORTS: AddressSize: 32bit
 IMPORTS: Import {
 IMPORTS:   Name: std32.dll
-IMPORTS:   ImportLookupTableRVA: 0x3028
-IMPORTS:   ImportAddressTableRVA: 0x3034
+IMPORTS:   ImportLookupTableRVA: 0x2028
+IMPORTS:   ImportAddressTableRVA: 0x2034
 IMPORTS:   Symbol: ExitProcess (0)
 IMPORTS:   Symbol: MessageBoxA (1)
 IMPORTS: }
@@ -123,10 +123,10 @@ IMPORTS: }
 BASEREL: BaseReloc [
 BASEREL:   Entry {
 BASEREL:     Type: HIGHLOW
-BASEREL:     Address: 0x2005
+BASEREL:     Address: 0x1005
 BASEREL:   }
 BASEREL:   Entry {
 BASEREL:     Type: HIGHLOW
-BASEREL:     Address: 0x200C
+BASEREL:     Address: 0x100C
 BASEREL:   }
 BASEREL: ]

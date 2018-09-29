@@ -1,18 +1,18 @@
+// REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %p/Inputs/comdat.s -o %t2.o
 // RUN: ld.lld -shared %t.o %t.o %t2.o -o %t
 // RUN: llvm-objdump -d %t | FileCheck %s
 // RUN: llvm-readobj -s -t %t | FileCheck --check-prefix=READ %s
-// REQUIRES: x86
 
 // Check that we don't crash with --gc-section and that we print a list of
 // reclaimed sections on stderr.
 // RUN: ld.lld --gc-sections --print-gc-sections -shared %t.o %t.o %t2.o -o %t \
 // RUN:   2>&1 | FileCheck --check-prefix=GC %s
-// GC: removing unused section from '.text' in file
-// GC: removing unused section from '.text3' in file
-// GC: removing unused section from '.text' in file
-// GC: removing unused section from '.text' in file
+// GC: removing unused section {{.*}}.o:(.text)
+// GC: removing unused section {{.*}}.o:(.text3)
+// GC: removing unused section {{.*}}.o:(.text)
+// GC: removing unused section {{.*}}.o:(.text)
 
         .section	.text2,"axG",@progbits,foo,comdat,unique,0
 foo:

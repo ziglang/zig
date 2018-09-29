@@ -8,13 +8,22 @@ comptime {
     _ = @import("cases/atomics.zig");
     _ = @import("cases/bitcast.zig");
     _ = @import("cases/bool.zig");
+    _ = @import("cases/bugs/1076.zig");
     _ = @import("cases/bugs/1111.zig");
+    _ = @import("cases/bugs/1277.zig");
+    _ = @import("cases/bugs/1322.zig");
+    _ = @import("cases/bugs/1381.zig");
+    _ = @import("cases/bugs/1421.zig");
+    _ = @import("cases/bugs/1442.zig");
+    _ = @import("cases/bugs/1486.zig");
     _ = @import("cases/bugs/394.zig");
     _ = @import("cases/bugs/655.zig");
     _ = @import("cases/bugs/656.zig");
+    _ = @import("cases/bugs/726.zig");
     _ = @import("cases/bugs/828.zig");
     _ = @import("cases/bugs/920.zig");
     _ = @import("cases/byval_arg_var.zig");
+    _ = @import("cases/cancel.zig");
     _ = @import("cases/cast.zig");
     _ = @import("cases/const_slice_child.zig");
     _ = @import("cases/coroutine_await_struct.zig");
@@ -58,9 +67,11 @@ comptime {
     _ = @import("cases/try.zig");
     _ = @import("cases/type_info.zig");
     _ = @import("cases/undefined.zig");
+    _ = @import("cases/underscore.zig");
     _ = @import("cases/union.zig");
     _ = @import("cases/var_args.zig");
     _ = @import("cases/void.zig");
     _ = @import("cases/while.zig");
     _ = @import("cases/widening.zig");
+    _ = @import("cases/bit_shifting.zig");
 }

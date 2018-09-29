@@ -1,5 +1,5 @@
-# RUN: lld -flavor darwin -macosx_version_min 10.7 -arch x86_64 -print_atoms %s -o %t | FileCheck %s
-# RUN: not lld -flavor darwin -macosx_version_min 10.6 -arch x86_64 -o %t %s 2> %t2
+# RUN: ld64.lld -macosx_version_min 10.7 -arch x86_64 -print_atoms %s -o %t | FileCheck %s
+# RUN: not ld64.lld -macosx_version_min 10.6 -arch x86_64 -o %t %s 2> %t2
 # RUN: FileCheck < %t2 %s --check-prefix=CHECK-ERROR
 # RUN: llvm-objdump -macho -private-headers %t | FileCheck %s --check-prefix=CHECK-LOADCMDS
 #

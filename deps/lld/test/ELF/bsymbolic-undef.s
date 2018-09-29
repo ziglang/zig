@@ -1,3 +1,4 @@
+# REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t.o
 # RUN: ld.lld -shared -Bsymbolic %t.o -o %t.so
 # RUN: llvm-readobj -dyn-symbols %t.so | FileCheck %s

@@ -5,7 +5,7 @@
 # RUN: ld.lld %t -o %t.so -shared
 # RUN: llvm-objdump -h %t.so | FileCheck --check-prefix=DSO %s
 
-# DSO: .eh_frame     00000030
+# DSO: .eh_frame     00000034
 
 # CHECK:      Relocations [
 # CHECK-NEXT:   Section ({{.*}}) .rela.eh_frame {
