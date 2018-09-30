@@ -178,6 +178,8 @@ pub extern "kernel32" stdcallcc fn WriteFileEx(hFile: HANDLE, lpBuffer: [*]const
 
 pub extern "kernel32" stdcallcc fn LoadLibraryW(lpLibFileName: [*]const u16) ?HMODULE;
 
+pub extern "kernel32" stdcallcc fn GetProcAddress(hModule: HMODULE, lpProcName: [*]const u8) ?FARPROC;
+
 pub extern "kernel32" stdcallcc fn FreeLibrary(hModule: HMODULE) BOOL;
 
 pub const FILE_NOTIFY_INFORMATION = extern struct {

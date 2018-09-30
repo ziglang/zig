@@ -24,6 +24,7 @@ pub const HANDLE = *c_void;
 pub const HCRYPTPROV = ULONG_PTR;
 pub const HINSTANCE = *@OpaqueType();
 pub const HMODULE = *@OpaqueType();
+pub const FARPROC = *@OpaqueType();
 pub const INT = c_int;
 pub const LPBYTE = *BYTE;
 pub const LPCH = *CHAR;

@@ -58,8 +58,6 @@ pub const windowsWrite = windows_util.windowsWrite;
 pub const windowsIsCygwinPty = windows_util.windowsIsCygwinPty;
 pub const windowsOpen = windows_util.windowsOpen;
 pub const windowsOpenW = windows_util.windowsOpenW;
-pub const windowsLoadDll = windows_util.windowsLoadDll;
-pub const windowsUnloadDll = windows_util.windowsUnloadDll;
 pub const createWindowsEnvBlock = windows_util.createWindowsEnvBlock;
 
 pub const WindowsCreateIoCompletionPortError = windows_util.WindowsCreateIoCompletionPortError;
