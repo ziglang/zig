@@ -242,8 +242,8 @@ pub fn posixRead(fd: i32, buf: []u8) !void {
             return switch (err) {
                 posix.EINTR => continue,
                 posix.EINVAL, posix.EFAULT => unreachable,
-                posix.EAGAIN => error.WouldBlock,
-                posix.EBADF => error.FileClosed,
+                posix.EAGAIN => unreachable,
+                posix.EBADF => unreachable, // always a race condition
                 posix.EIO => error.InputOutput,
                 posix.EISDIR => error.IsDir,
                 posix.ENOBUFS, posix.ENOMEM => error.SystemResources,
@@ -284,8 +284,8 @@ pub fn posix_preadv(fd: i32, iov: [*]const posix.iovec, count: usize, offset: u6
                     posix.EINVAL => unreachable,
                     posix.EFAULT => unreachable,
                     posix.ESPIPE => unreachable, // fd is not seekable
-                    posix.EAGAIN => return error.WouldBlock,
-                    posix.EBADF => return error.FileClosed,
+                    posix.EAGAIN => unreachable, // use posixAsyncPReadV for non blocking
+                    posix.EBADF => unreachable, // always a race condition
                     posix.EIO => return error.InputOutput,
                     posix.EISDIR => return error.IsDir,
                     posix.ENOBUFS => return error.SystemResources,
@@ -302,8 +302,8 @@ pub fn posix_preadv(fd: i32, iov: [*]const posix.iovec, count: usize, offset: u6
                 posix.EINTR => continue,
                 posix.EINVAL => unreachable,
                 posix.EFAULT => unreachable,
-                posix.EAGAIN => return error.WouldBlock,
-                posix.EBADF => return error.FileClosed,
+                posix.EAGAIN => unreachable, // use posixAsyncPReadV for non blocking
+                posix.EBADF => unreachable, // always a race condition
                 posix.EIO => return error.InputOutput,
                 posix.EISDIR => return error.IsDir,
                 posix.ENOBUFS => return error.SystemResources,
@@ -316,9 +316,6 @@ pub fn posix_preadv(fd: i32, iov: [*]const posix.iovec, count: usize, offset: u6
 }
 
 pub const PosixWriteError = error{
-    WouldBlock,
-    FileClosed,
-    DestinationAddressRequired,
     DiskQuota,
     FileTooBig,
     InputOutput,
@@ -349,9 +346,9 @@ pub fn posixWrite(fd: i32, bytes: []const u8) !void {
             posix.EINTR => continue,
             posix.EINVAL => unreachable,
             posix.EFAULT => unreachable,
-            posix.EAGAIN => return PosixWriteError.WouldBlock,
-            posix.EBADF => return PosixWriteError.FileClosed,
-            posix.EDESTADDRREQ => return PosixWriteError.DestinationAddressRequired,
+            posix.EAGAIN => unreachable, // use posixAsyncWrite for non-blocking
+            posix.EBADF => unreachable, // always a race condition
+            posix.EDESTADDRREQ => unreachable, // connect was never called
             posix.EDQUOT => return PosixWriteError.DiskQuota,
             posix.EFBIG => return PosixWriteError.FileTooBig,
             posix.EIO => return PosixWriteError.InputOutput,
@@ -391,9 +388,9 @@ pub fn posix_pwritev(fd: i32, iov: [*]const posix.iovec_const, count: usize, off
                     posix.ESPIPE => unreachable, // fd is not seekable
                     posix.EINVAL => unreachable,
                     posix.EFAULT => unreachable,
-                    posix.EAGAIN => return PosixWriteError.WouldBlock,
-                    posix.EBADF => return PosixWriteError.FileClosed,
-                    posix.EDESTADDRREQ => return PosixWriteError.DestinationAddressRequired,
+                    posix.EAGAIN => unreachable, // use posixAsyncPWriteV for non-blocking
+                    posix.EBADF => unreachable, // always a race condition
+                    posix.EDESTADDRREQ => unreachable, // connect was never called
                     posix.EDQUOT => return PosixWriteError.DiskQuota,
                     posix.EFBIG => return PosixWriteError.FileTooBig,
                     posix.EIO => return PosixWriteError.InputOutput,
@@ -412,9 +409,9 @@ pub fn posix_pwritev(fd: i32, iov: [*]const posix.iovec_const, count: usize, off
                 posix.EINTR => continue,
                 posix.EINVAL => unreachable,
                 posix.EFAULT => unreachable,
-                posix.EAGAIN => return PosixWriteError.WouldBlock,
-                posix.EBADF => return PosixWriteError.FileClosed,
-                posix.EDESTADDRREQ => return PosixWriteError.DestinationAddressRequired,
+                posix.EAGAIN => unreachable, // use posixAsyncPWriteV for non-blocking
+                posix.EBADF => unreachable, // always a race condition
+                posix.EDESTADDRREQ => unreachable, // connect was never called
                 posix.EDQUOT => return PosixWriteError.DiskQuota,
                 posix.EFBIG => return PosixWriteError.FileTooBig,
                 posix.EIO => return PosixWriteError.InputOutput,
@@ -2287,21 +2284,8 @@ pub const PosixBindError = error{
     /// use.  See the discussion of /proc/sys/net/ipv4/ip_local_port_range ip(7).
     AddressInUse,
 
-    /// sockfd is not a valid file descriptor.
-    InvalidFileDescriptor,
-
-    /// The socket is already bound to an address, or addrlen is wrong, or addr is not
-    /// a valid address for this socket's domain.
-    InvalidSocketOrAddress,
-
-    /// The file descriptor sockfd does not refer to a socket.
-    FileDescriptorNotASocket,
-
     /// A nonexistent interface was requested or the requested address was not local.
     AddressNotAvailable,
-
-    /// addr points outside the user's accessible address space.
-    PageFault,
 
     /// Too many symbolic links were encountered in resolving addr.
     SymLinkLoop,
@@ -2333,11 +2317,11 @@ pub fn posixBind(fd: i32, addr: *const posix.sockaddr) PosixBindError!void {
         0 => return,
         posix.EACCES => return PosixBindError.AccessDenied,
         posix.EADDRINUSE => return PosixBindError.AddressInUse,
-        posix.EBADF => return PosixBindError.InvalidFileDescriptor,
-        posix.EINVAL => return PosixBindError.InvalidSocketOrAddress,
-        posix.ENOTSOCK => return PosixBindError.FileDescriptorNotASocket,
+        posix.EBADF => unreachable, // always a race condition if this error is returned
+        posix.EINVAL => unreachable,
+        posix.ENOTSOCK => unreachable,
         posix.EADDRNOTAVAIL => return PosixBindError.AddressNotAvailable,
-        posix.EFAULT => return PosixBindError.PageFault,
+        posix.EFAULT => unreachable,
         posix.ELOOP => return PosixBindError.SymLinkLoop,
         posix.ENAMETOOLONG => return PosixBindError.NameTooLong,
         posix.ENOENT => return PosixBindError.FileNotFound,
@@ -2356,9 +2340,6 @@ const PosixListenError = error{
     /// use.  See the discussion of /proc/sys/net/ipv4/ip_local_port_range in ip(7).
     AddressInUse,
 
-    /// The argument sockfd is not a valid file descriptor.
-    InvalidFileDescriptor,
-
     /// The file descriptor sockfd does not refer to a socket.
     FileDescriptorNotASocket,
 
@@ -2375,7 +2356,7 @@ pub fn posixListen(sockfd: i32, backlog: u32) PosixListenError!void {
     switch (err) {
         0 => return,
         posix.EADDRINUSE => return PosixListenError.AddressInUse,
-        posix.EBADF => return PosixListenError.InvalidFileDescriptor,
+        posix.EBADF => unreachable,
         posix.ENOTSOCK => return PosixListenError.FileDescriptorNotASocket,
         posix.EOPNOTSUPP => return PosixListenError.OperationNotSupported,
         else => return unexpectedErrorPosix(err),
@@ -2383,20 +2364,7 @@ pub fn posixListen(sockfd: i32, backlog: u32) PosixListenError!void {
 }
 
 pub const PosixAcceptError = error{
-    /// The  socket  is marked nonblocking and no connections are present to be accepted.
-    WouldBlock,
-
-    /// sockfd is not an open file descriptor.
-    FileDescriptorClosed,
-
     ConnectionAborted,
-
-    /// The addr argument is not in a writable part of the user address space.
-    PageFault,
-
-    /// Socket  is  not  listening for connections, or addrlen is invalid (e.g., is negative),
-    /// or invalid value in flags.
-    InvalidSyscall,
 
     /// The per-process limit on the number of open file descriptors has been reached.
     ProcessFdQuotaExceeded,
@@ -2433,14 +2401,43 @@ pub fn posixAccept(fd: i32, addr: *posix.sockaddr, flags: u32) PosixAcceptError!
             posix.EINTR => continue,
             else => return unexpectedErrorPosix(err),
 
-            posix.EAGAIN => return PosixAcceptError.WouldBlock,
-            posix.EBADF => return PosixAcceptError.FileDescriptorClosed,
+            posix.EAGAIN => unreachable, // use posixAsyncAccept for non-blocking
+            posix.EBADF => unreachable, // always a race condition
             posix.ECONNABORTED => return PosixAcceptError.ConnectionAborted,
-            posix.EFAULT => return PosixAcceptError.PageFault,
-            posix.EINVAL => return PosixAcceptError.InvalidSyscall,
+            posix.EFAULT => unreachable,
+            posix.EINVAL => unreachable,
             posix.EMFILE => return PosixAcceptError.ProcessFdQuotaExceeded,
             posix.ENFILE => return PosixAcceptError.SystemFdQuotaExceeded,
-            posix.ENOBUFS, posix.ENOMEM => return PosixAcceptError.SystemResources,
+            posix.ENOBUFS => return PosixAcceptError.SystemResources,
+            posix.ENOMEM => return PosixAcceptError.SystemResources,
+            posix.ENOTSOCK => return PosixAcceptError.FileDescriptorNotASocket,
+            posix.EOPNOTSUPP => return PosixAcceptError.OperationNotSupported,
+            posix.EPROTO => return PosixAcceptError.ProtocolFailure,
+            posix.EPERM => return PosixAcceptError.BlockedByFirewall,
+        }
+    }
+}
+
+/// Returns -1 if would block.
+pub fn posixAsyncAccept(fd: i32, addr: *posix.sockaddr, flags: u32) PosixAcceptError!i32 {
+    while (true) {
+        var sockaddr_size = u32(@sizeOf(posix.sockaddr));
+        const rc = posix.accept4(fd, addr, &sockaddr_size, flags);
+        const err = posix.getErrno(rc);
+        switch (err) {
+            0 => return @intCast(i32, rc),
+            posix.EINTR => continue,
+            else => return unexpectedErrorPosix(err),
+
+            posix.EAGAIN => return -1,
+            posix.EBADF => unreachable, // always a race condition
+            posix.ECONNABORTED => return PosixAcceptError.ConnectionAborted,
+            posix.EFAULT => unreachable,
+            posix.EINVAL => unreachable,
+            posix.EMFILE => return PosixAcceptError.ProcessFdQuotaExceeded,
+            posix.ENFILE => return PosixAcceptError.SystemFdQuotaExceeded,
+            posix.ENOBUFS => return PosixAcceptError.SystemResources,
+            posix.ENOMEM => return PosixAcceptError.SystemResources,
             posix.ENOTSOCK => return PosixAcceptError.FileDescriptorNotASocket,
             posix.EOPNOTSUPP => return PosixAcceptError.OperationNotSupported,
             posix.EPROTO => return PosixAcceptError.ProtocolFailure,
@@ -2450,9 +2447,6 @@ pub fn posixAccept(fd: i32, addr: *posix.sockaddr, flags: u32) PosixAcceptError!
 }
 
 pub const LinuxEpollCreateError = error{
-    /// Invalid value specified in flags.
-    InvalidSyscall,
-
     /// The  per-user   limit   on   the   number   of   epoll   instances   imposed   by
     /// /proc/sys/fs/epoll/max_user_instances  was encountered.  See epoll(7) for further
     /// details.
@@ -2476,7 +2470,7 @@ pub fn linuxEpollCreate(flags: u32) LinuxEpollCreateError!i32 {
         0 => return @intCast(i32, rc),
         else => return unexpectedErrorPosix(err),
 
-        posix.EINVAL => return LinuxEpollCreateError.InvalidSyscall,
+        posix.EINVAL => unreachable,
         posix.EMFILE => return LinuxEpollCreateError.ProcessFdQuotaExceeded,
         posix.ENFILE => return LinuxEpollCreateError.SystemFdQuotaExceeded,
         posix.ENOMEM => return LinuxEpollCreateError.SystemResources,
@@ -2484,21 +2478,9 @@ pub fn linuxEpollCreate(flags: u32) LinuxEpollCreateError!i32 {
 }
 
 pub const LinuxEpollCtlError = error{
-    /// epfd or fd is not a valid file descriptor.
-    InvalidFileDescriptor,
-
     /// op was EPOLL_CTL_ADD, and the supplied file descriptor fd is  already  registered
     /// with this epoll instance.
     FileDescriptorAlreadyPresentInSet,
-
-    /// epfd is not an epoll file descriptor, or fd is the same as epfd, or the requested
-    /// operation op is not supported by this interface, or
-    /// An invalid event type was specified along with EPOLLEXCLUSIVE in events, or
-    /// op was EPOLL_CTL_MOD and events included EPOLLEXCLUSIVE, or
-    /// op was EPOLL_CTL_MOD and the EPOLLEXCLUSIVE flag has previously been  applied  to
-    /// this epfd, fd pair, or
-    /// EPOLLEXCLUSIVE was specified in event and fd refers to an epoll instance.
-    InvalidSyscall,
 
     /// fd refers to an epoll instance and this EPOLL_CTL_ADD operation would result in a
     /// circular loop of epoll instances monitoring one another.
@@ -2531,9 +2513,9 @@ pub fn linuxEpollCtl(epfd: i32, op: u32, fd: i32, event: *linux.epoll_event) Lin
         0 => return,
         else => return unexpectedErrorPosix(err),
 
-        posix.EBADF => return LinuxEpollCtlError.InvalidFileDescriptor,
+        posix.EBADF => unreachable, // always a race condition if this happens
         posix.EEXIST => return LinuxEpollCtlError.FileDescriptorAlreadyPresentInSet,
-        posix.EINVAL => return LinuxEpollCtlError.InvalidSyscall,
+        posix.EINVAL => unreachable,
         posix.ELOOP => return LinuxEpollCtlError.OperationCausesCircularLoop,
         posix.ENOENT => return LinuxEpollCtlError.FileDescriptorNotRegistered,
         posix.ENOMEM => return LinuxEpollCtlError.SystemResources,

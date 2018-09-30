@@ -381,7 +381,7 @@ pub const Elf = struct {
         elf.in_file = file;
         elf.auto_close_stream = false;
 
-        var file_stream = io.FileInStream.init(elf.in_file);
+        var file_stream = elf.in_file.inStream();
         const in = &file_stream.stream;
 
         var magic: [4]u8 = undefined;
@@ -525,7 +525,7 @@ pub const Elf = struct {
     }
 
     pub fn findSection(elf: *Elf, name: []const u8) !?*SectionHeader {
-        var file_stream = io.FileInStream.init(elf.in_file);
+        var file_stream = elf.in_file.inStream();
         const in = &file_stream.stream;
 
         section_loop: for (elf.section_headers) |*elf_section| {

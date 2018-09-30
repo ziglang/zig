@@ -114,7 +114,7 @@ pub fn Queue(comptime T: type) type {
 
         fn dumpRecursive(optional_node: ?*Node, indent: usize) void {
             var stderr_file = std.io.getStdErr() catch return;
-            const stderr = &std.io.FileOutStream.init(stderr_file).stream;
+            const stderr = &stderr_file.outStream().stream;
             stderr.writeByteNTimes(' ', indent) catch return;
             if (optional_node) |node| {
                 std.debug.warn("0x{x}={}\n", @ptrToInt(node), node.data);

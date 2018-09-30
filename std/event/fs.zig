@@ -1246,9 +1246,7 @@ pub fn Watch(comptime V: type) type {
                             os.linux.EPOLLET | os.linux.EPOLLIN,
                         ) catch unreachable)) catch |err| {
                             const transformed_err = switch (err) {
-                                error.InvalidFileDescriptor => unreachable,
                                 error.FileDescriptorAlreadyPresentInSet => unreachable,
-                                error.InvalidSyscall => unreachable,
                                 error.OperationCausesCircularLoop => unreachable,
                                 error.FileDescriptorNotRegistered => unreachable,
                                 error.SystemResources => error.SystemResources,

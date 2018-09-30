@@ -278,7 +278,7 @@ pub const Msg = struct {
             Color.On => true,
             Color.Off => false,
         };
-        var stream = &std.io.FileOutStream.init(file).stream;
+        var stream = &file.outStream().stream;
         return msg.printToStream(stream, color_on);
     }
 };

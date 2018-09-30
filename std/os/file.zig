@@ -1,6 +1,7 @@
 const std = @import("../index.zig");
 const builtin = @import("builtin");
 const os = std.os;
+const io = std.io;
 const mem = std.mem;
 const math = std.math;
 const assert = std.debug.assert;
@@ -368,7 +369,6 @@ pub const File = struct {
         FileClosed,
         InputOutput,
         IsDir,
-        WouldBlock,
         SystemResources,
 
         Unexpected,
@@ -385,7 +385,7 @@ pub const File = struct {
                         posix.EINTR => continue,
                         posix.EINVAL => unreachable,
                         posix.EFAULT => unreachable,
-                        posix.EAGAIN => return error.WouldBlock,
+                        posix.EAGAIN => unreachable,
                         posix.EBADF => return error.FileClosed,
                         posix.EIO => return error.InputOutput,
                         posix.EISDIR => return error.IsDir,
@@ -431,4 +431,46 @@ pub const File = struct {
             @compileError("Unsupported OS");
         }
     }
+
+    pub fn inStream(file: File) InStream {
+        return InStream{
+            .file = file,
+            .stream = InStream.Stream{ .readFn = InStream.readFn },
+        };
+    }
+
+    pub fn outStream(file: File) OutStream {
+        return OutStream{
+            .file = file,
+            .stream = OutStream.Stream{ .writeFn = OutStream.writeFn },
+        };
+    }
+
+    /// Implementation of io.InStream trait for File
+    pub const InStream = struct {
+        file: File,
+        stream: Stream,
+
+        pub const Error = ReadError;
+        pub const Stream = io.InStream(Error);
+
+        fn readFn(in_stream: *Stream, buffer: []u8) Error!usize {
+            const self = @fieldParentPtr(InStream, "stream", in_stream);
+            return self.file.read(buffer);
+        }
+    };
+
+    /// Implementation of io.OutStream trait for File
+    pub const OutStream = struct {
+        file: File,
+        stream: Stream,
+
+        pub const Error = WriteError;
+        pub const Stream = io.OutStream(Error);
+
+        fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
+            const self = @fieldParentPtr(OutStream, "stream", out_stream);
+            return self.file.write(bytes);
+        }
+    };
 };

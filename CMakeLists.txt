@@ -470,6 +470,7 @@ set(ZIG_STD_FILES
     "event/fs.zig"
     "event/future.zig"
     "event/group.zig"
+    "event/io.zig"
     "event/lock.zig"
     "event/locked.zig"
     "event/loop.zig"

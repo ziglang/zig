@@ -48,16 +48,16 @@ pub fn main() !void {
     var prefix: ?[]const u8 = null;
 
     var stderr_file = io.getStdErr();
-    var stderr_file_stream: io.FileOutStream = undefined;
+    var stderr_file_stream: os.File.OutStream = undefined;
     var stderr_stream = if (stderr_file) |f| x: {
-        stderr_file_stream = io.FileOutStream.init(f);
+        stderr_file_stream = f.outStream();
         break :x &stderr_file_stream.stream;
     } else |err| err;
 
     var stdout_file = io.getStdOut();
-    var stdout_file_stream: io.FileOutStream = undefined;
+    var stdout_file_stream: os.File.OutStream = undefined;
     var stdout_stream = if (stdout_file) |f| x: {
-        stdout_file_stream = io.FileOutStream.init(f);
+        stdout_file_stream = f.outStream();
         break :x &stdout_file_stream.stream;
     } else |err| err;
 

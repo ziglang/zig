@@ -793,6 +793,14 @@ pub fn preadv(fd: i32, iov: [*]const iovec, count: usize, offset: u64) usize {
     return syscall4(SYS_preadv, @intCast(usize, fd), @ptrToInt(iov), count, offset);
 }
 
+pub fn readv(fd: i32, iov: [*]const iovec, count: usize) usize {
+    return syscall3(SYS_readv, @intCast(usize, fd), @ptrToInt(iov), count);
+}
+
+pub fn writev(fd: i32, iov: [*]const iovec_const, count: usize) usize {
+    return syscall3(SYS_writev, @intCast(usize, fd), @ptrToInt(iov), count);
+}
+
 pub fn pwritev(fd: i32, iov: [*]const iovec_const, count: usize, offset: u64) usize {
     return syscall4(SYS_pwritev, @intCast(usize, fd), @ptrToInt(iov), count, offset);
 }

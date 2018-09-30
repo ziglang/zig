@@ -30,7 +30,7 @@ pub const LibCInstallation = struct {
         self: *LibCInstallation,
         allocator: *std.mem.Allocator,
         libc_file: []const u8,
-        stderr: *std.io.OutStream(std.io.FileOutStream.Error),
+        stderr: *std.io.OutStream(std.os.File.WriteError),
     ) !void {
         self.initEmpty();
 
@@ -100,7 +100,7 @@ pub const LibCInstallation = struct {
         }
     }
 
-    pub fn render(self: *const LibCInstallation, out: *std.io.OutStream(std.io.FileOutStream.Error)) !void {
+    pub fn render(self: *const LibCInstallation, out: *std.io.OutStream(std.os.File.WriteError)) !void {
         @setEvalBranchQuota(4000);
         try out.print(
             \\# The directory that contains `stdlib.h`.

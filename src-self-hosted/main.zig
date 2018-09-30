@@ -21,8 +21,8 @@ const errmsg = @import("errmsg.zig");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 
 var stderr_file: os.File = undefined;
-var stderr: *io.OutStream(io.FileOutStream.Error) = undefined;
-var stdout: *io.OutStream(io.FileOutStream.Error) = undefined;
+var stderr: *io.OutStream(os.File.WriteError) = undefined;
+var stdout: *io.OutStream(os.File.WriteError) = undefined;
 
 const max_src_size = 2 * 1024 * 1024 * 1024; // 2 GiB
 
@@ -55,11 +55,11 @@ pub fn main() !void {
     const allocator = std.heap.c_allocator;
 
     var stdout_file = try std.io.getStdOut();
-    var stdout_out_stream = std.io.FileOutStream.init(stdout_file);
+    var stdout_out_stream = stdout_file.outStream();
     stdout = &stdout_out_stream.stream;
 
     stderr_file = try std.io.getStdErr();
-    var stderr_out_stream = std.io.FileOutStream.init(stderr_file);
+    var stderr_out_stream = stderr_file.outStream();
     stderr = &stderr_out_stream.stream;
 
     const args = try os.argsAlloc(allocator);
@@ -619,7 +619,7 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
         }
 
         var stdin_file = try io.getStdIn();
-        var stdin = io.FileInStream.init(stdin_file);
+        var stdin = stdin_file.inStream();
 
         const source_code = try stdin.stream.readAllAlloc(allocator, max_src_size);
         defer allocator.free(source_code);

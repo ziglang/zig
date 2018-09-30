@@ -191,7 +191,7 @@ pub fn main() !void {
     var stdin_buf = try Buffer.initSize(global_allocator, 0);
     defer stdin_buf.deinit();
 
-    var stdin_adapter = io.FileInStream.init(stdin_file);
+    var stdin_adapter = stdin_file.inStream();
     try stdin_adapter.stream.readAllBuffer(&stdin_buf, @maxValue(usize));
 
     var result_buf = try Buffer.initSize(global_allocator, 0);

@@ -32,48 +32,6 @@ pub fn getStdIn() GetStdIoErrs!File {
     return File.openHandle(handle);
 }
 
-/// Implementation of InStream trait for File
-pub const FileInStream = struct {
-    file: File,
-    stream: Stream,
-
-    pub const Error = @typeOf(File.read).ReturnType.ErrorSet;
-    pub const Stream = InStream(Error);
-
-    pub fn init(file: File) FileInStream {
-        return FileInStream{
-            .file = file,
-            .stream = Stream{ .readFn = readFn },
-        };
-    }
-
-    fn readFn(in_stream: *Stream, buffer: []u8) Error!usize {
-        const self = @fieldParentPtr(FileInStream, "stream", in_stream);
-        return self.file.read(buffer);
-    }
-};
-
-/// Implementation of OutStream trait for File
-pub const FileOutStream = struct {
-    file: File,
-    stream: Stream,
-
-    pub const Error = File.WriteError;
-    pub const Stream = OutStream(Error);
-
-    pub fn init(file: File) FileOutStream {
-        return FileOutStream{
-            .file = file,
-            .stream = Stream{ .writeFn = writeFn },
-        };
-    }
-
-    fn writeFn(out_stream: *Stream, bytes: []const u8) !void {
-        const self = @fieldParentPtr(FileOutStream, "stream", out_stream);
-        return self.file.write(bytes);
-    }
-};
-
 pub fn InStream(comptime ReadError: type) type {
     return struct {
         const Self = @This();
@@ -280,7 +238,7 @@ pub fn readFileAllocAligned(allocator: *mem.Allocator, path: []const u8, comptim
     const buf = try allocator.alignedAlloc(u8, A, size);
     errdefer allocator.free(buf);
 
-    var adapter = FileInStream.init(file);
+    var adapter = file.inStream();
     try adapter.stream.readNoEof(buf[0..size]);
     return buf;
 }
@@ -577,8 +535,8 @@ pub const BufferOutStream = struct {
 
 pub const BufferedAtomicFile = struct {
     atomic_file: os.AtomicFile,
-    file_stream: FileOutStream,
-    buffered_stream: BufferedOutStream(FileOutStream.Error),
+    file_stream: os.File.OutStream,
+    buffered_stream: BufferedOutStream(os.File.WriteError),
 
     pub fn create(allocator: *mem.Allocator, dest_path: []const u8) !*BufferedAtomicFile {
         // TODO with well defined copy elision we don't need this allocation
@@ -592,8 +550,8 @@ pub const BufferedAtomicFile = struct {
         self.atomic_file = try os.AtomicFile.init(allocator, dest_path, os.File.default_mode);
         errdefer self.atomic_file.deinit();
 
-        self.file_stream = FileOutStream.init(self.atomic_file.file);
-        self.buffered_stream = BufferedOutStream(FileOutStream.Error).init(&self.file_stream.stream);
+        self.file_stream = self.atomic_file.file.outStream();
+        self.buffered_stream = BufferedOutStream(os.File.WriteError).init(&self.file_stream.stream);
         return self;
     }
 
@@ -609,7 +567,7 @@ pub const BufferedAtomicFile = struct {
         try self.atomic_file.finish();
     }
 
-    pub fn stream(self: *BufferedAtomicFile) *OutStream(FileOutStream.Error) {
+    pub fn stream(self: *BufferedAtomicFile) *OutStream(os.File.WriteError) {
         return &self.buffered_stream.stream;
     }
 };
@@ -622,7 +580,7 @@ test "import io tests" {
 
 pub fn readLine(buf: []u8) !usize {
     var stdin = getStdIn() catch return error.StdInUnavailable;
-    var adapter = FileInStream.init(stdin);
+    var adapter = stdin.inStream();
     var stream = &adapter.stream;
     var index: usize = 0;
     while (true) {
@@ -642,3 +600,5 @@ pub fn readLine(buf: []u8) !usize {
         }
     }
 }
+
+

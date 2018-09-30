@@ -34,10 +34,10 @@ const Module = struct {
 /// Tries to write to stderr, unbuffered, and ignores any error returned.
 /// Does not append a newline.
 var stderr_file: os.File = undefined;
-var stderr_file_out_stream: io.FileOutStream = undefined;
+var stderr_file_out_stream: os.File.OutStream = undefined;
 
 /// TODO multithreaded awareness
-var stderr_stream: ?*io.OutStream(io.FileOutStream.Error) = null;
+var stderr_stream: ?*io.OutStream(os.File.WriteError) = null;
 var stderr_mutex = std.Mutex.init();
 pub fn warn(comptime fmt: []const u8, args: ...) void {
     const held = stderr_mutex.acquire();
@@ -46,12 +46,12 @@ pub fn warn(comptime fmt: []const u8, args: ...) void {
     stderr.print(fmt, args) catch return;
 }
 
-pub fn getStderrStream() !*io.OutStream(io.FileOutStream.Error) {
+pub fn getStderrStream() !*io.OutStream(os.File.WriteError) {
     if (stderr_stream) |st| {
         return st;
     } else {
         stderr_file = try io.getStdErr();
-        stderr_file_out_stream = io.FileOutStream.init(stderr_file);
+        stderr_file_out_stream = stderr_file.outStream();
         const st = &stderr_file_out_stream.stream;
         stderr_stream = st;
         return st;
@@ -876,7 +876,7 @@ fn openSelfDebugInfoLinux(allocator: *mem.Allocator) !DebugInfo {
 }
 
 pub fn findElfSection(elf: *Elf, name: []const u8) ?*elf.Shdr {
-    var file_stream = io.FileInStream.init(elf.in_file);
+    var file_stream = elf.in_file.inStream();
     const in = &file_stream.stream;
 
     section_loop: for (elf.section_headers) |*elf_section| {
@@ -1068,7 +1068,7 @@ pub const DebugInfo = switch (builtin.os) {
         }
 
         pub fn readString(self: *DebugInfo) ![]u8 {
-            var in_file_stream = io.FileInStream.init(self.self_exe_file);
+            var in_file_stream = self.self_exe_file.inStream();
             const in_stream = &in_file_stream.stream;
             return readStringRaw(self.allocator(), in_stream);
         }
@@ -1405,7 +1405,7 @@ fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, is_64
 
 fn parseAbbrevTable(st: *DebugInfo) !AbbrevTable {
     const in_file = st.self_exe_file;
-    var in_file_stream = io.FileInStream.init(in_file);
+    var in_file_stream = in_file.inStream();
     const in_stream = &in_file_stream.stream;
     var result = AbbrevTable.init(st.allocator());
     while (true) {
@@ -1456,7 +1456,7 @@ fn getAbbrevTableEntry(abbrev_table: *const AbbrevTable, abbrev_code: u64) ?*con
 
 fn parseDie(st: *DebugInfo, abbrev_table: *const AbbrevTable, is_64: bool) !Die {
     const in_file = st.self_exe_file;
-    var in_file_stream = io.FileInStream.init(in_file);
+    var in_file_stream = in_file.inStream();
     const in_stream = &in_file_stream.stream;
     const abbrev_code = try readULeb128(in_stream);
     const table_entry = getAbbrevTableEntry(abbrev_table, abbrev_code) orelse return error.InvalidDebugInfo;
@@ -1682,7 +1682,7 @@ fn getLineNumberInfoLinux(di: *DebugInfo, compile_unit: *const CompileUnit, targ
     var this_offset = di.debug_line.offset;
     var this_index: usize = 0;
 
-    var in_file_stream = io.FileInStream.init(in_file);
+    var in_file_stream = in_file.inStream();
     const in_stream = &in_file_stream.stream;
 
     while (this_offset < debug_line_end) : (this_index += 1) {
@@ -1857,7 +1857,7 @@ fn scanAllCompileUnits(st: *DebugInfo) !void {
     var this_unit_offset = st.debug_info.offset;
     var cu_index: usize = 0;
 
-    var in_file_stream = io.FileInStream.init(st.self_exe_file);
+    var in_file_stream = st.self_exe_file.inStream();
     const in_stream = &in_file_stream.stream;
 
     while (this_unit_offset < debug_info_end) {
@@ -1923,7 +1923,7 @@ fn scanAllCompileUnits(st: *DebugInfo) !void {
 }
 
 fn findCompileUnit(st: *DebugInfo, target_address: u64) !*const CompileUnit {
-    var in_file_stream = io.FileInStream.init(st.self_exe_file);
+    var in_file_stream = st.self_exe_file.inStream();
     const in_stream = &in_file_stream.stream;
     for (st.compile_unit_list.toSlice()) |*compile_unit| {
         if (compile_unit.pc_range) |range| {
