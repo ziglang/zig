@@ -712,7 +712,7 @@ void ZigLLVMGetNativeTarget(ZigLLVM_ArchType *arch_type, ZigLLVM_SubArchType *su
         ZigLLVM_ObjectFormatType *oformat)
 {
     char *native_triple = LLVMGetDefaultTargetTriple();
-    Triple triple(native_triple);
+    Triple triple(Triple::normalize(native_triple));
 
     *arch_type = (ZigLLVM_ArchType)triple.getArch();
     *sub_arch_type = (ZigLLVM_SubArchType)triple.getSubArch();

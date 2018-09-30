@@ -211,6 +211,9 @@ else()
         set(ZIG_LLD_COMPILE_FLAGS "-std=c++11 -D_CRT_SECURE_NO_WARNINGS /w")
     else()
       set(ZIG_LLD_COMPILE_FLAGS "-std=c++11 -fno-exceptions -fno-rtti -Wno-comment")
+      if(MINGW)
+        set(ZIG_LLD_COMPILE_FLAGS "${ZIG_LLD_COMPILE_FLAGS} -D__STDC_FORMAT_MACROS -D__USE_MINGW_ANSI_STDIO -Wno-pedantic-ms-format")
+      endif()
     endif()
     set_target_properties(embedded_lld_lib PROPERTIES
         COMPILE_FLAGS ${ZIG_LLD_COMPILE_FLAGS}
