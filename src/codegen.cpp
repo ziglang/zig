@@ -8197,7 +8197,7 @@ void codegen_build_and_link(CodeGen *g) {
             codegen_add_time_event(g, "Generate .h");
             gen_h_file(g);
         }
-        if (g->out_type != OutTypeObj) {
+        if (g->out_type != OutTypeObj && g->emit_file_type == EmitFileTypeBinary) {
             codegen_link(g);
         }
     }
