@@ -118,7 +118,6 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
     g->string_literals_table.init(16);
     g->type_info_cache.init(32);
     g->is_test_build = false;
-    g->want_h_file = (out_type == OutTypeObj || out_type == OutTypeLib);
     buf_resize(&g->global_asm, 0);
 
     for (size_t i = 0; i < array_length(symbols_that_llvm_depends_on); i += 1) {
@@ -8127,17 +8126,6 @@ static void resolve_out_paths(CodeGen *g) {
     } else {
         zig_unreachable();
     }
-
-    if (g->want_h_file && !g->out_h_path) {
-        assert(g->root_out_name);
-        Buf *h_basename = buf_sprintf("%s.h", buf_ptr(g->root_out_name)); 
-        if (g->enable_cache) {
-            g->out_h_path = buf_alloc();
-            os_path_join(&g->artifact_dir, h_basename, g->out_h_path);
-        } else {
-            g->out_h_path = h_basename;
-        }
-    }
 }
 
 
@@ -8193,7 +8181,7 @@ void codegen_build_and_link(CodeGen *g) {
         codegen_add_time_event(g, "LLVM Emit Output");
         zig_llvm_emit_output(g);
 
-        if (g->want_h_file) {
+        if (g->out_h_path != nullptr) {
             codegen_add_time_event(g, "Generate .h");
             gen_h_file(g);
         }

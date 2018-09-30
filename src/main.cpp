@@ -52,7 +52,7 @@ static int print_full_usage(const char *arg0) {
         "  --libc-include-dir [path]    directory where libc stdlib.h resides\n"
         "  --name [name]                override output name\n"
         "  --output [file]              override destination path\n"
-        "  --output-h [file]            override generated header file path\n"
+        "  --output-h [file]            generate header file\n"
         "  --pkg-begin [name] [path]    make pkg available to import and push current pkg\n"
         "  --pkg-end                    pop current pkg\n"
         "  --release-fast               build with optimizations on and safety off\n"
@@ -926,7 +926,7 @@ int main(int argc, char **argv) {
 
             if (out_file)
                 codegen_set_output_path(g, buf_create_from_str(out_file));
-            if (out_file_h)
+            if (out_file_h != nullptr && (out_type == OutTypeObj || out_type == OutTypeLib))
                 codegen_set_output_h_path(g, buf_create_from_str(out_file_h));
 
 
