@@ -50,31 +50,12 @@ option(ZIG_FORCE_EXTERNAL_LLD "If your system has the LLD patches use it instead
 find_package(llvm)
 find_package(clang)
 
-# TODO fix https://github.com/ziglang/docker-zig/issues/7
-list(REMOVE_ITEM LLVM_LIBRARIES "-l/deps/local/lib/libxml2.a")
-
-if(NOT MSVC)
-    find_library(LIBXML2 NAMES xml2 libxml2)
-    if(${LIBXML2} STREQUAL "LIBXML2-NOTFOUND")
-        message(FATAL_ERROR "Could not find libxml2")
-    else()
-        message("${LIBXML2} found")
-    endif()
-
+if(APPLE AND ZIG_STATIC)
+    list(REMOVE_ITEM LLVM_LIBRARIES "-lz")
+    list(REMOVE_ITEM LLVM_LIBRARIES "-lcurses")
     find_library(ZLIB NAMES z zlib libz)
-    if(${ZLIB} STREQUAL "ZLIB-NOTFOUND")
-        message(FATAL_ERROR "Could not find zlib")
-    else()
-        message("${ZLIB} found")
-    endif()
-
-    if(APPLE AND ZIG_STATIC)
-        list(REMOVE_ITEM LLVM_LIBRARIES "-lz")
-        list(REMOVE_ITEM LLVM_LIBRARIES "-lxml2")
-        list(REMOVE_ITEM LLVM_LIBRARIES "-lcurses")
-        find_library(LIBNCURSES NAMES libncurses.a)
-        list(APPEND LLVM_LIBRARIES "${LIBNCURSES}" "${LIBXML2}" "${ZLIB}")
-    endif()
+    find_library(LIBNCURSES NAMES libncurses.a)
+    list(APPEND LLVM_LIBRARIES "${LIBNCURSES}" "${ZLIB}")
 endif()
 
 set(ZIG_CPP_LIB_DIR "${CMAKE_BINARY_DIR}/zig_cpp")

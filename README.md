@@ -88,7 +88,6 @@ that counts as "freestanding" for the purposes of this table.
  * cmake >= 2.8.5
  * gcc >= 5.0.0 or clang >= 3.6.0
  * LLVM, Clang, LLD development libraries == 7.x, compiled with the same gcc or clang version above
-   - These depend on zlib and libxml2.
 
 ##### Windows
 
