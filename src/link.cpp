@@ -434,6 +434,11 @@ static void construct_linker_job_coff(LinkJob *lj) {
         lj->args.append("-DEBUG");
     }
 
+    if (g->out_type == OutTypeExe) {
+        // TODO compile time stack upper bound detection
+        lj->args.append("/STACK:16777216");
+    }
+
     coff_append_machine_arg(g, &lj->args);
 
     if (g->windows_subsystem_windows) {
