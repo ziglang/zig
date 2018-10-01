@@ -38,3 +38,17 @@ test "implicitly cast array of size 0 to slice" {
 fn assertLenIsZero(msg: []const u8) void {
     assert(msg.len == 0);
 }
+
+fn sum(comptime q: []const u8) u8 {
+    var res: u8 = 0;
+    for (q) |item|
+        res += item;
+
+    return res;
+}
+
+test "slices passed at comptime" {
+    assert(sum([]u8{ 1, 2 }) == 3);
+    assert(sum([]u8{ 1, 2, 3 }) == 6);
+    assert(sum([]u8{ 3, 4 }) == 7);
+}

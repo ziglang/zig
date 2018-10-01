@@ -5619,37 +5619,69 @@ bool const_values_equal(CodeGen *g, ConstExprValue *a, ConstExprValue *b) {
         case ZigTypeIdPointer:
         case ZigTypeIdFn:
             return const_values_equal_ptr(a, b);
+        case ZigTypeIdStruct:
         case ZigTypeIdArray: {
-            assert(a->type->data.array.len == b->type->data.array.len);
-            assert(a->data.x_array.special != ConstArraySpecialUndef);
-            assert(b->data.x_array.special != ConstArraySpecialUndef);
-            if (a->data.x_array.special == ConstArraySpecialBuf &&
-                b->data.x_array.special == ConstArraySpecialBuf)
-            {
-                return buf_eql_buf(a->data.x_array.data.s_buf, b->data.x_array.data.s_buf);
+            if (a->type->id == ZigTypeIdStruct && !is_slice(a->type)) {
+                for (size_t i = 0; i < a->type->data.structure.src_field_count; i += 1) {
+                    ConstExprValue *field_a = &a->data.x_struct.fields[i];
+                    ConstExprValue *field_b = &b->data.x_struct.fields[i];
+                    if (!const_values_equal(g, field_a, field_b))
+                        return false;
+                }
+                return true;
             }
-            expand_undef_array(g, a);
-            expand_undef_array(g, b);
 
-            size_t len = a->type->data.array.len;
-            ConstExprValue *a_elems = a->data.x_array.data.s_none.elements;
-            ConstExprValue *b_elems = b->data.x_array.data.s_none.elements;
+            ConstExprValue *a_array, *b_array;
+            size_t a_off, b_off, len;
+            if (is_slice(a->type)) {
+                ConstExprValue *a_len_field = &a->data.x_struct.fields[slice_len_index];
+                ConstExprValue *b_len_field = &b->data.x_struct.fields[slice_len_index];
+                uint64_t a_len = bigint_as_unsigned(&a_len_field->data.x_bigint);
+                uint64_t b_len = bigint_as_unsigned(&b_len_field->data.x_bigint);
+
+                if (a_len != b_len)
+                    return false;
+
+                ConstExprValue *a_ptr = &a->data.x_struct.fields[slice_ptr_index];
+                ConstExprValue *b_ptr = &b->data.x_struct.fields[slice_ptr_index];
+                assert(a_ptr->data.x_ptr.special == ConstPtrSpecialBaseArray);
+                assert(b_ptr->data.x_ptr.special == ConstPtrSpecialBaseArray);
+
+                a_array = a_ptr->data.x_ptr.data.base_array.array_val;
+                b_array = b_ptr->data.x_ptr.data.base_array.array_val;
+                a_off = a_ptr->data.x_ptr.data.base_array.elem_index;
+                b_off = b_ptr->data.x_ptr.data.base_array.elem_index;
+                len = a_len;
+            } else {
+                assert(a->type->data.array.len == b->type->data.array.len);
+                a_array = a;
+                b_array = b;
+                a_off = 0;
+                b_off = 0;
+                len = a->type->data.array.len;
+            }
+
+            assert(a_array->data.x_array.special != ConstArraySpecialUndef);
+            assert(b_array->data.x_array.special != ConstArraySpecialUndef);
+            if (a_array->data.x_array.special == ConstArraySpecialBuf &&
+                b_array->data.x_array.special == ConstArraySpecialBuf)
+            {
+                return buf_eql_buf(a_array->data.x_array.data.s_buf, b_array->data.x_array.data.s_buf);
+            }
+            expand_undef_array(g, a_array);
+            expand_undef_array(g, b_array);
+
+            ConstExprValue *a_elems = a_array->data.x_array.data.s_none.elements;
+            ConstExprValue *b_elems = b_array->data.x_array.data.s_none.elements;
 
             for (size_t i = 0; i < len; ++i) {
-                if (!const_values_equal(g, &a_elems[i], &b_elems[i]))
+                if (!const_values_equal(g, &a_elems[i + a_off], &b_elems[i + b_off]))
                     return false;
             }
 
             return true;
         }
-        case ZigTypeIdStruct:
-            for (size_t i = 0; i < a->type->data.structure.src_field_count; i += 1) {
-                ConstExprValue *field_a = &a->data.x_struct.fields[i];
-                ConstExprValue *field_b = &b->data.x_struct.fields[i];
-                if (!const_values_equal(g, field_a, field_b))
-                    return false;
-            }
-            return true;
+
         case ZigTypeIdUndefined:
             zig_panic("TODO");
         case ZigTypeIdNull:
