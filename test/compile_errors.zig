@@ -2,6 +2,16 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "Panic declared with wrong type signature in tests",
+        \\test "" {}
+        \\
+        \\pub fn panic() void {}
+        \\
+    ,
+        ".tmp_source.zig:3:5: error: expected 'fn([]const u8, ?*builtin.StackTrace) noreturn', found 'fn() void'",
+    );
+
+    cases.add(
         "compile error when evaluating return type of inferred error set",
         \\const Car = struct {
         \\    foo: *SymbolThatDoesNotExist,

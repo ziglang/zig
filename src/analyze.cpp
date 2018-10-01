@@ -1058,7 +1058,10 @@ ZigType *get_ptr_to_stack_trace_type(CodeGen *g) {
     if (g->stack_trace_type == nullptr) {
         ConstExprValue *stack_trace_type_val = get_builtin_value(g, "StackTrace");
         assert(stack_trace_type_val->type->id == ZigTypeIdMetaType);
+
         g->stack_trace_type = stack_trace_type_val->data.x_type;
+        assertNoError(type_resolve(g, g->stack_trace_type, ResolveStatusZeroBitsKnown));
+
         g->ptr_to_stack_trace_type = get_pointer_to_type(g, g->stack_trace_type, false);
     }
     return g->ptr_to_stack_trace_type;
@@ -6560,4 +6563,3 @@ uint32_t get_host_int_bytes(CodeGen *g, ZigType *struct_type, TypeStructField *f
     LLVMTypeRef field_type = LLVMStructGetTypeAtIndex(struct_type->type_ref, field->gen_index);
     return LLVMStoreSizeOfType(g->target_data_ref, field_type);
 }
-
