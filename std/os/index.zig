@@ -104,30 +104,17 @@ pub fn getRandomBytes(buf: []u8) !void {
         Os.linux => while (true) {
             // TODO check libc version and potentially call c.getrandom.
             // See #397
-            const err = posix.getErrno(posix.getrandom(buf.ptr, buf.len, 0));
-            if (err > 0) {
-                switch (err) {
-                    posix.EINVAL => unreachable,
-                    posix.EFAULT => unreachable,
-                    posix.EINTR => continue,
-                    posix.ENOSYS => {
-                        const fd = try posixOpenC(c"/dev/urandom", posix.O_RDONLY | posix.O_CLOEXEC, 0);
-                        defer close(fd);
-
-                        try posixRead(fd, buf);
-                        return;
-                    },
-                    else => return unexpectedErrorPosix(err),
-                }
+            const errno = posix.getErrno(posix.getrandom(buf.ptr, buf.len, 0));
+            switch (errno) {
+                0 => return,
+                posix.EINVAL => unreachable,
+                posix.EFAULT => unreachable,
+                posix.EINTR => continue,
+                posix.ENOSYS => return getRandomBytesDevURandom(buf),
+                else => return unexpectedErrorPosix(errno),
             }
-            return;
         },
-        Os.macosx, Os.ios => {
-            const fd = try posixOpenC(c"/dev/urandom", posix.O_RDONLY | posix.O_CLOEXEC, 0);
-            defer close(fd);
-
-            try posixRead(fd, buf);
-        },
+        Os.macosx, Os.ios => return getRandomBytesDevURandom(buf),
         Os.windows => {
             // Call RtlGenRandom() instead of CryptGetRandom() on Windows
             // https://github.com/rust-lang-nursery/rand/issues/111
@@ -149,6 +136,22 @@ pub fn getRandomBytes(buf: []u8) !void {
         },
         else => @compileError("Unsupported OS"),
     }
+}
+
+fn getRandomBytesDevURandom(buf: []u8) !void {
+    const fd = try posixOpenC(c"/dev/urandom", posix.O_RDONLY | posix.O_CLOEXEC, 0);
+    defer close(fd);
+
+    const stream = &File.openHandle(fd).inStream().stream;
+    stream.readNoEof(buf) catch |err| switch (err) {
+        error.EndOfStream => unreachable,
+        error.OperationAborted => unreachable,
+        error.BrokenPipe => unreachable,
+        error.Unexpected => return error.Unexpected,
+        error.InputOutput => return error.Unexpected,
+        error.SystemResources => return error.Unexpected,
+        error.IsDir => unreachable,
+    };
 }
 
 test "os.getRandomBytes" {
@@ -235,8 +238,9 @@ pub const PosixReadError = error{
     Unexpected,
 };
 
-/// Calls POSIX read, and keeps trying if it gets interrupted.
-pub fn posixRead(fd: i32, buf: []u8) !void {
+/// Returns the number of bytes that were read, which can be less than
+/// buf.len. If 0 bytes were read, that means EOF.
+pub fn posixRead(fd: i32, buf: []u8) PosixReadError!usize {
     // Linux can return EINVAL when read amount is > 0x7ffff000
     // See https://github.com/ziglang/zig/pull/743#issuecomment-363158274
     const max_buf_len = 0x7ffff000;
@@ -249,7 +253,9 @@ pub fn posixRead(fd: i32, buf: []u8) !void {
         switch (err) {
             0 => {
                 index += rc;
-                continue;
+                if (rc == want_to_read) continue;
+                // Read returned less than buf.len.
+                return index;
             },
             posix.EINTR => continue,
             posix.EINVAL => unreachable,
@@ -263,6 +269,7 @@ pub fn posixRead(fd: i32, buf: []u8) !void {
             else => return unexpectedErrorPosix(err),
         }
     }
+    return index;
 }
 
 /// Number of bytes read is returned. Upon reading end-of-file, zero is returned.
@@ -962,16 +969,16 @@ pub const DeleteFileError = error{
 
 pub fn deleteFile(file_path: []const u8) DeleteFileError!void {
     if (builtin.os == Os.windows) {
-        return deleteFileWindows(file_path);
+        const file_path_w = try windows_util.sliceToPrefixedFileW(file_path);
+        return deleteFileW(&file_path_w);
     } else {
-        return deleteFilePosix(file_path);
+        const file_path_c = try toPosixPath(file_path);
+        return deleteFileC(&file_path_c);
     }
 }
 
-pub fn deleteFileWindows(file_path: []const u8) !void {
-    const file_path_w = try windows_util.sliceToPrefixedFileW(file_path);
-
-    if (windows.DeleteFileW(&file_path_w) == 0) {
+pub fn deleteFileW(file_path: [*]const u16) DeleteFileError!void {
+    if (windows.DeleteFileW(file_path) == 0) {
         const err = windows.GetLastError();
         switch (err) {
             windows.ERROR.FILE_NOT_FOUND => return error.FileNotFound,
@@ -983,30 +990,30 @@ pub fn deleteFileWindows(file_path: []const u8) !void {
     }
 }
 
-pub fn deleteFilePosixC(file_path: [*]const u8) !void {
-    const err = posix.getErrno(posix.unlink(file_path));
-    switch (err) {
-        0 => return,
-        posix.EACCES => return error.AccessDenied,
-        posix.EPERM => return error.AccessDenied,
-        posix.EBUSY => return error.FileBusy,
-        posix.EFAULT => unreachable,
-        posix.EINVAL => unreachable,
-        posix.EIO => return error.FileSystem,
-        posix.EISDIR => return error.IsDir,
-        posix.ELOOP => return error.SymLinkLoop,
-        posix.ENAMETOOLONG => return error.NameTooLong,
-        posix.ENOENT => return error.FileNotFound,
-        posix.ENOTDIR => return error.NotDir,
-        posix.ENOMEM => return error.SystemResources,
-        posix.EROFS => return error.ReadOnlyFileSystem,
-        else => return unexpectedErrorPosix(err),
+pub fn deleteFileC(file_path: [*]const u8) DeleteFileError!void {
+    if (is_windows) {
+        const file_path_w = try windows_util.cStrToPrefixedFileW(file_path);
+        return deleteFileW(&file_path_w);
+    } else {
+        const err = posix.getErrno(posix.unlink(file_path));
+        switch (err) {
+            0 => return,
+            posix.EACCES => return error.AccessDenied,
+            posix.EPERM => return error.AccessDenied,
+            posix.EBUSY => return error.FileBusy,
+            posix.EFAULT => unreachable,
+            posix.EINVAL => unreachable,
+            posix.EIO => return error.FileSystem,
+            posix.EISDIR => return error.IsDir,
+            posix.ELOOP => return error.SymLinkLoop,
+            posix.ENAMETOOLONG => return error.NameTooLong,
+            posix.ENOENT => return error.FileNotFound,
+            posix.ENOTDIR => return error.NotDir,
+            posix.ENOMEM => return error.SystemResources,
+            posix.EROFS => return error.ReadOnlyFileSystem,
+            else => return unexpectedErrorPosix(err),
+        }
     }
-}
-
-pub fn deleteFilePosix(file_path: []const u8) !void {
-    const file_path_c = try toPosixPath(file_path);
-    return deleteFilePosixC(&file_path_c);
 }
 
 /// Guaranteed to be atomic. However until https://patchwork.kernel.org/patch/9636735/ is
@@ -1014,19 +1021,18 @@ pub fn deleteFilePosix(file_path: []const u8) !void {
 /// there is a possibility of power loss or application termination leaving temporary files present
 /// in the same directory as dest_path.
 /// Destination file will have the same mode as the source file.
-/// TODO investigate if this can work with no allocator
-pub fn copyFile(allocator: *Allocator, source_path: []const u8, dest_path: []const u8) !void {
+pub fn copyFile(source_path: []const u8, dest_path: []const u8) !void {
     var in_file = try os.File.openRead(source_path);
     defer in_file.close();
 
     const mode = try in_file.mode();
 
-    var atomic_file = try AtomicFile.init(allocator, dest_path, mode);
+    var atomic_file = try AtomicFile.init(dest_path, mode);
     defer atomic_file.deinit();
 
     var buf: [page_size]u8 = undefined;
     while (true) {
-        const amt = try in_file.read(buf[0..]);
+        const amt = try in_file.readFull(buf[0..]);
         try atomic_file.file.write(buf[0..amt]);
         if (amt != buf.len) {
             return atomic_file.finish();
@@ -1037,12 +1043,11 @@ pub fn copyFile(allocator: *Allocator, source_path: []const u8, dest_path: []con
 /// Guaranteed to be atomic. However until https://patchwork.kernel.org/patch/9636735/ is
 /// merged and readily available,
 /// there is a possibility of power loss or application termination leaving temporary files present
-/// TODO investigate if this can work with no allocator
-pub fn copyFileMode(allocator: *Allocator, source_path: []const u8, dest_path: []const u8, mode: File.Mode) !void {
+pub fn copyFileMode(source_path: []const u8, dest_path: []const u8, mode: File.Mode) !void {
     var in_file = try os.File.openRead(source_path);
     defer in_file.close();
 
-    var atomic_file = try AtomicFile.init(allocator, dest_path, mode);
+    var atomic_file = try AtomicFile.init(dest_path, mode);
     defer atomic_file.deinit();
 
     var buf: [page_size]u8 = undefined;
@@ -1056,35 +1061,38 @@ pub fn copyFileMode(allocator: *Allocator, source_path: []const u8, dest_path: [
 }
 
 pub const AtomicFile = struct {
-    /// TODO investigate if we can make this work with no allocator
-    allocator: *Allocator,
     file: os.File,
-    tmp_path: []u8,
+    tmp_path_buf: [MAX_PATH_BYTES]u8,
     dest_path: []const u8,
     finished: bool,
 
+    const InitError = os.File.OpenError;
+
     /// dest_path must remain valid for the lifetime of AtomicFile
     /// call finish to atomically replace dest_path with contents
-    pub fn init(allocator: *Allocator, dest_path: []const u8, mode: File.Mode) !AtomicFile {
+    /// TODO once we have null terminated pointers, use the
+    /// openWriteNoClobberN function
+    pub fn init(dest_path: []const u8, mode: File.Mode) InitError!AtomicFile {
         const dirname = os.path.dirname(dest_path);
-
         var rand_buf: [12]u8 = undefined;
-
         const dirname_component_len = if (dirname) |d| d.len + 1 else 0;
-        const tmp_path = try allocator.alloc(u8, dirname_component_len +
-            base64.Base64Encoder.calcSize(rand_buf.len));
-        errdefer allocator.free(tmp_path);
+        const encoded_rand_len = comptime base64.Base64Encoder.calcSize(rand_buf.len);
+        const tmp_path_len = dirname_component_len + encoded_rand_len;
+        var tmp_path_buf: [MAX_PATH_BYTES]u8 = undefined;
+        if (tmp_path_len >= tmp_path_buf.len) return error.NameTooLong;
 
         if (dirname) |dir| {
-            mem.copy(u8, tmp_path[0..], dir);
-            tmp_path[dir.len] = os.path.sep;
+            mem.copy(u8, tmp_path_buf[0..], dir);
+            tmp_path_buf[dir.len] = os.path.sep;
         }
+
+        tmp_path_buf[tmp_path_len] = 0;
 
         while (true) {
             try getRandomBytes(rand_buf[0..]);
-            b64_fs_encoder.encode(tmp_path[dirname_component_len..], rand_buf);
+            b64_fs_encoder.encode(tmp_path_buf[dirname_component_len..tmp_path_len], rand_buf);
 
-            const file = os.File.openWriteNoClobber(tmp_path, mode) catch |err| switch (err) {
+            const file = os.File.openWriteNoClobberC(&tmp_path_buf, mode) catch |err| switch (err) {
                 error.PathAlreadyExists => continue,
                 // TODO zig should figure out that this error set does not include PathAlreadyExists since
                 // it is handled in the above switch
@@ -1092,9 +1100,8 @@ pub const AtomicFile = struct {
             };
 
             return AtomicFile{
-                .allocator = allocator,
                 .file = file,
-                .tmp_path = tmp_path,
+                .tmp_path_buf = tmp_path_buf,
                 .dest_path = dest_path,
                 .finished = false,
             };
@@ -1105,8 +1112,7 @@ pub const AtomicFile = struct {
     pub fn deinit(self: *AtomicFile) void {
         if (!self.finished) {
             self.file.close();
-            deleteFile(self.tmp_path) catch {};
-            self.allocator.free(self.tmp_path);
+            deleteFileC(&self.tmp_path_buf) catch {};
             self.finished = true;
         }
     }
@@ -1114,15 +1120,25 @@ pub const AtomicFile = struct {
     pub fn finish(self: *AtomicFile) !void {
         assert(!self.finished);
         self.file.close();
-        try rename(self.tmp_path, self.dest_path);
-        self.allocator.free(self.tmp_path);
         self.finished = true;
+        if (is_posix) {
+            const dest_path_c = try toPosixPath(self.dest_path);
+            return renameC(&self.tmp_path_buf, &dest_path_c);
+        } else if (is_windows) {
+            const dest_path_w = try windows_util.sliceToPrefixedFileW(self.dest_path);
+            const tmp_path_w = try windows_util.cStrToPrefixedFileW(&self.tmp_path_buf);
+            return renameW(&tmp_path_w, &dest_path_w);
+        } else {
+            @compileError("Unsupported OS");
+        }
     }
 };
 
 pub fn renameC(old_path: [*]const u8, new_path: [*]const u8) !void {
     if (is_windows) {
-        @compileError("TODO implement for windows");
+        const old_path_w = try windows_util.cStrToPrefixedFileW(old_path);
+        const new_path_w = try windows_util.cStrToPrefixedFileW(new_path);
+        return renameW(&old_path_w, &new_path_w);
     } else {
         const err = posix.getErrno(posix.rename(old_path, new_path));
         switch (err) {
@@ -1150,17 +1166,21 @@ pub fn renameC(old_path: [*]const u8, new_path: [*]const u8) !void {
     }
 }
 
+pub fn renameW(old_path: [*]const u16, new_path: [*]const u16) !void {
+    const flags = windows.MOVEFILE_REPLACE_EXISTING | windows.MOVEFILE_WRITE_THROUGH;
+    if (windows.MoveFileExW(old_path, new_path, flags) == 0) {
+        const err = windows.GetLastError();
+        switch (err) {
+            else => return unexpectedErrorWindows(err),
+        }
+    }
+}
+
 pub fn rename(old_path: []const u8, new_path: []const u8) !void {
     if (is_windows) {
-        const flags = windows.MOVEFILE_REPLACE_EXISTING | windows.MOVEFILE_WRITE_THROUGH;
         const old_path_w = try windows_util.sliceToPrefixedFileW(old_path);
         const new_path_w = try windows_util.sliceToPrefixedFileW(new_path);
-        if (windows.MoveFileExW(&old_path_w, &new_path_w, flags) == 0) {
-            const err = windows.GetLastError();
-            switch (err) {
-                else => return unexpectedErrorWindows(err),
-            }
-        }
+        return renameW(&old_path_w, &new_path_w);
     } else {
         const old_path_c = try toPosixPath(old_path);
         const new_path_c = try toPosixPath(new_path);

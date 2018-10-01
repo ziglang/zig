@@ -2,6 +2,7 @@ const std = @import("../index.zig");
 const os = std.os;
 const assert = std.debug.assert;
 const io = std.io;
+const mem = std.mem;
 
 const a = std.debug.global_allocator;
 
@@ -79,4 +80,24 @@ fn start2(ctx: *i32) u8 {
 test "cpu count" {
     const cpu_count = try std.os.cpuCount(a);
     assert(cpu_count >= 1);
+}
+
+test "AtomicFile" {
+    var buffer: [1024]u8 = undefined;
+    const allocator = &std.heap.FixedBufferAllocator.init(buffer[0..]).allocator;
+    const test_out_file = "tmp_atomic_file_test_dest.txt";
+    const test_content =
+        \\ hello!
+        \\ this is a test file
+    ;
+    {
+        var af = try os.AtomicFile.init(test_out_file, os.File.default_mode);
+        defer af.deinit();
+        try af.file.write(test_content);
+        try af.finish();
+    }
+    const content = try io.readFileAlloc(allocator, test_out_file);
+    assert(mem.eql(u8, content, test_content));
+
+    try os.deleteFile(test_out_file);
 }

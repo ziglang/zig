@@ -21,6 +21,24 @@ pub fn InStream(comptime ReadError: type) type {
             return await (async self.readFn(self, buffer) catch unreachable);
         }
 
+        /// Return the number of bytes read. If it is less than buffer.len
+        /// it means end of stream.
+        pub async fn readFull(self: *Self, buffer: []u8) !usize {
+            var index: usize = 0;
+            while (index != buf.len) {
+                const amt_read = try await (async self.read(buf[index..]) catch unreachable);
+                if (amt_read == 0) return index;
+                index += amt_read;
+            }
+            return index;
+        }
+
+        /// Same as `readFull` but end of stream returns `error.EndOfStream`.
+        pub async fn readNoEof(self: *Self, buf: []u8) !void {
+            const amt_read = try await (async self.readFull(buf[index..]) catch unreachable);
+            if (amt_read < buf.len) return error.EndOfStream;
+        }
+
         pub async fn readIntLe(self: *Self, comptime T: type) !T {
             return await (async self.readInt(builtin.Endian.Little, T) catch unreachable);
         }
@@ -31,24 +49,14 @@ pub fn InStream(comptime ReadError: type) type {
 
         pub async fn readInt(self: *Self, endian: builtin.Endian, comptime T: type) !T {
             var bytes: [@sizeOf(T)]u8 = undefined;
-            try await (async self.readFull(bytes[0..]) catch unreachable);
+            try await (async self.readNoEof(bytes[0..]) catch unreachable);
             return mem.readInt(bytes, T, endian);
-        }
-
-        /// Same as `read` but end of stream returns `error.EndOfStream`.
-        pub async fn readFull(self: *Self, buf: []u8) !void {
-            var index: usize = 0;
-            while (index != buf.len) {
-                const amt_read = try await (async self.read(buf[index..]) catch unreachable);
-                if (amt_read == 0) return error.EndOfStream;
-                index += amt_read;
-            }
         }
 
         pub async fn readStruct(self: *Self, comptime T: type, ptr: *T) !void {
             // Only extern and packed structs have defined in-memory layout.
             comptime assert(@typeInfo(T).Struct.layout != builtin.TypeInfo.ContainerLayout.Auto);
-            return await (async self.readFull(@sliceToBytes((*[1]T)(ptr)[0..])) catch unreachable);
+            return await (async self.readNoEof(@sliceToBytes((*[1]T)(ptr)[0..])) catch unreachable);
         }
     };
 }

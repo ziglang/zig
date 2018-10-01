@@ -634,7 +634,7 @@ pub const Builder = struct {
             warn("Unable to create path {}: {}\n", dirname, @errorName(err));
             return err;
         };
-        os.copyFileMode(self.allocator, abs_source_path, dest_path, mode) catch |err| {
+        os.copyFileMode(abs_source_path, dest_path, mode) catch |err| {
             warn("Unable to copy {} to {}: {}\n", abs_source_path, dest_path, @errorName(err));
             return err;
         };

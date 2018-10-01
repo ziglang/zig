@@ -51,7 +51,7 @@ pub fn InStream(comptime ReadError: type) type {
             var actual_buf_len: usize = 0;
             while (true) {
                 const dest_slice = buffer.toSlice()[actual_buf_len..];
-                const bytes_read = try self.readFn(self, dest_slice);
+                const bytes_read = try self.readFull(dest_slice);
                 actual_buf_len += bytes_read;
 
                 if (bytes_read != dest_slice.len) {
@@ -111,14 +111,27 @@ pub fn InStream(comptime ReadError: type) type {
             return buf.toOwnedSlice();
         }
 
-        /// Returns the number of bytes read. If the number read is smaller than buf.len, it
-        /// means the stream reached the end. Reaching the end of a stream is not an error
-        /// condition.
+        /// Returns the number of bytes read. It may be less than buffer.len.
+        /// If the number of bytes read is 0, it means end of stream.
+        /// End of stream is not an error condition.
         pub fn read(self: *Self, buffer: []u8) !usize {
             return self.readFn(self, buffer);
         }
 
-        /// Same as `read` but end of stream returns `error.EndOfStream`.
+        /// Returns the number of bytes read. If the number read is smaller than buf.len, it
+        /// means the stream reached the end. Reaching the end of a stream is not an error
+        /// condition.
+        pub fn readFull(self: *Self, buffer: []u8) !usize {
+            var index: usize = 0;
+            while (index != buffer.len) {
+                const amt = try self.read(buffer[index..]);
+                if (amt == 0) return index;
+                index += amt;
+            }
+            return index;
+        }
+
+        /// Same as `readFull` but end of stream returns `error.EndOfStream`.
         pub fn readNoEof(self: *Self, buf: []u8) !void {
             const amt_read = try self.read(buf);
             if (amt_read < buf.len) return error.EndOfStream;
@@ -134,6 +147,11 @@ pub fn InStream(comptime ReadError: type) type {
         /// Same as `readByte` except the returned byte is signed.
         pub fn readByteSigned(self: *Self) !i8 {
             return @bitCast(i8, try self.readByte());
+        }
+
+        /// Reads a native-endian integer
+        pub fn readIntNe(self: *Self, comptime T: type) !T {
+            return self.readInt(builtin.endian, T);
         }
 
         pub fn readIntLe(self: *Self, comptime T: type) !T {
@@ -200,6 +218,11 @@ pub fn OutStream(comptime WriteError: type) type {
             while (i < n) : (i += 1) {
                 try self.writeFn(self, slice);
             }
+        }
+
+        /// Write a native-endian integer.
+        pub fn writeIntNe(self: *Self, comptime T: type, value: T) !void {
+            return self.writeInt(builtin.endian, T, value);
         }
 
         pub fn writeIntLe(self: *Self, comptime T: type, value: T) !void {
@@ -537,6 +560,7 @@ pub const BufferedAtomicFile = struct {
     atomic_file: os.AtomicFile,
     file_stream: os.File.OutStream,
     buffered_stream: BufferedOutStream(os.File.WriteError),
+    allocator: *mem.Allocator,
 
     pub fn create(allocator: *mem.Allocator, dest_path: []const u8) !*BufferedAtomicFile {
         // TODO with well defined copy elision we don't need this allocation
@@ -544,10 +568,11 @@ pub const BufferedAtomicFile = struct {
             .atomic_file = undefined,
             .file_stream = undefined,
             .buffered_stream = undefined,
+            .allocator = allocator,
         });
         errdefer allocator.destroy(self);
 
-        self.atomic_file = try os.AtomicFile.init(allocator, dest_path, os.File.default_mode);
+        self.atomic_file = try os.AtomicFile.init(dest_path, os.File.default_mode);
         errdefer self.atomic_file.deinit();
 
         self.file_stream = self.atomic_file.file.outStream();
@@ -557,9 +582,8 @@ pub const BufferedAtomicFile = struct {
 
     /// always call destroy, even after successful finish()
     pub fn destroy(self: *BufferedAtomicFile) void {
-        const allocator = self.atomic_file.allocator;
         self.atomic_file.deinit();
-        allocator.destroy(self);
+        self.allocator.destroy(self);
     }
 
     pub fn finish(self: *BufferedAtomicFile) !void {

@@ -103,11 +103,23 @@ pub const File = struct {
     /// Call close to clean up.
     pub fn openWriteNoClobber(path: []const u8, file_mode: Mode) OpenError!File {
         if (is_posix) {
-            const flags = posix.O_LARGEFILE | posix.O_WRONLY | posix.O_CREAT | posix.O_CLOEXEC | posix.O_EXCL;
-            const fd = try os.posixOpen(path, flags, file_mode);
-            return openHandle(fd);
+            const path_c = try os.toPosixPath(path);
+            return openWriteNoClobberC(path_c, file_mode);
         } else if (is_windows) {
             const path_w = try windows_util.sliceToPrefixedFileW(path);
+            return openWriteNoClobberW(&path_w, file_mode);
+        } else {
+            @compileError("TODO implement openWriteMode for this OS");
+        }
+    }
+
+    pub fn openWriteNoClobberC(path: [*]const u8, file_mode: Mode) OpenError!File {
+        if (is_posix) {
+            const flags = posix.O_LARGEFILE | posix.O_WRONLY | posix.O_CREAT | posix.O_CLOEXEC | posix.O_EXCL;
+            const fd = try os.posixOpenC(path, flags, file_mode);
+            return openHandle(fd);
+        } else if (is_windows) {
+            const path_w = try windows_util.cStrToPrefixedFileW(path);
             return openWriteNoClobberW(&path_w, file_mode);
         } else {
             @compileError("TODO implement openWriteMode for this OS");
@@ -369,28 +381,7 @@ pub const File = struct {
 
     pub fn read(self: File, buffer: []u8) ReadError!usize {
         if (is_posix) {
-            var index: usize = 0;
-            while (index < buffer.len) {
-                const amt_read = posix.read(self.handle, buffer.ptr + index, buffer.len - index);
-                const read_err = posix.getErrno(amt_read);
-                if (read_err > 0) {
-                    switch (read_err) {
-                        posix.EINTR => continue,
-                        posix.EINVAL => unreachable,
-                        posix.EFAULT => unreachable,
-                        posix.EAGAIN => unreachable,
-                        posix.EBADF => unreachable, // always a race condition
-                        posix.EIO => return error.InputOutput,
-                        posix.EISDIR => return error.IsDir,
-                        posix.ENOBUFS => return error.SystemResources,
-                        posix.ENOMEM => return error.SystemResources,
-                        else => return os.unexpectedErrorPosix(read_err),
-                    }
-                }
-                if (amt_read == 0) return index;
-                index += amt_read;
-            }
-            return index;
+            return os.posixRead(self.handle, buffer);
         } else if (is_windows) {
             var index: usize = 0;
             while (index < buffer.len) {
@@ -409,7 +400,7 @@ pub const File = struct {
             }
             return index;
         } else {
-            unreachable;
+            @compileError("Unsupported OS");
         }
     }
 
