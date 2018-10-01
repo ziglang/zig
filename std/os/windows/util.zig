@@ -42,6 +42,12 @@ pub fn windowsClose(handle: windows.HANDLE) void {
     assert(windows.CloseHandle(handle) != 0);
 }
 
+pub const ReadError = error{
+    OperationAborted,
+    BrokenPipe,
+    Unexpected,
+};
+
 pub const WriteError = error{
     SystemResources,
     OperationAborted,

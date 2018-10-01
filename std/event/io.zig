@@ -2,6 +2,7 @@ const std = @import("../index.zig");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
+const mem = std.mem;
 
 pub fn InStream(comptime ReadError: type) type {
     return struct {
@@ -18,6 +19,20 @@ pub fn InStream(comptime ReadError: type) type {
         /// End of stream is not an error condition.
         pub async fn read(self: *Self, buffer: []u8) !usize {
             return await (async self.readFn(self, buffer) catch unreachable);
+        }
+
+        pub async fn readIntLe(self: *Self, comptime T: type) !T {
+            return await (async self.readInt(builtin.Endian.Little, T) catch unreachable);
+        }
+
+        pub async fn readIntBe(self: *Self, comptime T: type) !T {
+            return await (async self.readInt(builtin.Endian.Big, T) catch unreachable);
+        }
+
+        pub async fn readInt(self: *Self, endian: builtin.Endian, comptime T: type) !T {
+            var bytes: [@sizeOf(T)]u8 = undefined;
+            try await (async self.readFull(bytes[0..]) catch unreachable);
+            return mem.readInt(bytes, T, endian);
         }
 
         /// Same as `read` but end of stream returns `error.EndOfStream`.

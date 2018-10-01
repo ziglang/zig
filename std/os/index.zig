@@ -72,6 +72,7 @@ pub const windowsGetQueuedCompletionStatus = windows_util.windowsGetQueuedComple
 pub const WindowsWaitError = windows_util.WaitError;
 pub const WindowsOpenError = windows_util.OpenError;
 pub const WindowsWriteError = windows_util.WriteError;
+pub const WindowsReadError = windows_util.ReadError;
 
 pub const FileHandle = if (is_windows) windows.HANDLE else i32;
 
@@ -227,6 +228,13 @@ pub fn close(handle: FileHandle) void {
     }
 }
 
+pub const PosixReadError = error{
+    InputOutput,
+    SystemResources,
+    IsDir,
+    Unexpected,
+};
+
 /// Calls POSIX read, and keeps trying if it gets interrupted.
 pub fn posixRead(fd: i32, buf: []u8) !void {
     // Linux can return EINVAL when read amount is > 0x7ffff000
@@ -238,24 +246,27 @@ pub fn posixRead(fd: i32, buf: []u8) !void {
         const want_to_read = math.min(buf.len - index, usize(max_buf_len));
         const rc = posix.read(fd, buf.ptr + index, want_to_read);
         const err = posix.getErrno(rc);
-        if (err > 0) {
-            return switch (err) {
-                posix.EINTR => continue,
-                posix.EINVAL, posix.EFAULT => unreachable,
-                posix.EAGAIN => unreachable,
-                posix.EBADF => unreachable, // always a race condition
-                posix.EIO => error.InputOutput,
-                posix.EISDIR => error.IsDir,
-                posix.ENOBUFS, posix.ENOMEM => error.SystemResources,
-                else => unexpectedErrorPosix(err),
-            };
+        switch (err) {
+            0 => {
+                index += rc;
+                continue;
+            },
+            posix.EINTR => continue,
+            posix.EINVAL => unreachable,
+            posix.EFAULT => unreachable,
+            posix.EAGAIN => unreachable,
+            posix.EBADF => unreachable, // always a race condition
+            posix.EIO => return error.InputOutput,
+            posix.EISDIR => return error.IsDir,
+            posix.ENOBUFS => return error.SystemResources,
+            posix.ENOMEM => return error.SystemResources,
+            else => return unexpectedErrorPosix(err),
         }
-        index += rc;
     }
 }
 
 /// Number of bytes read is returned. Upon reading end-of-file, zero is returned.
-pub fn posix_preadv(fd: i32, iov: [*]const posix.iovec, count: usize, offset: u64) !usize {
+pub fn posix_preadv(fd: i32, iov: [*]const posix.iovec, count: usize, offset: u64) PosixReadError!usize {
     switch (builtin.os) {
         builtin.Os.macosx => {
             // Darwin does not have preadv but it does have pread.
@@ -284,7 +295,7 @@ pub fn posix_preadv(fd: i32, iov: [*]const posix.iovec, count: usize, offset: u6
                     posix.EINVAL => unreachable,
                     posix.EFAULT => unreachable,
                     posix.ESPIPE => unreachable, // fd is not seekable
-                    posix.EAGAIN => unreachable, // use posixAsyncPReadV for non blocking
+                    posix.EAGAIN => unreachable, // this function is not for non blocking
                     posix.EBADF => unreachable, // always a race condition
                     posix.EIO => return error.InputOutput,
                     posix.EISDIR => return error.IsDir,
@@ -302,7 +313,7 @@ pub fn posix_preadv(fd: i32, iov: [*]const posix.iovec, count: usize, offset: u6
                 posix.EINTR => continue,
                 posix.EINVAL => unreachable,
                 posix.EFAULT => unreachable,
-                posix.EAGAIN => unreachable, // use posixAsyncPReadV for non blocking
+                posix.EAGAIN => unreachable, // don't call this function for non blocking
                 posix.EBADF => unreachable, // always a race condition
                 posix.EIO => return error.InputOutput,
                 posix.EISDIR => return error.IsDir,
@@ -328,7 +339,7 @@ pub const PosixWriteError = error{
 };
 
 /// Calls POSIX write, and keeps trying if it gets interrupted.
-pub fn posixWrite(fd: i32, bytes: []const u8) !void {
+pub fn posixWrite(fd: i32, bytes: []const u8) PosixWriteError!void {
     // Linux can return EINVAL when write amount is > 0x7ffff000
     // See https://github.com/ziglang/zig/pull/743#issuecomment-363165856
     const max_bytes_len = 0x7ffff000;

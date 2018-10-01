@@ -2710,6 +2710,11 @@ static Error resolve_struct_alignment(CodeGen *g, ZigType *struct_type) {
         // be resolving ResolveStatusZeroBitsKnown
         assert(field->type_entry != nullptr);
 
+        if (type_is_invalid(field->type_entry)) {
+            struct_type->data.structure.resolve_status = ResolveStatusInvalid;
+            break;
+        }
+
         if (!type_has_bits(field->type_entry))
             continue;
 

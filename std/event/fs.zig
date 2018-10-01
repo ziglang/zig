@@ -30,20 +30,20 @@ pub const Request = struct {
 
         pub const PWriteV = struct {
             fd: os.FileHandle,
-            iov: []os.posix.iovec_const,
+            iov: []const os.posix.iovec_const,
             offset: usize,
             result: Error!void,
 
-            pub const Error = os.File.WriteError;
+            pub const Error = os.PosixWriteError;
         };
 
         pub const PReadV = struct {
             fd: os.FileHandle,
-            iov: []os.posix.iovec,
+            iov: []const os.posix.iovec,
             offset: usize,
             result: Error!usize,
 
-            pub const Error = os.File.ReadError;
+            pub const Error = os.PosixReadError;
         };
 
         pub const Open = struct {
@@ -72,28 +72,47 @@ pub const Request = struct {
     };
 };
 
+pub const PWriteVError = error{OutOfMemory} || os.File.WriteError;
+
 /// data - just the inner references - must live until pwritev promise completes.
-pub async fn pwritev(loop: *Loop, fd: os.FileHandle, data: []const []const u8, offset: usize) !void {
+pub async fn pwritev(loop: *Loop, fd: os.FileHandle, data: []const []const u8, offset: usize) PWriteVError!void {
+    // workaround for https://github.com/ziglang/zig/issues/1194
+    suspend {
+        resume @handle();
+    }
     switch (builtin.os) {
         builtin.Os.macosx,
         builtin.Os.linux,
-        => return await (async pwritevPosix(loop, fd, data, offset) catch unreachable),
-        builtin.Os.windows => return await (async pwritevWindows(loop, fd, data, offset) catch unreachable),
+        => {
+            const iovecs = try loop.allocator.alloc(os.posix.iovec_const, data.len);
+            defer loop.allocator.free(iovecs);
+
+            for (data) |buf, i| {
+                iovecs[i] = os.posix.iovec_const{
+                    .iov_base = buf.ptr,
+                    .iov_len = buf.len,
+                };
+            }
+
+            return await (async pwritevPosix(loop, fd, iovecs, offset) catch unreachable);
+        },
+        builtin.Os.windows => {
+            const data_copy = try std.mem.dupe(loop.allocator, []const u8, data);
+            defer loop.allocator.free(data_copy);
+            return await (async pwritevWindows(loop, fd, data, offset) catch unreachable);
+        },
         else => @compileError("Unsupported OS"),
     }
 }
 
-/// data - just the inner references - must live until pwritev promise completes.
-pub async fn pwritevWindows(loop: *Loop, fd: os.FileHandle, data: []const []const u8, offset: usize) !void {
+/// data must outlive the returned promise
+pub async fn pwritevWindows(loop: *Loop, fd: os.FileHandle, data: []const []const u8, offset: usize) os.WindowsWriteError!void {
     if (data.len == 0) return;
     if (data.len == 1) return await (async pwriteWindows(loop, fd, data[0], offset) catch unreachable);
 
-    const data_copy = try std.mem.dupe(loop.allocator, []const u8, data);
-    defer loop.allocator.free(data_copy);
-
     // TODO do these in parallel
     var off = offset;
-    for (data_copy) |buf| {
+    for (data) |buf| {
         try await (async pwriteWindows(loop, fd, buf, off) catch unreachable);
         off += buf.len;
     }
@@ -144,21 +163,16 @@ pub async fn pwriteWindows(loop: *Loop, fd: os.FileHandle, data: []const u8, off
     }
 }
 
-/// data - just the inner references - must live until pwritev promise completes.
-pub async fn pwritevPosix(loop: *Loop, fd: os.FileHandle, data: []const []const u8, offset: usize) !void {
+/// iovecs must live until pwritev promise completes.
+pub async fn pwritevPosix(
+    loop: *Loop,
+    fd: os.FileHandle,
+    iovecs: []const posix.iovec_const,
+    offset: usize,
+) os.PosixWriteError!void {
     // workaround for https://github.com/ziglang/zig/issues/1194
     suspend {
         resume @handle();
-    }
-
-    const iovecs = try loop.allocator.alloc(os.posix.iovec_const, data.len);
-    defer loop.allocator.free(iovecs);
-
-    for (data) |buf, i| {
-        iovecs[i] = os.posix.iovec_const{
-            .iov_base = buf.ptr,
-            .iov_len = buf.len,
-        };
     }
 
     var req_node = RequestNode{
@@ -192,38 +206,59 @@ pub async fn pwritevPosix(loop: *Loop, fd: os.FileHandle, data: []const []const 
     return req_node.data.msg.PWriteV.result;
 }
 
+pub const PReadVError = error{OutOfMemory} || os.File.ReadError;
+
 /// data - just the inner references - must live until preadv promise completes.
-pub async fn preadv(loop: *Loop, fd: os.FileHandle, data: []const []u8, offset: usize) !usize {
+pub async fn preadv(loop: *Loop, fd: os.FileHandle, data: []const []u8, offset: usize) PReadVError!usize {
+    // workaround for https://github.com/ziglang/zig/issues/1194
+    suspend {
+        resume @handle();
+    }
+
     assert(data.len != 0);
     switch (builtin.os) {
         builtin.Os.macosx,
         builtin.Os.linux,
-        => return await (async preadvPosix(loop, fd, data, offset) catch unreachable),
-        builtin.Os.windows => return await (async preadvWindows(loop, fd, data, offset) catch unreachable),
+        => {
+            const iovecs = try loop.allocator.alloc(os.posix.iovec, data.len);
+            defer loop.allocator.free(iovecs);
+
+            for (data) |buf, i| {
+                iovecs[i] = os.posix.iovec{
+                    .iov_base = buf.ptr,
+                    .iov_len = buf.len,
+                };
+            }
+
+            return await (async preadvPosix(loop, fd, iovecs, offset) catch unreachable);
+        },
+        builtin.Os.windows => {
+            const data_copy = try std.mem.dupe(loop.allocator, []u8, data);
+            defer loop.allocator.free(data_copy);
+            return await (async preadvWindows(loop, fd, data_copy, offset) catch unreachable);
+        },
         else => @compileError("Unsupported OS"),
     }
 }
 
-pub async fn preadvWindows(loop: *Loop, fd: os.FileHandle, data: []const []u8, offset: u64) !usize {
+/// data must outlive the returned promise
+pub async fn preadvWindows(loop: *Loop, fd: os.FileHandle, data: []const []u8, offset: u64) os.WindowsReadError!usize {
     assert(data.len != 0);
     if (data.len == 1) return await (async preadWindows(loop, fd, data[0], offset) catch unreachable);
-
-    const data_copy = try std.mem.dupe(loop.allocator, []u8, data);
-    defer loop.allocator.free(data_copy);
 
     // TODO do these in parallel?
     var off: usize = 0;
     var iov_i: usize = 0;
     var inner_off: usize = 0;
     while (true) {
-        const v = data_copy[iov_i];
+        const v = data[iov_i];
         const amt_read = try await (async preadWindows(loop, fd, v[inner_off .. v.len - inner_off], offset + off) catch unreachable);
         off += amt_read;
         inner_off += amt_read;
         if (inner_off == v.len) {
             iov_i += 1;
             inner_off = 0;
-            if (iov_i == data_copy.len) {
+            if (iov_i == data.len) {
                 return off;
             }
         }
@@ -275,21 +310,16 @@ pub async fn preadWindows(loop: *Loop, fd: os.FileHandle, data: []u8, offset: u6
     return usize(bytes_transferred);
 }
 
-/// data - just the inner references - must live until preadv promise completes.
-pub async fn preadvPosix(loop: *Loop, fd: os.FileHandle, data: []const []u8, offset: usize) !usize {
+/// iovecs must live until preadv promise completes
+pub async fn preadvPosix(
+    loop: *Loop,
+    fd: os.FileHandle,
+    iovecs: []const posix.iovec,
+    offset: usize,
+) os.PosixReadError!usize {
     // workaround for https://github.com/ziglang/zig/issues/1194
     suspend {
         resume @handle();
-    }
-
-    const iovecs = try loop.allocator.alloc(os.posix.iovec, data.len);
-    defer loop.allocator.free(iovecs);
-
-    for (data) |buf, i| {
-        iovecs[i] = os.posix.iovec{
-            .iov_base = buf.ptr,
-            .iov_len = buf.len,
-        };
     }
 
     var req_node = RequestNode{
@@ -1339,3 +1369,55 @@ async fn testFsWatch(loop: *Loop) !void {
 
     // TODO test deleting the file and then re-adding it. we should get events for both
 }
+
+pub const OutStream = struct {
+    fd: os.FileHandle,
+    stream: Stream,
+    loop: *Loop,
+    offset: usize,
+
+    pub const Error = os.File.WriteError;
+    pub const Stream = event.io.OutStream(Error);
+
+    pub fn init(loop: *Loop, fd: os.FileHandle, offset: usize) OutStream {
+        return OutStream{
+            .fd = fd,
+            .loop = loop,
+            .offset = offset,
+            .stream = Stream{ .writeFn = writeFn },
+        };
+    }
+
+    async<*mem.Allocator> fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
+        const self = @fieldParentPtr(OutStream, "stream", out_stream);
+        const offset = self.offset;
+        self.offset += bytes.len;
+        return await (async pwritev(self.loop, self.fd, [][]const u8{bytes}, offset) catch unreachable);
+    }
+};
+
+pub const InStream = struct {
+    fd: os.FileHandle,
+    stream: Stream,
+    loop: *Loop,
+    offset: usize,
+
+    pub const Error = PReadVError; // TODO make this not have OutOfMemory
+    pub const Stream = event.io.InStream(Error);
+
+    pub fn init(loop: *Loop, fd: os.FileHandle, offset: usize) InStream {
+        return InStream{
+            .fd = fd,
+            .loop = loop,
+            .offset = offset,
+            .stream = Stream{ .readFn = readFn },
+        };
+    }
+
+    async<*mem.Allocator> fn readFn(in_stream: *Stream, bytes: []u8) Error!usize {
+        const self = @fieldParentPtr(InStream, "stream", in_stream);
+        const amt = try await (async preadv(self.loop, self.fd, [][]u8{bytes}, self.offset) catch unreachable);
+        self.offset += amt;
+        return amt;
+    }
+};

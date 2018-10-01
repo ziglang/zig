@@ -365,14 +365,7 @@ pub const File = struct {
         }
     }
 
-    pub const ReadError = error{
-        FileClosed,
-        InputOutput,
-        IsDir,
-        SystemResources,
-
-        Unexpected,
-    };
+    pub const ReadError = os.WindowsReadError || os.PosixReadError;
 
     pub fn read(self: File, buffer: []u8) ReadError!usize {
         if (is_posix) {
@@ -386,7 +379,7 @@ pub const File = struct {
                         posix.EINVAL => unreachable,
                         posix.EFAULT => unreachable,
                         posix.EAGAIN => unreachable,
-                        posix.EBADF => return error.FileClosed,
+                        posix.EBADF => unreachable, // always a race condition
                         posix.EIO => return error.InputOutput,
                         posix.EISDIR => return error.IsDir,
                         posix.ENOBUFS => return error.SystemResources,

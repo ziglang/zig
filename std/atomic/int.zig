@@ -29,5 +29,9 @@ pub fn Int(comptime T: type) type {
         pub fn xchg(self: *Self, new_value: T) T {
             return @atomicRmw(T, &self.unprotected_value, builtin.AtomicRmwOp.Xchg, new_value, AtomicOrder.SeqCst);
         }
+
+        pub fn fetchAdd(self: *Self, op: T) T {
+            return @atomicRmw(T, &self.unprotected_value, builtin.AtomicRmwOp.Add, op, AtomicOrder.SeqCst);
+        }
     };
 }
