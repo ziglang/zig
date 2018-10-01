@@ -45,6 +45,7 @@ pub const Tree = struct {
         line_end: usize,
     };
 
+    /// Return the Location of the token relative to the offset specified by `start_index`.
     pub fn tokenLocationPtr(self: *Tree, start_index: usize, token: *const Token) Location {
         var loc = Location{
             .line = 0,
