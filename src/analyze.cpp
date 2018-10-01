@@ -1060,7 +1060,7 @@ ZigType *get_ptr_to_stack_trace_type(CodeGen *g) {
         assert(stack_trace_type_val->type->id == ZigTypeIdMetaType);
 
         g->stack_trace_type = stack_trace_type_val->data.x_type;
-        assertNoError(ensure_complete_type(g, g->stack_trace_type));
+        assertNoError(type_resolve(g, g->stack_trace_type, ResolveStatusZeroBitsKnown));
 
         g->ptr_to_stack_trace_type = get_pointer_to_type(g, g->stack_trace_type, false);
     }
