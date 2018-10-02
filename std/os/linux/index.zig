@@ -719,6 +719,15 @@ pub fn fork() usize {
     return syscall0(SYS_fork);
 }
 
+/// This must be inline, and inline call the syscall function, because if the
+/// child does a return it will clobber the parent's stack.
+/// It is advised to avoid this function and use clone instead, because
+/// the compiler is not aware of how vfork affects control flow and you may
+/// see different results in optimized builds.
+pub inline fn vfork() usize {
+    return @inlineCall(syscall0, SYS_vfork);
+}
+
 pub fn futex_wait(uaddr: usize, futex_op: u32, val: i32, timeout: ?*timespec) usize {
     return syscall4(SYS_futex, uaddr, futex_op, @bitCast(u32, val), @ptrToInt(timeout));
 }
@@ -880,6 +889,11 @@ pub fn lseek(fd: i32, offset: isize, ref_pos: usize) usize {
 
 pub fn exit(status: i32) noreturn {
     _ = syscall1(SYS_exit, @bitCast(usize, isize(status)));
+    unreachable;
+}
+
+pub fn exit_group(status: i32) noreturn {
+    _ = syscall1(SYS_exit_group, @bitCast(usize, isize(status)));
     unreachable;
 }
 

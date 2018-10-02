@@ -634,18 +634,25 @@ pub const PosixExecveError = error{
 
 fn posixExecveErrnoToErr(err: usize) PosixExecveError {
     assert(err > 0);
-    return switch (err) {
+    switch (err) {
         posix.EFAULT => unreachable,
-        posix.E2BIG, posix.EMFILE, posix.ENAMETOOLONG, posix.ENFILE, posix.ENOMEM => error.SystemResources,
-        posix.EACCES, posix.EPERM => error.AccessDenied,
-        posix.EINVAL, posix.ENOEXEC => error.InvalidExe,
-        posix.EIO, posix.ELOOP => error.FileSystem,
-        posix.EISDIR => error.IsDir,
-        posix.ENOENT => error.FileNotFound,
-        posix.ENOTDIR => error.NotDir,
-        posix.ETXTBSY => error.FileBusy,
-        else => unexpectedErrorPosix(err),
-    };
+        posix.E2BIG => return error.SystemResources,
+        posix.EMFILE => return error.SystemResources,
+        posix.ENAMETOOLONG => return error.SystemResources,
+        posix.ENFILE => return error.SystemResources,
+        posix.ENOMEM => return error.SystemResources,
+        posix.EACCES => return error.AccessDenied,
+        posix.EPERM => return error.AccessDenied,
+        posix.EINVAL => return error.InvalidExe,
+        posix.ENOEXEC => return error.InvalidExe,
+        posix.EIO => return error.FileSystem,
+        posix.ELOOP => return error.FileSystem,
+        posix.EISDIR => return error.IsDir,
+        posix.ENOENT => return error.FileNotFound,
+        posix.ENOTDIR => return error.NotDir,
+        posix.ETXTBSY => return error.FileBusy,
+        else => return unexpectedErrorPosix(err),
+    }
 }
 
 pub var linux_aux_raw = []usize{0} ** 38;
