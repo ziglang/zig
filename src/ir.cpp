@@ -14318,14 +14318,20 @@ static ZigType *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionPhi *phi
     for (size_t i = 0; i < new_incoming_values.length; i += 1) {
         IrInstruction *new_value = new_incoming_values.at(i);
         IrBasicBlock *predecessor = new_incoming_blocks.at(i);
-        IrInstruction *branch_instruction = predecessor->instruction_list.pop();
+        IrInstruction *branch_instruction = nullptr;
+
+        if (predecessor->instruction_list.length != 0)
+            branch_instruction = predecessor->instruction_list.pop();
+
         ir_set_cursor_at_end(&ira->new_irb, predecessor);
         IrInstruction *casted_value = ir_implicit_cast(ira, new_value, resolved_type);
         if (casted_value == ira->codegen->invalid_instruction) {
             return ira->codegen->builtin_types.entry_invalid;
         }
+
         new_incoming_values.items[i] = casted_value;
-        predecessor->instruction_list.append(branch_instruction);
+        if (branch_instruction != nullptr)
+            predecessor->instruction_list.append(branch_instruction);
 
         if (all_stack_ptrs && (casted_value->value.special != ConstValSpecialRuntime ||
             casted_value->value.data.rh_ptr != RuntimeHintPtrStack))
