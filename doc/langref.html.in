@@ -7764,15 +7764,13 @@ AdditionExpression = MultiplyExpression AdditionOperator AdditionExpression | Mu
 
 AdditionOperator = "+" | "-" | "++" | "+%" | "-%"
 
-MultiplyExpression = CurlySuffixExpression MultiplyOperator MultiplyExpression | CurlySuffixExpression
-
-CurlySuffixExpression = TypeExpr option(ContainerInitExpression)
+MultiplyExpression = PrefixOpExpression MultiplyOperator MultiplyExpression | PrefixOpExpression
 
 MultiplyOperator = "||" | "*" | "/" | "%" | "**" | "*%"
 
 PrefixOpExpression = PrefixOp TypeExpr | SuffixOpExpression
 
-SuffixOpExpression = ("async" option("&lt;" SuffixOpExpression "&gt;") SuffixOpExpression FnCallExpression) | PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression | ".*" | ".?")
+SuffixOpExpression = ("async" option("&lt;" SuffixOpExpression "&gt;") SuffixOpExpression FnCallExpression) | PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression | ContainerInitExpression | ".*" | ".?")
 
 FieldAccessExpression = "." Symbol
 
@@ -7782,7 +7780,7 @@ ArrayAccessExpression = "[" Expression "]"
 
 SliceExpression = "[" Expression ".." option(Expression) "]"
 
-ContainerInitExpression = "{" ContainerInitBody "}"
+ContainerInitExpression = "." "{" ContainerInitBody "}"
 
 ContainerInitBody = list(StructLiteralField, ",") | list(Expression, ",")
 
