@@ -728,12 +728,12 @@ pub inline fn vfork() usize {
     return @inlineCall(syscall0, SYS_vfork);
 }
 
-pub fn futex_wait(uaddr: usize, futex_op: u32, val: i32, timeout: ?*timespec) usize {
-    return syscall4(SYS_futex, uaddr, futex_op, @bitCast(u32, val), @ptrToInt(timeout));
+pub fn futex_wait(uaddr: *const i32, futex_op: u32, val: i32, timeout: ?*timespec) usize {
+    return syscall4(SYS_futex, @ptrToInt(uaddr), futex_op, @bitCast(u32, val), @ptrToInt(timeout));
 }
 
-pub fn futex_wake(uaddr: usize, futex_op: u32, val: i32) usize {
-    return syscall3(SYS_futex, uaddr, futex_op, @bitCast(u32, val));
+pub fn futex_wake(uaddr: *const i32, futex_op: u32, val: i32) usize {
+    return syscall3(SYS_futex, @ptrToInt(uaddr), futex_op, @bitCast(u32, val));
 }
 
 pub fn getcwd(buf: [*]u8, size: usize) usize {

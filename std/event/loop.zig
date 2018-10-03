@@ -736,8 +736,8 @@ pub const Loop = struct {
                 _ = os.bsdKEvent(self.os_data.fs_kqfd, fs_kevs, empty_kevs, null) catch unreachable;
             },
             builtin.Os.linux => {
-                _ = @atomicRmw(u8, &self.os_data.fs_queue_item, AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst);
-                const rc = os.linux.futex_wake(@ptrToInt(&self.os_data.fs_queue_item), os.linux.FUTEX_WAKE, 1);
+                _ = @atomicRmw(i32, &self.os_data.fs_queue_item, AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst);
+                const rc = os.linux.futex_wake(&self.os_data.fs_queue_item, os.linux.FUTEX_WAKE, 1);
                 switch (os.linux.getErrno(rc)) {
                     0 => {},
                     posix.EINVAL => unreachable,
@@ -757,7 +757,7 @@ pub const Loop = struct {
     fn posixFsRun(self: *Loop) void {
         while (true) {
             if (builtin.os == builtin.Os.linux) {
-                _ = @atomicRmw(u8, &self.os_data.fs_queue_item, AtomicRmwOp.Xchg, 0, AtomicOrder.SeqCst);
+                _ = @atomicRmw(i32, &self.os_data.fs_queue_item, AtomicRmwOp.Xchg, 0, AtomicOrder.SeqCst);
             }
             while (self.os_data.fs_queue.get()) |node| {
                 switch (node.data.msg) {
@@ -794,11 +794,9 @@ pub const Loop = struct {
             }
             switch (builtin.os) {
                 builtin.Os.linux => {
-                    const rc = os.linux.futex_wait(@ptrToInt(&self.os_data.fs_queue_item), os.linux.FUTEX_WAIT, 0, null);
+                    const rc = os.linux.futex_wait(&self.os_data.fs_queue_item, os.linux.FUTEX_WAIT, 0, null);
                     switch (os.linux.getErrno(rc)) {
-                        0 => continue,
-                        posix.EINTR => continue,
-                        posix.EAGAIN => continue,
+                        0, posix.EINTR, posix.EAGAIN => continue,
                         else => unreachable,
                     }
                 },
@@ -838,7 +836,7 @@ pub const Loop = struct {
         final_eventfd: i32,
         final_eventfd_event: os.linux.epoll_event,
         fs_thread: *os.Thread,
-        fs_queue_item: u8,
+        fs_queue_item: i32,
         fs_queue: std.atomic.Queue(fs.Request),
         fs_end_request: fs.RequestNode,
     };

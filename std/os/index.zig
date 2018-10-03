@@ -2839,7 +2839,7 @@ pub const Thread = struct {
                 while (true) {
                     const pid_value = @atomicLoad(i32, &self.data.handle, builtin.AtomicOrder.SeqCst);
                     if (pid_value == 0) break;
-                    const rc = linux.futex_wait(@ptrToInt(&self.data.handle), linux.FUTEX_WAIT, pid_value, null);
+                    const rc = linux.futex_wait(&self.data.handle, linux.FUTEX_WAIT, pid_value, null);
                     switch (linux.getErrno(rc)) {
                         0 => continue,
                         posix.EINTR => continue,
