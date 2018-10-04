@@ -9,20 +9,20 @@ const MiB = 1024 * KiB;
 
 var prng = std.rand.DefaultPrng.init(0);
 
-const Crypto = struct {
+const Crypto = struct.{
     ty: type,
     name: []const u8,
 };
 
-const hashes = []Crypto{
-    Crypto{ .ty = crypto.Md5, .name = "md5" },
-    Crypto{ .ty = crypto.Sha1, .name = "sha1" },
-    Crypto{ .ty = crypto.Sha256, .name = "sha256" },
-    Crypto{ .ty = crypto.Sha512, .name = "sha512" },
-    Crypto{ .ty = crypto.Sha3_256, .name = "sha3-256" },
-    Crypto{ .ty = crypto.Sha3_512, .name = "sha3-512" },
-    Crypto{ .ty = crypto.Blake2s256, .name = "blake2s" },
-    Crypto{ .ty = crypto.Blake2b512, .name = "blake2b" },
+const hashes = []Crypto.{
+    Crypto.{ .ty = crypto.Md5, .name = "md5" },
+    Crypto.{ .ty = crypto.Sha1, .name = "sha1" },
+    Crypto.{ .ty = crypto.Sha256, .name = "sha256" },
+    Crypto.{ .ty = crypto.Sha512, .name = "sha512" },
+    Crypto.{ .ty = crypto.Sha3_256, .name = "sha3-256" },
+    Crypto.{ .ty = crypto.Sha3_512, .name = "sha3-512" },
+    Crypto.{ .ty = crypto.Blake2s256, .name = "blake2s" },
+    Crypto.{ .ty = crypto.Blake2b512, .name = "blake2b" },
 };
 
 pub fn benchmarkHash(comptime Hash: var, comptime bytes: comptime_int) !u64 {
@@ -45,11 +45,11 @@ pub fn benchmarkHash(comptime Hash: var, comptime bytes: comptime_int) !u64 {
     return throughput;
 }
 
-const macs = []Crypto{
-    Crypto{ .ty = crypto.Poly1305, .name = "poly1305" },
-    Crypto{ .ty = crypto.HmacMd5, .name = "hmac-md5" },
-    Crypto{ .ty = crypto.HmacSha1, .name = "hmac-sha1" },
-    Crypto{ .ty = crypto.HmacSha256, .name = "hmac-sha256" },
+const macs = []Crypto.{
+    Crypto.{ .ty = crypto.Poly1305, .name = "poly1305" },
+    Crypto.{ .ty = crypto.HmacMd5, .name = "hmac-md5" },
+    Crypto.{ .ty = crypto.HmacSha1, .name = "hmac-sha1" },
+    Crypto.{ .ty = crypto.HmacSha256, .name = "hmac-sha256" },
 };
 
 pub fn benchmarkMac(comptime Mac: var, comptime bytes: comptime_int) !u64 {
@@ -75,7 +75,7 @@ pub fn benchmarkMac(comptime Mac: var, comptime bytes: comptime_int) !u64 {
     return throughput;
 }
 
-const exchanges = []Crypto{Crypto{ .ty = crypto.X25519, .name = "x25519" }};
+const exchanges = []Crypto.{Crypto.{ .ty = crypto.X25519, .name = "x25519" }};
 
 pub fn benchmarkKeyExchange(comptime DhKeyExchange: var, comptime exchange_count: comptime_int) !u64 {
     std.debug.assert(DhKeyExchange.minimum_key_length >= DhKeyExchange.secret_length);

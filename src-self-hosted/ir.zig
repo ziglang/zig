@@ -15,17 +15,17 @@ const ObjectFile = codegen.ObjectFile;
 const Decl = @import("decl.zig").Decl;
 const mem = std.mem;
 
-pub const LVal = enum {
+pub const LVal = enum.{
     None,
     Ptr,
 };
 
-pub const IrVal = union(enum) {
+pub const IrVal = union(enum).{
     Unknown,
     KnownType: *Type,
     KnownValue: *Value,
 
-    const Init = enum {
+    const Init = enum.{
         Unknown,
         NoReturn,
         Void,
@@ -48,7 +48,7 @@ pub const IrVal = union(enum) {
     }
 };
 
-pub const Inst = struct {
+pub const Inst = struct.{
     id: Id,
     scope: *Scope,
     debug_id: usize,
@@ -129,7 +129,7 @@ pub const Inst = struct {
         }
     }
 
-    pub fn render(base: *Inst, ofile: *ObjectFile, fn_val: *Value.Fn) (error{OutOfMemory}!?llvm.ValueRef) {
+    pub fn render(base: *Inst, ofile: *ObjectFile, fn_val: *Value.Fn) (error.{OutOfMemory}!?llvm.ValueRef) {
         switch (base.id) {
             Id.Return => return @fieldParentPtr(Return, "base", base).render(ofile, fn_val),
             Id.Const => return @fieldParentPtr(Const, "base", base).render(ofile, fn_val),
@@ -242,7 +242,7 @@ pub const Inst = struct {
         parent.child = self;
     }
 
-    pub const Id = enum {
+    pub const Id = enum.{
         Return,
         Const,
         Ref,
@@ -258,11 +258,11 @@ pub const Inst = struct {
         LoadPtr,
     };
 
-    pub const Call = struct {
+    pub const Call = struct.{
         base: Inst,
         params: Params,
 
-        const Params = struct {
+        const Params = struct.{
             fn_ref: *Inst,
             args: []*Inst,
         };
@@ -305,11 +305,11 @@ pub const Inst = struct {
             for (self.params.args) |arg, i| {
                 args[i] = try arg.getAsParam();
             }
-            const new_inst = try ira.irb.build(Call, self.base.scope, self.base.span, Params{
+            const new_inst = try ira.irb.build(Call, self.base.scope, self.base.span, Params.{
                 .fn_ref = fn_ref,
                 .args = args,
             });
-            new_inst.val = IrVal{ .KnownType = fn_type.key.data.Normal.return_type };
+            new_inst.val = IrVal.{ .KnownType = fn_type.key.data.Normal.return_type };
             return new_inst;
         }
 
@@ -336,11 +336,11 @@ pub const Inst = struct {
         }
     };
 
-    pub const Const = struct {
+    pub const Const = struct.{
         base: Inst,
         params: Params,
 
-        const Params = struct {};
+        const Params = struct.{};
 
         // Use Builder.buildConst* methods, or, after building a Const instruction,
         // manually set the ir_val field.
@@ -355,8 +355,8 @@ pub const Inst = struct {
         }
 
         pub fn analyze(self: *const Const, ira: *Analyze) !*Inst {
-            const new_inst = try ira.irb.build(Const, self.base.scope, self.base.span, Params{});
-            new_inst.val = IrVal{ .KnownValue = self.base.val.KnownValue.getRef() };
+            const new_inst = try ira.irb.build(Const, self.base.scope, self.base.span, Params.{});
+            new_inst.val = IrVal.{ .KnownValue = self.base.val.KnownValue.getRef() };
             return new_inst;
         }
 
@@ -365,11 +365,11 @@ pub const Inst = struct {
         }
     };
 
-    pub const Return = struct {
+    pub const Return = struct.{
         base: Inst,
         params: Params,
 
-        const Params = struct {
+        const Params = struct.{
             return_value: *Inst,
         };
 
@@ -389,7 +389,7 @@ pub const Inst = struct {
 
             // TODO detect returning local variable address
 
-            return ira.irb.build(Return, self.base.scope, self.base.span, Params{ .return_value = casted_value });
+            return ira.irb.build(Return, self.base.scope, self.base.span, Params.{ .return_value = casted_value });
         }
 
         pub fn render(self: *Return, ofile: *ObjectFile, fn_val: *Value.Fn) !?llvm.ValueRef {
@@ -405,11 +405,11 @@ pub const Inst = struct {
         }
     };
 
-    pub const Ref = struct {
+    pub const Ref = struct.{
         base: Inst,
         params: Params,
 
-        const Params = struct {
+        const Params = struct.{
             target: *Inst,
             mut: Type.Pointer.Mut,
             volatility: Type.Pointer.Vol,
@@ -435,13 +435,13 @@ pub const Inst = struct {
                 );
             }
 
-            const new_inst = try ira.irb.build(Ref, self.base.scope, self.base.span, Params{
+            const new_inst = try ira.irb.build(Ref, self.base.scope, self.base.span, Params.{
                 .target = target,
                 .mut = self.params.mut,
                 .volatility = self.params.volatility,
             });
             const elem_type = target.getKnownType();
-            const ptr_type = try await (async Type.Pointer.get(ira.irb.comp, Type.Pointer.Key{
+            const ptr_type = try await (async Type.Pointer.get(ira.irb.comp, Type.Pointer.Key.{
                 .child_type = elem_type,
                 .mut = self.params.mut,
                 .vol = self.params.volatility,
@@ -450,17 +450,17 @@ pub const Inst = struct {
             }) catch unreachable);
             // TODO: potentially set the hint that this is a stack pointer. But it might not be - this
             // could be a ref of a global, for example
-            new_inst.val = IrVal{ .KnownType = &ptr_type.base };
+            new_inst.val = IrVal.{ .KnownType = &ptr_type.base };
             // TODO potentially add an alloca entry here
             return new_inst;
         }
     };
 
-    pub const DeclRef = struct {
+    pub const DeclRef = struct.{
         base: Inst,
         params: Params,
 
-        const Params = struct {
+        const Params = struct.{
             decl: *Decl,
             lval: LVal,
         };
@@ -499,11 +499,11 @@ pub const Inst = struct {
         }
     };
 
-    pub const VarPtr = struct {
+    pub const VarPtr = struct.{
         base: Inst,
         params: Params,
 
-        const Params = struct {
+        const Params = struct.{
             var_scope: *Scope.Var,
         };
 
@@ -525,16 +525,16 @@ pub const Inst = struct {
                         Inst.VarPtr,
                         self.base.scope,
                         self.base.span,
-                        Inst.VarPtr.Params{ .var_scope = self.params.var_scope },
+                        Inst.VarPtr.Params.{ .var_scope = self.params.var_scope },
                     );
-                    const ptr_type = try await (async Type.Pointer.get(ira.irb.comp, Type.Pointer.Key{
+                    const ptr_type = try await (async Type.Pointer.get(ira.irb.comp, Type.Pointer.Key.{
                         .child_type = param.typ,
                         .mut = Type.Pointer.Mut.Const,
                         .vol = Type.Pointer.Vol.Non,
                         .size = Type.Pointer.Size.One,
                         .alignment = Type.Pointer.Align.Abi,
                     }) catch unreachable);
-                    new_inst.val = IrVal{ .KnownType = &ptr_type.base };
+                    new_inst.val = IrVal.{ .KnownType = &ptr_type.base };
                     return new_inst;
                 },
             }
@@ -548,11 +548,11 @@ pub const Inst = struct {
         }
     };
 
-    pub const LoadPtr = struct {
+    pub const LoadPtr = struct.{
         base: Inst,
         params: Params,
 
-        const Params = struct {
+        const Params = struct.{
             target: *Inst,
         };
 
@@ -590,9 +590,9 @@ pub const Inst = struct {
                 Inst.LoadPtr,
                 self.base.scope,
                 self.base.span,
-                Inst.LoadPtr.Params{ .target = target },
+                Inst.LoadPtr.Params.{ .target = target },
             );
-            new_inst.val = IrVal{ .KnownType = ptr_type.key.child_type };
+            new_inst.val = IrVal.{ .KnownType = ptr_type.key.child_type };
             return new_inst;
         }
 
@@ -626,11 +626,11 @@ pub const Inst = struct {
         }
     };
 
-    pub const PtrType = struct {
+    pub const PtrType = struct.{
         base: Inst,
         params: Params,
 
-        const Params = struct {
+        const Params = struct.{
             child_type: *Inst,
             mut: Type.Pointer.Mut,
             vol: Type.Pointer.Vol,
@@ -657,11 +657,11 @@ pub const Inst = struct {
             // }
             const alignment = if (self.params.alignment) |align_inst| blk: {
                 const amt = try align_inst.getAsConstAlign(ira);
-                break :blk Type.Pointer.Align{ .Override = amt };
+                break :blk Type.Pointer.Align.{ .Override = amt };
             } else blk: {
-                break :blk Type.Pointer.Align{ .Abi = {} };
+                break :blk Type.Pointer.Align.{ .Abi = {} };
             };
-            const ptr_type = try await (async Type.Pointer.get(ira.irb.comp, Type.Pointer.Key{
+            const ptr_type = try await (async Type.Pointer.get(ira.irb.comp, Type.Pointer.Key.{
                 .child_type = child_type,
                 .mut = self.params.mut,
                 .vol = self.params.vol,
@@ -674,11 +674,11 @@ pub const Inst = struct {
         }
     };
 
-    pub const DeclVar = struct {
+    pub const DeclVar = struct.{
         base: Inst,
         params: Params,
 
-        const Params = struct {
+        const Params = struct.{
             variable: *Variable,
         };
 
@@ -695,11 +695,11 @@ pub const Inst = struct {
         }
     };
 
-    pub const CheckVoidStmt = struct {
+    pub const CheckVoidStmt = struct.{
         base: Inst,
         params: Params,
 
-        const Params = struct {
+        const Params = struct.{
             target: *Inst,
         };
 
@@ -723,11 +723,11 @@ pub const Inst = struct {
         }
     };
 
-    pub const Phi = struct {
+    pub const Phi = struct.{
         base: Inst,
         params: Params,
 
-        const Params = struct {
+        const Params = struct.{
             incoming_blocks: []*BasicBlock,
             incoming_values: []*Inst,
         };
@@ -745,11 +745,11 @@ pub const Inst = struct {
         }
     };
 
-    pub const Br = struct {
+    pub const Br = struct.{
         base: Inst,
         params: Params,
 
-        const Params = struct {
+        const Params = struct.{
             dest_block: *BasicBlock,
             is_comptime: *Inst,
         };
@@ -767,11 +767,11 @@ pub const Inst = struct {
         }
     };
 
-    pub const CondBr = struct {
+    pub const CondBr = struct.{
         base: Inst,
         params: Params,
 
-        const Params = struct {
+        const Params = struct.{
             condition: *Inst,
             then_block: *BasicBlock,
             else_block: *BasicBlock,
@@ -791,11 +791,11 @@ pub const Inst = struct {
         }
     };
 
-    pub const AddImplicitReturnType = struct {
+    pub const AddImplicitReturnType = struct.{
         base: Inst,
         params: Params,
 
-        pub const Params = struct {
+        pub const Params = struct.{
             target: *Inst,
         };
 
@@ -816,11 +816,11 @@ pub const Inst = struct {
         }
     };
 
-    pub const TestErr = struct {
+    pub const TestErr = struct.{
         base: Inst,
         params: Params,
 
-        pub const Params = struct {
+        pub const Params = struct.{
             target: *Inst,
         };
 
@@ -878,11 +878,11 @@ pub const Inst = struct {
         }
     };
 
-    pub const TestCompTime = struct {
+    pub const TestCompTime = struct.{
         base: Inst,
         params: Params,
 
-        pub const Params = struct {
+        pub const Params = struct.{
             target: *Inst,
         };
 
@@ -902,11 +902,11 @@ pub const Inst = struct {
         }
     };
 
-    pub const SaveErrRetAddr = struct {
+    pub const SaveErrRetAddr = struct.{
         base: Inst,
         params: Params,
 
-        const Params = struct {};
+        const Params = struct.{};
 
         const ir_val_init = IrVal.Init.Unknown;
 
@@ -917,16 +917,16 @@ pub const Inst = struct {
         }
 
         pub fn analyze(self: *const SaveErrRetAddr, ira: *Analyze) !*Inst {
-            return ira.irb.build(Inst.SaveErrRetAddr, self.base.scope, self.base.span, Params{});
+            return ira.irb.build(Inst.SaveErrRetAddr, self.base.scope, self.base.span, Params.{});
         }
     };
 };
 
-pub const Variable = struct {
+pub const Variable = struct.{
     child_scope: *Scope,
 };
 
-pub const BasicBlock = struct {
+pub const BasicBlock = struct.{
     ref_count: usize,
     name_hint: [*]const u8, // must be a C string literal
     debug_id: usize,
@@ -957,7 +957,7 @@ pub const BasicBlock = struct {
 };
 
 /// Stuff that survives longer than Builder
-pub const Code = struct {
+pub const Code = struct.{
     basic_block_list: std.ArrayList(*BasicBlock),
     arena: std.heap.ArenaAllocator,
     return_type: ?*Type,
@@ -1009,7 +1009,7 @@ pub const Code = struct {
     }
 };
 
-pub const Builder = struct {
+pub const Builder = struct.{
     comp: *Compilation,
     code: *Code,
     current_basic_block: *BasicBlock,
@@ -1021,7 +1021,7 @@ pub const Builder = struct {
     pub const Error = Analyze.Error;
 
     pub fn init(comp: *Compilation, tree_scope: *Scope.AstTree, begin_scope: ?*Scope) !Builder {
-        const code = try comp.gpa().create(Code{
+        const code = try comp.gpa().create(Code.{
             .basic_block_list = undefined,
             .arena = std.heap.ArenaAllocator.init(comp.gpa()),
             .return_type = null,
@@ -1030,7 +1030,7 @@ pub const Builder = struct {
         code.basic_block_list = std.ArrayList(*BasicBlock).init(&code.arena.allocator);
         errdefer code.destroy(comp.gpa());
 
-        return Builder{
+        return Builder.{
             .comp = comp,
             .current_basic_block = undefined,
             .code = code,
@@ -1052,7 +1052,7 @@ pub const Builder = struct {
 
     /// No need to clean up resources thanks to the arena allocator.
     pub fn createBasicBlock(self: *Builder, scope: *Scope, name_hint: [*]const u8) !*BasicBlock {
-        const basic_block = try self.arena().create(BasicBlock{
+        const basic_block = try self.arena().create(BasicBlock.{
             .ref_count = 0,
             .name_hint = name_hint,
             .debug_id = self.next_debug_id,
@@ -1208,7 +1208,7 @@ pub const Builder = struct {
         //    }
         //}
 
-        return irb.build(Inst.Call, scope, Span.token(suffix_op.rtoken), Inst.Call.Params{
+        return irb.build(Inst.Call, scope, Span.token(suffix_op.rtoken), Inst.Call.Params.{
             .fn_ref = fn_ref,
             .args = args,
         });
@@ -1272,7 +1272,7 @@ pub const Builder = struct {
         //    return irb->codegen->invalid_instruction;
         //}
 
-        return irb.build(Inst.PtrType, scope, Span.node(&prefix_op.base), Inst.PtrType.Params{
+        return irb.build(Inst.PtrType, scope, Span.node(&prefix_op.base), Inst.PtrType.Params.{
             .child_type = child_type,
             .mut = Type.Pointer.Mut.Mut,
             .vol = Type.Pointer.Vol.Non,
@@ -1336,8 +1336,8 @@ pub const Builder = struct {
         };
         errdefer int_val.base.deref(irb.comp);
 
-        const inst = try irb.build(Inst.Const, scope, Span.token(int_lit.token), Inst.Const.Params{});
-        inst.val = IrVal{ .KnownValue = &int_val.base };
+        const inst = try irb.build(Inst.Const, scope, Span.token(int_lit.token), Inst.Const.Params.{});
+        inst.val = IrVal.{ .KnownValue = &int_val.base };
         return inst;
     }
 
@@ -1455,11 +1455,11 @@ pub const Builder = struct {
                 _ = irb.build(
                     Inst.CheckVoidStmt,
                     child_scope,
-                    Span{
+                    Span.{
                         .first = statement_node.firstToken(),
                         .last = statement_node.lastToken(),
                     },
-                    Inst.CheckVoidStmt.Params{ .target = statement_value },
+                    Inst.CheckVoidStmt.Params.{ .target = statement_value },
                 );
             }
         }
@@ -1471,7 +1471,7 @@ pub const Builder = struct {
             }
 
             try irb.setCursorAtEndAndAppendBlock(block_scope.end_block);
-            return irb.build(Inst.Phi, parent_scope, Span.token(block.rbrace), Inst.Phi.Params{
+            return irb.build(Inst.Phi, parent_scope, Span.token(block.rbrace), Inst.Phi.Params.{
                 .incoming_blocks = block_scope.incoming_blocks.toOwnedSlice(),
                 .incoming_values = block_scope.incoming_values.toOwnedSlice(),
             });
@@ -1484,14 +1484,14 @@ pub const Builder = struct {
             );
             _ = try await (async irb.genDefersForBlock(child_scope, outer_block_scope, Scope.Defer.Kind.ScopeExit) catch unreachable);
 
-            _ = try irb.buildGen(Inst.Br, parent_scope, Span.token(block.rbrace), Inst.Br.Params{
+            _ = try irb.buildGen(Inst.Br, parent_scope, Span.token(block.rbrace), Inst.Br.Params.{
                 .dest_block = block_scope.end_block,
                 .is_comptime = block_scope.is_comptime,
             });
 
             try irb.setCursorAtEndAndAppendBlock(block_scope.end_block);
 
-            return irb.build(Inst.Phi, parent_scope, Span.token(block.rbrace), Inst.Phi.Params{
+            return irb.build(Inst.Phi, parent_scope, Span.token(block.rbrace), Inst.Phi.Params.{
                 .incoming_blocks = block_scope.incoming_blocks.toOwnedSlice(),
                 .incoming_values = block_scope.incoming_values.toOwnedSlice(),
             });
@@ -1553,12 +1553,12 @@ pub const Builder = struct {
                         Inst.TestErr,
                         scope,
                         src_span,
-                        Inst.TestErr.Params{ .target = return_value },
+                        Inst.TestErr.Params.{ .target = return_value },
                     );
 
                     const err_is_comptime = try irb.buildTestCompTime(scope, src_span, is_err);
 
-                    _ = try irb.buildGen(Inst.CondBr, scope, src_span, Inst.CondBr.Params{
+                    _ = try irb.buildGen(Inst.CondBr, scope, src_span, Inst.CondBr.Params.{
                         .condition = is_err,
                         .then_block = err_block,
                         .else_block = ok_block,
@@ -1572,9 +1572,9 @@ pub const Builder = struct {
                         _ = try await (async irb.genDefersForBlock(scope, outer_scope, Scope.Defer.Kind.ErrorExit) catch unreachable);
                     }
                     if (irb.comp.have_err_ret_tracing and !irb.isCompTime(scope)) {
-                        _ = try irb.build(Inst.SaveErrRetAddr, scope, src_span, Inst.SaveErrRetAddr.Params{});
+                        _ = try irb.build(Inst.SaveErrRetAddr, scope, src_span, Inst.SaveErrRetAddr.Params.{});
                     }
-                    _ = try irb.build(Inst.Br, scope, src_span, Inst.Br.Params{
+                    _ = try irb.build(Inst.Br, scope, src_span, Inst.Br.Params.{
                         .dest_block = ret_stmt_block,
                         .is_comptime = err_is_comptime,
                     });
@@ -1583,7 +1583,7 @@ pub const Builder = struct {
                     if (have_err_defers) {
                         _ = try await (async irb.genDefersForBlock(scope, outer_scope, Scope.Defer.Kind.ScopeExit) catch unreachable);
                     }
-                    _ = try irb.build(Inst.Br, scope, src_span, Inst.Br.Params{
+                    _ = try irb.build(Inst.Br, scope, src_span, Inst.Br.Params.{
                         .dest_block = ret_stmt_block,
                         .is_comptime = err_is_comptime,
                     });
@@ -1631,17 +1631,17 @@ pub const Builder = struct {
 
         switch (await (async irb.findIdent(scope, name) catch unreachable)) {
             Ident.Decl => |decl| {
-                return irb.build(Inst.DeclRef, scope, src_span, Inst.DeclRef.Params{
+                return irb.build(Inst.DeclRef, scope, src_span, Inst.DeclRef.Params.{
                     .decl = decl,
                     .lval = lval,
                 });
             },
             Ident.VarScope => |var_scope| {
-                const var_ptr = try irb.build(Inst.VarPtr, scope, src_span, Inst.VarPtr.Params{ .var_scope = var_scope });
+                const var_ptr = try irb.build(Inst.VarPtr, scope, src_span, Inst.VarPtr.Params.{ .var_scope = var_scope });
                 switch (lval) {
                     LVal.Ptr => return var_ptr,
                     LVal.None => {
-                        return irb.build(Inst.LoadPtr, scope, src_span, Inst.LoadPtr.Params{ .target = var_ptr });
+                        return irb.build(Inst.LoadPtr, scope, src_span, Inst.LoadPtr.Params.{ .target = var_ptr });
                     },
                 }
             },
@@ -1661,13 +1661,13 @@ pub const Builder = struct {
         return error.SemanticAnalysisFailed;
     }
 
-    const DeferCounts = struct {
+    const DeferCounts = struct.{
         scope_exit: usize,
         error_exit: usize,
     };
 
     fn countDefers(irb: *Builder, inner_scope: *Scope, outer_scope: *Scope) DeferCounts {
-        var result = DeferCounts{ .scope_exit = 0, .error_exit = 0 };
+        var result = DeferCounts.{ .scope_exit = 0, .error_exit = 0 };
 
         var scope = inner_scope;
         while (scope != outer_scope) {
@@ -1726,7 +1726,7 @@ pub const Builder = struct {
                                 Inst.CheckVoidStmt,
                                 &defer_expr_scope.base,
                                 Span.token(defer_expr_scope.expr_node.lastToken()),
-                                Inst.CheckVoidStmt.Params{ .target = instruction },
+                                Inst.CheckVoidStmt.Params.{ .target = instruction },
                             );
                         }
                     }
@@ -1753,7 +1753,7 @@ pub const Builder = struct {
             LVal.Ptr => {
                 // We needed a pointer to a value, but we got a value. So we create
                 // an instruction which just makes a const pointer of it.
-                return irb.build(Inst.Ref, scope, instruction.span, Inst.Ref.Params{
+                return irb.build(Inst.Ref, scope, instruction.span, Inst.Ref.Params.{
                     .target = instruction,
                     .mut = Type.Pointer.Mut.Const,
                     .volatility = Type.Pointer.Vol.Non,
@@ -1774,16 +1774,16 @@ pub const Builder = struct {
         params: I.Params,
         is_generated: bool,
     ) !*Inst {
-        const inst = try self.arena().create(I{
-            .base = Inst{
+        const inst = try self.arena().create(I.{
+            .base = Inst.{
                 .id = Inst.typeToId(I),
                 .is_generated = is_generated,
                 .scope = scope,
                 .debug_id = self.next_debug_id,
                 .val = switch (I.ir_val_init) {
                     IrVal.Init.Unknown => IrVal.Unknown,
-                    IrVal.Init.NoReturn => IrVal{ .KnownValue = &Value.NoReturn.get(self.comp).base },
-                    IrVal.Init.Void => IrVal{ .KnownValue = &Value.Void.get(self.comp).base },
+                    IrVal.Init.NoReturn => IrVal.{ .KnownValue = &Value.NoReturn.get(self.comp).base },
+                    IrVal.Init.Void => IrVal.{ .KnownValue = &Value.Void.get(self.comp).base },
                 },
                 .ref_count = 0,
                 .span = span,
@@ -1852,20 +1852,20 @@ pub const Builder = struct {
     }
 
     fn buildConstBool(self: *Builder, scope: *Scope, span: Span, x: bool) !*Inst {
-        const inst = try self.build(Inst.Const, scope, span, Inst.Const.Params{});
-        inst.val = IrVal{ .KnownValue = &Value.Bool.get(self.comp, x).base };
+        const inst = try self.build(Inst.Const, scope, span, Inst.Const.Params.{});
+        inst.val = IrVal.{ .KnownValue = &Value.Bool.get(self.comp, x).base };
         return inst;
     }
 
     fn buildConstVoid(self: *Builder, scope: *Scope, span: Span, is_generated: bool) !*Inst {
-        const inst = try self.buildExtra(Inst.Const, scope, span, Inst.Const.Params{}, is_generated);
-        inst.val = IrVal{ .KnownValue = &Value.Void.get(self.comp).base };
+        const inst = try self.buildExtra(Inst.Const, scope, span, Inst.Const.Params.{}, is_generated);
+        inst.val = IrVal.{ .KnownValue = &Value.Void.get(self.comp).base };
         return inst;
     }
 
     fn buildConstValue(self: *Builder, scope: *Scope, span: Span, v: *Value) !*Inst {
-        const inst = try self.build(Inst.Const, scope, span, Inst.Const.Params{});
-        inst.val = IrVal{ .KnownValue = v.getRef() };
+        const inst = try self.build(Inst.Const, scope, span, Inst.Const.Params.{});
+        inst.val = IrVal.{ .KnownValue = v.getRef() };
         return inst;
     }
 
@@ -1879,7 +1879,7 @@ pub const Builder = struct {
                 Inst.TestCompTime,
                 scope,
                 span,
-                Inst.TestCompTime.Params{ .target = target },
+                Inst.TestCompTime.Params.{ .target = target },
             );
         }
     }
@@ -1889,7 +1889,7 @@ pub const Builder = struct {
             Inst.AddImplicitReturnType,
             scope,
             span,
-            Inst.AddImplicitReturnType.Params{ .target = result },
+            Inst.AddImplicitReturnType.Params.{ .target = result },
         );
 
         if (!irb.is_async) {
@@ -1897,7 +1897,7 @@ pub const Builder = struct {
                 Inst.Return,
                 scope,
                 span,
-                Inst.Return.Params{ .return_value = result },
+                Inst.Return.Params.{ .return_value = result },
                 is_gen,
             );
         }
@@ -1919,7 +1919,7 @@ pub const Builder = struct {
         //// the above blocks are rendered by ir_gen after the rest of codegen
     }
 
-    const Ident = union(enum) {
+    const Ident = union(enum).{
         NotFound,
         Decl: *Decl,
         VarScope: *Scope.Var,
@@ -1935,13 +1935,13 @@ pub const Builder = struct {
                     const locked_table = await (async decls.table.acquireRead() catch unreachable);
                     defer locked_table.release();
                     if (locked_table.value.get(name)) |entry| {
-                        return Ident{ .Decl = entry.value };
+                        return Ident.{ .Decl = entry.value };
                     }
                 },
                 Scope.Id.Var => {
                     const var_scope = @fieldParentPtr(Scope.Var, "base", s);
                     if (mem.eql(u8, var_scope.name, name)) {
-                        return Ident{ .VarScope = var_scope };
+                        return Ident.{ .VarScope = var_scope };
                     }
                 },
                 else => {},
@@ -1951,7 +1951,7 @@ pub const Builder = struct {
     }
 };
 
-const Analyze = struct {
+const Analyze = struct.{
     irb: Builder,
     old_bb_index: usize,
     const_predecessor_bb: ?*BasicBlock,
@@ -1960,7 +1960,7 @@ const Analyze = struct {
     src_implicit_return_type_list: std.ArrayList(*Inst),
     explicit_return_type: ?*Type,
 
-    pub const Error = error{
+    pub const Error = error.{
         /// This is only for when we have already reported a compile error. It is the poison value.
         SemanticAnalysisFailed,
 
@@ -1975,7 +1975,7 @@ const Analyze = struct {
         var irb = try Builder.init(comp, tree_scope, null);
         errdefer irb.abort();
 
-        return Analyze{
+        return Analyze.{
             .irb = irb,
             .old_bb_index = 0,
             .const_predecessor_bb = null,

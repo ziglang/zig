@@ -3,17 +3,17 @@ const builtin = @import("builtin");
 const llvm = @import("llvm.zig");
 const CInt = @import("c_int.zig").CInt;
 
-pub const FloatAbi = enum {
+pub const FloatAbi = enum.{
     Hard,
     Soft,
     SoftFp,
 };
 
-pub const Target = union(enum) {
+pub const Target = union(enum).{
     Native,
     Cross: Cross,
 
-    pub const Cross = struct {
+    pub const Cross = struct.{
         arch: builtin.Arch,
         os: builtin.Os,
         environ: builtin.Environ,

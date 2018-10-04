@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
     if (builtin.os != builtin.Os.windows) {
-        // Windows treats this as an enum with type c_int 
+        // Windows treats this as an enum with type c_int
         cases.add("big negative enum init values when C ABI supports long long enums",
             \\enum EnumWithInits {
             \\    VAL01 = 0,

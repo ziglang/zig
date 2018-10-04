@@ -3,7 +3,7 @@ const assert = @import("std").debug.assert;
 const module = @This();
 
 fn Point(comptime T: type) type {
-    return struct {
+    return struct.{
         const Self = @This();
         x: T,
         y: T,
@@ -24,7 +24,7 @@ test "this refer to module call private fn" {
 }
 
 test "this refer to container" {
-    var pt = Point(i32){
+    var pt = Point(i32).{
         .x = 12,
         .y = 34,
     };

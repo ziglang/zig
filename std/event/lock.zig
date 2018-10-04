@@ -10,7 +10,7 @@ const Loop = std.event.Loop;
 /// coroutines which are waiting for the lock are suspended, and
 /// are resumed when the lock is released, in order.
 /// Allows only one actor to hold the lock.
-pub const Lock = struct {
+pub const Lock = struct.{
     loop: *Loop,
     shared_bit: u8, // TODO make this a bool
     queue: Queue,
@@ -18,7 +18,7 @@ pub const Lock = struct {
 
     const Queue = std.atomic.Queue(promise);
 
-    pub const Held = struct {
+    pub const Held = struct.{
         lock: *Lock,
 
         pub fn release(self: Held) void {
@@ -66,7 +66,7 @@ pub const Lock = struct {
     };
 
     pub fn init(loop: *Loop) Lock {
-        return Lock{
+        return Lock.{
             .loop = loop,
             .shared_bit = 0,
             .queue = Queue.init(),
@@ -75,7 +75,7 @@ pub const Lock = struct {
     }
 
     pub fn initLocked(loop: *Loop) Lock {
-        return Lock{
+        return Lock.{
             .loop = loop,
             .shared_bit = 1,
             .queue = Queue.init(),
@@ -117,7 +117,7 @@ pub const Lock = struct {
             }
         }
 
-        return Held{ .lock = self };
+        return Held.{ .lock = self };
     }
 };
 
@@ -138,7 +138,7 @@ test "std.event.Lock" {
     defer cancel handle;
     loop.run();
 
-    assert(mem.eql(i32, shared_test_data, [1]i32{3 * @intCast(i32, shared_test_data.len)} ** shared_test_data.len));
+    assert(mem.eql(i32, shared_test_data, [1]i32.{3 * @intCast(i32, shared_test_data.len)} ** shared_test_data.len));
 }
 
 async fn testLock(loop: *Loop, lock: *Lock) void {
@@ -147,7 +147,7 @@ async fn testLock(loop: *Loop, lock: *Lock) void {
         resume @handle();
     }
     const handle1 = async lockRunner(lock) catch @panic("out of memory");
-    var tick_node1 = Loop.NextTickNode{
+    var tick_node1 = Loop.NextTickNode.{
         .prev = undefined,
         .next = undefined,
         .data = handle1,
@@ -155,7 +155,7 @@ async fn testLock(loop: *Loop, lock: *Lock) void {
     loop.onNextTick(&tick_node1);
 
     const handle2 = async lockRunner(lock) catch @panic("out of memory");
-    var tick_node2 = Loop.NextTickNode{
+    var tick_node2 = Loop.NextTickNode.{
         .prev = undefined,
         .next = undefined,
         .data = handle2,
@@ -163,7 +163,7 @@ async fn testLock(loop: *Loop, lock: *Lock) void {
     loop.onNextTick(&tick_node2);
 
     const handle3 = async lockRunner(lock) catch @panic("out of memory");
-    var tick_node3 = Loop.NextTickNode{
+    var tick_node3 = Loop.NextTickNode.{
         .prev = undefined,
         .next = undefined,
         .data = handle3,
@@ -175,7 +175,7 @@ async fn testLock(loop: *Loop, lock: *Lock) void {
     await handle3;
 }
 
-var shared_test_data = [1]i32{0} ** 10;
+var shared_test_data = [1]i32.{0} ** 10;
 var shared_test_index: usize = 0;
 
 async fn lockRunner(lock: *Lock) void {

@@ -9,7 +9,7 @@ const assert = std.debug.assert;
 
 /// Values are ref-counted, heap-allocated, and copy-on-write
 /// If there is only 1 ref then write need not copy
-pub const Value = struct {
+pub const Value = struct.{
     id: Id,
     typ: *Type,
     ref_count: std.atomic.Int(usize),
@@ -57,7 +57,7 @@ pub const Value = struct {
         std.debug.warn("{}", @tagName(base.id));
     }
 
-    pub fn getLlvmConst(base: *Value, ofile: *ObjectFile) (error{OutOfMemory}!?llvm.ValueRef) {
+    pub fn getLlvmConst(base: *Value, ofile: *ObjectFile) (error.{OutOfMemory}!?llvm.ValueRef) {
         switch (base.id) {
             Id.Type => unreachable,
             Id.Fn => return @fieldParentPtr(Fn, "base", base).getLlvmConst(ofile),
@@ -71,7 +71,7 @@ pub const Value = struct {
         }
     }
 
-    pub fn derefAndCopy(self: *Value, comp: *Compilation) (error{OutOfMemory}!*Value) {
+    pub fn derefAndCopy(self: *Value, comp: *Compilation) (error.{OutOfMemory}!*Value) {
         if (self.ref_count.get() == 1) {
             // ( ͡° ͜ʖ ͡°)
             return self;
@@ -81,7 +81,7 @@ pub const Value = struct {
         return self.copy(comp);
     }
 
-    pub fn copy(base: *Value, comp: *Compilation) (error{OutOfMemory}!*Value) {
+    pub fn copy(base: *Value, comp: *Compilation) (error.{OutOfMemory}!*Value) {
         switch (base.id) {
             Id.Type => unreachable,
             Id.Fn => unreachable,
@@ -95,25 +95,25 @@ pub const Value = struct {
         }
     }
 
-    pub const Parent = union(enum) {
+    pub const Parent = union(enum).{
         None,
         BaseStruct: BaseStruct,
         BaseArray: BaseArray,
         BaseUnion: *Value,
         BaseScalar: *Value,
 
-        pub const BaseStruct = struct {
+        pub const BaseStruct = struct.{
             val: *Value,
             field_index: usize,
         };
 
-        pub const BaseArray = struct {
+        pub const BaseArray = struct.{
             val: *Value,
             elem_index: usize,
         };
     };
 
-    pub const Id = enum {
+    pub const Id = enum.{
         Type,
         Fn,
         Void,
@@ -127,7 +127,7 @@ pub const Value = struct {
 
     pub const Type = @import("type.zig").Type;
 
-    pub const FnProto = struct {
+    pub const FnProto = struct.{
         base: Value,
 
         /// The main external name that is used in the .o file.
@@ -135,8 +135,8 @@ pub const Value = struct {
         symbol_name: Buffer,
 
         pub fn create(comp: *Compilation, fn_type: *Type.Fn, symbol_name: Buffer) !*FnProto {
-            const self = try comp.gpa().create(FnProto{
-                .base = Value{
+            const self = try comp.gpa().create(FnProto.{
+                .base = Value.{
                     .id = Value.Id.FnProto,
                     .typ = &fn_type.base,
                     .ref_count = std.atomic.Int(usize).init(1),
@@ -166,7 +166,7 @@ pub const Value = struct {
         }
     };
 
-    pub const Fn = struct {
+    pub const Fn = struct.{
         base: Value,
 
         /// The main external name that is used in the .o file.
@@ -190,15 +190,15 @@ pub const Value = struct {
         /// Creates a Fn value with 1 ref
         /// Takes ownership of symbol_name
         pub fn create(comp: *Compilation, fn_type: *Type.Fn, fndef_scope: *Scope.FnDef, symbol_name: Buffer) !*Fn {
-            const link_set_node = try comp.gpa().create(Compilation.FnLinkSet.Node{
+            const link_set_node = try comp.gpa().create(Compilation.FnLinkSet.Node.{
                 .data = null,
                 .next = undefined,
                 .prev = undefined,
             });
             errdefer comp.gpa().destroy(link_set_node);
 
-            const self = try comp.gpa().create(Fn{
-                .base = Value{
+            const self = try comp.gpa().create(Fn.{
+                .base = Value.{
                     .id = Value.Id.Fn,
                     .typ = &fn_type.base,
                     .ref_count = std.atomic.Int(usize).init(1),
@@ -249,7 +249,7 @@ pub const Value = struct {
         }
     };
 
-    pub const Void = struct {
+    pub const Void = struct.{
         base: Value,
 
         pub fn get(comp: *Compilation) *Void {
@@ -262,7 +262,7 @@ pub const Value = struct {
         }
     };
 
-    pub const Bool = struct {
+    pub const Bool = struct.{
         base: Value,
         x: bool,
 
@@ -290,7 +290,7 @@ pub const Value = struct {
         }
     };
 
-    pub const NoReturn = struct {
+    pub const NoReturn = struct.{
         base: Value,
 
         pub fn get(comp: *Compilation) *NoReturn {
@@ -303,18 +303,18 @@ pub const Value = struct {
         }
     };
 
-    pub const Ptr = struct {
+    pub const Ptr = struct.{
         base: Value,
         special: Special,
         mut: Mut,
 
-        pub const Mut = enum {
+        pub const Mut = enum.{
             CompTimeConst,
             CompTimeVar,
             RunTime,
         };
 
-        pub const Special = union(enum) {
+        pub const Special = union(enum).{
             Scalar: *Value,
             BaseArray: BaseArray,
             BaseStruct: BaseStruct,
@@ -322,12 +322,12 @@ pub const Value = struct {
             Discard,
         };
 
-        pub const BaseArray = struct {
+        pub const BaseArray = struct.{
             val: *Value,
             elem_index: usize,
         };
 
-        pub const BaseStruct = struct {
+        pub const BaseStruct = struct.{
             val: *Value,
             field_index: usize,
         };
@@ -343,7 +343,7 @@ pub const Value = struct {
             errdefer array_val.base.deref(comp);
 
             const elem_type = array_val.base.typ.cast(Type.Array).?.key.elem_type;
-            const ptr_type = try await (async Type.Pointer.get(comp, Type.Pointer.Key{
+            const ptr_type = try await (async Type.Pointer.get(comp, Type.Pointer.Key.{
                 .child_type = elem_type,
                 .mut = mut,
                 .vol = Type.Pointer.Vol.Non,
@@ -353,14 +353,14 @@ pub const Value = struct {
             var ptr_type_consumed = false;
             errdefer if (!ptr_type_consumed) ptr_type.base.base.deref(comp);
 
-            const self = try comp.gpa().create(Value.Ptr{
-                .base = Value{
+            const self = try comp.gpa().create(Value.Ptr.{
+                .base = Value.{
                     .id = Value.Id.Ptr,
                     .typ = &ptr_type.base,
                     .ref_count = std.atomic.Int(usize).init(1),
                 },
-                .special = Special{
-                    .BaseArray = BaseArray{
+                .special = Special.{
+                    .BaseArray = BaseArray.{
                         .val = &array_val.base,
                         .elem_index = 0,
                     },
@@ -387,7 +387,7 @@ pub const Value = struct {
                     const array_llvm_value = (try base_array.val.getLlvmConst(ofile)).?;
                     const ptr_bit_count = ofile.comp.target_ptr_bits;
                     const usize_llvm_type = llvm.IntTypeInContext(ofile.context, ptr_bit_count) orelse return error.OutOfMemory;
-                    const indices = []llvm.ValueRef{
+                    const indices = []llvm.ValueRef.{
                         llvm.ConstNull(usize_llvm_type) orelse return error.OutOfMemory,
                         llvm.ConstInt(usize_llvm_type, base_array.elem_index, 0) orelse return error.OutOfMemory,
                     };
@@ -404,17 +404,17 @@ pub const Value = struct {
         }
     };
 
-    pub const Array = struct {
+    pub const Array = struct.{
         base: Value,
         special: Special,
 
-        pub const Special = union(enum) {
+        pub const Special = union(enum).{
             Undefined,
             OwnedBuffer: []u8,
             Explicit: Data,
         };
 
-        pub const Data = struct {
+        pub const Data = struct.{
             parent: Parent,
             elements: []*Value,
         };
@@ -424,19 +424,19 @@ pub const Value = struct {
             const u8_type = Type.Int.get_u8(comp);
             defer u8_type.base.base.deref(comp);
 
-            const array_type = try await (async Type.Array.get(comp, Type.Array.Key{
+            const array_type = try await (async Type.Array.get(comp, Type.Array.Key.{
                 .elem_type = &u8_type.base,
                 .len = buffer.len,
             }) catch unreachable);
             errdefer array_type.base.base.deref(comp);
 
-            const self = try comp.gpa().create(Value.Array{
-                .base = Value{
+            const self = try comp.gpa().create(Value.Array.{
+                .base = Value.{
                     .id = Value.Id.Array,
                     .typ = &array_type.base,
                     .ref_count = std.atomic.Int(usize).init(1),
                 },
-                .special = Special{ .OwnedBuffer = buffer },
+                .special = Special.{ .OwnedBuffer = buffer },
             });
             errdefer comp.gpa().destroy(self);
 
@@ -504,13 +504,13 @@ pub const Value = struct {
         }
     };
 
-    pub const Int = struct {
+    pub const Int = struct.{
         base: Value,
         big_int: std.math.big.Int,
 
         pub fn createFromString(comp: *Compilation, typ: *Type, base: u8, value: []const u8) !*Int {
-            const self = try comp.gpa().create(Value.Int{
-                .base = Value{
+            const self = try comp.gpa().create(Value.Int.{
+                .base = Value.{
                     .id = Value.Id.Int,
                     .typ = typ,
                     .ref_count = std.atomic.Int(usize).init(1),
@@ -557,8 +557,8 @@ pub const Value = struct {
             old.base.typ.base.ref();
             errdefer old.base.typ.base.deref(comp);
 
-            const new = try comp.gpa().create(Value.Int{
-                .base = Value{
+            const new = try comp.gpa().create(Value.Int.{
+                .base = Value.{
                     .id = Value.Id.Int,
                     .typ = old.base.typ,
                     .ref_count = std.atomic.Int(usize).init(1),

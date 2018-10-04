@@ -5,7 +5,7 @@ const debug = @import("../debug/index.zig");
 const builtin = @import("builtin");
 const htest = @import("test.zig");
 
-const RoundParam = struct {
+const RoundParam = struct.{
     a: usize,
     b: usize,
     c: usize,
@@ -15,7 +15,7 @@ const RoundParam = struct {
 };
 
 fn Rp(a: usize, b: usize, c: usize, d: usize, x: usize, y: usize) RoundParam {
-    return RoundParam{
+    return RoundParam.{
         .a = a,
         .b = b,
         .c = c,
@@ -32,12 +32,12 @@ pub const Blake2s224 = Blake2s(224);
 pub const Blake2s256 = Blake2s(256);
 
 fn Blake2s(comptime out_len: usize) type {
-    return struct {
+    return struct.{
         const Self = @This();
         const block_length = 64;
         const digest_length = out_len / 8;
 
-        const iv = [8]u32{
+        const iv = [8]u32.{
             0x6A09E667,
             0xBB67AE85,
             0x3C6EF372,
@@ -48,17 +48,17 @@ fn Blake2s(comptime out_len: usize) type {
             0x5BE0CD19,
         };
 
-        const sigma = [10][16]u8{
-            []const u8{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 },
-            []const u8{ 14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3 },
-            []const u8{ 11, 8, 12, 0, 5, 2, 15, 13, 10, 14, 3, 6, 7, 1, 9, 4 },
-            []const u8{ 7, 9, 3, 1, 13, 12, 11, 14, 2, 6, 5, 10, 4, 0, 15, 8 },
-            []const u8{ 9, 0, 5, 7, 2, 4, 10, 15, 14, 1, 11, 12, 6, 8, 3, 13 },
-            []const u8{ 2, 12, 6, 10, 0, 11, 8, 3, 4, 13, 7, 5, 15, 14, 1, 9 },
-            []const u8{ 12, 5, 1, 15, 14, 13, 4, 10, 0, 7, 6, 3, 9, 2, 8, 11 },
-            []const u8{ 13, 11, 7, 14, 12, 1, 3, 9, 5, 0, 15, 4, 8, 6, 2, 10 },
-            []const u8{ 6, 15, 14, 9, 11, 3, 0, 8, 12, 2, 13, 7, 1, 4, 10, 5 },
-            []const u8{ 10, 2, 8, 4, 7, 6, 1, 5, 15, 11, 9, 14, 3, 12, 13, 0 },
+        const sigma = [10][16]u8.{
+            []const u8.{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 },
+            []const u8.{ 14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3 },
+            []const u8.{ 11, 8, 12, 0, 5, 2, 15, 13, 10, 14, 3, 6, 7, 1, 9, 4 },
+            []const u8.{ 7, 9, 3, 1, 13, 12, 11, 14, 2, 6, 5, 10, 4, 0, 15, 8 },
+            []const u8.{ 9, 0, 5, 7, 2, 4, 10, 15, 14, 1, 11, 12, 6, 8, 3, 13 },
+            []const u8.{ 2, 12, 6, 10, 0, 11, 8, 3, 4, 13, 7, 5, 15, 14, 1, 9 },
+            []const u8.{ 12, 5, 1, 15, 14, 13, 4, 10, 0, 7, 6, 3, 9, 2, 8, 11 },
+            []const u8.{ 13, 11, 7, 14, 12, 1, 3, 9, 5, 0, 15, 4, 8, 6, 2, 10 },
+            []const u8.{ 6, 15, 14, 9, 11, 3, 0, 8, 12, 2, 13, 7, 1, 4, 10, 5 },
+            []const u8.{ 10, 2, 8, 4, 7, 6, 1, 5, 15, 11, 9, 14, 3, 12, 13, 0 },
         };
 
         h: [8]u32,
@@ -147,7 +147,7 @@ fn Blake2s(comptime out_len: usize) type {
             v[13] ^= @intCast(u32, d.t >> 32);
             if (last) v[14] = ~v[14];
 
-            const rounds = comptime []RoundParam{
+            const rounds = comptime []RoundParam.{
                 Rp(0, 4, 8, 12, 0, 1),
                 Rp(1, 5, 9, 13, 2, 3),
                 Rp(2, 6, 10, 14, 4, 5),
@@ -250,7 +250,7 @@ test "blake2s256 streaming" {
 }
 
 test "blake2s256 aligned final" {
-    var block = []u8{0} ** Blake2s256.block_length;
+    var block = []u8.{0} ** Blake2s256.block_length;
     var out: [Blake2s256.digest_length]u8 = undefined;
 
     var h = Blake2s256.init();
@@ -265,12 +265,12 @@ pub const Blake2b384 = Blake2b(384);
 pub const Blake2b512 = Blake2b(512);
 
 fn Blake2b(comptime out_len: usize) type {
-    return struct {
+    return struct.{
         const Self = @This();
         const block_length = 128;
         const digest_length = out_len / 8;
 
-        const iv = [8]u64{
+        const iv = [8]u64.{
             0x6a09e667f3bcc908,
             0xbb67ae8584caa73b,
             0x3c6ef372fe94f82b,
@@ -281,19 +281,19 @@ fn Blake2b(comptime out_len: usize) type {
             0x5be0cd19137e2179,
         };
 
-        const sigma = [12][16]u8{
-            []const u8{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 },
-            []const u8{ 14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3 },
-            []const u8{ 11, 8, 12, 0, 5, 2, 15, 13, 10, 14, 3, 6, 7, 1, 9, 4 },
-            []const u8{ 7, 9, 3, 1, 13, 12, 11, 14, 2, 6, 5, 10, 4, 0, 15, 8 },
-            []const u8{ 9, 0, 5, 7, 2, 4, 10, 15, 14, 1, 11, 12, 6, 8, 3, 13 },
-            []const u8{ 2, 12, 6, 10, 0, 11, 8, 3, 4, 13, 7, 5, 15, 14, 1, 9 },
-            []const u8{ 12, 5, 1, 15, 14, 13, 4, 10, 0, 7, 6, 3, 9, 2, 8, 11 },
-            []const u8{ 13, 11, 7, 14, 12, 1, 3, 9, 5, 0, 15, 4, 8, 6, 2, 10 },
-            []const u8{ 6, 15, 14, 9, 11, 3, 0, 8, 12, 2, 13, 7, 1, 4, 10, 5 },
-            []const u8{ 10, 2, 8, 4, 7, 6, 1, 5, 15, 11, 9, 14, 3, 12, 13, 0 },
-            []const u8{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 },
-            []const u8{ 14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3 },
+        const sigma = [12][16]u8.{
+            []const u8.{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 },
+            []const u8.{ 14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3 },
+            []const u8.{ 11, 8, 12, 0, 5, 2, 15, 13, 10, 14, 3, 6, 7, 1, 9, 4 },
+            []const u8.{ 7, 9, 3, 1, 13, 12, 11, 14, 2, 6, 5, 10, 4, 0, 15, 8 },
+            []const u8.{ 9, 0, 5, 7, 2, 4, 10, 15, 14, 1, 11, 12, 6, 8, 3, 13 },
+            []const u8.{ 2, 12, 6, 10, 0, 11, 8, 3, 4, 13, 7, 5, 15, 14, 1, 9 },
+            []const u8.{ 12, 5, 1, 15, 14, 13, 4, 10, 0, 7, 6, 3, 9, 2, 8, 11 },
+            []const u8.{ 13, 11, 7, 14, 12, 1, 3, 9, 5, 0, 15, 4, 8, 6, 2, 10 },
+            []const u8.{ 6, 15, 14, 9, 11, 3, 0, 8, 12, 2, 13, 7, 1, 4, 10, 5 },
+            []const u8.{ 10, 2, 8, 4, 7, 6, 1, 5, 15, 11, 9, 14, 3, 12, 13, 0 },
+            []const u8.{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 },
+            []const u8.{ 14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3 },
         };
 
         h: [8]u64,
@@ -380,7 +380,7 @@ fn Blake2b(comptime out_len: usize) type {
             v[13] ^= @intCast(u64, d.t >> 64);
             if (last) v[14] = ~v[14];
 
-            const rounds = comptime []RoundParam{
+            const rounds = comptime []RoundParam.{
                 Rp(0, 4, 8, 12, 0, 1),
                 Rp(1, 5, 9, 13, 2, 3),
                 Rp(2, 6, 10, 14, 4, 5),
@@ -483,7 +483,7 @@ test "blake2b512 streaming" {
 }
 
 test "blake2b512 aligned final" {
-    var block = []u8{0} ** Blake2b512.block_length;
+    var block = []u8.{0} ** Blake2b512.block_length;
     var out: [Blake2b512.digest_length]u8 = undefined;
 
     var h = Blake2b512.init();

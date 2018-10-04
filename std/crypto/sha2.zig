@@ -8,7 +8,7 @@ const htest = @import("test.zig");
 /////////////////////
 // Sha224 + Sha256
 
-const RoundParam256 = struct {
+const RoundParam256 = struct.{
     a: usize,
     b: usize,
     c: usize,
@@ -22,7 +22,7 @@ const RoundParam256 = struct {
 };
 
 fn Rp256(a: usize, b: usize, c: usize, d: usize, e: usize, f: usize, g: usize, h: usize, i: usize, k: u32) RoundParam256 {
-    return RoundParam256{
+    return RoundParam256.{
         .a = a,
         .b = b,
         .c = c,
@@ -36,7 +36,7 @@ fn Rp256(a: usize, b: usize, c: usize, d: usize, e: usize, f: usize, g: usize, h
     };
 }
 
-const Sha2Params32 = struct {
+const Sha2Params32 = struct.{
     iv0: u32,
     iv1: u32,
     iv2: u32,
@@ -48,7 +48,7 @@ const Sha2Params32 = struct {
     out_len: usize,
 };
 
-const Sha224Params = Sha2Params32{
+const Sha224Params = Sha2Params32.{
     .iv0 = 0xC1059ED8,
     .iv1 = 0x367CD507,
     .iv2 = 0x3070DD17,
@@ -60,7 +60,7 @@ const Sha224Params = Sha2Params32{
     .out_len = 224,
 };
 
-const Sha256Params = Sha2Params32{
+const Sha256Params = Sha2Params32.{
     .iv0 = 0x6A09E667,
     .iv1 = 0xBB67AE85,
     .iv2 = 0x3C6EF372,
@@ -76,7 +76,7 @@ pub const Sha224 = Sha2_32(Sha224Params);
 pub const Sha256 = Sha2_32(Sha256Params);
 
 fn Sha2_32(comptime params: Sha2Params32) type {
-    return struct {
+    return struct.{
         const Self = @This();
         const block_length = 64;
         const digest_length = params.out_len / 8;
@@ -188,7 +188,7 @@ fn Sha2_32(comptime params: Sha2Params32) type {
                 s[i] = s[i - 16] +% s[i - 7] +% (math.rotr(u32, s[i - 15], u32(7)) ^ math.rotr(u32, s[i - 15], u32(18)) ^ (s[i - 15] >> 3)) +% (math.rotr(u32, s[i - 2], u32(17)) ^ math.rotr(u32, s[i - 2], u32(19)) ^ (s[i - 2] >> 10));
             }
 
-            var v: [8]u32 = []u32{
+            var v: [8]u32 = []u32.{
                 d.s[0],
                 d.s[1],
                 d.s[2],
@@ -199,7 +199,7 @@ fn Sha2_32(comptime params: Sha2Params32) type {
                 d.s[7],
             };
 
-            const round0 = comptime []RoundParam256{
+            const round0 = comptime []RoundParam256.{
                 Rp256(0, 1, 2, 3, 4, 5, 6, 7, 0, 0x428A2F98),
                 Rp256(7, 0, 1, 2, 3, 4, 5, 6, 1, 0x71374491),
                 Rp256(6, 7, 0, 1, 2, 3, 4, 5, 2, 0xB5C0FBCF),
@@ -338,7 +338,7 @@ test "sha256 streaming" {
 }
 
 test "sha256 aligned final" {
-    var block = []u8{0} ** Sha256.block_length;
+    var block = []u8.{0} ** Sha256.block_length;
     var out: [Sha256.digest_length]u8 = undefined;
 
     var h = Sha256.init();
@@ -349,7 +349,7 @@ test "sha256 aligned final" {
 /////////////////////
 // Sha384 + Sha512
 
-const RoundParam512 = struct {
+const RoundParam512 = struct.{
     a: usize,
     b: usize,
     c: usize,
@@ -363,7 +363,7 @@ const RoundParam512 = struct {
 };
 
 fn Rp512(a: usize, b: usize, c: usize, d: usize, e: usize, f: usize, g: usize, h: usize, i: usize, k: u64) RoundParam512 {
-    return RoundParam512{
+    return RoundParam512.{
         .a = a,
         .b = b,
         .c = c,
@@ -377,7 +377,7 @@ fn Rp512(a: usize, b: usize, c: usize, d: usize, e: usize, f: usize, g: usize, h
     };
 }
 
-const Sha2Params64 = struct {
+const Sha2Params64 = struct.{
     iv0: u64,
     iv1: u64,
     iv2: u64,
@@ -389,7 +389,7 @@ const Sha2Params64 = struct {
     out_len: usize,
 };
 
-const Sha384Params = Sha2Params64{
+const Sha384Params = Sha2Params64.{
     .iv0 = 0xCBBB9D5DC1059ED8,
     .iv1 = 0x629A292A367CD507,
     .iv2 = 0x9159015A3070DD17,
@@ -401,7 +401,7 @@ const Sha384Params = Sha2Params64{
     .out_len = 384,
 };
 
-const Sha512Params = Sha2Params64{
+const Sha512Params = Sha2Params64.{
     .iv0 = 0x6A09E667F3BCC908,
     .iv1 = 0xBB67AE8584CAA73B,
     .iv2 = 0x3C6EF372FE94F82B,
@@ -417,7 +417,7 @@ pub const Sha384 = Sha2_64(Sha384Params);
 pub const Sha512 = Sha2_64(Sha512Params);
 
 fn Sha2_64(comptime params: Sha2Params64) type {
-    return struct {
+    return struct.{
         const Self = @This();
         const block_length = 128;
         const digest_length = params.out_len / 8;
@@ -533,7 +533,7 @@ fn Sha2_64(comptime params: Sha2Params64) type {
                 s[i] = s[i - 16] +% s[i - 7] +% (math.rotr(u64, s[i - 15], u64(1)) ^ math.rotr(u64, s[i - 15], u64(8)) ^ (s[i - 15] >> 7)) +% (math.rotr(u64, s[i - 2], u64(19)) ^ math.rotr(u64, s[i - 2], u64(61)) ^ (s[i - 2] >> 6));
             }
 
-            var v: [8]u64 = []u64{
+            var v: [8]u64 = []u64.{
                 d.s[0],
                 d.s[1],
                 d.s[2],
@@ -544,7 +544,7 @@ fn Sha2_64(comptime params: Sha2Params64) type {
                 d.s[7],
             };
 
-            const round0 = comptime []RoundParam512{
+            const round0 = comptime []RoundParam512.{
                 Rp512(0, 1, 2, 3, 4, 5, 6, 7, 0, 0x428A2F98D728AE22),
                 Rp512(7, 0, 1, 2, 3, 4, 5, 6, 1, 0x7137449123EF65CD),
                 Rp512(6, 7, 0, 1, 2, 3, 4, 5, 2, 0xB5C0FBCFEC4D3B2F),
@@ -715,7 +715,7 @@ test "sha512 streaming" {
 }
 
 test "sha512 aligned final" {
-    var block = []u8{0} ** Sha512.block_length;
+    var block = []u8.{0} ** Sha512.block_length;
     var out: [Sha512.digest_length]u8 = undefined;
 
     var h = Sha512.init();

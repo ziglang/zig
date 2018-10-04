@@ -6,8 +6,8 @@ test "ignore lval with underscore" {
 }
 
 test "ignore lval with underscore (for loop)" {
-    for ([]void{}) |_, i| {
-        for ([]void{}) |_, j| {
+    for ([]void.{}) |_, i| {
+        for ([]void.{}) |_, j| {
             break;
         }
         break;
@@ -16,11 +16,11 @@ test "ignore lval with underscore (for loop)" {
 
 test "ignore lval with underscore (while loop)" {
     while (optionalReturnError()) |_| {
-      while (optionalReturnError()) |_| {
-          break;
-      } else |_| { }
-      break;
-    } else |_| { }
+        while (optionalReturnError()) |_| {
+            break;
+        } else |_| {}
+        break;
+    } else |_| {}
 }
 
 fn optionalReturnError() !?u32 {

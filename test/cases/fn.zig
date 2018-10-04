@@ -16,7 +16,7 @@ fn testLocVars(b: i32) void {
 }
 
 test "void parameters" {
-    voidFun(1, void{}, 2, {});
+    voidFun(1, void.{}, 2, {});
 }
 fn voidFun(a: i32, b: void, c: i32, d: void) void {
     const v = b;
@@ -73,7 +73,7 @@ fn fnWithUnreachable() noreturn {
 }
 
 test "function pointers" {
-    const fns = []@typeOf(fn1){
+    const fns = []@typeOf(fn1).{
         fn1,
         fn2,
         fn3,
@@ -121,10 +121,10 @@ test "assign inline fn to const variable" {
 inline fn inlineFn() void {}
 
 test "pass by non-copying value" {
-    assert(addPointCoords(Point{ .x = 1, .y = 2 }) == 3);
+    assert(addPointCoords(Point.{ .x = 1, .y = 2 }) == 3);
 }
 
-const Point = struct {
+const Point = struct.{
     x: i32,
     y: i32,
 };
@@ -134,7 +134,7 @@ fn addPointCoords(pt: Point) i32 {
 }
 
 test "pass by non-copying value through var arg" {
-    assert(addPointCoordsVar(Point{ .x = 1, .y = 2 }) == 3);
+    assert(addPointCoordsVar(Point.{ .x = 1, .y = 2 }) == 3);
 }
 
 fn addPointCoordsVar(pt: var) i32 {
@@ -143,11 +143,11 @@ fn addPointCoordsVar(pt: var) i32 {
 }
 
 test "pass by non-copying value as method" {
-    var pt = Point2{ .x = 1, .y = 2 };
+    var pt = Point2.{ .x = 1, .y = 2 };
     assert(pt.addPointCoords() == 3);
 }
 
-const Point2 = struct {
+const Point2 = struct.{
     x: i32,
     y: i32,
 
@@ -157,11 +157,11 @@ const Point2 = struct {
 };
 
 test "pass by non-copying value as method, which is generic" {
-    var pt = Point3{ .x = 1, .y = 2 };
+    var pt = Point3.{ .x = 1, .y = 2 };
     assert(pt.addPointCoords(i32) == 3);
 }
 
-const Point3 = struct {
+const Point3 = struct.{
     x: i32,
     y: i32,
 
@@ -172,14 +172,14 @@ const Point3 = struct {
 
 test "pass by non-copying value as method, at comptime" {
     comptime {
-        var pt = Point2{ .x = 1, .y = 2 };
+        var pt = Point2.{ .x = 1, .y = 2 };
         assert(pt.addPointCoords() == 3);
     }
 }
 
 fn outer(y: u32) fn (u32) u32 {
     const Y = @typeOf(y);
-    const st = struct {
+    const st = struct.{
         fn get(z: u32) u32 {
             return z + @sizeOf(Y);
         }
@@ -193,7 +193,7 @@ test "return inner function which references comptime variable of outer function
 }
 
 test "extern struct with stdcallcc fn pointer" {
-    const S = extern struct {
+    const S = extern struct.{
         ptr: stdcallcc fn () i32,
 
         stdcallcc fn foo() i32 {

@@ -7,7 +7,7 @@ const Token = std.zig.Token;
 
 const indent_delta = 4;
 
-pub const Error = error{
+pub const Error = error.{
     /// Ran out of memory allocating call stack frames to complete rendering.
     OutOfMemory,
 };
@@ -19,7 +19,7 @@ pub fn render(allocator: *mem.Allocator, stream: var, tree: *ast.Tree) (@typeOf(
     var anything_changed: bool = false;
 
     // make a passthrough stream that checks whether something changed
-    const MyStream = struct {
+    const MyStream = struct.{
         const MyStream = @This();
         const StreamError = @typeOf(stream).Child.Error;
         const Stream = std.io.OutStream(StreamError);
@@ -49,8 +49,8 @@ pub fn render(allocator: *mem.Allocator, stream: var, tree: *ast.Tree) (@typeOf(
             try self.child_stream.write(bytes);
         }
     };
-    var my_stream = MyStream{
-        .stream = MyStream.Stream{ .writeFn = MyStream.write },
+    var my_stream = MyStream.{
+        .stream = MyStream.Stream.{ .writeFn = MyStream.write },
         .child_stream = stream,
         .anything_changed_ptr = &anything_changed,
         .source_index = 0,
@@ -1782,7 +1782,7 @@ fn renderStatement(
     }
 }
 
-const Space = enum {
+const Space = enum.{
     None,
     Newline,
     Comma,
