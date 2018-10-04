@@ -5,7 +5,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
-        \\const Foo = enum {
+        \\const Foo = enum.{
         \\    A,
         \\    B,
         \\    C,
@@ -72,7 +72,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    @import("std").os.exit(126);
         \\}
         \\pub fn main() void {
-        \\    const a = []i32{1, 2, 3, 4};
+        \\    const a = []i32.{1, 2, 3, 4};
         \\    baz(bar(a));
         \\}
         \\fn bar(a: []const i32) i32 {
@@ -228,7 +228,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    @import("std").os.exit(126);
         \\}
         \\pub fn main() !void {
-        \\    const x = widenSlice([]u8{1, 2, 3, 4, 5});
+        \\    const x = widenSlice([]u8.{1, 2, 3, 4, 5});
         \\    if (x.len == 0) return error.Whatever;
         \\}
         \\fn widenSlice(slice: []align(1) const u8) []align(1) const i32 {
@@ -306,8 +306,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
-        \\const Set1 = error{A, B};
-        \\const Set2 = error{A, C};
+        \\const Set1 = error.{A, B};
+        \\const Set2 = error.{A, C};
         \\pub fn main() void {
         \\    _ = foo(Set1.B);
         \\}
@@ -321,7 +321,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    @import("std").os.exit(126);
         \\}
         \\pub fn main() !void {
-        \\    var array align(4) = []u32{0x11111111, 0x11111111};
+        \\    var array align(4) = []u32.{0x11111111, 0x11111111};
         \\    const bytes = @sliceToBytes(array[0..]);
         \\    if (foo(bytes) != 0x11111111) return error.Wrong;
         \\}
@@ -337,13 +337,13 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    @import("std").os.exit(126);
         \\}
         \\
-        \\const Foo = union {
+        \\const Foo = union.{
         \\    float: f32,
         \\    int: u32,
         \\};
         \\
         \\pub fn main() void {
-        \\    var f = Foo { .int = 42 };
+        \\    var f = Foo.{ .int = 42 };
         \\    bar(&f);
         \\}
         \\
