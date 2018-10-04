@@ -701,7 +701,7 @@ static AstNode *ast_parse_comptime_expr(ParseContext *pc, size_t *token_index, b
 /*
 PrimaryExpression = Integer | Float | String | CharLiteral | KeywordLiteral | GroupedExpression | BlockExpression(BlockOrExpression) | Symbol | ("@" Symbol FnCallExpression) | ArrayType | FnProto | AsmExpression | ContainerDecl | ("continue" option(":" Symbol)) | ErrorSetDecl | PromiseType
 KeywordLiteral = "true" | "false" | "null" | "undefined" | "error" | "unreachable" | "suspend"
-ErrorSetDecl = "error" "{" list(Symbol, ",") "}"
+ErrorSetDecl = "error" Token(Dot) "{" list(Symbol, ",") "}"
 */
 static AstNode *ast_parse_primary_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -774,30 +774,31 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, size_t *token_index, bo
         }
         return node;
     } else if (token->id == TokenIdKeywordError) {
-        Token *next_token = &pc->tokens->at(*token_index + 1);
-        if (next_token->id == TokenIdLBrace) {
-            AstNode *node = ast_create_node(pc, NodeTypeErrorSetDecl, token);
-            *token_index += 2;
-            for (;;) {
-                Token *item_tok = &pc->tokens->at(*token_index);
-                if (item_tok->id == TokenIdRBrace) {
-                    *token_index += 1;
-                    return node;
-                } else if (item_tok->id == TokenIdSymbol) {
-                    AstNode *symbol_node = ast_parse_symbol(pc, token_index);
-                    node->data.err_set_decl.decls.append(symbol_node);
-                    Token *opt_comma_tok = &pc->tokens->at(*token_index);
-                    if (opt_comma_tok->id == TokenIdComma) {
-                        *token_index += 1;
-                    }
-                } else {
-                    ast_invalid_token_error(pc, item_tok);
-                }
-            }
-        } else {
+        Token *dot_token = &pc->tokens->at(*token_index + 1);
+        Token *brace_token = &pc->tokens->at(*token_index + 2);
+        if (dot_token->id != TokenIdDot || brace_token->id != TokenIdLBrace) {
             AstNode *node = ast_create_node(pc, NodeTypeErrorType, token);
             *token_index += 1;
             return node;
+        }
+
+        AstNode *node = ast_create_node(pc, NodeTypeErrorSetDecl, token);
+        *token_index += 3;
+        for (;;) {
+            Token *item_tok = &pc->tokens->at(*token_index);
+            if (item_tok->id == TokenIdRBrace) {
+                *token_index += 1;
+                return node;
+            } else if (item_tok->id == TokenIdSymbol) {
+                AstNode *symbol_node = ast_parse_symbol(pc, token_index);
+                node->data.err_set_decl.decls.append(symbol_node);
+                Token *opt_comma_tok = &pc->tokens->at(*token_index);
+                if (opt_comma_tok->id == TokenIdComma) {
+                    *token_index += 1;
+                }
+            } else {
+                ast_invalid_token_error(pc, item_tok);
+            }
         }
     } else if (token->id == TokenIdAtSign) {
         *token_index += 1;
@@ -870,7 +871,7 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, size_t *token_index, bo
 
 /*
 CurlySuffixExpression : PrefixOpExpression option(ContainerInitExpression)
-ContainerInitExpression : token(LBrace) ContainerInitBody token(RBrace)
+ContainerInitExpression : token(Dot) token(LBrace) ContainerInitBody token(RBrace)
 ContainerInitBody : list(StructLiteralField, token(Comma)) | list(Expression, token(Comma))
 */
 static AstNode *ast_parse_curly_suffix_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
@@ -881,8 +882,9 @@ static AstNode *ast_parse_curly_suffix_expr(ParseContext *pc, size_t *token_inde
 
     while (true) {
         Token *first_token = &pc->tokens->at(*token_index);
-        if (first_token->id == TokenIdLBrace) {
-            *token_index += 1;
+        Token *second_token = &pc->tokens->at(*token_index + 1);
+        if (first_token->id == TokenIdDot && first_token->id == TokenIdLBrace) {
+            *token_index += 2;
 
             AstNode *node = ast_create_node(pc, NodeTypeContainerInitExpr, first_token);
             node->data.container_init_expr.type = prefix_op_expr;
@@ -2726,6 +2728,7 @@ static AstNode *ast_parse_container_decl(ParseContext *pc, size_t *token_index, 
         node->data.container_decl.init_arg_expr = ast_parse_grouped_expr(pc, token_index, false);
     }
 
+    ast_eat_token(pc, token_index, TokenIdDot);
     ast_eat_token(pc, token_index, TokenIdLBrace);
 
     for (;;) {

@@ -7782,7 +7782,7 @@ ArrayAccessExpression = "[" Expression "]"
 
 SliceExpression = "[" Expression ".." option(Expression) "]"
 
-ContainerInitExpression = "{" ContainerInitBody "}"
+ContainerInitExpression = "." "{" ContainerInitBody "}"
 
 ContainerInitBody = list(StructLiteralField, ",") | list(Expression, ",")
 
@@ -7800,10 +7800,10 @@ GroupedExpression = "(" Expression ")"
 
 KeywordLiteral = "true" | "false" | "null" | "undefined" | "error" | "unreachable" | "suspend"
 
-ErrorSetDecl = "error" "{" list(Symbol, ",") "}"
+ErrorSetDecl = "error" "." "{" list(Symbol, ",") "}"
 
 ContainerDecl = option("extern" | "packed")
-  ("struct" option(GroupedExpression) | "union" option("enum" option(GroupedExpression) | GroupedExpression) | ("enum" option(GroupedExpression)))
+  ("struct" "." option(GroupedExpression) | "union" "." option("enum" option(GroupedExpression) | GroupedExpression) | ("enum" "." option(GroupedExpression)))
   "{" many(ContainerMember) "}"</code></pre>
       {#header_close#}
       {#header_open|Zen#}
