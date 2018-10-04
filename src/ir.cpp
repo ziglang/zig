@@ -17153,6 +17153,7 @@ static Error ir_make_type_info_defs(IrAnalyze *ira, ConstExprValue *out_val, Sco
 }
 
 static ConstExprValue *create_ptr_like_type_info(IrAnalyze *ira, ZigType *ptr_type_entry) {
+    Error err;
     ZigType *attrs_type;
     uint32_t size_enum_index;
     if (is_slice(ptr_type_entry)) {
@@ -17164,6 +17165,9 @@ static ConstExprValue *create_ptr_like_type_info(IrAnalyze *ira, ZigType *ptr_ty
     } else {
         zig_unreachable();
     }
+
+    if ((err = type_resolve(ira->codegen, attrs_type->data.pointer.child_type, ResolveStatusAlignmentKnown)))
+        return nullptr;
 
     ZigType *type_info_pointer_type = ir_type_info_get_type(ira, "Pointer", nullptr);
     assertNoError(ensure_complete_type(ira->codegen, type_info_pointer_type));
@@ -17308,6 +17312,8 @@ static Error ir_make_type_info_value(IrAnalyze *ira, ZigType *type_entry, ConstE
         case ZigTypeIdPointer:
             {
                 result = create_ptr_like_type_info(ira, type_entry);
+                if (result == nullptr)
+                    return ErrorSemanticAnalyzeFail;
                 break;
             }
         case ZigTypeIdArray:
@@ -17586,6 +17592,8 @@ static Error ir_make_type_info_value(IrAnalyze *ira, ZigType *type_entry, ConstE
             {
                 if (type_entry->data.structure.is_slice) {
                     result = create_ptr_like_type_info(ira, type_entry);
+                    if (result == nullptr)
+                        return ErrorSemanticAnalyzeFail;
                     break;
                 }
 
