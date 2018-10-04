@@ -883,7 +883,7 @@ static AstNode *ast_parse_curly_suffix_expr(ParseContext *pc, size_t *token_inde
     while (true) {
         Token *first_token = &pc->tokens->at(*token_index);
         Token *second_token = &pc->tokens->at(*token_index + 1);
-        if (first_token->id == TokenIdDot && first_token->id == TokenIdLBrace) {
+        if (first_token->id == TokenIdDot && second_token->id == TokenIdLBrace) {
             *token_index += 2;
 
             AstNode *node = ast_create_node(pc, NodeTypeContainerInitExpr, first_token);
