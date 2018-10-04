@@ -5512,10 +5512,19 @@ Error type_resolve(CodeGen *g, ZigType *ty, ResolveStatus status) {
 }
 
 bool ir_get_var_is_comptime(ZigVar *var) {
-    if (!var->is_comptime)
+    // The is_comptime field can be left null, which means not comptime.
+    if (var->is_comptime == nullptr)
         return false;
-    if (var->is_comptime->other)
-        return var->is_comptime->other->value.data.x_bool;
+    // When the is_comptime field references an instruction that has to get analyzed, this
+    // is the value.
+    if (var->is_comptime->child != nullptr) {
+        assert(var->is_comptime->child->value.type->id == ZigTypeIdBool);
+        return var->is_comptime->child->value.data.x_bool;
+    }
+    // As an optimization, is_comptime values which are constant are allowed
+    // to be omitted from analysis. In this case, there is no child instruction
+    // and we simply look at the unanalyzed const parent instruction.
+    assert(var->is_comptime->value.type->id == ZigTypeIdBool);
     return var->is_comptime->value.data.x_bool;
 }
 

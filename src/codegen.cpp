@@ -7279,9 +7279,14 @@ static void init(CodeGen *g) {
 
     define_builtin_types(g);
 
-    g->invalid_instruction = allocate<IrInstruction>(1);
+    IrInstruction *sentinel_instructions = allocate<IrInstruction>(2);
+    g->invalid_instruction = &sentinel_instructions[0];
     g->invalid_instruction->value.type = g->builtin_types.entry_invalid;
     g->invalid_instruction->value.global_refs = allocate<ConstGlobalRefs>(1);
+
+    g->unreach_instruction = &sentinel_instructions[1];
+    g->unreach_instruction->value.type = g->builtin_types.entry_unreachable;
+    g->unreach_instruction->value.global_refs = allocate<ConstGlobalRefs>(1);
 
     g->const_void_val.special = ConstValSpecialStatic;
     g->const_void_val.type = g->builtin_types.entry_void;
