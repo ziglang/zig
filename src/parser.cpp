@@ -1100,12 +1100,10 @@ static AstNode *ast_parse_suffix_op_expr(ParseContext *pc, size_t *token_index, 
                 ast_invalid_token_error(pc, ellipsis_or_r_bracket);
             }
         } else if (first_token->id == TokenIdDot) {
-            *token_index += 1;
-
-            Token *token = &pc->tokens->at(*token_index);
+            Token *token = &pc->tokens->at(*token_index + 1);
 
             if (token->id == TokenIdSymbol) {
-                *token_index += 1;
+                *token_index += 2;
 
                 AstNode *node = ast_create_node(pc, NodeTypeFieldAccessExpr, first_token);
                 node->data.field_access_expr.struct_expr = primary_expr;
@@ -1113,23 +1111,22 @@ static AstNode *ast_parse_suffix_op_expr(ParseContext *pc, size_t *token_index, 
 
                 primary_expr = node;
             } else if (token->id == TokenIdStar) {
-                *token_index += 1;
+                *token_index += 2;
 
                 AstNode *node = ast_create_node(pc, NodeTypePtrDeref, first_token);
                 node->data.ptr_deref_expr.target = primary_expr;
 
                 primary_expr = node;
             } else if (token->id == TokenIdQuestion) {
-                *token_index += 1;
+                *token_index += 2;
 
                 AstNode *node = ast_create_node(pc, NodeTypeUnwrapOptional, first_token);
                 node->data.unwrap_optional.expr = primary_expr;
 
                 primary_expr = node;
             } else {
-                ast_invalid_token_error(pc, token);
+                return primary_expr;
             }
-
         } else {
             return primary_expr;
         }
