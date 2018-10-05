@@ -633,7 +633,7 @@ fn posixExecveErrnoToErr(err: usize) PosixExecveError {
     };
 }
 
-pub var linux_elf_aux_maybe: ?[*]std.elf.Auxv = undefined;
+pub var linux_elf_aux_maybe: ?[*]std.elf.Auxv = null;
 pub var posix_environ_raw: [][*]u8 = undefined;
 
 /// See std.elf for the constants.

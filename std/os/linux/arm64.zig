@@ -281,6 +281,54 @@ pub const SYS_statx = 291;
 pub const SYS_io_pgetevents = 292;
 pub const SYS_syscalls = 293;
 
+pub const O_CREAT = 0o100;
+pub const O_EXCL = 0o200;
+pub const O_NOCTTY = 0o400;
+pub const O_TRUNC = 0o1000;
+pub const O_APPEND = 0o2000;
+pub const O_NONBLOCK = 0o4000;
+pub const O_DSYNC = 0o10000;
+pub const O_SYNC = 0o4010000;
+pub const O_RSYNC = 0o4010000;
+pub const O_DIRECTORY = 0o200000;
+pub const O_NOFOLLOW = 0o400000;
+pub const O_CLOEXEC = 0o2000000;
+
+pub const O_ASYNC = 0o20000;
+pub const O_DIRECT = 0o40000;
+pub const O_LARGEFILE = 0;
+pub const O_NOATIME = 0o1000000;
+pub const O_PATH = 0o10000000;
+pub const O_TMPFILE = 0o20200000;
+pub const O_NDELAY = O_NONBLOCK;
+
+pub const F_DUPFD = 0;
+pub const F_GETFD = 1;
+pub const F_SETFD = 2;
+pub const F_GETFL = 3;
+pub const F_SETFL = 4;
+
+pub const F_SETOWN = 8;
+pub const F_GETOWN = 9;
+pub const F_SETSIG = 10;
+pub const F_GETSIG = 11;
+
+pub const F_GETLK = 5;
+pub const F_SETLK = 6;
+pub const F_SETLKW = 7;
+
+pub const F_SETOWN_EX = 15;
+pub const F_GETOWN_EX = 16;
+
+pub const F_GETOWNER_UIDS = 17;
+
+pub const AT_FDCWD = -100;
+pub const AT_SYMLINK_NOFOLLOW = 0x100;
+pub const AT_REMOVEDIR = 0x200;
+pub const AT_SYMLINK_FOLLOW = 0x400;
+pub const AT_NO_AUTOMOUNT = 0x800;
+pub const AT_EMPTY_PATH = 0x1000;
+
 pub const VDSO_USEFUL = true;
 pub const VDSO_CGT_SYM = "__kernel_clock_gettime";
 pub const VDSO_CGT_VER = "LINUX_2.6.39";

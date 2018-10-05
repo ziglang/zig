@@ -839,7 +839,7 @@ static int os_exec_process_posix(const char *exe, ZigList<const char *> &args,
     if ((err = pipe(stderr_pipe)))
         zig_panic("pipe failed");
 
-    pid_t pid = vfork();
+    pid_t pid = fork();
     if (pid == -1)
         zig_panic("fork failed: %s", strerror(errno));
     if (pid == 0) {
