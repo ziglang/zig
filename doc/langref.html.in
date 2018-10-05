@@ -1024,7 +1024,7 @@ a &= b{#endsyntax#}</pre></td>
             </ul>
           </td>
           <td>
-            <pre>{#syntax#}0b011 &amp; 0b101 == 0b001{#endsyntax#}</pre>
+            <pre>{#syntax#}0b011 & 0b101 == 0b001{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
@@ -1345,7 +1345,7 @@ x.* == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre>{#syntax#}&amp;a{#endsyntax#}</pre></td>
+          <td><pre>{#syntax#}&a{#endsyntax#}</pre></td>
           <td>
             All types
           </td>
@@ -5888,7 +5888,7 @@ mem.set(u8, dest, c);{#endsyntax#}</pre>
       <pre>{#syntax#}@mod(numerator: T, denominator: T) T{#endsyntax#}</pre>
       <p>
       Modulus division. For unsigned integers this is the same as
-      {#syntax#}numerator % denominator{#endsyntax#}. Caller guarantees {#syntax#}denominator &gt; 0{#endsyntax#}.
+      {#syntax#}numerator % denominator{#endsyntax#}. Caller guarantees {#syntax#}denominator > 0{#endsyntax#}.
       </p>
       <ul>
           <li>{#syntax#}@mod(-5, 3) == 1{#endsyntax#}</li>
