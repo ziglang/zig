@@ -215,9 +215,10 @@ static void construct_linker_job_elf(LinkJob *lj) {
     lj->args.append(getLDMOption(&g->zig_target));
 
     bool is_lib = g->out_type == OutTypeLib;
-    bool shared = !g->is_static && is_lib;
+    bool is_static = g->is_static || (!is_lib && g->link_libs_list.length == 0);
+    bool shared = !is_static && is_lib;
     Buf *soname = nullptr;
-    if (g->is_static) {
+    if (is_static) {
         if (g->zig_target.arch.arch == ZigLLVM_arm || g->zig_target.arch.arch == ZigLLVM_armeb ||
             g->zig_target.arch.arch == ZigLLVM_thumb || g->zig_target.arch.arch == ZigLLVM_thumbeb)
         {
@@ -241,7 +242,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
     if (lj->link_in_crt) {
         const char *crt1o;
         const char *crtbegino;
-        if (g->is_static) {
+        if (is_static) {
             crt1o = "crt1.o";
             crtbegino = "crtbeginT.o";
         } else {
@@ -292,7 +293,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
         lj->args.append(buf_ptr(g->libc_static_lib_dir));
     }
 
-    if (!g->is_static) {
+    if (!is_static) {
         if (g->dynamic_linker != nullptr) {
             assert(buf_len(g->dynamic_linker) != 0);
             lj->args.append("-dynamic-linker");
@@ -344,7 +345,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
 
     // libc dep
     if (g->libc_link_lib != nullptr) {
-        if (g->is_static) {
+        if (is_static) {
             lj->args.append("--start-group");
             lj->args.append("-lgcc");
             lj->args.append("-lgcc_eh");
