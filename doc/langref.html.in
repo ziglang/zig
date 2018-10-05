@@ -754,6 +754,10 @@ pub fn main() void {
       {#header_close#}
       {#header_close#}
       {#header_open|Operators#}
+      <p>
+      There is no operator overloading. When you see an operator in Zig, you know that
+      it is doing something from this table, and nothing else.
+      </p>
       {#header_open|Table of Operators#}
       <div class="table-wrapper">
       <table>
