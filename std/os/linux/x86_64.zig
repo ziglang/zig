@@ -266,6 +266,8 @@ pub const SYS_mknodat = 259;
 pub const SYS_fchownat = 260;
 pub const SYS_futimesat = 261;
 pub const SYS_newfstatat = 262;
+// https://github.com/ziglang/zig/issues/1439
+pub const SYS_fstatat = 262;
 pub const SYS_unlinkat = 263;
 pub const SYS_renameat = 264;
 pub const SYS_linkat = 265;
@@ -370,6 +372,13 @@ pub const F_SETOWN_EX = 15;
 pub const F_GETOWN_EX = 16;
 
 pub const F_GETOWNER_UIDS = 17;
+
+pub const AT_FDCWD = -100;
+pub const AT_SYMLINK_NOFOLLOW = 0x100;
+pub const AT_REMOVEDIR = 0x200;
+pub const AT_SYMLINK_FOLLOW = 0x400;
+pub const AT_NO_AUTOMOUNT = 0x800;
+pub const AT_EMPTY_PATH = 0x1000;
 
 pub const VDSO_USEFUL = true;
 pub const VDSO_CGT_SYM = "__vdso_clock_gettime";
@@ -519,13 +528,6 @@ pub const timeval = extern struct {
 pub const timezone = extern struct {
     tz_minuteswest: i32,
     tz_dsttime: i32,
-};
-
-pub const dirent = extern struct {
-    d_ino: usize,
-    d_off: usize,
-    d_reclen: u16,
-    d_name: u8, // field address is the address of first byte of name
 };
 
 pub const Elf_Symndx = u32;

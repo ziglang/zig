@@ -8,7 +8,7 @@ pub const pi = 3.14159265358979323846264338327950288419716939937510;
 
 // float.h details
 pub const f64_true_min = 4.94065645841246544177e-324;
-pub const f64_min = 2.22507385850720138309e-308;
+pub const f64_min = 2.2250738585072014e-308;
 pub const f64_max = 1.79769313486231570815e+308;
 pub const f64_epsilon = 2.22044604925031308085e-16;
 pub const f64_toint = 1.0 / f64_epsilon;
@@ -649,4 +649,10 @@ pub fn lossyCast(comptime T: type, value: var) T {
         builtin.TypeId.ComptimeFloat => return T(value),
         else => @compileError("bad type"),
     }
+}
+
+test "math.f64_min" {
+    const f64_min_u64 = 0x0010000000000000;
+    const fmin: f64 = f64_min;
+    assert(@bitCast(u64, fmin) == f64_min_u64);
 }
