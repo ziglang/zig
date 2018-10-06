@@ -26,22 +26,31 @@ const std = @import("../index.zig");
 const math = std.math;
 const assert = std.debug.assert;
 
-pub fn pow(comptime T: type, x: T, y: T) T {
+pub fn pow(comptime T: type, x: T, y: T) (error{Overflow}!T) {
     switch (@typeInfo(T)) {
         builtin.TypeId.Int => {
+            if (y >= (@sizeOf(T) * 8) and x != 1) {
+                return error.Overflow;
+            }
+
             var result: T = 1;
             var base = x;
             var exp = y;
+
             while (true) {
                 if (exp & 1 != 0) {
                     result *= base;
                 }
+
                 exp >>= 1;
+                
                 if (exp == 0) {
                     break;
                 }
+
                 base *= base;
             }
+
             return result;
         },
         builtin.TypeId.Float => {
