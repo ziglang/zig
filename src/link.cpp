@@ -29,9 +29,9 @@ static const char *get_libc_static_file(CodeGen *g, const char *file) {
     return buf_ptr(out_buf);
 }
 
-static Buf *build_o_raw(CodeGen *parent_gen, const char *oname, Buf *full_path) {
+static Buf *build_a_raw(CodeGen *parent_gen, const char *aname, Buf *full_path) {
     ZigTarget *child_target = parent_gen->is_native_target ? nullptr : &parent_gen->zig_target;
-    CodeGen *child_gen = codegen_create(full_path, child_target, OutTypeObj, parent_gen->build_mode,
+    CodeGen *child_gen = codegen_create(full_path, child_target, OutTypeLib, parent_gen->build_mode,
         parent_gen->zig_lib_dir);
 
     child_gen->out_h_path = nullptr;
@@ -43,32 +43,26 @@ static Buf *build_o_raw(CodeGen *parent_gen, const char *oname, Buf *full_path) 
     child_gen->verbose_cimport = parent_gen->verbose_cimport;
 
     codegen_set_strip(child_gen, parent_gen->strip_debug_symbols);
-    codegen_set_is_static(child_gen, parent_gen->is_static);
+    codegen_set_is_static(child_gen, true);
 
-    codegen_set_out_name(child_gen, buf_create_from_str(oname));
+    codegen_set_out_name(child_gen, buf_create_from_str(aname));
 
     codegen_set_errmsg_color(child_gen, parent_gen->err_color);
 
     codegen_set_mmacosx_version_min(child_gen, parent_gen->mmacosx_version_min);
     codegen_set_mios_version_min(child_gen, parent_gen->mios_version_min);
 
-    for (size_t i = 0; i < parent_gen->link_libs_list.length; i += 1) {
-        LinkLib *link_lib = parent_gen->link_libs_list.at(i);
-        LinkLib *new_link_lib = codegen_add_link_lib(child_gen, link_lib->name);
-        new_link_lib->provided_explicitly = link_lib->provided_explicitly;
-    }
-
     child_gen->enable_cache = true;
     codegen_build_and_link(child_gen);
     return &child_gen->output_file_path;
 }
 
-static Buf *build_o(CodeGen *parent_gen, const char *oname) {
-    Buf *source_basename = buf_sprintf("%s.zig", oname);
+static Buf *build_a(CodeGen *parent_gen, const char *aname) {
+    Buf *source_basename = buf_sprintf("%s.zig", aname);
     Buf *full_path = buf_alloc();
     os_path_join(parent_gen->zig_std_special_dir, source_basename, full_path);
 
-    return build_o_raw(parent_gen, oname, full_path);
+    return build_a_raw(parent_gen, aname, full_path);
 }
 
 static Buf *build_compiler_rt(CodeGen *parent_gen) {
@@ -77,7 +71,7 @@ static Buf *build_compiler_rt(CodeGen *parent_gen) {
     Buf *full_path = buf_alloc();
     os_path_join(dir_path, buf_create_from_str("index.zig"), full_path);
 
-    return build_o_raw(parent_gen, "compiler_rt", full_path);
+    return build_a_raw(parent_gen, "compiler_rt", full_path);
 }
 
 static const char *get_darwin_arch_string(const ZigTarget *t) {
@@ -317,8 +311,8 @@ static void construct_linker_job_elf(LinkJob *lj) {
 
     if (g->out_type == OutTypeExe || g->out_type == OutTypeLib) {
         if (g->libc_link_lib == nullptr) {
-            Buf *builtin_o_path = build_o(g, "builtin");
-            lj->args.append(buf_ptr(builtin_o_path));
+            Buf *builtin_a_path = build_a(g, "builtin");
+            lj->args.append(buf_ptr(builtin_a_path));
         }
 
         // sometimes libgcc is missing stuff, so we still build compiler_rt and rely on weak linkage
@@ -548,8 +542,8 @@ static void construct_linker_job_coff(LinkJob *lj) {
 
     if (g->out_type == OutTypeExe || g->out_type == OutTypeLib) {
         if (g->libc_link_lib == nullptr) {
-            Buf *builtin_o_path = build_o(g, "builtin");
-            lj->args.append(buf_ptr(builtin_o_path));
+            Buf *builtin_a_path = build_a(g, "builtin");
+            lj->args.append(buf_ptr(builtin_a_path));
         }
 
         // msvc compiler_rt is missing some stuff, so we still build it and rely on weak linkage
@@ -960,8 +954,17 @@ void codegen_link(CodeGen *g) {
     }
 
     if (g->out_type == OutTypeLib && g->is_static) {
-        fprintf(stderr, "Zig does not yet support creating static libraries\nSee https://github.com/ziglang/zig/issues/1493\n");
-        exit(1);
+        ZigList<const char *> file_names = {};
+        for (size_t i = 0; i < g->link_objects.length; i += 1) {
+            file_names.append((const char *)buf_ptr(g->link_objects.at(i)));
+        }
+        ZigLLVM_OSType os_type = get_llvm_os_type(g->zig_target.os);
+        codegen_add_time_event(g, "LLVM Link");
+        if (ZigLLVMWriteArchive(buf_ptr(&g->output_file_path), file_names.items, file_names.length, os_type)) {
+            fprintf(stderr, "Unable to write archive '%s'\n", buf_ptr(&g->output_file_path));
+            exit(1);
+        }
+        return;
     }
 
     lj.link_in_crt = (g->libc_link_lib != nullptr && g->out_type == OutTypeExe);

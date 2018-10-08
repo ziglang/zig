@@ -250,7 +250,7 @@ Os get_target_os(size_t index) {
     return os_list[index];
 }
 
-static ZigLLVM_OSType get_llvm_os_type(Os os_type) {
+ZigLLVM_OSType get_llvm_os_type(Os os_type) {
     switch (os_type) {
         case OsFreestanding:
         case OsZen:

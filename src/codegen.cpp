@@ -7487,7 +7487,9 @@ static void gen_root_source(CodeGen *g) {
     {
         g->bootstrap_import = add_special_code(g, create_bootstrap_pkg(g, g->root_package), "bootstrap.zig");
     }
-    if (g->zig_target.os == OsWindows && !g->have_dllmain_crt_startup && g->out_type == OutTypeLib) {
+    if (g->zig_target.os == OsWindows && !g->have_dllmain_crt_startup &&
+            g->out_type == OutTypeLib && !g->is_static)
+    {
         g->bootstrap_import = add_special_code(g, create_bootstrap_pkg(g, g->root_package), "bootstrap_lib.zig");
     }
 
