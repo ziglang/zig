@@ -53,6 +53,14 @@ static Buf *build_a_raw(CodeGen *parent_gen, const char *aname, Buf *full_path) 
     codegen_set_mmacosx_version_min(child_gen, parent_gen->mmacosx_version_min);
     codegen_set_mios_version_min(child_gen, parent_gen->mios_version_min);
 
+    // This is so that compiler_rt and builtin libraries know whether they
+    // will eventually be linked with libc. They make different decisions
+    // about what to export depending on whether libc is linked.
+    if (parent_gen->libc_link_lib != nullptr) {
+        LinkLib *new_link_lib = codegen_add_link_lib(child_gen, parent_gen->libc_link_lib->name);
+        new_link_lib->provided_explicitly = parent_gen->libc_link_lib->provided_explicitly;
+    }
+
     child_gen->enable_cache = true;
     codegen_build_and_link(child_gen);
     return &child_gen->output_file_path;
