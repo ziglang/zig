@@ -3197,7 +3197,9 @@ static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable,
         ZigType *var_ptr_type = get_pointer_to_type_extra(g, var->value->type, false, false,
                 PtrLenSingle, var->align_bytes, 0, 0);
         LLVMValueRef llvm_init_val = ir_llvm_value(g, init_value);
-        gen_assign_raw(g, var->value_ref, var_ptr_type, llvm_init_val);
+        if (var->value_ref != llvm_init_val) {
+            gen_assign_raw(g, var->value_ref, var_ptr_type, llvm_init_val);
+        }
     } else {
         bool want_safe = ir_want_runtime_safety(g, &decl_var_instruction->base);
         if (want_safe) {
@@ -3421,6 +3423,19 @@ static void set_call_instr_sret(CodeGen *g, LLVMValueRef call_instr) {
     LLVMAddCallSiteAttribute(call_instr, 1, sret_attr);
 }
 
+static LLVMValueRef gen_result_location(CodeGen *g, IrResultLocation *base) {
+    if (base == nullptr)
+        return nullptr;
+    switch (base->id) {
+        case IrResultLocationIdAlloca:
+            return reinterpret_cast<IrResultLocationAlloca *>(base)->alloca;
+        case IrResultLocationIdVar:
+            // TODO check next_var field?
+            return reinterpret_cast<IrResultLocationVar *>(base)->var->value_ref;
+    }
+    zig_unreachable();
+}
+
 static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstructionCall *instruction) {
     LLVMValueRef fn_val;
     ZigType *fn_type;
@@ -3432,6 +3447,8 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
         fn_val = ir_llvm_value(g, instruction->fn_ref);
         fn_type = instruction->fn_ref->value.type;
     }
+
+    LLVMValueRef tmp_ptr = gen_result_location(g, instruction->result_location);
 
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
 
@@ -3445,7 +3462,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     bool is_var_args = fn_type_id->is_var_args;
     ZigList<LLVMValueRef> gen_param_values = {};
     if (first_arg_ret) {
-        gen_param_values.append(instruction->tmp_ptr);
+        gen_param_values.append(tmp_ptr);
     }
     if (prefix_arg_err_ret_stack) {
         gen_param_values.append(get_cur_err_ret_trace_val(g, instruction->base.scope));
@@ -3453,7 +3470,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     if (instruction->is_async) {
         gen_param_values.append(ir_llvm_value(g, instruction->async_allocator));
 
-        LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, err_union_err_index, "");
+        LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, tmp_ptr, err_union_err_index, "");
         gen_param_values.append(err_val_ptr);
     }
     FnWalk fn_walk = {};
@@ -3496,9 +3513,9 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
 
 
     if (instruction->is_async) {
-        LLVMValueRef payload_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, err_union_payload_index, "");
+        LLVMValueRef payload_ptr = LLVMBuildStructGEP(g->builder, tmp_ptr, err_union_payload_index, "");
         LLVMBuildStore(g->builder, result, payload_ptr);
-        return instruction->tmp_ptr;
+        return tmp_ptr;
     }
 
     if (src_return_type->id == ZigTypeIdUnreachable) {
@@ -3507,11 +3524,11 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
         return nullptr;
     } else if (first_arg_ret) {
         set_call_instr_sret(g, result);
-        return instruction->tmp_ptr;
+        return tmp_ptr;
     } else if (handle_is_ptr(src_return_type)) {
-        auto store_instr = LLVMBuildStore(g->builder, result, instruction->tmp_ptr);
-        LLVMSetAlignment(store_instr, LLVMGetAlignment(instruction->tmp_ptr));
-        return instruction->tmp_ptr;
+        auto store_instr = LLVMBuildStore(g->builder, result, tmp_ptr);
+        LLVMSetAlignment(store_instr, LLVMGetAlignment(tmp_ptr));
+        return tmp_ptr;
     } else {
         return result;
     }
@@ -6197,6 +6214,11 @@ static void do_code_gen(CodeGen *g) {
         }
 
         // allocate temporary stack data
+        for (size_t alloca_i = 0; alloca_i < fn_table_entry->result_loc_alloca_list.length; alloca_i += 1) {
+            IrResultLocationAlloca *alloca_loc = fn_table_entry->result_loc_alloca_list.at(alloca_i);
+            alloca_loc->alloca = build_alloca(g, alloca_loc->ty, "", get_abi_alignment(g, alloca_loc->ty));
+        }
+        // TODO migrate these to use the Result Location mechanism
         for (size_t alloca_i = 0; alloca_i < fn_table_entry->alloca_list.length; alloca_i += 1) {
             IrInstruction *instruction = fn_table_entry->alloca_list.at(alloca_i);
             LLVMValueRef *slot;
@@ -6218,9 +6240,6 @@ static void do_code_gen(CodeGen *g) {
             } else if (instruction->id == IrInstructionIdUnionInit) {
                 IrInstructionUnionInit *union_init_instruction = (IrInstructionUnionInit *)instruction;
                 slot = &union_init_instruction->tmp_ptr;
-            } else if (instruction->id == IrInstructionIdCall) {
-                IrInstructionCall *call_instruction = (IrInstructionCall *)instruction;
-                slot = &call_instruction->tmp_ptr;
             } else if (instruction->id == IrInstructionIdSlice) {
                 IrInstructionSlice *slice_instruction = (IrInstructionSlice *)instruction;
                 slot = &slice_instruction->tmp_ptr;
