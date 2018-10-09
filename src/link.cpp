@@ -31,8 +31,18 @@ static const char *get_libc_static_file(CodeGen *g, const char *file) {
 
 static Buf *build_a_raw(CodeGen *parent_gen, const char *aname, Buf *full_path) {
     ZigTarget *child_target = parent_gen->is_native_target ? nullptr : &parent_gen->zig_target;
-    CodeGen *child_gen = codegen_create(full_path, child_target, OutTypeLib, parent_gen->build_mode,
-        parent_gen->zig_lib_dir);
+
+    // The Mach-O LLD code is not well maintained, and trips an assertion
+    // when we link compiler_rt and builtin as libraries rather than objects.
+    // Here we workaround this by having compiler_rt and builtin be objects.
+    // TODO write our own linker. https://github.com/ziglang/zig/issues/1535
+    OutType child_out_type = OutTypeLib;
+    if (parent_gen->zig_target.os == OsMacOSX) {
+        child_out_type = OutTypeObj;
+    }
+
+    CodeGen *child_gen = codegen_create(full_path, child_target, child_out_type,
+        parent_gen->build_mode, parent_gen->zig_lib_dir);
 
     child_gen->out_h_path = nullptr;
     child_gen->verbose_tokenize = parent_gen->verbose_tokenize;
