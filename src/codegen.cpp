@@ -3173,6 +3173,26 @@ static LLVMValueRef ir_render_bool_not(CodeGen *g, IrExecutable *executable, IrI
     return LLVMBuildICmp(g->builder, LLVMIntEQ, value, zero, "");
 }
 
+static bool value_is_all_undef(ConstExprValue *const_val) {
+    switch (const_val->special) {
+        case ConstValSpecialRuntime:
+            return false;
+        case ConstValSpecialUndef:
+            return true;
+        case ConstValSpecialStatic:
+            if (const_val->type->id == ZigTypeIdStruct) {
+                for (size_t i = 0; i < const_val->type->data.structure.src_field_count; i += 1) {
+                    if (!value_is_all_undef(&const_val->data.x_struct.fields[i]))
+                        return false;
+                }
+                return true;
+            } else {
+                return false;
+            }
+    }
+    zig_unreachable();
+}
+
 static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable,
         IrInstructionDeclVar *decl_var_instruction)
 {
@@ -3186,11 +3206,8 @@ static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable,
 
     IrInstruction *init_value = decl_var_instruction->init_value;
 
-    bool have_init_expr = false;
-
     ConstExprValue *const_val = &init_value->value;
-    if (const_val->special == ConstValSpecialRuntime || const_val->special == ConstValSpecialStatic)
-        have_init_expr = true;
+    bool have_init_expr = !value_is_all_undef(const_val);
 
     if (have_init_expr) {
         assert(var->value->type == init_value->value.type);
