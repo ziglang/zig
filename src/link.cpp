@@ -192,6 +192,8 @@ static Buf *get_dynamic_linker_path(CodeGen *g) {
 static void construct_linker_job_elf(LinkJob *lj) {
     CodeGen *g = lj->codegen;
 
+    lj->args.append("-error-limit=0");
+
     if (g->libc_link_lib != nullptr) {
         find_libc_lib_path(g);
     }
@@ -381,6 +383,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
 static void construct_linker_job_wasm(LinkJob *lj) {
     CodeGen *g = lj->codegen;
 
+    lj->args.append("-error-limit=0");
     lj->args.append("--no-entry");  // So lld doesn't look for _start.
     lj->args.append("-o");
     lj->args.append(buf_ptr(&g->output_file_path));
@@ -418,6 +421,8 @@ static bool zig_lld_link(ZigLLVM_ObjectFormatType oformat, const char **args, si
 
 static void construct_linker_job_coff(LinkJob *lj) {
     CodeGen *g = lj->codegen;
+
+    lj->args.append("/ERRORLIMIT:0");
 
     if (g->libc_link_lib != nullptr) {
         find_libc_lib_path(g);
@@ -755,6 +760,7 @@ static bool darwin_version_lt(DarwinPlatform *platform, int major, int minor) {
 static void construct_linker_job_macho(LinkJob *lj) {
     CodeGen *g = lj->codegen;
 
+    lj->args.append("-error-limit=0");
     lj->args.append("-demangle");
 
     if (g->linker_rdynamic) {
@@ -969,7 +975,6 @@ void codegen_link(CodeGen *g) {
 
     lj.link_in_crt = (g->libc_link_lib != nullptr && g->out_type == OutTypeExe);
 
-    lj.args.append("-error-limit=0");
     construct_linker_job(&lj);
 
 
