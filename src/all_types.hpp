@@ -1763,6 +1763,7 @@ struct CodeGen {
     bool linker_rdynamic;
     bool no_rosegment_workaround;
     bool each_lib_rpath;
+    bool disable_pic;
 
     Buf *mmacosx_version_min;
     Buf *mios_version_min;

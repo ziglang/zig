@@ -66,7 +66,9 @@ fn posixCallMainAndExit() noreturn {
     std.os.posix.exit(callMainWithArgs(argc, argv, envp));
 }
 
-fn callMainWithArgs(argc: usize, argv: [*][*]u8, envp: [][*]u8) u8 {
+// This is marked inline because for some reason LLVM in release mode fails to inline it,
+// and we want fewer call frames in stack traces.
+inline fn callMainWithArgs(argc: usize, argv: [*][*]u8, envp: [][*]u8) u8 {
     std.os.ArgIteratorPosix.raw = argv[0..argc];
     std.os.posix_environ_raw = envp;
     return callMain();
@@ -79,7 +81,9 @@ extern fn main(c_argc: i32, c_argv: [*][*]u8, c_envp: [*]?[*]u8) i32 {
     return callMainWithArgs(@intCast(usize, c_argc), c_argv, envp);
 }
 
-fn callMain() u8 {
+// This is marked inline because for some reason LLVM in release mode fails to inline it,
+// and we want fewer call frames in stack traces.
+inline fn callMain() u8 {
     switch (@typeId(@typeOf(root.main).ReturnType)) {
         builtin.TypeId.NoReturn => {
             root.main();
