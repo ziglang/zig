@@ -46,6 +46,7 @@ typedef SSIZE_T ssize_t;
 #include <sys/wait.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <spawn.h>
 
 #endif
 
@@ -88,25 +89,22 @@ static void populate_termination(Termination *term, int status) {
 }
 
 static void os_spawn_process_posix(const char *exe, ZigList<const char *> &args, Termination *term) {
-    pid_t pid = fork();
-    if (pid == -1)
-        zig_panic("fork failed: %s", strerror(errno));
-    if (pid == 0) {
-        // child
-        const char **argv = allocate<const char *>(args.length + 2);
-        argv[0] = exe;
-        argv[args.length + 1] = nullptr;
-        for (size_t i = 0; i < args.length; i += 1) {
-            argv[i + 1] = args.at(i);
-        }
-        execvp(exe, const_cast<char * const *>(argv));
-        zig_panic("execvp failed: %s", strerror(errno));
-    } else {
-        // parent
-        int status;
-        waitpid(pid, &status, 0);
-        populate_termination(term, status);
+    const char **argv = allocate<const char *>(args.length + 2);
+    argv[0] = exe;
+    argv[args.length + 1] = nullptr;
+    for (size_t i = 0; i < args.length; i += 1) {
+        argv[i + 1] = args.at(i);
     }
+
+    pid_t pid;
+    int rc = posix_spawn(&pid, exe, nullptr, nullptr, const_cast<char *const*>(argv), environ);
+    if (rc != 0) {
+        zig_panic("posix_spawn failed: %s", strerror(rc));
+    }
+
+    int status;
+    waitpid(pid, &status, 0);
+    populate_termination(term, status);
 }
 #endif
 

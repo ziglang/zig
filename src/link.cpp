@@ -44,6 +44,7 @@ static Buf *build_a_raw(CodeGen *parent_gen, const char *aname, Buf *full_path) 
 
     codegen_set_strip(child_gen, parent_gen->strip_debug_symbols);
     codegen_set_is_static(child_gen, true);
+    child_gen->disable_pic = parent_gen->disable_pic;
 
     codegen_set_out_name(child_gen, buf_create_from_str(aname));
 
@@ -209,10 +210,9 @@ static void construct_linker_job_elf(LinkJob *lj) {
     lj->args.append(getLDMOption(&g->zig_target));
 
     bool is_lib = g->out_type == OutTypeLib;
-    bool is_static = g->is_static || (!is_lib && g->link_libs_list.length == 0);
-    bool shared = !is_static && is_lib;
+    bool shared = !g->is_static && is_lib;
     Buf *soname = nullptr;
-    if (is_static) {
+    if (g->is_static) {
         if (g->zig_target.arch.arch == ZigLLVM_arm || g->zig_target.arch.arch == ZigLLVM_armeb ||
             g->zig_target.arch.arch == ZigLLVM_thumb || g->zig_target.arch.arch == ZigLLVM_thumbeb)
         {
@@ -236,7 +236,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
     if (lj->link_in_crt) {
         const char *crt1o;
         const char *crtbegino;
-        if (is_static) {
+        if (g->is_static) {
             crt1o = "crt1.o";
             crtbegino = "crtbeginT.o";
         } else {
@@ -287,7 +287,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
         lj->args.append(buf_ptr(g->libc_static_lib_dir));
     }
 
-    if (!is_static) {
+    if (!g->is_static) {
         if (g->dynamic_linker != nullptr) {
             assert(buf_len(g->dynamic_linker) != 0);
             lj->args.append("-dynamic-linker");
@@ -309,7 +309,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
         lj->args.append((const char *)buf_ptr(g->link_objects.at(i)));
     }
 
-    if (g->out_type == OutTypeExe || g->out_type == OutTypeLib) {
+    if (g->out_type == OutTypeExe || (g->out_type == OutTypeLib && !g->is_static)) {
         if (g->libc_link_lib == nullptr) {
             Buf *builtin_a_path = build_a(g, "builtin");
             lj->args.append(buf_ptr(builtin_a_path));
@@ -339,7 +339,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
 
     // libc dep
     if (g->libc_link_lib != nullptr) {
-        if (is_static) {
+        if (g->is_static) {
             lj->args.append("--start-group");
             lj->args.append("-lgcc");
             lj->args.append("-lgcc_eh");
@@ -540,7 +540,7 @@ static void construct_linker_job_coff(LinkJob *lj) {
         lj->args.append((const char *)buf_ptr(g->link_objects.at(i)));
     }
 
-    if (g->out_type == OutTypeExe || g->out_type == OutTypeLib) {
+    if (g->out_type == OutTypeExe || (g->out_type == OutTypeLib && !g->is_static)) {
         if (g->libc_link_lib == nullptr) {
             Buf *builtin_a_path = build_a(g, "builtin");
             lj->args.append(buf_ptr(builtin_a_path));
@@ -872,7 +872,7 @@ static void construct_linker_job_macho(LinkJob *lj) {
     }
 
     // compiler_rt on darwin is missing some stuff, so we still build it and rely on LinkOnce
-    if (g->out_type == OutTypeExe || g->out_type == OutTypeLib) {
+    if (g->out_type == OutTypeExe || (g->out_type == OutTypeLib && !g->is_static)) {
         Buf *compiler_rt_o_path = build_compiler_rt(g);
         lj->args.append(buf_ptr(compiler_rt_o_path));
     }
@@ -969,6 +969,7 @@ void codegen_link(CodeGen *g) {
 
     lj.link_in_crt = (g->libc_link_lib != nullptr && g->out_type == OutTypeExe);
 
+    lj.args.append("-error-limit=0");
     construct_linker_job(&lj);
 
 
