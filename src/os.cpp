@@ -71,6 +71,12 @@ static clock_serv_t cclock;
 #include <errno.h>
 #include <time.h>
 
+// Apple doesn't provide the environ global variable
+#if defined(__APPLE__) && !defined(environ)
+#include <crt_externs.h>
+#define environ (*_NSGetEnviron())
+#endif 
+
 #if defined(ZIG_OS_POSIX)
 static void populate_termination(Termination *term, int status) {
     if (WIFEXITED(status)) {
