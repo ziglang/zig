@@ -607,6 +607,7 @@ struct AstNodeUnwrapOptional {
 enum CastOp {
     CastOpNoCast, // signifies the function call expression is not a cast
     CastOpNoop, // fn call expr is a cast, but does nothing
+    CastOpNoopResultLoc, // don't copy the value; it's handled by result location mechanism
     CastOpIntToFloat,
     CastOpFloatToInt,
     CastOpBoolToInt,
@@ -2180,6 +2181,8 @@ enum IrInstructionId {
 enum IrResultLocationId {
     IrResultLocationIdVar,
     IrResultLocationIdAlloca,
+    IrResultLocationIdLVal,
+    IrResultLocationIdOptionalUnwrap,
 };
 
 struct IrResultLocation {
@@ -2195,6 +2198,16 @@ struct IrResultLocationAlloca {
     IrResultLocation base;
     LLVMValueRef alloca;
     ZigType *ty;
+};
+
+struct IrResultLocationLVal {
+    IrResultLocation base;
+    IrInstruction *parent_instruction;
+};
+
+struct IrResultLocationOptionalUnwrap {
+    IrResultLocation base;
+    IrResultLocation *parent;
 };
 
 struct IrInstruction {

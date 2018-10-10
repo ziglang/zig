@@ -3222,7 +3222,11 @@ static IrInstruction *ir_gen_bin_op_id(IrBuilder *irb, Scope *scope, AstNode *no
 
 static IrInstruction *ir_gen_assign(IrBuilder *irb, Scope *scope, AstNode *node) {
     IrInstruction *lvalue = ir_gen_node_lval(irb, node->data.bin_op_expr.op1, scope, LValPtr);
-    IrInstruction *rvalue = ir_gen_node(irb, node->data.bin_op_expr.op2, scope);
+    IrResultLocationLVal *lval_result_loc = allocate<IrResultLocationLVal>(1);
+    lval_result_loc->base.id = IrResultLocationIdLVal;
+    lval_result_loc->parent_instruction = lvalue;
+    IrInstruction *rvalue = ir_gen_node_extra(irb, node->data.bin_op_expr.op2, scope, LValNone,
+            &lval_result_loc->base);
 
     if (lvalue == irb->codegen->invalid_instruction || rvalue == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
@@ -9169,6 +9173,7 @@ static bool eval_const_expr_implicit_cast(IrAnalyze *ira, IrInstruction *source_
         case CastOpPtrOfArrayToSlice:
             zig_panic("TODO");
         case CastOpNoop:
+        case CastOpNoopResultLoc:
             {
                 bool same_global_refs = other_val->special == ConstValSpecialStatic;
                 copy_const_val(const_val, other_val, same_global_refs);
@@ -9644,6 +9649,160 @@ static ZigFn *ir_resolve_fn(IrAnalyze *ira, IrInstruction *fn_value) {
     return const_val->data.x_ptr.data.fn.fn_entry;
 }
 
+static IrResultLocation **ir_get_result_location(IrInstruction *base) {
+    switch (base->id) {
+        case IrInstructionIdInvalid:
+            zig_unreachable();
+        case IrInstructionIdCall: {
+            IrInstructionCall *inst = reinterpret_cast<IrInstructionCall *>(base);
+            return &inst->result_location;
+        }
+        case IrInstructionIdBr:
+        case IrInstructionIdCondBr:
+        case IrInstructionIdSwitchBr:
+        case IrInstructionIdDeclVar:
+        case IrInstructionIdStorePtr:
+        case IrInstructionIdReturn:
+        case IrInstructionIdUnreachable:
+        case IrInstructionIdSetCold:
+        case IrInstructionIdSetRuntimeSafety:
+        case IrInstructionIdSetFloatMode:
+        case IrInstructionIdImport:
+        case IrInstructionIdCompileErr:
+        case IrInstructionIdCompileLog:
+        case IrInstructionIdCImport:
+        case IrInstructionIdCInclude:
+        case IrInstructionIdCDefine:
+        case IrInstructionIdCUndef:
+        case IrInstructionIdCmpxchg:
+        case IrInstructionIdFence:
+        case IrInstructionIdMemset:
+        case IrInstructionIdMemcpy:
+        case IrInstructionIdBreakpoint:
+        case IrInstructionIdOverflowOp:
+        case IrInstructionIdCheckSwitchProngs:
+        case IrInstructionIdCheckStatementIsVoid:
+        case IrInstructionIdCheckRuntimeScope:
+        case IrInstructionIdPanic:
+        case IrInstructionIdSetEvalBranchQuota:
+        case IrInstructionIdPtrType:
+        case IrInstructionIdSetAlignStack:
+        case IrInstructionIdExport:
+        case IrInstructionIdCancel:
+        case IrInstructionIdCoroId:
+        case IrInstructionIdCoroBegin:
+        case IrInstructionIdCoroAllocFail:
+        case IrInstructionIdCoroEnd:
+        case IrInstructionIdCoroResume:
+        case IrInstructionIdCoroSave:
+        case IrInstructionIdCoroAllocHelper:
+        case IrInstructionIdAwaitBookkeeping:
+        case IrInstructionIdSaveErrRetAddr:
+        case IrInstructionIdAddImplicitReturnType:
+        case IrInstructionIdMergeErrRetTraces:
+        case IrInstructionIdMarkErrRetTracePtr:
+        case IrInstructionIdAtomicRmw:
+        case IrInstructionIdPhi:
+        case IrInstructionIdUnOp:
+        case IrInstructionIdBinOp:
+        case IrInstructionIdLoadPtr:
+        case IrInstructionIdConst:
+        case IrInstructionIdCast:
+        case IrInstructionIdContainerInitList:
+        case IrInstructionIdContainerInitFields:
+        case IrInstructionIdStructInit:
+        case IrInstructionIdUnionInit:
+        case IrInstructionIdFieldPtr:
+        case IrInstructionIdElemPtr:
+        case IrInstructionIdVarPtr:
+        case IrInstructionIdTypeOf:
+        case IrInstructionIdToPtrType:
+        case IrInstructionIdPtrTypeChild:
+        case IrInstructionIdArrayLen:
+        case IrInstructionIdStructFieldPtr:
+        case IrInstructionIdUnionFieldPtr:
+        case IrInstructionIdArrayType:
+        case IrInstructionIdPromiseType:
+        case IrInstructionIdSliceType:
+        case IrInstructionIdSizeOf:
+        case IrInstructionIdTestNonNull:
+        case IrInstructionIdUnwrapOptional:
+        case IrInstructionIdClz:
+        case IrInstructionIdCtz:
+        case IrInstructionIdPopCount:
+        case IrInstructionIdSwitchVar:
+        case IrInstructionIdSwitchTarget:
+        case IrInstructionIdUnionTag:
+        case IrInstructionIdRef:
+        case IrInstructionIdMinValue:
+        case IrInstructionIdMaxValue:
+        case IrInstructionIdEmbedFile:
+        case IrInstructionIdTruncate:
+        case IrInstructionIdIntType:
+        case IrInstructionIdBoolNot:
+        case IrInstructionIdSlice:
+        case IrInstructionIdMemberCount:
+        case IrInstructionIdMemberType:
+        case IrInstructionIdMemberName:
+        case IrInstructionIdAlignOf:
+        case IrInstructionIdReturnAddress:
+        case IrInstructionIdFrameAddress:
+        case IrInstructionIdHandle:
+        case IrInstructionIdTestErr:
+        case IrInstructionIdUnwrapErrCode:
+        case IrInstructionIdOptionalWrap:
+        case IrInstructionIdErrWrapCode:
+        case IrInstructionIdErrWrapPayload:
+        case IrInstructionIdFnProto:
+        case IrInstructionIdTestComptime:
+        case IrInstructionIdPtrCast:
+        case IrInstructionIdBitCast:
+        case IrInstructionIdWidenOrShorten:
+        case IrInstructionIdPtrToInt:
+        case IrInstructionIdIntToPtr:
+        case IrInstructionIdIntToEnum:
+        case IrInstructionIdIntToErr:
+        case IrInstructionIdErrToInt:
+        case IrInstructionIdDeclRef:
+        case IrInstructionIdErrName:
+        case IrInstructionIdTypeName:
+        case IrInstructionIdTagName:
+        case IrInstructionIdFieldParentPtr:
+        case IrInstructionIdByteOffsetOf:
+        case IrInstructionIdBitOffsetOf:
+        case IrInstructionIdTypeInfo:
+        case IrInstructionIdTypeId:
+        case IrInstructionIdAlignCast:
+        case IrInstructionIdOpaqueType:
+        case IrInstructionIdArgType:
+        case IrInstructionIdTagType:
+        case IrInstructionIdErrorReturnTrace:
+        case IrInstructionIdErrorUnion:
+        case IrInstructionIdGetImplicitAllocator:
+        case IrInstructionIdCoroAlloc:
+        case IrInstructionIdCoroSize:
+        case IrInstructionIdCoroSuspend:
+        case IrInstructionIdCoroFree:
+        case IrInstructionIdCoroPromise:
+        case IrInstructionIdPromiseResultType:
+        case IrInstructionIdSqrt:
+        case IrInstructionIdAtomicLoad:
+        case IrInstructionIdIntCast:
+        case IrInstructionIdFloatCast:
+        case IrInstructionIdErrSetCast:
+        case IrInstructionIdIntToFloat:
+        case IrInstructionIdFloatToInt:
+        case IrInstructionIdBoolToInt:
+        case IrInstructionIdFromBytes:
+        case IrInstructionIdToBytes:
+        case IrInstructionIdEnumToInt:
+        case IrInstructionIdAsm:
+        case IrInstructionIdUnwrapErrPayload:
+            return nullptr;
+    }
+    zig_unreachable();
+}
+
 static IrInstruction *ir_analyze_maybe_wrap(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value, ZigType *wanted_type) {
     assert(wanted_type->id == ZigTypeIdOptional);
 
@@ -9667,6 +9826,22 @@ static IrInstruction *ir_analyze_maybe_wrap(IrAnalyze *ira, IrInstruction *sourc
         }
         const_instruction->base.value.type = wanted_type;
         return &const_instruction->base;
+    }
+
+    // If we have a result location, we push a special OptionalWrap result location value
+    // to the result location stack.
+    IrResultLocation **result_location = ir_get_result_location(value);
+    if (result_location != nullptr) {
+        IrResultLocation *prev_result_location = *result_location;
+        IrResultLocationOptionalUnwrap *new_result_location = allocate<IrResultLocationOptionalUnwrap>(1);
+        new_result_location->base.id = IrResultLocationIdOptionalUnwrap;
+        new_result_location->parent = prev_result_location;
+        *result_location = &new_result_location->base;
+        IrInstruction *result = ir_build_cast(&ira->new_irb, source_instr->scope, source_instr->source_node,
+                wanted_type, value, CastOpNoopResultLoc);
+        result->value.data.rh_maybe = RuntimeHintOptionalNonNull;
+        result->value.type = wanted_type;
+        return result;
     }
 
     IrInstruction *result = ir_build_maybe_wrap(&ira->new_irb, source_instr->scope, source_instr->source_node, value);
@@ -12840,11 +13015,7 @@ IrInstruction *ir_get_implicit_allocator(IrAnalyze *ira, IrInstruction *source_i
     zig_unreachable();
 }
 
-static IrResultLocation *ir_analyze_result_location(IrAnalyze *ira, IrResultLocation *result_location,
-        ZigType *ty)
-{
-    if (result_location != nullptr)
-        return result_location;
+static IrResultLocation *create_alloca_result_loc(IrAnalyze *ira, ZigType *ty) {
     ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
     if (fn_entry == nullptr)
         return nullptr;
@@ -12856,6 +13027,37 @@ static IrResultLocation *ir_analyze_result_location(IrAnalyze *ira, IrResultLoca
         return &alloca_loc->base;
     }
     return nullptr;
+}
+
+static IrResultLocation *ir_analyze_result_location(IrAnalyze *ira, IrResultLocation *result_location,
+        ZigType *ty)
+{
+    if (result_location != nullptr) {
+        if (result_location->id == IrResultLocationIdLVal) {
+            IrResultLocationLVal *lval_loc = reinterpret_cast<IrResultLocationLVal *>(result_location);
+            if (lval_loc->parent_instruction->value.special == ConstValSpecialStatic &&
+                lval_loc->parent_instruction->value.type->id == ZigTypeIdPointer &&
+                lval_loc->parent_instruction->value.data.x_ptr.special == ConstPtrSpecialDiscard)
+            {
+                // We have to convert this to an Alloca because the function is sret
+                // and so even though we want to discard the result, we need a stack allocation
+                // to pass as the sret pointer.
+                return create_alloca_result_loc(ira, ty);
+            }
+        } else if (result_location->id == IrResultLocationIdVar) {
+            // We have to resolve the variable in case of an inline loop.
+            IrResultLocationVar *var_loc = reinterpret_cast<IrResultLocationVar *>(result_location);
+            IrResultLocationVar *new_var_loc = allocate<IrResultLocationVar>(1);
+            new_var_loc->base.id = IrResultLocationIdVar;
+            new_var_loc->var = var_loc->var;
+            while (new_var_loc->var->next_var != nullptr) {
+                new_var_loc->var = new_var_loc->var->next_var;
+            }
+            return &var_loc->base;
+        }
+        return result_location;
+    }
+    return create_alloca_result_loc(ira, ty);
 }
 
 static IrInstruction *ir_analyze_async_call(IrAnalyze *ira, IrInstructionCall *call_instruction, ZigFn *fn_entry, ZigType *fn_type,

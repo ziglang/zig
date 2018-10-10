@@ -2815,6 +2815,7 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
         case CastOpNumLitToConcrete:
             zig_unreachable();
         case CastOpNoop:
+        case CastOpNoopResultLoc:
             return expr_val;
         case CastOpResizeSlice:
             {
@@ -3213,8 +3214,10 @@ static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable,
         assert(var->value->type == init_value->value.type);
         ZigType *var_ptr_type = get_pointer_to_type_extra(g, var->value->type, false, false,
                 PtrLenSingle, var->align_bytes, 0, 0);
-        LLVMValueRef llvm_init_val = ir_llvm_value(g, init_value);
-        if (var->value_ref != llvm_init_val) {
+        bool elide_assign = init_value->id == IrInstructionIdCast &&
+            reinterpret_cast<IrInstructionCast*>(init_value)->cast_op == CastOpNoopResultLoc;
+        if (!elide_assign) {
+            LLVMValueRef llvm_init_val = ir_llvm_value(g, init_value);
             gen_assign_raw(g, var->value_ref, var_ptr_type, llvm_init_val);
         }
     } else {
@@ -3270,6 +3273,11 @@ static LLVMValueRef ir_render_load_ptr(CodeGen *g, IrExecutable *executable, IrI
 }
 
 static LLVMValueRef ir_render_store_ptr(CodeGen *g, IrExecutable *executable, IrInstructionStorePtr *instruction) {
+    bool elide_assign = (instruction->value->id == IrInstructionIdCast && 
+        reinterpret_cast<IrInstructionCast*>(instruction->value)->cast_op == CastOpNoopResultLoc);
+    if (elide_assign)
+        return nullptr;
+
     LLVMValueRef ptr = ir_llvm_value(g, instruction->ptr);
     LLVMValueRef value = ir_llvm_value(g, instruction->value);
 
@@ -3441,14 +3449,29 @@ static void set_call_instr_sret(CodeGen *g, LLVMValueRef call_instr) {
 }
 
 static LLVMValueRef gen_result_location(CodeGen *g, IrResultLocation *base) {
-    if (base == nullptr)
-        return nullptr;
+    assert(base != nullptr);
     switch (base->id) {
-        case IrResultLocationIdAlloca:
-            return reinterpret_cast<IrResultLocationAlloca *>(base)->alloca;
-        case IrResultLocationIdVar:
-            // TODO check next_var field?
-            return reinterpret_cast<IrResultLocationVar *>(base)->var->value_ref;
+        case IrResultLocationIdAlloca: {
+            IrResultLocationAlloca *alloca_loc = reinterpret_cast<IrResultLocationAlloca *>(base);
+            return alloca_loc->alloca;
+        }
+        case IrResultLocationIdVar: {
+            IrResultLocationVar *var_loc = reinterpret_cast<IrResultLocationVar *>(base);
+            return var_loc->var->value_ref;
+        }
+        case IrResultLocationIdLVal: {
+            IrResultLocationLVal *lval_loc = reinterpret_cast<IrResultLocationLVal *>(base);
+            IrInstruction *ptr = lval_loc->parent_instruction->child;
+            return ir_llvm_value(g, ptr);
+        }
+        case IrResultLocationIdOptionalUnwrap: {
+            IrResultLocationOptionalUnwrap *opt_unwrap_loc = reinterpret_cast<IrResultLocationOptionalUnwrap *>(base);
+            LLVMValueRef parent = gen_result_location(g, opt_unwrap_loc->parent);
+
+            LLVMValueRef nonnull_ptr = LLVMBuildStructGEP(g->builder, parent, maybe_null_index, "");
+            gen_store_untyped(g, LLVMConstInt(LLVMInt1Type(), 1, false), nonnull_ptr, 0, false);
+            return LLVMBuildStructGEP(g->builder, parent, maybe_child_index, "");
+        }
     }
     zig_unreachable();
 }
@@ -3465,8 +3488,6 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
         fn_type = instruction->fn_ref->value.type;
     }
 
-    LLVMValueRef tmp_ptr = gen_result_location(g, instruction->result_location);
-
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
 
     ZigType *src_return_type = fn_type_id->return_type;
@@ -3477,6 +3498,13 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     bool first_arg_ret = ret_has_bits && want_first_arg_sret(g, fn_type_id);
     bool prefix_arg_err_ret_stack = get_prefix_arg_err_ret_stack(g, fn_type_id);
     bool is_var_args = fn_type_id->is_var_args;
+
+    LLVMValueRef tmp_ptr;
+    if (first_arg_ret || instruction->is_async || handle_is_ptr(src_return_type)) {
+        tmp_ptr = gen_result_location(g, instruction->result_location);
+        assert(tmp_ptr != nullptr);
+    }
+
     ZigList<LLVMValueRef> gen_param_values = {};
     if (first_arg_ret) {
         gen_param_values.append(tmp_ptr);
