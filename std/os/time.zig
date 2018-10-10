@@ -64,7 +64,7 @@ pub const milliTimestamp = switch (builtin.os) {
     else => @compileError("Unsupported OS"),
 };
 
-fn milliTimestampWindows() u64 {
+fn milliTimestampWindows() i64 {
     //FileTime has a granularity of 100 nanoseconds
     //  and uses the NTFS/Windows epoch
     var ft: windows.FILETIME = undefined;
@@ -72,30 +72,30 @@ fn milliTimestampWindows() u64 {
     const hns_per_ms = (ns_per_s / 100) / ms_per_s;
     const epoch_adj = epoch.windows * ms_per_s;
 
-    const ft64 = (u64(ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
+    const ft64 = (i64(ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
     return @divFloor(ft64, hns_per_ms) - -epoch_adj;
 }
 
-fn milliTimestampDarwin() u64 {
+fn milliTimestampDarwin() i64 {
     //Sources suggest MacOS 10.12 has support for
     //  posix clock_gettime.
     var tv: darwin.timeval = undefined;
     var err = darwin.gettimeofday(&tv, null);
     debug.assert(err == 0);
-    const sec_ms = @intCast(u64, tv.tv_sec) * ms_per_s;
-    const usec_ms = @divFloor(@intCast(u64, tv.tv_usec), us_per_s / ms_per_s);
-    return u64(sec_ms) + u64(usec_ms);
+    const sec_ms = @intCast(i64, tv.tv_sec) * ms_per_s;
+    const usec_ms = @divFloor(@intCast(i64, tv.tv_usec), us_per_s / ms_per_s);
+    return i64(sec_ms) + i64(usec_ms);
 }
 
-fn milliTimestampPosix() u64 {
+fn milliTimestampPosix() i64 {
     //From what I can tell there's no reason clock_gettime
     //  should ever fail for us with CLOCK_REALTIME,
     //  seccomp aside.
     var ts: posix.timespec = undefined;
     const err = posix.clock_gettime(posix.CLOCK_REALTIME, &ts);
     debug.assert(err == 0);
-    const sec_ms = @intCast(u64, ts.tv_sec) * ms_per_s;
-    const nsec_ms = @divFloor(@intCast(u64, ts.tv_nsec), ns_per_s / ms_per_s);
+    const sec_ms = @intCast(i64, ts.tv_sec) * ms_per_s;
+    const nsec_ms = @divFloor(@intCast(i64, ts.tv_nsec), ns_per_s / ms_per_s);
     return sec_ms + nsec_ms;
 }
 
