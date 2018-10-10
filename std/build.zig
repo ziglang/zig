@@ -413,6 +413,7 @@ pub const Builder = struct {
             .description = description,
         }) catch unreachable;
         self.top_level_steps.append(step_info) catch unreachable;
+        step_info.step.builder = self;
         return &step_info.step;
     }
 
@@ -2032,6 +2033,7 @@ pub const Step = struct {
     dependencies: ArrayList(*Step),
     loop_flag: bool,
     done_flag: bool,
+    builder: ?*Builder,
 
     pub fn init(name: []const u8, allocator: *Allocator, makeFn: fn (*Step) error!void) Step {
         return Step{
@@ -2040,10 +2042,24 @@ pub const Step = struct {
             .dependencies = ArrayList(*Step).init(allocator),
             .loop_flag = false,
             .done_flag = false,
+            .builder = null,
         };
     }
     pub fn initNoOp(name: []const u8, allocator: *Allocator) Step {
         return init(name, allocator, makeNoOp);
+    }
+
+    /// Set the reference to the builder. This is done automatically when
+    /// creating the step through `Builder.step(...)`.
+    pub fn set_builder(self: *Step, builder: *Builder) void {
+        self.builder = builder;
+    }
+
+    /// Get a reference to this step's builder - this may be null, if the
+    /// builder hasn't been set. The builder reference is set by creating the step
+    /// via `Builder.step(...)`, or using the `Step.set_builder(...)` function.
+    pub fn get_builder(self: *Step) ?*Builder {
+        return self.builder;
     }
 
     pub fn make(self: *Step) !void {
