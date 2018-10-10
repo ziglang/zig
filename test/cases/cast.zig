@@ -531,11 +531,11 @@ test "compile time int to ptr of function" {
     foobar(FUNCTION_CONSTANT);
 }
 
-pub const FUNCTION_CONSTANT = @intToPtr(PFN_void, @maxValue(usize));
+pub const FUNCTION_CONSTANT = @intToPtr(PFN_void, std.math.maxInt(usize));
 pub const PFN_void = extern fn (*c_void) void;
 
 fn foobar(func: PFN_void) void {
-    std.debug.assert(@ptrToInt(func) == @maxValue(usize));
+    std.debug.assert(@ptrToInt(func) == std.math.maxInt(usize));
 }
 
 test "implicit ptr to *c_void" {
