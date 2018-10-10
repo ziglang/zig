@@ -647,7 +647,7 @@ pub fn formatBytes(
         1024 => math.min(math.log2(value) / 10, mags_iec.len - 1),
         else => unreachable,
     };
-    const new_value = lossyCast(f64, value) / math.powf(f64, lossyCast(f64, radix), lossyCast(f64, magnitude));
+    const new_value = lossyCast(f64, value) / math.pow(f64, lossyCast(f64, radix), lossyCast(f64, magnitude));
     const suffix = switch (radix) {
         1000 => mags_si[magnitude],
         1024 => mags_iec[magnitude],

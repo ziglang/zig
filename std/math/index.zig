@@ -118,7 +118,7 @@ pub const isNegativeInf = @import("isinf.zig").isNegativeInf;
 pub const isNormal = @import("isnormal.zig").isNormal;
 pub const signbit = @import("signbit.zig").signbit;
 pub const scalbn = @import("scalbn.zig").scalbn;
-pub const powf = @import("powf.zig").powf;
+pub const pow = @import("pow.zig").pow;
 pub const powi = @import("powi.zig").powi;
 pub const sqrt = @import("sqrt.zig").sqrt;
 pub const cbrt = @import("cbrt.zig").cbrt;
@@ -168,7 +168,7 @@ test "math" {
     _ = @import("isnormal.zig");
     _ = @import("signbit.zig");
     _ = @import("scalbn.zig");
-    _ = @import("powf.zig");
+    _ = @import("pow.zig");
     _ = @import("powi.zig");
     _ = @import("sqrt.zig");
     _ = @import("cbrt.zig");

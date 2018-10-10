@@ -553,7 +553,7 @@ set(ZIG_STD_FILES
     "math/log2.zig"
     "math/modf.zig"
     "math/nan.zig"
-    "math/powf.zig"
+    "math/pow.zig"
     "math/powi.zig"
     "math/round.zig"
     "math/scalbn.zig"
