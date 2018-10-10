@@ -72,7 +72,7 @@ fn milliTimestampWindows() i64 {
     const hns_per_ms = (ns_per_s / 100) / ms_per_s;
     const epoch_adj = epoch.windows * ms_per_s;
 
-    const ft64 = (i64(ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
+    const ft64 = (@intCast(i64, ft.dwHighDateTime) << 32) | @intCast(i64, ft.dwLowDateTime);
     return @divFloor(ft64, hns_per_ms) - -epoch_adj;
 }
 
