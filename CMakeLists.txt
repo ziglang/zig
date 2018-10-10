@@ -554,6 +554,7 @@ set(ZIG_STD_FILES
     "math/modf.zig"
     "math/nan.zig"
     "math/pow.zig"
+    "math/powi.zig"
     "math/round.zig"
     "math/scalbn.zig"
     "math/signbit.zig"
