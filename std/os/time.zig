@@ -11,14 +11,16 @@ const posix = std.os.posix;
 pub const epoch = @import("epoch.zig");
 
 /// Sleep for the specified duration
-pub fn sleep(seconds: usize, nanoseconds: usize) void {
+pub fn sleep(nanoseconds: u64) void {
     switch (builtin.os) {
         Os.linux, Os.macosx, Os.ios => {
-            posixSleep(@intCast(u63, seconds), @intCast(u63, nanoseconds));
+            const s = nanoseconds / ns_per_s;
+            const ns = nanoseconds % ns_per_s;
+            posixSleep(@intCast(u63, s), @intCast(u63, ns));
         },
         Os.windows => {
             const ns_per_ms = ns_per_s / ms_per_s;
-            const milliseconds = seconds * ms_per_s + nanoseconds / ns_per_ms;
+            const milliseconds = nanoseconds / ns_per_ms;
             windows.Sleep(@intCast(windows.DWORD, milliseconds));
         },
         else => @compileError("Unsupported OS"),
@@ -98,6 +100,14 @@ fn milliTimestampPosix() u64 {
     const nsec_ms = @divFloor(@intCast(u64, ts.tv_nsec), ns_per_s / ms_per_s);
     return sec_ms + nsec_ms;
 }
+
+/// Multiples of a base unit (nanoseconds)
+pub const nanosecond = 1;
+pub const microsecond = 1000 * nanosecond;
+pub const millisecond = 1000 * microsecond;
+pub const second = 1000 * millisecond;
+pub const minute = 60 * second;
+pub const hour = 60 * minute;
 
 /// Divisions of a second
 pub const ns_per_s = 1000000000;
@@ -251,7 +261,7 @@ pub const Timer = struct {
 };
 
 test "os.time.sleep" {
-    sleep(0, 1);
+    sleep(1);
 }
 
 test "os.time.timestamp" {
@@ -259,7 +269,7 @@ test "os.time.timestamp" {
     const margin = 50;
 
     const time_0 = milliTimestamp();
-    sleep(0, ns_per_ms);
+    sleep(ns_per_ms);
     const time_1 = milliTimestamp();
     const interval = time_1 - time_0;
     debug.assert(interval > 0 and interval < margin);
@@ -270,7 +280,7 @@ test "os.time.Timer" {
     const margin = ns_per_ms * 150;
 
     var timer = try Timer.start();
-    sleep(0, 10 * ns_per_ms);
+    sleep(10 * ns_per_ms);
     const time_0 = timer.read();
     debug.assert(time_0 > 0 and time_0 < margin);
 
