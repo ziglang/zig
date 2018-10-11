@@ -11230,10 +11230,43 @@ static IrInstruction *ir_analyze_instruction_add_implicit_return_type(IrAnalyze 
     return ir_const_void(ira, &instruction->base);
 }
 
+static bool type_is_error(ZigType *type) {
+    assert(type);
+    switch(type->id) {
+        case ZigTypeIdErrorUnion:
+        case ZigTypeIdErrorSet:
+            return true;
+        case ZigTypeIdOptional:
+            return type_is_error(type->data.maybe.child_type);
+        default:
+            return false;
+    }
+}
+
 static IrInstruction *ir_analyze_instruction_return(IrAnalyze *ira, IrInstructionReturn *instruction) {
     IrInstruction *value = instruction->value->child;
     if (type_is_invalid(value->value.type))
         return ir_unreach_error(ira);
+
+    // returning error type in function that does not have an error return type
+    if (type_is_error(value->value.type) && !type_is_error(ira->explicit_return_type)) {
+        Buf *err_msg;
+
+        if(instruction->value->id == IrInstructionIdUnwrapErrCode) {
+            err_msg = buf_sprintf("try when the return type cannot handle an error");
+        } else {
+            err_msg = buf_sprintf("return error '%s' when the return type cannot handle the error",
+                buf_ptr(&value->value.type->name));
+        }
+
+        ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
+        assert(fn_entry);
+        ErrorMsg *err = ir_add_error_node(ira, value->source_node, err_msg);
+        add_error_note(ira->codegen, err, fn_entry->proto_node->data.fn_proto.return_type,
+            buf_sprintf("function return type was defined here; did you mean '!%s'?",
+                buf_ptr(&ira->explicit_return_type->name)));
+        return ir_unreach_error(ira);
+    }
 
     IrInstruction *casted_value = ir_implicit_cast(ira, value, ira->explicit_return_type);
     if (type_is_invalid(casted_value->value.type))
