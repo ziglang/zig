@@ -196,7 +196,7 @@ fn startPuts(ctx: *Context) u8 {
     var put_count: usize = puts_per_thread;
     var r = std.rand.DefaultPrng.init(0xdeadbeef);
     while (put_count != 0) : (put_count -= 1) {
-        std.os.time.sleep(0, 1); // let the os scheduler be our fuzz
+        std.os.time.sleep(1); // let the os scheduler be our fuzz
         const x = @bitCast(i32, r.random.scalar(u32));
         const node = ctx.allocator.create(Queue(i32).Node{
             .prev = undefined,
@@ -214,7 +214,7 @@ fn startGets(ctx: *Context) u8 {
         const last = @atomicLoad(u8, &ctx.puts_done, builtin.AtomicOrder.SeqCst) == 1;
 
         while (ctx.queue.get()) |node| {
-            std.os.time.sleep(0, 1); // let the os scheduler be our fuzz
+            std.os.time.sleep(1); // let the os scheduler be our fuzz
             _ = @atomicRmw(isize, &ctx.get_sum, builtin.AtomicRmwOp.Add, node.data, builtin.AtomicOrder.SeqCst);
             _ = @atomicRmw(usize, &ctx.get_count, builtin.AtomicRmwOp.Add, 1, builtin.AtomicOrder.SeqCst);
         }
