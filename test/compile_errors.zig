@@ -3169,7 +3169,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\fn something() error!void { }
     ,
-        ".tmp_source.zig:2:5: error: expected type 'void', found 'error'",
+        ".tmp_source.zig:2:5: error: trying to unwrap error of type 'error' in a function that expects a non-error return type 'void'",
+        ".tmp_source.zig:1:15: note: function return type was defined here as a non-error type; did you mean '!void'?"
     );
 
     cases.add(
