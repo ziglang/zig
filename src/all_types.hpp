@@ -1322,7 +1322,6 @@ struct ZigFn {
     AstNode *fn_no_inline_set_node;
     AstNode *fn_static_eval_set_node;
 
-    ZigList<IrInstruction *> alloca_list;
     ZigList<IrResultLocationAlloca *> result_loc_alloca_list;
     ZigList<ZigVar *> variable_list;
 
@@ -2183,6 +2182,7 @@ enum IrResultLocationId {
     IrResultLocationIdAlloca,
     IrResultLocationIdLVal,
     IrResultLocationIdOptionalUnwrap,
+    IrResultLocationIdRet,
 };
 
 struct IrResultLocation {
@@ -2208,6 +2208,10 @@ struct IrResultLocationLVal {
 struct IrResultLocationOptionalUnwrap {
     IrResultLocation base;
     IrResultLocation *parent;
+};
+
+struct IrResultLocationRet {
+    IrResultLocation base;
 };
 
 struct IrInstruction {
@@ -2443,7 +2447,7 @@ struct IrInstructionCast {
     IrInstruction *value;
     ZigType *dest_type;
     CastOp cast_op;
-    LLVMValueRef tmp_ptr;
+    IrResultLocation *result_location;
 };
 
 struct IrInstructionContainerInitList {
@@ -2452,7 +2456,7 @@ struct IrInstructionContainerInitList {
     IrInstruction *container_type;
     size_t item_count;
     IrInstruction **items;
-    LLVMValueRef tmp_ptr;
+    IrResultLocation *result_location;
 };
 
 struct IrInstructionContainerInitFieldsField {
@@ -2481,7 +2485,7 @@ struct IrInstructionStructInit {
     ZigType *struct_type;
     size_t field_count;
     IrInstructionStructInitField *fields;
-    LLVMValueRef tmp_ptr;
+    IrResultLocation *result_location;
 };
 
 struct IrInstructionUnionInit {
@@ -2490,7 +2494,7 @@ struct IrInstructionUnionInit {
     ZigType *union_type;
     TypeUnionField *field;
     IrInstruction *init_value;
-    LLVMValueRef tmp_ptr;
+    IrResultLocation *result_location;
 };
 
 struct IrInstructionUnreachable {
@@ -2640,9 +2644,9 @@ struct IrInstructionRef {
     IrInstruction base;
 
     IrInstruction *value;
-    LLVMValueRef tmp_ptr;
     bool is_const;
     bool is_volatile;
+    IrResultLocation *result_location;
 };
 
 struct IrInstructionMinValue {
@@ -2714,6 +2718,7 @@ struct IrInstructionCmpxchg {
     IrInstruction *new_value;
     IrInstruction *success_order_value;
     IrInstruction *failure_order_value;
+    IrResultLocation *result_location;
 
     // if this instruction gets to runtime then we know these values:
     ZigType *type;
@@ -2721,8 +2726,6 @@ struct IrInstructionCmpxchg {
     AtomicOrder failure_order;
 
     bool is_weak;
-
-    LLVMValueRef tmp_ptr;
 };
 
 struct IrInstructionFence {
@@ -2830,8 +2833,8 @@ struct IrInstructionSlice {
     IrInstruction *ptr;
     IrInstruction *start;
     IrInstruction *end;
+    IrResultLocation *result_location;
     bool safety_check_on;
-    LLVMValueRef tmp_ptr;
 };
 
 struct IrInstructionMemberCount {
@@ -2919,21 +2922,21 @@ struct IrInstructionOptionalWrap {
     IrInstruction base;
 
     IrInstruction *value;
-    LLVMValueRef tmp_ptr;
+    IrResultLocation *result_location;
 };
 
 struct IrInstructionErrWrapPayload {
     IrInstruction base;
 
     IrInstruction *value;
-    LLVMValueRef tmp_ptr;
+    IrResultLocation *result_location;
 };
 
 struct IrInstructionErrWrapCode {
     IrInstruction base;
 
     IrInstruction *value;
-    LLVMValueRef tmp_ptr;
+    IrResultLocation *result_location;
 };
 
 struct IrInstructionFnProto {
