@@ -10937,23 +10937,10 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         }
     }
 
-    ErrorMsg *parent_msg;
-    if (source_instr->id == IrInstructionIdUnwrapErrCode) {
-        ZigFn *cur_fn = ira->codegen->fn_defs.at(ira->codegen->fn_defs_index);
-        parent_msg = ir_add_error_node(ira, source_node,
-            buf_sprintf("trying to unwrap error of type '%s' in a function that expects a non-error return type '%s'",
-                buf_ptr(&actual_type->name),
-                buf_ptr(&wanted_type->name)));
-        add_error_note(ira->codegen, parent_msg, cur_fn->proto_node->data.fn_proto.return_type,
-            buf_sprintf("function return type was defined here as a non-error type; did you mean '!%s'?",
-                buf_ptr(&wanted_type->name)));
-    } else {
-        parent_msg = ir_add_error_node(ira, source_node,
-            buf_sprintf("expected type '%s', found '%s'",
-                buf_ptr(&wanted_type->name),
-                buf_ptr(&actual_type->name)));
-    }
-
+    ErrorMsg *parent_msg = ir_add_error_node(ira, source_instr->source_node,
+        buf_sprintf("expected type '%s', found '%s'",
+            buf_ptr(&wanted_type->name),
+            buf_ptr(&actual_type->name)));
     report_recursive_error(ira, source_instr->source_node, &const_cast_result, parent_msg);
     return ira->codegen->invalid_instruction;
 }
