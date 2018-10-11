@@ -11218,7 +11218,9 @@ static IrInstruction *ir_analyze_instruction_add_implicit_return_type(IrAnalyze 
 }
 
 static bool type_is_error(ZigType *type) {
-    assert(type);
+    if (!type)
+        return false;
+
     switch(type->id) {
         case ZigTypeIdErrorUnion:
         case ZigTypeIdErrorSet:
@@ -11236,7 +11238,8 @@ static IrInstruction *ir_analyze_instruction_return(IrAnalyze *ira, IrInstructio
         return ir_unreach_error(ira);
 
     // returning error type in function that does not have an error return type
-    if (type_is_error(value->value.type) && !type_is_error(ira->explicit_return_type)) {
+    ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
+    if (type_is_error(value->value.type) && !type_is_error(ira->explicit_return_type) && fn_entry) {
         Buf *err_msg;
 
         if(instruction->value->id == IrInstructionIdUnwrapErrCode) {
@@ -11246,8 +11249,6 @@ static IrInstruction *ir_analyze_instruction_return(IrAnalyze *ira, IrInstructio
                 buf_ptr(&value->value.type->name));
         }
 
-        ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
-        assert(fn_entry);
         ErrorMsg *err = ir_add_error_node(ira, value->source_node, err_msg);
         add_error_note(ira->codegen, err, fn_entry->proto_node->data.fn_proto.return_type,
             buf_sprintf("function return type was defined here; did you mean '!%s'?",
