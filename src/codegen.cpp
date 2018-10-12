@@ -2833,6 +2833,15 @@ static LLVMValueRef gen_result_location(CodeGen *g, IrResultLocation *base) {
             gen_store_untyped(g, LLVMConstInt(LLVMInt1Type(), 1, false), nonnull_ptr, 0, false);
             return LLVMBuildStructGEP(g->builder, parent, maybe_child_index, "");
         }
+        case IrResultLocationIdErrorUnionPayload: {
+            IrResultLocationErrorUnionPayload *loc = reinterpret_cast<IrResultLocationErrorUnionPayload *>(base);
+            LLVMValueRef parent = gen_result_location(g, loc->parent);
+
+            LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, parent, err_union_err_index, "");
+            LLVMTypeRef err_type_ref = g->builtin_types.entry_global_error_set->type_ref;
+            gen_store_untyped(g, LLVMConstInt(err_type_ref, 0, false), err_val_ptr, 0, false);
+            return LLVMBuildStructGEP(g->builder, parent, err_union_payload_index, "");
+        }
         case IrResultLocationIdRet: {
             //IrResultLocationRet *ret_loc = reinterpret_cast<IrResultLocationRet *>(base);
             return g->cur_ret_ptr;

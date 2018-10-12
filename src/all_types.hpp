@@ -2182,6 +2182,7 @@ enum IrResultLocationId {
     IrResultLocationIdAlloca,
     IrResultLocationIdLVal,
     IrResultLocationIdOptionalUnwrap,
+    IrResultLocationIdErrorUnionPayload,
     IrResultLocationIdRet,
 };
 
@@ -2206,6 +2207,11 @@ struct IrResultLocationLVal {
 };
 
 struct IrResultLocationOptionalUnwrap {
+    IrResultLocation base;
+    IrResultLocation *parent;
+};
+
+struct IrResultLocationErrorUnionPayload {
     IrResultLocation base;
     IrResultLocation *parent;
 };

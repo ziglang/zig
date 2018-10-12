@@ -1563,9 +1563,12 @@ static IrInstruction *ir_build_maybe_wrap(IrBuilder *irb, Scope *scope, AstNode 
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_err_wrap_payload(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *value) {
+static IrInstruction *ir_build_err_wrap_payload(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *value, IrResultLocation *result_location)
+{
     IrInstructionErrWrapPayload *instruction = ir_build_instruction<IrInstructionErrWrapPayload>(irb, scope, source_node);
     instruction->value = value;
+    instruction->result_location = result_location;
 
     ir_ref_instruction(value, irb->current_basic_block);
 
@@ -9918,7 +9921,29 @@ static IrInstruction *ir_analyze_err_wrap_payload(IrAnalyze *ira, IrInstruction 
         return &const_instruction->base;
     }
 
-    IrInstruction *result = ir_build_err_wrap_payload(&ira->new_irb, source_instr->scope, source_instr->source_node, value);
+    IrResultLocation **result_location = ir_get_result_location(value);
+    IrResultLocation *final_result_location;
+    if (result_location != nullptr) {
+        if (handle_is_ptr(value->value.type)) {
+            IrResultLocation *prev_result_location = *result_location;
+            IrResultLocationErrorUnionPayload *new_result_location = allocate<IrResultLocationErrorUnionPayload>(1);
+            new_result_location->base.id = IrResultLocationIdErrorUnionPayload;
+            new_result_location->parent = prev_result_location;
+            *result_location = &new_result_location->base;
+            IrInstruction *result = ir_build_cast(&ira->new_irb, source_instr->scope, source_instr->source_node,
+                    wanted_type, value, CastOpNoopResultLoc);
+            result->value.data.rh_error_union = RuntimeHintErrorUnionNonError;
+            result->value.type = wanted_type;
+            return result;
+        } else {
+            final_result_location = *result_location;
+        }
+    } else {
+        final_result_location = create_alloca_result_loc(ira, wanted_type);
+    }
+
+    IrInstruction *result = ir_build_err_wrap_payload(&ira->new_irb, source_instr->scope,
+            source_instr->source_node, value, final_result_location);
     result->value.type = wanted_type;
     result->value.data.rh_error_union = RuntimeHintErrorUnionNonError;
     return result;
