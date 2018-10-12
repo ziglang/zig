@@ -1551,9 +1551,12 @@ static IrInstruction *ir_build_unwrap_maybe(IrBuilder *irb, Scope *scope, AstNod
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_maybe_wrap(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *value) {
+static IrInstruction *ir_build_maybe_wrap(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *value, IrResultLocation *result_location)
+{
     IrInstructionOptionalWrap *instruction = ir_build_instruction<IrInstructionOptionalWrap>(irb, scope, source_node);
     instruction->value = value;
+    instruction->result_location = result_location;
 
     ir_ref_instruction(value, irb->current_basic_block);
 
@@ -9822,6 +9825,20 @@ static IrResultLocation **ir_get_result_location(IrInstruction *base) {
     zig_unreachable();
 }
 
+static IrResultLocation *create_alloca_result_loc(IrAnalyze *ira, ZigType *ty) {
+    ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
+    if (fn_entry == nullptr)
+        return nullptr;
+    if (type_has_bits(ty) && handle_is_ptr(ty)) {
+        IrResultLocationAlloca *alloca_loc = allocate<IrResultLocationAlloca>(1);
+        alloca_loc->base.id = IrResultLocationIdAlloca;
+        alloca_loc->ty = ty;
+        fn_entry->result_loc_alloca_list.append(alloca_loc);
+        return &alloca_loc->base;
+    }
+    return nullptr;
+}
+
 static IrInstruction *ir_analyze_maybe_wrap(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value, ZigType *wanted_type) {
     assert(wanted_type->id == ZigTypeIdOptional);
 
@@ -9847,23 +9864,31 @@ static IrInstruction *ir_analyze_maybe_wrap(IrAnalyze *ira, IrInstruction *sourc
         return &const_instruction->base;
     }
 
-    // If we have a result location, we push a special OptionalWrap result location value
-    // to the result location stack.
+    // If we have a result location and the type handle is pointer, we push a special
+    // OptionalWrap result location value to the result location stack.
     IrResultLocation **result_location = ir_get_result_location(value);
+    IrResultLocation *final_result_location;
     if (result_location != nullptr) {
-        IrResultLocation *prev_result_location = *result_location;
-        IrResultLocationOptionalUnwrap *new_result_location = allocate<IrResultLocationOptionalUnwrap>(1);
-        new_result_location->base.id = IrResultLocationIdOptionalUnwrap;
-        new_result_location->parent = prev_result_location;
-        *result_location = &new_result_location->base;
-        IrInstruction *result = ir_build_cast(&ira->new_irb, source_instr->scope, source_instr->source_node,
-                wanted_type, value, CastOpNoopResultLoc);
-        result->value.data.rh_maybe = RuntimeHintOptionalNonNull;
-        result->value.type = wanted_type;
-        return result;
+        if (handle_is_ptr(value->value.type)) {
+            IrResultLocation *prev_result_location = *result_location;
+            IrResultLocationOptionalUnwrap *new_result_location = allocate<IrResultLocationOptionalUnwrap>(1);
+            new_result_location->base.id = IrResultLocationIdOptionalUnwrap;
+            new_result_location->parent = prev_result_location;
+            *result_location = &new_result_location->base;
+            IrInstruction *result = ir_build_cast(&ira->new_irb, source_instr->scope, source_instr->source_node,
+                    wanted_type, value, CastOpNoopResultLoc);
+            result->value.data.rh_maybe = RuntimeHintOptionalNonNull;
+            result->value.type = wanted_type;
+            return result;
+        } else {
+            final_result_location = *result_location;
+        }
+    } else {
+        final_result_location = create_alloca_result_loc(ira, wanted_type);
     }
 
-    IrInstruction *result = ir_build_maybe_wrap(&ira->new_irb, source_instr->scope, source_instr->source_node, value);
+    IrInstruction *result = ir_build_maybe_wrap(&ira->new_irb, source_instr->scope, source_instr->source_node,
+            value, final_result_location);
     result->value.type = wanted_type;
     result->value.data.rh_maybe = RuntimeHintOptionalNonNull;
     return result;
@@ -13015,20 +13040,6 @@ IrInstruction *ir_get_implicit_allocator(IrAnalyze *ira, IrInstruction *source_i
             }
     }
     zig_unreachable();
-}
-
-static IrResultLocation *create_alloca_result_loc(IrAnalyze *ira, ZigType *ty) {
-    ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
-    if (fn_entry == nullptr)
-        return nullptr;
-    if (type_has_bits(ty) && handle_is_ptr(ty)) {
-        IrResultLocationAlloca *alloca_loc = allocate<IrResultLocationAlloca>(1);
-        alloca_loc->base.id = IrResultLocationIdAlloca;
-        alloca_loc->ty = ty;
-        fn_entry->result_loc_alloca_list.append(alloca_loc);
-        return &alloca_loc->base;
-    }
-    return nullptr;
 }
 
 static IrResultLocation *ir_analyze_result_location(IrAnalyze *ira, IrResultLocation *result_location,

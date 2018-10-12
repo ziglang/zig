@@ -4679,7 +4679,16 @@ static LLVMValueRef ir_render_maybe_wrap(CodeGen *g, IrExecutable *executable, I
         return payload_val;
     }
 
-    zig_unreachable();
+
+    LLVMValueRef result_loc = gen_result_location(g, instruction->result_location);
+
+    LLVMValueRef val_ptr = LLVMBuildStructGEP(g->builder, result_loc, maybe_child_index, "");
+    // child_type and instruction->value->value.type may differ by constness
+    gen_assign_raw(g, val_ptr, get_pointer_to_type(g, child_type, false), payload_val, false);
+    LLVMValueRef maybe_ptr = LLVMBuildStructGEP(g->builder, result_loc, maybe_null_index, "");
+    gen_store_untyped(g, LLVMConstAllOnes(LLVMInt1Type()), maybe_ptr, 0, false);
+
+    return result_loc;
 }
 
 static LLVMValueRef ir_render_err_wrap_code(CodeGen *g, IrExecutable *executable, IrInstructionErrWrapCode *instruction) {
