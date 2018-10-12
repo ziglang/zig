@@ -2244,18 +2244,18 @@ static LLVMValueRef ir_render_save_err_ret_addr(CodeGen *g, IrExecutable *execut
 }
 
 static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrInstructionReturn *return_instruction) {
+    LLVMValueRef value = ir_llvm_value(g, return_instruction->value);
     ZigType *return_type = return_instruction->value->value.type;
 
     if (want_first_arg_sret(g, &g->cur_fn->type_entry->data.fn.fn_type_id)) {
         assert(g->cur_ret_ptr);
-        // assume that result location mechanism took care of it
+        gen_assign_raw(g, g->cur_ret_ptr, get_pointer_to_type(g, return_type, false), value,
+                return_instruction->value->value.special == ConstValSpecialStatic);
         LLVMBuildRetVoid(g->builder);
     } else if (handle_is_ptr(return_type)) {
-        LLVMValueRef value = ir_llvm_value(g, return_instruction->value);
         LLVMValueRef by_val_value = gen_load_untyped(g, value, 0, false, "");
         LLVMBuildRet(g->builder, by_val_value);
     } else {
-        LLVMValueRef value = ir_llvm_value(g, return_instruction->value);
         LLVMBuildRet(g->builder, value);
     }
     return nullptr;
