@@ -3588,6 +3588,7 @@ ZigType *validate_var_type(CodeGen *g, AstNode *source_node, ZigType *type_entry
 ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf *name,
     bool is_const, ConstExprValue *value, Tld *src_tld)
 {
+    Error err;
     assert(value);
 
     ZigVar *variable_entry = allocate<ZigVar>(1);
@@ -3600,7 +3601,9 @@ ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf 
     assert(name);
     buf_init_from_buf(&variable_entry->name, name);
 
-    if (!type_is_invalid(value->type)) {
+    if ((err = type_resolve(g, value->type, ResolveStatusAlignmentKnown))) {
+        variable_entry->value->type = g->builtin_types.entry_invalid;
+    } else {
         variable_entry->align_bytes = get_abi_alignment(g, value->type);
 
         ZigVar *existing_var = find_variable(g, parent_scope, name, nullptr);
