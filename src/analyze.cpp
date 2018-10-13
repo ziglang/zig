@@ -1084,6 +1084,8 @@ bool want_first_arg_sret(CodeGen *g, FnTypeId *fn_type_id) {
         }
         zig_panic("TODO implement C ABI for x86_64 return types. type '%s'\nSee https://github.com/ziglang/zig/issues/1481",
                 buf_ptr(&fn_type_id->return_type->name));
+    } else if (g->zig_target.arch.arch == ZigLLVM_arm || g->zig_target.arch.arch == ZigLLVM_armeb) {
+        return type_size(g, fn_type_id->return_type) > 16;
     }
     zig_panic("TODO implement C ABI for this architecture. See https://github.com/ziglang/zig/issues/1481");
 }
