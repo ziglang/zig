@@ -607,7 +607,6 @@ struct AstNodeUnwrapOptional {
 enum CastOp {
     CastOpNoCast, // signifies the function call expression is not a cast
     CastOpNoop, // fn call expr is a cast, but does nothing
-    CastOpNoopResultLoc, // don't copy the value; it's handled by result location mechanism
     CastOpIntToFloat,
     CastOpFloatToInt,
     CastOpBoolToInt,
@@ -2031,6 +2030,50 @@ struct IrBasicBlock {
     IrInstruction *must_be_comptime_source_instr;
 };
 
+enum IrResultLocationId {
+    IrResultLocationIdVar,
+    IrResultLocationIdAlloca,
+    IrResultLocationIdLVal,
+    IrResultLocationIdOptionalUnwrap,
+    IrResultLocationIdErrorUnionPayload,
+    IrResultLocationIdRet,
+};
+
+struct IrResultLocation {
+    IrResultLocation *child;
+    IrResultLocationId id;
+};
+
+struct IrResultLocationVar {
+    IrResultLocation base;
+    ZigVar *var;
+};
+
+struct IrResultLocationAlloca {
+    IrResultLocation base;
+    LLVMValueRef alloca;
+    ZigType *ty;
+};
+
+struct IrResultLocationLVal {
+    IrResultLocation base;
+    IrInstruction *parent_instruction;
+};
+
+struct IrResultLocationOptionalUnwrap {
+    IrResultLocation base;
+    LLVMValueRef result;
+};
+
+struct IrResultLocationErrorUnionPayload {
+    IrResultLocation base;
+    LLVMValueRef result;
+};
+
+struct IrResultLocationRet {
+    IrResultLocation base;
+};
+
 enum IrInstructionId {
     IrInstructionIdInvalid,
     IrInstructionIdBr,
@@ -2175,49 +2218,7 @@ enum IrInstructionId {
     IrInstructionIdToBytes,
     IrInstructionIdFromBytes,
     IrInstructionIdCheckRuntimeScope,
-};
-
-enum IrResultLocationId {
-    IrResultLocationIdVar,
-    IrResultLocationIdAlloca,
-    IrResultLocationIdLVal,
-    IrResultLocationIdOptionalUnwrap,
-    IrResultLocationIdErrorUnionPayload,
-    IrResultLocationIdRet,
-};
-
-struct IrResultLocation {
-    IrResultLocationId id;
-};
-
-struct IrResultLocationVar {
-    IrResultLocation base;
-    ZigVar *var;
-};
-
-struct IrResultLocationAlloca {
-    IrResultLocation base;
-    LLVMValueRef alloca;
-    ZigType *ty;
-};
-
-struct IrResultLocationLVal {
-    IrResultLocation base;
-    IrInstruction *parent_instruction;
-};
-
-struct IrResultLocationOptionalUnwrap {
-    IrResultLocation base;
-    IrResultLocation *parent;
-};
-
-struct IrResultLocationErrorUnionPayload {
-    IrResultLocation base;
-    IrResultLocation *parent;
-};
-
-struct IrResultLocationRet {
-    IrResultLocation base;
+    IrInstructionIdResultLoc,
 };
 
 struct IrInstruction {
@@ -3323,6 +3324,12 @@ struct IrInstructionCheckRuntimeScope {
 
     IrInstruction *scope_is_comptime;
     IrInstruction *is_comptime;
+};
+
+struct IrInstructionResultLoc {
+    IrInstruction base;
+
+    IrResultLocation *result_location;
 };
 
 static const size_t slice_ptr_index = 0;

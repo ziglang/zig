@@ -2809,45 +2809,71 @@ static void add_error_range_check(CodeGen *g, ZigType *err_set_type, ZigType *in
     }
 }
 
-static LLVMValueRef gen_result_location(CodeGen *g, IrResultLocation *base) {
-    assert(base != nullptr);
+static LLVMValueRef gen_result_location_recur(CodeGen *g, IrResultLocation *base, LLVMValueRef prev) {
+    LLVMValueRef result;
     switch (base->id) {
         case IrResultLocationIdAlloca: {
-            IrResultLocationAlloca *alloca_loc = reinterpret_cast<IrResultLocationAlloca *>(base);
-            return alloca_loc->alloca;
+            IrResultLocationAlloca *loc = reinterpret_cast<IrResultLocationAlloca *>(base);
+            assert(prev == nullptr);
+            result = loc->alloca;
+            break;
         }
         case IrResultLocationIdVar: {
-            IrResultLocationVar *var_loc = reinterpret_cast<IrResultLocationVar *>(base);
-            return var_loc->var->value_ref;
+            IrResultLocationVar *loc = reinterpret_cast<IrResultLocationVar *>(base);
+            assert(prev == nullptr);
+            result = loc->var->value_ref;
+            break;
         }
         case IrResultLocationIdLVal: {
             IrResultLocationLVal *lval_loc = reinterpret_cast<IrResultLocationLVal *>(base);
+            assert(prev == nullptr);
             IrInstruction *ptr = lval_loc->parent_instruction->child;
-            return ir_llvm_value(g, ptr);
-        }
-        case IrResultLocationIdOptionalUnwrap: {
-            IrResultLocationOptionalUnwrap *opt_unwrap_loc = reinterpret_cast<IrResultLocationOptionalUnwrap *>(base);
-            LLVMValueRef parent = gen_result_location(g, opt_unwrap_loc->parent);
-
-            LLVMValueRef nonnull_ptr = LLVMBuildStructGEP(g->builder, parent, maybe_null_index, "");
-            gen_store_untyped(g, LLVMConstInt(LLVMInt1Type(), 1, false), nonnull_ptr, 0, false);
-            return LLVMBuildStructGEP(g->builder, parent, maybe_child_index, "");
-        }
-        case IrResultLocationIdErrorUnionPayload: {
-            IrResultLocationErrorUnionPayload *loc = reinterpret_cast<IrResultLocationErrorUnionPayload *>(base);
-            LLVMValueRef parent = gen_result_location(g, loc->parent);
-
-            LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, parent, err_union_err_index, "");
-            LLVMTypeRef err_type_ref = g->builtin_types.entry_global_error_set->type_ref;
-            gen_store_untyped(g, LLVMConstInt(err_type_ref, 0, false), err_val_ptr, 0, false);
-            return LLVMBuildStructGEP(g->builder, parent, err_union_payload_index, "");
+            result = ir_llvm_value(g, ptr);
+            break;
         }
         case IrResultLocationIdRet: {
             //IrResultLocationRet *ret_loc = reinterpret_cast<IrResultLocationRet *>(base);
-            return g->cur_ret_ptr;
+            assert(prev == nullptr);
+            result = g->cur_ret_ptr;
+            break;
+        }
+        case IrResultLocationIdOptionalUnwrap: {
+            IrResultLocationOptionalUnwrap *loc = reinterpret_cast<IrResultLocationOptionalUnwrap *>(base);
+            if (loc->result != nullptr)
+                return loc->result;
+            assert(prev != nullptr);
+            if (base->child != nullptr) {
+                prev = gen_result_location_recur(g, base->child, prev);
+            }
+            LLVMValueRef nonnull_ptr = LLVMBuildStructGEP(g->builder, prev, maybe_null_index, "");
+            gen_store_untyped(g, LLVMConstInt(LLVMInt1Type(), 1, false), nonnull_ptr, 0, false);
+            loc->result = LLVMBuildStructGEP(g->builder, prev, maybe_child_index, "");
+            return loc->result;
+        }
+        case IrResultLocationIdErrorUnionPayload: {
+            IrResultLocationErrorUnionPayload *loc = reinterpret_cast<IrResultLocationErrorUnionPayload *>(base);
+            if (loc->result != nullptr)
+                return loc->result;
+            assert(prev != nullptr);
+            if (base->child != nullptr) {
+                prev = gen_result_location_recur(g, base->child, prev);
+            }
+            LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, prev, err_union_err_index, "");
+            LLVMTypeRef err_type_ref = g->builtin_types.entry_global_error_set->type_ref;
+            gen_store_untyped(g, LLVMConstInt(err_type_ref, 0, false), err_val_ptr, 0, false);
+            loc->result = LLVMBuildStructGEP(g->builder, prev, err_union_payload_index, "");
+            return loc->result;
         }
     }
-    zig_unreachable();
+    if (base->child != nullptr) {
+        return gen_result_location_recur(g, base->child, result);
+    }
+    return result;
+}
+
+static LLVMValueRef gen_result_location(CodeGen *g, IrResultLocation *base) {
+    assert(base != nullptr);
+    return gen_result_location_recur(g, base, nullptr);
 }
 
 static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
@@ -2863,7 +2889,6 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
         case CastOpNumLitToConcrete:
             zig_unreachable();
         case CastOpNoop:
-        case CastOpNoopResultLoc:
             return expr_val;
         case CastOpResizeSlice:
             {
@@ -3279,9 +3304,9 @@ static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable,
         assert(var->value->type == init_value->value.type);
         ZigType *var_ptr_type = get_pointer_to_type_extra(g, var->value->type, false, false,
                 PtrLenSingle, var->align_bytes, 0, 0);
+        bool is_global_const = init_value->value.special == ConstValSpecialStatic;
         LLVMValueRef llvm_init_val = ir_llvm_value(g, init_value);
-        gen_assign_raw(g, var->value_ref, var_ptr_type, llvm_init_val,
-                init_value->value.special == ConstValSpecialStatic);
+        gen_assign_raw(g, var->value_ref, var_ptr_type, llvm_init_val, is_global_const);
     } else if (ir_want_runtime_safety(g, &decl_var_instruction->base)) {
         gen_undef_init(g, var->align_bytes, var->value->type, var->value_ref);
     }
@@ -5161,6 +5186,12 @@ static LLVMValueRef ir_render_sqrt(CodeGen *g, IrExecutable *executable, IrInstr
     return LLVMBuildCall(g->builder, fn_val, &op, 1, "");
 }
 
+static LLVMValueRef ir_render_result_loc(CodeGen *g, IrExecutable *executable,
+        IrInstructionResultLoc *instruction)
+{
+    return gen_result_location(g, instruction->result_location);
+}
+
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
     Scope *scope = instruction->scope;
@@ -5401,6 +5432,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_mark_err_ret_trace_ptr(g, executable, (IrInstructionMarkErrRetTracePtr *)instruction);
         case IrInstructionIdSqrt:
             return ir_render_sqrt(g, executable, (IrInstructionSqrt *)instruction);
+        case IrInstructionIdResultLoc:
+            return ir_render_result_loc(g, executable, (IrInstructionResultLoc *)instruction);
     }
     zig_unreachable();
 }

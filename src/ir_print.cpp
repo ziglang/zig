@@ -965,6 +965,10 @@ static void ir_print_check_runtime_scope(IrPrint *irp, IrInstructionCheckRuntime
     fprintf(irp->f, ")");
 }
 
+static void ir_print_result_loc(IrPrint *irp, IrInstructionResultLoc *instruction) {
+    fprintf(irp->f, "resultloc (TODO print details)");
+}
+
 static void ir_print_int_to_err(IrPrint *irp, IrInstructionIntToErr *instruction) {
     fprintf(irp->f, "inttoerr ");
     ir_print_other_instruction(irp, instruction->target);
@@ -1770,6 +1774,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdCheckRuntimeScope:
             ir_print_check_runtime_scope(irp, (IrInstructionCheckRuntimeScope *)instruction);
+            break;
+        case IrInstructionIdResultLoc:
+            ir_print_result_loc(irp, (IrInstructionResultLoc *)instruction);
             break;
     }
     fprintf(irp->f, "\n");
