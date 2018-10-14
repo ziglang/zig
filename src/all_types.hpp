@@ -615,7 +615,6 @@ enum CastOp {
     CastOpNumLitToConcrete,
     CastOpErrSet,
     CastOpBitCast,
-    CastOpPtrOfArrayToSlice,
 };
 
 struct AstNodeFnCallExpr {
@@ -2034,9 +2033,10 @@ enum IrResultLocationId {
     IrResultLocationIdVar,
     IrResultLocationIdAlloca,
     IrResultLocationIdLVal,
+    IrResultLocationIdRet,
+
     IrResultLocationIdOptionalUnwrap,
     IrResultLocationIdErrorUnionPayload,
-    IrResultLocationIdRet,
 };
 
 struct IrResultLocation {
@@ -2060,6 +2060,10 @@ struct IrResultLocationLVal {
     IrInstruction *parent_instruction;
 };
 
+struct IrResultLocationRet {
+    IrResultLocation base;
+};
+
 struct IrResultLocationOptionalUnwrap {
     IrResultLocation base;
     LLVMValueRef result;
@@ -2068,10 +2072,6 @@ struct IrResultLocationOptionalUnwrap {
 struct IrResultLocationErrorUnionPayload {
     IrResultLocation base;
     LLVMValueRef result;
-};
-
-struct IrResultLocationRet {
-    IrResultLocation base;
 };
 
 enum IrInstructionId {
@@ -2219,6 +2219,7 @@ enum IrInstructionId {
     IrInstructionIdFromBytes,
     IrInstructionIdCheckRuntimeScope,
     IrInstructionIdResultLoc,
+    IrInstructionIdPtrOfArrayToSlice,
 };
 
 struct IrInstruction {
@@ -2416,6 +2417,7 @@ struct IrInstructionVarPtr {
 
     ZigVar *var;
     ScopeFnDef *crossed_fndef_scope;
+    IrResultLocation *result_location;
 };
 
 struct IrInstructionCall {
@@ -3329,6 +3331,13 @@ struct IrInstructionCheckRuntimeScope {
 struct IrInstructionResultLoc {
     IrInstruction base;
 
+    IrResultLocation *result_location;
+};
+
+struct IrInstructionPtrOfArrayToSlice {
+    IrInstruction base;
+
+    IrInstruction *value;
     IrResultLocation *result_location;
 };
 

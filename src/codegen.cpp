@@ -2810,33 +2810,45 @@ static void add_error_range_check(CodeGen *g, ZigType *err_set_type, ZigType *in
 }
 
 static LLVMValueRef gen_result_location_recur(CodeGen *g, IrResultLocation *base, LLVMValueRef prev) {
-    LLVMValueRef result;
     switch (base->id) {
         case IrResultLocationIdAlloca: {
             IrResultLocationAlloca *loc = reinterpret_cast<IrResultLocationAlloca *>(base);
             assert(prev == nullptr);
-            result = loc->alloca;
-            break;
+            LLVMValueRef result = loc->alloca;
+            if (base->child != nullptr) {
+                return gen_result_location_recur(g, base->child, result);
+            }
+            return result;
         }
         case IrResultLocationIdVar: {
             IrResultLocationVar *loc = reinterpret_cast<IrResultLocationVar *>(base);
             assert(prev == nullptr);
-            result = loc->var->value_ref;
-            break;
+            LLVMValueRef result = loc->var->value_ref;
+            if (base->child != nullptr) {
+                return gen_result_location_recur(g, base->child, result);
+            }
+            return result;
         }
         case IrResultLocationIdLVal: {
             IrResultLocationLVal *lval_loc = reinterpret_cast<IrResultLocationLVal *>(base);
             assert(prev == nullptr);
             IrInstruction *ptr = lval_loc->parent_instruction->child;
-            result = ir_llvm_value(g, ptr);
-            break;
+            LLVMValueRef result = ir_llvm_value(g, ptr);
+            if (base->child != nullptr) {
+                return gen_result_location_recur(g, base->child, result);
+            }
+            return result;
         }
         case IrResultLocationIdRet: {
             //IrResultLocationRet *ret_loc = reinterpret_cast<IrResultLocationRet *>(base);
             assert(prev == nullptr);
-            result = g->cur_ret_ptr;
-            break;
+            LLVMValueRef result = g->cur_ret_ptr;
+            if (base->child != nullptr) {
+                return gen_result_location_recur(g, base->child, result);
+            }
+            return result;
         }
+
         case IrResultLocationIdOptionalUnwrap: {
             IrResultLocationOptionalUnwrap *loc = reinterpret_cast<IrResultLocationOptionalUnwrap *>(base);
             if (loc->result != nullptr)
@@ -2865,10 +2877,7 @@ static LLVMValueRef gen_result_location_recur(CodeGen *g, IrResultLocation *base
             return loc->result;
         }
     }
-    if (base->child != nullptr) {
-        return gen_result_location_recur(g, base->child, result);
-    }
-    return result;
+    zig_unreachable();
 }
 
 static LLVMValueRef gen_result_location(CodeGen *g, IrResultLocation *base) {
@@ -3034,32 +3043,39 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
             return expr_val;
         case CastOpBitCast:
             return LLVMBuildBitCast(g->builder, expr_val, wanted_type->type_ref, "");
-        case CastOpPtrOfArrayToSlice: {
-            LLVMValueRef result_loc = gen_result_location(g, cast_instruction->result_location);
-
-            assert(actual_type->id == ZigTypeIdPointer);
-            ZigType *array_type = actual_type->data.pointer.child_type;
-            assert(array_type->id == ZigTypeIdArray);
-
-            LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, result_loc,
-                    slice_ptr_index, "");
-            LLVMValueRef indices[] = {
-                LLVMConstNull(g->builtin_types.entry_usize->type_ref),
-                LLVMConstInt(g->builtin_types.entry_usize->type_ref, 0, false),
-            };
-            LLVMValueRef slice_start_ptr = LLVMBuildInBoundsGEP(g->builder, expr_val, indices, 2, "");
-            gen_store_untyped(g, slice_start_ptr, ptr_field_ptr, 0, false);
-
-            LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, result_loc,
-                    slice_len_index, "");
-            LLVMValueRef len_value = LLVMConstInt(g->builtin_types.entry_usize->type_ref,
-                    array_type->data.array.len, false);
-            gen_store_untyped(g, len_value, len_field_ptr, 0, false);
-
-            return result_loc;
-        }
     }
     zig_unreachable();
+}
+
+static LLVMValueRef ir_render_ptr_of_array_to_slice(CodeGen *g, IrExecutable *executable,
+        IrInstructionPtrOfArrayToSlice *instruction)
+{
+    ZigType *actual_type = instruction->value->value.type;
+    LLVMValueRef expr_val = ir_llvm_value(g, instruction->value);
+    assert(expr_val);
+
+    LLVMValueRef result_loc = gen_result_location(g, instruction->result_location);
+
+    assert(actual_type->id == ZigTypeIdPointer);
+    ZigType *array_type = actual_type->data.pointer.child_type;
+    assert(array_type->id == ZigTypeIdArray);
+
+    LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, result_loc,
+            slice_ptr_index, "");
+    LLVMValueRef indices[] = {
+        LLVMConstNull(g->builtin_types.entry_usize->type_ref),
+        LLVMConstInt(g->builtin_types.entry_usize->type_ref, 0, false),
+    };
+    LLVMValueRef slice_start_ptr = LLVMBuildInBoundsGEP(g->builder, expr_val, indices, 2, "");
+    gen_store_untyped(g, slice_start_ptr, ptr_field_ptr, 0, false);
+
+    LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, result_loc,
+            slice_len_index, "");
+    LLVMValueRef len_value = LLVMConstInt(g->builtin_types.entry_usize->type_ref,
+            array_type->data.array.len, false);
+    gen_store_untyped(g, len_value, len_field_ptr, 0, false);
+
+    return result_loc;
 }
 
 static LLVMValueRef ir_render_ptr_cast(CodeGen *g, IrExecutable *executable,
@@ -5434,6 +5450,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_sqrt(g, executable, (IrInstructionSqrt *)instruction);
         case IrInstructionIdResultLoc:
             return ir_render_result_loc(g, executable, (IrInstructionResultLoc *)instruction);
+        case IrInstructionIdPtrOfArrayToSlice:
+            return ir_render_ptr_of_array_to_slice(g, executable, (IrInstructionPtrOfArrayToSlice *)instruction);
     }
     zig_unreachable();
 }

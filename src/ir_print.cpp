@@ -969,6 +969,11 @@ static void ir_print_result_loc(IrPrint *irp, IrInstructionResultLoc *instructio
     fprintf(irp->f, "resultloc (TODO print details)");
 }
 
+static void ir_print_ptr_of_array_to_slice(IrPrint *irp, IrInstructionPtrOfArrayToSlice *instruction) {
+    fprintf(irp->f, "PtrOfArrayToSlice ");
+    ir_print_other_instruction(irp, instruction->value);
+}
+
 static void ir_print_int_to_err(IrPrint *irp, IrInstructionIntToErr *instruction) {
     fprintf(irp->f, "inttoerr ");
     ir_print_other_instruction(irp, instruction->target);
@@ -1777,6 +1782,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdResultLoc:
             ir_print_result_loc(irp, (IrInstructionResultLoc *)instruction);
+            break;
+        case IrInstructionIdPtrOfArrayToSlice:
+            ir_print_ptr_of_array_to_slice(irp, (IrInstructionPtrOfArrayToSlice *)instruction);
             break;
     }
     fprintf(irp->f, "\n");
