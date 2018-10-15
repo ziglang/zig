@@ -6,13 +6,13 @@ const Loop = std.event.Loop;
 /// coroutines which are waiting for the lock are suspended, and
 /// are resumed when the lock is released, in order.
 pub fn Locked(comptime T: type) type {
-    return struct {
+    return struct.{
         lock: Lock,
         private_data: T,
 
         const Self = @This();
 
-        pub const HeldLock = struct {
+        pub const HeldLock = struct.{
             value: *T,
             held: Lock.Held,
 
@@ -22,7 +22,7 @@ pub fn Locked(comptime T: type) type {
         };
 
         pub fn init(loop: *Loop, data: T) Self {
-            return Self{
+            return Self.{
                 .lock = Lock.init(loop),
                 .private_data = data,
             };
@@ -33,7 +33,7 @@ pub fn Locked(comptime T: type) type {
         }
 
         pub async fn acquire(self: *Self) HeldLock {
-            return HeldLock{
+            return HeldLock.{
             // TODO guaranteed allocation elision
                 .held = await (async self.lock.acquire() catch unreachable),
                 .value = &self.private_data,

@@ -9,7 +9,7 @@ const Endian = builtin.Endian;
 const readInt = std.mem.readInt;
 const writeInt = std.mem.writeInt;
 
-pub const Poly1305 = struct {
+pub const Poly1305 = struct.{
     const Self = @This();
 
     pub const mac_length = 16;

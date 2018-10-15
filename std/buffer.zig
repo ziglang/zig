@@ -6,7 +6,7 @@ const assert = debug.assert;
 const ArrayList = std.ArrayList;
 
 /// A buffer that allocates memory and maintains a null byte at the end.
-pub const Buffer = struct {
+pub const Buffer = struct.{
     list: ArrayList(u8),
 
     /// Must deinitialize with deinit.
@@ -28,7 +28,7 @@ pub const Buffer = struct {
     /// * ::replaceContents
     /// * ::resize
     pub fn initNull(allocator: *Allocator) Buffer {
-        return Buffer{ .list = ArrayList(u8).init(allocator) };
+        return Buffer.{ .list = ArrayList(u8).init(allocator) };
     }
 
     /// Must deinitialize with deinit.
@@ -40,7 +40,7 @@ pub const Buffer = struct {
     /// allocated with `allocator`.
     /// Must deinitialize with deinit.
     pub fn fromOwnedSlice(allocator: *Allocator, slice: []u8) !Buffer {
-        var self = Buffer{ .list = ArrayList(u8).fromOwnedSlice(allocator, slice) };
+        var self = Buffer.{ .list = ArrayList(u8).fromOwnedSlice(allocator, slice) };
         try self.list.append(0);
         return self;
     }
@@ -55,13 +55,13 @@ pub const Buffer = struct {
     }
 
     pub fn allocPrint(allocator: *Allocator, comptime format: []const u8, args: ...) !Buffer {
-        const countSize = struct {
-            fn countSize(size: *usize, bytes: []const u8) (error{}!void) {
+        const countSize = struct.{
+            fn countSize(size: *usize, bytes: []const u8) (error.{}!void) {
                 size.* += bytes.len;
             }
         }.countSize;
         var size: usize = 0;
-        std.fmt.format(&size, error{}, countSize, format, args) catch |err| switch (err) {};
+        std.fmt.format(&size, error.{}, countSize, format, args) catch |err| switch (err) {};
         var self = try Buffer.initSize(allocator, size);
         assert((std.fmt.bufPrint(self.list.items, format, args) catch unreachable).len == size);
         return self;

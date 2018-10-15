@@ -6,7 +6,7 @@ const assert = debug.assert;
 const Buffer = std.Buffer;
 const ArrayList = std.ArrayList;
 
-const Token = union(enum) {
+const Token = union(enum).{
     Word: []const u8,
     OpenBrace,
     CloseBrace,
@@ -17,7 +17,7 @@ const Token = union(enum) {
 var global_allocator: *mem.Allocator = undefined;
 
 fn tokenize(input: []const u8) !ArrayList(Token) {
-    const State = enum {
+    const State = enum.{
         Start,
         Word,
     };
@@ -41,7 +41,7 @@ fn tokenize(input: []const u8) !ArrayList(Token) {
             State.Word => switch (b) {
                 'a'...'z', 'A'...'Z' => {},
                 '{', '}', ',' => {
-                    try token_list.append(Token{ .Word = input[tok_begin..i] });
+                    try token_list.append(Token.{ .Word = input[tok_begin..i] });
                     switch (b) {
                         '{' => try token_list.append(Token.OpenBrace),
                         '}' => try token_list.append(Token.CloseBrace),
@@ -56,19 +56,19 @@ fn tokenize(input: []const u8) !ArrayList(Token) {
     }
     switch (state) {
         State.Start => {},
-        State.Word => try token_list.append(Token{ .Word = input[tok_begin..] }),
+        State.Word => try token_list.append(Token.{ .Word = input[tok_begin..] }),
     }
     try token_list.append(Token.Eof);
     return token_list;
 }
 
-const Node = union(enum) {
+const Node = union(enum).{
     Scalar: []const u8,
     List: ArrayList(Node),
     Combine: []Node,
 };
 
-const ParseError = error{
+const ParseError = error.{
     InvalidInput,
     OutOfMemory,
 };
@@ -78,7 +78,7 @@ fn parse(tokens: *const ArrayList(Token), token_index: *usize) ParseError!Node {
     token_index.* += 1;
 
     const result_node = switch (first_token) {
-        Token.Word => |word| Node{ .Scalar = word },
+        Token.Word => |word| Node.{ .Scalar = word },
         Token.OpenBrace => blk: {
             var list = ArrayList(Node).init(global_allocator);
             while (true) {
@@ -93,7 +93,7 @@ fn parse(tokens: *const ArrayList(Token), token_index: *usize) ParseError!Node {
                     else => return error.InvalidInput,
                 }
             }
-            break :blk Node{ .List = list };
+            break :blk Node.{ .List = list };
         },
         else => return error.InvalidInput,
     };
@@ -103,7 +103,7 @@ fn parse(tokens: *const ArrayList(Token), token_index: *usize) ParseError!Node {
             const pair = try global_allocator.alloc(Node, 2);
             pair[0] = result_node;
             pair[1] = try parse(tokens, token_index);
-            return Node{ .Combine = pair };
+            return Node.{ .Combine = pair };
         },
         else => return result_node,
     }
@@ -137,7 +137,7 @@ fn expandString(input: []const u8, output: *Buffer) !void {
     }
 }
 
-const ExpandNodeError = error{OutOfMemory};
+const ExpandNodeError = error.{OutOfMemory};
 
 fn expandNode(node: *const Node, output: *ArrayList(Buffer)) ExpandNodeError!void {
     assert(output.len == 0);

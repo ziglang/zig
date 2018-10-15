@@ -9,7 +9,7 @@ const math = std.math;
 const assert = std.debug.assert;
 
 fn frexp_result(comptime T: type) type {
-    return struct {
+    return struct.{
         significand: T,
         exponent: i32,
     };

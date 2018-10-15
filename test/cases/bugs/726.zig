@@ -7,10 +7,9 @@ test "@ptrCast from const to nullable" {
 }
 
 test "@ptrCast from var in empty struct to nullable" {
-    const container = struct {
+    const container = struct.{
         var c: u8 = 4;
     };
     var x: ?*const u8 = @ptrCast(?*const u8, &container.c);
     assert(x.?.* == 4);
 }
-

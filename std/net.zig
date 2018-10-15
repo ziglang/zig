@@ -5,7 +5,7 @@ const net = @This();
 const posix = std.os.posix;
 const mem = std.mem;
 
-pub const TmpWinAddr = struct {
+pub const TmpWinAddr = struct.{
     family: u8,
     data: [14]u8,
 };
@@ -15,27 +15,27 @@ pub const OsAddress = switch (builtin.os) {
     else => posix.sockaddr,
 };
 
-pub const Address = struct {
+pub const Address = struct.{
     os_addr: OsAddress,
 
     pub fn initIp4(ip4: u32, port: u16) Address {
-        return Address{
-            .os_addr = posix.sockaddr{
-                .in = posix.sockaddr_in{
+        return Address.{
+            .os_addr = posix.sockaddr.{
+                .in = posix.sockaddr_in.{
                     .family = posix.AF_INET,
                     .port = std.mem.endianSwapIfLe(u16, port),
                     .addr = ip4,
-                    .zero = []u8{0} ** 8,
+                    .zero = []u8.{0} ** 8,
                 },
             },
         };
     }
 
     pub fn initIp6(ip6: *const Ip6Addr, port: u16) Address {
-        return Address{
+        return Address.{
             .family = posix.AF_INET6,
-            .os_addr = posix.sockaddr{
-                .in6 = posix.sockaddr_in6{
+            .os_addr = posix.sockaddr.{
+                .in6 = posix.sockaddr_in6.{
                     .family = posix.AF_INET6,
                     .port = std.mem.endianSwapIfLe(u16, port),
                     .flowinfo = 0,
@@ -47,7 +47,7 @@ pub const Address = struct {
     }
 
     pub fn initPosix(addr: *const posix.sockaddr) Address {
-        return Address{ .os_addr = addr.* };
+        return Address.{ .os_addr = addr.* };
     }
 
     pub fn format(self: *const Address, out_stream: var) !void {
@@ -106,7 +106,7 @@ pub fn parseIp4(buf: []const u8) !u32 {
     return error.Incomplete;
 }
 
-pub const Ip6Addr = struct {
+pub const Ip6Addr = struct.{
     scope_id: u32,
     addr: [16]u8,
 };

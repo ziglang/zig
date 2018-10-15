@@ -12,7 +12,7 @@ const Loop = std.event.Loop;
 /// Many readers can hold the lock at the same time; however locking for writing is exclusive.
 /// When a read lock is held, it will not be released until the reader queue is empty.
 /// When a write lock is held, it will not be released until the writer queue is empty.
-pub const RwLock = struct {
+pub const RwLock = struct.{
     loop: *Loop,
     shared_state: u8, // TODO make this an enum
     writer_queue: Queue,
@@ -21,7 +21,7 @@ pub const RwLock = struct {
     reader_queue_empty_bit: u8, // TODO make this a bool
     reader_lock_count: usize,
 
-    const State = struct {
+    const State = struct.{
         const Unlocked = 0;
         const WriteLock = 1;
         const ReadLock = 2;
@@ -29,7 +29,7 @@ pub const RwLock = struct {
 
     const Queue = std.atomic.Queue(promise);
 
-    pub const HeldRead = struct {
+    pub const HeldRead = struct.{
         lock: *RwLock,
 
         pub fn release(self: HeldRead) void {
@@ -48,7 +48,7 @@ pub const RwLock = struct {
         }
     };
 
-    pub const HeldWrite = struct {
+    pub const HeldWrite = struct.{
         lock: *RwLock,
 
         pub fn release(self: HeldWrite) void {
@@ -77,7 +77,7 @@ pub const RwLock = struct {
     };
 
     pub fn init(loop: *Loop) RwLock {
-        return RwLock{
+        return RwLock.{
             .loop = loop,
             .shared_state = State.Unlocked,
             .writer_queue = Queue.init(),
@@ -101,7 +101,7 @@ pub const RwLock = struct {
 
         suspend {
             // TODO explicitly put this memory in the coroutine frame #1194
-            var my_tick_node = Loop.NextTickNode{
+            var my_tick_node = Loop.NextTickNode.{
                 .data = @handle(),
                 .prev = undefined,
                 .next = undefined,
@@ -128,13 +128,13 @@ pub const RwLock = struct {
                 }
             }
         }
-        return HeldRead{ .lock = self };
+        return HeldRead.{ .lock = self };
     }
 
     pub async fn acquireWrite(self: *RwLock) HeldWrite {
         suspend {
             // TODO explicitly put this memory in the coroutine frame #1194
-            var my_tick_node = Loop.NextTickNode{
+            var my_tick_node = Loop.NextTickNode.{
                 .data = @handle(),
                 .prev = undefined,
                 .next = undefined,
@@ -158,7 +158,7 @@ pub const RwLock = struct {
                 }
             }
         }
-        return HeldWrite{ .lock = self };
+        return HeldWrite.{ .lock = self };
     }
 
     fn commonPostUnlock(self: *RwLock) void {
@@ -227,7 +227,7 @@ test "std.event.RwLock" {
     defer cancel handle;
     loop.run();
 
-    const expected_result = [1]i32{shared_it_count * @intCast(i32, shared_test_data.len)} ** shared_test_data.len;
+    const expected_result = [1]i32.{shared_it_count * @intCast(i32, shared_test_data.len)} ** shared_test_data.len;
     assert(mem.eql(i32, shared_test_data, expected_result));
 }
 
@@ -258,7 +258,7 @@ async fn testLock(loop: *Loop, lock: *RwLock) void {
 }
 
 const shared_it_count = 10;
-var shared_test_data = [1]i32{0} ** 10;
+var shared_test_data = [1]i32.{0} ** 10;
 var shared_test_index: usize = 0;
 var shared_count: usize = 0;
 

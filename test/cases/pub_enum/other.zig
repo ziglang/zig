@@ -1,4 +1,4 @@
-pub const APubEnum = enum {
+pub const APubEnum = enum.{
     One,
     Two,
     Three,

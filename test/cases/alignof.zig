@@ -1,7 +1,7 @@
 const assert = @import("std").debug.assert;
 const builtin = @import("builtin");
 
-const Foo = struct {
+const Foo = struct.{
     x: u32,
     y: u32,
     z: u32,

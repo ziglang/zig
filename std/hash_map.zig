@@ -14,7 +14,7 @@ pub fn AutoHashMap(comptime K: type, comptime V: type) type {
 }
 
 pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u32, comptime eql: fn (a: K, b: K) bool) type {
-    return struct {
+    return struct.{
         entries: []Entry,
         size: usize,
         max_distance_from_start_index: usize,
@@ -24,23 +24,23 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
 
         const Self = @This();
 
-        pub const KV = struct {
+        pub const KV = struct.{
             key: K,
             value: V,
         };
 
-        const Entry = struct {
+        const Entry = struct.{
             used: bool,
             distance_from_start_index: usize,
             kv: KV,
         };
 
-        pub const GetOrPutResult = struct {
+        pub const GetOrPutResult = struct.{
             kv: *KV,
             found_existing: bool,
         };
 
-        pub const Iterator = struct {
+        pub const Iterator = struct.{
             hm: *const Self,
             // how many items have we returned
             count: usize,
@@ -75,8 +75,8 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
         };
 
         pub fn init(allocator: *Allocator) Self {
-            return Self{
-                .entries = []Entry{},
+            return Self.{
+                .entries = []Entry.{},
                 .allocator = allocator,
                 .size = 0,
                 .max_distance_from_start_index = 0,
@@ -111,7 +111,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
             // TODO this implementation can be improved - we should only
             // have to hash once and find the entry once.
             if (self.get(key)) |kv| {
-                return GetOrPutResult{
+                return GetOrPutResult.{
                     .kv = kv,
                     .found_existing = true,
                 };
@@ -120,7 +120,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
             try self.ensureCapacity();
             const put_result = self.internalPut(key);
             assert(put_result.old_kv == null);
-            return GetOrPutResult{
+            return GetOrPutResult.{
                 .kv = &put_result.new_entry.kv,
                 .found_existing = false,
             };
@@ -199,7 +199,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
         }
 
         pub fn iterator(hm: *const Self) Iterator {
-            return Iterator{
+            return Iterator.{
                 .hm = hm,
                 .count = 0,
                 .index = 0,
@@ -232,7 +232,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
             }
         }
 
-        const InternalPutResult = struct {
+        const InternalPutResult = struct.{
             new_entry: *Entry,
             old_kv: ?KV,
         };
@@ -246,7 +246,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
             var roll_over: usize = 0;
             var distance_from_start_index: usize = 0;
             var got_result_entry = false;
-            var result = InternalPutResult{
+            var result = InternalPutResult.{
                 .new_entry = undefined,
                 .old_kv = null,
             };
@@ -266,10 +266,10 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
                             got_result_entry = true;
                             result.new_entry = entry;
                         }
-                        entry.* = Entry{
+                        entry.* = Entry.{
                             .used = true,
                             .distance_from_start_index = distance_from_start_index,
-                            .kv = KV{
+                            .kv = KV.{
                                 .key = key,
                                 .value = value,
                             },
@@ -293,10 +293,10 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
                 if (!got_result_entry) {
                     result.new_entry = entry;
                 }
-                entry.* = Entry{
+                entry.* = Entry.{
                     .used = true,
                     .distance_from_start_index = distance_from_start_index,
-                    .kv = KV{
+                    .kv = KV.{
                         .key = key,
                         .value = value,
                     },
@@ -372,12 +372,12 @@ test "iterator hash map" {
     assert((try reset_map.put(2, 22)) == null);
     assert((try reset_map.put(3, 33)) == null);
 
-    var keys = []i32{
+    var keys = []i32.{
         3,
         2,
         1,
     };
-    var values = []i32{
+    var values = []i32.{
         33,
         22,
         11,
@@ -409,7 +409,7 @@ test "iterator hash map" {
 }
 
 pub fn getHashPtrAddrFn(comptime K: type) (fn (K) u32) {
-    return struct {
+    return struct.{
         fn hash(key: K) u32 {
             return getAutoHashFn(usize)(@ptrToInt(key));
         }
@@ -417,7 +417,7 @@ pub fn getHashPtrAddrFn(comptime K: type) (fn (K) u32) {
 }
 
 pub fn getTrivialEqlFn(comptime K: type) (fn (K, K) bool) {
-    return struct {
+    return struct.{
         fn eql(a: K, b: K) bool {
             return a == b;
         }
@@ -425,7 +425,7 @@ pub fn getTrivialEqlFn(comptime K: type) (fn (K, K) bool) {
 }
 
 pub fn getAutoHashFn(comptime K: type) (fn (K) u32) {
-    return struct {
+    return struct.{
         fn hash(key: K) u32 {
             comptime var rng = comptime std.rand.DefaultPrng.init(0);
             return autoHash(key, &rng.random, u32);
@@ -434,7 +434,7 @@ pub fn getAutoHashFn(comptime K: type) (fn (K) u32) {
 }
 
 pub fn getAutoEqlFn(comptime K: type) (fn (K, K) bool) {
-    return struct {
+    return struct.{
         fn eql(a: K, b: K) bool {
             return autoEql(a, b);
         }

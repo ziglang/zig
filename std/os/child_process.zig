@@ -17,7 +17,7 @@ const windows_util = @import("windows/util.zig");
 
 const is_windows = builtin.os == Os.windows;
 
-pub const ChildProcess = struct {
+pub const ChildProcess = struct.{
     pub pid: if (is_windows) void else i32,
     pub handle: if (is_windows) windows.HANDLE else void,
     pub thread_handle: if (is_windows) windows.HANDLE else void,
@@ -51,7 +51,7 @@ pub const ChildProcess = struct {
     err_pipe: if (is_windows) void else [2]i32,
     llnode: if (is_windows) void else LinkedList(*ChildProcess).Node,
 
-    pub const SpawnError = error{
+    pub const SpawnError = error.{
         ProcessFdQuotaExceeded,
         Unexpected,
         NotDir,
@@ -70,14 +70,14 @@ pub const ChildProcess = struct {
         FileBusy,
     };
 
-    pub const Term = union(enum) {
+    pub const Term = union(enum).{
         Exited: i32,
         Signal: i32,
         Stopped: i32,
         Unknown: i32,
     };
 
-    pub const StdIo = enum {
+    pub const StdIo = enum.{
         Inherit,
         Ignore,
         Pipe,
@@ -87,7 +87,7 @@ pub const ChildProcess = struct {
     /// First argument in argv is the executable.
     /// On success must call deinit.
     pub fn init(argv: []const []const u8, allocator: *mem.Allocator) !*ChildProcess {
-        const child = try allocator.create(ChildProcess{
+        const child = try allocator.create(ChildProcess.{
             .allocator = allocator,
             .argv = argv,
             .pid = undefined,
@@ -186,7 +186,7 @@ pub const ChildProcess = struct {
         }
     }
 
-    pub const ExecResult = struct {
+    pub const ExecResult = struct.{
         term: os.ChildProcess.Term,
         stdout: []u8,
         stderr: []u8,
@@ -217,7 +217,7 @@ pub const ChildProcess = struct {
         try stdout_file_in_stream.stream.readAllBuffer(&stdout, max_output_size);
         try stderr_file_in_stream.stream.readAllBuffer(&stderr, max_output_size);
 
-        return ExecResult{
+        return ExecResult.{
             .term = try child.wait(),
             .stdout = stdout.toOwnedSlice(),
             .stderr = stderr.toOwnedSlice(),
@@ -254,9 +254,9 @@ pub const ChildProcess = struct {
         self.term = (SpawnError!Term)(x: {
             var exit_code: windows.DWORD = undefined;
             if (windows.GetExitCodeProcess(self.handle, &exit_code) == 0) {
-                break :x Term{ .Unknown = 0 };
+                break :x Term.{ .Unknown = 0 };
             } else {
-                break :x Term{ .Exited = @bitCast(i32, exit_code) };
+                break :x Term.{ .Exited = @bitCast(i32, exit_code) };
             }
         });
 
@@ -325,13 +325,13 @@ pub const ChildProcess = struct {
 
     fn statusToTerm(status: i32) Term {
         return if (posix.WIFEXITED(status))
-            Term{ .Exited = posix.WEXITSTATUS(status) }
+            Term.{ .Exited = posix.WEXITSTATUS(status) }
         else if (posix.WIFSIGNALED(status))
-            Term{ .Signal = posix.WTERMSIG(status) }
+            Term.{ .Signal = posix.WTERMSIG(status) }
         else if (posix.WIFSTOPPED(status))
-            Term{ .Stopped = posix.WSTOPSIG(status) }
+            Term.{ .Stopped = posix.WSTOPSIG(status) }
         else
-            Term{ .Unknown = status };
+            Term.{ .Unknown = status };
     }
 
     fn spawnPosix(self: *ChildProcess) !void {
@@ -439,7 +439,7 @@ pub const ChildProcess = struct {
     }
 
     fn spawnWindows(self: *ChildProcess) !void {
-        const saAttr = windows.SECURITY_ATTRIBUTES{
+        const saAttr = windows.SECURITY_ATTRIBUTES.{
             .nLength = @sizeOf(windows.SECURITY_ATTRIBUTES),
             .bInheritHandle = windows.TRUE,
             .lpSecurityDescriptor = null,
@@ -522,7 +522,7 @@ pub const ChildProcess = struct {
         const cmd_line = try windowsCreateCommandLine(self.allocator, self.argv);
         defer self.allocator.free(cmd_line);
 
-        var siStartInfo = windows.STARTUPINFOW{
+        var siStartInfo = windows.STARTUPINFOW.{
             .cb = @sizeOf(windows.STARTUPINFOW),
             .hStdError = g_hChildStd_ERR_Wr,
             .hStdOutput = g_hChildStd_OUT_Wr,

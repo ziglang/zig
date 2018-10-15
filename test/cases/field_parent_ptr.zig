@@ -10,14 +10,14 @@ test "@fieldParentPtr first field" {
     comptime testParentFieldPtrFirst(&foo.a);
 }
 
-const Foo = struct {
+const Foo = struct.{
     a: bool,
     b: f32,
     c: i32,
     d: i32,
 };
 
-const foo = Foo{
+const foo = Foo.{
     .a = true,
     .b = 0.123,
     .c = 1234,

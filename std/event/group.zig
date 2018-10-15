@@ -8,7 +8,7 @@ const assert = std.debug.assert;
 
 /// ReturnType must be `void` or `E!void`
 pub fn Group(comptime ReturnType: type) type {
-    return struct {
+    return struct.{
         coro_stack: Stack,
         alloc_stack: Stack,
         lock: Lock,
@@ -22,7 +22,7 @@ pub fn Group(comptime ReturnType: type) type {
         const Stack = std.atomic.Stack(promise->ReturnType);
 
         pub fn init(loop: *Loop) Self {
-            return Self{
+            return Self.{
                 .coro_stack = Stack.init(),
                 .alloc_stack = Stack.init(),
                 .lock = Lock.init(loop),
@@ -41,8 +41,8 @@ pub fn Group(comptime ReturnType: type) type {
         }
 
         /// Add a promise to the group. Thread-safe.
-        pub fn add(self: *Self, handle: promise->ReturnType) (error{OutOfMemory}!void) {
-            const node = try self.lock.loop.allocator.create(Stack.Node{
+        pub fn add(self: *Self, handle: promise->ReturnType) (error.{OutOfMemory}!void) {
+            const node = try self.lock.loop.allocator.create(Stack.Node.{
                 .next = undefined,
                 .data = handle,
             });
@@ -61,8 +61,8 @@ pub fn Group(comptime ReturnType: type) type {
         /// This is equivalent to an async call, but the async function is added to the group, instead
         /// of returning a promise. func must be async and have return type ReturnType.
         /// Thread-safe.
-        pub fn call(self: *Self, comptime func: var, args: ...) (error{OutOfMemory}!void) {
-            const S = struct {
+        pub fn call(self: *Self, comptime func: var, args: ...) (error.{OutOfMemory}!void) {
+            const S = struct.{
                 async fn asyncFunc(node: **Stack.Node, args2: ...) ReturnType {
                     // TODO this is a hack to make the memory following be inside the coro frame
                     suspend {
@@ -78,7 +78,7 @@ pub fn Group(comptime ReturnType: type) type {
             };
             var node: *Stack.Node = undefined;
             const handle = try async<self.lock.loop.allocator> S.asyncFunc(&node, args);
-            node.* = Stack.Node{
+            node.* = Stack.Node.{
                 .next = undefined,
                 .data = handle,
             };

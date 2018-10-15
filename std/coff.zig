@@ -20,14 +20,14 @@ const IMAGE_NT_OPTIONAL_HDR64_MAGIC = 0x20b;
 const IMAGE_NUMBEROF_DIRECTORY_ENTRIES = 16;
 const DEBUG_DIRECTORY = 6;
 
-pub const CoffError = error{
+pub const CoffError = error.{
     InvalidPEMagic,
     InvalidPEHeader,
     InvalidMachine,
     MissingCoffSection,
 };
 
-pub const Coff = struct {
+pub const Coff = struct.{
     in_file: os.File,
     allocator: *mem.Allocator,
 
@@ -56,10 +56,10 @@ pub const Coff = struct {
 
         var pe_header_magic: [4]u8 = undefined;
         try in.readNoEof(pe_header_magic[0..]);
-        if (!mem.eql(u8, pe_header_magic, []u8{ 'P', 'E', 0, 0 }))
+        if (!mem.eql(u8, pe_header_magic, []u8.{ 'P', 'E', 0, 0 }))
             return error.InvalidPEHeader;
 
-        self.coff_header = CoffHeader{
+        self.coff_header = CoffHeader.{
             .machine = try in.readIntLe(u16),
             .number_of_sections = try in.readIntLe(u16),
             .timedate_stamp = try in.readIntLe(u32),
@@ -98,7 +98,7 @@ pub const Coff = struct {
             return error.InvalidPEHeader;
 
         for (self.pe_header.data_directory) |*data_dir| {
-            data_dir.* = OptionalHeader.DataDirectory{
+            data_dir.* = OptionalHeader.DataDirectory.{
                 .virtual_address = try in.readIntLe(u32),
                 .size = try in.readIntLe(u32),
             };
@@ -154,10 +154,10 @@ pub const Coff = struct {
         var i: u16 = 0;
         while (i < self.coff_header.number_of_sections) : (i += 1) {
             try in.readNoEof(name[0..]);
-            try self.sections.append(Section{
-                .header = SectionHeader{
+            try self.sections.append(Section.{
+                .header = SectionHeader.{
                     .name = name,
-                    .misc = SectionHeader.Misc{ .physical_address = try in.readIntLe(u32) },
+                    .misc = SectionHeader.Misc.{ .physical_address = try in.readIntLe(u32) },
                     .virtual_address = try in.readIntLe(u32),
                     .size_of_raw_data = try in.readIntLe(u32),
                     .pointer_to_raw_data = try in.readIntLe(u32),
@@ -181,7 +181,7 @@ pub const Coff = struct {
     }
 };
 
-const CoffHeader = struct {
+const CoffHeader = struct.{
     machine: u16,
     number_of_sections: u16,
     timedate_stamp: u32,
@@ -191,8 +191,8 @@ const CoffHeader = struct {
     characteristics: u16,
 };
 
-const OptionalHeader = struct {
-    const DataDirectory = struct {
+const OptionalHeader = struct.{
+    const DataDirectory = struct.{
         virtual_address: u32,
         size: u32,
     };
@@ -201,12 +201,12 @@ const OptionalHeader = struct {
     data_directory: [IMAGE_NUMBEROF_DIRECTORY_ENTRIES]DataDirectory,
 };
 
-pub const Section = struct {
+pub const Section = struct.{
     header: SectionHeader,
 };
 
-const SectionHeader = struct {
-    const Misc = union {
+const SectionHeader = struct.{
+    const Misc = union.{
         physical_address: u32,
         virtual_size: u32,
     };

@@ -103,7 +103,7 @@ export fn zig_array(x: [10]u8) void {
     assertOrPanic(std.mem.eql(u8, x, "1234567890"));
 }
 
-const BigStruct = extern struct {
+const BigStruct = extern struct.{
     a: u64,
     b: u64,
     c: u64,
@@ -113,7 +113,7 @@ const BigStruct = extern struct {
 extern fn c_big_struct(BigStruct) void;
 
 test "C ABI big struct" {
-    var s = BigStruct{
+    var s = BigStruct.{
         .a = 1,
         .b = 2,
         .c = 3,
@@ -131,14 +131,14 @@ export fn zig_big_struct(x: BigStruct) void {
     assertOrPanic(x.e == 5);
 }
 
-const BigUnion = extern union {
+const BigUnion = extern union.{
     a: BigStruct,
 };
 extern fn c_big_union(BigUnion) void;
 
 test "C ABI big union" {
-    var x = BigUnion{
-        .a = BigStruct{
+    var x = BigUnion.{
+        .a = BigStruct.{
             .a = 1,
             .b = 2,
             .c = 3,
@@ -157,7 +157,7 @@ export fn zig_big_union(x: BigUnion) void {
     assertOrPanic(x.a.e == 5);
 }
 
-const SmallStructInts = extern struct {
+const SmallStructInts = extern struct.{
     a: u8,
     b: u8,
     c: u8,
@@ -166,7 +166,7 @@ const SmallStructInts = extern struct {
 extern fn c_small_struct_ints(SmallStructInts) void;
 
 test "C ABI small struct of ints" {
-    var s = SmallStructInts{
+    var s = SmallStructInts.{
         .a = 1,
         .b = 2,
         .c = 3,
@@ -182,7 +182,7 @@ export fn zig_small_struct_ints(x: SmallStructInts) void {
     assertOrPanic(x.d == 4);
 }
 
-const SplitStructInt = extern struct {
+const SplitStructInt = extern struct.{
     a: u64,
     b: u8,
     c: u32,
@@ -190,7 +190,7 @@ const SplitStructInt = extern struct {
 extern fn c_split_struct_ints(SplitStructInt) void;
 
 test "C ABI split struct of ints" {
-    var s = SplitStructInt{
+    var s = SplitStructInt.{
         .a = 1234,
         .b = 100,
         .c = 1337,
@@ -207,7 +207,7 @@ export fn zig_split_struct_ints(x: SplitStructInt) void {
 extern fn c_big_struct_both(BigStruct) BigStruct;
 
 test "C ABI sret and byval together" {
-    var s = BigStruct{
+    var s = BigStruct.{
         .a = 1,
         .b = 2,
         .c = 3,
@@ -228,7 +228,7 @@ export fn zig_big_struct_both(x: BigStruct) BigStruct {
     assertOrPanic(x.c == 32);
     assertOrPanic(x.d == 33);
     assertOrPanic(x.e == 34);
-    var s = BigStruct{
+    var s = BigStruct.{
         .a = 20,
         .b = 21,
         .c = 22,
