@@ -30,6 +30,11 @@ nakedcc fn _start() noreturn {
                 : [argc] "=r" (-> [*]usize)
             );
         },
+        builtin.Arch.aarch64v8 => {
+            argc_ptr = asm ("mov %[argc], sp"
+                : [argc] "=r" (-> [*]usize)
+            );
+        },
         else => @compileError("unsupported arch"),
     }
     // If LLVM inlines stack variables into _start, they will overwrite
@@ -54,17 +59,16 @@ fn posixCallMainAndExit() noreturn {
     const envp = @ptrCast([*][*]u8, envp_optional)[0..envp_count];
     if (builtin.os == builtin.Os.linux) {
         const auxv = @ptrCast([*]usize, envp.ptr + envp_count + 1);
-        var i: usize = 0;
-        while (auxv[i] != 0) : (i += 2) {
-            if (auxv[i] < std.os.linux_aux_raw.len) std.os.linux_aux_raw[auxv[i]] = auxv[i + 1];
-        }
-        std.debug.assert(std.os.linux_aux_raw[std.elf.AT_PAGESZ] == std.os.page_size);
+        std.os.linux_elf_aux_maybe = @ptrCast([*]std.elf.Auxv, auxv);
+        std.debug.assert(std.os.linuxGetAuxVal(std.elf.AT_PAGESZ) == std.os.page_size);
     }
 
     std.os.posix.exit(callMainWithArgs(argc, argv, envp));
 }
 
-fn callMainWithArgs(argc: usize, argv: [*][*]u8, envp: [][*]u8) u8 {
+// This is marked inline because for some reason LLVM in release mode fails to inline it,
+// and we want fewer call frames in stack traces.
+inline fn callMainWithArgs(argc: usize, argv: [*][*]u8, envp: [][*]u8) u8 {
     std.os.ArgIteratorPosix.raw = argv[0..argc];
     std.os.posix_environ_raw = envp;
     return callMain();
@@ -77,7 +81,9 @@ extern fn main(c_argc: i32, c_argv: [*][*]u8, c_envp: [*]?[*]u8) i32 {
     return callMainWithArgs(@intCast(usize, c_argc), c_argv, envp);
 }
 
-fn callMain() u8 {
+// This is marked inline because for some reason LLVM in release mode fails to inline it,
+// and we want fewer call frames in stack traces.
+inline fn callMain() u8 {
     switch (@typeId(@typeOf(root.main).ReturnType)) {
         builtin.TypeId.NoReturn => {
             root.main();

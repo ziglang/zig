@@ -655,16 +655,21 @@ fn posixExecveErrnoToErr(err: usize) PosixExecveError {
     }
 }
 
-pub var linux_aux_raw = []usize.{0} ** 38;
+pub var linux_elf_aux_maybe: ?[*]std.elf.Auxv = null;
 pub var posix_environ_raw: [][*]u8 = undefined;
 
 /// See std.elf for the constants.
 pub fn linuxGetAuxVal(index: usize) usize {
     if (builtin.link_libc) {
         return usize(std.c.getauxval(index));
-    } else {
-        return linux_aux_raw[index];
+    } else if (linux_elf_aux_maybe) |auxv| {
+        var i: usize = 0;
+        while (auxv[i].a_type != std.elf.AT_NULL) : (i += 1) {
+            if (auxv[i].a_type == index)
+                return auxv[i].a_un.a_val;
+        }
     }
+    return 0;
 }
 
 pub fn getBaseAddress() usize {
@@ -1676,7 +1681,7 @@ pub const Dir = struct.{
                 }
 
                 while (true) {
-                    const result = posix.getdents(self.handle.fd, self.handle.buf.ptr, self.handle.buf.len);
+                    const result = posix.getdents64(self.handle.fd, self.handle.buf.ptr, self.handle.buf.len);
                     const err = posix.getErrno(result);
                     if (err > 0) {
                         switch (err) {
@@ -1694,7 +1699,7 @@ pub const Dir = struct.{
                     break;
                 }
             }
-            const linux_entry = @ptrCast(*align(1) posix.dirent, &self.handle.buf[self.handle.index]);
+            const linux_entry = @ptrCast(*align(1) posix.dirent64, &self.handle.buf[self.handle.index]);
             const next_index = self.handle.index + linux_entry.d_reclen;
             self.handle.index = next_index;
 
@@ -1705,8 +1710,7 @@ pub const Dir = struct.{
                 continue :start_over;
             }
 
-            const type_char = self.handle.buf[next_index - 1];
-            const entry_kind = switch (type_char) {
+            const entry_kind = switch (linux_entry.d_type) {
                 posix.DT_BLK => Entry.Kind.BlockDevice,
                 posix.DT_CHR => Entry.Kind.CharacterDevice,
                 posix.DT_DIR => Entry.Kind.Directory,

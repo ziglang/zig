@@ -7228,7 +7228,10 @@ static void init(CodeGen *g) {
     bool is_optimized = g->build_mode != BuildModeDebug;
     LLVMCodeGenOptLevel opt_level = is_optimized ? LLVMCodeGenLevelAggressive : LLVMCodeGenLevelNone;
 
-    LLVMRelocMode reloc_mode = g->is_static ? LLVMRelocStatic : LLVMRelocPIC;
+    if (g->out_type == OutTypeExe && g->is_static) {
+        g->disable_pic = true;
+    }
+    LLVMRelocMode reloc_mode = g->disable_pic ? LLVMRelocStatic : LLVMRelocPIC;
 
     const char *target_specific_cpu_args;
     const char *target_specific_features;
@@ -7279,9 +7282,14 @@ static void init(CodeGen *g) {
 
     define_builtin_types(g);
 
-    g->invalid_instruction = allocate<IrInstruction>(1);
+    IrInstruction *sentinel_instructions = allocate<IrInstruction>(2);
+    g->invalid_instruction = &sentinel_instructions[0];
     g->invalid_instruction->value.type = g->builtin_types.entry_invalid;
     g->invalid_instruction->value.global_refs = allocate<ConstGlobalRefs>(1);
+
+    g->unreach_instruction = &sentinel_instructions[1];
+    g->unreach_instruction->value.type = g->builtin_types.entry_unreachable;
+    g->unreach_instruction->value.global_refs = allocate<ConstGlobalRefs>(1);
 
     g->const_void_val.special = ConstValSpecialStatic;
     g->const_void_val.type = g->builtin_types.entry_void;
@@ -7482,7 +7490,9 @@ static void gen_root_source(CodeGen *g) {
     {
         g->bootstrap_import = add_special_code(g, create_bootstrap_pkg(g, g->root_package), "bootstrap.zig");
     }
-    if (g->zig_target.os == OsWindows && !g->have_dllmain_crt_startup && g->out_type == OutTypeLib) {
+    if (g->zig_target.os == OsWindows && !g->have_dllmain_crt_startup &&
+            g->out_type == OutTypeLib && !g->is_static)
+    {
         g->bootstrap_import = add_special_code(g, create_bootstrap_pkg(g, g->root_package), "bootstrap_lib.zig");
     }
 
@@ -8040,6 +8050,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_bool(ch, g->linker_rdynamic);
     cache_bool(ch, g->no_rosegment_workaround);
     cache_bool(ch, g->each_lib_rpath);
+    cache_bool(ch, g->disable_pic);
     cache_buf_opt(ch, g->mmacosx_version_min);
     cache_buf_opt(ch, g->mios_version_min);
     cache_usize(ch, g->version_major);

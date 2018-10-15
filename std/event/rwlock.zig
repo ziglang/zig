@@ -267,7 +267,7 @@ async fn writeRunner(lock: *RwLock) void {
 
     var i: usize = 0;
     while (i < shared_test_data.len) : (i += 1) {
-        std.os.time.sleep(0, 100000);
+        std.os.time.sleep(100 * std.os.time.microsecond);
         const lock_promise = async lock.acquireWrite() catch @panic("out of memory");
         const handle = await lock_promise;
         defer handle.release();
@@ -282,7 +282,7 @@ async fn writeRunner(lock: *RwLock) void {
 
 async fn readRunner(lock: *RwLock) void {
     suspend; // resumed by onNextTick
-    std.os.time.sleep(0, 1);
+    std.os.time.sleep(1);
 
     var i: usize = 0;
     while (i < shared_test_data.len) : (i += 1) {

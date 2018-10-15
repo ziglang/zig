@@ -280,7 +280,7 @@ pub const LibCInstallation = struct.{
             switch (builtin.arch) {
                 builtin.Arch.i386 => try stream.write("x86"),
                 builtin.Arch.x86_64 => try stream.write("x64"),
-                builtin.Arch.aarch64 => try stream.write("arm"),
+                builtin.Arch.aarch64v8 => try stream.write("arm"),
                 else => return error.UnsupportedArchitecture,
             }
             const ucrt_lib_path = try std.os.path.join(loop.allocator, result_buf.toSliceConst(), "ucrt.lib");
@@ -355,7 +355,7 @@ pub const LibCInstallation = struct.{
             switch (builtin.arch) {
                 builtin.Arch.i386 => try stream.write("x86\\"),
                 builtin.Arch.x86_64 => try stream.write("x64\\"),
-                builtin.Arch.aarch64 => try stream.write("arm\\"),
+                builtin.Arch.aarch64v8 => try stream.write("arm\\"),
                 else => return error.UnsupportedArchitecture,
             }
             const kernel32_path = try std.os.path.join(loop.allocator, result_buf.toSliceConst(), "kernel32.lib");

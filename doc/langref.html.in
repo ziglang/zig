@@ -754,6 +754,10 @@ pub fn main() void {
       {#header_close#}
       {#header_close#}
       {#header_open|Operators#}
+      <p>
+      There is no operator overloading. When you see an operator in Zig, you know that
+      it is doing something from this table, and nothing else.
+      </p>
       {#header_open|Table of Operators#}
       <div class="table-wrapper">
       <table>
@@ -1024,7 +1028,7 @@ a &= b{#endsyntax#}</pre></td>
             </ul>
           </td>
           <td>
-            <pre>{#syntax#}0b011 &amp; 0b101 == 0b001{#endsyntax#}</pre>
+            <pre>{#syntax#}0b011 & 0b101 == 0b001{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
@@ -1345,7 +1349,7 @@ x.* == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <td><pre>{#syntax#}&amp;a{#endsyntax#}</pre></td>
+          <td><pre>{#syntax#}&a{#endsyntax#}</pre></td>
           <td>
             All types
           </td>
@@ -1504,7 +1508,46 @@ test "array initialization with function calls" {
       {#see_also|for|Slices#}
       {#header_close#}
       {#header_open|Pointers#}
-      {#code_begin|test#}
+      <p>
+      Zig has two kinds of pointers:
+      </p>
+      <ul>
+          <li>{#syntax#}*T{#endsyntax#} - pointer to exactly one item.
+            <ul>
+              <li>Supports deref syntax: {#syntax#}ptr.*{#endsyntax#}</li>
+            </ul>
+          </li>
+          <li>{#syntax#}[*]T{#endsyntax#} - pointer to unknown number of items.
+            <ul>
+              <li>Supports index syntax: {#syntax#}ptr[i]{#endsyntax#}</li>
+              <li>Supports slice syntax: {#syntax#}ptr[start..end]{#endsyntax#}</li>
+              <li>Supports pointer arithmetic: {#syntax#}ptr + x{#endsyntax#}, {#syntax#}ptr - x{#endsyntax#}</li>
+              <li>{#syntax#}T{#endsyntax#} must have a known size, which means that it cannot be
+              {#syntax#}c_void{#endsyntax#} or any other {#link|@OpaqueType#}.</li>
+            </ul>
+          </li>
+      </ul>
+      <p>These types are closely related to {#link|Arrays#} and {#link|Slices#}:</p>
+        <ul>
+            <li>{#syntax#}*[N]T{#endsyntax#} - pointer to N items, same as single-item pointer to array.
+            <ul>
+                <li>Supports index syntax: {#syntax#}array_ptr[i]{#endsyntax#}</li>
+                <li>Supports slice syntax: {#syntax#}array_ptr[start..end]{#endsyntax#}</li>
+                <li>Supports len property: {#syntax#}array_ptr.len{#endsyntax#}</li>
+            </ul>
+            </li>
+        </ul>
+        <ul>
+            <li>{#syntax#}[]T{#endsyntax#} - pointer to runtime-known number of items.
+            <ul>
+                <li>Supports index syntax: {#syntax#}slice[i]{#endsyntax#}</li>
+                <li>Supports slice syntax: {#syntax#}slice[start..end]{#endsyntax#}</li>
+                <li>Supports len property: {#syntax#}slice.len{#endsyntax#}</li>
+            </ul>
+            </li>
+        </ul>
+        <p>Use {#syntax#}&x{#endsyntax#} to obtain a single-item pointer:</p>
+        {#code_begin|test#}
 const assert = @import("std").debug.assert;
 
 test "address of syntax" {
@@ -1515,7 +1558,7 @@ test "address of syntax" {
     // Deference a pointer:
     assert(x_ptr.* == 1234);
 
-    // When you get the address of a const variable, you get a const pointer.
+    // When you get the address of a const variable, you get a const pointer to a single item.
     assert(@typeOf(x_ptr) == *const i32);
 
     // If you want to mutate the value, you'd need an address of a mutable variable:
@@ -1538,82 +1581,101 @@ test "pointer array access" {
     ptr.* += 1;
     assert(array[2] == 4);
 }
+      {#code_end#}
+      <p>
+        In Zig, we prefer slices over pointers to null-terminated arrays.
+        You can turn an array or pointer into a slice using slice syntax.
+      </p>
+      <p>
+        Slices have bounds checking and are therefore protected
+        against this kind of undefined behavior. This is one reason
+        we prefer slices to pointers.
+      </p>
+      {#code_begin|test#}
+const assert = @import("std").debug.assert;
 
 test "pointer slicing" {
-    // In Zig, we prefer slices over pointers to null-terminated arrays.
-    // You can turn an array into a slice using slice syntax:
     var array = []u8.{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
     const slice = array[2..4];
     assert(slice.len == 2);
 
-    // Slices have bounds checking and are therefore protected
-    // against this kind of undefined behavior. This is one reason
-    // we prefer slices to pointers.
     assert(array[3] == 4);
     slice[1] += 1;
     assert(array[3] == 5);
 }
+      {#code_end#}
+      <p>Pointers work at compile-time too, as long as the code does not depend on 
+      an undefined memory layout:</p>
+      {#code_begin|test#}
+const assert = @import("std").debug.assert;
 
-comptime {
-    // Pointers work at compile-time too, as long as you don't use
-    // @ptrCast.
-    var x: i32 = 1;
-    const ptr = &x;
-    ptr.* += 1;
-    x += 1;
-    assert(ptr.* == 3);
+test "comptime pointers" {
+    comptime {
+        var x: i32 = 1;
+        const ptr = &x;
+        ptr.* += 1;
+        x += 1;
+        assert(ptr.* == 3);
+    }
 }
+      {#code_end#}
+      <p>To convert an integer address into a pointer, use {#syntax#}@intToPtr{#endsyntax#}.
+      To convert a pointer to an integer, use {#syntax#}@ptrToInt{#endsyntax#}:</p>
+      {#code_begin|test#}
+const assert = @import("std").debug.assert;
 
 test "@ptrToInt and @intToPtr" {
-    // To convert an integer address into a pointer, use @intToPtr:
-    const ptr = @intToPtr(*i32, 0xdeadbeef);
-
-    // To convert a pointer to an integer, use @ptrToInt:
-    const addr = @ptrToInt(ptr);
-
-    assert(@typeOf(addr) == usize);
-    assert(addr == 0xdeadbeef);
-}
-
-comptime {
-    // Zig is able to do this at compile-time, as long as
-    // ptr is never dereferenced.
     const ptr = @intToPtr(*i32, 0xdeadbeef);
     const addr = @ptrToInt(ptr);
     assert(@typeOf(addr) == usize);
     assert(addr == 0xdeadbeef);
 }
+      {#code_end#}
+      <p>Zig is able to preserve memory addresses in comptime code, as long as
+      the pointer is never dereferenced:</p>
+      {#code_begin|test#}
+const assert = @import("std").debug.assert;
+
+test "comptime @intToPtr" {
+    comptime {
+        // Zig is able to do this at compile-time, as long as
+        // ptr is never dereferenced.
+        const ptr = @intToPtr(*i32, 0xdeadbeef);
+        const addr = @ptrToInt(ptr);
+        assert(@typeOf(addr) == usize);
+        assert(addr == 0xdeadbeef);
+    }
+}
+      {#code_end#}
+      {#see_also|Optional Pointers#}
+      {#header_open|volatile#}
+      <p>Loads and stores are assumed to not have side effects. If a given load or store
+      should have side effects, such as Memory Mapped Input/Output (MMIO), use {#syntax#}volatile{#endsyntax#}.
+      In the following code, loads and stores with {#syntax#}mmio_ptr{#endsyntax#} are guaranteed to all happen
+      and in the same order as in source code:</p>
+      {#code_begin|test#}
+const assert = @import("std").debug.assert;
 
 test "volatile" {
-    // In Zig, loads and stores are assumed to not have side effects.
-    // If a given load or store should have side effects, such as
-    // Memory Mapped Input/Output (MMIO), use `volatile`:
     const mmio_ptr = @intToPtr(*volatile u8, 0x12345678);
-
-    // Now loads and stores with mmio_ptr are guaranteed to all happen
-    // and in the same order as in source code.
     assert(@typeOf(mmio_ptr) == *volatile u8);
 }
-
-test "optional pointers" {
-    // Pointers cannot be null. If you want a null pointer, use the optional
-    // prefix `?` to make the pointer type optional.
-    var ptr: ?*i32 = null;
-
-    var x: i32 = 1;
-    ptr = &x;
-
-    assert(ptr.?.* == 1);
-
-    // Optional pointers are the same size as normal pointers, because pointer
-    // value 0 is used as the null value.
-    assert(@sizeOf(?*i32) == @sizeOf(*i32));
-}
+      {#code_end#}
+      <p>
+      Note that {#syntax#}volatile{#endsyntax#} is unrelated to concurrency and {#link|Atomics#}.
+      If you see code that is using {#syntax#}volatile{#endsyntax#} for something other than Memory Mapped
+      Input/Output, it is probably a bug.
+      </p>
+      {#header_close#}
+      <p>
+      To convert one pointer type to another, use {#link|@ptrCast#}. This is an unsafe
+      operation that Zig cannot protect you against. Use {#syntax#}@ptrCast{#endsyntax#} only when other
+      conversions are not possible.
+      </p>
+      {#code_begin|test#}
+const assert = @import("std").debug.assert;
 
 test "pointer casting" {
-    // To convert one pointer type to another, use @ptrCast. This is an unsafe
-    // operation that Zig cannot protect you against. Use @ptrCast only when other
-    // conversions are not possible.
     const bytes align(@alignOf(u32)) = []u8.{ 0x12, 0x12, 0x12, 0x12 };
     const u32_ptr = @ptrCast(*const u32, &bytes);
     assert(u32_ptr.* == 0x12121212);
@@ -1713,19 +1775,6 @@ fn foo(bytes: []u8) u32 {
     return int_slice[0];
 }
       {#code_end#}
-      {#header_close#}
-      {#header_open|Type Based Alias Analysis#}
-      <p>Zig uses Type Based Alias Analysis (also known as Strict Aliasing) to
-      perform some optimizations. This means that pointers of different types must
-      not alias the same memory, with the exception of {#syntax#}u8{#endsyntax#}. Pointers to
-          {#syntax#}u8{#endsyntax#} can alias any memory.
-      </p>
-      <p>As an example, this code produces undefined behavior:</p>
-      <pre>{#syntax#}@ptrCast(*u32, f32(12.34)).*{#endsyntax#}</pre>
-      <p>Instead, use {#link|@bitCast#}:
-      <pre>{#syntax#}@bitCast(u32, f32(12.34)){#endsyntax#}</pre>
-      <p>As an added benefit, the {#syntax#}@bitCast{#endsyntax#} version works at compile-time.</p>
-      {#see_also|Slices|Memory#}
       {#header_close#}
       {#header_close#}
       {#header_open|Slices#}
@@ -3818,6 +3867,28 @@ test "optional type" {
 const optional_value: ?i32 = null; 
       {#code_end#}
       {#header_close#}
+      {#header_open|Optional Pointers#}
+      <p>An optional pointer is guaranteed to be the same size as a pointer. The {#syntax#}null{#endsyntax#} of
+      the optional is guaranteed to be address 0.</p>
+      {#code_begin|test#}
+const assert = @import("std").debug.assert;
+
+test "optional pointers" {
+    // Pointers cannot be null. If you want a null pointer, use the optional
+    // prefix `?` to make the pointer type optional.
+    var ptr: ?*i32 = null;
+
+    var x: i32 = 1;
+    ptr = &x;
+
+    assert(ptr.?.* == 1);
+
+    // Optional pointers are the same size as normal pointers, because pointer
+    // value 0 is used as the null value.
+    assert(@sizeOf(?*i32) == @sizeOf(*i32));
+}
+      {#code_end#}
+      {#header_close#}
       {#header_close#}
       {#header_open|Casting#}
       <p>
@@ -5821,7 +5892,7 @@ mem.set(u8, dest, c);{#endsyntax#}</pre>
       <pre>{#syntax#}@mod(numerator: T, denominator: T) T{#endsyntax#}</pre>
       <p>
       Modulus division. For unsigned integers this is the same as
-      {#syntax#}numerator % denominator{#endsyntax#}. Caller guarantees {#syntax#}denominator &gt; 0{#endsyntax#}.
+      {#syntax#}numerator % denominator{#endsyntax#}. Caller guarantees {#syntax#}denominator > 0{#endsyntax#}.
       </p>
       <ul>
           <li>{#syntax#}@mod(-5, 3) == 1{#endsyntax#}</li>

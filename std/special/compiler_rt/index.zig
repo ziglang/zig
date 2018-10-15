@@ -80,6 +80,7 @@ comptime {
                     @export("___chkstk_ms", ___chkstk_ms, linkage);
                 }
                 @export("__divti3", @import("divti3.zig").__divti3_windows_x86_64, linkage);
+                @export("__multi3", @import("multi3.zig").__multi3_windows_x86_64, linkage);
                 @export("__muloti4", @import("muloti4.zig").__muloti4_windows_x86_64, linkage);
                 @export("__udivti3", @import("udivti3.zig").__udivti3_windows_x86_64, linkage);
                 @export("__udivmodti4", @import("udivmodti4.zig").__udivmodti4_windows_x86_64, linkage);
@@ -89,6 +90,7 @@ comptime {
         }
     } else {
         @export("__divti3", @import("divti3.zig").__divti3, linkage);
+        @export("__multi3", @import("multi3.zig").__multi3, linkage);
         @export("__muloti4", @import("muloti4.zig").__muloti4, linkage);
         @export("__udivti3", @import("udivti3.zig").__udivti3, linkage);
         @export("__udivmodti4", @import("udivmodti4.zig").__udivmodti4, linkage);
@@ -149,6 +151,7 @@ extern fn __aeabi_uldivmod(numerator: u64, denominator: u64) AeabiUlDivModResult
 
 fn isArmArch() bool {
     return switch (builtin.arch) {
+        builtin.Arch.armv8_3a,
         builtin.Arch.armv8_2a,
         builtin.Arch.armv8_1a,
         builtin.Arch.armv8,
@@ -160,6 +163,7 @@ fn isArmArch() bool {
         builtin.Arch.armv7m,
         builtin.Arch.armv7s,
         builtin.Arch.armv7k,
+        builtin.Arch.armv7ve,
         builtin.Arch.armv6,
         builtin.Arch.armv6m,
         builtin.Arch.armv6k,
@@ -167,6 +171,7 @@ fn isArmArch() bool {
         builtin.Arch.armv5,
         builtin.Arch.armv5te,
         builtin.Arch.armv4t,
+        builtin.Arch.armebv8_3a,
         builtin.Arch.armebv8_2a,
         builtin.Arch.armebv8_1a,
         builtin.Arch.armebv8,
@@ -178,6 +183,7 @@ fn isArmArch() bool {
         builtin.Arch.armebv7m,
         builtin.Arch.armebv7s,
         builtin.Arch.armebv7k,
+        builtin.Arch.armebv7ve,
         builtin.Arch.armebv6,
         builtin.Arch.armebv6m,
         builtin.Arch.armebv6k,
@@ -185,6 +191,22 @@ fn isArmArch() bool {
         builtin.Arch.armebv5,
         builtin.Arch.armebv5te,
         builtin.Arch.armebv4t,
+        builtin.Arch.aarch64v8_3a,
+        builtin.Arch.aarch64v8_2a,
+        builtin.Arch.aarch64v8_1a,
+        builtin.Arch.aarch64v8,
+        builtin.Arch.aarch64v8r,
+        builtin.Arch.aarch64v8m_baseline,
+        builtin.Arch.aarch64v8m_mainline,
+        builtin.Arch.aarch64_bev8_3a,
+        builtin.Arch.aarch64_bev8_2a,
+        builtin.Arch.aarch64_bev8_1a,
+        builtin.Arch.aarch64_bev8,
+        builtin.Arch.aarch64_bev8r,
+        builtin.Arch.aarch64_bev8m_baseline,
+        builtin.Arch.aarch64_bev8m_mainline,
+        builtin.Arch.thumb,
+        builtin.Arch.thumbeb,
         => true,
         else => false,
     };

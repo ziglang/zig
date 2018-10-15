@@ -151,7 +151,7 @@ async fn testGroup(loop: *Loop) void {
 }
 
 async fn sleepALittle(count: *usize) void {
-    std.os.time.sleep(0, 1000000);
+    std.os.time.sleep(1 * std.os.time.millisecond);
     _ = @atomicRmw(usize, count, AtomicRmwOp.Add, 1, AtomicOrder.SeqCst);
 }
 

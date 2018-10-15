@@ -28,6 +28,10 @@ const assert = std.debug.assert;
 
 // This implementation is taken from the go stlib, musl is a bit more complex.
 pub fn pow(comptime T: type, x: T, y: T) T {
+    if (@typeInfo(T) == builtin.TypeId.Int) {
+        return math.powi(T, x, y) catch unreachable;
+    }
+
     if (T != f32 and T != f64) {
         @compileError("pow not implemented for " ++ @typeName(T));
     }
