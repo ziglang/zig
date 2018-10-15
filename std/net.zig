@@ -46,8 +46,8 @@ pub const Address = struct.{
         };
     }
 
-    pub fn initPosix(addr: *const posix.sockaddr) Address {
-        return Address.{ .os_addr = addr.* };
+    pub fn initPosix(addr: posix.sockaddr) Address {
+        return Address.{ .os_addr = addr };
     }
 
     pub fn format(self: *const Address, out_stream: var) !void {

@@ -55,7 +55,7 @@ const StructFoo = struct.{
     b: bool,
     c: f32,
 };
-fn testFoo(foo: *const StructFoo) void {
+fn testFoo(foo: StructFoo) void {
     assert(foo.b);
 }
 fn testMutation(foo: *StructFoo) void {
@@ -112,7 +112,7 @@ fn aFunc() i32 {
     return 13;
 }
 
-fn callStructField(foo: *const Foo) i32 {
+fn callStructField(foo: Foo) i32 {
     return foo.ptr();
 }
 
@@ -124,7 +124,7 @@ test "store member function in variable" {
 }
 const MemberFnTestFoo = struct.{
     x: i32,
-    fn member(foo: *const MemberFnTestFoo) i32 {
+    fn member(foo: MemberFnTestFoo) i32 {
         return foo.x;
     }
 };
@@ -443,8 +443,8 @@ test "implicit cast packed struct field to const ptr" {
         move_id: u9,
         level: u7,
 
-        fn toInt(value: *const u7) u7 {
-            return value.*;
+        fn toInt(value: u7) u7 {
+            return value;
         }
     };
 

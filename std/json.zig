@@ -74,7 +74,7 @@ pub const Token = struct.{
     }
 
     // Slice into the underlying input string.
-    pub fn slice(self: *const Token, input: []const u8, i: usize) []const u8 {
+    pub fn slice(self: Token, input: []const u8, i: usize) []const u8 {
         return input[i + self.offset - self.count .. i + self.offset];
     }
 };
@@ -1008,8 +1008,8 @@ pub const Value = union(enum).{
     Array: ArrayList(Value),
     Object: ObjectMap,
 
-    pub fn dump(self: *const Value) void {
-        switch (self.*) {
+    pub fn dump(self: Value) void {
+        switch (self) {
             Value.Null => {
                 debug.warn("null");
             },
@@ -1055,7 +1055,7 @@ pub const Value = union(enum).{
         }
     }
 
-    pub fn dumpIndent(self: *const Value, indent: usize) void {
+    pub fn dumpIndent(self: Value, indent: usize) void {
         if (indent == 0) {
             self.dump();
         } else {
@@ -1063,8 +1063,8 @@ pub const Value = union(enum).{
         }
     }
 
-    fn dumpIndentLevel(self: *const Value, indent: usize, level: usize) void {
-        switch (self.*) {
+    fn dumpIndentLevel(self: Value, indent: usize, level: usize) void {
+        switch (self) {
             Value.Null => {
                 debug.warn("null");
             },
@@ -1178,7 +1178,7 @@ pub const Parser = struct.{
 
     // Even though p.allocator exists, we take an explicit allocator so that allocation state
     // can be cleaned up on error correctly during a `parse` on call.
-    fn transition(p: *Parser, allocator: *Allocator, input: []const u8, i: usize, token: *const Token) !void {
+    fn transition(p: *Parser, allocator: *Allocator, input: []const u8, i: usize, token: Token) !void {
         switch (p.state) {
             State.ObjectKey => switch (token.id) {
                 Token.Id.ObjectEnd => {
@@ -1311,19 +1311,19 @@ pub const Parser = struct.{
         }
     }
 
-    fn pushToParent(p: *Parser, value: *const Value) !void {
+    fn pushToParent(p: *Parser, value: Value) !void {
         switch (p.stack.at(p.stack.len - 1)) {
             // Object Parent -> [ ..., object, <key>, value ]
             Value.String => |key| {
                 _ = p.stack.pop();
 
                 var object = &p.stack.items[p.stack.len - 1].Object;
-                _ = try object.put(key, value.*);
+                _ = try object.put(key, value);
                 p.state = State.ObjectKey;
             },
             // Array Parent -> [ ..., <array>, value ]
             Value.Array => |*array| {
-                try array.append(value.*);
+                try array.append(value);
                 p.state = State.ArrayValue;
             },
             else => {
@@ -1332,14 +1332,14 @@ pub const Parser = struct.{
         }
     }
 
-    fn parseString(p: *Parser, allocator: *Allocator, token: *const Token, input: []const u8, i: usize) !Value {
+    fn parseString(p: *Parser, allocator: *Allocator, token: Token, input: []const u8, i: usize) !Value {
         // TODO: We don't strictly have to copy values which do not contain any escape
         // characters if flagged with the option.
         const slice = token.slice(input, i);
         return Value.{ .String = try mem.dupe(p.allocator, u8, slice) };
     }
 
-    fn parseNumber(p: *Parser, token: *const Token, input: []const u8, i: usize) !Value {
+    fn parseNumber(p: *Parser, token: Token, input: []const u8, i: usize) !Value {
         return if (token.number_is_integer)
             Value.{ .Integer = try std.fmt.parseInt(i64, token.slice(input, i), 10) }
         else

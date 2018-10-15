@@ -116,7 +116,7 @@ fn expandString(input: []const u8, output: *Buffer) !void {
     }
 
     var token_index: usize = 0;
-    const root = try parse(tokens, &token_index);
+    const root = try parse(&tokens, &token_index);
     const last_token = tokens.items[token_index];
     switch (last_token) {
         Token.Eof => {},
@@ -139,9 +139,9 @@ fn expandString(input: []const u8, output: *Buffer) !void {
 
 const ExpandNodeError = error.{OutOfMemory};
 
-fn expandNode(node: *const Node, output: *ArrayList(Buffer)) ExpandNodeError!void {
+fn expandNode(node: Node, output: *ArrayList(Buffer)) ExpandNodeError!void {
     assert(output.len == 0);
-    switch (node.*) {
+    switch (node) {
         Node.Scalar => |scalar| {
             try output.append(try Buffer.init(global_allocator, scalar));
         },

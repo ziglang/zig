@@ -56,15 +56,15 @@ test "constant enum with payload" {
     shouldBeNotEmpty(full);
 }
 
-fn shouldBeEmpty(x: *const AnEnumWithPayload) void {
-    switch (x.*) {
+fn shouldBeEmpty(x: AnEnumWithPayload) void {
+    switch (x) {
         AnEnumWithPayload.Empty => {},
         else => unreachable,
     }
 }
 
-fn shouldBeNotEmpty(x: *const AnEnumWithPayload) void {
-    switch (x.*) {
+fn shouldBeNotEmpty(x: AnEnumWithPayload) void {
+    switch (x) {
         AnEnumWithPayload.Empty => unreachable,
         else => {},
     }

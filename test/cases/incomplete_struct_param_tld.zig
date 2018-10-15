@@ -16,7 +16,7 @@ const C = struct.{
     }
 };
 
-fn foo(a: *const A) i32 {
+fn foo(a: A) i32 {
     return a.b.c.d();
 }
 

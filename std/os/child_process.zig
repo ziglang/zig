@@ -777,9 +777,9 @@ fn makePipe() ![2]i32 {
     return fds;
 }
 
-fn destroyPipe(pipe: *const [2]i32) void {
-    os.close((pipe.*)[0]);
-    os.close((pipe.*)[1]);
+fn destroyPipe(pipe: [2]i32) void {
+    os.close(pipe[0]);
+    os.close(pipe[1]);
 }
 
 // Child of fork calls this to report an error to the fork parent.

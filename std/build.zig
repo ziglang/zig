@@ -37,7 +37,7 @@ pub const Builder = struct.{
     invalid_user_input: bool,
     zig_exe: []const u8,
     default_step: *Step,
-    env_map: BufMap,
+    env_map: *const BufMap,
     top_level_steps: ArrayList(*TopLevelStep),
     prefix: []const u8,
     search_prefixes: ArrayList([]const u8),
@@ -89,6 +89,8 @@ pub const Builder = struct.{
     };
 
     pub fn init(allocator: *Allocator, zig_exe: []const u8, build_root: []const u8, cache_root: []const u8) Builder {
+        const env_map = allocator.createOne(BufMap) catch unreachable;
+        env_map.* = os.getEnvMap(allocator) catch unreachable;
         var self = Builder.{
             .zig_exe = zig_exe,
             .build_root = build_root,
@@ -110,7 +112,7 @@ pub const Builder = struct.{
             .available_options_list = ArrayList(AvailableOption).init(allocator),
             .top_level_steps = ArrayList(*TopLevelStep).init(allocator),
             .default_step = undefined,
-            .env_map = os.getEnvMap(allocator) catch unreachable,
+            .env_map = env_map,
             .prefix = undefined,
             .search_prefixes = ArrayList([]const u8).init(allocator),
             .lib_dir = undefined,
@@ -155,7 +157,7 @@ pub const Builder = struct.{
         return LibExeObjStep.createObject(self, name, root_src);
     }
 
-    pub fn addSharedLibrary(self: *Builder, name: []const u8, root_src: ?[]const u8, ver: *const Version) *LibExeObjStep {
+    pub fn addSharedLibrary(self: *Builder, name: []const u8, root_src: ?[]const u8, ver: Version) *LibExeObjStep {
         return LibExeObjStep.createSharedLibrary(self, name, root_src, ver);
     }
 
@@ -178,7 +180,7 @@ pub const Builder = struct.{
         return LibExeObjStep.createCStaticLibrary(self, name);
     }
 
-    pub fn addCSharedLibrary(self: *Builder, name: []const u8, ver: *const Version) *LibExeObjStep {
+    pub fn addCSharedLibrary(self: *Builder, name: []const u8, ver: Version) *LibExeObjStep {
         return LibExeObjStep.createCSharedLibrary(self, name, ver);
     }
 
@@ -541,7 +543,7 @@ pub const Builder = struct.{
     }
 
     fn spawnChild(self: *Builder, argv: []const []const u8) !void {
-        return self.spawnChildEnvMap(null, &self.env_map, argv);
+        return self.spawnChildEnvMap(null, self.env_map, argv);
     }
 
     fn printCmd(cwd: ?[]const u8, argv: []const []const u8) void {
@@ -850,12 +852,12 @@ pub const LibExeObjStep = struct.{
         Obj,
     };
 
-    pub fn createSharedLibrary(builder: *Builder, name: []const u8, root_src: ?[]const u8, ver: *const Version) *LibExeObjStep {
+    pub fn createSharedLibrary(builder: *Builder, name: []const u8, root_src: ?[]const u8, ver: Version) *LibExeObjStep {
         const self = builder.allocator.create(initExtraArgs(builder, name, root_src, Kind.Lib, false, ver)) catch unreachable;
         return self;
     }
 
-    pub fn createCSharedLibrary(builder: *Builder, name: []const u8, version: *const Version) *LibExeObjStep {
+    pub fn createCSharedLibrary(builder: *Builder, name: []const u8, version: Version) *LibExeObjStep {
         const self = builder.allocator.create(initC(builder, name, Kind.Lib, version, false)) catch unreachable;
         return self;
     }
@@ -891,7 +893,7 @@ pub const LibExeObjStep = struct.{
         return self;
     }
 
-    fn initExtraArgs(builder: *Builder, name: []const u8, root_src: ?[]const u8, kind: Kind, static: bool, ver: *const Version) LibExeObjStep {
+    fn initExtraArgs(builder: *Builder, name: []const u8, root_src: ?[]const u8, kind: Kind, static: bool, ver: Version) LibExeObjStep {
         var self = LibExeObjStep.{
             .no_rosegment = false,
             .strip = false,
@@ -909,7 +911,7 @@ pub const LibExeObjStep = struct.{
             .step = Step.init(name, builder.allocator, make),
             .output_path = null,
             .output_h_path = null,
-            .version = ver.*,
+            .version = ver,
             .out_filename = undefined,
             .out_h_filename = builder.fmt("{}.h", name),
             .major_only_filename = undefined,
@@ -933,13 +935,13 @@ pub const LibExeObjStep = struct.{
         return self;
     }
 
-    fn initC(builder: *Builder, name: []const u8, kind: Kind, version: *const Version, static: bool) LibExeObjStep {
+    fn initC(builder: *Builder, name: []const u8, kind: Kind, version: Version, static: bool) LibExeObjStep {
         var self = LibExeObjStep.{
             .no_rosegment = false,
             .builder = builder,
             .name = name,
             .kind = kind,
-            .version = version.*,
+            .version = version,
             .static = static,
             .target = Target.Native,
             .cflags = ArrayList([]const u8).init(builder.allocator),

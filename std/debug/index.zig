@@ -976,7 +976,7 @@ fn openSelfDebugInfoMacOs(allocator: *mem.Allocator) !DebugInfo {
     };
 }
 
-fn printLineFromFile(out_stream: var, line_info: *const LineInfo) !void {
+fn printLineFromFile(out_stream: var, line_info: LineInfo) !void {
     var f = try os.File.openRead(line_info.file_name);
     defer f.close();
     // TODO fstat and make sure that the file has the correct size

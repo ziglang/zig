@@ -121,7 +121,7 @@ pub fn build(b: *Builder) !void {
     test_step.dependOn(docs_step);
 }
 
-fn dependOnLib(lib_exe_obj: var, dep: *const LibraryDep) void {
+fn dependOnLib(lib_exe_obj: var, dep: LibraryDep) void {
     for (dep.libdirs.toSliceConst()) |lib_dir| {
         lib_exe_obj.addLibPath(lib_dir);
     }

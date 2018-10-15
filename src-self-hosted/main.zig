@@ -658,7 +658,7 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
     const main_handle = try async<allocator> asyncFmtMainChecked(
         &result,
         &loop,
-        flags,
+        &flags,
         color,
     );
     defer cancel main_handle;

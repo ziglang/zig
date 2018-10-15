@@ -400,7 +400,7 @@ pub const Node = struct.{
                 Id.While => {
                     const while_node = @fieldParentPtr(While, "base", n);
                     if (while_node.@"else") |@"else"| {
-                        n = @"else".base;
+                        n = &@"else".base;
                         continue;
                     }
 
@@ -409,7 +409,7 @@ pub const Node = struct.{
                 Id.For => {
                     const for_node = @fieldParentPtr(For, "base", n);
                     if (for_node.@"else") |@"else"| {
-                        n = @"else".base;
+                        n = &@"else".base;
                         continue;
                     }
 
@@ -418,7 +418,7 @@ pub const Node = struct.{
                 Id.If => {
                     const if_node = @fieldParentPtr(If, "base", n);
                     if (if_node.@"else") |@"else"| {
-                        n = @"else".base;
+                        n = &@"else".base;
                         continue;
                     }
 

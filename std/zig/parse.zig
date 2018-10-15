@@ -1848,7 +1848,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     else => {
-                        if (!try parseBlockExpr(&stack, arena, opt_ctx, token_ptr, token_index)) {
+                        if (!try parseBlockExpr(&stack, arena, opt_ctx, token_ptr.*, token_index)) {
                             prevToken(&tok_it, &tree);
                             stack.append(State.{ .UnwrapExpressionBegin = opt_ctx }) catch unreachable;
                         }
@@ -2665,7 +2665,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     else => {
-                        if (!try parseBlockExpr(&stack, arena, opt_ctx, token.ptr, token.index)) {
+                        if (!try parseBlockExpr(&stack, arena, opt_ctx, token.ptr.*, token.index)) {
                             prevToken(&tok_it, &tree);
                             if (opt_ctx != OptionalCtx.Optional) {
                                 try tree.errors.push(Error.{ .ExpectedPrimaryExpr = Error.ExpectedPrimaryExpr.{ .token = token.index } });
@@ -2949,29 +2949,29 @@ const OptionalCtx = union(enum).{
     RequiredNull: *?*ast.Node,
     Required: **ast.Node,
 
-    pub fn store(self: *const OptionalCtx, value: *ast.Node) void {
-        switch (self.*) {
+    pub fn store(self: OptionalCtx, value: *ast.Node) void {
+        switch (self) {
             OptionalCtx.Optional => |ptr| ptr.* = value,
             OptionalCtx.RequiredNull => |ptr| ptr.* = value,
             OptionalCtx.Required => |ptr| ptr.* = value,
         }
     }
 
-    pub fn get(self: *const OptionalCtx) ?*ast.Node {
-        switch (self.*) {
+    pub fn get(self: OptionalCtx) ?*ast.Node {
+        switch (self) {
             OptionalCtx.Optional => |ptr| return ptr.*,
             OptionalCtx.RequiredNull => |ptr| return ptr.*.?,
             OptionalCtx.Required => |ptr| return ptr.*,
         }
     }
 
-    pub fn toRequired(self: *const OptionalCtx) OptionalCtx {
-        switch (self.*) {
+    pub fn toRequired(self: OptionalCtx) OptionalCtx {
+        switch (self) {
             OptionalCtx.Optional => |ptr| {
                 return OptionalCtx.{ .RequiredNull = ptr };
             },
-            OptionalCtx.RequiredNull => |ptr| return self.*,
-            OptionalCtx.Required => |ptr| return self.*,
+            OptionalCtx.RequiredNull => |ptr| return self,
+            OptionalCtx.Required => |ptr| return self,
         }
     }
 };
@@ -3161,7 +3161,7 @@ fn parseStringLiteral(arena: *mem.Allocator, tok_it: *ast.Tree.TokenList.Iterato
     }
 }
 
-fn parseBlockExpr(stack: *std.ArrayList(State), arena: *mem.Allocator, ctx: *const OptionalCtx, token_ptr: *const Token, token_index: TokenIndex) !bool {
+fn parseBlockExpr(stack: *std.ArrayList(State), arena: *mem.Allocator, ctx: OptionalCtx, token_ptr: Token, token_index: TokenIndex) !bool {
     switch (token_ptr.id) {
         Token.Id.Keyword_suspend => {
             const node = try arena.create(ast.Node.Suspend.{
@@ -3199,7 +3199,7 @@ fn parseBlockExpr(stack: *std.ArrayList(State), arena: *mem.Allocator, ctx: *con
                     .label = null,
                     .inline_token = null,
                     .loop_token = token_index,
-                    .opt_ctx = ctx.*,
+                    .opt_ctx = ctx,
                 },
             }) catch unreachable;
             return true;
@@ -3210,7 +3210,7 @@ fn parseBlockExpr(stack: *std.ArrayList(State), arena: *mem.Allocator, ctx: *con
                     .label = null,
                     .inline_token = null,
                     .loop_token = token_index,
-                    .opt_ctx = ctx.*,
+                    .opt_ctx = ctx,
                 },
             }) catch unreachable;
             return true;
@@ -3295,10 +3295,10 @@ fn expectCommaOrEnd(tok_it: *ast.Tree.TokenList.Iterator, tree: *ast.Tree, end: 
     }
 }
 
-fn tokenIdToAssignment(id: *const Token.Id) ?ast.Node.InfixOp.Op {
+fn tokenIdToAssignment(id: Token.Id) ?ast.Node.InfixOp.Op {
     // TODO: We have to cast all cases because of this:
     // error: expected type '?InfixOp', found '?@TagType(InfixOp)'
-    return switch (id.*) {
+    return switch (id) {
         Token.Id.AmpersandEqual => ast.Node.InfixOp.Op.{ .AssignBitAnd = {} },
         Token.Id.AngleBracketAngleBracketLeftEqual => ast.Node.InfixOp.Op.{ .AssignBitShiftLeft = {} },
         Token.Id.AngleBracketAngleBracketRightEqual => ast.Node.InfixOp.Op.{ .AssignBitShiftRight = {} },
@@ -3396,7 +3396,7 @@ fn createLiteral(arena: *mem.Allocator, comptime T: type, token_index: TokenInde
     });
 }
 
-fn createToCtxLiteral(arena: *mem.Allocator, opt_ctx: *const OptionalCtx, comptime T: type, token_index: TokenIndex) !*T {
+fn createToCtxLiteral(arena: *mem.Allocator, opt_ctx: OptionalCtx, comptime T: type, token_index: TokenIndex) !*T {
     const node = try createLiteral(arena, T, token_index);
     opt_ctx.store(&node.base);
 

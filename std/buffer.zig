@@ -32,7 +32,7 @@ pub const Buffer = struct.{
     }
 
     /// Must deinitialize with deinit.
-    pub fn initFromBuffer(buffer: *const Buffer) !Buffer {
+    pub fn initFromBuffer(buffer: Buffer) !Buffer {
         return Buffer.init(buffer.list.allocator, buffer.toSliceConst());
     }
 
@@ -148,7 +148,7 @@ test "simple Buffer" {
     assert(buf.eql("hello world"));
     assert(mem.eql(u8, cstr.toSliceConst(buf.toSliceConst().ptr), buf.toSliceConst()));
 
-    var buf2 = try Buffer.initFromBuffer(&buf);
+    var buf2 = try Buffer.initFromBuffer(buf);
     assert(buf.eql(buf2.toSliceConst()));
 
     assert(buf.startsWith("hell"));

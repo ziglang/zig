@@ -217,7 +217,7 @@ fn tableLowerBound(k: u64) usize {
 ///   @in: The HP number.
 ///   @val: The double.
 ///   &returns: The HP number.
-fn hpProd(in: *const HP, val: f64) HP {
+fn hpProd(in: HP, val: f64) HP {
     var hi: f64 = undefined;
     var lo: f64 = undefined;
     split(in.val, &hi, &lo);

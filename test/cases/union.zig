@@ -108,9 +108,9 @@ fn doTest() void {
     assert(bar(Payload.{ .A = 1234 }) == -10);
 }
 
-fn bar(value: *const Payload) i32 {
-    assert(Letter(value.*) == Letter.A);
-    return switch (value.*) {
+fn bar(value: Payload) i32 {
+    assert(Letter(value) == Letter.A);
+    return switch (value) {
         Payload.A => |x| return x - 1244,
         Payload.B => |x| if (x == 12.34) i32(20) else 21,
         Payload.C => |x| if (x) i32(30) else 31,
@@ -147,9 +147,9 @@ test "union(enum(u32)) with specified and unspecified tag values" {
     comptime testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2.{ .C = 123 });
 }
 
-fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: *const MultipleChoice2) void {
-    assert(@enumToInt(@TagType(MultipleChoice2)(x.*)) == 60);
-    assert(1123 == switch (x.*) {
+fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) void {
+    assert(@enumToInt(@TagType(MultipleChoice2)(x)) == 60);
+    assert(1123 == switch (x) {
         MultipleChoice2.A => 1,
         MultipleChoice2.B => 2,
         MultipleChoice2.C => |v| i32(1000) + v,
@@ -206,8 +206,8 @@ test "cast union to tag type of union" {
     comptime testCastUnionToTagType(TheUnion.{ .B = 1234 });
 }
 
-fn testCastUnionToTagType(x: *const TheUnion) void {
-    assert(TheTag(x.*) == TheTag.B);
+fn testCastUnionToTagType(x: TheUnion) void {
+    assert(TheTag(x) == TheTag.B);
 }
 
 test "cast tag type of union to union" {
@@ -232,19 +232,6 @@ test "implicit cast union to its tag type" {
 }
 fn giveMeLetterB(x: Letter2) void {
     assert(x == Value2.B);
-}
-
-test "implicit cast from @EnumTagType(TheUnion) to &const TheUnion" {
-    assertIsTheUnion2Item1(TheUnion2.Item1);
-}
-
-const TheUnion2 = union(enum).{
-    Item1,
-    Item2: i32,
-};
-
-fn assertIsTheUnion2Item1(value: *const TheUnion2) void {
-    assert(value.* == TheUnion2.Item1);
 }
 
 pub const PackThis = union(enum).{

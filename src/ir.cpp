@@ -9758,46 +9758,6 @@ static IrInstruction *ir_analyze_err_wrap_code(IrAnalyze *ira, IrInstruction *so
     return result;
 }
 
-static IrInstruction *ir_analyze_cast_ref(IrAnalyze *ira, IrInstruction *source_instr,
-        IrInstruction *value, ZigType *wanted_type)
-{
-    if (instr_is_comptime(value)) {
-        ConstExprValue *val = ir_resolve_const(ira, value, UndefBad);
-        if (!val)
-            return ira->codegen->invalid_instruction;
-
-        IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(&ira->new_irb,
-                source_instr->scope, source_instr->source_node);
-        const_instruction->base.value.type = wanted_type;
-        const_instruction->base.value.special = ConstValSpecialStatic;
-        const_instruction->base.value.data.x_ptr.special = ConstPtrSpecialRef;
-        const_instruction->base.value.data.x_ptr.data.ref.pointee = val;
-        return &const_instruction->base;
-    }
-
-    if (value->id == IrInstructionIdLoadPtr) {
-        IrInstructionLoadPtr *load_ptr_inst = (IrInstructionLoadPtr *)value;
-        ConstCastOnly const_cast_result = types_match_const_cast_only(ira, wanted_type,
-                load_ptr_inst->ptr->value.type, source_instr->source_node, false);
-        if (const_cast_result.id == ConstCastResultIdInvalid)
-            return ira->codegen->invalid_instruction;
-        if (const_cast_result.id == ConstCastResultIdOk)
-            return load_ptr_inst->ptr;
-    }
-    IrInstruction *new_instruction = ir_build_ref(&ira->new_irb, source_instr->scope,
-            source_instr->source_node, value, true, false);
-    new_instruction->value.type = wanted_type;
-
-    ZigType *child_type = wanted_type->data.pointer.child_type;
-    if (type_has_bits(child_type)) {
-        ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
-        assert(fn_entry);
-        fn_entry->alloca_list.append(new_instruction);
-    }
-    ir_add_alloca(ira, new_instruction, child_type);
-    return new_instruction;
-}
-
 static IrInstruction *ir_analyze_null_to_maybe(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value, ZigType *wanted_type) {
     assert(wanted_type->id == ZigTypeIdOptional);
     assert(instr_is_comptime(value));
@@ -10927,14 +10887,6 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     // cast from undefined to anything
     if (actual_type->id == ZigTypeIdUndefined) {
         return ir_analyze_undefined_to_anything(ira, source_instr, value, wanted_type);
-    }
-
-    // cast from something to const pointer of it
-    if (!type_requires_comptime(actual_type)) {
-        ZigType *const_ptr_actual = get_pointer_to_type(ira->codegen, actual_type, true);
-        if (types_match_const_cast_only(ira, wanted_type, const_ptr_actual, source_node, false).id == ConstCastResultIdOk) {
-            return ir_analyze_cast_ref(ira, source_instr, value, wanted_type);
-        }
     }
 
     ErrorMsg *parent_msg = ir_add_error_node(ira, source_instr->source_node,

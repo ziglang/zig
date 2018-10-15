@@ -271,7 +271,7 @@ pub const CompareOutputContext = struct.{
             child.stdin_behavior = StdIo.Ignore;
             child.stdout_behavior = StdIo.Pipe;
             child.stderr_behavior = StdIo.Pipe;
-            child.env_map = &b.env_map;
+            child.env_map = b.env_map;
 
             child.spawn() catch |err| debug.panic("Unable to spawn {}: {}\n", full_exe_path, @errorName(err));
 
@@ -347,7 +347,7 @@ pub const CompareOutputContext = struct.{
             const child = os.ChildProcess.init([][]u8.{full_exe_path}, b.allocator) catch unreachable;
             defer child.deinit();
 
-            child.env_map = &b.env_map;
+            child.env_map = b.env_map;
             child.stdin_behavior = StdIo.Ignore;
             child.stdout_behavior = StdIo.Ignore;
             child.stderr_behavior = StdIo.Ignore;
@@ -417,7 +417,7 @@ pub const CompareOutputContext = struct.{
         self.addCase(tc);
     }
 
-    pub fn addCase(self: *CompareOutputContext, case: *const TestCase) void {
+    pub fn addCase(self: *CompareOutputContext, case: TestCase) void {
         const b = self.b;
 
         const root_src = os.path.join(b.allocator, b.cache_root, case.sources.items[0].filename) catch unreachable;
@@ -583,7 +583,7 @@ pub const CompileErrorContext = struct.{
             const child = os.ChildProcess.init(zig_args.toSliceConst(), b.allocator) catch unreachable;
             defer child.deinit();
 
-            child.env_map = &b.env_map;
+            child.env_map = b.env_map;
             child.stdin_behavior = StdIo.Ignore;
             child.stdout_behavior = StdIo.Pipe;
             child.stderr_behavior = StdIo.Pipe;
@@ -847,7 +847,7 @@ pub const TranslateCContext = struct.{
             const child = os.ChildProcess.init(zig_args.toSliceConst(), b.allocator) catch unreachable;
             defer child.deinit();
 
-            child.env_map = &b.env_map;
+            child.env_map = b.env_map;
             child.stdin_behavior = StdIo.Ignore;
             child.stdout_behavior = StdIo.Pipe;
             child.stderr_behavior = StdIo.Pipe;

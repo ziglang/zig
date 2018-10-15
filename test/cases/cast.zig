@@ -22,88 +22,6 @@ test "pointer reinterpret const float to int" {
     assert(int_val == 858993411);
 }
 
-test "implicitly cast a pointer to a const pointer of it" {
-    var x: i32 = 1;
-    const xp = &x;
-    funcWithConstPtrPtr(xp);
-    assert(x == 2);
-}
-
-fn funcWithConstPtrPtr(x: *const *i32) void {
-    x.*.* += 1;
-}
-
-test "implicitly cast a container to a const pointer of it" {
-    const z = Struct(void).{ .x = void.{} };
-    assert(0 == @sizeOf(@typeOf(z)));
-    assert(void.{} == Struct(void).pointer(z).x);
-    assert(void.{} == Struct(void).pointer(&z).x);
-    assert(void.{} == Struct(void).maybePointer(z).x);
-    assert(void.{} == Struct(void).maybePointer(&z).x);
-    assert(void.{} == Struct(void).maybePointer(null).x);
-    const s = Struct(u8).{ .x = 42 };
-    assert(0 != @sizeOf(@typeOf(s)));
-    assert(42 == Struct(u8).pointer(s).x);
-    assert(42 == Struct(u8).pointer(&s).x);
-    assert(42 == Struct(u8).maybePointer(s).x);
-    assert(42 == Struct(u8).maybePointer(&s).x);
-    assert(0 == Struct(u8).maybePointer(null).x);
-    const u = Union.{ .x = 42 };
-    assert(42 == Union.pointer(u).x);
-    assert(42 == Union.pointer(&u).x);
-    assert(42 == Union.maybePointer(u).x);
-    assert(42 == Union.maybePointer(&u).x);
-    assert(0 == Union.maybePointer(null).x);
-    const e = Enum.Some;
-    assert(Enum.Some == Enum.pointer(e));
-    assert(Enum.Some == Enum.pointer(&e));
-    assert(Enum.Some == Enum.maybePointer(e));
-    assert(Enum.Some == Enum.maybePointer(&e));
-    assert(Enum.None == Enum.maybePointer(null));
-}
-
-fn Struct(comptime T: type) type {
-    return struct.{
-        const Self = @This();
-        x: T,
-
-        fn pointer(self: *const Self) Self {
-            return self.*;
-        }
-
-        fn maybePointer(self: ?*const Self) Self {
-            const none = Self.{ .x = if (T == void) void.{} else 0 };
-            return (self orelse &none).*;
-        }
-    };
-}
-
-const Union = union.{
-    x: u8,
-
-    fn pointer(self: *const Union) Union {
-        return self.*;
-    }
-
-    fn maybePointer(self: ?*const Union) Union {
-        const none = Union.{ .x = 0 };
-        return (self orelse &none).*;
-    }
-};
-
-const Enum = enum.{
-    None,
-    Some,
-
-    fn pointer(self: *const Enum) Enum {
-        return self.*;
-    }
-
-    fn maybePointer(self: ?*const Enum) Enum {
-        return (self orelse &Enum.None).*;
-    }
-};
-
 test "implicitly cast indirect pointer to maybe-indirect pointer" {
     const S = struct.{
         const Self = @This();
@@ -125,13 +43,9 @@ test "implicitly cast indirect pointer to maybe-indirect pointer" {
     const p = &s;
     const q = &p;
     const r = &q;
-    assert(42 == S.constConst(p));
     assert(42 == S.constConst(q));
-    assert(42 == S.maybeConstConst(p));
     assert(42 == S.maybeConstConst(q));
-    assert(42 == S.constConstConst(q));
     assert(42 == S.constConstConst(r));
-    assert(42 == S.maybeConstConstConst(q));
     assert(42 == S.maybeConstConstConst(r));
 }
 
@@ -164,16 +78,6 @@ fn testPeerResolveArrayConstSlice(b: bool) void {
     const value2 = if (b) ([]const u8)("zz") else "aoeu";
     assert(mem.eql(u8, value1, "aoeu"));
     assert(mem.eql(u8, value2, "zz"));
-}
-
-test "integer literal to &const int" {
-    const x: *const i32 = 3;
-    assert(x.* == 3);
-}
-
-test "string literal to &const []const u8" {
-    const x: *const []const u8 = "hello";
-    assert(mem.eql(u8, x.*, "hello"));
 }
 
 test "implicitly cast from T to error!?T" {

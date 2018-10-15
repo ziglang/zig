@@ -8,7 +8,7 @@ const posix = os.posix;
 const Loop = std.event.Loop;
 
 pub const Server = struct.{
-    handleRequestFn: async<*mem.Allocator> fn (*Server, *const std.net.Address, *const os.File) void,
+    handleRequestFn: async<*mem.Allocator> fn (*Server, *const std.net.Address, os.File) void,
 
     loop: *Loop,
     sockfd: ?i32,
@@ -40,7 +40,7 @@ pub const Server = struct.{
     pub fn listen(
         self: *Server,
         address: *const std.net.Address,
-        handleRequestFn: async<*mem.Allocator> fn (*Server, *const std.net.Address, *const os.File) void,
+        handleRequestFn: async<*mem.Allocator> fn (*Server, *const std.net.Address, os.File) void,
     ) !void {
         self.handleRequestFn = handleRequestFn;
 
@@ -82,7 +82,7 @@ pub const Server = struct.{
                     continue;
                 }
                 var socket = os.File.openHandle(accepted_fd);
-                _ = async<self.loop.allocator> self.handleRequestFn(self, accepted_addr, socket) catch |err| switch (err) {
+                _ = async<self.loop.allocator> self.handleRequestFn(self, &accepted_addr, socket) catch |err| switch (err) {
                     error.OutOfMemory => {
                         socket.close();
                         continue;
@@ -278,9 +278,9 @@ test "listen on a port, send bytes, receive bytes" {
         tcp_server: Server,
 
         const Self = @This();
-        async<*mem.Allocator> fn handler(tcp_server: *Server, _addr: *const std.net.Address, _socket: *const os.File) void {
+        async<*mem.Allocator> fn handler(tcp_server: *Server, _addr: *const std.net.Address, _socket: os.File) void {
             const self = @fieldParentPtr(Self, "tcp_server", tcp_server);
-            var socket = _socket.*; // TODO https://github.com/ziglang/zig/issues/1592
+            var socket = _socket; // TODO https://github.com/ziglang/zig/issues/1592
             defer socket.close();
             // TODO guarantee elision of this allocation
             const next_handler = async errorableHandler(self, _addr, socket) catch unreachable;
@@ -307,9 +307,9 @@ test "listen on a port, send bytes, receive bytes" {
     try loop.initSingleThreaded(std.debug.global_allocator);
     var server = MyServer.{ .tcp_server = Server.init(&loop) };
     defer server.tcp_server.deinit();
-    try server.tcp_server.listen(addr, MyServer.handler);
+    try server.tcp_server.listen(&addr, MyServer.handler);
 
-    const p = try async<std.debug.global_allocator> doAsyncTest(&loop, server.tcp_server.listen_address, &server.tcp_server);
+    const p = try async<std.debug.global_allocator> doAsyncTest(&loop, &server.tcp_server.listen_address, &server.tcp_server);
     defer cancel p;
     loop.run();
 }

@@ -122,13 +122,13 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
             return self.uncheckedAt(i);
         }
 
-        pub fn count(self: *const Self) usize {
+        pub fn count(self: Self) usize {
             return self.len;
         }
 
-        pub fn push(self: *Self, item: *const T) !void {
+        pub fn push(self: *Self, item: T) !void {
             const new_item_ptr = try self.addOne();
-            new_item_ptr.* = item.*;
+            new_item_ptr.* = item;
         }
 
         pub fn pushMany(self: *Self, items: []const T) !void {

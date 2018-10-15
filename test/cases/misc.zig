@@ -353,8 +353,8 @@ const test3_foo = Test3Foo.{
     },
 };
 const test3_bar = Test3Foo.{ .Two = 13 };
-fn test3_1(f: *const Test3Foo) void {
-    switch (f.*) {
+fn test3_1(f: Test3Foo) void {
+    switch (f) {
         Test3Foo.Three => |pt| {
             assert(pt.x == 3);
             assert(pt.y == 4);
@@ -362,8 +362,8 @@ fn test3_1(f: *const Test3Foo) void {
         else => unreachable,
     }
 }
-fn test3_2(f: *const Test3Foo) void {
-    switch (f.*) {
+fn test3_2(f: Test3Foo) void {
+    switch (f) {
         Test3Foo.Two => |x| {
             assert(x == 13);
         },
@@ -672,10 +672,10 @@ const PackedEnum = packed enum.{
 };
 
 test "packed struct, enum, union parameters in extern function" {
-    testPackedStuff(PackedStruct.{
+    testPackedStuff(&(PackedStruct.{
         .a = 1,
         .b = 2,
-    }, PackedUnion.{ .a = 1 }, PackedEnum.A);
+    }), &(PackedUnion.{ .a = 1 }), PackedEnum.A);
 }
 
 export fn testPackedStuff(a: *const PackedStruct, b: *const PackedUnion, c: PackedEnum) void {}

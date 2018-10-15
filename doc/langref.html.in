@@ -1905,7 +1905,7 @@ const Vec3 = struct.{
         };
     }
 
-    pub fn dot(self: *const Vec3, other: *const Vec3) f32 {
+    pub fn dot(self: Vec3, other: Vec3) f32 {
         return self.x * other.x + self.y * other.y + self.z * other.z;
     }
 };
@@ -2243,8 +2243,8 @@ const Variant = union(enum).{
     Int: i32,
     Bool: bool,
 
-    fn truthy(self: *const Variant) bool {
-        return switch (self.*) {
+    fn truthy(self: Variant) bool {
+        return switch (self) {
             Variant.Int => |x_int| x_int != 0,
             Variant.Bool => |x_bool| x_bool,
         };
@@ -4038,9 +4038,6 @@ test "float widening" {
       <p>TODO</p>
       {#header_close#}
       {#header_open|Implicit Cast: undefined#}
-      <p>TODO</p>
-      {#header_close#}
-      {#header_open|Implicit Cast: T to *const T#}
       <p>TODO</p>
       {#header_close#}
       {#header_close#}
