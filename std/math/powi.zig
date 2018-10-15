@@ -15,7 +15,10 @@ const assert = std.debug.assert;
 const assertError = std.debug.assertError;
 
 // This implementation is based on that from the rust stlib
-pub fn powi(comptime T: type, x: T, y: T) (error{Overflow, Underflow}!T) {
+pub fn powi(comptime T: type, x: T, y: T) (error.{
+    Overflow,
+    Underflow,
+}!T) {
     const info = @typeInfo(T);
 
     comptime assert(@typeInfo(T) == builtin.TypeId.Int);
@@ -27,17 +30,16 @@ pub fn powi(comptime T: type, x: T, y: T) (error{Overflow, Underflow}!T) {
 
     switch (x) {
         //  powi(0, y)     = 1 for any y
-        0  => return 0,
-        
+        0 => return 0,
+
         //  powi(1, y)     = 1 for any y
-        1  => return 1,
+        1 => return 1,
 
         else => {
             //  powi(x, y)     = Overflow for for y >= @sizeOf(x) - 1 y > 0
             //  powi(x, y)     = Underflow for for y > @sizeOf(x) - 1 y < 0
             const bit_size = @sizeOf(T) * 8;
             if (info.Int.is_signed) {
-
                 if (x == -1) {
                     //  powi(-1, y)    = -1 for for y an odd integer
                     //  powi(-1, y)    = 1 for for y an even integer
@@ -96,7 +98,7 @@ pub fn powi(comptime T: type, x: T, y: T) (error{Overflow, Underflow}!T) {
             }
 
             return acc;
-        }
+        },
     }
 }
 

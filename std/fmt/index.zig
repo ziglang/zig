@@ -13,7 +13,7 @@ const max_int_digits = 65;
 /// If `output` returns an error, the error is returned from `format` and
 /// `output` is not called again.
 pub fn format(context: var, comptime Errors: type, output: fn (@typeOf(context), []const u8) Errors!void, comptime fmt: []const u8, args: ...) Errors!void {
-    const State = enum {
+    const State = enum.{
         Start,
         OpenBrace,
         CloseBrace,
@@ -286,7 +286,7 @@ pub fn formatIntValue(
         switch (fmt[0]) {
             'c' => {
                 if (@typeOf(value) == u8) {
-                    if (fmt.len > 1) @compileError("Unknown format character: " ++ []u8{fmt[1]});
+                    if (fmt.len > 1) @compileError("Unknown format character: " ++ []u8.{fmt[1]});
                     return formatAsciiChar(value, context, Errors, output);
                 }
             },
@@ -310,7 +310,7 @@ pub fn formatIntValue(
                 uppercase = true;
                 width = 0;
             },
-            else => @compileError("Unknown format character: " ++ []u8{fmt[0]}),
+            else => @compileError("Unknown format character: " ++ []u8.{fmt[0]}),
         }
         if (fmt.len > 1) width = comptime (parseUnsigned(usize, fmt[1..], 10) catch unreachable);
     }
@@ -334,7 +334,7 @@ fn formatFloatValue(
     switch (float_fmt) {
         'e' => try formatFloatScientific(value, width, context, Errors, output),
         '.' => try formatFloatDecimal(value, width, context, Errors, output),
-        else => @compileError("Unknown format character: " ++ []u8{float_fmt}),
+        else => @compileError("Unknown format character: " ++ []u8.{float_fmt}),
     }
 }
 
@@ -355,7 +355,7 @@ pub fn formatText(
                 try formatInt(c, 16, fmt[0] == 'X', 2, context, Errors, output);
             }
             return;
-        } else @compileError("Unknown format character: " ++ []u8{fmt[0]});
+        } else @compileError("Unknown format character: " ++ []u8.{fmt[0]});
     }
     return output(context, bytes);
 }
@@ -661,8 +661,8 @@ pub fn formatBytes(
     }
 
     const buf = switch (radix) {
-        1000 => []u8{ suffix, 'B' },
-        1024 => []u8{ suffix, 'i', 'B' },
+        1000 => []u8.{ suffix, 'B' },
+        1024 => []u8.{ suffix, 'i', 'B' },
         else => unreachable,
     };
     return output(context, buf);
@@ -757,18 +757,18 @@ fn formatIntUnsigned(
 }
 
 pub fn formatIntBuf(out_buf: []u8, value: var, base: u8, uppercase: bool, width: usize) usize {
-    var context = FormatIntBuf{
+    var context = FormatIntBuf.{
         .out_buf = out_buf,
         .index = 0,
     };
-    formatInt(value, base, uppercase, width, &context, error{}, formatIntCallback) catch unreachable;
+    formatInt(value, base, uppercase, width, &context, error.{}, formatIntCallback) catch unreachable;
     return context.index;
 }
-const FormatIntBuf = struct {
+const FormatIntBuf = struct.{
     out_buf: []u8,
     index: usize,
 };
-fn formatIntCallback(context: *FormatIntBuf, bytes: []const u8) (error{}!void) {
+fn formatIntCallback(context: *FormatIntBuf, bytes: []const u8) (error.{}!void) {
     mem.copy(u8, context.out_buf[context.index..], bytes);
     context.index += bytes.len;
 }
@@ -795,7 +795,7 @@ test "fmt.parseInt" {
     assert(if (parseInt(u8, "256", 10)) |_| false else |err| err == error.Overflow);
 }
 
-const ParseUnsignedError = error{
+const ParseUnsignedError = error.{
     /// The result cannot fit in the type specified
     Overflow,
 
@@ -815,7 +815,7 @@ pub fn parseUnsigned(comptime T: type, buf: []const u8, radix: u8) ParseUnsigned
     return x;
 }
 
-pub fn charToDigit(c: u8, radix: u8) (error{InvalidCharacter}!u8) {
+pub fn charToDigit(c: u8, radix: u8) (error.{InvalidCharacter}!u8) {
     const value = switch (c) {
         '0'...'9' => c - '0',
         'A'...'Z' => c - 'A' + 10,
@@ -836,7 +836,7 @@ fn digitToChar(digit: u8, uppercase: bool) u8 {
     };
 }
 
-const BufPrintContext = struct {
+const BufPrintContext = struct.{
     remaining: []u8,
 };
 
@@ -847,23 +847,23 @@ fn bufPrintWrite(context: *BufPrintContext, bytes: []const u8) !void {
 }
 
 pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: ...) ![]u8 {
-    var context = BufPrintContext{ .remaining = buf };
-    try format(&context, error{BufferTooSmall}, bufPrintWrite, fmt, args);
+    var context = BufPrintContext.{ .remaining = buf };
+    try format(&context, error.{BufferTooSmall}, bufPrintWrite, fmt, args);
     return buf[0 .. buf.len - context.remaining.len];
 }
 
-pub const AllocPrintError = error{OutOfMemory};
+pub const AllocPrintError = error.{OutOfMemory};
 
 pub fn allocPrint(allocator: *mem.Allocator, comptime fmt: []const u8, args: ...) AllocPrintError![]u8 {
     var size: usize = 0;
-    format(&size, error{}, countSize, fmt, args) catch |err| switch (err) {};
+    format(&size, error.{}, countSize, fmt, args) catch |err| switch (err) {};
     const buf = try allocator.alloc(u8, size);
     return bufPrint(buf, fmt, args) catch |err| switch (err) {
         error.BufferTooSmall => unreachable, // we just counted the size above
     };
 }
 
-fn countSize(size: *usize, bytes: []const u8) (error{}!void) {
+fn countSize(size: *usize, bytes: []const u8) (error.{}!void) {
     size.* += bytes.len;
 }
 
@@ -960,23 +960,23 @@ test "fmt.format" {
     try testFmt("file size: 63MiB\n", "file size: {Bi}\n", usize(63 * 1024 * 1024));
     try testFmt("file size: 66.06MB\n", "file size: {B2}\n", usize(63 * 1024 * 1024));
     {
-        const Struct = struct {
+        const Struct = struct.{
             field: u8,
         };
-        const value = Struct{ .field = 42 };
+        const value = Struct.{ .field = 42 };
         try testFmt("struct: Struct{ .field = 42 }\n", "struct: {}\n", value);
         try testFmt("struct: Struct{ .field = 42 }\n", "struct: {}\n", &value);
     }
     {
-        const Struct = struct {
+        const Struct = struct.{
             a: u0,
             b: u1,
         };
-        const value = Struct{ .a = 0, .b = 1 };
+        const value = Struct.{ .a = 0, .b = 1 };
         try testFmt("struct: Struct{ .a = 0, .b = 1 }\n", "struct: {}\n", value);
     }
     {
-        const Enum = enum {
+        const Enum = enum.{
             One,
             Two,
         };
@@ -1045,8 +1045,8 @@ test "fmt.format" {
         assert(mem.eql(u8, result, "f64: nan\n"));
     }
     if (builtin.arch != builtin.Arch.armv8) {
-    // negative nan is not defined by IEE 754,
-    // and ARM thus normalizes it to positive nan
+        // negative nan is not defined by IEE 754,
+        // and ARM thus normalizes it to positive nan
         var buf1: [32]u8 = undefined;
         const result = try bufPrint(buf1[0..], "f64: {}\n", -math.nan_f64);
         assert(mem.eql(u8, result, "f64: -nan\n"));
@@ -1194,7 +1194,7 @@ test "fmt.format" {
     }
     //custom type format
     {
-        const Vec2 = struct {
+        const Vec2 = struct.{
             const SelfType = @This();
             x: f32,
             y: f32,
@@ -1221,7 +1221,7 @@ test "fmt.format" {
         };
 
         var buf1: [32]u8 = undefined;
-        var value = Vec2{
+        var value = Vec2.{
             .x = 10.2,
             .y = 2.22,
         };
@@ -1234,12 +1234,12 @@ test "fmt.format" {
     }
     //struct format
     {
-        const S = struct {
+        const S = struct.{
             a: u32,
             b: error,
         };
 
-        const inst = S{
+        const inst = S.{
             .a = 456,
             .b = error.Unused,
         };
@@ -1248,24 +1248,24 @@ test "fmt.format" {
     }
     //union format
     {
-        const TU = union(enum) {
+        const TU = union(enum).{
             float: f32,
             int: u32,
         };
 
-        const UU = union {
+        const UU = union.{
             float: f32,
             int: u32,
         };
 
-        const EU = extern union {
+        const EU = extern union.{
             float: f32,
             int: u32,
         };
 
-        const tu_inst = TU{ .int = 123 };
-        const uu_inst = UU{ .int = 456 };
-        const eu_inst = EU{ .float = 321.123 };
+        const tu_inst = TU.{ .int = 123 };
+        const uu_inst = UU.{ .int = 456 };
+        const eu_inst = EU.{ .float = 321.123 };
 
         try testFmt("TU{ .int = 123 }", "{}", tu_inst);
 
@@ -1278,7 +1278,7 @@ test "fmt.format" {
     }
     //enum format
     {
-        const E = enum {
+        const E = enum.{
             One,
             Two,
             Three,

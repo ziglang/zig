@@ -7,12 +7,12 @@ const math = std.math;
 const mem = std.mem;
 const assert = std.debug.assert;
 
-pub const FloatDecimal = struct {
+pub const FloatDecimal = struct.{
     digits: []u8,
     exp: i32,
 };
 
-pub const RoundMode = enum {
+pub const RoundMode = enum.{
     // Round only the fractional portion (e.g. 1234.23 has precision 2)
     Decimal,
     // Round the entire whole/fractional portion (e.g. 1.23423e3 has precision 5)
@@ -86,7 +86,7 @@ pub fn errol3(value: f64, buffer: []u8) FloatDecimal {
         const data = enum3_data[i];
         const digits = buffer[1 .. data.str.len + 1];
         mem.copy(u8, digits, data.str);
-        return FloatDecimal{
+        return FloatDecimal.{
             .digits = digits,
             .exp = data.exp,
         };
@@ -135,11 +135,11 @@ fn errol3u(val: f64, buffer: []u8) FloatDecimal {
     }
 
     // compute boundaries
-    var high = HP{
+    var high = HP.{
         .val = mid.val,
         .off = mid.off + (fpnext(val) - val) * lten * ten / 2.0,
     };
-    var low = HP{
+    var low = HP.{
         .val = mid.val,
         .off = mid.off + (fpprev(val) - val) * lten * ten / 2.0,
     };
@@ -191,7 +191,7 @@ fn errol3u(val: f64, buffer: []u8) FloatDecimal {
     buffer[buf_index] = mdig + '0';
     buf_index += 1;
 
-    return FloatDecimal{
+    return FloatDecimal.{
         .digits = buffer[1..buf_index],
         .exp = exp,
     };
@@ -229,7 +229,7 @@ fn hpProd(in: *const HP, val: f64) HP {
     const p = in.val * val;
     const e = ((hi * hi2 - p) + lo * hi2 + hi * lo2) + lo * lo2;
 
-    return HP{
+    return HP.{
         .val = p,
         .off = in.off * val + e,
     };
@@ -342,7 +342,7 @@ fn errolInt(val: f64, buffer: []u8) FloatDecimal {
         buf_index += 1;
     }
 
-    return FloatDecimal{
+    return FloatDecimal.{
         .digits = buffer[0..buf_index],
         .exp = @intCast(i32, buf_index) + mi,
     };
@@ -401,7 +401,7 @@ fn errolFixed(val: f64, buffer: []u8) FloatDecimal {
 
     buffer[j] = 0;
 
-    return FloatDecimal{
+    return FloatDecimal.{
         .digits = buffer[0..j],
         .exp = exp,
     };
@@ -415,7 +415,7 @@ fn fpprev(val: f64) f64 {
     return @bitCast(f64, @bitCast(u64, val) -% 1);
 }
 
-pub const c_digits_lut = []u8{
+pub const c_digits_lut = []u8.{
     '0', '0', '0', '1', '0', '2', '0', '3', '0', '4', '0', '5', '0', '6',
     '0', '7', '0', '8', '0', '9', '1', '0', '1', '1', '1', '2', '1', '3',
     '1', '4', '1', '5', '1', '6', '1', '7', '1', '8', '1', '9', '2', '0',

@@ -297,7 +297,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\}
         \\
         \\export fn main() c_int {
-        \\    var array = []u32{ 1, 7, 3, 2, 0, 9, 4, 8, 6, 5 };
+        \\    var array = []u32.{ 1, 7, 3, 2, 0, 9, 4, 8, 6, 5 };
         \\
         \\    c.qsort(@ptrCast(?*c_void, array[0..].ptr), @intCast(c_ulong, array.len), @sizeOf(i32), compare_fn);
         \\
@@ -341,21 +341,21 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.add("same named methods in incomplete struct",
         \\const io = @import("std").io;
         \\
-        \\const Foo = struct {
+        \\const Foo = struct.{
         \\    field1: Bar,
         \\
         \\    fn method(a: *const Foo) bool { return true; }
         \\};
         \\
-        \\const Bar = struct {
+        \\const Bar = struct.{
         \\    field2: i32,
         \\
         \\    fn method(b: *const Bar) bool { return true; }
         \\};
         \\
         \\pub fn main() void {
-        \\    const bar = Bar {.field2 = 13,};
-        \\    const foo = Foo {.field1 = bar,};
+        \\    const bar = Bar.{.field2 = 13,};
+        \\    const foo = Foo.{.field1 = bar,};
         \\    const stdout = &(io.getStdOut() catch unreachable).outStream().stream;
         \\    if (!foo.method()) {
         \\        stdout.print("BAD\n") catch unreachable;
@@ -475,7 +475,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\
         );
 
-        tc.setCommandLineArgs([][]const u8{
+        tc.setCommandLineArgs([][]const u8.{
             "first arg",
             "'a' 'b' \\",
             "bare",
@@ -516,7 +516,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\
         );
 
-        tc.setCommandLineArgs([][]const u8{
+        tc.setCommandLineArgs([][]const u8.{
             "first arg",
             "'a' 'b' \\",
             "bare",

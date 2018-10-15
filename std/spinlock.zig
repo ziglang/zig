@@ -4,10 +4,10 @@ const AtomicOrder = builtin.AtomicOrder;
 const AtomicRmwOp = builtin.AtomicRmwOp;
 const assert = std.debug.assert;
 
-pub const SpinLock = struct {
+pub const SpinLock = struct.{
     lock: u8, // TODO use a bool or enum
 
-    pub const Held = struct {
+    pub const Held = struct.{
         spinlock: *SpinLock,
 
         pub fn release(self: Held) void {
@@ -16,12 +16,12 @@ pub const SpinLock = struct {
     };
 
     pub fn init() SpinLock {
-        return SpinLock{ .lock = 0 };
+        return SpinLock.{ .lock = 0 };
     }
 
     pub fn acquire(self: *SpinLock) Held {
         while (@atomicRmw(u8, &self.lock, builtin.AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst) != 0) {}
-        return Held{ .spinlock = self };
+        return Held.{ .spinlock = self };
     }
 };
 

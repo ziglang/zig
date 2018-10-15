@@ -48,7 +48,7 @@ test "switch on enum" {
     const fruit = Fruit.Orange;
     nonConstSwitchOnEnum(fruit);
 }
-const Fruit = enum {
+const Fruit = enum.{
     Apple,
     Orange,
     Banana,
@@ -73,7 +73,7 @@ fn nonConstSwitch(foo: SwitchStatmentFoo) void {
     };
     assert(val == 3);
 }
-const SwitchStatmentFoo = enum {
+const SwitchStatmentFoo = enum.{
     A,
     B,
     C,
@@ -81,11 +81,11 @@ const SwitchStatmentFoo = enum {
 };
 
 test "switch prong with variable" {
-    switchProngWithVarFn(SwitchProngWithVarEnum{ .One = 13 });
-    switchProngWithVarFn(SwitchProngWithVarEnum{ .Two = 13.0 });
-    switchProngWithVarFn(SwitchProngWithVarEnum{ .Meh = {} });
+    switchProngWithVarFn(SwitchProngWithVarEnum.{ .One = 13 });
+    switchProngWithVarFn(SwitchProngWithVarEnum.{ .Two = 13.0 });
+    switchProngWithVarFn(SwitchProngWithVarEnum.{ .Meh = {} });
 }
-const SwitchProngWithVarEnum = union(enum) {
+const SwitchProngWithVarEnum = union(enum).{
     One: i32,
     Two: f32,
     Meh: void,
@@ -110,7 +110,7 @@ test "switch on enum using pointer capture" {
 }
 
 fn testSwitchEnumPtrCapture() void {
-    var value = SwitchProngWithVarEnum{ .One = 1234 };
+    var value = SwitchProngWithVarEnum.{ .One = 1234 };
     switch (value) {
         SwitchProngWithVarEnum.One => |*x| x.* += 1,
         else => unreachable,
@@ -133,13 +133,13 @@ fn returnsFive() i32 {
     return 5;
 }
 
-const Number = union(enum) {
+const Number = union(enum).{
     One: u64,
     Two: u8,
     Three: f32,
 };
 
-const number = Number{ .Three = 1.23 };
+const number = Number.{ .Three = 1.23 };
 
 fn returnsFalse() bool {
     switch (number) {

@@ -7,14 +7,14 @@ const AtomicOrder = builtin.AtomicOrder;
 /// Thread-safe initialization of global data.
 /// TODO use a mutex instead of a spinlock
 pub fn lazyInit(comptime T: type) LazyInit(T) {
-    return LazyInit(T){
+    return LazyInit(T).{
         .data = undefined,
         .state = 0,
     };
 }
 
 fn LazyInit(comptime T: type) type {
-    return struct {
+    return struct.{
         state: u8, // TODO make this an enum
         data: Data,
 

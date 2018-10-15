@@ -8,7 +8,7 @@ const math = std.math;
 const assert = std.debug.assert;
 
 fn modf_result(comptime T: type) type {
-    return struct {
+    return struct.{
         fpart: T,
         ipart: T,
     };
