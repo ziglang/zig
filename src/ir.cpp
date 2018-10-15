@@ -9562,7 +9562,6 @@ static IrResultLocation *create_alloca_result_loc(IrAnalyze *ira, ZigType *ty, b
         IrResultLocationAlloca *alloca_loc = allocate<IrResultLocationAlloca>(1);
         alloca_loc->base.id = IrResultLocationIdAlloca;
         alloca_loc->base.from_call = from_call;
-        if (from_call && handle_is_ptr(ty)) alloca_loc->base.sret = true;
         alloca_loc->ty = ty;
         fn_entry->result_loc_alloca_list.append(alloca_loc);
         return &alloca_loc->base;
@@ -9575,7 +9574,6 @@ static IrResultLocation *ir_analyze_result_location(IrAnalyze *ira, IrResultLoca
 {
     if (result_location != nullptr) {
         result_location->from_call = from_call;
-        if (from_call && handle_is_ptr(ty)) result_location->sret = true;
         if (result_location->id == IrResultLocationIdLVal) {
             IrResultLocationLVal *lval_loc = reinterpret_cast<IrResultLocationLVal *>(result_location);
             if (lval_loc->parent_instruction->value.special == ConstValSpecialStatic &&
@@ -9593,7 +9591,6 @@ static IrResultLocation *ir_analyze_result_location(IrAnalyze *ira, IrResultLoca
             IrResultLocationVar *new_var_loc = allocate<IrResultLocationVar>(1);
             new_var_loc->base.id = IrResultLocationIdVar;
             new_var_loc->base.from_call = from_call;
-            if (from_call && handle_is_ptr(ty)) new_var_loc->base.sret = true;
             new_var_loc->var = var_loc->var;
             while (new_var_loc->var->next_var != nullptr) {
                 new_var_loc->var = new_var_loc->var->next_var;
@@ -9962,7 +9959,7 @@ static IrInstruction *ir_analyze_maybe_wrap(IrAnalyze *ira, IrInstruction *sourc
     // OptionalWrap result location value to the result location stack.
     IrResultLocation *result_location = ir_get_result_location(value);
     if (result_location != nullptr) {
-        if (handle_is_ptr(value->value.type) && result_location->from_call) {
+        if (result_location->from_call) {
             IrResultLocationOptionalUnwrap *new_result_location = allocate<IrResultLocationOptionalUnwrap>(1);
             new_result_location->base.id = IrResultLocationIdOptionalUnwrap;
             new_result_location->base.parent = result_location;
@@ -10012,7 +10009,7 @@ static IrInstruction *ir_analyze_err_wrap_payload(IrAnalyze *ira, IrInstruction 
 
     IrResultLocation *result_location = ir_get_result_location(value);
     if (result_location != nullptr) {
-        if (handle_is_ptr(value->value.type) && result_location->from_call) {
+        if (result_location->from_call) {
             IrResultLocationErrorUnionPayload *new_result_location = allocate<IrResultLocationErrorUnionPayload>(1);
             new_result_location->base.id = IrResultLocationIdErrorUnionPayload;
             new_result_location->base.parent = result_location;

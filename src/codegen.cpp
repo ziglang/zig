@@ -1882,23 +1882,7 @@ static LLVMValueRef gen_assign(CodeGen *g, LLVMValueRef ptr, ZigType *ptr_type,
         IrInstruction *value)
 {
     IrResultLocation *result_location = ir_get_result_location(value);
-    bool elide_copy;
-    if (result_location != nullptr) {
-        switch (result_location->id) {
-            case IrResultLocationIdAlloca:
-                elide_copy = false;
-                break;
-            case IrResultLocationIdLVal:
-            case IrResultLocationIdVar:
-            case IrResultLocationIdRet:
-            case IrResultLocationIdOptionalUnwrap:
-            case IrResultLocationIdErrorUnionPayload:
-                elide_copy = handle_is_ptr(value->value.type) && result_location->from_call;
-                break;
-        }
-    } else {
-        elide_copy = false;
-    }
+    bool elide_copy = result_location != nullptr && result_location->from_call;
 
     if (elide_copy)
         return nullptr;
@@ -3585,11 +3569,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     bool prefix_arg_err_ret_stack = get_prefix_arg_err_ret_stack(g, fn_type_id);
     bool is_var_args = fn_type_id->is_var_args;
 
-    LLVMValueRef tmp_ptr;
-    if (first_arg_ret || instruction->is_async || handle_is_ptr(src_return_type)) {
-        tmp_ptr = gen_result_location(g, instruction->result_location);
-        assert(tmp_ptr != nullptr);
-    }
+    LLVMValueRef tmp_ptr = gen_result_location(g, instruction->result_location);
 
     ZigList<LLVMValueRef> gen_param_values = {};
     if (first_arg_ret) {
@@ -3656,7 +3636,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     } else if (first_arg_ret) {
         set_call_instr_sret(g, result);
         return tmp_ptr;
-    } else if (handle_is_ptr(src_return_type)) {
+    } else if (tmp_ptr != nullptr) {
         auto store_instr = LLVMBuildStore(g->builder, result, tmp_ptr);
         LLVMSetAlignment(store_instr, LLVMGetAlignment(tmp_ptr));
         return tmp_ptr;

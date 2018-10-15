@@ -2044,8 +2044,6 @@ struct IrResultLocation {
     IrResultLocation *parent;
     IrResultLocationId id;
     bool from_call;
-    bool sret;
-    bool copy_generated;
 };
 
 struct IrResultLocationVar {
