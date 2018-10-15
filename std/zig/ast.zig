@@ -599,6 +599,7 @@ pub const Node = struct.{
         kind_token: TokenIndex,
         init_arg_expr: InitArg,
         fields_and_decls: DeclList,
+        period_token: TokenIndex,
         lbrace_token: TokenIndex,
         rbrace_token: TokenIndex,
 

@@ -231,7 +231,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 switch (token_ptr.id) {
                     Token.Id.Keyword_use => {
                         if (ctx.extern_export_inline_token) |annotated_token| {
-                            ((try tree.errors.addOne())).* = Error.{ .InvalidToken = Error.InvalidToken.{ .token = annotated_token.index } };
+                            try tree.errors.push(Error.{ .InvalidToken = Error.InvalidToken.{ .token = annotated_token.index } });
                             return tree;
                         }
 
@@ -257,7 +257,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     Token.Id.Keyword_var, Token.Id.Keyword_const => {
                         if (ctx.extern_export_inline_token) |annotated_token| {
                             if (annotated_token.ptr.id == Token.Id.Keyword_inline) {
-                                ((try tree.errors.addOne())).* = Error.{ .InvalidToken = Error.InvalidToken.{ .token = annotated_token.index } };
+                                try tree.errors.push(Error.{ .InvalidToken = Error.InvalidToken.{ .token = annotated_token.index } });
                                 return tree;
                             }
                         }
@@ -333,7 +333,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         }
                     },
                     else => {
-                        ((try tree.errors.addOne())).* = Error.{ .ExpectedVarDeclOrFn = Error.ExpectedVarDeclOrFn.{ .token = token_index } };
+                        try tree.errors.push(Error.{ .ExpectedVarDeclOrFn = Error.ExpectedVarDeclOrFn.{ .token = token_index } });
                         return tree;
                     },
                 }
@@ -396,12 +396,13 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     .kind_token = switch (token_ptr.id) {
                         Token.Id.Keyword_struct, Token.Id.Keyword_union, Token.Id.Keyword_enum => token_index,
                         else => {
-                            ((try tree.errors.addOne())).* = Error.{ .ExpectedAggregateKw = Error.ExpectedAggregateKw.{ .token = token_index } };
+                            try tree.errors.push(Error.{ .ExpectedAggregateKw = Error.ExpectedAggregateKw.{ .token = token_index } });
                             return tree;
                         },
                     },
                     .init_arg_expr = ast.Node.ContainerDecl.InitArg.None,
                     .fields_and_decls = ast.Node.ContainerDecl.DeclList.init(arena),
+                    .period_token = undefined,
                     .lbrace_token = undefined,
                     .rbrace_token = undefined,
                 });
@@ -412,6 +413,12 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     .ExpectTokenSave = ExpectTokenSave.{
                         .id = Token.Id.LBrace,
                         .ptr = &node.lbrace_token,
+                    },
+                });
+                try stack.append(State.{
+                    .ExpectTokenSave = ExpectTokenSave.{
+                        .id = Token.Id.Period,
+                        .ptr = &node.period_token,
                     },
                 });
                 try stack.append(State.{ .ContainerInitArgStart = node });
@@ -568,7 +575,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     },
                     Token.Id.RBrace => {
                         if (comments != null) {
-                            ((try tree.errors.addOne())).* = Error.{ .UnattachedDocComment = Error.UnattachedDocComment.{ .token = token_index } };
+                            try tree.errors.push(Error.{ .UnattachedDocComment = Error.UnattachedDocComment.{ .token = token_index } });
                             return tree;
                         }
                         container_decl.rbrace_token = token_index;
@@ -653,7 +660,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     else => {
-                        ((try tree.errors.addOne())).* = Error.{ .ExpectedEqOrSemi = Error.ExpectedEqOrSemi.{ .token = token_index } };
+                        try tree.errors.push(Error.{ .ExpectedEqOrSemi = Error.ExpectedEqOrSemi.{ .token = token_index } });
                         return tree;
                     },
                 }
@@ -663,12 +670,12 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 const semicolon_token = nextToken(&tok_it, &tree);
 
                 if (semicolon_token.ptr.id != Token.Id.Semicolon) {
-                    ((try tree.errors.addOne())).* = Error.{
+                    try tree.errors.push(Error.{
                         .ExpectedToken = Error.ExpectedToken.{
                             .token = semicolon_token.index,
                             .expected_id = Token.Id.Semicolon,
                         },
-                    };
+                    });
                     return tree;
                 }
 
@@ -703,7 +710,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     },
                     Token.Id.Semicolon => continue,
                     else => {
-                        ((try tree.errors.addOne())).* = Error.{ .ExpectedSemiOrLBrace = Error.ExpectedSemiOrLBrace.{ .token = token_index } };
+                        try tree.errors.push(Error.{ .ExpectedSemiOrLBrace = Error.ExpectedSemiOrLBrace.{ .token = token_index } });
                         return tree;
                     },
                 }
@@ -894,7 +901,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     },
                     else => {
                         if (ctx.opt_ctx != OptionalCtx.Optional) {
-                            ((try tree.errors.addOne())).* = Error.{ .ExpectedLabelable = Error.ExpectedLabelable.{ .token = token_index } };
+                            try tree.errors.push(Error.{ .ExpectedLabelable = Error.ExpectedLabelable.{ .token = token_index } });
                             return tree;
                         }
 
@@ -932,7 +939,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     },
                     else => {
                         if (ctx.opt_ctx != OptionalCtx.Optional) {
-                            ((try tree.errors.addOne())).* = Error.{ .ExpectedInlinable = Error.ExpectedInlinable.{ .token = token_index } };
+                            try tree.errors.push(Error.{ .ExpectedInlinable = Error.ExpectedInlinable.{ .token = token_index } });
                             return tree;
                         }
 
@@ -1176,7 +1183,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     else => {
-                        ((try tree.errors.addOne())).* = Error.{ .ExpectedAsmOutputReturnOrType = Error.ExpectedAsmOutputReturnOrType.{ .token = token_index } };
+                        try tree.errors.push(Error.{ .ExpectedAsmOutputReturnOrType = Error.ExpectedAsmOutputReturnOrType.{ .token = token_index } });
                         return tree;
                     },
                 }
@@ -1462,7 +1469,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     else => {
-                        ((try tree.errors.addOne())).* = Error.{ .InvalidToken = Error.InvalidToken.{ .token = token.index } };
+                        try tree.errors.push(Error.{ .InvalidToken = Error.InvalidToken.{ .token = token.index } });
                     },
                 }
             },
@@ -1497,11 +1504,11 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                             continue;
                         }
 
-                        ((try tree.errors.addOne())).* = Error.{ .ExpectedCall = Error.ExpectedCall.{ .node = node } };
+                        try tree.errors.push(Error.{ .ExpectedCall = Error.ExpectedCall.{ .node = node } });
                         return tree;
                     },
                     else => {
-                        ((try tree.errors.addOne())).* = Error.{ .ExpectedCallOrFnProto = Error.ExpectedCallOrFnProto.{ .node = node } };
+                        try tree.errors.push(Error.{ .ExpectedCallOrFnProto = Error.ExpectedCallOrFnProto.{ .node = node } });
                         return tree;
                     },
                 }
@@ -1566,7 +1573,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     else => {
-                        ((try tree.errors.addOne())).* = Error.{ .ExpectedSliceOrRBracket = Error.ExpectedSliceOrRBracket.{ .token = token_index } };
+                        try tree.errors.push(Error.{ .ExpectedSliceOrRBracket = Error.ExpectedSliceOrRBracket.{ .token = token_index } });
                         return tree;
                     },
                 }
@@ -1600,7 +1607,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     Token.Id.Keyword_align => {
                         stack.append(state) catch unreachable;
                         if (addr_of_info.align_info != null) {
-                            ((try tree.errors.addOne())).* = Error.{ .ExtraAlignQualifier = Error.ExtraAlignQualifier.{ .token = token_index } };
+                            try tree.errors.push(Error.{ .ExtraAlignQualifier = Error.ExtraAlignQualifier.{ .token = token_index } });
                             return tree;
                         }
                         addr_of_info.align_info = ast.Node.PrefixOp.PtrInfo.Align.{
@@ -1618,7 +1625,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     Token.Id.Keyword_const => {
                         stack.append(state) catch unreachable;
                         if (addr_of_info.const_token != null) {
-                            ((try tree.errors.addOne())).* = Error.{ .ExtraConstQualifier = Error.ExtraConstQualifier.{ .token = token_index } };
+                            try tree.errors.push(Error.{ .ExtraConstQualifier = Error.ExtraConstQualifier.{ .token = token_index } });
                             return tree;
                         }
                         addr_of_info.const_token = token_index;
@@ -1627,7 +1634,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     Token.Id.Keyword_volatile => {
                         stack.append(state) catch unreachable;
                         if (addr_of_info.volatile_token != null) {
-                            ((try tree.errors.addOne())).* = Error.{ .ExtraVolatileQualifier = Error.ExtraVolatileQualifier.{ .token = token_index } };
+                            try tree.errors.push(Error.{ .ExtraVolatileQualifier = Error.ExtraVolatileQualifier.{ .token = token_index } });
                             return tree;
                         }
                         addr_of_info.volatile_token = token_index;
@@ -1655,9 +1662,9 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     },
                     Token.Id.RParen => continue,
                     else => {
-                        (try tree.errors.addOne()).* = Error.{
+                        try tree.errors.push(Error.{
                             .ExpectedColonOrRParen = Error.ExpectedColonOrRParen.{ .token = token.index },
-                        };
+                        });
                         return tree;
                     },
                 }
@@ -1669,12 +1676,12 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 const token_ptr = token.ptr;
                 if (token_ptr.id != Token.Id.Pipe) {
                     if (opt_ctx != OptionalCtx.Optional) {
-                        ((try tree.errors.addOne())).* = Error.{
+                        try tree.errors.push(Error.{
                             .ExpectedToken = Error.ExpectedToken.{
                                 .token = token_index,
                                 .expected_id = Token.Id.Pipe,
                             },
-                        };
+                        });
                         return tree;
                     }
 
@@ -1705,12 +1712,12 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 const token_ptr = token.ptr;
                 if (token_ptr.id != Token.Id.Pipe) {
                     if (opt_ctx != OptionalCtx.Optional) {
-                        ((try tree.errors.addOne())).* = Error.{
+                        try tree.errors.push(Error.{
                             .ExpectedToken = Error.ExpectedToken.{
                                 .token = token_index,
                                 .expected_id = Token.Id.Pipe,
                             },
-                        };
+                        });
                         return tree;
                     }
 
@@ -1748,12 +1755,12 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 const token_ptr = token.ptr;
                 if (token_ptr.id != Token.Id.Pipe) {
                     if (opt_ctx != OptionalCtx.Optional) {
-                        ((try tree.errors.addOne())).* = Error.{
+                        try tree.errors.push(Error.{
                             .ExpectedToken = Error.ExpectedToken.{
                                 .token = token_index,
                                 .expected_id = Token.Id.Pipe,
                             },
-                        };
+                        });
                         return tree;
                     }
 
@@ -2177,7 +2184,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
 
             State.CurlySuffixExpressionBegin => |opt_ctx| {
                 stack.append(State.{ .CurlySuffixExpressionEnd = opt_ctx }) catch unreachable;
-                try stack.append(State.{ .IfToken = Token.Id.LBrace });
+                try stack.append(State.{ .If2Token = []Token.Id.{Token.Id.Period, Token.Id.LBrace} });
                 try stack.append(State.{ .TypeExprBegin = opt_ctx });
                 continue;
             },
@@ -2378,17 +2385,23 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                             stack.append(State.{ .SuffixOpExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
                             continue;
                         }
-                        const node = try arena.create(ast.Node.InfixOp.{
-                            .base = ast.Node.{ .id = ast.Node.Id.InfixOp },
-                            .lhs = lhs,
-                            .op_token = token_index,
-                            .op = ast.Node.InfixOp.Op.Period,
-                            .rhs = undefined,
-                        });
-                        opt_ctx.store(&node.base);
-
-                        stack.append(State.{ .SuffixOpExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
-                        try stack.append(State.{ .Identifier = OptionalCtx.{ .Required = &node.rhs } });
+                        if (eatToken(&tok_it, &tree, Token.Id.Identifier)) |ident_token| {
+                            const ident = try arena.create(ast.Node.Identifier.{
+                                .base = ast.Node.{ .id = ast.Node.Id.Identifier },
+                                .token = ident_token,
+                            });
+                            const node = try arena.create(ast.Node.InfixOp.{
+                                .base = ast.Node.{ .id = ast.Node.Id.InfixOp },
+                                .lhs = lhs,
+                                .op_token = token_index,
+                                .op = ast.Node.InfixOp.Op.Period,
+                                .rhs = &ident.base,
+                            });
+                            opt_ctx.store(&node.base);
+                            stack.append(State.{ .SuffixOpExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
+                            continue;
+                        }
+                        prevToken(&tok_it, &tree);
                         continue;
                     },
                     else => {
@@ -2655,7 +2668,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         if (!try parseBlockExpr(&stack, arena, opt_ctx, token.ptr, token.index)) {
                             prevToken(&tok_it, &tree);
                             if (opt_ctx != OptionalCtx.Optional) {
-                                ((try tree.errors.addOne())).* = Error.{ .ExpectedPrimaryExpr = Error.ExpectedPrimaryExpr.{ .token = token.index } };
+                                try tree.errors.push(Error.{ .ExpectedPrimaryExpr = Error.ExpectedPrimaryExpr.{ .token = token.index } });
                                 return tree;
                             }
                         }
@@ -2665,7 +2678,13 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.ErrorTypeOrSetDecl => |ctx| {
+                if (eatToken(&tok_it, &tree, Token.Id.Period) == null) {
+                    _ = try createToCtxLiteral(arena, ctx.opt_ctx, ast.Node.ErrorType, ctx.error_token);
+                    continue;
+                }
+
                 if (eatToken(&tok_it, &tree, Token.Id.LBrace) == null) {
+                    prevToken(&tok_it, &tree);
                     _ = try createToCtxLiteral(arena, ctx.opt_ctx, ast.Node.ErrorType, ctx.error_token);
                     continue;
                 }
@@ -2693,7 +2712,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 opt_ctx.store((try parseStringLiteral(arena, &tok_it, token_ptr, token_index, &tree)) orelse {
                     prevToken(&tok_it, &tree);
                     if (opt_ctx != OptionalCtx.Optional) {
-                        ((try tree.errors.addOne())).* = Error.{ .ExpectedPrimaryExpr = Error.ExpectedPrimaryExpr.{ .token = token_index } };
+                        try tree.errors.push(Error.{ .ExpectedPrimaryExpr = Error.ExpectedPrimaryExpr.{ .token = token_index } });
                         return tree;
                     }
 
@@ -2711,12 +2730,12 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     const token = nextToken(&tok_it, &tree);
                     const token_index = token.index;
                     const token_ptr = token.ptr;
-                    ((try tree.errors.addOne())).* = Error.{
+                    try tree.errors.push(Error.{
                         .ExpectedToken = Error.ExpectedToken.{
                             .token = token_index,
                             .expected_id = Token.Id.Identifier,
                         },
-                    };
+                    });
                     return tree;
                 }
             },
@@ -2727,12 +2746,12 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 const ident_token_index = ident_token.index;
                 const ident_token_ptr = ident_token.ptr;
                 if (ident_token_ptr.id != Token.Id.Identifier) {
-                    ((try tree.errors.addOne())).* = Error.{
+                    try tree.errors.push(Error.{
                         .ExpectedToken = Error.ExpectedToken.{
                             .token = ident_token_index,
                             .expected_id = Token.Id.Identifier,
                         },
-                    };
+                    });
                     return tree;
                 }
 
@@ -2750,35 +2769,44 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 if (token_ptr.id != token_id) {
-                    ((try tree.errors.addOne())).* = Error.{
+                    try tree.errors.push(Error.{
                         .ExpectedToken = Error.ExpectedToken.{
                             .token = token_index,
                             .expected_id = token_id,
                         },
-                    };
+                    });
                     return tree;
                 }
                 continue;
             },
             State.ExpectTokenSave => |expect_token_save| {
                 const token = nextToken(&tok_it, &tree);
-                const token_index = token.index;
-                const token_ptr = token.ptr;
-                if (token_ptr.id != expect_token_save.id) {
-                    ((try tree.errors.addOne())).* = Error.{
+                if (token.ptr.id != expect_token_save.id) {
+                    try tree.errors.push(Error.{
                         .ExpectedToken = Error.ExpectedToken.{
-                            .token = token_index,
+                            .token = token.index,
                             .expected_id = expect_token_save.id,
                         },
-                    };
+                    });
                     return tree;
                 }
-                expect_token_save.ptr.* = token_index;
+                expect_token_save.ptr.* = token.index;
                 continue;
             },
             State.IfToken => |token_id| {
                 if (eatToken(&tok_it, &tree, token_id)) |_| {
                     continue;
+                }
+
+                _ = stack.pop();
+                continue;
+            },
+            State.If2Token => |token_ids| {
+                if (eatToken(&tok_it, &tree, token_ids[0])) |_| {
+                    if (eatToken(&tok_it, &tree, token_ids[1])) |_| {
+                        continue;
+                    }
+                    prevToken(&tok_it, &tree);
                 }
 
                 _ = stack.pop();
@@ -3067,6 +3095,7 @@ const State = union(enum).{
     ErrorTag: **ast.Node,
 
     IfToken: Token.Id,
+    If2Token: [2]Token.Id,
     IfTokenSave: ExpectTokenSave,
     ExpectToken: Token.Id,
     ExpectTokenSave: ExpectTokenSave,
