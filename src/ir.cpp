@@ -9962,7 +9962,6 @@ static IrInstruction *ir_analyze_maybe_wrap(IrAnalyze *ira, IrInstruction *sourc
         if (result_location->from_call) {
             IrResultLocationOptionalUnwrap *new_result_location = allocate<IrResultLocationOptionalUnwrap>(1);
             new_result_location->base.id = IrResultLocationIdOptionalUnwrap;
-            new_result_location->base.parent = result_location;
             new_result_location->base.from_call = true;
             assert(result_location->child == nullptr);
             result_location->child = &new_result_location->base;
@@ -10012,7 +10011,6 @@ static IrInstruction *ir_analyze_err_wrap_payload(IrAnalyze *ira, IrInstruction 
         if (result_location->from_call) {
             IrResultLocationErrorUnionPayload *new_result_location = allocate<IrResultLocationErrorUnionPayload>(1);
             new_result_location->base.id = IrResultLocationIdErrorUnionPayload;
-            new_result_location->base.parent = result_location;
             new_result_location->base.from_call = true;
             assert(result_location->child == nullptr);
             result_location->child = &new_result_location->base;

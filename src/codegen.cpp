@@ -5199,12 +5199,6 @@ static LLVMValueRef ir_render_sqrt(CodeGen *g, IrExecutable *executable, IrInstr
 static LLVMValueRef ir_render_result_loc(CodeGen *g, IrExecutable *executable,
         IrInstructionResultLoc *instruction)
 {
-    // Generate the ancestor so that it caches our result
-    IrResultLocation *result_loc = instruction->result_location;
-    while (result_loc->parent != nullptr) {
-        result_loc = result_loc->parent;
-    }
-    gen_result_location(g, result_loc);
     return gen_result_location(g, instruction->result_location);
 }
 

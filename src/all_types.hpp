@@ -2041,7 +2041,6 @@ enum IrResultLocationId {
 
 struct IrResultLocation {
     IrResultLocation *child;
-    IrResultLocation *parent;
     IrResultLocationId id;
     bool from_call;
 };
