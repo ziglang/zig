@@ -1785,7 +1785,7 @@ static LLVMRealPredicate cmp_op_to_real_predicate(IrBinOp cmp_op) {
 }
 
 static LLVMValueRef gen_assign_raw(CodeGen *g, LLVMValueRef ptr, ZigType *ptr_type,
-        LLVMValueRef value, bool is_global_const)
+        LLVMValueRef value)
 {
     assert(ptr_type->id == ZigTypeIdPointer);
     ZigType *child_type = ptr_type->data.pointer.child_type;
@@ -1794,12 +1794,8 @@ static LLVMValueRef gen_assign_raw(CodeGen *g, LLVMValueRef ptr, ZigType *ptr_ty
         return nullptr;
 
     if (handle_is_ptr(child_type)) {
-        // If the handle is a pointer, the result location mechanism caused the value to be
-        // populated in place, and this assignment should be elided, unless this
-        // is a global constant.
-        if (!is_global_const)
+        if (ptr == value)
             return nullptr;
-
         assert(LLVMGetTypeKind(LLVMTypeOf(value)) == LLVMPointerTypeKind);
         assert(LLVMGetTypeKind(LLVMTypeOf(ptr)) == LLVMPointerTypeKind);
 
@@ -1880,6 +1876,34 @@ static LLVMValueRef ir_llvm_value(CodeGen *g, IrInstruction *instruction) {
         assert(instruction->llvm_value);
     }
     return instruction->llvm_value;
+}
+
+static LLVMValueRef gen_assign(CodeGen *g, LLVMValueRef ptr, ZigType *ptr_type,
+        IrInstruction *value)
+{
+    IrResultLocation *result_location = ir_get_result_location(value);
+    bool elide_copy;
+    if (result_location != nullptr) {
+        switch (result_location->id) {
+            case IrResultLocationIdAlloca:
+                elide_copy = false;
+                break;
+            case IrResultLocationIdLVal:
+            case IrResultLocationIdVar:
+            case IrResultLocationIdRet:
+            case IrResultLocationIdOptionalUnwrap:
+            case IrResultLocationIdErrorUnionPayload:
+                elide_copy = handle_is_ptr(value->value.type) && result_location->from_call;
+                break;
+        }
+    } else {
+        elide_copy = false;
+    }
+
+    if (elide_copy)
+        return nullptr;
+
+    return gen_assign_raw(g, ptr, ptr_type, ir_llvm_value(g, value));
 }
 
 ATTRIBUTE_NORETURN
@@ -2249,8 +2273,7 @@ static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrIns
 
     if (want_first_arg_sret(g, &g->cur_fn->type_entry->data.fn.fn_type_id)) {
         assert(g->cur_ret_ptr);
-        gen_assign_raw(g, g->cur_ret_ptr, get_pointer_to_type(g, return_type, false), value,
-                return_instruction->value->value.special == ConstValSpecialStatic);
+        gen_assign(g, g->cur_ret_ptr, get_pointer_to_type(g, return_type, false), return_instruction->value);
         LLVMBuildRetVoid(g->builder);
     } else if (handle_is_ptr(return_type)) {
         LLVMValueRef by_val_value = gen_load_untyped(g, value, 0, false, "");
@@ -3320,9 +3343,7 @@ static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable,
         assert(var->value->type == init_value->value.type);
         ZigType *var_ptr_type = get_pointer_to_type_extra(g, var->value->type, false, false,
                 PtrLenSingle, var->align_bytes, 0, 0);
-        bool is_global_const = init_value->value.special == ConstValSpecialStatic;
-        LLVMValueRef llvm_init_val = ir_llvm_value(g, init_value);
-        gen_assign_raw(g, var->value_ref, var_ptr_type, llvm_init_val, is_global_const);
+        gen_assign(g, var->value_ref, var_ptr_type, init_value);
     } else if (ir_want_runtime_safety(g, &decl_var_instruction->base)) {
         gen_undef_init(g, var->align_bytes, var->value->type, var->value_ref);
     }
@@ -3365,12 +3386,11 @@ static LLVMValueRef ir_render_store_ptr(CodeGen *g, IrExecutable *executable, Ir
     bool have_init_expr = !value_is_all_undef(&instruction->value->value);
     if (have_init_expr) {
         LLVMValueRef ptr = ir_llvm_value(g, instruction->ptr);
-        LLVMValueRef value = ir_llvm_value(g, instruction->value);
 
         assert(instruction->ptr->value.type->id == ZigTypeIdPointer);
         ZigType *ptr_type = instruction->ptr->value.type;
 
-        gen_assign_raw(g, ptr, ptr_type, value, instruction->value->value.special == ConstValSpecialStatic);
+        gen_assign(g, ptr, ptr_type, instruction->value);
 
         return nullptr;
     }
@@ -4320,7 +4340,7 @@ static LLVMValueRef ir_render_cmpxchg(CodeGen *g, IrExecutable *executable, IrIn
 
     LLVMValueRef payload_val = LLVMBuildExtractValue(g->builder, result_val, 0, "");
     LLVMValueRef val_ptr = LLVMBuildStructGEP(g->builder, result_loc, maybe_child_index, "");
-    gen_assign_raw(g, val_ptr, get_pointer_to_type(g, instruction->type, false), payload_val, false);
+    gen_assign_raw(g, val_ptr, get_pointer_to_type(g, instruction->type, false), payload_val);
 
     LLVMValueRef success_bit = LLVMBuildExtractValue(g->builder, result_val, 1, "");
     LLVMValueRef nonnull_bit = LLVMBuildNot(g->builder, success_bit, "");
@@ -4724,9 +4744,8 @@ static LLVMValueRef ir_render_maybe_wrap(CodeGen *g, IrExecutable *executable, I
         return LLVMConstInt(LLVMInt1Type(), 1, false);
     }
 
-    LLVMValueRef payload_val = ir_llvm_value(g, instruction->value);
     if (type_is_codegen_pointer(child_type)) {
-        return payload_val;
+        return ir_llvm_value(g, instruction->value);
     }
 
 
@@ -4734,7 +4753,7 @@ static LLVMValueRef ir_render_maybe_wrap(CodeGen *g, IrExecutable *executable, I
 
     LLVMValueRef val_ptr = LLVMBuildStructGEP(g->builder, result_loc, maybe_child_index, "");
     // child_type and instruction->value->value.type may differ by constness
-    gen_assign_raw(g, val_ptr, get_pointer_to_type(g, child_type, false), payload_val, false);
+    gen_assign(g, val_ptr, get_pointer_to_type(g, child_type, false), instruction->value);
     LLVMValueRef maybe_ptr = LLVMBuildStructGEP(g->builder, result_loc, maybe_null_index, "");
     gen_store_untyped(g, LLVMConstAllOnes(LLVMInt1Type()), maybe_ptr, 0, false);
 
@@ -4781,13 +4800,11 @@ static LLVMValueRef ir_render_err_wrap_payload(CodeGen *g, IrExecutable *executa
 
     LLVMValueRef result_loc = gen_result_location(g, instruction->result_location);
 
-    LLVMValueRef payload_val = ir_llvm_value(g, instruction->value);
-
     LLVMValueRef err_tag_ptr = LLVMBuildStructGEP(g->builder, result_loc, err_union_err_index, "");
     gen_store_untyped(g, ok_err_val, err_tag_ptr, 0, false);
 
     LLVMValueRef payload_ptr = LLVMBuildStructGEP(g->builder, result_loc, err_union_payload_index, "");
-    gen_assign_raw(g, payload_ptr, get_pointer_to_type(g, payload_type, false), payload_val, false);
+    gen_assign(g, payload_ptr, get_pointer_to_type(g, payload_type, false), instruction->value);
 
     return result_loc;
 }
@@ -4822,7 +4839,6 @@ static LLVMValueRef ir_render_struct_init(CodeGen *g, IrExecutable *executable, 
 
         LLVMValueRef field_ptr = LLVMBuildStructGEP(g->builder, result_loc,
                 (unsigned)type_struct_field->gen_index, "");
-        LLVMValueRef value = ir_llvm_value(g, field->value);
 
         uint32_t field_align_bytes = get_abi_alignment(g, type_struct_field->type_entry);
         uint32_t host_int_bytes = get_host_int_bytes(g, instruction->struct_type, type_struct_field);
@@ -4831,7 +4847,7 @@ static LLVMValueRef ir_render_struct_init(CodeGen *g, IrExecutable *executable, 
                 false, false, PtrLenSingle, field_align_bytes,
                 (uint32_t)type_struct_field->bit_offset_in_host, host_int_bytes);
 
-        gen_assign_raw(g, field_ptr, ptr_type, value, false);
+        gen_assign(g, field_ptr, ptr_type, field->value);
     }
     return result_loc;
 }
@@ -4868,9 +4884,8 @@ static LLVMValueRef ir_render_union_init(CodeGen *g, IrExecutable *executable, I
     }
 
     LLVMValueRef field_ptr = LLVMBuildBitCast(g->builder, uncasted_union_ptr, ptr_type->type_ref, "");
-    LLVMValueRef value = ir_llvm_value(g, instruction->init_value);
 
-    gen_assign_raw(g, field_ptr, ptr_type, value, false);
+    gen_assign(g, field_ptr, ptr_type, instruction->init_value);
 
     return result_loc;
 }
@@ -4887,13 +4902,12 @@ static LLVMValueRef ir_render_container_init_list(CodeGen *g, IrExecutable *exec
 
     ZigType *child_type = array_type->data.array.child_type;
     for (size_t i = 0; i < field_count; i += 1) {
-        LLVMValueRef elem_val = ir_llvm_value(g, instruction->items[i]);
         LLVMValueRef indices[] = {
             LLVMConstNull(g->builtin_types.entry_usize->type_ref),
             LLVMConstInt(g->builtin_types.entry_usize->type_ref, i, false),
         };
         LLVMValueRef elem_ptr = LLVMBuildInBoundsGEP(g->builder, tmp_array_ptr, indices, 2, "");
-        gen_assign_raw(g, elem_ptr, get_pointer_to_type(g, child_type, false), elem_val, false);
+        gen_assign(g, elem_ptr, get_pointer_to_type(g, child_type, false), instruction->items[i]);
     }
 
     return tmp_array_ptr;
@@ -5205,6 +5219,12 @@ static LLVMValueRef ir_render_sqrt(CodeGen *g, IrExecutable *executable, IrInstr
 static LLVMValueRef ir_render_result_loc(CodeGen *g, IrExecutable *executable,
         IrInstructionResultLoc *instruction)
 {
+    // Generate the ancestor so that it caches our result
+    IrResultLocation *result_loc = instruction->result_location;
+    while (result_loc->parent != nullptr) {
+        result_loc = result_loc->parent;
+    }
+    gen_result_location(g, result_loc);
     return gen_result_location(g, instruction->result_location);
 }
 

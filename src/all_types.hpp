@@ -2041,7 +2041,11 @@ enum IrResultLocationId {
 
 struct IrResultLocation {
     IrResultLocation *child;
+    IrResultLocation *parent;
     IrResultLocationId id;
+    bool from_call;
+    bool sret;
+    bool copy_generated;
 };
 
 struct IrResultLocationVar {
@@ -2368,6 +2372,7 @@ struct IrInstructionLoadPtr {
     IrInstruction base;
 
     IrInstruction *ptr;
+    IrResultLocation *result_location;
 };
 
 struct IrInstructionStorePtr {

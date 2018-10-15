@@ -24,4 +24,6 @@ ZigType *ir_analyze(CodeGen *g, IrExecutable *old_executable, IrExecutable *new_
 bool ir_has_side_effects(IrInstruction *instruction);
 ConstExprValue *const_ptr_pointee(CodeGen *codegen, ConstExprValue *const_val);
 
+IrResultLocation *ir_get_result_location(IrInstruction *base);
+
 #endif
