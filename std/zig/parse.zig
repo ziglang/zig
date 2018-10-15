@@ -2184,7 +2184,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
 
             State.CurlySuffixExpressionBegin => |opt_ctx| {
                 stack.append(State.{ .CurlySuffixExpressionEnd = opt_ctx }) catch unreachable;
-                try stack.append(State.{ .If2Token = []Token.Id.{Token.Id.Period, Token.Id.LBrace} });
+                try stack.append(State.{ .If2Token = []Token.Id.{ Token.Id.Period, Token.Id.LBrace } });
                 try stack.append(State.{ .TypeExprBegin = opt_ctx });
                 continue;
             },

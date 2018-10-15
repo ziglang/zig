@@ -4612,7 +4612,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "non-printable invalid character",
-        "\xff\xfe" ++
+        "\xff\xfe" ++            
             \\fn test() bool {\r
             \\    true\r
             \\}
