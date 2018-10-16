@@ -966,7 +966,8 @@ static void ir_print_check_runtime_scope(IrPrint *irp, IrInstructionCheckRuntime
 }
 
 static void ir_print_result_loc(IrPrint *irp, IrInstructionResultLoc *instruction) {
-    fprintf(irp->f, "resultloc (TODO print details)");
+    fprintf(irp->f, "resultloc ");
+    ir_print_other_instruction(irp, instruction->value);
 }
 
 static void ir_print_ptr_of_array_to_slice(IrPrint *irp, IrInstructionPtrOfArrayToSlice *instruction) {

@@ -1882,7 +1882,8 @@ static LLVMValueRef gen_assign(CodeGen *g, LLVMValueRef ptr, ZigType *ptr_type,
         IrInstruction *value)
 {
     IrResultLocation *result_location = ir_get_result_location(value);
-    bool elide_copy = result_location != nullptr && result_location->from_call;
+    bool elide_copy = value->id == IrInstructionIdResultLoc ||
+        (result_location != nullptr && result_location->from_call);
 
     if (elide_copy)
         return nullptr;
@@ -2881,6 +2882,22 @@ static LLVMValueRef gen_result_location_recur(CodeGen *g, IrResultLocation *base
             LLVMTypeRef err_type_ref = g->builtin_types.entry_global_error_set->type_ref;
             gen_store_untyped(g, LLVMConstInt(err_type_ref, 0, false), err_val_ptr, 0, false);
             loc->result = LLVMBuildStructGEP(g->builder, prev, err_union_payload_index, "");
+            return loc->result;
+        }
+        case IrResultLocationIdPtrOfArrayToSlice: {
+            IrResultLocationPtrOfArrayToSlice *loc = reinterpret_cast<IrResultLocationPtrOfArrayToSlice *>(base);
+            if (loc->result != nullptr)
+                return loc->result;
+            assert(prev != nullptr);
+            if (base->child != nullptr) {
+                prev = gen_result_location_recur(g, base->child, prev);
+            }
+
+            LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, prev, slice_len_index, "");
+            LLVMValueRef len_value = LLVMConstInt(g->builtin_types.entry_usize->type_ref, loc->len, false);
+            gen_store_untyped(g, len_value, len_field_ptr, 0, false);
+
+            loc->result = LLVMBuildStructGEP(g->builder, prev, slice_ptr_index, "");
             return loc->result;
         }
     }
@@ -5199,7 +5216,25 @@ static LLVMValueRef ir_render_sqrt(CodeGen *g, IrExecutable *executable, IrInstr
 static LLVMValueRef ir_render_result_loc(CodeGen *g, IrExecutable *executable,
         IrInstructionResultLoc *instruction)
 {
-    return gen_result_location(g, instruction->result_location);
+    // Generate the ancestor so that it caches our result
+    IrResultLocation *result_loc = instruction->result_location;
+    while (result_loc->parent != nullptr) {
+        result_loc = result_loc->parent;
+    }
+    LLVMValueRef ancestor_ptr = gen_result_location(g, result_loc);
+
+    LLVMValueRef ptr = gen_result_location(g, instruction->result_location);
+    if (instruction->result_location->child == nullptr && !instruction->result_location->from_call) {
+        IrInstructionResultLoc *ancestor = instruction;
+        while (ancestor->value->id == IrInstructionIdResultLoc) {
+            ancestor = reinterpret_cast<IrInstructionResultLoc *>(ancestor->value);
+        }
+
+        LLVMValueRef val = ir_llvm_value(g, ancestor->value);
+        LLVMValueRef bitcasted = LLVMBuildBitCast(g->builder, val, LLVMGetElementType(LLVMTypeOf(ancestor_ptr)), "");
+        gen_store_untyped(g, bitcasted, ancestor_ptr, 0, false);
+    }
+    return ptr;
 }
 
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {

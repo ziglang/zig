@@ -2037,10 +2037,12 @@ enum IrResultLocationId {
 
     IrResultLocationIdOptionalUnwrap,
     IrResultLocationIdErrorUnionPayload,
+    IrResultLocationIdPtrOfArrayToSlice,
 };
 
 struct IrResultLocation {
     IrResultLocation *child;
+    IrResultLocation *parent;
     IrResultLocationId id;
     bool from_call;
 };
@@ -2073,6 +2075,12 @@ struct IrResultLocationOptionalUnwrap {
 struct IrResultLocationErrorUnionPayload {
     IrResultLocation base;
     LLVMValueRef result;
+};
+
+struct IrResultLocationPtrOfArrayToSlice {
+    IrResultLocation base;
+    LLVMValueRef result;
+    uint64_t len;
 };
 
 enum IrInstructionId {
@@ -3333,6 +3341,7 @@ struct IrInstructionCheckRuntimeScope {
 struct IrInstructionResultLoc {
     IrInstruction base;
 
+    IrInstruction *value;
     IrResultLocation *result_location;
 };
 

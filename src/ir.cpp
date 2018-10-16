@@ -2773,10 +2773,13 @@ static IrInstruction *ir_build_check_runtime_scope(IrBuilder *irb, Scope *scope,
 }
 
 static IrInstruction *ir_build_result_loc(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        IrResultLocation *result_location)
+        IrResultLocation *result_location, IrInstruction *value)
 {
     IrInstructionResultLoc *instruction = ir_build_instruction<IrInstructionResultLoc>(irb, scope, source_node);
     instruction->result_location = result_location;
+    instruction->value = value;
+
+    ir_ref_instruction(value, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -9640,12 +9643,25 @@ static IrInstruction *ir_resolve_ptr_of_array_to_slice(IrAnalyze *ira, IrInstruc
     }
 
     IrResultLocation *result_location = ir_get_result_location(value);
-    if (result_location == nullptr) result_location = create_alloca_result_loc(ira, wanted_type, false);
-
-    IrInstruction *result = ir_build_ptr_of_array_to_slice(&ira->new_irb, source_instr->scope,
-            source_instr->source_node, value, result_location);
-    result->value.type = wanted_type;
-    return result;
+    if (result_location == nullptr) {
+        result_location = create_alloca_result_loc(ira, wanted_type, false);
+        IrInstruction *result = ir_build_ptr_of_array_to_slice(&ira->new_irb, source_instr->scope,
+                source_instr->source_node, value, result_location);
+        result->value.type = wanted_type;
+        return result;
+    } else {
+        IrResultLocationPtrOfArrayToSlice *new_result_location = allocate<IrResultLocationPtrOfArrayToSlice>(1);
+        new_result_location->base.id = IrResultLocationIdPtrOfArrayToSlice;
+        new_result_location->base.parent = result_location;
+        new_result_location->base.from_call = result_location->from_call;
+        new_result_location->len = array_type->data.array.len;
+        assert(result_location->child == nullptr);
+        result_location->child = &new_result_location->base;
+        IrInstruction *result = ir_build_result_loc(&ira->new_irb, source_instr->scope,
+                source_instr->source_node, &new_result_location->base, value);
+        result->value.type = wanted_type;
+        return result;
+    }
 }
 
 static bool is_container(ZigType *type) {
@@ -9964,18 +9980,17 @@ static IrInstruction *ir_analyze_maybe_wrap(IrAnalyze *ira, IrInstruction *sourc
     // OptionalWrap result location value to the result location stack.
     IrResultLocation *result_location = ir_get_result_location(value);
     if (result_location != nullptr) {
-        if (result_location->from_call) {
-            IrResultLocationOptionalUnwrap *new_result_location = allocate<IrResultLocationOptionalUnwrap>(1);
-            new_result_location->base.id = IrResultLocationIdOptionalUnwrap;
-            new_result_location->base.from_call = true;
-            assert(result_location->child == nullptr);
-            result_location->child = &new_result_location->base;
-            IrInstruction *result = ir_build_result_loc(&ira->new_irb, source_instr->scope,
-                    source_instr->source_node, &new_result_location->base);
-            result->value.data.rh_maybe = RuntimeHintOptionalNonNull;
-            result->value.type = wanted_type;
-            return result;
-        }
+        IrResultLocationOptionalUnwrap *new_result_location = allocate<IrResultLocationOptionalUnwrap>(1);
+        new_result_location->base.id = IrResultLocationIdOptionalUnwrap;
+        new_result_location->base.parent = result_location;
+        new_result_location->base.from_call = result_location->from_call;
+        assert(result_location->child == nullptr);
+        result_location->child = &new_result_location->base;
+        IrInstruction *result = ir_build_result_loc(&ira->new_irb, source_instr->scope,
+                source_instr->source_node, &new_result_location->base, value);
+        result->value.data.rh_maybe = RuntimeHintOptionalNonNull;
+        result->value.type = wanted_type;
+        return result;
     } else {
         result_location = create_alloca_result_loc(ira, wanted_type, false);
     }
@@ -10013,18 +10028,17 @@ static IrInstruction *ir_analyze_err_wrap_payload(IrAnalyze *ira, IrInstruction 
 
     IrResultLocation *result_location = ir_get_result_location(value);
     if (result_location != nullptr) {
-        if (result_location->from_call) {
-            IrResultLocationErrorUnionPayload *new_result_location = allocate<IrResultLocationErrorUnionPayload>(1);
-            new_result_location->base.id = IrResultLocationIdErrorUnionPayload;
-            new_result_location->base.from_call = true;
-            assert(result_location->child == nullptr);
-            result_location->child = &new_result_location->base;
-            IrInstruction *result = ir_build_result_loc(&ira->new_irb, source_instr->scope,
-                    source_instr->source_node, &new_result_location->base);
-            result->value.data.rh_error_union = RuntimeHintErrorUnionNonError;
-            result->value.type = wanted_type;
-            return result;
-        }
+        IrResultLocationErrorUnionPayload *new_result_location = allocate<IrResultLocationErrorUnionPayload>(1);
+        new_result_location->base.id = IrResultLocationIdErrorUnionPayload;
+        new_result_location->base.parent = result_location;
+        new_result_location->base.from_call = result_location->from_call;
+        assert(result_location->child == nullptr);
+        result_location->child = &new_result_location->base;
+        IrInstruction *result = ir_build_result_loc(&ira->new_irb, source_instr->scope,
+                source_instr->source_node, &new_result_location->base, value);
+        result->value.data.rh_error_union = RuntimeHintErrorUnionNonError;
+        result->value.type = wanted_type;
+        return result;
     } else {
         result_location = create_alloca_result_loc(ira, wanted_type, false);
     }
