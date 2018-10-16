@@ -6400,7 +6400,7 @@ static ZigType *get_error_set_union(CodeGen *g, ErrorTableEntry **errors, ZigTyp
 
     ZigType *err_set_type = new_type_table_entry(ZigTypeIdErrorSet);
     buf_resize(&err_set_type->name, 0);
-    buf_appendf(&err_set_type->name, "error{");
+    buf_appendf(&err_set_type->name, "error.{");
 
     for (uint32_t i = 0, count = set1->data.error_set.err_count; i < count; i += 1) {
         assert(errors[set1->data.error_set.errors[i]->value] == set1->data.error_set.errors[i]);
@@ -6452,7 +6452,7 @@ static ZigType *make_err_set_with_one_item(CodeGen *g, Scope *parent_scope, AstN
 {
     ZigType *err_set_type = new_type_table_entry(ZigTypeIdErrorSet);
     buf_resize(&err_set_type->name, 0);
-    buf_appendf(&err_set_type->name, "error{%s}", buf_ptr(&err_entry->name));
+    buf_appendf(&err_set_type->name, "error.{%s}", buf_ptr(&err_entry->name));
     err_set_type->is_copyable = true;
     err_set_type->type_ref = g->builtin_types.entry_global_error_set->type_ref;
     err_set_type->di_type = g->builtin_types.entry_global_error_set->di_type;
@@ -8314,7 +8314,7 @@ static ZigType *get_error_set_intersection(IrAnalyze *ira, ZigType *set1, ZigTyp
 
     ZigType *err_set_type = new_type_table_entry(ZigTypeIdErrorSet);
     buf_resize(&err_set_type->name, 0);
-    buf_appendf(&err_set_type->name, "error{");
+    buf_appendf(&err_set_type->name, "error.{");
 
     for (uint32_t i = 0; i < set2->data.error_set.err_count; i += 1) {
         ErrorTableEntry *error_entry = set2->data.error_set.errors[i];
@@ -10103,38 +10103,6 @@ static IrInstruction *ir_analyze_err_wrap_code(IrAnalyze *ira, IrInstruction *so
     return result;
 }
 
-static IrInstruction *ir_analyze_cast_ref(IrAnalyze *ira, IrInstruction *source_instr,
-        IrInstruction *value, ZigType *wanted_type)
-{
-    if (instr_is_comptime(value)) {
-        ConstExprValue *val = ir_resolve_const(ira, value, UndefBad);
-        if (!val)
-            return ira->codegen->invalid_instruction;
-
-        IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(&ira->new_irb,
-                source_instr->scope, source_instr->source_node);
-        const_instruction->base.value.type = wanted_type;
-        const_instruction->base.value.special = ConstValSpecialStatic;
-        const_instruction->base.value.data.x_ptr.special = ConstPtrSpecialRef;
-        const_instruction->base.value.data.x_ptr.data.ref.pointee = val;
-        return &const_instruction->base;
-    }
-
-    if (value->id == IrInstructionIdLoadPtr) {
-        IrInstructionLoadPtr *load_ptr_inst = (IrInstructionLoadPtr *)value;
-        ConstCastOnly const_cast_result = types_match_const_cast_only(ira, wanted_type,
-                load_ptr_inst->ptr->value.type, source_instr->source_node, false);
-        if (const_cast_result.id == ConstCastResultIdInvalid)
-            return ira->codegen->invalid_instruction;
-        if (const_cast_result.id == ConstCastResultIdOk)
-            return load_ptr_inst->ptr;
-    }
-    IrInstruction *new_instruction = ir_build_ref(&ira->new_irb, source_instr->scope,
-            source_instr->source_node, value, true, false);
-    new_instruction->value.type = wanted_type;
-    return new_instruction;
-}
-
 static IrInstruction *ir_analyze_null_to_maybe(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value, ZigType *wanted_type) {
     assert(wanted_type->id == ZigTypeIdOptional);
     assert(instr_is_comptime(value));
@@ -11258,14 +11226,6 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     // cast from undefined to anything
     if (actual_type->id == ZigTypeIdUndefined) {
         return ir_analyze_undefined_to_anything(ira, source_instr, value, wanted_type);
-    }
-
-    // cast from something to const pointer of it
-    if (!type_requires_comptime(actual_type)) {
-        ZigType *const_ptr_actual = get_pointer_to_type(ira->codegen, actual_type, true);
-        if (types_match_const_cast_only(ira, wanted_type, const_ptr_actual, source_node, false).id == ConstCastResultIdOk) {
-            return ir_analyze_cast_ref(ira, source_instr, value, wanted_type);
-        }
     }
 
     ErrorMsg *parent_msg = ir_add_error_node(ira, source_instr->source_node,

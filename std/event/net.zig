@@ -7,8 +7,8 @@ const os = std.os;
 const posix = os.posix;
 const Loop = std.event.Loop;
 
-pub const Server = struct {
-    handleRequestFn: async<*mem.Allocator> fn (*Server, *const std.net.Address, *const os.File) void,
+pub const Server = struct.{
+    handleRequestFn: async<*mem.Allocator> fn (*Server, *const std.net.Address, os.File) void,
 
     loop: *Loop,
     sockfd: ?i32,
@@ -22,14 +22,14 @@ pub const Server = struct {
 
     pub fn init(loop: *Loop) Server {
         // TODO can't initialize handler coroutine here because we need well defined copy elision
-        return Server{
+        return Server.{
             .loop = loop,
             .sockfd = null,
             .accept_coro = null,
             .handleRequestFn = undefined,
             .waiting_for_emfile_node = undefined,
             .listen_address = undefined,
-            .listen_resume_node = event.Loop.ResumeNode{
+            .listen_resume_node = event.Loop.ResumeNode.{
                 .id = event.Loop.ResumeNode.Id.Basic,
                 .handle = undefined,
                 .overlapped = event.Loop.ResumeNode.overlapped_init,
@@ -40,7 +40,7 @@ pub const Server = struct {
     pub fn listen(
         self: *Server,
         address: *const std.net.Address,
-        handleRequestFn: async<*mem.Allocator> fn (*Server, *const std.net.Address, *const os.File) void,
+        handleRequestFn: async<*mem.Allocator> fn (*Server, *const std.net.Address, os.File) void,
     ) !void {
         self.handleRequestFn = handleRequestFn;
 
@@ -82,7 +82,7 @@ pub const Server = struct {
                     continue;
                 }
                 var socket = os.File.openHandle(accepted_fd);
-                _ = async<self.loop.allocator> self.handleRequestFn(self, accepted_addr, socket) catch |err| switch (err) {
+                _ = async<self.loop.allocator> self.handleRequestFn(self, &accepted_addr, socket) catch |err| switch (err) {
                     error.OutOfMemory => {
                         socket.close();
                         continue;
@@ -118,7 +118,7 @@ pub async fn connectUnixSocket(loop: *Loop, path: []const u8) !i32 {
     );
     errdefer os.close(sockfd);
 
-    var sock_addr = posix.sockaddr_un{
+    var sock_addr = posix.sockaddr_un.{
         .family = posix.AF_UNIX,
         .path = undefined,
     };
@@ -133,7 +133,7 @@ pub async fn connectUnixSocket(loop: *Loop, path: []const u8) !i32 {
     return sockfd;
 }
 
-pub const ReadError = error{
+pub const ReadError = error.{
     SystemResources,
     Unexpected,
     UserResourceLimitReached,
@@ -147,7 +147,7 @@ pub const ReadError = error{
 
 /// returns number of bytes read. 0 means EOF.
 pub async fn read(loop: *std.event.Loop, fd: os.FileHandle, buffer: []u8) ReadError!usize {
-    const iov = posix.iovec{
+    const iov = posix.iovec.{
         .iov_base = buffer.ptr,
         .iov_len = buffer.len,
     };
@@ -155,10 +155,10 @@ pub async fn read(loop: *std.event.Loop, fd: os.FileHandle, buffer: []u8) ReadEr
     return await (async readvPosix(loop, fd, iovs, 1) catch unreachable);
 }
 
-pub const WriteError = error{};
+pub const WriteError = error.{};
 
 pub async fn write(loop: *std.event.Loop, fd: os.FileHandle, buffer: []const u8) WriteError!void {
-    const iov = posix.iovec_const{
+    const iov = posix.iovec_const.{
         .iov_base = buffer.ptr,
         .iov_len = buffer.len,
     };
@@ -232,7 +232,7 @@ pub async fn writev(loop: *Loop, fd: os.FileHandle, data: []const []const u8) !v
     defer loop.allocator.free(iovecs);
 
     for (data) |buf, i| {
-        iovecs[i] = os.posix.iovec_const{
+        iovecs[i] = os.posix.iovec_const.{
             .iov_base = buf.ptr,
             .iov_len = buf.len,
         };
@@ -246,7 +246,7 @@ pub async fn readv(loop: *Loop, fd: os.FileHandle, data: []const []u8) !usize {
     defer loop.allocator.free(iovecs);
 
     for (data) |buf, i| {
-        iovecs[i] = os.posix.iovec{
+        iovecs[i] = os.posix.iovec.{
             .iov_base = buf.ptr,
             .iov_len = buf.len,
         };
@@ -274,13 +274,13 @@ test "listen on a port, send bytes, receive bytes" {
         return error.SkipZigTest;
     }
 
-    const MyServer = struct {
+    const MyServer = struct.{
         tcp_server: Server,
 
         const Self = @This();
-        async<*mem.Allocator> fn handler(tcp_server: *Server, _addr: *const std.net.Address, _socket: *const os.File) void {
+        async<*mem.Allocator> fn handler(tcp_server: *Server, _addr: *const std.net.Address, _socket: os.File) void {
             const self = @fieldParentPtr(Self, "tcp_server", tcp_server);
-            var socket = _socket.*; // TODO https://github.com/ziglang/zig/issues/1592
+            var socket = _socket; // TODO https://github.com/ziglang/zig/issues/1592
             defer socket.close();
             // TODO guarantee elision of this allocation
             const next_handler = async errorableHandler(self, _addr, socket) catch unreachable;
@@ -305,11 +305,11 @@ test "listen on a port, send bytes, receive bytes" {
 
     var loop: Loop = undefined;
     try loop.initSingleThreaded(std.debug.global_allocator);
-    var server = MyServer{ .tcp_server = Server.init(&loop) };
+    var server = MyServer.{ .tcp_server = Server.init(&loop) };
     defer server.tcp_server.deinit();
-    try server.tcp_server.listen(addr, MyServer.handler);
+    try server.tcp_server.listen(&addr, MyServer.handler);
 
-    const p = try async<std.debug.global_allocator> doAsyncTest(&loop, server.tcp_server.listen_address, &server.tcp_server);
+    const p = try async<std.debug.global_allocator> doAsyncTest(&loop, &server.tcp_server.listen_address, &server.tcp_server);
     defer cancel p;
     loop.run();
 }
@@ -327,7 +327,7 @@ async fn doAsyncTest(loop: *Loop, address: *const std.net.Address, server: *Serv
     server.close();
 }
 
-pub const OutStream = struct {
+pub const OutStream = struct.{
     fd: os.FileHandle,
     stream: Stream,
     loop: *Loop,
@@ -336,10 +336,10 @@ pub const OutStream = struct {
     pub const Stream = event.io.OutStream(Error);
 
     pub fn init(loop: *Loop, fd: os.FileHandle) OutStream {
-        return OutStream{
+        return OutStream.{
             .fd = fd,
             .loop = loop,
-            .stream = Stream{ .writeFn = writeFn },
+            .stream = Stream.{ .writeFn = writeFn },
         };
     }
 
@@ -349,7 +349,7 @@ pub const OutStream = struct {
     }
 };
 
-pub const InStream = struct {
+pub const InStream = struct.{
     fd: os.FileHandle,
     stream: Stream,
     loop: *Loop,
@@ -358,10 +358,10 @@ pub const InStream = struct {
     pub const Stream = event.io.InStream(Error);
 
     pub fn init(loop: *Loop, fd: os.FileHandle) InStream {
-        return InStream{
+        return InStream.{
             .fd = fd,
             .loop = loop,
-            .stream = Stream{ .readFn = readFn },
+            .stream = Stream.{ .readFn = readFn },
         };
     }
 

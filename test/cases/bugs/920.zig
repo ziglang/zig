@@ -2,7 +2,7 @@ const std = @import("std");
 const math = std.math;
 const Random = std.rand.Random;
 
-const ZigTable = struct {
+const ZigTable = struct.{
     r: f64,
     x: [257]f64,
     f: [257]f64,

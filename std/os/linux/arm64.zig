@@ -414,7 +414,7 @@ pub fn syscall6(
 /// This matches the libc clone function.
 pub extern fn clone(func: extern fn (arg: usize) u8, stack: usize, flags: u32, arg: usize, ptid: *i32, tls: usize, ctid: *i32) usize;
 
-pub const msghdr = extern struct {
+pub const msghdr = extern struct.{
     msg_name: *u8,
     msg_namelen: socklen_t,
     msg_iov: *iovec,
@@ -427,7 +427,7 @@ pub const msghdr = extern struct {
 };
 
 /// Renamed to Stat to not conflict with the stat function.
-pub const Stat = extern struct {
+pub const Stat = extern struct.{
     dev: u64,
     ino: u64,
     nlink: usize,
@@ -447,17 +447,17 @@ pub const Stat = extern struct {
     __unused: [3]isize,
 };
 
-pub const timespec = extern struct {
+pub const timespec = extern struct.{
     tv_sec: isize,
     tv_nsec: isize,
 };
 
-pub const timeval = extern struct {
+pub const timeval = extern struct.{
     tv_sec: isize,
     tv_usec: isize,
 };
 
-pub const timezone = extern struct {
+pub const timezone = extern struct.{
     tz_minuteswest: i32,
     tz_dsttime: i32,
 };

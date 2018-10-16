@@ -59,10 +59,10 @@ test "reflection: enum member types and names" {
 }
 
 test "reflection: @field" {
-    var f = Foo{
+    var f = Foo.{
         .one = 42,
         .two = true,
-        .three = void{},
+        .three = void.{},
     };
 
     assert(f.one == f.one);
@@ -79,7 +79,7 @@ test "reflection: @field" {
     assert(f.one == 4);
 }
 
-const Foo = struct {
+const Foo = struct.{
     const constant = 52;
 
     one: i32,
@@ -87,7 +87,7 @@ const Foo = struct {
     three: void,
 };
 
-const Bar = union(enum) {
+const Bar = union(enum).{
     One: void,
     Two: i32,
     Three: bool,

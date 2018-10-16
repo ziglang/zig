@@ -40,7 +40,7 @@ async fn testAsyncSeq() void {
     suspend;
     seq('d');
 }
-var points = []u8{0} ** "abcdefg".len;
+var points = []u8.{0} ** "abcdefg".len;
 var index: usize = 0;
 
 fn seq(c: u8) void {
@@ -69,7 +69,7 @@ async fn testSuspendBlock() void {
 
     //Test to make sure that @handle() works as advertised (issue #1296)
     //var our_handle: promise = @handle();
-    assert( a_promise == @handle() );
+    assert(a_promise == @handle());
 
     result = true;
 }
@@ -106,7 +106,7 @@ async fn await_another() i32 {
     return 1234;
 }
 
-var await_points = []u8{0} ** "abcdefghi".len;
+var await_points = []u8.{0} ** "abcdefghi".len;
 var await_seq_index: usize = 0;
 
 fn await_seq(c: u8) void {
@@ -138,7 +138,7 @@ async fn early_another() i32 {
     return 1234;
 }
 
-var early_points = []u8{0} ** "abcdef".len;
+var early_points = []u8.{0} ** "abcdef".len;
 var early_seq_index: usize = 0;
 
 fn early_seq(c: u8) void {
@@ -159,7 +159,7 @@ async fn asyncFuncThatNeverGetsRun() void {
 }
 
 test "async function with dot syntax" {
-    const S = struct {
+    const S = struct.{
         var y: i32 = 1;
         async fn foo() void {
             y += 1;
@@ -175,10 +175,10 @@ test "async function with dot syntax" {
 
 test "async fn pointer in a struct field" {
     var data: i32 = 1;
-    const Foo = struct {
+    const Foo = struct.{
         bar: async<*std.mem.Allocator> fn (*i32) void,
     };
-    var foo = Foo{ .bar = simpleAsyncFn2 };
+    var foo = Foo.{ .bar = simpleAsyncFn2 };
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
     const p = (async<&da.allocator> foo.bar(&data)) catch unreachable;

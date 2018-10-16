@@ -1,8 +1,8 @@
-const A = error{
+const A = error.{
     FileNotFound,
     NotDir,
 };
-const B = error{OutOfMemory};
+const B = error.{OutOfMemory};
 
 const C = A || B;
 

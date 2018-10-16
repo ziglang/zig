@@ -5,19 +5,19 @@ const AtomicOrder = builtin.AtomicOrder;
 /// Many reader, many writer, non-allocating, thread-safe
 /// Uses a spinlock to protect push() and pop()
 pub fn Stack(comptime T: type) type {
-    return struct {
+    return struct.{
         root: ?*Node,
         lock: u8,
 
         pub const Self = @This();
 
-        pub const Node = struct {
+        pub const Node = struct.{
             next: ?*Node,
             data: T,
         };
 
         pub fn init() Self {
-            return Self{
+            return Self.{
                 .root = null,
                 .lock = 0,
             };
@@ -54,7 +54,7 @@ pub fn Stack(comptime T: type) type {
 }
 
 const std = @import("../index.zig");
-const Context = struct {
+const Context = struct.{
     allocator: *std.mem.Allocator,
     stack: *Stack(i32),
     put_sum: isize,
@@ -81,7 +81,7 @@ test "std.atomic.stack" {
     var a = &fixed_buffer_allocator.allocator;
 
     var stack = Stack(i32).init();
-    var context = Context{
+    var context = Context.{
         .allocator = a,
         .stack = &stack,
         .put_sum = 0,
@@ -123,9 +123,9 @@ fn startPuts(ctx: *Context) u8 {
     var put_count: usize = puts_per_thread;
     var r = std.rand.DefaultPrng.init(0xdeadbeef);
     while (put_count != 0) : (put_count -= 1) {
-        std.os.time.sleep(0, 1); // let the os scheduler be our fuzz
+        std.os.time.sleep(1); // let the os scheduler be our fuzz
         const x = @bitCast(i32, r.random.scalar(u32));
-        const node = ctx.allocator.create(Stack(i32).Node{
+        const node = ctx.allocator.create(Stack(i32).Node.{
             .next = undefined,
             .data = x,
         }) catch unreachable;
@@ -140,7 +140,7 @@ fn startGets(ctx: *Context) u8 {
         const last = @atomicLoad(u8, &ctx.puts_done, builtin.AtomicOrder.SeqCst) == 1;
 
         while (ctx.stack.pop()) |node| {
-            std.os.time.sleep(0, 1); // let the os scheduler be our fuzz
+            std.os.time.sleep(1); // let the os scheduler be our fuzz
             _ = @atomicRmw(isize, &ctx.get_sum, builtin.AtomicRmwOp.Add, node.data, builtin.AtomicOrder.SeqCst);
             _ = @atomicRmw(usize, &ctx.get_count, builtin.AtomicRmwOp.Add, 1, builtin.AtomicOrder.SeqCst);
         }

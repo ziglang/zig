@@ -1,4 +1,4 @@
-pub const Visib = enum {
+pub const Visib = enum.{
     Private,
     Pub,
 };
