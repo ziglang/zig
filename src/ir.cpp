@@ -10113,13 +10113,27 @@ static IrInstruction *ir_analyze_err_wrap_code(IrAnalyze *ira, IrInstruction *so
     }
 
     IrResultLocation *result_location = ir_get_result_location(value);
-    if (result_location == nullptr) result_location = create_alloca_result_loc(ira, wanted_type, false);
+    if (result_location == nullptr) {
+        result_location = create_alloca_result_loc(ira, wanted_type, false);
+        IrInstruction *result = ir_build_err_wrap_code(&ira->new_irb, source_instr->scope, source_instr->source_node,
+                value, result_location);
+        result->value.type = wanted_type;
+        result->value.data.rh_error_union = RuntimeHintErrorUnionError;
+        return result;
+    } else {
+        IrResultLocationErrorUnionCode *new_result_location = allocate<IrResultLocationErrorUnionCode>(1);
+        new_result_location->base.id = IrResultLocationIdErrorUnionCode;
+        new_result_location->base.parent = result_location;
+        new_result_location->base.from_call = result_location->from_call;
+        assert(result_location->child == nullptr);
+        result_location->child = &new_result_location->base;
+        IrInstruction *result = ir_build_result_loc(&ira->new_irb, source_instr->scope,
+                source_instr->source_node, &new_result_location->base, value);
+        result->value.type = wanted_type;
+        result->value.data.rh_error_union = RuntimeHintErrorUnionError;
+        return result;
+    }
 
-    IrInstruction *result = ir_build_err_wrap_code(&ira->new_irb, source_instr->scope, source_instr->source_node,
-            value, result_location);
-    result->value.type = wanted_type;
-    result->value.data.rh_error_union = RuntimeHintErrorUnionError;
-    return result;
 }
 
 static IrInstruction *ir_analyze_null_to_maybe(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value, ZigType *wanted_type) {

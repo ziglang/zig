@@ -2884,6 +2884,18 @@ static LLVMValueRef gen_result_location_recur(CodeGen *g, IrResultLocation *base
             loc->result = LLVMBuildStructGEP(g->builder, prev, err_union_payload_index, "");
             return loc->result;
         }
+        case IrResultLocationIdErrorUnionCode: {
+            IrResultLocationErrorUnionCode *loc = reinterpret_cast<IrResultLocationErrorUnionCode *>(base);
+            if (loc->result != nullptr)
+                return loc->result;
+            assert(prev != nullptr);
+            if (base->child != nullptr) {
+                prev = gen_result_location_recur(g, base->child, prev);
+            }
+            // TODO write 0xaa in debug mode to the undefined payload
+            loc->result = LLVMBuildStructGEP(g->builder, prev, err_union_err_index, "");
+            return loc->result;
+        }
         case IrResultLocationIdPtrOfArrayToSlice: {
             IrResultLocationPtrOfArrayToSlice *loc = reinterpret_cast<IrResultLocationPtrOfArrayToSlice *>(base);
             if (loc->result != nullptr)
