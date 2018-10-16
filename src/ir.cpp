@@ -1994,12 +1994,14 @@ static IrInstruction *ir_build_memcpy(IrBuilder *irb, Scope *scope, AstNode *sou
 }
 
 static IrInstruction *ir_build_slice(IrBuilder *irb, Scope *scope, AstNode *source_node,
-    IrInstruction *ptr, IrInstruction *start, IrInstruction *end, bool safety_check_on)
+    IrInstruction *ptr, IrInstruction *start, IrInstruction *end, bool safety_check_on,
+    IrResultLocation *result_location)
 {
     IrInstructionSlice *instruction = ir_build_instruction<IrInstructionSlice>(irb, scope, source_node);
     instruction->ptr = ptr;
     instruction->start = start;
     instruction->end = end;
+    instruction->result_location = result_location;
     instruction->safety_check_on = safety_check_on;
 
     ir_ref_instruction(ptr, irb->current_basic_block);
@@ -6230,7 +6232,7 @@ static IrInstruction *ir_gen_defer(IrBuilder *irb, Scope *parent_scope, AstNode 
     return ir_build_const_void(irb, parent_scope, node);
 }
 
-static IrInstruction *ir_gen_slice(IrBuilder *irb, Scope *scope, AstNode *node) {
+static IrInstruction *ir_gen_slice(IrBuilder *irb, Scope *scope, AstNode *node, IrResultLocation *result_location) {
     assert(node->type == NodeTypeSliceExpr);
 
     AstNodeSliceExpr *slice_expr = &node->data.slice_expr;
@@ -6255,7 +6257,7 @@ static IrInstruction *ir_gen_slice(IrBuilder *irb, Scope *scope, AstNode *node) 
         end_value = nullptr;
     }
 
-    return ir_build_slice(irb, scope, node, ptr_value, start_value, end_value, true);
+    return ir_build_slice(irb, scope, node, ptr_value, start_value, end_value, true, result_location);
 }
 
 static IrInstruction *ir_gen_err_ok_or(IrBuilder *irb, Scope *parent_scope, AstNode *node) {
@@ -7125,7 +7127,7 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
         case NodeTypeDefer:
             return ir_lval_wrap(irb, scope, ir_gen_defer(irb, scope, node), lval);
         case NodeTypeSliceExpr:
-            return ir_lval_wrap(irb, scope, ir_gen_slice(irb, scope, node), lval);
+            return ir_lval_wrap(irb, scope, ir_gen_slice(irb, scope, node, result_location), lval);
         case NodeTypeUnwrapErrorExpr:
             return ir_lval_wrap(irb, scope, ir_gen_err_ok_or(irb, scope, node), lval);
         case NodeTypeContainerDecl:
@@ -7278,7 +7280,10 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
             Buf *instruction_addresses_name = buf_create_from_str("instruction_addresses");
             IrInstruction *addrs_slice_ptr = ir_build_field_ptr(irb, scope, node, err_ret_trace_ptr, instruction_addresses_name);
 
-            IrInstruction *slice_value = ir_build_slice(irb, scope, node, return_addresses_ptr, zero, nullptr, false);
+            IrResultLocationLVal *addrs_slice_ptr_loc = allocate<IrResultLocationLVal>(1);
+            addrs_slice_ptr_loc->base.id = IrResultLocationIdLVal;
+            addrs_slice_ptr_loc->parent_instruction = addrs_slice_ptr;
+            IrInstruction *slice_value = ir_build_slice(irb, scope, node, return_addresses_ptr, zero, nullptr, false, &addrs_slice_ptr_loc->base);
             ir_build_store_ptr(irb, scope, node, addrs_slice_ptr, slice_value);
         }
 
@@ -7382,7 +7387,7 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         IrInstruction *coro_mem_ptr_ref = ir_build_ref(irb, scope, node, coro_mem_ptr, true, false);
         IrInstruction *coro_size_ptr = ir_build_var_ptr(irb, scope, node, coro_size_var);
         IrInstruction *coro_size = ir_build_load_ptr(irb, scope, node, coro_size_ptr, nullptr);
-        IrInstruction *mem_slice = ir_build_slice(irb, scope, node, coro_mem_ptr_ref, zero, coro_size, false);
+        IrInstruction *mem_slice = ir_build_slice(irb, scope, node, coro_mem_ptr_ref, zero, coro_size, false, nullptr);
         size_t arg_count = 2;
         IrInstruction **args = allocate<IrInstruction *>(arg_count);
         args[0] = implicit_allocator_ptr; // self
@@ -10186,8 +10191,11 @@ static IrInstruction *ir_analyze_array_to_slice(IrAnalyze *ira, IrInstruction *s
 
     if (!array_ptr) array_ptr = ir_get_ref(ira, source_instr, array, true, false);
 
+    IrResultLocation *result_location = ir_get_result_location(array_arg);
+    if (result_location == nullptr) result_location = create_alloca_result_loc(ira, wanted_type, false);
+
     IrInstruction *result = ir_build_slice(&ira->new_irb, source_instr->scope,
-            source_instr->source_node, array_ptr, start, end, false);
+            source_instr->source_node, array_ptr, start, end, false, result_location);
     result->value.type = wanted_type;
     result->value.data.rh_slice.id = RuntimeHintSliceIdLen;
     result->value.data.rh_slice.len = array_type->data.array.len;
@@ -19348,7 +19356,7 @@ static IrInstruction *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstruction
 
     IrInstruction *new_instruction = ir_build_slice(&ira->new_irb,
             instruction->base.scope, instruction->base.source_node,
-            ptr_ptr, casted_start, end, instruction->safety_check_on);
+            ptr_ptr, casted_start, end, instruction->safety_check_on, nullptr);
     new_instruction->value.type = return_type;
     return new_instruction;
 }
