@@ -114,14 +114,14 @@ pub fn InStream(comptime ReadError: type) type {
         /// Returns the number of bytes read. It may be less than buffer.len.
         /// If the number of bytes read is 0, it means end of stream.
         /// End of stream is not an error condition.
-        pub fn read(self: *Self, buffer: []u8) !usize {
+        pub fn read(self: *Self, buffer: []u8) Error!usize {
             return self.readFn(self, buffer);
         }
 
         /// Returns the number of bytes read. If the number read is smaller than buf.len, it
         /// means the stream reached the end. Reaching the end of a stream is not an error
         /// condition.
-        pub fn readFull(self: *Self, buffer: []u8) !usize {
+        pub fn readFull(self: *Self, buffer: []u8) Error!usize {
             var index: usize = 0;
             while (index != buffer.len) {
                 const amt = try self.read(buffer[index..]);
