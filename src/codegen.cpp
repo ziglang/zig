@@ -2896,8 +2896,8 @@ static LLVMValueRef gen_result_location_recur(CodeGen *g, IrResultLocation *base
             loc->result = LLVMBuildStructGEP(g->builder, prev, err_union_err_index, "");
             return loc->result;
         }
-        case IrResultLocationIdPtrOfArrayToSlice: {
-            IrResultLocationPtrOfArrayToSlice *loc = reinterpret_cast<IrResultLocationPtrOfArrayToSlice *>(base);
+        case IrResultLocationIdArrayToSlice: {
+            IrResultLocationArrayToSlice *loc = reinterpret_cast<IrResultLocationArrayToSlice *>(base);
             if (loc->result != nullptr)
                 return loc->result;
             assert(prev != nullptr);

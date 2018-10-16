@@ -9650,8 +9650,8 @@ static IrInstruction *ir_resolve_ptr_of_array_to_slice(IrAnalyze *ira, IrInstruc
         result->value.type = wanted_type;
         return result;
     } else {
-        IrResultLocationPtrOfArrayToSlice *new_result_location = allocate<IrResultLocationPtrOfArrayToSlice>(1);
-        new_result_location->base.id = IrResultLocationIdPtrOfArrayToSlice;
+        IrResultLocationArrayToSlice *new_result_location = allocate<IrResultLocationArrayToSlice>(1);
+        new_result_location->base.id = IrResultLocationIdArrayToSlice;
         new_result_location->base.parent = result_location;
         new_result_location->base.from_call = result_location->from_call;
         new_result_location->len = array_type->data.array.len;
@@ -10220,10 +10220,23 @@ static IrInstruction *ir_analyze_array_to_slice(IrAnalyze *ira, IrInstruction *s
     if (!array_ptr) array_ptr = ir_get_ref(ira, source_instr, array, true, false);
 
     IrResultLocation *result_location = ir_get_result_location(array_arg);
-    if (result_location == nullptr) result_location = create_alloca_result_loc(ira, wanted_type, false);
-
-    IrInstruction *result = ir_build_slice(&ira->new_irb, source_instr->scope,
+    IrInstruction *result;
+    if (result_location == nullptr) {
+        result_location = create_alloca_result_loc(ira, wanted_type, false);
+        result = ir_build_slice(&ira->new_irb, source_instr->scope,
             source_instr->source_node, array_ptr, start, end, false, result_location);
+    } else {
+        IrResultLocationArrayToSlice *new_result_location = allocate<IrResultLocationArrayToSlice>(1);
+        new_result_location->base.id = IrResultLocationIdArrayToSlice;
+        new_result_location->base.parent = result_location;
+        new_result_location->base.from_call = result_location->from_call;
+        new_result_location->len = array_type->data.array.len;
+        assert(result_location->child == nullptr);
+        result_location->child = &new_result_location->base;
+        result = ir_build_result_loc(&ira->new_irb, source_instr->scope,
+                source_instr->source_node, &new_result_location->base, array_arg);
+    }
+
     result->value.type = wanted_type;
     result->value.data.rh_slice.id = RuntimeHintSliceIdLen;
     result->value.data.rh_slice.len = array_type->data.array.len;

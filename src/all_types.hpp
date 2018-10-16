@@ -2038,7 +2038,7 @@ enum IrResultLocationId {
     IrResultLocationIdOptionalUnwrap,
     IrResultLocationIdErrorUnionPayload,
     IrResultLocationIdErrorUnionCode,
-    IrResultLocationIdPtrOfArrayToSlice,
+    IrResultLocationIdArrayToSlice,
 };
 
 struct IrResultLocation {
@@ -2083,7 +2083,7 @@ struct IrResultLocationErrorUnionCode {
     LLVMValueRef result;
 };
 
-struct IrResultLocationPtrOfArrayToSlice {
+struct IrResultLocationArrayToSlice {
     IrResultLocation base;
     LLVMValueRef result;
     uint64_t len;
