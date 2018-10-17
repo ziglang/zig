@@ -284,7 +284,7 @@ fn configureStage2(b: *Builder, exe: var, ctx: Context) !void {
         exe.addObjectFile(libstdcxx_path);
 
         exe.linkSystemLibrary("pthread");
-    } else if (exe.target.isDarwin()) {
+    } else if (exe.target.isDarwin() or exe.target.isFreeBSD()) {
         exe.linkSystemLibrary("c++");
     }
 
@@ -293,6 +293,10 @@ fn configureStage2(b: *Builder, exe: var, ctx: Context) !void {
     }
 
     if (exe.target.getOs() != builtin.Os.windows) {
+        if (exe.target.isFreeBSD()) {
+            exe.addLibPath("/usr/local/lib");
+            // TODO use pkg-config
+        }
         exe.linkSystemLibrary("xml2");
     }
     exe.linkSystemLibrary("c");
