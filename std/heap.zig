@@ -69,7 +69,7 @@ pub const DirectAllocator = struct.{
         const self = @fieldParentPtr(DirectAllocator, "allocator", allocator);
 
         switch (builtin.os) {
-            Os.linux, Os.macosx, Os.ios => {
+            Os.linux, Os.macosx, Os.ios, Os.freebsd => {
                 const p = os.posix;
                 const alloc_size = if (alignment <= os.page_size) n else n + alignment;
                 const addr = p.mmap(null, alloc_size, p.PROT_READ | p.PROT_WRITE, p.MAP_PRIVATE | p.MAP_ANONYMOUS, -1, 0);
@@ -120,7 +120,7 @@ pub const DirectAllocator = struct.{
         const self = @fieldParentPtr(DirectAllocator, "allocator", allocator);
 
         switch (builtin.os) {
-            Os.linux, Os.macosx, Os.ios => {
+            Os.linux, Os.macosx, Os.ios, Os.freebsd => {
                 if (new_size <= old_mem.len) {
                     const base_addr = @ptrToInt(old_mem.ptr);
                     const old_addr_end = base_addr + old_mem.len;
@@ -165,7 +165,7 @@ pub const DirectAllocator = struct.{
         const self = @fieldParentPtr(DirectAllocator, "allocator", allocator);
 
         switch (builtin.os) {
-            Os.linux, Os.macosx, Os.ios => {
+            Os.linux, Os.macosx, Os.ios, Os.freebsd => {
                 _ = os.posix.munmap(@ptrToInt(bytes.ptr), bytes.len);
             },
             Os.windows => {

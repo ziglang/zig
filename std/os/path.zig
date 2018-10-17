@@ -1161,7 +1161,7 @@ pub fn realC(out_buffer: *[os.MAX_PATH_BYTES]u8, pathname: [*]const u8) RealErro
             const pathname_w = try windows_util.cStrToPrefixedFileW(pathname);
             return realW(out_buffer, pathname_w);
         },
-        Os.macosx, Os.ios, Os.freebsd => {
+        Os.macosx, Os.ios => {
             // TODO instead of calling the libc function here, port the implementation to Zig
             const err = posix.getErrno(posix.realpath(pathname, out_buffer));
             switch (err) {
@@ -1185,6 +1185,15 @@ pub fn realC(out_buffer: *[os.MAX_PATH_BYTES]u8, pathname: [*]const u8) RealErro
 
             var buf: ["/proc/self/fd/-2147483648".len]u8 = undefined;
             const proc_path = fmt.bufPrint(buf[0..], "/proc/self/fd/{}\x00", fd) catch unreachable;
+
+            return os.readLinkC(out_buffer, proc_path.ptr);
+        },
+        Os.freebsd => { // XXX requires fdescfs
+            const fd = try os.posixOpenC(pathname, posix.O_PATH | posix.O_NONBLOCK | posix.O_CLOEXEC, 0);
+            defer os.close(fd);
+
+            var buf: ["/dev/fd/-2147483648".len]u8 = undefined;
+            const proc_path = fmt.bufPrint(buf[0..], "/dev/fd/{}\x00", fd) catch unreachable;
 
             return os.readLinkC(out_buffer, proc_path.ptr);
         },

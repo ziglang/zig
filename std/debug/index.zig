@@ -1078,6 +1078,8 @@ pub const DebugInfo = switch (builtin.os) {
             self.elf.close();
         }
     },
+    builtin.Os.freebsd => struct.{
+    },
     else => @compileError("Unsupported OS"),
 };
 

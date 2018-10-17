@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 const Os = builtin.Os;
 const is_windows = builtin.os == Os.windows;
 const is_posix = switch (builtin.os) {
-    builtin.Os.linux, builtin.Os.macosx => true,
+    builtin.Os.linux, builtin.Os.macosx, builtin.Os.freebsd => true,
     else => false,
 };
 const os = @This();
@@ -42,7 +42,7 @@ pub const time = @import("time.zig");
 
 pub const page_size = 4 * 1024;
 pub const MAX_PATH_BYTES = switch (builtin.os) {
-    Os.linux, Os.macosx, Os.ios => posix.PATH_MAX,
+    Os.linux, Os.macosx, Os.ios, Os.freebsd => posix.PATH_MAX,
     // Each UTF-16LE character may be expanded to 3 UTF-8 bytes.
     // If it would require 4 UTF-8 bytes, then there would be a surrogate
     // pair in the UTF-16LE, and we (over)account 3 bytes for it that way.
@@ -103,7 +103,7 @@ const math = std.math;
 /// library implementation.
 pub fn getRandomBytes(buf: []u8) !void {
     switch (builtin.os) {
-        Os.linux => while (true) {
+        Os.linux, Os.freebsd => while (true) {
             // TODO check libc version and potentially call c.getrandom.
             // See #397
             const errno = posix.getErrno(posix.getrandom(buf.ptr, buf.len, 0));
