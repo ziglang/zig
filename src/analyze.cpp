@@ -4606,7 +4606,7 @@ void find_libc_include_path(CodeGen *g) {
             }
         } else if (g->zig_target.os == OsLinux) {
             g->libc_include_dir = get_linux_libc_include_path();
-        } else if (g->zig_target.os == OsMacOSX) {
+        } else if (g->zig_target.os == OsMacOSX || g->zig_target.os == OsFreeBSD) {
             g->libc_include_dir = buf_create_from_str("/usr/include");
         } else {
             // TODO find libc at runtime for other operating systems
@@ -4652,6 +4652,8 @@ void find_libc_lib_path(CodeGen *g) {
 
         } else if (g->zig_target.os == OsLinux) {
             g->libc_lib_dir = get_linux_libc_lib_path("crt1.o");
+        } else if (g->zig_target.os == OsFreeBSD) {
+            g->libc_lib_dir = buf_create_from_str("/usr/lib");
         } else {
             zig_panic("Unable to determine libc lib path.");
         }
@@ -4664,6 +4666,8 @@ void find_libc_lib_path(CodeGen *g) {
             return;
         } else if (g->zig_target.os == OsLinux) {
             g->libc_static_lib_dir = get_linux_libc_lib_path("crtbegin.o");
+        } else if (g->zig_target.os == OsFreeBSD) {
+            g->libc_static_lib_dir = buf_create_from_str("/usr/lib");
         } else {
             zig_panic("Unable to determine libc static lib path.");
         }

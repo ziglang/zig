@@ -195,6 +195,9 @@ static Buf *try_dynamic_linker_path(const char *ld_name) {
 }
 
 static Buf *get_dynamic_linker_path(CodeGen *g) {
+    if (g->zig_target.os == OsFreeBSD) {
+        return buf_create_from_str("/libexec/ld-elf.so.1");
+    }
     if (g->is_native_target && g->zig_target.arch.arch == ZigLLVM_x86_64) {
         static const char *ld_names[] = {
             "ld-linux-x86-64.so.2",
