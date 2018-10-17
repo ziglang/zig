@@ -1,4 +1,3 @@
-const c = @import("../c/index.zig");
 const assert = @import("../debug.zig").assert;
 const builtin = @import("builtin");
 const arch = switch (builtin.arch) {
@@ -348,13 +347,13 @@ pub fn WIFEXITED(s: i32) bool {
     return WTERMSIG(s) == 0;
 }
 pub fn WIFSTOPPED(s: i32) bool {
-    return @intCast(u16, ((unsigned(s) & 0xffff) *% 0x10001) >> 8) > 0x7f00;
+    return @intCast(u16, (((unsigned(s) & 0xffff) *% 0x10001) >> 8)) > 0x7f00;
 }
 pub fn WIFSIGNALED(s: i32) bool {
     return (unsigned(s) & 0xffff) -% 1 < 0xff;
 }
 
-pub const winsize = extern struct {
+pub const winsize = extern struct.{
     ws_row: u16,
     ws_col: u16,
     ws_xpixel: u16,
@@ -425,7 +424,7 @@ pub fn symlink(existing: [*]const u8, new: [*]const u8) usize {
 }
 
 pub fn pread(fd: i32, buf: [*]u8, count: usize, offset: usize) usize {
-    return arch.syscall4(arch.SYS_pread, @intCast(usize, fd), @ptrToInt(buf), count, offset);
+    return arch.syscall4(arch.SYS_pread, usize(fd), @ptrToInt(buf), count, offset);
 }
 
 pub fn pipe(fd: *[2]i32) usize {
@@ -473,8 +472,8 @@ pub fn exit(status: i32) noreturn {
     unreachable;
 }
 
-pub fn getrandom(buf: &u8, count: usize, flags: u32) usize {
-    return arch.syscall3(arch.SYS_getrandom, @ptrToInt(buf), count, @bitCast(usize, flags));
+pub fn getrandom(buf: [*]u8, count: usize, flags: u32) usize {
+    return arch.syscall3(arch.SYS_getrandom, @ptrToInt(buf), count, @intCast(usize, flags));
 }
 
 pub fn kill(pid: i32, sig: i32) usize {
@@ -521,11 +520,11 @@ pub fn sigaction(sig: u6, noalias act: *const Sigaction, noalias oact: ?*Sigacti
 
 const NSIG = 65;
 const sigset_t = [128 / @sizeOf(usize)]usize;
-const all_mask = []usize{@maxValue(usize)};
-const app_mask = []usize{0xfffffffc7fffffff};
+const all_mask = []usize.{@maxValue(usize)};
+const app_mask = []usize.{0xfffffffc7fffffff};
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
-pub const Sigaction = struct {
+pub const Sigaction = struct.{
     // TODO: Adjust to use freebsd struct layout
     handler: extern fn (i32) void,
     mask: sigset_t,
@@ -535,7 +534,7 @@ pub const Sigaction = struct {
 pub const SIG_ERR = @intToPtr(extern fn (i32) void, @maxValue(usize));
 pub const SIG_DFL = @intToPtr(extern fn (i32) void, 0);
 pub const SIG_IGN = @intToPtr(extern fn (i32) void, 1);
-pub const empty_sigset = []usize{0} ** sigset_t.len;
+pub const empty_sigset = []usize.{0} ** sigset_t.len;
 
 pub fn raise(sig: i32) usize {
     // TODO implement, see linux equivalent for what we want to try and do
