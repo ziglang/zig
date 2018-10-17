@@ -444,6 +444,7 @@ set(ZIG_STD_FILES
     "buffer.zig"
     "build.zig"
     "c/darwin.zig"
+    "c/freebsd.zig"
     "c/index.zig"
     "c/linux.zig"
     "c/windows.zig"

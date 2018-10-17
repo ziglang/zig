@@ -48,7 +48,7 @@ pub const Loop = struct.{
         };
 
         pub const EventFd = switch (builtin.os) {
-            builtin.Os.macosx => MacOsEventFd,
+            builtin.Os.macosx, builtin.Os.freebsd => KEventFd,
             builtin.Os.linux => struct.{
                 base: ResumeNode,
                 epoll_op: u32,
@@ -61,13 +61,13 @@ pub const Loop = struct.{
             else => @compileError("unsupported OS"),
         };
 
-        const MacOsEventFd = struct.{
+        const KEventFd = struct.{
             base: ResumeNode,
             kevent: posix.Kevent,
         };
 
         pub const Basic = switch (builtin.os) {
-            builtin.Os.macosx => MacOsBasic,
+            builtin.Os.macosx, builtin.Os.freebsd => KEventBasic,
             builtin.Os.linux => struct.{
                 base: ResumeNode,
             },
@@ -77,7 +77,7 @@ pub const Loop = struct.{
             else => @compileError("unsupported OS"),
         };
 
-        const MacOsBasic = struct.{
+        const KEventBasic = struct.{
             base: ResumeNode,
             kev: posix.Kevent,
         };
@@ -213,7 +213,7 @@ pub const Loop = struct.{
                     self.extra_threads[extra_thread_index] = try os.spawnThread(self, workerRun);
                 }
             },
-            builtin.Os.macosx => {
+            builtin.Os.macosx, builtin.Os.freebsd => {
                 self.os_data.kqfd = try os.bsdKQueue();
                 errdefer os.close(self.os_data.kqfd);
 
@@ -368,7 +368,7 @@ pub const Loop = struct.{
                 os.close(self.os_data.epollfd);
                 self.allocator.free(self.eventfd_resume_nodes);
             },
-            builtin.Os.macosx => {
+            builtin.Os.macosx, builtin.Os.freebsd => {
                 os.close(self.os_data.kqfd);
                 os.close(self.os_data.fs_kqfd);
             },
@@ -483,7 +483,7 @@ pub const Loop = struct.{
             const eventfd_node = &resume_stack_node.data;
             eventfd_node.base.handle = next_tick_node.data;
             switch (builtin.os) {
-                builtin.Os.macosx => {
+                builtin.Os.macosx, builtin.Os.freebsd => {
                     const kevent_array = (*[1]posix.Kevent)(&eventfd_node.kevent);
                     const empty_kevs = ([*]posix.Kevent)(undefined)[0..0];
                     _ = os.bsdKEvent(self.os_data.kqfd, kevent_array, empty_kevs, null) catch {
@@ -545,6 +545,7 @@ pub const Loop = struct.{
         switch (builtin.os) {
             builtin.Os.linux,
             builtin.Os.macosx,
+            builtin.Os.freebsd,
             => self.os_data.fs_thread.wait(),
             else => {},
         }
@@ -609,7 +610,7 @@ pub const Loop = struct.{
                     os.posixWrite(self.os_data.final_eventfd, wakeup_bytes) catch unreachable;
                     return;
                 },
-                builtin.Os.macosx => {
+                builtin.Os.macosx, builtin.Os.freebsd => {
                     self.posixFsRequest(&self.os_data.fs_end_request);
                     const final_kevent = (*[1]posix.Kevent)(&self.os_data.final_kevent);
                     const empty_kevs = ([*]posix.Kevent)(undefined)[0..0];
@@ -667,7 +668,7 @@ pub const Loop = struct.{
                         }
                     }
                 },
-                builtin.Os.macosx => {
+                builtin.Os.macosx, builtin.Os.freebsd => {
                     var eventlist: [1]posix.Kevent = undefined;
                     const empty_kevs = ([*]posix.Kevent)(undefined)[0..0];
                     const count = os.bsdKEvent(self.os_data.kqfd, empty_kevs, eventlist[0..], null) catch unreachable;
@@ -730,7 +731,7 @@ pub const Loop = struct.{
         self.beginOneEvent(); // finished in posixFsRun after processing the msg
         self.os_data.fs_queue.put(request_node);
         switch (builtin.os) {
-            builtin.Os.macosx => {
+            builtin.Os.macosx, builtin.Os.freebsd => {
                 const fs_kevs = (*[1]posix.Kevent)(&self.os_data.fs_kevent_wake);
                 const empty_kevs = ([*]posix.Kevent)(undefined)[0..0];
                 _ = os.bsdKEvent(self.os_data.fs_kqfd, fs_kevs, empty_kevs, null) catch unreachable;
@@ -800,7 +801,7 @@ pub const Loop = struct.{
                         else => unreachable,
                     }
                 },
-                builtin.Os.macosx => {
+                builtin.Os.macosx, builtin.Os.freebsd => {
                     const fs_kevs = (*[1]posix.Kevent)(&self.os_data.fs_kevent_wait);
                     var out_kevs: [1]posix.Kevent = undefined;
                     _ = os.bsdKEvent(self.os_data.fs_kqfd, fs_kevs, out_kevs[0..], null) catch unreachable;
@@ -812,7 +813,7 @@ pub const Loop = struct.{
 
     const OsData = switch (builtin.os) {
         builtin.Os.linux => LinuxOsData,
-        builtin.Os.macosx => MacOsData,
+        builtin.Os.macosx, builtin.Os.freebsd => KEventData,
         builtin.Os.windows => struct.{
             io_port: windows.HANDLE,
             extra_thread_count: usize,
@@ -820,7 +821,7 @@ pub const Loop = struct.{
         else => struct.{},
     };
 
-    const MacOsData = struct.{
+    const KEventData = struct.{
         kqfd: i32,
         final_kevent: posix.Kevent,
         fs_kevent_wake: posix.Kevent,

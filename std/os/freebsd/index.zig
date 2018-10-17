@@ -7,6 +7,10 @@ const arch = switch (builtin.arch) {
 pub use @import("syscall.zig");
 pub use @import("errno.zig");
 
+const std = @import("../../index.zig");
+const c = std.c;
+pub const Kevent = c.Kevent;
+
 pub const PATH_MAX = 1024;
 
 pub const STDIN_FILENO = 0;
@@ -293,6 +297,156 @@ pub const DT_LNK = 10;
 pub const DT_SOCK = 12;
 pub const DT_WHT = 14;
 
+/// add event to kq (implies enable)
+pub const EV_ADD = 0x0001;
+
+/// delete event from kq
+pub const EV_DELETE = 0x0002;
+
+/// enable event
+pub const EV_ENABLE = 0x0004;
+
+/// disable event (not reported)
+pub const EV_DISABLE = 0x0008;
+
+/// only report one occurrence
+pub const EV_ONESHOT = 0x0010;
+
+/// clear event state after reporting
+pub const EV_CLEAR = 0x0020;
+
+/// force immediate event output
+/// ... with or without EV_ERROR
+/// ... use KEVENT_FLAG_ERROR_EVENTS
+///     on syscalls supporting flags
+pub const EV_RECEIPT = 0x0040;
+
+/// disable event after reporting
+pub const EV_DISPATCH = 0x0080;
+
+pub const EVFILT_READ = -1;
+pub const EVFILT_WRITE = -2;
+
+/// attached to aio requests
+pub const EVFILT_AIO = -3;
+
+/// attached to vnodes
+pub const EVFILT_VNODE = -4;
+
+/// attached to struct proc
+pub const EVFILT_PROC = -5;
+
+/// attached to struct proc
+pub const EVFILT_SIGNAL = -6;
+
+/// timers
+pub const EVFILT_TIMER = -7;
+
+/// Process descriptors
+pub const EVFILT_PROCDESC = -8;
+
+/// Filesystem events
+pub const EVFILT_FS = -9;
+
+pub const EVFILT_LIO = -10;
+
+/// User events
+pub const EVFILT_USER = -11;
+
+/// Sendfile events
+pub const EVFILT_SENDFILE = -12;
+
+pub const EVFILT_EMPTY = -13;
+
+/// On input, NOTE_TRIGGER causes the event to be triggered for output.
+pub const NOTE_TRIGGER = 0x01000000;
+
+/// ignore input fflags
+pub const NOTE_FFNOP = 0x00000000;
+
+/// and fflags
+pub const NOTE_FFAND = 0x40000000;
+
+/// or fflags
+pub const NOTE_FFOR = 0x80000000;
+
+/// copy fflags
+pub const NOTE_FFCOPY = 0xc0000000;
+
+/// mask for operations
+pub const NOTE_FFCTRLMASK = 0xc0000000;
+pub const NOTE_FFLAGSMASK = 0x00ffffff;
+
+
+/// low water mark
+pub const NOTE_LOWAT = 0x00000001;
+
+/// behave like poll()
+pub const NOTE_FILE_POLL = 0x00000002;
+
+/// vnode was removed
+pub const NOTE_DELETE = 0x00000001;
+
+/// data contents changed
+pub const NOTE_WRITE = 0x00000002;
+
+/// size increased
+pub const NOTE_EXTEND = 0x00000004;
+
+/// attributes changed
+pub const NOTE_ATTRIB = 0x00000008;
+
+/// link count changed
+pub const NOTE_LINK = 0x00000010;
+
+/// vnode was renamed
+pub const NOTE_RENAME = 0x00000020;
+
+/// vnode access was revoked
+pub const NOTE_REVOKE = 0x00000040;
+
+/// vnode was opened
+pub const NOTE_OPEN = 0x00000080;
+
+/// file closed, fd did not allow write
+pub const NOTE_CLOSE = 0x00000100;
+
+/// file closed, fd did allow write
+pub const NOTE_CLOSE_WRITE = 0x00000200;
+
+/// file was read
+pub const NOTE_READ = 0x00000400;
+
+/// process exited
+pub const NOTE_EXIT = 0x80000000;
+
+/// process forked
+pub const NOTE_FORK = 0x40000000;
+
+/// process exec'd
+pub const NOTE_EXEC = 0x20000000;
+
+/// mask for signal & exit status
+pub const NOTE_PDATAMASK = 0x000fffff;
+pub const NOTE_PCTRLMASK = (~NOTE_PDATAMASK);
+
+/// data is seconds
+pub const NOTE_SECONDS = 0x00000001;
+
+/// data is milliseconds
+pub const NOTE_MSECONDS = 0x00000002;
+
+/// data is microseconds
+pub const NOTE_USECONDS = 0x00000004;
+
+/// data is nanoseconds
+pub const NOTE_NSECONDS = 0x00000008;
+
+/// timeout is absolute
+pub const NOTE_ABSTIME = 0x00000010;
+
+
+
 pub const TCGETS = 0x5401;
 pub const TCSETS = 0x5402;
 pub const TCSETSW = 0x5403;
@@ -445,7 +599,11 @@ pub fn symlink(existing: [*]const u8, new: [*]const u8) usize {
 }
 
 pub fn pread(fd: i32, buf: [*]u8, count: usize, offset: usize) usize {
-    return arch.syscall4(SYS_pread, usize(fd), @ptrToInt(buf), count, offset);
+    return arch.syscall4(SYS_pread, @intCast(usize, fd), @ptrToInt(buf), count, offset);
+}
+
+pub fn preadv(fd: i32, iov: [*]const iovec, count: usize, offset: usize) usize {
+    return arch.syscall4(SYS_preadv, @intCast(usize, fd), @ptrToInt(iov), count, offset);
 }
 
 pub fn pipe(fd: *[2]i32) usize {
@@ -462,6 +620,10 @@ pub fn write(fd: i32, buf: [*]const u8, count: usize) usize {
 
 pub fn pwrite(fd: i32, buf: [*]const u8, count: usize, offset: usize) usize {
     return arch.syscall4(SYS_pwrite, @intCast(usize, fd), @ptrToInt(buf), count, offset);
+}
+
+pub fn pwritev(fd: i32, iov: [*]const iovec_const, count: usize, offset: usize) usize {
+    return arch.syscall4(SYS_pwritev, @intCast(usize, fd), @ptrToInt(iov), count, offset);
 }
 
 pub fn rename(old: [*]const u8, new: [*]const u8) usize {
@@ -590,3 +752,51 @@ pub const timespec = arch.timespec;
 pub fn fstat(fd: i32, stat_buf: *Stat) usize {
     return arch.syscall2(SYS_fstat, @intCast(usize, fd), @ptrToInt(stat_buf));
 }
+
+pub const iovec = extern struct.{
+    iov_base: [*]u8,
+    iov_len: usize,
+};
+
+pub const iovec_const = extern struct.{
+    iov_base: [*]const u8,
+    iov_len: usize,
+};
+
+pub fn kqueue() usize {
+    return errnoWrap(c.kqueue());
+}
+
+pub fn kevent(kq: i32, changelist: []const Kevent, eventlist: []Kevent, timeout: ?*const timespec) usize {
+    return errnoWrap(c.kevent(
+        kq,
+        changelist.ptr,
+        @intCast(c_int, changelist.len),
+        eventlist.ptr,
+        @intCast(c_int, eventlist.len),
+        timeout,
+    ));
+}
+
+pub fn sysctl(name: [*]c_int, namelen: c_uint, oldp: ?*c_void, oldlenp: ?*usize, newp: ?*c_void, newlen: usize) usize {
+    return errnoWrap(c.sysctl(name, namelen, oldp, oldlenp, newp, newlen));
+}
+
+pub fn sysctlbyname(name: [*]const u8, oldp: ?*c_void, oldlenp: ?*usize, newp: ?*c_void, newlen: usize) usize {
+    return errnoWrap(c.sysctlbyname(name, oldp, oldlenp, newp, newlen));
+}
+
+pub fn sysctlnametomib(name: [*]const u8, mibp: ?*c_int, sizep: ?*usize) usize {
+    return errnoWrap(c.sysctlnametomib(name, wibp, sizep));
+}
+
+
+
+/// Takes the return value from a syscall and formats it back in the way
+/// that the kernel represents it to libc. Errno was a mistake, let's make
+/// it go away forever.
+fn errnoWrap(value: isize) usize {
+    return @bitCast(usize, if (value == -1) -isize(c._errno().*) else value);
+}
+
+

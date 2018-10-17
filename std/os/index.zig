@@ -421,7 +421,7 @@ pub fn posix_pwritev(fd: i32, iov: [*]const posix.iovec_const, count: usize, off
                 }
             }
         },
-        builtin.Os.linux => while (true) {
+        builtin.Os.linux, builtin.Os.freebsd => while (true) {
             const rc = posix.pwritev(fd, iov, count, offset);
             const err = posix.getErrno(rc);
             switch (err) {
@@ -689,7 +689,7 @@ pub fn getBaseAddress() usize {
             };
             return phdr - @sizeOf(ElfHeader);
         },
-        builtin.Os.macosx => return @ptrToInt(&std.c._mh_execute_header),
+        builtin.Os.macosx, builtin.Os.freebsd => return @ptrToInt(&std.c._mh_execute_header),
         builtin.Os.windows => return @ptrToInt(windows.GetModuleHandleW(null)),
         else => @compileError("Unsupported OS"),
     }
@@ -1307,7 +1307,7 @@ pub fn deleteDirC(dir_path: [*]const u8) DeleteDirError!void {
             const dir_path_w = try windows_util.cStrToPrefixedFileW(dir_path);
             return deleteDirW(&dir_path_w);
         },
-        Os.linux, Os.macosx, Os.ios => {
+        Os.linux, Os.macosx, Os.ios, Os.freebsd => {
             const err = posix.getErrno(posix.rmdir(dir_path));
             switch (err) {
                 0 => return,
@@ -1350,7 +1350,7 @@ pub fn deleteDir(dir_path: []const u8) DeleteDirError!void {
             const dir_path_w = try windows_util.sliceToPrefixedFileW(dir_path);
             return deleteDirW(&dir_path_w);
         },
-        Os.linux, Os.macosx, Os.ios => {
+        Os.linux, Os.macosx, Os.ios, Os.freebsd => {
             const dir_path_c = try toPosixPath(dir_path);
             return deleteDirC(&dir_path_c);
         },
@@ -1467,7 +1467,7 @@ pub const Dir = struct.{
     allocator: *Allocator,
 
     pub const Handle = switch (builtin.os) {
-        Os.macosx, Os.ios => struct.{
+        Os.macosx, Os.ios, Os.freebsd => struct.{
             fd: i32,
             seek: i64,
             buf: []u8,
@@ -1543,7 +1543,7 @@ pub const Dir = struct.{
                         .name_data = undefined,
                     };
                 },
-                Os.macosx, Os.ios => Handle.{
+                Os.macosx, Os.ios, Os.freebsd => Handle.{
                     .fd = try posixOpen(
                         dir_path,
                         posix.O_RDONLY | posix.O_NONBLOCK | posix.O_DIRECTORY | posix.O_CLOEXEC,
@@ -1574,7 +1574,7 @@ pub const Dir = struct.{
             Os.windows => {
                 _ = windows.FindClose(self.handle.handle);
             },
-            Os.macosx, Os.ios, Os.linux => {
+            Os.macosx, Os.ios, Os.linux, Os.freebsd => {
                 self.allocator.free(self.handle.buf);
                 os.close(self.handle.fd);
             },
@@ -1589,6 +1589,7 @@ pub const Dir = struct.{
             Os.linux => return self.nextLinux(),
             Os.macosx, Os.ios => return self.nextDarwin(),
             Os.windows => return self.nextWindows(),
+            Os.freebsd => return self.nextFreebsd(),
             else => @compileError("unimplemented"),
         }
     }
@@ -1727,6 +1728,11 @@ pub const Dir = struct.{
                 .kind = entry_kind,
             };
         }
+    }
+
+    fn nextFreebsd(self: *Dir) !?Entry {
+        self.handle.buf = try self.allocator.alloc(u8, page_size);
+        return null; // TODO
     }
 };
 
@@ -2166,7 +2172,7 @@ pub fn unexpectedErrorWindows(err: windows.DWORD) UnexpectedError {
 pub fn openSelfExe() !os.File {
     switch (builtin.os) {
         Os.linux => return os.File.openReadC(c"/proc/self/exe"),
-        Os.macosx, Os.ios => {
+        Os.macosx, Os.ios, Os.freebsd => {
             var buf: [MAX_PATH_BYTES]u8 = undefined;
             const self_exe_path = try selfExePath(&buf);
             buf[self_exe_path.len] = 0;
@@ -2183,7 +2189,7 @@ pub fn openSelfExe() !os.File {
 
 test "openSelfExe" {
     switch (builtin.os) {
-        Os.linux, Os.macosx, Os.ios, Os.windows => (try openSelfExe()).close(),
+        Os.linux, Os.macosx, Os.ios, Os.windows, Os.freebsd => (try openSelfExe()).close(),
         else => return error.SkipZigTest, // Unsupported OS.
     }
 }
@@ -2214,6 +2220,7 @@ pub fn selfExePathW(out_buffer: *[windows_util.PATH_MAX_WIDE]u16) ![]u16 {
 pub fn selfExePath(out_buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
     switch (builtin.os) {
         Os.linux => return readLink(out_buffer, "/proc/self/exe"),
+        Os.freebsd => return readLink(out_buffer, "/proc/curproc/file"),
         Os.windows => {
             var utf16le_buf: [windows_util.PATH_MAX_WIDE]u16 = undefined;
             const utf16le_slice = try selfExePathW(&utf16le_buf);
@@ -2252,7 +2259,7 @@ pub fn selfExeDirPath(out_buffer: *[MAX_PATH_BYTES]u8) ![]const u8 {
             // will not return null.
             return path.dirname(full_exe_path).?;
         },
-        Os.windows, Os.macosx, Os.ios => {
+        Os.windows, Os.macosx, Os.ios, Os.freebsd => {
             const self_exe_path = try selfExePath(out_buffer);
             // Assume that the OS APIs return absolute paths, and therefore dirname
             // will not return null.
@@ -3085,10 +3092,13 @@ pub const CpuCountError = error.{
 
 pub fn cpuCount(fallback_allocator: *mem.Allocator) CpuCountError!usize {
     switch (builtin.os) {
-        builtin.Os.macosx => {
+        builtin.Os.macosx, builtin.Os.freebsd => {
             var count: c_int = undefined;
             var count_len: usize = @sizeOf(c_int);
-            const rc = posix.sysctlbyname(c"hw.logicalcpu", @ptrCast(*c_void, &count), &count_len, null, 0);
+            const rc = posix.sysctlbyname(switch (builtin.os) {
+                builtin.Os.macosx => c"hw.logicalcpu",
+                else => c"hw.ncpu",
+            }, @ptrCast(*c_void, &count), &count_len, null, 0);
             const err = posix.getErrno(rc);
             switch (err) {
                 0 => return @intCast(usize, count),
