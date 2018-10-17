@@ -95,26 +95,46 @@ pub const O_WRONLY = 0o1;
 pub const O_RDWR = 0o2;
 pub const O_ACCMODE = 0o3;
 
-pub const O_CREAT = arch.O_CREAT;
-pub const O_EXCL = arch.O_EXCL;
-pub const O_NOCTTY = arch.O_NOCTTY;
-pub const O_TRUNC = arch.O_TRUNC;
-pub const O_APPEND = arch.O_APPEND;
-pub const O_NONBLOCK = arch.O_NONBLOCK;
-pub const O_DSYNC = arch.O_DSYNC;
-pub const O_SYNC = arch.O_SYNC;
-pub const O_RSYNC = arch.O_RSYNC;
-pub const O_DIRECTORY = arch.O_DIRECTORY;
-pub const O_NOFOLLOW = arch.O_NOFOLLOW;
-pub const O_CLOEXEC = arch.O_CLOEXEC;
+pub const O_CREAT = 0o100;
+pub const O_EXCL = 0o200;
+pub const O_NOCTTY = 0o400;
+pub const O_TRUNC = 0o1000;
+pub const O_APPEND = 0o2000;
+pub const O_NONBLOCK = 0o4000;
+pub const O_DSYNC = 0o10000;
+pub const O_SYNC = 0o4010000;
+pub const O_RSYNC = 0o4010000;
+pub const O_DIRECTORY = 0o200000;
+pub const O_NOFOLLOW = 0o400000;
+pub const O_CLOEXEC = 0o2000000;
 
-pub const O_ASYNC = arch.O_ASYNC;
-pub const O_DIRECT = arch.O_DIRECT;
-pub const O_LARGEFILE = arch.O_LARGEFILE;
-pub const O_NOATIME = arch.O_NOATIME;
-pub const O_PATH = arch.O_PATH;
-pub const O_TMPFILE = arch.O_TMPFILE;
-pub const O_NDELAY = arch.O_NDELAY;
+pub const O_ASYNC = 0o20000;
+pub const O_DIRECT = 0o40000;
+pub const O_LARGEFILE = 0;
+pub const O_NOATIME = 0o1000000;
+pub const O_PATH = 0o10000000;
+pub const O_TMPFILE = 0o20200000;
+pub const O_NDELAY = O_NONBLOCK;
+
+pub const F_DUPFD = 0;
+pub const F_GETFD = 1;
+pub const F_SETFD = 2;
+pub const F_GETFL = 3;
+pub const F_SETFL = 4;
+
+pub const F_SETOWN = 8;
+pub const F_GETOWN = 9;
+pub const F_SETSIG = 10;
+pub const F_GETSIG = 11;
+
+pub const F_GETLK = 5;
+pub const F_SETLK = 6;
+pub const F_SETLKW = 7;
+
+pub const F_SETOWN_EX = 15;
+pub const F_GETOWN_EX = 16;
+
+pub const F_GETOWNER_UIDS = 17;
 
 pub const SEEK_SET = 0;
 pub const SEEK_CUR = 1;
