@@ -9,44 +9,6 @@ pub const trait = @import("trait.zig");
 const TypeId = builtin.TypeId;
 const TypeInfo = builtin.TypeInfo;
 
-///Given a container or a pointer to a container, returns the container type.
-/// Otherwise it returns the type as-is. 
-pub fn UnwrapContainer(comptime T: type) type
-{
-    comptime
-    {
-        if(trait.isPtrTo(builtin.TypeId.Struct)(T) 
-            or trait.isPtrTo(builtin.TypeId.Union)(T)) return Child(T);
-        return T;
-    }   
-}
-
-test "std.meta.UnwrapContainer"
-{
-    const x = u8(10);
-    debug.assert(UnwrapContainer(*u8) == *u8);
-    debug.assert(UnwrapContainer(u8) == u8);
-    
-    const S = struct.
-    {
-        f: u8,
-    };
-    
-    const U = union.
-    {
-        a: u8,
-        b: u16,
-    };
-    
-    debug.assert(UnwrapContainer(S) == S);
-    debug.assert(UnwrapContainer(*S) == S);
-    debug.assert(UnwrapContainer(**S) == **S);
-
-    debug.assert(UnwrapContainer(U) == U);
-    debug.assert(UnwrapContainer(*U) == U);
-    debug.assert(UnwrapContainer(**U) == **U);
-}
-
 pub fn tagName(v: var) []const u8 {
     const T = @typeOf(v);
     switch (@typeInfo(T)) {
@@ -391,10 +353,9 @@ test "std.meta.TagType" {
 
 
 ///Returns the active tag of a tagged union
-pub fn activeTag(u: var) @TagType(UnwrapContainer(@typeOf(u)))
+pub fn activeTag(u: var) @TagType(@typeOf(u))
 {
     const T = @typeOf(u);
-    if(comptime trait.isSingleItemPtr(T)) return @TagType(Child(T))(u.*);
     return @TagType(T)(u);
 }
 
@@ -420,59 +381,9 @@ test "std.meta.activeTag"
 
 }
 
-//see: bytesOf
-fn BytesReturnType(comptime P: type) type
-{
-    return if(trait.isConstPtr(P)) []const u8 else []u8;
-}
-///Given a pointer to a single item, returns a slice of the underlying bytes, preserving the
-/// pointer's const-ness.
-pub fn bytes(ptr: var) BytesReturnType(@typeOf(ptr))
-{
-    const P = @typeOf(ptr);
-    if(comptime !trait.isSingleItemPtr(P)) @compileError("meta.bytes requires a single item " 
-        ++ "pointer,  passed " ++ @typeName(P));
-    const T = Child(P);
-    
-    const ReturnType = comptime BytesReturnType(P);
-    const IntermediateType = comptime (if(trait.isConstPtr(P)) [*]const u8 else [*]u8);
-    
-    var slice: ReturnType = undefined;
-    slice.ptr = @ptrCast(IntermediateType, ptr);
-    slice.len = @sizeOf(T);
-    return @sliceToBytes(slice);
-}
-
-test "std.meta.bytes"
-{
-    const deadbeef = u32(0xDEADBEEF);
-    const deadbeef_bytes = switch(builtin.endian)
-    {
-        builtin.Endian.Big => "\xDE\xAD\xBE\xEF",
-        builtin.Endian.Little => "\xEF\xBE\xAD\xDE",
-    };
-    
-    debug.assert(std.mem.eql(u8, bytes(&deadbeef), deadbeef_bytes));
-    
-    var codeface = u32(0xC0DEFACE);
-    for(bytes(&codeface)) |*b| b.* = 0;
-    debug.assert(codeface == 0);
-    
-    const S = packed struct.
-    {
-        a: u8,
-        b: u8,
-        c: u8,
-        d: u8,
-    };
-    
-    const inst = S.{ .a = 0xBE, .b = 0xEF, .c = 0xDE, .d = 0xA1, };
-    debug.assert(std.mem.eql(u8, bytes(&inst), "\xBE\xEF\xDE\xA1"));
-}
-
-/// Provides the size of a type padded to the nearest byte, instead of however the
-///  compiler actually pads it. Useful for determining the size of a type as it would
-///  likely be stored to disk.
+///Provides the size of a type padded to the nearest byte, instead of however the
+/// compiler actually pads it, ignoring the actual memory layout. Useful for determining the size 
+/// of a type as it would likely be stored to disk or writen to a socket.
 pub fn byteAlignedSizeOf(comptime T: type) usize
 {
     comptime
@@ -560,11 +471,9 @@ test "std.meta.byteAlignedSizeOf"
 
 ///Compares two structs or (tagged) unions for equality on a field level
 /// so that padding bytes are not relevant.
-pub fn containerEql(container_a: var, container_b: var) bool
+pub fn containerEql(container_a: var, container_b: @typeOf(container_a)) bool
 {
-    const T = UnwrapContainer(@typeOf(container_a));
-    debug.assert(UnwrapContainer(@typeOf(container_b)) == T);
-    
+    const T = @typeOf(container_a);
     return switch(@typeId(T))
     {
         builtin.TypeId.Struct =>
@@ -684,8 +593,8 @@ test "std.meta.containerEql"
     const u_2 = U.{ .s = s_1, };
     const u_3 = U.{ .f = 24, };
     
-    debug.assert(containerEql(&s_1, &s_3));
-    debug.assert(!containerEql(&s_1, &s_2));
-    debug.assert(containerEql(&u_1, &u_3));
-    debug.assert(!containerEql(&u_1, &u_2));
+    debug.assert(containerEql(s_1, s_3));
+    debug.assert(!containerEql(s_1, s_2));
+    debug.assert(containerEql(u_1, u_3));
+    debug.assert(!containerEql(u_1, u_2));
 }
