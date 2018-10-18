@@ -143,7 +143,7 @@ pub fn Child(comptime T: type) type {
         TypeId.Pointer => |info| info.child,
         TypeId.Optional => |info| info.child,
         TypeId.Promise => |info| if(info.child) |child| child else null,
-        else => @compileError("Expected promise, pointer, optional, or array type," 
+        else => @compileError("Expected promise, pointer, optional, or array type, " 
             ++ "found '" ++ @typeName(T) ++ "'"),
     };
 }
@@ -412,94 +412,6 @@ test "std.meta.activeTag"
     u = U.{ .Float = 112.9876, };
     debug.assert(activeTag(u) == UE.Float);
 
-}
-
-///Provides the size of a type padded to the nearest byte, instead of however the
-/// compiler actually pads it, ignoring the actual memory layout. Useful for determining the size 
-/// of a type as it would likely be stored to disk or writen to a socket.
-pub fn byteAlignedSizeOf(comptime T: type) usize
-{
-    comptime
-    {
-        switch(@typeId(T))
-        {   
-            builtin.TypeId.Bool,
-            builtin.TypeId.Int,
-            builtin.TypeId.Float => return @sizeOf(T),
-            builtin.TypeId.Enum => return @sizeOf(@TagType(T)),
-            builtin.TypeId.Array =>
-            {
-                return byteAlignedSizeOf(Child(T)) * T.len;
-            },
-            builtin.TypeId.Struct =>
-            {
-                const info = @typeInfo(T).Struct;
-                
-                if(info.layout == builtin.TypeInfo.ContainerLayout.Packed) return @sizeOf(T);
-                
-                var size = usize(0);
-                for(info.fields) |field|
-                {
-                    size += byteAlignedSizeOf(field.field_type);
-                }
-                return size;
-            },
-            builtin.TypeId.Union =>
-            {
-                const info = @typeInfo(T).Union;
-                var largest = usize(0);
-                for(info.fields) |field|
-                {
-                    const size = byteAlignedSizeOf(field.field_type);
-                    if(size > largest) largest = size;
-                }
-                return largest;
-            },
-            else => return 0,
-        }
-    }
-}
-
-test "std.meta.byteAlignedSizeOf"
-{
-    const UnpackedS = struct.
-    {
-        a: u24,
-        b: u8,
-    };
-
-    debug.assert(byteAlignedSizeOf(UnpackedS) == 4);
-    
-    const UnpackedWithSub = struct.
-    {
-        a: u8,
-        b: u8,
-        unpacked_s: UnpackedS,
-    };
-    
-    debug.assert(byteAlignedSizeOf(UnpackedWithSub) == 4 + 2);
-    
-    const PackedS = packed struct.
-    {
-        b0: bool,
-        b1: bool,
-        b2: bool,
-        b3: bool,
-        b4: bool,
-        b5: bool,
-        b6: bool,
-        b7: bool,
-    };
-    
-    const UnpackedWithPackedSub = struct.
-    {
-        a: u8,
-        b: u8,
-        unpacked_s: UnpackedS,
-        packed_s: PackedS,
-    };
-    
-    debug.assert(byteAlignedSizeOf(UnpackedWithPackedSub) == 4 + 2 + 1);
 }
 
 ///Compares two structs or (tagged) unions for equality on a field level

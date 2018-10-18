@@ -27,11 +27,8 @@ pub fn multiTrait(comptime traits: TraitList) TraitFn
     {
         pub fn trait(comptime T: type) bool
         {
-            comptime
-            {
-                for(traits) |t| if(!t(T)) return false;
-                return true;
-            }
+            inline for(traits) |t| if(!t(T)) return false;
+            return true;
         }
     };
     return Closure.trait;
@@ -77,24 +74,21 @@ pub fn hasDef(comptime name: []const u8) TraitFn
     {
         pub fn trait(comptime T: type) bool
         {
-            comptime
+            const info = @typeInfo(T);
+            const defs = switch(info)
             {
-                const info = @typeInfo(T);
-                const defs = switch(info)
-                {
-                    builtin.TypeId.Struct => |s| s.defs,
-                    builtin.TypeId.Union => |u| u.defs,
-                    builtin.TypeId.Enum => |e| e.defs,
-                    else => return false,
-                };
+                builtin.TypeId.Struct => |s| s.defs,
+                builtin.TypeId.Union => |u| u.defs,
+                builtin.TypeId.Enum => |e| e.defs,
+                else => return false,
+            };
 
-                for(defs) |def|
-                {
-                    if(mem.eql(u8, def.name, name)) return def.is_pub;
-                }
-                
-                return false;
+            inline for(defs) |def|
+            {
+                if(mem.eql(u8, def.name, name)) return def.is_pub;
             }
+            
+            return false;
         }
     };
     return Closure.trait;
@@ -127,13 +121,10 @@ pub fn hasFn(comptime name: []const u8) TraitFn
     {
         pub fn trait(comptime T: type) bool
         {
-            comptime
-            {
-                if(!hasDef(name)(T)) return false;
-                const DefType = @typeOf(@field(T, name));
-                const def_type_id = @typeId(DefType);
-                return def_type_id == builtin.TypeId.Fn;
-            }
+            if(!comptime hasDef(name)(T)) return false;
+            const DefType = @typeOf(@field(T, name));
+            const def_type_id = @typeId(DefType);
+            return def_type_id == builtin.TypeId.Fn;
         }
     };
     return Closure.trait;
@@ -158,24 +149,21 @@ pub fn hasField(comptime name: []const u8) TraitFn
     {
         pub fn trait(comptime T: type) bool
         {
-            comptime
+            const info = @typeInfo(T);
+            const fields = switch(info)
             {
-                const info = @typeInfo(T);
-                const fields = switch(info)
-                {
-                    builtin.TypeId.Struct => |s| s.fields,
-                    builtin.TypeId.Union => |u| u.fields,
-                    builtin.TypeId.Enum => |e| e.fields,
-                    else => return false,
-                };
+                builtin.TypeId.Struct => |s| s.fields,
+                builtin.TypeId.Union => |u| u.fields,
+                builtin.TypeId.Enum => |e| e.fields,
+                else => return false,
+            };
 
-                for(fields) |field|
-                {
-                    if(mem.eql(u8, field.name, name)) return true;
-                }
-                
-                return false;
+            inline for(fields) |field|
+            {
+                if(mem.eql(u8, field.name, name)) return true;
             }
+            
+            return false;
         }
     };
     return Closure.trait;
@@ -203,10 +191,7 @@ pub fn is(comptime id: builtin.TypeId) TraitFn
     {
         pub fn trait(comptime T: type) bool
         {
-            comptime
-            {
-                return id == @typeId(T);
-            }
+            return id == @typeId(T);
         }
     };
     return Closure.trait;
@@ -229,11 +214,8 @@ pub fn isPtrTo(comptime id: builtin.TypeId) TraitFn
     {
         pub fn trait(comptime T: type) bool
         {
-            comptime
-            {
-                if(!isSingleItemPtr(T)) return false;
-                return id == @typeId(meta.Child(T));
-            }
+            if(!comptime isSingleItemPtr(T)) return false;
+            return id == @typeId(meta.Child(T));
         }
     };
     return Closure.trait;
@@ -254,18 +236,15 @@ test "std.trait.isPtrTo"
 //  Fns yet. Should be isExternType?
 pub fn isExtern(comptime T: type) bool
 {
-    comptime
+    const Extern = builtin.TypeInfo.ContainerLayout.Extern;
+    const info = @typeInfo(T);
+    return switch(info)
     {
-        const Extern = builtin.TypeInfo.ContainerLayout.Extern;
-        const info = @typeInfo(T);
-        return switch(info)
-        {
-            builtin.TypeId.Struct => |s| s.layout == Extern,
-            builtin.TypeId.Union => |u| u.layout == Extern,
-            builtin.TypeId.Enum => |e| e.layout == Extern,
-            else => false,
-        };
-    }
+        builtin.TypeId.Struct => |s| s.layout == Extern,
+        builtin.TypeId.Union => |u| u.layout == Extern,
+        builtin.TypeId.Enum => |e| e.layout == Extern,
+        else => false,
+    };
 }
 
 test "std.trait.isExtern"
@@ -282,18 +261,15 @@ test "std.trait.isExtern"
 
 pub fn isPacked(comptime T: type) bool
 {
-    comptime
+    const Packed = builtin.TypeInfo.ContainerLayout.Packed;
+    const info = @typeInfo(T);
+    return switch(info)
     {
-        const Packed = builtin.TypeInfo.ContainerLayout.Packed;
-        const info = @typeInfo(T);
-        return switch(info)
-        {
-            builtin.TypeId.Struct => |s| s.layout == Packed,
-            builtin.TypeId.Union => |u| u.layout == Packed,
-            builtin.TypeId.Enum => |e| e.layout == Packed,
-            else => false,
-        };
-    }
+        builtin.TypeId.Struct => |s| s.layout == Packed,
+        builtin.TypeId.Union => |u| u.layout == Packed,
+        builtin.TypeId.Enum => |e| e.layout == Packed,
+        else => false,
+    };
 }
 
 test "std.trait.isPacked"
@@ -310,15 +286,12 @@ test "std.trait.isPacked"
 
 pub fn isSingleItemPtr(comptime T: type) bool
 {
-    comptime
+    if(comptime is(builtin.TypeId.Pointer)(T))
     {
-        if(is(builtin.TypeId.Pointer)(T))
-        {
-            const info = @typeInfo(T);
-            return info.Pointer.size == builtin.TypeInfo.Pointer.Size.One;
-        }
-        return false;
+        const info = @typeInfo(T);
+        return info.Pointer.size == builtin.TypeInfo.Pointer.Size.One;
     }
+    return false;
 }
 
 test "std.trait.isSingleItemPtr"
@@ -333,15 +306,12 @@ test "std.trait.isSingleItemPtr"
 
 pub fn isManyItemPtr(comptime T: type) bool
 {
-    comptime
+    if(comptime is(builtin.TypeId.Pointer)(T))
     {
-        if(is(builtin.TypeId.Pointer)(T))
-        {
-            const info = @typeInfo(T);
-            return info.Pointer.size == builtin.TypeInfo.Pointer.Size.Many;
-        }
-        return false;
+        const info = @typeInfo(T);
+        return info.Pointer.size == builtin.TypeInfo.Pointer.Size.Many;
     }
+    return false;
 }
 
 test "std.trait.isManyItemPtr"
@@ -357,15 +327,12 @@ test "std.trait.isManyItemPtr"
 
 pub fn isSlice(comptime T: type) bool
 {
-    comptime
+    if(comptime is(builtin.TypeId.Pointer)(T))
     {
-        if(is(builtin.TypeId.Pointer)(T))
-        {
-            const info = @typeInfo(T);
-            return info.Pointer.size == builtin.TypeInfo.Pointer.Size.Slice;
-        }
-        return false;
+        const info = @typeInfo(T);
+        return info.Pointer.size == builtin.TypeInfo.Pointer.Size.Slice;
     }
+    return false;
 }
 
 test "std.trait.isSlice"
@@ -380,20 +347,17 @@ test "std.trait.isSlice"
 
 pub fn isIndexable(comptime T: type) bool
 {
-    comptime
-    {
-        if(is(builtin.TypeId.Pointer)(T))
-        {
-            const info = @typeInfo(T);
-            if(info.Pointer.size == builtin.TypeInfo.Pointer.Size.One)
-            {
-                if(is(builtin.TypeId.Array)(meta.Child(T))) return true;
-                return false;
-            }
-            return true;
-        }
-        return is(builtin.TypeId.Array)(T);
-    }
+   if(comptime is(builtin.TypeId.Pointer)(T))
+   {
+       const info = @typeInfo(T);
+       if(info.Pointer.size == builtin.TypeInfo.Pointer.Size.One)
+       {
+           if(comptime is(builtin.TypeId.Array)(meta.Child(T))) return true;
+           return false;
+       }
+       return true;
+   }
+   return comptime is(builtin.TypeId.Array)(T);
 }
 
 test "std.trait.isIndexable"
@@ -411,17 +375,14 @@ test "std.trait.isIndexable"
 
 pub fn isNumber(comptime T: type) bool
 {
-    comptime
+    return switch(@typeId(T))
     {
-        return switch(@typeId(T))
-        {
-            builtin.TypeId.Int,
-            builtin.TypeId.Float,
-            builtin.TypeId.ComptimeInt,
-            builtin.TypeId.ComptimeFloat => true,
-            else => false,
-        };
-    }
+        builtin.TypeId.Int,
+        builtin.TypeId.Float,
+        builtin.TypeId.ComptimeInt,
+        builtin.TypeId.ComptimeFloat => true,
+        else => false,
+    };
 }
 
 test "std.trait.isNumber"
@@ -444,12 +405,9 @@ test "std.trait.isNumber"
 
 pub fn isConstPtr(comptime T: type) bool
 {
-    comptime
-    {
-        if(!is(builtin.TypeId.Pointer)(T)) return false;
-        const info = @typeInfo(T);
-        return info.Pointer.is_const;
-    }
+    if(!comptime is(builtin.TypeId.Pointer)(T)) return false;
+    const info = @typeInfo(T);
+    return info.Pointer.is_const;
 }
 
 test "std.trait.isConstPtr"
@@ -466,17 +424,14 @@ test "std.trait.isConstPtr"
 
 pub fn isContainer(comptime T: type) bool
 {
-    comptime
+    const info = @typeInfo(T);
+    return switch(info)
     {
-        const info = @typeInfo(T);
-        return switch(info)
-        {
-            builtin.TypeId.Struct => true,
-            builtin.TypeId.Union => true,
-            builtin.TypeId.Enum => true,
-            else => false,
-        };
-    }
+        builtin.TypeId.Struct => true,
+        builtin.TypeId.Union => true,
+        builtin.TypeId.Enum => true,
+        else => false,
+    };
 }
 
 test "std.trait.isContainer"
