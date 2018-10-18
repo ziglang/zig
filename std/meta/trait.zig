@@ -402,6 +402,7 @@ test "std.trait.isIndexable"
     const slice = array[0..];
     
     debug.assert(isIndexable(@typeOf(array)));
+    debug.assert(isIndexable(@typeOf(&array)));
     debug.assert(isIndexable(@typeOf(slice)));
     debug.assert(!isIndexable(meta.Child(@typeOf(slice))));
 }
