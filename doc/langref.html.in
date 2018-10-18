@@ -5855,13 +5855,13 @@ fn add(a: i32, b: i32) i32 { return a + b; }
       This function is a low level intrinsic with no safety mechanisms. Most code
       should not use this function, instead using something like this:
       </p>
-      <pre>{#syntax#}for (source[0...byte_count]) |b, i| dest[i] = b;{#endsyntax#}</pre>
+      <pre>{#syntax#}for (source[0..byte_count]) |b, i| dest[i] = b;{#endsyntax#}</pre>
       <p>
       The optimizer is intelligent enough to turn the above snippet into a memcpy.
       </p>
       <p>There is also a standard library function for this:</p>
       <pre>{#syntax#}const mem = @import("std").mem;
-mem.copy(u8, dest[0...byte_count], source[0...byte_count]);{#endsyntax#}</pre>
+mem.copy(u8, dest[0..byte_count], source[0..byte_count]);{#endsyntax#}</pre>
       {#header_close#}
       {#header_open|@memset#}
       <pre>{#syntax#}@memset(dest: [*]u8, c: u8, byte_count: usize){#endsyntax#}</pre>
@@ -5872,7 +5872,7 @@ mem.copy(u8, dest[0...byte_count], source[0...byte_count]);{#endsyntax#}</pre>
       This function is a low level intrinsic with no safety mechanisms. Most
       code should not use this function, instead using something like this:
       </p>
-      <pre>{#syntax#}for (dest[0...byte_count]) |*b| b.* = c;{#endsyntax#}</pre>
+      <pre>{#syntax#}for (dest[0..byte_count]) |*b| b.* = c;{#endsyntax#}</pre>
       <p>
       The optimizer is intelligent enough to turn the above snippet into a memset.
       </p>
@@ -6514,9 +6514,10 @@ pub const TypeInfo = union(TypeId).{
       {#code_end#}
       {#header_close#}
       {#header_open|@typeName#}
-      <pre>{#syntax#}@typeName(T: type) []u8{#endsyntax#}</pre>
+      <pre>{#syntax#}@typeName(T: type) [N]u8{#endsyntax#}</pre>
       <p>
-      This function returns the string representation of a type.
+      This function returns the string representation of a type, as
+      an array. It is equivalent to a string literal of the type name.
       </p>
 
       {#header_close#}

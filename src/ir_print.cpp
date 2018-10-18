@@ -172,7 +172,12 @@ static void ir_print_bin_op(IrPrint *irp, IrInstructionBinOp *bin_op_instruction
     }
 }
 
-static void ir_print_decl_var(IrPrint *irp, IrInstructionDeclVar *decl_var_instruction) {
+static void ir_print_decl_var(IrPrint *irp, IrInstructionDeclVarSrc *decl_var_instruction) {
+    if (decl_var_instruction->var->is_comptime != nullptr) {
+        fprintf(irp->f, "comptime<");
+        ir_print_other_instruction(irp, decl_var_instruction->var->is_comptime);
+        fprintf(irp->f, "> ");
+    }
     const char *var_or_const = decl_var_instruction->var->gen_is_const ? "const" : "var";
     const char *name = buf_ptr(&decl_var_instruction->var->name);
     if (decl_var_instruction->var_type) {
@@ -188,11 +193,7 @@ static void ir_print_decl_var(IrPrint *irp, IrInstructionDeclVar *decl_var_instr
         fprintf(irp->f, " ");
     }
     fprintf(irp->f, "= ");
-    ir_print_other_instruction(irp, decl_var_instruction->init_value);
-    if (decl_var_instruction->var->is_comptime != nullptr) {
-        fprintf(irp->f, " // comptime = ");
-        ir_print_other_instruction(irp, decl_var_instruction->var->is_comptime);
-    }
+    ir_print_other_instruction(irp, decl_var_instruction->ptr);
 }
 
 static void ir_print_cast(IrPrint *irp, IrInstructionCast *cast_instruction) {
@@ -666,20 +667,6 @@ static void ir_print_err_set_cast(IrPrint *irp, IrInstructionErrSetCast *instruc
     fprintf(irp->f, "@errSetCast(");
     ir_print_other_instruction(irp, instruction->dest_type);
     fprintf(irp->f, ", ");
-    ir_print_other_instruction(irp, instruction->target);
-    fprintf(irp->f, ")");
-}
-
-static void ir_print_from_bytes(IrPrint *irp, IrInstructionFromBytes *instruction) {
-    fprintf(irp->f, "@bytesToSlice(");
-    ir_print_other_instruction(irp, instruction->dest_child_type);
-    fprintf(irp->f, ", ");
-    ir_print_other_instruction(irp, instruction->target);
-    fprintf(irp->f, ")");
-}
-
-static void ir_print_to_bytes(IrPrint *irp, IrInstructionToBytes *instruction) {
-    fprintf(irp->f, "@sliceToBytes(");
     ir_print_other_instruction(irp, instruction->target);
     fprintf(irp->f, ")");
 }
@@ -1328,6 +1315,46 @@ static void ir_print_sqrt(IrPrint *irp, IrInstructionSqrt *instruction) {
     fprintf(irp->f, ")");
 }
 
+static void ir_print_decl_var_gen(IrPrint *irp, IrInstructionDeclVarGen *instruction) {
+    fprintf(irp->f, "DeclVarGen");
+}
+
+static void ir_print_result_error_union_payload(IrPrint *irp, IrInstructionResultErrorUnionPayload *instruction) {
+    fprintf(irp->f, "ResultErrorUnionPayload");
+}
+
+static void ir_print_result_return(IrPrint *irp, IrInstructionResultReturn *instruction) {
+    fprintf(irp->f, "ResultReturn");
+}
+
+static void ir_print_result_bytes_to_slice(IrPrint *irp, IrInstructionResultBytesToSlice *instruction) {
+    fprintf(irp->f, "ResultBytesToSlice");
+}
+
+static void ir_print_result_slice_to_bytes(IrPrint *irp, IrInstructionResultSliceToBytes *instruction) {
+    fprintf(irp->f, "ResultSliceToBytes");
+}
+
+static void ir_print_result_param(IrPrint *irp, IrInstructionResultParam *instruction) {
+    fprintf(irp->f, "ResultParam");
+}
+
+static void ir_print_result_ptr_cast(IrPrint *irp, IrInstructionResultPtrCast *instruction) {
+    fprintf(irp->f, "ResultPtrCast");
+}
+
+static void ir_print_load_result(IrPrint *irp, IrInstructionLoadResult *instruction) {
+    fprintf(irp->f, "LoadResult");
+}
+
+static void ir_print_store_result(IrPrint *irp, IrInstructionStoreResult *instruction) {
+    fprintf(irp->f, "StoreResult");
+}
+
+static void ir_print_alloca(IrPrint *irp, IrInstructionAlloca *instruction) {
+    fprintf(irp->f, "Alloca");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -1342,8 +1369,8 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdBinOp:
             ir_print_bin_op(irp, (IrInstructionBinOp *)instruction);
             break;
-        case IrInstructionIdDeclVar:
-            ir_print_decl_var(irp, (IrInstructionDeclVar *)instruction);
+        case IrInstructionIdDeclVarSrc:
+            ir_print_decl_var(irp, (IrInstructionDeclVarSrc *)instruction);
             break;
         case IrInstructionIdCast:
             ir_print_cast(irp, (IrInstructionCast *)instruction);
@@ -1509,12 +1536,6 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdErrSetCast:
             ir_print_err_set_cast(irp, (IrInstructionErrSetCast *)instruction);
-            break;
-        case IrInstructionIdFromBytes:
-            ir_print_from_bytes(irp, (IrInstructionFromBytes *)instruction);
-            break;
-        case IrInstructionIdToBytes:
-            ir_print_to_bytes(irp, (IrInstructionToBytes *)instruction);
             break;
         case IrInstructionIdIntToFloat:
             ir_print_int_to_float(irp, (IrInstructionIntToFloat *)instruction);
@@ -1752,6 +1773,36 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdCheckRuntimeScope:
             ir_print_check_runtime_scope(irp, (IrInstructionCheckRuntimeScope *)instruction);
+            break;
+        case IrInstructionIdDeclVarGen:
+            ir_print_decl_var_gen(irp, (IrInstructionDeclVarGen *)instruction);
+            break;
+        case IrInstructionIdResultErrorUnionPayload:
+            ir_print_result_error_union_payload(irp, (IrInstructionResultErrorUnionPayload *)instruction);
+            break;
+        case IrInstructionIdResultReturn:
+            ir_print_result_return(irp, (IrInstructionResultReturn *)instruction);
+            break;
+        case IrInstructionIdResultBytesToSlice:
+            ir_print_result_bytes_to_slice(irp, (IrInstructionResultBytesToSlice *)instruction);
+            break;
+        case IrInstructionIdResultSliceToBytes:
+            ir_print_result_slice_to_bytes(irp, (IrInstructionResultSliceToBytes *)instruction);
+            break;
+        case IrInstructionIdResultParam:
+            ir_print_result_param(irp, (IrInstructionResultParam *)instruction);
+            break;
+        case IrInstructionIdResultPtrCast:
+            ir_print_result_ptr_cast(irp, (IrInstructionResultPtrCast *)instruction);
+            break;
+        case IrInstructionIdLoadResult:
+            ir_print_load_result(irp, (IrInstructionLoadResult *)instruction);
+            break;
+        case IrInstructionIdStoreResult:
+            ir_print_store_result(irp, (IrInstructionStoreResult *)instruction);
+            break;
+        case IrInstructionIdAlloca:
+            ir_print_alloca(irp, (IrInstructionAlloca *)instruction);
             break;
     }
     fprintf(irp->f, "\n");
