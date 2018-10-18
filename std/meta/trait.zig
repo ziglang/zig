@@ -13,8 +13,6 @@ fn traitFnWorkaround(comptime T: type) bool
     return false;
 }
 
-///
-
 pub const TraitFn = @typeOf(traitFnWorkaround);
 
 ///
@@ -31,10 +29,7 @@ pub fn multiTrait(comptime traits: TraitList) TraitFn
         {
             comptime
             {
-                for(traits) |t|
-                {
-                    if(!t(T)) return false;
-                }
+                for(traits) |t| if(!t(T)) return false;
                 return true;
             }
         }
@@ -42,7 +37,7 @@ pub fn multiTrait(comptime traits: TraitList) TraitFn
     return Closure.trait;
 }
 
-test "multiTrait"
+test "std.trait.multiTrait"
 {
     const Vector2 = struct.
     {
@@ -80,11 +75,10 @@ pub fn hasDef(comptime name: []const u8) TraitFn
 {
     const Closure = struct.
     {
-        pub fn trait(comptime _T: type) bool
+        pub fn trait(comptime T: type) bool
         {
             comptime
             {
-                const T = meta.UnwrapContainer(_T);
                 const info = @typeInfo(T);
                 const defs = switch(info)
                 {
@@ -106,7 +100,7 @@ pub fn hasDef(comptime name: []const u8) TraitFn
     return Closure.trait;
 }
 
-test "hasDef"
+test "std.trait.hasDef"
 {
     const TestStruct = struct.
     {
@@ -120,7 +114,7 @@ test "hasDef"
 
     debug.assert(hasDef("value")(TestStruct));
     debug.assert(!hasDef("value")(TestStructFail));
-    debug.assert(hasDef("value")(*TestStruct));
+    debug.assert(!hasDef("value")(*TestStruct));
     debug.assert(!hasDef("value")(**TestStructFail));
     debug.assert(!hasDef("x")(TestStruct));
     debug.assert(!hasDef("value")(u8));
@@ -145,7 +139,7 @@ pub fn hasFn(comptime name: []const u8) TraitFn
     return Closure.trait;
 }
 
-test "hasFn"
+test "std.trait.hasFn"
 {
     const TestStruct = struct.
     {
@@ -162,11 +156,10 @@ pub fn hasField(comptime name: []const u8) TraitFn
 {
     const Closure = struct.
     {
-        pub fn trait(comptime _T: type) bool
+        pub fn trait(comptime T: type) bool
         {
             comptime
             {
-                const T = meta.UnwrapContainer(_T);
                 const info = @typeInfo(T);
                 const fields = switch(info)
                 {
@@ -188,7 +181,7 @@ pub fn hasField(comptime name: []const u8) TraitFn
     return Closure.trait;
 }
 
-test "hasField"
+test "std.trait.hasField"
 {
     const TestStruct = struct.
     {
@@ -196,7 +189,7 @@ test "hasField"
     };
 
     debug.assert(hasField("value")(TestStruct));
-    debug.assert(hasField("value")(*TestStruct));
+    debug.assert(!hasField("value")(*TestStruct));
     debug.assert(!hasField("x")(TestStruct));
     debug.assert(!hasField("x")(**TestStruct));
     debug.assert(!hasField("value")(u8));
@@ -219,7 +212,7 @@ pub fn is(comptime id: builtin.TypeId) TraitFn
     return Closure.trait;
 }
 
-test "is"
+test "std.trait.is"
 {
     debug.assert(is(builtin.TypeId.Int)(u8));
     debug.assert(!is(builtin.TypeId.Int)(f32));
@@ -246,7 +239,7 @@ pub fn isPtrTo(comptime id: builtin.TypeId) TraitFn
     return Closure.trait;
 }
 
-test "isPtrTo"
+test "std.trait.isPtrTo"
 {
     debug.assert(!isPtrTo(builtin.TypeId.Struct)(struct.{}));
     debug.assert(isPtrTo(builtin.TypeId.Struct)(*struct.{}));
@@ -275,7 +268,7 @@ pub fn isExtern(comptime T: type) bool
     }
 }
 
-test "isExtern"
+test "std.trait.isExtern"
 {
     const TestExStruct = extern struct.{};
     const TestStruct = struct.{};
@@ -303,7 +296,7 @@ pub fn isPacked(comptime T: type) bool
     }
 }
 
-test "isPacked"
+test "std.trait.isPacked"
 {
     const TestPStruct = packed struct.{};
     const TestStruct = struct.{};
@@ -328,7 +321,7 @@ pub fn isSingleItemPtr(comptime T: type) bool
     }
 }
 
-test "isSingleItemPtr"
+test "std.trait.isSingleItemPtr"
 {
     const array = []u8.{0} ** 10;
     debug.assert(isSingleItemPtr(@typeOf(&array[0])));
@@ -351,7 +344,7 @@ pub fn isManyItemPtr(comptime T: type) bool
     }
 }
 
-test "isManyItemPtr"
+test "std.trait.isManyItemPtr"
 {
     const array = []u8.{0} ** 10;
     const mip = @ptrCast([*]const u8, &array[0]);
@@ -375,7 +368,7 @@ pub fn isSlice(comptime T: type) bool
     }
 }
 
-test "isSlice"
+test "std.trait.isSlice"
 {
     const array = []u8.{0} ** 10;
     debug.assert(isSlice(@typeOf(array[0..])));
@@ -392,13 +385,18 @@ pub fn isIndexable(comptime T: type) bool
         if(is(builtin.TypeId.Pointer)(T))
         {
             const info = @typeInfo(T);
-            return info.Pointer.size != builtin.TypeInfo.Pointer.Size.One;
+            if(info.Pointer.size == builtin.TypeInfo.Pointer.Size.One)
+            {
+                if(is(builtin.TypeId.Array)(meta.Child(T))) return true;
+                return false;
+            }
+            return true;
         }
         return is(builtin.TypeId.Array)(T);
     }
 }
 
-test "isIndexable"
+test "std.trait.isIndexable"
 {
     const array = []u8.{0} ** 10;
     const slice = array[0..];
@@ -425,7 +423,7 @@ pub fn isNumber(comptime T: type) bool
     }
 }
 
-test "isNumber"
+test "std.trait.isNumber"
 {
     const NotANumber = struct.
     {
@@ -453,7 +451,7 @@ pub fn isConstPtr(comptime T: type) bool
     }
 }
 
-test "isConstPtr"
+test "std.trait.isConstPtr"
 {
     var t = u8(0);
     const c = u8(0);
@@ -480,7 +478,7 @@ pub fn isContainer(comptime T: type) bool
     }
 }
 
-test "isContainer"
+test "std.trait.isContainer"
 {
     const TestStruct = struct.{};
     const TestUnion = union.{ a: void, };
