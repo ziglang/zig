@@ -1,12 +1,12 @@
 const assert = @import("std").debug.assert;
 const builtin = @import("builtin");
 
-const StructWithNoFields = struct {
+const StructWithNoFields = struct.{
     fn add(a: i32, b: i32) i32 {
         return a + b;
     }
 };
-const empty_global_instance = StructWithNoFields{};
+const empty_global_instance = StructWithNoFields.{};
 
 test "call struct static method" {
     const result = StructWithNoFields.add(3, 4);
@@ -27,15 +27,15 @@ test "invake static method in global scope" {
 }
 
 test "void struct fields" {
-    const foo = VoidStructFieldsFoo{
-        .a = void{},
+    const foo = VoidStructFieldsFoo.{
+        .a = void.{},
         .b = 1,
-        .c = void{},
+        .c = void.{},
     };
     assert(foo.b == 1);
     assert(@sizeOf(VoidStructFieldsFoo) == 4);
 }
-const VoidStructFieldsFoo = struct {
+const VoidStructFieldsFoo = struct.{
     a: void,
     b: i32,
     c: void,
@@ -50,24 +50,24 @@ test "structs" {
     testMutation(&foo);
     assert(foo.c == 100);
 }
-const StructFoo = struct {
+const StructFoo = struct.{
     a: i32,
     b: bool,
     c: f32,
 };
-fn testFoo(foo: *const StructFoo) void {
+fn testFoo(foo: StructFoo) void {
     assert(foo.b);
 }
 fn testMutation(foo: *StructFoo) void {
     foo.c = 100;
 }
 
-const Node = struct {
+const Node = struct.{
     val: Val,
     next: *Node,
 };
 
-const Val = struct {
+const Val = struct.{
     x: i32,
 };
 
@@ -96,15 +96,15 @@ test "struct byval assign" {
 }
 
 fn structInitializer() void {
-    const val = Val{ .x = 42 };
+    const val = Val.{ .x = 42 };
     assert(val.x == 42);
 }
 
 test "fn call of struct field" {
-    assert(callStructField(Foo{ .ptr = aFunc }) == 13);
+    assert(callStructField(Foo.{ .ptr = aFunc }) == 13);
 }
 
-const Foo = struct {
+const Foo = struct.{
     ptr: fn () i32,
 };
 
@@ -112,34 +112,34 @@ fn aFunc() i32 {
     return 13;
 }
 
-fn callStructField(foo: *const Foo) i32 {
+fn callStructField(foo: Foo) i32 {
     return foo.ptr();
 }
 
 test "store member function in variable" {
-    const instance = MemberFnTestFoo{ .x = 1234 };
+    const instance = MemberFnTestFoo.{ .x = 1234 };
     const memberFn = MemberFnTestFoo.member;
     const result = memberFn(instance);
     assert(result == 1234);
 }
-const MemberFnTestFoo = struct {
+const MemberFnTestFoo = struct.{
     x: i32,
-    fn member(foo: *const MemberFnTestFoo) i32 {
+    fn member(foo: MemberFnTestFoo) i32 {
         return foo.x;
     }
 };
 
 test "call member function directly" {
-    const instance = MemberFnTestFoo{ .x = 1234 };
+    const instance = MemberFnTestFoo.{ .x = 1234 };
     const result = MemberFnTestFoo.member(instance);
     assert(result == 1234);
 }
 
 test "member functions" {
-    const r = MemberFnRand{ .seed = 1234 };
+    const r = MemberFnRand.{ .seed = 1234 };
     assert(r.getSeed() == 1234);
 }
-const MemberFnRand = struct {
+const MemberFnRand = struct.{
     seed: u32,
     pub fn getSeed(r: *const MemberFnRand) u32 {
         return r.seed;
@@ -150,22 +150,22 @@ test "return struct byval from function" {
     const bar = makeBar(1234, 5678);
     assert(bar.y == 5678);
 }
-const Bar = struct {
+const Bar = struct.{
     x: i32,
     y: i32,
 };
 fn makeBar(x: i32, y: i32) Bar {
-    return Bar{
+    return Bar.{
         .x = x,
         .y = y,
     };
 }
 
 test "empty struct method call" {
-    const es = EmptyStruct{};
+    const es = EmptyStruct.{};
     assert(es.method() == 1234);
 }
-const EmptyStruct = struct {
+const EmptyStruct = struct.{
     fn method(es: *const EmptyStruct) i32 {
         return 1234;
     }
@@ -174,25 +174,25 @@ const EmptyStruct = struct {
 test "return empty struct from fn" {
     _ = testReturnEmptyStructFromFn();
 }
-const EmptyStruct2 = struct {};
+const EmptyStruct2 = struct.{};
 fn testReturnEmptyStructFromFn() EmptyStruct2 {
-    return EmptyStruct2{};
+    return EmptyStruct2.{};
 }
 
 test "pass slice of empty struct to fn" {
-    assert(testPassSliceOfEmptyStructToFn([]EmptyStruct2{EmptyStruct2{}}) == 1);
+    assert(testPassSliceOfEmptyStructToFn([]EmptyStruct2.{EmptyStruct2.{}}) == 1);
 }
 fn testPassSliceOfEmptyStructToFn(slice: []const EmptyStruct2) usize {
     return slice.len;
 }
 
-const APackedStruct = packed struct {
+const APackedStruct = packed struct.{
     x: u8,
     y: u8,
 };
 
 test "packed struct" {
-    var foo = APackedStruct{
+    var foo = APackedStruct.{
         .x = 1,
         .y = 2,
     };
@@ -201,13 +201,13 @@ test "packed struct" {
     assert(four == 4);
 }
 
-const BitField1 = packed struct {
+const BitField1 = packed struct.{
     a: u3,
     b: u3,
     c: u2,
 };
 
-const bit_field_1 = BitField1{
+const bit_field_1 = BitField1.{
     .a = 1,
     .b = 2,
     .c = 3,
@@ -240,10 +240,10 @@ fn getC(data: *const BitField1) u2 {
     return data.c;
 }
 
-const Foo24Bits = packed struct {
+const Foo24Bits = packed struct.{
     field: u24,
 };
-const Foo96Bits = packed struct {
+const Foo96Bits = packed struct.{
     a: u24,
     b: u24,
     c: u24,
@@ -256,7 +256,7 @@ test "packed struct 24bits" {
         assert(@sizeOf(Foo96Bits) == 12);
     }
 
-    var value = Foo96Bits{
+    var value = Foo96Bits.{
         .a = 0,
         .b = 0,
         .c = 0,
@@ -287,7 +287,7 @@ test "packed struct 24bits" {
     assert(value.d == 1);
 }
 
-const FooArray24Bits = packed struct {
+const FooArray24Bits = packed struct.{
     a: u16,
     b: [2]Foo24Bits,
     c: u16,
@@ -299,7 +299,7 @@ test "packed array 24bits" {
         assert(@sizeOf(FooArray24Bits) == 2 + 2 * 3 + 2);
     }
 
-    var bytes = []u8{0} ** (@sizeOf(FooArray24Bits) + 1);
+    var bytes = []u8.{0} ** (@sizeOf(FooArray24Bits) + 1);
     bytes[bytes.len - 1] = 0xaa;
     const ptr = &@bytesToSlice(FooArray24Bits, bytes[0 .. bytes.len - 1])[0];
     assert(ptr.a == 0);
@@ -334,12 +334,12 @@ test "packed array 24bits" {
     assert(bytes[bytes.len - 1] == 0xaa);
 }
 
-const FooStructAligned = packed struct {
+const FooStructAligned = packed struct.{
     a: u8,
     b: u8,
 };
 
-const FooArrayOfAligned = packed struct {
+const FooArrayOfAligned = packed struct.{
     a: [2]FooStructAligned,
 };
 
@@ -349,7 +349,7 @@ test "aligned array of packed struct" {
         assert(@sizeOf(FooArrayOfAligned) == 2 * 2);
     }
 
-    var bytes = []u8{0xbb} ** @sizeOf(FooArrayOfAligned);
+    var bytes = []u8.{0xbb} ** @sizeOf(FooArrayOfAligned);
     const ptr = &@bytesToSlice(FooArrayOfAligned, bytes[0..bytes.len])[0];
 
     assert(ptr.a[0].a == 0xbb);
@@ -359,11 +359,11 @@ test "aligned array of packed struct" {
 }
 
 test "runtime struct initialization of bitfield" {
-    const s1 = Nibbles{
+    const s1 = Nibbles.{
         .x = x1,
         .y = x1,
     };
-    const s2 = Nibbles{
+    const s2 = Nibbles.{
         .x = @intCast(u4, x2),
         .y = @intCast(u4, x2),
     };
@@ -377,12 +377,12 @@ test "runtime struct initialization of bitfield" {
 var x1 = u4(1);
 var x2 = u8(2);
 
-const Nibbles = packed struct {
+const Nibbles = packed struct.{
     x: u4,
     y: u4,
 };
 
-const Bitfields = packed struct {
+const Bitfields = packed struct.{
     f1: u16,
     f2: u16,
     f3: u8,
@@ -412,17 +412,17 @@ test "align 1 field before self referential align 8 field as slice return type" 
     assert(result.len == 0);
 }
 
-const Expr = union(enum) {
+const Expr = union(enum).{
     Literal: u8,
     Question: *Expr,
 };
 
 fn alloc(comptime T: type) []T {
-    return []T{};
+    return []T.{};
 }
 
 test "call method with mutable reference to struct with no fields" {
-    const S = struct {
+    const S = struct.{
         fn doC(s: *const @This()) bool {
             return true;
         }
@@ -431,7 +431,7 @@ test "call method with mutable reference to struct with no fields" {
         }
     };
 
-    var s = S{};
+    var s = S.{};
     assert(S.doC(&s));
     assert(s.doC());
     assert(S.do(&s));
@@ -439,12 +439,12 @@ test "call method with mutable reference to struct with no fields" {
 }
 
 test "implicit cast packed struct field to const ptr" {
-    const LevelUpMove = packed struct {
+    const LevelUpMove = packed struct.{
         move_id: u9,
         level: u7,
 
-        fn toInt(value: *const u7) u7 {
-            return value.*;
+        fn toInt(value: u7) u7 {
+            return value;
         }
     };
 
@@ -455,12 +455,12 @@ test "implicit cast packed struct field to const ptr" {
 }
 
 test "pointer to packed struct member in a stack variable" {
-    const S = packed struct {
+    const S = packed struct.{
         a: u2,
         b: u2,
     };
 
-    var s = S{ .a = 2, .b = 0 };
+    var s = S.{ .a = 2, .b = 0 };
     var b_ptr = &s.b;
     assert(s.b == 0);
     b_ptr.* = 2;

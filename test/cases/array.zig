@@ -27,14 +27,14 @@ fn getArrayLen(a: []const u32) usize {
 
 test "void arrays" {
     var array: [4]void = undefined;
-    array[0] = void{};
+    array[0] = void.{};
     array[1] = array[2];
     assert(@sizeOf(@typeOf(array)) == 0);
     assert(array.len == 4);
 }
 
 test "array literal" {
-    const hex_mult = []u16{
+    const hex_mult = []u16.{
         4096,
         256,
         16,
@@ -51,10 +51,10 @@ test "array dot len const expr" {
     });
 }
 
-const ArrayDotLenConstExpr = struct {
+const ArrayDotLenConstExpr = struct.{
     y: [some_array.len]u8,
 };
-const some_array = []u8{
+const some_array = []u8.{
     0,
     1,
     2,
@@ -62,7 +62,7 @@ const some_array = []u8{
 };
 
 test "nested arrays" {
-    const array_of_strings = [][]const u8{
+    const array_of_strings = [][]const u8.{
         "hello",
         "this",
         "is",
@@ -79,14 +79,14 @@ test "nested arrays" {
 }
 
 var s_array: [8]Sub = undefined;
-const Sub = struct {
+const Sub = struct.{
     b: u8,
 };
-const Str = struct {
+const Str = struct.{
     a: []Sub,
 };
 test "set global var array via slice embedded in struct" {
-    var s = Str{ .a = s_array[0..] };
+    var s = Str.{ .a = s_array[0..] };
 
     s.a[0].b = 1;
     s.a[1].b = 2;
@@ -98,7 +98,7 @@ test "set global var array via slice embedded in struct" {
 }
 
 test "array literal with specified size" {
-    var array = [2]u8{
+    var array = [2]u8.{
         1,
         2,
     };
@@ -117,7 +117,7 @@ test "array len property" {
 }
 
 test "array len field" {
-    var arr = [4]u8{ 0, 0, 0, 0 };
+    var arr = [4]u8.{ 0, 0, 0, 0 };
     var ptr = &arr;
     assert(arr.len == 4);
     comptime assert(arr.len == 4);
@@ -153,10 +153,12 @@ fn testImplicitCastSingleItemPtr() void {
     assert(byte == 101);
 }
 
-fn testArrayByValAtComptime(b: [2]u8) u8 { return b[0]; }
+fn testArrayByValAtComptime(b: [2]u8) u8 {
+    return b[0];
+}
 
 test "comptime evalutating function that takes array by value" {
-    const arr = []u8{0,1};
+    const arr = []u8.{ 0, 1 };
     _ = comptime testArrayByValAtComptime(arr);
     _ = comptime testArrayByValAtComptime(arr);
 }

@@ -5,6 +5,7 @@ const vdso = @import("vdso.zig");
 pub use switch (builtin.arch) {
     builtin.Arch.x86_64 => @import("x86_64.zig"),
     builtin.Arch.i386 => @import("i386.zig"),
+    builtin.Arch.aarch64v8 => @import("arm64.zig"),
     else => @compileError("unsupported arch"),
 };
 pub use @import("errno.zig");
@@ -683,7 +684,7 @@ pub fn WIFSIGNALED(s: i32) bool {
     return (unsigned(s) & 0xffff) -% 1 < 0xff;
 }
 
-pub const winsize = extern struct {
+pub const winsize = extern struct.{
     ws_row: u16,
     ws_col: u16,
     ws_xpixel: u16,
@@ -697,7 +698,11 @@ pub fn getErrno(r: usize) usize {
 }
 
 pub fn dup2(old: i32, new: i32) usize {
-    return syscall2(SYS_dup2, @intCast(usize, old), @intCast(usize, new));
+    return dup3(old, new, 0);
+}
+
+pub fn dup3(old: i32, new: i32, flags: u32) usize {
+    return syscall3(SYS_dup3, @intCast(usize, old), @intCast(usize, new), flags);
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
@@ -716,23 +721,32 @@ pub fn execve(path: [*]const u8, argv: [*]const ?[*]const u8, envp: [*]const ?[*
 }
 
 pub fn fork() usize {
-    return syscall0(SYS_fork);
+    return clone2(SIGCHLD, 0);
 }
 
-pub fn futex_wait(uaddr: usize, futex_op: u32, val: i32, timeout: ?*timespec) usize {
-    return syscall4(SYS_futex, uaddr, futex_op, @bitCast(u32, val), @ptrToInt(timeout));
+/// This must be inline, and inline call the syscall function, because if the
+/// child does a return it will clobber the parent's stack.
+/// It is advised to avoid this function and use clone instead, because
+/// the compiler is not aware of how vfork affects control flow and you may
+/// see different results in optimized builds.
+pub inline fn vfork() usize {
+    return @inlineCall(syscall0, SYS_vfork);
 }
 
-pub fn futex_wake(uaddr: usize, futex_op: u32, val: i32) usize {
-    return syscall3(SYS_futex, uaddr, futex_op, @bitCast(u32, val));
+pub fn futex_wait(uaddr: *const i32, futex_op: u32, val: i32, timeout: ?*timespec) usize {
+    return syscall4(SYS_futex, @ptrToInt(uaddr), futex_op, @bitCast(u32, val), @ptrToInt(timeout));
+}
+
+pub fn futex_wake(uaddr: *const i32, futex_op: u32, val: i32) usize {
+    return syscall3(SYS_futex, @ptrToInt(uaddr), futex_op, @bitCast(u32, val));
 }
 
 pub fn getcwd(buf: [*]u8, size: usize) usize {
     return syscall2(SYS_getcwd, @ptrToInt(buf), size);
 }
 
-pub fn getdents(fd: i32, dirp: [*]u8, count: usize) usize {
-    return syscall3(SYS_getdents, @intCast(usize, fd), @ptrToInt(dirp), count);
+pub fn getdents64(fd: i32, dirp: [*]u8, count: usize) usize {
+    return syscall3(SYS_getdents64, @intCast(usize, fd), @ptrToInt(dirp), count);
 }
 
 pub fn inotify_init1(flags: u32) usize {
@@ -754,16 +768,26 @@ pub fn isatty(fd: i32) bool {
 
 // TODO https://github.com/ziglang/zig/issues/265
 pub fn readlink(noalias path: [*]const u8, noalias buf_ptr: [*]u8, buf_len: usize) usize {
-    return syscall3(SYS_readlink, @ptrToInt(path), @ptrToInt(buf_ptr), buf_len);
+    return readlinkat(AT_FDCWD, path, buf_ptr, buf_len);
+}
+
+// TODO https://github.com/ziglang/zig/issues/265
+pub fn readlinkat(dirfd: i32, noalias path: [*]const u8, noalias buf_ptr: [*]u8, buf_len: usize) usize {
+    return syscall4(SYS_readlinkat, @intCast(usize, dirfd), @ptrToInt(path), @ptrToInt(buf_ptr), buf_len);
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
 pub fn mkdir(path: [*]const u8, mode: u32) usize {
-    return syscall2(SYS_mkdir, @ptrToInt(path), mode);
+    return mkdirat(AT_FDCWD, path, mode);
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
-pub fn mount(special: [*]const u8, dir: [*]const u8, fstype: [*]const u8, flags: usize, data: usize) usize {
+pub fn mkdirat(dirfd: i32, path: [*]const u8, mode: u32) usize {
+    return syscall3(SYS_mkdirat, @intCast(usize, dirfd), @ptrToInt(path), mode);
+}
+
+// TODO https://github.com/ziglang/zig/issues/265
+pub fn mount(special: [*]const u8, dir: [*]const u8, fstype: [*]const u8, flags: u32, data: usize) usize {
     return syscall5(SYS_mount, @ptrToInt(special), @ptrToInt(dir), @ptrToInt(fstype), flags, data);
 }
 
@@ -793,34 +817,52 @@ pub fn preadv(fd: i32, iov: [*]const iovec, count: usize, offset: u64) usize {
     return syscall4(SYS_preadv, @intCast(usize, fd), @ptrToInt(iov), count, offset);
 }
 
+pub fn readv(fd: i32, iov: [*]const iovec, count: usize) usize {
+    return syscall3(SYS_readv, @intCast(usize, fd), @ptrToInt(iov), count);
+}
+
+pub fn writev(fd: i32, iov: [*]const iovec_const, count: usize) usize {
+    return syscall3(SYS_writev, @intCast(usize, fd), @ptrToInt(iov), count);
+}
+
 pub fn pwritev(fd: i32, iov: [*]const iovec_const, count: usize, offset: u64) usize {
     return syscall4(SYS_pwritev, @intCast(usize, fd), @ptrToInt(iov), count, offset);
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
 pub fn rmdir(path: [*]const u8) usize {
-    return syscall1(SYS_rmdir, @ptrToInt(path));
+    return unlinkat(AT_FDCWD, path, AT_REMOVEDIR);
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
 pub fn symlink(existing: [*]const u8, new: [*]const u8) usize {
-    return syscall2(SYS_symlink, @ptrToInt(existing), @ptrToInt(new));
+    return symlinkat(existing, AT_FDCWD, new);
 }
 
+// TODO https://github.com/ziglang/zig/issues/265
+pub fn symlinkat(existing: [*]const u8, newfd: i32, newpath: [*]const u8) usize {
+    return syscall3(SYS_symlinkat, @ptrToInt(existing), @intCast(usize, newfd), @ptrToInt(newpath));
+}
+
+// TODO https://github.com/ziglang/zig/issues/265
 pub fn pread(fd: i32, buf: [*]u8, count: usize, offset: usize) usize {
     return syscall4(SYS_pread, @intCast(usize, fd), @ptrToInt(buf), count, offset);
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
 pub fn access(path: [*]const u8, mode: u32) usize {
-    return syscall2(SYS_access, @ptrToInt(path), mode);
+    return faccessat(AT_FDCWD, path, mode);
+}
+
+pub fn faccessat(dirfd: i32, path: [*]const u8, mode: u32) usize {
+    return syscall3(SYS_faccessat, @intCast(usize, dirfd), @ptrToInt(path), mode);
 }
 
 pub fn pipe(fd: *[2]i32) usize {
     return pipe2(fd, 0);
 }
 
-pub fn pipe2(fd: *[2]i32, flags: usize) usize {
+pub fn pipe2(fd: *[2]i32, flags: u32) usize {
     return syscall2(SYS_pipe2, @ptrToInt(fd), flags);
 }
 
@@ -834,12 +876,17 @@ pub fn pwrite(fd: i32, buf: [*]const u8, count: usize, offset: usize) usize {
 
 // TODO https://github.com/ziglang/zig/issues/265
 pub fn rename(old: [*]const u8, new: [*]const u8) usize {
-    return syscall2(SYS_rename, @ptrToInt(old), @ptrToInt(new));
+    return renameat2(AT_FDCWD, old, AT_FDCWD, new, 0);
+}
+
+// TODO https://github.com/ziglang/zig/issues/265
+pub fn renameat2(oldfd: i32, oldpath: [*]const u8, newfd: i32, newpath: [*]const u8, flags: u32) usize {
+    return syscall5(SYS_renameat2, @intCast(usize, oldfd), @ptrToInt(oldpath), @intCast(usize, newfd), @ptrToInt(newpath), flags);
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
 pub fn open(path: [*]const u8, flags: u32, perm: usize) usize {
-    return syscall3(SYS_open, @ptrToInt(path), flags, perm);
+    return openat(AT_FDCWD, path, flags, perm);
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
@@ -848,7 +895,7 @@ pub fn create(path: [*]const u8, perm: usize) usize {
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
-pub fn openat(dirfd: i32, path: [*]const u8, flags: usize, mode: usize) usize {
+pub fn openat(dirfd: i32, path: [*]const u8, flags: u32, mode: usize) usize {
     return syscall4(SYS_openat, @intCast(usize, dirfd), @ptrToInt(path), flags, mode);
 }
 
@@ -858,7 +905,7 @@ pub fn clone5(flags: usize, child_stack_ptr: usize, parent_tid: *i32, child_tid:
 }
 
 /// See also `clone` (from the arch-specific include)
-pub fn clone2(flags: usize, child_stack_ptr: usize) usize {
+pub fn clone2(flags: u32, child_stack_ptr: usize) usize {
     return syscall2(SYS_clone, flags, child_stack_ptr);
 }
 
@@ -875,8 +922,13 @@ pub fn exit(status: i32) noreturn {
     unreachable;
 }
 
+pub fn exit_group(status: i32) noreturn {
+    _ = syscall1(SYS_exit_group, @bitCast(usize, isize(status)));
+    unreachable;
+}
+
 pub fn getrandom(buf: [*]u8, count: usize, flags: u32) usize {
-    return syscall3(SYS_getrandom, @ptrToInt(buf), count, @intCast(usize, flags));
+    return syscall3(SYS_getrandom, @ptrToInt(buf), count, flags);
 }
 
 pub fn kill(pid: i32, sig: i32) usize {
@@ -885,7 +937,12 @@ pub fn kill(pid: i32, sig: i32) usize {
 
 // TODO https://github.com/ziglang/zig/issues/265
 pub fn unlink(path: [*]const u8) usize {
-    return syscall1(SYS_unlink, @ptrToInt(path));
+    return unlinkat(AT_FDCWD, path, 0);
+}
+
+// TODO https://github.com/ziglang/zig/issues/265
+pub fn unlinkat(dirfd: i32, path: [*]const u8, flags: u32) usize {
+    return syscall3(SYS_unlinkat, @intCast(usize, dirfd), @ptrToInt(path), flags);
 }
 
 pub fn waitpid(pid: i32, status: *i32, options: i32) usize {
@@ -1014,7 +1071,7 @@ pub fn sigaction(sig: u6, noalias act: *const Sigaction, noalias oact: ?*Sigacti
     assert(sig >= 1);
     assert(sig != SIGKILL);
     assert(sig != SIGSTOP);
-    var ksa = k_sigaction{
+    var ksa = k_sigaction.{
         .handler = act.handler,
         .flags = act.flags | SA_RESTORER,
         .mask = undefined,
@@ -1037,10 +1094,10 @@ pub fn sigaction(sig: u6, noalias act: *const Sigaction, noalias oact: ?*Sigacti
 
 const NSIG = 65;
 const sigset_t = [128 / @sizeOf(usize)]usize;
-const all_mask = []usize{@maxValue(usize)};
-const app_mask = []usize{0xfffffffc7fffffff};
+const all_mask = []usize.{@maxValue(usize)};
+const app_mask = []usize.{0xfffffffc7fffffff};
 
-const k_sigaction = extern struct {
+const k_sigaction = extern struct.{
     handler: extern fn (i32) void,
     flags: usize,
     restorer: extern fn () void,
@@ -1048,7 +1105,7 @@ const k_sigaction = extern struct {
 };
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
-pub const Sigaction = struct {
+pub const Sigaction = struct.{
     handler: extern fn (i32) void,
     mask: sigset_t,
     flags: u32,
@@ -1057,7 +1114,7 @@ pub const Sigaction = struct {
 pub const SIG_ERR = @intToPtr(extern fn (i32) void, @maxValue(usize));
 pub const SIG_DFL = @intToPtr(extern fn (i32) void, 0);
 pub const SIG_IGN = @intToPtr(extern fn (i32) void, 1);
-pub const empty_sigset = []usize{0} ** sigset_t.len;
+pub const empty_sigset = []usize.{0} ** sigset_t.len;
 
 pub fn raise(sig: i32) usize {
     var set: sigset_t = undefined;
@@ -1095,19 +1152,19 @@ pub const sa_family_t = u16;
 pub const socklen_t = u32;
 
 /// This intentionally only has ip4 and ip6
-pub const sockaddr = extern union {
+pub const sockaddr = extern union.{
     in: sockaddr_in,
     in6: sockaddr_in6,
 };
 
-pub const sockaddr_in = extern struct {
+pub const sockaddr_in = extern struct.{
     family: sa_family_t,
     port: in_port_t,
     addr: u32,
     zero: [8]u8,
 };
 
-pub const sockaddr_in6 = extern struct {
+pub const sockaddr_in6 = extern struct.{
     family: sa_family_t,
     port: in_port_t,
     flowinfo: u32,
@@ -1115,17 +1172,17 @@ pub const sockaddr_in6 = extern struct {
     scope_id: u32,
 };
 
-pub const sockaddr_un = extern struct {
+pub const sockaddr_un = extern struct.{
     family: sa_family_t,
     path: [108]u8,
 };
 
-pub const iovec = extern struct {
+pub const iovec = extern struct.{
     iov_base: [*]u8,
     iov_len: usize,
 };
 
-pub const iovec_const = extern struct {
+pub const iovec_const = extern struct.{
     iov_base: [*]const u8,
     iov_len: usize,
 };
@@ -1200,12 +1257,17 @@ pub fn fstat(fd: i32, stat_buf: *Stat) usize {
 
 // TODO https://github.com/ziglang/zig/issues/265
 pub fn stat(pathname: [*]const u8, statbuf: *Stat) usize {
-    return syscall2(SYS_stat, @ptrToInt(pathname), @ptrToInt(statbuf));
+    return fstatat(AT_FDCWD, pathname, statbuf, AT_NO_AUTOMOUNT);
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
 pub fn lstat(pathname: [*]const u8, statbuf: *Stat) usize {
-    return syscall2(SYS_lstat, @ptrToInt(pathname), @ptrToInt(statbuf));
+    return fstatat(AF_FDCWD, pathname, statbuf, AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT);
+}
+
+// TODO https://github.com/ziglang/zig/issues/265
+pub fn fstatat(dirfd: i32, path: [*]const u8, stat_buf: *Stat, flags: u32) usize {
+    return syscall4(SYS_fstatat, @intCast(usize, dirfd), @ptrToInt(path), @ptrToInt(stat_buf), flags);
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
@@ -1271,14 +1333,14 @@ pub fn sched_getaffinity(pid: i32, set: []usize) usize {
     return syscall3(SYS_sched_getaffinity, @bitCast(usize, isize(pid)), set.len * @sizeOf(usize), @ptrToInt(set.ptr));
 }
 
-pub const epoll_data = packed union {
+pub const epoll_data = packed union.{
     ptr: usize,
     fd: i32,
     @"u32": u32,
     @"u64": u64,
 };
 
-pub const epoll_event = packed struct {
+pub const epoll_event = packed struct.{
     events: u32,
     data: epoll_data,
 };
@@ -1296,7 +1358,11 @@ pub fn epoll_ctl(epoll_fd: i32, op: u32, fd: i32, ev: *epoll_event) usize {
 }
 
 pub fn epoll_wait(epoll_fd: i32, events: [*]epoll_event, maxevents: u32, timeout: i32) usize {
-    return syscall4(SYS_epoll_wait, @intCast(usize, epoll_fd), @ptrToInt(events), @intCast(usize, maxevents), @intCast(usize, timeout));
+    return epoll_pwait(epoll_fd, events, maxevents, timeout, null);
+}
+
+pub fn epoll_pwait(epoll_fd: i32, events: [*]epoll_event, maxevents: u32, timeout: i32, sigmask: ?*sigset_t) usize {
+    return syscall6(SYS_epoll_pwait, @intCast(usize, epoll_fd), @ptrToInt(events), @intCast(usize, maxevents), @intCast(usize, timeout), @ptrToInt(sigmask), @sizeOf(sigset_t));
 }
 
 pub fn eventfd(count: u32, flags: u32) usize {
@@ -1304,10 +1370,10 @@ pub fn eventfd(count: u32, flags: u32) usize {
 }
 
 pub fn timerfd_create(clockid: i32, flags: u32) usize {
-    return syscall2(SYS_timerfd_create, @intCast(usize, clockid), @intCast(usize, flags));
+    return syscall2(SYS_timerfd_create, @intCast(usize, clockid), flags);
 }
 
-pub const itimerspec = extern struct {
+pub const itimerspec = extern struct.{
     it_interval: timespec,
     it_value: timespec,
 };
@@ -1317,7 +1383,7 @@ pub fn timerfd_gettime(fd: i32, curr_value: *itimerspec) usize {
 }
 
 pub fn timerfd_settime(fd: i32, flags: u32, new_value: *const itimerspec, old_value: ?*itimerspec) usize {
-    return syscall4(SYS_timerfd_settime, @intCast(usize, fd), @intCast(usize, flags), @ptrToInt(new_value), @ptrToInt(old_value));
+    return syscall4(SYS_timerfd_settime, @intCast(usize, fd), flags, @ptrToInt(new_value), @ptrToInt(old_value));
 }
 
 pub const _LINUX_CAPABILITY_VERSION_1 = 0x19980330;
@@ -1346,10 +1412,10 @@ pub const XATTR_CAPS_SZ = XATTR_CAPS_SZ_2;
 pub const VFS_CAP_U32 = VFS_CAP_U32_2;
 pub const VFS_CAP_REVISION = VFS_CAP_REVISION_2;
 
-pub const vfs_cap_data = extern struct {
+pub const vfs_cap_data = extern struct.{
     //all of these are mandated as little endian
     //when on disk.
-    const Data = struct {
+    const Data = struct.{
         permitted: u32,
         inheritable: u32,
     };
@@ -1410,24 +1476,24 @@ pub fn CAP_TO_INDEX(cap: u8) u8 {
     return cap >> 5;
 }
 
-pub const cap_t = extern struct {
+pub const cap_t = extern struct.{
     hdrp: *cap_user_header_t,
     datap: *cap_user_data_t,
 };
 
-pub const cap_user_header_t = extern struct {
+pub const cap_user_header_t = extern struct.{
     version: u32,
     pid: usize,
 };
 
-pub const cap_user_data_t = extern struct {
+pub const cap_user_data_t = extern struct.{
     effective: u32,
     permitted: u32,
     inheritable: u32,
 };
 
 pub fn unshare(flags: usize) usize {
-    return syscall1(SYS_unshare, @intCast(usize, flags));
+    return syscall1(SYS_unshare, flags);
 }
 
 pub fn capget(hdrp: *cap_user_header_t, datap: *cap_user_data_t) usize {
@@ -1438,12 +1504,20 @@ pub fn capset(hdrp: *cap_user_header_t, datap: *const cap_user_data_t) usize {
     return syscall2(SYS_capset, @ptrToInt(hdrp), @ptrToInt(datap));
 }
 
-pub const inotify_event = extern struct {
+pub const inotify_event = extern struct.{
     wd: i32,
     mask: u32,
     cookie: u32,
     len: u32,
     //name: [?]u8,
+};
+
+pub const dirent64 = extern struct.{
+    d_ino: u64,
+    d_off: u64,
+    d_reclen: u16,
+    d_type: u8,
+    d_name: u8, // field address is the address of first byte of name https://github.com/ziglang/zig/issues/173
 };
 
 test "import" {

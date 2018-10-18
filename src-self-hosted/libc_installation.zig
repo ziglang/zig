@@ -5,7 +5,7 @@ const Target = @import("target.zig").Target;
 const c = @import("c.zig");
 
 /// See the render function implementation for documentation of the fields.
-pub const LibCInstallation = struct {
+pub const LibCInstallation = struct.{
     include_dir: []const u8,
     lib_dir: ?[]const u8,
     static_lib_dir: ?[]const u8,
@@ -13,7 +13,7 @@ pub const LibCInstallation = struct {
     kernel32_lib_dir: ?[]const u8,
     dynamic_linker_path: ?[]const u8,
 
-    pub const FindError = error{
+    pub const FindError = error.{
         OutOfMemory,
         FileSystem,
         UnableToSpawnCCompiler,
@@ -30,11 +30,11 @@ pub const LibCInstallation = struct {
         self: *LibCInstallation,
         allocator: *std.mem.Allocator,
         libc_file: []const u8,
-        stderr: *std.io.OutStream(std.io.FileOutStream.Error),
+        stderr: *std.io.OutStream(std.os.File.WriteError),
     ) !void {
         self.initEmpty();
 
-        const keys = []const []const u8{
+        const keys = []const []const u8.{
             "include_dir",
             "lib_dir",
             "static_lib_dir",
@@ -42,11 +42,11 @@ pub const LibCInstallation = struct {
             "kernel32_lib_dir",
             "dynamic_linker_path",
         };
-        const FoundKey = struct {
+        const FoundKey = struct.{
             found: bool,
             allocated: ?[]u8,
         };
-        var found_keys = [1]FoundKey{FoundKey{ .found = false, .allocated = null }} ** keys.len;
+        var found_keys = [1]FoundKey.{FoundKey.{ .found = false, .allocated = null }} ** keys.len;
         errdefer {
             self.initEmpty();
             for (found_keys) |found_key| {
@@ -100,7 +100,7 @@ pub const LibCInstallation = struct {
         }
     }
 
-    pub fn render(self: *const LibCInstallation, out: *std.io.OutStream(std.io.FileOutStream.Error)) !void {
+    pub fn render(self: *const LibCInstallation, out: *std.io.OutStream(std.os.File.WriteError)) !void {
         @setEvalBranchQuota(4000);
         try out.print(
             \\# The directory that contains `stdlib.h`.
@@ -182,7 +182,7 @@ pub const LibCInstallation = struct {
 
     async fn findNativeIncludeDirLinux(self: *LibCInstallation, loop: *event.Loop) !void {
         const cc_exe = std.os.getEnvPosix("CC") orelse "cc";
-        const argv = []const []const u8{
+        const argv = []const []const u8.{
             cc_exe,
             "-E",
             "-Wp,-v",
@@ -280,7 +280,7 @@ pub const LibCInstallation = struct {
             switch (builtin.arch) {
                 builtin.Arch.i386 => try stream.write("x86"),
                 builtin.Arch.x86_64 => try stream.write("x64"),
-                builtin.Arch.aarch64 => try stream.write("arm"),
+                builtin.Arch.aarch64v8 => try stream.write("arm"),
                 else => return error.UnsupportedArchitecture,
             }
             const ucrt_lib_path = try std.os.path.join(loop.allocator, result_buf.toSliceConst(), "ucrt.lib");
@@ -302,12 +302,12 @@ pub const LibCInstallation = struct {
     }
 
     async fn findNativeDynamicLinker(self: *LibCInstallation, loop: *event.Loop) FindError!void {
-        var dyn_tests = []DynTest{
-            DynTest{
+        var dyn_tests = []DynTest.{
+            DynTest.{
                 .name = "ld-linux-x86-64.so.2",
                 .result = null,
             },
-            DynTest{
+            DynTest.{
                 .name = "ld-musl-x86_64.so.1",
                 .result = null,
             },
@@ -326,7 +326,7 @@ pub const LibCInstallation = struct {
         }
     }
 
-    const DynTest = struct {
+    const DynTest = struct.{
         name: []const u8,
         result: ?[]const u8,
     };
@@ -355,7 +355,7 @@ pub const LibCInstallation = struct {
             switch (builtin.arch) {
                 builtin.Arch.i386 => try stream.write("x86\\"),
                 builtin.Arch.x86_64 => try stream.write("x64\\"),
-                builtin.Arch.aarch64 => try stream.write("arm\\"),
+                builtin.Arch.aarch64v8 => try stream.write("arm\\"),
                 else => return error.UnsupportedArchitecture,
             }
             const kernel32_path = try std.os.path.join(loop.allocator, result_buf.toSliceConst(), "kernel32.lib");
@@ -369,7 +369,7 @@ pub const LibCInstallation = struct {
     }
 
     fn initEmpty(self: *LibCInstallation) void {
-        self.* = LibCInstallation{
+        self.* = LibCInstallation.{
             .include_dir = ([*]const u8)(undefined)[0..0],
             .lib_dir = null,
             .static_lib_dir = null,
@@ -385,7 +385,7 @@ async fn ccPrintFileName(loop: *event.Loop, o_file: []const u8, want_dirname: bo
     const cc_exe = std.os.getEnvPosix("CC") orelse "cc";
     const arg1 = try std.fmt.allocPrint(loop.allocator, "-print-file-name={}", o_file);
     defer loop.allocator.free(arg1);
-    const argv = []const []const u8{ cc_exe, arg1 };
+    const argv = []const []const u8.{ cc_exe, arg1 };
 
     // TODO This simulates evented I/O for the child process exec
     await (async loop.yield() catch unreachable);
@@ -421,7 +421,7 @@ async fn ccPrintFileName(loop: *event.Loop, o_file: []const u8, want_dirname: bo
     }
 }
 
-const Search = struct {
+const Search = struct.{
     path: []const u8,
     version: []const u8,
 };
@@ -430,7 +430,7 @@ fn fillSearch(search_buf: *[2]Search, sdk: *c.ZigWindowsSDK) []Search {
     var search_end: usize = 0;
     if (sdk.path10_ptr) |path10_ptr| {
         if (sdk.version10_ptr) |ver10_ptr| {
-            search_buf[search_end] = Search{
+            search_buf[search_end] = Search.{
                 .path = path10_ptr[0..sdk.path10_len],
                 .version = ver10_ptr[0..sdk.version10_len],
             };
@@ -439,7 +439,7 @@ fn fillSearch(search_buf: *[2]Search, sdk: *c.ZigWindowsSDK) []Search {
     }
     if (sdk.path81_ptr) |path81_ptr| {
         if (sdk.version81_ptr) |ver81_ptr| {
-            search_buf[search_end] = Search{
+            search_buf[search_end] = Search.{
                 .path = path81_ptr[0..sdk.path81_len],
                 .version = ver81_ptr[0..sdk.version81_len],
             };

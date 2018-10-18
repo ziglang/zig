@@ -50,31 +50,12 @@ option(ZIG_FORCE_EXTERNAL_LLD "If your system has the LLD patches use it instead
 find_package(llvm)
 find_package(clang)
 
-# TODO fix https://github.com/ziglang/docker-zig/issues/7
-list(REMOVE_ITEM LLVM_LIBRARIES "-l/deps/local/lib/libxml2.a")
-
-if(NOT MSVC)
-    find_library(LIBXML2 NAMES xml2 libxml2)
-    if(${LIBXML2} STREQUAL "LIBXML2-NOTFOUND")
-        message(FATAL_ERROR "Could not find libxml2")
-    else()
-        message("${LIBXML2} found")
-    endif()
-
+if(APPLE AND ZIG_STATIC)
+    list(REMOVE_ITEM LLVM_LIBRARIES "-lz")
+    list(REMOVE_ITEM LLVM_LIBRARIES "-lcurses")
     find_library(ZLIB NAMES z zlib libz)
-    if(${ZLIB} STREQUAL "ZLIB-NOTFOUND")
-        message(FATAL_ERROR "Could not find zlib")
-    else()
-        message("${ZLIB} found")
-    endif()
-
-    if(APPLE AND ZIG_STATIC)
-        list(REMOVE_ITEM LLVM_LIBRARIES "-lz")
-        list(REMOVE_ITEM LLVM_LIBRARIES "-lxml2")
-        list(REMOVE_ITEM LLVM_LIBRARIES "-lcurses")
-        find_library(LIBNCURSES NAMES libncurses.a)
-        list(APPEND LLVM_LIBRARIES "${LIBNCURSES}" "${LIBXML2}" "${ZLIB}")
-    endif()
+    find_library(LIBNCURSES NAMES libncurses.a)
+    list(APPEND LLVM_LIBRARIES "${LIBNCURSES}" "${ZLIB}")
 endif()
 
 set(ZIG_CPP_LIB_DIR "${CMAKE_BINARY_DIR}/zig_cpp")
@@ -211,6 +192,9 @@ else()
         set(ZIG_LLD_COMPILE_FLAGS "-std=c++11 -D_CRT_SECURE_NO_WARNINGS /w")
     else()
       set(ZIG_LLD_COMPILE_FLAGS "-std=c++11 -fno-exceptions -fno-rtti -Wno-comment")
+      if(MINGW)
+        set(ZIG_LLD_COMPILE_FLAGS "${ZIG_LLD_COMPILE_FLAGS} -D__STDC_FORMAT_MACROS -D__USE_MINGW_ANSI_STDIO -Wno-pedantic-ms-format")
+      endif()
     endif()
     set_target_properties(embedded_lld_lib PROPERTIES
         COMPILE_FLAGS ${ZIG_LLD_COMPILE_FLAGS}
@@ -486,12 +470,13 @@ set(ZIG_STD_FILES
     "event/fs.zig"
     "event/future.zig"
     "event/group.zig"
+    "event/io.zig"
     "event/lock.zig"
     "event/locked.zig"
     "event/loop.zig"
+    "event/net.zig"
     "event/rwlock.zig"
     "event/rwlocked.zig"
-    "event/tcp.zig"
     "fmt/errol/enum3.zig"
     "fmt/errol/index.zig"
     "fmt/errol/lookup.zig"
@@ -569,6 +554,7 @@ set(ZIG_STD_FILES
     "math/modf.zig"
     "math/nan.zig"
     "math/pow.zig"
+    "math/powi.zig"
     "math/round.zig"
     "math/scalbn.zig"
     "math/signbit.zig"
@@ -593,6 +579,7 @@ set(ZIG_STD_FILES
     "os/linux/index.zig"
     "os/linux/vdso.zig"
     "os/linux/x86_64.zig"
+    "os/linux/arm64.zig"
     "os/path.zig"
     "os/time.zig"
     "os/windows/advapi32.zig"
@@ -638,6 +625,7 @@ set(ZIG_STD_FILES
     "special/compiler_rt/floatuntitf.zig"
     "special/compiler_rt/index.zig"
     "special/compiler_rt/muloti4.zig"
+    "special/compiler_rt/multi3.zig"
     "special/compiler_rt/truncXfYf2.zig"
     "special/compiler_rt/udivmod.zig"
     "special/compiler_rt/udivmoddi4.zig"
@@ -650,6 +638,7 @@ set(ZIG_STD_FILES
     "special/init-lib/src/main.zig"
     "special/panic.zig"
     "special/test_runner.zig"
+    "spinlock.zig"
     "unicode.zig"
     "zig/ast.zig"
     "zig/index.zig"
@@ -663,7 +652,9 @@ set(ZIG_C_HEADER_FILES
     "__clang_cuda_builtin_vars.h"
     "__clang_cuda_cmath.h"
     "__clang_cuda_complex_builtins.h"
+    "__clang_cuda_device_functions.h"
     "__clang_cuda_intrinsics.h"
+    "__clang_cuda_libdevice_declares.h"
     "__clang_cuda_math_forward_declares.h"
     "__clang_cuda_runtime_wrapper.h"
     "__stddef_max_align_t.h"
@@ -674,6 +665,7 @@ set(ZIG_C_HEADER_FILES
     "ammintrin.h"
     "arm64intr.h"
     "arm_acle.h"
+    "arm_fp16.h"
     "arm_neon.h"
     "armintr.h"
     "avx2intrin.h"
@@ -703,6 +695,7 @@ set(ZIG_C_HEADER_FILES
     "bmi2intrin.h"
     "bmiintrin.h"
     "cetintrin.h"
+    "cldemoteintrin.h"
     "clflushoptintrin.h"
     "clwbintrin.h"
     "clzerointrin.h"
@@ -723,6 +716,7 @@ set(ZIG_C_HEADER_FILES
     "immintrin.h"
     "intrin.h"
     "inttypes.h"
+    "invpcidintrin.h"
     "iso646.h"
     "limits.h"
     "lwpintrin.h"
@@ -731,17 +725,21 @@ set(ZIG_C_HEADER_FILES
     "mm_malloc.h"
     "mmintrin.h"
     "module.modulemap"
+    "movdirintrin.h"
     "msa.h"
     "mwaitxintrin.h"
     "nmmintrin.h"
     "opencl-c.h"
+    "pconfigintrin.h"
     "pkuintrin.h"
     "pmmintrin.h"
     "popcntintrin.h"
     "prfchwintrin.h"
+    "ptwriteintrin.h"
     "rdseedintrin.h"
     "rtmintrin.h"
     "s390intrin.h"
+    "sgxintrin.h"
     "shaintrin.h"
     "smmintrin.h"
     "stdalign.h"
@@ -760,6 +758,8 @@ set(ZIG_C_HEADER_FILES
     "varargs.h"
     "vecintrin.h"
     "vpclmulqdqintrin.h"
+    "waitpkgintrin.h"
+    "wbnoinvdintrin.h"
     "wmmintrin.h"
     "x86intrin.h"
     "xmmintrin.h"

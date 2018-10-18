@@ -21,8 +21,8 @@ const errmsg = @import("errmsg.zig");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 
 var stderr_file: os.File = undefined;
-var stderr: *io.OutStream(io.FileOutStream.Error) = undefined;
-var stdout: *io.OutStream(io.FileOutStream.Error) = undefined;
+var stderr: *io.OutStream(os.File.WriteError) = undefined;
+var stdout: *io.OutStream(os.File.WriteError) = undefined;
 
 const max_src_size = 2 * 1024 * 1024 * 1024; // 2 GiB
 
@@ -43,7 +43,7 @@ const usage =
     \\
 ;
 
-const Command = struct {
+const Command = struct.{
     name: []const u8,
     exec: fn (*Allocator, []const []const u8) error!void,
 };
@@ -55,11 +55,11 @@ pub fn main() !void {
     const allocator = std.heap.c_allocator;
 
     var stdout_file = try std.io.getStdOut();
-    var stdout_out_stream = std.io.FileOutStream.init(stdout_file);
+    var stdout_out_stream = stdout_file.outStream();
     stdout = &stdout_out_stream.stream;
 
     stderr_file = try std.io.getStdErr();
-    var stderr_out_stream = std.io.FileOutStream.init(stderr_file);
+    var stderr_out_stream = stderr_file.outStream();
     stderr = &stderr_out_stream.stream;
 
     const args = try os.argsAlloc(allocator);
@@ -72,46 +72,46 @@ pub fn main() !void {
         os.exit(1);
     }
 
-    const commands = []Command{
-        Command{
+    const commands = []Command.{
+        Command.{
             .name = "build-exe",
             .exec = cmdBuildExe,
         },
-        Command{
+        Command.{
             .name = "build-lib",
             .exec = cmdBuildLib,
         },
-        Command{
+        Command.{
             .name = "build-obj",
             .exec = cmdBuildObj,
         },
-        Command{
+        Command.{
             .name = "fmt",
             .exec = cmdFmt,
         },
-        Command{
+        Command.{
             .name = "libc",
             .exec = cmdLibC,
         },
-        Command{
+        Command.{
             .name = "targets",
             .exec = cmdTargets,
         },
-        Command{
+        Command.{
             .name = "version",
             .exec = cmdVersion,
         },
-        Command{
+        Command.{
             .name = "zen",
             .exec = cmdZen,
         },
 
         // undocumented commands
-        Command{
+        Command.{
             .name = "help",
             .exec = cmdHelp,
         },
-        Command{
+        Command.{
             .name = "internal",
             .exec = cmdInternal,
         },
@@ -190,14 +190,14 @@ const usage_build_generic =
     \\
 ;
 
-const args_build_generic = []Flag{
+const args_build_generic = []Flag.{
     Flag.Bool("--help"),
-    Flag.Option("--color", []const []const u8{
+    Flag.Option("--color", []const []const u8.{
         "auto",
         "off",
         "on",
     }),
-    Flag.Option("--mode", []const []const u8{
+    Flag.Option("--mode", []const []const u8.{
         "debug",
         "release-fast",
         "release-safe",
@@ -205,7 +205,7 @@ const args_build_generic = []Flag{
     }),
 
     Flag.ArgMergeN("--assembly", 1),
-    Flag.Option("--emit", []const []const u8{
+    Flag.Option("--emit", []const []const u8.{
         "asm",
         "bin",
         "llvm-ir",
@@ -456,10 +456,10 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
     }
 
     if (flags.single("mmacosx-version-min")) |ver| {
-        comp.darwin_version_min = Compilation.DarwinVersionMin{ .MacOS = ver };
+        comp.darwin_version_min = Compilation.DarwinVersionMin.{ .MacOS = ver };
     }
     if (flags.single("mios-version-min")) |ver| {
-        comp.darwin_version_min = Compilation.DarwinVersionMin{ .Ios = ver };
+        comp.darwin_version_min = Compilation.DarwinVersionMin.{ .Ios = ver };
     }
 
     comp.emit_file_type = emit_type;
@@ -523,9 +523,9 @@ const usage_fmt =
     \\
 ;
 
-const args_fmt_spec = []Flag{
+const args_fmt_spec = []Flag.{
     Flag.Bool("--help"),
-    Flag.Option("--color", []const []const u8{
+    Flag.Option("--color", []const []const u8.{
         "auto",
         "off",
         "on",
@@ -533,7 +533,7 @@ const args_fmt_spec = []Flag{
     Flag.Bool("--stdin"),
 };
 
-const Fmt = struct {
+const Fmt = struct.{
     seen: event.Locked(SeenMap),
     any_error: bool,
     color: errmsg.Color,
@@ -619,7 +619,7 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
         }
 
         var stdin_file = try io.getStdIn();
-        var stdin = io.FileInStream.init(stdin_file);
+        var stdin = stdin_file.inStream();
 
         const source_code = try stdin.stream.readAllAlloc(allocator, max_src_size);
         defer allocator.free(source_code);
@@ -658,7 +658,7 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
     const main_handle = try async<allocator> asyncFmtMainChecked(
         &result,
         &loop,
-        flags,
+        &flags,
         color,
     );
     defer cancel main_handle;
@@ -675,7 +675,7 @@ async fn asyncFmtMainChecked(
     result.* = await (async asyncFmtMain(loop, flags, color) catch unreachable);
 }
 
-const FmtError = error{
+const FmtError = error.{
     SystemResources,
     OperationAborted,
     IoPending,
@@ -704,7 +704,7 @@ async fn asyncFmtMain(
     suspend {
         resume @handle();
     }
-    var fmt = Fmt{
+    var fmt = Fmt.{
         .seen = event.Locked(Fmt.SeenMap).init(loop, Fmt.SeenMap.init(loop.allocator)),
         .any_error = false,
         .color = color,
@@ -836,7 +836,7 @@ fn cmdVersion(allocator: *Allocator, args: []const []const u8) !void {
     try stdout.print("{}\n", std.cstr.toSliceConst(c.ZIG_VERSION_STRING));
 }
 
-const args_test_spec = []Flag{Flag.Bool("--help")};
+const args_test_spec = []Flag.{Flag.Bool("--help")};
 
 fn cmdHelp(allocator: *Allocator, args: []const []const u8) !void {
     try stdout.write(usage);
@@ -878,7 +878,7 @@ fn cmdInternal(allocator: *Allocator, args: []const []const u8) !void {
         os.exit(1);
     }
 
-    const sub_commands = []Command{Command{
+    const sub_commands = []Command.{Command.{
         .name = "build-info",
         .exec = cmdInternalBuildInfo,
     }};
@@ -917,14 +917,14 @@ fn cmdInternalBuildInfo(allocator: *Allocator, args: []const []const u8) !void {
     );
 }
 
-const CliPkg = struct {
+const CliPkg = struct.{
     name: []const u8,
     path: []const u8,
     children: ArrayList(*CliPkg),
     parent: ?*CliPkg,
 
     pub fn init(allocator: *mem.Allocator, name: []const u8, path: []const u8, parent: ?*CliPkg) !*CliPkg {
-        var pkg = try allocator.create(CliPkg{
+        var pkg = try allocator.create(CliPkg.{
             .name = name,
             .path = path,
             .children = ArrayList(*CliPkg).init(allocator),

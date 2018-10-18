@@ -19,12 +19,12 @@ pub fn insertionSort(comptime T: type, items: []T, lessThan: fn (lhs: T, rhs: T)
     }
 }
 
-const Range = struct {
+const Range = struct.{
     start: usize,
     end: usize,
 
     fn init(start: usize, end: usize) Range {
-        return Range{
+        return Range.{
             .start = start,
             .end = end,
         };
@@ -35,7 +35,7 @@ const Range = struct {
     }
 };
 
-const Iterator = struct {
+const Iterator = struct.{
     size: usize,
     power_of_two: usize,
     numerator: usize,
@@ -47,7 +47,7 @@ const Iterator = struct {
     fn init(size2: usize, min_level: usize) Iterator {
         const power_of_two = math.floorPowerOfTwo(usize, size2);
         const denominator = power_of_two / min_level;
-        return Iterator{
+        return Iterator.{
             .numerator = 0,
             .decimal = 0,
             .size = size2,
@@ -73,7 +73,7 @@ const Iterator = struct {
             self.decimal += 1;
         }
 
-        return Range{
+        return Range.{
             .start = start,
             .end = self.decimal,
         };
@@ -99,7 +99,7 @@ const Iterator = struct {
     }
 };
 
-const Pull = struct {
+const Pull = struct.{
     from: usize,
     to: usize,
     count: usize,
@@ -131,7 +131,7 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn (lhs: T, rhs: T) bool) vo
     // http://pages.ripco.net/~jgamble/nw.html
     var iterator = Iterator.init(items.len, 4);
     while (!iterator.finished()) {
-        var order = []u8{ 0, 1, 2, 3, 4, 5, 6, 7 };
+        var order = []u8.{ 0, 1, 2, 3, 4, 5, 6, 7 };
         const range = iterator.nextRange();
 
         const sliced_items = items[range.start..];
@@ -321,14 +321,14 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn (lhs: T, rhs: T) bool) vo
             var find: usize = 0;
             var start: usize = 0;
             var pull_index: usize = 0;
-            var pull = []Pull{
-                Pull{
+            var pull = []Pull.{
+                Pull.{
                     .from = 0,
                     .to = 0,
                     .count = 0,
                     .range = Range.init(0, 0),
                 },
-                Pull{
+                Pull.{
                     .from = 0,
                     .to = 0,
                     .count = 0,
@@ -382,7 +382,7 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn (lhs: T, rhs: T) bool) vo
 
                 if (count >= buffer_size) {
                     // keep track of the range within the items where we'll need to "pull out" these values to create the internal buffer
-                    pull[pull_index] = Pull{
+                    pull[pull_index] = Pull.{
                         .range = Range.init(A.start, B.end),
                         .count = count,
                         .from = index,
@@ -417,7 +417,7 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn (lhs: T, rhs: T) bool) vo
                 } else if (pull_index == 0 and count > buffer1.length()) {
                     // keep track of the largest buffer we were able to find
                     buffer1 = Range.init(A.start, A.start + count);
-                    pull[pull_index] = Pull{
+                    pull[pull_index] = Pull.{
                         .range = Range.init(A.start, B.end),
                         .count = count,
                         .from = index,
@@ -440,7 +440,7 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn (lhs: T, rhs: T) bool) vo
 
                 if (count >= buffer_size) {
                     // keep track of the range within the items where we'll need to "pull out" these values to create the internal buffe
-                    pull[pull_index] = Pull{
+                    pull[pull_index] = Pull.{
                         .range = Range.init(A.start, B.end),
                         .count = count,
                         .from = index,
@@ -479,7 +479,7 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn (lhs: T, rhs: T) bool) vo
                 } else if (pull_index == 0 and count > buffer1.length()) {
                     // keep track of the largest buffer we were able to find
                     buffer1 = Range.init(B.end - count, B.end);
-                    pull[pull_index] = Pull{
+                    pull[pull_index] = Pull.{
                         .range = Range.init(A.start, B.end),
                         .count = count,
                         .from = index,
@@ -969,7 +969,7 @@ fn swap(comptime T: type, items: []T, lessThan: fn (lhs: T, rhs: T) bool, order:
 
 // Use these to generate a comparator function for a given type. e.g. `sort(u8, slice, asc(u8))`.
 pub fn asc(comptime T: type) fn (T, T) bool {
-    const impl = struct {
+    const impl = struct.{
         fn inner(a: T, b: T) bool {
             return a < b;
         }
@@ -979,7 +979,7 @@ pub fn asc(comptime T: type) fn (T, T) bool {
 }
 
 pub fn desc(comptime T: type) fn (T, T) bool {
-    const impl = struct {
+    const impl = struct.{
         fn inner(a: T, b: T) bool {
             return a > b;
         }
@@ -993,39 +993,39 @@ test "stable sort" {
     comptime testStableSort();
 }
 fn testStableSort() void {
-    var expected = []IdAndValue{
-        IdAndValue{ .id = 0, .value = 0 },
-        IdAndValue{ .id = 1, .value = 0 },
-        IdAndValue{ .id = 2, .value = 0 },
-        IdAndValue{ .id = 0, .value = 1 },
-        IdAndValue{ .id = 1, .value = 1 },
-        IdAndValue{ .id = 2, .value = 1 },
-        IdAndValue{ .id = 0, .value = 2 },
-        IdAndValue{ .id = 1, .value = 2 },
-        IdAndValue{ .id = 2, .value = 2 },
+    var expected = []IdAndValue.{
+        IdAndValue.{ .id = 0, .value = 0 },
+        IdAndValue.{ .id = 1, .value = 0 },
+        IdAndValue.{ .id = 2, .value = 0 },
+        IdAndValue.{ .id = 0, .value = 1 },
+        IdAndValue.{ .id = 1, .value = 1 },
+        IdAndValue.{ .id = 2, .value = 1 },
+        IdAndValue.{ .id = 0, .value = 2 },
+        IdAndValue.{ .id = 1, .value = 2 },
+        IdAndValue.{ .id = 2, .value = 2 },
     };
-    var cases = [][9]IdAndValue{
-        []IdAndValue{
-            IdAndValue{ .id = 0, .value = 0 },
-            IdAndValue{ .id = 0, .value = 1 },
-            IdAndValue{ .id = 0, .value = 2 },
-            IdAndValue{ .id = 1, .value = 0 },
-            IdAndValue{ .id = 1, .value = 1 },
-            IdAndValue{ .id = 1, .value = 2 },
-            IdAndValue{ .id = 2, .value = 0 },
-            IdAndValue{ .id = 2, .value = 1 },
-            IdAndValue{ .id = 2, .value = 2 },
+    var cases = [][9]IdAndValue.{
+        []IdAndValue.{
+            IdAndValue.{ .id = 0, .value = 0 },
+            IdAndValue.{ .id = 0, .value = 1 },
+            IdAndValue.{ .id = 0, .value = 2 },
+            IdAndValue.{ .id = 1, .value = 0 },
+            IdAndValue.{ .id = 1, .value = 1 },
+            IdAndValue.{ .id = 1, .value = 2 },
+            IdAndValue.{ .id = 2, .value = 0 },
+            IdAndValue.{ .id = 2, .value = 1 },
+            IdAndValue.{ .id = 2, .value = 2 },
         },
-        []IdAndValue{
-            IdAndValue{ .id = 0, .value = 2 },
-            IdAndValue{ .id = 0, .value = 1 },
-            IdAndValue{ .id = 0, .value = 0 },
-            IdAndValue{ .id = 1, .value = 2 },
-            IdAndValue{ .id = 1, .value = 1 },
-            IdAndValue{ .id = 1, .value = 0 },
-            IdAndValue{ .id = 2, .value = 2 },
-            IdAndValue{ .id = 2, .value = 1 },
-            IdAndValue{ .id = 2, .value = 0 },
+        []IdAndValue.{
+            IdAndValue.{ .id = 0, .value = 2 },
+            IdAndValue.{ .id = 0, .value = 1 },
+            IdAndValue.{ .id = 0, .value = 0 },
+            IdAndValue.{ .id = 1, .value = 2 },
+            IdAndValue.{ .id = 1, .value = 1 },
+            IdAndValue.{ .id = 1, .value = 0 },
+            IdAndValue.{ .id = 2, .value = 2 },
+            IdAndValue.{ .id = 2, .value = 1 },
+            IdAndValue.{ .id = 2, .value = 0 },
         },
     };
     for (cases) |*case| {
@@ -1036,7 +1036,7 @@ fn testStableSort() void {
         }
     }
 }
-const IdAndValue = struct {
+const IdAndValue = struct.{
     id: usize,
     value: i32,
 };
@@ -1045,28 +1045,28 @@ fn cmpByValue(a: IdAndValue, b: IdAndValue) bool {
 }
 
 test "std.sort" {
-    const u8cases = [][]const []const u8{
-        [][]const u8{
+    const u8cases = [][]const []const u8.{
+        [][]const u8.{
             "",
             "",
         },
-        [][]const u8{
+        [][]const u8.{
             "a",
             "a",
         },
-        [][]const u8{
+        [][]const u8.{
             "az",
             "az",
         },
-        [][]const u8{
+        [][]const u8.{
             "za",
             "az",
         },
-        [][]const u8{
+        [][]const u8.{
             "asdf",
             "adfs",
         },
-        [][]const u8{
+        [][]const u8.{
             "one",
             "eno",
         },
@@ -1080,30 +1080,30 @@ test "std.sort" {
         assert(mem.eql(u8, slice, case[1]));
     }
 
-    const i32cases = [][]const []const i32{
-        [][]const i32{
-            []i32{},
-            []i32{},
+    const i32cases = [][]const []const i32.{
+        [][]const i32.{
+            []i32.{},
+            []i32.{},
         },
-        [][]const i32{
-            []i32{1},
-            []i32{1},
+        [][]const i32.{
+            []i32.{1},
+            []i32.{1},
         },
-        [][]const i32{
-            []i32{ 0, 1 },
-            []i32{ 0, 1 },
+        [][]const i32.{
+            []i32.{ 0, 1 },
+            []i32.{ 0, 1 },
         },
-        [][]const i32{
-            []i32{ 1, 0 },
-            []i32{ 0, 1 },
+        [][]const i32.{
+            []i32.{ 1, 0 },
+            []i32.{ 0, 1 },
         },
-        [][]const i32{
-            []i32{ 1, -1, 0 },
-            []i32{ -1, 0, 1 },
+        [][]const i32.{
+            []i32.{ 1, -1, 0 },
+            []i32.{ -1, 0, 1 },
         },
-        [][]const i32{
-            []i32{ 2, 1, 3 },
-            []i32{ 1, 2, 3 },
+        [][]const i32.{
+            []i32.{ 2, 1, 3 },
+            []i32.{ 1, 2, 3 },
         },
     };
 
@@ -1117,30 +1117,30 @@ test "std.sort" {
 }
 
 test "std.sort descending" {
-    const rev_cases = [][]const []const i32{
-        [][]const i32{
-            []i32{},
-            []i32{},
+    const rev_cases = [][]const []const i32.{
+        [][]const i32.{
+            []i32.{},
+            []i32.{},
         },
-        [][]const i32{
-            []i32{1},
-            []i32{1},
+        [][]const i32.{
+            []i32.{1},
+            []i32.{1},
         },
-        [][]const i32{
-            []i32{ 0, 1 },
-            []i32{ 1, 0 },
+        [][]const i32.{
+            []i32.{ 0, 1 },
+            []i32.{ 1, 0 },
         },
-        [][]const i32{
-            []i32{ 1, 0 },
-            []i32{ 1, 0 },
+        [][]const i32.{
+            []i32.{ 1, 0 },
+            []i32.{ 1, 0 },
         },
-        [][]const i32{
-            []i32{ 1, -1, 0 },
-            []i32{ 1, 0, -1 },
+        [][]const i32.{
+            []i32.{ 1, -1, 0 },
+            []i32.{ 1, 0, -1 },
         },
-        [][]const i32{
-            []i32{ 2, 1, 3 },
-            []i32{ 3, 2, 1 },
+        [][]const i32.{
+            []i32.{ 2, 1, 3 },
+            []i32.{ 3, 2, 1 },
         },
     };
 
@@ -1154,10 +1154,10 @@ test "std.sort descending" {
 }
 
 test "another sort case" {
-    var arr = []i32{ 5, 3, 1, 2, 4 };
+    var arr = []i32.{ 5, 3, 1, 2, 4 };
     sort(i32, arr[0..], asc(i32));
 
-    assert(mem.eql(i32, arr, []i32{ 1, 2, 3, 4, 5 }));
+    assert(mem.eql(i32, arr, []i32.{ 1, 2, 3, 4, 5 }));
 }
 
 test "sort fuzz testing" {

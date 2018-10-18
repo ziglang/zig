@@ -17,21 +17,21 @@ pub fn atan(x: var) @typeOf(x) {
 }
 
 fn atan32(x_: f32) f32 {
-    const atanhi = []const f32{
+    const atanhi = []const f32.{
         4.6364760399e-01, // atan(0.5)hi
         7.8539812565e-01, // atan(1.0)hi
         9.8279368877e-01, // atan(1.5)hi
         1.5707962513e+00, // atan(inf)hi
     };
 
-    const atanlo = []const f32{
+    const atanlo = []const f32.{
         5.0121582440e-09, // atan(0.5)lo
         3.7748947079e-08, // atan(1.0)lo
         3.4473217170e-08, // atan(1.5)lo
         7.5497894159e-08, // atan(inf)lo
     };
 
-    const aT = []const f32{
+    const aT = []const f32.{
         3.3333328366e-01,
         -1.9999158382e-01,
         1.4253635705e-01,
@@ -108,21 +108,21 @@ fn atan32(x_: f32) f32 {
 }
 
 fn atan64(x_: f64) f64 {
-    const atanhi = []const f64{
+    const atanhi = []const f64.{
         4.63647609000806093515e-01, // atan(0.5)hi
         7.85398163397448278999e-01, // atan(1.0)hi
         9.82793723247329054082e-01, // atan(1.5)hi
         1.57079632679489655800e+00, // atan(inf)hi
     };
 
-    const atanlo = []const f64{
+    const atanlo = []const f64.{
         2.26987774529616870924e-17, // atan(0.5)lo
         3.06161699786838301793e-17, // atan(1.0)lo
         1.39033110312309984516e-17, // atan(1.5)lo
         6.12323399573676603587e-17, // atan(inf)lo
     };
 
-    const aT = []const f64{
+    const aT = []const f64.{
         3.33333333333329318027e-01,
         -1.99999999998764832476e-01,
         1.42857142725034663711e-01,

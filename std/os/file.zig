@@ -1,6 +1,7 @@
 const std = @import("../index.zig");
 const builtin = @import("builtin");
 const os = std.os;
+const io = std.io;
 const mem = std.mem;
 const math = std.math;
 const assert = std.debug.assert;
@@ -12,7 +13,7 @@ const windows_util = @import("windows/util.zig");
 const is_posix = builtin.os != builtin.Os.windows;
 const is_windows = builtin.os == builtin.Os.windows;
 
-pub const File = struct {
+pub const File = struct.{
     /// The OS-specific file descriptor or file handle.
     handle: os.FileHandle,
 
@@ -102,11 +103,23 @@ pub const File = struct {
     /// Call close to clean up.
     pub fn openWriteNoClobber(path: []const u8, file_mode: Mode) OpenError!File {
         if (is_posix) {
-            const flags = posix.O_LARGEFILE | posix.O_WRONLY | posix.O_CREAT | posix.O_CLOEXEC | posix.O_EXCL;
-            const fd = try os.posixOpen(path, flags, file_mode);
-            return openHandle(fd);
+            const path_c = try os.toPosixPath(path);
+            return openWriteNoClobberC(path_c, file_mode);
         } else if (is_windows) {
             const path_w = try windows_util.sliceToPrefixedFileW(path);
+            return openWriteNoClobberW(&path_w, file_mode);
+        } else {
+            @compileError("TODO implement openWriteMode for this OS");
+        }
+    }
+
+    pub fn openWriteNoClobberC(path: [*]const u8, file_mode: Mode) OpenError!File {
+        if (is_posix) {
+            const flags = posix.O_LARGEFILE | posix.O_WRONLY | posix.O_CREAT | posix.O_CLOEXEC | posix.O_EXCL;
+            const fd = try os.posixOpenC(path, flags, file_mode);
+            return openHandle(fd);
+        } else if (is_windows) {
+            const path_w = try windows_util.cStrToPrefixedFileW(path);
             return openWriteNoClobberW(&path_w, file_mode);
         } else {
             @compileError("TODO implement openWriteMode for this OS");
@@ -125,10 +138,10 @@ pub const File = struct {
     }
 
     pub fn openHandle(handle: os.FileHandle) File {
-        return File{ .handle = handle };
+        return File.{ .handle = handle };
     }
 
-    pub const AccessError = error{
+    pub const AccessError = error.{
         PermissionDenied,
         FileNotFound,
         NameTooLong,
@@ -335,7 +348,7 @@ pub const File = struct {
         }
     }
 
-    pub const ModeError = error{
+    pub const ModeError = error.{
         SystemResources,
         Unexpected,
     };
@@ -364,40 +377,11 @@ pub const File = struct {
         }
     }
 
-    pub const ReadError = error{
-        FileClosed,
-        InputOutput,
-        IsDir,
-        WouldBlock,
-        SystemResources,
-
-        Unexpected,
-    };
+    pub const ReadError = os.WindowsReadError || os.PosixReadError;
 
     pub fn read(self: File, buffer: []u8) ReadError!usize {
         if (is_posix) {
-            var index: usize = 0;
-            while (index < buffer.len) {
-                const amt_read = posix.read(self.handle, buffer.ptr + index, buffer.len - index);
-                const read_err = posix.getErrno(amt_read);
-                if (read_err > 0) {
-                    switch (read_err) {
-                        posix.EINTR => continue,
-                        posix.EINVAL => unreachable,
-                        posix.EFAULT => unreachable,
-                        posix.EAGAIN => return error.WouldBlock,
-                        posix.EBADF => return error.FileClosed,
-                        posix.EIO => return error.InputOutput,
-                        posix.EISDIR => return error.IsDir,
-                        posix.ENOBUFS => return error.SystemResources,
-                        posix.ENOMEM => return error.SystemResources,
-                        else => return os.unexpectedErrorPosix(read_err),
-                    }
-                }
-                if (amt_read == 0) return index;
-                index += amt_read;
-            }
-            return index;
+            return os.posixRead(self.handle, buffer);
         } else if (is_windows) {
             var index: usize = 0;
             while (index < buffer.len) {
@@ -416,7 +400,7 @@ pub const File = struct {
             }
             return index;
         } else {
-            unreachable;
+            @compileError("Unsupported OS");
         }
     }
 
@@ -431,4 +415,46 @@ pub const File = struct {
             @compileError("Unsupported OS");
         }
     }
+
+    pub fn inStream(file: File) InStream {
+        return InStream.{
+            .file = file,
+            .stream = InStream.Stream.{ .readFn = InStream.readFn },
+        };
+    }
+
+    pub fn outStream(file: File) OutStream {
+        return OutStream.{
+            .file = file,
+            .stream = OutStream.Stream.{ .writeFn = OutStream.writeFn },
+        };
+    }
+
+    /// Implementation of io.InStream trait for File
+    pub const InStream = struct.{
+        file: File,
+        stream: Stream,
+
+        pub const Error = ReadError;
+        pub const Stream = io.InStream(Error);
+
+        fn readFn(in_stream: *Stream, buffer: []u8) Error!usize {
+            const self = @fieldParentPtr(InStream, "stream", in_stream);
+            return self.file.read(buffer);
+        }
+    };
+
+    /// Implementation of io.OutStream trait for File
+    pub const OutStream = struct.{
+        file: File,
+        stream: Stream,
+
+        pub const Error = WriteError;
+        pub const Stream = io.OutStream(Error);
+
+        fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
+            const self = @fieldParentPtr(OutStream, "stream", out_stream);
+            return self.file.write(bytes);
+        }
+    };
 };

@@ -1,15 +1,16 @@
-pub const ArrayList = @import("array_list.zig").ArrayList;
 pub const AlignedArrayList = @import("array_list.zig").AlignedArrayList;
+pub const ArrayList = @import("array_list.zig").ArrayList;
+pub const AutoHashMap = @import("hash_map.zig").AutoHashMap;
 pub const BufMap = @import("buf_map.zig").BufMap;
 pub const BufSet = @import("buf_set.zig").BufSet;
 pub const Buffer = @import("buffer.zig").Buffer;
 pub const BufferOutStream = @import("io.zig").BufferOutStream;
-pub const HashMap = @import("hash_map.zig").HashMap;
-pub const AutoHashMap = @import("hash_map.zig").AutoHashMap;
-pub const LinkedList = @import("linked_list.zig").LinkedList;
-pub const SegmentedList = @import("segmented_list.zig").SegmentedList;
 pub const DynLib = @import("dynamic_library.zig").DynLib;
+pub const HashMap = @import("hash_map.zig").HashMap;
+pub const LinkedList = @import("linked_list.zig").LinkedList;
 pub const Mutex = @import("mutex.zig").Mutex;
+pub const SegmentedList = @import("segmented_list.zig").SegmentedList;
+pub const SpinLock = @import("spinlock.zig").SpinLock;
 
 pub const atomic = @import("atomic/index.zig");
 pub const base64 = @import("base64.zig");
@@ -45,15 +46,16 @@ pub const lazyInit = @import("lazy_init.zig").lazyInit;
 
 test "std" {
     // run tests from these
-    _ = @import("atomic/index.zig");
     _ = @import("array_list.zig");
+    _ = @import("atomic/index.zig");
     _ = @import("buf_map.zig");
     _ = @import("buf_set.zig");
     _ = @import("buffer.zig");
     _ = @import("hash_map.zig");
     _ = @import("linked_list.zig");
-    _ = @import("segmented_list.zig");
     _ = @import("mutex.zig");
+    _ = @import("segmented_list.zig");
+    _ = @import("spinlock.zig");
 
     _ = @import("base64.zig");
     _ = @import("build.zig");

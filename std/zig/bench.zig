@@ -24,7 +24,7 @@ pub fn main() !void {
     const mb_per_sec = bytes_per_sec / (1024 * 1024);
 
     var stdout_file = try std.io.getStdOut();
-    const stdout = &std.io.FileOutStream.init(stdout_file).stream;
+    const stdout = &stdout_file.outStream().stream;
     try stdout.print("{.3} MiB/s, {} KiB used \n", mb_per_sec, memory_used / 1024);
 }
 

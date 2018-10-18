@@ -6,7 +6,7 @@ pub const REGSAM = ACCESS_MASK;
 pub const ACCESS_MASK = DWORD;
 pub const PHKEY = &HKEY;
 pub const HKEY = &HKEY__;
-pub const HKEY__ = extern struct {
+pub const HKEY__ = extern struct.{
     unused: c_int,
 };
 pub const LSTATUS = LONG;

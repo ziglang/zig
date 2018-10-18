@@ -47,12 +47,13 @@ static int print_full_usage(const char *arg0) {
         "  --cache-dir [path]           override the cache directory\n"
         "  --cache [auto|off|on]        build in global cache, print out paths to stdout\n"
         "  --color [auto|off|on]        enable or disable colored error messages\n"
+        "  --disable-pic                disable Position Independent Code for libraries\n"
         "  --emit [asm|bin|llvm-ir]     emit a specific file format as compilation output\n"
         "  -ftime-report                print timing diagnostics\n"
         "  --libc-include-dir [path]    directory where libc stdlib.h resides\n"
         "  --name [name]                override output name\n"
         "  --output [file]              override destination path\n"
-        "  --output-h [file]            override generated header file path\n"
+        "  --output-h [file]            generate header file\n"
         "  --pkg-begin [name] [path]    make pkg available to import and push current pkg\n"
         "  --pkg-end                    pop current pkg\n"
         "  --release-fast               build with optimizations on and safety off\n"
@@ -386,6 +387,7 @@ int main(int argc, char **argv) {
     size_t ver_minor = 0;
     size_t ver_patch = 0;
     bool timing_info = false;
+    bool disable_pic = false;
     const char *cache_dir = nullptr;
     CliPkg *cur_pkg = allocate<CliPkg>(1);
     BuildMode build_mode = BuildModeDebug;
@@ -556,6 +558,8 @@ int main(int argc, char **argv) {
                 each_lib_rpath = true;
             } else if (strcmp(arg, "-ftime-report") == 0) {
                 timing_info = true;
+            } else if (strcmp(arg, "--disable-pic") == 0) {
+                disable_pic = true;
             } else if (strcmp(arg, "--test-cmd-bin") == 0) {
                 test_exec_args.append(nullptr);
             } else if (arg[1] == 'L' && arg[2] != 0) {
@@ -849,6 +853,14 @@ int main(int argc, char **argv) {
                 buf_out_name = buf_create_from_str("run");
             }
             CodeGen *g = codegen_create(zig_root_source_file, target, out_type, build_mode, get_zig_lib_dir());
+            if (disable_pic) {
+                if (out_type != OutTypeLib || !is_static) {
+                    fprintf(stderr, "--disable-pic only applies to static libraries");
+                    return EXIT_FAILURE;
+                }
+                g->disable_pic = true;
+            }
+
             g->enable_time_report = timing_info;
             buf_init_from_str(&g->cache_dir, cache_dir ? cache_dir : default_zig_cache_name);
             codegen_set_out_name(g, buf_out_name);
@@ -926,7 +938,7 @@ int main(int argc, char **argv) {
 
             if (out_file)
                 codegen_set_output_path(g, buf_create_from_str(out_file));
-            if (out_file_h)
+            if (out_file_h != nullptr && (out_type == OutTypeObj || out_type == OutTypeLib))
                 codegen_set_output_h_path(g, buf_create_from_str(out_file_h));
 
 

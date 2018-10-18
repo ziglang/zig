@@ -6,16 +6,16 @@ test "struct contains null pointer which contains original struct" {
     assert(x == null);
 }
 
-pub const Node = struct {
+pub const Node = struct.{
     id: Id,
     comment: ?*NodeLineComment,
 
-    pub const Id = enum {
+    pub const Id = enum.{
         Root,
         LineComment,
     };
 };
 
-pub const NodeLineComment = struct {
+pub const NodeLineComment = struct.{
     base: Node,
 };

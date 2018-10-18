@@ -7,7 +7,7 @@ const assert = std.debug.assert;
 /// Many producer, many consumer, non-allocating, thread-safe.
 /// Uses a mutex to protect access.
 pub fn Queue(comptime T: type) type {
-    return struct {
+    return struct.{
         head: ?*Node,
         tail: ?*Node,
         mutex: std.Mutex,
@@ -16,7 +16,7 @@ pub fn Queue(comptime T: type) type {
         pub const Node = std.LinkedList(T).Node;
 
         pub fn init() Self {
-            return Self{
+            return Self.{
                 .head = null,
                 .tail = null,
                 .mutex = std.Mutex.init(),
@@ -114,7 +114,7 @@ pub fn Queue(comptime T: type) type {
 
         fn dumpRecursive(optional_node: ?*Node, indent: usize) void {
             var stderr_file = std.io.getStdErr() catch return;
-            const stderr = &std.io.FileOutStream.init(stderr_file).stream;
+            const stderr = &stderr_file.outStream().stream;
             stderr.writeByteNTimes(' ', indent) catch return;
             if (optional_node) |node| {
                 std.debug.warn("0x{x}={}\n", @ptrToInt(node), node.data);
@@ -126,7 +126,7 @@ pub fn Queue(comptime T: type) type {
     };
 }
 
-const Context = struct {
+const Context = struct.{
     allocator: *std.mem.Allocator,
     queue: *Queue(i32),
     put_sum: isize,
@@ -154,7 +154,7 @@ test "std.atomic.Queue" {
     var a = &fixed_buffer_allocator.allocator;
 
     var queue = Queue(i32).init();
-    var context = Context{
+    var context = Context.{
         .allocator = a,
         .queue = &queue,
         .put_sum = 0,
@@ -196,9 +196,9 @@ fn startPuts(ctx: *Context) u8 {
     var put_count: usize = puts_per_thread;
     var r = std.rand.DefaultPrng.init(0xdeadbeef);
     while (put_count != 0) : (put_count -= 1) {
-        std.os.time.sleep(0, 1); // let the os scheduler be our fuzz
+        std.os.time.sleep(1); // let the os scheduler be our fuzz
         const x = @bitCast(i32, r.random.scalar(u32));
-        const node = ctx.allocator.create(Queue(i32).Node{
+        const node = ctx.allocator.create(Queue(i32).Node.{
             .prev = undefined,
             .next = undefined,
             .data = x,
@@ -214,7 +214,7 @@ fn startGets(ctx: *Context) u8 {
         const last = @atomicLoad(u8, &ctx.puts_done, builtin.AtomicOrder.SeqCst) == 1;
 
         while (ctx.queue.get()) |node| {
-            std.os.time.sleep(0, 1); // let the os scheduler be our fuzz
+            std.os.time.sleep(1); // let the os scheduler be our fuzz
             _ = @atomicRmw(isize, &ctx.get_sum, builtin.AtomicRmwOp.Add, node.data, builtin.AtomicOrder.SeqCst);
             _ = @atomicRmw(usize, &ctx.get_count, builtin.AtomicRmwOp.Add, 1, builtin.AtomicOrder.SeqCst);
         }
@@ -226,14 +226,14 @@ fn startGets(ctx: *Context) u8 {
 test "std.atomic.Queue single-threaded" {
     var queue = Queue(i32).init();
 
-    var node_0 = Queue(i32).Node{
+    var node_0 = Queue(i32).Node.{
         .data = 0,
         .next = undefined,
         .prev = undefined,
     };
     queue.put(&node_0);
 
-    var node_1 = Queue(i32).Node{
+    var node_1 = Queue(i32).Node.{
         .data = 1,
         .next = undefined,
         .prev = undefined,
@@ -242,14 +242,14 @@ test "std.atomic.Queue single-threaded" {
 
     assert(queue.get().?.data == 0);
 
-    var node_2 = Queue(i32).Node{
+    var node_2 = Queue(i32).Node.{
         .data = 2,
         .next = undefined,
         .prev = undefined,
     };
     queue.put(&node_2);
 
-    var node_3 = Queue(i32).Node{
+    var node_3 = Queue(i32).Node.{
         .data = 3,
         .next = undefined,
         .prev = undefined,
@@ -260,7 +260,7 @@ test "std.atomic.Queue single-threaded" {
 
     assert(queue.get().?.data == 2);
 
-    var node_4 = Queue(i32).Node{
+    var node_4 = Queue(i32).Node.{
         .data = 4,
         .next = undefined,
         .prev = undefined,

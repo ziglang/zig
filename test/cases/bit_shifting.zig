@@ -6,12 +6,12 @@ fn ShardedTable(comptime Key: type, comptime mask_bit_count: comptime_int, compt
     assert(Key.bit_count >= mask_bit_count);
     const ShardKey = @IntType(false, mask_bit_count);
     const shift_amount = Key.bit_count - ShardKey.bit_count;
-    return struct {
+    return struct.{
         const Self = @This();
         shards: [1 << ShardKey.bit_count]?*Node,
 
         pub fn create() Self {
-            return Self{ .shards = []?*Node{null} ** (1 << ShardKey.bit_count) };
+            return Self.{ .shards = []?*Node.{null} ** (1 << ShardKey.bit_count) };
         }
 
         fn getShardKey(key: Key) ShardKey {
@@ -43,7 +43,7 @@ fn ShardedTable(comptime Key: type, comptime mask_bit_count: comptime_int, compt
             return null;
         }
 
-        pub const Node = struct {
+        pub const Node = struct.{
             key: Key,
             value: V,
             next: ?*Node,

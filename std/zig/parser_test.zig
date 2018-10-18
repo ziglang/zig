@@ -8,12 +8,12 @@ test "zig fmt: shebang line" {
 
 test "zig fmt: correctly move doc comments on struct fields" {
     try testTransform(
-        \\pub const section_64 = extern struct {
+        \\pub const section_64 = extern struct.{
         \\    sectname: [16]u8, /// name of this section
         \\    segname: [16]u8,  /// segment this section goes in
         \\};
     ,
-        \\pub const section_64 = extern struct {
+        \\pub const section_64 = extern struct.{
         \\    /// name of this section
         \\    sectname: [16]u8,
         \\    /// segment this section goes in
@@ -37,7 +37,7 @@ test "zig fmt: comment to disable/enable zig fmt first" {
         \\// Test trailing comma syntax
         \\// zig fmt: off
         \\
-        \\const struct_trailing_comma = struct { x: i32, y: i32, };
+        \\const struct_trailing_comma = struct.{ x: i32, y: i32, };
     );
 }
 
@@ -172,7 +172,7 @@ test "zig fmt: if condition wraps" {
 test "zig fmt: if condition has line break but must not wrap" {
     try testCanonical(
         \\comptime {
-        \\    if (self.user_input_options.put(name, UserInputOption{
+        \\    if (self.user_input_options.put(name, UserInputOption.{
         \\        .name = name,
         \\        .used = false,
         \\    }) catch unreachable) |*prev_value| {
@@ -283,9 +283,9 @@ test "zig fmt: fn decl with trailing comma" {
 
 test "zig fmt: enum decl with no trailing comma" {
     try testTransform(
-        \\const StrLitKind = enum {Normal, C};
+        \\const StrLitKind = enum.{Normal, C};
     ,
-        \\const StrLitKind = enum {
+        \\const StrLitKind = enum.{
         \\    Normal,
         \\    C,
         \\};
@@ -307,12 +307,12 @@ test "zig fmt: switch comment before prong" {
 
 test "zig fmt: struct literal no trailing comma" {
     try testTransform(
-        \\const a = foo{ .x = 1, .y = 2 };
-        \\const a = foo{ .x = 1,
+        \\const a = foo.{ .x = 1, .y = 2 };
+        \\const a = foo.{ .x = 1,
         \\    .y = 2 };
     ,
-        \\const a = foo{ .x = 1, .y = 2 };
-        \\const a = foo{
+        \\const a = foo.{ .x = 1, .y = 2 };
+        \\const a = foo.{
         \\    .x = 1,
         \\    .y = 2,
         \\};
@@ -322,35 +322,35 @@ test "zig fmt: struct literal no trailing comma" {
 
 test "zig fmt: array literal with hint" {
     try testTransform(
-        \\const a = []u8{
+        \\const a = []u8.{
         \\    1, 2, //
         \\    3,
         \\    4,
         \\    5,
         \\    6,
         \\    7 };
-        \\const a = []u8{
+        \\const a = []u8.{
         \\    1, 2, //
         \\    3,
         \\    4,
         \\    5,
         \\    6,
         \\    7, 8 };
-        \\const a = []u8{
+        \\const a = []u8.{
         \\    1, 2, //
         \\    3,
         \\    4,
         \\    5,
         \\    6, // blah
         \\    7, 8 };
-        \\const a = []u8{
+        \\const a = []u8.{
         \\    1, 2, //
         \\    3, //
         \\    4,
         \\    5,
         \\    6,
         \\    7 };
-        \\const a = []u8{
+        \\const a = []u8.{
         \\    1,
         \\    2,
         \\    3, 4, //
@@ -358,32 +358,32 @@ test "zig fmt: array literal with hint" {
         \\    7, 8, //
         \\};
     ,
-        \\const a = []u8{
+        \\const a = []u8.{
         \\    1, 2,
         \\    3, 4,
         \\    5, 6,
         \\    7,
         \\};
-        \\const a = []u8{
+        \\const a = []u8.{
         \\    1, 2,
         \\    3, 4,
         \\    5, 6,
         \\    7, 8,
         \\};
-        \\const a = []u8{
+        \\const a = []u8.{
         \\    1, 2,
         \\    3, 4,
         \\    5, 6, // blah
         \\    7, 8,
         \\};
-        \\const a = []u8{
+        \\const a = []u8.{
         \\    1, 2,
         \\    3, //
         \\        4,
         \\    5, 6,
         \\    7,
         \\};
-        \\const a = []u8{
+        \\const a = []u8.{
         \\    1,
         \\    2,
         \\    3,
@@ -452,11 +452,11 @@ test "zig fmt: empty block with only comment" {
 
 test "zig fmt: no trailing comma on struct decl" {
     try testTransform(
-        \\const RoundParam = struct {
+        \\const RoundParam = struct.{
         \\    k: usize, s: u32, t: u32
         \\};
     ,
-        \\const RoundParam = struct {
+        \\const RoundParam = struct.{
         \\    k: usize,
         \\    s: u32,
         \\    t: u32,
@@ -508,8 +508,8 @@ test "zig fmt: simple asm" {
 
 test "zig fmt: nested struct literal with one item" {
     try testCanonical(
-        \\const a = foo{
-        \\    .item = bar{ .a = b },
+        \\const a = foo.{
+        \\    .item = bar.{ .a = b },
         \\};
         \\
     );
@@ -542,7 +542,7 @@ test "zig fmt: switch cases trailing comma" {
 
 test "zig fmt: slice align" {
     try testCanonical(
-        \\const A = struct {
+        \\const A = struct.{
         \\    items: []align(A) T,
         \\};
         \\
@@ -552,22 +552,22 @@ test "zig fmt: slice align" {
 test "zig fmt: add trailing comma to array literal" {
     try testTransform(
         \\comptime {
-        \\    return []u16{'m', 's', 'y', 's', '-' // hi
+        \\    return []u16.{'m', 's', 'y', 's', '-' // hi
         \\   };
-        \\    return []u16{'m', 's', 'y', 's',
+        \\    return []u16.{'m', 's', 'y', 's',
         \\      '-'};
-        \\    return []u16{'m', 's', 'y', 's', '-'};
+        \\    return []u16.{'m', 's', 'y', 's', '-'};
         \\}
     ,
         \\comptime {
-        \\    return []u16{
+        \\    return []u16.{
         \\        'm', 's', 'y', 's', '-', // hi
         \\    };
-        \\    return []u16{
+        \\    return []u16.{
         \\        'm', 's', 'y', 's',
         \\        '-',
         \\    };
-        \\    return []u16{ 'm', 's', 'y', 's', '-' };
+        \\    return []u16.{ 'm', 's', 'y', 's', '-' };
         \\}
         \\
     );
@@ -788,8 +788,8 @@ test "zig fmt: same-line comment after a statement" {
 
 test "zig fmt: same-line comment after var decl in struct" {
     try testCanonical(
-        \\pub const vfs_cap_data = extern struct {
-        \\    const Data = struct {}; // when on disk.
+        \\pub const vfs_cap_data = extern struct.{
+        \\    const Data = struct.{}; // when on disk.
         \\};
         \\
     );
@@ -797,7 +797,7 @@ test "zig fmt: same-line comment after var decl in struct" {
 
 test "zig fmt: same-line comment after field decl" {
     try testCanonical(
-        \\pub const dirent = extern struct {
+        \\pub const dirent = extern struct.{
         \\    d_name: u8,
         \\    d_name: u8, // comment 1
         \\    d_name: u8,
@@ -851,7 +851,7 @@ test "zig fmt: switch with empty body" {
 test "zig fmt: line comments in struct initializer" {
     try testCanonical(
         \\fn foo() void {
-        \\    return Self{
+        \\    return Self.{
         \\        .a = b,
         \\
         \\        // Initialize these two fields to buffer_size so that
@@ -872,7 +872,7 @@ test "zig fmt: line comments in struct initializer" {
 
 test "zig fmt: doc comments before struct field" {
     try testCanonical(
-        \\pub const Allocator = struct {
+        \\pub const Allocator = struct.{
         \\    /// Allocate byte_count bytes and return them in a slice, with the
         \\    /// slice's pointer aligned at least to alignment bytes.
         \\    allocFn: fn () void,
@@ -883,19 +883,19 @@ test "zig fmt: doc comments before struct field" {
 
 test "zig fmt: error set declaration" {
     try testCanonical(
-        \\const E = error{
+        \\const E = error.{
         \\    A,
         \\    B,
         \\
         \\    C,
         \\};
         \\
-        \\const Error = error{
+        \\const Error = error.{
         \\    /// no more memory
         \\    OutOfMemory,
         \\};
         \\
-        \\const Error = error{
+        \\const Error = error.{
         \\    /// no more memory
         \\    OutOfMemory,
         \\
@@ -905,15 +905,15 @@ test "zig fmt: error set declaration" {
         \\    // end
         \\};
         \\
-        \\const Error = error{OutOfMemory};
-        \\const Error = error{};
+        \\const Error = error.{OutOfMemory};
+        \\const Error = error.{};
         \\
     );
 }
 
 test "zig fmt: union(enum(u32)) with assigned enum values" {
     try testCanonical(
-        \\const MultipleChoice = union(enum(u32)) {
+        \\const MultipleChoice = union(enum(u32)).{
         \\    A = 20,
         \\    B = 40,
         \\    C = 60,
@@ -936,7 +936,7 @@ test "zig fmt: resume from suspend block" {
 
 test "zig fmt: comments before error set decl" {
     try testCanonical(
-        \\const UnexpectedError = error{
+        \\const UnexpectedError = error.{
         \\    /// The Operating System returned an undocumented error code.
         \\    Unexpected,
         \\    // another
@@ -969,10 +969,10 @@ test "zig fmt: comments before switch prong" {
 
 test "zig fmt: comments before var decl in struct" {
     try testCanonical(
-        \\pub const vfs_cap_data = extern struct {
+        \\pub const vfs_cap_data = extern struct.{
         \\    // All of these are mandated as little endian
         \\    // when on disk.
-        \\    const Data = struct {
+        \\    const Data = struct.{
         \\        permitted: u32,
         \\        inheritable: u32,
         \\    };
@@ -981,7 +981,7 @@ test "zig fmt: comments before var decl in struct" {
         \\
         \\    /// All of these are mandated as little endian
         \\    /// when on disk.
-        \\    const Data = struct {
+        \\    const Data = struct.{
         \\        permitted: u32,
         \\        inheritable: u32,
         \\    };
@@ -994,7 +994,7 @@ test "zig fmt: comments before var decl in struct" {
 
 test "zig fmt: array literal with 1 item on 1 line" {
     try testCanonical(
-        \\var s = []const u64{0} ** 25;
+        \\var s = []const u64.{0} ** 25;
         \\
     );
 }
@@ -1003,7 +1003,7 @@ test "zig fmt: comments before global variables" {
     try testCanonical(
         \\/// Foo copies keys and values before they go into the map, and
         \\/// frees them when they get removed.
-        \\pub const Foo = struct {};
+        \\pub const Foo = struct.{};
         \\
     );
 }
@@ -1217,10 +1217,10 @@ test "zig fmt: precedence" {
         \\    (a!b)();
         \\    !a!b;
         \\    !(a!b);
-        \\    !a{};
-        \\    !(a{});
-        \\    a + b{};
-        \\    (a + b){};
+        \\    !a.{};
+        \\    !(a.{});
+        \\    a + b.{};
+        \\    (a + b).{};
         \\    a << b + c;
         \\    (a << b) + c;
         \\    a & b << c;
@@ -1361,7 +1361,7 @@ test "zig fmt: indexing" {
 
 test "zig fmt: struct declaration" {
     try testCanonical(
-        \\const S = struct {
+        \\const S = struct.{
         \\    const Self = @This();
         \\    f1: u8,
         \\    pub f3: u8,
@@ -1373,14 +1373,14 @@ test "zig fmt: struct declaration" {
         \\    f2: u8,
         \\};
         \\
-        \\const Ps = packed struct {
+        \\const Ps = packed struct.{
         \\    a: u8,
         \\    pub b: u8,
         \\
         \\    c: u8,
         \\};
         \\
-        \\const Es = extern struct {
+        \\const Es = extern struct.{
         \\    a: u8,
         \\    pub b: u8,
         \\
@@ -1392,24 +1392,24 @@ test "zig fmt: struct declaration" {
 
 test "zig fmt: enum declaration" {
     try testCanonical(
-        \\const E = enum {
+        \\const E = enum.{
         \\    Ok,
         \\    SomethingElse = 0,
         \\};
         \\
-        \\const E2 = enum(u8) {
+        \\const E2 = enum(u8).{
         \\    Ok,
         \\    SomethingElse = 255,
         \\    SomethingThird,
         \\};
         \\
-        \\const Ee = extern enum {
+        \\const Ee = extern enum.{
         \\    Ok,
         \\    SomethingElse,
         \\    SomethingThird,
         \\};
         \\
-        \\const Ep = packed enum {
+        \\const Ep = packed enum.{
         \\    Ok,
         \\    SomethingElse,
         \\    SomethingThird,
@@ -1420,35 +1420,35 @@ test "zig fmt: enum declaration" {
 
 test "zig fmt: union declaration" {
     try testCanonical(
-        \\const U = union {
+        \\const U = union.{
         \\    Int: u8,
         \\    Float: f32,
         \\    None,
         \\    Bool: bool,
         \\};
         \\
-        \\const Ue = union(enum) {
+        \\const Ue = union(enum).{
         \\    Int: u8,
         \\    Float: f32,
         \\    None,
         \\    Bool: bool,
         \\};
         \\
-        \\const E = enum {
+        \\const E = enum.{
         \\    Int,
         \\    Float,
         \\    None,
         \\    Bool,
         \\};
         \\
-        \\const Ue2 = union(E) {
+        \\const Ue2 = union(E).{
         \\    Int: u8,
         \\    Float: f32,
         \\    None,
         \\    Bool: bool,
         \\};
         \\
-        \\const Eu = extern union {
+        \\const Eu = extern union.{
         \\    Int: u8,
         \\    Float: f32,
         \\    None,
@@ -1461,15 +1461,15 @@ test "zig fmt: union declaration" {
 test "zig fmt: arrays" {
     try testCanonical(
         \\test "test array" {
-        \\    const a: [2]u8 = [2]u8{
+        \\    const a: [2]u8 = [2]u8.{
         \\        1,
         \\        2,
         \\    };
-        \\    const a: [2]u8 = []u8{
+        \\    const a: [2]u8 = []u8.{
         \\        1,
         \\        2,
         \\    };
-        \\    const a: [0]u8 = []u8{};
+        \\    const a: [0]u8 = []u8.{};
         \\}
         \\
     );
@@ -1477,17 +1477,17 @@ test "zig fmt: arrays" {
 
 test "zig fmt: container initializers" {
     try testCanonical(
-        \\const a0 = []u8{};
-        \\const a1 = []u8{1};
-        \\const a2 = []u8{
+        \\const a0 = []u8.{};
+        \\const a1 = []u8.{1};
+        \\const a2 = []u8.{
         \\    1,
         \\    2,
         \\    3,
         \\    4,
         \\};
-        \\const s0 = S{};
-        \\const s1 = S{ .a = 1 };
-        \\const s2 = S{
+        \\const s0 = S.{};
+        \\const s1 = S.{ .a = 1 };
+        \\const s2 = S.{
         \\    .a = 1,
         \\    .b = 2,
         \\};
@@ -1550,7 +1550,7 @@ test "zig fmt: switch" {
         \\        else => 4,
         \\    };
         \\
-        \\    const Union = union(enum) {
+        \\    const Union = union(enum).{
         \\        Int: i64,
         \\        Float: f64,
         \\    };
@@ -1873,7 +1873,7 @@ var fixed_buffer_mem: [100 * 1024]u8 = undefined;
 
 fn testParse(source: []const u8, allocator: *mem.Allocator, anything_changed: *bool) ![]u8 {
     var stderr_file = try io.getStdErr();
-    var stderr = &io.FileOutStream.init(stderr_file).stream;
+    var stderr = &stderr_file.outStream().stream;
 
     var tree = try std.zig.parse(allocator, source);
     defer tree.deinit();

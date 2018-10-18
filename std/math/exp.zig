@@ -18,7 +18,7 @@ pub fn exp(x: var) @typeOf(x) {
 }
 
 fn exp32(x_: f32) f32 {
-    const half = []f32{ 0.5, -0.5 };
+    const half = []f32.{ 0.5, -0.5 };
     const ln2hi = 6.9314575195e-1;
     const ln2lo = 1.4286067653e-6;
     const invln2 = 1.4426950216e+0;
@@ -93,7 +93,7 @@ fn exp32(x_: f32) f32 {
 }
 
 fn exp64(x_: f64) f64 {
-    const half = []const f64{ 0.5, -0.5 };
+    const half = []const f64.{ 0.5, -0.5 };
     const ln2hi: f64 = 6.93147180369123816490e-01;
     const ln2lo: f64 = 1.90821492927058770002e-10;
     const invln2: f64 = 1.44269504088896338700e+00;

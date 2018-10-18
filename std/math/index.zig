@@ -8,7 +8,7 @@ pub const pi = 3.14159265358979323846264338327950288419716939937510;
 
 // float.h details
 pub const f64_true_min = 4.94065645841246544177e-324;
-pub const f64_min = 2.22507385850720138309e-308;
+pub const f64_min = 2.2250738585072014e-308;
 pub const f64_max = 1.79769313486231570815e+308;
 pub const f64_epsilon = 2.22044604925031308085e-16;
 pub const f64_toint = 1.0 / f64_epsilon;
@@ -119,6 +119,7 @@ pub const isNormal = @import("isnormal.zig").isNormal;
 pub const signbit = @import("signbit.zig").signbit;
 pub const scalbn = @import("scalbn.zig").scalbn;
 pub const pow = @import("pow.zig").pow;
+pub const powi = @import("powi.zig").powi;
 pub const sqrt = @import("sqrt.zig").sqrt;
 pub const cbrt = @import("cbrt.zig").cbrt;
 pub const acos = @import("acos.zig").acos;
@@ -168,6 +169,7 @@ test "math" {
     _ = @import("signbit.zig");
     _ = @import("scalbn.zig");
     _ = @import("pow.zig");
+    _ = @import("powi.zig");
     _ = @import("sqrt.zig");
     _ = @import("cbrt.zig");
     _ = @import("acos.zig");
@@ -242,17 +244,17 @@ test "math.max" {
     assert(max(i32(-1), i32(2)) == 2);
 }
 
-pub fn mul(comptime T: type, a: T, b: T) (error{Overflow}!T) {
+pub fn mul(comptime T: type, a: T, b: T) (error.{Overflow}!T) {
     var answer: T = undefined;
     return if (@mulWithOverflow(T, a, b, &answer)) error.Overflow else answer;
 }
 
-pub fn add(comptime T: type, a: T, b: T) (error{Overflow}!T) {
+pub fn add(comptime T: type, a: T, b: T) (error.{Overflow}!T) {
     var answer: T = undefined;
     return if (@addWithOverflow(T, a, b, &answer)) error.Overflow else answer;
 }
 
-pub fn sub(comptime T: type, a: T, b: T) (error{Overflow}!T) {
+pub fn sub(comptime T: type, a: T, b: T) (error.{Overflow}!T) {
     var answer: T = undefined;
     return if (@subWithOverflow(T, a, b, &answer)) error.Overflow else answer;
 }
@@ -557,7 +559,7 @@ test "math.negateCast" {
 
 /// Cast an integer to a different integer type. If the value doesn't fit,
 /// return an error.
-pub fn cast(comptime T: type, x: var) (error{Overflow}!T) {
+pub fn cast(comptime T: type, x: var) (error.{Overflow}!T) {
     comptime assert(@typeId(T) == builtin.TypeId.Int); // must pass an integer
     comptime assert(@typeId(@typeOf(x)) == builtin.TypeId.Int); // must pass an integer
     if (@maxValue(@typeOf(x)) > @maxValue(T) and x > @maxValue(T)) {
@@ -579,7 +581,7 @@ test "math.cast" {
     assert(@typeOf(try cast(u8, u32(255))) == u8);
 }
 
-pub const AlignCastError = error{UnalignedMemory};
+pub const AlignCastError = error.{UnalignedMemory};
 
 /// Align cast a pointer but return an error if it's the wrong alignment
 pub fn alignCast(comptime alignment: u29, ptr: var) AlignCastError!@typeOf(@alignCast(alignment, ptr)) {
@@ -649,4 +651,10 @@ pub fn lossyCast(comptime T: type, value: var) T {
         builtin.TypeId.ComptimeFloat => return T(value),
         else => @compileError("bad type"),
     }
+}
+
+test "math.f64_min" {
+    const f64_min_u64 = 0x0010000000000000;
+    const fmin: f64 = f64_min;
+    assert(@bitCast(u64, fmin) == f64_min_u64);
 }

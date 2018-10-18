@@ -178,9 +178,11 @@ pub extern "kernel32" stdcallcc fn WriteFileEx(hFile: HANDLE, lpBuffer: [*]const
 
 pub extern "kernel32" stdcallcc fn LoadLibraryW(lpLibFileName: [*]const u16) ?HMODULE;
 
+pub extern "kernel32" stdcallcc fn GetProcAddress(hModule: HMODULE, lpProcName: [*]const u8) ?FARPROC;
+
 pub extern "kernel32" stdcallcc fn FreeLibrary(hModule: HMODULE) BOOL;
 
-pub const FILE_NOTIFY_INFORMATION = extern struct {
+pub const FILE_NOTIFY_INFORMATION = extern struct.{
     NextEntryOffset: DWORD,
     Action: DWORD,
     FileNameLength: DWORD,
@@ -206,7 +208,7 @@ pub const FILE_NOTIFY_CHANGE_DIR_NAME = 2;
 pub const FILE_NOTIFY_CHANGE_FILE_NAME = 1;
 pub const FILE_NOTIFY_CHANGE_ATTRIBUTES = 4;
 
-pub const CONSOLE_SCREEN_BUFFER_INFO = extern struct {
+pub const CONSOLE_SCREEN_BUFFER_INFO = extern struct.{
     dwSize: COORD,
     dwCursorPosition: COORD,
     wAttributes: WORD,

@@ -1058,7 +1058,10 @@ ZigType *get_ptr_to_stack_trace_type(CodeGen *g) {
     if (g->stack_trace_type == nullptr) {
         ConstExprValue *stack_trace_type_val = get_builtin_value(g, "StackTrace");
         assert(stack_trace_type_val->type->id == ZigTypeIdMetaType);
+
         g->stack_trace_type = stack_trace_type_val->data.x_type;
+        assertNoError(type_resolve(g, g->stack_trace_type, ResolveStatusZeroBitsKnown));
+
         g->ptr_to_stack_trace_type = get_pointer_to_type(g, g->stack_trace_type, false);
     }
     return g->ptr_to_stack_trace_type;
@@ -1081,6 +1084,8 @@ bool want_first_arg_sret(CodeGen *g, FnTypeId *fn_type_id) {
         }
         zig_panic("TODO implement C ABI for x86_64 return types. type '%s'\nSee https://github.com/ziglang/zig/issues/1481",
                 buf_ptr(&fn_type_id->return_type->name));
+    } else if (g->zig_target.arch.arch == ZigLLVM_arm || g->zig_target.arch.arch == ZigLLVM_armeb) {
+        return type_size(g, fn_type_id->return_type) > 16;
     }
     zig_panic("TODO implement C ABI for this architecture. See https://github.com/ziglang/zig/issues/1481");
 }
@@ -2710,6 +2715,11 @@ static Error resolve_struct_alignment(CodeGen *g, ZigType *struct_type) {
         // be resolving ResolveStatusZeroBitsKnown
         assert(field->type_entry != nullptr);
 
+        if (type_is_invalid(field->type_entry)) {
+            struct_type->data.structure.resolve_status = ResolveStatusInvalid;
+            break;
+        }
+
         if (!type_has_bits(field->type_entry))
             continue;
 
@@ -3578,6 +3588,7 @@ ZigType *validate_var_type(CodeGen *g, AstNode *source_node, ZigType *type_entry
 ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf *name,
     bool is_const, ConstExprValue *value, Tld *src_tld)
 {
+    Error err;
     assert(value);
 
     ZigVar *variable_entry = allocate<ZigVar>(1);
@@ -3590,7 +3601,9 @@ ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf 
     assert(name);
     buf_init_from_buf(&variable_entry->name, name);
 
-    if (!type_is_invalid(value->type)) {
+    if ((err = type_resolve(g, value->type, ResolveStatusAlignmentKnown))) {
+        variable_entry->value->type = g->builtin_types.entry_invalid;
+    } else {
         variable_entry->align_bytes = get_abi_alignment(g, value->type);
 
         ZigVar *existing_var = find_variable(g, parent_scope, name, nullptr);
@@ -5504,10 +5517,19 @@ Error type_resolve(CodeGen *g, ZigType *ty, ResolveStatus status) {
 }
 
 bool ir_get_var_is_comptime(ZigVar *var) {
-    if (!var->is_comptime)
+    // The is_comptime field can be left null, which means not comptime.
+    if (var->is_comptime == nullptr)
         return false;
-    if (var->is_comptime->other)
-        return var->is_comptime->other->value.data.x_bool;
+    // When the is_comptime field references an instruction that has to get analyzed, this
+    // is the value.
+    if (var->is_comptime->child != nullptr) {
+        assert(var->is_comptime->child->value.type->id == ZigTypeIdBool);
+        return var->is_comptime->child->value.data.x_bool;
+    }
+    // As an optimization, is_comptime values which are constant are allowed
+    // to be omitted from analysis. In this case, there is no child instruction
+    // and we simply look at the unanalyzed const parent instruction.
+    assert(var->is_comptime->value.type->id == ZigTypeIdBool);
     return var->is_comptime->value.data.x_bool;
 }
 
@@ -6555,4 +6577,3 @@ uint32_t get_host_int_bytes(CodeGen *g, ZigType *struct_type, TypeStructField *f
     LLVMTypeRef field_type = LLVMStructGetTypeAtIndex(struct_type->type_ref, field->gen_index);
     return LLVMStoreSizeOfType(g->target_data_ref, field_type);
 }
-

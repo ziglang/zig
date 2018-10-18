@@ -3,17 +3,17 @@ const builtin = @import("builtin");
 const llvm = @import("llvm.zig");
 const CInt = @import("c_int.zig").CInt;
 
-pub const FloatAbi = enum {
+pub const FloatAbi = enum.{
     Hard,
     Soft,
     SoftFp,
 };
 
-pub const Target = union(enum) {
+pub const Target = union(enum).{
     Native,
     Cross: Cross,
 
-    pub const Cross = struct {
+    pub const Cross = struct.{
         arch: builtin.Arch,
         os: builtin.Os,
         environ: builtin.Environ,
@@ -250,8 +250,20 @@ pub const Target = union(enum) {
             builtin.Arch.renderscript32,
             => return 32,
 
-            builtin.Arch.aarch64,
-            builtin.Arch.aarch64_be,
+            builtin.Arch.aarch64v8_3a,
+            builtin.Arch.aarch64v8_2a,
+            builtin.Arch.aarch64v8_1a,
+            builtin.Arch.aarch64v8,
+            builtin.Arch.aarch64v8r,
+            builtin.Arch.aarch64v8m_baseline,
+            builtin.Arch.aarch64v8m_mainline,
+            builtin.Arch.aarch64_bev8_3a,
+            builtin.Arch.aarch64_bev8_2a,
+            builtin.Arch.aarch64_bev8_1a,
+            builtin.Arch.aarch64_bev8,
+            builtin.Arch.aarch64_bev8r,
+            builtin.Arch.aarch64_bev8m_baseline,
+            builtin.Arch.aarch64_bev8m_mainline,
             builtin.Arch.mips64,
             builtin.Arch.mips64el,
             builtin.Arch.powerpc64,
@@ -316,8 +328,23 @@ pub const Target = union(enum) {
             builtin.Arch.sparcel,
             => return "/lib/ld-linux.so.2",
 
-            builtin.Arch.aarch64 => return "/lib/ld-linux-aarch64.so.1",
-            builtin.Arch.aarch64_be => return "/lib/ld-linux-aarch64_be.so.1",
+            builtin.Arch.aarch64v8_3a,
+            builtin.Arch.aarch64v8_2a,
+            builtin.Arch.aarch64v8_1a,
+            builtin.Arch.aarch64v8,
+            builtin.Arch.aarch64v8r,
+            builtin.Arch.aarch64v8m_baseline,
+            builtin.Arch.aarch64v8m_mainline,
+            => return "/lib/ld-linux-aarch64.so.1",
+
+            builtin.Arch.aarch64_bev8_3a,
+            builtin.Arch.aarch64_bev8_2a,
+            builtin.Arch.aarch64_bev8_1a,
+            builtin.Arch.aarch64_bev8,
+            builtin.Arch.aarch64_bev8r,
+            builtin.Arch.aarch64_bev8m_baseline,
+            builtin.Arch.aarch64_bev8m_mainline,
+            => return "/lib/ld-linux-aarch64_be.so.1",
 
             builtin.Arch.armv8_3a,
             builtin.Arch.armv8_2a,
@@ -530,7 +557,14 @@ pub const Target = union(enum) {
     pub fn getDarwinArchString(self: Target) []const u8 {
         const arch = self.getArch();
         switch (arch) {
-            builtin.Arch.aarch64 => return "arm64",
+            builtin.Arch.aarch64v8_3a,
+            builtin.Arch.aarch64v8_2a,
+            builtin.Arch.aarch64v8_1a,
+            builtin.Arch.aarch64v8,
+            builtin.Arch.aarch64v8r,
+            builtin.Arch.aarch64v8m_baseline,
+            builtin.Arch.aarch64v8m_mainline,
+            => return "arm64",
             builtin.Arch.thumb,
             builtin.Arch.armv8_3a,
             builtin.Arch.armv8_2a,

@@ -2,12 +2,12 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 
-const Foo = struct {
+const Foo = struct.{
     x: i32,
 };
 
 var await_a_promise: promise = undefined;
-var await_final_result = Foo{ .x = 0 };
+var await_final_result = Foo.{ .x = 0 };
 
 test "coroutine await struct" {
     var da = std.heap.DirectAllocator.init();
@@ -35,10 +35,10 @@ async fn await_another() Foo {
         await_a_promise = @handle();
     }
     await_seq('g');
-    return Foo{ .x = 1234 };
+    return Foo.{ .x = 1234 };
 }
 
-var await_points = []u8{0} ** "abcdefghi".len;
+var await_points = []u8.{0} ** "abcdefghi".len;
 var await_seq_index: usize = 0;
 
 fn await_seq(c: u8) void {

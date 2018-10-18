@@ -72,7 +72,7 @@ pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code)
         !comp.strip,
     ) orelse return error.OutOfMemory;
 
-    var ofile = ObjectFile{
+    var ofile = ObjectFile.{
         .comp = comp,
         .module = module,
         .builder = builder,
@@ -134,7 +134,7 @@ pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code)
     }
 }
 
-pub const ObjectFile = struct {
+pub const ObjectFile = struct.{
     comp: *Compilation,
     module: llvm.ModuleRef,
     builder: llvm.BuilderRef,

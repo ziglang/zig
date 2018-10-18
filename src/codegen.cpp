@@ -118,7 +118,6 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
     g->string_literals_table.init(16);
     g->type_info_cache.init(32);
     g->is_test_build = false;
-    g->want_h_file = (out_type == OutTypeObj || out_type == OutTypeLib);
     buf_resize(&g->global_asm, 0);
 
     for (size_t i = 0; i < array_length(symbols_that_llvm_depends_on); i += 1) {
@@ -6751,14 +6750,14 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     // Modifications to this struct must be coordinated with code that does anything with
     // g->stack_trace_type. There are hard-coded references to the field indexes.
     buf_append_str(contents,
-        "pub const StackTrace = struct {\n"
+        "pub const StackTrace = struct.{\n"
         "    index: usize,\n"
         "    instruction_addresses: []usize,\n"
         "};\n\n");
 
     const char *cur_os = nullptr;
     {
-        buf_appendf(contents, "pub const Os = enum {\n");
+        buf_appendf(contents, "pub const Os = enum.{\n");
         uint32_t field_count = (uint32_t)target_os_count();
         for (uint32_t i = 0; i < field_count; i += 1) {
             Os os_type = get_target_os(i);
@@ -6776,7 +6775,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
 
     const char *cur_arch = nullptr;
     {
-        buf_appendf(contents, "pub const Arch = enum {\n");
+        buf_appendf(contents, "pub const Arch = enum.{\n");
         uint32_t field_count = (uint32_t)target_arch_count();
         for (uint32_t i = 0; i < field_count; i += 1) {
             const ArchType *arch_type = get_target_arch(i);
@@ -6800,7 +6799,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
 
     const char *cur_environ = nullptr;
     {
-        buf_appendf(contents, "pub const Environ = enum {\n");
+        buf_appendf(contents, "pub const Environ = enum.{\n");
         uint32_t field_count = (uint32_t)target_environ_count();
         for (uint32_t i = 0; i < field_count; i += 1) {
             ZigLLVM_EnvironmentType environ_type = get_target_environ(i);
@@ -6818,7 +6817,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
 
     const char *cur_obj_fmt = nullptr;
     {
-        buf_appendf(contents, "pub const ObjectFormat = enum {\n");
+        buf_appendf(contents, "pub const ObjectFormat = enum.{\n");
         uint32_t field_count = (uint32_t)target_oformat_count();
         for (uint32_t i = 0; i < field_count; i += 1) {
             ZigLLVM_ObjectFormatType oformat = get_target_oformat(i);
@@ -6836,7 +6835,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     assert(cur_obj_fmt != nullptr);
 
     {
-        buf_appendf(contents, "pub const GlobalLinkage = enum {\n");
+        buf_appendf(contents, "pub const GlobalLinkage = enum.{\n");
         uint32_t field_count = array_length(global_linkage_values);
         for (uint32_t i = 0; i < field_count; i += 1) {
             const GlobalLinkageValue *value = &global_linkage_values[i];
@@ -6846,7 +6845,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     }
     {
         buf_appendf(contents,
-            "pub const AtomicOrder = enum {\n"
+            "pub const AtomicOrder = enum.{\n"
             "    Unordered,\n"
             "    Monotonic,\n"
             "    Acquire,\n"
@@ -6857,7 +6856,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     }
     {
         buf_appendf(contents,
-            "pub const AtomicRmwOp = enum {\n"
+            "pub const AtomicRmwOp = enum.{\n"
             "    Xchg,\n"
             "    Add,\n"
             "    Sub,\n"
@@ -6871,7 +6870,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     }
     {
         buf_appendf(contents,
-            "pub const Mode = enum {\n"
+            "pub const Mode = enum.{\n"
             "    Debug,\n"
             "    ReleaseSafe,\n"
             "    ReleaseFast,\n"
@@ -6879,7 +6878,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             "};\n\n");
     }
     {
-        buf_appendf(contents, "pub const TypeId = enum {\n");
+        buf_appendf(contents, "pub const TypeId = enum.{\n");
         size_t field_count = type_id_len();
         for (size_t i = 0; i < field_count; i += 1) {
             const ZigTypeId id = type_id_at_index(i);
@@ -6889,7 +6888,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     }
     {
         buf_appendf(contents,
-            "pub const TypeInfo = union(TypeId) {\n"
+            "pub const TypeInfo = union(TypeId).{\n"
             "    Type: void,\n"
             "    Void: void,\n"
             "    Bool: void,\n"
@@ -6915,96 +6914,96 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             "    Opaque: void,\n"
             "    Promise: Promise,\n"
             "\n\n"
-            "    pub const Int = struct {\n"
+            "    pub const Int = struct.{\n"
             "        is_signed: bool,\n"
             "        bits: u8,\n"
             "    };\n"
             "\n"
-            "    pub const Float = struct {\n"
+            "    pub const Float = struct.{\n"
             "        bits: u8,\n"
             "    };\n"
             "\n"
-            "    pub const Pointer = struct {\n"
+            "    pub const Pointer = struct.{\n"
             "        size: Size,\n"
             "        is_const: bool,\n"
             "        is_volatile: bool,\n"
             "        alignment: u32,\n"
             "        child: type,\n"
             "\n"
-            "        pub const Size = enum {\n"
+            "        pub const Size = enum.{\n"
             "            One,\n"
             "            Many,\n"
             "            Slice,\n"
             "        };\n"
             "    };\n"
             "\n"
-            "    pub const Array = struct {\n"
+            "    pub const Array = struct.{\n"
             "        len: usize,\n"
             "        child: type,\n"
             "    };\n"
             "\n"
-            "    pub const ContainerLayout = enum {\n"
+            "    pub const ContainerLayout = enum.{\n"
             "        Auto,\n"
             "        Extern,\n"
             "        Packed,\n"
             "    };\n"
             "\n"
-            "    pub const StructField = struct {\n"
+            "    pub const StructField = struct.{\n"
             "        name: []const u8,\n"
             "        offset: ?usize,\n"
             "        field_type: type,\n"
             "    };\n"
             "\n"
-            "    pub const Struct = struct {\n"
+            "    pub const Struct = struct.{\n"
             "        layout: ContainerLayout,\n"
             "        fields: []StructField,\n"
             "        defs: []Definition,\n"
             "    };\n"
             "\n"
-            "    pub const Optional = struct {\n"
+            "    pub const Optional = struct.{\n"
             "        child: type,\n"
             "    };\n"
             "\n"
-            "    pub const ErrorUnion = struct {\n"
+            "    pub const ErrorUnion = struct.{\n"
             "        error_set: type,\n"
             "        payload: type,\n"
             "    };\n"
             "\n"
-            "    pub const Error = struct {\n"
+            "    pub const Error = struct.{\n"
             "        name: []const u8,\n"
             "        value: usize,\n"
             "    };\n"
             "\n"
-            "    pub const ErrorSet = struct {\n"
+            "    pub const ErrorSet = struct.{\n"
             "        errors: []Error,\n"
             "    };\n"
             "\n"
-            "    pub const EnumField = struct {\n"
+            "    pub const EnumField = struct.{\n"
             "        name: []const u8,\n"
             "        value: usize,\n"
             "    };\n"
             "\n"
-            "    pub const Enum = struct {\n"
+            "    pub const Enum = struct.{\n"
             "        layout: ContainerLayout,\n"
             "        tag_type: type,\n"
             "        fields: []EnumField,\n"
             "        defs: []Definition,\n"
             "    };\n"
             "\n"
-            "    pub const UnionField = struct {\n"
+            "    pub const UnionField = struct.{\n"
             "        name: []const u8,\n"
             "        enum_field: ?EnumField,\n"
             "        field_type: type,\n"
             "    };\n"
             "\n"
-            "    pub const Union = struct {\n"
+            "    pub const Union = struct.{\n"
             "        layout: ContainerLayout,\n"
             "        tag_type: ?type,\n"
             "        fields: []UnionField,\n"
             "        defs: []Definition,\n"
             "    };\n"
             "\n"
-            "    pub const CallingConvention = enum {\n"
+            "    pub const CallingConvention = enum.{\n"
             "        Unspecified,\n"
             "        C,\n"
             "        Cold,\n"
@@ -7013,13 +7012,13 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             "        Async,\n"
             "    };\n"
             "\n"
-            "    pub const FnArg = struct {\n"
+            "    pub const FnArg = struct.{\n"
             "        is_generic: bool,\n"
             "        is_noalias: bool,\n"
             "        arg_type: ?type,\n"
             "    };\n"
             "\n"
-            "    pub const Fn = struct {\n"
+            "    pub const Fn = struct.{\n"
             "        calling_convention: CallingConvention,\n"
             "        is_generic: bool,\n"
             "        is_var_args: bool,\n"
@@ -7028,21 +7027,21 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             "        args: []FnArg,\n"
             "    };\n"
             "\n"
-            "    pub const Promise = struct {\n"
+            "    pub const Promise = struct.{\n"
             "        child: ?type,\n"
             "    };\n"
             "\n"
-            "    pub const Definition = struct {\n"
+            "    pub const Definition = struct.{\n"
             "        name: []const u8,\n"
             "        is_pub: bool,\n"
             "        data: Data,\n"
             "\n"
-            "        pub const Data = union(enum) {\n"
+            "        pub const Data = union(enum).{\n"
             "            Type: type,\n"
             "            Var: type,\n"
             "            Fn: FnDef,\n"
             "\n"
-            "            pub const FnDef = struct {\n"
+            "            pub const FnDef = struct.{\n"
             "                fn_type: type,\n"
             "                inline_type: Inline,\n"
             "                calling_convention: CallingConvention,\n"
@@ -7053,7 +7052,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             "                return_type: type,\n"
             "                arg_names: [][] const u8,\n"
             "\n"
-            "                pub const Inline = enum {\n"
+            "                pub const Inline = enum.{\n"
             "                    Auto,\n"
             "                    Always,\n"
             "                    Never,\n"
@@ -7079,7 +7078,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     }
     {
         buf_appendf(contents,
-            "pub const FloatMode = enum {\n"
+            "pub const FloatMode = enum.{\n"
             "    Strict,\n"
             "    Optimized,\n"
             "};\n\n");
@@ -7088,7 +7087,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     }
     {
         buf_appendf(contents,
-            "pub const Endian = enum {\n"
+            "pub const Endian = enum.{\n"
             "    Big,\n"
             "    Little,\n"
             "};\n\n");
@@ -7229,7 +7228,10 @@ static void init(CodeGen *g) {
     bool is_optimized = g->build_mode != BuildModeDebug;
     LLVMCodeGenOptLevel opt_level = is_optimized ? LLVMCodeGenLevelAggressive : LLVMCodeGenLevelNone;
 
-    LLVMRelocMode reloc_mode = g->is_static ? LLVMRelocStatic : LLVMRelocPIC;
+    if (g->out_type == OutTypeExe && g->is_static) {
+        g->disable_pic = true;
+    }
+    LLVMRelocMode reloc_mode = g->disable_pic ? LLVMRelocStatic : LLVMRelocPIC;
 
     const char *target_specific_cpu_args;
     const char *target_specific_features;
@@ -7280,9 +7282,14 @@ static void init(CodeGen *g) {
 
     define_builtin_types(g);
 
-    g->invalid_instruction = allocate<IrInstruction>(1);
+    IrInstruction *sentinel_instructions = allocate<IrInstruction>(2);
+    g->invalid_instruction = &sentinel_instructions[0];
     g->invalid_instruction->value.type = g->builtin_types.entry_invalid;
     g->invalid_instruction->value.global_refs = allocate<ConstGlobalRefs>(1);
+
+    g->unreach_instruction = &sentinel_instructions[1];
+    g->unreach_instruction->value.type = g->builtin_types.entry_unreachable;
+    g->unreach_instruction->value.global_refs = allocate<ConstGlobalRefs>(1);
 
     g->const_void_val.special = ConstValSpecialStatic;
     g->const_void_val.type = g->builtin_types.entry_void;
@@ -7483,7 +7490,9 @@ static void gen_root_source(CodeGen *g) {
     {
         g->bootstrap_import = add_special_code(g, create_bootstrap_pkg(g, g->root_package), "bootstrap.zig");
     }
-    if (g->zig_target.os == OsWindows && !g->have_dllmain_crt_startup && g->out_type == OutTypeLib) {
+    if (g->zig_target.os == OsWindows && !g->have_dllmain_crt_startup &&
+            g->out_type == OutTypeLib && !g->is_static)
+    {
         g->bootstrap_import = add_special_code(g, create_bootstrap_pkg(g, g->root_package), "bootstrap_lib.zig");
     }
 
@@ -8041,6 +8050,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_bool(ch, g->linker_rdynamic);
     cache_bool(ch, g->no_rosegment_workaround);
     cache_bool(ch, g->each_lib_rpath);
+    cache_bool(ch, g->disable_pic);
     cache_buf_opt(ch, g->mmacosx_version_min);
     cache_buf_opt(ch, g->mios_version_min);
     cache_usize(ch, g->version_major);
@@ -8127,17 +8137,6 @@ static void resolve_out_paths(CodeGen *g) {
     } else {
         zig_unreachable();
     }
-
-    if (g->want_h_file && !g->out_h_path) {
-        assert(g->root_out_name);
-        Buf *h_basename = buf_sprintf("%s.h", buf_ptr(g->root_out_name)); 
-        if (g->enable_cache) {
-            g->out_h_path = buf_alloc();
-            os_path_join(&g->artifact_dir, h_basename, g->out_h_path);
-        } else {
-            g->out_h_path = h_basename;
-        }
-    }
 }
 
 
@@ -8193,11 +8192,11 @@ void codegen_build_and_link(CodeGen *g) {
         codegen_add_time_event(g, "LLVM Emit Output");
         zig_llvm_emit_output(g);
 
-        if (g->want_h_file) {
+        if (g->out_h_path != nullptr) {
             codegen_add_time_event(g, "Generate .h");
             gen_h_file(g);
         }
-        if (g->out_type != OutTypeObj) {
+        if (g->out_type != OutTypeObj && g->emit_file_type == EmitFileTypeBinary) {
             codegen_link(g);
         }
     }

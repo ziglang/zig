@@ -17,7 +17,7 @@ pub fn build(b: *Builder) !void {
 
     const rel_zig_exe = try os.path.relative(b.allocator, b.build_root, b.zig_exe);
     const langref_out_path = os.path.join(b.allocator, b.cache_root, "langref.html") catch unreachable;
-    var docgen_cmd = b.addCommand(null, b.env_map, [][]const u8{
+    var docgen_cmd = b.addCommand(null, b.env_map, [][]const u8.{
         docgen_exe.getOutputPath(),
         rel_zig_exe,
         "doc" ++ os.path.sep_str ++ "langref.html.in",
@@ -31,12 +31,12 @@ pub fn build(b: *Builder) !void {
     const test_step = b.step("test", "Run all the tests");
 
     // find the stage0 build artifacts because we're going to re-use config.h and zig_cpp library
-    const build_info = try b.exec([][]const u8{
+    const build_info = try b.exec([][]const u8.{
         b.zig_exe,
         "BUILD_INFO",
     });
     var index: usize = 0;
-    var ctx = Context{
+    var ctx = Context.{
         .cmake_binary_dir = nextValue(&index, build_info),
         .cxx_compiler = nextValue(&index, build_info),
         .llvm_config_exe = nextValue(&index, build_info),
@@ -121,7 +121,7 @@ pub fn build(b: *Builder) !void {
     test_step.dependOn(docs_step);
 }
 
-fn dependOnLib(lib_exe_obj: var, dep: *const LibraryDep) void {
+fn dependOnLib(lib_exe_obj: var, dep: LibraryDep) void {
     for (dep.libdirs.toSliceConst()) |lib_dir| {
         lib_exe_obj.addLibPath(lib_dir);
     }
@@ -141,7 +141,7 @@ fn addCppLib(b: *Builder, lib_exe_obj: var, cmake_binary_dir: []const u8, lib_na
     lib_exe_obj.addObjectFile(os.path.join(b.allocator, cmake_binary_dir, "zig_cpp", b.fmt("{}{}{}", lib_prefix, lib_name, lib_exe_obj.target.libFileExt())) catch unreachable);
 }
 
-const LibraryDep = struct {
+const LibraryDep = struct.{
     libdirs: ArrayList([]const u8),
     libs: ArrayList([]const u8),
     system_libs: ArrayList([]const u8),
@@ -149,21 +149,21 @@ const LibraryDep = struct {
 };
 
 fn findLLVM(b: *Builder, llvm_config_exe: []const u8) !LibraryDep {
-    const libs_output = try b.exec([][]const u8{
+    const libs_output = try b.exec([][]const u8.{
         llvm_config_exe,
         "--libs",
         "--system-libs",
     });
-    const includes_output = try b.exec([][]const u8{
+    const includes_output = try b.exec([][]const u8.{
         llvm_config_exe,
         "--includedir",
     });
-    const libdir_output = try b.exec([][]const u8{
+    const libdir_output = try b.exec([][]const u8.{
         llvm_config_exe,
         "--libdir",
     });
 
-    var result = LibraryDep{
+    var result = LibraryDep.{
         .libs = ArrayList([]const u8).init(b.allocator),
         .system_libs = ArrayList([]const u8).init(b.allocator),
         .includes = ArrayList([]const u8).init(b.allocator),
@@ -268,7 +268,7 @@ fn configureStage2(b: *Builder, exe: var, ctx: Context) !void {
     dependOnLib(exe, ctx.llvm);
 
     if (exe.target.getOs() == builtin.Os.linux) {
-        const libstdcxx_path_padded = try b.exec([][]const u8{
+        const libstdcxx_path_padded = try b.exec([][]const u8.{
             ctx.cxx_compiler,
             "-print-file-name=libstdc++.a",
         });
@@ -298,7 +298,7 @@ fn configureStage2(b: *Builder, exe: var, ctx: Context) !void {
     exe.linkSystemLibrary("c");
 }
 
-const Context = struct {
+const Context = struct.{
     cmake_binary_dir: []const u8,
     cxx_compiler: []const u8,
     llvm_config_exe: []const u8,

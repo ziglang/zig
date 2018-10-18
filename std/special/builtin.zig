@@ -60,7 +60,7 @@ comptime {
     {
         @export("__stack_chk_fail", __stack_chk_fail, builtin.GlobalLinkage.Strong);
     }
-    if (builtin.os == builtin.Os.linux and builtin.arch == builtin.Arch.x86_64) {
+    if (builtin.os == builtin.Os.linux) {
         @export("clone", clone, builtin.GlobalLinkage.Strong);
     }
 }
@@ -72,32 +72,64 @@ extern fn __stack_chk_fail() noreturn {
 // it causes a segfault in release mode. this is a workaround of calling it
 // across .o file boundaries. fix comptime @ptrCast of nakedcc functions.
 nakedcc fn clone() void {
-    asm volatile (
-        \\      xor %%eax,%%eax
-        \\      mov $56,%%al
-        \\      mov %%rdi,%%r11
-        \\      mov %%rdx,%%rdi
-        \\      mov %%r8,%%rdx
-        \\      mov %%r9,%%r8
-        \\      mov 8(%%rsp),%%r10
-        \\      mov %%r11,%%r9
-        \\      and $-16,%%rsi
-        \\      sub $8,%%rsi
-        \\      mov %%rcx,(%%rsi)
-        \\      syscall
-        \\      test %%eax,%%eax
-        \\      jnz 1f
-        \\      xor %%ebp,%%ebp
-        \\      pop %%rdi
-        \\      call *%%r9
-        \\      mov %%eax,%%edi
-        \\      xor %%eax,%%eax
-        \\      mov $60,%%al
-        \\      syscall
-        \\      hlt
-        \\1:    ret
-        \\
-    );
+    if (builtin.arch == builtin.Arch.x86_64) {
+        asm volatile (
+            \\      xor %%eax,%%eax
+            \\      mov $56,%%al // SYS_clone
+            \\      mov %%rdi,%%r11
+            \\      mov %%rdx,%%rdi
+            \\      mov %%r8,%%rdx
+            \\      mov %%r9,%%r8
+            \\      mov 8(%%rsp),%%r10
+            \\      mov %%r11,%%r9
+            \\      and $-16,%%rsi
+            \\      sub $8,%%rsi
+            \\      mov %%rcx,(%%rsi)
+            \\      syscall
+            \\      test %%eax,%%eax
+            \\      jnz 1f
+            \\      xor %%ebp,%%ebp
+            \\      pop %%rdi
+            \\      call *%%r9
+            \\      mov %%eax,%%edi
+            \\      xor %%eax,%%eax
+            \\      mov $60,%%al // SYS_exit
+            \\      syscall
+            \\      hlt
+            \\1:    ret
+            \\
+        );
+    } else if (builtin.arch == builtin.Arch.aarch64v8) {
+        // __clone(func, stack, flags, arg, ptid, tls, ctid)
+        //         x0,   x1,    w2,    x3,  x4,   x5,  x6
+
+        // syscall(SYS_clone, flags, stack, ptid, tls, ctid)
+        //         x8,        x0,    x1,    x2,   x3,  x4
+        asm volatile (
+            \\      // align stack and save func,arg
+            \\      and x1,x1,#-16
+            \\      stp x0,x3,[x1,#-16]!
+            \\
+            \\      // syscall
+            \\      uxtw x0,w2
+            \\      mov x2,x4
+            \\      mov x3,x5
+            \\      mov x4,x6
+            \\      mov x8,#220 // SYS_clone
+            \\      svc #0
+            \\
+            \\      cbz x0,1f
+            \\      // parent
+            \\      ret
+            \\      // child
+            \\1:    ldp x1,x0,[sp],#16
+            \\      blr x1
+            \\      mov x8,#93 // SYS_exit
+            \\      svc #0
+        );
+    } else {
+        @compileError("Implement clone() for this arch.");
+    }
 }
 
 const math = @import("../math/index.zig");

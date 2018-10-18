@@ -32,6 +32,8 @@
 #include <llvm/IR/Verifier.h>
 #include <llvm/InitializePasses.h>
 #include <llvm/MC/SubtargetFeature.h>
+#include <llvm/Object/Archive.h>
+#include <llvm/Object/ArchiveWriter.h>
 #include <llvm/PassRegistry.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/TargetParser.h>
@@ -40,8 +42,8 @@
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/Transforms/Coroutines.h>
 #include <llvm/Transforms/IPO.h>
-#include <llvm/Transforms/IPO/PassManagerBuilder.h>
 #include <llvm/Transforms/IPO/AlwaysInliner.h>
+#include <llvm/Transforms/IPO/PassManagerBuilder.h>
 #include <llvm/Transforms/Scalar.h>
 #include <llvm/Transforms/Utils.h>
 
@@ -712,7 +714,7 @@ void ZigLLVMGetNativeTarget(ZigLLVM_ArchType *arch_type, ZigLLVM_SubArchType *su
         ZigLLVM_ObjectFormatType *oformat)
 {
     char *native_triple = LLVMGetDefaultTargetTriple();
-    Triple triple(native_triple);
+    Triple triple(Triple::normalize(native_triple));
 
     *arch_type = (ZigLLVM_ArchType)triple.getArch();
     *sub_arch_type = (ZigLLVM_SubArchType)triple.getSubArch();
@@ -853,6 +855,42 @@ class MyOStream: public raw_ostream {
         void *context;
         size_t pos;
 };
+
+bool ZigLLVMWriteArchive(const char *archive_name, const char **file_names, size_t file_name_count,
+        ZigLLVM_OSType os_type)
+{
+    object::Archive::Kind kind;
+    switch (os_type) {
+        case ZigLLVM_Win32:
+            // For some reason llvm-lib passes K_GNU on windows.
+            // See lib/ToolDrivers/llvm-lib/LibDriver.cpp:168 in libDriverMain
+            kind = object::Archive::K_GNU;
+            break;
+        case ZigLLVM_Linux:
+            kind = object::Archive::K_GNU;
+            break;
+        case ZigLLVM_Darwin:
+        case ZigLLVM_IOS:
+            kind = object::Archive::K_DARWIN;
+            break;
+        case ZigLLVM_OpenBSD:
+        case ZigLLVM_FreeBSD:
+            kind = object::Archive::K_BSD;
+            break;
+        default:
+            kind = object::Archive::K_GNU;
+    }
+    SmallVector<NewArchiveMember, 4> new_members;
+    for (size_t i = 0; i < file_name_count; i += 1) {
+        Expected<NewArchiveMember> new_member = NewArchiveMember::getFile(file_names[i], true);
+        Error err = new_member.takeError();
+        if (err) return true;
+        new_members.push_back(std::move(*new_member));
+    }
+    Error err = writeArchive(archive_name, new_members, true, kind, true, false, nullptr);
+    if (err) return true;
+    return false;
+}
 
 
 bool ZigLLDLink(ZigLLVM_ObjectFormatType oformat, const char **args, size_t arg_count,

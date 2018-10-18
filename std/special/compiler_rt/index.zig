@@ -80,6 +80,7 @@ comptime {
                     @export("___chkstk_ms", ___chkstk_ms, linkage);
                 }
                 @export("__divti3", @import("divti3.zig").__divti3_windows_x86_64, linkage);
+                @export("__multi3", @import("multi3.zig").__multi3_windows_x86_64, linkage);
                 @export("__muloti4", @import("muloti4.zig").__muloti4_windows_x86_64, linkage);
                 @export("__udivti3", @import("udivti3.zig").__udivti3_windows_x86_64, linkage);
                 @export("__udivmodti4", @import("udivmodti4.zig").__udivmodti4_windows_x86_64, linkage);
@@ -89,6 +90,7 @@ comptime {
         }
     } else {
         @export("__divti3", @import("divti3.zig").__divti3, linkage);
+        @export("__multi3", @import("multi3.zig").__multi3, linkage);
         @export("__muloti4", @import("muloti4.zig").__muloti4, linkage);
         @export("__udivti3", @import("udivti3.zig").__udivti3, linkage);
         @export("__udivmodti4", @import("udivmodti4.zig").__udivmodti4, linkage);
@@ -136,7 +138,7 @@ extern fn __umoddi3(a: u64, b: u64) u64 {
     return r;
 }
 
-const AeabiUlDivModResult = extern struct {
+const AeabiUlDivModResult = extern struct.{
     quot: u64,
     rem: u64,
 };
@@ -149,6 +151,7 @@ extern fn __aeabi_uldivmod(numerator: u64, denominator: u64) AeabiUlDivModResult
 
 fn isArmArch() bool {
     return switch (builtin.arch) {
+        builtin.Arch.armv8_3a,
         builtin.Arch.armv8_2a,
         builtin.Arch.armv8_1a,
         builtin.Arch.armv8,
@@ -160,6 +163,7 @@ fn isArmArch() bool {
         builtin.Arch.armv7m,
         builtin.Arch.armv7s,
         builtin.Arch.armv7k,
+        builtin.Arch.armv7ve,
         builtin.Arch.armv6,
         builtin.Arch.armv6m,
         builtin.Arch.armv6k,
@@ -167,6 +171,7 @@ fn isArmArch() bool {
         builtin.Arch.armv5,
         builtin.Arch.armv5te,
         builtin.Arch.armv4t,
+        builtin.Arch.armebv8_3a,
         builtin.Arch.armebv8_2a,
         builtin.Arch.armebv8_1a,
         builtin.Arch.armebv8,
@@ -178,6 +183,7 @@ fn isArmArch() bool {
         builtin.Arch.armebv7m,
         builtin.Arch.armebv7s,
         builtin.Arch.armebv7k,
+        builtin.Arch.armebv7ve,
         builtin.Arch.armebv6,
         builtin.Arch.armebv6m,
         builtin.Arch.armebv6k,
@@ -185,6 +191,22 @@ fn isArmArch() bool {
         builtin.Arch.armebv5,
         builtin.Arch.armebv5te,
         builtin.Arch.armebv4t,
+        builtin.Arch.aarch64v8_3a,
+        builtin.Arch.aarch64v8_2a,
+        builtin.Arch.aarch64v8_1a,
+        builtin.Arch.aarch64v8,
+        builtin.Arch.aarch64v8r,
+        builtin.Arch.aarch64v8m_baseline,
+        builtin.Arch.aarch64v8m_mainline,
+        builtin.Arch.aarch64_bev8_3a,
+        builtin.Arch.aarch64_bev8_2a,
+        builtin.Arch.aarch64_bev8_1a,
+        builtin.Arch.aarch64_bev8,
+        builtin.Arch.aarch64_bev8r,
+        builtin.Arch.aarch64_bev8m_baseline,
+        builtin.Arch.aarch64_bev8m_mainline,
+        builtin.Arch.thumb,
+        builtin.Arch.thumbeb,
         => true,
         else => false,
     };
@@ -372,663 +394,663 @@ fn test_one_umoddi3(a: u64, b: u64, expected_r: u64) void {
 }
 
 test "test_udivsi3" {
-    const cases = [][3]u32{
-        []u32{
+    const cases = [][3]u32.{
+        []u32.{
             0x00000000,
             0x00000001,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000000,
             0x00000002,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000000,
             0x00000003,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000000,
             0x00000010,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000000,
             0x078644FA,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000000,
             0x0747AE14,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000000,
             0x7FFFFFFF,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000000,
             0x80000000,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000000,
             0xFFFFFFFD,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000000,
             0xFFFFFFFE,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000000,
             0xFFFFFFFF,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000001,
             0x00000001,
             0x00000001,
         },
-        []u32{
+        []u32.{
             0x00000001,
             0x00000002,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000001,
             0x00000003,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000001,
             0x00000010,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000001,
             0x078644FA,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000001,
             0x0747AE14,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000001,
             0x7FFFFFFF,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000001,
             0x80000000,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000001,
             0xFFFFFFFD,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000001,
             0xFFFFFFFE,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000001,
             0xFFFFFFFF,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000002,
             0x00000001,
             0x00000002,
         },
-        []u32{
+        []u32.{
             0x00000002,
             0x00000002,
             0x00000001,
         },
-        []u32{
+        []u32.{
             0x00000002,
             0x00000003,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000002,
             0x00000010,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000002,
             0x078644FA,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000002,
             0x0747AE14,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000002,
             0x7FFFFFFF,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000002,
             0x80000000,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000002,
             0xFFFFFFFD,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000002,
             0xFFFFFFFE,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000002,
             0xFFFFFFFF,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000003,
             0x00000001,
             0x00000003,
         },
-        []u32{
+        []u32.{
             0x00000003,
             0x00000002,
             0x00000001,
         },
-        []u32{
+        []u32.{
             0x00000003,
             0x00000003,
             0x00000001,
         },
-        []u32{
+        []u32.{
             0x00000003,
             0x00000010,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000003,
             0x078644FA,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000003,
             0x0747AE14,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000003,
             0x7FFFFFFF,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000003,
             0x80000000,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000003,
             0xFFFFFFFD,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000003,
             0xFFFFFFFE,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000003,
             0xFFFFFFFF,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000010,
             0x00000001,
             0x00000010,
         },
-        []u32{
+        []u32.{
             0x00000010,
             0x00000002,
             0x00000008,
         },
-        []u32{
+        []u32.{
             0x00000010,
             0x00000003,
             0x00000005,
         },
-        []u32{
+        []u32.{
             0x00000010,
             0x00000010,
             0x00000001,
         },
-        []u32{
+        []u32.{
             0x00000010,
             0x078644FA,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000010,
             0x0747AE14,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000010,
             0x7FFFFFFF,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000010,
             0x80000000,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000010,
             0xFFFFFFFD,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000010,
             0xFFFFFFFE,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x00000010,
             0xFFFFFFFF,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x078644FA,
             0x00000001,
             0x078644FA,
         },
-        []u32{
+        []u32.{
             0x078644FA,
             0x00000002,
             0x03C3227D,
         },
-        []u32{
+        []u32.{
             0x078644FA,
             0x00000003,
             0x028216FE,
         },
-        []u32{
+        []u32.{
             0x078644FA,
             0x00000010,
             0x0078644F,
         },
-        []u32{
+        []u32.{
             0x078644FA,
             0x078644FA,
             0x00000001,
         },
-        []u32{
+        []u32.{
             0x078644FA,
             0x0747AE14,
             0x00000001,
         },
-        []u32{
+        []u32.{
             0x078644FA,
             0x7FFFFFFF,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x078644FA,
             0x80000000,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x078644FA,
             0xFFFFFFFD,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x078644FA,
             0xFFFFFFFE,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x078644FA,
             0xFFFFFFFF,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x0747AE14,
             0x00000001,
             0x0747AE14,
         },
-        []u32{
+        []u32.{
             0x0747AE14,
             0x00000002,
             0x03A3D70A,
         },
-        []u32{
+        []u32.{
             0x0747AE14,
             0x00000003,
             0x026D3A06,
         },
-        []u32{
+        []u32.{
             0x0747AE14,
             0x00000010,
             0x00747AE1,
         },
-        []u32{
+        []u32.{
             0x0747AE14,
             0x078644FA,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x0747AE14,
             0x0747AE14,
             0x00000001,
         },
-        []u32{
+        []u32.{
             0x0747AE14,
             0x7FFFFFFF,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x0747AE14,
             0x80000000,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x0747AE14,
             0xFFFFFFFD,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x0747AE14,
             0xFFFFFFFE,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x0747AE14,
             0xFFFFFFFF,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x7FFFFFFF,
             0x00000001,
             0x7FFFFFFF,
         },
-        []u32{
+        []u32.{
             0x7FFFFFFF,
             0x00000002,
             0x3FFFFFFF,
         },
-        []u32{
+        []u32.{
             0x7FFFFFFF,
             0x00000003,
             0x2AAAAAAA,
         },
-        []u32{
+        []u32.{
             0x7FFFFFFF,
             0x00000010,
             0x07FFFFFF,
         },
-        []u32{
+        []u32.{
             0x7FFFFFFF,
             0x078644FA,
             0x00000011,
         },
-        []u32{
+        []u32.{
             0x7FFFFFFF,
             0x0747AE14,
             0x00000011,
         },
-        []u32{
+        []u32.{
             0x7FFFFFFF,
             0x7FFFFFFF,
             0x00000001,
         },
-        []u32{
+        []u32.{
             0x7FFFFFFF,
             0x80000000,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x7FFFFFFF,
             0xFFFFFFFD,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x7FFFFFFF,
             0xFFFFFFFE,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x7FFFFFFF,
             0xFFFFFFFF,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x80000000,
             0x00000001,
             0x80000000,
         },
-        []u32{
+        []u32.{
             0x80000000,
             0x00000002,
             0x40000000,
         },
-        []u32{
+        []u32.{
             0x80000000,
             0x00000003,
             0x2AAAAAAA,
         },
-        []u32{
+        []u32.{
             0x80000000,
             0x00000010,
             0x08000000,
         },
-        []u32{
+        []u32.{
             0x80000000,
             0x078644FA,
             0x00000011,
         },
-        []u32{
+        []u32.{
             0x80000000,
             0x0747AE14,
             0x00000011,
         },
-        []u32{
+        []u32.{
             0x80000000,
             0x7FFFFFFF,
             0x00000001,
         },
-        []u32{
+        []u32.{
             0x80000000,
             0x80000000,
             0x00000001,
         },
-        []u32{
+        []u32.{
             0x80000000,
             0xFFFFFFFD,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x80000000,
             0xFFFFFFFE,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0x80000000,
             0xFFFFFFFF,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0xFFFFFFFD,
             0x00000001,
             0xFFFFFFFD,
         },
-        []u32{
+        []u32.{
             0xFFFFFFFD,
             0x00000002,
             0x7FFFFFFE,
         },
-        []u32{
+        []u32.{
             0xFFFFFFFD,
             0x00000003,
             0x55555554,
         },
-        []u32{
+        []u32.{
             0xFFFFFFFD,
             0x00000010,
             0x0FFFFFFF,
         },
-        []u32{
+        []u32.{
             0xFFFFFFFD,
             0x078644FA,
             0x00000022,
         },
-        []u32{
+        []u32.{
             0xFFFFFFFD,
             0x0747AE14,
             0x00000023,
         },
-        []u32{
+        []u32.{
             0xFFFFFFFD,
             0x7FFFFFFF,
             0x00000001,
         },
-        []u32{
+        []u32.{
             0xFFFFFFFD,
             0x80000000,
             0x00000001,
         },
-        []u32{
+        []u32.{
             0xFFFFFFFD,
             0xFFFFFFFD,
             0x00000001,
         },
-        []u32{
+        []u32.{
             0xFFFFFFFD,
             0xFFFFFFFE,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0xFFFFFFFD,
             0xFFFFFFFF,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0xFFFFFFFE,
             0x00000001,
             0xFFFFFFFE,
         },
-        []u32{
+        []u32.{
             0xFFFFFFFE,
             0x00000002,
             0x7FFFFFFF,
         },
-        []u32{
+        []u32.{
             0xFFFFFFFE,
             0x00000003,
             0x55555554,
         },
-        []u32{
+        []u32.{
             0xFFFFFFFE,
             0x00000010,
             0x0FFFFFFF,
         },
-        []u32{
+        []u32.{
             0xFFFFFFFE,
             0x078644FA,
             0x00000022,
         },
-        []u32{
+        []u32.{
             0xFFFFFFFE,
             0x0747AE14,
             0x00000023,
         },
-        []u32{
+        []u32.{
             0xFFFFFFFE,
             0x7FFFFFFF,
             0x00000002,
         },
-        []u32{
+        []u32.{
             0xFFFFFFFE,
             0x80000000,
             0x00000001,
         },
-        []u32{
+        []u32.{
             0xFFFFFFFE,
             0xFFFFFFFD,
             0x00000001,
         },
-        []u32{
+        []u32.{
             0xFFFFFFFE,
             0xFFFFFFFE,
             0x00000001,
         },
-        []u32{
+        []u32.{
             0xFFFFFFFE,
             0xFFFFFFFF,
             0x00000000,
         },
-        []u32{
+        []u32.{
             0xFFFFFFFF,
             0x00000001,
             0xFFFFFFFF,
         },
-        []u32{
+        []u32.{
             0xFFFFFFFF,
             0x00000002,
             0x7FFFFFFF,
         },
-        []u32{
+        []u32.{
             0xFFFFFFFF,
             0x00000003,
             0x55555555,
         },
-        []u32{
+        []u32.{
             0xFFFFFFFF,
             0x00000010,
             0x0FFFFFFF,
         },
-        []u32{
+        []u32.{
             0xFFFFFFFF,
             0x078644FA,
             0x00000022,
         },
-        []u32{
+        []u32.{
             0xFFFFFFFF,
             0x0747AE14,
             0x00000023,
         },
-        []u32{
+        []u32.{
             0xFFFFFFFF,
             0x7FFFFFFF,
             0x00000002,
         },
-        []u32{
+        []u32.{
             0xFFFFFFFF,
             0x80000000,
             0x00000001,
         },
-        []u32{
+        []u32.{
             0xFFFFFFFF,
             0xFFFFFFFD,
             0x00000001,
         },
-        []u32{
+        []u32.{
             0xFFFFFFFF,
             0xFFFFFFFE,
             0x00000001,
         },
-        []u32{
+        []u32.{
             0xFFFFFFFF,
             0xFFFFFFFF,
             0x00000001,
