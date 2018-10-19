@@ -866,128 +866,123 @@ test "std.mem.endianSwap" {
     assert(endianSwap(u32, 0xDEADBEEF) == 0xEFBEADDE);
 }
 
-
-
-fn AsBytesReturnType(comptime P: type) type
-{
-    if(comptime !trait.isSingleItemPtr(P)) @compileError("expected single item " 
-        ++ "pointer, passed " ++ @typeName(P));
+fn AsBytesReturnType(comptime P: type) type {
+    if (comptime !trait.isSingleItemPtr(P))
+        @compileError("expected single item " ++ "pointer, passed " ++ @typeName(P));
 
     const size = usize(@sizeOf(meta.Child(P)));
     const alignment = comptime meta.alignment(P);
-    if(comptime trait.isConstPtr(P)) return *align(alignment) const [size]u8;
+
+    if (comptime trait.isConstPtr(P))
+        return *align(alignment) const [size]u8;
     return *align(alignment) [size]u8;
 }
 
 ///Given a pointer to a single item, returns a slice of the underlying bytes, preserving constness.
-pub fn asBytes(ptr: var) AsBytesReturnType(@typeOf(ptr))
-{
+pub fn asBytes(ptr: var) AsBytesReturnType(@typeOf(ptr)) {
     const P = @typeOf(ptr);
     return @ptrCast(AsBytesReturnType(P), ptr);
 }
 
-test "std.mem.asBytes"
-{
+test "std.mem.asBytes" {
     const deadbeef = u32(0xDEADBEEF);
-    const deadbeef_bytes = switch(builtin.endian)
-    {
+    const deadbeef_bytes = switch (builtin.endian) {
         builtin.Endian.Big => "\xDE\xAD\xBE\xEF",
         builtin.Endian.Little => "\xEF\xBE\xAD\xDE",
     };
-    
+
     debug.assert(std.mem.eql(u8, asBytes(&deadbeef), deadbeef_bytes));
-    
+
     var codeface = u32(0xC0DEFACE);
-    for(asBytes(&codeface).*) |*b| b.* = 0;
+    for (asBytes(&codeface).*) |*b|
+        b.* = 0;
     debug.assert(codeface == 0);
-    
-    const S = packed struct.
-    {
+
+    const S = packed struct.{
         a: u8,
         b: u8,
         c: u8,
         d: u8,
     };
-    
-    const inst = S.{ .a = 0xBE, .b = 0xEF, .c = 0xDE, .d = 0xA1, };
+
+    const inst = S.{
+        .a = 0xBE,
+        .b = 0xEF,
+        .c = 0xDE,
+        .d = 0xA1,
+    };
     debug.assert(std.mem.eql(u8, asBytes(&inst), "\xBE\xEF\xDE\xA1"));
 }
 
 ///Given any value, returns a copy of its bytes in an array.
-pub fn toBytes(value: var) [@sizeOf(@typeOf(value))]u8
-{
+pub fn toBytes(value: var) [@sizeOf(@typeOf(value))]u8 {
     return asBytes(&value).*;
 }
 
-test "std.mem.toBytes"
-{
+test "std.mem.toBytes" {
     var my_bytes = toBytes(u32(0x12345678));
-    switch(builtin.endian)
-    {
+    switch (builtin.endian) {
         builtin.Endian.Big => debug.assert(std.mem.eql(u8, my_bytes, "\x12\x34\x56\x78")),
         builtin.Endian.Little => debug.assert(std.mem.eql(u8, my_bytes, "\x78\x56\x34\x12")),
     }
-    
+
     my_bytes[0] = '\x99';
-    switch(builtin.endian)
-    {
+    switch (builtin.endian) {
         builtin.Endian.Big => debug.assert(std.mem.eql(u8, my_bytes, "\x99\x34\x56\x78")),
         builtin.Endian.Little => debug.assert(std.mem.eql(u8, my_bytes, "\x99\x56\x34\x12")),
     }
 }
 
-
-fn BytesAsValueReturnType(comptime T: type, comptime  B: type) type
-{
+fn BytesAsValueReturnType(comptime T: type, comptime B: type) type {
     const size = usize(@sizeOf(T));
 
-    if(comptime !trait.is(builtin.TypeId.Pointer)(B) or meta.Child(B) != [size]u8)
-    {
+    if (comptime !trait.is(builtin.TypeId.Pointer)(B) or meta.Child(B) != [size]u8) {
         @compileError("expected *[N]u8 " ++ ", passed " ++ @typeName(B));
     }
-    
+
     const alignment = comptime meta.alignment(B);
-    
-    return if(comptime trait.isConstPtr(B)) *align(alignment) const T else *align(alignment) T;
+
+    return if (comptime trait.isConstPtr(B)) *align(alignment) const T else *align(alignment) T;
 }
 
 ///Given a pointer to an array of bytes, returns a pointer to a value of the specified type
 /// backed by those bytes, preserving constness.
-pub fn bytesAsValue(comptime T: type, bytes: var) BytesAsValueReturnType(T, @typeOf(bytes))
-{
+pub fn bytesAsValue(comptime T: type, bytes: var) BytesAsValueReturnType(T, @typeOf(bytes)) {
     return @ptrCast(BytesAsValueReturnType(T, @typeOf(bytes)), bytes);
 }
 
-test "std.mem.bytesAsValue"
-{
+test "std.mem.bytesAsValue" {
     const deadbeef = u32(0xDEADBEEF);
-    const deadbeef_bytes = switch(builtin.endian)
-    {
+    const deadbeef_bytes = switch (builtin.endian) {
         builtin.Endian.Big => "\xDE\xAD\xBE\xEF",
         builtin.Endian.Little => "\xEF\xBE\xAD\xDE",
     };
-    
+
     debug.assert(deadbeef == bytesAsValue(u32, &deadbeef_bytes).*);
-    
-    var codeface_bytes = switch(builtin.endian)
-    {
+
+    var codeface_bytes = switch (builtin.endian) {
         builtin.Endian.Big => "\xC0\xDE\xFA\xCE",
         builtin.Endian.Little => "\xCE\xFA\xDE\xC0",
     };
     var codeface = bytesAsValue(u32, &codeface_bytes);
     debug.assert(codeface.* == 0xC0DEFACE);
     codeface.* = 0;
-    for(codeface_bytes) |b| debug.assert(b == 0);
-    
-    const S = packed struct.
-    {
+    for (codeface_bytes) |b|
+        debug.assert(b == 0);
+
+    const S = packed struct.{
         a: u8,
         b: u8,
         c: u8,
         d: u8,
     };
-    
-    const inst = S.{ .a = 0xBE, .b = 0xEF, .c = 0xDE, .d = 0xA1, };
+
+    const inst = S.{
+        .a = 0xBE,
+        .b = 0xEF,
+        .c = 0xDE,
+        .d = 0xA1,
+    };
     const inst_bytes = "\xBE\xEF\xDE\xA1";
     const inst2 = bytesAsValue(S, &inst_bytes);
     debug.assert(meta.eql(inst, inst2.*));
@@ -995,46 +990,39 @@ test "std.mem.bytesAsValue"
 
 ///Given a pointer to an array of bytes, returns a value of the specified type backed by a
 /// copy of those bytes.
-pub fn bytesToValue(comptime T: type, bytes: var) T
-{
+pub fn bytesToValue(comptime T: type, bytes: var) T {
     return bytesAsValue(T, &bytes).*;
 }
- test "std.mem.bytesToValue"
-{
-    const deadbeef_bytes = switch(builtin.endian)
-    {
+test "std.mem.bytesToValue" {
+    const deadbeef_bytes = switch (builtin.endian) {
         builtin.Endian.Big => "\xDE\xAD\xBE\xEF",
         builtin.Endian.Little => "\xEF\xBE\xAD\xDE",
     };
-    
+
     const deadbeef = bytesToValue(u32, deadbeef_bytes);
     debug.assert(deadbeef == u32(0xDEADBEEF));
 }
 
-
-fn SubArrayPtrReturnType(comptime T: type, comptime length: usize) type
-{
-    if(trait.isConstPtr(T)) return *const [length]meta.Child(meta.Child(T));
+fn SubArrayPtrReturnType(comptime T: type, comptime length: usize) type {
+    if (trait.isConstPtr(T))
+        return *const [length]meta.Child(meta.Child(T));
     return *[length]meta.Child(meta.Child(T));
 }
 
 ///Given a pointer to an array, returns a pointer to a portion of that array, preserving constness.
-pub fn subArrayPtr(ptr: var, comptime start: usize, comptime length: usize) 
-    SubArrayPtrReturnType(@typeOf(ptr), length)
-{
+pub fn subArrayPtr(ptr: var, comptime start: usize, comptime length: usize) SubArrayPtrReturnType(@typeOf(ptr), length) {
     debug.assert(start + length <= ptr.*.len);
-    
+
     const ReturnType = SubArrayPtrReturnType(@typeOf(ptr), length);
     const T = meta.Child(meta.Child(@typeOf(ptr)));
     return @ptrCast(ReturnType, &ptr[start]);
 }
 
-test "std.mem.subArrayPtr"
-{
+test "std.mem.subArrayPtr" {
     const a1 = "abcdef";
     const sub1 = subArrayPtr(&a1, 2, 3);
     debug.assert(std.mem.eql(u8, sub1.*, "cde"));
-    
+
     var a2 = "abcdef";
     var sub2 = subArrayPtr(&a2, 2, 3);
 
