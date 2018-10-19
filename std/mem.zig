@@ -913,6 +913,30 @@ test "std.mem.asBytes"
     debug.assert(std.mem.eql(u8, asBytes(&inst), "\xBE\xEF\xDE\xA1"));
 }
 
+///Given any value, returns a copy of its bytes in an array.
+pub fn toBytes(value: var) [@sizeOf(@typeOf(value))]u8
+{
+    return asBytes(&value).*;
+}
+
+test "std.mem.toBytes"
+{
+    var my_bytes = toBytes(u32(0x12345678));
+    switch(builtin.endian)
+    {
+        builtin.Endian.Big => debug.assert(std.mem.eql(u8, my_bytes, "\x12\x34\x56\x78")),
+        builtin.Endian.Little => debug.assert(std.mem.eql(u8, my_bytes, "\x78\x56\x34\x12")),
+    }
+    
+    my_bytes[0] = '\x99';
+    switch(builtin.endian)
+    {
+        builtin.Endian.Big => debug.assert(std.mem.eql(u8, my_bytes, "\x99\x34\x56\x78")),
+        builtin.Endian.Little => debug.assert(std.mem.eql(u8, my_bytes, "\x99\x56\x34\x12")),
+    }
+}
+
+
 fn BytesAsValueReturnType(comptime T: type, comptime  B: type) type
 {
     const size = usize(@sizeOf(T));
@@ -922,7 +946,9 @@ fn BytesAsValueReturnType(comptime T: type, comptime  B: type) type
         @compileError("expected *[N]u8 " ++ ", passed " ++ @typeName(B));
     }
     
-    return if(comptime trait.isConstPtr(B)) *align(1) const T else *align(1) T;
+    const alignment = comptime meta.alignment(B);
+    
+    return if(comptime trait.isConstPtr(B)) *align(alignment) const T else *align(alignment) T;
 }
 
 ///Given a pointer to an array of bytes, returns a pointer to a value of the specified type
@@ -966,6 +992,25 @@ test "std.mem.bytesAsValue"
     const inst2 = bytesAsValue(S, &inst_bytes);
     debug.assert(meta.eql(inst, inst2.*));
 }
+
+///Given a pointer to an array of bytes, returns a value of the specified type backed by a
+/// copy of those bytes.
+pub fn bytesToValue(comptime T: type, bytes: var) T
+{
+    return bytesAsValue(T, &bytes).*;
+}
+ test "std.mem.bytesToValue"
+{
+    const deadbeef_bytes = switch(builtin.endian)
+    {
+        builtin.Endian.Big => "\xDE\xAD\xBE\xEF",
+        builtin.Endian.Little => "\xEF\xBE\xAD\xDE",
+    };
+    
+    const deadbeef = bytesToValue(u32, deadbeef_bytes);
+    debug.assert(deadbeef == u32(0xDEADBEEF));
+}
+
 
 fn SubArrayPtrReturnType(comptime T: type, comptime length: usize) type
 {
