@@ -34,7 +34,7 @@ pub fn multiTrait(comptime traits: TraitList) TraitFn
     return Closure.trait;
 }
 
-test "std.trait.multiTrait"
+test "std.meta.trait.multiTrait"
 {
     const Vector2 = struct.
     {
@@ -94,7 +94,7 @@ pub fn hasDef(comptime name: []const u8) TraitFn
     return Closure.trait;
 }
 
-test "std.trait.hasDef"
+test "std.meta.trait.hasDef"
 {
     const TestStruct = struct.
     {
@@ -130,7 +130,7 @@ pub fn hasFn(comptime name: []const u8) TraitFn
     return Closure.trait;
 }
 
-test "std.trait.hasFn"
+test "std.meta.trait.hasFn"
 {
     const TestStruct = struct.
     {
@@ -169,7 +169,7 @@ pub fn hasField(comptime name: []const u8) TraitFn
     return Closure.trait;
 }
 
-test "std.trait.hasField"
+test "std.meta.trait.hasField"
 {
     const TestStruct = struct.
     {
@@ -197,7 +197,7 @@ pub fn is(comptime id: builtin.TypeId) TraitFn
     return Closure.trait;
 }
 
-test "std.trait.is"
+test "std.meta.trait.is"
 {
     debug.assert(is(builtin.TypeId.Int)(u8));
     debug.assert(!is(builtin.TypeId.Int)(f32));
@@ -221,7 +221,7 @@ pub fn isPtrTo(comptime id: builtin.TypeId) TraitFn
     return Closure.trait;
 }
 
-test "std.trait.isPtrTo"
+test "std.meta.trait.isPtrTo"
 {
     debug.assert(!isPtrTo(builtin.TypeId.Struct)(struct.{}));
     debug.assert(isPtrTo(builtin.TypeId.Struct)(*struct.{}));
@@ -247,7 +247,7 @@ pub fn isExtern(comptime T: type) bool
     };
 }
 
-test "std.trait.isExtern"
+test "std.meta.trait.isExtern"
 {
     const TestExStruct = extern struct.{};
     const TestStruct = struct.{};
@@ -272,7 +272,7 @@ pub fn isPacked(comptime T: type) bool
     };
 }
 
-test "std.trait.isPacked"
+test "std.meta.trait.isPacked"
 {
     const TestPStruct = packed struct.{};
     const TestStruct = struct.{};
@@ -294,7 +294,7 @@ pub fn isSingleItemPtr(comptime T: type) bool
     return false;
 }
 
-test "std.trait.isSingleItemPtr"
+test "std.meta.trait.isSingleItemPtr"
 {
     const array = []u8.{0} ** 10;
     debug.assert(isSingleItemPtr(@typeOf(&array[0])));
@@ -314,7 +314,7 @@ pub fn isManyItemPtr(comptime T: type) bool
     return false;
 }
 
-test "std.trait.isManyItemPtr"
+test "std.meta.trait.isManyItemPtr"
 {
     const array = []u8.{0} ** 10;
     const mip = @ptrCast([*]const u8, &array[0]);
@@ -335,7 +335,7 @@ pub fn isSlice(comptime T: type) bool
     return false;
 }
 
-test "std.trait.isSlice"
+test "std.meta.trait.isSlice"
 {
     const array = []u8.{0} ** 10;
     debug.assert(isSlice(@typeOf(array[0..])));
@@ -360,7 +360,7 @@ pub fn isIndexable(comptime T: type) bool
    return comptime is(builtin.TypeId.Array)(T);
 }
 
-test "std.trait.isIndexable"
+test "std.meta.trait.isIndexable"
 {
     const array = []u8.{0} ** 10;
     const slice = array[0..];
@@ -385,7 +385,7 @@ pub fn isNumber(comptime T: type) bool
     };
 }
 
-test "std.trait.isNumber"
+test "std.meta.trait.isNumber"
 {
     const NotANumber = struct.
     {
@@ -410,7 +410,7 @@ pub fn isConstPtr(comptime T: type) bool
     return info.Pointer.is_const;
 }
 
-test "std.trait.isConstPtr"
+test "std.meta.trait.isConstPtr"
 {
     var t = u8(0);
     const c = u8(0);
@@ -434,7 +434,7 @@ pub fn isContainer(comptime T: type) bool
     };
 }
 
-test "std.trait.isContainer"
+test "std.meta.trait.isContainer"
 {
     const TestStruct = struct.{};
     const TestUnion = union.{ a: void, };
