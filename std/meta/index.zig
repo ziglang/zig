@@ -130,6 +130,7 @@ pub fn alignment(comptime T: type) u29 {
 }
 
 test "std.meta.alignment" {
+    debug.assert(alignment(u8) == 1);
     debug.assert(alignment(*align(1) u8) == 1);
     debug.assert(alignment(*align(2) u8) == 2);
     debug.assert(alignment([]align(1) u8) == 1);
@@ -413,12 +414,13 @@ test "std.meta.activeTag"
 
 }
 
-///Compares two structs or (tagged) unions for equality on a field level
-/// so that padding bytes are not relevant.
-pub fn containerEql(container_a: var, container_b: @typeOf(container_a)) bool
+///Compares two of any type for equality. Containers are compared on a field-by-field basis,
+/// where possible. Pointers are not followed.
+pub fn eql(a: var, b: @typeOf(a)) bool
 {
-    const T = @typeOf(container_a);
-    return switch(@typeId(T))
+    const T = @typeOf(a);
+    
+    switch(@typeId(T))
     {
         builtin.TypeId.Struct =>
         {
@@ -426,31 +428,21 @@ pub fn containerEql(container_a: var, container_b: @typeOf(container_a)) bool
             
             inline for(info.fields) |field_info|
             {
-                switch(@typeId(field_info.field_type))
-                {
-                    builtin.TypeId.Struct,
-                    builtin.TypeId.Union =>
-                    {
-                        const eql = containerEql(@field(container_a, field_info.name),
-                            @field(container_b, field_info.name));
-                        if(!eql) return false;
-                    },
-                    builtin.TypeId.Array => 
-                    {
-                        const eql = mem.eql(Child(field_info.field_type),
-                            @field(container_a, field_info.name),
-                            @field(container_b, field_info.name));
-                        if(!eql) return false;
-                    },
-                    else =>
-                    {
-                        const eql = @field(container_a, field_info.name) 
-                            == @field(container_b, field_info.name);
-                        if(!eql) return false;
-                    },
-                }
+                if(!eql(@field(a, field_info.name), 
+                    @field(b, field_info.name))) return false;
             }
             return true;
+        },
+        builtin.TypeId.ErrorUnion =>
+        {
+            if(a) |a_p|
+            {
+                if(b) |b_p| return eql(a_p, b_p) else |_| return false;
+            }
+            else |a_e|
+            {
+                if(b) |_| return false else |b_e| return a_e == b_e;
+            }
         },
         builtin.TypeId.Union => 
         {
@@ -458,8 +450,8 @@ pub fn containerEql(container_a: var, container_b: @typeOf(container_a)) bool
             
             if(info.tag_type) |_|
             {
-                const tag_a = activeTag(container_a);
-                const tag_b = activeTag(container_b);
+                const tag_a = activeTag(a);
+                const tag_b = activeTag(b);
                 if(tag_a != tag_b) return false;
                 
                 inline for(info.fields) |field_info|
@@ -467,37 +459,39 @@ pub fn containerEql(container_a: var, container_b: @typeOf(container_a)) bool
                     const enum_field = field_info.enum_field.?;
                     if(enum_field.value == @enumToInt(tag_a))
                     {
-                        switch(@typeId(field_info.field_type))
-                        {
-                            builtin.TypeId.Struct,
-                            builtin.TypeId.Union =>
-                            {
-                                return containerEql(@field(container_a, field_info.name),
-                                    @field(container_b, field_info.name));
-                            },
-                            builtin.TypeId.Array => 
-                            {
-                                return mem.eql(field_info.field_type,
-                                    @field(container_a, field_info.name)[0..],
-                                    @field(container_b, field_info.name)[0..]);
-                            },
-                            else =>
-                            {
-                                return @field(container_a, field_info.name) 
-                                    == @field(container_b, field_info.name);
-                            },
-                        }
+                        return eql(@field(a, enum_field.name),
+                            @field(b, enum_field.name));
                     }
                 }
-                unreachable;
+                return false;
             }
-            @compileError("ContainerEql can only operate on tagged unions.");
+            
+            //This is the only reasonable way to handle an untagged union,
+            // but it will report a false negative in many circumstances.
+            return std.mem.eql(u8, mem.asBytes(&a), mem.asBytes(&b));
         },
-        else => @compileError("ContainerEql requires struct or tagged union for comparison."),
-    };
+        builtin.TypeId.Array => 
+        {
+            if(a.len != b.len) return false;
+            for(a) |e, i| if(!eql(e, b[i])) return false;
+            return true;
+        },
+        builtin.TypeId.Pointer => 
+        {
+            const info = @typeInfo(T).Pointer;
+            switch(info.size)
+            {
+                builtin.TypeInfo.Pointer.Size.One,
+                builtin.TypeInfo.Pointer.Size.Many => return a == b,
+                builtin.TypeInfo.Pointer.Size.Slice => return a.ptr == b.ptr and a.len == b.len,
+            }
+        },
+        else => return a == b,
+    }
 }
 
-test "std.meta.containerEql"
+
+test "std.meta.eql"
 {
     const S = struct.
     {
@@ -537,8 +531,41 @@ test "std.meta.containerEql"
     const u_2 = U.{ .s = s_1, };
     const u_3 = U.{ .f = 24, };
     
-    debug.assert(containerEql(s_1, s_3));
-    debug.assert(!containerEql(s_1, s_2));
-    debug.assert(containerEql(u_1, u_3));
-    debug.assert(!containerEql(u_1, u_2));
+    debug.assert(eql(s_1, s_3));
+    debug.assert(eql(&s_1, &s_1));
+    debug.assert(!eql(&s_1, &s_3));
+    debug.assert(eql(u_1, u_3));
+    debug.assert(!eql(u_1, u_2));
+    
+    var a1 = "abcdef";
+    var a2 = "abcdef";
+    var a3 = "ghijkl";
+    
+    debug.assert(eql(a1, a2));
+    debug.assert(!eql(a1, a3));
+    debug.assert(!eql(a1[0..], a2[0..]));
+    
+    const EU = struct.
+    {
+        fn tst(err: bool) !u8
+        {
+            if(err) return error.Error;
+            return u8(5);
+        }
+    };
+    
+    debug.assert(eql(EU.tst(true), EU.tst(true)));
+    debug.assert(eql(EU.tst(false), EU.tst(false)));
+    debug.assert(!eql(EU.tst(false), EU.tst(true)));
+    
+    const UExt = extern union.
+    {
+        i: i32,
+        f: f32,
+    };
+    
+    const uext1 = UExt.{ .i = 8675, };
+    const uext2 = UExt.{ .f = @bitCast(f32, i32(8675)), };
+    
+    debug.assert(eql(uext1, uext2));
 }
