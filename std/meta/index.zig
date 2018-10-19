@@ -110,7 +110,7 @@ test "std.meta.tagName" {
     debug.assert(mem.eql(u8, tagName(u2b), "D"));
 }
 
-pub fn bitCount(comptime T: type) u8 {
+pub fn bitCount(comptime T: type) u32 {
     return switch (@typeInfo(T)) {
         TypeId.Int => |info| info.bits,
         TypeId.Float => |info| info.bits,
@@ -123,11 +123,10 @@ test "std.meta.bitCount" {
     debug.assert(bitCount(f32) == 32);
 }
 
-pub fn alignment(comptime T: type) u32 {
-    return switch (@typeInfo(T)) {
-        TypeId.Pointer => |info| info.alignment,
-        else => @compileError("Expected pointer type, found '" ++ @typeName(T) ++ "'"),
-    };
+pub fn alignment(comptime T: type) u29 {
+    //@alignOf works on non-pointer types
+    const P = if(comptime trait.is(TypeId.Pointer)(T)) T else *T;
+    return @typeInfo(P).Pointer.alignment;
 }
 
 test "std.meta.alignment" {
