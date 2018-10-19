@@ -9,39 +9,6 @@ pub const trait = @import("trait.zig");
 const TypeId = builtin.TypeId;
 const TypeInfo = builtin.TypeInfo;
 
-pub fn UnwrapContainer(comptime T: type) type
-{
-    if(trait.isPtrTo(builtin.TypeId.Struct)(T) 
-        or trait.isPtrTo(builtin.TypeId.Union)(T)) return T.Child;
-    return T;
-}
-
-test "UnwrapContainer"
-{
-    const x = u8(10);
-    debug.assert(UnwrapContainer(*u8) == *u8);
-    debug.assert(UnwrapContainer(u8) == u8);
-    
-    const S = struct.
-    {
-        f: u8,
-    };
-    
-    const U = union.
-    {
-        a: u8,
-        b: u16,
-    };
-    
-    debug.assert(UnwrapContainer(S) == S);
-    debug.assert(UnwrapContainer(*S) == S);
-    debug.assert(UnwrapContainer(**S) == **S);
-
-    debug.assert(UnwrapContainer(U) == U);
-    debug.assert(UnwrapContainer(*U) == U);
-    debug.assert(UnwrapContainer(**U) == **U);
-}
-
 pub fn tagName(v: var) []const u8 {
     const T = @typeOf(v);
     switch (@typeInfo(T)) {
