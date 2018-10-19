@@ -433,9 +433,7 @@ pub fn eql(a: var, b: @typeOf(a)) bool
                 return false;
             }
             
-            //This is the only reasonable way to handle an untagged union,
-            // but it will report a false negative in many circumstances.
-            return std.mem.eql(u8, mem.asBytes(&a), mem.asBytes(&b));
+            @compileError("cannot compare untagged union type " ++ @typeName(T));
         },
         builtin.TypeId.Array => 
         {
@@ -524,15 +522,4 @@ test "std.meta.eql"
     debug.assert(eql(EU.tst(true), EU.tst(true)));
     debug.assert(eql(EU.tst(false), EU.tst(false)));
     debug.assert(!eql(EU.tst(false), EU.tst(true)));
-    
-    const UExt = extern union.
-    {
-        i: i32,
-        f: f32,
-    };
-    
-    const uext1 = UExt.{ .i = 8675, };
-    const uext2 = UExt.{ .f = @bitCast(f32, i32(8675)), };
-    
-    debug.assert(eql(uext1, uext2));
 }

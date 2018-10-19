@@ -75,6 +75,7 @@ test "std" {
     _ = @import("json.zig");
     _ = @import("macho.zig");
     _ = @import("math/index.zig");
+    _ = @import("meta/index.zig");
     _ = @import("mem.zig");
     _ = @import("net.zig");
     _ = @import("heap.zig");
