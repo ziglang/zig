@@ -564,6 +564,8 @@ set(ZIG_STD_FILES
     "math/tan.zig"
     "math/tanh.zig"
     "math/trunc.zig"
+    "meta/index.zig"
+    "meta/trait.zig"
     "mem.zig"
     "mutex.zig"
     "net.zig"
