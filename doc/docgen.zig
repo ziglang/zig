@@ -960,7 +960,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                 try out.write("</pre>");
             },
             Node.HeaderOpen => |info| {
-                try out.print("<h{} id=\"{}\">{}</h{}>\n", info.n, info.url, info.name, info.n);
+                try out.print("<h{} id=\"{}\"><a href=\"#{}\">{}</a></h{}>\n", info.n, info.url, info.url, info.name, info.n);
             },
             Node.SeeAlso => |items| {
                 try out.write("<p>See also:</p><ul>\n");
