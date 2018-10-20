@@ -4,8 +4,8 @@ pub const PROV_RSA_FULL = 1;
 
 pub const REGSAM = ACCESS_MASK;
 pub const ACCESS_MASK = DWORD;
-pub const PHKEY = &HKEY;
-pub const HKEY = &HKEY__;
+pub const PHKEY = *HKEY;
+pub const HKEY = *HKEY__;
 pub const HKEY__ = extern struct.{
     unused: c_int,
 };
@@ -16,7 +16,7 @@ pub extern "advapi32" stdcallcc fn RegOpenKeyExW(
     lpSubKey: LPCWSTR,
     ulOptions: DWORD,
     samDesired: REGSAM,
-    phkResult: &HKEY,
+    phkResult: *HKEY,
 ) LSTATUS;
 
 pub extern "advapi32" stdcallcc fn RegQueryValueExW(
