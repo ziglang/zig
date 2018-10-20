@@ -57,6 +57,9 @@ extern fn WinMainCRTStartup() noreturn {
 
 // TODO https://github.com/ziglang/zig/issues/265
 fn posixCallMainAndExit() noreturn {
+    if (builtin.os == builtin.Os.freebsd) {
+        @setAlignStack(16);
+    }
     const argc = argc_ptr[0];
     const argv = @ptrCast([*][*]u8, argc_ptr + 1);
 
