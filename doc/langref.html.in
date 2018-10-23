@@ -7800,7 +7800,7 @@ CancelExpression = "cancel" Expression;
 
 ResumeExpression = "resume" Expression;
 
-Defer(body) = ("defer" | "deferror") body
+Defer(body) = ("defer" | "errdefer") body
 
 IfExpression(body) = "if" "(" Expression ")" body option("else" BlockExpression(body))
 
