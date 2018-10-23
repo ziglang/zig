@@ -21,6 +21,6 @@ if [ "${TRAVIS_PULL_REQUEST}" = "false" ]; then
   touch empty
   s3cmd put -P empty s3://ziglang.org/builds/zig-linux-x86_64-$TRAVIS_BRANCH.tar.xz --add-header="Cache-Control: max-age=0, must-revalidate" --add-header=x-amz-website-redirect-location:/builds/$(ls $TRAVIS_BUILD_DIR/artifacts)
   if [ "${TRAVIS_BRANCH}" = "master" ]; then
-    s3cmd put -P ../zig-cache/langref.html s3://ziglang.org/documentation/master/index.html --no-mime-magic --no-preserve --add-header="Cache-Control: max-age=0, must-revalidate"
+    s3cmd put -P ../zig-cache/langref.html s3://ziglang.org/documentation/master/index.html --add-header="Cache-Control: max-age=0, must-revalidate"
   fi
 fi
