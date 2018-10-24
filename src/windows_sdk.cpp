@@ -210,7 +210,6 @@ static ZigFindWindowsSdkError find_10_version(ZigWindowsSDKPrivate *priv) {
 		option_name = "OptionId.DesktopCPPx86";
 		break;
 	default:
-		//todo(dimenus): Unexpected value...
 		return ZigFindWindowsSdkErrorNotFound;
 	}
 
