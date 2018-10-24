@@ -186,7 +186,7 @@ static ZigFindWindowsSdkError find_10_version(ZigWindowsSDKPrivate *priv) {
 
 	char reg_query[MAX_PATH] = { 0 };
 	int n = snprintf(reg_query, MAX_PATH, "%s\\%s.0\\Installed Options", ZIG_WINDOWS_KIT_REG_KEY, priv->base.version10_ptr);
-	if (n < 0 || n >= 4096) {
+	if (n < 0 || n >= MAX_PATH) {
 		return ZigFindWindowsSdkErrorPathTooLong;
 	}
 
