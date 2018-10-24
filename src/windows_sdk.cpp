@@ -13,6 +13,8 @@
 #include <inttypes.h>
 #include <assert.h>
 
+const char *ZIG_WINDOWS_KIT_REG_KEY = "SOFTWARE\\Microsoft\\Windows Kits\\Installed Roots";
+
 struct ZigWindowsSDKPrivate {
     ZigWindowsSDK base;
 };
@@ -182,48 +184,42 @@ static ZigFindWindowsSdkError find_10_version(ZigWindowsSDKPrivate *priv) {
     if (priv->base.path10_ptr == nullptr)
         return ZigFindWindowsSdkErrorNone;
 
-    char sdk_lib_dir[4096];
-    int n = snprintf(sdk_lib_dir, 4096, "%s\\Lib\\*", priv->base.path10_ptr);
-    if (n < 0 || n >= 4096) {
-        return ZigFindWindowsSdkErrorPathTooLong;
-    }
+	char reg_query[MAX_PATH] = { 0 };
+	int n = snprintf(reg_query, MAX_PATH, "%s\\%s.0\\Installed Options", ZIG_WINDOWS_KIT_REG_KEY, priv->base.version10_ptr);
+	if (n < 0 || n >= MAX_PATH) {
+		return ZigFindWindowsSdkErrorPathTooLong;
+	}
 
-    // enumerate files in sdk path looking for latest version
-    WIN32_FIND_DATA ffd;
-    HANDLE hFind = FindFirstFileA(sdk_lib_dir, &ffd);
-    if (hFind == INVALID_HANDLE_VALUE) {
-        return ZigFindWindowsSdkErrorNotFound;
-    }
-    int v0 = 0, v1 = 0, v2 = 0, v3 = 0;
-    for (;;) {
-        if (ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-            int c0 = 0, c1 = 0, c2 = 0, c3 = 0;
-            sscanf(ffd.cFileName, "%d.%d.%d.%d", &c0, &c1, &c2, &c3);
-            if (c0 == 10 && c1 == 0 && c2 == 10240 && c3 == 0) {
-                // Microsoft released 26624 as 10240 accidentally.
-                // https://developer.microsoft.com/en-us/windows/downloads/sdk-archive
-                c2 = 26624;
-            }
+	HKEY options_key;
+	HRESULT rc;
+	rc = RegOpenKeyEx(HKEY_LOCAL_MACHINE, reg_query, 0,
+		KEY_QUERY_VALUE | KEY_WOW64_32KEY | KEY_ENUMERATE_SUB_KEYS, &options_key);
+	if (rc != ERROR_SUCCESS) {
+		return ZigFindWindowsSdkErrorNotFound;
+	}
 
-            if ( (c0 > v0)
-              || (c0 == v0 && c1 > v1)
-              || (c0 == v0 && c1 == v1 && c2 > v2)
-              || (c0 == v0 && c1 == v1 && c2 == v2 && c3 > v3) ) {
-                v0 = c0, v1 = c1, v2 = c2, v3 = c3;
-                free((void*)priv->base.version10_ptr);
-                priv->base.version10_ptr = strdup(ffd.cFileName);
-                if (priv->base.version10_ptr == nullptr) {
-                    FindClose(hFind);
-                    return ZigFindWindowsSdkErrorOutOfMemory;
-                }
-            }
-        }
-        if (FindNextFile(hFind, &ffd) == 0) {
-            FindClose(hFind);
-            break;
-        }
-    }
-    priv->base.version10_len = strlen(priv->base.version10_ptr);
+	char *option_name = nullptr;
+	switch (native_arch) {
+	case NativeArchArm:
+		option_name = "OptionId.DesktopCPParm";
+		break;
+	case NativeArchx86_64:
+		option_name = "OptionId.DesktopCPPx64";
+		break;
+	case NativeArchi386:
+		option_name = "OptionId.DesktopCPPx86";
+		break;
+	default:
+		return ZigFindWindowsSdkErrorNotFound;
+	}
+
+	DWORD val_sz = sizeof(DWORD);
+	DWORD reg_val = 0;
+	DWORD type = REG_DWORD;
+	rc = RegQueryValueEx(options_key, option_name, NULL, &type, (LPBYTE)&reg_val, &val_sz);
+	if (rc != ERROR_SUCCESS || reg_val != 1) {
+		return ZigFindWindowsSdkErrorNotFound;
+	}
     return ZigFindWindowsSdkErrorNone;
 }
 
@@ -274,23 +270,32 @@ ZigFindWindowsSdkError zig_find_windows_sdk(struct ZigWindowsSDK **out_sdk) {
         return ZigFindWindowsSdkErrorOutOfMemory;
     }
 
-    HKEY key;
-    HRESULT rc;
-    rc = RegOpenKeyEx(HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\Windows Kits\\Installed Roots", 0,
-        KEY_QUERY_VALUE | KEY_WOW64_32KEY | KEY_ENUMERATE_SUB_KEYS, &key);
-    if (rc != ERROR_SUCCESS) {
-        zig_free_windows_sdk(&priv->base);
-        return ZigFindWindowsSdkErrorNotFound;
-    }
+	HRESULT rc;
+
+	//note(dimenus): If this key doesn't exist, neither the Win 8 SDK nor the Win 10 SDK is installed
+	HKEY roots_key;
+	rc = RegOpenKeyEx(HKEY_LOCAL_MACHINE, ZIG_WINDOWS_KIT_REG_KEY, 0,
+		KEY_QUERY_VALUE | KEY_WOW64_32KEY | KEY_ENUMERATE_SUB_KEYS, &roots_key);
+	if (rc != ERROR_SUCCESS) {
+		zig_free_windows_sdk(&priv->base);
+		return ZigFindWindowsSdkErrorNotFound;
+	}
 
     {
+		HKEY v10_key;
+		rc = RegOpenKeyEx(HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\Microsoft SDKs\\Windows\\v10.0", 0,
+			KEY_QUERY_VALUE | KEY_WOW64_32KEY | KEY_ENUMERATE_SUB_KEYS, &v10_key);
+		if (rc != ERROR_SUCCESS) {
+			goto find_win10_sdk_done;
+		}
+
         DWORD tmp_buf_len = MAX_PATH;
         priv->base.path10_ptr = (const char *)calloc(tmp_buf_len, 1);
         if (priv->base.path10_ptr == nullptr) {
             zig_free_windows_sdk(&priv->base);
             return ZigFindWindowsSdkErrorOutOfMemory;
         }
-        rc = RegQueryValueEx(key, "KitsRoot10", NULL, NULL, (LPBYTE)priv->base.path10_ptr, &tmp_buf_len);
+        rc = RegQueryValueEx(v10_key, "InstallationFolder", NULL, NULL, (LPBYTE)priv->base.path10_ptr, &tmp_buf_len);
         if (rc == ERROR_SUCCESS) {
             priv->base.path10_len = tmp_buf_len - 1;
             if (priv->base.path10_ptr[priv->base.path10_len - 1] == '\\') {
@@ -300,7 +305,19 @@ ZigFindWindowsSdkError zig_find_windows_sdk(struct ZigWindowsSDK **out_sdk) {
             free((void*)priv->base.path10_ptr);
             priv->base.path10_ptr = nullptr;
         }
+
+		priv->base.version10_ptr = (const char*)calloc(tmp_buf_len, 1);
+		rc = RegQueryValueEx(v10_key, "ProductVersion", NULL, NULL, (LPBYTE)priv->base.version10_ptr, &tmp_buf_len);
+		if (rc == ERROR_SUCCESS) {
+			size_t orig_len = priv->base.version10_len;
+			snprintf((char*)priv->base.version10_ptr, MAX_PATH, "%s.0", priv->base.version10_ptr);
+			priv->base.version10_len = tmp_buf_len - 1 + 2; // note(dimenus): Microsoft doesn't include the .0 in the ProductVersion key....
+		} else {
+			free((void*)priv->base.version10_ptr);
+			priv->base.version10_ptr = nullptr;
+		}
     }
+	find_win10_sdk_done:
     {
         DWORD tmp_buf_len = MAX_PATH;
         priv->base.path81_ptr = (const char *)calloc(tmp_buf_len, 1);
@@ -308,7 +325,7 @@ ZigFindWindowsSdkError zig_find_windows_sdk(struct ZigWindowsSDK **out_sdk) {
             zig_free_windows_sdk(&priv->base);
             return ZigFindWindowsSdkErrorOutOfMemory;
         }
-        rc = RegQueryValueEx(key, "KitsRoot81", NULL, NULL, (LPBYTE)priv->base.path81_ptr, &tmp_buf_len);
+        rc = RegQueryValueEx(roots_key, "KitsRoot81", NULL, NULL, (LPBYTE)priv->base.path81_ptr, &tmp_buf_len);
         if (rc == ERROR_SUCCESS) {
             priv->base.path81_len = tmp_buf_len - 1;
             if (priv->base.path81_ptr[priv->base.path81_len - 1] == '\\') {
