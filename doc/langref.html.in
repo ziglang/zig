@@ -5,6 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
     <title>Documentation - The Zig Programming Language</title>
     <style type="text/css">
+      body{
+        background-color:#111;
+        color: #bbb;
+      }
+      a {
+        color: #88f;
+        text-decoration: none;
+      }
       table, th, td {
         border-collapse: collapse;
         border: 1px solid grey;
@@ -39,8 +47,8 @@
 
         overflow-x: auto;
         padding: 0.5em;
-        color: #333;
-        background: #f8f8f8;
+        color: #ccc;
+        background: #222;
       }
       .table-wrapper {
         width: 100%;
@@ -48,31 +56,31 @@
       }
 
       .tok-kw {
-          color: #333;
+          color: #eee;
           font-weight: bold;
       }
       .tok-str {
-          color: #d14;
+          color: #2e5;
       }
       .tok-builtin {
-          color: #0086b3;
+          color: #ff894c;
       }
       .tok-comment {
-          color: #998;
+          color: #aa7;
           font-style: italic;
       }
       .tok-fn {
-          color: #900;
+          color: #e33;
           font-weight: bold;
       }
       .tok-null {
-          color: #008080;
+          color: #ff8080;
       }
       .tok-number {
-          color: #008080;
+          color: #ff8080;
       }
       .tok-type {
-          color: #458;
+          color: #68f;
           font-weight: bold;
       }
 
@@ -102,6 +110,14 @@
         #nav {
           border-bottom: 1px solid grey;
         }
+      }
+      h1 a, h2 a, h3 a, h4 a, h5 a {
+        text-decoration: none;
+        color: #aaa;
+      }
+      #nav a {
+        color: #aaa;
+        text-decoration: none;
       }
     </style>
   </head>
