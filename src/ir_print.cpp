@@ -1316,7 +1316,9 @@ static void ir_print_sqrt(IrPrint *irp, IrInstructionSqrt *instruction) {
 }
 
 static void ir_print_decl_var_gen(IrPrint *irp, IrInstructionDeclVarGen *instruction) {
-    fprintf(irp->f, "DeclVarGen");
+    fprintf(irp->f, "DeclVarGen(name=%s,ptr=", buf_ptr(&instruction->var->name));
+    ir_print_other_instruction(irp, instruction->var_ptr);
+    fprintf(irp->f, ")");
 }
 
 static void ir_print_result_error_union_payload(IrPrint *irp, IrInstructionResultErrorUnionPayload *instruction) {
@@ -1348,11 +1350,17 @@ static void ir_print_load_result(IrPrint *irp, IrInstructionLoadResult *instruct
 }
 
 static void ir_print_store_result(IrPrint *irp, IrInstructionStoreResult *instruction) {
-    fprintf(irp->f, "StoreResult");
+    fprintf(irp->f, "StoreResult(result_loc=");
+    ir_print_other_instruction(irp, instruction->result_loc);
+    fprintf(irp->f, ",value=");
+    ir_print_other_instruction(irp, instruction->value);
+    fprintf(irp->f, ")");
 }
 
 static void ir_print_alloca(IrPrint *irp, IrInstructionAlloca *instruction) {
-    fprintf(irp->f, "Alloca");
+    fprintf(irp->f, "Alloca(");
+    ir_print_other_instruction(irp, instruction->child_type);
+    fprintf(irp->f, ")");
 }
 
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {

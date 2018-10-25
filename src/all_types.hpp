@@ -2215,6 +2215,7 @@ struct IrInstructionDeclVarGen {
     IrInstruction base;
 
     ZigVar *var;
+    IrInstruction *var_ptr;
 };
 
 struct IrInstructionCondBr {
@@ -3324,7 +3325,8 @@ struct IrInstructionResultPtrCast {
 struct IrInstructionAlloca {
     IrInstruction base;
 
-    IrInstruction *ty;
+    IrInstruction *child_type;
+    const char *name_hint;
 };
 
 static const size_t slice_ptr_index = 0;

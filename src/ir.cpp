@@ -1394,11 +1394,16 @@ static IrInstruction *ir_build_var_decl_src(IrBuilder *irb, Scope *scope, AstNod
     return &decl_var_instruction->base;
 }
 
-static IrInstruction *ir_build_var_decl_gen(IrBuilder *irb, Scope *scope, AstNode *source_node, ZigVar *var) {
+static IrInstruction *ir_build_var_decl_gen(IrBuilder *irb, Scope *scope, AstNode *source_node, ZigVar *var,
+        IrInstruction *var_ptr)
+{
     IrInstructionDeclVarGen *decl_var_instruction = ir_build_instruction<IrInstructionDeclVarGen>(irb, scope, source_node);
     decl_var_instruction->base.value.special = ConstValSpecialStatic;
     decl_var_instruction->base.value.type = irb->codegen->builtin_types.entry_void;
     decl_var_instruction->var = var;
+    decl_var_instruction->var_ptr = var_ptr;
+
+    ir_ref_instruction(var_ptr, irb->current_basic_block);
 
     return &decl_var_instruction->base;
 }
@@ -2841,11 +2846,14 @@ static IrInstruction *ir_build_result_bytes_to_slice(IrBuilder *irb, Scope *scop
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_alloca(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *ty) {
+static IrInstruction *ir_build_alloca(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *child_type, const char *name_hint)
+{
     IrInstructionAlloca *instruction = ir_build_instruction<IrInstructionAlloca>(irb, scope, source_node);
-    instruction->ty = ty;
+    instruction->child_type = child_type;
+    instruction->name_hint = name_hint;
 
-    if (ty != nullptr) ir_ref_instruction(ty, irb->current_basic_block);
+    if (child_type != nullptr) ir_ref_instruction(child_type, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -5172,7 +5180,8 @@ static IrInstruction *ir_gen_var_decl(IrBuilder *irb, Scope *scope, AstNode *nod
             buf_sprintf("cannot set section of local variable '%s'", buf_ptr(variable_declaration->symbol)));
     }
 
-    IrInstruction *alloca = ir_build_alloca(irb, scope, node, type_instruction);
+    IrInstruction *alloca = ir_build_alloca(irb, scope, node, type_instruction,
+            buf_ptr(variable_declaration->symbol));
 
     // Temporarily set the name of the IrExecutable to the VariableDeclaration
     // so that the struct or enum from the init expression inherits the name.
@@ -5492,7 +5501,7 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
     ZigVar *elem_var = ir_create_var(irb, elem_node, parent_scope, elem_var_name, true, false, false, is_comptime);
     Scope *child_scope = elem_var->child_scope;
 
-    IrInstruction *elem_alloca = ir_build_alloca(irb, child_scope, elem_node, elem_var_type);
+    IrInstruction *elem_alloca = ir_build_alloca(irb, child_scope, elem_node, elem_var_type, "for_elem");
     ir_build_var_decl_src(irb, child_scope, elem_node, elem_var, elem_var_type, nullptr, elem_alloca);
 
     AstNode *index_var_source_node;
@@ -5508,7 +5517,7 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
     child_scope = index_var->child_scope;
 
     IrInstruction *usize = ir_build_const_type(irb, child_scope, node, irb->codegen->builtin_types.entry_usize);
-    IrInstruction *index_alloca = ir_build_alloca(irb, child_scope, node, usize);
+    IrInstruction *index_alloca = ir_build_alloca(irb, child_scope, node, usize, "for_index");
     IrInstruction *zero = ir_build_const_usize(irb, child_scope, node, 0);
     IrInstruction *one = ir_build_const_usize(irb, child_scope, node, 1);
     ir_build_store_ptr(irb, child_scope, index_var_source_node, index_alloca, zero);
@@ -5765,7 +5774,7 @@ static IrInstruction *ir_gen_if_optional_expr(IrBuilder *irb, Scope *scope, AstN
         ZigVar *var = ir_create_var(irb, node, subexpr_scope,
                 var_symbol, is_const, is_const, is_shadowable, is_comptime);
 
-        IrInstruction *payload_alloca = ir_build_alloca(irb, scope, node, nullptr);
+        IrInstruction *payload_alloca = ir_build_alloca(irb, scope, node, nullptr, "optional_payload");
         IrInstruction *var_ptr_value = ir_build_unwrap_maybe(irb, subexpr_scope, node, maybe_val_ptr, false);
         IrInstruction *var_value = var_is_ptr ? var_ptr_value : ir_build_load_result(irb, subexpr_scope, node,
                 var_ptr_value, payload_alloca);
@@ -5843,7 +5852,7 @@ static IrInstruction *ir_gen_if_err_expr(IrBuilder *irb, Scope *scope, AstNode *
         ZigVar *var = ir_create_var(irb, node, subexpr_scope,
                 var_symbol, var_is_const, var_is_const, is_shadowable, var_is_comptime);
 
-        IrInstruction *payload_alloca = ir_build_alloca(irb, scope, node, nullptr);
+        IrInstruction *payload_alloca = ir_build_alloca(irb, scope, node, nullptr, "errunion_payload");
         IrInstruction *var_ptr_value = ir_build_unwrap_err_payload(irb, subexpr_scope, node, err_val_ptr, false);
         IrInstruction *var_value = var_is_ptr ?
             var_ptr_value : ir_build_load_result(irb, subexpr_scope, node, var_ptr_value, payload_alloca);
@@ -5922,7 +5931,7 @@ static bool ir_gen_switch_prong_expr(IrBuilder *irb, Scope *scope, AstNode *swit
                 var_name, is_const, is_const, is_shadowable, var_is_comptime);
         child_scope = var->child_scope;
         IrInstruction *var_value;
-        IrInstruction *payload_alloca = ir_build_alloca(irb, scope, var_symbol_node, nullptr);
+        IrInstruction *payload_alloca = ir_build_alloca(irb, scope, var_symbol_node, nullptr, "switch_payload");
         if (prong_value) {
             IrInstruction *var_ptr_value = ir_build_switch_var(irb, scope, var_symbol_node, target_value_ptr, prong_value);
             var_value = var_is_ptr ?
@@ -6880,7 +6889,7 @@ static IrInstruction *ir_gen_await_expr(IrBuilder *irb, Scope *scope, AstNode *n
     IrInstruction *target_promise_type = ir_build_typeof(irb, scope, node, target_inst);
     IrInstruction *promise_result_type = ir_build_promise_result_type(irb, scope, node, target_promise_type);
     ir_build_await_bookkeeping(irb, scope, node, promise_result_type);
-    IrInstruction *result_var_alloca = ir_build_alloca(irb, scope, node, promise_result_type);
+    IrInstruction *result_var_alloca = ir_build_alloca(irb, scope, node, promise_result_type, "");
     ir_build_var_decl_src(irb, scope, node, result_var, promise_result_type, nullptr, result_var_alloca);
     ir_build_store_ptr(irb, scope, node, result_ptr_field_ptr, result_var_alloca);
     IrInstruction *save_token = ir_build_coro_save(irb, scope, node, irb->exec->coro_handle);
@@ -7298,14 +7307,14 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         ZigType *coro_frame_type = get_promise_frame_type(irb->codegen, return_type);
         IrInstruction *coro_frame_type_value = ir_build_const_type(irb, coro_scope, node, coro_frame_type);
         // TODO mark this var decl as "no safety" e.g. disable initializing the undef value to 0xaa
-        coro_promise_ptr = ir_build_alloca(irb, coro_scope, node, coro_frame_type_value);
+        coro_promise_ptr = ir_build_alloca(irb, coro_scope, node, coro_frame_type_value, "");
         ir_build_var_decl_src(irb, coro_scope, node, promise_var, coro_frame_type_value, nullptr, coro_promise_ptr);
 
         ZigVar *await_handle_var = ir_create_var(irb, node, coro_scope, nullptr, false, false, true, const_bool_false);
         IrInstruction *null_value = ir_build_const_null(irb, coro_scope, node);
         IrInstruction *await_handle_type_val = ir_build_const_type(irb, coro_scope, node,
                 get_optional_type(irb->codegen, irb->codegen->builtin_types.entry_promise));
-        irb->exec->await_handle_var_ptr = ir_build_alloca(irb, coro_scope, node, await_handle_type_val);
+        irb->exec->await_handle_var_ptr = ir_build_alloca(irb, coro_scope, node, await_handle_type_val, "");
         ir_build_store_ptr(irb, coro_scope, node, irb->exec->await_handle_var_ptr, null_value);
         ir_build_var_decl_src(irb, coro_scope, node, await_handle_var, await_handle_type_val, nullptr,
                 irb->exec->await_handle_var_ptr);
@@ -7316,13 +7325,13 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         coro_id = ir_build_coro_id(irb, coro_scope, node, promise_as_u8_ptr);
         coro_size_var = ir_create_var(irb, node, coro_scope, nullptr, false, false, true, const_bool_false);
         IrInstruction *coro_size = ir_build_coro_size(irb, coro_scope, node);
-        IrInstruction *coro_size_var_alloca = ir_build_alloca(irb, coro_scope, node, nullptr);
+        IrInstruction *coro_size_var_alloca = ir_build_alloca(irb, coro_scope, node, nullptr, "");
         ir_build_store_ptr(irb, coro_scope, node, coro_size_var_alloca, coro_size);
         ir_build_var_decl_src(irb, coro_scope, node, coro_size_var, nullptr, nullptr, coro_size_var_alloca);
         IrInstruction *implicit_allocator_ptr = ir_build_get_implicit_allocator(irb, coro_scope, node,
                 ImplicitAllocatorIdArg);
         irb->exec->coro_allocator_var = ir_create_var(irb, node, coro_scope, nullptr, true, true, true, const_bool_false);
-        IrInstruction *coro_allocator_var_alloca = ir_build_alloca(irb, coro_scope, node, nullptr);
+        IrInstruction *coro_allocator_var_alloca = ir_build_alloca(irb, coro_scope, node, nullptr, "");
         ir_build_store_ptr(irb, coro_scope, node, coro_allocator_var_alloca, implicit_allocator_ptr);
         ir_build_var_decl_src(irb, coro_scope, node, irb->exec->coro_allocator_var, nullptr, nullptr,
                 coro_allocator_var_alloca);
@@ -7476,7 +7485,7 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         IrInstruction *coro_mem_ptr_ref = ir_build_ref(irb, scope, node, coro_mem_ptr, true, false);
         IrInstruction *coro_size_ptr = ir_build_var_ptr(irb, scope, node, coro_size_var);
         IrInstruction *coro_size = ir_build_load_ptr(irb, scope, node, coro_size_ptr);
-        IrInstruction *mem_slice_alloca = ir_build_alloca(irb, scope, node, nullptr);
+        IrInstruction *mem_slice_alloca = ir_build_alloca(irb, scope, node, nullptr, "");
         IrInstruction *mem_slice = ir_build_slice(irb, scope, node, coro_mem_ptr_ref, zero, coro_size, false,
                 mem_slice_alloca);
         size_t arg_count = 2;
@@ -12485,7 +12494,14 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira,
 
     bool var_class_requires_const = false;
 
-    ZigType *result_type = decl_var_instruction->ptr->value.type->data.pointer.child_type;
+    IrInstruction *var_ptr = decl_var_instruction->ptr->child;
+    if (type_is_invalid(var_ptr->value.type)) {
+        var->value->type = ira->codegen->builtin_types.entry_invalid;
+        return ira->codegen->invalid_instruction;
+    }
+
+    assert(var_ptr->value.type->id == ZigTypeIdPointer);
+    ZigType *result_type = var_ptr->value.type->data.pointer.child_type;
     if (type_is_invalid(result_type)) {
         result_type = ira->codegen->builtin_types.entry_invalid;
     } else {
@@ -12568,8 +12584,8 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira,
     if (fn_entry)
         fn_entry->variable_list.append(var);
 
-    IrInstruction *result = ir_build_var_decl_gen(&ira->new_irb,
-        decl_var_instruction->base.scope, decl_var_instruction->base.source_node, var);
+    IrInstruction *result = ir_build_var_decl_gen(&ira->new_irb, decl_var_instruction->base.scope,
+            decl_var_instruction->base.source_node, var, var_ptr);
     result->value.type = ira->codegen->builtin_types.entry_void;
     return result;
 }
@@ -15068,15 +15084,9 @@ static IrInstruction *ir_analyze_instruction_load_result(IrAnalyze *ira, IrInstr
     zig_panic("TODO");
 }
 
-static IrInstruction *ir_analyze_instruction_store_ptr(IrAnalyze *ira, IrInstructionStorePtr *store_ptr_instruction) {
-    IrInstruction *ptr = store_ptr_instruction->ptr->child;
-    if (type_is_invalid(ptr->value.type))
-        return ira->codegen->invalid_instruction;
-
-    IrInstruction *value = store_ptr_instruction->value->child;
-    if (type_is_invalid(value->value.type))
-        return ira->codegen->invalid_instruction;
-
+static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source_instr,
+        IrInstruction *ptr, IrInstruction *value)
+{
     if (ptr->value.type->id != ZigTypeIdPointer) {
         ir_add_error(ira, ptr,
             buf_sprintf("attempt to dereference non pointer type '%s'", buf_ptr(&ptr->value.type->name)));
@@ -15084,11 +15094,11 @@ static IrInstruction *ir_analyze_instruction_store_ptr(IrAnalyze *ira, IrInstruc
     }
 
     if (ptr->value.data.x_ptr.special == ConstPtrSpecialDiscard) {
-        return ir_const_void(ira, &store_ptr_instruction->base);
+        return ir_const_void(ira, source_instr);
     }
 
-    if (ptr->value.type->data.pointer.is_const && !store_ptr_instruction->base.is_gen) {
-        ir_add_error(ira, &store_ptr_instruction->base, buf_sprintf("cannot assign to constant"));
+    if (ptr->value.type->data.pointer.is_const && !source_instr->is_gen) {
+        ir_add_error(ira, source_instr, buf_sprintf("cannot assign to constant"));
         return ira->codegen->invalid_instruction;
     }
 
@@ -15099,23 +15109,23 @@ static IrInstruction *ir_analyze_instruction_store_ptr(IrAnalyze *ira, IrInstruc
 
     if (instr_is_comptime(ptr) && ptr->value.data.x_ptr.special != ConstPtrSpecialHardCodedAddr) {
         if (ptr->value.data.x_ptr.mut == ConstPtrMutComptimeConst) {
-            ir_add_error(ira, &store_ptr_instruction->base, buf_sprintf("cannot assign to constant"));
+            ir_add_error(ira, source_instr, buf_sprintf("cannot assign to constant"));
             return ira->codegen->invalid_instruction;
         }
         if (ptr->value.data.x_ptr.mut == ConstPtrMutComptimeVar) {
             if (instr_is_comptime(casted_value)) {
-                ConstExprValue *dest_val = ir_const_ptr_pointee(ira, &ptr->value, store_ptr_instruction->base.source_node);
+                ConstExprValue *dest_val = ir_const_ptr_pointee(ira, &ptr->value, source_instr->source_node);
                 if (dest_val == nullptr)
                     return ira->codegen->invalid_instruction;
                 if (dest_val->special != ConstValSpecialRuntime) {
                     *dest_val = casted_value->value;
                     if (!ira->new_irb.current_basic_block->must_be_comptime_source_instr) {
-                        ira->new_irb.current_basic_block->must_be_comptime_source_instr = &store_ptr_instruction->base;
+                        ira->new_irb.current_basic_block->must_be_comptime_source_instr = source_instr;
                     }
-                    return ir_const_void(ira, &store_ptr_instruction->base);
+                    return ir_const_void(ira, source_instr);
                 }
             }
-            ir_add_error(ira, &store_ptr_instruction->base,
+            ir_add_error(ira, source_instr,
                     buf_sprintf("cannot store runtime value in compile time variable"));
             ConstExprValue *dest_val = const_ptr_pointee_unchecked(ira->codegen, &ptr->value);
             dest_val->type = ira->codegen->builtin_types.entry_invalid;
@@ -15124,15 +15134,40 @@ static IrInstruction *ir_analyze_instruction_store_ptr(IrAnalyze *ira, IrInstruc
         }
     }
 
-    IrInstruction *result = ir_build_store_ptr(&ira->new_irb,
-        store_ptr_instruction->base.scope, store_ptr_instruction->base.source_node,
+    IrInstruction *result = ir_build_store_ptr(&ira->new_irb, source_instr->scope, source_instr->source_node,
         ptr, casted_value);
     result->value.type = ira->codegen->builtin_types.entry_void;
     return result;
 }
 
+static IrInstruction *ir_analyze_instruction_store_ptr(IrAnalyze *ira, IrInstructionStorePtr *instruction) {
+    IrInstruction *ptr = instruction->ptr->child;
+    if (type_is_invalid(ptr->value.type))
+        return ira->codegen->invalid_instruction;
+
+    IrInstruction *value = instruction->value->child;
+    if (type_is_invalid(value->value.type))
+        return ira->codegen->invalid_instruction;
+
+    return ir_analyze_store_ptr(ira, &instruction->base, ptr, value);
+}
+
 static IrInstruction *ir_analyze_instruction_store_result(IrAnalyze *ira, IrInstructionStoreResult *instruction) {
-    zig_panic("TODO");
+    IrInstruction *value = instruction->value->child;
+    if (type_is_invalid(value->value.type))
+        return ira->codegen->invalid_instruction;
+
+    IrInstruction *result_loc = instruction->result_loc->child;
+    if (type_is_invalid(result_loc->value.type))
+        return ira->codegen->invalid_instruction;
+
+    // If the type is a scalar value, treat this instruction as a normal store pointer instruction.
+    if (!type_has_bits(value->value.type) || !handle_is_ptr(value->value.type)) {
+        return ir_analyze_store_ptr(ira, &instruction->base, result_loc, value);
+    }
+    
+    // Otherwise, trust that the result location was populated by the expression that computed value.
+    return ir_const_void(ira, &instruction->base);
 }
 
 static IrInstruction *ir_analyze_instruction_typeof(IrAnalyze *ira, IrInstructionTypeOf *typeof_instruction) {
@@ -20927,6 +20962,25 @@ static IrInstruction *ir_analyze_instruction_result_ptr_cast(IrAnalyze *ira, IrI
     zig_panic("TODO");
 }
 
+static IrInstruction *ir_analyze_instruction_alloca(IrAnalyze *ira, IrInstructionAlloca *instruction) {
+    ZigType *child_type = ir_resolve_type(ira, instruction->child_type->child);
+    if (type_is_invalid(child_type))
+        return ira->codegen->invalid_instruction;
+
+    // TODO alignment
+    ZigType *pointer_type = get_pointer_to_type(ira->codegen, child_type, false);
+
+    IrInstruction *result = ir_build_alloca(&ira->new_irb, instruction->base.scope, instruction->base.source_node,
+            nullptr, instruction->name_hint);
+    result->value.type = pointer_type;
+
+    ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
+    if (fn_entry != nullptr) {
+        fn_entry->alloca_list.append(reinterpret_cast<IrInstructionAlloca *>(result));
+    }
+    return result;
+}
+
 static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -21212,11 +21266,11 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
             return ir_analyze_instruction_result_param(ira, (IrInstructionResultParam *)instruction);
         case IrInstructionIdResultPtrCast:
             return ir_analyze_instruction_result_ptr_cast(ira, (IrInstructionResultPtrCast *)instruction);
+        case IrInstructionIdAlloca:
+            return ir_analyze_instruction_alloca(ira, (IrInstructionAlloca *)instruction);
         case IrInstructionIdResultBytesToSlice:
             zig_panic("TODO");
         case IrInstructionIdResultSliceToBytes:
-            zig_panic("TODO");
-        case IrInstructionIdAlloca:
             zig_panic("TODO");
     }
     zig_unreachable();
