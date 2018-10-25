@@ -3218,14 +3218,54 @@ static LLVMValueRef ir_render_load_ptr(CodeGen *g, IrExecutable *executable, IrI
     return LLVMBuildTrunc(g->builder, shifted_value, child_type->type_ref, "");
 }
 
+static bool value_is_all_undef(ConstExprValue *const_val) {
+    switch (const_val->special) {
+        case ConstValSpecialRuntime:
+            return false;
+        case ConstValSpecialUndef:
+            return true;
+        case ConstValSpecialStatic:
+            if (const_val->type->id == ZigTypeIdStruct) {
+                for (size_t i = 0; i < const_val->type->data.structure.src_field_count; i += 1) {
+                    if (!value_is_all_undef(&const_val->data.x_struct.fields[i]))
+                        return false;
+                }
+                return true;
+            } else {
+                return false;
+            }
+    }
+    zig_unreachable();
+}
+
+static void gen_undef_init(CodeGen *g, uint32_t ptr_align_bytes, ZigType *value_type, LLVMValueRef ptr) {
+    ZigType *usize = g->builtin_types.entry_usize;
+    uint64_t size_bytes = LLVMStoreSizeOfType(g->target_data_ref, value_type->type_ref);
+    assert(size_bytes > 0);
+    assert(ptr_align_bytes > 0);
+    // memset uninitialized memory to 0xaa
+    LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
+    LLVMValueRef fill_char = LLVMConstInt(LLVMInt8Type(), 0xaa, false);
+    LLVMValueRef dest_ptr = LLVMBuildBitCast(g->builder, ptr, ptr_u8, "");
+    LLVMValueRef byte_count = LLVMConstInt(usize->type_ref, size_bytes, false);
+    ZigLLVMBuildMemSet(g->builder, dest_ptr, fill_char, byte_count, ptr_align_bytes, false);
+}
+
 static LLVMValueRef ir_render_store_ptr(CodeGen *g, IrExecutable *executable, IrInstructionStorePtr *instruction) {
-    LLVMValueRef ptr = ir_llvm_value(g, instruction->ptr);
-    LLVMValueRef value = ir_llvm_value(g, instruction->value);
-
-    assert(instruction->ptr->value.type->id == ZigTypeIdPointer);
     ZigType *ptr_type = instruction->ptr->value.type;
+    assert(ptr_type->id == ZigTypeIdPointer);
 
-    gen_assign_raw(g, ptr, ptr_type, value);
+    bool have_init_expr = !value_is_all_undef(&instruction->value->value); 
+    if (have_init_expr) {
+        LLVMValueRef ptr = ir_llvm_value(g, instruction->ptr);
+        LLVMValueRef value = ir_llvm_value(g, instruction->value);
+
+        gen_assign_raw(g, ptr, ptr_type, value);
+    }
+    if (ir_want_runtime_safety(g, &instruction->base)) {
+        gen_undef_init(g, get_ptr_align(g, ptr_type), instruction->value->value.type,
+            ir_llvm_value(g, instruction->ptr)); 
+    }
 
     return nullptr;
 }
