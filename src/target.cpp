@@ -954,7 +954,7 @@ const char *arch_stack_pointer_register_name(const ArchType *arch) {
         case ZigLLVM_UnknownArch:
             zig_unreachable();
         case ZigLLVM_x86:
-            return "sp";
+            return "esp";
         case ZigLLVM_x86_64:
             return "rsp";
         case ZigLLVM_aarch64:
