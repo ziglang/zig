@@ -4035,12 +4035,6 @@ test "float widening" {
       {#header_open|Implicit Cast: E to E!T#}
       <p>TODO</p>
       {#header_close#}
-      {#header_open|Implicit Cast: comptime_int to *const integer#}
-      <p>TODO</p>
-      {#header_close#}
-      {#header_open|Implicit Cast: comptime_float to *const float#}
-      <p>TODO</p>
-      {#header_close#}
       {#header_open|Implicit Cast: compile-time known numbers#}
       <p>TODO</p>
       {#header_close#}

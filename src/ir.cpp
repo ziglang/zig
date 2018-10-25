@@ -10483,31 +10483,6 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         }
     }
 
-    // cast from [N]T to *const []const T
-    if (wanted_type->id == ZigTypeIdPointer &&
-        wanted_type->data.pointer.is_const &&
-        is_slice(wanted_type->data.pointer.child_type) &&
-        actual_type->id == ZigTypeIdArray)
-    {
-        ZigType *ptr_type =
-            wanted_type->data.pointer.child_type->data.structure.fields[slice_ptr_index].type_entry;
-        assert(ptr_type->id == ZigTypeIdPointer);
-        if ((ptr_type->data.pointer.is_const || actual_type->data.array.len == 0) &&
-            types_match_const_cast_only(ira, ptr_type->data.pointer.child_type, actual_type->data.array.child_type,
-                source_node, false).id == ConstCastResultIdOk)
-        {
-            IrInstruction *cast1 = ir_analyze_cast(ira, source_instr, wanted_type->data.pointer.child_type, value);
-            if (type_is_invalid(cast1->value.type))
-                return ira->codegen->invalid_instruction;
-
-            IrInstruction *cast2 = ir_analyze_cast(ira, source_instr, wanted_type, cast1);
-            if (type_is_invalid(cast2->value.type))
-                return ira->codegen->invalid_instruction;
-
-            return cast2;
-        }
-    }
-
     // cast from [N]T to ?[]const T
     if (wanted_type->id == ZigTypeIdOptional &&
         is_slice(wanted_type->data.maybe.child_type) &&
@@ -10705,7 +10680,6 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     }
 
     // cast from number literal to another type
-    // cast from number literal to *const integer
     if (actual_type->id == ZigTypeIdComptimeFloat ||
         actual_type->id == ZigTypeIdComptimeInt)
     {
@@ -10713,18 +10687,6 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
             return ira->codegen->invalid_instruction;
         if (wanted_type->id == ZigTypeIdEnum) {
             IrInstruction *cast1 = ir_analyze_cast(ira, source_instr, wanted_type->data.enumeration.tag_int_type, value);
-            if (type_is_invalid(cast1->value.type))
-                return ira->codegen->invalid_instruction;
-
-            IrInstruction *cast2 = ir_analyze_cast(ira, source_instr, wanted_type, cast1);
-            if (type_is_invalid(cast2->value.type))
-                return ira->codegen->invalid_instruction;
-
-            return cast2;
-        } else if (wanted_type->id == ZigTypeIdPointer &&
-            wanted_type->data.pointer.is_const)
-        {
-            IrInstruction *cast1 = ir_analyze_cast(ira, source_instr, wanted_type->data.pointer.child_type, value);
             if (type_is_invalid(cast1->value.type))
                 return ira->codegen->invalid_instruction;
 
@@ -10783,29 +10745,6 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
 
         if (wanted_type->data.unionation.tag_type == actual_type) {
             return ir_analyze_enum_to_union(ira, source_instr, value, wanted_type);
-        }
-    }
-
-    // enum to *const union which has the enum as the tag type
-    if (actual_type->id == ZigTypeIdEnum && wanted_type->id == ZigTypeIdPointer) {
-        ZigType *union_type = wanted_type->data.pointer.child_type;
-        if (union_type->data.unionation.decl_node->data.container_decl.auto_enum ||
-            union_type->data.unionation.decl_node->data.container_decl.init_arg_expr != nullptr)
-        {
-            if ((err = type_resolve(ira->codegen, union_type, ResolveStatusZeroBitsKnown)))
-                return ira->codegen->invalid_instruction;
-
-            if (union_type->data.unionation.tag_type == actual_type) {
-                IrInstruction *cast1 = ir_analyze_cast(ira, source_instr, union_type, value);
-                if (type_is_invalid(cast1->value.type))
-                    return ira->codegen->invalid_instruction;
-
-                IrInstruction *cast2 = ir_analyze_cast(ira, source_instr, wanted_type, cast1);
-                if (type_is_invalid(cast2->value.type))
-                    return ira->codegen->invalid_instruction;
-
-                return cast2;
-            }
         }
     }
 
