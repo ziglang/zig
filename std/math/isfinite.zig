@@ -1,6 +1,7 @@
 const std = @import("../index.zig");
 const math = std.math;
 const assert = std.debug.assert;
+const maxInt = std.math.maxInt;
 
 pub fn isFinite(x: var) bool {
     const T = @typeOf(x);
@@ -15,7 +16,7 @@ pub fn isFinite(x: var) bool {
         },
         f64 => {
             const bits = @bitCast(u64, x);
-            return bits & (@maxValue(u64) >> 1) < (0x7FF << 52);
+            return bits & (maxInt(u64) >> 1) < (0x7FF << 52);
         },
         else => {
             @compileError("isFinite not implemented for " ++ @typeName(T));

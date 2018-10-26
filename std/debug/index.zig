@@ -11,6 +11,7 @@ const pdb = std.pdb;
 const windows = os.windows;
 const ArrayList = std.ArrayList;
 const builtin = @import("builtin");
+const maxInt = std.math.maxInt;
 
 pub const FailingAllocator = @import("failing_allocator.zig").FailingAllocator;
 pub const failing_allocator = &FailingAllocator.init(global_allocator, 0).allocator;
@@ -842,7 +843,7 @@ fn readSparseBitVector(stream: var, allocator: *mem.Allocator) ![]usize {
             if (word & (u32(1) << bit_i) != 0) {
                 try list.append(word_i * 32 + bit_i);
             }
-            if (bit_i == @maxValue(u5)) break;
+            if (bit_i == maxInt(u5)) break;
         }
     }
     return list.toOwnedSlice();
@@ -1939,7 +1940,7 @@ fn findCompileUnit(st: *DebugInfo, target_address: u64) !*const CompileUnit {
                     if (begin_addr == 0 and end_addr == 0) {
                         break;
                     }
-                    if (begin_addr == @maxValue(usize)) {
+                    if (begin_addr == maxInt(usize)) {
                         base_address = begin_addr;
                         continue;
                     }

@@ -5,6 +5,7 @@ const mem = std.mem;
 const endian = std.endian;
 const assert = std.debug.assert;
 const builtin = @import("builtin");
+const maxInt = std.math.maxInt;
 
 const QuarterRound = struct.{
     a: usize,
@@ -111,7 +112,7 @@ fn chaCha20_internal(out: []u8, in: []const u8, key: [8]u32, counter: [4]u32) vo
 /// counter, nonce, and key.
 pub fn chaCha20IETF(out: []u8, in: []const u8, counter: u32, key: [32]u8, nonce: [12]u8) void {
     assert(in.len >= out.len);
-    assert((in.len >> 6) + counter <= @maxValue(u32));
+    assert((in.len >> 6) + counter <= maxInt(u32));
 
     var k: [8]u32 = undefined;
     var c: [4]u32 = undefined;
@@ -161,7 +162,7 @@ pub fn chaCha20With64BitNonce(out: []u8, in: []const u8, counter: u64, key: [32]
     const big_block = (block_size << 32);
 
     // first partial big block
-    if (((@intCast(u64, @maxValue(u32) - @truncate(u32, counter)) + 1) << 6) < in.len) {
+    if (((@intCast(u64, maxInt(u32) - @truncate(u32, counter)) + 1) << 6) < in.len) {
         chaCha20_internal(out[cursor..big_block], in[cursor..big_block], k, c);
         cursor = big_block - cursor;
         c[1] += 1;

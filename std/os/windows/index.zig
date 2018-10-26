@@ -1,5 +1,6 @@
 const std = @import("../../index.zig");
 const assert = std.debug.assert;
+const maxInt = std.math.maxInt;
 
 pub use @import("advapi32.zig");
 pub use @import("kernel32.zig");
@@ -53,17 +54,17 @@ pub const TRUE = 1;
 pub const FALSE = 0;
 
 /// The standard input device. Initially, this is the console input buffer, CONIN$.
-pub const STD_INPUT_HANDLE = @maxValue(DWORD) - 10 + 1;
+pub const STD_INPUT_HANDLE = maxInt(DWORD) - 10 + 1;
 
 /// The standard output device. Initially, this is the active console screen buffer, CONOUT$.
-pub const STD_OUTPUT_HANDLE = @maxValue(DWORD) - 11 + 1;
+pub const STD_OUTPUT_HANDLE = maxInt(DWORD) - 11 + 1;
 
 /// The standard error device. Initially, this is the active console screen buffer, CONOUT$.
-pub const STD_ERROR_HANDLE = @maxValue(DWORD) - 12 + 1;
+pub const STD_ERROR_HANDLE = maxInt(DWORD) - 12 + 1;
 
-pub const INVALID_HANDLE_VALUE = @intToPtr(HANDLE, @maxValue(usize));
+pub const INVALID_HANDLE_VALUE = @intToPtr(HANDLE, maxInt(usize));
 
-pub const INVALID_FILE_ATTRIBUTES = DWORD(@maxValue(DWORD));
+pub const INVALID_FILE_ATTRIBUTES = DWORD(maxInt(DWORD));
 
 pub const OVERLAPPED = extern struct.{
     Internal: ULONG_PTR,

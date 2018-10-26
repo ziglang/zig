@@ -6,6 +6,7 @@
 const std = @import("../index.zig");
 const math = std.math;
 const assert = std.debug.assert;
+const maxInt = std.math.maxInt;
 
 pub fn fabs(x: var) @typeOf(x) {
     const T = @typeOf(x);
@@ -31,7 +32,7 @@ fn fabs32(x: f32) f32 {
 
 fn fabs64(x: f64) f64 {
     var u = @bitCast(u64, x);
-    u &= @maxValue(u64) >> 1;
+    u &= maxInt(u64) >> 1;
     return @bitCast(f64, u);
 }
 

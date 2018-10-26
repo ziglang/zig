@@ -14,6 +14,7 @@ const builtin = @import("builtin");
 const Os = builtin.Os;
 const LinkedList = std.LinkedList;
 const windows_util = @import("windows/util.zig");
+const maxInt = std.math.maxInt;
 
 const is_windows = builtin.os == Os.windows;
 
@@ -307,16 +308,16 @@ pub const ChildProcess = struct.{
             os.close(self.err_pipe[1]);
         }
 
-        // Write @maxValue(ErrInt) to the write end of the err_pipe. This is after
+        // Write maxInt(ErrInt) to the write end of the err_pipe. This is after
         // waitpid, so this write is guaranteed to be after the child
         // pid potentially wrote an error. This way we can do a blocking
-        // read on the error pipe and either get @maxValue(ErrInt) (no error) or
+        // read on the error pipe and either get maxInt(ErrInt) (no error) or
         // an error code.
-        try writeIntFd(self.err_pipe[1], @maxValue(ErrInt));
+        try writeIntFd(self.err_pipe[1], maxInt(ErrInt));
         const err_int = try readIntFd(self.err_pipe[0]);
         // Here we potentially return the fork child's error
         // from the parent pid.
-        if (err_int != @maxValue(ErrInt)) {
+        if (err_int != maxInt(ErrInt)) {
             return @errSetCast(SpawnError, @intToError(err_int));
         }
 

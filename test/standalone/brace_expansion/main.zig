@@ -5,6 +5,7 @@ const debug = std.debug;
 const assert = debug.assert;
 const Buffer = std.Buffer;
 const ArrayList = std.ArrayList;
+const maxInt = std.math.maxInt;
 
 const Token = union(enum).{
     Word: []const u8,
@@ -192,7 +193,7 @@ pub fn main() !void {
     defer stdin_buf.deinit();
 
     var stdin_adapter = stdin_file.inStream();
-    try stdin_adapter.stream.readAllBuffer(&stdin_buf, @maxValue(usize));
+    try stdin_adapter.stream.readAllBuffer(&stdin_buf, maxInt(usize));
 
     var result_buf = try Buffer.initSize(global_allocator, 0);
     defer result_buf.deinit();

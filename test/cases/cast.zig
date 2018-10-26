@@ -1,6 +1,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const mem = std.mem;
+const maxInt = std.math.maxInt;
 
 test "int to ptr cast" {
     const x = usize(13);
@@ -368,7 +369,7 @@ test "@bytesToSlice keeps pointer alignment" {
 }
 
 test "@intCast i32 to u7" {
-    var x: u128 = @maxValue(u128);
+    var x: u128 = maxInt(u128);
     var y: i32 = 120;
     var z = x >> @intCast(u7, y);
     assert(z == 0xff);
@@ -435,11 +436,11 @@ test "compile time int to ptr of function" {
     foobar(FUNCTION_CONSTANT);
 }
 
-pub const FUNCTION_CONSTANT = @intToPtr(PFN_void, @maxValue(usize));
+pub const FUNCTION_CONSTANT = @intToPtr(PFN_void, maxInt(usize));
 pub const PFN_void = extern fn (*c_void) void;
 
 fn foobar(func: PFN_void) void {
-    std.debug.assert(@ptrToInt(func) == @maxValue(usize));
+    std.debug.assert(@ptrToInt(func) == maxInt(usize));
 }
 
 test "implicit ptr to *c_void" {

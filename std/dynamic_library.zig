@@ -10,6 +10,7 @@ const elf = std.elf;
 const linux = os.linux;
 const windows = os.windows;
 const win_util = @import("os/windows/util.zig");
+const maxInt = std.math.maxInt;
 
 pub const DynLib = switch (builtin.os) {
     Os.linux => LinuxDynLib,
@@ -80,7 +81,7 @@ pub const ElfLib = struct.{
         const elf_addr = @ptrToInt(bytes.ptr);
         var ph_addr: usize = elf_addr + eh.e_phoff;
 
-        var base: usize = @maxValue(usize);
+        var base: usize = maxInt(usize);
         var maybe_dynv: ?[*]usize = null;
         {
             var i: usize = 0;
@@ -97,7 +98,7 @@ pub const ElfLib = struct.{
             }
         }
         const dynv = maybe_dynv orelse return error.MissingDynamicLinkingInformation;
-        if (base == @maxValue(usize)) return error.BaseNotFound;
+        if (base == maxInt(usize)) return error.BaseNotFound;
 
         var maybe_strings: ?[*]u8 = null;
         var maybe_syms: ?[*]elf.Sym = null;

@@ -1,6 +1,7 @@
 const std = @import("../index.zig");
 const math = std.math;
 const assert = std.debug.assert;
+const maxInt = std.math.maxInt;
 
 pub fn isNan(x: var) bool {
     const T = @typeOf(x);
@@ -15,7 +16,7 @@ pub fn isNan(x: var) bool {
         },
         f64 => {
             const bits = @bitCast(u64, x);
-            return (bits & (@maxValue(u64) >> 1)) > (u64(0x7FF) << 52);
+            return (bits & (maxInt(u64) >> 1)) > (u64(0x7FF) << 52);
         },
         else => {
             @compileError("isNan not implemented for " ++ @typeName(T));

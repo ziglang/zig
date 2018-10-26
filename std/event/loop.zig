@@ -8,6 +8,7 @@ const fs = std.event.fs;
 const os = std.os;
 const posix = os.posix;
 const windows = os.windows;
+const maxInt = std.math.maxInt;
 
 pub const Loop = struct.{
     allocator: *mem.Allocator,
@@ -317,7 +318,7 @@ pub const Loop = struct.{
                     windows.INVALID_HANDLE_VALUE,
                     null,
                     undefined,
-                    @maxValue(windows.DWORD),
+                    maxInt(windows.DWORD),
                 );
                 errdefer os.close(self.os_data.io_port);
 

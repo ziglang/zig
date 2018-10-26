@@ -1,14 +1,16 @@
 // These functions are provided when not linking against libc because LLVM
 // sometimes generates code that calls them.
 
+const std = @import("std");
 const builtin = @import("builtin");
+const maxInt = std.math.maxInt;
 
 // Avoid dragging in the runtime safety mechanisms into this .o file,
 // unless we're trying to test this file.
 pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn {
     if (builtin.is_test) {
         @setCold(true);
-        @import("std").debug.panic("{}", msg);
+        std.debug.panic("{}", msg);
     } else {
         unreachable;
     }
@@ -190,7 +192,7 @@ fn generic_fmod(comptime T: type, x: T, y: T) T {
         }) {}
         ux <<= @intCast(log2uint, @bitCast(u32, -ex + 1));
     } else {
-        ux &= @maxValue(uint) >> exp_bits;
+        ux &= maxInt(uint) >> exp_bits;
         ux |= 1 << digits;
     }
     if (ey == 0) {
@@ -201,7 +203,7 @@ fn generic_fmod(comptime T: type, x: T, y: T) T {
         }) {}
         uy <<= @intCast(log2uint, @bitCast(u32, -ey + 1));
     } else {
-        uy &= @maxValue(uint) >> exp_bits;
+        uy &= maxInt(uint) >> exp_bits;
         uy |= 1 << digits;
     }
 
@@ -247,7 +249,7 @@ fn isNan(comptime T: type, bits: T) bool {
     } else if (T == u32) {
         return (bits & 0x7fffffff) > 0x7f800000;
     } else if (T == u64) {
-        return (bits & (@maxValue(u64) >> 1)) > (u64(0x7ff) << 52);
+        return (bits & (maxInt(u64) >> 1)) > (u64(0x7ff) << 52);
     } else {
         unreachable;
     }

@@ -10,6 +10,7 @@ const math = std.math;
 const assert = std.debug.assert;
 const builtin = @import("builtin");
 const TypeId = builtin.TypeId;
+const maxInt = std.math.maxInt;
 
 pub fn log10(x: var) @typeOf(x) {
     const T = @typeOf(x);
@@ -151,7 +152,7 @@ pub fn log10_64(x_: f64) f64 {
     // hi + lo = f - hfsq + s * (hfsq + R) ~ log(1 + f)
     var hi = f - hfsq;
     var hii = @bitCast(u64, hi);
-    hii &= u64(@maxValue(u64)) << 32;
+    hii &= u64(maxInt(u64)) << 32;
     hi = @bitCast(f64, hii);
     const lo = f - hi - hfsq + s * (hfsq + R);
 

@@ -20,6 +20,7 @@ const assert = std.debug.assert;
 const mem = std.mem;
 const math = std.math;
 const ziggurat = @import("ziggurat.zig");
+const maxInt = std.math.maxInt;
 
 // When you need fast unbiased random numbers
 pub const DefaultPrng = Xoroshiro128;
@@ -39,7 +40,7 @@ pub const Random = struct.{
         return r.int(u1) != 0;
     }
 
-    /// Returns a random int `i` such that `0 <= i <= @maxValue(T)`.
+    /// Returns a random int `i` such that `0 <= i <= maxInt(T)`.
     /// `i` is evenly distributed.
     pub fn int(r: *Random, comptime T: type) T {
         const UnsignedT = @IntType(false, T.bit_count);
@@ -69,14 +70,14 @@ pub const Random = struct.{
         assert(T.is_signed == false);
         assert(0 < less_than);
 
-        const last_group_size_minus_one: T = @maxValue(T) % less_than;
+        const last_group_size_minus_one: T = maxInt(T) % less_than;
         if (last_group_size_minus_one == less_than - 1) {
             // less_than is a power of two.
             assert(math.floorPowerOfTwo(T, less_than) == less_than);
-            // There is no retry zone. The optimal retry_zone_start would be @maxValue(T) + 1.
+            // There is no retry zone. The optimal retry_zone_start would be maxInt(T) + 1.
             return r.int(T) % less_than;
         }
-        const retry_zone_start = @maxValue(T) - last_group_size_minus_one;
+        const retry_zone_start = maxInt(T) - last_group_size_minus_one;
 
         while (true) {
             const rand_val = r.int(T);
@@ -91,7 +92,7 @@ pub const Random = struct.{
     /// for commentary on the runtime of this function.
     pub fn uintAtMost(r: *Random, comptime T: type, at_most: T) T {
         assert(T.is_signed == false);
-        if (at_most == @maxValue(T)) {
+        if (at_most == maxInt(T)) {
             // have the full range
             return r.int(T);
         }
