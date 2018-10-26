@@ -1645,6 +1645,7 @@ struct CodeGen {
         ZigType *entry_c_int[CIntTypeCount];
         ZigType *entry_c_longdouble;
         ZigType *entry_c_void;
+        ZigType *entry_infer;
         ZigType *entry_u8;
         ZigType *entry_u16;
         ZigType *entry_u32;

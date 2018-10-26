@@ -15152,6 +15152,19 @@ static IrInstruction *ir_analyze_instruction_store_ptr(IrAnalyze *ira, IrInstruc
     return ir_analyze_store_ptr(ira, &instruction->base, ptr, value);
 }
 
+static void resolve_alloca_inference(IrAnalyze *ira, IrInstructionAlloca *alloca, ZigType *child_type) {
+    // TODO alignment
+    alloca->base.value.type = get_pointer_to_type(ira->codegen, child_type, false);
+}
+
+static void resolve_possible_alloca_inference(IrAnalyze *ira, IrInstruction *base, ZigType *child_type) {
+    assert(base->value.type->id == ZigTypeIdPointer);
+    ZigType *infer_child = base->value.type->data.pointer.child_type;
+    if (base->id == IrInstructionIdAlloca && infer_child == ira->codegen->builtin_types.entry_infer) {
+        resolve_alloca_inference(ira, reinterpret_cast<IrInstructionAlloca *>(base), child_type);
+    }
+}
+
 static IrInstruction *ir_analyze_instruction_store_result(IrAnalyze *ira, IrInstructionStoreResult *instruction) {
     IrInstruction *value = instruction->value->child;
     if (type_is_invalid(value->value.type))
@@ -15160,6 +15173,8 @@ static IrInstruction *ir_analyze_instruction_store_result(IrAnalyze *ira, IrInst
     IrInstruction *result_loc = instruction->result_loc->child;
     if (type_is_invalid(result_loc->value.type))
         return ira->codegen->invalid_instruction;
+
+    resolve_possible_alloca_inference(ira, result_loc, value->value.type);
 
     // If the type is a scalar value, treat this instruction as a normal store pointer instruction.
     if (!type_has_bits(value->value.type) || !handle_is_ptr(value->value.type)) {
@@ -20963,20 +20978,25 @@ static IrInstruction *ir_analyze_instruction_result_ptr_cast(IrAnalyze *ira, IrI
 }
 
 static IrInstruction *ir_analyze_instruction_alloca(IrAnalyze *ira, IrInstructionAlloca *instruction) {
-    ZigType *child_type = ir_resolve_type(ira, instruction->child_type->child);
-    if (type_is_invalid(child_type))
-        return ira->codegen->invalid_instruction;
-
-    // TODO alignment
-    ZigType *pointer_type = get_pointer_to_type(ira->codegen, child_type, false);
-
     IrInstruction *result = ir_build_alloca(&ira->new_irb, instruction->base.scope, instruction->base.source_node,
             nullptr, instruction->name_hint);
-    result->value.type = pointer_type;
+    IrInstructionAlloca *alloca_result = reinterpret_cast<IrInstructionAlloca*>(result);
+
+    if (instruction->child_type == nullptr) {
+        // We use a pointer to a special opaque type to signal that we want type inference.
+        // TODO alignment
+        result->value.type = get_pointer_to_type(ira->codegen, ira->codegen->builtin_types.entry_infer, false);
+    } else {
+        ZigType *child_type = ir_resolve_type(ira, instruction->child_type->child);
+        if (type_is_invalid(child_type))
+            return ira->codegen->invalid_instruction;
+
+        resolve_alloca_inference(ira, alloca_result, child_type);
+    }
 
     ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
     if (fn_entry != nullptr) {
-        fn_entry->alloca_list.append(reinterpret_cast<IrInstructionAlloca *>(result));
+        fn_entry->alloca_list.append(alloca_result);
     }
     return result;
 }

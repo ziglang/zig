@@ -6597,6 +6597,9 @@ static void define_builtin_types(CodeGen *g) {
         g->builtin_types.entry_c_void = get_opaque_type(g, nullptr, nullptr, "c_void");
         g->primitive_type_table.put(&g->builtin_types.entry_c_void->name, g->builtin_types.entry_c_void);
     }
+    {
+        g->builtin_types.entry_infer = get_opaque_type(g, nullptr, nullptr, "(infer)");
+    }
 
     {
         ZigType *entry = new_type_table_entry(ZigTypeIdErrorSet);
