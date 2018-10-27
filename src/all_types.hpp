@@ -33,7 +33,7 @@ struct TypeStructField;
 struct CodeGen;
 struct ConstExprValue;
 struct IrInstruction;
-struct IrInstructionAlloca;
+struct IrInstructionAllocaGen;
 struct IrBasicBlock;
 struct ScopeDecls;
 struct ZigWindowsSDK;
@@ -1322,7 +1322,7 @@ struct ZigFn {
     AstNode *fn_no_inline_set_node;
     AstNode *fn_static_eval_set_node;
 
-    ZigList<IrInstructionAlloca *> alloca_list;
+    ZigList<IrInstructionAllocaGen *> alloca_list;
     ZigList<ZigVar *> variable_list;
 
     Buf *section_name;
@@ -2181,7 +2181,8 @@ enum IrInstructionId {
     IrInstructionIdResultPtrCast,
     IrInstructionIdLoadResult,
     IrInstructionIdStoreResult,
-    IrInstructionIdAlloca,
+    IrInstructionIdAllocaSrc,
+    IrInstructionIdAllocaGen,
 };
 
 struct IrInstruction {
@@ -3323,10 +3324,18 @@ struct IrInstructionResultPtrCast {
     IrInstruction *prev_result_loc;
 };
 
-struct IrInstructionAlloca {
+struct IrInstructionAllocaSrc {
     IrInstruction base;
 
     IrInstruction *child_type;
+    IrInstruction *align;
+    const char *name_hint;
+};
+
+struct IrInstructionAllocaGen {
+    IrInstruction base;
+
+    uint32_t align;
     const char *name_hint;
 };
 

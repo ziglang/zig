@@ -1357,10 +1357,16 @@ static void ir_print_store_result(IrPrint *irp, IrInstructionStoreResult *instru
     fprintf(irp->f, ")");
 }
 
-static void ir_print_alloca(IrPrint *irp, IrInstructionAlloca *instruction) {
-    fprintf(irp->f, "Alloca(");
+static void ir_print_alloca_src(IrPrint *irp, IrInstructionAllocaSrc *instruction) {
+    fprintf(irp->f, "AllocaSrc(ty=");
     ir_print_other_instruction(irp, instruction->child_type);
+    fprintf(irp->f, ",align=");
+    ir_print_other_instruction(irp, instruction->align);
     fprintf(irp->f, ")");
+}
+
+static void ir_print_alloca_gen(IrPrint *irp, IrInstructionAllocaGen *instruction) {
+    fprintf(irp->f, "AllocaGen(align=%" PRIu32 ",name=%s)", instruction->align, instruction->name_hint);
 }
 
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
@@ -1809,8 +1815,11 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdStoreResult:
             ir_print_store_result(irp, (IrInstructionStoreResult *)instruction);
             break;
-        case IrInstructionIdAlloca:
-            ir_print_alloca(irp, (IrInstructionAlloca *)instruction);
+        case IrInstructionIdAllocaSrc:
+            ir_print_alloca_src(irp, (IrInstructionAllocaSrc *)instruction);
+            break;
+        case IrInstructionIdAllocaGen:
+            ir_print_alloca_gen(irp, (IrInstructionAllocaGen *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

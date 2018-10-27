@@ -5163,6 +5163,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdEnumToInt:
         case IrInstructionIdCheckRuntimeScope:
         case IrInstructionIdDeclVarSrc:
+        case IrInstructionIdAllocaSrc:
+        case IrInstructionIdAllocaGen:
             zig_unreachable();
 
         case IrInstructionIdDeclVarGen:
@@ -5341,8 +5343,6 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             zig_panic("TODO");
         case IrInstructionIdStoreResult:
             zig_panic("TODO");
-        case IrInstructionIdAlloca:
-            return instruction->llvm_value; // handled before function code generation
     }
     zig_unreachable();
 }
@@ -6231,7 +6231,7 @@ static void do_code_gen(CodeGen *g) {
 
         // allocate temporary stack data
         for (size_t alloca_i = 0; alloca_i < fn_table_entry->alloca_list.length; alloca_i += 1) {
-            IrInstructionAlloca *instruction = fn_table_entry->alloca_list.at(alloca_i);
+            IrInstructionAllocaGen *instruction = fn_table_entry->alloca_list.at(alloca_i);
             ZigType *ptr_type = instruction->base.value.type;
             assert(ptr_type->id == ZigTypeIdPointer);
             ZigType *child_type = ptr_type->data.pointer.child_type;
