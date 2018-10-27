@@ -3261,8 +3261,7 @@ static LLVMValueRef ir_render_store_ptr(CodeGen *g, IrExecutable *executable, Ir
         LLVMValueRef value = ir_llvm_value(g, instruction->value);
 
         gen_assign_raw(g, ptr, ptr_type, value);
-    }
-    if (ir_want_runtime_safety(g, &instruction->base)) {
+    } else if (ir_want_runtime_safety(g, &instruction->base)) {
         gen_undef_init(g, get_ptr_align(g, ptr_type), instruction->value->value.type,
             ir_llvm_value(g, instruction->ptr)); 
     }

@@ -15193,7 +15193,9 @@ static IrInstruction *ir_analyze_instruction_store_result(IrAnalyze *ira, IrInst
     resolve_possible_alloca_inference(ira, result_loc, value->value.type);
 
     // If the type is a scalar value, treat this instruction as a normal store pointer instruction.
-    if (!type_has_bits(value->value.type) || !handle_is_ptr(value->value.type)) {
+    // Or if the value is comptime known, analyze it as a store pointer, so that the
+    // const can be memcpy'd.
+    if (!type_has_bits(value->value.type) || !handle_is_ptr(value->value.type) || instr_is_comptime(value)) {
         return ir_analyze_store_ptr(ira, &instruction->base, result_loc, value);
     }
     
