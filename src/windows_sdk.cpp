@@ -181,8 +181,9 @@ com_done:;
 }
 
 static ZigFindWindowsSdkError find_10_version(ZigWindowsSDKPrivate *priv) {
-    if (priv->base.path10_ptr == nullptr)
+    if (priv->base.path10_ptr == nullptr) {
         return ZigFindWindowsSdkErrorNone;
+    }
 
 	char reg_query[MAX_PATH] = { 0 };
 	int n = snprintf(reg_query, MAX_PATH, "%s\\%s.0\\Installed Options", ZIG_WINDOWS_KIT_REG_KEY, priv->base.version10_ptr);
@@ -198,7 +199,7 @@ static ZigFindWindowsSdkError find_10_version(ZigWindowsSDKPrivate *priv) {
 		return ZigFindWindowsSdkErrorNotFound;
 	}
 
-	char *option_name = nullptr;
+	const char *option_name = nullptr;
 	switch (native_arch) {
 	case NativeArchArm:
 		option_name = "OptionId.DesktopCPParm";
@@ -224,8 +225,9 @@ static ZigFindWindowsSdkError find_10_version(ZigWindowsSDKPrivate *priv) {
 }
 
 static ZigFindWindowsSdkError find_81_version(ZigWindowsSDKPrivate *priv) {
-    if (priv->base.path81_ptr == nullptr)
+    if (priv->base.path81_ptr == nullptr) {
         return ZigFindWindowsSdkErrorNone;
+    }
 
     char sdk_lib_dir[4096];
     int n = snprintf(sdk_lib_dir, 4096, "%s\\Lib\\winv*", priv->base.path81_ptr);
@@ -309,7 +311,6 @@ ZigFindWindowsSdkError zig_find_windows_sdk(struct ZigWindowsSDK **out_sdk) {
 		priv->base.version10_ptr = (const char*)calloc(tmp_buf_len, 1);
 		rc = RegQueryValueEx(v10_key, "ProductVersion", NULL, NULL, (LPBYTE)priv->base.version10_ptr, &tmp_buf_len);
 		if (rc == ERROR_SUCCESS) {
-			size_t orig_len = priv->base.version10_len;
 			snprintf((char*)priv->base.version10_ptr, MAX_PATH, "%s.0", priv->base.version10_ptr);
 			priv->base.version10_len = tmp_buf_len - 1 + 2; // note(dimenus): Microsoft doesn't include the .0 in the ProductVersion key....
 		} else {
