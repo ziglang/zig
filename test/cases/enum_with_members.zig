@@ -2,7 +2,7 @@ const assert = @import("std").debug.assert;
 const mem = @import("std").mem;
 const fmt = @import("std").fmt;
 
-const ET = union(enum).{
+const ET = union(enum) {
     SINT: i32,
     UINT: u32,
 
@@ -15,8 +15,8 @@ const ET = union(enum).{
 };
 
 test "enum with members" {
-    const a = ET.{ .SINT = -42 };
-    const b = ET.{ .UINT = 42 };
+    const a = ET{ .SINT = -42 };
+    const b = ET{ .UINT = 42 };
     var buf: [20]u8 = undefined;
 
     assert((a.print(buf[0..]) catch unreachable) == 3);

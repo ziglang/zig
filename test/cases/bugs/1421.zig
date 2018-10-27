@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 
-const S = struct.{
+const S = struct {
     fn method() builtin.TypeInfo {
         return @typeInfo(S);
     }

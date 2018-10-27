@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
     if (builtin.os != builtin.Os.windows) {
-        // Windows treats this as an enum with type c_int
+        // Windows treats this as an enum with type c_int 
         cases.add("big negative enum init values when C ABI supports long long enums",
             \\enum EnumWithInits {
             \\    VAL01 = 0,
@@ -31,7 +31,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
             \\    VAL23 = 0xFFFFFFFFFFFFFFFF,
             \\};
         ,
-            \\pub const enum_EnumWithInits = extern enum(c_longlong).{
+            \\pub const enum_EnumWithInits = extern enum(c_longlong) {
             \\    VAL01 = 0,
             \\    VAL02 = 1,
             \\    VAL03 = 2,
@@ -116,11 +116,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    Foo *a;
         \\};
     ,
-        \\pub const struct_Foo = extern struct.{
+        \\pub const struct_Foo = extern struct {
         \\    a: ?[*]Foo,
         \\};
         \\pub const Foo = struct_Foo;
-        \\pub const struct_Bar = extern struct.{
+        \\pub const struct_Bar = extern struct {
         \\    a: ?[*]Foo,
         \\};
     );
@@ -162,7 +162,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    Foo1,
         \\};
     ,
-        \\pub const enum_Foo = extern enum.{
+        \\pub const enum_Foo = extern enum {
         \\    A,
         \\    B,
         \\    @"1",
@@ -184,7 +184,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    Foo1,
         \\};
     ,
-        \\pub const enum_Foo = extern enum.{
+        \\pub const enum_Foo = extern enum {
         \\    A = 2,
         \\    B = 5,
         \\    @"1" = 6,
@@ -211,7 +211,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    char *y;
         \\};
     ,
-        \\const struct_Foo = extern struct.{
+        \\const struct_Foo = extern struct {
         \\    x: c_int,
         \\    y: ?[*]u8,
         \\};
@@ -230,12 +230,12 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\};
         \\void func(struct Foo *a, enum Bar **b);
     ,
-        \\pub const struct_Foo = extern struct.{
+        \\pub const struct_Foo = extern struct {
         \\    x: c_int,
         \\    y: c_int,
         \\};
     ,
-        \\pub const enum_Bar = extern enum.{
+        \\pub const enum_Bar = extern enum {
         \\    A,
         \\    B,
         \\};
@@ -262,7 +262,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    void (*derp)(struct Foo *foo);
         \\};
     ,
-        \\pub const struct_Foo = extern struct.{
+        \\pub const struct_Foo = extern struct {
         \\    derp: ?extern fn(?[*]struct_Foo) void,
         \\};
     ,
@@ -321,11 +321,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    struct Foo *next;
         \\};
     ,
-        \\pub const struct_Bar = extern struct.{
+        \\pub const struct_Bar = extern struct {
         \\    next: ?[*]struct_Foo,
         \\};
     ,
-        \\pub const struct_Foo = extern struct.{
+        \\pub const struct_Foo = extern struct {
         \\    next: ?[*]struct_Bar,
         \\};
     );
@@ -424,7 +424,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    int defer;
         \\};
     ,
-        \\pub const struct_comptime = extern struct.{
+        \\pub const struct_comptime = extern struct {
         \\    @"defer": c_int,
         \\};
     ,
@@ -707,7 +707,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return foo->field;
         \\}
     ,
-        \\pub const struct_Foo = extern struct.{
+        \\pub const struct_Foo = extern struct {
         \\    field: c_int,
         \\};
         \\pub export fn read_field(foo: ?[*]struct_Foo) c_int {
@@ -1097,7 +1097,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    double y;
         \\};
     ,
-        \\pub const union_Foo = extern union.{
+        \\pub const union_Foo = extern union {
         \\    x: c_int,
         \\    y: f64,
         \\};
@@ -1210,9 +1210,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     ,
         \\pub const OpenGLProc = ?extern fn() void;
     ,
-        \\pub const union_OpenGLProcs = extern union.{
+        \\pub const union_OpenGLProcs = extern union {
         \\    ptr: [1]OpenGLProc,
-        \\    gl: extern struct.{
+        \\    gl: extern struct {
         \\        Clear: PFNGLCLEARPROC,
         \\    },
         \\};
@@ -1329,7 +1329,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const A = enum_SomeEnum.A;
         \\pub const B = enum_SomeEnum.B;
         \\pub const C = enum_SomeEnum.C;
-        \\pub const enum_SomeEnum = extern enum.{
+        \\pub const enum_SomeEnum = extern enum {
         \\    A,
         \\    B,
         \\    C,

@@ -18,7 +18,7 @@ fn conv2(x: u32) i32 {
 }
 
 test "@bitCast extern enum to its integer type" {
-    const SOCK = extern enum.{
+    const SOCK = extern enum {
         A,
         B,
 
@@ -32,3 +32,4 @@ test "@bitCast extern enum to its integer type" {
     SOCK.testBitCastExternEnum();
     comptime SOCK.testBitCastExternEnum();
 }
+

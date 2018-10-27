@@ -337,22 +337,22 @@ test "constant enum initialization with differing sizes" {
     test3_1(test3_foo);
     test3_2(test3_bar);
 }
-const Test3Foo = union(enum).{
+const Test3Foo = union(enum) {
     One: void,
     Two: f32,
     Three: Test3Point,
 };
-const Test3Point = struct.{
+const Test3Point = struct {
     x: i32,
     y: i32,
 };
-const test3_foo = Test3Foo.{
-    .Three = Test3Point.{
+const test3_foo = Test3Foo{
+    .Three = Test3Point{
         .x = 3,
         .y = 4,
     },
 };
-const test3_bar = Test3Foo.{ .Two = 13 };
+const test3_bar = Test3Foo{ .Two = 13 };
 fn test3_1(f: Test3Foo) void {
     switch (f) {
         Test3Foo.Three => |pt| {
@@ -411,7 +411,7 @@ test "C string concatenation" {
 
 test "cast slice to u8 slice" {
     assert(@sizeOf(i32) == 4);
-    var big_thing_array = []i32.{
+    var big_thing_array = []i32{
         1,
         2,
         3,
@@ -441,7 +441,7 @@ fn testPointerToVoidReturnType() error!void {
     const a = testPointerToVoidReturnType2();
     return a.*;
 }
-const test_pointer_to_void_return_type_x = void.{};
+const test_pointer_to_void_return_type_x = void{};
 fn testPointerToVoidReturnType2() *const void {
     return &test_pointer_to_void_return_type_x;
 }
@@ -452,9 +452,9 @@ test "non const ptr to aliased type" {
 }
 
 test "array 2D const double ptr" {
-    const rect_2d_vertexes = [][1]f32.{
-        []f32.{1.0},
-        []f32.{2.0},
+    const rect_2d_vertexes = [][1]f32{
+        []f32{1.0},
+        []f32{2.0},
     };
     testArray2DConstDoublePtr(&rect_2d_vertexes[0][0]);
 }
@@ -466,18 +466,18 @@ fn testArray2DConstDoublePtr(ptr: *const f32) void {
 }
 
 const Tid = builtin.TypeId;
-const AStruct = struct.{
+const AStruct = struct {
     x: i32,
 };
-const AnEnum = enum.{
+const AnEnum = enum {
     One,
     Two,
 };
-const AUnionEnum = union(enum).{
+const AUnionEnum = union(enum) {
     One: i32,
     Two: void,
 };
-const AUnion = union.{
+const AUnion = union {
     One: void,
     Two: void,
 };
@@ -517,11 +517,11 @@ test "@typeId" {
 }
 
 test "@typeName" {
-    const Struct = struct.{};
-    const Union = union.{
+    const Struct = struct {};
+    const Union = union {
         unused: u8,
     };
-    const Enum = enum.{
+    const Enum = enum {
         Unused,
     };
     comptime {
@@ -536,7 +536,7 @@ test "@typeName" {
 }
 
 fn TypeFromFn(comptime T: type) type {
-    return struct.{};
+    return struct {};
 }
 
 test "volatile load and store" {
@@ -549,7 +549,7 @@ test "volatile load and store" {
 test "slice string literal has type []const u8" {
     comptime {
         assert(@typeOf("aoeu"[0..]) == []const u8);
-        const array = []i32.{
+        const array = []i32{
             1,
             2,
             3,
@@ -562,12 +562,12 @@ test "slice string literal has type []const u8" {
 test "global variable initialized to global variable array element" {
     assert(global_ptr == &gdt[0]);
 }
-const GDTEntry = struct.{
+const GDTEntry = struct {
     field: i32,
 };
-var gdt = []GDTEntry.{
-    GDTEntry.{ .field = 1 },
-    GDTEntry.{ .field = 2 },
+var gdt = []GDTEntry{
+    GDTEntry{ .field = 1 },
+    GDTEntry{ .field = 2 },
 };
 var global_ptr = &gdt[0];
 
@@ -624,11 +624,11 @@ test "struct inside function" {
 fn testStructInFn() void {
     const BlockKind = u32;
 
-    const Block = struct.{
+    const Block = struct {
         kind: BlockKind,
     };
 
-    var block = Block.{ .kind = 1234 };
+    var block = Block{ .kind = 1234 };
 
     block.kind += 1;
 
@@ -637,7 +637,7 @@ fn testStructInFn() void {
 
 fn fnThatClosesOverLocalConst() type {
     const c = 1;
-    return struct.{
+    return struct {
         fn g() i32 {
             return c;
         }
@@ -658,35 +658,35 @@ fn thisIsAColdFn() void {
     @setCold(true);
 }
 
-const PackedStruct = packed struct.{
+const PackedStruct = packed struct {
     a: u8,
     b: u8,
 };
-const PackedUnion = packed union.{
+const PackedUnion = packed union {
     a: u8,
     b: u32,
 };
-const PackedEnum = packed enum.{
+const PackedEnum = packed enum {
     A,
     B,
 };
 
 test "packed struct, enum, union parameters in extern function" {
-    testPackedStuff(&(PackedStruct.{
+    testPackedStuff(&(PackedStruct{
         .a = 1,
         .b = 2,
-    }), &(PackedUnion.{ .a = 1 }), PackedEnum.A);
+    }), &(PackedUnion{ .a = 1 }), PackedEnum.A);
 }
 
 export fn testPackedStuff(a: *const PackedStruct, b: *const PackedUnion, c: PackedEnum) void {}
 
 test "slicing zero length array" {
     const s1 = ""[0..];
-    const s2 = ([]u32.{})[0..];
+    const s2 = ([]u32{})[0..];
     assert(s1.len == 0);
     assert(s2.len == 0);
     assert(mem.eql(u8, s1, ""));
-    assert(mem.eql(u32, s2, []u32.{}));
+    assert(mem.eql(u32, s2, []u32{}));
 }
 
 const addr1 = @ptrCast(*const u8, emptyFn);
@@ -701,8 +701,8 @@ test "equality compare fn ptrs" {
 }
 
 test "self reference through fn ptr field" {
-    const S = struct.{
-        const A = struct.{
+    const S = struct {
+        const A = struct {
             f: fn (A) u8,
         };
 

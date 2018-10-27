@@ -3,7 +3,7 @@ const Os = builtin.Os;
 const os = @import("index.zig");
 const io = @import("../io.zig");
 
-pub const UserInfo = struct.{
+pub const UserInfo = struct {
     uid: u32,
     gid: u32,
 };
@@ -16,7 +16,7 @@ pub fn getUserInfo(name: []const u8) !UserInfo {
     };
 }
 
-const State = enum.{
+const State = enum {
     Start,
     WaitForNextLine,
     SkipPassword,
@@ -83,7 +83,7 @@ pub fn posixGetUserInfo(name: []const u8) !UserInfo {
                 },
                 State.ReadGroupId => switch (byte) {
                     '\n', ':' => {
-                        return UserInfo.{
+                        return UserInfo{
                             .uid = uid,
                             .gid = gid,
                         };

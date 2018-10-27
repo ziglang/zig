@@ -1,11 +1,11 @@
 const assert = @import("std").debug.assert;
 
-const PrefixOp = union(enum).{
+const PrefixOp = union(enum) {
     Return,
     AddrOf: Value,
 };
 
-const Value = struct.{
+const Value = struct {
     align_expr: ?u32,
 };
 
@@ -14,8 +14,8 @@ test "optional if after an if in a switch prong of a switch with 2 prongs in an 
 }
 
 fn foo(a: bool, b: bool) void {
-    var prefix_op = PrefixOp.{
-        .AddrOf = Value.{ .align_expr = 1234 },
+    var prefix_op = PrefixOp{
+        .AddrOf = Value{ .align_expr = 1234 },
     };
     if (a) {} else {
         switch (prefix_op) {

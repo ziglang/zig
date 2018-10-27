@@ -76,7 +76,7 @@ pub fn utf8Decode(bytes: []const u8) Utf8DecodeError!u32 {
     };
 }
 
-const Utf8Decode2Error = error.{
+const Utf8Decode2Error = error{
     Utf8ExpectedContinuation,
     Utf8OverlongEncoding,
 };
@@ -94,7 +94,7 @@ pub fn utf8Decode2(bytes: []const u8) Utf8Decode2Error!u32 {
     return value;
 }
 
-const Utf8Decode3Error = error.{
+const Utf8Decode3Error = error{
     Utf8ExpectedContinuation,
     Utf8OverlongEncoding,
     Utf8EncodesSurrogateHalf,
@@ -118,7 +118,7 @@ pub fn utf8Decode3(bytes: []const u8) Utf8Decode3Error!u32 {
     return value;
 }
 
-const Utf8Decode4Error = error.{
+const Utf8Decode4Error = error{
     Utf8ExpectedContinuation,
     Utf8OverlongEncoding,
     Utf8CodepointTooLarge,
@@ -173,7 +173,7 @@ pub fn utf8ValidateSlice(s: []const u8) bool {
 ///   std.debug.warn("got codepoint {}\n", codepoint);
 /// }
 /// ```
-pub const Utf8View = struct.{
+pub const Utf8View = struct {
     bytes: []const u8,
 
     pub fn init(s: []const u8) !Utf8View {
@@ -185,7 +185,7 @@ pub const Utf8View = struct.{
     }
 
     pub fn initUnchecked(s: []const u8) Utf8View {
-        return Utf8View.{ .bytes = s };
+        return Utf8View{ .bytes = s };
     }
 
     /// TODO: https://github.com/ziglang/zig/issues/425
@@ -201,14 +201,14 @@ pub const Utf8View = struct.{
     }
 
     pub fn iterator(s: Utf8View) Utf8Iterator {
-        return Utf8Iterator.{
+        return Utf8Iterator{
             .bytes = s.bytes,
             .i = 0,
         };
     }
 };
 
-const Utf8Iterator = struct.{
+const Utf8Iterator = struct {
     bytes: []const u8,
     i: usize,
 
@@ -235,12 +235,12 @@ const Utf8Iterator = struct.{
     }
 };
 
-pub const Utf16LeIterator = struct.{
+pub const Utf16LeIterator = struct {
     bytes: []const u8,
     i: usize,
 
     pub fn init(s: []const u16) Utf16LeIterator {
-        return Utf16LeIterator.{
+        return Utf16LeIterator{
             .bytes = @sliceToBytes(s),
             .i = 0,
         };

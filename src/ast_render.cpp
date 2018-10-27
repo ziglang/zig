@@ -737,7 +737,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                     fprintf(ar->f, ")");
                 }
 
-                fprintf(ar->f, ".{\n");
+                fprintf(ar->f, " {\n");
                 ar->indent += ar->indent_size;
                 for (size_t field_i = 0; field_i < node->data.container_decl.fields.length; field_i += 1) {
                     AstNode *field_node = node->data.container_decl.fields.at(field_i);
@@ -763,10 +763,10 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
         case NodeTypeContainerInitExpr:
             render_node_ungrouped(ar, node->data.container_init_expr.type);
             if (node->data.container_init_expr.kind == ContainerInitKindStruct) {
-                fprintf(ar->f, ".{\n");
+                fprintf(ar->f, "{\n");
                 ar->indent += ar->indent_size;
             } else {
-                fprintf(ar->f, ".{");
+                fprintf(ar->f, "{");
             }
             for (size_t i = 0; i < node->data.container_init_expr.entries.length; i += 1) {
                 AstNode *entry = node->data.container_init_expr.entries.at(i);

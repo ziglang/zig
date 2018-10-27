@@ -11,7 +11,7 @@ pub const Sha3_384 = Keccak(384, 0x06);
 pub const Sha3_512 = Keccak(512, 0x06);
 
 fn Keccak(comptime bits: usize, comptime delim: u8) type {
-    return struct.{
+    return struct {
         const Self = @This();
         const block_length = 200;
         const digest_length = bits / 8;
@@ -86,7 +86,7 @@ fn Keccak(comptime bits: usize, comptime delim: u8) type {
     };
 }
 
-const RC = []const u64.{
+const RC = []const u64{
     0x0000000000000001, 0x0000000000008082, 0x800000000000808a, 0x8000000080008000,
     0x000000000000808b, 0x0000000080000001, 0x8000000080008081, 0x8000000000008009,
     0x000000000000008a, 0x0000000000000088, 0x0000000080008009, 0x000000008000000a,
@@ -95,15 +95,15 @@ const RC = []const u64.{
     0x8000000080008081, 0x8000000000008080, 0x0000000080000001, 0x8000000080008008,
 };
 
-const ROTC = []const usize.{
+const ROTC = []const usize{
     1, 3, 6, 10, 15, 21, 28, 36, 45, 55, 2, 14, 27, 41, 56, 8, 25, 43, 62, 18, 39, 61, 20, 44,
 };
 
-const PIL = []const usize.{
+const PIL = []const usize{
     10, 7, 11, 17, 18, 3, 5, 16, 8, 21, 24, 4, 15, 23, 19, 13, 12, 2, 20, 14, 22, 9, 6, 1,
 };
 
-const M5 = []const usize.{
+const M5 = []const usize{
     0, 1, 2, 3, 4, 0, 1, 2, 3, 4,
 };
 
@@ -115,9 +115,9 @@ fn keccak_f(comptime F: usize, d: []u8) void {
         break :x 12 + 2 * math.log2(B);
     };
 
-    var s = []const u64.{0} ** 25;
-    var t = []const u64.{0} ** 1;
-    var c = []const u64.{0} ** 5;
+    var s = []const u64{0} ** 25;
+    var t = []const u64{0} ** 1;
+    var c = []const u64{0} ** 5;
 
     for (s) |*r, i| {
         r.* = mem.readIntLE(u64, d[8 * i .. 8 * i + 8]);
@@ -224,7 +224,7 @@ test "sha3-256 streaming" {
 }
 
 test "sha3-256 aligned final" {
-    var block = []u8.{0} ** Sha3_256.block_length;
+    var block = []u8{0} ** Sha3_256.block_length;
     var out: [Sha3_256.digest_length]u8 = undefined;
 
     var h = Sha3_256.init();
@@ -295,7 +295,7 @@ test "sha3-512 streaming" {
 }
 
 test "sha3-512 aligned final" {
-    var block = []u8.{0} ** Sha3_512.block_length;
+    var block = []u8{0} ** Sha3_512.block_length;
     var out: [Sha3_512.digest_length]u8 = undefined;
 
     var h = Sha3_512.init();

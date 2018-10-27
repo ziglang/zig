@@ -3,7 +3,7 @@ const mem = std.mem;
 
 /// Allocator that fails after N allocations, useful for making sure out of
 /// memory conditions are handled correctly.
-pub const FailingAllocator = struct.{
+pub const FailingAllocator = struct {
     allocator: mem.Allocator,
     index: usize,
     fail_index: usize,
@@ -13,14 +13,14 @@ pub const FailingAllocator = struct.{
     deallocations: usize,
 
     pub fn init(allocator: *mem.Allocator, fail_index: usize) FailingAllocator {
-        return FailingAllocator.{
+        return FailingAllocator{
             .internal_allocator = allocator,
             .fail_index = fail_index,
             .index = 0,
             .allocated_bytes = 0,
             .freed_bytes = 0,
             .deallocations = 0,
-            .allocator = mem.Allocator.{
+            .allocator = mem.Allocator{
                 .allocFn = alloc,
                 .reallocFn = realloc,
                 .freeFn = free,

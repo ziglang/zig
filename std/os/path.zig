@@ -17,7 +17,7 @@ pub const sep_windows = '\\';
 pub const sep_posix = '/';
 pub const sep = if (is_windows) sep_windows else sep_posix;
 
-pub const sep_str = [1]u8.{sep};
+pub const sep_str = [1]u8{sep};
 
 pub const delimiter_windows = ';';
 pub const delimiter_posix = ':';
@@ -137,12 +137,12 @@ fn testIsAbsolutePosix(path: []const u8, expected_result: bool) void {
     assert(isAbsolutePosix(path) == expected_result);
 }
 
-pub const WindowsPath = struct.{
+pub const WindowsPath = struct {
     is_abs: bool,
     kind: Kind,
     disk_designator: []const u8,
 
-    pub const Kind = enum.{
+    pub const Kind = enum {
         None,
         Drive,
         NetworkShare,
@@ -151,7 +151,7 @@ pub const WindowsPath = struct.{
 
 pub fn windowsParsePath(path: []const u8) WindowsPath {
     if (path.len >= 2 and path[1] == ':') {
-        return WindowsPath.{
+        return WindowsPath{
             .is_abs = isAbsoluteWindows(path),
             .kind = WindowsPath.Kind.Drive,
             .disk_designator = path[0..2],
@@ -160,15 +160,15 @@ pub fn windowsParsePath(path: []const u8) WindowsPath {
     if (path.len >= 1 and (path[0] == '/' or path[0] == '\\') and
         (path.len == 1 or (path[1] != '/' and path[1] != '\\')))
     {
-        return WindowsPath.{
+        return WindowsPath{
             .is_abs = true,
             .kind = WindowsPath.Kind.None,
             .disk_designator = path[0..0],
         };
     }
-    const relative_path = WindowsPath.{
+    const relative_path = WindowsPath{
         .kind = WindowsPath.Kind.None,
-        .disk_designator = []u8.{},
+        .disk_designator = []u8{},
         .is_abs = false,
     };
     if (path.len < "//a/b".len) {
@@ -178,16 +178,16 @@ pub fn windowsParsePath(path: []const u8) WindowsPath {
     // TODO when I combined these together with `inline for` the compiler crashed
     {
         const this_sep = '/';
-        const two_sep = []u8.{ this_sep, this_sep };
+        const two_sep = []u8{ this_sep, this_sep };
         if (mem.startsWith(u8, path, two_sep)) {
             if (path[2] == this_sep) {
                 return relative_path;
             }
 
-            var it = mem.split(path, []u8.{this_sep});
+            var it = mem.split(path, []u8{this_sep});
             _ = (it.next() orelse return relative_path);
             _ = (it.next() orelse return relative_path);
-            return WindowsPath.{
+            return WindowsPath{
                 .is_abs = isAbsoluteWindows(path),
                 .kind = WindowsPath.Kind.NetworkShare,
                 .disk_designator = path[0..it.index],
@@ -196,16 +196,16 @@ pub fn windowsParsePath(path: []const u8) WindowsPath {
     }
     {
         const this_sep = '\\';
-        const two_sep = []u8.{ this_sep, this_sep };
+        const two_sep = []u8{ this_sep, this_sep };
         if (mem.startsWith(u8, path, two_sep)) {
             if (path[2] == this_sep) {
                 return relative_path;
             }
 
-            var it = mem.split(path, []u8.{this_sep});
+            var it = mem.split(path, []u8{this_sep});
             _ = (it.next() orelse return relative_path);
             _ = (it.next() orelse return relative_path);
-            return WindowsPath.{
+            return WindowsPath{
                 .is_abs = isAbsoluteWindows(path),
                 .kind = WindowsPath.Kind.NetworkShare,
                 .disk_designator = path[0..it.index],
@@ -264,8 +264,8 @@ fn networkShareServersEql(ns1: []const u8, ns2: []const u8) bool {
     const sep1 = ns1[0];
     const sep2 = ns2[0];
 
-    var it1 = mem.split(ns1, []u8.{sep1});
-    var it2 = mem.split(ns2, []u8.{sep2});
+    var it1 = mem.split(ns1, []u8{sep1});
+    var it2 = mem.split(ns2, []u8{sep2});
 
     // TODO ASCII is wrong, we actually need full unicode support to compare paths.
     return asciiEqlIgnoreCase(it1.next().?, it2.next().?);
@@ -285,8 +285,8 @@ fn compareDiskDesignators(kind: WindowsPath.Kind, p1: []const u8, p2: []const u8
             const sep1 = p1[0];
             const sep2 = p2[0];
 
-            var it1 = mem.split(p1, []u8.{sep1});
-            var it2 = mem.split(p2, []u8.{sep2});
+            var it1 = mem.split(p1, []u8{sep1});
+            var it2 = mem.split(p2, []u8{sep2});
 
             // TODO ASCII is wrong, we actually need full unicode support to compare paths.
             return asciiEqlIgnoreCase(it1.next().?, it2.next().?) and asciiEqlIgnoreCase(it1.next().?, it2.next().?);
@@ -585,10 +585,10 @@ test "os.path.resolve" {
         if (windowsParsePath(cwd).kind == WindowsPath.Kind.Drive) {
             cwd[0] = asciiUpper(cwd[0]);
         }
-        assert(mem.eql(u8, testResolveWindows([][]const u8.{"."}), cwd));
+        assert(mem.eql(u8, testResolveWindows([][]const u8{"."}), cwd));
     } else {
-        assert(mem.eql(u8, testResolvePosix([][]const u8.{ "a/b/c/", "../../.." }), cwd));
-        assert(mem.eql(u8, testResolvePosix([][]const u8.{"."}), cwd));
+        assert(mem.eql(u8, testResolvePosix([][]const u8{ "a/b/c/", "../../.." }), cwd));
+        assert(mem.eql(u8, testResolvePosix([][]const u8{"."}), cwd));
     }
 }
 
@@ -597,7 +597,7 @@ test "os.path.resolveWindows" {
         const cwd = try os.getCwdAlloc(debug.global_allocator);
         const parsed_cwd = windowsParsePath(cwd);
         {
-            const result = testResolveWindows([][]const u8.{ "/usr/local", "lib\\zig\\std\\array_list.zig" });
+            const result = testResolveWindows([][]const u8{ "/usr/local", "lib\\zig\\std\\array_list.zig" });
             const expected = try join(debug.global_allocator, parsed_cwd.disk_designator, "usr\\local\\lib\\zig\\std\\array_list.zig");
             if (parsed_cwd.kind == WindowsPath.Kind.Drive) {
                 expected[0] = asciiUpper(parsed_cwd.disk_designator[0]);
@@ -605,7 +605,7 @@ test "os.path.resolveWindows" {
             assert(mem.eql(u8, result, expected));
         }
         {
-            const result = testResolveWindows([][]const u8.{ "usr/local", "lib\\zig" });
+            const result = testResolveWindows([][]const u8{ "usr/local", "lib\\zig" });
             const expected = try join(debug.global_allocator, cwd, "usr\\local\\lib\\zig");
             if (parsed_cwd.kind == WindowsPath.Kind.Drive) {
                 expected[0] = asciiUpper(parsed_cwd.disk_designator[0]);
@@ -614,32 +614,32 @@ test "os.path.resolveWindows" {
         }
     }
 
-    assert(mem.eql(u8, testResolveWindows([][]const u8.{ "c:\\a\\b\\c", "/hi", "ok" }), "C:\\hi\\ok"));
-    assert(mem.eql(u8, testResolveWindows([][]const u8.{ "c:/blah\\blah", "d:/games", "c:../a" }), "C:\\blah\\a"));
-    assert(mem.eql(u8, testResolveWindows([][]const u8.{ "c:/blah\\blah", "d:/games", "C:../a" }), "C:\\blah\\a"));
-    assert(mem.eql(u8, testResolveWindows([][]const u8.{ "c:/ignore", "d:\\a/b\\c/d", "\\e.exe" }), "D:\\e.exe"));
-    assert(mem.eql(u8, testResolveWindows([][]const u8.{ "c:/ignore", "c:/some/file" }), "C:\\some\\file"));
-    assert(mem.eql(u8, testResolveWindows([][]const u8.{ "d:/ignore", "d:some/dir//" }), "D:\\ignore\\some\\dir"));
-    assert(mem.eql(u8, testResolveWindows([][]const u8.{ "//server/share", "..", "relative\\" }), "\\\\server\\share\\relative"));
-    assert(mem.eql(u8, testResolveWindows([][]const u8.{ "c:/", "//" }), "C:\\"));
-    assert(mem.eql(u8, testResolveWindows([][]const u8.{ "c:/", "//dir" }), "C:\\dir"));
-    assert(mem.eql(u8, testResolveWindows([][]const u8.{ "c:/", "//server/share" }), "\\\\server\\share\\"));
-    assert(mem.eql(u8, testResolveWindows([][]const u8.{ "c:/", "//server//share" }), "\\\\server\\share\\"));
-    assert(mem.eql(u8, testResolveWindows([][]const u8.{ "c:/", "///some//dir" }), "C:\\some\\dir"));
-    assert(mem.eql(u8, testResolveWindows([][]const u8.{ "C:\\foo\\tmp.3\\", "..\\tmp.3\\cycles\\root.js" }), "C:\\foo\\tmp.3\\cycles\\root.js"));
+    assert(mem.eql(u8, testResolveWindows([][]const u8{ "c:\\a\\b\\c", "/hi", "ok" }), "C:\\hi\\ok"));
+    assert(mem.eql(u8, testResolveWindows([][]const u8{ "c:/blah\\blah", "d:/games", "c:../a" }), "C:\\blah\\a"));
+    assert(mem.eql(u8, testResolveWindows([][]const u8{ "c:/blah\\blah", "d:/games", "C:../a" }), "C:\\blah\\a"));
+    assert(mem.eql(u8, testResolveWindows([][]const u8{ "c:/ignore", "d:\\a/b\\c/d", "\\e.exe" }), "D:\\e.exe"));
+    assert(mem.eql(u8, testResolveWindows([][]const u8{ "c:/ignore", "c:/some/file" }), "C:\\some\\file"));
+    assert(mem.eql(u8, testResolveWindows([][]const u8{ "d:/ignore", "d:some/dir//" }), "D:\\ignore\\some\\dir"));
+    assert(mem.eql(u8, testResolveWindows([][]const u8{ "//server/share", "..", "relative\\" }), "\\\\server\\share\\relative"));
+    assert(mem.eql(u8, testResolveWindows([][]const u8{ "c:/", "//" }), "C:\\"));
+    assert(mem.eql(u8, testResolveWindows([][]const u8{ "c:/", "//dir" }), "C:\\dir"));
+    assert(mem.eql(u8, testResolveWindows([][]const u8{ "c:/", "//server/share" }), "\\\\server\\share\\"));
+    assert(mem.eql(u8, testResolveWindows([][]const u8{ "c:/", "//server//share" }), "\\\\server\\share\\"));
+    assert(mem.eql(u8, testResolveWindows([][]const u8{ "c:/", "///some//dir" }), "C:\\some\\dir"));
+    assert(mem.eql(u8, testResolveWindows([][]const u8{ "C:\\foo\\tmp.3\\", "..\\tmp.3\\cycles\\root.js" }), "C:\\foo\\tmp.3\\cycles\\root.js"));
 }
 
 test "os.path.resolvePosix" {
-    assert(mem.eql(u8, testResolvePosix([][]const u8.{ "/a/b", "c" }), "/a/b/c"));
-    assert(mem.eql(u8, testResolvePosix([][]const u8.{ "/a/b", "c", "//d", "e///" }), "/d/e"));
-    assert(mem.eql(u8, testResolvePosix([][]const u8.{ "/a/b/c", "..", "../" }), "/a"));
-    assert(mem.eql(u8, testResolvePosix([][]const u8.{ "/", "..", ".." }), "/"));
-    assert(mem.eql(u8, testResolvePosix([][]const u8.{"/a/b/c/"}), "/a/b/c"));
+    assert(mem.eql(u8, testResolvePosix([][]const u8{ "/a/b", "c" }), "/a/b/c"));
+    assert(mem.eql(u8, testResolvePosix([][]const u8{ "/a/b", "c", "//d", "e///" }), "/d/e"));
+    assert(mem.eql(u8, testResolvePosix([][]const u8{ "/a/b/c", "..", "../" }), "/a"));
+    assert(mem.eql(u8, testResolvePosix([][]const u8{ "/", "..", ".." }), "/"));
+    assert(mem.eql(u8, testResolvePosix([][]const u8{"/a/b/c/"}), "/a/b/c"));
 
-    assert(mem.eql(u8, testResolvePosix([][]const u8.{ "/var/lib", "../", "file/" }), "/var/file"));
-    assert(mem.eql(u8, testResolvePosix([][]const u8.{ "/var/lib", "/../", "file/" }), "/file"));
-    assert(mem.eql(u8, testResolvePosix([][]const u8.{ "/some/dir", ".", "/absolute/" }), "/absolute"));
-    assert(mem.eql(u8, testResolvePosix([][]const u8.{ "/foo/tmp.3/", "../tmp.3/cycles/root.js" }), "/foo/tmp.3/cycles/root.js"));
+    assert(mem.eql(u8, testResolvePosix([][]const u8{ "/var/lib", "../", "file/" }), "/var/file"));
+    assert(mem.eql(u8, testResolvePosix([][]const u8{ "/var/lib", "/../", "file/" }), "/file"));
+    assert(mem.eql(u8, testResolvePosix([][]const u8{ "/some/dir", ".", "/absolute/" }), "/absolute"));
+    assert(mem.eql(u8, testResolvePosix([][]const u8{ "/foo/tmp.3/", "../tmp.3/cycles/root.js" }), "/foo/tmp.3/cycles/root.js"));
 }
 
 fn testResolveWindows(paths: []const []const u8) []u8 {
@@ -794,12 +794,12 @@ pub fn basename(path: []const u8) []const u8 {
 
 pub fn basenamePosix(path: []const u8) []const u8 {
     if (path.len == 0)
-        return []u8.{};
+        return []u8{};
 
     var end_index: usize = path.len - 1;
     while (path[end_index] == '/') {
         if (end_index == 0)
-            return []u8.{};
+            return []u8{};
         end_index -= 1;
     }
     var start_index: usize = end_index;
@@ -815,19 +815,19 @@ pub fn basenamePosix(path: []const u8) []const u8 {
 
 pub fn basenameWindows(path: []const u8) []const u8 {
     if (path.len == 0)
-        return []u8.{};
+        return []u8{};
 
     var end_index: usize = path.len - 1;
     while (true) {
         const byte = path[end_index];
         if (byte == '/' or byte == '\\') {
             if (end_index == 0)
-                return []u8.{};
+                return []u8{};
             end_index -= 1;
             continue;
         }
         if (byte == ':' and end_index == 1) {
-            return []u8.{};
+            return []u8{};
         }
         break;
     }
@@ -909,11 +909,11 @@ pub fn relative(allocator: *Allocator, from: []const u8, to: []const u8) ![]u8 {
 }
 
 pub fn relativeWindows(allocator: *Allocator, from: []const u8, to: []const u8) ![]u8 {
-    const resolved_from = try resolveWindows(allocator, [][]const u8.{from});
+    const resolved_from = try resolveWindows(allocator, [][]const u8{from});
     defer allocator.free(resolved_from);
 
     var clean_up_resolved_to = true;
-    const resolved_to = try resolveWindows(allocator, [][]const u8.{to});
+    const resolved_to = try resolveWindows(allocator, [][]const u8{to});
     defer if (clean_up_resolved_to) allocator.free(resolved_to);
 
     const parsed_from = windowsParsePath(resolved_from);
@@ -978,14 +978,14 @@ pub fn relativeWindows(allocator: *Allocator, from: []const u8, to: []const u8) 
         return result[0..result_index];
     }
 
-    return []u8.{};
+    return []u8{};
 }
 
 pub fn relativePosix(allocator: *Allocator, from: []const u8, to: []const u8) ![]u8 {
-    const resolved_from = try resolvePosix(allocator, [][]const u8.{from});
+    const resolved_from = try resolvePosix(allocator, [][]const u8{from});
     defer allocator.free(resolved_from);
 
-    const resolved_to = try resolvePosix(allocator, [][]const u8.{to});
+    const resolved_to = try resolvePosix(allocator, [][]const u8{to});
     defer allocator.free(resolved_to);
 
     var from_it = mem.split(resolved_from, "/");
@@ -1023,7 +1023,7 @@ pub fn relativePosix(allocator: *Allocator, from: []const u8, to: []const u8) ![
         return result;
     }
 
-    return []u8.{};
+    return []u8{};
 }
 
 test "os.path.relative" {
@@ -1076,7 +1076,7 @@ fn testRelativeWindows(from: []const u8, to: []const u8, expected_output: []cons
     assert(mem.eql(u8, result, expected_output));
 }
 
-pub const RealError = error.{
+pub const RealError = error{
     FileNotFound,
     AccessDenied,
     NameTooLong,
@@ -1145,7 +1145,7 @@ pub fn realW(out_buffer: *[os.MAX_PATH_BYTES]u8, pathname: [*]const u16) RealErr
 
     // windows returns \\?\ prepended to the path
     // we strip it because nobody wants \\?\ prepended to their path
-    const prefix = []u16.{ '\\', '\\', '?', '\\' };
+    const prefix = []u16{ '\\', '\\', '?', '\\' };
     const start_index = if (mem.startsWith(u16, utf16le_slice, prefix)) prefix.len else 0;
 
     // Trust that Windows gives us valid UTF-16LE.

@@ -1,24 +1,24 @@
 const assert = @import("std").debug.assert;
 
-const Value = union(enum).{
+const Value = union(enum) {
     Int: u64,
     Array: [9]u8,
 };
 
-const Agg = struct.{
+const Agg = struct {
     val1: Value,
     val2: Value,
 };
 
-const v1 = Value.{ .Int = 1234 };
-const v2 = Value.{ .Array = []u8.{3} ** 9 };
+const v1 = Value{ .Int = 1234 };
+const v2 = Value{ .Array = []u8{3} ** 9 };
 
-const err = (error!Agg)(Agg.{
+const err = (error!Agg)(Agg{
     .val1 = v1,
     .val2 = v2,
 });
 
-const array = []Value.{
+const array = []Value{
     v1,
     v2,
     v1,
@@ -36,24 +36,24 @@ test "unions embedded in aggregate types" {
     }
 }
 
-const Foo = union.{
+const Foo = union {
     float: f64,
     int: i32,
 };
 
 test "basic unions" {
-    var foo = Foo.{ .int = 1 };
+    var foo = Foo{ .int = 1 };
     assert(foo.int == 1);
-    foo = Foo.{ .float = 12.34 };
+    foo = Foo{ .float = 12.34 };
     assert(foo.float == 12.34);
 }
 
 test "comptime union field access" {
     comptime {
-        var foo = Foo.{ .int = 0 };
+        var foo = Foo{ .int = 0 };
         assert(foo.int == 0);
 
-        foo = Foo.{ .float = 42.42 };
+        foo = Foo{ .float = 42.42 };
         assert(foo.float == 42.42);
     }
 }
@@ -69,31 +69,31 @@ test "init union with runtime value" {
 }
 
 fn setFloat(foo: *Foo, x: f64) void {
-    foo.* = Foo.{ .float = x };
+    foo.* = Foo{ .float = x };
 }
 
 fn setInt(foo: *Foo, x: i32) void {
-    foo.* = Foo.{ .int = x };
+    foo.* = Foo{ .int = x };
 }
 
-const FooExtern = extern union.{
+const FooExtern = extern union {
     float: f64,
     int: i32,
 };
 
 test "basic extern unions" {
-    var foo = FooExtern.{ .int = 1 };
+    var foo = FooExtern{ .int = 1 };
     assert(foo.int == 1);
     foo.float = 12.34;
     assert(foo.float == 12.34);
 }
 
-const Letter = enum.{
+const Letter = enum {
     A,
     B,
     C,
 };
-const Payload = union(Letter).{
+const Payload = union(Letter) {
     A: i32,
     B: f64,
     C: bool,
@@ -105,7 +105,7 @@ test "union with specified enum tag" {
 }
 
 fn doTest() void {
-    assert(bar(Payload.{ .A = 1234 }) == -10);
+    assert(bar(Payload{ .A = 1234 }) == -10);
 }
 
 fn bar(value: Payload) i32 {
@@ -117,7 +117,7 @@ fn bar(value: Payload) i32 {
     };
 }
 
-const MultipleChoice = union(enum(u32)).{
+const MultipleChoice = union(enum(u32)) {
     A = 20,
     B = 40,
     C = 60,
@@ -129,7 +129,7 @@ test "simple union(enum(u32))" {
     assert(@enumToInt(@TagType(MultipleChoice)(x)) == 60);
 }
 
-const MultipleChoice2 = union(enum(u32)).{
+const MultipleChoice2 = union(enum(u32)) {
     Unspecified1: i32,
     A: f32 = 20,
     Unspecified2: void,
@@ -143,8 +143,8 @@ const MultipleChoice2 = union(enum(u32)).{
 
 test "union(enum(u32)) with specified and unspecified tag values" {
     comptime assert(@TagType(@TagType(MultipleChoice2)) == u32);
-    testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2.{ .C = 123 });
-    comptime testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2.{ .C = 123 });
+    testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2{ .C = 123 });
+    comptime testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2{ .C = 123 });
 }
 
 fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) void {
@@ -162,7 +162,7 @@ fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) void {
     });
 }
 
-const ExternPtrOrInt = extern union.{
+const ExternPtrOrInt = extern union {
     ptr: *u8,
     int: u64,
 };
@@ -170,7 +170,7 @@ test "extern union size" {
     comptime assert(@sizeOf(ExternPtrOrInt) == 8);
 }
 
-const PackedPtrOrInt = packed union.{
+const PackedPtrOrInt = packed union {
     ptr: *u8,
     int: u64,
 };
@@ -178,19 +178,19 @@ test "extern union size" {
     comptime assert(@sizeOf(PackedPtrOrInt) == 8);
 }
 
-const ZeroBits = union.{
+const ZeroBits = union {
     OnlyField: void,
 };
 test "union with only 1 field which is void should be zero bits" {
     comptime assert(@sizeOf(ZeroBits) == 0);
 }
 
-const TheTag = enum.{
+const TheTag = enum {
     A,
     B,
     C,
 };
-const TheUnion = union(TheTag).{
+const TheUnion = union(TheTag) {
     A: i32,
     B: i32,
     C: i32,
@@ -202,8 +202,8 @@ test "union field access gives the enum values" {
 }
 
 test "cast union to tag type of union" {
-    testCastUnionToTagType(TheUnion.{ .B = 1234 });
-    comptime testCastUnionToTagType(TheUnion.{ .B = 1234 });
+    testCastUnionToTagType(TheUnion{ .B = 1234 });
+    comptime testCastUnionToTagType(TheUnion{ .B = 1234 });
 }
 
 fn testCastUnionToTagType(x: TheUnion) void {
@@ -214,12 +214,12 @@ test "cast tag type of union to union" {
     var x: Value2 = Letter2.B;
     assert(Letter2(x) == Letter2.B);
 }
-const Letter2 = enum.{
+const Letter2 = enum {
     A,
     B,
     C,
 };
-const Value2 = union(Letter2).{
+const Value2 = union(Letter2) {
     A: i32,
     B,
     C,
@@ -234,13 +234,13 @@ fn giveMeLetterB(x: Letter2) void {
     assert(x == Value2.B);
 }
 
-pub const PackThis = union(enum).{
+pub const PackThis = union(enum){
     Invalid: bool,
     StringLiteral: u2,
 };
 
 test "constant packed union" {
-    testConstPackedUnion([]PackThis.{PackThis.{ .StringLiteral = 1 }});
+    testConstPackedUnion([]PackThis{PackThis{ .StringLiteral = 1 }});
 }
 
 fn testConstPackedUnion(expected_tokens: []const PackThis) void {
@@ -253,7 +253,7 @@ test "switch on union with only 1 field" {
     switch (r) {
         PartialInst.Compiled => {
             var z: PartialInstWithPayload = undefined;
-            z = PartialInstWithPayload.{ .Compiled = 1234 };
+            z = PartialInstWithPayload{ .Compiled = 1234 };
             switch (z) {
                 PartialInstWithPayload.Compiled => |x| {
                     assert(x == 1234);
@@ -265,16 +265,16 @@ test "switch on union with only 1 field" {
     unreachable;
 }
 
-const PartialInst = union(enum).{
+const PartialInst = union(enum) {
     Compiled,
 };
 
-const PartialInstWithPayload = union(enum).{
+const PartialInstWithPayload = union(enum) {
     Compiled: i32,
 };
 
 test "access a member of tagged union with conflicting enum tag name" {
-    const Bar = union(enum).{
+    const Bar = union(enum) {
         A: A,
         B: B,
 
@@ -289,23 +289,23 @@ test "tagged union initialization with runtime void" {
     assert(testTaggedUnionInit({}));
 }
 
-const TaggedUnionWithAVoid = union(enum).{
+const TaggedUnionWithAVoid = union(enum) {
     A,
     B: i32,
 };
 
 fn testTaggedUnionInit(x: var) bool {
-    const y = TaggedUnionWithAVoid.{ .A = x };
+    const y = TaggedUnionWithAVoid{ .A = x };
     return @TagType(TaggedUnionWithAVoid)(y) == TaggedUnionWithAVoid.A;
 }
 
-pub const UnionEnumNoPayloads = union(enum).{
+pub const UnionEnumNoPayloads = union(enum) {
     A,
     B,
 };
 
 test "tagged union with no payloads" {
-    const a = UnionEnumNoPayloads.{ .B = {} };
+    const a = UnionEnumNoPayloads{ .B = {} };
     switch (a) {
         @TagType(UnionEnumNoPayloads).A => @panic("wrong"),
         @TagType(UnionEnumNoPayloads).B => {},
@@ -313,16 +313,16 @@ test "tagged union with no payloads" {
 }
 
 test "union with only 1 field casted to its enum type" {
-    const Literal = union(enum).{
+    const Literal = union(enum) {
         Number: f64,
         Bool: bool,
     };
 
-    const Expr = union(enum).{
+    const Expr = union(enum) {
         Literal: Literal,
     };
 
-    var e = Expr.{ .Literal = Literal.{ .Bool = true } };
+    var e = Expr{ .Literal = Literal{ .Bool = true } };
     const Tag = @TagType(Expr);
     comptime assert(@TagType(Tag) == comptime_int);
     var t = Tag(e);
@@ -330,20 +330,20 @@ test "union with only 1 field casted to its enum type" {
 }
 
 test "union with only 1 field casted to its enum type which has enum value specified" {
-    const Literal = union(enum).{
+    const Literal = union(enum) {
         Number: f64,
         Bool: bool,
     };
 
-    const Tag = enum.{
+    const Tag = enum {
         Literal = 33,
     };
 
-    const Expr = union(Tag).{
+    const Expr = union(Tag) {
         Literal: Literal,
     };
 
-    var e = Expr.{ .Literal = Literal.{ .Bool = true } };
+    var e = Expr{ .Literal = Literal{ .Bool = true } };
     comptime assert(@TagType(Tag) == comptime_int);
     var t = Tag(e);
     assert(t == Expr.Literal);

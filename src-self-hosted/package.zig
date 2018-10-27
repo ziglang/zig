@@ -3,7 +3,7 @@ const mem = std.mem;
 const assert = std.debug.assert;
 const Buffer = std.Buffer;
 
-pub const Package = struct.{
+pub const Package = struct {
     root_src_dir: Buffer,
     root_src_path: Buffer,
 
@@ -15,7 +15,7 @@ pub const Package = struct.{
     /// makes internal copies of root_src_dir and root_src_path
     /// allocator should be an arena allocator because Package never frees anything
     pub fn create(allocator: *mem.Allocator, root_src_dir: []const u8, root_src_path: []const u8) !*Package {
-        return allocator.create(Package.{
+        return allocator.create(Package{
             .root_src_dir = try Buffer.init(allocator, root_src_dir),
             .root_src_path = try Buffer.init(allocator, root_src_path),
             .table = Table.init(allocator),

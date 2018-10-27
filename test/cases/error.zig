@@ -92,7 +92,7 @@ test "error set type " {
     comptime testErrorSetType();
 }
 
-const MyErrSet = error.{
+const MyErrSet = error{
     OutOfMemory,
     FileNotFound,
 };
@@ -114,11 +114,11 @@ test "explicit error set cast" {
     comptime testExplicitErrorSetCast(Set1.A);
 }
 
-const Set1 = error.{
+const Set1 = error{
     A,
     B,
 };
-const Set2 = error.{
+const Set2 = error{
     A,
     C,
 };
@@ -134,7 +134,7 @@ test "comptime test error for empty error set" {
     comptime testComptimeTestErrorEmptySet(1234);
 }
 
-const EmptyErrorSet = error.{};
+const EmptyErrorSet = error{};
 
 fn testComptimeTestErrorEmptySet(x: EmptyErrorSet!i32) void {
     if (x) |v| assert(v == 1234) else |err| @compileError("bad");
@@ -151,7 +151,7 @@ test "comptime err to int of error set with only 1 possible value" {
     comptime testErrToIntWithOnePossibleValue(error.A, @errorToInt(error.A));
 }
 fn testErrToIntWithOnePossibleValue(
-    x: error.{A},
+    x: error{A},
     comptime value: u32,
 ) void {
     if (@errorToInt(x) != value) {
@@ -197,14 +197,14 @@ fn foo2(f: fn () error!void) void {
     const x = f();
 }
 
-fn bar2() (error.{}!void) {}
+fn bar2() (error{}!void) {}
 
 test "error: Zero sized error set returned with value payload crash" {
     _ = foo3(0);
     _ = comptime foo3(0);
 }
 
-const Error = error.{};
+const Error = error{};
 fn foo3(b: usize) Error!usize {
     return b;
 }

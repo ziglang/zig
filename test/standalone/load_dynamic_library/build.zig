@@ -9,7 +9,7 @@ pub fn build(b: *Builder) void {
     const main = b.addExecutable("main", "main.zig");
     main.setBuildMode(opts);
 
-    const run = b.addCommand(".", b.env_map, [][]const u8.{
+    const run = b.addCommand(".", b.env_map, [][]const u8{
         main.getOutputPath(),
         lib.getOutputPath(),
     });

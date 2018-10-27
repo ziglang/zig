@@ -203,7 +203,7 @@ fn usageAndErr(builder: *Builder, already_ran_build: bool, out_stream: var) erro
     return error.InvalidArgs;
 }
 
-const UnwrapArgError = error.{OutOfMemory};
+const UnwrapArgError = error{OutOfMemory};
 
 fn unwrapArg(arg: UnwrapArgError![]u8) UnwrapArgError![]u8 {
     return arg catch |err| {

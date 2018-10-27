@@ -50,7 +50,7 @@ pub fn next_f64(random: *Random, comptime tables: *const ZigTable) f64 {
     }
 }
 
-pub const ZigTable = struct.{
+pub const ZigTable = struct {
     r: f64,
     x: [257]f64,
     f: [257]f64,
