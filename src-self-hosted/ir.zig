@@ -70,7 +70,7 @@ pub const Inst = struct {
     llvm_value: ?llvm.ValueRef,
 
     pub fn cast(base: *Inst, comptime T: type) ?*T {
-        if (base.id == comptime typeToId(T)) {
+        if (base.id == (comptime typeToId(T))) {
             return @fieldParentPtr(T, "base", base);
         }
         return null;
@@ -129,7 +129,7 @@ pub const Inst = struct {
         }
     }
 
-    pub fn render(base: *Inst, ofile: *ObjectFile, fn_val: *Value.Fn) (error{OutOfMemory}!?llvm.ValueRef) {
+    pub fn render(base: *Inst, ofile: *ObjectFile, fn_val: *Value.Fn) (errorset{OutOfMemory}!?llvm.ValueRef) {
         switch (base.id) {
             Id.Return => return @fieldParentPtr(Return, "base", base).render(ofile, fn_val),
             Id.Const => return @fieldParentPtr(Const, "base", base).render(ofile, fn_val),

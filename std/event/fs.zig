@@ -491,7 +491,7 @@ pub const CloseOperation = struct {
         close_req_node: RequestNode,
     };
 
-    pub fn start(loop: *Loop) (error{OutOfMemory}!*CloseOperation) {
+    pub fn start(loop: *Loop) (errorset{OutOfMemory}!*CloseOperation) {
         const self = try loop.allocator.createOne(CloseOperation);
         self.* = CloseOperation{
             .loop = loop,

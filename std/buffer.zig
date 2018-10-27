@@ -56,7 +56,7 @@ pub const Buffer = struct {
 
     pub fn allocPrint(allocator: *Allocator, comptime format: []const u8, args: ...) !Buffer {
         const countSize = struct {
-            fn countSize(size: *usize, bytes: []const u8) (error{}!void) {
+            fn countSize(size: *usize, bytes: []const u8) (errorset{}!void) {
                 size.* += bytes.len;
             }
         }.countSize;

@@ -149,7 +149,7 @@ test "union(enum(u32)) with specified and unspecified tag values" {
 
 fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) void {
     assert(@enumToInt(@TagType(MultipleChoice2)(x)) == 60);
-    assert(1123 == switch (x) {
+    assert(1123 == (switch (x) {
         MultipleChoice2.A => 1,
         MultipleChoice2.B => 2,
         MultipleChoice2.C => |v| i32(1000) + v,
@@ -159,7 +159,7 @@ fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) void {
         MultipleChoice2.Unspecified3 => 7,
         MultipleChoice2.Unspecified4 => 8,
         MultipleChoice2.Unspecified5 => 9,
-    });
+    }));
 }
 
 const ExternPtrOrInt = extern union {

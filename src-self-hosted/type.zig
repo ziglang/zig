@@ -14,7 +14,7 @@ pub const Type = struct {
     name: []const u8,
     abi_alignment: AbiAlignment,
 
-    pub const AbiAlignment = event.Future(error{OutOfMemory}!u32);
+    pub const AbiAlignment = event.Future(errorset{OutOfMemory}!u32);
 
     pub const Id = builtin.TypeId;
 
@@ -51,7 +51,7 @@ pub const Type = struct {
         base: *Type,
         allocator: *Allocator,
         llvm_context: llvm.ContextRef,
-    ) (error{OutOfMemory}!llvm.TypeRef) {
+    ) (errorset{OutOfMemory}!llvm.TypeRef) {
         switch (base.id) {
             Id.Struct => return @fieldParentPtr(Struct, "base", base).getLlvmType(allocator, llvm_context),
             Id.Fn => return @fieldParentPtr(Fn, "base", base).getLlvmType(allocator, llvm_context),
@@ -1059,9 +1059,9 @@ fn hashAny(x: var, comptime seed: u64) u32 {
             comptime var rng = comptime std.rand.DefaultPrng.init(seed);
             const unsigned_x = @bitCast(@IntType(false, info.bits), x);
             if (info.bits <= 32) {
-                return u32(unsigned_x) *% comptime rng.random.scalar(u32);
+                return u32(unsigned_x) *% (comptime rng.random.scalar(u32));
             } else {
-                return @truncate(u32, unsigned_x *% comptime rng.random.scalar(@typeOf(unsigned_x)));
+                return @truncate(u32, unsigned_x *% (comptime rng.random.scalar(@typeOf(unsigned_x))));
             }
         },
         builtin.TypeId.Pointer => |info| {

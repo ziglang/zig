@@ -18,9 +18,9 @@ const windows_util = @import("windows/util.zig");
 const is_windows = builtin.os == Os.windows;
 
 pub const ChildProcess = struct {
-    pub pid: if (is_windows) void else i32,
-    pub handle: if (is_windows) windows.HANDLE else void,
-    pub thread_handle: if (is_windows) windows.HANDLE else void,
+    pub pid: (if (is_windows) void else i32),
+    pub handle: (if (is_windows) windows.HANDLE else void),
+    pub thread_handle: (if (is_windows) windows.HANDLE else void),
 
     pub allocator: *mem.Allocator,
 
@@ -40,18 +40,18 @@ pub const ChildProcess = struct {
     pub stderr_behavior: StdIo,
 
     /// Set to change the user id when spawning the child process.
-    pub uid: if (is_windows) void else ?u32,
+    pub uid: (if (is_windows) void else ?u32),
 
     /// Set to change the group id when spawning the child process.
-    pub gid: if (is_windows) void else ?u32,
+    pub gid: (if (is_windows) void else ?u32),
 
     /// Set to change the current working directory when spawning the child process.
     pub cwd: ?[]const u8,
 
-    err_pipe: if (is_windows) void else [2]i32,
-    llnode: if (is_windows) void else LinkedList(*ChildProcess).Node,
+    err_pipe: (if (is_windows) void else [2]i32),
+    llnode: (if (is_windows) void else LinkedList(*ChildProcess).Node),
 
-    pub const SpawnError = error{
+    pub const SpawnError = errorset{
         ProcessFdQuotaExceeded,
         Unexpected,
         NotDir,
@@ -338,17 +338,17 @@ pub const ChildProcess = struct {
         const stdin_pipe = if (self.stdin_behavior == StdIo.Pipe) try makePipe() else undefined;
         errdefer if (self.stdin_behavior == StdIo.Pipe) {
             destroyPipe(stdin_pipe);
-        };
+        }
 
         const stdout_pipe = if (self.stdout_behavior == StdIo.Pipe) try makePipe() else undefined;
         errdefer if (self.stdout_behavior == StdIo.Pipe) {
             destroyPipe(stdout_pipe);
-        };
+        }
 
         const stderr_pipe = if (self.stderr_behavior == StdIo.Pipe) try makePipe() else undefined;
         errdefer if (self.stderr_behavior == StdIo.Pipe) {
             destroyPipe(stderr_pipe);
-        };
+        }
 
         const any_ignore = (self.stdin_behavior == StdIo.Ignore or self.stdout_behavior == StdIo.Ignore or self.stderr_behavior == StdIo.Ignore);
         const dev_null_fd = if (any_ignore) try os.posixOpenC(c"/dev/null", posix.O_RDWR, 0) else undefined;
@@ -477,7 +477,7 @@ pub const ChildProcess = struct {
         }
         errdefer if (self.stdin_behavior == StdIo.Pipe) {
             windowsDestroyPipe(g_hChildStd_IN_Rd, g_hChildStd_IN_Wr);
-        };
+        }
 
         var g_hChildStd_OUT_Rd: ?windows.HANDLE = null;
         var g_hChildStd_OUT_Wr: ?windows.HANDLE = null;
@@ -497,7 +497,7 @@ pub const ChildProcess = struct {
         }
         errdefer if (self.stdin_behavior == StdIo.Pipe) {
             windowsDestroyPipe(g_hChildStd_OUT_Rd, g_hChildStd_OUT_Wr);
-        };
+        }
 
         var g_hChildStd_ERR_Rd: ?windows.HANDLE = null;
         var g_hChildStd_ERR_Wr: ?windows.HANDLE = null;
@@ -517,7 +517,7 @@ pub const ChildProcess = struct {
         }
         errdefer if (self.stdin_behavior == StdIo.Pipe) {
             windowsDestroyPipe(g_hChildStd_ERR_Rd, g_hChildStd_ERR_Wr);
-        };
+        }
 
         const cmd_line = try windowsCreateCommandLine(self.allocator, self.argv);
         defer self.allocator.free(cmd_line);

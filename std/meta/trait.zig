@@ -97,7 +97,7 @@ test "std.meta.trait.hasDef" {
 pub fn hasFn(comptime name: []const u8) TraitFn {
     const Closure = struct{
         pub fn trait(comptime T: type) bool {
-            if (!comptime hasDef(name)(T)) return false;
+            if (!(comptime hasDef(name)(T))) return false;
             const DefType = @typeOf(@field(T, name));
             const def_type_id = @typeId(DefType);
             return def_type_id == builtin.TypeId.Fn;
@@ -172,7 +172,7 @@ test "std.meta.trait.is" {
 pub fn isPtrTo(comptime id: builtin.TypeId) TraitFn {
     const Closure = struct{
         pub fn trait(comptime T: type) bool {
-            if (!comptime isSingleItemPtr(T)) return false;
+            if (!(comptime isSingleItemPtr(T))) return false;
             return id == @typeId(meta.Child(T));
         }
     };
@@ -327,7 +327,7 @@ test "std.meta.trait.isNumber" {
 
 ///
 pub fn isConstPtr(comptime T: type) bool {
-    if (!comptime is(builtin.TypeId.Pointer)(T)) return false;
+    if (!(comptime is(builtin.TypeId.Pointer)(T))) return false;
     const info = @typeInfo(T);
     return info.Pointer.is_const;
 }

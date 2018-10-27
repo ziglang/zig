@@ -106,29 +106,29 @@ fn testShortCircuit(f: bool, t: bool) void {
     var hit_3 = f;
     var hit_4 = f;
 
-    if (t or x: {
+    if (t or (x: {
         assert(f);
         break :x f;
-    }) {
+    })) {
         hit_1 = t;
     }
-    if (f or x: {
+    if (f or (x: {
         hit_2 = t;
         break :x f;
-    }) {
+    })) {
         assert(f);
     }
 
-    if (t and x: {
+    if (t and (x: {
         hit_3 = t;
         break :x f;
-    }) {
+    })) {
         assert(f);
     }
-    if (f and x: {
+    if (f and (x: {
         assert(f);
         break :x f;
-    }) {
+    })) {
         assert(f);
     } else {
         hit_4 = t;
@@ -177,7 +177,7 @@ test "builtin static eval" {
     const x: i32 = comptime x: {
         break :x 1 + 2 + 3;
     };
-    assert(x == comptime 6);
+    assert(x == (comptime 6));
 }
 
 test "slicing" {

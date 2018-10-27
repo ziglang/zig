@@ -14,7 +14,7 @@ const Context = struct {
     args: std.ArrayList([*]const u8),
     link_in_crt: bool,
 
-    link_err: error{OutOfMemory}!void,
+    link_err: errorset{OutOfMemory}!void,
     link_msg: std.Buffer,
 
     libc: *LibCInstallation,

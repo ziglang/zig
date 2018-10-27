@@ -126,7 +126,7 @@ pub const DirectAllocator = struct {
                     const old_addr_end = base_addr + old_mem.len;
                     const new_addr_end = base_addr + new_size;
                     const rem = @rem(new_addr_end, os.page_size);
-                    const new_addr_end_rounded = new_addr_end + if (rem == 0) 0 else (os.page_size - rem);
+                    const new_addr_end_rounded = new_addr_end + (if (rem == 0) 0 else (os.page_size - rem));
                     if (old_addr_end > new_addr_end_rounded) {
                         _ = os.posix.munmap(new_addr_end_rounded, old_addr_end - new_addr_end_rounded);
                     }

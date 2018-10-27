@@ -328,7 +328,7 @@ pub const Node = struct {
     };
 
     pub fn cast(base: *Node, comptime T: type) ?*T {
-        if (base.id == comptime typeToId(T)) {
+        if (base.id == (comptime typeToId(T))) {
             return @fieldParentPtr(T, "base", base);
         }
         return null;

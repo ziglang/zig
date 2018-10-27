@@ -57,7 +57,7 @@ pub const Value = struct {
         std.debug.warn("{}", @tagName(base.id));
     }
 
-    pub fn getLlvmConst(base: *Value, ofile: *ObjectFile) (error{OutOfMemory}!?llvm.ValueRef) {
+    pub fn getLlvmConst(base: *Value, ofile: *ObjectFile) (errorset{OutOfMemory}!?llvm.ValueRef) {
         switch (base.id) {
             Id.Type => unreachable,
             Id.Fn => return @fieldParentPtr(Fn, "base", base).getLlvmConst(ofile),
@@ -71,7 +71,7 @@ pub const Value = struct {
         }
     }
 
-    pub fn derefAndCopy(self: *Value, comp: *Compilation) (error{OutOfMemory}!*Value) {
+    pub fn derefAndCopy(self: *Value, comp: *Compilation) (errorset{OutOfMemory}!*Value) {
         if (self.ref_count.get() == 1) {
             // ( ͡° ͜ʖ ͡°)
             return self;
@@ -81,7 +81,7 @@ pub const Value = struct {
         return self.copy(comp);
     }
 
-    pub fn copy(base: *Value, comp: *Compilation) (error{OutOfMemory}!*Value) {
+    pub fn copy(base: *Value, comp: *Compilation) (errorset{OutOfMemory}!*Value) {
         switch (base.id) {
             Id.Type => unreachable,
             Id.Fn => unreachable,

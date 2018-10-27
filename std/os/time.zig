@@ -134,11 +134,11 @@ pub const Timer = struct {
     //if we used resolution's value when performing the
     //  performance counter calc on windows/darwin, it would
     //  be less precise
-    frequency: switch (builtin.os) {
+    frequency: (switch (builtin.os) {
         Os.windows => u64,
         Os.macosx, Os.ios => darwin.mach_timebase_info_data,
         else => void,
-    },
+    }),
     resolution: u64,
     start_time: u64,
 

@@ -1835,7 +1835,7 @@ fn renderTokenOffset(
                 return;
             }
         },
-    };
+    }
 
     // Skip over same line doc comments
     var offset: usize = 1;

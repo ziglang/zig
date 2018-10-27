@@ -12,7 +12,7 @@ fn testBasic() void {
     assert(@TagType(TypeInfo) == TypeId);
     const void_info = @typeInfo(void);
     assert(TypeId(void_info) == TypeId.Void);
-    assert(void_info.Void == {});
+    assert(void_info.Void == void{});
 }
 
 test "type info: integer, floating point type info" {

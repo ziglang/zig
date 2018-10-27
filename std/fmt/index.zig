@@ -643,7 +643,7 @@ pub fn formatBytes(
     const mags_si = " kMGTPEZY";
     const mags_iec = " KMGTPEZY";
     const magnitude = switch (radix) {
-        1000 => math.min(math.log2(value) / comptime math.log2(1000), mags_si.len - 1),
+        1000 => math.min(math.log2(value) / (comptime math.log2(1000)), mags_si.len - 1),
         1024 => math.min(math.log2(value) / 10, mags_iec.len - 1),
         else => unreachable,
     };
@@ -768,7 +768,7 @@ const FormatIntBuf = struct {
     out_buf: []u8,
     index: usize,
 };
-fn formatIntCallback(context: *FormatIntBuf, bytes: []const u8) (error{}!void) {
+fn formatIntCallback(context: *FormatIntBuf, bytes: []const u8) (errorset{}!void) {
     mem.copy(u8, context.out_buf[context.index..], bytes);
     context.index += bytes.len;
 }
@@ -815,7 +815,7 @@ pub fn parseUnsigned(comptime T: type, buf: []const u8, radix: u8) ParseUnsigned
     return x;
 }
 
-pub fn charToDigit(c: u8, radix: u8) (error{InvalidCharacter}!u8) {
+pub fn charToDigit(c: u8, radix: u8) (errorset{InvalidCharacter}!u8) {
     const value = switch (c) {
         '0'...'9' => c - '0',
         'A'...'Z' => c - 'A' + 10,
@@ -863,7 +863,7 @@ pub fn allocPrint(allocator: *mem.Allocator, comptime fmt: []const u8, args: ...
     };
 }
 
-fn countSize(size: *usize, bytes: []const u8) (error{}!void) {
+fn countSize(size: *usize, bytes: []const u8) (errorset{}!void) {
     size.* += bytes.len;
 }
 
