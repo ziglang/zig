@@ -2242,8 +2242,12 @@ static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrIns
     ZigType *return_type = return_instruction->value->value.type;
 
     if (want_first_arg_sret(g, &g->cur_fn->type_entry->data.fn.fn_type_id)) {
-        assert(g->cur_ret_ptr);
-        gen_assign_raw(g, g->cur_ret_ptr, get_pointer_to_type(g, return_type, false), value);
+        // Assume that the result location mechanism populated the value,
+        // unless the value is a comptime const.
+        if (return_instruction->value->value.special == ConstValSpecialStatic) {
+            assert(g->cur_ret_ptr);
+            gen_assign_raw(g, g->cur_ret_ptr, get_pointer_to_type(g, return_type, false), value);
+        }
         LLVMBuildRetVoid(g->builder);
     } else if (handle_is_ptr(return_type)) {
         LLVMValueRef by_val_value = gen_load_untyped(g, value, 0, false, "");
@@ -5087,6 +5091,13 @@ static LLVMValueRef ir_render_sqrt(CodeGen *g, IrExecutable *executable, IrInstr
     return LLVMBuildCall(g->builder, fn_val, &op, 1, "");
 }
 
+static LLVMValueRef ir_render_result_return(CodeGen *g, IrExecutable *executable,
+        IrInstructionResultReturn *instruction)
+{
+    assert(g->cur_ret_ptr != nullptr);
+    return g->cur_ret_ptr;
+}
+
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
     Scope *scope = instruction->scope;
@@ -5326,9 +5337,9 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_mark_err_ret_trace_ptr(g, executable, (IrInstructionMarkErrRetTracePtr *)instruction);
         case IrInstructionIdSqrt:
             return ir_render_sqrt(g, executable, (IrInstructionSqrt *)instruction);
-        case IrInstructionIdResultErrorUnionPayload:
-            zig_panic("TODO");
         case IrInstructionIdResultReturn:
+            return ir_render_result_return(g, executable, (IrInstructionResultReturn *)instruction);
+        case IrInstructionIdResultErrorUnionPayload:
             zig_panic("TODO");
         case IrInstructionIdResultSliceToBytes:
             zig_panic("TODO");
