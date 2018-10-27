@@ -1211,16 +1211,12 @@ static IrInstruction *ir_build_call(IrBuilder *irb, Scope *scope, AstNode *sourc
     call_instruction->new_stack = new_stack;
     call_instruction->result_loc = result_loc;
 
-    if (fn_ref)
-        ir_ref_instruction(fn_ref, irb->current_basic_block);
+    if (fn_ref) ir_ref_instruction(fn_ref, irb->current_basic_block);
     for (size_t i = 0; i < arg_count; i += 1)
         ir_ref_instruction(args[i], irb->current_basic_block);
-    if (async_allocator)
-        ir_ref_instruction(async_allocator, irb->current_basic_block);
-    if (new_stack != nullptr)
-        ir_ref_instruction(new_stack, irb->current_basic_block);
-
-    ir_ref_instruction(result_loc, irb->current_basic_block);
+    if (async_allocator != nullptr) ir_ref_instruction(async_allocator, irb->current_basic_block);
+    if (new_stack != nullptr) ir_ref_instruction(new_stack, irb->current_basic_block);
+    if (result_loc != nullptr) ir_ref_instruction(result_loc, irb->current_basic_block);
 
     return &call_instruction->base;
 }
@@ -13108,6 +13104,26 @@ no_mem_slot:
     return var_ptr_instruction;
 }
 
+static Error resolve_alloca_inference(IrAnalyze *ira, IrInstructionAllocaGen *alloca, ZigType *child_type) {
+    Error err;
+    if ((err = type_resolve(ira->codegen, child_type, ResolveStatusZeroBitsKnown)))
+        return err;
+    alloca->base.value.type = get_pointer_to_type_extra(ira->codegen, child_type, false, false,
+            PtrLenSingle, alloca->align, 0, 0);
+    return ErrorNone;
+}
+
+static Error resolve_possible_alloca_inference(IrAnalyze *ira, IrInstruction *base, ZigType *child_type) {
+    Error err;
+    assert(base->value.type->id == ZigTypeIdPointer);
+    ZigType *infer_child = base->value.type->data.pointer.child_type;
+    if (base->id == IrInstructionIdAllocaGen && infer_child == ira->codegen->builtin_types.entry_infer) {
+        if ((err = resolve_alloca_inference(ira, reinterpret_cast<IrInstructionAllocaGen *>(base), child_type)))
+            return err;
+    }
+    return ErrorNone;
+}
+
 static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call_instruction,
     ZigFn *fn_entry, ZigType *fn_type, IrInstruction *fn_ref,
     IrInstruction *first_arg_ptr, bool comptime_fn_call, FnInline fn_inline)
@@ -13650,10 +13666,20 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call
         return ira->codegen->invalid_instruction;
     }
 
+    IrInstruction *result_loc = nullptr;
+
+    if (handle_is_ptr(return_type)) {
+        result_loc = call_instruction->result_loc->child;
+        if (type_is_invalid(result_loc->value.type))
+            return ira->codegen->invalid_instruction;
+        if ((err = resolve_possible_alloca_inference(ira, result_loc, return_type)))
+            return ira->codegen->invalid_instruction;
+    }
+
     IrInstruction *new_call_instruction = ir_build_call(&ira->new_irb,
             call_instruction->base.scope, call_instruction->base.source_node,
             fn_entry, fn_ref, call_param_count, casted_args, false, fn_inline, false, nullptr,
-            casted_new_stack, nullptr);
+            casted_new_stack, result_loc);
     new_call_instruction->value.type = return_type;
     return ir_finish_anal(ira, new_call_instruction);
 }
@@ -15168,20 +15194,9 @@ static IrInstruction *ir_analyze_instruction_store_ptr(IrAnalyze *ira, IrInstruc
     return ir_analyze_store_ptr(ira, &instruction->base, ptr, value);
 }
 
-static void resolve_alloca_inference(IrAnalyze *ira, IrInstructionAllocaGen *alloca, ZigType *child_type) {
-    alloca->base.value.type = get_pointer_to_type_extra(ira->codegen, child_type, false, false,
-            PtrLenSingle, alloca->align, 0, 0);
-}
-
-static void resolve_possible_alloca_inference(IrAnalyze *ira, IrInstruction *base, ZigType *child_type) {
-    assert(base->value.type->id == ZigTypeIdPointer);
-    ZigType *infer_child = base->value.type->data.pointer.child_type;
-    if (base->id == IrInstructionIdAllocaGen && infer_child == ira->codegen->builtin_types.entry_infer) {
-        resolve_alloca_inference(ira, reinterpret_cast<IrInstructionAllocaGen *>(base), child_type);
-    }
-}
-
 static IrInstruction *ir_analyze_instruction_store_result(IrAnalyze *ira, IrInstructionStoreResult *instruction) {
+    Error err;
+
     IrInstruction *value = instruction->value->child;
     if (type_is_invalid(value->value.type))
         return ira->codegen->invalid_instruction;
@@ -15190,7 +15205,8 @@ static IrInstruction *ir_analyze_instruction_store_result(IrAnalyze *ira, IrInst
     if (type_is_invalid(result_loc->value.type))
         return ira->codegen->invalid_instruction;
 
-    resolve_possible_alloca_inference(ira, result_loc, value->value.type);
+    if ((err = resolve_possible_alloca_inference(ira, result_loc, value->value.type)))
+        return ira->codegen->invalid_instruction;
 
     // If the type is a scalar value, treat this instruction as a normal store pointer instruction.
     // Or if the value is comptime known, analyze it as a store pointer, so that the
@@ -20984,7 +21000,15 @@ static IrInstruction *ir_analyze_instruction_result_error_union_payload(IrAnalyz
 }
 
 static IrInstruction *ir_analyze_instruction_result_return(IrAnalyze *ira, IrInstructionResultReturn *instruction) {
-    zig_panic("TODO");
+    ZigFn *fn = exec_fn_entry(ira->new_irb.exec);
+    if (fn == nullptr) {
+        ir_add_error(ira, &instruction->base, buf_sprintf("return outside function"));
+        return ira->codegen->invalid_instruction;
+    }
+    ZigType *result_type = get_pointer_to_type(ira->codegen, fn->type_entry->data.fn.fn_type_id.return_type, false);
+    IrInstruction *result = ir_build_result_return(&ira->new_irb, instruction->base.scope, instruction->base.source_node);
+    result->value.type = result_type;
+    return result;
 }
 
 static IrInstruction *ir_analyze_instruction_result_param(IrAnalyze *ira, IrInstructionResultParam *instruction) {
@@ -20996,6 +21020,8 @@ static IrInstruction *ir_analyze_instruction_result_ptr_cast(IrAnalyze *ira, IrI
 }
 
 static IrInstruction *ir_analyze_instruction_alloca(IrAnalyze *ira, IrInstructionAllocaSrc *instruction) {
+    Error err;
+
     uint32_t align = 0;
     if (instruction->align != nullptr) {
         if (!ir_resolve_align(ira, instruction->align->child, &align)) {
@@ -21015,7 +21041,8 @@ static IrInstruction *ir_analyze_instruction_alloca(IrAnalyze *ira, IrInstructio
         if (type_is_invalid(child_type))
             return ira->codegen->invalid_instruction;
 
-        resolve_alloca_inference(ira, result, child_type);
+        if ((err = resolve_alloca_inference(ira, result, child_type)))
+            return ira->codegen->invalid_instruction;
     }
 
     ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);

@@ -225,7 +225,8 @@ static void ir_print_call(IrPrint *irp, IrInstructionCall *call_instruction) {
             fprintf(irp->f, ", ");
         ir_print_other_instruction(irp, arg);
     }
-    fprintf(irp->f, ")");
+    fprintf(irp->f, ") result=");
+    ir_print_other_instruction(irp, call_instruction->result_loc);
 }
 
 static void ir_print_cond_br(IrPrint *irp, IrInstructionCondBr *cond_br_instruction) {
