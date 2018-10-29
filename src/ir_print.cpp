@@ -334,8 +334,11 @@ static void ir_print_var_ptr(IrPrint *irp, IrInstructionVarPtr *instruction) {
 }
 
 static void ir_print_load_ptr(IrPrint *irp, IrInstructionLoadPtr *instruction) {
-    fprintf(irp->f, "*");
+    fprintf(irp->f, "LoadPtr(ptr=");
     ir_print_other_instruction(irp, instruction->ptr);
+    fprintf(irp->f, ",result=");
+    ir_print_other_instruction(irp, instruction->result_loc);
+    fprintf(irp->f, ")");
 }
 
 static void ir_print_store_ptr(IrPrint *irp, IrInstructionStorePtr *instruction) {
@@ -1351,7 +1354,7 @@ static void ir_print_load_result(IrPrint *irp, IrInstructionLoadResult *instruct
 }
 
 static void ir_print_store_result(IrPrint *irp, IrInstructionStoreResult *instruction) {
-    fprintf(irp->f, "StoreResult(result_loc=");
+    fprintf(irp->f, "StoreResult(result=");
     ir_print_other_instruction(irp, instruction->result_loc);
     fprintf(irp->f, ",value=");
     ir_print_other_instruction(irp, instruction->value);

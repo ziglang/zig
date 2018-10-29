@@ -1844,12 +1844,12 @@ static LLVMValueRef gen_assign_raw(CodeGen *g, LLVMValueRef ptr, ZigType *ptr_ty
     return nullptr;
 }
 
-static void gen_var_debug_decl(CodeGen *g, ZigVar *var, LLVMValueRef value_ref) {
+static void gen_var_debug_decl(CodeGen *g, ZigVar *var) {
     assert(var->di_loc_var != nullptr);
     AstNode *source_node = var->decl_node;
     ZigLLVMDILocation *debug_loc = ZigLLVMGetDebugLoc((unsigned)source_node->line + 1,
             (unsigned)source_node->column + 1, get_di_scope(g, var->parent_scope));
-    ZigLLVMInsertDeclareAtEnd(g->dbuilder, value_ref, var->di_loc_var, debug_loc,
+    ZigLLVMInsertDeclareAtEnd(g->dbuilder, var->value_ref, var->di_loc_var, debug_loc,
             LLVMGetInsertBlock(g->builder));
 }
 
@@ -2000,7 +2000,7 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
                 clear_debug_source_node(g);
                 gen_store_untyped(g, LLVMGetParam(llvm_fn, fn_walk->data.inits.gen_i), var->value_ref, var->align_bytes, false);
                 if (var->decl_node) {
-                    gen_var_debug_decl(g, var, var->value_ref);
+                    gen_var_debug_decl(g, var);
                 }
                 fn_walk->data.inits.gen_i += 1;
                 break;
@@ -2035,7 +2035,7 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
             }
             case FnWalkIdInits:
                 if (var->decl_node) {
-                    gen_var_debug_decl(g, var, var->value_ref);
+                    gen_var_debug_decl(g, var);
                 }
                 fn_walk->data.inits.gen_i += 1;
                 break;
@@ -2073,7 +2073,7 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
                 }
                 case FnWalkIdInits:
                     if (var->decl_node) {
-                        gen_var_debug_decl(g, var, var->value_ref);
+                        gen_var_debug_decl(g, var);
                     }
                     fn_walk->data.inits.gen_i += 1;
                     break;
@@ -2111,7 +2111,7 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
                     LLVMValueRef bitcasted = LLVMBuildBitCast(g->builder, var->value_ref, ptr_to_int_type_ref, "");
                     gen_store_untyped(g, arg, bitcasted, var->align_bytes, false);
                     if (var->decl_node) {
-                        gen_var_debug_decl(g, var, var->value_ref);
+                        gen_var_debug_decl(g, var);
                     }
                     fn_walk->data.inits.gen_i += 1;
                     break;
@@ -2206,7 +2206,7 @@ void walk_function_params(CodeGen *g, ZigType *fn_type, FnWalk *fn_walk) {
                 }
 
                 if (variable->decl_node) {
-                    gen_var_debug_decl(g, variable, variable->value_ref);
+                    gen_var_debug_decl(g, variable);
                 }
                 break;
             }
@@ -3188,7 +3188,8 @@ static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable, IrI
     if (var->ref_count == 0 && g->build_mode != BuildModeDebug)
         return nullptr;
 
-    gen_var_debug_decl(g, var, ir_llvm_value(g, instruction->var_ptr));
+    var->value_ref = ir_llvm_value(g, instruction->var_ptr);
+    gen_var_debug_decl(g, var);
     return nullptr;
 }
 

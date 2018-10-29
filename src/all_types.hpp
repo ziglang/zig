@@ -2337,6 +2337,7 @@ struct IrInstructionLoadPtr {
     IrInstruction base;
 
     IrInstruction *ptr;
+    IrInstruction *result_loc;
 };
 
 struct IrInstructionStorePtr {
