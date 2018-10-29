@@ -336,8 +336,6 @@ static void ir_print_var_ptr(IrPrint *irp, IrInstructionVarPtr *instruction) {
 static void ir_print_load_ptr(IrPrint *irp, IrInstructionLoadPtr *instruction) {
     fprintf(irp->f, "LoadPtr(ptr=");
     ir_print_other_instruction(irp, instruction->ptr);
-    fprintf(irp->f, ",result=");
-    ir_print_other_instruction(irp, instruction->result_loc);
     fprintf(irp->f, ")");
 }
 
