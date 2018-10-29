@@ -10774,19 +10774,6 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
             } else {
                 return ira->codegen->invalid_instruction;
             }
-        } else if (wanted_child_type->id == ZigTypeIdPointer &&
-                   wanted_child_type->data.pointer.is_const &&
-                   (actual_type->id == ZigTypeIdPointer || is_container(actual_type)))
-        {
-            IrInstruction *cast1 = ir_analyze_cast(ira, source_instr, wanted_child_type, value);
-            if (type_is_invalid(cast1->value.type))
-                return ira->codegen->invalid_instruction;
-
-            IrInstruction *cast2 = ir_analyze_cast(ira, source_instr, wanted_type, cast1);
-            if (type_is_invalid(cast2->value.type))
-                return ira->codegen->invalid_instruction;
-
-            return cast2;
         } else if (
             wanted_child_type->id == ZigTypeIdPointer &&
             wanted_child_type->data.pointer.ptr_len == PtrLenUnknown &&
