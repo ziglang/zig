@@ -1325,6 +1325,12 @@ static void ir_print_decl_var_gen(IrPrint *irp, IrInstructionDeclVarGen *instruc
     fprintf(irp->f, ")");
 }
 
+static void ir_print_result_optional_payload(IrPrint *irp, IrInstructionResultOptionalPayload *instruction) {
+    fprintf(irp->f, "ResultOptionalPayload(");
+    ir_print_other_instruction(irp, instruction->prev_result_loc);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_result_error_union_payload(IrPrint *irp, IrInstructionResultErrorUnionPayload *instruction) {
     fprintf(irp->f, "ResultErrorUnionPayload");
 }
@@ -1794,6 +1800,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdDeclVarGen:
             ir_print_decl_var_gen(irp, (IrInstructionDeclVarGen *)instruction);
+            break;
+        case IrInstructionIdResultOptionalPayload:
+            ir_print_result_optional_payload(irp, (IrInstructionResultOptionalPayload *)instruction);
             break;
         case IrInstructionIdResultErrorUnionPayload:
             ir_print_result_error_union_payload(irp, (IrInstructionResultErrorUnionPayload *)instruction);

@@ -5099,6 +5099,15 @@ static LLVMValueRef ir_render_result_return(CodeGen *g, IrExecutable *executable
     return g->cur_ret_ptr;
 }
 
+static LLVMValueRef ir_render_result_optional_payload(CodeGen *g, IrExecutable *executable,
+        IrInstructionResultOptionalPayload *instruction)
+{
+    LLVMValueRef prev_result_loc = ir_llvm_value(g, instruction->prev_result_loc);
+    LLVMValueRef nonnull_ptr = LLVMBuildStructGEP(g->builder, prev_result_loc, maybe_null_index, "");
+    gen_store_untyped(g, LLVMConstInt(LLVMInt1Type(), 1, false), nonnull_ptr, 0, false);
+    return LLVMBuildStructGEP(g->builder, prev_result_loc, maybe_child_index, "");
+}
+
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
     Scope *scope = instruction->scope;
@@ -5340,6 +5349,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_sqrt(g, executable, (IrInstructionSqrt *)instruction);
         case IrInstructionIdResultReturn:
             return ir_render_result_return(g, executable, (IrInstructionResultReturn *)instruction);
+        case IrInstructionIdResultOptionalPayload:
+            return ir_render_result_optional_payload(g, executable, (IrInstructionResultOptionalPayload *)instruction);
         case IrInstructionIdResultErrorUnionPayload:
             zig_panic("TODO");
         case IrInstructionIdResultSliceToBytes:
