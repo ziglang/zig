@@ -5108,6 +5108,26 @@ static LLVMValueRef ir_render_result_optional_payload(CodeGen *g, IrExecutable *
     return LLVMBuildStructGEP(g->builder, prev_result_loc, maybe_child_index, "");
 }
 
+static LLVMValueRef ir_render_assert_non_error(CodeGen *g, IrExecutable *executable,
+        IrInstructionAssertNonError *instruction)
+{
+    if (!ir_want_runtime_safety(g, &instruction->base) || g->errors_by_index.length <= 1) {
+        return nullptr;
+    }
+    LLVMValueRef err_val = ir_llvm_value(g, instruction->err_code);
+    LLVMValueRef zero = LLVMConstNull(g->err_tag_type->type_ref);
+    LLVMValueRef cond_val = LLVMBuildICmp(g->builder, LLVMIntEQ, err_val, zero, "");
+    LLVMBasicBlockRef err_block = LLVMAppendBasicBlock(g->cur_fn_val, "UnwrapErrError");
+    LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "UnwrapErrOk");
+    LLVMBuildCondBr(g->builder, cond_val, ok_block, err_block);
+
+    LLVMPositionBuilderAtEnd(g->builder, err_block);
+    gen_safety_crash_for_err(g, err_val, instruction->base.scope);
+
+    LLVMPositionBuilderAtEnd(g->builder, ok_block);
+    return nullptr;
+}
+
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
     Scope *scope = instruction->scope;
@@ -5351,6 +5371,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_result_return(g, executable, (IrInstructionResultReturn *)instruction);
         case IrInstructionIdResultOptionalPayload:
             return ir_render_result_optional_payload(g, executable, (IrInstructionResultOptionalPayload *)instruction);
+        case IrInstructionIdAssertNonError:
+            return ir_render_assert_non_error(g, executable, (IrInstructionAssertNonError *)instruction);
         case IrInstructionIdResultErrorUnionPayload:
             zig_panic("TODO");
         case IrInstructionIdResultSliceToBytes:

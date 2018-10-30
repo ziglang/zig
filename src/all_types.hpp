@@ -2184,6 +2184,7 @@ enum IrInstructionId {
     IrInstructionIdStoreResult,
     IrInstructionIdAllocaSrc,
     IrInstructionIdAllocaGen,
+    IrInstructionIdAssertNonError,
 };
 
 struct IrInstruction {
@@ -2338,6 +2339,7 @@ struct IrInstructionLoadPtr {
     IrInstruction base;
 
     IrInstruction *ptr;
+    IrInstruction *result_loc;
 };
 
 struct IrInstructionStorePtr {
@@ -3011,6 +3013,8 @@ struct IrInstructionTypeName {
 enum LVal {
     LValNone,
     LValPtr,
+    LValErrorUnion,
+    LValOptional,
 };
 
 struct IrInstructionDeclRef {
@@ -3344,6 +3348,12 @@ struct IrInstructionAllocaGen {
 
     uint32_t align;
     const char *name_hint;
+};
+
+struct IrInstructionAssertNonError {
+    IrInstruction base;
+
+    IrInstruction *err_code;
 };
 
 static const size_t slice_ptr_index = 0;

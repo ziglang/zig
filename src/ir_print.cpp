@@ -336,6 +336,8 @@ static void ir_print_var_ptr(IrPrint *irp, IrInstructionVarPtr *instruction) {
 static void ir_print_load_ptr(IrPrint *irp, IrInstructionLoadPtr *instruction) {
     fprintf(irp->f, "LoadPtr(ptr=");
     ir_print_other_instruction(irp, instruction->ptr);
+    fprintf(irp->f, ",result=");
+    ir_print_other_instruction(irp, instruction->result_loc);
     fprintf(irp->f, ")");
 }
 
@@ -1370,11 +1372,17 @@ static void ir_print_alloca_src(IrPrint *irp, IrInstructionAllocaSrc *instructio
     ir_print_other_instruction(irp, instruction->child_type);
     fprintf(irp->f, ",align=");
     ir_print_other_instruction(irp, instruction->align);
-    fprintf(irp->f, ")");
+    fprintf(irp->f, ",name=%s)", instruction->name_hint);
 }
 
 static void ir_print_alloca_gen(IrPrint *irp, IrInstructionAllocaGen *instruction) {
     fprintf(irp->f, "AllocaGen(align=%" PRIu32 ",name=%s)", instruction->align, instruction->name_hint);
+}
+
+static void ir_print_assert_non_error(IrPrint *irp, IrInstructionAssertNonError *instruction) {
+    fprintf(irp->f, "AssertNonError(");
+    ir_print_other_instruction(irp, instruction->err_code);
+    fprintf(irp->f, ")");
 }
 
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
@@ -1831,6 +1839,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdAllocaGen:
             ir_print_alloca_gen(irp, (IrInstructionAllocaGen *)instruction);
+            break;
+        case IrInstructionIdAssertNonError:
+            ir_print_assert_non_error(irp, (IrInstructionAssertNonError *)instruction);
             break;
     }
     fprintf(irp->f, "\n");
