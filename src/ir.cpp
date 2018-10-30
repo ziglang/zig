@@ -4935,9 +4935,8 @@ static IrInstruction *ir_gen_fn_call(IrBuilder *irb, Scope *scope, AstNode *node
     size_t arg_count = node->data.fn_call_expr.params.length;
     IrInstruction **args = allocate<IrInstruction*>(arg_count);
     for (size_t i = 0; i < arg_count; i += 1) {
-        IrInstruction *param_result_loc = ir_build_result_param(irb, scope, node, fn_ref, i);
         AstNode *arg_node = node->data.fn_call_expr.params.at(i);
-        args[i] = ir_gen_node(irb, arg_node, scope, LValNone, param_result_loc);
+        args[i] = ir_gen_node(irb, arg_node, scope, LValNone, nullptr);
         if (args[i] == irb->codegen->invalid_instruction)
             return args[i];
     }
@@ -10885,7 +10884,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         }
     }
 
-    // cast from error set to error union type
+    // cast from E to E!T
     if (wanted_type->id == ZigTypeIdErrorUnion &&
         actual_type->id == ZigTypeIdErrorSet)
     {
@@ -11198,6 +11197,27 @@ static IrInstruction *ir_implicit_cast_result(IrAnalyze *ira, IrInstruction *res
         needed_child_type->id == ZigTypeIdErrorSet)
     {
         return ir_analyze_result_error_union_code(ira, result_loc, needed_child_type);
+    }
+
+    // cast from T to E!?T
+    if (have_child_type->id == ZigTypeIdErrorUnion &&
+        have_child_type->data.error_union.payload_type->id == ZigTypeIdOptional &&
+        needed_child_type->id != ZigTypeIdOptional)
+    {
+        ZigType *wanted_child_type = have_child_type->data.error_union.payload_type->data.maybe.child_type;
+        if (types_match_const_cast_only(ira, wanted_child_type, needed_child_type, source_node,
+                false).id == ConstCastResultIdOk ||
+            needed_child_type->id == ZigTypeIdNull ||
+            needed_child_type->id == ZigTypeIdComptimeInt ||
+            needed_child_type->id == ZigTypeIdComptimeFloat)
+        {
+            IrInstruction *cast1 = ir_implicit_cast_result(ira, result_loc,
+                    have_child_type->data.error_union.payload_type);
+            if (type_is_invalid(cast1->value.type))
+                return ira->codegen->invalid_instruction;
+
+            return ir_implicit_cast_result(ira, cast1, needed_child_type);
+        }
     }
 
     ErrorMsg *parent_msg = ir_add_error_node(ira, source_node,
