@@ -2187,6 +2187,7 @@ enum IrInstructionId {
     IrInstructionIdAllocaGen,
     IrInstructionIdAssertNonError,
     IrInstructionIdErrorUnionFieldErrorSet,
+    IrInstructionIdFirstArgResultLoc,
 };
 
 struct IrInstruction {
@@ -3369,6 +3370,13 @@ struct IrInstructionAssertNonError {
     IrInstruction base;
 
     IrInstruction *err_code;
+};
+
+struct IrInstructionFirstArgResultLoc {
+    IrInstruction base;
+
+    IrInstruction *prev_result_loc;
+    IrInstruction *fn_ref;
 };
 
 static const size_t slice_ptr_index = 0;

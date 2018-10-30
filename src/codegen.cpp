@@ -5241,6 +5241,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdDeclVarSrc:
         case IrInstructionIdAllocaSrc:
         case IrInstructionIdAllocaGen:
+        case IrInstructionIdFirstArgResultLoc:
             zig_unreachable();
 
         case IrInstructionIdDeclVarGen:

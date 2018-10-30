@@ -907,6 +907,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionErrorUnionFieldE
     return IrInstructionIdErrorUnionFieldErrorSet;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionFirstArgResultLoc *) {
+    return IrInstructionIdFirstArgResultLoc;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -2932,6 +2936,19 @@ static IrInstruction *ir_build_error_union_field_error_set(IrBuilder *irb, Scope
     instruction->ptr = ptr;
 
     ir_ref_instruction(ptr, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_first_arg_result_loc(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *prev_result_loc, IrInstruction *fn_ref)
+{
+    IrInstructionFirstArgResultLoc *instruction = ir_build_instruction<IrInstructionFirstArgResultLoc>(irb, scope, source_node);
+    instruction->prev_result_loc = prev_result_loc;
+    instruction->fn_ref = fn_ref;
+
+    ir_ref_instruction(prev_result_loc, irb->current_basic_block);
+    ir_ref_instruction(fn_ref, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -4969,8 +4986,24 @@ static IrInstruction *ir_gen_fn_call(IrBuilder *irb, Scope *scope, AstNode *node
     if (fn_ref == irb->codegen->invalid_instruction)
         return fn_ref;
 
+    // In pass 1, we can't tell the difference between a function call with a single argument
+    // and an implicit cast. So if there is only one argument, we emit a special instruction.
     size_t arg_count = node->data.fn_call_expr.params.length;
     IrInstruction **args = allocate<IrInstruction*>(arg_count);
+    bool is_async = node->data.fn_call_expr.is_async;
+    if (arg_count == 1 && !is_async) {
+        AstNode *arg_node = node->data.fn_call_expr.params.at(0);
+        IrInstruction *arg_result_loc = ir_build_first_arg_result_loc(irb, scope, arg_node, result_loc, fn_ref);
+        args[0] = ir_gen_node(irb, arg_node, scope, LValNone, arg_result_loc);
+        if (args[0] == irb->codegen->invalid_instruction)
+            return irb->codegen->invalid_instruction;
+        // In the analysis, this call instruction will be a simple LoadPtr instruction if
+        // it turns out to be an implicit cast.
+        IrInstruction *fn_call = ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false,
+                FnInlineAuto, false, nullptr, nullptr, result_loc);
+        return ir_lval_wrap(irb, scope, fn_call, lval);
+    }
+
     for (size_t i = 0; i < arg_count; i += 1) {
         AstNode *arg_node = node->data.fn_call_expr.params.at(i);
         args[i] = ir_gen_node(irb, arg_node, scope, LValNone, nullptr);
@@ -4978,7 +5011,6 @@ static IrInstruction *ir_gen_fn_call(IrBuilder *irb, Scope *scope, AstNode *node
             return args[i];
     }
 
-    bool is_async = node->data.fn_call_expr.is_async;
     IrInstruction *async_allocator = nullptr;
     if (is_async) {
         if (node->data.fn_call_expr.async_allocator) {
@@ -13989,6 +14021,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call
 }
 
 static IrInstruction *ir_analyze_instruction_call(IrAnalyze *ira, IrInstructionCall *call_instruction) {
+    Error err;
     IrInstruction *fn_ref = call_instruction->fn_ref->child;
     if (type_is_invalid(fn_ref->value.type))
         return ira->codegen->invalid_instruction;
@@ -14010,12 +14043,18 @@ static IrInstruction *ir_analyze_instruction_call(IrAnalyze *ira, IrInstructionC
                 return ira->codegen->invalid_instruction;
             }
 
-            IrInstruction *arg = call_instruction->args[0]->child;
-
-            IrInstruction *cast_instruction = ir_analyze_cast(ira, &call_instruction->base, dest_type, arg);
-            if (type_is_invalid(cast_instruction->value.type))
+            // This is handled with the result location mechanism. So all we need to do here is
+            // a LoadPtr on the result location.
+            IrInstruction *result_loc = call_instruction->result_loc->child;
+            if (type_is_invalid(result_loc->value.type))
                 return ira->codegen->invalid_instruction;
-            return ir_finish_anal(ira, cast_instruction);
+            if ((err = resolve_possible_alloca_inference(ira, result_loc, dest_type)))
+                return ira->codegen->invalid_instruction;
+
+            IrInstruction *deref = ir_get_deref(ira, &call_instruction->base, result_loc);
+            if (type_is_invalid(deref->value.type))
+                return ira->codegen->invalid_instruction;
+            return ir_finish_anal(ira, deref);
         } else if (fn_ref->value.type->id == ZigTypeIdFn) {
             ZigFn *fn_table_entry = ir_resolve_fn(ira, fn_ref);
             if (fn_table_entry == nullptr)
@@ -21357,6 +21396,47 @@ static IrInstruction *ir_analyze_instruction_alloca(IrAnalyze *ira, IrInstructio
     return &result->base;
 }
 
+static IrInstruction *ir_analyze_instruction_first_arg_result_loc(IrAnalyze *ira,
+        IrInstructionFirstArgResultLoc *instruction)
+{
+    Error err;
+
+    IrInstruction *fn_ref = instruction->fn_ref->child;
+    if (type_is_invalid(fn_ref->value.type))
+        return ira->codegen->invalid_instruction;
+
+    if (fn_ref->value.type->id == ZigTypeIdMetaType) {
+        // Result of this instruction should be the implicitly casted result location.
+
+        ZigType *dest_type = ir_resolve_type(ira, fn_ref);
+        if (type_is_invalid(dest_type))
+            return ira->codegen->invalid_instruction;
+
+        IrInstruction *new_result_loc = ir_implicit_cast_result(ira, instruction->prev_result_loc->child,
+                dest_type);
+        if (type_is_invalid(new_result_loc->value.type))
+            return ira->codegen->invalid_instruction;
+        return new_result_loc;
+    }
+
+    // Result of this instruction should be the result location for the first argument of the function call.
+    // This means it should be a stack allocation.
+    IrInstructionAllocaGen *result = ir_create_alloca_gen(&ira->new_irb, instruction->base.scope,
+            instruction->base.source_node, 0, "");
+
+    assert(fn_ref->value.type->id == ZigTypeIdFn);
+    ZigType *param_type = fn_ref->value.type->data.fn.fn_type_id.param_info[0].type;
+    if (type_is_invalid(param_type))
+        return ira->codegen->invalid_instruction;
+    if ((err = resolve_alloca_inference(ira, result, param_type)))
+        return ira->codegen->invalid_instruction;
+    ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
+    if (fn_entry != nullptr) {
+        fn_entry->alloca_list.append(result);
+    }
+    return &result->base;
+}
+
 static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -21650,6 +21730,8 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
             return ir_analyze_instruction_alloca(ira, (IrInstructionAllocaSrc *)instruction);
         case IrInstructionIdErrorUnionFieldErrorSet:
             return ir_analyze_instruction_error_union_field_error_set(ira, (IrInstructionErrorUnionFieldErrorSet *)instruction);
+        case IrInstructionIdFirstArgResultLoc:
+            return ir_analyze_instruction_first_arg_result_loc(ira, (IrInstructionFirstArgResultLoc *)instruction);
         case IrInstructionIdResultBytesToSlice:
             zig_panic("TODO");
         case IrInstructionIdResultSliceToBytes:
@@ -21887,6 +21969,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdAllocaSrc:
         case IrInstructionIdAllocaGen:
         case IrInstructionIdErrorUnionFieldErrorSet:
+        case IrInstructionIdFirstArgResultLoc:
             return false;
 
         case IrInstructionIdLoadPtr:

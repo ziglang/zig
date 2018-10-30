@@ -1399,6 +1399,14 @@ static void ir_print_error_union_field_error_set(IrPrint *irp, IrInstructionErro
     fprintf(irp->f, ")");
 }
 
+static void ir_print_first_arg_result_loc(IrPrint *irp, IrInstructionFirstArgResultLoc *instruction) {
+    fprintf(irp->f, "FirstArgResultLoc(prev_result=");
+    ir_print_other_instruction(irp, instruction->prev_result_loc);
+    fprintf(irp->f, ",fn=");
+    ir_print_other_instruction(irp, instruction->fn_ref);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -1862,6 +1870,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdErrorUnionFieldErrorSet:
             ir_print_error_union_field_error_set(irp, (IrInstructionErrorUnionFieldErrorSet *)instruction);
+            break;
+        case IrInstructionIdFirstArgResultLoc:
+            ir_print_first_arg_result_loc(irp, (IrInstructionFirstArgResultLoc *)instruction);
             break;
     }
     fprintf(irp->f, "\n");
