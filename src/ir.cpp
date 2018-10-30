@@ -863,6 +863,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionResultErrorUnion
     return IrInstructionIdResultErrorUnionPayload;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionResultErrorUnionCode *) {
+    return IrInstructionIdResultErrorUnionCode;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionResultOptionalPayload *) {
     return IrInstructionIdResultOptionalPayload;
 }
@@ -2809,6 +2813,17 @@ static IrInstruction *ir_build_result_error_union_payload(IrBuilder *irb, Scope 
         IrInstruction *prev_result_loc)
 {
     IrInstructionResultErrorUnionPayload *instruction = ir_build_instruction<IrInstructionResultErrorUnionPayload>(irb, scope, source_node);
+    instruction->prev_result_loc = prev_result_loc;
+
+    ir_ref_instruction(prev_result_loc, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_result_error_union_code(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *prev_result_loc)
+{
+    IrInstructionResultErrorUnionCode *instruction = ir_build_instruction<IrInstructionResultErrorUnionCode>(irb, scope, source_node);
     instruction->prev_result_loc = prev_result_loc;
 
     ir_ref_instruction(prev_result_loc, irb->current_basic_block);
@@ -9848,6 +9863,23 @@ static IrInstruction *ir_analyze_result_error_union_payload(IrAnalyze *ira, IrIn
     return result;
 }
 
+static IrInstruction *ir_analyze_result_error_union_code(IrAnalyze *ira, IrInstruction *result_loc,
+        ZigType *needed_child_type)
+{
+    if (instr_is_comptime(result_loc)) {
+        zig_panic("TODO comptime ir_analyze_result_error_union_code");
+    }
+    ZigType *old_ptr_type = result_loc->value.type;
+    assert(old_ptr_type->id == ZigTypeIdPointer);
+    ZigType *new_ptr_type = get_pointer_to_type_extra(ira->codegen, needed_child_type,
+            false, old_ptr_type->data.pointer.is_volatile, PtrLenSingle, 0, 0, 0);
+
+    IrInstruction *result = ir_build_result_error_union_code(&ira->new_irb, result_loc->scope,
+            result_loc->source_node, result_loc);
+    result->value.type = new_ptr_type;
+    return result;
+}
+
 static IrInstruction *ir_analyze_optional_wrap(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value,
         ZigType *wanted_type)
 {
@@ -11159,6 +11191,13 @@ static IrInstruction *ir_implicit_cast_result(IrAnalyze *ira, IrInstruction *res
         {
             return ir_analyze_result_error_union_payload(ira, result_loc, needed_child_type);
         }
+    }
+
+    // cast from E to E!T
+    if (have_child_type->id == ZigTypeIdErrorUnion &&
+        needed_child_type->id == ZigTypeIdErrorSet)
+    {
+        return ir_analyze_result_error_union_code(ira, result_loc, needed_child_type);
     }
 
     ErrorMsg *parent_msg = ir_add_error_node(ira, source_node,
@@ -13251,6 +13290,67 @@ no_mem_slot:
     return var_ptr_instruction;
 }
 
+static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source_instr,
+        IrInstruction *ptr, IrInstruction *value)
+{
+    Error err;
+    if ((err = resolve_possible_alloca_inference(ira, ptr, value->value.type)))
+        return ira->codegen->invalid_instruction;
+
+    if (ptr->value.type->id != ZigTypeIdPointer) {
+        ir_add_error(ira, ptr,
+            buf_sprintf("attempt to dereference non pointer type '%s'", buf_ptr(&ptr->value.type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+
+    if (ptr->value.data.x_ptr.special == ConstPtrSpecialDiscard) {
+        return ir_const_void(ira, source_instr);
+    }
+
+    if (ptr->value.type->data.pointer.is_const && !source_instr->is_gen) {
+        ir_add_error(ira, source_instr, buf_sprintf("cannot assign to constant"));
+        return ira->codegen->invalid_instruction;
+    }
+
+    ZigType *child_type = ptr->value.type->data.pointer.child_type;
+    IrInstruction *casted_value = ir_implicit_cast(ira, value, child_type);
+    if (casted_value == ira->codegen->invalid_instruction)
+        return ira->codegen->invalid_instruction;
+
+    if (instr_is_comptime(ptr) && ptr->value.data.x_ptr.special != ConstPtrSpecialHardCodedAddr) {
+        if (ptr->value.data.x_ptr.mut == ConstPtrMutComptimeConst) {
+            ir_add_error(ira, source_instr, buf_sprintf("cannot assign to constant"));
+            return ira->codegen->invalid_instruction;
+        }
+        if (ptr->value.data.x_ptr.mut == ConstPtrMutComptimeVar) {
+            if (instr_is_comptime(casted_value)) {
+                ConstExprValue *dest_val = ir_const_ptr_pointee(ira, &ptr->value, source_instr->source_node);
+                if (dest_val == nullptr)
+                    return ira->codegen->invalid_instruction;
+                if (dest_val->special != ConstValSpecialRuntime) {
+                    *dest_val = casted_value->value;
+                    if (!ira->new_irb.current_basic_block->must_be_comptime_source_instr) {
+                        ira->new_irb.current_basic_block->must_be_comptime_source_instr = source_instr;
+                    }
+                    return ir_const_void(ira, source_instr);
+                }
+            }
+            ir_add_error(ira, source_instr,
+                    buf_sprintf("cannot store runtime value in compile time variable"));
+            ConstExprValue *dest_val = const_ptr_pointee_unchecked(ira->codegen, &ptr->value);
+            dest_val->type = ira->codegen->builtin_types.entry_invalid;
+
+            return ira->codegen->invalid_instruction;
+        }
+    }
+
+    IrInstruction *result = ir_build_store_ptr(&ira->new_irb, source_instr->scope, source_instr->source_node,
+        ptr, casted_value);
+    result->value.type = ira->codegen->builtin_types.entry_void;
+    return result;
+}
+
+
 static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call_instruction,
     ZigFn *fn_entry, ZigType *fn_type, IrInstruction *fn_ref,
     IrInstruction *first_arg_ptr, bool comptime_fn_call, FnInline fn_inline)
@@ -13795,7 +13895,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call
 
     IrInstruction *result_loc = nullptr;
 
-    if (handle_is_ptr(return_type)) {
+    if (call_instruction->result_loc != nullptr) {
         result_loc = ir_implicit_cast_result(ira, call_instruction->result_loc->child, return_type);
         if (type_is_invalid(result_loc->value.type))
             return ira->codegen->invalid_instruction;
@@ -13806,6 +13906,11 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call
             fn_entry, fn_ref, call_param_count, casted_args, false, fn_inline, false, nullptr,
             casted_new_stack, result_loc);
     new_call_instruction->value.type = return_type;
+
+    if (!handle_is_ptr(return_type) && result_loc != nullptr) {
+        ir_analyze_store_ptr(ira, &call_instruction->base, result_loc, new_call_instruction);
+    }
+
     return ir_finish_anal(ira, new_call_instruction);
 }
 
@@ -15215,66 +15320,6 @@ static IrInstruction *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstruc
 
 static IrInstruction *ir_analyze_instruction_load_result(IrAnalyze *ira, IrInstructionLoadResult *instruction) {
     zig_panic("TODO");
-}
-
-static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source_instr,
-        IrInstruction *ptr, IrInstruction *value)
-{
-    Error err;
-    if ((err = resolve_possible_alloca_inference(ira, ptr, value->value.type)))
-        return ira->codegen->invalid_instruction;
-
-    if (ptr->value.type->id != ZigTypeIdPointer) {
-        ir_add_error(ira, ptr,
-            buf_sprintf("attempt to dereference non pointer type '%s'", buf_ptr(&ptr->value.type->name)));
-        return ira->codegen->invalid_instruction;
-    }
-
-    if (ptr->value.data.x_ptr.special == ConstPtrSpecialDiscard) {
-        return ir_const_void(ira, source_instr);
-    }
-
-    if (ptr->value.type->data.pointer.is_const && !source_instr->is_gen) {
-        ir_add_error(ira, source_instr, buf_sprintf("cannot assign to constant"));
-        return ira->codegen->invalid_instruction;
-    }
-
-    ZigType *child_type = ptr->value.type->data.pointer.child_type;
-    IrInstruction *casted_value = ir_implicit_cast(ira, value, child_type);
-    if (casted_value == ira->codegen->invalid_instruction)
-        return ira->codegen->invalid_instruction;
-
-    if (instr_is_comptime(ptr) && ptr->value.data.x_ptr.special != ConstPtrSpecialHardCodedAddr) {
-        if (ptr->value.data.x_ptr.mut == ConstPtrMutComptimeConst) {
-            ir_add_error(ira, source_instr, buf_sprintf("cannot assign to constant"));
-            return ira->codegen->invalid_instruction;
-        }
-        if (ptr->value.data.x_ptr.mut == ConstPtrMutComptimeVar) {
-            if (instr_is_comptime(casted_value)) {
-                ConstExprValue *dest_val = ir_const_ptr_pointee(ira, &ptr->value, source_instr->source_node);
-                if (dest_val == nullptr)
-                    return ira->codegen->invalid_instruction;
-                if (dest_val->special != ConstValSpecialRuntime) {
-                    *dest_val = casted_value->value;
-                    if (!ira->new_irb.current_basic_block->must_be_comptime_source_instr) {
-                        ira->new_irb.current_basic_block->must_be_comptime_source_instr = source_instr;
-                    }
-                    return ir_const_void(ira, source_instr);
-                }
-            }
-            ir_add_error(ira, source_instr,
-                    buf_sprintf("cannot store runtime value in compile time variable"));
-            ConstExprValue *dest_val = const_ptr_pointee_unchecked(ira->codegen, &ptr->value);
-            dest_val->type = ira->codegen->builtin_types.entry_invalid;
-
-            return ira->codegen->invalid_instruction;
-        }
-    }
-
-    IrInstruction *result = ir_build_store_ptr(&ira->new_irb, source_instr->scope, source_instr->source_node,
-        ptr, casted_value);
-    result->value.type = ira->codegen->builtin_types.entry_void;
-    return result;
 }
 
 static IrInstruction *ir_analyze_instruction_store_ptr(IrAnalyze *ira, IrInstructionStorePtr *instruction) {
@@ -21140,12 +21185,6 @@ static IrInstruction *ir_analyze_instruction_check_runtime_scope(IrAnalyze *ira,
     return ir_const_void(ira, &instruction->base);
 }
 
-static IrInstruction *ir_analyze_instruction_result_error_union_payload(IrAnalyze *ira,
-        IrInstructionResultErrorUnionPayload *instruction)
-{
-    zig_panic("TODO");
-}
-
 static IrInstruction *ir_analyze_instruction_result_return(IrAnalyze *ira, IrInstructionResultReturn *instruction) {
     ZigFn *fn = exec_fn_entry(ira->new_irb.exec);
     if (fn == nullptr) {
@@ -21214,6 +21253,8 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
         case IrInstructionIdDeclVarGen:
         case IrInstructionIdAllocaGen:
         case IrInstructionIdResultOptionalPayload:
+        case IrInstructionIdResultErrorUnionPayload:
+        case IrInstructionIdResultErrorUnionCode:
             zig_unreachable();
 
         case IrInstructionIdReturn:
@@ -21480,8 +21521,6 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
             return ir_analyze_instruction_enum_to_int(ira, (IrInstructionEnumToInt *)instruction);
         case IrInstructionIdCheckRuntimeScope:
             return ir_analyze_instruction_check_runtime_scope(ira, (IrInstructionCheckRuntimeScope *)instruction);
-        case IrInstructionIdResultErrorUnionPayload:
-            return ir_analyze_instruction_result_error_union_payload(ira, (IrInstructionResultErrorUnionPayload *)instruction);
         case IrInstructionIdResultReturn:
             return ir_analyze_instruction_result_return(ira, (IrInstructionResultReturn *)instruction);
         case IrInstructionIdResultParam:
@@ -21718,6 +21757,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdEnumToInt:
         case IrInstructionIdResultOptionalPayload:
         case IrInstructionIdResultErrorUnionPayload:
+        case IrInstructionIdResultErrorUnionCode:
         case IrInstructionIdResultReturn:
         case IrInstructionIdResultParam:
         case IrInstructionIdResultPtrCast:

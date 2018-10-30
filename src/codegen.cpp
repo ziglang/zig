@@ -5118,6 +5118,14 @@ static LLVMValueRef ir_render_result_error_union_payload(CodeGen *g, IrExecutabl
     return LLVMBuildStructGEP(g->builder, prev_result_loc, err_union_payload_index, "");
 }
 
+static LLVMValueRef ir_render_result_error_union_code(CodeGen *g, IrExecutable *executable,
+        IrInstructionResultErrorUnionCode *instruction)
+{
+    LLVMValueRef prev_result_loc = ir_llvm_value(g, instruction->prev_result_loc);
+    // TODO write 0xaa in debug mode to the undefined payload
+    return LLVMBuildStructGEP(g->builder, prev_result_loc, err_union_err_index, "");
+}
+
 static LLVMValueRef ir_render_assert_non_error(CodeGen *g, IrExecutable *executable,
         IrInstructionAssertNonError *instruction)
 {
@@ -5383,6 +5391,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_result_optional_payload(g, executable, (IrInstructionResultOptionalPayload *)instruction);
         case IrInstructionIdResultErrorUnionPayload:
             return ir_render_result_error_union_payload(g, executable, (IrInstructionResultErrorUnionPayload *)instruction);
+        case IrInstructionIdResultErrorUnionCode:
+            return ir_render_result_error_union_code(g, executable, (IrInstructionResultErrorUnionCode *)instruction);
         case IrInstructionIdAssertNonError:
             return ir_render_assert_non_error(g, executable, (IrInstructionAssertNonError *)instruction);
         case IrInstructionIdResultSliceToBytes:

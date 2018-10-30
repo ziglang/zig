@@ -2175,6 +2175,7 @@ enum IrInstructionId {
     IrInstructionIdCheckRuntimeScope,
     IrInstructionIdResultOptionalPayload,
     IrInstructionIdResultErrorUnionPayload,
+    IrInstructionIdResultErrorUnionCode,
     IrInstructionIdResultReturn,
     IrInstructionIdResultBytesToSlice,
     IrInstructionIdResultSliceToBytes,
@@ -3293,6 +3294,12 @@ struct IrInstructionCheckRuntimeScope {
 };
 
 struct IrInstructionResultErrorUnionPayload {
+    IrInstruction base;
+
+    IrInstruction *prev_result_loc;
+};
+
+struct IrInstructionResultErrorUnionCode {
     IrInstruction base;
 
     IrInstruction *prev_result_loc;

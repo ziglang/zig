@@ -1337,6 +1337,12 @@ static void ir_print_result_error_union_payload(IrPrint *irp, IrInstructionResul
     fprintf(irp->f, ")");
 }
 
+static void ir_print_result_error_union_code(IrPrint *irp, IrInstructionResultErrorUnionCode *instruction) {
+    fprintf(irp->f, "ResultErrorUnionCode(");
+    ir_print_other_instruction(irp, instruction->prev_result_loc);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_result_return(IrPrint *irp, IrInstructionResultReturn *instruction) {
     fprintf(irp->f, "ResultReturn");
 }
@@ -1814,6 +1820,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdResultErrorUnionPayload:
             ir_print_result_error_union_payload(irp, (IrInstructionResultErrorUnionPayload *)instruction);
+            break;
+        case IrInstructionIdResultErrorUnionCode:
+            ir_print_result_error_union_code(irp, (IrInstructionResultErrorUnionCode *)instruction);
             break;
         case IrInstructionIdResultReturn:
             ir_print_result_return(irp, (IrInstructionResultReturn *)instruction);
