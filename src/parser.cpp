@@ -1604,7 +1604,7 @@ static AstNode *ast_parse_if_try_test_expr(ParseContext *pc, size_t *token_index
         node->data.if_err_expr.else_node = else_node;
         return node;
     } else if (var_name_tok != nullptr) {
-        AstNode *node = ast_create_node(pc, NodeTypeTestExpr, if_token);
+        AstNode *node = ast_create_node(pc, NodeTypeIfOptional, if_token);
         node->data.test_expr.target_node = condition;
         node->data.test_expr.var_is_ptr = var_is_ptr;
         node->data.test_expr.var_symbol = token_buf(var_name_tok);
@@ -2407,7 +2407,7 @@ bool statement_terminates_without_semicolon(AstNode *node) {
             if (node->data.if_err_expr.else_node)
                 return statement_terminates_without_semicolon(node->data.if_err_expr.else_node);
             return node->data.if_err_expr.then_node->type == NodeTypeBlock;
-        case NodeTypeTestExpr:
+        case NodeTypeIfOptional:
             if (node->data.test_expr.else_node)
                 return statement_terminates_without_semicolon(node->data.test_expr.else_node);
             return node->data.test_expr.then_node->type == NodeTypeBlock;
@@ -3027,7 +3027,7 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             visit_field(&node->data.if_err_expr.then_node, visit, context);
             visit_field(&node->data.if_err_expr.else_node, visit, context);
             break;
-        case NodeTypeTestExpr:
+        case NodeTypeIfOptional:
             visit_field(&node->data.test_expr.target_node, visit, context);
             visit_field(&node->data.test_expr.then_node, visit, context);
             visit_field(&node->data.test_expr.else_node, visit, context);

@@ -436,7 +436,7 @@ enum NodeType {
     NodeTypeArrayType,
     NodeTypeErrorType,
     NodeTypeIfErrorExpr,
-    NodeTypeTestExpr,
+    NodeTypeIfOptional,
     NodeTypeErrorSetDecl,
     NodeTypeCancel,
     NodeTypeResume,
@@ -2370,6 +2370,7 @@ struct IrInstructionFieldPtr {
     IrInstruction *container_ptr;
     Buf *field_name_buffer;
     IrInstruction *field_name_expr;
+    IrInstruction *container_type;
     bool is_const;
 };
 

@@ -3517,7 +3517,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeArrayType:
         case NodeTypeErrorType:
         case NodeTypeIfErrorExpr:
-        case NodeTypeTestExpr:
+        case NodeTypeIfOptional:
         case NodeTypeErrorSetDecl:
         case NodeTypeCancel:
         case NodeTypeResume:
