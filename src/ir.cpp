@@ -10984,19 +10984,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     if (actual_type->id == ZigTypeIdComptimeFloat ||
         actual_type->id == ZigTypeIdComptimeInt)
     {
-        if ((err = ensure_complete_type(ira->codegen, wanted_type)))
-            return ira->codegen->invalid_instruction;
-        if (wanted_type->id == ZigTypeIdEnum) {
-            IrInstruction *cast1 = ir_analyze_cast(ira, source_instr, wanted_type->data.enumeration.tag_int_type, value);
-            if (type_is_invalid(cast1->value.type))
-                return ira->codegen->invalid_instruction;
-
-            IrInstruction *cast2 = ir_analyze_cast(ira, source_instr, wanted_type, cast1);
-            if (type_is_invalid(cast2->value.type))
-                return ira->codegen->invalid_instruction;
-
-            return cast2;
-        } else if (ir_num_lit_fits_in_other_type(ira, value, wanted_type, true)) {
+        if (ir_num_lit_fits_in_other_type(ira, value, wanted_type, true)) {
             CastOp op;
             if ((actual_type->id == ZigTypeIdComptimeFloat &&
                  wanted_type->id == ZigTypeIdFloat) ||
@@ -11211,7 +11199,7 @@ static ZigType *adjust_ptr_len(CodeGen *g, ZigType *ptr_type, PtrLen ptr_len) {
 }
 
 static IrInstruction *ir_implicit_cast_result(IrAnalyze *ira, IrInstruction *result_loc,
-        ZigType *needed_child_type)
+        ZigType *needed_child_type, bool allow_failure)
 {
     Error err;
     if (type_is_invalid(result_loc->value.type) || type_is_invalid(needed_child_type))
@@ -11278,12 +11266,16 @@ static IrInstruction *ir_implicit_cast_result(IrAnalyze *ira, IrInstruction *res
             needed_child_type->id == ZigTypeIdComptimeFloat)
         {
             IrInstruction *cast1 = ir_implicit_cast_result(ira, result_loc,
-                    have_child_type->data.error_union.payload_type);
+                    have_child_type->data.error_union.payload_type, allow_failure);
             if (type_is_invalid(cast1->value.type))
                 return ira->codegen->invalid_instruction;
 
-            return ir_implicit_cast_result(ira, cast1, needed_child_type);
+            return ir_implicit_cast_result(ira, cast1, needed_child_type, allow_failure);
         }
+    }
+
+    if (allow_failure) {
+        return result_loc;
     }
 
     ErrorMsg *parent_msg = ir_add_error_node(ira, source_node,
@@ -13377,7 +13369,7 @@ no_mem_slot:
 }
 
 static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source_instr,
-        IrInstruction *uncasted_ptr, IrInstruction *value)
+        IrInstruction *uncasted_ptr, IrInstruction *uncasted_value)
 {
     if (uncasted_ptr->value.type->id != ZigTypeIdPointer) {
         ir_add_error(ira, uncasted_ptr,
@@ -13394,8 +13386,13 @@ static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source
         return ira->codegen->invalid_instruction;
     }
 
-    IrInstruction *ptr = ir_implicit_cast_result(ira, uncasted_ptr, value->value.type);
+    IrInstruction *ptr = ir_implicit_cast_result(ira, uncasted_ptr, uncasted_value->value.type, true);
     if (type_is_invalid(ptr->value.type))
+        return ira->codegen->invalid_instruction;
+
+    ZigType *child_type = ptr->value.type->data.pointer.child_type;
+    IrInstruction *value = ir_implicit_cast(ira, uncasted_value, child_type);
+    if (type_is_invalid(value->value.type))
         return ira->codegen->invalid_instruction;
 
     if (instr_is_comptime(ptr) && ptr->value.data.x_ptr.special != ConstPtrSpecialHardCodedAddr) {
@@ -13977,7 +13974,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call
     IrInstruction *result_loc = nullptr;
 
     if (call_instruction->result_loc != nullptr) {
-        result_loc = ir_implicit_cast_result(ira, call_instruction->result_loc->child, return_type);
+        result_loc = ir_implicit_cast_result(ira, call_instruction->result_loc->child, return_type, false);
         if (type_is_invalid(result_loc->value.type))
             return ira->codegen->invalid_instruction;
     }
@@ -15434,21 +15431,7 @@ static IrInstruction *ir_analyze_instruction_store_ptr(IrAnalyze *ira, IrInstruc
 static IrInstruction *ir_analyze_store_result(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value,
         IrInstruction *uncasted_result_loc)
 {
-    if (instr_is_comptime(value)) {
-        // No need for the ir_implicit_cast_result for comptime values.
-        return ir_analyze_store_ptr(ira, source_instr, uncasted_result_loc, value);
-    }
-
-    if (value->id == IrInstructionIdCall && handle_is_ptr(value->value.type)) {
-        // Elide this copy because it was the sret pointer in the function call.
-        return ir_const_void(ira, source_instr);
-    }
-
-    IrInstruction *result_loc = ir_implicit_cast_result(ira, uncasted_result_loc, value->value.type);
-    if (type_is_invalid(result_loc->value.type))
-        return ira->codegen->invalid_instruction;
-
-    return ir_analyze_store_ptr(ira, source_instr, result_loc, value);
+    zig_panic("TODO delete this instruction");
 }
 
 static IrInstruction *ir_analyze_instruction_store_result(IrAnalyze *ira, IrInstructionStoreResult *instruction) {
@@ -21388,7 +21371,7 @@ static IrInstruction *ir_analyze_instruction_first_arg_result_loc(IrAnalyze *ira
             return ira->codegen->invalid_instruction;
 
         IrInstruction *new_result_loc = ir_implicit_cast_result(ira, instruction->prev_result_loc->child,
-                dest_type);
+                dest_type, false);
         if (type_is_invalid(new_result_loc->value.type))
             return ira->codegen->invalid_instruction;
         return new_result_loc;
