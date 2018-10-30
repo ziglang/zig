@@ -10624,19 +10624,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     if (actual_type->id == ZigTypeIdComptimeFloat ||
         actual_type->id == ZigTypeIdComptimeInt)
     {
-        if ((err = ensure_complete_type(ira->codegen, wanted_type)))
-            return ira->codegen->invalid_instruction;
-        if (wanted_type->id == ZigTypeIdEnum) {
-            IrInstruction *cast1 = ir_analyze_cast(ira, source_instr, wanted_type->data.enumeration.tag_int_type, value);
-            if (type_is_invalid(cast1->value.type))
-                return ira->codegen->invalid_instruction;
-
-            IrInstruction *cast2 = ir_analyze_cast(ira, source_instr, wanted_type, cast1);
-            if (type_is_invalid(cast2->value.type))
-                return ira->codegen->invalid_instruction;
-
-            return cast2;
-        } else if (ir_num_lit_fits_in_other_type(ira, value, wanted_type, true)) {
+        if (ir_num_lit_fits_in_other_type(ira, value, wanted_type, true)) {
             CastOp op;
             if ((actual_type->id == ZigTypeIdComptimeFloat &&
                  wanted_type->id == ZigTypeIdFloat) ||
