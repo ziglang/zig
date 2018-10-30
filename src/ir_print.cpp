@@ -1332,7 +1332,9 @@ static void ir_print_result_optional_payload(IrPrint *irp, IrInstructionResultOp
 }
 
 static void ir_print_result_error_union_payload(IrPrint *irp, IrInstructionResultErrorUnionPayload *instruction) {
-    fprintf(irp->f, "ResultErrorUnionPayload");
+    fprintf(irp->f, "ResultErrorUnionPayload(");
+    ir_print_other_instruction(irp, instruction->prev_result_loc);
+    fprintf(irp->f, ")");
 }
 
 static void ir_print_result_return(IrPrint *irp, IrInstructionResultReturn *instruction) {

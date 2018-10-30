@@ -5108,6 +5108,16 @@ static LLVMValueRef ir_render_result_optional_payload(CodeGen *g, IrExecutable *
     return LLVMBuildStructGEP(g->builder, prev_result_loc, maybe_child_index, "");
 }
 
+static LLVMValueRef ir_render_result_error_union_payload(CodeGen *g, IrExecutable *executable,
+        IrInstructionResultErrorUnionPayload *instruction)
+{
+    LLVMValueRef prev_result_loc = ir_llvm_value(g, instruction->prev_result_loc);
+    LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, prev_result_loc, err_union_err_index, "");
+    LLVMTypeRef err_type_ref = g->builtin_types.entry_global_error_set->type_ref;
+    gen_store_untyped(g, LLVMConstInt(err_type_ref, 0, false), err_val_ptr, 0, false);
+    return LLVMBuildStructGEP(g->builder, prev_result_loc, err_union_payload_index, "");
+}
+
 static LLVMValueRef ir_render_assert_non_error(CodeGen *g, IrExecutable *executable,
         IrInstructionAssertNonError *instruction)
 {
@@ -5371,10 +5381,10 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_result_return(g, executable, (IrInstructionResultReturn *)instruction);
         case IrInstructionIdResultOptionalPayload:
             return ir_render_result_optional_payload(g, executable, (IrInstructionResultOptionalPayload *)instruction);
+        case IrInstructionIdResultErrorUnionPayload:
+            return ir_render_result_error_union_payload(g, executable, (IrInstructionResultErrorUnionPayload *)instruction);
         case IrInstructionIdAssertNonError:
             return ir_render_assert_non_error(g, executable, (IrInstructionAssertNonError *)instruction);
-        case IrInstructionIdResultErrorUnionPayload:
-            zig_panic("TODO");
         case IrInstructionIdResultSliceToBytes:
             zig_panic("TODO");
         case IrInstructionIdResultBytesToSlice:

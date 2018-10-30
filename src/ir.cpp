@@ -2805,6 +2805,17 @@ static IrInstruction *ir_build_result_optional_payload(IrBuilder *irb, Scope *sc
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_result_error_union_payload(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *prev_result_loc)
+{
+    IrInstructionResultErrorUnionPayload *instruction = ir_build_instruction<IrInstructionResultErrorUnionPayload>(irb, scope, source_node);
+    instruction->prev_result_loc = prev_result_loc;
+
+    ir_ref_instruction(prev_result_loc, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
 static IrInstruction *ir_build_result_return(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     IrInstructionResultReturn *instruction = ir_build_instruction<IrInstructionResultReturn>(irb, scope, source_node);
     return &instruction->base;
@@ -9812,12 +9823,26 @@ static IrInstruction *ir_analyze_result_optional_payload(IrAnalyze *ira, IrInstr
     ZigType *old_ptr_type = result_loc->value.type;
     assert(old_ptr_type->id == ZigTypeIdPointer);
     ZigType *new_ptr_type = get_pointer_to_type_extra(ira->codegen, needed_child_type,
-            old_ptr_type->data.pointer.is_const,
-            old_ptr_type->data.pointer.is_volatile,
-            old_ptr_type->data.pointer.ptr_len,
-            0, 0, 0);
+            false, old_ptr_type->data.pointer.is_volatile, PtrLenSingle, 0, 0, 0);
 
     IrInstruction *result = ir_build_result_optional_payload(&ira->new_irb, result_loc->scope,
+            result_loc->source_node, result_loc);
+    result->value.type = new_ptr_type;
+    return result;
+}
+
+static IrInstruction *ir_analyze_result_error_union_payload(IrAnalyze *ira, IrInstruction *result_loc,
+        ZigType *needed_child_type)
+{
+    if (instr_is_comptime(result_loc)) {
+        zig_panic("TODO comptime ir_analyze_result_error_union_payload");
+    }
+    ZigType *old_ptr_type = result_loc->value.type;
+    assert(old_ptr_type->id == ZigTypeIdPointer);
+    ZigType *new_ptr_type = get_pointer_to_type_extra(ira->codegen, needed_child_type,
+            false, old_ptr_type->data.pointer.is_volatile, PtrLenSingle, 0, 0, 0);
+
+    IrInstruction *result = ir_build_result_error_union_payload(&ira->new_irb, result_loc->scope,
             result_loc->source_node, result_loc);
     result->value.type = new_ptr_type;
     return result;
@@ -10787,7 +10812,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         return ir_analyze_null_to_maybe(ira, source_instr, value, wanted_type);
     }
 
-    // cast from child type of error type to error type
+    // cast from T to E!T
     if (wanted_type->id == ZigTypeIdErrorUnion) {
         if (types_match_const_cast_only(ira, wanted_type->data.error_union.payload_type, actual_type,
             source_node, false).id == ConstCastResultIdOk)
@@ -11124,6 +11149,15 @@ static IrInstruction *ir_implicit_cast_result(IrAnalyze *ira, IrInstruction *res
             false).id == ConstCastResultIdOk)
         {
             return ir_analyze_result_optional_payload(ira, result_loc, needed_child_type);
+        }
+    }
+
+    // cast from T to E!T
+    if (have_child_type->id == ZigTypeIdErrorUnion) {
+        if (types_match_const_cast_only(ira, have_child_type->data.error_union.payload_type, needed_child_type,
+            source_node, false).id == ConstCastResultIdOk)
+        {
+            return ir_analyze_result_error_union_payload(ira, result_loc, needed_child_type);
         }
     }
 
