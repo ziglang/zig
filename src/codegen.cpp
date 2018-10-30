@@ -3734,8 +3734,8 @@ static LLVMValueRef gen_non_null_bit(CodeGen *g, ZigType *maybe_type, LLVMValueR
     if (child_type->zero_bits) {
         return maybe_handle;
     } else {
-        bool maybe_is_ptr = type_is_codegen_pointer(child_type);
-        if (maybe_is_ptr) {
+        bool is_scalar = type_is_codegen_pointer(child_type) || child_type->id == ZigTypeIdErrorSet;
+        if (is_scalar) {
             return LLVMBuildICmp(g->builder, LLVMIntNE, maybe_handle, LLVMConstNull(maybe_type->type_ref), "");
         } else {
             LLVMValueRef maybe_field_ptr = LLVMBuildStructGEP(g->builder, maybe_handle, maybe_null_index, "");
@@ -3774,8 +3774,8 @@ static LLVMValueRef ir_render_unwrap_maybe(CodeGen *g, IrExecutable *executable,
     if (child_type->zero_bits) {
         return nullptr;
     } else {
-        bool maybe_is_ptr = type_is_codegen_pointer(child_type);
-        if (maybe_is_ptr) {
+        bool is_scalar = type_is_codegen_pointer(child_type) || child_type->id == ZigTypeIdErrorSet;
+        if (is_scalar) {
             return maybe_ptr;
         } else {
             LLVMValueRef maybe_struct_ref = get_handle_value(g, maybe_ptr, maybe_type, ptr_type);
@@ -4552,6 +4552,7 @@ static LLVMValueRef ir_render_unwrap_err_code(CodeGen *g, IrExecutable *executab
     ZigType *ptr_type = instruction->value->value.type;
     assert(ptr_type->id == ZigTypeIdPointer);
     ZigType *err_union_type = ptr_type->data.pointer.child_type;
+    assert(err_union_type->id == ZigTypeIdErrorUnion);
     ZigType *payload_type = err_union_type->data.error_union.payload_type;
     LLVMValueRef err_union_ptr = ir_llvm_value(g, instruction->value);
     LLVMValueRef err_union_handle = get_handle_value(g, err_union_ptr, err_union_type, ptr_type);
@@ -4561,6 +4562,23 @@ static LLVMValueRef ir_render_unwrap_err_code(CodeGen *g, IrExecutable *executab
         return gen_load_untyped(g, err_val_ptr, 0, false, "");
     } else {
         return err_union_handle;
+    }
+}
+
+static LLVMValueRef ir_render_error_union_field_error_set(CodeGen *g, IrExecutable *executable,
+        IrInstructionErrorUnionFieldErrorSet *instruction)
+{
+    ZigType *ptr_type = instruction->ptr->value.type;
+    assert(ptr_type->id == ZigTypeIdPointer);
+    ZigType *err_union_type = ptr_type->data.pointer.child_type;
+    assert(err_union_type->id == ZigTypeIdErrorUnion);
+    ZigType *payload_type = err_union_type->data.error_union.payload_type;
+    LLVMValueRef err_union_ptr = ir_llvm_value(g, instruction->ptr);
+
+    if (type_has_bits(payload_type)) {
+        return LLVMBuildStructGEP(g->builder, err_union_ptr, err_union_err_index, "");
+    } else {
+        return err_union_ptr;
     }
 }
 
@@ -4615,7 +4633,7 @@ static LLVMValueRef ir_render_maybe_wrap(CodeGen *g, IrExecutable *executable, I
     }
 
     LLVMValueRef payload_val = ir_llvm_value(g, instruction->value);
-    if (type_is_codegen_pointer(child_type)) {
+    if (type_is_codegen_pointer(child_type) || child_type->id == ZigTypeIdErrorSet) {
         return payload_val;
     }
 
@@ -5301,6 +5319,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_overflow_op(g, executable, (IrInstructionOverflowOp *)instruction);
         case IrInstructionIdTestErr:
             return ir_render_test_err(g, executable, (IrInstructionTestErr *)instruction);
+        case IrInstructionIdErrorUnionFieldErrorSet:
+            return ir_render_error_union_field_error_set(g, executable, (IrInstructionErrorUnionFieldErrorSet *)instruction);
         case IrInstructionIdUnwrapErrCode:
             return ir_render_unwrap_err_code(g, executable, (IrInstructionUnwrapErrCode *)instruction);
         case IrInstructionIdUnwrapErrPayload:
@@ -5735,6 +5755,8 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
                     return LLVMConstInt(LLVMInt1Type(), const_val->data.x_optional ? 1 : 0, false);
                 } else if (type_is_codegen_pointer(child_type)) {
                     return gen_const_val_ptr(g, const_val, name);
+                } else if (child_type->id == ZigTypeIdErrorSet) {
+                    zig_panic("TODO");
                 } else {
                     LLVMValueRef child_val;
                     LLVMValueRef maybe_val;

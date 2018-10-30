@@ -2186,6 +2186,7 @@ enum IrInstructionId {
     IrInstructionIdAllocaSrc,
     IrInstructionIdAllocaGen,
     IrInstructionIdAssertNonError,
+    IrInstructionIdErrorUnionFieldErrorSet,
 };
 
 struct IrInstruction {
@@ -2880,6 +2881,12 @@ struct IrInstructionUnwrapErrCode {
     IrInstruction base;
 
     IrInstruction *value;
+};
+
+struct IrInstructionErrorUnionFieldErrorSet {
+    IrInstruction base;
+
+    IrInstruction *ptr;
 };
 
 struct IrInstructionUnwrapErrPayload {

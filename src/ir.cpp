@@ -903,6 +903,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionAssertNonError *
     return IrInstructionIdAssertNonError;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionErrorUnionFieldErrorSet *) {
+    return IrInstructionIdErrorUnionFieldErrorSet;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -2921,6 +2925,17 @@ static IrInstruction *ir_build_assert_non_error(IrBuilder *irb, Scope *scope, As
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_error_union_field_error_set(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *ptr)
+{
+    IrInstructionErrorUnionFieldErrorSet *instruction = ir_build_instruction<IrInstructionErrorUnionFieldErrorSet>(irb, scope, source_node);
+    instruction->ptr = ptr;
+
+    ir_ref_instruction(ptr, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
 static void ir_count_defers(IrBuilder *irb, Scope *inner_scope, Scope *outer_scope, size_t *results) {
     results[ReturnKindUnconditional] = 0;
     results[ReturnKindError] = 0;
@@ -3153,7 +3168,7 @@ static IrInstruction *ir_gen_ptr(IrBuilder *irb, Scope *scope, AstNode *node, LV
             // must return the error code
             IrInstruction *payload_ptr = ir_build_unwrap_err_payload(irb, scope, node, ptr, false);
             ir_build_load_ptr(irb, scope, node, payload_ptr, result_loc);
-            return ir_build_unwrap_err_code(irb, scope, node, ptr);
+            return ir_build_error_union_field_error_set(irb, scope, node, ptr);
         }
         case LValOptional:
             zig_panic("TODO");
@@ -5109,11 +5124,12 @@ static IrInstruction *ir_gen_pointer_type(IrBuilder *irb, Scope *scope, AstNode 
 static IrInstruction *ir_gen_catch_unreachable(IrBuilder *irb, Scope *scope, AstNode *source_node,
         AstNode *expr_node, LVal lval, IrInstruction *result_loc)
 {
-    IrInstruction *err_val = ir_gen_node(irb, expr_node, scope, LValErrorUnion, result_loc);
-    if (err_val == irb->codegen->invalid_instruction)
+    IrInstruction *err_code_ptr = ir_gen_node(irb, expr_node, scope, LValErrorUnion, result_loc);
+    if (err_code_ptr == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
 
-    ir_build_assert_non_error(irb, scope, source_node, err_val);
+    IrInstruction *err_code = ir_build_load_ptr(irb, scope, source_node, err_code_ptr, nullptr);
+    ir_build_assert_non_error(irb, scope, source_node, err_code);
 
     return ir_gen_lval_ptr(irb, scope, source_node, lval, result_loc);
 }
@@ -6453,11 +6469,12 @@ static IrInstruction *ir_gen_catch(IrBuilder *irb, Scope *parent_scope, AstNode 
         return ir_gen_catch_unreachable(irb, parent_scope, node, op1_node, lval, result_loc);
     }
 
-    IrInstruction *err_val = ir_gen_node(irb, op1_node, parent_scope, LValErrorUnion, result_loc);
-    if (err_val == irb->codegen->invalid_instruction)
+    IrInstruction *err_code_ptr = ir_gen_node(irb, op1_node, parent_scope, LValErrorUnion, result_loc);
+    if (err_code_ptr == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
 
-    IrInstruction *is_err = ir_build_test_err(irb, parent_scope, node, err_val);
+    IrInstruction *opt_err_code = ir_build_load_ptr(irb, parent_scope, node, err_code_ptr, nullptr);
+    IrInstruction *is_err = ir_build_test_nonnull(irb, parent_scope, node, opt_err_code);
 
     IrInstruction *is_comptime;
     if (ir_should_inline(irb->exec, parent_scope)) {
@@ -6480,7 +6497,9 @@ static IrInstruction *ir_gen_catch(IrBuilder *irb, Scope *parent_scope, AstNode 
         ZigVar *var = ir_create_var(irb, node, parent_scope, var_name,
             is_const, is_const, is_shadowable, is_comptime);
         err_scope = var->child_scope;
-        ir_build_var_decl_src(irb, err_scope, var_node, var, nullptr, nullptr, err_val);
+        IrInstruction *unwrapped_err_code_ptr = ir_build_unwrap_maybe(irb, err_scope, var_node,
+                err_code_ptr, false);
+        ir_build_var_decl_src(irb, err_scope, var_node, var, nullptr, nullptr, unwrapped_err_code_ptr);
     } else {
         err_scope = parent_scope;
     }
@@ -19573,6 +19592,40 @@ static IrInstruction *ir_analyze_instruction_test_err(IrAnalyze *ira, IrInstruct
     }
 }
 
+static IrInstruction *ir_analyze_instruction_error_union_field_error_set(IrAnalyze *ira,
+    IrInstructionErrorUnionFieldErrorSet *instruction)
+{
+    IrInstruction *ptr = instruction->ptr->child;
+    if (type_is_invalid(ptr->value.type))
+        return ira->codegen->invalid_instruction;
+    ZigType *ptr_type = ptr->value.type;
+
+    assert(ptr_type->id == ZigTypeIdPointer);
+
+    ZigType *type_entry = ptr_type->data.pointer.child_type;
+    if (type_is_invalid(type_entry))
+        return ira->codegen->invalid_instruction;
+
+    if (type_entry->id != ZigTypeIdErrorUnion) {
+        ir_add_error(ira, ptr,
+            buf_sprintf("expected error union type, found '%s'", buf_ptr(&type_entry->name)));
+        return ira->codegen->invalid_instruction;
+    }
+
+    ZigType *opt_err_set = get_optional_type(ira->codegen, type_entry->data.error_union.err_set_type);
+    ZigType *result_type = get_pointer_to_type_extra(ira->codegen, opt_err_set,
+            ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile, PtrLenSingle, 0, 0, 0);
+
+    if (instr_is_comptime(ptr)) {
+        zig_panic("TODO need to change ConstExprValue x_err_union to have a ConstExprValue for error set value");
+    }
+
+    IrInstruction *result = ir_build_error_union_field_error_set(&ira->new_irb,
+        instruction->base.scope, instruction->base.source_node, ptr);
+    result->value.type = result_type;
+    return result;
+}
+
 static IrInstruction *ir_analyze_instruction_unwrap_err_code(IrAnalyze *ira,
     IrInstructionUnwrapErrCode *instruction)
 {
@@ -19681,19 +19734,21 @@ static IrInstruction *ir_analyze_instruction_assert_non_error(IrAnalyze *ira,
     if (type_is_invalid(err_code->value.type))
         return ira->codegen->invalid_instruction;
 
-    assert(err_code->value.type->id == ZigTypeIdErrorSet);
+    assert(err_code->value.type->id == ZigTypeIdOptional);
+    assert(err_code->value.type->data.maybe.child_type->id == ZigTypeIdErrorSet);
 
     if (instr_is_comptime(err_code)) {
-        ConstExprValue *err_val = ir_resolve_const(ira, err_code, UndefBad);
+        ConstExprValue *opt_val = ir_resolve_const(ira, err_code, UndefBad);
+        if (opt_val == nullptr)
+            return ira->codegen->invalid_instruction;
+        ConstExprValue *err_val = opt_val->data.x_optional;
         if (err_val == nullptr)
-            return ira->codegen->invalid_instruction;
+            return ir_const_void(ira, &instruction->base);
         ErrorTableEntry *err = err_val->data.x_err_set;
-        if (err != nullptr) {
-            ir_add_error(ira, &instruction->base,
-                buf_sprintf("caught unexpected error '%s'", buf_ptr(&err->name)));
-            return ira->codegen->invalid_instruction;
-        }
-        return ir_const_void(ira, &instruction->base);
+        assert(err != nullptr);
+        ir_add_error(ira, &instruction->base,
+            buf_sprintf("caught unexpected error '%s'", buf_ptr(&err->name)));
+        return ira->codegen->invalid_instruction;
     }
 
     ir_build_assert_non_error(&ira->new_irb, instruction->base.scope,
@@ -21593,6 +21648,8 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
             return ir_analyze_instruction_result_ptr_cast(ira, (IrInstructionResultPtrCast *)instruction);
         case IrInstructionIdAllocaSrc:
             return ir_analyze_instruction_alloca(ira, (IrInstructionAllocaSrc *)instruction);
+        case IrInstructionIdErrorUnionFieldErrorSet:
+            return ir_analyze_instruction_error_union_field_error_set(ira, (IrInstructionErrorUnionFieldErrorSet *)instruction);
         case IrInstructionIdResultBytesToSlice:
             zig_panic("TODO");
         case IrInstructionIdResultSliceToBytes:
@@ -21829,6 +21886,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdResultBytesToSlice:
         case IrInstructionIdAllocaSrc:
         case IrInstructionIdAllocaGen:
+        case IrInstructionIdErrorUnionFieldErrorSet:
             return false;
 
         case IrInstructionIdLoadPtr:
