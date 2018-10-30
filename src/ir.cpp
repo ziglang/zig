@@ -3832,7 +3832,9 @@ static IrInstruction *ir_gen_array_access(IrBuilder *irb, Scope *scope, AstNode 
     return ir_build_load_result(irb, scope, node, ptr_instruction, result_loc);
 }
 
-static IrInstruction *ir_gen_field_access(IrBuilder *irb, Scope *scope, AstNode *node) {
+static IrInstruction *ir_gen_field_access(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval,
+        IrInstruction *result_loc)
+{
     assert(node->type == NodeTypeFieldAccessExpr);
 
     AstNode *container_ref_node = node->data.field_access_expr.struct_expr;
@@ -3842,7 +3844,8 @@ static IrInstruction *ir_gen_field_access(IrBuilder *irb, Scope *scope, AstNode 
     if (container_ref_instruction == irb->codegen->invalid_instruction)
         return container_ref_instruction;
 
-    return ir_build_field_ptr(irb, scope, node, container_ref_instruction, nullptr, field_name);
+    IrInstruction *field_ptr = ir_build_field_ptr(irb, scope, node, container_ref_instruction, nullptr, field_name);
+    return ir_gen_ptr(irb, scope, node, lval, result_loc, field_ptr);
 }
 
 static IrInstruction *ir_gen_overflow_op(IrBuilder *irb, Scope *scope, AstNode *node, IrOverflowOp op) {
@@ -5856,7 +5859,7 @@ static IrInstruction *ir_gen_asm_expr(IrBuilder *irb, Scope *scope, AstNode *nod
     return ir_build_asm(irb, scope, node, input_list, output_types, output_vars, return_count, is_volatile);
 }
 
-static IrInstruction *ir_gen_if_optional_expr(IrBuilder *irb, Scope *scope, AstNode *node,
+static IrInstruction *ir_gen_if_optional_expr(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval,
         IrInstruction *result_loc)
 {
     assert(node->type == NodeTypeIfOptional);
@@ -5897,12 +5900,10 @@ static IrInstruction *ir_gen_if_optional_expr(IrBuilder *irb, Scope *scope, AstN
         ZigVar *var = ir_create_var(irb, node, subexpr_scope,
                 var_symbol, is_const, is_const, is_shadowable, is_comptime);
 
-        IrInstruction *payload_alloca = ir_build_alloca_src(irb, scope, node, nullptr, nullptr, "optional_payload");
-        IrInstruction *var_ptr_value = ir_build_unwrap_maybe(irb, subexpr_scope, node, maybe_val_ptr, false);
-        IrInstruction *var_value = var_is_ptr ? var_ptr_value : ir_build_load_result(irb, subexpr_scope, node,
-                var_ptr_value, payload_alloca);
-        ir_build_store_result(irb, subexpr_scope, node, payload_alloca, var_value);
-        ir_build_var_decl_src(irb, subexpr_scope, node, var, var_type, nullptr, payload_alloca);
+        IrInstruction *payload_ptr = ir_build_unwrap_maybe(irb, subexpr_scope, node, maybe_val_ptr, false);
+        IrInstruction *var_ptr = var_is_ptr ?
+            ir_build_ref(irb, subexpr_scope, node, payload_ptr, true, false) : payload_ptr;
+        ir_build_var_decl_src(irb, subexpr_scope, node, var, var_type, nullptr, var_ptr);
         var_scope = var->child_scope;
     } else {
         var_scope = subexpr_scope;
@@ -5910,7 +5911,6 @@ static IrInstruction *ir_gen_if_optional_expr(IrBuilder *irb, Scope *scope, AstN
     IrInstruction *then_expr_result = ir_gen_node(irb, then_node, var_scope, LValNone, result_loc);
     if (then_expr_result == irb->codegen->invalid_instruction)
         return then_expr_result;
-    IrBasicBlock *after_then_block = irb->current_basic_block;
     if (!instr_is_unreachable(then_expr_result))
         ir_mark_gen(ir_build_br(irb, scope, node, endif_block, is_comptime));
 
@@ -5923,19 +5923,11 @@ static IrInstruction *ir_gen_if_optional_expr(IrBuilder *irb, Scope *scope, AstN
     } else {
         else_expr_result = ir_build_const_void(irb, scope, node);
     }
-    IrBasicBlock *after_else_block = irb->current_basic_block;
     if (!instr_is_unreachable(else_expr_result))
         ir_mark_gen(ir_build_br(irb, scope, node, endif_block, is_comptime));
 
     ir_set_cursor_at_end_and_append_block(irb, endif_block);
-    IrInstruction **incoming_values = allocate<IrInstruction *>(2);
-    incoming_values[0] = then_expr_result;
-    incoming_values[1] = else_expr_result;
-    IrBasicBlock **incoming_blocks = allocate<IrBasicBlock *>(2);
-    incoming_blocks[0] = after_then_block;
-    incoming_blocks[1] = after_else_block;
-
-    return ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values);
+    return ir_gen_lval_ptr(irb, scope, node, lval, result_loc);
 }
 
 static IrInstruction *ir_gen_if_err_expr(IrBuilder *irb, Scope *scope, AstNode *node, IrInstruction *result_loc) {
@@ -7276,15 +7268,7 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
         case NodeTypeReturnExpr:
             return ir_gen_return(irb, scope, node, lval, result_loc);
         case NodeTypeFieldAccessExpr:
-            {
-                IrInstruction *ptr_instruction = ir_gen_field_access(irb, scope, node);
-                if (ptr_instruction == irb->codegen->invalid_instruction)
-                    return ptr_instruction;
-                if (lval == LValPtr)
-                    return ptr_instruction;
-
-                return ir_build_load_ptr(irb, scope, node, ptr_instruction, nullptr);
-            }
+            return ir_gen_field_access(irb, scope, node, lval, result_loc);
         case NodeTypePtrDeref: {
             AstNode *expr_node = node->data.ptr_deref_expr.target;
             IrInstruction *value = ir_gen_node(irb, expr_node, scope, lval, nullptr);
@@ -7325,7 +7309,7 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
         case NodeTypeIfErrorExpr:
             return ir_lval_wrap(irb, scope, ir_gen_if_err_expr(irb, scope, node, result_loc), lval);
         case NodeTypeIfOptional:
-            return ir_lval_wrap(irb, scope, ir_gen_if_optional_expr(irb, scope, node, result_loc), lval);
+            return ir_gen_if_optional_expr(irb, scope, node, lval, result_loc);
         case NodeTypeSwitchExpr:
             return ir_lval_wrap(irb, scope, ir_gen_switch_expr(irb, scope, node, result_loc), lval);
         case NodeTypeCompTime:

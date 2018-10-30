@@ -491,8 +491,9 @@ static void ir_print_test_null(IrPrint *irp, IrInstructionTestNonNull *instructi
 }
 
 static void ir_print_unwrap_maybe(IrPrint *irp, IrInstructionUnwrapOptional *instruction) {
-    fprintf(irp->f, "&??*");
+    fprintf(irp->f, "UnwrapOptional(");
     ir_print_other_instruction(irp, instruction->value);
+    fprintf(irp->f, ")");
     if (!instruction->safety_check_on) {
         fprintf(irp->f, " // no safety");
     }
