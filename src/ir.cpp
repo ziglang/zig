@@ -13377,30 +13377,25 @@ no_mem_slot:
 }
 
 static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source_instr,
-        IrInstruction *ptr, IrInstruction *value)
+        IrInstruction *uncasted_ptr, IrInstruction *value)
 {
-    if (ptr->value.type->id != ZigTypeIdPointer) {
-        ir_add_error(ira, ptr,
-            buf_sprintf("attempt to dereference non pointer type '%s'", buf_ptr(&ptr->value.type->name)));
+    if (uncasted_ptr->value.type->id != ZigTypeIdPointer) {
+        ir_add_error(ira, uncasted_ptr,
+            buf_sprintf("attempt to dereference non pointer type '%s'", buf_ptr(&uncasted_ptr->value.type->name)));
         return ira->codegen->invalid_instruction;
     }
 
-    Error err;
-    if ((err = resolve_possible_alloca_inference(ira, ptr, value->value.type)))
-        return ira->codegen->invalid_instruction;
-
-    if (ptr->value.data.x_ptr.special == ConstPtrSpecialDiscard) {
+    if (uncasted_ptr->value.data.x_ptr.special == ConstPtrSpecialDiscard) {
         return ir_const_void(ira, source_instr);
     }
 
-    if (ptr->value.type->data.pointer.is_const && !source_instr->is_gen) {
+    if (uncasted_ptr->value.type->data.pointer.is_const && !source_instr->is_gen) {
         ir_add_error(ira, source_instr, buf_sprintf("cannot assign to constant"));
         return ira->codegen->invalid_instruction;
     }
 
-    ZigType *child_type = ptr->value.type->data.pointer.child_type;
-    IrInstruction *casted_value = ir_implicit_cast(ira, value, child_type);
-    if (casted_value == ira->codegen->invalid_instruction)
+    IrInstruction *ptr = ir_implicit_cast_result(ira, uncasted_ptr, value->value.type);
+    if (type_is_invalid(ptr->value.type))
         return ira->codegen->invalid_instruction;
 
     if (instr_is_comptime(ptr) && ptr->value.data.x_ptr.special != ConstPtrSpecialHardCodedAddr) {
@@ -13409,12 +13404,12 @@ static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source
             return ira->codegen->invalid_instruction;
         }
         if (ptr->value.data.x_ptr.mut == ConstPtrMutComptimeVar) {
-            if (instr_is_comptime(casted_value)) {
+            if (instr_is_comptime(value)) {
                 ConstExprValue *dest_val = ir_const_ptr_pointee(ira, &ptr->value, source_instr->source_node);
                 if (dest_val == nullptr)
                     return ira->codegen->invalid_instruction;
                 if (dest_val->special != ConstValSpecialRuntime) {
-                    *dest_val = casted_value->value;
+                    *dest_val = value->value;
                     if (!ira->new_irb.current_basic_block->must_be_comptime_source_instr) {
                         ira->new_irb.current_basic_block->must_be_comptime_source_instr = source_instr;
                     }
@@ -13431,7 +13426,7 @@ static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source
     }
 
     IrInstruction *result = ir_build_store_ptr(&ira->new_irb, source_instr->scope, source_instr->source_node,
-        ptr, casted_value);
+        ptr, value);
     result->value.type = ira->codegen->builtin_types.entry_void;
     return result;
 }
