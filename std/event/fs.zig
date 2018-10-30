@@ -1310,7 +1310,7 @@ test "write a file, watch it, write it again" {
     try loop.initMultiThreaded(allocator);
     defer loop.deinit();
 
-    var result: error!void = error.ResultNeverWritten;
+    var result: anyerror!void = error.ResultNeverWritten;
     const handle = try async<allocator> testFsWatchCantFail(&loop, &result);
     defer cancel handle;
 
@@ -1318,7 +1318,7 @@ test "write a file, watch it, write it again" {
     return result;
 }
 
-async fn testFsWatchCantFail(loop: *Loop, result: *(error!void)) void {
+async fn testFsWatchCantFail(loop: *Loop, result: *(anyerror!void)) void {
     result.* = await async testFsWatch(loop) catch unreachable;
 }
 

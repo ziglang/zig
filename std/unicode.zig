@@ -286,7 +286,7 @@ fn testUtf8Encode() !void {
     debug.assert(array[0] == 0b11000010);
     debug.assert(array[1] == 0b10100010);
 
-    debug.assert((try utf8Encode(try utf8Decode("𐍈"), array[0..])) == 4);
+    debug.assert((try utf8Encode(try utf8Decode("𝝈"), array[0..])) == 4);
     debug.assert(array[0] == 0b11110000);
     debug.assert(array[1] == 0b10010000);
     debug.assert(array[2] == 0b10001101);
@@ -305,7 +305,7 @@ fn testUtf8EncodeError() void {
     testErrorEncode(0xffffffff, array[0..], error.CodepointTooLarge);
 }
 
-fn testErrorEncode(codePoint: u32, array: []u8, expectedErr: error) void {
+fn testErrorEncode(codePoint: u32, array: []u8, expectedErr: anyerror) void {
     if (utf8Encode(codePoint, array)) |_| {
         unreachable;
     } else |err| {
@@ -458,7 +458,7 @@ fn testMiscInvalidUtf8() void {
     testValid("\xee\x80\x80", 0xe000);
 }
 
-fn testError(bytes: []const u8, expected_err: error) void {
+fn testError(bytes: []const u8, expected_err: anyerror) void {
     if (testDecode(bytes)) |_| {
         unreachable;
     } else |err| {

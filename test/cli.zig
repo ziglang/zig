@@ -96,7 +96,7 @@ fn testZigInitExe(zig_exe: []const u8, dir_path: []const u8) !void {
     assertOrPanic(std.mem.eql(u8, run_result.stderr, "All your base are belong to us.\n"));
 }
 
-fn testGodboltApi(zig_exe: []const u8, dir_path: []const u8) error!void {
+fn testGodboltApi(zig_exe: []const u8, dir_path: []const u8) anyerror!void {
     if (builtin.os != builtin.Os.linux or builtin.arch != builtin.Arch.x86_64) return;
 
     const example_zig_path = try os.path.join(a, dir_path, "example.zig");

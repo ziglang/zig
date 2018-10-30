@@ -198,7 +198,7 @@ test "std.net.parseIp4" {
     testParseIp4Fail("100..0.1", error.InvalidCharacter);
 }
 
-fn testParseIp4Fail(buf: []const u8, expected_err: error) void {
+fn testParseIp4Fail(buf: []const u8, expected_err: anyerror) void {
     if (parseIp4(buf)) |_| {
         @panic("expected error");
     } else |e| {

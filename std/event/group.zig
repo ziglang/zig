@@ -144,7 +144,7 @@ async fn testGroup(loop: *Loop) void {
     await (async group.wait() catch @panic("memory"));
     assert(count == 11);
 
-    var another = Group(error!void).init(loop);
+    var another = Group(anyerror!void).init(loop);
     another.add(async somethingElse() catch @panic("memory")) catch @panic("memory");
     another.call(doSomethingThatFails) catch @panic("memory");
     std.debug.assertError(await (async another.wait() catch @panic("memory")), error.ItBroke);
@@ -162,7 +162,7 @@ async fn increaseByTen(count: *usize) void {
     }
 }
 
-async fn doSomethingThatFails() error!void {}
-async fn somethingElse() error!void {
+async fn doSomethingThatFails() anyerror!void {}
+async fn somethingElse() anyerror!void {
     return error.ItBroke;
 }

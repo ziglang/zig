@@ -53,7 +53,7 @@ test "explicit cast from integer to error type" {
     testCastIntToErr(error.ItBroke);
     comptime testCastIntToErr(error.ItBroke);
 }
-fn testCastIntToErr(err: error) void {
+fn testCastIntToErr(err: anyerror) void {
     const x = @errorToInt(err);
     const y = @intToError(x);
     assert(error.ItBroke == y);
@@ -80,7 +80,7 @@ fn testPeerResolveArrayConstSlice(b: bool) void {
     assert(mem.eql(u8, value2, "zz"));
 }
 
-test "implicitly cast from T to error!?T" {
+test "implicitly cast from T to anyerror!?T" {
     castToOptionalTypeError(1);
     comptime castToOptionalTypeError(1);
 }
@@ -89,36 +89,36 @@ const A = struct {
 };
 fn castToOptionalTypeError(z: i32) void {
     const x = i32(1);
-    const y: error!?i32 = x;
+    const y: anyerror!?i32 = x;
     assert((try y).? == 1);
 
     const f = z;
-    const g: error!?i32 = f;
+    const g: anyerror!?i32 = f;
 
     const a = A{ .a = z };
-    const b: error!?A = a;
+    const b: anyerror!?A = a;
     assert((b catch unreachable).?.a == 1);
 }
 
-test "implicitly cast from int to error!?T" {
+test "implicitly cast from int to anyerror!?T" {
     implicitIntLitToOptional();
     comptime implicitIntLitToOptional();
 }
 fn implicitIntLitToOptional() void {
     const f: ?i32 = 1;
-    const g: error!?i32 = 1;
+    const g: anyerror!?i32 = 1;
 }
 
-test "return null from fn() error!?&T" {
+test "return null from fn() anyerror!?&T" {
     const a = returnNullFromOptionalTypeErrorRef();
     const b = returnNullLitFromOptionalTypeErrorRef();
     assert((try a) == null and (try b) == null);
 }
-fn returnNullFromOptionalTypeErrorRef() error!?*A {
+fn returnNullFromOptionalTypeErrorRef() anyerror!?*A {
     const a: ?*A = null;
     return a;
 }
-fn returnNullLitFromOptionalTypeErrorRef() error!?*A {
+fn returnNullLitFromOptionalTypeErrorRef() anyerror!?*A {
     return null;
 }
 
@@ -163,7 +163,7 @@ fn castToOptionalSlice() ?[]const u8 {
     return "hi";
 }
 
-test "implicitly cast from [0]T to error![]T" {
+test "implicitly cast from [0]T to anyerror![]T" {
     testCastZeroArrayToErrSliceMut();
     comptime testCastZeroArrayToErrSliceMut();
 }
@@ -172,11 +172,11 @@ fn testCastZeroArrayToErrSliceMut() void {
     assert((gimmeErrOrSlice() catch unreachable).len == 0);
 }
 
-fn gimmeErrOrSlice() error![]u8 {
+fn gimmeErrOrSlice() anyerror![]u8 {
     return []u8{};
 }
 
-test "peer type resolution: [0]u8, []const u8, and error![]u8" {
+test "peer type resolution: [0]u8, []const u8, and anyerror![]u8" {
     {
         var data = "hi";
         const slice = data[0..];
@@ -190,7 +190,7 @@ test "peer type resolution: [0]u8, []const u8, and error![]u8" {
         assert((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
     }
 }
-fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) error![]u8 {
+fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) anyerror![]u8 {
     if (a) {
         return []u8{};
     }
@@ -236,7 +236,7 @@ test "peer type resolution: error and [N]T" {
 //        else => error.BadValue,
 //    };
 //}
-fn testPeerErrorAndArray2(x: u8) error![]const u8 {
+fn testPeerErrorAndArray2(x: u8) anyerror![]const u8 {
     return switch (x) {
         0x00 => "OK",
         0x01 => "OKK",

@@ -216,7 +216,7 @@ const Tokenizer = struct {
     }
 };
 
-fn parseError(tokenizer: *Tokenizer, token: Token, comptime fmt: []const u8, args: ...) error {
+fn parseError(tokenizer: *Tokenizer, token: Token, comptime fmt: []const u8, args: ...) anyerror {
     const loc = tokenizer.getTokenLocation(token);
     warn("{}:{}:{}: error: " ++ fmt ++ "\n", tokenizer.source_file_name, loc.line + 1, loc.column + 1, args);
     if (loc.line_start <= loc.line_end) {

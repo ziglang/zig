@@ -124,7 +124,7 @@ pub fn assert(ok: bool) void {
 
 /// TODO: add `==` operator for `error_union == error_set`, and then
 /// remove this function
-pub fn assertError(value: var, expected_error: error) void {
+pub fn assertError(value: var, expected_error: anyerror) void {
     if (value) {
         @panic("expected error");
     } else |actual_error| {

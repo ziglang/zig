@@ -789,7 +789,7 @@ fn forkChildErrReport(fd: i32, err: ChildProcess.SpawnError) noreturn {
     posix.exit(1);
 }
 
-const ErrInt = @IntType(false, @sizeOf(error) * 8);
+const ErrInt = @IntType(false, @sizeOf(anyerror) * 8);
 
 fn writeIntFd(fd: i32, value: ErrInt) !void {
     const stream = &os.File.openHandle(fd).outStream().stream;

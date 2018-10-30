@@ -13,7 +13,7 @@ const Agg = struct {
 const v1 = Value{ .Int = 1234 };
 const v2 = Value{ .Array = []u8{3} ** 9 };
 
-const err = (error!Agg)(Agg{
+const err = (anyerror!Agg)(Agg{
     .val1 = v1,
     .val2 = v2,
 });
