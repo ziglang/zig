@@ -6322,8 +6322,10 @@ static void do_code_gen(CodeGen *g) {
             ZigType *ptr_type = instruction->base.value.type;
             assert(ptr_type->id == ZigTypeIdPointer);
             ZigType *child_type = ptr_type->data.pointer.child_type;
-            instruction->base.llvm_value = build_alloca(g, child_type, instruction->name_hint,
-                    get_ptr_align(g, ptr_type));
+            if (type_has_bits(child_type)) {
+                instruction->base.llvm_value = build_alloca(g, child_type, instruction->name_hint,
+                        get_ptr_align(g, ptr_type));
+            }
         }
 
         ImportTableEntry *import = get_scope_import(&fn_table_entry->fndef_scope->base);
