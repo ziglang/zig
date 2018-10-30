@@ -13,7 +13,7 @@ test "compare void with void compile time known" {
             .b = 1,
             .c = {},
         };
-        assert(foo.a == void{});
+        assert(foo.a == {});
     }
 }
 

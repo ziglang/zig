@@ -15,7 +15,7 @@ const assert = std.debug.assert;
 const assertError = std.debug.assertError;
 
 // This implementation is based on that from the rust stlib
-pub fn powi(comptime T: type, x: T, y: T) (errorset{Overflow, Underflow}!T) {
+pub fn powi(comptime T: type, x: T, y: T) (error{Overflow, Underflow}!T) {
     const info = @typeInfo(T);
 
     comptime assert(@typeInfo(T) == builtin.TypeId.Int);

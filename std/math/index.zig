@@ -244,17 +244,17 @@ test "math.max" {
     assert(max(i32(-1), i32(2)) == 2);
 }
 
-pub fn mul(comptime T: type, a: T, b: T) (errorset{Overflow}!T) {
+pub fn mul(comptime T: type, a: T, b: T) (error{Overflow}!T) {
     var answer: T = undefined;
     return if (@mulWithOverflow(T, a, b, &answer)) error.Overflow else answer;
 }
 
-pub fn add(comptime T: type, a: T, b: T) (errorset{Overflow}!T) {
+pub fn add(comptime T: type, a: T, b: T) (error{Overflow}!T) {
     var answer: T = undefined;
     return if (@addWithOverflow(T, a, b, &answer)) error.Overflow else answer;
 }
 
-pub fn sub(comptime T: type, a: T, b: T) (errorset{Overflow}!T) {
+pub fn sub(comptime T: type, a: T, b: T) (error{Overflow}!T) {
     var answer: T = undefined;
     return if (@subWithOverflow(T, a, b, &answer)) error.Overflow else answer;
 }
@@ -272,7 +272,7 @@ pub fn shlExact(comptime T: type, a: T, shift_amt: Log2Int(T)) !T {
 /// A negative shift amount results in a right shift.
 pub fn shl(comptime T: type, a: T, shift_amt: var) T {
     const abs_shift_amt = absCast(shift_amt);
-    const casted_shift_amt = if (abs_shift_amt >= T.bit_count) (return 0) else @intCast(Log2Int(T), abs_shift_amt);
+    const casted_shift_amt = if (abs_shift_amt >= T.bit_count) return 0 else @intCast(Log2Int(T), abs_shift_amt);
 
     if (@typeOf(shift_amt).is_signed) {
         if (shift_amt >= 0) {
@@ -296,7 +296,7 @@ test "math.shl" {
 /// A negative shift amount results in a lefft shift.
 pub fn shr(comptime T: type, a: T, shift_amt: var) T {
     const abs_shift_amt = absCast(shift_amt);
-    const casted_shift_amt = if (abs_shift_amt >= T.bit_count) (return 0) else @intCast(Log2Int(T), abs_shift_amt);
+    const casted_shift_amt = if (abs_shift_amt >= T.bit_count) return 0 else @intCast(Log2Int(T), abs_shift_amt);
 
     if (@typeOf(shift_amt).is_signed) {
         if (shift_amt >= 0) {
@@ -559,7 +559,7 @@ test "math.negateCast" {
 
 /// Cast an integer to a different integer type. If the value doesn't fit,
 /// return an error.
-pub fn cast(comptime T: type, x: var) (errorset{Overflow}!T) {
+pub fn cast(comptime T: type, x: var) (error{Overflow}!T) {
     comptime assert(@typeId(T) == builtin.TypeId.Int); // must pass an integer
     comptime assert(@typeId(@typeOf(x)) == builtin.TypeId.Int); // must pass an integer
     if (@maxValue(@typeOf(x)) > @maxValue(T) and x > @maxValue(T)) {

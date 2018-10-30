@@ -236,13 +236,13 @@ test "std.meta.definitionInfo" {
     }
 }
 
-pub fn fields(comptime T: type) (switch (@typeInfo(T)) {
+pub fn fields(comptime T: type) switch (@typeInfo(T)) {
     TypeId.Struct => []TypeInfo.StructField,
     TypeId.Union => []TypeInfo.UnionField,
     TypeId.ErrorSet => []TypeInfo.Error,
     TypeId.Enum => []TypeInfo.EnumField,
     else => @compileError("Expected struct, union, error set or enum type, found '" ++ @typeName(T) ++ "'"),
-}) {
+} {
     return switch (@typeInfo(T)) {
         TypeId.Struct => |info| info.fields,
         TypeId.Union => |info| info.fields,
@@ -281,13 +281,13 @@ test "std.meta.fields" {
     debug.assert(comptime uf[0].field_type == u8);
 }
 
-pub fn fieldInfo(comptime T: type, comptime field_name: []const u8) (switch (@typeInfo(T)) {
+pub fn fieldInfo(comptime T: type, comptime field_name: []const u8) switch (@typeInfo(T)) {
     TypeId.Struct => TypeInfo.StructField,
     TypeId.Union => TypeInfo.UnionField,
     TypeId.ErrorSet => TypeInfo.Error,
     TypeId.Enum => TypeInfo.EnumField,
     else => @compileError("Expected struct, union, error set or enum type, found '" ++ @typeName(T) ++ "'"),
-}) {
+} {
     inline for (comptime fields(T)) |field| {
         if (comptime mem.eql(u8, field.name, field_name))
             return field;
@@ -383,9 +383,9 @@ pub fn eql(a: var, b: @typeOf(a)) bool {
         },
         builtin.TypeId.ErrorUnion => {
             if (a) |a_p| {
-                if (b) |b_p| (return eql(a_p, b_p)) else |_| return false;
+                if (b) |b_p| return eql(a_p, b_p) else |_| return false;
             } else |a_e| {
-                if (b) |_| (return false) else |b_e| return a_e == b_e;
+                if (b) |_| return false else |b_e| return a_e == b_e;
             }
         },
         builtin.TypeId.Union => {

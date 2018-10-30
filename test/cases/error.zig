@@ -151,7 +151,7 @@ test "comptime err to int of error set with only 1 possible value" {
     comptime testErrToIntWithOnePossibleValue(error.A, @errorToInt(error.A));
 }
 fn testErrToIntWithOnePossibleValue(
-    x: errorset{A},
+    x: error{A},
     comptime value: u32,
 ) void {
     if (@errorToInt(x) != value) {
@@ -197,7 +197,7 @@ fn foo2(f: fn () error!void) void {
     const x = f();
 }
 
-fn bar2() (errorset{}!void) {}
+fn bar2() (error{}!void) {}
 
 test "error: Zero sized error set returned with value payload crash" {
     _ = foo3(0);

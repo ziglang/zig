@@ -785,12 +785,12 @@ test "enum with specified tag values" {
 
 fn testEnumWithSpecifiedTagValues(x: MultipleChoice) void {
     assert(@enumToInt(x) == 60);
-    assert(1234 == (switch (x) {
+    assert(1234 == switch (x) {
         MultipleChoice.A => 1,
         MultipleChoice.B => 2,
         MultipleChoice.C => u32(1234),
         MultipleChoice.D => 4,
-    }));
+    });
 }
 
 const MultipleChoice2 = enum(u32) {
@@ -812,7 +812,7 @@ test "enum with specified and unspecified tag values" {
 
 fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) void {
     assert(@enumToInt(x) == 1000);
-    assert(1234 == (switch (x) {
+    assert(1234 == switch (x) {
         MultipleChoice2.A => 1,
         MultipleChoice2.B => 2,
         MultipleChoice2.C => 3,
@@ -822,7 +822,7 @@ fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) void {
         MultipleChoice2.Unspecified3 => 7,
         MultipleChoice2.Unspecified4 => 8,
         MultipleChoice2.Unspecified5 => 9,
-    }));
+    });
 }
 
 test "cast integer literal to enum" {
