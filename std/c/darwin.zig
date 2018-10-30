@@ -40,7 +40,7 @@ pub extern "c" fn socket(domain: c_int, type: c_int, protocol: c_int) c_int;
 /// of the mach header in a Mach-O executable file type.  It does not appear in
 /// any file type other than a MH_EXECUTE file type.  The type of the symbol is
 /// absolute as the header is not part of any section.
-pub extern "c" var _mh_execute_header: (if (@sizeOf(usize) == 8) mach_header_64 else mach_header);
+pub extern "c" var _mh_execute_header: if (@sizeOf(usize) == 8) mach_header_64 else mach_header;
 
 pub const mach_header_64 = macho.mach_header_64;
 pub const mach_header = macho.mach_header;

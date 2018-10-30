@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const S = struct {
-    f: ?(fn () i32),
+    f: ?fn () i32,
 };
 
 const s = S{ .f = f };

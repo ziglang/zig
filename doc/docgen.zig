@@ -589,13 +589,13 @@ fn escapeHtml(allocator: *mem.Allocator, input: []const u8) ![]u8 {
 
 fn writeEscaped(out: var, input: []const u8) !void {
     for (input) |c| {
-        try (switch (c) {
+        try switch (c) {
             '&' => out.write("&amp;"),
             '<' => out.write("&lt;"),
             '>' => out.write("&gt;"),
             '"' => out.write("&quot;"),
             else => out.writeByte(c),
-        });
+        };
     }
 }
 

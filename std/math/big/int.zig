@@ -680,7 +680,7 @@ pub const Int = struct {
         defer if (aliased) {
             rma.swap(r);
             r.deinit();
-        }
+        };
 
         try r.ensureCapacity(a.len + b.len);
 

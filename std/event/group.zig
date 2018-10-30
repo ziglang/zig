@@ -41,7 +41,7 @@ pub fn Group(comptime ReturnType: type) type {
         }
 
         /// Add a promise to the group. Thread-safe.
-        pub fn add(self: *Self, handle: promise->ReturnType) (errorset{OutOfMemory}!void) {
+        pub fn add(self: *Self, handle: promise->ReturnType) (error{OutOfMemory}!void) {
             const node = try self.lock.loop.allocator.create(Stack.Node{
                 .next = undefined,
                 .data = handle,
@@ -61,7 +61,7 @@ pub fn Group(comptime ReturnType: type) type {
         /// This is equivalent to an async call, but the async function is added to the group, instead
         /// of returning a promise. func must be async and have return type ReturnType.
         /// Thread-safe.
-        pub fn call(self: *Self, comptime func: var, args: ...) (errorset{OutOfMemory}!void) {
+        pub fn call(self: *Self, comptime func: var, args: ...) (error{OutOfMemory}!void) {
             const S = struct {
                 async fn asyncFunc(node: **Stack.Node, args2: ...) ReturnType {
                     // TODO this is a hack to make the memory following be inside the coro frame

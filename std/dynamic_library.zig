@@ -203,7 +203,7 @@ test "dynamic_library" {
     const libname = switch (builtin.os) {
         Os.linux => "invalid_so.so",
         Os.windows => "invalid_dll.dll",
-        else => return,
+        else => return;,
     };
 
     const dynlib = DynLib.open(std.debug.global_allocator, libname) catch |err| {
