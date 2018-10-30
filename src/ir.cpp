@@ -7381,7 +7381,9 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
 
     ZigFn *fn_entry = exec_fn_entry(irb->exec);
 
-    irb->exec->return_result_loc = ir_build_result_return(irb, scope, node);
+    if (fn_entry != nullptr && handle_is_ptr(fn_entry->type_entry->data.fn.fn_type_id.return_type)) {
+        irb->exec->return_result_loc = ir_build_result_return(irb, scope, node);
+    }
 
     bool is_async = fn_entry != nullptr && fn_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionAsync;
     IrInstruction *coro_id;
