@@ -3138,6 +3138,29 @@ static IrInstruction *ir_gen_value(IrBuilder *irb, Scope *scope, AstNode *node, 
     return ir_lval_wrap(irb, scope, value, lval);
 }
 
+static IrInstruction *ir_gen_ptr(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval,
+        IrInstruction *result_loc, IrInstruction *ptr)
+{
+    switch (lval) {
+        case LValPtr:
+            assert(result_loc == nullptr);
+            return ptr;
+        case LValNone:
+            return ir_build_load_ptr(irb, scope, node, ptr, result_loc);
+        case LValErrorUnion: {
+            // ptr points to an error union;
+            // result_loc points to the result payload
+            // must return the error code
+            IrInstruction *payload_ptr = ir_build_unwrap_err_payload(irb, scope, node, ptr, false);
+            ir_build_load_ptr(irb, scope, node, payload_ptr, result_loc);
+            return ir_build_unwrap_err_code(irb, scope, node, ptr);
+        }
+        case LValOptional:
+            zig_panic("TODO");
+    }
+    zig_unreachable();
+}
+
 static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval,
         IrInstruction *result_loc)
 {
@@ -3735,10 +3758,7 @@ static IrInstruction *ir_gen_symbol(IrBuilder *irb, Scope *scope, AstNode *node,
     ZigVar *var = find_variable(irb->codegen, scope, variable_name, &crossed_fndef_scope);
     if (var) {
         IrInstruction *var_ptr = ir_build_var_ptr_x(irb, scope, node, var, crossed_fndef_scope);
-        if (lval == LValPtr)
-            return var_ptr;
-        IrInstruction *loaded = ir_build_load_ptr(irb, scope, node, var_ptr, result_loc);
-        return ir_lval_wrap(irb, scope, loaded, lval);
+        return ir_gen_ptr(irb, scope, node, lval, result_loc, var_ptr);
     }
 
     Tld *tld = find_decl(irb->codegen, scope, variable_name);
