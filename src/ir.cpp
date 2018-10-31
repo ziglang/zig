@@ -5362,7 +5362,7 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
         }
         IrInstruction *err_union_ptr = ir_gen_node(irb, node->data.while_expr.condition, subexpr_scope,
                 LValPtr, nullptr);
-        if (type_is_invalid(err_union_ptr->value.type))
+        if (err_union_ptr == irb->codegen->invalid_instruction)
             return err_union_ptr;
 
         IrInstruction *ptr_opt_err_code = ir_build_error_union_field_error_set(irb, scope,
@@ -5473,7 +5473,7 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
 
         IrInstruction *body_result = ir_gen_node(irb, node->data.while_expr.body, &loop_scope->base,
                 LValNone, result_loc);
-        if (type_is_invalid(body_result->value.type))
+        if (body_result == irb->codegen->invalid_instruction)
             return body_result;
 
         if (!instr_is_unreachable(body_result)) {
@@ -5924,7 +5924,7 @@ static IrInstruction *ir_gen_if_err_expr(IrBuilder *irb, Scope *scope, AstNode *
     Buf *err_symbol = node->data.if_err_expr.err_symbol;
 
     IrInstruction *err_union_ptr = ir_gen_node(irb, target_node, scope, LValPtr, nullptr);
-    if (type_is_invalid(err_union_ptr->value.type))
+    if (err_union_ptr == irb->codegen->invalid_instruction)
         return err_union_ptr;
 
     IrInstruction *ptr_opt_err_code = ir_build_error_union_field_error_set(irb, scope, node, err_union_ptr);
