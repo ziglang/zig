@@ -5101,24 +5101,22 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
                 ir_mark_gen(ir_build_br(irb, payload_scope, node, cond_block, is_comptime));
         }
 
-        IrInstruction *else_result = nullptr;
-        if (else_node) {
-            ir_set_cursor_at_end_and_append_block(irb, else_block);
+        ir_set_cursor_at_end_and_append_block(irb, else_block);
+        assert(else_node != nullptr);
 
-            // TODO make it an error to write to error variable
-            AstNode *err_symbol_node = else_node; // TODO make more accurate
-            ZigVar *err_var = ir_create_var(irb, err_symbol_node, scope, err_symbol,
-                    true, false, false, is_comptime);
-            Scope *err_scope = err_var->child_scope;
-            IrInstruction *err_var_value = ir_build_unwrap_err_code(irb, err_scope, err_symbol_node, err_val_ptr);
-            ir_build_var_decl(irb, err_scope, symbol_node, err_var, nullptr, nullptr, err_var_value);
+        // TODO make it an error to write to error variable
+        AstNode *err_symbol_node = else_node; // TODO make more accurate
+        ZigVar *err_var = ir_create_var(irb, err_symbol_node, scope, err_symbol,
+                true, false, false, is_comptime);
+        Scope *err_scope = err_var->child_scope;
+        IrInstruction *err_var_value = ir_build_unwrap_err_code(irb, err_scope, err_symbol_node, err_val_ptr);
+        ir_build_var_decl(irb, err_scope, symbol_node, err_var, nullptr, nullptr, err_var_value);
 
-            else_result = ir_gen_node(irb, else_node, err_scope);
-            if (else_result == irb->codegen->invalid_instruction)
-                return else_result;
-            if (!instr_is_unreachable(else_result))
-                ir_mark_gen(ir_build_br(irb, scope, node, end_block, is_comptime));
-        }
+        IrInstruction *else_result = ir_gen_node(irb, else_node, err_scope);
+        if (else_result == irb->codegen->invalid_instruction)
+            return else_result;
+        if (!instr_is_unreachable(else_result))
+            ir_mark_gen(ir_build_br(irb, scope, node, end_block, is_comptime));
         IrBasicBlock *after_else_block = irb->current_basic_block;
         ir_set_cursor_at_end_and_append_block(irb, end_block);
         if (else_result) {
