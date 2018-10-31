@@ -5070,6 +5070,7 @@ static IrInstruction *ir_gen_if_bool_expr(IrBuilder *irb, Scope *scope, AstNode 
             return irb->codegen->invalid_instruction;
     } else {
         else_expr_result = ir_build_const_void(irb, scope, node);
+        ir_build_store_ptr(irb, scope, node, result_loc, else_expr_result);
     }
     if (!instr_is_unreachable(else_expr_result))
         ir_mark_gen(ir_build_br(irb, scope, node, endif_block, is_comptime));
@@ -5336,8 +5337,7 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
     IrBasicBlock *continue_block = continue_expr_node ?
         ir_create_basic_block(irb, scope, "WhileContinue") : cond_block;
     IrBasicBlock *end_block = ir_create_basic_block(irb, scope, "WhileEnd");
-    IrBasicBlock *else_block = else_node ?
-        ir_create_basic_block(irb, scope, "WhileElse") : end_block;
+    IrBasicBlock *else_block = ir_create_basic_block(irb, scope, "WhileElse");
 
     IrInstruction *is_comptime = ir_build_const_bool(irb, scope, node,
         ir_should_inline(irb->exec, scope) || node->data.while_expr.is_inline);
@@ -5415,25 +5415,22 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
                 ir_mark_gen(ir_build_br(irb, payload_scope, node, cond_block, is_comptime));
         }
 
-        IrInstruction *else_result = nullptr;
-        if (else_node) {
-            ir_set_cursor_at_end_and_append_block(irb, else_block);
+        ir_set_cursor_at_end_and_append_block(irb, else_block);
 
-            // TODO make it an error to write to error variable
-            AstNode *err_symbol_node = else_node; // TODO make more accurate
-            ZigVar *err_var = ir_create_var(irb, err_symbol_node, scope, err_symbol,
-                    true, false, false, is_comptime);
-            Scope *err_scope = err_var->child_scope;
-            IrInstruction *unwrapped_err_code_ptr = ir_build_unwrap_maybe(irb, err_scope, err_symbol_node,
-                    ptr_opt_err_code, false);
-            ir_build_var_decl_src(irb, err_scope, symbol_node, err_var, nullptr, nullptr, unwrapped_err_code_ptr);
+        // TODO make it an error to write to error variable
+        AstNode *err_symbol_node = else_node; // TODO make more accurate
+        ZigVar *err_var = ir_create_var(irb, err_symbol_node, scope, err_symbol,
+                true, false, false, is_comptime);
+        Scope *err_scope = err_var->child_scope;
+        IrInstruction *unwrapped_err_code_ptr = ir_build_unwrap_maybe(irb, err_scope, err_symbol_node,
+                ptr_opt_err_code, false);
+        ir_build_var_decl_src(irb, err_scope, symbol_node, err_var, nullptr, nullptr, unwrapped_err_code_ptr);
 
-            else_result = ir_gen_node(irb, else_node, err_scope, LValNone, result_loc);
-            if (else_result == irb->codegen->invalid_instruction)
-                return else_result;
-            if (!instr_is_unreachable(else_result))
-                ir_mark_gen(ir_build_br(irb, scope, node, end_block, is_comptime));
-        }
+        IrInstruction *else_result = ir_gen_node(irb, else_node, err_scope, LValNone, result_loc);
+        if (else_result == irb->codegen->invalid_instruction)
+            return else_result;
+        if (!instr_is_unreachable(else_result))
+            ir_mark_gen(ir_build_br(irb, scope, node, end_block, is_comptime));
 
         ir_set_cursor_at_end_and_append_block(irb, end_block);
         return ir_gen_lval_ptr(irb, scope, node, lval, result_loc);
@@ -5493,16 +5490,19 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
                 ir_mark_gen(ir_build_br(irb, child_scope, node, cond_block, is_comptime));
         }
 
+        ir_set_cursor_at_end_and_append_block(irb, else_block);
         IrInstruction *else_result = nullptr;
         if (else_node) {
-            ir_set_cursor_at_end_and_append_block(irb, else_block);
-
             else_result = ir_gen_node(irb, else_node, scope, LValNone, result_loc);
             if (else_result == irb->codegen->invalid_instruction)
                 return else_result;
-            if (!instr_is_unreachable(else_result))
-                ir_mark_gen(ir_build_br(irb, scope, node, end_block, is_comptime));
+        } else {
+            else_result = ir_build_const_void(irb, scope, node);
+            ir_build_store_ptr(irb, scope, node, result_loc, else_result);
         }
+        if (!instr_is_unreachable(else_result))
+            ir_mark_gen(ir_build_br(irb, scope, node, end_block, is_comptime));
+
         ir_set_cursor_at_end_and_append_block(irb, end_block);
         return ir_gen_lval_ptr(irb, scope, node, lval, result_loc);
     } else {
@@ -5549,16 +5549,18 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
                 ir_mark_gen(ir_build_br(irb, scope, node, cond_block, is_comptime));
         }
 
+        ir_set_cursor_at_end_and_append_block(irb, else_block);
         IrInstruction *else_result = nullptr;
         if (else_node) {
-            ir_set_cursor_at_end_and_append_block(irb, else_block);
-
             else_result = ir_gen_node(irb, else_node, subexpr_scope, LValNone, result_loc);
             if (else_result == irb->codegen->invalid_instruction)
                 return else_result;
-            if (!instr_is_unreachable(else_result))
-                ir_mark_gen(ir_build_br(irb, scope, node, end_block, is_comptime));
+        } else {
+            else_result = ir_build_const_void(irb, subexpr_scope, node);
+            ir_build_store_ptr(irb, subexpr_scope, node, result_loc, else_result);
         }
+        if (!instr_is_unreachable(else_result))
+            ir_mark_gen(ir_build_br(irb, scope, node, end_block, is_comptime));
 
         ir_set_cursor_at_end_and_append_block(irb, end_block);
         return ir_gen_lval_ptr(irb, scope, node, lval, result_loc);
@@ -5899,6 +5901,7 @@ static IrInstruction *ir_gen_if_optional_expr(IrBuilder *irb, Scope *scope, AstN
             return else_expr_result;
     } else {
         else_expr_result = ir_build_const_void(irb, scope, node);
+        ir_build_store_ptr(irb, scope, node, result_loc, else_expr_result);
     }
     if (!instr_is_unreachable(else_expr_result))
         ir_mark_gen(ir_build_br(irb, scope, node, endif_block, is_comptime));
@@ -5988,6 +5991,7 @@ static IrInstruction *ir_gen_if_err_expr(IrBuilder *irb, Scope *scope, AstNode *
             return else_expr_result;
     } else {
         else_expr_result = ir_build_const_void(irb, scope, node);
+        ir_build_store_ptr(irb, scope, node, result_loc, else_expr_result);
     }
     if (!instr_is_unreachable(else_expr_result))
         ir_mark_gen(ir_build_br(irb, scope, node, endif_block, is_comptime));
@@ -7288,9 +7292,11 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
         case NodeTypeNullLiteral:
             return ir_gen_value(irb, scope, node, lval, result_loc, ir_gen_null_literal(irb, scope, node));
         case NodeTypeIfErrorExpr:
-            return ir_gen_if_err_expr(irb, scope, node, lval, result_loc);
+            return ir_gen_if_err_expr(irb, scope, node, lval,
+                    ensure_result_loc(irb, scope, node, result_loc));
         case NodeTypeIfOptional:
-            return ir_gen_if_optional_expr(irb, scope, node, lval, result_loc);
+            return ir_gen_if_optional_expr(irb, scope, node, lval,
+                    ensure_result_loc(irb, scope, node, result_loc));
         case NodeTypeSwitchExpr:
             return ir_lval_wrap(irb, scope, ir_gen_switch_expr(irb, scope, node, result_loc), lval);
         case NodeTypeCompTime:
