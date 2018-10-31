@@ -105,28 +105,30 @@ pub fn Queue(comptime T: type) type {
         pub fn dump(self: *Self) void {
             var stderr_file = std.io.getStdErr() catch return;
             const stderr = &stderr_file.outStream().stream;
+            const Error = @typeInfo(@typeOf(stderr)).Pointer.child.Error;
 
-            self.dumpToStream(stderr) catch return;
+            self.dumpToStream(Error, stderr) catch return;
         }
 
-        pub fn dumpToStream(self: *Self, stream: var) @typeOf(stream).Error!void {
+        pub fn dumpToStream(self: *Self, comptime Error: type, stream: *std.io.OutStream(Error)) Error!void {
+            const S = struct.{
+                fn dumpRecursive(s: *std.io.OutStream(Error), optional_node: ?*Node, indent: usize) Error!void {
+                    try s.writeByteNTimes(' ', indent);
+                    if (optional_node) |node| {
+                        try s.print("0x{x}={}\n", @ptrToInt(node), node.data);
+                        try dumpRecursive(s, node.next, indent + 1);
+                    } else {
+                        try s.print("(null)\n");
+                    }
+                }
+            };
             const held = self.mutex.acquire();
             defer held.release();
 
             try stream.print("head: ");
-            try dumpRecursive(stream, self.head, 0);
+            try S.dumpRecursive(stream, self.head, 0);
             try stream.print("tail: ");
-            try dumpRecursive(stream, self.tail, 0);
-        }
-
-        fn dumpRecursive(stream: var, optional_node: ?*Node, indent: usize) error!void {
-            try stream.writeByteNTimes(' ', indent);
-            if (optional_node) |node| {
-                try stream.print("0x{x}={}\n", @ptrToInt(node), node.data);
-                try dumpRecursive(stream, node.next, indent + 1);
-            } else {
-                try stream.print("(null)\n");
-            }
+            try S.dumpRecursive(stream, self.tail, 0);
         }
     };
 }
@@ -291,15 +293,15 @@ test "std.atomic.Queue dump" {
 
     // Test empty stream
     sos.reset();
-    try queue.dumpToStream(&sos.stream);
+    try queue.dumpToStream(SliceOutStream.Error, &sos.stream);
     assert(mem.eql(u8, buffer[0..sos.pos],
         \\head: (null)
         \\tail: (null)
         \\
-        ));
+    ));
 
     // Test a stream with one element
-    var node_0 = Queue(i32).Node {
+    var node_0 = Queue(i32).Node.{
         .data = 1,
         .next = undefined,
         .prev = undefined,
@@ -307,7 +309,7 @@ test "std.atomic.Queue dump" {
     queue.put(&node_0);
 
     sos.reset();
-    try queue.dumpToStream(&sos.stream);
+    try queue.dumpToStream(SliceOutStream.Error, &sos.stream);
 
     var expected = try std.fmt.bufPrint(expected_buffer[0..],
         \\head: 0x{x}=1
@@ -315,11 +317,11 @@ test "std.atomic.Queue dump" {
         \\tail: 0x{x}=1
         \\ (null)
         \\
-        , @ptrToInt(queue.head), @ptrToInt(queue.tail));
+    , @ptrToInt(queue.head), @ptrToInt(queue.tail));
     assert(mem.eql(u8, buffer[0..sos.pos], expected));
 
     // Test a stream with two elements
-    var node_1 = Queue(i32).Node {
+    var node_1 = Queue(i32).Node.{
         .data = 2,
         .next = undefined,
         .prev = undefined,
@@ -327,7 +329,7 @@ test "std.atomic.Queue dump" {
     queue.put(&node_1);
 
     sos.reset();
-    try queue.dumpToStream(&sos.stream);
+    try queue.dumpToStream(SliceOutStream.Error, &sos.stream);
 
     expected = try std.fmt.bufPrint(expected_buffer[0..],
         \\head: 0x{x}=1
@@ -336,6 +338,6 @@ test "std.atomic.Queue dump" {
         \\tail: 0x{x}=2
         \\ (null)
         \\
-        , @ptrToInt(queue.head), @ptrToInt(queue.head.?.next), @ptrToInt(queue.tail));
+    , @ptrToInt(queue.head), @ptrToInt(queue.head.?.next), @ptrToInt(queue.tail));
     assert(mem.eql(u8, buffer[0..sos.pos], expected));
 }
