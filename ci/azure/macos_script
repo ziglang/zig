@@ -3,10 +3,7 @@
 set -x
 set -e
 
-#debug
-wget --version
-gcc-7 -v
-brew install s3cmd
+brew install s3cmd gcc
 
 ZIGDIR=$(pwd)
 PREFIX=$HOME/local
