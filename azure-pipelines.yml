@@ -1,0 +1,6 @@
+pool:
+  vmImage: 'macOS 10.13'
+
+steps:
+- script: ci/azure/macos_script
+  displayName: 'macOS build and test'
