@@ -5,5 +5,5 @@ steps:
 - task: DownloadSecureFile@1
   inputs:
     secureFile: s3cfg
-- script: ./macos_script
+- script: ci/azure/macos_script
   displayName: 'macOS build and test'
