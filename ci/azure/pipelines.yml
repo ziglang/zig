@@ -1,11 +1,13 @@
-pool:
-  vmImage: 'macOS 10.13'
+jobs:
+- job: Build
+  pool:
+    vmImage: 'macOS 10.13'
 
-timeoutInMinutes: 360
+  timeoutInMinutes: 360
 
-steps:
-- task: DownloadSecureFile@1
-  inputs:
-    secureFile: s3cfg
-- script: ci/azure/macos_script
-  displayName: 'macOS build and test'
+  steps:
+  - task: DownloadSecureFile@1
+    inputs:
+      secureFile: s3cfg
+  - script: ci/azure/macos_script
+    displayName: 'macOS build and test'
