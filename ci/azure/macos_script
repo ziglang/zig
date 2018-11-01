@@ -4,14 +4,8 @@ set -x
 set -e
 
 #debug
-env
-mv "$(Agent.TempDirectory)/s3cfg" "$HOME/.s3cfg"
 s3cmd -v
 gcc-7 -v
-BRANCH="$(Build.SourceBranchName)"
-echo "branch=$BRANCH"
-BUILDREASON="$(Build.Reason)"
-echo "buildreason=$BRANCH"
 
 ZIGDIR=$(pwd)
 PREFIX=$HOME/local
@@ -69,7 +63,7 @@ cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=$PREFIX -DCMAKE_INSTALL_
 make $JOBS install
 release/bin/zig build --build-file ../build.zig test
 
-#if [ "${BUILDREASON}" != "PullRequest" ]; then
+#if [ "${BUILD_REASON}" != "PullRequest" ]; then
   cp ../LICENSE release/
   cp ../zig-cache/langref.html release/
   mv release/bin/zig release/
@@ -81,7 +75,8 @@ release/bin/zig build --build-file ../build.zig test
   mv release "$DIRNAME"
   tar cfJ "$TARBALL" "$DIRNAME"
 
+  mv "$DOWNLOADSECUREFILE_SECUREFILEPATH" "$HOME/.s3cfg"
   s3cmd put -P "$TARBALL" s3://ziglang.org/builds/
   touch empty
-  s3cmd put -P empty s3://ziglang.org/builds/zig-macos-x86_64-$BRANCH.tar.xz --add-header="Cache-Control: max-age=0, must-revalidate" --add-header="x-amz-website-redirect-location:/builds/$TARBALL"
+  s3cmd put -P empty s3://ziglang.org/builds/zig-macos-x86_64-$BUILD_SOURCEBRANCHNAME.tar.xz --add-header="Cache-Control: max-age=0, must-revalidate" --add-header="x-amz-website-redirect-location:/builds/$TARBALL"
 #fi
