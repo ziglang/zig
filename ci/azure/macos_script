@@ -1,0 +1,85 @@
+#!/bin/sh
+
+set -x
+set -e
+
+#debug
+env
+mv $(Agent.TempDirectory)/s3cfg $HOME/.s3cfg
+s3cmd -v
+gcc-7 -v
+BRANCH=$(Build.SourceBranchName)
+echo $BRANCH
+
+ZIGDIR=$(pwd)
+PREFIX=$HOME/local
+TMPDIR=$HOME/tmpz
+JOBS="-j2"
+
+# I tried using the system default compiler (clang), but it couldn't statically link libc++.
+# So we use gcc-7 from homebrew.
+export CC=gcc-7
+export CXX=g++-7
+
+rm -rf $PREFIX
+rm -rf $TMPDIR
+mkdir $TMPDIR
+
+cd $TMPDIR
+wget https://zlib.net/zlib-1.2.11.tar.xz
+tar xf zlib-1.2.11.tar.xz
+cd zlib-1.2.11/
+mkdir build
+cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=$PREFIX -DCMAKE_INSTALL_PREFIX=$PREFIX
+make $JOBS install
+rm $PREFIX/lib/libz*dylib
+
+cd $TMPDIR
+wget ftp://ftp.invisible-island.net/ncurses/ncurses.tar.gz
+tar xf ncurses.tar.gz
+cd ncurses-6.1/
+./configure --without-shared --prefix=$PREFIX
+make $JOBS install
+
+cd $TMPDIR
+wget https://releases.llvm.org/7.0.0/llvm-7.0.0.src.tar.xz
+tar xf llvm-7.0.0.src.tar.xz
+cd llvm-7.0.0.src/
+mkdir build
+cd build
+cmake .. -DCMAKE_INSTALL_PREFIX=$PREFIX -DCMAKE_PREFIX_PATH=$PREFIX -DCMAKE_BUILD_TYPE=Release -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="WebAssembly;AVR;RISCV" -DLLVM_ENABLE_LIBXML2=OFF
+make $JOBS install
+
+cd $TMPDIR
+wget https://releases.llvm.org/7.0.0/cfe-7.0.0.src.tar.xz
+tar xf cfe-7.0.0.src.tar.xz
+cd cfe-7.0.0.src/
+mkdir build
+cd build
+cmake .. -DCMAKE_INSTALL_PREFIX=$PREFIX -DCMAKE_PREFIX_PATH=$PREFIX -DCMAKE_BUILD_TYPE=Release
+make $JOBS install
+
+cd $ZIGDIR
+mkdir build
+cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=$PREFIX -DCMAKE_INSTALL_PREFIX=$(pwd)/release -DZIG_STATIC=ON
+make $JOBS install
+release/bin/zig build --build-file ../build.zig test
+
+#if [ "${BRANCH}" = "master" ]; then
+  cp ../LICENSE release/
+  cp ../zig-cache/langref.html release/
+  mv release/bin/zig release/
+  rmdir release/bin
+
+  VERSION=$(release/zig version)
+  DIRNAME="zig-macos-x86_64-$VERSION"
+  TARBALL="$DIRNAME.tar.xz"
+  mv release "$DIRNAME"
+  tar cfJ "$TARBALL" "$DIRNAME"
+
+  s3cmd put -P "$TARBALL" s3://ziglang.org/builds/
+  touch empty
+  s3cmd put -P empty s3://ziglang.org/builds/zig-macos-x86_64-$BRANCH.tar.xz --add-header="Cache-Control: max-age=0, must-revalidate" --add-header="x-amz-website-redirect-location:/builds/$TARBALL"
+#fi
