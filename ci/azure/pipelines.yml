@@ -1,6 +1,8 @@
 pool:
   vmImage: 'macOS 10.13'
 
+timeoutInMinutes: 360
+
 steps:
 - task: DownloadSecureFile@1
   inputs:

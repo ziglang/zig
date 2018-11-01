@@ -80,8 +80,8 @@ make $JOBS install
 release/bin/zig build --build-file ../build.zig test
 
 if [ "${BUILD_REASON}" != "PullRequest" ]; then
-  cp ../LICENSE release/
-  cp ../zig-cache/langref.html release/
+  mv ../LICENSE release/
+  mv ../zig-cache/langref.html release/
   mv release/bin/zig release/
   rmdir release/bin
 
