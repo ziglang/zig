@@ -165,7 +165,7 @@ test "std.meta.trait.is" {
     debug.assert(!is(builtin.TypeId.Int)(f32));
     debug.assert(is(builtin.TypeId.Pointer)(*u8));
     debug.assert(is(builtin.TypeId.Void)(void));
-    debug.assert(!is(builtin.TypeId.Optional)(error));
+    debug.assert(!is(builtin.TypeId.Optional)(anyerror));
 }
 
 ///

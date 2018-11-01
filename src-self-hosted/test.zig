@@ -28,8 +28,8 @@ pub const TestContext = struct {
     zig_compiler: ZigCompiler,
     zig_lib_dir: []u8,
     file_index: std.atomic.Int(usize),
-    group: std.event.Group(error!void),
-    any_err: error!void,
+    group: std.event.Group(anyerror!void),
+    any_err: anyerror!void,
 
     const tmp_dir_name = "stage2_test_tmp";
 
@@ -49,7 +49,7 @@ pub const TestContext = struct {
         self.zig_compiler = try ZigCompiler.init(&self.loop);
         errdefer self.zig_compiler.deinit();
 
-        self.group = std.event.Group(error!void).init(&self.loop);
+        self.group = std.event.Group(anyerror!void).init(&self.loop);
         errdefer self.group.deinit();
 
         self.zig_lib_dir = try introspect.resolveZigLibDir(allocator);

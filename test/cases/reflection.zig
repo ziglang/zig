@@ -6,7 +6,7 @@ test "reflection: array, pointer, optional, error union type child" {
     comptime {
         assert(([10]u8).Child == u8);
         assert((*u8).Child == u8);
-        assert((error!u8).Payload == u8);
+        assert((anyerror!u8).Payload == u8);
         assert((?u8).Child == u8);
     }
 }

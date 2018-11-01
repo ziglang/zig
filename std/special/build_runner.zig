@@ -132,7 +132,7 @@ pub fn main() !void {
     };
 }
 
-fn runBuild(builder: *Builder) error!void {
+fn runBuild(builder: *Builder) anyerror!void {
     switch (@typeId(@typeOf(root.build).ReturnType)) {
         builtin.TypeId.Void => root.build(builder),
         builtin.TypeId.ErrorUnion => try root.build(builder),
@@ -198,7 +198,7 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: var) !void {
     );
 }
 
-fn usageAndErr(builder: *Builder, already_ran_build: bool, out_stream: var) error {
+fn usageAndErr(builder: *Builder, already_ran_build: bool, out_stream: var) anyerror {
     usage(builder, already_ran_build, out_stream) catch {};
     return error.InvalidArgs;
 }

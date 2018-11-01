@@ -269,7 +269,7 @@ pub const Builder = struct {
         return &self.uninstall_tls.step;
     }
 
-    fn makeUninstall(uninstall_step: *Step) error!void {
+    fn makeUninstall(uninstall_step: *Step) anyerror!void {
         const uninstall_tls = @fieldParentPtr(TopLevelStep, "step", uninstall_step);
         const self = @fieldParentPtr(Builder, "uninstall_tls", uninstall_tls);
 
@@ -283,7 +283,7 @@ pub const Builder = struct {
         // TODO remove empty directories
     }
 
-    fn makeOneStep(self: *Builder, s: *Step) error!void {
+    fn makeOneStep(self: *Builder, s: *Step) anyerror!void {
         if (s.loop_flag) {
             warn("Dependency loop detected:\n  {}\n", s.name);
             return error.DependencyLoopDetected;
@@ -1998,7 +1998,7 @@ pub const LogStep = struct {
         };
     }
 
-    fn make(step: *Step) error!void {
+    fn make(step: *Step) anyerror!void {
         const self = @fieldParentPtr(LogStep, "step", step);
         warn("{}", self.data);
     }
@@ -2030,12 +2030,12 @@ pub const RemoveDirStep = struct {
 
 pub const Step = struct {
     name: []const u8,
-    makeFn: fn (self: *Step) error!void,
+    makeFn: fn (self: *Step) anyerror!void,
     dependencies: ArrayList(*Step),
     loop_flag: bool,
     done_flag: bool,
 
-    pub fn init(name: []const u8, allocator: *Allocator, makeFn: fn (*Step) error!void) Step {
+    pub fn init(name: []const u8, allocator: *Allocator, makeFn: fn (*Step) anyerror!void) Step {
         return Step{
             .name = name,
             .makeFn = makeFn,
@@ -2059,7 +2059,7 @@ pub const Step = struct {
         self.dependencies.append(other) catch unreachable;
     }
 
-    fn makeNoOp(self: *Step) error!void {}
+    fn makeNoOp(self: *Step) anyerror!void {}
 };
 
 fn doAtomicSymLinks(allocator: *Allocator, output_path: []const u8, filename_major_only: []const u8, filename_name_only: []const u8) !void {

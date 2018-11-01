@@ -111,7 +111,7 @@ pub fn formatType(
     output: fn (@typeOf(context), []const u8) Errors!void,
 ) Errors!void {
     const T = @typeOf(value);
-    if (T == error) {
+    if (T == anyerror) {
         try output(context, "error.");
         return output(context, @errorName(value));
     }
@@ -913,11 +913,11 @@ test "fmt.format" {
         try testFmt("optional: null\n", "optional: {}\n", value);
     }
     {
-        const value: error!i32 = 1234;
+        const value: anyerror!i32 = 1234;
         try testFmt("error union: 1234\n", "error union: {}\n", value);
     }
     {
-        const value: error!i32 = error.InvalidChar;
+        const value: anyerror!i32 = error.InvalidChar;
         try testFmt("error union: error.InvalidChar\n", "error union: {}\n", value);
     }
     {
@@ -1236,7 +1236,7 @@ test "fmt.format" {
     {
         const S = struct {
             a: u32,
-            b: error,
+            b: anyerror,
         };
 
         const inst = S{

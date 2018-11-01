@@ -3,16 +3,16 @@ const assert = std.debug.assert;
 const mem = std.mem;
 const builtin = @import("builtin");
 
-pub fn foo() error!i32 {
+pub fn foo() anyerror!i32 {
     const x = try bar();
     return x + 1;
 }
 
-pub fn bar() error!i32 {
+pub fn bar() anyerror!i32 {
     return 13;
 }
 
-pub fn baz() error!i32 {
+pub fn baz() anyerror!i32 {
     const y = foo() catch 1234;
     return y + 1;
 }
@@ -39,7 +39,7 @@ test "error values" {
 test "redefinition of error values allowed" {
     shouldBeNotEqual(error.AnError, error.SecondError);
 }
-fn shouldBeNotEqual(a: error, b: error) void {
+fn shouldBeNotEqual(a: anyerror, b: anyerror) void {
     if (a == b) unreachable;
 }
 
@@ -49,7 +49,7 @@ test "error binary operator" {
     assert(a == 3);
     assert(b == 10);
 }
-fn errBinaryOperatorG(x: bool) error!isize {
+fn errBinaryOperatorG(x: bool) anyerror!isize {
     return if (x) error.ItBroke else isize(10);
 }
 
@@ -57,7 +57,7 @@ test "unwrap simple value from error" {
     const i = unwrapSimpleValueFromErrorDo() catch unreachable;
     assert(i == 13);
 }
-fn unwrapSimpleValueFromErrorDo() error!isize {
+fn unwrapSimpleValueFromErrorDo() anyerror!isize {
     return 13;
 }
 
@@ -65,12 +65,12 @@ test "error return in assignment" {
     doErrReturnInAssignment() catch unreachable;
 }
 
-fn doErrReturnInAssignment() error!void {
+fn doErrReturnInAssignment() anyerror!void {
     var x: i32 = undefined;
     x = try makeANonErr();
 }
 
-fn makeANonErr() error!i32 {
+fn makeANonErr() anyerror!i32 {
     return 1;
 }
 
@@ -80,11 +80,11 @@ test "error union type " {
 }
 
 fn testErrorUnionType() void {
-    const x: error!i32 = 1234;
+    const x: anyerror!i32 = 1234;
     if (x) |value| assert(value == 1234) else |_| unreachable;
     assert(@typeId(@typeOf(x)) == builtin.TypeId.ErrorUnion);
     assert(@typeId(@typeOf(x).ErrorSet) == builtin.TypeId.ErrorSet);
-    assert(@typeOf(x).ErrorSet == error);
+    assert(@typeOf(x).ErrorSet == anyerror);
 }
 
 test "error set type " {
@@ -142,7 +142,7 @@ fn testComptimeTestErrorEmptySet(x: EmptyErrorSet!i32) void {
 
 test "syntax: optional operator in front of error union operator" {
     comptime {
-        assert(?error!i32 == ?(error!i32));
+        assert(?anyerror!i32 == ?(anyerror!i32));
     }
 }
 
@@ -172,7 +172,7 @@ fn testErrorUnionPeerTypeResolution(x: i32) void {
     };
 }
 
-fn bar_1() error {
+fn bar_1() anyerror {
     return error.A;
 }
 
@@ -193,7 +193,7 @@ fn entry() void {
     foo2(bar2);
 }
 
-fn foo2(f: fn () error!void) void {
+fn foo2(f: fn () anyerror!void) void {
     const x = f();
 }
 

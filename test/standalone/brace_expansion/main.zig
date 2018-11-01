@@ -215,7 +215,7 @@ test "invalid inputs" {
     expectError("\n", error.InvalidInput);
 }
 
-fn expectError(test_input: []const u8, expected_err: error) void {
+fn expectError(test_input: []const u8, expected_err: anyerror) void {
     var output_buf = Buffer.initSize(global_allocator, 0) catch unreachable;
     defer output_buf.deinit();
 

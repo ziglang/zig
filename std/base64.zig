@@ -432,7 +432,7 @@ fn testDecodeIgnoreSpace(expected_decoded: []const u8, encoded: []const u8) !voi
     assert(mem.eql(u8, decoded[0..written], expected_decoded));
 }
 
-fn testError(encoded: []const u8, expected_err: error) !void {
+fn testError(encoded: []const u8, expected_err: anyerror) !void {
     const standard_decoder_ignore_space = Base64DecoderWithIgnore.init(standard_alphabet_chars, standard_pad_char, " ");
     var buffer: [0x100]u8 = undefined;
     if (standard_decoder.calcSize(encoded)) |decoded_size| {
