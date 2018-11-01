@@ -30,7 +30,7 @@ pub fn main() !void {
     const zig_exe = try os.path.resolve(a, zig_exe_rel);
 
     const dir_path = try os.path.join(a, cache_root, "clitest");
-    const TestFn = fn ([]const u8, []const u8) error!void;
+    const TestFn = fn ([]const u8, []const u8) anyerror!void;
     const test_fns = []TestFn{
         testZigInitLib,
         testZigInitExe,

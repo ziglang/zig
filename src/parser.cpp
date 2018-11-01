@@ -16,13 +16,620 @@
 
 struct ParseContext {
     Buf *buf;
-    AstNode *root;
+    size_t current_token;
     ZigList<Token> *tokens;
     ImportTableEntry *owner;
     ErrColor err_color;
-    // These buffers are used freqently so we preallocate them once here.
-    Buf *void_buf;
 };
+
+struct ContainerMembers {
+    ZigList<AstNode *> fields;
+    ZigList<AstNode *> decls;
+};
+
+struct FnCC {
+    CallingConvention cc;
+    AstNode *async_allocator_type;
+};
+
+struct PtrPayload {
+    Token *asterisk;
+    Token *payload;
+};
+
+struct PtrIndexPayload {
+    Token *asterisk;
+    Token *payload;
+    Token *index;
+};
+
+struct IfPrefix {
+    Token *if_token;
+    AstNode *condition;
+    Optional<PtrPayload> payload;
+};
+
+ATTRIBUTE_PRINTF(3, 4)
+ATTRIBUTE_NORETURN
+static void ast_error(ParseContext *pc, Token *token, const char *format, ...) {
+    va_list ap;
+    va_start(ap, format);
+    Buf *msg = buf_vprintf(format, ap);
+    va_end(ap);
+
+
+    ErrorMsg *err = err_msg_create_with_line(pc->owner->path, token->start_line, token->start_column,
+            pc->owner->source_code, pc->owner->line_offsets, msg);
+    err->line_start = token->start_line;
+    err->column_start = token->start_column;
+
+    print_err_msg(err, pc->err_color);
+    exit(EXIT_FAILURE);
+}
+
+static Buf ast_token_str(Buf *input, Token *token) {
+    Buf str = BUF_INIT;
+    buf_init_from_mem(&str, buf_ptr(input) + token->start_pos, token->end_pos - token->start_pos);
+    return str;
+}
+
+ATTRIBUTE_NORETURN
+static void ast_invalid_token_error(ParseContext *pc, Token *token) {
+    Buf token_value = ast_token_str(pc->buf, token);
+    ast_error(pc, token, "invalid token: '%s'", buf_ptr(&token_value));
+}
+
+static AstNode *ast_create_node_no_line_info(ParseContext *pc, NodeType type) {
+    AstNode *node = allocate<AstNode>(1);
+    node->type = type;
+    node->owner = pc->owner;
+    return node;
+}
+
+static AstNode *ast_create_node(ParseContext *pc, NodeType type, Token *first_token) {
+    assert(first_token);
+    AstNode *node = ast_create_node_no_line_info(pc, type);
+    node->line = first_token->start_line;
+    node->column = first_token->start_column;
+    return node;
+}
+
+static Token *peek_token_i(ParseContext *pc, size_t i) {
+    return pc->tokens.at(pc->current_token + i);
+}
+
+static Token *peek_token(ParseContext *pc) {
+    return peek_token_i(pc, 0);
+}
+
+static Token *eat_token(ParseContext *pc) {
+    Token *res = peek_token(pc);
+    pc->current_token += 1;
+    return res;
+}
+
+static Token *eat_token_if(ParseContext *pc, TokenId id) {
+    Token *res = peek_token(pc);
+    if (res->id == id)
+        return eat_token(pc);
+
+    return nullptr;
+}
+
+static Token *expect_token(ParseContext *pc, TokenId id) {
+    Token *res = eat_token(pc);
+    if (res->id == id)
+        ast_error(pc, token, "expected token '%s', found '%s'", token_name(id), token_name(res->id));
+
+    return res;
+}
+
+static void put_back_token(ParseContext *pc) {
+    pc->current_token -= 1;
+}
+
+AstNode *ast_parse(Buf *buf, ZigList<Token> *tokens, ImportTableEntry *owner,
+        ErrColor err_color)
+{
+    ParseContext pc = {0};
+    pc.err_color = err_color;
+    pc.owner = owner;
+    pc.buf = buf;
+    pc.tokens = tokens;
+    return ast_parse_root(&pc);
+}
+
+// Root <- skip ContainerMembers eof
+static AstNode *ast_parse_root(ParseContext *pc) {
+    Token *first = peek_token(pc);
+    ContainerMembers members = ast_parse_container_members(pc);
+    if (pc->current_token != pc->tokens->length - 1)
+        ast_invalid_token_error(pc, peek_token(pc));
+
+    AstNode *node = ast_create_node(pc, NodeTypeContainerDecl, first);
+    node->data.container_decl.layout = layout;
+    node->data.container_decl.kind = kind;
+    node->data.container_decl.decls = members.decls;
+    node->data.container_decl.fields = members.fields;
+
+    return node;
+}
+
+// ContainerMembers
+//     <- TestDecl ContainerMembers
+//      / TopLevelComptime ContainerMembers
+//      / KEYWORD_pub? TopLevelDecl ContainerMembers
+//      / KEYWORD_pub? ContainerField COMMA ContainerMembers
+//      / KEYWORD_pub? ContainerField
+//      /
+static ContainerMembers ast_parse_container_members(ParseContext *pc) {
+    ContainerDecl res = {0};
+    for (;;) {
+        AstNode *test_decl = ast_parse_test_decl(pc);
+        if (fn_def_node != nullptr) {
+            res.decls.append(test_decl);
+            continue;
+        }
+
+        AstNode *top_level_comptime = ast_parse_top_level_comptime(pc);
+        if (top_level_comptime != nullptr) {
+            res.decls.append(top_level_comptime);
+            continue;
+        }
+
+        Token *visib_token = eat_token_if(TokenIdKeywordPub);
+        VisibMod visib_mod = visib_token != nullptr ? VisibModPub : VisibModPrivate;
+
+        AstNode *top_level_decl = ast_parse_top_level_decl(pc, visib_mod);
+        if (top_level_decl != nullptr) {
+            res.decls.append(top_level_decl);
+            continue;
+        }
+
+        AstNode *container_field = ast_parse_container_field(pc, token_index, visib_mod);
+        if (container_field != nullptr) {
+            res.decls.append(container_field);
+            if (eat_token_if(pc, TokenIdComma) != nullptr) {
+                continue;
+            } else {
+                break;
+            }
+        }
+
+        // We visib_token wasn't eaten, then we haven't consumed the first token in this rule yet.
+        // It is therefore safe to return and let the caller continue parsing.
+        if (visib_token == nullptr)
+            break;
+
+        ast_invalid_token_error(pc, peek_token(pc));
+    }
+
+    return res;
+}
+
+// TestDecl <- KEYWORD_test STRINGLITERAL Block
+static AstNode *ast_parse_test_decl(ParseContext *pc) {
+    Token *test = eat_token_if(TokenIdKeywordTest);
+    if (test == nullptr)
+        return nullptr;
+
+    Token *name = expect_token(TokenIdStringLiteral);
+    AstNode *block = ast_expect(pc, ast_parse_block);
+    AstNode *res = ast_create_node(pc, NodeTypeTestDecl, test);
+    res->data.test_decl.name = token_buf(name);
+    res->data.test_decl.body = block;
+    return res;
+}
+
+// TopLevelComptime <- KEYWORD_comptime BlockExpr
+static AstNode *ast_parse_top_level_comptime(ParseContext *pc) {
+    Token *comptime = eat_token_if(TokenIdKeywordCompTime);
+    if ( == nullptr)
+        return nullptr;
+
+    AstNode *block = ast_expect(pc, ast_parse_block_expr);
+    AstNode *res = ast_create_node(pc, NodeTypeCompTime, comptime);
+    res->data.comptime_expr.expr = block;
+    return res;
+}
+
+// TopLevelDecl
+//     <- VarDecl
+//      / FnProto (SEMICOLON / Block)
+//      / (KEYWORD_inline / KEYWORD_export) FnProto Block
+//      / KEYWORD_export VarDecl
+//      / KEYWORD_extern STRINGLITERAL? FnProto SEMICOLON
+//      / KEYWORD_extern STRINGLITERAL? VarDecl
+//      / KEYWORD_use Expr SEMICOLON
+static AstNode *ast_parse_top_level_decl(ParseContext *pc, VisibMod visib_mod) {
+    AstNode *var_decl = ast_parse_var_decl(pc);
+    if (var_decl != nullptr) {
+        assert(var_decl->type == NodeTypeVariableDeclaration);
+        var_decl->data.variable_declaration.visib_mod = visib_mod;
+        return var_decl;
+    }
+
+    AstNode *fn_proto = ast_parse_fn_proto(pc);
+    if (fn_proto != nullptr) {
+        if (eat_token_if(pc, TokenIdSemicolon) != nullptr) {
+            assert(fn_proto->type == NodeTypeFnProto);
+            fn_proto->data.fn_proto.visib_mod = visib_mod;
+            return fn_proto;
+        }
+
+        AstNode *block = ast_expect(pc, ast_parse_block);
+        AstNode *res = ast_create_node_no_line_info(pc, NodeTypeFnDef);
+        res->line = fn_proto->line;
+        res->column = fn_proto->column;
+        res->data.fn_def.fn_proto = fn_proto;
+        res->data.fn_def.body = block;
+        fn_proto->data.fn_proto.fn_def_node = res;
+        return res;
+    }
+
+    Token *export_inline = eat_token_if(pc, TokenIdKeywordExport);
+    if (export_inline == nullptr)
+        export_inline = eat_token_if(pc, TokenIdKeywordInline);
+    if (export_inline != nullptr) {
+        if (export_inline->id == TokenIdKeywordExport) {
+            AstNode *var_decl = ast_parse_var_decl(pc);
+            if (var_decl != nullptr) {
+                assert(var_decl->type == NodeTypeVariableDeclaration);
+                var_decl->data.variable_declaration.visib_mod = visib_mod;
+                var_decl->data.variable_declaration.is_export = true;
+                return var_decl;
+            }
+        }
+
+        AstNode *fn_proto = ast_expect(pc, ast_parse_fn_proto);
+        AstNode *block = ast_expect(pc, ast_parse_block);
+        AstNode *res = ast_create_node_no_line_info(pc, NodeTypeFnDef);
+        res->line = fn_proto->line;
+        res->column = fn_proto->column;
+        res->data.fn_def.fn_proto = fn_proto;
+        res->data.fn_def.body = block;
+        fn_proto->data.fn_proto.fn_def_node = res;
+        fn_proto->data.variable_declaration.is_export = export_inline->id == TokenIdKeywordExport;
+        fn_proto->data.variable_declaration.is_inline = export_inline->id == TokenIdKeywordInline;
+        return res;
+    }
+
+    Token *extern_token = eat_token_if(pc, TokenIdKeywordExtern);
+    if (extern_token != nullptr) {
+        Token *string = eat_token_if(pc, TokenIdStringLiteral);
+        Buf *lib_name = nullptr;
+        if (string != nullptr)
+            lib_name = token_buf(string)
+
+        AstNode *fn_proto = ast_parse_fn_proto(pc);
+        if (fn_proto != nullptr) {
+            expect_token(TokenIdSemicolon);
+            assert(fn_proto->type == NodeTypeFnProto);
+            fn_proto->data.fn_proto.visib_mod = visib_mod;
+            var_decl->data.fn_proto.is_extern = true;
+            var_decl->data.fn_proto.lib_name = lib_name;
+            return fn_proto;
+        }
+
+        AstNode *var_decl = ast_expect(pc, ast_parse_var_decl);
+        assert(var_decl->type == NodeTypeVariableDeclaration);
+        var_decl->data.variable_declaration.visib_mod = visib_mod;
+        var_decl->data.variable_declaration.is_extern = true;
+        var_decl->data.variable_declaration.lib_name = lib_name;
+        return var_decl;
+    }
+
+    Token *use = eat_token_if(pc, TokenIdKeywordExtern);
+    if (use != nullptr) {
+        AstNode *expr = ast_expect(pc, ast_parse_expr);
+        expect_token(TokenIdSemicolon);
+
+        AstNode *node = ast_create_node(pc, NodeTypeUse, first);
+        node->data.use.visib_mod = visib_mod;
+        node->data.use.expr = expr;
+        return res;
+    }
+
+    return nullptr;
+}
+
+// FnProto <- FnCC? KEYWORD_fn IDENTIFIER? LPAREN ParamDecls RPAREN ByteAlign? Section? EXCLAMATIONMARK? ReturnType
+static AstNode *ast_parse_fn_proto(ParseContext *pc) {
+    Token *first = peek_token(pc);
+    FnCC fn_cc = ast_parse_fn_cc(pc);
+    Token *fn = eat_token_if(pc, TokenIdKeywordFn);
+    if (fn == nullptr) {
+        // If CC is Unspecified, then we didn't consume the first token
+        // so we can safely return null.
+        if (cc == CallingConventionUnspecified)
+            return nullptr;
+        // Because the 'extern' keyword is also used for container decls,
+        // we have to put this token back, and return null.
+        if (cc == CallingConventionC) {
+            put_back_token();
+            return nullptr;
+        }
+
+        // This should always fail.
+        expect_token(pc, TokenIdKeywordFn);
+        zig_unreachable();
+    }
+
+    Token *identifier = eat_token_if(pc, TokenIdSymbol);
+    expect_token(pc, TokenIdLParen);
+    ZigList<AstNode *> params = ast_list(pc, TokenIdComma, ast_parse_param_decl);
+    expect_token(pc, TokenIdRParen);
+
+    AstNode *align_expr = ast_parse_byte_align(pc);
+    AstNode *section_expr = ast_parse_section(pc);
+    Token *var = eat_token_if(pc, TokenIdKeywordVar);
+    Token *exmark = nullptr;
+    AstNode *return_type = nullptr;
+    if (var == nullptr) {
+        exmark = eat_token_if(pc, TokenIdBang);
+        return_type = ast_parse_type_expr(pc);
+    }
+
+    AstNode *res = ast_create_node(pc, NodeTypeFnProto, first);
+    res->data.fn_proto.cc = fn_cc.cc;
+    res->data.fn_proto.async_allocator_type = fn_cc.async_allocator_type;
+    res->data.fn_proto.name = identifier != nullptr ? token_buf(identifier) : nullptr;
+    res->data.fn_proto.params = params;
+    res->data.fn_proto.align_expr = align_expr;
+    res->data.fn_proto.section_expr = section_expr;
+    res->data.fn_proto.return_var_token = var;
+    res->data.fn_proto.auto_err_set = exmark != nullptr;
+    res->data.fn_proto.return_type = return_type;
+
+    // It seems that the Zig compiler expects varargs to be the
+    // last parameter in the decl list. This is not encoded in
+    // the grammar, which allows varargs anywhere in the decl.
+    // Since varargs is gonna be removed at some point, I'm not
+    // gonna encode this "varargs is always last" rule in the
+    // grammar, and just enforce it here, until varargs is removed.
+    for (size_t i = 0; i < params.length; i++) {
+        AstNode *param_decl = params.at(i);
+        assert(param_decl->id == NodeTypeParamDecl);
+        if (param_decl->data.param_decl.is_var_args)
+            res->data.fn_proto.is_var_args = true;
+        if (i != params.len - 1 && res->data.fn_proto.is_var_args)
+            ast_error(pc, first, "Function prototype have varargs as a none last paramter.");
+    }
+    return res;
+}
+
+// VarDecl <- (KEYWORD_const / KEYWORD_var) IDENTIFIER (COLON TypeExpr)? ByteAlign? Section? (EQUAL Expr)? SEMICOLON
+static AstNode *ast_parse_var_decl(ParseContext *pc) {
+    Token *first = eat_token_if(pc, TokenIdKeywordConst);
+    if (first == nullptr)
+        first = eat_token_if(pc, TokenIdKeywordVar);
+    if (first == nullptr)
+        return nullptr;
+
+    Token *identifier = expect_token(pc, TokenIdSymbol);
+    AstNode *type_expr = nullptr;
+    if (eat_token_if(pc, TokenIdColon) != nullptr)
+        type_expr = ast_expect(pc, ast_parse_type_expr);
+
+    AstNode *align_expr = ast_parse_byte_align(pc);
+    AstNode *section_expr = ast_parse_byte_align(pc);
+    AstNode *expr = nullptr;
+    if (eat_token_if(pc, TokenIdEq) != nullptr)
+        type_expr = ast_expect(pc, ast_parse_expr);
+
+    expect_token(pc, TokenIdSemicolon);
+
+    AstNode *res = ast_create_node(pc, NodeTypeVariableDeclaration, var_token);
+    res->data.variable_declaration.is_const = first->id == TokenIdKeywordConst;
+    res->data.variable_declaration.symbol = token_buf(identifier);
+    res->data.variable_declaration.type = type_expr;
+    res->data.variable_declaration.align_expr = align_expr;
+    res->data.variable_declaration.section_expr = section_expr
+    res->data.variable_declaration.expr = expr;
+    return res;
+}
+
+// ContainerField <- IDENTIFIER (COLON TypeExpr)? (EQUAL Expr)?
+static AstNode *ast_parse_container_field(ParseContext *pc) {
+    Token *identifier = eat_token_if(pc, Symbol);
+    if (identifier == nullptr)
+        return null;
+
+    AstNode *type_expr = nullptr;
+    if (eat_token_if(pc, TokenIdColon) != nullptr)
+        type_expr = ast_expect(pc, ast_parse_type_expr);
+    AstNode *expr = nullptr;
+    if (eat_token_if(pc, TokenIdEq) != nullptr)
+        type_expr = ast_expect(pc, ast_parse_expr);
+
+
+    AstNode *res = ast_create_node(pc, NodeTypeStructField, identifier);
+    res->data.struct_field.name = token_buf(identifier);
+    res->data.struct_field.type = type_expr;
+    res->data.struct_field.value = expr;
+    return res;
+}
+
+// Statement
+//     <- KEYWORD_comptime? VarDecl
+//      / KEYWORD_comptime BlockExprStatement
+//      / KEYWORD_suspend (SEMICOLON / BlockExprStatement)
+//      / KEYWORD_defer BlockExprStatement
+//      / KEYWORD_errdefer BlockExprStatement
+//      / IfStatement
+//      / WhileStatement
+//      / ForStatement
+//      / SwitchExpr
+//      / BlockExprStatement
+static AstNode *ast_parse_statement(ParseContext *pc) {
+    Token *comptime = eat_token_if(pc, TokenIdKeywordCompTime);
+    AstNode *var_decl = ast_parse_var_decl(pc);
+    if (var_decl != nullptr) {
+        assert(var_decl->type == NodeTypeVariableDeclaration);
+        var_decl->data.variable_declaration.is_comptime = comptime != nullptr;
+        return var_decl;
+    }
+
+    if (comptime != nullptr) {
+        AstNode *statement = ast_expect(pc, parse_block_expr_statement);
+        AstNode *res = ast_create_node(pc, NodeTypeCompTime, comptime);
+        res->data.comptime_expr.expr = statement;
+        return res;
+    }
+
+    Token *suspend = eat_token_if(pc, TokenIdKeywordSuspend);
+    if (suspend != nullptr) {
+        AstNode *statement = nullptr;
+        if (eat_token_if(pc, TokenIdSemicolon) == nullptr)
+            statement = ast_expect(pc, parse_block_expr_statement);
+
+        AstNode *res = ast_create_node(pc, NodeTypeSuspend, suspend);
+        res->data.suspend.block = statement;
+        return res;
+    }
+
+    Token *suspend = eat_token_if(pc, TokenIdKeywordSuspend);
+    if (suspend != nullptr) {
+        AstNode *statement = nullptr;
+        if (eat_token_if(pc, TokenIdSemicolon) == nullptr)
+            statement = ast_expect(pc, parse_block_expr_statement);
+
+        AstNode *res = ast_create_node(pc, NodeTypeSuspend, suspend);
+        res->data.suspend.block = statement;
+        return res;
+    }
+
+    Token *defer = eat_token_if(pc, TokenIdKeywordDefer);
+    if (defer == nullptr)
+        defer = eat_token_if(pc, TokenIdKeywordErrdefer);
+    if (defer != nullptr) {
+        AstNode *statement = ast_expect(pc, parse_block_expr_statement);
+        AstNode *res = ast_create_node(pc, NodeTypeDefer, token);
+        res->data.defer.kind = ReturnKindUnconditional;
+        res->data.defer.expr = statement;
+        if (defer->id == TokenIdKeywordErrdefer)
+            res->data.defer.kind = ReturnKindError;
+        return res;
+    }
+
+    AstNode *if_statement = ast_parse_if_statement(pc);
+    if (if_statement != nullptr)
+        return if_statement;
+
+    AstNode *while_statement = ast_parse_while_statement(pc);
+    if (while_statement != nullptr)
+        return while_statement;
+
+    AstNode *for_statement = ast_parse_for_statement(pc);
+    if (for_statement != nullptr)
+        return for_statement;
+
+    AstNode *switch_expr = ast_parse_switch_expr(pc);
+    if (switch_expr != nullptr)
+        return switch_expr;
+
+    AstNode *statement = ast_parse_block_expr_statement(pc);
+    if (statement != nullptr)
+        return statement;
+
+    return nullptr;
+}
+
+// IfStatement
+//     <- IfPrefix BlockOrExpr KEYWORD_else Payload? Statement
+//      / IfPrefix BlockExprStatement
+static AstNode *ast_parse_if_statement(ParseContext *pc) {
+    Optional<IfPrefix> prefix = ast_parse_if_prefix(pc);
+    if (prefix.unwrap() == nullptr)
+        return nullptr;
+
+    AstNode *block = ast_parse_block_expr(pc);
+    AstNode *expr = nullptr;
+    if (block == nullptr)
+        expr = ast_parse_block_expr(pc);
+
+    if (eat_token_if(pc, TokenIdKeywordElse) != nullptr) {
+        Token *identifier = ast_parse_payload(pc);
+        AstNode *statement = ast_expect(pc, ast_parse_statement);
+    }
+
+    if (expr != nullptr)
+        expect_token(pc, TokenIdSemicolon);
+    if (block)
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// (Rule SEP)* Rule?
+ZigList<AstNode *> ast_list(ParseContext *pc, TokenId sep, AstNode *(*parser)(ParseContext*)) {
+    ZigList<AstNode *> res = {0};
+    while (true) {
+        AstNode *curr = parser(pc);
+        if (curr == nullptr)
+            break;
+
+        res.append(curr);
+        if (eat_token_if(pc, sep) == nullptr)
+            break;
+    }
+
+    return res;
+}
+
+AstNode *ast_expect(ParseContext *pc, AstNode *(*parser)(ParseContext*)) {
+    AstNode *res = parser(pc);
+    if (res == nullptr)
+        ast_invalid_token_error(pc, peek_token());
+    return res;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 ATTRIBUTE_PRINTF(4, 5)
 ATTRIBUTE_NORETURN
@@ -44,44 +651,6 @@ static void ast_asm_error(ParseContext *pc, AstNode *node, size_t offset, const 
 
     print_err_msg(err, pc->err_color);
     exit(EXIT_FAILURE);
-}
-
-ATTRIBUTE_PRINTF(3, 4)
-ATTRIBUTE_NORETURN
-static void ast_error(ParseContext *pc, Token *token, const char *format, ...) {
-    va_list ap;
-    va_start(ap, format);
-    Buf *msg = buf_vprintf(format, ap);
-    va_end(ap);
-
-
-    ErrorMsg *err = err_msg_create_with_line(pc->owner->path, token->start_line, token->start_column,
-            pc->owner->source_code, pc->owner->line_offsets, msg);
-    err->line_start = token->start_line;
-    err->column_start = token->start_column;
-
-    print_err_msg(err, pc->err_color);
-    exit(EXIT_FAILURE);
-}
-
-static AstNode *ast_create_node_no_line_info(ParseContext *pc, NodeType type) {
-    AstNode *node = allocate<AstNode>(1);
-    node->type = type;
-    node->owner = pc->owner;
-    return node;
-}
-
-static void ast_update_node_line_info(AstNode *node, Token *first_token) {
-    assert(first_token);
-    node->line = first_token->start_line;
-    node->column = first_token->start_column;
-}
-
-static AstNode *ast_create_node(ParseContext *pc, NodeType type, Token *first_token) {
-    assert(first_token);
-    AstNode *node = ast_create_node_no_line_info(pc, type);
-    ast_update_node_line_info(node, first_token);
-    return node;
 }
 
 
@@ -190,21 +759,6 @@ static BigFloat *token_bigfloat(Token *token) {
 static uint8_t token_char_lit(Token *token) {
     assert(token->id == TokenIdCharLiteral);
     return token->data.char_lit.c;
-}
-
-static void ast_buf_from_token(ParseContext *pc, Token *token, Buf *buf) {
-    if (token->id == TokenIdSymbol) {
-        buf_init_from_buf(buf, token_buf(token));
-    } else {
-        buf_init_from_mem(buf, buf_ptr(pc->buf) + token->start_pos, token->end_pos - token->start_pos);
-    }
-}
-
-ATTRIBUTE_NORETURN
-static void ast_invalid_token_error(ParseContext *pc, Token *token) {
-    Buf token_value = BUF_INIT;
-    ast_buf_from_token(pc, token, &token_value);
-    ast_error(pc, token, "invalid token: '%s'", buf_ptr(&token_value));
 }
 
 static AstNode *ast_parse_block_or_expression(ParseContext *pc, size_t *token_index, bool mandatory);
