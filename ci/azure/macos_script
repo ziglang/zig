@@ -5,11 +5,13 @@ set -e
 
 #debug
 env
-mv $(Agent.TempDirectory)/s3cfg $HOME/.s3cfg
+mv "$(Agent.TempDirectory)/s3cfg" "$HOME/.s3cfg"
 s3cmd -v
 gcc-7 -v
-BRANCH=$(Build.SourceBranchName)
-echo $BRANCH
+BRANCH="$(Build.SourceBranchName)"
+echo "branch=$BRANCH"
+BUILDREASON="$(Build.Reason)"
+echo "buildreason=$BRANCH"
 
 ZIGDIR=$(pwd)
 PREFIX=$HOME/local
@@ -67,7 +69,7 @@ cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=$PREFIX -DCMAKE_INSTALL_
 make $JOBS install
 release/bin/zig build --build-file ../build.zig test
 
-#if [ "${BRANCH}" = "master" ]; then
+#if [ "${BUILDREASON}" != "PullRequest" ]; then
   cp ../LICENSE release/
   cp ../zig-cache/langref.html release/
   mv release/bin/zig release/
