@@ -199,11 +199,16 @@ struct Optional {
         return {{}, false};
     }
 
-    static inline T *unwrap() {
-        if (is_some)
-            return &value;
+    static inline T &unwrap() {
+        assert(is_some);
+        return value;
+    }
 
-        return nullptr;
+    template<typename Callable>
+    static inline T orelse(Callable fn) {
+        if (is_some)
+            return value;
+        return fn();
     }
 };
 

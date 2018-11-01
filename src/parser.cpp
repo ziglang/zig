@@ -46,7 +46,6 @@ struct PtrIndexPayload {
 struct IfPrefix {
     Token *if_token;
     AstNode *condition;
-    Optional<PtrPayload> payload;
 };
 
 ATTRIBUTE_PRINTF(3, 4)
@@ -536,31 +535,62 @@ static AstNode *ast_parse_statement(ParseContext *pc) {
 }
 
 // IfStatement
-//     <- IfPrefix BlockOrExpr KEYWORD_else Payload? Statement
-//      / IfPrefix BlockExprStatement
+//     <- IfPrefix BlockExpr ( KEYWORD_else Payload? Statement )?
+//      / IfPrefix AssignExpr ( SEMICOLON / KEYWORD_else Payload? Statement )
 static AstNode *ast_parse_if_statement(ParseContext *pc) {
     Optional<IfPrefix> prefix = ast_parse_if_prefix(pc);
     if (prefix.unwrap() == nullptr)
         return nullptr;
 
-    AstNode *block = ast_parse_block_expr(pc);
-    AstNode *expr = nullptr;
-    if (block == nullptr)
-        expr = ast_parse_block_expr(pc);
-
-    if (eat_token_if(pc, TokenIdKeywordElse) != nullptr) {
-        Token *identifier = ast_parse_payload(pc);
-        AstNode *statement = ast_expect(pc, ast_parse_statement);
+    Token *if_token = prefix.unwrap()->if_token;
+    AstNode *condition = prefix.unwrap()->condition;
+    Optional<PtrPayload> payload = ast_parse_ptr_payload(pc);
+    bool var_is_ptr = false;
+    Buf *var_name_tok = nullptr;
+    AstNode *body = ast_parse_block_expr(pc);
+    bool requires_semi = false;
+    if (body == nullptr) {
+        requires_semi = true;
+        body = ast_parse_assign_expr(pc);
     }
 
-    if (expr != nullptr)
+    Token *err_payload = nullptr;
+    AstNode *else_body = nullptr;
+    if (eat_token_if(pc, TokenIdKeywordElse) != nullptr) {
+        err_payload = ast_parse_payload(pc);
+        else_body = ast_expect(pc, ast_parse_statement);
+    }
+
+    if (requires_semi && else_body == nullptr)
         expect_token(pc, TokenIdSemicolon);
-    if (block)
+
+
+    if (err_payload != nullptr) {
+        AstNode *res = ast_create_node(pc, NodeTypeIfErrorExpr, if_token);
+        res->data.if_err_expr.target_node = condition;
+        res->data.if_err_expr.var_is_ptr = var_is_ptr;
+        res->data.if_err_expr.var_symbol = var_name_tok;
+        res->data.if_err_expr.then_node = body;
+        res->data.if_err_expr.err_symbol = token_buf(err_payload);
+        res->data.if_err_expr.else_node = else_body;
+        return res;
+    }
+
+    if (payload.unwrap() == nullptr) {
+        AstNode *res = ast_create_node(pc, NodeTypeIfBoolExpr, if_token);
+        res->data.if_bool_expr.condition = condition;
+        res->data.if_bool_expr.then_block = body;
+        res->data.if_bool_expr.else_node = else_body;
+        return res;
+    }
+    AstNode *res = ast_create_node(pc, NodeTypeTestExpr, if_token);
+    res->data.test_expr.target_node = condition;
+    res->data.test_expr.var_is_ptr = var_is_ptr;
+    res->data.test_expr.var_symbol = var_name_tok;
+    res->data.test_expr.then_node = body;
+    res->data.test_expr.else_node = else_body;
+    return res;
 }
-
-
-
-
 
 
 
