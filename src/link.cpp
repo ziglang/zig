@@ -778,7 +778,8 @@ static bool darwin_version_lt(DarwinPlatform *platform, int major, int minor) {
 static void construct_linker_job_macho(LinkJob *lj) {
     CodeGen *g = lj->codegen;
 
-    lj->args.append("-error-limit=0");
+    // LLD MACH-O has no error limit option.
+    //lj->args.append("-error-limit=0");
     lj->args.append("-demangle");
 
     if (g->linker_rdynamic) {
@@ -1007,7 +1008,17 @@ void codegen_link(CodeGen *g) {
     Buf diag = BUF_INIT;
 
     codegen_add_time_event(g, "LLVM Link");
-    if (!zig_lld_link(g->zig_target.oformat, lj.args.items, lj.args.length, &diag)) {
+    if (g->system_linker_hack && g->zig_target.os == OsMacOSX) {
+        Termination term;
+        ZigList<const char *> args = {};
+        for (size_t i = 1; i < lj.args.length; i += 1) {
+            args.append(lj.args.at(i));
+        }
+        os_spawn_process("ld", args, &term);
+        if (term.how != TerminationIdClean || term.code != 0) {
+            exit(1);
+        }
+    } else if (!zig_lld_link(g->zig_target.oformat, lj.args.items, lj.args.length, &diag)) {
         fprintf(stderr, "%s\n", buf_ptr(&diag));
         exit(1);
     }

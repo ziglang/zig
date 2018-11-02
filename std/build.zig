@@ -836,6 +836,7 @@ pub const LibExeObjStep = struct.{
     assembly_files: ArrayList([]const u8),
     packages: ArrayList(Pkg),
     build_options_contents: std.Buffer,
+    system_linker_hack: bool,
 
     // C only stuff
     source_files: ArrayList([]const u8),
@@ -930,6 +931,7 @@ pub const LibExeObjStep = struct.{
             .disable_libc = true,
             .build_options_contents = std.Buffer.initSize(builder.allocator, 0) catch unreachable,
             .c_std = Builder.CStd.C99,
+            .system_linker_hack = false,
         };
         self.computeOutFileNames();
         return self;
@@ -965,6 +967,7 @@ pub const LibExeObjStep = struct.{
             .is_zig = false,
             .linker_script = null,
             .c_std = Builder.CStd.C99,
+            .system_linker_hack = false,
 
             .root_src = undefined,
             .verbose_link = false,
@@ -1162,6 +1165,10 @@ pub const LibExeObjStep = struct.{
         self.disable_libc = disable;
     }
 
+    pub fn enableSystemLinkerHack(self: *LibExeObjStep) void {
+        self.system_linker_hack = true;
+    }
+
     fn make(step: *Step) !void {
         const self = @fieldParentPtr(LibExeObjStep, "step", step);
         return if (self.is_zig) self.makeZig() else self.makeC();
@@ -1337,6 +1344,9 @@ pub const LibExeObjStep = struct.{
 
         if (self.no_rosegment) {
             try zig_args.append("--no-rosegment");
+        }
+        if (self.system_linker_hack) {
+            try zig_args.append("--system-linker-hack");
         }
 
         try builder.spawnChild(zig_args.toSliceConst());
@@ -1646,6 +1656,7 @@ pub const TestStep = struct.{
     object_files: ArrayList([]const u8),
     no_rosegment: bool,
     output_path: ?[]const u8,
+    system_linker_hack: bool,
 
     pub fn init(builder: *Builder, root_src: []const u8) TestStep {
         const step_name = builder.fmt("test {}", root_src);
@@ -1665,6 +1676,7 @@ pub const TestStep = struct.{
             .object_files = ArrayList([]const u8).init(builder.allocator),
             .no_rosegment = false,
             .output_path = null,
+            .system_linker_hack = false,
         };
     }
 
@@ -1745,6 +1757,10 @@ pub const TestStep = struct.{
 
     pub fn setExecCmd(self: *TestStep, args: []const ?[]const u8) void {
         self.exec_cmd_args = args;
+    }
+
+    pub fn enableSystemLinkerHack(self: *TestStep) void {
+        self.system_linker_hack = true;
     }
 
     fn make(step: *Step) !void {
@@ -1850,6 +1866,9 @@ pub const TestStep = struct.{
 
         if (self.no_rosegment) {
             try zig_args.append("--no-rosegment");
+        }
+        if (self.system_linker_hack) {
+            try zig_args.append("--system-linker-hack");
         }
 
         try builder.spawnChild(zig_args.toSliceConst());
