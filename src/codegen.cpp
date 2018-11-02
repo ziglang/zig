@@ -5703,6 +5703,11 @@ static LLVMValueRef gen_const_val_ptr(CodeGen *g, ConstExprValue *const_val, con
     zig_unreachable();
 }
 
+static LLVMValueRef gen_const_val_err_set(CodeGen *g, ConstExprValue *const_val, const char *name) {
+    uint64_t value = (const_val->data.x_err_set == nullptr) ? 0 : const_val->data.x_err_set->value;
+    return LLVMConstInt(g->builtin_types.entry_global_error_set->type_ref, value, false);
+}
+
 static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const char *name) {
     ZigType *type_entry = const_val->type;
     assert(!type_entry->zero_bits);
@@ -5720,9 +5725,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
         case ZigTypeIdInt:
             return bigint_to_llvm_const(type_entry->type_ref, &const_val->data.x_bigint);
         case ZigTypeIdErrorSet:
-            assert(const_val->data.x_err_set != nullptr);
-            return LLVMConstInt(g->builtin_types.entry_global_error_set->type_ref,
-                    const_val->data.x_err_set->value, false);
+            return gen_const_val_err_set(g, const_val, name);
         case ZigTypeIdFloat:
             switch (type_entry->data.floating.bit_count) {
                 case 16:
@@ -5757,7 +5760,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
                 } else if (type_is_codegen_pointer(child_type)) {
                     return gen_const_val_ptr(g, const_val, name);
                 } else if (child_type->id == ZigTypeIdErrorSet) {
-                    zig_panic("TODO");
+                    return gen_const_val_err_set(g, const_val, name);
                 } else {
                     LLVMValueRef child_val;
                     LLVMValueRef maybe_val;
@@ -5986,7 +5989,8 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
                 ZigType *err_set_type = type_entry->data.error_union.err_set_type;
                 if (!type_has_bits(payload_type)) {
                     assert(type_has_bits(err_set_type));
-                    uint64_t value = const_val->data.x_err_union.err ? const_val->data.x_err_union.err->value : 0;
+                    ErrorTableEntry *err_set = const_val->data.x_err_union.error_set->data.x_err_set;
+                    uint64_t value = (err_set == nullptr) ? 0 : err_set->value;
                     return LLVMConstInt(g->err_tag_type->type_ref, value, false);
                 } else if (!type_has_bits(err_set_type)) {
                     assert(type_has_bits(payload_type));
@@ -5995,8 +5999,9 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
                     LLVMValueRef err_tag_value;
                     LLVMValueRef err_payload_value;
                     bool make_unnamed_struct;
-                    if (const_val->data.x_err_union.err) {
-                        err_tag_value = LLVMConstInt(g->err_tag_type->type_ref, const_val->data.x_err_union.err->value, false);
+                    ErrorTableEntry *err_set = const_val->data.x_err_union.error_set->data.x_err_set;
+                    if (err_set != nullptr) {
+                        err_tag_value = LLVMConstInt(g->err_tag_type->type_ref, err_set->value, false);
                         err_payload_value = LLVMConstNull(payload_type->type_ref);
                         make_unnamed_struct = false;
                     } else {
@@ -6322,7 +6327,7 @@ static void do_code_gen(CodeGen *g) {
             ZigType *ptr_type = instruction->base.value.type;
             assert(ptr_type->id == ZigTypeIdPointer);
             ZigType *child_type = ptr_type->data.pointer.child_type;
-            if (type_has_bits(child_type)) {
+            if (type_has_bits(child_type) && instruction->base.value.special == ConstValSpecialRuntime) {
                 instruction->base.llvm_value = build_alloca(g, child_type, instruction->name_hint,
                         get_ptr_align(g, ptr_type));
             }

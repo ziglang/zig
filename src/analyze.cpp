@@ -4739,6 +4739,8 @@ static uint32_t hash_const_val_ptr(ConstExprValue *const_val) {
         case ConstPtrMutComptimeVar:
             hash_val += (uint32_t)1103195694;
             break;
+        case ConstPtrMutInfer:
+            zig_unreachable();
     }
     switch (const_val->data.x_ptr.special) {
         case ConstPtrSpecialInvalid:
@@ -4982,7 +4984,7 @@ static bool can_mutate_comptime_var_state(ConstExprValue *value) {
             return can_mutate_comptime_var_state(value->data.x_optional);
 
         case ZigTypeIdErrorUnion:
-            if (value->data.x_err_union.err != nullptr)
+            if (value->data.x_err_union.error_set->data.x_err_set != nullptr)
                 return false;
             assert(value->data.x_err_union.payload != nullptr);
             return can_mutate_comptime_var_state(value->data.x_err_union.payload);
@@ -5943,11 +5945,12 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
         case ZigTypeIdErrorUnion:
             {
                 buf_appendf(buf, "%s(", buf_ptr(&type_entry->name));
-                if (const_val->data.x_err_union.err == nullptr) {
+                ErrorTableEntry *err_set = const_val->data.x_err_union.error_set->data.x_err_set;
+                if (err_set == nullptr) {
                     render_const_value(g, buf, const_val->data.x_err_union.payload);
                 } else {
                     buf_appendf(buf, "%s.%s", buf_ptr(&type_entry->data.error_union.err_set_type->name),
-                            buf_ptr(&const_val->data.x_err_union.err->name));
+                            buf_ptr(&err_set->name));
                 }
                 buf_appendf(buf, ")");
                 return;

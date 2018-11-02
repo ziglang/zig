@@ -288,9 +288,10 @@ static void ir_print_container_init_fields(IrPrint *irp, IrInstructionContainerI
         IrInstructionContainerInitFieldsField *field = &instruction->fields[i];
         const char *comma = (i == 0) ? "" : ", ";
         fprintf(irp->f, "%s.%s = ", comma, buf_ptr(field->name));
-        ir_print_other_instruction(irp, field->value);
+        ir_print_other_instruction(irp, field->result_loc);
     }
-    fprintf(irp->f, "} // container init");
+    fprintf(irp->f, "} // result=");
+    ir_print_other_instruction(irp, instruction->result_loc);
 }
 
 static void ir_print_struct_init(IrPrint *irp, IrInstructionStructInit *instruction) {

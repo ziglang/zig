@@ -180,6 +180,9 @@ enum ConstPtrMut {
     // The pointer points to memory that is known only at runtime.
     // For example it may point to the initializer value of a variable.
     ConstPtrMutRuntimeVar,
+    // The pointer points to memory for which it must be inferred whether the
+    // value is comptime known or not.
+    ConstPtrMutInfer,
 };
 
 struct ConstPtrValue {
@@ -211,7 +214,7 @@ struct ConstPtrValue {
 };
 
 struct ConstErrValue {
-    ErrorTableEntry *err;
+    ConstExprValue *error_set;
     ConstExprValue *payload;
 };
 
@@ -2458,7 +2461,6 @@ struct IrInstructionContainerInitList {
 
 struct IrInstructionContainerInitFieldsField {
     Buf *name;
-    IrInstruction *value;
     IrInstruction *result_loc;
     AstNode *source_node;
     TypeStructField *type_struct_field;
@@ -2470,6 +2472,7 @@ struct IrInstructionContainerInitFields {
     IrInstruction *container_type;
     size_t field_count;
     IrInstructionContainerInitFieldsField *fields;
+    IrInstruction *result_loc;
 };
 
 struct IrInstructionStructInitField {
