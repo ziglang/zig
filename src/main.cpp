@@ -394,6 +394,7 @@ int main(int argc, char **argv) {
     ZigList<const char *> test_exec_args = {0};
     int runtime_args_start = -1;
     bool no_rosegment_workaround = false;
+    bool system_linker_hack = false;
 
     if (argc >= 2 && strcmp(argv[1], "build") == 0) {
         Buf zig_exe_path_buf = BUF_INIT;
@@ -560,6 +561,8 @@ int main(int argc, char **argv) {
                 timing_info = true;
             } else if (strcmp(arg, "--disable-pic") == 0) {
                 disable_pic = true;
+            } else if (strcmp(arg, "--system-linker-hack") == 0) {
+                system_linker_hack = true;
             } else if (strcmp(arg, "--test-cmd-bin") == 0) {
                 test_exec_args.append(nullptr);
             } else if (arg[1] == 'L' && arg[2] != 0) {
@@ -893,6 +896,7 @@ int main(int argc, char **argv) {
             g->verbose_llvm_ir = verbose_llvm_ir;
             g->verbose_cimport = verbose_cimport;
             codegen_set_errmsg_color(g, color);
+            g->system_linker_hack = system_linker_hack;
 
             for (size_t i = 0; i < lib_dirs.length; i += 1) {
                 codegen_add_lib_dir(g, lib_dirs.at(i));

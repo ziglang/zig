@@ -103,7 +103,7 @@ static void os_spawn_process_posix(const char *exe, ZigList<const char *> &args,
     }
 
     pid_t pid;
-    int rc = posix_spawn(&pid, exe, nullptr, nullptr, const_cast<char *const*>(argv), environ);
+    int rc = posix_spawnp(&pid, exe, nullptr, nullptr, const_cast<char *const*>(argv), environ);
     if (rc != 0) {
         zig_panic("posix_spawn failed: %s", strerror(rc));
     }
