@@ -23,6 +23,7 @@ const hmac = @import("hmac.zig");
 pub const HmacMd5 = hmac.HmacMd5;
 pub const HmacSha1 = hmac.HmacSha1;
 pub const HmacSha256 = hmac.HmacSha256;
+pub const HmacBlake2s256 = hmac.HmacBlake2s256;
 
 const import_chaCha20 = @import("chacha20.zig");
 pub const chaCha20IETF = import_chaCha20.chaCha20IETF;
