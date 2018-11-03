@@ -246,12 +246,34 @@ test "mem.lessThan" {
 }
 
 /// Compares two slices and returns whether they are equal.
+/// Use `constant_time_eql` inside cryptographic primitives
 pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
     if (a.len != b.len) return false;
     for (a) |item, index| {
         if (b[index] != item) return false;
     }
     return true;
+}
+
+/// Compares two slices and returns whether they are equal in constant time.
+pub fn constant_time_eql(comptime T: type, a: []const T, b: []const T) T {
+    //TODO: https://github.com/ziglang/zig/issues/640
+    return @noInlineCall(noinline__constant_time_eql, T, a, b);
+}
+
+fn noinline__constant_time_eql(comptime T: type, a: []const T, b: []const T) T {
+    if (a.len != b.len) return 1;
+    var tmp: T = 0;
+    var count: usize = a.len - 1;
+    while (count != 0) : (count -= 1) {
+        tmp |= a[count] ^ b[count];
+    }
+    return tmp;
+}
+
+test "mem.constant_time_eql" {
+    assert(constant_time_eql(u8, "abc", "abc") == 0);
+    assert(constant_time_eql(u8, "abc", "abd") != 0);
 }
 
 pub fn len(comptime T: type, ptr: [*]const T) usize {
