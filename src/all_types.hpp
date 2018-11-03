@@ -68,8 +68,6 @@ struct IrExecutable {
     Scope *begin_scope;
     ZigList<Tld *> tld_list;
 
-    IrInstruction *return_result_loc;
-
     IrInstruction *coro_handle;
     IrInstruction *atomic_state_field_ptr; // this one is shared and in the promise
     IrInstruction *coro_result_ptr_field_ptr;

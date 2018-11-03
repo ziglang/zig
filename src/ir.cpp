@@ -157,6 +157,8 @@ static Error ir_read_const_ptr(IrAnalyze *ira, AstNode *source_node,
         ConstExprValue *out_val, ConstExprValue *ptr_val);
 static IrInstruction *ir_analyze_ptr_cast(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *ptr,
         ZigType *dest_type, IrInstruction *dest_type_src);
+static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source_instr,
+        IrInstruction *uncasted_ptr, IrInstruction *uncasted_value);
 
 static ConstExprValue *const_ptr_pointee_unchecked(CodeGen *g, ConstExprValue *const_val) {
     assert(get_src_ptr_type(const_val->type) != nullptr);
@@ -3232,10 +3234,14 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
             {
                 IrInstruction *return_value;
                 if (expr_node) {
+                    IrInstruction *return_result_loc = nullptr;
+                    if (handle_is_ptr(fn_entry->type_entry->data.fn.fn_type_id.return_type)) {
+                        return_result_loc = ir_build_result_return(irb, scope, node);
+                    }
                     // Temporarily set this so that if we return a type it gets the name of the function
                     ZigFn *prev_name_fn = irb->exec->name_fn;
                     irb->exec->name_fn = exec_fn_entry(irb->exec);
-                    return_value = ir_gen_node(irb, expr_node, scope, LValNone, irb->exec->return_result_loc);
+                    return_value = ir_gen_node(irb, expr_node, scope, LValNone, return_result_loc);
                     irb->exec->name_fn = prev_name_fn;
                     if (return_value == irb->codegen->invalid_instruction)
                         return irb->codegen->invalid_instruction;
@@ -7385,10 +7391,6 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
     ir_ref_bb(irb->current_basic_block);
 
     ZigFn *fn_entry = exec_fn_entry(irb->exec);
-
-    if (fn_entry != nullptr && handle_is_ptr(fn_entry->type_entry->data.fn.fn_type_id.return_type)) {
-        irb->exec->return_result_loc = ir_build_result_return(irb, scope, node);
-    }
 
     bool is_async = fn_entry != nullptr && fn_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionAsync;
     IrInstruction *coro_id;
@@ -12817,6 +12819,7 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira,
     }
 
     assert(var_ptr->value.type->id == ZigTypeIdPointer);
+
     ZigType *result_type = var_ptr->value.type->data.pointer.child_type;
     if (type_is_invalid(result_type)) {
         result_type = ira->codegen->builtin_types.entry_invalid;
@@ -12826,7 +12829,21 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira,
         }
     }
 
+    ConstExprValue *init_val = nullptr;
+    if (instr_is_comptime(var_ptr) && var_ptr->value.data.x_ptr.mut != ConstPtrMutRuntimeVar) {
+        init_val = const_ptr_pointee(ira->codegen, &var_ptr->value);
+    }
+
     if (!type_is_invalid(result_type)) {
+        // Resolve ConstPtrMutInfer
+        if (instr_is_comptime(var_ptr)) {
+            if (var_ptr->value.data.x_ptr.mut == ConstPtrMutInfer) {
+                if (!is_comptime_var && !var->gen_is_const) {
+                    var_ptr->value.data.x_ptr.mut = ConstPtrMutRuntimeVar;
+                }
+            }
+        }
+
         if (result_type->id == ZigTypeIdUnreachable ||
             result_type->id == ZigTypeIdOpaque)
         {
@@ -12840,6 +12857,20 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira,
                     buf_sprintf("variable of type '%s' must be const or comptime",
                         buf_ptr(&result_type->name)));
                 result_type = ira->codegen->builtin_types.entry_invalid;
+            }
+        } else if (init_val != nullptr) {
+            if (init_val->special == ConstValSpecialStatic &&
+                init_val->type->id == ZigTypeIdFn &&
+                init_val->data.x_ptr.data.fn.fn_entry->fn_inline == FnInlineAlways)
+            {
+                var_class_requires_const = true;
+                if (!var->src_is_const && !is_comptime_var) {
+                    ErrorMsg *msg = ir_add_error_node(ira, source_node,
+                        buf_sprintf("functions marked inline must be stored in const or comptime var"));
+                    AstNode *proto_node = init_val->data.x_ptr.data.fn.fn_entry->proto_node;
+                    add_error_note(ira->codegen, msg, proto_node, buf_sprintf("declared here"));
+                    result_type = ira->codegen->builtin_types.entry_invalid;
+                }
             }
         }
     }
@@ -12885,15 +12916,35 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira,
         }
     }
 
-    if (var->mem_slot_index != SIZE_MAX) {
-        if (is_comptime_var || (var_class_requires_const && var->gen_is_const)) {
-            return ir_const_void(ira, &decl_var_instruction->base);
+    if (init_val != nullptr && init_val->special != ConstValSpecialRuntime) {
+        if (var->mem_slot_index != SIZE_MAX) {
+            assert(var->mem_slot_index < ira->exec_context.mem_slot_list.length);
+            ConstExprValue *mem_slot = ira->exec_context.mem_slot_list.at(var->mem_slot_index);
+            copy_const_val(mem_slot, init_val, !is_comptime_var || var->gen_is_const);
+            if (is_comptime_var || (var_class_requires_const && var->gen_is_const)) {
+                return ir_const_void(ira, &decl_var_instruction->base);
+            }
         }
     } else if (is_comptime_var) {
         ir_add_error(ira, &decl_var_instruction->base,
                 buf_sprintf("cannot store runtime value in compile time variable"));
         var->value->type = ira->codegen->builtin_types.entry_invalid;
         return ira->codegen->invalid_instruction;
+    }
+
+    if (init_val != nullptr && init_val->special != ConstValSpecialRuntime) {
+        if (var->gen_is_const) {
+            var_ptr->value.data.x_ptr.mut = ConstPtrMutComptimeConst;
+        } else if (is_comptime_var) {
+            var_ptr->value.data.x_ptr.mut = ConstPtrMutComptimeVar;
+        } else {
+            // we need a runtime ptr but we have a comptime val.
+            // since it's a comptime val there are no instructions for it.
+            // we memcpy the init value here
+            IrInstruction *deref = ir_get_deref(ira, var_ptr, var_ptr);
+            var_ptr->value.special = ConstValSpecialRuntime;
+            ir_analyze_store_ptr(ira, var_ptr, var_ptr, deref);
+        }
     }
 
     ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
@@ -14900,7 +14951,15 @@ static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_
                             is_const, is_volatile, PtrLenSingle, align_bytes,
                             (uint32_t)(ptr_bit_offset + field->bit_offset_in_host),
                             (uint32_t)host_int_bytes_for_result_type);
-                    IrInstruction *result = ir_const(ira, source_instr, ptr_type);
+                    IrInstruction *result;
+                    if (ptr_val->data.x_ptr.mut == ConstPtrMutInfer) {
+                        result = ir_build_struct_field_ptr(&ira->new_irb, source_instr->scope,
+                                source_instr->source_node, container_ptr, field);
+                        result->value.type = ptr_type;
+                        result->value.special = ConstValSpecialStatic;
+                    } else {
+                        result = ir_const(ira, source_instr, ptr_type);
+                    }
                     ConstExprValue *const_val = &result->value;
                     const_val->data.x_ptr.special = ConstPtrSpecialBaseStruct;
                     const_val->data.x_ptr.mut = ptr_val->data.x_ptr.mut;
@@ -16724,11 +16783,10 @@ static IrInstruction *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstruc
         }
         field_assign_nodes[field_index] = field->source_node;
 
-        if (instr_is_comptime(field_result_loc)) {
-            ConstExprValue *field_value = field_result_loc->value.data.x_ptr.data.ref.pointee;
-            if (field_value->special != ConstValSpecialRuntime) {
-                const_ptrs.append(field_result_loc);
-            }
+        if (instr_is_comptime(field_result_loc) &&
+            field_result_loc->value.data.x_ptr.mut != ConstPtrMutRuntimeVar)
+        {
+            const_ptrs.append(field_result_loc);
         }
     }
 
@@ -16748,6 +16806,7 @@ static IrInstruction *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstruc
             result_loc->value.data.x_ptr.mut = ConstPtrMutComptimeConst;
         } else {
             result_loc->value.data.x_ptr.mut = ConstPtrMutRuntimeVar;
+            result_loc->value.special = ConstValSpecialRuntime;
             for (size_t i = 0; i < const_ptrs.length; i += 1) {
                 IrInstruction *field_result_loc = const_ptrs.at(i);
                 IrInstruction *deref = ir_get_deref(ira, field_result_loc, field_result_loc);
@@ -21344,9 +21403,24 @@ static IrInstruction *ir_analyze_instruction_result_return(IrAnalyze *ira, IrIns
         ir_add_error(ira, &instruction->base, buf_sprintf("return outside function"));
         return ira->codegen->invalid_instruction;
     }
-    ZigType *result_type = get_pointer_to_type(ira->codegen, fn->type_entry->data.fn.fn_type_id.return_type, false);
-    IrInstruction *result = ir_build_result_return(&ira->new_irb, instruction->base.scope, instruction->base.source_node);
+
+    // Here we create a pass2 instruction for getting the return value pointer.
+    // However we create a const value for it and mark it with ConstPtrMutInfer
+    // so that if the return expression is comptime-known, we can emit a memcpy
+    // rather than runtime instructions instructions.
+
+    ConstExprValue *pointee = create_const_vals(1);
+    pointee->special = ConstValSpecialUndef;
+    pointee->type = fn->type_entry->data.fn.fn_type_id.return_type;
+
+    ZigType *result_type = get_pointer_to_type(ira->codegen, pointee->type, false);
+    IrInstruction *result = ir_build_result_return(&ira->new_irb, instruction->base.scope,
+            instruction->base.source_node);
     result->value.type = result_type;
+    result->value.special = ConstValSpecialStatic;
+    result->value.data.x_ptr.special = ConstPtrSpecialRef;
+    result->value.data.x_ptr.data.ref.pointee = pointee;
+    result->value.data.x_ptr.mut = ConstPtrMutInfer;
     return result;
 }
 
