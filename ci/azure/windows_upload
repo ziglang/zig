@@ -1,0 +1,30 @@
+#!/bin/sh
+
+set -x
+set -e
+
+if [ "${BUILD_REASON}" != "PullRequest" ]; then
+  cd "$ZIGBUILDDIR"
+
+  mv ../LICENSE release/
+  mv ../zig-cache/langref.html release/
+  mv release/bin/zig.exe release/
+  rmdir release/bin
+
+  VERSION=$(release/zig.exe version)
+  DIRNAME="zig-windows-x86_64-$VERSION"
+  TARBALL="$DIRNAME.zip"
+  mv release "$DIRNAME"
+  zip -r "$TARBALL" "$DIRNAME"
+
+  mv "$DOWNLOADSECUREFILE_SECUREFILEPATH" "$HOME/.s3cfg"
+  s3cmd put -P "$TARBALL" s3://ziglang.org/builds/
+  touch empty
+  s3cmd put -P empty s3://ziglang.org/builds/zig-windows-x86_64-$BUILD_SOURCEBRANCHNAME.tar.xz --add-header="Cache-Control: max-age=0, must-revalidate" --add-header="x-amz-website-redirect-location:/builds/$TARBALL"
+
+  SHASUM=$(sha256sum $TARBALL)
+  BYTESIZE=$(wc -c < $TARBALL)
+  echo "##vso[task.setvariable variable=tarball;isOutput=true]$TARBALL"
+  echo "##vso[task.setvariable variable=shasum;isOutput=true]$SHASUM"
+  echo "##vso[task.setvariable variable=bytesize;isOutput=true]$BYTESIZE"
+fi

@@ -1,5 +1,5 @@
 jobs:
-- job: Build
+- job: BuildMacOS
   pool:
     vmImage: 'macOS 10.13'
 
@@ -10,4 +10,60 @@ jobs:
     inputs:
       secureFile: s3cfg
   - script: ci/azure/macos_script
-    displayName: 'macOS build and test'
+    name: main
+    displayName: 'Build and test'
+- job: BuildLinux
+  pool:
+    vmImage: 'ubuntu-16.04'
+
+  timeoutInMinutes: 360
+
+  steps:
+  - task: DownloadSecureFile@1
+    inputs:
+      secureFile: s3cfg
+  - script: ci/azure/linux_script
+    name: main
+    displayName: 'Build and test'
+- job: BuildWindows
+  pool:
+    vmImage: 'vs2017-win2016'
+
+  timeoutInMinutes: 360
+
+  steps:
+  - script: |
+      git clone https://github.com/lazka/msys2-ci-base.git %CD:~0,2%\msys64
+      %CD:~0,2%\msys64\usr\bin\rm -rf %CD:~0,2%\msys64\.git
+      set PATH=%CD:~0,2%\msys64\usr\bin;C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem
+      %CD:~0,2%\msys64\usr\bin\pacman --noconfirm -Syyuu
+    displayName: Install and Update MSYS2
+  - task: DownloadSecureFile@1
+    inputs:
+      secureFile: s3cfg
+  - script: ci/azure/windows_script.bat
+    name: main
+    displayName: 'Build and test'
+- job: UpdateDownloadPage
+  dependsOn:
+  - BuildMacOS
+  - BuildLinux
+  - BuildWindows
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/master'))
+  pool:
+    vmImage: 'ubuntu-16.04'
+  variables:
+    macos_tarball: $[ dependencies.BuildMacOS.outputs['main.tarball'] ]
+    macos_shasum: $[ dependencies.BuildMacOS.outputs['main.shasum'] ]
+    macos_bytesize: $[ dependencies.BuildMacOS.outputs['main.bytesize'] ]
+    linux_tarball: $[ dependencies.BuildLinux.outputs['main.tarball'] ]
+    linux_shasum: $[ dependencies.BuildLinux.outputs['main.shasum'] ]
+    linux_bytesize: $[ dependencies.BuildLinux.outputs['main.bytesize'] ]
+    windows_tarball: $[ dependencies.BuildWindows.outputs['main.tarball'] ]
+    windows_shasum: $[ dependencies.BuildWindows.outputs['main.shasum'] ]
+    windows_bytesize: $[ dependencies.BuildWindows.outputs['main.bytesize'] ]
+  - task: DownloadSecureFile@1
+    inputs:
+      secureFile: s3cfg
+  - script: ci/azure/update_download_page
+    displayName: 'Update download page'
