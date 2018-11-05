@@ -24,9 +24,9 @@ export SRC_BYTESIZE=$(wc -c < $SRC_TARBALL)
 git clone https://github.com/ziglang/www.ziglang.org --depth 1
 cd www.ziglang.org
 export MASTER_DATE=$(date +%Y-%m-%d)
-"$ZIG" run update-download-page.zig
+"../$ZIG" run update-download-page.zig
 
 mv "$DOWNLOADSECUREFILE_SECUREFILEPATH" "$HOME/.s3cfg"
-s3cmd put -P "$SRC_TARBALL" s3://ziglang.org/builds/
-s3cmd put -P "$LANGREF" s3://ziglang.org/documentation/master/index.html --add-header="Cache-Control: max-age=0, must-revalidate"
+s3cmd put -P "../$SRC_TARBALL" s3://ziglang.org/builds/
+s3cmd put -P "../$LANGREF" s3://ziglang.org/documentation/master/index.html --add-header="Cache-Control: max-age=0, must-revalidate"
 s3cmd put -P www/download/index.html s3://ziglang.org/download/index.html --add-header="Cache-Control: max-age=0, must-revalidate"
