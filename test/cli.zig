@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const os = std.os;
 const assertOrPanic = std.debug.assertOrPanic;
 
@@ -28,8 +29,18 @@ pub fn main() !void {
     });
     const zig_exe = try os.path.resolve(a, zig_exe_rel);
 
-    try testZigInitLib(zig_exe, cache_root);
-    try testZigInitExe(zig_exe, cache_root);
+    const dir_path = try os.path.join(a, cache_root, "clitest");
+    const TestFn = fn ([]const u8, []const u8) error!void;
+    const test_fns = []TestFn.{
+        testZigInitLib,
+        testZigInitExe,
+        testGodboltApi,
+    };
+    for (test_fns) |testFn| {
+        try os.deleteTree(a, dir_path);
+        try os.makeDir(dir_path);
+        try testFn(zig_exe, dir_path);
+    }
 }
 
 fn unwrapArg(arg: UnwrapArgError![]u8) UnwrapArgError![]u8 {
@@ -73,20 +84,48 @@ fn exec(cwd: []const u8, argv: []const []const u8) !os.ChildProcess.ExecResult {
     return result;
 }
 
-fn testZigInitLib(zig_exe: []const u8, cache_root: []const u8) !void {
-    const dir_path = try os.path.join(a, cache_root, "clitest");
-    try os.deleteTree(a, dir_path);
-    try os.makeDir(dir_path);
-    _ = try exec(dir_path, [][]const u8{ zig_exe, "init-lib" });
-    const test_result = try exec(dir_path, [][]const u8{ zig_exe, "build", "test" });
+fn testZigInitLib(zig_exe: []const u8, dir_path: []const u8) !void {
+    _ = try exec(dir_path, [][]const u8.{ zig_exe, "init-lib" });
+    const test_result = try exec(dir_path, [][]const u8.{ zig_exe, "build", "test" });
     assertOrPanic(std.mem.endsWith(u8, test_result.stderr, "All tests passed.\n"));
 }
 
-fn testZigInitExe(zig_exe: []const u8, cache_root: []const u8) !void {
-    const dir_path = try os.path.join(a, cache_root, "clitest");
-    try os.deleteTree(a, dir_path);
-    try os.makeDir(dir_path);
-    _ = try exec(dir_path, [][]const u8{ zig_exe, "init-exe" });
-    const run_result = try exec(dir_path, [][]const u8{ zig_exe, "build", "run" });
+fn testZigInitExe(zig_exe: []const u8, dir_path: []const u8) !void {
+    _ = try exec(dir_path, [][]const u8.{ zig_exe, "init-exe" });
+    const run_result = try exec(dir_path, [][]const u8.{ zig_exe, "build", "run" });
     assertOrPanic(std.mem.eql(u8, run_result.stderr, "All your base are belong to us.\n"));
+}
+
+fn testGodboltApi(zig_exe: []const u8, dir_path: []const u8) error!void {
+    if (builtin.os != builtin.Os.linux or builtin.arch != builtin.Arch.x86_64) return;
+
+    const example_zig_path = try os.path.join(a, dir_path, "example.zig");
+    const example_s_path = try os.path.join(a, dir_path, "example.s");
+
+    try std.io.writeFile(example_zig_path,
+        \\// Type your code here, or load an example.
+        \\export fn square(num: i32) i32 {
+        \\    return num * num;
+        \\}
+        \\extern fn zig_panic() noreturn;
+        \\pub inline fn panic(msg: []const u8, error_return_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    zig_panic();
+        \\}
+    );
+
+    const args = [][]const u8.{
+        zig_exe, "build-obj",
+        "--cache-dir", dir_path,
+        "--output", example_s_path,
+        "--output-h", "/dev/null",
+        "--emit", "asm",
+        "-mllvm", "--x86-asm-syntax=intel",
+        "--strip", "--release-fast",
+        example_zig_path,
+    };
+    _ = try exec(dir_path, args);
+
+    const out_asm = try std.io.readFileAlloc(a, example_s_path);
+    assertOrPanic(std.mem.indexOf(u8, out_asm, "square:") != null);
+    assertOrPanic(std.mem.indexOf(u8, out_asm, "imul\tedi, edi") != null);
 }

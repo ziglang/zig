@@ -7,55 +7,55 @@ const TokenIndex = std.zig.ast.TokenIndex;
 const Compilation = @import("compilation.zig").Compilation;
 const Scope = @import("scope.zig").Scope;
 
-pub const Color = enum {
+pub const Color = enum.{
     Auto,
     Off,
     On,
 };
 
-pub const Span = struct {
+pub const Span = struct.{
     first: ast.TokenIndex,
     last: ast.TokenIndex,
 
     pub fn token(i: TokenIndex) Span {
-        return Span{
+        return Span.{
             .first = i,
             .last = i,
         };
     }
 
     pub fn node(n: *ast.Node) Span {
-        return Span{
+        return Span.{
             .first = n.firstToken(),
             .last = n.lastToken(),
         };
     }
 };
 
-pub const Msg = struct {
+pub const Msg = struct.{
     text: []u8,
     realpath: []u8,
     data: Data,
 
-    const Data = union(enum) {
+    const Data = union(enum).{
         Cli: Cli,
         PathAndTree: PathAndTree,
         ScopeAndComp: ScopeAndComp,
     };
 
-    const PathAndTree = struct {
+    const PathAndTree = struct.{
         span: Span,
         tree: *ast.Tree,
         allocator: *mem.Allocator,
     };
 
-    const ScopeAndComp = struct {
+    const ScopeAndComp = struct.{
         span: Span,
         tree_scope: *Scope.AstTree,
         compilation: *Compilation,
     };
 
-    const Cli = struct {
+    const Cli = struct.{
         allocator: *mem.Allocator,
     };
 
@@ -118,11 +118,11 @@ pub const Msg = struct {
         const realpath = try mem.dupe(comp.gpa(), u8, tree_scope.root().realpath);
         errdefer comp.gpa().free(realpath);
 
-        const msg = try comp.gpa().create(Msg{
+        const msg = try comp.gpa().create(Msg.{
             .text = text,
             .realpath = realpath,
-            .data = Data{
-                .ScopeAndComp = ScopeAndComp{
+            .data = Data.{
+                .ScopeAndComp = ScopeAndComp.{
                     .tree_scope = tree_scope,
                     .compilation = comp,
                     .span = span,
@@ -139,11 +139,11 @@ pub const Msg = struct {
         const realpath_copy = try mem.dupe(comp.gpa(), u8, realpath);
         errdefer comp.gpa().free(realpath_copy);
 
-        const msg = try comp.gpa().create(Msg{
+        const msg = try comp.gpa().create(Msg.{
             .text = text,
             .realpath = realpath_copy,
-            .data = Data{
-                .Cli = Cli{ .allocator = comp.gpa() },
+            .data = Data.{
+                .Cli = Cli.{ .allocator = comp.gpa() },
             },
         });
         return msg;
@@ -164,14 +164,14 @@ pub const Msg = struct {
         var out_stream = &std.io.BufferOutStream.init(&text_buf).stream;
         try parse_error.render(&tree_scope.tree.tokens, out_stream);
 
-        const msg = try comp.gpa().create(Msg{
+        const msg = try comp.gpa().create(Msg.{
             .text = undefined,
             .realpath = realpath_copy,
-            .data = Data{
-                .ScopeAndComp = ScopeAndComp{
+            .data = Data.{
+                .ScopeAndComp = ScopeAndComp.{
                     .tree_scope = tree_scope,
                     .compilation = comp,
-                    .span = Span{
+                    .span = Span.{
                         .first = loc_token,
                         .last = loc_token,
                     },
@@ -203,14 +203,14 @@ pub const Msg = struct {
         var out_stream = &std.io.BufferOutStream.init(&text_buf).stream;
         try parse_error.render(&tree.tokens, out_stream);
 
-        const msg = try allocator.create(Msg{
+        const msg = try allocator.create(Msg.{
             .text = undefined,
             .realpath = realpath_copy,
-            .data = Data{
-                .PathAndTree = PathAndTree{
+            .data = Data.{
+                .PathAndTree = PathAndTree.{
                     .allocator = allocator,
                     .tree = tree,
-                    .span = Span{
+                    .span = Span.{
                         .first = loc_token,
                         .last = loc_token,
                     },
@@ -278,7 +278,7 @@ pub const Msg = struct {
             Color.On => true,
             Color.Off => false,
         };
-        var stream = &std.io.FileOutStream.init(file).stream;
+        var stream = &file.outStream().stream;
         return msg.printToStream(stream, color_on);
     }
 };

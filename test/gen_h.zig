@@ -2,7 +2,7 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.GenHContext) void {
     cases.add("declare enum",
-        \\const Foo = extern enum { A, B, C };
+        \\const Foo = extern enum.{ A, B, C };
         \\export fn entry(foo: Foo) void { }
     ,
         \\enum Foo {
@@ -16,7 +16,7 @@ pub fn addCases(cases: *tests.GenHContext) void {
     );
 
     cases.add("declare struct",
-        \\const Foo = extern struct {
+        \\const Foo = extern struct.{
         \\    A: i32,
         \\    B: f32,
         \\    C: bool,
@@ -40,14 +40,14 @@ pub fn addCases(cases: *tests.GenHContext) void {
     );
 
     cases.add("declare union",
-        \\const Big = extern struct {
+        \\const Big = extern struct.{
         \\    A: u64,
         \\    B: u64,
         \\    C: u64,
         \\    D: u64,
         \\    E: u64,
         \\};
-        \\const Foo = extern union {
+        \\const Foo = extern union.{
         \\    A: i32,
         \\    B: f32,
         \\    C: bool,
@@ -85,7 +85,7 @@ pub fn addCases(cases: *tests.GenHContext) void {
     );
 
     cases.add("array field-type",
-        \\const Foo = extern struct {
+        \\const Foo = extern struct.{
         \\    A: [2]i32,
         \\    B: [4]*u32,
         \\};
@@ -101,7 +101,7 @@ pub fn addCases(cases: *tests.GenHContext) void {
     );
 
     cases.add("ptr to zig struct",
-        \\const S = struct {
+        \\const S = struct.{
         \\    a: u8,
         \\};
         \\
@@ -115,7 +115,7 @@ pub fn addCases(cases: *tests.GenHContext) void {
     );
 
     cases.add("ptr to zig union",
-        \\const U = union(enum) {
+        \\const U = union(enum).{
         \\    A: u8,
         \\    B: u16,
         \\};
@@ -130,7 +130,7 @@ pub fn addCases(cases: *tests.GenHContext) void {
     );
 
     cases.add("ptr to zig enum",
-        \\const E = enum(u8) {
+        \\const E = enum(u8).{
         \\    A,
         \\    B,
         \\};

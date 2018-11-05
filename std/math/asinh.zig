@@ -7,6 +7,7 @@
 const std = @import("../index.zig");
 const math = std.math;
 const assert = std.debug.assert;
+const maxInt = std.math.maxInt;
 
 pub fn asinh(x: var) @typeOf(x) {
     const T = @typeOf(x);
@@ -55,7 +56,7 @@ fn asinh64(x: f64) f64 {
     const e = (u >> 52) & 0x7FF;
     const s = u >> 63;
 
-    var rx = @bitCast(f64, u & (@maxValue(u64) >> 1)); // |x|
+    var rx = @bitCast(f64, u & (maxInt(u64) >> 1)); // |x|
 
     if (math.isNegativeInf(x)) {
         return x;

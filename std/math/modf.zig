@@ -6,9 +6,10 @@
 const std = @import("../index.zig");
 const math = std.math;
 const assert = std.debug.assert;
+const maxInt = std.math.maxInt;
 
 fn modf_result(comptime T: type) type {
-    return struct {
+    return struct.{
         fpart: T,
         ipart: T,
     };
@@ -101,7 +102,7 @@ fn modf64(x: f64) modf64_result {
         return result;
     }
 
-    const mask = u64(@maxValue(u64) >> 12) >> @intCast(u6, e);
+    const mask = u64(maxInt(u64) >> 12) >> @intCast(u6, e);
     if (u & mask == 0) {
         result.ipart = x;
         result.fpart = @bitCast(f64, us);

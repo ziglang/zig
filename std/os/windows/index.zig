@@ -1,5 +1,6 @@
 const std = @import("../../index.zig");
 const assert = std.debug.assert;
+const maxInt = std.math.maxInt;
 
 pub use @import("advapi32.zig");
 pub use @import("kernel32.zig");
@@ -24,6 +25,7 @@ pub const HANDLE = *c_void;
 pub const HCRYPTPROV = ULONG_PTR;
 pub const HINSTANCE = *@OpaqueType();
 pub const HMODULE = *@OpaqueType();
+pub const FARPROC = *@OpaqueType();
 pub const INT = c_int;
 pub const LPBYTE = *BYTE;
 pub const LPCH = *CHAR;
@@ -52,19 +54,19 @@ pub const TRUE = 1;
 pub const FALSE = 0;
 
 /// The standard input device. Initially, this is the console input buffer, CONIN$.
-pub const STD_INPUT_HANDLE = @maxValue(DWORD) - 10 + 1;
+pub const STD_INPUT_HANDLE = maxInt(DWORD) - 10 + 1;
 
 /// The standard output device. Initially, this is the active console screen buffer, CONOUT$.
-pub const STD_OUTPUT_HANDLE = @maxValue(DWORD) - 11 + 1;
+pub const STD_OUTPUT_HANDLE = maxInt(DWORD) - 11 + 1;
 
 /// The standard error device. Initially, this is the active console screen buffer, CONOUT$.
-pub const STD_ERROR_HANDLE = @maxValue(DWORD) - 12 + 1;
+pub const STD_ERROR_HANDLE = maxInt(DWORD) - 12 + 1;
 
-pub const INVALID_HANDLE_VALUE = @intToPtr(HANDLE, @maxValue(usize));
+pub const INVALID_HANDLE_VALUE = @intToPtr(HANDLE, maxInt(usize));
 
-pub const INVALID_FILE_ATTRIBUTES = DWORD(@maxValue(DWORD));
+pub const INVALID_FILE_ATTRIBUTES = DWORD(maxInt(DWORD));
 
-pub const OVERLAPPED = extern struct {
+pub const OVERLAPPED = extern struct.{
     Internal: ULONG_PTR,
     InternalHigh: ULONG_PTR,
     Offset: DWORD,
@@ -99,7 +101,7 @@ pub const FileIdInfo = 18;
 pub const FileIdExtdDirectoryInfo = 19;
 pub const FileIdExtdDirectoryRestartInfo = 20;
 
-pub const FILE_NAME_INFO = extern struct {
+pub const FILE_NAME_INFO = extern struct.{
     FileNameLength: DWORD,
     FileName: [1]WCHAR,
 };
@@ -122,7 +124,7 @@ pub const VOLUME_NAME_NONE = 0x4;
 /// Return the path with the volume device path.
 pub const VOLUME_NAME_NT = 0x2;
 
-pub const SECURITY_ATTRIBUTES = extern struct {
+pub const SECURITY_ATTRIBUTES = extern struct.{
     nLength: DWORD,
     lpSecurityDescriptor: ?*c_void,
     bInheritHandle: BOOL,
@@ -165,14 +167,14 @@ pub const FILE_ATTRIBUTE_SYSTEM = 0x4;
 pub const FILE_ATTRIBUTE_TEMPORARY = 0x100;
 pub const FILE_ATTRIBUTE_VIRTUAL = 0x10000;
 
-pub const PROCESS_INFORMATION = extern struct {
+pub const PROCESS_INFORMATION = extern struct.{
     hProcess: HANDLE,
     hThread: HANDLE,
     dwProcessId: DWORD,
     dwThreadId: DWORD,
 };
 
-pub const STARTUPINFOW = extern struct {
+pub const STARTUPINFOW = extern struct.{
     cb: DWORD,
     lpReserved: ?LPWSTR,
     lpDesktop: ?LPWSTR,
@@ -236,7 +238,7 @@ pub const HEAP_NO_SERIALIZE = 0x00000001;
 pub const PTHREAD_START_ROUTINE = extern fn (LPVOID) DWORD;
 pub const LPTHREAD_START_ROUTINE = PTHREAD_START_ROUTINE;
 
-pub const WIN32_FIND_DATAW = extern struct {
+pub const WIN32_FIND_DATAW = extern struct.{
     dwFileAttributes: DWORD,
     ftCreationTime: FILETIME,
     ftLastAccessTime: FILETIME,
@@ -249,15 +251,15 @@ pub const WIN32_FIND_DATAW = extern struct {
     cAlternateFileName: [14]u16,
 };
 
-pub const FILETIME = extern struct {
+pub const FILETIME = extern struct.{
     dwLowDateTime: DWORD,
     dwHighDateTime: DWORD,
 };
 
-pub const SYSTEM_INFO = extern struct {
-    anon1: extern union {
+pub const SYSTEM_INFO = extern struct.{
+    anon1: extern union.{
         dwOemId: DWORD,
-        anon2: extern struct {
+        anon2: extern struct.{
             wProcessorArchitecture: WORD,
             wReserved: WORD,
         },
@@ -276,7 +278,7 @@ pub const SYSTEM_INFO = extern struct {
 pub const HRESULT = c_long;
 
 pub const KNOWNFOLDERID = GUID;
-pub const GUID = extern struct {
+pub const GUID = extern struct.{
     Data1: c_ulong,
     Data2: c_ushort,
     Data3: c_ushort,
@@ -364,14 +366,14 @@ pub const FILE_FLAG_SESSION_AWARE = 0x00800000;
 pub const FILE_FLAG_SEQUENTIAL_SCAN = 0x08000000;
 pub const FILE_FLAG_WRITE_THROUGH = 0x80000000;
 
-pub const SMALL_RECT = extern struct {
+pub const SMALL_RECT = extern struct.{
     Left: SHORT,
     Top: SHORT,
     Right: SHORT,
     Bottom: SHORT,
 };
 
-pub const COORD = extern struct {
+pub const COORD = extern struct.{
     X: SHORT,
     Y: SHORT,
 };

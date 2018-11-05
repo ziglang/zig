@@ -5,7 +5,7 @@ const builtin = @import("builtin");
 const debug = @import("../debug/index.zig");
 const fmt = @import("../fmt/index.zig");
 
-const RoundParam = struct {
+const RoundParam = struct.{
     a: usize,
     b: usize,
     c: usize,
@@ -16,7 +16,7 @@ const RoundParam = struct {
 };
 
 fn Rp(a: usize, b: usize, c: usize, d: usize, k: usize, s: u32, t: u32) RoundParam {
-    return RoundParam{
+    return RoundParam.{
         .a = a,
         .b = b,
         .c = c,
@@ -27,7 +27,7 @@ fn Rp(a: usize, b: usize, c: usize, d: usize, k: usize, s: u32, t: u32) RoundPar
     };
 }
 
-pub const Md5 = struct {
+pub const Md5 = struct.{
     const Self = @This();
     const block_length = 64;
     const digest_length = 16;
@@ -131,14 +131,14 @@ pub const Md5 = struct {
             s[i] |= u32(b[i * 4 + 3]) << 24;
         }
 
-        var v: [4]u32 = []u32{
+        var v: [4]u32 = []u32.{
             d.s[0],
             d.s[1],
             d.s[2],
             d.s[3],
         };
 
-        const round0 = comptime []RoundParam{
+        const round0 = comptime []RoundParam.{
             Rp(0, 1, 2, 3, 0, 7, 0xD76AA478),
             Rp(3, 0, 1, 2, 1, 12, 0xE8C7B756),
             Rp(2, 3, 0, 1, 2, 17, 0x242070DB),
@@ -161,7 +161,7 @@ pub const Md5 = struct {
             v[r.a] = v[r.b] +% math.rotl(u32, v[r.a], r.s);
         }
 
-        const round1 = comptime []RoundParam{
+        const round1 = comptime []RoundParam.{
             Rp(0, 1, 2, 3, 1, 5, 0xF61E2562),
             Rp(3, 0, 1, 2, 6, 9, 0xC040B340),
             Rp(2, 3, 0, 1, 11, 14, 0x265E5A51),
@@ -184,7 +184,7 @@ pub const Md5 = struct {
             v[r.a] = v[r.b] +% math.rotl(u32, v[r.a], r.s);
         }
 
-        const round2 = comptime []RoundParam{
+        const round2 = comptime []RoundParam.{
             Rp(0, 1, 2, 3, 5, 4, 0xFFFA3942),
             Rp(3, 0, 1, 2, 8, 11, 0x8771F681),
             Rp(2, 3, 0, 1, 11, 16, 0x6D9D6122),
@@ -207,7 +207,7 @@ pub const Md5 = struct {
             v[r.a] = v[r.b] +% math.rotl(u32, v[r.a], r.s);
         }
 
-        const round3 = comptime []RoundParam{
+        const round3 = comptime []RoundParam.{
             Rp(0, 1, 2, 3, 0, 6, 0xF4292244),
             Rp(3, 0, 1, 2, 7, 10, 0x432AFF97),
             Rp(2, 3, 0, 1, 14, 15, 0xAB9423A7),
@@ -271,7 +271,7 @@ test "md5 streaming" {
 }
 
 test "md5 aligned final" {
-    var block = []u8{0} ** Md5.block_length;
+    var block = []u8.{0} ** Md5.block_length;
     var out: [Md5.digest_length]u8 = undefined;
 
     var h = Md5.init();

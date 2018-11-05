@@ -1,4 +1,4 @@
-// This file is included in the compilation unit when exporting a library on windows.
+// This file is included in the compilation unit when exporting a DLL on windows.
 
 const std = @import("std");
 const builtin = @import("builtin");

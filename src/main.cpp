@@ -16,14 +16,22 @@
 
 #include <stdio.h>
 
-static int usage(const char *arg0) {
-    fprintf(stderr, "Usage: %s [command] [options]\n"
+static int print_error_usage(const char *arg0) {
+    fprintf(stderr, "See `%s help` for detailed usage information\n", arg0);
+    return EXIT_FAILURE;
+}
+
+static int print_full_usage(const char *arg0) {
+    fprintf(stdout,
+        "Usage: %s [command] [options]\n"
+        "\n"
         "Commands:\n"
         "  build                        build project from build.zig\n"
         "  build-exe [source]           create executable from source or object files\n"
         "  build-lib [source]           create library from source or object files\n"
         "  build-obj [source]           create object from source or assembly\n"
         "  builtin                      show the source code of that @import(\"builtin\")\n"
+        "  help                         show this usage information\n"
         "  id                           print the base64-encoded compiler id\n"
         "  init-exe                     initialize a `zig build` application in the cwd\n"
         "  init-lib                     initialize a `zig build` library in the cwd\n"
@@ -33,17 +41,19 @@ static int usage(const char *arg0) {
         "  test [source]                create and run a test build\n"
         "  version                      print version number and exit\n"
         "  zen                          print zen of zig and exit\n"
+        "\n"
         "Compile Options:\n"
         "  --assembly [source]          add assembly file to build\n"
         "  --cache-dir [path]           override the cache directory\n"
         "  --cache [auto|off|on]        build in global cache, print out paths to stdout\n"
         "  --color [auto|off|on]        enable or disable colored error messages\n"
+        "  --disable-pic                disable Position Independent Code for libraries\n"
         "  --emit [asm|bin|llvm-ir]     emit a specific file format as compilation output\n"
         "  -ftime-report                print timing diagnostics\n"
         "  --libc-include-dir [path]    directory where libc stdlib.h resides\n"
         "  --name [name]                override output name\n"
         "  --output [file]              override destination path\n"
-        "  --output-h [file]            override generated header file path\n"
+        "  --output-h [file]            generate header file\n"
         "  --pkg-begin [name] [path]    make pkg available to import and push current pkg\n"
         "  --pkg-end                    pop current pkg\n"
         "  --release-fast               build with optimizations on and safety off\n"
@@ -63,6 +73,7 @@ static int usage(const char *arg0) {
         "  -dirafter [dir]              same as -isystem but do it last\n"
         "  -isystem [dir]               add additional search path for other .h files\n"
         "  -mllvm [arg]                 forward an arg to LLVM's option processing\n"
+        "\n"
         "Link Options:\n"
         "  --dynamic-linker [path]      set the path to ld.so\n"
         "  --each-lib-rpath             add rpath for each used dynamic library\n"
@@ -87,13 +98,14 @@ static int usage(const char *arg0) {
         "  --ver-major [ver]            dynamic library semver major version\n"
         "  --ver-minor [ver]            dynamic library semver minor version\n"
         "  --ver-patch [ver]            dynamic library semver patch version\n"
+        "\n"
         "Test Options:\n"
         "  --test-filter [text]         skip tests that do not match filter\n"
         "  --test-name-prefix [text]    add prefix to all tests\n"
         "  --test-cmd [arg]             specify test execution command one arg at a time\n"
         "  --test-cmd-bin               appends test binary path to test cmd args\n"
     , arg0);
-    return EXIT_FAILURE;
+    return EXIT_SUCCESS;
 }
 
 static const char *ZIG_ZEN = "\n"
@@ -144,15 +156,16 @@ static int print_target_list(FILE *f) {
 }
 
 enum Cmd {
-    CmdInvalid,
+    CmdNone,
     CmdBuild,
     CmdBuiltin,
+    CmdHelp,
     CmdRun,
+    CmdTargets,
     CmdTest,
+    CmdTranslateC,
     CmdVersion,
     CmdZen,
-    CmdTranslateC,
-    CmdTargets,
 };
 
 static const char *default_zig_cache_name = "zig-cache";
@@ -251,7 +264,7 @@ int main(int argc, char **argv) {
         if (init_kind != InitKindNone) {
             if (argc >= 3) {
                 fprintf(stderr, "Unexpected extra argument: %s\n", argv[2]);
-                return usage(arg0);
+                return print_error_usage(arg0);
             }
             Buf *cmd_template_path = buf_alloc();
             os_path_join(get_zig_special_dir(), buf_create_from_str(init_cmd), cmd_template_path);
@@ -326,7 +339,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    Cmd cmd = CmdInvalid;
+    Cmd cmd = CmdNone;
     EmitFileType emit_file_type = EmitFileTypeBinary;
     const char *in_file = nullptr;
     const char *out_file = nullptr;
@@ -374,15 +387,22 @@ int main(int argc, char **argv) {
     size_t ver_minor = 0;
     size_t ver_patch = 0;
     bool timing_info = false;
+    bool disable_pic = false;
     const char *cache_dir = nullptr;
     CliPkg *cur_pkg = allocate<CliPkg>(1);
     BuildMode build_mode = BuildModeDebug;
     ZigList<const char *> test_exec_args = {0};
     int runtime_args_start = -1;
     bool no_rosegment_workaround = false;
+    bool system_linker_hack = false;
 
     if (argc >= 2 && strcmp(argv[1], "build") == 0) {
-        const char *zig_exe_path = arg0;
+        Buf zig_exe_path_buf = BUF_INIT;
+        if ((err = os_self_exe_path(&zig_exe_path_buf))) {
+            fprintf(stderr, "Unable to determine path to zig's own executable\n");
+            return EXIT_FAILURE;
+        }
+        const char *zig_exe_path = buf_ptr(&zig_exe_path_buf);
         const char *build_file = "build.zig";
         bool asked_for_help = false;
 
@@ -539,6 +559,10 @@ int main(int argc, char **argv) {
                 each_lib_rpath = true;
             } else if (strcmp(arg, "-ftime-report") == 0) {
                 timing_info = true;
+            } else if (strcmp(arg, "--disable-pic") == 0) {
+                disable_pic = true;
+            } else if (strcmp(arg, "--system-linker-hack") == 0) {
+                system_linker_hack = true;
             } else if (strcmp(arg, "--test-cmd-bin") == 0) {
                 test_exec_args.append(nullptr);
             } else if (arg[1] == 'L' && arg[2] != 0) {
@@ -547,7 +571,7 @@ int main(int argc, char **argv) {
             } else if (strcmp(arg, "--pkg-begin") == 0) {
                 if (i + 2 >= argc) {
                     fprintf(stderr, "Expected 2 arguments after --pkg-begin\n");
-                    return usage(arg0);
+                    return print_error_usage(arg0);
                 }
                 CliPkg *new_cur_pkg = allocate<CliPkg>(1);
                 i += 1;
@@ -565,7 +589,7 @@ int main(int argc, char **argv) {
                 cur_pkg = cur_pkg->parent;
             } else if (i + 1 >= argc) {
                 fprintf(stderr, "Expected another argument after %s\n", arg);
-                return usage(arg0);
+                return print_error_usage(arg0);
             } else {
                 i += 1;
                 if (strcmp(arg, "--output") == 0) {
@@ -581,7 +605,7 @@ int main(int argc, char **argv) {
                         color = ErrColorOff;
                     } else {
                         fprintf(stderr, "--color options are 'auto', 'on', or 'off'\n");
-                        return usage(arg0);
+                        return print_error_usage(arg0);
                     }
                 } else if (strcmp(arg, "--cache") == 0) {
                     if (strcmp(argv[i], "auto") == 0) {
@@ -592,7 +616,7 @@ int main(int argc, char **argv) {
                         enable_cache = CacheOptOff;
                     } else {
                         fprintf(stderr, "--cache options are 'auto', 'on', or 'off'\n");
-                        return usage(arg0);
+                        return print_error_usage(arg0);
                     }
                 } else if (strcmp(arg, "--emit") == 0) {
                     if (strcmp(argv[i], "asm") == 0) {
@@ -603,7 +627,7 @@ int main(int argc, char **argv) {
                         emit_file_type = EmitFileTypeLLVMIr;
                     } else {
                         fprintf(stderr, "--emit options are 'asm', 'bin', or 'llvm-ir'\n");
-                        return usage(arg0);
+                        return print_error_usage(arg0);
                     }
                 } else if (strcmp(arg, "--name") == 0) {
                     out_name = argv[i];
@@ -672,10 +696,10 @@ int main(int argc, char **argv) {
                     test_exec_args.append(argv[i]);
                 } else {
                     fprintf(stderr, "Invalid argument: %s\n", arg);
-                    return usage(arg0);
+                    return print_error_usage(arg0);
                 }
             }
-        } else if (cmd == CmdInvalid) {
+        } else if (cmd == CmdNone) {
             if (strcmp(arg, "build-exe") == 0) {
                 cmd = CmdBuild;
                 out_type = OutTypeExe;
@@ -685,6 +709,8 @@ int main(int argc, char **argv) {
             } else if (strcmp(arg, "build-lib") == 0) {
                 cmd = CmdBuild;
                 out_type = OutTypeLib;
+            } else if (strcmp(arg, "help") == 0) {
+                cmd = CmdHelp;
             } else if (strcmp(arg, "run") == 0) {
                 cmd = CmdRun;
                 out_type = OutTypeExe;
@@ -703,7 +729,7 @@ int main(int argc, char **argv) {
                 cmd = CmdBuiltin;
             } else {
                 fprintf(stderr, "Unrecognized command: %s\n", arg);
-                return usage(arg0);
+                return print_error_usage(arg0);
             }
         } else {
             switch (cmd) {
@@ -719,16 +745,17 @@ int main(int argc, char **argv) {
                         }
                     } else {
                         fprintf(stderr, "Unexpected extra parameter: %s\n", arg);
-                        return usage(arg0);
+                        return print_error_usage(arg0);
                     }
                     break;
                 case CmdBuiltin:
+                case CmdHelp:
                 case CmdVersion:
                 case CmdZen:
                 case CmdTargets:
                     fprintf(stderr, "Unexpected extra parameter: %s\n", arg);
-                    return usage(arg0);
-                case CmdInvalid:
+                    return print_error_usage(arg0);
+                case CmdNone:
                     zig_unreachable();
             }
         }
@@ -751,19 +778,19 @@ int main(int argc, char **argv) {
         if (target_arch) {
             if (parse_target_arch(target_arch, &target->arch)) {
                 fprintf(stderr, "invalid --target-arch argument\n");
-                return usage(arg0);
+                return print_error_usage(arg0);
             }
         }
         if (target_os) {
             if (parse_target_os(target_os, &target->os)) {
                 fprintf(stderr, "invalid --target-os argument\n");
-                return usage(arg0);
+                return print_error_usage(arg0);
             }
         }
         if (target_environ) {
             if (parse_target_environ(target_environ, &target->env_type)) {
                 fprintf(stderr, "invalid --target-environ argument\n");
-                return usage(arg0);
+                return print_error_usage(arg0);
             }
         }
     }
@@ -785,13 +812,13 @@ int main(int argc, char **argv) {
         {
             if (cmd == CmdBuild && !in_file && objects.length == 0 && asm_files.length == 0) {
                 fprintf(stderr, "Expected source file argument or at least one --object or --assembly argument.\n");
-                return usage(arg0);
+                return print_error_usage(arg0);
             } else if ((cmd == CmdTranslateC || cmd == CmdTest || cmd == CmdRun) && !in_file) {
                 fprintf(stderr, "Expected source file argument.\n");
-                return usage(arg0);
+                return print_error_usage(arg0);
             } else if (cmd == CmdBuild && out_type == OutTypeObj && objects.length != 0) {
                 fprintf(stderr, "When building an object file, --object arguments are invalid.\n");
-                return usage(arg0);
+                return print_error_usage(arg0);
             }
 
             assert(cmd != CmdBuild || out_type != OutTypeUnknown);
@@ -820,7 +847,7 @@ int main(int argc, char **argv) {
 
             if (need_name && buf_out_name == nullptr) {
                 fprintf(stderr, "--name [name] not provided and unable to infer\n\n");
-                return usage(arg0);
+                return print_error_usage(arg0);
             }
 
             Buf *zig_root_source_file = (cmd == CmdTranslateC) ? nullptr : in_file_buf;
@@ -829,6 +856,14 @@ int main(int argc, char **argv) {
                 buf_out_name = buf_create_from_str("run");
             }
             CodeGen *g = codegen_create(zig_root_source_file, target, out_type, build_mode, get_zig_lib_dir());
+            if (disable_pic) {
+                if (out_type != OutTypeLib || !is_static) {
+                    fprintf(stderr, "--disable-pic only applies to static libraries");
+                    return EXIT_FAILURE;
+                }
+                g->disable_pic = true;
+            }
+
             g->enable_time_report = timing_info;
             buf_init_from_str(&g->cache_dir, cache_dir ? cache_dir : default_zig_cache_name);
             codegen_set_out_name(g, buf_out_name);
@@ -861,6 +896,7 @@ int main(int argc, char **argv) {
             g->verbose_llvm_ir = verbose_llvm_ir;
             g->verbose_cimport = verbose_cimport;
             codegen_set_errmsg_color(g, color);
+            g->system_linker_hack = system_linker_hack;
 
             for (size_t i = 0; i < lib_dirs.length; i += 1) {
                 codegen_add_lib_dir(g, lib_dirs.at(i));
@@ -906,7 +942,7 @@ int main(int argc, char **argv) {
 
             if (out_file)
                 codegen_set_output_path(g, buf_create_from_str(out_file));
-            if (out_file_h)
+            if (out_file_h != nullptr && (out_type == OutTypeObj || out_type == OutTypeLib))
                 codegen_set_output_h_path(g, buf_create_from_str(out_file_h));
 
 
@@ -1012,6 +1048,8 @@ int main(int argc, char **argv) {
                 zig_unreachable();
             }
         }
+    case CmdHelp:
+        return print_full_usage(arg0);
     case CmdVersion:
         printf("%s\n", ZIG_VERSION_STRING);
         return EXIT_SUCCESS;
@@ -1020,7 +1058,8 @@ int main(int argc, char **argv) {
         return EXIT_SUCCESS;
     case CmdTargets:
         return print_target_list(stdout);
-    case CmdInvalid:
-        return usage(arg0);
+    case CmdNone:
+        fprintf(stderr, "Zig programming language\n");
+        return print_error_usage(arg0);
     }
 }

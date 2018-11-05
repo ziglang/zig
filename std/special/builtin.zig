@@ -1,14 +1,16 @@
 // These functions are provided when not linking against libc because LLVM
 // sometimes generates code that calls them.
 
+const std = @import("std");
 const builtin = @import("builtin");
+const maxInt = std.math.maxInt;
 
 // Avoid dragging in the runtime safety mechanisms into this .o file,
 // unless we're trying to test this file.
 pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn {
     if (builtin.is_test) {
         @setCold(true);
-        @import("std").debug.panic("{}", msg);
+        std.debug.panic("{}", msg);
     } else {
         unreachable;
     }
@@ -60,7 +62,7 @@ comptime {
     {
         @export("__stack_chk_fail", __stack_chk_fail, builtin.GlobalLinkage.Strong);
     }
-    if (builtin.os == builtin.Os.linux and builtin.arch == builtin.Arch.x86_64) {
+    if (builtin.os == builtin.Os.linux) {
         @export("clone", clone, builtin.GlobalLinkage.Strong);
     }
 }
@@ -72,32 +74,64 @@ extern fn __stack_chk_fail() noreturn {
 // it causes a segfault in release mode. this is a workaround of calling it
 // across .o file boundaries. fix comptime @ptrCast of nakedcc functions.
 nakedcc fn clone() void {
-    asm volatile (
-        \\      xor %%eax,%%eax
-        \\      mov $56,%%al
-        \\      mov %%rdi,%%r11
-        \\      mov %%rdx,%%rdi
-        \\      mov %%r8,%%rdx
-        \\      mov %%r9,%%r8
-        \\      mov 8(%%rsp),%%r10
-        \\      mov %%r11,%%r9
-        \\      and $-16,%%rsi
-        \\      sub $8,%%rsi
-        \\      mov %%rcx,(%%rsi)
-        \\      syscall
-        \\      test %%eax,%%eax
-        \\      jnz 1f
-        \\      xor %%ebp,%%ebp
-        \\      pop %%rdi
-        \\      call *%%r9
-        \\      mov %%eax,%%edi
-        \\      xor %%eax,%%eax
-        \\      mov $60,%%al
-        \\      syscall
-        \\      hlt
-        \\1:    ret
-        \\
-    );
+    if (builtin.arch == builtin.Arch.x86_64) {
+        asm volatile (
+            \\      xor %%eax,%%eax
+            \\      mov $56,%%al // SYS_clone
+            \\      mov %%rdi,%%r11
+            \\      mov %%rdx,%%rdi
+            \\      mov %%r8,%%rdx
+            \\      mov %%r9,%%r8
+            \\      mov 8(%%rsp),%%r10
+            \\      mov %%r11,%%r9
+            \\      and $-16,%%rsi
+            \\      sub $8,%%rsi
+            \\      mov %%rcx,(%%rsi)
+            \\      syscall
+            \\      test %%eax,%%eax
+            \\      jnz 1f
+            \\      xor %%ebp,%%ebp
+            \\      pop %%rdi
+            \\      call *%%r9
+            \\      mov %%eax,%%edi
+            \\      xor %%eax,%%eax
+            \\      mov $60,%%al // SYS_exit
+            \\      syscall
+            \\      hlt
+            \\1:    ret
+            \\
+        );
+    } else if (builtin.arch == builtin.Arch.aarch64v8) {
+        // __clone(func, stack, flags, arg, ptid, tls, ctid)
+        //         x0,   x1,    w2,    x3,  x4,   x5,  x6
+
+        // syscall(SYS_clone, flags, stack, ptid, tls, ctid)
+        //         x8,        x0,    x1,    x2,   x3,  x4
+        asm volatile (
+            \\      // align stack and save func,arg
+            \\      and x1,x1,#-16
+            \\      stp x0,x3,[x1,#-16]!
+            \\
+            \\      // syscall
+            \\      uxtw x0,w2
+            \\      mov x2,x4
+            \\      mov x3,x5
+            \\      mov x4,x6
+            \\      mov x8,#220 // SYS_clone
+            \\      svc #0
+            \\
+            \\      cbz x0,1f
+            \\      // parent
+            \\      ret
+            \\      // child
+            \\1:    ldp x1,x0,[sp],#16
+            \\      blr x1
+            \\      mov x8,#93 // SYS_exit
+            \\      svc #0
+        );
+    } else {
+        @compileError("Implement clone() for this arch.");
+    }
 }
 
 const math = @import("../math/index.zig");
@@ -158,7 +192,7 @@ fn generic_fmod(comptime T: type, x: T, y: T) T {
         }) {}
         ux <<= @intCast(log2uint, @bitCast(u32, -ex + 1));
     } else {
-        ux &= @maxValue(uint) >> exp_bits;
+        ux &= maxInt(uint) >> exp_bits;
         ux |= 1 << digits;
     }
     if (ey == 0) {
@@ -169,7 +203,7 @@ fn generic_fmod(comptime T: type, x: T, y: T) T {
         }) {}
         uy <<= @intCast(log2uint, @bitCast(u32, -ey + 1));
     } else {
-        uy &= @maxValue(uint) >> exp_bits;
+        uy &= maxInt(uint) >> exp_bits;
         uy |= 1 << digits;
     }
 
@@ -215,7 +249,7 @@ fn isNan(comptime T: type, bits: T) bool {
     } else if (T == u32) {
         return (bits & 0x7fffffff) > 0x7f800000;
     } else if (T == u64) {
-        return (bits & (@maxValue(u64) >> 1)) > (u64(0x7ff) << 52);
+        return (bits & (maxInt(u64) >> 1)) > (u64(0x7ff) << 52);
     } else {
         unreachable;
     }

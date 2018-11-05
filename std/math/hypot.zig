@@ -8,6 +8,7 @@
 const std = @import("../index.zig");
 const math = std.math;
 const assert = std.debug.assert;
+const maxInt = std.math.maxInt;
 
 pub fn hypot(comptime T: type, x: T, y: T) T {
     return switch (T) {
@@ -21,8 +22,8 @@ fn hypot32(x: f32, y: f32) f32 {
     var ux = @bitCast(u32, x);
     var uy = @bitCast(u32, y);
 
-    ux &= @maxValue(u32) >> 1;
-    uy &= @maxValue(u32) >> 1;
+    ux &= maxInt(u32) >> 1;
+    uy &= maxInt(u32) >> 1;
     if (ux < uy) {
         const tmp = ux;
         ux = uy;
@@ -65,8 +66,8 @@ fn hypot64(x: f64, y: f64) f64 {
     var ux = @bitCast(u64, x);
     var uy = @bitCast(u64, y);
 
-    ux &= @maxValue(u64) >> 1;
-    uy &= @maxValue(u64) >> 1;
+    ux &= maxInt(u64) >> 1;
+    uy &= maxInt(u64) >> 1;
     if (ux < uy) {
         const tmp = ux;
         ux = uy;

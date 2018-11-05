@@ -1,0 +1,104 @@
+#!/bin/sh
+
+set -x
+set -e
+
+brew install s3cmd gcc@8
+
+ZIGDIR="$(pwd)"
+CACHE_BASENAME="llvm+clang-7.0.0-macos-x86_64-gcc8-release-static"
+PREFIX="$HOME/$CACHE_BASENAME"
+TMPDIR="$HOME/tmpz"
+JOBS="-j2"
+
+# I tried using the system default compiler (clang), but it couldn't statically link libc++.
+# So we use gcc-8 from homebrew.
+export CC=gcc-8
+export CXX=g++-8
+
+rm -rf $PREFIX
+rm -rf $TMPDIR
+mkdir $TMPDIR
+
+cd $HOME
+HAVE_CACHE="true"
+wget "https://ziglang.org/builds/$CACHE_BASENAME.tar.xz" || HAVE_CACHE="false"
+if [ "${HAVE_CACHE}" = "true" ]; then
+  tar xf "$CACHE_BASENAME.tar.xz"
+else
+  if [ "${BUILD_REASON}" == "PullRequest" ]; then
+      echo "Need cached llvm+clang for pull request builds."
+      exit 1
+  fi
+
+  cd $TMPDIR
+  wget https://zlib.net/zlib-1.2.11.tar.xz
+  tar xf zlib-1.2.11.tar.xz
+  cd zlib-1.2.11/
+  mkdir build
+  cd build
+  cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=$PREFIX -DCMAKE_INSTALL_PREFIX=$PREFIX
+  make $JOBS install
+  rm $PREFIX/lib/libz*dylib
+
+  cd $TMPDIR
+  wget ftp://ftp.invisible-island.net/ncurses/ncurses.tar.gz
+  tar xf ncurses.tar.gz
+  cd ncurses-6.1/
+  ./configure --without-shared --prefix=$PREFIX
+  make $JOBS install
+
+  cd $TMPDIR
+  wget https://releases.llvm.org/7.0.0/llvm-7.0.0.src.tar.xz
+  tar xf llvm-7.0.0.src.tar.xz
+  cd llvm-7.0.0.src/
+  mkdir build
+  cd build
+  cmake .. -DCMAKE_INSTALL_PREFIX=$PREFIX -DCMAKE_PREFIX_PATH=$PREFIX -DCMAKE_BUILD_TYPE=Release -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="WebAssembly;AVR;RISCV" -DLLVM_ENABLE_LIBXML2=OFF
+  make $JOBS install
+
+  cd $TMPDIR
+  wget https://releases.llvm.org/7.0.0/cfe-7.0.0.src.tar.xz
+  tar xf cfe-7.0.0.src.tar.xz
+  cd cfe-7.0.0.src/
+  mkdir build
+  cd build
+  cmake .. -DCMAKE_INSTALL_PREFIX=$PREFIX -DCMAKE_PREFIX_PATH=$PREFIX -DCMAKE_BUILD_TYPE=Release
+  make $JOBS install
+
+  cd $HOME
+  tar cfJ "$CACHE_BASENAME.tar.xz" "$CACHE_BASENAME"
+  cp "$DOWNLOADSECUREFILE_SECUREFILEPATH" "$HOME/.s3cfg"
+  s3cmd put -P "$CACHE_BASENAME.tar.xz" "s3://ziglang.org/builds/$CACHE_BASENAME.tar.xz"
+fi
+
+cd $ZIGDIR
+mkdir build
+cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=$PREFIX -DCMAKE_INSTALL_PREFIX=$(pwd)/release -DZIG_STATIC=ON
+make $JOBS install
+release/bin/zig build --build-file ../build.zig test
+
+if [ "${BUILD_REASON}" != "PullRequest" ]; then
+  mv ../LICENSE release/
+  mv ../zig-cache/langref.html release/
+  mv release/bin/zig release/
+  rmdir release/bin
+
+  VERSION=$(release/zig version)
+  DIRNAME="zig-macos-x86_64-$VERSION"
+  TARBALL="$DIRNAME.tar.xz"
+  mv release "$DIRNAME"
+  tar cfJ "$TARBALL" "$DIRNAME"
+
+  mv "$DOWNLOADSECUREFILE_SECUREFILEPATH" "$HOME/.s3cfg"
+  s3cmd put -P "$TARBALL" s3://ziglang.org/builds/
+  touch empty
+  s3cmd put -P empty s3://ziglang.org/builds/zig-macos-x86_64-$BUILD_SOURCEBRANCHNAME.tar.xz --add-header="Cache-Control: max-age=0, must-revalidate" --add-header="x-amz-website-redirect-location:/builds/$TARBALL"
+
+  SHASUM=$(shasum -a 256 $TARBALL | cut '-d ' -f1)
+  BYTESIZE=$(wc -c < $TARBALL)
+  echo "##vso[task.setvariable variable=tarball;isOutput=true]$TARBALL"
+  echo "##vso[task.setvariable variable=shasum;isOutput=true]$SHASUM"
+  echo "##vso[task.setvariable variable=bytesize;isOutput=true]$BYTESIZE"
+fi

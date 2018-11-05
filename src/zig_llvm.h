@@ -407,6 +407,9 @@ ZIG_EXTERN_C const char *ZigLLVMGetEnvironmentTypeName(enum ZigLLVM_EnvironmentT
 ZIG_EXTERN_C bool ZigLLDLink(enum ZigLLVM_ObjectFormatType oformat, const char **args, size_t arg_count,
         void (*append_diagnostic)(void *, const char *, size_t), void *context);
 
+ZIG_EXTERN_C bool ZigLLVMWriteArchive(const char *archive_name, const char **file_names, size_t file_name_count,
+        enum ZigLLVM_OSType os_type);
+
 ZIG_EXTERN_C void ZigLLVMGetNativeTarget(enum ZigLLVM_ArchType *arch_type, enum ZigLLVM_SubArchType *sub_arch_type,
         enum ZigLLVM_VendorType *vendor_type, enum ZigLLVM_OSType *os_type, enum ZigLLVM_EnvironmentType *environ_type,
         enum ZigLLVM_ObjectFormatType *oformat);

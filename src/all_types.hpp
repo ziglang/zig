@@ -130,14 +130,18 @@ struct ConstUnionValue {
 enum ConstArraySpecial {
     ConstArraySpecialNone,
     ConstArraySpecialUndef,
+    ConstArraySpecialBuf,
 };
 
 struct ConstArrayValue {
     ConstArraySpecial special;
-    struct {
-        ConstExprValue *elements;
-        ConstParent parent;
-    } s_none;
+    union {
+        struct {
+            ConstExprValue *elements;
+            ConstParent parent;
+        } s_none;
+        Buf *s_buf;
+    } data;
 };
 
 enum ConstPtrSpecial {
@@ -660,7 +664,7 @@ struct AstNodePointerType {
     Token *star_token;
     AstNode *align_expr;
     BigInt *bit_offset_start;
-    BigInt *bit_offset_end;
+    BigInt *host_int_bytes;
     bool is_const;
     bool is_volatile;
     AstNode *op_expr;
@@ -983,6 +987,7 @@ struct FnTypeParamInfo {
 };
 
 struct GenericFnTypeId {
+    CodeGen *codegen;
     ZigFn *fn_entry;
     ConstExprValue *params;
     size_t param_count;
@@ -1015,8 +1020,8 @@ struct ZigTypePointer {
     ZigType *slice_parent;
     PtrLen ptr_len;
     uint32_t explicit_alignment; // 0 means use ABI alignment
-    uint32_t bit_offset;
-    uint32_t unaligned_bit_count;
+    uint32_t bit_offset_in_host;
+    uint32_t host_int_bytes; // size of host integer. 0 means no host integer; this field is aligned
     bool is_const;
     bool is_volatile;
 };
@@ -1040,10 +1045,7 @@ struct TypeStructField {
     ZigType *type_entry;
     size_t src_index;
     size_t gen_index;
-    // offset from the memory at gen_index
-    size_t packed_bits_offset;
-    size_t packed_bits_size;
-    size_t unaligned_bit_count;
+    uint32_t bit_offset_in_host; // offset from the memory at gen_index
     AstNode *decl_node;
 };
 
@@ -1291,6 +1293,7 @@ struct FnExport {
 };
 
 struct ZigFn {
+    CodeGen *codegen;
     LLVMValueRef llvm_value;
     const char *llvm_name;
     AstNode *proto_node;
@@ -1340,8 +1343,6 @@ enum BuiltinFnId {
     BuiltinFnIdMemset,
     BuiltinFnIdSizeof,
     BuiltinFnIdAlignOf,
-    BuiltinFnIdMaxValue,
-    BuiltinFnIdMinValue,
     BuiltinFnIdMemberCount,
     BuiltinFnIdMemberType,
     BuiltinFnIdMemberName,
@@ -1403,7 +1404,8 @@ enum BuiltinFnId {
     BuiltinFnIdTagName,
     BuiltinFnIdTagType,
     BuiltinFnIdFieldParentPtr,
-    BuiltinFnIdOffsetOf,
+    BuiltinFnIdByteOffsetOf,
+    BuiltinFnIdBitOffsetOf,
     BuiltinFnIdInlineCall,
     BuiltinFnIdNoInlineCall,
     BuiltinFnIdNewStackCall,
@@ -1463,8 +1465,8 @@ struct TypeId {
             bool is_const;
             bool is_volatile;
             uint32_t alignment;
-            uint32_t bit_offset;
-            uint32_t unaligned_bit_count;
+            uint32_t bit_offset_in_host;
+            uint32_t host_int_bytes;
         } pointer;
         struct {
             ZigType *child_type;
@@ -1686,6 +1688,7 @@ struct CodeGen {
     Buf cache_dir;
 
     IrInstruction *invalid_instruction;
+    IrInstruction *unreach_instruction;
 
     ConstExprValue const_void_val;
     ConstExprValue panic_msg_vals[PanicMsgIdCount];
@@ -1709,7 +1712,6 @@ struct CodeGen {
     uint32_t target_environ_index;
     uint32_t target_oformat_index;
     bool is_big_endian;
-    bool want_h_file;
     bool have_pub_main;
     bool have_c_main;
     bool have_winmain;
@@ -1729,6 +1731,7 @@ struct CodeGen {
     bool generate_error_name_table;
     bool enable_cache;
     bool enable_time_report;
+    bool system_linker_hack;
 
     //////////////////////////// Participates in Input Parameter Cache Hash
     ZigList<LinkLib *> link_libs_list;
@@ -1759,6 +1762,7 @@ struct CodeGen {
     bool linker_rdynamic;
     bool no_rosegment_workaround;
     bool each_lib_rpath;
+    bool disable_pic;
 
     Buf *mmacosx_version_min;
     Buf *mios_version_min;
@@ -1848,13 +1852,14 @@ enum ScopeId {
 };
 
 struct Scope {
-    ScopeId id;
+    CodeGen *codegen;
     AstNode *source_node;
 
     // if the scope has a parent, this is it
     Scope *parent;
 
     ZigLLVMDIScope *di_scope;
+    ScopeId id;
 };
 
 // This scope comes from global declarations or from
@@ -2075,8 +2080,6 @@ enum IrInstructionId {
     IrInstructionIdCUndef,
     IrInstructionIdArrayLen,
     IrInstructionIdRef,
-    IrInstructionIdMinValue,
-    IrInstructionIdMaxValue,
     IrInstructionIdCompileErr,
     IrInstructionIdCompileLog,
     IrInstructionIdErrName,
@@ -2127,7 +2130,8 @@ enum IrInstructionId {
     IrInstructionIdTagName,
     IrInstructionIdTagType,
     IrInstructionIdFieldParentPtr,
-    IrInstructionIdOffsetOf,
+    IrInstructionIdByteOffsetOf,
+    IrInstructionIdBitOffsetOf,
     IrInstructionIdTypeInfo,
     IrInstructionIdTypeId,
     IrInstructionIdSetEvalBranchQuota,
@@ -2178,7 +2182,10 @@ struct IrInstruction {
     // if ref_count is zero and the instruction has no side effects,
     // the instruction can be omitted in codegen
     size_t ref_count;
-    IrInstruction *other;
+    // When analyzing IR, instructions that point to this instruction in the "old ir"
+    // can find the instruction that corresponds to this value in the "new ir"
+    // with this child field.
+    IrInstruction *child;
     IrBasicBlock *owner_bb;
     // true if this instruction was generated by zig and not from user code
     bool is_gen;
@@ -2501,7 +2508,7 @@ struct IrInstructionPtrType {
     IrInstruction *align_value;
     IrInstruction *child_type;
     uint32_t bit_offset_start;
-    uint32_t bit_offset_end;
+    uint32_t host_int_bytes;
     PtrLen ptr_len;
     bool is_const;
     bool is_volatile;
@@ -2597,18 +2604,6 @@ struct IrInstructionRef {
     LLVMValueRef tmp_ptr;
     bool is_const;
     bool is_volatile;
-};
-
-struct IrInstructionMinValue {
-    IrInstruction base;
-
-    IrInstruction *value;
-};
-
-struct IrInstructionMaxValue {
-    IrInstruction base;
-
-    IrInstruction *value;
 };
 
 struct IrInstructionCompileErr {
@@ -3030,7 +3025,14 @@ struct IrInstructionFieldParentPtr {
     TypeStructField *field;
 };
 
-struct IrInstructionOffsetOf {
+struct IrInstructionByteOffsetOf {
+    IrInstruction base;
+
+    IrInstruction *type_value;
+    IrInstruction *field_name;
+};
+
+struct IrInstructionBitOffsetOf {
     IrInstruction base;
 
     IrInstruction *type_value;

@@ -6,11 +6,12 @@ const os = std.os;
 const builtin = @import("builtin");
 const Os = builtin.Os;
 const c = std.c;
+const maxInt = std.math.maxInt;
 
 const Allocator = mem.Allocator;
 
 pub const c_allocator = &c_allocator_state;
-var c_allocator_state = Allocator{
+var c_allocator_state = Allocator.{
     .allocFn = cAlloc,
     .reallocFn = cRealloc,
     .freeFn = cFree,
@@ -39,15 +40,15 @@ fn cFree(self: *Allocator, old_mem: []u8) void {
 
 /// This allocator makes a syscall directly for every allocation and free.
 /// Thread-safe and lock-free.
-pub const DirectAllocator = struct {
+pub const DirectAllocator = struct.{
     allocator: Allocator,
     heap_handle: ?HeapHandle,
 
     const HeapHandle = if (builtin.os == Os.windows) os.windows.HANDLE else void;
 
     pub fn init() DirectAllocator {
-        return DirectAllocator{
-            .allocator = Allocator{
+        return DirectAllocator.{
+            .allocator = Allocator.{
                 .allocFn = alloc,
                 .reallocFn = realloc,
                 .freeFn = free,
@@ -181,7 +182,7 @@ pub const DirectAllocator = struct {
 
 /// This allocator takes an existing allocator, wraps it, and provides an interface
 /// where you can allocate without freeing, and then free it all together.
-pub const ArenaAllocator = struct {
+pub const ArenaAllocator = struct.{
     pub allocator: Allocator,
 
     child_allocator: *Allocator,
@@ -191,8 +192,8 @@ pub const ArenaAllocator = struct {
     const BufNode = std.LinkedList([]u8).Node;
 
     pub fn init(child_allocator: *Allocator) ArenaAllocator {
-        return ArenaAllocator{
-            .allocator = Allocator{
+        return ArenaAllocator.{
+            .allocator = Allocator.{
                 .allocFn = alloc,
                 .reallocFn = realloc,
                 .freeFn = free,
@@ -224,7 +225,7 @@ pub const ArenaAllocator = struct {
         const buf = try self.child_allocator.alignedAlloc(u8, @alignOf(BufNode), len);
         const buf_node_slice = @bytesToSlice(BufNode, buf[0..@sizeOf(BufNode)]);
         const buf_node = &buf_node_slice[0];
-        buf_node.* = BufNode{
+        buf_node.* = BufNode.{
             .data = buf,
             .prev = null,
             .next = null,
@@ -268,14 +269,14 @@ pub const ArenaAllocator = struct {
     fn free(allocator: *Allocator, bytes: []u8) void {}
 };
 
-pub const FixedBufferAllocator = struct {
+pub const FixedBufferAllocator = struct.{
     allocator: Allocator,
     end_index: usize,
     buffer: []u8,
 
     pub fn init(buffer: []u8) FixedBufferAllocator {
-        return FixedBufferAllocator{
-            .allocator = Allocator{
+        return FixedBufferAllocator.{
+            .allocator = Allocator.{
                 .allocFn = alloc,
                 .reallocFn = realloc,
                 .freeFn = free,
@@ -324,14 +325,14 @@ pub const FixedBufferAllocator = struct {
 };
 
 /// lock free
-pub const ThreadSafeFixedBufferAllocator = struct {
+pub const ThreadSafeFixedBufferAllocator = struct.{
     allocator: Allocator,
     end_index: usize,
     buffer: []u8,
 
     pub fn init(buffer: []u8) ThreadSafeFixedBufferAllocator {
-        return ThreadSafeFixedBufferAllocator{
-            .allocator = Allocator{
+        return ThreadSafeFixedBufferAllocator.{
+            .allocator = Allocator.{
                 .allocFn = alloc,
                 .reallocFn = realloc,
                 .freeFn = free,
@@ -371,11 +372,11 @@ pub const ThreadSafeFixedBufferAllocator = struct {
 };
 
 pub fn stackFallback(comptime size: usize, fallback_allocator: *Allocator) StackFallbackAllocator(size) {
-    return StackFallbackAllocator(size){
+    return StackFallbackAllocator(size).{
         .buffer = undefined,
         .fallback_allocator = fallback_allocator,
         .fixed_buffer_allocator = undefined,
-        .allocator = Allocator{
+        .allocator = Allocator.{
             .allocFn = StackFallbackAllocator(size).alloc,
             .reallocFn = StackFallbackAllocator(size).realloc,
             .freeFn = StackFallbackAllocator(size).free,
@@ -384,7 +385,7 @@ pub fn stackFallback(comptime size: usize, fallback_allocator: *Allocator) Stack
 }
 
 pub fn StackFallbackAllocator(comptime size: usize) type {
-    return struct {
+    return struct.{
         const Self = @This();
 
         buffer: [size]u8,
@@ -567,7 +568,7 @@ fn testAllocatorAligned(allocator: *mem.Allocator, comptime alignment: u29) !voi
 fn testAllocatorLargeAlignment(allocator: *mem.Allocator) mem.Allocator.Error!void {
     //Maybe a platform's page_size is actually the same as or
     //  very near usize?
-    if (os.page_size << 2 > @maxValue(usize)) return;
+    if (os.page_size << 2 > maxInt(usize)) return;
 
     const USizeShift = @IntType(false, std.math.log2(usize.bit_count));
     const large_align = u29(os.page_size << 2);

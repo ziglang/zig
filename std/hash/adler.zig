@@ -6,14 +6,14 @@
 const std = @import("../index.zig");
 const debug = std.debug;
 
-pub const Adler32 = struct {
+pub const Adler32 = struct.{
     const base = 65521;
     const nmax = 5552;
 
     adler: u32,
 
     pub fn init() Adler32 {
-        return Adler32{ .adler = 1 };
+        return Adler32.{ .adler = 1 };
     }
 
     // This fast variant is taken from zlib. It reduces the required modulos and unrolls longer
@@ -94,14 +94,14 @@ test "adler32 sanity" {
 }
 
 test "adler32 long" {
-    const long1 = []u8{1} ** 1024;
+    const long1 = []u8.{1} ** 1024;
     debug.assert(Adler32.hash(long1[0..]) == 0x06780401);
 
-    const long2 = []u8{1} ** 1025;
+    const long2 = []u8.{1} ** 1025;
     debug.assert(Adler32.hash(long2[0..]) == 0x0a7a0402);
 }
 
 test "adler32 very long" {
-    const long = []u8{1} ** 5553;
+    const long = []u8.{1} ** 5553;
     debug.assert(Adler32.hash(long[0..]) == 0x707f15b2);
 }

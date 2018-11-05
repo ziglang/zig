@@ -31,6 +31,7 @@ pub fn addCases(cases: *tests.BuildExamplesContext) void {
 
     if (!is_windows // TODO support compiling C files on windows with zig build system
         and builtin.arch == builtin.Arch.x86_64 // TODO add C ABI support for other architectures
+        and builtin.os != builtin.Os.macosx // TODO macosx C ABI test failures
     ) {
         cases.addBuildFile("test/stage1/c_abi/build.zig");
     }

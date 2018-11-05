@@ -8,13 +8,13 @@ const Target = @import("target.zig").Target;
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 const assert = std.debug.assert;
 
-const Context = struct {
+const Context = struct.{
     comp: *Compilation,
     arena: std.heap.ArenaAllocator,
     args: std.ArrayList([*]const u8),
     link_in_crt: bool,
 
-    link_err: error{OutOfMemory}!void,
+    link_err: error.{OutOfMemory}!void,
     link_msg: std.Buffer,
 
     libc: *LibCInstallation,
@@ -22,7 +22,7 @@ const Context = struct {
 };
 
 pub async fn link(comp: *Compilation) !void {
-    var ctx = Context{
+    var ctx = Context.{
         .comp = comp,
         .arena = std.heap.ArenaAllocator.init(comp.gpa()),
         .args = undefined,
@@ -330,7 +330,7 @@ fn constructLinkerArgsCoff(ctx: *Context) !void {
     switch (ctx.comp.target.getArch()) {
         builtin.Arch.i386 => try ctx.args.append(c"-MACHINE:X86"),
         builtin.Arch.x86_64 => try ctx.args.append(c"-MACHINE:X64"),
-        builtin.Arch.aarch64 => try ctx.args.append(c"-MACHINE:ARM"),
+        builtin.Arch.aarch64v8 => try ctx.args.append(c"-MACHINE:ARM"),
         else => return error.UnsupportedLinkArchitecture,
     }
 
@@ -556,7 +556,7 @@ fn constructLinkerArgsMachO(ctx: *Context) !void {
                 }
             },
             DarwinPlatform.Kind.IPhoneOS => {
-                if (ctx.comp.target.getArch() == builtin.Arch.aarch64) {
+                if (ctx.comp.target.getArch() == builtin.Arch.aarch64v8) {
                     // iOS does not need any crt1 files for arm64
                 } else if (platform.versionLessThan(3, 1)) {
                     try ctx.args.append(c"-lcrt1.o");
@@ -648,13 +648,13 @@ fn addFnObjects(ctx: *Context) !void {
     }
 }
 
-const DarwinPlatform = struct {
+const DarwinPlatform = struct.{
     kind: Kind,
     major: u32,
     minor: u32,
     micro: u32,
 
-    const Kind = enum {
+    const Kind = enum.{
         MacOS,
         IPhoneOS,
         IPhoneOSSimulator,
@@ -726,7 +726,7 @@ fn darwinGetReleaseVersion(str: []const u8, major: *u32, minor: *u32, micro: *u3
         return error.InvalidDarwinVersionString;
 
     var start_pos: usize = 0;
-    for ([]*u32{ major, minor, micro }) |v| {
+    for ([]*u32.{ major, minor, micro }) |v| {
         const dot_pos = mem.indexOfScalarPos(u8, str, start_pos, '.');
         const end_pos = dot_pos orelse str.len;
         v.* = std.fmt.parseUnsigned(u32, str[start_pos..end_pos], 10) catch return error.InvalidDarwinVersionString;

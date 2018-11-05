@@ -46,6 +46,7 @@ typedef SSIZE_T ssize_t;
 #include <sys/wait.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <spawn.h>
 
 #endif
 
@@ -70,6 +71,12 @@ static clock_serv_t cclock;
 #include <errno.h>
 #include <time.h>
 
+// Apple doesn't provide the environ global variable
+#if defined(__APPLE__) && !defined(environ)
+#include <crt_externs.h>
+#define environ (*_NSGetEnviron())
+#endif 
+
 #if defined(ZIG_OS_POSIX)
 static void populate_termination(Termination *term, int status) {
     if (WIFEXITED(status)) {
@@ -88,25 +95,22 @@ static void populate_termination(Termination *term, int status) {
 }
 
 static void os_spawn_process_posix(const char *exe, ZigList<const char *> &args, Termination *term) {
-    pid_t pid = fork();
-    if (pid == -1)
-        zig_panic("fork failed");
-    if (pid == 0) {
-        // child
-        const char **argv = allocate<const char *>(args.length + 2);
-        argv[0] = exe;
-        argv[args.length + 1] = nullptr;
-        for (size_t i = 0; i < args.length; i += 1) {
-            argv[i + 1] = args.at(i);
-        }
-        execvp(exe, const_cast<char * const *>(argv));
-        zig_panic("execvp failed: %s", strerror(errno));
-    } else {
-        // parent
-        int status;
-        waitpid(pid, &status, 0);
-        populate_termination(term, status);
+    const char **argv = allocate<const char *>(args.length + 2);
+    argv[0] = exe;
+    argv[args.length + 1] = nullptr;
+    for (size_t i = 0; i < args.length; i += 1) {
+        argv[i + 1] = args.at(i);
     }
+
+    pid_t pid;
+    int rc = posix_spawnp(&pid, exe, nullptr, nullptr, const_cast<char *const*>(argv), environ);
+    if (rc != 0) {
+        zig_panic("posix_spawn failed: %s", strerror(rc));
+    }
+
+    int status;
+    waitpid(pid, &status, 0);
+    populate_termination(term, status);
 }
 #endif
 
@@ -806,7 +810,7 @@ static int os_exec_process_posix(const char *exe, ZigList<const char *> &args,
 
     pid_t pid = fork();
     if (pid == -1)
-        zig_panic("fork failed");
+        zig_panic("fork failed: %s", strerror(errno));
     if (pid == 0) {
         // child
         if (dup2(stdin_pipe[0], STDIN_FILENO) == -1)
@@ -1378,8 +1382,6 @@ int os_init(void) {
 #if defined(ZIG_OS_WINDOWS)
     _setmode(fileno(stdout), _O_BINARY);
     _setmode(fileno(stderr), _O_BINARY);
-#endif
-#if defined(ZIG_OS_WINDOWS)
     unsigned __int64 frequency;
     if (QueryPerformanceFrequency((LARGE_INTEGER*) &frequency)) {
         win32_time_resolution = 1.0 / (double) frequency;

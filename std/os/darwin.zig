@@ -1,6 +1,7 @@
 const std = @import("../index.zig");
 const c = std.c;
 const assert = std.debug.assert;
+const maxInt = std.math.maxInt;
 
 pub use @import("darwin/errno.zig");
 
@@ -45,7 +46,7 @@ pub const MAP_NOCACHE = 0x0400;
 
 /// don't reserve needed swap area
 pub const MAP_NORESERVE = 0x0040;
-pub const MAP_FAILED = @maxValue(usize);
+pub const MAP_FAILED = maxInt(usize);
 
 /// [XSI] no hang in wait/no child to reap
 pub const WNOHANG = 0x00000001;
@@ -805,7 +806,7 @@ pub fn sigprocmask(flags: u32, noalias set: *const sigset_t, noalias oldset: ?*s
 pub fn sigaction(sig: u5, noalias act: *const Sigaction, noalias oact: ?*Sigaction) usize {
     assert(sig != SIGKILL);
     assert(sig != SIGSTOP);
-    var cact = c.Sigaction{
+    var cact = c.Sigaction.{
         .handler = @ptrCast(extern fn (c_int) void, act.handler),
         .sa_flags = @bitCast(c_int, act.flags),
         .sa_mask = act.mask,
@@ -816,7 +817,7 @@ pub fn sigaction(sig: u5, noalias act: *const Sigaction, noalias oact: ?*Sigacti
         return result;
     }
     if (oact) |old| {
-        old.* = Sigaction{
+        old.* = Sigaction.{
             .handler = @ptrCast(extern fn (i32) void, coact.handler),
             .flags = @bitCast(u32, coact.sa_flags),
             .mask = coact.sa_mask,
@@ -829,12 +830,12 @@ pub fn socket(domain: u32, socket_type: u32, protocol: u32) usize {
     return errnoWrap(c.socket(@bitCast(c_int, domain), @bitCast(c_int, socket_type), @bitCast(c_int, protocol)));
 }
 
-pub const iovec = extern struct {
+pub const iovec = extern struct.{
     iov_base: [*]u8,
     iov_len: usize,
 };
 
-pub const iovec_const = extern struct {
+pub const iovec_const = extern struct.{
     iov_base: [*]const u8,
     iov_len: usize,
 };
@@ -859,7 +860,7 @@ pub const Kevent = c.Kevent;
 pub const kevent64_s = c.kevent64_s;
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
-pub const Sigaction = struct {
+pub const Sigaction = struct.{
     handler: extern fn (i32) void,
     mask: sigset_t,
     flags: u32,

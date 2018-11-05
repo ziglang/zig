@@ -69,7 +69,7 @@ test "errdefer does not apply to fn inside fn" {
 fn testNestedFnErrDefer() error!void {
     var a: i32 = 0;
     errdefer a += 1;
-    const S = struct {
+    const S = struct.{
         fn baz() error {
             return error.Bad;
         }

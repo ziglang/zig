@@ -1,10 +1,10 @@
 const std = @import("std");
 
-const S = struct {
+const S = struct.{
     f: ?fn () i32,
 };
 
-const s = S{ .f = f };
+const s = S.{ .f = f };
 
 fn f() i32 {
     return 1234;

@@ -565,18 +565,6 @@ static void ir_print_ref(IrPrint *irp, IrInstructionRef *instruction) {
     ir_print_other_instruction(irp, instruction->value);
 }
 
-static void ir_print_min_value(IrPrint *irp, IrInstructionMinValue *instruction) {
-    fprintf(irp->f, "@minValue(");
-    ir_print_other_instruction(irp, instruction->value);
-    fprintf(irp->f, ")");
-}
-
-static void ir_print_max_value(IrPrint *irp, IrInstructionMaxValue *instruction) {
-    fprintf(irp->f, "@maxValue(");
-    ir_print_other_instruction(irp, instruction->value);
-    fprintf(irp->f, ")");
-}
-
 static void ir_print_compile_err(IrPrint *irp, IrInstructionCompileErr *instruction) {
     fprintf(irp->f, "@compileError(");
     ir_print_other_instruction(irp, instruction->msg);
@@ -1015,7 +1003,7 @@ static void ir_print_ptr_type(IrPrint *irp, IrInstructionPtrType *instruction) {
     }
     const char *const_str = instruction->is_const ? "const " : "";
     const char *volatile_str = instruction->is_volatile ? "volatile " : "";
-    fprintf(irp->f, ":%" PRIu32 ":%" PRIu32 " %s%s", instruction->bit_offset_start, instruction->bit_offset_end,
+    fprintf(irp->f, ":%" PRIu32 ":%" PRIu32 " %s%s", instruction->bit_offset_start, instruction->host_int_bytes,
             const_str, volatile_str);
     ir_print_other_instruction(irp, instruction->child_type);
 }
@@ -1041,8 +1029,16 @@ static void ir_print_field_parent_ptr(IrPrint *irp, IrInstructionFieldParentPtr 
     fprintf(irp->f, ")");
 }
 
-static void ir_print_offset_of(IrPrint *irp, IrInstructionOffsetOf *instruction) {
-    fprintf(irp->f, "@offset_of(");
+static void ir_print_byte_offset_of(IrPrint *irp, IrInstructionByteOffsetOf *instruction) {
+    fprintf(irp->f, "@byte_offset_of(");
+    ir_print_other_instruction(irp, instruction->type_value);
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->field_name);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_bit_offset_of(IrPrint *irp, IrInstructionBitOffsetOf *instruction) {
+    fprintf(irp->f, "@bit_offset_of(");
     ir_print_other_instruction(irp, instruction->type_value);
     fprintf(irp->f, ",");
     ir_print_other_instruction(irp, instruction->field_name);
@@ -1472,12 +1468,6 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdRef:
             ir_print_ref(irp, (IrInstructionRef *)instruction);
             break;
-        case IrInstructionIdMinValue:
-            ir_print_min_value(irp, (IrInstructionMinValue *)instruction);
-            break;
-        case IrInstructionIdMaxValue:
-            ir_print_max_value(irp, (IrInstructionMaxValue *)instruction);
-            break;
         case IrInstructionIdCompileErr:
             ir_print_compile_err(irp, (IrInstructionCompileErr *)instruction);
             break;
@@ -1649,8 +1639,11 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdFieldParentPtr:
             ir_print_field_parent_ptr(irp, (IrInstructionFieldParentPtr *)instruction);
             break;
-        case IrInstructionIdOffsetOf:
-            ir_print_offset_of(irp, (IrInstructionOffsetOf *)instruction);
+        case IrInstructionIdByteOffsetOf:
+            ir_print_byte_offset_of(irp, (IrInstructionByteOffsetOf *)instruction);
+            break;
+        case IrInstructionIdBitOffsetOf:
+            ir_print_bit_offset_of(irp, (IrInstructionBitOffsetOf *)instruction);
             break;
         case IrInstructionIdTypeInfo:
             ir_print_type_info(irp, (IrInstructionTypeInfo *)instruction);

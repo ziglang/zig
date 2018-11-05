@@ -120,6 +120,6 @@ const char *target_lib_file_ext(ZigTarget *target, bool is_static, size_t versio
 Buf *target_dynamic_linker(ZigTarget *target);
 
 bool target_can_exec(const ZigTarget *host_target, const ZigTarget *guest_target);
-
+ZigLLVM_OSType get_llvm_os_type(Os os_type);
 
 #endif

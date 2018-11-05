@@ -1,4 +1,6 @@
-const assert = @import("std").debug.assert;
+const std = @import("std");
+const assert = std.debug.assert;
+const maxInt = std.math.maxInt;
 
 test "@bitCast i32 -> u32" {
     testBitCast_i32_u32();
@@ -6,8 +8,8 @@ test "@bitCast i32 -> u32" {
 }
 
 fn testBitCast_i32_u32() void {
-    assert(conv(-1) == @maxValue(u32));
-    assert(conv2(@maxValue(u32)) == -1);
+    assert(conv(-1) == maxInt(u32));
+    assert(conv2(maxInt(u32)) == -1);
 }
 
 fn conv(x: i32) u32 {
@@ -18,7 +20,7 @@ fn conv2(x: u32) i32 {
 }
 
 test "@bitCast extern enum to its integer type" {
-    const SOCK = extern enum {
+    const SOCK = extern enum.{
         A,
         B,
 
@@ -32,4 +34,3 @@ test "@bitCast extern enum to its integer type" {
     SOCK.testBitCastExternEnum();
     comptime SOCK.testBitCastExternEnum();
 }
-

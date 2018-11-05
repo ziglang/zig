@@ -79,6 +79,9 @@ that counts as "freestanding" for the purposes of this table.
 [![Build Status](https://travis-ci.org/ziglang/zig.svg?branch=master)](https://travis-ci.org/ziglang/zig)
 [![Build status](https://ci.appveyor.com/api/projects/status/4t80mk2dmucrc38i/branch/master?svg=true)](https://ci.appveyor.com/project/andrewrk/zig-d3l86/branch/master)
 
+Note that you can
+[download a binary of master branch](https://ziglang.org/download/#release-master).
+
 ### Stage 1: Build Zig from C++ Source Code
 
 #### Dependencies
@@ -88,7 +91,6 @@ that counts as "freestanding" for the purposes of this table.
  * cmake >= 2.8.5
  * gcc >= 5.0.0 or clang >= 3.6.0
  * LLVM, Clang, LLD development libraries == 8.x, compiled with the same gcc or clang version above
-   - These depend on zlib and libxml2.
 
 ##### Windows
 

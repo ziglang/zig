@@ -14,7 +14,7 @@ const cstr = std.cstr;
 // from https://docs.microsoft.com/en-us/windows/desktop/FileIO/naming-a-file#maximum-path-length-limitation
 pub const PATH_MAX_WIDE = 32767;
 
-pub const WaitError = error{
+pub const WaitError = error.{
     WaitAbandoned,
     WaitTimeOut,
 
@@ -42,7 +42,13 @@ pub fn windowsClose(handle: windows.HANDLE) void {
     assert(windows.CloseHandle(handle) != 0);
 }
 
-pub const WriteError = error{
+pub const ReadError = error.{
+    OperationAborted,
+    BrokenPipe,
+    Unexpected,
+};
+
+pub const WriteError = error.{
     SystemResources,
     OperationAborted,
     BrokenPipe,
@@ -77,7 +83,7 @@ pub fn windowsIsTty(handle: windows.HANDLE) bool {
 
 pub fn windowsIsCygwinPty(handle: windows.HANDLE) bool {
     const size = @sizeOf(windows.FILE_NAME_INFO);
-    var name_info_bytes align(@alignOf(windows.FILE_NAME_INFO)) = []u8{0} ** (size + windows.MAX_PATH);
+    var name_info_bytes align(@alignOf(windows.FILE_NAME_INFO)) = []u8.{0} ** (size + windows.MAX_PATH);
 
     if (windows.GetFileInformationByHandleEx(
         handle,
@@ -91,11 +97,11 @@ pub fn windowsIsCygwinPty(handle: windows.HANDLE) bool {
     const name_info = @ptrCast(*const windows.FILE_NAME_INFO, &name_info_bytes[0]);
     const name_bytes = name_info_bytes[size .. size + usize(name_info.FileNameLength)];
     const name_wide = @bytesToSlice(u16, name_bytes);
-    return mem.indexOf(u16, name_wide, []u16{ 'm', 's', 'y', 's', '-' }) != null or
-        mem.indexOf(u16, name_wide, []u16{ '-', 'p', 't', 'y' }) != null;
+    return mem.indexOf(u16, name_wide, []u16.{ 'm', 's', 'y', 's', '-' }) != null or
+        mem.indexOf(u16, name_wide, []u16.{ '-', 'p', 't', 'y' }) != null;
 }
 
-pub const OpenError = error{
+pub const OpenError = error.{
     SharingViolation,
     PathAlreadyExists,
 
@@ -188,42 +194,11 @@ pub fn createWindowsEnvBlock(allocator: *mem.Allocator, env_map: *const BufMap) 
     return allocator.shrink(u16, result, i);
 }
 
-pub fn windowsLoadDllW(dll_path_w: [*]const u16) !windows.HMODULE {
-    return windows.LoadLibraryW(dll_path_w) orelse {
-        const err = windows.GetLastError();
-        switch (err) {
-            windows.ERROR.FILE_NOT_FOUND => return error.FileNotFound,
-            windows.ERROR.PATH_NOT_FOUND => return error.FileNotFound,
-            windows.ERROR.MOD_NOT_FOUND => return error.FileNotFound,
-            else => return os.unexpectedErrorWindows(err),
-        }
-    };
-}
-
-pub fn windowsLoadDll(dll_path: []const u8) !windows.HMODULE {
-    const dll_path_w = try sliceToPrefixedFileW(dll_path);
-    return windowsLoadDllW(&dll_path_w);
-}
-
-pub fn windowsUnloadDll(hModule: windows.HMODULE) void {
-    assert(windows.FreeLibrary(hModule) != 0);
-}
-
-test "InvalidDll" {
-    if (builtin.os != builtin.Os.windows) return error.SkipZigTest;
-
-    const handle = os.windowsLoadDll("asdf.dll") catch |err| {
-        assert(err == error.FileNotFound);
-        return;
-    };
-    @panic("Expected error from function");
-}
-
 pub fn windowsFindFirstFile(
     dir_path: []const u8,
     find_file_data: *windows.WIN32_FIND_DATAW,
 ) !windows.HANDLE {
-    const dir_path_w = try sliceToPrefixedSuffixedFileW(dir_path, []u16{ '\\', '*', 0 });
+    const dir_path_w = try sliceToPrefixedSuffixedFileW(dir_path, []u16.{ '\\', '*', 0 });
     const handle = windows.FindFirstFileW(&dir_path_w, find_file_data);
 
     if (handle == windows.INVALID_HANDLE_VALUE) {
@@ -250,7 +225,7 @@ pub fn windowsFindNextFile(handle: windows.HANDLE, find_file_data: *windows.WIN3
     return true;
 }
 
-pub const WindowsCreateIoCompletionPortError = error{Unexpected};
+pub const WindowsCreateIoCompletionPortError = error.{Unexpected};
 
 pub fn windowsCreateIoCompletionPort(file_handle: windows.HANDLE, existing_completion_port: ?windows.HANDLE, completion_key: usize, concurrent_thread_count: windows.DWORD) !windows.HANDLE {
     const handle = windows.CreateIoCompletionPort(file_handle, existing_completion_port, completion_key, concurrent_thread_count) orelse {
@@ -263,7 +238,7 @@ pub fn windowsCreateIoCompletionPort(file_handle: windows.HANDLE, existing_compl
     return handle;
 }
 
-pub const WindowsPostQueuedCompletionStatusError = error{Unexpected};
+pub const WindowsPostQueuedCompletionStatusError = error.{Unexpected};
 
 pub fn windowsPostQueuedCompletionStatus(completion_port: windows.HANDLE, bytes_transferred_count: windows.DWORD, completion_key: usize, lpOverlapped: ?*windows.OVERLAPPED) WindowsPostQueuedCompletionStatusError!void {
     if (windows.PostQueuedCompletionStatus(completion_port, bytes_transferred_count, completion_key, lpOverlapped) == 0) {
@@ -274,7 +249,7 @@ pub fn windowsPostQueuedCompletionStatus(completion_port: windows.HANDLE, bytes_
     }
 }
 
-pub const WindowsWaitResult = enum {
+pub const WindowsWaitResult = enum.{
     Normal,
     Aborted,
     Cancelled,
@@ -303,7 +278,7 @@ pub fn cStrToPrefixedFileW(s: [*]const u8) ![PATH_MAX_WIDE + 1]u16 {
 }
 
 pub fn sliceToPrefixedFileW(s: []const u8) ![PATH_MAX_WIDE + 1]u16 {
-    return sliceToPrefixedSuffixedFileW(s, []u16{0});
+    return sliceToPrefixedSuffixedFileW(s, []u16.{0});
 }
 
 pub fn sliceToPrefixedSuffixedFileW(s: []const u8, comptime suffix: []const u16) ![PATH_MAX_WIDE + suffix.len]u16 {
@@ -323,7 +298,7 @@ pub fn sliceToPrefixedSuffixedFileW(s: []const u8, comptime suffix: []const u16)
         }
     }
     const start_index = if (mem.startsWith(u8, s, "\\\\") or !os.path.isAbsolute(s)) 0 else blk: {
-        const prefix = []u16{ '\\', '\\', '?', '\\' };
+        const prefix = []u16.{ '\\', '\\', '?', '\\' };
         mem.copy(u16, result[0..], prefix);
         break :blk prefix.len;
     };

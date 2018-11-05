@@ -10,6 +10,7 @@ const math = std.math;
 const assert = std.debug.assert;
 const builtin = @import("builtin");
 const TypeId = builtin.TypeId;
+const maxInt = std.math.maxInt;
 
 pub fn sqrt(x: var) (if (@typeId(@typeOf(x)) == TypeId.Int) @IntType(false, @typeOf(x).bit_count / 2) else @typeOf(x)) {
     const T = @typeOf(x);
@@ -17,7 +18,7 @@ pub fn sqrt(x: var) (if (@typeId(@typeOf(x)) == TypeId.Int) @IntType(false, @typ
         TypeId.ComptimeFloat => return T(@sqrt(f64, x)), // TODO upgrade to f128
         TypeId.Float => return @sqrt(T, x),
         TypeId.ComptimeInt => comptime {
-            if (x > @maxValue(u128)) {
+            if (x > maxInt(u128)) {
                 @compileError("sqrt not implemented for comptime_int greater than 128 bits");
             }
             if (x < 0) {

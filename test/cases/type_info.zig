@@ -120,7 +120,7 @@ test "type info: error set, error union info" {
 }
 
 fn testErrorSet() void {
-    const TestErrorSet = error{
+    const TestErrorSet = error.{
         First,
         Second,
         Third,
@@ -172,7 +172,7 @@ fn testUnion() void {
     assert(typeinfo_info.Union.fields[4].field_type == @typeOf(@typeInfo(u8).Int));
     assert(typeinfo_info.Union.defs.len == 20);
 
-    const TestNoTagUnion = union {
+    const TestNoTagUnion = union.{
         Foo: void,
         Bar: u32,
     };
@@ -185,7 +185,7 @@ fn testUnion() void {
     assert(notag_union_info.Union.fields[0].enum_field == null);
     assert(notag_union_info.Union.fields[1].field_type == u32);
 
-    const TestExternUnion = extern union {
+    const TestExternUnion = extern union.{
         foo: *c_void,
     };
 
@@ -216,7 +216,7 @@ fn testStruct() void {
     assert(struct_info.Struct.defs[0].data.Fn.fn_type == fn (*const TestStruct) void);
 }
 
-const TestStruct = packed struct {
+const TestStruct = packed struct.{
     const Self = @This();
 
     fieldA: usize,
@@ -252,7 +252,7 @@ fn foo(comptime a: usize, b: bool, args: ...) usize {
 }
 
 test "typeInfo with comptime parameter in struct fn def" {
-    const S = struct {
+    const S = struct.{
         pub fn func(comptime x: f32) void {}
     };
     comptime var info = @typeInfo(S);

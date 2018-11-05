@@ -4,9 +4,11 @@ const assert = debug.assert;
 const math = std.math;
 const builtin = @import("builtin");
 const mem = @This();
+const meta = std.meta;
+const trait = meta.trait;
 
-pub const Allocator = struct {
-    pub const Error = error{OutOfMemory};
+pub const Allocator = struct.{
+    pub const Error = error.{OutOfMemory};
 
     /// Allocate byte_count bytes and return them in a slice, with the
     /// slice's pointer aligned at least to alignment bytes.
@@ -38,7 +40,7 @@ pub const Allocator = struct {
     /// TODO this is deprecated. use createOne instead
     pub fn create(self: *Allocator, init: var) Error!*@typeOf(init) {
         const T = @typeOf(init);
-        if (@sizeOf(T) == 0) return &(T{});
+        if (@sizeOf(T) == 0) return &(T.{});
         const slice = try self.alloc(T, 1);
         const ptr = &slice[0];
         ptr.* = init;
@@ -48,7 +50,7 @@ pub const Allocator = struct {
     /// Call `destroy` with the result.
     /// Returns undefined memory.
     pub fn createOne(self: *Allocator, comptime T: type) Error!*T {
-        if (@sizeOf(T) == 0) return &(T{});
+        if (@sizeOf(T) == 0) return &(T.{});
         const slice = try self.alloc(T, 1);
         return &slice[0];
     }
@@ -135,7 +137,7 @@ pub const Allocator = struct {
     }
 };
 
-pub const Compare = enum {
+pub const Compare = enum.{
     LessThan,
     Equal,
     GreaterThan,
@@ -184,8 +186,8 @@ pub fn secureZero(comptime T: type, s: []T) void {
 }
 
 test "mem.secureZero" {
-    var a = []u8{0xfe} ** 8;
-    var b = []u8{0xfe} ** 8;
+    var a = []u8.{0xfe} ** 8;
+    var b = []u8.{0xfe} ** 8;
 
     set(u8, a[0..], 0);
     secureZero(u8, b[0..]);
@@ -508,7 +510,7 @@ pub fn eql_slice_u8(a: []const u8, b: []const u8) bool {
 /// split("   abc def    ghi  ", " ")
 /// Will return slices for "abc", "def", "ghi", null, in that order.
 pub fn split(buffer: []const u8, split_bytes: []const u8) SplitIterator {
-    return SplitIterator{
+    return SplitIterator.{
         .index = 0,
         .buffer = buffer,
         .split_bytes = split_bytes,
@@ -541,7 +543,7 @@ test "mem.endsWith" {
     assert(!endsWith(u8, "Bob", "Bo"));
 }
 
-pub const SplitIterator = struct {
+pub const SplitIterator = struct.{
     buffer: []const u8,
     split_bytes: []const u8,
     index: usize,
@@ -629,7 +631,7 @@ test "testReadInt" {
 }
 fn testReadIntImpl() void {
     {
-        const bytes = []u8{
+        const bytes = []u8.{
             0x12,
             0x34,
             0x56,
@@ -643,7 +645,7 @@ fn testReadIntImpl() void {
         assert(readIntLE(i32, bytes) == 0x78563412);
     }
     {
-        const buf = []u8{
+        const buf = []u8.{
             0x00,
             0x00,
             0x12,
@@ -653,7 +655,7 @@ fn testReadIntImpl() void {
         assert(answer == 0x00001234);
     }
     {
-        const buf = []u8{
+        const buf = []u8.{
             0x12,
             0x34,
             0x00,
@@ -663,7 +665,7 @@ fn testReadIntImpl() void {
         assert(answer == 0x00003412);
     }
     {
-        const bytes = []u8{
+        const bytes = []u8.{
             0xff,
             0xfe,
         };
@@ -682,7 +684,7 @@ fn testWriteIntImpl() void {
     var bytes: [8]u8 = undefined;
 
     writeInt(bytes[0..], u64(0x12345678CAFEBABE), builtin.Endian.Big);
-    assert(eql(u8, bytes, []u8{
+    assert(eql(u8, bytes, []u8.{
         0x12,
         0x34,
         0x56,
@@ -694,7 +696,7 @@ fn testWriteIntImpl() void {
     }));
 
     writeInt(bytes[0..], u64(0xBEBAFECA78563412), builtin.Endian.Little);
-    assert(eql(u8, bytes, []u8{
+    assert(eql(u8, bytes, []u8.{
         0x12,
         0x34,
         0x56,
@@ -706,7 +708,7 @@ fn testWriteIntImpl() void {
     }));
 
     writeInt(bytes[0..], u32(0x12345678), builtin.Endian.Big);
-    assert(eql(u8, bytes, []u8{
+    assert(eql(u8, bytes, []u8.{
         0x00,
         0x00,
         0x00,
@@ -718,7 +720,7 @@ fn testWriteIntImpl() void {
     }));
 
     writeInt(bytes[0..], u32(0x78563412), builtin.Endian.Little);
-    assert(eql(u8, bytes, []u8{
+    assert(eql(u8, bytes, []u8.{
         0x12,
         0x34,
         0x56,
@@ -730,7 +732,7 @@ fn testWriteIntImpl() void {
     }));
 
     writeInt(bytes[0..], u16(0x1234), builtin.Endian.Big);
-    assert(eql(u8, bytes, []u8{
+    assert(eql(u8, bytes, []u8.{
         0x00,
         0x00,
         0x00,
@@ -742,7 +744,7 @@ fn testWriteIntImpl() void {
     }));
 
     writeInt(bytes[0..], u16(0x1234), builtin.Endian.Little);
-    assert(eql(u8, bytes, []u8{
+    assert(eql(u8, bytes, []u8.{
         0x34,
         0x12,
         0x00,
@@ -794,7 +796,7 @@ pub fn reverse(comptime T: type, items: []T) void {
 }
 
 test "std.mem.reverse" {
-    var arr = []i32{
+    var arr = []i32.{
         5,
         3,
         1,
@@ -803,7 +805,7 @@ test "std.mem.reverse" {
     };
     reverse(i32, arr[0..]);
 
-    assert(eql(i32, arr, []i32{
+    assert(eql(i32, arr, []i32.{
         4,
         2,
         1,
@@ -821,7 +823,7 @@ pub fn rotate(comptime T: type, items: []T, amount: usize) void {
 }
 
 test "std.mem.rotate" {
-    var arr = []i32{
+    var arr = []i32.{
         5,
         3,
         1,
@@ -830,7 +832,7 @@ test "std.mem.rotate" {
     };
     rotate(i32, arr[0..], 2);
 
-    assert(eql(i32, arr, []i32{
+    assert(eql(i32, arr, []i32.{
         1,
         2,
         4,
@@ -864,3 +866,167 @@ test "std.mem.endianSwap" {
     assert(endianSwap(u32, 0xDEADBEEF) == 0xEFBEADDE);
 }
 
+fn AsBytesReturnType(comptime P: type) type {
+    if (comptime !trait.isSingleItemPtr(P))
+        @compileError("expected single item " ++ "pointer, passed " ++ @typeName(P));
+
+    const size = usize(@sizeOf(meta.Child(P)));
+    const alignment = comptime meta.alignment(P);
+
+    if (comptime trait.isConstPtr(P))
+        return *align(alignment) const [size]u8;
+    return *align(alignment) [size]u8;
+}
+
+///Given a pointer to a single item, returns a slice of the underlying bytes, preserving constness.
+pub fn asBytes(ptr: var) AsBytesReturnType(@typeOf(ptr)) {
+    const P = @typeOf(ptr);
+    return @ptrCast(AsBytesReturnType(P), ptr);
+}
+
+test "std.mem.asBytes" {
+    const deadbeef = u32(0xDEADBEEF);
+    const deadbeef_bytes = switch (builtin.endian) {
+        builtin.Endian.Big => "\xDE\xAD\xBE\xEF",
+        builtin.Endian.Little => "\xEF\xBE\xAD\xDE",
+    };
+
+    debug.assert(std.mem.eql(u8, asBytes(&deadbeef), deadbeef_bytes));
+
+    var codeface = u32(0xC0DEFACE);
+    for (asBytes(&codeface).*) |*b|
+        b.* = 0;
+    debug.assert(codeface == 0);
+
+    const S = packed struct.{
+        a: u8,
+        b: u8,
+        c: u8,
+        d: u8,
+    };
+
+    const inst = S.{
+        .a = 0xBE,
+        .b = 0xEF,
+        .c = 0xDE,
+        .d = 0xA1,
+    };
+    debug.assert(std.mem.eql(u8, asBytes(&inst), "\xBE\xEF\xDE\xA1"));
+}
+
+///Given any value, returns a copy of its bytes in an array.
+pub fn toBytes(value: var) [@sizeOf(@typeOf(value))]u8 {
+    return asBytes(&value).*;
+}
+
+test "std.mem.toBytes" {
+    var my_bytes = toBytes(u32(0x12345678));
+    switch (builtin.endian) {
+        builtin.Endian.Big => debug.assert(std.mem.eql(u8, my_bytes, "\x12\x34\x56\x78")),
+        builtin.Endian.Little => debug.assert(std.mem.eql(u8, my_bytes, "\x78\x56\x34\x12")),
+    }
+
+    my_bytes[0] = '\x99';
+    switch (builtin.endian) {
+        builtin.Endian.Big => debug.assert(std.mem.eql(u8, my_bytes, "\x99\x34\x56\x78")),
+        builtin.Endian.Little => debug.assert(std.mem.eql(u8, my_bytes, "\x99\x56\x34\x12")),
+    }
+}
+
+fn BytesAsValueReturnType(comptime T: type, comptime B: type) type {
+    const size = usize(@sizeOf(T));
+
+    if (comptime !trait.is(builtin.TypeId.Pointer)(B) or meta.Child(B) != [size]u8) {
+        @compileError("expected *[N]u8 " ++ ", passed " ++ @typeName(B));
+    }
+
+    const alignment = comptime meta.alignment(B);
+
+    return if (comptime trait.isConstPtr(B)) *align(alignment) const T else *align(alignment) T;
+}
+
+///Given a pointer to an array of bytes, returns a pointer to a value of the specified type
+/// backed by those bytes, preserving constness.
+pub fn bytesAsValue(comptime T: type, bytes: var) BytesAsValueReturnType(T, @typeOf(bytes)) {
+    return @ptrCast(BytesAsValueReturnType(T, @typeOf(bytes)), bytes);
+}
+
+test "std.mem.bytesAsValue" {
+    const deadbeef = u32(0xDEADBEEF);
+    const deadbeef_bytes = switch (builtin.endian) {
+        builtin.Endian.Big => "\xDE\xAD\xBE\xEF",
+        builtin.Endian.Little => "\xEF\xBE\xAD\xDE",
+    };
+
+    debug.assert(deadbeef == bytesAsValue(u32, &deadbeef_bytes).*);
+
+    var codeface_bytes = switch (builtin.endian) {
+        builtin.Endian.Big => "\xC0\xDE\xFA\xCE",
+        builtin.Endian.Little => "\xCE\xFA\xDE\xC0",
+    };
+    var codeface = bytesAsValue(u32, &codeface_bytes);
+    debug.assert(codeface.* == 0xC0DEFACE);
+    codeface.* = 0;
+    for (codeface_bytes) |b|
+        debug.assert(b == 0);
+
+    const S = packed struct.{
+        a: u8,
+        b: u8,
+        c: u8,
+        d: u8,
+    };
+
+    const inst = S.{
+        .a = 0xBE,
+        .b = 0xEF,
+        .c = 0xDE,
+        .d = 0xA1,
+    };
+    const inst_bytes = "\xBE\xEF\xDE\xA1";
+    const inst2 = bytesAsValue(S, &inst_bytes);
+    debug.assert(meta.eql(inst, inst2.*));
+}
+
+///Given a pointer to an array of bytes, returns a value of the specified type backed by a
+/// copy of those bytes.
+pub fn bytesToValue(comptime T: type, bytes: var) T {
+    return bytesAsValue(T, &bytes).*;
+}
+test "std.mem.bytesToValue" {
+    const deadbeef_bytes = switch (builtin.endian) {
+        builtin.Endian.Big => "\xDE\xAD\xBE\xEF",
+        builtin.Endian.Little => "\xEF\xBE\xAD\xDE",
+    };
+
+    const deadbeef = bytesToValue(u32, deadbeef_bytes);
+    debug.assert(deadbeef == u32(0xDEADBEEF));
+}
+
+fn SubArrayPtrReturnType(comptime T: type, comptime length: usize) type {
+    if (trait.isConstPtr(T))
+        return *const [length]meta.Child(meta.Child(T));
+    return *[length]meta.Child(meta.Child(T));
+}
+
+///Given a pointer to an array, returns a pointer to a portion of that array, preserving constness.
+pub fn subArrayPtr(ptr: var, comptime start: usize, comptime length: usize) SubArrayPtrReturnType(@typeOf(ptr), length) {
+    debug.assert(start + length <= ptr.*.len);
+
+    const ReturnType = SubArrayPtrReturnType(@typeOf(ptr), length);
+    const T = meta.Child(meta.Child(@typeOf(ptr)));
+    return @ptrCast(ReturnType, &ptr[start]);
+}
+
+test "std.mem.subArrayPtr" {
+    const a1 = "abcdef";
+    const sub1 = subArrayPtr(&a1, 2, 3);
+    debug.assert(std.mem.eql(u8, sub1.*, "cde"));
+
+    var a2 = "abcdef";
+    var sub2 = subArrayPtr(&a2, 2, 3);
+
+    debug.assert(std.mem.eql(u8, sub2, "cde"));
+    sub2[1] = 'X';
+    debug.assert(std.mem.eql(u8, a2, "abcXef"));
+}

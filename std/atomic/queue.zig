@@ -7,7 +7,7 @@ const assert = std.debug.assert;
 /// Many producer, many consumer, non-allocating, thread-safe.
 /// Uses a mutex to protect access.
 pub fn Queue(comptime T: type) type {
-    return struct {
+    return struct.{
         head: ?*Node,
         tail: ?*Node,
         mutex: std.Mutex,
@@ -16,7 +16,7 @@ pub fn Queue(comptime T: type) type {
         pub const Node = std.LinkedList(T).Node;
 
         pub fn init() Self {
-            return Self{
+            return Self.{
                 .head = null,
                 .tail = null,
                 .mutex = std.Mutex.init(),
@@ -103,30 +103,37 @@ pub fn Queue(comptime T: type) type {
         }
 
         pub fn dump(self: *Self) void {
+            var stderr_file = std.io.getStdErr() catch return;
+            const stderr = &stderr_file.outStream().stream;
+            const Error = @typeInfo(@typeOf(stderr)).Pointer.child.Error;
+
+            self.dumpToStream(Error, stderr) catch return;
+        }
+
+        pub fn dumpToStream(self: *Self, comptime Error: type, stream: *std.io.OutStream(Error)) Error!void {
+            const S = struct.{
+                fn dumpRecursive(s: *std.io.OutStream(Error), optional_node: ?*Node, indent: usize) Error!void {
+                    try s.writeByteNTimes(' ', indent);
+                    if (optional_node) |node| {
+                        try s.print("0x{x}={}\n", @ptrToInt(node), node.data);
+                        try dumpRecursive(s, node.next, indent + 1);
+                    } else {
+                        try s.print("(null)\n");
+                    }
+                }
+            };
             const held = self.mutex.acquire();
             defer held.release();
 
-            std.debug.warn("head: ");
-            dumpRecursive(self.head, 0);
-            std.debug.warn("tail: ");
-            dumpRecursive(self.tail, 0);
-        }
-
-        fn dumpRecursive(optional_node: ?*Node, indent: usize) void {
-            var stderr_file = std.io.getStdErr() catch return;
-            const stderr = &std.io.FileOutStream.init(stderr_file).stream;
-            stderr.writeByteNTimes(' ', indent) catch return;
-            if (optional_node) |node| {
-                std.debug.warn("0x{x}={}\n", @ptrToInt(node), node.data);
-                dumpRecursive(node.next, indent + 1);
-            } else {
-                std.debug.warn("(null)\n");
-            }
+            try stream.print("head: ");
+            try S.dumpRecursive(stream, self.head, 0);
+            try stream.print("tail: ");
+            try S.dumpRecursive(stream, self.tail, 0);
         }
     };
 }
 
-const Context = struct {
+const Context = struct.{
     allocator: *std.mem.Allocator,
     queue: *Queue(i32),
     put_sum: isize,
@@ -154,7 +161,7 @@ test "std.atomic.Queue" {
     var a = &fixed_buffer_allocator.allocator;
 
     var queue = Queue(i32).init();
-    var context = Context{
+    var context = Context.{
         .allocator = a,
         .queue = &queue,
         .put_sum = 0,
@@ -196,9 +203,9 @@ fn startPuts(ctx: *Context) u8 {
     var put_count: usize = puts_per_thread;
     var r = std.rand.DefaultPrng.init(0xdeadbeef);
     while (put_count != 0) : (put_count -= 1) {
-        std.os.time.sleep(0, 1); // let the os scheduler be our fuzz
+        std.os.time.sleep(1); // let the os scheduler be our fuzz
         const x = @bitCast(i32, r.random.scalar(u32));
-        const node = ctx.allocator.create(Queue(i32).Node{
+        const node = ctx.allocator.create(Queue(i32).Node.{
             .prev = undefined,
             .next = undefined,
             .data = x,
@@ -214,7 +221,7 @@ fn startGets(ctx: *Context) u8 {
         const last = @atomicLoad(u8, &ctx.puts_done, builtin.AtomicOrder.SeqCst) == 1;
 
         while (ctx.queue.get()) |node| {
-            std.os.time.sleep(0, 1); // let the os scheduler be our fuzz
+            std.os.time.sleep(1); // let the os scheduler be our fuzz
             _ = @atomicRmw(isize, &ctx.get_sum, builtin.AtomicRmwOp.Add, node.data, builtin.AtomicOrder.SeqCst);
             _ = @atomicRmw(usize, &ctx.get_count, builtin.AtomicRmwOp.Add, 1, builtin.AtomicOrder.SeqCst);
         }
@@ -226,14 +233,14 @@ fn startGets(ctx: *Context) u8 {
 test "std.atomic.Queue single-threaded" {
     var queue = Queue(i32).init();
 
-    var node_0 = Queue(i32).Node{
+    var node_0 = Queue(i32).Node.{
         .data = 0,
         .next = undefined,
         .prev = undefined,
     };
     queue.put(&node_0);
 
-    var node_1 = Queue(i32).Node{
+    var node_1 = Queue(i32).Node.{
         .data = 1,
         .next = undefined,
         .prev = undefined,
@@ -242,14 +249,14 @@ test "std.atomic.Queue single-threaded" {
 
     assert(queue.get().?.data == 0);
 
-    var node_2 = Queue(i32).Node{
+    var node_2 = Queue(i32).Node.{
         .data = 2,
         .next = undefined,
         .prev = undefined,
     };
     queue.put(&node_2);
 
-    var node_3 = Queue(i32).Node{
+    var node_3 = Queue(i32).Node.{
         .data = 3,
         .next = undefined,
         .prev = undefined,
@@ -260,7 +267,7 @@ test "std.atomic.Queue single-threaded" {
 
     assert(queue.get().?.data == 2);
 
-    var node_4 = Queue(i32).Node{
+    var node_4 = Queue(i32).Node.{
         .data = 4,
         .next = undefined,
         .prev = undefined,
@@ -273,4 +280,64 @@ test "std.atomic.Queue single-threaded" {
     assert(queue.get().?.data == 4);
 
     assert(queue.get() == null);
+}
+
+test "std.atomic.Queue dump" {
+    const mem = std.mem;
+    const SliceOutStream = std.io.SliceOutStream;
+    var buffer: [1024]u8 = undefined;
+    var expected_buffer: [1024]u8 = undefined;
+    var sos = SliceOutStream.init(buffer[0..]);
+
+    var queue = Queue(i32).init();
+
+    // Test empty stream
+    sos.reset();
+    try queue.dumpToStream(SliceOutStream.Error, &sos.stream);
+    assert(mem.eql(u8, buffer[0..sos.pos],
+        \\head: (null)
+        \\tail: (null)
+        \\
+    ));
+
+    // Test a stream with one element
+    var node_0 = Queue(i32).Node.{
+        .data = 1,
+        .next = undefined,
+        .prev = undefined,
+    };
+    queue.put(&node_0);
+
+    sos.reset();
+    try queue.dumpToStream(SliceOutStream.Error, &sos.stream);
+
+    var expected = try std.fmt.bufPrint(expected_buffer[0..],
+        \\head: 0x{x}=1
+        \\ (null)
+        \\tail: 0x{x}=1
+        \\ (null)
+        \\
+    , @ptrToInt(queue.head), @ptrToInt(queue.tail));
+    assert(mem.eql(u8, buffer[0..sos.pos], expected));
+
+    // Test a stream with two elements
+    var node_1 = Queue(i32).Node.{
+        .data = 2,
+        .next = undefined,
+        .prev = undefined,
+    };
+    queue.put(&node_1);
+
+    sos.reset();
+    try queue.dumpToStream(SliceOutStream.Error, &sos.stream);
+
+    expected = try std.fmt.bufPrint(expected_buffer[0..],
+        \\head: 0x{x}=1
+        \\ 0x{x}=2
+        \\  (null)
+        \\tail: 0x{x}=2
+        \\ (null)
+        \\
+    , @ptrToInt(queue.head), @ptrToInt(queue.head.?.next), @ptrToInt(queue.tail));
+    assert(mem.eql(u8, buffer[0..sos.pos], expected));
 }

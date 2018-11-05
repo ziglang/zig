@@ -68,16 +68,16 @@ test "statically initialized list" {
     assert(static_point_list[1].x == 3);
     assert(static_point_list[1].y == 4);
 }
-const Point = struct {
+const Point = struct.{
     x: i32,
     y: i32,
 };
-const static_point_list = []Point{
+const static_point_list = []Point.{
     makePoint(1, 2),
     makePoint(3, 4),
 };
 fn makePoint(x: i32, y: i32) Point {
-    return Point{
+    return Point.{
         .x = x,
         .y = y,
     };
@@ -88,11 +88,11 @@ test "static eval list init" {
     assert(vec3(0.0, 0.0, 3.0).data[2] == 3.0);
 }
 const static_vec3 = vec3(0.0, 0.0, 1.0);
-pub const Vec3 = struct {
+pub const Vec3 = struct.{
     data: [3]f32,
 };
 pub fn vec3(x: f32, y: f32, z: f32) Vec3 {
-    return Vec3{ .data = []f32{
+    return Vec3.{ .data = []f32.{
         x,
         y,
         z,
@@ -108,29 +108,29 @@ const array_size: u8 = 20;
 test "constant struct with negation" {
     assert(vertices[0].x == -0.6);
 }
-const Vertex = struct {
+const Vertex = struct.{
     x: f32,
     y: f32,
     r: f32,
     g: f32,
     b: f32,
 };
-const vertices = []Vertex{
-    Vertex{
+const vertices = []Vertex.{
+    Vertex.{
         .x = -0.6,
         .y = -0.4,
         .r = 1.0,
         .g = 0.0,
         .b = 0.0,
     },
-    Vertex{
+    Vertex.{
         .x = 0.6,
         .y = -0.4,
         .r = 0.0,
         .g = 1.0,
         .b = 0.0,
     },
-    Vertex{
+    Vertex.{
         .x = 0.0,
         .y = 0.6,
         .r = 0.0,
@@ -143,11 +143,11 @@ test "statically initialized struct" {
     st_init_str_foo.x += 1;
     assert(st_init_str_foo.x == 14);
 }
-const StInitStrFoo = struct {
+const StInitStrFoo = struct.{
     x: i32,
     y: bool,
 };
-var st_init_str_foo = StInitStrFoo{
+var st_init_str_foo = StInitStrFoo.{
     .x = 13,
     .y = true,
 };
@@ -156,7 +156,7 @@ test "statically initalized array literal" {
     const y: [4]u8 = st_init_arr_lit_x;
     assert(y[3] == 4);
 }
-const st_init_arr_lit_x = []u8{
+const st_init_arr_lit_x = []u8.{
     1,
     2,
     3,
@@ -213,21 +213,21 @@ test "inlined block and runtime block phi" {
     }
 }
 
-const CmdFn = struct {
+const CmdFn = struct.{
     name: []const u8,
     func: fn (i32) i32,
 };
 
-const cmd_fns = []CmdFn{
-    CmdFn{
+const cmd_fns = []CmdFn.{
+    CmdFn.{
         .name = "one",
         .func = one,
     },
-    CmdFn{
+    CmdFn.{
         .name = "two",
         .func = two,
     },
-    CmdFn{
+    CmdFn.{
         .name = "three",
         .func = three,
     },
@@ -279,7 +279,7 @@ fn fnWithFloatMode() f32 {
     return 1234.0;
 }
 
-const SimpleStruct = struct {
+const SimpleStruct = struct.{
     field: i32,
 
     fn method(self: *const SimpleStruct) i32 {
@@ -287,7 +287,7 @@ const SimpleStruct = struct {
     }
 };
 
-var simple_struct = SimpleStruct{ .field = 1234 };
+var simple_struct = SimpleStruct.{ .field = 1234 };
 
 const bound_fn = simple_struct.method;
 
@@ -333,11 +333,11 @@ test "const ptr to variable data changes at runtime" {
     assert(foo_ref.name[0] == 'b');
 }
 
-const Foo = struct {
+const Foo = struct.{
     name: []const u8,
 };
 
-var foo_contents = Foo{ .name = "a" };
+var foo_contents = Foo.{ .name = "a" };
 const foo_ref = &foo_contents;
 
 test "create global array with for loop" {
@@ -405,8 +405,8 @@ test "f128 at compile time is lossy" {
 // assert(f128(1 << 113) == 10384593717069655257060992658440192);
 
 pub fn TypeWithCompTimeSlice(comptime field_name: []const u8) type {
-    return struct {
-        pub const Node = struct {};
+    return struct.{
+        pub const Node = struct.{};
     };
 }
 
@@ -457,7 +457,7 @@ test "comptime function with the same args is memoized" {
 }
 
 fn MakeType(comptime T: type) type {
-    return struct {
+    return struct.{
         field: T,
     };
 }
@@ -514,7 +514,7 @@ test "comptime slice of pointer preserves comptime var" {
     }
 }
 
-const SingleFieldStruct = struct {
+const SingleFieldStruct = struct.{
     x: i32,
 
     fn read_x(self: *const SingleFieldStruct) i32 {
@@ -523,7 +523,7 @@ const SingleFieldStruct = struct {
 };
 test "const ptr to comptime mutable data is not memoized" {
     comptime {
-        var foo = SingleFieldStruct{ .x = 1 };
+        var foo = SingleFieldStruct.{ .x = 1 };
         assert(foo.read_x() == 1);
         foo.x = 2;
         assert(foo.read_x() == 2);
@@ -562,11 +562,11 @@ test "runtime 128 bit integer division" {
     assert(c == 15231399999);
 }
 
-pub const Info = struct {
+pub const Info = struct.{
     version: u8,
 };
 
-pub const diamond_info = Info{ .version = 0 };
+pub const diamond_info = Info.{ .version = 0 };
 
 test "comptime modification of const struct field" {
     comptime {
@@ -591,7 +591,7 @@ test "pointer to type" {
 
 test "slice of type" {
     comptime {
-        var types_array = []type{ i32, f64, type };
+        var types_array = []type.{ i32, f64, type };
         for (types_array) |T, i| {
             switch (i) {
                 0 => assert(T == i32),
@@ -611,12 +611,12 @@ test "slice of type" {
     }
 }
 
-const Wrapper = struct {
+const Wrapper = struct.{
     T: type,
 };
 
 fn wrap(comptime T: type) Wrapper {
-    return Wrapper{ .T = T };
+    return Wrapper.{ .T = T };
 }
 
 test "function which returns struct with type field causes implicit comptime" {
@@ -625,7 +625,7 @@ test "function which returns struct with type field causes implicit comptime" {
 }
 
 test "call method with comptime pass-by-non-copying-value self parameter" {
-    const S = struct {
+    const S = struct.{
         a: u8,
 
         fn b(comptime s: @This()) u8 {
@@ -633,7 +633,7 @@ test "call method with comptime pass-by-non-copying-value self parameter" {
         }
     };
 
-    const s = S{ .a = 2 };
+    const s = S.{ .a = 2 };
     var b = s.b();
     assert(b == 2);
 }
@@ -668,7 +668,7 @@ fn testVarInsideInlineLoop(args: ...) void {
 
 test "inline for with same type but different values" {
     var res: usize = 0;
-    inline for ([]type{ [2]u8, [1]u8, [2]u8 }) |T| {
+    inline for ([]type.{ [2]u8, [1]u8, [2]u8 }) |T| {
         var a: T = undefined;
         res += a.len;
     }
@@ -702,11 +702,63 @@ test "@intCast to a u0" {
 }
 
 test "@bytesToslice on a packed struct" {
-    const F = packed struct {
+    const F = packed struct.{
         a: u8,
     };
 
-    var b = [1]u8{9};
+    var b = [1]u8.{9};
     var f = @bytesToSlice(F, b);
     assert(f[0].a == 9);
+}
+
+test "comptime pointer cast array and then slice" {
+    const array = []u8.{ 1, 2, 3, 4, 5, 6, 7, 8 };
+
+    const ptrA: [*]const u8 = @ptrCast([*]const u8, &array);
+    const sliceA: []const u8 = ptrA[0..2];
+
+    const ptrB: [*]const u8 = &array;
+    const sliceB: []const u8 = ptrB[0..2];
+
+    assert(sliceA[1] == 2);
+    assert(sliceB[1] == 2);
+}
+
+test "slice bounds in comptime concatenation" {
+    const bs = comptime blk: {
+        const b = c"11";
+        break :blk b[0..1];
+    };
+    const str = "" ++ bs;
+    assert(str.len == 1);
+    assert(std.mem.eql(u8, str, "1"));
+
+    const str2 = bs ++ "";
+    assert(str2.len == 1);
+    assert(std.mem.eql(u8, str2, "1"));
+}
+
+test "comptime bitwise operators" {
+    comptime {
+        assert(3 & 1 == 1);
+        assert(3 & -1 == 3);
+        assert(-3 & -1 == -3);
+        assert(3 | -1 == -1);
+        assert(-3 | -1 == -1);
+        assert(3 ^ -1 == -4);
+        assert(-3 ^ -1 == 2);
+        assert(~i8(-1) == 0);
+        assert(~i128(-1) == 0);
+        assert(18446744073709551615 & 18446744073709551611 == 18446744073709551611);
+        assert(-18446744073709551615 & -18446744073709551611 == -18446744073709551615);
+        assert(~u128(0) == 0xffffffffffffffffffffffffffffffff);
+    }
+}
+
+test "*align(1) u16 is the same as *align(1:0:2) u16" {
+    comptime {
+        assert(*align(1:0:2) u16 == *align(1) u16);
+        // TODO add parsing support for this syntax
+        //assert(*align(:0:2) u16 == *u16);
+    }
 }

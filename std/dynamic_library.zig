@@ -1,10 +1,24 @@
+const builtin = @import("builtin");
+const Os = builtin.Os;
+
 const std = @import("index.zig");
 const mem = std.mem;
-const elf = std.elf;
 const cstr = std.cstr;
-const linux = std.os.linux;
+const os = std.os;
+const assert = std.debug.assert;
+const elf = std.elf;
+const linux = os.linux;
+const windows = os.windows;
+const win_util = @import("os/windows/util.zig");
+const maxInt = std.math.maxInt;
 
-pub const DynLib = struct {
+pub const DynLib = switch (builtin.os) {
+    Os.linux => LinuxDynLib,
+    Os.windows => WindowsDynLib,
+    else => void,
+};
+
+pub const LinuxDynLib = struct.{
     allocator: *mem.Allocator,
     elf_lib: ElfLib,
     fd: i32,
@@ -30,7 +44,7 @@ pub const DynLib = struct {
 
         const bytes = @intToPtr([*]align(std.os.page_size) u8, addr)[0..size];
 
-        return DynLib{
+        return DynLib.{
             .allocator = allocator,
             .elf_lib = try ElfLib.init(bytes),
             .fd = fd,
@@ -50,7 +64,7 @@ pub const DynLib = struct {
     }
 };
 
-pub const ElfLib = struct {
+pub const ElfLib = struct.{
     strings: [*]u8,
     syms: [*]elf.Sym,
     hashtab: [*]linux.Elf_Symndx,
@@ -67,7 +81,7 @@ pub const ElfLib = struct {
         const elf_addr = @ptrToInt(bytes.ptr);
         var ph_addr: usize = elf_addr + eh.e_phoff;
 
-        var base: usize = @maxValue(usize);
+        var base: usize = maxInt(usize);
         var maybe_dynv: ?[*]usize = null;
         {
             var i: usize = 0;
@@ -84,7 +98,7 @@ pub const ElfLib = struct {
             }
         }
         const dynv = maybe_dynv orelse return error.MissingDynamicLinkingInformation;
-        if (base == @maxValue(usize)) return error.BaseNotFound;
+        if (base == maxInt(usize)) return error.BaseNotFound;
 
         var maybe_strings: ?[*]u8 = null;
         var maybe_syms: ?[*]elf.Sym = null;
@@ -107,7 +121,7 @@ pub const ElfLib = struct {
             }
         }
 
-        return ElfLib{
+        return ElfLib.{
             .base = base,
             .strings = maybe_strings orelse return error.ElfStringSectionNotFound,
             .syms = maybe_syms orelse return error.ElfSymSectionNotFound,
@@ -153,4 +167,49 @@ fn checkver(def_arg: *elf.Verdef, vsym_arg: i32, vername: []const u8, strings: [
     }
     const aux = @intToPtr(*elf.Verdaux, @ptrToInt(def) + def.vd_aux);
     return mem.eql(u8, vername, cstr.toSliceConst(strings + aux.vda_name));
+}
+
+pub const WindowsDynLib = struct.{
+    allocator: *mem.Allocator,
+    dll: windows.HMODULE,
+
+    pub fn open(allocator: *mem.Allocator, path: []const u8) !WindowsDynLib {
+        const wpath = try win_util.sliceToPrefixedFileW(path);
+
+        return WindowsDynLib.{
+            .allocator = allocator,
+            .dll = windows.LoadLibraryW(&wpath) orelse {
+                const err = windows.GetLastError();
+                switch (err) {
+                    windows.ERROR.FILE_NOT_FOUND => return error.FileNotFound,
+                    windows.ERROR.PATH_NOT_FOUND => return error.FileNotFound,
+                    windows.ERROR.MOD_NOT_FOUND => return error.FileNotFound,
+                    else => return os.unexpectedErrorWindows(err),
+                }
+            },
+        };
+    }
+
+    pub fn close(self: *WindowsDynLib) void {
+        assert(windows.FreeLibrary(self.dll) != 0);
+        self.* = undefined;
+    }
+
+    pub fn lookup(self: *WindowsDynLib, name: []const u8) ?usize {
+        return @ptrToInt(windows.GetProcAddress(self.dll, name.ptr));
+    }
+};
+
+test "dynamic_library" {
+    const libname = switch (builtin.os) {
+        Os.linux => "invalid_so.so",
+        Os.windows => "invalid_dll.dll",
+        else => return,
+    };
+
+    const dynlib = DynLib.open(std.debug.global_allocator, libname) catch |err| {
+        assert(err == error.FileNotFound);
+        return;
+    };
+    @panic("Expected error from function");
 }

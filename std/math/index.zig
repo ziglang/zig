@@ -8,7 +8,7 @@ pub const pi = 3.14159265358979323846264338327950288419716939937510;
 
 // float.h details
 pub const f64_true_min = 4.94065645841246544177e-324;
-pub const f64_min = 2.22507385850720138309e-308;
+pub const f64_min = 2.2250738585072014e-308;
 pub const f64_max = 1.79769313486231570815e+308;
 pub const f64_epsilon = 2.22044604925031308085e-16;
 pub const f64_toint = 1.0 / f64_epsilon;
@@ -119,6 +119,7 @@ pub const isNormal = @import("isnormal.zig").isNormal;
 pub const signbit = @import("signbit.zig").signbit;
 pub const scalbn = @import("scalbn.zig").scalbn;
 pub const pow = @import("pow.zig").pow;
+pub const powi = @import("powi.zig").powi;
 pub const sqrt = @import("sqrt.zig").sqrt;
 pub const cbrt = @import("cbrt.zig").cbrt;
 pub const acos = @import("acos.zig").acos;
@@ -168,6 +169,7 @@ test "math" {
     _ = @import("signbit.zig");
     _ = @import("scalbn.zig");
     _ = @import("pow.zig");
+    _ = @import("powi.zig");
     _ = @import("sqrt.zig");
     _ = @import("cbrt.zig");
     _ = @import("acos.zig");
@@ -242,17 +244,17 @@ test "math.max" {
     assert(max(i32(-1), i32(2)) == 2);
 }
 
-pub fn mul(comptime T: type, a: T, b: T) (error{Overflow}!T) {
+pub fn mul(comptime T: type, a: T, b: T) (error.{Overflow}!T) {
     var answer: T = undefined;
     return if (@mulWithOverflow(T, a, b, &answer)) error.Overflow else answer;
 }
 
-pub fn add(comptime T: type, a: T, b: T) (error{Overflow}!T) {
+pub fn add(comptime T: type, a: T, b: T) (error.{Overflow}!T) {
     var answer: T = undefined;
     return if (@addWithOverflow(T, a, b, &answer)) error.Overflow else answer;
 }
 
-pub fn sub(comptime T: type, a: T, b: T) (error{Overflow}!T) {
+pub fn sub(comptime T: type, a: T, b: T) (error.{Overflow}!T) {
     var answer: T = undefined;
     return if (@subWithOverflow(T, a, b, &answer)) error.Overflow else answer;
 }
@@ -380,7 +382,7 @@ pub fn absInt(x: var) !@typeOf(x) {
     comptime assert(@typeId(T) == builtin.TypeId.Int); // must pass an integer to absInt
     comptime assert(T.is_signed); // must pass a signed integer to absInt
 
-    if (x == @minValue(@typeOf(x))) {
+    if (x == minInt(@typeOf(x))) {
         return error.Overflow;
     } else {
         @setRuntimeSafety(false);
@@ -402,7 +404,7 @@ pub const absFloat = @import("fabs.zig").fabs;
 pub fn divTrunc(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
     if (denominator == 0) return error.DivisionByZero;
-    if (@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == @minValue(T) and denominator == -1) return error.Overflow;
+    if (@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == minInt(T) and denominator == -1) return error.Overflow;
     return @divTrunc(numerator, denominator);
 }
 
@@ -423,7 +425,7 @@ fn testDivTrunc() void {
 pub fn divFloor(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
     if (denominator == 0) return error.DivisionByZero;
-    if (@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == @minValue(T) and denominator == -1) return error.Overflow;
+    if (@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == minInt(T) and denominator == -1) return error.Overflow;
     return @divFloor(numerator, denominator);
 }
 
@@ -444,7 +446,7 @@ fn testDivFloor() void {
 pub fn divExact(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
     if (denominator == 0) return error.DivisionByZero;
-    if (@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == @minValue(T) and denominator == -1) return error.Overflow;
+    if (@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == minInt(T) and denominator == -1) return error.Overflow;
     const result = @divTrunc(numerator, denominator);
     if (result * denominator != numerator) return error.UnexpectedRemainder;
     return result;
@@ -528,8 +530,8 @@ test "math.absCast" {
     assert(absCast(i32(999)) == 999);
     assert(@typeOf(absCast(i32(999))) == u32);
 
-    assert(absCast(i32(@minValue(i32))) == -@minValue(i32));
-    assert(@typeOf(absCast(i32(@minValue(i32)))) == u32);
+    assert(absCast(i32(minInt(i32))) == -minInt(i32));
+    assert(@typeOf(absCast(i32(minInt(i32)))) == u32);
 }
 
 /// Returns the negation of the integer parameter.
@@ -538,9 +540,9 @@ pub fn negateCast(x: var) !@IntType(true, @typeOf(x).bit_count) {
     if (@typeOf(x).is_signed) return negate(x);
 
     const int = @IntType(true, @typeOf(x).bit_count);
-    if (x > -@minValue(int)) return error.Overflow;
+    if (x > -minInt(int)) return error.Overflow;
 
-    if (x == -@minValue(int)) return @minValue(int);
+    if (x == -minInt(int)) return minInt(int);
 
     return -@intCast(int, x);
 }
@@ -549,20 +551,20 @@ test "math.negateCast" {
     assert((negateCast(u32(999)) catch unreachable) == -999);
     assert(@typeOf(negateCast(u32(999)) catch unreachable) == i32);
 
-    assert((negateCast(u32(-@minValue(i32))) catch unreachable) == @minValue(i32));
-    assert(@typeOf(negateCast(u32(-@minValue(i32))) catch unreachable) == i32);
+    assert((negateCast(u32(-minInt(i32))) catch unreachable) == minInt(i32));
+    assert(@typeOf(negateCast(u32(-minInt(i32))) catch unreachable) == i32);
 
-    if (negateCast(u32(@maxValue(i32) + 10))) |_| unreachable else |err| assert(err == error.Overflow);
+    if (negateCast(u32(maxInt(i32) + 10))) |_| unreachable else |err| assert(err == error.Overflow);
 }
 
 /// Cast an integer to a different integer type. If the value doesn't fit,
 /// return an error.
-pub fn cast(comptime T: type, x: var) (error{Overflow}!T) {
+pub fn cast(comptime T: type, x: var) (error.{Overflow}!T) {
     comptime assert(@typeId(T) == builtin.TypeId.Int); // must pass an integer
     comptime assert(@typeId(@typeOf(x)) == builtin.TypeId.Int); // must pass an integer
-    if (@maxValue(@typeOf(x)) > @maxValue(T) and x > @maxValue(T)) {
+    if (maxInt(@typeOf(x)) > maxInt(T) and x > maxInt(T)) {
         return error.Overflow;
-    } else if (@minValue(@typeOf(x)) < @minValue(T) and x < @minValue(T)) {
+    } else if (minInt(@typeOf(x)) < minInt(T) and x < minInt(T)) {
         return error.Overflow;
     } else {
         return @intCast(T, x);
@@ -579,7 +581,7 @@ test "math.cast" {
     assert(@typeOf(try cast(u8, u32(255))) == u8);
 }
 
-pub const AlignCastError = error{UnalignedMemory};
+pub const AlignCastError = error.{UnalignedMemory};
 
 /// Align cast a pointer but return an error if it's the wrong alignment
 pub fn alignCast(comptime alignment: u29, ptr: var) AlignCastError!@typeOf(@alignCast(alignment, ptr)) {
@@ -649,4 +651,66 @@ pub fn lossyCast(comptime T: type, value: var) T {
         builtin.TypeId.ComptimeFloat => return T(value),
         else => @compileError("bad type"),
     }
+}
+
+test "math.f64_min" {
+    const f64_min_u64 = 0x0010000000000000;
+    const fmin: f64 = f64_min;
+    assert(@bitCast(u64, fmin) == f64_min_u64);
+}
+
+pub fn maxInt(comptime T: type) comptime_int {
+    const info = @typeInfo(T);
+    const bit_count = comptime_int(info.Int.bits); // TODO #1683
+    if (bit_count == 0) return 0;
+    return (1 << (bit_count - @boolToInt(info.Int.is_signed))) - 1;
+}
+
+pub fn minInt(comptime T: type) comptime_int {
+    const info = @typeInfo(T);
+    const bit_count = comptime_int(info.Int.bits); // TODO #1683
+    if (!info.Int.is_signed) return 0;
+    if (bit_count == 0) return 0;
+    return -(1 << (bit_count - 1));
+}
+
+test "minInt and maxInt" {
+    assert(maxInt(u0) == 0);
+    assert(maxInt(u1) == 1);
+    assert(maxInt(u8) == 255);
+    assert(maxInt(u16) == 65535);
+    assert(maxInt(u32) == 4294967295);
+    assert(maxInt(u64) == 18446744073709551615);
+
+    assert(maxInt(i0) == 0);
+    assert(maxInt(i1) == 0);
+    assert(maxInt(i8) == 127);
+    assert(maxInt(i16) == 32767);
+    assert(maxInt(i32) == 2147483647);
+    assert(maxInt(i63) == 4611686018427387903);
+    assert(maxInt(i64) == 9223372036854775807);
+
+    assert(minInt(u0) == 0);
+    assert(minInt(u1) == 0);
+    assert(minInt(u8) == 0);
+    assert(minInt(u16) == 0);
+    assert(minInt(u32) == 0);
+    assert(minInt(u63) == 0);
+    assert(minInt(u64) == 0);
+
+    assert(minInt(i0) == 0);
+    assert(minInt(i1) == -1);
+    assert(minInt(i8) == -128);
+    assert(minInt(i16) == -32768);
+    assert(minInt(i32) == -2147483648);
+    assert(minInt(i63) == -4611686018427387904);
+    assert(minInt(i64) == -9223372036854775808);
+}
+
+test "max value type" {
+    // If the type of maxInt(i32) was i32 then this implicit cast to
+    // u32 would not work. But since the value is a number literal,
+    // it works fine.
+    const x: u32 = maxInt(i32);
+    assert(x == 2147483647);
 }

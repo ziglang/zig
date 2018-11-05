@@ -5,11 +5,11 @@
 // ```
 // var buf: [8]u8 = undefined;
 // try std.os.getRandomBytes(buf[0..]);
-// const seed = mem.readInt(buf[0..8], u64, builtin.Endian.Little);
+// const seed = mem.readIntLE(u64, buf[0..8]);
 //
 // var r = DefaultPrng.init(seed);
 //
-// const s = r.random.scalar(u64);
+// const s = r.random.int(u64);
 // ```
 //
 // TODO(tiehuis): Benchmark these against other reference implementations.
@@ -20,6 +20,7 @@ const assert = std.debug.assert;
 const mem = std.mem;
 const math = std.math;
 const ziggurat = @import("ziggurat.zig");
+const maxInt = std.math.maxInt;
 
 // When you need fast unbiased random numbers
 pub const DefaultPrng = Xoroshiro128;
@@ -27,7 +28,7 @@ pub const DefaultPrng = Xoroshiro128;
 // When you need cryptographically secure random numbers
 pub const DefaultCsprng = Isaac64;
 
-pub const Random = struct {
+pub const Random = struct.{
     fillFn: fn (r: *Random, buf: []u8) void,
 
     /// Read random bytes into the specified buffer until full.
@@ -35,60 +36,117 @@ pub const Random = struct {
         r.fillFn(r, buf);
     }
 
-    /// Return a random integer/boolean type.
-    pub fn scalar(r: *Random, comptime T: type) T {
-        var rand_bytes: [@sizeOf(T)]u8 = undefined;
+    pub fn boolean(r: *Random) bool {
+        return r.int(u1) != 0;
+    }
+
+    /// Returns a random int `i` such that `0 <= i <= maxInt(T)`.
+    /// `i` is evenly distributed.
+    pub fn int(r: *Random, comptime T: type) T {
+        const UnsignedT = @IntType(false, T.bit_count);
+        const ByteAlignedT = @IntType(false, @divTrunc(T.bit_count + 7, 8) * 8);
+
+        var rand_bytes: [@sizeOf(ByteAlignedT)]u8 = undefined;
         r.bytes(rand_bytes[0..]);
 
-        if (T == bool) {
-            return rand_bytes[0] & 0b1 == 0;
-        } else {
-            // NOTE: Cannot @bitCast array to integer type.
-            return mem.readInt(rand_bytes, T, builtin.Endian.Little);
+        // use LE instead of native endian for better portability maybe?
+        // TODO: endian portability is pointless if the underlying prng isn't endian portable.
+        // TODO: document the endian portability of this library.
+        const byte_aligned_result = mem.readIntLE(ByteAlignedT, rand_bytes);
+        const unsigned_result = @truncate(UnsignedT, byte_aligned_result);
+        return @bitCast(T, unsigned_result);
+    }
+
+    /// Returns an evenly distributed random unsigned integer `0 <= i < less_than`.
+    /// This function assumes that the underlying ::fillFn produces evenly distributed values.
+    /// Within this assumption, the runtime of this function is exponentially distributed.
+    /// If ::fillFn were backed by a true random generator,
+    /// the runtime of this function would technically be unbounded.
+    /// However, if ::fillFn is backed by any evenly distributed pseudo random number generator,
+    /// this function is guaranteed to return.
+    /// If you need deterministic runtime bounds, consider instead using `r.int(T) % less_than`,
+    /// which will usually be biased toward smaller values.
+    pub fn uintLessThan(r: *Random, comptime T: type, less_than: T) T {
+        assert(T.is_signed == false);
+        assert(0 < less_than);
+
+        const last_group_size_minus_one: T = maxInt(T) % less_than;
+        if (last_group_size_minus_one == less_than - 1) {
+            // less_than is a power of two.
+            assert(math.floorPowerOfTwo(T, less_than) == less_than);
+            // There is no retry zone. The optimal retry_zone_start would be maxInt(T) + 1.
+            return r.int(T) % less_than;
         }
+        const retry_zone_start = maxInt(T) - last_group_size_minus_one;
+
+        while (true) {
+            const rand_val = r.int(T);
+            if (rand_val < retry_zone_start) {
+                return rand_val % less_than;
+            }
+        }
+    }
+
+    /// Returns an evenly distributed random unsigned integer `0 <= i <= at_most`.
+    /// See ::uintLessThan, which this function uses in most cases,
+    /// for commentary on the runtime of this function.
+    pub fn uintAtMost(r: *Random, comptime T: type, at_most: T) T {
+        assert(T.is_signed == false);
+        if (at_most == maxInt(T)) {
+            // have the full range
+            return r.int(T);
+        }
+        return r.uintLessThan(T, at_most + 1);
+    }
+
+    /// Returns an evenly distributed random integer `at_least <= i < less_than`.
+    /// See ::uintLessThan, which this function uses in most cases,
+    /// for commentary on the runtime of this function.
+    pub fn intRangeLessThan(r: *Random, comptime T: type, at_least: T, less_than: T) T {
+        assert(at_least < less_than);
+        if (T.is_signed) {
+            // Two's complement makes this math pretty easy.
+            const UnsignedT = @IntType(false, T.bit_count);
+            const lo = @bitCast(UnsignedT, at_least);
+            const hi = @bitCast(UnsignedT, less_than);
+            const result = lo +% r.uintLessThan(UnsignedT, hi -% lo);
+            return @bitCast(T, result);
+        } else {
+            // The signed implementation would work fine, but we can use stricter arithmetic operators here.
+            return at_least + r.uintLessThan(T, less_than - at_least);
+        }
+    }
+
+    /// Returns an evenly distributed random integer `at_least <= i <= at_most`.
+    /// See ::uintLessThan, which this function uses in most cases,
+    /// for commentary on the runtime of this function.
+    pub fn intRangeAtMost(r: *Random, comptime T: type, at_least: T, at_most: T) T {
+        assert(at_least <= at_most);
+        if (T.is_signed) {
+            // Two's complement makes this math pretty easy.
+            const UnsignedT = @IntType(false, T.bit_count);
+            const lo = @bitCast(UnsignedT, at_least);
+            const hi = @bitCast(UnsignedT, at_most);
+            const result = lo +% r.uintAtMost(UnsignedT, hi -% lo);
+            return @bitCast(T, result);
+        } else {
+            // The signed implementation would work fine, but we can use stricter arithmetic operators here.
+            return at_least + r.uintAtMost(T, at_most - at_least);
+        }
+    }
+
+    /// Return a random integer/boolean type.
+    /// TODO: deprecated. use ::boolean or ::int instead.
+    pub fn scalar(r: *Random, comptime T: type) T {
+        if (T == bool) return r.boolean();
+        return r.int(T);
     }
 
     /// Return a random integer with even distribution between `start`
     /// inclusive and `end` exclusive.  `start` must be less than `end`.
+    /// TODO: deprecated. renamed to ::intRangeLessThan
     pub fn range(r: *Random, comptime T: type, start: T, end: T) T {
-        assert(start < end);
-        if (T.is_signed) {
-            const uint = @IntType(false, T.bit_count);
-            if (start >= 0 and end >= 0) {
-                return @intCast(T, r.range(uint, @intCast(uint, start), @intCast(uint, end)));
-            } else if (start < 0 and end < 0) {
-                // Can't overflow because the range is over signed ints
-                return math.negateCast(r.range(uint, math.absCast(end), math.absCast(start)) + 1) catch unreachable;
-            } else if (start < 0 and end >= 0) {
-                const end_uint = @intCast(uint, end);
-                const total_range = math.absCast(start) + end_uint;
-                const value = r.range(uint, 0, total_range);
-                const result = if (value < end_uint) x: {
-                    break :x @intCast(T, value);
-                } else if (value == end_uint) x: {
-                    break :x start;
-                } else x: {
-                    // Can't overflow because the range is over signed ints
-                    break :x math.negateCast(value - end_uint) catch unreachable;
-                };
-                return result;
-            } else {
-                unreachable;
-            }
-        } else {
-            const total_range = end - start;
-            const leftover = @maxValue(T) % total_range;
-            const upper_bound = @maxValue(T) - leftover;
-            var rand_val_array: [@sizeOf(T)]u8 = undefined;
-
-            while (true) {
-                r.bytes(rand_val_array[0..]);
-                const rand_val = mem.readInt(rand_val_array, T, builtin.Endian.Little);
-                if (rand_val < upper_bound) {
-                    return start + (rand_val % total_range);
-                }
-            }
-        }
+        return r.intRangeLessThan(T, start, end);
     }
 
     /// Return a floating point value evenly distributed in the range [0, 1).
@@ -97,12 +155,12 @@ pub const Random = struct {
         // Note: The lowest mantissa bit is always set to 0 so we only use half the available range.
         switch (T) {
             f32 => {
-                const s = r.scalar(u32);
+                const s = r.int(u32);
                 const repr = (0x7f << 23) | (s >> 9);
                 return @bitCast(f32, repr) - 1.0;
             },
             f64 => {
-                const s = r.scalar(u64);
+                const s = r.int(u64);
                 const repr = (0x3ff << 52) | (s >> 12);
                 return @bitCast(f64, repr) - 1.0;
             },
@@ -142,21 +200,176 @@ pub const Random = struct {
 
         var i: usize = 0;
         while (i < buf.len - 1) : (i += 1) {
-            const j = r.range(usize, i, buf.len);
+            const j = r.intRangeLessThan(usize, i, buf.len);
             mem.swap(T, &buf[i], &buf[j]);
         }
     }
 };
 
+const SequentialPrng = struct.{
+    const Self = @This();
+    random: Random,
+    next_value: u8,
+
+    pub fn init() Self {
+        return Self.{
+            .random = Random.{ .fillFn = fill },
+            .next_value = 0,
+        };
+    }
+
+    fn fill(r: *Random, buf: []u8) void {
+        const self = @fieldParentPtr(Self, "random", r);
+        for (buf) |*b| {
+            b.* = self.next_value;
+        }
+        self.next_value +%= 1;
+    }
+};
+
+test "Random int" {
+    testRandomInt();
+    comptime testRandomInt();
+}
+fn testRandomInt() void {
+    var r = SequentialPrng.init();
+
+    assert(r.random.int(u0) == 0);
+
+    r.next_value = 0;
+    assert(r.random.int(u1) == 0);
+    assert(r.random.int(u1) == 1);
+    assert(r.random.int(u2) == 2);
+    assert(r.random.int(u2) == 3);
+    assert(r.random.int(u2) == 0);
+
+    r.next_value = 0xff;
+    assert(r.random.int(u8) == 0xff);
+    r.next_value = 0x11;
+    assert(r.random.int(u8) == 0x11);
+
+    r.next_value = 0xff;
+    assert(r.random.int(u32) == 0xffffffff);
+    r.next_value = 0x11;
+    assert(r.random.int(u32) == 0x11111111);
+
+    r.next_value = 0xff;
+    assert(r.random.int(i32) == -1);
+    r.next_value = 0x11;
+    assert(r.random.int(i32) == 0x11111111);
+
+    r.next_value = 0xff;
+    assert(r.random.int(i8) == -1);
+    r.next_value = 0x11;
+    assert(r.random.int(i8) == 0x11);
+
+    r.next_value = 0xff;
+    assert(r.random.int(u33) == 0x1ffffffff);
+    r.next_value = 0xff;
+    assert(r.random.int(i1) == -1);
+    r.next_value = 0xff;
+    assert(r.random.int(i2) == -1);
+    r.next_value = 0xff;
+    assert(r.random.int(i33) == -1);
+}
+
+test "Random boolean" {
+    testRandomBoolean();
+    comptime testRandomBoolean();
+}
+fn testRandomBoolean() void {
+    var r = SequentialPrng.init();
+    assert(r.random.boolean() == false);
+    assert(r.random.boolean() == true);
+    assert(r.random.boolean() == false);
+    assert(r.random.boolean() == true);
+}
+
+test "Random intLessThan" {
+    @setEvalBranchQuota(10000);
+    testRandomIntLessThan();
+    comptime testRandomIntLessThan();
+}
+fn testRandomIntLessThan() void {
+    var r = SequentialPrng.init();
+    r.next_value = 0xff;
+    assert(r.random.uintLessThan(u8, 4) == 3);
+    r.next_value = 0xff;
+    assert(r.random.uintLessThan(u8, 3) == 0);
+    assert(r.next_value == 1);
+
+    r.next_value = 0xff;
+    assert(r.random.intRangeLessThan(u8, 0, 0x80) == 0x7f);
+    r.next_value = 0xff;
+    assert(r.random.intRangeLessThan(u8, 0x7f, 0xff) == 0xfe);
+
+    r.next_value = 0xff;
+    assert(r.random.intRangeLessThan(i8, 0, 0x40) == 0x3f);
+    r.next_value = 0xff;
+    assert(r.random.intRangeLessThan(i8, -0x40, 0x40) == 0x3f);
+    r.next_value = 0xff;
+    assert(r.random.intRangeLessThan(i8, -0x80, 0) == -1);
+
+    r.next_value = 0xff;
+    assert(r.random.intRangeLessThan(i64, -0x8000000000000000, 0) == -1);
+    r.next_value = 0xff;
+    assert(r.random.intRangeLessThan(i3, -4, 0) == -1);
+    r.next_value = 0xff;
+    assert(r.random.intRangeLessThan(i3, -2, 2) == 1);
+
+    // test retrying and eventually getting a good value
+    // start just out of bounds
+    r.next_value = 0x81;
+    assert(r.random.uintLessThan(u8, 0x81) == 0);
+}
+
+test "Random intAtMost" {
+    @setEvalBranchQuota(10000);
+    testRandomIntAtMost();
+    comptime testRandomIntAtMost();
+}
+fn testRandomIntAtMost() void {
+    var r = SequentialPrng.init();
+    r.next_value = 0xff;
+    assert(r.random.uintAtMost(u8, 3) == 3);
+    r.next_value = 0xff;
+    assert(r.random.uintAtMost(u8, 2) == 0);
+    assert(r.next_value == 1);
+
+    r.next_value = 0xff;
+    assert(r.random.intRangeAtMost(u8, 0, 0x7f) == 0x7f);
+    r.next_value = 0xff;
+    assert(r.random.intRangeAtMost(u8, 0x7f, 0xfe) == 0xfe);
+
+    r.next_value = 0xff;
+    assert(r.random.intRangeAtMost(i8, 0, 0x3f) == 0x3f);
+    r.next_value = 0xff;
+    assert(r.random.intRangeAtMost(i8, -0x40, 0x3f) == 0x3f);
+    r.next_value = 0xff;
+    assert(r.random.intRangeAtMost(i8, -0x80, -1) == -1);
+
+    r.next_value = 0xff;
+    assert(r.random.intRangeAtMost(i64, -0x8000000000000000, -1) == -1);
+    r.next_value = 0xff;
+    assert(r.random.intRangeAtMost(i3, -4, -1) == -1);
+    r.next_value = 0xff;
+    assert(r.random.intRangeAtMost(i3, -2, 1) == 1);
+
+    // test retrying and eventually getting a good value
+    // start just out of bounds
+    r.next_value = 0x81;
+    assert(r.random.uintAtMost(u8, 0x80) == 0);
+}
+
 // Generator to extend 64-bit seed values into longer sequences.
 //
 // The number of cycles is thus limited to 64-bits regardless of the engine, but this
 // is still plenty for practical purposes.
-const SplitMix64 = struct {
+const SplitMix64 = struct.{
     s: u64,
 
     pub fn init(seed: u64) SplitMix64 {
-        return SplitMix64{ .s = seed };
+        return SplitMix64.{ .s = seed };
     }
 
     pub fn next(self: *SplitMix64) u64 {
@@ -172,7 +385,7 @@ const SplitMix64 = struct {
 test "splitmix64 sequence" {
     var r = SplitMix64.init(0xaeecf86f7878dd75);
 
-    const seq = []const u64{
+    const seq = []const u64.{
         0x5dbd39db0178eb44,
         0xa9900fb66b397da3,
         0x5c1a28b1aeebcf5c,
@@ -189,7 +402,7 @@ test "splitmix64 sequence" {
 // PCG32 - http://www.pcg-random.org/
 //
 // PRNG
-pub const Pcg = struct {
+pub const Pcg = struct.{
     const default_multiplier = 6364136223846793005;
 
     random: Random,
@@ -198,8 +411,8 @@ pub const Pcg = struct {
     i: u64,
 
     pub fn init(init_s: u64) Pcg {
-        var pcg = Pcg{
-            .random = Random{ .fillFn = fill },
+        var pcg = Pcg.{
+            .random = Random.{ .fillFn = fill },
             .s = undefined,
             .i = undefined,
         };
@@ -265,7 +478,7 @@ test "pcg sequence" {
     const s1: u64 = 0x84e9c579ef59bbf7;
     r.seedTwo(s0, s1);
 
-    const seq = []const u32{
+    const seq = []const u32.{
         2881561918,
         3063928540,
         1199791034,
@@ -282,14 +495,14 @@ test "pcg sequence" {
 // Xoroshiro128+ - http://xoroshiro.di.unimi.it/
 //
 // PRNG
-pub const Xoroshiro128 = struct {
+pub const Xoroshiro128 = struct.{
     random: Random,
 
     s: [2]u64,
 
     pub fn init(init_s: u64) Xoroshiro128 {
-        var x = Xoroshiro128{
-            .random = Random{ .fillFn = fill },
+        var x = Xoroshiro128.{
+            .random = Random.{ .fillFn = fill },
             .s = undefined,
         };
 
@@ -314,7 +527,7 @@ pub const Xoroshiro128 = struct {
         var s0: u64 = 0;
         var s1: u64 = 0;
 
-        const table = []const u64{
+        const table = []const u64.{
             0xbeac0467eba5facb,
             0xd86b048b86aa9922,
         };
@@ -374,7 +587,7 @@ test "xoroshiro sequence" {
     r.s[0] = 0xaeecf86f7878dd75;
     r.s[1] = 0x01cd153642e72622;
 
-    const seq1 = []const u64{
+    const seq1 = []const u64.{
         0xb0ba0da5bb600397,
         0x18a08afde614dccc,
         0xa2635b956a31b929,
@@ -389,7 +602,7 @@ test "xoroshiro sequence" {
 
     r.jump();
 
-    const seq2 = []const u64{
+    const seq2 = []const u64.{
         0x95344a13556d3e22,
         0xb4fb32dafa4d00df,
         0xb2011d9ccdcfe2dd,
@@ -409,7 +622,7 @@ test "xoroshiro sequence" {
 //
 // Follows the general idea of the implementation from here with a few shortcuts.
 // https://doc.rust-lang.org/rand/src/rand/prng/isaac64.rs.html
-pub const Isaac64 = struct {
+pub const Isaac64 = struct.{
     random: Random,
 
     r: [256]u64,
@@ -420,8 +633,8 @@ pub const Isaac64 = struct {
     i: usize,
 
     pub fn init(init_s: u64) Isaac64 {
-        var isaac = Isaac64{
-            .random = Random{ .fillFn = fill },
+        var isaac = Isaac64.{
+            .random = Random.{ .fillFn = fill },
             .r = undefined,
             .m = undefined,
             .a = undefined,
@@ -492,7 +705,7 @@ pub const Isaac64 = struct {
         self.m[0] = init_s;
 
         // prescrambled golden ratio constants
-        var a = []const u64{
+        var a = []const u64.{
             0x647c4677a2884b7c,
             0xb9f8b322c73ac862,
             0x8c0ea5053d4712a0,
@@ -582,7 +795,7 @@ test "isaac64 sequence" {
     var r = Isaac64.init(0);
 
     // from reference implementation
-    const seq = []const u64{
+    const seq = []const u64.{
         0xf67dfba498e4937c,
         0x84a5066a9204f380,
         0xfee34bd5f5514dbb,
@@ -622,22 +835,11 @@ test "Random float" {
     }
 }
 
-test "Random scalar" {
-    var prng = DefaultPrng.init(0);
-    const s = prng.random.scalar(u64);
-}
-
-test "Random bytes" {
-    var prng = DefaultPrng.init(0);
-    var buf: [2048]u8 = undefined;
-    prng.random.bytes(buf[0..]);
-}
-
 test "Random shuffle" {
     var prng = DefaultPrng.init(0);
 
-    var seq = []const u8{ 0, 1, 2, 3, 4 };
-    var seen = []bool{false} ** 5;
+    var seq = []const u8.{ 0, 1, 2, 3, 4 };
+    var seen = []bool.{false} ** 5;
 
     var i: usize = 0;
     while (i < 1000) : (i += 1) {
@@ -664,16 +866,16 @@ test "Random range" {
     testRange(&prng.random, -4, 3);
     testRange(&prng.random, -4, -1);
     testRange(&prng.random, 10, 14);
-    // TODO: test that prng.random.range(1, 1) causes an assertion error
+    testRange(&prng.random, -0x80, 0x7f);
 }
 
-fn testRange(r: *Random, start: i32, end: i32) void {
-    const count = @intCast(usize, end - start);
-    var values_buffer = []bool{false} ** 20;
+fn testRange(r: *Random, start: i8, end: i8) void {
+    const count = @intCast(usize, i32(end) - i32(start));
+    var values_buffer = []bool.{false} ** 0x100;
     const values = values_buffer[0..count];
     var i: usize = 0;
     while (i < count) {
-        const value = r.range(i32, start, end);
+        const value: i32 = r.intRangeLessThan(i8, start, end);
         const index = @intCast(usize, value - start);
         if (!values[index]) {
             i += 1;

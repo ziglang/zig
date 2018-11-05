@@ -20,14 +20,14 @@ const IMAGE_NT_OPTIONAL_HDR64_MAGIC = 0x20b;
 const IMAGE_NUMBEROF_DIRECTORY_ENTRIES = 16;
 const DEBUG_DIRECTORY = 6;
 
-pub const CoffError = error{
+pub const CoffError = error.{
     InvalidPEMagic,
     InvalidPEHeader,
     InvalidMachine,
     MissingCoffSection,
 };
 
-pub const Coff = struct {
+pub const Coff = struct.{
     in_file: os.File,
     allocator: *mem.Allocator,
 
@@ -41,7 +41,7 @@ pub const Coff = struct {
     pub fn loadHeader(self: *Coff) !void {
         const pe_pointer_offset = 0x3C;
 
-        var file_stream = io.FileInStream.init(self.in_file);
+        var file_stream = self.in_file.inStream();
         const in = &file_stream.stream;
 
         var magic: [2]u8 = undefined;
@@ -56,10 +56,10 @@ pub const Coff = struct {
 
         var pe_header_magic: [4]u8 = undefined;
         try in.readNoEof(pe_header_magic[0..]);
-        if (!mem.eql(u8, pe_header_magic, []u8{ 'P', 'E', 0, 0 }))
+        if (!mem.eql(u8, pe_header_magic, []u8.{ 'P', 'E', 0, 0 }))
             return error.InvalidPEHeader;
 
-        self.coff_header = CoffHeader{
+        self.coff_header = CoffHeader.{
             .machine = try in.readIntLe(u16),
             .number_of_sections = try in.readIntLe(u16),
             .timedate_stamp = try in.readIntLe(u32),
@@ -77,7 +77,7 @@ pub const Coff = struct {
         try self.loadOptionalHeader(&file_stream);
     }
 
-    fn loadOptionalHeader(self: *Coff, file_stream: *io.FileInStream) !void {
+    fn loadOptionalHeader(self: *Coff, file_stream: *os.File.InStream) !void {
         const in = &file_stream.stream;
         self.pe_header.magic = try in.readIntLe(u16);
         // For now we're only interested in finding the reference to the .pdb,
@@ -98,7 +98,7 @@ pub const Coff = struct {
             return error.InvalidPEHeader;
 
         for (self.pe_header.data_directory) |*data_dir| {
-            data_dir.* = OptionalHeader.DataDirectory{
+            data_dir.* = OptionalHeader.DataDirectory.{
                 .virtual_address = try in.readIntLe(u32),
                 .size = try in.readIntLe(u32),
             };
@@ -115,7 +115,7 @@ pub const Coff = struct {
         const file_offset = debug_dir.virtual_address - header.virtual_address + header.pointer_to_raw_data;
         try self.in_file.seekTo(file_offset + debug_dir.size);
 
-        var file_stream = io.FileInStream.init(self.in_file);
+        var file_stream = self.in_file.inStream();
         const in = &file_stream.stream;
 
         var cv_signature: [4]u8 = undefined; // CodeView signature
@@ -146,7 +146,7 @@ pub const Coff = struct {
 
         self.sections = ArrayList(Section).init(self.allocator);
 
-        var file_stream = io.FileInStream.init(self.in_file);
+        var file_stream = self.in_file.inStream();
         const in = &file_stream.stream;
 
         var name: [8]u8 = undefined;
@@ -154,10 +154,10 @@ pub const Coff = struct {
         var i: u16 = 0;
         while (i < self.coff_header.number_of_sections) : (i += 1) {
             try in.readNoEof(name[0..]);
-            try self.sections.append(Section{
-                .header = SectionHeader{
+            try self.sections.append(Section.{
+                .header = SectionHeader.{
                     .name = name,
-                    .misc = SectionHeader.Misc{ .physical_address = try in.readIntLe(u32) },
+                    .misc = SectionHeader.Misc.{ .physical_address = try in.readIntLe(u32) },
                     .virtual_address = try in.readIntLe(u32),
                     .size_of_raw_data = try in.readIntLe(u32),
                     .pointer_to_raw_data = try in.readIntLe(u32),
@@ -181,7 +181,7 @@ pub const Coff = struct {
     }
 };
 
-const CoffHeader = struct {
+const CoffHeader = struct.{
     machine: u16,
     number_of_sections: u16,
     timedate_stamp: u32,
@@ -191,8 +191,8 @@ const CoffHeader = struct {
     characteristics: u16,
 };
 
-const OptionalHeader = struct {
-    const DataDirectory = struct {
+const OptionalHeader = struct.{
+    const DataDirectory = struct.{
         virtual_address: u32,
         size: u32,
     };
@@ -201,12 +201,12 @@ const OptionalHeader = struct {
     data_directory: [IMAGE_NUMBEROF_DIRECTORY_ENTRIES]DataDirectory,
 };
 
-pub const Section = struct {
+pub const Section = struct.{
     header: SectionHeader,
 };
 
-const SectionHeader = struct {
-    const Misc = union {
+const SectionHeader = struct.{
+    const Misc = union.{
         physical_address: u32,
         virtual_size: u32,
     };

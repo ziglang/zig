@@ -1,6 +1,7 @@
 const std = @import("../index.zig");
 const math = std.math;
 const assert = std.debug.assert;
+const maxInt = std.math.maxInt;
 
 pub fn copysign(comptime T: type, x: T, y: T) T {
     return switch (T) {
@@ -15,7 +16,7 @@ fn copysign16(x: f16, y: f16) f16 {
     const ux = @bitCast(u16, x);
     const uy = @bitCast(u16, y);
 
-    const h1 = ux & (@maxValue(u16) / 2);
+    const h1 = ux & (maxInt(u16) / 2);
     const h2 = uy & (u16(1) << 15);
     return @bitCast(f16, h1 | h2);
 }
@@ -24,7 +25,7 @@ fn copysign32(x: f32, y: f32) f32 {
     const ux = @bitCast(u32, x);
     const uy = @bitCast(u32, y);
 
-    const h1 = ux & (@maxValue(u32) / 2);
+    const h1 = ux & (maxInt(u32) / 2);
     const h2 = uy & (u32(1) << 31);
     return @bitCast(f32, h1 | h2);
 }
@@ -33,7 +34,7 @@ fn copysign64(x: f64, y: f64) f64 {
     const ux = @bitCast(u64, x);
     const uy = @bitCast(u64, y);
 
-    const h1 = ux & (@maxValue(u64) / 2);
+    const h1 = ux & (maxInt(u64) / 2);
     const h2 = uy & (u64(1) << 63);
     return @bitCast(f64, h1 | h2);
 }
