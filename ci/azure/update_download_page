@@ -24,6 +24,7 @@ export SRC_BYTESIZE=$(wc -c < $SRC_TARBALL)
 git clone https://github.com/ziglang/www.ziglang.org --depth 1
 cd www.ziglang.org
 export MASTER_DATE=$(date +%Y-%m-%d)
+env
 "../$ZIG" run update-download-page.zig
 
 mv "$DOWNLOADSECUREFILE_SECUREFILEPATH" "$HOME/.s3cfg"
