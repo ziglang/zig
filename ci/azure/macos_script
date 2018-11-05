@@ -6,7 +6,7 @@ set -e
 brew install s3cmd gcc@8
 
 ZIGDIR="$(pwd)"
-CACHE_BASENAME="llvm+clang-7.0.0-macos-x86_64-gcc8-release-static"
+CACHE_BASENAME="llvm+clang-8.0.0-macos-x86_64-gcc8-release-static"
 PREFIX="$HOME/$CACHE_BASENAME"
 TMPDIR="$HOME/tmpz"
 JOBS="-j2"
@@ -49,18 +49,18 @@ else
   make $JOBS install
 
   cd $TMPDIR
-  wget https://releases.llvm.org/7.0.0/llvm-7.0.0.src.tar.xz
-  tar xf llvm-7.0.0.src.tar.xz
-  cd llvm-7.0.0.src/
+  wget https://releases.llvm.org/8.0.0/llvm-8.0.0.src.tar.xz
+  tar xf llvm-8.0.0.src.tar.xz
+  cd llvm-8.0.0.src/
   mkdir build
   cd build
   cmake .. -DCMAKE_INSTALL_PREFIX=$PREFIX -DCMAKE_PREFIX_PATH=$PREFIX -DCMAKE_BUILD_TYPE=Release -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="WebAssembly;AVR;RISCV" -DLLVM_ENABLE_LIBXML2=OFF
   make $JOBS install
 
   cd $TMPDIR
-  wget https://releases.llvm.org/7.0.0/cfe-7.0.0.src.tar.xz
-  tar xf cfe-7.0.0.src.tar.xz
-  cd cfe-7.0.0.src/
+  wget https://releases.llvm.org/8.0.0/cfe-8.0.0.src.tar.xz
+  tar xf cfe-8.0.0.src.tar.xz
+  cd cfe-8.0.0.src/
   mkdir build
   cd build
   cmake .. -DCMAKE_INSTALL_PREFIX=$PREFIX -DCMAKE_PREFIX_PATH=$PREFIX -DCMAKE_BUILD_TYPE=Release
