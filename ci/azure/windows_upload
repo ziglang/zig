@@ -6,6 +6,7 @@ set -e
 if [ "${BUILD_REASON}" != "PullRequest" ]; then
   cd "$ZIGBUILDDIR"
 
+  rm release/*.lib
   mv ../LICENSE release/
   mv ../zig-cache/langref.html release/
   mv release/bin/zig.exe release/
