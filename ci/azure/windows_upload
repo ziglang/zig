@@ -15,7 +15,7 @@ if [ "${BUILD_REASON}" != "PullRequest" ]; then
   DIRNAME="zig-windows-x86_64-$VERSION"
   TARBALL="$DIRNAME.zip"
   mv release "$DIRNAME"
-  zip -r "$TARBALL" "$DIRNAME"
+  7z a "$TARBALL" "$DIRNAME"
 
   mv "$DOWNLOADSECUREFILE_SECUREFILEPATH" "$HOME/.s3cfg"
   s3cmd put -P "$TARBALL" s3://ziglang.org/builds/
