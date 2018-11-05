@@ -22,7 +22,7 @@ if [ "${BUILD_REASON}" != "PullRequest" ]; then
   touch empty
   s3cmd put -P empty s3://ziglang.org/builds/zig-windows-x86_64-$BUILD_SOURCEBRANCHNAME.tar.xz --add-header="Cache-Control: max-age=0, must-revalidate" --add-header="x-amz-website-redirect-location:/builds/$TARBALL"
 
-  SHASUM=$(sha256sum $TARBALL)
+  SHASUM=$(sha256sum $TARBALL | cut '-d ' -f1)
   BYTESIZE=$(wc -c < $TARBALL)
   echo "##vso[task.setvariable variable=tarball;isOutput=true]$TARBALL"
   echo "##vso[task.setvariable variable=shasum;isOutput=true]$SHASUM"
