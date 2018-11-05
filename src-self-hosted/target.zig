@@ -93,6 +93,8 @@ pub const Target = union(enum).{
     /// TODO expose the arch and subarch separately
     pub fn isArmOrThumb(self: Target) bool {
         return switch (self.getArch()) {
+            builtin.Arch.armv8_5a,
+            builtin.Arch.armv8_4a,
             builtin.Arch.armv8_3a,
             builtin.Arch.armv8_2a,
             builtin.Arch.armv8_1a,
@@ -113,6 +115,8 @@ pub const Target = union(enum).{
             builtin.Arch.armv5,
             builtin.Arch.armv5te,
             builtin.Arch.armv4t,
+            builtin.Arch.armebv8_5a,
+            builtin.Arch.armebv8_4a,
             builtin.Arch.armebv8_3a,
             builtin.Arch.armebv8_2a,
             builtin.Arch.armebv8_1a,
@@ -181,6 +185,8 @@ pub const Target = union(enum).{
             => return 16,
 
             builtin.Arch.arc,
+            builtin.Arch.armv8_5a,
+            builtin.Arch.armv8_4a,
             builtin.Arch.armv8_3a,
             builtin.Arch.armv8_2a,
             builtin.Arch.armv8_1a,
@@ -201,6 +207,8 @@ pub const Target = union(enum).{
             builtin.Arch.armv5,
             builtin.Arch.armv5te,
             builtin.Arch.armv4t,
+            builtin.Arch.armebv8_5a,
+            builtin.Arch.armebv8_4a,
             builtin.Arch.armebv8_3a,
             builtin.Arch.armebv8_2a,
             builtin.Arch.armebv8_1a,
@@ -223,8 +231,8 @@ pub const Target = union(enum).{
             builtin.Arch.armebv4t,
             builtin.Arch.hexagon,
             builtin.Arch.le32,
-            builtin.Arch.mips,
-            builtin.Arch.mipsel,
+            builtin.Arch.mipsr6,
+            builtin.Arch.mipselr6,
             builtin.Arch.nios2,
             builtin.Arch.powerpc,
             builtin.Arch.r600,
@@ -250,6 +258,8 @@ pub const Target = union(enum).{
             builtin.Arch.renderscript32,
             => return 32,
 
+            builtin.Arch.aarch64v8_5a,
+            builtin.Arch.aarch64v8_4a,
             builtin.Arch.aarch64v8_3a,
             builtin.Arch.aarch64v8_2a,
             builtin.Arch.aarch64v8_1a,
@@ -257,6 +267,8 @@ pub const Target = union(enum).{
             builtin.Arch.aarch64v8r,
             builtin.Arch.aarch64v8m_baseline,
             builtin.Arch.aarch64v8m_mainline,
+            builtin.Arch.aarch64_bev8_5a,
+            builtin.Arch.aarch64_bev8_4a,
             builtin.Arch.aarch64_bev8_3a,
             builtin.Arch.aarch64_bev8_2a,
             builtin.Arch.aarch64_bev8_1a,
@@ -264,8 +276,8 @@ pub const Target = union(enum).{
             builtin.Arch.aarch64_bev8r,
             builtin.Arch.aarch64_bev8m_baseline,
             builtin.Arch.aarch64_bev8m_mainline,
-            builtin.Arch.mips64,
-            builtin.Arch.mips64el,
+            builtin.Arch.mips64r6,
+            builtin.Arch.mips64elr6,
             builtin.Arch.powerpc64,
             builtin.Arch.powerpc64le,
             builtin.Arch.riscv64,
@@ -328,6 +340,8 @@ pub const Target = union(enum).{
             builtin.Arch.sparcel,
             => return "/lib/ld-linux.so.2",
 
+            builtin.Arch.aarch64v8_5a,
+            builtin.Arch.aarch64v8_4a,
             builtin.Arch.aarch64v8_3a,
             builtin.Arch.aarch64v8_2a,
             builtin.Arch.aarch64v8_1a,
@@ -337,6 +351,8 @@ pub const Target = union(enum).{
             builtin.Arch.aarch64v8m_mainline,
             => return "/lib/ld-linux-aarch64.so.1",
 
+            builtin.Arch.aarch64_bev8_5a,
+            builtin.Arch.aarch64_bev8_4a,
             builtin.Arch.aarch64_bev8_3a,
             builtin.Arch.aarch64_bev8_2a,
             builtin.Arch.aarch64_bev8_1a,
@@ -346,6 +362,8 @@ pub const Target = union(enum).{
             builtin.Arch.aarch64_bev8m_mainline,
             => return "/lib/ld-linux-aarch64_be.so.1",
 
+            builtin.Arch.armv8_5a,
+            builtin.Arch.armv8_4a,
             builtin.Arch.armv8_3a,
             builtin.Arch.armv8_2a,
             builtin.Arch.armv8_1a,
@@ -372,6 +390,8 @@ pub const Target = union(enum).{
                 else => return "/lib/ld-linux.so.3",
             },
 
+            builtin.Arch.armebv8_5a,
+            builtin.Arch.armebv8_4a,
             builtin.Arch.armebv8_3a,
             builtin.Arch.armebv8_2a,
             builtin.Arch.armebv8_1a,
@@ -398,10 +418,10 @@ pub const Target = union(enum).{
                 else => return "/lib/ld-linux.so.3",
             },
 
-            builtin.Arch.mips,
-            builtin.Arch.mipsel,
-            builtin.Arch.mips64,
-            builtin.Arch.mips64el,
+            builtin.Arch.mipsr6,
+            builtin.Arch.mipselr6,
+            builtin.Arch.mips64r6,
+            builtin.Arch.mips64elr6,
             => return null,
 
             builtin.Arch.powerpc => return "/lib/ld.so.1",
@@ -550,6 +570,7 @@ pub const Target = union(enum).{
             builtin.Os.mesa3d,
             builtin.Os.contiki,
             builtin.Os.amdpal,
+            builtin.Os.hermit,
             => @panic("TODO specify the C integer type sizes for this OS"),
         }
     }
@@ -557,6 +578,8 @@ pub const Target = union(enum).{
     pub fn getDarwinArchString(self: Target) []const u8 {
         const arch = self.getArch();
         switch (arch) {
+            builtin.Arch.aarch64v8_5a,
+            builtin.Arch.aarch64v8_4a,
             builtin.Arch.aarch64v8_3a,
             builtin.Arch.aarch64v8_2a,
             builtin.Arch.aarch64v8_1a,
@@ -566,6 +589,8 @@ pub const Target = union(enum).{
             builtin.Arch.aarch64v8m_mainline,
             => return "arm64",
             builtin.Arch.thumb,
+            builtin.Arch.armv8_5a,
+            builtin.Arch.armv8_4a,
             builtin.Arch.armv8_3a,
             builtin.Arch.armv8_2a,
             builtin.Arch.armv8_1a,
