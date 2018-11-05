@@ -62,6 +62,7 @@ jobs:
     windows_tarball: $[ dependencies.BuildWindows.outputs['main.tarball'] ]
     windows_shasum: $[ dependencies.BuildWindows.outputs['main.shasum'] ]
     windows_bytesize: $[ dependencies.BuildWindows.outputs['main.bytesize'] ]
+  steps:
   - task: DownloadSecureFile@1
     inputs:
       secureFile: s3cfg
