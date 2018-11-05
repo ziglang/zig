@@ -1365,6 +1365,14 @@ static void ir_print_result_ptr_cast(IrPrint *irp, IrInstructionResultPtrCast *i
     fprintf(irp->f, "ResultPtrCast");
 }
 
+static void ir_print_result_cast(IrPrint *irp, IrInstructionResultCast *instruction) {
+    fprintf(irp->f, "ResultCast(child_ty=");
+    ir_print_other_instruction(irp, instruction->elem_type);
+    fprintf(irp->f, ",prev_result=");
+    ir_print_other_instruction(irp, instruction->prev_result_loc);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_load_result(IrPrint *irp, IrInstructionLoadResult *instruction) {
     fprintf(irp->f, "LoadResult");
 }
@@ -1854,6 +1862,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdResultPtrCast:
             ir_print_result_ptr_cast(irp, (IrInstructionResultPtrCast *)instruction);
+            break;
+        case IrInstructionIdResultCast:
+            ir_print_result_cast(irp, (IrInstructionResultCast *)instruction);
             break;
         case IrInstructionIdLoadResult:
             ir_print_load_result(irp, (IrInstructionLoadResult *)instruction);

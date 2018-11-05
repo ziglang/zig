@@ -2192,6 +2192,7 @@ enum IrInstructionId {
     IrInstructionIdResultSliceToBytes,
     IrInstructionIdResultParam,
     IrInstructionIdResultPtrCast,
+    IrInstructionIdResultCast,
     IrInstructionIdLoadResult,
     IrInstructionIdStoreResult,
     IrInstructionIdAllocaSrc,
@@ -3356,6 +3357,13 @@ struct IrInstructionResultParam {
 };
 
 struct IrInstructionResultPtrCast {
+    IrInstruction base;
+
+    IrInstruction *elem_type;
+    IrInstruction *prev_result_loc;
+};
+
+struct IrInstructionResultCast {
     IrInstruction base;
 
     IrInstruction *elem_type;
