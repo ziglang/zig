@@ -20,7 +20,7 @@ cd %ZIGBUILDDIR%
 cmake.exe .. -Thost=x64 -G"Visual Studio 15 2017 Win64" "-DCMAKE_INSTALL_PREFIX=%ZIGINSTALLDIR%" "-DCMAKE_PREFIX_PATH=%ZIGPREFIXPATH%" -DCMAKE_BUILD_TYPE=Release || exit /b
 msbuild /p:Configuration=Release INSTALL.vcxproj || exit /b
 
-"%ZIGINSTALLDIR%\bin\zig.exe" build --build-file ..\build.zig docs || exit /b
+"%ZIGINSTALLDIR%\bin\zig.exe" build --build-file ..\build.zig test || exit /b
 
 set "PATH=%CD:~0,2%\msys64\usr\bin;C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem"
 SET "MSYSTEM=MINGW64"

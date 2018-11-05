@@ -20,7 +20,7 @@ mkdir build
 cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j2 install
-./zig build --build-file ../build.zig test-behavior -Dskip-release
+./zig build --build-file ../build.zig test
 
 if [ "${BUILD_REASON}" != "PullRequest" ]; then
   ARTIFACTSDIR="$BUILDDIR/artifacts"

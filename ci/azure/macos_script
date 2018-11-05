@@ -77,7 +77,7 @@ mkdir build
 cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=$PREFIX -DCMAKE_INSTALL_PREFIX=$(pwd)/release -DZIG_STATIC=ON
 make $JOBS install
-release/bin/zig build --build-file ../build.zig docs
+release/bin/zig build --build-file ../build.zig test
 
 if [ "${BUILD_REASON}" != "PullRequest" ]; then
   mv ../LICENSE release/
