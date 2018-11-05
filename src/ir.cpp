@@ -179,6 +179,9 @@ static ConstExprValue *const_ptr_pointee_unchecked(CodeGen *g, ConstExprValue *c
             result = &const_val->data.x_ptr.data.base_struct.struct_val->data.x_struct.fields[
                 const_val->data.x_ptr.data.base_struct.field_index];
             break;
+        case ConstPtrSpecialBaseErrorUnionCode:
+            result = const_val->data.x_ptr.data.base_err_union_code.err_union_val->data.x_err_union.error_set;
+            break;
         case ConstPtrSpecialHardCodedAddr:
             zig_unreachable();
         case ConstPtrSpecialDiscard:
@@ -14763,6 +14766,8 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
                             }
                         case ConstPtrSpecialBaseStruct:
                             zig_panic("TODO elem ptr on a const inner struct");
+                        case ConstPtrSpecialBaseErrorUnionCode:
+                            zig_panic("TODO elem ptr on a const inner error union");
                         case ConstPtrSpecialHardCodedAddr:
                             zig_unreachable();
                         case ConstPtrSpecialFunction:
@@ -14816,6 +14821,8 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
                             }
                         case ConstPtrSpecialBaseStruct:
                             zig_panic("TODO elem ptr on a slice backed by const inner struct");
+                        case ConstPtrSpecialBaseErrorUnionCode:
+                            zig_panic("TODO elem ptr on a slice backed by const inner error union");
                         case ConstPtrSpecialHardCodedAddr:
                             zig_unreachable();
                         case ConstPtrSpecialFunction:
@@ -18868,6 +18875,8 @@ static IrInstruction *ir_analyze_instruction_memset(IrAnalyze *ira, IrInstructio
                 }
             case ConstPtrSpecialBaseStruct:
                 zig_panic("TODO memset on const inner struct");
+            case ConstPtrSpecialBaseErrorUnionCode:
+                zig_panic("TODO memset on const inner error union");
             case ConstPtrSpecialHardCodedAddr:
                 zig_unreachable();
             case ConstPtrSpecialFunction:
@@ -18983,6 +18992,8 @@ static IrInstruction *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstructio
                 }
             case ConstPtrSpecialBaseStruct:
                 zig_panic("TODO memcpy on const inner struct");
+            case ConstPtrSpecialBaseErrorUnionCode:
+                zig_panic("TODO memcpy on const inner error union");
             case ConstPtrSpecialHardCodedAddr:
                 zig_unreachable();
             case ConstPtrSpecialFunction:
@@ -19019,6 +19030,8 @@ static IrInstruction *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstructio
                 }
             case ConstPtrSpecialBaseStruct:
                 zig_panic("TODO memcpy on const inner struct");
+            case ConstPtrSpecialBaseErrorUnionCode:
+                zig_panic("TODO memcpy on const inner error union");
             case ConstPtrSpecialHardCodedAddr:
                 zig_unreachable();
             case ConstPtrSpecialFunction:
@@ -19186,6 +19199,8 @@ static IrInstruction *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstruction
                     break;
                 case ConstPtrSpecialBaseStruct:
                     zig_panic("TODO slice const inner struct");
+                case ConstPtrSpecialBaseErrorUnionCode:
+                    zig_panic("TODO slice const inner error union");
                 case ConstPtrSpecialHardCodedAddr:
                     array_val = nullptr;
                     abs_offset = 0;
@@ -19223,6 +19238,8 @@ static IrInstruction *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstruction
                     break;
                 case ConstPtrSpecialBaseStruct:
                     zig_panic("TODO slice const inner struct");
+                case ConstPtrSpecialBaseErrorUnionCode:
+                    zig_panic("TODO slice const inner error union");
                 case ConstPtrSpecialHardCodedAddr:
                     array_val = nullptr;
                     abs_offset = 0;
@@ -19294,6 +19311,8 @@ static IrInstruction *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstruction
             case ConstPtrSpecialBaseArray:
                 zig_unreachable();
             case ConstPtrSpecialBaseStruct:
+                zig_panic("TODO");
+            case ConstPtrSpecialBaseErrorUnionCode:
                 zig_panic("TODO");
             case ConstPtrSpecialHardCodedAddr:
                 init_const_ptr_hard_coded_addr(ira->codegen, ptr_val,
@@ -19710,7 +19729,44 @@ static IrInstruction *ir_analyze_instruction_error_union_field_error_set(IrAnaly
             ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile, PtrLenSingle, 0, 0, 0);
 
     if (instr_is_comptime(ptr)) {
-        zig_panic("TODO need to change ConstExprValue x_err_union to have a ConstExprValue for error set value");
+        ConstExprValue *ptr_val = ir_resolve_const(ira, ptr, UndefBad);
+        if (!ptr_val)
+            return ira->codegen->invalid_instruction;
+        if (ptr_val->data.x_ptr.special != ConstPtrSpecialHardCodedAddr) {
+            ConstExprValue *err_union_val = const_ptr_pointee(ira->codegen, ptr_val);
+            if (err_union_val->data.x_ptr.mut == ConstPtrMutInfer &&
+                err_union_val->special == ConstValSpecialUndef)
+            {
+                ConstExprValue *vals = create_const_vals(2);
+                ConstExprValue *err_set_val = &vals[0];
+                ConstExprValue *payload_val = &vals[1];
+
+                err_set_val->special = ConstValSpecialUndef;
+                err_set_val->type = opt_err_set;
+
+                payload_val->special = ConstValSpecialUndef;
+                payload_val->type = type_entry->data.error_union.payload_type;
+
+                err_union_val->special = ConstValSpecialStatic;
+                err_union_val->data.x_err_union.error_set = err_set_val;
+                err_union_val->data.x_err_union.payload = payload_val;
+            }
+
+            IrInstruction *result;
+            if (ptr_val->data.x_ptr.mut == ConstPtrMutInfer) {
+                result = ir_build_error_union_field_error_set(&ira->new_irb, instruction->base.scope,
+                        instruction->base.source_node, ptr);
+                result->value.type = result_type;
+                result->value.special = ConstValSpecialStatic;
+            } else {
+                result = ir_const(ira, &instruction->base, result_type);
+            }
+            ConstExprValue *const_val = &result->value;
+            const_val->data.x_ptr.special = ConstPtrSpecialBaseErrorUnionCode;
+            const_val->data.x_ptr.mut = ptr_val->data.x_ptr.mut;
+            const_val->data.x_ptr.data.base_err_union_code.err_union_val = err_union_val;
+            return result;
+        }
     }
 
     IrInstruction *result = ir_build_error_union_field_error_set(&ira->new_irb,
@@ -19790,21 +19846,42 @@ static IrInstruction *ir_analyze_instruction_unwrap_err_payload(IrAnalyze *ira,
             ConstExprValue *ptr_val = ir_resolve_const(ira, value, UndefBad);
             if (!ptr_val)
                 return ira->codegen->invalid_instruction;
-            ConstExprValue *err_union_val = ir_const_ptr_pointee(ira, ptr_val, instruction->base.source_node);
-            if (err_union_val == nullptr)
-                return ira->codegen->invalid_instruction;
-            if (err_union_val->special != ConstValSpecialRuntime) {
-                ErrorTableEntry *err = err_union_val->data.x_err_union.error_set->data.x_err_set;
-                if (err != nullptr) {
-                    ir_add_error(ira, &instruction->base,
-                        buf_sprintf("caught unexpected error '%s'", buf_ptr(&err->name)));
+            if (ptr_val->data.x_ptr.special != ConstPtrSpecialHardCodedAddr) {
+                ConstExprValue *err_union_val = ir_const_ptr_pointee(ira, ptr_val, instruction->base.source_node);
+                if (err_union_val == nullptr)
                     return ira->codegen->invalid_instruction;
-                }
+                if (err_union_val->data.x_ptr.mut == ConstPtrMutInfer &&
+                    err_union_val->special == ConstValSpecialUndef)
+                {
+                    ConstExprValue *vals = create_const_vals(2);
+                    ConstExprValue *err_set_val = &vals[0];
+                    ConstExprValue *payload_val = &vals[1];
 
-                IrInstruction *result = ir_const(ira, &instruction->base, result_type);
-                result->value.data.x_ptr.special = ConstPtrSpecialRef;
-                result->value.data.x_ptr.data.ref.pointee = err_union_val->data.x_err_union.payload;
-                return result;
+                    ZigType *opt_err_set = get_optional_type(ira->codegen, type_entry->data.error_union.err_set_type);
+                    err_set_val->special = ConstValSpecialStatic;
+                    err_set_val->type = opt_err_set;
+                    err_set_val->data.x_err_set = nullptr;
+
+                    payload_val->special = ConstValSpecialUndef;
+                    payload_val->type = payload_type;
+
+                    err_union_val->special = ConstValSpecialStatic;
+                    err_union_val->data.x_err_union.error_set = err_set_val;
+                    err_union_val->data.x_err_union.payload = payload_val;
+                }
+                if (err_union_val->special != ConstValSpecialRuntime) {
+                    ErrorTableEntry *err = err_union_val->data.x_err_union.error_set->data.x_err_set;
+                    if (err != nullptr) {
+                        ir_add_error(ira, &instruction->base,
+                            buf_sprintf("caught unexpected error '%s'", buf_ptr(&err->name)));
+                        return ira->codegen->invalid_instruction;
+                    }
+
+                    IrInstruction *result = ir_const(ira, &instruction->base, result_type);
+                    result->value.data.x_ptr.special = ConstPtrSpecialRef;
+                    result->value.data.x_ptr.data.ref.pointee = err_union_val->data.x_err_union.payload;
+                    return result;
+                }
             }
         }
 
@@ -19831,14 +19908,16 @@ static IrInstruction *ir_analyze_instruction_assert_non_error(IrAnalyze *ira,
     assert(err_code->value.type->data.maybe.child_type->id == ZigTypeIdErrorSet);
 
     if (instr_is_comptime(err_code)) {
-        ConstExprValue *opt_val = ir_resolve_const(ira, err_code, UndefBad);
-        if (opt_val == nullptr)
-            return ira->codegen->invalid_instruction;
-        ConstExprValue *err_val = opt_val->data.x_optional;
+        ConstExprValue *err_val = ir_resolve_const(ira, err_code, UndefBad);
         if (err_val == nullptr)
-            return ir_const_void(ira, &instruction->base);
+            return ira->codegen->invalid_instruction;
+        // just like optional pointers are represented with the same comptime
+        // value representation as normal pointers,
+        // optional error sets are represented with the same comptime value
+        // representation as normal error sets.
         ErrorTableEntry *err = err_val->data.x_err_set;
-        assert(err != nullptr);
+        if (err == nullptr)
+            return ir_const_void(ira, &instruction->base);
         ir_add_error(ira, &instruction->base,
             buf_sprintf("caught unexpected error '%s'", buf_ptr(&err->name)));
         return ira->codegen->invalid_instruction;

@@ -5455,6 +5455,7 @@ static void ir_render(CodeGen *g, ZigFn *fn_entry) {
 static LLVMValueRef gen_const_ptr_struct_recursive(CodeGen *g, ConstExprValue *struct_const_val, size_t field_index);
 static LLVMValueRef gen_const_ptr_array_recursive(CodeGen *g, ConstExprValue *array_const_val, size_t index);
 static LLVMValueRef gen_const_ptr_union_recursive(CodeGen *g, ConstExprValue *union_const_val);
+static LLVMValueRef gen_const_ptr_err_union_code_recursive(CodeGen *g, ConstExprValue *err_union_const_val);
 
 static LLVMValueRef gen_parent_ptr(CodeGen *g, ConstExprValue *val, ConstParent *parent) {
     switch (parent->id) {
@@ -5465,6 +5466,8 @@ static LLVMValueRef gen_parent_ptr(CodeGen *g, ConstExprValue *val, ConstParent 
         case ConstParentIdStruct:
             return gen_const_ptr_struct_recursive(g, parent->data.p_struct.struct_val,
                     parent->data.p_struct.field_index);
+        case ConstParentIdErrUnionCode:
+            return gen_const_ptr_err_union_code_recursive(g, parent->data.p_err_union_code.err_union_val);
         case ConstParentIdArray:
             return gen_const_ptr_array_recursive(g, parent->data.p_array.array_val,
                     parent->data.p_array.elem_index);
@@ -5512,6 +5515,18 @@ static LLVMValueRef gen_const_ptr_struct_recursive(CodeGen *g, ConstExprValue *s
     LLVMValueRef indices[] = {
         LLVMConstNull(u32->type_ref),
         LLVMConstInt(u32->type_ref, field_index, false),
+    };
+    return LLVMConstInBoundsGEP(base_ptr, indices, 2);
+}
+
+static LLVMValueRef gen_const_ptr_err_union_code_recursive(CodeGen *g, ConstExprValue *err_union_const_val) {
+    ConstParent *parent = &err_union_const_val->data.x_err_union.parent;
+    LLVMValueRef base_ptr = gen_parent_ptr(g, err_union_const_val, parent);
+
+    ZigType *u32 = g->builtin_types.entry_u32;
+    LLVMValueRef indices[] = {
+        LLVMConstNull(u32->type_ref),
+        LLVMConstInt(u32->type_ref, err_union_err_index, false),
     };
     return LLVMConstInBoundsGEP(base_ptr, indices, 2);
 }
@@ -5682,6 +5697,25 @@ static LLVMValueRef gen_const_val_ptr(CodeGen *g, ConstExprValue *const_val, con
                     struct_const_val->type->data.structure.fields[src_field_index].gen_index;
                 LLVMValueRef uncasted_ptr_val = gen_const_ptr_struct_recursive(g, struct_const_val,
                         gen_field_index);
+                LLVMValueRef ptr_val = LLVMConstBitCast(uncasted_ptr_val, const_val->type->type_ref);
+                const_val->global_refs->llvm_value = ptr_val;
+                render_const_val_global(g, const_val, "");
+                return ptr_val;
+            }
+        case ConstPtrSpecialBaseErrorUnionCode:
+            {
+                render_const_val_global(g, const_val, name);
+                ConstExprValue *err_union_const_val = const_val->data.x_ptr.data.base_err_union_code.err_union_val;
+                assert(err_union_const_val->type->id == ZigTypeIdErrorUnion);
+                if (err_union_const_val->type->zero_bits) {
+                    // make this a null pointer
+                    ZigType *usize = g->builtin_types.entry_usize;
+                    const_val->global_refs->llvm_value = LLVMConstIntToPtr(LLVMConstNull(usize->type_ref),
+                            const_val->type->type_ref);
+                    render_const_val_global(g, const_val, "");
+                    return const_val->global_refs->llvm_value;
+                }
+                LLVMValueRef uncasted_ptr_val = gen_const_ptr_err_union_code_recursive(g, err_union_const_val);
                 LLVMValueRef ptr_val = LLVMConstBitCast(uncasted_ptr_val, const_val->type->type_ref);
                 const_val->global_refs->llvm_value = ptr_val;
                 render_const_val_global(g, const_val, "");

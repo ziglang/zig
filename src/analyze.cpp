@@ -4760,6 +4760,10 @@ static uint32_t hash_const_val_ptr(ConstExprValue *const_val) {
             hash_val += hash_ptr(const_val->data.x_ptr.data.base_struct.struct_val);
             hash_val += hash_size(const_val->data.x_ptr.data.base_struct.field_index);
             return hash_val;
+        case ConstPtrSpecialBaseErrorUnionCode:
+            hash_val += (uint32_t)2994743799;
+            hash_val += hash_ptr(const_val->data.x_ptr.data.base_err_union_code.err_union_val);
+            return hash_val;
         case ConstPtrSpecialHardCodedAddr:
             hash_val += (uint32_t)4048518294;
             hash_val += hash_size(const_val->data.x_ptr.data.hard_coded_addr.addr);
@@ -5570,6 +5574,15 @@ bool const_values_equal_ptr(ConstExprValue *a, ConstExprValue *b) {
             if (a->data.x_ptr.data.base_struct.field_index != b->data.x_ptr.data.base_struct.field_index)
                 return false;
             return true;
+        case ConstPtrSpecialBaseErrorUnionCode:
+            if (a->data.x_ptr.data.base_err_union_code.err_union_val !=
+                b->data.x_ptr.data.base_err_union_code.err_union_val &&
+                a->data.x_ptr.data.base_err_union_code.err_union_val->global_refs !=
+                b->data.x_ptr.data.base_err_union_code.err_union_val->global_refs)
+            {
+                return false;
+            }
+            return true;
         case ConstPtrSpecialHardCodedAddr:
             if (a->data.x_ptr.data.hard_coded_addr.addr != b->data.x_ptr.data.hard_coded_addr.addr)
                 return false;
@@ -5752,6 +5765,7 @@ void render_const_val_ptr(CodeGen *g, Buf *buf, ConstExprValue *const_val, ZigTy
             zig_unreachable();
         case ConstPtrSpecialRef:
         case ConstPtrSpecialBaseStruct:
+        case ConstPtrSpecialBaseErrorUnionCode:
             buf_appendf(buf, "*");
             render_const_value(g, buf, const_ptr_pointee(g, const_val));
             return;
