@@ -13,6 +13,8 @@
 #include <stdio.h>
 
 static const ArchType arch_list[] = {
+    {ZigLLVM_arm, ZigLLVM_ARMSubArch_v8_5a},
+    {ZigLLVM_arm, ZigLLVM_ARMSubArch_v8_4a},
     {ZigLLVM_arm, ZigLLVM_ARMSubArch_v8_3a},
     {ZigLLVM_arm, ZigLLVM_ARMSubArch_v8_2a},
     {ZigLLVM_arm, ZigLLVM_ARMSubArch_v8_1a},
@@ -34,6 +36,8 @@ static const ArchType arch_list[] = {
     {ZigLLVM_arm, ZigLLVM_ARMSubArch_v5te},
     {ZigLLVM_arm, ZigLLVM_ARMSubArch_v4t},
 
+    {ZigLLVM_armeb, ZigLLVM_ARMSubArch_v8_5a},
+    {ZigLLVM_armeb, ZigLLVM_ARMSubArch_v8_4a},
     {ZigLLVM_armeb, ZigLLVM_ARMSubArch_v8_3a},
     {ZigLLVM_armeb, ZigLLVM_ARMSubArch_v8_2a},
     {ZigLLVM_armeb, ZigLLVM_ARMSubArch_v8_1a},
@@ -55,6 +59,8 @@ static const ArchType arch_list[] = {
     {ZigLLVM_armeb, ZigLLVM_ARMSubArch_v5te},
     {ZigLLVM_armeb, ZigLLVM_ARMSubArch_v4t},
 
+    {ZigLLVM_aarch64, ZigLLVM_ARMSubArch_v8_5a},
+    {ZigLLVM_aarch64, ZigLLVM_ARMSubArch_v8_4a},
     {ZigLLVM_aarch64, ZigLLVM_ARMSubArch_v8_3a},
     {ZigLLVM_aarch64, ZigLLVM_ARMSubArch_v8_2a},
     {ZigLLVM_aarch64, ZigLLVM_ARMSubArch_v8_1a},
@@ -63,6 +69,8 @@ static const ArchType arch_list[] = {
     {ZigLLVM_aarch64, ZigLLVM_ARMSubArch_v8m_baseline},
     {ZigLLVM_aarch64, ZigLLVM_ARMSubArch_v8m_mainline},
 
+    {ZigLLVM_aarch64_be, ZigLLVM_ARMSubArch_v8_5a},
+    {ZigLLVM_aarch64_be, ZigLLVM_ARMSubArch_v8_4a},
     {ZigLLVM_aarch64_be, ZigLLVM_ARMSubArch_v8_3a},
     {ZigLLVM_aarch64_be, ZigLLVM_ARMSubArch_v8_2a},
     {ZigLLVM_aarch64_be, ZigLLVM_ARMSubArch_v8_1a},
@@ -76,10 +84,12 @@ static const ArchType arch_list[] = {
     {ZigLLVM_bpfel, ZigLLVM_NoSubArch},
     {ZigLLVM_bpfeb, ZigLLVM_NoSubArch},
     {ZigLLVM_hexagon, ZigLLVM_NoSubArch},
-    {ZigLLVM_mips, ZigLLVM_NoSubArch},
-    {ZigLLVM_mipsel, ZigLLVM_NoSubArch},
-    {ZigLLVM_mips64, ZigLLVM_NoSubArch},
-    {ZigLLVM_mips64el, ZigLLVM_NoSubArch},
+
+    {ZigLLVM_mips, ZigLLVM_MipsSubArch_r6},
+    {ZigLLVM_mipsel, ZigLLVM_MipsSubArch_r6},
+    {ZigLLVM_mips64, ZigLLVM_MipsSubArch_r6},
+    {ZigLLVM_mips64el, ZigLLVM_MipsSubArch_r6},
+
     {ZigLLVM_msp430, ZigLLVM_NoSubArch},
     {ZigLLVM_nios2, ZigLLVM_NoSubArch},
     {ZigLLVM_ppc, ZigLLVM_NoSubArch},

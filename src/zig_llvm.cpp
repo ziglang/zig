@@ -686,6 +686,7 @@ static_assert((Triple::VendorType)ZigLLVM_LastVendorType == Triple::LastVendorTy
 static_assert((Triple::OSType)ZigLLVM_LastOSType == Triple::LastOSType, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_LastEnvironmentType == Triple::LastEnvironmentType, "");
 static_assert((Triple::SubArchType)ZigLLVM_KalimbaSubArch_v5 == Triple::KalimbaSubArch_v5, "");
+static_assert((Triple::SubArchType)ZigLLVM_MipsSubArch_r6 == Triple::MipsSubArch_r6, "");
 
 static_assert((Triple::ObjectFormatType)ZigLLVM_UnknownObjectFormat == Triple::UnknownObjectFormat, "");
 static_assert((Triple::ObjectFormatType)ZigLLVM_COFF == Triple::COFF, "");
@@ -730,6 +731,8 @@ const char *ZigLLVMGetSubArchTypeName(ZigLLVM_SubArchType sub_arch) {
     switch (sub_arch) {
         case ZigLLVM_NoSubArch:
             return "(none)";
+        case ZigLLVM_ARMSubArch_v8_5a:
+            return "v8_5a";
         case ZigLLVM_ARMSubArch_v8_4a:
             return "v8_4a";
         case ZigLLVM_ARMSubArch_v8_3a:
@@ -778,6 +781,8 @@ const char *ZigLLVMGetSubArchTypeName(ZigLLVM_SubArchType sub_arch) {
             return "v4";
         case ZigLLVM_KalimbaSubArch_v5:
             return "v5";
+        case ZigLLVM_MipsSubArch_r6:
+            return "r6";
     }
     abort();
 }

@@ -273,6 +273,7 @@ enum ZigLLVM_ArchType {
 enum ZigLLVM_SubArchType {
     ZigLLVM_NoSubArch,
 
+    ZigLLVM_ARMSubArch_v8_5a,
     ZigLLVM_ARMSubArch_v8_4a,
     ZigLLVM_ARMSubArch_v8_3a,
     ZigLLVM_ARMSubArch_v8_2a,
@@ -298,6 +299,8 @@ enum ZigLLVM_SubArchType {
     ZigLLVM_KalimbaSubArch_v3,
     ZigLLVM_KalimbaSubArch_v4,
     ZigLLVM_KalimbaSubArch_v5,
+
+    ZigLLVM_MipsSubArch_r6,
 };
 
 enum ZigLLVM_VendorType {
