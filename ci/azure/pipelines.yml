@@ -50,6 +50,8 @@ jobs:
   - BuildLinux
   - BuildWindows
   condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/master'))
+  strategy:
+    maxParallel: 1
   pool:
     vmImage: 'ubuntu-16.04'
   variables:
