@@ -5445,8 +5445,10 @@ static void ir_render(CodeGen *g, ZigFn *fn_entry) {
         LLVMPositionBuilderAtEnd(g->builder, current_block->llvm_block);
         for (size_t instr_i = 0; instr_i < current_block->instruction_list.length; instr_i += 1) {
             IrInstruction *instruction = current_block->instruction_list.at(instr_i);
-            if (instruction->ref_count == 0 && !ir_has_side_effects(instruction))
-                continue;
+            if (!ir_has_side_effects(instruction)) {
+                if (instruction->ref_count == 0 || instruction->value.special != ConstValSpecialRuntime)
+                    continue;
+            }
             instruction->llvm_value = ir_render_instruction(g, executable, instruction);
         }
         current_block->llvm_exit_block = LLVMGetInsertBlock(g->builder);
