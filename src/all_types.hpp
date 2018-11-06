@@ -91,6 +91,7 @@ enum ConstParentId {
     ConstParentIdNone,
     ConstParentIdStruct,
     ConstParentIdErrUnionCode,
+    ConstParentIdErrUnionPayload,
     ConstParentIdArray,
     ConstParentIdUnion,
     ConstParentIdScalar,
@@ -111,6 +112,9 @@ struct ConstParent {
         struct {
             ConstExprValue *err_union_val;
         } p_err_union_code;
+        struct {
+            ConstExprValue *err_union_val;
+        } p_err_union_payload;
         struct {
             ConstExprValue *union_val;
         } p_union;
@@ -159,6 +163,8 @@ enum ConstPtrSpecial {
     ConstPtrSpecialBaseStruct,
     // The pointer points to the error set field of an error union
     ConstPtrSpecialBaseErrorUnionCode,
+    // The pointer points to the payload field of an error union
+    ConstPtrSpecialBaseErrorUnionPayload,
     // This means that we did a compile-time pointer reinterpret and we cannot
     // understand the value of pointee at compile time. However, we will still
     // emit a binary with a compile time known address.
@@ -211,6 +217,9 @@ struct ConstPtrValue {
         struct {
             ConstExprValue *err_union_val;
         } base_err_union_code;
+        struct {
+            ConstExprValue *err_union_val;
+        } base_err_union_payload;
         struct {
             uint64_t addr;
         } hard_coded_addr;
