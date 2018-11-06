@@ -8,6 +8,8 @@
 #ifndef ERROR_HPP
 #define ERROR_HPP
 
+#include <assert.h>
+
 enum Error {
     ErrorNone,
     ErrorNoMem,
@@ -32,8 +34,13 @@ enum Error {
     ErrorUnsupportedOperatingSystem,
     ErrorSharingViolation,
     ErrorPipeBusy,
+    ErrorPrimitiveTypeNotFound,
 };
 
-const char *err_str(int err);
+const char *err_str(Error err);
+
+static inline void assertNoError(Error err) {
+    assert(err == ErrorNone);
+}
 
 #endif

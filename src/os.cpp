@@ -793,7 +793,7 @@ Error os_file_exists(Buf *full_path, bool *result) {
 }
 
 #if defined(ZIG_OS_POSIX)
-static int os_exec_process_posix(const char *exe, ZigList<const char *> &args,
+static Error os_exec_process_posix(const char *exe, ZigList<const char *> &args,
         Termination *term, Buf *out_stderr, Buf *out_stdout)
 {
     int stdin_pipe[2];
@@ -872,7 +872,7 @@ static int os_exec_process_posix(const char *exe, ZigList<const char *> &args,
 //    LocalFree(messageBuffer);
 //}
 
-static int os_exec_process_windows(const char *exe, ZigList<const char *> &args,
+static Error os_exec_process_windows(const char *exe, ZigList<const char *> &args,
         Termination *term, Buf *out_stderr, Buf *out_stdout)
 {
     Buf command_line = BUF_INIT;
@@ -983,7 +983,7 @@ static int os_exec_process_windows(const char *exe, ZigList<const char *> &args,
     CloseHandle(piProcInfo.hProcess);
     CloseHandle(piProcInfo.hThread);
 
-    return 0;
+    return ErrorNone;
 }
 #endif
 
@@ -1003,7 +1003,7 @@ Error os_execv(const char *exe, const char **argv) {
 #endif
 }
 
-int os_exec_process(const char *exe, ZigList<const char *> &args,
+Error os_exec_process(const char *exe, ZigList<const char *> &args,
         Termination *term, Buf *out_stderr, Buf *out_stdout)
 {
 #if defined(ZIG_OS_WINDOWS)
@@ -1027,7 +1027,7 @@ void os_write_file(Buf *full_path, Buf *contents) {
         zig_panic("close failed");
 }
 
-int os_copy_file(Buf *src_path, Buf *dest_path) {
+Error os_copy_file(Buf *src_path, Buf *dest_path) {
     FILE *src_f = fopen(buf_ptr(src_path), "rb");
     if (!src_f) {
         int err = errno;
@@ -1074,7 +1074,7 @@ int os_copy_file(Buf *src_path, Buf *dest_path) {
         if (feof(src_f)) {
             fclose(src_f);
             fclose(dest_f);
-            return 0;
+            return ErrorNone;
         }
     }
 }
@@ -1197,7 +1197,7 @@ bool os_stderr_tty(void) {
 }
 
 #if defined(ZIG_OS_POSIX)
-static int os_buf_to_tmp_file_posix(Buf *contents, Buf *suffix, Buf *out_tmp_path) {
+static Error os_buf_to_tmp_file_posix(Buf *contents, Buf *suffix, Buf *out_tmp_path) {
     const char *tmp_dir = getenv("TMPDIR");
     if (!tmp_dir) {
         tmp_dir = P_tmpdir;
@@ -1221,12 +1221,12 @@ static int os_buf_to_tmp_file_posix(Buf *contents, Buf *suffix, Buf *out_tmp_pat
     if (fclose(f))
         zig_panic("close failed");
 
-    return 0;
+    return ErrorNone;
 }
 #endif
 
 #if defined(ZIG_OS_WINDOWS)
-static int os_buf_to_tmp_file_windows(Buf *contents, Buf *suffix, Buf *out_tmp_path) {
+static Error os_buf_to_tmp_file_windows(Buf *contents, Buf *suffix, Buf *out_tmp_path) {
     char tmp_dir[MAX_PATH + 1];
     if (GetTempPath(MAX_PATH, tmp_dir) == 0) {
         zig_panic("GetTempPath failed");
@@ -1255,11 +1255,11 @@ static int os_buf_to_tmp_file_windows(Buf *contents, Buf *suffix, Buf *out_tmp_p
     if (fclose(f)) {
         zig_panic("fclose failed");
     }
-    return 0;
+    return ErrorNone;
 }
 #endif
 
-int os_buf_to_tmp_file(Buf *contents, Buf *suffix, Buf *out_tmp_path) {
+Error os_buf_to_tmp_file(Buf *contents, Buf *suffix, Buf *out_tmp_path) {
 #if defined(ZIG_OS_WINDOWS)
     return os_buf_to_tmp_file_windows(contents, suffix, out_tmp_path);
 #elif defined(ZIG_OS_POSIX)
@@ -1269,17 +1269,17 @@ int os_buf_to_tmp_file(Buf *contents, Buf *suffix, Buf *out_tmp_path) {
 #endif
 }
 
-int os_delete_file(Buf *path) {
+Error os_delete_file(Buf *path) {
     if (remove(buf_ptr(path))) {
         return ErrorFileSystem;
     } else {
-        return 0;
+        return ErrorNone;
     }
 }
 
-int os_rename(Buf *src_path, Buf *dest_path) {
+Error os_rename(Buf *src_path, Buf *dest_path) {
     if (buf_eql_buf(src_path, dest_path)) {
-        return 0;
+        return ErrorNone;
     }
 #if defined(ZIG_OS_WINDOWS)
     if (!MoveFileExA(buf_ptr(src_path), buf_ptr(dest_path), MOVEFILE_REPLACE_EXISTING)) {
@@ -1290,7 +1290,7 @@ int os_rename(Buf *src_path, Buf *dest_path) {
         return ErrorFileSystem;
     }
 #endif
-    return 0;
+    return ErrorNone;
 }
 
 double os_get_time(void) {

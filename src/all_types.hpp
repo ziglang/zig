@@ -1222,7 +1222,6 @@ struct ZigType {
     ZigLLVMDIType *di_type;
 
     bool zero_bits; // this is denormalized data
-    bool is_copyable;
     bool gen_h_loop_flag;
 
     union {
