@@ -13024,22 +13024,6 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira,
     }
 
     if (init_val != nullptr && init_val->special != ConstValSpecialRuntime) {
-        if (var->mem_slot_index != SIZE_MAX) {
-            assert(var->mem_slot_index < ira->exec_context.mem_slot_list.length);
-            ConstExprValue *mem_slot = ira->exec_context.mem_slot_list.at(var->mem_slot_index);
-            copy_const_val(mem_slot, init_val, !is_comptime_var || var->gen_is_const);
-            if (is_comptime_var || (var_class_requires_const && var->gen_is_const)) {
-                return ir_const_void(ira, &decl_var_instruction->base);
-            }
-        }
-    } else if (is_comptime_var) {
-        ir_add_error(ira, &decl_var_instruction->base,
-                buf_sprintf("cannot store runtime value in compile time variable"));
-        var->value->type = ira->codegen->builtin_types.entry_invalid;
-        return ira->codegen->invalid_instruction;
-    }
-
-    if (init_val != nullptr && init_val->special != ConstValSpecialRuntime) {
         if (var->gen_is_const) {
             var_ptr->value.data.x_ptr.mut = ConstPtrMutComptimeConst;
         } else if (is_comptime_var) {
@@ -13052,6 +13036,19 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira,
             var_ptr->value.special = ConstValSpecialRuntime;
             ir_analyze_store_ptr(ira, var_ptr, var_ptr, deref);
         }
+        if (var_ptr->value.special == ConstValSpecialStatic && var->mem_slot_index != SIZE_MAX) {
+            assert(var->mem_slot_index < ira->exec_context.mem_slot_list.length);
+            ConstExprValue *mem_slot = ira->exec_context.mem_slot_list.at(var->mem_slot_index);
+            copy_const_val(mem_slot, init_val, !is_comptime_var || var->gen_is_const);
+            if (is_comptime_var || (var_class_requires_const && var->gen_is_const)) {
+                return ir_const_void(ira, &decl_var_instruction->base);
+            }
+        }
+    } else if (is_comptime_var) {
+        ir_add_error(ira, &decl_var_instruction->base,
+                buf_sprintf("cannot store runtime value in compile time variable"));
+        var->value->type = ira->codegen->builtin_types.entry_invalid;
+        return ira->codegen->invalid_instruction;
     }
 
     ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
@@ -13615,7 +13612,7 @@ static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source
                 }
             }
             if (ptr->value.data.x_ptr.mut == ConstPtrMutInfer) {
-                ptr->value.data.x_ptr.mut = ConstPtrMutRuntimeVar;
+                ptr->value.special = ConstValSpecialRuntime;
             } else {
                 ir_add_error(ira, source_instr,
                         buf_sprintf("cannot store runtime value in compile time variable"));
@@ -19970,7 +19967,7 @@ static IrInstruction *ir_analyze_instruction_unwrap_err_payload(IrAnalyze *ira,
                 ConstExprValue *err_union_val = ir_const_ptr_pointee(ira, ptr_val, instruction->base.source_node);
                 if (err_union_val == nullptr)
                     return ira->codegen->invalid_instruction;
-                if (err_union_val->data.x_ptr.mut == ConstPtrMutInfer &&
+                if (ptr_val->data.x_ptr.mut == ConstPtrMutInfer &&
                     err_union_val->special == ConstValSpecialUndef)
                 {
                     ConstExprValue *vals = create_const_vals(2);
@@ -19997,9 +19994,18 @@ static IrInstruction *ir_analyze_instruction_unwrap_err_payload(IrAnalyze *ira,
                         return ira->codegen->invalid_instruction;
                     }
 
-                    IrInstruction *result = ir_const(ira, &instruction->base, result_type);
+                    IrInstruction *result;
+                    if (ptr_val->data.x_ptr.mut == ConstPtrMutInfer) {
+                        result = ir_build_unwrap_err_payload(&ira->new_irb, instruction->base.scope,
+                            instruction->base.source_node, value, instruction->safety_check_on);
+                        result->value.type = result_type;
+                        result->value.special = ConstValSpecialStatic;
+                    } else {
+                        result = ir_const(ira, &instruction->base, result_type);
+                    }
                     result->value.data.x_ptr.special = ConstPtrSpecialRef;
                     result->value.data.x_ptr.data.ref.pointee = err_union_val->data.x_err_union.payload;
+                    result->value.data.x_ptr.mut = ptr_val->data.x_ptr.mut;
                     return result;
                 }
             }
