@@ -76,8 +76,7 @@ that counts as "freestanding" for the purposes of this table.
 
 ## Building
 
-[![Build Status](https://travis-ci.org/ziglang/zig.svg?branch=master)](https://travis-ci.org/ziglang/zig)
-[![Build status](https://ci.appveyor.com/api/projects/status/4t80mk2dmucrc38i/branch/master?svg=true)](https://ci.appveyor.com/project/andrewrk/zig-d3l86/branch/master)
+[![Build Status](https://dev.azure.com/ziglang/zig/_apis/build/status/ziglang.zig?branchName=master)](https://dev.azure.com/ziglang/zig/_build/latest?definitionId=1&branchName=master)
 
 Note that you can
 [download a binary of master branch](https://ziglang.org/download/#release-master).
