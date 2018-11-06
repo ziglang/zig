@@ -127,5 +127,6 @@ fn testGodboltApi(zig_exe: []const u8, dir_path: []const u8) error!void {
 
     const out_asm = try std.io.readFileAlloc(a, example_s_path);
     assertOrPanic(std.mem.indexOf(u8, out_asm, "square:") != null);
-    assertOrPanic(std.mem.indexOf(u8, out_asm, "imul\tedi, edi") != null);
+    assertOrPanic(std.mem.indexOf(u8, out_asm, "mov\teax, edi") != null);
+    assertOrPanic(std.mem.indexOf(u8, out_asm, "imul\teax, edi") != null);
 }

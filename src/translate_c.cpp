@@ -1700,8 +1700,7 @@ static AstNode *trans_implicit_cast_expr(Context *c, TransScope *scope, const Im
             emit_warning(c, stmt->getBeginLoc(), "TODO handle C translation cast CK_LValueBitCast");
             return nullptr;
         case CK_NoOp:
-            emit_warning(c, stmt->getBeginLoc(), "TODO handle C translation cast CK_NoOp");
-            return nullptr;
+            return trans_expr(c, ResultUsedYes, scope, stmt->getSubExpr(), TransRValue);
         case CK_BaseToDerived:
             emit_warning(c, stmt->getBeginLoc(), "TODO handle C translation cast CK_BaseToDerived");
             return nullptr;
