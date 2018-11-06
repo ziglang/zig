@@ -4488,7 +4488,7 @@ static ZigWindowsSDK *get_windows_sdk(CodeGen *g) {
 }
 
 
-Buf *get_linux_libc_lib_path(const char *o_file) {
+static Buf *get_linux_libc_lib_path(const char *o_file) {
     const char *cc_exe = getenv("CC");
     cc_exe = (cc_exe == nullptr) ? "cc" : cc_exe;
     ZigList<const char *> args = {};
@@ -4514,7 +4514,7 @@ Buf *get_linux_libc_lib_path(const char *o_file) {
     return result;
 }
 
-Buf *get_linux_libc_include_path(void) {
+static Buf *get_posix_libc_include_path(void) {
     const char *cc_exe = getenv("CC");
     cc_exe = (cc_exe == nullptr) ? "cc" : cc_exe;
     ZigList<const char *> args = {};
@@ -4569,6 +4569,10 @@ Buf *get_linux_libc_include_path(void) {
 
 void find_libc_include_path(CodeGen *g) {
     if (g->libc_include_dir == nullptr) {
+        if (!g->is_native_target) {
+            fprintf(stderr, "Unable to determine libc include path. --libc-include-dir");
+            exit(1);
+        }
 
         if (g->zig_target.os == OsWindows) {
             ZigWindowsSDK *sdk = get_windows_sdk(g);
@@ -4577,13 +4581,13 @@ void find_libc_include_path(CodeGen *g) {
                 fprintf(stderr, "Unable to determine libc include path. --libc-include-dir");
                 exit(1);
             }
-        } else if (g->zig_target.os == OsLinux) {
-            g->libc_include_dir = get_linux_libc_include_path();
-        } else if (g->zig_target.os == OsMacOSX) {
-            g->libc_include_dir = buf_create_from_str("/usr/include");
+        } else if (g->zig_target.os == OsLinux || g->zig_target.os == OsMacOSX) {
+            g->libc_include_dir = get_posix_libc_include_path();
         } else {
-            // TODO find libc at runtime for other operating systems
-            zig_panic("Unable to determine libc include path.");
+            fprintf(stderr, "Unable to determine libc include path.\n"
+                    "TODO: implement finding libc at runtime for other operating systems.\n"
+                    "in the meantime, you can use as a workaround: --libc-include-dir\n");
+            exit(1);
         }
     }
     assert(buf_len(g->libc_include_dir) != 0);
