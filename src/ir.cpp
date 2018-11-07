@@ -5464,7 +5464,7 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
         // TODO make it an error to write to error variable
         AstNode *err_symbol_node = else_node; // TODO make more accurate
         ZigVar *err_var = ir_create_var(irb, err_symbol_node, scope, err_symbol,
-                true, false, false, is_comptime);
+                true, true, false, is_comptime);
         Scope *err_scope = err_var->child_scope;
         IrInstruction *unwrapped_err_code_ptr = ir_build_unwrap_maybe(irb, err_scope, err_symbol_node,
                 ptr_opt_err_code, false);
@@ -16245,7 +16245,7 @@ static IrInstruction *ir_analyze_instruction_unwrap_maybe(IrAnalyze *ira,
             ConstExprValue *out_val = &result->value;
             out_val->data.x_ptr.special = ConstPtrSpecialRef;
             out_val->data.x_ptr.mut = val->data.x_ptr.mut;
-            if (type_is_codegen_pointer(child_type)) {
+            if (types_have_same_zig_comptime_repr(type_entry, child_type)) {
                 out_val->data.x_ptr.data.ref.pointee = maybe_val;
             } else {
                 out_val->data.x_ptr.data.ref.pointee = maybe_val->data.x_optional;
