@@ -5611,7 +5611,7 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
     }
 }
 
-static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNode *node,
+static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNode *node, LVal lval,
         IrInstruction *result_loc)
 {
     assert(node->type == NodeTypeForExpr);
@@ -5650,9 +5650,6 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
     ZigVar *elem_var = ir_create_var(irb, elem_node, parent_scope, elem_var_name, true, false, false, is_comptime);
     Scope *child_scope = elem_var->child_scope;
 
-    IrInstruction *elem_alloca = ir_build_alloca_src(irb, child_scope, elem_node, elem_var_type, nullptr, "for_elem");
-    ir_build_var_decl_src(irb, child_scope, elem_node, elem_var, elem_var_type, nullptr, elem_alloca);
-
     AstNode *index_var_source_node;
     ZigVar *index_var;
     if (index_node) {
@@ -5676,7 +5673,7 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
     IrBasicBlock *cond_block = ir_create_basic_block(irb, child_scope, "ForCond");
     IrBasicBlock *body_block = ir_create_basic_block(irb, child_scope, "ForBody");
     IrBasicBlock *end_block = ir_create_basic_block(irb, child_scope, "ForEnd");
-    IrBasicBlock *else_block = else_node ? ir_create_basic_block(irb, child_scope, "ForElse") : end_block;
+    IrBasicBlock *else_block = ir_create_basic_block(irb, child_scope, "ForElse");
     IrBasicBlock *continue_block = ir_create_basic_block(irb, child_scope, "ForContinue");
 
     IrInstruction *len_val = ir_build_array_len(irb, child_scope, node, array_val);
@@ -5684,20 +5681,14 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
 
     ir_set_cursor_at_end_and_append_block(irb, cond_block);
     IrInstruction *index_val = ir_build_load_ptr(irb, child_scope, node, index_alloca, nullptr);
-    IrInstruction *cond = ir_build_bin_op(irb, child_scope, node, IrBinOpCmpLessThan, index_val, len_val, false);
-    IrBasicBlock *after_cond_block = irb->current_basic_block;
-    IrInstruction *void_else_value = else_node ? nullptr : ir_mark_gen(ir_build_const_void(irb, parent_scope, node));
+    IrInstruction *cond = ir_build_bin_op(irb, child_scope, node, IrBinOpCmpNotEq, index_val, len_val, false);
     ir_mark_gen(ir_build_cond_br(irb, child_scope, node, cond, body_block, else_block, is_comptime));
 
     ir_set_cursor_at_end_and_append_block(irb, body_block);
     IrInstruction *elem_ptr = ir_build_elem_ptr(irb, child_scope, node, array_val_ptr, index_val, false, PtrLenSingle);
-    IrInstruction *elem_val;
-    if (node->data.for_expr.elem_is_ptr) {
-        elem_val = elem_ptr;
-    } else {
-        elem_val = ir_build_load_ptr(irb, child_scope, node, elem_ptr, nullptr);
-    }
-    ir_mark_gen(ir_build_store_ptr(irb, child_scope, node, elem_alloca, elem_val));
+    IrInstruction *elem_var_ptr = node->data.for_expr.elem_is_ptr ?
+        ir_build_ref(irb, child_scope, elem_node, elem_ptr, true, false) : elem_ptr;
+    ir_build_var_decl_src(irb, child_scope, elem_node, elem_var, elem_var_type, nullptr, elem_var_ptr);
 
     ZigList<IrInstruction *> incoming_values = {0};
     ZigList<IrBasicBlock *> incoming_blocks = {0};
@@ -5719,28 +5710,21 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
     ir_mark_gen(ir_build_store_ptr(irb, child_scope, node, index_alloca, new_index_val));
     ir_build_br(irb, child_scope, node, cond_block, is_comptime);
 
+    ir_set_cursor_at_end_and_append_block(irb, else_block);
     IrInstruction *else_result = nullptr;
     if (else_node) {
-        ir_set_cursor_at_end_and_append_block(irb, else_block);
-
         else_result = ir_gen_node(irb, else_node, parent_scope, LValNone, result_loc);
         if (else_result == irb->codegen->invalid_instruction)
             return else_result;
-        if (!instr_is_unreachable(else_result))
-            ir_mark_gen(ir_build_br(irb, parent_scope, node, end_block, is_comptime));
-    }
-    IrBasicBlock *after_else_block = irb->current_basic_block;
-    ir_set_cursor_at_end_and_append_block(irb, end_block);
-
-    if (else_result) {
-        incoming_blocks.append(after_else_block);
-        incoming_values.append(else_result);
     } else {
-        incoming_blocks.append(after_cond_block);
-        incoming_values.append(void_else_value);
+        else_result = ir_mark_gen(ir_build_const_void(irb, parent_scope, node));
+        ir_mark_gen(ir_build_store_ptr(irb, parent_scope, node, result_loc, else_result));
     }
+    if (!instr_is_unreachable(else_result))
+        ir_mark_gen(ir_build_br(irb, parent_scope, node, end_block, is_comptime));
 
-    return ir_build_phi(irb, parent_scope, node, incoming_blocks.length, incoming_blocks.items, incoming_values.items);
+    ir_set_cursor_at_end_and_append_block(irb, end_block);
+    return ir_gen_result(irb, parent_scope, node, lval, result_loc);
 }
 
 static IrInstruction *ir_gen_bool_literal(IrBuilder *irb, Scope *scope, AstNode *node) {
@@ -7292,7 +7276,7 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             return ir_gen_while_expr(irb, scope, node, lval,
                     ensure_result_loc(irb, scope, node, result_loc));
         case NodeTypeForExpr:
-            return ir_lval_wrap(irb, scope, ir_gen_for_expr(irb, scope, node, result_loc), lval);
+            return ir_gen_for_expr(irb, scope, node, lval, result_loc);
         case NodeTypeArrayAccessExpr:
             return ir_gen_array_access(irb, scope, node, lval, result_loc);
         case NodeTypeReturnExpr:

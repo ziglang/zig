@@ -3236,6 +3236,20 @@ static bool value_is_all_undef(ConstExprValue *const_val) {
                         return false;
                 }
                 return true;
+            } else if (const_val->type->id == ZigTypeIdArray) {
+                switch (const_val->data.x_array.special) {
+                    case ConstArraySpecialUndef:
+                        return true;
+                    case ConstArraySpecialBuf:
+                        return false;
+                    case ConstArraySpecialNone:
+                        for (size_t i = 0; i < const_val->type->data.array.len; i += 1) {
+                            if (!value_is_all_undef(&const_val->data.x_array.data.s_none.elements[i]))
+                                return false;
+                        }
+                        return true;
+                }
+                zig_unreachable();
             } else {
                 return false;
             }
