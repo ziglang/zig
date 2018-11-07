@@ -71,6 +71,19 @@ pub fn getSelfDebugInfo() !*DebugInfo {
     }
 }
 
+pub fn supportsAnsi(file: os.File) bool {
+    if (builtin.os == builtin.Os.windows) {
+        var out: windows.DWORD = undefined;
+        return windows.GetConsoleMode(file.handle, &out) == 0;
+    } else {
+        if (builtin.link_libc) {
+            return std.c.isatty(file.handle) != 0;
+        } else {
+            return os.posix.isatty(file.handle);
+        }
+    }
+}
+
 fn wantTtyColor() bool {
     var bytes: [128]u8 = undefined;
     const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
@@ -171,7 +184,9 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
     os.abort();
 }
 
+const RED = "\x1b[31;1m";
 const GREEN = "\x1b[32;1m";
+const CYAN = "\x1b[36;1m";
 const WHITE = "\x1b[37;1m";
 const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
@@ -292,9 +307,9 @@ fn printSourceAtAddressWindows(di: *DebugInfo, out_stream: var, relocated_addres
         // we have no information to add to the address
         if (tty_color) {
             try out_stream.print("???:?:?: ");
-            setTtyColor(TtyColor.Dim);
+            setTtyColor(TtyColor.Dim, out_stream);
             try out_stream.print("0x{x} in ??? (???)", relocated_address);
-            setTtyColor(TtyColor.Reset);
+            setTtyColor(TtyColor.Reset, out_stream);
             try out_stream.print("\n\n\n");
         } else {
             try out_stream.print("???:?:?: 0x{x} in ??? (???)\n\n\n", relocated_address);
@@ -397,17 +412,17 @@ fn printSourceAtAddressWindows(di: *DebugInfo, out_stream: var, relocated_addres
     };
 
     if (tty_color) {
-        setTtyColor(TtyColor.White);
+        setTtyColor(TtyColor.White, out_stream);
         if (opt_line_info) |li| {
             try out_stream.print("{}:{}:{}", li.file_name, li.line, li.column);
         } else {
             try out_stream.print("???:?:?");
         }
-        setTtyColor(TtyColor.Reset);
+        setTtyColor(TtyColor.Reset, out_stream);
         try out_stream.print(": ");
-        setTtyColor(TtyColor.Dim);
+        setTtyColor(TtyColor.Dim, out_stream);
         try out_stream.print("0x{x} in {} ({})", relocated_address, symbol_name, obj_basename);
-        setTtyColor(TtyColor.Reset);
+        setTtyColor(TtyColor.Reset, out_stream);
 
         if (opt_line_info) |line_info| {
             try out_stream.print("\n");
@@ -421,9 +436,9 @@ fn printSourceAtAddressWindows(di: *DebugInfo, out_stream: var, relocated_addres
                             try out_stream.writeByte(' ');
                         }
                     }
-                    setTtyColor(TtyColor.Green);
+                    setTtyColor(TtyColor.Green, out_stream);
                     try out_stream.write("^");
-                    setTtyColor(TtyColor.Reset);
+                    setTtyColor(TtyColor.Reset, out_stream);
                     try out_stream.write("\n");
                 }
             } else |err| switch (err) {
@@ -453,39 +468,62 @@ const TtyColor = enum.{
 };
 
 /// TODO this is a special case hack right now. clean it up and maybe make it part of std.fmt
-fn setTtyColor(tty_color: TtyColor) void {
-    const S = struct.{
-        var attrs: windows.WORD = undefined;
-        var init_attrs = false;
-    };
-    if (!S.init_attrs) {
-        S.init_attrs = true;
-        var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
-        // TODO handle error
-        _ = windows.GetConsoleScreenBufferInfo(stderr_file.handle, &info);
-        S.attrs = info.wAttributes;
-    }
+fn setTtyColor(tty_color: TtyColor, out_stream: var) void {
+    if (supportsAnsi(stderr_file)) {
+        switch (tty_color) {
+            TtyColor.Red => {
+                out_stream.write(RED) catch return;
+            },
+            TtyColor.Green => {
+                out_stream.write(GREEN) catch return;
+            },
+            TtyColor.Cyan => {
+                out_stream.write(CYAN) catch return;
+            },
+            TtyColor.White, TtyColor.Bold => {
+                out_stream.write(WHITE) catch return;
+            },
+            TtyColor.Dim => {
+                out_stream.write(DIM) catch return;
+            },
+            TtyColor.Reset => {
+                out_stream.write(RESET) catch return;
+            },
+        }
+    } else {
+        const S = struct.{
+            var attrs: windows.WORD = undefined;
+            var init_attrs = false;
+        };
+        if (!S.init_attrs) {
+            S.init_attrs = true;
+            var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
+            // TODO handle error
+            _ = windows.GetConsoleScreenBufferInfo(stderr_file.handle, &info);
+            S.attrs = info.wAttributes;
+        }
 
-    // TODO handle errors
-    switch (tty_color) {
-        TtyColor.Red => {
-            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_RED | windows.FOREGROUND_INTENSITY);
-        },
-        TtyColor.Green => {
-            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_GREEN | windows.FOREGROUND_INTENSITY);
-        },
-        TtyColor.Cyan => {
-            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY);
-        },
-        TtyColor.White, TtyColor.Bold => {
-            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_RED | windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY);
-        },
-        TtyColor.Dim => {
-            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_INTENSITY);
-        },
-        TtyColor.Reset => {
-            _ = windows.SetConsoleTextAttribute(stderr_file.handle, S.attrs);
-        },
+        // TODO handle errors
+        switch (tty_color) {
+            TtyColor.Red => {
+                _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_RED | windows.FOREGROUND_INTENSITY);
+            },
+            TtyColor.Green => {
+                _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_GREEN | windows.FOREGROUND_INTENSITY);
+            },
+            TtyColor.Cyan => {
+                _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY);
+            },
+            TtyColor.White, TtyColor.Bold => {
+                _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_RED | windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY);
+            },
+            TtyColor.Dim => {
+                _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_INTENSITY);
+            },
+            TtyColor.Reset => {
+                _ = windows.SetConsoleTextAttribute(stderr_file.handle, S.attrs);
+            },
+        }
     }
 }
 
