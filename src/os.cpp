@@ -1128,9 +1128,6 @@ Error os_get_cwd(Buf *out_cwd) {
 #define is_wprefix(s, prefix) \
     (wcsncmp((s), (prefix), sizeof(prefix) / sizeof(WCHAR) - 1) == 0)
 static bool is_stderr_cyg_pty(void) {
-#if defined(__MINGW32__)
-    return false;
-#else
     HANDLE stderr_handle = GetStdHandle(STD_ERROR_HANDLE);
     if (stderr_handle == INVALID_HANDLE_VALUE)
         return false;
@@ -1182,7 +1179,6 @@ static bool is_stderr_cyg_pty(void) {
     }
     free(nameinfo);
     return (p != NULL);
-#endif
 }
 #endif
 
