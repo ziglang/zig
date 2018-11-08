@@ -71,19 +71,6 @@ pub fn getSelfDebugInfo() !*DebugInfo {
     }
 }
 
-pub fn supportsAnsi(file: os.File) bool {
-    if (builtin.os == builtin.Os.windows) {
-        var out: windows.DWORD = undefined;
-        return windows.GetConsoleMode(file.handle, &out) == 0;
-    } else {
-        if (builtin.link_libc) {
-            return std.c.isatty(file.handle) != 0;
-        } else {
-            return os.posix.isatty(file.handle);
-        }
-    }
-}
-
 fn wantTtyColor() bool {
     var bytes: [128]u8 = undefined;
     const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
@@ -469,7 +456,7 @@ const TtyColor = enum.{
 
 /// TODO this is a special case hack right now. clean it up and maybe make it part of std.fmt
 fn setTtyColor(tty_color: TtyColor) void {
-    if (supportsAnsi(stderr_file)) {
+    if (os.supportsAnsiEscapeCodes(stderr_file.handle)) {
         switch (tty_color) {
             TtyColor.Red => {
                 stderr_file.write(RED) catch return;
