@@ -1,7 +1,0 @@
-#!/bin/sh
-
-set -x
-
-sudo apt-get remove -y llvm-*
-sudo rm -rf /usr/local/*
-sudo apt-get install -y libxml2-dev libclang-7-dev llvm-7 llvm-7-dev cmake s3cmd gcc-7 g++-7

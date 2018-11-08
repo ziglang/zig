@@ -8,6 +8,7 @@
       body{
         background-color:#111;
         color: #bbb;
+        font-family: sans-serif;
       }
       a {
         color: #88f;
@@ -467,9 +468,10 @@ pub fn main() void {
       <p>
       In addition to the integer types above, arbitrary bit-width integers can be referenced by using
       an identifier of <code>i</code> or </code>u</code> followed by digits. For example, the identifier
-      {#syntax#}i7{#endsyntax#} refers to a signed 7-bit integer.
+      {#syntax#}i7{#endsyntax#} refers to a signed 7-bit integer. The maximum allowed bit-width of an
+      integer type is {#syntax#}65535{#endsyntax#}.
       </p>
-      {#see_also|Integers|Floats|void|Errors#}
+      {#see_also|Integers|Floats|void|Errors|@IntType#}
       {#header_close#}
       {#header_open|Primitive Values#}
       <div class="table-wrapper">
@@ -5814,9 +5816,10 @@ fn add(a: i32, b: i32) i32 { return a + b; }
       {#header_close#}
 
       {#header_open|@IntType#}
-      <pre>{#syntax#}@IntType(comptime is_signed: bool, comptime bit_count: u32) type{#endsyntax#}</pre>
+      <pre>{#syntax#}@IntType(comptime is_signed: bool, comptime bit_count: u16) type{#endsyntax#}</pre>
       <p>
-      This function returns an integer type with the given signness and bit count.
+      This function returns an integer type with the given signness and bit count. The maximum
+      bit count for an integer type is {#syntax#}65535{#endsyntax#}.
       </p>
       {#header_close#}
       {#header_open|@memberCount#}

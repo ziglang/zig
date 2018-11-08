@@ -1,7 +1,0 @@
-#!/bin/sh
-
-set -x
-
-brew install llvm@7
-brew outdated llvm@7 || brew upgrade llvm@7
-

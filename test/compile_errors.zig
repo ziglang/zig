@@ -2,6 +2,19 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "exceeded maximum bit width of integer",
+        \\export fn entry1() void {
+        \\    const T = @IntType(false, 65536);
+        \\}
+        \\export fn entry2() void {
+        \\    var x: i65536 = 1;
+        \\}
+    ,
+        ".tmp_source.zig:2:31: error: integer value 65536 cannot be implicitly casted to type 'u16'",
+        ".tmp_source.zig:5:12: error: primitive integer type 'i65536' exceeds maximum bit width of 65535",
+    );
+
+    cases.add(
         "Panic declared with wrong type signature in tests",
         \\test "" {}
         \\
@@ -532,15 +545,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         ".tmp_source.zig:1:9: error: parameter of type 'fn(var)var' must be declared comptime",
-    );
-
-    cases.add(
-        "bit count of @IntType too large",
-        \\comptime {
-        \\    _ = @IntType(false, @import("std").math.maxInt(u32) + 1);
-        \\}
-    ,
-        ".tmp_source.zig:2:57: error: integer value 4294967296 cannot be implicitly casted to type 'u32'",
     );
 
     cases.add(
@@ -4278,7 +4282,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const a: u16 = 300;
         \\}
     ,
-        ".tmp_source.zig:1:1: error: declaration shadows type 'u16'",
+        ".tmp_source.zig:1:1: error: declaration shadows primitive type 'u16'",
     );
 
     cases.add(

@@ -6,6 +6,7 @@ const mem = std.mem;
 pub const HmacMd5 = Hmac(crypto.Md5);
 pub const HmacSha1 = Hmac(crypto.Sha1);
 pub const HmacSha256 = Hmac(crypto.Sha256);
+pub const HmacBlake2s256 = Hmac(crypto.Blake2s256);
 
 pub fn Hmac(comptime Hash: type) type {
     return struct.{

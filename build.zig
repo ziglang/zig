@@ -121,12 +121,23 @@ pub fn build(b: *Builder) !void {
     test_step.dependOn(docs_step);
 }
 
-fn dependOnLib(lib_exe_obj: var, dep: LibraryDep) void {
+fn dependOnLib(b: *Builder, lib_exe_obj: var, dep: LibraryDep) void {
     for (dep.libdirs.toSliceConst()) |lib_dir| {
         lib_exe_obj.addLibPath(lib_dir);
     }
+    const lib_dir = os.path.join(b.allocator, dep.prefix, "lib") catch unreachable;
     for (dep.system_libs.toSliceConst()) |lib| {
-        lib_exe_obj.linkSystemLibrary(lib);
+        const static_bare_name = if (mem.eql(u8, lib, "curses"))
+            ([]const u8)("libncurses.a")
+        else
+            b.fmt("lib{}.a", lib);
+        const static_lib_name = os.path.join(b.allocator, lib_dir, static_bare_name) catch unreachable;
+        const have_static = fileExists(static_lib_name) catch unreachable;
+        if (have_static) {
+            lib_exe_obj.addObjectFile(static_lib_name);
+        } else {
+            lib_exe_obj.linkSystemLibrary(lib);
+        }
     }
     for (dep.libs.toSliceConst()) |lib| {
         lib_exe_obj.addObjectFile(lib);
@@ -136,12 +147,23 @@ fn dependOnLib(lib_exe_obj: var, dep: LibraryDep) void {
     }
 }
 
+fn fileExists(filename: []const u8) !bool {
+    os.File.access(filename) catch |err| switch (err) {
+        error.PermissionDenied,
+        error.FileNotFound,
+        => return false,
+        else => return err,
+    };
+    return true;
+}
+
 fn addCppLib(b: *Builder, lib_exe_obj: var, cmake_binary_dir: []const u8, lib_name: []const u8) void {
     const lib_prefix = if (lib_exe_obj.target.isWindows()) "" else "lib";
     lib_exe_obj.addObjectFile(os.path.join(b.allocator, cmake_binary_dir, "zig_cpp", b.fmt("{}{}{}", lib_prefix, lib_name, lib_exe_obj.target.libFileExt())) catch unreachable);
 }
 
 const LibraryDep = struct.{
+    prefix: []const u8,
     libdirs: ArrayList([]const u8),
     libs: ArrayList([]const u8),
     system_libs: ArrayList([]const u8),
@@ -149,21 +171,25 @@ const LibraryDep = struct.{
 };
 
 fn findLLVM(b: *Builder, llvm_config_exe: []const u8) !LibraryDep {
-    const libs_output = try b.exec([][]const u8.{
-        llvm_config_exe,
-        "--libs",
-        "--system-libs",
-    });
-    const includes_output = try b.exec([][]const u8.{
-        llvm_config_exe,
-        "--includedir",
-    });
-    const libdir_output = try b.exec([][]const u8.{
-        llvm_config_exe,
-        "--libdir",
-    });
+    const shared_mode = try b.exec([][]const u8.{ llvm_config_exe, "--shared-mode" });
+    const is_static = mem.startsWith(u8, shared_mode, "static");
+    const libs_output = if (is_static)
+        try b.exec([][]const u8.{
+            llvm_config_exe,
+            "--libfiles",
+            "--system-libs",
+        })
+    else
+        try b.exec([][]const u8.{
+            llvm_config_exe,
+            "--libs",
+        });
+    const includes_output = try b.exec([][]const u8.{ llvm_config_exe, "--includedir" });
+    const libdir_output = try b.exec([][]const u8.{ llvm_config_exe, "--libdir" });
+    const prefix_output = try b.exec([][]const u8.{ llvm_config_exe, "--prefix" });
 
     var result = LibraryDep.{
+        .prefix = mem.split(prefix_output, " \r\n").next().?,
         .libs = ArrayList([]const u8).init(b.allocator),
         .system_libs = ArrayList([]const u8).init(b.allocator),
         .includes = ArrayList([]const u8).init(b.allocator),
@@ -244,10 +270,6 @@ fn nextValue(index: *usize, build_info: []const u8) []const u8 {
 }
 
 fn configureStage2(b: *Builder, exe: var, ctx: Context) !void {
-    // This is for finding /lib/libz.a on alpine linux.
-    // TODO turn this into -Dextra-lib-path=/lib option
-    exe.addLibPath("/lib");
-
     exe.setNoRoSegment(ctx.no_rosegment);
 
     exe.addIncludeDir("src");
@@ -265,37 +287,61 @@ fn configureStage2(b: *Builder, exe: var, ctx: Context) !void {
         addCppLib(b, exe, ctx.cmake_binary_dir, "embedded_lld_coff");
         addCppLib(b, exe, ctx.cmake_binary_dir, "embedded_lld_lib");
     }
-    dependOnLib(exe, ctx.llvm);
+    dependOnLib(b, exe, ctx.llvm);
 
     if (exe.target.getOs() == builtin.Os.linux) {
-        const libstdcxx_path_padded = try b.exec([][]const u8.{
-            ctx.cxx_compiler,
-            "-print-file-name=libstdc++.a",
-        });
-        const libstdcxx_path = mem.split(libstdcxx_path_padded, "\r\n").next().?;
-        if (mem.eql(u8, libstdcxx_path, "libstdc++.a")) {
-            warn(
-                \\Unable to determine path to libstdc++.a
-                \\On Fedora, install libstdc++-static and try again.
-                \\
-            );
-            return error.RequiredLibraryNotFound;
-        }
-        exe.addObjectFile(libstdcxx_path);
+        try addCxxKnownPath(b, ctx, exe, "libstdc++.a",
+            \\Unable to determine path to libstdc++.a
+            \\On Fedora, install libstdc++-static and try again.
+            \\
+        );
 
         exe.linkSystemLibrary("pthread");
     } else if (exe.target.isDarwin()) {
-        exe.linkSystemLibrary("c++");
+        if (addCxxKnownPath(b, ctx, exe, "libgcc_eh.a", "")) {
+            // Compiler is GCC.
+            try addCxxKnownPath(b, ctx, exe, "libstdc++.a", null);
+            exe.linkSystemLibrary("pthread");
+            // TODO LLD cannot perform this link.
+            // See https://github.com/ziglang/zig/issues/1535
+            exe.enableSystemLinkerHack();
+        } else |err| switch (err) {
+            error.RequiredLibraryNotFound => {
+                // System compiler, not gcc.
+                exe.linkSystemLibrary("c++");
+            },
+            else => return err,
+        }
     }
 
     if (ctx.dia_guids_lib.len != 0) {
         exe.addObjectFile(ctx.dia_guids_lib);
     }
 
-    if (exe.target.getOs() != builtin.Os.windows) {
-        exe.linkSystemLibrary("xml2");
-    }
     exe.linkSystemLibrary("c");
+}
+
+fn addCxxKnownPath(
+    b: *Builder,
+    ctx: Context,
+    exe: var,
+    objname: []const u8,
+    errtxt: ?[]const u8,
+) !void {
+    const path_padded = try b.exec([][]const u8.{
+        ctx.cxx_compiler,
+        b.fmt("-print-file-name={}", objname),
+    });
+    const path_unpadded = mem.split(path_padded, "\r\n").next().?;
+    if (mem.eql(u8, path_unpadded, objname)) {
+        if (errtxt) |msg| {
+            warn("{}", msg);
+        } else {
+            warn("Unable to determine path to {}\n", objname);
+        }
+        return error.RequiredLibraryNotFound;
+    }
+    exe.addObjectFile(path_unpadded);
 }
 
 const Context = struct.{

@@ -11,10 +11,10 @@
 
 #include "all_types.hpp"
 
-int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const char *target_file,
+Error parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const char *target_file,
         CodeGen *codegen, AstNode *source_node);
 
-int parse_h_buf(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, Buf *source,
+Error parse_h_buf(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, Buf *source,
         CodeGen *codegen, AstNode *source_node);
 
 #endif

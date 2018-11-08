@@ -3364,10 +3364,10 @@ static ZigVar *create_local_var(CodeGen *codegen, AstNode *node, Scope *parent_s
                 add_error_note(codegen, msg, existing_var->decl_node, buf_sprintf("previous declaration is here"));
                 variable_entry->value->type = codegen->builtin_types.entry_invalid;
             } else {
-                ZigType *type = get_primitive_type(codegen, name);
-                if (type != nullptr) {
+                ZigType *type;
+                if (get_primitive_type(codegen, name, &type) != ErrorPrimitiveTypeNotFound) {
                     add_node_error(codegen, node,
-                            buf_sprintf("variable shadows type '%s'", buf_ptr(&type->name)));
+                            buf_sprintf("variable shadows primitive type '%s'", buf_ptr(name)));
                     variable_entry->value->type = codegen->builtin_types.entry_invalid;
                 } else {
                     Tld *tld = find_decl(codegen, parent_scope, name);
@@ -3792,6 +3792,7 @@ static IrInstruction *ir_gen_null_literal(IrBuilder *irb, Scope *scope, AstNode 
 static IrInstruction *ir_gen_symbol(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval,
         IrInstruction *result_loc)
 {
+    Error err;
     assert(node->type == NodeTypeSymbol);
 
     Buf *variable_name = node->data.symbol_expr.symbol;
@@ -3805,8 +3806,15 @@ static IrInstruction *ir_gen_symbol(IrBuilder *irb, Scope *scope, AstNode *node,
         return &const_instruction->base;
     }
 
-    ZigType *primitive_type = get_primitive_type(irb->codegen, variable_name);
-    if (primitive_type != nullptr) {
+    ZigType *primitive_type;
+    if ((err = get_primitive_type(irb->codegen, variable_name, &primitive_type))) {
+        if (err == ErrorOverflow) {
+            add_node_error(irb->codegen, node,
+                buf_sprintf("primitive integer type '%s' exceeds maximum bit width of 65535",
+                    buf_ptr(variable_name)));
+            return irb->codegen->invalid_instruction;
+        }
+    } else {
         IrInstruction *value = ir_build_const_type(irb, scope, node, primitive_type);
         return ir_lval_wrap(irb, scope, value, lval);
     }
@@ -5448,6 +5456,7 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
         }
 
         ir_set_cursor_at_end_and_append_block(irb, else_block);
+        assert(else_node != nullptr);
 
         // TODO make it an error to write to error variable
         AstNode *err_symbol_node = else_node; // TODO make more accurate
@@ -6611,7 +6620,6 @@ static ZigType *get_error_set_union(CodeGen *g, ErrorTableEntry **errors, ZigTyp
         }
     }
 
-    err_set_type->is_copyable = true;
     err_set_type->type_ref = g->builtin_types.entry_global_error_set->type_ref;
     err_set_type->di_type = g->builtin_types.entry_global_error_set->di_type;
     err_set_type->data.error_set.err_count = count;
@@ -6650,7 +6658,6 @@ static ZigType *make_err_set_with_one_item(CodeGen *g, Scope *parent_scope, AstN
     ZigType *err_set_type = new_type_table_entry(ZigTypeIdErrorSet);
     buf_resize(&err_set_type->name, 0);
     buf_appendf(&err_set_type->name, "error.{%s}", buf_ptr(&err_entry->name));
-    err_set_type->is_copyable = true;
     err_set_type->type_ref = g->builtin_types.entry_global_error_set->type_ref;
     err_set_type->di_type = g->builtin_types.entry_global_error_set->di_type;
     err_set_type->data.error_set.err_count = 1;
@@ -6671,7 +6678,6 @@ static IrInstruction *ir_gen_err_set_decl(IrBuilder *irb, Scope *parent_scope, A
     Buf *type_name = get_anon_type_name(irb->codegen, irb->exec, "error set", node);
     ZigType *err_set_type = new_type_table_entry(ZigTypeIdErrorSet);
     buf_init_from_buf(&err_set_type->name, type_name);
-    err_set_type->is_copyable = true;
     err_set_type->data.error_set.err_count = err_count;
     err_set_type->type_ref = irb->codegen->builtin_types.entry_global_error_set->type_ref;
     err_set_type->di_type = irb->codegen->builtin_types.entry_global_error_set->di_type;
@@ -8543,7 +8549,6 @@ static ZigType *get_error_set_intersection(IrAnalyze *ira, ZigType *set1, ZigTyp
     }
     free(errors);
 
-    err_set_type->is_copyable = true;
     err_set_type->type_ref = ira->codegen->builtin_types.entry_global_error_set->type_ref;
     err_set_type->di_type = ira->codegen->builtin_types.entry_global_error_set->di_type;
     err_set_type->data.error_set.err_count = intersection_list.length;
@@ -18392,7 +18397,7 @@ static IrInstruction *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruct
 
     ZigList<ErrorMsg *> errors = {0};
 
-    int err;
+    Error err;
     if ((err = parse_h_buf(child_import, &errors, &cimport_scope->buf, ira->codegen, node))) {
         if (err != ErrorCCompileErrors) {
             ir_add_error_node(ira, node, buf_sprintf("C import failed: %s", err_str(err)));
@@ -18508,7 +18513,7 @@ static IrInstruction *ir_analyze_instruction_embed_file(IrAnalyze *ira, IrInstru
 
     // load from file system into const expr
     Buf *file_contents = buf_alloc();
-    int err;
+    Error err;
     if ((err = file_fetch(ira->codegen, file_path, file_contents))) {
         if (err == ErrorFileNotFound) {
             ir_add_error(ira, instruction->name, buf_sprintf("unable to find '%s'", buf_ptr(file_path)));
@@ -18879,7 +18884,7 @@ static IrInstruction *ir_analyze_instruction_int_type(IrAnalyze *ira, IrInstruct
 
     IrInstruction *bit_count_value = instruction->bit_count->child;
     uint64_t bit_count;
-    if (!ir_resolve_unsigned(ira, bit_count_value, ira->codegen->builtin_types.entry_u32, &bit_count))
+    if (!ir_resolve_unsigned(ira, bit_count_value, ira->codegen->builtin_types.entry_u16, &bit_count))
         return ira->codegen->invalid_instruction;
 
     return ir_const_type(ira, &instruction->base, get_int_type(ira->codegen, is_signed, (uint32_t)bit_count));

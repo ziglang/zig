@@ -1,0 +1,40 @@
+#!/bin/sh
+
+set -x
+set -e
+
+BUILDDIR="$(pwd)"
+
+sudo sh -c 'echo "deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-7 main" >> /etc/apt/sources.list'
+wget -O - http://apt.llvm.org/llvm-snapshot.gpg.key|sudo apt-key add -
+sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+sudo apt-get update -q
+
+sudo apt-get remove -y llvm-*
+sudo rm -rf /usr/local/*
+sudo apt-get install -y libxml2-dev libclang-7-dev llvm-7 llvm-7-dev cmake s3cmd gcc-7 g++-7
+
+export CC=gcc-7
+export CXX=g++-7
+mkdir build
+cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make -j2 install
+./zig build --build-file ../build.zig test
+
+if [ "${BUILD_REASON}" != "PullRequest" ]; then
+  ARTIFACTSDIR="$BUILDDIR/artifacts"
+  mkdir "$ARTIFACTSDIR"
+  docker run -i --mount type=bind,source="$ARTIFACTSDIR",target=/z ziglang/static-base:llvm7-1 -j2 $BUILD_SOURCEVERSION
+  TARBALL="$(ls $ARTIFACTSDIR)"
+  mv "$DOWNLOADSECUREFILE_SECUREFILEPATH" "$HOME/.s3cfg"
+  s3cmd put -P "$ARTIFACTSDIR/$TARBALL" s3://ziglang.org/builds/
+  touch empty
+  s3cmd put -P empty s3://ziglang.org/builds/zig-linux-x86_64-$BUILD_SOURCEBRANCHNAME.tar.xz --add-header="Cache-Control: max-age=0, must-revalidate" --add-header=x-amz-website-redirect-location:/builds/$TARBALL
+
+  SHASUM=$(sha256sum $ARTIFACTSDIR/$TARBALL | cut '-d ' -f1)
+  BYTESIZE=$(wc -c < $ARTIFACTSDIR/$TARBALL)
+  echo "##vso[task.setvariable variable=tarball;isOutput=true]$TARBALL"
+  echo "##vso[task.setvariable variable=shasum;isOutput=true]$SHASUM"
+  echo "##vso[task.setvariable variable=bytesize;isOutput=true]$BYTESIZE"
+fi
