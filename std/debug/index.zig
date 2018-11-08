@@ -307,9 +307,9 @@ fn printSourceAtAddressWindows(di: *DebugInfo, out_stream: var, relocated_addres
         // we have no information to add to the address
         if (tty_color) {
             try out_stream.print("???:?:?: ");
-            setTtyColor(TtyColor.Dim, out_stream);
+            setTtyColor(TtyColor.Dim);
             try out_stream.print("0x{x} in ??? (???)", relocated_address);
-            setTtyColor(TtyColor.Reset, out_stream);
+            setTtyColor(TtyColor.Reset);
             try out_stream.print("\n\n\n");
         } else {
             try out_stream.print("???:?:?: 0x{x} in ??? (???)\n\n\n", relocated_address);
@@ -412,17 +412,17 @@ fn printSourceAtAddressWindows(di: *DebugInfo, out_stream: var, relocated_addres
     };
 
     if (tty_color) {
-        setTtyColor(TtyColor.White, out_stream);
+        setTtyColor(TtyColor.White);
         if (opt_line_info) |li| {
             try out_stream.print("{}:{}:{}", li.file_name, li.line, li.column);
         } else {
             try out_stream.print("???:?:?");
         }
-        setTtyColor(TtyColor.Reset, out_stream);
+        setTtyColor(TtyColor.Reset);
         try out_stream.print(": ");
-        setTtyColor(TtyColor.Dim, out_stream);
+        setTtyColor(TtyColor.Dim);
         try out_stream.print("0x{x} in {} ({})", relocated_address, symbol_name, obj_basename);
-        setTtyColor(TtyColor.Reset, out_stream);
+        setTtyColor(TtyColor.Reset);
 
         if (opt_line_info) |line_info| {
             try out_stream.print("\n");
@@ -436,9 +436,9 @@ fn printSourceAtAddressWindows(di: *DebugInfo, out_stream: var, relocated_addres
                             try out_stream.writeByte(' ');
                         }
                     }
-                    setTtyColor(TtyColor.Green, out_stream);
+                    setTtyColor(TtyColor.Green);
                     try out_stream.write("^");
-                    setTtyColor(TtyColor.Reset, out_stream);
+                    setTtyColor(TtyColor.Reset);
                     try out_stream.write("\n");
                 }
             } else |err| switch (err) {
@@ -468,26 +468,26 @@ const TtyColor = enum.{
 };
 
 /// TODO this is a special case hack right now. clean it up and maybe make it part of std.fmt
-fn setTtyColor(tty_color: TtyColor, out_stream: var) void {
+fn setTtyColor(tty_color: TtyColor) void {
     if (supportsAnsi(stderr_file)) {
         switch (tty_color) {
             TtyColor.Red => {
-                out_stream.write(RED) catch return;
+                stderr_file.write(RED) catch return;
             },
             TtyColor.Green => {
-                out_stream.write(GREEN) catch return;
+                stderr_file.write(GREEN) catch return;
             },
             TtyColor.Cyan => {
-                out_stream.write(CYAN) catch return;
+                stderr_file.write(CYAN) catch return;
             },
             TtyColor.White, TtyColor.Bold => {
-                out_stream.write(WHITE) catch return;
+                stderr_file.write(WHITE) catch return;
             },
             TtyColor.Dim => {
-                out_stream.write(DIM) catch return;
+                stderr_file.write(DIM) catch return;
             },
             TtyColor.Reset => {
-                out_stream.write(RESET) catch return;
+                stderr_file.write(RESET) catch return;
             },
         }
     } else {
