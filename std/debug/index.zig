@@ -171,7 +171,9 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
     os.abort();
 }
 
+const RED = "\x1b[31;1m";
 const GREEN = "\x1b[32;1m";
+const CYAN = "\x1b[36;1m";
 const WHITE = "\x1b[37;1m";
 const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
@@ -454,38 +456,61 @@ const TtyColor = enum.{
 
 /// TODO this is a special case hack right now. clean it up and maybe make it part of std.fmt
 fn setTtyColor(tty_color: TtyColor) void {
-    const S = struct.{
-        var attrs: windows.WORD = undefined;
-        var init_attrs = false;
-    };
-    if (!S.init_attrs) {
-        S.init_attrs = true;
-        var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
-        // TODO handle error
-        _ = windows.GetConsoleScreenBufferInfo(stderr_file.handle, &info);
-        S.attrs = info.wAttributes;
-    }
+    if (os.supportsAnsiEscapeCodes(stderr_file.handle)) {
+        switch (tty_color) {
+            TtyColor.Red => {
+                stderr_file.write(RED) catch return;
+            },
+            TtyColor.Green => {
+                stderr_file.write(GREEN) catch return;
+            },
+            TtyColor.Cyan => {
+                stderr_file.write(CYAN) catch return;
+            },
+            TtyColor.White, TtyColor.Bold => {
+                stderr_file.write(WHITE) catch return;
+            },
+            TtyColor.Dim => {
+                stderr_file.write(DIM) catch return;
+            },
+            TtyColor.Reset => {
+                stderr_file.write(RESET) catch return;
+            },
+        }
+    } else {
+        const S = struct.{
+            var attrs: windows.WORD = undefined;
+            var init_attrs = false;
+        };
+        if (!S.init_attrs) {
+            S.init_attrs = true;
+            var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
+            // TODO handle error
+            _ = windows.GetConsoleScreenBufferInfo(stderr_file.handle, &info);
+            S.attrs = info.wAttributes;
+        }
 
-    // TODO handle errors
-    switch (tty_color) {
-        TtyColor.Red => {
-            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_RED | windows.FOREGROUND_INTENSITY);
-        },
-        TtyColor.Green => {
-            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_GREEN | windows.FOREGROUND_INTENSITY);
-        },
-        TtyColor.Cyan => {
-            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY);
-        },
-        TtyColor.White, TtyColor.Bold => {
-            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_RED | windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY);
-        },
-        TtyColor.Dim => {
-            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_INTENSITY);
-        },
-        TtyColor.Reset => {
-            _ = windows.SetConsoleTextAttribute(stderr_file.handle, S.attrs);
-        },
+        // TODO handle errors
+        switch (tty_color) {
+            TtyColor.Red => {
+                _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_RED | windows.FOREGROUND_INTENSITY);
+            },
+            TtyColor.Green => {
+                _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_GREEN | windows.FOREGROUND_INTENSITY);
+            },
+            TtyColor.Cyan => {
+                _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY);
+            },
+            TtyColor.White, TtyColor.Bold => {
+                _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_RED | windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY);
+            },
+            TtyColor.Dim => {
+                _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_INTENSITY);
+            },
+            TtyColor.Reset => {
+                _ = windows.SetConsoleTextAttribute(stderr_file.handle, S.attrs);
+            },
+        }
     }
 }
 
