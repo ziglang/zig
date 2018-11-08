@@ -2209,6 +2209,7 @@ enum IrInstructionId {
     IrInstructionIdAssertNonError,
     IrInstructionIdErrorUnionFieldErrorSet,
     IrInstructionIdFirstArgResultLoc,
+    IrInstructionIdInferArrayType,
 };
 
 struct IrInstruction {
@@ -2473,8 +2474,8 @@ struct IrInstructionContainerInitList {
 
     IrInstruction *container_type;
     IrInstruction *result_loc;
-    size_t item_count;
-    IrInstruction **items;
+    size_t elem_count;
+    IrInstruction **elem_result_loc_list;
 };
 
 struct IrInstructionContainerInitFieldsField {
@@ -3405,6 +3406,13 @@ struct IrInstructionFirstArgResultLoc {
 
     IrInstruction *prev_result_loc;
     IrInstruction *fn_ref;
+};
+
+struct IrInstructionInferArrayType {
+    IrInstruction base;
+
+    IrInstruction *src_type;
+    size_t elem_count;
 };
 
 static const size_t slice_ptr_index = 0;

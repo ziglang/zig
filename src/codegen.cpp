@@ -4797,30 +4797,6 @@ static LLVMValueRef ir_render_union_init(CodeGen *g, IrExecutable *executable, I
     return result_ptr;
 }
 
-static LLVMValueRef ir_render_container_init_list(CodeGen *g, IrExecutable *executable,
-        IrInstructionContainerInitList *instruction)
-{
-    ZigType *array_type = instruction->base.value.type;
-    assert(array_type->id == ZigTypeIdArray);
-    LLVMValueRef tmp_array_ptr = ir_llvm_value(g, instruction->result_loc);
-    assert(tmp_array_ptr);
-
-    size_t field_count = instruction->item_count;
-
-    ZigType *child_type = array_type->data.array.child_type;
-    for (size_t i = 0; i < field_count; i += 1) {
-        LLVMValueRef elem_val = ir_llvm_value(g, instruction->items[i]);
-        LLVMValueRef indices[] = {
-            LLVMConstNull(g->builtin_types.entry_usize->type_ref),
-            LLVMConstInt(g->builtin_types.entry_usize->type_ref, i, false),
-        };
-        LLVMValueRef elem_ptr = LLVMBuildInBoundsGEP(g->builder, tmp_array_ptr, indices, 2, "");
-        gen_assign_raw(g, elem_ptr, get_pointer_to_type(g, child_type, false), elem_val);
-    }
-
-    return tmp_array_ptr;
-}
-
 static LLVMValueRef ir_render_panic(CodeGen *g, IrExecutable *executable, IrInstructionPanic *instruction) {
     gen_panic(g, ir_llvm_value(g, instruction->msg), get_cur_err_ret_trace_val(g, instruction->base.scope));
     return nullptr;
@@ -5257,6 +5233,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdAllocaGen:
         case IrInstructionIdFirstArgResultLoc:
         case IrInstructionIdResultCast:
+        case IrInstructionIdContainerInitList:
+        case IrInstructionIdInferArrayType:
             zig_unreachable();
 
         case IrInstructionIdDeclVarGen:
@@ -5369,8 +5347,6 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_int_to_err(g, executable, (IrInstructionIntToErr *)instruction);
         case IrInstructionIdErrToInt:
             return ir_render_err_to_int(g, executable, (IrInstructionErrToInt *)instruction);
-        case IrInstructionIdContainerInitList:
-            return ir_render_container_init_list(g, executable, (IrInstructionContainerInitList *)instruction);
         case IrInstructionIdPanic:
             return ir_render_panic(g, executable, (IrInstructionPanic *)instruction);
         case IrInstructionIdTagName:

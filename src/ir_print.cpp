@@ -268,14 +268,14 @@ static void ir_print_phi(IrPrint *irp, IrInstructionPhi *phi_instruction) {
 static void ir_print_container_init_list(IrPrint *irp, IrInstructionContainerInitList *instruction) {
     ir_print_other_instruction(irp, instruction->container_type);
     fprintf(irp->f, "{");
-    if (instruction->item_count > 50) {
-        fprintf(irp->f, "...(%" ZIG_PRI_usize " items)...", instruction->item_count);
+    if (instruction->elem_count > 50) {
+        fprintf(irp->f, "...(%" ZIG_PRI_usize " items)...", instruction->elem_count);
     } else {
-        for (size_t i = 0; i < instruction->item_count; i += 1) {
-            IrInstruction *item = instruction->items[i];
+        for (size_t i = 0; i < instruction->elem_count; i += 1) {
+            IrInstruction *elem_result_loc = instruction->elem_result_loc_list[i];
             if (i != 0)
                 fprintf(irp->f, ", ");
-            ir_print_other_instruction(irp, item);
+            ir_print_other_instruction(irp, elem_result_loc);
         }
     }
     fprintf(irp->f, "}");
@@ -1417,6 +1417,12 @@ static void ir_print_first_arg_result_loc(IrPrint *irp, IrInstructionFirstArgRes
     fprintf(irp->f, ")");
 }
 
+static void ir_print_infer_array_type(IrPrint *irp, IrInstructionInferArrayType *instruction) {
+    fprintf(irp->f, "InferArrayType(src_type=");
+    ir_print_other_instruction(irp, instruction->src_type);
+    fprintf(irp->f, ",elem_count=%zu)", instruction->elem_count);
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -1886,6 +1892,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdFirstArgResultLoc:
             ir_print_first_arg_result_loc(irp, (IrInstructionFirstArgResultLoc *)instruction);
+            break;
+        case IrInstructionIdInferArrayType:
+            ir_print_infer_array_type(irp, (IrInstructionInferArrayType *)instruction);
             break;
     }
     fprintf(irp->f, "\n");
