@@ -439,6 +439,7 @@ pub fn readIntBE(comptime T: type, bytes: []const u8) T {
         return @bitCast(T, readIntBE(@IntType(false, T.bit_count), bytes));
     }
     assert(bytes.len == @sizeOf(T));
+    if (T == u8) return bytes[0];
     var result: T = 0;
     {
         comptime var i = 0;
@@ -456,6 +457,7 @@ pub fn readIntLE(comptime T: type, bytes: []const u8) T {
         return @bitCast(T, readIntLE(@IntType(false, T.bit_count), bytes));
     }
     assert(bytes.len == @sizeOf(T));
+    if (T == u8) return bytes[0];
     var result: T = 0;
     {
         comptime var i = 0;
@@ -490,6 +492,84 @@ pub fn writeInt(buf: []u8, value: var, endian: builtin.Endian) void {
         },
     }
     assert(bits == 0);
+}
+
+pub fn writeIntBE(comptime T: type, buf: *[@sizeOf(T)]u8, value: T) void {
+    assert(T.bit_count % 8 == 0);
+    const uint = @IntType(false, T.bit_count);
+    if (uint == u0) {
+        return;
+    }
+    var bits = @bitCast(uint, value);
+    if (uint == u8) {
+        buf[0] = bits;
+        return;
+    }
+    var index: usize = buf.len;
+    while (index != 0) {
+        index -= 1;
+
+        buf[index] = @truncate(u8, bits);
+        bits >>= 8;
+    }
+    assert(bits == 0);
+}
+
+pub fn writeIntLE(comptime T: type, buf: *[@sizeOf(T)]u8, value: T) void {
+    assert(T.bit_count % 8 == 0);
+    const uint = @IntType(false, T.bit_count);
+    if (uint == u0) {
+        return;
+    }
+    var bits = @bitCast(uint, value);
+    if (uint == u8) {
+        buf[0] = bits;
+        return;
+    }
+    // FIXME: this should just be for (buf).
+    // See https://github.com/ziglang/zig/issues/1663
+    for (buf.*) |*b| {
+        b.* = @truncate(u8, bits);
+        bits >>= 8;
+    }
+    assert(bits == 0);
+}
+
+test "writeIntBE/LE" {
+    var buf0: [0]u8 = undefined;
+    var buf1: [1]u8 = undefined;
+    var buf2: [2]u8 = undefined;
+    var buf9: [9]u8 = undefined;
+
+    writeIntBE(u0, &buf0, 0x0);
+    assert(eql_slice_u8(buf0[0..], []u8{}));
+    writeIntLE(u0, &buf0, 0x0);
+    assert(eql_slice_u8(buf0[0..], []u8{}));
+
+    writeIntBE(u8, &buf1, 0x12);
+    assert(eql_slice_u8(buf1[0..], []u8{0x12}));
+    writeIntLE(u8, &buf1, 0x34);
+    assert(eql_slice_u8(buf1[0..], []u8{0x34}));
+
+    writeIntBE(u16, &buf2, 0x1234);
+    assert(eql_slice_u8(buf2[0..], []u8{ 0x12, 0x34 }));
+    writeIntLE(u16, &buf2, 0x5678);
+    assert(eql_slice_u8(buf2[0..], []u8{ 0x78, 0x56 }));
+
+    writeIntBE(u72, &buf9, 0x123456789abcdef024);
+    assert(eql_slice_u8(buf9[0..], []u8{ 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x24 }));
+    writeIntLE(u72, &buf9, 0xfedcba9876543210ec);
+    assert(eql_slice_u8(buf9[0..], []u8{ 0xec, 0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe }));
+
+    writeIntBE(i8, &buf1, -1);
+    assert(eql_slice_u8(buf1[0..], []u8{0xff}));
+    writeIntLE(i8, &buf1, -2);
+    assert(eql_slice_u8(buf1[0..], []u8{0xfe}));
+
+    writeIntBE(i16, &buf2, -3);
+    assert(eql_slice_u8(buf2[0..], []u8{ 0xff, 0xfd }));
+    writeIntLE(i16, &buf2, -4);
+    assert(eql_slice_u8(buf2[0..], []u8{ 0xfc, 0xff }));
 }
 
 pub fn hash_slice_u8(k: []const u8) u32 {
