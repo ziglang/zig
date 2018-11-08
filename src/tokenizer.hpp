@@ -126,6 +126,7 @@ enum TokenId {
     TokenIdTimesEq,
     TokenIdTimesPercent,
     TokenIdTimesPercentEq,
+    TokenIdCount,
 };
 
 struct TokenFloatLit {

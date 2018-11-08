@@ -1627,6 +1627,8 @@ const char * token_name(TokenId id) {
         case TokenIdTimesPercent: return "*%";
         case TokenIdTimesPercentEq: return "*%=";
         case TokenIdBarBarEq: return "||=";
+        case TokenIdCount:
+            zig_unreachable();
     }
     return "(invalid token)";
 }
