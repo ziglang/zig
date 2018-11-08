@@ -3591,7 +3591,10 @@ static LLVMValueRef ir_render_union_field_ptr(CodeGen *g, IrExecutable *executab
         return bitcasted_union_field_ptr;
     }
 
-    if (ir_want_runtime_safety(g, &instruction->base)) {
+    bool safety_check_on = instruction->id == IrInstructionUnionFieldPtrIdRef &&
+        ir_want_runtime_safety(g, &instruction->base);
+
+    if (safety_check_on) {
         LLVMValueRef tag_field_ptr = LLVMBuildStructGEP(g->builder, union_ptr, union_type->data.unionation.gen_tag_index, "");
         LLVMValueRef tag_value = gen_load_untyped(g, tag_field_ptr, 0, false, "");
 
@@ -3609,7 +3612,16 @@ static LLVMValueRef ir_render_union_field_ptr(CodeGen *g, IrExecutable *executab
         LLVMPositionBuilderAtEnd(g->builder, ok_block);
     }
 
-    LLVMValueRef union_field_ptr = LLVMBuildStructGEP(g->builder, union_ptr, union_type->data.unionation.gen_union_index, "");
+    if (instruction->id == IrInstructionUnionFieldPtrIdResultPtr) {
+        LLVMValueRef tag_field_ptr = LLVMBuildStructGEP(g->builder, union_ptr,
+                union_type->data.unionation.gen_tag_index, "");
+        LLVMValueRef tag_value = bigint_to_llvm_const(union_type->data.unionation.tag_type->type_ref,
+                &field->enum_field->value);
+        gen_store_untyped(g, tag_value, tag_field_ptr, 0, false);
+    }
+
+    LLVMValueRef union_field_ptr = LLVMBuildStructGEP(g->builder, union_ptr,
+            union_type->data.unionation.gen_union_index, "");
     LLVMValueRef bitcasted_union_field_ptr = LLVMBuildBitCast(g->builder, union_field_ptr, field_type_ref, "");
     return bitcasted_union_field_ptr;
 }
@@ -4731,72 +4743,6 @@ static LLVMValueRef ir_render_union_tag(CodeGen *g, IrExecutable *executable, Ir
     return get_handle_value(g, tag_field_ptr, tag_type, ptr_type);
 }
 
-static LLVMValueRef ir_render_struct_init(CodeGen *g, IrExecutable *executable,
-        IrInstructionStructInit *instruction)
-{
-    LLVMValueRef result_ptr = ir_llvm_value(g, instruction->result_loc);
-
-    for (size_t i = 0; i < instruction->field_count; i += 1) {
-        IrInstructionStructInitField *field = &instruction->fields[i];
-        TypeStructField *type_struct_field = field->type_struct_field;
-        if (!type_has_bits(type_struct_field->type_entry))
-            continue;
-
-        LLVMValueRef field_ptr = LLVMBuildStructGEP(g->builder, result_ptr,
-                (unsigned)type_struct_field->gen_index, "");
-        LLVMValueRef value = ir_llvm_value(g, field->value);
-
-        uint32_t field_align_bytes = get_abi_alignment(g, type_struct_field->type_entry);
-        uint32_t host_int_bytes = get_host_int_bytes(g, instruction->struct_type, type_struct_field);
-
-        ZigType *ptr_type = get_pointer_to_type_extra(g, type_struct_field->type_entry,
-                false, false, PtrLenSingle, field_align_bytes,
-                (uint32_t)type_struct_field->bit_offset_in_host, host_int_bytes);
-
-        gen_assign_raw(g, field_ptr, ptr_type, value);
-    }
-    return result_ptr;
-}
-
-static LLVMValueRef ir_render_union_init(CodeGen *g, IrExecutable *executable, IrInstructionUnionInit *instruction) {
-    TypeUnionField *type_union_field = instruction->field;
-
-    if (!type_has_bits(type_union_field->type_entry))
-        return nullptr;
-
-    uint32_t field_align_bytes = get_abi_alignment(g, type_union_field->type_entry);
-    ZigType *ptr_type = get_pointer_to_type_extra(g, type_union_field->type_entry,
-            false, false, PtrLenSingle, field_align_bytes,
-            0, 0);
-
-    LLVMValueRef result_ptr = ir_llvm_value(g, instruction->result_loc);
-
-    LLVMValueRef uncasted_union_ptr;
-    // Even if safety is off in this block, if the union type has the safety field, we have to populate it
-    // correctly. Otherwise safety code somewhere other than here could fail.
-    ZigType *union_type = instruction->union_type;
-    if (union_type->data.unionation.gen_tag_index != SIZE_MAX) {
-        LLVMValueRef tag_field_ptr = LLVMBuildStructGEP(g->builder, result_ptr,
-                union_type->data.unionation.gen_tag_index, "");
-
-        LLVMValueRef tag_value = bigint_to_llvm_const(union_type->data.unionation.tag_type->type_ref,
-                &type_union_field->enum_field->value);
-        gen_store_untyped(g, tag_value, tag_field_ptr, 0, false);
-
-        uncasted_union_ptr = LLVMBuildStructGEP(g->builder, result_ptr,
-                (unsigned)union_type->data.unionation.gen_union_index, "");
-    } else {
-        uncasted_union_ptr = LLVMBuildStructGEP(g->builder, result_ptr, (unsigned)0, "");
-    }
-
-    LLVMValueRef field_ptr = LLVMBuildBitCast(g->builder, uncasted_union_ptr, ptr_type->type_ref, "");
-    LLVMValueRef value = ir_llvm_value(g, instruction->init_value);
-
-    gen_assign_raw(g, field_ptr, ptr_type, value);
-
-    return result_ptr;
-}
-
 static LLVMValueRef ir_render_panic(CodeGen *g, IrExecutable *executable, IrInstructionPanic *instruction) {
     gen_panic(g, ir_llvm_value(g, instruction->msg), get_cur_err_ret_trace_val(g, instruction->base.scope));
     return nullptr;
@@ -5327,10 +5273,6 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_err_wrap_payload(g, executable, (IrInstructionErrWrapPayload *)instruction);
         case IrInstructionIdUnionTag:
             return ir_render_union_tag(g, executable, (IrInstructionUnionTag *)instruction);
-        case IrInstructionIdStructInit:
-            return ir_render_struct_init(g, executable, (IrInstructionStructInit *)instruction);
-        case IrInstructionIdUnionInit:
-            return ir_render_union_init(g, executable, (IrInstructionUnionInit *)instruction);
         case IrInstructionIdPtrCast:
             return ir_render_ptr_cast(g, executable, (IrInstructionPtrCast *)instruction);
         case IrInstructionIdBitCast:

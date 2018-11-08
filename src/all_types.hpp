@@ -2077,8 +2077,6 @@ enum IrInstructionId {
     IrInstructionIdCast,
     IrInstructionIdContainerInitList,
     IrInstructionIdContainerInitFields,
-    IrInstructionIdStructInit,
-    IrInstructionIdUnionInit,
     IrInstructionIdUnreachable,
     IrInstructionIdTypeOf,
     IrInstructionIdToPtrType,
@@ -2406,11 +2404,18 @@ struct IrInstructionStructFieldPtr {
     bool is_const;
 };
 
+enum IrInstructionUnionFieldPtrId {
+    IrInstructionUnionFieldPtrIdRef,
+    IrInstructionUnionFieldPtrIdSwitch,
+    IrInstructionUnionFieldPtrIdResultPtr,
+};
+
 struct IrInstructionUnionFieldPtr {
     IrInstruction base;
 
     IrInstruction *union_ptr;
     TypeUnionField *field;
+    IrInstructionUnionFieldPtrId id;
     bool is_const;
 };
 
@@ -2491,29 +2496,6 @@ struct IrInstructionContainerInitFields {
     IrInstruction *container_type;
     size_t field_count;
     IrInstructionContainerInitFieldsField *fields;
-    IrInstruction *result_loc;
-};
-
-struct IrInstructionStructInitField {
-    IrInstruction *value;
-    TypeStructField *type_struct_field;
-};
-
-struct IrInstructionStructInit {
-    IrInstruction base;
-
-    ZigType *struct_type;
-    IrInstruction *result_loc;
-    size_t field_count;
-    IrInstructionStructInitField *fields;
-};
-
-struct IrInstructionUnionInit {
-    IrInstruction base;
-
-    ZigType *union_type;
-    TypeUnionField *field;
-    IrInstruction *init_value;
     IrInstruction *result_loc;
 };
 
