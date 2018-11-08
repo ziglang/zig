@@ -37,7 +37,7 @@ pub const Builder = struct.{
     invalid_user_input: bool,
     zig_exe: []const u8,
     default_step: *Step,
-    env_map: *const BufMap,
+    env_map: *BufMap,
     top_level_steps: ArrayList(*TopLevelStep),
     prefix: []const u8,
     search_prefixes: ArrayList([]const u8),
