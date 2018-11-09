@@ -1319,7 +1319,7 @@ test "write a file, watch it, write it again" {
 }
 
 async fn testFsWatchCantFail(loop: *Loop, result: *(anyerror!void)) void {
-    result.* = await async testFsWatch(loop) catch unreachable;
+    result.* = await (async testFsWatch(loop) catch unreachable);
 }
 
 async fn testFsWatch(loop: *Loop) !void {

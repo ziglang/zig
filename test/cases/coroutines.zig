@@ -221,14 +221,14 @@ test "error return trace across suspend points - async return" {
 }
 
 // TODO https://github.com/ziglang/zig/issues/760
-fn nonFailing() (promise->anyerror!void) {
+fn nonFailing() promise->(anyerror!void) {
     return async<std.debug.global_allocator> suspendThenFail() catch unreachable;
 }
 async fn suspendThenFail() anyerror!void {
     suspend;
     return error.Fail;
 }
-async fn printTrace(p: promise->anyerror!void) void {
+async fn printTrace(p: promise->(anyerror!void)) void {
     (await p) catch |e| {
         std.debug.assert(e == error.Fail);
         if (@errorReturnTrace()) |trace| {

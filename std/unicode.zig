@@ -286,7 +286,7 @@ fn testUtf8Encode() !void {
     debug.assert(array[0] == 0b11000010);
     debug.assert(array[1] == 0b10100010);
 
-    debug.assert((try utf8Encode(try utf8Decode("𝝈"), array[0..])) == 4);
+    debug.assert((try utf8Encode(try utf8Decode("𐍈"), array[0..])) == 4);
     debug.assert(array[0] == 0b11110000);
     debug.assert(array[1] == 0b10010000);
     debug.assert(array[2] == 0b10001101);

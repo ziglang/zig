@@ -51,6 +51,22 @@ static void ast_error(ParseContext *pc, Token *token, const char *format, ...) {
     exit(EXIT_FAILURE);
 }
 
+ATTRIBUTE_PRINTF(4, 5)
+ATTRIBUTE_NORETURN
+static void ast_asm_error(ParseContext *pc, AstNode *node, size_t offset, const char *format, ...) {
+    assert(node->type == NodeTypeAsmExpr);
+    va_list ap;
+    va_start(ap, format);
+    Buf *msg = buf_vprintf(format, ap);
+    va_end(ap);
+
+    ErrorMsg *err = err_msg_create_with_line(pc->owner->path, node->line, node->column,
+            pc->owner->source_code, pc->owner->line_offsets, msg);
+
+    print_err_msg(err, pc->err_color);
+    exit(EXIT_FAILURE);
+}
+
 static Buf ast_token_str(Buf *input, Token *token) {
     Buf str = BUF_INIT;
     buf_init_from_mem(&str, buf_ptr(input) + token->start_pos, token->end_pos - token->start_pos);
@@ -204,60 +220,6 @@ static AstNode *ast_parse_bin_op_expr(
     return res;
 }
 
-// Op* Child
-static AstNode *ast_parse_prefix_op_expr(
-    ParseContext *pc,
-    AstNode *(*op_parse)(ParseContext*),
-    AstNode *(*child_parse)(ParseContext*)
-) {
-    AstNode *res = nullptr;
-    AstNode **right = &res;
-    while (true) {
-        AstNode *prefix = op_parse(pc);
-        if (prefix == nullptr)
-            break;
-
-        *right = prefix;
-        switch (prefix->type) {
-            case NodeTypePrefixOpExpr:
-                right = &prefix->data.prefix_op_expr.primary_expr;
-                break;
-            case NodeTypeReturnExpr:
-                right = &prefix->data.return_expr.expr;
-                break;
-            case NodeTypeAwaitExpr:
-                right = &prefix->data.await_expr.expr;
-                break;
-            case NodeTypePromiseType:
-                right = &prefix->data.promise_type.payload_type;
-                break;
-            case NodeTypeArrayType:
-                right = &prefix->data.array_type.child_type;
-                break;
-            case NodeTypePointerType:
-                right = &prefix->data.pointer_type.op_expr;
-                break;
-            default:
-                zig_unreachable();
-        }
-    }
-
-    // If we have already consumed a token, and determined that
-    // this node is a prefix op, then we expect that the node has
-    // a child.
-    if (res != nullptr) {
-        *right = ast_expect(pc, child_parse);
-    } else {
-        // Otherwise, if we didn't consume a token, then we can return
-        // null, if the child expr did.
-        *right = child_parse(pc);
-        if (*right == nullptr)
-            return nullptr;
-    }
-
-    return res;
-}
-
 template<TokenId id, BinOpType op>
 AstNode *ast_parse_bin_op_simple(ParseContext *pc) {
     Token *op_token = eat_token_if(pc, id);
@@ -267,6 +229,93 @@ AstNode *ast_parse_bin_op_simple(ParseContext *pc) {
     AstNode *res = ast_create_node(pc, NodeTypeBinOpExpr, op_token);
     res->data.bin_op_expr.bin_op = op;
     return res;
+}
+
+static void ast_parse_asm_template(ParseContext *pc, AstNode *node) {
+    Buf *asm_template = node->data.asm_expr.asm_template;
+
+    enum State {
+        StateStart,
+        StatePercent,
+        StateTemplate,
+        StateVar,
+    };
+
+    ZigList<AsmToken> *tok_list = &node->data.asm_expr.token_list;
+    assert(tok_list->length == 0);
+
+    AsmToken *cur_tok = nullptr;
+
+    enum State state = StateStart;
+
+    for (size_t i = 0; i < buf_len(asm_template); i += 1) {
+        uint8_t c = *((uint8_t*)buf_ptr(asm_template) + i);
+        switch (state) {
+            case StateStart:
+                if (c == '%') {
+                    tok_list->add_one();
+                    cur_tok = &tok_list->last();
+                    cur_tok->id = AsmTokenIdPercent;
+                    cur_tok->start = i;
+                    state = StatePercent;
+                } else {
+                    tok_list->add_one();
+                    cur_tok = &tok_list->last();
+                    cur_tok->id = AsmTokenIdTemplate;
+                    cur_tok->start = i;
+                    state = StateTemplate;
+                }
+                break;
+            case StatePercent:
+                if (c == '%') {
+                    cur_tok->end = i;
+                    state = StateStart;
+                } else if (c == '[') {
+                    cur_tok->id = AsmTokenIdVar;
+                    state = StateVar;
+                } else if (c == '=') {
+                    cur_tok->id = AsmTokenIdUniqueId;
+                    cur_tok->end = i;
+                    state = StateStart;
+                } else {
+                    ast_asm_error(pc, node, i, "expected a '%%' or '['");
+                }
+                break;
+            case StateTemplate:
+                if (c == '%') {
+                    cur_tok->end = i;
+                    i -= 1;
+                    cur_tok = nullptr;
+                    state = StateStart;
+                }
+                break;
+            case StateVar:
+                if (c == ']') {
+                    cur_tok->end = i;
+                    state = StateStart;
+                } else if ((c >= 'a' && c <= 'z') ||
+                        (c >= '0' && c <= '9') ||
+                        (c == '_'))
+                {
+                    // do nothing
+                } else {
+                    ast_asm_error(pc, node, i, "invalid substitution character: '%c'", c);
+                }
+                break;
+        }
+    }
+
+    switch (state) {
+        case StateStart:
+            break;
+        case StatePercent:
+        case StateVar:
+            ast_asm_error(pc, node, buf_len(asm_template), "unexpected end of assembly template");
+            break;
+        case StateTemplate:
+            cur_tok->end = buf_len(asm_template);
+            break;
+    }
 }
 
 static AstNode *ast_parse_root(ParseContext *pc);
@@ -279,6 +328,8 @@ static AstNode *ast_parse_var_decl(ParseContext *pc);
 static AstNode *ast_parse_container_field(ParseContext *pc);
 static AstNode *ast_parse_statement(ParseContext *pc);
 static AstNode *ast_parse_if_statement(ParseContext *pc);
+static AstNode *ast_parse_labeled_statement(ParseContext *pc);
+static AstNode *ast_parse_loop_statement(ParseContext *pc);
 static AstNode *ast_parse_while_statement(ParseContext *pc);
 static AstNode *ast_parse_for_statement(ParseContext *pc);
 static AstNode *ast_parse_block_expr_statement(ParseContext *pc);
@@ -304,13 +355,15 @@ static AstNode *ast_parse_for_expr(ParseContext *pc);
 static AstNode *ast_parse_grouped_expr(ParseContext *pc);
 static AstNode *ast_parse_if_expr(ParseContext *pc);
 static AstNode *ast_parse_switch_expr(ParseContext *pc);
+static AstNode *ast_parse_labeled_expr(ParseContext *pc);
+static AstNode *ast_parse_loop_expr(ParseContext *pc);
 static AstNode *ast_parse_while_expr(ParseContext *pc);
 static AstNode *ast_parse_asm_expr(ParseContext *pc);
-static Optional<AstNodeAsmExpr> ast_parse_asm_output(ParseContext *pc);
+static AstNode *ast_parse_asm_output(ParseContext *pc);
 static AsmOutput *ast_parse_asm_output_item(ParseContext *pc);
-static Optional<AstNodeAsmExpr> ast_parse_asm_input(ParseContext *pc);
+static AstNode *ast_parse_asm_input(ParseContext *pc);
 static AsmInput *ast_parse_asm_input_item(ParseContext *pc);
-static Optional<AstNodeAsmExpr> ast_parse_asm_cloppers(ParseContext *pc);
+static AstNode *ast_parse_asm_cloppers(ParseContext *pc);
 static Token * ast_parse_break_label(ParseContext *pc);
 static Token *ast_parse_block_label(ParseContext *pc);
 static AstNode *ast_parse_field_init(ParseContext *pc);
@@ -407,7 +460,7 @@ static AstNodeContainerDecl ast_parse_container_members(ParseContext *pc) {
         if (container_field != nullptr) {
             assert(container_field->type == NodeTypeStructField);
             container_field->data.struct_field.visib_mod = visib_mod;
-            res.decls.append(container_field);
+            res.fields.append(container_field);
             if (eat_token_if(pc, TokenIdComma) != nullptr) {
                 continue;
             } else {
@@ -453,14 +506,94 @@ static AstNode *ast_parse_top_level_comptime(ParseContext *pc) {
 }
 
 // TopLevelDecl
-//     <- VarDecl
-//      / FnProto (SEMICOLON / Block)
-//      / (KEYWORD_inline / KEYWORD_export) FnProto Block
-//      / KEYWORD_export VarDecl
-//      / KEYWORD_extern STRINGLITERAL? FnProto SEMICOLON
-//      / KEYWORD_extern STRINGLITERAL? VarDecl
+//     <- KEYWORD_inline FnProto Block
+//      / KEYWORD_extern STRINGLITERAL? (VarDecl / FnProto (SEMICOLON / Block))
+//      / KEYWORD_export (VarDecl / FnProto Block)
 //      / KEYWORD_use Expr SEMICOLON
+//      / VarDecl
+//      / FnProto Block
 static AstNode *ast_parse_top_level_decl(ParseContext *pc, VisibMod visib_mod) {
+    if (eat_token_if(pc, TokenIdKeywordInline) != nullptr) {
+        AstNode *fn_proto = ast_expect(pc, ast_parse_fn_proto);
+        AstNode *block = ast_expect(pc, ast_parse_block);
+        AstNode *res = ast_create_node_copy_line_info(pc, NodeTypeFnDef, fn_proto);
+        res->data.fn_def.fn_proto = fn_proto;
+        res->data.fn_def.body = block;
+        fn_proto->data.fn_proto.fn_def_node = res;
+        fn_proto->data.fn_proto.visib_mod = visib_mod;
+        fn_proto->data.fn_proto.is_inline = true;
+        return res;
+    }
+
+    Token *extern_token = eat_token_if(pc, TokenIdKeywordExtern);
+    if (extern_token != nullptr) {
+        Token *lib_name = eat_token_if(pc, TokenIdStringLiteral);
+        AstNode *fn_proto = ast_parse_fn_proto(pc);
+        if (fn_proto != nullptr) {
+            AstNode *body = ast_parse_block(pc);
+            if (body == nullptr)
+                expect_token(pc, TokenIdSemicolon);
+
+            assert(fn_proto->type == NodeTypeFnProto);
+            fn_proto->data.fn_proto.visib_mod = visib_mod;
+            fn_proto->data.fn_proto.is_extern = true;
+            fn_proto->data.fn_proto.lib_name = token_buf(lib_name);
+            AstNode *res = fn_proto;
+            if (body != nullptr) {
+                res = ast_create_node_copy_line_info(pc, NodeTypeFnDef, fn_proto);
+                res->data.fn_def.fn_proto = fn_proto;
+                res->data.fn_def.body = body;
+                fn_proto->data.fn_proto.fn_def_node = res;
+            }
+
+            return res;
+        }
+
+        AstNode *var_decl = ast_expect(pc, ast_parse_var_decl);
+        assert(var_decl->type == NodeTypeVariableDeclaration);
+        var_decl->data.variable_declaration.visib_mod = visib_mod;
+        var_decl->data.variable_declaration.is_extern = true;
+        var_decl->data.variable_declaration.lib_name = token_buf(lib_name);
+        return var_decl;
+    }
+
+    Token *export_token = eat_token_if(pc, TokenIdKeywordExport);
+    if (export_token != nullptr) {
+        AstNode *fn_proto = ast_parse_fn_proto(pc);
+        if (fn_proto != nullptr) {
+            AstNode *body = ast_expect(pc, ast_parse_block);
+            assert(fn_proto->type == NodeTypeFnProto);
+            fn_proto->data.fn_proto.visib_mod = visib_mod;
+            fn_proto->data.fn_proto.is_export = true;
+            AstNode *res = fn_proto;
+            if (body != nullptr) {
+                res = ast_create_node_copy_line_info(pc, NodeTypeFnDef, fn_proto);
+                res->data.fn_def.fn_proto = fn_proto;
+                res->data.fn_def.body = body;
+                fn_proto->data.fn_proto.fn_def_node = res;
+            }
+
+            return res;
+        }
+
+        AstNode *var_decl = ast_expect(pc, ast_parse_var_decl);
+        assert(var_decl->type == NodeTypeVariableDeclaration);
+        var_decl->data.variable_declaration.visib_mod = visib_mod;
+        var_decl->data.variable_declaration.is_export = true;
+        return var_decl;
+    }
+
+    Token *use = eat_token_if(pc, TokenIdKeywordUse);
+    if (use != nullptr) {
+        AstNode *expr = ast_expect(pc, ast_parse_expr);
+        expect_token(pc, TokenIdSemicolon);
+
+        AstNode *res = ast_create_node(pc, NodeTypeUse, use);
+        res->data.use.visib_mod = visib_mod;
+        res->data.use.expr = expr;
+        return res;
+    }
+
     AstNode *var_decl = ast_parse_var_decl(pc);
     if (var_decl != nullptr) {
         assert(var_decl->type == NodeTypeVariableDeclaration);
@@ -470,78 +603,12 @@ static AstNode *ast_parse_top_level_decl(ParseContext *pc, VisibMod visib_mod) {
 
     AstNode *fn_proto = ast_parse_fn_proto(pc);
     if (fn_proto != nullptr) {
-        if (eat_token_if(pc, TokenIdSemicolon) != nullptr) {
-            assert(fn_proto->type == NodeTypeFnProto);
-            fn_proto->data.fn_proto.visib_mod = visib_mod;
-            return fn_proto;
-        }
-
         AstNode *block = ast_expect(pc, ast_parse_block);
         AstNode *res = ast_create_node_copy_line_info(pc, NodeTypeFnDef, fn_proto);
         res->data.fn_def.fn_proto = fn_proto;
         res->data.fn_def.body = block;
+        fn_proto->data.fn_proto.visib_mod = visib_mod;
         fn_proto->data.fn_proto.fn_def_node = res;
-        return res;
-    }
-
-    Token *export_inline = eat_token_if(pc, TokenIdKeywordExport);
-    if (export_inline == nullptr)
-        export_inline = eat_token_if(pc, TokenIdKeywordInline);
-    if (export_inline != nullptr) {
-        if (export_inline->id == TokenIdKeywordExport) {
-            AstNode *var_decl = ast_parse_var_decl(pc);
-            if (var_decl != nullptr) {
-                assert(var_decl->type == NodeTypeVariableDeclaration);
-                var_decl->data.variable_declaration.visib_mod = visib_mod;
-                var_decl->data.variable_declaration.is_export = true;
-                return var_decl;
-            }
-        }
-
-        AstNode *fn_proto = ast_expect(pc, ast_parse_fn_proto);
-        AstNode *block = ast_expect(pc, ast_parse_block);
-        AstNode *res = ast_create_node_copy_line_info(pc, NodeTypeFnDef, fn_proto);
-        res->data.fn_def.fn_proto = fn_proto;
-        res->data.fn_def.body = block;
-        fn_proto->data.fn_proto.fn_def_node = res;
-        fn_proto->data.fn_proto.is_export = export_inline->id == TokenIdKeywordExport;
-        fn_proto->data.fn_proto.is_inline = export_inline->id == TokenIdKeywordInline;
-        return res;
-    }
-
-    Token *extern_token = eat_token_if(pc, TokenIdKeywordExtern);
-    if (extern_token != nullptr) {
-        Token *string = eat_token_if(pc, TokenIdStringLiteral);
-        Buf *lib_name = nullptr;
-        if (string != nullptr)
-            lib_name = token_buf(string);
-
-        AstNode *fn_proto = ast_parse_fn_proto(pc);
-        if (fn_proto != nullptr) {
-            expect_token(pc, TokenIdSemicolon);
-            assert(fn_proto->type == NodeTypeFnProto);
-            fn_proto->data.fn_proto.visib_mod = visib_mod;
-            var_decl->data.fn_proto.is_extern = true;
-            var_decl->data.fn_proto.lib_name = lib_name;
-            return fn_proto;
-        }
-
-        AstNode *var_decl = ast_expect(pc, ast_parse_var_decl);
-        assert(var_decl->type == NodeTypeVariableDeclaration);
-        var_decl->data.variable_declaration.visib_mod = visib_mod;
-        var_decl->data.variable_declaration.is_extern = true;
-        var_decl->data.variable_declaration.lib_name = lib_name;
-        return var_decl;
-    }
-
-    Token *use = eat_token_if(pc, TokenIdKeywordExtern);
-    if (use != nullptr) {
-        AstNode *expr = ast_expect(pc, ast_parse_expr);
-        expect_token(pc, TokenIdSemicolon);
-
-        AstNode *res = ast_create_node(pc, NodeTypeUse, use);
-        res->data.use.visib_mod = visib_mod;
-        res->data.use.expr = expr;
         return res;
     }
 
@@ -657,7 +724,7 @@ static AstNode *ast_parse_container_field(ParseContext *pc) {
         type_expr = ast_expect(pc, ast_parse_type_expr);
     AstNode *expr = nullptr;
     if (eat_token_if(pc, TokenIdEq) != nullptr)
-        type_expr = ast_expect(pc, ast_parse_expr);
+        expr = ast_expect(pc, ast_parse_expr);
 
 
     AstNode *res = ast_create_node(pc, NodeTypeStructField, identifier);
@@ -674,8 +741,7 @@ static AstNode *ast_parse_container_field(ParseContext *pc) {
 //      / KEYWORD_defer BlockExprStatement
 //      / KEYWORD_errdefer BlockExprStatement
 //      / IfStatement
-//      / WhileStatement
-//      / ForStatement
+//      / LabeledExpr
 //      / SwitchExpr
 //      / BlockExprStatement
 static AstNode *ast_parse_statement(ParseContext *pc) {
@@ -722,13 +788,9 @@ static AstNode *ast_parse_statement(ParseContext *pc) {
     if (if_statement != nullptr)
         return if_statement;
 
-    AstNode *while_statement = ast_parse_while_statement(pc);
-    if (while_statement != nullptr)
-        return while_statement;
-
-    AstNode *for_statement = ast_parse_for_statement(pc);
-    if (for_statement != nullptr)
-        return for_statement;
+    AstNode *labeled_statement = ast_parse_labeled_statement(pc);
+    if (labeled_statement != nullptr)
+        return labeled_statement;
 
     AstNode *switch_expr = ast_parse_switch_expr(pc);
     if (switch_expr != nullptr)
@@ -769,7 +831,7 @@ static AstNode *ast_parse_if_statement(ParseContext *pc) {
     assert(res->type == NodeTypeTestExpr);
     if (err_payload != nullptr) {
         AstNodeTestExpr old = res->data.test_expr;
-        res->type = NodeTypeTestExpr;
+        res->type = NodeTypeIfErrorExpr;
         res->data.if_err_expr.target_node = old.target_node;
         res->data.if_err_expr.var_is_ptr = old.var_is_ptr;
         res->data.if_err_expr.var_symbol = old.var_symbol;
@@ -790,6 +852,95 @@ static AstNode *ast_parse_if_statement(ParseContext *pc) {
     res->data.if_bool_expr.condition = old.target_node;
     res->data.if_bool_expr.then_block = body;
     res->data.if_bool_expr.else_node = else_body;
+    return res;
+}
+
+// LabeledStatement <- BlockLabel? (Block / LoopStatement)
+static AstNode *ast_parse_labeled_statement(ParseContext *pc) {
+    Token *label = ast_parse_block_label(pc);
+    AstNode *block = ast_parse_block(pc);
+    if (block != nullptr) {
+        assert(block->type == NodeTypeBlock);
+        block->data.block.name = token_buf(label);
+        return block;
+    }
+
+    AstNode *loop = ast_parse_loop_statement(pc);
+    if (loop != nullptr) {
+        switch (loop->type) {
+            case NodeTypeForExpr:
+                loop->data.for_expr.name = token_buf(label);
+                break;
+            case NodeTypeWhileExpr:
+                loop->data.while_expr.name = token_buf(label);
+                break;
+            default:
+                zig_unreachable();
+        }
+        return loop;
+    }
+
+    if (label != nullptr)
+        ast_invalid_token_error(pc, peek_token(pc));
+    return nullptr;
+}
+
+// LoopStatement <- BlockLabel? KEYWORD_inline? (ForStatement / WhileStatement)
+static AstNode *ast_parse_loop_statement(ParseContext *pc) {
+    Token *label = ast_parse_block_label(pc);
+    Token *first = label;
+
+    Token *inline_token = eat_token_if(pc, TokenIdKeywordInline);
+    if (first == nullptr)
+        first = inline_token;
+
+    AstNode *for_statement = ast_parse_for_statement(pc);
+    if (for_statement != nullptr) {
+        assert(for_statement->type == NodeTypeForExpr);
+        for_statement->data.for_expr.name = token_buf(label);
+        for_statement->data.for_expr.is_inline = inline_token != nullptr;
+        return for_statement;
+    }
+
+    AstNode *while_statement = ast_parse_while_statement(pc);
+    if (while_statement != nullptr) {
+        assert(while_statement->type == NodeTypeWhileExpr);
+        while_statement->data.while_expr.name = token_buf(label);
+        while_statement->data.while_expr.is_inline = inline_token != nullptr;
+        return while_statement;
+    }
+
+    if (first != nullptr)
+        ast_invalid_token_error(pc, peek_token(pc));
+    return nullptr;
+}
+
+// ForStatement
+//     <- ForPrefix BlockExpr ( KEYWORD_else Payload? Statement )?
+//      / ForPrefix AssignExpr ( SEMICOLON / KEYWORD_else Payload? Statement )
+static AstNode *ast_parse_for_statement(ParseContext *pc) {
+    AstNode *res = ast_parse_for_prefix(pc);
+    if (res == nullptr)
+        return nullptr;
+
+    AstNode *body = ast_parse_block_expr(pc);
+    bool requires_semi = false;
+    if (body == nullptr) {
+        requires_semi = true;
+        body = ast_parse_assign_expr(pc);
+    }
+
+    AstNode *else_body = nullptr;
+    if (eat_token_if(pc, TokenIdKeywordElse) != nullptr) {
+        else_body = ast_expect(pc, ast_parse_statement);
+    }
+
+    if (requires_semi && else_body == nullptr)
+        expect_token(pc, TokenIdSemicolon);
+
+    assert(res->type == NodeTypeForExpr);
+    res->data.for_expr.body = body;
+    res->data.for_expr.else_node = else_body;
     return res;
 }
 
@@ -822,35 +973,6 @@ static AstNode *ast_parse_while_statement(ParseContext *pc) {
     res->data.while_expr.body = body;
     res->data.while_expr.err_symbol = token_buf(err_payload);
     res->data.while_expr.else_node = else_body;
-    return res;
-}
-
-// ForStatement
-//     <- ForPrefix BlockExpr ( KEYWORD_else Payload? Statement )?
-//      / ForPrefix AssignExpr ( SEMICOLON / KEYWORD_else Payload? Statement )
-static AstNode *ast_parse_for_statement(ParseContext *pc) {
-    AstNode *res = ast_parse_for_prefix(pc);
-    if (res == nullptr)
-        return nullptr;
-
-    AstNode *body = ast_parse_block_expr(pc);
-    bool requires_semi = false;
-    if (body == nullptr) {
-        requires_semi = true;
-        body = ast_parse_assign_expr(pc);
-    }
-
-    AstNode *else_body = nullptr;
-    if (eat_token_if(pc, TokenIdKeywordElse) != nullptr) {
-        else_body = ast_expect(pc, ast_parse_statement);
-    }
-
-    if (requires_semi && else_body == nullptr)
-        expect_token(pc, TokenIdSemicolon);
-
-    assert(res->type == NodeTypeForExpr);
-    res->data.for_expr.body = body;
-    res->data.for_expr.else_node = else_body;
     return res;
 }
 
@@ -953,10 +1075,12 @@ static AstNode *ast_parse_init_list(ParseContext *pc) {
         res->data.container_init_expr.entries.append(first);
 
         while (eat_token_if(pc, TokenIdComma) != nullptr) {
-            res->data.container_init_expr.entries.append(ast_expect(pc, ast_parse_field_init));
+            AstNode *field_init = ast_parse_field_init(pc);
+            if (field_init == nullptr)
+                break;
+            res->data.container_init_expr.entries.append(field_init);
         }
 
-        eat_token_if(pc, TokenIdComma);
         expect_token(pc, TokenIdRBrace);
         return res;
     }
@@ -969,10 +1093,12 @@ static AstNode *ast_parse_init_list(ParseContext *pc) {
         res->data.container_init_expr.entries.append(first);
 
         while (eat_token_if(pc, TokenIdComma) != nullptr) {
-            res->data.container_init_expr.entries.append(ast_expect(pc, ast_parse_expr));
+            AstNode *expr = ast_parse_expr(pc);
+            if (expr == nullptr)
+                break;
+            res->data.container_init_expr.entries.append(expr);
         }
 
-        eat_token_if(pc, TokenIdComma);
         expect_token(pc, TokenIdRBrace);
         return res;
     }
@@ -993,7 +1119,57 @@ static AstNode *ast_parse_type_expr(ParseContext *pc) {
 
 // PrefixExpr <- PrefixOp* SuffixExpr
 static AstNode *ast_parse_prefix_expr(ParseContext *pc) {
-    return ast_parse_prefix_op_expr(pc, ast_parse_prefix_op, ast_parse_suffix_expr);
+    AstNode *res = nullptr;
+    AstNode **right = &res;
+    while (true) {
+        AstNode *prefix = ast_parse_prefix_op(pc);
+        if (prefix == nullptr)
+            break;
+
+        *right = prefix;
+        switch (prefix->type) {
+            case NodeTypePrefixOpExpr:
+                right = &prefix->data.prefix_op_expr.primary_expr;
+                break;
+            case NodeTypeReturnExpr:
+                right = &prefix->data.return_expr.expr;
+                break;
+            case NodeTypeAwaitExpr:
+                right = &prefix->data.await_expr.expr;
+                break;
+            case NodeTypePromiseType:
+                right = &prefix->data.promise_type.payload_type;
+                break;
+            case NodeTypeArrayType:
+                right = &prefix->data.array_type.child_type;
+                break;
+            case NodeTypePointerType: {
+                // We might get two pointers from *_ptr_type_start
+                AstNode *child = prefix->data.pointer_type.op_expr;
+                if (child == nullptr)
+                    child = prefix;
+                right = &child->data.pointer_type.op_expr;
+                break;
+            }
+            default:
+                zig_unreachable();
+        }
+    }
+
+    // If we have already consumed a token, and determined that
+    // this node is a prefix op, then we expect that the node has
+    // a child.
+    if (res != nullptr) {
+        *right = ast_expect(pc, ast_parse_suffix_expr);
+    } else {
+        // Otherwise, if we didn't consume a token, then we can return
+        // null, if the child expr did.
+        *right = ast_parse_suffix_expr(pc);
+        if (*right == nullptr)
+            return nullptr;
+    }
+
+    return res;
 }
 
 // SuffixExpr
@@ -1111,11 +1287,10 @@ static AstNode *ast_parse_suffix_expr(ParseContext *pc) {
 //      / ContainerDecl
 //      / ErrorSetDecl
 //      / FnProto
-//      / ForExpr
 //      / GroupedExpr
 //      / IfExpr
 //      / SwitchExpr
-//      / WhileExpr
+//      / LoopExpr
 //      / BUILTININDENTIFIER FnCallArgumnets
 //      / CHAR_LITERAL
 //      / FLOAT
@@ -1157,10 +1332,6 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc) {
     if (fn_proto != nullptr)
         return fn_proto;
 
-    AstNode *for_expr = ast_parse_for_expr(pc);
-    if (for_expr != nullptr)
-        return for_expr;
-
     AstNode *grouped_expr = ast_parse_grouped_expr(pc);
     if (grouped_expr != nullptr)
         return grouped_expr;
@@ -1173,9 +1344,9 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc) {
     if (switch_expr != nullptr)
         return switch_expr;
 
-    AstNode *while_expr = ast_parse_while_expr(pc);
-    if (while_expr != nullptr)
-        return while_expr;
+    AstNode *labeled_expr = ast_parse_labeled_expr(pc);
+    if (labeled_expr != nullptr)
+        return labeled_expr;
 
     // TODO: This is not in line with the grammar.
     //       Because the prev stage 1 tokenizer does not parse
@@ -1184,13 +1355,21 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc) {
     //       I'd say that it's better if '@' is part of the builtin
     //       identifier token.
     if (eat_token_if(pc, TokenIdAtSign) != nullptr) {
-        Token *name = eat_token_if(pc, TokenIdKeywordExport);
-        if (name == nullptr)
-            name = expect_token(pc, TokenIdSymbol);
+        Buf *name;
+        Token *token = eat_token_if(pc, TokenIdKeywordExport);
+        if (token == nullptr) {
+            token = expect_token(pc, TokenIdSymbol);
+            name = token_buf(token);
+        } else {
+            name = buf_create_from_str("export");
+        }
 
         AstNode *res = ast_expect(pc, ast_parse_fn_call_argumnets);
+        AstNode *name_sym = ast_create_node(pc, NodeTypeSymbol, token);
+        name_sym->data.symbol_expr.symbol = name;
+
         assert(res->type == NodeTypeFnCallExpr);
-        res->data.fn_call_expr.fn_ref_expr = token_symbol(pc, name);
+        res->data.fn_call_expr.fn_ref_expr = name_sym;
         res->data.fn_call_expr.is_builtin = true;
         return res;
     }
@@ -1253,7 +1432,7 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc) {
         return res;
     }
 
-    Token *continue_token = eat_token_if(pc, TokenIdKeywordBreak);
+    Token *continue_token = eat_token_if(pc, TokenIdKeywordContinue);
     if (continue_token != nullptr) {
         Token *label = ast_parse_break_label(pc);
         AstNode *res = ast_create_node(pc, NodeTypeContinue, continue_token);
@@ -1284,7 +1463,7 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc) {
         return ast_create_node(pc, NodeTypeNullLiteral, null);
 
     Token *promise = eat_token_if(pc, TokenIdKeywordPromise);
-    if (null != nullptr)
+    if (promise != nullptr)
         return ast_create_node(pc, NodeTypePromiseType, promise);
 
     Token *resume = eat_token_if(pc, TokenIdKeywordResume);
@@ -1362,15 +1541,24 @@ static AstNode *ast_parse_block(ParseContext *pc) {
 
 // ContainerDecl <- (KEYWORD_extern / KEYWORD_packed)? ContainerDeclAuto
 static AstNode *ast_parse_container_decl(ParseContext *pc) {
-    Token *first = eat_token_if(pc, TokenIdKeywordExtern);
-    if (first == nullptr)
-        first = eat_token_if(pc, TokenIdKeywordPacked);
-    if (first != nullptr) {
+    Token *extern_token = eat_token_if(pc, TokenIdKeywordExtern);
+    if (extern_token != nullptr) {
+        AstNode *res = ast_parse_container_decl_auto(pc);
+        if (res == nullptr) {
+            put_back_token(pc);
+            return nullptr;
+        }
+
+        assert(res->type == NodeTypeContainerDecl);
+        res->data.container_decl.layout = ContainerLayoutExtern;
+        return res;
+    }
+
+    Token *packed_token = eat_token_if(pc, TokenIdKeywordPacked);
+    if (packed_token != nullptr) {
         AstNode *res = ast_expect(pc, ast_parse_container_decl_auto);
         assert(res->type == NodeTypeContainerDecl);
-        res->data.container_decl.layout = first->id == TokenIdKeywordExtern
-            ? ContainerLayoutExtern
-            : ContainerLayoutPacked;
+        res->data.container_decl.layout = ContainerLayoutPacked;
         return res;
     }
 
@@ -1382,8 +1570,11 @@ static AstNode *ast_parse_error_set_decl(ParseContext *pc) {
     Token *first = eat_token_if(pc, TokenIdKeywordError);
     if (first == nullptr)
         return nullptr;
+    if (eat_token_if(pc, TokenIdLBrace) == nullptr) {
+        put_back_token(pc);
+        return nullptr;
+    }
 
-    expect_token(pc, TokenIdLBrace);
     ZigList<AstNode *> decls = ast_parse_list<AstNode>(pc, TokenIdComma, [](ParseContext *context) {
         Token *ident = eat_token_if(context, TokenIdSymbol);
         if (ident == nullptr)
@@ -1395,23 +1586,6 @@ static AstNode *ast_parse_error_set_decl(ParseContext *pc) {
 
     AstNode *res = ast_create_node(pc, NodeTypeErrorSetDecl, first);
     res->data.err_set_decl.decls = decls;
-    return res;
-}
-
-// ForExpr <- ForPrefix Expr (KEYWORD_else Expr)?
-static AstNode *ast_parse_for_expr(ParseContext *pc) {
-    AstNode *res = ast_parse_for_prefix(pc);
-    if (res == nullptr)
-        return nullptr;
-
-    AstNode *body = ast_expect(pc, ast_parse_expr);
-    AstNode *else_body = nullptr;
-    if (eat_token_if(pc, TokenIdKeywordElse) != nullptr)
-        else_body = ast_expect(pc, ast_parse_expr);
-
-    assert(res->type == NodeTypeForExpr);
-    res->data.for_expr.body = body;
-    res->data.for_expr.else_node = else_body;
     return res;
 }
 
@@ -1446,7 +1620,7 @@ static AstNode *ast_parse_if_expr(ParseContext *pc) {
     assert(res->type == NodeTypeTestExpr);
     if (err_payload != nullptr) {
         AstNodeTestExpr old = res->data.test_expr;
-        res->type = NodeTypeTestExpr;
+        res->type = NodeTypeIfErrorExpr;
         res->data.if_err_expr.target_node = old.target_node;
         res->data.if_err_expr.var_is_ptr = old.var_is_ptr;
         res->data.if_err_expr.var_symbol = old.var_symbol;
@@ -1487,6 +1661,75 @@ static AstNode *ast_parse_switch_expr(ParseContext *pc) {
     return res;
 }
 
+// LabeledExpr <- BlockLabel? (Block / LoopExpr)
+static AstNode *ast_parse_labeled_expr(ParseContext *pc) {
+    Token *label = ast_parse_block_label(pc);
+    AstNode *block = ast_parse_block(pc);
+    if (block != nullptr) {
+        assert(block->type == NodeTypeBlock);
+        block->data.block.name = token_buf(label);
+        return block;
+    }
+
+    AstNode *loop = ast_parse_loop_expr(pc);
+    if (loop != nullptr) {
+        switch (loop->type) {
+            case NodeTypeForExpr:
+                loop->data.for_expr.name = token_buf(label);
+                break;
+            case NodeTypeWhileExpr:
+                loop->data.while_expr.name = token_buf(label);
+                break;
+            default:
+                zig_unreachable();
+        }
+        return loop;
+    }
+
+    if (label != nullptr)
+        ast_invalid_token_error(pc, peek_token(pc));
+    return nullptr;
+}
+
+// LoopExpr <- KEYWORD_inline? (ForExpr / WhileExpr)
+static AstNode *ast_parse_loop_expr(ParseContext *pc) {
+    Token *inline_token = eat_token_if(pc, TokenIdKeywordInline);
+    AstNode *for_expr = ast_parse_for_expr(pc);
+    if (for_expr != nullptr) {
+        assert(for_expr->type == NodeTypeForExpr);
+        for_expr->data.for_expr.is_inline = inline_token != nullptr;
+        return for_expr;
+    }
+
+    AstNode *while_expr = ast_parse_while_expr(pc);
+    if (while_expr != nullptr) {
+        assert(while_expr->type == NodeTypeWhileExpr);
+        while_expr->data.while_expr.is_inline = inline_token != nullptr;
+        return while_expr;
+    }
+
+    if (inline_token != nullptr)
+        ast_invalid_token_error(pc, peek_token(pc));
+    return nullptr;
+}
+
+// ForExpr <- ForPrefix Expr (KEYWORD_else Expr)?
+static AstNode *ast_parse_for_expr(ParseContext *pc) {
+    AstNode *res = ast_parse_for_prefix(pc);
+    if (res == nullptr)
+        return nullptr;
+
+    AstNode *body = ast_expect(pc, ast_parse_expr);
+    AstNode *else_body = nullptr;
+    if (eat_token_if(pc, TokenIdKeywordElse) != nullptr)
+        else_body = ast_expect(pc, ast_parse_expr);
+
+    assert(res->type == NodeTypeForExpr);
+    res->data.for_expr.body = body;
+    res->data.for_expr.else_node = else_body;
+    return res;
+}
+
 // WhileExpr <- WhilePrefix Expr (KEYWORD_else Payload? Expr)?
 static AstNode *ast_parse_while_expr(ParseContext *pc) {
     AstNode *res = ast_parse_while_prefix(pc);
@@ -1517,30 +1760,31 @@ static AstNode *ast_parse_asm_expr(ParseContext *pc) {
     Token *volatile_token = eat_token_if(pc, TokenIdKeywordVolatile);
     expect_token(pc, TokenIdLParen);
     Token *asm_template = expect_token(pc, TokenIdStringLiteral);
-    AstNodeAsmExpr asm_expr;
-    if (!ast_parse_asm_output(pc).unwrap(&asm_expr))
-        asm_expr = {};
+    AstNode *res = ast_parse_asm_output(pc);
+    if (res == nullptr)
+        res = ast_create_node_no_line_info(pc, NodeTypeAsmExpr);
     expect_token(pc, TokenIdRParen);
 
-    AstNode *res = ast_create_node(pc, NodeTypeAsmExpr, asm_token);
-    res->data.asm_expr = asm_expr;
+    res->line = asm_token->start_line;
+    res->column = asm_token->start_column;
     res->data.asm_expr.is_volatile = volatile_token != nullptr;
     res->data.asm_expr.asm_template = token_buf(asm_template);
+    ast_parse_asm_template(pc, res);
     return res;
 }
 
 // AsmOutput <- COLON AsmOutputList AsmInput?
-static Optional<AstNodeAsmExpr> ast_parse_asm_output(ParseContext *pc) {
+static AstNode *ast_parse_asm_output(ParseContext *pc) {
     if (eat_token_if(pc, TokenIdColon) == nullptr)
-        return Optional<AstNodeAsmExpr>::none();
+        return nullptr;
 
     ZigList<AsmOutput *> output_list = ast_parse_list(pc, TokenIdComma, ast_parse_asm_output_item);
-    AstNodeAsmExpr res;
-    if (!ast_parse_asm_input(pc).unwrap(&res))
-        res = {};
+    AstNode *res = ast_parse_asm_input(pc);
+    if (res == nullptr)
+        res = ast_create_node_no_line_info(pc, NodeTypeAsmExpr);
 
-    res.output_list = output_list;
-    return Optional<AstNodeAsmExpr>::some(res);
+    res->data.asm_expr.output_list = output_list;
+    return res;
 }
 
 // AsmOutputItem <- LBRACKET IDENTIFIER RBRACKET STRINGLITERAL LPAREN (MINUSRARROW TypeExpr / IDENTIFIER) RPAREN
@@ -1572,28 +1816,42 @@ static AsmOutput *ast_parse_asm_output_item(ParseContext *pc) {
 }
 
 // AsmInput <- COLON AsmInputList AsmCloppers?
-static Optional<AstNodeAsmExpr> ast_parse_asm_input(ParseContext *pc) {
+static AstNode *ast_parse_asm_input(ParseContext *pc) {
     if (eat_token_if(pc, TokenIdColon) == nullptr)
-        return Optional<AstNodeAsmExpr>::none();
+        return nullptr;
 
     ZigList<AsmInput *> input_list = ast_parse_list(pc, TokenIdComma, ast_parse_asm_input_item);
-    AstNodeAsmExpr res;
-    if (!ast_parse_asm_cloppers(pc).unwrap(&res))
-        res = {};
+    AstNode *res = ast_parse_asm_cloppers(pc);
+    if (res == nullptr)
+        res = ast_create_node_no_line_info(pc, NodeTypeAsmExpr);
 
-    res.input_list = input_list;
-    return Optional<AstNodeAsmExpr>::some(res);
+    res->data.asm_expr.input_list = input_list;
+    return res;
 }
 
 // AsmInputItem <- LBRACKET IDENTIFIER RBRACKET STRINGLITERAL LPAREN Expr RPAREN
 static AsmInput *ast_parse_asm_input_item(ParseContext *pc) {
-    return nullptr; // TODO
+    if (eat_token_if(pc, TokenIdLBracket) == nullptr)
+        return nullptr;
+
+    Token *sym_name = expect_token(pc, TokenIdSymbol);
+    expect_token(pc, TokenIdRBracket);
+    Token *constraint = expect_token(pc, TokenIdStringLiteral);
+    expect_token(pc, TokenIdLParen);
+    AstNode *expr = ast_expect(pc, ast_parse_expr);
+    expect_token(pc, TokenIdRParen);
+
+    AsmInput *res = allocate<AsmInput>(1);
+    res->asm_symbolic_name = token_buf(sym_name);
+    res->constraint = token_buf(constraint);
+    res->expr = expr;
+    return res;
 }
 
 // AsmCloppers <- COLON StringList
-static Optional<AstNodeAsmExpr> ast_parse_asm_cloppers(ParseContext *pc) {
+static AstNode *ast_parse_asm_cloppers(ParseContext *pc) {
     if (eat_token_if(pc, TokenIdColon) == nullptr)
-        return Optional<AstNodeAsmExpr>::none();
+        return nullptr;
 
     ZigList<Buf *> clobber_list = ast_parse_list<Buf>(pc, TokenIdComma, [](ParseContext *context) {
         Token *str = eat_token_if(context, TokenIdStringLiteral);
@@ -1602,9 +1860,9 @@ static Optional<AstNodeAsmExpr> ast_parse_asm_cloppers(ParseContext *pc) {
         return (Buf*)nullptr;
     });
 
-    AstNodeAsmExpr res = {};
-    res.clobber_list = clobber_list;
-    return Optional<AstNodeAsmExpr>::some(res);
+    AstNode *res = ast_create_node_no_line_info(pc, NodeTypeAsmExpr);
+    res->data.asm_expr.clobber_list = clobber_list;
+    return res;
 }
 
 // BreakLabel <- COLON IDENTIFIER
@@ -1744,21 +2002,28 @@ static AstNode *ast_parse_param_decl(ParseContext *pc) {
 //      / DOT3
 //      / TypeExpr
 static AstNode *ast_parse_param_type(ParseContext *pc) {
-    AstNode *type_expr = nullptr;
-    Token *dots = nullptr;
     Token *var_token = eat_token_if(pc, TokenIdKeywordVar);
-    if (var_token == nullptr)
-        dots = eat_token_if(pc, TokenIdEllipsis3);
-    if (dots == nullptr)
-        type_expr = ast_parse_type_expr(pc);
-    if (type_expr == nullptr)
-        return nullptr;
+    if (var_token != nullptr) {
+        AstNode *res = ast_create_node(pc, NodeTypeParamDecl, var_token);
+        res->data.param_decl.var_token = var_token;
+        return res;
+    }
 
-    AstNode *res = ast_create_node_no_line_info(pc, NodeTypeParamDecl);
-    res->data.param_decl.var_token = var_token;
-    res->data.param_decl.type = type_expr;
-    res->data.param_decl.is_var_args = dots != nullptr;
-    return res;
+    Token *dots = eat_token_if(pc, TokenIdEllipsis3);
+    if (dots != nullptr) {
+        AstNode *res = ast_create_node(pc, NodeTypeParamDecl, dots);
+        res->data.param_decl.is_var_args = true;
+        return res;
+    }
+
+    AstNode *type_expr = ast_parse_type_expr(pc);
+    if (type_expr != nullptr) {
+        AstNode *res = ast_create_node_copy_line_info(pc, NodeTypeParamDecl, type_expr);
+        res->data.param_decl.type = type_expr;
+        return res;
+    }
+
+    return nullptr;
 }
 
 // IfPrefix <- KEYWORD_if GroupedExpr PtrPayload?
@@ -1780,24 +2045,10 @@ static AstNode *ast_parse_if_prefix(ParseContext *pc) {
     return res;
 }
 
-// WhilePrefix <- BlockLabel? KEYWORD_inline? KEYWORD_while GroupedExpr PtrPayload? WhileContinueExpr?
+// WhilePrefix <- KEYWORD_while GroupedExpr PtrPayload? WhileContinueExpr?
 static AstNode *ast_parse_while_prefix(ParseContext *pc) {
-    Token *first = nullptr;
-    Token *label = ast_parse_block_label(pc);
-    first = label;
-
-    Token *inline_token = first == nullptr
-        ? eat_token_if(pc, TokenIdKeywordInline)
-        : expect_token(pc, TokenIdKeywordInline);
-    if (first == nullptr)
-        first = inline_token;
-
-    Token *while_token = first == nullptr
-        ? eat_token_if(pc, TokenIdKeywordWhile)
-        : expect_token(pc, TokenIdKeywordWhile);
-    if (first == nullptr)
-        first = while_token;
-    if (first == nullptr)
+    Token *while_token = eat_token_if(pc, TokenIdKeywordWhile);
+    if (while_token == nullptr)
         return nullptr;
 
     AstNode *condition = ast_expect(pc, ast_parse_grouped_expr);
@@ -1805,9 +2056,7 @@ static AstNode *ast_parse_while_prefix(ParseContext *pc) {
     AstNode *continue_expr = ast_parse_while_continue_expr(pc);
 
     PtrPayload payload;
-    AstNode *res = ast_create_node(pc, NodeTypeWhileExpr, first);
-    res->data.while_expr.name = token_buf(label);
-    res->data.while_expr.is_inline = inline_token != nullptr;
+    AstNode *res = ast_create_node(pc, NodeTypeWhileExpr, while_token);
     res->data.while_expr.condition = condition;
     res->data.while_expr.continue_expr = continue_expr;
     if (opt_payload.unwrap(&payload)) {
@@ -1818,24 +2067,10 @@ static AstNode *ast_parse_while_prefix(ParseContext *pc) {
     return res;
 }
 
-// ForPrefix <- BlockLabel? KEYWORD_inline? KEYWORD_for GroupedExpr PtrIndexPayload
+// ForPrefix <- KEYWORD_for GroupedExpr PtrIndexPayload
 static AstNode *ast_parse_for_prefix(ParseContext *pc) {
-    Token *first = nullptr;
-    Token *label = ast_parse_block_label(pc);
-    first = label;
-
-    Token *inline_token = first == nullptr
-        ? eat_token_if(pc, TokenIdKeywordInline)
-        : expect_token(pc, TokenIdKeywordInline);
-    if (first == nullptr)
-        first = inline_token;
-
-    Token *for_token = first == nullptr
-        ? eat_token_if(pc, TokenIdKeywordFor)
-        : expect_token(pc, TokenIdKeywordFor);
-    if (first == nullptr)
-        first = for_token;
-    if (first == nullptr)
+    Token *for_token = eat_token_if(pc, TokenIdKeywordFor);
+    if (for_token == nullptr)
         return nullptr;
 
     AstNode *array_expr = ast_expect(pc, ast_parse_grouped_expr);
@@ -1843,9 +2078,7 @@ static AstNode *ast_parse_for_prefix(ParseContext *pc) {
     if (!ast_parse_ptr_index_payload(pc).unwrap(&payload))
         ast_invalid_token_error(pc, peek_token(pc));
 
-    AstNode *res = ast_create_node(pc, NodeTypeForExpr, first);
-    res->data.for_expr.name = token_buf(label);
-    res->data.for_expr.is_inline = inline_token != nullptr;
+    AstNode *res = ast_create_node(pc, NodeTypeForExpr, for_token);
     res->data.for_expr.array_expr = array_expr;
     res->data.for_expr.elem_node = token_symbol(pc, payload.payload);
     res->data.for_expr.elem_is_ptr = payload.asterisk != nullptr;
@@ -1928,14 +2161,15 @@ static AstNode *ast_parse_switch_case(ParseContext *pc) {
     if (first != nullptr) {
         AstNode *res = ast_create_node_copy_line_info(pc, NodeTypeSwitchProng, first);
         res->data.switch_prong.items.append(first);
+        res->data.switch_prong.any_items_are_range = first->type == NodeTypeSwitchRange;
+
         while (eat_token_if(pc, TokenIdComma) != nullptr) {
             AstNode *item = ast_parse_switch_item(pc);
             if (item == nullptr)
                 break;
 
             res->data.switch_prong.items.append(item);
-            if (item->type == NodeTypeSwitchRange)
-                res->data.switch_prong.any_items_are_range = true;
+            res->data.switch_prong.any_items_are_range |= item->type == NodeTypeSwitchRange;
         }
 
         return res;
@@ -2002,7 +2236,7 @@ static AstNode *ast_parse_assign_op(ParseContext *pc) {
     table[TokenIdTimesPercentEq] = BinOpTypeAssignTimesWrap;
 
     BinOpType op = table[peek_token(pc)->id];
-    if (op == BinOpTypeInvalid) {
+    if (op != BinOpTypeInvalid) {
         Token *op_token = eat_token(pc);
         AstNode *res = ast_create_node(pc, NodeTypeBinOpExpr, op_token);
         res->data.bin_op_expr.bin_op = op;
@@ -2226,29 +2460,33 @@ static AstNode *ast_parse_prefix_op(ParseContext *pc) {
     AstNode *ptr = ast_parse_ptr_type_start(pc);
     if (ptr != nullptr) {
         assert(ptr->type == NodeTypePointerType);
+        // We might get two pointers from *_ptr_type_start
+        AstNode *child = ptr->data.pointer_type.op_expr;
+        if (child == nullptr)
+            child = ptr;
         while (true) {
             if (eat_token_if(pc, TokenIdKeywordAlign) != nullptr) {
                 expect_token(pc, TokenIdLParen);
                 AstNode *align_expr = ast_parse_expr(pc);
-                ptr->data.pointer_type.align_expr = align_expr;
+                child->data.pointer_type.align_expr = align_expr;
                 if (eat_token_if(pc, TokenIdColon) != nullptr) {
                     Token *bit_offset_start = expect_token(pc, TokenIdIntLiteral);
                     expect_token(pc, TokenIdColon);
                     Token *host_int_bytes = expect_token(pc, TokenIdIntLiteral);
-                    ptr->data.pointer_type.bit_offset_start = token_bigint(bit_offset_start);
-                    ptr->data.pointer_type.host_int_bytes = token_bigint(host_int_bytes);
+                    child->data.pointer_type.bit_offset_start = token_bigint(bit_offset_start);
+                    child->data.pointer_type.host_int_bytes = token_bigint(host_int_bytes);
                 }
                 expect_token(pc, TokenIdRParen);
                 continue;
             }
 
             if (eat_token_if(pc, TokenIdKeywordConst) != nullptr) {
-                ptr->data.pointer_type.is_const = true;
+                child->data.pointer_type.is_const = true;
                 continue;
             }
 
             if (eat_token_if(pc, TokenIdKeywordVolatile) != nullptr) {
-                ptr->data.pointer_type.is_volatile = true;
+                child->data.pointer_type.is_volatile = true;
                 continue;
             }
 
@@ -2269,22 +2507,32 @@ static AstNode *ast_parse_prefix_op(ParseContext *pc) {
 static AstNode *ast_parse_suffix_op(ParseContext *pc) {
     Token *lbracket = eat_token_if(pc, TokenIdLBracket);
     if (lbracket != nullptr) {
-        AstNode *expr = ast_expect(pc, ast_parse_expr);
+        AstNode *start = ast_expect(pc, ast_parse_expr);
+        AstNode *end = nullptr;
         if (eat_token_if(pc, TokenIdEllipsis2) != nullptr) {
-            AstNode *expr2 = ast_parse_expr(pc);
+            end = ast_parse_expr(pc);
+            expect_token(pc, TokenIdRBracket);
+
             AstNode *res = ast_create_node(pc, NodeTypeSliceExpr, lbracket);
-            res->data.slice_expr.start = expr;
-            res->data.slice_expr.start = expr2;
+            res->data.slice_expr.start = start;
+            res->data.slice_expr.end = end;
             return res;
         }
 
+        expect_token(pc, TokenIdRBracket);
+
         AstNode *res = ast_create_node(pc, NodeTypeArrayAccessExpr, lbracket);
-        res->data.array_access_expr.subscript = expr;
+        res->data.array_access_expr.subscript = start;
         return res;
     }
 
     Token *dot = eat_token_if(pc, TokenIdDot);
     if (dot != nullptr) {
+        if (eat_token_if(pc, TokenIdStar) != nullptr)
+            return ast_create_node(pc, NodeTypePtrDeref, dot);
+        if (eat_token_if(pc, TokenIdQuestion) != nullptr)
+            return ast_create_node(pc, NodeTypeUnwrapOptional, dot);
+
         Token *ident = expect_token(pc, TokenIdSymbol);
         AstNode *res = ast_create_node(pc, NodeTypeFieldAccessExpr, dot);
         res->data.field_access_expr.field_name = token_buf(ident);
@@ -2332,19 +2580,7 @@ static AstNode *ast_parse_array_type_start(ParseContext *pc) {
         return nullptr;
 
     AstNode *size = ast_parse_expr(pc);
-    if (size == nullptr) {
-        if (eat_token_if(pc, TokenIdRBracket) == nullptr) {
-            // 2 token lookahead here, so that we allow PtrTypeStart rule
-            // to also try to parse `[*]`. We could also make `[*]` be one token,
-            // and `[]` one token and then we don't need this lookahead.
-            // I think that might be a better idea.
-            put_back_token(pc);
-            return nullptr;
-        }
-    } else {
-        expect_token(pc, TokenIdRBracket);
-    }
-
+    expect_token(pc, TokenIdRBracket);
     AstNode *res = ast_create_node(pc, NodeTypeArrayType, lbracket);
     res->data.array_type.size = size;
     return res;
@@ -2365,25 +2601,17 @@ static AstNode *ast_parse_ptr_type_start(ParseContext *pc) {
     Token *asterisk2 = eat_token_if(pc, TokenIdStarStar);
     if (asterisk2 != nullptr) {
         AstNode *res = ast_create_node(pc, NodeTypePointerType, asterisk2);
+        AstNode *res2 = ast_create_node(pc, NodeTypePointerType, asterisk2);
         res->data.pointer_type.star_token = asterisk2;
+        res2->data.pointer_type.star_token = asterisk2;
+        res->data.pointer_type.op_expr = res2;
         return res;
     }
 
-    Token *lbracket = eat_token_if(pc, TokenIdLBracket);
-    if (lbracket != nullptr) {
-        // 2 token lookahead here, so that we allow PtrTypeStart rule
-        // to also try to parse `[*]`. We could also make `[*]` be one token,
-        // and `[]` one token and then we don't need this lookahead.
-        // I think that might be a better idea.
-        if (eat_token_if(pc, TokenIdStar) != nullptr) {
-            put_back_token(pc);
-            return nullptr;
-        }
-
-        expect_token(pc, TokenIdRBracket);
-
-        AstNode *res = ast_create_node(pc, NodeTypePointerType, lbracket);
-        res->data.pointer_type.star_token = lbracket;
+    Token *multptr = eat_token_if(pc, TokenIdBracketStarBracket);
+    if (multptr != nullptr) {
+        AstNode *res = ast_create_node(pc, NodeTypePointerType, multptr);
+        res->data.pointer_type.star_token = multptr;
         return res;
     }
 

@@ -142,7 +142,7 @@ fn testComptimeTestErrorEmptySet(x: EmptyErrorSet!i32) void {
 
 test "syntax: optional operator in front of error union operator" {
     comptime {
-        assert(?anyerror!i32 == ?(anyerror!i32));
+        assert(?(anyerror!i32) == ?(anyerror!i32));
     }
 }
 
