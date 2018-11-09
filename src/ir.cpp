@@ -6954,7 +6954,6 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
     assert(scope);
     switch (node->type) {
         case NodeTypeStructValueField:
-        case NodeTypeRoot:
         case NodeTypeParamDecl:
         case NodeTypeUse:
         case NodeTypeSwitchProng:

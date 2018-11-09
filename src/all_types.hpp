@@ -387,7 +387,6 @@ struct TypeUnionField {
 };
 
 enum NodeType {
-    NodeTypeRoot,
     NodeTypeFnProto,
     NodeTypeFnDef,
     NodeTypeParamDecl,
@@ -441,10 +440,6 @@ enum NodeType {
     NodeTypeAwaitExpr,
     NodeTypeSuspend,
     NodeTypePromiseType,
-};
-
-struct AstNodeRoot {
-    ZigList<AstNode *> top_level_decls;
 };
 
 enum CallingConvention {
@@ -922,7 +917,6 @@ struct AstNode {
     size_t column;
     ImportTableEntry *owner;
     union {
-        AstNodeRoot root;
         AstNodeFnDef fn_def;
         AstNodeFnProto fn_proto;
         AstNodeParamDecl param_decl;
@@ -1865,7 +1859,7 @@ struct Scope {
 
 // This scope comes from global declarations or from
 // declarations in a container declaration
-// NodeTypeRoot, NodeTypeContainerDecl
+// NodeTypeContainerDecl
 struct ScopeDecls {
     Scope base;
 

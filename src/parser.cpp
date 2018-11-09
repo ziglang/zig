@@ -121,6 +121,8 @@ static void put_back_token(ParseContext *pc) {
 }
 
 static Buf *token_buf(Token *token) {
+    if (token == nullptr)
+        return nullptr;
     assert(token->id == TokenIdStringLiteral || token->id == TokenIdSymbol);
     return &token->data.str_lit.str;
 }
@@ -2469,9 +2471,6 @@ static void visit_node_list(ZigList<AstNode *> *list, void (*visit)(AstNode **, 
 
 void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *context), void *context) {
     switch (node->type) {
-        case NodeTypeRoot:
-            visit_node_list(&node->data.root.top_level_decls, visit, context);
-            break;
         case NodeTypeFnProto:
             visit_field(&node->data.fn_proto.return_type, visit, context);
             visit_node_list(&node->data.fn_proto.params, visit, context);

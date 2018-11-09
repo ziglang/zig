@@ -143,8 +143,6 @@ const char *container_string(ContainerKind kind) {
 
 static const char *node_type_str(NodeType node_type) {
     switch (node_type) {
-        case NodeTypeRoot:
-            return "Root";
         case NodeTypeFnDef:
             return "FnDef";
         case NodeTypeFnProto:
@@ -427,21 +425,6 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
         case NodeTypeSwitchRange:
         case NodeTypeStructValueField:
             zig_unreachable();
-        case NodeTypeRoot:
-            for (size_t i = 0; i < node->data.root.top_level_decls.length; i += 1) {
-                AstNode *child = node->data.root.top_level_decls.at(i);
-                print_indent(ar);
-                render_node_grouped(ar, child);
-
-                if (child->type == NodeTypeUse ||
-                    child->type == NodeTypeVariableDeclaration ||
-                    child->type == NodeTypeFnProto)
-                {
-                    fprintf(ar->f, ";");
-                }
-                fprintf(ar->f, "\n");
-            }
-            break;
         case NodeTypeFnProto:
             {
                 const char *pub_str = visib_mod_string(node->data.fn_proto.visib_mod);
