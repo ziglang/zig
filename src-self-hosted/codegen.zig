@@ -10,6 +10,7 @@ const Scope = @import("scope.zig").Scope;
 const event = std.event;
 const assert = std.debug.assert;
 const DW = std.dwarf;
+const maxInt = std.math.maxInt;
 
 pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code) !void {
     fn_val.base.ref();
@@ -362,15 +363,15 @@ fn addLLVMAttrInt(
 }
 
 fn addLLVMFnAttr(ofile: *ObjectFile, fn_val: llvm.ValueRef, attr_name: []const u8) !void {
-    return addLLVMAttr(ofile, fn_val, @maxValue(llvm.AttributeIndex), attr_name);
+    return addLLVMAttr(ofile, fn_val, maxInt(llvm.AttributeIndex), attr_name);
 }
 
 fn addLLVMFnAttrStr(ofile: *ObjectFile, fn_val: llvm.ValueRef, attr_name: []const u8, attr_val: []const u8) !void {
-    return addLLVMAttrStr(ofile, fn_val, @maxValue(llvm.AttributeIndex), attr_name, attr_val);
+    return addLLVMAttrStr(ofile, fn_val, maxInt(llvm.AttributeIndex), attr_name, attr_val);
 }
 
 fn addLLVMFnAttrInt(ofile: *ObjectFile, fn_val: llvm.ValueRef, attr_name: []const u8, attr_val: u64) !void {
-    return addLLVMAttrInt(ofile, fn_val, @maxValue(llvm.AttributeIndex), attr_name, attr_val);
+    return addLLVMAttrInt(ofile, fn_val, maxInt(llvm.AttributeIndex), attr_name, attr_val);
 }
 
 fn renderLoadUntyped(

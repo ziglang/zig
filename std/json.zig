@@ -5,6 +5,7 @@
 const std = @import("index.zig");
 const debug = std.debug;
 const mem = std.mem;
+const maxInt = std.math.maxInt;
 
 // A single token slice into the parent string.
 //
@@ -107,7 +108,7 @@ pub const StreamingParser = struct {
 
     const object_bit = 0;
     const array_bit = 1;
-    const max_stack_size = @maxValue(u8);
+    const max_stack_size = maxInt(u8);
 
     pub fn init() StreamingParser {
         var p: StreamingParser = undefined;

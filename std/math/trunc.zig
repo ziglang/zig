@@ -7,6 +7,7 @@
 const std = @import("../index.zig");
 const math = std.math;
 const assert = std.debug.assert;
+const maxInt = std.math.maxInt;
 
 pub fn trunc(x: var) @typeOf(x) {
     const T = @typeOf(x);
@@ -29,7 +30,7 @@ fn trunc32(x: f32) f32 {
         e = 1;
     }
 
-    m = u32(@maxValue(u32)) >> @intCast(u5, e);
+    m = u32(maxInt(u32)) >> @intCast(u5, e);
     if (u & m == 0) {
         return x;
     } else {
@@ -50,7 +51,7 @@ fn trunc64(x: f64) f64 {
         e = 1;
     }
 
-    m = u64(@maxValue(u64)) >> @intCast(u6, e);
+    m = u64(maxInt(u64)) >> @intCast(u6, e);
     if (u & m == 0) {
         return x;
     } else {

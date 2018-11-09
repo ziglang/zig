@@ -1,7 +1,9 @@
-const assert = @import("std").debug.assert;
-const mem = @import("std").mem;
-const cstr = @import("std").cstr;
+const std = @import("std");
+const assert = std.debug.assert;
+const mem = std.mem;
+const cstr = std.cstr;
 const builtin = @import("builtin");
+const maxInt = std.math.maxInt;
 
 // normal comment
 
@@ -56,43 +58,6 @@ test "floating point primitive bit counts" {
     assert(f16.bit_count == 16);
     assert(f32.bit_count == 32);
     assert(f64.bit_count == 64);
-}
-
-test "@minValue and @maxValue" {
-    assert(@maxValue(u1) == 1);
-    assert(@maxValue(u8) == 255);
-    assert(@maxValue(u16) == 65535);
-    assert(@maxValue(u32) == 4294967295);
-    assert(@maxValue(u64) == 18446744073709551615);
-
-    assert(@maxValue(i1) == 0);
-    assert(@maxValue(i8) == 127);
-    assert(@maxValue(i16) == 32767);
-    assert(@maxValue(i32) == 2147483647);
-    assert(@maxValue(i63) == 4611686018427387903);
-    assert(@maxValue(i64) == 9223372036854775807);
-
-    assert(@minValue(u1) == 0);
-    assert(@minValue(u8) == 0);
-    assert(@minValue(u16) == 0);
-    assert(@minValue(u32) == 0);
-    assert(@minValue(u63) == 0);
-    assert(@minValue(u64) == 0);
-
-    assert(@minValue(i1) == -1);
-    assert(@minValue(i8) == -128);
-    assert(@minValue(i16) == -32768);
-    assert(@minValue(i32) == -2147483648);
-    assert(@minValue(i63) == -4611686018427387904);
-    assert(@minValue(i64) == -9223372036854775808);
-}
-
-test "max value type" {
-    // If the type of @maxValue(i32) was i32 then this implicit cast to
-    // u32 would not work. But since the value is a number literal,
-    // it works fine.
-    const x: u32 = @maxValue(i32);
-    assert(x == 2147483647);
 }
 
 test "short circuit" {
@@ -428,10 +393,10 @@ test "cast slice to u8 slice" {
     const big_thing_again = @bytesToSlice(i32, bytes);
     assert(big_thing_again[2] == 3);
     big_thing_again[2] = -1;
-    assert(bytes[8] == @maxValue(u8));
-    assert(bytes[9] == @maxValue(u8));
-    assert(bytes[10] == @maxValue(u8));
-    assert(bytes[11] == @maxValue(u8));
+    assert(bytes[8] == maxInt(u8));
+    assert(bytes[9] == maxInt(u8));
+    assert(bytes[10] == maxInt(u8));
+    assert(bytes[11] == maxInt(u8));
 }
 
 test "pointer to void return type" {

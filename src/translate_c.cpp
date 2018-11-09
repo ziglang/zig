@@ -436,7 +436,8 @@ static AstNode *get_global(Context *c, Buf *name) {
         if (entry)
             return entry->value;
     }
-    if (get_primitive_type(c->codegen, name) != nullptr) {
+    ZigType *type;
+    if (get_primitive_type(c->codegen, name, &type) != ErrorPrimitiveTypeNotFound) {
         return trans_create_node_symbol(c, name);
     }
     return nullptr;
@@ -4682,10 +4683,10 @@ static void process_preprocessor_entities(Context *c, ASTUnit &unit) {
     }
 }
 
-int parse_h_buf(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, Buf *source,
+Error parse_h_buf(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, Buf *source,
         CodeGen *codegen, AstNode *source_node)
 {
-    int err;
+    Error err;
     Buf tmp_file_path = BUF_INIT;
     if ((err = os_buf_to_tmp_file(source, buf_create_from_str(".h"), &tmp_file_path))) {
         return err;
@@ -4698,7 +4699,7 @@ int parse_h_buf(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, Buf *sour
     return err;
 }
 
-int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const char *target_file,
+Error parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const char *target_file,
         CodeGen *codegen, AstNode *source_node)
 {
     Context context = {0};
@@ -4865,5 +4866,5 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
 
     import->root = c->root;
 
-    return 0;
+    return ErrorNone;
 }

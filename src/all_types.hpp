@@ -1216,7 +1216,6 @@ struct ZigType {
     ZigLLVMDIType *di_type;
 
     bool zero_bits; // this is denormalized data
-    bool is_copyable;
     bool gen_h_loop_flag;
 
     union {
@@ -1337,8 +1336,6 @@ enum BuiltinFnId {
     BuiltinFnIdMemset,
     BuiltinFnIdSizeof,
     BuiltinFnIdAlignOf,
-    BuiltinFnIdMaxValue,
-    BuiltinFnIdMinValue,
     BuiltinFnIdMemberCount,
     BuiltinFnIdMemberType,
     BuiltinFnIdMemberName,
@@ -1727,6 +1724,7 @@ struct CodeGen {
     bool generate_error_name_table;
     bool enable_cache;
     bool enable_time_report;
+    bool system_linker_hack;
 
     //////////////////////////// Participates in Input Parameter Cache Hash
     ZigList<LinkLib *> link_libs_list;
@@ -2075,8 +2073,6 @@ enum IrInstructionId {
     IrInstructionIdCUndef,
     IrInstructionIdArrayLen,
     IrInstructionIdRef,
-    IrInstructionIdMinValue,
-    IrInstructionIdMaxValue,
     IrInstructionIdCompileErr,
     IrInstructionIdCompileLog,
     IrInstructionIdErrName,
@@ -2601,18 +2597,6 @@ struct IrInstructionRef {
     LLVMValueRef tmp_ptr;
     bool is_const;
     bool is_volatile;
-};
-
-struct IrInstructionMinValue {
-    IrInstruction base;
-
-    IrInstruction *value;
-};
-
-struct IrInstructionMaxValue {
-    IrInstruction base;
-
-    IrInstruction *value;
 };
 
 struct IrInstructionCompileErr {

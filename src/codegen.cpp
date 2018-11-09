@@ -5100,8 +5100,6 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdSizeOf:
         case IrInstructionIdSwitchTarget:
         case IrInstructionIdContainerInitFields:
-        case IrInstructionIdMinValue:
-        case IrInstructionIdMaxValue:
         case IrInstructionIdCompileErr:
         case IrInstructionIdCompileLog:
         case IrInstructionIdArrayLen:
@@ -6651,8 +6649,6 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdMemset, "memset", 3);
     create_builtin_fn(g, BuiltinFnIdSizeof, "sizeOf", 1);
     create_builtin_fn(g, BuiltinFnIdAlignOf, "alignOf", 1);
-    create_builtin_fn(g, BuiltinFnIdMaxValue, "maxValue", 1);
-    create_builtin_fn(g, BuiltinFnIdMinValue, "minValue", 1);
     create_builtin_fn(g, BuiltinFnIdMemberCount, "memberCount", 1);
     create_builtin_fn(g, BuiltinFnIdMemberType, "memberType", 2);
     create_builtin_fn(g, BuiltinFnIdMemberName, "memberName", 2);
@@ -7330,7 +7326,7 @@ void codegen_translate_c(CodeGen *g, Buf *full_path) {
     import->di_file = ZigLLVMCreateFile(g->dbuilder, buf_ptr(src_basename), buf_ptr(src_dirname));
 
     ZigList<ErrorMsg *> errors = {0};
-    int err = parse_h_file(import, &errors, buf_ptr(full_path), g, nullptr);
+    Error err = parse_h_file(import, &errors, buf_ptr(full_path), g, nullptr);
 
     if (err == ErrorCCompileErrors && errors.length > 0) {
         for (size_t i = 0; i < errors.length; i += 1) {
@@ -7450,7 +7446,7 @@ static void gen_root_source(CodeGen *g) {
         return;
 
     Buf *source_code = buf_alloc();
-    int err;
+    Error err;
     // No need for using the caching system for this file fetch because it is handled
     // separately.
     if ((err = os_fetch_file_path(resolved_path, source_code, true))) {
@@ -7518,7 +7514,7 @@ void codegen_add_assembly(CodeGen *g, Buf *path) {
 
 static void gen_global_asm(CodeGen *g) {
     Buf contents = BUF_INIT;
-    int err;
+    Error err;
     for (size_t i = 0; i < g->assembly_files.length; i += 1) {
         Buf *asm_file = g->assembly_files.at(i);
         // No need to use the caching system for these fetches because they

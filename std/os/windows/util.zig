@@ -91,7 +91,7 @@ pub fn windowsIsCygwinPty(handle: windows.HANDLE) bool {
         @ptrCast(*c_void, &name_info_bytes[0]),
         @intCast(u32, name_info_bytes.len),
     ) == 0) {
-        return true;
+        return false;
     }
 
     const name_info = @ptrCast(*const windows.FILE_NAME_INFO, &name_info_bytes[0]);

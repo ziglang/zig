@@ -1,5 +1,7 @@
 const builtin = @import("builtin");
 const is_test = builtin.is_test;
+const std = @import("std");
+const maxInt = std.math.maxInt;
 
 const FLT_MANT_DIG = 24;
 
@@ -38,7 +40,7 @@ pub extern fn __floattisf(arg: i128) f32 {
                 const shift2_amt = @intCast(i32, N + (FLT_MANT_DIG + 2)) - sd;
                 const shift2_amt_u7 = @intCast(u7, shift2_amt);
 
-                a = (a >> shift1_amt_u7) | @boolToInt((a & (@intCast(u128, @maxValue(u128)) >> shift2_amt_u7)) != 0);
+                a = (a >> shift1_amt_u7) | @boolToInt((a & (@intCast(u128, maxInt(u128)) >> shift2_amt_u7)) != 0);
             },
         }
         // finish

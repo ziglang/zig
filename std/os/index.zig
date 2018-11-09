@@ -2272,7 +2272,19 @@ pub fn isTty(handle: FileHandle) bool {
     }
 }
 
-pub const PosixSocketError = error{
+pub fn supportsAnsiEscapeCodes(handle: FileHandle) bool {
+    if (is_windows) {
+        return windows_util.windowsIsCygwinPty(handle);
+    } else {
+        if (builtin.link_libc) {
+            return c.isatty(handle) != 0;
+        } else {
+            return posix.isatty(handle);
+        }
+    }
+}
+
+pub const PosixSocketError = error {
     /// Permission to create a socket of the specified type and/or
     /// pro‐tocol is denied.
     PermissionDenied,

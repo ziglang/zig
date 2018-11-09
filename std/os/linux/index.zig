@@ -1,6 +1,7 @@
 const std = @import("../../index.zig");
 const assert = std.debug.assert;
 const builtin = @import("builtin");
+const maxInt = std.math.maxInt;
 const vdso = @import("vdso.zig");
 pub use switch (builtin.arch) {
     builtin.Arch.x86_64 => @import("x86_64.zig"),
@@ -38,7 +39,7 @@ pub const PROT_EXEC = 4;
 pub const PROT_GROWSDOWN = 0x01000000;
 pub const PROT_GROWSUP = 0x02000000;
 
-pub const MAP_FAILED = @maxValue(usize);
+pub const MAP_FAILED = maxInt(usize);
 pub const MAP_SHARED = 0x01;
 pub const MAP_PRIVATE = 0x02;
 pub const MAP_TYPE = 0x0f;
@@ -1094,7 +1095,7 @@ pub fn sigaction(sig: u6, noalias act: *const Sigaction, noalias oact: ?*Sigacti
 
 const NSIG = 65;
 const sigset_t = [128 / @sizeOf(usize)]usize;
-const all_mask = []usize{@maxValue(usize)};
+const all_mask = []usize{maxInt(usize)};
 const app_mask = []usize{0xfffffffc7fffffff};
 
 const k_sigaction = extern struct {
@@ -1111,7 +1112,7 @@ pub const Sigaction = struct {
     flags: u32,
 };
 
-pub const SIG_ERR = @intToPtr(extern fn (i32) void, @maxValue(usize));
+pub const SIG_ERR = @intToPtr(extern fn (i32) void, maxInt(usize));
 pub const SIG_DFL = @intToPtr(extern fn (i32) void, 0);
 pub const SIG_IGN = @intToPtr(extern fn (i32) void, 1);
 pub const empty_sigset = []usize{0} ** sigset_t.len;

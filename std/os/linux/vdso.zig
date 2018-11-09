@@ -3,6 +3,7 @@ const elf = std.elf;
 const linux = std.os.linux;
 const cstr = std.cstr;
 const mem = std.mem;
+const maxInt = std.math.maxInt;
 
 pub fn lookup(vername: []const u8, name: []const u8) usize {
     const vdso_addr = std.os.linuxGetAuxVal(std.elf.AT_SYSINFO_EHDR);
@@ -13,7 +14,7 @@ pub fn lookup(vername: []const u8, name: []const u8) usize {
     const ph = @intToPtr(*elf.Phdr, ph_addr);
 
     var maybe_dynv: ?[*]usize = null;
-    var base: usize = @maxValue(usize);
+    var base: usize = maxInt(usize);
     {
         var i: usize = 0;
         while (i < eh.e_phnum) : ({
@@ -29,7 +30,7 @@ pub fn lookup(vername: []const u8, name: []const u8) usize {
         }
     }
     const dynv = maybe_dynv orelse return 0;
-    if (base == @maxValue(usize)) return 0;
+    if (base == maxInt(usize)) return 0;
 
     var maybe_strings: ?[*]u8 = null;
     var maybe_syms: ?[*]elf.Sym = null;

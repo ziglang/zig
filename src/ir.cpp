@@ -495,14 +495,6 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionUnionInit *) {
     return IrInstructionIdUnionInit;
 }
 
-static constexpr IrInstructionId ir_instruction_id(IrInstructionMinValue *) {
-    return IrInstructionIdMinValue;
-}
-
-static constexpr IrInstructionId ir_instruction_id(IrInstructionMaxValue *) {
-    return IrInstructionIdMaxValue;
-}
-
 static constexpr IrInstructionId ir_instruction_id(IrInstructionCompileErr *) {
     return IrInstructionIdCompileErr;
 }
@@ -1687,24 +1679,6 @@ static IrInstruction *ir_build_ref(IrBuilder *irb, Scope *scope, AstNode *source
     instruction->value = value;
     instruction->is_const = is_const;
     instruction->is_volatile = is_volatile;
-
-    ir_ref_instruction(value, irb->current_basic_block);
-
-    return &instruction->base;
-}
-
-static IrInstruction *ir_build_min_value(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *value) {
-    IrInstructionMinValue *instruction = ir_build_instruction<IrInstructionMinValue>(irb, scope, source_node);
-    instruction->value = value;
-
-    ir_ref_instruction(value, irb->current_basic_block);
-
-    return &instruction->base;
-}
-
-static IrInstruction *ir_build_max_value(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *value) {
-    IrInstructionMaxValue *instruction = ir_build_instruction<IrInstructionMaxValue>(irb, scope, source_node);
-    instruction->value = value;
 
     ir_ref_instruction(value, irb->current_basic_block);
 
@@ -3081,10 +3055,10 @@ static ZigVar *create_local_var(CodeGen *codegen, AstNode *node, Scope *parent_s
                 add_error_note(codegen, msg, existing_var->decl_node, buf_sprintf("previous declaration is here"));
                 variable_entry->value->type = codegen->builtin_types.entry_invalid;
             } else {
-                ZigType *type = get_primitive_type(codegen, name);
-                if (type != nullptr) {
+                ZigType *type;
+                if (get_primitive_type(codegen, name, &type) != ErrorPrimitiveTypeNotFound) {
                     add_node_error(codegen, node,
-                            buf_sprintf("variable shadows type '%s'", buf_ptr(&type->name)));
+                            buf_sprintf("variable shadows primitive type '%s'", buf_ptr(name)));
                     variable_entry->value->type = codegen->builtin_types.entry_invalid;
                 } else {
                     Tld *tld = find_decl(codegen, parent_scope, name);
@@ -3514,6 +3488,7 @@ static IrInstruction *ir_gen_null_literal(IrBuilder *irb, Scope *scope, AstNode 
 }
 
 static IrInstruction *ir_gen_symbol(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval) {
+    Error err;
     assert(node->type == NodeTypeSymbol);
 
     Buf *variable_name = node->data.symbol_expr.symbol;
@@ -3527,8 +3502,15 @@ static IrInstruction *ir_gen_symbol(IrBuilder *irb, Scope *scope, AstNode *node,
         return &const_instruction->base;
     }
 
-    ZigType *primitive_type = get_primitive_type(irb->codegen, variable_name);
-    if (primitive_type != nullptr) {
+    ZigType *primitive_type;
+    if ((err = get_primitive_type(irb->codegen, variable_name, &primitive_type))) {
+        if (err == ErrorOverflow) {
+            add_node_error(irb->codegen, node,
+                buf_sprintf("primitive integer type '%s' exceeds maximum bit width of 65535",
+                    buf_ptr(variable_name)));
+            return irb->codegen->invalid_instruction;
+        }
+    } else {
         IrInstruction *value = ir_build_const_type(irb, scope, node, primitive_type);
         if (lval == LValPtr) {
             return ir_build_ref(irb, scope, node, value, false, false);
@@ -3812,26 +3794,6 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
 
                 IrInstruction *c_undef = ir_build_c_undef(irb, scope, node, arg0_value);
                 return ir_lval_wrap(irb, scope, c_undef, lval);
-            }
-        case BuiltinFnIdMaxValue:
-            {
-                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
-                if (arg0_value == irb->codegen->invalid_instruction)
-                    return arg0_value;
-
-                IrInstruction *max_value = ir_build_max_value(irb, scope, node, arg0_value);
-                return ir_lval_wrap(irb, scope, max_value, lval);
-            }
-        case BuiltinFnIdMinValue:
-            {
-                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
-                if (arg0_value == irb->codegen->invalid_instruction)
-                    return arg0_value;
-
-                IrInstruction *min_value = ir_build_min_value(irb, scope, node, arg0_value);
-                return ir_lval_wrap(irb, scope, min_value, lval);
             }
         case BuiltinFnIdCompileErr:
             {
@@ -5147,24 +5109,22 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
                 ir_mark_gen(ir_build_br(irb, payload_scope, node, cond_block, is_comptime));
         }
 
-        IrInstruction *else_result = nullptr;
-        if (else_node) {
-            ir_set_cursor_at_end_and_append_block(irb, else_block);
+        ir_set_cursor_at_end_and_append_block(irb, else_block);
+        assert(else_node != nullptr);
 
-            // TODO make it an error to write to error variable
-            AstNode *err_symbol_node = else_node; // TODO make more accurate
-            ZigVar *err_var = ir_create_var(irb, err_symbol_node, scope, err_symbol,
-                    true, false, false, is_comptime);
-            Scope *err_scope = err_var->child_scope;
-            IrInstruction *err_var_value = ir_build_unwrap_err_code(irb, err_scope, err_symbol_node, err_val_ptr);
-            ir_build_var_decl(irb, err_scope, symbol_node, err_var, nullptr, nullptr, err_var_value);
+        // TODO make it an error to write to error variable
+        AstNode *err_symbol_node = else_node; // TODO make more accurate
+        ZigVar *err_var = ir_create_var(irb, err_symbol_node, scope, err_symbol,
+                true, false, false, is_comptime);
+        Scope *err_scope = err_var->child_scope;
+        IrInstruction *err_var_value = ir_build_unwrap_err_code(irb, err_scope, err_symbol_node, err_val_ptr);
+        ir_build_var_decl(irb, err_scope, symbol_node, err_var, nullptr, nullptr, err_var_value);
 
-            else_result = ir_gen_node(irb, else_node, err_scope);
-            if (else_result == irb->codegen->invalid_instruction)
-                return else_result;
-            if (!instr_is_unreachable(else_result))
-                ir_mark_gen(ir_build_br(irb, scope, node, end_block, is_comptime));
-        }
+        IrInstruction *else_result = ir_gen_node(irb, else_node, err_scope);
+        if (else_result == irb->codegen->invalid_instruction)
+            return else_result;
+        if (!instr_is_unreachable(else_result))
+            ir_mark_gen(ir_build_br(irb, scope, node, end_block, is_comptime));
         IrBasicBlock *after_else_block = irb->current_basic_block;
         ir_set_cursor_at_end_and_append_block(irb, end_block);
         if (else_result) {
@@ -6350,7 +6310,6 @@ static ZigType *get_error_set_union(CodeGen *g, ErrorTableEntry **errors, ZigTyp
         }
     }
 
-    err_set_type->is_copyable = true;
     err_set_type->type_ref = g->builtin_types.entry_global_error_set->type_ref;
     err_set_type->di_type = g->builtin_types.entry_global_error_set->di_type;
     err_set_type->data.error_set.err_count = count;
@@ -6389,7 +6348,6 @@ static ZigType *make_err_set_with_one_item(CodeGen *g, Scope *parent_scope, AstN
     ZigType *err_set_type = new_type_table_entry(ZigTypeIdErrorSet);
     buf_resize(&err_set_type->name, 0);
     buf_appendf(&err_set_type->name, "error{%s}", buf_ptr(&err_entry->name));
-    err_set_type->is_copyable = true;
     err_set_type->type_ref = g->builtin_types.entry_global_error_set->type_ref;
     err_set_type->di_type = g->builtin_types.entry_global_error_set->di_type;
     err_set_type->data.error_set.err_count = 1;
@@ -6410,7 +6368,6 @@ static IrInstruction *ir_gen_err_set_decl(IrBuilder *irb, Scope *parent_scope, A
     Buf *type_name = get_anon_type_name(irb->codegen, irb->exec, "error set", node);
     ZigType *err_set_type = new_type_table_entry(ZigTypeIdErrorSet);
     buf_init_from_buf(&err_set_type->name, type_name);
-    err_set_type->is_copyable = true;
     err_set_type->data.error_set.err_count = err_count;
     err_set_type->type_ref = irb->codegen->builtin_types.entry_global_error_set->type_ref;
     err_set_type->di_type = irb->codegen->builtin_types.entry_global_error_set->di_type;
@@ -8255,7 +8212,6 @@ static ZigType *get_error_set_intersection(IrAnalyze *ira, ZigType *set1, ZigTyp
     }
     free(errors);
 
-    err_set_type->is_copyable = true;
     err_set_type->type_ref = ira->codegen->builtin_types.entry_global_error_set->type_ref;
     err_set_type->di_type = ira->codegen->builtin_types.entry_global_error_set->di_type;
     err_set_type->data.error_set.err_count = intersection_list.length;
@@ -10562,19 +10518,6 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
             } else {
                 return ira->codegen->invalid_instruction;
             }
-        } else if (wanted_child_type->id == ZigTypeIdPointer &&
-                   wanted_child_type->data.pointer.is_const &&
-                   (actual_type->id == ZigTypeIdPointer || is_container(actual_type)))
-        {
-            IrInstruction *cast1 = ir_analyze_cast(ira, source_instr, wanted_child_type, value);
-            if (type_is_invalid(cast1->value.type))
-                return ira->codegen->invalid_instruction;
-
-            IrInstruction *cast2 = ir_analyze_cast(ira, source_instr, wanted_type, cast1);
-            if (type_is_invalid(cast2->value.type))
-                return ira->codegen->invalid_instruction;
-
-            return cast2;
         } else if (
             wanted_child_type->id == ZigTypeIdPointer &&
             wanted_child_type->data.pointer.ptr_len == PtrLenUnknown &&
@@ -10682,19 +10625,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     if (actual_type->id == ZigTypeIdComptimeFloat ||
         actual_type->id == ZigTypeIdComptimeInt)
     {
-        if ((err = ensure_complete_type(ira->codegen, wanted_type)))
-            return ira->codegen->invalid_instruction;
-        if (wanted_type->id == ZigTypeIdEnum) {
-            IrInstruction *cast1 = ir_analyze_cast(ira, source_instr, wanted_type->data.enumeration.tag_int_type, value);
-            if (type_is_invalid(cast1->value.type))
-                return ira->codegen->invalid_instruction;
-
-            IrInstruction *cast2 = ir_analyze_cast(ira, source_instr, wanted_type, cast1);
-            if (type_is_invalid(cast2->value.type))
-                return ira->codegen->invalid_instruction;
-
-            return cast2;
-        } else if (ir_num_lit_fits_in_other_type(ira, value, wanted_type, true)) {
+        if (ir_num_lit_fits_in_other_type(ira, value, wanted_type, true)) {
             CastOp op;
             if ((actual_type->id == ZigTypeIdComptimeFloat &&
                  wanted_type->id == ZigTypeIdFloat) ||
@@ -16406,74 +16337,6 @@ static IrInstruction *ir_analyze_instruction_container_init_fields(IrAnalyze *ir
         instruction->field_count, instruction->fields);
 }
 
-static IrInstruction *ir_analyze_min_max(IrAnalyze *ira, IrInstruction *source_instruction,
-        IrInstruction *target_type_value, bool is_max)
-{
-    ZigType *target_type = ir_resolve_type(ira, target_type_value);
-    if (type_is_invalid(target_type))
-        return ira->codegen->invalid_instruction;
-    switch (target_type->id) {
-        case ZigTypeIdInvalid:
-            zig_unreachable();
-        case ZigTypeIdInt:
-            {
-                IrInstruction *result = ir_const(ira, source_instruction, 
-                    ira->codegen->builtin_types.entry_num_lit_int);
-                eval_min_max_value(ira->codegen, target_type, &result->value, is_max);
-                return result;
-            }
-        case ZigTypeIdBool:
-        case ZigTypeIdVoid:
-            {
-                IrInstruction *result = ir_const(ira, source_instruction, target_type);
-                eval_min_max_value(ira->codegen, target_type, &result->value, is_max);
-                return result;
-            }
-        case ZigTypeIdEnum:
-        case ZigTypeIdFloat:
-        case ZigTypeIdMetaType:
-        case ZigTypeIdUnreachable:
-        case ZigTypeIdPointer:
-        case ZigTypeIdPromise:
-        case ZigTypeIdArray:
-        case ZigTypeIdStruct:
-        case ZigTypeIdComptimeFloat:
-        case ZigTypeIdComptimeInt:
-        case ZigTypeIdUndefined:
-        case ZigTypeIdNull:
-        case ZigTypeIdOptional:
-        case ZigTypeIdErrorUnion:
-        case ZigTypeIdErrorSet:
-        case ZigTypeIdUnion:
-        case ZigTypeIdFn:
-        case ZigTypeIdNamespace:
-        case ZigTypeIdBoundFn:
-        case ZigTypeIdArgTuple:
-        case ZigTypeIdOpaque:
-            {
-                const char *err_format = is_max ?
-                    "no max value available for type '%s'" :
-                    "no min value available for type '%s'";
-                ir_add_error(ira, source_instruction,
-                        buf_sprintf(err_format, buf_ptr(&target_type->name)));
-                return ira->codegen->invalid_instruction;
-            }
-    }
-    zig_unreachable();
-}
-
-static IrInstruction *ir_analyze_instruction_min_value(IrAnalyze *ira,
-        IrInstructionMinValue *instruction)
-{
-    return ir_analyze_min_max(ira, &instruction->base, instruction->value->child, false);
-}
-
-static IrInstruction *ir_analyze_instruction_max_value(IrAnalyze *ira,
-        IrInstructionMaxValue *instruction)
-{
-    return ir_analyze_min_max(ira, &instruction->base, instruction->value->child, true);
-}
-
 static IrInstruction *ir_analyze_instruction_compile_err(IrAnalyze *ira,
         IrInstructionCompileErr *instruction)
 {
@@ -17790,7 +17653,7 @@ static IrInstruction *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruct
 
     ZigList<ErrorMsg *> errors = {0};
 
-    int err;
+    Error err;
     if ((err = parse_h_buf(child_import, &errors, &cimport_scope->buf, ira->codegen, node))) {
         if (err != ErrorCCompileErrors) {
             ir_add_error_node(ira, node, buf_sprintf("C import failed: %s", err_str(err)));
@@ -17906,7 +17769,7 @@ static IrInstruction *ir_analyze_instruction_embed_file(IrAnalyze *ira, IrInstru
 
     // load from file system into const expr
     Buf *file_contents = buf_alloc();
-    int err;
+    Error err;
     if ((err = file_fetch(ira->codegen, file_path, file_contents))) {
         if (err == ErrorFileNotFound) {
             ir_add_error(ira, instruction->name, buf_sprintf("unable to find '%s'", buf_ptr(file_path)));
@@ -18392,7 +18255,7 @@ static IrInstruction *ir_analyze_instruction_int_type(IrAnalyze *ira, IrInstruct
 
     IrInstruction *bit_count_value = instruction->bit_count->child;
     uint64_t bit_count;
-    if (!ir_resolve_unsigned(ira, bit_count_value, ira->codegen->builtin_types.entry_u32, &bit_count))
+    if (!ir_resolve_unsigned(ira, bit_count_value, ira->codegen->builtin_types.entry_u16, &bit_count))
         return ira->codegen->invalid_instruction;
 
     return ir_const_type(ira, &instruction->base, get_int_type(ira->codegen, is_signed, (uint32_t)bit_count));
@@ -21051,10 +20914,6 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
             return ir_analyze_instruction_container_init_list(ira, (IrInstructionContainerInitList *)instruction);
         case IrInstructionIdContainerInitFields:
             return ir_analyze_instruction_container_init_fields(ira, (IrInstructionContainerInitFields *)instruction);
-        case IrInstructionIdMinValue:
-            return ir_analyze_instruction_min_value(ira, (IrInstructionMinValue *)instruction);
-        case IrInstructionIdMaxValue:
-            return ir_analyze_instruction_max_value(ira, (IrInstructionMaxValue *)instruction);
         case IrInstructionIdCompileErr:
             return ir_analyze_instruction_compile_err(ira, (IrInstructionCompileErr *)instruction);
         case IrInstructionIdCompileLog:
@@ -21398,8 +21257,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdSwitchTarget:
         case IrInstructionIdUnionTag:
         case IrInstructionIdRef:
-        case IrInstructionIdMinValue:
-        case IrInstructionIdMaxValue:
         case IrInstructionIdEmbedFile:
         case IrInstructionIdTruncate:
         case IrInstructionIdIntType:

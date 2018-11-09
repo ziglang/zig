@@ -1,7 +1,7 @@
 // Special Cases:
 //
 //  powi(x, +-0)   = 1 for any x
-//  powi(0, y)     = 1 for any y
+//  powi(0, y)     = 0 for any y
 //  powi(1, y)     = 1 for any y
 //  powi(-1, y)    = -1 for for y an odd integer
 //  powi(-1, y)    = 1 for for y an even integer
@@ -26,9 +26,9 @@ pub fn powi(comptime T: type, x: T, y: T) (error{Overflow, Underflow}!T) {
     }
 
     switch (x) {
-        //  powi(0, y)     = 1 for any y
-        0  => return 0,
-        
+        //  powi(0, y)     = 0 for any y
+        0 => return 0,
+
         //  powi(1, y)     = 1 for any y
         1  => return 1,
 

@@ -367,23 +367,6 @@ uint64_t type_size_bits(CodeGen *g, ZigType *type_entry) {
     return LLVMSizeOfTypeInBits(g->target_data_ref, type_entry->type_ref);
 }
 
-Result<bool> type_is_copyable(CodeGen *g, ZigType *type_entry) {
-    Error err;
-    if ((err = type_resolve(g, type_entry, ResolveStatusZeroBitsKnown)))
-        return err;
-
-    if (!type_has_bits(type_entry))
-        return true;
-
-    if (!handle_is_ptr(type_entry))
-        return true;
-
-    if ((err = ensure_complete_type(g, type_entry)))
-        return err;
-
-    return type_entry->is_copyable;
-}
-
 static bool is_slice(ZigType *type) {
     return type->id == ZigTypeIdStruct && type->data.structure.is_slice;
 }
@@ -465,7 +448,6 @@ ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_cons
     assert(type_is_resolved(child_type, ResolveStatusZeroBitsKnown));
 
     ZigType *entry = new_type_table_entry(ZigTypeIdPointer);
-    entry->is_copyable = true;
 
     const char *star_str = ptr_len == PtrLenSingle ? "*" : "[*]";
     const char *const_str = is_const ? "const " : "";
@@ -581,7 +563,6 @@ ZigType *get_optional_type(CodeGen *g, ZigType *child_type) {
 
         ZigType *entry = new_type_table_entry(ZigTypeIdOptional);
         assert(child_type->type_ref || child_type->zero_bits);
-        entry->is_copyable = type_is_copyable(g, child_type).unwrap();
 
         buf_resize(&entry->name, 0);
         buf_appendf(&entry->name, "?%s", buf_ptr(&child_type->name));
@@ -671,7 +652,6 @@ ZigType *get_error_union_type(CodeGen *g, ZigType *err_set_type, ZigType *payloa
     }
 
     ZigType *entry = new_type_table_entry(ZigTypeIdErrorUnion);
-    entry->is_copyable = true;
     assert(payload_type->di_type);
     assert(type_is_complete(payload_type));
 
@@ -766,7 +746,6 @@ ZigType *get_array_type(CodeGen *g, ZigType *child_type, uint64_t array_size) {
 
     ZigType *entry = new_type_table_entry(ZigTypeIdArray);
     entry->zero_bits = (array_size == 0) || child_type->zero_bits;
-    entry->is_copyable = false;
 
     buf_resize(&entry->name, 0);
     buf_appendf(&entry->name, "[%" ZIG_PRI_u64 "]%s", array_size, buf_ptr(&child_type->name));
@@ -831,7 +810,6 @@ ZigType *get_slice_type(CodeGen *g, ZigType *ptr_type) {
     }
 
     ZigType *entry = new_type_table_entry(ZigTypeIdStruct);
-    entry->is_copyable = true;
 
     // replace the & with [] to go from a ptr type name to a slice type name
     buf_resize(&entry->name, 0);
@@ -986,7 +964,6 @@ ZigType *get_opaque_type(CodeGen *g, Scope *scope, AstNode *source_node, const c
     ImportTableEntry *import = scope ? get_scope_import(scope) : nullptr;
     unsigned line = source_node ? (unsigned)(source_node->line + 1) : 0;
 
-    entry->is_copyable = false;
     entry->type_ref = LLVMInt8Type();
     entry->di_type = ZigLLVMCreateDebugForwardDeclType(g->dbuilder,
         ZigLLVMTag_DW_structure_type(), buf_ptr(&entry->name),
@@ -1005,7 +982,6 @@ ZigType *get_bound_fn_type(CodeGen *g, ZigFn *fn_entry) {
         return fn_type->data.fn.bound_fn_parent;
 
     ZigType *bound_fn_type = new_type_table_entry(ZigTypeIdBoundFn);
-    bound_fn_type->is_copyable = false;
     bound_fn_type->data.bound_fn.fn_type = fn_type;
     bound_fn_type->zero_bits = true;
 
@@ -1105,7 +1081,6 @@ ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     }
 
     ZigType *fn_type = new_type_table_entry(ZigTypeIdFn);
-    fn_type->is_copyable = true;
     fn_type->data.fn.fn_type_id = *fn_type_id;
 
     bool skip_debug_info = false;
@@ -1318,7 +1293,6 @@ ZigType *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node) {
 
 ZigType *get_generic_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     ZigType *fn_type = new_type_table_entry(ZigTypeIdFn);
-    fn_type->is_copyable = false;
     buf_resize(&fn_type->name, 0);
     if (fn_type->data.fn.fn_type_id.cc == CallingConventionAsync) {
         const char *async_allocator_type_str = (fn_type->data.fn.fn_type_id.async_allocator_type == nullptr) ?
@@ -1526,7 +1500,6 @@ ZigType *get_auto_err_set_type(CodeGen *g, ZigFn *fn_entry) {
     ZigType *err_set_type = new_type_table_entry(ZigTypeIdErrorSet);
     buf_resize(&err_set_type->name, 0);
     buf_appendf(&err_set_type->name, "@typeOf(%s).ReturnType.ErrorSet", buf_ptr(&fn_entry->symbol_name));
-    err_set_type->is_copyable = true;
     err_set_type->type_ref = g->builtin_types.entry_global_error_set->type_ref;
     err_set_type->di_type = g->builtin_types.entry_global_error_set->di_type;
     err_set_type->data.error_set.err_count = 0;
@@ -2846,7 +2819,6 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
         tag_type = new_type_table_entry(ZigTypeIdEnum);
         buf_resize(&tag_type->name, 0);
         buf_appendf(&tag_type->name, "@TagType(%s)", buf_ptr(&union_type->name));
-        tag_type->is_copyable = true;
         tag_type->type_ref = tag_int_type->type_ref;
         tag_type->zero_bits = tag_int_type->zero_bits;
 
@@ -3366,10 +3338,10 @@ static void add_top_level_decl(CodeGen *g, ScopeDecls *decls_scope, Tld *tld) {
     }
 
     {
-        ZigType *type = get_primitive_type(g, tld->name);
-        if (type != nullptr) {
+        ZigType *type;
+        if (get_primitive_type(g, tld->name, &type) != ErrorPrimitiveTypeNotFound) {
             add_node_error(g, tld->source_node,
-                    buf_sprintf("declaration shadows type '%s'", buf_ptr(&type->name)));
+                buf_sprintf("declaration shadows primitive type '%s'", buf_ptr(tld->name)));
         }
     }
 }
@@ -3612,10 +3584,10 @@ ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf 
             add_error_note(g, msg, existing_var->decl_node, buf_sprintf("previous declaration is here"));
             variable_entry->value->type = g->builtin_types.entry_invalid;
         } else {
-            ZigType *type = get_primitive_type(g, name);
-            if (type != nullptr) {
+            ZigType *type;
+            if (get_primitive_type(g, name, &type) != ErrorPrimitiveTypeNotFound) {
                 add_node_error(g, source_node,
-                        buf_sprintf("variable shadows type '%s'", buf_ptr(&type->name)));
+                        buf_sprintf("variable shadows primitive type '%s'", buf_ptr(name)));
                 variable_entry->value->type = g->builtin_types.entry_invalid;
             } else {
                 Scope *search_scope = nullptr;
@@ -4434,6 +4406,7 @@ void semantic_analyze(CodeGen *g) {
 }
 
 ZigType *get_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits) {
+    assert(size_in_bits <= 65535);
     TypeId type_id = {};
     type_id.id = ZigTypeIdInt;
     type_id.data.integer.is_signed = is_signed;
@@ -4514,7 +4487,7 @@ static ZigWindowsSDK *get_windows_sdk(CodeGen *g) {
 }
 
 
-Buf *get_linux_libc_lib_path(const char *o_file) {
+static Buf *get_linux_libc_lib_path(const char *o_file) {
     const char *cc_exe = getenv("CC");
     cc_exe = (cc_exe == nullptr) ? "cc" : cc_exe;
     ZigList<const char *> args = {};
@@ -4522,7 +4495,7 @@ Buf *get_linux_libc_lib_path(const char *o_file) {
     Termination term;
     Buf *out_stderr = buf_alloc();
     Buf *out_stdout = buf_alloc();
-    int err;
+    Error err;
     if ((err = os_exec_process(cc_exe, args, &term, out_stderr, out_stdout))) {
         zig_panic("unable to determine libc lib path: executing C compiler: %s", err_str(err));
     }
@@ -4540,7 +4513,7 @@ Buf *get_linux_libc_lib_path(const char *o_file) {
     return result;
 }
 
-Buf *get_linux_libc_include_path(void) {
+static Buf *get_posix_libc_include_path(void) {
     const char *cc_exe = getenv("CC");
     cc_exe = (cc_exe == nullptr) ? "cc" : cc_exe;
     ZigList<const char *> args = {};
@@ -4551,7 +4524,7 @@ Buf *get_linux_libc_include_path(void) {
     Termination term;
     Buf *out_stderr = buf_alloc();
     Buf *out_stdout = buf_alloc();
-    int err;
+    Error err;
     if ((err = os_exec_process(cc_exe, args, &term, out_stderr, out_stdout))) {
         zig_panic("unable to determine libc include path: executing C compiler: %s", err_str(err));
     }
@@ -4595,6 +4568,10 @@ Buf *get_linux_libc_include_path(void) {
 
 void find_libc_include_path(CodeGen *g) {
     if (g->libc_include_dir == nullptr) {
+        if (!g->is_native_target) {
+            fprintf(stderr, "Unable to determine libc include path. --libc-include-dir");
+            exit(1);
+        }
 
         if (g->zig_target.os == OsWindows) {
             ZigWindowsSDK *sdk = get_windows_sdk(g);
@@ -4603,13 +4580,13 @@ void find_libc_include_path(CodeGen *g) {
                 fprintf(stderr, "Unable to determine libc include path. --libc-include-dir");
                 exit(1);
             }
-        } else if (g->zig_target.os == OsLinux) {
-            g->libc_include_dir = get_linux_libc_include_path();
-        } else if (g->zig_target.os == OsMacOSX) {
-            g->libc_include_dir = buf_create_from_str("/usr/include");
+        } else if (g->zig_target.os == OsLinux || g->zig_target.os == OsMacOSX) {
+            g->libc_include_dir = get_posix_libc_include_path();
         } else {
-            // TODO find libc at runtime for other operating systems
-            zig_panic("Unable to determine libc include path.");
+            fprintf(stderr, "Unable to determine libc include path.\n"
+                    "TODO: implement finding libc at runtime for other operating systems.\n"
+                    "in the meantime, you can use as a workaround: --libc-include-dir\n");
+            exit(1);
         }
     }
     assert(buf_len(g->libc_include_dir) != 0);
@@ -5976,8 +5953,8 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
 }
 
 ZigType *make_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits) {
+    assert(size_in_bits <= 65535);
     ZigType *entry = new_type_table_entry(ZigTypeIdInt);
-    entry->is_copyable = true;
     entry->type_ref = (size_in_bits == 0) ? LLVMVoidType() : LLVMIntType(size_in_bits);
     entry->zero_bits = (size_in_bits == 0);
 
@@ -6454,7 +6431,10 @@ bool fn_type_can_fail(FnTypeId *fn_type_id) {
     return type_can_fail(fn_type_id->return_type) || fn_type_id->cc == CallingConventionAsync;
 }
 
-ZigType *get_primitive_type(CodeGen *g, Buf *name) {
+// ErrorNone - result pointer has the type
+// ErrorOverflow - an integer primitive type has too large a bit width
+// ErrorPrimitiveTypeNotFound - result pointer unchanged
+Error get_primitive_type(CodeGen *g, Buf *name, ZigType **result) {
     if (buf_len(name) >= 2) {
         uint8_t first_c = buf_ptr(name)[0];
         if (first_c == 'i' || first_c == 'u') {
@@ -6465,18 +6445,22 @@ ZigType *get_primitive_type(CodeGen *g, Buf *name) {
                 }
             }
             bool is_signed = (first_c == 'i');
-            uint32_t bit_count = atoi(buf_ptr(name) + 1);
-            return get_int_type(g, is_signed, bit_count);
+            unsigned long int bit_count = strtoul(buf_ptr(name) + 1, nullptr, 10);
+            // strtoul returns ULONG_MAX on errors, so this comparison catches that as well.
+            if (bit_count >= 65536) return ErrorOverflow;
+            *result = get_int_type(g, is_signed, bit_count);
+            return ErrorNone;
         }
     }
 
 not_integer:
 
     auto primitive_table_entry = g->primitive_type_table.maybe_get(name);
-    if (primitive_table_entry != nullptr) {
-        return primitive_table_entry->value;
-    }
-    return nullptr;
+    if (primitive_table_entry == nullptr)
+        return ErrorPrimitiveTypeNotFound;
+
+    *result = primitive_table_entry->value;
+    return ErrorNone;
 }
 
 Error file_fetch(CodeGen *g, Buf *resolved_path, Buf *contents) {

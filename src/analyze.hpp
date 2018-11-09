@@ -9,7 +9,6 @@
 #define ZIG_ANALYZE_HPP
 
 #include "all_types.hpp"
-#include "result.hpp"
 
 void semantic_analyze(CodeGen *g);
 ErrorMsg *add_node_error(CodeGen *g, AstNode *node, Buf *msg);
@@ -180,7 +179,6 @@ ZigTypeId type_id_at_index(size_t index);
 size_t type_id_len();
 size_t type_id_index(ZigType *entry);
 ZigType *get_generic_fn_type(CodeGen *g, FnTypeId *fn_type_id);
-Result<bool> type_is_copyable(CodeGen *g, ZigType *type_entry);
 LinkLib *create_link_lib(Buf *name);
 LinkLib *add_link_lib(CodeGen *codegen, Buf *lib);
 
@@ -204,7 +202,7 @@ bool type_can_fail(ZigType *type_entry);
 bool fn_eval_cacheable(Scope *scope, ZigType *return_type);
 AstNode *type_decl_node(ZigType *type_entry);
 
-ZigType *get_primitive_type(CodeGen *g, Buf *name);
+Error get_primitive_type(CodeGen *g, Buf *name, ZigType **result);
 
 bool calling_convention_allows_zig_types(CallingConvention cc);
 const char *calling_convention_name(CallingConvention cc);

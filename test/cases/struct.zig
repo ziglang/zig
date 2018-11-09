@@ -1,5 +1,7 @@
-const assert = @import("std").debug.assert;
+const std = @import("std");
+const assert = std.debug.assert;
 const builtin = @import("builtin");
+const maxInt = std.math.maxInt;
 
 const StructWithNoFields = struct {
     fn add(a: i32, b: i32) i32 {
@@ -307,29 +309,29 @@ test "packed array 24bits" {
     assert(ptr.b[1].field == 0);
     assert(ptr.c == 0);
 
-    ptr.a = @maxValue(u16);
-    assert(ptr.a == @maxValue(u16));
+    ptr.a = maxInt(u16);
+    assert(ptr.a == maxInt(u16));
     assert(ptr.b[0].field == 0);
     assert(ptr.b[1].field == 0);
     assert(ptr.c == 0);
 
-    ptr.b[0].field = @maxValue(u24);
-    assert(ptr.a == @maxValue(u16));
-    assert(ptr.b[0].field == @maxValue(u24));
+    ptr.b[0].field = maxInt(u24);
+    assert(ptr.a == maxInt(u16));
+    assert(ptr.b[0].field == maxInt(u24));
     assert(ptr.b[1].field == 0);
     assert(ptr.c == 0);
 
-    ptr.b[1].field = @maxValue(u24);
-    assert(ptr.a == @maxValue(u16));
-    assert(ptr.b[0].field == @maxValue(u24));
-    assert(ptr.b[1].field == @maxValue(u24));
+    ptr.b[1].field = maxInt(u24);
+    assert(ptr.a == maxInt(u16));
+    assert(ptr.b[0].field == maxInt(u24));
+    assert(ptr.b[1].field == maxInt(u24));
     assert(ptr.c == 0);
 
-    ptr.c = @maxValue(u16);
-    assert(ptr.a == @maxValue(u16));
-    assert(ptr.b[0].field == @maxValue(u24));
-    assert(ptr.b[1].field == @maxValue(u24));
-    assert(ptr.c == @maxValue(u16));
+    ptr.c = maxInt(u16);
+    assert(ptr.a == maxInt(u16));
+    assert(ptr.b[0].field == maxInt(u24));
+    assert(ptr.b[1].field == maxInt(u24));
+    assert(ptr.c == maxInt(u16));
 
     assert(bytes[bytes.len - 1] == 0xaa);
 }
