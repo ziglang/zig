@@ -379,6 +379,38 @@ static void print_symbol(AstRender *ar, Buf *symbol) {
     fprintf(ar->f, "@\"%s\"", buf_ptr(&escaped));
 }
 
+static bool statement_terminates_without_semicolon(AstNode *node) {
+    switch (node->type) {
+        case NodeTypeIfBoolExpr:
+            if (node->data.if_bool_expr.else_node)
+                return statement_terminates_without_semicolon(node->data.if_bool_expr.else_node);
+            return node->data.if_bool_expr.then_block->type == NodeTypeBlock;
+        case NodeTypeIfErrorExpr:
+            if (node->data.if_err_expr.else_node)
+                return statement_terminates_without_semicolon(node->data.if_err_expr.else_node);
+            return node->data.if_err_expr.then_node->type == NodeTypeBlock;
+        case NodeTypeTestExpr:
+            if (node->data.test_expr.else_node)
+                return statement_terminates_without_semicolon(node->data.test_expr.else_node);
+            return node->data.test_expr.then_node->type == NodeTypeBlock;
+        case NodeTypeWhileExpr:
+            return node->data.while_expr.body->type == NodeTypeBlock;
+        case NodeTypeForExpr:
+            return node->data.for_expr.body->type == NodeTypeBlock;
+        case NodeTypeCompTime:
+            return node->data.comptime_expr.expr->type == NodeTypeBlock;
+        case NodeTypeDefer:
+            return node->data.defer.expr->type == NodeTypeBlock;
+        case NodeTypeSuspend:
+            return node->data.suspend.block != nullptr && node->data.suspend.block->type == NodeTypeBlock;
+        case NodeTypeSwitchExpr:
+        case NodeTypeBlock:
+            return true;
+        default:
+            return false;
+    }
+}
+
 static void render_node_extra(AstRender *ar, AstNode *node, bool grouped);
 
 static void render_node_grouped(AstRender *ar, AstNode *node) {
