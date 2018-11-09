@@ -7319,7 +7319,8 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             return ir_gen_if_optional_expr(irb, scope, node, lval,
                     ensure_result_loc(irb, scope, node, result_loc));
         case NodeTypeSwitchExpr:
-            return ir_gen_switch_expr(irb, scope, node, lval, result_loc);
+            return ir_gen_switch_expr(irb, scope, node, lval,
+                    ensure_result_loc(irb, scope, node, result_loc));
         case NodeTypeCompTime:
             return ir_gen_comptime(irb, scope, node, lval, result_loc);
         case NodeTypeErrorType:
@@ -20390,7 +20391,7 @@ static IrInstruction *ir_analyze_instruction_check_statement_is_void(IrAnalyze *
     if (type_is_invalid(statement_type))
         return ira->codegen->invalid_instruction;
 
-    if (statement_type->id != ZigTypeIdVoid) {
+    if (statement_type->id != ZigTypeIdVoid && statement_type != ira->codegen->builtin_types.entry_infer) {
         ir_add_error(ira, &instruction->base, buf_sprintf("expression value is ignored"));
     }
 

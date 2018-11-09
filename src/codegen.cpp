@@ -6330,7 +6330,9 @@ static void do_code_gen(CodeGen *g) {
             ZigType *ptr_type = instruction->base.value.type;
             assert(ptr_type->id == ZigTypeIdPointer);
             ZigType *child_type = ptr_type->data.pointer.child_type;
-            if (type_has_bits(child_type) && instruction->base.value.special == ConstValSpecialRuntime) {
+            if (type_has_bits(child_type) && instruction->base.value.special == ConstValSpecialRuntime &&
+                child_type != g->builtin_types.entry_infer)
+            {
                 instruction->base.llvm_value = build_alloca(g, child_type, instruction->name_hint,
                         get_ptr_align(g, ptr_type));
             }
