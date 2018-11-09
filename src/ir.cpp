@@ -3183,9 +3183,29 @@ static IrInstruction *ir_gen_result(IrBuilder *irb, Scope *scope, AstNode *node,
     zig_unreachable();
 }
 
+static IrInstruction *ir_gen_multi(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval,
+        IrInstruction *result_loc, IrInstruction *value)
+{
+    switch (lval) {
+        case LValNone:
+        case LValPtr:
+            return ir_gen_result(irb, scope, node, lval, result_loc);
+        case LValErrorUnion:
+        case LValOptional: {
+            IrInstruction *err_alloca = ir_build_alloca_src(irb, scope, value->source_node,
+                    nullptr, nullptr, "err");
+            ir_build_store_ptr(irb, scope, value->source_node, err_alloca, value);
+            return err_alloca;
+        }
+    }
+    zig_unreachable();
+}
+
 static IrInstruction *ir_gen_value(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval,
         IrInstruction *result_loc, IrInstruction *value)
 {
+    if (value == irb->codegen->invalid_instruction)
+        return value;
     if (result_loc != nullptr) {
         ir_build_store_ptr(irb, scope, node, result_loc, value);
         if (lval != LValNone) {
@@ -3193,7 +3213,18 @@ static IrInstruction *ir_gen_value(IrBuilder *irb, Scope *scope, AstNode *node, 
             return ir_gen_result(irb, scope, node, lval, result_loc);
         }
     }
-    return ir_lval_wrap(irb, scope, value, lval);
+    switch (lval) {
+        case LValPtr:
+            // We needed a pointer to a value, but we got a value. So we create
+            // an instruction which just makes a pointer of it.
+            return ir_build_ref(irb, scope, value->source_node, value, false, false);
+        case LValNone:
+            return value;
+        case LValOptional:
+        case LValErrorUnion:
+            zig_panic("TODO");
+    }
+    zig_unreachable();
 }
 
 static IrInstruction *ir_gen_ptr(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval,
@@ -3208,7 +3239,7 @@ static IrInstruction *ir_gen_ptr(IrBuilder *irb, Scope *scope, AstNode *node, LV
         case LValErrorUnion: {
             // ptr points to an error union;
             // result_loc points to the result payload
-            // must return the error code
+            // must return pointer to the error code
             IrInstruction *payload_ptr = ir_build_unwrap_err_payload(irb, scope, node, ptr, false);
             ir_build_load_ptr(irb, scope, node, payload_ptr, result_loc);
             return ir_build_error_union_field_error_set(irb, scope, node, ptr);
@@ -5042,7 +5073,7 @@ static IrInstruction *ir_gen_fn_call(IrBuilder *irb, Scope *scope, AstNode *node
         // it turns out to be an implicit cast.
         IrInstruction *fn_call = ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false,
                 FnInlineAuto, false, nullptr, nullptr, result_loc);
-        return ir_lval_wrap(irb, scope, fn_call, lval);
+        return ir_gen_multi(irb, scope, node, lval, result_loc, fn_call);
     }
 
     for (size_t i = 0; i < arg_count; i += 1) {
@@ -5063,7 +5094,7 @@ static IrInstruction *ir_gen_fn_call(IrBuilder *irb, Scope *scope, AstNode *node
 
     IrInstruction *fn_call = ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false, FnInlineAuto,
             is_async, async_allocator, nullptr, result_loc);
-    return ir_lval_wrap(irb, scope, fn_call, lval);
+    return ir_gen_multi(irb, scope, node, lval, result_loc, fn_call);
 }
 
 static IrInstruction *ir_gen_if_bool_expr(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval,
@@ -5135,7 +5166,7 @@ static IrInstruction *ir_lval_wrap(IrBuilder *irb, Scope *scope, IrInstruction *
         return value;
 
     // We needed a pointer to a value, but we got a value. So we create
-    // an instruction which just makes a const pointer of it.
+    // an instruction which just makes a pointer of it.
     return ir_build_ref(irb, scope, value->source_node, value, false, false);
 }
 
@@ -7336,7 +7367,8 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
         case NodeTypeSliceExpr:
             return ir_lval_wrap(irb, scope, ir_gen_slice(irb, scope, node, result_loc), lval);
         case NodeTypeUnwrapErrorExpr:
-            return ir_gen_catch(irb, scope, node, lval, result_loc);
+            return ir_gen_catch(irb, scope, node, lval,
+                    ensure_result_loc(irb, scope, node, result_loc));
         case NodeTypeContainerDecl:
             return ir_lval_wrap(irb, scope, ir_gen_container_decl(irb, scope, node), lval);
         case NodeTypeFnProto:
@@ -14177,6 +14209,16 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call
 
     IrInstruction *casted_result_loc = nullptr;
 
+    ZigType *scalar_result_type;
+    ZigType *payload_result_type;
+    if (return_type->id == ZigTypeIdErrorUnion) {
+        scalar_result_type = get_optional_type(ira->codegen, return_type->data.error_union.err_set_type);
+        payload_result_type = return_type->data.error_union.payload_type;
+    } else {
+        payload_result_type = return_type;
+        scalar_result_type = return_type;
+    }
+
     if (call_instruction->result_loc != nullptr) {
         IrInstruction *prev_result_loc = call_instruction->result_loc->child;
         if (type_is_invalid(prev_result_loc->value.type))
@@ -14190,7 +14232,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call
             }
         }
 
-        casted_result_loc = ir_implicit_cast_result(ira, prev_result_loc, return_type, false);
+        casted_result_loc = ir_implicit_cast_result(ira, prev_result_loc, payload_result_type, false);
         if (type_is_invalid(casted_result_loc->value.type))
             return ira->codegen->invalid_instruction;
     }
@@ -14199,9 +14241,9 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call
             call_instruction->base.scope, call_instruction->base.source_node,
             fn_entry, fn_ref, call_param_count, casted_args, false, fn_inline, false, nullptr,
             casted_new_stack, casted_result_loc);
-    new_call_instruction->value.type = return_type;
+    new_call_instruction->value.type = scalar_result_type;
 
-    if (!handle_is_ptr(return_type) && casted_result_loc != nullptr) {
+    if (return_type == payload_result_type && !handle_is_ptr(return_type) && casted_result_loc != nullptr) {
         ir_analyze_store_ptr(ira, &call_instruction->base, casted_result_loc, new_call_instruction);
     }
 

@@ -460,6 +460,21 @@ static void maybe_import_dll(CodeGen *g, LLVMValueRef global_value, GlobalLinkag
     }
 }
 
+static bool cc_want_sret_attr(CallingConvention cc) {
+    switch (cc) {
+        case CallingConventionNaked:
+            zig_unreachable();
+        case CallingConventionC:
+        case CallingConventionCold:
+        case CallingConventionStdcall:
+            return true;
+        case CallingConventionAsync:
+        case CallingConventionUnspecified:
+            return false;
+    }
+    zig_unreachable();
+}
+
 static LLVMValueRef fn_llvm_value(CodeGen *g, ZigFn *fn_table_entry) {
     if (fn_table_entry->llvm_value)
         return fn_table_entry->llvm_value;
@@ -597,10 +612,18 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, ZigFn *fn_table_entry) {
     } else if (type_is_codegen_pointer(return_type)) {
         addLLVMAttr(fn_table_entry->llvm_value, 0, "nonnull");
     } else if (want_first_arg_sret(g, &fn_type->data.fn.fn_type_id)) {
-        addLLVMArgAttr(fn_table_entry->llvm_value, 0, "sret");
         addLLVMArgAttr(fn_table_entry->llvm_value, 0, "nonnull");
-        if (cc == CallingConventionC) {
+        if (cc_want_sret_attr(cc)) {
+            addLLVMArgAttr(fn_table_entry->llvm_value, 0, "sret");
             addLLVMArgAttr(fn_table_entry->llvm_value, 0, "noalias");
+        } else {
+            ZigType *ret_type = fn_type->data.fn.fn_type_id.return_type;
+            if (ret_type->id == ZigTypeIdErrorUnion) {
+                uint64_t sz = type_size(g, ret_type->data.error_union.payload_type);
+                addLLVMArgAttrInt(fn_table_entry->llvm_value, 0, "dereferenceable", sz);
+            } else {
+                addLLVMArgAttr(fn_table_entry->llvm_value, 0, "sret");
+            }
         }
         init_gen_i = 1;
     }
@@ -2240,8 +2263,17 @@ static LLVMValueRef ir_render_save_err_ret_addr(CodeGen *g, IrExecutable *execut
 static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrInstructionReturn *return_instruction) {
     LLVMValueRef value = ir_llvm_value(g, return_instruction->value);
     ZigType *return_type = return_instruction->value->value.type;
+    FnTypeId *fn_type_id = &g->cur_fn->type_entry->data.fn.fn_type_id;
 
-    if (want_first_arg_sret(g, &g->cur_fn->type_entry->data.fn.fn_type_id)) {
+    if (fn_type_id->return_type->id == ZigTypeIdErrorUnion) {
+        ConstExprValue *val = &return_instruction->value->value;
+        if (val->special == ConstValSpecialStatic) {
+            LLVMValueRef const_error_val = gen_const_val(g, val->data.x_err_union.error_set, "");
+            LLVMBuildRet(g->builder, const_error_val);
+        } else {
+            zig_panic("TODO");
+        }
+    } else if (want_first_arg_sret(g, fn_type_id)) {
         // Assume that the result location mechanism populated the value,
         // unless the value is a comptime const.
         if (return_instruction->value->value.special == ConstValSpecialStatic) {
@@ -3466,7 +3498,9 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
 
     CallingConvention cc = fn_type->data.fn.fn_type_id.cc;
 
-    bool first_arg_ret = ret_has_bits && want_first_arg_sret(g, fn_type_id);
+    bool is_error_union = src_return_type->id == ZigTypeIdErrorUnion;
+    bool first_arg_ret = (is_error_union && type_has_bits(src_return_type->data.error_union.payload_type)) ||
+        (ret_has_bits && want_first_arg_sret(g, fn_type_id));
     bool prefix_arg_err_ret_stack = get_prefix_arg_err_ret_stack(g, fn_type_id);
     bool is_var_args = fn_type_id->is_var_args;
     ZigList<LLVMValueRef> gen_param_values = {};
@@ -3537,8 +3571,10 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     } else if (!ret_has_bits) {
         return nullptr;
     } else if (first_arg_ret) {
-        set_call_instr_sret(g, result);
-        return result_ptr;
+        if (cc_want_sret_attr(cc) || src_return_type->id != ZigTypeIdErrorUnion) {
+            set_call_instr_sret(g, result);
+        }
+        return is_error_union ? result : result_ptr;
     } else if (handle_is_ptr(src_return_type)) {
         auto store_instr = LLVMBuildStore(g->builder, result, result_ptr);
         LLVMSetAlignment(store_instr, LLVMGetAlignment(result_ptr));
@@ -3785,8 +3821,8 @@ static LLVMValueRef ir_render_unwrap_maybe(CodeGen *g, IrExecutable *executable,
     assert(maybe_type->id == ZigTypeIdOptional);
     ZigType *child_type = maybe_type->data.maybe.child_type;
     LLVMValueRef maybe_ptr = ir_llvm_value(g, instruction->value);
-    LLVMValueRef maybe_handle = get_handle_value(g, maybe_ptr, maybe_type, ptr_type);
     if (ir_want_runtime_safety(g, &instruction->base) && instruction->safety_check_on) {
+        LLVMValueRef maybe_handle = get_handle_value(g, maybe_ptr, maybe_type, ptr_type);
         LLVMValueRef non_null_bit = gen_non_null_bit(g, maybe_type, maybe_handle);
         LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "UnwrapOptionalOk");
         LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "UnwrapOptionalFail");
