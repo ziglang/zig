@@ -110,7 +110,7 @@ static Token *eat_token_if(ParseContext *pc, TokenId id) {
 
 static Token *expect_token(ParseContext *pc, TokenId id) {
     Token *res = eat_token(pc);
-    if (res->id == id)
+    if (res->id != id)
         ast_error(pc, res, "expected token '%s', found '%s'", token_name(id), token_name(res->id));
 
     return res;
@@ -924,7 +924,7 @@ static AstNode *ast_parse_multiply_expr(ParseContext *pc) {
 static AstNode *ast_parse_curly_suffix_expr(ParseContext *pc) {
     AstNode *type_expr = ast_parse_type_expr(pc);
     if (type_expr == nullptr)
-        return type_expr;
+        return nullptr;
 
     AstNode *res = ast_parse_init_list(pc);
     if (res == nullptr)
@@ -1058,7 +1058,7 @@ static AstNode *ast_parse_suffix_expr(ParseContext *pc) {
         return async_call;
     }
 
-    AstNode *res = ast_parse_prefix_expr(pc);
+    AstNode *res = ast_parse_primary_expr(pc);
     if (res == nullptr)
         return nullptr;
 
@@ -1795,6 +1795,8 @@ static AstNode *ast_parse_while_prefix(ParseContext *pc) {
         : expect_token(pc, TokenIdKeywordWhile);
     if (first == nullptr)
         first = while_token;
+    if (first == nullptr)
+        return nullptr;
 
     AstNode *condition = ast_expect(pc, ast_parse_grouped_expr);
     Optional<PtrPayload> opt_payload = ast_parse_ptr_payload(pc);
@@ -1831,6 +1833,8 @@ static AstNode *ast_parse_for_prefix(ParseContext *pc) {
         : expect_token(pc, TokenIdKeywordFor);
     if (first == nullptr)
         first = for_token;
+    if (first == nullptr)
+        return nullptr;
 
     AstNode *array_expr = ast_expect(pc, ast_parse_grouped_expr);
     PtrIndexPayload payload;
