@@ -2252,6 +2252,7 @@ struct IrInstructionCondBr {
     IrBasicBlock *then_block;
     IrBasicBlock *else_block;
     IrInstruction *is_comptime;
+    IrInstruction *result_loc;
 };
 
 struct IrInstructionBr {

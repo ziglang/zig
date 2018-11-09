@@ -960,7 +960,7 @@ static IrInstruction *ir_build_cast(IrBuilder *irb, Scope *scope, AstNode *sourc
 }
 
 static IrInstruction *ir_build_cond_br(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *condition,
-        IrBasicBlock *then_block, IrBasicBlock *else_block, IrInstruction *is_comptime)
+        IrBasicBlock *then_block, IrBasicBlock *else_block, IrInstruction *is_comptime, IrInstruction *result_loc)
 {
     IrInstructionCondBr *cond_br_instruction = ir_build_instruction<IrInstructionCondBr>(irb, scope, source_node);
     cond_br_instruction->base.value.type = irb->codegen->builtin_types.entry_unreachable;
@@ -969,11 +969,13 @@ static IrInstruction *ir_build_cond_br(IrBuilder *irb, Scope *scope, AstNode *so
     cond_br_instruction->then_block = then_block;
     cond_br_instruction->else_block = else_block;
     cond_br_instruction->is_comptime = is_comptime;
+    cond_br_instruction->result_loc = result_loc;
 
     ir_ref_instruction(condition, irb->current_basic_block);
     ir_ref_bb(then_block);
     ir_ref_bb(else_block);
-    if (is_comptime) ir_ref_instruction(is_comptime, irb->current_basic_block);
+    if (is_comptime != nullptr) ir_ref_instruction(is_comptime, irb->current_basic_block);
+    if (result_loc != nullptr) ir_ref_instruction(result_loc, irb->current_basic_block);
 
     return &cond_br_instruction->base;
 }
@@ -3141,7 +3143,7 @@ static IrInstruction *ir_gen_async_return(IrBuilder *irb, Scope *scope, AstNode 
 
     IrInstruction *is_suspended_value = ir_build_bin_op(irb, scope, node, IrBinOpBinAnd, prev_atomic_value, is_suspended_mask, false);
     IrInstruction *is_suspended_bool = ir_build_bin_op(irb, scope, node, IrBinOpCmpNotEq, is_suspended_value, zero, false);
-    ir_build_cond_br(irb, scope, node, is_suspended_bool, suspended_block, not_suspended_block, is_comptime);
+    ir_build_cond_br(irb, scope, node, is_suspended_bool, suspended_block, not_suspended_block, is_comptime, nullptr);
 
     ir_set_cursor_at_end_and_append_block(irb, suspended_block);
     ir_build_unreachable(irb, scope, node);
@@ -3150,7 +3152,7 @@ static IrInstruction *ir_gen_async_return(IrBuilder *irb, Scope *scope, AstNode 
     IrInstruction *await_handle_addr = ir_build_bin_op(irb, scope, node, IrBinOpBinAnd, prev_atomic_value, ptr_mask, false);
     // if we ever add null checking safety to the ptrtoint instruction, it needs to be disabled here
     IrInstruction *have_await_handle = ir_build_bin_op(irb, scope, node, IrBinOpCmpNotEq, await_handle_addr, zero, false);
-    ir_build_cond_br(irb, scope, node, have_await_handle, store_awaiter_block, check_canceled_block, is_comptime);
+    ir_build_cond_br(irb, scope, node, have_await_handle, store_awaiter_block, check_canceled_block, is_comptime, nullptr);
 
     ir_set_cursor_at_end_and_append_block(irb, store_awaiter_block);
     IrInstruction *await_handle = ir_build_int_to_ptr(irb, scope, node, promise_type_val, await_handle_addr);
@@ -3160,7 +3162,7 @@ static IrInstruction *ir_gen_async_return(IrBuilder *irb, Scope *scope, AstNode 
     ir_set_cursor_at_end_and_append_block(irb, check_canceled_block);
     IrInstruction *is_canceled_value = ir_build_bin_op(irb, scope, node, IrBinOpBinAnd, prev_atomic_value, is_canceled_mask, false);
     IrInstruction *is_canceled_bool = ir_build_bin_op(irb, scope, node, IrBinOpCmpNotEq, is_canceled_value, zero, false);
-    return ir_build_cond_br(irb, scope, node, is_canceled_bool, irb->exec->coro_final_cleanup_block, irb->exec->coro_early_final, is_comptime);
+    return ir_build_cond_br(irb, scope, node, is_canceled_bool, irb->exec->coro_final_cleanup_block, irb->exec->coro_early_final, is_comptime, nullptr);
 }
 
 static IrInstruction *ir_gen_result(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval,
@@ -3277,7 +3279,7 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                         is_comptime = ir_build_test_comptime(irb, scope, node, is_err);
                     }
 
-                    ir_mark_gen(ir_build_cond_br(irb, scope, node, is_err, err_block, ok_block, is_comptime));
+                    ir_mark_gen(ir_build_cond_br(irb, scope, node, is_err, err_block, ok_block, is_comptime, nullptr));
                     IrBasicBlock *ret_stmt_block = ir_create_basic_block(irb, scope, "RetStmt");
 
                     ir_set_cursor_at_end_and_append_block(irb, err_block);
@@ -3320,7 +3322,7 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                 } else {
                     is_comptime = ir_build_test_comptime(irb, scope, node, is_err_val);
                 }
-                ir_mark_gen(ir_build_cond_br(irb, scope, node, is_err_val, return_block, continue_block, is_comptime));
+                ir_mark_gen(ir_build_cond_br(irb, scope, node, is_err_val, return_block, continue_block, is_comptime, nullptr));
 
                 ir_set_cursor_at_end_and_append_block(irb, return_block);
                 if (!ir_gen_defers_for_block(irb, scope, outer_scope, true)) {
@@ -3550,7 +3552,7 @@ static IrInstruction *ir_gen_bool_or(IrBuilder *irb, Scope *scope, AstNode *node
     // block for when val1 == true (don't even evaluate the second part)
     IrBasicBlock *true_block = ir_create_basic_block(irb, scope, "BoolOrTrue");
 
-    ir_build_cond_br(irb, scope, node, val1, true_block, false_block, is_comptime);
+    ir_build_cond_br(irb, scope, node, val1, true_block, false_block, is_comptime, nullptr);
 
     ir_set_cursor_at_end_and_append_block(irb, false_block);
     IrInstruction *val2 = ir_gen_node(irb, node->data.bin_op_expr.op2, scope, LValNone, nullptr);
@@ -3592,7 +3594,7 @@ static IrInstruction *ir_gen_bool_and(IrBuilder *irb, Scope *scope, AstNode *nod
     // block for when val1 == false (don't even evaluate the second part)
     IrBasicBlock *false_block = ir_create_basic_block(irb, scope, "BoolAndFalse");
 
-    ir_build_cond_br(irb, scope, node, val1, true_block, false_block, is_comptime);
+    ir_build_cond_br(irb, scope, node, val1, true_block, false_block, is_comptime, nullptr);
 
     ir_set_cursor_at_end_and_append_block(irb, true_block);
     IrInstruction *val2 = ir_gen_node(irb, node->data.bin_op_expr.op2, scope, LValNone, nullptr);
@@ -3635,7 +3637,7 @@ static IrInstruction *ir_gen_orelse(IrBuilder *irb, Scope *parent_scope, AstNode
 
     IrBasicBlock *null_block = ir_create_basic_block(irb, parent_scope, "OrElseNull");
     IrBasicBlock *end_block = ir_create_basic_block(irb, parent_scope, "OrElseEnd");
-    ir_build_cond_br(irb, parent_scope, node, is_non_null, end_block, null_block, is_comptime);
+    ir_build_cond_br(irb, parent_scope, node, is_non_null, end_block, null_block, is_comptime, result_loc);
 
     ir_set_cursor_at_end_and_append_block(irb, null_block);
     IrInstruction *null_result = ir_gen_node(irb, op2_node, parent_scope, LValNone, result_loc);
@@ -5084,7 +5086,7 @@ static IrInstruction *ir_gen_if_bool_expr(IrBuilder *irb, Scope *scope, AstNode 
     IrBasicBlock *else_block = ir_create_basic_block(irb, scope, "Else");
     IrBasicBlock *endif_block = ir_create_basic_block(irb, scope, "EndIf");
 
-    ir_build_cond_br(irb, scope, condition->source_node, condition, then_block, else_block, is_comptime);
+    ir_build_cond_br(irb, scope, condition->source_node, condition, then_block, else_block, is_comptime, result_loc);
 
     ir_set_cursor_at_end_and_append_block(irb, then_block);
 
@@ -5413,7 +5415,7 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
 
         if (!instr_is_unreachable(is_err)) {
             ir_mark_gen(ir_build_cond_br(irb, scope, node->data.while_expr.condition, is_err,
-                        else_block, body_block, is_comptime));
+                        else_block, body_block, is_comptime, result_loc));
         }
 
         ir_set_cursor_at_end_and_append_block(irb, body_block);
@@ -5492,7 +5494,7 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
         IrInstruction *is_non_null = ir_build_test_nonnull(irb, scope, node->data.while_expr.condition, maybe_val);
         if (!instr_is_unreachable(is_non_null)) {
             ir_mark_gen(ir_build_cond_br(irb, scope, node->data.while_expr.condition, is_non_null,
-                        body_block, else_block, is_comptime));
+                        body_block, else_block, is_comptime, result_loc));
         }
 
         ir_set_cursor_at_end_and_append_block(irb, body_block);
@@ -5553,7 +5555,7 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
             return cond_val;
         if (!instr_is_unreachable(cond_val)) {
             ir_mark_gen(ir_build_cond_br(irb, scope, node->data.while_expr.condition, cond_val,
-                        body_block, else_block, is_comptime));
+                        body_block, else_block, is_comptime, result_loc));
         }
 
         ir_set_cursor_at_end_and_append_block(irb, body_block);
@@ -5679,7 +5681,7 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
     ir_set_cursor_at_end_and_append_block(irb, cond_block);
     IrInstruction *index_val = ir_build_load_ptr(irb, child_scope, node, index_alloca, nullptr);
     IrInstruction *cond = ir_build_bin_op(irb, child_scope, node, IrBinOpCmpNotEq, index_val, len_val, false);
-    ir_mark_gen(ir_build_cond_br(irb, child_scope, node, cond, body_block, else_block, is_comptime));
+    ir_mark_gen(ir_build_cond_br(irb, child_scope, node, cond, body_block, else_block, is_comptime, result_loc));
 
     ir_set_cursor_at_end_and_append_block(irb, body_block);
     IrInstruction *elem_ptr = ir_build_elem_ptr(irb, child_scope, node, array_val_ptr, index_val, false, PtrLenSingle);
@@ -5891,7 +5893,7 @@ static IrInstruction *ir_gen_if_optional_expr(IrBuilder *irb, Scope *scope, AstN
     } else {
         is_comptime = ir_build_test_comptime(irb, scope, node, is_non_null);
     }
-    ir_build_cond_br(irb, scope, node, is_non_null, then_block, else_block, is_comptime);
+    ir_build_cond_br(irb, scope, node, is_non_null, then_block, else_block, is_comptime, result_loc);
 
     ir_set_cursor_at_end_and_append_block(irb, then_block);
 
@@ -5963,7 +5965,7 @@ static IrInstruction *ir_gen_if_err_expr(IrBuilder *irb, Scope *scope, AstNode *
     bool force_comptime = ir_should_inline(irb->exec, scope);
     IrInstruction *is_comptime = force_comptime ?
         ir_build_const_bool(irb, scope, node, true) : ir_build_test_comptime(irb, scope, node, is_err);
-    ir_build_cond_br(irb, scope, node, is_err, else_block, ok_block, is_comptime);
+    ir_build_cond_br(irb, scope, node, is_err, else_block, ok_block, is_comptime, result_loc);
 
     ir_set_cursor_at_end_and_append_block(irb, ok_block);
 
@@ -6042,24 +6044,18 @@ static bool ir_gen_switch_prong_expr(IrBuilder *irb, Scope *scope, AstNode *swit
         Buf *var_name = var_symbol_node->data.symbol_expr.symbol;
         bool var_is_ptr = prong_node->data.switch_prong.var_is_ptr;
 
+        IrInstruction *var_type = nullptr; // infer the type
         bool is_shadowable = false;
         bool is_const = true;
         ZigVar *var = ir_create_var(irb, var_symbol_node, scope,
                 var_name, is_const, is_const, is_shadowable, var_is_comptime);
+
+        IrInstruction *payload_ptr = (prong_value == nullptr) ? target_value_ptr :
+            ir_build_switch_var(irb, scope, var_symbol_node, target_value_ptr, prong_value);
+        IrInstruction *var_ptr = var_is_ptr ?
+            ir_build_ref(irb, scope, var_symbol_node, payload_ptr, true, false) : payload_ptr;
+        ir_build_var_decl_src(irb, scope, var_symbol_node, var, var_type, nullptr, var_ptr);
         child_scope = var->child_scope;
-        IrInstruction *var_value;
-        IrInstruction *payload_alloca = ir_build_alloca_src(irb, scope, var_symbol_node, nullptr, nullptr, "switch_payload");
-        if (prong_value) {
-            IrInstruction *var_ptr_value = ir_build_switch_var(irb, scope, var_symbol_node, target_value_ptr, prong_value);
-            var_value = var_is_ptr ?
-                var_ptr_value : ir_build_load_result(irb, scope, var_symbol_node, var_ptr_value, payload_alloca);
-        } else {
-            var_value = var_is_ptr ?
-                target_value_ptr : ir_build_load_result(irb, scope, var_symbol_node, target_value_ptr, payload_alloca);
-        }
-        IrInstruction *var_type = nullptr; // infer the type
-        ir_build_store_result(irb, scope, var_symbol_node, payload_alloca, var_value);
-        ir_build_var_decl_src(irb, scope, var_symbol_node, var, var_type, nullptr, payload_alloca);
     } else {
         child_scope = scope;
     }
@@ -6074,7 +6070,9 @@ static bool ir_gen_switch_prong_expr(IrBuilder *irb, Scope *scope, AstNode *swit
     return true;
 }
 
-static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *node, IrInstruction *result_loc) {
+static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval,
+        IrInstruction *result_loc)
+{
     assert(node->type == NodeTypeSwitchExpr);
 
     AstNode *target_node = node->data.switch_expr.expr;
@@ -6187,7 +6185,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
             assert(ok_bit);
             assert(last_item_node);
             ir_mark_gen(ir_build_cond_br(irb, scope, last_item_node, ok_bit, range_block_yes,
-                        range_block_no, is_comptime));
+                        range_block_no, is_comptime, result_loc));
 
             ir_set_cursor_at_end_and_append_block(irb, range_block_yes);
             if (!ir_gen_switch_prong_expr(irb, subexpr_scope, node, prong_node, end_block,
@@ -6246,13 +6244,14 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
 
     }
 
-    IrInstruction *switch_prongs_void = ir_build_check_switch_prongs(irb, scope, node, target_value, check_ranges.items, check_ranges.length,
-            else_prong != nullptr);
+    IrInstruction *switch_prongs_void = ir_build_check_switch_prongs(irb, scope, node, target_value,
+            check_ranges.items, check_ranges.length, else_prong != nullptr);
 
     if (cases.length == 0) {
         ir_build_br(irb, scope, node, else_block, is_comptime);
     } else {
-        ir_build_switch_br(irb, scope, node, target_value, else_block, cases.length, cases.items, is_comptime, switch_prongs_void);
+        ir_build_switch_br(irb, scope, node, target_value, else_block, cases.length, cases.items,
+                is_comptime, switch_prongs_void);
     }
 
     if (!else_prong) {
@@ -6262,11 +6261,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
 
     ir_set_cursor_at_end_and_append_block(irb, end_block);
     assert(incoming_blocks.length == incoming_values.length);
-    if (incoming_blocks.length == 0) {
-        return ir_build_const_void(irb, scope, node);
-    } else {
-        return ir_build_phi(irb, scope, node, incoming_blocks.length, incoming_blocks.items, incoming_values.items);
-    }
+    return ir_gen_result(irb, scope, node, lval, result_loc);
 }
 
 static IrInstruction *ir_gen_comptime(IrBuilder *irb, Scope *parent_scope, AstNode *node,
@@ -6511,7 +6506,7 @@ static IrInstruction *ir_gen_catch(IrBuilder *irb, Scope *parent_scope, AstNode 
 
     IrBasicBlock *err_block = ir_create_basic_block(irb, parent_scope, "CatchError");
     IrBasicBlock *end_block = ir_create_basic_block(irb, parent_scope, "CatchEnd");
-    ir_build_cond_br(irb, parent_scope, node, is_err, err_block, end_block, is_comptime);
+    ir_build_cond_br(irb, parent_scope, node, is_err, err_block, end_block, is_comptime, result_loc);
 
     ir_set_cursor_at_end_and_append_block(irb, err_block);
     Scope *err_scope;
@@ -6812,12 +6807,12 @@ static IrInstruction *ir_gen_cancel_target(IrBuilder *irb, Scope *scope, AstNode
 
     IrInstruction *is_canceled_value = ir_build_bin_op(irb, scope, node, IrBinOpBinAnd, prev_atomic_value, is_canceled_mask, false);
     IrInstruction *is_canceled_bool = ir_build_bin_op(irb, scope, node, IrBinOpCmpNotEq, is_canceled_value, zero, false);
-    ir_build_cond_br(irb, scope, node, is_canceled_bool, done_block, not_canceled_block, is_comptime);
+    ir_build_cond_br(irb, scope, node, is_canceled_bool, done_block, not_canceled_block, is_comptime, nullptr);
 
     ir_set_cursor_at_end_and_append_block(irb, not_canceled_block);
     IrInstruction *awaiter_addr = ir_build_bin_op(irb, scope, node, IrBinOpBinAnd, prev_atomic_value, ptr_mask, false);
     IrInstruction *is_returned_bool = ir_build_bin_op(irb, scope, node, IrBinOpCmpEq, awaiter_addr, ptr_mask, false);
-    ir_build_cond_br(irb, scope, node, is_returned_bool, post_return_block, pre_return_block, is_comptime);
+    ir_build_cond_br(irb, scope, node, is_returned_bool, post_return_block, pre_return_block, is_comptime, nullptr);
 
     ir_set_cursor_at_end_and_append_block(irb, post_return_block);
     if (cancel_awaited) {
@@ -6825,7 +6820,7 @@ static IrInstruction *ir_gen_cancel_target(IrBuilder *irb, Scope *scope, AstNode
     } else {
         IrInstruction *is_awaited_value = ir_build_bin_op(irb, scope, node, IrBinOpBinAnd, prev_atomic_value, await_mask, false);
         IrInstruction *is_awaited_bool = ir_build_bin_op(irb, scope, node, IrBinOpCmpNotEq, is_awaited_value, zero, false);
-        ir_build_cond_br(irb, scope, node, is_awaited_bool, done_block, do_cancel_block, is_comptime);
+        ir_build_cond_br(irb, scope, node, is_awaited_bool, done_block, do_cancel_block, is_comptime, nullptr);
     }
 
     ir_set_cursor_at_end_and_append_block(irb, pre_return_block);
@@ -6835,7 +6830,7 @@ static IrInstruction *ir_gen_cancel_target(IrBuilder *irb, Scope *scope, AstNode
         } else {
             IrInstruction *is_suspended_value = ir_build_bin_op(irb, scope, node, IrBinOpBinAnd, prev_atomic_value, is_suspended_mask, false);
             IrInstruction *is_suspended_bool = ir_build_bin_op(irb, scope, node, IrBinOpCmpNotEq, is_suspended_value, zero, false);
-            ir_build_cond_br(irb, scope, node, is_suspended_bool, do_cancel_block, done_block, is_comptime);
+            ir_build_cond_br(irb, scope, node, is_suspended_bool, do_cancel_block, done_block, is_comptime, nullptr);
         }
     } else {
         ir_build_br(irb, scope, node, done_block, is_comptime);
@@ -6890,12 +6885,12 @@ static IrInstruction *ir_gen_resume_target(IrBuilder *irb, Scope *scope, AstNode
 
     IrInstruction *is_canceled_value = ir_build_bin_op(irb, scope, node, IrBinOpBinAnd, prev_atomic_value, is_canceled_mask, false);
     IrInstruction *is_canceled_bool = ir_build_bin_op(irb, scope, node, IrBinOpCmpNotEq, is_canceled_value, zero, false);
-    ir_build_cond_br(irb, scope, node, is_canceled_bool, done_block, not_canceled_block, is_comptime);
+    ir_build_cond_br(irb, scope, node, is_canceled_bool, done_block, not_canceled_block, is_comptime, nullptr);
 
     ir_set_cursor_at_end_and_append_block(irb, not_canceled_block);
     IrInstruction *is_suspended_value = ir_build_bin_op(irb, scope, node, IrBinOpBinAnd, prev_atomic_value, is_suspended_mask, false);
     IrInstruction *is_suspended_bool = ir_build_bin_op(irb, scope, node, IrBinOpCmpNotEq, is_suspended_value, zero, false);
-    ir_build_cond_br(irb, scope, node, is_suspended_bool, suspended_block, not_suspended_block, is_comptime);
+    ir_build_cond_br(irb, scope, node, is_suspended_bool, suspended_block, not_suspended_block, is_comptime, nullptr);
 
     ir_set_cursor_at_end_and_append_block(irb, not_suspended_block);
     ir_build_unreachable(irb, scope, node);
@@ -7007,7 +7002,7 @@ static IrInstruction *ir_gen_await_expr(IrBuilder *irb, Scope *scope, AstNode *n
 
     IrInstruction *is_awaited_value = ir_build_bin_op(irb, scope, node, IrBinOpBinAnd, prev_atomic_value, await_mask, false);
     IrInstruction *is_awaited_bool = ir_build_bin_op(irb, scope, node, IrBinOpCmpNotEq, is_awaited_value, zero, false);
-    ir_build_cond_br(irb, scope, node, is_awaited_bool, already_awaited_block, not_awaited_block, const_bool_false);
+    ir_build_cond_br(irb, scope, node, is_awaited_bool, already_awaited_block, not_awaited_block, const_bool_false, nullptr);
 
     ir_set_cursor_at_end_and_append_block(irb, already_awaited_block);
     ir_build_unreachable(irb, scope, node);
@@ -7017,10 +7012,10 @@ static IrInstruction *ir_gen_await_expr(IrBuilder *irb, Scope *scope, AstNode *n
     IrInstruction *is_non_null = ir_build_bin_op(irb, scope, node, IrBinOpCmpNotEq, await_handle_addr, zero, false);
     IrInstruction *is_canceled_value = ir_build_bin_op(irb, scope, node, IrBinOpBinAnd, prev_atomic_value, is_canceled_mask, false);
     IrInstruction *is_canceled_bool = ir_build_bin_op(irb, scope, node, IrBinOpCmpNotEq, is_canceled_value, zero, false);
-    ir_build_cond_br(irb, scope, node, is_canceled_bool, cancel_target_block, not_canceled_block, const_bool_false);
+    ir_build_cond_br(irb, scope, node, is_canceled_bool, cancel_target_block, not_canceled_block, const_bool_false, nullptr);
 
     ir_set_cursor_at_end_and_append_block(irb, not_canceled_block);
-    ir_build_cond_br(irb, scope, node, is_non_null, no_suspend_block, yes_suspend_block, const_bool_false);
+    ir_build_cond_br(irb, scope, node, is_non_null, no_suspend_block, yes_suspend_block, const_bool_false, nullptr);
 
     ir_set_cursor_at_end_and_append_block(irb, cancel_target_block);
     ir_build_cancel(irb, scope, node, target_inst);
@@ -7051,7 +7046,7 @@ static IrInstruction *ir_gen_await_expr(IrBuilder *irb, Scope *scope, AstNode *n
             AtomicRmwOp_or, AtomicOrderSeqCst);
     IrInstruction *my_is_suspended_value = ir_build_bin_op(irb, scope, node, IrBinOpBinAnd, my_prev_atomic_value, is_suspended_mask, false);
     IrInstruction *my_is_suspended_bool = ir_build_bin_op(irb, scope, node, IrBinOpCmpNotEq, my_is_suspended_value, zero, false);
-    ir_build_cond_br(irb, scope, node, my_is_suspended_bool, my_suspended_block, my_not_suspended_block, const_bool_false);
+    ir_build_cond_br(irb, scope, node, my_is_suspended_bool, my_suspended_block, my_not_suspended_block, const_bool_false, nullptr);
 
     ir_set_cursor_at_end_and_append_block(irb, my_suspended_block);
     ir_build_unreachable(irb, scope, node);
@@ -7059,7 +7054,7 @@ static IrInstruction *ir_gen_await_expr(IrBuilder *irb, Scope *scope, AstNode *n
     ir_set_cursor_at_end_and_append_block(irb, my_not_suspended_block);
     IrInstruction *my_is_canceled_value = ir_build_bin_op(irb, scope, node, IrBinOpBinAnd, my_prev_atomic_value, is_canceled_mask, false);
     IrInstruction *my_is_canceled_bool = ir_build_bin_op(irb, scope, node, IrBinOpCmpNotEq, my_is_canceled_value, zero, false);
-    ir_build_cond_br(irb, scope, node, my_is_canceled_bool, cleanup_block, do_suspend_block, const_bool_false);
+    ir_build_cond_br(irb, scope, node, my_is_canceled_bool, cleanup_block, do_suspend_block, const_bool_false, nullptr);
 
     ir_set_cursor_at_end_and_append_block(irb, do_suspend_block);
     IrInstruction *suspend_code = ir_build_coro_suspend(irb, scope, node, save_token, const_bool_false);
@@ -7084,7 +7079,7 @@ static IrInstruction *ir_gen_await_expr(IrBuilder *irb, Scope *scope, AstNode *n
     IrInstruction *my_await_handle_addr = ir_build_bin_op(irb, scope, node, IrBinOpBinAnd, b_my_prev_atomic_value, ptr_mask, false);
     IrInstruction *dont_have_my_await_handle = ir_build_bin_op(irb, scope, node, IrBinOpCmpEq, my_await_handle_addr, zero, false);
     IrInstruction *dont_destroy_ourselves = ir_build_bin_op(irb, scope, node, IrBinOpBoolAnd, dont_have_my_await_handle, is_canceled_bool, false);
-    ir_build_cond_br(irb, scope, node, dont_have_my_await_handle, do_defers_block, do_cancel_block, const_bool_false);
+    ir_build_cond_br(irb, scope, node, dont_have_my_await_handle, do_defers_block, do_cancel_block, const_bool_false, nullptr);
 
     ir_set_cursor_at_end_and_append_block(irb, do_cancel_block);
     IrInstruction *my_await_handle = ir_build_int_to_ptr(irb, scope, node, promise_type_val, my_await_handle_addr);
@@ -7093,7 +7088,7 @@ static IrInstruction *ir_gen_await_expr(IrBuilder *irb, Scope *scope, AstNode *n
 
     ir_set_cursor_at_end_and_append_block(irb, do_defers_block);
     ir_gen_defers_for_block(irb, scope, outer_scope, true);
-    ir_mark_gen(ir_build_cond_br(irb, scope, node, dont_destroy_ourselves, irb->exec->coro_early_final, irb->exec->coro_final_cleanup_block, const_bool_false));
+    ir_mark_gen(ir_build_cond_br(irb, scope, node, dont_destroy_ourselves, irb->exec->coro_early_final, irb->exec->coro_final_cleanup_block, const_bool_false, nullptr));
 
     ir_set_cursor_at_end_and_append_block(irb, resume_block);
     ir_build_br(irb, scope, node, merge_block, const_bool_false);
@@ -7160,13 +7155,13 @@ static IrInstruction *ir_gen_suspend(IrBuilder *irb, Scope *parent_scope, AstNod
 
     IrInstruction *is_canceled_value = ir_build_bin_op(irb, parent_scope, node, IrBinOpBinAnd, prev_atomic_value, is_canceled_mask, false);
     IrInstruction *is_canceled_bool = ir_build_bin_op(irb, parent_scope, node, IrBinOpCmpNotEq, is_canceled_value, zero, false);
-    ir_build_cond_br(irb, parent_scope, node, is_canceled_bool, canceled_block, not_canceled_block, const_bool_false);
+    ir_build_cond_br(irb, parent_scope, node, is_canceled_bool, canceled_block, not_canceled_block, const_bool_false, nullptr);
 
     ir_set_cursor_at_end_and_append_block(irb, canceled_block);
     IrInstruction *await_handle_addr = ir_build_bin_op(irb, parent_scope, node, IrBinOpBinAnd, prev_atomic_value, ptr_mask, false);
     IrInstruction *have_await_handle = ir_build_bin_op(irb, parent_scope, node, IrBinOpCmpNotEq, await_handle_addr, zero, false);
     IrBasicBlock *post_canceled_block = irb->current_basic_block;
-    ir_build_cond_br(irb, parent_scope, node, have_await_handle, cancel_awaiter_block, cleanup_block, const_bool_false);
+    ir_build_cond_br(irb, parent_scope, node, have_await_handle, cancel_awaiter_block, cleanup_block, const_bool_false, nullptr);
 
     ir_set_cursor_at_end_and_append_block(irb, cancel_awaiter_block);
     IrInstruction *await_handle = ir_build_int_to_ptr(irb, parent_scope, node, promise_type_val, await_handle_addr);
@@ -7177,7 +7172,7 @@ static IrInstruction *ir_gen_suspend(IrBuilder *irb, Scope *parent_scope, AstNod
     ir_set_cursor_at_end_and_append_block(irb, not_canceled_block);
     IrInstruction *is_suspended_value = ir_build_bin_op(irb, parent_scope, node, IrBinOpBinAnd, prev_atomic_value, is_suspended_mask, false);
     IrInstruction *is_suspended_bool = ir_build_bin_op(irb, parent_scope, node, IrBinOpCmpNotEq, is_suspended_value, zero, false);
-    ir_build_cond_br(irb, parent_scope, node, is_suspended_bool, suspended_block, not_suspended_block, const_bool_false);
+    ir_build_cond_br(irb, parent_scope, node, is_suspended_bool, suspended_block, not_suspended_block, const_bool_false, nullptr);
 
     ir_set_cursor_at_end_and_append_block(irb, suspended_block);
     ir_build_unreachable(irb, parent_scope, node);
@@ -7213,7 +7208,7 @@ static IrInstruction *ir_gen_suspend(IrBuilder *irb, Scope *parent_scope, AstNod
     incoming_values[1] = const_bool_false;
     IrInstruction *destroy_ourselves = ir_build_phi(irb, parent_scope, node, 2, incoming_blocks, incoming_values);
     ir_gen_defers_for_block(irb, parent_scope, outer_scope, true);
-    ir_mark_gen(ir_build_cond_br(irb, parent_scope, node, destroy_ourselves, irb->exec->coro_final_cleanup_block, irb->exec->coro_early_final, const_bool_false));
+    ir_mark_gen(ir_build_cond_br(irb, parent_scope, node, destroy_ourselves, irb->exec->coro_final_cleanup_block, irb->exec->coro_early_final, const_bool_false, nullptr));
 
     ir_set_cursor_at_end_and_append_block(irb, resume_block);
     return ir_mark_gen(ir_build_const_void(irb, parent_scope, node));
@@ -7321,11 +7316,11 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             return ir_gen_if_optional_expr(irb, scope, node, lval,
                     ensure_result_loc(irb, scope, node, result_loc));
         case NodeTypeSwitchExpr:
-            return ir_lval_wrap(irb, scope, ir_gen_switch_expr(irb, scope, node, result_loc), lval);
+            return ir_gen_switch_expr(irb, scope, node, lval, result_loc);
         case NodeTypeCompTime:
             return ir_gen_comptime(irb, scope, node, lval, result_loc);
         case NodeTypeErrorType:
-            return ir_gen_value(irb, scope, node, lval, result_loc,ir_gen_error_type(irb, scope, node));
+            return ir_gen_value(irb, scope, node, lval, result_loc, ir_gen_error_type(irb, scope, node));
         case NodeTypeBreak:
             return ir_lval_wrap(irb, scope, ir_gen_break(irb, scope, node), lval);
         case NodeTypeContinue:
@@ -7451,7 +7446,7 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         IrInstruction *alloc_result_is_ok = ir_build_test_nonnull(irb, coro_scope, node, maybe_coro_mem_ptr);
         IrBasicBlock *alloc_err_block = ir_create_basic_block(irb, coro_scope, "AllocError");
         IrBasicBlock *alloc_ok_block = ir_create_basic_block(irb, coro_scope, "AllocOk");
-        ir_build_cond_br(irb, coro_scope, node, alloc_result_is_ok, alloc_ok_block, alloc_err_block, const_bool_false);
+        ir_build_cond_br(irb, coro_scope, node, alloc_result_is_ok, alloc_ok_block, alloc_err_block, const_bool_false, nullptr);
 
         ir_set_cursor_at_end_and_append_block(irb, alloc_err_block);
         // we can return undefined here, because the caller passes a pointer to the error struct field
@@ -7613,7 +7608,7 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
                 nullptr, nullptr, nullptr);
 
         IrBasicBlock *resume_block = ir_create_basic_block(irb, scope, "Resume");
-        ir_build_cond_br(irb, scope, node, resume_awaiter, resume_block, irb->exec->coro_suspend_block, const_bool_false);
+        ir_build_cond_br(irb, scope, node, resume_awaiter, resume_block, irb->exec->coro_suspend_block, const_bool_false, nullptr);
 
         ir_set_cursor_at_end_and_append_block(irb, resume_block);
         ir_gen_resume_target(irb, scope, node, awaiter_handle);
@@ -11420,6 +11415,11 @@ static IrInstruction *ir_implicit_cast_result(IrAnalyze *ira, IrInstruction *res
         }
     }
 
+    // cast from undefined to anything
+    if (needed_child_type->id == ZigTypeIdUndefined) {
+        return result_loc;
+    }
+
     if (allow_failure) {
         return result_loc;
     }
@@ -14492,9 +14492,14 @@ static IrInstruction *ir_analyze_instruction_cond_br(IrAnalyze *ira, IrInstructi
     if (!ir_resolve_comptime(ira, cond_br_instruction->is_comptime->child, &is_comptime))
         return ir_unreach_error(ira);
 
-    if (is_comptime || instr_is_comptime(condition)) {
+    ZigType *bool_type = ira->codegen->builtin_types.entry_bool;
+    IrInstruction *casted_condition = ir_implicit_cast(ira, condition, bool_type);
+    if (casted_condition == ira->codegen->invalid_instruction)
+        return ir_unreach_error(ira);
+
+    if (is_comptime || instr_is_comptime(casted_condition)) {
         bool cond_is_true;
-        if (!ir_resolve_bool(ira, condition, &cond_is_true))
+        if (!ir_resolve_bool(ira, casted_condition, &cond_is_true))
             return ir_unreach_error(ira);
 
         IrBasicBlock *old_dest_block = cond_is_true ?
@@ -14513,10 +14518,22 @@ static IrInstruction *ir_analyze_instruction_cond_br(IrAnalyze *ira, IrInstructi
         return ir_finish_anal(ira, result);
     }
 
-    ZigType *bool_type = ira->codegen->builtin_types.entry_bool;
-    IrInstruction *casted_condition = ir_implicit_cast(ira, condition, bool_type);
-    if (casted_condition == ira->codegen->invalid_instruction)
-        return ir_unreach_error(ira);
+    // The if condition is not comptime known. This means we must mark the result location
+    // as runtime known, in case it is ConstPtrMutInfer.
+    if (cond_br_instruction->result_loc != nullptr) {
+        IrInstruction *result_loc = cond_br_instruction->result_loc->child;
+        if (type_is_invalid(result_loc->value.type))
+            return ir_unreach_error(ira);
+        if (instr_is_comptime(result_loc)) {
+            ConstExprValue *result_ptr = ir_resolve_const(ira, result_loc, UndefBad);
+            if (result_ptr == nullptr)
+                return ir_unreach_error(ira);
+            assert(result_ptr->type->id == ZigTypeIdPointer);
+            if (result_ptr->data.x_ptr.mut == ConstPtrMutInfer) {
+                result_ptr->special = ConstValSpecialRuntime;
+            }
+        }
+    }
 
     assert(cond_br_instruction->then_block != cond_br_instruction->else_block);
     IrBasicBlock *new_then_block = ir_get_new_bb_runtime(ira, cond_br_instruction->then_block, &cond_br_instruction->base);
@@ -14529,7 +14546,7 @@ static IrInstruction *ir_analyze_instruction_cond_br(IrAnalyze *ira, IrInstructi
 
     IrInstruction *result = ir_build_cond_br(&ira->new_irb,
             cond_br_instruction->base.scope, cond_br_instruction->base.source_node,
-            casted_condition, new_then_block, new_else_block, nullptr);
+            casted_condition, new_then_block, new_else_block, nullptr, nullptr);
     result->value.type = ira->codegen->builtin_types.entry_unreachable;
     return ir_finish_anal(ira, result);
 }
