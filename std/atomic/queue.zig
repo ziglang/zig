@@ -111,7 +111,7 @@ pub fn Queue(comptime T: type) type {
         }
 
         pub fn dumpToStream(self: *Self, comptime Error: type, stream: *std.io.OutStream(Error)) Error!void {
-            const S = struct.{
+            const S = struct {
                 fn dumpRecursive(s: *std.io.OutStream(Error), optional_node: ?*Node, indent: usize) Error!void {
                     try s.writeByteNTimes(' ', indent);
                     if (optional_node) |node| {
@@ -301,7 +301,7 @@ test "std.atomic.Queue dump" {
     ));
 
     // Test a stream with one element
-    var node_0 = Queue(i32).Node.{
+    var node_0 = Queue(i32).Node{
         .data = 1,
         .next = undefined,
         .prev = undefined,
@@ -321,7 +321,7 @@ test "std.atomic.Queue dump" {
     assert(mem.eql(u8, buffer[0..sos.pos], expected));
 
     // Test a stream with two elements
-    var node_1 = Queue(i32).Node.{
+    var node_1 = Queue(i32).Node {
         .data = 2,
         .next = undefined,
         .prev = undefined,
