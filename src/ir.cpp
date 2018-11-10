@@ -5433,6 +5433,7 @@ static IrInstruction *ir_gen_array_type(IrBuilder *irb, Scope *scope, AstNode *n
     bool is_volatile = node->data.array_type.is_volatile;
     AstNode *align_expr = node->data.array_type.align_expr;
 
+    Scope *comptime_scope = create_comptime_scope(irb->codegen, node, scope);
     if (size_node) {
         if (is_const) {
             add_node_error(irb->codegen, node, buf_create_from_str("const qualifier invalid on array type"));
@@ -5447,11 +5448,11 @@ static IrInstruction *ir_gen_array_type(IrBuilder *irb, Scope *scope, AstNode *n
             return irb->codegen->invalid_instruction;
         }
 
-        IrInstruction *size_value = ir_gen_node(irb, size_node, scope);
+        IrInstruction *size_value = ir_gen_node(irb, size_node, comptime_scope);
         if (size_value == irb->codegen->invalid_instruction)
             return size_value;
 
-        IrInstruction *child_type = ir_gen_node(irb, child_type_node, scope);
+        IrInstruction *child_type = ir_gen_node(irb, child_type_node, comptime_scope);
         if (child_type == irb->codegen->invalid_instruction)
             return child_type;
 
@@ -5459,14 +5460,14 @@ static IrInstruction *ir_gen_array_type(IrBuilder *irb, Scope *scope, AstNode *n
     } else {
         IrInstruction *align_value;
         if (align_expr != nullptr) {
-            align_value = ir_gen_node(irb, align_expr, scope);
+            align_value = ir_gen_node(irb, align_expr, comptime_scope);
             if (align_value == irb->codegen->invalid_instruction)
                 return align_value;
         } else {
             align_value = nullptr;
         }
 
-        IrInstruction *child_type = ir_gen_node(irb, child_type_node, scope);
+        IrInstruction *child_type = ir_gen_node(irb, child_type_node, comptime_scope);
         if (child_type == irb->codegen->invalid_instruction)
             return child_type;
 

@@ -181,7 +181,6 @@ ScopeFnDef *create_fndef_scope(CodeGen *g, AstNode *node, Scope *parent, ZigFn *
 }
 
 Scope *create_comptime_scope(CodeGen *g, AstNode *node, Scope *parent) {
-    assert(node->type == NodeTypeCompTime || node->type == NodeTypeSwitchExpr);
     ScopeCompTime *scope = allocate<ScopeCompTime>(1);
     init_scope(g, &scope->base, ScopeIdCompTime, node, parent);
     return &scope->base;

@@ -162,3 +162,12 @@ test "comptime evalutating function that takes array by value" {
     _ = comptime testArrayByValAtComptime(arr);
     _ = comptime testArrayByValAtComptime(arr);
 }
+
+test "implicit comptime in array type size" {
+    var arr: [plusOne(10)]bool = undefined;
+    assert(arr.len == 11);
+}
+
+fn plusOne(x: u32) u32 {
+    return x + 1;
+}
