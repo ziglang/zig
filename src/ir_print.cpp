@@ -227,6 +227,10 @@ static void ir_print_call(IrPrint *irp, IrInstructionCall *call_instruction) {
     }
     fprintf(irp->f, ") result=");
     ir_print_other_instruction(irp, call_instruction->result_loc);
+    if (call_instruction->first_arg_result_loc != nullptr) {
+        fprintf(irp->f, ", first_arg_result=");
+        ir_print_other_instruction(irp, call_instruction->first_arg_result_loc);
+    }
 }
 
 static void ir_print_cond_br(IrPrint *irp, IrInstructionCondBr *cond_br_instruction) {
@@ -981,8 +985,7 @@ static void ir_print_ptr_type(IrPrint *irp, IrInstructionPtrType *instruction) {
 }
 
 static void ir_print_decl_ref(IrPrint *irp, IrInstructionDeclRef *instruction) {
-    const char *ptr_str = (instruction->lval == LValPtr) ? "ptr " : "";
-    fprintf(irp->f, "declref %s%s", ptr_str, buf_ptr(instruction->tld->name));
+    fprintf(irp->f, "declref %s", buf_ptr(instruction->tld->name));
 }
 
 static void ir_print_panic(IrPrint *irp, IrInstructionPanic *instruction) {
@@ -1310,6 +1313,12 @@ static void ir_print_result_optional_payload(IrPrint *irp, IrInstructionResultOp
     fprintf(irp->f, "ResultOptionalPayload(");
     ir_print_other_instruction(irp, instruction->prev_result_loc);
     fprintf(irp->f, ")");
+}
+
+static void ir_print_result_slice_ptr(IrPrint *irp, IrInstructionResultSlicePtr *instruction) {
+    fprintf(irp->f, "ResultSlicePtr(");
+    ir_print_other_instruction(irp, instruction->prev_result_loc);
+    fprintf(irp->f, ",len=%" ZIG_PRI_u64 ")", instruction->len);
 }
 
 static void ir_print_result_error_union_payload(IrPrint *irp, IrInstructionResultErrorUnionPayload *instruction) {
@@ -1820,6 +1829,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdResultOptionalPayload:
             ir_print_result_optional_payload(irp, (IrInstructionResultOptionalPayload *)instruction);
+            break;
+        case IrInstructionIdResultSlicePtr:
+            ir_print_result_slice_ptr(irp, (IrInstructionResultSlicePtr *)instruction);
             break;
         case IrInstructionIdResultErrorUnionPayload:
             ir_print_result_error_union_payload(irp, (IrInstructionResultErrorUnionPayload *)instruction);

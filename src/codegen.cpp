@@ -5098,6 +5098,21 @@ static LLVMValueRef ir_render_result_optional_payload(CodeGen *g, IrExecutable *
     return LLVMBuildStructGEP(g->builder, prev_result_loc, maybe_child_index, "");
 }
 
+static LLVMValueRef ir_render_result_slice_ptr(CodeGen *g, IrExecutable *executable,
+        IrInstructionResultSlicePtr *instruction)
+{
+    LLVMValueRef prev_result_loc = ir_llvm_value(g, instruction->prev_result_loc);
+    assert(instruction->prev_result_loc->value.type->id == ZigTypeIdPointer);
+    ZigType *slice_type = instruction->prev_result_loc->value.type->data.pointer.child_type;
+    assert(slice_type->id == ZigTypeIdStruct && slice_type->data.structure.is_slice);
+    size_t len_field_index = slice_type->data.structure.fields[slice_len_index].gen_index;
+    LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, prev_result_loc, (unsigned)len_field_index, "");
+    LLVMValueRef len_val = LLVMConstInt(g->builtin_types.entry_usize->type_ref, instruction->len, false);
+    gen_store_untyped(g, len_val, len_field_ptr, 0, false);
+    size_t ptr_field_index = slice_type->data.structure.fields[slice_ptr_index].gen_index;
+    return LLVMBuildStructGEP(g->builder, prev_result_loc, (unsigned)ptr_field_index, "");
+}
+
 static LLVMValueRef ir_render_result_error_union_payload(CodeGen *g, IrExecutable *executable,
         IrInstructionResultErrorUnionPayload *instruction)
 {
@@ -5379,6 +5394,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_result_return(g, executable, (IrInstructionResultReturn *)instruction);
         case IrInstructionIdResultOptionalPayload:
             return ir_render_result_optional_payload(g, executable, (IrInstructionResultOptionalPayload *)instruction);
+        case IrInstructionIdResultSlicePtr:
+            return ir_render_result_slice_ptr(g, executable, (IrInstructionResultSlicePtr *)instruction);
         case IrInstructionIdResultErrorUnionPayload:
             return ir_render_result_error_union_payload(g, executable, (IrInstructionResultErrorUnionPayload *)instruction);
         case IrInstructionIdResultErrorUnionCode:

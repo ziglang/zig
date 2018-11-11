@@ -2194,6 +2194,7 @@ enum IrInstructionId {
     IrInstructionIdResultOptionalPayload,
     IrInstructionIdResultErrorUnionPayload,
     IrInstructionIdResultErrorUnionCode,
+    IrInstructionIdResultSlicePtr,
     IrInstructionIdResultReturn,
     IrInstructionIdResultBytesToSlice,
     IrInstructionIdResultSliceToBytes,
@@ -2448,6 +2449,7 @@ struct IrInstructionCall {
     IrInstruction *async_allocator;
     IrInstruction *new_stack;
     IrInstruction *result_loc;
+    IrInstruction *first_arg_result_loc;
     FnInline fn_inline;
     bool is_async;
     bool is_comptime;
@@ -3037,7 +3039,6 @@ struct IrInstructionDeclRef {
     IrInstruction base;
 
     Tld *tld;
-    LVal lval;
 };
 
 struct IrInstructionPanic {
@@ -3337,6 +3338,13 @@ struct IrInstructionResultSliceToBytes {
 
     IrInstruction *elem_type;
     IrInstruction *prev_result_loc;
+};
+
+struct IrInstructionResultSlicePtr {
+    IrInstruction base;
+
+    IrInstruction *prev_result_loc;
+    uint64_t len;
 };
 
 struct IrInstructionResultReturn {
