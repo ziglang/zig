@@ -271,7 +271,7 @@ pub fn main() void {
         @typeName(@typeOf(optional_value)), optional_value);
 
     // error union
-    var number_or_error: error!i32 = error.ArgNotFound;
+    var number_or_error: anyerror!i32 = error.ArgNotFound;
 
     warn("\nerror union 1\ntype: {}\nvalue: {}\n",
         @typeName(@typeOf(number_or_error)), number_or_error);
@@ -449,7 +449,7 @@ pub fn main() void {
           <td>the type of types</td>
         </tr>
         <tr>
-            <td>{#syntax#}error{#endsyntax#}</td>
+            <td>{#syntax#}anyerror{#endsyntax#}</td>
           <td>(none)</td>
           <td>an error code</td>
         </tr>
@@ -1146,7 +1146,7 @@ a catch |err| b{#endsyntax#}</pre></td>
                                   {#syntax#}err{#endsyntax#} is the {#syntax#}error{#endsyntax#} and is in scope of the expression {#syntax#}b{#endsyntax#}.
           </td>
           <td>
-            <pre>{#syntax#}const value: error!u32 = error.Broken;
+            <pre>{#syntax#}const value: anyerror!u32 = error.Broken;
 const unwrapped = value catch 1234;
 unwrapped == 1234{#endsyntax#}</pre>
           </td>
@@ -2631,7 +2631,7 @@ test "while error union capture" {
 
 var numbers_left: u32 = undefined;
 
-fn eventuallyErrorSequence() error!u32 {
+fn eventuallyErrorSequence() anyerror!u32 {
     return if (numbers_left == 0) error.ReachedZero else blk: {
         numbers_left -= 1;
         break :blk numbers_left;
@@ -2824,7 +2824,7 @@ fn typeNameLength(comptime T: type) usize {
 // If expressions have three uses, corresponding to the three types:
 // * bool
 // * ?T
-// * error!T
+// * anyerror!T
 
 const assert = @import("std").debug.assert;
 
@@ -2889,14 +2889,14 @@ test "if error union" {
     // If expressions test for errors.
     // Note the |err| capture on the else.
 
-    const a: error!u32 = 0;
+    const a: anyerror!u32 = 0;
     if (a) |value| {
         assert(value == 0);
     } else |err| {
         unreachable;
     }
 
-    const b: error!u32 = error.BadValue;
+    const b: anyerror!u32 = error.BadValue;
     if (b) |value| {
         unreachable;
     } else |err| {
@@ -2914,7 +2914,7 @@ test "if error union" {
     }
 
     // Access the value by reference using a pointer capture.
-    var c: error!u32 = 3;
+    var c: anyerror!u32 = 3;
     if (c) |*value| {
         value.* = 9;
     } else |err| {
@@ -3091,7 +3091,7 @@ test "foo" {
     assert(value == 1234);
 }
 
-fn bar() error!u32 {
+fn bar() anyerror!u32 {
     return 1234;
 }
 
@@ -3349,7 +3349,7 @@ test "parse u64" {
       <p>
       Within the function definition, you can see some return statements that return
       an error, and at the bottom a return statement that returns a {#syntax#}u64{#endsyntax#}.
-          Both types {#link|implicitly cast|Implicit Casts#} to {#syntax#}error!u64{#endsyntax#}.
+          Both types {#link|implicitly cast|Implicit Casts#} to {#syntax#}anyerror!u64{#endsyntax#}.
       </p>
       <p>
       What it looks like to use this function varies depending on what you're
@@ -3486,7 +3486,7 @@ fn createFoo(param: i32) !Foo {
 const assert = @import("std").debug.assert;
 
 test "error union" {
-    var foo: error!i32 = undefined;
+    var foo: anyerror!i32 = undefined;
 
     // Implicitly cast from child type of an error union:
     foo = 1234;
@@ -3498,7 +3498,7 @@ test "error union" {
     comptime assert(@typeOf(foo).Payload == i32);
 
     // Use compile-time reflection to access the error set type of an error union:
-    comptime assert(@typeOf(foo).ErrorSet == error);
+    comptime assert(@typeOf(foo).ErrorSet == anyerror);
 }
       {#code_end#}
       {#header_open|Merging Error Sets#}
@@ -4165,7 +4165,7 @@ fn peerTypeEmptyArrayAndSlice(a: bool, slice: []const u8) []const u8 {
 
     return slice[0..1];
 }
-test "peer type resolution: [0]u8, []const u8, and error![]u8" {
+test "peer type resolution: [0]u8, []const u8, and anyerror![]u8" {
     {
         var data = "hi";
         const slice = data[0..];
@@ -4179,7 +4179,7 @@ test "peer type resolution: [0]u8, []const u8, and error![]u8" {
         assert((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
     }
 }
-fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) error![]u8 {
+fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) anyerror![]u8 {
     if (a) {
         return []u8{};
     }
@@ -4719,7 +4719,7 @@ pub fn main() void {
 
       {#code_begin|syntax#}
 /// Calls print and then flushes the buffer.
-pub fn printf(self: *OutStream, comptime format: []const u8, args: ...) error!void {
+pub fn printf(self: *OutStream, comptime format: []const u8, args: ...) anyerror!void {
     const State = enum {
         Start,
         OpenBrace,
@@ -5786,7 +5786,7 @@ fn add(a: i32, b: i32) i32 { return a + b; }
       {#header_close#}
 
       {#header_open|@intToError#}
-      <pre>{#syntax#}@intToError(value: @IntType(false, @sizeOf(error) * 8)) error{#endsyntax#}</pre>
+      <pre>{#syntax#}@intToError(value: @IntType(false, @sizeOf(anyerror) * 8)) anyerror{#endsyntax#}</pre>
       <p>
       Converts from the integer representation of an error into the global error set type.
       </p>

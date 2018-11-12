@@ -6603,7 +6603,7 @@ static void define_builtin_types(CodeGen *g) {
 
     {
         ZigType *entry = new_type_table_entry(ZigTypeIdErrorSet);
-        buf_init_from_str(&entry->name, "error");
+        buf_init_from_str(&entry->name, "anyerror");
         entry->data.error_set.err_count = UINT32_MAX;
 
         // TODO allow overriding this type and keep track of max value and emit an
@@ -6614,7 +6614,7 @@ static void define_builtin_types(CodeGen *g) {
         entry->type_ref = g->err_tag_type->type_ref;
 
         entry->di_type = ZigLLVMCreateReplaceableCompositeType(g->dbuilder,
-            ZigLLVMTag_DW_enumeration_type(), "error",
+            ZigLLVMTag_DW_enumeration_type(), "anyerror",
             ZigLLVMCompileUnitToScope(g->compile_unit), nullptr, 0);
 
         // reserve index 0 to indicate no error

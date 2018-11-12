@@ -807,7 +807,7 @@ struct AstNodeContainerDecl {
     ZigList<AstNode *> decls;
     ContainerLayout layout;
     AstNode *init_arg_expr; // enum(T), struct(endianness), or union(T), or union(enum(T))
-    bool auto_enum; // union(enum)
+    bool auto_enum, is_root; // union(enum)
 };
 
 struct AstNodeErrorSetDecl {

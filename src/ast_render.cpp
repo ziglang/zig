@@ -713,7 +713,11 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             {
                 AstNode *lhs = node->data.field_access_expr.struct_expr;
                 Buf *rhs = node->data.field_access_expr.field_name;
-                render_node_ungrouped(ar, lhs);
+                if (lhs->type == NodeTypeErrorType) {
+                    fprintf(ar->f, "error");
+                } else {
+                    render_node_ungrouped(ar, lhs);
+                }
                 fprintf(ar->f, ".");
                 print_symbol(ar, rhs);
                 break;
@@ -737,23 +741,25 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             break;
         case NodeTypeContainerDecl:
             {
-                const char *layout_str = layout_string(node->data.container_decl.layout);
-                const char *container_str = container_string(node->data.container_decl.kind);
-                fprintf(ar->f, "%s%s", layout_str, container_str);
-                if (node->data.container_decl.auto_enum) {
-                    fprintf(ar->f, "(enum");
-                }
-                if (node->data.container_decl.init_arg_expr != nullptr) {
-                    fprintf(ar->f, "(");
-                    render_node_grouped(ar, node->data.container_decl.init_arg_expr);
-                    fprintf(ar->f, ")");
-                }
-                if (node->data.container_decl.auto_enum) {
-                    fprintf(ar->f, ")");
-                }
+                if (!node->data.container_decl.is_root) {
+                    const char *layout_str = layout_string(node->data.container_decl.layout);
+                    const char *container_str = container_string(node->data.container_decl.kind);
+                    fprintf(ar->f, "%s%s", layout_str, container_str);
+                    if (node->data.container_decl.auto_enum) {
+                        fprintf(ar->f, "(enum");
+                    }
+                    if (node->data.container_decl.init_arg_expr != nullptr) {
+                        fprintf(ar->f, "(");
+                        render_node_grouped(ar, node->data.container_decl.init_arg_expr);
+                        fprintf(ar->f, ")");
+                    }
+                    if (node->data.container_decl.auto_enum) {
+                        fprintf(ar->f, ")");
+                    }
 
-                fprintf(ar->f, " {\n");
-                ar->indent += ar->indent_size;
+                    fprintf(ar->f, " {\n");
+                    ar->indent += ar->indent_size;
+                }
                 for (size_t field_i = 0; field_i < node->data.container_decl.fields.length; field_i += 1) {
                     AstNode *field_node = node->data.container_decl.fields.at(field_i);
                     assert(field_node->type == NodeTypeStructField);
@@ -770,9 +776,24 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                     fprintf(ar->f, ",\n");
                 }
 
-                ar->indent -= ar->indent_size;
-                print_indent(ar);
-                fprintf(ar->f, "}");
+                for (size_t decl_i = 0; decl_i < node->data.container_decl.decls.length; decl_i += 1) {
+                    AstNode *decls_node = node->data.container_decl.decls.at(decl_i);
+                    render_node_grouped(ar, decls_node);
+
+                    if (decls_node->type == NodeTypeUse ||
+                        decls_node->type == NodeTypeVariableDeclaration ||
+                        decls_node->type == NodeTypeFnProto)
+                    {
+                        fprintf(ar->f, ";");
+                    }
+                    fprintf(ar->f, "\n");
+                }
+
+                if (!node->data.container_decl.is_root) {
+                    ar->indent -= ar->indent_size;
+                    print_indent(ar);
+                    fprintf(ar->f, "}");
+                }
                 break;
             }
         case NodeTypeContainerInitExpr:
@@ -827,7 +848,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 break;
             }
         case NodeTypeErrorType:
-            fprintf(ar->f, "error");
+            fprintf(ar->f, "anyerror");
             break;
         case NodeTypeAsmExpr:
             {

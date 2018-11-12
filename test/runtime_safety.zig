@@ -297,7 +297,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\pub fn main() void {
         \\    _ = bar(9999);
         \\}
-        \\fn bar(x: u16) error {
+        \\fn bar(x: u16) anyerror {
         \\    return @intToError(x);
         \\}
     );
@@ -368,16 +368,16 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    cancel p2;
         \\}
         \\
-        \\fn nonFailing() promise->error!void {
+        \\fn nonFailing() promise->anyerror!void {
         \\    return async<std.debug.global_allocator> failing() catch unreachable;
         \\}
         \\
-        \\async fn failing() error!void {
+        \\async fn failing() anyerror!void {
         \\    suspend;
         \\    return error.Fail;
         \\}
         \\
-        \\async fn printTrace(p: promise->error!void) void {
+        \\async fn printTrace(p: promise->anyerror!void) void {
         \\    (await p) catch unreachable;
         \\}
     );

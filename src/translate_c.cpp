@@ -4856,6 +4856,7 @@ Error parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const 
     c->ctx = &ast_unit->getASTContext();
     c->source_manager = &ast_unit->getSourceManager();
     c->root = trans_create_node(c, NodeTypeContainerDecl);
+    c->root->data.container_decl.is_root = true;
 
     ast_unit->visitLocalTopLevelDecls(c, decl_visitor);
 

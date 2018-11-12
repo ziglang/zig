@@ -950,7 +950,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    }
         \\}
     ,
-        ".tmp_source.zig:5:5: error: else prong required when switching on type 'error'",
+        ".tmp_source.zig:5:5: error: else prong required when switching on type 'anyerror'",
     );
 
     cases.add(
@@ -1115,7 +1115,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         ".tmp_source.zig:3:35: error: expected type 'SmallErrorSet!i32', found 'anyerror!i32'",
-        ".tmp_source.zig:3:35: note: error set 'error' cannot cast into error set 'SmallErrorSet'",
+        ".tmp_source.zig:3:35: note: error set 'anyerror' cannot cast into error set 'SmallErrorSet'",
         ".tmp_source.zig:3:35: note: cannot cast global error set into smaller set",
     );
 
@@ -1125,11 +1125,11 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry() void {
         \\    var x: SmallErrorSet = foo();
         \\}
-        \\fn foo() error {
+        \\fn foo() anyerror {
         \\    return error.B;
         \\}
     ,
-        ".tmp_source.zig:3:31: error: expected type 'SmallErrorSet', found 'error'",
+        ".tmp_source.zig:3:31: error: expected type 'SmallErrorSet', found 'anyerror'",
         ".tmp_source.zig:3:31: note: cannot cast global error set into smaller set",
     );
 
@@ -1285,7 +1285,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\nakedcc fn foo() void { }
     ,
         ".tmp_source.zig:2:5: error: unable to call function with naked calling convention",
-        ".tmp_source.zig:4:9: note: declared here",
+        ".tmp_source.zig:4:1: note: declared here",
     );
 
     cases.add(
@@ -1661,9 +1661,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "implicit semicolon - for statement",
         \\export fn entry() void {
-        \\    for(foo()) {}
+        \\    for(foo()) |_| {}
         \\    var good = {};
-        \\    for(foo()) ({})
+        \\    for(foo()) |_| ({})
         \\    var bad = {};
         \\}
     ,
@@ -1673,9 +1673,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "implicit semicolon - for expression",
         \\export fn entry() void {
-        \\    _ = for(foo()) {};
+        \\    _ = for(foo()) |_| {};
         \\    var good = {};
-        \\    _ = for(foo()) {}
+        \\    _ = for(foo()) |_| {}
         \\    var bad = {};
         \\}
     ,
@@ -3173,7 +3173,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\fn something() anyerror!void { }
     ,
-        ".tmp_source.zig:2:5: error: expected type 'void', found 'error'",
+        ".tmp_source.zig:2:5: error: expected type 'void', found 'anyerror'",
     );
 
     cases.add(
@@ -3295,16 +3295,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\pub fn main(args: [][]bogus) !void {}
     ,
         ".tmp_source.zig:1:23: error: use of undeclared identifier 'bogus'",
-    );
-
-    cases.add(
-        "for loop missing element param",
-        \\fn foo(blah: []u8) void {
-        \\    for (blah) { }
-        \\}
-        \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
-    ,
-        ".tmp_source.zig:2:5: error: for loop expression missing element parameter",
     );
 
     cases.add(
@@ -3704,8 +3694,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
             \\    return foo.baz;
             \\}
         ,
-            "foo.zig:1:8: error: exported symbol collision: 'bar'",
-            ".tmp_source.zig:3:8: note: other symbol here",
+            "foo.zig:1:1: error: exported symbol collision: 'bar'",
+            ".tmp_source.zig:3:1: note: other symbol here",
         );
 
         tc.addSourceFile("foo.zig",
@@ -4027,7 +4017,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\extern fn quux() void;
     ,
-        ".tmp_source.zig:4:8: error: unable to inline function",
+        ".tmp_source.zig:4:1: error: unable to inline function",
     );
 
     cases.add(
@@ -4038,7 +4028,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\inline fn bar() void { }
         \\extern fn quux(usize) void;
     ,
-        ".tmp_source.zig:4:8: error: unable to inline function",
+        ".tmp_source.zig:4:1: error: unable to inline function",
     );
 
     cases.add(
@@ -4788,7 +4778,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var x = Small.One;
         \\}
     ,
-        ".tmp_source.zig:1:20: error: 'u2' too small to hold all bits; must be at least 'u3'",
+        ".tmp_source.zig:1:21: error: 'u2' too small to hold all bits; must be at least 'u3'",
     );
 
     cases.add(
@@ -4803,7 +4793,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var x = Small.One;
         \\}
     ,
-        ".tmp_source.zig:1:20: error: expected integer, found 'f32'",
+        ".tmp_source.zig:1:21: error: expected integer, found 'f32'",
     );
 
     cases.add(
@@ -4852,7 +4842,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var y = Small.Two;
         \\}
     ,
-        ".tmp_source.zig:1:19: error: expected unsigned integer, found 'i2'",
+        ".tmp_source.zig:1:20: error: expected unsigned integer, found 'i2'",
     );
 
     cases.add(
@@ -4958,7 +4948,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const x = @TagType(Foo);
         \\}
     ,
-        ".tmp_source.zig:1:23: error: expected integer tag type, found 'f32'",
+        ".tmp_source.zig:1:24: error: expected integer tag type, found 'f32'",
     );
 
     cases.add(
@@ -4970,7 +4960,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const x = @TagType(Foo);
         \\}
     ,
-        ".tmp_source.zig:1:18: error: expected enum tag type, found 'u32'",
+        ".tmp_source.zig:1:19: error: expected enum tag type, found 'u32'",
     );
 
     cases.add(
@@ -5066,7 +5056,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var a = Payload { .A = 1234 };
         \\}
     ,
-        ".tmp_source.zig:6:29: error: extern union does not support enum tag type",
+        ".tmp_source.zig:6:30: error: extern union does not support enum tag type",
     );
 
     cases.add(
@@ -5085,7 +5075,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var a = Payload { .A = 1234 };
         \\}
     ,
-        ".tmp_source.zig:6:29: error: packed union does not support enum tag type",
+        ".tmp_source.zig:6:30: error: packed union does not support enum tag type",
     );
 
     cases.add(

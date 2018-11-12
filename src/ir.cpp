@@ -19484,7 +19484,7 @@ static IrInstruction *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira,
         if (!instruction->have_else_prong) {
             if (type_is_global_error_set(switch_type)) {
                 ir_add_error(ira, &instruction->base,
-                    buf_sprintf("else prong required when switching on type 'error'"));
+                    buf_sprintf("else prong required when switching on type 'anyerror'"));
                 return ira->codegen->invalid_instruction;
             } else {
                 for (uint32_t i = 0; i < switch_type->data.error_set.err_count; i += 1) {
