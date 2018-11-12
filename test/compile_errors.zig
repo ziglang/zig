@@ -278,7 +278,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "comptime continue inside runtime while error",
         \\export fn entry() void {
-        \\    var p: error!usize = undefined;
+        \\    var p: anyerror!usize = undefined;
         \\    comptime var q = true;
         \\    outer: inline while (q) {
         \\        while (p) |_| {
@@ -325,7 +325,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "comptime continue inside runtime if error",
         \\export fn entry() void {
-        \\    var p: error!i32 = undefined;
+        \\    var p: anyerror!i32 = undefined;
         \\    comptime var q = true;
         \\    inline while (q) {
         \\        if (p) |_| continue else |_| {}
@@ -502,7 +502,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    while (x) |_| returns();
         \\}
         \\export fn f3() void {
-        \\    var x: error!i32 = error.Bad;
+        \\    var x: anyerror!i32 = error.Bad;
         \\    while (x) |_| returns() else |_| unreachable;
         \\}
     ,
@@ -855,7 +855,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\inline fn b() void { }
     ,
         ".tmp_source.zig:2:5: error: functions marked inline must be stored in const or comptime var",
-        ".tmp_source.zig:4:8: note: declared here",
+        ".tmp_source.zig:4:1: note: declared here",
     );
 
     cases.add(
@@ -944,7 +944,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry() void {
         \\    foo(error.A);
         \\}
-        \\fn foo(a: error) void {
+        \\fn foo(a: anyerror) void {
         \\    switch (a) {
         \\        error.A => {},
         \\    }
@@ -1110,11 +1110,11 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry() void {
         \\    var x: SmallErrorSet!i32 = foo();
         \\}
-        \\fn foo() error!i32 {
+        \\fn foo() anyerror!i32 {
         \\    return error.B;
         \\}
     ,
-        ".tmp_source.zig:3:35: error: expected type 'SmallErrorSet!i32', found 'error!i32'",
+        ".tmp_source.zig:3:35: error: expected type 'SmallErrorSet!i32', found 'anyerror!i32'",
         ".tmp_source.zig:3:35: note: error set 'error' cannot cast into error set 'SmallErrorSet'",
         ".tmp_source.zig:3:35: note: cannot cast global error set into smaller set",
     );
@@ -1195,7 +1195,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "@memberCount of error",
         \\comptime {
-        \\    _ = @memberCount(error);
+        \\    _ = @memberCount(anyerror);
         \\}
     ,
         ".tmp_source.zig:2:9: error: global error set member count not available at comptime",
@@ -2961,7 +2961,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "catch on undefined value",
         \\comptime {
-        \\    var a: error!bool = undefined;
+        \\    var a: anyerror!bool = undefined;
         \\    _ = a catch |err| false;
         \\}
     ,
@@ -3171,7 +3171,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn f() void {
         \\    try something();
         \\}
-        \\fn something() error!void { }
+        \\fn something() anyerror!void { }
     ,
         ".tmp_source.zig:2:5: error: expected type 'void', found 'error'",
     );
@@ -3458,7 +3458,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const a = maybeInt() orelse return;
         \\}
         \\
-        \\fn canFail() error!void { }
+        \\fn canFail() anyerror!void { }
         \\
         \\pub fn maybeInt() ?i32 {
         \\    return 0;
@@ -3614,7 +3614,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn foo() void {
         \\    bar() catch unreachable;
         \\}
-        \\fn bar() error!i32 { return 0; }
+        \\fn bar() anyerror!i32 { return 0; }
     ,
         ".tmp_source.zig:2:11: error: expression value is ignored",
     );
@@ -3660,7 +3660,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn foo() void {
         \\    defer bar();
         \\}
-        \\fn bar() error!i32 { return 0; }
+        \\fn bar() anyerror!i32 { return 0; }
     ,
         ".tmp_source.zig:2:14: error: expression value is ignored",
     );
@@ -3967,9 +3967,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn foo() void {
         \\    while (bar()) {}
         \\}
-        \\fn bar() error!i32 { return 1; }
+        \\fn bar() anyerror!i32 { return 1; }
     ,
-        ".tmp_source.zig:2:15: error: expected type 'bool', found 'error!i32'",
+        ".tmp_source.zig:2:15: error: expected type 'bool', found 'anyerror!i32'",
     );
 
     cases.add(
@@ -3987,9 +3987,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn foo() void {
         \\    while (bar()) |x| {}
         \\}
-        \\fn bar() error!i32 { return 1; }
+        \\fn bar() anyerror!i32 { return 1; }
     ,
-        ".tmp_source.zig:2:15: error: expected optional type, found 'error!i32'",
+        ".tmp_source.zig:2:15: error: expected optional type, found 'anyerror!i32'",
     );
 
     cases.add(

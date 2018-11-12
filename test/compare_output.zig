@@ -427,7 +427,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    defer stdout.print("defer3\n") catch unreachable;
         \\    stdout.print("after\n") catch unreachable;
         \\}
-        \\fn its_gonna_pass() error!void { }
+        \\fn its_gonna_pass() anyerror!void { }
     , "before\nafter\ndefer3\ndefer1\n");
 
     cases.addCase(x: {
