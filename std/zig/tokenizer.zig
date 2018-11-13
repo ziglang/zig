@@ -14,6 +14,7 @@ pub const Token = struct {
     pub const keywords = []Keyword{
         Keyword{ .bytes = "align", .id = Id.Keyword_align },
         Keyword{ .bytes = "and", .id = Id.Keyword_and },
+        Keyword{ .bytes = "anyerror", .id = Id.Keyword_anyerror },
         Keyword{ .bytes = "asm", .id = Id.Keyword_asm },
         Keyword{ .bytes = "async", .id = Id.Keyword_async },
         Keyword{ .bytes = "await", .id = Id.Keyword_await },
@@ -142,6 +143,7 @@ pub const Token = struct {
         ShebangLine,
         Keyword_align,
         Keyword_and,
+        Keyword_anyerror,
         Keyword_asm,
         Keyword_async,
         Keyword_await,

@@ -740,7 +740,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     },
                     else => {
                         // TODO: this is a special case. Remove this when #760 is fixed
-                        if (token_ptr.id == Token.Id.Keyword_error) {
+                        if (token_ptr.id == Token.Id.Keyword_anyerror) {
                             if (tok_it.peek().?.id == Token.Id.LBrace) {
                                 const error_type_node = try arena.create(ast.Node.ErrorType{
                                     .base = ast.Node{ .id = ast.Node.Id.ErrorType },
@@ -2521,6 +2521,10 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         }) catch unreachable;
                         continue;
                     },
+                    Token.Id.Keyword_anyerror => {
+                        _ = try createToCtxLiteral(arena, opt_ctx, ast.Node.ErrorType, token.index);
+                        continue;
+                    },
                     Token.Id.Keyword_packed => {
                         stack.append(State{
                             .ContainerKind = ContainerKindCtx{
@@ -2666,7 +2670,21 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
 
             State.ErrorTypeOrSetDecl => |ctx| {
                 if (eatToken(&tok_it, &tree, Token.Id.LBrace) == null) {
-                    _ = try createToCtxLiteral(arena, ctx.opt_ctx, ast.Node.ErrorType, ctx.error_token);
+                    const node = try arena.create(ast.Node.InfixOp{
+                        .base = ast.Node{ .id = ast.Node.Id.InfixOp },
+                        .lhs = &(try createLiteral(arena, ast.Node.ErrorType, ctx.error_token)).base,
+                        .op_token = undefined,
+                        .op = ast.Node.InfixOp.Op.Period,
+                        .rhs = undefined,
+                    });
+                    ctx.opt_ctx.store(&node.base);
+                    stack.append(State{ .Identifier = OptionalCtx{ .Required = &node.rhs } }) catch unreachable;
+                    try stack.append(State{
+                        .ExpectTokenSave = ExpectTokenSave{
+                            .id = Token.Id.Period,
+                            .ptr = &node.op_token,
+                        },
+                    });
                     continue;
                 }
 
