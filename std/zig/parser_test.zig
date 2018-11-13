@@ -1331,7 +1331,7 @@ test "zig fmt: values" {
         \\    false;
         \\    null;
         \\    undefined;
-        \\    error;
+        \\    anyerror;
         \\    this;
         \\    unreachable;
         \\}
@@ -1498,7 +1498,7 @@ test "zig fmt: container initializers" {
 test "zig fmt: catch" {
     try testCanonical(
         \\test "catch" {
-        \\    const a: error!u8 = 0;
+        \\    const a: anyerror!u8 = 0;
         \\    _ = a catch return;
         \\    _ = a catch |err| return;
         \\}
@@ -1615,7 +1615,7 @@ test "zig fmt: while" {
         \\    else
         \\        unreachable;
         \\
-        \\    var a: error!u8 = 0;
+        \\    var a: anyerror!u8 = 0;
         \\    while (a) |v| {
         \\        a = error.Err;
         \\    } else |err| {
@@ -1704,7 +1704,7 @@ test "zig fmt: if" {
         \\
         \\    const non_null_a = if (a) |v| v else 0;
         \\
-        \\    const a_err: error!u8 = 0;
+        \\    const a_err: anyerror!u8 = 0;
         \\    if (a_err) |v| {
         \\        const p = v;
         \\    } else |err| {
@@ -1856,7 +1856,7 @@ test "zig fmt: string identifier" {
 
 test "zig fmt: error return" {
     try testCanonical(
-        \\fn err() error {
+        \\fn err() anyerror {
         \\    call();
         \\    return error.InvalidArgs;
         \\}
