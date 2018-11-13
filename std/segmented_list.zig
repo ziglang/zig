@@ -74,7 +74,7 @@ const Allocator = std.mem.Allocator;
 /// It supports preallocated elements, making it especially well suited when the expected maximum
 /// size is small. `prealloc_item_count` must be 0, or a power of 2.
 pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type {
-    return struct.{
+    return struct {
         const Self = @This();
         const prealloc_exp = blk: {
             // we don't use the prealloc_exp constant when prealloc_item_count is 0.
@@ -103,11 +103,11 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
 
         /// Deinitialize with `deinit`
         pub fn init(allocator: *Allocator) Self {
-            return Self.{
+            return Self{
                 .allocator = allocator,
                 .len = 0,
                 .prealloc_segment = undefined,
-                .dynamic_segments = [][*]T.{},
+                .dynamic_segments = [][*]T{},
             };
         }
 
@@ -186,7 +186,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
                 const len = @intCast(ShelfIndex, self.dynamic_segments.len);
                 self.freeShelves(len, 0);
                 self.allocator.free(self.dynamic_segments);
-                self.dynamic_segments = [][*]T.{};
+                self.dynamic_segments = [][*]T{};
                 return;
             }
 
@@ -246,7 +246,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
             }
         }
 
-        pub const Iterator = struct.{
+        pub const Iterator = struct {
             list: *Self,
             index: usize,
             box_index: usize,
@@ -313,7 +313,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
         };
 
         pub fn iterator(self: *Self, start_index: usize) Iterator {
-            var it = Iterator.{
+            var it = Iterator{
                 .list = self,
                 .index = undefined,
                 .shelf_index = undefined,
@@ -375,7 +375,7 @@ fn testSegmentedList(comptime prealloc: usize, allocator: *Allocator) !void {
     assert(list.pop().? == 100);
     assert(list.len == 99);
 
-    try list.pushMany([]i32.{
+    try list.pushMany([]i32{
         1,
         2,
         3,
@@ -386,7 +386,7 @@ fn testSegmentedList(comptime prealloc: usize, allocator: *Allocator) !void {
     assert(list.pop().? == 1);
     assert(list.len == 99);
 
-    try list.pushMany([]const i32.{});
+    try list.pushMany([]const i32{});
     assert(list.len == 99);
 
     var i: i32 = 99;

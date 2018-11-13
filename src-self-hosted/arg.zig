@@ -32,7 +32,7 @@ fn argInAllowedSet(maybe_set: ?[]const []const u8, arg: []const u8) bool {
 // Modifies the current argument index during iteration
 fn readFlagArguments(allocator: *Allocator, args: []const []const u8, required: usize, allowed_set: ?[]const []const u8, index: *usize) !FlagArg {
     switch (required) {
-        0 => return FlagArg.{ .None = undefined }, // TODO: Required to force non-tag but value?
+        0 => return FlagArg{ .None = undefined }, // TODO: Required to force non-tag but value?
         1 => {
             if (index.* + 1 >= args.len) {
                 return error.MissingFlagArguments;
@@ -45,7 +45,7 @@ fn readFlagArguments(allocator: *Allocator, args: []const []const u8, required: 
                 return error.ArgumentNotInAllowedSet;
             }
 
-            return FlagArg.{ .Single = arg };
+            return FlagArg{ .Single = arg };
         },
         else => |needed| {
             var extra = ArrayList([]const u8).init(allocator);
@@ -67,7 +67,7 @@ fn readFlagArguments(allocator: *Allocator, args: []const []const u8, required: 
                 try extra.append(arg);
             }
 
-            return FlagArg.{ .Many = extra };
+            return FlagArg{ .Many = extra };
         },
     }
 }
@@ -75,12 +75,12 @@ fn readFlagArguments(allocator: *Allocator, args: []const []const u8, required: 
 const HashMapFlags = HashMap([]const u8, FlagArg, std.hash.Fnv1a_32.hash, mem.eql_slice_u8);
 
 // A store for querying found flags and positional arguments.
-pub const Args = struct.{
+pub const Args = struct {
     flags: HashMapFlags,
     positionals: ArrayList([]const u8),
 
     pub fn parse(allocator: *Allocator, comptime spec: []const Flag, args: []const []const u8) !Args {
-        var parsed = Args.{
+        var parsed = Args{
             .flags = HashMapFlags.init(allocator),
             .positionals = ArrayList([]const u8).init(allocator),
         };
@@ -123,7 +123,7 @@ pub const Args = struct.{
                                 FlagArg.Many => |inner| try prev.appendSlice(inner.toSliceConst()),
                             }
 
-                            _ = try parsed.flags.put(flag_name_trimmed, FlagArg.{ .Many = prev });
+                            _ = try parsed.flags.put(flag_name_trimmed, FlagArg{ .Many = prev });
                         } else {
                             _ = try parsed.flags.put(flag_name_trimmed, flag_args);
                         }
@@ -177,20 +177,20 @@ pub const Args = struct.{
                 else => @panic("attempted to retrieve flag with wrong type"),
             }
         } else {
-            return []const []const u8.{};
+            return []const []const u8{};
         }
     }
 };
 
 // Arguments for a flag. e.g. arg1, arg2 in `--command arg1 arg2`.
-const FlagArg = union(enum).{
+const FlagArg = union(enum) {
     None,
     Single: []const u8,
     Many: ArrayList([]const u8),
 };
 
 // Specification for how a flag should be parsed.
-pub const Flag = struct.{
+pub const Flag = struct {
     name: []const u8,
     required: usize,
     mergable: bool,
@@ -205,7 +205,7 @@ pub const Flag = struct.{
     }
 
     pub fn ArgN(comptime name: []const u8, comptime n: usize) Flag {
-        return Flag.{
+        return Flag{
             .name = name,
             .required = n,
             .mergable = false,
@@ -218,7 +218,7 @@ pub const Flag = struct.{
             @compileError("n must be greater than 0");
         }
 
-        return Flag.{
+        return Flag{
             .name = name,
             .required = n,
             .mergable = true,
@@ -227,7 +227,7 @@ pub const Flag = struct.{
     }
 
     pub fn Option(comptime name: []const u8, comptime set: []const []const u8) Flag {
-        return Flag.{
+        return Flag{
             .name = name,
             .required = 1,
             .mergable = false,
@@ -237,11 +237,11 @@ pub const Flag = struct.{
 };
 
 test "parse arguments" {
-    const spec1 = comptime []const Flag.{
+    const spec1 = comptime []const Flag{
         Flag.Bool("--help"),
         Flag.Bool("--init"),
         Flag.Arg1("--build-file"),
-        Flag.Option("--color", []const []const u8.{
+        Flag.Option("--color", []const []const u8{
             "on",
             "off",
             "auto",
@@ -251,7 +251,7 @@ test "parse arguments" {
         Flag.ArgN("--library", 1),
     };
 
-    const cliargs = []const []const u8.{
+    const cliargs = []const []const u8{
         "build",
         "--help",
         "pos1",

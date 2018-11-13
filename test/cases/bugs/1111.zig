@@ -1,4 +1,4 @@
-const Foo = extern enum.{
+const Foo = extern enum {
     Bar = -1,
 };
 

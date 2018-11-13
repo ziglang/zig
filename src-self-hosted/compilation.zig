@@ -35,7 +35,7 @@ const fs = event.fs;
 const max_src_size = 2 * 1024 * 1024 * 1024; // 2 GiB
 
 /// Data that is local to the event loop.
-pub const ZigCompiler = struct.{
+pub const ZigCompiler = struct {
     loop: *event.Loop,
     llvm_handle_pool: std.atomic.Stack(llvm.ContextRef),
     lld_lock: event.Lock,
@@ -57,7 +57,7 @@ pub const ZigCompiler = struct.{
         try std.os.getRandomBytes(seed_bytes[0..]);
         const seed = std.mem.readInt(seed_bytes, u64, builtin.Endian.Big);
 
-        return ZigCompiler.{
+        return ZigCompiler{
             .loop = loop,
             .lld_lock = event.Lock.init(loop),
             .llvm_handle_pool = std.atomic.Stack(llvm.ContextRef).init(),
@@ -78,18 +78,18 @@ pub const ZigCompiler = struct.{
     /// Gets an exclusive handle on any LlvmContext.
     /// Caller must release the handle when done.
     pub fn getAnyLlvmContext(self: *ZigCompiler) !LlvmHandle {
-        if (self.llvm_handle_pool.pop()) |node| return LlvmHandle.{ .node = node };
+        if (self.llvm_handle_pool.pop()) |node| return LlvmHandle{ .node = node };
 
         const context_ref = c.LLVMContextCreate() orelse return error.OutOfMemory;
         errdefer c.LLVMContextDispose(context_ref);
 
-        const node = try self.loop.allocator.create(std.atomic.Stack(llvm.ContextRef).Node.{
+        const node = try self.loop.allocator.create(std.atomic.Stack(llvm.ContextRef).Node{
             .next = undefined,
             .data = context_ref,
         });
         errdefer self.loop.allocator.destroy(node);
 
-        return LlvmHandle.{ .node = node };
+        return LlvmHandle{ .node = node };
     }
 
     pub async fn getNativeLibC(self: *ZigCompiler) !*LibCInstallation {
@@ -102,8 +102,8 @@ pub const ZigCompiler = struct.{
     /// Must be called only once, ever. Sets global state.
     pub fn setLlvmArgv(allocator: *Allocator, llvm_argv: []const []const u8) !void {
         if (llvm_argv.len != 0) {
-            var c_compatible_args = try std.cstr.NullTerminated2DArray.fromSlices(allocator, [][]const []const u8.{
-                [][]const u8.{"zig (LLVM option parsing)"},
+            var c_compatible_args = try std.cstr.NullTerminated2DArray.fromSlices(allocator, [][]const []const u8{
+                [][]const u8{"zig (LLVM option parsing)"},
                 llvm_argv,
             });
             defer c_compatible_args.deinit();
@@ -112,7 +112,7 @@ pub const ZigCompiler = struct.{
     }
 };
 
-pub const LlvmHandle = struct.{
+pub const LlvmHandle = struct {
     node: *std.atomic.Stack(llvm.ContextRef).Node,
 
     pub fn release(self: LlvmHandle, zig_compiler: *ZigCompiler) void {
@@ -120,7 +120,7 @@ pub const LlvmHandle = struct.{
     }
 };
 
-pub const Compilation = struct.{
+pub const Compilation = struct {
     zig_compiler: *ZigCompiler,
     loop: *event.Loop,
     name: Buffer,
@@ -254,7 +254,7 @@ pub const Compilation = struct.{
     const CompileErrList = std.ArrayList(*Msg);
 
     // TODO handle some of these earlier and report them in a way other than error codes
-    pub const BuildError = error.{
+    pub const BuildError = error{
         OutOfMemory,
         EndOfStream,
         IsDir,
@@ -302,25 +302,25 @@ pub const Compilation = struct.{
         BadPathName,
     };
 
-    pub const Event = union(enum).{
+    pub const Event = union(enum) {
         Ok,
         Error: BuildError,
         Fail: []*Msg,
     };
 
-    pub const DarwinVersionMin = union(enum).{
+    pub const DarwinVersionMin = union(enum) {
         None,
         MacOS: []const u8,
         Ios: []const u8,
     };
 
-    pub const Kind = enum.{
+    pub const Kind = enum {
         Exe,
         Lib,
         Obj,
     };
 
-    pub const LinkLib = struct.{
+    pub const LinkLib = struct {
         name: []const u8,
         path: ?[]const u8,
 
@@ -329,7 +329,7 @@ pub const Compilation = struct.{
         provided_explicitly: bool,
     };
 
-    pub const Emit = enum.{
+    pub const Emit = enum {
         Binary,
         Assembly,
         LlvmIr,
@@ -380,7 +380,7 @@ pub const Compilation = struct.{
         }
 
         const loop = zig_compiler.loop;
-        var comp = Compilation.{
+        var comp = Compilation{
             .loop = loop,
             .arena_allocator = std.heap.ArenaAllocator.init(loop.allocator),
             .zig_compiler = zig_compiler,
@@ -419,20 +419,20 @@ pub const Compilation = struct.{
             .strip = false,
             .is_static = is_static,
             .linker_rdynamic = false,
-            .clang_argv = [][]const u8.{},
-            .lib_dirs = [][]const u8.{},
-            .rpath_list = [][]const u8.{},
-            .assembly_files = [][]const u8.{},
-            .link_objects = [][]const u8.{},
+            .clang_argv = [][]const u8{},
+            .lib_dirs = [][]const u8{},
+            .rpath_list = [][]const u8{},
+            .assembly_files = [][]const u8{},
+            .link_objects = [][]const u8{},
             .fn_link_set = event.Locked(FnLinkSet).init(loop, FnLinkSet.init()),
             .windows_subsystem_windows = false,
             .windows_subsystem_console = false,
             .link_libs_list = undefined,
             .libc_link_lib = null,
             .err_color = errmsg.Color.Auto,
-            .darwin_frameworks = [][]const u8.{},
+            .darwin_frameworks = [][]const u8{},
             .darwin_version_min = DarwinVersionMin.None,
-            .test_filters = [][]const u8.{},
+            .test_filters = [][]const u8{},
             .test_name_prefix = null,
             .emit_file_type = Emit.Binary,
             .link_out_file = null,
@@ -575,7 +575,7 @@ pub const Compilation = struct.{
                         error.Overflow => return error.Overflow,
                         error.InvalidCharacter => unreachable, // we just checked the characters above
                     };
-                    const int_type = try await (async Type.Int.get(comp, Type.Int.Key.{
+                    const int_type = try await (async Type.Int.get(comp, Type.Int.Key{
                         .bit_count = bit_count,
                         .is_signed = is_signed,
                     }) catch unreachable);
@@ -595,10 +595,10 @@ pub const Compilation = struct.{
     }
 
     fn initTypes(comp: *Compilation) !void {
-        comp.meta_type = try comp.arena().create(Type.MetaType.{
-            .base = Type.{
+        comp.meta_type = try comp.arena().create(Type.MetaType{
+            .base = Type{
                 .name = "type",
-                .base = Value.{
+                .base = Value{
                     .id = Value.Id.Type,
                     .typ = undefined,
                     .ref_count = std.atomic.Int(usize).init(3), // 3 because it references itself twice
@@ -612,10 +612,10 @@ pub const Compilation = struct.{
         comp.meta_type.base.base.typ = &comp.meta_type.base;
         assert((try comp.primitive_type_table.put(comp.meta_type.base.name, &comp.meta_type.base)) == null);
 
-        comp.void_type = try comp.arena().create(Type.Void.{
-            .base = Type.{
+        comp.void_type = try comp.arena().create(Type.Void{
+            .base = Type{
                 .name = "void",
-                .base = Value.{
+                .base = Value{
                     .id = Value.Id.Type,
                     .typ = &Type.MetaType.get(comp).base,
                     .ref_count = std.atomic.Int(usize).init(1),
@@ -626,10 +626,10 @@ pub const Compilation = struct.{
         });
         assert((try comp.primitive_type_table.put(comp.void_type.base.name, &comp.void_type.base)) == null);
 
-        comp.noreturn_type = try comp.arena().create(Type.NoReturn.{
-            .base = Type.{
+        comp.noreturn_type = try comp.arena().create(Type.NoReturn{
+            .base = Type{
                 .name = "noreturn",
-                .base = Value.{
+                .base = Value{
                     .id = Value.Id.Type,
                     .typ = &Type.MetaType.get(comp).base,
                     .ref_count = std.atomic.Int(usize).init(1),
@@ -640,10 +640,10 @@ pub const Compilation = struct.{
         });
         assert((try comp.primitive_type_table.put(comp.noreturn_type.base.name, &comp.noreturn_type.base)) == null);
 
-        comp.comptime_int_type = try comp.arena().create(Type.ComptimeInt.{
-            .base = Type.{
+        comp.comptime_int_type = try comp.arena().create(Type.ComptimeInt{
+            .base = Type{
                 .name = "comptime_int",
-                .base = Value.{
+                .base = Value{
                     .id = Value.Id.Type,
                     .typ = &Type.MetaType.get(comp).base,
                     .ref_count = std.atomic.Int(usize).init(1),
@@ -654,10 +654,10 @@ pub const Compilation = struct.{
         });
         assert((try comp.primitive_type_table.put(comp.comptime_int_type.base.name, &comp.comptime_int_type.base)) == null);
 
-        comp.bool_type = try comp.arena().create(Type.Bool.{
-            .base = Type.{
+        comp.bool_type = try comp.arena().create(Type.Bool{
+            .base = Type{
                 .name = "bool",
-                .base = Value.{
+                .base = Value{
                     .id = Value.Id.Type,
                     .typ = &Type.MetaType.get(comp).base,
                     .ref_count = std.atomic.Int(usize).init(1),
@@ -668,16 +668,16 @@ pub const Compilation = struct.{
         });
         assert((try comp.primitive_type_table.put(comp.bool_type.base.name, &comp.bool_type.base)) == null);
 
-        comp.void_value = try comp.arena().create(Value.Void.{
-            .base = Value.{
+        comp.void_value = try comp.arena().create(Value.Void{
+            .base = Value{
                 .id = Value.Id.Void,
                 .typ = &Type.Void.get(comp).base,
                 .ref_count = std.atomic.Int(usize).init(1),
             },
         });
 
-        comp.true_value = try comp.arena().create(Value.Bool.{
-            .base = Value.{
+        comp.true_value = try comp.arena().create(Value.Bool{
+            .base = Value{
                 .id = Value.Id.Bool,
                 .typ = &Type.Bool.get(comp).base,
                 .ref_count = std.atomic.Int(usize).init(1),
@@ -685,8 +685,8 @@ pub const Compilation = struct.{
             .x = true,
         });
 
-        comp.false_value = try comp.arena().create(Value.Bool.{
-            .base = Value.{
+        comp.false_value = try comp.arena().create(Value.Bool{
+            .base = Value{
                 .id = Value.Id.Bool,
                 .typ = &Type.Bool.get(comp).base,
                 .ref_count = std.atomic.Int(usize).init(1),
@@ -694,8 +694,8 @@ pub const Compilation = struct.{
             .x = false,
         });
 
-        comp.noreturn_value = try comp.arena().create(Value.NoReturn.{
-            .base = Value.{
+        comp.noreturn_value = try comp.arena().create(Value.NoReturn{
+            .base = Value{
                 .id = Value.Id.NoReturn,
                 .typ = &Type.NoReturn.get(comp).base,
                 .ref_count = std.atomic.Int(usize).init(1),
@@ -703,10 +703,10 @@ pub const Compilation = struct.{
         });
 
         for (CInt.list) |cint, i| {
-            const c_int_type = try comp.arena().create(Type.Int.{
-                .base = Type.{
+            const c_int_type = try comp.arena().create(Type.Int{
+                .base = Type{
                     .name = cint.zig_name,
-                    .base = Value.{
+                    .base = Value{
                         .id = Value.Id.Type,
                         .typ = &Type.MetaType.get(comp).base,
                         .ref_count = std.atomic.Int(usize).init(1),
@@ -714,7 +714,7 @@ pub const Compilation = struct.{
                     .id = builtin.TypeId.Int,
                     .abi_alignment = Type.AbiAlignment.init(comp.loop),
                 },
-                .key = Type.Int.Key.{
+                .key = Type.Int.Key{
                     .is_signed = cint.is_signed,
                     .bit_count = comp.target.cIntTypeSizeInBits(cint.id),
                 },
@@ -723,10 +723,10 @@ pub const Compilation = struct.{
             comp.c_int_types[i] = c_int_type;
             assert((try comp.primitive_type_table.put(cint.zig_name, &c_int_type.base)) == null);
         }
-        comp.u8_type = try comp.arena().create(Type.Int.{
-            .base = Type.{
+        comp.u8_type = try comp.arena().create(Type.Int{
+            .base = Type{
                 .name = "u8",
-                .base = Value.{
+                .base = Value{
                     .id = Value.Id.Type,
                     .typ = &Type.MetaType.get(comp).base,
                     .ref_count = std.atomic.Int(usize).init(1),
@@ -734,7 +734,7 @@ pub const Compilation = struct.{
                 .id = builtin.TypeId.Int,
                 .abi_alignment = Type.AbiAlignment.init(comp.loop),
             },
-            .key = Type.Int.Key.{
+            .key = Type.Int.Key{
                 .is_signed = false,
                 .bit_count = 8,
             },
@@ -777,13 +777,13 @@ pub const Compilation = struct.{
                 if (compile_errors.len == 0) {
                     await (async self.events.put(Event.Ok) catch unreachable);
                 } else {
-                    await (async self.events.put(Event.{ .Fail = compile_errors }) catch unreachable);
+                    await (async self.events.put(Event{ .Fail = compile_errors }) catch unreachable);
                 }
             } else |err| {
                 // if there's an error then the compile errors have dangling references
                 self.gpa().free(compile_errors);
 
-                await (async self.events.put(Event.{ .Error = err }) catch unreachable);
+                await (async self.events.put(Event{ .Error = err }) catch unreachable);
             }
 
             // First, get an item from the watch channel, waiting on the channel.
@@ -894,7 +894,7 @@ pub const Compilation = struct.{
                     const fn_proto = @fieldParentPtr(ast.Node.FnProto, "base", decl);
 
                     const name = if (fn_proto.name_token) |name_token| tree_scope.tree.tokenSlice(name_token) else {
-                        try self.addCompileError(tree_scope, Span.{
+                        try self.addCompileError(tree_scope, Span{
                             .first = fn_proto.fn_token,
                             .last = fn_proto.fn_token + 1,
                         }, "missing function name");
@@ -924,8 +924,8 @@ pub const Compilation = struct.{
                         }
                     } else {
                         // add new decl
-                        const fn_decl = try self.gpa().create(Decl.Fn.{
-                            .base = Decl.{
+                        const fn_decl = try self.gpa().create(Decl.Fn{
+                            .base = Decl{
                                 .id = Decl.Id.Fn,
                                 .name = name,
                                 .visib = parseVisibToken(tree_scope.tree, fn_proto.visib_token),
@@ -933,7 +933,7 @@ pub const Compilation = struct.{
                                 .parent_scope = &decl_scope.base,
                                 .tree_scope = tree_scope,
                             },
-                            .value = Decl.Fn.Val.{ .Unresolved = {} },
+                            .value = Decl.Fn.Val{ .Unresolved = {} },
                             .fn_proto = fn_proto,
                         });
                         tree_scope.base.ref();
@@ -1139,7 +1139,7 @@ pub const Compilation = struct.{
             }
         }
 
-        const link_lib = try self.gpa().create(LinkLib.{
+        const link_lib = try self.gpa().create(LinkLib{
             .name = name,
             .path = null,
             .provided_explicitly = provided_explicitly,
@@ -1307,7 +1307,7 @@ async fn generateDeclFn(comp: *Compilation, fn_decl: *Decl.Fn) !void {
 
     // The Decl.Fn owns the initial 1 reference count
     const fn_val = try Value.Fn.create(comp, fn_type, fndef_scope, symbol_name);
-    fn_decl.value = Decl.Fn.Val.{ .Fn = fn_val };
+    fn_decl.value = Decl.Fn.Val{ .Fn = fn_val };
     symbol_name_consumed = true;
 
     // Define local parameter variables
@@ -1315,7 +1315,7 @@ async fn generateDeclFn(comp: *Compilation, fn_decl: *Decl.Fn) !void {
         //AstNode *param_decl_node = get_param_decl_node(fn_table_entry, i);
         const param_decl = @fieldParentPtr(ast.Node.ParamDecl, "base", fn_decl.fn_proto.params.at(i).*);
         const name_token = param_decl.name_token orelse {
-            try comp.addCompileError(tree_scope, Span.{
+            try comp.addCompileError(tree_scope, Span{
                 .first = param_decl.firstToken(),
                 .last = param_decl.type_node.firstToken(),
             }, "missing parameter name");
@@ -1402,17 +1402,17 @@ async fn analyzeFnType(
             const param_node = param_node_ptr.*.cast(ast.Node.ParamDecl).?;
             const param_type = try await (async comp.analyzeTypeExpr(tree_scope, scope, param_node.type_node) catch unreachable);
             errdefer param_type.base.deref(comp);
-            try params.append(Type.Fn.Param.{
+            try params.append(Type.Fn.Param{
                 .typ = param_type,
                 .is_noalias = param_node.noalias_token != null,
             });
         }
     }
 
-    const key = Type.Fn.Key.{
+    const key = Type.Fn.Key{
         .alignment = null,
-        .data = Type.Fn.Key.Data.{
-            .Normal = Type.Fn.Key.Normal.{
+        .data = Type.Fn.Key.Data{
+            .Normal = Type.Fn.Key.Normal{
                 .return_type = return_type,
                 .params = params.toOwnedSlice(),
                 .is_var_args = false, // TODO
@@ -1451,7 +1451,7 @@ async fn generateDeclFnProto(comp: *Compilation, fn_decl: *Decl.Fn) !void {
 
     // The Decl.Fn owns the initial 1 reference count
     const fn_proto_val = try Value.FnProto.create(comp, fn_type, symbol_name);
-    fn_decl.value = Decl.Fn.Val.{ .FnProto = fn_proto_val };
+    fn_decl.value = Decl.Fn.Val{ .FnProto = fn_proto_val };
     symbol_name_consumed = true;
 }
 

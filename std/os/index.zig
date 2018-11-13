@@ -127,7 +127,7 @@ pub fn getRandomBytes(buf: []u8) !void {
             }
         },
         Os.zen => {
-            const randomness = []u8.{ 42, 1, 7, 12, 22, 17, 99, 16, 26, 87, 41, 45 };
+            const randomness = []u8{ 42, 1, 7, 12, 22, 17, 99, 16, 26, 87, 41, 45 };
             var i: usize = 0;
             while (i < buf.len) : (i += 1) {
                 if (i > randomness.len) return error.Unknown;
@@ -231,7 +231,7 @@ pub fn close(handle: FileHandle) void {
     }
 }
 
-pub const PosixReadError = error.{
+pub const PosixReadError = error{
     InputOutput,
     SystemResources,
     IsDir,
@@ -333,7 +333,7 @@ pub fn posix_preadv(fd: i32, iov: [*]const posix.iovec, count: usize, offset: u6
     }
 }
 
-pub const PosixWriteError = error.{
+pub const PosixWriteError = error{
     DiskQuota,
     FileTooBig,
     InputOutput,
@@ -443,7 +443,7 @@ pub fn posix_pwritev(fd: i32, iov: [*]const posix.iovec_const, count: usize, off
     }
 }
 
-pub const PosixOpenError = error.{
+pub const PosixOpenError = error{
     AccessDenied,
     FileTooBig,
     IsDir,
@@ -618,7 +618,7 @@ pub fn posixExecve(argv: []const []const u8, env_map: *const BufMap, allocator: 
     return posixExecveErrnoToErr(err);
 }
 
-pub const PosixExecveError = error.{
+pub const PosixExecveError = error{
     SystemResources,
     AccessDenied,
     InvalidExe,
@@ -755,7 +755,7 @@ pub fn getEnvPosix(key: []const u8) ?[]const u8 {
     return null;
 }
 
-pub const GetEnvVarOwnedError = error.{
+pub const GetEnvVarOwnedError = error{
     OutOfMemory,
     EnvironmentVariableNotFound,
 };
@@ -804,7 +804,7 @@ pub fn getCwdAlloc(allocator: *Allocator) ![]u8 {
     return mem.dupe(allocator, u8, try getCwd(&buf));
 }
 
-pub const GetCwdError = error.{Unexpected};
+pub const GetCwdError = error{Unexpected};
 
 /// The result is a slice of out_buffer.
 pub fn getCwd(out_buffer: *[MAX_PATH_BYTES]u8) GetCwdError![]u8 {
@@ -855,7 +855,7 @@ pub fn symLink(existing_path: []const u8, new_path: []const u8) SymLinkError!voi
     }
 }
 
-pub const WindowsSymLinkError = error.{
+pub const WindowsSymLinkError = error{
     NameTooLong,
     InvalidUtf8,
     BadPathName,
@@ -879,7 +879,7 @@ pub fn symLinkWindows(existing_path: []const u8, new_path: []const u8) WindowsSy
     return symLinkW(&existing_path_w, &new_path_w);
 }
 
-pub const PosixSymLinkError = error.{
+pub const PosixSymLinkError = error{
     AccessDenied,
     DiskQuota,
     PathAlreadyExists,
@@ -956,7 +956,7 @@ pub fn atomicSymLink(allocator: *Allocator, existing_path: []const u8, new_path:
     }
 }
 
-pub const DeleteFileError = error.{
+pub const DeleteFileError = error{
     FileNotFound,
     AccessDenied,
     FileBusy,
@@ -1072,7 +1072,7 @@ pub fn copyFileMode(source_path: []const u8, dest_path: []const u8, mode: File.M
     }
 }
 
-pub const AtomicFile = struct.{
+pub const AtomicFile = struct {
     file: os.File,
     tmp_path_buf: [MAX_PATH_BYTES]u8,
     dest_path: []const u8,
@@ -1111,7 +1111,7 @@ pub const AtomicFile = struct.{
                 else => return err,
             };
 
-            return AtomicFile.{
+            return AtomicFile{
                 .file = file,
                 .tmp_path_buf = tmp_path_buf,
                 .dest_path = dest_path,
@@ -1282,7 +1282,7 @@ pub fn makePath(allocator: *Allocator, full_path: []const u8) !void {
     }
 }
 
-pub const DeleteDirError = error.{
+pub const DeleteDirError = error{
     AccessDenied,
     FileBusy,
     SymLinkLoop,
@@ -1359,7 +1359,7 @@ pub fn deleteDir(dir_path: []const u8) DeleteDirError!void {
 /// Whether ::full_path describes a symlink, file, or directory, this function
 /// removes it. If it cannot be removed because it is a non-empty directory,
 /// this function recursively removes its entries and then tries again.
-const DeleteTreeError = error.{
+const DeleteTreeError = error{
     OutOfMemory,
     AccessDenied,
     FileTooBig,
@@ -1460,25 +1460,25 @@ pub fn deleteTree(allocator: *Allocator, full_path: []const u8) DeleteTreeError!
     }
 }
 
-pub const Dir = struct.{
+pub const Dir = struct {
     handle: Handle,
     allocator: *Allocator,
 
     pub const Handle = switch (builtin.os) {
-        Os.macosx, Os.ios => struct.{
+        Os.macosx, Os.ios => struct {
             fd: i32,
             seek: i64,
             buf: []u8,
             index: usize,
             end_index: usize,
         },
-        Os.linux => struct.{
+        Os.linux => struct {
             fd: i32,
             buf: []u8,
             index: usize,
             end_index: usize,
         },
-        Os.windows => struct.{
+        Os.windows => struct {
             handle: windows.HANDLE,
             find_file_data: windows.WIN32_FIND_DATAW,
             first: bool,
@@ -1487,11 +1487,11 @@ pub const Dir = struct.{
         else => @compileError("unimplemented"),
     };
 
-    pub const Entry = struct.{
+    pub const Entry = struct {
         name: []const u8,
         kind: Kind,
 
-        pub const Kind = enum.{
+        pub const Kind = enum {
             BlockDevice,
             CharacterDevice,
             Directory,
@@ -1504,7 +1504,7 @@ pub const Dir = struct.{
         };
     };
 
-    pub const OpenError = error.{
+    pub const OpenError = error{
         FileNotFound,
         NotDir,
         AccessDenied,
@@ -1528,20 +1528,20 @@ pub const Dir = struct.{
 
     /// TODO remove the allocator requirement from this API
     pub fn open(allocator: *Allocator, dir_path: []const u8) OpenError!Dir {
-        return Dir.{
+        return Dir{
             .allocator = allocator,
             .handle = switch (builtin.os) {
                 Os.windows => blk: {
                     var find_file_data: windows.WIN32_FIND_DATAW = undefined;
                     const handle = try windows_util.windowsFindFirstFile(dir_path, &find_file_data);
-                    break :blk Handle.{
+                    break :blk Handle{
                         .handle = handle,
                         .find_file_data = find_file_data, // TODO guaranteed copy elision
                         .first = true,
                         .name_data = undefined,
                     };
                 },
-                Os.macosx, Os.ios => Handle.{
+                Os.macosx, Os.ios => Handle{
                     .fd = try posixOpen(
                         dir_path,
                         posix.O_RDONLY | posix.O_NONBLOCK | posix.O_DIRECTORY | posix.O_CLOEXEC,
@@ -1550,9 +1550,9 @@ pub const Dir = struct.{
                     .seek = 0,
                     .index = 0,
                     .end_index = 0,
-                    .buf = []u8.{},
+                    .buf = []u8{},
                 },
-                Os.linux => Handle.{
+                Os.linux => Handle{
                     .fd = try posixOpen(
                         dir_path,
                         posix.O_RDONLY | posix.O_DIRECTORY | posix.O_CLOEXEC,
@@ -1560,7 +1560,7 @@ pub const Dir = struct.{
                     ),
                     .index = 0,
                     .end_index = 0,
-                    .buf = []u8.{},
+                    .buf = []u8{},
                 },
                 else => @compileError("unimplemented"),
             },
@@ -1638,7 +1638,7 @@ pub const Dir = struct.{
                 posix.DT_WHT => Entry.Kind.Whiteout,
                 else => Entry.Kind.Unknown,
             };
-            return Entry.{
+            return Entry{
                 .name = name,
                 .kind = entry_kind,
             };
@@ -1654,7 +1654,7 @@ pub const Dir = struct.{
                     return null;
             }
             const name_utf16le = mem.toSlice(u16, self.handle.find_file_data.cFileName[0..].ptr);
-            if (mem.eql(u16, name_utf16le, []u16.{'.'}) or mem.eql(u16, name_utf16le, []u16.{ '.', '.' }))
+            if (mem.eql(u16, name_utf16le, []u16{'.'}) or mem.eql(u16, name_utf16le, []u16{ '.', '.' }))
                 continue;
             // Trust that Windows gives us valid UTF-16LE
             const name_utf8_len = std.unicode.utf16leToUtf8(self.handle.name_data[0..], name_utf16le) catch unreachable;
@@ -1666,7 +1666,7 @@ pub const Dir = struct.{
                 if (attrs & windows.FILE_ATTRIBUTE_NORMAL != 0) break :blk Entry.Kind.File;
                 break :blk Entry.Kind.Unknown;
             };
-            return Entry.{
+            return Entry{
                 .name = name_utf8,
                 .kind = kind,
             };
@@ -1720,7 +1720,7 @@ pub const Dir = struct.{
                 posix.DT_SOCK => Entry.Kind.UnixDomainSocket,
                 else => Entry.Kind.Unknown,
             };
-            return Entry.{
+            return Entry{
                 .name = name,
                 .kind = entry_kind,
             };
@@ -1822,7 +1822,7 @@ pub fn posix_setregid(rgid: u32, egid: u32) !void {
     };
 }
 
-pub const WindowsGetStdHandleErrs = error.{
+pub const WindowsGetStdHandleErrs = error{
     NoStdHandles,
 
     /// See https://github.com/ziglang/zig/issues/1396
@@ -1843,12 +1843,12 @@ pub fn windowsGetStdHandle(handle_id: windows.DWORD) WindowsGetStdHandleErrs!win
     }
 }
 
-pub const ArgIteratorPosix = struct.{
+pub const ArgIteratorPosix = struct {
     index: usize,
     count: usize,
 
     pub fn init() ArgIteratorPosix {
-        return ArgIteratorPosix.{
+        return ArgIteratorPosix{
             .index = 0,
             .count = raw.len,
         };
@@ -1874,21 +1874,21 @@ pub const ArgIteratorPosix = struct.{
     pub var raw: [][*]u8 = undefined;
 };
 
-pub const ArgIteratorWindows = struct.{
+pub const ArgIteratorWindows = struct {
     index: usize,
     cmd_line: [*]const u8,
     in_quote: bool,
     quote_count: usize,
     seen_quote_count: usize,
 
-    pub const NextError = error.{OutOfMemory};
+    pub const NextError = error{OutOfMemory};
 
     pub fn init() ArgIteratorWindows {
         return initWithCmdLine(windows.GetCommandLineA());
     }
 
     pub fn initWithCmdLine(cmd_line: [*]const u8) ArgIteratorWindows {
-        return ArgIteratorWindows.{
+        return ArgIteratorWindows{
             .index = 0,
             .cmd_line = cmd_line,
             .in_quote = false,
@@ -2023,13 +2023,13 @@ pub const ArgIteratorWindows = struct.{
     }
 };
 
-pub const ArgIterator = struct.{
+pub const ArgIterator = struct {
     const InnerType = if (builtin.os == Os.windows) ArgIteratorWindows else ArgIteratorPosix;
 
     inner: InnerType,
 
     pub fn init() ArgIterator {
-        return ArgIterator.{ .inner = InnerType.init() };
+        return ArgIterator{ .inner = InnerType.init() };
     }
 
     pub const NextError = ArgIteratorWindows.NextError;
@@ -2108,14 +2108,14 @@ pub fn argsFree(allocator: *mem.Allocator, args_alloc: []const []u8) void {
 }
 
 test "windows arg parsing" {
-    testWindowsCmdLine(c"a   b\tc d", [][]const u8.{ "a", "b", "c", "d" });
-    testWindowsCmdLine(c"\"abc\" d e", [][]const u8.{ "abc", "d", "e" });
-    testWindowsCmdLine(c"a\\\\\\b d\"e f\"g h", [][]const u8.{ "a\\\\\\b", "de fg", "h" });
-    testWindowsCmdLine(c"a\\\\\\\"b c d", [][]const u8.{ "a\\\"b", "c", "d" });
-    testWindowsCmdLine(c"a\\\\\\\\\"b c\" d e", [][]const u8.{ "a\\\\b c", "d", "e" });
-    testWindowsCmdLine(c"a   b\tc \"d f", [][]const u8.{ "a", "b", "c", "\"d", "f" });
+    testWindowsCmdLine(c"a   b\tc d", [][]const u8{ "a", "b", "c", "d" });
+    testWindowsCmdLine(c"\"abc\" d e", [][]const u8{ "abc", "d", "e" });
+    testWindowsCmdLine(c"a\\\\\\b d\"e f\"g h", [][]const u8{ "a\\\\\\b", "de fg", "h" });
+    testWindowsCmdLine(c"a\\\\\\\"b c d", [][]const u8{ "a\\\"b", "c", "d" });
+    testWindowsCmdLine(c"a\\\\\\\\\"b c\" d e", [][]const u8{ "a\\\\b c", "d", "e" });
+    testWindowsCmdLine(c"a   b\tc \"d f", [][]const u8{ "a", "b", "c", "\"d", "f" });
 
-    testWindowsCmdLine(c"\".\\..\\zig-cache\\build\" \"bin\\zig.exe\" \".\\..\" \".\\..\\zig-cache\" \"--help\"", [][]const u8.{
+    testWindowsCmdLine(c"\".\\..\\zig-cache\\build\" \"bin\\zig.exe\" \".\\..\" \".\\..\\zig-cache\" \"--help\"", [][]const u8{
         ".\\..\\zig-cache\\build",
         "bin\\zig.exe",
         ".\\..",
@@ -2135,7 +2135,7 @@ fn testWindowsCmdLine(input_cmd_line: [*]const u8, expected_args: []const []cons
 
 // TODO make this a build variable that you can set
 const unexpected_error_tracing = false;
-const UnexpectedError = error.{
+const UnexpectedError = error{
     /// The Operating System returned an undocumented error code.
     Unexpected,
 };
@@ -2284,7 +2284,7 @@ pub fn supportsAnsiEscapeCodes(handle: FileHandle) bool {
     }
 }
 
-pub const PosixSocketError = error.{
+pub const PosixSocketError = error{
     /// Permission to create a socket of the specified type and/or
     /// pro‐tocol is denied.
     PermissionDenied,
@@ -2325,7 +2325,7 @@ pub fn posixSocket(domain: u32, socket_type: u32, protocol: u32) !i32 {
     }
 }
 
-pub const PosixBindError = error.{
+pub const PosixBindError = error{
     /// The address is protected, and the user is not the superuser.
     /// For UNIX domain sockets: Search permission is denied on  a  component
     /// of  the  path  prefix.
@@ -2386,7 +2386,7 @@ pub fn posixBind(fd: i32, addr: *const posix.sockaddr) PosixBindError!void {
     }
 }
 
-const PosixListenError = error.{
+const PosixListenError = error{
     /// Another socket is already listening on the same port.
     /// For Internet domain sockets, the  socket referred to by sockfd had not previously
     /// been bound to an address and, upon attempting to bind it to an ephemeral port, it
@@ -2417,7 +2417,7 @@ pub fn posixListen(sockfd: i32, backlog: u32) PosixListenError!void {
     }
 }
 
-pub const PosixAcceptError = error.{
+pub const PosixAcceptError = error{
     ConnectionAborted,
 
     /// The per-process limit on the number of open file descriptors has been reached.
@@ -2500,7 +2500,7 @@ pub fn posixAsyncAccept(fd: i32, addr: *posix.sockaddr, flags: u32) PosixAcceptE
     }
 }
 
-pub const LinuxEpollCreateError = error.{
+pub const LinuxEpollCreateError = error{
     /// The  per-user   limit   on   the   number   of   epoll   instances   imposed   by
     /// /proc/sys/fs/epoll/max_user_instances  was encountered.  See epoll(7) for further
     /// details.
@@ -2531,7 +2531,7 @@ pub fn linuxEpollCreate(flags: u32) LinuxEpollCreateError!i32 {
     }
 }
 
-pub const LinuxEpollCtlError = error.{
+pub const LinuxEpollCtlError = error{
     /// op was EPOLL_CTL_ADD, and the supplied file descriptor fd is  already  registered
     /// with this epoll instance.
     FileDescriptorAlreadyPresentInSet,
@@ -2593,7 +2593,7 @@ pub fn linuxEpollWait(epfd: i32, events: []linux.epoll_event, timeout: i32) usiz
     }
 }
 
-pub const LinuxEventFdError = error.{
+pub const LinuxEventFdError = error{
     InvalidFlagValue,
     SystemResources,
     ProcessFdQuotaExceeded,
@@ -2618,7 +2618,7 @@ pub fn linuxEventFd(initval: u32, flags: u32) LinuxEventFdError!i32 {
     }
 }
 
-pub const PosixGetSockNameError = error.{
+pub const PosixGetSockNameError = error{
     /// Insufficient resources were available in the system to perform the operation.
     SystemResources,
 
@@ -2643,7 +2643,7 @@ pub fn posixGetSockName(sockfd: i32) PosixGetSockNameError!posix.sockaddr {
     }
 }
 
-pub const PosixConnectError = error.{
+pub const PosixConnectError = error{
     /// For UNIX domain sockets, which are identified by pathname: Write permission is denied on  the  socket
     /// file,  or  search  permission  is  denied  for  one of the directories in the path prefix.
     /// or
@@ -2775,7 +2775,7 @@ pub fn posixGetSockOptConnectError(sockfd: i32) PosixConnectError!void {
     }
 }
 
-pub const Thread = struct.{
+pub const Thread = struct {
     data: Data,
 
     pub const use_pthreads = is_posix and builtin.link_libc;
@@ -2800,18 +2800,18 @@ pub const Thread = struct.{
     };
 
     pub const Data = if (use_pthreads)
-        struct.{
+        struct {
             handle: Thread.Handle,
             stack_addr: usize,
             stack_len: usize,
         }
     else switch (builtin.os) {
-        builtin.Os.linux => struct.{
+        builtin.Os.linux => struct {
             handle: Thread.Handle,
             stack_addr: usize,
             stack_len: usize,
         },
-        builtin.Os.windows => struct.{
+        builtin.Os.windows => struct {
             handle: Thread.Handle,
             alloc_start: *c_void,
             heap_handle: windows.HANDLE,
@@ -2875,7 +2875,7 @@ pub const Thread = struct.{
     }
 };
 
-pub const SpawnThreadError = error.{
+pub const SpawnThreadError = error{
     /// A system-imposed limit on the number of threads was encountered.
     /// There are a number of limits that may trigger this error:
     /// *  the  RLIMIT_NPROC soft resource limit (set via setrlimit(2)),
@@ -2915,8 +2915,8 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
     comptime assert(@ArgType(@typeOf(startFn), 0) == Context);
 
     if (builtin.os == builtin.Os.windows) {
-        const WinThread = struct.{
-            const OuterContext = struct.{
+        const WinThread = struct {
+            const OuterContext = struct {
                 thread: Thread,
                 inner: Context,
             };
@@ -2940,9 +2940,9 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
         const bytes_ptr = windows.HeapAlloc(heap_handle, 0, byte_count) orelse return SpawnThreadError.OutOfMemory;
         errdefer assert(windows.HeapFree(heap_handle, 0, bytes_ptr) != 0);
         const bytes = @ptrCast([*]u8, bytes_ptr)[0..byte_count];
-        const outer_context = std.heap.FixedBufferAllocator.init(bytes).allocator.create(WinThread.OuterContext.{
-            .thread = Thread.{
-                .data = Thread.Data.{
+        const outer_context = std.heap.FixedBufferAllocator.init(bytes).allocator.create(WinThread.OuterContext{
+            .thread = Thread{
+                .data = Thread.Data{
                     .heap_handle = heap_handle,
                     .alloc_start = bytes_ptr,
                     .handle = undefined,
@@ -2961,7 +2961,7 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
         return &outer_context.thread;
     }
 
-    const MainFuncs = struct.{
+    const MainFuncs = struct {
         extern fn linuxThreadMain(ctx_addr: usize) u8 {
             const arg = if (@sizeOf(Context) == 0) {} else @intToPtr(*const Context, ctx_addr).*;
 
@@ -3085,7 +3085,7 @@ pub fn posixFStat(fd: i32) !posix.Stat {
     return stat;
 }
 
-pub const CpuCountError = error.{
+pub const CpuCountError = error{
     OutOfMemory,
     PermissionDenied,
 
@@ -3153,7 +3153,7 @@ pub fn cpuCount(fallback_allocator: *mem.Allocator) CpuCountError!usize {
     }
 }
 
-pub const BsdKQueueError = error.{
+pub const BsdKQueueError = error{
     /// The per-process limit on the number of open file descriptors has been reached.
     ProcessFdQuotaExceeded,
 
@@ -3175,7 +3175,7 @@ pub fn bsdKQueue() BsdKQueueError!i32 {
     }
 }
 
-pub const BsdKEventError = error.{
+pub const BsdKEventError = error{
     /// The process does not have permission to register a filter.
     AccessDenied,
 

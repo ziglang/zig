@@ -320,14 +320,14 @@ pub const ET_DYN = 3;
 /// A core file.
 pub const ET_CORE = 4;
 
-pub const FileType = enum.{
+pub const FileType = enum {
     Relocatable,
     Executable,
     Shared,
     Core,
 };
 
-pub const Arch = enum.{
+pub const Arch = enum {
     Sparc,
     x86,
     Mips,
@@ -339,7 +339,7 @@ pub const Arch = enum.{
     AArch64,
 };
 
-pub const SectionHeader = struct.{
+pub const SectionHeader = struct {
     name: u32,
     sh_type: u32,
     flags: u64,
@@ -352,7 +352,7 @@ pub const SectionHeader = struct.{
     ent_size: u64,
 };
 
-pub const Elf = struct.{
+pub const Elf = struct {
     in_file: os.File,
     auto_close_stream: bool,
     is_64: bool,
@@ -572,7 +572,7 @@ pub const Elf32_Section = u16;
 pub const Elf64_Section = u16;
 pub const Elf32_Versym = Elf32_Half;
 pub const Elf64_Versym = Elf64_Half;
-pub const Elf32_Ehdr = extern struct.{
+pub const Elf32_Ehdr = extern struct {
     e_ident: [EI_NIDENT]u8,
     e_type: Elf32_Half,
     e_machine: Elf32_Half,
@@ -588,7 +588,7 @@ pub const Elf32_Ehdr = extern struct.{
     e_shnum: Elf32_Half,
     e_shstrndx: Elf32_Half,
 };
-pub const Elf64_Ehdr = extern struct.{
+pub const Elf64_Ehdr = extern struct {
     e_ident: [EI_NIDENT]u8,
     e_type: Elf64_Half,
     e_machine: Elf64_Half,
@@ -604,7 +604,7 @@ pub const Elf64_Ehdr = extern struct.{
     e_shnum: Elf64_Half,
     e_shstrndx: Elf64_Half,
 };
-pub const Elf32_Shdr = extern struct.{
+pub const Elf32_Shdr = extern struct {
     sh_name: Elf32_Word,
     sh_type: Elf32_Word,
     sh_flags: Elf32_Word,
@@ -616,7 +616,7 @@ pub const Elf32_Shdr = extern struct.{
     sh_addralign: Elf32_Word,
     sh_entsize: Elf32_Word,
 };
-pub const Elf64_Shdr = extern struct.{
+pub const Elf64_Shdr = extern struct {
     sh_name: Elf64_Word,
     sh_type: Elf64_Word,
     sh_flags: Elf64_Xword,
@@ -628,18 +628,18 @@ pub const Elf64_Shdr = extern struct.{
     sh_addralign: Elf64_Xword,
     sh_entsize: Elf64_Xword,
 };
-pub const Elf32_Chdr = extern struct.{
+pub const Elf32_Chdr = extern struct {
     ch_type: Elf32_Word,
     ch_size: Elf32_Word,
     ch_addralign: Elf32_Word,
 };
-pub const Elf64_Chdr = extern struct.{
+pub const Elf64_Chdr = extern struct {
     ch_type: Elf64_Word,
     ch_reserved: Elf64_Word,
     ch_size: Elf64_Xword,
     ch_addralign: Elf64_Xword,
 };
-pub const Elf32_Sym = extern struct.{
+pub const Elf32_Sym = extern struct {
     st_name: Elf32_Word,
     st_value: Elf32_Addr,
     st_size: Elf32_Word,
@@ -647,7 +647,7 @@ pub const Elf32_Sym = extern struct.{
     st_other: u8,
     st_shndx: Elf32_Section,
 };
-pub const Elf64_Sym = extern struct.{
+pub const Elf64_Sym = extern struct {
     st_name: Elf64_Word,
     st_info: u8,
     st_other: u8,
@@ -655,33 +655,33 @@ pub const Elf64_Sym = extern struct.{
     st_value: Elf64_Addr,
     st_size: Elf64_Xword,
 };
-pub const Elf32_Syminfo = extern struct.{
+pub const Elf32_Syminfo = extern struct {
     si_boundto: Elf32_Half,
     si_flags: Elf32_Half,
 };
-pub const Elf64_Syminfo = extern struct.{
+pub const Elf64_Syminfo = extern struct {
     si_boundto: Elf64_Half,
     si_flags: Elf64_Half,
 };
-pub const Elf32_Rel = extern struct.{
+pub const Elf32_Rel = extern struct {
     r_offset: Elf32_Addr,
     r_info: Elf32_Word,
 };
-pub const Elf64_Rel = extern struct.{
+pub const Elf64_Rel = extern struct {
     r_offset: Elf64_Addr,
     r_info: Elf64_Xword,
 };
-pub const Elf32_Rela = extern struct.{
+pub const Elf32_Rela = extern struct {
     r_offset: Elf32_Addr,
     r_info: Elf32_Word,
     r_addend: Elf32_Sword,
 };
-pub const Elf64_Rela = extern struct.{
+pub const Elf64_Rela = extern struct {
     r_offset: Elf64_Addr,
     r_info: Elf64_Xword,
     r_addend: Elf64_Sxword,
 };
-pub const Elf32_Phdr = extern struct.{
+pub const Elf32_Phdr = extern struct {
     p_type: Elf32_Word,
     p_offset: Elf32_Off,
     p_vaddr: Elf32_Addr,
@@ -691,7 +691,7 @@ pub const Elf32_Phdr = extern struct.{
     p_flags: Elf32_Word,
     p_align: Elf32_Word,
 };
-pub const Elf64_Phdr = extern struct.{
+pub const Elf64_Phdr = extern struct {
     p_type: Elf64_Word,
     p_flags: Elf64_Word,
     p_offset: Elf64_Off,
@@ -701,21 +701,21 @@ pub const Elf64_Phdr = extern struct.{
     p_memsz: Elf64_Xword,
     p_align: Elf64_Xword,
 };
-pub const Elf32_Dyn = extern struct.{
+pub const Elf32_Dyn = extern struct {
     d_tag: Elf32_Sword,
-    d_un: extern union.{
+    d_un: extern union {
         d_val: Elf32_Word,
         d_ptr: Elf32_Addr,
     },
 };
-pub const Elf64_Dyn = extern struct.{
+pub const Elf64_Dyn = extern struct {
     d_tag: Elf64_Sxword,
-    d_un: extern union.{
+    d_un: extern union {
         d_val: Elf64_Xword,
         d_ptr: Elf64_Addr,
     },
 };
-pub const Elf32_Verdef = extern struct.{
+pub const Elf32_Verdef = extern struct {
     vd_version: Elf32_Half,
     vd_flags: Elf32_Half,
     vd_ndx: Elf32_Half,
@@ -724,7 +724,7 @@ pub const Elf32_Verdef = extern struct.{
     vd_aux: Elf32_Word,
     vd_next: Elf32_Word,
 };
-pub const Elf64_Verdef = extern struct.{
+pub const Elf64_Verdef = extern struct {
     vd_version: Elf64_Half,
     vd_flags: Elf64_Half,
     vd_ndx: Elf64_Half,
@@ -733,111 +733,111 @@ pub const Elf64_Verdef = extern struct.{
     vd_aux: Elf64_Word,
     vd_next: Elf64_Word,
 };
-pub const Elf32_Verdaux = extern struct.{
+pub const Elf32_Verdaux = extern struct {
     vda_name: Elf32_Word,
     vda_next: Elf32_Word,
 };
-pub const Elf64_Verdaux = extern struct.{
+pub const Elf64_Verdaux = extern struct {
     vda_name: Elf64_Word,
     vda_next: Elf64_Word,
 };
-pub const Elf32_Verneed = extern struct.{
+pub const Elf32_Verneed = extern struct {
     vn_version: Elf32_Half,
     vn_cnt: Elf32_Half,
     vn_file: Elf32_Word,
     vn_aux: Elf32_Word,
     vn_next: Elf32_Word,
 };
-pub const Elf64_Verneed = extern struct.{
+pub const Elf64_Verneed = extern struct {
     vn_version: Elf64_Half,
     vn_cnt: Elf64_Half,
     vn_file: Elf64_Word,
     vn_aux: Elf64_Word,
     vn_next: Elf64_Word,
 };
-pub const Elf32_Vernaux = extern struct.{
+pub const Elf32_Vernaux = extern struct {
     vna_hash: Elf32_Word,
     vna_flags: Elf32_Half,
     vna_other: Elf32_Half,
     vna_name: Elf32_Word,
     vna_next: Elf32_Word,
 };
-pub const Elf64_Vernaux = extern struct.{
+pub const Elf64_Vernaux = extern struct {
     vna_hash: Elf64_Word,
     vna_flags: Elf64_Half,
     vna_other: Elf64_Half,
     vna_name: Elf64_Word,
     vna_next: Elf64_Word,
 };
-pub const Elf32_auxv_t = extern struct.{
+pub const Elf32_auxv_t = extern struct {
     a_type: u32,
-    a_un: extern union.{
+    a_un: extern union {
         a_val: u32,
     },
 };
-pub const Elf64_auxv_t = extern struct.{
+pub const Elf64_auxv_t = extern struct {
     a_type: u64,
-    a_un: extern union.{
+    a_un: extern union {
         a_val: u64,
     },
 };
-pub const Elf32_Nhdr = extern struct.{
+pub const Elf32_Nhdr = extern struct {
     n_namesz: Elf32_Word,
     n_descsz: Elf32_Word,
     n_type: Elf32_Word,
 };
-pub const Elf64_Nhdr = extern struct.{
+pub const Elf64_Nhdr = extern struct {
     n_namesz: Elf64_Word,
     n_descsz: Elf64_Word,
     n_type: Elf64_Word,
 };
-pub const Elf32_Move = extern struct.{
+pub const Elf32_Move = extern struct {
     m_value: Elf32_Xword,
     m_info: Elf32_Word,
     m_poffset: Elf32_Word,
     m_repeat: Elf32_Half,
     m_stride: Elf32_Half,
 };
-pub const Elf64_Move = extern struct.{
+pub const Elf64_Move = extern struct {
     m_value: Elf64_Xword,
     m_info: Elf64_Xword,
     m_poffset: Elf64_Xword,
     m_repeat: Elf64_Half,
     m_stride: Elf64_Half,
 };
-pub const Elf32_gptab = extern union.{
-    gt_header: extern struct.{
+pub const Elf32_gptab = extern union {
+    gt_header: extern struct {
         gt_current_g_value: Elf32_Word,
         gt_unused: Elf32_Word,
     },
-    gt_entry: extern struct.{
+    gt_entry: extern struct {
         gt_g_value: Elf32_Word,
         gt_bytes: Elf32_Word,
     },
 };
-pub const Elf32_RegInfo = extern struct.{
+pub const Elf32_RegInfo = extern struct {
     ri_gprmask: Elf32_Word,
     ri_cprmask: [4]Elf32_Word,
     ri_gp_value: Elf32_Sword,
 };
-pub const Elf_Options = extern struct.{
+pub const Elf_Options = extern struct {
     kind: u8,
     size: u8,
     @"section": Elf32_Section,
     info: Elf32_Word,
 };
-pub const Elf_Options_Hw = extern struct.{
+pub const Elf_Options_Hw = extern struct {
     hwp_flags1: Elf32_Word,
     hwp_flags2: Elf32_Word,
 };
-pub const Elf32_Lib = extern struct.{
+pub const Elf32_Lib = extern struct {
     l_name: Elf32_Word,
     l_time_stamp: Elf32_Word,
     l_checksum: Elf32_Word,
     l_version: Elf32_Word,
     l_flags: Elf32_Word,
 };
-pub const Elf64_Lib = extern struct.{
+pub const Elf64_Lib = extern struct {
     l_name: Elf64_Word,
     l_time_stamp: Elf64_Word,
     l_checksum: Elf64_Word,
@@ -845,7 +845,7 @@ pub const Elf64_Lib = extern struct.{
     l_flags: Elf64_Word,
 };
 pub const Elf32_Conflict = Elf32_Addr;
-pub const Elf_MIPS_ABIFlags_v0 = extern struct.{
+pub const Elf_MIPS_ABIFlags_v0 = extern struct {
     version: Elf32_Half,
     isa_level: u8,
     isa_rev: u8,

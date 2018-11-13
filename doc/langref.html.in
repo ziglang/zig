@@ -212,7 +212,7 @@ test "comments" {
       {#code_begin|syntax|doc_comments#}
 /// A structure for storing a timestamp, with nanosecond precision (this is a
 /// multiline doc comment).
-const Timestamp = struct.{
+const Timestamp = struct {
     /// The number of seconds since the epoch (this is also a doc comment).
     seconds: i64,  // signed so we can represent pre-1970 (not a doc comment)
     /// The number of nanoseconds past the second (doc comment again).
@@ -221,7 +221,7 @@ const Timestamp = struct.{
     /// Returns a `Timestamp` struct representing the Unix epoch; that is, the
     /// moment of 1970 Jan 1 00:00:00 UTC (this is a doc comment too).
     pub fn unixEpoch() Timestamp {
-        return Timestamp.{
+        return Timestamp{
             .seconds = 0,
             .nanos = 0,
         };
@@ -271,7 +271,7 @@ pub fn main() void {
         @typeName(@typeOf(optional_value)), optional_value);
 
     // error union
-    var number_or_error: error!i32 = error.ArgNotFound;
+    var number_or_error: anyerror!i32 = error.ArgNotFound;
 
     warn("\nerror union 1\ntype: {}\nvalue: {}\n",
         @typeName(@typeOf(number_or_error)), number_or_error);
@@ -449,7 +449,7 @@ pub fn main() void {
           <td>the type of types</td>
         </tr>
         <tr>
-            <td>{#syntax#}error.{#endsyntax#}</td>
+            <td>{#syntax#}anyerror{#endsyntax#}</td>
           <td>(none)</td>
           <td>an error code</td>
         </tr>
@@ -1139,14 +1139,14 @@ a catch |err| b{#endsyntax#}</pre></td>
               <li>{#link|Error Unions|Errors#}</li>
             </ul>
           </td>
-          <td>If {#syntax#}a{#endsyntax#} is an {#syntax#}error.{#endsyntax#},
+          <td>If {#syntax#}a{#endsyntax#} is an {#syntax#}error{#endsyntax#},
                       returns {#syntax#}b{#endsyntax#} ("default value"),
                           otherwise returns the unwrapped value of {#syntax#}a{#endsyntax#}.
                               Note that {#syntax#}b{#endsyntax#} may be a value of type {#link|noreturn#}.
-                                  {#syntax#}err{#endsyntax#} is the {#syntax#}error.{#endsyntax#} and is in scope of the expression {#syntax#}b{#endsyntax#}.
+                                  {#syntax#}err{#endsyntax#} is the {#syntax#}error{#endsyntax#} and is in scope of the expression {#syntax#}b{#endsyntax#}.
           </td>
           <td>
-            <pre>{#syntax#}const value: error!u32 = error.Broken;
+            <pre>{#syntax#}const value: anyerror!u32 = error.Broken;
 const unwrapped = value catch 1234;
 unwrapped == 1234{#endsyntax#}</pre>
           </td>
@@ -1391,9 +1391,9 @@ x.* == 1234{#endsyntax#}</pre>
               {#link|Merging Error Sets#}
           </td>
           <td>
-            <pre>{#syntax#}const A = error.{One};
-const B = error.{Two};
-(A || B) == error.{One, Two}{#endsyntax#}</pre>
+            <pre>{#syntax#}const A = error{One};
+const B = error{Two};
+(A || B) == error{One, Two}{#endsyntax#}</pre>
           </td>
         </tr>
       </table>
@@ -1423,7 +1423,7 @@ const assert = @import("std").debug.assert;
 const mem = @import("std").mem;
 
 // array literal
-const message = []u8.{ 'h', 'e', 'l', 'l', 'o' };
+const message = []u8{ 'h', 'e', 'l', 'l', 'o' };
 
 // get the size of an array
 comptime {
@@ -1459,11 +1459,11 @@ test "modify an array" {
 
 // array concatenation works if the values are known
 // at compile time
-const part_one = []i32.{ 1, 2, 3, 4 };
-const part_two = []i32.{ 5, 6, 7, 8 };
+const part_one = []i32{ 1, 2, 3, 4 };
+const part_two = []i32{ 5, 6, 7, 8 };
 const all_of_it = part_one ++ part_two;
 comptime {
-    assert(mem.eql(i32, all_of_it, []i32.{ 1, 2, 3, 4, 5, 6, 7, 8 }));
+    assert(mem.eql(i32, all_of_it, []i32{ 1, 2, 3, 4, 5, 6, 7, 8 }));
 }
 
 // remember that string literals are arrays
@@ -1481,7 +1481,7 @@ comptime {
 }
 
 // initialize an array to zero
-const all_zero = []u16.{0} ** 10;
+const all_zero = []u16{0} ** 10;
 
 comptime {
     assert(all_zero.len == 10);
@@ -1492,14 +1492,14 @@ comptime {
 var fancy_array = init: {
     var initial_value: [10]Point = undefined;
     for (initial_value) |*pt, i| {
-        pt.* = Point.{
+        pt.* = Point{
             .x = @intCast(i32, i),
             .y = @intCast(i32, i) * 2,
         };
     }
     break :init initial_value;
 };
-const Point = struct.{
+const Point = struct {
     x: i32,
     y: i32,
 };
@@ -1510,9 +1510,9 @@ test "compile-time array initalization" {
 }
 
 // call a function to initialize an array
-var more_points = []Point.{makePoint(3)} ** 10;
+var more_points = []Point{makePoint(3)} ** 10;
 fn makePoint(x: i32) Point {
-    return Point.{
+    return Point{
         .x = x,
         .y = x * 2,
     };
@@ -1591,7 +1591,7 @@ test "pointer array access" {
     // Taking an address of an individual element gives a
     // pointer to a single item. This kind of pointer
     // does not support pointer arithmetic.
-    var array = []u8.{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+    var array = []u8{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
     const ptr = &array[2];
     assert(@typeOf(ptr) == *u8);
 
@@ -1613,7 +1613,7 @@ test "pointer array access" {
 const assert = @import("std").debug.assert;
 
 test "pointer slicing" {
-    var array = []u8.{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+    var array = []u8{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
     const slice = array[2..4];
     assert(slice.len == 2);
 
@@ -1694,7 +1694,7 @@ test "volatile" {
 const assert = @import("std").debug.assert;
 
 test "pointer casting" {
-    const bytes align(@alignOf(u32)) = []u8.{ 0x12, 0x12, 0x12, 0x12 };
+    const bytes align(@alignOf(u32)) = []u8{ 0x12, 0x12, 0x12, 0x12 };
     const u32_ptr = @ptrCast(*const u32, &bytes);
     assert(u32_ptr.* == 0x12121212);
 
@@ -1783,7 +1783,7 @@ test "function alignment" {
 const assert = @import("std").debug.assert;
 
 test "pointer alignment safety" {
-    var array align(4) = []u32.{ 0x11111111, 0x11111111 };
+    var array align(4) = []u32{ 0x11111111, 0x11111111 };
     const bytes = @sliceToBytes(array[0..]);
     assert(foo(bytes) == 0x11111111);
 }
@@ -1800,7 +1800,7 @@ fn foo(bytes: []u8) u32 {
 const assert = @import("std").debug.assert;
 
 test "basic slices" {
-    var array = []i32.{ 1, 2, 3, 4 };
+    var array = []i32{ 1, 2, 3, 4 };
     // A slice is a pointer and a length. The difference between an array and
     // a slice is that the array's length is part of the type and known at
     // compile-time, whereas the slice's length is known at runtime.
@@ -1868,7 +1868,7 @@ test "slice pointer" {
 test "slice widening" {
     // Zig supports slice widening and slice narrowing. Cast a slice of u8
     // to a slice of anything else, and Zig will perform the length conversion.
-    const array align(@alignOf(u32)) = []u8.{ 0x12, 0x12, 0x12, 0x12, 0x13, 0x13, 0x13, 0x13 };
+    const array align(@alignOf(u32)) = []u8{ 0x12, 0x12, 0x12, 0x12, 0x13, 0x13, 0x13, 0x13 };
     const slice = @bytesToSlice(u32, array[0..]);
     assert(slice.len == 2);
     assert(slice[0] == 0x12121212);
@@ -1882,27 +1882,27 @@ test "slice widening" {
 // Declare a struct.
 // Zig gives no guarantees about the order of fields and whether or
 // not there will be padding.
-const Point = struct.{
+const Point = struct {
     x: f32,
     y: f32,
 };
 
 // Maybe we want to pass it to OpenGL so we want to be particular about
 // how the bytes are arranged.
-const Point2 = packed struct.{
+const Point2 = packed struct {
     x: f32,
     y: f32,
 };
 
 
 // Declare an instance of a struct.
-const p = Point.{
+const p = Point {
     .x = 0.12,
     .y = 0.34,
 };
 
 // Maybe we're not ready to fill out some of the fields.
-var p2 = Point.{
+var p2 = Point {
     .x = 0.12,
     .y = undefined,
 };
@@ -1910,13 +1910,13 @@ var p2 = Point.{
 // Structs can have methods
 // Struct methods are not special, they are only namespaced
 // functions that you can call with dot syntax.
-const Vec3 = struct.{
+const Vec3 = struct {
     x: f32,
     y: f32,
     z: f32,
 
     pub fn init(x: f32, y: f32, z: f32) Vec3 {
-        return Vec3.{
+        return Vec3 {
             .x = x,
             .y = y,
             .z = z,
@@ -1942,7 +1942,7 @@ test "dot product" {
 
 // Structs can have global declarations.
 // Structs can have 0 fields.
-const Empty = struct.{
+const Empty = struct {
     pub const PI = 3.14;
 };
 test "struct namespaced variable" {
@@ -1950,7 +1950,7 @@ test "struct namespaced variable" {
     assert(@sizeOf(Empty) == 0);
 
     // you can still instantiate an empty struct
-    const does_nothing = Empty.{};
+    const does_nothing = Empty {};
 }
 
 // struct field order is determined by the compiler for optimal performance.
@@ -1960,7 +1960,7 @@ fn setYBasedOnX(x: *f32, y: f32) void {
     point.y = y;
 }
 test "field parent pointer" {
-    var point = Point.{
+    var point = Point {
         .x = 0.1234,
         .y = 0.5678,
     };
@@ -1971,8 +1971,8 @@ test "field parent pointer" {
 // You can return a struct from a function. This is how we do generics
 // in Zig:
 fn LinkedList(comptime T: type) type {
-    return struct.{
-        pub const Node = struct.{
+    return struct {
+        pub const Node = struct {
             prev: ?*Node,
             next: ?*Node,
             data: T,
@@ -1989,7 +1989,7 @@ test "linked list" {
     // do this:
     assert(LinkedList(i32) == LinkedList(i32));
 
-    var list = LinkedList(i32).{
+    var list = LinkedList(i32) {
         .first = null,
         .last = null,
         .len = 0,
@@ -2001,12 +2001,12 @@ test "linked list" {
     const ListOfInts = LinkedList(i32);
     assert(ListOfInts == LinkedList(i32));
 
-    var node = ListOfInts.Node.{
+    var node = ListOfInts.Node {
         .prev = null,
         .next = null,
         .data = 1234,
     };
-    var list2 = LinkedList(i32).{
+    var list2 = LinkedList(i32) {
         .first = &node,
         .last = &node,
         .len = 1,
@@ -2036,14 +2036,14 @@ test "linked list" {
 const std = @import("std");
 
 pub fn main() void {
-    const Foo = struct.{};
+    const Foo = struct {};
     std.debug.warn("variable: {}\n", @typeName(Foo));
-    std.debug.warn("anonymous: {}\n", @typeName(struct.{}));
+    std.debug.warn("anonymous: {}\n", @typeName(struct {}));
     std.debug.warn("function: {}\n", @typeName(List(i32)));
 }
 
 fn List(comptime T: type) type {
-    return struct.{
+    return struct {
         x: T,
     };
 }
@@ -2057,7 +2057,7 @@ const assert = @import("std").debug.assert;
 const mem = @import("std").mem;
 
 // Declare an enum.
-const Type = enum.{
+const Type = enum {
     Ok,
     NotOk,
 };
@@ -2067,7 +2067,7 @@ const c = Type.Ok;
 
 // If you want access to the ordinal value of an enum, you
 // can specify the tag type.
-const Value = enum(u2).{
+const Value = enum(u2) {
     Zero,
     One,
     Two,
@@ -2082,7 +2082,7 @@ test "enum ordinal value" {
 }
 
 // You can override the ordinal value for an enum.
-const Value2 = enum(u32).{
+const Value2 = enum(u32) {
     Hundred = 100,
     Thousand = 1000,
     Million = 1000000,
@@ -2096,7 +2096,7 @@ test "set enum ordinal value" {
 // Enums can have methods, the same as structs and unions.
 // Enum methods are not special, they are only namespaced
 // functions that you can call with dot syntax.
-const Suit = enum.{
+const Suit = enum {
     Clubs,
     Spades,
     Diamonds,
@@ -2112,7 +2112,7 @@ test "enum method" {
 }
 
 // An enum variant of different types can be switched upon.
-const Foo = enum.{
+const Foo = enum {
     String,
     Number,
     None,
@@ -2128,7 +2128,7 @@ test "enum variant switch" {
 }
 
 // @TagType can be used to access the integer tag type of an enum.
-const Small = enum.{
+const Small = enum {
     One,
     Two,
     Three,
@@ -2158,14 +2158,14 @@ test "@tagName" {
       By default, enums are not guaranteed to be compatible with the C ABI:
       </p>
       {#code_begin|obj_err|parameter of type 'Foo' not allowed in function with calling convention 'ccc'#}
-const Foo = enum.{ A, B, C };
+const Foo = enum { A, B, C };
 export fn entry(foo: Foo) void { }
       {#code_end#}
       <p>
       For a C-ABI-compatible enum, use {#syntax#}extern enum{#endsyntax#}:
       </p>
       {#code_begin|obj#}
-const Foo = extern enum.{ A, B, C };
+const Foo = extern enum { A, B, C };
 export fn entry(foo: Foo) void { }
       {#code_end#}
       {#header_close#}
@@ -2177,7 +2177,7 @@ export fn entry(foo: Foo) void { }
 const std = @import("std");
 
 test "packed enum" {
-    const Number = packed enum(u8).{
+    const Number = packed enum(u8) {
         One,
         Two,
         Three,
@@ -2194,30 +2194,30 @@ const assert = @import("std").debug.assert;
 const mem = @import("std").mem;
 
 // A union has only 1 active field at a time.
-const Payload = union.{
+const Payload = union {
     Int: i64,
     Float: f64,
     Bool: bool,
 };
 test "simple union" {
-    var payload = Payload.{.Int = 1234};
+    var payload = Payload {.Int = 1234};
     // payload.Float = 12.34; // ERROR! field not active
     assert(payload.Int == 1234);
     // You can activate another field by assigning the entire union.
-    payload = Payload.{.Float = 12.34};
+    payload = Payload {.Float = 12.34};
     assert(payload.Float == 12.34);
 }
 
 // Unions can be given an enum tag type:
-const ComplexTypeTag = enum.{ Ok, NotOk }; 
-const ComplexType = union(ComplexTypeTag).{
+const ComplexTypeTag = enum { Ok, NotOk }; 
+const ComplexType = union(ComplexTypeTag) {
     Ok: u8,
     NotOk: void,
 };
 
 // Declare a specific instance of the union variant.
 test "declare union value" {
-    const c = ComplexType.{ .Ok = 0 };
+    const c = ComplexType { .Ok = 0 };
     assert(ComplexTypeTag(c) == ComplexTypeTag.Ok);
 }
 
@@ -2227,7 +2227,7 @@ test "@TagType" {
 }
 
 // Unions can be made to infer the enum tag type.
-const Foo = union(enum).{
+const Foo = union(enum) {
     String: []const u8,
     Number: u64,
 
@@ -2235,7 +2235,7 @@ const Foo = union(enum).{
     None,
 };
 test "union variant switch" {
-    const p = Foo.{ .Number = 54 };
+    const p = Foo { .Number = 54 };
     const what_is_it = switch (p) {
         // Capture by reference
         Foo.String => |*x| blk: {
@@ -2257,7 +2257,7 @@ test "union variant switch" {
 
 // Unions can have methods just like structs and enums:
 
-const Variant = union(enum).{
+const Variant = union(enum) {
     Int: i32,
     Bool: bool,
 
@@ -2270,15 +2270,15 @@ const Variant = union(enum).{
 };
 
 test "union method" {
-    var v1 = Variant.{ .Int = 1 };
-    var v2 = Variant.{ .Bool = false };
+    var v1 = Variant { .Int = 1 };
+    var v2 = Variant { .Bool = false };
 
     assert(v1.truthy());
     assert(!v2.truthy());
 }
 
 
-const Small = union.{
+const Small = union {
     A: i32,
     B: bool,
     C: u8,
@@ -2296,7 +2296,7 @@ test "@memberName" {
 
 // @tagName gives a []const u8 representation of an enum value,
 // but only if the union has an enum tag type.
-const Small2 = union(enum).{
+const Small2 = union(enum) {
     A: i32,
     B: bool,
     C: u8,
@@ -2390,13 +2390,13 @@ test "switch simple" {
 }
 
 test "switch enum" {
-    const Item = union(enum).{
+    const Item = union(enum) {
         A: u32,
-        C: struct.{ x: u8, y: u8 },
+        C: struct { x: u8, y: u8 },
         D,
     };
 
-    var a = Item.{ .A = 3 };
+    var a = Item { .A = 3 };
 
     // Switching on more complex enums is allowed.
     const b = switch (a) {
@@ -2631,7 +2631,7 @@ test "while error union capture" {
 
 var numbers_left: u32 = undefined;
 
-fn eventuallyErrorSequence() error!u32 {
+fn eventuallyErrorSequence() anyerror!u32 {
     return if (numbers_left == 0) error.ReachedZero else blk: {
         numbers_left -= 1;
         break :blk numbers_left;
@@ -2685,7 +2685,7 @@ fn typeNameLength(comptime T: type) usize {
 const assert = @import("std").debug.assert;
 
 test "for basics" {
-    const items = []i32.{ 4, 5, 3, 4, 0 };
+    const items = []i32 { 4, 5, 3, 4, 0 };
     var sum: i32 = 0;
 
     // For loops iterate over slices and arrays.
@@ -2715,7 +2715,7 @@ test "for basics" {
 }
 
 test "for reference" {
-    var items = []i32.{ 3, 4, 2 };
+    var items = []i32 { 3, 4, 2 };
 
     // Iterate over the slice by reference by
     // specifying that the capture value is a pointer.
@@ -2730,7 +2730,7 @@ test "for reference" {
 
 test "for else" {
     // For allows an else attached to it, the same as a while loop.
-    var items = []?i32.{ 3, 4, null, 5 };
+    var items = []?i32 { 3, 4, null, 5 };
 
     // For loops can also be used as expressions.
     var sum: i32 = 0;
@@ -2755,8 +2755,8 @@ const assert = std.debug.assert;
 
 test "nested break" {
     var count: usize = 0;
-    outer: for ([]i32.{ 1, 2, 3, 4, 5 }) |_| {
-        for ([]i32.{ 1, 2, 3, 4, 5 }) |_| {
+    outer: for ([]i32{ 1, 2, 3, 4, 5 }) |_| {
+        for ([]i32{ 1, 2, 3, 4, 5 }) |_| {
             count += 1;
             break :outer;
         }
@@ -2766,8 +2766,8 @@ test "nested break" {
 
 test "nested continue" {
     var count: usize = 0;
-    outer: for ([]i32.{ 1, 2, 3, 4, 5, 6, 7, 8 }) |_| {
-        for ([]i32.{ 1, 2, 3, 4, 5 }) |_| {
+    outer: for ([]i32{ 1, 2, 3, 4, 5, 6, 7, 8 }) |_| {
+        for ([]i32{ 1, 2, 3, 4, 5 }) |_| {
             count += 1;
             continue :outer;
         }
@@ -2789,7 +2789,7 @@ test "nested continue" {
 const assert = @import("std").debug.assert;
 
 test "inline for loop" {
-    const nums = []i32.{2, 4, 6};
+    const nums = []i32{2, 4, 6};
     var sum: usize = 0;
     inline for (nums) |i| {
         const T = switch (i) {
@@ -2824,7 +2824,7 @@ fn typeNameLength(comptime T: type) usize {
 // If expressions have three uses, corresponding to the three types:
 // * bool
 // * ?T
-// * error!T
+// * anyerror!T
 
 const assert = @import("std").debug.assert;
 
@@ -2889,14 +2889,14 @@ test "if error union" {
     // If expressions test for errors.
     // Note the |err| capture on the else.
 
-    const a: error!u32 = 0;
+    const a: anyerror!u32 = 0;
     if (a) |value| {
         assert(value == 0);
     } else |err| {
         unreachable;
     }
 
-    const b: error!u32 = error.BadValue;
+    const b: anyerror!u32 = error.BadValue;
     if (b) |value| {
         unreachable;
     } else |err| {
@@ -2914,7 +2914,7 @@ test "if error union" {
     }
 
     // Access the value by reference using a pointer capture.
-    var c: error!u32 = 3;
+    var c: anyerror!u32 = 3;
     if (c) |*value| {
         value.* = 9;
     } else |err| {
@@ -3091,7 +3091,7 @@ test "foo" {
     assert(value == 1234);
 }
 
-fn bar() error!u32 {
+fn bar() anyerror!u32 {
     return 1234;
 }
 
@@ -3166,7 +3166,7 @@ fn foo() void { }
       In Zig, structs, unions, and enums with payloads can be passed directly to a function:
       </p>
       {#code_begin|test#}
-const Point = struct.{
+const Point = struct {
     x: i32,
     y: i32,
 };
@@ -3178,7 +3178,7 @@ fn foo(point: Point) i32 {
 const assert = @import("std").debug.assert;
 
 test "pass aggregate type by non-copy value to function" {
-    assert(foo(Point.{ .x = 1, .y = 2 }) == 3);
+    assert(foo(Point{ .x = 1, .y = 2 }) == 3);
 }
       {#code_end#}
       <p>
@@ -3218,13 +3218,13 @@ test "fn reflection" {
       {#code_begin|test#}
 const std = @import("std");
 
-const FileOpenError = error.{
+const FileOpenError = error {
     AccessDenied,
     OutOfMemory,
     FileNotFound,
 };
 
-const AllocationError = error.{
+const AllocationError = error {
     OutOfMemory,
 };
 
@@ -3241,13 +3241,13 @@ fn foo(err: AllocationError) FileOpenError {
       But you cannot implicitly cast an error from a superset to a subset:
       </p>
       {#code_begin|test_err|not a member of destination error set#}
-const FileOpenError = error.{
+const FileOpenError = error {
     AccessDenied,
     OutOfMemory,
     FileNotFound,
 };
 
-const AllocationError = error.{
+const AllocationError = error {
     OutOfMemory,
 };
 
@@ -3267,13 +3267,13 @@ const err = error.FileNotFound;
       {#code_end#}
       <p>This is equivalent to:</p>
       {#code_begin|syntax#}
-const err = (error.{FileNotFound}).FileNotFound;
+const err = (error {FileNotFound}).FileNotFound;
       {#code_end#}
       <p>
       This becomes useful when using {#link|Inferred Error Sets#}.
       </p>
       {#header_open|The Global Error Set#}
-      <p>{#syntax#}error.{#endsyntax#} refers to the global error set.
+      <p>{#syntax#}error{#endsyntax#} refers to the global error set.
       This is the error set that contains all errors in the entire compilation unit.
       It is a superset of all other error sets and a subset of none of them.
       </p>
@@ -3349,7 +3349,7 @@ test "parse u64" {
       <p>
       Within the function definition, you can see some return statements that return
       an error, and at the bottom a return statement that returns a {#syntax#}u64{#endsyntax#}.
-          Both types {#link|implicitly cast|Implicit Casts#} to {#syntax#}error!u64{#endsyntax#}.
+          Both types {#link|implicitly cast|Implicit Casts#} to {#syntax#}anyerror!u64{#endsyntax#}.
       </p>
       <p>
       What it looks like to use this function varies depending on what you're
@@ -3486,7 +3486,7 @@ fn createFoo(param: i32) !Foo {
 const assert = @import("std").debug.assert;
 
 test "error union" {
-    var foo: error!i32 = undefined;
+    var foo: anyerror!i32 = undefined;
 
     // Implicitly cast from child type of an error union:
     foo = 1234;
@@ -3498,7 +3498,7 @@ test "error union" {
     comptime assert(@typeOf(foo).Payload == i32);
 
     // Use compile-time reflection to access the error set type of an error union:
-    comptime assert(@typeOf(foo).ErrorSet == error);
+    comptime assert(@typeOf(foo).ErrorSet == anyerror);
 }
       {#code_end#}
       {#header_open|Merging Error Sets#}
@@ -3515,13 +3515,13 @@ test "error union" {
       files.
       </p>
       {#code_begin|test#}
-const A = error.{
+const A = error{
     NotDir,
 
     /// A doc comment
     PathNotFound,
 };
-const B = error.{
+const B = error{
     OutOfMemory,
 
     /// B doc comment
@@ -3563,7 +3563,7 @@ pub fn add_explicit(comptime T: type, a: T, b: T) Error!T {
     return if (@addWithOverflow(T, a, b, &answer)) error.Overflow else answer;
 }
 
-const Error = error.{
+const Error = error {
     Overflow,
 };
 
@@ -3722,11 +3722,11 @@ fn bang2() void {
         <li>when returning errors</li>
       </ul>
       <p>
-      For the case when no errors are returned, the cost is a single memory write operation, only in the first non-failable function in the call graph that calls a failable function, i.e. when a function returning {#syntax#}void{#endsyntax#} calls a function returning {#syntax#}error.{#endsyntax#}.
+      For the case when no errors are returned, the cost is a single memory write operation, only in the first non-failable function in the call graph that calls a failable function, i.e. when a function returning {#syntax#}void{#endsyntax#} calls a function returning {#syntax#}error{#endsyntax#}.
       This is to initialize this struct in the stack memory:
       </p>
       {#code_begin|syntax#}
-pub const StackTrace = struct.{
+pub const StackTrace = struct {
     index: usize,
     instruction_addresses: [N]usize,
 };
@@ -3756,7 +3756,7 @@ fn __zig_return_error(stack_trace: *StackTrace) void {
       <p>
       As for code size cost, 1 function call before a return statement is no big deal. Even so,
       I have <a href="https://github.com/ziglang/zig/issues/690">a plan</a> to make the call to
-      {#syntax#}__zig_return_error.{#endsyntax#} a tail call, which brings the code size cost down to actually zero. What is a return statement in code without error return tracing can become a jump instruction in code with error return tracing.
+      {#syntax#}__zig_return_error{#endsyntax#} a tail call, which brings the code size cost down to actually zero. What is a return statement in code without error return tracing can become a jump instruction in code with error return tracing.
       </p>
       {#header_close#}
       {#header_close#}
@@ -3977,7 +3977,7 @@ const assert = std.debug.assert;
 const mem = std.mem;
 
 test "cast *[1][*]const u8 to [*]const ?[*]const u8" {
-    const window_name = [1][*]const u8.{c"window name"};
+    const window_name = [1][*]const u8{c"window name"};
     const x: [*]const ?[*]const u8 = &window_name;
     assert(mem.eql(u8, std.cstr.toSliceConst(x[0].?), "window name"));
 }
@@ -4160,12 +4160,12 @@ test "peer type resolution: [0]u8 and []const u8" {
 }
 fn peerTypeEmptyArrayAndSlice(a: bool, slice: []const u8) []const u8 {
     if (a) {
-        return []const u8.{};
+        return []const u8{};
     }
 
     return slice[0..1];
 }
-test "peer type resolution: [0]u8, []const u8, and error![]u8" {
+test "peer type resolution: [0]u8, []const u8, and anyerror![]u8" {
     {
         var data = "hi";
         const slice = data[0..];
@@ -4179,9 +4179,9 @@ test "peer type resolution: [0]u8, []const u8, and error![]u8" {
         assert((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
     }
 }
-fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) error![]u8 {
+fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) anyerror![]u8 {
     if (a) {
-        return []u8.{};
+        return []u8{};
     }
 
     return slice[0..1];
@@ -4404,15 +4404,15 @@ fn max(a: bool, b: bool) bool {
       {#code_begin|test|comptime_vars#}
 const assert = @import("std").debug.assert;
 
-const CmdFn = struct.{
+const CmdFn = struct {
     name: []const u8,
     func: fn(i32) i32,
 };
 
-const cmd_fns = []CmdFn.{
-    CmdFn.{.name = "one", .func = one},
-    CmdFn.{.name = "two", .func = two},
-    CmdFn.{.name = "three", .func = three},
+const cmd_fns = []CmdFn{
+    CmdFn {.name = "one", .func = one},
+    CmdFn {.name = "two", .func = two},
+    CmdFn {.name = "three", .func = three},
 };
 fn one(value: i32) i32 { return value + 1; }
 fn two(value: i32) i32 { return value + 2; }
@@ -4670,7 +4670,7 @@ test "variable values" {
       </p>
       {#code_begin|syntax#}
 fn List(comptime T: type) type {
-    return struct.{
+    return struct {
         items: []T,
         len: usize,
     };
@@ -4686,7 +4686,7 @@ fn List(comptime T: type) type {
       a name, we assign it to a constant:
       </p>
       {#code_begin|syntax#}
-const Node = struct.{
+const Node = struct {
     next: *Node,
     name: []u8,
 };
@@ -4719,8 +4719,8 @@ pub fn main() void {
 
       {#code_begin|syntax#}
 /// Calls print and then flushes the buffer.
-pub fn printf(self: *OutStream, comptime format: []const u8, args: ...) error!void {
-    const State = enum.{
+pub fn printf(self: *OutStream, comptime format: []const u8, args: ...) anyerror!void {
+    const State = enum {
         Start,
         OpenBrace,
         CloseBrace,
@@ -4965,7 +4965,7 @@ async fn testAsyncSeq() void {
     suspend;
     seq('d');
 }
-var points = []u8.{0} ** "abcdefg".len;
+var points = []u8{0} ** "abcdefg".len;
 var index: usize = 0;
 
 fn seq(c: u8) void {
@@ -5103,7 +5103,7 @@ async fn another() i32 {
     return 1234;
 }
 
-var seq_points = []u8.{0} ** "abcdefghi".len;
+var seq_points = []u8{0} ** "abcdefghi".len;
 var seq_index: usize = 0;
 
 fn seq(c: u8) void {
@@ -5786,7 +5786,7 @@ fn add(a: i32, b: i32) i32 { return a + b; }
       {#header_close#}
 
       {#header_open|@intToError#}
-      <pre>{#syntax#}@intToError(value: @IntType(false, @sizeOf(error) * 8)) error.{#endsyntax#}</pre>
+      <pre>{#syntax#}@intToError(value: @IntType(false, @sizeOf(anyerror) * 8)) anyerror{#endsyntax#}</pre>
       <p>
       Converts from the integer representation of an error into the global error set type.
       </p>
@@ -6117,7 +6117,7 @@ test "foo" {
       Sets the floating point mode of the current scope. Possible values are:
       </p>
       {#code_begin|syntax#}
-pub const FloatMode = enum.{
+pub const FloatMode = enum {
     Strict,
     Optimized,
 };
@@ -6252,13 +6252,13 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 test "@This()" {
-    var items = []i32.{ 1, 2, 3, 4 };
-    const list = List(i32).{ .items = items[0..] };
+    var items = []i32{ 1, 2, 3, 4 };
+    const list = List(i32){ .items = items[0..] };
     assert(list.length() == 4);
 }
 
 fn List(comptime T: type) type {
-    return struct.{
+    return struct {
         const Self = @This();
 
         items: []T,
@@ -6306,7 +6306,7 @@ const b: u8 = @truncate(u8, a);
       Returns which kind of type something is. Possible values:
       </p>
       {#code_begin|syntax#}
-pub const TypeId = enum.{
+pub const TypeId = enum {
     Type,
     Void,
     Bool,
@@ -6340,7 +6340,7 @@ pub const TypeId = enum.{
       Returns information on the type. Returns a value of the following union:
       </p>
       {#code_begin|syntax#}
-pub const TypeInfo = union(TypeId).{
+pub const TypeInfo = union(TypeId) {
     Type: void,
     Void: void,
     Bool: void,
@@ -6367,96 +6367,96 @@ pub const TypeInfo = union(TypeId).{
     Promise: Promise,
 
 
-    pub const Int = struct.{
+    pub const Int = struct {
         is_signed: bool,
         bits: u8,
     };
 
-    pub const Float = struct.{
+    pub const Float = struct {
         bits: u8,
     };
 
-    pub const Pointer = struct.{
+    pub const Pointer = struct {
         size: Size,
         is_const: bool,
         is_volatile: bool,
         alignment: u32,
         child: type,
 
-        pub const Size = enum.{
+        pub const Size = enum {
             One,
             Many,
             Slice,
         };
     };
 
-    pub const Array = struct.{
+    pub const Array = struct {
         len: usize,
         child: type,
     };
 
-    pub const ContainerLayout = enum.{
+    pub const ContainerLayout = enum {
         Auto,
         Extern,
         Packed,
     };
 
-    pub const StructField = struct.{
+    pub const StructField = struct {
         name: []const u8,
         offset: ?usize,
         field_type: type,
     };
 
-    pub const Struct = struct.{
+    pub const Struct = struct {
         layout: ContainerLayout,
         fields: []StructField,
         defs: []Definition,
     };
 
-    pub const Optional = struct.{
+    pub const Optional = struct {
         child: type,
     };
 
-    pub const ErrorUnion = struct.{
+    pub const ErrorUnion = struct {
         error_set: type,
         payload: type,
     };
 
-    pub const Error = struct.{
+    pub const Error = struct {
         name: []const u8,
         value: usize,
     };
 
-    pub const ErrorSet = struct.{
+    pub const ErrorSet = struct {
         errors: []Error,
     };
 
-    pub const EnumField = struct.{
+    pub const EnumField = struct {
         name: []const u8,
         value: usize,
     };
 
-    pub const Enum = struct.{
+    pub const Enum = struct {
         layout: ContainerLayout,
         tag_type: type,
         fields: []EnumField,
         defs: []Definition,
     };
 
-    pub const UnionField = struct.{
+    pub const UnionField = struct {
         name: []const u8,
         enum_field: ?EnumField,
         field_type: type,
     };
 
-    pub const Union = struct.{
+    pub const Union = struct {
         layout: ContainerLayout,
         tag_type: ?type,
         fields: []UnionField,
         defs: []Definition,
     };
 
-    pub const CallingConvention = enum.{
+    pub const CallingConvention = enum {
         Unspecified,
         C,
         Cold,
@@ -6465,13 +6465,13 @@ pub const TypeInfo = union(TypeId).{
         Async,
     };
 
-    pub const FnArg = struct.{
+    pub const FnArg = struct {
         is_generic: bool,
         is_noalias: bool,
         arg_type: ?type,
     };
 
-    pub const Fn = struct.{
+    pub const Fn = struct {
         calling_convention: CallingConvention,
         is_generic: bool,
         is_var_args: bool,
@@ -6480,21 +6480,21 @@ pub const TypeInfo = union(TypeId).{
         args: []FnArg,
     };
 
-    pub const Promise = struct.{
+    pub const Promise = struct {
         child: ?type,
     };
 
-    pub const Definition = struct.{
+    pub const Definition = struct {
         name: []const u8,
         is_pub: bool,
         data: Data,
 
-        pub const Data = union(enum).{
+        pub const Data = union(enum) {
             Type: type,
             Var: type,
             Fn: FnDef,
 
-            pub const FnDef = struct.{
+            pub const FnDef = struct {
                 fn_type: type,
                 inline_type: Inline,
                 calling_convention: CallingConvention,
@@ -6505,7 +6505,7 @@ pub const TypeInfo = union(TypeId).{
                 return_type: type,
                 arg_names: [][] const u8,
 
-                pub const Inline = enum.{
+                pub const Inline = enum {
                     Auto,
                     Always,
                     Never,
@@ -6917,7 +6917,7 @@ pub fn main() void {
       <p>At compile-time:</p>
       {#code_begin|test_err|unable to convert#}
 comptime {
-    var bytes = [5]u8.{ 1, 2, 3, 4, 5 };
+    var bytes = [5]u8{ 1, 2, 3, 4, 5 };
     var slice = @bytesToSlice(u32, bytes);
 }
       {#code_end#}
@@ -6926,7 +6926,7 @@ comptime {
 const std = @import("std");
 
 pub fn main() void {
-    var bytes = [5]u8.{ 1, 2, 3, 4, 5 };
+    var bytes = [5]u8{ 1, 2, 3, 4, 5 };
     var slice = @bytesToSlice(u32, bytes[0..]);
     std.debug.warn("value: {}\n", slice[0]);
 }
@@ -7035,7 +7035,7 @@ pub fn main() void {
       {#header_open|Invalid Enum Cast#}
       <p>At compile-time:</p>
       {#code_begin|test_err|has no tag matching integer value 3#}
-const Foo = enum.{
+const Foo = enum {
     A,
     B,
     C,
@@ -7049,7 +7049,7 @@ comptime {
       {#code_begin|exe_err#}
 const std = @import("std");
 
-const Foo = enum.{
+const Foo = enum {
     A,
     B,
     C,
@@ -7066,11 +7066,11 @@ pub fn main() void {
       {#header_open|Invalid Error Set Cast#}
       <p>At compile-time:</p>
       {#code_begin|test_err|error.B not a member of error set 'Set2'#}
-const Set1 = error.{
+const Set1 = error{
     A,
     B,
 };
-const Set2 = error.{
+const Set2 = error{
     A,
     C,
 };
@@ -7082,11 +7082,11 @@ comptime {
       {#code_begin|exe_err#}
 const std = @import("std");
 
-const Set1 = error.{
+const Set1 = error{
     A,
     B,
 };
-const Set2 = error.{
+const Set2 = error{
     A,
     C,
 };
@@ -7111,7 +7111,7 @@ comptime {
       <p>At runtime:</p>
       {#code_begin|exe_err#}
 pub fn main() !void {
-    var array align(4) = []u32.{ 0x11111111, 0x11111111 };
+    var array align(4) = []u32{ 0x11111111, 0x11111111 };
     const bytes = @sliceToBytes(array[0..]);
     if (foo(bytes) != 0x11111111) return error.Wrong;
 }
@@ -7126,11 +7126,11 @@ fn foo(bytes: []u8) u32 {
       <p>At compile-time:</p>
       {#code_begin|test_err|accessing union field 'float' while field 'int' is set#}
 comptime {
-    var f = Foo.{ .int = 42 };
+    var f = Foo{ .int = 42 };
     f.float = 12.34;
 }
 
-const Foo = union.{
+const Foo = union {
     float: f32,
     int: u32,
 };
@@ -7139,13 +7139,13 @@ const Foo = union.{
       {#code_begin|exe_err#}
 const std = @import("std");
 
-const Foo = union.{
+const Foo = union {
     float: f32,
     int: u32,
 };
 
 pub fn main() void {
-    var f = Foo.{ .int = 42 };
+    var f = Foo{ .int = 42 };
     bar(&f);
 }
 
@@ -7163,18 +7163,18 @@ fn bar(f: *Foo) void {
       {#code_begin|exe#}
 const std = @import("std");
 
-const Foo = union.{
+const Foo = union {
     float: f32,
     int: u32,
 };
 
 pub fn main() void {
-    var f = Foo.{ .int = 42 };
+    var f = Foo{ .int = 42 };
     bar(&f);
 }
 
 fn bar(f: *Foo) void {
-    f.* = Foo.{ .float = 12.34 };
+    f.* = Foo{ .float = 12.34 };
     std.debug.warn("value: {}\n", f.float);
 }
       {#code_end#}
@@ -7185,14 +7185,14 @@ fn bar(f: *Foo) void {
       {#code_begin|exe#}
 const std = @import("std");
 
-const Foo = union.{
+const Foo = union {
     float: f32,
     int: u32,
 };
 
 pub fn main() void {
-    var f = Foo.{ .int = 42 };
-    f = Foo.{ .float = undefined };
+    var f = Foo{ .int = 42 };
+    f = Foo{ .float = undefined };
     bar(&f);
     std.debug.warn("value: {}\n", f.float);
 }
@@ -7371,13 +7371,13 @@ pub fn build(b: *Builder) void {
     const lib = b.addSharedLibrary("mathtest", "mathtest.zig", b.version(1, 0, 0));
 
     const exe = b.addCExecutable("test");
-    exe.addCompileFlags([][]const u8.{"-std=c99"});
+    exe.addCompileFlags([][]const u8{"-std=c99"});
     exe.addSourceFile("test.c");
     exe.linkLibrary(lib);
 
     b.default_step.dependOn(&exe.step);
 
-    const run_cmd = b.addCommand(".", b.env_map, [][]const u8.{exe.getOutputPath()});
+    const run_cmd = b.addCommand(".", b.env_map, [][]const u8{exe.getOutputPath()});
     run_cmd.step.dependOn(&exe.step);
 
     const test_step = b.step("test", "Test the program");
@@ -7437,7 +7437,7 @@ pub fn build(b: *Builder) void {
     const obj = b.addObject("base64", "base64.zig");
 
     const exe = b.addCExecutable("test");
-    exe.addCompileFlags([][]const u8.{
+    exe.addCompileFlags([][]const u8 {
         "-std=c99",
     });
     exe.addSourceFile("test.c");
@@ -7665,7 +7665,7 @@ const const_name = 42;
 const primitive_type_alias = f32;
 const string_alias = []u8;
 
-const StructName = struct.{};
+const StructName = struct {};
 const StructAlias = StructName;
 
 fn functionName(param_name: TypeName) void {
@@ -7681,7 +7681,7 @@ fn ListTemplateFunction(comptime ChildType: type, comptime fixed_size: usize) ty
 }
 
 fn ShortList(comptime T: type, comptime n: usize) type {
-    return struct.{
+    return struct {
         field_name: [n]T,
         fn methodName() void {}
     };
@@ -7693,7 +7693,7 @@ const xml_document =
     \\<document>
     \\</document>
 ;
-const XmlParser = struct.{};
+const XmlParser = struct {};
 
 // The initials BE (Big Endian) are just another word in Zig identifier names.
 fn readU32Be() u32 {}
@@ -7852,7 +7852,7 @@ ArrayAccessExpression = "[" Expression "]"
 
 SliceExpression = "[" Expression ".." option(Expression) "]"
 
-ContainerInitExpression = "." "{" ContainerInitBody "}"
+ContainerInitExpression = "{" ContainerInitBody "}"
 
 ContainerInitBody = list(StructLiteralField, ",") | list(Expression, ",")
 
@@ -7870,10 +7870,10 @@ GroupedExpression = "(" Expression ")"
 
 KeywordLiteral = "true" | "false" | "null" | "undefined" | "error" | "unreachable" | "suspend"
 
-ErrorSetDecl = "error" "." "{" list(Symbol, ",") "}"
+ErrorSetDecl = "error" "{" list(Symbol, ",") "}"
 
 ContainerDecl = option("extern" | "packed")
-  ("struct" "." option(GroupedExpression) | "union" "." option("enum" option(GroupedExpression) | GroupedExpression) | ("enum" "." option(GroupedExpression)))
+  ("struct" option(GroupedExpression) | "union" option("enum" option(GroupedExpression) | GroupedExpression) | ("enum" option(GroupedExpression)))
   "{" many(ContainerMember) "}"</code></pre>
       {#header_close#}
       {#header_open|Zen#}

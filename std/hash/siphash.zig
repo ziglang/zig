@@ -24,7 +24,7 @@ fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize)
     debug.assert(T == u64 or T == u128);
     debug.assert(c_rounds > 0 and d_rounds > 0);
 
-    return struct.{
+    return struct {
         const Self = @This();
         const digest_size = 64;
         const block_size = 64;
@@ -45,7 +45,7 @@ fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize)
             const k0 = mem.readInt(key[0..8], u64, Endian.Little);
             const k1 = mem.readInt(key[8..16], u64, Endian.Little);
 
-            var d = Self.{
+            var d = Self{
                 .v0 = k0 ^ 0x736f6d6570736575,
                 .v1 = k1 ^ 0x646f72616e646f6d,
                 .v2 = k0 ^ 0x6c7967656e657261,
@@ -162,7 +162,7 @@ fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize)
 const test_key = "\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f";
 
 test "siphash64-2-4 sanity" {
-    const vectors = [][]const u8.{
+    const vectors = [][]const u8{
         "\x31\x0e\x0e\xdd\x47\xdb\x6f\x72", // ""
         "\xfd\x67\xdc\x93\xc5\x39\xf8\x74", // "\x00"
         "\x5a\x4f\xa9\xd9\x09\x80\x6c\x0d", // "\x00\x01" ... etc
@@ -241,7 +241,7 @@ test "siphash64-2-4 sanity" {
 }
 
 test "siphash128-2-4 sanity" {
-    const vectors = [][]const u8.{
+    const vectors = [][]const u8{
         "\xa3\x81\x7f\x04\xba\x25\xa8\xe6\x6d\xf6\x72\x14\xc7\x55\x02\x93",
         "\xda\x87\xc1\xd8\x6b\x99\xaf\x44\x34\x76\x59\x11\x9b\x22\xfc\x45",
         "\x81\x77\x22\x8d\xa4\xa4\x5d\xc7\xfc\xa3\x8b\xde\xf6\x0a\xff\xe4",

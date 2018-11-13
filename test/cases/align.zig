@@ -24,7 +24,7 @@ test "function alignment" {
     noop4();
 }
 
-var baz: packed struct.{
+var baz: packed struct {
     a: u32,
     b: u32,
 } = undefined;
@@ -33,7 +33,7 @@ test "packed struct alignment" {
     assert(@typeOf(&baz.b) == *align(1) u32);
 }
 
-const blah: packed struct.{
+const blah: packed struct {
     a: u3,
     b: u3,
     c: u2,
@@ -70,7 +70,7 @@ test "specifying alignment allows pointer cast" {
     testBytesAlign(0x33);
 }
 fn testBytesAlign(b: u8) void {
-    var bytes align(4) = []u8.{
+    var bytes align(4) = []u8{
         b,
         b,
         b,
@@ -84,7 +84,7 @@ test "specifying alignment allows slice cast" {
     testBytesAlignSlice(0x33);
 }
 fn testBytesAlignSlice(b: u8) void {
-    var bytes align(4) = []u8.{
+    var bytes align(4) = []u8{
         b,
         b,
         b,
@@ -107,7 +107,7 @@ fn expects4(x: *align(4) u32) void {
 }
 
 test "@alignCast slices" {
-    var array align(4) = []u32.{
+    var array align(4) = []u32{
         1,
         1,
     };
@@ -169,21 +169,21 @@ test "@ptrCast preserves alignment of bigger source" {
 
 test "runtime known array index has best alignment possible" {
     // take full advantage of over-alignment
-    var array align(4) = []u8.{ 1, 2, 3, 4 };
+    var array align(4) = []u8{ 1, 2, 3, 4 };
     assert(@typeOf(&array[0]) == *align(4) u8);
     assert(@typeOf(&array[1]) == *u8);
     assert(@typeOf(&array[2]) == *align(2) u8);
     assert(@typeOf(&array[3]) == *u8);
 
     // because align is too small but we still figure out to use 2
-    var bigger align(2) = []u64.{ 1, 2, 3, 4 };
+    var bigger align(2) = []u64{ 1, 2, 3, 4 };
     assert(@typeOf(&bigger[0]) == *align(2) u64);
     assert(@typeOf(&bigger[1]) == *align(2) u64);
     assert(@typeOf(&bigger[2]) == *align(2) u64);
     assert(@typeOf(&bigger[3]) == *align(2) u64);
 
     // because pointer is align 2 and u32 align % 2 == 0 we can assume align 2
-    var smaller align(2) = []u32.{ 1, 2, 3, 4 };
+    var smaller align(2) = []u32{ 1, 2, 3, 4 };
     comptime assert(@typeOf(smaller[0..]) == []align(2) u32);
     comptime assert(@typeOf(smaller[0..].ptr) == [*]align(2) u32);
     testIndex(smaller[0..].ptr, 0, *align(2) u32);
@@ -214,7 +214,7 @@ fn fnWithAlignedStack() i32 {
 }
 
 test "alignment of structs" {
-    assert(@alignOf(struct.{
+    assert(@alignOf(struct {
         a: i32,
         b: *i32,
     }) == @alignOf(usize));

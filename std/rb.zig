@@ -2,14 +2,14 @@ const std = @import("index.zig");
 const assert = std.debug.assert;
 const mem = std.mem; // For mem.Compare
 
-const Color = enum(u1).{
+const Color = enum(u1) {
     Black,
     Red,
 };
 const Red = Color.Red;
 const Black = Color.Black;
 
-const ReplaceError = error.{NotEqual};
+const ReplaceError = error{NotEqual};
 
 /// Insert this into your struct that you want to add to a red-black tree.
 /// Do not use a pointer. Turn the *rb.Node results of the functions in rb
@@ -22,7 +22,7 @@ const ReplaceError = error.{NotEqual};
 /// fn number(node: *rb.Node) Number {
 ///     return @fieldParentPtr(Number, "node", node);
 /// }
-pub const Node = struct.{
+pub const Node = struct {
     left: ?*Node,
     right: ?*Node,
 
@@ -128,7 +128,7 @@ pub const Node = struct.{
     }
 };
 
-pub const Tree = struct.{
+pub const Tree = struct {
     root: ?*Node,
     compareFn: fn (*Node, *Node) mem.Compare,
 
@@ -482,7 +482,7 @@ fn do_lookup(key: *Node, tree: *Tree, pparent: *?*Node, is_left: *bool) ?*Node {
     return null;
 }
 
-const testNumber = struct.{
+const testNumber = struct {
     node: Node,
     value: usize,
 };

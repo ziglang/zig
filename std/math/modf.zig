@@ -9,7 +9,7 @@ const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
 
 fn modf_result(comptime T: type) type {
-    return struct.{
+    return struct {
         fpart: T,
         ipart: T,
     };

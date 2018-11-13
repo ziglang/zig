@@ -9,7 +9,7 @@ const Loop = std.event.Loop;
 /// when buffer is empty, consumers suspend and are resumed by producers
 /// when buffer is full, producers suspend and are resumed by consumers
 pub fn Channel(comptime T: type) type {
-    return struct.{
+    return struct {
         loop: *Loop,
 
         getters: std.atomic.Queue(GetNode),
@@ -26,25 +26,25 @@ pub fn Channel(comptime T: type) type {
         buffer_len: usize,
 
         const SelfChannel = @This();
-        const GetNode = struct.{
+        const GetNode = struct {
             tick_node: *Loop.NextTickNode,
             data: Data,
 
-            const Data = union(enum).{
+            const Data = union(enum) {
                 Normal: Normal,
                 OrNull: OrNull,
             };
 
-            const Normal = struct.{
+            const Normal = struct {
                 ptr: *T,
             };
 
-            const OrNull = struct.{
+            const OrNull = struct {
                 ptr: *?T,
                 or_null: *std.atomic.Queue(*std.atomic.Queue(GetNode).Node).Node,
             };
         };
-        const PutNode = struct.{
+        const PutNode = struct {
             data: T,
             tick_node: *Loop.NextTickNode,
         };
@@ -54,7 +54,7 @@ pub fn Channel(comptime T: type) type {
             const buffer_nodes = try loop.allocator.alloc(T, capacity);
             errdefer loop.allocator.free(buffer_nodes);
 
-            const self = try loop.allocator.create(SelfChannel.{
+            const self = try loop.allocator.create(SelfChannel{
                 .loop = loop,
                 .buffer_len = 0,
                 .buffer_nodes = buffer_nodes,
@@ -93,7 +93,7 @@ pub fn Channel(comptime T: type) type {
             }
 
             var my_tick_node = Loop.NextTickNode.init(@handle());
-            var queue_node = std.atomic.Queue(PutNode).Node.init(PutNode.{
+            var queue_node = std.atomic.Queue(PutNode).Node.init(PutNode{
                 .tick_node = &my_tick_node,
                 .data = data,
             });
@@ -129,10 +129,10 @@ pub fn Channel(comptime T: type) type {
             // so we can get rid of this extra result copy
             var result: T = undefined;
             var my_tick_node = Loop.NextTickNode.init(@handle());
-            var queue_node = std.atomic.Queue(GetNode).Node.init(GetNode.{
+            var queue_node = std.atomic.Queue(GetNode).Node.init(GetNode{
                 .tick_node = &my_tick_node,
-                .data = GetNode.Data.{
-                    .Normal = GetNode.Normal.{ .ptr = &result },
+                .data = GetNode.Data{
+                    .Normal = GetNode.Normal{ .ptr = &result },
                 },
             });
 
@@ -181,10 +181,10 @@ pub fn Channel(comptime T: type) type {
             var result: ?T = null;
             var my_tick_node = Loop.NextTickNode.init(@handle());
             var or_null_node = std.atomic.Queue(*std.atomic.Queue(GetNode).Node).Node.init(undefined);
-            var queue_node = std.atomic.Queue(GetNode).Node.init(GetNode.{
+            var queue_node = std.atomic.Queue(GetNode).Node.init(GetNode{
                 .tick_node = &my_tick_node,
-                .data = GetNode.Data.{
-                    .OrNull = GetNode.OrNull.{
+                .data = GetNode.Data{
+                    .OrNull = GetNode.OrNull{
                         .ptr = &result,
                         .or_null = &or_null_node,
                     },

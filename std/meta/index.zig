@@ -42,27 +42,27 @@ pub fn tagName(v: var) []const u8 {
 }
 
 test "std.meta.tagName" {
-    const E1 = enum.{
+    const E1 = enum {
         A,
         B,
     };
-    const E2 = enum(u8).{
+    const E2 = enum(u8) {
         C = 33,
         D,
     };
-    const U1 = union(enum).{
+    const U1 = union(enum) {
         G: u8,
         H: u16,
     };
-    const U2 = union(E2).{
+    const U2 = union(E2) {
         C: u8,
         D: u16,
     };
 
-    var u1g = U1.{ .G = 0 };
-    var u1h = U1.{ .H = 0 };
-    var u2a = U2.{ .C = 0 };
-    var u2b = U2.{ .D = 0 };
+    var u1g = U1{ .G = 0 };
+    var u1h = U1{ .H = 0 };
+    var u2a = U2{ .C = 0 };
+    var u2b = U2{ .D = 0 };
 
     debug.assert(mem.eql(u8, tagName(E1.A), "A"));
     debug.assert(mem.eql(u8, tagName(E1.B), "B"));
@@ -131,25 +131,25 @@ pub fn containerLayout(comptime T: type) TypeInfo.ContainerLayout {
 }
 
 test "std.meta.containerLayout" {
-    const E1 = enum.{
+    const E1 = enum {
         A,
     };
-    const E2 = packed enum.{
+    const E2 = packed enum {
         A,
     };
-    const E3 = extern enum.{
+    const E3 = extern enum {
         A,
     };
-    const S1 = struct.{};
-    const S2 = packed struct.{};
-    const S3 = extern struct.{};
-    const U1 = union.{
+    const S1 = struct {};
+    const S2 = packed struct {};
+    const S3 = extern struct {};
+    const U1 = union {
         a: u8,
     };
-    const U2 = packed union.{
+    const U2 = packed union {
         a: u8,
     };
-    const U3 = extern union.{
+    const U3 = extern union {
         a: u8,
     };
 
@@ -174,21 +174,21 @@ pub fn definitions(comptime T: type) []TypeInfo.Definition {
 }
 
 test "std.meta.definitions" {
-    const E1 = enum.{
+    const E1 = enum {
         A,
 
         fn a() void {}
     };
-    const S1 = struct.{
+    const S1 = struct {
         fn a() void {}
     };
-    const U1 = union.{
+    const U1 = union {
         a: u8,
 
         fn a() void {}
     };
 
-    const defs = comptime [][]TypeInfo.Definition.{
+    const defs = comptime [][]TypeInfo.Definition{
         definitions(E1),
         definitions(S1),
         definitions(U1),
@@ -210,21 +210,21 @@ pub fn definitionInfo(comptime T: type, comptime def_name: []const u8) TypeInfo.
 }
 
 test "std.meta.definitionInfo" {
-    const E1 = enum.{
+    const E1 = enum {
         A,
 
         fn a() void {}
     };
-    const S1 = struct.{
+    const S1 = struct {
         fn a() void {}
     };
-    const U1 = union.{
+    const U1 = union {
         a: u8,
 
         fn a() void {}
     };
 
-    const infos = comptime []TypeInfo.Definition.{
+    const infos = comptime []TypeInfo.Definition{
         definitionInfo(E1, "a"),
         definitionInfo(S1, "a"),
         definitionInfo(U1, "a"),
@@ -253,14 +253,14 @@ pub fn fields(comptime T: type) switch (@typeInfo(T)) {
 }
 
 test "std.meta.fields" {
-    const E1 = enum.{
+    const E1 = enum {
         A,
     };
-    const E2 = error.{A};
-    const S1 = struct.{
+    const E2 = error{A};
+    const S1 = struct {
         a: u8,
     };
-    const U1 = union.{
+    const U1 = union {
         a: u8,
     };
 
@@ -297,14 +297,14 @@ pub fn fieldInfo(comptime T: type, comptime field_name: []const u8) switch (@typ
 }
 
 test "std.meta.fieldInfo" {
-    const E1 = enum.{
+    const E1 = enum {
         A,
     };
-    const E2 = error.{A};
-    const S1 = struct.{
+    const E2 = error{A};
+    const S1 = struct {
         a: u8,
     };
-    const U1 = union.{
+    const U1 = union {
         a: u8,
     };
 
@@ -330,11 +330,11 @@ pub fn TagType(comptime T: type) type {
 }
 
 test "std.meta.TagType" {
-    const E = enum(u8).{
+    const E = enum(u8) {
         C = 33,
         D,
     };
-    const U = union(E).{
+    const U = union(E) {
         C: u8,
         D: u16,
     };
@@ -350,20 +350,20 @@ pub fn activeTag(u: var) @TagType(@typeOf(u)) {
 }
 
 test "std.meta.activeTag" {
-    const UE = enum.{
+    const UE = enum {
         Int,
         Float,
     };
 
-    const U = union(UE).{
+    const U = union(UE) {
         Int: u32,
         Float: f32,
     };
 
-    var u = U.{ .Int = 32 };
+    var u = U{ .Int = 32 };
     debug.assert(activeTag(u) == UE.Int);
 
-    u = U.{ .Float = 112.9876 };
+    u = U{ .Float = 112.9876 };
     debug.assert(activeTag(u) == UE.Float);
 }
 
@@ -425,38 +425,38 @@ pub fn eql(a: var, b: @typeOf(a)) bool {
 }
 
 test "std.meta.eql" {
-    const S = struct.{
+    const S = struct {
         a: u32,
         b: f64,
         c: [5]u8,
     };
 
-    const U = union(enum).{
+    const U = union(enum) {
         s: S,
         f: f32,
     };
 
-    const s_1 = S.{
+    const s_1 = S{
         .a = 134,
         .b = 123.3,
         .c = "12345",
     };
 
-    const s_2 = S.{
+    const s_2 = S{
         .a = 1,
         .b = 123.3,
         .c = "54321",
     };
 
-    const s_3 = S.{
+    const s_3 = S{
         .a = 134,
         .b = 123.3,
         .c = "12345",
     };
 
-    const u_1 = U.{ .f = 24 };
-    const u_2 = U.{ .s = s_1 };
-    const u_3 = U.{ .f = 24 };
+    const u_1 = U{ .f = 24 };
+    const u_2 = U{ .s = s_1 };
+    const u_3 = U{ .f = 24 };
 
     debug.assert(eql(s_1, s_3));
     debug.assert(eql(&s_1, &s_1));
@@ -472,7 +472,7 @@ test "std.meta.eql" {
     debug.assert(!eql(a1, a3));
     debug.assert(!eql(a1[0..], a2[0..]));
 
-    const EU = struct.{
+    const EU = struct {
         fn tst(err: bool) !u8 {
             if (err) return error.Error;
             return u8(5);

@@ -1,12 +1,12 @@
 const std = @import("../index.zig");
 const assert = std.debug.assert;
 
-const State = enum.{
+const State = enum {
     Start,
     Backslash,
 };
 
-pub const ParseStringLiteralError = error.{
+pub const ParseStringLiteralError = error{
     OutOfMemory,
 
     /// When this is returned, index will be the position of the character.

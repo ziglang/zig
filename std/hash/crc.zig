@@ -8,7 +8,7 @@
 const std = @import("../index.zig");
 const debug = std.debug;
 
-pub const Polynomial = struct.{
+pub const Polynomial = struct {
     const IEEE = 0xedb88320;
     const Castagnoli = 0x82f63b78;
     const Koopman = 0xeb31d82e;
@@ -19,7 +19,7 @@ pub const Crc32 = Crc32WithPoly(Polynomial.IEEE);
 
 // slicing-by-8 crc32 implementation.
 pub fn Crc32WithPoly(comptime poly: u32) type {
-    return struct.{
+    return struct {
         const Self = @This();
         const lookup_tables = comptime block: {
             @setEvalBranchQuota(20000);
@@ -55,7 +55,7 @@ pub fn Crc32WithPoly(comptime poly: u32) type {
         crc: u32,
 
         pub fn init() Self {
-            return Self.{ .crc = 0xffffffff };
+            return Self{ .crc = 0xffffffff };
         }
 
         pub fn update(self: *Self, input: []const u8) void {
@@ -116,7 +116,7 @@ test "crc32 castagnoli" {
 
 // half-byte lookup table implementation.
 pub fn Crc32SmallWithPoly(comptime poly: u32) type {
-    return struct.{
+    return struct {
         const Self = @This();
         const lookup_table = comptime block: {
             var table: [16]u32 = undefined;
@@ -140,7 +140,7 @@ pub fn Crc32SmallWithPoly(comptime poly: u32) type {
         crc: u32,
 
         pub fn init() Self {
-            return Self.{ .crc = 0xffffffff };
+            return Self{ .crc = 0xffffffff };
         }
 
         pub fn update(self: *Self, input: []const u8) void {

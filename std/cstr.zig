@@ -55,7 +55,7 @@ pub fn addNullByte(allocator: *mem.Allocator, slice: []const u8) ![]u8 {
     return result;
 }
 
-pub const NullTerminated2DArray = struct.{
+pub const NullTerminated2DArray = struct {
     allocator: *mem.Allocator,
     byte_count: usize,
     ptr: ?[*]?[*]u8,
@@ -95,7 +95,7 @@ pub const NullTerminated2DArray = struct.{
         }
         index_buf[i] = null;
 
-        return NullTerminated2DArray.{
+        return NullTerminated2DArray{
             .allocator = allocator,
             .byte_count = byte_count,
             .ptr = @ptrCast(?[*]?[*]u8, buf.ptr),

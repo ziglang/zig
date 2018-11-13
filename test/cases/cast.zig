@@ -24,7 +24,7 @@ test "pointer reinterpret const float to int" {
 }
 
 test "implicitly cast indirect pointer to maybe-indirect pointer" {
-    const S = struct.{
+    const S = struct {
         const Self = @This();
         x: u8,
         fn constConst(p: *const *const Self) u8 {
@@ -40,7 +40,7 @@ test "implicitly cast indirect pointer to maybe-indirect pointer" {
             return p.?.*.*.x;
         }
     };
-    const s = S.{ .x = 42 };
+    const s = S{ .x = 42 };
     const p = &s;
     const q = &p;
     const r = &q;
@@ -54,7 +54,7 @@ test "explicit cast from integer to error type" {
     testCastIntToErr(error.ItBroke);
     comptime testCastIntToErr(error.ItBroke);
 }
-fn testCastIntToErr(err: error) void {
+fn testCastIntToErr(err: anyerror) void {
     const x = @errorToInt(err);
     const y = @intToError(x);
     assert(error.ItBroke == y);
@@ -81,45 +81,45 @@ fn testPeerResolveArrayConstSlice(b: bool) void {
     assert(mem.eql(u8, value2, "zz"));
 }
 
-test "implicitly cast from T to error!?T" {
+test "implicitly cast from T to anyerror!?T" {
     castToOptionalTypeError(1);
     comptime castToOptionalTypeError(1);
 }
-const A = struct.{
+const A = struct {
     a: i32,
 };
 fn castToOptionalTypeError(z: i32) void {
     const x = i32(1);
-    const y: error!?i32 = x;
+    const y: anyerror!?i32 = x;
     assert((try y).? == 1);
 
     const f = z;
-    const g: error!?i32 = f;
+    const g: anyerror!?i32 = f;
 
-    const a = A.{ .a = z };
-    const b: error!?A = a;
+    const a = A{ .a = z };
+    const b: anyerror!?A = a;
     assert((b catch unreachable).?.a == 1);
 }
 
-test "implicitly cast from int to error!?T" {
+test "implicitly cast from int to anyerror!?T" {
     implicitIntLitToOptional();
     comptime implicitIntLitToOptional();
 }
 fn implicitIntLitToOptional() void {
     const f: ?i32 = 1;
-    const g: error!?i32 = 1;
+    const g: anyerror!?i32 = 1;
 }
 
-test "return null from fn() error!?&T" {
+test "return null from fn() anyerror!?&T" {
     const a = returnNullFromOptionalTypeErrorRef();
     const b = returnNullLitFromOptionalTypeErrorRef();
     assert((try a) == null and (try b) == null);
 }
-fn returnNullFromOptionalTypeErrorRef() error!?*A {
+fn returnNullFromOptionalTypeErrorRef() anyerror!?*A {
     const a: ?*A = null;
     return a;
 }
-fn returnNullLitFromOptionalTypeErrorRef() error!?*A {
+fn returnNullLitFromOptionalTypeErrorRef() anyerror!?*A {
     return null;
 }
 
@@ -149,7 +149,7 @@ test "peer type resolution: [0]u8 and []const u8" {
 }
 fn peerTypeEmptyArrayAndSlice(a: bool, slice: []const u8) []const u8 {
     if (a) {
-        return []const u8.{};
+        return []const u8{};
     }
 
     return slice[0..1];
@@ -164,7 +164,7 @@ fn castToOptionalSlice() ?[]const u8 {
     return "hi";
 }
 
-test "implicitly cast from [0]T to error![]T" {
+test "implicitly cast from [0]T to anyerror![]T" {
     testCastZeroArrayToErrSliceMut();
     comptime testCastZeroArrayToErrSliceMut();
 }
@@ -173,11 +173,11 @@ fn testCastZeroArrayToErrSliceMut() void {
     assert((gimmeErrOrSlice() catch unreachable).len == 0);
 }
 
-fn gimmeErrOrSlice() error![]u8 {
-    return []u8.{};
+fn gimmeErrOrSlice() anyerror![]u8 {
+    return []u8{};
 }
 
-test "peer type resolution: [0]u8, []const u8, and error![]u8" {
+test "peer type resolution: [0]u8, []const u8, and anyerror![]u8" {
     {
         var data = "hi";
         const slice = data[0..];
@@ -191,9 +191,9 @@ test "peer type resolution: [0]u8, []const u8, and error![]u8" {
         assert((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
     }
 }
-fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) error![]u8 {
+fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) anyerror![]u8 {
     if (a) {
-        return []u8.{};
+        return []u8{};
     }
 
     return slice[0..1];
@@ -237,7 +237,7 @@ test "peer type resolution: error and [N]T" {
 //        else => error.BadValue,
 //    };
 //}
-fn testPeerErrorAndArray2(x: u8) error![]const u8 {
+fn testPeerErrorAndArray2(x: u8) anyerror![]const u8 {
     return switch (x) {
         0x00 => "OK",
         0x01 => "OKK",
@@ -286,7 +286,7 @@ fn cast128Float(x: u128) f128 {
 }
 
 test "const slice widen cast" {
-    const bytes align(4) = []u8.{
+    const bytes align(4) = []u8{
         0x12,
         0x12,
         0x12,
@@ -315,7 +315,7 @@ fn testCastPtrOfArrayToSliceAndPtr() void {
 }
 
 test "cast *[1][*]const u8 to [*]const ?[*]const u8" {
-    const window_name = [1][*]const u8.{c"window name"};
+    const window_name = [1][*]const u8{c"window name"};
     const x: [*]const ?[*]const u8 = &window_name;
     assert(mem.eql(u8, std.cstr.toSliceConst(x[0].?), "window name"));
 }
@@ -363,7 +363,7 @@ test "comptime_int @intToFloat" {
 }
 
 test "@bytesToSlice keeps pointer alignment" {
-    var bytes = []u8.{ 0x01, 0x02, 0x03, 0x04 };
+    var bytes = []u8{ 0x01, 0x02, 0x03, 0x04 };
     const numbers = @bytesToSlice(u32, bytes[0..]);
     comptime assert(@typeOf(numbers) == []align(@alignOf(@typeOf(bytes))) u32);
 }
@@ -381,7 +381,7 @@ test "implicit cast undefined to optional" {
 }
 
 fn MakeType(comptime T: type) type {
-    return struct.{
+    return struct {
         fn getNull() ?T {
             return null;
         }
@@ -394,7 +394,7 @@ fn MakeType(comptime T: type) type {
 
 test "implicit cast from *[N]T to ?[*]T" {
     var x: ?[*]u16 = null;
-    var y: [4]u16 = [4]u16.{ 0, 1, 2, 3 };
+    var y: [4]u16 = [4]u16{ 0, 1, 2, 3 };
 
     x = &y;
     assert(std.mem.eql(u16, x.?[0..4], y[0..4]));
@@ -414,9 +414,9 @@ fn incrementVoidPtrValue(value: ?*c_void) void {
 }
 
 test "implicit cast from [*]T to ?*c_void" {
-    var a = []u8.{ 3, 2, 1 };
+    var a = []u8{ 3, 2, 1 };
     incrementVoidPtrArray(a[0..].ptr, 3);
-    assert(std.mem.eql(u8, a, []u8.{ 4, 3, 2 }));
+    assert(std.mem.eql(u8, a, []u8{ 4, 3, 2 }));
 }
 
 fn incrementVoidPtrArray(array: ?*c_void, len: usize) void {

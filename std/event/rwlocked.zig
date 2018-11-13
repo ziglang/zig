@@ -6,13 +6,13 @@ const Loop = std.event.Loop;
 /// coroutines which are waiting for the lock are suspended, and
 /// are resumed when the lock is released, in order.
 pub fn RwLocked(comptime T: type) type {
-    return struct.{
+    return struct {
         lock: RwLock,
         locked_data: T,
 
         const Self = @This();
 
-        pub const HeldReadLock = struct.{
+        pub const HeldReadLock = struct {
             value: *const T,
             held: RwLock.HeldRead,
 
@@ -21,7 +21,7 @@ pub fn RwLocked(comptime T: type) type {
             }
         };
 
-        pub const HeldWriteLock = struct.{
+        pub const HeldWriteLock = struct {
             value: *T,
             held: RwLock.HeldWrite,
 
@@ -31,7 +31,7 @@ pub fn RwLocked(comptime T: type) type {
         };
 
         pub fn init(loop: *Loop, data: T) Self {
-            return Self.{
+            return Self{
                 .lock = RwLock.init(loop),
                 .locked_data = data,
             };
@@ -42,14 +42,14 @@ pub fn RwLocked(comptime T: type) type {
         }
 
         pub async fn acquireRead(self: *Self) HeldReadLock {
-            return HeldReadLock.{
+            return HeldReadLock{
                 .held = await (async self.lock.acquireRead() catch unreachable),
                 .value = &self.locked_data,
             };
         }
 
         pub async fn acquireWrite(self: *Self) HeldWriteLock {
-            return HeldWriteLock.{
+            return HeldWriteLock{
                 .held = await (async self.lock.acquireWrite() catch unreachable),
                 .value = &self.locked_data,
             };

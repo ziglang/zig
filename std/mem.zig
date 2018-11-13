@@ -7,8 +7,8 @@ const mem = @This();
 const meta = std.meta;
 const trait = meta.trait;
 
-pub const Allocator = struct.{
-    pub const Error = error.{OutOfMemory};
+pub const Allocator = struct {
+    pub const Error = error{OutOfMemory};
 
     /// Allocate byte_count bytes and return them in a slice, with the
     /// slice's pointer aligned at least to alignment bytes.
@@ -40,7 +40,7 @@ pub const Allocator = struct.{
     /// TODO this is deprecated. use createOne instead
     pub fn create(self: *Allocator, init: var) Error!*@typeOf(init) {
         const T = @typeOf(init);
-        if (@sizeOf(T) == 0) return &(T.{});
+        if (@sizeOf(T) == 0) return &(T{});
         const slice = try self.alloc(T, 1);
         const ptr = &slice[0];
         ptr.* = init;
@@ -50,7 +50,7 @@ pub const Allocator = struct.{
     /// Call `destroy` with the result.
     /// Returns undefined memory.
     pub fn createOne(self: *Allocator, comptime T: type) Error!*T {
-        if (@sizeOf(T) == 0) return &(T.{});
+        if (@sizeOf(T) == 0) return &(T{});
         const slice = try self.alloc(T, 1);
         return &slice[0];
     }
@@ -137,7 +137,7 @@ pub const Allocator = struct.{
     }
 };
 
-pub const Compare = enum.{
+pub const Compare = enum {
     LessThan,
     Equal,
     GreaterThan,
@@ -186,8 +186,8 @@ pub fn secureZero(comptime T: type, s: []T) void {
 }
 
 test "mem.secureZero" {
-    var a = []u8.{0xfe} ** 8;
-    var b = []u8.{0xfe} ** 8;
+    var a = []u8{0xfe} ** 8;
+    var b = []u8{0xfe} ** 8;
 
     set(u8, a[0..], 0);
     secureZero(u8, b[0..]);
@@ -510,7 +510,7 @@ pub fn eql_slice_u8(a: []const u8, b: []const u8) bool {
 /// split("   abc def    ghi  ", " ")
 /// Will return slices for "abc", "def", "ghi", null, in that order.
 pub fn split(buffer: []const u8, split_bytes: []const u8) SplitIterator {
-    return SplitIterator.{
+    return SplitIterator{
         .index = 0,
         .buffer = buffer,
         .split_bytes = split_bytes,
@@ -543,7 +543,7 @@ test "mem.endsWith" {
     assert(!endsWith(u8, "Bob", "Bo"));
 }
 
-pub const SplitIterator = struct.{
+pub const SplitIterator = struct {
     buffer: []const u8,
     split_bytes: []const u8,
     index: usize,
@@ -631,7 +631,7 @@ test "testReadInt" {
 }
 fn testReadIntImpl() void {
     {
-        const bytes = []u8.{
+        const bytes = []u8{
             0x12,
             0x34,
             0x56,
@@ -645,7 +645,7 @@ fn testReadIntImpl() void {
         assert(readIntLE(i32, bytes) == 0x78563412);
     }
     {
-        const buf = []u8.{
+        const buf = []u8{
             0x00,
             0x00,
             0x12,
@@ -655,7 +655,7 @@ fn testReadIntImpl() void {
         assert(answer == 0x00001234);
     }
     {
-        const buf = []u8.{
+        const buf = []u8{
             0x12,
             0x34,
             0x00,
@@ -665,7 +665,7 @@ fn testReadIntImpl() void {
         assert(answer == 0x00003412);
     }
     {
-        const bytes = []u8.{
+        const bytes = []u8{
             0xff,
             0xfe,
         };
@@ -684,7 +684,7 @@ fn testWriteIntImpl() void {
     var bytes: [8]u8 = undefined;
 
     writeInt(bytes[0..], u64(0x12345678CAFEBABE), builtin.Endian.Big);
-    assert(eql(u8, bytes, []u8.{
+    assert(eql(u8, bytes, []u8{
         0x12,
         0x34,
         0x56,
@@ -696,7 +696,7 @@ fn testWriteIntImpl() void {
     }));
 
     writeInt(bytes[0..], u64(0xBEBAFECA78563412), builtin.Endian.Little);
-    assert(eql(u8, bytes, []u8.{
+    assert(eql(u8, bytes, []u8{
         0x12,
         0x34,
         0x56,
@@ -708,7 +708,7 @@ fn testWriteIntImpl() void {
     }));
 
     writeInt(bytes[0..], u32(0x12345678), builtin.Endian.Big);
-    assert(eql(u8, bytes, []u8.{
+    assert(eql(u8, bytes, []u8{
         0x00,
         0x00,
         0x00,
@@ -720,7 +720,7 @@ fn testWriteIntImpl() void {
     }));
 
     writeInt(bytes[0..], u32(0x78563412), builtin.Endian.Little);
-    assert(eql(u8, bytes, []u8.{
+    assert(eql(u8, bytes, []u8{
         0x12,
         0x34,
         0x56,
@@ -732,7 +732,7 @@ fn testWriteIntImpl() void {
     }));
 
     writeInt(bytes[0..], u16(0x1234), builtin.Endian.Big);
-    assert(eql(u8, bytes, []u8.{
+    assert(eql(u8, bytes, []u8{
         0x00,
         0x00,
         0x00,
@@ -744,7 +744,7 @@ fn testWriteIntImpl() void {
     }));
 
     writeInt(bytes[0..], u16(0x1234), builtin.Endian.Little);
-    assert(eql(u8, bytes, []u8.{
+    assert(eql(u8, bytes, []u8{
         0x34,
         0x12,
         0x00,
@@ -796,7 +796,7 @@ pub fn reverse(comptime T: type, items: []T) void {
 }
 
 test "std.mem.reverse" {
-    var arr = []i32.{
+    var arr = []i32{
         5,
         3,
         1,
@@ -805,7 +805,7 @@ test "std.mem.reverse" {
     };
     reverse(i32, arr[0..]);
 
-    assert(eql(i32, arr, []i32.{
+    assert(eql(i32, arr, []i32{
         4,
         2,
         1,
@@ -823,7 +823,7 @@ pub fn rotate(comptime T: type, items: []T, amount: usize) void {
 }
 
 test "std.mem.rotate" {
-    var arr = []i32.{
+    var arr = []i32{
         5,
         3,
         1,
@@ -832,7 +832,7 @@ test "std.mem.rotate" {
     };
     rotate(i32, arr[0..], 2);
 
-    assert(eql(i32, arr, []i32.{
+    assert(eql(i32, arr, []i32{
         1,
         2,
         4,
@@ -898,14 +898,14 @@ test "std.mem.asBytes" {
         b.* = 0;
     debug.assert(codeface == 0);
 
-    const S = packed struct.{
+    const S = packed struct {
         a: u8,
         b: u8,
         c: u8,
         d: u8,
     };
 
-    const inst = S.{
+    const inst = S{
         .a = 0xBE,
         .b = 0xEF,
         .c = 0xDE,
@@ -970,14 +970,14 @@ test "std.mem.bytesAsValue" {
     for (codeface_bytes) |b|
         debug.assert(b == 0);
 
-    const S = packed struct.{
+    const S = packed struct {
         a: u8,
         b: u8,
         c: u8,
         d: u8,
     };
 
-    const inst = S.{
+    const inst = S{
         .a = 0xBE,
         .b = 0xEF,
         .c = 0xDE,

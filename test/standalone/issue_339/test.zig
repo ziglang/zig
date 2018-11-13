@@ -4,7 +4,7 @@ pub fn panic(msg: []const u8, stack_trace: ?*StackTrace) noreturn {
     while (true) {}
 }
 
-fn bar() error!void {}
+fn bar() anyerror!void {}
 
 export fn foo() void {
     bar() catch unreachable;

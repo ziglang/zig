@@ -23,18 +23,18 @@ test "stage2" {
 const file1 = "1.zig";
 const allocator = std.heap.c_allocator;
 
-pub const TestContext = struct.{
+pub const TestContext = struct {
     loop: std.event.Loop,
     zig_compiler: ZigCompiler,
     zig_lib_dir: []u8,
     file_index: std.atomic.Int(usize),
-    group: std.event.Group(error!void),
-    any_err: error!void,
+    group: std.event.Group(anyerror!void),
+    any_err: anyerror!void,
 
     const tmp_dir_name = "stage2_test_tmp";
 
     fn init(self: *TestContext) !void {
-        self.* = TestContext.{
+        self.* = TestContext{
             .any_err = {},
             .loop = undefined,
             .zig_compiler = undefined,
@@ -49,7 +49,7 @@ pub const TestContext = struct.{
         self.zig_compiler = try ZigCompiler.init(&self.loop);
         errdefer self.zig_compiler.deinit();
 
-        self.group = std.event.Group(error!void).init(&self.loop);
+        self.group = std.event.Group(anyerror!void).init(&self.loop);
         errdefer self.group.deinit();
 
         self.zig_lib_dir = try introspect.resolveZigLibDir(allocator);
@@ -162,7 +162,7 @@ pub const TestContext = struct.{
 
         switch (build_event) {
             Compilation.Event.Ok => {
-                const argv = []const []const u8.{exe_file_2};
+                const argv = []const []const u8{exe_file_2};
                 // TODO use event loop
                 const child = try std.os.ChildProcess.exec(allocator, argv, null, null, 1024 * 1024);
                 switch (child.term) {

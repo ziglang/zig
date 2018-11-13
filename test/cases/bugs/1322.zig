@@ -1,19 +1,19 @@
 const std = @import("std");
 
-const B = union(enum).{
+const B = union(enum) {
     c: C,
     None,
 };
 
-const A = struct.{
+const A = struct {
     b: B,
 };
 
-const C = struct.{};
+const C = struct {};
 
 test "tagged union with all void fields but a meaningful tag" {
-    var a: A = A.{ .b = B.{ .c = C.{} } };
+    var a: A = A{ .b = B{ .c = C{} } };
     std.debug.assert(@TagType(B)(a.b) == @TagType(B).c);
-    a = A.{ .b = B.None };
+    a = A{ .b = B.None };
     std.debug.assert(@TagType(B)(a.b) == @TagType(B).None);
 }

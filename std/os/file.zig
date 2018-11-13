@@ -14,7 +14,7 @@ const maxInt = std.math.maxInt;
 const is_posix = builtin.os != builtin.Os.windows;
 const is_windows = builtin.os == builtin.Os.windows;
 
-pub const File = struct.{
+pub const File = struct {
     /// The OS-specific file descriptor or file handle.
     handle: os.FileHandle,
 
@@ -139,10 +139,10 @@ pub const File = struct.{
     }
 
     pub fn openHandle(handle: os.FileHandle) File {
-        return File.{ .handle = handle };
+        return File{ .handle = handle };
     }
 
-    pub const AccessError = error.{
+    pub const AccessError = error{
         PermissionDenied,
         FileNotFound,
         NameTooLong,
@@ -349,7 +349,7 @@ pub const File = struct.{
         }
     }
 
-    pub const ModeError = error.{
+    pub const ModeError = error{
         SystemResources,
         Unexpected,
     };
@@ -418,21 +418,21 @@ pub const File = struct.{
     }
 
     pub fn inStream(file: File) InStream {
-        return InStream.{
+        return InStream{
             .file = file,
-            .stream = InStream.Stream.{ .readFn = InStream.readFn },
+            .stream = InStream.Stream{ .readFn = InStream.readFn },
         };
     }
 
     pub fn outStream(file: File) OutStream {
-        return OutStream.{
+        return OutStream{
             .file = file,
-            .stream = OutStream.Stream.{ .writeFn = OutStream.writeFn },
+            .stream = OutStream.Stream{ .writeFn = OutStream.writeFn },
         };
     }
 
     /// Implementation of io.InStream trait for File
-    pub const InStream = struct.{
+    pub const InStream = struct {
         file: File,
         stream: Stream,
 
@@ -446,7 +446,7 @@ pub const File = struct.{
     };
 
     /// Implementation of io.OutStream trait for File
-    pub const OutStream = struct.{
+    pub const OutStream = struct {
         file: File,
         stream: Stream,
 

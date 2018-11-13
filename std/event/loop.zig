@@ -10,7 +10,7 @@ const posix = os.posix;
 const windows = os.windows;
 const maxInt = std.math.maxInt;
 
-pub const Loop = struct.{
+pub const Loop = struct {
     allocator: *mem.Allocator,
     next_tick_queue: std.atomic.Queue(promise),
     os_data: OsData,
@@ -25,13 +25,13 @@ pub const Loop = struct.{
 
     pub const NextTickNode = std.atomic.Queue(promise).Node;
 
-    pub const ResumeNode = struct.{
+    pub const ResumeNode = struct {
         id: Id,
         handle: promise,
         overlapped: Overlapped,
 
         pub const overlapped_init = switch (builtin.os) {
-            builtin.Os.windows => windows.OVERLAPPED.{
+            builtin.Os.windows => windows.OVERLAPPED{
                 .Internal = 0,
                 .InternalHigh = 0,
                 .Offset = 0,
@@ -42,7 +42,7 @@ pub const Loop = struct.{
         };
         pub const Overlapped = @typeOf(overlapped_init);
 
-        pub const Id = enum.{
+        pub const Id = enum {
             Basic,
             Stop,
             EventFd,
@@ -50,35 +50,35 @@ pub const Loop = struct.{
 
         pub const EventFd = switch (builtin.os) {
             builtin.Os.macosx => MacOsEventFd,
-            builtin.Os.linux => struct.{
+            builtin.Os.linux => struct {
                 base: ResumeNode,
                 epoll_op: u32,
                 eventfd: i32,
             },
-            builtin.Os.windows => struct.{
+            builtin.Os.windows => struct {
                 base: ResumeNode,
                 completion_key: usize,
             },
             else => @compileError("unsupported OS"),
         };
 
-        const MacOsEventFd = struct.{
+        const MacOsEventFd = struct {
             base: ResumeNode,
             kevent: posix.Kevent,
         };
 
         pub const Basic = switch (builtin.os) {
             builtin.Os.macosx => MacOsBasic,
-            builtin.Os.linux => struct.{
+            builtin.Os.linux => struct {
                 base: ResumeNode,
             },
-            builtin.Os.windows => struct.{
+            builtin.Os.windows => struct {
                 base: ResumeNode,
             },
             else => @compileError("unsupported OS"),
         };
 
-        const MacOsBasic = struct.{
+        const MacOsBasic = struct {
             base: ResumeNode,
             kev: posix.Kevent,
         };
@@ -104,7 +104,7 @@ pub const Loop = struct.{
     /// Thread count is the total thread count. The thread pool size will be
     /// max(thread_count - 1, 0)
     fn initInternal(self: *Loop, allocator: *mem.Allocator, thread_count: usize) !void {
-        self.* = Loop.{
+        self.* = Loop{
             .pending_event_count = 1,
             .allocator = allocator,
             .os_data = undefined,
@@ -112,7 +112,7 @@ pub const Loop = struct.{
             .extra_threads = undefined,
             .available_eventfd_resume_nodes = std.atomic.Stack(ResumeNode.EventFd).init(),
             .eventfd_resume_nodes = undefined,
-            .final_resume_node = ResumeNode.{
+            .final_resume_node = ResumeNode{
                 .id = ResumeNode.Id.Stop,
                 .handle = undefined,
                 .overlapped = ResumeNode.overlapped_init,
@@ -141,7 +141,7 @@ pub const Loop = struct.{
         os.SpawnThreadError || os.LinuxEpollCtlError || os.BsdKEventError ||
         os.WindowsCreateIoCompletionPortError;
 
-    const wakeup_bytes = []u8.{0x1} ** 8;
+    const wakeup_bytes = []u8{0x1} ** 8;
 
     fn initOsData(self: *Loop, extra_thread_count: usize) InitOsDataError!void {
         switch (builtin.os) {
@@ -150,10 +150,10 @@ pub const Loop = struct.{
                 self.os_data.fs_queue_item = 0;
                 // we need another thread for the file system because Linux does not have an async
                 // file system I/O API.
-                self.os_data.fs_end_request = fs.RequestNode.{
+                self.os_data.fs_end_request = fs.RequestNode{
                     .prev = undefined,
                     .next = undefined,
-                    .data = fs.Request.{
+                    .data = fs.Request{
                         .msg = fs.Request.Msg.End,
                         .finish = fs.Request.Finish.NoAction,
                     },
@@ -163,9 +163,9 @@ pub const Loop = struct.{
                     while (self.available_eventfd_resume_nodes.pop()) |node| os.close(node.data.eventfd);
                 }
                 for (self.eventfd_resume_nodes) |*eventfd_node| {
-                    eventfd_node.* = std.atomic.Stack(ResumeNode.EventFd).Node.{
-                        .data = ResumeNode.EventFd.{
-                            .base = ResumeNode.{
+                    eventfd_node.* = std.atomic.Stack(ResumeNode.EventFd).Node{
+                        .data = ResumeNode.EventFd{
+                            .base = ResumeNode{
                                 .id = ResumeNode.Id.EventFd,
                                 .handle = undefined,
                                 .overlapped = ResumeNode.overlapped_init,
@@ -184,9 +184,9 @@ pub const Loop = struct.{
                 self.os_data.final_eventfd = try os.linuxEventFd(0, posix.EFD_CLOEXEC | posix.EFD_NONBLOCK);
                 errdefer os.close(self.os_data.final_eventfd);
 
-                self.os_data.final_eventfd_event = posix.epoll_event.{
+                self.os_data.final_eventfd_event = posix.epoll_event{
                     .events = posix.EPOLLIN,
-                    .data = posix.epoll_data.{ .ptr = @ptrToInt(&self.final_resume_node) },
+                    .data = posix.epoll_data{ .ptr = @ptrToInt(&self.final_resume_node) },
                 };
                 try os.linuxEpollCtl(
                     self.os_data.epollfd,
@@ -224,10 +224,10 @@ pub const Loop = struct.{
                 self.os_data.fs_queue = std.atomic.Queue(fs.Request).init();
                 // we need another thread for the file system because Darwin does not have an async
                 // file system I/O API.
-                self.os_data.fs_end_request = fs.RequestNode.{
+                self.os_data.fs_end_request = fs.RequestNode{
                     .prev = undefined,
                     .next = undefined,
-                    .data = fs.Request.{
+                    .data = fs.Request{
                         .msg = fs.Request.Msg.End,
                         .finish = fs.Request.Finish.NoAction,
                     },
@@ -236,15 +236,15 @@ pub const Loop = struct.{
                 const empty_kevs = ([*]posix.Kevent)(undefined)[0..0];
 
                 for (self.eventfd_resume_nodes) |*eventfd_node, i| {
-                    eventfd_node.* = std.atomic.Stack(ResumeNode.EventFd).Node.{
-                        .data = ResumeNode.EventFd.{
-                            .base = ResumeNode.{
+                    eventfd_node.* = std.atomic.Stack(ResumeNode.EventFd).Node{
+                        .data = ResumeNode.EventFd{
+                            .base = ResumeNode{
                                 .id = ResumeNode.Id.EventFd,
                                 .handle = undefined,
                                 .overlapped = ResumeNode.overlapped_init,
                             },
                             // this one is for sending events
-                            .kevent = posix.Kevent.{
+                            .kevent = posix.Kevent{
                                 .ident = i,
                                 .filter = posix.EVFILT_USER,
                                 .flags = posix.EV_CLEAR | posix.EV_ADD | posix.EV_DISABLE,
@@ -264,7 +264,7 @@ pub const Loop = struct.{
 
                 // Pre-add so that we cannot get error.SystemResources
                 // later when we try to activate it.
-                self.os_data.final_kevent = posix.Kevent.{
+                self.os_data.final_kevent = posix.Kevent{
                     .ident = extra_thread_count,
                     .filter = posix.EVFILT_USER,
                     .flags = posix.EV_ADD | posix.EV_DISABLE,
@@ -277,7 +277,7 @@ pub const Loop = struct.{
                 self.os_data.final_kevent.flags = posix.EV_ENABLE;
                 self.os_data.final_kevent.fflags = posix.NOTE_TRIGGER;
 
-                self.os_data.fs_kevent_wake = posix.Kevent.{
+                self.os_data.fs_kevent_wake = posix.Kevent{
                     .ident = 0,
                     .filter = posix.EVFILT_USER,
                     .flags = posix.EV_ADD | posix.EV_ENABLE,
@@ -286,7 +286,7 @@ pub const Loop = struct.{
                     .udata = undefined,
                 };
 
-                self.os_data.fs_kevent_wait = posix.Kevent.{
+                self.os_data.fs_kevent_wait = posix.Kevent{
                     .ident = 0,
                     .filter = posix.EVFILT_USER,
                     .flags = posix.EV_ADD | posix.EV_CLEAR,
@@ -323,9 +323,9 @@ pub const Loop = struct.{
                 errdefer os.close(self.os_data.io_port);
 
                 for (self.eventfd_resume_nodes) |*eventfd_node, i| {
-                    eventfd_node.* = std.atomic.Stack(ResumeNode.EventFd).Node.{
-                        .data = ResumeNode.EventFd.{
-                            .base = ResumeNode.{
+                    eventfd_node.* = std.atomic.Stack(ResumeNode.EventFd).Node{
+                        .data = ResumeNode.EventFd{
+                            .base = ResumeNode{
                                 .id = ResumeNode.Id.EventFd,
                                 .handle = undefined,
                                 .overlapped = ResumeNode.overlapped_init,
@@ -396,9 +396,9 @@ pub const Loop = struct.{
 
     pub fn linuxModFd(self: *Loop, fd: i32, op: u32, flags: u32, resume_node: *ResumeNode) !void {
         assert(flags & posix.EPOLLET == posix.EPOLLET);
-        var ev = os.linux.epoll_event.{
+        var ev = os.linux.epoll_event{
             .events = flags,
-            .data = os.linux.epoll_data.{ .ptr = @ptrToInt(resume_node) },
+            .data = os.linux.epoll_data{ .ptr = @ptrToInt(resume_node) },
         };
         try os.linuxEpollCtl(self.os_data.epollfd, op, fd, &ev);
     }
@@ -412,8 +412,8 @@ pub const Loop = struct.{
         defer self.linuxRemoveFd(fd);
         suspend {
             // TODO explicitly put this memory in the coroutine frame #1194
-            var resume_node = ResumeNode.Basic.{
-                .base = ResumeNode.{
+            var resume_node = ResumeNode.Basic{
+                .base = ResumeNode{
                     .id = ResumeNode.Id.Basic,
                     .handle = @handle(),
                     .overlapped = ResumeNode.overlapped_init,
@@ -428,8 +428,8 @@ pub const Loop = struct.{
         suspend {
             resume @handle();
         }
-        var resume_node = ResumeNode.Basic.{
-            .base = ResumeNode.{
+        var resume_node = ResumeNode.Basic{
+            .base = ResumeNode{
                 .id = ResumeNode.Id.Basic,
                 .handle = @handle(),
                 .overlapped = ResumeNode.overlapped_init,
@@ -447,7 +447,7 @@ pub const Loop = struct.{
     pub fn bsdAddKev(self: *Loop, resume_node: *ResumeNode.Basic, ident: usize, filter: i16, fflags: u32) !void {
         self.beginOneEvent();
         errdefer self.finishOneEvent();
-        var kev = posix.Kevent.{
+        var kev = posix.Kevent{
             .ident = ident,
             .filter = filter,
             .flags = posix.EV_ADD | posix.EV_ENABLE | posix.EV_CLEAR,
@@ -461,7 +461,7 @@ pub const Loop = struct.{
     }
 
     pub fn bsdRemoveKev(self: *Loop, ident: usize, filter: i16) void {
-        var kev = posix.Kevent.{
+        var kev = posix.Kevent{
             .ident = ident,
             .filter = filter,
             .flags = posix.EV_DELETE,
@@ -559,11 +559,11 @@ pub const Loop = struct.{
     /// it immediately returns to the caller, and the async function is queued in the event loop. It still
     /// returns a promise to be awaited.
     pub fn call(self: *Loop, comptime func: var, args: ...) !(promise->@typeOf(func).ReturnType) {
-        const S = struct.{
+        const S = struct {
             async fn asyncFunc(loop: *Loop, handle: *promise->@typeOf(func).ReturnType, args2: ...) @typeOf(func).ReturnType {
                 suspend {
                     handle.* = @handle();
-                    var my_tick_node = Loop.NextTickNode.{
+                    var my_tick_node = Loop.NextTickNode{
                         .prev = undefined,
                         .next = undefined,
                         .data = @handle(),
@@ -585,7 +585,7 @@ pub const Loop = struct.{
     /// is performed.
     pub async fn yield(self: *Loop) void {
         suspend {
-            var my_tick_node = Loop.NextTickNode.{
+            var my_tick_node = Loop.NextTickNode{
                 .prev = undefined,
                 .next = undefined,
                 .data = @handle(),
@@ -814,14 +814,14 @@ pub const Loop = struct.{
     const OsData = switch (builtin.os) {
         builtin.Os.linux => LinuxOsData,
         builtin.Os.macosx => MacOsData,
-        builtin.Os.windows => struct.{
+        builtin.Os.windows => struct {
             io_port: windows.HANDLE,
             extra_thread_count: usize,
         },
-        else => struct.{},
+        else => struct {},
     };
 
-    const MacOsData = struct.{
+    const MacOsData = struct {
         kqfd: i32,
         final_kevent: posix.Kevent,
         fs_kevent_wake: posix.Kevent,
@@ -832,7 +832,7 @@ pub const Loop = struct.{
         fs_end_request: fs.RequestNode,
     };
 
-    const LinuxOsData = struct.{
+    const LinuxOsData = struct {
         epollfd: i32,
         final_eventfd: i32,
         final_eventfd_event: os.linux.epoll_event,
