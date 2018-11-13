@@ -13,6 +13,11 @@ fn container_init() void {
     _ = S { .x = 1, .y = 2, };
 }
 
+fn type_expr_return1() if (true) A {}
+fn type_expr_return2() for (true) |_| A {}
+fn type_expr_return3() while (true) A {}
+fn type_expr_return4() comptime A {}
+
 fn switch_cases(x: i32) void {
     switch (x) {
         1,2,3 => {},
