@@ -812,7 +812,7 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc) {
     AstNode *return_type = nullptr;
     if (var == nullptr) {
         exmark = eat_token_if(pc, TokenIdBang);
-        return_type = ast_parse_type_expr(pc);
+        return_type = ast_expect(pc, ast_parse_type_expr);
     }
 
     AstNode *res = ast_create_node(pc, NodeTypeFnProto, first);
@@ -1606,6 +1606,7 @@ static AstNode *ast_parse_suffix_expr(ParseContext *pc) {
 //      / FLOAT
 //      / FnProto
 //      / GroupedExpr
+//      / LabeledTypeExpr
 //      / IDENTIFIER
 //      / IfTypeExpr
 //      / INTEGER
@@ -1618,7 +1619,6 @@ static AstNode *ast_parse_suffix_expr(ParseContext *pc) {
 //      / KEYWORD_true
 //      / KEYWORD_undefined
 //      / KEYWORD_unreachable
-//      / LabeledTypeExpr
 //      / STRINGLITERAL
 //      / SwitchExpr
 static AstNode *ast_parse_primary_type_expr(ParseContext *pc) {
@@ -1681,6 +1681,10 @@ static AstNode *ast_parse_primary_type_expr(ParseContext *pc) {
     AstNode *grouped_expr = ast_parse_grouped_expr(pc);
     if (grouped_expr != nullptr)
         return grouped_expr;
+
+    AstNode *labeled_type_expr = ast_parse_labeled_type_expr(pc);
+    if (labeled_type_expr != nullptr)
+        return labeled_type_expr;
 
     Token *identifier = eat_token_if(pc, TokenIdSymbol);
     if (identifier != nullptr)
@@ -1749,10 +1753,6 @@ static AstNode *ast_parse_primary_type_expr(ParseContext *pc) {
     Token *unreachable = eat_token_if(pc, TokenIdKeywordUnreachable);
     if (unreachable != nullptr)
         return ast_create_node(pc, NodeTypeUnreachable, unreachable);
-
-    AstNode *labeled_type_expr = ast_parse_labeled_type_expr(pc);
-    if (labeled_type_expr != nullptr)
-        return labeled_type_expr;
 
     Token *string_lit = eat_token_if(pc, TokenIdStringLiteral);
     if (string_lit != nullptr) {
