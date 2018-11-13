@@ -775,7 +775,7 @@ static AstNode *ast_parse_top_level_decl(ParseContext *pc, VisibMod visib_mod) {
     return nullptr;
 }
 
-// FnProto <- FnCC? KEYWORD_fn IDENTIFIER? LPAREN ParamDecls RPAREN ByteAlign? Section? EXCLAMATIONMARK? ReturnType
+// FnProto <- FnCC? KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? Section? EXCLAMATIONMARK? (KEYWORD_var / TypeExpr)
 static AstNode *ast_parse_fn_proto(ParseContext *pc) {
     Token *first = peek_token(pc);
     AstNodeFnProto fn_cc;
@@ -901,9 +901,9 @@ static AstNode *ast_parse_container_field(ParseContext *pc) {
 //      / KEYWORD_defer BlockExprStatement
 //      / KEYWORD_errdefer BlockExprStatement
 //      / IfStatement
-//      / LabeledExpr
+//      / LabeledStatement
 //      / SwitchExpr
-//      / BlockExprStatement
+//      / AssignExpr SEMICOLON
 static AstNode *ast_parse_statement(ParseContext *pc) {
     Token *comptime = eat_token_if(pc, TokenIdKeywordCompTime);
     AstNode *var_decl = ast_parse_var_decl(pc);
@@ -956,9 +956,11 @@ static AstNode *ast_parse_statement(ParseContext *pc) {
     if (switch_expr != nullptr)
         return switch_expr;
 
-    AstNode *statement = ast_parse_block_expr_statement(pc);
-    if (statement != nullptr)
-        return statement;
+    AstNode *assign = ast_parse_assign_expr(pc);
+    if (assign != nullptr) {
+        expect_token(pc, TokenIdSemicolon);
+        return assign;
+    }
 
     return nullptr;
 }
@@ -1045,7 +1047,7 @@ static AstNode *ast_parse_labeled_statement(ParseContext *pc) {
     return nullptr;
 }
 
-// LoopStatement <- BlockLabel? KEYWORD_inline? (ForStatement / WhileStatement)
+// LoopStatement <- KEYWORD_inline? (ForStatement / WhileStatement)
 static AstNode *ast_parse_loop_statement(ParseContext *pc) {
     Token *label = ast_parse_block_label(pc);
     Token *first = label;
@@ -1076,8 +1078,8 @@ static AstNode *ast_parse_loop_statement(ParseContext *pc) {
 }
 
 // ForStatement
-//     <- ForPrefix BlockExpr ( KEYWORD_else Payload? Statement )?
-//      / ForPrefix AssignExpr ( SEMICOLON / KEYWORD_else Payload? Statement )
+//     <- ForPrefix BlockExpr ( KEYWORD_else Statement )?
+//      / ForPrefix AssignExpr ( SEMICOLON / KEYWORD_else Statement )
 static AstNode *ast_parse_for_statement(ParseContext *pc) {
     AstNode *res = ast_parse_for_prefix(pc);
     if (res == nullptr)
@@ -1215,7 +1217,7 @@ static AstNode *ast_parse_compare_expr(ParseContext *pc) {
     return ast_parse_bin_op_expr(pc, BinOpChainInf, ast_parse_compare_op, ast_parse_bitwise_expr);
 }
 
-//BitwiseExpr <- BitShiftExpr (BitwiseOp BitShiftExpr)*
+// BitwiseExpr <- BitShiftExpr (BitwiseOp BitShiftExpr)*
 static AstNode *ast_parse_bitwise_expr(ParseContext *pc) {
     return ast_parse_bin_op_expr(pc, BinOpChainInf, ast_parse_bitwise_op, ast_parse_bit_shit_expr);
 }
