@@ -898,7 +898,7 @@ test "std.mem.asBytes" {
         b.* = 0;
     debug.assert(codeface == 0);
 
-    const S = packed struct{
+    const S = packed struct {
         a: u8,
         b: u8,
         c: u8,
@@ -970,7 +970,7 @@ test "std.mem.bytesAsValue" {
     for (codeface_bytes) |b|
         debug.assert(b == 0);
 
-    const S = packed struct{
+    const S = packed struct {
         a: u8,
         b: u8,
         c: u8,

@@ -121,7 +121,7 @@ pub const ElfLib = struct {
             }
         }
 
-        return ElfLib {
+        return ElfLib{
             .base = base,
             .strings = maybe_strings orelse return error.ElfStringSectionNotFound,
             .syms = maybe_syms orelse return error.ElfSymSectionNotFound,
@@ -175,8 +175,8 @@ pub const WindowsDynLib = struct {
 
     pub fn open(allocator: *mem.Allocator, path: []const u8) !WindowsDynLib {
         const wpath = try win_util.sliceToPrefixedFileW(path);
-        
-        return WindowsDynLib {
+
+        return WindowsDynLib{
             .allocator = allocator,
             .dll = windows.LoadLibraryW(&wpath) orelse {
                 const err = windows.GetLastError();

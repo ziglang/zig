@@ -2284,7 +2284,7 @@ pub fn supportsAnsiEscapeCodes(handle: FileHandle) bool {
     }
 }
 
-pub const PosixSocketError = error {
+pub const PosixSocketError = error{
     /// Permission to create a socket of the specified type and/or
     /// pro‐tocol is denied.
     PermissionDenied,

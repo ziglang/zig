@@ -321,7 +321,7 @@ test "std.atomic.Queue dump" {
     assert(mem.eql(u8, buffer[0..sos.pos], expected));
 
     // Test a stream with two elements
-    var node_1 = Queue(i32).Node {
+    var node_1 = Queue(i32).Node{
         .data = 2,
         .next = undefined,
         .prev = undefined,

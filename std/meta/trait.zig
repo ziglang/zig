@@ -20,7 +20,7 @@ pub const TraitFn = @typeOf(traitFnWorkaround);
 //Need TraitList because compiler can't do varargs at comptime yet
 pub const TraitList = []const TraitFn;
 pub fn multiTrait(comptime traits: TraitList) TraitFn {
-    const Closure = struct{
+    const Closure = struct {
         pub fn trait(comptime T: type) bool {
             inline for (traits) |t|
                 if (!t(T)) return false;
@@ -31,7 +31,7 @@ pub fn multiTrait(comptime traits: TraitList) TraitFn {
 }
 
 test "std.meta.trait.multiTrait" {
-    const Vector2 = struct{
+    const Vector2 = struct {
         const MyType = @This();
 
         x: u8,
@@ -56,7 +56,7 @@ test "std.meta.trait.multiTrait" {
 
 ///
 pub fn hasDef(comptime name: []const u8) TraitFn {
-    const Closure = struct{
+    const Closure = struct {
         pub fn trait(comptime T: type) bool {
             const info = @typeInfo(T);
             const defs = switch (info) {
@@ -77,11 +77,11 @@ pub fn hasDef(comptime name: []const u8) TraitFn {
 }
 
 test "std.meta.trait.hasDef" {
-    const TestStruct = struct{
+    const TestStruct = struct {
         pub const value = u8(16);
     };
 
-    const TestStructFail = struct{
+    const TestStructFail = struct {
         const value = u8(16);
     };
 
@@ -95,7 +95,7 @@ test "std.meta.trait.hasDef" {
 
 ///
 pub fn hasFn(comptime name: []const u8) TraitFn {
-    const Closure = struct{
+    const Closure = struct {
         pub fn trait(comptime T: type) bool {
             if (!comptime hasDef(name)(T)) return false;
             const DefType = @typeOf(@field(T, name));
@@ -107,7 +107,7 @@ pub fn hasFn(comptime name: []const u8) TraitFn {
 }
 
 test "std.meta.trait.hasFn" {
-    const TestStruct = struct{
+    const TestStruct = struct {
         pub fn useless() void {}
     };
 
@@ -118,7 +118,7 @@ test "std.meta.trait.hasFn" {
 
 ///
 pub fn hasField(comptime name: []const u8) TraitFn {
-    const Closure = struct{
+    const Closure = struct {
         pub fn trait(comptime T: type) bool {
             const info = @typeInfo(T);
             const fields = switch (info) {
@@ -139,7 +139,7 @@ pub fn hasField(comptime name: []const u8) TraitFn {
 }
 
 test "std.meta.trait.hasField" {
-    const TestStruct = struct{
+    const TestStruct = struct {
         value: u32,
     };
 
@@ -152,7 +152,7 @@ test "std.meta.trait.hasField" {
 
 ///
 pub fn is(comptime id: builtin.TypeId) TraitFn {
-    const Closure = struct{
+    const Closure = struct {
         pub fn trait(comptime T: type) bool {
             return id == @typeId(T);
         }
@@ -170,7 +170,7 @@ test "std.meta.trait.is" {
 
 ///
 pub fn isPtrTo(comptime id: builtin.TypeId) TraitFn {
-    const Closure = struct{
+    const Closure = struct {
         pub fn trait(comptime T: type) bool {
             if (!comptime isSingleItemPtr(T)) return false;
             return id == @typeId(meta.Child(T));
@@ -180,9 +180,9 @@ pub fn isPtrTo(comptime id: builtin.TypeId) TraitFn {
 }
 
 test "std.meta.trait.isPtrTo" {
-    debug.assert(!isPtrTo(builtin.TypeId.Struct)(struct{}));
-    debug.assert(isPtrTo(builtin.TypeId.Struct)(*struct{}));
-    debug.assert(!isPtrTo(builtin.TypeId.Struct)(**struct{}));
+    debug.assert(!isPtrTo(builtin.TypeId.Struct)(struct {}));
+    debug.assert(isPtrTo(builtin.TypeId.Struct)(*struct {}));
+    debug.assert(!isPtrTo(builtin.TypeId.Struct)(**struct {}));
 }
 
 ///////////Strait trait Fns
@@ -202,8 +202,8 @@ pub fn isExtern(comptime T: type) bool {
 }
 
 test "std.meta.trait.isExtern" {
-    const TestExStruct = extern struct{};
-    const TestStruct = struct{};
+    const TestExStruct = extern struct {};
+    const TestStruct = struct {};
 
     debug.assert(isExtern(TestExStruct));
     debug.assert(!isExtern(TestStruct));
@@ -223,8 +223,8 @@ pub fn isPacked(comptime T: type) bool {
 }
 
 test "std.meta.trait.isPacked" {
-    const TestPStruct = packed struct{};
-    const TestStruct = struct{};
+    const TestPStruct = packed struct {};
+    const TestStruct = struct {};
 
     debug.assert(isPacked(TestPStruct));
     debug.assert(!isPacked(TestStruct));
@@ -312,7 +312,7 @@ pub fn isNumber(comptime T: type) bool {
 }
 
 test "std.meta.trait.isNumber" {
-    const NotANumber = struct{
+    const NotANumber = struct {
         number: u8,
     };
 
@@ -353,11 +353,11 @@ pub fn isContainer(comptime T: type) bool {
 }
 
 test "std.meta.trait.isContainer" {
-    const TestStruct = struct{};
-    const TestUnion = union{
+    const TestStruct = struct {};
+    const TestUnion = union {
         a: void,
     };
-    const TestEnum = enum{
+    const TestEnum = enum {
         A,
         B,
     };

@@ -7,7 +7,7 @@ const os = std.os;
 const posix = os.posix;
 const Loop = std.event.Loop;
 
-pub const Server = struct{
+pub const Server = struct {
     handleRequestFn: async<*mem.Allocator> fn (*Server, *const std.net.Address, os.File) void,
 
     loop: *Loop,

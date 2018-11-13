@@ -1263,7 +1263,7 @@ pub fn stat(pathname: [*]const u8, statbuf: *Stat) usize {
 
 // TODO https://github.com/ziglang/zig/issues/265
 pub fn lstat(pathname: [*]const u8, statbuf: *Stat) usize {
-    return fstatat(AF_FDCWD, pathname, statbuf, AT_SYMLINK_NOFOLLOW|AT_NO_AUTOMOUNT);
+    return fstatat(AF_FDCWD, pathname, statbuf, AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT);
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
@@ -1363,14 +1363,7 @@ pub fn epoll_wait(epoll_fd: i32, events: [*]epoll_event, maxevents: u32, timeout
 }
 
 pub fn epoll_pwait(epoll_fd: i32, events: [*]epoll_event, maxevents: u32, timeout: i32, sigmask: ?*sigset_t) usize {
-    return syscall6(SYS_epoll_pwait,
-        @intCast(usize, epoll_fd),
-        @ptrToInt(events),
-        @intCast(usize, maxevents),
-        @intCast(usize, timeout),
-        @ptrToInt(sigmask),
-        @sizeOf(sigset_t)
-    );
+    return syscall6(SYS_epoll_pwait, @intCast(usize, epoll_fd), @ptrToInt(events), @intCast(usize, maxevents), @intCast(usize, timeout), @ptrToInt(sigmask), @sizeOf(sigset_t));
 }
 
 pub fn eventfd(count: u32, flags: u32) usize {

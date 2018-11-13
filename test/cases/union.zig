@@ -234,7 +234,7 @@ fn giveMeLetterB(x: Letter2) void {
     assert(x == Value2.B);
 }
 
-pub const PackThis = union(enum){
+pub const PackThis = union(enum) {
     Invalid: bool,
     StringLiteral: u2,
 };
