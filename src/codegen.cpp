@@ -6603,7 +6603,7 @@ static void define_builtin_types(CodeGen *g) {
 
     {
         ZigType *entry = new_type_table_entry(ZigTypeIdErrorSet);
-        buf_init_from_str(&entry->name, "error");
+        buf_init_from_str(&entry->name, "anyerror");
         entry->data.error_set.err_count = UINT32_MAX;
 
         // TODO allow overriding this type and keep track of max value and emit an
@@ -6614,7 +6614,7 @@ static void define_builtin_types(CodeGen *g) {
         entry->type_ref = g->err_tag_type->type_ref;
 
         entry->di_type = ZigLLVMCreateReplaceableCompositeType(g->dbuilder,
-            ZigLLVMTag_DW_enumeration_type(), "error",
+            ZigLLVMTag_DW_enumeration_type(), "anyerror",
             ZigLLVMCompileUnitToScope(g->compile_unit), nullptr, 0);
 
         // reserve index 0 to indicate no error
@@ -6746,14 +6746,14 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     // Modifications to this struct must be coordinated with code that does anything with
     // g->stack_trace_type. There are hard-coded references to the field indexes.
     buf_append_str(contents,
-        "pub const StackTrace = struct.{\n"
+        "pub const StackTrace = struct {\n"
         "    index: usize,\n"
         "    instruction_addresses: []usize,\n"
         "};\n\n");
 
     const char *cur_os = nullptr;
     {
-        buf_appendf(contents, "pub const Os = enum.{\n");
+        buf_appendf(contents, "pub const Os = enum {\n");
         uint32_t field_count = (uint32_t)target_os_count();
         for (uint32_t i = 0; i < field_count; i += 1) {
             Os os_type = get_target_os(i);
@@ -6771,7 +6771,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
 
     const char *cur_arch = nullptr;
     {
-        buf_appendf(contents, "pub const Arch = enum.{\n");
+        buf_appendf(contents, "pub const Arch = enum {\n");
         uint32_t field_count = (uint32_t)target_arch_count();
         for (uint32_t i = 0; i < field_count; i += 1) {
             const ArchType *arch_type = get_target_arch(i);
@@ -6795,7 +6795,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
 
     const char *cur_environ = nullptr;
     {
-        buf_appendf(contents, "pub const Environ = enum.{\n");
+        buf_appendf(contents, "pub const Environ = enum {\n");
         uint32_t field_count = (uint32_t)target_environ_count();
         for (uint32_t i = 0; i < field_count; i += 1) {
             ZigLLVM_EnvironmentType environ_type = get_target_environ(i);
@@ -6813,7 +6813,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
 
     const char *cur_obj_fmt = nullptr;
     {
-        buf_appendf(contents, "pub const ObjectFormat = enum.{\n");
+        buf_appendf(contents, "pub const ObjectFormat = enum {\n");
         uint32_t field_count = (uint32_t)target_oformat_count();
         for (uint32_t i = 0; i < field_count; i += 1) {
             ZigLLVM_ObjectFormatType oformat = get_target_oformat(i);
@@ -6831,7 +6831,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     assert(cur_obj_fmt != nullptr);
 
     {
-        buf_appendf(contents, "pub const GlobalLinkage = enum.{\n");
+        buf_appendf(contents, "pub const GlobalLinkage = enum {\n");
         uint32_t field_count = array_length(global_linkage_values);
         for (uint32_t i = 0; i < field_count; i += 1) {
             const GlobalLinkageValue *value = &global_linkage_values[i];
@@ -6841,7 +6841,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     }
     {
         buf_appendf(contents,
-            "pub const AtomicOrder = enum.{\n"
+            "pub const AtomicOrder = enum {\n"
             "    Unordered,\n"
             "    Monotonic,\n"
             "    Acquire,\n"
@@ -6852,7 +6852,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     }
     {
         buf_appendf(contents,
-            "pub const AtomicRmwOp = enum.{\n"
+            "pub const AtomicRmwOp = enum {\n"
             "    Xchg,\n"
             "    Add,\n"
             "    Sub,\n"
@@ -6866,7 +6866,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     }
     {
         buf_appendf(contents,
-            "pub const Mode = enum.{\n"
+            "pub const Mode = enum {\n"
             "    Debug,\n"
             "    ReleaseSafe,\n"
             "    ReleaseFast,\n"
@@ -6874,7 +6874,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             "};\n\n");
     }
     {
-        buf_appendf(contents, "pub const TypeId = enum.{\n");
+        buf_appendf(contents, "pub const TypeId = enum {\n");
         size_t field_count = type_id_len();
         for (size_t i = 0; i < field_count; i += 1) {
             const ZigTypeId id = type_id_at_index(i);
@@ -6884,7 +6884,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     }
     {
         buf_appendf(contents,
-            "pub const TypeInfo = union(TypeId).{\n"
+            "pub const TypeInfo = union(TypeId) {\n"
             "    Type: void,\n"
             "    Void: void,\n"
             "    Bool: void,\n"
@@ -6910,96 +6910,96 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             "    Opaque: void,\n"
             "    Promise: Promise,\n"
             "\n\n"
-            "    pub const Int = struct.{\n"
+            "    pub const Int = struct {\n"
             "        is_signed: bool,\n"
             "        bits: u8,\n"
             "    };\n"
             "\n"
-            "    pub const Float = struct.{\n"
+            "    pub const Float = struct {\n"
             "        bits: u8,\n"
             "    };\n"
             "\n"
-            "    pub const Pointer = struct.{\n"
+            "    pub const Pointer = struct {\n"
             "        size: Size,\n"
             "        is_const: bool,\n"
             "        is_volatile: bool,\n"
             "        alignment: u32,\n"
             "        child: type,\n"
             "\n"
-            "        pub const Size = enum.{\n"
+            "        pub const Size = enum {\n"
             "            One,\n"
             "            Many,\n"
             "            Slice,\n"
             "        };\n"
             "    };\n"
             "\n"
-            "    pub const Array = struct.{\n"
+            "    pub const Array = struct {\n"
             "        len: usize,\n"
             "        child: type,\n"
             "    };\n"
             "\n"
-            "    pub const ContainerLayout = enum.{\n"
+            "    pub const ContainerLayout = enum {\n"
             "        Auto,\n"
             "        Extern,\n"
             "        Packed,\n"
             "    };\n"
             "\n"
-            "    pub const StructField = struct.{\n"
+            "    pub const StructField = struct {\n"
             "        name: []const u8,\n"
             "        offset: ?usize,\n"
             "        field_type: type,\n"
             "    };\n"
             "\n"
-            "    pub const Struct = struct.{\n"
+            "    pub const Struct = struct {\n"
             "        layout: ContainerLayout,\n"
             "        fields: []StructField,\n"
             "        defs: []Definition,\n"
             "    };\n"
             "\n"
-            "    pub const Optional = struct.{\n"
+            "    pub const Optional = struct {\n"
             "        child: type,\n"
             "    };\n"
             "\n"
-            "    pub const ErrorUnion = struct.{\n"
+            "    pub const ErrorUnion = struct {\n"
             "        error_set: type,\n"
             "        payload: type,\n"
             "    };\n"
             "\n"
-            "    pub const Error = struct.{\n"
+            "    pub const Error = struct {\n"
             "        name: []const u8,\n"
             "        value: usize,\n"
             "    };\n"
             "\n"
-            "    pub const ErrorSet = struct.{\n"
+            "    pub const ErrorSet = struct {\n"
             "        errors: []Error,\n"
             "    };\n"
             "\n"
-            "    pub const EnumField = struct.{\n"
+            "    pub const EnumField = struct {\n"
             "        name: []const u8,\n"
             "        value: usize,\n"
             "    };\n"
             "\n"
-            "    pub const Enum = struct.{\n"
+            "    pub const Enum = struct {\n"
             "        layout: ContainerLayout,\n"
             "        tag_type: type,\n"
             "        fields: []EnumField,\n"
             "        defs: []Definition,\n"
             "    };\n"
             "\n"
-            "    pub const UnionField = struct.{\n"
+            "    pub const UnionField = struct {\n"
             "        name: []const u8,\n"
             "        enum_field: ?EnumField,\n"
             "        field_type: type,\n"
             "    };\n"
             "\n"
-            "    pub const Union = struct.{\n"
+            "    pub const Union = struct {\n"
             "        layout: ContainerLayout,\n"
             "        tag_type: ?type,\n"
             "        fields: []UnionField,\n"
             "        defs: []Definition,\n"
             "    };\n"
             "\n"
-            "    pub const CallingConvention = enum.{\n"
+            "    pub const CallingConvention = enum {\n"
             "        Unspecified,\n"
             "        C,\n"
             "        Cold,\n"
@@ -7008,13 +7008,13 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             "        Async,\n"
             "    };\n"
             "\n"
-            "    pub const FnArg = struct.{\n"
+            "    pub const FnArg = struct {\n"
             "        is_generic: bool,\n"
             "        is_noalias: bool,\n"
             "        arg_type: ?type,\n"
             "    };\n"
             "\n"
-            "    pub const Fn = struct.{\n"
+            "    pub const Fn = struct {\n"
             "        calling_convention: CallingConvention,\n"
             "        is_generic: bool,\n"
             "        is_var_args: bool,\n"
@@ -7023,21 +7023,21 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             "        args: []FnArg,\n"
             "    };\n"
             "\n"
-            "    pub const Promise = struct.{\n"
+            "    pub const Promise = struct {\n"
             "        child: ?type,\n"
             "    };\n"
             "\n"
-            "    pub const Definition = struct.{\n"
+            "    pub const Definition = struct {\n"
             "        name: []const u8,\n"
             "        is_pub: bool,\n"
             "        data: Data,\n"
             "\n"
-            "        pub const Data = union(enum).{\n"
+            "        pub const Data = union(enum) {\n"
             "            Type: type,\n"
             "            Var: type,\n"
             "            Fn: FnDef,\n"
             "\n"
-            "            pub const FnDef = struct.{\n"
+            "            pub const FnDef = struct {\n"
             "                fn_type: type,\n"
             "                inline_type: Inline,\n"
             "                calling_convention: CallingConvention,\n"
@@ -7048,7 +7048,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             "                return_type: type,\n"
             "                arg_names: [][] const u8,\n"
             "\n"
-            "                pub const Inline = enum.{\n"
+            "                pub const Inline = enum {\n"
             "                    Auto,\n"
             "                    Always,\n"
             "                    Never,\n"
@@ -7074,7 +7074,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     }
     {
         buf_appendf(contents,
-            "pub const FloatMode = enum.{\n"
+            "pub const FloatMode = enum {\n"
             "    Strict,\n"
             "    Optimized,\n"
             "};\n\n");
@@ -7083,7 +7083,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     }
     {
         buf_appendf(contents,
-            "pub const Endian = enum.{\n"
+            "pub const Endian = enum {\n"
             "    Big,\n"
             "    Little,\n"
             "};\n\n");

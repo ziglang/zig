@@ -58,12 +58,12 @@ pub fn main() !void {
     try buffered_out_stream.flush();
 }
 
-const Token = struct.{
+const Token = struct {
     id: Id,
     start: usize,
     end: usize,
 
-    const Id = enum.{
+    const Id = enum {
         Invalid,
         Content,
         BracketOpen,
@@ -74,14 +74,14 @@ const Token = struct.{
     };
 };
 
-const Tokenizer = struct.{
+const Tokenizer = struct {
     buffer: []const u8,
     index: usize,
     state: State,
     source_file_name: []const u8,
     code_node_count: usize,
 
-    const State = enum.{
+    const State = enum {
         Start,
         LBracket,
         Hash,
@@ -90,7 +90,7 @@ const Tokenizer = struct.{
     };
 
     fn init(source_file_name: []const u8, buffer: []const u8) Tokenizer {
-        return Tokenizer.{
+        return Tokenizer{
             .buffer = buffer,
             .index = 0,
             .state = State.Start,
@@ -100,7 +100,7 @@ const Tokenizer = struct.{
     }
 
     fn next(self: *Tokenizer) Token {
-        var result = Token.{
+        var result = Token{
             .id = Token.Id.Eof,
             .start = self.index,
             .end = undefined,
@@ -184,7 +184,7 @@ const Tokenizer = struct.{
         return result;
     }
 
-    const Location = struct.{
+    const Location = struct {
         line: usize,
         column: usize,
         line_start: usize,
@@ -192,7 +192,7 @@ const Tokenizer = struct.{
     };
 
     fn getTokenLocation(self: *Tokenizer, token: Token) Location {
-        var loc = Location.{
+        var loc = Location{
             .line = 0,
             .column = 0,
             .line_start = 0,
@@ -216,7 +216,7 @@ const Tokenizer = struct.{
     }
 };
 
-fn parseError(tokenizer: *Tokenizer, token: Token, comptime fmt: []const u8, args: ...) error {
+fn parseError(tokenizer: *Tokenizer, token: Token, comptime fmt: []const u8, args: ...) anyerror {
     const loc = tokenizer.getTokenLocation(token);
     warn("{}:{}:{}: error: " ++ fmt ++ "\n", tokenizer.source_file_name, loc.line + 1, loc.column + 1, args);
     if (loc.line_start <= loc.line_end) {
@@ -251,23 +251,23 @@ fn eatToken(tokenizer: *Tokenizer, id: Token.Id) !Token {
     return token;
 }
 
-const HeaderOpen = struct.{
+const HeaderOpen = struct {
     name: []const u8,
     url: []const u8,
     n: usize,
 };
 
-const SeeAlsoItem = struct.{
+const SeeAlsoItem = struct {
     name: []const u8,
     token: Token,
 };
 
-const ExpectedOutcome = enum.{
+const ExpectedOutcome = enum {
     Succeed,
     Fail,
 };
 
-const Code = struct.{
+const Code = struct {
     id: Id,
     name: []const u8,
     source_token: Token,
@@ -277,7 +277,7 @@ const Code = struct.{
     target_windows: bool,
     link_libc: bool,
 
-    const Id = union(enum).{
+    const Id = union(enum) {
         Test,
         TestError: []const u8,
         TestSafety: []const u8,
@@ -286,13 +286,13 @@ const Code = struct.{
     };
 };
 
-const Link = struct.{
+const Link = struct {
     url: []const u8,
     name: []const u8,
     token: Token,
 };
 
-const Node = union(enum).{
+const Node = union(enum) {
     Content: []const u8,
     Nav,
     Builtin: Token,
@@ -303,13 +303,13 @@ const Node = union(enum).{
     Syntax: Token,
 };
 
-const Toc = struct.{
+const Toc = struct {
     nodes: []Node,
     toc: []u8,
     urls: std.HashMap([]const u8, Token, mem.hash_slice_u8, mem.eql_slice_u8),
 };
 
-const Action = enum.{
+const Action = enum {
     Open,
     Close,
 };
@@ -343,7 +343,7 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                 break;
             },
             Token.Id.Content => {
-                try nodes.append(Node.{ .Content = tokenizer.buffer[token.start..token.end] });
+                try nodes.append(Node{ .Content = tokenizer.buffer[token.start..token.end] });
             },
             Token.Id.BracketOpen => {
                 const tag_token = try eatToken(tokenizer, Token.Id.TagContent);
@@ -355,7 +355,7 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                     try nodes.append(Node.Nav);
                 } else if (mem.eql(u8, tag_name, "builtin")) {
                     _ = try eatToken(tokenizer, Token.Id.BracketClose);
-                    try nodes.append(Node.{ .Builtin = tag_token });
+                    try nodes.append(Node{ .Builtin = tag_token });
                 } else if (mem.eql(u8, tag_name, "header_open")) {
                     _ = try eatToken(tokenizer, Token.Id.Separator);
                     const content_token = try eatToken(tokenizer, Token.Id.TagContent);
@@ -365,8 +365,8 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                     header_stack_size += 1;
 
                     const urlized = try urlize(allocator, content);
-                    try nodes.append(Node.{
-                        .HeaderOpen = HeaderOpen.{
+                    try nodes.append(Node{
+                        .HeaderOpen = HeaderOpen{
                             .name = content,
                             .url = urlized,
                             .n = header_stack_size,
@@ -409,14 +409,14 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                         switch (see_also_tok.id) {
                             Token.Id.TagContent => {
                                 const content = tokenizer.buffer[see_also_tok.start..see_also_tok.end];
-                                try list.append(SeeAlsoItem.{
+                                try list.append(SeeAlsoItem{
                                     .name = content,
                                     .token = see_also_tok,
                                 });
                             },
                             Token.Id.Separator => {},
                             Token.Id.BracketClose => {
-                                try nodes.append(Node.{ .SeeAlso = list.toOwnedSlice() });
+                                try nodes.append(Node{ .SeeAlso = list.toOwnedSlice() });
                                 break;
                             },
                             else => return parseError(tokenizer, see_also_tok, "invalid see_also token"),
@@ -440,8 +440,8 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                         }
                     };
 
-                    try nodes.append(Node.{
-                        .Link = Link.{
+                    try nodes.append(Node{
+                        .Link = Link{
                             .url = try urlize(allocator, url_name),
                             .name = name,
                             .token = name_tok,
@@ -465,24 +465,24 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                     var code_kind_id: Code.Id = undefined;
                     var is_inline = false;
                     if (mem.eql(u8, code_kind_str, "exe")) {
-                        code_kind_id = Code.Id.{ .Exe = ExpectedOutcome.Succeed };
+                        code_kind_id = Code.Id{ .Exe = ExpectedOutcome.Succeed };
                     } else if (mem.eql(u8, code_kind_str, "exe_err")) {
-                        code_kind_id = Code.Id.{ .Exe = ExpectedOutcome.Fail };
+                        code_kind_id = Code.Id{ .Exe = ExpectedOutcome.Fail };
                     } else if (mem.eql(u8, code_kind_str, "test")) {
                         code_kind_id = Code.Id.Test;
                     } else if (mem.eql(u8, code_kind_str, "test_err")) {
-                        code_kind_id = Code.Id.{ .TestError = name };
+                        code_kind_id = Code.Id{ .TestError = name };
                         name = "test";
                     } else if (mem.eql(u8, code_kind_str, "test_safety")) {
-                        code_kind_id = Code.Id.{ .TestSafety = name };
+                        code_kind_id = Code.Id{ .TestSafety = name };
                         name = "test";
                     } else if (mem.eql(u8, code_kind_str, "obj")) {
-                        code_kind_id = Code.Id.{ .Obj = null };
+                        code_kind_id = Code.Id{ .Obj = null };
                     } else if (mem.eql(u8, code_kind_str, "obj_err")) {
-                        code_kind_id = Code.Id.{ .Obj = name };
+                        code_kind_id = Code.Id{ .Obj = name };
                         name = "test";
                     } else if (mem.eql(u8, code_kind_str, "syntax")) {
-                        code_kind_id = Code.Id.{ .Obj = null };
+                        code_kind_id = Code.Id{ .Obj = null };
                         is_inline = true;
                     } else {
                         return parseError(tokenizer, code_kind_tok, "unrecognized code kind: {}", code_kind_str);
@@ -518,8 +518,8 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                         _ = try eatToken(tokenizer, Token.Id.BracketClose);
                     } else
                         unreachable; // TODO issue #707
-                    try nodes.append(Node.{
-                        .Code = Code.{
+                    try nodes.append(Node{
+                        .Code = Code{
                             .id = code_kind_id,
                             .name = name,
                             .source_token = source_token,
@@ -541,7 +541,7 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                         return parseError(tokenizer, end_syntax_tag, "invalid token inside syntax: {}", end_tag_name);
                     }
                     _ = try eatToken(tokenizer, Token.Id.BracketClose);
-                    try nodes.append(Node.{ .Syntax = content_tok });
+                    try nodes.append(Node{ .Syntax = content_tok });
                 } else {
                     return parseError(tokenizer, tag_token, "unrecognized tag name: {}", tag_name);
                 }
@@ -550,7 +550,7 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
         }
     }
 
-    return Toc.{
+    return Toc{
         .nodes = nodes.toOwnedSlice(),
         .toc = toc_buf.toOwnedSlice(),
         .urls = urls,
@@ -606,7 +606,7 @@ fn writeEscaped(out: var, input: []const u8) !void {
 //#define VT_BOLD "\x1b[0;1m"
 //#define VT_RESET "\x1b[0m"
 
-const TermState = enum.{
+const TermState = enum {
     Start,
     Escape,
     LBracket,
@@ -703,7 +703,7 @@ fn termColor(allocator: *mem.Allocator, input: []const u8) ![]u8 {
     return buf.toOwnedSlice();
 }
 
-const builtin_types = [][]const u8.{
+const builtin_types = [][]const u8{
     "f16", "f32", "f64", "f128", "c_longdouble", "c_short",
     "c_ushort", "c_int", "c_uint", "c_long", "c_ulong", "c_longlong",
     "c_ulonglong", "c_char", "c_void", "void", "bool", "isize",
@@ -735,6 +735,7 @@ fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: var, source_token: Tok
 
             std.zig.Token.Id.Keyword_align,
             std.zig.Token.Id.Keyword_and,
+            std.zig.Token.Id.Keyword_anyerror,
             std.zig.Token.Id.Keyword_asm,
             std.zig.Token.Id.Keyword_async,
             std.zig.Token.Id.Keyword_await,
@@ -998,7 +999,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         const tmp_bin_file_name = try os.path.join(allocator, tmp_dir_name, name_plus_bin_ext);
                         var build_args = std.ArrayList([]const u8).init(allocator);
                         defer build_args.deinit();
-                        try build_args.appendSlice([][]const u8.{
+                        try build_args.appendSlice([][]const u8{
                             zig_exe,
                             "build-exe",
                             tmp_source_file_name,
@@ -1035,7 +1036,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         }
                         _ = exec(allocator, &env_map, build_args.toSliceConst()) catch return parseError(tokenizer, code.source_token, "example failed to compile");
 
-                        const run_args = [][]const u8.{tmp_bin_file_name};
+                        const run_args = [][]const u8{tmp_bin_file_name};
 
                         const result = if (expected_outcome == ExpectedOutcome.Fail) blk: {
                             const result = try os.ChildProcess.exec(allocator, run_args, null, &env_map, max_doc_file_size);
@@ -1069,7 +1070,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         var test_args = std.ArrayList([]const u8).init(allocator);
                         defer test_args.deinit();
 
-                        try test_args.appendSlice([][]const u8.{
+                        try test_args.appendSlice([][]const u8{
                             zig_exe,
                             "test",
                             tmp_source_file_name,
@@ -1093,7 +1094,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             },
                         }
                         if (code.target_windows) {
-                            try test_args.appendSlice([][]const u8.{
+                            try test_args.appendSlice([][]const u8{
                                 "--target-os",
                                 "windows",
                                 "--target-arch",
@@ -1111,7 +1112,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         var test_args = std.ArrayList([]const u8).init(allocator);
                         defer test_args.deinit();
 
-                        try test_args.appendSlice([][]const u8.{
+                        try test_args.appendSlice([][]const u8{
                             zig_exe,
                             "test",
                             "--color",
@@ -1170,7 +1171,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         var test_args = std.ArrayList([]const u8).init(allocator);
                         defer test_args.deinit();
 
-                        try test_args.appendSlice([][]const u8.{
+                        try test_args.appendSlice([][]const u8{
                             zig_exe,
                             "test",
                             tmp_source_file_name,
@@ -1222,7 +1223,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         const name_plus_h_ext = try std.fmt.allocPrint(allocator, "{}.h", code.name);
                         const output_h_file_name = try os.path.join(allocator, tmp_dir_name, name_plus_h_ext);
 
-                        try build_args.appendSlice([][]const u8.{
+                        try build_args.appendSlice([][]const u8{
                             zig_exe,
                             "build-obj",
                             tmp_source_file_name,
@@ -1332,7 +1333,7 @@ fn exec(allocator: *mem.Allocator, env_map: *std.BufMap, args: []const []const u
 }
 
 fn getBuiltinCode(allocator: *mem.Allocator, env_map: *std.BufMap, zig_exe: []const u8) ![]const u8 {
-    const result = try exec(allocator, env_map, []const []const u8.{
+    const result = try exec(allocator, env_map, []const []const u8{
         zig_exe,
         "builtin",
     });

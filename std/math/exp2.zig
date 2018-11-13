@@ -16,7 +16,7 @@ pub fn exp2(x: var) @typeOf(x) {
     };
 }
 
-const exp2ft = []const f64.{
+const exp2ft = []const f64{
     0x1.6a09e667f3bcdp-1,
     0x1.7a11473eb0187p-1,
     0x1.8ace5422aa0dbp-1,
@@ -90,7 +90,7 @@ fn exp2_32(x: f32) f32 {
     return @floatCast(f32, r * uk);
 }
 
-const exp2dt = []f64.{
+const exp2dt = []f64{
     //  exp2(z + eps)          eps
     0x1.6a09e667f3d5dp-1, 0x1.9880p-44,
     0x1.6b052fa751744p-1, 0x1.8000p-50,

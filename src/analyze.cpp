@@ -100,7 +100,7 @@ void init_scope(CodeGen *g, Scope *dest, ScopeId id, AstNode *source_node, Scope
 }
 
 ScopeDecls *create_decls_scope(CodeGen *g, AstNode *node, Scope *parent, ZigType *container_type, ImportTableEntry *import) {
-    assert(node == nullptr || node->type == NodeTypeRoot || node->type == NodeTypeContainerDecl || node->type == NodeTypeFnCallExpr);
+    assert(node == nullptr || node->type == NodeTypeContainerDecl || node->type == NodeTypeFnCallExpr);
     ScopeDecls *scope = allocate<ScopeDecls>(1);
     init_scope(g, &scope->base, ScopeIdDecls, node, parent);
     scope->decl_table.init(4);
@@ -3399,9 +3399,9 @@ void update_compile_var(CodeGen *g, Buf *name, ConstExprValue *value) {
 
 void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
     switch (node->type) {
-        case NodeTypeRoot:
-            for (size_t i = 0; i < node->data.root.top_level_decls.length; i += 1) {
-                AstNode *child = node->data.root.top_level_decls.at(i);
+        case NodeTypeContainerDecl:
+            for (size_t i = 0; i < node->data.container_decl.decls.length; i += 1) {
+                AstNode *child = node->data.container_decl.decls.at(i);
                 scan_decls(g, decls_scope, child);
             }
             break;
@@ -3448,7 +3448,6 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeCompTime:
             preview_comptime_decl(g, node, decls_scope);
             break;
-        case NodeTypeContainerDecl:
         case NodeTypeParamDecl:
         case NodeTypeReturnExpr:
         case NodeTypeDefer:
@@ -4337,9 +4336,9 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *r
     import_entry->decls_scope = create_decls_scope(g, import_entry->root, nullptr, nullptr, import_entry);
 
 
-    assert(import_entry->root->type == NodeTypeRoot);
-    for (size_t decl_i = 0; decl_i < import_entry->root->data.root.top_level_decls.length; decl_i += 1) {
-        AstNode *top_level_decl = import_entry->root->data.root.top_level_decls.at(decl_i);
+    assert(import_entry->root->type == NodeTypeContainerDecl);
+    for (size_t decl_i = 0; decl_i < import_entry->root->data.container_decl.decls.length; decl_i += 1) {
+        AstNode *top_level_decl = import_entry->root->data.container_decl.decls.at(decl_i);
 
         if (top_level_decl->type == NodeTypeFnDef) {
             AstNode *proto_node = top_level_decl->data.fn_def.fn_proto;

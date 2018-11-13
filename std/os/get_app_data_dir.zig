@@ -4,7 +4,7 @@ const unicode = std.unicode;
 const mem = std.mem;
 const os = std.os;
 
-pub const GetAppDataDirError = error.{
+pub const GetAppDataDirError = error{
     OutOfMemory,
     AppDataDirUnavailable,
 };
@@ -67,3 +67,4 @@ test "std.os.getAppDataDir" {
     // We can't actually validate the result
     _ = getAppDataDir(allocator, "zig") catch return;
 }
+

@@ -6,17 +6,17 @@ const Allocator = mem.Allocator;
 
 /// Generic doubly linked list.
 pub fn LinkedList(comptime T: type) type {
-    return struct.{
+    return struct {
         const Self = @This();
 
         /// Node inside the linked list wrapping the actual data.
-        pub const Node = struct.{
+        pub const Node = struct {
             prev: ?*Node,
             next: ?*Node,
             data: T,
 
             pub fn init(data: T) Node {
-                return Node.{
+                return Node{
                     .prev = null,
                     .next = null,
                     .data = data,
@@ -33,7 +33,7 @@ pub fn LinkedList(comptime T: type) type {
         /// Returns:
         ///     An empty linked list.
         pub fn init() Self {
-            return Self.{
+            return Self{
                 .first = null,
                 .last = null,
                 .len = 0,

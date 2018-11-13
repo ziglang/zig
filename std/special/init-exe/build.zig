@@ -6,7 +6,7 @@ pub fn build(b: *Builder) void {
     exe.setBuildMode(mode);
 
     const run_step = b.step("run", "Run the app");
-    const run_cmd = b.addCommand(".", b.env_map, [][]const u8.{exe.getOutputPath()});
+    const run_cmd = b.addCommand(".", b.env_map, [][]const u8{exe.getOutputPath()});
     run_step.dependOn(&run_cmd.step);
     run_cmd.step.dependOn(&exe.step);
 

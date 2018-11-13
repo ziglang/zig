@@ -10,7 +10,7 @@ pub fn ArrayList(comptime T: type) type {
 }
 
 pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
-    return struct.{
+    return struct {
         const Self = @This();
 
         /// Use toSlice instead of slicing this directly, because if you don't
@@ -22,8 +22,8 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
 
         /// Deinitialize with `deinit` or use `toOwnedSlice`.
         pub fn init(allocator: *Allocator) Self {
-            return Self.{
-                .items = []align(A) T.{},
+            return Self{
+                .items = []align(A) T{},
                 .len = 0,
                 .allocator = allocator,
             };
@@ -70,7 +70,7 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
         /// allocated with `allocator`.
         /// Deinitialize with `deinit` or use `toOwnedSlice`.
         pub fn fromOwnedSlice(allocator: *Allocator, slice: []align(A) T) Self {
-            return Self.{
+            return Self{
                 .items = slice,
                 .len = slice.len,
                 .allocator = allocator,
@@ -179,7 +179,7 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
             return self.pop();
         }
 
-        pub const Iterator = struct.{
+        pub const Iterator = struct {
             list: *const Self,
             // how many items have we returned
             count: usize,
@@ -197,7 +197,7 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
         };
 
         pub fn iterator(self: *const Self) Iterator {
-            return Iterator.{
+            return Iterator{
                 .list = self,
                 .count = 0,
             };
@@ -251,7 +251,7 @@ test "std.ArrayList.basic" {
     assert(list.pop() == 10);
     assert(list.len == 9);
 
-    list.appendSlice([]const i32.{
+    list.appendSlice([]const i32{
         1,
         2,
         3,
@@ -262,7 +262,7 @@ test "std.ArrayList.basic" {
     assert(list.pop() == 1);
     assert(list.len == 9);
 
-    list.appendSlice([]const i32.{}) catch unreachable;
+    list.appendSlice([]const i32{}) catch unreachable;
     assert(list.len == 9);
 
     // can only set on indices < self.len
@@ -382,7 +382,7 @@ test "std.ArrayList.insertSlice" {
     try list.append(2);
     try list.append(3);
     try list.append(4);
-    try list.insertSlice(1, []const i32.{
+    try list.insertSlice(1, []const i32{
         9,
         8,
     });
@@ -393,7 +393,7 @@ test "std.ArrayList.insertSlice" {
     assert(list.items[4] == 3);
     assert(list.items[5] == 4);
 
-    const items = []const i32.{1};
+    const items = []const i32{1};
     try list.insertSlice(0, items[0..0]);
     assert(list.len == 6);
     assert(list.items[0] == 1);

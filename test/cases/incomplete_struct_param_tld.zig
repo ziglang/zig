@@ -1,14 +1,14 @@
 const assert = @import("std").debug.assert;
 
-const A = struct.{
+const A = struct {
     b: B,
 };
 
-const B = struct.{
+const B = struct {
     c: C,
 };
 
-const C = struct.{
+const C = struct {
     x: i32,
 
     fn d(c: *const C) i32 {
@@ -21,9 +21,9 @@ fn foo(a: A) i32 {
 }
 
 test "incomplete struct param top level declaration" {
-    const a = A.{
-        .b = B.{
-            .c = C.{ .x = 13 },
+    const a = A{
+        .b = B{
+            .c = C{ .x = 13 },
         },
     };
     assert(foo(a) == 13);

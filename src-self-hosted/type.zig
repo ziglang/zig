@@ -8,13 +8,13 @@ const event = std.event;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
-pub const Type = struct.{
+pub const Type = struct {
     base: Value,
     id: Id,
     name: []const u8,
     abi_alignment: AbiAlignment,
 
-    pub const AbiAlignment = event.Future(error.{OutOfMemory}!u32);
+    pub const AbiAlignment = event.Future(error{OutOfMemory}!u32);
 
     pub const Id = builtin.TypeId;
 
@@ -51,7 +51,7 @@ pub const Type = struct.{
         base: *Type,
         allocator: *Allocator,
         llvm_context: llvm.ContextRef,
-    ) (error.{OutOfMemory}!llvm.TypeRef) {
+    ) (error{OutOfMemory}!llvm.TypeRef) {
         switch (base.id) {
             Id.Struct => return @fieldParentPtr(Struct, "base", base).getLlvmType(allocator, llvm_context),
             Id.Fn => return @fieldParentPtr(Fn, "base", base).getLlvmType(allocator, llvm_context),
@@ -162,8 +162,8 @@ pub const Type = struct.{
     }
 
     fn init(base: *Type, comp: *Compilation, id: Id, name: []const u8) void {
-        base.* = Type.{
-            .base = Value.{
+        base.* = Type{
+            .base = Value{
                 .id = Value.Id.Type,
                 .typ = &MetaType.get(comp).base,
                 .ref_count = std.atomic.Int(usize).init(1),
@@ -206,7 +206,7 @@ pub const Type = struct.{
         return @intCast(u32, llvm.ABIAlignmentOfType(comp.target_data_ref, llvm_type));
     }
 
-    pub const Struct = struct.{
+    pub const Struct = struct {
         base: Type,
         decls: *Scope.Decls,
 
@@ -219,47 +219,47 @@ pub const Type = struct.{
         }
     };
 
-    pub const Fn = struct.{
+    pub const Fn = struct {
         base: Type,
         key: Key,
         non_key: NonKey,
         garbage_node: std.atomic.Stack(*Fn).Node,
 
-        pub const Kind = enum.{
+        pub const Kind = enum {
             Normal,
             Generic,
         };
 
-        pub const NonKey = union.{
+        pub const NonKey = union {
             Normal: Normal,
             Generic: void,
 
-            pub const Normal = struct.{
+            pub const Normal = struct {
                 variable_list: std.ArrayList(*Scope.Var),
             };
         };
 
-        pub const Key = struct.{
+        pub const Key = struct {
             data: Data,
             alignment: ?u32,
 
-            pub const Data = union(Kind).{
+            pub const Data = union(Kind) {
                 Generic: Generic,
                 Normal: Normal,
             };
 
-            pub const Normal = struct.{
+            pub const Normal = struct {
                 params: []Param,
                 return_type: *Type,
                 is_var_args: bool,
                 cc: CallingConvention,
             };
 
-            pub const Generic = struct.{
+            pub const Generic = struct {
                 param_count: usize,
                 cc: CC,
 
-                pub const CC = union(CallingConvention).{
+                pub const CC = union(CallingConvention) {
                     Auto,
                     C,
                     Cold,
@@ -362,7 +362,7 @@ pub const Type = struct.{
             }
         };
 
-        pub const CallingConvention = enum.{
+        pub const CallingConvention = enum {
             Auto,
             C,
             Cold,
@@ -371,7 +371,7 @@ pub const Type = struct.{
             Async,
         };
 
-        pub const Param = struct.{
+        pub const Param = struct {
             is_noalias: bool,
             typ: *Type,
         };
@@ -410,7 +410,7 @@ pub const Type = struct.{
             errdefer key.deref(comp);
 
             const self = try comp.gpa().createOne(Fn);
-            self.* = Fn.{
+            self.* = Fn{
                 .base = undefined,
                 .key = key,
                 .non_key = undefined,
@@ -425,7 +425,7 @@ pub const Type = struct.{
 
             switch (key.data) {
                 Kind.Generic => |generic| {
-                    self.non_key = NonKey.{ .Generic = {} };
+                    self.non_key = NonKey{ .Generic = {} };
                     switch (generic.cc) {
                         CallingConvention.Async => |async_allocator_type| {
                             try name_stream.print("async<{}> ", async_allocator_type.name);
@@ -448,8 +448,8 @@ pub const Type = struct.{
                     try name_stream.write(" var");
                 },
                 Kind.Normal => |normal| {
-                    self.non_key = NonKey.{
-                        .Normal = NonKey.Normal.{ .variable_list = std.ArrayList(*Scope.Var).init(comp.gpa()) },
+                    self.non_key = NonKey{
+                        .Normal = NonKey.Normal{ .variable_list = std.ArrayList(*Scope.Var).init(comp.gpa()) },
                     };
                     const cc_str = ccFnTypeStr(normal.cc);
                     try name_stream.print("{}fn(", cc_str);
@@ -513,7 +513,7 @@ pub const Type = struct.{
         }
     };
 
-    pub const MetaType = struct.{
+    pub const MetaType = struct {
         base: Type,
         value: *Type,
 
@@ -528,7 +528,7 @@ pub const Type = struct.{
         }
     };
 
-    pub const Void = struct.{
+    pub const Void = struct {
         base: Type,
 
         /// Adds 1 reference to the resulting type
@@ -542,7 +542,7 @@ pub const Type = struct.{
         }
     };
 
-    pub const Bool = struct.{
+    pub const Bool = struct {
         base: Type,
 
         /// Adds 1 reference to the resulting type
@@ -560,7 +560,7 @@ pub const Type = struct.{
         }
     };
 
-    pub const NoReturn = struct.{
+    pub const NoReturn = struct {
         base: Type,
 
         /// Adds 1 reference to the resulting type
@@ -574,12 +574,12 @@ pub const Type = struct.{
         }
     };
 
-    pub const Int = struct.{
+    pub const Int = struct {
         base: Type,
         key: Key,
         garbage_node: std.atomic.Stack(*Int).Node,
 
-        pub const Key = struct.{
+        pub const Key = struct {
             bit_count: u32,
             is_signed: bool,
 
@@ -611,7 +611,7 @@ pub const Type = struct.{
                 }
             }
 
-            const self = try comp.gpa().create(Int.{
+            const self = try comp.gpa().create(Int{
                 .base = undefined,
                 .key = key,
                 .garbage_node = undefined,
@@ -634,7 +634,7 @@ pub const Type = struct.{
         }
 
         pub fn destroy(self: *Int, comp: *Compilation) void {
-            self.garbage_node = std.atomic.Stack(*Int).Node.{
+            self.garbage_node = std.atomic.Stack(*Int).Node{
                 .data = self,
                 .next = undefined,
             };
@@ -658,7 +658,7 @@ pub const Type = struct.{
         }
     };
 
-    pub const Float = struct.{
+    pub const Float = struct {
         base: Type,
 
         pub fn destroy(self: *Float, comp: *Compilation) void {
@@ -669,12 +669,12 @@ pub const Type = struct.{
             @panic("TODO");
         }
     };
-    pub const Pointer = struct.{
+    pub const Pointer = struct {
         base: Type,
         key: Key,
         garbage_node: std.atomic.Stack(*Pointer).Node,
 
-        pub const Key = struct.{
+        pub const Key = struct {
             child_type: *Type,
             mut: Mut,
             vol: Vol,
@@ -710,17 +710,17 @@ pub const Type = struct.{
             }
         };
 
-        pub const Mut = enum.{
+        pub const Mut = enum {
             Mut,
             Const,
         };
 
-        pub const Vol = enum.{
+        pub const Vol = enum {
             Non,
             Volatile,
         };
 
-        pub const Align = union(enum).{
+        pub const Align = union(enum) {
             Abi,
             Override: u32,
         };
@@ -728,7 +728,7 @@ pub const Type = struct.{
         pub const Size = builtin.TypeInfo.Pointer.Size;
 
         pub fn destroy(self: *Pointer, comp: *Compilation) void {
-            self.garbage_node = std.atomic.Stack(*Pointer).Node.{
+            self.garbage_node = std.atomic.Stack(*Pointer).Node{
                 .data = self,
                 .next = undefined,
             };
@@ -777,7 +777,7 @@ pub const Type = struct.{
                 }
             }
 
-            const self = try comp.gpa().create(Pointer.{
+            const self = try comp.gpa().create(Pointer{
                 .base = undefined,
                 .key = normal_key,
                 .garbage_node = undefined,
@@ -835,12 +835,12 @@ pub const Type = struct.{
         }
     };
 
-    pub const Array = struct.{
+    pub const Array = struct {
         base: Type,
         key: Key,
         garbage_node: std.atomic.Stack(*Array).Node,
 
-        pub const Key = struct.{
+        pub const Key = struct {
             elem_type: *Type,
             len: usize,
 
@@ -875,7 +875,7 @@ pub const Type = struct.{
                 }
             }
 
-            const self = try comp.gpa().create(Array.{
+            const self = try comp.gpa().create(Array{
                 .base = undefined,
                 .key = key,
                 .garbage_node = undefined,
@@ -902,7 +902,7 @@ pub const Type = struct.{
         }
     };
 
-    pub const ComptimeFloat = struct.{
+    pub const ComptimeFloat = struct {
         base: Type,
 
         pub fn destroy(self: *ComptimeFloat, comp: *Compilation) void {
@@ -910,7 +910,7 @@ pub const Type = struct.{
         }
     };
 
-    pub const ComptimeInt = struct.{
+    pub const ComptimeInt = struct {
         base: Type,
 
         /// Adds 1 reference to the resulting type
@@ -924,7 +924,7 @@ pub const Type = struct.{
         }
     };
 
-    pub const Undefined = struct.{
+    pub const Undefined = struct {
         base: Type,
 
         pub fn destroy(self: *Undefined, comp: *Compilation) void {
@@ -932,7 +932,7 @@ pub const Type = struct.{
         }
     };
 
-    pub const Null = struct.{
+    pub const Null = struct {
         base: Type,
 
         pub fn destroy(self: *Null, comp: *Compilation) void {
@@ -940,7 +940,7 @@ pub const Type = struct.{
         }
     };
 
-    pub const Optional = struct.{
+    pub const Optional = struct {
         base: Type,
 
         pub fn destroy(self: *Optional, comp: *Compilation) void {
@@ -952,7 +952,7 @@ pub const Type = struct.{
         }
     };
 
-    pub const ErrorUnion = struct.{
+    pub const ErrorUnion = struct {
         base: Type,
 
         pub fn destroy(self: *ErrorUnion, comp: *Compilation) void {
@@ -964,7 +964,7 @@ pub const Type = struct.{
         }
     };
 
-    pub const ErrorSet = struct.{
+    pub const ErrorSet = struct {
         base: Type,
 
         pub fn destroy(self: *ErrorSet, comp: *Compilation) void {
@@ -976,7 +976,7 @@ pub const Type = struct.{
         }
     };
 
-    pub const Enum = struct.{
+    pub const Enum = struct {
         base: Type,
 
         pub fn destroy(self: *Enum, comp: *Compilation) void {
@@ -988,7 +988,7 @@ pub const Type = struct.{
         }
     };
 
-    pub const Union = struct.{
+    pub const Union = struct {
         base: Type,
 
         pub fn destroy(self: *Union, comp: *Compilation) void {
@@ -1000,7 +1000,7 @@ pub const Type = struct.{
         }
     };
 
-    pub const Namespace = struct.{
+    pub const Namespace = struct {
         base: Type,
 
         pub fn destroy(self: *Namespace, comp: *Compilation) void {
@@ -1008,7 +1008,7 @@ pub const Type = struct.{
         }
     };
 
-    pub const BoundFn = struct.{
+    pub const BoundFn = struct {
         base: Type,
 
         pub fn destroy(self: *BoundFn, comp: *Compilation) void {
@@ -1020,7 +1020,7 @@ pub const Type = struct.{
         }
     };
 
-    pub const ArgTuple = struct.{
+    pub const ArgTuple = struct {
         base: Type,
 
         pub fn destroy(self: *ArgTuple, comp: *Compilation) void {
@@ -1028,7 +1028,7 @@ pub const Type = struct.{
         }
     };
 
-    pub const Opaque = struct.{
+    pub const Opaque = struct {
         base: Type,
 
         pub fn destroy(self: *Opaque, comp: *Compilation) void {
@@ -1040,7 +1040,7 @@ pub const Type = struct.{
         }
     };
 
-    pub const Promise = struct.{
+    pub const Promise = struct {
         base: Type,
 
         pub fn destroy(self: *Promise, comp: *Compilation) void {
@@ -1074,7 +1074,7 @@ fn hashAny(x: var, comptime seed: u64) u32 {
         builtin.TypeId.Enum => return hashAny(@enumToInt(x), seed),
         builtin.TypeId.Bool => {
             comptime var rng = comptime std.rand.DefaultPrng.init(seed);
-            const vals = comptime [2]u32.{ rng.random.scalar(u32), rng.random.scalar(u32) };
+            const vals = comptime [2]u32{ rng.random.scalar(u32), rng.random.scalar(u32) };
             return vals[@boolToInt(x)];
         },
         builtin.TypeId.Optional => {

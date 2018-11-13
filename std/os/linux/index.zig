@@ -685,7 +685,7 @@ pub fn WIFSIGNALED(s: i32) bool {
     return (unsigned(s) & 0xffff) -% 1 < 0xff;
 }
 
-pub const winsize = extern struct.{
+pub const winsize = extern struct {
     ws_row: u16,
     ws_col: u16,
     ws_xpixel: u16,
@@ -1072,7 +1072,7 @@ pub fn sigaction(sig: u6, noalias act: *const Sigaction, noalias oact: ?*Sigacti
     assert(sig >= 1);
     assert(sig != SIGKILL);
     assert(sig != SIGSTOP);
-    var ksa = k_sigaction.{
+    var ksa = k_sigaction{
         .handler = act.handler,
         .flags = act.flags | SA_RESTORER,
         .mask = undefined,
@@ -1095,10 +1095,10 @@ pub fn sigaction(sig: u6, noalias act: *const Sigaction, noalias oact: ?*Sigacti
 
 const NSIG = 65;
 const sigset_t = [128 / @sizeOf(usize)]usize;
-const all_mask = []usize.{maxInt(usize)};
-const app_mask = []usize.{0xfffffffc7fffffff};
+const all_mask = []usize{maxInt(usize)};
+const app_mask = []usize{0xfffffffc7fffffff};
 
-const k_sigaction = extern struct.{
+const k_sigaction = extern struct {
     handler: extern fn (i32) void,
     flags: usize,
     restorer: extern fn () void,
@@ -1106,7 +1106,7 @@ const k_sigaction = extern struct.{
 };
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
-pub const Sigaction = struct.{
+pub const Sigaction = struct {
     handler: extern fn (i32) void,
     mask: sigset_t,
     flags: u32,
@@ -1115,7 +1115,7 @@ pub const Sigaction = struct.{
 pub const SIG_ERR = @intToPtr(extern fn (i32) void, maxInt(usize));
 pub const SIG_DFL = @intToPtr(extern fn (i32) void, 0);
 pub const SIG_IGN = @intToPtr(extern fn (i32) void, 1);
-pub const empty_sigset = []usize.{0} ** sigset_t.len;
+pub const empty_sigset = []usize{0} ** sigset_t.len;
 
 pub fn raise(sig: i32) usize {
     var set: sigset_t = undefined;
@@ -1153,19 +1153,19 @@ pub const sa_family_t = u16;
 pub const socklen_t = u32;
 
 /// This intentionally only has ip4 and ip6
-pub const sockaddr = extern union.{
+pub const sockaddr = extern union {
     in: sockaddr_in,
     in6: sockaddr_in6,
 };
 
-pub const sockaddr_in = extern struct.{
+pub const sockaddr_in = extern struct {
     family: sa_family_t,
     port: in_port_t,
     addr: u32,
     zero: [8]u8,
 };
 
-pub const sockaddr_in6 = extern struct.{
+pub const sockaddr_in6 = extern struct {
     family: sa_family_t,
     port: in_port_t,
     flowinfo: u32,
@@ -1173,17 +1173,17 @@ pub const sockaddr_in6 = extern struct.{
     scope_id: u32,
 };
 
-pub const sockaddr_un = extern struct.{
+pub const sockaddr_un = extern struct {
     family: sa_family_t,
     path: [108]u8,
 };
 
-pub const iovec = extern struct.{
+pub const iovec = extern struct {
     iov_base: [*]u8,
     iov_len: usize,
 };
 
-pub const iovec_const = extern struct.{
+pub const iovec_const = extern struct {
     iov_base: [*]const u8,
     iov_len: usize,
 };
@@ -1334,14 +1334,14 @@ pub fn sched_getaffinity(pid: i32, set: []usize) usize {
     return syscall3(SYS_sched_getaffinity, @bitCast(usize, isize(pid)), set.len * @sizeOf(usize), @ptrToInt(set.ptr));
 }
 
-pub const epoll_data = packed union.{
+pub const epoll_data = packed union {
     ptr: usize,
     fd: i32,
     @"u32": u32,
     @"u64": u64,
 };
 
-pub const epoll_event = packed struct.{
+pub const epoll_event = packed struct {
     events: u32,
     data: epoll_data,
 };
@@ -1374,7 +1374,7 @@ pub fn timerfd_create(clockid: i32, flags: u32) usize {
     return syscall2(SYS_timerfd_create, @intCast(usize, clockid), flags);
 }
 
-pub const itimerspec = extern struct.{
+pub const itimerspec = extern struct {
     it_interval: timespec,
     it_value: timespec,
 };
@@ -1413,10 +1413,10 @@ pub const XATTR_CAPS_SZ = XATTR_CAPS_SZ_2;
 pub const VFS_CAP_U32 = VFS_CAP_U32_2;
 pub const VFS_CAP_REVISION = VFS_CAP_REVISION_2;
 
-pub const vfs_cap_data = extern struct.{
+pub const vfs_cap_data = extern struct {
     //all of these are mandated as little endian
     //when on disk.
-    const Data = struct.{
+    const Data = struct {
         permitted: u32,
         inheritable: u32,
     };
@@ -1477,17 +1477,17 @@ pub fn CAP_TO_INDEX(cap: u8) u8 {
     return cap >> 5;
 }
 
-pub const cap_t = extern struct.{
+pub const cap_t = extern struct {
     hdrp: *cap_user_header_t,
     datap: *cap_user_data_t,
 };
 
-pub const cap_user_header_t = extern struct.{
+pub const cap_user_header_t = extern struct {
     version: u32,
     pid: usize,
 };
 
-pub const cap_user_data_t = extern struct.{
+pub const cap_user_data_t = extern struct {
     effective: u32,
     permitted: u32,
     inheritable: u32,
@@ -1505,7 +1505,7 @@ pub fn capset(hdrp: *cap_user_header_t, datap: *const cap_user_data_t) usize {
     return syscall2(SYS_capset, @ptrToInt(hdrp), @ptrToInt(datap));
 }
 
-pub const inotify_event = extern struct.{
+pub const inotify_event = extern struct {
     wd: i32,
     mask: u32,
     cookie: u32,
@@ -1513,7 +1513,7 @@ pub const inotify_event = extern struct.{
     //name: [?]u8,
 };
 
-pub const dirent64 = extern struct.{
+pub const dirent64 = extern struct {
     d_ino: u64,
     d_off: u64,
     d_reclen: u16,

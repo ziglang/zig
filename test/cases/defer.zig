@@ -66,11 +66,11 @@ test "errdefer does not apply to fn inside fn" {
     if (testNestedFnErrDefer()) |_| @panic("expected error") else |e| assert(e == error.Bad);
 }
 
-fn testNestedFnErrDefer() error!void {
+fn testNestedFnErrDefer() anyerror!void {
     var a: i32 = 0;
     errdefer a += 1;
-    const S = struct.{
-        fn baz() error {
+    const S = struct {
+        fn baz() anyerror {
             return error.Bad;
         }
     };

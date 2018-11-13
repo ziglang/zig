@@ -11,7 +11,7 @@ const Loop = std.event.Loop;
 /// and then are resumed when resolve() is called.
 /// At this point the value remains forever available, and another resolve() is not allowed.
 pub fn Future(comptime T: type) type {
-    return struct.{
+    return struct {
         lock: Lock,
         data: T,
 
@@ -25,7 +25,7 @@ pub fn Future(comptime T: type) type {
         const Queue = std.atomic.Queue(promise);
 
         pub fn init(loop: *Loop) Self {
-            return Self.{
+            return Self{
                 .lock = Lock.initLocked(loop),
                 .available = 0,
                 .data = undefined,
@@ -78,7 +78,7 @@ pub fn Future(comptime T: type) type {
         pub fn resolve(self: *Self) void {
             const prev = @atomicRmw(u8, &self.available, AtomicRmwOp.Xchg, 2, AtomicOrder.SeqCst);
             assert(prev == 0 or prev == 1); // resolve() called twice
-            Lock.Held.release(Lock.Held.{ .lock = &self.lock });
+            Lock.Held.release(Lock.Held{ .lock = &self.lock });
         }
     };
 }

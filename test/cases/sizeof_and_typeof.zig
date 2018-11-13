@@ -8,7 +8,7 @@ test "@sizeOf and @typeOf" {
 const x: u16 = 13;
 const z: @typeOf(x) = 19;
 
-const A = struct.{
+const A = struct {
     a: u8,
     b: u32,
     c: u8,
@@ -18,7 +18,7 @@ const A = struct.{
     g: u16,
 };
 
-const P = packed struct.{
+const P = packed struct {
     a: u8,
     b: u32,
     c: u8,

@@ -194,12 +194,26 @@ struct Optional {
     static inline Optional<T> some(T x) {
         return {x, true};
     }
+
+    static inline Optional<T> none() {
+        return {{}, false};
+    }
+
+    inline bool unwrap(T *res) {
+        *res = value;
+        return is_some;
+    }
 };
 
 template<typename T>
 struct Slice {
     T *ptr;
     size_t len;
+
+    inline T &at(size_t i) {
+        assert(i < len);
+        return &ptr[i];
+    }
 
     inline Slice<T> slice(size_t start, size_t end) {
         assert(end <= len);
@@ -220,6 +234,19 @@ struct Slice {
 
     static inline Slice<T> alloc(size_t n) {
         return {allocate_nonzero<T>(n), n};
+    }
+};
+
+template<typename T, size_t n>
+struct Array {
+    static const size_t len = n;
+    T items[n];
+
+    inline Slice<T> slice() {
+        return {
+            &items[0],
+            len,
+        };
     }
 };
 

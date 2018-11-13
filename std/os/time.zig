@@ -28,7 +28,7 @@ pub fn sleep(nanoseconds: u64) void {
 }
 
 pub fn posixSleep(seconds: u63, nanoseconds: u63) void {
-    var req = posix.timespec.{
+    var req = posix.timespec{
         .tv_sec = seconds,
         .tv_nsec = nanoseconds,
     };
@@ -129,7 +129,7 @@ pub const s_per_week = s_per_day * 7;
 /// .resolution is in nanoseconds on all platforms but .start_time's meaning
 ///   depends on the OS. On Windows and Darwin it is a hardware counter
 ///   value that requires calculation to convert to a meaninful unit.
-pub const Timer = struct.{
+pub const Timer = struct {
 
     //if we used resolution's value when performing the
     //  performance counter calc on windows/darwin, it would
@@ -159,7 +159,7 @@ pub const Timer = struct.{
     //  impossible here barring cosmic rays or other such occurances of
     //  incredibly bad luck.
     //On Darwin: This cannot fail, as far as I am able to tell.
-    const TimerError = error.{
+    const TimerError = error{
         TimerUnsupported,
         Unexpected,
     };

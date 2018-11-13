@@ -71,7 +71,7 @@ fn fma64(x: f64, y: f64, z: f64) f64 {
     }
 }
 
-const dd = struct.{
+const dd = struct {
     hi: f64,
     lo: f64,
 };

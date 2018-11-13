@@ -10,7 +10,7 @@ const linux = std.os.linux;
 /// tries to acquire the same mutex twice, it deadlocks.
 /// The Linux implementation is based on mutex3 from
 /// https://www.akkadia.org/drepper/futex.pdf
-pub const Mutex = struct.{
+pub const Mutex = struct {
     /// 0: unlocked
     /// 1: locked, no waiters
     /// 2: locked, one or more waiters
@@ -22,7 +22,7 @@ pub const Mutex = struct.{
     const linux_lock_init = if (builtin.os == builtin.Os.linux) i32(0) else {};
     const spin_lock_init = if (builtin.os != builtin.Os.linux) SpinLock.init() else {};
 
-    pub const Held = struct.{
+    pub const Held = struct {
         mutex: *Mutex,
 
         pub fn release(self: Held) void {
@@ -38,13 +38,13 @@ pub const Mutex = struct.{
                     }
                 }
             } else {
-                SpinLock.Held.release(SpinLock.Held.{ .spinlock = &self.mutex.spin_lock });
+                SpinLock.Held.release(SpinLock.Held{ .spinlock = &self.mutex.spin_lock });
             }
         }
     };
 
     pub fn init() Mutex {
-        return Mutex.{
+        return Mutex{
             .linux_lock = linux_lock_init,
             .spin_lock = spin_lock_init,
         };
@@ -53,7 +53,7 @@ pub const Mutex = struct.{
     pub fn acquire(self: *Mutex) Held {
         if (builtin.os == builtin.Os.linux) {
             var c = @cmpxchgWeak(i32, &self.linux_lock, 0, 1, AtomicOrder.Acquire, AtomicOrder.Monotonic) orelse
-                return Held.{ .mutex = self };
+                return Held{ .mutex = self };
             if (c != 2)
                 c = @atomicRmw(i32, &self.linux_lock, AtomicRmwOp.Xchg, 2, AtomicOrder.Acquire);
             while (c != 0) {
@@ -68,11 +68,11 @@ pub const Mutex = struct.{
         } else {
             _ = self.spin_lock.acquire();
         }
-        return Held.{ .mutex = self };
+        return Held{ .mutex = self };
     }
 };
 
-const Context = struct.{
+const Context = struct {
     mutex: *Mutex,
     data: i128,
 
@@ -90,7 +90,7 @@ test "std.Mutex" {
     var a = &fixed_buffer_allocator.allocator;
 
     var mutex = Mutex.init();
-    var context = Context.{
+    var context = Context{
         .mutex = &mutex,
         .data = 0,
     };

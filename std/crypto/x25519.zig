@@ -11,7 +11,7 @@ const readInt = std.mem.readInt;
 const writeInt = std.mem.writeInt;
 
 // Based on Supercop's ref10 implementation.
-pub const X25519 = struct.{
+pub const X25519 = struct {
     pub const secret_length = 32;
     pub const minimum_key_length = 32;
 
@@ -116,7 +116,7 @@ pub const X25519 = struct.{
     }
 
     pub fn createPublicKey(public_key: []u8, private_key: []const u8) bool {
-        var base_point = []u8.{9} ++ []u8.{0} ** 31;
+        var base_point = []u8{9} ++ []u8{0} ** 31;
         return create(public_key, private_key, base_point);
     }
 };
@@ -137,7 +137,7 @@ fn zerocmp(comptime T: type, a: []const T) bool {
 //  A bit bigger than TweetNaCl, over 4 times faster.
 
 // field element
-const Fe = struct.{
+const Fe = struct {
     b: [10]i32,
 
     fn secureZero(self: *Fe) void {

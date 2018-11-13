@@ -28,7 +28,7 @@ pub const DefaultPrng = Xoroshiro128;
 // When you need cryptographically secure random numbers
 pub const DefaultCsprng = Isaac64;
 
-pub const Random = struct.{
+pub const Random = struct {
     fillFn: fn (r: *Random, buf: []u8) void,
 
     /// Read random bytes into the specified buffer until full.
@@ -206,14 +206,14 @@ pub const Random = struct.{
     }
 };
 
-const SequentialPrng = struct.{
+const SequentialPrng = struct {
     const Self = @This();
     random: Random,
     next_value: u8,
 
     pub fn init() Self {
-        return Self.{
-            .random = Random.{ .fillFn = fill },
+        return Self{
+            .random = Random{ .fillFn = fill },
             .next_value = 0,
         };
     }
@@ -365,11 +365,11 @@ fn testRandomIntAtMost() void {
 //
 // The number of cycles is thus limited to 64-bits regardless of the engine, but this
 // is still plenty for practical purposes.
-const SplitMix64 = struct.{
+const SplitMix64 = struct {
     s: u64,
 
     pub fn init(seed: u64) SplitMix64 {
-        return SplitMix64.{ .s = seed };
+        return SplitMix64{ .s = seed };
     }
 
     pub fn next(self: *SplitMix64) u64 {
@@ -385,7 +385,7 @@ const SplitMix64 = struct.{
 test "splitmix64 sequence" {
     var r = SplitMix64.init(0xaeecf86f7878dd75);
 
-    const seq = []const u64.{
+    const seq = []const u64{
         0x5dbd39db0178eb44,
         0xa9900fb66b397da3,
         0x5c1a28b1aeebcf5c,
@@ -402,7 +402,7 @@ test "splitmix64 sequence" {
 // PCG32 - http://www.pcg-random.org/
 //
 // PRNG
-pub const Pcg = struct.{
+pub const Pcg = struct {
     const default_multiplier = 6364136223846793005;
 
     random: Random,
@@ -411,8 +411,8 @@ pub const Pcg = struct.{
     i: u64,
 
     pub fn init(init_s: u64) Pcg {
-        var pcg = Pcg.{
-            .random = Random.{ .fillFn = fill },
+        var pcg = Pcg{
+            .random = Random{ .fillFn = fill },
             .s = undefined,
             .i = undefined,
         };
@@ -478,7 +478,7 @@ test "pcg sequence" {
     const s1: u64 = 0x84e9c579ef59bbf7;
     r.seedTwo(s0, s1);
 
-    const seq = []const u32.{
+    const seq = []const u32{
         2881561918,
         3063928540,
         1199791034,
@@ -495,14 +495,14 @@ test "pcg sequence" {
 // Xoroshiro128+ - http://xoroshiro.di.unimi.it/
 //
 // PRNG
-pub const Xoroshiro128 = struct.{
+pub const Xoroshiro128 = struct {
     random: Random,
 
     s: [2]u64,
 
     pub fn init(init_s: u64) Xoroshiro128 {
-        var x = Xoroshiro128.{
-            .random = Random.{ .fillFn = fill },
+        var x = Xoroshiro128{
+            .random = Random{ .fillFn = fill },
             .s = undefined,
         };
 
@@ -527,7 +527,7 @@ pub const Xoroshiro128 = struct.{
         var s0: u64 = 0;
         var s1: u64 = 0;
 
-        const table = []const u64.{
+        const table = []const u64{
             0xbeac0467eba5facb,
             0xd86b048b86aa9922,
         };
@@ -587,7 +587,7 @@ test "xoroshiro sequence" {
     r.s[0] = 0xaeecf86f7878dd75;
     r.s[1] = 0x01cd153642e72622;
 
-    const seq1 = []const u64.{
+    const seq1 = []const u64{
         0xb0ba0da5bb600397,
         0x18a08afde614dccc,
         0xa2635b956a31b929,
@@ -602,7 +602,7 @@ test "xoroshiro sequence" {
 
     r.jump();
 
-    const seq2 = []const u64.{
+    const seq2 = []const u64{
         0x95344a13556d3e22,
         0xb4fb32dafa4d00df,
         0xb2011d9ccdcfe2dd,
@@ -622,7 +622,7 @@ test "xoroshiro sequence" {
 //
 // Follows the general idea of the implementation from here with a few shortcuts.
 // https://doc.rust-lang.org/rand/src/rand/prng/isaac64.rs.html
-pub const Isaac64 = struct.{
+pub const Isaac64 = struct {
     random: Random,
 
     r: [256]u64,
@@ -633,8 +633,8 @@ pub const Isaac64 = struct.{
     i: usize,
 
     pub fn init(init_s: u64) Isaac64 {
-        var isaac = Isaac64.{
-            .random = Random.{ .fillFn = fill },
+        var isaac = Isaac64{
+            .random = Random{ .fillFn = fill },
             .r = undefined,
             .m = undefined,
             .a = undefined,
@@ -705,7 +705,7 @@ pub const Isaac64 = struct.{
         self.m[0] = init_s;
 
         // prescrambled golden ratio constants
-        var a = []const u64.{
+        var a = []const u64{
             0x647c4677a2884b7c,
             0xb9f8b322c73ac862,
             0x8c0ea5053d4712a0,
@@ -795,7 +795,7 @@ test "isaac64 sequence" {
     var r = Isaac64.init(0);
 
     // from reference implementation
-    const seq = []const u64.{
+    const seq = []const u64{
         0xf67dfba498e4937c,
         0x84a5066a9204f380,
         0xfee34bd5f5514dbb,
@@ -838,8 +838,8 @@ test "Random float" {
 test "Random shuffle" {
     var prng = DefaultPrng.init(0);
 
-    var seq = []const u8.{ 0, 1, 2, 3, 4 };
-    var seen = []bool.{false} ** 5;
+    var seq = []const u8{ 0, 1, 2, 3, 4 };
+    var seen = []bool{false} ** 5;
 
     var i: usize = 0;
     while (i < 1000) : (i += 1) {
@@ -871,7 +871,7 @@ test "Random range" {
 
 fn testRange(r: *Random, start: i8, end: i8) void {
     const count = @intCast(usize, i32(end) - i32(start));
-    var values_buffer = []bool.{false} ** 0x100;
+    var values_buffer = []bool{false} ** 0x100;
     const values = values_buffer[0..count];
     var i: usize = 0;
     while (i < count) {

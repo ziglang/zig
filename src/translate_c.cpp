@@ -445,7 +445,7 @@ static AstNode *get_global(Context *c, Buf *name) {
 
 static void add_top_level_decl(Context *c, Buf *name, AstNode *node) {
     c->global_table.put(name, node);
-    c->root->data.root.top_level_decls.append(node);
+    c->root->data.container_decl.decls.append(node);
 }
 
 static AstNode *add_global_var(Context *c, Buf *var_name, AstNode *value_node) {
@@ -4855,7 +4855,8 @@ Error parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const 
 
     c->ctx = &ast_unit->getASTContext();
     c->source_manager = &ast_unit->getSourceManager();
-    c->root = trans_create_node(c, NodeTypeRoot);
+    c->root = trans_create_node(c, NodeTypeContainerDecl);
+    c->root->data.container_decl.is_root = true;
 
     ast_unit->visitLocalTopLevelDecls(c, decl_visitor);
 

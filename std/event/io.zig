@@ -5,7 +5,7 @@ const assert = std.debug.assert;
 const mem = std.mem;
 
 pub fn InStream(comptime ReadError: type) type {
-    return struct.{
+    return struct {
         const Self = @This();
         pub const Error = ReadError;
 
@@ -62,7 +62,7 @@ pub fn InStream(comptime ReadError: type) type {
 }
 
 pub fn OutStream(comptime WriteError: type) type {
-    return struct.{
+    return struct {
         const Self = @This();
         pub const Error = WriteError;
 

@@ -223,12 +223,12 @@ fn test_u64_div() void {
     assert(result.remainder == 100663296);
 }
 fn divWithResult(a: u64, b: u64) DivResult {
-    return DivResult.{
+    return DivResult{
         .quotient = a / b,
         .remainder = a % b,
     };
 }
-const DivResult = struct.{
+const DivResult = struct {
     quotient: u64,
     remainder: u64,
 };

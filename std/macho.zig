@@ -1,4 +1,4 @@
-pub const mach_header = extern struct.{
+pub const mach_header = extern struct {
     magic: u32,
     cputype: cpu_type_t,
     cpusubtype: cpu_subtype_t,
@@ -8,7 +8,7 @@ pub const mach_header = extern struct.{
     flags: u32,
 };
 
-pub const mach_header_64 = extern struct.{
+pub const mach_header_64 = extern struct {
     magic: u32,
     cputype: cpu_type_t,
     cpusubtype: cpu_subtype_t,
@@ -19,7 +19,7 @@ pub const mach_header_64 = extern struct.{
     reserved: u32,
 };
 
-pub const load_command = extern struct.{
+pub const load_command = extern struct {
     cmd: u32,
     cmdsize: u32,
 };
@@ -27,7 +27,7 @@ pub const load_command = extern struct.{
 /// The symtab_command contains the offsets and sizes of the link-edit 4.3BSD
 /// "stab" style symbol table information as described in the header files
 /// <nlist.h> and <stab.h>.
-pub const symtab_command = extern struct.{
+pub const symtab_command = extern struct {
     /// LC_SYMTAB
     cmd: u32,
 
@@ -49,7 +49,7 @@ pub const symtab_command = extern struct.{
 
 /// The linkedit_data_command contains the offsets and sizes of a blob
 /// of data in the __LINKEDIT segment.
-const linkedit_data_command = extern struct.{
+const linkedit_data_command = extern struct {
     /// LC_CODE_SIGNATURE, LC_SEGMENT_SPLIT_INFO, LC_FUNCTION_STARTS, LC_DATA_IN_CODE, LC_DYLIB_CODE_SIGN_DRS or LC_LINKER_OPTIMIZATION_HINT.
     cmd: u32,
 
@@ -73,7 +73,7 @@ const linkedit_data_command = extern struct.{
 /// by the maxprot and initprot fields.  If the segment has sections then the
 /// section structures directly follow the segment command and their size is
 /// reflected in cmdsize.
-pub const segment_command = extern struct.{
+pub const segment_command = extern struct {
     /// LC_SEGMENT
     cmd: u32,
 
@@ -110,7 +110,7 @@ pub const segment_command = extern struct.{
 /// mapped into a 64-bit task's address space.  If the 64-bit segment has
 /// sections then section_64 structures directly follow the 64-bit segment
 /// command and their size is reflected in cmdsize.
-pub const segment_command_64 = extern struct.{
+pub const segment_command_64 = extern struct {
     /// LC_SEGMENT_64
     cmd: u32,
 
@@ -168,7 +168,7 @@ pub const segment_command_64 = extern struct.{
 /// The format of the relocation entries referenced by the reloff and nreloc
 /// fields of the section structure for mach object files is described in the
 /// header file <reloc.h>.
-pub const @"section" = extern struct.{
+pub const @"section" = extern struct {
     /// name of this section
     sectname: [16]u8,
 
@@ -203,7 +203,7 @@ pub const @"section" = extern struct.{
     reserved2: u32,
 };
 
-pub const section_64 = extern struct.{
+pub const section_64 = extern struct {
     /// name of this section
     sectname: [16]u8,
 
@@ -241,7 +241,7 @@ pub const section_64 = extern struct.{
     reserved3: u32,
 };
 
-pub const nlist = extern struct.{
+pub const nlist = extern struct {
     n_strx: u32,
     n_type: u8,
     n_sect: u8,
@@ -249,7 +249,7 @@ pub const nlist = extern struct.{
     n_value: u32,
 };
 
-pub const nlist_64 = extern struct.{
+pub const nlist_64 = extern struct {
     n_strx: u32,
     n_type: u8,
     n_sect: u8,

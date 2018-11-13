@@ -10,7 +10,7 @@ const coff = std.coff;
 const ArrayList = std.ArrayList;
 
 // https://llvm.org/docs/PDB/DbiStream.html#stream-header
-pub const DbiStreamHeader = packed struct.{
+pub const DbiStreamHeader = packed struct {
     VersionSignature: i32,
     VersionHeader: u32,
     Age: u32,
@@ -33,7 +33,7 @@ pub const DbiStreamHeader = packed struct.{
     Padding: u32,
 };
 
-pub const SectionContribEntry = packed struct.{
+pub const SectionContribEntry = packed struct {
     Section: u16,
     Padding1: [2]u8,
     Offset: u32,
@@ -45,7 +45,7 @@ pub const SectionContribEntry = packed struct.{
     RelocCrc: u32,
 };
 
-pub const ModInfo = packed struct.{
+pub const ModInfo = packed struct {
     Unused1: u32,
     SectionContr: SectionContribEntry,
     Flags: u16,
@@ -63,7 +63,7 @@ pub const ModInfo = packed struct.{
     //ObjFileName: char[],
 };
 
-pub const SectionMapHeader = packed struct.{
+pub const SectionMapHeader = packed struct {
     /// Number of segment descriptors
     Count: u16,
 
@@ -71,7 +71,7 @@ pub const SectionMapHeader = packed struct.{
     LogCount: u16,
 };
 
-pub const SectionMapEntry = packed struct.{
+pub const SectionMapEntry = packed struct {
     /// See the SectionMapEntryFlags enum below.
     Flags: u16,
 
@@ -95,7 +95,7 @@ pub const SectionMapEntry = packed struct.{
     SectionLength: u32,
 };
 
-pub const StreamType = enum(u16).{
+pub const StreamType = enum(u16) {
     Pdb = 1,
     Tpi = 2,
     Dbi = 3,
@@ -104,7 +104,7 @@ pub const StreamType = enum(u16).{
 
 /// Duplicate copy of SymbolRecordKind, but using the official CV names. Useful
 /// for reference purposes and when dealing with unknown record types.
-pub const SymbolKind = packed enum(u16).{
+pub const SymbolKind = packed enum(u16) {
     S_COMPILE = 1,
     S_REGISTER_16t = 2,
     S_CONSTANT_16t = 3,
@@ -305,7 +305,7 @@ pub const SymbolKind = packed enum(u16).{
 
 pub const TypeIndex = u32;
 
-pub const ProcSym = packed struct.{
+pub const ProcSym = packed struct {
     Parent: u32,
     End: u32,
     Next: u32,
@@ -320,7 +320,7 @@ pub const ProcSym = packed struct.{
     // Name: [*]u8,
 };
 
-pub const ProcSymFlags = packed struct.{
+pub const ProcSymFlags = packed struct {
     HasFP: bool,
     HasIRET: bool,
     HasFRET: bool,
@@ -331,12 +331,12 @@ pub const ProcSymFlags = packed struct.{
     HasOptimizedDebugInfo: bool,
 };
 
-pub const SectionContrSubstreamVersion = enum(u32).{
+pub const SectionContrSubstreamVersion = enum(u32) {
     Ver60 = 0xeffe0000 + 19970605,
     V2 = 0xeffe0000 + 20140516,
 };
 
-pub const RecordPrefix = packed struct.{
+pub const RecordPrefix = packed struct {
     /// Record length, starting from &RecordKind.
     RecordLen: u16,
 
@@ -344,7 +344,7 @@ pub const RecordPrefix = packed struct.{
     RecordKind: SymbolKind,
 };
 
-pub const LineFragmentHeader = packed struct.{
+pub const LineFragmentHeader = packed struct {
     /// Code offset of line contribution.
     RelocOffset: u32,
 
@@ -356,7 +356,7 @@ pub const LineFragmentHeader = packed struct.{
     CodeSize: u32,
 };
 
-pub const LineFlags = packed struct.{
+pub const LineFlags = packed struct {
     /// CV_LINES_HAVE_COLUMNS
     LF_HaveColumns: bool,
     unused: u15,
@@ -366,7 +366,7 @@ pub const LineFlags = packed struct.{
 /// header.  The structure definitions follow.
 /// LineNumberEntry   Lines[NumLines];
 /// ColumnNumberEntry Columns[NumLines];
-pub const LineBlockFragmentHeader = packed struct.{
+pub const LineBlockFragmentHeader = packed struct {
     /// Offset of FileChecksum entry in File
     /// checksums buffer.  The checksum entry then
     /// contains another offset into the string
@@ -378,26 +378,26 @@ pub const LineBlockFragmentHeader = packed struct.{
     BlockSize: u32,
 };
 
-pub const LineNumberEntry = packed struct.{
+pub const LineNumberEntry = packed struct {
     /// Offset to start of code bytes for line number
     Offset: u32,
     Flags: u32,
 
     /// TODO runtime crash when I make the actual type of Flags this
-    const Flags = packed struct.{
+    const Flags = packed struct {
         Start: u24,
         End: u7,
         IsStatement: bool,
     };
 };
 
-pub const ColumnNumberEntry = packed struct.{
+pub const ColumnNumberEntry = packed struct {
     StartColumn: u16,
     EndColumn: u16,
 };
 
 /// Checksum bytes follow.
-pub const FileChecksumEntryHeader = packed struct.{
+pub const FileChecksumEntryHeader = packed struct {
     /// Byte offset of filename in global string table.
     FileNameOffset: u32,
 
@@ -408,7 +408,7 @@ pub const FileChecksumEntryHeader = packed struct.{
     ChecksumKind: u8,
 };
 
-pub const DebugSubsectionKind = packed enum(u32).{
+pub const DebugSubsectionKind = packed enum(u32) {
     None = 0,
     Symbols = 0xf1,
     Lines = 0xf2,
@@ -428,7 +428,7 @@ pub const DebugSubsectionKind = packed enum(u32).{
     CoffSymbolRVA = 0xfd,
 };
 
-pub const DebugSubsectionHeader = packed struct.{
+pub const DebugSubsectionHeader = packed struct {
     /// codeview::DebugSubsectionKind enum
     Kind: DebugSubsectionKind,
 
@@ -436,7 +436,7 @@ pub const DebugSubsectionHeader = packed struct.{
     Length: u32,
 };
 
-pub const PDBStringTableHeader = packed struct.{
+pub const PDBStringTableHeader = packed struct {
     /// PDBStringTableSignature
     Signature: u32,
 
@@ -447,7 +447,7 @@ pub const PDBStringTableHeader = packed struct.{
     ByteSize: u32,
 };
 
-pub const Pdb = struct.{
+pub const Pdb = struct {
     in_file: os.File,
     allocator: *mem.Allocator,
     coff: *coff.Coff,
@@ -477,7 +477,7 @@ pub const Pdb = struct.{
 };
 
 // see https://llvm.org/docs/PDB/MsfFile.html
-const Msf = struct.{
+const Msf = struct {
     directory: MsfStream,
     streams: []MsfStream,
 
@@ -535,7 +535,7 @@ fn blockCountFromSize(size: u32, block_size: u32) u32 {
 }
 
 // https://llvm.org/docs/PDB/MsfFile.html#the-superblock
-const SuperBlock = packed struct.{
+const SuperBlock = packed struct {
     /// The LLVM docs list a space between C / C++ but empirically this is not the case.
     const file_magic = "Microsoft C/C++ MSF 7.00\r\n\x1a\x44\x53\x00\x00\x00";
 
@@ -576,7 +576,7 @@ const SuperBlock = packed struct.{
     BlockMapAddr: u32,
 };
 
-const MsfStream = struct.{
+const MsfStream = struct {
     in_file: os.File,
     pos: usize,
     blocks: []u32,
@@ -589,12 +589,12 @@ const MsfStream = struct.{
     pub const Stream = io.InStream(Error);
 
     fn init(block_size: u32, block_count: u32, pos: usize, file: os.File, allocator: *mem.Allocator) !MsfStream {
-        var stream = MsfStream.{
+        var stream = MsfStream{
             .in_file = file,
             .pos = 0,
             .blocks = try allocator.alloc(u32, block_count),
             .block_size = block_size,
-            .stream = Stream.{ .readFn = readFn },
+            .stream = Stream{ .readFn = readFn },
         };
 
         var file_stream = file.inStream();

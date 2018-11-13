@@ -5,7 +5,7 @@ const assert = std.debug.assert;
 ////  IPC structures  ////
 //////////////////////////
 
-pub const Message = struct.{
+pub const Message = struct {
     sender: MailboxId,
     receiver: MailboxId,
     code: usize,
@@ -13,7 +13,7 @@ pub const Message = struct.{
     payload: ?[]const u8,
 
     pub fn from(mailbox_id: *const MailboxId) Message {
-        return Message.{
+        return Message{
             .sender = MailboxId.Undefined,
             .receiver = mailbox_id.*,
             .code = undefined,
@@ -23,7 +23,7 @@ pub const Message = struct.{
     }
 
     pub fn to(mailbox_id: *const MailboxId, msg_code: usize, args: ...) Message {
-        var message = Message.{
+        var message = Message{
             .sender = MailboxId.This,
             .receiver = mailbox_id.*,
             .code = msg_code,
@@ -53,7 +53,7 @@ pub const Message = struct.{
     }
 };
 
-pub const MailboxId = union(enum).{
+pub const MailboxId = union(enum) {
     Undefined,
     This,
     Kernel,
@@ -65,9 +65,9 @@ pub const MailboxId = union(enum).{
 ////  Ports reserved for servers  ////
 //////////////////////////////////////
 
-pub const Server = struct.{
-    pub const Keyboard = MailboxId.{ .Port = 0 };
-    pub const Terminal = MailboxId.{ .Port = 1 };
+pub const Server = struct {
+    pub const Keyboard = MailboxId{ .Port = 0 };
+    pub const Terminal = MailboxId{ .Port = 1 };
 };
 
 ////////////////////////
@@ -122,7 +122,7 @@ pub fn write(fd: i32, buf: [*]const u8, count: usize) usize {
 ////  Syscall numbers  ////
 ///////////////////////////
 
-pub const Syscall = enum(usize).{
+pub const Syscall = enum(usize) {
     exit = 0,
     send = 1,
     receive = 2,

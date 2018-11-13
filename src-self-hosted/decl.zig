@@ -10,7 +10,7 @@ const errmsg = @import("errmsg.zig");
 const Scope = @import("scope.zig").Scope;
 const Compilation = @import("compilation.zig").Compilation;
 
-pub const Decl = struct.{
+pub const Decl = struct {
     id: Id,
     name: []const u8,
     visib: Visib,
@@ -44,7 +44,7 @@ pub const Decl = struct.{
                 const fn_proto = fn_decl.fn_proto;
                 const start = fn_proto.fn_token;
                 const end = fn_proto.name_token orelse start;
-                return errmsg.Span.{
+                return errmsg.Span{
                     .first = start,
                     .last = end + 1,
                 };
@@ -57,23 +57,23 @@ pub const Decl = struct.{
         return base.parent_scope.findRoot();
     }
 
-    pub const Id = enum.{
+    pub const Id = enum {
         Var,
         Fn,
         CompTime,
     };
 
-    pub const Var = struct.{
+    pub const Var = struct {
         base: Decl,
     };
 
-    pub const Fn = struct.{
+    pub const Fn = struct {
         base: Decl,
         value: Val,
         fn_proto: *ast.Node.FnProto,
 
         // TODO https://github.com/ziglang/zig/issues/683 and then make this anonymous
-        pub const Val = union(enum).{
+        pub const Val = union(enum) {
             Unresolved: void,
             Fn: *Value.Fn,
             FnProto: *Value.FnProto,
@@ -99,7 +99,7 @@ pub const Decl = struct.{
         }
     };
 
-    pub const CompTime = struct.{
+    pub const CompTime = struct {
         base: Decl,
     };
 };

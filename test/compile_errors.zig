@@ -26,7 +26,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "compile error when evaluating return type of inferred error set",
-        \\const Car = struct.{
+        \\const Car = struct {
         \\    foo: *SymbolThatDoesNotExist,
         \\    pub fn init() !Car {}
         \\};
@@ -51,7 +51,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "runtime index into comptime type slice",
-        \\const Struct = struct.{
+        \\const Struct = struct {
         \\    a: u32,
         \\};
         \\fn getIndex() usize {
@@ -92,7 +92,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "implicit cast const array to mutable slice",
         \\export fn entry() void {
-        \\    const buffer: [1]u8 = []u8.{8};
+        \\    const buffer: [1]u8 = []u8{8};
         \\    const sliceA: []u8 = &buffer;
         \\}
     ,
@@ -138,11 +138,11 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const Errors = u8 || u16;
         \\}
         \\export fn bar() void {
-        \\    const Errors = error.{} || u16;
+        \\    const Errors = error{} || u16;
         \\}
     ,
         ".tmp_source.zig:2:20: error: expected error set type, found 'u8'",
-        ".tmp_source.zig:5:32: error: expected error set type, found 'u16'",
+        ".tmp_source.zig:5:31: error: expected error set type, found 'u16'",
     );
 
     cases.add(
@@ -152,7 +152,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\fn Gen() type {
         \\    const X = Undeclared();
-        \\    return struct.{
+        \\    return struct {
         \\        x: X,
         \\    };
         \\}
@@ -177,7 +177,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "accessing runtime parameter from outer function",
         \\fn outer(y: u32) fn (u32) u32 {
-        \\    const st = struct.{
+        \\    const st = struct {
         \\        fn get(z: u32) u32 {
         \\            return z + y;
         \\        }
@@ -235,7 +235,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "invalid type used in array type",
-        \\const Item = struct.{
+        \\const Item = struct {
         \\    field: SomeNonexistentType,
         \\};
         \\var items: [100]Item = undefined;
@@ -278,7 +278,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "comptime continue inside runtime while error",
         \\export fn entry() void {
-        \\    var p: error!usize = undefined;
+        \\    var p: anyerror!usize = undefined;
         \\    comptime var q = true;
         \\    outer: inline while (q) {
         \\        while (p) |_| {
@@ -325,7 +325,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "comptime continue inside runtime if error",
         \\export fn entry() void {
-        \\    var p: error!i32 = undefined;
+        \\    var p: anyerror!i32 = undefined;
         \\    comptime var q = true;
         \\    inline while (q) {
         \\        if (p) |_| continue else |_| {}
@@ -395,7 +395,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "@typeInfo causing depend on itself compile error",
-        \\const start = struct.{
+        \\const start = struct {
         \\    fn crash() bug() {
         \\        return bug;
         \\    }
@@ -445,8 +445,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "`_` should not be usable inside for",
         \\export fn returns() void {
-        \\    for ([]void.{}) |_, i| {
-        \\        for ([]void.{}) |_, j| {
+        \\    for ([]void{}) |_, i| {
+        \\        for ([]void{}) |_, j| {
         \\            return _;
         \\        }
         \\    }
@@ -502,7 +502,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    while (x) |_| returns();
         \\}
         \\export fn f3() void {
-        \\    var x: error!i32 = error.Bad;
+        \\    var x: anyerror!i32 = error.Bad;
         \\    while (x) |_| returns() else |_| unreachable;
         \\}
     ,
@@ -524,7 +524,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "non-inline for loop on a type that requires comptime",
-        \\const Foo = struct.{
+        \\const Foo = struct {
         \\    name: []const u8,
         \\    T: type,
         \\};
@@ -549,10 +549,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "optional pointer to void in extern struct",
-        \\const Foo = extern struct.{
+        \\const Foo = extern struct {
         \\    x: ?*const void,
         \\};
-        \\const Bar = extern struct.{
+        \\const Bar = extern struct {
         \\    foo: Foo,
         \\    y: i32,
         \\};
@@ -563,11 +563,11 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "use of comptime-known undefined function value",
-        \\const Cmd = struct.{
+        \\const Cmd = struct {
         \\    exec: fn () void,
         \\};
         \\export fn entry() void {
-        \\    const command = Cmd.{ .exec = undefined };
+        \\    const command = Cmd{ .exec = undefined };
         \\    command.exec();
         \\}
     ,
@@ -576,11 +576,11 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "use of comptime-known undefined function value",
-        \\const Cmd = struct.{
+        \\const Cmd = struct {
         \\    exec: fn () void,
         \\};
         \\export fn entry() void {
-        \\    const command = Cmd.{ .exec = undefined };
+        \\    const command = Cmd{ .exec = undefined };
         \\    command.exec();
         \\}
     ,
@@ -644,13 +644,13 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         );
 
         tc.addSourceFile("a.zig",
-            \\pub const Foo = struct.{
+            \\pub const Foo = struct {
             \\    x: i32,
             \\};
         );
 
         tc.addSourceFile("b.zig",
-            \\pub const Foo = struct.{
+            \\pub const Foo = struct {
             \\    z: f64,
             \\};
         );
@@ -660,7 +660,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "enum field value references enum",
-        \\pub const Foo = extern enum.{
+        \\pub const Foo = extern enum {
         \\    A = Foo.B,
         \\    C = D,
         \\};
@@ -730,7 +730,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "field access of unknown length pointer",
-        \\const Foo = extern struct.{
+        \\const Foo = extern struct {
         \\    a: i32,
         \\};
         \\
@@ -750,7 +750,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "error when evaluating return type",
-        \\const Foo = struct.{
+        \\const Foo = struct {
         \\    map: i32(i32),
         \\
         \\    fn init() Foo {
@@ -784,8 +784,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "nested error set mismatch",
-        \\const NextError = error.{NextError};
-        \\const OtherError = error.{OutOfMemory};
+        \\const NextError = error{NextError};
+        \\const OtherError = error{OutOfMemory};
         \\
         \\export fn entry() void {
         \\    const a: ?NextError!i32 = foo();
@@ -798,7 +798,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         ".tmp_source.zig:5:34: error: expected type '?NextError!i32', found '?OtherError!i32'",
         ".tmp_source.zig:5:34: note: optional type child 'OtherError!i32' cannot cast into optional type child 'NextError!i32'",
         ".tmp_source.zig:5:34: note: error set 'OtherError' cannot cast into error set 'NextError'",
-        ".tmp_source.zig:2:27: note: 'error.OutOfMemory' not a member of destination error set",
+        ".tmp_source.zig:2:26: note: 'error.OutOfMemory' not a member of destination error set",
     );
 
     cases.add(
@@ -810,7 +810,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\        Tile.Filled => {},
         \\    }
         \\}
-        \\const Tile = enum.{
+        \\const Tile = enum {
         \\    Empty,
         \\    Filled,
         \\};
@@ -855,7 +855,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\inline fn b() void { }
     ,
         ".tmp_source.zig:2:5: error: functions marked inline must be stored in const or comptime var",
-        ".tmp_source.zig:4:8: note: declared here",
+        ".tmp_source.zig:4:1: note: declared here",
     );
 
     cases.add(
@@ -865,17 +865,17 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    @panic(e);
         \\}
     ,
-        ".tmp_source.zig:3:12: error: expected type '[]const u8', found 'error.{Foo}'",
+        ".tmp_source.zig:3:12: error: expected type '[]const u8', found 'error{Foo}'",
     );
 
     cases.add(
         "@tagName used on union with no associated enum tag",
-        \\const FloatInt = extern union.{
+        \\const FloatInt = extern union {
         \\    Float: f32,
         \\    Int: i32,
         \\};
         \\export fn entry() void {
-        \\    var fi = FloatInt.{.Float = 123.45};
+        \\    var fi = FloatInt{.Float = 123.45};
         \\    var tagName = @tagName(fi);
         \\}
     ,
@@ -893,16 +893,16 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return error.ShouldBeCompileError;
         \\}
     ,
-        ".tmp_source.zig:6:17: error: expected type 'void', found 'error.{ShouldBeCompileError}'",
+        ".tmp_source.zig:6:17: error: expected type 'void', found 'error{ShouldBeCompileError}'",
     );
 
     cases.add(
         "var not allowed in structs",
         \\export fn entry() void {
-        \\   var s = (struct.{v: var}){.v=i32(10)};
+        \\   var s = (struct{v: var}){.v=i32(10)};
         \\}
     ,
-        ".tmp_source.zig:2:24: error: invalid token: 'var'",
+        ".tmp_source.zig:2:23: error: invalid token: 'var'",
     );
 
     cases.add(
@@ -944,13 +944,13 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry() void {
         \\    foo(error.A);
         \\}
-        \\fn foo(a: error) void {
+        \\fn foo(a: anyerror) void {
         \\    switch (a) {
         \\        error.A => {},
         \\    }
         \\}
     ,
-        ".tmp_source.zig:5:5: error: else prong required when switching on type 'error'",
+        ".tmp_source.zig:5:5: error: else prong required when switching on type 'anyerror'",
     );
 
     cases.add(
@@ -1007,7 +1007,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add("invalid cast from integral type to enum",
-        \\const E = enum(usize).{ One, Two };
+        \\const E = enum(usize) { One, Two };
         \\
         \\export fn entry() void {
         \\    foo(1);
@@ -1050,7 +1050,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "access non-existent member of error set",
-        \\const Foo = error.{A};
+        \\const Foo = error{A};
         \\comptime {
         \\    const z = Foo.Bar;
         \\}
@@ -1069,8 +1069,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "error equality but sets have no common members",
-        \\const Set1 = error.{A, C};
-        \\const Set2 = error.{B, D};
+        \\const Set1 = error{A, C};
+        \\const Set2 = error{B, D};
         \\export fn entry() void {
         \\    foo(Set1.A);
         \\}
@@ -1094,8 +1094,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "explicit error set cast known at comptime violates error sets",
-        \\const Set1 = error.{A, B};
-        \\const Set2 = error.{A, C};
+        \\const Set1 = error {A, B};
+        \\const Set2 = error {A, C};
         \\comptime {
         \\    var x = Set1.B;
         \\    var y = @errSetCast(Set2, x);
@@ -1106,30 +1106,30 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "cast error union of global error set to error union of smaller error set",
-        \\const SmallErrorSet = error.{A};
+        \\const SmallErrorSet = error{A};
         \\export fn entry() void {
         \\    var x: SmallErrorSet!i32 = foo();
         \\}
-        \\fn foo() error!i32 {
+        \\fn foo() anyerror!i32 {
         \\    return error.B;
         \\}
     ,
-        ".tmp_source.zig:3:35: error: expected type 'SmallErrorSet!i32', found 'error!i32'",
-        ".tmp_source.zig:3:35: note: error set 'error' cannot cast into error set 'SmallErrorSet'",
+        ".tmp_source.zig:3:35: error: expected type 'SmallErrorSet!i32', found 'anyerror!i32'",
+        ".tmp_source.zig:3:35: note: error set 'anyerror' cannot cast into error set 'SmallErrorSet'",
         ".tmp_source.zig:3:35: note: cannot cast global error set into smaller set",
     );
 
     cases.add(
         "cast global error set to error set",
-        \\const SmallErrorSet = error.{A};
+        \\const SmallErrorSet = error{A};
         \\export fn entry() void {
         \\    var x: SmallErrorSet = foo();
         \\}
-        \\fn foo() error {
+        \\fn foo() anyerror {
         \\    return error.B;
         \\}
     ,
-        ".tmp_source.zig:3:31: error: expected type 'SmallErrorSet', found 'error'",
+        ".tmp_source.zig:3:31: error: expected type 'SmallErrorSet', found 'anyerror'",
         ".tmp_source.zig:3:31: note: cannot cast global error set into smaller set",
     );
 
@@ -1147,8 +1147,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "implicit cast of error set not a subset",
-        \\const Set1 = error.{A, B};
-        \\const Set2 = error.{A, C};
+        \\const Set1 = error{A, B};
+        \\const Set2 = error{A, C};
         \\export fn entry() void {
         \\    foo(Set1.B);
         \\}
@@ -1157,12 +1157,12 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         ".tmp_source.zig:7:19: error: expected type 'Set2', found 'Set1'",
-        ".tmp_source.zig:1:24: note: 'error.B' not a member of destination error set",
+        ".tmp_source.zig:1:23: note: 'error.B' not a member of destination error set",
     );
 
     cases.add(
         "int to err global invalid number",
-        \\const Set1 = error.{
+        \\const Set1 = error{
         \\    A,
         \\    B,
         \\};
@@ -1176,11 +1176,11 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "int to err non global invalid number",
-        \\const Set1 = error.{
+        \\const Set1 = error{
         \\    A,
         \\    B,
         \\};
-        \\const Set2 = error.{
+        \\const Set2 = error{
         \\    A,
         \\    C,
         \\};
@@ -1195,7 +1195,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "@memberCount of error",
         \\comptime {
-        \\    _ = @memberCount(error);
+        \\    _ = @memberCount(anyerror);
         \\}
     ,
         ".tmp_source.zig:2:9: error: global error set member count not available at comptime",
@@ -1203,7 +1203,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "duplicate error value in error set",
-        \\const Foo = error.{
+        \\const Foo = error {
         \\    Bar,
         \\    Bar,
         \\};
@@ -1236,7 +1236,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "duplicate struct field",
-        \\const Foo = struct.{
+        \\const Foo = struct {
         \\    Bar: i32,
         \\    Bar: usize,
         \\};
@@ -1250,7 +1250,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "duplicate union field",
-        \\const Foo = union.{
+        \\const Foo = union {
         \\    Bar: i32,
         \\    Bar: usize,
         \\};
@@ -1264,7 +1264,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "duplicate enum field",
-        \\const Foo = enum.{
+        \\const Foo = enum {
         \\    Bar,
         \\    Bar,
         \\};
@@ -1285,7 +1285,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\nakedcc fn foo() void { }
     ,
         ".tmp_source.zig:2:5: error: unable to call function with naked calling convention",
-        ".tmp_source.zig:4:9: note: declared here",
+        ".tmp_source.zig:4:1: note: declared here",
     );
 
     cases.add(
@@ -1297,7 +1297,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "function with non-extern non-packed enum parameter",
-        \\const Foo = enum.{ A, B, C };
+        \\const Foo = enum { A, B, C };
         \\export fn entry(foo: Foo) void { }
     ,
         ".tmp_source.zig:2:22: error: parameter of type 'Foo' not allowed in function with calling convention 'ccc'",
@@ -1305,7 +1305,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "function with non-extern non-packed struct parameter",
-        \\const Foo = struct.{
+        \\const Foo = struct {
         \\    A: i32,
         \\    B: f32,
         \\    C: bool,
@@ -1317,7 +1317,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "function with non-extern non-packed union parameter",
-        \\const Foo = union.{
+        \\const Foo = union {
         \\    A: i32,
         \\    B: f32,
         \\    C: bool,
@@ -1329,7 +1329,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "switch on enum with 1 field with no prongs",
-        \\const Foo = enum.{ M };
+        \\const Foo = enum { M };
         \\
         \\export fn entry() void {
         \\    var f = Foo.M;
@@ -1379,7 +1379,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry() void {
         \\    const BlockKind = u32;
         \\
-        \\    const Block = struct.{
+        \\    const Block = struct {
         \\        kind: BlockKind,
         \\    };
         \\
@@ -1661,9 +1661,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "implicit semicolon - for statement",
         \\export fn entry() void {
-        \\    for(foo()) {}
+        \\    for(foo()) |_| {}
         \\    var good = {};
-        \\    for(foo()) ({})
+        \\    for(foo()) |_| ({})
         \\    var bad = {};
         \\}
     ,
@@ -1673,9 +1673,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "implicit semicolon - for expression",
         \\export fn entry() void {
-        \\    _ = for(foo()) {};
+        \\    _ = for(foo()) |_| {};
         \\    var good = {};
-        \\    _ = for(foo()) {}
+        \\    _ = for(foo()) |_| {}
         \\    var bad = {};
         \\}
     ,
@@ -1943,7 +1943,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "direct struct loop",
-        \\const A = struct.{ a : A, };
+        \\const A = struct { a : A, };
         \\export fn entry() usize { return @sizeOf(A); }
     ,
         ".tmp_source.zig:1:11: error: struct 'A' contains itself",
@@ -1951,9 +1951,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "indirect struct loop",
-        \\const A = struct.{ b : B, };
-        \\const B = struct.{ c : C, };
-        \\const C = struct.{ a : A, };
+        \\const A = struct { b : B, };
+        \\const B = struct { c : C, };
+        \\const C = struct { a : A, };
         \\export fn entry() usize { return @sizeOf(A); }
     ,
         ".tmp_source.zig:1:11: error: struct 'A' contains itself",
@@ -1961,7 +1961,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "invalid struct field",
-        \\const A = struct.{ x : i32, };
+        \\const A = struct { x : i32, };
         \\export fn f() void {
         \\    var a : A = undefined;
         \\    a.foo = 1;
@@ -1974,16 +1974,16 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "redefinition of struct",
-        \\const A = struct.{ x : i32, };
-        \\const A = struct.{ y : i32, };
+        \\const A = struct { x : i32, };
+        \\const A = struct { y : i32, };
     ,
         ".tmp_source.zig:2:1: error: redefinition of 'A'",
     );
 
     cases.add(
         "redefinition of enums",
-        \\const A = enum.{};
-        \\const A = enum.{};
+        \\const A = enum {};
+        \\const A = enum {};
     ,
         ".tmp_source.zig:2:1: error: redefinition of 'A'",
     );
@@ -1999,13 +1999,13 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "duplicate field in struct value expression",
-        \\const A = struct.{
+        \\const A = struct {
         \\    x : i32,
         \\    y : i32,
         \\    z : i32,
         \\};
         \\export fn f() void {
-        \\    const a = A.{
+        \\    const a = A {
         \\        .z = 1,
         \\        .y = 2,
         \\        .x = 3,
@@ -2018,7 +2018,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "missing field in struct value expression",
-        \\const A = struct.{
+        \\const A = struct {
         \\    x : i32,
         \\    y : i32,
         \\    z : i32,
@@ -2026,24 +2026,24 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn f() void {
         \\    // we want the error on the '{' not the 'A' because
         \\    // the A could be a complicated expression
-        \\    const a = A.{
+        \\    const a = A {
         \\        .z = 4,
         \\        .y = 2,
         \\    };
         \\}
     ,
-        ".tmp_source.zig:9:16: error: missing field: 'x'",
+        ".tmp_source.zig:9:17: error: missing field: 'x'",
     );
 
     cases.add(
         "invalid field in struct value expression",
-        \\const A = struct.{
+        \\const A = struct {
         \\    x : i32,
         \\    y : i32,
         \\    z : i32,
         \\};
         \\export fn f() void {
-        \\    const a = A.{
+        \\    const a = A {
         \\        .z = 4,
         \\        .y = 2,
         \\        .foo = 42,
@@ -2120,7 +2120,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "struct init syntax for array",
-        \\const foo = []u16.{.x = 1024,};
+        \\const foo = []u16{.x = 1024,};
         \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
     ,
         ".tmp_source.zig:1:18: error: type '[]u16' does not support struct initialization syntax",
@@ -2138,8 +2138,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "variables shadowing types",
-        \\const Foo = struct.{};
-        \\const Bar = struct.{};
+        \\const Foo = struct {};
+        \\const Bar = struct {};
         \\
         \\fn f(Foo: i32) void {
         \\    var Bar : i32 = undefined;
@@ -2157,7 +2157,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "switch expression - missing enumeration prong",
-        \\const Number = enum.{
+        \\const Number = enum {
         \\    One,
         \\    Two,
         \\    Three,
@@ -2178,7 +2178,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "switch expression - duplicate enumeration prong",
-        \\const Number = enum.{
+        \\const Number = enum {
         \\    One,
         \\    Two,
         \\    Three,
@@ -2202,7 +2202,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "switch expression - duplicate enumeration prong when else present",
-        \\const Number = enum.{
+        \\const Number = enum {
         \\    One,
         \\    Two,
         \\    Three,
@@ -2362,7 +2362,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "missing function call param",
-        \\const Foo = struct.{
+        \\const Foo = struct {
         \\    a: i32,
         \\    b: i32,
         \\
@@ -2375,7 +2375,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\};
         \\
         \\const member_fn_type = @typeOf(Foo.member_a);
-        \\const members = []member_fn_type.{
+        \\const members = []member_fn_type {
         \\    Foo.member_a,
         \\    Foo.member_b,
         \\};
@@ -2401,7 +2401,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "wrong function type",
-        \\const fns = []fn() void.{ a, b, c };
+        \\const fns = []fn() void { a, b, c };
         \\fn a() i32 {return 0;}
         \\fn b() i32 {return 1;}
         \\fn c() i32 {return 2;}
@@ -2412,7 +2412,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "extern function pointer mismatch",
-        \\const fns = [](fn(i32)i32).{ a, b, c };
+        \\const fns = [](fn(i32)i32) { a, b, c };
         \\pub fn a(x: i32) i32 {return x + 0;}
         \\pub fn b(x: i32) i32 {return x + 1;}
         \\export fn c(x: i32) i32 {return x + 2;}
@@ -2452,7 +2452,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "non constant expression in array size outside function",
-        \\const Foo = struct.{
+        \\const Foo = struct {
         \\    y: [get()]u8,
         \\};
         \\var global_var: usize = 1;
@@ -2467,10 +2467,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "addition with non numbers",
-        \\const Foo = struct.{
+        \\const Foo = struct {
         \\    field: i32,
         \\};
-        \\const x = Foo.{.field = 1} + Foo.{.field = 2};
+        \\const x = Foo {.field = 1} + Foo {.field = 2};
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(x)); }
     ,
@@ -2538,7 +2538,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "indexing an array of size zero",
-        \\const array = []u8.{};
+        \\const array = []u8{};
         \\export fn foo() void {
         \\    const pointer = &array[0];
         \\}
@@ -2961,7 +2961,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "catch on undefined value",
         \\comptime {
-        \\    var a: error!bool = undefined;
+        \\    var a: anyerror!bool = undefined;
         \\    _ = a catch |err| false;
         \\}
     ,
@@ -3003,10 +3003,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "non-const expression in struct literal outside function",
-        \\const Foo = struct.{
+        \\const Foo = struct {
         \\    x: i32,
         \\};
-        \\const a = Foo.{.x = get_it()};
+        \\const a = Foo {.x = get_it()};
         \\extern fn get_it() i32;
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(a)); }
@@ -3016,13 +3016,13 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "non-const expression function call with struct return value outside function",
-        \\const Foo = struct.{
+        \\const Foo = struct {
         \\    x: i32,
         \\};
         \\const a = get_it();
         \\fn get_it() Foo {
         \\    global_side_effect = true;
-        \\    return Foo.{.x = 13};
+        \\    return Foo {.x = 13};
         \\}
         \\var global_side_effect = false;
         \\
@@ -3049,7 +3049,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\fn bad_eql_1(a: []u8, b: []u8) bool {
         \\    return a == b;
         \\}
-        \\const EnumWithData = union(enum).{
+        \\const EnumWithData = union(enum) {
         \\    One: void,
         \\    Two: i32,
         \\};
@@ -3171,9 +3171,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn f() void {
         \\    try something();
         \\}
-        \\fn something() error!void { }
+        \\fn something() anyerror!void { }
     ,
-        ".tmp_source.zig:2:5: error: expected type 'void', found 'error'",
+        ".tmp_source.zig:2:5: error: expected type 'void', found 'anyerror'",
     );
 
     cases.add(
@@ -3229,7 +3229,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\
         \\pub fn SmallList(comptime T: type, comptime STATIC_SIZE: usize) type {
-        \\    return struct.{
+        \\    return struct {
         \\        items: []T,
         \\        length: usize,
         \\        prealloc_items: [STATIC_SIZE]T,
@@ -3258,7 +3258,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "wrong number of arguments for method fn call",
-        \\const Foo = struct.{
+        \\const Foo = struct {
         \\    fn method(self: *const Foo, a: i32) void {}
         \\};
         \\fn f(foo: *const Foo) void {
@@ -3298,26 +3298,16 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "for loop missing element param",
-        \\fn foo(blah: []u8) void {
-        \\    for (blah) { }
-        \\}
-        \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
-    ,
-        ".tmp_source.zig:2:5: error: for loop expression missing element parameter",
-    );
-
-    cases.add(
         "misspelled type with pointer only reference",
         \\const JasonHM = u8;
         \\const JasonList = *JsonNode;
         \\
-        \\const JsonOA = union(enum).{
+        \\const JsonOA = union(enum) {
         \\    JSONArray: JsonList,
         \\    JSONObject: JasonHM,
         \\};
         \\
-        \\const JsonType = union(enum).{
+        \\const JsonType = union(enum) {
         \\    JSONNull: void,
         \\    JSONInteger: isize,
         \\    JSONDouble: f64,
@@ -3327,7 +3317,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    JSONObject: void,
         \\};
         \\
-        \\pub const JsonNode = struct.{
+        \\pub const JsonNode = struct {
         \\    kind: JsonType,
         \\    jobject: ?JsonOA,
         \\};
@@ -3335,7 +3325,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\fn foo() void {
         \\    var jll: JasonList = undefined;
         \\    jll.init(1234);
-        \\    var jd = JsonNode.{.kind = JsonType.JSONArray , .jobject = JsonOA.JSONArray.{jll} };
+        \\    var jd = JsonNode {.kind = JsonType.JSONArray , .jobject = JsonOA.JSONArray {jll} };
         \\}
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
@@ -3345,11 +3335,11 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "method call with first arg type primitive",
-        \\const Foo = struct.{
+        \\const Foo = struct {
         \\    x: i32,
         \\
         \\    fn init(x: i32) Foo {
-        \\        return Foo.{
+        \\        return Foo {
         \\            .x = x,
         \\        };
         \\    }
@@ -3366,23 +3356,23 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "method call with first arg type wrong container",
-        \\pub const List = struct.{
+        \\pub const List = struct {
         \\    len: usize,
         \\    allocator: *Allocator,
         \\
         \\    pub fn init(allocator: *Allocator) List {
-        \\        return List.{
+        \\        return List {
         \\            .len = 0,
         \\            .allocator = allocator,
         \\        };
         \\    }
         \\};
         \\
-        \\pub var global_allocator = Allocator.{
+        \\pub var global_allocator = Allocator {
         \\    .field = 1234,
         \\};
         \\
-        \\pub const Allocator = struct.{
+        \\pub const Allocator = struct {
         \\    field: i32,
         \\};
         \\
@@ -3428,7 +3418,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "container init with non-type",
         \\const zero: i32 = 0;
-        \\const a = zero.{1};
+        \\const a = zero{1};
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(a)); }
     ,
@@ -3437,11 +3427,11 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "assign to constant field",
-        \\const Foo = struct.{
+        \\const Foo = struct {
         \\    field: i32,
         \\};
         \\export fn derp() void {
-        \\    const f = Foo.{.field = 1234,};
+        \\    const f = Foo {.field = 1234,};
         \\    f.field = 0;
         \\}
     ,
@@ -3458,7 +3448,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const a = maybeInt() orelse return;
         \\}
         \\
-        \\fn canFail() error!void { }
+        \\fn canFail() anyerror!void { }
         \\
         \\pub fn maybeInt() ?i32 {
         \\    return 0;
@@ -3547,7 +3537,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "casting bit offset pointer to regular pointer",
-        \\const BitField = packed struct.{
+        \\const BitField = packed struct {
         \\    a: u3,
         \\    b: u3,
         \\    c: u2,
@@ -3568,7 +3558,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "referring to a struct that is invalid",
-        \\const UsbDeviceRequest = struct.{
+        \\const UsbDeviceRequest = struct {
         \\    Type: u8,
         \\};
         \\
@@ -3614,7 +3604,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn foo() void {
         \\    bar() catch unreachable;
         \\}
-        \\fn bar() error!i32 { return 0; }
+        \\fn bar() anyerror!i32 { return 0; }
     ,
         ".tmp_source.zig:2:11: error: expression value is ignored",
     );
@@ -3660,7 +3650,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn foo() void {
         \\    defer bar();
         \\}
-        \\fn bar() error!i32 { return 0; }
+        \\fn bar() anyerror!i32 { return 0; }
     ,
         ".tmp_source.zig:2:14: error: expression value is ignored",
     );
@@ -3704,8 +3694,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
             \\    return foo.baz;
             \\}
         ,
-            "foo.zig:1:8: error: exported symbol collision: 'bar'",
-            ".tmp_source.zig:3:8: note: other symbol here",
+            "foo.zig:1:1: error: exported symbol collision: 'bar'",
+            ".tmp_source.zig:3:1: note: other symbol here",
         );
 
         tc.addSourceFile("foo.zig",
@@ -3785,7 +3775,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "@fieldParentPtr - bad field name",
-        \\const Foo = extern struct.{
+        \\const Foo = extern struct {
         \\    derp: i32,
         \\};
         \\export fn foo(a: *i32) *Foo {
@@ -3797,7 +3787,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "@fieldParentPtr - field pointer is not pointer",
-        \\const Foo = extern struct.{
+        \\const Foo = extern struct {
         \\    a: i32,
         \\};
         \\export fn foo(a: i32) *Foo {
@@ -3809,11 +3799,11 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "@fieldParentPtr - comptime field ptr not based on struct",
-        \\const Foo = struct.{
+        \\const Foo = struct {
         \\    a: i32,
         \\    b: i32,
         \\};
-        \\const foo = Foo.{ .a = 1, .b = 2, };
+        \\const foo = Foo { .a = 1, .b = 2, };
         \\
         \\comptime {
         \\    const field_ptr = @intToPtr(*i32, 0x1234);
@@ -3825,11 +3815,11 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "@fieldParentPtr - comptime wrong field index",
-        \\const Foo = struct.{
+        \\const Foo = struct {
         \\    a: i32,
         \\    b: i32,
         \\};
-        \\const foo = Foo.{ .a = 1, .b = 2, };
+        \\const foo = Foo { .a = 1, .b = 2, };
         \\
         \\comptime {
         \\    const another_foo_ptr = @fieldParentPtr(Foo, "b", &foo.a);
@@ -3850,7 +3840,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "@byteOffsetOf - bad field name",
-        \\const Foo = struct.{
+        \\const Foo = struct {
         \\    derp: i32,
         \\};
         \\export fn foo() usize {
@@ -3929,13 +3919,13 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "inner struct member shadowing outer struct member",
         \\fn A() type {
-        \\    return struct.{
+        \\    return struct {
         \\        b: B(),
         \\
         \\        const Self = @This();
         \\
         \\        fn B() type {
-        \\            return struct.{
+        \\            return struct {
         \\                const Self = @This();
         \\            };
         \\        }
@@ -3967,9 +3957,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn foo() void {
         \\    while (bar()) {}
         \\}
-        \\fn bar() error!i32 { return 1; }
+        \\fn bar() anyerror!i32 { return 1; }
     ,
-        ".tmp_source.zig:2:15: error: expected type 'bool', found 'error!i32'",
+        ".tmp_source.zig:2:15: error: expected type 'bool', found 'anyerror!i32'",
     );
 
     cases.add(
@@ -3987,9 +3977,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn foo() void {
         \\    while (bar()) |x| {}
         \\}
-        \\fn bar() error!i32 { return 1; }
+        \\fn bar() anyerror!i32 { return 1; }
     ,
-        ".tmp_source.zig:2:15: error: expected optional type, found 'error!i32'",
+        ".tmp_source.zig:2:15: error: expected optional type, found 'anyerror!i32'",
     );
 
     cases.add(
@@ -4027,7 +4017,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\extern fn quux() void;
     ,
-        ".tmp_source.zig:4:8: error: unable to inline function",
+        ".tmp_source.zig:4:1: error: unable to inline function",
     );
 
     cases.add(
@@ -4038,7 +4028,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\inline fn bar() void { }
         \\extern fn quux(usize) void;
     ,
-        ".tmp_source.zig:4:8: error: unable to inline function",
+        ".tmp_source.zig:4:1: error: unable to inline function",
     );
 
     cases.add(
@@ -4160,13 +4150,27 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "calling a var args function only known at runtime",
-        \\var foos = []fn(...) void.{ foo1, foo2 };
+        \\var foos = []fn(...) void { foo1, foo2 };
         \\
         \\fn foo1(args: ...) void {}
         \\fn foo2(args: ...) void {}
         \\
         \\pub fn main() !void {
         \\    foos[0]();
+        \\}
+    ,
+        ".tmp_source.zig:7:9: error: calling a generic function requires compile-time known function value",
+    );
+
+    cases.add(
+        "calling a generic function only known at runtime",
+        \\var foos = []fn(var) void { foo1, foo2 };
+        \\
+        \\fn foo1(arg: var) void {}
+        \\fn foo2(arg: var) void {}
+        \\
+        \\pub fn main() !void {
+        \\    foos[0](true);
         \\}
     ,
         ".tmp_source.zig:7:9: error: calling a generic function requires compile-time known function value",
@@ -4190,7 +4194,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "instantiating an undefined value for an invalid struct that contains itself",
-        \\const Foo = struct.{
+        \\const Foo = struct {
         \\    x: Foo,
         \\};
         \\
@@ -4287,13 +4291,13 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "implicitly increasing pointer alignment",
-        \\const Foo = packed struct.{
+        \\const Foo = packed struct {
         \\    a: u8,
         \\    b: u32,
         \\};
         \\
         \\export fn entry() void {
-        \\    var foo = Foo.{ .a = 1, .b = 10 };
+        \\    var foo = Foo { .a = 1, .b = 10 };
         \\    bar(&foo.b);
         \\}
         \\
@@ -4306,13 +4310,13 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "implicitly increasing slice alignment",
-        \\const Foo = packed struct.{
+        \\const Foo = packed struct {
         \\    a: u8,
         \\    b: u32,
         \\};
         \\
         \\export fn entry() void {
-        \\    var foo = Foo.{ .a = 1, .b = 10 };
+        \\    var foo = Foo { .a = 1, .b = 10 };
         \\    foo.b += 1;
         \\    bar((*[1]u32)(&foo.b)[0..]);
         \\}
@@ -4329,7 +4333,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "increase pointer alignment in @ptrCast",
         \\export fn entry() u32 {
-        \\    var bytes: [4]u8 = []u8.{0x01, 0x02, 0x03, 0x04};
+        \\    var bytes: [4]u8 = []u8{0x01, 0x02, 0x03, 0x04};
         \\    const ptr = @ptrCast(*u32, &bytes[0]);
         \\    return ptr.*;
         \\}
@@ -4376,7 +4380,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "wrong size to an array literal",
         \\comptime {
-        \\    const array = [2]u8.{1, 2, 3};
+        \\    const array = [2]u8{1, 2, 3};
         \\}
     ,
         ".tmp_source.zig:2:24: error: expected [2]u8 literal, found [3]u8 literal",
@@ -4423,12 +4427,12 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\   var e = opaque.*;
         \\   var f = i32;
         \\   var g = @import("std",);
-        \\   var h = (Foo.{}).bar;
+        \\   var h = (Foo {}).bar;
         \\
         \\   var z: noreturn = return;
         \\}
         \\
-        \\const Foo = struct.{
+        \\const Foo = struct {
         \\    fn bar(self: *const Foo) void {}
         \\};
     ,
@@ -4470,21 +4474,21 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const Allocator = std.mem.Allocator;
         \\const ArrayList = std.ArrayList;
         \\
-        \\const HeaderWeight = enum.{
+        \\const HeaderWeight = enum {
         \\    H1, H2, H3, H4, H5, H6,
         \\};
         \\
         \\const MdText = ArrayList(u8);
         \\
-        \\const MdNode = union(enum).{
-        \\    Header: struct.{
+        \\const MdNode = union(enum) {
+        \\    Header: struct {
         \\        text: MdText,
         \\        weight: HeaderValue,
         \\    },
         \\};
         \\
         \\export fn entry() void {
-        \\    const a = MdNode.Header.{
+        \\    const a = MdNode.Header {
         \\        .text = MdText.init(&std.debug.global_allocator),
         \\        .weight = HeaderWeight.H1,
         \\    };
@@ -4548,31 +4552,31 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const Mode = @import("builtin").Mode;
         \\
         \\fn Free(comptime filename: []const u8) TestCase {
-        \\    return TestCase.{
+        \\    return TestCase {
         \\        .filename = filename,
         \\        .problem_type = ProblemType.Free,
         \\    };
         \\}
         \\
         \\fn LibC(comptime filename: []const u8) TestCase {
-        \\    return TestCase.{
+        \\    return TestCase {
         \\        .filename = filename,
         \\        .problem_type = ProblemType.LinkLibC,
         \\    };
         \\}
         \\
-        \\const TestCase = struct.{
+        \\const TestCase = struct {
         \\    filename: []const u8,
         \\    problem_type: ProblemType,
         \\};
         \\
-        \\const ProblemType = enum.{
+        \\const ProblemType = enum {
         \\    Free,
         \\    LinkLibC,
         \\};
         \\
         \\export fn entry() void {
-        \\    const tests = []TestCase.{
+        \\    const tests = []TestCase {
         \\        Free("001"),
         \\        Free("002"),
         \\        LibC("078"),
@@ -4580,7 +4584,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\        Free("117"),
         \\    };
         \\
-        \\    for ([]Mode.{ Mode.Debug, Mode.ReleaseSafe, Mode.ReleaseFast }) |mode| {
+        \\    for ([]Mode { Mode.Debug, Mode.ReleaseSafe, Mode.ReleaseFast }) |mode| {
         \\        inline for (tests) |test_case| {
         \\            const foo = test_case.filename ++ ".zig";
         \\        }
@@ -4665,7 +4669,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\comptime {
         \\    _ = @memberType(Foo, 0);
         \\}
-        \\const Foo = enum.{A,};
+        \\const Foo = enum {A,};
     ,
         ".tmp_source.zig:2:21: error: type 'Foo' does not support @memberType",
     );
@@ -4675,7 +4679,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\comptime {
         \\    _ = @memberType(Foo, 0);
         \\}
-        \\const Foo = struct.{};
+        \\const Foo = struct {};
     ,
         ".tmp_source.zig:2:26: error: member index 0 out of bounds; 'Foo' has 0 members",
     );
@@ -4685,7 +4689,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\comptime {
         \\    _ = @memberType(Foo, 1);
         \\}
-        \\const Foo = union.{A: void,};
+        \\const Foo = union {A: void,};
     ,
         ".tmp_source.zig:2:26: error: member index 1 out of bounds; 'Foo' has 1 members",
     );
@@ -4704,7 +4708,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\comptime {
         \\    _ = @memberName(Foo, 0);
         \\}
-        \\const Foo = struct.{};
+        \\const Foo = struct {};
     ,
         ".tmp_source.zig:2:26: error: member index 0 out of bounds; 'Foo' has 0 members",
     );
@@ -4714,7 +4718,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\comptime {
         \\    _ = @memberName(Foo, 1);
         \\}
-        \\const Foo = enum.{A,};
+        \\const Foo = enum {A,};
     ,
         ".tmp_source.zig:2:26: error: member index 1 out of bounds; 'Foo' has 1 members",
     );
@@ -4724,7 +4728,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\comptime {
         \\    _ = @memberName(Foo, 1);
         \\}
-        \\const Foo = union.{A:i32,};
+        \\const Foo = union {A:i32,};
     ,
         ".tmp_source.zig:2:26: error: member index 1 out of bounds; 'Foo' has 1 members",
     );
@@ -4746,7 +4750,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\pub fn MemoryPool(comptime T: type) type {
         \\    const free_list_t = @compileError("aoeu",);
         \\
-        \\    return struct.{
+        \\    return struct {
         \\        free_list: free_list_t,
         \\    };
         \\}
@@ -4762,7 +4766,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "specify enum tag type that is too small",
-        \\const Small = enum (u2).{
+        \\const Small = enum (u2) {
         \\    One,
         \\    Two,
         \\    Three,
@@ -4774,12 +4778,12 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var x = Small.One;
         \\}
     ,
-        ".tmp_source.zig:1:20: error: 'u2' too small to hold all bits; must be at least 'u3'",
+        ".tmp_source.zig:1:21: error: 'u2' too small to hold all bits; must be at least 'u3'",
     );
 
     cases.add(
         "specify non-integer enum tag type",
-        \\const Small = enum (f32).{
+        \\const Small = enum (f32) {
         \\    One,
         \\    Two,
         \\    Three,
@@ -4789,12 +4793,12 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var x = Small.One;
         \\}
     ,
-        ".tmp_source.zig:1:20: error: expected integer, found 'f32'",
+        ".tmp_source.zig:1:21: error: expected integer, found 'f32'",
     );
 
     cases.add(
         "implicitly casting enum to tag type",
-        \\const Small = enum(u2).{
+        \\const Small = enum(u2) {
         \\    One,
         \\    Two,
         \\    Three,
@@ -4810,7 +4814,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "explicitly casting non tag type to enum",
-        \\const Small = enum(u2).{
+        \\const Small = enum(u2) {
         \\    One,
         \\    Two,
         \\    Three,
@@ -4827,7 +4831,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "non unsigned integer enum tag type",
-        \\const Small = enum(i2).{
+        \\const Small = enum(i2) {
         \\    One,
         \\    Two,
         \\    Three,
@@ -4838,12 +4842,12 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var y = Small.Two;
         \\}
     ,
-        ".tmp_source.zig:1:19: error: expected unsigned integer, found 'i2'",
+        ".tmp_source.zig:1:20: error: expected unsigned integer, found 'i2'",
     );
 
     cases.add(
         "struct fields with value assignments",
-        \\const MultipleChoice = struct.{
+        \\const MultipleChoice = struct {
         \\    A: i32 = 20,
         \\};
         \\export fn entry() void {
@@ -4855,7 +4859,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "union fields with value assignments",
-        \\const MultipleChoice = union.{
+        \\const MultipleChoice = union {
         \\    A: i32 = 20,
         \\};
         \\export fn entry() void {
@@ -4868,7 +4872,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "enum with 0 fields",
-        \\const Foo = enum.{};
+        \\const Foo = enum {};
         \\export fn entry() usize {
         \\    return @sizeOf(Foo);
         \\}
@@ -4878,7 +4882,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "union with 0 fields",
-        \\const Foo = union.{};
+        \\const Foo = union {};
         \\export fn entry() usize {
         \\    return @sizeOf(Foo);
         \\}
@@ -4888,7 +4892,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "enum value already taken",
-        \\const MultipleChoice = enum(u32).{
+        \\const MultipleChoice = enum(u32) {
         \\    A = 20,
         \\    B = 40,
         \\    C = 60,
@@ -4905,12 +4909,12 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "union with specified enum omits field",
-        \\const Letter = enum.{
+        \\const Letter = enum {
         \\    A,
         \\    B,
         \\    C,
         \\};
-        \\const Payload = union(Letter).{
+        \\const Payload = union(Letter) {
         \\    A: i32,
         \\    B: f64,
         \\};
@@ -4924,7 +4928,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "@TagType when union has no attached enum",
-        \\const Foo = union.{
+        \\const Foo = union {
         \\    A: i32,
         \\};
         \\export fn entry() void {
@@ -4937,31 +4941,31 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "non-integer tag type to automatic union enum",
-        \\const Foo = union(enum(f32)).{
+        \\const Foo = union(enum(f32)) {
         \\    A: i32,
         \\};
         \\export fn entry() void {
         \\    const x = @TagType(Foo);
         \\}
     ,
-        ".tmp_source.zig:1:23: error: expected integer tag type, found 'f32'",
+        ".tmp_source.zig:1:24: error: expected integer tag type, found 'f32'",
     );
 
     cases.add(
         "non-enum tag type passed to union",
-        \\const Foo = union(u32).{
+        \\const Foo = union(u32) {
         \\    A: i32,
         \\};
         \\export fn entry() void {
         \\    const x = @TagType(Foo);
         \\}
     ,
-        ".tmp_source.zig:1:18: error: expected enum tag type, found 'u32'",
+        ".tmp_source.zig:1:19: error: expected enum tag type, found 'u32'",
     );
 
     cases.add(
         "union auto-enum value already taken",
-        \\const MultipleChoice = union(enum(u32)).{
+        \\const MultipleChoice = union(enum(u32)) {
         \\    A = 20,
         \\    B = 40,
         \\    C = 60,
@@ -4969,7 +4973,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    E = 60,
         \\};
         \\export fn entry() void {
-        \\    var x = MultipleChoice.{ .C = {} };
+        \\    var x = MultipleChoice { .C = {} };
         \\}
     ,
         ".tmp_source.zig:6:9: error: enum tag value 60 already taken",
@@ -4978,19 +4982,19 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "union enum field does not match enum",
-        \\const Letter = enum.{
+        \\const Letter = enum {
         \\    A,
         \\    B,
         \\    C,
         \\};
-        \\const Payload = union(Letter).{
+        \\const Payload = union(Letter) {
         \\    A: i32,
         \\    B: f64,
         \\    C: bool,
         \\    D: bool,
         \\};
         \\export fn entry() void {
-        \\    var a = Payload.{.A = 1234};
+        \\    var a = Payload {.A = 1234};
         \\}
     ,
         ".tmp_source.zig:10:5: error: enum field not found: 'D'",
@@ -4999,7 +5003,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "field type supplied in an enum",
-        \\const Letter = enum.{
+        \\const Letter = enum {
         \\    A: void,
         \\    B,
         \\    C,
@@ -5014,11 +5018,11 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "struct field missing type",
-        \\const Letter = struct.{
+        \\const Letter = struct {
         \\    A,
         \\};
         \\export fn entry() void {
-        \\    var a = Letter.{ .A = {} };
+        \\    var a = Letter { .A = {} };
         \\}
     ,
         ".tmp_source.zig:2:5: error: struct field missing type",
@@ -5026,11 +5030,11 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "extern union field missing type",
-        \\const Letter = extern union.{
+        \\const Letter = extern union {
         \\    A,
         \\};
         \\export fn entry() void {
-        \\    var a = Letter.{ .A = {} };
+        \\    var a = Letter { .A = {} };
         \\}
     ,
         ".tmp_source.zig:2:5: error: union field missing type",
@@ -5038,51 +5042,51 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "extern union given enum tag type",
-        \\const Letter = enum.{
+        \\const Letter = enum {
         \\    A,
         \\    B,
         \\    C,
         \\};
-        \\const Payload = extern union(Letter).{
+        \\const Payload = extern union(Letter) {
         \\    A: i32,
         \\    B: f64,
         \\    C: bool,
         \\};
         \\export fn entry() void {
-        \\    var a = Payload.{ .A = 1234 };
+        \\    var a = Payload { .A = 1234 };
         \\}
     ,
-        ".tmp_source.zig:6:29: error: extern union does not support enum tag type",
+        ".tmp_source.zig:6:30: error: extern union does not support enum tag type",
     );
 
     cases.add(
         "packed union given enum tag type",
-        \\const Letter = enum.{
+        \\const Letter = enum {
         \\    A,
         \\    B,
         \\    C,
         \\};
-        \\const Payload = packed union(Letter).{
+        \\const Payload = packed union(Letter) {
         \\    A: i32,
         \\    B: f64,
         \\    C: bool,
         \\};
         \\export fn entry() void {
-        \\    var a = Payload.{ .A = 1234 };
+        \\    var a = Payload { .A = 1234 };
         \\}
     ,
-        ".tmp_source.zig:6:29: error: packed union does not support enum tag type",
+        ".tmp_source.zig:6:30: error: packed union does not support enum tag type",
     );
 
     cases.add(
         "switch on union with no attached enum",
-        \\const Payload = union.{
+        \\const Payload = union {
         \\    A: i32,
         \\    B: f64,
         \\    C: bool,
         \\};
         \\export fn entry() void {
-        \\    const a = Payload.{ .A = 1234 };
+        \\    const a = Payload { .A = 1234 };
         \\    foo(a);
         \\}
         \\fn foo(a: *const Payload) void {
@@ -5098,7 +5102,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "enum in field count range but not matching tag",
-        \\const Foo = enum(u32).{
+        \\const Foo = enum(u32) {
         \\    A = 10,
         \\    B = 11,
         \\};
@@ -5112,8 +5116,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "comptime cast enum to union but field has payload",
-        \\const Letter = enum.{ A, B, C };
-        \\const Value = union(Letter).{
+        \\const Letter = enum { A, B, C };
+        \\const Value = union(Letter) {
         \\    A: i32,
         \\    B,
         \\    C,
@@ -5128,8 +5132,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "runtime cast to union which has non-void fields",
-        \\const Letter = enum.{ A, B, C };
-        \\const Value = union(Letter).{
+        \\const Letter = enum { A, B, C };
+        \\const Value = union(Letter) {
         \\    A: i32,
         \\    B,
         \\    C,
@@ -5147,7 +5151,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "taking byte offset of void field in struct",
-        \\const Empty = struct.{
+        \\const Empty = struct {
         \\    val: void,
         \\};
         \\export fn foo() void {
@@ -5159,7 +5163,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "taking bit offset of void field in struct",
-        \\const Empty = struct.{
+        \\const Empty = struct {
         \\    val: void,
         \\};
         \\export fn foo() void {
@@ -5171,12 +5175,12 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "invalid union field access in comptime",
-        \\const Foo = union.{
+        \\const Foo = union {
         \\    Bar: u8,
         \\    Baz: void,
         \\};
         \\comptime {
-        \\    var foo = Foo.{.Baz = {}};
+        \\    var foo = Foo {.Baz = {}};    
         \\    const bar_val = foo.Bar;
         \\}
     ,

@@ -18,7 +18,7 @@ pub const DynLib = switch (builtin.os) {
     else => void,
 };
 
-pub const LinuxDynLib = struct.{
+pub const LinuxDynLib = struct {
     allocator: *mem.Allocator,
     elf_lib: ElfLib,
     fd: i32,
@@ -44,7 +44,7 @@ pub const LinuxDynLib = struct.{
 
         const bytes = @intToPtr([*]align(std.os.page_size) u8, addr)[0..size];
 
-        return DynLib.{
+        return DynLib{
             .allocator = allocator,
             .elf_lib = try ElfLib.init(bytes),
             .fd = fd,
@@ -64,7 +64,7 @@ pub const LinuxDynLib = struct.{
     }
 };
 
-pub const ElfLib = struct.{
+pub const ElfLib = struct {
     strings: [*]u8,
     syms: [*]elf.Sym,
     hashtab: [*]linux.Elf_Symndx,
@@ -121,7 +121,7 @@ pub const ElfLib = struct.{
             }
         }
 
-        return ElfLib.{
+        return ElfLib{
             .base = base,
             .strings = maybe_strings orelse return error.ElfStringSectionNotFound,
             .syms = maybe_syms orelse return error.ElfSymSectionNotFound,
@@ -169,14 +169,14 @@ fn checkver(def_arg: *elf.Verdef, vsym_arg: i32, vername: []const u8, strings: [
     return mem.eql(u8, vername, cstr.toSliceConst(strings + aux.vda_name));
 }
 
-pub const WindowsDynLib = struct.{
+pub const WindowsDynLib = struct {
     allocator: *mem.Allocator,
     dll: windows.HMODULE,
 
     pub fn open(allocator: *mem.Allocator, path: []const u8) !WindowsDynLib {
         const wpath = try win_util.sliceToPrefixedFileW(path);
 
-        return WindowsDynLib.{
+        return WindowsDynLib{
             .allocator = allocator,
             .dll = windows.LoadLibraryW(&wpath) orelse {
                 const err = windows.GetLastError();

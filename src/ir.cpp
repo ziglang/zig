@@ -6297,7 +6297,7 @@ static ZigType *get_error_set_union(CodeGen *g, ErrorTableEntry **errors, ZigTyp
 
     ZigType *err_set_type = new_type_table_entry(ZigTypeIdErrorSet);
     buf_resize(&err_set_type->name, 0);
-    buf_appendf(&err_set_type->name, "error.{");
+    buf_appendf(&err_set_type->name, "error{");
 
     for (uint32_t i = 0, count = set1->data.error_set.err_count; i < count; i += 1) {
         assert(errors[set1->data.error_set.errors[i]->value] == set1->data.error_set.errors[i]);
@@ -6348,7 +6348,7 @@ static ZigType *make_err_set_with_one_item(CodeGen *g, Scope *parent_scope, AstN
 {
     ZigType *err_set_type = new_type_table_entry(ZigTypeIdErrorSet);
     buf_resize(&err_set_type->name, 0);
-    buf_appendf(&err_set_type->name, "error.{%s}", buf_ptr(&err_entry->name));
+    buf_appendf(&err_set_type->name, "error{%s}", buf_ptr(&err_entry->name));
     err_set_type->type_ref = g->builtin_types.entry_global_error_set->type_ref;
     err_set_type->di_type = g->builtin_types.entry_global_error_set->di_type;
     err_set_type->data.error_set.err_count = 1;
@@ -6912,7 +6912,6 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
     assert(scope);
     switch (node->type) {
         case NodeTypeStructValueField:
-        case NodeTypeRoot:
         case NodeTypeParamDecl:
         case NodeTypeUse:
         case NodeTypeSwitchProng:
@@ -8202,7 +8201,7 @@ static ZigType *get_error_set_intersection(IrAnalyze *ira, ZigType *set1, ZigTyp
 
     ZigType *err_set_type = new_type_table_entry(ZigTypeIdErrorSet);
     buf_resize(&err_set_type->name, 0);
-    buf_appendf(&err_set_type->name, "error.{");
+    buf_appendf(&err_set_type->name, "error{");
 
     for (uint32_t i = 0; i < set2->data.error_set.err_count; i += 1) {
         ErrorTableEntry *error_entry = set2->data.error_set.errors[i];
@@ -19467,7 +19466,7 @@ static IrInstruction *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira,
         if (!instruction->have_else_prong) {
             if (type_is_global_error_set(switch_type)) {
                 ir_add_error(ira, &instruction->base,
-                    buf_sprintf("else prong required when switching on type 'error'"));
+                    buf_sprintf("else prong required when switching on type 'anyerror'"));
                 return ira->codegen->invalid_instruction;
             } else {
                 for (uint32_t i = 0; i < switch_type->data.error_set.err_count; i += 1) {

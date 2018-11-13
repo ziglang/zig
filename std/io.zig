@@ -33,7 +33,7 @@ pub fn getStdIn() GetStdIoErrs!File {
 }
 
 pub fn InStream(comptime ReadError: type) type {
-    return struct.{
+    return struct {
         const Self = @This();
         pub const Error = ReadError;
 
@@ -193,7 +193,7 @@ pub fn InStream(comptime ReadError: type) type {
 }
 
 pub fn OutStream(comptime WriteError: type) type {
-    return struct.{
+    return struct {
         const Self = @This();
         pub const Error = WriteError;
 
@@ -271,7 +271,7 @@ pub fn BufferedInStream(comptime Error: type) type {
 }
 
 pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Error: type) type {
-    return struct.{
+    return struct {
         const Self = @This();
         const Stream = InStream(Error);
 
@@ -284,7 +284,7 @@ pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Error: type)
         end_index: usize,
 
         pub fn init(unbuffered_in_stream: *Stream) Self {
-            return Self.{
+            return Self{
                 .unbuffered_in_stream = unbuffered_in_stream,
                 .buffer = undefined,
 
@@ -295,7 +295,7 @@ pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Error: type)
                 .start_index = buffer_size,
                 .end_index = buffer_size,
 
-                .stream = Stream.{ .readFn = readFn },
+                .stream = Stream{ .readFn = readFn },
             };
         }
 
@@ -341,7 +341,7 @@ pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Error: type)
 /// Creates a stream which supports 'un-reading' data, so that it can be read again.
 /// This makes look-ahead style parsing much easier.
 pub fn PeekStream(comptime buffer_size: usize, comptime InStreamError: type) type {
-    return struct.{
+    return struct {
         const Self = @This();
         pub const Error = InStreamError;
         pub const Stream = InStream(Error);
@@ -356,12 +356,12 @@ pub fn PeekStream(comptime buffer_size: usize, comptime InStreamError: type) typ
         at_end: bool,
 
         pub fn init(base: *Stream) Self {
-            return Self.{
+            return Self{
                 .base = base,
                 .buffer = undefined,
                 .index = 0,
                 .at_end = false,
-                .stream = Stream.{ .readFn = readFn },
+                .stream = Stream{ .readFn = readFn },
             };
         }
 
@@ -404,9 +404,9 @@ pub fn PeekStream(comptime buffer_size: usize, comptime InStreamError: type) typ
     };
 }
 
-pub const SliceInStream = struct.{
+pub const SliceInStream = struct {
     const Self = @This();
-    pub const Error = error.{};
+    pub const Error = error{};
     pub const Stream = InStream(Error);
 
     pub stream: Stream,
@@ -415,10 +415,10 @@ pub const SliceInStream = struct.{
     slice: []const u8,
 
     pub fn init(slice: []const u8) Self {
-        return Self.{
+        return Self{
             .slice = slice,
             .pos = 0,
-            .stream = Stream.{ .readFn = readFn },
+            .stream = Stream{ .readFn = readFn },
         };
     }
 
@@ -436,8 +436,8 @@ pub const SliceInStream = struct.{
 
 /// This is a simple OutStream that writes to a slice, and returns an error
 /// when it runs out of space.
-pub const SliceOutStream = struct.{
-    pub const Error = error.{OutOfSpace};
+pub const SliceOutStream = struct {
+    pub const Error = error{OutOfSpace};
     pub const Stream = OutStream(Error);
 
     pub stream: Stream,
@@ -446,10 +446,10 @@ pub const SliceOutStream = struct.{
     slice: []u8,
 
     pub fn init(slice: []u8) SliceOutStream {
-        return SliceOutStream.{
+        return SliceOutStream{
             .slice = slice,
             .pos = 0,
-            .stream = Stream.{ .writeFn = writeFn },
+            .stream = Stream{ .writeFn = writeFn },
         };
     }
 
@@ -485,7 +485,7 @@ pub fn BufferedOutStream(comptime Error: type) type {
 }
 
 pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime OutStreamError: type) type {
-    return struct.{
+    return struct {
         const Self = @This();
         pub const Stream = OutStream(Error);
         pub const Error = OutStreamError;
@@ -498,11 +498,11 @@ pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime OutStreamEr
         index: usize,
 
         pub fn init(unbuffered_out_stream: *Stream) Self {
-            return Self.{
+            return Self{
                 .unbuffered_out_stream = unbuffered_out_stream,
                 .buffer = undefined,
                 .index = 0,
-                .stream = Stream.{ .writeFn = writeFn },
+                .stream = Stream{ .writeFn = writeFn },
             };
         }
 
@@ -536,17 +536,17 @@ pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime OutStreamEr
 }
 
 /// Implementation of OutStream trait for Buffer
-pub const BufferOutStream = struct.{
+pub const BufferOutStream = struct {
     buffer: *Buffer,
     stream: Stream,
 
-    pub const Error = error.{OutOfMemory};
+    pub const Error = error{OutOfMemory};
     pub const Stream = OutStream(Error);
 
     pub fn init(buffer: *Buffer) BufferOutStream {
-        return BufferOutStream.{
+        return BufferOutStream{
             .buffer = buffer,
-            .stream = Stream.{ .writeFn = writeFn },
+            .stream = Stream{ .writeFn = writeFn },
         };
     }
 
@@ -556,7 +556,7 @@ pub const BufferOutStream = struct.{
     }
 };
 
-pub const BufferedAtomicFile = struct.{
+pub const BufferedAtomicFile = struct {
     atomic_file: os.AtomicFile,
     file_stream: os.File.OutStream,
     buffered_stream: BufferedOutStream(os.File.WriteError),
@@ -564,7 +564,7 @@ pub const BufferedAtomicFile = struct.{
 
     pub fn create(allocator: *mem.Allocator, dest_path: []const u8) !*BufferedAtomicFile {
         // TODO with well defined copy elision we don't need this allocation
-        var self = try allocator.create(BufferedAtomicFile.{
+        var self = try allocator.create(BufferedAtomicFile{
             .atomic_file = undefined,
             .file_stream = undefined,
             .buffered_stream = undefined,
@@ -624,3 +624,5 @@ pub fn readLine(buf: []u8) !usize {
         }
     }
 }
+
+

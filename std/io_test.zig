@@ -63,7 +63,7 @@ test "BufferOutStream" {
 }
 
 test "SliceInStream" {
-    const bytes = []const u8.{ 1, 2, 3, 4, 5, 6, 7 };
+    const bytes = []const u8{ 1, 2, 3, 4, 5, 6, 7 };
     var ss = io.SliceInStream.init(bytes);
 
     var dest: [4]u8 = undefined;
@@ -81,7 +81,7 @@ test "SliceInStream" {
 }
 
 test "PeekStream" {
-    const bytes = []const u8.{ 1, 2, 3, 4, 5, 6, 7, 8 };
+    const bytes = []const u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
     var ss = io.SliceInStream.init(bytes);
     var ps = io.PeekStream(2, io.SliceInStream.Error).init(&ss.stream);
 

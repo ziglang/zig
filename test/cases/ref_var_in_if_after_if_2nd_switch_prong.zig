@@ -11,7 +11,7 @@ test "reference a variable in an if after an if in the 2nd switch prong" {
     assert(ok);
 }
 
-const Num = enum.{
+const Num = enum {
     One,
     Two,
 };
