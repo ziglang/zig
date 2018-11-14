@@ -3182,8 +3182,13 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
 }
 
 static IrInstruction *ir_gen_bin_op_id(IrBuilder *irb, Scope *scope, AstNode *node, IrBinOp op_id) {
-    IrInstruction *op1 = ir_gen_node(irb, node->data.bin_op_expr.op1, scope);
-    IrInstruction *op2 = ir_gen_node(irb, node->data.bin_op_expr.op2, scope);
+    Scope *inner_scope = scope;
+    if (op_id == IrBinOpArrayCat || op_id == IrBinOpArrayMult) {
+        inner_scope = create_comptime_scope(irb->codegen, node, scope);
+    }
+
+    IrInstruction *op1 = ir_gen_node(irb, node->data.bin_op_expr.op1, inner_scope);
+    IrInstruction *op2 = ir_gen_node(irb, node->data.bin_op_expr.op2, inner_scope);
 
     if (op1 == irb->codegen->invalid_instruction || op2 == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
