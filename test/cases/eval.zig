@@ -762,3 +762,21 @@ test "*align(1) u16 is the same as *align(1:0:2) u16" {
         //assert(*align(:0:2) u16 == *u16);
     }
 }
+
+test "array concatenation forces comptime" {
+    var a = oneItem(3) ++ oneItem(4);
+    assert(std.mem.eql(i32, a, []i32{3, 4}));
+}
+
+test "array multiplication forces comptime" {
+    var a = oneItem(3) ** scalar(2);
+    assert(std.mem.eql(i32, a, []i32{3, 3}));
+}
+
+fn oneItem(x: i32) [1]i32 {
+    return []i32{x};
+}
+
+fn scalar(x: u32) u32 {
+    return x;
+}
