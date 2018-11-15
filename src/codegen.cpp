@@ -3705,8 +3705,8 @@ static LLVMValueRef ir_render_asm(CodeGen *g, IrExecutable *executable, IrInstru
     LLVMTypeRef function_type = LLVMFunctionType(ret_type, param_types, (unsigned)input_and_output_count, false);
 
     bool is_volatile = asm_expr->is_volatile || (asm_expr->output_list.length == 0);
-    LLVMValueRef asm_fn = LLVMConstInlineAsm(function_type, buf_ptr(&llvm_template),
-            buf_ptr(&constraint_buf), is_volatile, false);
+    LLVMValueRef asm_fn = LLVMGetInlineAsm(function_type, buf_ptr(&llvm_template), buf_len(&llvm_template),
+            buf_ptr(&constraint_buf), buf_len(&constraint_buf), is_volatile, false, LLVMInlineAsmDialectATT);
 
     return LLVMBuildCall(g->builder, asm_fn, param_values, (unsigned)input_and_output_count, "");
 }
