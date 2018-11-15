@@ -5287,6 +5287,12 @@ static IrInstruction *ir_gen_bool_not(IrBuilder *irb, Scope *scope, AstNode *nod
     return ir_build_bool_not(irb, scope, node, value);
 }
 
+static IrInstruction *ensure_result_loc(IrBuilder *irb, Scope *scope, AstNode *node, IrInstruction *result_loc) {
+    if (result_loc)
+        return result_loc;
+    return ir_build_alloca_src(irb, scope, node, nullptr, nullptr, "");
+}
+
 static IrInstruction *ir_gen_prefix_op_expr(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval,
         IrInstruction *result_loc)
 {
@@ -5309,10 +5315,11 @@ static IrInstruction *ir_gen_prefix_op_expr(IrBuilder *irb, Scope *scope, AstNod
             return ir_lval_wrap(irb, scope, ir_gen_prefix_op_id(irb, scope, node, IrUnOpOptional), lval);
         case PrefixOpAddrOf: {
             AstNode *expr_node = node->data.prefix_op_expr.primary_expr;
-            IrInstruction *inst = ir_gen_node(irb, expr_node, scope, LValPtr, result_loc);
+            IrInstruction *ensured_result_loc = ensure_result_loc(irb, scope, expr_node, result_loc);
+            IrInstruction *inst = ir_gen_node(irb, expr_node, scope, LValPtr, ensured_result_loc);
             if (inst == irb->codegen->invalid_instruction)
                 return inst;
-            return ir_gen_result(irb, scope, expr_node, lval, result_loc);
+            return ir_gen_result(irb, scope, expr_node, lval, ensured_result_loc);
         }
     }
     zig_unreachable();
@@ -7289,12 +7296,6 @@ static IrInstruction *ir_gen_suspend(IrBuilder *irb, Scope *parent_scope, AstNod
 
     ir_set_cursor_at_end_and_append_block(irb, resume_block);
     return ir_mark_gen(ir_build_const_void(irb, parent_scope, node));
-}
-
-static IrInstruction *ensure_result_loc(IrBuilder *irb, Scope *scope, AstNode *node, IrInstruction *result_loc) {
-    if (result_loc)
-        return result_loc;
-    return ir_build_alloca_src(irb, scope, node, nullptr, nullptr, "");
 }
 
 static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scope, LVal lval,
