@@ -3660,6 +3660,13 @@ static LLVMValueRef ir_render_asm(CodeGen *g, IrExecutable *executable, IrInstru
         AsmOutput *asm_output = asm_expr->output_list.at(i);
         bool is_return = (asm_output->return_type != nullptr);
         assert(*buf_ptr(asm_output->constraint) == '=');
+        // LLVM uses commas internally to separate different constraints,
+        // alternative constraints are achieved with pipes.
+        // We still allow the user to use commas in a way that is similar
+        // to GCC's inline assembly.
+        // http://llvm.org/docs/LangRef.html#constraint-codes
+        buf_replace(asm_output->constraint, ',', '|');
+
         if (is_return) {
             buf_appendf(&constraint_buf, "=%s", buf_ptr(asm_output->constraint) + 1);
         } else {
@@ -3679,6 +3686,7 @@ static LLVMValueRef ir_render_asm(CodeGen *g, IrExecutable *executable, IrInstru
     }
     for (size_t i = 0; i < asm_expr->input_list.length; i += 1, total_index += 1, param_index += 1) {
         AsmInput *asm_input = asm_expr->input_list.at(i);
+        buf_replace(asm_input->constraint, ',', '|');
         IrInstruction *ir_input = instruction->input_list[i];
         buf_append_buf(&constraint_buf, asm_input->constraint);
         if (total_index + 1 < total_constraint_count) {

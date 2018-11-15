@@ -17,6 +17,12 @@ test "module level assembly" {
     }
 }
 
+test "alternative constraints" {
+    // Make sure we allow commas as a separator for alternative constraints.
+    var a: u32 = 3;
+    asm volatile ("" : [_]"=r,m"(a) : [_]"r,m"(a) : "");
+}
+
 extern fn aoeu() i32;
 
 export fn derp() i32 {
