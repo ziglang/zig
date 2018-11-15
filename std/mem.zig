@@ -468,6 +468,26 @@ pub fn readIntLE(comptime T: type, bytes: []const u8) T {
     return result;
 }
 
+test "readIntBE/LE" {
+    assert(readIntBE(u0, []u8{}) == 0x0);
+    assert(readIntLE(u0, []u8{}) == 0x0);
+
+    assert(readIntBE(u8, []u8{0x32}) == 0x32);
+    assert(readIntLE(u8, []u8{0x12}) == 0x12);
+
+    assert(readIntBE(u16, []u8{0x12, 0x34}) == 0x1234);
+    assert(readIntLE(u16, []u8{0x12, 0x34}) == 0x3412);
+
+    assert(readIntBE(u72, []u8{ 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x24 }) == 0x123456789abcdef024);
+    assert(readIntLE(u72, []u8{ 0xec, 0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe }) == 0xfedcba9876543210ec);
+
+    assert(readIntBE(i8, []u8{0xff}) == -1);
+    assert(readIntLE(i8, []u8{0xfe}) == -2);
+
+    assert(readIntBE(i16, []u8{0xff, 0xfd}) == -3);
+    assert(readIntLE(i16, []u8{0xfc, 0xff}) == -4);
+}
+
 /// Writes an integer to memory with size equal to bytes.len. Pads with zeroes
 /// to fill the entire buffer provided.
 /// value must be an integer.
