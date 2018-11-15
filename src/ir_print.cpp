@@ -881,7 +881,7 @@ static void ir_print_bit_cast(IrPrint *irp, IrInstructionBitCast *instruction) {
 }
 
 static void ir_print_widen_or_shorten(IrPrint *irp, IrInstructionWidenOrShorten *instruction) {
-    fprintf(irp->f, "@widenOrShorten(");
+    fprintf(irp->f, "WidenOrShorten(");
     ir_print_other_instruction(irp, instruction->target);
     fprintf(irp->f, ")");
 }

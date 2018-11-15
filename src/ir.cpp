@@ -3203,8 +3203,9 @@ static IrInstruction *ir_gen_multi(IrBuilder *irb, Scope *scope, AstNode *node, 
 {
     switch (lval) {
         case LValNone:
+            return value;
         case LValPtr:
-            return ir_gen_result(irb, scope, node, lval, result_loc);
+            return result_loc;
         case LValErrorUnion:
         case LValOptional: {
             IrInstruction *err_alloca = ir_build_alloca_src(irb, scope, value->source_node,
@@ -11553,6 +11554,8 @@ static IrInstruction *ir_implicit_cast_result(IrAnalyze *ira, IrInstruction *res
         {
             IrInstruction *cast1 = ir_implicit_cast_result(ira, result_loc,
                     have_child_type->data.error_union.payload_type, allow_failure);
+            if (cast1 == nullptr)
+                return nullptr;
             if (type_is_invalid(cast1->value.type))
                 return ira->codegen->invalid_instruction;
 
@@ -11566,7 +11569,7 @@ static IrInstruction *ir_implicit_cast_result(IrAnalyze *ira, IrInstruction *res
     }
 
     if (allow_failure) {
-        return result_loc;
+        return nullptr;
     }
 
     ErrorMsg *parent_msg = ir_add_error_node(ira, source_node,
@@ -13722,6 +13725,8 @@ static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source
     }
 
     IrInstruction *ptr = ir_implicit_cast_result(ira, uncasted_ptr, uncasted_value->value.type, true);
+    if (ptr == nullptr)
+        ptr = uncasted_ptr;
     if (type_is_invalid(ptr->value.type))
         return ira->codegen->invalid_instruction;
 
@@ -14331,7 +14336,10 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call
         scalar_result_type = return_type;
     }
 
-    if (call_instruction->result_loc != nullptr) {
+    bool need_store_ptr = (return_type == payload_result_type) && !handle_is_ptr(return_type) &&
+        call_instruction->result_loc != nullptr && call_instruction->result_loc->child != nullptr;
+
+    if (call_instruction->result_loc != nullptr && call_instruction->result_loc->child != nullptr) {
         IrInstruction *prev_result_loc = call_instruction->result_loc->child;
         if (type_is_invalid(prev_result_loc->value.type))
             return ira->codegen->invalid_instruction;
@@ -14344,7 +14352,9 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call
             }
         }
 
-        casted_result_loc = ir_implicit_cast_result(ira, prev_result_loc, payload_result_type, false);
+        casted_result_loc = ir_implicit_cast_result(ira, prev_result_loc, payload_result_type, need_store_ptr);
+        if (casted_result_loc == nullptr)
+            casted_result_loc = prev_result_loc;
         if (type_is_invalid(casted_result_loc->value.type))
             return ira->codegen->invalid_instruction;
     }
@@ -14355,7 +14365,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call
             casted_new_stack, casted_result_loc, nullptr);
     new_call_instruction->value.type = scalar_result_type;
 
-    if (return_type == payload_result_type && !handle_is_ptr(return_type) && casted_result_loc != nullptr) {
+    if (need_store_ptr) {
         ir_analyze_store_ptr(ira, &call_instruction->base, casted_result_loc, new_call_instruction);
     }
 
@@ -14385,34 +14395,53 @@ static IrInstruction *ir_analyze_instruction_call(IrAnalyze *ira, IrInstructionC
                 return ira->codegen->invalid_instruction;
             }
 
+            IrInstruction *first_arg_result_loc = call_instruction->first_arg_result_loc->child;
+            if (first_arg_result_loc != nullptr) {
+                IrInstruction *result_loc = call_instruction->result_loc->child;
+                if (type_is_invalid(result_loc->value.type))
+                    return ira->codegen->invalid_instruction;
+                if ((err = resolve_possible_alloca_inference(ira, result_loc, dest_type)))
+                    return ira->codegen->invalid_instruction;
+
+                if (is_slice(dest_type)) {
+                    if (type_is_invalid(first_arg_result_loc->value.type))
+                        return ira->codegen->invalid_instruction;
+                    // If this is a slice cast, this is the equivalent of a container init fields instruction.
+                    // Deal with ConstPtrMutInfer.
+                    if (result_loc->value.data.x_ptr.mut == ConstPtrMutInfer) {
+                        if (instr_is_comptime(first_arg_result_loc)) {
+                            result_loc->value.data.x_ptr.mut = ConstPtrMutComptimeConst;
+                        } else {
+                            result_loc->value.special = ConstValSpecialRuntime;
+                        }
+                    }
+                    return ir_const_void(ira, &call_instruction->base);
+                }
+
+                // This is handled with the result location mechanism. So all we need to do here is
+                // a LoadPtr on the result location.
+                IrInstruction *deref = ir_get_deref(ira, &call_instruction->base, result_loc);
+                if (type_is_invalid(deref->value.type))
+                    return ira->codegen->invalid_instruction;
+                return ir_finish_anal(ira, deref);
+            }
+            IrInstruction *arg_value = call_instruction->args[0]->child;
+            if (type_is_invalid(arg_value->value.type))
+                return ira->codegen->invalid_instruction;
+            IrInstruction *result = ir_implicit_cast(ira, arg_value, dest_type);
+
+            if (call_instruction->result_loc == nullptr || call_instruction->result_loc->child == nullptr) {
+                return ir_finish_anal(ira, result);
+            }
+
+            // we must store into the result loc
             IrInstruction *result_loc = call_instruction->result_loc->child;
             if (type_is_invalid(result_loc->value.type))
                 return ira->codegen->invalid_instruction;
             if ((err = resolve_possible_alloca_inference(ira, result_loc, dest_type)))
                 return ira->codegen->invalid_instruction;
-
-            if (is_slice(dest_type)) {
-                IrInstruction *first_arg_result_loc = call_instruction->first_arg_result_loc->child;
-                if (type_is_invalid(first_arg_result_loc->value.type))
-                    return ira->codegen->invalid_instruction;
-                // If this is a slice cast, this is the equivalent of a container init fields instruction.
-                // Deal with ConstPtrMutInfer.
-                if (result_loc->value.data.x_ptr.mut == ConstPtrMutInfer) {
-                    if (instr_is_comptime(first_arg_result_loc)) {
-                        result_loc->value.data.x_ptr.mut = ConstPtrMutComptimeConst;
-                    } else {
-                        result_loc->value.special = ConstValSpecialRuntime;
-                    }
-                }
-                return ir_const_void(ira, &call_instruction->base);
-            }
-
-            // This is handled with the result location mechanism. So all we need to do here is
-            // a LoadPtr on the result location.
-            IrInstruction *deref = ir_get_deref(ira, &call_instruction->base, result_loc);
-            if (type_is_invalid(deref->value.type))
-                return ira->codegen->invalid_instruction;
-            return ir_finish_anal(ira, deref);
+            ir_analyze_store_ptr(ira, &call_instruction->base, result_loc, result);
+            return result;
         } else if (fn_ref->value.type->id == ZigTypeIdFn) {
             ZigFn *fn_table_entry = ir_resolve_fn(ira, fn_ref);
             if (fn_table_entry == nullptr)
@@ -21909,6 +21938,10 @@ static IrInstruction *ir_analyze_instruction_first_arg_result_loc(IrAnalyze *ira
         if (type_is_invalid(dest_type))
             return ira->codegen->invalid_instruction;
 
+        if (!handle_is_ptr(dest_type)) {
+            return nullptr;
+        }
+
         IrInstruction *new_result_loc = ir_implicit_cast_result(ira, instruction->prev_result_loc->child,
                 dest_type, false);
         if (type_is_invalid(new_result_loc->value.type))
@@ -22258,7 +22291,7 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
 
 static IrInstruction *ir_analyze_instruction(IrAnalyze *ira, IrInstruction *old_instruction) {
     IrInstruction *new_instruction = ir_analyze_instruction_nocast(ira, old_instruction);
-    assert(new_instruction->value.type != nullptr);
+    assert(new_instruction == nullptr || new_instruction->value.type != nullptr);
     old_instruction->child = new_instruction;
     return new_instruction;
 }
@@ -22308,13 +22341,15 @@ ZigType *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutable *new_
         }
 
         IrInstruction *new_instruction = ir_analyze_instruction(ira, old_instruction);
-        if (type_is_invalid(new_instruction->value.type) && ir_should_inline(new_exec, old_instruction->scope)) {
-            return ira->codegen->builtin_types.entry_invalid;
-        }
+        if (new_instruction != nullptr) {
+            if (type_is_invalid(new_instruction->value.type) && ir_should_inline(new_exec, old_instruction->scope)) {
+                return ira->codegen->builtin_types.entry_invalid;
+            }
 
-        // unreachable instructions do their own control flow.
-        if (new_instruction->value.type->id == ZigTypeIdUnreachable)
-            continue;
+            // unreachable instructions do their own control flow.
+            if (new_instruction->value.type->id == ZigTypeIdUnreachable)
+                continue;
+        }
 
         ira->instruction_index += 1;
     }
