@@ -249,13 +249,6 @@ pub fn OutStream(comptime WriteError: type) type {
     };
 }
 
-pub const noop_out_stream = &noop_out_stream_state;
-const NoopOutStreamError = error{};
-var noop_out_stream_state = OutStream(NoopOutStreamError){
-    .writeFn = noop_out_stream_write,
-};
-fn noop_out_stream_write(self: *OutStream(NoopOutStreamError), bytes: []const u8) error{}!void {}
-
 pub fn writeFile(path: []const u8, data: []const u8) !void {
     var file = try File.openWrite(path);
     defer file.close();
@@ -503,6 +496,9 @@ test "io.SliceOutStream" {
     try stream.print("{}{}!", "Hello", "World");
     debug.assert(mem.eql(u8, "HelloWorld!", slice_stream.getWritten()));
 }
+
+var null_out_stream_state = NullOutStream.init();
+pub const null_out_stream = &null_out_stream_state.stream;
 
 /// An OutStream that doesn't write to anything.
 pub const NullOutStream = struct {

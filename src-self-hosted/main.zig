@@ -646,7 +646,7 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
             os.exit(1);
         }
         if (flags.present("check")) {
-            const anything_changed = try std.zig.render(allocator, io.noop_out_stream, &tree);
+            const anything_changed = try std.zig.render(allocator, io.null_out_stream, &tree);
             const code = if (anything_changed) u8(1) else u8(0);
             os.exit(code);
         }
@@ -792,7 +792,7 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtErro
     }
 
     if (check_mode) {
-        const anything_changed = try std.zig.render(fmt.loop.allocator, io.noop_out_stream, &tree);
+        const anything_changed = try std.zig.render(fmt.loop.allocator, io.null_out_stream, &tree);
         if (anything_changed) {
             try stderr.print("{}\n", file_path);
             fmt.any_error = true;
