@@ -249,13 +249,6 @@ pub fn OutStream(comptime WriteError: type) type {
     };
 }
 
-pub const noop_out_stream = &noop_out_stream_state;
-const NoopOutStreamError = error{};
-var noop_out_stream_state = OutStream(NoopOutStreamError){
-    .writeFn = noop_out_stream_write,
-};
-fn noop_out_stream_write(self: *OutStream(NoopOutStreamError), bytes: []const u8) error{}!void {}
-
 pub fn writeFile(path: []const u8, data: []const u8) !void {
     var file = try File.openWrite(path);
     defer file.close();
@@ -495,6 +488,77 @@ pub const SliceOutStream = struct {
     }
 };
 
+test "io.SliceOutStream" {
+    var buf: [255]u8 = undefined;
+    var slice_stream = SliceOutStream.init(buf[0..]);
+    const stream = &slice_stream.stream;
+
+    try stream.print("{}{}!", "Hello", "World");
+    debug.assert(mem.eql(u8, "HelloWorld!", slice_stream.getWritten()));
+}
+
+var null_out_stream_state = NullOutStream.init();
+pub const null_out_stream = &null_out_stream_state.stream;
+
+/// An OutStream that doesn't write to anything.
+pub const NullOutStream = struct {
+    pub const Error = error{};
+    pub const Stream = OutStream(Error);
+
+    pub stream: Stream,
+
+    pub fn init() NullOutStream {
+        return NullOutStream{
+            .stream = Stream{ .writeFn = writeFn },
+        };
+    }
+
+    fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {}
+};
+
+test "io.NullOutStream" {
+    var null_stream = NullOutStream.init();
+    const stream = &null_stream.stream;
+    stream.write("yay" ** 10000) catch unreachable;
+}
+
+/// An OutStream that counts how many bytes has been written to it.
+pub fn CountingOutStream(comptime OutStreamError: type) type {
+    return struct {
+        const Self = @This();
+        pub const Stream = OutStream(Error);
+        pub const Error = OutStreamError;
+
+        pub stream: Stream,
+        pub bytes_written: usize,
+        child_stream: *Stream,
+
+        pub fn init(child_stream: *Stream) Self {
+            return Self{
+                .stream = Stream{ .writeFn = writeFn },
+                .bytes_written = 0,
+                .child_stream = child_stream,
+            };
+        }
+
+        fn writeFn(out_stream: *Stream, bytes: []const u8) OutStreamError!void {
+            const self = @fieldParentPtr(Self, "stream", out_stream);
+            try self.child_stream.write(bytes);
+            self.bytes_written += bytes.len;
+        }
+    };
+}
+
+test "io.CountingOutStream" {
+    var null_stream = NullOutStream.init();
+    var counting_stream = CountingOutStream(NullOutStream.Error).init(&null_stream.stream);
+    const stream = &counting_stream.stream;
+
+    const bytes = "yay" ** 10000;
+    stream.write(bytes) catch unreachable;
+    debug.assert(counting_stream.bytes_written == bytes.len);
+}
+
 pub fn BufferedOutStream(comptime Error: type) type {
     return BufferedOutStreamCustom(os.page_size, Error);
 }
@@ -639,5 +703,3 @@ pub fn readLine(buf: []u8) !usize {
         }
     }
 }
-
-
