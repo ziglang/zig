@@ -18,12 +18,12 @@ pub const OsAddress = switch (builtin.os) {
 pub const Address = struct {
     os_addr: OsAddress,
 
-    pub fn initIp4(ip4: u32, port: u16) Address {
+    pub fn initIp4(ip4: u32, _port: u16) Address {
         return Address{
             .os_addr = posix.sockaddr{
                 .in = posix.sockaddr_in{
                     .family = posix.AF_INET,
-                    .port = std.mem.endianSwapIfLe(u16, port),
+                    .port = std.mem.endianSwapIfLe(u16, _port),
                     .addr = ip4,
                     .zero = []u8{0} ** 8,
                 },
@@ -31,19 +31,23 @@ pub const Address = struct {
         };
     }
 
-    pub fn initIp6(ip6: *const Ip6Addr, port: u16) Address {
+    pub fn initIp6(ip6: *const Ip6Addr, _port: u16) Address {
         return Address{
             .family = posix.AF_INET6,
             .os_addr = posix.sockaddr{
                 .in6 = posix.sockaddr_in6{
                     .family = posix.AF_INET6,
-                    .port = std.mem.endianSwapIfLe(u16, port),
+                    .port = std.mem.endianSwapIfLe(u16, _port),
                     .flowinfo = 0,
                     .addr = ip6.addr,
                     .scope_id = ip6.scope_id,
                 },
             },
         };
+    }
+
+    pub fn port(self: Address) u16 {
+        return std.mem.endianSwapIfLe(u16, self.os_addr.in.port);
     }
 
     pub fn initPosix(addr: posix.sockaddr) Address {
