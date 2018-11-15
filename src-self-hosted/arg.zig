@@ -149,7 +149,7 @@ pub const Args = struct {
     }
 
     // e.g. --help
-    pub fn present(self: *Args, name: []const u8) bool {
+    pub fn present(self: *const Args, name: []const u8) bool {
         return self.flags.contains(name);
     }
 

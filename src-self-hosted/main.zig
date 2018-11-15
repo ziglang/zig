@@ -514,17 +514,22 @@ const usage_fmt =
     \\usage: zig fmt [file]...
     \\
     \\   Formats the input files and modifies them in-place.
+    \\   Arguments can be files or directories, which are searched
+    \\   recursively.
     \\
     \\Options:
     \\   --help                 Print this help and exit
     \\   --color [auto|off|on]  Enable or disable colored error messages
-    \\   --stdin                Format code from stdin
+    \\   --stdin                Format code from stdin; output to stdout
+    \\   --check                List non-conforming files and exit with an error
+    \\                          if the list is non-empty
     \\
     \\
 ;
 
 const args_fmt_spec = []Flag{
     Flag.Bool("--help"),
+    Flag.Bool("--check"),
     Flag.Option("--color", []const []const u8{
         "auto",
         "off",
@@ -640,6 +645,11 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
         if (tree.errors.len != 0) {
             os.exit(1);
         }
+        if (flags.present("check")) {
+            const anything_changed = try std.zig.render(allocator, io.noop_out_stream, &tree);
+            const code = if (anything_changed) u8(1) else u8(0);
+            os.exit(code);
+        }
 
         _ = try std.zig.render(allocator, stdout, &tree);
         return;
@@ -711,9 +721,11 @@ async fn asyncFmtMain(
         .loop = loop,
     };
 
+    const check_mode = flags.present("check");
+
     var group = event.Group(FmtError!void).init(loop);
     for (flags.positionals.toSliceConst()) |file_path| {
-        try group.call(fmtPath, &fmt, file_path);
+        try group.call(fmtPath, &fmt, file_path, check_mode);
     }
     try await (async group.wait() catch unreachable);
     if (fmt.any_error) {
@@ -721,7 +733,7 @@ async fn asyncFmtMain(
     }
 }
 
-async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8) FmtError!void {
+async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtError!void {
     const file_path = try std.mem.dupe(fmt.loop.allocator, u8, file_path_ref);
     defer fmt.loop.allocator.free(file_path);
 
@@ -746,7 +758,7 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8) FmtError!void {
             while (try dir.next()) |entry| {
                 if (entry.kind == std.os.Dir.Entry.Kind.Directory or mem.endsWith(u8, entry.name, ".zig")) {
                     const full_path = try os.path.join(fmt.loop.allocator, file_path, entry.name);
-                    try group.call(fmtPath, fmt, full_path);
+                    try group.call(fmtPath, fmt, full_path, check_mode);
                 }
             }
             return await (async group.wait() catch unreachable);
@@ -779,14 +791,22 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8) FmtError!void {
         return;
     }
 
-    // TODO make this evented
-    const baf = try io.BufferedAtomicFile.create(fmt.loop.allocator, file_path);
-    defer baf.destroy();
+    if (check_mode) {
+        const anything_changed = try std.zig.render(fmt.loop.allocator, io.noop_out_stream, &tree);
+        if (anything_changed) {
+            try stderr.print("{}\n", file_path);
+            fmt.any_error = true;
+        }
+    } else {
+        // TODO make this evented
+        const baf = try io.BufferedAtomicFile.create(fmt.loop.allocator, file_path);
+        defer baf.destroy();
 
-    const anything_changed = try std.zig.render(fmt.loop.allocator, baf.stream(), &tree);
-    if (anything_changed) {
-        try stderr.print("{}\n", file_path);
-        try baf.finish();
+        const anything_changed = try std.zig.render(fmt.loop.allocator, baf.stream(), &tree);
+        if (anything_changed) {
+            try stderr.print("{}\n", file_path);
+            try baf.finish();
+        }
     }
 }
 

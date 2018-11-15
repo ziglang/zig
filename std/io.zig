@@ -203,20 +203,20 @@ pub fn OutStream(comptime WriteError: type) type {
 
         writeFn: fn (self: *Self, bytes: []const u8) Error!void,
 
-        pub fn print(self: *Self, comptime format: []const u8, args: ...) !void {
+        pub fn print(self: *Self, comptime format: []const u8, args: ...) Error!void {
             return std.fmt.format(self, Error, self.writeFn, format, args);
         }
 
-        pub fn write(self: *Self, bytes: []const u8) !void {
+        pub fn write(self: *Self, bytes: []const u8) Error!void {
             return self.writeFn(self, bytes);
         }
 
-        pub fn writeByte(self: *Self, byte: u8) !void {
+        pub fn writeByte(self: *Self, byte: u8) Error!void {
             const slice = (*[1]u8)(&byte)[0..];
             return self.writeFn(self, slice);
         }
 
-        pub fn writeByteNTimes(self: *Self, byte: u8, n: usize) !void {
+        pub fn writeByteNTimes(self: *Self, byte: u8, n: usize) Error!void {
             const slice = (*[1]u8)(&byte)[0..];
             var i: usize = 0;
             while (i < n) : (i += 1) {
@@ -225,29 +225,36 @@ pub fn OutStream(comptime WriteError: type) type {
         }
 
         /// Write a native-endian integer.
-        pub fn writeIntNe(self: *Self, comptime T: type, value: T) !void {
+        pub fn writeIntNe(self: *Self, comptime T: type, value: T) Error!void {
             return self.writeInt(builtin.endian, T, value);
         }
 
-        pub fn writeIntLe(self: *Self, comptime T: type, value: T) !void {
+        pub fn writeIntLe(self: *Self, comptime T: type, value: T) Error!void {
             var bytes: [@sizeOf(T)]u8 = undefined;
             mem.writeIntLE(T, &bytes, value);
             return self.writeFn(self, bytes);
         }
 
-        pub fn writeIntBe(self: *Self, comptime T: type, value: T) !void {
+        pub fn writeIntBe(self: *Self, comptime T: type, value: T) Error!void {
             var bytes: [@sizeOf(T)]u8 = undefined;
             mem.writeIntBE(T, &bytes, value);
             return self.writeFn(self, bytes);
         }
 
-        pub fn writeInt(self: *Self, endian: builtin.Endian, comptime T: type, value: T) !void {
+        pub fn writeInt(self: *Self, endian: builtin.Endian, comptime T: type, value: T) Error!void {
             var bytes: [@sizeOf(T)]u8 = undefined;
             mem.writeInt(bytes[0..], value, endian);
             return self.writeFn(self, bytes);
         }
     };
 }
+
+pub const noop_out_stream = &noop_out_stream_state;
+const NoopOutStreamError = error{};
+var noop_out_stream_state = OutStream(NoopOutStreamError){
+    .writeFn = noop_out_stream_write,
+};
+fn noop_out_stream_write(self: *OutStream(NoopOutStreamError), bytes: []const u8) error{}!void {}
 
 pub fn writeFile(path: []const u8, data: []const u8) !void {
     var file = try File.openWrite(path);
