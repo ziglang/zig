@@ -5100,7 +5100,7 @@ static IrInstruction *ir_gen_fn_call(IrBuilder *irb, Scope *scope, AstNode *node
     size_t arg_count = node->data.fn_call_expr.params.length;
     IrInstruction **args = allocate<IrInstruction*>(arg_count);
     bool is_async = node->data.fn_call_expr.is_async;
-    if (arg_count == 1 && !is_async) {
+    if (arg_count == 1 && !is_async && result_loc != nullptr) {
         AstNode *arg_node = node->data.fn_call_expr.params.at(0);
         IrInstruction *arg_result_loc = ir_build_first_arg_result_loc(irb, scope, arg_node, result_loc, fn_ref);
         args[0] = ir_gen_node(irb, arg_node, scope, LValNone, arg_result_loc);
@@ -14395,7 +14395,8 @@ static IrInstruction *ir_analyze_instruction_call(IrAnalyze *ira, IrInstructionC
                 return ira->codegen->invalid_instruction;
             }
 
-            IrInstruction *first_arg_result_loc = call_instruction->first_arg_result_loc->child;
+            IrInstruction *first_arg_result_loc = (call_instruction->first_arg_result_loc == nullptr) ?
+                nullptr : call_instruction->first_arg_result_loc->child;
             if (first_arg_result_loc != nullptr) {
                 IrInstruction *result_loc = call_instruction->result_loc->child;
                 if (type_is_invalid(result_loc->value.type))
@@ -15938,6 +15939,8 @@ static IrInstruction *ir_analyze_instruction_load_result(IrAnalyze *ira, IrInstr
 
 static IrInstruction *ir_analyze_instruction_store_ptr(IrAnalyze *ira, IrInstructionStorePtr *instruction) {
     IrInstruction *ptr = instruction->ptr->child;
+    if (ptr == nullptr)
+        return ir_const_void(ira, &instruction->base);
     if (type_is_invalid(ptr->value.type))
         return ira->codegen->invalid_instruction;
 
