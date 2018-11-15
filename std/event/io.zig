@@ -53,10 +53,12 @@ pub fn InStream(comptime ReadError: type) type {
             return mem.readInt(bytes, T, endian);
         }
 
-        pub async fn readStruct(self: *Self, comptime T: type, ptr: *T) !void {
+        pub async fn readStruct(self: *Self, comptime T: type) !T {
             // Only extern and packed structs have defined in-memory layout.
             comptime assert(@typeInfo(T).Struct.layout != builtin.TypeInfo.ContainerLayout.Auto);
-            return await (async self.readNoEof(@sliceToBytes((*[1]T)(ptr)[0..])) catch unreachable);
+            var res: [1]T = undefined;
+            try await (async self.readNoEof(@sliceToBytes(res[0..])) catch unreachable);
+            return res[0];
         }
     };
 }
