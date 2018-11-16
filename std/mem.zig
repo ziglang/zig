@@ -411,7 +411,7 @@ test "mem.indexOf" {
 /// T specifies the return type, which must be large enough to store
 /// the result.
 /// See also ::readIntBE or ::readIntLE.
-pub fn readInt(bytes: []const u8, comptime T: type, endian: builtin.Endian) T {
+pub fn readInt(comptime T: type, bytes: []const u8, endian: builtin.Endian) T {
     if (T.bit_count == 8) {
         return bytes[0];
     }
@@ -737,10 +737,10 @@ fn testReadIntImpl() void {
             0x56,
             0x78,
         };
-        assert(readInt(bytes, u32, builtin.Endian.Big) == 0x12345678);
+        assert(readInt(u32, bytes, builtin.Endian.Big) == 0x12345678);
         assert(readIntBE(u32, bytes) == 0x12345678);
         assert(readIntBE(i32, bytes) == 0x12345678);
-        assert(readInt(bytes, u32, builtin.Endian.Little) == 0x78563412);
+        assert(readInt(u32, bytes, builtin.Endian.Little) == 0x78563412);
         assert(readIntLE(u32, bytes) == 0x78563412);
         assert(readIntLE(i32, bytes) == 0x78563412);
     }
@@ -751,7 +751,7 @@ fn testReadIntImpl() void {
             0x12,
             0x34,
         };
-        const answer = readInt(buf, u64, builtin.Endian.Big);
+        const answer = readInt(u64, buf, builtin.Endian.Big);
         assert(answer == 0x00001234);
     }
     {
@@ -761,7 +761,7 @@ fn testReadIntImpl() void {
             0x00,
             0x00,
         };
-        const answer = readInt(buf, u64, builtin.Endian.Little);
+        const answer = readInt(u64, buf, builtin.Endian.Little);
         assert(answer == 0x00003412);
     }
     {
@@ -959,7 +959,7 @@ pub fn endianSwapIf(endian: builtin.Endian, comptime T: type, x: T) T {
 pub fn endianSwap(comptime T: type, x: T) T {
     var buf: [@sizeOf(T)]u8 = undefined;
     mem.writeInt(buf[0..], x, builtin.Endian.Little);
-    return mem.readInt(buf, T, builtin.Endian.Big);
+    return mem.readInt(T, buf, builtin.Endian.Big);
 }
 
 test "std.mem.endianSwap" {

@@ -151,7 +151,7 @@ pub fn InStream(comptime ReadError: type) type {
 
         /// Reads a native-endian integer
         pub fn readIntNe(self: *Self, comptime T: type) !T {
-            return self.readInt(builtin.endian, T);
+            return self.readInt(T, builtin.endian);
         }
 
         pub fn readIntLe(self: *Self, comptime T: type) !T {
@@ -166,19 +166,19 @@ pub fn InStream(comptime ReadError: type) type {
             return mem.readIntBE(T, bytes);
         }
 
-        pub fn readInt(self: *Self, endian: builtin.Endian, comptime T: type) !T {
+        pub fn readInt(self: *Self, comptime T: type, endian: builtin.Endian) !T {
             var bytes: [@sizeOf(T)]u8 = undefined;
             try self.readNoEof(bytes[0..]);
-            return mem.readInt(bytes, T, endian);
+            return mem.readInt(T, bytes, endian);
         }
 
-        pub fn readVarInt(self: *Self, endian: builtin.Endian, comptime T: type, size: usize) !T {
+        pub fn readVarInt(self: *Self, comptime T: type, endian: builtin.Endian, size: usize) !T {
             assert(size <= @sizeOf(T));
             assert(size <= 8);
             var input_buf: [8]u8 = undefined;
             const input_slice = input_buf[0..size];
             try self.readNoEof(input_slice);
-            return mem.readInt(input_slice, T, endian);
+            return mem.readInt(T, input_slice, endian);
         }
 
         pub fn skipBytes(self: *Self, num_bytes: usize) !void {

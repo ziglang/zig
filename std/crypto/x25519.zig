@@ -255,16 +255,16 @@ const Fe = struct {
 
         var t: [10]i64 = undefined;
 
-        t[0] = readInt(s[0..4], u32, Endian.Little);
-        t[1] = readInt(s[4..7], u32, Endian.Little) << 6;
-        t[2] = readInt(s[7..10], u32, Endian.Little) << 5;
-        t[3] = readInt(s[10..13], u32, Endian.Little) << 3;
-        t[4] = readInt(s[13..16], u32, Endian.Little) << 2;
-        t[5] = readInt(s[16..20], u32, Endian.Little);
-        t[6] = readInt(s[20..23], u32, Endian.Little) << 7;
-        t[7] = readInt(s[23..26], u32, Endian.Little) << 5;
-        t[8] = readInt(s[26..29], u32, Endian.Little) << 4;
-        t[9] = (readInt(s[29..32], u32, Endian.Little) & 0x7fffff) << 2;
+        t[0] = readInt(u32, s[0..4], Endian.Little);
+        t[1] = readInt(u32, s[4..7], Endian.Little) << 6;
+        t[2] = readInt(u32, s[7..10], Endian.Little) << 5;
+        t[3] = readInt(u32, s[10..13], Endian.Little) << 3;
+        t[4] = readInt(u32, s[13..16], Endian.Little) << 2;
+        t[5] = readInt(u32, s[16..20], Endian.Little);
+        t[6] = readInt(u32, s[20..23], Endian.Little) << 7;
+        t[7] = readInt(u32, s[23..26], Endian.Little) << 5;
+        t[8] = readInt(u32, s[26..29], Endian.Little) << 4;
+        t[9] = (readInt(u32, s[29..32], Endian.Little) & 0x7fffff) << 2;
 
         carry1(h, t[0..]);
     }

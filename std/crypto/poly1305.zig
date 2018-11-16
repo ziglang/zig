@@ -59,19 +59,19 @@ pub const Poly1305 = struct {
         {
             var i: usize = 0;
             while (i < 1) : (i += 1) {
-                ctx.r[0] = readInt(key[0..4], u32, Endian.Little) & 0x0fffffff;
+                ctx.r[0] = readInt(u32, key[0..4], Endian.Little) & 0x0fffffff;
             }
         }
         {
             var i: usize = 1;
             while (i < 4) : (i += 1) {
-                ctx.r[i] = readInt(key[i * 4 .. i * 4 + 4], u32, Endian.Little) & 0x0ffffffc;
+                ctx.r[i] = readInt(u32, key[i * 4 .. i * 4 + 4], Endian.Little) & 0x0ffffffc;
             }
         }
         {
             var i: usize = 0;
             while (i < 4) : (i += 1) {
-                ctx.pad[i] = readInt(key[i * 4 + 16 .. i * 4 + 16 + 4], u32, Endian.Little);
+                ctx.pad[i] = readInt(u32, key[i * 4 + 16 .. i * 4 + 16 + 4], Endian.Little);
             }
         }
 
@@ -168,10 +168,10 @@ pub const Poly1305 = struct {
         const nb_blocks = nmsg.len >> 4;
         var i: usize = 0;
         while (i < nb_blocks) : (i += 1) {
-            ctx.c[0] = readInt(nmsg[0..4], u32, Endian.Little);
-            ctx.c[1] = readInt(nmsg[4..8], u32, Endian.Little);
-            ctx.c[2] = readInt(nmsg[8..12], u32, Endian.Little);
-            ctx.c[3] = readInt(nmsg[12..16], u32, Endian.Little);
+            ctx.c[0] = readInt(u32, nmsg[0..4], Endian.Little);
+            ctx.c[1] = readInt(u32, nmsg[4..8], Endian.Little);
+            ctx.c[2] = readInt(u32, nmsg[8..12], Endian.Little);
+            ctx.c[3] = readInt(u32, nmsg[12..16], Endian.Little);
             polyBlock(ctx);
             nmsg = nmsg[16..];
         }

@@ -15,7 +15,7 @@ pub fn main() !void {
         std.debug.warn("unable to seed random number generator: {}", err);
         return err;
     };
-    const seed = std.mem.readInt(seed_bytes, u64, builtin.Endian.Big);
+    const seed = std.mem.readInt(u64, seed_bytes, builtin.Endian.Big);
     var prng = std.rand.DefaultPrng.init(seed);
 
     const answer = prng.random.range(u8, 0, 100) + 1;

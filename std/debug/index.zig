@@ -1158,7 +1158,7 @@ const Constant = struct {
     fn asUnsignedLe(self: *const Constant) !u64 {
         if (self.payload.len > @sizeOf(u64)) return error.InvalidDebugInfo;
         if (self.signed) return error.InvalidDebugInfo;
-        return mem.readInt(self.payload, u64, builtin.Endian.Little);
+        return mem.readInt(u64, self.payload, builtin.Endian.Little);
     }
 };
 
@@ -1338,7 +1338,7 @@ fn parseFormValueBlockLen(allocator: *mem.Allocator, in_stream: var, size: usize
 }
 
 fn parseFormValueBlock(allocator: *mem.Allocator, in_stream: var, size: usize) !FormValue {
-    const block_len = try in_stream.readVarInt(builtin.Endian.Little, usize, size);
+    const block_len = try in_stream.readVarInt(usize, builtin.Endian.Little, size);
     return parseFormValueBlockLen(allocator, in_stream, block_len);
 }
 
@@ -1721,11 +1721,11 @@ fn getLineNumberInfoLinux(di: *DebugInfo, compile_unit: *const CompileUnit, targ
             continue;
         }
 
-        const version = try in_stream.readInt(di.elf.endian, u16);
+        const version = try in_stream.readInt(u16, di.elf.endian);
         // TODO support 3 and 5
         if (version != 2 and version != 4) return error.InvalidDebugInfo;
 
-        const prologue_length = if (is_64) try in_stream.readInt(di.elf.endian, u64) else try in_stream.readInt(di.elf.endian, u32);
+        const prologue_length = if (is_64) try in_stream.readInt(u64, di.elf.endian) else try in_stream.readInt(u32, di.elf.endian);
         const prog_start_offset = (try in_file.getPos()) + prologue_length;
 
         const minimum_instruction_length = try in_stream.readByte();
@@ -1794,7 +1794,7 @@ fn getLineNumberInfoLinux(di: *DebugInfo, compile_unit: *const CompileUnit, targ
                         return error.MissingDebugInfo;
                     },
                     DW.LNE_set_address => {
-                        const addr = try in_stream.readInt(di.elf.endian, usize);
+                        const addr = try in_stream.readInt(usize, di.elf.endian);
                         prog.address = addr;
                     },
                     DW.LNE_define_file => {
@@ -1856,7 +1856,7 @@ fn getLineNumberInfoLinux(di: *DebugInfo, compile_unit: *const CompileUnit, targ
                         prog.address += inc_addr;
                     },
                     DW.LNS_fixed_advance_pc => {
-                        const arg = try in_stream.readInt(di.elf.endian, u16);
+                        const arg = try in_stream.readInt(u16, di.elf.endian);
                         prog.address += arg;
                     },
                     DW.LNS_set_prologue_end => {},
@@ -1891,10 +1891,10 @@ fn scanAllCompileUnits(st: *DebugInfo) !void {
         if (unit_length == 0) return;
         const next_offset = unit_length + (if (is_64) usize(12) else usize(4));
 
-        const version = try in_stream.readInt(st.elf.endian, u16);
+        const version = try in_stream.readInt(u16, st.elf.endian);
         if (version < 2 or version > 5) return error.InvalidDebugInfo;
 
-        const debug_abbrev_offset = if (is_64) try in_stream.readInt(st.elf.endian, u64) else try in_stream.readInt(st.elf.endian, u32);
+        const debug_abbrev_offset = if (is_64) try in_stream.readInt(u64, st.elf.endian) else try in_stream.readInt(u32, st.elf.endian);
 
         const address_size = try in_stream.readByte();
         if (address_size != @sizeOf(usize)) return error.InvalidDebugInfo;
@@ -1980,7 +1980,7 @@ fn findCompileUnit(st: *DebugInfo, target_address: u64) !*const CompileUnit {
 }
 
 fn readIntMem(ptr: *[*]const u8, comptime T: type, endian: builtin.Endian) T {
-    const result = mem.readInt(ptr.*[0..@sizeOf(T)], T, endian);
+    const result = mem.readInt(T, ptr.*[0..@sizeOf(T)], endian);
     ptr.* += @sizeOf(T);
     return result;
 }

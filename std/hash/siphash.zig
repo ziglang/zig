@@ -42,8 +42,8 @@ fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize)
         pub fn init(key: []const u8) Self {
             debug.assert(key.len >= 16);
 
-            const k0 = mem.readInt(key[0..8], u64, Endian.Little);
-            const k1 = mem.readInt(key[8..16], u64, Endian.Little);
+            const k0 = mem.readInt(u64, key[0..8], Endian.Little);
+            const k1 = mem.readInt(u64, key[8..16], Endian.Little);
 
             var d = Self{
                 .v0 = k0 ^ 0x736f6d6570736575,
@@ -121,7 +121,7 @@ fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize)
         fn round(d: *Self, b: []const u8) void {
             debug.assert(b.len == 8);
 
-            const m = mem.readInt(b[0..], u64, Endian.Little);
+            const m = mem.readInt(u64, b[0..], Endian.Little);
             d.v3 ^= m;
 
             comptime var i: usize = 0;
@@ -235,7 +235,7 @@ test "siphash64-2-4 sanity" {
     for (vectors) |vector, i| {
         buffer[i] = @intCast(u8, i);
 
-        const expected = mem.readInt(vector, u64, Endian.Little);
+        const expected = mem.readInt(u64, vector, Endian.Little);
         debug.assert(siphash.hash(test_key, buffer[0..i]) == expected);
     }
 }
@@ -314,7 +314,7 @@ test "siphash128-2-4 sanity" {
     for (vectors) |vector, i| {
         buffer[i] = @intCast(u8, i);
 
-        const expected = mem.readInt(vector, u128, Endian.Little);
+        const expected = mem.readInt(u128, vector, Endian.Little);
         debug.assert(siphash.hash(test_key, buffer[0..i]) == expected);
     }
 }

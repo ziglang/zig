@@ -55,7 +55,7 @@ pub const ZigCompiler = struct {
 
         var seed_bytes: [@sizeOf(u64)]u8 = undefined;
         try std.os.getRandomBytes(seed_bytes[0..]);
-        const seed = std.mem.readInt(seed_bytes, u64, builtin.Endian.Big);
+        const seed = std.mem.readInt(u64, seed_bytes, builtin.Endian.Big);
 
         return ZigCompiler{
             .loop = loop,
