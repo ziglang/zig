@@ -2071,7 +2071,6 @@ enum IrInstructionId {
     IrInstructionIdCInclude,
     IrInstructionIdCDefine,
     IrInstructionIdCUndef,
-    IrInstructionIdArrayLen,
     IrInstructionIdRef,
     IrInstructionIdCompileErr,
     IrInstructionIdCompileLog,
@@ -2582,12 +2581,6 @@ struct IrInstructionImport {
     IrInstruction base;
 
     IrInstruction *name;
-};
-
-struct IrInstructionArrayLen {
-    IrInstruction base;
-
-    IrInstruction *array_value;
 };
 
 struct IrInstructionRef {

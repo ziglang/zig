@@ -35,7 +35,7 @@ fn mangleString(s: []u8) void {
 }
 
 test "basic for loop" {
-    const expected_result = []u8{ 9, 8, 7, 6, 0, 1, 2, 3, 9, 8, 7, 6, 0, 1, 2, 3 };
+    const expected_result = []u8{ 9, 8, 7, 6, 0, 1, 2, 3 } ** 3;
 
     var buffer: [expected_result.len]u8 = undefined;
     var buf_index: usize = 0;
@@ -46,6 +46,15 @@ test "basic for loop" {
         buf_index += 1;
     }
     for (array) |item, index| {
+        buffer[buf_index] = @intCast(u8, index);
+        buf_index += 1;
+    }
+    const array_ptr = &array;
+    for (array_ptr) |item| {
+        buffer[buf_index] = item;
+        buf_index += 1;
+    }
+    for (array_ptr) |item, index| {
         buffer[buf_index] = @intCast(u8, index);
         buf_index += 1;
     }
