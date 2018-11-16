@@ -755,8 +755,7 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
                 return cap * 2 / 3 + 1;
             }
         };
-        var hash_tbl_hdr: HashTableHeader = undefined;
-        try pdb_stream.stream.readStruct(HashTableHeader, &hash_tbl_hdr);
+        const hash_tbl_hdr = try pdb_stream.stream.readStruct(HashTableHeader);
         if (hash_tbl_hdr.Capacity == 0)
             return error.InvalidDebugInfo;
 
@@ -790,8 +789,7 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
     const dbi = di.pdb.dbi;
 
     // Dbi Header
-    var dbi_stream_header: pdb.DbiStreamHeader = undefined;
-    try dbi.stream.readStruct(pdb.DbiStreamHeader, &dbi_stream_header);
+    const dbi_stream_header = try dbi.stream.readStruct(pdb.DbiStreamHeader);
     const mod_info_size = dbi_stream_header.ModInfoSize;
     const section_contrib_size = dbi_stream_header.SectionContributionSize;
 
@@ -800,8 +798,7 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
     // Module Info Substream
     var mod_info_offset: usize = 0;
     while (mod_info_offset != mod_info_size) {
-        var mod_info: pdb.ModInfo = undefined;
-        try dbi.stream.readStruct(pdb.ModInfo, &mod_info);
+        const mod_info = try dbi.stream.readStruct(pdb.ModInfo);
         var this_record_len: usize = @sizeOf(pdb.ModInfo);
 
         const module_name = try dbi.readNullTermString(allocator);
@@ -845,7 +842,7 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
     }
     while (sect_cont_offset != section_contrib_size) {
         const entry = try sect_contribs.addOne();
-        try dbi.stream.readStruct(pdb.SectionContribEntry, entry);
+        entry.* = try dbi.stream.readStruct(pdb.SectionContribEntry);
         sect_cont_offset += @sizeOf(pdb.SectionContribEntry);
 
         if (sect_cont_offset > section_contrib_size)

@@ -485,8 +485,7 @@ const Msf = struct {
         var file_stream = file.inStream();
         const in = &file_stream.stream;
 
-        var superblock: SuperBlock = undefined;
-        try in.readStruct(SuperBlock, &superblock);
+        const superblock = try in.readStruct(SuperBlock);
 
         if (!mem.eql(u8, superblock.FileMagic, SuperBlock.file_magic))
             return error.InvalidDebugInfo;

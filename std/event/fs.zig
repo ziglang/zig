@@ -1297,6 +1297,11 @@ pub fn Watch(comptime V: type) type {
 const test_tmp_dir = "std_event_fs_test";
 
 test "write a file, watch it, write it again" {
+    if (builtin.os == builtin.Os.windows) {
+        // TODO this test is disabled on windows until the coroutine rewrite is finished.
+        // https://github.com/ziglang/zig/issues/1363
+        return error.SkipZigTest;
+    }
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
 

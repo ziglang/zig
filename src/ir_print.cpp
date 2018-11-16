@@ -543,11 +543,6 @@ static void ir_print_import(IrPrint *irp, IrInstructionImport *instruction) {
     fprintf(irp->f, ")");
 }
 
-static void ir_print_array_len(IrPrint *irp, IrInstructionArrayLen *instruction) {
-    ir_print_other_instruction(irp, instruction->array_value);
-    fprintf(irp->f, ".len");
-}
-
 static void ir_print_ref(IrPrint *irp, IrInstructionRef *instruction) {
     const char *const_str = instruction->is_const ? "const " : "";
     const char *volatile_str = instruction->is_volatile ? "volatile " : "";
@@ -1538,9 +1533,6 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdImport:
             ir_print_import(irp, (IrInstructionImport *)instruction);
-            break;
-        case IrInstructionIdArrayLen:
-            ir_print_array_len(irp, (IrInstructionArrayLen *)instruction);
             break;
         case IrInstructionIdRef:
             ir_print_ref(irp, (IrInstructionRef *)instruction);

@@ -229,6 +229,9 @@ pub fn formatType(
                 return format(context, Errors, output, "{}@{x}", @typeName(T.Child), @ptrToInt(value));
             },
             builtin.TypeInfo.Pointer.Size.Slice => {
+                if (fmt.len > 0 and ((fmt[0] == 'x') or (fmt[0] == 'X'))) {
+                    return formatText(value, fmt, context, Errors, output);
+                }
                 const casted_value = ([]const u8)(value);
                 return output(context, casted_value);
             },
@@ -1293,6 +1296,9 @@ test "fmt.format" {
         const some_bytes = "\xCA\xFE\xBA\xBE";
         try testFmt("lowercase: cafebabe\n", "lowercase: {x}\n", some_bytes);
         try testFmt("uppercase: CAFEBABE\n", "uppercase: {X}\n", some_bytes);
+        //Test Slices
+        try testFmt("uppercase: CAFE\n", "uppercase: {X}\n", some_bytes[0..2]);
+        try testFmt("lowercase: babe\n", "lowercase: {x}\n", some_bytes[2..]);
         const bytes_with_zeros = "\x00\x0E\xBA\xBE";
         try testFmt("lowercase: 000ebabe\n", "lowercase: {x}\n", bytes_with_zeros);
     }

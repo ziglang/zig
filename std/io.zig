@@ -155,11 +155,15 @@ pub fn InStream(comptime ReadError: type) type {
         }
 
         pub fn readIntLe(self: *Self, comptime T: type) !T {
-            return self.readInt(builtin.Endian.Little, T);
+            var bytes: [@sizeOf(T)]u8 = undefined;
+            try self.readNoEof(bytes[0..]);
+            return mem.readIntLE(T, bytes);
         }
 
         pub fn readIntBe(self: *Self, comptime T: type) !T {
-            return self.readInt(builtin.Endian.Big, T);
+            var bytes: [@sizeOf(T)]u8 = undefined;
+            try self.readNoEof(bytes[0..]);
+            return mem.readIntBE(T, bytes);
         }
 
         pub fn readInt(self: *Self, endian: builtin.Endian, comptime T: type) !T {
@@ -184,10 +188,12 @@ pub fn InStream(comptime ReadError: type) type {
             }
         }
 
-        pub fn readStruct(self: *Self, comptime T: type, ptr: *T) !void {
+        pub fn readStruct(self: *Self, comptime T: type) !T {
             // Only extern and packed structs have defined in-memory layout.
             comptime assert(@typeInfo(T).Struct.layout != builtin.TypeInfo.ContainerLayout.Auto);
-            return self.readNoEof(@sliceToBytes((*[1]T)(ptr)[0..]));
+            var res: [1]T = undefined;
+            try self.readNoEof(@sliceToBytes(res[0..]));
+            return res[0];
         }
     };
 }
@@ -199,20 +205,20 @@ pub fn OutStream(comptime WriteError: type) type {
 
         writeFn: fn (self: *Self, bytes: []const u8) Error!void,
 
-        pub fn print(self: *Self, comptime format: []const u8, args: ...) !void {
+        pub fn print(self: *Self, comptime format: []const u8, args: ...) Error!void {
             return std.fmt.format(self, Error, self.writeFn, format, args);
         }
 
-        pub fn write(self: *Self, bytes: []const u8) !void {
+        pub fn write(self: *Self, bytes: []const u8) Error!void {
             return self.writeFn(self, bytes);
         }
 
-        pub fn writeByte(self: *Self, byte: u8) !void {
+        pub fn writeByte(self: *Self, byte: u8) Error!void {
             const slice = (*[1]u8)(&byte)[0..];
             return self.writeFn(self, slice);
         }
 
-        pub fn writeByteNTimes(self: *Self, byte: u8, n: usize) !void {
+        pub fn writeByteNTimes(self: *Self, byte: u8, n: usize) Error!void {
             const slice = (*[1]u8)(&byte)[0..];
             var i: usize = 0;
             while (i < n) : (i += 1) {
@@ -221,19 +227,23 @@ pub fn OutStream(comptime WriteError: type) type {
         }
 
         /// Write a native-endian integer.
-        pub fn writeIntNe(self: *Self, comptime T: type, value: T) !void {
+        pub fn writeIntNe(self: *Self, comptime T: type, value: T) Error!void {
             return self.writeInt(builtin.endian, T, value);
         }
 
-        pub fn writeIntLe(self: *Self, comptime T: type, value: T) !void {
-            return self.writeInt(builtin.Endian.Little, T, value);
+        pub fn writeIntLe(self: *Self, comptime T: type, value: T) Error!void {
+            var bytes: [@sizeOf(T)]u8 = undefined;
+            mem.writeIntLE(T, &bytes, value);
+            return self.writeFn(self, bytes);
         }
 
-        pub fn writeIntBe(self: *Self, comptime T: type, value: T) !void {
-            return self.writeInt(builtin.Endian.Big, T, value);
+        pub fn writeIntBe(self: *Self, comptime T: type, value: T) Error!void {
+            var bytes: [@sizeOf(T)]u8 = undefined;
+            mem.writeIntBE(T, &bytes, value);
+            return self.writeFn(self, bytes);
         }
 
-        pub fn writeInt(self: *Self, endian: builtin.Endian, comptime T: type, value: T) !void {
+        pub fn writeInt(self: *Self, endian: builtin.Endian, comptime T: type, value: T) Error!void {
             var bytes: [@sizeOf(T)]u8 = undefined;
             mem.writeInt(bytes[0..], value, endian);
             return self.writeFn(self, bytes);
@@ -480,6 +490,77 @@ pub const SliceOutStream = struct {
     }
 };
 
+test "io.SliceOutStream" {
+    var buf: [255]u8 = undefined;
+    var slice_stream = SliceOutStream.init(buf[0..]);
+    const stream = &slice_stream.stream;
+
+    try stream.print("{}{}!", "Hello", "World");
+    debug.assert(mem.eql(u8, "HelloWorld!", slice_stream.getWritten()));
+}
+
+var null_out_stream_state = NullOutStream.init();
+pub const null_out_stream = &null_out_stream_state.stream;
+
+/// An OutStream that doesn't write to anything.
+pub const NullOutStream = struct {
+    pub const Error = error{};
+    pub const Stream = OutStream(Error);
+
+    pub stream: Stream,
+
+    pub fn init() NullOutStream {
+        return NullOutStream{
+            .stream = Stream{ .writeFn = writeFn },
+        };
+    }
+
+    fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {}
+};
+
+test "io.NullOutStream" {
+    var null_stream = NullOutStream.init();
+    const stream = &null_stream.stream;
+    stream.write("yay" ** 10000) catch unreachable;
+}
+
+/// An OutStream that counts how many bytes has been written to it.
+pub fn CountingOutStream(comptime OutStreamError: type) type {
+    return struct {
+        const Self = @This();
+        pub const Stream = OutStream(Error);
+        pub const Error = OutStreamError;
+
+        pub stream: Stream,
+        pub bytes_written: usize,
+        child_stream: *Stream,
+
+        pub fn init(child_stream: *Stream) Self {
+            return Self{
+                .stream = Stream{ .writeFn = writeFn },
+                .bytes_written = 0,
+                .child_stream = child_stream,
+            };
+        }
+
+        fn writeFn(out_stream: *Stream, bytes: []const u8) OutStreamError!void {
+            const self = @fieldParentPtr(Self, "stream", out_stream);
+            try self.child_stream.write(bytes);
+            self.bytes_written += bytes.len;
+        }
+    };
+}
+
+test "io.CountingOutStream" {
+    var null_stream = NullOutStream.init();
+    var counting_stream = CountingOutStream(NullOutStream.Error).init(&null_stream.stream);
+    const stream = &counting_stream.stream;
+
+    const bytes = "yay" ** 10000;
+    stream.write(bytes) catch unreachable;
+    debug.assert(counting_stream.bytes_written == bytes.len);
+}
+
 pub fn BufferedOutStream(comptime Error: type) type {
     return BufferedOutStreamCustom(os.page_size, Error);
 }
@@ -624,5 +705,3 @@ pub fn readLine(buf: []u8) !usize {
         }
     }
 }
-
-
