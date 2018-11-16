@@ -412,6 +412,9 @@ test "mem.indexOf" {
 /// the result.
 /// See also ::readIntBE or ::readIntLE.
 pub fn readInt(bytes: []const u8, comptime T: type, endian: builtin.Endian) T {
+    if (comptime T.bit_count < 8) {
+      @compileError("Only integer types with bitwidth >= 8 are allowed; passed " ++ @typeName(T));
+    }
     if (T.bit_count == 8) {
         return bytes[0];
     }
@@ -435,6 +438,9 @@ pub fn readInt(bytes: []const u8, comptime T: type, endian: builtin.Endian) T {
 /// Reads a big-endian int of type T from bytes.
 /// bytes.len must be exactly @sizeOf(T).
 pub fn readIntBE(comptime T: type, bytes: []const u8) T {
+    if (comptime T.bit_count < 8) {
+      @compileError("Only integer types with bitwidth >= 8 are allowed; passed " ++ @typeName(T));
+    }
     if (T.is_signed) {
         return @bitCast(T, readIntBE(@IntType(false, T.bit_count), bytes));
     }
@@ -453,6 +459,9 @@ pub fn readIntBE(comptime T: type, bytes: []const u8) T {
 /// Reads a little-endian int of type T from bytes.
 /// bytes.len must be exactly @sizeOf(T).
 pub fn readIntLE(comptime T: type, bytes: []const u8) T {
+    if (comptime T.bit_count < 8) {
+      @compileError("Only integer types with bitwidth >= 8 are allowed; passed " ++ @typeName(T));
+    }
     if (T.is_signed) {
         return @bitCast(T, readIntLE(@IntType(false, T.bit_count), bytes));
     }
@@ -469,11 +478,11 @@ pub fn readIntLE(comptime T: type, bytes: []const u8) T {
 }
 
 test "readIntBE/LE" {
-    assert(readIntBE(u0, []u8{}) == 0x0);
-    assert(readIntLE(u0, []u8{}) == 0x0);
-
     assert(readIntBE(u8, []u8{0x32}) == 0x32);
     assert(readIntLE(u8, []u8{0x12}) == 0x12);
+
+    assert(readIntBE(u9, []u8{0x0, 0x32}) == 0x32);
+    assert(readIntLE(u9, []u8{0x12, 0x0}) == 0x12);
 
     assert(readIntBE(u16, []u8{0x12, 0x34}) == 0x1234);
     assert(readIntLE(u16, []u8{0x12, 0x34}) == 0x3412);
@@ -515,11 +524,10 @@ pub fn writeInt(buf: []u8, value: var, endian: builtin.Endian) void {
 }
 
 pub fn writeIntBE(comptime T: type, buf: *[@sizeOf(T)]u8, value: T) void {
-    assert(T.bit_count % 8 == 0);
-    const uint = @IntType(false, T.bit_count);
-    if (uint == u0) {
-        return;
+    if (comptime T.bit_count % 8 != 0) {
+      @compileError("Only integer types with bitwidth in multiples of 8 are allowed; passed " ++ @typeName(T));
     }
+    const uint = @IntType(false, T.bit_count);
     var bits = @bitCast(uint, value);
     if (uint == u8) {
         buf[0] = bits;
@@ -536,11 +544,10 @@ pub fn writeIntBE(comptime T: type, buf: *[@sizeOf(T)]u8, value: T) void {
 }
 
 pub fn writeIntLE(comptime T: type, buf: *[@sizeOf(T)]u8, value: T) void {
-    assert(T.bit_count % 8 == 0);
-    const uint = @IntType(false, T.bit_count);
-    if (uint == u0) {
-        return;
+    if (comptime T.bit_count % 8 != 0) {
+      @compileError("Only integer types with bitwidth in multiples of 8 are allowed; passed " ++ @typeName(T));
     }
+    const uint = @IntType(false, T.bit_count);
     var bits = @bitCast(uint, value);
     if (uint == u8) {
         buf[0] = bits;
@@ -556,15 +563,9 @@ pub fn writeIntLE(comptime T: type, buf: *[@sizeOf(T)]u8, value: T) void {
 }
 
 test "writeIntBE/LE" {
-    var buf0: [0]u8 = undefined;
     var buf1: [1]u8 = undefined;
     var buf2: [2]u8 = undefined;
     var buf9: [9]u8 = undefined;
-
-    writeIntBE(u0, &buf0, 0x0);
-    assert(eql_slice_u8(buf0[0..], []u8{}));
-    writeIntLE(u0, &buf0, 0x0);
-    assert(eql_slice_u8(buf0[0..], []u8{}));
 
     writeIntBE(u8, &buf1, 0x12);
     assert(eql_slice_u8(buf1[0..], []u8{0x12}));
