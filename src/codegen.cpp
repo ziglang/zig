@@ -5102,7 +5102,6 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdContainerInitFields:
         case IrInstructionIdCompileErr:
         case IrInstructionIdCompileLog:
-        case IrInstructionIdArrayLen:
         case IrInstructionIdImport:
         case IrInstructionIdCImport:
         case IrInstructionIdCInclude:

@@ -479,10 +479,6 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionCUndef *) {
     return IrInstructionIdCUndef;
 }
 
-static constexpr IrInstructionId ir_instruction_id(IrInstructionArrayLen *) {
-    return IrInstructionIdArrayLen;
-}
-
 static constexpr IrInstructionId ir_instruction_id(IrInstructionRef *) {
     return IrInstructionIdRef;
 }
@@ -1659,15 +1655,6 @@ static IrInstruction *ir_build_import(IrBuilder *irb, Scope *scope, AstNode *sou
     instruction->name = name;
 
     ir_ref_instruction(name, irb->current_basic_block);
-
-    return &instruction->base;
-}
-
-static IrInstruction *ir_build_array_len(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *array_value) {
-    IrInstructionArrayLen *instruction = ir_build_instruction<IrInstructionArrayLen>(irb, scope, source_node);
-    instruction->array_value = array_value;
-
-    ir_ref_instruction(array_value, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -5351,7 +5338,9 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
     IrBasicBlock *else_block = else_node ? ir_create_basic_block(irb, child_scope, "ForElse") : end_block;
     IrBasicBlock *continue_block = ir_create_basic_block(irb, child_scope, "ForContinue");
 
-    IrInstruction *len_val = ir_build_array_len(irb, child_scope, node, array_val);
+    Buf *len_field_name = buf_create_from_str("len");
+    IrInstruction *len_ref = ir_build_field_ptr(irb, child_scope, node, array_val_ptr, len_field_name);
+    IrInstruction *len_val = ir_build_load_ptr(irb, child_scope, node, len_ref);
     ir_build_br(irb, child_scope, node, cond_block, is_comptime);
 
     ir_set_cursor_at_end_and_append_block(irb, cond_block);
@@ -9446,12 +9435,6 @@ static IrInstruction *ir_const_void(IrAnalyze *ira, IrInstruction *source_instru
 
 static IrInstruction *ir_const_unsigned(IrAnalyze *ira, IrInstruction *source_instruction, uint64_t value) {
     IrInstruction *result = ir_const(ira, source_instruction, ira->codegen->builtin_types.entry_num_lit_int);
-    bigint_init_unsigned(&result->value.data.x_bigint, value);
-    return result;
-}
-
-static IrInstruction *ir_const_usize(IrAnalyze *ira, IrInstruction *source_instruction, uint64_t value) {
-    IrInstruction *result = ir_const(ira, source_instruction, ira->codegen->builtin_types.entry_usize);
     bigint_init_unsigned(&result->value.data.x_bigint, value);
     return result;
 }
@@ -14971,8 +14954,14 @@ static IrInstruction *ir_analyze_instruction_to_ptr_type(IrAnalyze *ira,
 
     ZigType *ptr_type;
     if (type_entry->id == ZigTypeIdArray) {
+        // TODO: Allow capturing pointer to const array.
+        // const a = "123"; for (a) |*c| continue;
+        // error: expected type '*u8', found '*const u8'
         ptr_type = get_pointer_to_type(ira->codegen, type_entry->data.array.child_type, false);
-    } else if (is_slice(type_entry)) {
+    } else if (is_array_ref(type_entry)) {
+        ptr_type = get_pointer_to_type(ira->codegen,
+            type_entry->data.pointer.child_type->data.array.child_type, type_entry->data.pointer.is_const);
+    }  else if (is_slice(type_entry)) {
         ptr_type = adjust_ptr_len(ira->codegen, type_entry->data.structure.fields[0].type_entry, PtrLenSingle);
     } else if (type_entry->id == ZigTypeIdArgTuple) {
         ConstExprValue *arg_tuple_val = ir_resolve_const(ira, value, UndefBad);
@@ -15957,39 +15946,6 @@ static IrInstruction *ir_analyze_instruction_import(IrAnalyze *ira, IrInstructio
     IrInstruction *result = ir_const(ira, &import_instruction->base, ira->codegen->builtin_types.entry_namespace);
     result->value.data.x_import = target_import;
     return result;
-}
-
-static IrInstruction *ir_analyze_instruction_array_len(IrAnalyze *ira,
-        IrInstructionArrayLen *array_len_instruction)
-{
-    IrInstruction *array_value = array_len_instruction->array_value->child;
-    ZigType *type_entry = array_value->value.type;
-    if (type_is_invalid(type_entry)) {
-        return ira->codegen->invalid_instruction;
-    } else if (type_entry->id == ZigTypeIdArray) {
-        return ir_const_usize(ira, &array_len_instruction->base,
-                type_entry->data.array.len);
-    } else if (is_slice(type_entry)) {
-        if (array_value->value.special != ConstValSpecialRuntime) {
-            ConstExprValue *len_val = &array_value->value.data.x_struct.fields[slice_len_index];
-            if (len_val->special != ConstValSpecialRuntime) {
-                return ir_const_usize(ira, &array_len_instruction->base,
-                        bigint_as_unsigned(&len_val->data.x_bigint));
-            }
-        }
-        TypeStructField *field = &type_entry->data.structure.fields[slice_len_index];
-        IrInstruction *len_ptr = ir_build_struct_field_ptr(&ira->new_irb, array_len_instruction->base.scope,
-                array_len_instruction->base.source_node, array_value, field);
-        len_ptr->value.type = get_pointer_to_type(ira->codegen, ira->codegen->builtin_types.entry_usize, true);
-        IrInstruction *result = ir_build_load_ptr(&ira->new_irb,
-            array_len_instruction->base.scope, array_len_instruction->base.source_node, len_ptr);
-        result->value.type = ira->codegen->builtin_types.entry_usize;
-        return result;
-    } else {
-        ir_add_error_node(ira, array_len_instruction->base.source_node,
-            buf_sprintf("type '%s' has no field 'len'", buf_ptr(&array_value->value.type->name)));
-        return ira->codegen->invalid_instruction;
-    }
 }
 
 static IrInstruction *ir_analyze_instruction_ref(IrAnalyze *ira, IrInstructionRef *ref_instruction) {
@@ -20893,8 +20849,6 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
             return ir_analyze_instruction_union_tag(ira, (IrInstructionUnionTag *)instruction);
         case IrInstructionIdImport:
             return ir_analyze_instruction_import(ira, (IrInstructionImport *)instruction);
-        case IrInstructionIdArrayLen:
-            return ir_analyze_instruction_array_len(ira, (IrInstructionArrayLen *)instruction);
         case IrInstructionIdRef:
             return ir_analyze_instruction_ref(ira, (IrInstructionRef *)instruction);
         case IrInstructionIdContainerInitList:
@@ -21228,7 +21182,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdTypeOf:
         case IrInstructionIdToPtrType:
         case IrInstructionIdPtrTypeChild:
-        case IrInstructionIdArrayLen:
         case IrInstructionIdStructFieldPtr:
         case IrInstructionIdUnionFieldPtr:
         case IrInstructionIdArrayType:
