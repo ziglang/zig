@@ -490,7 +490,7 @@ pub const Elf = struct {
             if (sh_entry_size != 40) return error.InvalidFormat;
 
             for (elf.section_headers) |*elf_section| {
-                // TODO (multiple occurences) allow implicit cast from %u32 -> %u64 ?
+                // TODO (multiple occurrences) allow implicit cast from %u32 -> %u64 ?
                 elf_section.name = try in.readInt(elf.endian, u32);
                 elf_section.sh_type = try in.readInt(elf.endian, u32);
                 elf_section.flags = u64(try in.readInt(elf.endian, u32));

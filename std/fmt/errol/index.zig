@@ -164,7 +164,7 @@ fn errol3u(val: f64, buffer: []u8) FloatDecimal {
     // digit generation
 
     // We generate digits starting at index 1. If rounding a buffer later then it may be
-    // required to generate a preceeding digit in some cases (9.999) in which case we use
+    // required to generate a preceding digit in some cases (9.999) in which case we use
     // the 0-index for this extra digit.
     var buf_index: usize = 1;
     while (true) {
