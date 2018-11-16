@@ -6517,8 +6517,11 @@ static IrInstruction *ir_gen_defer(IrBuilder *irb, Scope *parent_scope, AstNode 
     return ir_build_const_void(irb, parent_scope, node);
 }
 
-static IrInstruction *ir_gen_slice(IrBuilder *irb, Scope *scope, AstNode *node, IrInstruction *result_loc) {
+static IrInstruction *ir_gen_slice(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval,
+        IrInstruction *result_loc)
+{
     assert(node->type == NodeTypeSliceExpr);
+    assert(result_loc != nullptr);
 
     AstNodeSliceExpr *slice_expr = &node->data.slice_expr;
     AstNode *array_node = slice_expr->array_ref_expr;
@@ -6542,7 +6545,8 @@ static IrInstruction *ir_gen_slice(IrBuilder *irb, Scope *scope, AstNode *node, 
         end_value = nullptr;
     }
 
-    return ir_build_slice(irb, scope, node, ptr_value, start_value, end_value, true, result_loc);
+    IrInstruction *result = ir_build_slice(irb, scope, node, ptr_value, start_value, end_value, true, result_loc);
+    return ir_gen_multi(irb, scope, node, lval, result_loc, result);
 }
 
 static IrInstruction *ir_gen_catch(IrBuilder *irb, Scope *parent_scope, AstNode *node, LVal lval,
@@ -7398,7 +7402,8 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
         case NodeTypeDefer:
             return ir_lval_wrap(irb, scope, ir_gen_defer(irb, scope, node), lval);
         case NodeTypeSliceExpr:
-            return ir_lval_wrap(irb, scope, ir_gen_slice(irb, scope, node, result_loc), lval);
+            return ir_gen_slice(irb, scope, node, lval,
+                    ensure_result_loc(irb, scope, node, result_loc));
         case NodeTypeUnwrapErrorExpr:
             return ir_gen_catch(irb, scope, node, lval,
                     ensure_result_loc(irb, scope, node, result_loc));
@@ -19413,12 +19418,10 @@ static IrInstruction *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstructio
 }
 
 static IrInstruction *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructionSlice *instruction) {
+    Error err;
+
     IrInstruction *ptr_ptr = instruction->ptr->child;
     if (type_is_invalid(ptr_ptr->value.type))
-        return ira->codegen->invalid_instruction;
-
-    IrInstruction *result_loc = instruction->result_loc->child;
-    if (type_is_invalid(result_loc->value.type))
         return ira->codegen->invalid_instruction;
 
     ZigType *ptr_type = ptr_ptr->value.type;
@@ -19486,6 +19489,12 @@ static IrInstruction *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstruction
             buf_sprintf("slice of non-array type '%s'", buf_ptr(&array_type->name)));
         return ira->codegen->invalid_instruction;
     }
+
+    IrInstruction *result_loc = instruction->result_loc->child;
+    if (type_is_invalid(result_loc->value.type))
+        return ira->codegen->invalid_instruction;
+    if ((err = resolve_possible_alloca_inference(ira, result_loc, return_type)))
+        return ira->codegen->invalid_instruction;
 
     if (instr_is_comptime(ptr_ptr) &&
         value_is_comptime(&casted_start->value) &&
@@ -19637,6 +19646,10 @@ static IrInstruction *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstruction
             return ira->codegen->invalid_instruction;
         }
 
+        if (result_loc->value.special != ConstValSpecialRuntime) {
+            zig_panic("TODO slice with comptime ptr and values");
+        }
+
         IrInstruction *result = ir_const(ira, &instruction->base, return_type);
         ConstExprValue *out_val = &result->value;
         out_val->data.x_struct.fields = create_const_vals(2);
@@ -19688,6 +19701,15 @@ static IrInstruction *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstruction
         init_const_usize(ira->codegen, len_val, end_scalar - start_scalar);
 
         return result;
+    }
+
+    if (instr_is_comptime(result_loc)) {
+        ConstExprValue *ptr_val = ir_resolve_const(ira, result_loc, UndefBad);
+        if (!ptr_val)
+            return ira->codegen->invalid_instruction;
+        if (ptr_val->data.x_ptr.mut == ConstPtrMutInfer) {
+            ptr_val->special = ConstValSpecialRuntime;
+        }
     }
 
     IrInstruction *new_instruction = ir_build_slice(&ira->new_irb,

@@ -203,6 +203,7 @@ static void ir_print_cast(IrPrint *irp, IrInstructionCast *cast_instruction) {
 }
 
 static void ir_print_call(IrPrint *irp, IrInstructionCall *call_instruction) {
+    fprintf(irp->f, "Call ");
     if (call_instruction->is_async) {
         fprintf(irp->f, "async");
         if (call_instruction->async_allocator != nullptr) {

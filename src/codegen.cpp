@@ -4348,6 +4348,7 @@ static LLVMValueRef ir_render_slice(CodeGen *g, IrExecutable *executable, IrInst
     LLVMValueRef array_ptr = get_handle_value(g, array_ptr_ptr, array_type, array_ptr_type);
 
     LLVMValueRef tmp_struct_ptr = ir_llvm_value(g, instruction->result_loc);
+    assert(LLVMGetTypeKind(LLVMTypeOf(tmp_struct_ptr)) == LLVMPointerTypeKind);
 
     bool want_runtime_safety = instruction->safety_check_on && ir_want_runtime_safety(g, &instruction->base);
 
@@ -4421,6 +4422,7 @@ static LLVMValueRef ir_render_slice(CodeGen *g, IrExecutable *executable, IrInst
         assert(array_type->data.structure.is_slice);
         assert(LLVMGetTypeKind(LLVMTypeOf(array_ptr)) == LLVMPointerTypeKind);
         assert(LLVMGetTypeKind(LLVMGetElementType(LLVMTypeOf(array_ptr))) == LLVMStructTypeKind);
+        assert(LLVMGetTypeKind(LLVMGetElementType(LLVMTypeOf(tmp_struct_ptr))) == LLVMStructTypeKind);
 
         size_t ptr_index = array_type->data.structure.fields[slice_ptr_index].gen_index;
         assert(ptr_index != SIZE_MAX);
