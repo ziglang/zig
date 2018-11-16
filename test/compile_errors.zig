@@ -5232,4 +5232,14 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     ,
         ".tmp_source.zig:3:36: error: @ArgType could not resolve the type of arg 0 because 'fn(var)var' is generic",
     );
+
+    cases.add(
+        "unsupported modifier at start of asm output constraint",
+        \\export fn foo() void {
+        \\    var bar: u32 = 3;
+        \\    asm volatile ("" : [baz]"+r"(bar) : : "");
+        \\}
+    ,
+        ".tmp_source.zig:3:5: error: invalid modifier starting output constraint for 'baz': '+', only '=' is supported. Compiler TODO: see https://github.com/ziglang/zig/issues/215",
+    );
 }

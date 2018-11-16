@@ -5537,6 +5537,15 @@ static IrInstruction *ir_gen_asm_expr(IrBuilder *irb, Scope *scope, AstNode *nod
                 return irb->codegen->invalid_instruction;
             }
         }
+
+        const char modifier = *buf_ptr(asm_output->constraint);
+        if (modifier != '=') {
+            add_node_error(irb->codegen, node,
+                buf_sprintf("invalid modifier starting output constraint for '%s': '%c', only '=' is supported."
+                    " Compiler TODO: see https://github.com/ziglang/zig/issues/215",
+                    buf_ptr(asm_output->asm_symbolic_name), modifier));
+            return irb->codegen->invalid_instruction;
+        }
     }
     for (size_t i = 0; i < node->data.asm_expr.input_list.length; i += 1) {
         AsmInput *asm_input = node->data.asm_expr.input_list.at(i);

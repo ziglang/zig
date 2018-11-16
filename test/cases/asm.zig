@@ -17,6 +17,13 @@ test "module level assembly" {
     }
 }
 
+test "output constraint modifiers" {
+    // This is only testing compilation.
+    var a: u32 = 3;
+    asm volatile ("" : [_]"=m,r"(a) : : "");
+    asm volatile ("" : [_]"=r,m"(a) : : "");
+}
+
 test "alternative constraints" {
     // Make sure we allow commas as a separator for alternative constraints.
     var a: u32 = 3;
