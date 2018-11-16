@@ -3285,7 +3285,7 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                 if (expr_node) {
                     IrInstruction *return_result_loc = nullptr;
                     ZigType *return_type = fn_entry->type_entry->data.fn.fn_type_id.return_type;
-                    if (type_has_bits(return_type) && handle_is_ptr(return_type)) {
+                    if (return_type != nullptr && type_has_bits(return_type) && handle_is_ptr(return_type)) {
                         return_result_loc = ir_build_result_return(irb, scope, node);
                     }
                     // Temporarily set this so that if we return a type it gets the name of the function
@@ -11397,6 +11397,7 @@ static Error resolve_alloca_inference(IrAnalyze *ira, IrInstructionAllocaGen *al
     Error err;
     if ((err = type_resolve(ira->codegen, child_type, ResolveStatusZeroBitsKnown)))
         return err;
+    assert(alloca->base.value.data.x_ptr.special != ConstPtrSpecialInvalid);
     alloca->base.value.data.x_ptr.data.ref.pointee->type = child_type;
     alloca->base.value.type = get_pointer_to_type_extra(ira->codegen, child_type, false, false,
             PtrLenSingle, alloca->align, 0, 0);
@@ -21948,8 +21949,15 @@ static IrInstruction *ir_analyze_instruction_first_arg_result_loc(IrAnalyze *ira
 
     // Result of this instruction should be the result location for the first argument of the function call.
     // This means it should be a stack allocation.
+    ConstExprValue *pointee = create_const_vals(1);
+    pointee->special = ConstValSpecialUndef;
+
     IrInstructionAllocaGen *result = ir_create_alloca_gen(&ira->new_irb, instruction->base.scope,
             instruction->base.source_node, 0, "");
+    result->base.value.special = ConstValSpecialStatic;
+    result->base.value.data.x_ptr.special = ConstPtrSpecialRef;
+    result->base.value.data.x_ptr.mut = ConstPtrMutInfer;
+    result->base.value.data.x_ptr.data.ref.pointee = pointee;
 
     assert(fn_ref->value.type->id == ZigTypeIdFn);
     ZigType *param_type = fn_ref->value.type->data.fn.fn_type_id.param_info[0].type;
