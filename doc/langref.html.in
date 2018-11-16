@@ -954,7 +954,7 @@ a /= b{#endsyntax#}</pre></td>
               <li>{#link|Floats#}</li>
             </ul>
           </td>
-          <td>Divison.
+          <td>Division.
             <ul>
               <li>Can cause {#link|overflow|Default Operations#} for integers.</li>
               <li>Can cause {#link|Division by Zero#} for integers.</li>
@@ -3474,7 +3474,7 @@ fn createFoo(param: i32) !Foo {
         </li>
         <li>
           Since Zig understands error types, it can pre-weight branches in favor of
-          errors not occuring. Just a small optimization benefit that is not available
+          errors not occurring. Just a small optimization benefit that is not available
           in other languages.
         </li>
       </ul>
@@ -7614,7 +7614,7 @@ coding style.
           Open braces on same line, unless you need to wrap.
         </li>
         <li>If a list of things is longer than 2, put each item on its own line and
-          exercise the abilty to put an extra comma at the end.
+          exercise the ability to put an extra comma at the end.
         </li>
         <li>
           Line length: aim for 100; use common sense.

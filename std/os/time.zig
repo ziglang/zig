@@ -124,7 +124,7 @@ pub const s_per_week = s_per_day * 7;
 /// A monotonic high-performance timer.
 /// Timer.start() must be called to initialize the struct, which captures
 ///   the counter frequency on windows and darwin, records the resolution,
-///   and gives the user an oportunity to check for the existnece of
+///   and gives the user an opportunity to check for the existnece of
 ///   monotonic clocks without forcing them to check for error on each read.
 /// .resolution is in nanoseconds on all platforms but .start_time's meaning
 ///   depends on the OS. On Windows and Darwin it is a hardware counter
@@ -152,11 +152,11 @@ pub const Timer = struct {
     //};
     const monotonic_clock_id = posix.CLOCK_MONOTONIC;
     /// Initialize the timer structure.
-    //This gives us an oportunity to grab the counter frequency in windows.
+    //This gives us an opportunity to grab the counter frequency in windows.
     //On Windows: QueryPerformanceCounter will succeed on anything >= XP/2000.
     //On Posix: CLOCK_MONOTONIC will only fail if the monotonic counter is not
     //  supported, or if the timespec pointer is out of bounds, which should be
-    //  impossible here barring cosmic rays or other such occurances of
+    //  impossible here barring cosmic rays or other such occurrences of
     //  incredibly bad luck.
     //On Darwin: This cannot fail, as far as I am able to tell.
     const TimerError = error{

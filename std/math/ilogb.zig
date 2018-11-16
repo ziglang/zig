@@ -19,7 +19,7 @@ pub fn ilogb(x: var) i32 {
     };
 }
 
-// NOTE: Should these be exposed publically?
+// NOTE: Should these be exposed publicly?
 const fp_ilogbnan = -1 - i32(maxInt(u32) >> 1);
 const fp_ilogb0 = fp_ilogbnan;
 

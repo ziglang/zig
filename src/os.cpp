@@ -1536,7 +1536,7 @@ int os_get_win32_ucrt_lib_path(ZigWindowsSDK *sdk, Buf* output_buf, ZigLLVM_Arch
         buf_append_str(output_buf, "arm\\");
         break;
     default:
-        zig_panic("Attemped to use vcruntime for non-supported platform.");
+        zig_panic("Attempted to use vcruntime for non-supported platform.");
     }
     Buf* tmp_buf = buf_alloc();
     buf_init_from_buf(tmp_buf, output_buf);
@@ -1585,7 +1585,7 @@ int os_get_win32_kern32_path(ZigWindowsSDK *sdk, Buf* output_buf, ZigLLVM_ArchTy
             buf_append_str(output_buf, "arm\\");
             break;
         default:
-            zig_panic("Attemped to use vcruntime for non-supported platform.");
+            zig_panic("Attempted to use vcruntime for non-supported platform.");
         }
         Buf* tmp_buf = buf_alloc();
         buf_init_from_buf(tmp_buf, output_buf);
@@ -1608,7 +1608,7 @@ int os_get_win32_kern32_path(ZigWindowsSDK *sdk, Buf* output_buf, ZigLLVM_ArchTy
             buf_append_str(output_buf, "arm\\");
             break;
         default:
-            zig_panic("Attemped to use vcruntime for non-supported platform.");
+            zig_panic("Attempted to use vcruntime for non-supported platform.");
         }
         Buf* tmp_buf = buf_alloc();
         buf_init_from_buf(tmp_buf, output_buf);
