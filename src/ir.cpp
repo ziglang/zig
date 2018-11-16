@@ -3284,7 +3284,8 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                 IrInstruction *return_value;
                 if (expr_node) {
                     IrInstruction *return_result_loc = nullptr;
-                    if (handle_is_ptr(fn_entry->type_entry->data.fn.fn_type_id.return_type)) {
+                    ZigType *return_type = fn_entry->type_entry->data.fn.fn_type_id.return_type;
+                    if (type_has_bits(return_type) && handle_is_ptr(return_type)) {
                         return_result_loc = ir_build_result_return(irb, scope, node);
                     }
                     // Temporarily set this so that if we return a type it gets the name of the function
@@ -13949,10 +13950,46 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call
                 return ira->codegen->invalid_instruction;
         }
 
+        ZigType *scalar_result_type;
+        ZigType *payload_result_type;
+        if (return_type->id == ZigTypeIdErrorUnion) {
+            scalar_result_type = get_optional_type(ira->codegen, return_type->data.error_union.err_set_type);
+            payload_result_type = return_type->data.error_union.payload_type;
+        } else {
+            payload_result_type = return_type;
+            scalar_result_type = return_type;
+        }
+
         IrInstruction *new_instruction = ir_const(ira, &call_instruction->base, result->value.type);
         // TODO should we use copy_const_val?
         new_instruction->value = result->value;
-        new_instruction->value.type = return_type;
+        new_instruction->value.type = scalar_result_type;
+
+        if (call_instruction->result_loc != nullptr && call_instruction->result_loc->child != nullptr) {
+            IrInstruction *prev_result_loc = call_instruction->result_loc->child;
+            if (type_is_invalid(prev_result_loc->value.type))
+                return ira->codegen->invalid_instruction;
+            if (instr_is_comptime(prev_result_loc)) {
+                ConstExprValue *ptr_val = ir_resolve_const(ira, prev_result_loc, UndefBad);
+                if (!ptr_val)
+                    return ira->codegen->invalid_instruction;
+                if (ptr_val->data.x_ptr.mut == ConstPtrMutInfer) {
+                    ptr_val->special = ConstValSpecialStatic;
+                }
+            }
+
+            bool need_store_ptr = (return_type == payload_result_type) &&
+                (!type_has_bits(return_type) || !handle_is_ptr(return_type));
+            IrInstruction *casted_result_loc = ir_implicit_cast_result(ira, prev_result_loc, payload_result_type, need_store_ptr);
+            if (casted_result_loc == nullptr)
+                casted_result_loc = prev_result_loc;
+            if (type_is_invalid(casted_result_loc->value.type))
+                return ira->codegen->invalid_instruction;
+            if (need_store_ptr) {
+                ir_analyze_store_ptr(ira, &call_instruction->base, casted_result_loc, new_instruction);
+            }
+        }
+
         return ir_finish_anal(ira, new_instruction);
     }
 
