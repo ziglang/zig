@@ -1201,7 +1201,7 @@ pub fn socket(domain: u32, socket_type: u32, protocol: u32) usize {
 }
 
 pub fn setsockopt(fd: i32, level: u32, optname: u32, optval: [*]const u8, optlen: socklen_t) usize {
-    return syscall5(SYS_setsockopt, @intCast(usize, fd), level, optname, @intCast(usize, optval), @ptrToInt(optlen));
+    return syscall5(SYS_setsockopt, @intCast(usize, fd), level, optname, @ptrToInt(optval), @intCast(usize, optlen));
 }
 
 pub fn getsockopt(fd: i32, level: u32, optname: u32, noalias optval: [*]u8, noalias optlen: *socklen_t) usize {
