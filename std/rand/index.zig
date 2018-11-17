@@ -234,8 +234,6 @@ test "Random int" {
 fn testRandomInt() void {
     var r = SequentialPrng.init();
 
-    assert(r.random.int(u0) == 0);
-
     r.next_value = 0;
     assert(r.random.int(u1) == 0);
     assert(r.random.int(u1) == 1);
