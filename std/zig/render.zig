@@ -1148,6 +1148,17 @@ fn renderExpression(
                 try renderToken(tree, stream, align_rparen, indent, start_col, Space.Space); // )
             }
 
+            if (fn_proto.section_expr) |section_expr| {
+                const section_rparen = tree.nextToken(section_expr.lastToken());
+                const section_lparen = tree.prevToken(section_expr.firstToken());
+                const section_kw = tree.prevToken(section_lparen);
+
+                try renderToken(tree, stream, section_kw, indent, start_col, Space.None); // section
+                try renderToken(tree, stream, section_lparen, indent, start_col, Space.None); // (
+                try renderExpression(allocator, stream, tree, indent, start_col, section_expr, Space.None);
+                try renderToken(tree, stream, section_rparen, indent, start_col, Space.Space); // )
+            }
+
             switch (fn_proto.return_type) {
                 ast.Node.FnProto.ReturnType.Explicit => |node| {
                     return renderExpression(allocator, stream, tree, indent, start_col, node, space);
@@ -1698,12 +1709,14 @@ fn renderVarDecl(
     try renderToken(tree, stream, var_decl.mut_token, indent, start_col, Space.Space); // var
 
     const name_space = if (var_decl.type_node == null and (var_decl.align_node != null or
-        var_decl.init_node != null)) Space.Space else Space.None;
+        var_decl.section_node != null or var_decl.init_node != null)) Space.Space else Space.None;
     try renderToken(tree, stream, var_decl.name_token, indent, start_col, name_space);
 
     if (var_decl.type_node) |type_node| {
         try renderToken(tree, stream, tree.nextToken(var_decl.name_token), indent, start_col, Space.Space);
-        const s = if (var_decl.align_node != null or var_decl.init_node != null) Space.Space else Space.None;
+        const s = if (var_decl.align_node != null or
+            var_decl.section_node != null or
+            var_decl.init_node != null) Space.Space else Space.None;
         try renderExpression(allocator, stream, tree, indent, start_col, type_node, s);
     }
 
@@ -1714,6 +1727,17 @@ fn renderVarDecl(
         try renderToken(tree, stream, align_kw, indent, start_col, Space.None); // align
         try renderToken(tree, stream, lparen, indent, start_col, Space.None); // (
         try renderExpression(allocator, stream, tree, indent, start_col, align_node, Space.None);
+        const s = if (var_decl.section_node != null or var_decl.init_node != null) Space.Space else Space.None;
+        try renderToken(tree, stream, rparen, indent, start_col, s); // )
+    }
+
+    if (var_decl.section_node) |section_node| {
+        const lparen = tree.prevToken(section_node.firstToken());
+        const section_kw = tree.prevToken(lparen);
+        const rparen = tree.nextToken(section_node.lastToken());
+        try renderToken(tree, stream, section_kw, indent, start_col, Space.None); // linksection
+        try renderToken(tree, stream, lparen, indent, start_col, Space.None); // (
+        try renderExpression(allocator, stream, tree, indent, start_col, section_node, Space.None);
         const s = if (var_decl.init_node != null) Space.Space else Space.None;
         try renderToken(tree, stream, rparen, indent, start_col, s); // )
     }

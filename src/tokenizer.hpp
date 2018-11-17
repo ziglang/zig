@@ -82,7 +82,7 @@ enum TokenId {
     TokenIdKeywordPub,
     TokenIdKeywordResume,
     TokenIdKeywordReturn,
-    TokenIdKeywordSection,
+    TokenIdKeywordLinkSection,
     TokenIdKeywordStdcallCC,
     TokenIdKeywordStruct,
     TokenIdKeywordSuspend,

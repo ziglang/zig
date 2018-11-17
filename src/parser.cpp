@@ -2082,7 +2082,7 @@ static AstNode *ast_parse_while_continue_expr(ParseContext *pc) {
 
 // Section <- KEYWORD_section LPAREN Expr RPAREN
 static AstNode *ast_parse_section(ParseContext *pc) {
-    Token *first = eat_token_if(pc, TokenIdKeywordSection);
+    Token *first = eat_token_if(pc, TokenIdKeywordLinkSection);
     if (first == nullptr)
         return nullptr;
 
