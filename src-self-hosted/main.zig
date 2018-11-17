@@ -43,9 +43,9 @@ const usage =
     \\
 ;
 
-const Command = struct.{
+const Command = struct {
     name: []const u8,
-    exec: fn (*Allocator, []const []const u8) error!void,
+    exec: fn (*Allocator, []const []const u8) anyerror!void,
 };
 
 pub fn main() !void {
@@ -72,46 +72,46 @@ pub fn main() !void {
         os.exit(1);
     }
 
-    const commands = []Command.{
-        Command.{
+    const commands = []Command{
+        Command{
             .name = "build-exe",
             .exec = cmdBuildExe,
         },
-        Command.{
+        Command{
             .name = "build-lib",
             .exec = cmdBuildLib,
         },
-        Command.{
+        Command{
             .name = "build-obj",
             .exec = cmdBuildObj,
         },
-        Command.{
+        Command{
             .name = "fmt",
             .exec = cmdFmt,
         },
-        Command.{
+        Command{
             .name = "libc",
             .exec = cmdLibC,
         },
-        Command.{
+        Command{
             .name = "targets",
             .exec = cmdTargets,
         },
-        Command.{
+        Command{
             .name = "version",
             .exec = cmdVersion,
         },
-        Command.{
+        Command{
             .name = "zen",
             .exec = cmdZen,
         },
 
         // undocumented commands
-        Command.{
+        Command{
             .name = "help",
             .exec = cmdHelp,
         },
-        Command.{
+        Command{
             .name = "internal",
             .exec = cmdInternal,
         },
@@ -190,14 +190,14 @@ const usage_build_generic =
     \\
 ;
 
-const args_build_generic = []Flag.{
+const args_build_generic = []Flag{
     Flag.Bool("--help"),
-    Flag.Option("--color", []const []const u8.{
+    Flag.Option("--color", []const []const u8{
         "auto",
         "off",
         "on",
     }),
-    Flag.Option("--mode", []const []const u8.{
+    Flag.Option("--mode", []const []const u8{
         "debug",
         "release-fast",
         "release-safe",
@@ -205,7 +205,7 @@ const args_build_generic = []Flag.{
     }),
 
     Flag.ArgMergeN("--assembly", 1),
-    Flag.Option("--emit", []const []const u8.{
+    Flag.Option("--emit", []const []const u8{
         "asm",
         "bin",
         "llvm-ir",
@@ -456,10 +456,10 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
     }
 
     if (flags.single("mmacosx-version-min")) |ver| {
-        comp.darwin_version_min = Compilation.DarwinVersionMin.{ .MacOS = ver };
+        comp.darwin_version_min = Compilation.DarwinVersionMin{ .MacOS = ver };
     }
     if (flags.single("mios-version-min")) |ver| {
-        comp.darwin_version_min = Compilation.DarwinVersionMin.{ .Ios = ver };
+        comp.darwin_version_min = Compilation.DarwinVersionMin{ .Ios = ver };
     }
 
     comp.emit_file_type = emit_type;
@@ -514,18 +514,23 @@ const usage_fmt =
     \\usage: zig fmt [file]...
     \\
     \\   Formats the input files and modifies them in-place.
+    \\   Arguments can be files or directories, which are searched
+    \\   recursively.
     \\
     \\Options:
     \\   --help                 Print this help and exit
     \\   --color [auto|off|on]  Enable or disable colored error messages
-    \\   --stdin                Format code from stdin
+    \\   --stdin                Format code from stdin; output to stdout
+    \\   --check                List non-conforming files and exit with an error
+    \\                          if the list is non-empty
     \\
     \\
 ;
 
-const args_fmt_spec = []Flag.{
+const args_fmt_spec = []Flag{
     Flag.Bool("--help"),
-    Flag.Option("--color", []const []const u8.{
+    Flag.Bool("--check"),
+    Flag.Option("--color", []const []const u8{
         "auto",
         "off",
         "on",
@@ -533,7 +538,7 @@ const args_fmt_spec = []Flag.{
     Flag.Bool("--stdin"),
 };
 
-const Fmt = struct.{
+const Fmt = struct {
     seen: event.Locked(SeenMap),
     any_error: bool,
     color: errmsg.Color,
@@ -640,6 +645,11 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
         if (tree.errors.len != 0) {
             os.exit(1);
         }
+        if (flags.present("check")) {
+            const anything_changed = try std.zig.render(allocator, io.null_out_stream, &tree);
+            const code = if (anything_changed) u8(1) else u8(0);
+            os.exit(code);
+        }
 
         _ = try std.zig.render(allocator, stdout, &tree);
         return;
@@ -675,7 +685,7 @@ async fn asyncFmtMainChecked(
     result.* = await (async asyncFmtMain(loop, flags, color) catch unreachable);
 }
 
-const FmtError = error.{
+const FmtError = error{
     SystemResources,
     OperationAborted,
     IoPending,
@@ -704,16 +714,18 @@ async fn asyncFmtMain(
     suspend {
         resume @handle();
     }
-    var fmt = Fmt.{
+    var fmt = Fmt{
         .seen = event.Locked(Fmt.SeenMap).init(loop, Fmt.SeenMap.init(loop.allocator)),
         .any_error = false,
         .color = color,
         .loop = loop,
     };
 
+    const check_mode = flags.present("check");
+
     var group = event.Group(FmtError!void).init(loop);
     for (flags.positionals.toSliceConst()) |file_path| {
-        try group.call(fmtPath, &fmt, file_path);
+        try group.call(fmtPath, &fmt, file_path, check_mode);
     }
     try await (async group.wait() catch unreachable);
     if (fmt.any_error) {
@@ -721,7 +733,7 @@ async fn asyncFmtMain(
     }
 }
 
-async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8) FmtError!void {
+async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtError!void {
     const file_path = try std.mem.dupe(fmt.loop.allocator, u8, file_path_ref);
     defer fmt.loop.allocator.free(file_path);
 
@@ -746,7 +758,7 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8) FmtError!void {
             while (try dir.next()) |entry| {
                 if (entry.kind == std.os.Dir.Entry.Kind.Directory or mem.endsWith(u8, entry.name, ".zig")) {
                     const full_path = try os.path.join(fmt.loop.allocator, file_path, entry.name);
-                    try group.call(fmtPath, fmt, full_path);
+                    try group.call(fmtPath, fmt, full_path, check_mode);
                 }
             }
             return await (async group.wait() catch unreachable);
@@ -779,14 +791,22 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8) FmtError!void {
         return;
     }
 
-    // TODO make this evented
-    const baf = try io.BufferedAtomicFile.create(fmt.loop.allocator, file_path);
-    defer baf.destroy();
+    if (check_mode) {
+        const anything_changed = try std.zig.render(fmt.loop.allocator, io.null_out_stream, &tree);
+        if (anything_changed) {
+            try stderr.print("{}\n", file_path);
+            fmt.any_error = true;
+        }
+    } else {
+        // TODO make this evented
+        const baf = try io.BufferedAtomicFile.create(fmt.loop.allocator, file_path);
+        defer baf.destroy();
 
-    const anything_changed = try std.zig.render(fmt.loop.allocator, baf.stream(), &tree);
-    if (anything_changed) {
-        try stderr.print("{}\n", file_path);
-        try baf.finish();
+        const anything_changed = try std.zig.render(fmt.loop.allocator, baf.stream(), &tree);
+        if (anything_changed) {
+            try stderr.print("{}\n", file_path);
+            try baf.finish();
+        }
     }
 }
 
@@ -836,7 +856,7 @@ fn cmdVersion(allocator: *Allocator, args: []const []const u8) !void {
     try stdout.print("{}\n", std.cstr.toSliceConst(c.ZIG_VERSION_STRING));
 }
 
-const args_test_spec = []Flag.{Flag.Bool("--help")};
+const args_test_spec = []Flag{Flag.Bool("--help")};
 
 fn cmdHelp(allocator: *Allocator, args: []const []const u8) !void {
     try stdout.write(usage);
@@ -878,7 +898,7 @@ fn cmdInternal(allocator: *Allocator, args: []const []const u8) !void {
         os.exit(1);
     }
 
-    const sub_commands = []Command.{Command.{
+    const sub_commands = []Command{Command{
         .name = "build-info",
         .exec = cmdInternalBuildInfo,
     }};
@@ -917,14 +937,14 @@ fn cmdInternalBuildInfo(allocator: *Allocator, args: []const []const u8) !void {
     );
 }
 
-const CliPkg = struct.{
+const CliPkg = struct {
     name: []const u8,
     path: []const u8,
     children: ArrayList(*CliPkg),
     parent: ?*CliPkg,
 
     pub fn init(allocator: *mem.Allocator, name: []const u8, path: []const u8, parent: ?*CliPkg) !*CliPkg {
-        var pkg = try allocator.create(CliPkg.{
+        var pkg = try allocator.create(CliPkg{
             .name = name,
             .path = path,
             .children = ArrayList(*CliPkg).init(allocator),

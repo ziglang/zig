@@ -15,7 +15,7 @@ const BufSet = std.BufSet;
 const BufMap = std.BufMap;
 const fmt_lib = std.fmt;
 
-pub const Builder = struct.{
+pub const Builder = struct {
     uninstall_tls: TopLevelStep,
     install_tls: TopLevelStep,
     have_uninstall_step: bool,
@@ -37,7 +37,7 @@ pub const Builder = struct.{
     invalid_user_input: bool,
     zig_exe: []const u8,
     default_step: *Step,
-    env_map: *const BufMap,
+    env_map: *BufMap,
     top_level_steps: ArrayList(*TopLevelStep),
     prefix: []const u8,
     search_prefixes: ArrayList([]const u8),
@@ -48,7 +48,7 @@ pub const Builder = struct.{
     cache_root: []const u8,
     release_mode: ?builtin.Mode,
 
-    pub const CStd = enum.{
+    pub const CStd = enum {
         C89,
         C99,
         C11,
@@ -57,25 +57,25 @@ pub const Builder = struct.{
     const UserInputOptionsMap = HashMap([]const u8, UserInputOption, mem.hash_slice_u8, mem.eql_slice_u8);
     const AvailableOptionsMap = HashMap([]const u8, AvailableOption, mem.hash_slice_u8, mem.eql_slice_u8);
 
-    const AvailableOption = struct.{
+    const AvailableOption = struct {
         name: []const u8,
         type_id: TypeId,
         description: []const u8,
     };
 
-    const UserInputOption = struct.{
+    const UserInputOption = struct {
         name: []const u8,
         value: UserValue,
         used: bool,
     };
 
-    const UserValue = union(enum).{
+    const UserValue = union(enum) {
         Flag: void,
         Scalar: []const u8,
         List: ArrayList([]const u8),
     };
 
-    const TypeId = enum.{
+    const TypeId = enum {
         Bool,
         Int,
         Float,
@@ -83,7 +83,7 @@ pub const Builder = struct.{
         List,
     };
 
-    const TopLevelStep = struct.{
+    const TopLevelStep = struct {
         step: Step,
         description: []const u8,
     };
@@ -91,7 +91,7 @@ pub const Builder = struct.{
     pub fn init(allocator: *Allocator, zig_exe: []const u8, build_root: []const u8, cache_root: []const u8) Builder {
         const env_map = allocator.createOne(BufMap) catch unreachable;
         env_map.* = os.getEnvMap(allocator) catch unreachable;
-        var self = Builder.{
+        var self = Builder{
             .zig_exe = zig_exe,
             .build_root = build_root,
             .cache_root = os.path.relative(allocator, build_root, cache_root) catch unreachable,
@@ -118,12 +118,12 @@ pub const Builder = struct.{
             .lib_dir = undefined,
             .exe_dir = undefined,
             .installed_files = ArrayList([]const u8).init(allocator),
-            .uninstall_tls = TopLevelStep.{
+            .uninstall_tls = TopLevelStep{
                 .step = Step.init("uninstall", allocator, makeUninstall),
                 .description = "Remove build artifacts from prefix path",
             },
             .have_uninstall_step = false,
-            .install_tls = TopLevelStep.{
+            .install_tls = TopLevelStep{
                 .step = Step.initNoOp("install", allocator),
                 .description = "Copy build artifacts to prefix path",
             },
@@ -214,7 +214,7 @@ pub const Builder = struct.{
     }
 
     pub fn version(self: *const Builder, major: u32, minor: u32, patch: u32) Version {
-        return Version.{
+        return Version{
             .major = major,
             .minor = minor,
             .patch = patch,
@@ -269,7 +269,7 @@ pub const Builder = struct.{
         return &self.uninstall_tls.step;
     }
 
-    fn makeUninstall(uninstall_step: *Step) error!void {
+    fn makeUninstall(uninstall_step: *Step) anyerror!void {
         const uninstall_tls = @fieldParentPtr(TopLevelStep, "step", uninstall_step);
         const self = @fieldParentPtr(Builder, "uninstall_tls", uninstall_tls);
 
@@ -283,7 +283,7 @@ pub const Builder = struct.{
         // TODO remove empty directories
     }
 
-    fn makeOneStep(self: *Builder, s: *Step) error!void {
+    fn makeOneStep(self: *Builder, s: *Step) anyerror!void {
         if (s.loop_flag) {
             warn("Dependency loop detected:\n  {}\n", s.name);
             return error.DependencyLoopDetected;
@@ -358,7 +358,7 @@ pub const Builder = struct.{
 
     pub fn option(self: *Builder, comptime T: type, name: []const u8, description: []const u8) ?T {
         const type_id = comptime typeToEnum(T);
-        const available_option = AvailableOption.{
+        const available_option = AvailableOption{
             .name = name,
             .type_id = type_id,
             .description = description,
@@ -410,7 +410,7 @@ pub const Builder = struct.{
     }
 
     pub fn step(self: *Builder, name: []const u8, description: []const u8) *Step {
-        const step_info = self.allocator.create(TopLevelStep.{
+        const step_info = self.allocator.create(TopLevelStep{
             .step = Step.initNoOp(name, self.allocator),
             .description = description,
         }) catch unreachable;
@@ -437,9 +437,9 @@ pub const Builder = struct.{
     pub fn addUserInputOption(self: *Builder, name: []const u8, value: []const u8) !bool {
         const gop = try self.user_input_options.getOrPut(name);
         if (!gop.found_existing) {
-            gop.kv.value = UserInputOption.{
+            gop.kv.value = UserInputOption{
                 .name = name,
-                .value = UserValue.{ .Scalar = value },
+                .value = UserValue{ .Scalar = value },
                 .used = false,
             };
             return false;
@@ -452,18 +452,18 @@ pub const Builder = struct.{
                 var list = ArrayList([]const u8).init(self.allocator);
                 list.append(s) catch unreachable;
                 list.append(value) catch unreachable;
-                _ = self.user_input_options.put(name, UserInputOption.{
+                _ = self.user_input_options.put(name, UserInputOption{
                     .name = name,
-                    .value = UserValue.{ .List = list },
+                    .value = UserValue{ .List = list },
                     .used = false,
                 }) catch unreachable;
             },
             UserValue.List => |*list| {
                 // append to the list
                 list.append(value) catch unreachable;
-                _ = self.user_input_options.put(name, UserInputOption.{
+                _ = self.user_input_options.put(name, UserInputOption{
                     .name = name,
-                    .value = UserValue.{ .List = list.* },
+                    .value = UserValue{ .List = list.* },
                     .used = false,
                 }) catch unreachable;
             },
@@ -478,9 +478,9 @@ pub const Builder = struct.{
     pub fn addUserInputFlag(self: *Builder, name: []const u8) !bool {
         const gop = try self.user_input_options.getOrPut(name);
         if (!gop.found_existing) {
-            gop.kv.value = UserInputOption.{
+            gop.kv.value = UserInputOption{
                 .name = name,
-                .value = UserValue.{ .Flag = {} },
+                .value = UserValue{ .Flag = {} },
                 .used = false,
             };
             return false;
@@ -660,7 +660,7 @@ pub const Builder = struct.{
 
     pub fn findProgram(self: *Builder, names: []const []const u8, paths: []const []const u8) ![]const u8 {
         // TODO report error for ambiguous situations
-        const exe_extension = (Target.{ .Native = {} }).exeFileExt();
+        const exe_extension = (Target{ .Native = {} }).exeFileExt();
         for (self.search_prefixes.toSliceConst()) |search_prefix| {
             for (names) |name| {
                 if (os.path.isAbsolute(name)) {
@@ -679,7 +679,7 @@ pub const Builder = struct.{
                 if (os.path.isAbsolute(name)) {
                     return name;
                 }
-                var it = mem.split(PATH, []u8.{os.path.delimiter});
+                var it = mem.split(PATH, []u8{os.path.delimiter});
                 while (it.next()) |path| {
                     const full_path = try os.path.join(self.allocator, path, self.fmt("{}{}", name, exe_extension));
                     if (os.path.real(self.allocator, full_path)) |real_path| {
@@ -733,19 +733,19 @@ pub const Builder = struct.{
     }
 };
 
-const Version = struct.{
+const Version = struct {
     major: u32,
     minor: u32,
     patch: u32,
 };
 
-const CrossTarget = struct.{
+const CrossTarget = struct {
     arch: builtin.Arch,
     os: builtin.Os,
     environ: builtin.Environ,
 };
 
-pub const Target = union(enum).{
+pub const Target = union(enum) {
     Native: void,
     Cross: CrossTarget,
 
@@ -800,7 +800,7 @@ pub const Target = union(enum).{
     }
 };
 
-pub const LibExeObjStep = struct.{
+pub const LibExeObjStep = struct {
     step: Step,
     builder: *Builder,
     name: []const u8,
@@ -842,12 +842,12 @@ pub const LibExeObjStep = struct.{
     source_files: ArrayList([]const u8),
     object_src: []const u8,
 
-    const Pkg = struct.{
+    const Pkg = struct {
         name: []const u8,
         path: []const u8,
     };
 
-    const Kind = enum.{
+    const Kind = enum {
         Exe,
         Lib,
         Obj,
@@ -895,7 +895,7 @@ pub const LibExeObjStep = struct.{
     }
 
     fn initExtraArgs(builder: *Builder, name: []const u8, root_src: ?[]const u8, kind: Kind, static: bool, ver: Version) LibExeObjStep {
-        var self = LibExeObjStep.{
+        var self = LibExeObjStep{
             .no_rosegment = false,
             .strip = false,
             .builder = builder,
@@ -938,7 +938,7 @@ pub const LibExeObjStep = struct.{
     }
 
     fn initC(builder: *Builder, name: []const u8, kind: Kind, version: Version, static: bool) LibExeObjStep {
-        var self = LibExeObjStep.{
+        var self = LibExeObjStep{
             .no_rosegment = false,
             .builder = builder,
             .name = name,
@@ -1018,8 +1018,8 @@ pub const LibExeObjStep = struct.{
     }
 
     pub fn setTarget(self: *LibExeObjStep, target_arch: builtin.Arch, target_os: builtin.Os, target_environ: builtin.Environ) void {
-        self.target = Target.{
-            .Cross = CrossTarget.{
+        self.target = Target{
+            .Cross = CrossTarget{
                 .arch = target_arch,
                 .os = target_os,
                 .environ = target_environ,
@@ -1148,7 +1148,7 @@ pub const LibExeObjStep = struct.{
     pub fn addPackagePath(self: *LibExeObjStep, name: []const u8, pkg_index_path: []const u8) void {
         assert(self.is_zig);
 
-        self.packages.append(Pkg.{
+        self.packages.append(Pkg{
             .name = name,
             .path = pkg_index_path,
         }) catch unreachable;
@@ -1640,7 +1640,7 @@ pub const LibExeObjStep = struct.{
     }
 };
 
-pub const TestStep = struct.{
+pub const TestStep = struct {
     step: Step,
     builder: *Builder,
     root_src: []const u8,
@@ -1660,7 +1660,7 @@ pub const TestStep = struct.{
 
     pub fn init(builder: *Builder, root_src: []const u8) TestStep {
         const step_name = builder.fmt("test {}", root_src);
-        return TestStep.{
+        return TestStep{
             .step = Step.init(step_name, builder.allocator, make),
             .builder = builder,
             .root_src = root_src,
@@ -1669,7 +1669,7 @@ pub const TestStep = struct.{
             .name_prefix = "",
             .filter = null,
             .link_libs = BufSet.init(builder.allocator),
-            .target = Target.{ .Native = {} },
+            .target = Target{ .Native = {} },
             .exec_cmd_args = null,
             .include_dirs = ArrayList([]const u8).init(builder.allocator),
             .lib_paths = ArrayList([]const u8).init(builder.allocator),
@@ -1746,8 +1746,8 @@ pub const TestStep = struct.{
     }
 
     pub fn setTarget(self: *TestStep, target_arch: builtin.Arch, target_os: builtin.Os, target_environ: builtin.Environ) void {
-        self.target = Target.{
-            .Cross = CrossTarget.{
+        self.target = Target{
+            .Cross = CrossTarget{
                 .arch = target_arch,
                 .os = target_os,
                 .environ = target_environ,
@@ -1875,7 +1875,7 @@ pub const TestStep = struct.{
     }
 };
 
-pub const CommandStep = struct.{
+pub const CommandStep = struct {
     step: Step,
     builder: *Builder,
     argv: [][]const u8,
@@ -1884,7 +1884,7 @@ pub const CommandStep = struct.{
 
     /// ::argv is copied.
     pub fn create(builder: *Builder, cwd: ?[]const u8, env_map: *const BufMap, argv: []const []const u8) *CommandStep {
-        const self = builder.allocator.create(CommandStep.{
+        const self = builder.allocator.create(CommandStep{
             .builder = builder,
             .step = Step.init(argv[0], builder.allocator, make),
             .argv = builder.allocator.alloc([]u8, argv.len) catch unreachable,
@@ -1905,7 +1905,7 @@ pub const CommandStep = struct.{
     }
 };
 
-const InstallArtifactStep = struct.{
+const InstallArtifactStep = struct {
     step: Step,
     builder: *Builder,
     artifact: *LibExeObjStep,
@@ -1919,7 +1919,7 @@ const InstallArtifactStep = struct.{
             LibExeObjStep.Kind.Exe => builder.exe_dir,
             LibExeObjStep.Kind.Lib => builder.lib_dir,
         };
-        const self = builder.allocator.create(Self.{
+        const self = builder.allocator.create(Self{
             .builder = builder,
             .step = Step.init(builder.fmt("install {}", artifact.step.name), builder.allocator, make),
             .artifact = artifact,
@@ -1953,14 +1953,14 @@ const InstallArtifactStep = struct.{
     }
 };
 
-pub const InstallFileStep = struct.{
+pub const InstallFileStep = struct {
     step: Step,
     builder: *Builder,
     src_path: []const u8,
     dest_path: []const u8,
 
     pub fn init(builder: *Builder, src_path: []const u8, dest_path: []const u8) InstallFileStep {
-        return InstallFileStep.{
+        return InstallFileStep{
             .builder = builder,
             .step = Step.init(builder.fmt("install {}", src_path), builder.allocator, make),
             .src_path = src_path,
@@ -1974,14 +1974,14 @@ pub const InstallFileStep = struct.{
     }
 };
 
-pub const WriteFileStep = struct.{
+pub const WriteFileStep = struct {
     step: Step,
     builder: *Builder,
     file_path: []const u8,
     data: []const u8,
 
     pub fn init(builder: *Builder, file_path: []const u8, data: []const u8) WriteFileStep {
-        return WriteFileStep.{
+        return WriteFileStep{
             .builder = builder,
             .step = Step.init(builder.fmt("writefile {}", file_path), builder.allocator, make),
             .file_path = file_path,
@@ -2004,32 +2004,32 @@ pub const WriteFileStep = struct.{
     }
 };
 
-pub const LogStep = struct.{
+pub const LogStep = struct {
     step: Step,
     builder: *Builder,
     data: []const u8,
 
     pub fn init(builder: *Builder, data: []const u8) LogStep {
-        return LogStep.{
+        return LogStep{
             .builder = builder,
             .step = Step.init(builder.fmt("log {}", data), builder.allocator, make),
             .data = data,
         };
     }
 
-    fn make(step: *Step) error!void {
+    fn make(step: *Step) anyerror!void {
         const self = @fieldParentPtr(LogStep, "step", step);
         warn("{}", self.data);
     }
 };
 
-pub const RemoveDirStep = struct.{
+pub const RemoveDirStep = struct {
     step: Step,
     builder: *Builder,
     dir_path: []const u8,
 
     pub fn init(builder: *Builder, dir_path: []const u8) RemoveDirStep {
-        return RemoveDirStep.{
+        return RemoveDirStep{
             .builder = builder,
             .step = Step.init(builder.fmt("RemoveDir {}", dir_path), builder.allocator, make),
             .dir_path = dir_path,
@@ -2047,15 +2047,15 @@ pub const RemoveDirStep = struct.{
     }
 };
 
-pub const Step = struct.{
+pub const Step = struct {
     name: []const u8,
-    makeFn: fn (self: *Step) error!void,
+    makeFn: fn (self: *Step) anyerror!void,
     dependencies: ArrayList(*Step),
     loop_flag: bool,
     done_flag: bool,
 
-    pub fn init(name: []const u8, allocator: *Allocator, makeFn: fn (*Step) error!void) Step {
-        return Step.{
+    pub fn init(name: []const u8, allocator: *Allocator, makeFn: fn (*Step) anyerror!void) Step {
+        return Step{
             .name = name,
             .makeFn = makeFn,
             .dependencies = ArrayList(*Step).init(allocator),
@@ -2078,7 +2078,7 @@ pub const Step = struct.{
         self.dependencies.append(other) catch unreachable;
     }
 
-    fn makeNoOp(self: *Step) error!void {}
+    fn makeNoOp(self: *Step) anyerror!void {}
 };
 
 fn doAtomicSymLinks(allocator: *Allocator, output_path: []const u8, filename_major_only: []const u8, filename_name_only: []const u8) !void {

@@ -22,7 +22,7 @@ mkdir $TMPDIR
 
 cd $HOME
 HAVE_CACHE="true"
-wget "https://ziglang.org/builds/$CACHE_BASENAME.tar.xz" || HAVE_CACHE="false"
+wget -nv "https://ziglang.org/builds/$CACHE_BASENAME.tar.xz" || HAVE_CACHE="false"
 if [ "${HAVE_CACHE}" = "true" ]; then
   tar xf "$CACHE_BASENAME.tar.xz"
 else

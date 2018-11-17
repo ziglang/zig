@@ -4,13 +4,13 @@ const mem = @import("mem.zig");
 const Allocator = mem.Allocator;
 const assert = std.debug.assert;
 
-pub const BufSet = struct.{
+pub const BufSet = struct {
     hash_map: BufSetHashMap,
 
     const BufSetHashMap = HashMap([]const u8, void, mem.hash_slice_u8, mem.eql_slice_u8);
 
     pub fn init(a: *Allocator) BufSet {
-        var self = BufSet.{ .hash_map = BufSetHashMap.init(a) };
+        var self = BufSet{ .hash_map = BufSetHashMap.init(a) };
         return self;
     }
 

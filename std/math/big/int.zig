@@ -20,7 +20,7 @@ comptime {
     debug.assert(Limb.is_signed == false);
 }
 
-pub const Int = struct.{
+pub const Int = struct {
     allocator: *Allocator,
     positive: bool,
     //  - little-endian ordered
@@ -42,7 +42,7 @@ pub const Int = struct.{
     }
 
     pub fn initCapacity(allocator: *Allocator, capacity: usize) !Int {
-        return Int.{
+        return Int{
             .allocator = allocator,
             .positive = true,
             .limbs = block: {
@@ -68,7 +68,7 @@ pub const Int = struct.{
     }
 
     pub fn clone(other: Int) !Int {
-        return Int.{
+        return Int{
             .allocator = other.allocator,
             .positive = other.positive,
             .limbs = block: {
@@ -169,7 +169,7 @@ pub const Int = struct.{
         return self.fitsInTwosComp(T.is_signed, T.bit_count);
     }
 
-    // Returns the approximate size of the integer in the given base. Negative values accomodate for
+    // Returns the approximate size of the integer in the given base. Negative values accommodate for
     // the minus sign. This is used for determining the number of characters needed to print the
     // value. It is inexact and will exceed the given value by 1-2 digits.
     pub fn sizeInBase(self: Int, base: usize) usize {
@@ -234,7 +234,7 @@ pub const Int = struct.{
         }
     }
 
-    pub const ConvertError = error.{
+    pub const ConvertError = error{
         NegativeIntoUnsigned,
         TargetTooSmall,
     };
@@ -532,7 +532,7 @@ pub const Int = struct.{
         if (a.positive != b.positive) {
             if (a.positive) {
                 // (a) + (-b) => a - b
-                const bp = Int.{
+                const bp = Int{
                     .allocator = undefined,
                     .positive = true,
                     .limbs = b.limbs,
@@ -541,7 +541,7 @@ pub const Int = struct.{
                 try r.sub(a, bp);
             } else {
                 // (-a) + (b) => b - a
-                const ap = Int.{
+                const ap = Int{
                     .allocator = undefined,
                     .positive = true,
                     .limbs = a.limbs,
@@ -593,7 +593,7 @@ pub const Int = struct.{
         if (a.positive != b.positive) {
             if (a.positive) {
                 // (a) - (-b) => a + b
-                const bp = Int.{
+                const bp = Int{
                     .allocator = undefined,
                     .positive = true,
                     .limbs = b.limbs,
@@ -602,7 +602,7 @@ pub const Int = struct.{
                 try r.add(a, bp);
             } else {
                 // (-a) - (b) => -(a + b)
-                const ap = Int.{
+                const ap = Int{
                     .allocator = undefined,
                     .positive = true,
                     .limbs = a.limbs,

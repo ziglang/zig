@@ -61,7 +61,7 @@ fn cat_file(stdout: *os.File, file: *os.File) !void {
     }
 }
 
-fn unwrapArg(arg: error![]u8) ![]u8 {
+fn unwrapArg(arg: anyerror![]u8) ![]u8 {
     return arg catch |err| {
         warn("Unable to parse command line: {}\n", err);
         return err;

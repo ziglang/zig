@@ -21,7 +21,7 @@ pub const runtime_safety = switch (builtin.mode) {
     builtin.Mode.ReleaseFast, builtin.Mode.ReleaseSmall => false,
 };
 
-const Module = struct.{
+const Module = struct {
     mod_info: pdb.ModInfo,
     module_name: []u8,
     obj_file_name: []u8,
@@ -125,7 +125,7 @@ pub fn assert(ok: bool) void {
 
 /// TODO: add `==` operator for `error_union == error_set`, and then
 /// remove this function
-pub fn assertError(value: var, expected_error: error) void {
+pub fn assertError(value: var, expected_error: anyerror) void {
     if (value) {
         @panic("expected error");
     } else |actual_error| {
@@ -171,7 +171,9 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
     os.abort();
 }
 
+const RED = "\x1b[31;1m";
 const GREEN = "\x1b[32;1m";
+const CYAN = "\x1b[36;1m";
 const WHITE = "\x1b[37;1m";
 const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
@@ -211,7 +213,7 @@ pub fn writeCurrentStackTrace(out_stream: var, debug_info: *DebugInfo, tty_color
         builtin.Os.windows => return writeCurrentStackTraceWindows(out_stream, debug_info, tty_color, start_addr),
         else => {},
     }
-    const AddressState = union(enum).{
+    const AddressState = union(enum) {
         NotLookingForStartAddress,
         LookingForStartAddress: usize,
     };
@@ -220,7 +222,7 @@ pub fn writeCurrentStackTrace(out_stream: var, debug_info: *DebugInfo, tty_color
     //    else AddressState.NotLookingForStartAddress;
     var addr_state: AddressState = undefined;
     if (start_addr) |addr| {
-        addr_state = AddressState.{ .LookingForStartAddress = addr };
+        addr_state = AddressState{ .LookingForStartAddress = addr };
     } else {
         addr_state = AddressState.NotLookingForStartAddress;
     }
@@ -375,7 +377,7 @@ fn printSourceAtAddressWindows(di: *DebugInfo, out_stream: var, relocated_addres
                                     const col_num_entry = @ptrCast(*pdb.ColumnNumberEntry, &subsect_info[line_index]);
                                     break :blk col_num_entry.StartColumn;
                                 } else 0;
-                                break :subsections LineInfo.{
+                                break :subsections LineInfo{
                                     .allocator = allocator,
                                     .file_name = source_file_name,
                                     .line = line,
@@ -442,7 +444,7 @@ fn printSourceAtAddressWindows(di: *DebugInfo, out_stream: var, relocated_addres
     }
 }
 
-const TtyColor = enum.{
+const TtyColor = enum {
     Red,
     Green,
     Cyan,
@@ -454,38 +456,61 @@ const TtyColor = enum.{
 
 /// TODO this is a special case hack right now. clean it up and maybe make it part of std.fmt
 fn setTtyColor(tty_color: TtyColor) void {
-    const S = struct.{
-        var attrs: windows.WORD = undefined;
-        var init_attrs = false;
-    };
-    if (!S.init_attrs) {
-        S.init_attrs = true;
-        var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
-        // TODO handle error
-        _ = windows.GetConsoleScreenBufferInfo(stderr_file.handle, &info);
-        S.attrs = info.wAttributes;
-    }
+    if (os.supportsAnsiEscapeCodes(stderr_file.handle)) {
+        switch (tty_color) {
+            TtyColor.Red => {
+                stderr_file.write(RED) catch return;
+            },
+            TtyColor.Green => {
+                stderr_file.write(GREEN) catch return;
+            },
+            TtyColor.Cyan => {
+                stderr_file.write(CYAN) catch return;
+            },
+            TtyColor.White, TtyColor.Bold => {
+                stderr_file.write(WHITE) catch return;
+            },
+            TtyColor.Dim => {
+                stderr_file.write(DIM) catch return;
+            },
+            TtyColor.Reset => {
+                stderr_file.write(RESET) catch return;
+            },
+        }
+    } else {
+        const S = struct {
+            var attrs: windows.WORD = undefined;
+            var init_attrs = false;
+        };
+        if (!S.init_attrs) {
+            S.init_attrs = true;
+            var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
+            // TODO handle error
+            _ = windows.GetConsoleScreenBufferInfo(stderr_file.handle, &info);
+            S.attrs = info.wAttributes;
+        }
 
-    // TODO handle errors
-    switch (tty_color) {
-        TtyColor.Red => {
-            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_RED | windows.FOREGROUND_INTENSITY);
-        },
-        TtyColor.Green => {
-            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_GREEN | windows.FOREGROUND_INTENSITY);
-        },
-        TtyColor.Cyan => {
-            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY);
-        },
-        TtyColor.White, TtyColor.Bold => {
-            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_RED | windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY);
-        },
-        TtyColor.Dim => {
-            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_INTENSITY);
-        },
-        TtyColor.Reset => {
-            _ = windows.SetConsoleTextAttribute(stderr_file.handle, S.attrs);
-        },
+        // TODO handle errors
+        switch (tty_color) {
+            TtyColor.Red => {
+                _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_RED | windows.FOREGROUND_INTENSITY);
+            },
+            TtyColor.Green => {
+                _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_GREEN | windows.FOREGROUND_INTENSITY);
+            },
+            TtyColor.Cyan => {
+                _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY);
+            },
+            TtyColor.White, TtyColor.Bold => {
+                _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_RED | windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY);
+            },
+            TtyColor.Dim => {
+                _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_INTENSITY);
+            },
+            TtyColor.Reset => {
+                _ = windows.SetConsoleTextAttribute(stderr_file.handle, S.attrs);
+            },
+        }
     }
 }
 
@@ -660,7 +685,7 @@ fn printLineInfo(
 }
 
 // TODO use this
-pub const OpenSelfDebugInfoError = error.{
+pub const OpenSelfDebugInfoError = error{
     MissingDebugInfo,
     OutOfMemory,
     UnsupportedOperatingSystem,
@@ -680,7 +705,7 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
     defer self_file.close();
 
     const coff_obj = try allocator.createOne(coff.Coff);
-    coff_obj.* = coff.Coff.{
+    coff_obj.* = coff.Coff{
         .in_file = self_file,
         .allocator = allocator,
         .coff_header = undefined,
@@ -690,7 +715,7 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
         .age = undefined,
     };
 
-    var di = DebugInfo.{
+    var di = DebugInfo{
         .coff = coff_obj,
         .pdb = undefined,
         .sect_contribs = undefined,
@@ -722,7 +747,7 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
         const name_bytes = try allocator.alloc(u8, name_bytes_len);
         try pdb_stream.stream.readNoEof(name_bytes);
 
-        const HashTableHeader = packed struct.{
+        const HashTableHeader = packed struct {
             Size: u32,
             Capacity: u32,
 
@@ -730,8 +755,7 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
                 return cap * 2 / 3 + 1;
             }
         };
-        var hash_tbl_hdr: HashTableHeader = undefined;
-        try pdb_stream.stream.readStruct(HashTableHeader, &hash_tbl_hdr);
+        const hash_tbl_hdr = try pdb_stream.stream.readStruct(HashTableHeader);
         if (hash_tbl_hdr.Capacity == 0)
             return error.InvalidDebugInfo;
 
@@ -743,7 +767,7 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
             return error.InvalidDebugInfo;
         const deleted = try readSparseBitVector(&pdb_stream.stream, allocator);
 
-        const Bucket = struct.{
+        const Bucket = struct {
             first: u32,
             second: u32,
         };
@@ -765,8 +789,7 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
     const dbi = di.pdb.dbi;
 
     // Dbi Header
-    var dbi_stream_header: pdb.DbiStreamHeader = undefined;
-    try dbi.stream.readStruct(pdb.DbiStreamHeader, &dbi_stream_header);
+    const dbi_stream_header = try dbi.stream.readStruct(pdb.DbiStreamHeader);
     const mod_info_size = dbi_stream_header.ModInfoSize;
     const section_contrib_size = dbi_stream_header.SectionContributionSize;
 
@@ -775,8 +798,7 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
     // Module Info Substream
     var mod_info_offset: usize = 0;
     while (mod_info_offset != mod_info_size) {
-        var mod_info: pdb.ModInfo = undefined;
-        try dbi.stream.readStruct(pdb.ModInfo, &mod_info);
+        const mod_info = try dbi.stream.readStruct(pdb.ModInfo);
         var this_record_len: usize = @sizeOf(pdb.ModInfo);
 
         const module_name = try dbi.readNullTermString(allocator);
@@ -791,7 +813,7 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
             this_record_len += march_forward_bytes;
         }
 
-        try modules.append(Module.{
+        try modules.append(Module{
             .mod_info = mod_info,
             .module_name = module_name,
             .obj_file_name = obj_file_name,
@@ -820,7 +842,7 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
     }
     while (sect_cont_offset != section_contrib_size) {
         const entry = try sect_contribs.addOne();
-        try dbi.stream.readStruct(pdb.SectionContribEntry, entry);
+        entry.* = try dbi.stream.readStruct(pdb.SectionContribEntry);
         sect_cont_offset += @sizeOf(pdb.SectionContribEntry);
 
         if (sect_cont_offset > section_contrib_size)
@@ -850,7 +872,7 @@ fn readSparseBitVector(stream: var, allocator: *mem.Allocator) ![]usize {
 }
 
 fn openSelfDebugInfoLinux(allocator: *mem.Allocator) !DebugInfo {
-    var di = DebugInfo.{
+    var di = DebugInfo{
         .self_exe_file = undefined,
         .elf = undefined,
         .debug_info = undefined,
@@ -937,7 +959,7 @@ fn openSelfDebugInfoMacOs(allocator: *mem.Allocator) !DebugInfo {
                     if (sym.n_sect == 0) {
                         last_len = sym.n_value;
                     } else {
-                        symbols_buf[symbol_index] = MachoSymbol.{
+                        symbols_buf[symbol_index] = MachoSymbol{
                             .nlist = sym,
                             .ofile = ofile,
                             .reloc = reloc,
@@ -955,7 +977,7 @@ fn openSelfDebugInfoMacOs(allocator: *mem.Allocator) !DebugInfo {
         }
     }
     const sentinel = try allocator.createOne(macho.nlist_64);
-    sentinel.* = macho.nlist_64.{
+    sentinel.* = macho.nlist_64{
         .n_strx = 0,
         .n_type = 36,
         .n_sect = 0,
@@ -970,7 +992,7 @@ fn openSelfDebugInfoMacOs(allocator: *mem.Allocator) !DebugInfo {
     // This sort is so that we can binary search later.
     std.sort.sort(MachoSymbol, symbols, MachoSymbol.addressLessThan);
 
-    return DebugInfo.{
+    return DebugInfo{
         .ofiles = DebugInfo.OFileTable.init(allocator),
         .symbols = symbols,
         .strings = strings,
@@ -1009,7 +1031,7 @@ fn printLineFromFile(out_stream: var, line_info: LineInfo) !void {
     }
 }
 
-const MachoSymbol = struct.{
+const MachoSymbol = struct {
     nlist: *macho.nlist_64,
     ofile: ?*macho.nlist_64,
     reloc: u64,
@@ -1024,14 +1046,14 @@ const MachoSymbol = struct.{
     }
 };
 
-const MachOFile = struct.{
+const MachOFile = struct {
     bytes: []align(@alignOf(macho.mach_header_64)) const u8,
     sect_debug_info: ?*const macho.section_64,
     sect_debug_line: ?*const macho.section_64,
 };
 
 pub const DebugInfo = switch (builtin.os) {
-    builtin.Os.macosx => struct.{
+    builtin.Os.macosx => struct {
         symbols: []const MachoSymbol,
         strings: []const u8,
         ofiles: OFileTable,
@@ -1047,13 +1069,13 @@ pub const DebugInfo = switch (builtin.os) {
             return self.ofiles.allocator;
         }
     },
-    builtin.Os.windows => struct.{
+    builtin.Os.windows => struct {
         pdb: pdb.Pdb,
         coff: *coff.Coff,
         sect_contribs: []pdb.SectionContribEntry,
         modules: []Module,
     },
-    builtin.Os.linux => struct.{
+    builtin.Os.linux => struct {
         self_exe_file: os.File,
         elf: elf.Elf,
         debug_info: *elf.SectionHeader,
@@ -1082,12 +1104,12 @@ pub const DebugInfo = switch (builtin.os) {
     else => @compileError("Unsupported OS"),
 };
 
-const PcRange = struct.{
+const PcRange = struct {
     start: u64,
     end: u64,
 };
 
-const CompileUnit = struct.{
+const CompileUnit = struct {
     version: u16,
     is_64: bool,
     die: *Die,
@@ -1097,25 +1119,25 @@ const CompileUnit = struct.{
 
 const AbbrevTable = ArrayList(AbbrevTableEntry);
 
-const AbbrevTableHeader = struct.{
+const AbbrevTableHeader = struct {
     // offset from .debug_abbrev
     offset: u64,
     table: AbbrevTable,
 };
 
-const AbbrevTableEntry = struct.{
+const AbbrevTableEntry = struct {
     has_children: bool,
     abbrev_code: u64,
     tag_id: u64,
     attrs: ArrayList(AbbrevAttr),
 };
 
-const AbbrevAttr = struct.{
+const AbbrevAttr = struct {
     attr_id: u64,
     form_id: u64,
 };
 
-const FormValue = union(enum).{
+const FormValue = union(enum) {
     Address: u64,
     Block: []u8,
     Const: Constant,
@@ -1129,7 +1151,7 @@ const FormValue = union(enum).{
     StrPtr: u64,
 };
 
-const Constant = struct.{
+const Constant = struct {
     payload: []u8,
     signed: bool,
 
@@ -1140,12 +1162,12 @@ const Constant = struct.{
     }
 };
 
-const Die = struct.{
+const Die = struct {
     tag_id: u64,
     has_children: bool,
     attrs: ArrayList(Attr),
 
-    const Attr = struct.{
+    const Attr = struct {
         id: u64,
         value: FormValue,
     };
@@ -1192,14 +1214,14 @@ const Die = struct.{
     }
 };
 
-const FileEntry = struct.{
+const FileEntry = struct {
     file_name: []const u8,
     dir_index: usize,
     mtime: usize,
     len_bytes: usize,
 };
 
-const LineInfo = struct.{
+const LineInfo = struct {
     line: usize,
     column: usize,
     file_name: []u8,
@@ -1210,7 +1232,7 @@ const LineInfo = struct.{
     }
 };
 
-const LineNumberProgram = struct.{
+const LineNumberProgram = struct {
     address: usize,
     file: usize,
     line: isize,
@@ -1232,7 +1254,7 @@ const LineNumberProgram = struct.{
     prev_end_sequence: bool,
 
     pub fn init(is_stmt: bool, include_dirs: []const []const u8, file_entries: *ArrayList(FileEntry), target_address: usize) LineNumberProgram {
-        return LineNumberProgram.{
+        return LineNumberProgram{
             .address = 0,
             .file = 1,
             .line = 1,
@@ -1268,7 +1290,7 @@ const LineNumberProgram = struct.{
                 self.include_dirs[file_entry.dir_index];
             const file_name = try os.path.join(self.file_entries.allocator, dir_name, file_entry.file_name);
             errdefer self.file_entries.allocator.free(file_name);
-            return LineInfo.{
+            return LineInfo{
                 .line = if (self.prev_line >= 0) @intCast(usize, self.prev_line) else 0,
                 .column = self.prev_column,
                 .file_name = file_name,
@@ -1312,7 +1334,7 @@ fn readAllocBytes(allocator: *mem.Allocator, in_stream: var, size: usize) ![]u8 
 
 fn parseFormValueBlockLen(allocator: *mem.Allocator, in_stream: var, size: usize) !FormValue {
     const buf = try readAllocBytes(allocator, in_stream, size);
-    return FormValue.{ .Block = buf };
+    return FormValue{ .Block = buf };
 }
 
 fn parseFormValueBlock(allocator: *mem.Allocator, in_stream: var, size: usize) !FormValue {
@@ -1321,8 +1343,8 @@ fn parseFormValueBlock(allocator: *mem.Allocator, in_stream: var, size: usize) !
 }
 
 fn parseFormValueConstant(allocator: *mem.Allocator, in_stream: var, signed: bool, size: usize) !FormValue {
-    return FormValue.{
-        .Const = Constant.{
+    return FormValue{
+        .Const = Constant{
             .signed = signed,
             .payload = try readAllocBytes(allocator, in_stream, size),
         },
@@ -1339,7 +1361,7 @@ fn parseFormValueTargetAddrSize(in_stream: var) !u64 {
 
 fn parseFormValueRefLen(allocator: *mem.Allocator, in_stream: var, size: usize) !FormValue {
     const buf = try readAllocBytes(allocator, in_stream, size);
-    return FormValue.{ .Ref = buf };
+    return FormValue{ .Ref = buf };
 }
 
 fn parseFormValueRef(allocator: *mem.Allocator, in_stream: var, comptime T: type) !FormValue {
@@ -1347,7 +1369,7 @@ fn parseFormValueRef(allocator: *mem.Allocator, in_stream: var, comptime T: type
     return parseFormValueRefLen(allocator, in_stream, block_len);
 }
 
-const ParseFormValueError = error.{
+const ParseFormValueError = error{
     EndOfStream,
     InvalidDebugInfo,
     EndOfFile,
@@ -1356,7 +1378,7 @@ const ParseFormValueError = error.{
 
 fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, is_64: bool) ParseFormValueError!FormValue {
     return switch (form_id) {
-        DW.FORM_addr => FormValue.{ .Address = try parseFormValueTargetAddrSize(in_stream) },
+        DW.FORM_addr => FormValue{ .Address = try parseFormValueTargetAddrSize(in_stream) },
         DW.FORM_block1 => parseFormValueBlock(allocator, in_stream, 1),
         DW.FORM_block2 => parseFormValueBlock(allocator, in_stream, 2),
         DW.FORM_block4 => parseFormValueBlock(allocator, in_stream, 4),
@@ -1376,11 +1398,11 @@ fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, is_64
         DW.FORM_exprloc => {
             const size = try readULeb128(in_stream);
             const buf = try readAllocBytes(allocator, in_stream, size);
-            return FormValue.{ .ExprLoc = buf };
+            return FormValue{ .ExprLoc = buf };
         },
-        DW.FORM_flag => FormValue.{ .Flag = (try in_stream.readByte()) != 0 },
-        DW.FORM_flag_present => FormValue.{ .Flag = true },
-        DW.FORM_sec_offset => FormValue.{ .SecOffset = try parseFormValueDwarfOffsetSize(in_stream, is_64) },
+        DW.FORM_flag => FormValue{ .Flag = (try in_stream.readByte()) != 0 },
+        DW.FORM_flag_present => FormValue{ .Flag = true },
+        DW.FORM_sec_offset => FormValue{ .SecOffset = try parseFormValueDwarfOffsetSize(in_stream, is_64) },
 
         DW.FORM_ref1 => parseFormValueRef(allocator, in_stream, u8),
         DW.FORM_ref2 => parseFormValueRef(allocator, in_stream, u16),
@@ -1391,11 +1413,11 @@ fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, is_64
             return parseFormValueRefLen(allocator, in_stream, ref_len);
         },
 
-        DW.FORM_ref_addr => FormValue.{ .RefAddr = try parseFormValueDwarfOffsetSize(in_stream, is_64) },
-        DW.FORM_ref_sig8 => FormValue.{ .RefSig8 = try in_stream.readIntLe(u64) },
+        DW.FORM_ref_addr => FormValue{ .RefAddr = try parseFormValueDwarfOffsetSize(in_stream, is_64) },
+        DW.FORM_ref_sig8 => FormValue{ .RefSig8 = try in_stream.readIntLe(u64) },
 
-        DW.FORM_string => FormValue.{ .String = try readStringRaw(allocator, in_stream) },
-        DW.FORM_strp => FormValue.{ .StrPtr = try parseFormValueDwarfOffsetSize(in_stream, is_64) },
+        DW.FORM_string => FormValue{ .String = try readStringRaw(allocator, in_stream) },
+        DW.FORM_strp => FormValue{ .StrPtr = try parseFormValueDwarfOffsetSize(in_stream, is_64) },
         DW.FORM_indirect => {
             const child_form_id = try readULeb128(in_stream);
             return parseFormValue(allocator, in_stream, child_form_id, is_64);
@@ -1412,7 +1434,7 @@ fn parseAbbrevTable(st: *DebugInfo) !AbbrevTable {
     while (true) {
         const abbrev_code = try readULeb128(in_stream);
         if (abbrev_code == 0) return result;
-        try result.append(AbbrevTableEntry.{
+        try result.append(AbbrevTableEntry{
             .abbrev_code = abbrev_code,
             .tag_id = try readULeb128(in_stream),
             .has_children = (try in_stream.readByte()) == DW.CHILDREN_yes,
@@ -1424,7 +1446,7 @@ fn parseAbbrevTable(st: *DebugInfo) !AbbrevTable {
             const attr_id = try readULeb128(in_stream);
             const form_id = try readULeb128(in_stream);
             if (attr_id == 0 and form_id == 0) break;
-            try attrs.append(AbbrevAttr.{
+            try attrs.append(AbbrevAttr{
                 .attr_id = attr_id,
                 .form_id = form_id,
             });
@@ -1441,7 +1463,7 @@ fn getAbbrevTable(st: *DebugInfo, abbrev_offset: u64) !*const AbbrevTable {
         }
     }
     try st.self_exe_file.seekTo(st.debug_abbrev.offset + abbrev_offset);
-    try st.abbrev_table_list.append(AbbrevTableHeader.{
+    try st.abbrev_table_list.append(AbbrevTableHeader{
         .offset = abbrev_offset,
         .table = try parseAbbrevTable(st),
     });
@@ -1462,14 +1484,14 @@ fn parseDie(st: *DebugInfo, abbrev_table: *const AbbrevTable, is_64: bool) !Die 
     const abbrev_code = try readULeb128(in_stream);
     const table_entry = getAbbrevTableEntry(abbrev_table, abbrev_code) orelse return error.InvalidDebugInfo;
 
-    var result = Die.{
+    var result = Die{
         .tag_id = table_entry.tag_id,
         .has_children = table_entry.has_children,
         .attrs = ArrayList(Die.Attr).init(st.allocator()),
     };
     try result.attrs.resize(table_entry.attrs.len);
     for (table_entry.attrs.toSliceConst()) |attr, i| {
-        result.attrs.items[i] = Die.Attr.{
+        result.attrs.items[i] = Die.Attr{
             .id = attr.attr_id,
             .value = try parseFormValue(st.allocator(), in_stream, attr.form_id, is_64),
         };
@@ -1484,7 +1506,7 @@ fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: u
         errdefer _ = di.ofiles.remove(ofile);
         const ofile_path = mem.toSliceConst(u8, di.strings.ptr + ofile.n_strx);
 
-        gop.kv.value = MachOFile.{
+        gop.kv.value = MachOFile{
             .bytes = try std.io.readFileAllocAligned(di.ofiles.allocator, ofile_path, @alignOf(macho.mach_header_64)),
             .sect_debug_info = null,
             .sect_debug_line = null,
@@ -1575,7 +1597,7 @@ fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: u
         const dir_index = try readULeb128Mem(&ptr);
         const mtime = try readULeb128Mem(&ptr);
         const len_bytes = try readULeb128Mem(&ptr);
-        try file_entries.append(FileEntry.{
+        try file_entries.append(FileEntry{
             .file_name = file_name,
             .dir_index = dir_index,
             .mtime = mtime,
@@ -1606,7 +1628,7 @@ fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: u
                     const dir_index = try readULeb128Mem(&ptr);
                     const mtime = try readULeb128Mem(&ptr);
                     const len_bytes = try readULeb128Mem(&ptr);
-                    try file_entries.append(FileEntry.{
+                    try file_entries.append(FileEntry{
                         .file_name = file_name,
                         .dir_index = dir_index,
                         .mtime = mtime,
@@ -1748,7 +1770,7 @@ fn getLineNumberInfoLinux(di: *DebugInfo, compile_unit: *const CompileUnit, targ
             const dir_index = try readULeb128(in_stream);
             const mtime = try readULeb128(in_stream);
             const len_bytes = try readULeb128(in_stream);
-            try file_entries.append(FileEntry.{
+            try file_entries.append(FileEntry{
                 .file_name = file_name,
                 .dir_index = dir_index,
                 .mtime = mtime,
@@ -1780,7 +1802,7 @@ fn getLineNumberInfoLinux(di: *DebugInfo, compile_unit: *const CompileUnit, targ
                         const dir_index = try readULeb128(in_stream);
                         const mtime = try readULeb128(in_stream);
                         const len_bytes = try readULeb128(in_stream);
-                        try file_entries.append(FileEntry.{
+                        try file_entries.append(FileEntry{
                             .file_name = file_name,
                             .dir_index = dir_index,
                             .mtime = mtime,
@@ -1897,7 +1919,7 @@ fn scanAllCompileUnits(st: *DebugInfo) !void {
                         },
                         else => return error.InvalidDebugInfo,
                     };
-                    break :x PcRange.{
+                    break :x PcRange{
                         .start = low_pc,
                         .end = pc_end,
                     };
@@ -1910,7 +1932,7 @@ fn scanAllCompileUnits(st: *DebugInfo) !void {
             }
         };
 
-        try st.compile_unit_list.append(CompileUnit.{
+        try st.compile_unit_list.append(CompileUnit{
             .version = version,
             .is_64 = is_64,
             .pc_range = pc_range,

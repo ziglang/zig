@@ -18,7 +18,7 @@ test "slice child property" {
 }
 
 test "runtime safety lets us slice from len..len" {
-    var an_array = []u8.{
+    var an_array = []u8{
         1,
         2,
         3,
@@ -31,7 +31,7 @@ fn sliceFromLenToLen(a_slice: []u8, start: usize, end: usize) []u8 {
 }
 
 test "implicitly cast array of size 0 to slice" {
-    var msg = []u8.{};
+    var msg = []u8{};
     assertLenIsZero(msg);
 }
 

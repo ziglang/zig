@@ -7,9 +7,9 @@ const compiler_rt = @import("index.zig");
 
 pub extern fn __multi3(a: i128, b: i128) i128 {
     @setRuntimeSafety(builtin.is_test);
-    const x = twords.{ .all = a };
-    const y = twords.{ .all = b };
-    var r = twords.{ .all = __mulddi3(x.s.low, y.s.low) };
+    const x = twords{ .all = a };
+    const y = twords{ .all = b };
+    var r = twords{ .all = __mulddi3(x.s.low, y.s.low) };
     r.s.high +%= x.s.high *% y.s.low +% x.s.low *% y.s.high;
     return r.all;
 }
@@ -38,17 +38,17 @@ fn __mulddi3(a: u64, b: u64) i128 {
     return r.all;
 }
 
-const twords = extern union.{
+const twords = extern union {
     all: i128,
     s: S,
 
     const S = if (builtin.endian == builtin.Endian.Little)
-        struct.{
+        struct {
             low: u64,
             high: u64,
         }
     else
-        struct.{
+        struct {
             high: u64,
             low: u64,
         };

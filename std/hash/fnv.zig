@@ -12,13 +12,13 @@ pub const Fnv1a_64 = Fnv1a(u64, 0x100000001b3, 0xcbf29ce484222325);
 pub const Fnv1a_128 = Fnv1a(u128, 0x1000000000000000000013b, 0x6c62272e07bb014262b821756295c58d);
 
 fn Fnv1a(comptime T: type, comptime prime: T, comptime offset: T) type {
-    return struct.{
+    return struct {
         const Self = @This();
 
         value: T,
 
         pub fn init() Self {
-            return Self.{ .value = offset };
+            return Self{ .value = offset };
         }
 
         pub fn update(self: *Self, input: []const u8) void {

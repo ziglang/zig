@@ -387,7 +387,6 @@ struct TypeUnionField {
 };
 
 enum NodeType {
-    NodeTypeRoot,
     NodeTypeFnProto,
     NodeTypeFnDef,
     NodeTypeParamDecl,
@@ -441,10 +440,6 @@ enum NodeType {
     NodeTypeAwaitExpr,
     NodeTypeSuspend,
     NodeTypePromiseType,
-};
-
-struct AstNodeRoot {
-    ZigList<AstNode *> top_level_decls;
 };
 
 enum CallingConvention {
@@ -812,7 +807,7 @@ struct AstNodeContainerDecl {
     ZigList<AstNode *> decls;
     ContainerLayout layout;
     AstNode *init_arg_expr; // enum(T), struct(endianness), or union(T), or union(enum(T))
-    bool auto_enum; // union(enum)
+    bool auto_enum, is_root; // union(enum)
 };
 
 struct AstNodeErrorSetDecl {
@@ -922,7 +917,6 @@ struct AstNode {
     size_t column;
     ImportTableEntry *owner;
     union {
-        AstNodeRoot root;
         AstNodeFnDef fn_def;
         AstNodeFnProto fn_proto;
         AstNodeParamDecl param_decl;
@@ -1222,7 +1216,6 @@ struct ZigType {
     ZigLLVMDIType *di_type;
 
     bool zero_bits; // this is denormalized data
-    bool is_copyable;
     bool gen_h_loop_flag;
 
     union {
@@ -1864,7 +1857,7 @@ struct Scope {
 
 // This scope comes from global declarations or from
 // declarations in a container declaration
-// NodeTypeRoot, NodeTypeContainerDecl
+// NodeTypeContainerDecl
 struct ScopeDecls {
     Scope base;
 
@@ -2078,7 +2071,6 @@ enum IrInstructionId {
     IrInstructionIdCInclude,
     IrInstructionIdCDefine,
     IrInstructionIdCUndef,
-    IrInstructionIdArrayLen,
     IrInstructionIdRef,
     IrInstructionIdCompileErr,
     IrInstructionIdCompileLog,
@@ -2589,12 +2581,6 @@ struct IrInstructionImport {
     IrInstruction base;
 
     IrInstruction *name;
-};
-
-struct IrInstructionArrayLen {
-    IrInstruction base;
-
-    IrInstruction *array_value;
 };
 
 struct IrInstructionRef {

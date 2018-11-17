@@ -30,8 +30,8 @@ pub fn main() !void {
     const zig_exe = try os.path.resolve(a, zig_exe_rel);
 
     const dir_path = try os.path.join(a, cache_root, "clitest");
-    const TestFn = fn ([]const u8, []const u8) error!void;
-    const test_fns = []TestFn.{
+    const TestFn = fn ([]const u8, []const u8) anyerror!void;
+    const test_fns = []TestFn{
         testZigInitLib,
         testZigInitExe,
         testGodboltApi,
@@ -85,18 +85,18 @@ fn exec(cwd: []const u8, argv: []const []const u8) !os.ChildProcess.ExecResult {
 }
 
 fn testZigInitLib(zig_exe: []const u8, dir_path: []const u8) !void {
-    _ = try exec(dir_path, [][]const u8.{ zig_exe, "init-lib" });
-    const test_result = try exec(dir_path, [][]const u8.{ zig_exe, "build", "test" });
+    _ = try exec(dir_path, [][]const u8{ zig_exe, "init-lib" });
+    const test_result = try exec(dir_path, [][]const u8{ zig_exe, "build", "test" });
     assertOrPanic(std.mem.endsWith(u8, test_result.stderr, "All tests passed.\n"));
 }
 
 fn testZigInitExe(zig_exe: []const u8, dir_path: []const u8) !void {
-    _ = try exec(dir_path, [][]const u8.{ zig_exe, "init-exe" });
-    const run_result = try exec(dir_path, [][]const u8.{ zig_exe, "build", "run" });
+    _ = try exec(dir_path, [][]const u8{ zig_exe, "init-exe" });
+    const run_result = try exec(dir_path, [][]const u8{ zig_exe, "build", "run" });
     assertOrPanic(std.mem.eql(u8, run_result.stderr, "All your base are belong to us.\n"));
 }
 
-fn testGodboltApi(zig_exe: []const u8, dir_path: []const u8) error!void {
+fn testGodboltApi(zig_exe: []const u8, dir_path: []const u8) anyerror!void {
     if (builtin.os != builtin.Os.linux or builtin.arch != builtin.Arch.x86_64) return;
 
     const example_zig_path = try os.path.join(a, dir_path, "example.zig");
@@ -113,7 +113,7 @@ fn testGodboltApi(zig_exe: []const u8, dir_path: []const u8) error!void {
         \\}
     );
 
-    const args = [][]const u8.{
+    const args = [][]const u8{
         zig_exe, "build-obj",
         "--cache-dir", dir_path,
         "--output", example_s_path,

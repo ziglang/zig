@@ -294,7 +294,7 @@ Error cache_hit(CacheHash *ch, Buf *out_digest) {
             chf = &ch->files.at(file_i);
         } else if (any_file_changed) {
             // cache miss.
-            // keep the the manifest file open with the rw lock
+            // keep the manifest file open with the rw lock
             // reset the hash
             rc = blake2b_init(&ch->blake, 48);
             assert(rc == 0);

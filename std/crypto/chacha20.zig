@@ -7,7 +7,7 @@ const assert = std.debug.assert;
 const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
 
-const QuarterRound = struct.{
+const QuarterRound = struct {
     a: usize,
     b: usize,
     c: usize,
@@ -15,7 +15,7 @@ const QuarterRound = struct.{
 };
 
 fn Rp(a: usize, b: usize, c: usize, d: usize) QuarterRound {
-    return QuarterRound.{
+    return QuarterRound{
         .a = a,
         .b = b,
         .c = c,
@@ -32,7 +32,7 @@ fn salsa20_wordtobyte(out: []u8, input: [16]u32) void {
     for (x) |_, i|
         x[i] = input[i];
 
-    const rounds = comptime []QuarterRound.{
+    const rounds = comptime []QuarterRound{
         Rp(0, 4, 8, 12),
         Rp(1, 5, 9, 13),
         Rp(2, 6, 10, 14),
@@ -69,7 +69,7 @@ fn chaCha20_internal(out: []u8, in: []const u8, key: [8]u32, counter: [4]u32) vo
     var cursor: usize = 0;
 
     const c = "expand 32-byte k";
-    const constant_le = []u32.{
+    const constant_le = []u32{
         mem.readIntLE(u32, c[0..4]),
         mem.readIntLE(u32, c[4..8]),
         mem.readIntLE(u32, c[8..12]),
@@ -183,7 +183,7 @@ pub fn chaCha20With64BitNonce(out: []u8, in: []const u8, counter: u64, key: [32]
 
 // https://tools.ietf.org/html/rfc7539#section-2.4.2
 test "crypto.chacha20 test vector sunscreen" {
-    const expected_result = []u8.{
+    const expected_result = []u8{
         0x6e, 0x2e, 0x35, 0x9a, 0x25, 0x68, 0xf9, 0x80,
         0x41, 0xba, 0x07, 0x28, 0xdd, 0x0d, 0x69, 0x81,
         0xe9, 0x7e, 0x7a, 0xec, 0x1d, 0x43, 0x60, 0xc2,
@@ -202,13 +202,13 @@ test "crypto.chacha20 test vector sunscreen" {
     };
     const input = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
     var result: [114]u8 = undefined;
-    const key = []u8.{
+    const key = []u8{
         0, 1, 2, 3, 4, 5, 6, 7,
         8, 9, 10, 11, 12, 13, 14, 15,
         16, 17, 18, 19, 20, 21, 22, 23,
         24, 25, 26, 27, 28, 29, 30, 31,
     };
-    const nonce = []u8.{
+    const nonce = []u8{
         0, 0, 0, 0,
         0, 0, 0, 0x4a,
         0, 0, 0, 0,
@@ -225,7 +225,7 @@ test "crypto.chacha20 test vector sunscreen" {
 
 // https://tools.ietf.org/html/draft-agl-tls-chacha20poly1305-04#section-7
 test "crypto.chacha20 test vector 1" {
-    const expected_result = []u8.{
+    const expected_result = []u8{
         0x76, 0xb8, 0xe0, 0xad, 0xa0, 0xf1, 0x3d, 0x90,
         0x40, 0x5d, 0x6a, 0xe5, 0x53, 0x86, 0xbd, 0x28,
         0xbd, 0xd2, 0x19, 0xb8, 0xa0, 0x8d, 0xed, 0x1a,
@@ -235,7 +235,7 @@ test "crypto.chacha20 test vector 1" {
         0x6a, 0x43, 0xb8, 0xf4, 0x15, 0x18, 0xa1, 0x1c,
         0xc3, 0x87, 0xb6, 0x69, 0xb2, 0xee, 0x65, 0x86,
     };
-    const input = []u8.{
+    const input = []u8{
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -246,20 +246,20 @@ test "crypto.chacha20 test vector 1" {
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     };
     var result: [64]u8 = undefined;
-    const key = []u8.{
+    const key = []u8{
         0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0,
     };
-    const nonce = []u8.{ 0, 0, 0, 0, 0, 0, 0, 0 };
+    const nonce = []u8{ 0, 0, 0, 0, 0, 0, 0, 0 };
 
     chaCha20With64BitNonce(result[0..], input[0..], 0, key, nonce);
     assert(mem.eql(u8, expected_result, result));
 }
 
 test "crypto.chacha20 test vector 2" {
-    const expected_result = []u8.{
+    const expected_result = []u8{
         0x45, 0x40, 0xf0, 0x5a, 0x9f, 0x1f, 0xb2, 0x96,
         0xd7, 0x73, 0x6e, 0x7b, 0x20, 0x8e, 0x3c, 0x96,
         0xeb, 0x4f, 0xe1, 0x83, 0x46, 0x88, 0xd2, 0x60,
@@ -269,7 +269,7 @@ test "crypto.chacha20 test vector 2" {
         0x53, 0xd7, 0x92, 0xb1, 0xc4, 0x3f, 0xea, 0x81,
         0x7e, 0x9a, 0xd2, 0x75, 0xae, 0x54, 0x69, 0x63,
     };
-    const input = []u8.{
+    const input = []u8{
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -280,20 +280,20 @@ test "crypto.chacha20 test vector 2" {
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     };
     var result: [64]u8 = undefined;
-    const key = []u8.{
+    const key = []u8{
         0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 1,
     };
-    const nonce = []u8.{ 0, 0, 0, 0, 0, 0, 0, 0 };
+    const nonce = []u8{ 0, 0, 0, 0, 0, 0, 0, 0 };
 
     chaCha20With64BitNonce(result[0..], input[0..], 0, key, nonce);
     assert(mem.eql(u8, expected_result, result));
 }
 
 test "crypto.chacha20 test vector 3" {
-    const expected_result = []u8.{
+    const expected_result = []u8{
         0xde, 0x9c, 0xba, 0x7b, 0xf3, 0xd6, 0x9e, 0xf5,
         0xe7, 0x86, 0xdc, 0x63, 0x97, 0x3f, 0x65, 0x3a,
         0x0b, 0x49, 0xe0, 0x15, 0xad, 0xbf, 0xf7, 0x13,
@@ -303,7 +303,7 @@ test "crypto.chacha20 test vector 3" {
         0x52, 0x77, 0x06, 0x2e, 0xb7, 0xa0, 0x43, 0x3e,
         0x44, 0x5f, 0x41, 0xe3,
     };
-    const input = []u8.{
+    const input = []u8{
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -314,20 +314,20 @@ test "crypto.chacha20 test vector 3" {
         0x00, 0x00, 0x00, 0x00,
     };
     var result: [60]u8 = undefined;
-    const key = []u8.{
+    const key = []u8{
         0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0,
     };
-    const nonce = []u8.{ 0, 0, 0, 0, 0, 0, 0, 1 };
+    const nonce = []u8{ 0, 0, 0, 0, 0, 0, 0, 1 };
 
     chaCha20With64BitNonce(result[0..], input[0..], 0, key, nonce);
     assert(mem.eql(u8, expected_result, result));
 }
 
 test "crypto.chacha20 test vector 4" {
-    const expected_result = []u8.{
+    const expected_result = []u8{
         0xef, 0x3f, 0xdf, 0xd6, 0xc6, 0x15, 0x78, 0xfb,
         0xf5, 0xcf, 0x35, 0xbd, 0x3d, 0xd3, 0x3b, 0x80,
         0x09, 0x63, 0x16, 0x34, 0xd2, 0x1e, 0x42, 0xac,
@@ -337,7 +337,7 @@ test "crypto.chacha20 test vector 4" {
         0x5d, 0xdc, 0x49, 0x7a, 0x0b, 0x46, 0x6e, 0x7d,
         0x6b, 0xbd, 0xb0, 0x04, 0x1b, 0x2f, 0x58, 0x6b,
     };
-    const input = []u8.{
+    const input = []u8{
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -348,20 +348,20 @@ test "crypto.chacha20 test vector 4" {
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     };
     var result: [64]u8 = undefined;
-    const key = []u8.{
+    const key = []u8{
         0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0,
     };
-    const nonce = []u8.{ 1, 0, 0, 0, 0, 0, 0, 0 };
+    const nonce = []u8{ 1, 0, 0, 0, 0, 0, 0, 0 };
 
     chaCha20With64BitNonce(result[0..], input[0..], 0, key, nonce);
     assert(mem.eql(u8, expected_result, result));
 }
 
 test "crypto.chacha20 test vector 5" {
-    const expected_result = []u8.{
+    const expected_result = []u8{
         0xf7, 0x98, 0xa1, 0x89, 0xf1, 0x95, 0xe6, 0x69,
         0x82, 0x10, 0x5f, 0xfb, 0x64, 0x0b, 0xb7, 0x75,
         0x7f, 0x57, 0x9d, 0xa3, 0x16, 0x02, 0xfc, 0x93,
@@ -398,7 +398,7 @@ test "crypto.chacha20 test vector 5" {
         0x87, 0x46, 0xd4, 0x52, 0x4d, 0x38, 0x40, 0x7a,
         0x6d, 0xeb, 0x3a, 0xb7, 0x8f, 0xab, 0x78, 0xc9,
     };
-    const input = []u8.{
+    const input = []u8{
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -418,13 +418,13 @@ test "crypto.chacha20 test vector 5" {
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     };
     var result: [256]u8 = undefined;
-    const key = []u8.{
+    const key = []u8{
         0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
         0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
         0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
         0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
     };
-    const nonce = []u8.{
+    const nonce = []u8{
         0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
     };
 

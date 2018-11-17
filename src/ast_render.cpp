@@ -143,8 +143,6 @@ const char *container_string(ContainerKind kind) {
 
 static const char *node_type_str(NodeType node_type) {
     switch (node_type) {
-        case NodeTypeRoot:
-            return "Root";
         case NodeTypeFnDef:
             return "FnDef";
         case NodeTypeFnProto:
@@ -379,6 +377,38 @@ static void print_symbol(AstRender *ar, Buf *symbol) {
     fprintf(ar->f, "@\"%s\"", buf_ptr(&escaped));
 }
 
+static bool statement_terminates_without_semicolon(AstNode *node) {
+    switch (node->type) {
+        case NodeTypeIfBoolExpr:
+            if (node->data.if_bool_expr.else_node)
+                return statement_terminates_without_semicolon(node->data.if_bool_expr.else_node);
+            return node->data.if_bool_expr.then_block->type == NodeTypeBlock;
+        case NodeTypeIfErrorExpr:
+            if (node->data.if_err_expr.else_node)
+                return statement_terminates_without_semicolon(node->data.if_err_expr.else_node);
+            return node->data.if_err_expr.then_node->type == NodeTypeBlock;
+        case NodeTypeTestExpr:
+            if (node->data.test_expr.else_node)
+                return statement_terminates_without_semicolon(node->data.test_expr.else_node);
+            return node->data.test_expr.then_node->type == NodeTypeBlock;
+        case NodeTypeWhileExpr:
+            return node->data.while_expr.body->type == NodeTypeBlock;
+        case NodeTypeForExpr:
+            return node->data.for_expr.body->type == NodeTypeBlock;
+        case NodeTypeCompTime:
+            return node->data.comptime_expr.expr->type == NodeTypeBlock;
+        case NodeTypeDefer:
+            return node->data.defer.expr->type == NodeTypeBlock;
+        case NodeTypeSuspend:
+            return node->data.suspend.block != nullptr && node->data.suspend.block->type == NodeTypeBlock;
+        case NodeTypeSwitchExpr:
+        case NodeTypeBlock:
+            return true;
+        default:
+            return false;
+    }
+}
+
 static void render_node_extra(AstRender *ar, AstNode *node, bool grouped);
 
 static void render_node_grouped(AstRender *ar, AstNode *node) {
@@ -395,21 +425,6 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
         case NodeTypeSwitchRange:
         case NodeTypeStructValueField:
             zig_unreachable();
-        case NodeTypeRoot:
-            for (size_t i = 0; i < node->data.root.top_level_decls.length; i += 1) {
-                AstNode *child = node->data.root.top_level_decls.at(i);
-                print_indent(ar);
-                render_node_grouped(ar, child);
-
-                if (child->type == NodeTypeUse ||
-                    child->type == NodeTypeVariableDeclaration ||
-                    child->type == NodeTypeFnProto)
-                {
-                    fprintf(ar->f, ";");
-                }
-                fprintf(ar->f, "\n");
-            }
-            break;
         case NodeTypeFnProto:
             {
                 const char *pub_str = visib_mod_string(node->data.fn_proto.visib_mod);
@@ -698,7 +713,11 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             {
                 AstNode *lhs = node->data.field_access_expr.struct_expr;
                 Buf *rhs = node->data.field_access_expr.field_name;
-                render_node_ungrouped(ar, lhs);
+                if (lhs->type == NodeTypeErrorType) {
+                    fprintf(ar->f, "error");
+                } else {
+                    render_node_ungrouped(ar, lhs);
+                }
                 fprintf(ar->f, ".");
                 print_symbol(ar, rhs);
                 break;
@@ -722,23 +741,25 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             break;
         case NodeTypeContainerDecl:
             {
-                const char *layout_str = layout_string(node->data.container_decl.layout);
-                const char *container_str = container_string(node->data.container_decl.kind);
-                fprintf(ar->f, "%s%s", layout_str, container_str);
-                if (node->data.container_decl.auto_enum) {
-                    fprintf(ar->f, "(enum");
-                }
-                if (node->data.container_decl.init_arg_expr != nullptr) {
-                    fprintf(ar->f, "(");
-                    render_node_grouped(ar, node->data.container_decl.init_arg_expr);
-                    fprintf(ar->f, ")");
-                }
-                if (node->data.container_decl.auto_enum) {
-                    fprintf(ar->f, ")");
-                }
+                if (!node->data.container_decl.is_root) {
+                    const char *layout_str = layout_string(node->data.container_decl.layout);
+                    const char *container_str = container_string(node->data.container_decl.kind);
+                    fprintf(ar->f, "%s%s", layout_str, container_str);
+                    if (node->data.container_decl.auto_enum) {
+                        fprintf(ar->f, "(enum");
+                    }
+                    if (node->data.container_decl.init_arg_expr != nullptr) {
+                        fprintf(ar->f, "(");
+                        render_node_grouped(ar, node->data.container_decl.init_arg_expr);
+                        fprintf(ar->f, ")");
+                    }
+                    if (node->data.container_decl.auto_enum) {
+                        fprintf(ar->f, ")");
+                    }
 
-                fprintf(ar->f, ".{\n");
-                ar->indent += ar->indent_size;
+                    fprintf(ar->f, " {\n");
+                    ar->indent += ar->indent_size;
+                }
                 for (size_t field_i = 0; field_i < node->data.container_decl.fields.length; field_i += 1) {
                     AstNode *field_node = node->data.container_decl.fields.at(field_i);
                     assert(field_node->type == NodeTypeStructField);
@@ -755,18 +776,33 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                     fprintf(ar->f, ",\n");
                 }
 
-                ar->indent -= ar->indent_size;
-                print_indent(ar);
-                fprintf(ar->f, "}");
+                for (size_t decl_i = 0; decl_i < node->data.container_decl.decls.length; decl_i += 1) {
+                    AstNode *decls_node = node->data.container_decl.decls.at(decl_i);
+                    render_node_grouped(ar, decls_node);
+
+                    if (decls_node->type == NodeTypeUse ||
+                        decls_node->type == NodeTypeVariableDeclaration ||
+                        decls_node->type == NodeTypeFnProto)
+                    {
+                        fprintf(ar->f, ";");
+                    }
+                    fprintf(ar->f, "\n");
+                }
+
+                if (!node->data.container_decl.is_root) {
+                    ar->indent -= ar->indent_size;
+                    print_indent(ar);
+                    fprintf(ar->f, "}");
+                }
                 break;
             }
         case NodeTypeContainerInitExpr:
             render_node_ungrouped(ar, node->data.container_init_expr.type);
             if (node->data.container_init_expr.kind == ContainerInitKindStruct) {
-                fprintf(ar->f, ".{\n");
+                fprintf(ar->f, "{\n");
                 ar->indent += ar->indent_size;
             } else {
-                fprintf(ar->f, ".{");
+                fprintf(ar->f, "{");
             }
             for (size_t i = 0; i < node->data.container_init_expr.entries.length; i += 1) {
                 AstNode *entry = node->data.container_init_expr.entries.at(i);
@@ -812,7 +848,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 break;
             }
         case NodeTypeErrorType:
-            fprintf(ar->f, "error");
+            fprintf(ar->f, "anyerror");
             break;
         case NodeTypeAsmExpr:
             {

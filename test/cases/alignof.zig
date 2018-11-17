@@ -3,7 +3,7 @@ const assert = std.debug.assert;
 const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
 
-const Foo = struct.{
+const Foo = struct {
     x: u32,
     y: u32,
     z: u32,

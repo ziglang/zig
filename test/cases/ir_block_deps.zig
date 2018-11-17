@@ -11,7 +11,7 @@ fn foo(id: u64) !i32 {
     };
 }
 
-fn getErrInt() error!i32 {
+fn getErrInt() anyerror!i32 {
     return 0;
 }
 

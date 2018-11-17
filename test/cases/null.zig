@@ -58,7 +58,7 @@ fn foo(x: ?i32) ?bool {
 }
 
 test "if var maybe pointer" {
-    assert(shouldBeAPlus1(Particle.{
+    assert(shouldBeAPlus1(Particle{
         .a = 14,
         .b = 1,
         .c = 1,
@@ -75,7 +75,7 @@ fn shouldBeAPlus1(p: Particle) u64 {
     }
     return 0;
 }
-const Particle = struct.{
+const Particle = struct {
     a: u64,
     b: u64,
     c: u64,
@@ -89,10 +89,10 @@ test "null literal outside function" {
     const is_non_null = here_is_a_null_literal.context != null;
     assert(!is_non_null);
 }
-const SillyStruct = struct.{
+const SillyStruct = struct {
     context: ?i32,
 };
-const here_is_a_null_literal = SillyStruct.{ .context = null };
+const here_is_a_null_literal = SillyStruct{ .context = null };
 
 test "test null runtime" {
     testTestNullRuntime(null);
@@ -120,7 +120,7 @@ fn bar(x: ?void) ?void {
     }
 }
 
-const StructWithOptional = struct.{
+const StructWithOptional = struct {
     field: ?i32,
 };
 
@@ -146,17 +146,17 @@ test "null with default unwrap" {
 
 test "optional types" {
     comptime {
-        const opt_type_struct = StructWithOptionalType.{ .t = u8 };
+        const opt_type_struct = StructWithOptionalType{ .t = u8 };
         assert(opt_type_struct.t != null and opt_type_struct.t.? == u8);
     }
 }
 
-const StructWithOptionalType = struct.{
+const StructWithOptionalType = struct {
     t: ?type,
 };
 
 test "optional pointer to 0 bit type null value at runtime" {
-    const EmptyStruct = struct.{};
+    const EmptyStruct = struct {};
     var x: ?*EmptyStruct = null;
     assert(x == null);
 }

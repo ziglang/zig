@@ -50,6 +50,7 @@ enum TokenId {
     TokenIdIntLiteral,
     TokenIdKeywordAlign,
     TokenIdKeywordAnd,
+    TokenIdKeywordAnyerror,
     TokenIdKeywordAsm,
     TokenIdKeywordAsync,
     TokenIdKeywordAwait,
@@ -81,7 +82,7 @@ enum TokenId {
     TokenIdKeywordPub,
     TokenIdKeywordResume,
     TokenIdKeywordReturn,
-    TokenIdKeywordSection,
+    TokenIdKeywordLinkSection,
     TokenIdKeywordStdcallCC,
     TokenIdKeywordStruct,
     TokenIdKeywordSuspend,
@@ -125,6 +126,7 @@ enum TokenId {
     TokenIdTimesEq,
     TokenIdTimesPercent,
     TokenIdTimesPercentEq,
+    TokenIdCount,
 };
 
 struct TokenFloatLit {

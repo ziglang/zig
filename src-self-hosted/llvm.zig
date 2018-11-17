@@ -183,7 +183,7 @@ pub const X86StdcallCallConv = c.LLVMX86StdcallCallConv;
 pub const X86FastcallCallConv = c.LLVMX86FastcallCallConv;
 pub const CallConv = c.LLVMCallConv;
 
-pub const FnInline = extern enum.{
+pub const FnInline = extern enum {
     Auto,
     Always,
     Never,

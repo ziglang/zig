@@ -24,7 +24,7 @@ test "init static array to undefined" {
     }
 }
 
-const Foo = struct.{
+const Foo = struct {
     x: i32,
 
     fn setFooXMethod(foo: *Foo) void {

@@ -6,6 +6,7 @@ set -e
 if [ "${BUILD_REASON}" != "PullRequest" ]; then
   cd "$ZIGBUILDDIR"
 
+  rm release/*.lib
   mv ../LICENSE release/
   mv ../zig-cache/langref.html release/
   mv release/bin/zig.exe release/
@@ -15,7 +16,7 @@ if [ "${BUILD_REASON}" != "PullRequest" ]; then
   DIRNAME="zig-windows-x86_64-$VERSION"
   TARBALL="$DIRNAME.zip"
   mv release "$DIRNAME"
-  zip -r "$TARBALL" "$DIRNAME"
+  7z a "$TARBALL" "$DIRNAME"
 
   mv "$DOWNLOADSECUREFILE_SECUREFILEPATH" "$HOME/.s3cfg"
   s3cmd put -P "$TARBALL" s3://ziglang.org/builds/

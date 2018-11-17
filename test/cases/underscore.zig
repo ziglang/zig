@@ -6,8 +6,8 @@ test "ignore lval with underscore" {
 }
 
 test "ignore lval with underscore (for loop)" {
-    for ([]void.{}) |_, i| {
-        for ([]void.{}) |_, j| {
+    for ([]void{}) |_, i| {
+        for ([]void{}) |_, j| {
             break;
         }
         break;

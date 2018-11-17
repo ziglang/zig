@@ -1,36 +1,36 @@
 const assert = @import("std").debug.assert;
 
-const Node = struct.{
+const Node = struct {
     payload: i32,
     children: []Node,
 };
 
 test "struct contains slice of itself" {
-    var other_nodes = []Node.{
-        Node.{
+    var other_nodes = []Node{
+        Node{
             .payload = 31,
-            .children = []Node.{},
+            .children = []Node{},
         },
-        Node.{
+        Node{
             .payload = 32,
-            .children = []Node.{},
+            .children = []Node{},
         },
     };
-    var nodes = []Node.{
-        Node.{
+    var nodes = []Node{
+        Node{
             .payload = 1,
-            .children = []Node.{},
+            .children = []Node{},
         },
-        Node.{
+        Node{
             .payload = 2,
-            .children = []Node.{},
+            .children = []Node{},
         },
-        Node.{
+        Node{
             .payload = 3,
             .children = other_nodes[0..],
         },
     };
-    const root = Node.{
+    const root = Node{
         .payload = 1234,
         .children = nodes[0..],
     };

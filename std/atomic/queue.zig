@@ -7,7 +7,7 @@ const assert = std.debug.assert;
 /// Many producer, many consumer, non-allocating, thread-safe.
 /// Uses a mutex to protect access.
 pub fn Queue(comptime T: type) type {
-    return struct.{
+    return struct {
         head: ?*Node,
         tail: ?*Node,
         mutex: std.Mutex,
@@ -16,7 +16,7 @@ pub fn Queue(comptime T: type) type {
         pub const Node = std.LinkedList(T).Node;
 
         pub fn init() Self {
-            return Self.{
+            return Self{
                 .head = null,
                 .tail = null,
                 .mutex = std.Mutex.init(),
@@ -111,7 +111,7 @@ pub fn Queue(comptime T: type) type {
         }
 
         pub fn dumpToStream(self: *Self, comptime Error: type, stream: *std.io.OutStream(Error)) Error!void {
-            const S = struct.{
+            const S = struct {
                 fn dumpRecursive(s: *std.io.OutStream(Error), optional_node: ?*Node, indent: usize) Error!void {
                     try s.writeByteNTimes(' ', indent);
                     if (optional_node) |node| {
@@ -133,7 +133,7 @@ pub fn Queue(comptime T: type) type {
     };
 }
 
-const Context = struct.{
+const Context = struct {
     allocator: *std.mem.Allocator,
     queue: *Queue(i32),
     put_sum: isize,
@@ -161,7 +161,7 @@ test "std.atomic.Queue" {
     var a = &fixed_buffer_allocator.allocator;
 
     var queue = Queue(i32).init();
-    var context = Context.{
+    var context = Context{
         .allocator = a,
         .queue = &queue,
         .put_sum = 0,
@@ -205,7 +205,7 @@ fn startPuts(ctx: *Context) u8 {
     while (put_count != 0) : (put_count -= 1) {
         std.os.time.sleep(1); // let the os scheduler be our fuzz
         const x = @bitCast(i32, r.random.scalar(u32));
-        const node = ctx.allocator.create(Queue(i32).Node.{
+        const node = ctx.allocator.create(Queue(i32).Node{
             .prev = undefined,
             .next = undefined,
             .data = x,
@@ -233,14 +233,14 @@ fn startGets(ctx: *Context) u8 {
 test "std.atomic.Queue single-threaded" {
     var queue = Queue(i32).init();
 
-    var node_0 = Queue(i32).Node.{
+    var node_0 = Queue(i32).Node{
         .data = 0,
         .next = undefined,
         .prev = undefined,
     };
     queue.put(&node_0);
 
-    var node_1 = Queue(i32).Node.{
+    var node_1 = Queue(i32).Node{
         .data = 1,
         .next = undefined,
         .prev = undefined,
@@ -249,14 +249,14 @@ test "std.atomic.Queue single-threaded" {
 
     assert(queue.get().?.data == 0);
 
-    var node_2 = Queue(i32).Node.{
+    var node_2 = Queue(i32).Node{
         .data = 2,
         .next = undefined,
         .prev = undefined,
     };
     queue.put(&node_2);
 
-    var node_3 = Queue(i32).Node.{
+    var node_3 = Queue(i32).Node{
         .data = 3,
         .next = undefined,
         .prev = undefined,
@@ -267,7 +267,7 @@ test "std.atomic.Queue single-threaded" {
 
     assert(queue.get().?.data == 2);
 
-    var node_4 = Queue(i32).Node.{
+    var node_4 = Queue(i32).Node{
         .data = 4,
         .next = undefined,
         .prev = undefined,
@@ -301,7 +301,7 @@ test "std.atomic.Queue dump" {
     ));
 
     // Test a stream with one element
-    var node_0 = Queue(i32).Node.{
+    var node_0 = Queue(i32).Node{
         .data = 1,
         .next = undefined,
         .prev = undefined,
@@ -321,7 +321,7 @@ test "std.atomic.Queue dump" {
     assert(mem.eql(u8, buffer[0..sos.pos], expected));
 
     // Test a stream with two elements
-    var node_1 = Queue(i32).Node.{
+    var node_1 = Queue(i32).Node{
         .data = 2,
         .next = undefined,
         .prev = undefined,

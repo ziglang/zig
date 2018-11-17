@@ -10,7 +10,7 @@ const maxInt = std.math.maxInt;
 // A single token slice into the parent string.
 //
 // Use `token.slice()` on the input at the current position to get the current slice.
-pub const Token = struct.{
+pub const Token = struct {
     id: Id,
     // How many bytes do we skip before counting
     offset: u1,
@@ -21,7 +21,7 @@ pub const Token = struct.{
     // How many bytes from the current position behind the start of this token is.
     count: usize,
 
-    pub const Id = enum.{
+    pub const Id = enum {
         ObjectBegin,
         ObjectEnd,
         ArrayBegin,
@@ -34,7 +34,7 @@ pub const Token = struct.{
     };
 
     pub fn init(id: Id, count: usize, offset: u1) Token {
-        return Token.{
+        return Token{
             .id = id,
             .offset = offset,
             .string_has_escape = false,
@@ -44,7 +44,7 @@ pub const Token = struct.{
     }
 
     pub fn initString(count: usize, has_unicode_escape: bool) Token {
-        return Token.{
+        return Token{
             .id = Id.String,
             .offset = 0,
             .string_has_escape = has_unicode_escape,
@@ -54,7 +54,7 @@ pub const Token = struct.{
     }
 
     pub fn initNumber(count: usize, number_is_integer: bool) Token {
-        return Token.{
+        return Token{
             .id = Id.Number,
             .offset = 0,
             .string_has_escape = false,
@@ -65,7 +65,7 @@ pub const Token = struct.{
 
     // A marker token is a zero-length
     pub fn initMarker(id: Id) Token {
-        return Token.{
+        return Token{
             .id = id,
             .offset = 0,
             .string_has_escape = false,
@@ -87,7 +87,7 @@ pub const Token = struct.{
 // Conforms strictly to RFC8529.
 //
 // For a non-byte based wrapper, consider using TokenStream instead.
-pub const StreamingParser = struct.{
+pub const StreamingParser = struct {
     // Current state
     state: State,
     // How many bytes we have counted for the current token
@@ -129,7 +129,7 @@ pub const StreamingParser = struct.{
         p.number_is_integer = true;
     }
 
-    pub const State = enum.{
+    pub const State = enum {
         // These must be first with these explicit values as we rely on them for indexing the
         // bit-stack directly and avoiding a branch.
         ObjectSeparator = 0,
@@ -182,7 +182,7 @@ pub const StreamingParser = struct.{
         }
     };
 
-    pub const Error = error.{
+    pub const Error = error{
         InvalidTopLevel,
         TooManyNestedItems,
         TooManyClosingItems,
@@ -858,14 +858,14 @@ pub const StreamingParser = struct.{
 };
 
 // A small wrapper over a StreamingParser for full slices. Returns a stream of json Tokens.
-pub const TokenStream = struct.{
+pub const TokenStream = struct {
     i: usize,
     slice: []const u8,
     parser: StreamingParser,
     token: ?Token,
 
     pub fn init(slice: []const u8) TokenStream {
-        return TokenStream.{
+        return TokenStream{
             .i = 0,
             .slice = slice,
             .parser = StreamingParser.init(),
@@ -989,7 +989,7 @@ const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayList = std.ArrayList;
 const HashMap = std.HashMap;
 
-pub const ValueTree = struct.{
+pub const ValueTree = struct {
     arena: ArenaAllocator,
     root: Value,
 
@@ -1000,7 +1000,7 @@ pub const ValueTree = struct.{
 
 pub const ObjectMap = HashMap([]const u8, Value, mem.hash_slice_u8, mem.eql_slice_u8);
 
-pub const Value = union(enum).{
+pub const Value = union(enum) {
     Null,
     Bool: bool,
     Integer: i64,
@@ -1127,14 +1127,14 @@ pub const Value = union(enum).{
 };
 
 // A non-stream JSON parser which constructs a tree of Value's.
-pub const Parser = struct.{
+pub const Parser = struct {
     allocator: *Allocator,
     state: State,
     copy_strings: bool,
     // Stores parent nodes and un-combined Values.
     stack: ArrayList(Value),
 
-    const State = enum.{
+    const State = enum {
         ObjectKey,
         ObjectValue,
         ArrayValue,
@@ -1142,7 +1142,7 @@ pub const Parser = struct.{
     };
 
     pub fn init(allocator: *Allocator, copy_strings: bool) Parser {
-        return Parser.{
+        return Parser{
             .allocator = allocator,
             .state = State.Simple,
             .copy_strings = copy_strings,
@@ -1171,7 +1171,7 @@ pub const Parser = struct.{
 
         debug.assert(p.stack.len == 1);
 
-        return ValueTree.{
+        return ValueTree{
             .arena = arena,
             .root = p.stack.at(0),
         };
@@ -1204,11 +1204,11 @@ pub const Parser = struct.{
 
                 switch (token.id) {
                     Token.Id.ObjectBegin => {
-                        try p.stack.append(Value.{ .Object = ObjectMap.init(allocator) });
+                        try p.stack.append(Value{ .Object = ObjectMap.init(allocator) });
                         p.state = State.ObjectKey;
                     },
                     Token.Id.ArrayBegin => {
-                        try p.stack.append(Value.{ .Array = ArrayList(Value).init(allocator) });
+                        try p.stack.append(Value{ .Array = ArrayList(Value).init(allocator) });
                         p.state = State.ArrayValue;
                     },
                     Token.Id.String => {
@@ -1222,12 +1222,12 @@ pub const Parser = struct.{
                         p.state = State.ObjectKey;
                     },
                     Token.Id.True => {
-                        _ = try object.put(key, Value.{ .Bool = true });
+                        _ = try object.put(key, Value{ .Bool = true });
                         _ = p.stack.pop();
                         p.state = State.ObjectKey;
                     },
                     Token.Id.False => {
-                        _ = try object.put(key, Value.{ .Bool = false });
+                        _ = try object.put(key, Value{ .Bool = false });
                         _ = p.stack.pop();
                         p.state = State.ObjectKey;
                     },
@@ -1254,11 +1254,11 @@ pub const Parser = struct.{
                         try p.pushToParent(value);
                     },
                     Token.Id.ObjectBegin => {
-                        try p.stack.append(Value.{ .Object = ObjectMap.init(allocator) });
+                        try p.stack.append(Value{ .Object = ObjectMap.init(allocator) });
                         p.state = State.ObjectKey;
                     },
                     Token.Id.ArrayBegin => {
-                        try p.stack.append(Value.{ .Array = ArrayList(Value).init(allocator) });
+                        try p.stack.append(Value{ .Array = ArrayList(Value).init(allocator) });
                         p.state = State.ArrayValue;
                     },
                     Token.Id.String => {
@@ -1268,10 +1268,10 @@ pub const Parser = struct.{
                         try array.append(try p.parseNumber(token, input, i));
                     },
                     Token.Id.True => {
-                        try array.append(Value.{ .Bool = true });
+                        try array.append(Value{ .Bool = true });
                     },
                     Token.Id.False => {
-                        try array.append(Value.{ .Bool = false });
+                        try array.append(Value{ .Bool = false });
                     },
                     Token.Id.Null => {
                         try array.append(Value.Null);
@@ -1283,11 +1283,11 @@ pub const Parser = struct.{
             },
             State.Simple => switch (token.id) {
                 Token.Id.ObjectBegin => {
-                    try p.stack.append(Value.{ .Object = ObjectMap.init(allocator) });
+                    try p.stack.append(Value{ .Object = ObjectMap.init(allocator) });
                     p.state = State.ObjectKey;
                 },
                 Token.Id.ArrayBegin => {
-                    try p.stack.append(Value.{ .Array = ArrayList(Value).init(allocator) });
+                    try p.stack.append(Value{ .Array = ArrayList(Value).init(allocator) });
                     p.state = State.ArrayValue;
                 },
                 Token.Id.String => {
@@ -1297,10 +1297,10 @@ pub const Parser = struct.{
                     try p.stack.append(try p.parseNumber(token, input, i));
                 },
                 Token.Id.True => {
-                    try p.stack.append(Value.{ .Bool = true });
+                    try p.stack.append(Value{ .Bool = true });
                 },
                 Token.Id.False => {
-                    try p.stack.append(Value.{ .Bool = false });
+                    try p.stack.append(Value{ .Bool = false });
                 },
                 Token.Id.Null => {
                     try p.stack.append(Value.Null);
@@ -1337,12 +1337,12 @@ pub const Parser = struct.{
         // TODO: We don't strictly have to copy values which do not contain any escape
         // characters if flagged with the option.
         const slice = token.slice(input, i);
-        return Value.{ .String = try mem.dupe(p.allocator, u8, slice) };
+        return Value{ .String = try mem.dupe(p.allocator, u8, slice) };
     }
 
     fn parseNumber(p: *Parser, token: Token, input: []const u8, i: usize) !Value {
         return if (token.number_is_integer)
-            Value.{ .Integer = try std.fmt.parseInt(i64, token.slice(input, i), 10) }
+            Value{ .Integer = try std.fmt.parseInt(i64, token.slice(input, i), 10) }
         else
             @panic("TODO: fmt.parseFloat not yet implemented");
     }

@@ -108,6 +108,7 @@ struct ZigKeyword {
 static const struct ZigKeyword zig_keywords[] = {
     {"align", TokenIdKeywordAlign},
     {"and", TokenIdKeywordAnd},
+    {"anyerror", TokenIdKeywordAnyerror},
     {"asm", TokenIdKeywordAsm},
     {"async", TokenIdKeywordAsync},
     {"await", TokenIdKeywordAwait},
@@ -139,7 +140,7 @@ static const struct ZigKeyword zig_keywords[] = {
     {"pub", TokenIdKeywordPub},
     {"resume", TokenIdKeywordResume},
     {"return", TokenIdKeywordReturn},
-    {"section", TokenIdKeywordSection},
+    {"linksection", TokenIdKeywordLinkSection},
     {"stdcallcc", TokenIdKeywordStdcallCC},
     {"struct", TokenIdKeywordStruct},
     {"suspend", TokenIdKeywordSuspend},
@@ -1548,6 +1549,7 @@ const char * token_name(TokenId id) {
         case TokenIdFloatLiteral: return "FloatLiteral";
         case TokenIdIntLiteral: return "IntLiteral";
         case TokenIdKeywordAsync: return "async";
+        case TokenIdKeywordAnyerror: return "anyerror";
         case TokenIdKeywordAwait: return "await";
         case TokenIdKeywordResume: return "resume";
         case TokenIdKeywordSuspend: return "suspend";
@@ -1581,7 +1583,7 @@ const char * token_name(TokenId id) {
         case TokenIdKeywordPromise: return "promise";
         case TokenIdKeywordPub: return "pub";
         case TokenIdKeywordReturn: return "return";
-        case TokenIdKeywordSection: return "section";
+        case TokenIdKeywordLinkSection: return "linksection";
         case TokenIdKeywordStdcallCC: return "stdcallcc";
         case TokenIdKeywordStruct: return "struct";
         case TokenIdKeywordSwitch: return "switch";
@@ -1625,6 +1627,8 @@ const char * token_name(TokenId id) {
         case TokenIdTimesPercent: return "*%";
         case TokenIdTimesPercentEq: return "*%=";
         case TokenIdBarBarEq: return "||=";
+        case TokenIdCount:
+            zig_unreachable();
     }
     return "(invalid token)";
 }

@@ -54,8 +54,7 @@ that counts as "freestanding" for the purposes of this table.
 |-------------|--------------|---------|---------|---------|---------|
 |i386         | OK           | planned | OK      | planned | planned |
 |x86_64       | OK           | OK      | OK      | OK      | planned |
-|arm          | OK           | planned | planned | N/A     | planned |
-|aarch64      | OK           | planned | N/A     | planned | planned |
+|arm          | OK           | planned | planned | planned | planned |
 |bpf          | OK           | planned | N/A     | N/A     | planned |
 |hexagon      | OK           | planned | N/A     | N/A     | planned |
 |mips         | OK           | planned | N/A     | N/A     | planned |
@@ -64,20 +63,22 @@ that counts as "freestanding" for the purposes of this table.
 |amdgcn       | OK           | planned | N/A     | N/A     | planned |
 |sparc        | OK           | planned | N/A     | N/A     | planned |
 |s390x        | OK           | planned | N/A     | N/A     | planned |
-|thumb        | OK           | planned | N/A     | N/A     | planned |
 |spir         | OK           | planned | N/A     | N/A     | planned |
 |lanai        | OK           | planned | N/A     | N/A     | planned |
+|wasm32       | planned      | N/A     | N/A     | N/A     | N/A     |
+|wasm64       | planned      | N/A     | N/A     | N/A     | N/A     |
+|riscv32      | planned      | planned | N/A     | N/A     | planned |
+|riscv64      | planned      | planned | N/A     | N/A     | planned |
 
 ## Community
 
  * IRC: `#zig` on Freenode ([Channel Logs](https://irclog.whitequark.org/zig/)).
  * Reddit: [/r/zig](https://www.reddit.com/r/zig)
- * Email list: [ziglang@googlegroups.com](https://groups.google.com/forum/#!forum/ziglang)
+ * Email list: [~andrewrk/ziglang@lists.sr.ht](https://lists.sr.ht/%7Eandrewrk/ziglang)
 
 ## Building
 
-[![Build Status](https://travis-ci.org/ziglang/zig.svg?branch=master)](https://travis-ci.org/ziglang/zig)
-[![Build status](https://ci.appveyor.com/api/projects/status/4t80mk2dmucrc38i/branch/master?svg=true)](https://ci.appveyor.com/project/andrewrk/zig-d3l86/branch/master)
+[![Build Status](https://dev.azure.com/ziglang/zig/_apis/build/status/ziglang.zig?branchName=master)](https://dev.azure.com/ziglang/zig/_build/latest?definitionId=1&branchName=master)
 
 Note that you can
 [download a binary of master branch](https://ziglang.org/download/#release-master).
