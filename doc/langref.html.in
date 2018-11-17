@@ -7830,11 +7830,11 @@ TypeExpr &lt;- PrefixTypeOp* ErrorUnionExpr
 ErrorUnionExpr &lt;- SuffixExpr (EXCLAMATIONMARK TypeExpr)?
 
 SuffixExpr
-    &lt;- AsyncPrefix PrimaryTypeExpr SuffixOp* FnCallArgumnets
-     / PrimaryTypeExpr (SuffixOp / FnCallArgumnets)*
+    &lt;- AsyncPrefix PrimaryTypeExpr SuffixOp* FnCallArguments
+     / PrimaryTypeExpr (SuffixOp / FnCallArguments)*
 
 PrimaryTypeExpr
-    &lt;- BUILTININDENTIFIER FnCallArgumnets
+    &lt;- BUILTINIDENTIFIER FnCallArguments
      / CHAR_LITERAL
      / ContainerDecl
      / ErrorSetDecl
@@ -7884,11 +7884,11 @@ AsmOutput &lt;- COLON AsmOutputList AsmInput?
 
 AsmOutputItem &lt;- LBRACKET IDENTIFIER RBRACKET STRINGLITERAL LPAREN (MINUSRARROW TypeExpr / IDENTIFIER) RPAREN
 
-AsmInput &lt;- COLON AsmInputList AsmCloppers?
+AsmInput &lt;- COLON AsmInputList AsmClobbers?
 
 AsmInputItem &lt;- LBRACKET IDENTIFIER RBRACKET STRINGLITERAL LPAREN Expr RPAREN
 
-AsmCloppers &lt;- COLON StringList
+AsmClobbers &lt;- COLON StringList
 
 # *** Helper grammar ***
 BreakLabel &lt;- COLON IDENTIFIER
@@ -8013,7 +8013,7 @@ SuffixOp
 
 AsyncPrefix &lt;- KEYWORD_async (LARROW PrefixExpr RARROW)?
 
-FnCallArgumnets &lt;- LPAREN ExprList RPAREN
+FnCallArguments &lt;- LPAREN ExprList RPAREN
 
 # Ptr specific
 ArrayTypeStart &lt;- LBRACKET Expr? RBRACKET
@@ -8090,7 +8090,7 @@ STRINGLITERAL
 IDENTIFIER
     &lt;- !keyword ("c" !["\\] / [A-Zabd-z_]) [A-Za-z0-9_]* skip
      / "@\"" string_char* "\""                            skip
-BUILTININDENTIFIER &lt;- "@"[A-Za-z_][A-Za-z0-9_]* skip
+BUILTINIDENTIFIER &lt;- "@"[A-Za-z_][A-Za-z0-9_]* skip
 
 
 AMPERSAND            &lt;- '&'      ![=]      skip
@@ -8109,9 +8109,9 @@ DOT2                 &lt;- '..'     ![.]      skip
 DOT3                 &lt;- '...'              skip
 DOTASTERISK          &lt;- '.*'               skip
 DOTQUESTIONMARK      &lt;- '.?'               skip
-EQUAL                &lt;- '='      ![>=]     skip
+EQUAL                &lt;- '='      ![&gt;=]     skip
 EQUALEQUAL           &lt;- '=='               skip
-EQUALRARROW          &lt;- '=>'               skip
+EQUALRARROW          &lt;- '=&gt;'               skip
 EXCLAMATIONMARK      &lt;- '!'      ![=]      skip
 EXCLAMATIONMARKEQUAL &lt;- '!='               skip
 LARROW               &lt;- '&lt;'      ![&lt;=]     skip
@@ -8121,11 +8121,11 @@ LARROWEQUAL          &lt;- '&lt;='               skip
 LBRACE               &lt;- '{'                skip
 LBRACKET             &lt;- '['                skip
 LPAREN               &lt;- '('                skip
-MINUS                &lt;- '-'      ![%=>]    skip
+MINUS                &lt;- '-'      ![%=&gt;]    skip
 MINUSEQUAL           &lt;- '-='               skip
 MINUSPERCENT         &lt;- '-%'     ![=]      skip
 MINUSPERCENTEQUAL    &lt;- '-%='              skip
-MINUSRARROW          &lt;- '->'               skip
+MINUSRARROW          &lt;- '-&gt;'               skip
 PERCENT              &lt;- '%'      ![=]      skip
 PERCENTEQUAL         &lt;- '%='               skip
 PIPE                 &lt;- '|'      ![|=]     skip
@@ -8137,10 +8137,10 @@ PLUSEQUAL            &lt;- '+='               skip
 PLUSPERCENT          &lt;- '+%'     ![=]      skip
 PLUSPERCENTEQUAL     &lt;- '+%='              skip
 QUESTIONMARK         &lt;- '?'                skip
-RARROW               &lt;- '>'      ![>=]     skip
-RARROW2              &lt;- '>>'     ![=]      skip
-RARROW2EQUAL         &lt;- '>>='              skip
-RARROWEQUAL          &lt;- '>='               skip
+RARROW               &lt;- '&gt;'      ![&gt;=]     skip
+RARROW2              &lt;- '&gt;&gt;'     ![=]      skip
+RARROW2EQUAL         &lt;- '&gt;&gt;='              skip
+RARROWEQUAL          &lt;- '&gt;='               skip
 RBRACE               &lt;- '}'                skip
 RBRACKET             &lt;- ']'                skip
 RPAREN               &lt;- ')'                skip
