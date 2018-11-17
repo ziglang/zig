@@ -413,7 +413,7 @@ test "mem.indexOf" {
 /// See also ::readIntBE or ::readIntLE.
 pub fn readInt(bytes: []const u8, comptime T: type, endian: builtin.Endian) T {
     if (comptime T.bit_count < 8) {
-      @compileError("Only integer types with bitwidth >= 8 are allowed; passed " ++ @typeName(T));
+      return @compileError("Only integer types with bitwidth >= 8 are allowed; passed " ++ @typeName(T));
     }
     if (T.bit_count == 8) {
         return bytes[0];
@@ -439,7 +439,7 @@ pub fn readInt(bytes: []const u8, comptime T: type, endian: builtin.Endian) T {
 /// bytes.len must be exactly @sizeOf(T).
 pub fn readIntBE(comptime T: type, bytes: []const u8) T {
     if (comptime T.bit_count < 8) {
-      @compileError("Only integer types with bitwidth >= 8 are allowed; passed " ++ @typeName(T));
+      return @compileError("Only integer types with bitwidth >= 8 are allowed; passed " ++ @typeName(T));
     }
     if (T.is_signed) {
         return @bitCast(T, readIntBE(@IntType(false, T.bit_count), bytes));
@@ -460,7 +460,7 @@ pub fn readIntBE(comptime T: type, bytes: []const u8) T {
 /// bytes.len must be exactly @sizeOf(T).
 pub fn readIntLE(comptime T: type, bytes: []const u8) T {
     if (comptime T.bit_count < 8) {
-      @compileError("Only integer types with bitwidth >= 8 are allowed; passed " ++ @typeName(T));
+      return @compileError("Only integer types with bitwidth >= 8 are allowed; passed " ++ @typeName(T));
     }
     if (T.is_signed) {
         return @bitCast(T, readIntLE(@IntType(false, T.bit_count), bytes));
@@ -525,7 +525,7 @@ pub fn writeInt(buf: []u8, value: var, endian: builtin.Endian) void {
 
 pub fn writeIntBE(comptime T: type, buf: *[@sizeOf(T)]u8, value: T) void {
     if (comptime T.bit_count % 8 != 0) {
-      @compileError("Only integer types with bitwidth in multiples of 8 are allowed; passed " ++ @typeName(T));
+      return @compileError("Only integer types with bitwidth in multiples of 8 are allowed; passed " ++ @typeName(T));
     }
     const uint = @IntType(false, T.bit_count);
     var bits = @bitCast(uint, value);
@@ -545,7 +545,7 @@ pub fn writeIntBE(comptime T: type, buf: *[@sizeOf(T)]u8, value: T) void {
 
 pub fn writeIntLE(comptime T: type, buf: *[@sizeOf(T)]u8, value: T) void {
     if (comptime T.bit_count % 8 != 0) {
-      @compileError("Only integer types with bitwidth in multiples of 8 are allowed; passed " ++ @typeName(T));
+      return @compileError("Only integer types with bitwidth in multiples of 8 are allowed; passed " ++ @typeName(T));
     }
     const uint = @IntType(false, T.bit_count);
     var bits = @bitCast(uint, value);
