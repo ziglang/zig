@@ -82,6 +82,28 @@ pub fn LinkedList(comptime T: type) type {
             list.len += 1;
         }
 
+        /// Concatenate list2 onto the end of list1, removing all entries from the former.
+        ///
+        /// Arguments:
+        ///     list1: the list to concatenate onto
+        ///     list2: the list to be concatenated
+        pub fn concatByMoving(list1: *Self, list2: *Self) void {
+            const l2_first = list2.first orelse return;
+            if (list1.last) |l1_last| {
+                l1_last.next = list2.first;
+                l2_first.prev = list1.last;
+                list1.len += list2.len;
+            } else {
+                // list1 was empty
+                list1.first = list2.first;
+                list1.len = list2.len;
+            }
+            list1.last = list2.last;
+            list2.first = null;
+            list2.last = null;
+            list2.len = 0;
+        }
+
         /// Insert a new node at the end of the list.
         ///
         /// Arguments:
@@ -246,4 +268,78 @@ test "basic linked list test" {
     assert(list.first.?.data == 2);
     assert(list.last.?.data == 4);
     assert(list.len == 2);
+}
+
+test "linked list concatenation" {
+    const allocator = debug.global_allocator;
+    var list1 = LinkedList(u32).init();
+    var list2 = LinkedList(u32).init();
+
+    var one = try list1.createNode(1, allocator);
+    defer list1.destroyNode(one, allocator);
+    var two = try list1.createNode(2, allocator);
+    defer list1.destroyNode(two, allocator);
+    var three = try list1.createNode(3, allocator);
+    defer list1.destroyNode(three, allocator);
+    var four = try list1.createNode(4, allocator);
+    defer list1.destroyNode(four, allocator);
+    var five = try list1.createNode(5, allocator);
+    defer list1.destroyNode(five, allocator);
+
+    list1.append(one);
+    list1.append(two);
+    list2.append(three);
+    list2.append(four);
+    list2.append(five);
+
+    list1.concatByMoving(&list2);
+
+    assert(list1.last == five);
+    assert(list1.len == 5);
+    assert(list2.first == null);
+    assert(list2.last == null);
+    assert(list2.len == 0);
+
+    // Traverse forwards.
+    {
+        var it = list1.first;
+        var index: u32 = 1;
+        while (it) |node| : (it = node.next) {
+            assert(node.data == index);
+            index += 1;
+        }
+    }
+
+    // Traverse backwards.
+    {
+        var it = list1.last;
+        var index: u32 = 1;
+        while (it) |node| : (it = node.prev) {
+            assert(node.data == (6 - index));
+            index += 1;
+        }
+    }
+
+    // Swap them back, this verifies that concating to an empty list works.
+    list2.concatByMoving(&list1);
+
+    // Traverse forwards.
+    {
+        var it = list2.first;
+        var index: u32 = 1;
+        while (it) |node| : (it = node.next) {
+            assert(node.data == index);
+            index += 1;
+        }
+    }
+
+    // Traverse backwards.
+    {
+        var it = list2.last;
+        var index: u32 = 1;
+        while (it) |node| : (it = node.prev) {
+            assert(node.data == (6 - index));
+            index += 1;
+        }
+    }
 }
