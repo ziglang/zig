@@ -96,7 +96,7 @@ const MutexWindows = struct {
 
     pub fn acquire(self: *Mutex) Held {
         self.initOsData();
-        windows.EnterCriticalSection(&self.lock);
+        while (windows.TryEnterCriticalSection(&self.lock) == 0) {}
         return Held { .mutex = self };
     }
 };
