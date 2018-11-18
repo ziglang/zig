@@ -1323,7 +1323,8 @@ pub const Parser = struct {
                 p.state = State.ObjectKey;
             },
             // Array Parent -> [ ..., <array>, value ]
-            Value.Array => |*array| {
+            Value.Array => {
+                var array = &p.stack.items[p.stack.len - 1].Array;
                 try array.append(value);
                 p.state = State.ArrayValue;
             },
@@ -1364,7 +1365,8 @@ test "json parser dynamic" {
         \\          "Width":  100
         \\      },
         \\      "Animated" : false,
-        \\      "IDs": [116, 943, 234, 38793]
+        \\      "IDs": [116, 943, 234, 38793],
+        \\      "ArrayOfObject": [{"n": "m"}]
         \\    }
         \\}
     ;
@@ -1387,4 +1389,10 @@ test "json parser dynamic" {
 
     const animated = image.Object.get("Animated").?.value;
     debug.assert(animated.Bool == false);
+
+    const array_of_object = image.Object.get("ArrayOfObject").?.value;
+    debug.assert(array_of_object.Array.len == 1);
+
+    const obj0 = array_of_object.Array.at(0).Object.get("n").?.value;
+    debug.assert(mem.eql(u8, obj0.String, "m"));
 }
