@@ -1976,7 +1976,7 @@ Error os_file_read(OsFile file, void *ptr, size_t *len) {
                 case EFAULT:
                     zig_unreachable();
                 case EISDIR:
-                    zig_unreachable();
+                    return ErrorIsDir;
                 default:
                     return ErrorFileSystem;
             }
