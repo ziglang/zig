@@ -220,3 +220,34 @@ pub const FOREGROUND_BLUE = 1;
 pub const FOREGROUND_GREEN = 2;
 pub const FOREGROUND_RED = 4;
 pub const FOREGROUND_INTENSITY = 8;
+
+pub extern "kernel32" stdcallcc fn InitializeCriticalSection(lpCriticalSection: *?RTL_CRITICAL_SECTION) void;
+pub extern "kernel32" stdcallcc fn EnterCriticalSection(lpCriticalSection: *?RTL_CRITICAL_SECTION) void; 
+pub extern "kernel32" stdcallcc fn LeaveCriticalSection(lpCriticalSection: *?RTL_CRITICAL_SECTION) void; 
+pub extern "kernel32" stdcallcc fn DeleteCriticalSection(lpCriticalSection: *?RTL_CRITICAL_SECTION) void;  
+
+pub const LIST_ENTRY = extern struct {
+    Flink: *LIST_ENTRY,
+    Blink: *LIST_ENTRY,
+};
+
+pub const RTL_CRITICAL_SECTION_DEBUG = extern struct {
+    Type: WORD,
+    CreatorBackTraceIndex: WORD,
+    CriticalSection: *RTL_CRITICAL_SECTION,
+    ProcessLocksList: LIST_ENTRY,
+    EntryCount: DWORD,
+    ContentionCount: DWORD,
+    Flags: DWORD,
+    CreatorBackTraceIndexHigh: WORD,
+    SpareWORD: WORD,
+};
+
+pub const RTL_CRITICAL_SECTION = extern struct {
+    DebugInfo: *RTL_CRITICAL_SECTION_DEBUG,
+    LockCount: i32,
+    RecursionCount: i32,
+    OwningThread: HANDLE,
+    LockSemaphore: HANDLE,
+    SpinCount: ULONG_PTR,
+};
