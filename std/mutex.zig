@@ -122,7 +122,7 @@ const MutexSpinLock = struct {
     pub fn deinit(self: *Mutex) void {}
 
     pub fn acquire(self: *Mutex) Held {
-        _ = self.spin_lock.acquire();
+        _ = self.lock.acquire();
         return Held { .mutex = self };
     }
 };
