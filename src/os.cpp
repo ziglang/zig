@@ -186,9 +186,14 @@ bool os_is_sep(uint8_t c) {
 
 void os_path_split(Buf *full_path, Buf *out_dirname, Buf *out_basename) {
     size_t len = buf_len(full_path);
-    if (len != 0) {
+    if (len == 1 && os_is_sep(buf_ptr(full_path)[0]) ) {
+        if (out_dirname) buf_init_from_mem(out_dirname, buf_ptr(full_path), 1);
+        if (out_basename) buf_init_from_mem(out_dirname, buf_ptr(full_path), 1);
+    } else if (len != 0) {
         size_t last_index = len - 1;
-        if (os_is_sep(buf_ptr(full_path)[last_index])) {
+        // We handle len == 1 for split delimiter above;
+        // Just to drive home safety, add a check for last_index > 0
+        if (last_index > 0 && os_is_sep(buf_ptr(full_path)[last_index])) {
             last_index -= 1;
         }
         for (size_t i = last_index;;) {
