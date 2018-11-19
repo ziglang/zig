@@ -12,116 +12,108 @@ const windows = std.os.windows;
 /// The Linux implementation is based on mutex3 from
 /// https://www.akkadia.org/drepper/futex.pdf
 pub const Mutex = switch(builtin.os) {
-    builtin.Os.linux => MutexLinux,
-    builtin.Os.windows => MutexWindows,
-    else => MutexSpinLock,
-};
+    builtin.Os.linux => struct {
+        /// 0: unlocked
+        /// 1: locked, no waiters
+        /// 2: locked, one or more waiters
+        lock: i32,
 
-const MutexLinux = struct {
-    /// 0: unlocked
-    /// 1: locked, no waiters
-    /// 2: locked, one or more waiters
-    lock: i32,
+        pub const Held = struct {
+            mutex: *Mutex,
 
-    pub const Held = struct {
-        mutex: *Mutex,
+            pub fn release(self: Held) void {
+                const c = @atomicRmw(i32, &self.mutex.lock, AtomicRmwOp.Sub, 1, AtomicOrder.Release);
+                if (c != 1) {
+                    _ = @atomicRmw(i32, &self.mutex.lock, AtomicRmwOp.Xchg, 0, AtomicOrder.Release);
+                    const rc = linux.futex_wake(&self.mutex.lock, linux.FUTEX_WAKE | linux.FUTEX_PRIVATE_FLAG, 1);
+                    switch (linux.getErrno(rc)) {
+                        0 => {},
+                        linux.EINVAL => unreachable,
+                        else => unreachable,
+                    }
+                }
+            }
+        };
 
-        pub fn release(self: Held) void {
-            const c = @atomicRmw(i32, &self.mutex.lock, AtomicRmwOp.Sub, 1, AtomicOrder.Release);
-            if (c != 1) {
-                _ = @atomicRmw(i32, &self.mutex.lock, AtomicRmwOp.Xchg, 0, AtomicOrder.Release);
-                const rc = linux.futex_wake(&self.mutex.lock, linux.FUTEX_WAKE | linux.FUTEX_PRIVATE_FLAG, 1);
+        pub fn init() Mutex {
+            return Mutex {
+                .lock = 0,
+            };
+        }
+
+        pub fn deinit(self: *Mutex) void {}
+
+        pub fn acquire(self: *Mutex) Held {
+            var c = @cmpxchgWeak(i32, &self.lock, 0, 1, AtomicOrder.Acquire, AtomicOrder.Monotonic) orelse
+                return Held{ .mutex = self };
+            if (c != 2)
+                c = @atomicRmw(i32, &self.lock, AtomicRmwOp.Xchg, 2, AtomicOrder.Acquire);
+            while (c != 0) {
+                const rc = linux.futex_wait(&self.lock, linux.FUTEX_WAIT | linux.FUTEX_PRIVATE_FLAG, 2, null);
                 switch (linux.getErrno(rc)) {
-                    0 => {},
+                    0, linux.EINTR, linux.EAGAIN => {},
                     linux.EINVAL => unreachable,
                     else => unreachable,
                 }
+                c = @atomicRmw(i32, &self.lock, AtomicRmwOp.Xchg, 2, AtomicOrder.Acquire);
+            }
+            return Held { .mutex = self };
+        }
+    },
+    builtin.Os.windows => struct {
+        lock: ?*windows.RTL_CRITICAL_SECTION,
+
+        pub const Held = struct {
+            mutex: *Mutex,
+
+            pub fn release(self: Held) void {
+                windows.LeaveCriticalSection(self.mutex.lock);
+            }
+        };
+
+        pub fn init() Mutex {
+            var lock: ?*windows.RTL_CRITICAL_SECTION = null;
+            windows.InitializeCriticalSection(lock);
+            return Mutex { .lock = lock };
+        }
+
+        pub fn deinit(self: *Mutex) void {
+            if (self.lock != null) {
+                windows.DeleteCriticalSection(self.lock);
+                self.lock = null;
             }
         }
-    };
 
-    pub fn init() Mutex {
-        return Mutex {
-            .lock = 0,
-        };
-    }
+        pub fn acquire(self: *Mutex) Held {
+            windows.EnterCriticalSection(self.lock);
+            return Held { .mutex = self };
+        }
+    },
+    else => struct {
+        /// TODO better implementation than spin lock
+        lock: SpinLock,
 
-    pub fn deinit(self: *Mutex) void {}
+        pub const Held = struct {
+            mutex: *Mutex,
 
-    pub fn acquire(self: *Mutex) Held {
-        var c = @cmpxchgWeak(i32, &self.lock, 0, 1, AtomicOrder.Acquire, AtomicOrder.Monotonic) orelse
-            return Held{ .mutex = self };
-        if (c != 2)
-            c = @atomicRmw(i32, &self.lock, AtomicRmwOp.Xchg, 2, AtomicOrder.Acquire);
-        while (c != 0) {
-            const rc = linux.futex_wait(&self.lock, linux.FUTEX_WAIT | linux.FUTEX_PRIVATE_FLAG, 2, null);
-            switch (linux.getErrno(rc)) {
-                0, linux.EINTR, linux.EAGAIN => {},
-                linux.EINVAL => unreachable,
-                else => unreachable,
+            pub fn release(self: Held) void {
+                SpinLock.Held.release(SpinLock.Held { .spinlock = &self.mutex.lock });
             }
-            c = @atomicRmw(i32, &self.lock, AtomicRmwOp.Xchg, 2, AtomicOrder.Acquire);
-        }
-        return Held { .mutex = self };
-    }
-};
-
-const MutexWindows = struct {
-    lock: ?windows.RTL_CRITICAL_SECTION,
-
-    pub const Held = struct {
-        mutex: *Mutex,
-
-        pub fn release(self: Held) void {
-            windows.LeaveCriticalSection(&self.mutex.lock);
-        }
-    };
-
-    pub fn init() Mutex {
-        return Mutex {
-            .lock = null,
         };
-    }
 
-    pub fn deinit(self: *Mutex) void {
-        windows.DeleteCriticalSection(&self.lock);
-        self.lock = null;
-    }
-
-    pub fn acquire(self: *Mutex) Held {
-        if (self.lock == null) {
-            windows.InitializeCriticalSection(&self.lock);
+        pub fn init() Mutex {
+            return Mutex {
+                .lock = SpinLock.init(),
+            };
         }
 
-        windows.EnterCriticalSection(&self.lock);
-        return Held { .mutex = self };
-    }
-};
+        pub fn deinit(self: *Mutex) void {}
 
-const MutexSpinLock = struct {
-    /// TODO better implementation than spin lock
-    lock: SpinLock,
-
-    pub const Held = struct {
-        mutex: *Mutex,
-
-        pub fn release(self: Held) void {
-            SpinLock.Held.release(SpinLock.Held { .spinlock = &self.mutex.lock });
+        pub fn acquire(self: *Mutex) Held {
+            _ = self.lock.acquire();
+            return Held { .mutex = self };
         }
-    };
-
-    pub fn init() Mutex {
-        return Mutex {
-            .lock = SpinLock.init(),
-        };
-    }
-
-    pub fn deinit(self: *Mutex) void {}
-
-    pub fn acquire(self: *Mutex) Held {
-        _ = self.lock.acquire();
-        return Held { .mutex = self };
-    }
+    },
 };
 
 const Context = struct {

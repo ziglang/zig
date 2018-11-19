@@ -221,10 +221,10 @@ pub const FOREGROUND_GREEN = 2;
 pub const FOREGROUND_RED = 4;
 pub const FOREGROUND_INTENSITY = 8;
 
-pub extern "kernel32" stdcallcc fn InitializeCriticalSection(lpCriticalSection: *?RTL_CRITICAL_SECTION) void;
-pub extern "kernel32" stdcallcc fn EnterCriticalSection(lpCriticalSection: *?RTL_CRITICAL_SECTION) void; 
-pub extern "kernel32" stdcallcc fn LeaveCriticalSection(lpCriticalSection: *?RTL_CRITICAL_SECTION) void; 
-pub extern "kernel32" stdcallcc fn DeleteCriticalSection(lpCriticalSection: *?RTL_CRITICAL_SECTION) void;  
+pub extern "kernel32" stdcallcc fn InitializeCriticalSection(lpCriticalSection: ?*RTL_CRITICAL_SECTION) void;
+pub extern "kernel32" stdcallcc fn EnterCriticalSection(lpCriticalSection: ?*RTL_CRITICAL_SECTION) void; 
+pub extern "kernel32" stdcallcc fn LeaveCriticalSection(lpCriticalSection: ?*RTL_CRITICAL_SECTION) void; 
+pub extern "kernel32" stdcallcc fn DeleteCriticalSection(lpCriticalSection: ?*RTL_CRITICAL_SECTION) void;  
 
 pub const LIST_ENTRY = extern struct {
     Flink: *LIST_ENTRY,
