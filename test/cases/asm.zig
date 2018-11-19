@@ -28,9 +28,15 @@ test "alternative constraints" {
     // Make sure we allow commas as a separator for alternative constraints.
     var a: u32 = 3;
     asm volatile ("" : [_]"=r,m"(a) : [_]"r,m"(a) : "");
+}
 
-test "size integer/float in asm input" {
+test "sized integer/float in asm input" {
     asm volatile ("" : : [_]"m"(usize(3)) : "");
+    asm volatile ("" : : [_]"m"(i15(-3)) : "");
+    asm volatile ("" : : [_]"m"(u3(3)) : "");
+    asm volatile ("" : : [_]"m"(i3(3)) : "");
+    asm volatile ("" : : [_]"m"(u121(3)) : "");
+    asm volatile ("" : : [_]"m"(i121(3)) : "");
     asm volatile ("" : : [_]"m"(f32(3.17)) : "");
     asm volatile ("" : : [_]"m"(f64(3.17)) : "");
 }

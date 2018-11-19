@@ -3693,8 +3693,23 @@ static LLVMValueRef ir_render_asm(CodeGen *g, IrExecutable *executable, IrInstru
             buf_append_char(&constraint_buf, ',');
         }
 
-        param_types[param_index] = ir_input->value.type->type_ref;
-        param_values[param_index] = ir_llvm_value(g, ir_input);
+        ZigType *const type = ir_input->value.type;
+        LLVMTypeRef type_ref = type->type_ref;
+        LLVMValueRef value_ref = ir_llvm_value(g, ir_input);
+        // Handle integers of non pot bitsize by widening them.
+        if (type->id == ZigTypeIdInt) {
+            const size_t bitsize = type->data.integral.bit_count;
+            if (bitsize < 8 || !is_power_of_2(bitsize)) {
+                const bool is_signed = type->data.integral.is_signed;
+                const size_t wider_bitsize = bitsize < 8 ? 8 : round_to_next_power_of_2(bitsize);
+                ZigType *const wider_type = get_int_type(g, is_signed, wider_bitsize);
+                type_ref = wider_type->type_ref;
+                value_ref = gen_widen_or_shorten(g, false, type, wider_type, value_ref);
+            }
+        }
+
+        param_types[param_index] = type_ref;
+        param_values[param_index] = value_ref;
     }
     for (size_t i = 0; i < asm_expr->clobber_list.length; i += 1, total_index += 1) {
         Buf *clobber_buf = asm_expr->clobber_list.at(i);
