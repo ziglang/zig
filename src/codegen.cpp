@@ -5411,10 +5411,6 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             zig_panic("TODO");
         case IrInstructionIdResultPtrCast:
             zig_panic("TODO");
-        case IrInstructionIdLoadResult:
-            zig_panic("TODO");
-        case IrInstructionIdStoreResult:
-            zig_panic("TODO");
     }
     zig_unreachable();
 }

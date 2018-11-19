@@ -2194,8 +2194,6 @@ enum IrInstructionId {
     IrInstructionIdResultParam,
     IrInstructionIdResultPtrCast,
     IrInstructionIdResultCast,
-    IrInstructionIdLoadResult,
-    IrInstructionIdStoreResult,
     IrInstructionIdAllocaSrc,
     IrInstructionIdAllocaGen,
     IrInstructionIdAssertNonError,
@@ -2365,20 +2363,6 @@ struct IrInstructionStorePtr {
     IrInstruction base;
 
     IrInstruction *ptr;
-    IrInstruction *value;
-};
-
-struct IrInstructionLoadResult {
-    IrInstruction base;
-
-    IrInstruction *ptr;
-    IrInstruction *result_loc;
-};
-
-struct IrInstructionStoreResult {
-    IrInstruction base;
-
-    IrInstruction *result_loc;
     IrInstruction *value;
 };
 

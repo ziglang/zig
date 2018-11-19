@@ -363,14 +363,6 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionStorePtr *) {
     return IrInstructionIdStorePtr;
 }
 
-static constexpr IrInstructionId ir_instruction_id(IrInstructionLoadResult *) {
-    return IrInstructionIdLoadResult;
-}
-
-static constexpr IrInstructionId ir_instruction_id(IrInstructionStoreResult *) {
-    return IrInstructionIdStoreResult;
-}
-
 static constexpr IrInstructionId ir_instruction_id(IrInstructionFieldPtr *) {
     return IrInstructionIdFieldPtr;
 }
@@ -1457,32 +1449,6 @@ static IrInstruction *ir_build_load_ptr(IrBuilder *irb, Scope *scope, AstNode *s
 
     ir_ref_instruction(ptr, irb->current_basic_block);
     if (result_loc != nullptr) ir_ref_instruction(result_loc, irb->current_basic_block);
-
-    return &instruction->base;
-}
-
-static IrInstruction *ir_build_load_result(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        IrInstruction *ptr, IrInstruction *result_loc)
-{
-    IrInstructionLoadResult *instruction = ir_build_instruction<IrInstructionLoadResult>(irb, scope, source_node);
-    instruction->ptr = ptr;
-    instruction->result_loc = result_loc;
-
-    ir_ref_instruction(ptr, irb->current_basic_block);
-    ir_ref_instruction(result_loc, irb->current_basic_block);
-
-    return &instruction->base;
-}
-
-static IrInstruction *ir_build_store_result(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        IrInstruction *result_loc, IrInstruction *value)
-{
-    IrInstructionStoreResult *instruction = ir_build_instruction<IrInstructionStoreResult>(irb, scope, source_node);
-    instruction->result_loc = result_loc;
-    instruction->value = value;
-
-    ir_ref_instruction(result_loc, irb->current_basic_block);
-    ir_ref_instruction(value, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -3920,10 +3886,8 @@ static IrInstruction *ir_gen_array_access(IrBuilder *irb, Scope *scope, AstNode 
 
     IrInstruction *ptr_instruction = ir_build_elem_ptr(irb, scope, node, array_ref_instruction,
             subscript_instruction, true, PtrLenSingle);
-    if (lval == LValPtr)
-        return ptr_instruction;
 
-    return ir_build_load_result(irb, scope, node, ptr_instruction, result_loc);
+    return ir_gen_ptr(irb, scope, node, lval, result_loc, ptr_instruction);
 }
 
 static IrInstruction *ir_gen_field_access(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval,
@@ -4415,9 +4379,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 if (arg1_value == irb->codegen->invalid_instruction)
                     return arg1_value;
 
-                if (lval == LValPtr)
-                    return result_loc;
-                return ir_build_load_result(irb, scope, node, result_loc, result_loc);
+                return ir_gen_result(irb, scope, node, lval, result_loc);
             }
         case BuiltinFnIdToBytes:
             {
@@ -4428,9 +4390,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 if (arg0_value == irb->codegen->invalid_instruction)
                     return arg0_value;
 
-                if (lval == LValPtr)
-                    return result_loc;
-                return ir_build_load_result(irb, scope, node, result_loc, result_loc);
+                return ir_gen_result(irb, scope, node, lval, result_loc);
             }
         case BuiltinFnIdIntToFloat:
             {
@@ -4601,12 +4561,9 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 if (arg1_value == irb->codegen->invalid_instruction)
                     return arg1_value;
 
-                IrInstruction *ptr_instruction = ir_build_field_ptr_instruction(irb, scope, node, arg0_value, arg1_value);
-
-                if (lval == LValPtr)
-                    return ptr_instruction;
-
-                return ir_build_load_result(irb, scope, node, ptr_instruction, result_loc);
+                IrInstruction *ptr_instruction = ir_build_field_ptr_instruction(irb, scope, node,
+                        arg0_value, arg1_value);
+                return ir_gen_ptr(irb, scope, node, lval, result_loc, ptr_instruction);
             }
         case BuiltinFnIdTypeInfo:
             {
@@ -4701,10 +4658,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 if (arg1_value == irb->codegen->invalid_instruction)
                     return arg1_value;
 
-                if (lval == LValPtr)
-                    return result_loc;
-
-                return ir_build_load_result(irb, scope, node, result_loc, result_loc);
+                return ir_gen_result(irb, scope, node, lval, result_loc);
             }
         case BuiltinFnIdIntToPtr:
             {
@@ -7566,7 +7520,7 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
 
             IrInstruction *slice_value = ir_build_slice(irb, scope, node, return_addresses_ptr, zero,
                     nullptr, false, addrs_slice_ptr);
-            ir_build_store_result(irb, scope, node, addrs_slice_ptr, slice_value);
+            ir_build_store_ptr(irb, scope, node, addrs_slice_ptr, slice_value);
         }
 
 
@@ -15960,10 +15914,6 @@ static IrInstruction *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstruc
     }
 }
 
-static IrInstruction *ir_analyze_instruction_load_result(IrAnalyze *ira, IrInstructionLoadResult *instruction) {
-    zig_panic("TODO");
-}
-
 static IrInstruction *ir_analyze_instruction_store_ptr(IrAnalyze *ira, IrInstructionStorePtr *instruction) {
     IrInstruction *ptr = instruction->ptr->child;
     if (ptr == nullptr)
@@ -15976,24 +15926,6 @@ static IrInstruction *ir_analyze_instruction_store_ptr(IrAnalyze *ira, IrInstruc
         return ira->codegen->invalid_instruction;
 
     return ir_analyze_store_ptr(ira, &instruction->base, ptr, value);
-}
-
-static IrInstruction *ir_analyze_store_result(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value,
-        IrInstruction *uncasted_result_loc)
-{
-    zig_panic("TODO delete this instruction");
-}
-
-static IrInstruction *ir_analyze_instruction_store_result(IrAnalyze *ira, IrInstructionStoreResult *instruction) {
-    IrInstruction *value = instruction->value->child;
-    if (type_is_invalid(value->value.type))
-        return ira->codegen->invalid_instruction;
-
-    IrInstruction *result_loc = instruction->result_loc->child;
-    if (type_is_invalid(result_loc->value.type))
-        return ira->codegen->invalid_instruction;
-
-    return ir_analyze_store_result(ira, &instruction->base, value, result_loc);
 }
 
 static IrInstruction *ir_analyze_instruction_load_ptr(IrAnalyze *ira, IrInstructionLoadPtr *instruction) {
@@ -22042,10 +21974,6 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
             return ir_analyze_instruction_load_ptr(ira, (IrInstructionLoadPtr *)instruction);
         case IrInstructionIdStorePtr:
             return ir_analyze_instruction_store_ptr(ira, (IrInstructionStorePtr *)instruction);
-        case IrInstructionIdLoadResult:
-            return ir_analyze_instruction_load_result(ira, (IrInstructionLoadResult *)instruction);
-        case IrInstructionIdStoreResult:
-            return ir_analyze_instruction_store_result(ira, (IrInstructionStoreResult *)instruction);
         case IrInstructionIdElemPtr:
             return ir_analyze_instruction_elem_ptr(ira, (IrInstructionElemPtr *)instruction);
         case IrInstructionIdVarPtr:
@@ -22440,8 +22368,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdMergeErrRetTraces:
         case IrInstructionIdMarkErrRetTracePtr:
         case IrInstructionIdAtomicRmw:
-        case IrInstructionIdLoadResult:
-        case IrInstructionIdStoreResult:
         case IrInstructionIdAssertNonError:
         case IrInstructionIdContainerInitFields:
         case IrInstructionIdContainerInitList:

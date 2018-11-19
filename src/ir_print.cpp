@@ -1357,18 +1357,6 @@ static void ir_print_result_cast(IrPrint *irp, IrInstructionResultCast *instruct
     fprintf(irp->f, ")");
 }
 
-static void ir_print_load_result(IrPrint *irp, IrInstructionLoadResult *instruction) {
-    fprintf(irp->f, "LoadResult");
-}
-
-static void ir_print_store_result(IrPrint *irp, IrInstructionStoreResult *instruction) {
-    fprintf(irp->f, "StoreResult(result=");
-    ir_print_other_instruction(irp, instruction->result_loc);
-    fprintf(irp->f, ",value=");
-    ir_print_other_instruction(irp, instruction->value);
-    fprintf(irp->f, ")");
-}
-
 static void ir_print_alloca_src(IrPrint *irp, IrInstructionAllocaSrc *instruction) {
     fprintf(irp->f, "AllocaSrc(ty=");
     ir_print_other_instruction(irp, instruction->child_type);
@@ -1849,12 +1837,6 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdResultCast:
             ir_print_result_cast(irp, (IrInstructionResultCast *)instruction);
-            break;
-        case IrInstructionIdLoadResult:
-            ir_print_load_result(irp, (IrInstructionLoadResult *)instruction);
-            break;
-        case IrInstructionIdStoreResult:
-            ir_print_store_result(irp, (IrInstructionStoreResult *)instruction);
             break;
         case IrInstructionIdAllocaSrc:
             ir_print_alloca_src(irp, (IrInstructionAllocaSrc *)instruction);
