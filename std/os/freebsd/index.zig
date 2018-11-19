@@ -377,7 +377,6 @@ pub const NOTE_FFCOPY = 0xc0000000;
 pub const NOTE_FFCTRLMASK = 0xc0000000;
 pub const NOTE_FFLAGSMASK = 0x00ffffff;
 
-
 /// low water mark
 pub const NOTE_LOWAT = 0x00000001;
 
@@ -444,8 +443,6 @@ pub const NOTE_NSECONDS = 0x00000008;
 
 /// timeout is absolute
 pub const NOTE_ABSTIME = 0x00000010;
-
-
 
 pub const TCGETS = 0x5401;
 pub const TCSETS = 0x5402;
@@ -528,7 +525,7 @@ pub fn WIFSIGNALED(s: i32) bool {
     return (unsigned(s) & 0xffff) -% 1 < 0xff;
 }
 
-pub const winsize = extern struct.{
+pub const winsize = extern struct {
     ws_row: u16,
     ws_col: u16,
     ws_xpixel: u16,
@@ -703,11 +700,11 @@ pub fn sigaction(sig: u6, noalias act: *const Sigaction, noalias oact: ?*Sigacti
 
 const NSIG = 65;
 const sigset_t = [128 / @sizeOf(usize)]usize;
-const all_mask = []usize.{@maxValue(usize)};
-const app_mask = []usize.{0xfffffffc7fffffff};
+const all_mask = []usize{@maxValue(usize)};
+const app_mask = []usize{0xfffffffc7fffffff};
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
-pub const Sigaction = struct.{
+pub const Sigaction = struct {
     // TODO: Adjust to use freebsd struct layout
     handler: extern fn (i32) void,
     mask: sigset_t,
@@ -717,7 +714,7 @@ pub const Sigaction = struct.{
 pub const SIG_ERR = @intToPtr(extern fn (i32) void, @maxValue(usize));
 pub const SIG_DFL = @intToPtr(extern fn (i32) void, 0);
 pub const SIG_IGN = @intToPtr(extern fn (i32) void, 1);
-pub const empty_sigset = []usize.{0} ** sigset_t.len;
+pub const empty_sigset = []usize{0} ** sigset_t.len;
 
 pub fn raise(sig: i32) usize {
     // TODO implement, see linux equivalent for what we want to try and do
@@ -753,12 +750,12 @@ pub fn fstat(fd: i32, stat_buf: *Stat) usize {
     return arch.syscall2(SYS_fstat, @intCast(usize, fd), @ptrToInt(stat_buf));
 }
 
-pub const iovec = extern struct.{
+pub const iovec = extern struct {
     iov_base: [*]u8,
     iov_len: usize,
 };
 
-pub const iovec_const = extern struct.{
+pub const iovec_const = extern struct {
     iov_base: [*]const u8,
     iov_len: usize,
 };
@@ -790,13 +787,9 @@ pub fn sysctlnametomib(name: [*]const u8, mibp: ?*c_int, sizep: ?*usize) usize {
     return errnoWrap(c.sysctlnametomib(name, wibp, sizep));
 }
 
-
-
 /// Takes the return value from a syscall and formats it back in the way
 /// that the kernel represents it to libc. Errno was a mistake, let's make
 /// it go away forever.
 fn errnoWrap(value: isize) usize {
     return @bitCast(usize, if (value == -1) -isize(c._errno().*) else value);
 }
-
-

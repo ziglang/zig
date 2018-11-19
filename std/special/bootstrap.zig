@@ -23,7 +23,7 @@ nakedcc fn _start() noreturn {
         builtin.Arch.x86_64 => switch (builtin.os) {
             builtin.Os.freebsd => {
                 argc_ptr = asm ("lea (%%rdi), %[argc]"
-                     : [argc] "=r" (-> [*]usize)
+                    : [argc] "=r" (-> [*]usize)
                 );
             },
             else => {

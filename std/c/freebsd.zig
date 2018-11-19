@@ -1,4 +1,3 @@
-
 const timespec = @import("../os/freebsd/index.zig").timespec;
 
 extern "c" fn __error() *c_int;
@@ -18,7 +17,7 @@ pub extern "c" fn sysctlbyname(name: [*]const u8, oldp: ?*c_void, oldlenp: ?*usi
 pub extern "c" fn sysctlnametomib(name: [*]const u8, mibp: ?*c_int, sizep: ?*usize) c_int;
 
 /// Renamed from `kevent` to `Kevent` to avoid conflict with function name.
-pub const Kevent = extern struct.{
+pub const Kevent = extern struct {
     ident: usize,
     filter: i16,
     flags: u16,
@@ -28,9 +27,7 @@ pub const Kevent = extern struct.{
     // TODO ext
 };
 
-
-pub const pthread_attr_t = extern struct.{
+pub const pthread_attr_t = extern struct {
     __size: [56]u8,
     __align: c_long,
 };
-
