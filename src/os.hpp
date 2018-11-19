@@ -99,9 +99,8 @@ bool os_path_is_absolute(Buf *path);
 Error ATTRIBUTE_MUST_USE os_make_path(Buf *path);
 Error ATTRIBUTE_MUST_USE os_make_dir(Buf *path);
 
-Error ATTRIBUTE_MUST_USE os_file_open_r(Buf *full_path, OsFile *out_file);
+Error ATTRIBUTE_MUST_USE os_file_open_r(Buf *full_path, OsFile *out_file, OsTimeStamp *mtime);
 Error ATTRIBUTE_MUST_USE os_file_open_lock_rw(Buf *full_path, OsFile *out_file);
-Error ATTRIBUTE_MUST_USE os_file_mtime(OsFile file, OsTimeStamp *mtime);
 Error ATTRIBUTE_MUST_USE os_file_read(OsFile file, void *ptr, size_t *len);
 Error ATTRIBUTE_MUST_USE os_file_read_all(OsFile file, Buf *contents);
 Error ATTRIBUTE_MUST_USE os_file_overwrite(OsFile file, Buf *contents);

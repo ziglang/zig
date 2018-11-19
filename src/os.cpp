@@ -1788,7 +1788,7 @@ Error os_self_exe_shared_libs(ZigList<Buf *> &paths) {
 #endif
 }
 
-Error os_file_open_r(Buf *full_path, OsFile *out_file) {
+Error os_file_open_r(Buf *full_path, OsFile *out_file, OsTimeStamp *mtime) {
 #if defined(ZIG_OS_WINDOWS)
     // TODO use CreateFileW
     HANDLE result = CreateFileA(buf_ptr(full_path), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -1814,7 +1814,15 @@ Error os_file_open_r(Buf *full_path, OsFile *out_file) {
                 return ErrorUnexpected;
         }
     }
-
+    if (mtime) {
+        FILETIME last_write_time;
+        if (!GetFileTime(result, nullptr, nullptr, &last_write_time)) {
+            os_file_close( (OsFile)result );
+            return ErrorUnexpected;
+        }
+        mtime->sec = (((ULONGLONG) last_write_time.dwHighDateTime) << 32) + last_write_time.dwLowDateTime;
+        mtime->nsec = 0;
+    }
     *out_file = result;
     return ErrorNone;
 #else
@@ -1830,12 +1838,44 @@ Error os_file_open_r(Buf *full_path, OsFile *out_file) {
                     zig_unreachable();
                 case EACCES:
                     return ErrorAccess;
-                case EISDIR:
-                    return ErrorIsDir;
                 case ENOENT:
                     return ErrorFileNotFound;
                 default:
                     return ErrorFileSystem;
+            }
+        }
+        {
+            struct stat statbuf;
+            int err = fstat(fd, &statbuf);
+            if (err == -1) {
+                switch (errno) {
+                    case EBADF:
+                        zig_unreachable();
+                    case EFAULT:
+                        zig_unreachable();
+                    case EIO:
+                        /*@FALLTHROUGH@*/;
+                    default:
+                        return ErrorFileSystem;
+                }
+            }
+            // Check if we are opening a directory
+            if (S_ISDIR(statbuf.st_mode)) {
+                os_file_close(fd);
+                return ErrorIsDir;
+            }
+            // If we are being asked for time,
+            // update mtime struct
+            if (mtime) {
+                #if defined(ZIG_OS_LINUX)
+                    mtime->sec = statbuf.st_mtim.tv_sec;
+                    mtime->nsec = statbuf.st_mtim.tv_nsec;
+                #elif defined(ZIG_OS_DARWIN)
+                    mtime->sec = statbuf.st_mtimespec.tv_sec;
+                    mtime->nsec = statbuf.st_mtimespec.tv_nsec;
+                #else
+                #error unimplemented
+                #endif
             }
         }
         *out_file = fd;
@@ -1925,35 +1965,6 @@ Error os_file_open_lock_rw(Buf *full_path, OsFile *out_file) {
     }
     *out_file = fd;
     return ErrorNone;
-#endif
-}
-
-Error os_file_mtime(OsFile file, OsTimeStamp *mtime) {
-#if defined(ZIG_OS_WINDOWS)
-    FILETIME last_write_time;
-    if (!GetFileTime(file, nullptr, nullptr, &last_write_time))
-        return ErrorUnexpected;
-    mtime->sec = (((ULONGLONG) last_write_time.dwHighDateTime) << 32) + last_write_time.dwLowDateTime;
-    mtime->nsec = 0;
-    return ErrorNone;
-#elif defined(ZIG_OS_LINUX)
-    struct stat statbuf;
-    if (fstat(file, &statbuf) == -1)
-        return ErrorFileSystem;
-
-    mtime->sec = statbuf.st_mtim.tv_sec;
-    mtime->nsec = statbuf.st_mtim.tv_nsec;
-    return ErrorNone;
-#elif defined(ZIG_OS_DARWIN)
-    struct stat statbuf;
-    if (fstat(file, &statbuf) == -1)
-        return ErrorFileSystem;
-
-    mtime->sec = statbuf.st_mtimespec.tv_sec;
-    mtime->nsec = statbuf.st_mtimespec.tv_nsec;
-    return ErrorNone;
-#else
-#error unimplemented
 #endif
 }
 
