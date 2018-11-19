@@ -299,6 +299,13 @@ pub const Target = union(enum) {
     pub fn getDynamicLinkerPath(self: Target) ?[]const u8 {
         const env = self.getEnviron();
         const arch = self.getArch();
+        const os = self.getOs();
+        switch (os) {
+            builtin.Os.freebsd => {
+                return "/libexec/ld-elf.so.1";
+            },
+            else => {},
+        }
         switch (env) {
             builtin.Environ.android => {
                 if (self.is64bit()) {
@@ -493,6 +500,7 @@ pub const Target = union(enum) {
 
             builtin.Os.linux,
             builtin.Os.macosx,
+            builtin.Os.freebsd,
             builtin.Os.openbsd,
             builtin.Os.zen,
             => switch (id) {
@@ -527,7 +535,6 @@ pub const Target = union(enum) {
             builtin.Os.ananas,
             builtin.Os.cloudabi,
             builtin.Os.dragonfly,
-            builtin.Os.freebsd,
             builtin.Os.fuchsia,
             builtin.Os.ios,
             builtin.Os.kfreebsd,

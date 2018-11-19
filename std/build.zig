@@ -795,6 +795,13 @@ pub const Target = union(enum) {
         };
     }
 
+    pub fn isFreeBSD(self: *const Target) bool {
+        return switch (self.getOs()) {
+            builtin.Os.freebsd => true,
+            else => false,
+        };
+    }
+
     pub fn wantSharedLibSymLinks(self: *const Target) bool {
         return !self.isWindows();
     }

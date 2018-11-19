@@ -4579,7 +4579,10 @@ void find_libc_include_path(CodeGen *g) {
                 fprintf(stderr, "Unable to determine libc include path. --libc-include-dir");
                 exit(1);
             }
-        } else if (g->zig_target.os == OsLinux || g->zig_target.os == OsMacOSX) {
+        } else if (g->zig_target.os == OsLinux ||
+            g->zig_target.os == OsMacOSX ||
+            g->zig_target.os == OsFreeBSD)
+        {
             g->libc_include_dir = get_posix_libc_include_path();
         } else {
             fprintf(stderr, "Unable to determine libc include path.\n"
@@ -4627,6 +4630,8 @@ void find_libc_lib_path(CodeGen *g) {
 
         } else if (g->zig_target.os == OsLinux) {
             g->libc_lib_dir = get_linux_libc_lib_path("crt1.o");
+        } else if (g->zig_target.os == OsFreeBSD) {
+            g->libc_lib_dir = buf_create_from_str("/usr/lib");
         } else {
             zig_panic("Unable to determine libc lib path.");
         }
@@ -4639,6 +4644,8 @@ void find_libc_lib_path(CodeGen *g) {
             return;
         } else if (g->zig_target.os == OsLinux) {
             g->libc_static_lib_dir = get_linux_libc_lib_path("crtbegin.o");
+        } else if (g->zig_target.os == OsFreeBSD) {
+            g->libc_static_lib_dir = buf_create_from_str("/usr/lib");
         } else {
             zig_panic("Unable to determine libc static lib path.");
         }

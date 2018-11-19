@@ -150,6 +150,10 @@ static const char *getLDMOption(const ZigTarget *t) {
             if (t->env_type == ZigLLVM_GNUX32) {
                 return "elf32_x86_64";
             }
+            // Any target elf will use the freebsd osabi if suffixed with "_fbsd".
+            if (t->os == OsFreeBSD) {
+                return "elf_x86_64_fbsd";
+            }
             return "elf_x86_64";
         default:
             zig_unreachable();
@@ -191,6 +195,9 @@ static Buf *try_dynamic_linker_path(const char *ld_name) {
 }
 
 static Buf *get_dynamic_linker_path(CodeGen *g) {
+    if (g->zig_target.os == OsFreeBSD) {
+        return buf_create_from_str("/libexec/ld-elf.so.1");
+    }
     if (g->is_native_target && g->zig_target.arch.arch == ZigLLVM_x86_64) {
         static const char *ld_names[] = {
             "ld-linux-x86-64.so.2",

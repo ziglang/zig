@@ -20,10 +20,17 @@ comptime {
 
 nakedcc fn _start() noreturn {
     switch (builtin.arch) {
-        builtin.Arch.x86_64 => {
-            argc_ptr = asm ("lea (%%rsp), %[argc]"
-                : [argc] "=r" (-> [*]usize)
-            );
+        builtin.Arch.x86_64 => switch (builtin.os) {
+            builtin.Os.freebsd => {
+                argc_ptr = asm ("lea (%%rdi), %[argc]"
+                     : [argc] "=r" (-> [*]usize)
+                );
+            },
+            else => {
+                argc_ptr = asm ("lea (%%rsp), %[argc]"
+                    : [argc] "=r" (-> [*]usize)
+                );
+            },
         },
         builtin.Arch.i386 => {
             argc_ptr = asm ("lea (%%esp), %[argc]"
@@ -50,6 +57,9 @@ extern fn WinMainCRTStartup() noreturn {
 
 // TODO https://github.com/ziglang/zig/issues/265
 fn posixCallMainAndExit() noreturn {
+    if (builtin.os == builtin.Os.freebsd) {
+        @setAlignStack(16);
+    }
     const argc = argc_ptr[0];
     const argv = @ptrCast([*][*]u8, argc_ptr + 1);
 
