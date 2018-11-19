@@ -910,7 +910,7 @@ fn checkNext(p: *TokenStream, id: Token.Id) void {
     debug.assert(token.id == id);
 }
 
-test "token" {
+test "json.token" {
     const s =
         \\{
         \\  "Image": {
@@ -980,7 +980,7 @@ pub fn validate(s: []const u8) bool {
     return p.complete;
 }
 
-test "json validate" {
+test "json.validate" {
     debug.assert(validate("{}"));
 }
 
@@ -1348,7 +1348,7 @@ pub const Parser = struct {
     }
 };
 
-test "json parser dynamic" {
+test "json.parser.dynamic" {
     var p = Parser.init(debug.global_allocator, false);
     defer p.deinit();
 
