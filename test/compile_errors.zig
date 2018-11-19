@@ -3219,6 +3219,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\fn something() anyerror!void { }
     ,
         ".tmp_source.zig:2:5: error: expected type 'void', found 'anyerror'",
+        ".tmp_source.zig:1:15: note: return type declared here",
     );
 
     cases.add(

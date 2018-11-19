@@ -34,6 +34,7 @@ struct IrAnalyze {
     size_t old_bb_index;
     size_t instruction_index;
     ZigType *explicit_return_type;
+    AstNode *explicit_return_type_source_node;
     ZigList<IrInstruction *> src_implicit_return_type_list;
     IrBasicBlock *const_predecessor_bb;
 };
@@ -11162,8 +11163,12 @@ static IrInstruction *ir_analyze_instruction_return(IrAnalyze *ira, IrInstructio
         return ir_unreach_error(ira);
 
     IrInstruction *casted_value = ir_implicit_cast(ira, value, ira->explicit_return_type);
-    if (type_is_invalid(casted_value->value.type))
+    if (type_is_invalid(casted_value->value.type) && ira->explicit_return_type_source_node != nullptr) {
+        ErrorMsg *msg = ira->codegen->errors.last();
+        add_error_note(ira->codegen, msg, ira->explicit_return_type_source_node,
+            buf_sprintf("return type declared here"));
         return ir_unreach_error(ira);
+    }
 
     if (casted_value->value.special == ConstValSpecialRuntime &&
         casted_value->value.type->id == ZigTypeIdPointer &&
@@ -21213,6 +21218,7 @@ ZigType *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutable *new_
     ZigFn *fn_entry = exec_fn_entry(old_exec);
     bool is_async = fn_entry != nullptr && fn_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionAsync;
     ira->explicit_return_type = is_async ? get_promise_type(codegen, expected_type) : expected_type;
+    ira->explicit_return_type_source_node = expected_type_source_node;
 
     ira->old_irb.codegen = codegen;
     ira->old_irb.exec = old_exec;
