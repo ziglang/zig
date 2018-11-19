@@ -452,3 +452,13 @@ test "implicit ptr to *c_void" {
     var c: *u32 = @ptrCast(*u32, ptr2.?);
     assert(c.* == 1);
 }
+
+test "@intCast to comptime_int" {
+    assert(@intCast(comptime_int, 0) == 0);
+}
+
+test "implicit cast comptime numbers to any type when the value fits" {
+    const a: u64 = 255;
+    var b: u8 = a;
+    assert(b == 255);
+}

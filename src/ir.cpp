@@ -138,6 +138,11 @@ struct ConstCastErrSetMismatch {
     ZigList<ErrorTableEntry *> missing_errors;
 };
 
+enum UndefAllowed {
+    UndefOk,
+    UndefBad,
+};
+
 static IrInstruction *ir_gen_node(IrBuilder *irb, AstNode *node, Scope *scope);
 static IrInstruction *ir_gen_node_extra(IrBuilder *irb, AstNode *node, Scope *scope, LVal lval);
 static IrInstruction *ir_analyze_instruction(IrAnalyze *ira, IrInstruction *instruction);
@@ -157,6 +162,7 @@ static Error ir_read_const_ptr(IrAnalyze *ira, AstNode *source_node,
         ConstExprValue *out_val, ConstExprValue *ptr_val);
 static IrInstruction *ir_analyze_ptr_cast(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *ptr,
         ZigType *dest_type, IrInstruction *dest_type_src);
+static ConstExprValue *ir_resolve_const(IrAnalyze *ira, IrInstruction *value, UndefAllowed undef_allowed);
 
 static ConstExprValue *const_ptr_pointee_unchecked(CodeGen *g, ConstExprValue *const_val) {
     assert(get_src_ptr_type(const_val->type) != nullptr);
@@ -8063,15 +8069,153 @@ static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstruction *instruc
         return false;
     }
 
-    ConstExprValue *const_val = &instruction->value;
-    assert(const_val->special != ConstValSpecialRuntime);
+    ConstExprValue *const_val = ir_resolve_const(ira, instruction, UndefBad);
+    assert(const_val != nullptr);
 
-    bool const_val_is_int = (const_val->type->id == ZigTypeIdInt ||
-            const_val->type->id == ZigTypeIdComptimeInt);
-    bool const_val_is_float = (const_val->type->id == ZigTypeIdFloat ||
-            const_val->type->id == ZigTypeIdComptimeFloat);
+    bool const_val_is_int = (const_val->type->id == ZigTypeIdInt || const_val->type->id == ZigTypeIdComptimeInt);
+    bool const_val_is_float = (const_val->type->id == ZigTypeIdFloat || const_val->type->id == ZigTypeIdComptimeFloat);
+
     if (other_type->id == ZigTypeIdFloat) {
-        return true;
+        if (const_val->type->id == ZigTypeIdComptimeInt || const_val->type->id == ZigTypeIdComptimeFloat) {
+            return true;
+        }
+        if (const_val->type->id == ZigTypeIdInt) {
+            BigFloat tmp_bf;
+            bigfloat_init_bigint(&tmp_bf, &const_val->data.x_bigint);
+            BigFloat orig_bf;
+            switch (other_type->data.floating.bit_count) {
+                case 16: {
+                    float16_t tmp = bigfloat_to_f16(&tmp_bf);
+                    bigfloat_init_16(&orig_bf, tmp);
+                    break;
+                }
+                case 32: {
+                    float tmp = bigfloat_to_f32(&tmp_bf);
+                    bigfloat_init_32(&orig_bf, tmp);
+                    break;
+                }
+                case 64: {
+                    double tmp = bigfloat_to_f64(&tmp_bf);
+                    bigfloat_init_64(&orig_bf, tmp);
+                    break;
+                }
+                case 80:
+                    zig_panic("TODO");
+                case 128: {
+                    float128_t tmp = bigfloat_to_f128(&tmp_bf);
+                    bigfloat_init_128(&orig_bf, tmp);
+                    break;
+                }
+                default:
+                    zig_unreachable();
+            }
+            BigInt orig_bi;
+            bigint_init_bigfloat(&orig_bi, &orig_bf);
+            if (bigint_cmp(&orig_bi, &const_val->data.x_bigint) == CmpEQ) {
+                return true;
+            }
+            Buf *val_buf = buf_alloc();
+            bigint_append_buf(val_buf, &const_val->data.x_bigint, 10);
+            ir_add_error(ira, instruction,
+                buf_sprintf("integer value %s has no representation in type '%s'",
+                    buf_ptr(val_buf),
+                    buf_ptr(&other_type->name)));
+            return false;
+        }
+        if (other_type->data.floating.bit_count >= const_val->type->data.floating.bit_count) {
+            return true;
+        }
+        switch (other_type->data.floating.bit_count) {
+            case 16:
+                switch (const_val->type->data.floating.bit_count) {
+                    case 32: {
+                        float16_t tmp = zig_double_to_f16(const_val->data.x_f32);
+                        float orig = zig_f16_to_double(tmp);
+                        if (const_val->data.x_f32 == orig) {
+                            return true;
+                        }
+                        break;
+                    }
+                    case 64: {
+                        float16_t tmp = zig_double_to_f16(const_val->data.x_f64);
+                        double orig = zig_f16_to_double(tmp);
+                        if (const_val->data.x_f64 == orig) {
+                            return true;
+                        }
+                        break;
+                    }
+                    case 80:
+                        zig_panic("TODO");
+                    case 128: {
+                        float16_t tmp = f128M_to_f16(&const_val->data.x_f128);
+                        float128_t orig;
+                        f16_to_f128M(tmp, &orig);
+                        if (f128M_eq(&orig, &const_val->data.x_f128)) {
+                            return true;
+                        }
+                        break;
+                    }
+                    default:
+                        zig_unreachable();
+                }
+                break;
+            case 32:
+                switch (const_val->type->data.floating.bit_count) {
+                    case 64: {
+                        float tmp = const_val->data.x_f64;
+                        double orig = tmp;
+                        if (const_val->data.x_f64 == orig) {
+                            return true;
+                        }
+                        break;
+                    }
+                    case 80:
+                        zig_panic("TODO");
+                    case 128: {
+                        float32_t tmp = f128M_to_f32(&const_val->data.x_f128);
+                        float128_t orig;
+                        f32_to_f128M(tmp, &orig);
+                        if (f128M_eq(&orig, &const_val->data.x_f128)) {
+                            return true;
+                        }
+                        break;
+                    }
+                    default:
+                        zig_unreachable();
+                }
+                break;
+            case 64:
+                switch (const_val->type->data.floating.bit_count) {
+                    case 80:
+                        zig_panic("TODO");
+                    case 128: {
+                        float64_t tmp = f128M_to_f64(&const_val->data.x_f128);
+                        float128_t orig;
+                        f64_to_f128M(tmp, &orig);
+                        if (f128M_eq(&orig, &const_val->data.x_f128)) {
+                            return true;
+                        }
+                        break;
+                    }
+                    default:
+                        zig_unreachable();
+                }
+                break;
+            case 80:
+                assert(const_val->type->data.floating.bit_count == 128);
+                zig_panic("TODO");
+            case 128:
+                return true;
+            default:
+                zig_unreachable();
+        }
+        Buf *val_buf = buf_alloc();
+        float_append_buf(val_buf, const_val);
+        ir_add_error(ira, instruction,
+            buf_sprintf("cast of value %s to type '%s' loses information",
+                buf_ptr(val_buf),
+                buf_ptr(&other_type->name)));
+        return false;
     } else if (other_type->id == ZigTypeIdInt && const_val_is_int) {
         if (!other_type->data.integral.is_signed && const_val->data.x_bigint.is_negative) {
             Buf *val_buf = buf_alloc();
@@ -9453,11 +9597,6 @@ static IrInstruction *ir_get_const_ptr(IrAnalyze *ira, IrInstruction *instructio
     return const_instr;
 }
 
-enum UndefAllowed {
-    UndefOk,
-    UndefBad,
-};
-
 static ConstExprValue *ir_resolve_const(IrAnalyze *ira, IrInstruction *value, UndefAllowed undef_allowed) {
     switch (value->value.special) {
         case ConstValSpecialStatic:
@@ -10370,6 +10509,121 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         return ir_resolve_cast(ira, source_instr, value, wanted_type, CastOpNoop, false);
     }
 
+    // cast from T to ?T
+    // note that the *T to ?*T case is handled via the "ConstCastOnly" mechanism
+    if (wanted_type->id == ZigTypeIdOptional) {
+        ZigType *wanted_child_type = wanted_type->data.maybe.child_type;
+        if (types_match_const_cast_only(ira, wanted_child_type, actual_type, source_node,
+            false).id == ConstCastResultIdOk)
+        {
+            return ir_analyze_maybe_wrap(ira, source_instr, value, wanted_type);
+        } else if (actual_type->id == ZigTypeIdComptimeInt ||
+                   actual_type->id == ZigTypeIdComptimeFloat)
+        {
+            if (ir_num_lit_fits_in_other_type(ira, value, wanted_child_type, true)) {
+                return ir_analyze_maybe_wrap(ira, source_instr, value, wanted_type);
+            } else {
+                return ira->codegen->invalid_instruction;
+            }
+        } else if (
+            wanted_child_type->id == ZigTypeIdPointer &&
+            wanted_child_type->data.pointer.ptr_len == PtrLenUnknown &&
+            actual_type->id == ZigTypeIdPointer &&
+            actual_type->data.pointer.ptr_len == PtrLenSingle &&
+            actual_type->data.pointer.child_type->id == ZigTypeIdArray)
+        {
+            if ((err = type_resolve(ira->codegen, actual_type->data.pointer.child_type, ResolveStatusAlignmentKnown)))
+                return ira->codegen->invalid_instruction;
+            if ((err = type_resolve(ira->codegen, wanted_child_type->data.pointer.child_type, ResolveStatusAlignmentKnown)))
+                return ira->codegen->invalid_instruction;
+            if (get_ptr_align(ira->codegen, actual_type) >= get_ptr_align(ira->codegen, wanted_child_type) &&
+                types_match_const_cast_only(ira, wanted_child_type->data.pointer.child_type,
+                actual_type->data.pointer.child_type->data.array.child_type, source_node,
+                !wanted_child_type->data.pointer.is_const).id == ConstCastResultIdOk)
+            {
+                IrInstruction *cast1 = ir_resolve_ptr_of_array_to_unknown_len_ptr(ira, source_instr, value,
+                        wanted_child_type);
+                if (type_is_invalid(cast1->value.type))
+                    return ira->codegen->invalid_instruction;
+                return ir_analyze_maybe_wrap(ira, source_instr, cast1, wanted_type);
+            }
+        }
+    }
+
+    // T to E!T
+    if (wanted_type->id == ZigTypeIdErrorUnion) {
+        if (types_match_const_cast_only(ira, wanted_type->data.error_union.payload_type, actual_type,
+            source_node, false).id == ConstCastResultIdOk)
+        {
+            return ir_analyze_err_wrap_payload(ira, source_instr, value, wanted_type);
+        } else if (actual_type->id == ZigTypeIdComptimeInt ||
+                   actual_type->id == ZigTypeIdComptimeFloat)
+        {
+            if (ir_num_lit_fits_in_other_type(ira, value, wanted_type->data.error_union.payload_type, true)) {
+                return ir_analyze_err_wrap_payload(ira, source_instr, value, wanted_type);
+            } else {
+                return ira->codegen->invalid_instruction;
+            }
+        }
+    }
+
+    // cast from T to E!?T
+    if (wanted_type->id == ZigTypeIdErrorUnion &&
+        wanted_type->data.error_union.payload_type->id == ZigTypeIdOptional &&
+        actual_type->id != ZigTypeIdOptional)
+    {
+        ZigType *wanted_child_type = wanted_type->data.error_union.payload_type->data.maybe.child_type;
+        if (types_match_const_cast_only(ira, wanted_child_type, actual_type, source_node, false).id == ConstCastResultIdOk ||
+            actual_type->id == ZigTypeIdNull ||
+            actual_type->id == ZigTypeIdComptimeInt ||
+            actual_type->id == ZigTypeIdComptimeFloat)
+        {
+            IrInstruction *cast1 = ir_analyze_cast(ira, source_instr, wanted_type->data.error_union.payload_type, value);
+            if (type_is_invalid(cast1->value.type))
+                return ira->codegen->invalid_instruction;
+
+            IrInstruction *cast2 = ir_analyze_cast(ira, source_instr, wanted_type, cast1);
+            if (type_is_invalid(cast2->value.type))
+                return ira->codegen->invalid_instruction;
+
+            return cast2;
+        }
+    }
+
+
+    // cast from comptime-known number to another number type
+    if (instr_is_comptime(value) &&
+        (actual_type->id == ZigTypeIdInt || actual_type->id == ZigTypeIdComptimeInt ||
+        actual_type->id == ZigTypeIdFloat || actual_type->id == ZigTypeIdComptimeFloat) &&
+        (wanted_type->id == ZigTypeIdInt || wanted_type->id == ZigTypeIdComptimeInt ||
+        wanted_type->id == ZigTypeIdFloat || wanted_type->id == ZigTypeIdComptimeFloat))
+    {
+        if (ir_num_lit_fits_in_other_type(ira, value, wanted_type, true)) {
+            if (wanted_type->id == ZigTypeIdComptimeInt || wanted_type->id == ZigTypeIdInt) {
+                IrInstruction *result = ir_const(ira, source_instr, wanted_type);
+                if (actual_type->id == ZigTypeIdComptimeInt || actual_type->id == ZigTypeIdInt) {
+                    bigint_init_bigint(&result->value.data.x_bigint, &value->value.data.x_bigint);
+                } else {
+                    float_init_bigint(&result->value.data.x_bigint, &value->value);
+                }
+                return result;
+            } else if (wanted_type->id == ZigTypeIdComptimeFloat || wanted_type->id == ZigTypeIdFloat) {
+                IrInstruction *result = ir_const(ira, source_instr, wanted_type);
+                if (actual_type->id == ZigTypeIdComptimeInt || actual_type->id == ZigTypeIdInt) {
+                    BigFloat bf;
+                    bigfloat_init_bigint(&bf, &value->value.data.x_bigint);
+                    float_init_bigfloat(&result->value, &bf);
+                } else {
+                    float_init_float(&result->value, &value->value);
+                }
+                return result;
+            }
+            zig_unreachable();
+        } else {
+            return ira->codegen->invalid_instruction;
+        }
+    }
+
     // widening conversion
     if (wanted_type->id == ZigTypeIdInt &&
         actual_type->id == ZigTypeIdInt &&
@@ -10472,69 +10726,11 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     }
 
 
-    // cast from T to ?T
-    // note that the *T to ?*T case is handled via the "ConstCastOnly" mechanism
-    if (wanted_type->id == ZigTypeIdOptional) {
-        ZigType *wanted_child_type = wanted_type->data.maybe.child_type;
-        if (types_match_const_cast_only(ira, wanted_child_type, actual_type, source_node,
-            false).id == ConstCastResultIdOk)
-        {
-            return ir_analyze_maybe_wrap(ira, source_instr, value, wanted_type);
-        } else if (actual_type->id == ZigTypeIdComptimeInt ||
-                   actual_type->id == ZigTypeIdComptimeFloat)
-        {
-            if (ir_num_lit_fits_in_other_type(ira, value, wanted_child_type, true)) {
-                return ir_analyze_maybe_wrap(ira, source_instr, value, wanted_type);
-            } else {
-                return ira->codegen->invalid_instruction;
-            }
-        } else if (
-            wanted_child_type->id == ZigTypeIdPointer &&
-            wanted_child_type->data.pointer.ptr_len == PtrLenUnknown &&
-            actual_type->id == ZigTypeIdPointer &&
-            actual_type->data.pointer.ptr_len == PtrLenSingle &&
-            actual_type->data.pointer.child_type->id == ZigTypeIdArray)
-        {
-            if ((err = type_resolve(ira->codegen, actual_type->data.pointer.child_type, ResolveStatusAlignmentKnown)))
-                return ira->codegen->invalid_instruction;
-            if ((err = type_resolve(ira->codegen, wanted_child_type->data.pointer.child_type, ResolveStatusAlignmentKnown)))
-                return ira->codegen->invalid_instruction;
-            if (get_ptr_align(ira->codegen, actual_type) >= get_ptr_align(ira->codegen, wanted_child_type) &&
-                types_match_const_cast_only(ira, wanted_child_type->data.pointer.child_type,
-                actual_type->data.pointer.child_type->data.array.child_type, source_node,
-                !wanted_child_type->data.pointer.is_const).id == ConstCastResultIdOk)
-            {
-                IrInstruction *cast1 = ir_resolve_ptr_of_array_to_unknown_len_ptr(ira, source_instr, value,
-                        wanted_child_type);
-                if (type_is_invalid(cast1->value.type))
-                    return ira->codegen->invalid_instruction;
-                return ir_analyze_maybe_wrap(ira, source_instr, cast1, wanted_type);
-            }
-        }
-    }
-
     // cast from null literal to maybe type
     if (wanted_type->id == ZigTypeIdOptional &&
         actual_type->id == ZigTypeIdNull)
     {
         return ir_analyze_null_to_maybe(ira, source_instr, value, wanted_type);
-    }
-
-    // cast from child type of error type to error type
-    if (wanted_type->id == ZigTypeIdErrorUnion) {
-        if (types_match_const_cast_only(ira, wanted_type->data.error_union.payload_type, actual_type,
-            source_node, false).id == ConstCastResultIdOk)
-        {
-            return ir_analyze_err_wrap_payload(ira, source_instr, value, wanted_type);
-        } else if (actual_type->id == ZigTypeIdComptimeInt ||
-                   actual_type->id == ZigTypeIdComptimeFloat)
-        {
-            if (ir_num_lit_fits_in_other_type(ira, value, wanted_type->data.error_union.payload_type, true)) {
-                return ir_analyze_err_wrap_payload(ira, source_instr, value, wanted_type);
-            } else {
-                return ira->codegen->invalid_instruction;
-            }
-        }
     }
 
     // cast from [N]T to E![]const T
@@ -10566,54 +10762,6 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         actual_type->id == ZigTypeIdErrorSet)
     {
         return ir_analyze_err_wrap_code(ira, source_instr, value, wanted_type);
-    }
-
-    // cast from T to E!?T
-    if (wanted_type->id == ZigTypeIdErrorUnion &&
-        wanted_type->data.error_union.payload_type->id == ZigTypeIdOptional &&
-        actual_type->id != ZigTypeIdOptional)
-    {
-        ZigType *wanted_child_type = wanted_type->data.error_union.payload_type->data.maybe.child_type;
-        if (types_match_const_cast_only(ira, wanted_child_type, actual_type, source_node, false).id == ConstCastResultIdOk ||
-            actual_type->id == ZigTypeIdNull ||
-            actual_type->id == ZigTypeIdComptimeInt ||
-            actual_type->id == ZigTypeIdComptimeFloat)
-        {
-            IrInstruction *cast1 = ir_analyze_cast(ira, source_instr, wanted_type->data.error_union.payload_type, value);
-            if (type_is_invalid(cast1->value.type))
-                return ira->codegen->invalid_instruction;
-
-            IrInstruction *cast2 = ir_analyze_cast(ira, source_instr, wanted_type, cast1);
-            if (type_is_invalid(cast2->value.type))
-                return ira->codegen->invalid_instruction;
-
-            return cast2;
-        }
-    }
-
-    // cast from number literal to another type
-    if (actual_type->id == ZigTypeIdComptimeFloat ||
-        actual_type->id == ZigTypeIdComptimeInt)
-    {
-        if (ir_num_lit_fits_in_other_type(ira, value, wanted_type, true)) {
-            CastOp op;
-            if ((actual_type->id == ZigTypeIdComptimeFloat &&
-                 wanted_type->id == ZigTypeIdFloat) ||
-                (actual_type->id == ZigTypeIdComptimeInt &&
-                 wanted_type->id == ZigTypeIdInt))
-            {
-                op = CastOpNumLitToConcrete;
-            } else if (wanted_type->id == ZigTypeIdInt) {
-                op = CastOpFloatToInt;
-            } else if (wanted_type->id == ZigTypeIdFloat) {
-                op = CastOpIntToFloat;
-            } else {
-                zig_unreachable();
-            }
-            return ir_resolve_cast(ira, source_instr, value, wanted_type, op, false);
-        } else {
-            return ira->codegen->invalid_instruction;
-        }
     }
 
     // cast from typed number to integer or float literal.
@@ -17878,7 +18026,7 @@ static IrInstruction *ir_analyze_instruction_int_cast(IrAnalyze *ira, IrInstruct
     if (type_is_invalid(dest_type))
         return ira->codegen->invalid_instruction;
 
-    if (dest_type->id != ZigTypeIdInt) {
+    if (dest_type->id != ZigTypeIdInt && dest_type->id != ZigTypeIdComptimeInt) {
         ir_add_error(ira, instruction->dest_type, buf_sprintf("expected integer type, found '%s'", buf_ptr(&dest_type->name)));
         return ira->codegen->invalid_instruction;
     }
@@ -17887,17 +18035,19 @@ static IrInstruction *ir_analyze_instruction_int_cast(IrAnalyze *ira, IrInstruct
     if (type_is_invalid(target->value.type))
         return ira->codegen->invalid_instruction;
 
-    if (target->value.type->id == ZigTypeIdComptimeInt) {
-        if (ir_num_lit_fits_in_other_type(ira, target, dest_type, true)) {
-            return ir_resolve_cast(ira, &instruction->base, target, dest_type, CastOpNumLitToConcrete, false);
-        } else {
-            return ira->codegen->invalid_instruction;
-        }
-    }
-
-    if (target->value.type->id != ZigTypeIdInt) {
+    if (target->value.type->id != ZigTypeIdInt && target->value.type->id != ZigTypeIdComptimeInt) {
         ir_add_error(ira, instruction->target, buf_sprintf("expected integer type, found '%s'",
                     buf_ptr(&target->value.type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+
+    if (instr_is_comptime(target)) {
+        return ir_implicit_cast(ira, target, dest_type);
+    }
+
+    if (dest_type->id == ZigTypeIdComptimeInt) {
+        ir_add_error(ira, instruction->target, buf_sprintf("attempt to cast runtime value to '%s'",
+                buf_ptr(&dest_type->name)));
         return ira->codegen->invalid_instruction;
     }
 

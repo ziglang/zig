@@ -6659,7 +6659,7 @@ fn foo(x: []const u8) u8 {
       {#header_close#}
       {#header_open|Cast Negative Number to Unsigned Integer#}
       <p>At compile-time:</p>
-      {#code_begin|test_err|attempt to cast negative value to unsigned integer#}
+      {#code_begin|test_err|cannot cast negative value -1 to unsigned integer type 'u32'#}
 comptime {
     const value: i32 = -1;
     const unsigned = @intCast(u32, value);
@@ -6681,7 +6681,7 @@ pub fn main() void {
       {#header_close#}
       {#header_open|Cast Truncates Data#}
       <p>At compile-time:</p>
-      {#code_begin|test_err|cast from 'u16' to 'u8' truncates bits#}
+      {#code_begin|test_err|integer value 300 cannot be implicitly casted to type 'u8'#}
 comptime {
     const spartan_count: u16 = 300;
     const byte = @intCast(u8, spartan_count);
