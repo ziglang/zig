@@ -148,7 +148,6 @@ static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_
     IrInstruction *source_instr, IrInstruction *container_ptr, ZigType *container_type);
 static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction, ZigVar *var);
 static ZigType *ir_resolve_atomic_operand_type(IrAnalyze *ira, IrInstruction *op);
-static IrInstruction *ir_lval_wrap(IrBuilder *irb, Scope *scope, IrInstruction *value, LVal lval);
 static ZigType *adjust_ptr_align(CodeGen *g, ZigType *ptr_type, uint32_t new_align);
 static ZigType *adjust_slice_align(CodeGen *g, ZigType *slice_type, uint32_t new_align);
 static void buf_read_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue *val);
@@ -2338,14 +2337,12 @@ static IrInstruction *ir_build_panic(IrBuilder *irb, Scope *scope, AstNode *sour
 }
 
 static IrInstruction *ir_build_tag_name(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        IrInstruction *target, IrInstruction *result_loc)
+        IrInstruction *target)
 {
     IrInstructionTagName *instruction = ir_build_instruction<IrInstructionTagName>(irb, scope, source_node);
     instruction->target = target;
-    instruction->result_loc = result_loc;
 
     ir_ref_instruction(target, irb->current_basic_block);
-    ir_ref_instruction(result_loc, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -3421,7 +3418,7 @@ static ZigVar *ir_create_var(IrBuilder *irb, AstNode *node, Scope *scope, Buf *n
     return var;
 }
 
-static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode *block_node,
+static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode *block_node, LVal lval,
         IrInstruction *result_loc)
 {
     assert(block_node->type == NodeTypeBlock);
@@ -3441,7 +3438,8 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
 
     if (block_node->data.block.statements.length == 0) {
         // {}
-        return ir_build_const_void(irb, child_scope, block_node);
+        return ir_gen_value(irb, parent_scope, block_node, lval, result_loc,
+                ir_build_const_void(irb, child_scope, block_node));
     }
 
     if (block_node->data.block.name != nullptr) {
@@ -3449,7 +3447,8 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
         scope_block->incoming_blocks = &incoming_blocks;
         scope_block->incoming_values = &incoming_values;
         scope_block->end_block = ir_create_basic_block(irb, parent_scope, "BlockEnd");
-        scope_block->is_comptime = ir_build_const_bool(irb, parent_scope, block_node, ir_should_inline(irb->exec, parent_scope));
+        scope_block->is_comptime = ir_build_const_bool(irb, parent_scope, block_node,
+                ir_should_inline(irb->exec, parent_scope));
     }
 
     bool is_continuation_unreachable = false;
@@ -3484,20 +3483,21 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
         }
 
         ir_set_cursor_at_end_and_append_block(irb, scope_block->end_block);
-        return ir_build_phi(irb, parent_scope, block_node, incoming_blocks.length, incoming_blocks.items, incoming_values.items);
-    } else {
-        incoming_blocks.append(irb->current_basic_block);
-        incoming_values.append(ir_mark_gen(ir_build_const_void(irb, parent_scope, block_node)));
+        return ir_gen_result(irb, parent_scope, block_node, lval, result_loc);
     }
 
     if (block_node->data.block.name != nullptr) {
+        IrInstruction *continuation_expr_result = ir_build_const_void(irb, parent_scope, block_node);
+        ir_build_store_ptr(irb, parent_scope, block_node, result_loc, continuation_expr_result);
+
         ir_gen_defers_for_block(irb, child_scope, outer_block_scope, false);
         ir_mark_gen(ir_build_br(irb, parent_scope, block_node, scope_block->end_block, scope_block->is_comptime));
         ir_set_cursor_at_end_and_append_block(irb, scope_block->end_block);
-        return ir_build_phi(irb, parent_scope, block_node, incoming_blocks.length, incoming_blocks.items, incoming_values.items);
+        return ir_gen_result(irb, parent_scope, block_node, lval, result_loc);
     } else {
         ir_gen_defers_for_block(irb, child_scope, outer_block_scope, false);
-        return ir_mark_gen(ir_mark_gen(ir_build_const_void(irb, child_scope, block_node)));
+        return ir_gen_value(irb, parent_scope, block_node, lval, result_loc,
+                ir_mark_gen(ir_build_const_void(irb, child_scope, block_node)));
     }
 }
 
@@ -3688,87 +3688,125 @@ static IrInstruction *ir_gen_bin_op(IrBuilder *irb, Scope *scope, AstNode *node,
         case BinOpTypeInvalid:
             zig_unreachable();
         case BinOpTypeAssign:
-            return ir_lval_wrap(irb, scope, ir_gen_assign(irb, scope, node), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc, ir_gen_assign(irb, scope, node));
         case BinOpTypeAssignTimes:
-            return ir_lval_wrap(irb, scope, ir_gen_assign_op(irb, scope, node, IrBinOpMult), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                    ir_gen_assign_op(irb, scope, node, IrBinOpMult));
         case BinOpTypeAssignTimesWrap:
-            return ir_lval_wrap(irb, scope, ir_gen_assign_op(irb, scope, node, IrBinOpMultWrap), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                    ir_gen_assign_op(irb, scope, node, IrBinOpMultWrap));
         case BinOpTypeAssignDiv:
-            return ir_lval_wrap(irb, scope, ir_gen_assign_op(irb, scope, node, IrBinOpDivUnspecified), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                    ir_gen_assign_op(irb, scope, node, IrBinOpDivUnspecified));
         case BinOpTypeAssignMod:
-            return ir_lval_wrap(irb, scope, ir_gen_assign_op(irb, scope, node, IrBinOpRemUnspecified), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                    ir_gen_assign_op(irb, scope, node, IrBinOpRemUnspecified));
         case BinOpTypeAssignPlus:
-            return ir_lval_wrap(irb, scope, ir_gen_assign_op(irb, scope, node, IrBinOpAdd), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                    ir_gen_assign_op(irb, scope, node, IrBinOpAdd));
         case BinOpTypeAssignPlusWrap:
-            return ir_lval_wrap(irb, scope, ir_gen_assign_op(irb, scope, node, IrBinOpAddWrap), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                    ir_gen_assign_op(irb, scope, node, IrBinOpAddWrap));
         case BinOpTypeAssignMinus:
-            return ir_lval_wrap(irb, scope, ir_gen_assign_op(irb, scope, node, IrBinOpSub), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                    ir_gen_assign_op(irb, scope, node, IrBinOpSub));
         case BinOpTypeAssignMinusWrap:
-            return ir_lval_wrap(irb, scope, ir_gen_assign_op(irb, scope, node, IrBinOpSubWrap), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                    ir_gen_assign_op(irb, scope, node, IrBinOpSubWrap));
         case BinOpTypeAssignBitShiftLeft:
-            return ir_lval_wrap(irb, scope, ir_gen_assign_op(irb, scope, node, IrBinOpBitShiftLeftLossy), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                    ir_gen_assign_op(irb, scope, node, IrBinOpBitShiftLeftLossy));
         case BinOpTypeAssignBitShiftRight:
-            return ir_lval_wrap(irb, scope, ir_gen_assign_op(irb, scope, node, IrBinOpBitShiftRightLossy), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                    ir_gen_assign_op(irb, scope, node, IrBinOpBitShiftRightLossy));
         case BinOpTypeAssignBitAnd:
-            return ir_lval_wrap(irb, scope, ir_gen_assign_op(irb, scope, node, IrBinOpBinAnd), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                    ir_gen_assign_op(irb, scope, node, IrBinOpBinAnd));
         case BinOpTypeAssignBitXor:
-            return ir_lval_wrap(irb, scope, ir_gen_assign_op(irb, scope, node, IrBinOpBinXor), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                    ir_gen_assign_op(irb, scope, node, IrBinOpBinXor));
         case BinOpTypeAssignBitOr:
-            return ir_lval_wrap(irb, scope, ir_gen_assign_op(irb, scope, node, IrBinOpBinOr), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                    ir_gen_assign_op(irb, scope, node, IrBinOpBinOr));
         case BinOpTypeAssignMergeErrorSets:
-            return ir_lval_wrap(irb, scope, ir_gen_assign_op(irb, scope, node, IrBinOpMergeErrorSets), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                    ir_gen_assign_op(irb, scope, node, IrBinOpMergeErrorSets));
         case BinOpTypeBoolOr:
-            return ir_lval_wrap(irb, scope, ir_gen_bool_or(irb, scope, node), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc, ir_gen_bool_or(irb, scope, node));
         case BinOpTypeBoolAnd:
-            return ir_lval_wrap(irb, scope, ir_gen_bool_and(irb, scope, node), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc, ir_gen_bool_and(irb, scope, node));
         case BinOpTypeCmpEq:
-            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpCmpEq), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                    ir_gen_bin_op_id(irb, scope, node, IrBinOpCmpEq));
         case BinOpTypeCmpNotEq:
-            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpCmpNotEq), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                    ir_gen_bin_op_id(irb, scope, node, IrBinOpCmpNotEq));
         case BinOpTypeCmpLessThan:
-            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpCmpLessThan), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                    ir_gen_bin_op_id(irb, scope, node, IrBinOpCmpLessThan));
         case BinOpTypeCmpGreaterThan:
-            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpCmpGreaterThan), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                    ir_gen_bin_op_id(irb, scope, node, IrBinOpCmpGreaterThan));
         case BinOpTypeCmpLessOrEq:
-            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpCmpLessOrEq), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                    ir_gen_bin_op_id(irb, scope, node, IrBinOpCmpLessOrEq));
         case BinOpTypeCmpGreaterOrEq:
-            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpCmpGreaterOrEq), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                    ir_gen_bin_op_id(irb, scope, node, IrBinOpCmpGreaterOrEq));
         case BinOpTypeBinOr:
-            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpBinOr), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                    ir_gen_bin_op_id(irb, scope, node, IrBinOpBinOr));
         case BinOpTypeBinXor:
-            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpBinXor), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                    ir_gen_bin_op_id(irb, scope, node, IrBinOpBinXor));
         case BinOpTypeBinAnd:
-            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpBinAnd), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                ir_gen_bin_op_id(irb, scope, node, IrBinOpBinAnd));
         case BinOpTypeBitShiftLeft:
-            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpBitShiftLeftLossy), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                ir_gen_bin_op_id(irb, scope, node, IrBinOpBitShiftLeftLossy));
         case BinOpTypeBitShiftRight:
-            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpBitShiftRightLossy), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                ir_gen_bin_op_id(irb, scope, node, IrBinOpBitShiftRightLossy));
         case BinOpTypeAdd:
-            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpAdd), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                ir_gen_bin_op_id(irb, scope, node, IrBinOpAdd));
         case BinOpTypeAddWrap:
-            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpAddWrap), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                ir_gen_bin_op_id(irb, scope, node, IrBinOpAddWrap));
         case BinOpTypeSub:
-            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpSub), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                ir_gen_bin_op_id(irb, scope, node, IrBinOpSub));
         case BinOpTypeSubWrap:
-            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpSubWrap), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                    ir_gen_bin_op_id(irb, scope, node, IrBinOpSubWrap));
         case BinOpTypeMult:
-            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpMult), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                    ir_gen_bin_op_id(irb, scope, node, IrBinOpMult));
         case BinOpTypeMultWrap:
-            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpMultWrap), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                    ir_gen_bin_op_id(irb, scope, node, IrBinOpMultWrap));
         case BinOpTypeDiv:
-            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpDivUnspecified), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                    ir_gen_bin_op_id(irb, scope, node, IrBinOpDivUnspecified));
         case BinOpTypeMod:
-            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpRemUnspecified), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                    ir_gen_bin_op_id(irb, scope, node, IrBinOpRemUnspecified));
         case BinOpTypeArrayCat:
-            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpArrayCat), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                    ir_gen_bin_op_id(irb, scope, node, IrBinOpArrayCat));
         case BinOpTypeArrayMult:
-            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpArrayMult), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                    ir_gen_bin_op_id(irb, scope, node, IrBinOpArrayMult));
         case BinOpTypeMergeErrorSets:
-            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpMergeErrorSets), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                    ir_gen_bin_op_id(irb, scope, node, IrBinOpMergeErrorSets));
+        case BinOpTypeErrorUnion:
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                    ir_gen_error_union(irb, scope, node));
+
         case BinOpTypeUnwrapOptional:
             return ir_gen_orelse(irb, scope, node, lval, result_loc);
-        case BinOpTypeErrorUnion:
-            return ir_lval_wrap(irb, scope, ir_gen_error_union(irb, scope, node), lval);
     }
     zig_unreachable();
 }
@@ -3829,7 +3867,7 @@ static IrInstruction *ir_gen_symbol(IrBuilder *irb, Scope *scope, AstNode *node,
         }
     } else {
         IrInstruction *value = ir_build_const_type(irb, scope, node, primitive_type);
-        return ir_lval_wrap(irb, scope, value, lval);
+        return ir_gen_value(irb, scope, node, lval, result_loc, value);
     }
 
     ScopeFnDef *crossed_fndef_scope;
@@ -3986,7 +4024,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg;
 
                 IrInstruction *type_of = ir_build_typeof(irb, scope, node, arg);
-                return ir_lval_wrap(irb, scope, type_of, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, type_of);
             }
         case BuiltinFnIdSetCold:
             {
@@ -3996,7 +4034,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg0_value;
 
                 IrInstruction *set_cold = ir_build_set_cold(irb, scope, node, arg0_value);
-                return ir_lval_wrap(irb, scope, set_cold, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, set_cold);
             }
         case BuiltinFnIdSetRuntimeSafety:
             {
@@ -4006,7 +4044,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg0_value;
 
                 IrInstruction *set_safety = ir_build_set_runtime_safety(irb, scope, node, arg0_value);
-                return ir_lval_wrap(irb, scope, set_safety, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, set_safety);
             }
         case BuiltinFnIdSetFloatMode:
             {
@@ -4016,7 +4054,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg0_value;
 
                 IrInstruction *set_float_mode = ir_build_set_float_mode(irb, scope, node, arg0_value);
-                return ir_lval_wrap(irb, scope, set_float_mode, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, set_float_mode);
             }
         case BuiltinFnIdSizeof:
             {
@@ -4026,7 +4064,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg0_value;
 
                 IrInstruction *size_of = ir_build_size_of(irb, scope, node, arg0_value);
-                return ir_lval_wrap(irb, scope, size_of, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, size_of);
             }
         case BuiltinFnIdCtz:
             {
@@ -4036,7 +4074,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg0_value;
 
                 IrInstruction *ctz = ir_build_ctz(irb, scope, node, arg0_value);
-                return ir_lval_wrap(irb, scope, ctz, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, ctz);
             }
         case BuiltinFnIdPopCount:
             {
@@ -4046,7 +4084,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg0_value;
 
                 IrInstruction *instr = ir_build_pop_count(irb, scope, node, arg0_value);
-                return ir_lval_wrap(irb, scope, instr, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, instr);
             }
         case BuiltinFnIdClz:
             {
@@ -4056,7 +4094,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg0_value;
 
                 IrInstruction *clz = ir_build_clz(irb, scope, node, arg0_value);
-                return ir_lval_wrap(irb, scope, clz, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, clz);
             }
         case BuiltinFnIdImport:
             {
@@ -4066,12 +4104,12 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg0_value;
 
                 IrInstruction *import = ir_build_import(irb, scope, node, arg0_value);
-                return ir_lval_wrap(irb, scope, import, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, import);
             }
         case BuiltinFnIdCImport:
             {
                 IrInstruction *c_import = ir_build_c_import(irb, scope, node);
-                return ir_lval_wrap(irb, scope, c_import, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, c_import);
             }
         case BuiltinFnIdCInclude:
             {
@@ -4086,7 +4124,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 }
 
                 IrInstruction *c_include = ir_build_c_include(irb, scope, node, arg0_value);
-                return ir_lval_wrap(irb, scope, c_include, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, c_include);
             }
         case BuiltinFnIdCDefine:
             {
@@ -4106,7 +4144,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 }
 
                 IrInstruction *c_define = ir_build_c_define(irb, scope, node, arg0_value, arg1_value);
-                return ir_lval_wrap(irb, scope, c_define, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, c_define);
             }
         case BuiltinFnIdCUndef:
             {
@@ -4121,7 +4159,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 }
 
                 IrInstruction *c_undef = ir_build_c_undef(irb, scope, node, arg0_value);
-                return ir_lval_wrap(irb, scope, c_undef, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, c_undef);
             }
         case BuiltinFnIdCompileErr:
             {
@@ -4131,7 +4169,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg0_value;
 
                 IrInstruction *compile_err = ir_build_compile_err(irb, scope, node, arg0_value);
-                return ir_lval_wrap(irb, scope, compile_err, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, compile_err);
             }
         case BuiltinFnIdCompileLog:
             {
@@ -4145,7 +4183,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 }
 
                 IrInstruction *compile_log = ir_build_compile_log(irb, scope, node, actual_param_count, args);
-                return ir_lval_wrap(irb, scope, compile_log, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, compile_log);
             }
         case BuiltinFnIdErrName:
             {
@@ -4155,7 +4193,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg0_value;
 
                 IrInstruction *err_name = ir_build_err_name(irb, scope, node, arg0_value);
-                return ir_lval_wrap(irb, scope, err_name, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, err_name);
             }
         case BuiltinFnIdEmbedFile:
             {
@@ -4165,7 +4203,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg0_value;
 
                 IrInstruction *embed_file = ir_build_embed_file(irb, scope, node, arg0_value);
-                return ir_lval_wrap(irb, scope, embed_file, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, embed_file);
             }
         case BuiltinFnIdCmpxchgWeak:
         case BuiltinFnIdCmpxchgStrong:
@@ -4203,7 +4241,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 IrInstruction *cmpxchg = ir_build_cmpxchg(irb, scope, node, arg0_value, arg1_value,
                     arg2_value, arg3_value, arg4_value, arg5_value, (builtin_fn->id == BuiltinFnIdCmpxchgWeak),
                     nullptr, AtomicOrderUnordered, AtomicOrderUnordered, result_loc);
-                return ir_lval_wrap(irb, scope, cmpxchg, lval);
+                return ir_gen_multi(irb, scope, node, lval, result_loc, cmpxchg);
             }
         case BuiltinFnIdFence:
             {
@@ -4213,7 +4251,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg0_value;
 
                 IrInstruction *fence = ir_build_fence(irb, scope, node, arg0_value, AtomicOrderUnordered);
-                return ir_lval_wrap(irb, scope, fence, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, fence);
             }
         case BuiltinFnIdDivExact:
             {
@@ -4228,7 +4266,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg1_value;
 
                 IrInstruction *bin_op = ir_build_bin_op(irb, scope, node, IrBinOpDivExact, arg0_value, arg1_value, true);
-                return ir_lval_wrap(irb, scope, bin_op, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, bin_op);
             }
         case BuiltinFnIdDivTrunc:
             {
@@ -4243,7 +4281,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg1_value;
 
                 IrInstruction *bin_op = ir_build_bin_op(irb, scope, node, IrBinOpDivTrunc, arg0_value, arg1_value, true);
-                return ir_lval_wrap(irb, scope, bin_op, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, bin_op);
             }
         case BuiltinFnIdDivFloor:
             {
@@ -4258,7 +4296,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg1_value;
 
                 IrInstruction *bin_op = ir_build_bin_op(irb, scope, node, IrBinOpDivFloor, arg0_value, arg1_value, true);
-                return ir_lval_wrap(irb, scope, bin_op, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, bin_op);
             }
         case BuiltinFnIdRem:
             {
@@ -4273,7 +4311,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg1_value;
 
                 IrInstruction *bin_op = ir_build_bin_op(irb, scope, node, IrBinOpRemRem, arg0_value, arg1_value, true);
-                return ir_lval_wrap(irb, scope, bin_op, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, bin_op);
             }
         case BuiltinFnIdMod:
             {
@@ -4288,7 +4326,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg1_value;
 
                 IrInstruction *bin_op = ir_build_bin_op(irb, scope, node, IrBinOpRemMod, arg0_value, arg1_value, true);
-                return ir_lval_wrap(irb, scope, bin_op, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, bin_op);
             }
         case BuiltinFnIdSqrt:
             {
@@ -4303,7 +4341,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg1_value;
 
                 IrInstruction *ir_sqrt = ir_build_sqrt(irb, scope, node, arg0_value, arg1_value);
-                return ir_lval_wrap(irb, scope, ir_sqrt, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, ir_sqrt);
             }
         case BuiltinFnIdTruncate:
             {
@@ -4318,7 +4356,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg1_value;
 
                 IrInstruction *truncate = ir_build_truncate(irb, scope, node, arg0_value, arg1_value);
-                return ir_lval_wrap(irb, scope, truncate, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, truncate);
             }
         case BuiltinFnIdIntCast:
             {
@@ -4333,7 +4371,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg1_value;
 
                 IrInstruction *result = ir_build_int_cast(irb, scope, node, arg0_value, arg1_value);
-                return ir_lval_wrap(irb, scope, result, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, result);
             }
         case BuiltinFnIdFloatCast:
             {
@@ -4348,7 +4386,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg1_value;
 
                 IrInstruction *result = ir_build_float_cast(irb, scope, node, arg0_value, arg1_value);
-                return ir_lval_wrap(irb, scope, result, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, result);
             }
         case BuiltinFnIdErrSetCast:
             {
@@ -4363,7 +4401,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg1_value;
 
                 IrInstruction *result = ir_build_err_set_cast(irb, scope, node, arg0_value, arg1_value);
-                return ir_lval_wrap(irb, scope, result, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, result);
             }
         case BuiltinFnIdFromBytes:
             {
@@ -4405,7 +4443,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg1_value;
 
                 IrInstruction *result = ir_build_int_to_float(irb, scope, node, arg0_value, arg1_value);
-                return ir_lval_wrap(irb, scope, result, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, result);
             }
         case BuiltinFnIdFloatToInt:
             {
@@ -4420,7 +4458,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg1_value;
 
                 IrInstruction *result = ir_build_float_to_int(irb, scope, node, arg0_value, arg1_value);
-                return ir_lval_wrap(irb, scope, result, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, result);
             }
         case BuiltinFnIdErrToInt:
             {
@@ -4430,7 +4468,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg0_value;
 
                 IrInstruction *result = ir_build_err_to_int(irb, scope, node, arg0_value);
-                return ir_lval_wrap(irb, scope, result, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, result);
             }
         case BuiltinFnIdIntToErr:
             {
@@ -4440,7 +4478,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg0_value;
 
                 IrInstruction *result = ir_build_int_to_err(irb, scope, node, arg0_value);
-                return ir_lval_wrap(irb, scope, result, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, result);
             }
         case BuiltinFnIdBoolToInt:
             {
@@ -4450,7 +4488,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg0_value;
 
                 IrInstruction *result = ir_build_bool_to_int(irb, scope, node, arg0_value);
-                return ir_lval_wrap(irb, scope, result, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, result);
             }
         case BuiltinFnIdIntType:
             {
@@ -4465,7 +4503,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg1_value;
 
                 IrInstruction *int_type = ir_build_int_type(irb, scope, node, arg0_value, arg1_value);
-                return ir_lval_wrap(irb, scope, int_type, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, int_type);
             }
         case BuiltinFnIdMemcpy:
             {
@@ -4485,7 +4523,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg2_value;
 
                 IrInstruction *ir_memcpy = ir_build_memcpy(irb, scope, node, arg0_value, arg1_value, arg2_value);
-                return ir_lval_wrap(irb, scope, ir_memcpy, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, ir_memcpy);
             }
         case BuiltinFnIdMemset:
             {
@@ -4505,7 +4543,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg2_value;
 
                 IrInstruction *ir_memset = ir_build_memset(irb, scope, node, arg0_value, arg1_value, arg2_value);
-                return ir_lval_wrap(irb, scope, ir_memset, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, ir_memset);
             }
         case BuiltinFnIdMemberCount:
             {
@@ -4515,7 +4553,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg0_value;
 
                 IrInstruction *member_count = ir_build_member_count(irb, scope, node, arg0_value);
-                return ir_lval_wrap(irb, scope, member_count, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, member_count);
             }
         case BuiltinFnIdMemberType:
             {
@@ -4531,7 +4569,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
 
 
                 IrInstruction *member_type = ir_build_member_type(irb, scope, node, arg0_value, arg1_value);
-                return ir_lval_wrap(irb, scope, member_type, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, member_type);
             }
         case BuiltinFnIdMemberName:
             {
@@ -4545,9 +4583,8 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 if (arg1_value == irb->codegen->invalid_instruction)
                     return arg1_value;
 
-
                 IrInstruction *member_name = ir_build_member_name(irb, scope, node, arg0_value, arg1_value);
-                return ir_lval_wrap(irb, scope, member_name, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, member_name);
             }
         case BuiltinFnIdField:
             {
@@ -4573,14 +4610,14 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg0_value;
 
                 IrInstruction *type_info = ir_build_type_info(irb, scope, node, arg0_value);
-                return ir_lval_wrap(irb, scope, type_info, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, type_info);
             }
         case BuiltinFnIdBreakpoint:
-            return ir_lval_wrap(irb, scope, ir_build_breakpoint(irb, scope, node), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc, ir_build_breakpoint(irb, scope, node));
         case BuiltinFnIdReturnAddress:
-            return ir_lval_wrap(irb, scope, ir_build_return_address(irb, scope, node), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc, ir_build_return_address(irb, scope, node));
         case BuiltinFnIdFrameAddress:
-            return ir_lval_wrap(irb, scope, ir_build_frame_address(irb, scope, node), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc, ir_build_frame_address(irb, scope, node));
         case BuiltinFnIdHandle:
             if (!irb->exec->fn_entry) {
                 add_node_error(irb->codegen, node, buf_sprintf("@handle() called outside of function definition"));
@@ -4590,7 +4627,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 add_node_error(irb->codegen, node, buf_sprintf("@handle() in non-async function"));
                 return irb->codegen->invalid_instruction;
             }
-            return ir_lval_wrap(irb, scope, ir_build_handle(irb, scope, node), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc, ir_build_handle(irb, scope, node));
         case BuiltinFnIdAlignOf:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
@@ -4599,16 +4636,20 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg0_value;
 
                 IrInstruction *align_of = ir_build_align_of(irb, scope, node, arg0_value);
-                return ir_lval_wrap(irb, scope, align_of, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, align_of);
             }
         case BuiltinFnIdAddWithOverflow:
-            return ir_lval_wrap(irb, scope, ir_gen_overflow_op(irb, scope, node, IrOverflowOpAdd), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                    ir_gen_overflow_op(irb, scope, node, IrOverflowOpAdd));
         case BuiltinFnIdSubWithOverflow:
-            return ir_lval_wrap(irb, scope, ir_gen_overflow_op(irb, scope, node, IrOverflowOpSub), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                    ir_gen_overflow_op(irb, scope, node, IrOverflowOpSub));
         case BuiltinFnIdMulWithOverflow:
-            return ir_lval_wrap(irb, scope, ir_gen_overflow_op(irb, scope, node, IrOverflowOpMul), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                    ir_gen_overflow_op(irb, scope, node, IrOverflowOpMul));
         case BuiltinFnIdShlWithOverflow:
-            return ir_lval_wrap(irb, scope, ir_gen_overflow_op(irb, scope, node, IrOverflowOpShl), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                    ir_gen_overflow_op(irb, scope, node, IrOverflowOpShl));
         case BuiltinFnIdTypeName:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
@@ -4617,7 +4658,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg0_value;
 
                 IrInstruction *type_name = ir_build_type_name(irb, scope, node, arg0_value, result_loc);
-                return ir_lval_wrap(irb, scope, type_name, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, type_name);
             }
         case BuiltinFnIdPanic:
             {
@@ -4627,7 +4668,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg0_value;
 
                 IrInstruction *panic = ir_build_panic(irb, scope, node, arg0_value);
-                return ir_lval_wrap(irb, scope, panic, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, panic);
             }
         case BuiltinFnIdPtrCast:
             {
@@ -4642,7 +4683,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg1_value;
 
                 IrInstruction *ptr_cast = ir_build_ptr_cast(irb, scope, node, arg0_value, arg1_value);
-                return ir_lval_wrap(irb, scope, ptr_cast, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, ptr_cast);
             }
         case BuiltinFnIdBitCast:
             {
@@ -4673,7 +4714,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg1_value;
 
                 IrInstruction *int_to_ptr = ir_build_int_to_ptr(irb, scope, node, arg0_value, arg1_value);
-                return ir_lval_wrap(irb, scope, int_to_ptr, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, int_to_ptr);
             }
         case BuiltinFnIdPtrToInt:
             {
@@ -4693,8 +4734,8 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg0_value;
 
                 IrInstruction *actual_tag = ir_build_union_tag(irb, scope, node, arg0_value);
-                IrInstruction *tag_name = ir_build_tag_name(irb, scope, node, actual_tag, result_loc);
-                return ir_lval_wrap(irb, scope, tag_name, lval);
+                IrInstruction *tag_name = ir_build_tag_name(irb, scope, node, actual_tag);
+                return ir_gen_value(irb, scope, node, lval, result_loc, tag_name);
             }
         case BuiltinFnIdTagType:
             {
@@ -4704,7 +4745,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg0_value;
 
                 IrInstruction *tag_type = ir_build_tag_type(irb, scope, node, arg0_value);
-                return ir_lval_wrap(irb, scope, tag_type, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, tag_type);
             }
         case BuiltinFnIdFieldParentPtr:
             {
@@ -4723,8 +4764,9 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 if (arg2_value == irb->codegen->invalid_instruction)
                     return arg2_value;
 
-                IrInstruction *field_parent_ptr = ir_build_field_parent_ptr(irb, scope, node, arg0_value, arg1_value, arg2_value, nullptr);
-                return ir_lval_wrap(irb, scope, field_parent_ptr, lval);
+                IrInstruction *field_parent_ptr = ir_build_field_parent_ptr(irb, scope, node,
+                        arg0_value, arg1_value, arg2_value, nullptr);
+                return ir_gen_value(irb, scope, node, lval, result_loc, field_parent_ptr);
             }
         case BuiltinFnIdByteOffsetOf:
             {
@@ -4739,7 +4781,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg1_value;
 
                 IrInstruction *offset_of = ir_build_byte_offset_of(irb, scope, node, arg0_value, arg1_value);
-                return ir_lval_wrap(irb, scope, offset_of, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, offset_of);
             }
         case BuiltinFnIdBitOffsetOf:
             {
@@ -4754,7 +4796,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg1_value;
 
                 IrInstruction *offset_of = ir_build_bit_offset_of(irb, scope, node, arg0_value, arg1_value);
-                return ir_lval_wrap(irb, scope, offset_of, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, offset_of);
             }
         case BuiltinFnIdInlineCall:
         case BuiltinFnIdNoInlineCall:
@@ -4783,7 +4825,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
 
                 IrInstruction *call = ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false,
                         fn_inline, false, nullptr, nullptr, result_loc, nullptr);
-                return ir_lval_wrap(irb, scope, call, lval);
+                return ir_gen_multi(irb, scope, node, lval, result_loc, call);
             }
         case BuiltinFnIdNewStackCall:
             {
@@ -4815,7 +4857,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
 
                 IrInstruction *call = ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args,
                         false, FnInlineAuto, false, nullptr, new_stack, result_loc, nullptr);
-                return ir_lval_wrap(irb, scope, call, lval);
+                return ir_gen_multi(irb, scope, node, lval, result_loc, call);
             }
         case BuiltinFnIdTypeId:
             {
@@ -4825,7 +4867,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg0_value;
 
                 IrInstruction *type_id = ir_build_type_id(irb, scope, node, arg0_value);
-                return ir_lval_wrap(irb, scope, type_id, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, type_id);
             }
         case BuiltinFnIdShlExact:
             {
@@ -4839,8 +4881,9 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 if (arg1_value == irb->codegen->invalid_instruction)
                     return arg1_value;
 
-                IrInstruction *bin_op = ir_build_bin_op(irb, scope, node, IrBinOpBitShiftLeftExact, arg0_value, arg1_value, true);
-                return ir_lval_wrap(irb, scope, bin_op, lval);
+                IrInstruction *bin_op = ir_build_bin_op(irb, scope, node, IrBinOpBitShiftLeftExact,
+                        arg0_value, arg1_value, true);
+                return ir_gen_value(irb, scope, node, lval, result_loc, bin_op);
             }
         case BuiltinFnIdShrExact:
             {
@@ -4854,8 +4897,9 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 if (arg1_value == irb->codegen->invalid_instruction)
                     return arg1_value;
 
-                IrInstruction *bin_op = ir_build_bin_op(irb, scope, node, IrBinOpBitShiftRightExact, arg0_value, arg1_value, true);
-                return ir_lval_wrap(irb, scope, bin_op, lval);
+                IrInstruction *bin_op = ir_build_bin_op(irb, scope, node, IrBinOpBitShiftRightExact,
+                        arg0_value, arg1_value, true);
+                return ir_gen_value(irb, scope, node, lval, result_loc, bin_op);
             }
         case BuiltinFnIdSetEvalBranchQuota:
             {
@@ -4865,7 +4909,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg0_value;
 
                 IrInstruction *set_eval_branch_quota = ir_build_set_eval_branch_quota(irb, scope, node, arg0_value);
-                return ir_lval_wrap(irb, scope, set_eval_branch_quota, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, set_eval_branch_quota);
             }
         case BuiltinFnIdAlignCast:
             {
@@ -4880,17 +4924,17 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg1_value;
 
                 IrInstruction *align_cast = ir_build_align_cast(irb, scope, node, arg0_value, arg1_value);
-                return ir_lval_wrap(irb, scope, align_cast, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, align_cast);
             }
         case BuiltinFnIdOpaqueType:
             {
                 IrInstruction *opaque_type = ir_build_opaque_type(irb, scope, node);
-                return ir_lval_wrap(irb, scope, opaque_type, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, opaque_type);
             }
         case BuiltinFnIdThis:
             {
                 IrInstruction *this_inst = ir_gen_this(irb, scope, node);
-                return ir_lval_wrap(irb, scope, this_inst, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, this_inst);
             }
         case BuiltinFnIdSetAlignStack:
             {
@@ -4900,7 +4944,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg0_value;
 
                 IrInstruction *set_align_stack = ir_build_set_align_stack(irb, scope, node, arg0_value);
-                return ir_lval_wrap(irb, scope, set_align_stack, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, set_align_stack);
             }
         case BuiltinFnIdArgType:
             {
@@ -4915,7 +4959,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg1_value;
 
                 IrInstruction *arg_type = ir_build_arg_type(irb, scope, node, arg0_value, arg1_value);
-                return ir_lval_wrap(irb, scope, arg_type, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, arg_type);
             }
         case BuiltinFnIdExport:
             {
@@ -4935,12 +4979,13 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg2_value;
 
                 IrInstruction *ir_export = ir_build_export(irb, scope, node, arg0_value, arg1_value, arg2_value);
-                return ir_lval_wrap(irb, scope, ir_export, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, ir_export);
             }
         case BuiltinFnIdErrorReturnTrace:
             {
-                IrInstruction *error_return_trace = ir_build_error_return_trace(irb, scope, node, IrInstructionErrorReturnTrace::Null);
-                return ir_lval_wrap(irb, scope, error_return_trace, lval);
+                IrInstruction *error_return_trace = ir_build_error_return_trace(irb, scope, node,
+                        IrInstructionErrorReturnTrace::Null);
+                return ir_gen_value(irb, scope, node, lval, result_loc, error_return_trace);
             }
         case BuiltinFnIdAtomicRmw:
             {
@@ -4969,10 +5014,11 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 if (arg4_value == irb->codegen->invalid_instruction)
                     return arg4_value;
 
-                return ir_build_atomic_rmw(irb, scope, node, arg0_value, arg1_value, arg2_value, arg3_value,
-                        arg4_value,
+                IrInstruction *result = ir_build_atomic_rmw(irb, scope, node, arg0_value, arg1_value,
+                        arg2_value, arg3_value, arg4_value,
                         // these 2 values don't mean anything since we passed non-null values for other args
                         AtomicRmwOp_xchg, AtomicOrderMonotonic);
+                return ir_gen_value(irb, scope, node, lval, result_loc, result);
             }
         case BuiltinFnIdAtomicLoad:
             {
@@ -4991,9 +5037,10 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 if (arg2_value == irb->codegen->invalid_instruction)
                     return arg2_value;
 
-                return ir_build_atomic_load(irb, scope, node, arg0_value, arg1_value, arg2_value,
+                IrInstruction *result = ir_build_atomic_load(irb, scope, node, arg0_value, arg1_value, arg2_value,
                         // this value does not mean anything since we passed non-null values for other arg
                         AtomicOrderMonotonic);
+                return ir_gen_value(irb, scope, node, lval, result_loc, result);
             }
         case BuiltinFnIdIntToEnum:
             {
@@ -5008,7 +5055,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg1_value;
 
                 IrInstruction *result = ir_build_int_to_enum(irb, scope, node, arg0_value, arg1_value);
-                return ir_lval_wrap(irb, scope, result, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, result);
             }
         case BuiltinFnIdEnumToInt:
             {
@@ -5018,7 +5065,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg0_value;
 
                 IrInstruction *result = ir_build_enum_to_int(irb, scope, node, arg0_value);
-                return ir_lval_wrap(irb, scope, result, lval);
+                return ir_gen_value(irb, scope, node, lval, result_loc, result);
             }
     }
     zig_unreachable();
@@ -5138,17 +5185,6 @@ static IrInstruction *ir_gen_prefix_op_id(IrBuilder *irb, Scope *scope, AstNode 
     return ir_build_un_op(irb, scope, node, op_id, value);
 }
 
-static IrInstruction *ir_lval_wrap(IrBuilder *irb, Scope *scope, IrInstruction *value, LVal lval) {
-    if (lval != LValPtr)
-        return value;
-    if (value == irb->codegen->invalid_instruction)
-        return value;
-
-    // We needed a pointer to a value, but we got a value. So we create
-    // an instruction which just makes a pointer of it.
-    return ir_build_ref(irb, scope, value->source_node, value, false, false);
-}
-
 static IrInstruction *ir_gen_pointer_type(IrBuilder *irb, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypePointerType);
     PtrLen ptr_len = (node->data.pointer_type.star_token->id == TokenIdStar ||
@@ -5246,15 +5282,19 @@ static IrInstruction *ir_gen_prefix_op_expr(IrBuilder *irb, Scope *scope, AstNod
         case PrefixOpInvalid:
             zig_unreachable();
         case PrefixOpBoolNot:
-            return ir_lval_wrap(irb, scope, ir_gen_bool_not(irb, scope, node), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc, ir_gen_bool_not(irb, scope, node));
         case PrefixOpBinNot:
-            return ir_lval_wrap(irb, scope, ir_gen_prefix_op_id(irb, scope, node, IrUnOpBinNot), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                    ir_gen_prefix_op_id(irb, scope, node, IrUnOpBinNot));
         case PrefixOpNegation:
-            return ir_lval_wrap(irb, scope, ir_gen_prefix_op_id(irb, scope, node, IrUnOpNegation), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                    ir_gen_prefix_op_id(irb, scope, node, IrUnOpNegation));
         case PrefixOpNegationWrap:
-            return ir_lval_wrap(irb, scope, ir_gen_prefix_op_id(irb, scope, node, IrUnOpNegationWrap), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                    ir_gen_prefix_op_id(irb, scope, node, IrUnOpNegationWrap));
         case PrefixOpOptional:
-            return ir_lval_wrap(irb, scope, ir_gen_prefix_op_id(irb, scope, node, IrUnOpOptional), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc,
+                    ir_gen_prefix_op_id(irb, scope, node, IrUnOpOptional));
         case PrefixOpAddrOf: {
             AstNode *expr_node = node->data.prefix_op_expr.primary_expr;
             IrInstruction *ensured_result_loc = ensure_result_loc(irb, scope, expr_node, result_loc);
@@ -7261,7 +7301,7 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
         case NodeTypeTestDecl:
             zig_unreachable();
         case NodeTypeBlock:
-            return ir_lval_wrap(irb, scope, ir_gen_block(irb, scope, node, result_loc), lval);
+            return ir_gen_block(irb, scope, node, lval, result_loc);
         case NodeTypeGroupedExpr:
             return ir_gen_node_raw(irb, node->data.grouped_expr, scope, lval, result_loc);
         case NodeTypeBinOpExpr:
@@ -7285,7 +7325,7 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             return ir_gen_container_init_expr(irb, scope, node, lval,
                     ensure_result_loc(irb, scope, node, result_loc));
         case NodeTypeVariableDeclaration:
-            return ir_lval_wrap(irb, scope, ir_gen_var_decl(irb, scope, node), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc, ir_gen_var_decl(irb, scope, node));
         case NodeTypeWhileExpr:
             return ir_gen_while_expr(irb, scope, node, lval,
                     ensure_result_loc(irb, scope, node, result_loc));
@@ -7348,13 +7388,13 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
         case NodeTypeErrorType:
             return ir_gen_value(irb, scope, node, lval, result_loc, ir_gen_error_type(irb, scope, node));
         case NodeTypeBreak:
-            return ir_lval_wrap(irb, scope, ir_gen_break(irb, scope, node), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc, ir_gen_break(irb, scope, node));
         case NodeTypeContinue:
-            return ir_lval_wrap(irb, scope, ir_gen_continue(irb, scope, node), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc, ir_gen_continue(irb, scope, node));
         case NodeTypeUnreachable:
-            return ir_lval_wrap(irb, scope, ir_build_unreachable(irb, scope, node), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc, ir_build_unreachable(irb, scope, node));
         case NodeTypeDefer:
-            return ir_lval_wrap(irb, scope, ir_gen_defer(irb, scope, node), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc, ir_gen_defer(irb, scope, node));
         case NodeTypeSliceExpr:
             return ir_gen_slice(irb, scope, node, lval,
                     ensure_result_loc(irb, scope, node, result_loc));
@@ -7362,19 +7402,19 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             return ir_gen_catch(irb, scope, node, lval,
                     ensure_result_loc(irb, scope, node, result_loc));
         case NodeTypeContainerDecl:
-            return ir_lval_wrap(irb, scope, ir_gen_container_decl(irb, scope, node), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc, ir_gen_container_decl(irb, scope, node));
         case NodeTypeFnProto:
             return ir_gen_value(irb, scope, node, lval, result_loc, ir_gen_fn_proto(irb, scope, node));
         case NodeTypeErrorSetDecl:
             return ir_gen_value(irb, scope, node, lval, result_loc, ir_gen_err_set_decl(irb, scope, node));
         case NodeTypeCancel:
-            return ir_lval_wrap(irb, scope, ir_gen_cancel(irb, scope, node), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc, ir_gen_cancel(irb, scope, node));
         case NodeTypeResume:
-            return ir_lval_wrap(irb, scope, ir_gen_resume(irb, scope, node), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc, ir_gen_resume(irb, scope, node));
         case NodeTypeAwaitExpr:
-            return ir_lval_wrap(irb, scope, ir_gen_await_expr(irb, scope, node), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc, ir_gen_await_expr(irb, scope, node));
         case NodeTypeSuspend:
-            return ir_lval_wrap(irb, scope, ir_gen_suspend(irb, scope, node), lval);
+            return ir_gen_value(irb, scope, node, lval, result_loc, ir_gen_suspend(irb, scope, node));
     }
     zig_unreachable();
 }
@@ -17299,7 +17339,7 @@ static IrInstruction *ir_analyze_instruction_err_name(IrAnalyze *ira, IrInstruct
     if (type_is_invalid(value->value.type))
         return ira->codegen->invalid_instruction;
 
-    IrInstruction *casted_value = ir_implicit_cast(ira, value, value->value.type);
+    IrInstruction *casted_value = ir_implicit_cast(ira, value, ira->codegen->builtin_types.entry_global_error_set);
     if (type_is_invalid(casted_value->value.type))
         return ira->codegen->invalid_instruction;
 
@@ -17332,10 +17372,6 @@ static IrInstruction *ir_analyze_instruction_enum_tag_name(IrAnalyze *ira, IrIns
     if (type_is_invalid(target->value.type))
         return ira->codegen->invalid_instruction;
 
-    IrInstruction *result_loc = instruction->result_loc->child;
-    if (type_is_invalid(result_loc->value.type))
-        return ira->codegen->invalid_instruction;
-
     assert(target->value.type->id == ZigTypeIdEnum);
 
     if (instr_is_comptime(target)) {
@@ -17349,7 +17385,7 @@ static IrInstruction *ir_analyze_instruction_enum_tag_name(IrAnalyze *ira, IrIns
     }
 
     IrInstruction *result = ir_build_tag_name(&ira->new_irb, instruction->base.scope,
-            instruction->base.source_node, target, result_loc);
+            instruction->base.source_node, target);
     ZigType *u8_ptr_type = get_pointer_to_type_extra(
             ira->codegen, ira->codegen->builtin_types.entry_u8,
             true, false, PtrLenUnknown,

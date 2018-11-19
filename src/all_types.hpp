@@ -3022,7 +3022,6 @@ struct IrInstructionTagName {
     IrInstruction base;
 
     IrInstruction *target;
-    IrInstruction *result_loc;
 };
 
 struct IrInstructionTagType {
