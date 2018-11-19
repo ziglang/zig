@@ -3273,13 +3273,13 @@ const err = (error {FileNotFound}).FileNotFound;
       This becomes useful when using {#link|Inferred Error Sets#}.
       </p>
       {#header_open|The Global Error Set#}
-      <p>{#syntax#}error{#endsyntax#} refers to the global error set.
+      <p>{#syntax#}anyerror{#endsyntax#} refers to the global error set.
       This is the error set that contains all errors in the entire compilation unit.
       It is a superset of all other error sets and a subset of none of them.
       </p>
       <p>
       You can implicitly cast any error set to the global one, and you can explicitly
-      cast an error of global error set to a non-global one. This inserts a language-level
+      cast an error of the global error set to a non-global one. This inserts a language-level
       assert to make sure the error value is in fact in the destination error set.
       </p>
       <p>
@@ -5601,18 +5601,14 @@ test "main" {
       {#header_close#}
 
       {#header_open|@errorName#}
-      <pre>{#syntax#}@errorName(err: error) []u8{#endsyntax#}</pre>
+      <pre>{#syntax#}@errorName(err: anyerror) []const u8{#endsyntax#}</pre>
       <p>
-      This function returns the string representation of an error. If an error
-      declaration is:
-      </p>
-      <pre>{#syntax#}error OutOfMem{#endsyntax#}</pre>
-      <p>
-      Then the string representation is {#syntax#}"OutOfMem"{#endsyntax#}.
+      This function returns the string representation of an error. The string representation
+      of {#syntax#}error.OutOfMem{#endsyntax#} is {#syntax#}"OutOfMem"{#endsyntax#}.
       </p>
       <p>
       If there are no calls to {#syntax#}@errorName{#endsyntax#} in an entire application,
-          or all calls have a compile-time known value for {#syntax#}err{#endsyntax#}, then no
+      or all calls have a compile-time known value for {#syntax#}err{#endsyntax#}, then no
       error name table will be generated.
       </p>
       {#header_close#}
@@ -5627,13 +5623,14 @@ test "main" {
       {#header_close#}
 
       {#header_open|@errorToInt#}
-      <pre>{#syntax#}@errorToInt(err: var) @IntType(false, @sizeOf(error) * 8){#endsyntax#}</pre>
+      <pre>{#syntax#}@errorToInt(err: var) @IntType(false, @sizeOf(anyerror) * 8){#endsyntax#}</pre>
       <p>
       Supports the following types:
       </p>
       <ul>
-          <li>error unions</li>
-          <li>{#syntax#}E!void{#endsyntax#}</li>
+          <li>{#link|The Global Error Set#}</li>
+          <li>{#link|Error Set Type#}</li>
+          <li>{#link|Error Union Type#}</li>
       </ul>
       <p>
       Converts an error to the integer representation of an error.
@@ -5788,7 +5785,7 @@ fn add(a: i32, b: i32) i32 { return a + b; }
       {#header_open|@intToError#}
       <pre>{#syntax#}@intToError(value: @IntType(false, @sizeOf(anyerror) * 8)) anyerror{#endsyntax#}</pre>
       <p>
-      Converts from the integer representation of an error into the global error set type.
+      Converts from the integer representation of an error into {#link|The Global Error Set#} type.
       </p>
       <p>
       It is generally recommended to avoid this
