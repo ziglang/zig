@@ -10153,7 +10153,7 @@ static IrInstruction *ir_analyze_int_to_enum(IrAnalyze *ira, IrInstruction *sour
         return ira->codegen->invalid_instruction;
     }
 
-    assert(actual_type->id == ZigTypeIdInt);
+    assert(actual_type->id == ZigTypeIdInt || actual_type->id == ZigTypeIdComptimeInt);
 
     if (instr_is_comptime(target)) {
         ConstExprValue *val = ir_resolve_const(ira, target, UndefBad);

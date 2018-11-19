@@ -462,3 +462,11 @@ test "implicit cast comptime numbers to any type when the value fits" {
     var b: u8 = a;
     assert(b == 255);
 }
+
+test "@intToEnum passed a comptime_int to an enum with one item" {
+    const E = enum {
+        A,
+    };
+    const x = @intToEnum(E, 0);
+    assert(x == E.A);
+}
