@@ -5242,4 +5242,22 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     ,
         ".tmp_source.zig:3:5: error: invalid modifier starting output constraint for 'baz': '+', only '=' is supported. Compiler TODO: see https://github.com/ziglang/zig/issues/215",
     );
+
+    cases.add(
+        "comptime_int in asm input",
+        \\export fn foo() void {
+        \\    asm volatile ("" : : [bar]"r"(3) : "");
+        \\}
+        ,
+            ".tmp_source.zig:2:35: error: expected sized integer or sized float, found comptime_int",
+    );
+
+    cases.add(
+        "comptime_float in asm input",
+        \\export fn foo() void {
+        \\    asm volatile ("" : : [bar]"r"(3.17) : "");
+        \\}
+        ,
+            ".tmp_source.zig:2:35: error: expected sized integer or sized float, found comptime_float",
+    );
 }
