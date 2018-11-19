@@ -5537,6 +5537,15 @@ static IrInstruction *ir_gen_asm_expr(IrBuilder *irb, Scope *scope, AstNode *nod
                 return irb->codegen->invalid_instruction;
             }
         }
+
+        const char modifier = *buf_ptr(asm_output->constraint);
+        if (modifier != '=') {
+            add_node_error(irb->codegen, node,
+                buf_sprintf("invalid modifier starting output constraint for '%s': '%c', only '=' is supported."
+                    " Compiler TODO: see https://github.com/ziglang/zig/issues/215",
+                    buf_ptr(asm_output->asm_symbolic_name), modifier));
+            return irb->codegen->invalid_instruction;
+        }
     }
     for (size_t i = 0; i < node->data.asm_expr.input_list.length; i += 1) {
         AsmInput *asm_input = node->data.asm_expr.input_list.at(i);
@@ -15386,9 +15395,19 @@ static IrInstruction *ir_analyze_instruction_asm(IrAnalyze *ira, IrInstructionAs
     }
 
     for (size_t i = 0; i < asm_expr->input_list.length; i += 1) {
-        input_list[i] = asm_instruction->input_list[i]->child;
-        if (type_is_invalid(input_list[i]->value.type))
+        IrInstruction *const input_value = asm_instruction->input_list[i]->child;
+        if (type_is_invalid(input_value->value.type))
             return ira->codegen->invalid_instruction;
+
+        if (instr_is_comptime(input_value) &&
+            (input_value->value.type->id == ZigTypeIdComptimeInt ||
+            input_value->value.type->id == ZigTypeIdComptimeFloat)) {
+            ir_add_error_node(ira, input_value->source_node,
+                buf_sprintf("expected sized integer or sized float, found %s", buf_ptr(&input_value->value.type->name)));
+            return ira->codegen->invalid_instruction;
+        }
+
+        input_list[i] = input_value;
     }
 
     IrInstruction *result = ir_build_asm(&ira->new_irb,

@@ -3660,6 +3660,13 @@ static LLVMValueRef ir_render_asm(CodeGen *g, IrExecutable *executable, IrInstru
         AsmOutput *asm_output = asm_expr->output_list.at(i);
         bool is_return = (asm_output->return_type != nullptr);
         assert(*buf_ptr(asm_output->constraint) == '=');
+        // LLVM uses commas internally to separate different constraints,
+        // alternative constraints are achieved with pipes.
+        // We still allow the user to use commas in a way that is similar
+        // to GCC's inline assembly.
+        // http://llvm.org/docs/LangRef.html#constraint-codes
+        buf_replace(asm_output->constraint, ',', '|');
+
         if (is_return) {
             buf_appendf(&constraint_buf, "=%s", buf_ptr(asm_output->constraint) + 1);
         } else {
@@ -3679,14 +3686,30 @@ static LLVMValueRef ir_render_asm(CodeGen *g, IrExecutable *executable, IrInstru
     }
     for (size_t i = 0; i < asm_expr->input_list.length; i += 1, total_index += 1, param_index += 1) {
         AsmInput *asm_input = asm_expr->input_list.at(i);
+        buf_replace(asm_input->constraint, ',', '|');
         IrInstruction *ir_input = instruction->input_list[i];
         buf_append_buf(&constraint_buf, asm_input->constraint);
         if (total_index + 1 < total_constraint_count) {
             buf_append_char(&constraint_buf, ',');
         }
 
-        param_types[param_index] = ir_input->value.type->type_ref;
-        param_values[param_index] = ir_llvm_value(g, ir_input);
+        ZigType *const type = ir_input->value.type;
+        LLVMTypeRef type_ref = type->type_ref;
+        LLVMValueRef value_ref = ir_llvm_value(g, ir_input);
+        // Handle integers of non pot bitsize by widening them.
+        if (type->id == ZigTypeIdInt) {
+            const size_t bitsize = type->data.integral.bit_count;
+            if (bitsize < 8 || !is_power_of_2(bitsize)) {
+                const bool is_signed = type->data.integral.is_signed;
+                const size_t wider_bitsize = bitsize < 8 ? 8 : round_to_next_power_of_2(bitsize);
+                ZigType *const wider_type = get_int_type(g, is_signed, wider_bitsize);
+                type_ref = wider_type->type_ref;
+                value_ref = gen_widen_or_shorten(g, false, type, wider_type, value_ref);
+            }
+        }
+
+        param_types[param_index] = type_ref;
+        param_values[param_index] = value_ref;
     }
     for (size_t i = 0; i < asm_expr->clobber_list.length; i += 1, total_index += 1) {
         Buf *clobber_buf = asm_expr->clobber_list.at(i);
@@ -3705,8 +3728,8 @@ static LLVMValueRef ir_render_asm(CodeGen *g, IrExecutable *executable, IrInstru
     LLVMTypeRef function_type = LLVMFunctionType(ret_type, param_types, (unsigned)input_and_output_count, false);
 
     bool is_volatile = asm_expr->is_volatile || (asm_expr->output_list.length == 0);
-    LLVMValueRef asm_fn = LLVMConstInlineAsm(function_type, buf_ptr(&llvm_template),
-            buf_ptr(&constraint_buf), is_volatile, false);
+    LLVMValueRef asm_fn = LLVMGetInlineAsm(function_type, buf_ptr(&llvm_template), buf_len(&llvm_template),
+            buf_ptr(&constraint_buf), buf_len(&constraint_buf), is_volatile, false, LLVMInlineAsmDialectATT);
 
     return LLVMBuildCall(g->builder, asm_fn, param_values, (unsigned)input_and_output_count, "");
 }
