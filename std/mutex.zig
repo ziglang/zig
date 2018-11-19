@@ -77,12 +77,6 @@ const MutexWindows = struct {
         }
     };
 
-    fn initOsData(self: *MutexWindows) void {
-        if (self.lock == null) {
-            windows.InitializeCriticalSection(&self.lock);
-        }
-    }
-
     pub fn init() Mutex {
         return Mutex {
             .lock = null,
@@ -95,8 +89,11 @@ const MutexWindows = struct {
     }
 
     pub fn acquire(self: *Mutex) Held {
-        self.initOsData();
-        while (windows.TryEnterCriticalSection(&self.lock) == 0) {}
+        if (self.lock == null) {
+            windows.InitializeCriticalSection(&self.lock);
+        }
+
+        windows.EnterCriticalSection(&self.lock);
         return Held { .mutex = self };
     }
 };
