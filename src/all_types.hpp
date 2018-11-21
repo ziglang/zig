@@ -34,6 +34,7 @@ struct CodeGen;
 struct ConstExprValue;
 struct IrInstruction;
 struct IrInstructionAllocaGen;
+struct IrInstructionResultPtrCast;
 struct IrBasicBlock;
 struct ScopeDecls;
 struct ZigWindowsSDK;
@@ -2129,7 +2130,8 @@ enum IrInstructionId {
     IrInstructionIdErrWrapPayload,
     IrInstructionIdFnProto,
     IrInstructionIdTestComptime,
-    IrInstructionIdPtrCast,
+    IrInstructionIdPtrCastSrc,
+    IrInstructionIdPtrCastGen,
     IrInstructionIdBitCast,
     IrInstructionIdWidenOrShorten,
     IrInstructionIdIntToPtr,
@@ -2200,6 +2202,7 @@ enum IrInstructionId {
     IrInstructionIdErrorUnionFieldErrorSet,
     IrInstructionIdFirstArgResultLoc,
     IrInstructionIdInferArrayType,
+    IrInstructionIdInferCompTime,
 };
 
 struct IrInstruction {
@@ -2914,11 +2917,24 @@ struct IrInstructionTestComptime {
     IrInstruction *value;
 };
 
-struct IrInstructionPtrCast {
+struct IrInstructionPtrCastSrc {
     IrInstruction base;
 
     IrInstruction *dest_type;
     IrInstruction *ptr;
+};
+
+struct IrInstructionPtrCastGen {
+    IrInstruction base;
+
+    IrInstruction *ptr;
+
+    // This instruction supports being created with the child
+    // type of the pointer being "infer" which means that a later
+    // instruction will replace this one.
+    // so we have a reference here to the pass-1 instruction so that
+    // the child pointer can be updated to the new pass-2 instruction.
+    IrInstructionResultPtrCast *pass1_parent;
 };
 
 struct IrInstructionBitCast {
@@ -3375,6 +3391,13 @@ struct IrInstructionInferArrayType {
 
     IrInstruction *src_type;
     size_t elem_count;
+};
+
+struct IrInstructionInferCompTime {
+    IrInstruction base;
+
+    IrInstruction *prev_result_loc;
+    IrInstruction *new_result_loc;
 };
 
 static const size_t slice_ptr_index = 0;

@@ -3024,7 +3024,7 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
 }
 
 static LLVMValueRef ir_render_ptr_cast(CodeGen *g, IrExecutable *executable,
-        IrInstructionPtrCast *instruction)
+        IrInstructionPtrCastGen *instruction)
 {
     ZigType *wanted_type = instruction->base.value.type;
     if (!type_has_bits(wanted_type)) {
@@ -5233,6 +5233,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdResultCast:
         case IrInstructionIdContainerInitList:
         case IrInstructionIdInferArrayType:
+        case IrInstructionIdPtrCastSrc:
+        case IrInstructionIdInferCompTime:
             zig_unreachable();
 
         case IrInstructionIdDeclVarGen:
@@ -5325,8 +5327,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_err_wrap_payload(g, executable, (IrInstructionErrWrapPayload *)instruction);
         case IrInstructionIdUnionTag:
             return ir_render_union_tag(g, executable, (IrInstructionUnionTag *)instruction);
-        case IrInstructionIdPtrCast:
-            return ir_render_ptr_cast(g, executable, (IrInstructionPtrCast *)instruction);
+        case IrInstructionIdPtrCastGen:
+            return ir_render_ptr_cast(g, executable, (IrInstructionPtrCastGen *)instruction);
         case IrInstructionIdBitCast:
             return ir_render_bit_cast(g, executable, (IrInstructionBitCast *)instruction);
         case IrInstructionIdWidenOrShorten:

@@ -856,12 +856,18 @@ static void ir_print_test_comptime(IrPrint *irp, IrInstructionTestComptime *inst
     fprintf(irp->f, ")");
 }
 
-static void ir_print_ptr_cast(IrPrint *irp, IrInstructionPtrCast *instruction) {
+static void ir_print_ptr_cast_src(IrPrint *irp, IrInstructionPtrCastSrc *instruction) {
     fprintf(irp->f, "@ptrCast(");
     if (instruction->dest_type) {
         ir_print_other_instruction(irp, instruction->dest_type);
     }
     fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->ptr);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_ptr_cast_gen(IrPrint *irp, IrInstructionPtrCastGen *instruction) {
+    fprintf(irp->f, "@ptrCast(");
     ir_print_other_instruction(irp, instruction->ptr);
     fprintf(irp->f, ")");
 }
@@ -1346,7 +1352,11 @@ static void ir_print_result_param(IrPrint *irp, IrInstructionResultParam *instru
 }
 
 static void ir_print_result_ptr_cast(IrPrint *irp, IrInstructionResultPtrCast *instruction) {
-    fprintf(irp->f, "ResultPtrCast");
+    fprintf(irp->f, "ResultPtrCast(ty=");
+    ir_print_other_instruction(irp, instruction->elem_type);
+    fprintf(irp->f, ",prev_result=");
+    ir_print_other_instruction(irp, instruction->prev_result_loc);
+    fprintf(irp->f, ")");
 }
 
 static void ir_print_result_cast(IrPrint *irp, IrInstructionResultCast *instruction) {
@@ -1393,6 +1403,14 @@ static void ir_print_infer_array_type(IrPrint *irp, IrInstructionInferArrayType 
     fprintf(irp->f, "InferArrayType(src_type=");
     ir_print_other_instruction(irp, instruction->src_type);
     fprintf(irp->f, ",elem_count=%zu)", instruction->elem_count);
+}
+
+static void ir_print_infer_comptime(IrPrint *irp, IrInstructionInferCompTime *instruction) {
+    fprintf(irp->f, "InferCompTime(prev_result=");
+    ir_print_other_instruction(irp, instruction->prev_result_loc);
+    fprintf(irp->f, ",new_result=");
+    ir_print_other_instruction(irp, instruction->new_result_loc);
+    fprintf(irp->f, ")");
 }
 
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
@@ -1643,8 +1661,11 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdTestComptime:
             ir_print_test_comptime(irp, (IrInstructionTestComptime *)instruction);
             break;
-        case IrInstructionIdPtrCast:
-            ir_print_ptr_cast(irp, (IrInstructionPtrCast *)instruction);
+        case IrInstructionIdPtrCastSrc:
+            ir_print_ptr_cast_src(irp, (IrInstructionPtrCastSrc *)instruction);
+            break;
+        case IrInstructionIdPtrCastGen:
+            ir_print_ptr_cast_gen(irp, (IrInstructionPtrCastGen *)instruction);
             break;
         case IrInstructionIdBitCast:
             ir_print_bit_cast(irp, (IrInstructionBitCast *)instruction);
@@ -1855,6 +1876,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdInferArrayType:
             ir_print_infer_array_type(irp, (IrInstructionInferArrayType *)instruction);
+            break;
+        case IrInstructionIdInferCompTime:
+            ir_print_infer_comptime(irp, (IrInstructionInferCompTime *)instruction);
             break;
     }
     fprintf(irp->f, "\n");
