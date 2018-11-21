@@ -3034,14 +3034,6 @@ static LLVMValueRef ir_render_ptr_cast(CodeGen *g, IrExecutable *executable,
     return LLVMBuildBitCast(g->builder, ptr, wanted_type->type_ref, "");
 }
 
-static LLVMValueRef ir_render_bit_cast(CodeGen *g, IrExecutable *executable,
-        IrInstructionBitCast *instruction)
-{
-    ZigType *wanted_type = instruction->base.value.type;
-    LLVMValueRef value = ir_llvm_value(g, instruction->value);
-    return LLVMBuildBitCast(g->builder, value, wanted_type->type_ref, "");
-}
-
 static LLVMValueRef ir_render_widen_or_shorten(CodeGen *g, IrExecutable *executable,
         IrInstructionWidenOrShorten *instruction)
 {
@@ -5235,6 +5227,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdInferArrayType:
         case IrInstructionIdPtrCastSrc:
         case IrInstructionIdInferCompTime:
+        case IrInstructionIdResultPtrCast:
             zig_unreachable();
 
         case IrInstructionIdDeclVarGen:
@@ -5329,8 +5322,6 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_union_tag(g, executable, (IrInstructionUnionTag *)instruction);
         case IrInstructionIdPtrCastGen:
             return ir_render_ptr_cast(g, executable, (IrInstructionPtrCastGen *)instruction);
-        case IrInstructionIdBitCast:
-            return ir_render_bit_cast(g, executable, (IrInstructionBitCast *)instruction);
         case IrInstructionIdWidenOrShorten:
             return ir_render_widen_or_shorten(g, executable, (IrInstructionWidenOrShorten *)instruction);
         case IrInstructionIdPtrToInt:
@@ -5408,10 +5399,6 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdResultSliceToBytes:
             zig_panic("TODO");
         case IrInstructionIdResultBytesToSlice:
-            zig_panic("TODO");
-        case IrInstructionIdResultParam:
-            zig_panic("TODO");
-        case IrInstructionIdResultPtrCast:
             zig_panic("TODO");
     }
     zig_unreachable();

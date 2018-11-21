@@ -2132,7 +2132,6 @@ enum IrInstructionId {
     IrInstructionIdTestComptime,
     IrInstructionIdPtrCastSrc,
     IrInstructionIdPtrCastGen,
-    IrInstructionIdBitCast,
     IrInstructionIdWidenOrShorten,
     IrInstructionIdIntToPtr,
     IrInstructionIdPtrToInt,
@@ -2193,7 +2192,6 @@ enum IrInstructionId {
     IrInstructionIdResultReturn,
     IrInstructionIdResultBytesToSlice,
     IrInstructionIdResultSliceToBytes,
-    IrInstructionIdResultParam,
     IrInstructionIdResultPtrCast,
     IrInstructionIdResultCast,
     IrInstructionIdAllocaSrc,
@@ -2937,13 +2935,6 @@ struct IrInstructionPtrCastGen {
     IrInstructionResultPtrCast *pass1_parent;
 };
 
-struct IrInstructionBitCast {
-    IrInstruction base;
-
-    IrInstruction *dest_type;
-    IrInstruction *value;
-};
-
 struct IrInstructionWidenOrShorten {
     IrInstruction base;
 
@@ -3335,13 +3326,6 @@ struct IrInstructionResultSlicePtr {
 
 struct IrInstructionResultReturn {
     IrInstruction base;
-};
-
-struct IrInstructionResultParam {
-    IrInstruction base;
-
-    IrInstruction *fn_ref;
-    size_t param_index;
 };
 
 struct IrInstructionResultPtrCast {

@@ -872,16 +872,6 @@ static void ir_print_ptr_cast_gen(IrPrint *irp, IrInstructionPtrCastGen *instruc
     fprintf(irp->f, ")");
 }
 
-static void ir_print_bit_cast(IrPrint *irp, IrInstructionBitCast *instruction) {
-    fprintf(irp->f, "@bitCast(");
-    if (instruction->dest_type) {
-        ir_print_other_instruction(irp, instruction->dest_type);
-    }
-    fprintf(irp->f, ",");
-    ir_print_other_instruction(irp, instruction->value);
-    fprintf(irp->f, ")");
-}
-
 static void ir_print_widen_or_shorten(IrPrint *irp, IrInstructionWidenOrShorten *instruction) {
     fprintf(irp->f, "WidenOrShorten(");
     ir_print_other_instruction(irp, instruction->target);
@@ -1347,10 +1337,6 @@ static void ir_print_result_slice_to_bytes(IrPrint *irp, IrInstructionResultSlic
     fprintf(irp->f, "ResultSliceToBytes");
 }
 
-static void ir_print_result_param(IrPrint *irp, IrInstructionResultParam *instruction) {
-    fprintf(irp->f, "ResultParam");
-}
-
 static void ir_print_result_ptr_cast(IrPrint *irp, IrInstructionResultPtrCast *instruction) {
     fprintf(irp->f, "ResultPtrCast(ty=");
     ir_print_other_instruction(irp, instruction->elem_type);
@@ -1667,9 +1653,6 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdPtrCastGen:
             ir_print_ptr_cast_gen(irp, (IrInstructionPtrCastGen *)instruction);
             break;
-        case IrInstructionIdBitCast:
-            ir_print_bit_cast(irp, (IrInstructionBitCast *)instruction);
-            break;
         case IrInstructionIdWidenOrShorten:
             ir_print_widen_or_shorten(irp, (IrInstructionWidenOrShorten *)instruction);
             break;
@@ -1849,9 +1832,6 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdResultSliceToBytes:
             ir_print_result_slice_to_bytes(irp, (IrInstructionResultSliceToBytes *)instruction);
-            break;
-        case IrInstructionIdResultParam:
-            ir_print_result_param(irp, (IrInstructionResultParam *)instruction);
             break;
         case IrInstructionIdResultPtrCast:
             ir_print_result_ptr_cast(irp, (IrInstructionResultPtrCast *)instruction);
