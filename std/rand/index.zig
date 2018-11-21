@@ -60,7 +60,8 @@ pub const Random = struct {
     /// Constant-time implementation off ::uintLessThan.
     /// The results of this function may be biased.
     pub fn uintLessThanBiased(r: *Random, comptime T: type, less_than: T) T {
-        assert(T.is_signed == false);
+        comptime assert(T.is_signed == false);
+        comptime assert(T.bit_count <= 64); // TODO: workaround: LLVM ERROR: Unsupported library call operation!
         assert(0 < less_than);
         // Small is typically u32
         const Small = @IntType(false, @divTrunc(T.bit_count + 31, 32) * 32);
@@ -83,7 +84,8 @@ pub const Random = struct {
     /// this function is guaranteed to return.
     /// If you need deterministic runtime bounds, use `::uintLessThanBiased`.
     pub fn uintLessThan(r: *Random, comptime T: type, less_than: T) T {
-        assert(T.is_signed == false);
+        comptime assert(T.is_signed == false);
+        comptime assert(T.bit_count <= 64); // TODO: workaround: LLVM ERROR: Unsupported library call operation!
         assert(0 < less_than);
         // Small is typically u32
         const Small = @IntType(false, @divTrunc(T.bit_count + 31, 32) * 32);
@@ -429,6 +431,37 @@ fn testRandomIntAtMost() void {
     assert(r.random.intRangeAtMost(i3, -2, 1) == 1);
 
     assert(r.random.uintAtMost(u0, 0) == 0);
+}
+
+test "Random Biased" {
+    var r = DefaultPrng.init(0);
+    // Not thoroughly checking the logic here.
+    // Just want to execute all the paths with different types.
+
+    assert(r.random.uintLessThanBiased(u1, 1) == 0);
+    assert(r.random.uintLessThanBiased(u32, 10) < 10);
+    assert(r.random.uintLessThanBiased(u64, 20) < 20);
+
+    assert(r.random.uintAtMostBiased(u0, 0) == 0);
+    assert(r.random.uintAtMostBiased(u1, 0) <= 0);
+    assert(r.random.uintAtMostBiased(u32, 10) <= 10);
+    assert(r.random.uintAtMostBiased(u64, 20) <= 20);
+
+    assert(r.random.intRangeLessThanBiased(u1, 0, 1) == 0);
+    assert(r.random.intRangeLessThanBiased(i1, -1, 0) == -1);
+    assert(r.random.intRangeLessThanBiased(u32, 10, 20) >= 10);
+    assert(r.random.intRangeLessThanBiased(i32, 10, 20) >= 10);
+    assert(r.random.intRangeLessThanBiased(u64, 20, 40) >= 20);
+    assert(r.random.intRangeLessThanBiased(i64, 20, 40) >= 20);
+
+    // uncomment for broken module error:
+    //assert(r.random.intRangeAtMostBiased(u0, 0, 0) == 0);
+    assert(r.random.intRangeAtMostBiased(u1, 0, 1) >= 0);
+    assert(r.random.intRangeAtMostBiased(i1, -1, 0) >= -1);
+    assert(r.random.intRangeAtMostBiased(u32, 10, 20) >= 10);
+    assert(r.random.intRangeAtMostBiased(i32, 10, 20) >= 10);
+    assert(r.random.intRangeAtMostBiased(u64, 20, 40) >= 20);
+    assert(r.random.intRangeAtMostBiased(i64, 20, 40) >= 20);
 }
 
 // Generator to extend 64-bit seed values into longer sequences.
