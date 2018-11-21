@@ -1183,7 +1183,7 @@ pub fn realC(out_buffer: *[os.MAX_PATH_BYTES]u8, pathname: [*]const u8) RealErro
             const fd = try os.posixOpenC(pathname, posix.O_PATH | posix.O_NONBLOCK | posix.O_CLOEXEC, 0);
             defer os.close(fd);
 
-            var buf: ["/proc/self/fd/-2147483648".len]u8 = undefined;
+            var buf: ["/proc/self/fd/-2147483648\x00".len]u8 = undefined;
             const proc_path = fmt.bufPrint(buf[0..], "/proc/self/fd/{}\x00", fd) catch unreachable;
 
             return os.readLinkC(out_buffer, proc_path.ptr);
