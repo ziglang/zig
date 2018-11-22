@@ -63,17 +63,11 @@ pub const Random = struct {
         comptime assert(T.is_signed == false);
         comptime assert(T.bit_count <= 64); // TODO: workaround: LLVM ERROR: Unsupported library call operation!
         assert(0 < less_than);
-        // Small is typically u32
-        const Small = @IntType(false, @divTrunc(T.bit_count + 31, 32) * 32);
-        // Large is typically u64
-        const Large = @IntType(false, Small.bit_count * 2);
-
-        // adapted from:
-        //   http://www.pcg-random.org/posts/bounded-rands.html
-        //   "Integer Multiplication (Biased)"
-        var x: Small = r.int(Small);
-        var m: Large = Large(x) * Large(less_than);
-        return @intCast(T, m >> Small.bit_count);
+        if (T.bit_count <= 32) {
+            return @intCast(T, limitRangeBiased(u32, r.int(u32), less_than));
+        } else {
+            return @intCast(T, limitRangeBiased(u64, r.int(u64), less_than));
+        }
     }
     /// Returns an evenly distributed random unsigned integer `0 <= i < less_than`.
     /// This function assumes that the underlying ::fillFn produces evenly distributed values.
@@ -275,6 +269,20 @@ pub const Random = struct {
         }
     }
 };
+
+/// Convert a random integer 0 <= random_int <= maxValue(T),
+/// into an integer 0 <= result < less_than.
+/// This function introduces a minor bias.
+pub fn limitRangeBiased(comptime T: type, random_int: T, less_than: T) T {
+    comptime assert(T.is_signed == false);
+    const T2 = @IntType(false, T.bit_count * 2);
+
+    // adapted from:
+    //   http://www.pcg-random.org/posts/bounded-rands.html
+    //   "Integer Multiplication (Biased)"
+    var m: T2 = T2(random_int) * T2(less_than);
+    return @intCast(T, m >> T.bit_count);
+}
 
 const SequentialPrng = struct {
     const Self = @This();
