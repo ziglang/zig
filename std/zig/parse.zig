@@ -291,6 +291,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                             .body_node = null,
                             .lib_name = ctx.lib_name,
                             .align_expr = null,
+                            .section_expr = null,
                         });
                         try ctx.decls.push(&fn_proto.base);
                         stack.append(State{ .FnDef = fn_proto }) catch unreachable;
@@ -601,6 +602,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     .extern_export_token = ctx.extern_export_token,
                     .type_node = null,
                     .align_node = null,
+                    .section_node = null,
                     .init_node = null,
                     .lib_name = ctx.lib_name,
                     // initialized later
@@ -622,7 +624,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 continue;
             },
             State.VarDeclAlign => |var_decl| {
-                try stack.append(State{ .VarDeclEq = var_decl });
+                try stack.append(State{ .VarDeclSection = var_decl });
 
                 const next_token = nextToken(&tok_it, &tree);
                 const next_token_index = next_token.index;
@@ -630,6 +632,22 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 if (next_token_ptr.id == Token.Id.Keyword_align) {
                     try stack.append(State{ .ExpectToken = Token.Id.RParen });
                     try stack.append(State{ .Expression = OptionalCtx{ .RequiredNull = &var_decl.align_node } });
+                    try stack.append(State{ .ExpectToken = Token.Id.LParen });
+                    continue;
+                }
+
+                prevToken(&tok_it, &tree);
+                continue;
+            },
+            State.VarDeclSection => |var_decl| {
+                try stack.append(State{ .VarDeclEq = var_decl });
+
+                const next_token = nextToken(&tok_it, &tree);
+                const next_token_index = next_token.index;
+                const next_token_ptr = next_token.ptr;
+                if (next_token_ptr.id == Token.Id.Keyword_linksection) {
+                    try stack.append(State{ .ExpectToken = Token.Id.RParen });
+                    try stack.append(State{ .Expression = OptionalCtx{ .RequiredNull = &var_decl.section_node } });
                     try stack.append(State{ .ExpectToken = Token.Id.LParen });
                     continue;
                 }
@@ -719,11 +737,21 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 continue;
             },
             State.FnProtoAlign => |fn_proto| {
-                stack.append(State{ .FnProtoReturnType = fn_proto }) catch unreachable;
+                stack.append(State{ .FnProtoSection = fn_proto }) catch unreachable;
 
                 if (eatToken(&tok_it, &tree, Token.Id.Keyword_align)) |align_token| {
                     try stack.append(State{ .ExpectToken = Token.Id.RParen });
                     try stack.append(State{ .Expression = OptionalCtx{ .RequiredNull = &fn_proto.align_expr } });
+                    try stack.append(State{ .ExpectToken = Token.Id.LParen });
+                }
+                continue;
+            },
+            State.FnProtoSection => |fn_proto| {
+                stack.append(State{ .FnProtoReturnType = fn_proto }) catch unreachable;
+
+                if (eatToken(&tok_it, &tree, Token.Id.Keyword_linksection)) |align_token| {
+                    try stack.append(State{ .ExpectToken = Token.Id.RParen });
+                    try stack.append(State{ .Expression = OptionalCtx{ .RequiredNull = &fn_proto.section_expr } });
                     try stack.append(State{ .ExpectToken = Token.Id.LParen });
                 }
                 continue;
@@ -1524,6 +1552,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         .body_node = null,
                         .lib_name = null,
                         .align_expr = null,
+                        .section_expr = null,
                     });
                     ctx.opt_ctx.store(&fn_proto.base);
                     stack.append(State{ .FnProto = fn_proto }) catch unreachable;
@@ -2579,6 +2608,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                             .body_node = null,
                             .lib_name = null,
                             .align_expr = null,
+                            .section_expr = null,
                         });
                         opt_ctx.store(&fn_proto.base);
                         stack.append(State{ .FnProto = fn_proto }) catch unreachable;
@@ -2600,6 +2630,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                             .body_node = null,
                             .lib_name = null,
                             .align_expr = null,
+                            .section_expr = null,
                         });
                         opt_ctx.store(&fn_proto.base);
                         stack.append(State{ .FnProto = fn_proto }) catch unreachable;
@@ -2985,12 +3016,14 @@ const State = union(enum) {
 
     VarDecl: VarDeclCtx,
     VarDeclAlign: *ast.Node.VarDecl,
+    VarDeclSection: *ast.Node.VarDecl,
     VarDeclEq: *ast.Node.VarDecl,
     VarDeclSemiColon: *ast.Node.VarDecl,
 
     FnDef: *ast.Node.FnProto,
     FnProto: *ast.Node.FnProto,
     FnProtoAlign: *ast.Node.FnProto,
+    FnProtoSection: *ast.Node.FnProto,
     FnProtoReturnType: *ast.Node.FnProto,
 
     ParamDecl: *ast.Node.FnProto,

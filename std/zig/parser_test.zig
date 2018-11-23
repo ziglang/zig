@@ -1,3 +1,10 @@
+test "zig fmt: linksection" {
+    try testCanonical(
+        \\export var aoeu: u64 linksection(".text.derp") = 1234;
+        \\export nakedcc fn _start() linksection(".text.boot") noreturn {}
+        \\
+    );
+}
 test "zig fmt: shebang line" {
     try testCanonical(
         \\#!/usr/bin/env zig

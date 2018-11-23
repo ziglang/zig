@@ -180,7 +180,7 @@ pub const Base64DecoderWithIgnore = struct {
     /// Invalid characters that are not ignored result in error.InvalidCharacter.
     /// Invalid padding results in error.InvalidPadding.
     /// Decoding more data than can fit in dest results in error.OutputTooSmall. See also ::calcSizeUpperBound.
-    /// Returns the number of bytes writen to dest.
+    /// Returns the number of bytes written to dest.
     pub fn decode(decoder_with_ignore: *const Base64DecoderWithIgnore, dest: []u8, source: []const u8) !usize {
         const decoder = &decoder_with_ignore.decoder;
 

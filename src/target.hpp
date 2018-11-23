@@ -121,4 +121,6 @@ Buf *target_dynamic_linker(ZigTarget *target);
 bool target_can_exec(const ZigTarget *host_target, const ZigTarget *guest_target);
 ZigLLVM_OSType get_llvm_os_type(Os os_type);
 
+bool target_is_arm(const ZigTarget *target);
+
 #endif

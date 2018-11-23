@@ -52,7 +52,7 @@ pub const X25519 = struct {
         // computes the actual scalar product (the result is in x2 and z2)
 
         // Montgomery ladder
-        // In projective coordinates, to avoid divisons: x = X / Z
+        // In projective coordinates, to avoid divisions: x = X / Z
         // We don't care about the y coordinate, it's only 1 bit of information
         Fe.init1(x2);
         Fe.init0(z2); // "zero" point

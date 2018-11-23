@@ -104,7 +104,7 @@ pub const Node = struct {
         return @intToEnum(Color, @intCast(u1, node.parent_and_color & 1));
     }
 
-    fn set_child(node: *Node, child: ?*Node, is_left: bool) void {
+    fn setChild(node: *Node, child: ?*Node, is_left: bool) void {
         if (is_left) {
             node.left = child;
         } else {
@@ -172,7 +172,7 @@ pub const Tree = struct {
         node.setParent(maybe_parent);
 
         if (maybe_parent) |parent| {
-            parent.set_child(node, is_left);
+            parent.setChild(node, is_left);
         } else {
             tree.root = node;
         }
@@ -250,7 +250,7 @@ pub const Tree = struct {
         // This clause is to avoid optionals
         if (node.left == null and node.right == null) {
             if (maybe_parent) |parent| {
-                parent.set_child(null, parent.left == node);
+                parent.setChild(null, parent.left == node);
             } else
                 tree.root = null;
             color = node.getColor();
@@ -264,7 +264,7 @@ pub const Tree = struct {
                 next = node.right.?.getFirst(); // Just checked for null above
 
             if (maybe_parent) |parent| {
-                parent.set_child(next, parent.left == node);
+                parent.setChild(next, parent.left == node);
             } else
                 tree.root = next;
 
@@ -387,7 +387,7 @@ pub const Tree = struct {
         if (tree.compareFn(old, new) != mem.Compare.Equal) return ReplaceError.NotEqual;
 
         if (old.getParent()) |parent| {
-            parent.set_child(new, parent.left == old);
+            parent.setChild(new, parent.left == old);
         } else
             tree.root = new;
 

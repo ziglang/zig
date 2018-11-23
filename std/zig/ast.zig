@@ -503,6 +503,7 @@ pub const Node = struct {
         lib_name: ?*Node,
         type_node: ?*Node,
         align_node: ?*Node,
+        section_node: ?*Node,
         init_node: ?*Node,
         semicolon_token: TokenIndex,
 
@@ -516,6 +517,11 @@ pub const Node = struct {
 
             if (self.align_node) |align_node| {
                 if (i < 1) return align_node;
+                i -= 1;
+            }
+
+            if (self.section_node) |section_node| {
+                if (i < 1) return section_node;
                 i -= 1;
             }
 
@@ -821,6 +827,7 @@ pub const Node = struct {
         body_node: ?*Node,
         lib_name: ?*Node, // populated if this is an extern declaration
         align_expr: ?*Node, // populated if align(A) is present
+        section_expr: ?*Node, // populated if linksection(A) is present
 
         pub const ParamList = SegmentedList(*Node, 2);
 
@@ -842,6 +849,11 @@ pub const Node = struct {
 
             if (self.align_expr) |align_expr| {
                 if (i < 1) return align_expr;
+                i -= 1;
+            }
+
+            if (self.section_expr) |section_expr| {
+                if (i < 1) return section_expr;
                 i -= 1;
             }
 

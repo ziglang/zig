@@ -1,7 +1,5 @@
 # Zig Examples
 
-## Working Examples
-
  * **Tetris** - A simple Tetris clone written in Zig. See
    [andrewrk/tetris](https://github.com/andrewrk/tetris).
  * **hello_world** - demonstration of a printing a single line to stdout.

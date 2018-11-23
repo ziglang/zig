@@ -483,3 +483,32 @@ test "std.meta.eql" {
     debug.assert(eql(EU.tst(false), EU.tst(false)));
     debug.assert(!eql(EU.tst(false), EU.tst(true)));
 }
+
+test "intToEnum with error return" {
+    const E1 = enum {
+        A,
+    };
+    const E2 = enum {
+        A,
+        B,
+    };
+
+    var zero: u8 = 0;
+    var one: u16 = 1;
+    debug.assert(intToEnum(E1, zero) catch unreachable == E1.A);
+    debug.assert(intToEnum(E2, one) catch unreachable == E2.B);
+    debug.assertError(intToEnum(E1, one), error.InvalidEnumTag);
+}
+
+pub const IntToEnumError = error{InvalidEnumTag};
+
+pub fn intToEnum(comptime Tag: type, tag_int: var) IntToEnumError!Tag {
+    comptime var i = 0;
+    inline while (i != @memberCount(Tag)) : (i += 1) {
+        const this_tag_value = @field(Tag, @memberName(Tag, i));
+        if (tag_int == @enumToInt(this_tag_value)) {
+            return this_tag_value;
+        }
+    }
+    return error.InvalidEnumTag;
+}
