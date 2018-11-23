@@ -11580,7 +11580,11 @@ static IrInstruction *ir_get_deref(IrAnalyze *ira, IrInstruction *source_instruc
                 }
             }
         }
-        // TODO if the instruction is a const ref instruction we can skip it
+        // if the instruction is a const ref instruction we can skip it
+        if (ptr->id == IrInstructionIdRef) {
+            IrInstructionRef *ref_inst = reinterpret_cast<IrInstructionRef *>(ptr);
+            return ref_inst->value;
+        }
         IrInstruction *load_ptr_instruction = ir_build_load_ptr(&ira->new_irb, source_instruction->scope,
                 source_instruction->source_node, ptr, nullptr);
         load_ptr_instruction->value.type = child_type;
@@ -19415,9 +19419,9 @@ static IrInstruction *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstruction
         return_type = get_slice_type(ira->codegen, slice_ptr_type);
         ptr = ptr_ptr;
     } else if (array_type->id == ZigTypeIdPointer) {
-        assert(ptr_ptr->id == IrInstructionIdRef);
-        IrInstructionRef *ref_inst = reinterpret_cast<IrInstructionRef *>(ptr_ptr);
-        ptr = ref_inst->value;
+        ptr = ir_get_deref(ira, &instruction->base, ptr_ptr);
+        if (type_is_invalid(ptr->value.type))
+            return ira->codegen->invalid_instruction;
 
         if (array_type->data.pointer.ptr_len == PtrLenSingle) {
             ZigType *main_type = array_type->data.pointer.child_type;
@@ -19440,9 +19444,9 @@ static IrInstruction *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstruction
             }
         }
     } else if (is_slice(array_type)) {
-        assert(ptr_ptr->id == IrInstructionIdRef);
-        IrInstructionRef *ref_inst = reinterpret_cast<IrInstructionRef *>(ptr_ptr);
-        ptr = ref_inst->value;
+        ptr = ir_get_deref(ira, &instruction->base, ptr_ptr);
+        if (type_is_invalid(ptr->value.type))
+            return ira->codegen->invalid_instruction;
         ZigType *ptr_type = array_type->data.structure.fields[slice_ptr_index].type_entry;
         return_type = get_slice_type(ira->codegen, ptr_type);
     } else {
