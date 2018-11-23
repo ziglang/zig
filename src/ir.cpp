@@ -2292,15 +2292,13 @@ static IrInstruction *ir_build_check_statement_is_void(IrBuilder *irb, Scope *sc
 }
 
 static IrInstruction *ir_build_type_name(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        IrInstruction *type_value, IrInstruction *result_loc)
+        IrInstruction *type_value)
 {
     IrInstructionTypeName *instruction = ir_build_instruction<IrInstructionTypeName>(
             irb, scope, source_node);
     instruction->type_value = type_value;
-    instruction->result_loc = result_loc;
 
     ir_ref_instruction(type_value, irb->current_basic_block);
-    ir_ref_instruction(result_loc, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -4657,7 +4655,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 if (arg0_value == irb->codegen->invalid_instruction)
                     return arg0_value;
 
-                IrInstruction *type_name = ir_build_type_name(irb, scope, node, arg0_value, result_loc);
+                IrInstruction *type_name = ir_build_type_name(irb, scope, node, arg0_value);
                 return ir_gen_value(irb, scope, node, lval, result_loc, type_name);
             }
         case BuiltinFnIdPanic:
@@ -21824,7 +21822,7 @@ static IrInstruction *ir_analyze_instruction_first_arg_result_loc(IrAnalyze *ira
         if (type_is_invalid(dest_type))
             return ira->codegen->invalid_instruction;
 
-        if (!handle_is_ptr(dest_type)) {
+        if (!type_has_bits(dest_type) || !handle_is_ptr(dest_type)) {
             return nullptr;
         }
 

@@ -3003,7 +3003,6 @@ struct IrInstructionTypeName {
     IrInstruction base;
 
     IrInstruction *type_value;
-    IrInstruction *result_loc;
 };
 
 enum LVal {
