@@ -95,7 +95,7 @@ test "std.meta.stringToEnum" {
     debug.assert(null == stringToEnum(E1, "C"));
 }
 
-pub fn bitCount(comptime T: type) u32 {
+pub fn bitCount(comptime T: type) comptime_int {
     return switch (@typeInfo(T)) {
         TypeId.Int => |info| info.bits,
         TypeId.Float => |info| info.bits,
@@ -108,7 +108,7 @@ test "std.meta.bitCount" {
     debug.assert(bitCount(f32) == 32);
 }
 
-pub fn alignment(comptime T: type) u29 {
+pub fn alignment(comptime T: type) comptime_int {
     //@alignOf works on non-pointer types
     const P = if (comptime trait.is(TypeId.Pointer)(T)) T else *T;
     return @typeInfo(P).Pointer.alignment;
@@ -386,6 +386,33 @@ test "std.meta.activeTag" {
     debug.assert(activeTag(u) == UE.Float);
 }
 
+///Given a tagged union type, and an enum, return the type of the union
+/// field corresponding to the enum tag.
+pub fn TagPayloadType(comptime U: type, tag: var) type {
+    const Tag = @typeOf(tag);
+    debug.assert(trait.is(builtin.TypeId.Union)(U));
+    debug.assert(trait.is(builtin.TypeId.Enum)(Tag));
+
+    const info = @typeInfo(U).Union;
+
+    inline for (info.fields) |field_info| {
+        if (field_info.enum_field.?.value == @enumToInt(tag)) return field_info.field_type;
+    }
+    unreachable;
+}
+
+test "std.meta.TagPayloadType" {
+    const Event = union(enum) {
+        Moved: struct {
+            from: i32,
+            to: i32,
+        },
+    };
+    const MovedEvent = TagPayloadType(Event, Event.Moved);
+    var e: Event = undefined;
+    debug.assert(MovedEvent == @typeOf(e.Moved));
+}
+
 ///Compares two of any type for equality. Containers are compared on a field-by-field basis,
 /// where possible. Pointers are not followed.
 pub fn eql(a: var, b: @typeOf(a)) bool {
@@ -439,6 +466,11 @@ pub fn eql(a: var, b: @typeOf(a)) bool {
                 builtin.TypeInfo.Pointer.Size.Slice => return a.ptr == b.ptr and a.len == b.len,
             }
         },
+        builtin.TypeId.Optional => {
+            if(a == null and b == null) return true;
+            if(a == null or b == null) return false;
+            return eql(a.?, b.?);
+        },
         else => return a == b,
     }
 }
@@ -452,7 +484,7 @@ test "std.meta.eql" {
 
     const U = union(enum) {
         s: S,
-        f: f32,
+        f: ?f32,
     };
 
     const s_1 = S{
