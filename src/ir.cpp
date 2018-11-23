@@ -3175,6 +3175,8 @@ static IrInstruction *ir_gen_value(IrBuilder *irb, Scope *scope, AstNode *node, 
 {
     if (value == irb->codegen->invalid_instruction)
         return value;
+    if (instr_is_unreachable(value))
+        return value;
     if (result_loc != nullptr) {
         ir_build_store_ptr(irb, scope, node, result_loc, value);
         if (lval != LValNone) {
@@ -3500,6 +3502,13 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
         return ir_gen_result(irb, parent_scope, block_node, lval, scope_block->result_loc);
     } else {
         ir_gen_defers_for_block(irb, child_scope, outer_block_scope, false);
+        if (parent_scope->id == ScopeIdLoop) {
+            if (reinterpret_cast<ScopeLoop *>(parent_scope)->result_loc == result_loc) {
+                // This block is a loop. We do not need to generate a value for the block
+                // returning as it is handled by the loop generation code.
+                return ir_mark_gen(ir_build_const_void(irb, child_scope, block_node));
+            }
+        }
         return ir_gen_value(irb, parent_scope, block_node, lval, result_loc,
                 ir_mark_gen(ir_build_const_void(irb, child_scope, block_node)));
     }
