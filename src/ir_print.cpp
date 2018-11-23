@@ -549,6 +549,8 @@ static void ir_print_ref(IrPrint *irp, IrInstructionRef *instruction) {
     const char *volatile_str = instruction->is_volatile ? "volatile " : "";
     fprintf(irp->f, "%s%sref ", const_str, volatile_str);
     ir_print_other_instruction(irp, instruction->value);
+    fprintf(irp->f, " result=");
+    ir_print_other_instruction(irp, instruction->result_loc);
 }
 
 static void ir_print_compile_err(IrPrint *irp, IrInstructionCompileErr *instruction) {

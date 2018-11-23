@@ -4333,11 +4333,8 @@ static LLVMValueRef ir_render_memcpy(CodeGen *g, IrExecutable *executable, IrIns
 }
 
 static LLVMValueRef ir_render_slice(CodeGen *g, IrExecutable *executable, IrInstructionSlice *instruction) {
-    LLVMValueRef array_ptr_ptr = ir_llvm_value(g, instruction->ptr);
-    ZigType *array_ptr_type = instruction->ptr->value.type;
-    assert(array_ptr_type->id == ZigTypeIdPointer);
-    ZigType *array_type = array_ptr_type->data.pointer.child_type;
-    LLVMValueRef array_ptr = get_handle_value(g, array_ptr_ptr, array_type, array_ptr_type);
+    LLVMValueRef array_ptr = ir_llvm_value(g, instruction->ptr);
+    ZigType *array_type = instruction->ptr->value.type;
 
     LLVMValueRef tmp_struct_ptr = ir_llvm_value(g, instruction->result_loc);
     assert(LLVMGetTypeKind(LLVMTypeOf(tmp_struct_ptr)) == LLVMPointerTypeKind);
