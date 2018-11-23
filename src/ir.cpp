@@ -3307,7 +3307,8 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
         case ReturnKindError:
             {
                 assert(expr_node);
-                IrInstruction *err_val = ir_gen_node(irb, expr_node, scope, LValErrorUnion, result_loc);
+                IrInstruction *ensured_result_loc = ensure_result_loc(irb, scope, expr_node, result_loc);
+                IrInstruction *err_val = ir_gen_node(irb, expr_node, scope, LValErrorUnion, ensured_result_loc);
                 if (err_val == irb->codegen->invalid_instruction)
                     return irb->codegen->invalid_instruction;
                 IrInstruction *is_err_val = ir_build_test_err(irb, scope, node, err_val);
@@ -3332,7 +3333,7 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                 }
 
                 ir_set_cursor_at_end_and_append_block(irb, continue_block);
-                return ir_gen_result(irb, scope, node, lval, result_loc);
+                return ir_gen_result(irb, scope, node, lval, ensured_result_loc);
             }
     }
     zig_unreachable();
