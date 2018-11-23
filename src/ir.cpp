@@ -22326,6 +22326,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdContainerInitFields:
         case IrInstructionIdContainerInitList:
         case IrInstructionIdInferCompTime:
+        case IrInstructionIdSlice:
             return true;
 
         case IrInstructionIdPhi:
@@ -22358,7 +22359,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdTruncate:
         case IrInstructionIdIntType:
         case IrInstructionIdBoolNot:
-        case IrInstructionIdSlice:
         case IrInstructionIdMemberCount:
         case IrInstructionIdMemberType:
         case IrInstructionIdMemberName:
