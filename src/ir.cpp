@@ -3861,6 +3861,7 @@ static IrInstruction *ir_gen_symbol(IrBuilder *irb, Scope *scope, AstNode *node,
                     buf_ptr(variable_name)));
             return irb->codegen->invalid_instruction;
         }
+        assert(err == ErrorPrimitiveTypeNotFound);
     } else {
         IrInstruction *value = ir_build_const_type(irb, scope, node, primitive_type);
         return ir_gen_value(irb, scope, node, lval, result_loc, value);
@@ -15952,7 +15953,7 @@ static IrInstruction *ir_analyze_instruction_load_ptr(IrAnalyze *ira, IrInstruct
         return ira->codegen->invalid_instruction;
 
     IrInstruction *deref = ir_get_deref(ira, &instruction->base, ptr);
-    if (instruction->result_loc == nullptr)
+    if (instruction->result_loc == nullptr || instruction->result_loc->child == nullptr)
         return deref;
 
     IrInstruction *result_loc = instruction->result_loc->child;
