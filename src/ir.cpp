@@ -5760,7 +5760,7 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
 
     ir_set_cursor_at_end_and_append_block(irb, cond_block);
     IrInstruction *index_val = ir_build_load_ptr(irb, child_scope, node, index_alloca, nullptr);
-    IrInstruction *cond = ir_build_bin_op(irb, child_scope, node, IrBinOpCmpNotEq, index_val, len_val, false);
+    IrInstruction *cond = ir_build_bin_op(irb, child_scope, node, IrBinOpCmpLessThan, index_val, len_val, false);
     ir_mark_gen(ir_build_cond_br(irb, child_scope, node, cond, body_block, else_block, is_comptime, result_loc));
 
     ir_set_cursor_at_end_and_append_block(irb, body_block);
