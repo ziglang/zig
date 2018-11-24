@@ -6281,8 +6281,14 @@ static void do_code_gen(CodeGen *g) {
             }
             if (ir_get_var_is_comptime(var))
                 continue;
-            if (type_requires_comptime(var->value->type))
-                continue;
+            switch (type_requires_comptime(g, var->value->type)) {
+                case ReqCompTimeInvalid:
+                    zig_unreachable();
+                case ReqCompTimeYes:
+                    continue;
+                case ReqCompTimeNo:
+                    break;
+            }
 
             if (var->src_arg_index == SIZE_MAX) {
                 var->value_ref = build_alloca(g, var->value->type, buf_ptr(&var->name), var->align_bytes);

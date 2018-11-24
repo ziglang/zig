@@ -11276,7 +11276,6 @@ static bool optional_value_is_null(ConstExprValue *val) {
 }
 
 static IrInstruction *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp *bin_op_instruction) {
-    Error err;
     IrInstruction *op1 = bin_op_instruction->op1->child;
     if (type_is_invalid(op1->value.type))
         return ira->codegen->invalid_instruction;
@@ -11470,10 +11469,19 @@ static IrInstruction *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp *
     if (casted_op2 == ira->codegen->invalid_instruction)
         return ira->codegen->invalid_instruction;
 
-    if ((err = type_resolve(ira->codegen, resolved_type, ResolveStatusZeroBitsKnown)))
-        return ira->codegen->invalid_instruction;
+    bool requires_comptime;
+    switch (type_requires_comptime(ira->codegen, resolved_type)) {
+        case ReqCompTimeYes:
+            requires_comptime = true;
+            break;
+        case ReqCompTimeNo:
+            requires_comptime = false;
+            break;
+        case ReqCompTimeInvalid:
+            return ira->codegen->invalid_instruction;
+    }
 
-    bool one_possible_value = !type_requires_comptime(resolved_type) && !type_has_bits(resolved_type);
+    bool one_possible_value = !requires_comptime && !type_has_bits(resolved_type);
     if (one_possible_value || (instr_is_comptime(casted_op1) && instr_is_comptime(casted_op2))) {
         ConstExprValue *op1_val = one_possible_value ? &casted_op1->value : ir_resolve_const(ira, casted_op1, UndefBad);
         if (op1_val == nullptr)
@@ -12406,42 +12414,41 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruct
     ZigType *result_type = casted_init_value->value.type;
     if (type_is_invalid(result_type)) {
         result_type = ira->codegen->builtin_types.entry_invalid;
-    } else {
-        if ((err = type_resolve(ira->codegen, result_type, ResolveStatusZeroBitsKnown))) {
-            result_type = ira->codegen->builtin_types.entry_invalid;
-        }
+    } else if (result_type->id == ZigTypeIdUnreachable || result_type->id == ZigTypeIdOpaque) {
+        ir_add_error_node(ira, source_node,
+            buf_sprintf("variable of type '%s' not allowed", buf_ptr(&result_type->name)));
+        result_type = ira->codegen->builtin_types.entry_invalid;
     }
 
-    if (!type_is_invalid(result_type)) {
-        if (result_type->id == ZigTypeIdUnreachable ||
-            result_type->id == ZigTypeIdOpaque)
-        {
+    switch (type_requires_comptime(ira->codegen, result_type)) {
+    case ReqCompTimeInvalid:
+        result_type = ira->codegen->builtin_types.entry_invalid;
+        break;
+    case ReqCompTimeYes: {
+        var_class_requires_const = true;
+        if (!var->gen_is_const && !is_comptime_var) {
             ir_add_error_node(ira, source_node,
-                buf_sprintf("variable of type '%s' not allowed", buf_ptr(&result_type->name)));
+                buf_sprintf("variable of type '%s' must be const or comptime",
+                    buf_ptr(&result_type->name)));
             result_type = ira->codegen->builtin_types.entry_invalid;
-        } else if (type_requires_comptime(result_type)) {
+        }
+        break;
+    }
+    case ReqCompTimeNo:
+        if (casted_init_value->value.special == ConstValSpecialStatic &&
+            casted_init_value->value.type->id == ZigTypeIdFn &&
+            casted_init_value->value.data.x_ptr.data.fn.fn_entry->fn_inline == FnInlineAlways)
+        {
             var_class_requires_const = true;
-            if (!var->gen_is_const && !is_comptime_var) {
-                ir_add_error_node(ira, source_node,
-                    buf_sprintf("variable of type '%s' must be const or comptime",
-                        buf_ptr(&result_type->name)));
+            if (!var->src_is_const && !is_comptime_var) {
+                ErrorMsg *msg = ir_add_error_node(ira, source_node,
+                    buf_sprintf("functions marked inline must be stored in const or comptime var"));
+                AstNode *proto_node = casted_init_value->value.data.x_ptr.data.fn.fn_entry->proto_node;
+                add_error_note(ira->codegen, msg, proto_node, buf_sprintf("declared here"));
                 result_type = ira->codegen->builtin_types.entry_invalid;
             }
-        } else {
-            if (casted_init_value->value.special == ConstValSpecialStatic &&
-                casted_init_value->value.type->id == ZigTypeIdFn &&
-                casted_init_value->value.data.x_ptr.data.fn.fn_entry->fn_inline == FnInlineAlways)
-            {
-                var_class_requires_const = true;
-                if (!var->src_is_const && !is_comptime_var) {
-                    ErrorMsg *msg = ir_add_error_node(ira, source_node,
-                        buf_sprintf("functions marked inline must be stored in const or comptime var"));
-                    AstNode *proto_node = casted_init_value->value.data.x_ptr.data.fn.fn_entry->proto_node;
-                    add_error_note(ira->codegen, msg, proto_node, buf_sprintf("declared here"));
-                    result_type = ira->codegen->builtin_types.entry_invalid;
-                }
-            }
         }
+        break;
     }
 
     if (var->value->type != nullptr && !is_comptime_var) {
@@ -12912,10 +12919,15 @@ static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_nod
     }
 
     if (!comptime_arg) {
-        if (type_requires_comptime(casted_arg->value.type)) {
+        switch (type_requires_comptime(ira->codegen, casted_arg->value.type)) {
+        case ReqCompTimeYes:
             ir_add_error(ira, casted_arg,
                 buf_sprintf("parameter of type '%s' requires comptime", buf_ptr(&casted_arg->value.type->name)));
             return false;
+        case ReqCompTimeInvalid:
+            return false;
+        case ReqCompTimeNo:
+            break;
         }
 
         casted_args[fn_type_id->param_count] = casted_arg;
@@ -13388,12 +13400,15 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call
                 inst_fn_type_id.return_type = specified_return_type;
             }
 
-            if ((err = type_resolve(ira->codegen, specified_return_type, ResolveStatusZeroBitsKnown)))
-                return ira->codegen->invalid_instruction;
-
-            if (type_requires_comptime(specified_return_type)) {
+            switch (type_requires_comptime(ira->codegen, specified_return_type)) {
+            case ReqCompTimeYes:
                 // Throw out our work and call the function as if it were comptime.
-                return ir_analyze_fn_call(ira, call_instruction, fn_entry, fn_type, fn_ref, first_arg_ptr, true, FnInlineAuto);
+                return ir_analyze_fn_call(ira, call_instruction, fn_entry, fn_type, fn_ref, first_arg_ptr,
+                        true, FnInlineAuto);
+            case ReqCompTimeInvalid:
+                return ira->codegen->invalid_instruction;
+            case ReqCompTimeNo:
+                break;
             }
         }
         IrInstruction *async_allocator_inst = nullptr;
@@ -14334,11 +14349,16 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
 
     } else {
         // runtime known element index
-        if (type_requires_comptime(return_type)) {
+        switch (type_requires_comptime(ira->codegen, return_type)) {
+        case ReqCompTimeYes:
             ir_add_error(ira, elem_index,
                 buf_sprintf("values of type '%s' must be comptime known, but index value is runtime known",
                     buf_ptr(&return_type->data.pointer.child_type->name)));
             return ira->codegen->invalid_instruction;
+        case ReqCompTimeInvalid:
+            return ira->codegen->invalid_instruction;
+        case ReqCompTimeNo:
+            break;
         }
         if (ptr_align < abi_align) {
             if (elem_size >= ptr_align && elem_size % ptr_align == 0) {
@@ -19390,7 +19410,6 @@ static IrInstruction *ir_analyze_instruction_unwrap_err_payload(IrAnalyze *ira,
 }
 
 static IrInstruction *ir_analyze_instruction_fn_proto(IrAnalyze *ira, IrInstructionFnProto *instruction) {
-    Error err;
     AstNode *proto_node = instruction->base.source_node;
     assert(proto_node->type == NodeTypeFnProto);
 
@@ -19429,11 +19448,8 @@ static IrInstruction *ir_analyze_instruction_fn_proto(IrAnalyze *ira, IrInstruct
             if (type_is_invalid(param_type_value->value.type))
                 return ira->codegen->invalid_instruction;
             ZigType *param_type = ir_resolve_type(ira, param_type_value);
-            if (type_is_invalid(param_type))
-                return ira->codegen->invalid_instruction;
-            if ((err = type_resolve(ira->codegen, param_type, ResolveStatusZeroBitsKnown)))
-                return ira->codegen->invalid_instruction;
-            if (type_requires_comptime(param_type)) {
+            switch (type_requires_comptime(ira->codegen, param_type)) {
+            case ReqCompTimeYes:
                 if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
                     ir_add_error(ira, param_type_value,
                         buf_sprintf("parameter of type '%s' not allowed in function with calling convention '%s'",
@@ -19443,6 +19459,10 @@ static IrInstruction *ir_analyze_instruction_fn_proto(IrAnalyze *ira, IrInstruct
                 param_info->type = param_type;
                 fn_type_id.next_param_index += 1;
                 return ir_const_type(ira, &instruction->base, get_generic_fn_type(ira->codegen, &fn_type_id));
+            case ReqCompTimeInvalid:
+                return ira->codegen->invalid_instruction;
+            case ReqCompTimeNo:
+                break;
             }
             if (!type_has_bits(param_type) && !calling_convention_allows_zig_types(fn_type_id.cc)) {
                 ir_add_error(ira, param_type_value,
