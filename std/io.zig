@@ -1050,8 +1050,13 @@ pub fn Deserializer(endian: builtin.Endian, is_packed: bool, comptime Error: typ
                 else => in_stream,
             } };
         }
+        
+        pub fn alignToByte(self: *Self) void {
+            if(!is_packed) return;
+            self.in_stream.alignToByte();
+        }
 
-        //@BUG: inferred error issue
+        //@BUG: inferred error issue. See: #1386 
         fn deserializeInt(self: *Self, comptime T: type) (Stream.Error || error{EndOfStream})!T {
             debug.assert(trait.is(builtin.TypeId.Int)(T) or trait.is(builtin.TypeId.Float)(T));
 

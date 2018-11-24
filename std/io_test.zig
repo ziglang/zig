@@ -253,7 +253,8 @@ test "BitOutStream" {
 }
 
 fn testIntSerializerDeserializer(comptime endian: builtin.Endian, comptime is_packed: bool) !void {
-    const max_test_bitsize = 17;
+    //@NOTE: if this test is taking too long, reduce the maximum tested bitsize
+    const max_test_bitsize = 128;
     
     const total_bytes = comptime blk: {
         var bytes = 0;
@@ -278,7 +279,7 @@ fn testIntSerializerDeserializer(comptime endian: builtin.Endian, comptime is_pa
         const U = @IntType(false, i);
         const S = @IntType(true, i);
         try serializer.serializeInt(U(i));
-        if (i != 0) try serializer.serializeInt(S(-1));
+        if (i != 0) try serializer.serializeInt(S(-1)) else try serializer.serialize(S(0));
     }
     try serializer.flush();
 
@@ -287,9 +288,9 @@ fn testIntSerializerDeserializer(comptime endian: builtin.Endian, comptime is_pa
         const U = @IntType(false, i);
         const S = @IntType(true, i);
         const x = try deserializer.deserializeInt(U);
-        const y = if (i != 0) try deserializer.deserializeInt(S);
+        const y = try deserializer.deserializeInt(S);
         assert(x == U(i));
-        if (i != 0) assert(y == S(-1));
+        if (i != 0) assert(y == S(-1)) else assert(y == 0);
     }
 
     const u8_bit_count = comptime meta.bitCount(u8);
@@ -299,8 +300,6 @@ fn testIntSerializerDeserializer(comptime endian: builtin.Endian, comptime is_pa
     const extra_packed_byte = @boolToInt(total_bits % u8_bit_count > 0);
     const total_packed_bytes = (total_bits / u8_bit_count) + extra_packed_byte;
 
-    
-
     assert(in.pos == if (is_packed) total_packed_bytes else total_bytes);
 }
 
@@ -309,6 +308,56 @@ test "Serializer/Deserializer Int" {
     try testIntSerializerDeserializer(builtin.Endian.Little, false);
     try testIntSerializerDeserializer(builtin.Endian.Big, true);
     try testIntSerializerDeserializer(builtin.Endian.Little, true);
+}
+
+fn testIntSerializerDeserializerInfNaN(comptime endian: builtin.Endian, 
+    comptime is_packed: bool) !void
+{
+    const mem_size = (16*2 + 32*2 + 64*2 + 128*2) / comptime meta.bitCount(u8);
+    var data_mem: [mem_size]u8 = undefined;
+    
+    var out = io.SliceOutStream.init(data_mem[0..]);
+    const OutError = io.SliceOutStream.Error;
+    var out_stream = &out.stream;
+    var serializer = io.Serializer(endian, is_packed, OutError).init(out_stream);
+
+    var in = io.SliceInStream.init(data_mem[0..]);
+    const InError = io.SliceInStream.Error;
+    var in_stream = &in.stream;
+    var deserializer = io.Deserializer(endian, is_packed, InError).init(in_stream);
+
+    //@TODO: isInf/isNan not currently implemented for f128.
+    try serializer.serialize(std.math.nan(f16));
+    try serializer.serialize(std.math.inf(f16));
+    try serializer.serialize(std.math.nan(f32));
+    try serializer.serialize(std.math.inf(f32));
+    try serializer.serialize(std.math.nan(f64));
+    try serializer.serialize(std.math.inf(f64));
+    //try serializer.serialize(std.math.nan(f128));
+    //try serializer.serialize(std.math.inf(f128));
+    const nan_check_f16 = try deserializer.deserialize(f16);
+    const inf_check_f16 = try deserializer.deserialize(f16);
+    const nan_check_f32 = try deserializer.deserialize(f32);
+    const inf_check_f32 = try deserializer.deserialize(f32);
+    const nan_check_f64 = try deserializer.deserialize(f64);
+    const inf_check_f64 = try deserializer.deserialize(f64);
+    //const nan_check_f128 = try deserializer.deserialize(f128);
+    //const inf_check_f128 = try deserializer.deserialize(f128);
+    assert(std.math.isNan(nan_check_f16));
+    assert(std.math.isInf(inf_check_f16));
+    assert(std.math.isNan(nan_check_f32));
+    assert(std.math.isInf(inf_check_f32));
+    assert(std.math.isNan(nan_check_f64));
+    assert(std.math.isInf(inf_check_f64));
+    //assert(std.math.isNan(nan_check_f128));
+    //assert(std.math.isInf(inf_check_f128));
+}
+
+test "Serializer/Deserializer Int: Inf/NaN" {
+    try testIntSerializerDeserializerInfNaN(builtin.Endian.Big, false);
+    try testIntSerializerDeserializerInfNaN(builtin.Endian.Little, false);
+    try testIntSerializerDeserializerInfNaN(builtin.Endian.Big, true);
+    try testIntSerializerDeserializerInfNaN(builtin.Endian.Little, true);
 }
 
 fn testSerializerDeserializer(comptime endian: builtin.Endian, comptime is_packed: bool) !void {
@@ -410,7 +459,6 @@ fn testSerializerDeserializer(comptime endian: builtin.Endian, comptime is_packe
     try serializer.serialize(my_inst);
 
     const my_copy = try deserializer.deserialize(MyStruct);
-
     assert(meta.eql(my_copy, my_inst));
 }
 
