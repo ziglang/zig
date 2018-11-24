@@ -1668,7 +1668,7 @@ static LLVMValueRef gen_widen_or_shorten(CodeGen *g, bool want_runtime_safety, Z
         zig_unreachable();
     }
 
-    if (actual_bits >= wanted_bits && actual_type->id == ZigTypeIdInt &&
+    if (actual_type->id == ZigTypeIdInt &&
         !wanted_type->data.integral.is_signed && actual_type->data.integral.is_signed &&
         want_runtime_safety)
     {
