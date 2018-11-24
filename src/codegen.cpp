@@ -5107,9 +5107,14 @@ static LLVMValueRef ir_render_result_optional_payload(CodeGen *g, IrExecutable *
         IrInstructionResultOptionalPayload *instruction)
 {
     LLVMValueRef prev_result_loc = ir_llvm_value(g, instruction->prev_result_loc);
-    LLVMValueRef nonnull_ptr = LLVMBuildStructGEP(g->builder, prev_result_loc, maybe_null_index, "");
-    gen_store_untyped(g, LLVMConstInt(LLVMInt1Type(), 1, false), nonnull_ptr, 0, false);
-    return LLVMBuildStructGEP(g->builder, prev_result_loc, maybe_child_index, "");
+    ZigType *child_type = instruction->base.value.type;
+    if (type_is_codegen_pointer(child_type) || child_type->id == ZigTypeIdErrorSet) {
+        return prev_result_loc;
+    } else {
+        LLVMValueRef nonnull_ptr = LLVMBuildStructGEP(g->builder, prev_result_loc, maybe_null_index, "");
+        gen_store_untyped(g, LLVMConstInt(LLVMInt1Type(), 1, false), nonnull_ptr, 0, false);
+        return LLVMBuildStructGEP(g->builder, prev_result_loc, maybe_child_index, "");
+    }
 }
 
 static LLVMValueRef ir_render_result_slice_ptr(CodeGen *g, IrExecutable *executable,
