@@ -607,11 +607,15 @@ pub fn eql_slice_u8(a: []const u8, b: []const u8) bool {
 /// any of the bytes in `split_bytes`.
 /// split("   abc def    ghi  ", " ")
 /// Will return slices for "abc", "def", "ghi", null, in that order.
+/// If `split_bytes` does not exist in buffer,
+/// the iterator will return `buffer`, null, in that order.
 pub fn split(buffer: []const u8, split_bytes: []const u8) SplitIterator {
     return SplitIterator{
         .index = 0,
         .buffer = buffer,
         .split_bytes = split_bytes,
+        .glob = true,
+        .spun = false,
     };
 }
 
@@ -621,6 +625,76 @@ test "mem.split" {
     assert(eql(u8, it.next().?, "def"));
     assert(eql(u8, it.next().?, "ghi"));
     assert(it.next() == null);
+
+    it = split("..\\bob", "\\");
+    assert(eql(u8, it.next().?, ".."));
+    assert(eql(u8, "..", "..\\bob"[0..it.index]));
+    assert(eql(u8, it.next().?, "bob"));
+    assert(it.next() == null);
+
+    it = split("//a/b", "/");
+    assert(eql(u8, it.next().?, "a"));
+    assert(eql(u8, it.next().?, "b"));
+    assert(eql(u8, "//a/b", "//a/b"[0..it.index]));
+    assert(it.next() == null);
+
+    it = split("|", "|");
+    assert(it.next() == null);
+
+    it = split("", "|");
+    assert(eql(u8, it.next().?, ""));
+    assert(it.next() == null);
+
+    it = split("hello", "");
+    assert(eql(u8, it.next().?, "hello"));
+    assert(it.next() == null);
+
+    it = split("hello", " ");
+    assert(eql(u8, it.next().?, "hello"));
+    assert(it.next() == null);
+}
+
+/// Returns an iterator that iterates over the slices of `buffer` that
+/// seperates by bytes in `delimiter`.
+/// separate("abc|def||ghi", "|")
+/// Will return slices for "abc", "def", "", "ghi", null, in that order.
+/// If `delimiter` does not exist in buffer,
+/// the iterator will return `buffer`, null, in that order.
+pub fn separate(buffer: []const u8, delimiter: []const u8) SplitIterator {
+    return SplitIterator{
+        .index = 0,
+        .buffer = buffer,
+        .split_bytes = delimiter,
+        .glob = false,
+        .spun = false,
+    };
+}
+
+test "mem.separate" {
+    var it = separate("abc|def||ghi", "|");
+    assert(eql(u8, it.next().?, "abc"));
+    assert(eql(u8, it.next().?, "def"));
+    assert(eql(u8, it.next().?, ""));
+    assert(eql(u8, it.next().?, "ghi"));
+    assert(it.next() == null);
+
+    it = separate("", "|");
+    assert(eql(u8, it.next().?, ""));
+    assert(it.next() == null);
+
+    it = separate("|", "|");
+    assert(eql(u8, it.next().?, ""));
+    assert(eql(u8, it.next().?, ""));
+    assert(it.next() == null);
+
+    it = separate("hello", "");
+    assert(eql(u8, it.next().?, "hello"));
+    assert(it.next() == null);
+
+    it = separate("hello", " ");
+    assert(eql(u8, it.next().?, "hello"));
+    assert(it.next() == null);
+
 }
 
 pub fn startsWith(comptime T: type, haystack: []const T, needle: []const T) bool {
@@ -645,20 +719,32 @@ pub const SplitIterator = struct {
     buffer: []const u8,
     split_bytes: []const u8,
     index: usize,
+    glob: bool,
+    spun: bool,
 
+    /// Iterates and returns null or optionally a slice the next split segment
     pub fn next(self: *SplitIterator) ?[]const u8 {
-        // move to beginning of token
-        while (self.index < self.buffer.len and self.isSplitByte(self.buffer[self.index])) : (self.index += 1) {}
-        const start = self.index;
-        if (start == self.buffer.len) {
-            return null;
+        if (self.spun) {
+            if (self.index + 1 > self.buffer.len) return null;
+            self.index += 1;
         }
 
-        // move to end of token
-        while (self.index < self.buffer.len and !self.isSplitByte(self.buffer[self.index])) : (self.index += 1) {}
-        const end = self.index;
+        self.spun = true;
 
-        return self.buffer[start..end];
+        if (self.glob) {
+            while (self.index < self.buffer.len and self.isSplitByte(self.buffer[self.index])) : (self.index += 1) {}
+        }
+
+        var cursor = self.index;
+        while (cursor < self.buffer.len and !self.isSplitByte(self.buffer[cursor])) : (cursor += 1) {}
+
+        defer self.index = cursor;
+
+        if (cursor == self.buffer.len) {
+            return if (self.glob and self.index == cursor and self.index > 0) null else self.buffer[self.index..];
+        }
+
+        return self.buffer[self.index..cursor];
     }
 
     /// Returns a slice of the remaining bytes. Does not affect iterator state.

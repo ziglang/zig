@@ -967,12 +967,14 @@ pub fn relativeWindows(allocator: *Allocator, from: []const u8, to: []const u8) 
         // shave off the trailing slash
         result_index -= 1;
 
-        var rest_it = mem.split(to_rest, "/\\");
-        while (rest_it.next()) |to_component| {
-            result[result_index] = '\\';
-            result_index += 1;
-            mem.copy(u8, result[result_index..], to_component);
-            result_index += to_component.len;
+        if (to_rest.len > 0) {
+            var rest_it = mem.split(to_rest, "/\\");
+            while (rest_it.next()) |to_component| {
+                result[result_index] = '\\';
+                result_index += 1;
+                mem.copy(u8, result[result_index..], to_component);
+                result_index += to_component.len;
+            }
         }
 
         return result[0..result_index];
