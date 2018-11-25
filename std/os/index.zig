@@ -15,7 +15,7 @@ test "std.os" {
     _ = @import("get_user_id.zig");
     _ = @import("linux/index.zig");
     _ = @import("path.zig");
-    _ = @import("test.zig");
+    _ = @import("test.zig"); 
     _ = @import("time.zig");
     _ = @import("windows/index.zig");
     _ = @import("get_app_data_dir.zig");
@@ -718,8 +718,9 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
             var key: []u8 = undefined;
             var heap_key = false;
 
-            // parse the key on the stack if smaller than 'stack_var_len'
-            if (key_slice.len < stack_var_len-@sizeOf(usize)) {
+            /// revisit needing the "-@sizeof(usize)*2" 
+            /// after https://github.com/ziglang/zig/issues/1774
+            if (key_slice.len < stack_var_len-@sizeOf(usize)*2) {
                 var buf = []u8{0} ** stack_var_len;
                 var fallocator = &std.heap.FixedBufferAllocator.init(buf[0..]).allocator;
                 key = try std.unicode.utf16leToUtf8Alloc(fallocator, key_slice);
@@ -737,7 +738,9 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
             var value: []u8 = undefined;
             var heap_value = false;
 
-            if (value_slice.len < stack_var_len-@sizeOf(usize)) {
+            /// revisit needing the "-@sizeof(usize)*2"
+            /// after https://github.com/ziglang/zig/issues/1774
+            if (value_slice.len < stack_var_len-@sizeOf(usize)*2) {
                 var buf = []u8{0} ** stack_var_len;
                 var fallocator = &std.heap.FixedBufferAllocator.init(buf[0..]).allocator;
                 value = try std.unicode.utf16leToUtf8Alloc(fallocator, value_slice);
