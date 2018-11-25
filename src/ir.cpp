@@ -19566,9 +19566,9 @@ static IrInstruction *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstruction
     if (type_is_invalid(ptr_ptr->value.type))
         return ira->codegen->invalid_instruction;
 
-    ZigType *ptr_type = ptr_ptr->value.type;
-    assert(ptr_type->id == ZigTypeIdPointer);
-    ZigType *array_type = ptr_type->data.pointer.child_type;
+    ZigType *ptr_ptr_type = ptr_ptr->value.type;
+    assert(ptr_ptr_type->id == ZigTypeIdPointer);
+    ZigType *array_type = ptr_ptr_type->data.pointer.child_type;
 
     IrInstruction *start = instruction->start->child;
     if (type_is_invalid(start->value.type))
@@ -19591,18 +19591,17 @@ static IrInstruction *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstruction
         end = nullptr;
     }
 
-    ZigType *return_type;
+    ZigType *slice_ptr_type;
     IrInstruction *ptr;
 
     if (array_type->id == ZigTypeIdArray) {
         bool is_comptime_const = ptr_ptr->value.special == ConstValSpecialStatic &&
             ptr_ptr->value.data.x_ptr.mut == ConstPtrMutComptimeConst;
-        ZigType *slice_ptr_type = get_pointer_to_type_extra(ira->codegen, array_type->data.array.child_type,
-            ptr_type->data.pointer.is_const || is_comptime_const,
-            ptr_type->data.pointer.is_volatile,
+        slice_ptr_type = get_pointer_to_type_extra(ira->codegen, array_type->data.array.child_type,
+            ptr_ptr_type->data.pointer.is_const || is_comptime_const,
+            ptr_ptr_type->data.pointer.is_volatile,
             PtrLenUnknown,
-            ptr_type->data.pointer.explicit_alignment, 0, 0);
-        return_type = get_slice_type(ira->codegen, slice_ptr_type);
+            ptr_ptr_type->data.pointer.explicit_alignment, 0, 0);
         ptr = ptr_ptr;
     } else if (array_type->id == ZigTypeIdPointer) {
         ptr = ir_get_deref(ira, &instruction->base, ptr_ptr);
@@ -19612,18 +19611,17 @@ static IrInstruction *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstruction
         if (array_type->data.pointer.ptr_len == PtrLenSingle) {
             ZigType *main_type = array_type->data.pointer.child_type;
             if (main_type->id == ZigTypeIdArray) {
-                ZigType *slice_ptr_type = get_pointer_to_type_extra(ira->codegen,
+                slice_ptr_type = get_pointer_to_type_extra(ira->codegen,
                         main_type->data.pointer.child_type,
                         array_type->data.pointer.is_const, array_type->data.pointer.is_volatile,
                         PtrLenUnknown,
                         array_type->data.pointer.explicit_alignment, 0, 0);
-                return_type = get_slice_type(ira->codegen, slice_ptr_type);
             } else {
                 ir_add_error(ira, &instruction->base, buf_sprintf("slice of single-item pointer"));
                 return ira->codegen->invalid_instruction;
             }
         } else {
-            return_type = get_slice_type(ira->codegen, array_type);
+            slice_ptr_type = array_type;
             if (!end) {
                 ir_add_error(ira, &instruction->base, buf_sprintf("slice of pointer must include end value"));
                 return ira->codegen->invalid_instruction;
@@ -19633,13 +19631,13 @@ static IrInstruction *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstruction
         ptr = ir_get_deref(ira, &instruction->base, ptr_ptr);
         if (type_is_invalid(ptr->value.type))
             return ira->codegen->invalid_instruction;
-        ZigType *ptr_type = array_type->data.structure.fields[slice_ptr_index].type_entry;
-        return_type = get_slice_type(ira->codegen, ptr_type);
+        slice_ptr_type = array_type->data.structure.fields[slice_ptr_index].type_entry;
     } else {
         ir_add_error(ira, &instruction->base,
             buf_sprintf("slice of non-array type '%s'", buf_ptr(&array_type->name)));
         return ira->codegen->invalid_instruction;
     }
+    ZigType *return_type = get_slice_type(ira->codegen, slice_ptr_type);
 
     IrInstruction *result_loc = instruction->result_loc->child;
     if (type_is_invalid(result_loc->value.type))
@@ -19648,7 +19646,6 @@ static IrInstruction *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstruction
     if (type_is_invalid(result_loc->value.type))
         return ira->codegen->invalid_instruction;
 
-    // TODO make this use ptr not ptr_ptr
     if (instr_is_comptime(ptr_ptr) &&
         value_is_comptime(&casted_start->value) &&
         (!end || value_is_comptime(&end->value)))
@@ -19799,10 +19796,6 @@ static IrInstruction *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstruction
             return ira->codegen->invalid_instruction;
         }
 
-        if (result_loc->value.special != ConstValSpecialRuntime) {
-            zig_panic("TODO slice with comptime ptr and values");
-        }
-
         IrInstruction *result = ir_const(ira, &instruction->base, return_type);
         ConstExprValue *out_val = &result->value;
         out_val->data.x_struct.fields = create_const_vals(2);
@@ -19852,6 +19845,10 @@ static IrInstruction *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstruction
 
         ConstExprValue *len_val = &out_val->data.x_struct.fields[slice_len_index];
         init_const_usize(ira->codegen, len_val, end_scalar - start_scalar);
+
+        if (result_loc->value.special != ConstValSpecialRuntime) {
+            return ir_analyze_store_ptr(ira, &instruction->base, result_loc, result);
+        }
 
         return result;
     }
