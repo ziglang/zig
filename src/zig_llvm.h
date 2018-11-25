@@ -358,7 +358,14 @@ enum ZigLLVM_OSType {
     ZigLLVM_Contiki,
     ZigLLVM_AMDPAL,     // AMD PAL Runtime
 
+#if defined(ZIG_OS_LINUX)
+    // Remove ifdef once 7.0.1 lands
+    // https://github.com/ziglang/zig/issues/1788
+    ZigLLVM_HermitCore, // HermitCore Unikernel/Multikernel
+    ZigLLVM_LastOSType = ZigLLVM_HermitCore
+#else
     ZigLLVM_LastOSType = ZigLLVM_AMDPAL
+#endif
 };
 
 // Synchronize with target.cpp::environ_list

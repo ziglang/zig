@@ -173,6 +173,11 @@ static const Os os_list[] = {
     OsMesa3D,
     OsContiki,
     OsAMDPAL,
+#if defined(ZIG_OS_LINUX)
+    // Remove ifdef once 7.0.1 lands
+    // https://github.com/ziglang/zig/issues/1788
+    OsHermitCore,
+#endif
     OsZen,
 };
 
@@ -315,6 +320,12 @@ ZigLLVM_OSType get_llvm_os_type(Os os_type) {
             return ZigLLVM_Contiki;
         case OsAMDPAL:
             return ZigLLVM_AMDPAL;
+#if defined(ZIG_OS_LINUX)
+        // Remove ifdef once 7.0.1 lands
+        // https://github.com/ziglang/zig/issues/1788
+        case OsHermitCore:
+            return ZigLLVM_HermitCore;
+#endif
     }
     zig_unreachable();
 }
@@ -384,6 +395,12 @@ static Os get_zig_os_type(ZigLLVM_OSType os_type) {
             return OsContiki;
         case ZigLLVM_AMDPAL:
             return OsAMDPAL;
+#if defined(ZIG_OS_LINUX)
+        // Remove ifdef once 7.0.1 lands
+        // https://github.com/ziglang/zig/issues/1788
+        case ZigLLVM_HermitCore:
+            return OsHermitCore;
+#endif
     }
     zig_unreachable();
 }
@@ -424,6 +441,11 @@ const char *get_target_os_name(Os os_type) {
         case OsMesa3D:
         case OsContiki:
         case OsAMDPAL:
+#if defined(ZIG_OS_LINUX)
+        // Remove once 7.0.1 lands
+        // https://github.com/ziglang/zig/issues/1788
+        case OsHermitCore:
+#endif
             return ZigLLVMGetOSTypeName(get_llvm_os_type(os_type));
     }
     zig_unreachable();
@@ -797,6 +819,11 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
         case OsFuchsia:
         case OsContiki:
         case OsAMDPAL:
+#if defined(ZIG_OS_LINUX)
+        // Remove ifdef once 7.0.1 lands
+        // https://github.com/ziglang/zig/issues/1788
+        case OsHermitCore:
+#endif
             zig_panic("TODO c type size in bits for this target");
     }
     zig_unreachable();
