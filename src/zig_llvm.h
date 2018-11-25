@@ -358,7 +358,7 @@ enum ZigLLVM_OSType {
     ZigLLVM_Contiki,
     ZigLLVM_AMDPAL,     // AMD PAL Runtime
 
-#if defined(ZIG_OS_LINUX)
+#if defined(__linux__)
     // Remove ifdef once 7.0.1 lands
     // https://github.com/ziglang/zig/issues/1788
     ZigLLVM_HermitCore, // HermitCore Unikernel/Multikernel

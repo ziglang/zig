@@ -173,7 +173,7 @@ static const Os os_list[] = {
     OsMesa3D,
     OsContiki,
     OsAMDPAL,
-#if defined(ZIG_OS_LINUX)
+#if defined(__linux__)
     // Remove ifdef once 7.0.1 lands
     // https://github.com/ziglang/zig/issues/1788
     OsHermitCore,
@@ -320,7 +320,7 @@ ZigLLVM_OSType get_llvm_os_type(Os os_type) {
             return ZigLLVM_Contiki;
         case OsAMDPAL:
             return ZigLLVM_AMDPAL;
-#if defined(ZIG_OS_LINUX)
+#if defined(__linux__)
         // Remove ifdef once 7.0.1 lands
         // https://github.com/ziglang/zig/issues/1788
         case OsHermitCore:
@@ -395,7 +395,7 @@ static Os get_zig_os_type(ZigLLVM_OSType os_type) {
             return OsContiki;
         case ZigLLVM_AMDPAL:
             return OsAMDPAL;
-#if defined(ZIG_OS_LINUX)
+#if defined(__linux__)
         // Remove ifdef once 7.0.1 lands
         // https://github.com/ziglang/zig/issues/1788
         case ZigLLVM_HermitCore:
@@ -441,7 +441,7 @@ const char *get_target_os_name(Os os_type) {
         case OsMesa3D:
         case OsContiki:
         case OsAMDPAL:
-#if defined(ZIG_OS_LINUX)
+#if defined(__linux__)
         // Remove once 7.0.1 lands
         // https://github.com/ziglang/zig/issues/1788
         case OsHermitCore:
@@ -819,7 +819,7 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
         case OsFuchsia:
         case OsContiki:
         case OsAMDPAL:
-#if defined(ZIG_OS_LINUX)
+#if defined(__linux__)
         // Remove ifdef once 7.0.1 lands
         // https://github.com/ziglang/zig/issues/1788
         case OsHermitCore:
