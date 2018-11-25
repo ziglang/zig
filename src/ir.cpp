@@ -3133,6 +3133,7 @@ static IrInstruction *ir_gen_async_return(IrBuilder *irb, Scope *scope, AstNode 
 static IrInstruction *ir_gen_result(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval,
         IrInstruction *result_loc)
 {
+    assert(result_loc != nullptr);
     switch (lval) {
         case LValNone:
             return ir_build_load_ptr(irb, scope, node, result_loc, nullptr);
@@ -3151,8 +3152,13 @@ static IrInstruction *ir_gen_multi(IrBuilder *irb, Scope *scope, AstNode *node, 
     switch (lval) {
         case LValNone:
             return value;
-        case LValPtr:
-            return result_loc;
+        case LValPtr: {
+            if (result_loc != nullptr)
+                return result_loc;
+            // We needed a pointer to a value, but we got a value. So we create
+            // an instruction which just makes a pointer of it.
+            return ir_build_ref(irb, scope, value->source_node, value, false, false, nullptr);
+        }
         case LValErrorUnion:
         case LValOptional: {
             IrInstruction *err_alloca = ir_build_alloca_src(irb, scope, value->source_node,
@@ -17008,9 +17014,7 @@ static IrInstruction *ir_analyze_instruction_switch_target(IrAnalyze *ira,
                 return result;
             }
 
-            IrInstruction *result = ir_build_load_ptr(&ira->new_irb,
-                switch_target_instruction->base.scope, switch_target_instruction->base.source_node,
-                target_value_ptr, nullptr);
+            IrInstruction *result = ir_get_deref(ira, &switch_target_instruction->base, target_value_ptr);
             result->value.type = target_type;
             return result;
         }
@@ -17040,8 +17044,7 @@ static IrInstruction *ir_analyze_instruction_switch_target(IrAnalyze *ira,
                 return result;
             }
 
-            IrInstruction *union_value = ir_build_load_ptr(&ira->new_irb, switch_target_instruction->base.scope,
-                switch_target_instruction->base.source_node, target_value_ptr, nullptr);
+            IrInstruction *union_value = ir_get_deref(ira, &switch_target_instruction->base, target_value_ptr);
             union_value->value.type = target_type;
 
             IrInstruction *union_tag_inst = ir_build_union_tag(&ira->new_irb, switch_target_instruction->base.scope,
@@ -17065,8 +17068,7 @@ static IrInstruction *ir_analyze_instruction_switch_target(IrAnalyze *ira,
                 return result;
             }
 
-            IrInstruction *enum_value = ir_build_load_ptr(&ira->new_irb, switch_target_instruction->base.scope,
-                switch_target_instruction->base.source_node, target_value_ptr, nullptr);
+            IrInstruction *enum_value = ir_get_deref(ira, &switch_target_instruction->base, target_value_ptr);
             enum_value->value.type = target_type;
             return enum_value;
         }
