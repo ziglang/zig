@@ -141,6 +141,7 @@ static const ZigLLVM_VendorType vendor_list[] = {
     ZigLLVM_SUSE,
 };
 
+// Synchronize with target.hpp enum Os
 static const Os os_list[] = {
     OsFreestanding,
     OsAnanas,

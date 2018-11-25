@@ -50,6 +50,11 @@ enum Os {
     OsMesa3D,
     OsContiki,
     OsAMDPAL,
+#if defined(__linux__)
+    // Remove ifdef once 7.0.1 lands
+    // https://github.com/ziglang/zig/issues/1788
+    OsHermitCore,
+#endif
     OsZen,
 };
 
