@@ -76,6 +76,25 @@ test "std.meta.tagName" {
     debug.assert(mem.eql(u8, tagName(u2b), "D"));
 }
 
+pub fn stringToEnum(comptime T: type, str: []const u8) ?T {
+    inline for (@typeInfo(T).Enum.fields) |enumField| {
+        if (std.mem.eql(u8, str, enumField.name)) {
+            return @field(T, enumField.name);
+        }
+    }
+    return null;
+}
+
+test "std.meta.stringToEnum" {
+    const E1 = enum {
+        A,
+        B,
+    };
+    debug.assert(E1.A == stringToEnum(E1, "A").?);
+    debug.assert(E1.B == stringToEnum(E1, "B").?);
+    debug.assert(null == stringToEnum(E1, "C"));
+}
+
 pub fn bitCount(comptime T: type) u32 {
     return switch (@typeInfo(T)) {
         TypeId.Int => |info| info.bits,
