@@ -20,6 +20,7 @@ mkdir build
 cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j2 install
+./zig builtin
 ./zig build --build-file ../build.zig test
 
 if [ "${BUILD_REASON}" != "PullRequest" ]; then
