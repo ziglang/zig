@@ -175,6 +175,8 @@ static const Os os_list[] = {
     OsContiki,
     OsAMDPAL,
     OsHermitCore,
+    OsHurd,
+    // The following are custom OSes understood by Zig
     OsZen,
 };
 
@@ -256,9 +258,10 @@ ZigLLVM_OSType get_llvm_os_type(Os os_type) {
     switch (os_type) {
         case OsFreestanding:
         case OsZen:
-        case OsHermitCore:
-            // fake OsHermitCore until 7.0.1 lands
+            // fake OsHermitCore and Hurd until 7.0.1 lands
             // https://github.com/ziglang/zig/issues/1788
+        case OsHermitCore:
+        case OsHurd:
             return ZigLLVM_UnknownOS;
         case OsAnanas:
             return ZigLLVM_Ananas;
@@ -405,9 +408,11 @@ const char *get_target_os_name(Os os_type) {
             return "freestanding";
         case OsZen:
             return "zen";
-        case OsHermitCore:
-            // fake OsHermitCore until 7.0.1 lands
+            // fake OsHermitCore and Hurd until 7.0.1 lands
             // https://github.com/ziglang/zig/issues/1788
+        case OsHermitCore:
+            return "hermit";
+        case OsHurd:
             return "hurd";
         case OsAnanas:
         case OsCloudABI:
@@ -813,6 +818,7 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
         case OsContiki:
         case OsAMDPAL:
         case OsHermitCore:
+        case OsHurd:
             zig_panic("TODO c type size in bits for this target");
     }
     zig_unreachable();

@@ -50,7 +50,9 @@ enum Os {
     OsMesa3D,
     OsContiki,
     OsAMDPAL,
-    OsHermitCore, // hurd
+    OsHermitCore, // hermit
+    OsHurd, // hurd
+    // The following are custom OSes understood by Zig
     OsZen,
 };
 

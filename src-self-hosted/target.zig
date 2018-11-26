@@ -550,6 +550,7 @@ pub const Target = union(enum) {
             builtin.Os.mesa3d,
             builtin.Os.contiki,
             builtin.Os.amdpal,
+            builtin.Os.hermit,
             builtin.Os.hurd,
             => @panic("TODO specify the C integer type sizes for this OS"),
         }

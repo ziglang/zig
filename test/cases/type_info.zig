@@ -149,7 +149,7 @@ fn testEnum() void {
     const os_info = @typeInfo(Os);
     assert(TypeId(os_info) == TypeId.Enum);
     assert(os_info.Enum.layout == TypeInfo.ContainerLayout.Auto);
-    assert(os_info.Enum.fields.len == 33);
+    assert(os_info.Enum.fields.len == 34);
     assert(mem.eql(u8, os_info.Enum.fields[1].name, "ananas"));
     assert(os_info.Enum.fields[10].value == 10);
     assert(os_info.Enum.tag_type == u6);
