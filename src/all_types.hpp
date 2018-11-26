@@ -2197,6 +2197,7 @@ enum IrInstructionId {
     IrInstructionIdAllocaSrc,
     IrInstructionIdAllocaGen,
     IrInstructionIdAssertNonError,
+    IrInstructionIdAssertNonNull,
     IrInstructionIdErrorUnionFieldErrorSet,
     IrInstructionIdFirstArgResultLoc,
     IrInstructionIdInferArrayType,
@@ -3360,6 +3361,13 @@ struct IrInstructionAssertNonError {
     IrInstruction base;
 
     IrInstruction *err_code;
+};
+
+// This is the safety check when using `.?`.
+struct IrInstructionAssertNonNull {
+    IrInstruction base;
+
+    IrInstruction *is_non_null;
 };
 
 struct IrInstructionFirstArgResultLoc {

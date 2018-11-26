@@ -1374,6 +1374,12 @@ static void ir_print_assert_non_error(IrPrint *irp, IrInstructionAssertNonError 
     fprintf(irp->f, ")");
 }
 
+static void ir_print_assert_non_null(IrPrint *irp, IrInstructionAssertNonNull *instruction) {
+    fprintf(irp->f, "AssertNonNull(");
+    ir_print_other_instruction(irp, instruction->is_non_null);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_error_union_field_error_set(IrPrint *irp, IrInstructionErrorUnionFieldErrorSet *instruction) {
     fprintf(irp->f, "ErrorUnionFieldErrorSet(");
     ir_print_other_instruction(irp, instruction->ptr);
@@ -1850,6 +1856,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdAssertNonError:
             ir_print_assert_non_error(irp, (IrInstructionAssertNonError *)instruction);
+            break;
+        case IrInstructionIdAssertNonNull:
+            ir_print_assert_non_null(irp, (IrInstructionAssertNonNull *)instruction);
             break;
         case IrInstructionIdErrorUnionFieldErrorSet:
             ir_print_error_union_field_error_set(irp, (IrInstructionErrorUnionFieldErrorSet *)instruction);

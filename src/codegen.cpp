@@ -5170,6 +5170,24 @@ static LLVMValueRef ir_render_assert_non_error(CodeGen *g, IrExecutable *executa
     return nullptr;
 }
 
+static LLVMValueRef ir_render_assert_non_null(CodeGen *g, IrExecutable *executable,
+        IrInstructionAssertNonNull *instruction)
+{
+    if (!ir_want_runtime_safety(g, &instruction->base)) {
+        return nullptr;
+    }
+    LLVMValueRef is_non_null = ir_llvm_value(g, instruction->is_non_null);
+    LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "UnwrapOptionalOk");
+    LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "UnwrapOptionalFail");
+    LLVMBuildCondBr(g->builder, is_non_null, ok_block, fail_block);
+
+    LLVMPositionBuilderAtEnd(g->builder, fail_block);
+    gen_safety_crash(g, PanicMsgIdUnwrapOptionalFail);
+
+    LLVMPositionBuilderAtEnd(g->builder, ok_block);
+    return nullptr;
+}
+
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
     Scope *scope = instruction->scope;
@@ -5421,6 +5439,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_result_error_union_code(g, executable, (IrInstructionResultErrorUnionCode *)instruction);
         case IrInstructionIdAssertNonError:
             return ir_render_assert_non_error(g, executable, (IrInstructionAssertNonError *)instruction);
+        case IrInstructionIdAssertNonNull:
+            return ir_render_assert_non_null(g, executable, (IrInstructionAssertNonNull *)instruction);
         case IrInstructionIdResultSliceToBytes:
             zig_panic("TODO");
         case IrInstructionIdResultBytesToSlice:
