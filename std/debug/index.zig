@@ -282,8 +282,9 @@ fn printSourceAtAddressWindows(di: *DebugInfo, out_stream: var, relocated_addres
 
     var coff_section: *coff.Section = undefined;
     const mod_index = for (di.sect_contribs) |sect_contrib| {
-        if (sect_contrib.Section >= di.coff.sections.len) continue;
-        coff_section = &di.coff.sections.toSlice()[sect_contrib.Section];
+        if (sect_contrib.Section > di.coff.sections.len) continue;
+        // Remember that SectionContribEntry.Section is 1-based.
+        coff_section = &di.coff.sections.toSlice()[sect_contrib.Section-1];
 
         const vaddr_start = coff_section.header.virtual_address + sect_contrib.Offset;
         const vaddr_end = vaddr_start + sect_contrib.Size;
