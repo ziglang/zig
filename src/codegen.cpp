@@ -129,6 +129,11 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
         Buf *src_dir = buf_alloc();
         os_path_split(root_src_path, src_dir, src_basename);
 
+        if (buf_len(src_basename) == 0) {
+            fprintf(stderr, "Invalid root source path: %s\n", buf_ptr(root_src_path));
+            exit(1);
+        }
+
         g->root_package = new_package(buf_ptr(src_dir), buf_ptr(src_basename));
         g->std_package = new_package(buf_ptr(g->zig_std_dir), "index.zig");
         g->root_package->package_table.put(buf_create_from_str("std"), g->std_package);
@@ -8178,7 +8183,11 @@ void codegen_build_and_link(CodeGen *g) {
         os_path_join(stage1_dir, buf_create_from_str("build"), manifest_dir);
 
         if ((err = check_cache(g, manifest_dir, &digest))) {
-            fprintf(stderr, "Unable to check cache: %s\n", err_str(err));
+            if (err == ErrorCacheUnavailable) {
+                // message already printed
+            } else {
+                fprintf(stderr, "Unable to check cache: %s\n", err_str(err));
+            }
             exit(1);
         }
 
