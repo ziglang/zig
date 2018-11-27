@@ -1188,7 +1188,7 @@ pub const Parser = struct {
                     }
 
                     var value = p.stack.pop();
-                    try p.pushToParent(value);
+                    try p.pushToParent(&value);
                 },
                 Token.Id.String => {
                     try p.stack.append(try p.parseString(allocator, token, input, i));
@@ -1251,7 +1251,7 @@ pub const Parser = struct {
                         }
 
                         var value = p.stack.pop();
-                        try p.pushToParent(value);
+                        try p.pushToParent(&value);
                     },
                     Token.Id.ObjectBegin => {
                         try p.stack.append(Value{ .Object = ObjectMap.init(allocator) });
@@ -1312,20 +1312,19 @@ pub const Parser = struct {
         }
     }
 
-    fn pushToParent(p: *Parser, value: Value) !void {
-        switch (p.stack.at(p.stack.len - 1)) {
+    fn pushToParent(p: *Parser, value: *const Value) !void {
+        switch (p.stack.toSlice()[p.stack.len - 1]) {
             // Object Parent -> [ ..., object, <key>, value ]
             Value.String => |key| {
                 _ = p.stack.pop();
 
                 var object = &p.stack.items[p.stack.len - 1].Object;
-                _ = try object.put(key, value);
+                _ = try object.put(key, value.*);
                 p.state = State.ObjectKey;
             },
             // Array Parent -> [ ..., <array>, value ]
-            Value.Array => {
-                var array = &p.stack.items[p.stack.len - 1].Array;
-                try array.append(value);
+            Value.Array => |*array| {
+                try array.append(value.*);
                 p.state = State.ArrayValue;
             },
             else => {
