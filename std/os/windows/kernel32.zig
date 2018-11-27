@@ -222,9 +222,9 @@ pub const FOREGROUND_RED = 4;
 pub const FOREGROUND_INTENSITY = 8;
 
 pub extern "kernel32" stdcallcc fn InitializeCriticalSection(lpCriticalSection: *CRITICAL_SECTION) void;
-pub extern "kernel32" stdcallcc fn EnterCriticalSection(lpCriticalSection: *CRITICAL_SECTION) void; 
-pub extern "kernel32" stdcallcc fn LeaveCriticalSection(lpCriticalSection: *CRITICAL_SECTION) void; 
-pub extern "kernel32" stdcallcc fn DeleteCriticalSection(lpCriticalSection: *CRITICAL_SECTION) void;  
+pub extern "kernel32" stdcallcc fn EnterCriticalSection(lpCriticalSection: *CRITICAL_SECTION) void;
+pub extern "kernel32" stdcallcc fn LeaveCriticalSection(lpCriticalSection: *CRITICAL_SECTION) void;
+pub extern "kernel32" stdcallcc fn DeleteCriticalSection(lpCriticalSection: *CRITICAL_SECTION) void;
 
 pub const LIST_ENTRY = extern struct {
     Flink: *LIST_ENTRY,
@@ -254,12 +254,10 @@ pub const RTL_CRITICAL_SECTION = extern struct {
 
 pub const CRITICAL_SECTION = RTL_CRITICAL_SECTION;
 
-pub extern "kernel32" stdcallcc fn InitOnceExecuteOnce(InitOnce: *PINIT_ONCE, InitFn: PINIT_ONCE_FN, Context: ?PVOID, Parameter: ?LPVOID) BOOL;
+pub extern "kernel32" stdcallcc fn InitOnceExecuteOnce(InitOnce: *RTL_RUN_ONCE, InitFn: PINIT_ONCE_FN, Context: ?PVOID, Parameter: ?LPVOID) BOOL;
 
-pub const PINIT_ONCE_FN = ?extern fn(InitOnce: *PINIT_ONCE, Parameter: ?PVOID, Context: ?PVOID) BOOL;
+pub const PINIT_ONCE_FN = ?extern fn(InitOnce: *RTL_RUN_ONCE, Parameter: ?PVOID, Context: ?PVOID) BOOL;
 
 pub const RTL_RUN_ONCE = extern struct {
     Ptr: PVOID,
 };
-
-pub const PINIT_ONCE = RTL_RUN_ONCE;
