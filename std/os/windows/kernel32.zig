@@ -261,3 +261,7 @@ pub const PINIT_ONCE_FN = ?extern fn(InitOnce: *RTL_RUN_ONCE, Parameter: ?PVOID,
 pub const RTL_RUN_ONCE = extern struct {
     Ptr: PVOID,
 };
+
+pub const INIT_ONCE_STATIC_INIT = RTL_RUN_ONCE {
+  .Ptr = null,
+};

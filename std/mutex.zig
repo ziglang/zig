@@ -76,7 +76,7 @@ pub const Mutex = switch(builtin.os) {
         pub fn init() Mutex {
             return Mutex {
                 .lock = undefined,
-                .init_once = undefined,
+                .init_once = windows.INIT_ONCE_STATIC_INIT,
             };
         }
 
@@ -87,7 +87,7 @@ pub const Mutex = switch(builtin.os) {
         ) windows.BOOL {
             var lock = @ptrCast(
                 *windows.CRITICAL_SECTION,
-                @alignCast(@alignOf(*windows.CRITICAL_SECTION), ctx.?)
+                @alignCast(@alignOf(*windows.CRITICAL_SECTION), Context.?)
             );
             windows.InitializeCriticalSection(lock);
             return windows.TRUE;
