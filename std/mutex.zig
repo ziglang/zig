@@ -61,31 +61,57 @@ pub const Mutex = switch(builtin.os) {
         }
     },
     builtin.Os.windows => struct {
-        lock: ?*windows.RTL_CRITICAL_SECTION,
+
+        lock: ?windows.CRITICAL_SECTION,
+        init_once: windows.PINIT_ONCE,
 
         pub const Held = struct {
             mutex: *Mutex,
 
             pub fn release(self: Held) void {
-                windows.LeaveCriticalSection(self.mutex.lock);
+                if (self.mutex.lock) |*lock| {
+                    windows.LeaveCriticalSection(lock);
+                }
             }
         };
 
         pub fn init() Mutex {
-            var lock: ?*windows.RTL_CRITICAL_SECTION = null;
-            windows.InitializeCriticalSection(lock);
-            return Mutex { .lock = lock };
+            return Mutex { 
+                .lock = null,
+                .init_once = undefined,
+            };
+        }
+
+        extern fn initCriticalSection(InitOnce: *windows.PINIT_ONCE, Parameter: ?windows.PVOID, Context: ?*windows.PVOID) windows.BOOL {
+            if (Context) |ctx| {
+                var mutex = @ptrCast(*?windows.CRITICAL_SECTION, ctx);
+                if (mutex.* == null) {
+                    var lock: windows.CRITICAL_SECTION = undefined;
+                    windows.InitializeCriticalSection(&lock);
+                    mutex.* = lock;
+                }
+                return windows.TRUE;
+            }
+            return windows.FALSE;
         }
 
         pub fn deinit(self: *Mutex) void {
-            if (self.lock != null) {
-                windows.DeleteCriticalSection(self.lock);
-                self.lock = null;
+            if (self.lock) |*lock| {
+                windows.DeleteCriticalSection(lock);
             }
         }
 
         pub fn acquire(self: *Mutex) Held {
-            windows.EnterCriticalSection(self.lock);
+            if (self.lock) |*lock| {
+                windows.EnterCriticalSection(lock);
+            } else {
+                if (windows.InitOnceExecuteOnce(&self.init_once, initCriticalSection, null, @ptrCast(?*windows.PVOID, self)) == windows.TRUE) {
+                    windows.EnterCriticalSection(&self.lock.?);
+                } else {
+                    @panic("unable to initialize Mutex");
+                }
+            }
+
             return Held { .mutex = self };
         }
     },
@@ -116,7 +142,7 @@ pub const Mutex = switch(builtin.os) {
     },
 };
 
-const Context = struct {
+const TestContext = struct {
     mutex: *Mutex,
     data: i128,
 
@@ -136,7 +162,7 @@ test "std.Mutex" {
     var mutex = Mutex.init();
     defer mutex.deinit();
 
-    var context = Context{
+    var context = TestContext{
         .mutex = &mutex,
         .data = 0,
     };
@@ -149,12 +175,12 @@ test "std.Mutex" {
     for (threads) |t|
         t.wait();
 
-    std.debug.assertOrPanic(context.data == thread_count * Context.incr_count);
+    std.debug.assertOrPanic(context.data == thread_count * TestContext.incr_count);
 }
 
-fn worker(ctx: *Context) void {
+fn worker(ctx: *TestContext) void {
     var i: usize = 0;
-    while (i != Context.incr_count) : (i += 1) {
+    while (i != TestContext.incr_count) : (i += 1) {
         const held = ctx.mutex.acquire();
         defer held.release();
 

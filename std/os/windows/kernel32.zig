@@ -221,10 +221,10 @@ pub const FOREGROUND_GREEN = 2;
 pub const FOREGROUND_RED = 4;
 pub const FOREGROUND_INTENSITY = 8;
 
-pub extern "kernel32" stdcallcc fn InitializeCriticalSection(lpCriticalSection: ?*RTL_CRITICAL_SECTION) void;
-pub extern "kernel32" stdcallcc fn EnterCriticalSection(lpCriticalSection: ?*RTL_CRITICAL_SECTION) void; 
-pub extern "kernel32" stdcallcc fn LeaveCriticalSection(lpCriticalSection: ?*RTL_CRITICAL_SECTION) void; 
-pub extern "kernel32" stdcallcc fn DeleteCriticalSection(lpCriticalSection: ?*RTL_CRITICAL_SECTION) void;  
+pub extern "kernel32" stdcallcc fn InitializeCriticalSection(lpCriticalSection: *CRITICAL_SECTION) void;
+pub extern "kernel32" stdcallcc fn EnterCriticalSection(lpCriticalSection: *CRITICAL_SECTION) void; 
+pub extern "kernel32" stdcallcc fn LeaveCriticalSection(lpCriticalSection: *CRITICAL_SECTION) void; 
+pub extern "kernel32" stdcallcc fn DeleteCriticalSection(lpCriticalSection: *CRITICAL_SECTION) void;  
 
 pub const LIST_ENTRY = extern struct {
     Flink: *LIST_ENTRY,
@@ -245,9 +245,21 @@ pub const RTL_CRITICAL_SECTION_DEBUG = extern struct {
 
 pub const RTL_CRITICAL_SECTION = extern struct {
     DebugInfo: *RTL_CRITICAL_SECTION_DEBUG,
-    LockCount: i32,
-    RecursionCount: i32,
+    LockCount: LONG,
+    RecursionCount: LONG,
     OwningThread: HANDLE,
     LockSemaphore: HANDLE,
     SpinCount: ULONG_PTR,
 };
+
+pub const CRITICAL_SECTION = RTL_CRITICAL_SECTION;
+
+pub extern "kernel32" stdcallcc fn InitOnceExecuteOnce(InitOnce: *PINIT_ONCE, InitFn: PINIT_ONCE_FN, Context: ?PVOID, Parameter: ?*LPVOID) BOOL;
+
+pub const PINIT_ONCE_FN = ?extern fn(InitOnce: *PINIT_ONCE, Parameter: ?PVOID, Context: ?*PVOID) BOOL;
+
+pub const RTL_RUN_ONCE = extern struct {
+    Ptr: PVOID,
+};
+
+pub const PINIT_ONCE = RTL_RUN_ONCE;
