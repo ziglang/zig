@@ -254,9 +254,9 @@ pub const RTL_CRITICAL_SECTION = extern struct {
 
 pub const CRITICAL_SECTION = RTL_CRITICAL_SECTION;
 
-pub extern "kernel32" stdcallcc fn InitOnceExecuteOnce(InitOnce: *PINIT_ONCE, InitFn: PINIT_ONCE_FN, Context: ?PVOID, Parameter: ?*LPVOID) BOOL;
+pub extern "kernel32" stdcallcc fn InitOnceExecuteOnce(InitOnce: *PINIT_ONCE, InitFn: PINIT_ONCE_FN, Context: ?PVOID, Parameter: ?LPVOID) BOOL;
 
-pub const PINIT_ONCE_FN = ?extern fn(InitOnce: *PINIT_ONCE, Parameter: ?PVOID, Context: ?*PVOID) BOOL;
+pub const PINIT_ONCE_FN = ?extern fn(InitOnce: *PINIT_ONCE, Parameter: ?PVOID, Context: ?PVOID) BOOL;
 
 pub const RTL_RUN_ONCE = extern struct {
     Ptr: PVOID,

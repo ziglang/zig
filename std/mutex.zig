@@ -82,9 +82,9 @@ pub const Mutex = switch(builtin.os) {
             };
         }
 
-        extern fn initCriticalSection(InitOnce: *windows.PINIT_ONCE, Parameter: ?windows.PVOID, Context: ?*windows.PVOID) windows.BOOL {
+        extern fn initCriticalSection(InitOnce: *windows.PINIT_ONCE, Parameter: ?windows.PVOID, Context: ?windows.PVOID) windows.BOOL {
             if (Context) |ctx| {
-                var mutex = @ptrCast(*?windows.CRITICAL_SECTION, ctx);
+                var mutex = @ptrCast(*?windows.CRITICAL_SECTION, @alignCast(8, ctx));
                 if (mutex.* == null) {
                     var lock: windows.CRITICAL_SECTION = undefined;
                     windows.InitializeCriticalSection(&lock);
@@ -105,7 +105,8 @@ pub const Mutex = switch(builtin.os) {
             if (self.lock) |*lock| {
                 windows.EnterCriticalSection(lock);
             } else {
-                if (windows.InitOnceExecuteOnce(&self.init_once, initCriticalSection, null, @ptrCast(?*windows.PVOID, self)) == windows.TRUE) {
+                var mutex = @ptrCast(?windows.PVOID, self);
+                if (windows.InitOnceExecuteOnce(&self.init_once, initCriticalSection, null, mutex) == windows.TRUE) {
                     windows.EnterCriticalSection(&self.lock.?);
                 } else {
                     @panic("unable to initialize Mutex");
