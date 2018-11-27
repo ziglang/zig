@@ -188,14 +188,20 @@ void os_path_split(Buf *full_path, Buf *out_dirname, Buf *out_basename) {
     size_t len = buf_len(full_path);
     if (len != 0) {
         size_t last_index = len - 1;
-        if (os_is_sep(buf_ptr(full_path)[last_index])) {
+        char last_char = buf_ptr(full_path)[last_index];
+        if (os_is_sep(last_char)) {
+            if (last_index == 0) {
+                if (out_dirname) buf_init_from_mem(out_dirname, &last_char, 1);
+                if (out_basename) buf_init_from_str(out_basename, "");
+                return;
+            }
             last_index -= 1;
         }
         for (size_t i = last_index;;) {
             uint8_t c = buf_ptr(full_path)[i];
             if (os_is_sep(c)) {
                 if (out_dirname) {
-                    buf_init_from_mem(out_dirname, buf_ptr(full_path), i);
+                    buf_init_from_mem(out_dirname, buf_ptr(full_path), (i == 0) ? 1 : i);
                 }
                 if (out_basename) {
                     buf_init_from_mem(out_basename, buf_ptr(full_path) + i + 1, buf_len(full_path) - (i + 1));
@@ -1976,7 +1982,7 @@ Error os_file_read(OsFile file, void *ptr, size_t *len) {
                 case EFAULT:
                     zig_unreachable();
                 case EISDIR:
-                    zig_unreachable();
+                    return ErrorIsDir;
                 default:
                     return ErrorFileSystem;
             }

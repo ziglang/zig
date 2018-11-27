@@ -35,6 +35,7 @@ enum Error {
     ErrorSharingViolation,
     ErrorPipeBusy,
     ErrorPrimitiveTypeNotFound,
+    ErrorCacheUnavailable,
 };
 
 const char *err_str(Error err);

@@ -352,8 +352,9 @@ Error cache_hit(CacheHash *ch, Buf *out_digest) {
         // if the mtime matches we can trust the digest
         OsFile this_file;
         if ((err = os_file_open_r(chf->path, &this_file))) {
+            fprintf(stderr, "Unable to open %s\n: %s", buf_ptr(chf->path), err_str(err));
             os_file_close(ch->manifest_file);
-            return err;
+            return ErrorCacheUnavailable;
         }
         OsTimeStamp actual_mtime;
         if ((err = os_file_mtime(this_file, &actual_mtime))) {
@@ -392,8 +393,9 @@ Error cache_hit(CacheHash *ch, Buf *out_digest) {
         for (; file_i < input_file_count; file_i += 1) {
             CacheHashFile *chf = &ch->files.at(file_i);
             if ((err = populate_file_hash(ch, chf, nullptr))) {
+                fprintf(stderr, "Unable to hash %s: %s\n", buf_ptr(chf->path), err_str(err));
                 os_file_close(ch->manifest_file);
-                return err;
+                return ErrorCacheUnavailable;
             }
         }
         return ErrorNone;
