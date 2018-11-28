@@ -165,6 +165,7 @@ static IrInstruction *ir_analyze_ptr_cast(IrAnalyze *ira, IrInstruction *source_
 static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source_instr,
         IrInstruction *uncasted_ptr, IrInstruction *uncasted_value);
 static ConstExprValue *ir_resolve_const(IrAnalyze *ira, IrInstruction *value, UndefAllowed undef_allowed);
+static IrInstruction *resolve_possible_alloca_inference(IrAnalyze *ira, IrInstruction *base, ZigType *child_type);
 
 static ConstExprValue *const_ptr_pointee_unchecked(CodeGen *g, ConstExprValue *const_val) {
     assert(get_src_ptr_type(const_val->type) != nullptr);
@@ -524,8 +525,12 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionEmbedFile *) {
     return IrInstructionIdEmbedFile;
 }
 
-static constexpr IrInstructionId ir_instruction_id(IrInstructionCmpxchg *) {
-    return IrInstructionIdCmpxchg;
+static constexpr IrInstructionId ir_instruction_id(IrInstructionCmpxchgSrc *) {
+    return IrInstructionIdCmpxchgSrc;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionCmpxchgGen *) {
+    return IrInstructionIdCmpxchgGen;
 }
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionFence *) {
@@ -926,6 +931,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionInferArrayType *
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionInferCompTime *) {
     return IrInstructionIdInferCompTime;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionSetNonNullBit *) {
+    return IrInstructionIdSetNonNullBit;
 }
 
 template<typename T>
@@ -1822,31 +1831,49 @@ static IrInstruction *ir_build_embed_file(IrBuilder *irb, Scope *scope, AstNode 
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_cmpxchg(IrBuilder *irb, Scope *scope, AstNode *source_node,
+static IrInstruction *ir_build_cmpxchg_src(IrBuilder *irb, Scope *scope, AstNode *source_node,
         IrInstruction *type_value, IrInstruction *ptr, IrInstruction *cmp_value, IrInstruction *new_value,
-    IrInstruction *success_order_value, IrInstruction *failure_order_value, bool is_weak,
-    ZigType *type, AtomicOrder success_order, AtomicOrder failure_order, IrInstruction *result_loc)
+    IrInstruction *success_order_value, IrInstruction *failure_order_value, IrInstruction *result_loc, bool is_weak)
 {
-    IrInstructionCmpxchg *instruction = ir_build_instruction<IrInstructionCmpxchg>(irb, scope, source_node);
+    IrInstructionCmpxchgSrc *instruction = ir_build_instruction<IrInstructionCmpxchgSrc>(irb, scope, source_node);
     instruction->type_value = type_value;
     instruction->ptr = ptr;
     instruction->cmp_value = cmp_value;
     instruction->new_value = new_value;
     instruction->success_order_value = success_order_value;
     instruction->failure_order_value = failure_order_value;
-    instruction->is_weak = is_weak;
-    instruction->type = type;
-    instruction->success_order = success_order;
-    instruction->failure_order = failure_order;
     instruction->result_loc = result_loc;
+    instruction->is_weak = is_weak;
 
-    if (type_value != nullptr) ir_ref_instruction(type_value, irb->current_basic_block);
+    ir_ref_instruction(type_value, irb->current_basic_block);
     ir_ref_instruction(ptr, irb->current_basic_block);
     ir_ref_instruction(cmp_value, irb->current_basic_block);
     ir_ref_instruction(new_value, irb->current_basic_block);
-    if (type_value != nullptr) ir_ref_instruction(success_order_value, irb->current_basic_block);
-    if (type_value != nullptr) ir_ref_instruction(failure_order_value, irb->current_basic_block);
+    ir_ref_instruction(success_order_value, irb->current_basic_block);
+    ir_ref_instruction(failure_order_value, irb->current_basic_block);
     ir_ref_instruction(result_loc, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_cmpxchg_gen(IrBuilder *irb, Scope *scope, AstNode *source_node,
+    ZigType *type, IrInstruction *ptr, IrInstruction *cmp_value, IrInstruction *new_value,
+    AtomicOrder success_order, AtomicOrder failure_order, IrInstruction *result_loc, bool is_weak)
+{
+    IrInstructionCmpxchgGen *instruction = ir_build_instruction<IrInstructionCmpxchgGen>(irb, scope, source_node);
+    instruction->type = type;
+    instruction->ptr = ptr;
+    instruction->cmp_value = cmp_value;
+    instruction->new_value = new_value;
+    instruction->success_order = success_order;
+    instruction->failure_order = failure_order;
+    instruction->result_loc = result_loc;
+    instruction->is_weak = is_weak;
+
+    ir_ref_instruction(ptr, irb->current_basic_block);
+    ir_ref_instruction(cmp_value, irb->current_basic_block);
+    ir_ref_instruction(new_value, irb->current_basic_block);
+    if (result_loc != nullptr) ir_ref_instruction(result_loc, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -2762,12 +2789,15 @@ static IrInstruction *ir_build_check_runtime_scope(IrBuilder *irb, Scope *scope,
 }
 
 static IrInstruction *ir_build_result_optional_payload(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        IrInstruction *prev_result_loc)
+        IrInstruction *prev_result_loc, IrInstruction *payload_type, bool make_non_null)
 {
     IrInstructionResultOptionalPayload *instruction = ir_build_instruction<IrInstructionResultOptionalPayload>(irb, scope, source_node);
     instruction->prev_result_loc = prev_result_loc;
+    instruction->payload_type = payload_type;
+    instruction->make_non_null = make_non_null;
 
     ir_ref_instruction(prev_result_loc, irb->current_basic_block);
+    if (payload_type != nullptr) ir_ref_instruction(payload_type, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -2952,6 +2982,21 @@ static IrInstruction *ir_build_infer_comptime(IrBuilder *irb, Scope *scope, AstN
 
     ir_ref_instruction(prev_result_loc, irb->current_basic_block);
     ir_ref_instruction(new_result_loc, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_set_nonnull_bit(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *prev_result_loc, IrInstruction *non_null_bit, IrInstruction *new_result_loc)
+{
+    IrInstructionSetNonNullBit *instruction = ir_build_instruction<IrInstructionSetNonNullBit>(irb, scope, source_node);
+    instruction->prev_result_loc = prev_result_loc;
+    instruction->non_null_bit = non_null_bit;
+    instruction->new_result_loc = new_result_loc;
+
+    ir_ref_instruction(prev_result_loc, irb->current_basic_block);
+    ir_ref_instruction(non_null_bit, irb->current_basic_block);
+    if (new_result_loc != nullptr) ir_ref_instruction(new_result_loc, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -3174,13 +3219,14 @@ static IrInstruction *ir_gen_multi(IrBuilder *irb, Scope *scope, AstNode *node, 
             // an instruction which just makes a pointer of it.
             return ir_build_ref(irb, scope, value->source_node, value, false, false, nullptr);
         }
-        case LValErrorUnion:
-        case LValOptional: {
+        case LValErrorUnion: {
             IrInstruction *err_alloca = ir_build_alloca_src(irb, scope, value->source_node,
                     nullptr, nullptr, "err");
             ir_build_store_ptr(irb, scope, value->source_node, err_alloca, value);
             return err_alloca;
         }
+        case LValOptional:
+            return value;
     }
     zig_unreachable();
 }
@@ -3199,10 +3245,26 @@ static IrInstruction *ir_gen_value(IrBuilder *irb, Scope *scope, AstNode *node, 
     if (instr_is_unreachable(value))
         return value;
     if (result_loc != nullptr) {
-        ir_build_store_ptr(irb, scope, node, result_loc, value);
-        if (lval != LValNone) {
-            assert(lval != LValPtr);
-            return ir_gen_result(irb, scope, node, lval, result_loc);
+        switch (lval) {
+            case LValNone:
+                ir_build_store_ptr(irb, scope, node, result_loc, value);
+                break;
+            case LValPtr:
+                zig_unreachable();
+            case LValErrorUnion:
+                zig_panic("TODO");
+                //ir_build_store_ptr(irb, scope, node, result_loc, value);
+                //return ir_gen_result(irb, scope, node, lval, result_loc);
+            case LValOptional: {
+                zig_panic("TODO");
+                //// result_loc is a pointer to child type
+                //// value is an optional value
+                //// need to return non-null bit
+                //IrInstruction *opt_ptr = ir_build_ref(irb, scope, node, value, false, false, nullptr);
+                //IrInstruction *payload_ptr = ir_build_unwrap_maybe(irb, scope, node, opt_ptr, false);
+                //ir_build_load_ptr(irb, scope, node, payload_ptr, result_loc);
+                //return ir_build_test_nonnull(irb, scope, node, value);
+            }
         }
     }
     switch (lval) {
@@ -4284,10 +4346,19 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 if (arg5_value == irb->codegen->invalid_instruction)
                     return arg5_value;
 
-                IrInstruction *cmpxchg = ir_build_cmpxchg(irb, scope, node, arg0_value, arg1_value,
-                    arg2_value, arg3_value, arg4_value, arg5_value, (builtin_fn->id == BuiltinFnIdCmpxchgWeak),
-                    nullptr, AtomicOrderUnordered, AtomicOrderUnordered, result_loc);
-                return ir_gen_multi(irb, scope, node, lval, result_loc, cmpxchg);
+                IrInstruction *ensured_result_loc = ensure_result_loc(irb, scope, node, result_loc);
+                IrInstruction *payload_ptr = (lval == LValOptional) ? ensured_result_loc :
+                    ir_build_result_optional_payload(irb, scope, node, ensured_result_loc, arg0_value, false);
+
+                IrInstruction *cmpxchg = ir_build_cmpxchg_src(irb, scope, node, arg0_value, arg1_value,
+                    arg2_value, arg3_value, arg4_value, arg5_value, payload_ptr,
+                    (builtin_fn->id == BuiltinFnIdCmpxchgWeak));
+
+                if (lval == LValOptional)
+                    return cmpxchg;
+
+                ir_build_set_nonnull_bit(irb, scope, node, ensured_result_loc, cmpxchg, payload_ptr);
+                return ir_gen_result(irb, scope, node, lval, ensured_result_loc);
             }
         case BuiltinFnIdFence:
             {
@@ -5342,11 +5413,14 @@ static IrInstruction *ir_gen_prefix_op_expr(IrBuilder *irb, Scope *scope, AstNod
                     ir_gen_prefix_op_id(irb, scope, node, IrUnOpOptional));
         case PrefixOpAddrOf: {
             AstNode *expr_node = node->data.prefix_op_expr.primary_expr;
-            IrInstruction *ensured_result_loc = ensure_result_loc(irb, scope, expr_node, result_loc);
-            IrInstruction *inst = ir_gen_node(irb, expr_node, scope, LValPtr, ensured_result_loc);
+            IrInstruction *inst = ir_gen_node(irb, expr_node, scope, LValPtr, result_loc);
             if (inst == irb->codegen->invalid_instruction)
                 return inst;
-            return ir_gen_result(irb, scope, expr_node, lval, ensured_result_loc);
+            if (result_loc == nullptr) {
+                return ir_gen_value(irb, scope, expr_node, lval, nullptr, inst);
+            } else {
+                return ir_gen_result(irb, scope, expr_node, lval, result_loc);
+            }
         }
     }
     zig_unreachable();
@@ -10131,8 +10205,13 @@ static ZigFn *ir_resolve_fn(IrAnalyze *ira, IrInstruction *fn_value) {
 }
 
 static IrInstruction *ir_analyze_result_optional_payload(IrAnalyze *ira, IrInstruction *result_loc,
-        ZigType *needed_child_type)
+        ZigType *needed_child_type, bool make_non_null)
 {
+    ZigType *opt_type = get_optional_type(ira->codegen, needed_child_type);
+    result_loc = resolve_possible_alloca_inference(ira, result_loc, opt_type);
+    if (type_is_invalid(result_loc->value.type))
+        return ira->codegen->invalid_instruction;
+
     ZigType *old_ptr_type = result_loc->value.type;
     assert(old_ptr_type->id == ZigTypeIdPointer);
     ZigType *new_ptr_type = get_pointer_to_type_extra(ira->codegen, needed_child_type,
@@ -10157,24 +10236,40 @@ static IrInstruction *ir_analyze_result_optional_payload(IrAnalyze *ira, IrInstr
             }
             assert(optional_val->data.x_optional != nullptr);
 
-            IrInstruction *result = ir_const(ira, result_loc, new_ptr_type);
+            IrInstruction *result;
+            if (ptr_val->data.x_ptr.mut == ConstPtrMutInfer) {
+                result = ir_build_result_optional_payload(&ira->new_irb, result_loc->scope,
+                        result_loc->source_node, result_loc, nullptr, make_non_null);
+                result->value.type = new_ptr_type;
+                result->value.special = ConstValSpecialStatic;
+            } else {
+                result = ir_const(ira, result_loc, new_ptr_type);
+            }
             ConstExprValue *result_val = &result->value;
             result_val->data.x_ptr.special = ConstPtrSpecialRef;
             result_val->data.x_ptr.mut = ptr_val->data.x_ptr.mut;
             result_val->data.x_ptr.data.ref.pointee = optional_val->data.x_optional;
-
-            if (ptr_val->data.x_ptr.mut == ConstPtrMutInfer) {
-                ptr_val->data.x_ptr.mut = ConstPtrMutComptimeConst;
-            }
 
             return result;
         }
     }
 
     IrInstruction *result = ir_build_result_optional_payload(&ira->new_irb, result_loc->scope,
-            result_loc->source_node, result_loc);
+            result_loc->source_node, result_loc, nullptr, make_non_null);
     result->value.type = new_ptr_type;
     return result;
+}
+
+static IrInstruction *ir_analyze_instruction_result_optional_payload(IrAnalyze *ira,
+        IrInstructionResultOptionalPayload *instruction)
+{
+    IrInstruction *prev_result_loc = instruction->prev_result_loc->child;
+    if (type_is_invalid(prev_result_loc->value.type))
+        return ira->codegen->invalid_instruction;
+    ZigType *payload_type = ir_resolve_type(ira, instruction->payload_type->child);
+    if (type_is_invalid(payload_type))
+        return ira->codegen->invalid_instruction;
+    return ir_analyze_result_optional_payload(ira, prev_result_loc, payload_type, instruction->make_non_null);
 }
 
 static IrInstruction *ir_analyze_result_slice_ptr(IrAnalyze *ira, IrInstruction *result_loc,
@@ -10358,10 +10453,6 @@ static IrInstruction *ir_analyze_result_error_union_code(IrAnalyze *ira, IrInstr
             result_val->data.x_ptr.special = ConstPtrSpecialRef;
             result_val->data.x_ptr.mut = ptr_val->data.x_ptr.mut;
             result_val->data.x_ptr.data.ref.pointee = error_union_val->data.x_err_union.error_set;
-
-            if (ptr_val->data.x_ptr.mut == ConstPtrMutInfer) {
-                ptr_val->data.x_ptr.mut = ConstPtrMutComptimeConst;
-            }
 
             return result;
         }
@@ -11682,7 +11773,7 @@ static IrInstruction *ir_implicit_cast_result(IrAnalyze *ira, IrInstruction *unr
         if (types_match_const_cast_only(ira, have_child_type->data.maybe.child_type, needed_child_type, source_node,
             false).id == ConstCastResultIdOk)
         {
-            return ir_analyze_result_optional_payload(ira, result_loc, needed_child_type);
+            return ir_analyze_result_optional_payload(ira, result_loc, needed_child_type, true);
         }
     }
 
@@ -16665,7 +16756,7 @@ static IrInstruction *ir_analyze_instruction_test_non_null(IrAnalyze *ira, IrIns
     }
 }
 
-static IrInstruction *ir_analyze_instruction_unwrap_maybe(IrAnalyze *ira,
+static IrInstruction *ir_analyze_instruction_unwrap_optional(IrAnalyze *ira,
         IrInstructionUnwrapOptional *unwrap_maybe_instruction)
 {
     IrInstruction *value = unwrap_maybe_instruction->value->child;
@@ -18936,7 +19027,7 @@ static IrInstruction *ir_analyze_instruction_embed_file(IrAnalyze *ira, IrInstru
     return result;
 }
 
-static IrInstruction *ir_analyze_instruction_cmpxchg(IrAnalyze *ira, IrInstructionCmpxchg *instruction) {
+static IrInstruction *ir_analyze_instruction_cmpxchg(IrAnalyze *ira, IrInstructionCmpxchgSrc *instruction) {
     ZigType *operand_type = ir_resolve_atomic_operand_type(ira, instruction->type_value->child);
     if (type_is_invalid(operand_type))
         return ira->codegen->invalid_instruction;
@@ -18946,6 +19037,9 @@ static IrInstruction *ir_analyze_instruction_cmpxchg(IrAnalyze *ira, IrInstructi
         return ira->codegen->invalid_instruction;
 
     IrInstruction *result_loc = instruction->result_loc->child;
+    if (type_is_invalid(result_loc->value.type))
+        return ira->codegen->invalid_instruction;
+    result_loc = resolve_possible_alloca_inference(ira, result_loc, operand_type);
     if (type_is_invalid(result_loc->value.type))
         return ira->codegen->invalid_instruction;
 
@@ -19012,10 +19106,15 @@ static IrInstruction *ir_analyze_instruction_cmpxchg(IrAnalyze *ira, IrInstructi
         zig_panic("TODO compile-time execution of cmpxchg");
     }
 
-    IrInstruction *result = ir_build_cmpxchg(&ira->new_irb, instruction->base.scope, instruction->base.source_node,
-            nullptr, casted_ptr, casted_cmp_value, casted_new_value, nullptr, nullptr, instruction->is_weak,
-            operand_type, success_order, failure_order, result_loc);
-    result->value.type = get_optional_type(ira->codegen, operand_type);
+    if (result_loc->value.data.x_ptr.mut == ConstPtrMutInfer) {
+        result_loc->value.special = ConstValSpecialRuntime;
+    }
+
+    IrInstruction *result = ir_build_cmpxchg_gen(&ira->new_irb, instruction->base.scope,
+            instruction->base.source_node,
+            operand_type, casted_ptr, casted_cmp_value, casted_new_value,
+            success_order, failure_order, result_loc, instruction->is_weak);
+    result->value.type = ira->codegen->builtin_types.entry_bool;
     return result;
 }
 
@@ -22150,6 +22249,51 @@ static IrInstruction *ir_analyze_instruction_infer_comptime(IrAnalyze *ira,
     return ir_const_void(ira, &instruction->base);
 }
 
+static IrInstruction *ir_analyze_instruction_set_non_null_bit(IrAnalyze *ira,
+        IrInstructionSetNonNullBit *instruction)
+{
+    IrInstruction *prev_result_loc = instruction->prev_result_loc->child;
+    if (type_is_invalid(prev_result_loc->value.type))
+        return ira->codegen->invalid_instruction;
+
+    IrInstruction *non_null_bit = instruction->non_null_bit->child;
+    if (type_is_invalid(non_null_bit->value.type))
+        return ira->codegen->invalid_instruction;
+
+    IrInstruction *new_result_loc = instruction->new_result_loc->child;
+    if (type_is_invalid(new_result_loc->value.type))
+        return ira->codegen->invalid_instruction;
+
+    assert(prev_result_loc->value.type->id == ZigTypeIdPointer);
+    ZigType *opt_type = prev_result_loc->value.type->data.pointer.child_type;
+    assert(opt_type->id == ZigTypeIdOptional);
+
+    if (!handle_is_ptr(opt_type)) {
+        if (prev_result_loc->value.data.x_ptr.mut == ConstPtrMutInfer) {
+            if (instr_is_comptime(new_result_loc) &&
+                new_result_loc->value.data.x_ptr.mut != ConstPtrMutRuntimeVar)
+            {
+                prev_result_loc->value.data.x_ptr.mut = ConstPtrMutComptimeConst;
+            } else {
+                prev_result_loc->value.special = ConstValSpecialRuntime;
+            }
+        }
+        return ir_const_void(ira, &instruction->base);
+    }
+
+    if (instr_is_comptime(prev_result_loc) && instr_is_comptime(new_result_loc) &&
+        instr_is_comptime(non_null_bit))
+    {
+        zig_panic("TODO comptime cmpxchg");
+    }
+
+    prev_result_loc->value.special = ConstValSpecialRuntime;
+    IrInstruction *result = ir_build_set_nonnull_bit(&ira->new_irb, instruction->base.scope,
+            instruction->base.source_node, prev_result_loc, non_null_bit, nullptr);
+    result->value.type = ira->codegen->builtin_types.entry_void;
+    return result;
+}
+
 static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -22162,11 +22306,11 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
         case IrInstructionIdCast:
         case IrInstructionIdDeclVarGen:
         case IrInstructionIdAllocaGen:
-        case IrInstructionIdResultOptionalPayload:
         case IrInstructionIdResultSlicePtr:
         case IrInstructionIdResultErrorUnionPayload:
         case IrInstructionIdResultErrorUnionCode:
         case IrInstructionIdPtrCastGen:
+        case IrInstructionIdCmpxchgGen:
             zig_unreachable();
 
         case IrInstructionIdReturn:
@@ -22224,7 +22368,7 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
         case IrInstructionIdTestNonNull:
             return ir_analyze_instruction_test_non_null(ira, (IrInstructionTestNonNull *)instruction);
         case IrInstructionIdUnwrapOptional:
-            return ir_analyze_instruction_unwrap_maybe(ira, (IrInstructionUnwrapOptional *)instruction);
+            return ir_analyze_instruction_unwrap_optional(ira, (IrInstructionUnwrapOptional *)instruction);
         case IrInstructionIdClz:
             return ir_analyze_instruction_clz(ira, (IrInstructionClz *)instruction);
         case IrInstructionIdCtz:
@@ -22265,8 +22409,8 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
             return ir_analyze_instruction_c_undef(ira, (IrInstructionCUndef *)instruction);
         case IrInstructionIdEmbedFile:
             return ir_analyze_instruction_embed_file(ira, (IrInstructionEmbedFile *)instruction);
-        case IrInstructionIdCmpxchg:
-            return ir_analyze_instruction_cmpxchg(ira, (IrInstructionCmpxchg *)instruction);
+        case IrInstructionIdCmpxchgSrc:
+            return ir_analyze_instruction_cmpxchg(ira, (IrInstructionCmpxchgSrc *)instruction);
         case IrInstructionIdFence:
             return ir_analyze_instruction_fence(ira, (IrInstructionFence *)instruction);
         case IrInstructionIdTruncate:
@@ -22443,6 +22587,10 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
             return ir_analyze_instruction_infer_array_type(ira, (IrInstructionInferArrayType *)instruction);
         case IrInstructionIdInferCompTime:
             return ir_analyze_instruction_infer_comptime(ira, (IrInstructionInferCompTime *)instruction);
+        case IrInstructionIdResultOptionalPayload:
+            return ir_analyze_instruction_result_optional_payload(ira, (IrInstructionResultOptionalPayload *)instruction);
+        case IrInstructionIdSetNonNullBit:
+            return ir_analyze_instruction_set_non_null_bit(ira, (IrInstructionSetNonNullBit *)instruction);
         case IrInstructionIdResultBytesToSlice:
             zig_panic("TODO");
         case IrInstructionIdResultSliceToBytes:
@@ -22550,7 +22698,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdCInclude:
         case IrInstructionIdCDefine:
         case IrInstructionIdCUndef:
-        case IrInstructionIdCmpxchg:
         case IrInstructionIdFence:
         case IrInstructionIdMemset:
         case IrInstructionIdMemcpy:
@@ -22583,7 +22730,10 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdContainerInitFields:
         case IrInstructionIdContainerInitList:
         case IrInstructionIdInferCompTime:
+        case IrInstructionIdSetNonNullBit:
         case IrInstructionIdSlice:
+        case IrInstructionIdCmpxchgGen:
+        case IrInstructionIdCmpxchgSrc:
             return true;
 
         case IrInstructionIdPhi:

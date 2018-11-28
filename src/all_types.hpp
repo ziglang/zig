@@ -2101,7 +2101,8 @@ enum IrInstructionId {
     IrInstructionIdCompileLog,
     IrInstructionIdErrName,
     IrInstructionIdEmbedFile,
-    IrInstructionIdCmpxchg,
+    IrInstructionIdCmpxchgSrc,
+    IrInstructionIdCmpxchgGen,
     IrInstructionIdFence,
     IrInstructionIdTruncate,
     IrInstructionIdIntCast,
@@ -2202,6 +2203,7 @@ enum IrInstructionId {
     IrInstructionIdFirstArgResultLoc,
     IrInstructionIdInferArrayType,
     IrInstructionIdInferCompTime,
+    IrInstructionIdSetNonNullBit,
 };
 
 struct IrInstruction {
@@ -2676,7 +2678,7 @@ struct IrInstructionEmbedFile {
     IrInstruction *name;
 };
 
-struct IrInstructionCmpxchg {
+struct IrInstructionCmpxchgSrc {
     IrInstruction base;
 
     IrInstruction *type_value;
@@ -2687,8 +2689,18 @@ struct IrInstructionCmpxchg {
     IrInstruction *failure_order_value;
     IrInstruction *result_loc;
 
-    // if this instruction gets to runtime then we know these values:
+    bool is_weak;
+};
+
+struct IrInstructionCmpxchgGen {
+    IrInstruction base;
+
     ZigType *type;
+    IrInstruction *ptr;
+    IrInstruction *cmp_value;
+    IrInstruction *new_value;
+    IrInstruction *result_loc;
+
     AtomicOrder success_order;
     AtomicOrder failure_order;
 
@@ -3302,6 +3314,8 @@ struct IrInstructionResultOptionalPayload {
     IrInstruction base;
 
     IrInstruction *prev_result_loc;
+    IrInstruction *payload_type;
+    bool make_non_null;
 };
 
 struct IrInstructionResultBytesToSlice {
@@ -3388,6 +3402,14 @@ struct IrInstructionInferCompTime {
     IrInstruction base;
 
     IrInstruction *prev_result_loc;
+    IrInstruction *new_result_loc;
+};
+
+struct IrInstructionSetNonNullBit {
+    IrInstruction base;
+
+    IrInstruction *prev_result_loc;
+    IrInstruction *non_null_bit;
     IrInstruction *new_result_loc;
 };
 

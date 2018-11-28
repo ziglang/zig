@@ -3827,7 +3827,7 @@ static LLVMValueRef ir_render_test_non_null(CodeGen *g, IrExecutable *executable
     return gen_non_null_bit(g, instruction->value->value.type, ir_llvm_value(g, instruction->value));
 }
 
-static LLVMValueRef ir_render_unwrap_maybe(CodeGen *g, IrExecutable *executable,
+static LLVMValueRef ir_render_unwrap_optional(CodeGen *g, IrExecutable *executable,
         IrInstructionUnwrapOptional *instruction)
 {
     ZigType *ptr_type = instruction->value->value.type;
@@ -4260,7 +4260,7 @@ static LLVMAtomicRMWBinOp to_LLVMAtomicRMWBinOp(AtomicRmwOp op, bool is_signed) 
     zig_unreachable();
 }
 
-static LLVMValueRef ir_render_cmpxchg(CodeGen *g, IrExecutable *executable, IrInstructionCmpxchg *instruction) {
+static LLVMValueRef ir_render_cmpxchg(CodeGen *g, IrExecutable *executable, IrInstructionCmpxchgGen *instruction) {
     LLVMValueRef ptr_val = ir_llvm_value(g, instruction->ptr);
     LLVMValueRef cmp_val = ir_llvm_value(g, instruction->cmp_value);
     LLVMValueRef new_val = ir_llvm_value(g, instruction->new_value);
@@ -4268,32 +4268,29 @@ static LLVMValueRef ir_render_cmpxchg(CodeGen *g, IrExecutable *executable, IrIn
     LLVMAtomicOrdering success_order = to_LLVMAtomicOrdering(instruction->success_order);
     LLVMAtomicOrdering failure_order = to_LLVMAtomicOrdering(instruction->failure_order);
 
-    LLVMValueRef result_val = ZigLLVMBuildCmpXchg(g->builder, ptr_val, cmp_val, new_val,
+    LLVMValueRef cmpxchg_val = ZigLLVMBuildCmpXchg(g->builder, ptr_val, cmp_val, new_val,
             success_order, failure_order, instruction->is_weak);
-
-    ZigType *maybe_type = instruction->base.value.type;
-    assert(maybe_type->id == ZigTypeIdOptional);
-    ZigType *child_type = maybe_type->data.maybe.child_type;
-
-    if (type_is_codegen_pointer(child_type)) {
-        LLVMValueRef payload_val = LLVMBuildExtractValue(g->builder, result_val, 0, "");
-        LLVMValueRef success_bit = LLVMBuildExtractValue(g->builder, result_val, 1, "");
-        return LLVMBuildSelect(g->builder, success_bit, LLVMConstNull(child_type->type_ref), payload_val, "");
-    }
 
     assert(type_has_bits(instruction->type));
 
+    LLVMValueRef success_bit = LLVMBuildExtractValue(g->builder, cmpxchg_val, 1, "");
+    LLVMBasicBlockRef null_block = LLVMGetInsertBlock(g->builder);
+    LLVMBasicBlockRef non_null_block = LLVMAppendBasicBlock(g->cur_fn_val, "CmpXchgNonNull");
+    LLVMBasicBlockRef phi_block = LLVMAppendBasicBlock(g->cur_fn_val, "CmpXchgPhi");
+    LLVMBuildCondBr(g->builder, success_bit, phi_block, non_null_block);
+
+    LLVMPositionBuilderAtEnd(g->builder, non_null_block);
     LLVMValueRef result_ptr = ir_llvm_value(g, instruction->result_loc);
+    LLVMValueRef payload_val = LLVMBuildExtractValue(g->builder, cmpxchg_val, 0, "");
+    gen_assign_raw(g, result_ptr, instruction->result_loc->value.type, payload_val);
+    LLVMBuildBr(g->builder, phi_block);
 
-    LLVMValueRef payload_val = LLVMBuildExtractValue(g->builder, result_val, 0, "");
-    LLVMValueRef val_ptr = LLVMBuildStructGEP(g->builder, result_ptr, maybe_child_index, "");
-    gen_assign_raw(g, val_ptr, get_pointer_to_type(g, instruction->type, false), payload_val);
-
-    LLVMValueRef success_bit = LLVMBuildExtractValue(g->builder, result_val, 1, "");
-    LLVMValueRef nonnull_bit = LLVMBuildNot(g->builder, success_bit, "");
-    LLVMValueRef maybe_ptr = LLVMBuildStructGEP(g->builder, result_ptr, maybe_null_index, "");
-    gen_store_untyped(g, nonnull_bit, maybe_ptr, 0, false);
-    return result_ptr;
+    LLVMPositionBuilderAtEnd(g->builder, phi_block);
+    LLVMValueRef non_null_bit = LLVMBuildPhi(g->builder, LLVMInt1Type(), "");
+    LLVMValueRef incoming_values[] = {LLVMConstAllOnes(LLVMInt1Type()), LLVMConstNull(LLVMInt1Type())};
+    LLVMBasicBlockRef incoming_blocks[] = {non_null_block, null_block};
+    LLVMAddIncoming(non_null_bit, incoming_values, incoming_blocks, 2);
+    return non_null_bit;
 }
 
 static LLVMValueRef ir_render_fence(CodeGen *g, IrExecutable *executable, IrInstructionFence *instruction) {
@@ -5107,12 +5104,16 @@ static LLVMValueRef ir_render_result_optional_payload(CodeGen *g, IrExecutable *
         IrInstructionResultOptionalPayload *instruction)
 {
     LLVMValueRef prev_result_loc = ir_llvm_value(g, instruction->prev_result_loc);
-    ZigType *child_type = instruction->base.value.type;
+    ZigType *ptr_type = instruction->base.value.type;
+    assert(ptr_type->id == ZigTypeIdPointer);
+    ZigType *child_type = ptr_type->data.pointer.child_type;
     if (type_is_codegen_pointer(child_type) || child_type->id == ZigTypeIdErrorSet) {
         return prev_result_loc;
     } else {
-        LLVMValueRef nonnull_ptr = LLVMBuildStructGEP(g->builder, prev_result_loc, maybe_null_index, "");
-        gen_store_untyped(g, LLVMConstInt(LLVMInt1Type(), 1, false), nonnull_ptr, 0, false);
+        if (instruction->make_non_null) {
+            LLVMValueRef nonnull_ptr = LLVMBuildStructGEP(g->builder, prev_result_loc, maybe_null_index, "");
+            gen_store_untyped(g, LLVMConstInt(LLVMInt1Type(), 1, false), nonnull_ptr, 0, false);
+        }
         return LLVMBuildStructGEP(g->builder, prev_result_loc, maybe_child_index, "");
     }
 }
@@ -5185,6 +5186,17 @@ static LLVMValueRef ir_render_assert_non_null(CodeGen *g, IrExecutable *executab
     gen_safety_crash(g, PanicMsgIdUnwrapOptionalFail);
 
     LLVMPositionBuilderAtEnd(g->builder, ok_block);
+    return nullptr;
+}
+
+static LLVMValueRef ir_render_set_non_null_bit(CodeGen *g, IrExecutable *executable,
+        IrInstructionSetNonNullBit *instruction)
+{
+    LLVMValueRef ptr_to_optional = ir_llvm_value(g, instruction->prev_result_loc);
+    LLVMValueRef non_null_bit = ir_llvm_value(g, instruction->non_null_bit);
+
+    LLVMValueRef nonnull_ptr = LLVMBuildStructGEP(g->builder, ptr_to_optional, maybe_null_index, "");
+    gen_store_untyped(g, non_null_bit, nonnull_ptr, 0, false);
     return nullptr;
 }
 
@@ -5271,6 +5283,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdPtrCastSrc:
         case IrInstructionIdInferCompTime:
         case IrInstructionIdResultPtrCast:
+        case IrInstructionIdCmpxchgSrc:
             zig_unreachable();
 
         case IrInstructionIdDeclVarGen:
@@ -5308,7 +5321,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdTestNonNull:
             return ir_render_test_non_null(g, executable, (IrInstructionTestNonNull *)instruction);
         case IrInstructionIdUnwrapOptional:
-            return ir_render_unwrap_maybe(g, executable, (IrInstructionUnwrapOptional *)instruction);
+            return ir_render_unwrap_optional(g, executable, (IrInstructionUnwrapOptional *)instruction);
         case IrInstructionIdClz:
             return ir_render_clz(g, executable, (IrInstructionClz *)instruction);
         case IrInstructionIdCtz:
@@ -5323,8 +5336,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_ref(g, executable, (IrInstructionRef *)instruction);
         case IrInstructionIdErrName:
             return ir_render_err_name(g, executable, (IrInstructionErrName *)instruction);
-        case IrInstructionIdCmpxchg:
-            return ir_render_cmpxchg(g, executable, (IrInstructionCmpxchg *)instruction);
+        case IrInstructionIdCmpxchgGen:
+            return ir_render_cmpxchg(g, executable, (IrInstructionCmpxchgGen *)instruction);
         case IrInstructionIdFence:
             return ir_render_fence(g, executable, (IrInstructionFence *)instruction);
         case IrInstructionIdTruncate:
@@ -5441,6 +5454,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_assert_non_error(g, executable, (IrInstructionAssertNonError *)instruction);
         case IrInstructionIdAssertNonNull:
             return ir_render_assert_non_null(g, executable, (IrInstructionAssertNonNull *)instruction);
+        case IrInstructionIdSetNonNullBit:
+            return ir_render_set_non_null_bit(g, executable, (IrInstructionSetNonNullBit *)instruction);
         case IrInstructionIdResultSliceToBytes:
             zig_panic("TODO");
         case IrInstructionIdResultBytesToSlice:

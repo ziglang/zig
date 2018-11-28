@@ -469,8 +469,7 @@ static void ir_print_size_of(IrPrint *irp, IrInstructionSizeOf *instruction) {
     fprintf(irp->f, ")");
 }
 
-static void ir_print_test_null(IrPrint *irp, IrInstructionTestNonNull *instruction) {
-    fprintf(irp->f, "*");
+static void ir_print_test_non_null(IrPrint *irp, IrInstructionTestNonNull *instruction) {
     ir_print_other_instruction(irp, instruction->value);
     fprintf(irp->f, " != null");
 }
@@ -606,7 +605,7 @@ static void ir_print_embed_file(IrPrint *irp, IrInstructionEmbedFile *instructio
     fprintf(irp->f, ")");
 }
 
-static void ir_print_cmpxchg(IrPrint *irp, IrInstructionCmpxchg *instruction) {
+static void ir_print_cmpxchg_src(IrPrint *irp, IrInstructionCmpxchgSrc *instruction) {
     fprintf(irp->f, "@cmpxchg(");
     ir_print_other_instruction(irp, instruction->ptr);
     fprintf(irp->f, ", ");
@@ -618,6 +617,17 @@ static void ir_print_cmpxchg(IrPrint *irp, IrInstructionCmpxchg *instruction) {
     fprintf(irp->f, ", ");
     ir_print_other_instruction(irp, instruction->failure_order_value);
     fprintf(irp->f, ")");
+}
+
+static void ir_print_cmpxchg_gen(IrPrint *irp, IrInstructionCmpxchgGen *instruction) {
+    fprintf(irp->f, "@cmpxchg(%s,", buf_ptr(&instruction->type->name));
+    ir_print_other_instruction(irp, instruction->ptr);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->cmp_value);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->new_value);
+    fprintf(irp->f, ") result=");
+    ir_print_other_instruction(irp, instruction->result_loc);
 }
 
 static void ir_print_fence(IrPrint *irp, IrInstructionFence *instruction) {
@@ -1307,7 +1317,9 @@ static void ir_print_decl_var_gen(IrPrint *irp, IrInstructionDeclVarGen *instruc
 static void ir_print_result_optional_payload(IrPrint *irp, IrInstructionResultOptionalPayload *instruction) {
     fprintf(irp->f, "ResultOptionalPayload(");
     ir_print_other_instruction(irp, instruction->prev_result_loc);
-    fprintf(irp->f, ")");
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->payload_type);
+    fprintf(irp->f, "make_non_null=%s)", instruction->make_non_null ? "yes" : "no");
 }
 
 static void ir_print_result_slice_ptr(IrPrint *irp, IrInstructionResultSlicePtr *instruction) {
@@ -1405,6 +1417,16 @@ static void ir_print_infer_comptime(IrPrint *irp, IrInstructionInferCompTime *in
     ir_print_other_instruction(irp, instruction->prev_result_loc);
     fprintf(irp->f, ",new_result=");
     ir_print_other_instruction(irp, instruction->new_result_loc);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_set_non_null_bit(IrPrint *irp, IrInstructionSetNonNullBit *instruction) {
+    fprintf(irp->f, "SetNonNullBit(prev_result=");
+    ir_print_other_instruction(irp, instruction->prev_result_loc);
+    fprintf(irp->f, ",new_result=");
+    ir_print_other_instruction(irp, instruction->new_result_loc);
+    fprintf(irp->f, ",non_null_bit=");
+    ir_print_other_instruction(irp, instruction->non_null_bit);
     fprintf(irp->f, ")");
 }
 
@@ -1507,7 +1529,7 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             ir_print_size_of(irp, (IrInstructionSizeOf *)instruction);
             break;
         case IrInstructionIdTestNonNull:
-            ir_print_test_null(irp, (IrInstructionTestNonNull *)instruction);
+            ir_print_test_non_null(irp, (IrInstructionTestNonNull *)instruction);
             break;
         case IrInstructionIdUnwrapOptional:
             ir_print_unwrap_maybe(irp, (IrInstructionUnwrapOptional *)instruction);
@@ -1563,8 +1585,11 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdEmbedFile:
             ir_print_embed_file(irp, (IrInstructionEmbedFile *)instruction);
             break;
-        case IrInstructionIdCmpxchg:
-            ir_print_cmpxchg(irp, (IrInstructionCmpxchg *)instruction);
+        case IrInstructionIdCmpxchgSrc:
+            ir_print_cmpxchg_src(irp, (IrInstructionCmpxchgSrc *)instruction);
+            break;
+        case IrInstructionIdCmpxchgGen:
+            ir_print_cmpxchg_gen(irp, (IrInstructionCmpxchgGen *)instruction);
             break;
         case IrInstructionIdFence:
             ir_print_fence(irp, (IrInstructionFence *)instruction);
@@ -1871,6 +1896,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdInferCompTime:
             ir_print_infer_comptime(irp, (IrInstructionInferCompTime *)instruction);
+            break;
+        case IrInstructionIdSetNonNullBit:
+            ir_print_set_non_null_bit(irp, (IrInstructionSetNonNullBit *)instruction);
             break;
     }
     fprintf(irp->f, "\n");
