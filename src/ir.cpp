@@ -14087,11 +14087,11 @@ static IrInstruction *analyze_runtime_call(IrAnalyze *ira, ZigType *return_type,
     bool convert_to_value;
     ZigType *scalar_result_type;
     ZigType *payload_result_type;
-    if (return_type->id == ZigTypeIdErrorUnion && handle_is_ptr(return_type)) {
+    if (return_type->id == ZigTypeIdErrorUnion) {
         scalar_result_type = get_optional_type(ira->codegen, return_type->data.error_union.err_set_type);
         payload_result_type = return_type->data.error_union.payload_type;
         convert_to_value = call_instruction->lval != LValErrorUnion;
-    } else if (return_type->id == ZigTypeIdOptional && handle_is_ptr(return_type)) {
+    } else if (return_type->id == ZigTypeIdOptional) {
         scalar_result_type = ira->codegen->builtin_types.entry_bool;
         payload_result_type = return_type->data.maybe.child_type;
         convert_to_value = call_instruction->lval != LValOptional;
@@ -20611,6 +20611,7 @@ static IrInstruction *ir_analyze_unwrap_err_payload(IrAnalyze *ira, IrInstructio
     ZigType *result_type = get_pointer_to_type_extra(ira->codegen, payload_type,
             ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile,
             PtrLenSingle, 0, 0, 0);
+
     if (instr_is_comptime(base_ptr)) {
         ConstExprValue *ptr_val = ir_resolve_const(ira, base_ptr, UndefBad);
         if (!ptr_val)
