@@ -390,6 +390,19 @@ pub const ChildProcess = struct {
             setUpChildIo(self.stdout_behavior, stdout_pipe[1], posix.STDOUT_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
             setUpChildIo(self.stderr_behavior, stderr_pipe[1], posix.STDERR_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
 
+            if (self.stdin_behavior == StdIo.Pipe) {
+                os.close(stdin_pipe[0]);
+                os.close(stdin_pipe[1]);
+            }
+            if (self.stdout_behavior == StdIo.Pipe) {
+                os.close(stdout_pipe[0]);
+                os.close(stdout_pipe[1]);
+            }
+            if (self.stderr_behavior == StdIo.Pipe) {
+                os.close(stderr_pipe[0]);
+                os.close(stderr_pipe[1]);
+            }
+
             if (self.cwd) |cwd| {
                 os.changeCurDir(self.allocator, cwd) catch |err| forkChildErrReport(err_pipe[1], err);
             }
