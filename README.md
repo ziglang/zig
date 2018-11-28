@@ -42,33 +42,71 @@ clarity.
  * In addition to creating executables, creating a C library is a primary use
    case. You can export an auto-generated .h file.
 
-### Support Table
+### Supported Targets
 
-Freestanding means that you do not directly interact with the OS
-or you are writing your own OS.
+#### Tier 1 Support
 
-Note that if you use libc or other libraries to interact with the OS,
-that counts as "freestanding" for the purposes of this table.
+ * Not only can Zig generate machine code for these targets, but the standard
+   library cross-platform abstractions have implementations for these targets.
+   Thus it is practical to write a pure Zig application with no dependency on
+   libc.
+ * The CI server automatically tests these targets on every commit to master
+   branch, and updates ziglang.org/download with links to pre-built binaries.
+ * These targets have debug info capabilities and therefore produce stack
+   traces on failed assertions.
 
-|             | freestanding | linux   | macosx  | windows | other   |
-|-------------|--------------|---------|---------|---------|---------|
-|i386         | OK           | planned | OK      | planned | planned |
-|x86_64       | OK           | OK      | OK      | OK      | planned |
-|arm          | OK           | planned | planned | planned | planned |
-|bpf          | OK           | planned | N/A     | N/A     | planned |
-|hexagon      | OK           | planned | N/A     | N/A     | planned |
-|mips         | OK           | planned | N/A     | N/A     | planned |
-|powerpc      | OK           | planned | N/A     | N/A     | planned |
-|r600         | OK           | planned | N/A     | N/A     | planned |
-|amdgcn       | OK           | planned | N/A     | N/A     | planned |
-|sparc        | OK           | planned | N/A     | N/A     | planned |
-|s390x        | OK           | planned | N/A     | N/A     | planned |
-|spir         | OK           | planned | N/A     | N/A     | planned |
-|lanai        | OK           | planned | N/A     | N/A     | planned |
-|wasm32       | planned      | N/A     | N/A     | N/A     | N/A     |
-|wasm64       | planned      | N/A     | N/A     | N/A     | N/A     |
-|riscv32      | planned      | planned | N/A     | N/A     | planned |
-|riscv64      | planned      | planned | N/A     | N/A     | planned |
+#### Tier 2 Support
+
+ * There may be some standard library implementations, but many abstractions
+   will give an "Unsupported OS" compile error. One can link with libc or other
+   libraries to fill in the gaps in the standard library.
+ * These targets are known to work, but are not automatically tested, so there
+   are occasional regressions.
+ * Some tests may be disabled for these targets as we work toward Tier 1
+   support.
+
+#### Tier 3 Support
+
+ * The standard library has little to no knowledge of the existence of this
+   target.
+ * Because Zig is based on LLVM, it has the capability to build for these
+   targets, and LLVM has the target enabled by default.
+ * These targets are not frequently tested; one will likely need to contribute
+   to Zig in order to build for these targets.
+ * The Zig compiler might need to be updated with a few things such as
+   - what sizes are the C integer types
+   - C ABI calling convention for this target
+   - bootstrap code and default panic handler
+
+#### Tier 4 Support
+
+ * Support for these targets is entirely experimental.
+ * LLVM may have the target as an experimental target, which means that you
+   need to use Zig-provided binaries for the target to be available, or
+   build LLVM from source with special configure flags.
+
+#### Support Table
+
+|        | freestanding | linux  | macosx | windows | freebsd | other  |
+|--------|--------------|--------|--------|---------|---------|--------|
+|x86_64  | Tier 2       | Tier 1 | Tier 1 | Tier 1  | Tier 3  | Tier 3 |
+|i386    | Tier 2       | Tier 2 | Tier 2 | Tier 2  | Tier 3  | Tier 3 |
+|arm     | Tier 2       | Tier 3 | Tier 3 | Tier 3  | Tier 3  | Tier 3 |
+|arm64   | Tier 2       | Tier 2 | Tier 3 | Tier 3  | Tier 3  | Tier 3 |
+|bpf     | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 |
+|hexagon | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 |
+|mips    | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 |
+|powerpc | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 |
+|r600    | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 |
+|amdgcn  | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 |
+|sparc   | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 |
+|s390x   | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 |
+|spir    | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 |
+|lanai   | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 |
+|wasm32  | Tier 4       | N/A    | N/A    | N/A     | N/A     | N/A    |
+|wasm64  | Tier 4       | N/A    | N/A    | N/A     | N/A     | N/A    |
+|riscv32 | Tier 4       | Tier 4 | N/A    | N/A     | Tier 4  | Tier 4 |
+|riscv64 | Tier 4       | Tier 4 | N/A    | N/A     | Tier 4  | Tier 4 |
 
 ## Community
 

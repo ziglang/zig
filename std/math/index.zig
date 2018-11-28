@@ -365,6 +365,69 @@ pub fn Log2Int(comptime T: type) type {
     return @IntType(false, count);
 }
 
+pub fn IntFittingRange(comptime from: comptime_int, comptime to: comptime_int) type {
+    assert(from <= to);
+    if (from == 0 and to == 0) {
+        return u0;
+    }
+    const is_signed = from < 0;
+    const largest_positive_integer = max(if (from<0) (-from)-1 else from, to); // two's complement
+    const base = log2(largest_positive_integer);
+    const upper = (1 << base) - 1;
+    var magnitude_bits = if (upper >= largest_positive_integer) base else base + 1;
+    if (is_signed) {
+        magnitude_bits += 1;
+    }
+    return @IntType(is_signed, magnitude_bits);
+}
+
+test "math.IntFittingRange" {
+    assert(IntFittingRange(0, 0) == u0);
+    assert(IntFittingRange(0, 1) == u1);
+    assert(IntFittingRange(0, 2) == u2);
+    assert(IntFittingRange(0, 3) == u2);
+    assert(IntFittingRange(0, 4) == u3);
+    assert(IntFittingRange(0, 7) == u3);
+    assert(IntFittingRange(0, 8) == u4);
+    assert(IntFittingRange(0, 9) == u4);
+    assert(IntFittingRange(0, 15) == u4);
+    assert(IntFittingRange(0, 16) == u5);
+    assert(IntFittingRange(0, 17) == u5);
+    assert(IntFittingRange(0, 4095) == u12);
+    assert(IntFittingRange(2000, 4095) == u12);
+    assert(IntFittingRange(0, 4096) == u13);
+    assert(IntFittingRange(2000, 4096) == u13);
+    assert(IntFittingRange(0, 4097) == u13);
+    assert(IntFittingRange(2000, 4097) == u13);
+    assert(IntFittingRange(0, 123456789123456798123456789) == u87);
+    assert(IntFittingRange(0, 123456789123456798123456789123456789123456798123456789) == u177);
+
+    assert(IntFittingRange(-1, -1) == i1);
+    assert(IntFittingRange(-1, 0) == i1);
+    assert(IntFittingRange(-1, 1) == i2);
+    assert(IntFittingRange(-2, -2) == i2);
+    assert(IntFittingRange(-2, -1) == i2);
+    assert(IntFittingRange(-2, 0) == i2);
+    assert(IntFittingRange(-2, 1) == i2);
+    assert(IntFittingRange(-2, 2) == i3);
+    assert(IntFittingRange(-1, 2) == i3);
+    assert(IntFittingRange(-1, 3) == i3);
+    assert(IntFittingRange(-1, 4) == i4);
+    assert(IntFittingRange(-1, 7) == i4);
+    assert(IntFittingRange(-1, 8) == i5);
+    assert(IntFittingRange(-1, 9) == i5);
+    assert(IntFittingRange(-1, 15) == i5);
+    assert(IntFittingRange(-1, 16) == i6);
+    assert(IntFittingRange(-1, 17) == i6);
+    assert(IntFittingRange(-1, 4095) == i13);
+    assert(IntFittingRange(-4096, 4095) == i13);
+    assert(IntFittingRange(-1, 4096) == i14);
+    assert(IntFittingRange(-4097, 4095) == i14);
+    assert(IntFittingRange(-1, 4097) == i14);
+    assert(IntFittingRange(-1, 123456789123456798123456789) == i88);
+    assert(IntFittingRange(-1, 123456789123456798123456789123456789123456798123456789) == i178);
+}
+
 test "math overflow functions" {
     testOverflow();
     comptime testOverflow();

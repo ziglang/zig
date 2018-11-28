@@ -34,6 +34,7 @@ pub const DbiStreamHeader = packed struct {
 };
 
 pub const SectionContribEntry = packed struct {
+    /// COFF Section index, 1-based
     Section: u16,
     Padding1: [2]u8,
     Offset: u32,

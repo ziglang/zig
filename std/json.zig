@@ -910,7 +910,7 @@ fn checkNext(p: *TokenStream, id: Token.Id) void {
     debug.assert(token.id == id);
 }
 
-test "token" {
+test "json.token" {
     const s =
         \\{
         \\  "Image": {
@@ -980,7 +980,7 @@ pub fn validate(s: []const u8) bool {
     return p.complete;
 }
 
-test "json validate" {
+test "json.validate" {
     debug.assert(validate("{}"));
 }
 
@@ -1188,7 +1188,7 @@ pub const Parser = struct {
                     }
 
                     var value = p.stack.pop();
-                    try p.pushToParent(value);
+                    try p.pushToParent(&value);
                 },
                 Token.Id.String => {
                     try p.stack.append(try p.parseString(allocator, token, input, i));
@@ -1251,7 +1251,7 @@ pub const Parser = struct {
                         }
 
                         var value = p.stack.pop();
-                        try p.pushToParent(value);
+                        try p.pushToParent(&value);
                     },
                     Token.Id.ObjectBegin => {
                         try p.stack.append(Value{ .Object = ObjectMap.init(allocator) });
@@ -1312,19 +1312,19 @@ pub const Parser = struct {
         }
     }
 
-    fn pushToParent(p: *Parser, value: Value) !void {
-        switch (p.stack.at(p.stack.len - 1)) {
+    fn pushToParent(p: *Parser, value: *const Value) !void {
+        switch (p.stack.toSlice()[p.stack.len - 1]) {
             // Object Parent -> [ ..., object, <key>, value ]
             Value.String => |key| {
                 _ = p.stack.pop();
 
                 var object = &p.stack.items[p.stack.len - 1].Object;
-                _ = try object.put(key, value);
+                _ = try object.put(key, value.*);
                 p.state = State.ObjectKey;
             },
             // Array Parent -> [ ..., <array>, value ]
             Value.Array => |*array| {
-                try array.append(value);
+                try array.append(value.*);
                 p.state = State.ArrayValue;
             },
             else => {
@@ -1348,7 +1348,7 @@ pub const Parser = struct {
     }
 };
 
-test "json parser dynamic" {
+test "json.parser.dynamic" {
     var p = Parser.init(debug.global_allocator, false);
     defer p.deinit();
 
@@ -1364,7 +1364,8 @@ test "json parser dynamic" {
         \\          "Width":  100
         \\      },
         \\      "Animated" : false,
-        \\      "IDs": [116, 943, 234, 38793]
+        \\      "IDs": [116, 943, 234, 38793],
+        \\      "ArrayOfObject": [{"n": "m"}]
         \\    }
         \\}
     ;
@@ -1387,4 +1388,10 @@ test "json parser dynamic" {
 
     const animated = image.Object.get("Animated").?.value;
     debug.assert(animated.Bool == false);
+
+    const array_of_object = image.Object.get("ArrayOfObject").?.value;
+    debug.assert(array_of_object.Array.len == 1);
+
+    const obj0 = array_of_object.Array.at(0).Object.get("n").?.value;
+    debug.assert(mem.eql(u8, obj0.String, "m"));
 }
