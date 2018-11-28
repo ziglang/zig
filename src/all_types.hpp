@@ -2047,6 +2047,13 @@ struct IrBasicBlock {
     IrInstruction *must_be_comptime_source_instr;
 };
 
+enum LVal {
+    LValNone,
+    LValPtr,
+    LValErrorUnion,
+    LValOptional,
+};
+
 enum IrInstructionId {
     IrInstructionIdInvalid,
     IrInstructionIdDeclVarSrc,
@@ -2432,6 +2439,7 @@ struct IrInstructionCall {
     IrInstruction *result_loc;
     IrInstruction *first_arg_result_loc;
     FnInline fn_inline;
+    LVal lval;
     bool is_async;
     bool is_comptime;
 };
@@ -3016,13 +3024,6 @@ struct IrInstructionTypeName {
     IrInstruction base;
 
     IrInstruction *type_value;
-};
-
-enum LVal {
-    LValNone,
-    LValPtr,
-    LValErrorUnion,
-    LValOptional,
 };
 
 struct IrInstructionDeclRef {

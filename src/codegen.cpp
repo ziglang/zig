@@ -2270,6 +2270,8 @@ static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrIns
         if (val->special == ConstValSpecialStatic) {
             LLVMValueRef const_error_val = gen_const_val(g, val->data.x_err_union.error_set, "");
             LLVMBuildRet(g->builder, const_error_val);
+        } else if (!type_has_bits(fn_type_id->return_type->data.error_union.payload_type)) {
+            LLVMBuildRet(g->builder, value);
         } else {
             zig_panic("TODO");
         }
