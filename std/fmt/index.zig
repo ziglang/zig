@@ -2,6 +2,7 @@ const std = @import("../index.zig");
 const math = std.math;
 const debug = std.debug;
 const assert = debug.assert;
+const assertError = debug.assertError;
 const mem = std.mem;
 const builtin = @import("builtin");
 const errol = @import("errol/index.zig");
@@ -811,11 +812,39 @@ pub fn parseUnsigned(comptime T: type, buf: []const u8, radix: u8) ParseUnsigned
 
     for (buf) |c| {
         const digit = try charToDigit(c, radix);
-        x = try math.mul(T, x, radix);
-        x = try math.add(T, x, digit);
+
+        if (x != 0) x = try math.mul(T, x, try math.cast(T, radix));
+        x = try math.add(T, x, try math.cast(T, digit));
     }
 
     return x;
+}
+
+test "parseUnsigned" {
+    assert((try parseUnsigned(u16, "050124", 10)) == 50124);
+    assert((try parseUnsigned(u16, "65535", 10)) == 65535);
+    assertError(parseUnsigned(u16, "65536", 10), error.Overflow);
+
+    assert((try parseUnsigned(u64, "0ffffffffffffffff", 16)) == 0xffffffffffffffff);
+    assertError(parseUnsigned(u64, "10000000000000000", 16), error.Overflow);
+
+    assert((try parseUnsigned(u32, "DeadBeef", 16)) == 0xDEADBEEF);
+
+    assert((try parseUnsigned(u7, "1", 10)) == 1);
+    assert((try parseUnsigned(u7, "1000", 2)) == 8);
+
+    assertError(parseUnsigned(u32, "f", 10), error.InvalidCharacter);
+    assertError(parseUnsigned(u8, "109", 8), error.InvalidCharacter);
+
+    assert((try parseUnsigned(u32, "NUMBER", 36)) == 1442151747);
+
+    // these numbers should fit even though the radix itself doesn't fit in the destination type
+    assert((try parseUnsigned(u1, "0", 10)) == 0);
+    assert((try parseUnsigned(u1, "1", 10)) == 1);
+    assertError(parseUnsigned(u1, "2", 10), error.Overflow);
+    assert((try parseUnsigned(u1, "001", 16)) == 1);
+    assert((try parseUnsigned(u2, "3", 16)) == 3);
+    assertError(parseUnsigned(u2, "4", 16), error.Overflow);
 }
 
 pub fn charToDigit(c: u8, radix: u8) (error{InvalidCharacter}!u8) {
