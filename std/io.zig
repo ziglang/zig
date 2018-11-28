@@ -683,25 +683,45 @@ test "import io tests" {
     }
 }
 
-pub fn readLine(buf: []u8) !usize {
-    var stdin = getStdIn() catch return error.StdInUnavailable;
-    var adapter = stdin.inStream();
-    var stream = &adapter.stream;
-    var index: usize = 0;
+pub fn readLine(buf: *std.Buffer) ![]u8 {
+    var stdin = try getStdIn();
+    var stdin_stream = stdin.inStream();
+    return readLineFrom(&stdin_stream.stream, buf);
+}
+
+/// Reads all characters until the next newline into buf, and returns
+/// a slice of the characters read (excluding the newline character(s)).
+pub fn readLineFrom(stream: var, buf: *std.Buffer) ![]u8 {
+    const start = buf.len();
     while (true) {
-        const byte = stream.readByte() catch return error.EndOfFile;
+        const byte = try stream.readByte();
         switch (byte) {
             '\r' => {
-                // trash the following \n
-                _ = stream.readByte() catch return error.EndOfFile;
-                return index;
+                // TODO: Would perfect software ignore the possiblilty that
+                //       the next byte is not '\n'?
+                _ = try stream.readByte();
+                return buf.toSlice()[start..];
             },
-            '\n' => return index,
-            else => {
-                if (index == buf.len) return error.InputTooLong;
-                buf[index] = byte;
-                index += 1;
-            },
+            '\n' => return buf.toSlice()[start..],
+            else => try buf.appendByte(byte),
         }
     }
+}
+
+test "io.readLineFrom" {
+    var bytes: [128]u8 = undefined;
+    const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
+
+    var buf = try std.Buffer.initSize(allocator, 0);
+    var mem_stream = SliceInStream.init(
+        \\Line 1
+        \\Line 2
+        \\Line 3
+    );
+    const stream = &mem_stream.stream;
+
+    debug.assert(mem.eql(u8, "Line 1", try readLineFrom(stream, &buf)));
+    debug.assert(mem.eql(u8, "Line 2", try readLineFrom(stream, &buf)));
+    debug.assertError(readLineFrom(stream, &buf), error.EndOfStream);
+    debug.assert(mem.eql(u8, buf.toSlice(), "Line 1Line 2Line 3"));
 }
