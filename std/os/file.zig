@@ -230,7 +230,7 @@ pub const File = struct {
 
     pub fn seekForward(self: File, amount: isize) !void {
         switch (builtin.os) {
-            Os.linux, Os.macosx, Os.ios => {
+            Os.linux, Os.macosx, Os.ios, Os.freebsd => {
                 const result = posix.lseek(self.handle, amount, posix.SEEK_CUR);
                 const err = posix.getErrno(result);
                 if (err > 0) {
@@ -261,7 +261,7 @@ pub const File = struct {
 
     pub fn seekTo(self: File, pos: usize) !void {
         switch (builtin.os) {
-            Os.linux, Os.macosx, Os.ios => {
+            Os.linux, Os.macosx, Os.ios, Os.freebsd => {
                 const ipos = try math.cast(isize, pos);
                 const result = posix.lseek(self.handle, ipos, posix.SEEK_SET);
                 const err = posix.getErrno(result);
@@ -295,7 +295,7 @@ pub const File = struct {
 
     pub fn getPos(self: File) !usize {
         switch (builtin.os) {
-            Os.linux, Os.macosx, Os.ios => {
+            Os.linux, Os.macosx, Os.ios, Os.freebsd => {
                 const result = posix.lseek(self.handle, 0, posix.SEEK_CUR);
                 const err = posix.getErrno(result);
                 if (err > 0) {

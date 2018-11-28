@@ -50,10 +50,13 @@ typedef SSIZE_T ssize_t;
 
 #endif
 
-#if defined(ZIG_OS_LINUX)
+#if defined(ZIG_OS_LINUX) || defined(ZIG_OS_FREEBSD)
 #include <link.h>
 #endif
 
+#if defined(ZIG_OS_FREEBSD)
+#include <sys/sysctl.h>
+#endif
 
 #if defined(__MACH__)
 #include <mach/clock.h>
@@ -75,7 +78,9 @@ static clock_serv_t cclock;
 #if defined(__APPLE__) && !defined(environ)
 #include <crt_externs.h>
 #define environ (*_NSGetEnviron())
-#endif 
+#elif defined(ZIG_OS_FREEBSD)
+extern char **environ;
+#endif
 
 #if defined(ZIG_OS_POSIX)
 static void populate_termination(Termination *term, int status) {
@@ -1444,6 +1449,15 @@ Error os_self_exe_path(Buf *out_path) {
     }
     buf_resize(out_path, amt);
     return ErrorNone;
+#elif defined(ZIG_OS_FREEBSD)
+    buf_resize(out_path, PATH_MAX);
+    int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, -1 };
+    size_t cb = PATH_MAX;
+    if (sysctl(mib, 4, buf_ptr(out_path), &cb, nullptr, 0) != 0) {
+        return ErrorUnexpected;
+    }
+    buf_resize(out_path, cb);
+    return ErrorNone;
 #endif
     return ErrorFileNotFound;
 }
@@ -1749,7 +1763,7 @@ Error os_get_app_data_dir(Buf *out_path, const char *appname) {
     buf_resize(out_path, 0);
     buf_appendf(out_path, "%s/Library/Application Support/%s", home_dir, appname);
     return ErrorNone;
-#elif defined(ZIG_OS_LINUX)
+#elif defined(ZIG_OS_POSIX)
     const char *home_dir = getenv("HOME");
     if (home_dir == nullptr) {
         // TODO use /etc/passwd
@@ -1762,7 +1776,7 @@ Error os_get_app_data_dir(Buf *out_path, const char *appname) {
 }
 
 
-#if defined(ZIG_OS_LINUX)
+#if defined(ZIG_OS_LINUX) || defined(ZIG_OS_FREEBSD)
 static int self_exe_shared_libs_callback(struct dl_phdr_info *info, size_t size, void *data) {
     ZigList<Buf *> *libs = reinterpret_cast< ZigList<Buf *> *>(data);
     if (info->dlpi_name[0] == '/') {
@@ -1773,7 +1787,7 @@ static int self_exe_shared_libs_callback(struct dl_phdr_info *info, size_t size,
 #endif
 
 Error os_self_exe_shared_libs(ZigList<Buf *> &paths) {
-#if defined(ZIG_OS_LINUX)
+#if defined(ZIG_OS_LINUX) || defined(ZIG_OS_FREEBSD)
     paths.resize(0);
     dl_iterate_phdr(self_exe_shared_libs_callback, &paths);
     return ErrorNone;
@@ -1942,7 +1956,7 @@ Error os_file_mtime(OsFile file, OsTimeStamp *mtime) {
     mtime->sec = (((ULONGLONG) last_write_time.dwHighDateTime) << 32) + last_write_time.dwLowDateTime;
     mtime->nsec = 0;
     return ErrorNone;
-#elif defined(ZIG_OS_LINUX)
+#elif defined(ZIG_OS_LINUX) || defined(ZIG_OS_FREEBSD)
     struct stat statbuf;
     if (fstat(file, &statbuf) == -1)
         return ErrorFileSystem;
