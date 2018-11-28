@@ -89,7 +89,7 @@ clarity.
 
 |        | freestanding | linux  | macosx | windows | freebsd | other  |
 |--------|--------------|--------|--------|---------|---------|--------|
-|x86_64  | Tier 2       | Tier 1 | Tier 1 | Tier 1  | Tier 3  | Tier 3 |
+|x86_64  | Tier 2       | Tier 1 | Tier 1 | Tier 1  | Tier 2  | Tier 3 |
 |i386    | Tier 2       | Tier 2 | Tier 2 | Tier 2  | Tier 3  | Tier 3 |
 |arm     | Tier 2       | Tier 3 | Tier 3 | Tier 3  | Tier 3  | Tier 3 |
 |arm64   | Tier 2       | Tier 2 | Tier 3 | Tier 3  | Tier 3  | Tier 3 |

@@ -47,7 +47,7 @@ bool ptr_eq(const void *a, const void *b) {
 // Ported from std/mem.zig.
 bool SplitIterator_isSplitByte(SplitIterator *self, uint8_t byte) {
     for (size_t i = 0; i < self->split_bytes.len; i += 1) {
-        if (byte == self->split_bytes.ptr[i] || byte == 0) {
+        if (byte == self->split_bytes.ptr[i]) {
             return true;
         }
     }

@@ -1731,8 +1731,8 @@ pub const Dir = struct {
     }
 
     fn nextFreebsd(self: *Dir) !?Entry {
-        self.handle.buf = try self.allocator.alloc(u8, page_size);
-        return null; // TODO
+        //self.handle.buf = try self.allocator.alloc(u8, page_size);
+        @compileError("TODO implement dirs for FreeBSD");
     }
 };
 

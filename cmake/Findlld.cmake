@@ -8,13 +8,13 @@
 
 find_path(LLD_INCLUDE_DIRS NAMES lld/Common/Driver.h
     PATHS
-        /usr/lib/llvm-6.0/include
-        /usr/local/llvm60/include
+        /usr/lib/llvm-7.0/include
+        /usr/local/llvm70/include
         /mingw64/include)
 
-find_library(LLD_LIBRARY NAMES lld-6.0 lld60 lld
+find_library(LLD_LIBRARY NAMES lld-7.0 lld70 lld
     PATHS
-        /usr/lib/llvm-6.0/lib
+        /usr/lib/llvm-7.0/lib
         /usr/local/llvm70/lib)
 if(EXISTS ${LLD_LIBRARY})
     set(LLD_LIBRARIES ${LLD_LIBRARY})
@@ -23,7 +23,7 @@ else()
         string(TOUPPER ${_libname_} _prettylibname_)
         find_library(LLD_${_prettylibname_}_LIB NAMES ${_libname_}
             PATHS
-                /usr/lib/llvm-6.0/lib
+                /usr/lib/llvm-7.0/lib
                 /usr/local/llvm70/lib
                 /mingw64/lib
                 /c/msys64/mingw64/lib

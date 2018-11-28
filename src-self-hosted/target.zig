@@ -304,154 +304,156 @@ pub const Target = union(enum) {
             builtin.Os.freebsd => {
                 return "/libexec/ld-elf.so.1";
             },
-            else => {},
-        }
-        switch (env) {
-            builtin.Environ.android => {
-                if (self.is64bit()) {
-                    return "/system/bin/linker64";
-                } else {
-                    return "/system/bin/linker";
+            builtin.Os.linux => {
+                switch (env) {
+                    builtin.Environ.android => {
+                        if (self.is64bit()) {
+                            return "/system/bin/linker64";
+                        } else {
+                            return "/system/bin/linker";
+                        }
+                    },
+                    builtin.Environ.gnux32 => {
+                        if (arch == builtin.Arch.x86_64) {
+                            return "/libx32/ld-linux-x32.so.2";
+                        }
+                    },
+                    builtin.Environ.musl,
+                    builtin.Environ.musleabi,
+                    builtin.Environ.musleabihf,
+                    => {
+                        if (arch == builtin.Arch.x86_64) {
+                            return "/lib/ld-musl-x86_64.so.1";
+                        }
+                    },
+                    else => {},
+                }
+                switch (arch) {
+                    builtin.Arch.i386,
+                    builtin.Arch.sparc,
+                    builtin.Arch.sparcel,
+                    => return "/lib/ld-linux.so.2",
+
+                    builtin.Arch.aarch64v8_3a,
+                    builtin.Arch.aarch64v8_2a,
+                    builtin.Arch.aarch64v8_1a,
+                    builtin.Arch.aarch64v8,
+                    builtin.Arch.aarch64v8r,
+                    builtin.Arch.aarch64v8m_baseline,
+                    builtin.Arch.aarch64v8m_mainline,
+                    => return "/lib/ld-linux-aarch64.so.1",
+
+                    builtin.Arch.aarch64_bev8_3a,
+                    builtin.Arch.aarch64_bev8_2a,
+                    builtin.Arch.aarch64_bev8_1a,
+                    builtin.Arch.aarch64_bev8,
+                    builtin.Arch.aarch64_bev8r,
+                    builtin.Arch.aarch64_bev8m_baseline,
+                    builtin.Arch.aarch64_bev8m_mainline,
+                    => return "/lib/ld-linux-aarch64_be.so.1",
+
+                    builtin.Arch.armv8_3a,
+                    builtin.Arch.armv8_2a,
+                    builtin.Arch.armv8_1a,
+                    builtin.Arch.armv8,
+                    builtin.Arch.armv8r,
+                    builtin.Arch.armv8m_baseline,
+                    builtin.Arch.armv8m_mainline,
+                    builtin.Arch.armv7,
+                    builtin.Arch.armv7em,
+                    builtin.Arch.armv7m,
+                    builtin.Arch.armv7s,
+                    builtin.Arch.armv7k,
+                    builtin.Arch.armv7ve,
+                    builtin.Arch.armv6,
+                    builtin.Arch.armv6m,
+                    builtin.Arch.armv6k,
+                    builtin.Arch.armv6t2,
+                    builtin.Arch.armv5,
+                    builtin.Arch.armv5te,
+                    builtin.Arch.armv4t,
+                    builtin.Arch.thumb,
+                    => return switch (self.getFloatAbi()) {
+                        FloatAbi.Hard => return "/lib/ld-linux-armhf.so.3",
+                        else => return "/lib/ld-linux.so.3",
+                    },
+
+                    builtin.Arch.armebv8_3a,
+                    builtin.Arch.armebv8_2a,
+                    builtin.Arch.armebv8_1a,
+                    builtin.Arch.armebv8,
+                    builtin.Arch.armebv8r,
+                    builtin.Arch.armebv8m_baseline,
+                    builtin.Arch.armebv8m_mainline,
+                    builtin.Arch.armebv7,
+                    builtin.Arch.armebv7em,
+                    builtin.Arch.armebv7m,
+                    builtin.Arch.armebv7s,
+                    builtin.Arch.armebv7k,
+                    builtin.Arch.armebv7ve,
+                    builtin.Arch.armebv6,
+                    builtin.Arch.armebv6m,
+                    builtin.Arch.armebv6k,
+                    builtin.Arch.armebv6t2,
+                    builtin.Arch.armebv5,
+                    builtin.Arch.armebv5te,
+                    builtin.Arch.armebv4t,
+                    builtin.Arch.thumbeb,
+                    => return switch (self.getFloatAbi()) {
+                        FloatAbi.Hard => return "/lib/ld-linux-armhf.so.3",
+                        else => return "/lib/ld-linux.so.3",
+                    },
+
+                    builtin.Arch.mips,
+                    builtin.Arch.mipsel,
+                    builtin.Arch.mips64,
+                    builtin.Arch.mips64el,
+                    => return null,
+
+                    builtin.Arch.powerpc => return "/lib/ld.so.1",
+                    builtin.Arch.powerpc64 => return "/lib64/ld64.so.2",
+                    builtin.Arch.powerpc64le => return "/lib64/ld64.so.2",
+                    builtin.Arch.s390x => return "/lib64/ld64.so.1",
+                    builtin.Arch.sparcv9 => return "/lib64/ld-linux.so.2",
+                    builtin.Arch.x86_64 => return "/lib64/ld-linux-x86-64.so.2",
+
+                    builtin.Arch.arc,
+                    builtin.Arch.avr,
+                    builtin.Arch.bpfel,
+                    builtin.Arch.bpfeb,
+                    builtin.Arch.hexagon,
+                    builtin.Arch.msp430,
+                    builtin.Arch.nios2,
+                    builtin.Arch.r600,
+                    builtin.Arch.amdgcn,
+                    builtin.Arch.riscv32,
+                    builtin.Arch.riscv64,
+                    builtin.Arch.tce,
+                    builtin.Arch.tcele,
+                    builtin.Arch.xcore,
+                    builtin.Arch.nvptx,
+                    builtin.Arch.nvptx64,
+                    builtin.Arch.le32,
+                    builtin.Arch.le64,
+                    builtin.Arch.amdil,
+                    builtin.Arch.amdil64,
+                    builtin.Arch.hsail,
+                    builtin.Arch.hsail64,
+                    builtin.Arch.spir,
+                    builtin.Arch.spir64,
+                    builtin.Arch.kalimbav3,
+                    builtin.Arch.kalimbav4,
+                    builtin.Arch.kalimbav5,
+                    builtin.Arch.shave,
+                    builtin.Arch.lanai,
+                    builtin.Arch.wasm32,
+                    builtin.Arch.wasm64,
+                    builtin.Arch.renderscript32,
+                    builtin.Arch.renderscript64,
+                    => return null,
                 }
             },
-            builtin.Environ.gnux32 => {
-                if (arch == builtin.Arch.x86_64) {
-                    return "/libx32/ld-linux-x32.so.2";
-                }
-            },
-            builtin.Environ.musl,
-            builtin.Environ.musleabi,
-            builtin.Environ.musleabihf,
-            => {
-                if (arch == builtin.Arch.x86_64) {
-                    return "/lib/ld-musl-x86_64.so.1";
-                }
-            },
-            else => {},
-        }
-        switch (arch) {
-            builtin.Arch.i386,
-            builtin.Arch.sparc,
-            builtin.Arch.sparcel,
-            => return "/lib/ld-linux.so.2",
-
-            builtin.Arch.aarch64v8_3a,
-            builtin.Arch.aarch64v8_2a,
-            builtin.Arch.aarch64v8_1a,
-            builtin.Arch.aarch64v8,
-            builtin.Arch.aarch64v8r,
-            builtin.Arch.aarch64v8m_baseline,
-            builtin.Arch.aarch64v8m_mainline,
-            => return "/lib/ld-linux-aarch64.so.1",
-
-            builtin.Arch.aarch64_bev8_3a,
-            builtin.Arch.aarch64_bev8_2a,
-            builtin.Arch.aarch64_bev8_1a,
-            builtin.Arch.aarch64_bev8,
-            builtin.Arch.aarch64_bev8r,
-            builtin.Arch.aarch64_bev8m_baseline,
-            builtin.Arch.aarch64_bev8m_mainline,
-            => return "/lib/ld-linux-aarch64_be.so.1",
-
-            builtin.Arch.armv8_3a,
-            builtin.Arch.armv8_2a,
-            builtin.Arch.armv8_1a,
-            builtin.Arch.armv8,
-            builtin.Arch.armv8r,
-            builtin.Arch.armv8m_baseline,
-            builtin.Arch.armv8m_mainline,
-            builtin.Arch.armv7,
-            builtin.Arch.armv7em,
-            builtin.Arch.armv7m,
-            builtin.Arch.armv7s,
-            builtin.Arch.armv7k,
-            builtin.Arch.armv7ve,
-            builtin.Arch.armv6,
-            builtin.Arch.armv6m,
-            builtin.Arch.armv6k,
-            builtin.Arch.armv6t2,
-            builtin.Arch.armv5,
-            builtin.Arch.armv5te,
-            builtin.Arch.armv4t,
-            builtin.Arch.thumb,
-            => return switch (self.getFloatAbi()) {
-                FloatAbi.Hard => return "/lib/ld-linux-armhf.so.3",
-                else => return "/lib/ld-linux.so.3",
-            },
-
-            builtin.Arch.armebv8_3a,
-            builtin.Arch.armebv8_2a,
-            builtin.Arch.armebv8_1a,
-            builtin.Arch.armebv8,
-            builtin.Arch.armebv8r,
-            builtin.Arch.armebv8m_baseline,
-            builtin.Arch.armebv8m_mainline,
-            builtin.Arch.armebv7,
-            builtin.Arch.armebv7em,
-            builtin.Arch.armebv7m,
-            builtin.Arch.armebv7s,
-            builtin.Arch.armebv7k,
-            builtin.Arch.armebv7ve,
-            builtin.Arch.armebv6,
-            builtin.Arch.armebv6m,
-            builtin.Arch.armebv6k,
-            builtin.Arch.armebv6t2,
-            builtin.Arch.armebv5,
-            builtin.Arch.armebv5te,
-            builtin.Arch.armebv4t,
-            builtin.Arch.thumbeb,
-            => return switch (self.getFloatAbi()) {
-                FloatAbi.Hard => return "/lib/ld-linux-armhf.so.3",
-                else => return "/lib/ld-linux.so.3",
-            },
-
-            builtin.Arch.mips,
-            builtin.Arch.mipsel,
-            builtin.Arch.mips64,
-            builtin.Arch.mips64el,
-            => return null,
-
-            builtin.Arch.powerpc => return "/lib/ld.so.1",
-            builtin.Arch.powerpc64 => return "/lib64/ld64.so.2",
-            builtin.Arch.powerpc64le => return "/lib64/ld64.so.2",
-            builtin.Arch.s390x => return "/lib64/ld64.so.1",
-            builtin.Arch.sparcv9 => return "/lib64/ld-linux.so.2",
-            builtin.Arch.x86_64 => return "/lib64/ld-linux-x86-64.so.2",
-
-            builtin.Arch.arc,
-            builtin.Arch.avr,
-            builtin.Arch.bpfel,
-            builtin.Arch.bpfeb,
-            builtin.Arch.hexagon,
-            builtin.Arch.msp430,
-            builtin.Arch.nios2,
-            builtin.Arch.r600,
-            builtin.Arch.amdgcn,
-            builtin.Arch.riscv32,
-            builtin.Arch.riscv64,
-            builtin.Arch.tce,
-            builtin.Arch.tcele,
-            builtin.Arch.xcore,
-            builtin.Arch.nvptx,
-            builtin.Arch.nvptx64,
-            builtin.Arch.le32,
-            builtin.Arch.le64,
-            builtin.Arch.amdil,
-            builtin.Arch.amdil64,
-            builtin.Arch.hsail,
-            builtin.Arch.hsail64,
-            builtin.Arch.spir,
-            builtin.Arch.spir64,
-            builtin.Arch.kalimbav3,
-            builtin.Arch.kalimbav4,
-            builtin.Arch.kalimbav5,
-            builtin.Arch.shave,
-            builtin.Arch.lanai,
-            builtin.Arch.wasm32,
-            builtin.Arch.wasm64,
-            builtin.Arch.renderscript32,
-            builtin.Arch.renderscript64,
-            => return null,
+            else => return null,
         }
     }
 
