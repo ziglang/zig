@@ -757,7 +757,7 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtErro
             var group = event.Group(FmtError!void).init(fmt.loop);
             while (try dir.next()) |entry| {
                 if (entry.kind == std.os.Dir.Entry.Kind.Directory or mem.endsWith(u8, entry.name, ".zig")) {
-                    const full_path = try os.path.join(fmt.loop.allocator, file_path, entry.name);
+                    const full_path = try os.path.join(fmt.loop.allocator, [][]const u8{ file_path, entry.name });
                     try group.call(fmtPath, fmt, full_path, check_mode);
                 }
             }

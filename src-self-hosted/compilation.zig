@@ -485,7 +485,7 @@ pub const Compilation = struct {
         comp.name = try Buffer.init(comp.arena(), name);
         comp.llvm_triple = try target.getTriple(comp.arena());
         comp.llvm_target = try Target.llvmTargetFromTriple(comp.llvm_triple);
-        comp.zig_std_dir = try std.os.path.join(comp.arena(), zig_lib_dir, "std");
+        comp.zig_std_dir = try std.os.path.join(comp.arena(), [][]const u8{ zig_lib_dir, "std" });
 
         const opt_level = switch (build_mode) {
             builtin.Mode.Debug => llvm.CodeGenLevelNone,
@@ -1183,7 +1183,7 @@ pub const Compilation = struct {
         const file_name = try std.fmt.allocPrint(self.gpa(), "{}{}", file_prefix[0..], suffix);
         defer self.gpa().free(file_name);
 
-        const full_path = try os.path.join(self.gpa(), tmp_dir, file_name[0..]);
+        const full_path = try os.path.join(self.gpa(), [][]const u8{ tmp_dir, file_name[0..] });
         errdefer self.gpa().free(full_path);
 
         return Buffer.fromOwnedSlice(self.gpa(), full_path);
@@ -1204,7 +1204,7 @@ pub const Compilation = struct {
         const zig_dir_path = try getZigDir(self.gpa());
         defer self.gpa().free(zig_dir_path);
 
-        const tmp_dir = try os.path.join(self.arena(), zig_dir_path, comp_dir_name[0..]);
+        const tmp_dir = try os.path.join(self.arena(), [][]const u8{ zig_dir_path, comp_dir_name[0..] });
         try os.makePath(self.gpa(), tmp_dir);
         return tmp_dir;
     }

@@ -87,7 +87,7 @@ pub const TestContext = struct {
     ) !void {
         var file_index_buf: [20]u8 = undefined;
         const file_index = try std.fmt.bufPrint(file_index_buf[0..], "{}", self.file_index.incr());
-        const file1_path = try std.os.path.join(allocator, tmp_dir_name, file_index, file1);
+        const file1_path = try std.os.path.join(allocator, [][]const u8{ tmp_dir_name, file_index, file1 });
 
         if (std.os.path.dirname(file1_path)) |dirname| {
             try std.os.makePath(allocator, dirname);
@@ -120,7 +120,7 @@ pub const TestContext = struct {
     ) !void {
         var file_index_buf: [20]u8 = undefined;
         const file_index = try std.fmt.bufPrint(file_index_buf[0..], "{}", self.file_index.incr());
-        const file1_path = try std.os.path.join(allocator, tmp_dir_name, file_index, file1);
+        const file1_path = try std.os.path.join(allocator, [][]const u8{ tmp_dir_name, file_index, file1 });
 
         const output_file = try std.fmt.allocPrint(allocator, "{}-out{}", file1_path, Target(Target.Native).exeFileExt());
         if (std.os.path.dirname(file1_path)) |dirname| {
