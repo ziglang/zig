@@ -2048,9 +2048,18 @@ struct IrBasicBlock {
 };
 
 enum LVal {
+    // The instruction must return the actual value.
     LValNone,
+    // The instruction must return a pointer to the actual value.
     LValPtr,
-    LValErrorUnion,
+    // The instruction must populate the result location, which is
+    // an error union, and return the optional error code value.
+    LValErrorUnionVal,
+    // The instruction must populate the result location, which is
+    // an error union, and return a pointer to optional error code value.
+    LValErrorUnionPtr,
+    // The instruction must populate the result location, which is
+    // an optional, and return non-null bool value.
     LValOptional,
 };
 
@@ -2092,7 +2101,8 @@ enum IrInstructionId {
     IrInstructionIdAsm,
     IrInstructionIdSizeOf,
     IrInstructionIdTestNonNull,
-    IrInstructionIdUnwrapOptional,
+    IrInstructionIdOptionalUnwrapPtr,
+    IrInstructionIdOptionalUnwrapVal,
     IrInstructionIdOptionalWrap,
     IrInstructionIdUnionTag,
     IrInstructionIdClz,
@@ -2592,10 +2602,20 @@ struct IrInstructionTestNonNull {
     IrInstruction *value;
 };
 
-struct IrInstructionUnwrapOptional {
+// Takes a pointer to an optional value, returns a pointer
+// to the payload.
+struct IrInstructionOptionalUnwrapPtr {
     IrInstruction base;
 
-    IrInstruction *value;
+    IrInstruction *base_ptr;
+    bool safety_check_on;
+};
+
+// Takes an optional value, returns the payload.
+struct IrInstructionOptionalUnwrapVal {
+    IrInstruction base;
+
+    IrInstruction *opt;
     bool safety_check_on;
 };
 

@@ -474,9 +474,18 @@ static void ir_print_test_non_null(IrPrint *irp, IrInstructionTestNonNull *instr
     fprintf(irp->f, " != null");
 }
 
-static void ir_print_unwrap_maybe(IrPrint *irp, IrInstructionUnwrapOptional *instruction) {
-    fprintf(irp->f, "UnwrapOptional(");
-    ir_print_other_instruction(irp, instruction->value);
+static void ir_print_optional_unwrap_ptr(IrPrint *irp, IrInstructionOptionalUnwrapPtr *instruction) {
+    fprintf(irp->f, "OptionalUnwrapPtr(");
+    ir_print_other_instruction(irp, instruction->base_ptr);
+    fprintf(irp->f, ")");
+    if (!instruction->safety_check_on) {
+        fprintf(irp->f, " // no safety");
+    }
+}
+
+static void ir_print_optional_unwrap_val(IrPrint *irp, IrInstructionOptionalUnwrapVal *instruction) {
+    fprintf(irp->f, "OptionalUnwrapVal(");
+    ir_print_other_instruction(irp, instruction->opt);
     fprintf(irp->f, ")");
     if (!instruction->safety_check_on) {
         fprintf(irp->f, " // no safety");
@@ -1531,8 +1540,11 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdTestNonNull:
             ir_print_test_non_null(irp, (IrInstructionTestNonNull *)instruction);
             break;
-        case IrInstructionIdUnwrapOptional:
-            ir_print_unwrap_maybe(irp, (IrInstructionUnwrapOptional *)instruction);
+        case IrInstructionIdOptionalUnwrapPtr:
+            ir_print_optional_unwrap_ptr(irp, (IrInstructionOptionalUnwrapPtr *)instruction);
+            break;
+        case IrInstructionIdOptionalUnwrapVal:
+            ir_print_optional_unwrap_val(irp, (IrInstructionOptionalUnwrapVal *)instruction);
             break;
         case IrInstructionIdCtz:
             ir_print_ctz(irp, (IrInstructionCtz *)instruction);

@@ -471,8 +471,12 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionTestNonNull *) {
     return IrInstructionIdTestNonNull;
 }
 
-static constexpr IrInstructionId ir_instruction_id(IrInstructionUnwrapOptional *) {
-    return IrInstructionIdUnwrapOptional;
+static constexpr IrInstructionId ir_instruction_id(IrInstructionOptionalUnwrapPtr *) {
+    return IrInstructionIdOptionalUnwrapPtr;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionOptionalUnwrapVal *) {
+    return IrInstructionIdOptionalUnwrapVal;
 }
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionClz *) {
@@ -1610,14 +1614,26 @@ static IrInstruction *ir_build_test_nonnull(IrBuilder *irb, Scope *scope, AstNod
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_unwrap_maybe(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *value,
-        bool safety_check_on)
+static IrInstruction *ir_build_optional_unwrap_ptr(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *base_ptr, bool safety_check_on)
 {
-    IrInstructionUnwrapOptional *instruction = ir_build_instruction<IrInstructionUnwrapOptional>(irb, scope, source_node);
-    instruction->value = value;
+    IrInstructionOptionalUnwrapPtr *instruction = ir_build_instruction<IrInstructionOptionalUnwrapPtr>(irb, scope, source_node);
+    instruction->base_ptr = base_ptr;
     instruction->safety_check_on = safety_check_on;
 
-    ir_ref_instruction(value, irb->current_basic_block);
+    ir_ref_instruction(base_ptr, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_optional_unwrap_val(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *opt, bool safety_check_on)
+{
+    IrInstructionOptionalUnwrapVal *instruction = ir_build_instruction<IrInstructionOptionalUnwrapVal>(irb, scope, source_node);
+    instruction->opt = opt;
+    instruction->safety_check_on = safety_check_on;
+
+    ir_ref_instruction(opt, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -3206,7 +3222,8 @@ static IrInstruction *ir_gen_result(IrBuilder *irb, Scope *scope, AstNode *node,
             return ir_build_load_ptr(irb, scope, node, result_loc, nullptr);
         case LValPtr:
             return result_loc;
-        case LValErrorUnion:
+        case LValErrorUnionVal:
+        case LValErrorUnionPtr:
         case LValOptional:
             zig_unreachable();
     }
@@ -3226,12 +3243,14 @@ static IrInstruction *ir_gen_multi(IrBuilder *irb, Scope *scope, AstNode *node, 
             // an instruction which just makes a pointer of it.
             return ir_build_ref(irb, scope, value->source_node, value, false, false, nullptr);
         }
-        case LValErrorUnion: {
+        case LValErrorUnionPtr: {
             IrInstruction *err_alloca = ir_build_alloca_src(irb, scope, value->source_node,
                     nullptr, nullptr, "err");
             ir_build_store_ptr(irb, scope, value->source_node, err_alloca, value);
             return err_alloca;
         }
+        case LValErrorUnionVal:
+            return value;
         case LValOptional:
             return value;
     }
@@ -3258,7 +3277,8 @@ static IrInstruction *ir_gen_value(IrBuilder *irb, Scope *scope, AstNode *node, 
                 break;
             case LValPtr:
                 zig_unreachable();
-            case LValErrorUnion:
+            case LValErrorUnionVal:
+            case LValErrorUnionPtr:
                 zig_panic("TODO");
                 //ir_build_store_ptr(irb, scope, node, result_loc, value);
                 //return ir_gen_result(irb, scope, node, lval, result_loc);
@@ -3268,7 +3288,7 @@ static IrInstruction *ir_gen_value(IrBuilder *irb, Scope *scope, AstNode *node, 
                 //// value is an optional value
                 //// need to return non-null bit
                 //IrInstruction *opt_ptr = ir_build_ref(irb, scope, node, value, false, false, nullptr);
-                //IrInstruction *payload_ptr = ir_build_unwrap_maybe(irb, scope, node, opt_ptr, false);
+                //IrInstruction *payload_ptr = ir_build_optional_unwrap_ptr(irb, scope, node, opt_ptr, false);
                 //ir_build_load_ptr(irb, scope, node, payload_ptr, result_loc);
                 //return ir_build_test_nonnull(irb, scope, node, value);
             }
@@ -3282,7 +3302,8 @@ static IrInstruction *ir_gen_value(IrBuilder *irb, Scope *scope, AstNode *node, 
         case LValNone:
             return value;
         case LValOptional:
-        case LValErrorUnion:
+        case LValErrorUnionVal:
+        case LValErrorUnionPtr:
             zig_panic("TODO");
     }
     zig_unreachable();
@@ -3299,7 +3320,7 @@ static IrInstruction *ir_gen_ptr(IrBuilder *irb, Scope *scope, AstNode *node, LV
             return ptr;
         case LValNone:
             return ir_build_load_ptr(irb, scope, node, ptr, result_loc);
-        case LValErrorUnion: {
+        case LValErrorUnionPtr: {
             // ptr points to an error union;
             // result_loc points to the result payload
             // must return pointer to the error code
@@ -3307,11 +3328,20 @@ static IrInstruction *ir_gen_ptr(IrBuilder *irb, Scope *scope, AstNode *node, LV
             ir_build_load_ptr(irb, scope, node, payload_ptr, result_loc);
             return ir_build_error_union_field_error_set(irb, scope, node, ptr);
         }
+        case LValErrorUnionVal: {
+            // ptr points to an error union;
+            // result_loc points to the result payload
+            // must return the error code
+            IrInstruction *payload_ptr = ir_build_unwrap_err_payload(irb, scope, node, ptr, false);
+            ir_build_load_ptr(irb, scope, node, payload_ptr, result_loc);
+            IrInstruction *err_ptr = ir_build_error_union_field_error_set(irb, scope, node, ptr);
+            return ir_build_load_ptr(irb, scope, node, err_ptr, nullptr);
+        }
         case LValOptional: {
             // ptr points to an optional;
             // result_loc points to the result payload
             // must return is_non_null bool
-            IrInstruction *payload_ptr = ir_build_unwrap_maybe(irb, scope, node, ptr, false);
+            IrInstruction *payload_ptr = ir_build_optional_unwrap_ptr(irb, scope, node, ptr, false);
             ir_build_load_ptr(irb, scope, node, payload_ptr, result_loc);
             IrInstruction *loaded_ptr = ir_build_load_ptr(irb, scope, node, ptr, nullptr);
             return ir_build_test_nonnull(irb, scope, node, loaded_ptr);
@@ -3414,11 +3444,11 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
             {
                 assert(expr_node);
                 IrInstruction *ensured_result_loc = ensure_result_loc(irb, scope, expr_node, result_loc);
-                IrInstruction *ptr_opt_err_code = ir_gen_node(irb, expr_node, scope, LValErrorUnion, ensured_result_loc);
-                if (ptr_opt_err_code == irb->codegen->invalid_instruction)
+                IrInstruction *opt_err_code = ir_gen_node(irb, expr_node, scope,
+                        LValErrorUnionVal, ensured_result_loc);
+                if (opt_err_code == irb->codegen->invalid_instruction)
                     return irb->codegen->invalid_instruction;
 
-                IrInstruction *opt_err_code = ir_build_load_ptr(irb, scope, node, ptr_opt_err_code, nullptr);
                 IrInstruction *is_err_val = ir_build_test_nonnull(irb, scope, node, opt_err_code);
 
                 IrBasicBlock *return_block = ir_create_basic_block(irb, scope, "ErrRetReturn");
@@ -3433,8 +3463,7 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                 ir_mark_gen(ir_build_cond_br(irb, scope, node, is_err_val, return_block, continue_block, is_comptime, nullptr));
 
                 ir_set_cursor_at_end_and_append_block(irb, return_block);
-                IrInstruction *ptr_err_code = ir_build_unwrap_maybe(irb, scope, node, ptr_opt_err_code, false);
-                IrInstruction *err_val = ir_build_load_ptr(irb, scope, node, ptr_err_code, nullptr);
+                IrInstruction *err_val = ir_build_optional_unwrap_val(irb, scope, node, opt_err_code, false);
                 if (!ir_gen_defers_for_block(irb, scope, outer_scope, true)) {
                     if (irb->codegen->have_err_ret_tracing && !should_inline) {
                         ir_build_save_err_ret_addr(irb, scope, node);
@@ -5373,12 +5402,11 @@ static IrInstruction *ir_gen_pointer_type(IrBuilder *irb, Scope *scope, AstNode 
 static IrInstruction *ir_gen_catch_unreachable(IrBuilder *irb, Scope *scope, AstNode *source_node,
         AstNode *expr_node, LVal lval, IrInstruction *result_loc)
 {
-    IrInstruction *err_code_ptr = ir_gen_node(irb, expr_node, scope, LValErrorUnion, result_loc);
-    if (err_code_ptr == irb->codegen->invalid_instruction)
+    IrInstruction *opt_err_code = ir_gen_node(irb, expr_node, scope, LValErrorUnionVal, result_loc);
+    if (opt_err_code == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
 
-    IrInstruction *err_code = ir_build_load_ptr(irb, scope, source_node, err_code_ptr, nullptr);
-    ir_build_assert_non_error(irb, scope, source_node, err_code);
+    ir_build_assert_non_error(irb, scope, source_node, opt_err_code);
 
     return ir_gen_result(irb, scope, source_node, lval, result_loc);
 }
@@ -5656,7 +5684,7 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
         ZigVar *err_var = ir_create_var(irb, err_symbol_node, scope, err_symbol,
                 true, true, false, is_comptime);
         Scope *err_scope = err_var->child_scope;
-        IrInstruction *unwrapped_err_code_ptr = ir_build_unwrap_maybe(irb, err_scope, err_symbol_node,
+        IrInstruction *unwrapped_err_code_ptr = ir_build_optional_unwrap_ptr(irb, err_scope, err_symbol_node,
                 ptr_opt_err_code, false);
         ir_build_var_decl_src(irb, err_scope, symbol_node, err_var, nullptr, nullptr, unwrapped_err_code_ptr);
 
@@ -5689,7 +5717,7 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
         }
 
         ir_set_cursor_at_end_and_append_block(irb, body_block);
-        IrInstruction *payload_ptr = ir_build_unwrap_maybe(irb, child_scope, symbol_node, maybe_val_ptr, false);
+        IrInstruction *payload_ptr = ir_build_optional_unwrap_ptr(irb, child_scope, symbol_node, maybe_val_ptr, false);
         IrInstruction *var_ptr = node->data.while_expr.var_is_ptr ?
             ir_build_ref(irb, child_scope, symbol_node, payload_ptr, true, false, nullptr) : payload_ptr;
         ir_build_var_decl_src(irb, child_scope, symbol_node, payload_var, nullptr, nullptr, var_ptr);
@@ -6109,7 +6137,7 @@ static IrInstruction *ir_gen_if_optional_expr(IrBuilder *irb, Scope *scope, AstN
         ZigVar *var = ir_create_var(irb, node, subexpr_scope,
                 var_symbol, is_const, is_const, is_shadowable, is_comptime);
 
-        IrInstruction *payload_ptr = ir_build_unwrap_maybe(irb, subexpr_scope, node, maybe_val_ptr, false);
+        IrInstruction *payload_ptr = ir_build_optional_unwrap_ptr(irb, subexpr_scope, node, maybe_val_ptr, false);
         IrInstruction *var_ptr = var_is_ptr ?
             ir_build_ref(irb, subexpr_scope, node, payload_ptr, true, false, nullptr) : payload_ptr;
         ir_build_var_decl_src(irb, subexpr_scope, node, var, var_type, nullptr, var_ptr);
@@ -6209,7 +6237,7 @@ static IrInstruction *ir_gen_if_err_expr(IrBuilder *irb, Scope *scope, AstNode *
             ZigVar *var = ir_create_var(irb, node, subexpr_scope,
                     err_symbol, is_const, is_const, is_shadowable, is_comptime);
 
-            IrInstruction *unwrapped_err_code_ptr = ir_build_unwrap_maybe(irb, subexpr_scope, node,
+            IrInstruction *unwrapped_err_code_ptr = ir_build_optional_unwrap_ptr(irb, subexpr_scope, node,
                     ptr_opt_err_code, false);
             ir_build_var_decl_src(irb, subexpr_scope, node, var, nullptr, nullptr, unwrapped_err_code_ptr);
             err_var_scope = var->child_scope;
@@ -6697,11 +6725,18 @@ static IrInstruction *ir_gen_catch(IrBuilder *irb, Scope *parent_scope, AstNode 
         return ir_gen_catch_unreachable(irb, parent_scope, node, op1_node, lval, result_loc);
     }
 
-    IrInstruction *ptr_opt_err_code = ir_gen_node(irb, op1_node, parent_scope, LValErrorUnion, result_loc);
-    if (ptr_opt_err_code == irb->codegen->invalid_instruction)
-        return irb->codegen->invalid_instruction;
-
-    IrInstruction *opt_err_code = ir_build_load_ptr(irb, parent_scope, node, ptr_opt_err_code, nullptr);
+    IrInstruction *ptr_opt_err_code;
+    IrInstruction *opt_err_code;
+    if (var_node) {
+        ptr_opt_err_code = ir_gen_node(irb, op1_node, parent_scope, LValErrorUnionPtr, result_loc);
+        if (ptr_opt_err_code == irb->codegen->invalid_instruction)
+            return irb->codegen->invalid_instruction;
+        opt_err_code = ir_build_load_ptr(irb, parent_scope, node, ptr_opt_err_code, nullptr);
+    } else {
+        opt_err_code = ir_gen_node(irb, op1_node, parent_scope, LValErrorUnionVal, result_loc);
+        if (opt_err_code == irb->codegen->invalid_instruction)
+            return irb->codegen->invalid_instruction;
+    }
     IrInstruction *is_err = ir_build_test_nonnull(irb, parent_scope, node, opt_err_code);
 
     IrInstruction *is_comptime;
@@ -6725,7 +6760,7 @@ static IrInstruction *ir_gen_catch(IrBuilder *irb, Scope *parent_scope, AstNode 
         ZigVar *var = ir_create_var(irb, node, parent_scope, var_name,
             is_const, is_const, is_shadowable, is_comptime);
         err_scope = var->child_scope;
-        IrInstruction *unwrapped_err_code_ptr = ir_build_unwrap_maybe(irb, err_scope, var_node,
+        IrInstruction *unwrapped_err_code_ptr = ir_build_optional_unwrap_ptr(irb, err_scope, var_node,
                 ptr_opt_err_code, false);
         ir_build_var_decl_src(irb, err_scope, var_node, var, nullptr, nullptr, unwrapped_err_code_ptr);
     } else {
@@ -7756,7 +7791,7 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         // Before we destroy the coroutine frame, we need to load the target promise into
         // a register or local variable which does not get spilled into the frame,
         // otherwise llvm tries to access memory inside the destroyed frame.
-        IrInstruction *unwrapped_await_handle_ptr = ir_build_unwrap_maybe(irb, scope, node,
+        IrInstruction *unwrapped_await_handle_ptr = ir_build_optional_unwrap_ptr(irb, scope, node,
                 irb->exec->await_handle_var_ptr, false);
         IrInstruction *await_handle_in_block = ir_build_load_ptr(irb, scope, node, unwrapped_await_handle_ptr, nullptr);
         ir_build_br(irb, scope, node, check_free_block, const_bool_false);
@@ -14084,13 +14119,15 @@ static IrInstruction *analyze_runtime_call(IrAnalyze *ira, ZigType *return_type,
     // For other types this is the same as payload_result_loc.
     IrInstruction *base_result_loc = nullptr;
 
+    // LValErrorUnionPtr is treated the same as LValErrorUnionVal.
+
     bool convert_to_value;
     ZigType *scalar_result_type;
     ZigType *payload_result_type;
     if (return_type->id == ZigTypeIdErrorUnion) {
         scalar_result_type = get_optional_type(ira->codegen, return_type->data.error_union.err_set_type);
         payload_result_type = return_type->data.error_union.payload_type;
-        convert_to_value = call_instruction->lval != LValErrorUnion;
+        convert_to_value = call_instruction->lval != LValErrorUnionVal && call_instruction->lval != LValErrorUnionPtr;
     } else if (return_type->id == ZigTypeIdOptional) {
         scalar_result_type = ira->codegen->builtin_types.entry_bool;
         payload_result_type = return_type->data.maybe.child_type;
@@ -14168,7 +14205,8 @@ static IrInstruction *analyze_runtime_call(IrAnalyze *ira, ZigType *return_type,
                 return ir_get_deref(ira, &call_instruction->base, base_result_loc);
             case LValPtr:
                 return base_result_loc;
-            case LValErrorUnion:
+            case LValErrorUnionVal:
+            case LValErrorUnionPtr:
                 zig_unreachable();
             case LValOptional:
                 // This means incorrectly used optional syntax for error union.
@@ -14184,7 +14222,8 @@ static IrInstruction *analyze_runtime_call(IrAnalyze *ira, ZigType *return_type,
                 return base_result_loc;
             case LValOptional:
                 zig_unreachable();
-            case LValErrorUnion:
+            case LValErrorUnionVal:
+            case LValErrorUnionPtr:
                 // This means incorrectly used error union for optional.
                 zig_panic("TODO");
         }
@@ -16903,20 +16942,59 @@ static IrInstruction *ir_analyze_unwrap_optional_payload(IrAnalyze *ira, IrInstr
         }
     }
 
-    IrInstruction *result = ir_build_unwrap_maybe(&ira->new_irb, source_instr->scope, source_instr->source_node,
-            base_ptr, safety_check_on);
+    IrInstruction *result = ir_build_optional_unwrap_ptr(&ira->new_irb, source_instr->scope,
+            source_instr->source_node, base_ptr, safety_check_on);
     result->value.type = result_type;
     return result;
 }
 
-static IrInstruction *ir_analyze_instruction_unwrap_optional(IrAnalyze *ira,
-        IrInstructionUnwrapOptional *instruction)
+static IrInstruction *ir_analyze_instruction_optional_unwrap_ptr(IrAnalyze *ira,
+        IrInstructionOptionalUnwrapPtr *instruction)
 {
-    IrInstruction *base_ptr = instruction->value->child;
+    IrInstruction *base_ptr = instruction->base_ptr->child;
     if (type_is_invalid(base_ptr->value.type))
         return ira->codegen->invalid_instruction;
 
     return ir_analyze_unwrap_optional_payload(ira, &instruction->base, base_ptr, instruction->safety_check_on);
+}
+
+static IrInstruction *ir_analyze_instruction_optional_unwrap_val(IrAnalyze *ira,
+        IrInstructionOptionalUnwrapVal *instruction)
+{
+    IrInstruction *opt = instruction->opt->child;
+    if (type_is_invalid(opt->value.type))
+        return ira->codegen->invalid_instruction;
+
+    ZigType *opt_type = opt->value.type;
+    if (opt_type->id != ZigTypeIdOptional) {
+        ir_add_error_node(ira, opt->source_node,
+                buf_sprintf("expected optional type, found '%s'", buf_ptr(&opt_type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+
+    ZigType *child_type = opt_type->data.maybe.child_type;
+    if (instr_is_comptime(opt)) {
+        ConstExprValue *opt_val = ir_resolve_const(ira, opt, UndefBad);
+        if (!opt_val)
+            return ira->codegen->invalid_instruction;
+        if (optional_value_is_null(opt_val)) {
+            ir_add_error(ira, &instruction->base, buf_sprintf("unable to unwrap null"));
+            return ira->codegen->invalid_instruction;
+        }
+        IrInstruction *result = ir_const(ira, &instruction->base, child_type);
+        if (get_codegen_ptr_type(opt_val->type) != nullptr) {
+            copy_const_val(&result->value, opt_val, false);
+        } else {
+            copy_const_val(&result->value, opt_val->data.x_optional, false);
+        }
+        result->value.type = child_type;
+        return result;
+    }
+
+    IrInstruction *result = ir_build_optional_unwrap_val(&ira->new_irb, instruction->base.scope,
+            instruction->base.source_node, opt, instruction->safety_check_on);
+    result->value.type = child_type;
+    return result;
 }
 
 static IrInstruction *ir_analyze_instruction_ctz(IrAnalyze *ira, IrInstructionCtz *ctz_instruction) {
@@ -22487,8 +22565,10 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
             return ir_analyze_instruction_size_of(ira, (IrInstructionSizeOf *)instruction);
         case IrInstructionIdTestNonNull:
             return ir_analyze_instruction_test_non_null(ira, (IrInstructionTestNonNull *)instruction);
-        case IrInstructionIdUnwrapOptional:
-            return ir_analyze_instruction_unwrap_optional(ira, (IrInstructionUnwrapOptional *)instruction);
+        case IrInstructionIdOptionalUnwrapPtr:
+            return ir_analyze_instruction_optional_unwrap_ptr(ira, (IrInstructionOptionalUnwrapPtr *)instruction);
+        case IrInstructionIdOptionalUnwrapVal:
+            return ir_analyze_instruction_optional_unwrap_val(ira, (IrInstructionOptionalUnwrapVal *)instruction);
         case IrInstructionIdClz:
             return ir_analyze_instruction_clz(ira, (IrInstructionClz *)instruction);
         case IrInstructionIdCtz:
@@ -22874,7 +22954,8 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdSliceType:
         case IrInstructionIdSizeOf:
         case IrInstructionIdTestNonNull:
-        case IrInstructionIdUnwrapOptional:
+        case IrInstructionIdOptionalUnwrapPtr:
+        case IrInstructionIdOptionalUnwrapVal:
         case IrInstructionIdClz:
         case IrInstructionIdCtz:
         case IrInstructionIdPopCount:

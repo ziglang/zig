@@ -3829,15 +3829,15 @@ static LLVMValueRef ir_render_test_non_null(CodeGen *g, IrExecutable *executable
     return gen_non_null_bit(g, instruction->value->value.type, ir_llvm_value(g, instruction->value));
 }
 
-static LLVMValueRef ir_render_unwrap_optional(CodeGen *g, IrExecutable *executable,
-        IrInstructionUnwrapOptional *instruction)
+static LLVMValueRef ir_render_optional_unwrap_ptr(CodeGen *g, IrExecutable *executable,
+        IrInstructionOptionalUnwrapPtr *instruction)
 {
-    ZigType *ptr_type = instruction->value->value.type;
+    ZigType *ptr_type = instruction->base_ptr->value.type;
     assert(ptr_type->id == ZigTypeIdPointer);
     ZigType *maybe_type = ptr_type->data.pointer.child_type;
     assert(maybe_type->id == ZigTypeIdOptional);
     ZigType *child_type = maybe_type->data.maybe.child_type;
-    LLVMValueRef maybe_ptr = ir_llvm_value(g, instruction->value);
+    LLVMValueRef maybe_ptr = ir_llvm_value(g, instruction->base_ptr);
     if (ir_want_runtime_safety(g, &instruction->base) && instruction->safety_check_on) {
         LLVMValueRef maybe_handle = get_handle_value(g, maybe_ptr, maybe_type, ptr_type);
         LLVMValueRef non_null_bit = gen_non_null_bit(g, maybe_type, maybe_handle);
@@ -3861,6 +3861,31 @@ static LLVMValueRef ir_render_unwrap_optional(CodeGen *g, IrExecutable *executab
             return LLVMBuildStructGEP(g->builder, maybe_struct_ref, maybe_child_index, "");
         }
     }
+}
+
+static LLVMValueRef ir_render_optional_unwrap_val(CodeGen *g, IrExecutable *executable,
+        IrInstructionOptionalUnwrapVal *instruction)
+{
+    ZigType *opt_type = instruction->opt->value.type;
+    assert(opt_type->id == ZigTypeIdOptional);
+    LLVMValueRef opt_handle = ir_llvm_value(g, instruction->opt);
+    if (ir_want_runtime_safety(g, &instruction->base) && instruction->safety_check_on) {
+        LLVMValueRef non_null_bit = gen_non_null_bit(g, opt_type, opt_handle);
+        LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "UnwrapOptionalOk");
+        LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "UnwrapOptionalFail");
+        LLVMBuildCondBr(g->builder, non_null_bit, ok_block, fail_block);
+
+        LLVMPositionBuilderAtEnd(g->builder, fail_block);
+        gen_safety_crash(g, PanicMsgIdUnwrapOptionalFail);
+
+        LLVMPositionBuilderAtEnd(g->builder, ok_block);
+    }
+    ZigType *payload_type = opt_type->data.maybe.child_type;
+    if (!type_has_bits(payload_type))
+        return nullptr;
+    if (!handle_is_ptr(opt_type))
+        return opt_handle;
+    return LLVMBuildStructGEP(g->builder, opt_handle, maybe_child_index, "");
 }
 
 static LLVMValueRef get_int_builtin_fn(CodeGen *g, ZigType *int_type, BuiltinFnId fn_id) {
@@ -5328,8 +5353,10 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_asm(g, executable, (IrInstructionAsm *)instruction);
         case IrInstructionIdTestNonNull:
             return ir_render_test_non_null(g, executable, (IrInstructionTestNonNull *)instruction);
-        case IrInstructionIdUnwrapOptional:
-            return ir_render_unwrap_optional(g, executable, (IrInstructionUnwrapOptional *)instruction);
+        case IrInstructionIdOptionalUnwrapPtr:
+            return ir_render_optional_unwrap_ptr(g, executable, (IrInstructionOptionalUnwrapPtr *)instruction);
+        case IrInstructionIdOptionalUnwrapVal:
+            return ir_render_optional_unwrap_val(g, executable, (IrInstructionOptionalUnwrapVal *)instruction);
         case IrInstructionIdClz:
             return ir_render_clz(g, executable, (IrInstructionClz *)instruction);
         case IrInstructionIdCtz:
