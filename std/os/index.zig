@@ -775,6 +775,7 @@ test "os.getEnvMap" {
     var seen_home = false;
     var it = env.iterator();
     while (it.next()) |pair| {
+        debug.warn("{}: {}\n", pair.key, pair.value);
         switch (builtin.os){
             builtin.Os.windows => {
                 if (mem.eql(u8, pair.key, "HOMEPATH")) {
