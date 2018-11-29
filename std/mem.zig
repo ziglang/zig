@@ -680,10 +680,11 @@ pub const SplitIterator = struct {
 };
 
 /// Naively combines a series of strings with a separator.
+/// Empty strings are skipped (extra separator is not added).
 /// Allocates memory for the result, which must be freed by the caller.
 pub fn join(allocator: *Allocator, sep: u8, strings: ...) ![]u8 {
     comptime assert(strings.len >= 1);
-    var total_strings_len: usize = strings.len; // 1 sep per string
+    var total_strings_len: usize = strings.len - 1;
     {
         comptime var string_i = 0;
         inline while (string_i < strings.len) : (string_i += 1) {
@@ -703,7 +704,7 @@ pub fn join(allocator: *Allocator, sep: u8, strings: ...) ![]u8 {
         copy(u8, buf[buf_index..], arg);
         buf_index += arg.len;
         if (string_i >= strings.len) break;
-        if (buf[buf_index - 1] != sep) {
+        if (buf_index > 0 and buf[buf_index - 1] != sep) {
             buf[buf_index] = sep;
             buf_index += 1;
         }
@@ -713,8 +714,12 @@ pub fn join(allocator: *Allocator, sep: u8, strings: ...) ![]u8 {
 }
 
 test "mem.join" {
+    const empty_string: []const u8 = "";
+
     assert(eql(u8, try join(debug.global_allocator, ',', "a", "b", "c"), "a,b,c"));
     assert(eql(u8, try join(debug.global_allocator, ',', "a"), "a"));
+    assert(eql(u8, try join(debug.global_allocator, ',', "a", empty_string, "b"), "a,b"));
+    assert(eql(u8, try join(debug.global_allocator, ',', empty_string, "a", "b"), "a,b"));
 }
 
 test "testStringEquality" {
