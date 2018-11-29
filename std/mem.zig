@@ -681,7 +681,53 @@ pub const SplitIterator = struct {
 
 /// Naively combines a series of strings with a separator.
 /// Allocates memory for the result, which must be freed by the caller.
-pub fn join(allocator: *Allocator, sep: u8, strings: ...) ![]u8 {
+pub fn join(allocator: *Allocator, sep: u8, strings: []const []const u8) ![]u8 {
+    assert(strings.len >= 1);
+    var total_strings_len: usize = strings.len; // 1 sep per string
+    {
+        var string_i: usize = 0;
+        while (string_i < strings.len) : (string_i += 1) {
+            const arg = ([]const u8)(strings[string_i]);
+            total_strings_len += arg.len;
+        }
+    }
+
+    const buf = try allocator.alloc(u8, total_strings_len);
+    errdefer allocator.free(buf);
+
+    var buf_index: usize = 0;
+    var string_i: usize = 0;
+    while (true) {
+        const arg = ([]const u8)(strings[string_i]);
+        string_i += 1;
+        copy(u8, buf[buf_index..], arg);
+        buf_index += arg.len;
+        if (string_i >= strings.len) break;
+        buf[buf_index] = sep;
+        buf_index += 1;
+    }
+
+    return allocator.shrink(u8, buf, buf_index);
+}
+
+test "mem.join" {
+    var str: []u8 = try join(debug.global_allocator, ',', [][]const u8{"a", "b", "c"} );
+    errdefer debug.global_allocator.free( str );
+    assert(eql(u8, str, "a,b,c"));
+    debug.global_allocator.free( str );
+
+    str = try join(debug.global_allocator, ',', [][]const u8{"a"});
+    assert(eql(u8, str, "a"));
+    debug.global_allocator.free( str );
+
+    str = try join(debug.global_allocator, ',', [][]const u8{"a", ([]const u8)(""), "b", ([]const u8)(""), "c"});
+    assert(eql(u8, str, "a,,b,,c"));
+    debug.global_allocator.free( str );
+}
+
+/// Naively combines a series of strings with a separator inline.
+/// Allocates memory for the result, which must be freed by the caller.
+pub fn joinInline(allocator: *Allocator, sep: u8, strings: ...) ![]u8 {
     comptime assert(strings.len >= 1);
     var total_strings_len: usize = strings.len; // 1 sep per string
     {
@@ -703,18 +749,17 @@ pub fn join(allocator: *Allocator, sep: u8, strings: ...) ![]u8 {
         copy(u8, buf[buf_index..], arg);
         buf_index += arg.len;
         if (string_i >= strings.len) break;
-        if (buf[buf_index - 1] != sep) {
-            buf[buf_index] = sep;
-            buf_index += 1;
-        }
+        buf[buf_index] = sep;
+        buf_index += 1;
     }
 
     return allocator.shrink(u8, buf, buf_index);
 }
 
-test "mem.join" {
-    assert(eql(u8, try join(debug.global_allocator, ',', "a", "b", "c"), "a,b,c"));
-    assert(eql(u8, try join(debug.global_allocator, ',', "a"), "a"));
+test "mem.joinInline" {
+    assert(eql(u8, try joinInline(debug.global_allocator, ',', "a", "b", "c"), "a,b,c"));
+    assert(eql(u8, try joinInline(debug.global_allocator, ',', "a", "b", ([]const u8)(""), "c"), "a,b,,c"));
+    assert(eql(u8, try joinInline(debug.global_allocator, ',', "a"), "a"));
 }
 
 test "testStringEquality" {
