@@ -35,38 +35,61 @@ pub fn isSep(byte: u8) bool {
 
 /// Naively combines a series of paths with the native path seperator.
 /// Allocates memory for the result, which must be freed by the caller.
-pub fn join(allocator: *Allocator, paths: ...) ![]u8 {
-    if (is_windows) {
-        return joinWindows(allocator, paths);
-    } else {
-        return joinPosix(allocator, paths);
+
+pub fn join(allocator: *Allocator, paths: []const []const u8) ![]u8 {
+    assert(paths.len >= 1);
+    var total_paths_len: usize = paths.len; // 1 sep per path
+    {
+        var path_i: usize = 0;
+        while (path_i < paths.len) : (path_i += 1) {
+            const arg = ([]const u8)(paths[path_i]);
+            total_paths_len += arg.len;
+        }
     }
-}
 
-pub fn joinWindows(allocator: *Allocator, paths: ...) ![]u8 {
-    return mem.join(allocator, sep_windows, paths);
-}
+    const buf = try allocator.alloc(u8, total_paths_len);
+    errdefer allocator.free(buf);
 
-pub fn joinPosix(allocator: *Allocator, paths: ...) ![]u8 {
-    return mem.join(allocator, sep_posix, paths);
+    var buf_index: usize = 0;
+    var path_i: usize = 0;
+    while (true) {
+        const arg = ([]const u8)(paths[path_i]);
+        path_i += 1;
+        mem.copy(u8, buf[buf_index..], arg);
+        buf_index += arg.len;
+        if (path_i >= paths.len) break;
+        if (buf_index > 0 and buf[buf_index - 1] != sep) {
+            buf[buf_index] = sep;
+            buf_index += 1;
+        }
+    }
+
+    return allocator.shrink(u8, buf, buf_index);
 }
 
 test "os.path.join" {
-    assert(mem.eql(u8, try joinWindows(debug.global_allocator, "c:\\a\\b", "c"), "c:\\a\\b\\c"));
-    assert(mem.eql(u8, try joinWindows(debug.global_allocator, "c:\\a\\b\\", "c"), "c:\\a\\b\\c"));
-
-    assert(mem.eql(u8, try joinWindows(debug.global_allocator, "c:\\", "a", "b\\", "c"), "c:\\a\\b\\c"));
-    assert(mem.eql(u8, try joinWindows(debug.global_allocator, "c:\\a\\", "b\\", "c"), "c:\\a\\b\\c"));
-
-    assert(mem.eql(u8, try joinWindows(debug.global_allocator, "c:\\home\\andy\\dev\\zig\\build\\lib\\zig\\std", "io.zig"), "c:\\home\\andy\\dev\\zig\\build\\lib\\zig\\std\\io.zig"));
-
-    assert(mem.eql(u8, try joinPosix(debug.global_allocator, "/a/b", "c"), "/a/b/c"));
-    assert(mem.eql(u8, try joinPosix(debug.global_allocator, "/a/b/", "c"), "/a/b/c"));
-
-    assert(mem.eql(u8, try joinPosix(debug.global_allocator, "/", "a", "b/", "c"), "/a/b/c"));
-    assert(mem.eql(u8, try joinPosix(debug.global_allocator, "/a/", "b/", "c"), "/a/b/c"));
-
-    assert(mem.eql(u8, try joinPosix(debug.global_allocator, "/home/andy/dev/zig/build/lib/zig/std", "io.zig"), "/home/andy/dev/zig/build/lib/zig/std/io.zig"));
+    switch (builtin.os) {
+        Os.windows => {
+            assert(mem.eql(u8, try join(debug.global_allocator, [][]const u8{"c:\\a\\b", "c"}), "c:\\a\\b\\c"));
+            assert(mem.eql(u8, try join(debug.global_allocator, [][]const u8{"c:\\a\\b\\", "c"}), "c:\\a\\b\\c"));
+            assert(mem.eql(u8, try join(debug.global_allocator, [][]const u8{"c:\\", "a", "b\\", "c"}), "c:\\a\\b\\c"));
+            assert(mem.eql(u8, try join(debug.global_allocator, [][]const u8{"c:\\a\\", "b\\", "c"}), "c:\\a\\b\\c"));
+            assert(mem.eql(u8, try join( debug.global_allocator
+                                       , [][]const u8{ "c:\\home\\andy\\dev\\zig\\build\\lib\\zig\\std"
+                                                     , "io.zig"})
+                                       , "c:\\home\\andy\\dev\\zig\\build\\lib\\zig\\std\\io.zig"));
+        },
+        else => {
+            assert(mem.eql(u8, try join(debug.global_allocator, [][]const u8{"/a/b", "c"}), "/a/b/c"));
+            assert(mem.eql(u8, try join(debug.global_allocator, [][]const u8{"/a/b/", "c"}), "/a/b/c"));
+            assert(mem.eql(u8, try join(debug.global_allocator, [][]const u8{"/", "a", "b/", "c"}), "/a/b/c"));
+            assert(mem.eql(u8, try join(debug.global_allocator, [][]const u8{"/a/", "b/", "c"}), "/a/b/c"));
+            assert(mem.eql(u8, try join( debug.global_allocator
+                                       , [][]const u8{ "/home/andy/dev/zig/build/lib/zig/std"
+                                                     , "io.zig"})
+                                       , "/home/andy/dev/zig/build/lib/zig/std/io.zig"));
+        }
+    }
 }
 
 pub fn isAbsolute(path: []const u8) bool {
@@ -598,7 +621,7 @@ test "os.path.resolveWindows" {
         const parsed_cwd = windowsParsePath(cwd);
         {
             const result = testResolveWindows([][]const u8{ "/usr/local", "lib\\zig\\std\\array_list.zig" });
-            const expected = try join(debug.global_allocator, parsed_cwd.disk_designator, "usr\\local\\lib\\zig\\std\\array_list.zig");
+            const expected = try join(debug.global_allocator, [][]const u8{ parsed_cwd.disk_designator, "usr\\local\\lib\\zig\\std\\array_list.zig"});
             if (parsed_cwd.kind == WindowsPath.Kind.Drive) {
                 expected[0] = asciiUpper(parsed_cwd.disk_designator[0]);
             }
@@ -606,7 +629,7 @@ test "os.path.resolveWindows" {
         }
         {
             const result = testResolveWindows([][]const u8{ "usr/local", "lib\\zig" });
-            const expected = try join(debug.global_allocator, cwd, "usr\\local\\lib\\zig");
+            const expected = try join(debug.global_allocator, [][]const u8{ cwd, "usr\\local\\lib\\zig" });
             if (parsed_cwd.kind == WindowsPath.Kind.Drive) {
                 expected[0] = asciiUpper(parsed_cwd.disk_designator[0]);
             }

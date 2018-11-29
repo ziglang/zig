@@ -990,13 +990,13 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                 try tokenizeAndPrint(tokenizer, out, code.source_token);
                 try out.write("</pre>");
                 const name_plus_ext = try std.fmt.allocPrint(allocator, "{}.zig", code.name);
-                const tmp_source_file_name = try os.path.join(allocator, tmp_dir_name, name_plus_ext);
+                const tmp_source_file_name = try os.path.join(allocator, [][]const u8{ tmp_dir_name, name_plus_ext });
                 try io.writeFile(tmp_source_file_name, trimmed_raw_source);
 
                 switch (code.id) {
                     Code.Id.Exe => |expected_outcome| {
                         const name_plus_bin_ext = try std.fmt.allocPrint(allocator, "{}{}", code.name, exe_ext);
-                        const tmp_bin_file_name = try os.path.join(allocator, tmp_dir_name, name_plus_bin_ext);
+                        const tmp_bin_file_name = try os.path.join(allocator, [][]const u8{ tmp_dir_name, name_plus_bin_ext });
                         var build_args = std.ArrayList([]const u8).init(allocator);
                         defer build_args.deinit();
                         try build_args.appendSlice([][]const u8{
@@ -1024,7 +1024,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         }
                         for (code.link_objects) |link_object| {
                             const name_with_ext = try std.fmt.allocPrint(allocator, "{}{}", link_object, obj_ext);
-                            const full_path_object = try os.path.join(allocator, tmp_dir_name, name_with_ext);
+                            const full_path_object = try os.path.join(allocator, [][]const u8{ tmp_dir_name, name_with_ext });
                             try build_args.append("--object");
                             try build_args.append(full_path_object);
                             try out.print(" --object {}", name_with_ext);
@@ -1216,12 +1216,12 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                     },
                     Code.Id.Obj => |maybe_error_match| {
                         const name_plus_obj_ext = try std.fmt.allocPrint(allocator, "{}{}", code.name, obj_ext);
-                        const tmp_obj_file_name = try os.path.join(allocator, tmp_dir_name, name_plus_obj_ext);
+                        const tmp_obj_file_name = try os.path.join(allocator, [][]const u8{ tmp_dir_name, name_plus_obj_ext });
                         var build_args = std.ArrayList([]const u8).init(allocator);
                         defer build_args.deinit();
 
                         const name_plus_h_ext = try std.fmt.allocPrint(allocator, "{}.h", code.name);
-                        const output_h_file_name = try os.path.join(allocator, tmp_dir_name, name_plus_h_ext);
+                        const output_h_file_name = try os.path.join(allocator, [][]const u8{ tmp_dir_name, name_plus_h_ext });
 
                         try build_args.appendSlice([][]const u8{
                             zig_exe,

@@ -1339,7 +1339,7 @@ async fn testFsWatchCantFail(loop: *Loop, result: *(anyerror!void)) void {
 }
 
 async fn testFsWatch(loop: *Loop) !void {
-    const file_path = try os.path.join(loop.allocator, test_tmp_dir, "file.txt");
+    const file_path = try os.path.join(loop.allocator, [][]const u8{test_tmp_dir, "file.txt"});
     defer loop.allocator.free(file_path);
 
     const contents =

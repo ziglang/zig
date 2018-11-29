@@ -16,7 +16,7 @@ pub fn build(b: *Builder) !void {
     var docgen_exe = b.addExecutable("docgen", "doc/docgen.zig");
 
     const rel_zig_exe = try os.path.relative(b.allocator, b.build_root, b.zig_exe);
-    const langref_out_path = os.path.join(b.allocator, b.cache_root, "langref.html") catch unreachable;
+    const langref_out_path = os.path.join(b.allocator, [][]const u8{ b.cache_root, "langref.html" }) catch unreachable;
     var docgen_cmd = b.addCommand(null, b.env_map, [][]const u8{
         docgen_exe.getOutputPath(),
         rel_zig_exe,
@@ -125,13 +125,13 @@ fn dependOnLib(b: *Builder, lib_exe_obj: var, dep: LibraryDep) void {
     for (dep.libdirs.toSliceConst()) |lib_dir| {
         lib_exe_obj.addLibPath(lib_dir);
     }
-    const lib_dir = os.path.join(b.allocator, dep.prefix, "lib") catch unreachable;
+    const lib_dir = os.path.join(b.allocator, [][]const u8{dep.prefix, "lib"}) catch unreachable;
     for (dep.system_libs.toSliceConst()) |lib| {
         const static_bare_name = if (mem.eql(u8, lib, "curses"))
             ([]const u8)("libncurses.a")
         else
             b.fmt("lib{}.a", lib);
-        const static_lib_name = os.path.join(b.allocator, lib_dir, static_bare_name) catch unreachable;
+        const static_lib_name = os.path.join(b.allocator, [][]const u8{lib_dir, static_bare_name}) catch unreachable;
         const have_static = fileExists(static_lib_name) catch unreachable;
         if (have_static) {
             lib_exe_obj.addObjectFile(static_lib_name);
@@ -159,7 +159,7 @@ fn fileExists(filename: []const u8) !bool {
 
 fn addCppLib(b: *Builder, lib_exe_obj: var, cmake_binary_dir: []const u8, lib_name: []const u8) void {
     const lib_prefix = if (lib_exe_obj.target.isWindows()) "" else "lib";
-    lib_exe_obj.addObjectFile(os.path.join(b.allocator, cmake_binary_dir, "zig_cpp", b.fmt("{}{}{}", lib_prefix, lib_name, lib_exe_obj.target.libFileExt())) catch unreachable);
+    lib_exe_obj.addObjectFile(os.path.join(b.allocator, [][]const u8{ cmake_binary_dir, "zig_cpp", b.fmt("{}{}{}", lib_prefix, lib_name, lib_exe_obj.target.libFileExt()) }) catch unreachable);
 }
 
 const LibraryDep = struct {
@@ -235,8 +235,8 @@ fn findLLVM(b: *Builder, llvm_config_exe: []const u8) !LibraryDep {
 pub fn installStdLib(b: *Builder, stdlib_files: []const u8) void {
     var it = mem.split(stdlib_files, ";");
     while (it.next()) |stdlib_file| {
-        const src_path = os.path.join(b.allocator, "std", stdlib_file) catch unreachable;
-        const dest_path = os.path.join(b.allocator, "lib", "zig", "std", stdlib_file) catch unreachable;
+        const src_path = os.path.join(b.allocator, [][]const u8{"std", stdlib_file}) catch unreachable;
+        const dest_path = os.path.join(b.allocator, [][]const u8{"lib", "zig", "std", stdlib_file}) catch unreachable;
         b.installFile(src_path, dest_path);
     }
 }
@@ -244,8 +244,8 @@ pub fn installStdLib(b: *Builder, stdlib_files: []const u8) void {
 pub fn installCHeaders(b: *Builder, c_header_files: []const u8) void {
     var it = mem.split(c_header_files, ";");
     while (it.next()) |c_header_file| {
-        const src_path = os.path.join(b.allocator, "c_headers", c_header_file) catch unreachable;
-        const dest_path = os.path.join(b.allocator, "lib", "zig", "include", c_header_file) catch unreachable;
+        const src_path = os.path.join(b.allocator, [][]const u8{"c_headers", c_header_file}) catch unreachable;
+        const dest_path = os.path.join(b.allocator, [][]const u8{"lib", "zig", "include", c_header_file}) catch unreachable;
         b.installFile(src_path, dest_path);
     }
 }
