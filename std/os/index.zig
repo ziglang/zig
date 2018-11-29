@@ -15,7 +15,7 @@ test "std.os" {
     _ = @import("get_user_id.zig");
     _ = @import("linux/index.zig");
     _ = @import("path.zig");
-    _ = @import("test.zig"); 
+    _ = @import("test.zig");
     _ = @import("time.zig");
     _ = @import("windows/index.zig");
     _ = @import("get_app_data_dir.zig");
@@ -705,28 +705,26 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
         const ptr = windows.GetEnvironmentStringsW() orelse return error.OutOfMemory;
         defer assert(windows.FreeEnvironmentStringsW(ptr) != 0);
 
+        var buf: [100]u8 = undefined;
+
         var i: usize = 0;
         while (true) {
             if (ptr[i] == 0) return result;
 
             const key_start = i;
+            var fallocator = &std.heap.FixedBufferAllocator.init(buf[0..]).allocator;
 
             while (ptr[i] != 0 and ptr[i] != '=') : (i += 1) {}
             
-            const stack_var_len = 50;
             const key_slice = ptr[key_start..i];
             var key: []u8 = undefined;
             var heap_key = false;
 
-            /// revisit needing the "-@sizeof(usize)*2" 
-            /// after https://github.com/ziglang/zig/issues/1774
-            if (key_slice.len < stack_var_len-@sizeOf(usize)*2) {
-                var buf = []u8{0} ** stack_var_len;
-                var fallocator = &std.heap.FixedBufferAllocator.init(buf[0..]).allocator;
-                key = try std.unicode.utf16leToUtf8Alloc(fallocator, key_slice);
-            } else {
+            key = std.unicode.utf16leToUtf8Alloc(fallocator, key_slice) catch undefined;
+
+            if (key.len == 0) {
                 key = try std.unicode.utf16leToUtf8Alloc(allocator, key_slice);
-                heap_key = true; // key needs to outlive this scope, so we cannot defer
+                heap_key = true;
             }
 
             if (ptr[i] == '=') i += 1;
@@ -738,15 +736,11 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
             var value: []u8 = undefined;
             var heap_value = false;
 
-            /// revisit needing the "-@sizeof(usize)*2"
-            /// after https://github.com/ziglang/zig/issues/1774
-            if (value_slice.len < stack_var_len-@sizeOf(usize)*2) {
-                var buf = []u8{0} ** stack_var_len;
-                var fallocator = &std.heap.FixedBufferAllocator.init(buf[0..]).allocator;
-                value = try std.unicode.utf16leToUtf8Alloc(fallocator, value_slice);
-            } else {
+            value = std.unicode.utf16leToUtf8Alloc(fallocator, value_slice) catch undefined;
+
+            if (value.len == 0) {
                 value = try std.unicode.utf16leToUtf8Alloc(allocator, value_slice);
-                heap_value = true; // value needs to outlive this scope, so we cannot defer
+                heap_value = true;
             }
 
             i += 1; // skip over null byte
