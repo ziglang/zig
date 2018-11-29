@@ -1439,6 +1439,10 @@ static void ir_print_set_non_null_bit(IrPrint *irp, IrInstructionSetNonNullBit *
     fprintf(irp->f, ")");
 }
 
+static void ir_print_error_literal(IrPrint *irp, IrInstructionErrorLiteral *instruction) {
+    fprintf(irp->f, "error.%s", buf_ptr(instruction->name));
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -1911,6 +1915,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdSetNonNullBit:
             ir_print_set_non_null_bit(irp, (IrInstructionSetNonNullBit *)instruction);
+            break;
+        case IrInstructionIdErrorLiteral:
+            ir_print_error_literal(irp, (IrInstructionErrorLiteral *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

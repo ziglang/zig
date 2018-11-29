@@ -2262,33 +2262,7 @@ static LLVMValueRef ir_render_save_err_ret_addr(CodeGen *g, IrExecutable *execut
 
 static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrInstructionReturn *return_instruction) {
     LLVMValueRef value = ir_llvm_value(g, return_instruction->value);
-    ZigType *return_type = return_instruction->value->value.type;
-    FnTypeId *fn_type_id = &g->cur_fn->type_entry->data.fn.fn_type_id;
-
-    if (fn_type_id->return_type->id == ZigTypeIdErrorUnion) {
-        ConstExprValue *val = &return_instruction->value->value;
-        if (val->special == ConstValSpecialStatic) {
-            LLVMValueRef const_error_val = gen_const_val(g, val->data.x_err_union.error_set, "");
-            LLVMBuildRet(g->builder, const_error_val);
-        } else if (!type_has_bits(fn_type_id->return_type->data.error_union.payload_type)) {
-            LLVMBuildRet(g->builder, value);
-        } else {
-            zig_panic("TODO");
-        }
-    } else if (want_first_arg_sret(g, fn_type_id)) {
-        // Assume that the result location mechanism populated the value,
-        // unless the value is a comptime const.
-        if (return_instruction->value->value.special == ConstValSpecialStatic) {
-            assert(g->cur_ret_ptr);
-            gen_assign_raw(g, g->cur_ret_ptr, get_pointer_to_type(g, return_type, false), value);
-        }
-        LLVMBuildRetVoid(g->builder);
-    } else if (handle_is_ptr(return_type)) {
-        LLVMValueRef by_val_value = gen_load_untyped(g, value, 0, false, "");
-        LLVMBuildRet(g->builder, by_val_value);
-    } else {
-        LLVMBuildRet(g->builder, value);
-    }
+    LLVMBuildRet(g->builder, value);
     return nullptr;
 }
 
@@ -5129,7 +5103,7 @@ static LLVMValueRef ir_render_sqrt(CodeGen *g, IrExecutable *executable, IrInstr
 static LLVMValueRef ir_render_result_return(CodeGen *g, IrExecutable *executable,
         IrInstructionResultReturn *instruction)
 {
-    assert(g->cur_ret_ptr != nullptr);
+    assert(g->cur_ret_ptr != nullptr || !type_has_bits(instruction->base.value.type));
     return g->cur_ret_ptr;
 }
 
@@ -5317,6 +5291,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdInferCompTime:
         case IrInstructionIdResultPtrCast:
         case IrInstructionIdCmpxchgSrc:
+        case IrInstructionIdErrorLiteral:
             zig_unreachable();
 
         case IrInstructionIdDeclVarGen:

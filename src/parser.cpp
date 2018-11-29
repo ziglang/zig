@@ -1717,10 +1717,8 @@ static AstNode *ast_parse_primary_type_expr(ParseContext *pc) {
     if (error != nullptr) {
         Token *dot = expect_token(pc, TokenIdDot);
         Token *name = expect_token(pc, TokenIdSymbol);
-        AstNode *left = ast_create_node(pc, NodeTypeErrorType, error);
-        AstNode *res = ast_create_node(pc, NodeTypeFieldAccessExpr, dot);
-        res->data.field_access_expr.struct_expr = left;
-        res->data.field_access_expr.field_name = token_buf(name);
+        AstNode *res = ast_create_node(pc, NodeTypeErrorLiteral, dot);
+        res->data.error_literal.name = token_buf(name);
         return res;
     }
 
@@ -3094,6 +3092,9 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             break;
         case NodeTypeSuspend:
             visit_field(&node->data.suspend.block, visit, context);
+            break;
+        case NodeTypeErrorLiteral:
+            // none
             break;
     }
 }

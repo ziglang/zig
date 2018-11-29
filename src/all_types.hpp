@@ -463,6 +463,7 @@ enum NodeType {
     NodeTypeAwaitExpr,
     NodeTypeSuspend,
     NodeTypePromiseType,
+    NodeTypeErrorLiteral,
 };
 
 enum CallingConvention {
@@ -934,6 +935,10 @@ struct AstNodePromiseType {
     AstNode *payload_type; // can be NULL
 };
 
+struct AstNodeErrorLiteral {
+    Buf *name;
+};
+
 struct AstNode {
     enum NodeType type;
     size_t line;
@@ -994,6 +999,7 @@ struct AstNode {
         AstNodeAwaitExpr await_expr;
         AstNodeSuspend suspend;
         AstNodePromiseType promise_type;
+        AstNodeErrorLiteral error_literal;
     } data;
 };
 
@@ -2221,6 +2227,7 @@ enum IrInstructionId {
     IrInstructionIdInferArrayType,
     IrInstructionIdInferCompTime,
     IrInstructionIdSetNonNullBit,
+    IrInstructionIdErrorLiteral,
 };
 
 struct IrInstruction {
@@ -3432,6 +3439,14 @@ struct IrInstructionSetNonNullBit {
     IrInstruction *prev_result_loc;
     IrInstruction *non_null_bit;
     IrInstruction *new_result_loc;
+};
+
+// This is the instruction for the syntax:
+// `error.Foo`
+struct IrInstructionErrorLiteral {
+    IrInstruction base;
+
+    Buf *name;
 };
 
 static const size_t slice_ptr_index = 0;
