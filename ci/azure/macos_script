@@ -98,6 +98,9 @@ if [ "${BUILD_REASON}" != "PullRequest" ]; then
 
   SHASUM=$(shasum -a 256 $TARBALL | cut '-d ' -f1)
   BYTESIZE=$(wc -c < $TARBALL)
+  # `set -x` causes these variables to be mangled.
+  # See https://developercommunity.visualstudio.com/content/problem/375679/pipeline-variable-incorrectly-inserts-single-quote.html
+  set +x
   echo "##vso[task.setvariable variable=tarball;isOutput=true]$TARBALL"
   echo "##vso[task.setvariable variable=shasum;isOutput=true]$SHASUM"
   echo "##vso[task.setvariable variable=bytesize;isOutput=true]$BYTESIZE"
