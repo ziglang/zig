@@ -697,8 +697,7 @@ pub fn readLineFrom(stream: var, buf: *std.Buffer) ![]u8 {
         const byte = try stream.readByte();
         switch (byte) {
             '\r' => {
-                // TODO: Would perfect software ignore the possiblilty that
-                //       the next byte is not '\n'?
+                // trash the following \n
                 _ = try stream.readByte();
                 return buf.toSlice()[start..];
             },
@@ -715,13 +714,42 @@ test "io.readLineFrom" {
     var buf = try std.Buffer.initSize(allocator, 0);
     var mem_stream = SliceInStream.init(
         \\Line 1
-        \\Line 2
-        \\Line 3
+        \\Line 22
+        \\Line 333
     );
     const stream = &mem_stream.stream;
 
     debug.assert(mem.eql(u8, "Line 1", try readLineFrom(stream, &buf)));
-    debug.assert(mem.eql(u8, "Line 2", try readLineFrom(stream, &buf)));
+    debug.assert(mem.eql(u8, "Line 22", try readLineFrom(stream, &buf)));
     debug.assertError(readLineFrom(stream, &buf), error.EndOfStream);
-    debug.assert(mem.eql(u8, buf.toSlice(), "Line 1Line 2Line 3"));
+    debug.assert(mem.eql(u8, buf.toSlice(), "Line 1Line 22Line 333"));
+}
+
+pub fn readLineSlice(slice: []u8) ![]u8 {
+    var stdin = try getStdIn();
+    var stdin_stream = stdin.inStream();
+    return readLineSliceFrom(&stdin_stream.stream, slice);
+}
+
+/// Reads all characters until the next newline into slice, and returns
+/// a slice of the characters read (excluding the newline character(s)).
+pub fn readLineSliceFrom(stream: var, slice: []u8) ![]u8 {
+    // We cannot use Buffer.fromOwnedSlice, as it wants to append a null byte
+    // after taking ownership, which would always require an allocation.
+    var buf = std.Buffer{ .list = std.ArrayList(u8).fromOwnedSlice(debug.failing_allocator, slice) };
+    try buf.resize(0);
+    return try readLineFrom(stream, &buf);
+}
+
+test "io.readLineSliceFrom" {
+    var buf: [7]u8 = undefined;
+    var mem_stream = SliceInStream.init(
+        \\Line 1
+        \\Line 22
+        \\Line 333
+    );
+    const stream = &mem_stream.stream;
+
+    debug.assert(mem.eql(u8, "Line 1", try readLineSliceFrom(stream, buf[0..])));
+    debug.assertError(readLineSliceFrom(stream, buf[0..]), error.OutOfMemory);
 }
