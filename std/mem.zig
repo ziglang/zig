@@ -654,6 +654,16 @@ test "mem.split" {
     assert(it.next() == null);
 }
 
+test "mem.split (multibyte)" {
+    var it = split("a|b,c/d e", " /,|");
+    assert(eql(u8, it.next().?, "a"));
+    assert(eql(u8, it.next().?, "b"));
+    assert(eql(u8, it.next().?, "c"));
+    assert(eql(u8, it.next().?, "d"));
+    assert(eql(u8, it.next().?, "e"));
+    assert(it.next() == null);
+}
+
 /// Returns an iterator that iterates over the slices of `buffer` that
 /// seperates by bytes in `delimiter`.
 /// separate("abc|def||ghi", "|")
@@ -694,7 +704,16 @@ test "mem.separate" {
     it = separate("hello", " ");
     assert(eql(u8, it.next().?, "hello"));
     assert(it.next() == null);
+}
 
+test "mem.separate (multibyte)" {
+    var it = separate("a|b,c/d e", " /,|");
+    assert(eql(u8, it.next().?, "a"));
+    assert(eql(u8, it.next().?, "b"));
+    assert(eql(u8, it.next().?, "c"));
+    assert(eql(u8, it.next().?, "d"));
+    assert(eql(u8, it.next().?, "e"));
+    assert(it.next() == null);
 }
 
 pub fn startsWith(comptime T: type, haystack: []const T, needle: []const T) bool {
