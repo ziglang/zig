@@ -4,8 +4,6 @@ const io = std.io;
 const fmt = std.fmt;
 const os = std.os;
 
-const allocator = std.debug.global_allocator;
-
 pub fn main() !void {
     var stdout_file = try io.getStdOut();
     const stdout = &stdout_file.outStream().stream;
@@ -21,16 +19,20 @@ pub fn main() !void {
     var prng = std.rand.DefaultPrng.init(seed);
 
     const answer = prng.random.range(u8, 0, 100) + 1;
-    var buf = try std.Buffer.initSize(allocator, 0);
-    defer buf.deinit();
 
     while (true) {
         try stdout.print("\nGuess a number between 1 and 100: ");
+        var line_buf: [20]u8 = undefined;
 
-        const line = try io.readLine(&buf);
-        defer buf.shrink(0);
+        const line_len = io.readLine(line_buf[0..]) catch |err| switch (err) {
+            error.InputTooLong => {
+                try stdout.print("Input too long.\n");
+                continue;
+            },
+            error.EndOfFile, error.StdInUnavailable => return err,
+        };
 
-        const guess = fmt.parseUnsigned(u8, line, 10) catch {
+        const guess = fmt.parseUnsigned(u8, line_buf[0..line_len], 10) catch {
             try stdout.print("Invalid number.\n");
             continue;
         };
