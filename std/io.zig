@@ -526,7 +526,9 @@ pub fn BitInStream(endian: builtin.Endian, comptime Error: type) type {
                     if (err == error.EndOfStream) {
                         return @intCast(U, out_buffer);
                     }
-                    return err;
+                    //@BUG: See #1810. Not sure if the bug is that I have to do this for some
+                    // streams, or that I don't for streams with emtpy errorsets.
+                    return @errSetCast(Error, err);
                 };
 
                 switch (endian) {

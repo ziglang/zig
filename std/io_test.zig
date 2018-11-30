@@ -169,6 +169,10 @@ test "BitInStream" {
     assert(out_bits == 16);
 
     _ = try bit_stream_be.readBits(u0, 0, &out_bits);
+    
+    assert(0 == try bit_stream_be.readBits(u1, 1, &out_bits));
+    assert(out_bits == 0);
+    assertError(bit_stream_be.readBitsNoEof(u1, 1), error.EndOfStream);
 
     var mem_in_le = io.SliceInStream.init(mem_le[0..]);
     var bit_stream_le = io.BitInStream(builtin.Endian.Little, InError).init(&mem_in_le.stream);
@@ -197,6 +201,10 @@ test "BitInStream" {
     assert(out_bits == 16);
 
     _ = try bit_stream_le.readBits(u0, 0, &out_bits);
+    
+    assert(0 == try bit_stream_le.readBits(u1, 1, &out_bits));
+    assert(out_bits == 0);
+    assertError(bit_stream_le.readBitsNoEof(u1, 1), error.EndOfStream);
 }
 
 test "BitOutStream" {
