@@ -2265,7 +2265,17 @@ static LLVMValueRef ir_render_save_err_ret_addr(CodeGen *g, IrExecutable *execut
 
 static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrInstructionReturn *return_instruction) {
     LLVMValueRef value = ir_llvm_value(g, return_instruction->value);
-    LLVMBuildRet(g->builder, value);
+    ZigType *return_type = return_instruction->value->value.type;
+    if (type_has_bits(return_type) &&
+        handle_is_ptr(return_type) &&
+        return_instruction->value->value.special == ConstValSpecialStatic)
+    {
+        assert(g->cur_ret_ptr);
+        gen_assign_raw(g, g->cur_ret_ptr, get_pointer_to_type(g, return_type, false), value);
+        LLVMBuildRetVoid(g->builder);
+    } else {
+        LLVMBuildRet(g->builder, value);
+    }
     return nullptr;
 }
 

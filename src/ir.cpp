@@ -14227,8 +14227,21 @@ static IrInstruction *analyze_runtime_call(IrAnalyze *ira, ZigType *return_type,
         ir_analyze_store_ptr(ira, &call_instruction->base, payload_result_loc, new_call_instruction);
         return new_call_instruction;
     }
-    if (!convert_to_value)
-        return new_call_instruction;
+    if (!convert_to_value) {
+        switch (call_instruction->lval) {
+            case LValNone:
+                return new_call_instruction;
+            case LValPtr:
+                zig_panic("TODO");
+            case LValErrorUnionVal:
+                return ir_const(ira, &call_instruction->base, ira->codegen->builtin_types.entry_null);
+            case LValErrorUnionPtr:
+                zig_panic("TODO");
+            case LValOptional:
+                return ir_const_bool(ira, &call_instruction->base, false);
+        }
+        zig_unreachable();
+    }
 
     if (return_type->id == ZigTypeIdErrorUnion) {
         IrInstruction *err_code_ptr = ir_analyze_error_union_field_error_set(ira,
@@ -22443,8 +22456,17 @@ static IrInstruction *ir_analyze_instruction_first_arg_result_loc(IrAnalyze *ira
     result->base.value.data.x_ptr.mut = ConstPtrMutInfer;
     result->base.value.data.x_ptr.data.ref.pointee = pointee;
 
-    assert(fn_ref->value.type->id == ZigTypeIdFn);
-    ZigType *param_type = fn_ref->value.type->data.fn.fn_type_id.param_info[0].type;
+    ZigType *param_type;
+    if (fn_ref->value.type->id == ZigTypeIdFn) {
+        ZigType *fn_type = fn_ref->value.type;
+        param_type = fn_type->data.fn.fn_type_id.param_info[0].type;
+    } else if (fn_ref->value.type->id == ZigTypeIdBoundFn) {
+        ZigType *fn_type = fn_ref->value.type->data.bound_fn.fn_type;
+        param_type = fn_type->data.fn.fn_type_id.param_info[1].type;
+    } else {
+        zig_unreachable();
+    }
+
     if (type_is_invalid(param_type))
         return ira->codegen->invalid_instruction;
     if ((err = resolve_alloca_inference(ira, result, param_type)))
