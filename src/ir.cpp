@@ -5005,9 +5005,8 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 }
                 FnInline fn_inline = (builtin_fn->id == BuiltinFnIdInlineCall) ? FnInlineAlways : FnInlineNever;
 
-                IrInstruction *call = ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false,
+                return ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false,
                         fn_inline, false, nullptr, nullptr, result_loc, nullptr, lval);
-                return ir_gen_multi(irb, scope, node, lval, result_loc, call);
             }
         case BuiltinFnIdNewStackCall:
             {
@@ -5036,9 +5035,8 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                         return args[i];
                 }
 
-                IrInstruction *call = ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args,
+                return ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args,
                         false, FnInlineAuto, false, nullptr, new_stack, result_loc, nullptr, lval);
-                return ir_gen_multi(irb, scope, node, lval, result_loc, call);
             }
         case BuiltinFnIdTypeId:
             {
@@ -5278,9 +5276,8 @@ static IrInstruction *ir_gen_fn_call(IrBuilder *irb, Scope *scope, AstNode *node
             return irb->codegen->invalid_instruction;
         // In the analysis, this call instruction will be a simple LoadPtr instruction if
         // it turns out to be an implicit cast.
-        IrInstruction *fn_call = ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false,
+        return ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false,
                 FnInlineAuto, false, nullptr, nullptr, result_loc, arg_result_loc, lval);
-        return ir_gen_multi(irb, scope, node, lval, result_loc, fn_call);
     }
 
     for (size_t i = 0; i < arg_count; i += 1) {
@@ -5299,9 +5296,8 @@ static IrInstruction *ir_gen_fn_call(IrBuilder *irb, Scope *scope, AstNode *node
         }
     }
 
-    IrInstruction *fn_call = ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false, FnInlineAuto,
+    return ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false, FnInlineAuto,
             is_async, async_allocator, nullptr, result_loc, nullptr, lval);
-    return ir_gen_multi(irb, scope, node, lval, result_loc, fn_call);
 }
 
 static IrInstruction *ir_gen_if_bool_expr(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval,
@@ -14153,8 +14149,6 @@ static IrInstruction *analyze_runtime_call(IrAnalyze *ira, ZigType *return_type,
     // For other types this is the same as payload_result_loc.
     IrInstruction *base_result_loc = nullptr;
 
-    // LValErrorUnionPtr is treated the same as LValErrorUnionVal.
-
     bool convert_to_value;
     ZigType *scalar_result_type;
     ZigType *payload_result_type;
@@ -14225,18 +14219,40 @@ static IrInstruction *analyze_runtime_call(IrAnalyze *ira, ZigType *return_type,
 
     if (need_store_ptr) {
         ir_analyze_store_ptr(ira, &call_instruction->base, payload_result_loc, new_call_instruction);
-        return new_call_instruction;
+        switch (call_instruction->lval) {
+            case LValNone:
+                return new_call_instruction;
+            case LValPtr:
+                if (payload_result_loc != nullptr)
+                    return payload_result_loc;
+                return ir_get_ref(ira, &call_instruction->base, new_call_instruction, true, false, nullptr);
+            case LValErrorUnionVal:
+                return ir_const(ira, &call_instruction->base, ira->codegen->builtin_types.entry_null);
+            case LValErrorUnionPtr: {
+                IrInstruction *null = ir_const(ira, &call_instruction->base,
+                        ira->codegen->builtin_types.entry_null);
+                return ir_get_ref(ira, &call_instruction->base, null, true, false, nullptr);
+            }
+            case LValOptional:
+                return ir_const_bool(ira, &call_instruction->base, false);
+        }
+        zig_unreachable();
     }
     if (!convert_to_value) {
         switch (call_instruction->lval) {
             case LValNone:
                 return new_call_instruction;
             case LValPtr:
-                zig_panic("TODO");
+                if (payload_result_loc != nullptr)
+                    return payload_result_loc;
+                return ir_get_ref(ira, &call_instruction->base, new_call_instruction, true, false, nullptr);
             case LValErrorUnionVal:
                 return ir_const(ira, &call_instruction->base, ira->codegen->builtin_types.entry_null);
-            case LValErrorUnionPtr:
-                zig_panic("TODO");
+            case LValErrorUnionPtr: {
+                IrInstruction *null = ir_const(ira, &call_instruction->base,
+                        ira->codegen->builtin_types.entry_null);
+                return ir_get_ref(ira, &call_instruction->base, null, true, false, nullptr);
+            }
             case LValOptional:
                 return ir_const_bool(ira, &call_instruction->base, false);
         }
