@@ -772,27 +772,7 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
 
 test "os.getEnvMap" {
     var env = try getEnvMap(std.debug.global_allocator);
-    var seen_home = false;
-    var it = env.iterator();
-    while (it.next()) |pair| {
-        debug.warn("{}: {}\n", pair.key, pair.value);
-        switch (builtin.os){
-            builtin.Os.windows => {
-                if (mem.eql(u8, pair.key, "HOMEPATH")) {
-                    seen_home = true;
-                }
-            },
-            builtin.Os.linux, builtin.Os.macosx,
-                builtin.Os.ios => {
-                if (mem.eql(u8, pair.key, "HOME")) {
-                    seen_home = true;
-                }
-            },
-            else => @compileError("unimplemented"),
-        }
-    }
-
-    assert(seen_home == true);
+    defer env.deinit();
 }
 
 /// TODO make this go through libc when we have it
@@ -862,13 +842,8 @@ pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwned
 }
 
 test "os.getEnvVarOwned" {
-    switch (builtin.os) {
-        builtin.Os.windows => _ = try getEnvVarOwned(debug.global_allocator, "HOMEPATH"),
- 
-        builtin.Os.linux, builtin.Os.macosx,
-            builtin.Os.ios => _ = try getEnvVarOwned(debug.global_allocator, "HOME"),
-        else => @compileError("unimplemented"),
-    }
+    var ga = debug.global_allocator;
+    debug.assertError(getEnvVarOwned(ga, "BADENV"), error.EnvironmentVariableNotFound);
 }
 
 
