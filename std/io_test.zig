@@ -260,6 +260,54 @@ test "BitOutStream" {
     try bit_stream_le.writeBits(u0(0), 0);
 }
 
+test "BitStreams with File Stream" {
+    const tmp_file_name = "temp_test_file.txt";
+    {
+        var file = try os.File.openWrite(tmp_file_name);
+        defer file.close();
+
+        var file_out = file.outStream();
+        var file_out_stream = &file_out.stream;
+        const OutError = os.File.WriteError;
+        var bit_stream = io.BitOutStream(builtin.endian, OutError).init(file_out_stream);
+        
+        try bit_stream.writeBits(u2(1), 1);
+        try bit_stream.writeBits(u5(2), 2);
+        try bit_stream.writeBits(u128(3), 3);
+        try bit_stream.writeBits(u8(4), 4);
+        try bit_stream.writeBits(u9(5), 5);
+        try bit_stream.writeBits(u1(1), 1);
+        try bit_stream.flushBits();
+    }
+    {
+        var file = try os.File.openRead(tmp_file_name);
+        defer file.close();
+
+        var file_in = file.inStream();
+        var file_in_stream = &file_in.stream;
+        const InError = os.File.ReadError;
+        var bit_stream = io.BitInStream(builtin.endian, InError).init(file_in_stream);
+        
+        var out_bits: usize = undefined;
+
+        assert(1 == try bit_stream.readBits(u2, 1, &out_bits));
+        assert(out_bits == 1);
+        assert(2 == try bit_stream.readBits(u5, 2, &out_bits));
+        assert(out_bits == 2);
+        assert(3 == try bit_stream.readBits(u128, 3, &out_bits));
+        assert(out_bits == 3);
+        assert(4 == try bit_stream.readBits(u8, 4, &out_bits));
+        assert(out_bits == 4);
+        assert(5 == try bit_stream.readBits(u9, 5, &out_bits));
+        assert(out_bits == 5);
+        assert(1 == try bit_stream.readBits(u1, 1, &out_bits));
+        assert(out_bits == 1);
+        
+        assertError(bit_stream.readBitsNoEof(u1, 1), error.EndOfStream);
+    }
+    try os.deleteFile(tmp_file_name);
+}
+
 fn testIntSerializerDeserializer(comptime endian: builtin.Endian, comptime is_packed: bool) !void {
     //@NOTE: if this test is taking too long, reduce the maximum tested bitsize
     const max_test_bitsize = 128;
