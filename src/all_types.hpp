@@ -2916,6 +2916,7 @@ struct IrInstructionErrorUnionFieldErrorSet {
     IrInstruction base;
 
     IrInstruction *ptr;
+    bool safety_check_on;
 };
 
 struct IrInstructionUnwrapErrPayload {

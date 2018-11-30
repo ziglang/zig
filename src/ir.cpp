@@ -173,7 +173,7 @@ static IrInstruction *ir_analyze_unwrap_optional_payload(IrAnalyze *ira, IrInstr
 static IrInstruction *ir_analyze_unwrap_err_payload(IrAnalyze *ira, IrInstruction *source_instr,
         IrInstruction *base_ptr, bool safety_check_on);
 static IrInstruction *ir_analyze_error_union_field_error_set(IrAnalyze *ira,
-    IrInstruction *source_instr, IrInstruction *base_ptr);
+    IrInstruction *source_instr, IrInstruction *base_ptr, bool safety_check_on);
 
 static ConstExprValue *const_ptr_pointee_unchecked(CodeGen *g, ConstExprValue *const_val) {
     assert(get_src_ptr_type(const_val->type) != nullptr);
@@ -2967,10 +2967,11 @@ static IrInstruction *ir_build_assert_non_null(IrBuilder *irb, Scope *scope, Ast
 }
 
 static IrInstruction *ir_build_error_union_field_error_set(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        IrInstruction *ptr)
+        IrInstruction *ptr, bool safety_check_on)
 {
     IrInstructionErrorUnionFieldErrorSet *instruction = ir_build_instruction<IrInstructionErrorUnionFieldErrorSet>(irb, scope, source_node);
     instruction->ptr = ptr;
+    instruction->safety_check_on = safety_check_on;
 
     ir_ref_instruction(ptr, irb->current_basic_block);
 
@@ -3339,7 +3340,7 @@ static IrInstruction *ir_gen_ptr(IrBuilder *irb, Scope *scope, AstNode *node, LV
             // must return pointer to the error code
             IrInstruction *payload_ptr = ir_build_unwrap_err_payload(irb, scope, node, ptr, false);
             ir_build_load_ptr(irb, scope, node, payload_ptr, result_loc);
-            return ir_build_error_union_field_error_set(irb, scope, node, ptr);
+            return ir_build_error_union_field_error_set(irb, scope, node, ptr, false);
         }
         case LValErrorUnionVal: {
             // ptr points to an error union;
@@ -3347,7 +3348,7 @@ static IrInstruction *ir_gen_ptr(IrBuilder *irb, Scope *scope, AstNode *node, LV
             // must return the error code
             IrInstruction *payload_ptr = ir_build_unwrap_err_payload(irb, scope, node, ptr, false);
             ir_build_load_ptr(irb, scope, node, payload_ptr, result_loc);
-            IrInstruction *err_ptr = ir_build_error_union_field_error_set(irb, scope, node, ptr);
+            IrInstruction *err_ptr = ir_build_error_union_field_error_set(irb, scope, node, ptr, false);
             return ir_build_load_ptr(irb, scope, node, err_ptr, nullptr);
         }
         case LValOptional: {
@@ -5649,7 +5650,7 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
             return err_union_ptr;
 
         IrInstruction *ptr_opt_err_code = ir_build_error_union_field_error_set(irb, scope,
-                node->data.while_expr.condition, err_union_ptr);
+                node->data.while_expr.condition, err_union_ptr, false);
         IrInstruction *opt_err_code = ir_build_load_ptr(irb, scope, node->data.while_expr.condition,
                 ptr_opt_err_code, nullptr);
         IrInstruction *is_err = ir_build_test_nonnull(irb, scope, node->data.while_expr.condition, opt_err_code);
@@ -6207,7 +6208,7 @@ static IrInstruction *ir_gen_if_err_expr(IrBuilder *irb, Scope *scope, AstNode *
     if (err_union_ptr == irb->codegen->invalid_instruction)
         return err_union_ptr;
 
-    IrInstruction *ptr_opt_err_code = ir_build_error_union_field_error_set(irb, scope, node, err_union_ptr);
+    IrInstruction *ptr_opt_err_code = ir_build_error_union_field_error_set(irb, scope, node, err_union_ptr, false);
     IrInstruction *opt_err_code = ir_build_load_ptr(irb, scope, node, ptr_opt_err_code, nullptr);
     IrInstruction *is_err = ir_build_test_nonnull(irb, scope, node, opt_err_code);
 
@@ -14231,7 +14232,7 @@ static IrInstruction *analyze_runtime_call(IrAnalyze *ira, ZigType *return_type,
 
     if (return_type->id == ZigTypeIdErrorUnion) {
         IrInstruction *err_code_ptr = ir_analyze_error_union_field_error_set(ira,
-                &call_instruction->base, base_result_loc);
+                &call_instruction->base, base_result_loc, false);
         ir_analyze_store_ptr(ira, &call_instruction->base, err_code_ptr, new_call_instruction);
         switch (call_instruction->lval) {
             case LValNone:
@@ -20585,7 +20586,7 @@ static IrInstruction *ir_analyze_instruction_test_err(IrAnalyze *ira, IrInstruct
 }
 
 static IrInstruction *ir_analyze_error_union_field_error_set(IrAnalyze *ira,
-    IrInstruction *source_instr, IrInstruction *base_ptr)
+    IrInstruction *source_instr, IrInstruction *base_ptr, bool safety_check_on)
 {
     ZigType *ptr_type = base_ptr->value.type;
     assert(ptr_type->id == ZigTypeIdPointer);
@@ -20595,6 +20596,10 @@ static IrInstruction *ir_analyze_error_union_field_error_set(IrAnalyze *ira,
         return ira->codegen->invalid_instruction;
 
     if (type_entry->id != ZigTypeIdErrorUnion) {
+        if (!safety_check_on) {
+            IrInstruction *null = ir_const(ira, source_instr, ira->codegen->builtin_types.entry_null);
+            return ir_get_ref(ira, source_instr, null, true, true, nullptr);
+        }
         ir_add_error(ira, base_ptr,
             buf_sprintf("expected error union type, found '%s'", buf_ptr(&type_entry->name)));
         return ira->codegen->invalid_instruction;
@@ -20632,7 +20637,7 @@ static IrInstruction *ir_analyze_error_union_field_error_set(IrAnalyze *ira,
             IrInstruction *result;
             if (ptr_val->data.x_ptr.mut == ConstPtrMutInfer) {
                 result = ir_build_error_union_field_error_set(&ira->new_irb, source_instr->scope,
-                        source_instr->source_node, base_ptr);
+                        source_instr->source_node, base_ptr, safety_check_on);
                 result->value.type = result_type;
                 result->value.special = ConstValSpecialStatic;
             } else {
@@ -20647,7 +20652,7 @@ static IrInstruction *ir_analyze_error_union_field_error_set(IrAnalyze *ira,
     }
 
     IrInstruction *result = ir_build_error_union_field_error_set(&ira->new_irb,
-        source_instr->scope, source_instr->source_node, base_ptr);
+        source_instr->scope, source_instr->source_node, base_ptr, safety_check_on);
     result->value.type = result_type;
     return result;
 }
@@ -20659,7 +20664,7 @@ static IrInstruction *ir_analyze_instruction_error_union_field_error_set(IrAnaly
     if (type_is_invalid(base_ptr->value.type))
         return ira->codegen->invalid_instruction;
 
-    return ir_analyze_error_union_field_error_set(ira, &instruction->base, base_ptr);
+    return ir_analyze_error_union_field_error_set(ira, &instruction->base, base_ptr, instruction->safety_check_on);
 }
 
 static IrInstruction *ir_analyze_instruction_unwrap_err_code(IrAnalyze *ira,
@@ -20717,6 +20722,9 @@ static IrInstruction *ir_analyze_unwrap_err_payload(IrAnalyze *ira, IrInstructio
     if (type_is_invalid(type_entry))
         return ira->codegen->invalid_instruction;
     if (type_entry->id != ZigTypeIdErrorUnion) {
+        if (!safety_check_on) {
+            return base_ptr;
+        }
         ir_add_error(ira, base_ptr,
             buf_sprintf("expected error union type, found '%s'", buf_ptr(&type_entry->name)));
         return ira->codegen->invalid_instruction;
