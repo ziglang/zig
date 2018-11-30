@@ -621,6 +621,9 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, ZigFn *fn_table_entry) {
             if (ret_type->id == ZigTypeIdErrorUnion) {
                 uint64_t sz = type_size(g, ret_type->data.error_union.payload_type);
                 addLLVMArgAttrInt(fn_table_entry->llvm_value, 0, "dereferenceable", sz);
+            } else if (ret_type->id == ZigTypeIdOptional) {
+                uint64_t sz = type_size(g, ret_type->data.maybe.child_type);
+                addLLVMArgAttrInt(fn_table_entry->llvm_value, 0, "dereferenceable", sz);
             } else {
                 addLLVMArgAttr(fn_table_entry->llvm_value, 0, "sret");
             }
@@ -3467,7 +3470,9 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     CallingConvention cc = fn_type->data.fn.fn_type_id.cc;
 
     bool is_error_union = src_return_type->id == ZigTypeIdErrorUnion;
+    bool is_optional = src_return_type->id == ZigTypeIdOptional;
     bool first_arg_ret = (is_error_union && type_has_bits(src_return_type->data.error_union.payload_type)) ||
+        (is_optional && type_has_bits(src_return_type->data.maybe.child_type)) ||
         (ret_has_bits && want_first_arg_sret(g, fn_type_id));
     bool prefix_arg_err_ret_stack = get_prefix_arg_err_ret_stack(g, fn_type_id);
     bool is_var_args = fn_type_id->is_var_args;
@@ -3539,10 +3544,10 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     } else if (!ret_has_bits) {
         return nullptr;
     } else if (first_arg_ret) {
-        if (cc_want_sret_attr(cc) || src_return_type->id != ZigTypeIdErrorUnion) {
+        if (cc_want_sret_attr(cc) || (!is_error_union && !is_optional)) {
             set_call_instr_sret(g, result);
         }
-        return is_error_union ? result : result_ptr;
+        return (is_error_union || is_optional) ? result : result_ptr;
     } else if (handle_is_ptr(src_return_type)) {
         auto store_instr = LLVMBuildStore(g->builder, result, result_ptr);
         LLVMSetAlignment(store_instr, LLVMGetAlignment(result_ptr));

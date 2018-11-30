@@ -3398,7 +3398,7 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                         if (return_type->id == ZigTypeIdErrorUnion) {
                             return_result_loc = ir_build_result_return(irb, scope, node);
                             expr_lval = LValErrorUnionVal;
-                        } else if (return_type->id == ZigTypeIdOptional) {
+                        } else if (return_type->id == ZigTypeIdOptional && handle_is_ptr(return_type)) {
                             return_result_loc = ir_build_result_return(irb, scope, node);
                             expr_lval = LValOptional;
                         } else if (type_has_bits(return_type) && handle_is_ptr(return_type)) {
@@ -22877,8 +22877,10 @@ ZigType *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutable *new_
                     ira->explicit_return_type->data.error_union.err_set_type);
             ira->payload_return_type = ira->explicit_return_type->data.error_union.payload_type;
         } else if (ira->explicit_return_type->id == ZigTypeIdOptional) {
-            ira->scalar_return_type = ira->codegen->builtin_types.entry_bool;
-            ira->payload_return_type = ira->explicit_return_type->data.maybe.child_type;
+            if (handle_is_ptr(ira->explicit_return_type)) {
+                ira->scalar_return_type = ira->codegen->builtin_types.entry_bool;
+                ira->payload_return_type = ira->explicit_return_type->data.maybe.child_type;
+            }
         }
     }
 

@@ -1144,6 +1144,16 @@ ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
                 param_di_types.append(gen_type->di_type);
             }
             gen_return_type = g->builtin_types.entry_global_error_set;
+        } else if (fn_type_id->return_type->id == ZigTypeIdOptional) {
+            if (handle_is_ptr(fn_type_id->return_type)) {
+                ZigType *payload_type = fn_type_id->return_type->data.maybe.child_type;
+                ZigType *gen_type = get_pointer_to_type(g, payload_type, false);
+                gen_param_types.append(gen_type->type_ref);
+                param_di_types.append(gen_type->di_type);
+                gen_return_type = g->builtin_types.entry_bool;
+            } else {
+                gen_return_type = fn_type_id->return_type;
+            }
         } else if (!type_has_bits(fn_type_id->return_type)) {
             gen_return_type = g->builtin_types.entry_void;
         } else if (first_arg_return) {
