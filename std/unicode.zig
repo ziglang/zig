@@ -208,7 +208,7 @@ pub const Utf8View = struct {
     }
 };
 
-const Utf8Iterator = struct {
+pub const Utf8Iterator = struct {
     bytes: []const u8,
     i: usize,
 
