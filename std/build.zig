@@ -150,7 +150,11 @@ pub const Builder = struct {
     }
 
     pub fn addExecutable(self: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
-        return LibExeObjStep.createExecutable(self, name, root_src);
+        return LibExeObjStep.createExecutable(self, name, root_src, false);
+    }
+
+    pub fn addStaticExecutable(self: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
+        return LibExeObjStep.createExecutable(self, name, root_src, true);
     }
 
     pub fn addObject(self: *Builder, name: []const u8, root_src: []const u8) *LibExeObjStep {
@@ -891,8 +895,8 @@ pub const LibExeObjStep = struct {
         return self;
     }
 
-    pub fn createExecutable(builder: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
-        const self = builder.allocator.create(initExtraArgs(builder, name, root_src, Kind.Exe, false, builder.version(0, 0, 0))) catch unreachable;
+    pub fn createExecutable(builder: *Builder, name: []const u8, root_src: ?[]const u8, static: bool) *LibExeObjStep {
+        const self = builder.allocator.create(initExtraArgs(builder, name, root_src, Kind.Exe, static, builder.version(0, 0, 0))) catch unreachable;
         return self;
     }
 
@@ -1269,6 +1273,9 @@ pub const LibExeObjStep = struct {
 
             zig_args.append("--ver-patch") catch unreachable;
             zig_args.append(builder.fmt("{}", self.version.patch)) catch unreachable;
+        }
+        if (self.kind == Kind.Exe and self.static) {
+            zig_args.append("--static") catch unreachable;
         }
 
         switch (self.target) {
