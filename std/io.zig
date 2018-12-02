@@ -32,6 +32,8 @@ pub fn getStdIn() GetStdIoErrs!File {
     return File.openHandle(handle);
 }
 
+pub const SeekableStream = @import("io/seekable_stream.zig").SeekableStream;
+
 pub fn InStream(comptime ReadError: type) type {
     return struct {
         const Self = @This();

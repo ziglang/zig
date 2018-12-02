@@ -228,7 +228,14 @@ pub const File = struct {
         return os.isTty(self.handle);
     }
 
-    pub fn seekForward(self: File, amount: isize) !void {
+    pub const SeekError = error{
+        /// TODO make this error impossible to get
+        Overflow,
+        Unseekable,
+        Unexpected,
+    };
+
+    pub fn seekForward(self: File, amount: isize) SeekError!void {
         switch (builtin.os) {
             Os.linux, Os.macosx, Os.ios, Os.freebsd => {
                 const result = posix.lseek(self.handle, amount, posix.SEEK_CUR);
@@ -259,7 +266,7 @@ pub const File = struct {
         }
     }
 
-    pub fn seekTo(self: File, pos: usize) !void {
+    pub fn seekTo(self: File, pos: usize) SeekError!void {
         switch (builtin.os) {
             Os.linux, Os.macosx, Os.ios, Os.freebsd => {
                 const ipos = try math.cast(isize, pos);
@@ -293,7 +300,14 @@ pub const File = struct {
         }
     }
 
-    pub fn getPos(self: File) !usize {
+    pub const GetSeekPosError = error{
+        Overflow,
+        SystemResources,
+        Unseekable,
+        Unexpected,
+    };
+
+    pub fn getPos(self: File) GetSeekPosError!usize {
         switch (builtin.os) {
             Os.linux, Os.macosx, Os.ios, Os.freebsd => {
                 const result = posix.lseek(self.handle, 0, posix.SEEK_CUR);
@@ -323,13 +337,13 @@ pub const File = struct {
                 }
 
                 assert(pos >= 0);
-                return math.cast(usize, pos) catch error.FilePosLargerThanPointerRange;
+                return math.cast(usize, pos);
             },
             else => @compileError("unsupported OS"),
         }
     }
 
-    pub fn getEndPos(self: File) !usize {
+    pub fn getEndPos(self: File) GetSeekPosError!usize {
         if (is_posix) {
             const stat = try os.posixFStat(self.handle);
             return @intCast(usize, stat.size);
@@ -431,6 +445,18 @@ pub const File = struct {
         };
     }
 
+    pub fn seekableStream(file: File) SeekableStream {
+        return SeekableStream{
+            .file = file,
+            .stream = SeekableStream.Stream{
+                .seekToFn = SeekableStream.seekToFn,
+                .seekForwardFn = SeekableStream.seekForwardFn,
+                .getPosFn = SeekableStream.getPosFn,
+                .getEndPosFn = SeekableStream.getEndPosFn,
+            },
+        };
+    }
+
     /// Implementation of io.InStream trait for File
     pub const InStream = struct {
         file: File,
@@ -456,6 +482,34 @@ pub const File = struct {
         fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
             const self = @fieldParentPtr(OutStream, "stream", out_stream);
             return self.file.write(bytes);
+        }
+    };
+
+    /// Implementation of io.SeekableStream trait for File
+    pub const SeekableStream = struct {
+        file: File,
+        stream: Stream,
+
+        pub const Stream = io.SeekableStream(SeekError, GetSeekPosError);
+
+        pub fn seekToFn(seekable_stream: *Stream, pos: usize) SeekError!void {
+            const self = @fieldParentPtr(SeekableStream, "stream", seekable_stream);
+            return self.file.seekTo(pos);
+        }
+
+        pub fn seekForwardFn(seekable_stream: *Stream, amt: isize) SeekError!void {
+            const self = @fieldParentPtr(SeekableStream, "stream", seekable_stream);
+            return self.file.seekForward(amt);
+        }
+
+        pub fn getEndPosFn(seekable_stream: *Stream) GetSeekPosError!usize {
+            const self = @fieldParentPtr(SeekableStream, "stream", seekable_stream);
+            return self.file.getEndPos();
+        }
+
+        pub fn getPosFn(seekable_stream: *Stream) GetSeekPosError!usize {
+            const self = @fieldParentPtr(SeekableStream, "stream", seekable_stream);
+            return self.file.getPos();
         }
     };
 };
