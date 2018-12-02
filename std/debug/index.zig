@@ -198,49 +198,46 @@ pub fn writeStackTrace(stack_trace: *const builtin.StackTrace, out_stream: var, 
     }
 }
 
-pub inline fn getReturnAddress(frame_count: usize) usize {
-    var fp = @ptrToInt(@frameAddress());
-    var i: usize = 0;
-    while (fp != 0 and i < frame_count) {
-        fp = @intToPtr(*const usize, fp).*;
-        i += 1;
+pub const StackIterator = struct {
+    first_addr: ?usize,
+    debug_info: *DebugInfo,
+    fp: usize,
+
+    pub fn init(debug_info: *DebugInfo, first_addr: ?usize) StackIterator {
+        return StackIterator{
+            .debug_info = debug_info,
+            .first_addr = first_addr,
+            .fp = @ptrToInt(@frameAddress()),
+        };
     }
-    return @intToPtr(*const usize, fp + @sizeOf(usize)).*;
-}
+
+    fn next(self: *StackIterator) ?usize {
+        if (self.fp == 0) return null;
+        self.fp = @intToPtr(*const usize, self.fp).*;
+        if (self.fp == 0) return null;
+
+        if (self.first_addr) |addr| {
+            while (self.fp != 0) : (self.fp = @intToPtr(*const usize, self.fp).*) {
+                const return_address = @intToPtr(*const usize, self.fp + @sizeOf(usize)).*;
+                if (addr == return_address) {
+                    self.first_addr = null;
+                    return return_address;
+                }
+            }
+        }
+
+        const return_address = @intToPtr(*const usize, self.fp + @sizeOf(usize)).*;
+        return return_address;
+    }
+};
 
 pub fn writeCurrentStackTrace(out_stream: var, debug_info: *DebugInfo, tty_color: bool, start_addr: ?usize) !void {
     switch (builtin.os) {
         builtin.Os.windows => return writeCurrentStackTraceWindows(out_stream, debug_info, tty_color, start_addr),
         else => {},
     }
-    const AddressState = union(enum) {
-        NotLookingForStartAddress,
-        LookingForStartAddress: usize,
-    };
-    // TODO: I want to express like this:
-    //var addr_state = if (start_addr) |addr| AddressState { .LookingForStartAddress = addr }
-    //    else AddressState.NotLookingForStartAddress;
-    var addr_state: AddressState = undefined;
-    if (start_addr) |addr| {
-        addr_state = AddressState{ .LookingForStartAddress = addr };
-    } else {
-        addr_state = AddressState.NotLookingForStartAddress;
-    }
-
-    var fp = @ptrToInt(@frameAddress());
-    while (fp != 0) : (fp = @intToPtr(*const usize, fp).*) {
-        const return_address = @intToPtr(*const usize, fp + @sizeOf(usize)).*;
-
-        switch (addr_state) {
-            AddressState.NotLookingForStartAddress => {},
-            AddressState.LookingForStartAddress => |addr| {
-                if (return_address == addr) {
-                    addr_state = AddressState.NotLookingForStartAddress;
-                } else {
-                    continue;
-                }
-            },
-        }
+    var it = StackIterator.init(debug_info, start_addr);
+    while (it.next()) |return_address| {
         try printSourceAtAddress(debug_info, out_stream, return_address, tty_color);
     }
 }
