@@ -950,30 +950,6 @@ fn openSelfDebugInfoLinux(allocator: *mem.Allocator) !DebugInfo {
     );
 }
 
-pub fn findElfSection(elf: *Elf, name: []const u8) ?*elf.Shdr {
-    var file_stream = elf.in_file.inStream();
-    const in = &file_stream.stream;
-
-    section_loop: for (elf.section_headers) |*elf_section| {
-        if (elf_section.sh_type == SHT_NULL) continue;
-
-        const name_offset = elf.string_section.offset + elf_section.name;
-        try elf.in_file.seekTo(name_offset);
-
-        for (name) |expected_c| {
-            const target_c = try in.readByte();
-            if (target_c == 0 or expected_c != target_c) continue :section_loop;
-        }
-
-        {
-            const null_byte = try in.readByte();
-            if (null_byte == 0) return elf_section;
-        }
-    }
-
-    return null;
-}
-
 fn openSelfDebugInfoMacOs(allocator: *mem.Allocator) !DebugInfo {
     const hdr = &std.c._mh_execute_header;
     assert(hdr.magic == std.macho.MH_MAGIC_64);
@@ -1107,6 +1083,31 @@ const MachOFile = struct {
 pub const DwarfSeekableStream = io.SeekableStream(anyerror, anyerror);
 pub const DwarfInStream = io.InStream(anyerror);
 
+pub const DwarfInfo = struct {
+    dwarf_seekable_stream: *DwarfSeekableStream,
+    dwarf_in_stream: *DwarfInStream,
+    elf: elf.Elf,
+    debug_info: *elf.SectionHeader,
+    debug_abbrev: *elf.SectionHeader,
+    debug_str: *elf.SectionHeader,
+    debug_line: *elf.SectionHeader,
+    debug_ranges: ?*elf.SectionHeader,
+    abbrev_table_list: ArrayList(AbbrevTableHeader),
+    compile_unit_list: ArrayList(CompileUnit),
+
+    pub fn allocator(self: DebugInfo) *mem.Allocator {
+        return self.abbrev_table_list.allocator;
+    }
+
+    pub fn readString(self: *DebugInfo) ![]u8 {
+        return readStringRaw(self.allocator(), self.dwarf_in_stream);
+    }
+
+    pub fn close(self: *DebugInfo) void {
+        self.elf.close();
+    }
+};
+
 pub const DebugInfo = switch (builtin.os) {
     builtin.Os.macosx => struct {
         symbols: []const MachoSymbol,
@@ -1130,30 +1131,7 @@ pub const DebugInfo = switch (builtin.os) {
         sect_contribs: []pdb.SectionContribEntry,
         modules: []Module,
     },
-    builtin.Os.linux => struct {
-        dwarf_seekable_stream: *DwarfSeekableStream,
-        dwarf_in_stream: *DwarfInStream,
-        elf: elf.Elf,
-        debug_info: *elf.SectionHeader,
-        debug_abbrev: *elf.SectionHeader,
-        debug_str: *elf.SectionHeader,
-        debug_line: *elf.SectionHeader,
-        debug_ranges: ?*elf.SectionHeader,
-        abbrev_table_list: ArrayList(AbbrevTableHeader),
-        compile_unit_list: ArrayList(CompileUnit),
-
-        pub fn allocator(self: DebugInfo) *mem.Allocator {
-            return self.abbrev_table_list.allocator;
-        }
-
-        pub fn readString(self: *DebugInfo) ![]u8 {
-            return readStringRaw(self.allocator(), self.dwarf_in_stream);
-        }
-
-        pub fn close(self: *DebugInfo) void {
-            self.elf.close();
-        }
-    },
+    builtin.Os.linux => DwarfInfo,
     builtin.Os.freebsd => struct {},
     else => @compileError("Unsupported OS"),
 };
