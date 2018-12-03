@@ -411,7 +411,7 @@ fn printSourceAtAddressWindows(di: *DebugInfo, out_stream: var, relocated_addres
 
         if (opt_line_info) |line_info| {
             try out_stream.print("\n");
-            if (printLineFromFile(out_stream, line_info)) {
+            if (printLineFromFileAnyOs(out_stream, line_info)) {
                 if (line_info.column == 0) {
                     try out_stream.write("\n");
                 } else {
@@ -595,7 +595,16 @@ fn printSourceAtAddressMacOs(di: *DebugInfo, out_stream: var, address: usize, tt
     } else "???";
     if (getLineNumberInfoMacOs(di, symbol.*, adjusted_addr)) |line_info| {
         defer line_info.deinit();
-        try printLineInfo(di, out_stream, line_info, address, symbol_name, compile_unit_name, tty_color);
+        try printLineInfo(
+            di,
+            out_stream,
+            line_info,
+            address,
+            symbol_name,
+            compile_unit_name,
+            tty_color,
+            printLineFromFileAnyOs,
+        );
     } else |err| switch (err) {
         error.MissingDebugInfo, error.InvalidDebugInfo => {
             if (tty_color) {
@@ -608,7 +617,15 @@ fn printSourceAtAddressMacOs(di: *DebugInfo, out_stream: var, address: usize, tt
     }
 }
 
-pub fn printSourceAtAddressLinux(debug_info: *DebugInfo, out_stream: var, address: usize, tty_color: bool) !void {
+/// This function works in freestanding mode.
+/// fn printLineFromFile(out_stream: var, line_info: LineInfo) !void
+pub fn printSourceAtAddressDwarf(
+    debug_info: *DebugInfo,
+    out_stream: var,
+    address: usize,
+    tty_color: bool,
+    comptime printLineFromFile: var,
+) !void {
     const compile_unit = findCompileUnit(debug_info, address) catch {
         if (tty_color) {
             try out_stream.print("???:?:?: " ++ DIM ++ "0x{x} in ??? (???)" ++ RESET ++ "\n\n\n", address);
@@ -618,10 +635,19 @@ pub fn printSourceAtAddressLinux(debug_info: *DebugInfo, out_stream: var, addres
         return;
     };
     const compile_unit_name = try compile_unit.die.getAttrString(debug_info, DW.AT_name);
-    if (getLineNumberInfoLinux(debug_info, compile_unit, address - 1)) |line_info| {
+    if (getLineNumberInfoDwarf(debug_info, compile_unit.*, address - 1)) |line_info| {
         defer line_info.deinit();
         const symbol_name = "???";
-        try printLineInfo(debug_info, out_stream, line_info, address, symbol_name, compile_unit_name, tty_color);
+        try printLineInfo(
+            debug_info,
+            out_stream,
+            line_info,
+            address,
+            symbol_name,
+            compile_unit_name,
+            tty_color,
+            printLineFromFile,
+        );
     } else |err| switch (err) {
         error.MissingDebugInfo, error.InvalidDebugInfo => {
             if (tty_color) {
@@ -634,6 +660,10 @@ pub fn printSourceAtAddressLinux(debug_info: *DebugInfo, out_stream: var, addres
     }
 }
 
+pub fn printSourceAtAddressLinux(debug_info: *DebugInfo, out_stream: var, address: usize, tty_color: bool) !void {
+    return printSourceAtAddressDwarf(debug_info, out_stream, address, tty_color, printLineFromFileAnyOs);
+}
+
 fn printLineInfo(
     debug_info: *DebugInfo,
     out_stream: var,
@@ -642,6 +672,7 @@ fn printLineInfo(
     symbol_name: []const u8,
     compile_unit_name: []const u8,
     tty_color: bool,
+    comptime printLineFromFile: var,
 ) !void {
     if (tty_color) {
         try out_stream.print(
@@ -1020,7 +1051,7 @@ fn openSelfDebugInfoMacOs(allocator: *mem.Allocator) !DebugInfo {
     };
 }
 
-fn printLineFromFile(out_stream: var, line_info: LineInfo) !void {
+fn printLineFromFileAnyOs(out_stream: var, line_info: LineInfo) !void {
     var f = try os.File.openRead(line_info.file_name);
     defer f.close();
     // TODO fstat and make sure that the file has the correct size
@@ -1247,11 +1278,12 @@ const FileEntry = struct {
 const LineInfo = struct {
     line: usize,
     column: usize,
-    file_name: []u8,
-    allocator: *mem.Allocator,
+    file_name: []const u8,
+    allocator: ?*mem.Allocator,
 
-    fn deinit(self: *const LineInfo) void {
-        self.allocator.free(self.file_name);
+    fn deinit(self: LineInfo) void {
+        const allocator = self.allocator orelse return;
+        allocator.free(self.file_name);
     }
 };
 
@@ -1707,7 +1739,7 @@ fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: u
     return error.MissingDebugInfo;
 }
 
-fn getLineNumberInfoLinux(di: *DebugInfo, compile_unit: *const CompileUnit, target_address: usize) !LineInfo {
+fn getLineNumberInfoDwarf(di: *DebugInfo, compile_unit: CompileUnit, target_address: usize) !LineInfo {
     const compile_unit_cwd = try compile_unit.die.getAttrString(di, DW.AT_comp_dir);
 
     const debug_line_end = di.debug_line.offset + di.debug_line.size;
