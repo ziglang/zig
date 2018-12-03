@@ -200,12 +200,10 @@ pub fn writeStackTrace(stack_trace: *const builtin.StackTrace, out_stream: var, 
 
 pub const StackIterator = struct {
     first_addr: ?usize,
-    debug_info: *DebugInfo,
     fp: usize,
 
-    pub fn init(debug_info: *DebugInfo, first_addr: ?usize) StackIterator {
+    pub fn init(first_addr: ?usize) StackIterator {
         return StackIterator{
-            .debug_info = debug_info,
             .first_addr = first_addr,
             .fp = @ptrToInt(@frameAddress()),
         };
@@ -236,7 +234,7 @@ pub fn writeCurrentStackTrace(out_stream: var, debug_info: *DebugInfo, tty_color
         builtin.Os.windows => return writeCurrentStackTraceWindows(out_stream, debug_info, tty_color, start_addr),
         else => {},
     }
-    var it = StackIterator.init(debug_info, start_addr);
+    var it = StackIterator.init(start_addr);
     while (it.next()) |return_address| {
         try printSourceAtAddress(debug_info, out_stream, return_address, tty_color);
     }
@@ -596,7 +594,6 @@ fn printSourceAtAddressMacOs(di: *DebugInfo, out_stream: var, address: usize, tt
     if (getLineNumberInfoMacOs(di, symbol.*, adjusted_addr)) |line_info| {
         defer line_info.deinit();
         try printLineInfo(
-            di,
             out_stream,
             line_info,
             address,
@@ -620,7 +617,7 @@ fn printSourceAtAddressMacOs(di: *DebugInfo, out_stream: var, address: usize, tt
 /// This function works in freestanding mode.
 /// fn printLineFromFile(out_stream: var, line_info: LineInfo) !void
 pub fn printSourceAtAddressDwarf(
-    debug_info: *DebugInfo,
+    debug_info: *DwarfInfo,
     out_stream: var,
     address: usize,
     tty_color: bool,
@@ -639,7 +636,6 @@ pub fn printSourceAtAddressDwarf(
         defer line_info.deinit();
         const symbol_name = "???";
         try printLineInfo(
-            debug_info,
             out_stream,
             line_info,
             address,
@@ -665,7 +661,6 @@ pub fn printSourceAtAddressLinux(debug_info: *DebugInfo, out_stream: var, addres
 }
 
 fn printLineInfo(
-    debug_info: *DebugInfo,
     out_stream: var,
     line_info: LineInfo,
     address: usize,
@@ -900,36 +895,50 @@ fn readSparseBitVector(stream: var, allocator: *mem.Allocator) ![]usize {
     return list.toOwnedSlice();
 }
 
-pub fn openDwarfDebugInfo(
-    allocator: *mem.Allocator,
-    dwarf_seekable_stream: *DwarfSeekableStream,
-    dwarf_in_stream: *DwarfInStream,
-) !DebugInfo {
-    var di = DebugInfo{
-        .dwarf_seekable_stream = dwarf_seekable_stream,
-        .dwarf_in_stream = dwarf_in_stream,
-        .elf = undefined,
-        .debug_info = undefined,
-        .debug_abbrev = undefined,
-        .debug_str = undefined,
-        .debug_line = undefined,
-        .debug_ranges = null,
-        .abbrev_table_list = ArrayList(AbbrevTableHeader).init(allocator),
-        .compile_unit_list = ArrayList(CompileUnit).init(allocator),
+fn findDwarfSectionFromElf(elf_file: *elf.Elf, name: []const u8) !?DwarfInfo.Section {
+    const elf_header = (try elf_file.findSection(name)) orelse return null;
+    return DwarfInfo.Section{
+        .offset = elf_header.offset,
+        .size = elf_header.size,
     };
-    try di.elf.openStream(allocator, dwarf_seekable_stream, dwarf_in_stream);
-    errdefer di.elf.close();
+}
 
-    di.debug_info = (try di.elf.findSection(".debug_info")) orelse return error.MissingDebugInfo;
-    di.debug_abbrev = (try di.elf.findSection(".debug_abbrev")) orelse return error.MissingDebugInfo;
-    di.debug_str = (try di.elf.findSection(".debug_str")) orelse return error.MissingDebugInfo;
-    di.debug_line = (try di.elf.findSection(".debug_line")) orelse return error.MissingDebugInfo;
-    di.debug_ranges = (try di.elf.findSection(".debug_ranges"));
-    try scanAllCompileUnits(&di);
+/// Initialize DWARF info. The caller has the responsibility to initialize most
+/// the DwarfInfo fields before calling. These fields can be left undefined:
+/// * abbrev_table_list
+/// * compile_unit_list
+pub fn openDwarfDebugInfo(di: *DwarfInfo, allocator: *mem.Allocator) !void {
+    di.abbrev_table_list = ArrayList(AbbrevTableHeader).init(allocator);
+    di.compile_unit_list = ArrayList(CompileUnit).init(allocator);
+    try scanAllCompileUnits(di);
+}
+
+pub fn openElfDebugInfo(
+    allocator: *mem.Allocator,
+    elf_seekable_stream: *DwarfSeekableStream,
+    elf_in_stream: *DwarfInStream,
+) !DwarfInfo {
+    var efile: elf.Elf = undefined;
+    try efile.openStream(allocator, elf_seekable_stream, elf_in_stream);
+    errdefer efile.close();
+
+    var di = DwarfInfo{
+        .dwarf_seekable_stream = elf_seekable_stream,
+        .dwarf_in_stream = elf_in_stream,
+        .endian = efile.endian,
+        .debug_info = (try findDwarfSectionFromElf(&efile, ".debug_info")) orelse return error.MissingDebugInfo,
+        .debug_abbrev = (try findDwarfSectionFromElf(&efile, ".debug_abbrev")) orelse return error.MissingDebugInfo,
+        .debug_str = (try findDwarfSectionFromElf(&efile, ".debug_str")) orelse return error.MissingDebugInfo,
+        .debug_line = (try findDwarfSectionFromElf(&efile, ".debug_line")) orelse return error.MissingDebugInfo,
+        .debug_ranges = (try findDwarfSectionFromElf(&efile, ".debug_ranges")),
+        .abbrev_table_list = undefined,
+        .compile_unit_list = undefined,
+    };
+    try openDwarfDebugInfo(&di, allocator);
     return di;
 }
 
-fn openSelfDebugInfoLinux(allocator: *mem.Allocator) !DebugInfo {
+fn openSelfDebugInfoLinux(allocator: *mem.Allocator) !DwarfInfo {
     const S = struct {
         var self_exe_file: os.File = undefined;
         var self_exe_seekable_stream: os.File.SeekableStream = undefined;
@@ -941,7 +950,7 @@ fn openSelfDebugInfoLinux(allocator: *mem.Allocator) !DebugInfo {
     S.self_exe_seekable_stream = S.self_exe_file.seekableStream();
     S.self_exe_in_stream = S.self_exe_file.inStream();
 
-    return openDwarfDebugInfo(
+    return openElfDebugInfo(
         allocator,
         // TODO https://github.com/ziglang/zig/issues/764
         @ptrCast(*DwarfSeekableStream, &S.self_exe_seekable_stream.stream),
@@ -1086,25 +1095,26 @@ pub const DwarfInStream = io.InStream(anyerror);
 pub const DwarfInfo = struct {
     dwarf_seekable_stream: *DwarfSeekableStream,
     dwarf_in_stream: *DwarfInStream,
-    elf: elf.Elf,
-    debug_info: *elf.SectionHeader,
-    debug_abbrev: *elf.SectionHeader,
-    debug_str: *elf.SectionHeader,
-    debug_line: *elf.SectionHeader,
-    debug_ranges: ?*elf.SectionHeader,
+    endian: builtin.Endian,
+    debug_info: Section,
+    debug_abbrev: Section,
+    debug_str: Section,
+    debug_line: Section,
+    debug_ranges: ?Section,
     abbrev_table_list: ArrayList(AbbrevTableHeader),
     compile_unit_list: ArrayList(CompileUnit),
 
-    pub fn allocator(self: DebugInfo) *mem.Allocator {
+    pub const Section = struct {
+        offset: usize,
+        size: usize,
+    };
+
+    pub fn allocator(self: DwarfInfo) *mem.Allocator {
         return self.abbrev_table_list.allocator;
     }
 
-    pub fn readString(self: *DebugInfo) ![]u8 {
+    pub fn readString(self: *DwarfInfo) ![]u8 {
         return readStringRaw(self.allocator(), self.dwarf_in_stream);
-    }
-
-    pub fn close(self: *DebugInfo) void {
-        self.elf.close();
     }
 };
 
@@ -1236,7 +1246,7 @@ const Die = struct {
         };
     }
 
-    fn getAttrString(self: *const Die, di: *DebugInfo, id: u64) ![]u8 {
+    fn getAttrString(self: *const Die, di: *DwarfInfo, id: u64) ![]u8 {
         const form_value = self.getAttr(id) orelse return error.MissingDebugInfo;
         return switch (form_value.*) {
             FormValue.String => |value| value,
@@ -1253,7 +1263,7 @@ const FileEntry = struct {
     len_bytes: usize,
 };
 
-const LineInfo = struct {
+pub const LineInfo = struct {
     line: usize,
     column: usize,
     file_name: []const u8,
@@ -1352,7 +1362,7 @@ fn readStringRaw(allocator: *mem.Allocator, in_stream: var) ![]u8 {
     return buf.toSlice();
 }
 
-fn getString(di: *DebugInfo, offset: u64) ![]u8 {
+fn getString(di: *DwarfInfo, offset: u64) ![]u8 {
     const pos = di.debug_str.offset + offset;
     try di.dwarf_seekable_stream.seekTo(pos);
     return di.readString();
@@ -1452,7 +1462,7 @@ fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, is_64
     };
 }
 
-fn parseAbbrevTable(di: *DebugInfo) !AbbrevTable {
+fn parseAbbrevTable(di: *DwarfInfo) !AbbrevTable {
     var result = AbbrevTable.init(di.allocator());
     while (true) {
         const abbrev_code = try readULeb128(di.dwarf_in_stream);
@@ -1479,7 +1489,7 @@ fn parseAbbrevTable(di: *DebugInfo) !AbbrevTable {
 
 /// Gets an already existing AbbrevTable given the abbrev_offset, or if not found,
 /// seeks in the stream and parses it.
-fn getAbbrevTable(di: *DebugInfo, abbrev_offset: u64) !*const AbbrevTable {
+fn getAbbrevTable(di: *DwarfInfo, abbrev_offset: u64) !*const AbbrevTable {
     for (di.abbrev_table_list.toSlice()) |*header| {
         if (header.offset == abbrev_offset) {
             return &header.table;
@@ -1500,7 +1510,7 @@ fn getAbbrevTableEntry(abbrev_table: *const AbbrevTable, abbrev_code: u64) ?*con
     return null;
 }
 
-fn parseDie(di: *DebugInfo, abbrev_table: *const AbbrevTable, is_64: bool) !Die {
+fn parseDie(di: *DwarfInfo, abbrev_table: *const AbbrevTable, is_64: bool) !Die {
     const abbrev_code = try readULeb128(di.dwarf_in_stream);
     const table_entry = getAbbrevTableEntry(abbrev_table, abbrev_code) orelse return error.InvalidDebugInfo;
 
@@ -1717,7 +1727,7 @@ fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: u
     return error.MissingDebugInfo;
 }
 
-fn getLineNumberInfoDwarf(di: *DebugInfo, compile_unit: CompileUnit, target_address: usize) !LineInfo {
+fn getLineNumberInfoDwarf(di: *DwarfInfo, compile_unit: CompileUnit, target_address: usize) !LineInfo {
     const compile_unit_cwd = try compile_unit.die.getAttrString(di, DW.AT_comp_dir);
 
     const debug_line_end = di.debug_line.offset + di.debug_line.size;
@@ -1737,11 +1747,11 @@ fn getLineNumberInfoDwarf(di: *DebugInfo, compile_unit: CompileUnit, target_addr
             continue;
         }
 
-        const version = try di.dwarf_in_stream.readInt(di.elf.endian, u16);
+        const version = try di.dwarf_in_stream.readInt(di.endian, u16);
         // TODO support 3 and 5
         if (version != 2 and version != 4) return error.InvalidDebugInfo;
 
-        const prologue_length = if (is_64) try di.dwarf_in_stream.readInt(di.elf.endian, u64) else try di.dwarf_in_stream.readInt(di.elf.endian, u32);
+        const prologue_length = if (is_64) try di.dwarf_in_stream.readInt(di.endian, u64) else try di.dwarf_in_stream.readInt(di.endian, u32);
         const prog_start_offset = (try di.dwarf_seekable_stream.getPos()) + prologue_length;
 
         const minimum_instruction_length = try di.dwarf_in_stream.readByte();
@@ -1810,7 +1820,7 @@ fn getLineNumberInfoDwarf(di: *DebugInfo, compile_unit: CompileUnit, target_addr
                         return error.MissingDebugInfo;
                     },
                     DW.LNE_set_address => {
-                        const addr = try di.dwarf_in_stream.readInt(di.elf.endian, usize);
+                        const addr = try di.dwarf_in_stream.readInt(di.endian, usize);
                         prog.address = addr;
                     },
                     DW.LNE_define_file => {
@@ -1872,7 +1882,7 @@ fn getLineNumberInfoDwarf(di: *DebugInfo, compile_unit: CompileUnit, target_addr
                         prog.address += inc_addr;
                     },
                     DW.LNS_fixed_advance_pc => {
-                        const arg = try di.dwarf_in_stream.readInt(di.elf.endian, u16);
+                        const arg = try di.dwarf_in_stream.readInt(di.endian, u16);
                         prog.address += arg;
                     },
                     DW.LNS_set_prologue_end => {},
@@ -1891,7 +1901,7 @@ fn getLineNumberInfoDwarf(di: *DebugInfo, compile_unit: CompileUnit, target_addr
     return error.MissingDebugInfo;
 }
 
-fn scanAllCompileUnits(di: *DebugInfo) !void {
+fn scanAllCompileUnits(di: *DwarfInfo) !void {
     const debug_info_end = di.debug_info.offset + di.debug_info.size;
     var this_unit_offset = di.debug_info.offset;
     var cu_index: usize = 0;
@@ -1904,10 +1914,10 @@ fn scanAllCompileUnits(di: *DebugInfo) !void {
         if (unit_length == 0) return;
         const next_offset = unit_length + (if (is_64) usize(12) else usize(4));
 
-        const version = try di.dwarf_in_stream.readInt(di.elf.endian, u16);
+        const version = try di.dwarf_in_stream.readInt(di.endian, u16);
         if (version < 2 or version > 5) return error.InvalidDebugInfo;
 
-        const debug_abbrev_offset = if (is_64) try di.dwarf_in_stream.readInt(di.elf.endian, u64) else try di.dwarf_in_stream.readInt(di.elf.endian, u32);
+        const debug_abbrev_offset = if (is_64) try di.dwarf_in_stream.readInt(di.endian, u64) else try di.dwarf_in_stream.readInt(di.endian, u32);
 
         const address_size = try di.dwarf_in_stream.readByte();
         if (address_size != @sizeOf(usize)) return error.InvalidDebugInfo;
@@ -1958,7 +1968,7 @@ fn scanAllCompileUnits(di: *DebugInfo) !void {
     }
 }
 
-fn findCompileUnit(di: *DebugInfo, target_address: u64) !*const CompileUnit {
+fn findCompileUnit(di: *DwarfInfo, target_address: u64) !*const CompileUnit {
     for (di.compile_unit_list.toSlice()) |*compile_unit| {
         if (compile_unit.pc_range) |range| {
             if (target_address >= range.start and target_address < range.end) return compile_unit;
