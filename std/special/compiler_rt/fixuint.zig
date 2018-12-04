@@ -4,6 +4,12 @@ const Log2Int = @import("std").math.Log2Int;
 pub fn fixuint(comptime fp_t: type, comptime fixuint_t: type, a: fp_t) fixuint_t {
     @setRuntimeSafety(is_test);
 
+    // Special case u1 otherwise compiler segfaults
+    switch (fixuint_t) {
+        u1 => return if (a <= 0.0) return fixuint_t(0) else fixuint_t(1),
+        else => {},
+    }
+
     const rep_t = switch (fp_t) {
         f32 => u32,
         f64 => u64,
