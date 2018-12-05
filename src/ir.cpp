@@ -67,6 +67,8 @@ enum ConstCastResultId {
 struct ConstCastOnly;
 struct ConstCastArg {
     size_t arg_index;
+    ZigType *actual_param_type;
+    ZigType *expected_param_type;
     ConstCastOnly *child;
 };
 
@@ -8638,6 +8640,8 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
             if (arg_child.id != ConstCastResultIdOk) {
                 result.id = ConstCastResultIdFnArg;
                 result.data.fn_arg.arg_index = i;
+                result.data.fn_arg.actual_param_type = actual_param_info->type;
+                result.data.fn_arg.expected_param_type = expected_param_info->type;
                 result.data.fn_arg.child = allocate_nonzero<ConstCastOnly>(1);
                 *result.data.fn_arg.child = arg_child;
                 return result;
@@ -10483,6 +10487,15 @@ static void report_recursive_error(IrAnalyze *ira, AstNode *source_node, ConstCa
             }
             break;
         }
+        case ConstCastResultIdFnArg: {
+            ErrorMsg *msg = add_error_note(ira->codegen, parent_msg, source_node,
+                    buf_sprintf("parameter %" ZIG_PRI_usize ": '%s' cannot cast into '%s'",
+                        cast_result->data.fn_arg.arg_index,
+                        buf_ptr(&cast_result->data.fn_arg.actual_param_type->name),
+                        buf_ptr(&cast_result->data.fn_arg.expected_param_type->name)));
+            report_recursive_error(ira, source_node, cast_result->data.fn_arg.child, msg);
+            break;
+        }
         case ConstCastResultIdFnAlign: // TODO
         case ConstCastResultIdFnCC: // TODO
         case ConstCastResultIdFnVarArgs: // TODO
@@ -10490,7 +10503,6 @@ static void report_recursive_error(IrAnalyze *ira, AstNode *source_node, ConstCa
         case ConstCastResultIdFnReturnType: // TODO
         case ConstCastResultIdFnArgCount: // TODO
         case ConstCastResultIdFnGenericArgCount: // TODO
-        case ConstCastResultIdFnArg: // TODO
         case ConstCastResultIdFnArgNoAlias: // TODO
         case ConstCastResultIdUnresolvedInferredErrSet: // TODO
         case ConstCastResultIdAsyncAllocatorType: // TODO
