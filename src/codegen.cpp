@@ -2264,19 +2264,23 @@ static LLVMValueRef ir_render_save_err_ret_addr(CodeGen *g, IrExecutable *execut
 }
 
 static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrInstructionReturn *return_instruction) {
-    LLVMValueRef value = ir_llvm_value(g, return_instruction->value);
     ZigType *return_type = return_instruction->value->value.type;
-    if (type_has_bits(return_type) &&
-        handle_is_ptr(return_type) &&
-        return_instruction->value->value.special == ConstValSpecialStatic)
-    {
-        assert(g->cur_ret_ptr);
-        gen_assign_raw(g, g->cur_ret_ptr, get_pointer_to_type(g, return_type, false), value);
+    if (!type_has_bits(return_type)) {
         LLVMBuildRetVoid(g->builder);
+        return nullptr;
+    }
+    LLVMValueRef value = ir_llvm_value(g, return_instruction->value);
+    if (handle_is_ptr(return_type)) {
+        if (return_instruction->value->value.special == ConstValSpecialStatic) {
+            assert(g->cur_ret_ptr);
+            gen_assign_raw(g, g->cur_ret_ptr, get_pointer_to_type(g, return_type, false), value);
+        }
+        LLVMBuildRetVoid(g->builder);
+        return nullptr;
     } else {
         LLVMBuildRet(g->builder, value);
+        return nullptr;
     }
-    return nullptr;
 }
 
 static LLVMValueRef gen_overflow_shl_op(CodeGen *g, ZigType *type_entry,

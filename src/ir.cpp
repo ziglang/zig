@@ -3236,8 +3236,13 @@ static IrInstruction *ir_gen_result(IrBuilder *irb, Scope *scope, AstNode *node,
             return ir_build_load_ptr(irb, scope, node, result_loc, nullptr);
         case LValPtr:
             return result_loc;
-        case LValErrorUnionVal:
-        case LValErrorUnionPtr:
+        case LValErrorUnionVal: {
+            IrInstruction *err_ptr = ir_build_error_union_field_error_set(irb, scope, node, result_loc, false);
+            return ir_build_load_ptr(irb, scope, node, err_ptr, nullptr);
+        }
+        case LValErrorUnionPtr: {
+            return ir_build_error_union_field_error_set(irb, scope, node, result_loc, false);
+        }
         case LValOptional:
             zig_unreachable();
     }
@@ -3292,10 +3297,13 @@ static IrInstruction *ir_gen_value(IrBuilder *irb, Scope *scope, AstNode *node, 
             case LValPtr:
                 zig_unreachable();
             case LValErrorUnionVal:
-            case LValErrorUnionPtr:
-                zig_panic("TODO");
-                //ir_build_store_ptr(irb, scope, node, result_loc, value);
-                //return ir_gen_result(irb, scope, node, lval, result_loc);
+                ir_build_store_ptr(irb, scope, node, result_loc, value);
+                return ir_build_const_null(irb, scope, node);
+            case LValErrorUnionPtr: {
+                ir_build_store_ptr(irb, scope, node, result_loc, value);
+                IrInstruction *null = ir_build_const_null(irb, scope, node);
+                return ir_build_ref(irb, scope, node, null, true, false, nullptr);
+            }
             case LValOptional: {
                 zig_panic("TODO");
                 //// result_loc is a pointer to child type
@@ -14246,15 +14254,28 @@ static IrInstruction *analyze_runtime_call(IrAnalyze *ira, ZigType *return_type,
                 if (payload_result_loc != nullptr)
                     return payload_result_loc;
                 return ir_get_ref(ira, &call_instruction->base, new_call_instruction, true, false, nullptr);
-            case LValErrorUnionVal:
-                return ir_const(ira, &call_instruction->base, ira->codegen->builtin_types.entry_null);
+            case LValErrorUnionVal: {
+                if (return_type->id == ZigTypeIdErrorUnion) {
+                    return new_call_instruction;
+                } else {
+                    return ir_const(ira, &call_instruction->base, ira->codegen->builtin_types.entry_null);
+                }
+            }
             case LValErrorUnionPtr: {
-                IrInstruction *null = ir_const(ira, &call_instruction->base,
-                        ira->codegen->builtin_types.entry_null);
-                return ir_get_ref(ira, &call_instruction->base, null, true, false, nullptr);
+                if (return_type->id == ZigTypeIdErrorUnion) {
+                    return ir_get_ref(ira, &call_instruction->base, new_call_instruction, true, false, nullptr);
+                } else {
+                    IrInstruction *null = ir_const(ira, &call_instruction->base,
+                            ira->codegen->builtin_types.entry_null);
+                    return ir_get_ref(ira, &call_instruction->base, null, true, false, nullptr);
+                }
             }
             case LValOptional:
-                return ir_const_bool(ira, &call_instruction->base, false);
+                if (return_type->id == ZigTypeIdOptional) {
+                    return new_call_instruction;
+                } else {
+                    return ir_const_bool(ira, &call_instruction->base, false);
+                }
         }
         zig_unreachable();
     }
@@ -22346,10 +22367,14 @@ static IrInstruction *ir_analyze_instruction_result_return(IrAnalyze *ira, IrIns
     IrInstruction *result = ir_build_result_return(&ira->new_irb, instruction->base.scope,
             instruction->base.source_node);
     result->value.type = result_type;
-    result->value.special = ConstValSpecialStatic;
-    result->value.data.x_ptr.special = ConstPtrSpecialRef;
-    result->value.data.x_ptr.data.ref.pointee = pointee;
-    result->value.data.x_ptr.mut = ConstPtrMutInfer;
+    if (type_has_bits(pointee->type) && handle_is_ptr(pointee->type)) {
+        result->value.special = ConstValSpecialStatic;
+        result->value.data.x_ptr.special = ConstPtrSpecialRef;
+        result->value.data.x_ptr.data.ref.pointee = pointee;
+        result->value.data.x_ptr.mut = ConstPtrMutInfer;
+    } else {
+        result->value.special = ConstValSpecialRuntime;
+    }
     return result;
 }
 
