@@ -198,6 +198,7 @@ pub const Tokenizer = struct {
     buffer: []const u8,
     index: usize,
     pending_invalid_token: ?Token,
+    turn_a_blind_eye_to_invalid_whitespace: bool,
 
     /// For debugging purposes
     pub fn dump(self: *Tokenizer, token: *const Token) void {
@@ -215,12 +216,14 @@ pub const Tokenizer = struct {
                     .start = 0,
                     .end = src_start,
                 },
+                .turn_a_blind_eye_to_invalid_whitespace = false,
             };
         } else {
             return Tokenizer{
                 .buffer = buffer,
                 .index = 0,
                 .pending_invalid_token = null,
+                .turn_a_blind_eye_to_invalid_whitespace = false,
             };
         }
     }
@@ -295,11 +298,17 @@ pub const Tokenizer = struct {
             const c = self.buffer[self.index];
             switch (state) {
                 State.Start => switch (c) {
-                    ' ' => {
+                    ' ', '\n' => {
                         result.start = self.index + 1;
                     },
-                    '\n' => {
-                        result.start = self.index + 1;
+                    '\t', '\r' => {
+                        if (self.turn_a_blind_eye_to_invalid_whitespace) {
+                            result.start = self.index + 1;
+                        } else {
+                            result.id = Token.Id.Invalid;
+                            self.index += 1;
+                            break;
+                        }
                     },
                     'c' => {
                         state = State.C;

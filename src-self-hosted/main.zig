@@ -772,7 +772,7 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtErro
     };
     defer fmt.loop.allocator.free(source_code);
 
-    var tree = std.zig.parse(fmt.loop.allocator, source_code) catch |err| {
+    var tree = std.zig.parseAndTurnABlindEyeToInvalidWhitespace(fmt.loop.allocator, source_code) catch |err| {
         try stderr.print("error parsing file '{}': {}\n", file_path, err);
         fmt.any_error = true;
         return;

@@ -1871,6 +1871,20 @@ test "zig fmt: error return" {
     );
 }
 
+test "zig fmt: fix invalid whitespace" {
+    try testTransform("" ++
+        "fn foo() void {\r\n" ++
+        "\tcall();\r\n" ++
+        "\treturn;\r\n" ++
+        "}\r\n",
+        \\fn foo() void {
+        \\    call();
+        \\    return;
+        \\}
+        \\
+    );
+}
+
 const std = @import("std");
 const mem = std.mem;
 const warn = std.debug.warn;
@@ -1883,7 +1897,7 @@ fn testParse(source: []const u8, allocator: *mem.Allocator, anything_changed: *b
     var stderr_file = try io.getStdErr();
     var stderr = &stderr_file.outStream().stream;
 
-    var tree = try std.zig.parse(allocator, source);
+    var tree = try std.zig.parseAndTurnABlindEyeToInvalidWhitespace(allocator, source);
     defer tree.deinit();
 
     var error_it = tree.errors.iterator(0);

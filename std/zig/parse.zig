@@ -10,6 +10,12 @@ const Error = ast.Error;
 /// Result should be freed with tree.deinit() when there are
 /// no more references to any of the tokens or nodes.
 pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
+    return _parse(allocator, source, false);
+}
+pub fn parseAndTurnABlindEyeToInvalidWhitespace(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
+    return _parse(allocator, source, true);
+}
+fn _parse(allocator: *mem.Allocator, source: []const u8, turn_a_blind_eye_to_invalid_whitespace: bool) !ast.Tree {
     var tree_arena = std.heap.ArenaAllocator.init(allocator);
     errdefer tree_arena.deinit();
 
@@ -35,6 +41,9 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
     };
 
     var tokenizer = Tokenizer.init(tree.source);
+    if (turn_a_blind_eye_to_invalid_whitespace) {
+        tokenizer.turn_a_blind_eye_to_invalid_whitespace = true;
+    }
     while (true) {
         const token_ptr = try tree.tokens.addOne();
         token_ptr.* = tokenizer.next();
