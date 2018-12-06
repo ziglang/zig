@@ -52,6 +52,16 @@ comptime {
     @export("__fixunstfdi", @import("fixunstfdi.zig").__fixunstfdi, linkage);
     @export("__fixunstfti", @import("fixunstfti.zig").__fixunstfti, linkage);
 
+    @export("__fixdfdi", @import("fixdfdi.zig").__fixdfdi, linkage);
+    @export("__fixdfsi", @import("fixdfsi.zig").__fixdfsi, linkage);
+    @export("__fixdfti", @import("fixdfti.zig").__fixdfti, linkage);
+    @export("__fixsfdi", @import("fixsfdi.zig").__fixsfdi, linkage);
+    @export("__fixsfsi", @import("fixsfsi.zig").__fixsfsi, linkage);
+    @export("__fixsfti", @import("fixsfti.zig").__fixsfti, linkage);
+    @export("__fixtfdi", @import("fixtfdi.zig").__fixtfdi, linkage);
+    @export("__fixtfsi", @import("fixtfsi.zig").__fixtfsi, linkage);
+    @export("__fixtfti", @import("fixtfti.zig").__fixtfti, linkage);
+
     @export("__udivmoddi4", @import("udivmoddi4.zig").__udivmoddi4, linkage);
 
     @export("__udivsi3", __udivsi3, linkage);

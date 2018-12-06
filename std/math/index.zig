@@ -6,6 +6,13 @@ const assert = std.debug.assert;
 pub const e = 2.71828182845904523536028747135266249775724709369995;
 pub const pi = 3.14159265358979323846264338327950288419716939937510;
 
+// From a small c++ [program using boost float128](https://github.com/winksaville/cpp_boost_float128)
+pub const f128_true_min = @bitCast(f128, u128(0x00000000000000000000000000000001));
+pub const f128_min = @bitCast(f128, u128(0x00010000000000000000000000000000));
+pub const f128_max = @bitCast(f128, u128(0x7FFEFFFFFFFFFFFFFFFFFFFFFFFFFFFF));
+pub const f128_epsilon = @bitCast(f128, u128(0x3F8F0000000000000000000000000000));
+pub const f128_toint = 1.0 / f128_epsilon;
+
 // float.h details
 pub const f64_true_min = 4.94065645841246544177e-324;
 pub const f64_min = 2.2250738585072014e-308;
