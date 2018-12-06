@@ -7754,7 +7754,14 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
 
     if (!instr_is_unreachable(result)) {
         // no need for save_err_ret_addr because this cannot return error
-        ir_gen_async_return(irb, scope, result->source_node, result, true);
+        IrInstruction *implicit_return_result = result;
+        if (fn_entry != nullptr) {
+            ZigType *return_type = fn_entry->type_entry->data.fn.fn_type_id.return_type;
+            if (return_type->id == ZigTypeIdErrorUnion) {
+                implicit_return_result = ir_build_const_null(irb, scope, result->source_node);
+            }
+        }
+        ir_gen_async_return(irb, scope, result->source_node, implicit_return_result, true);
     }
 
     if (is_async) {
