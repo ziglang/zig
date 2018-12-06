@@ -3249,33 +3249,6 @@ static IrInstruction *ir_gen_result(IrBuilder *irb, Scope *scope, AstNode *node,
     zig_unreachable();
 }
 
-static IrInstruction *ir_gen_multi(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval,
-        IrInstruction *result_loc, IrInstruction *value)
-{
-    switch (lval) {
-        case LValNone:
-            return value;
-        case LValPtr: {
-            if (result_loc != nullptr)
-                return result_loc;
-            // We needed a pointer to a value, but we got a value. So we create
-            // an instruction which just makes a pointer of it.
-            return ir_build_ref(irb, scope, value->source_node, value, false, false, nullptr);
-        }
-        case LValErrorUnionPtr: {
-            IrInstruction *err_alloca = ir_build_alloca_src(irb, scope, value->source_node,
-                    nullptr, nullptr, "err");
-            ir_build_store_ptr(irb, scope, value->source_node, err_alloca, value);
-            return err_alloca;
-        }
-        case LValErrorUnionVal:
-            return value;
-        case LValOptional:
-            return value;
-    }
-    zig_unreachable();
-}
-
 static IrInstruction *ensure_result_loc(IrBuilder *irb, Scope *scope, AstNode *node, IrInstruction *result_loc) {
     if (result_loc)
         return result_loc;
@@ -6729,8 +6702,8 @@ static IrInstruction *ir_gen_slice(IrBuilder *irb, Scope *scope, AstNode *node, 
         end_value = nullptr;
     }
 
-    IrInstruction *result = ir_build_slice(irb, scope, node, ptr_value, start_value, end_value, true, result_loc);
-    return ir_gen_multi(irb, scope, node, lval, result_loc, result);
+    ir_build_slice(irb, scope, node, ptr_value, start_value, end_value, true, result_loc);
+    return ir_gen_result(irb, scope, node, lval, result_loc);
 }
 
 static IrInstruction *ir_gen_catch(IrBuilder *irb, Scope *parent_scope, AstNode *node, LVal lval,
