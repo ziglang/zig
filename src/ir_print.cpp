@@ -827,7 +827,8 @@ static void ir_print_unwrap_err_code(IrPrint *irp, IrInstructionUnwrapErrCode *i
 static void ir_print_unwrap_err_payload(IrPrint *irp, IrInstructionUnwrapErrPayload *instruction) {
     fprintf(irp->f, "ErrorUnionFieldPayload(");
     ir_print_other_instruction(irp, instruction->value);
-    fprintf(irp->f, ")");
+    fprintf(irp->f, ") result=");
+    ir_print_other_instruction(irp, instruction->result_loc);
     if (!instruction->safety_check_on) {
         fprintf(irp->f, " // no safety");
     }

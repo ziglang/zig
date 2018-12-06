@@ -5766,7 +5766,7 @@ void eval_min_max_value(CodeGen *g, ZigType *type_entry, ConstExprValue *const_v
     }
 }
 
-void render_const_val_ptr(CodeGen *g, Buf *buf, ConstExprValue *const_val, ZigType *type_entry) {
+static void render_const_val_ptr(CodeGen *g, Buf *buf, ConstExprValue *const_val, ZigType *type_entry) {
     switch (const_val->data.x_ptr.special) {
         case ConstPtrSpecialInvalid:
             zig_unreachable();
@@ -5801,6 +5801,14 @@ void render_const_val_ptr(CodeGen *g, Buf *buf, ConstExprValue *const_val, ZigTy
             }
     }
     zig_unreachable();
+}
+
+static void render_const_val_err_set(CodeGen *g, Buf *buf, ConstExprValue *const_val, ZigType *type_entry) {
+    if (const_val->data.x_err_set == nullptr) {
+        buf_append_str(buf, "null");
+    } else {
+        buf_appendf(buf, "%s.%s", buf_ptr(&type_entry->name), buf_ptr(&const_val->data.x_err_set->name));
+    }
 }
 
 void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
@@ -5930,6 +5938,8 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
             {
                 if (get_codegen_ptr_type(const_val->type) != nullptr)
                     return render_const_val_ptr(g, buf, const_val, type_entry->data.maybe.child_type);
+                if (type_entry->data.maybe.child_type->id == ZigTypeIdErrorSet)
+                    return render_const_val_err_set(g, buf, const_val, type_entry->data.maybe.child_type);
                 if (const_val->data.x_optional) {
                     render_const_value(g, buf, const_val->data.x_optional);
                 } else {
@@ -5987,10 +5997,7 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
                 return;
             }
         case ZigTypeIdErrorSet:
-            {
-                buf_appendf(buf, "%s.%s", buf_ptr(&type_entry->name), buf_ptr(&const_val->data.x_err_set->name));
-                return;
-            }
+            return render_const_val_err_set(g, buf, const_val, type_entry);
         case ZigTypeIdArgTuple:
             {
                 buf_appendf(buf, "(args value)");

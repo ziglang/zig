@@ -2923,6 +2923,7 @@ struct IrInstructionUnwrapErrPayload {
     IrInstruction base;
 
     IrInstruction *value;
+    IrInstruction *result_loc;
     bool safety_check_on;
 };
 
