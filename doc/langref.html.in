@@ -8,7 +8,7 @@
       body{
         background-color:#111;
         color: #bbb;
-        font-family: sans-serif;
+        font-family: system-ui, sans-serif;
       }
       a {
         color: #88f;
