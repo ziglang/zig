@@ -8,7 +8,13 @@
       body{
         background-color:#111;
         color: #bbb;
-        font-family: system-ui, sans-serif;
+        font-family: system-ui,
+          /* Fallbacks for browsers that don't support system-ui */
+          /* https://caniuse.com/#search=system-ui */
+          -apple-system, /* iOS and macOS */
+          Roboto,        /* Android */
+          "Segoe UI",    /* Windows */
+          sans-serif;
       }
       a {
         color: #88f;
