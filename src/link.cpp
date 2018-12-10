@@ -1569,7 +1569,7 @@ static void construct_linker_job_macho(LinkJob *lj) {
             lj->args.append("-lgcc_s.10.5");
         }
     } else {
-        zig_panic("TODO");
+        //zig_panic("TODO");
     }
 
     for (size_t i = 0; i < g->darwin_frameworks.length; i += 1) {
