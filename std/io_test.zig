@@ -416,6 +416,10 @@ test "Serializer/Deserializer Int: Inf/NaN" {
     try testIntSerializerDeserializerInfNaN(builtin.Endian.Little, true);
 }
 
+fn testAlternateSerializer(self: var, serializer: var) !void {
+    try serializer.serialize(self.f_f16);
+}
+
 fn testSerializerDeserializer(comptime endian: builtin.Endian, comptime is_packed: bool) !void {
     const ColorType = enum(u4) {
         RGB8 = 1,
@@ -448,6 +452,8 @@ fn testSerializerDeserializer(comptime endian: builtin.Endian, comptime is_packe
         f_u2: u2,
     };
 
+    
+    
     //to test custom serialization
     const Custom = struct {
         f_f16: f16,
@@ -458,9 +464,7 @@ fn testSerializerDeserializer(comptime endian: builtin.Endian, comptime is_packe
             self.f_unused_u32 = 47;
         }
 
-        pub fn serialize(self: *const @This(), serializer: var) !void {
-            try serializer.serialize(self.f_f16);
-        }
+        pub const serialize = testAlternateSerializer;
     };
 
     const MyStruct = struct {

@@ -1146,7 +1146,7 @@ pub fn Deserializer(endian: builtin.Endian, is_packed: bool, comptime Error: typ
             const child_type_id = @typeId(C);
 
             //custom deserializer: fn(self: *Self, deserializer: var) !void
-            if (comptime trait.hasFn("deserialize")(C)) return ptr.deserialize(self);
+            if (comptime trait.hasFn("deserialize")(C)) return C.deserialize(ptr, self);
 
             if (comptime trait.isPacked(C) and !is_packed) {
                 var packed_deserializer = Deserializer(endian, true, Error).init(self.in_stream);
@@ -1308,8 +1308,8 @@ pub fn Serializer(endian: builtin.Endian, is_packed: bool, comptime Error: type)
                 return;
             }
 
-            //custom serializer: fn(self: *const Self, serializer: var) !void
-            if (comptime trait.hasFn("serialize")(T)) return value.serialize(self);
+            //custom serializer: fn(self: Self, serializer: var) !void
+            if (comptime trait.hasFn("serialize")(T)) return T.serialize(value, self);
 
             if (comptime trait.isPacked(T) and !is_packed) {
                 var packed_serializer = Serializer(endian, true, Error).init(self.out_stream);
