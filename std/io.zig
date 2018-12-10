@@ -1243,7 +1243,7 @@ pub fn Deserializer(endian: builtin.Endian, is_packed: bool, comptime Error: typ
 ///  endianess, after which data will resume being written at the next byte boundary.
 ///  Types may implement a custom serialization routine with a
 ///  function named `serialize` in the form of:
-///    pub fn serialize(self: *const Self, serializer: var) !void
+///    pub fn serialize(self: Self, serializer: var) !void
 ///  which will be called when the serializer is used to serialize that type. It will
 ///  pass a const pointer to the type instance to be serialized and a pointer
 ///  to the serializer struct.
