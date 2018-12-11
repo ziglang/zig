@@ -9903,6 +9903,12 @@ static IrInstruction *ir_const(IrAnalyze *ira, IrInstruction *old_instruction, Z
     return new_instruction;
 }
 
+static IrInstruction *ir_const_undef(IrAnalyze *ira, IrInstruction *source_instr) {
+    IrInstruction *undef = ir_const(ira, source_instr, ira->codegen->builtin_types.entry_undef);
+    undef->value.special = ConstValSpecialUndef;
+    return undef;
+}
+
 static IrInstruction *ir_resolve_cast(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value,
         ZigType *wanted_type, CastOp cast_op, bool need_alloca)
 {
@@ -14149,6 +14155,10 @@ static IrInstruction *analyze_runtime_call(IrAnalyze *ira, ZigType *return_type,
         scalar_result_type = get_optional_type(ira->codegen, return_type->data.error_union.err_set_type);
         payload_result_type = return_type->data.error_union.payload_type;
         convert_to_value = call_instruction->lval != LValErrorUnionVal && call_instruction->lval != LValErrorUnionPtr;
+    } else if (return_type->id == ZigTypeIdErrorSet) {
+        scalar_result_type = return_type;
+        payload_result_type = ira->codegen->builtin_types.entry_void;
+        convert_to_value = false;
     } else if (return_type->id == ZigTypeIdOptional) {
         scalar_result_type = ira->codegen->builtin_types.entry_bool;
         payload_result_type = return_type->data.maybe.child_type;
@@ -14240,14 +14250,14 @@ static IrInstruction *analyze_runtime_call(IrAnalyze *ira, ZigType *return_type,
                     return payload_result_loc;
                 return ir_get_ref(ira, &call_instruction->base, new_call_instruction, true, false, nullptr);
             case LValErrorUnionVal: {
-                if (return_type->id == ZigTypeIdErrorUnion) {
+                if (return_type->id == ZigTypeIdErrorUnion || return_type->id == ZigTypeIdErrorSet) {
                     return new_call_instruction;
                 } else {
                     return ir_const(ira, &call_instruction->base, ira->codegen->builtin_types.entry_null);
                 }
             }
             case LValErrorUnionPtr: {
-                if (return_type->id == ZigTypeIdErrorUnion) {
+                if (return_type->id == ZigTypeIdErrorUnion || return_type->id == ZigTypeIdErrorSet) {
                     return ir_get_ref(ira, &call_instruction->base, new_call_instruction, true, false, nullptr);
                 } else {
                     IrInstruction *null = ir_const(ira, &call_instruction->base,
@@ -20760,8 +20770,7 @@ static IrInstruction *ir_analyze_unwrap_err_payload(IrAnalyze *ira, IrInstructio
     if (type_is_invalid(type_entry))
         return ira->codegen->invalid_instruction;
     if (result_loc != nullptr && type_entry->id == ZigTypeIdErrorSet) {
-        IrInstruction *undef = ir_const(ira, source_instr, ira->codegen->builtin_types.entry_undef);
-        undef->value.special = ConstValSpecialUndef;
+        IrInstruction *undef = ir_const_undef(ira, source_instr);
         return ir_analyze_store_ptr(ira, source_instr, result_loc, undef);
     }
     if (type_entry->id != ZigTypeIdErrorUnion) {
