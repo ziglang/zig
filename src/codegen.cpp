@@ -3275,7 +3275,7 @@ static bool value_is_all_undef(ConstExprValue *const_val) {
 }
 
 static void gen_undef_init(CodeGen *g, uint32_t ptr_align_bytes, ZigType *value_type, LLVMValueRef ptr) {
-    ZigType *usize = g->builtin_types.entry_usize;
+    assert(type_has_bits(value_type));
     uint64_t size_bytes = LLVMStoreSizeOfType(g->target_data_ref, value_type->type_ref);
     assert(size_bytes > 0);
     assert(ptr_align_bytes > 0);
@@ -3283,6 +3283,7 @@ static void gen_undef_init(CodeGen *g, uint32_t ptr_align_bytes, ZigType *value_
     LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
     LLVMValueRef fill_char = LLVMConstInt(LLVMInt8Type(), 0xaa, false);
     LLVMValueRef dest_ptr = LLVMBuildBitCast(g->builder, ptr, ptr_u8, "");
+    ZigType *usize = g->builtin_types.entry_usize;
     LLVMValueRef byte_count = LLVMConstInt(usize->type_ref, size_bytes, false);
     ZigLLVMBuildMemSet(g->builder, dest_ptr, fill_char, byte_count, ptr_align_bytes, false);
 }
@@ -3290,6 +3291,8 @@ static void gen_undef_init(CodeGen *g, uint32_t ptr_align_bytes, ZigType *value_
 static LLVMValueRef ir_render_store_ptr(CodeGen *g, IrExecutable *executable, IrInstructionStorePtr *instruction) {
     ZigType *ptr_type = instruction->ptr->value.type;
     assert(ptr_type->id == ZigTypeIdPointer);
+    if (!type_has_bits(ptr_type))
+        return nullptr;
 
     bool have_init_expr = !value_is_all_undef(&instruction->value->value); 
     if (have_init_expr) {
