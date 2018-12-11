@@ -9237,13 +9237,13 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
     size_t errors_count = 0;
     ZigType *err_set_type = nullptr;
     if (prev_inst->value.type->id == ZigTypeIdErrorSet) {
+        if (!resolve_inferred_error_set(ira->codegen, prev_inst->value.type, prev_inst->source_node)) {
+            return ira->codegen->builtin_types.entry_invalid;
+        }
         if (type_is_global_error_set(prev_inst->value.type)) {
             err_set_type = ira->codegen->builtin_types.entry_global_error_set;
         } else {
             err_set_type = prev_inst->value.type;
-            if (!resolve_inferred_error_set(ira->codegen, err_set_type, prev_inst->source_node)) {
-                return ira->codegen->builtin_types.entry_invalid;
-            }
             update_errors_helper(ira->codegen, &errors, &errors_count);
 
             for (uint32_t i = 0; i < err_set_type->data.error_set.err_count; i += 1) {
