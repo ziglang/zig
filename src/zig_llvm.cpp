@@ -681,18 +681,6 @@ void ZigLLVMParseCommandLineOptions(size_t argc, const char *const *argv) {
 }
 
 
-static_assert((Triple::ArchType)ZigLLVM_LastArchType == Triple::LastArchType, "");
-static_assert((Triple::VendorType)ZigLLVM_LastVendorType == Triple::LastVendorType, "");
-static_assert((Triple::OSType)ZigLLVM_LastOSType == Triple::LastOSType, "");
-static_assert((Triple::EnvironmentType)ZigLLVM_LastEnvironmentType == Triple::LastEnvironmentType, "");
-static_assert((Triple::SubArchType)ZigLLVM_KalimbaSubArch_v5 == Triple::KalimbaSubArch_v5, "");
-
-static_assert((Triple::ObjectFormatType)ZigLLVM_UnknownObjectFormat == Triple::UnknownObjectFormat, "");
-static_assert((Triple::ObjectFormatType)ZigLLVM_COFF == Triple::COFF, "");
-static_assert((Triple::ObjectFormatType)ZigLLVM_ELF == Triple::ELF, "");
-static_assert((Triple::ObjectFormatType)ZigLLVM_MachO == Triple::MachO, "");
-static_assert((Triple::ObjectFormatType)ZigLLVM_Wasm == Triple::Wasm, "");
-
 const char *ZigLLVMGetArchTypeName(ZigLLVM_ArchType arch) {
     return (const char*)Triple::getArchTypeName((Triple::ArchType)arch).bytes_begin();
 }
@@ -919,3 +907,166 @@ bool ZigLLDLink(ZigLLVM_ObjectFormatType oformat, const char **args, size_t arg_
     assert(false); // unreachable
     abort();
 }
+
+static_assert((Triple::ArchType)ZigLLVM_UnknownArch == Triple::UnknownArch, "");
+static_assert((Triple::ArchType)ZigLLVM_arm == Triple::arm, "");
+static_assert((Triple::ArchType)ZigLLVM_armeb == Triple::armeb, "");
+static_assert((Triple::ArchType)ZigLLVM_aarch64 == Triple::aarch64, "");
+static_assert((Triple::ArchType)ZigLLVM_aarch64_be == Triple::aarch64_be, "");
+static_assert((Triple::ArchType)ZigLLVM_arc == Triple::arc, "");
+static_assert((Triple::ArchType)ZigLLVM_avr == Triple::avr, "");
+static_assert((Triple::ArchType)ZigLLVM_bpfel == Triple::bpfel, "");
+static_assert((Triple::ArchType)ZigLLVM_bpfeb == Triple::bpfeb, "");
+static_assert((Triple::ArchType)ZigLLVM_hexagon == Triple::hexagon, "");
+static_assert((Triple::ArchType)ZigLLVM_mips == Triple::mips, "");
+static_assert((Triple::ArchType)ZigLLVM_mipsel == Triple::mipsel, "");
+static_assert((Triple::ArchType)ZigLLVM_mips64 == Triple::mips64, "");
+static_assert((Triple::ArchType)ZigLLVM_mips64el == Triple::mips64el, "");
+static_assert((Triple::ArchType)ZigLLVM_msp430 == Triple::msp430, "");
+static_assert((Triple::ArchType)ZigLLVM_nios2 == Triple::nios2, "");
+static_assert((Triple::ArchType)ZigLLVM_ppc == Triple::ppc, "");
+static_assert((Triple::ArchType)ZigLLVM_ppc64 == Triple::ppc64, "");
+static_assert((Triple::ArchType)ZigLLVM_ppc64le == Triple::ppc64le, "");
+static_assert((Triple::ArchType)ZigLLVM_r600 == Triple::r600, "");
+static_assert((Triple::ArchType)ZigLLVM_amdgcn == Triple::amdgcn, "");
+static_assert((Triple::ArchType)ZigLLVM_riscv32 == Triple::riscv32, "");
+static_assert((Triple::ArchType)ZigLLVM_riscv64 == Triple::riscv64, "");
+static_assert((Triple::ArchType)ZigLLVM_sparc == Triple::sparc, "");
+static_assert((Triple::ArchType)ZigLLVM_sparcv9 == Triple::sparcv9, "");
+static_assert((Triple::ArchType)ZigLLVM_sparcel == Triple::sparcel, "");
+static_assert((Triple::ArchType)ZigLLVM_systemz == Triple::systemz, "");
+static_assert((Triple::ArchType)ZigLLVM_tce == Triple::tce, "");
+static_assert((Triple::ArchType)ZigLLVM_tcele == Triple::tcele, "");
+static_assert((Triple::ArchType)ZigLLVM_thumb == Triple::thumb, "");
+static_assert((Triple::ArchType)ZigLLVM_thumbeb == Triple::thumbeb, "");
+static_assert((Triple::ArchType)ZigLLVM_x86 == Triple::x86, "");
+static_assert((Triple::ArchType)ZigLLVM_x86_64 == Triple::x86_64, "");
+static_assert((Triple::ArchType)ZigLLVM_xcore == Triple::xcore, "");
+static_assert((Triple::ArchType)ZigLLVM_nvptx == Triple::nvptx, "");
+static_assert((Triple::ArchType)ZigLLVM_nvptx64 == Triple::nvptx64, "");
+static_assert((Triple::ArchType)ZigLLVM_le32 == Triple::le32, "");
+static_assert((Triple::ArchType)ZigLLVM_le64 == Triple::le64, "");
+static_assert((Triple::ArchType)ZigLLVM_amdil == Triple::amdil, "");
+static_assert((Triple::ArchType)ZigLLVM_amdil64 == Triple::amdil64, "");
+static_assert((Triple::ArchType)ZigLLVM_hsail == Triple::hsail, "");
+static_assert((Triple::ArchType)ZigLLVM_hsail64 == Triple::hsail64, "");
+static_assert((Triple::ArchType)ZigLLVM_spir == Triple::spir, "");
+static_assert((Triple::ArchType)ZigLLVM_spir64 == Triple::spir64, "");
+static_assert((Triple::ArchType)ZigLLVM_kalimba == Triple::kalimba, "");
+static_assert((Triple::ArchType)ZigLLVM_shave == Triple::shave, "");
+static_assert((Triple::ArchType)ZigLLVM_lanai == Triple::lanai, "");
+static_assert((Triple::ArchType)ZigLLVM_wasm32 == Triple::wasm32, "");
+static_assert((Triple::ArchType)ZigLLVM_wasm64 == Triple::wasm64, "");
+static_assert((Triple::ArchType)ZigLLVM_renderscript32 == Triple::renderscript32, "");
+static_assert((Triple::ArchType)ZigLLVM_renderscript64 == Triple::renderscript64, "");
+// Uncomment this when testing LLVM 8.0.0
+//static_assert((Triple::ArchType)ZigLLVM_LastArchType == Triple::LastArchType, "");
+
+static_assert((Triple::SubArchType)ZigLLVM_NoSubArch == Triple::NoSubArch, "");
+static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v8_4a == Triple::ARMSubArch_v8_4a, "");
+static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v8_3a == Triple::ARMSubArch_v8_3a, "");
+static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v8_2a == Triple::ARMSubArch_v8_2a, "");
+static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v8_1a == Triple::ARMSubArch_v8_1a, "");
+static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v8 == Triple::ARMSubArch_v8, "");
+static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v8r == Triple::ARMSubArch_v8r, "");
+static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v8m_baseline == Triple::ARMSubArch_v8m_baseline, "");
+static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v8m_mainline == Triple::ARMSubArch_v8m_mainline, "");
+static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v7 == Triple::ARMSubArch_v7, "");
+static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v7em == Triple::ARMSubArch_v7em, "");
+static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v7m == Triple::ARMSubArch_v7m, "");
+static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v7s == Triple::ARMSubArch_v7s, "");
+static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v7k == Triple::ARMSubArch_v7k, "");
+static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v7ve == Triple::ARMSubArch_v7ve, "");
+static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v6 == Triple::ARMSubArch_v6, "");
+static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v6m == Triple::ARMSubArch_v6m, "");
+static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v6k == Triple::ARMSubArch_v6k, "");
+static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v6t2 == Triple::ARMSubArch_v6t2, "");
+static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v5 == Triple::ARMSubArch_v5, "");
+static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v5te == Triple::ARMSubArch_v5te, "");
+static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v4t == Triple::ARMSubArch_v4t, "");
+static_assert((Triple::SubArchType)ZigLLVM_KalimbaSubArch_v3 == Triple::KalimbaSubArch_v3, "");
+static_assert((Triple::SubArchType)ZigLLVM_KalimbaSubArch_v4 == Triple::KalimbaSubArch_v4, "");
+static_assert((Triple::SubArchType)ZigLLVM_KalimbaSubArch_v5 == Triple::KalimbaSubArch_v5, "");
+
+static_assert((Triple::VendorType)ZigLLVM_UnknownVendor == Triple::UnknownVendor, "");
+static_assert((Triple::VendorType)ZigLLVM_Apple == Triple::Apple, "");
+static_assert((Triple::VendorType)ZigLLVM_PC == Triple::PC, "");
+static_assert((Triple::VendorType)ZigLLVM_SCEI == Triple::SCEI, "");
+static_assert((Triple::VendorType)ZigLLVM_BGP == Triple::BGP, "");
+static_assert((Triple::VendorType)ZigLLVM_BGQ == Triple::BGQ, "");
+static_assert((Triple::VendorType)ZigLLVM_Freescale == Triple::Freescale, "");
+static_assert((Triple::VendorType)ZigLLVM_IBM == Triple::IBM, "");
+static_assert((Triple::VendorType)ZigLLVM_ImaginationTechnologies == Triple::ImaginationTechnologies, "");
+static_assert((Triple::VendorType)ZigLLVM_MipsTechnologies == Triple::MipsTechnologies, "");
+static_assert((Triple::VendorType)ZigLLVM_NVIDIA == Triple::NVIDIA, "");
+static_assert((Triple::VendorType)ZigLLVM_CSR == Triple::CSR, "");
+static_assert((Triple::VendorType)ZigLLVM_Myriad == Triple::Myriad, "");
+static_assert((Triple::VendorType)ZigLLVM_AMD == Triple::AMD, "");
+static_assert((Triple::VendorType)ZigLLVM_Mesa == Triple::Mesa, "");
+static_assert((Triple::VendorType)ZigLLVM_SUSE == Triple::SUSE, "");
+static_assert((Triple::VendorType)ZigLLVM_OpenEmbedded == Triple::OpenEmbedded, "");
+// Uncomment this when testing LLVM 8.0.0
+//static_assert((Triple::VendorType)ZigLLVM_LastVendorType == Triple::LastVendorType, "");
+
+static_assert((Triple::OSType)ZigLLVM_UnknownOS == Triple::UnknownOS, "");
+static_assert((Triple::OSType)ZigLLVM_Ananas == Triple::Ananas, "");
+static_assert((Triple::OSType)ZigLLVM_CloudABI == Triple::CloudABI, "");
+static_assert((Triple::OSType)ZigLLVM_Darwin == Triple::Darwin, "");
+static_assert((Triple::OSType)ZigLLVM_DragonFly == Triple::DragonFly, "");
+static_assert((Triple::OSType)ZigLLVM_FreeBSD == Triple::FreeBSD, "");
+static_assert((Triple::OSType)ZigLLVM_Fuchsia == Triple::Fuchsia, "");
+static_assert((Triple::OSType)ZigLLVM_IOS == Triple::IOS, "");
+static_assert((Triple::OSType)ZigLLVM_KFreeBSD == Triple::KFreeBSD, "");
+static_assert((Triple::OSType)ZigLLVM_Linux == Triple::Linux, "");
+static_assert((Triple::OSType)ZigLLVM_Lv2 == Triple::Lv2, "");
+static_assert((Triple::OSType)ZigLLVM_MacOSX == Triple::MacOSX, "");
+static_assert((Triple::OSType)ZigLLVM_NetBSD == Triple::NetBSD, "");
+static_assert((Triple::OSType)ZigLLVM_OpenBSD == Triple::OpenBSD, "");
+static_assert((Triple::OSType)ZigLLVM_Solaris == Triple::Solaris, "");
+static_assert((Triple::OSType)ZigLLVM_Win32 == Triple::Win32, "");
+static_assert((Triple::OSType)ZigLLVM_Haiku == Triple::Haiku, "");
+static_assert((Triple::OSType)ZigLLVM_Minix == Triple::Minix, "");
+static_assert((Triple::OSType)ZigLLVM_RTEMS == Triple::RTEMS, "");
+static_assert((Triple::OSType)ZigLLVM_NaCl == Triple::NaCl, "");
+static_assert((Triple::OSType)ZigLLVM_CNK == Triple::CNK, "");
+static_assert((Triple::OSType)ZigLLVM_AIX == Triple::AIX, "");
+static_assert((Triple::OSType)ZigLLVM_CUDA == Triple::CUDA, "");
+static_assert((Triple::OSType)ZigLLVM_NVCL == Triple::NVCL, "");
+static_assert((Triple::OSType)ZigLLVM_AMDHSA == Triple::AMDHSA, "");
+static_assert((Triple::OSType)ZigLLVM_PS4 == Triple::PS4, "");
+static_assert((Triple::OSType)ZigLLVM_ELFIAMCU == Triple::ELFIAMCU, "");
+static_assert((Triple::OSType)ZigLLVM_TvOS == Triple::TvOS, "");
+static_assert((Triple::OSType)ZigLLVM_WatchOS == Triple::WatchOS, "");
+static_assert((Triple::OSType)ZigLLVM_Mesa3D == Triple::Mesa3D, "");
+static_assert((Triple::OSType)ZigLLVM_Contiki == Triple::Contiki, "");
+static_assert((Triple::OSType)ZigLLVM_AMDPAL == Triple::AMDPAL, "");
+// Uncomment this when testing LLVM 8.0.0
+//static_assert((Triple::OSType)ZigLLVM_LastOSType == Triple::LastOSType, "");
+
+static_assert((Triple::EnvironmentType)ZigLLVM_UnknownEnvironment == Triple::UnknownEnvironment, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_GNU == Triple::GNU, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_GNUABIN32 == Triple::GNUABIN32, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_GNUABI64 == Triple::GNUABI64, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_GNUEABI == Triple::GNUEABI, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_GNUEABIHF == Triple::GNUEABIHF, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_GNUX32 == Triple::GNUX32, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_CODE16 == Triple::CODE16, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_EABI == Triple::EABI, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_EABIHF == Triple::EABIHF, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_Android == Triple::Android, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_Musl == Triple::Musl, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_MuslEABI == Triple::MuslEABI, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_MuslEABIHF == Triple::MuslEABIHF, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_MSVC == Triple::MSVC, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_Itanium == Triple::Itanium, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_Cygnus == Triple::Cygnus, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_CoreCLR == Triple::CoreCLR, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_Simulator == Triple::Simulator, "");
+// Uncomment this when testing LLVM 8.0.0
+//static_assert((Triple::EnvironmentType)ZigLLVM_LastEnvironmentType == Triple::LastEnvironmentType, "");
+
+static_assert((Triple::ObjectFormatType)ZigLLVM_UnknownObjectFormat == Triple::UnknownObjectFormat, "");
+static_assert((Triple::ObjectFormatType)ZigLLVM_COFF == Triple::COFF, "");
+static_assert((Triple::ObjectFormatType)ZigLLVM_ELF == Triple::ELF, "");
+static_assert((Triple::ObjectFormatType)ZigLLVM_MachO == Triple::MachO, "");
+static_assert((Triple::ObjectFormatType)ZigLLVM_Wasm == Triple::Wasm, "");

@@ -491,6 +491,7 @@ set(ZIG_STD_FILES
     "heap.zig"
     "index.zig"
     "io.zig"
+    "io/seekable_stream.zig"
     "json.zig"
     "lazy_init.zig"
     "linked_list.zig"

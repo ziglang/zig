@@ -353,7 +353,8 @@ pub const SectionHeader = struct {
 };
 
 pub const Elf = struct {
-    in_file: os.File,
+    seekable_stream: *io.SeekableStream(anyerror, anyerror),
+    in_stream: *io.InStream(anyerror),
     auto_close_stream: bool,
     is_64: bool,
     endian: builtin.Endian,
@@ -370,19 +371,24 @@ pub const Elf = struct {
 
     /// Call close when done.
     pub fn openPath(elf: *Elf, allocator: *mem.Allocator, path: []const u8) !void {
-        try elf.prealloc_file.open(path);
-        try elf.openFile(allocator, *elf.prealloc_file);
-        elf.auto_close_stream = true;
+        @compileError("TODO implement");
     }
 
     /// Call close when done.
     pub fn openFile(elf: *Elf, allocator: *mem.Allocator, file: os.File) !void {
-        elf.allocator = allocator;
-        elf.in_file = file;
-        elf.auto_close_stream = false;
+        @compileError("TODO implement");
+    }
 
-        var file_stream = elf.in_file.inStream();
-        const in = &file_stream.stream;
+    pub fn openStream(
+        elf: *Elf,
+        allocator: *mem.Allocator,
+        seekable_stream: *io.SeekableStream(anyerror, anyerror),
+        in: *io.InStream(anyerror),
+    ) !void {
+        elf.auto_close_stream = false;
+        elf.allocator = allocator;
+        elf.seekable_stream = seekable_stream;
+        elf.in_stream = in;
 
         var magic: [4]u8 = undefined;
         try in.readNoEof(magic[0..]);
@@ -404,7 +410,7 @@ pub const Elf = struct {
         if (version_byte != 1) return error.InvalidFormat;
 
         // skip over padding
-        try elf.in_file.seekForward(9);
+        try seekable_stream.seekForward(9);
 
         elf.file_type = switch (try in.readInt(elf.endian, u16)) {
             1 => FileType.Relocatable,
@@ -441,7 +447,7 @@ pub const Elf = struct {
         }
 
         // skip over flags
-        try elf.in_file.seekForward(4);
+        try seekable_stream.seekForward(4);
 
         const header_size = try in.readInt(elf.endian, u16);
         if ((elf.is_64 and header_size != 64) or (!elf.is_64 and header_size != 52)) {
@@ -461,12 +467,12 @@ pub const Elf = struct {
         const ph_byte_count = u64(ph_entry_size) * u64(ph_entry_count);
         const end_ph = try math.add(u64, elf.program_header_offset, ph_byte_count);
 
-        const stream_end = try elf.in_file.getEndPos();
+        const stream_end = try seekable_stream.getEndPos();
         if (stream_end < end_sh or stream_end < end_ph) {
             return error.InvalidFormat;
         }
 
-        try elf.in_file.seekTo(elf.section_header_offset);
+        try seekable_stream.seekTo(elf.section_header_offset);
 
         elf.section_headers = try elf.allocator.alloc(SectionHeader, sh_entry_count);
         errdefer elf.allocator.free(elf.section_headers);
@@ -521,26 +527,23 @@ pub const Elf = struct {
     pub fn close(elf: *Elf) void {
         elf.allocator.free(elf.section_headers);
 
-        if (elf.auto_close_stream) elf.in_file.close();
+        if (elf.auto_close_stream) elf.prealloc_file.close();
     }
 
     pub fn findSection(elf: *Elf, name: []const u8) !?*SectionHeader {
-        var file_stream = elf.in_file.inStream();
-        const in = &file_stream.stream;
-
         section_loop: for (elf.section_headers) |*elf_section| {
             if (elf_section.sh_type == SHT_NULL) continue;
 
             const name_offset = elf.string_section.offset + elf_section.name;
-            try elf.in_file.seekTo(name_offset);
+            try elf.seekable_stream.seekTo(name_offset);
 
             for (name) |expected_c| {
-                const target_c = try in.readByte();
+                const target_c = try elf.in_stream.readByte();
                 if (target_c == 0 or expected_c != target_c) continue :section_loop;
             }
 
             {
-                const null_byte = try in.readByte();
+                const null_byte = try elf.in_stream.readByte();
                 if (null_byte == 0) return elf_section;
             }
         }
@@ -549,7 +552,7 @@ pub const Elf = struct {
     }
 
     pub fn seekToSection(elf: *Elf, elf_section: *SectionHeader) !void {
-        try elf.in_file.seekTo(elf_section.offset);
+        try elf.seekable_stream.seekTo(elf_section.offset);
     }
 };
 

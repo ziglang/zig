@@ -8,7 +8,13 @@
       body{
         background-color:#111;
         color: #bbb;
-        font-family: sans-serif;
+        font-family: system-ui,
+          /* Fallbacks for browsers that don't support system-ui */
+          /* https://caniuse.com/#search=system-ui */
+          -apple-system, /* iOS and macOS */
+          Roboto,        /* Android */
+          "Segoe UI",    /* Windows */
+          sans-serif;
       }
       a {
         color: #88f;
@@ -4264,13 +4270,21 @@ fn foo() i32 {
     return 1234;
 }
       {#code_end#}
-      <p>However, if the expression has type {#syntax#}void{#endsyntax#}:</p>
+      <p>However, if the expression has type {#syntax#}void{#endsyntax#}, there will be no error. Function return values can also be explicitly ignored by assigning them to {#syntax#}_{#endsyntax#}. </p>
       {#code_begin|test#}
-test "ignoring expression value" {
-    foo();
+test "void is ignored" {
+    returnsVoid();
 }
 
-fn foo() void {}
+test "explicitly ignoring expression value" {
+    _ = foo();
+}
+
+fn returnsVoid() void {}
+
+fn foo() i32 {
+    return 1234;
+}
       {#code_end#}
       {#header_close#}
 
