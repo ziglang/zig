@@ -702,27 +702,57 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
     errdefer result.deinit();
 
     if (is_windows) {
-        const ptr = windows.GetEnvironmentStringsA() orelse return error.OutOfMemory;
-        defer assert(windows.FreeEnvironmentStringsA(ptr) != 0);
+        const ptr = windows.GetEnvironmentStringsW() orelse return error.OutOfMemory;
+        defer assert(windows.FreeEnvironmentStringsW(ptr) != 0);
+
+        var buf: [100]u8 = undefined;
 
         var i: usize = 0;
         while (true) {
             if (ptr[i] == 0) return result;
 
             const key_start = i;
+            var fallocator = &std.heap.FixedBufferAllocator.init(buf[0..]).allocator;
 
             while (ptr[i] != 0 and ptr[i] != '=') : (i += 1) {}
-            const key = ptr[key_start..i];
+            
+            const key_slice = ptr[key_start..i];
+            var key: []u8 = undefined;
+            var heap_key = false;
+
+            key = std.unicode.utf16leToUtf8Alloc(fallocator, key_slice) catch undefined;
+
+            if (key.len == 0) {
+                key = try std.unicode.utf16leToUtf8Alloc(allocator, key_slice);
+                heap_key = true;
+            }
 
             if (ptr[i] == '=') i += 1;
 
             const value_start = i;
             while (ptr[i] != 0) : (i += 1) {}
-            const value = ptr[value_start..i];
+
+            const value_slice = ptr[value_start..i];
+            var value: []u8 = undefined;
+            var heap_value = false;
+
+            value = std.unicode.utf16leToUtf8Alloc(fallocator, value_slice) catch undefined;
+
+            if (value.len == 0) {
+                value = try std.unicode.utf16leToUtf8Alloc(allocator, value_slice);
+                heap_value = true;
+            }
 
             i += 1; // skip over null byte
 
             try result.set(key, value);
+
+            if (heap_key) {
+                allocator.free(key);
+            }
+            if (heap_value) {
+                allocator.free(value);
+            }
         }
     } else {
         for (posix_environ_raw) |ptr| {
@@ -738,6 +768,11 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
         }
         return result;
     }
+}
+
+test "os.getEnvMap" {
+    var env = try getEnvMap(std.debug.global_allocator);
+    defer env.deinit();
 }
 
 /// TODO make this go through libc when we have it
@@ -760,21 +795,27 @@ pub fn getEnvPosix(key: []const u8) ?[]const u8 {
 pub const GetEnvVarOwnedError = error{
     OutOfMemory,
     EnvironmentVariableNotFound,
+    DanglingSurrogateHalf,
+    ExpectedSecondSurrogateHalf,
+    UnexpectedSecondSurrogateHalf,
+
+    /// See https://github.com/ziglang/zig/issues/1774
+    InvalidUtf8,
 };
 
 /// Caller must free returned memory.
 /// TODO make this go through libc when we have it
 pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwnedError![]u8 {
     if (is_windows) {
-        const key_with_null = try cstr.addNullByte(allocator, key);
+        const key_with_null = try std.unicode.utf8ToUtf16LeWithNull(allocator, key);
         defer allocator.free(key_with_null);
 
-        var buf = try allocator.alloc(u8, 256);
-        errdefer allocator.free(buf);
+        var buf = try allocator.alloc(u16, 256);
+        defer allocator.free(buf);
 
         while (true) {
             const windows_buf_len = math.cast(windows.DWORD, buf.len) catch return error.OutOfMemory;
-            const result = windows.GetEnvironmentVariableA(key_with_null.ptr, buf.ptr, windows_buf_len);
+            const result = windows.GetEnvironmentVariableW(key_with_null.ptr, buf.ptr, windows_buf_len);
 
             if (result == 0) {
                 const err = windows.GetLastError();
@@ -788,17 +829,23 @@ pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwned
             }
 
             if (result > buf.len) {
-                buf = try allocator.realloc(u8, buf, result);
+                buf = try allocator.realloc(u16, buf, result);
                 continue;
             }
 
-            return allocator.shrink(u8, buf, result);
+            return try std.unicode.utf16leToUtf8Alloc(allocator, buf);
         }
     } else {
         const result = getEnvPosix(key) orelse return error.EnvironmentVariableNotFound;
         return mem.dupe(allocator, u8, result);
     }
 }
+
+test "os.getEnvVarOwned" {
+    var ga = debug.global_allocator;
+    debug.assertError(getEnvVarOwned(ga, "BADENV"), error.EnvironmentVariableNotFound);
+}
+
 
 /// Caller must free the returned memory.
 pub fn getCwdAlloc(allocator: *Allocator) ![]u8 {
