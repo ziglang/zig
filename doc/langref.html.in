@@ -5312,6 +5312,15 @@ comptime {
       </p>
       {#header_close#}
 
+      {#header_open|@bswap#}
+      <pre>{#syntax#}@swap(comptime T: type, value: T) T{#endsyntax#}</pre>
+      <p>{#syntax#}T{#endsyntax#} must be an integer type with bit count evenly divisible by 8.</p>
+      <p>
+      Swaps the byte order of the integer. This converts a big endian integer to a little endian integer,
+      and converts a little endian integer to a big endian integer.
+      </p>
+      {#header_close#}
+
       {#header_open|@bytesToSlice#}
       <pre>{#syntax#}@bytesToSlice(comptime Element: type, bytes: []u8) []Element{#endsyntax#}</pre>
       <p>

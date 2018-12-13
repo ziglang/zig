@@ -401,7 +401,8 @@ ZigType *get_promise_type(CodeGen *g, ZigType *result_type) {
 }
 
 ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_const,
-        bool is_volatile, PtrLen ptr_len, uint32_t byte_alignment, uint32_t bit_offset_in_host, uint32_t host_int_bytes)
+        bool is_volatile, PtrLen ptr_len, uint32_t byte_alignment,
+        uint32_t bit_offset_in_host, uint32_t host_int_bytes)
 {
     assert(!type_is_invalid(child_type));
     assert(ptr_len == PtrLenSingle || child_type->id != ZigTypeIdOpaque);
@@ -6110,6 +6111,8 @@ uint32_t zig_llvm_fn_key_hash(ZigLLVMFnKey x) {
             return (uint32_t)(x.data.floating.bit_count) * (uint32_t)1953839089;
         case ZigLLVMFnIdSqrt:
             return (uint32_t)(x.data.floating.bit_count) * (uint32_t)2225366385;
+        case ZigLLVMFnIdBswap:
+            return (uint32_t)(x.data.bswap.bit_count) * (uint32_t)3661994335;
         case ZigLLVMFnIdOverflowArithmetic:
             return ((uint32_t)(x.data.overflow_arithmetic.bit_count) * 87135777) +
                 ((uint32_t)(x.data.overflow_arithmetic.add_sub_mul) * 31640542) +
@@ -6128,6 +6131,8 @@ bool zig_llvm_fn_key_eql(ZigLLVMFnKey a, ZigLLVMFnKey b) {
             return a.data.clz.bit_count == b.data.clz.bit_count;
         case ZigLLVMFnIdPopCount:
             return a.data.pop_count.bit_count == b.data.pop_count.bit_count;
+        case ZigLLVMFnIdBswap:
+            return a.data.bswap.bit_count == b.data.bswap.bit_count;
         case ZigLLVMFnIdFloor:
         case ZigLLVMFnIdCeil:
         case ZigLLVMFnIdSqrt:

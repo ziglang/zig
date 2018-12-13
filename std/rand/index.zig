@@ -5,7 +5,7 @@
 // ```
 // var buf: [8]u8 = undefined;
 // try std.os.getRandomBytes(buf[0..]);
-// const seed = mem.readIntLE(u64, buf[0..8]);
+// const seed = mem.readIntSliceLittle(u64, buf[0..8]);
 //
 // var r = DefaultPrng.init(seed);
 //
@@ -52,7 +52,7 @@ pub const Random = struct {
         // use LE instead of native endian for better portability maybe?
         // TODO: endian portability is pointless if the underlying prng isn't endian portable.
         // TODO: document the endian portability of this library.
-        const byte_aligned_result = mem.readIntLE(ByteAlignedT, rand_bytes);
+        const byte_aligned_result = mem.readIntSliceLittle(ByteAlignedT, rand_bytes);
         const unsigned_result = @truncate(UnsignedT, byte_aligned_result);
         return @bitCast(T, unsigned_result);
     }
@@ -69,6 +69,7 @@ pub const Random = struct {
             return @intCast(T, limitRangeBiased(u64, r.int(u64), less_than));
         }
     }
+
     /// Returns an evenly distributed random unsigned integer `0 <= i < less_than`.
     /// This function assumes that the underlying ::fillFn produces evenly distributed values.
     /// Within this assumption, the runtime of this function is exponentially distributed.
@@ -123,6 +124,7 @@ pub const Random = struct {
         }
         return r.uintLessThanBiased(T, at_most + 1);
     }
+
     /// Returns an evenly distributed random unsigned integer `0 <= i <= at_most`.
     /// See ::uintLessThan, which this function uses in most cases,
     /// for commentary on the runtime of this function.
@@ -151,6 +153,7 @@ pub const Random = struct {
             return at_least + r.uintLessThanBiased(T, less_than - at_least);
         }
     }
+
     /// Returns an evenly distributed random integer `at_least <= i < less_than`.
     /// See ::uintLessThan, which this function uses in most cases,
     /// for commentary on the runtime of this function.
@@ -185,6 +188,7 @@ pub const Random = struct {
             return at_least + r.uintAtMostBiased(T, at_most - at_least);
         }
     }
+
     /// Returns an evenly distributed random integer `at_least <= i <= at_most`.
     /// See ::uintLessThan, which this function uses in most cases,
     /// for commentary on the runtime of this function.

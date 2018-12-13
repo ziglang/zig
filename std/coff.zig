@@ -51,7 +51,7 @@ pub const Coff = struct {
 
         // Seek to PE File Header (coff header)
         try self.in_file.seekTo(pe_pointer_offset);
-        const pe_magic_offset = try in.readIntLe(u32);
+        const pe_magic_offset = try in.readIntLittle(u32);
         try self.in_file.seekTo(pe_magic_offset);
 
         var pe_header_magic: [4]u8 = undefined;
@@ -60,13 +60,13 @@ pub const Coff = struct {
             return error.InvalidPEHeader;
 
         self.coff_header = CoffHeader{
-            .machine = try in.readIntLe(u16),
-            .number_of_sections = try in.readIntLe(u16),
-            .timedate_stamp = try in.readIntLe(u32),
-            .pointer_to_symbol_table = try in.readIntLe(u32),
-            .number_of_symbols = try in.readIntLe(u32),
-            .size_of_optional_header = try in.readIntLe(u16),
-            .characteristics = try in.readIntLe(u16),
+            .machine = try in.readIntLittle(u16),
+            .number_of_sections = try in.readIntLittle(u16),
+            .timedate_stamp = try in.readIntLittle(u32),
+            .pointer_to_symbol_table = try in.readIntLittle(u32),
+            .number_of_symbols = try in.readIntLittle(u32),
+            .size_of_optional_header = try in.readIntLittle(u16),
+            .characteristics = try in.readIntLittle(u16),
         };
 
         switch (self.coff_header.machine) {
@@ -79,7 +79,7 @@ pub const Coff = struct {
 
     fn loadOptionalHeader(self: *Coff, file_stream: *os.File.InStream) !void {
         const in = &file_stream.stream;
-        self.pe_header.magic = try in.readIntLe(u16);
+        self.pe_header.magic = try in.readIntLittle(u16);
         // For now we're only interested in finding the reference to the .pdb,
         // so we'll skip most of this header, which size is different in 32
         // 64 bits by the way.
@@ -93,14 +93,14 @@ pub const Coff = struct {
 
         try self.in_file.seekForward(skip_size);
 
-        const number_of_rva_and_sizes = try in.readIntLe(u32);
+        const number_of_rva_and_sizes = try in.readIntLittle(u32);
         if (number_of_rva_and_sizes != IMAGE_NUMBEROF_DIRECTORY_ENTRIES)
             return error.InvalidPEHeader;
 
         for (self.pe_header.data_directory) |*data_dir| {
             data_dir.* = OptionalHeader.DataDirectory{
-                .virtual_address = try in.readIntLe(u32),
-                .size = try in.readIntLe(u32),
+                .virtual_address = try in.readIntLittle(u32),
+                .size = try in.readIntLittle(u32),
             };
         }
     }
@@ -124,7 +124,7 @@ pub const Coff = struct {
         if (!mem.eql(u8, cv_signature, "RSDS"))
             return error.InvalidPEMagic;
         try in.readNoEof(self.guid[0..]);
-        self.age = try in.readIntLe(u32);
+        self.age = try in.readIntLittle(u32);
 
         // Finally read the null-terminated string.
         var byte = try in.readByte();
@@ -157,15 +157,15 @@ pub const Coff = struct {
             try self.sections.append(Section{
                 .header = SectionHeader{
                     .name = name,
-                    .misc = SectionHeader.Misc{ .physical_address = try in.readIntLe(u32) },
-                    .virtual_address = try in.readIntLe(u32),
-                    .size_of_raw_data = try in.readIntLe(u32),
-                    .pointer_to_raw_data = try in.readIntLe(u32),
-                    .pointer_to_relocations = try in.readIntLe(u32),
-                    .pointer_to_line_numbers = try in.readIntLe(u32),
-                    .number_of_relocations = try in.readIntLe(u16),
-                    .number_of_line_numbers = try in.readIntLe(u16),
-                    .characteristics = try in.readIntLe(u32),
+                    .misc = SectionHeader.Misc{ .physical_address = try in.readIntLittle(u32) },
+                    .virtual_address = try in.readIntLittle(u32),
+                    .size_of_raw_data = try in.readIntLittle(u32),
+                    .pointer_to_raw_data = try in.readIntLittle(u32),
+                    .pointer_to_relocations = try in.readIntLittle(u32),
+                    .pointer_to_line_numbers = try in.readIntLittle(u32),
+                    .number_of_relocations = try in.readIntLittle(u16),
+                    .number_of_line_numbers = try in.readIntLittle(u16),
+                    .characteristics = try in.readIntLittle(u32),
                 },
             });
         }

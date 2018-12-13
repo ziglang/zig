@@ -508,11 +508,11 @@ const Msf = struct {
             allocator,
         );
 
-        const stream_count = try self.directory.stream.readIntLe(u32);
+        const stream_count = try self.directory.stream.readIntLittle(u32);
 
         const stream_sizes = try allocator.alloc(u32, stream_count);
         for (stream_sizes) |*s| {
-            const size = try self.directory.stream.readIntLe(u32);
+            const size = try self.directory.stream.readIntLittle(u32);
             s.* = blockCountFromSize(size, superblock.BlockSize);
         }
 
@@ -603,7 +603,7 @@ const MsfStream = struct {
 
         var i: u32 = 0;
         while (i < block_count) : (i += 1) {
-            stream.blocks[i] = try in.readIntLe(u32);
+            stream.blocks[i] = try in.readIntLittle(u32);
         }
 
         return stream;

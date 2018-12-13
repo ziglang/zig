@@ -412,7 +412,7 @@ pub const Elf = struct {
         // skip over padding
         try seekable_stream.seekForward(9);
 
-        elf.file_type = switch (try in.readInt(elf.endian, u16)) {
+        elf.file_type = switch (try in.readInt(u16, elf.endian)) {
             1 => FileType.Relocatable,
             2 => FileType.Executable,
             3 => FileType.Shared,
@@ -420,7 +420,7 @@ pub const Elf = struct {
             else => return error.InvalidFormat,
         };
 
-        elf.arch = switch (try in.readInt(elf.endian, u16)) {
+        elf.arch = switch (try in.readInt(u16, elf.endian)) {
             0x02 => Arch.Sparc,
             0x03 => Arch.x86,
             0x08 => Arch.Mips,
@@ -433,32 +433,32 @@ pub const Elf = struct {
             else => return error.InvalidFormat,
         };
 
-        const elf_version = try in.readInt(elf.endian, u32);
+        const elf_version = try in.readInt(u32, elf.endian);
         if (elf_version != 1) return error.InvalidFormat;
 
         if (elf.is_64) {
-            elf.entry_addr = try in.readInt(elf.endian, u64);
-            elf.program_header_offset = try in.readInt(elf.endian, u64);
-            elf.section_header_offset = try in.readInt(elf.endian, u64);
+            elf.entry_addr = try in.readInt(u64, elf.endian);
+            elf.program_header_offset = try in.readInt(u64, elf.endian);
+            elf.section_header_offset = try in.readInt(u64, elf.endian);
         } else {
-            elf.entry_addr = u64(try in.readInt(elf.endian, u32));
-            elf.program_header_offset = u64(try in.readInt(elf.endian, u32));
-            elf.section_header_offset = u64(try in.readInt(elf.endian, u32));
+            elf.entry_addr = u64(try in.readInt(u32, elf.endian));
+            elf.program_header_offset = u64(try in.readInt(u32, elf.endian));
+            elf.section_header_offset = u64(try in.readInt(u32, elf.endian));
         }
 
         // skip over flags
         try seekable_stream.seekForward(4);
 
-        const header_size = try in.readInt(elf.endian, u16);
+        const header_size = try in.readInt(u16, elf.endian);
         if ((elf.is_64 and header_size != 64) or (!elf.is_64 and header_size != 52)) {
             return error.InvalidFormat;
         }
 
-        const ph_entry_size = try in.readInt(elf.endian, u16);
-        const ph_entry_count = try in.readInt(elf.endian, u16);
-        const sh_entry_size = try in.readInt(elf.endian, u16);
-        const sh_entry_count = try in.readInt(elf.endian, u16);
-        elf.string_section_index = u64(try in.readInt(elf.endian, u16));
+        const ph_entry_size = try in.readInt(u16, elf.endian);
+        const ph_entry_count = try in.readInt(u16, elf.endian);
+        const sh_entry_size = try in.readInt(u16, elf.endian);
+        const sh_entry_count = try in.readInt(u16, elf.endian);
+        elf.string_section_index = u64(try in.readInt(u16, elf.endian));
 
         if (elf.string_section_index >= sh_entry_count) return error.InvalidFormat;
 
@@ -481,32 +481,32 @@ pub const Elf = struct {
             if (sh_entry_size != 64) return error.InvalidFormat;
 
             for (elf.section_headers) |*elf_section| {
-                elf_section.name = try in.readInt(elf.endian, u32);
-                elf_section.sh_type = try in.readInt(elf.endian, u32);
-                elf_section.flags = try in.readInt(elf.endian, u64);
-                elf_section.addr = try in.readInt(elf.endian, u64);
-                elf_section.offset = try in.readInt(elf.endian, u64);
-                elf_section.size = try in.readInt(elf.endian, u64);
-                elf_section.link = try in.readInt(elf.endian, u32);
-                elf_section.info = try in.readInt(elf.endian, u32);
-                elf_section.addr_align = try in.readInt(elf.endian, u64);
-                elf_section.ent_size = try in.readInt(elf.endian, u64);
+                elf_section.name = try in.readInt(u32, elf.endian);
+                elf_section.sh_type = try in.readInt(u32, elf.endian);
+                elf_section.flags = try in.readInt(u64, elf.endian);
+                elf_section.addr = try in.readInt(u64, elf.endian);
+                elf_section.offset = try in.readInt(u64, elf.endian);
+                elf_section.size = try in.readInt(u64, elf.endian);
+                elf_section.link = try in.readInt(u32, elf.endian);
+                elf_section.info = try in.readInt(u32, elf.endian);
+                elf_section.addr_align = try in.readInt(u64, elf.endian);
+                elf_section.ent_size = try in.readInt(u64, elf.endian);
             }
         } else {
             if (sh_entry_size != 40) return error.InvalidFormat;
 
             for (elf.section_headers) |*elf_section| {
                 // TODO (multiple occurrences) allow implicit cast from %u32 -> %u64 ?
-                elf_section.name = try in.readInt(elf.endian, u32);
-                elf_section.sh_type = try in.readInt(elf.endian, u32);
-                elf_section.flags = u64(try in.readInt(elf.endian, u32));
-                elf_section.addr = u64(try in.readInt(elf.endian, u32));
-                elf_section.offset = u64(try in.readInt(elf.endian, u32));
-                elf_section.size = u64(try in.readInt(elf.endian, u32));
-                elf_section.link = try in.readInt(elf.endian, u32);
-                elf_section.info = try in.readInt(elf.endian, u32);
-                elf_section.addr_align = u64(try in.readInt(elf.endian, u32));
-                elf_section.ent_size = u64(try in.readInt(elf.endian, u32));
+                elf_section.name = try in.readInt(u32, elf.endian);
+                elf_section.sh_type = try in.readInt(u32, elf.endian);
+                elf_section.flags = u64(try in.readInt(u32, elf.endian));
+                elf_section.addr = u64(try in.readInt(u32, elf.endian));
+                elf_section.offset = u64(try in.readInt(u32, elf.endian));
+                elf_section.size = u64(try in.readInt(u32, elf.endian));
+                elf_section.link = try in.readInt(u32, elf.endian);
+                elf_section.info = try in.readInt(u32, elf.endian);
+                elf_section.addr_align = u64(try in.readInt(u32, elf.endian));
+                elf_section.ent_size = u64(try in.readInt(u32, elf.endian));
             }
         }
 

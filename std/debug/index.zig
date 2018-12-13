@@ -523,7 +523,7 @@ fn populateModule(di: *DebugInfo, mod: *Module) !void {
 
     const modi = di.pdb.getStreamById(mod.mod_info.ModuleSymStream) orelse return error.MissingDebugInfo;
 
-    const signature = try modi.stream.readIntLe(u32);
+    const signature = try modi.stream.readIntLittle(u32);
     if (signature != 4)
         return error.InvalidDebugInfo;
 
@@ -757,9 +757,9 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
     try di.pdb.openFile(di.coff, path);
 
     var pdb_stream = di.pdb.getStream(pdb.StreamType.Pdb) orelse return error.InvalidDebugInfo;
-    const version = try pdb_stream.stream.readIntLe(u32);
-    const signature = try pdb_stream.stream.readIntLe(u32);
-    const age = try pdb_stream.stream.readIntLe(u32);
+    const version = try pdb_stream.stream.readIntLittle(u32);
+    const signature = try pdb_stream.stream.readIntLittle(u32);
+    const age = try pdb_stream.stream.readIntLittle(u32);
     var guid: [16]u8 = undefined;
     try pdb_stream.stream.readNoEof(guid[0..]);
     if (!mem.eql(u8, di.coff.guid, guid) or di.coff.age != age)
@@ -767,7 +767,7 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
     // We validated the executable and pdb match.
 
     const string_table_index = str_tab_index: {
-        const name_bytes_len = try pdb_stream.stream.readIntLe(u32);
+        const name_bytes_len = try pdb_stream.stream.readIntLittle(u32);
         const name_bytes = try allocator.alloc(u8, name_bytes_len);
         try pdb_stream.stream.readNoEof(name_bytes);
 
@@ -797,8 +797,8 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
         };
         const bucket_list = try allocator.alloc(Bucket, present.len);
         for (present) |_| {
-            const name_offset = try pdb_stream.stream.readIntLe(u32);
-            const name_index = try pdb_stream.stream.readIntLe(u32);
+            const name_offset = try pdb_stream.stream.readIntLittle(u32);
+            const name_index = try pdb_stream.stream.readIntLittle(u32);
             const name = mem.toSlice(u8, name_bytes.ptr + name_offset);
             if (mem.eql(u8, name, "/names")) {
                 break :str_tab_index name_index;
@@ -859,7 +859,7 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
     var sect_contribs = ArrayList(pdb.SectionContribEntry).init(allocator);
     var sect_cont_offset: usize = 0;
     if (section_contrib_size != 0) {
-        const ver = @intToEnum(pdb.SectionContrSubstreamVersion, try dbi.stream.readIntLe(u32));
+        const ver = @intToEnum(pdb.SectionContrSubstreamVersion, try dbi.stream.readIntLittle(u32));
         if (ver != pdb.SectionContrSubstreamVersion.Ver60)
             return error.InvalidDebugInfo;
         sect_cont_offset += @sizeOf(u32);
@@ -879,11 +879,11 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
 }
 
 fn readSparseBitVector(stream: var, allocator: *mem.Allocator) ![]usize {
-    const num_words = try stream.readIntLe(u32);
+    const num_words = try stream.readIntLittle(u32);
     var word_i: usize = 0;
     var list = ArrayList(usize).init(allocator);
     while (word_i != num_words) : (word_i += 1) {
-        const word = try stream.readIntLe(u32);
+        const word = try stream.readIntLittle(u32);
         var bit_i: u5 = 0;
         while (true) : (bit_i += 1) {
             if (word & (u32(1) << bit_i) != 0) {
@@ -1200,7 +1200,7 @@ const Constant = struct {
     fn asUnsignedLe(self: *const Constant) !u64 {
         if (self.payload.len > @sizeOf(u64)) return error.InvalidDebugInfo;
         if (self.signed) return error.InvalidDebugInfo;
-        return mem.readInt(self.payload, u64, builtin.Endian.Little);
+        return mem.readIntSliceLittle(u64, self.payload);
     }
 };
 
@@ -1381,7 +1381,7 @@ fn parseFormValueBlockLen(allocator: *mem.Allocator, in_stream: var, size: usize
 }
 
 fn parseFormValueBlock(allocator: *mem.Allocator, in_stream: var, size: usize) !FormValue {
-    const block_len = try in_stream.readVarInt(builtin.Endian.Little, usize, size);
+    const block_len = try in_stream.readVarInt(usize, builtin.Endian.Little, size);
     return parseFormValueBlockLen(allocator, in_stream, block_len);
 }
 
@@ -1395,11 +1395,11 @@ fn parseFormValueConstant(allocator: *mem.Allocator, in_stream: var, signed: boo
 }
 
 fn parseFormValueDwarfOffsetSize(in_stream: var, is_64: bool) !u64 {
-    return if (is_64) try in_stream.readIntLe(u64) else u64(try in_stream.readIntLe(u32));
+    return if (is_64) try in_stream.readIntLittle(u64) else u64(try in_stream.readIntLittle(u32));
 }
 
 fn parseFormValueTargetAddrSize(in_stream: var) !u64 {
-    return if (@sizeOf(usize) == 4) u64(try in_stream.readIntLe(u32)) else if (@sizeOf(usize) == 8) try in_stream.readIntLe(u64) else unreachable;
+    return if (@sizeOf(usize) == 4) u64(try in_stream.readIntLittle(u32)) else if (@sizeOf(usize) == 8) try in_stream.readIntLittle(u64) else unreachable;
 }
 
 fn parseFormValueRefLen(allocator: *mem.Allocator, in_stream: var, size: usize) !FormValue {
@@ -1408,7 +1408,7 @@ fn parseFormValueRefLen(allocator: *mem.Allocator, in_stream: var, size: usize) 
 }
 
 fn parseFormValueRef(allocator: *mem.Allocator, in_stream: var, comptime T: type) !FormValue {
-    const block_len = try in_stream.readIntLe(T);
+    const block_len = try in_stream.readIntLittle(T);
     return parseFormValueRefLen(allocator, in_stream, block_len);
 }
 
@@ -1450,7 +1450,7 @@ fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, is_64
         },
 
         DW.FORM_ref_addr => FormValue{ .RefAddr = try parseFormValueDwarfOffsetSize(in_stream, is_64) },
-        DW.FORM_ref_sig8 => FormValue{ .RefSig8 = try in_stream.readIntLe(u64) },
+        DW.FORM_ref_sig8 => FormValue{ .RefSig8 = try in_stream.readIntLittle(u64) },
 
         DW.FORM_string => FormValue{ .String = try readStringRaw(allocator, in_stream) },
         DW.FORM_strp => FormValue{ .StrPtr = try parseFormValueDwarfOffsetSize(in_stream, is_64) },
@@ -1747,11 +1747,11 @@ fn getLineNumberInfoDwarf(di: *DwarfInfo, compile_unit: CompileUnit, target_addr
             continue;
         }
 
-        const version = try di.dwarf_in_stream.readInt(di.endian, u16);
+        const version = try di.dwarf_in_stream.readInt(u16, di.endian);
         // TODO support 3 and 5
         if (version != 2 and version != 4) return error.InvalidDebugInfo;
 
-        const prologue_length = if (is_64) try di.dwarf_in_stream.readInt(di.endian, u64) else try di.dwarf_in_stream.readInt(di.endian, u32);
+        const prologue_length = if (is_64) try di.dwarf_in_stream.readInt(u64, di.endian) else try di.dwarf_in_stream.readInt(u32, di.endian);
         const prog_start_offset = (try di.dwarf_seekable_stream.getPos()) + prologue_length;
 
         const minimum_instruction_length = try di.dwarf_in_stream.readByte();
@@ -1820,7 +1820,7 @@ fn getLineNumberInfoDwarf(di: *DwarfInfo, compile_unit: CompileUnit, target_addr
                         return error.MissingDebugInfo;
                     },
                     DW.LNE_set_address => {
-                        const addr = try di.dwarf_in_stream.readInt(di.endian, usize);
+                        const addr = try di.dwarf_in_stream.readInt(usize, di.endian);
                         prog.address = addr;
                     },
                     DW.LNE_define_file => {
@@ -1882,7 +1882,7 @@ fn getLineNumberInfoDwarf(di: *DwarfInfo, compile_unit: CompileUnit, target_addr
                         prog.address += inc_addr;
                     },
                     DW.LNS_fixed_advance_pc => {
-                        const arg = try di.dwarf_in_stream.readInt(di.endian, u16);
+                        const arg = try di.dwarf_in_stream.readInt(u16, di.endian);
                         prog.address += arg;
                     },
                     DW.LNS_set_prologue_end => {},
@@ -1914,10 +1914,10 @@ fn scanAllCompileUnits(di: *DwarfInfo) !void {
         if (unit_length == 0) return;
         const next_offset = unit_length + (if (is_64) usize(12) else usize(4));
 
-        const version = try di.dwarf_in_stream.readInt(di.endian, u16);
+        const version = try di.dwarf_in_stream.readInt(u16, di.endian);
         if (version < 2 or version > 5) return error.InvalidDebugInfo;
 
-        const debug_abbrev_offset = if (is_64) try di.dwarf_in_stream.readInt(di.endian, u64) else try di.dwarf_in_stream.readInt(di.endian, u32);
+        const debug_abbrev_offset = if (is_64) try di.dwarf_in_stream.readInt(u64, di.endian) else try di.dwarf_in_stream.readInt(u32, di.endian);
 
         const address_size = try di.dwarf_in_stream.readByte();
         if (address_size != @sizeOf(usize)) return error.InvalidDebugInfo;
@@ -1978,8 +1978,8 @@ fn findCompileUnit(di: *DwarfInfo, target_address: u64) !*const CompileUnit {
             if (di.debug_ranges) |debug_ranges| {
                 try di.dwarf_seekable_stream.seekTo(debug_ranges.offset + ranges_offset);
                 while (true) {
-                    const begin_addr = try di.dwarf_in_stream.readIntLe(usize);
-                    const end_addr = try di.dwarf_in_stream.readIntLe(usize);
+                    const begin_addr = try di.dwarf_in_stream.readIntLittle(usize);
+                    const end_addr = try di.dwarf_in_stream.readIntLittle(usize);
                     if (begin_addr == 0 and end_addr == 0) {
                         break;
                     }
@@ -2001,7 +2001,8 @@ fn findCompileUnit(di: *DwarfInfo, target_address: u64) !*const CompileUnit {
 }
 
 fn readIntMem(ptr: *[*]const u8, comptime T: type, endian: builtin.Endian) T {
-    const result = mem.readInt(ptr.*[0..@sizeOf(T)], T, endian);
+    // TODO https://github.com/ziglang/zig/issues/863
+    const result = mem.readIntSlice(T, ptr.*[0..@sizeOf(T)], endian);
     ptr.* += @sizeOf(T);
     return result;
 }
@@ -2017,11 +2018,12 @@ fn readByteSignedMem(ptr: *[*]const u8) i8 {
 }
 
 fn readInitialLengthMem(ptr: *[*]const u8, is_64: *bool) !u64 {
-    const first_32_bits = mem.readIntLE(u32, ptr.*[0..4]);
+    // TODO this code can be improved with https://github.com/ziglang/zig/issues/863
+    const first_32_bits = mem.readIntSliceLittle(u32, ptr.*[0..4]);
     is_64.* = (first_32_bits == 0xffffffff);
     if (is_64.*) {
         ptr.* += 4;
-        const result = mem.readIntLE(u64, ptr.*[0..8]);
+        const result = mem.readIntSliceLittle(u64, ptr.*[0..8]);
         ptr.* += 8;
         return result;
     } else {
@@ -2084,10 +2086,10 @@ fn readILeb128Mem(ptr: *[*]const u8) !i64 {
 }
 
 fn readInitialLength(comptime E: type, in_stream: *io.InStream(E), is_64: *bool) !u64 {
-    const first_32_bits = try in_stream.readIntLe(u32);
+    const first_32_bits = try in_stream.readIntLittle(u32);
     is_64.* = (first_32_bits == 0xffffffff);
     if (is_64.*) {
-        return in_stream.readIntLe(u64);
+        return in_stream.readIntLittle(u64);
     } else {
         if (first_32_bits >= 0xfffffff0) return error.InvalidDebugInfo;
         return u64(first_32_bits);

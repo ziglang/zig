@@ -8,6 +8,7 @@ comptime {
     _ = @import("cases/atomics.zig");
     _ = @import("cases/bitcast.zig");
     _ = @import("cases/bool.zig");
+    _ = @import("cases/bswap.zig");
     _ = @import("cases/bugs/1076.zig");
     _ = @import("cases/bugs/1111.zig");
     _ = @import("cases/bugs/1277.zig");
@@ -64,6 +65,7 @@ comptime {
     _ = @import("cases/switch_prong_implicit_cast.zig");
     _ = @import("cases/syntax.zig");
     _ = @import("cases/this.zig");
+    _ = @import("cases/truncate.zig");
     _ = @import("cases/try.zig");
     _ = @import("cases/type_info.zig");
     _ = @import("cases/undefined.zig");

@@ -856,6 +856,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionSqrt *) {
     return IrInstructionIdSqrt;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionBswap *) {
+    return IrInstructionIdBswap;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionCheckRuntimeScope *) {
     return IrInstructionIdCheckRuntimeScope;
 }
@@ -2696,6 +2700,17 @@ static IrInstruction *ir_build_mark_err_ret_trace_ptr(IrBuilder *irb, Scope *sco
 
 static IrInstruction *ir_build_sqrt(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *type, IrInstruction *op) {
     IrInstructionSqrt *instruction = ir_build_instruction<IrInstructionSqrt>(irb, scope, source_node);
+    instruction->type = type;
+    instruction->op = op;
+
+    if (type != nullptr) ir_ref_instruction(type, irb->current_basic_block);
+    ir_ref_instruction(op, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_bswap(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *type, IrInstruction *op) {
+    IrInstructionBswap *instruction = ir_build_instruction<IrInstructionBswap>(irb, scope, source_node);
     instruction->type = type;
     instruction->op = op;
 
@@ -4687,6 +4702,21 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg0_value;
 
                 IrInstruction *result = ir_build_enum_to_int(irb, scope, node, arg0_value);
+                return ir_lval_wrap(irb, scope, result, lval);
+            }
+        case BuiltinFnIdBswap:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                IrInstruction *result = ir_build_bswap(irb, scope, node, arg0_value, arg1_value);
                 return ir_lval_wrap(irb, scope, result, lval);
             }
     }
@@ -13674,18 +13704,55 @@ static Error ir_read_const_ptr(IrAnalyze *ira, AstNode *source_node,
         return ErrorNone;
     }
 
-    if (dst_size > src_size) {
-        ir_add_error_node(ira, source_node,
-            buf_sprintf("attempt to read %zu bytes from pointer to %s which is %zu bytes",
-            dst_size, buf_ptr(&pointee->type->name), src_size));
-        return ErrorSemanticAnalyzeFail;
+    if (dst_size <= src_size) {
+        Buf buf = BUF_INIT;
+        buf_resize(&buf, src_size);
+        buf_write_value_bytes(ira->codegen, (uint8_t*)buf_ptr(&buf), pointee);
+        buf_read_value_bytes(ira->codegen, (uint8_t*)buf_ptr(&buf), out_val);
+        return ErrorNone;
     }
 
-    Buf buf = BUF_INIT;
-    buf_resize(&buf, src_size);
-    buf_write_value_bytes(ira->codegen, (uint8_t*)buf_ptr(&buf), pointee);
-    buf_read_value_bytes(ira->codegen, (uint8_t*)buf_ptr(&buf), out_val);
-    return ErrorNone;
+    switch (ptr_val->data.x_ptr.special) {
+        case ConstPtrSpecialInvalid:
+            zig_unreachable();
+        case ConstPtrSpecialRef: {
+            ir_add_error_node(ira, source_node,
+                buf_sprintf("attempt to read %zu bytes from pointer to %s which is %zu bytes",
+                dst_size, buf_ptr(&pointee->type->name), src_size));
+            return ErrorSemanticAnalyzeFail;
+        }
+        case ConstPtrSpecialBaseArray: {
+            ConstExprValue *array_val = ptr_val->data.x_ptr.data.base_array.array_val;
+            assert(array_val->type->id == ZigTypeIdArray);
+            if (array_val->data.x_array.special != ConstArraySpecialNone)
+                zig_panic("TODO");
+            size_t elem_size = src_size;
+            src_size = elem_size *
+                (array_val->type->data.array.len - ptr_val->data.x_ptr.data.base_array.elem_index);
+            if (dst_size > src_size) {
+                ir_add_error_node(ira, source_node,
+                    buf_sprintf("attempt to read %zu bytes from %s at index %" ZIG_PRI_usize " which is %zu bytes",
+                        dst_size, buf_ptr(&array_val->type->name), ptr_val->data.x_ptr.data.base_array.elem_index,
+                        src_size));
+                return ErrorSemanticAnalyzeFail;
+            }
+            size_t elem_count = (dst_size % elem_size == 0) ? (dst_size / elem_size) : (dst_size / elem_size + 1);
+            Buf buf = BUF_INIT;
+            buf_resize(&buf, elem_count * elem_size);
+            for (size_t i = 0; i < elem_count; i += 1) {
+                ConstExprValue *elem_val = &array_val->data.x_array.data.s_none.elements[i];
+                buf_write_value_bytes(ira->codegen, (uint8_t*)buf_ptr(&buf) + (i * elem_size), elem_val);
+            }
+            buf_read_value_bytes(ira->codegen, (uint8_t*)buf_ptr(&buf), out_val);
+            return ErrorNone;
+        }
+        case ConstPtrSpecialBaseStruct:
+        case ConstPtrSpecialDiscard:
+        case ConstPtrSpecialHardCodedAddr:
+        case ConstPtrSpecialFunction:
+            zig_panic("TODO");
+    }
+    zig_unreachable();
 }
 
 static IrInstruction *ir_analyze_maybe(IrAnalyze *ira, IrInstructionUnOp *un_op_instruction) {
@@ -18054,6 +18121,12 @@ static IrInstruction *ir_analyze_instruction_truncate(IrAnalyze *ira, IrInstruct
         return ira->codegen->invalid_instruction;
     }
 
+    if (src_type->data.integral.bit_count == 0) {
+        IrInstruction *result = ir_const(ira, &instruction->base, dest_type);
+        bigint_init_unsigned(&result->value.data.x_bigint, 0);
+        return result;
+    }
+
     if (src_type->data.integral.is_signed != dest_type->data.integral.is_signed) {
         const char *sign_str = dest_type->data.integral.is_signed ? "signed" : "unsigned";
         ir_add_error(ira, target, buf_sprintf("expected %s integer type, found '%s'", sign_str, buf_ptr(&src_type->name)));
@@ -20299,6 +20372,9 @@ static IrInstruction *ir_analyze_instruction_ptr_type(IrAnalyze *ira, IrInstruct
             return ira->codegen->invalid_instruction;
         if ((err = type_resolve(ira->codegen, child_type, ResolveStatusAlignmentKnown)))
             return ira->codegen->invalid_instruction;
+        if (!type_has_bits(child_type)) {
+            align_bytes = 0;
+        }
     } else {
         if ((err = type_resolve(ira->codegen, child_type, ResolveStatusZeroBitsKnown)))
             return ira->codegen->invalid_instruction;
@@ -20898,6 +20974,63 @@ static IrInstruction *ir_analyze_instruction_sqrt(IrAnalyze *ira, IrInstructionS
     return result;
 }
 
+static IrInstruction *ir_analyze_instruction_bswap(IrAnalyze *ira, IrInstructionBswap *instruction) {
+    ZigType *int_type = ir_resolve_type(ira, instruction->type->child);
+    if (type_is_invalid(int_type))
+        return ira->codegen->invalid_instruction;
+
+    IrInstruction *op = instruction->op->child;
+    if (type_is_invalid(op->value.type))
+        return ira->codegen->invalid_instruction;
+
+    if (int_type->id != ZigTypeIdInt) {
+        ir_add_error(ira, instruction->type,
+            buf_sprintf("expected integer type, found '%s'", buf_ptr(&int_type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+
+    if (int_type->data.integral.bit_count % 8 != 0) {
+        ir_add_error(ira, instruction->type,
+            buf_sprintf("@bswap integer type '%s' has %" PRIu32 " bits which is not evenly divisible by 8",
+                buf_ptr(&int_type->name), int_type->data.integral.bit_count));
+        return ira->codegen->invalid_instruction;
+    }
+
+    IrInstruction *casted_op = ir_implicit_cast(ira, op, int_type);
+    if (type_is_invalid(casted_op->value.type))
+        return ira->codegen->invalid_instruction;
+
+    if (int_type->data.integral.bit_count == 0) {
+        IrInstruction *result = ir_const(ira, &instruction->base, int_type);
+        bigint_init_unsigned(&result->value.data.x_bigint, 0);
+        return result;
+    }
+
+    if (int_type->data.integral.bit_count == 8) {
+        return casted_op;
+    }
+
+    if (instr_is_comptime(casted_op)) {
+        ConstExprValue *val = ir_resolve_const(ira, casted_op, UndefBad);
+        if (!val)
+            return ira->codegen->invalid_instruction;
+
+        IrInstruction *result = ir_const(ira, &instruction->base, int_type);
+        size_t buf_size = int_type->data.integral.bit_count / 8;
+        uint8_t *buf = allocate_nonzero<uint8_t>(buf_size);
+        bigint_write_twos_complement(&val->data.x_bigint, buf, int_type->data.integral.bit_count, true);
+        bigint_read_twos_complement(&result->value.data.x_bigint, buf, int_type->data.integral.bit_count, false,
+                int_type->data.integral.is_signed);
+        return result;
+    }
+
+    IrInstruction *result = ir_build_bswap(&ira->new_irb, instruction->base.scope,
+            instruction->base.source_node, nullptr, casted_op);
+    result->value.type = int_type;
+    return result;
+}
+
+
 static IrInstruction *ir_analyze_instruction_enum_to_int(IrAnalyze *ira, IrInstructionEnumToInt *instruction) {
     Error err;
     IrInstruction *target = instruction->target->child;
@@ -21233,6 +21366,8 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
             return ir_analyze_instruction_mark_err_ret_trace_ptr(ira, (IrInstructionMarkErrRetTracePtr *)instruction);
         case IrInstructionIdSqrt:
             return ir_analyze_instruction_sqrt(ira, (IrInstructionSqrt *)instruction);
+        case IrInstructionIdBswap:
+            return ir_analyze_instruction_bswap(ira, (IrInstructionBswap *)instruction);
         case IrInstructionIdIntToErr:
             return ir_analyze_instruction_int_to_err(ira, (IrInstructionIntToErr *)instruction);
         case IrInstructionIdErrToInt:
@@ -21454,6 +21589,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdCoroPromise:
         case IrInstructionIdPromiseResultType:
         case IrInstructionIdSqrt:
+        case IrInstructionIdBswap:
         case IrInstructionIdAtomicLoad:
         case IrInstructionIdIntCast:
         case IrInstructionIdFloatCast:

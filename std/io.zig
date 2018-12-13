@@ -152,35 +152,42 @@ pub fn InStream(comptime ReadError: type) type {
         }
 
         /// Reads a native-endian integer
-        pub fn readIntNe(self: *Self, comptime T: type) !T {
-            return self.readInt(builtin.endian, T);
-        }
-
-        pub fn readIntLe(self: *Self, comptime T: type) !T {
+        pub fn readIntNative(self: *Self, comptime T: type) !T {
             var bytes: [@sizeOf(T)]u8 = undefined;
             try self.readNoEof(bytes[0..]);
-            return mem.readIntLE(T, bytes);
+            return mem.readIntSliceNative(T, bytes);
         }
 
-        pub fn readIntBe(self: *Self, comptime T: type) !T {
+        /// Reads a foreign-endian integer
+        pub fn readIntForeign(self: *Self, comptime T: type) !T {
             var bytes: [@sizeOf(T)]u8 = undefined;
             try self.readNoEof(bytes[0..]);
-            return mem.readIntBE(T, bytes);
+            return mem.readIntSliceForeign(T, bytes);
         }
 
-        pub fn readInt(self: *Self, endian: builtin.Endian, comptime T: type) !T {
+        pub fn readIntLittle(self: *Self, comptime T: type) !T {
             var bytes: [@sizeOf(T)]u8 = undefined;
             try self.readNoEof(bytes[0..]);
-            return mem.readInt(bytes, T, endian);
+            return mem.readIntSliceLittle(T, bytes);
         }
 
-        pub fn readVarInt(self: *Self, endian: builtin.Endian, comptime T: type, size: usize) !T {
+        pub fn readIntBig(self: *Self, comptime T: type) !T {
+            var bytes: [@sizeOf(T)]u8 = undefined;
+            try self.readNoEof(bytes[0..]);
+            return mem.readIntSliceBig(T, bytes);
+        }
+
+        pub fn readInt(self: *Self, comptime T: type, endian: builtin.Endian) !T {
+            var bytes: [@sizeOf(T)]u8 = undefined;
+            try self.readNoEof(bytes[0..]);
+            return mem.readIntSlice(T, bytes, endian);
+        }
+
+        pub fn readVarInt(self: *Self, comptime T: type, endian: builtin.Endian, size: usize) !T {
             assert(size <= @sizeOf(T));
-            assert(size <= 8);
-            var input_buf: [8]u8 = undefined;
-            const input_slice = input_buf[0..size];
-            try self.readNoEof(input_slice);
-            return mem.readInt(input_slice, T, endian);
+            var bytes: [@sizeOf(T)]u8 = undefined;
+            try self.readNoEof(bytes[0..]);
+            return mem.readIntSlice(T, bytes, endian);
         }
 
         pub fn skipBytes(self: *Self, num_bytes: usize) !void {
@@ -229,25 +236,34 @@ pub fn OutStream(comptime WriteError: type) type {
         }
 
         /// Write a native-endian integer.
-        pub fn writeIntNe(self: *Self, comptime T: type, value: T) Error!void {
-            return self.writeInt(builtin.endian, T, value);
-        }
-
-        pub fn writeIntLe(self: *Self, comptime T: type, value: T) Error!void {
+        pub fn writeIntNative(self: *Self, comptime T: type, value: T) Error!void {
             var bytes: [@sizeOf(T)]u8 = undefined;
-            mem.writeIntLE(T, &bytes, value);
+            mem.writeIntNative(T, &bytes, value);
             return self.writeFn(self, bytes);
         }
 
-        pub fn writeIntBe(self: *Self, comptime T: type, value: T) Error!void {
+        /// Write a foreign-endian integer.
+        pub fn writeIntForeign(self: *Self, comptime T: type, value: T) Error!void {
             var bytes: [@sizeOf(T)]u8 = undefined;
-            mem.writeIntBE(T, &bytes, value);
+            mem.writeIntForeign(T, &bytes, value);
             return self.writeFn(self, bytes);
         }
 
-        pub fn writeInt(self: *Self, endian: builtin.Endian, comptime T: type, value: T) Error!void {
+        pub fn writeIntLittle(self: *Self, comptime T: type, value: T) Error!void {
             var bytes: [@sizeOf(T)]u8 = undefined;
-            mem.writeInt(bytes[0..], value, endian);
+            mem.writeIntLittle(T, &bytes, value);
+            return self.writeFn(self, bytes);
+        }
+
+        pub fn writeIntBig(self: *Self, comptime T: type, value: T) Error!void {
+            var bytes: [@sizeOf(T)]u8 = undefined;
+            mem.writeIntBig(T, &bytes, value);
+            return self.writeFn(self, bytes);
+        }
+
+        pub fn writeInt(self: *Self, comptime T: type, value: T, endian: builtin.Endian) Error!void {
+            var bytes: [@sizeOf(T)]u8 = undefined;
+            mem.writeInt(T, &bytes, value, endian);
             return self.writeFn(self, bytes);
         }
     };
