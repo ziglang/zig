@@ -186,7 +186,7 @@ pub fn InStream(comptime ReadError: type) type {
         pub fn readVarInt(self: *Self, comptime T: type, endian: builtin.Endian, size: usize) !T {
             assert(size <= @sizeOf(T));
             var bytes: [@sizeOf(T)]u8 = undefined;
-            try self.readNoEof(bytes[0..]);
+            try self.readNoEof(bytes[0..size]);
             return mem.readIntSlice(T, bytes, endian);
         }
 
