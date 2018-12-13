@@ -702,8 +702,8 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
     errdefer result.deinit();
 
     if (is_windows) {
-        const ptr = windows.GetEnvironmentStringsA() orelse return error.OutOfMemory;
-        defer assert(windows.FreeEnvironmentStringsA(ptr) != 0);
+        const ptr = windows.GetEnvironmentStringsW() orelse return error.OutOfMemory;
+        defer assert(windows.FreeEnvironmentStringsW(ptr) != 0);
 
         var i: usize = 0;
         while (true) {
@@ -712,17 +712,21 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
             const key_start = i;
 
             while (ptr[i] != 0 and ptr[i] != '=') : (i += 1) {}
-            const key = ptr[key_start..i];
+            const key_w = ptr[key_start..i];
+            const key = try std.unicode.utf16leToUtf8Alloc(allocator, key_w);
+            errdefer allocator.free(key);
 
             if (ptr[i] == '=') i += 1;
 
             const value_start = i;
             while (ptr[i] != 0) : (i += 1) {}
-            const value = ptr[value_start..i];
+            const value_w = ptr[value_start..i];
+            const value = try std.unicode.utf16leToUtf8Alloc(allocator, value_w);
+            errdefer allocator.free(value);
 
             i += 1; // skip over null byte
 
-            try result.set(key, value);
+            try result.setMove(key, value);
         }
     } else {
         for (posix_environ_raw) |ptr| {
@@ -738,6 +742,11 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
         }
         return result;
     }
+}
+
+test "os.getEnvMap" {
+    var env = try getEnvMap(std.debug.global_allocator);
+    defer env.deinit();
 }
 
 /// TODO make this go through libc when we have it
@@ -760,21 +769,24 @@ pub fn getEnvPosix(key: []const u8) ?[]const u8 {
 pub const GetEnvVarOwnedError = error{
     OutOfMemory,
     EnvironmentVariableNotFound,
+
+    /// See https://github.com/ziglang/zig/issues/1774
+    InvalidUtf8,
 };
 
 /// Caller must free returned memory.
 /// TODO make this go through libc when we have it
 pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwnedError![]u8 {
     if (is_windows) {
-        const key_with_null = try cstr.addNullByte(allocator, key);
+        const key_with_null = try std.unicode.utf8ToUtf16LeWithNull(allocator, key);
         defer allocator.free(key_with_null);
 
-        var buf = try allocator.alloc(u8, 256);
-        errdefer allocator.free(buf);
+        var buf = try allocator.alloc(u16, 256);
+        defer allocator.free(buf);
 
         while (true) {
             const windows_buf_len = math.cast(windows.DWORD, buf.len) catch return error.OutOfMemory;
-            const result = windows.GetEnvironmentVariableA(key_with_null.ptr, buf.ptr, windows_buf_len);
+            const result = windows.GetEnvironmentVariableW(key_with_null.ptr, buf.ptr, windows_buf_len);
 
             if (result == 0) {
                 const err = windows.GetLastError();
@@ -788,16 +800,26 @@ pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwned
             }
 
             if (result > buf.len) {
-                buf = try allocator.realloc(u8, buf, result);
+                buf = try allocator.realloc(u16, buf, result);
                 continue;
             }
 
-            return allocator.shrink(u8, buf, result);
+            return std.unicode.utf16leToUtf8Alloc(allocator, buf) catch |err| switch (err) {
+                error.DanglingSurrogateHalf => return error.InvalidUtf8,
+                error.ExpectedSecondSurrogateHalf => return error.InvalidUtf8,
+                error.UnexpectedSecondSurrogateHalf => return error.InvalidUtf8,
+                error.OutOfMemory => return error.OutOfMemory,
+            };
         }
     } else {
         const result = getEnvPosix(key) orelse return error.EnvironmentVariableNotFound;
         return mem.dupe(allocator, u8, result);
     }
+}
+
+test "os.getEnvVarOwned" {
+    var ga = debug.global_allocator;
+    debug.assertError(getEnvVarOwned(ga, "BADENV"), error.EnvironmentVariableNotFound);
 }
 
 /// Caller must free the returned memory.

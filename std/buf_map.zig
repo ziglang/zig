@@ -16,7 +16,7 @@ pub const BufMap = struct {
         return self;
     }
 
-    pub fn deinit(self: *const BufMap) void {
+    pub fn deinit(self: *BufMap) void {
         var it = self.hash_map.iterator();
         while (true) {
             const entry = it.next() orelse break;
@@ -27,16 +27,34 @@ pub const BufMap = struct {
         self.hash_map.deinit();
     }
 
-    pub fn set(self: *BufMap, key: []const u8, value: []const u8) !void {
-        self.delete(key);
-        const key_copy = try self.copy(key);
-        errdefer self.free(key_copy);
-        const value_copy = try self.copy(value);
-        errdefer self.free(value_copy);
-        _ = try self.hash_map.put(key_copy, value_copy);
+    /// Same as `set` but the key and value become owned by the BufMap rather
+    /// than being copied.
+    /// If `setMove` fails, the ownership of key and value does not transfer.
+    pub fn setMove(self: *BufMap, key: []u8, value: []u8) !void {
+        const get_or_put = try self.hash_map.getOrPut(key);
+        if (get_or_put.found_existing) {
+            self.free(get_or_put.kv.key);
+            get_or_put.kv.key = key;
+        }
+        get_or_put.kv.value = value;
     }
 
-    pub fn get(self: *const BufMap, key: []const u8) ?[]const u8 {
+    /// `key` and `value` are copied into the BufMap.
+    pub fn set(self: *BufMap, key: []const u8, value: []const u8) !void {
+        const value_copy = try self.copy(value);
+        errdefer self.free(value_copy);
+        // Avoid copying key if it already exists
+        const get_or_put = try self.hash_map.getOrPut(key);
+        if (!get_or_put.found_existing) {
+            get_or_put.kv.key = self.copy(key) catch |err| {
+                _ = self.hash_map.remove(key);
+                return err;
+            };
+        }
+        get_or_put.kv.value = value_copy;
+    }
+
+    pub fn get(self: BufMap, key: []const u8) ?[]const u8 {
         const entry = self.hash_map.get(key) orelse return null;
         return entry.value;
     }
@@ -47,7 +65,7 @@ pub const BufMap = struct {
         self.free(entry.value);
     }
 
-    pub fn count(self: *const BufMap) usize {
+    pub fn count(self: BufMap) usize {
         return self.hash_map.count();
     }
 
@@ -55,11 +73,11 @@ pub const BufMap = struct {
         return self.hash_map.iterator();
     }
 
-    fn free(self: *const BufMap, value: []const u8) void {
+    fn free(self: BufMap, value: []const u8) void {
         self.hash_map.allocator.free(value);
     }
 
-    fn copy(self: *const BufMap, value: []const u8) ![]const u8 {
+    fn copy(self: BufMap, value: []const u8) ![]u8 {
         return mem.dupe(self.hash_map.allocator, u8, value);
     }
 };
