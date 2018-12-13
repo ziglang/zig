@@ -9,6 +9,7 @@ pub use @import("errno.zig");
 
 const std = @import("../../index.zig");
 const c = std.c;
+const maxInt = std.math.maxInt;
 pub const Kevent = c.Kevent;
 
 pub const PATH_MAX = 1024;
@@ -22,7 +23,7 @@ pub const PROT_READ = 1;
 pub const PROT_WRITE = 2;
 pub const PROT_EXEC = 4;
 
-pub const MAP_FAILED = @maxValue(usize);
+pub const MAP_FAILED = maxInt(usize);
 pub const MAP_SHARED = 0x0001;
 pub const MAP_PRIVATE = 0x0002;
 pub const MAP_FIXED = 0x0010;
@@ -700,7 +701,7 @@ pub fn sigaction(sig: u6, noalias act: *const Sigaction, noalias oact: ?*Sigacti
 
 const NSIG = 65;
 const sigset_t = [128 / @sizeOf(usize)]usize;
-const all_mask = []usize{@maxValue(usize)};
+const all_mask = []usize{maxInt(usize)};
 const app_mask = []usize{0xfffffffc7fffffff};
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
@@ -711,7 +712,7 @@ pub const Sigaction = struct {
     flags: u32,
 };
 
-pub const SIG_ERR = @intToPtr(extern fn (i32) void, @maxValue(usize));
+pub const SIG_ERR = @intToPtr(extern fn (i32) void, maxInt(usize));
 pub const SIG_DFL = @intToPtr(extern fn (i32) void, 0);
 pub const SIG_IGN = @intToPtr(extern fn (i32) void, 1);
 pub const empty_sigset = []usize{0} ** sigset_t.len;

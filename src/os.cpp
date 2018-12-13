@@ -1456,7 +1456,7 @@ Error os_self_exe_path(Buf *out_path) {
     if (sysctl(mib, 4, buf_ptr(out_path), &cb, nullptr, 0) != 0) {
         return ErrorUnexpected;
     }
-    buf_resize(out_path, cb);
+    buf_resize(out_path, cb - 1);
     return ErrorNone;
 #endif
     return ErrorFileNotFound;
