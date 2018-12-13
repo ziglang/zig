@@ -158,7 +158,6 @@ pub const SOCK_SEQPACKET = 5;
 pub const SOCK_CLOEXEC = 0x10000000;
 pub const SOCK_NONBLOCK = 0x20000000;
 
-// TODO: From here
 pub const PROTO_ip = 0o000;
 pub const PROTO_icmp = 0o001;
 pub const PROTO_igmp = 0o002;
@@ -540,7 +539,7 @@ pub fn getErrno(r: usize) usize {
 }
 
 pub fn dup2(old: i32, new: i32) usize {
-    return arch.syscall2(SYS_dup2, @intCast(usize, old), @intCast(usize, new));
+    return arch.syscall2(SYS_dup2, @bitCast(usize, isize(old)), @bitCast(usize, isize(new)));
 }
 
 pub fn chdir(path: [*]const u8) usize {
@@ -560,12 +559,12 @@ pub fn getcwd(buf: [*]u8, size: usize) usize {
 }
 
 pub fn getdents(fd: i32, dirp: [*]u8, count: usize) usize {
-    return arch.syscall3(SYS_getdents, @intCast(usize, fd), @ptrToInt(dirp), count);
+    return arch.syscall3(SYS_getdents, @bitCast(usize, isize(fd)), @ptrToInt(dirp), count);
 }
 
 pub fn isatty(fd: i32) bool {
     var wsz: winsize = undefined;
-    return arch.syscall3(SYS_ioctl, @intCast(usize, fd), TIOCGWINSZ, @ptrToInt(&wsz)) == 0;
+    return arch.syscall3(SYS_ioctl, @bitCast(usize, isize(fd)), TIOCGWINSZ, @ptrToInt(&wsz)) == 0;
 }
 
 pub fn readlink(noalias path: [*]const u8, noalias buf_ptr: [*]u8, buf_len: usize) usize {
@@ -577,7 +576,7 @@ pub fn mkdir(path: [*]const u8, mode: u32) usize {
 }
 
 pub fn mmap(address: ?*u8, length: usize, prot: usize, flags: usize, fd: i32, offset: isize) usize {
-    return arch.syscall6(SYS_mmap, @ptrToInt(address), length, prot, flags, @intCast(usize, fd), @bitCast(usize, offset));
+    return arch.syscall6(SYS_mmap, @ptrToInt(address), length, prot, flags, @bitCast(usize, isize(fd)), @bitCast(usize, offset));
 }
 
 pub fn munmap(address: usize, length: usize) usize {
@@ -585,7 +584,7 @@ pub fn munmap(address: usize, length: usize) usize {
 }
 
 pub fn read(fd: i32, buf: [*]u8, count: usize) usize {
-    return arch.syscall3(SYS_read, @intCast(usize, fd), @ptrToInt(buf), count);
+    return arch.syscall3(SYS_read, @bitCast(usize, isize(fd)), @ptrToInt(buf), count);
 }
 
 pub fn rmdir(path: [*]const u8) usize {
@@ -597,11 +596,11 @@ pub fn symlink(existing: [*]const u8, new: [*]const u8) usize {
 }
 
 pub fn pread(fd: i32, buf: [*]u8, count: usize, offset: usize) usize {
-    return arch.syscall4(SYS_pread, @intCast(usize, fd), @ptrToInt(buf), count, offset);
+    return arch.syscall4(SYS_pread, @bitCast(usize, isize(fd)), @ptrToInt(buf), count, offset);
 }
 
 pub fn preadv(fd: i32, iov: [*]const iovec, count: usize, offset: usize) usize {
-    return arch.syscall4(SYS_preadv, @intCast(usize, fd), @ptrToInt(iov), count, offset);
+    return arch.syscall4(SYS_preadv, @bitCast(usize, isize(fd)), @ptrToInt(iov), count, offset);
 }
 
 pub fn pipe(fd: *[2]i32) usize {
@@ -613,15 +612,15 @@ pub fn pipe2(fd: *[2]i32, flags: usize) usize {
 }
 
 pub fn write(fd: i32, buf: [*]const u8, count: usize) usize {
-    return arch.syscall3(SYS_write, @intCast(usize, fd), @ptrToInt(buf), count);
+    return arch.syscall3(SYS_write, @bitCast(usize, isize(fd)), @ptrToInt(buf), count);
 }
 
 pub fn pwrite(fd: i32, buf: [*]const u8, count: usize, offset: usize) usize {
-    return arch.syscall4(SYS_pwrite, @intCast(usize, fd), @ptrToInt(buf), count, offset);
+    return arch.syscall4(SYS_pwrite, @bitCast(usize, isize(fd)), @ptrToInt(buf), count, offset);
 }
 
 pub fn pwritev(fd: i32, iov: [*]const iovec_const, count: usize, offset: usize) usize {
-    return arch.syscall4(SYS_pwritev, @intCast(usize, fd), @ptrToInt(iov), count, offset);
+    return arch.syscall4(SYS_pwritev, @bitCast(usize, isize(fd)), @ptrToInt(iov), count, offset);
 }
 
 pub fn rename(old: [*]const u8, new: [*]const u8) usize {
@@ -637,15 +636,15 @@ pub fn create(path: [*]const u8, perm: usize) usize {
 }
 
 pub fn openat(dirfd: i32, path: [*]const u8, flags: usize, mode: usize) usize {
-    return arch.syscall4(SYS_openat, @intCast(usize, dirfd), @ptrToInt(path), flags, mode);
+    return arch.syscall4(SYS_openat, @bitCast(usize, isize(dirfd)), @ptrToInt(path), flags, mode);
 }
 
 pub fn close(fd: i32) usize {
-    return arch.syscall1(SYS_close, @intCast(usize, fd));
+    return arch.syscall1(SYS_close, @bitCast(usize, isize(fd)));
 }
 
 pub fn lseek(fd: i32, offset: isize, ref_pos: usize) usize {
-    return arch.syscall3(SYS_lseek, @intCast(usize, fd), @bitCast(usize, offset), ref_pos);
+    return arch.syscall3(SYS_lseek, @bitCast(usize, isize(fd)), @bitCast(usize, offset), ref_pos);
 }
 
 pub fn exit(status: i32) noreturn {
@@ -654,11 +653,11 @@ pub fn exit(status: i32) noreturn {
 }
 
 pub fn getrandom(buf: [*]u8, count: usize, flags: u32) usize {
-    return arch.syscall3(SYS_getrandom, @ptrToInt(buf), count, @intCast(usize, flags));
+    return arch.syscall3(SYS_getrandom, @ptrToInt(buf), count, usize(flags));
 }
 
 pub fn kill(pid: i32, sig: i32) usize {
-    return arch.syscall2(SYS_kill, @bitCast(usize, @intCast(isize, pid)), @intCast(usize, sig));
+    return arch.syscall2(SYS_kill, @bitCast(usize, isize(pid)), @bitCast(usize, isize(sig)));
 }
 
 pub fn unlink(path: [*]const u8) usize {
@@ -689,66 +688,65 @@ pub fn setregid(rgid: u32, egid: u32) usize {
     return arch.syscall2(SYS_setregid, rgid, egid);
 }
 
-pub fn sigprocmask(flags: u32, noalias set: *const sigset_t, noalias oldset: ?*sigset_t) usize {
-    // TODO: Implement
-    return 0;
-}
-
-pub fn sigaction(sig: u6, noalias act: *const Sigaction, noalias oact: ?*Sigaction) usize {
-    // TODO: Implement
-    return 0;
-}
-
-const NSIG = 65;
-const sigset_t = [128 / @sizeOf(usize)]usize;
-const all_mask = []usize{maxInt(usize)};
-const app_mask = []usize{0xfffffffc7fffffff};
-
-/// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
-pub const Sigaction = struct {
-    // TODO: Adjust to use freebsd struct layout
-    handler: extern fn (i32) void,
-    mask: sigset_t,
-    flags: u32,
-};
+const NSIG = 32;
 
 pub const SIG_ERR = @intToPtr(extern fn (i32) void, maxInt(usize));
 pub const SIG_DFL = @intToPtr(extern fn (i32) void, 0);
 pub const SIG_IGN = @intToPtr(extern fn (i32) void, 1);
-pub const empty_sigset = []usize{0} ** sigset_t.len;
+
+/// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
+pub const Sigaction = extern struct {
+    /// signal handler
+    __sigaction_u: extern union {
+        __sa_handler: extern fn (i32) void,
+        __sa_sigaction: extern fn (i32, *__siginfo, usize) void,
+    },
+
+    /// see signal options
+    sa_flags: u32,
+
+    /// signal mask to apply
+    sa_mask: sigset_t,
+};
+
+pub const _SIG_WORDS = 4;
+pub const _SIG_MAXSIG = 128;
+
+pub inline fn _SIG_IDX(sig: usize) usize {
+    return sig - 1;
+}
+pub inline fn _SIG_WORD(sig: usize) usize {
+    return_SIG_IDX(sig) >> 5;
+}
+pub inline fn _SIG_BIT(sig: usize) usize {
+    return 1 << (_SIG_IDX(sig) & 31);
+}
+pub inline fn _SIG_VALID(sig: usize) usize {
+    return sig <= _SIG_MAXSIG and sig > 0;
+}
+
+pub const sigset_t = extern struct {
+    __bits: [_SIG_WORDS]u32,
+};
 
 pub fn raise(sig: i32) usize {
-    // TODO implement, see linux equivalent for what we want to try and do
-    return 0;
-}
-
-fn blockAllSignals(set: *sigset_t) void {
-    // TODO implement
-}
-
-fn blockAppSignals(set: *sigset_t) void {
-    // TODO implement
-}
-
-fn restoreSignals(set: *sigset_t) void {
-    // TODO implement
-}
-
-pub fn sigaddset(set: *sigset_t, sig: u6) void {
-    const s = sig - 1;
-    (*set)[usize(s) / usize.bit_count] |= usize(1) << (s & (usize.bit_count - 1));
-}
-
-pub fn sigismember(set: *const sigset_t, sig: u6) bool {
-    const s = sig - 1;
-    return ((*set)[usize(s) / usize.bit_count] & (usize(1) << (s & (usize.bit_count - 1)))) != 0;
+    // TODO have a chat with the freebsd folks and make sure there's no bug in
+    // their libc. musl-libc blocks signals in between these calls because
+    // if a signal handler runs and forks between the gettid and sending the
+    // signal, the parent will get 2 signals, one from itself and one from the child
+    // if the protection does not belong here, then it belongs in abort(),
+    // like it does in freebsd's libc.
+    var id: usize = undefined;
+    const rc = arch.syscall1(SYS_thr_self, @ptrToInt(&id));
+    if (getErrno(rc) != 0) return rc;
+    return arch.syscall2(SYS_thr_kill, id, @bitCast(usize, isize(sig)));
 }
 
 pub const Stat = arch.Stat;
 pub const timespec = arch.timespec;
 
 pub fn fstat(fd: i32, stat_buf: *Stat) usize {
-    return arch.syscall2(SYS_fstat, @intCast(usize, fd), @ptrToInt(stat_buf));
+    return arch.syscall2(SYS_fstat, @bitCast(usize, isize(fd)), @ptrToInt(stat_buf));
 }
 
 pub const iovec = extern struct {
@@ -761,10 +759,12 @@ pub const iovec_const = extern struct {
     iov_len: usize,
 };
 
+// TODO avoid libc dependency
 pub fn kqueue() usize {
     return errnoWrap(c.kqueue());
 }
 
+// TODO avoid libc dependency
 pub fn kevent(kq: i32, changelist: []const Kevent, eventlist: []Kevent, timeout: ?*const timespec) usize {
     return errnoWrap(c.kevent(
         kq,
@@ -776,17 +776,22 @@ pub fn kevent(kq: i32, changelist: []const Kevent, eventlist: []Kevent, timeout:
     ));
 }
 
+// TODO avoid libc dependency
 pub fn sysctl(name: [*]c_int, namelen: c_uint, oldp: ?*c_void, oldlenp: ?*usize, newp: ?*c_void, newlen: usize) usize {
     return errnoWrap(c.sysctl(name, namelen, oldp, oldlenp, newp, newlen));
 }
 
+// TODO avoid libc dependency
 pub fn sysctlbyname(name: [*]const u8, oldp: ?*c_void, oldlenp: ?*usize, newp: ?*c_void, newlen: usize) usize {
     return errnoWrap(c.sysctlbyname(name, oldp, oldlenp, newp, newlen));
 }
 
+// TODO avoid libc dependency
 pub fn sysctlnametomib(name: [*]const u8, mibp: ?*c_int, sizep: ?*usize) usize {
     return errnoWrap(c.sysctlnametomib(name, wibp, sizep));
 }
+
+// TODO avoid libc dependency
 
 /// Takes the return value from a syscall and formats it back in the way
 /// that the kernel represents it to libc. Errno was a mistake, let's make
