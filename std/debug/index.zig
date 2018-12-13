@@ -1200,7 +1200,7 @@ const Constant = struct {
     fn asUnsignedLe(self: *const Constant) !u64 {
         if (self.payload.len > @sizeOf(u64)) return error.InvalidDebugInfo;
         if (self.signed) return error.InvalidDebugInfo;
-        return mem.readIntSliceLittle(u64, self.payload);
+        return mem.readVarInt(u64, self.payload, builtin.Endian.Little);
     }
 };
 

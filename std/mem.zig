@@ -407,6 +407,27 @@ test "mem.indexOf" {
     assert(lastIndexOfScalar(u8, "boo", 'o').? == 2);
 }
 
+/// Reads an integer from memory with size equal to bytes.len.
+/// T specifies the return type, which must be large enough to store
+/// the result.
+pub fn readVarInt(comptime ReturnType: type, bytes: []const u8, endian: builtin.Endian) ReturnType {
+    var result: ReturnType = 0;
+    switch (endian) {
+        builtin.Endian.Big => {
+            for (bytes) |b| {
+                result = (result << 8) | b;
+            }
+        },
+        builtin.Endian.Little => {
+            const ShiftType = math.Log2Int(ReturnType);
+            for (bytes) |b, index| {
+                result = result | (ReturnType(b) << @intCast(ShiftType, index * 8));
+            }
+        },
+    }
+    return result;
+}
+
 /// Reads an integer from memory with bit count specified by T.
 /// The bit count of T must be evenly divisible by 8.
 /// This function cannot fail and cannot cause undefined behavior.

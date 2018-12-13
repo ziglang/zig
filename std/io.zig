@@ -183,11 +183,12 @@ pub fn InStream(comptime ReadError: type) type {
             return mem.readIntSlice(T, bytes, endian);
         }
 
-        pub fn readVarInt(self: *Self, comptime T: type, endian: builtin.Endian, size: usize) !T {
-            assert(size <= @sizeOf(T));
-            var bytes: [@sizeOf(T)]u8 = undefined;
-            try self.readNoEof(bytes[0..size]);
-            return mem.readIntSlice(T, bytes, endian);
+        pub fn readVarInt(self: *Self, comptime ReturnType: type, endian: builtin.Endian, size: usize) !ReturnType {
+            assert(size <= @sizeOf(ReturnType));
+            var bytes_buf: [@sizeOf(ReturnType)]u8 = undefined;
+            const bytes = bytes_buf[0..size];
+            try self.readNoEof(bytes);
+            return mem.readVarInt(ReturnType, bytes, endian);
         }
 
         pub fn skipBytes(self: *Self, num_bytes: usize) !void {
