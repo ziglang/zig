@@ -1,5 +1,3 @@
-const builtin = @import("builtin");
-
 comptime {
     _ = @import("cases/align.zig");
     _ = @import("cases/alignof.zig");

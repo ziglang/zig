@@ -3245,8 +3245,10 @@ static IrInstruction *ir_gen_result(IrBuilder *irb, Scope *scope, AstNode *node,
         case LValErrorUnionPtr: {
             return ir_build_error_union_field_error_set(irb, scope, node, result_loc, false);
         }
-        case LValOptional:
-            zig_unreachable();
+        case LValOptional: {
+            IrInstruction *loaded_ptr = ir_build_load_ptr(irb, scope, node, result_loc, nullptr);
+            return ir_build_test_nonnull(irb, scope, node, loaded_ptr);
+        }
     }
     zig_unreachable();
 }
@@ -3280,14 +3282,8 @@ static IrInstruction *ir_gen_value(IrBuilder *irb, Scope *scope, AstNode *node, 
                 return ir_build_ref(irb, scope, node, null, true, false, nullptr);
             }
             case LValOptional: {
-                zig_panic("TODO");
-                //// result_loc is a pointer to child type
-                //// value is an optional value
-                //// need to return non-null bit
-                //IrInstruction *opt_ptr = ir_build_ref(irb, scope, node, value, false, false, nullptr);
-                //IrInstruction *payload_ptr = ir_build_optional_unwrap_ptr(irb, scope, node, opt_ptr, false);
-                //ir_build_load_ptr(irb, scope, node, payload_ptr, result_loc);
-                //return ir_build_test_nonnull(irb, scope, node, value);
+                ir_build_store_ptr(irb, scope, node, result_loc, value);
+                return ir_build_const_bool(irb, scope, node, true);
             }
         }
     }
@@ -3447,6 +3443,12 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
         case ReturnKindError:
             {
                 assert(expr_node);
+                if (lval == LValOptional) {
+                    add_node_error(irb->codegen, expr_node,
+                        buf_sprintf("TODO: compiler bug: copy elision not advanced enough to handle nested try"));
+                    return irb->codegen->invalid_instruction;
+                }
+
                 IrInstruction *ensured_result_loc = ensure_result_loc(irb, scope, expr_node, result_loc);
                 IrInstruction *opt_err_code = ir_gen_node(irb, expr_node, scope,
                         LValErrorUnionVal, ensured_result_loc);
@@ -9402,15 +9404,15 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
             if (prev_type->id == ZigTypeIdArray) {
                 convert_to_const_slice = true;
             }
+            if (!resolve_inferred_error_set(ira->codegen, cur_type, cur_inst->source_node)) {
+                return ira->codegen->builtin_types.entry_invalid;
+            }
             if (type_is_global_error_set(cur_type)) {
                 err_set_type = ira->codegen->builtin_types.entry_global_error_set;
                 continue;
             }
             if (err_set_type != nullptr && type_is_global_error_set(err_set_type)) {
                 continue;
-            }
-            if (!resolve_inferred_error_set(ira->codegen, cur_type, cur_inst->source_node)) {
-                return ira->codegen->builtin_types.entry_invalid;
             }
 
             update_errors_helper(ira->codegen, &errors, &errors_count);
