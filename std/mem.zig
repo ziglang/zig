@@ -443,8 +443,7 @@ pub fn readIntNative(comptime T: type, bytes: *const [@sizeOf(T)]u8) T {
 /// This function cannot fail and cannot cause undefined behavior.
 /// Assumes the endianness of memory is foreign, so it must byte-swap.
 pub fn readIntForeign(comptime T: type, bytes: *const [@sizeOf(T)]u8) T {
-    comptime assert(T.bit_count % 8 == 0);
-    return @bswap(T, @ptrCast(*align(1) const T, bytes).*);
+    return @bswap(T, readIntNative(T, bytes));
 }
 
 pub const readIntLittle = switch (builtin.endian) {
@@ -476,10 +475,7 @@ pub fn readIntSliceNative(comptime T: type, bytes: []const u8) T {
 /// The bit count of T must be evenly divisible by 8.
 /// Assumes the endianness of memory is foreign, so it must byte-swap.
 pub fn readIntSliceForeign(comptime T: type, bytes: []const u8) T {
-    assert(@sizeOf(u24) == 3);
-    assert(bytes.len >= @sizeOf(T));
-    // TODO https://github.com/ziglang/zig/issues/863
-    return readIntForeign(T, @ptrCast(*const [@sizeOf(T)]u8, bytes.ptr));
+    return @bswap(T, readIntSliceNative(T, bytes));
 }
 
 pub const readIntSliceLittle = switch (builtin.endian) {
@@ -548,7 +544,7 @@ pub fn writeIntNative(comptime T: type, buf: *[@sizeOf(T)]u8, value: T) void {
 /// the integer bit width must be divisible by 8.
 /// This function stores in foreign endian, which means it does a @bswap first.
 pub fn writeIntForeign(comptime T: type, buf: *[@sizeOf(T)]u8, value: T) void {
-    @ptrCast(*align(1) T, buf).* = @bswap(T, value);
+    writeIntNative(T, buf, @bswap(T, value));
 }
 
 pub const writeIntLittle = switch (builtin.endian) {
