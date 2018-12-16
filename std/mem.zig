@@ -510,6 +510,15 @@ pub fn readIntSlice(comptime T: type, bytes: []const u8, endian: builtin.Endian)
     return readInt(T, @ptrCast(*const [@sizeOf(T)]u8, bytes.ptr), endian);
 }
 
+test "comptime read/write int" {
+    comptime {
+        var bytes: [2]u8 = undefined;
+        std.mem.writeIntLittle(u16, &bytes, 0x1234);
+        const result = std.mem.readIntBig(u16, &bytes);
+        std.debug.assert(result == 0x3412);
+    }
+}
+
 test "readIntBig and readIntLittle" {
     assert(readIntSliceBig(u0, []u8{}) == 0x0);
     assert(readIntSliceLittle(u0, []u8{}) == 0x0);

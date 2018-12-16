@@ -166,6 +166,7 @@ static Error ir_read_const_ptr(IrAnalyze *ira, AstNode *source_node,
 static IrInstruction *ir_analyze_ptr_cast(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *ptr,
         ZigType *dest_type, IrInstruction *dest_type_src);
 static ConstExprValue *ir_resolve_const(IrAnalyze *ira, IrInstruction *value, UndefAllowed undef_allowed);
+static void copy_const_val(ConstExprValue *dest, ConstExprValue *src, bool same_global_refs);
 
 static ConstExprValue *const_ptr_pointee_unchecked(CodeGen *g, ConstExprValue *const_val) {
     assert(get_src_ptr_type(const_val->type) != nullptr);
@@ -7364,15 +7365,31 @@ static ErrorMsg *ir_add_error(IrAnalyze *ira, IrInstruction *source_instruction,
     return ir_add_error_node(ira, source_instruction->source_node, msg);
 }
 
+// This function takes a comptime ptr and makes the child const value conform to the type
+// described by the pointer.
+static Error eval_comptime_ptr_reinterpret(IrAnalyze *ira, AstNode *source_node, ConstExprValue *ptr_val) {
+    Error err;
+    assert(ptr_val->type->id == ZigTypeIdPointer);
+    ConstExprValue tmp = {};
+    tmp.special = ConstValSpecialStatic;
+    tmp.type = ptr_val->type->data.pointer.child_type;
+    if ((err = ir_read_const_ptr(ira, source_node, &tmp, ptr_val)))
+        return err;
+    ConstExprValue *child_val = const_ptr_pointee_unchecked(ira->codegen, ptr_val);
+    copy_const_val(child_val, &tmp, false);
+    return ErrorNone;
+}
+
 static ConstExprValue *ir_const_ptr_pointee(IrAnalyze *ira, ConstExprValue *const_val, AstNode *source_node) {
+    Error err;
     ConstExprValue *val = const_ptr_pointee_unchecked(ira->codegen, const_val);
     assert(val != nullptr);
     assert(const_val->type->id == ZigTypeIdPointer);
     ZigType *expected_type = const_val->type->data.pointer.child_type;
     if (!types_have_same_zig_comptime_repr(val->type, expected_type)) {
-        ir_add_error_node(ira, source_node,
-            buf_sprintf("TODO handle comptime reinterpreted pointer. See https://github.com/ziglang/zig/issues/955"));
-        return nullptr;
+        if ((err = eval_comptime_ptr_reinterpret(ira, source_node, const_val)))
+            return nullptr;
+        return const_ptr_pointee_unchecked(ira->codegen, const_val);
     }
     return val;
 }
@@ -19990,6 +20007,8 @@ static IrInstruction *ir_analyze_instruction_ptr_cast(IrAnalyze *ira, IrInstruct
 }
 
 static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue *val) {
+    if (val->special == ConstValSpecialUndef)
+        val->special = ConstValSpecialStatic;
     assert(val->special == ConstValSpecialStatic);
     switch (val->type->id) {
         case ZigTypeIdInvalid:
