@@ -1,5 +1,3 @@
-const timespec = @import("../os/freebsd/index.zig").timespec;
-
 extern "c" fn __error() *c_int;
 pub const _errno = __error;
 
@@ -30,4 +28,41 @@ pub const Kevent = extern struct {
 pub const pthread_attr_t = extern struct {
     __size: [56]u8,
     __align: c_long,
+};
+
+pub const msghdr = extern struct {
+    msg_name: *u8,
+    msg_namelen: socklen_t,
+    msg_iov: *iovec,
+    msg_iovlen: i32,
+    __pad1: i32,
+    msg_control: *u8,
+    msg_controllen: socklen_t,
+    __pad2: socklen_t,
+    msg_flags: i32,
+};
+
+pub const Stat = extern struct {
+    dev: u64,
+    ino: u64,
+    nlink: usize,
+
+    mode: u32,
+    uid: u32,
+    gid: u32,
+    __pad0: u32,
+    rdev: u64,
+    size: i64,
+    blksize: isize,
+    blocks: i64,
+
+    atim: timespec,
+    mtim: timespec,
+    ctim: timespec,
+    __unused: [3]isize,
+};
+
+pub const timespec = extern struct {
+    tv_sec: isize,
+    tv_nsec: isize,
 };

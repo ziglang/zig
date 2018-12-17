@@ -742,8 +742,8 @@ pub fn raise(sig: i32) usize {
     return arch.syscall2(SYS_thr_kill, id, @bitCast(usize, isize(sig)));
 }
 
-pub const Stat = arch.Stat;
-pub const timespec = arch.timespec;
+pub const Stat = c.Stat;
+pub const timespec = c.timespec;
 
 pub fn fstat(fd: i32, stat_buf: *Stat) usize {
     return arch.syscall2(SYS_fstat, @bitCast(usize, isize(fd)), @ptrToInt(stat_buf));

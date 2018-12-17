@@ -586,8 +586,6 @@ set(ZIG_STD_FILES
     "os/linux/arm64.zig"
     "os/freebsd/errno.zig"
     "os/freebsd/index.zig"
-    "os/freebsd/syscall.zig"
-    "os/freebsd/x86_64.zig"
     "os/path.zig"
     "os/time.zig"
     "os/windows/advapi32.zig"
