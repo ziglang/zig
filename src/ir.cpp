@@ -13744,20 +13744,19 @@ static Error ir_read_const_ptr(IrAnalyze *ira, AstNode *source_node,
             if (array_val->data.x_array.special != ConstArraySpecialNone)
                 zig_panic("TODO");
             size_t elem_size = src_size;
-            src_size = elem_size *
-                (array_val->type->data.array.len - ptr_val->data.x_ptr.data.base_array.elem_index);
+            size_t elem_index = ptr_val->data.x_ptr.data.base_array.elem_index;
+            src_size = elem_size * (array_val->type->data.array.len - elem_index);
             if (dst_size > src_size) {
                 ir_add_error_node(ira, source_node,
                     buf_sprintf("attempt to read %zu bytes from %s at index %" ZIG_PRI_usize " which is %zu bytes",
-                        dst_size, buf_ptr(&array_val->type->name), ptr_val->data.x_ptr.data.base_array.elem_index,
-                        src_size));
+                        dst_size, buf_ptr(&array_val->type->name), elem_index, src_size));
                 return ErrorSemanticAnalyzeFail;
             }
             size_t elem_count = (dst_size % elem_size == 0) ? (dst_size / elem_size) : (dst_size / elem_size + 1);
             Buf buf = BUF_INIT;
             buf_resize(&buf, elem_count * elem_size);
             for (size_t i = 0; i < elem_count; i += 1) {
-                ConstExprValue *elem_val = &array_val->data.x_array.data.s_none.elements[i];
+                ConstExprValue *elem_val = &array_val->data.x_array.data.s_none.elements[elem_index + i];
                 buf_write_value_bytes(ira->codegen, (uint8_t*)buf_ptr(&buf) + (i * elem_size), elem_val);
             }
             buf_read_value_bytes(ira->codegen, (uint8_t*)buf_ptr(&buf), out_val);

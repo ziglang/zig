@@ -517,6 +517,12 @@ test "comptime read/write int" {
         const result = std.mem.readIntBig(u16, &bytes);
         std.debug.assert(result == 0x3412);
     }
+    comptime {
+        var bytes: [2]u8 = undefined;
+        std.mem.writeIntBig(u16, &bytes, 0x1234);
+        const result = std.mem.readIntLittle(u16, &bytes);
+        std.debug.assert(result == 0x3412);
+    }
 }
 
 test "readIntBig and readIntLittle" {

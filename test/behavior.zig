@@ -52,6 +52,7 @@ comptime {
     _ = @import("cases/optional.zig");
     _ = @import("cases/pointers.zig");
     _ = @import("cases/popcount.zig");
+    _ = @import("cases/ptrcast.zig");
     _ = @import("cases/pub_enum/index.zig");
     _ = @import("cases/ref_var_in_if_after_if_2nd_switch_prong.zig");
     _ = @import("cases/reflection.zig");
