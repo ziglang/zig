@@ -605,7 +605,6 @@ enum CastOp {
     CastOpFloatToInt,
     CastOpBoolToInt,
     CastOpResizeSlice,
-    CastOpBytesToSlice,
     CastOpNumLitToConcrete,
     CastOpErrSet,
     CastOpBitCast,

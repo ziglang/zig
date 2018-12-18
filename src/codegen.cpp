@@ -2884,32 +2884,6 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
 
                 return cast_instruction->tmp_ptr;
             }
-        case CastOpBytesToSlice:
-            {
-                assert(cast_instruction->tmp_ptr);
-                assert(wanted_type->id == ZigTypeIdStruct);
-                assert(wanted_type->data.structure.is_slice);
-                assert(actual_type->id == ZigTypeIdArray);
-
-                ZigType *wanted_pointer_type = wanted_type->data.structure.fields[slice_ptr_index].type_entry;
-                ZigType *wanted_child_type = wanted_pointer_type->data.pointer.child_type;
-
-
-                size_t wanted_ptr_index = wanted_type->data.structure.fields[0].gen_index;
-                LLVMValueRef dest_ptr_ptr = LLVMBuildStructGEP(g->builder, cast_instruction->tmp_ptr,
-                        (unsigned)wanted_ptr_index, "");
-                LLVMValueRef src_ptr_casted = LLVMBuildBitCast(g->builder, expr_val, wanted_pointer_type->type_ref, "");
-                gen_store_untyped(g, src_ptr_casted, dest_ptr_ptr, 0, false);
-
-                size_t wanted_len_index = wanted_type->data.structure.fields[1].gen_index;
-                LLVMValueRef len_ptr = LLVMBuildStructGEP(g->builder, cast_instruction->tmp_ptr,
-                        (unsigned)wanted_len_index, "");
-                LLVMValueRef len_val = LLVMConstInt(g->builtin_types.entry_usize->type_ref,
-                        actual_type->data.array.len / type_size(g, wanted_child_type), false);
-                gen_store_untyped(g, len_val, len_ptr, 0, false);
-
-                return cast_instruction->tmp_ptr;
-            }
         case CastOpIntToFloat:
             assert(actual_type->id == ZigTypeIdInt);
             if (actual_type->data.integral.is_signed) {

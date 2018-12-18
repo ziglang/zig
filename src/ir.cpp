@@ -9339,7 +9339,6 @@ static bool eval_const_expr_implicit_cast(IrAnalyze *ira, IrInstruction *source_
             const_val->type = new_type;
             break;
         case CastOpResizeSlice:
-        case CastOpBytesToSlice:
             // can't do it
             zig_unreachable();
         case CastOpIntToFloat:
@@ -9396,7 +9395,7 @@ static IrInstruction *ir_resolve_cast(IrAnalyze *ira, IrInstruction *source_inst
         ZigType *wanted_type, CastOp cast_op, bool need_alloca)
 {
     if ((instr_is_comptime(value) || !type_has_bits(wanted_type)) &&
-        cast_op != CastOpResizeSlice && cast_op != CastOpBytesToSlice)
+        cast_op != CastOpResizeSlice)
     {
         IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
                 source_instr->source_node, wanted_type);
