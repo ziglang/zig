@@ -6366,7 +6366,7 @@ LinkLib *add_link_lib(CodeGen *g, Buf *name) {
     if (is_libc && g->libc_link_lib != nullptr)
         return g->libc_link_lib;
 
-    if (g->enable_cache && is_libc && g->zig_target.os != OsMacOSX && g->zig_target.os != OsIOS) {
+    if (g->enable_cache && is_libc && g->zig_target.os != OsMacOSX && g->zig_target.os != OsIOS && g->zig_target.os != OsFreeBSD) {
         fprintf(stderr, "TODO linking against libc is currently incompatible with `--cache on`.\n"
         "Zig is not yet capable of determining whether the libc installation has changed on subsequent builds.\n");
         exit(1);

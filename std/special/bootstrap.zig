@@ -20,17 +20,10 @@ comptime {
 
 nakedcc fn _start() noreturn {
     switch (builtin.arch) {
-        builtin.Arch.x86_64 => switch (builtin.os) {
-            builtin.Os.freebsd => {
-                argc_ptr = asm ("lea (%%rdi), %[argc]"
-                    : [argc] "=r" (-> [*]usize)
-                );
-            },
-            else => {
-                argc_ptr = asm ("lea (%%rsp), %[argc]"
-                    : [argc] "=r" (-> [*]usize)
-                );
-            },
+        builtin.Arch.x86_64 => {
+            argc_ptr = asm ("lea (%%rsp), %[argc]"
+                                : [argc] "=r" (-> [*]usize)
+                            );
         },
         builtin.Arch.i386 => {
             argc_ptr = asm ("lea (%%esp), %[argc]"
