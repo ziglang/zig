@@ -22733,9 +22733,16 @@ static IrInstruction *ir_analyze_instruction_from_bytes_len(IrAnalyze *ira,
                     bigint_rem(&tmp_bigint, &len_val->data.x_bigint, &elem_size_bigint);
 
                     if (bigint_cmp_zero(&tmp_bigint) != CmpEQ) {
-                        // TODO improve err msg
-                        ir_add_error(ira, &instruction->base,
-                                buf_sprintf("slice widen remainder"));
+                        Buf *remaining_text = buf_alloc();
+                        bigint_append_buf(remaining_text, &tmp_bigint, 10);
+                        Buf *bytes_text = buf_alloc();
+                        bigint_append_buf(bytes_text, &len_val->data.x_bigint, 10);
+                        ir_add_error(ira, &instruction->base, buf_sprintf(
+                            "converting slice of %s bytes to '%s' (element size %zu) leaves %s bytes remaining",
+                                    buf_ptr(bytes_text),
+                                    buf_ptr(&slice_type->name),
+                                    elem_size,
+                                    buf_ptr(remaining_text)));
                         return ira->codegen->invalid_instruction;
                     }
 
