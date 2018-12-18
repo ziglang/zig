@@ -1355,7 +1355,9 @@ static void ir_print_result_return(IrPrint *irp, IrInstructionResultReturn *inst
 }
 
 static void ir_print_result_bytes_to_slice(IrPrint *irp, IrInstructionResultBytesToSlice *instruction) {
-    fprintf(irp->f, "ResultBytesToSlice");
+    fprintf(irp->f, "ResultBytesToSlice(");
+    ir_print_other_instruction(irp, instruction->prev_result_loc);
+    fprintf(irp->f, ")");
 }
 
 static void ir_print_result_slice_to_bytes(IrPrint *irp, IrInstructionResultSliceToBytes *instruction) {

@@ -174,6 +174,7 @@ static IrInstruction *ir_analyze_unwrap_err_payload(IrAnalyze *ira, IrInstructio
         IrInstruction *base_ptr, IrInstruction *result_loc, bool safety_check_on);
 static IrInstruction *ir_analyze_error_union_field_error_set(IrAnalyze *ira,
     IrInstruction *source_instr, IrInstruction *base_ptr, bool safety_check_on);
+static ZigType *adjust_ptr_child(CodeGen *g, ZigType *ptr_type, ZigType *new_child);
 
 static ConstExprValue *const_ptr_pointee_unchecked(CodeGen *g, ConstExprValue *const_val) {
     assert(get_src_ptr_type(const_val->type) != nullptr);
@@ -4589,6 +4590,8 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope, LValNone, new_result_loc);
                 if (arg0_value == irb->codegen->invalid_instruction)
                     return arg0_value;
+
+                ir_build_infer_comptime(irb, scope, node, ensured_result_loc, new_result_loc);
 
                 return ir_gen_result(irb, scope, node, lval, ensured_result_loc);
             }
@@ -11743,11 +11746,24 @@ static IrInstruction *resolve_possible_alloca_inference(IrAnalyze *ira, IrInstru
             // analysis, and rely on the ref_count being 0 so that it is not emitted.
             assert(ptr_cast->base.ref_count == 0);
             ZigType *prev_ptr_type = ptr_cast->ptr->value.type;
+            // TODO should this be adjust_ptr_child?
             ZigType *new_ptr_type = get_pointer_to_type_extra(ira->codegen, child_type, false, false,
                     PtrLenSingle, prev_ptr_type->data.pointer.explicit_alignment, 0, 0);
             IrInstruction *new_ptr_cast = ir_analyze_ptr_cast(ira, base, ptr_cast->ptr, new_ptr_type, base);
-            ptr_cast->pass1_parent->base.child = new_ptr_cast;
+            ptr_cast->pass1_parent->child = new_ptr_cast;
             return new_ptr_cast;
+        }
+    } else if (is_slice(infer_child)) {
+        ZigType *slice_ptr_type = infer_child->data.structure.fields[slice_ptr_index].type_entry;
+        assert(slice_ptr_type->id == ZigTypeIdPointer);
+        if (slice_ptr_type->data.pointer.child_type == ira->codegen->builtin_types.entry_infer) {
+            assert(base->id == IrInstructionIdPtrCastGen);
+            IrInstructionPtrCastGen *ptr_cast = reinterpret_cast<IrInstructionPtrCastGen *>(base);
+            // See above comment
+            assert(ptr_cast->base.ref_count == 0);
+            ZigType *prev_ptr_type = ptr_cast->ptr->value.type;
+            ZigType *new_ptr_type = adjust_ptr_child(ira->codegen, prev_ptr_type, child_type);
+            ptr_cast->base.value.type = new_ptr_type;
         }
     }
     return base;
@@ -22418,7 +22434,7 @@ static IrInstruction *ir_analyze_instruction_result_ptr_cast(IrAnalyze *ira,
     ZigType *new_ptr_type = adjust_ptr_child(ira->codegen, new_result_loc->value.type,
             ira->codegen->builtin_types.entry_infer);
     IrInstruction *ptr_cast = ir_build_ptr_cast_gen(ira, &instruction->base, new_ptr_type, new_result_loc);
-    reinterpret_cast<IrInstructionPtrCastGen *>(ptr_cast)->pass1_parent = instruction;
+    reinterpret_cast<IrInstructionPtrCastGen *>(ptr_cast)->pass1_parent = &instruction->base;
 
     return ptr_cast;
 }
@@ -22627,6 +22643,43 @@ static IrInstruction *ir_analyze_instruction_set_non_null_bit(IrAnalyze *ira,
 
 static IrInstruction *ir_analyze_instruction_error_literal(IrAnalyze *ira, IrInstructionErrorLiteral *instruction) {
     return ir_analyze_error_literal(ira, &instruction->base, instruction->name);
+}
+
+static IrInstruction *ir_analyze_instruction_result_bytes_to_slice(IrAnalyze *ira,
+        IrInstructionResultBytesToSlice *instruction)
+{
+    // Here the pointer properties are wrong except for the child element type.
+    // This gets corrected later by resolve_alloca_inference
+    ZigType *slice_ptr_type = get_pointer_to_type_extra(ira->codegen, ira->codegen->builtin_types.entry_u8,
+            true, false, PtrLenUnknown, 0, 0, 0);
+    ZigType *slice_of_bytes = get_slice_type(ira->codegen, slice_ptr_type);
+    IrInstruction *prev_result_loc = instruction->prev_result_loc->child;
+    IrInstruction *new_result_loc = ir_implicit_cast_result(ira, prev_result_loc,
+            slice_of_bytes, false);
+    if (type_is_invalid(new_result_loc->value.type))
+        return ira->codegen->invalid_instruction;
+
+    // This pointer type is also wrong and we don't even know the child type.
+    // Also corrected later by resolve_alloca_inference
+    ZigType *new_ptr_type = get_pointer_to_type_extra(ira->codegen, ira->codegen->builtin_types.entry_infer,
+            true, false, PtrLenUnknown, 0, 0, 0);
+    ZigType *new_slice_type = get_slice_type(ira->codegen, new_ptr_type);
+    ZigType *new_result_loc_type = adjust_ptr_child(ira->codegen, prev_result_loc->value.type, new_slice_type);
+
+    IrInstruction *result = ir_build_ptr_cast_gen(ira, &instruction->base, new_result_loc_type, new_result_loc);
+    reinterpret_cast<IrInstructionPtrCastGen *>(result)->pass1_parent = &instruction->base;
+
+    if (instr_is_comptime(new_result_loc)) {
+        ConstExprValue *val = ir_resolve_const(ira, new_result_loc, UndefOk);
+        if (!val)
+            return ira->codegen->invalid_instruction;
+
+        copy_const_val(&result->value, val, false);
+        result->value.type = new_result_loc_type;
+        return result;
+    }
+
+    return result;
 }
 
 static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
@@ -22931,7 +22984,7 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
         case IrInstructionIdErrorLiteral:
             return ir_analyze_instruction_error_literal(ira, (IrInstructionErrorLiteral *)instruction);
         case IrInstructionIdResultBytesToSlice:
-            zig_panic("TODO");
+            return ir_analyze_instruction_result_bytes_to_slice(ira, (IrInstructionResultBytesToSlice *)instruction);
         case IrInstructionIdResultSliceToBytes:
             zig_panic("TODO");
     }

@@ -2982,7 +2982,7 @@ struct IrInstructionPtrCastGen {
     // instruction will replace this one.
     // so we have a reference here to the pass-1 instruction so that
     // the child pointer can be updated to the new pass-2 instruction.
-    IrInstructionResultPtrCast *pass1_parent;
+    IrInstruction *pass1_parent;
 };
 
 struct IrInstructionWidenOrShorten {

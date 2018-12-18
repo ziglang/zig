@@ -404,7 +404,9 @@ ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_cons
         bool is_volatile, PtrLen ptr_len, uint32_t byte_alignment, uint32_t bit_offset_in_host, uint32_t host_int_bytes)
 {
     assert(!type_is_invalid(child_type));
-    assert(ptr_len == PtrLenSingle || child_type->id != ZigTypeIdOpaque);
+    assert(ptr_len == PtrLenSingle ||
+        child_type->id != ZigTypeIdOpaque ||
+        child_type == g->builtin_types.entry_infer);
 
     if (byte_alignment != 0) {
         uint32_t abi_alignment = get_abi_alignment(g, child_type);
