@@ -3081,17 +3081,17 @@ static IrInstruction *ir_build_from_bytes_len_src(IrBuilder *irb, Scope *scope, 
 }
 
 static IrInstruction *ir_build_from_bytes_len_gen(IrAnalyze *ira, IrInstruction *source_inst,
-        IrInstruction *new_result_loc, ZigType *elem_type)
+        IrInstruction *prev_result_loc, ZigType *elem_type)
 {
     IrInstructionFromBytesLenGen *instruction = ir_build_instruction<IrInstructionFromBytesLenGen>(
             &ira->new_irb, source_inst->scope, source_inst->source_node);
     instruction->base.value.special = ConstValSpecialStatic;
     instruction->base.value.type = ira->codegen->builtin_types.entry_void;
 
-    instruction->new_result_loc = new_result_loc;
+    instruction->prev_result_loc = prev_result_loc;
     instruction->elem_type = elem_type;
 
-    ir_ref_instruction(new_result_loc, ira->new_irb.current_basic_block);
+    ir_ref_instruction(prev_result_loc, ira->new_irb.current_basic_block);
 
     return &instruction->base;
 }
@@ -22685,6 +22685,8 @@ static IrInstruction *ir_analyze_instruction_infer_comptime(IrAnalyze *ira,
 static IrInstruction *ir_analyze_instruction_from_bytes_len(IrAnalyze *ira,
         IrInstructionFromBytesLenSrc *instruction)
 {
+    Error err;
+
     IrInstruction *prev_result_loc = instruction->prev_result_loc->child;
     if (type_is_invalid(prev_result_loc->value.type))
         return ira->codegen->invalid_instruction;
@@ -22693,17 +22695,6 @@ static IrInstruction *ir_analyze_instruction_from_bytes_len(IrAnalyze *ira,
     if (type_is_invalid(new_result_loc->value.type))
         return ira->codegen->invalid_instruction;
 
-    BREAKPOINT;
-
-    if (prev_result_loc->value.data.x_ptr.mut == ConstPtrMutInfer) {
-        if (instr_is_comptime(new_result_loc) &&
-            new_result_loc->value.data.x_ptr.mut != ConstPtrMutRuntimeVar)
-        {
-            prev_result_loc->value.data.x_ptr.mut = ConstPtrMutComptimeConst;
-        }
-        prev_result_loc->value.special = ConstValSpecialRuntime;
-    }
-
     assert(prev_result_loc->value.type->id == ZigTypeIdPointer);
     ZigType *slice_type = prev_result_loc->value.type->data.pointer.child_type;
     assert(is_slice(slice_type));
@@ -22711,7 +22702,56 @@ static IrInstruction *ir_analyze_instruction_from_bytes_len(IrAnalyze *ira,
     assert(slice_ptr_type->id == ZigTypeIdPointer);
     ZigType *elem_type = slice_ptr_type->data.pointer.child_type;
 
-    return ir_build_from_bytes_len_gen(ira, &instruction->base, new_result_loc, elem_type);
+    if (prev_result_loc->value.data.x_ptr.mut == ConstPtrMutInfer) {
+        if (instr_is_comptime(new_result_loc) &&
+            new_result_loc->value.data.x_ptr.mut != ConstPtrMutRuntimeVar)
+        {
+            ConstExprValue *slice_val = const_ptr_pointee(ira->codegen, &new_result_loc->value);
+            if (slice_val == nullptr)
+                return ira->codegen->invalid_instruction;
+
+            if (slice_val->special != ConstValSpecialUndef) {
+                ConstExprValue *ptr_val = &slice_val->data.x_struct.fields[slice_ptr_index];
+                ConstExprValue *len_val = &slice_val->data.x_struct.fields[slice_len_index];
+                if (ptr_val->special == ConstValSpecialStatic && len_val->special == ConstValSpecialStatic) {
+                    // copy the length and divide it from the new_result_loc
+                    // we need a new const val though, because if we modify the length it will
+                    // modify the length of the prev_result_loc
+                    slice_val->data.x_struct.fields = create_const_vals(2);
+                    copy_const_val(&slice_val->data.x_struct.fields[slice_ptr_index], ptr_val, false);
+
+                    if ((err = type_resolve(ira->codegen, elem_type, ResolveStatusSizeKnown)))
+                        return ira->codegen->invalid_instruction;
+
+                    size_t elem_size = type_size(ira->codegen, elem_type);
+                    BigInt elem_size_bigint;
+                    bigint_init_unsigned(&elem_size_bigint, elem_size);
+
+                    BigInt tmp_bigint;
+                    bigint_rem(&tmp_bigint, &len_val->data.x_bigint, &elem_size_bigint);
+
+                    if (bigint_cmp_zero(&tmp_bigint) != CmpEQ) {
+                        // TODO improve err msg
+                        ir_add_error(ira, &instruction->base,
+                                buf_sprintf("slice widen remainder"));
+                        return ira->codegen->invalid_instruction;
+                    }
+
+                    ConstExprValue *new_len_val = &slice_val->data.x_struct.fields[slice_len_index];
+                    new_len_val->special = ConstValSpecialStatic;
+                    bigint_div_trunc(&new_len_val->data.x_bigint, &len_val->data.x_bigint, &elem_size_bigint);
+
+                    prev_result_loc->value.data.x_ptr.mut = ConstPtrMutComptimeConst;
+                    return ir_const_void(ira, &instruction->base);
+                }
+            }
+        }
+        // comptime didn't work, mark the instructions as runtime and fall through
+        prev_result_loc->value.special = ConstValSpecialRuntime;
+        new_result_loc->value.special = ConstValSpecialRuntime;
+    }
+
+    return ir_build_from_bytes_len_gen(ira, &instruction->base, prev_result_loc, elem_type);
 }
 
 static IrInstruction *ir_analyze_instruction_set_non_null_bit(IrAnalyze *ira,

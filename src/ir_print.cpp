@@ -1449,8 +1449,8 @@ static void ir_print_from_bytes_len_src(IrPrint *irp, IrInstructionFromBytesLenS
 }
 
 static void ir_print_from_bytes_len_gen(IrPrint *irp, IrInstructionFromBytesLenGen *instruction) {
-    fprintf(irp->f, "FromBytesLenGen(new_result=");
-    ir_print_other_instruction(irp, instruction->new_result_loc);
+    fprintf(irp->f, "FromBytesLenGen(prev_result=");
+    ir_print_other_instruction(irp, instruction->prev_result_loc);
     fprintf(irp->f, ",elem_type=%s)", buf_ptr(&instruction->elem_type->name));
 }
 

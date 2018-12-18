@@ -3487,7 +3487,7 @@ struct IrInstructionFromBytesLenGen {
     IrInstruction base;
 
     ZigType *elem_type;
-    IrInstruction *new_result_loc;
+    IrInstruction *prev_result_loc;
 };
 
 static const size_t slice_ptr_index = 0;
