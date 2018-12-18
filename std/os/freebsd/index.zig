@@ -672,10 +672,6 @@ pub fn exit(code: i32) noreturn {
     c.exit(code);
 }
 
-pub fn getrandom(buf: [*]u8, count: usize, flags: u32) usize {
-    return errnoWrap(c.getrandom(buf, count, flags));
-}
-
 pub fn kill(pid: i32, sig: i32) usize {
     return arch.syscall2(SYS_kill, @bitCast(usize, isize(pid)), @bitCast(usize, isize(sig)));
 }

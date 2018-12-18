@@ -103,7 +103,7 @@ const math = std.math;
 /// library implementation.
 pub fn getRandomBytes(buf: []u8) !void {
     switch (builtin.os) {
-        Os.linux, Os.freebsd => while (true) {
+        Os.linux => while (true) {
             // TODO check libc version and potentially call c.getrandom.
             // See #397
             const errno = posix.getErrno(posix.getrandom(buf.ptr, buf.len, 0));
@@ -116,7 +116,7 @@ pub fn getRandomBytes(buf: []u8) !void {
                 else => return unexpectedErrorPosix(errno),
             }
         },
-        Os.macosx, Os.ios => return getRandomBytesDevURandom(buf),
+        Os.macosx, Os.ios, Os.freebsd => return getRandomBytesDevURandom(buf),
         Os.windows => {
             // Call RtlGenRandom() instead of CryptGetRandom() on Windows
             // https://github.com/rust-lang-nursery/rand/issues/111
