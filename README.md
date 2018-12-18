@@ -171,7 +171,8 @@ See https://github.com/ziglang/zig/wiki/Building-Zig-on-Windows
 *Note: Stage 2 compiler is not complete. Beta users of Zig should use the
 Stage 1 compiler for now.*
 
-Dependencies are the same as Stage 1, except now you have a working zig compiler.
+Dependencies are the same as Stage 1, except now you can use stage 1 to compile
+Zig code.
 
 ```
 bin/zig build --build-file ../build.zig --prefix $(pwd)/stage2 install
@@ -183,10 +184,12 @@ binary.
 
 ### Stage 3: Rebuild Self-Hosted Zig Using the Self-Hosted Compiler
 
-This is the actual compiler binary that we will install to the system.
-
 *Note: Stage 2 compiler is not yet able to build Stage 3. Building Stage 3 is
 not yet supported.*
+
+Once the self-hosted compiler can build itself, this will be the actual
+compiler binary that we will install to the system. Until then, users should
+use stage 1.
 
 #### Debug / Development Build
 
