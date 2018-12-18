@@ -22715,10 +22715,12 @@ static IrInstruction *ir_analyze_instruction_from_bytes_len(IrAnalyze *ira,
                 ConstExprValue *len_val = &slice_val->data.x_struct.fields[slice_len_index];
                 if (ptr_val->special == ConstValSpecialStatic && len_val->special == ConstValSpecialStatic) {
                     // copy the length and divide it from the new_result_loc
-                    // we need a new const val though, because if we modify the length it will
-                    // modify the length of the prev_result_loc
-                    slice_val->data.x_struct.fields = create_const_vals(2);
-                    copy_const_val(&slice_val->data.x_struct.fields[slice_ptr_index], ptr_val, false);
+                    // we need a new slice const val though, because if we modify the length it will
+                    // modify the length of the new_result_loc
+                    ConstExprValue *new_slice_val = create_const_vals(1);
+                    copy_const_val(new_slice_val, slice_val, false);
+                    prev_result_loc->value.data.x_ptr.special = ConstPtrSpecialRef;
+                    prev_result_loc->value.data.x_ptr.data.ref.pointee = new_slice_val;
 
                     if ((err = type_resolve(ira->codegen, elem_type, ResolveStatusSizeKnown)))
                         return ira->codegen->invalid_instruction;
@@ -22737,11 +22739,12 @@ static IrInstruction *ir_analyze_instruction_from_bytes_len(IrAnalyze *ira,
                         return ira->codegen->invalid_instruction;
                     }
 
-                    ConstExprValue *new_len_val = &slice_val->data.x_struct.fields[slice_len_index];
+                    ConstExprValue *new_len_val = &new_slice_val->data.x_struct.fields[slice_len_index];
                     new_len_val->special = ConstValSpecialStatic;
                     bigint_div_trunc(&new_len_val->data.x_bigint, &len_val->data.x_bigint, &elem_size_bigint);
 
                     prev_result_loc->value.data.x_ptr.mut = ConstPtrMutComptimeConst;
+
                     return ir_const_void(ira, &instruction->base);
                 }
             }
