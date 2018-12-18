@@ -95,6 +95,13 @@ pub const SIGLIBRT = 33;
 pub const SIGRTMIN = 65;
 pub const SIGRTMAX = 126;
 
+// access function
+pub const F_OK = 0; // test for existence of file
+pub const X_OK = 1; // test for execute or search permission
+pub const W_OK = 2; // test for write permission
+pub const R_OK = 4; // test for read permission
+
+
 pub const O_RDONLY = 0o0;
 pub const O_WRONLY = 0o1;
 pub const O_RDWR = 0o2;
@@ -552,6 +559,10 @@ pub fn execve(path: [*]const u8, argv: [*]const ?[*]const u8, envp: [*]const ?[*
 
 pub fn fork() usize {
     return arch.syscall0(SYS_fork);
+}
+
+pub fn access(path: [*]const u8, mode: u32) usize {
+    return errnoWrap(c.access(path, mode));
 }
 
 pub fn getcwd(buf: [*]u8, size: usize) usize {
