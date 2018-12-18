@@ -293,11 +293,17 @@ fn configureStage2(b: *Builder, exe: var, ctx: Context) !void {
         try addCxxKnownPath(b, ctx, exe, "libstdc++.a",
             \\Unable to determine path to libstdc++.a
             \\On Fedora, install libstdc++-static and try again.
-            \\
         );
 
         exe.linkSystemLibrary("pthread");
-    } else if (exe.target.isDarwin() or exe.target.isFreeBSD()) {
+    } else if (exe.target.isFreeBSD()) {
+        try addCxxKnownPath(b, ctx, exe, "libc++.a", null);
+        exe.linkSystemLibrary("pthread");
+        // TODO LLD cannot perform this link.
+        // See https://github.com/ziglang/zig/issues/1535
+        exe.enableSystemLinkerHack();
+    }
+    else if (exe.target.isDarwin()) {
         if (addCxxKnownPath(b, ctx, exe, "libgcc_eh.a", "")) {
             // Compiler is GCC.
             try addCxxKnownPath(b, ctx, exe, "libstdc++.a", null);
