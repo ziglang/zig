@@ -562,6 +562,10 @@ pub fn getdents(fd: i32, dirp: [*]u8, count: usize) usize {
     return arch.syscall3(SYS_getdents, @bitCast(usize, isize(fd)), @ptrToInt(dirp), count);
 }
 
+pub fn getdirentries(fd: i32, buf_ptr: [*]u8, buf_len: usize, basep: *i64) usize {
+    return errnoWrap(@bitCast(isize, c.getdirentries(fd, buf_ptr, buf_len, basep)));
+}
+
 pub fn isatty(fd: i32) bool {
     var wsz: winsize = undefined;
     return arch.syscall3(SYS_ioctl, @bitCast(usize, isize(fd)), TIOCGWINSZ, @ptrToInt(&wsz)) == 0;
@@ -743,6 +747,7 @@ pub fn raise(sig: i32) usize {
 }
 
 pub const Stat = c.Stat;
+pub const dirent = c.dirent;
 pub const timespec = c.timespec;
 
 pub fn fstat(fd: i32, stat_buf: *Stat) usize {

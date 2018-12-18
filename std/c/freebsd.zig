@@ -13,6 +13,7 @@ pub extern "c" fn kevent(
 pub extern "c" fn sysctl(name: [*]c_int, namelen: c_uint, oldp: ?*c_void, oldlenp: ?*usize, newp: ?*c_void, newlen: usize) c_int;
 pub extern "c" fn sysctlbyname(name: [*]const u8, oldp: ?*c_void, oldlenp: ?*usize, newp: ?*c_void, newlen: usize) c_int;
 pub extern "c" fn sysctlnametomib(name: [*]const u8, mibp: ?*c_int, sizep: ?*usize) c_int;
+pub extern "c" fn getdirentries(fd: c_int, buf_ptr: [*]u8, nbytes: usize, basep: *i64) usize;
 
 /// Renamed from `kevent` to `Kevent` to avoid conflict with function name.
 pub const Kevent = extern struct {
@@ -65,4 +66,15 @@ pub const Stat = extern struct {
 pub const timespec = extern struct {
     tv_sec: isize,
     tv_nsec: isize,
+};
+
+pub const dirent = extern struct {
+    d_fileno: usize,
+    d_off: i64,
+    d_reclen: u64,
+    d_type: u8,
+    d_pad0: u8,
+    d_namlen: u16,
+    d_pad1: u16,
+    d_name: [256]u8,
 };

@@ -1753,8 +1753,57 @@ pub const Dir = struct {
     }
 
     fn nextFreebsd(self: *Dir) !?Entry {
-        //self.handle.buf = try self.allocator.alloc(u8, page_size);
-        @compileError("TODO implement dirs for FreeBSD");
+        start_over: while (true) {
+            if (self.handle.index >= self.handle.end_index) {
+                if (self.handle.buf.len == 0) {
+                    self.handle.buf = try self.allocator.alloc(u8, page_size);
+                }
+
+                while (true) {
+                    const result = posix.getdirentries(self.handle.fd, self.handle.buf.ptr, self.handle.buf.len, &self.handle.seek);
+                    const err = posix.getErrno(result);
+                    if (err > 0) {
+                        switch (err) {
+                            posix.EBADF, posix.EFAULT, posix.ENOTDIR => unreachable,
+                            posix.EINVAL => {
+                                self.handle.buf = try self.allocator.realloc(u8, self.handle.buf, self.handle.buf.len * 2);
+                                continue;
+                            },
+                            else => return unexpectedErrorPosix(err),
+                        }
+                    }
+                    if (result == 0) return null;
+                    self.handle.index = 0;
+                    self.handle.end_index = result;
+                    break;
+                }
+            }
+            const freebsd_entry = @ptrCast(*align(1) posix.dirent, &self.handle.buf[self.handle.index]);
+            const next_index = self.handle.index + freebsd_entry.d_reclen;
+            self.handle.index = next_index;
+
+            const name = @ptrCast([*]u8, &freebsd_entry.d_name)[0..freebsd_entry.d_namlen];
+
+            if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..")) {
+                continue :start_over;
+            }
+
+            const entry_kind = switch (freebsd_entry.d_type) {
+                posix.DT_BLK => Entry.Kind.BlockDevice,
+                posix.DT_CHR => Entry.Kind.CharacterDevice,
+                posix.DT_DIR => Entry.Kind.Directory,
+                posix.DT_FIFO => Entry.Kind.NamedPipe,
+                posix.DT_LNK => Entry.Kind.SymLink,
+                posix.DT_REG => Entry.Kind.File,
+                posix.DT_SOCK => Entry.Kind.UnixDomainSocket,
+                posix.DT_WHT => Entry.Kind.Whiteout,
+                else => Entry.Kind.Unknown,
+            };
+            return Entry{
+                .name = name,
+                .kind = entry_kind,
+            };
+        }
     }
 };
 
