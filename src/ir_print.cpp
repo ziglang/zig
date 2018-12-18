@@ -1360,8 +1360,16 @@ static void ir_print_result_bytes_to_slice(IrPrint *irp, IrInstructionResultByte
     fprintf(irp->f, ")");
 }
 
-static void ir_print_result_slice_to_bytes(IrPrint *irp, IrInstructionResultSliceToBytes *instruction) {
-    fprintf(irp->f, "ResultSliceToBytes");
+static void ir_print_result_slice_to_bytes_src(IrPrint *irp, IrInstructionResultSliceToBytesSrc *instruction) {
+    fprintf(irp->f, "ResultSliceToBytesSrc");
+}
+
+static void ir_print_result_slice_to_bytes_placeholder(IrPrint *irp, IrInstructionResultSliceToBytesPlaceholder *instruction) {
+    fprintf(irp->f, "ResultSliceToBytesPlaceholder");
+}
+
+static void ir_print_result_slice_to_bytes_gen(IrPrint *irp, IrInstructionResultSliceToBytesGen *instruction) {
+    fprintf(irp->f, "ResultSliceToBytesGen");
 }
 
 static void ir_print_result_ptr_cast(IrPrint *irp, IrInstructionResultPtrCast *instruction) {
@@ -1430,6 +1438,20 @@ static void ir_print_infer_comptime(IrPrint *irp, IrInstructionInferCompTime *in
     fprintf(irp->f, ",new_result=");
     ir_print_other_instruction(irp, instruction->new_result_loc);
     fprintf(irp->f, ")");
+}
+
+static void ir_print_from_bytes_len_src(IrPrint *irp, IrInstructionFromBytesLenSrc *instruction) {
+    fprintf(irp->f, "FromBytesLenSrc(prev_result=");
+    ir_print_other_instruction(irp, instruction->prev_result_loc);
+    fprintf(irp->f, ",new_result=");
+    ir_print_other_instruction(irp, instruction->new_result_loc);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_from_bytes_len_gen(IrPrint *irp, IrInstructionFromBytesLenGen *instruction) {
+    fprintf(irp->f, "FromBytesLenGen(new_result=");
+    ir_print_other_instruction(irp, instruction->new_result_loc);
+    fprintf(irp->f, ",elem_type=%s)", buf_ptr(&instruction->elem_type->name));
 }
 
 static void ir_print_set_non_null_bit(IrPrint *irp, IrInstructionSetNonNullBit *instruction) {
@@ -1883,8 +1905,14 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdResultBytesToSlice:
             ir_print_result_bytes_to_slice(irp, (IrInstructionResultBytesToSlice *)instruction);
             break;
-        case IrInstructionIdResultSliceToBytes:
-            ir_print_result_slice_to_bytes(irp, (IrInstructionResultSliceToBytes *)instruction);
+        case IrInstructionIdResultSliceToBytesSrc:
+            ir_print_result_slice_to_bytes_src(irp, (IrInstructionResultSliceToBytesSrc *)instruction);
+            break;
+        case IrInstructionIdResultSliceToBytesPlaceholder:
+            ir_print_result_slice_to_bytes_placeholder(irp, (IrInstructionResultSliceToBytesPlaceholder *)instruction);
+            break;
+        case IrInstructionIdResultSliceToBytesGen:
+            ir_print_result_slice_to_bytes_gen(irp, (IrInstructionResultSliceToBytesGen *)instruction);
             break;
         case IrInstructionIdResultPtrCast:
             ir_print_result_ptr_cast(irp, (IrInstructionResultPtrCast *)instruction);
@@ -1915,6 +1943,12 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdInferCompTime:
             ir_print_infer_comptime(irp, (IrInstructionInferCompTime *)instruction);
+            break;
+        case IrInstructionIdFromBytesLenSrc:
+            ir_print_from_bytes_len_src(irp, (IrInstructionFromBytesLenSrc *)instruction);
+            break;
+        case IrInstructionIdFromBytesLenGen:
+            ir_print_from_bytes_len_gen(irp, (IrInstructionFromBytesLenGen *)instruction);
             break;
         case IrInstructionIdSetNonNullBit:
             ir_print_set_non_null_bit(irp, (IrInstructionSetNonNullBit *)instruction);

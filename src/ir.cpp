@@ -175,6 +175,8 @@ static IrInstruction *ir_analyze_unwrap_err_payload(IrAnalyze *ira, IrInstructio
 static IrInstruction *ir_analyze_error_union_field_error_set(IrAnalyze *ira,
     IrInstruction *source_instr, IrInstruction *base_ptr, bool safety_check_on);
 static ZigType *adjust_ptr_child(CodeGen *g, ZigType *ptr_type, ZigType *new_child);
+static IrInstruction *ir_analyze_result_slice_to_bytes(IrAnalyze *ira,
+        IrInstruction *source_inst, IrInstruction *prev_result_loc, ZigType *elem_type, ZigType *child_type);
 
 static ConstExprValue *const_ptr_pointee_unchecked(CodeGen *g, ConstExprValue *const_val) {
     assert(get_src_ptr_type(const_val->type) != nullptr);
@@ -906,8 +908,16 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionResultCast *) {
     return IrInstructionIdResultCast;
 }
 
-static constexpr IrInstructionId ir_instruction_id(IrInstructionResultSliceToBytes *) {
-    return IrInstructionIdResultSliceToBytes;
+static constexpr IrInstructionId ir_instruction_id(IrInstructionResultSliceToBytesSrc *) {
+    return IrInstructionIdResultSliceToBytesSrc;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionResultSliceToBytesPlaceholder *) {
+    return IrInstructionIdResultSliceToBytesPlaceholder;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionResultSliceToBytesGen *) {
+    return IrInstructionIdResultSliceToBytesGen;
 }
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionResultBytesToSlice *) {
@@ -944,6 +954,14 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionInferArrayType *
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionInferCompTime *) {
     return IrInstructionIdInferCompTime;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionFromBytesLenSrc *) {
+    return IrInstructionIdFromBytesLenSrc;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionFromBytesLenGen *) {
+    return IrInstructionIdFromBytesLenGen;
 }
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionSetNonNullBit *) {
@@ -2899,15 +2917,45 @@ static IrInstruction *ir_build_result_cast(IrBuilder *irb, Scope *scope, AstNode
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_result_slice_to_bytes(IrBuilder *irb, Scope *scope, AstNode *source_node,
+static IrInstruction *ir_build_result_slice_to_bytes_src(IrBuilder *irb, Scope *scope, AstNode *source_node,
         IrInstruction *elem_type, IrInstruction *prev_result_loc)
 {
-    IrInstructionResultSliceToBytes *instruction = ir_build_instruction<IrInstructionResultSliceToBytes>(irb, scope, source_node);
+    IrInstructionResultSliceToBytesSrc *instruction = ir_build_instruction<IrInstructionResultSliceToBytesSrc>(irb, scope, source_node);
     instruction->elem_type = elem_type;
     instruction->prev_result_loc = prev_result_loc;
 
     ir_ref_instruction(elem_type, irb->current_basic_block);
     ir_ref_instruction(prev_result_loc, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_result_slice_to_bytes_placeholder(IrAnalyze *ira, IrInstruction *source_instr,
+        IrInstruction *prev_result_loc, ZigType *elem_type)
+{
+    IrInstructionResultSliceToBytesPlaceholder *instruction =
+        ir_build_instruction<IrInstructionResultSliceToBytesPlaceholder>(
+            &ira->new_irb, source_instr->scope, source_instr->source_node);
+    instruction->base.value.type = get_pointer_to_type(ira->codegen, ira->codegen->builtin_types.entry_infer, false);
+    instruction->prev_result_loc = prev_result_loc;
+    instruction->elem_type = elem_type;
+    instruction->pass1_parent = source_instr;
+
+    ir_ref_instruction(prev_result_loc, ira->new_irb.current_basic_block);
+    // no ref for pass1_parent
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_result_slice_to_bytes_gen(IrAnalyze *ira, IrInstruction *source_instr,
+        ZigType *result_type, IrInstruction *prev_result_loc)
+{
+    IrInstructionResultSliceToBytesGen *instruction = ir_build_instruction<IrInstructionResultSliceToBytesGen>(
+            &ira->new_irb, source_instr->scope, source_instr->source_node);
+    instruction->base.value.type = result_type;
+    instruction->prev_result_loc = prev_result_loc;
+
+    ir_ref_instruction(prev_result_loc, ira->new_irb.current_basic_block);
 
     return &instruction->base;
 }
@@ -3015,6 +3063,35 @@ static IrInstruction *ir_build_infer_comptime(IrBuilder *irb, Scope *scope, AstN
 
     ir_ref_instruction(prev_result_loc, irb->current_basic_block);
     ir_ref_instruction(new_result_loc, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_from_bytes_len_src(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *prev_result_loc, IrInstruction *new_result_loc)
+{
+    IrInstructionFromBytesLenSrc *instruction = ir_build_instruction<IrInstructionFromBytesLenSrc>(irb, scope, source_node);
+    instruction->prev_result_loc = prev_result_loc;
+    instruction->new_result_loc = new_result_loc;
+
+    ir_ref_instruction(prev_result_loc, irb->current_basic_block);
+    ir_ref_instruction(new_result_loc, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_from_bytes_len_gen(IrAnalyze *ira, IrInstruction *source_inst,
+        IrInstruction *new_result_loc, ZigType *elem_type)
+{
+    IrInstructionFromBytesLenGen *instruction = ir_build_instruction<IrInstructionFromBytesLenGen>(
+            &ira->new_irb, source_inst->scope, source_inst->source_node);
+    instruction->base.value.special = ConstValSpecialStatic;
+    instruction->base.value.type = ira->codegen->builtin_types.entry_void;
+
+    instruction->new_result_loc = new_result_loc;
+    instruction->elem_type = elem_type;
+
+    ir_ref_instruction(new_result_loc, ira->new_irb.current_basic_block);
 
     return &instruction->base;
 }
@@ -4571,13 +4648,15 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg0_value;
 
                 IrInstruction *ensured_result_loc = ensure_result_loc(irb, scope, node, result_loc);
-                IrInstruction *new_result_loc = ir_build_result_slice_to_bytes(irb, scope, node, arg0_value,
+                IrInstruction *new_result_loc = ir_build_result_slice_to_bytes_src(irb, scope, node, arg0_value,
                         ensured_result_loc);
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
                 IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope, LValNone, new_result_loc);
                 if (arg1_value == irb->codegen->invalid_instruction)
                     return arg1_value;
+
+                ir_build_from_bytes_len_src(irb, scope, node, ensured_result_loc, new_result_loc);
 
                 return ir_gen_result(irb, scope, node, lval, ensured_result_loc);
             }
@@ -9844,10 +9923,6 @@ static bool eval_const_expr_implicit_cast(IrAnalyze *ira, IrInstruction *source_
             }
             const_val->type = new_type;
             break;
-        case CastOpResizeSlice:
-        case CastOpBytesToSlice:
-            // can't do it
-            zig_unreachable();
         case CastOpIntToFloat:
             {
                 assert(new_type->id == ZigTypeIdFloat);
@@ -9917,9 +9992,7 @@ static IrInstruction *ir_const_undef(IrAnalyze *ira, IrInstruction *source_instr
 static IrInstruction *ir_resolve_cast(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value,
         ZigType *wanted_type, CastOp cast_op, bool need_alloca)
 {
-    if ((instr_is_comptime(value) || !type_has_bits(wanted_type)) &&
-        cast_op != CastOpResizeSlice && cast_op != CastOpBytesToSlice)
-    {
+    if (instr_is_comptime(value) || !type_has_bits(wanted_type)) {
         IrInstruction *result = ir_const(ira, source_instr, wanted_type);
         if (!eval_const_expr_implicit_cast(ira, source_instr, cast_op, &value->value, value->value.type,
             &result->value, wanted_type))
@@ -11735,6 +11808,19 @@ static IrInstruction *resolve_possible_alloca_inference(IrAnalyze *ira, IrInstru
     Error err;
     assert(base->value.type->id == ZigTypeIdPointer);
     ZigType *infer_child = base->value.type->data.pointer.child_type;
+    if (base->id == IrInstructionIdResultSliceToBytesPlaceholder) {
+        IrInstructionResultSliceToBytesPlaceholder *res_slice_to_bytes =
+            reinterpret_cast<IrInstructionResultSliceToBytesPlaceholder *>(base);
+        // When the instruction was made it didn't have enough information to do analysis,
+        // so it emitted a placeholder. Now we have the information, so we do
+        // the analysis, and rely on the ref_count being 0 so that it is not emitted.
+        assert(res_slice_to_bytes->base.ref_count == 0);
+        assert(res_slice_to_bytes->pass1_parent != nullptr);
+        IrInstruction *new_res_slice_to_bytes = ir_analyze_result_slice_to_bytes(ira, base,
+                res_slice_to_bytes->prev_result_loc, res_slice_to_bytes->elem_type, child_type);
+        res_slice_to_bytes->pass1_parent->child = new_res_slice_to_bytes;
+        return new_res_slice_to_bytes;
+    }
     if (infer_child == ira->codegen->builtin_types.entry_infer) {
         if (base->id == IrInstructionIdAllocaGen) {
             if ((err = resolve_alloca_inference(ira, reinterpret_cast<IrInstructionAllocaGen *>(base), child_type)))
@@ -22596,6 +22682,38 @@ static IrInstruction *ir_analyze_instruction_infer_comptime(IrAnalyze *ira,
     return ir_const_void(ira, &instruction->base);
 }
 
+static IrInstruction *ir_analyze_instruction_from_bytes_len(IrAnalyze *ira,
+        IrInstructionFromBytesLenSrc *instruction)
+{
+    IrInstruction *prev_result_loc = instruction->prev_result_loc->child;
+    if (type_is_invalid(prev_result_loc->value.type))
+        return ira->codegen->invalid_instruction;
+
+    IrInstruction *new_result_loc = instruction->new_result_loc->child;
+    if (type_is_invalid(new_result_loc->value.type))
+        return ira->codegen->invalid_instruction;
+
+    BREAKPOINT;
+
+    if (prev_result_loc->value.data.x_ptr.mut == ConstPtrMutInfer) {
+        if (instr_is_comptime(new_result_loc) &&
+            new_result_loc->value.data.x_ptr.mut != ConstPtrMutRuntimeVar)
+        {
+            prev_result_loc->value.data.x_ptr.mut = ConstPtrMutComptimeConst;
+        }
+        prev_result_loc->value.special = ConstValSpecialRuntime;
+    }
+
+    assert(prev_result_loc->value.type->id == ZigTypeIdPointer);
+    ZigType *slice_type = prev_result_loc->value.type->data.pointer.child_type;
+    assert(is_slice(slice_type));
+    ZigType *slice_ptr_type = slice_type->data.structure.fields[slice_ptr_index].type_entry;
+    assert(slice_ptr_type->id == ZigTypeIdPointer);
+    ZigType *elem_type = slice_ptr_type->data.pointer.child_type;
+
+    return ir_build_from_bytes_len_gen(ira, &instruction->base, new_result_loc, elem_type);
+}
+
 static IrInstruction *ir_analyze_instruction_set_non_null_bit(IrAnalyze *ira,
         IrInstructionSetNonNullBit *instruction)
 {
@@ -22654,8 +22772,7 @@ static IrInstruction *ir_analyze_instruction_result_bytes_to_slice(IrAnalyze *ir
             true, false, PtrLenUnknown, 0, 0, 0);
     ZigType *slice_of_bytes = get_slice_type(ira->codegen, slice_ptr_type);
     IrInstruction *prev_result_loc = instruction->prev_result_loc->child;
-    IrInstruction *new_result_loc = ir_implicit_cast_result(ira, prev_result_loc,
-            slice_of_bytes, false);
+    IrInstruction *new_result_loc = ir_implicit_cast_result(ira, prev_result_loc, slice_of_bytes, false);
     if (type_is_invalid(new_result_loc->value.type))
         return ira->codegen->invalid_instruction;
 
@@ -22669,6 +22786,8 @@ static IrInstruction *ir_analyze_instruction_result_bytes_to_slice(IrAnalyze *ir
     IrInstruction *result = ir_build_ptr_cast_gen(ira, &instruction->base, new_result_loc_type, new_result_loc);
     reinterpret_cast<IrInstructionPtrCastGen *>(result)->pass1_parent = &instruction->base;
 
+    // At compile time pointer casts are represented as the pointer type disagreeing
+    // with the element type, so that's easy to do here.
     if (instr_is_comptime(new_result_loc)) {
         ConstExprValue *val = ir_resolve_const(ira, new_result_loc, UndefOk);
         if (!val)
@@ -22680,6 +22799,65 @@ static IrInstruction *ir_analyze_instruction_result_bytes_to_slice(IrAnalyze *ir
     }
 
     return result;
+}
+
+// This function is called once we have enough information to do the analysis.
+static IrInstruction *ir_analyze_result_slice_to_bytes(IrAnalyze *ira,
+        IrInstruction *source_inst, IrInstruction *prev_result_loc, ZigType *elem_type, ZigType *bytes_slice_type)
+{
+    if (!is_slice(bytes_slice_type)) {
+        ir_add_error(ira, source_inst,
+                buf_sprintf("expected slice, found '%s'", buf_ptr(&bytes_slice_type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+
+    ZigType *bytes_ptr_type = bytes_slice_type->data.structure.fields[slice_ptr_index].type_entry;
+    if (bytes_ptr_type->data.pointer.child_type != ira->codegen->builtin_types.entry_u8) {
+        ir_add_error(ira, source_inst,
+                buf_sprintf("expected slice of u8, found '%s'", buf_ptr(&bytes_slice_type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+
+    ZigType *elem_ptr_type = adjust_ptr_child(ira->codegen, bytes_ptr_type, elem_type);
+    ZigType *slice_of_elem = get_slice_type(ira->codegen, elem_ptr_type);
+    IrInstruction *casted_prev_result_loc = ir_implicit_cast_result(ira, prev_result_loc, slice_of_elem, false);
+    if (type_is_invalid(casted_prev_result_loc->value.type))
+        return ira->codegen->invalid_instruction;
+
+    ZigType *new_result_loc_type = adjust_ptr_child(ira->codegen, casted_prev_result_loc->value.type,
+            bytes_slice_type);
+    IrInstruction *result = ir_build_result_slice_to_bytes_gen(ira, source_inst, new_result_loc_type,
+            casted_prev_result_loc);
+
+    if (instr_is_comptime(casted_prev_result_loc)) {
+        ConstExprValue *ptr_val = ir_resolve_const(ira, casted_prev_result_loc, UndefOk);
+        if (!ptr_val)
+            return ira->codegen->invalid_instruction;
+
+        copy_const_val(&result->value, ptr_val, false);
+        result->value.type = new_result_loc_type;
+        return result;
+    }
+
+    return result;
+}
+
+static IrInstruction *ir_analyze_instruction_result_slice_to_bytes(IrAnalyze *ira,
+        IrInstructionResultSliceToBytesSrc *instruction)
+{
+    ZigType *elem_type = ir_resolve_type(ira, instruction->elem_type->child);
+    if (type_is_invalid(elem_type))
+        return ira->codegen->invalid_instruction;
+
+    IrInstruction *prev_result_loc = instruction->prev_result_loc->child;
+    if (type_is_invalid(prev_result_loc->value.type))
+        return ira->codegen->invalid_instruction;
+
+    // We don't have enough type information to do anything. So we emit a placeholder instruction
+    // and then will fix things later when resolve_alloca_inference is called.
+    // This works because this is a result location instruction and so the first reference to it
+    // will be from resolve_alloca_inference.
+    return ir_build_result_slice_to_bytes_placeholder(ira, &instruction->base, prev_result_loc, elem_type);
 }
 
 static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
@@ -22699,6 +22877,9 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
         case IrInstructionIdResultErrorUnionCode:
         case IrInstructionIdPtrCastGen:
         case IrInstructionIdCmpxchgGen:
+        case IrInstructionIdResultSliceToBytesPlaceholder:
+        case IrInstructionIdResultSliceToBytesGen:
+        case IrInstructionIdFromBytesLenGen:
             zig_unreachable();
 
         case IrInstructionIdReturn:
@@ -22977,6 +23158,8 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
             return ir_analyze_instruction_infer_array_type(ira, (IrInstructionInferArrayType *)instruction);
         case IrInstructionIdInferCompTime:
             return ir_analyze_instruction_infer_comptime(ira, (IrInstructionInferCompTime *)instruction);
+        case IrInstructionIdFromBytesLenSrc:
+            return ir_analyze_instruction_from_bytes_len(ira, (IrInstructionFromBytesLenSrc *)instruction);
         case IrInstructionIdResultOptionalPayload:
             return ir_analyze_instruction_result_optional_payload(ira, (IrInstructionResultOptionalPayload *)instruction);
         case IrInstructionIdSetNonNullBit:
@@ -22985,8 +23168,8 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
             return ir_analyze_instruction_error_literal(ira, (IrInstructionErrorLiteral *)instruction);
         case IrInstructionIdResultBytesToSlice:
             return ir_analyze_instruction_result_bytes_to_slice(ira, (IrInstructionResultBytesToSlice *)instruction);
-        case IrInstructionIdResultSliceToBytes:
-            zig_panic("TODO");
+        case IrInstructionIdResultSliceToBytesSrc:
+            return ir_analyze_instruction_result_slice_to_bytes(ira, (IrInstructionResultSliceToBytesSrc *)instruction);
     }
     zig_unreachable();
 }
@@ -23137,6 +23320,8 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdContainerInitFields:
         case IrInstructionIdContainerInitList:
         case IrInstructionIdInferCompTime:
+        case IrInstructionIdFromBytesLenSrc:
+        case IrInstructionIdFromBytesLenGen:
         case IrInstructionIdSetNonNullBit:
         case IrInstructionIdSlice:
         case IrInstructionIdCmpxchgGen:
@@ -23234,7 +23419,9 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdResultReturn:
         case IrInstructionIdResultPtrCast:
         case IrInstructionIdResultCast:
-        case IrInstructionIdResultSliceToBytes:
+        case IrInstructionIdResultSliceToBytesSrc:
+        case IrInstructionIdResultSliceToBytesPlaceholder:
+        case IrInstructionIdResultSliceToBytesGen:
         case IrInstructionIdResultBytesToSlice:
         case IrInstructionIdAllocaSrc:
         case IrInstructionIdAllocaGen:
