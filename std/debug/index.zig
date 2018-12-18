@@ -264,7 +264,7 @@ pub fn writeCurrentStackTraceWindows(
 pub fn printSourceAtAddress(debug_info: *DebugInfo, out_stream: var, address: usize, tty_color: bool) !void {
     switch (builtin.os) {
         builtin.Os.macosx => return printSourceAtAddressMacOs(debug_info, out_stream, address, tty_color),
-        builtin.Os.linux => return printSourceAtAddressLinux(debug_info, out_stream, address, tty_color),
+        builtin.Os.linux, builtin.Os.freebsd => return printSourceAtAddressLinux(debug_info, out_stream, address, tty_color),
         builtin.Os.windows => return printSourceAtAddressWindows(debug_info, out_stream, address, tty_color),
         else => return error.UnsupportedOperatingSystem,
     }
@@ -717,7 +717,7 @@ pub const OpenSelfDebugInfoError = error{
 
 pub fn openSelfDebugInfo(allocator: *mem.Allocator) !DebugInfo {
     switch (builtin.os) {
-        builtin.Os.linux => return openSelfDebugInfoLinux(allocator),
+        builtin.Os.linux, builtin.Os.freebsd => return openSelfDebugInfoLinux(allocator),
         builtin.Os.macosx, builtin.Os.ios => return openSelfDebugInfoMacOs(allocator),
         builtin.Os.windows => return openSelfDebugInfoWindows(allocator),
         else => return error.UnsupportedOperatingSystem,
@@ -1141,8 +1141,7 @@ pub const DebugInfo = switch (builtin.os) {
         sect_contribs: []pdb.SectionContribEntry,
         modules: []Module,
     },
-    builtin.Os.linux => DwarfInfo,
-    builtin.Os.freebsd => struct {},
+    builtin.Os.linux, builtin.Os.freebsd => DwarfInfo,
     else => @compileError("Unsupported OS"),
 };
 
