@@ -2291,7 +2291,20 @@ pub fn selfExePathW(out_buffer: *[windows_util.PATH_MAX_WIDE]u16) ![]u16 {
 pub fn selfExePath(out_buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
     switch (builtin.os) {
         Os.linux => return readLink(out_buffer, "/proc/self/exe"),
-        Os.freebsd => return readLink(out_buffer, "/proc/curproc/file"),
+        Os.freebsd => {
+            var mib = [4]c_int{ posix.CTL_KERN, posix.KERN_PROC, posix.KERN_PROC_PATHNAME, -1};
+            var out_len: usize = out_buffer.len;
+            const err = posix.getErrno(posix.sysctl(&mib, 4, out_buffer, &out_len, null, 0));
+
+            if (err == 0 ) return mem.toSlice(u8, out_buffer);
+
+            return switch (err) {
+                posix.EFAULT => error.BadAdress,
+                posix.EPERM => error.PermissionDenied,
+                else => unexpectedErrorPosix(err),
+            };
+
+        },
         Os.windows => {
             var utf16le_buf: [windows_util.PATH_MAX_WIDE]u16 = undefined;
             const utf16le_slice = try selfExePathW(&utf16le_buf);

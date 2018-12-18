@@ -9,6 +9,12 @@ const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
 pub const Kevent = c.Kevent;
 
+pub const CTL_KERN = 1;
+pub const CTL_DEBUG = 5;
+
+pub const KERN_PROC = 14; // struct: process entries
+pub const KERN_PROC_PATHNAME = 12; // path to executable
+
 pub const PATH_MAX = 1024;
 
 pub const STDIN_FILENO = 0;
