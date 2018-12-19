@@ -2237,6 +2237,8 @@ enum IrInstructionId {
     IrInstructionIdInferCompTime,
     IrInstructionIdFromBytesLenSrc,
     IrInstructionIdFromBytesLenGen,
+    IrInstructionIdToBytesLenSrc,
+    IrInstructionIdToBytesLenGen,
     IrInstructionIdSetNonNullBit,
     IrInstructionIdErrorLiteral,
 };
@@ -3484,6 +3486,20 @@ struct IrInstructionFromBytesLenSrc {
 };
 
 struct IrInstructionFromBytesLenGen {
+    IrInstruction base;
+
+    ZigType *elem_type;
+    IrInstruction *prev_result_loc;
+};
+
+struct IrInstructionToBytesLenSrc {
+    IrInstruction base;
+
+    IrInstruction *prev_result_loc;
+    IrInstruction *new_result_loc;
+};
+
+struct IrInstructionToBytesLenGen {
     IrInstruction base;
 
     ZigType *elem_type;

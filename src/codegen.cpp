@@ -5173,6 +5173,19 @@ static LLVMValueRef ir_render_from_bytes_len(CodeGen *g, IrExecutable *executabl
     return nullptr;
 }
 
+static LLVMValueRef ir_render_to_bytes_len(CodeGen *g, IrExecutable *executable,
+        IrInstructionToBytesLenGen *instruction)
+{
+    LLVMValueRef prev_result_loc = ir_llvm_value(g, instruction->prev_result_loc);
+    LLVMValueRef len_ptr = LLVMBuildStructGEP(g->builder, prev_result_loc, slice_len_index, "");
+    LLVMValueRef prev_len = LLVMBuildLoad(g->builder, len_ptr, "");
+    uint64_t elem_size = type_size(g, instruction->elem_type);
+    LLVMValueRef elem_size_val = LLVMConstInt(g->builtin_types.entry_usize->type_ref, elem_size, false);
+    LLVMValueRef new_len = LLVMBuildMul(g->builder, prev_len, elem_size_val, "");
+    LLVMBuildStore(g->builder, new_len, len_ptr);
+    return nullptr;
+}
+
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
     Scope *scope = instruction->scope;
@@ -5262,6 +5275,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdResultSliceToBytesPlaceholder:
         case IrInstructionIdResultBytesToSlice:
         case IrInstructionIdFromBytesLenSrc:
+        case IrInstructionIdToBytesLenSrc:
             zig_unreachable();
 
         case IrInstructionIdDeclVarGen:
@@ -5440,6 +5454,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_result_slice_to_bytes(g, executable, (IrInstructionResultSliceToBytesGen *)instruction);
         case IrInstructionIdFromBytesLenGen:
             return ir_render_from_bytes_len(g, executable, (IrInstructionFromBytesLenGen *)instruction);
+        case IrInstructionIdToBytesLenGen:
+            return ir_render_to_bytes_len(g, executable, (IrInstructionToBytesLenGen *)instruction);
     }
     zig_unreachable();
 }

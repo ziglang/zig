@@ -1454,6 +1454,20 @@ static void ir_print_from_bytes_len_gen(IrPrint *irp, IrInstructionFromBytesLenG
     fprintf(irp->f, ",elem_type=%s)", buf_ptr(&instruction->elem_type->name));
 }
 
+static void ir_print_to_bytes_len_src(IrPrint *irp, IrInstructionToBytesLenSrc *instruction) {
+    fprintf(irp->f, "ToBytesLenSrc(prev_result=");
+    ir_print_other_instruction(irp, instruction->prev_result_loc);
+    fprintf(irp->f, ",new_result=");
+    ir_print_other_instruction(irp, instruction->new_result_loc);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_to_bytes_len_gen(IrPrint *irp, IrInstructionToBytesLenGen *instruction) {
+    fprintf(irp->f, "ToBytesLenGen(prev_result=");
+    ir_print_other_instruction(irp, instruction->prev_result_loc);
+    fprintf(irp->f, ",elem_type=%s)", buf_ptr(&instruction->elem_type->name));
+}
+
 static void ir_print_set_non_null_bit(IrPrint *irp, IrInstructionSetNonNullBit *instruction) {
     fprintf(irp->f, "SetNonNullBit(prev_result=");
     ir_print_other_instruction(irp, instruction->prev_result_loc);
@@ -1949,6 +1963,12 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdFromBytesLenGen:
             ir_print_from_bytes_len_gen(irp, (IrInstructionFromBytesLenGen *)instruction);
+            break;
+        case IrInstructionIdToBytesLenSrc:
+            ir_print_to_bytes_len_src(irp, (IrInstructionToBytesLenSrc *)instruction);
+            break;
+        case IrInstructionIdToBytesLenGen:
+            ir_print_to_bytes_len_gen(irp, (IrInstructionToBytesLenGen *)instruction);
             break;
         case IrInstructionIdSetNonNullBit:
             ir_print_set_non_null_bit(irp, (IrInstructionSetNonNullBit *)instruction);
