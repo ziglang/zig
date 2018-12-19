@@ -177,6 +177,8 @@ static IrInstruction *ir_analyze_error_union_field_error_set(IrAnalyze *ira,
 static ZigType *adjust_ptr_child(CodeGen *g, ZigType *ptr_type, ZigType *new_child);
 static IrInstruction *ir_analyze_result_slice_to_bytes(IrAnalyze *ira,
         IrInstruction *source_inst, IrInstruction *prev_result_loc, ZigType *elem_type, ZigType *child_type);
+static IrInstruction *ir_analyze_alloca(IrAnalyze *ira, IrInstruction *source_inst, IrInstruction *child_type_inst,
+        uint32_t align, const char *name_hint);
 
 static ConstExprValue *const_ptr_pointee_unchecked(CodeGen *g, ConstExprValue *const_val) {
     assert(get_src_ptr_type(const_val->type) != nullptr);
@@ -14311,11 +14313,21 @@ static IrInstruction *analyze_runtime_call(IrAnalyze *ira, ZigType *return_type,
     }
 
     bool need_store_ptr = !convert_to_value &&
-        (return_type == payload_result_type) && !handle_is_ptr(return_type) &&
-        call_instruction->result_loc != nullptr && call_instruction->result_loc->child != nullptr;
+        (return_type == payload_result_type) && !handle_is_ptr(return_type);
 
+    IrInstruction *prev_result_loc = nullptr;
     if (call_instruction->result_loc != nullptr && call_instruction->result_loc->child != nullptr) {
-        IrInstruction *prev_result_loc = call_instruction->result_loc->child;
+        prev_result_loc = call_instruction->result_loc->child;
+    } else {
+        need_store_ptr = false;
+        if (return_type->id == ZigTypeIdErrorUnion || return_type->id == ZigTypeIdOptional) {
+            prev_result_loc = ir_analyze_alloca(ira, &call_instruction->base, nullptr, 0, "param");
+            if (type_is_invalid(prev_result_loc->value.type))
+                return ira->codegen->invalid_instruction;
+        }
+    }
+
+    if (prev_result_loc != nullptr) {
         if (type_is_invalid(prev_result_loc->value.type))
             return ira->codegen->invalid_instruction;
         if (instr_is_comptime(prev_result_loc)) {
@@ -22578,33 +22590,28 @@ static IrInstruction *ir_analyze_instruction_result_cast(IrAnalyze *ira, IrInstr
     return new_result_loc;
 }
 
-static IrInstruction *ir_analyze_instruction_alloca(IrAnalyze *ira, IrInstructionAllocaSrc *instruction) {
+static IrInstruction *ir_analyze_alloca(IrAnalyze *ira, IrInstruction *source_inst, IrInstruction *child_type_inst,
+        uint32_t align, const char *name_hint)
+{
     Error err;
-
-    uint32_t align = 0;
-    if (instruction->align != nullptr) {
-        if (!ir_resolve_align(ira, instruction->align->child, &align)) {
-            return ira->codegen->invalid_instruction;
-        }
-    }
 
     ConstExprValue *pointee = create_const_vals(1);
     pointee->special = ConstValSpecialUndef;
 
-    IrInstructionAllocaGen *result = ir_create_alloca_gen(&ira->new_irb, instruction->base.scope,
-            instruction->base.source_node, align, instruction->name_hint);
+    IrInstructionAllocaGen *result = ir_create_alloca_gen(&ira->new_irb, source_inst->scope,
+            source_inst->source_node, align, name_hint);
     result->base.value.special = ConstValSpecialStatic;
     result->base.value.data.x_ptr.special = ConstPtrSpecialRef;
     result->base.value.data.x_ptr.mut = ConstPtrMutInfer;
     result->base.value.data.x_ptr.data.ref.pointee = pointee;
 
-    if (instruction->child_type == nullptr) {
+    if (child_type_inst == nullptr) {
         // We use a pointer to a special opaque type to signal that we want type inference.
         result->base.value.type = get_pointer_to_type_extra(ira->codegen,
             ira->codegen->builtin_types.entry_infer, false, false, PtrLenSingle, align, 0, 0);
         result->base.value.data.x_ptr.data.ref.pointee->type = ira->codegen->builtin_types.entry_infer;
     } else {
-        ZigType *child_type = ir_resolve_type(ira, instruction->child_type->child);
+        ZigType *child_type = ir_resolve_type(ira, child_type_inst);
         if (type_is_invalid(child_type))
             return ira->codegen->invalid_instruction;
 
@@ -22617,6 +22624,22 @@ static IrInstruction *ir_analyze_instruction_alloca(IrAnalyze *ira, IrInstructio
         fn_entry->alloca_list.append(result);
     }
     return &result->base;
+}
+
+static IrInstruction *ir_analyze_instruction_alloca(IrAnalyze *ira, IrInstructionAllocaSrc *instruction) {
+    uint32_t align = 0;
+    if (instruction->align != nullptr) {
+        if (!ir_resolve_align(ira, instruction->align->child, &align)) {
+            return ira->codegen->invalid_instruction;
+        }
+    }
+
+    IrInstruction *child_type_inst = nullptr;
+    if (instruction->child_type != nullptr) {
+        child_type_inst = instruction->child_type->child;
+    }
+
+    return ir_analyze_alloca(ira, &instruction->base, child_type_inst, align, instruction->name_hint);
 }
 
 static IrInstruction *ir_analyze_instruction_first_arg_result_loc(IrAnalyze *ira,
