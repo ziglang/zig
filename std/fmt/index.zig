@@ -117,7 +117,7 @@ pub fn formatType(
         return output(context, @errorName(value));
     }
     switch (@typeInfo(T)) {
-        builtin.TypeId.Int, builtin.TypeId.Float => {
+        builtin.TypeId.ComptimeInt, builtin.TypeId.Int, builtin.TypeId.Float => {
             return formatValue(value, fmt, context, Errors, output);
         },
         builtin.TypeId.Void => {
@@ -268,11 +268,15 @@ fn formatValue(
         }
     }
 
-    comptime var T = @typeOf(value);
+    const T = @typeOf(value);
     switch (@typeId(T)) {
         builtin.TypeId.Float => return formatFloatValue(value, fmt, context, Errors, output),
         builtin.TypeId.Int => return formatIntValue(value, fmt, context, Errors, output),
-        else => unreachable,
+        builtin.TypeId.ComptimeInt => {
+            const Int = math.IntFittingRange(value, value);
+            return formatIntValue(Int(value), fmt, context, Errors, output);
+        },
+        else => comptime unreachable,
     }
 }
 
@@ -289,9 +293,10 @@ pub fn formatIntValue(
     if (fmt.len > 0) {
         switch (fmt[0]) {
             'c' => {
-                if (@typeOf(value) == u8) {
-                    if (fmt.len > 1) @compileError("Unknown format character: " ++ []u8{fmt[1]});
-                    return formatAsciiChar(value, context, Errors, output);
+                if (@typeOf(value).bit_count <= 8) {
+                    if (fmt.len > 1)
+                        @compileError("Unknown format character: " ++ []u8{fmt[1]});
+                    return formatAsciiChar(u8(value), context, Errors, output);
                 }
             },
             'b' => {
@@ -965,6 +970,25 @@ test "fmt.format" {
         try testFmt("u8: 0b1100\n", "u8: 0b{b}\n", value);
     }
     {
+        var buf1: [32]u8 = undefined;
+        var context = BufPrintContext{ .remaining = buf1[0..] };
+        try formatType(1234, "", &context, error{BufferTooSmall}, bufPrintWrite);
+        var res = buf1[0 .. buf1.len - context.remaining.len];
+        assert(mem.eql(u8, res, "1234"));
+
+        context = BufPrintContext{ .remaining = buf1[0..] };
+        try formatType('a', "c", &context, error{BufferTooSmall}, bufPrintWrite);
+        res = buf1[0 .. buf1.len - context.remaining.len];
+        debug.warn("{}\n", res);
+        assert(mem.eql(u8, res, "a"));
+
+        context = BufPrintContext{ .remaining = buf1[0..] };
+        try formatType(0b1100, "b", &context, error{BufferTooSmall}, bufPrintWrite);
+        res = buf1[0 .. buf1.len - context.remaining.len];
+        debug.warn("{}\n", res);
+        assert(mem.eql(u8, res, "1100"));
+    }
+    {
         const value: [3]u8 = "abc";
         try testFmt("array: abc\n", "array: {}\n", value);
         try testFmt("array: abc\n", "array: {}\n", &value);
@@ -984,6 +1008,10 @@ test "fmt.format" {
         const value = @intToPtr(*i32, 0xdeadbeef);
         try testFmt("pointer: i32@deadbeef\n", "pointer: {}\n", value);
         try testFmt("pointer: i32@deadbeef\n", "pointer: {*}\n", value);
+    }
+    {
+        const value = @intToPtr(fn () void, 0xdeadbeef);
+        try testFmt("pointer: fn() void@deadbeef\n", "pointer: {}\n", value);
     }
     try testFmt("buf: Test \n", "buf: {s5}\n", "Test");
     try testFmt("buf: Test\n Other text", "buf: {s}\n Other text", "Test");
