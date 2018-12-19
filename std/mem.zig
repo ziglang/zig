@@ -410,12 +410,8 @@ test "mem.indexOf" {
 /// Reads an integer from memory with size equal to bytes.len.
 /// T specifies the return type, which must be large enough to store
 /// the result.
-/// See also ::readIntBE or ::readIntLE.
-pub fn readInt(bytes: []const u8, comptime T: type, endian: builtin.Endian) T {
-    if (T.bit_count == 8) {
-        return bytes[0];
-    }
-    var result: T = 0;
+pub fn readVarInt(comptime ReturnType: type, bytes: []const u8, endian: builtin.Endian) ReturnType {
+    var result: ReturnType = 0;
     switch (endian) {
         builtin.Endian.Big => {
             for (bytes) |b| {
@@ -423,170 +419,270 @@ pub fn readInt(bytes: []const u8, comptime T: type, endian: builtin.Endian) T {
             }
         },
         builtin.Endian.Little => {
-            const ShiftType = math.Log2Int(T);
+            const ShiftType = math.Log2Int(ReturnType);
             for (bytes) |b, index| {
-                result = result | (T(b) << @intCast(ShiftType, index * 8));
+                result = result | (ReturnType(b) << @intCast(ShiftType, index * 8));
             }
         },
     }
     return result;
 }
 
-/// Reads a big-endian int of type T from bytes.
-/// bytes.len must be exactly @sizeOf(T).
-pub fn readIntBE(comptime T: type, bytes: []const u8) T {
-    if (T.is_signed) {
-        return @bitCast(T, readIntBE(@IntType(false, T.bit_count), bytes));
-    }
-    assert(bytes.len == @sizeOf(T));
-    if (T == u8) return bytes[0];
-    var result: T = 0;
-    {
-        comptime var i = 0;
-        inline while (i < @sizeOf(T)) : (i += 1) {
-            result = (result << 8) | T(bytes[i]);
-        }
-    }
-    return result;
+/// Reads an integer from memory with bit count specified by T.
+/// The bit count of T must be evenly divisible by 8.
+/// This function cannot fail and cannot cause undefined behavior.
+/// Assumes the endianness of memory is native. This means the function can
+/// simply pointer cast memory.
+pub fn readIntNative(comptime T: type, bytes: *const [@sizeOf(T)]u8) T {
+    comptime assert(T.bit_count % 8 == 0);
+    return @ptrCast(*align(1) const T, bytes).*;
 }
 
-/// Reads a little-endian int of type T from bytes.
-/// bytes.len must be exactly @sizeOf(T).
-pub fn readIntLE(comptime T: type, bytes: []const u8) T {
-    if (T.is_signed) {
-        return @bitCast(T, readIntLE(@IntType(false, T.bit_count), bytes));
-    }
-    assert(bytes.len == @sizeOf(T));
-    if (T == u8) return bytes[0];
-    var result: T = 0;
-    {
-        comptime var i = 0;
-        inline while (i < @sizeOf(T)) : (i += 1) {
-            result |= T(bytes[i]) << i * 8;
-        }
-    }
-    return result;
+/// Reads an integer from memory with bit count specified by T.
+/// The bit count of T must be evenly divisible by 8.
+/// This function cannot fail and cannot cause undefined behavior.
+/// Assumes the endianness of memory is foreign, so it must byte-swap.
+pub fn readIntForeign(comptime T: type, bytes: *const [@sizeOf(T)]u8) T {
+    return @bswap(T, readIntNative(T, bytes));
 }
 
-test "readIntBE/LE" {
-    assert(readIntBE(u0, []u8{}) == 0x0);
-    assert(readIntLE(u0, []u8{}) == 0x0);
+pub const readIntLittle = switch (builtin.endian) {
+    builtin.Endian.Little => readIntNative,
+    builtin.Endian.Big => readIntForeign,
+};
 
-    assert(readIntBE(u8, []u8{0x32}) == 0x32);
-    assert(readIntLE(u8, []u8{0x12}) == 0x12);
+pub const readIntBig = switch (builtin.endian) {
+    builtin.Endian.Little => readIntForeign,
+    builtin.Endian.Big => readIntNative,
+};
 
-    assert(readIntBE(u16, []u8{0x12, 0x34}) == 0x1234);
-    assert(readIntLE(u16, []u8{0x12, 0x34}) == 0x3412);
-
-    assert(readIntBE(u72, []u8{ 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x24 }) == 0x123456789abcdef024);
-    assert(readIntLE(u72, []u8{ 0xec, 0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe }) == 0xfedcba9876543210ec);
-
-    assert(readIntBE(i8, []u8{0xff}) == -1);
-    assert(readIntLE(i8, []u8{0xfe}) == -2);
-
-    assert(readIntBE(i16, []u8{0xff, 0xfd}) == -3);
-    assert(readIntLE(i16, []u8{0xfc, 0xff}) == -4);
+/// Asserts that bytes.len >= @sizeOf(T). Reads the integer starting from index 0
+/// and ignores extra bytes.
+/// Note that @sizeOf(u24) is 3.
+/// The bit count of T must be evenly divisible by 8.
+/// Assumes the endianness of memory is native. This means the function can
+/// simply pointer cast memory.
+pub fn readIntSliceNative(comptime T: type, bytes: []const u8) T {
+    assert(@sizeOf(u24) == 3);
+    assert(bytes.len >= @sizeOf(T));
+    // TODO https://github.com/ziglang/zig/issues/863
+    return readIntNative(T, @ptrCast(*const [@sizeOf(T)]u8, bytes.ptr));
 }
 
-/// Writes an integer to memory with size equal to bytes.len. Pads with zeroes
-/// to fill the entire buffer provided.
-/// value must be an integer.
-pub fn writeInt(buf: []u8, value: var, endian: builtin.Endian) void {
-    const uint = @IntType(false, @typeOf(value).bit_count);
+/// Asserts that bytes.len >= @sizeOf(T). Reads the integer starting from index 0
+/// and ignores extra bytes.
+/// Note that @sizeOf(u24) is 3.
+/// The bit count of T must be evenly divisible by 8.
+/// Assumes the endianness of memory is foreign, so it must byte-swap.
+pub fn readIntSliceForeign(comptime T: type, bytes: []const u8) T {
+    return @bswap(T, readIntSliceNative(T, bytes));
+}
+
+pub const readIntSliceLittle = switch (builtin.endian) {
+    builtin.Endian.Little => readIntSliceNative,
+    builtin.Endian.Big => readIntSliceForeign,
+};
+
+pub const readIntSliceBig = switch (builtin.endian) {
+    builtin.Endian.Little => readIntSliceForeign,
+    builtin.Endian.Big => readIntSliceNative,
+};
+
+/// Reads an integer from memory with bit count specified by T.
+/// The bit count of T must be evenly divisible by 8.
+/// This function cannot fail and cannot cause undefined behavior.
+pub fn readInt(comptime T: type, bytes: *const [@sizeOf(T)]u8, endian: builtin.Endian) T {
+    if (endian == builtin.endian) {
+        return readIntNative(T, bytes);
+    } else {
+        return readIntForeign(T, bytes);
+    }
+}
+
+/// Asserts that bytes.len >= @sizeOf(T). Reads the integer starting from index 0
+/// and ignores extra bytes.
+/// Note that @sizeOf(u24) is 3.
+/// The bit count of T must be evenly divisible by 8.
+pub fn readIntSlice(comptime T: type, bytes: []const u8, endian: builtin.Endian) T {
+    assert(@sizeOf(u24) == 3);
+    assert(bytes.len >= @sizeOf(T));
+    // TODO https://github.com/ziglang/zig/issues/863
+    return readInt(T, @ptrCast(*const [@sizeOf(T)]u8, bytes.ptr), endian);
+}
+
+test "comptime read/write int" {
+    comptime {
+        var bytes: [2]u8 = undefined;
+        std.mem.writeIntLittle(u16, &bytes, 0x1234);
+        const result = std.mem.readIntBig(u16, &bytes);
+        std.debug.assert(result == 0x3412);
+    }
+    comptime {
+        var bytes: [2]u8 = undefined;
+        std.mem.writeIntBig(u16, &bytes, 0x1234);
+        const result = std.mem.readIntLittle(u16, &bytes);
+        std.debug.assert(result == 0x3412);
+    }
+}
+
+test "readIntBig and readIntLittle" {
+    assert(readIntSliceBig(u0, []u8{}) == 0x0);
+    assert(readIntSliceLittle(u0, []u8{}) == 0x0);
+
+    assert(readIntSliceBig(u8, []u8{0x32}) == 0x32);
+    assert(readIntSliceLittle(u8, []u8{0x12}) == 0x12);
+
+    assert(readIntSliceBig(u16, []u8{ 0x12, 0x34 }) == 0x1234);
+    assert(readIntSliceLittle(u16, []u8{ 0x12, 0x34 }) == 0x3412);
+
+    assert(readIntSliceBig(u72, []u8{ 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x24 }) == 0x123456789abcdef024);
+    assert(readIntSliceLittle(u72, []u8{ 0xec, 0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe }) == 0xfedcba9876543210ec);
+
+    assert(readIntSliceBig(i8, []u8{0xff}) == -1);
+    assert(readIntSliceLittle(i8, []u8{0xfe}) == -2);
+
+    assert(readIntSliceBig(i16, []u8{ 0xff, 0xfd }) == -3);
+    assert(readIntSliceLittle(i16, []u8{ 0xfc, 0xff }) == -4);
+}
+
+/// Writes an integer to memory, storing it in twos-complement.
+/// This function always succeeds, has defined behavior for all inputs, and
+/// accepts any integer bit width.
+/// This function stores in native endian, which means it is implemented as a simple
+/// memory store.
+pub fn writeIntNative(comptime T: type, buf: *[@sizeOf(T)]u8, value: T) void {
+    @ptrCast(*align(1) T, buf).* = value;
+}
+
+/// Writes an integer to memory, storing it in twos-complement.
+/// This function always succeeds, has defined behavior for all inputs, but
+/// the integer bit width must be divisible by 8.
+/// This function stores in foreign endian, which means it does a @bswap first.
+pub fn writeIntForeign(comptime T: type, buf: *[@sizeOf(T)]u8, value: T) void {
+    writeIntNative(T, buf, @bswap(T, value));
+}
+
+pub const writeIntLittle = switch (builtin.endian) {
+    builtin.Endian.Little => writeIntNative,
+    builtin.Endian.Big => writeIntForeign,
+};
+
+pub const writeIntBig = switch (builtin.endian) {
+    builtin.Endian.Little => writeIntForeign,
+    builtin.Endian.Big => writeIntNative,
+};
+
+/// Writes an integer to memory, storing it in twos-complement.
+/// This function always succeeds, has defined behavior for all inputs, but
+/// the integer bit width must be divisible by 8.
+pub fn writeInt(comptime T: type, buffer: *[@sizeOf(T)]u8, value: T, endian: builtin.Endian) void {
+    comptime assert(T.bit_count % 8 == 0);
+    if (endian == builtin.endian) {
+        return writeIntNative(T, buffer, value);
+    } else {
+        return writeIntForeign(T, buffer, value);
+    }
+}
+
+/// Writes a twos-complement little-endian integer to memory.
+/// Asserts that buf.len >= @sizeOf(T). Note that @sizeOf(u24) is 3.
+/// The bit count of T must be divisible by 8.
+/// Any extra bytes in buffer after writing the integer are set to zero. To
+/// avoid the branch to check for extra buffer bytes, use writeIntLittle
+/// instead.
+pub fn writeIntSliceLittle(comptime T: type, buffer: []u8, value: T) void {
+    comptime assert(@sizeOf(u24) == 3);
+    comptime assert(T.bit_count % 8 == 0);
+    assert(buffer.len >= @sizeOf(T));
+
+    // TODO I want to call writeIntLittle here but comptime eval facilities aren't good enough
+    const uint = @IntType(false, T.bit_count);
     var bits = @truncate(uint, value);
-    switch (endian) {
-        builtin.Endian.Big => {
-            var index: usize = buf.len;
-            while (index != 0) {
-                index -= 1;
-
-                buf[index] = @truncate(u8, bits);
-                bits >>= 8;
-            }
-        },
-        builtin.Endian.Little => {
-            for (buf) |*b| {
-                b.* = @truncate(u8, bits);
-                bits >>= 8;
-            }
-        },
-    }
-    assert(bits == 0);
-}
-
-pub fn writeIntBE(comptime T: type, buf: *[@sizeOf(T)]u8, value: T) void {
-    assert(T.bit_count % 8 == 0);
-    const uint = @IntType(false, T.bit_count);
-    if (uint == u0) {
-        return;
-    }
-    var bits = @bitCast(uint, value);
-    if (uint == u8) {
-        buf[0] = bits;
-        return;
-    }
-    var index: usize = buf.len;
-    while (index != 0) {
-        index -= 1;
-
-        buf[index] = @truncate(u8, bits);
-        bits >>= 8;
-    }
-    assert(bits == 0);
-}
-
-pub fn writeIntLE(comptime T: type, buf: *[@sizeOf(T)]u8, value: T) void {
-    assert(T.bit_count % 8 == 0);
-    const uint = @IntType(false, T.bit_count);
-    if (uint == u0) {
-        return;
-    }
-    var bits = @bitCast(uint, value);
-    if (uint == u8) {
-        buf[0] = bits;
-        return;
-    }
-    for (buf) |*b| {
+    for (buffer) |*b| {
         b.* = @truncate(u8, bits);
         bits >>= 8;
     }
-    assert(bits == 0);
 }
 
-test "writeIntBE/LE" {
+/// Writes a twos-complement big-endian integer to memory.
+/// Asserts that buffer.len >= @sizeOf(T). Note that @sizeOf(u24) is 3.
+/// The bit count of T must be divisible by 8.
+/// Any extra bytes in buffer before writing the integer are set to zero. To
+/// avoid the branch to check for extra buffer bytes, use writeIntBig instead.
+pub fn writeIntSliceBig(comptime T: type, buffer: []u8, value: T) void {
+    comptime assert(@sizeOf(u24) == 3);
+    comptime assert(T.bit_count % 8 == 0);
+    assert(buffer.len >= @sizeOf(T));
+
+    // TODO I want to call writeIntBig here but comptime eval facilities aren't good enough
+    const uint = @IntType(false, T.bit_count);
+    var bits = @truncate(uint, value);
+    var index: usize = buffer.len;
+    while (index != 0) {
+        index -= 1;
+        buffer[index] = @truncate(u8, bits);
+        bits >>= 8;
+    }
+}
+
+pub const writeIntSliceNative = switch (builtin.endian) {
+    builtin.Endian.Little => writeIntSliceLittle,
+    builtin.Endian.Big => writeIntSliceBig,
+};
+
+pub const writeIntSliceForeign = switch (builtin.endian) {
+    builtin.Endian.Little => writeIntSliceBig,
+    builtin.Endian.Big => writeIntSliceLittle,
+};
+
+/// Writes a twos-complement integer to memory, with the specified endianness.
+/// Asserts that buf.len >= @sizeOf(T). Note that @sizeOf(u24) is 3.
+/// The bit count of T must be evenly divisible by 8.
+/// Any extra bytes in buffer not part of the integer are set to zero, with
+/// respect to endianness. To avoid the branch to check for extra buffer bytes,
+/// use writeInt instead.
+pub fn writeIntSlice(comptime T: type, buffer: []u8, value: T, endian: builtin.Endian) void {
+    comptime assert(T.bit_count % 8 == 0);
+    switch (endian) {
+        builtin.Endian.Little => return writeIntSliceLittle(T, buffer, value),
+        builtin.Endian.Big => return writeIntSliceBig(T, buffer, value),
+    }
+}
+
+test "writeIntBig and writeIntLittle" {
     var buf0: [0]u8 = undefined;
     var buf1: [1]u8 = undefined;
     var buf2: [2]u8 = undefined;
     var buf9: [9]u8 = undefined;
 
-    writeIntBE(u0, &buf0, 0x0);
+    writeIntBig(u0, &buf0, 0x0);
     assert(eql_slice_u8(buf0[0..], []u8{}));
-    writeIntLE(u0, &buf0, 0x0);
+    writeIntLittle(u0, &buf0, 0x0);
     assert(eql_slice_u8(buf0[0..], []u8{}));
 
-    writeIntBE(u8, &buf1, 0x12);
+    writeIntBig(u8, &buf1, 0x12);
     assert(eql_slice_u8(buf1[0..], []u8{0x12}));
-    writeIntLE(u8, &buf1, 0x34);
+    writeIntLittle(u8, &buf1, 0x34);
     assert(eql_slice_u8(buf1[0..], []u8{0x34}));
 
-    writeIntBE(u16, &buf2, 0x1234);
+    writeIntBig(u16, &buf2, 0x1234);
     assert(eql_slice_u8(buf2[0..], []u8{ 0x12, 0x34 }));
-    writeIntLE(u16, &buf2, 0x5678);
+    writeIntLittle(u16, &buf2, 0x5678);
     assert(eql_slice_u8(buf2[0..], []u8{ 0x78, 0x56 }));
 
-    writeIntBE(u72, &buf9, 0x123456789abcdef024);
+    writeIntBig(u72, &buf9, 0x123456789abcdef024);
     assert(eql_slice_u8(buf9[0..], []u8{ 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x24 }));
-    writeIntLE(u72, &buf9, 0xfedcba9876543210ec);
+    writeIntLittle(u72, &buf9, 0xfedcba9876543210ec);
     assert(eql_slice_u8(buf9[0..], []u8{ 0xec, 0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe }));
 
-    writeIntBE(i8, &buf1, -1);
+    writeIntBig(i8, &buf1, -1);
     assert(eql_slice_u8(buf1[0..], []u8{0xff}));
-    writeIntLE(i8, &buf1, -2);
+    writeIntLittle(i8, &buf1, -2);
     assert(eql_slice_u8(buf1[0..], []u8{0xfe}));
 
-    writeIntBE(i16, &buf2, -3);
+    writeIntBig(i16, &buf2, -3);
     assert(eql_slice_u8(buf2[0..], []u8{ 0xff, 0xfd }));
-    writeIntLE(i16, &buf2, -4);
+    writeIntLittle(i16, &buf2, -4);
     assert(eql_slice_u8(buf2[0..], []u8{ 0xfc, 0xff }));
 }
 
@@ -735,12 +831,12 @@ fn testReadIntImpl() void {
             0x56,
             0x78,
         };
-        assert(readInt(bytes, u32, builtin.Endian.Big) == 0x12345678);
-        assert(readIntBE(u32, bytes) == 0x12345678);
-        assert(readIntBE(i32, bytes) == 0x12345678);
-        assert(readInt(bytes, u32, builtin.Endian.Little) == 0x78563412);
-        assert(readIntLE(u32, bytes) == 0x78563412);
-        assert(readIntLE(i32, bytes) == 0x78563412);
+        assert(readInt(u32, &bytes, builtin.Endian.Big) == 0x12345678);
+        assert(readIntBig(u32, &bytes) == 0x12345678);
+        assert(readIntBig(i32, &bytes) == 0x12345678);
+        assert(readInt(u32, &bytes, builtin.Endian.Little) == 0x78563412);
+        assert(readIntLittle(u32, &bytes) == 0x78563412);
+        assert(readIntLittle(i32, &bytes) == 0x78563412);
     }
     {
         const buf = []u8{
@@ -749,7 +845,7 @@ fn testReadIntImpl() void {
             0x12,
             0x34,
         };
-        const answer = readInt(buf, u64, builtin.Endian.Big);
+        const answer = readInt(u32, &buf, builtin.Endian.Big);
         assert(answer == 0x00001234);
     }
     {
@@ -759,7 +855,7 @@ fn testReadIntImpl() void {
             0x00,
             0x00,
         };
-        const answer = readInt(buf, u64, builtin.Endian.Little);
+        const answer = readInt(u32, &buf, builtin.Endian.Little);
         assert(answer == 0x00003412);
     }
     {
@@ -767,21 +863,33 @@ fn testReadIntImpl() void {
             0xff,
             0xfe,
         };
-        assert(readIntBE(u16, bytes) == 0xfffe);
-        assert(readIntBE(i16, bytes) == -0x0002);
-        assert(readIntLE(u16, bytes) == 0xfeff);
-        assert(readIntLE(i16, bytes) == -0x0101);
+        assert(readIntBig(u16, &bytes) == 0xfffe);
+        assert(readIntBig(i16, &bytes) == -0x0002);
+        assert(readIntLittle(u16, &bytes) == 0xfeff);
+        assert(readIntLittle(i16, &bytes) == -0x0101);
     }
 }
 
-test "testWriteInt" {
+test "std.mem.writeIntSlice" {
     testWriteIntImpl();
     comptime testWriteIntImpl();
 }
 fn testWriteIntImpl() void {
     var bytes: [8]u8 = undefined;
 
-    writeInt(bytes[0..], u64(0x12345678CAFEBABE), builtin.Endian.Big);
+    writeIntSlice(u0, bytes[0..], 0, builtin.Endian.Big);
+    assert(eql(u8, bytes, []u8{
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+    }));
+
+    writeIntSlice(u0, bytes[0..], 0, builtin.Endian.Little);
+    assert(eql(u8, bytes, []u8{
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+    }));
+
+    writeIntSlice(u64, bytes[0..], 0x12345678CAFEBABE, builtin.Endian.Big);
     assert(eql(u8, bytes, []u8{
         0x12,
         0x34,
@@ -793,7 +901,7 @@ fn testWriteIntImpl() void {
         0xBE,
     }));
 
-    writeInt(bytes[0..], u64(0xBEBAFECA78563412), builtin.Endian.Little);
+    writeIntSlice(u64, bytes[0..], 0xBEBAFECA78563412, builtin.Endian.Little);
     assert(eql(u8, bytes, []u8{
         0x12,
         0x34,
@@ -805,7 +913,7 @@ fn testWriteIntImpl() void {
         0xBE,
     }));
 
-    writeInt(bytes[0..], u32(0x12345678), builtin.Endian.Big);
+    writeIntSlice(u32, bytes[0..], 0x12345678, builtin.Endian.Big);
     assert(eql(u8, bytes, []u8{
         0x00,
         0x00,
@@ -817,7 +925,7 @@ fn testWriteIntImpl() void {
         0x78,
     }));
 
-    writeInt(bytes[0..], u32(0x78563412), builtin.Endian.Little);
+    writeIntSlice(u32, bytes[0..], 0x78563412, builtin.Endian.Little);
     assert(eql(u8, bytes, []u8{
         0x12,
         0x34,
@@ -829,7 +937,7 @@ fn testWriteIntImpl() void {
         0x00,
     }));
 
-    writeInt(bytes[0..], u16(0x1234), builtin.Endian.Big);
+    writeIntSlice(u16, bytes[0..], 0x1234, builtin.Endian.Big);
     assert(eql(u8, bytes, []u8{
         0x00,
         0x00,
@@ -841,7 +949,7 @@ fn testWriteIntImpl() void {
         0x34,
     }));
 
-    writeInt(bytes[0..], u16(0x1234), builtin.Endian.Little);
+    writeIntSlice(u16, bytes[0..], 0x1234, builtin.Endian.Little);
     assert(eql(u8, bytes, []u8{
         0x34,
         0x12,
@@ -939,29 +1047,52 @@ test "std.mem.rotate" {
     }));
 }
 
-// TODO: When https://github.com/ziglang/zig/issues/649 is solved these can be done by
-// endian-casting the pointer and then dereferencing
-
-pub fn endianSwapIfLe(comptime T: type, x: T) T {
-    return endianSwapIf(builtin.Endian.Little, T, x);
+/// Converts a little-endian integer to host endianness.
+pub fn littleToNative(comptime T: type, x: T) T {
+    return switch (builtin.endian) {
+        builtin.Endian.Little => x,
+        builtin.Endian.Big => @bswap(T, x),
+    };
 }
 
-pub fn endianSwapIfBe(comptime T: type, x: T) T {
-    return endianSwapIf(builtin.Endian.Big, T, x);
+/// Converts a big-endian integer to host endianness.
+pub fn bigToNative(comptime T: type, x: T) T {
+    return switch (builtin.endian) {
+        builtin.Endian.Little => @bswap(T, x),
+        builtin.Endian.Big => x,
+    };
 }
 
-pub fn endianSwapIf(endian: builtin.Endian, comptime T: type, x: T) T {
-    return if (builtin.endian == endian) endianSwap(T, x) else x;
+/// Converts an integer from specified endianness to host endianness.
+pub fn toNative(comptime T: type, x: T, endianness_of_x: builtin.Endian) T {
+    return switch (endianness_of_x) {
+        builtin.Endian.Little => littleToNative(T, x),
+        builtin.Endian.Big => bigToNative(T, x),
+    };
 }
 
-pub fn endianSwap(comptime T: type, x: T) T {
-    var buf: [@sizeOf(T)]u8 = undefined;
-    mem.writeInt(buf[0..], x, builtin.Endian.Little);
-    return mem.readInt(buf, T, builtin.Endian.Big);
+/// Converts an integer which has host endianness to the desired endianness.
+pub fn nativeTo(comptime T: type, x: T, desired_endianness: builtin.Endian) T {
+    return switch (desired_endianness) {
+        builtin.Endian.Little => nativeToLittle(T, x),
+        builtin.Endian.Big => nativeToBig(T, x),
+    };
 }
 
-test "std.mem.endianSwap" {
-    assert(endianSwap(u32, 0xDEADBEEF) == 0xEFBEADDE);
+/// Converts an integer which has host endianness to little endian.
+pub fn nativeToLittle(comptime T: type, x: T) T {
+    return switch (builtin.endian) {
+        builtin.Endian.Little => x,
+        builtin.Endian.Big => @bswap(T, x),
+    };
+}
+
+/// Converts an integer which has host endianness to big endian.
+pub fn nativeToBig(comptime T: type, x: T) T {
+    return switch (builtin.endian) {
+        builtin.Endian.Little => @bswap(T, x),
+        builtin.Endian.Big => x,
+    };
 }
 
 fn AsBytesReturnType(comptime P: type) type {

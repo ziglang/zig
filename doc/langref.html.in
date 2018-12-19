@@ -8,7 +8,13 @@
       body{
         background-color:#111;
         color: #bbb;
-        font-family: sans-serif;
+        font-family: system-ui,
+          /* Fallbacks for browsers that don't support system-ui */
+          /* https://caniuse.com/#search=system-ui */
+          -apple-system, /* iOS and macOS */
+          Roboto,        /* Android */
+          "Segoe UI",    /* Windows */
+          sans-serif;
       }
       a {
         color: #88f;
@@ -4264,13 +4270,21 @@ fn foo() i32 {
     return 1234;
 }
       {#code_end#}
-      <p>However, if the expression has type {#syntax#}void{#endsyntax#}:</p>
+      <p>However, if the expression has type {#syntax#}void{#endsyntax#}, there will be no error. Function return values can also be explicitly ignored by assigning them to {#syntax#}_{#endsyntax#}. </p>
       {#code_begin|test#}
-test "ignoring expression value" {
-    foo();
+test "void is ignored" {
+    returnsVoid();
 }
 
-fn foo() void {}
+test "explicitly ignoring expression value" {
+    _ = foo();
+}
+
+fn returnsVoid() void {}
+
+fn foo() i32 {
+    return 1234;
+}
       {#code_end#}
       {#header_close#}
 
@@ -5155,6 +5169,34 @@ fn seq(c: u8) void {
                   If no overflow or underflow occurs, returns {#syntax#}false{#endsyntax#}.
       </p>
       {#header_close#}
+      {#header_open|@alignCast#}
+      <pre>{#syntax#}@alignCast(comptime alignment: u29, ptr: var) var{#endsyntax#}</pre>
+      <p>
+      {#syntax#}ptr{#endsyntax#} can be {#syntax#}*T{#endsyntax#}, {#syntax#}fn(){#endsyntax#}, {#syntax#}?*T{#endsyntax#},
+                      {#syntax#}?fn(){#endsyntax#}, or {#syntax#}[]T{#endsyntax#}. It returns the same type as {#syntax#}ptr{#endsyntax#}
+      except with the alignment adjusted to the new value.
+      </p>
+      <p>A {#link|pointer alignment safety check|Incorrect Pointer Alignment#} is added
+      to the generated code to make sure the pointer is aligned as promised.</p>
+
+      {#header_close#}
+      {#header_open|@alignOf#}
+      <pre>{#syntax#}@alignOf(comptime T: type) comptime_int{#endsyntax#}</pre>
+      <p>
+      This function returns the number of bytes that this type should be aligned to
+      for the current target to match the C ABI. When the child type of a pointer has
+      this alignment, the alignment can be omitted from the type.
+      </p>
+      <pre>{#syntax#}const assert = @import("std").debug.assert;
+comptime {
+    assert(*u32 == *align(@alignOf(u32)) u32);
+}{#endsyntax#}</pre>
+      <p>
+      The result is a target-specific compile time constant. It is guaranteed to be
+      less than or equal to {#link|@sizeOf(T)|@sizeOf#}.
+      </p>
+      {#see_also|Alignment#}
+      {#header_close#}
       {#header_open|@ArgType#}
       <pre>{#syntax#}@ArgType(comptime T: type, comptime n: usize) type{#endsyntax#}</pre>
       <p>
@@ -5227,6 +5269,7 @@ fn seq(c: u8) void {
       Works at compile-time if {#syntax#}value{#endsyntax#} is known at compile time. It's a compile error to bitcast a struct to a scalar type of the same size since structs have undefined layout. However if the struct is packed then it works.
       </p>
       {#header_close#}
+
       {#header_open|@bitOffsetOf#}
       <pre>{#syntax#}@bitOffsetOf(comptime T: type, comptime field_name: [] const u8) comptime_int{#endsyntax#}</pre>
       <p>
@@ -5239,52 +5282,6 @@ fn seq(c: u8) void {
       </p>
       {#see_also|@byteOffsetOf#}
       {#header_close#}
-      {#header_open|@breakpoint#}
-      <pre>{#syntax#}@breakpoint(){#endsyntax#}</pre>
-      <p>
-      This function inserts a platform-specific debug trap instruction which causes
-      debuggers to break there.
-      </p>
-      <p>
-      This function is only valid within function scope.
-      </p>
-
-      {#header_close#}
-      {#header_open|@byteOffsetOf#}
-      <pre>{#syntax#}@byteOffsetOf(comptime T: type, comptime field_name: [] const u8) comptime_int{#endsyntax#}</pre>
-      <p>
-      Returns the byte offset of a field relative to its containing struct.
-      </p>
-      {#see_also|@bitOffsetOf#}
-      {#header_close#}
-      {#header_open|@alignCast#}
-      <pre>{#syntax#}@alignCast(comptime alignment: u29, ptr: var) var{#endsyntax#}</pre>
-      <p>
-      {#syntax#}ptr{#endsyntax#} can be {#syntax#}*T{#endsyntax#}, {#syntax#}fn(){#endsyntax#}, {#syntax#}?*T{#endsyntax#},
-                      {#syntax#}?fn(){#endsyntax#}, or {#syntax#}[]T{#endsyntax#}. It returns the same type as {#syntax#}ptr{#endsyntax#}
-      except with the alignment adjusted to the new value.
-      </p>
-      <p>A {#link|pointer alignment safety check|Incorrect Pointer Alignment#} is added
-      to the generated code to make sure the pointer is aligned as promised.</p>
-
-      {#header_close#}
-      {#header_open|@alignOf#}
-      <pre>{#syntax#}@alignOf(comptime T: type) comptime_int{#endsyntax#}</pre>
-      <p>
-      This function returns the number of bytes that this type should be aligned to
-      for the current target to match the C ABI. When the child type of a pointer has
-      this alignment, the alignment can be omitted from the type.
-      </p>
-      <pre>{#syntax#}const assert = @import("std").debug.assert;
-comptime {
-    assert(*u32 == *align(@alignOf(u32)) u32);
-}{#endsyntax#}</pre>
-      <p>
-      The result is a target-specific compile time constant. It is guaranteed to be
-      less than or equal to {#link|@sizeOf(T)|@sizeOf#}.
-      </p>
-      {#see_also|Alignment#}
-      {#header_close#}
 
       {#header_open|@boolToInt#}
       <pre>{#syntax#}@boolToInt(value: bool) u1{#endsyntax#}</pre>
@@ -5296,6 +5293,35 @@ comptime {
       If the value is known at compile-time, the return type is {#syntax#}comptime_int{#endsyntax#}
           instead of {#syntax#}u1{#endsyntax#}.
       </p>
+      {#header_close#}
+
+      {#header_open|@breakpoint#}
+      <pre>{#syntax#}@breakpoint(){#endsyntax#}</pre>
+      <p>
+      This function inserts a platform-specific debug trap instruction which causes
+      debuggers to break there.
+      </p>
+      <p>
+      This function is only valid within function scope.
+      </p>
+
+      {#header_close#}
+
+      {#header_open|@bswap#}
+      <pre>{#syntax#}@bswap(comptime T: type, value: T) T{#endsyntax#}</pre>
+      <p>{#syntax#}T{#endsyntax#} must be an integer type with bit count evenly divisible by 8.</p>
+      <p>
+      Swaps the byte order of the integer. This converts a big endian integer to a little endian integer,
+      and converts a little endian integer to a big endian integer.
+      </p>
+      {#header_close#}
+
+      {#header_open|@byteOffsetOf#}
+      <pre>{#syntax#}@byteOffsetOf(comptime T: type, comptime field_name: [] const u8) comptime_int{#endsyntax#}</pre>
+      <p>
+      Returns the byte offset of a field relative to its containing struct.
+      </p>
+      {#see_also|@bitOffsetOf#}
       {#header_close#}
 
       {#header_open|@bytesToSlice#}
@@ -5364,17 +5390,7 @@ comptime {
       </p>
       {#see_also|Import from C Header File|@cImport|@cDefine|@cUndef#}
       {#header_close#}
-      {#header_open|@cUndef#}
-      <pre>{#syntax#}@cUndef(comptime name: []u8){#endsyntax#}</pre>
-      <p>
-      This function can only occur inside {#syntax#}@cImport{#endsyntax#}.
-      </p>
-      <p>
-      This appends <code>#undef $name</code> to the {#syntax#}@cImport{#endsyntax#}
-      temporary buffer.
-      </p>
-      {#see_also|Import from C Header File|@cImport|@cDefine|@cInclude#}
-      {#header_close#}
+
       {#header_open|@clz#}
       <pre>{#syntax#}@clz(x: T) U{#endsyntax#}</pre>
       <p>
@@ -5390,6 +5406,7 @@ comptime {
       </p>
       {#see_also|@ctz|@popCount#}
       {#header_close#}
+
       {#header_open|@cmpxchgStrong#}
       <pre>{#syntax#}@cmpxchgStrong(comptime T: type, ptr: *T, expected_value: T, new_value: T, success_order: AtomicOrder, fail_order: AtomicOrder) ?T{#endsyntax#}</pre>
       <p>
@@ -5445,6 +5462,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <p>{#syntax#}@typeOf(ptr).alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
       {#see_also|Compile Variables|cmpxchgStrong#}
       {#header_close#}
+
       {#header_open|@compileError#}
       <pre>{#syntax#}@compileError(comptime msg: []u8){#endsyntax#}</pre>
       <p>
@@ -5457,6 +5475,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
               and {#syntax#}comptime{#endsyntax#} functions.
       </p>
       {#header_close#}
+
       {#header_open|@compileLog#}
       <pre>{#syntax#}@compileLog(args: ...){#endsyntax#}</pre>
       <p>
@@ -5511,6 +5530,7 @@ test "main" {
 }
       {#code_end#}
       {#header_close#}
+
       {#header_open|@ctz#}
       <pre>{#syntax#}@ctz(x: T) U{#endsyntax#}</pre>
       <p>
@@ -5526,6 +5546,19 @@ test "main" {
       </p>
       {#see_also|@clz|@popCount#}
       {#header_close#}
+
+      {#header_open|@cUndef#}
+      <pre>{#syntax#}@cUndef(comptime name: []u8){#endsyntax#}</pre>
+      <p>
+      This function can only occur inside {#syntax#}@cImport{#endsyntax#}.
+      </p>
+      <p>
+      This appends <code>#undef $name</code> to the {#syntax#}@cImport{#endsyntax#}
+      temporary buffer.
+      </p>
+      {#see_also|Import from C Header File|@cImport|@cDefine|@cInclude#}
+      {#header_close#}
+
       {#header_open|@divExact#}
       <pre>{#syntax#}@divExact(numerator: T, denominator: T) T{#endsyntax#}</pre>
       <p>
@@ -5592,14 +5625,6 @@ test "main" {
       {#see_also|@intToEnum#}
       {#header_close#}
 
-      {#header_open|@errSetCast#}
-      <pre>{#syntax#}@errSetCast(comptime T: DestType, value: var) DestType{#endsyntax#}</pre>
-      <p>
-      Converts an error value from one error set to another error set. Attempting to convert an error
-      which is not in the destination error set results in safety-protected {#link|Undefined Behavior#}.
-      </p>
-      {#header_close#}
-
       {#header_open|@errorName#}
       <pre>{#syntax#}@errorName(err: anyerror) []const u8{#endsyntax#}</pre>
       <p>
@@ -5640,6 +5665,14 @@ test "main" {
       cast, as the integer representation of an error is not stable across source code changes.
       </p>
       {#see_also|@intToError#}
+      {#header_close#}
+
+      {#header_open|@errSetCast#}
+      <pre>{#syntax#}@errSetCast(comptime T: DestType, value: var) DestType{#endsyntax#}</pre>
+      <p>
+      Converts an error value from one error set to another error set. Attempting to convert an error
+      which is not in the destination error set results in safety-protected {#link|Undefined Behavior#}.
+      </p>
       {#header_close#}
 
       {#header_open|@export#}
@@ -5710,6 +5743,7 @@ test "main" {
       This function is only valid within function scope.
       </p>
       {#header_close#}
+
       {#header_open|@handle#}
       <pre>{#syntax#}@handle(){#endsyntax#}</pre>
       <p>
@@ -5720,6 +5754,7 @@ test "main" {
       This function is only valid within an async function scope.
       </p>
       {#header_close#}
+
       {#header_open|@import#}
       <pre>{#syntax#}@import(comptime path: []u8) (namespace){#endsyntax#}</pre>
       <p>
@@ -5740,6 +5775,7 @@ test "main" {
       </ul>
       {#see_also|Compile Variables|@embedFile#}
       {#header_close#}
+
       {#header_open|@inlineCall#}
       <pre>{#syntax#}@inlineCall(function: X, args: ...) Y{#endsyntax#}</pre>
       <p>
@@ -5819,6 +5855,7 @@ fn add(a: i32, b: i32) i32 { return a + b; }
       bit count for an integer type is {#syntax#}65535{#endsyntax#}.
       </p>
       {#header_close#}
+
       {#header_open|@memberCount#}
       <pre>{#syntax#}@memberCount(comptime T: type) comptime_int{#endsyntax#}</pre>
       <p>
@@ -5845,6 +5882,7 @@ fn add(a: i32, b: i32) i32 { return a + b; }
       <pre>{#syntax#}@memberType(comptime T: type, comptime index: usize) type{#endsyntax#}</pre>
       <p>Returns the field type of a struct or union.</p>
       {#header_close#}
+
       {#header_open|@memcpy#}
       <pre>{#syntax#}@memcpy(noalias dest: [*]u8, noalias source: [*]const u8, byte_count: usize){#endsyntax#}</pre>
       <p>
@@ -5863,6 +5901,7 @@ fn add(a: i32, b: i32) i32 { return a + b; }
       <pre>{#syntax#}const mem = @import("std").mem;
 mem.copy(u8, dest[0..byte_count], source[0..byte_count]);{#endsyntax#}</pre>
       {#header_close#}
+
       {#header_open|@memset#}
       <pre>{#syntax#}@memset(dest: [*]u8, c: u8, byte_count: usize){#endsyntax#}</pre>
       <p>
@@ -5880,6 +5919,7 @@ mem.copy(u8, dest[0..byte_count], source[0..byte_count]);{#endsyntax#}</pre>
       <pre>{#syntax#}const mem = @import("std").mem;
 mem.set(u8, dest, c);{#endsyntax#}</pre>
       {#header_close#}
+
       {#header_open|@mod#}
       <pre>{#syntax#}@mod(numerator: T, denominator: T) T{#endsyntax#}</pre>
       <p>
@@ -5893,6 +5933,7 @@ mem.set(u8, dest, c);{#endsyntax#}</pre>
       <p>For a function that returns an error code, see {#syntax#}@import("std").math.mod{#endsyntax#}.</p>
       {#see_also|@rem#}
       {#header_close#}
+
       {#header_open|@mulWithOverflow#}
       <pre>{#syntax#}@mulWithOverflow(comptime T: type, a: T, b: T, result: *T) bool{#endsyntax#}</pre>
       <p>
@@ -5901,6 +5942,7 @@ mem.set(u8, dest, c);{#endsyntax#}</pre>
                   If no overflow or underflow occurs, returns {#syntax#}false{#endsyntax#}.
       </p>
       {#header_close#}
+
       {#header_open|@newStackCall#}
       <pre>{#syntax#}@newStackCall(new_stack: []u8, function: var, args: ...) var{#endsyntax#}</pre>
       <p>
@@ -5937,6 +5979,7 @@ fn targetFunction(x: i32) usize {
 }
       {#code_end#}
       {#header_close#}
+
       {#header_open|@noInlineCall#}
       <pre>{#syntax#}@noInlineCall(function: var, args: ...) var{#endsyntax#}</pre>
       <p>
@@ -5959,6 +6002,7 @@ fn add(a: i32, b: i32) i32 {
       </p>
       {#see_also|@inlineCall#}
       {#header_close#}
+
       {#header_open|@OpaqueType#}
       <pre>{#syntax#}@OpaqueType() type{#endsyntax#}</pre>
       <p>
@@ -5982,6 +6026,7 @@ test "call foo" {
 }
       {#code_end#}
       {#header_close#}
+
       {#header_open|@panic#}
       <pre>{#syntax#}@panic(message: []const u8) noreturn{#endsyntax#}</pre>
       <p>
@@ -5998,6 +6043,7 @@ test "call foo" {
       </ul>
       {#see_also|Root Source File#}
       {#header_close#}
+
       {#header_open|@popCount#}
       <pre>{#syntax#}@popCount(integer: var) var{#endsyntax#}</pre>
       <p>Counts the number of bits set in an integer.</p>
@@ -6008,12 +6054,14 @@ test "call foo" {
       </p>
       {#see_also|@ctz|@clz#}
       {#header_close#}
+
       {#header_open|@ptrCast#}
       <pre>{#syntax#}@ptrCast(comptime DestType: type, value: var) DestType{#endsyntax#}</pre>
       <p>
       Converts a pointer of one type to a pointer of another type.
       </p>
       {#header_close#}
+
       {#header_open|@ptrToInt#}
       <pre>{#syntax#}@ptrToInt(value: var) usize{#endsyntax#}</pre>
       <p>
@@ -6028,6 +6076,7 @@ test "call foo" {
       <p>To convert the other way, use {#link|@intToPtr#}</p>
 
       {#header_close#}
+
       {#header_open|@rem#}
       <pre>{#syntax#}@rem(numerator: T, denominator: T) T{#endsyntax#}</pre>
       <p>
@@ -6041,6 +6090,7 @@ test "call foo" {
       <p>For a function that returns an error code, see {#syntax#}@import("std").math.rem{#endsyntax#}.</p>
       {#see_also|@mod#}
       {#header_close#}
+
       {#header_open|@returnAddress#}
       <pre>{#syntax#}@returnAddress(){#endsyntax#}</pre>
       <p>
@@ -6061,19 +6111,14 @@ test "call foo" {
       Ensures that a function will have a stack alignment of at least {#syntax#}alignment{#endsyntax#} bytes.
       </p>
       {#header_close#}
+
       {#header_open|@setCold#}
       <pre>{#syntax#}@setCold(is_cold: bool){#endsyntax#}</pre>
       <p>
       Tells the optimizer that a function is rarely called.
       </p>
       {#header_close#}
-      {#header_open|@setRuntimeSafety#}
-      <pre>{#syntax#}@setRuntimeSafety(safety_on: bool){#endsyntax#}</pre>
-      <p>
-      Sets whether runtime safety checks are on for the scope that contains the function call.
-      </p>
 
-      {#header_close#}
       {#header_open|@setEvalBranchQuota#}
       <pre>{#syntax#}@setEvalBranchQuota(new_quota: usize){#endsyntax#}</pre>
       <p>
@@ -6108,6 +6153,7 @@ test "foo" {
 
       {#see_also|comptime#}
       {#header_close#}
+
       {#header_open|@setFloatMode#}
       <pre>{#syntax#}@setFloatMode(mode: @import("builtin").FloatMode){#endsyntax#}</pre>
       <p>
@@ -6142,6 +6188,7 @@ pub const FloatMode = enum {
       </p>
       {#see_also|Floating Point Operations#}
       {#header_close#}
+
       {#header_open|@setGlobalLinkage#}
       <pre>{#syntax#}@setGlobalLinkage(global_variable_name, comptime linkage: GlobalLinkage){#endsyntax#}</pre>
       <p>
@@ -6149,6 +6196,15 @@ pub const FloatMode = enum {
       </p>
       {#see_also|Compile Variables#}
       {#header_close#}
+
+      {#header_open|@setRuntimeSafety#}
+      <pre>{#syntax#}@setRuntimeSafety(safety_on: bool){#endsyntax#}</pre>
+      <p>
+      Sets whether runtime safety checks are on for the scope that contains the function call.
+      </p>
+
+      {#header_close#}
+
       {#header_open|@shlExact#}
       <pre>{#syntax#}@shlExact(value: T, shift_amt: Log2T) T{#endsyntax#}</pre>
       <p>
@@ -6161,6 +6217,7 @@ pub const FloatMode = enum {
       </p>
       {#see_also|@shrExact|@shlWithOverflow#}
       {#header_close#}
+
       {#header_open|@shlWithOverflow#}
       <pre>{#syntax#}@shlWithOverflow(comptime T: type, a: T, shift_amt: Log2T, result: *T) bool{#endsyntax#}</pre>
       <p>
@@ -6174,6 +6231,7 @@ pub const FloatMode = enum {
       </p>
       {#see_also|@shlExact|@shrExact#}
       {#header_close#}
+
       {#header_open|@shrExact#}
       <pre>{#syntax#}@shrExact(value: T, shift_amt: Log2T) T{#endsyntax#}</pre>
       <p>
@@ -6215,6 +6273,7 @@ pub const FloatMode = enum {
       This is a low-level intrinsic. Most code can use {#syntax#}std.math.sqrt{#endsyntax#} instead.
       </p>
       {#header_close#}
+
       {#header_open|@subWithOverflow#}
       <pre>{#syntax#}@subWithOverflow(comptime T: type, a: T, b: T, result: *T) bool{#endsyntax#}</pre>
       <p>
@@ -6223,12 +6282,14 @@ pub const FloatMode = enum {
                   If no overflow or underflow occurs, returns {#syntax#}false{#endsyntax#}.
       </p>
       {#header_close#}
+
       {#header_open|@tagName#}
       <pre>{#syntax#}@tagName(value: var) []const u8{#endsyntax#}</pre>
       <p>
       Converts an enum value or union value to a slice of bytes representing the name.
       </p>
       {#header_close#}
+
       {#header_open|@TagType#}
       <pre>{#syntax#}@TagType(T: type) type{#endsyntax#}</pre>
       <p>
@@ -6238,6 +6299,7 @@ pub const FloatMode = enum {
       For a union, returns the enum type that is used to store the tag value.
       </p>
       {#header_close#}
+
       {#header_open|@This#}
       <pre>{#syntax#}@This() type{#endsyntax#}</pre>
       <p>
@@ -6273,6 +6335,7 @@ fn List(comptime T: type) type {
       <a href="https://github.com/ziglang/zig/issues/1047">#1047</a> for details.
       </p>
       {#header_close#}
+
       {#header_open|@truncate#}
       <pre>{#syntax#}@truncate(comptime T: type, integer) T{#endsyntax#}</pre>
       <p>
@@ -6297,6 +6360,7 @@ const b: u8 = @truncate(u8, a);
       </p>
 
       {#header_close#}
+
       {#header_open|@typeId#}
       <pre>{#syntax#}@typeId(comptime T: type) @import("builtin").TypeId{#endsyntax#}</pre>
       <p>
@@ -6331,6 +6395,7 @@ pub const TypeId = enum {
 };
       {#code_end#}
       {#header_close#}
+
       {#header_open|@typeInfo#}
       <pre>{#syntax#}@typeInfo(comptime T: type) @import("builtin").TypeInfo{#endsyntax#}</pre>
       <p>
@@ -6513,6 +6578,7 @@ pub const TypeInfo = union(TypeId) {
 };
       {#code_end#}
       {#header_close#}
+
       {#header_open|@typeName#}
       <pre>{#syntax#}@typeName(T: type) [N]u8{#endsyntax#}</pre>
       <p>
@@ -6521,6 +6587,7 @@ pub const TypeInfo = union(TypeId) {
       </p>
 
       {#header_close#}
+
       {#header_open|@typeOf#}
       <pre>{#syntax#}@typeOf(expression) type{#endsyntax#}</pre>
       <p>
@@ -6530,6 +6597,7 @@ pub const TypeInfo = union(TypeId) {
 
       {#header_close#}
       {#header_close#}
+
       {#header_open|Build Mode#}
       <p>
       Zig has four build modes:

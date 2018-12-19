@@ -297,7 +297,7 @@ fn configureStage2(b: *Builder, exe: var, ctx: Context) !void {
         );
 
         exe.linkSystemLibrary("pthread");
-    } else if (exe.target.isDarwin()) {
+    } else if (exe.target.isDarwin() or exe.target.isFreeBSD()) {
         if (addCxxKnownPath(b, ctx, exe, "libgcc_eh.a", "")) {
             // Compiler is GCC.
             try addCxxKnownPath(b, ctx, exe, "libstdc++.a", null);

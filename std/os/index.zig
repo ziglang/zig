@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 const Os = builtin.Os;
 const is_windows = builtin.os == Os.windows;
 const is_posix = switch (builtin.os) {
-    builtin.Os.linux, builtin.Os.macosx => true,
+    builtin.Os.linux, builtin.Os.macosx, builtin.Os.freebsd => true,
     else => false,
 };
 const os = @This();
@@ -24,10 +24,12 @@ test "std.os" {
 pub const windows = @import("windows/index.zig");
 pub const darwin = @import("darwin.zig");
 pub const linux = @import("linux/index.zig");
+pub const freebsd = @import("freebsd/index.zig");
 pub const zen = @import("zen.zig");
 pub const posix = switch (builtin.os) {
     Os.linux => linux,
     Os.macosx, Os.ios => darwin,
+    Os.freebsd => freebsd,
     Os.zen => zen,
     else => @compileError("Unsupported OS"),
 };
@@ -40,7 +42,7 @@ pub const time = @import("time.zig");
 
 pub const page_size = 4 * 1024;
 pub const MAX_PATH_BYTES = switch (builtin.os) {
-    Os.linux, Os.macosx, Os.ios => posix.PATH_MAX,
+    Os.linux, Os.macosx, Os.ios, Os.freebsd => posix.PATH_MAX,
     // Each UTF-16LE character may be expanded to 3 UTF-8 bytes.
     // If it would require 4 UTF-8 bytes, then there would be a surrogate
     // pair in the UTF-16LE, and we (over)account 3 bytes for it that way.
@@ -101,7 +103,7 @@ const math = std.math;
 /// library implementation.
 pub fn getRandomBytes(buf: []u8) !void {
     switch (builtin.os) {
-        Os.linux => while (true) {
+        Os.linux, Os.freebsd => while (true) {
             // TODO check libc version and potentially call c.getrandom.
             // See #397
             const errno = posix.getErrno(posix.getrandom(buf.ptr, buf.len, 0));
@@ -174,7 +176,7 @@ pub fn abort() noreturn {
         c.abort();
     }
     switch (builtin.os) {
-        Os.linux, Os.macosx, Os.ios => {
+        Os.linux, Os.macosx, Os.ios, Os.freebsd => {
             _ = posix.raise(posix.SIGABRT);
             _ = posix.raise(posix.SIGKILL);
             while (true) {}
@@ -196,7 +198,7 @@ pub fn exit(status: u8) noreturn {
         c.exit(status);
     }
     switch (builtin.os) {
-        Os.linux, Os.macosx, Os.ios => {
+        Os.linux, Os.macosx, Os.ios, Os.freebsd => {
             posix.exit(status);
         },
         Os.windows => {
@@ -419,7 +421,7 @@ pub fn posix_pwritev(fd: i32, iov: [*]const posix.iovec_const, count: usize, off
                 }
             }
         },
-        builtin.Os.linux => while (true) {
+        builtin.Os.linux, builtin.Os.freebsd => while (true) {
             const rc = posix.pwritev(fd, iov, count, offset);
             const err = posix.getErrno(rc);
             switch (err) {
@@ -687,7 +689,7 @@ pub fn getBaseAddress() usize {
             };
             return phdr - @sizeOf(ElfHeader);
         },
-        builtin.Os.macosx => return @ptrToInt(&std.c._mh_execute_header),
+        builtin.Os.macosx, builtin.Os.freebsd => return @ptrToInt(&std.c._mh_execute_header),
         builtin.Os.windows => return @ptrToInt(windows.GetModuleHandleW(null)),
         else => @compileError("Unsupported OS"),
     }
@@ -700,8 +702,8 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
     errdefer result.deinit();
 
     if (is_windows) {
-        const ptr = windows.GetEnvironmentStringsA() orelse return error.OutOfMemory;
-        defer assert(windows.FreeEnvironmentStringsA(ptr) != 0);
+        const ptr = windows.GetEnvironmentStringsW() orelse return error.OutOfMemory;
+        defer assert(windows.FreeEnvironmentStringsW(ptr) != 0);
 
         var i: usize = 0;
         while (true) {
@@ -710,17 +712,21 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
             const key_start = i;
 
             while (ptr[i] != 0 and ptr[i] != '=') : (i += 1) {}
-            const key = ptr[key_start..i];
+            const key_w = ptr[key_start..i];
+            const key = try std.unicode.utf16leToUtf8Alloc(allocator, key_w);
+            errdefer allocator.free(key);
 
             if (ptr[i] == '=') i += 1;
 
             const value_start = i;
             while (ptr[i] != 0) : (i += 1) {}
-            const value = ptr[value_start..i];
+            const value_w = ptr[value_start..i];
+            const value = try std.unicode.utf16leToUtf8Alloc(allocator, value_w);
+            errdefer allocator.free(value);
 
             i += 1; // skip over null byte
 
-            try result.set(key, value);
+            try result.setMove(key, value);
         }
     } else {
         for (posix_environ_raw) |ptr| {
@@ -736,6 +742,11 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
         }
         return result;
     }
+}
+
+test "os.getEnvMap" {
+    var env = try getEnvMap(std.debug.global_allocator);
+    defer env.deinit();
 }
 
 /// TODO make this go through libc when we have it
@@ -758,21 +769,24 @@ pub fn getEnvPosix(key: []const u8) ?[]const u8 {
 pub const GetEnvVarOwnedError = error{
     OutOfMemory,
     EnvironmentVariableNotFound,
+
+    /// See https://github.com/ziglang/zig/issues/1774
+    InvalidUtf8,
 };
 
 /// Caller must free returned memory.
 /// TODO make this go through libc when we have it
 pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwnedError![]u8 {
     if (is_windows) {
-        const key_with_null = try cstr.addNullByte(allocator, key);
+        const key_with_null = try std.unicode.utf8ToUtf16LeWithNull(allocator, key);
         defer allocator.free(key_with_null);
 
-        var buf = try allocator.alloc(u8, 256);
-        errdefer allocator.free(buf);
+        var buf = try allocator.alloc(u16, 256);
+        defer allocator.free(buf);
 
         while (true) {
             const windows_buf_len = math.cast(windows.DWORD, buf.len) catch return error.OutOfMemory;
-            const result = windows.GetEnvironmentVariableA(key_with_null.ptr, buf.ptr, windows_buf_len);
+            const result = windows.GetEnvironmentVariableW(key_with_null.ptr, buf.ptr, windows_buf_len);
 
             if (result == 0) {
                 const err = windows.GetLastError();
@@ -786,16 +800,26 @@ pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwned
             }
 
             if (result > buf.len) {
-                buf = try allocator.realloc(u8, buf, result);
+                buf = try allocator.realloc(u16, buf, result);
                 continue;
             }
 
-            return allocator.shrink(u8, buf, result);
+            return std.unicode.utf16leToUtf8Alloc(allocator, buf) catch |err| switch (err) {
+                error.DanglingSurrogateHalf => return error.InvalidUtf8,
+                error.ExpectedSecondSurrogateHalf => return error.InvalidUtf8,
+                error.UnexpectedSecondSurrogateHalf => return error.InvalidUtf8,
+                error.OutOfMemory => return error.OutOfMemory,
+            };
         }
     } else {
         const result = getEnvPosix(key) orelse return error.EnvironmentVariableNotFound;
         return mem.dupe(allocator, u8, result);
     }
+}
+
+test "os.getEnvVarOwned" {
+    var ga = debug.global_allocator;
+    debug.assertError(getEnvVarOwned(ga, "BADENV"), error.EnvironmentVariableNotFound);
 }
 
 /// Caller must free the returned memory.
@@ -1305,7 +1329,7 @@ pub fn deleteDirC(dir_path: [*]const u8) DeleteDirError!void {
             const dir_path_w = try windows_util.cStrToPrefixedFileW(dir_path);
             return deleteDirW(&dir_path_w);
         },
-        Os.linux, Os.macosx, Os.ios => {
+        Os.linux, Os.macosx, Os.ios, Os.freebsd => {
             const err = posix.getErrno(posix.rmdir(dir_path));
             switch (err) {
                 0 => return,
@@ -1348,7 +1372,7 @@ pub fn deleteDir(dir_path: []const u8) DeleteDirError!void {
             const dir_path_w = try windows_util.sliceToPrefixedFileW(dir_path);
             return deleteDirW(&dir_path_w);
         },
-        Os.linux, Os.macosx, Os.ios => {
+        Os.linux, Os.macosx, Os.ios, Os.freebsd => {
             const dir_path_c = try toPosixPath(dir_path);
             return deleteDirC(&dir_path_c);
         },
@@ -1465,7 +1489,7 @@ pub const Dir = struct {
     allocator: *Allocator,
 
     pub const Handle = switch (builtin.os) {
-        Os.macosx, Os.ios => struct {
+        Os.macosx, Os.ios, Os.freebsd => struct {
             fd: i32,
             seek: i64,
             buf: []u8,
@@ -1541,7 +1565,7 @@ pub const Dir = struct {
                         .name_data = undefined,
                     };
                 },
-                Os.macosx, Os.ios => Handle{
+                Os.macosx, Os.ios, Os.freebsd => Handle{
                     .fd = try posixOpen(
                         dir_path,
                         posix.O_RDONLY | posix.O_NONBLOCK | posix.O_DIRECTORY | posix.O_CLOEXEC,
@@ -1572,7 +1596,7 @@ pub const Dir = struct {
             Os.windows => {
                 _ = windows.FindClose(self.handle.handle);
             },
-            Os.macosx, Os.ios, Os.linux => {
+            Os.macosx, Os.ios, Os.linux, Os.freebsd => {
                 self.allocator.free(self.handle.buf);
                 os.close(self.handle.fd);
             },
@@ -1587,6 +1611,7 @@ pub const Dir = struct {
             Os.linux => return self.nextLinux(),
             Os.macosx, Os.ios => return self.nextDarwin(),
             Os.windows => return self.nextWindows(),
+            Os.freebsd => return self.nextFreebsd(),
             else => @compileError("unimplemented"),
         }
     }
@@ -1725,6 +1750,11 @@ pub const Dir = struct {
                 .kind = entry_kind,
             };
         }
+    }
+
+    fn nextFreebsd(self: *Dir) !?Entry {
+        //self.handle.buf = try self.allocator.alloc(u8, page_size);
+        @compileError("TODO implement dirs for FreeBSD");
     }
 };
 
@@ -2164,7 +2194,7 @@ pub fn unexpectedErrorWindows(err: windows.DWORD) UnexpectedError {
 pub fn openSelfExe() !os.File {
     switch (builtin.os) {
         Os.linux => return os.File.openReadC(c"/proc/self/exe"),
-        Os.macosx, Os.ios => {
+        Os.macosx, Os.ios, Os.freebsd => {
             var buf: [MAX_PATH_BYTES]u8 = undefined;
             const self_exe_path = try selfExePath(&buf);
             buf[self_exe_path.len] = 0;
@@ -2181,7 +2211,7 @@ pub fn openSelfExe() !os.File {
 
 test "openSelfExe" {
     switch (builtin.os) {
-        Os.linux, Os.macosx, Os.ios, Os.windows => (try openSelfExe()).close(),
+        Os.linux, Os.macosx, Os.ios, Os.windows, Os.freebsd => (try openSelfExe()).close(),
         else => return error.SkipZigTest, // Unsupported OS.
     }
 }
@@ -2212,6 +2242,7 @@ pub fn selfExePathW(out_buffer: *[windows_util.PATH_MAX_WIDE]u16) ![]u16 {
 pub fn selfExePath(out_buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
     switch (builtin.os) {
         Os.linux => return readLink(out_buffer, "/proc/self/exe"),
+        Os.freebsd => return readLink(out_buffer, "/proc/curproc/file"),
         Os.windows => {
             var utf16le_buf: [windows_util.PATH_MAX_WIDE]u16 = undefined;
             const utf16le_slice = try selfExePathW(&utf16le_buf);
@@ -2250,7 +2281,7 @@ pub fn selfExeDirPath(out_buffer: *[MAX_PATH_BYTES]u8) ![]const u8 {
             // will not return null.
             return path.dirname(full_exe_path).?;
         },
-        Os.windows, Os.macosx, Os.ios => {
+        Os.windows, Os.macosx, Os.ios, Os.freebsd => {
             const self_exe_path = try selfExePath(out_buffer);
             // Assume that the OS APIs return absolute paths, and therefore dirname
             // will not return null.
@@ -3095,10 +3126,13 @@ pub const CpuCountError = error{
 
 pub fn cpuCount(fallback_allocator: *mem.Allocator) CpuCountError!usize {
     switch (builtin.os) {
-        builtin.Os.macosx => {
+        builtin.Os.macosx, builtin.Os.freebsd => {
             var count: c_int = undefined;
             var count_len: usize = @sizeOf(c_int);
-            const rc = posix.sysctlbyname(c"hw.logicalcpu", @ptrCast(*c_void, &count), &count_len, null, 0);
+            const rc = posix.sysctlbyname(switch (builtin.os) {
+                builtin.Os.macosx => c"hw.logicalcpu",
+                else => c"hw.ncpu",
+            }, @ptrCast(*c_void, &count), &count_len, null, 0);
             const err = posix.getErrno(rc);
             switch (err) {
                 0 => return @intCast(usize, count),

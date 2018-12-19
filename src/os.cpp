@@ -50,10 +50,13 @@ typedef SSIZE_T ssize_t;
 
 #endif
 
-#if defined(ZIG_OS_LINUX)
+#if defined(ZIG_OS_LINUX) || defined(ZIG_OS_FREEBSD)
 #include <link.h>
 #endif
 
+#if defined(ZIG_OS_FREEBSD)
+#include <sys/sysctl.h>
+#endif
 
 #if defined(__MACH__)
 #include <mach/clock.h>
@@ -75,7 +78,9 @@ static clock_serv_t cclock;
 #if defined(__APPLE__) && !defined(environ)
 #include <crt_externs.h>
 #define environ (*_NSGetEnviron())
-#endif 
+#elif defined(ZIG_OS_FREEBSD)
+extern char **environ;
+#endif
 
 #if defined(ZIG_OS_POSIX)
 static void populate_termination(Termination *term, int status) {
@@ -188,14 +193,20 @@ void os_path_split(Buf *full_path, Buf *out_dirname, Buf *out_basename) {
     size_t len = buf_len(full_path);
     if (len != 0) {
         size_t last_index = len - 1;
-        if (os_is_sep(buf_ptr(full_path)[last_index])) {
+        char last_char = buf_ptr(full_path)[last_index];
+        if (os_is_sep(last_char)) {
+            if (last_index == 0) {
+                if (out_dirname) buf_init_from_mem(out_dirname, &last_char, 1);
+                if (out_basename) buf_init_from_str(out_basename, "");
+                return;
+            }
             last_index -= 1;
         }
         for (size_t i = last_index;;) {
             uint8_t c = buf_ptr(full_path)[i];
             if (os_is_sep(c)) {
                 if (out_dirname) {
-                    buf_init_from_mem(out_dirname, buf_ptr(full_path), i);
+                    buf_init_from_mem(out_dirname, buf_ptr(full_path), (i == 0) ? 1 : i);
                 }
                 if (out_basename) {
                     buf_init_from_mem(out_basename, buf_ptr(full_path) + i + 1, buf_len(full_path) - (i + 1));
@@ -1438,6 +1449,15 @@ Error os_self_exe_path(Buf *out_path) {
     }
     buf_resize(out_path, amt);
     return ErrorNone;
+#elif defined(ZIG_OS_FREEBSD)
+    buf_resize(out_path, PATH_MAX);
+    int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, -1 };
+    size_t cb = PATH_MAX;
+    if (sysctl(mib, 4, buf_ptr(out_path), &cb, nullptr, 0) != 0) {
+        return ErrorUnexpected;
+    }
+    buf_resize(out_path, cb - 1);
+    return ErrorNone;
 #endif
     return ErrorFileNotFound;
 }
@@ -1743,7 +1763,7 @@ Error os_get_app_data_dir(Buf *out_path, const char *appname) {
     buf_resize(out_path, 0);
     buf_appendf(out_path, "%s/Library/Application Support/%s", home_dir, appname);
     return ErrorNone;
-#elif defined(ZIG_OS_LINUX)
+#elif defined(ZIG_OS_POSIX)
     const char *home_dir = getenv("HOME");
     if (home_dir == nullptr) {
         // TODO use /etc/passwd
@@ -1756,7 +1776,7 @@ Error os_get_app_data_dir(Buf *out_path, const char *appname) {
 }
 
 
-#if defined(ZIG_OS_LINUX)
+#if defined(ZIG_OS_LINUX) || defined(ZIG_OS_FREEBSD)
 static int self_exe_shared_libs_callback(struct dl_phdr_info *info, size_t size, void *data) {
     ZigList<Buf *> *libs = reinterpret_cast< ZigList<Buf *> *>(data);
     if (info->dlpi_name[0] == '/') {
@@ -1767,7 +1787,7 @@ static int self_exe_shared_libs_callback(struct dl_phdr_info *info, size_t size,
 #endif
 
 Error os_self_exe_shared_libs(ZigList<Buf *> &paths) {
-#if defined(ZIG_OS_LINUX)
+#if defined(ZIG_OS_LINUX) || defined(ZIG_OS_FREEBSD)
     paths.resize(0);
     dl_iterate_phdr(self_exe_shared_libs_callback, &paths);
     return ErrorNone;
@@ -1936,7 +1956,7 @@ Error os_file_mtime(OsFile file, OsTimeStamp *mtime) {
     mtime->sec = (((ULONGLONG) last_write_time.dwHighDateTime) << 32) + last_write_time.dwLowDateTime;
     mtime->nsec = 0;
     return ErrorNone;
-#elif defined(ZIG_OS_LINUX)
+#elif defined(ZIG_OS_LINUX) || defined(ZIG_OS_FREEBSD)
     struct stat statbuf;
     if (fstat(file, &statbuf) == -1)
         return ErrorFileSystem;
@@ -1976,7 +1996,7 @@ Error os_file_read(OsFile file, void *ptr, size_t *len) {
                 case EFAULT:
                     zig_unreachable();
                 case EISDIR:
-                    zig_unreachable();
+                    return ErrorIsDir;
                 default:
                     return ErrorFileSystem;
             }

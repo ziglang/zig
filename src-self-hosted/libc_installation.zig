@@ -172,7 +172,7 @@ pub const LibCInstallation = struct {
                 try group.call(findNativeStaticLibDir, self, loop);
                 try group.call(findNativeDynamicLinker, self, loop);
             },
-            builtin.Os.macosx => {
+            builtin.Os.macosx, builtin.Os.freebsd => {
                 self.include_dir = try std.mem.dupe(loop.allocator, u8, "/usr/include");
             },
             else => @compileError("unimplemented: find libc for this OS"),

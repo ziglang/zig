@@ -401,7 +401,8 @@ ZigType *get_promise_type(CodeGen *g, ZigType *result_type) {
 }
 
 ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_const,
-        bool is_volatile, PtrLen ptr_len, uint32_t byte_alignment, uint32_t bit_offset_in_host, uint32_t host_int_bytes)
+        bool is_volatile, PtrLen ptr_len, uint32_t byte_alignment,
+        uint32_t bit_offset_in_host, uint32_t host_int_bytes)
 {
     assert(!type_is_invalid(child_type));
     assert(ptr_len == PtrLenSingle ||
@@ -1639,13 +1640,16 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
             case ZigTypeIdUnion:
             case ZigTypeIdFn:
             case ZigTypeIdPromise:
-                if ((err = type_resolve(g, type_entry, ResolveStatusZeroBitsKnown)))
-                    return g->builtin_types.entry_invalid;
-                if (type_requires_comptime(type_entry)) {
-                    add_node_error(g, param_node->data.param_decl.type,
-                        buf_sprintf("parameter of type '%s' must be declared comptime",
-                        buf_ptr(&type_entry->name)));
-                    return g->builtin_types.entry_invalid;
+                switch (type_requires_comptime(g, type_entry)) {
+                    case ReqCompTimeNo:
+                        break;
+                    case ReqCompTimeYes:
+                        add_node_error(g, param_node->data.param_decl.type,
+                            buf_sprintf("parameter of type '%s' must be declared comptime",
+                            buf_ptr(&type_entry->name)));
+                        return g->builtin_types.entry_invalid;
+                    case ReqCompTimeInvalid:
+                        return g->builtin_types.entry_invalid;
                 }
                 break;
         }
@@ -1731,10 +1735,13 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
         case ZigTypeIdUnion:
         case ZigTypeIdFn:
         case ZigTypeIdPromise:
-            if ((err = type_resolve(g, fn_type_id.return_type, ResolveStatusZeroBitsKnown)))
-                return g->builtin_types.entry_invalid;
-            if (type_requires_comptime(fn_type_id.return_type)) {
-                return get_generic_fn_type(g, &fn_type_id);
+            switch (type_requires_comptime(g, fn_type_id.return_type)) {
+                case ReqCompTimeInvalid:
+                    return g->builtin_types.entry_invalid;
+                case ReqCompTimeYes:
+                    return get_generic_fn_type(g, &fn_type_id);
+                case ReqCompTimeNo:
+                    break;
             }
             break;
     }
@@ -2580,8 +2587,6 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
 static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
     assert(struct_type->id == ZigTypeIdStruct);
 
-    Error err;
-
     if (struct_type->data.structure.resolve_status == ResolveStatusInvalid)
         return ErrorSemanticAnalyzeFail;
     if (struct_type->data.structure.resolve_status >= ResolveStatusZeroBitsKnown)
@@ -2639,13 +2644,15 @@ static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
                     buf_sprintf("enums, not structs, support field assignment"));
         }
 
-        if ((err = type_resolve(g, field_type, ResolveStatusZeroBitsKnown))) {
-            struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-            continue;
-        }
-
-        if (type_requires_comptime(field_type)) {
-            struct_type->data.structure.requires_comptime = true;
+        switch (type_requires_comptime(g, field_type)) {
+            case ReqCompTimeYes:
+                struct_type->data.structure.requires_comptime = true;
+                break;
+            case ReqCompTimeInvalid:
+                struct_type->data.structure.resolve_status = ResolveStatusInvalid;
+                continue;
+            case ReqCompTimeNo:
+                break;
         }
 
         if (!type_has_bits(field_type))
@@ -2910,10 +2917,16 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
         }
         union_field->type_entry = field_type;
 
-        if (type_requires_comptime(field_type)) {
-            union_type->data.unionation.requires_comptime = true;
+        switch (type_requires_comptime(g, field_type)) {
+            case ReqCompTimeInvalid:
+                union_type->data.unionation.is_invalid = true;
+                continue;
+            case ReqCompTimeYes:
+                union_type->data.unionation.requires_comptime = true;
+                break;
+            case ReqCompTimeNo:
+                break;
         }
-
 
         if (field_node->data.struct_field.value != nullptr && !decl_node->data.container_decl.auto_enum) {
             ErrorMsg *msg = add_node_error(g, field_node->data.struct_field.value,
@@ -4601,7 +4614,10 @@ void find_libc_include_path(CodeGen *g) {
                 fprintf(stderr, "Unable to determine libc include path. --libc-include-dir");
                 exit(1);
             }
-        } else if (g->zig_target.os == OsLinux || g->zig_target.os == OsMacOSX) {
+        } else if (g->zig_target.os == OsLinux ||
+            g->zig_target.os == OsMacOSX ||
+            g->zig_target.os == OsFreeBSD)
+        {
             g->libc_include_dir = get_posix_libc_include_path();
         } else {
             fprintf(stderr, "Unable to determine libc include path.\n"
@@ -4649,6 +4665,8 @@ void find_libc_lib_path(CodeGen *g) {
 
         } else if (g->zig_target.os == OsLinux) {
             g->libc_lib_dir = get_linux_libc_lib_path("crt1.o");
+        } else if (g->zig_target.os == OsFreeBSD) {
+            g->libc_lib_dir = buf_create_from_str("/usr/lib");
         } else {
             zig_panic("Unable to determine libc lib path.");
         }
@@ -4661,6 +4679,8 @@ void find_libc_lib_path(CodeGen *g) {
             return;
         } else if (g->zig_target.os == OsLinux) {
             g->libc_static_lib_dir = get_linux_libc_lib_path("crtbegin.o");
+        } else if (g->zig_target.os == OsFreeBSD) {
+            g->libc_static_lib_dir = buf_create_from_str("/usr/lib");
         } else {
             zig_panic("Unable to determine libc static lib path.");
         }
@@ -5121,7 +5141,10 @@ bool type_has_bits(ZigType *type_entry) {
     return !type_entry->zero_bits;
 }
 
-bool type_requires_comptime(ZigType *type_entry) {
+ReqCompTime type_requires_comptime(CodeGen *g, ZigType *type_entry) {
+    Error err;
+    if ((err = type_resolve(g, type_entry, ResolveStatusZeroBitsKnown)))
+        return ReqCompTimeInvalid;
     switch (type_entry->id) {
         case ZigTypeIdInvalid:
         case ZigTypeIdOpaque:
@@ -5134,27 +5157,25 @@ bool type_requires_comptime(ZigType *type_entry) {
         case ZigTypeIdNamespace:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
-            return true;
+            return ReqCompTimeYes;
         case ZigTypeIdArray:
-            return type_requires_comptime(type_entry->data.array.child_type);
+            return type_requires_comptime(g, type_entry->data.array.child_type);
         case ZigTypeIdStruct:
-            assert(type_is_resolved(type_entry, ResolveStatusZeroBitsKnown));
-            return type_entry->data.structure.requires_comptime;
+            return type_entry->data.structure.requires_comptime ? ReqCompTimeYes : ReqCompTimeNo;
         case ZigTypeIdUnion:
-            assert(type_is_resolved(type_entry, ResolveStatusZeroBitsKnown));
-            return type_entry->data.unionation.requires_comptime;
+            return type_entry->data.unionation.requires_comptime ? ReqCompTimeYes : ReqCompTimeNo;
         case ZigTypeIdOptional:
-            return type_requires_comptime(type_entry->data.maybe.child_type);
+            return type_requires_comptime(g, type_entry->data.maybe.child_type);
         case ZigTypeIdErrorUnion:
-            return type_requires_comptime(type_entry->data.error_union.payload_type);
+            return type_requires_comptime(g, type_entry->data.error_union.payload_type);
         case ZigTypeIdPointer:
             if (type_entry->data.pointer.child_type->id == ZigTypeIdOpaque) {
-                return false;
+                return ReqCompTimeNo;
             } else {
-                return type_requires_comptime(type_entry->data.pointer.child_type);
+                return type_requires_comptime(g, type_entry->data.pointer.child_type);
             }
         case ZigTypeIdFn:
-            return type_entry->data.fn.is_generic;
+            return type_entry->data.fn.is_generic ? ReqCompTimeYes : ReqCompTimeNo;
         case ZigTypeIdEnum:
         case ZigTypeIdErrorSet:
         case ZigTypeIdBool:
@@ -5163,7 +5184,7 @@ bool type_requires_comptime(ZigType *type_entry) {
         case ZigTypeIdVoid:
         case ZigTypeIdUnreachable:
         case ZigTypeIdPromise:
-            return false;
+            return ReqCompTimeNo;
     }
     zig_unreachable();
 }
@@ -5777,7 +5798,8 @@ static void render_const_val_ptr(CodeGen *g, Buf *buf, ConstExprValue *const_val
         case ConstPtrSpecialBaseErrorUnionCode:
         case ConstPtrSpecialBaseErrorUnionPayload:
             buf_appendf(buf, "*");
-            render_const_value(g, buf, const_ptr_pointee(g, const_val));
+            // TODO we need a source node for const_ptr_pointee because it can generate compile errors
+            render_const_value(g, buf, const_ptr_pointee(nullptr, g, const_val, nullptr));
             return;
         case ConstPtrSpecialBaseArray:
             if (const_val->data.x_ptr.data.base_array.is_cstr) {
@@ -5785,7 +5807,8 @@ static void render_const_val_ptr(CodeGen *g, Buf *buf, ConstExprValue *const_val
                 return;
             } else {
                 buf_appendf(buf, "*");
-                render_const_value(g, buf, const_ptr_pointee(g, const_val));
+                // TODO we need a source node for const_ptr_pointee because it can generate compile errors
+                render_const_value(g, buf, const_ptr_pointee(nullptr, g, const_val, nullptr));
                 return;
             }
         case ConstPtrSpecialHardCodedAddr:
@@ -6150,6 +6173,8 @@ uint32_t zig_llvm_fn_key_hash(ZigLLVMFnKey x) {
             return (uint32_t)(x.data.floating.bit_count) * (uint32_t)1953839089;
         case ZigLLVMFnIdSqrt:
             return (uint32_t)(x.data.floating.bit_count) * (uint32_t)2225366385;
+        case ZigLLVMFnIdBswap:
+            return (uint32_t)(x.data.bswap.bit_count) * (uint32_t)3661994335;
         case ZigLLVMFnIdOverflowArithmetic:
             return ((uint32_t)(x.data.overflow_arithmetic.bit_count) * 87135777) +
                 ((uint32_t)(x.data.overflow_arithmetic.add_sub_mul) * 31640542) +
@@ -6168,6 +6193,8 @@ bool zig_llvm_fn_key_eql(ZigLLVMFnKey a, ZigLLVMFnKey b) {
             return a.data.clz.bit_count == b.data.clz.bit_count;
         case ZigLLVMFnIdPopCount:
             return a.data.pop_count.bit_count == b.data.pop_count.bit_count;
+        case ZigLLVMFnIdBswap:
+            return a.data.bswap.bit_count == b.data.bswap.bit_count;
         case ZigLLVMFnIdFloor:
         case ZigLLVMFnIdCeil:
         case ZigLLVMFnIdSqrt:

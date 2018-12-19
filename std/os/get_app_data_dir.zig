@@ -43,7 +43,7 @@ pub fn getAppDataDir(allocator: *mem.Allocator, appname: []const u8) GetAppDataD
             };
             return os.path.join(allocator, home_dir, "Library", "Application Support", appname);
         },
-        builtin.Os.linux => {
+        builtin.Os.linux, builtin.Os.freebsd => {
             const home_dir = os.getEnvPosix("HOME") orelse {
                 // TODO look in /etc/passwd
                 return error.AppDataDirUnavailable;

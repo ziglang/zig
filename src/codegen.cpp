@@ -129,6 +129,11 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
         Buf *src_dir = buf_alloc();
         os_path_split(root_src_path, src_dir, src_basename);
 
+        if (buf_len(src_basename) == 0) {
+            fprintf(stderr, "Invalid root source path: %s\n", buf_ptr(root_src_path));
+            exit(1);
+        }
+
         g->root_package = new_package(buf_ptr(src_dir), buf_ptr(src_basename));
         g->std_package = new_package(buf_ptr(g->zig_std_dir), "index.zig");
         g->root_package->package_table.put(buf_create_from_str("std"), g->std_package);
@@ -3812,6 +3817,11 @@ static LLVMValueRef get_int_builtin_fn(CodeGen *g, ZigType *int_type, BuiltinFnI
         n_args = 1;
         key.id = ZigLLVMFnIdPopCount;
         key.data.pop_count.bit_count = (uint32_t)int_type->data.integral.bit_count;
+    } else if (fn_id == BuiltinFnIdBswap) {
+        fn_name = "bswap";
+        n_args = 1;
+        key.id = ZigLLVMFnIdBswap;
+        key.data.bswap.bit_count = (uint32_t)int_type->data.integral.bit_count;
     } else {
         zig_unreachable();
     }
@@ -5186,6 +5196,29 @@ static LLVMValueRef ir_render_to_bytes_len(CodeGen *g, IrExecutable *executable,
     return nullptr;
 }
 
+static LLVMValueRef ir_render_bswap(CodeGen *g, IrExecutable *executable, IrInstructionBswap *instruction) {
+    LLVMValueRef op = ir_llvm_value(g, instruction->op);
+    ZigType *int_type = instruction->base.value.type;
+    assert(int_type->id == ZigTypeIdInt);
+    if (int_type->data.integral.bit_count % 16 == 0) {
+        LLVMValueRef fn_val = get_int_builtin_fn(g, instruction->base.value.type, BuiltinFnIdBswap);
+        return LLVMBuildCall(g->builder, fn_val, &op, 1, "");
+    }
+    // Not an even number of bytes, so we zext 1 byte, then bswap, shift right 1 byte, truncate
+    ZigType *extended_type = get_int_type(g, int_type->data.integral.is_signed,
+            int_type->data.integral.bit_count + 8);
+    // aabbcc
+    LLVMValueRef extended = LLVMBuildZExt(g->builder, op, extended_type->type_ref, "");
+    // 00aabbcc
+    LLVMValueRef fn_val = get_int_builtin_fn(g, extended_type, BuiltinFnIdBswap);
+    LLVMValueRef swapped = LLVMBuildCall(g->builder, fn_val, &extended, 1, "");
+    // ccbbaa00
+    LLVMValueRef shifted = ZigLLVMBuildLShrExact(g->builder, swapped,
+            LLVMConstInt(extended_type->type_ref, 8, false), "");
+    // 00ccbbaa
+    return LLVMBuildTrunc(g->builder, shifted, int_type->type_ref, "");
+}
+
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
     Scope *scope = instruction->scope;
@@ -5456,6 +5489,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_from_bytes_len(g, executable, (IrInstructionFromBytesLenGen *)instruction);
         case IrInstructionIdToBytesLenGen:
             return ir_render_to_bytes_len(g, executable, (IrInstructionToBytesLenGen *)instruction);
+        case IrInstructionIdBswap:
+            return ir_render_bswap(g, executable, (IrInstructionBswap *)instruction);
     }
     zig_unreachable();
 }
@@ -6452,8 +6487,14 @@ static void do_code_gen(CodeGen *g) {
             }
             if (ir_get_var_is_comptime(var))
                 continue;
-            if (type_requires_comptime(var->value->type))
-                continue;
+            switch (type_requires_comptime(g, var->value->type)) {
+                case ReqCompTimeInvalid:
+                    zig_unreachable();
+                case ReqCompTimeYes:
+                    continue;
+                case ReqCompTimeNo:
+                    break;
+            }
 
             if (var->src_arg_index == SIZE_MAX) {
                 var->di_loc_var = ZigLLVMCreateAutoVariable(g->dbuilder, get_di_scope(g, var->parent_scope),
@@ -6918,6 +6959,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdToBytes, "sliceToBytes", 1);
     create_builtin_fn(g, BuiltinFnIdFromBytes, "bytesToSlice", 2);
     create_builtin_fn(g, BuiltinFnIdThis, "This", 0);
+    create_builtin_fn(g, BuiltinFnIdBswap, "bswap", 2);
 }
 
 static const char *bool_to_str(bool b) {
@@ -8344,7 +8386,11 @@ void codegen_build_and_link(CodeGen *g) {
         os_path_join(stage1_dir, buf_create_from_str("build"), manifest_dir);
 
         if ((err = check_cache(g, manifest_dir, &digest))) {
-            fprintf(stderr, "Unable to check cache: %s\n", err_str(err));
+            if (err == ErrorCacheUnavailable) {
+                // message already printed
+            } else {
+                fprintf(stderr, "Unable to check cache: %s\n", err_str(err));
+            }
             exit(1);
         }
 

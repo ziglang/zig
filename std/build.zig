@@ -150,7 +150,11 @@ pub const Builder = struct {
     }
 
     pub fn addExecutable(self: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
-        return LibExeObjStep.createExecutable(self, name, root_src);
+        return LibExeObjStep.createExecutable(self, name, root_src, false);
+    }
+
+    pub fn addStaticExecutable(self: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
+        return LibExeObjStep.createExecutable(self, name, root_src, true);
     }
 
     pub fn addObject(self: *Builder, name: []const u8, root_src: []const u8) *LibExeObjStep {
@@ -795,9 +799,21 @@ pub const Target = union(enum) {
         };
     }
 
+    pub fn isFreeBSD(self: *const Target) bool {
+        return switch (self.getOs()) {
+            builtin.Os.freebsd => true,
+            else => false,
+        };
+    }
+
     pub fn wantSharedLibSymLinks(self: *const Target) bool {
         return !self.isWindows();
     }
+};
+
+const Pkg = struct {
+    name: []const u8,
+    path: []const u8,
 };
 
 pub const LibExeObjStep = struct {
@@ -842,11 +858,6 @@ pub const LibExeObjStep = struct {
     source_files: ArrayList([]const u8),
     object_src: []const u8,
 
-    const Pkg = struct {
-        name: []const u8,
-        path: []const u8,
-    };
-
     const Kind = enum {
         Exe,
         Lib,
@@ -884,8 +895,8 @@ pub const LibExeObjStep = struct {
         return self;
     }
 
-    pub fn createExecutable(builder: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
-        const self = builder.allocator.create(initExtraArgs(builder, name, root_src, Kind.Exe, false, builder.version(0, 0, 0))) catch unreachable;
+    pub fn createExecutable(builder: *Builder, name: []const u8, root_src: ?[]const u8, static: bool) *LibExeObjStep {
+        const self = builder.allocator.create(initExtraArgs(builder, name, root_src, Kind.Exe, static, builder.version(0, 0, 0))) catch unreachable;
         return self;
     }
 
@@ -1262,6 +1273,9 @@ pub const LibExeObjStep = struct {
 
             zig_args.append("--ver-patch") catch unreachable;
             zig_args.append(builder.fmt("{}", self.version.patch)) catch unreachable;
+        }
+        if (self.kind == Kind.Exe and self.static) {
+            zig_args.append("--static") catch unreachable;
         }
 
         switch (self.target) {
@@ -1653,6 +1667,7 @@ pub const TestStep = struct {
     exec_cmd_args: ?[]const ?[]const u8,
     include_dirs: ArrayList([]const u8),
     lib_paths: ArrayList([]const u8),
+    packages: ArrayList(Pkg),
     object_files: ArrayList([]const u8),
     no_rosegment: bool,
     output_path: ?[]const u8,
@@ -1673,6 +1688,7 @@ pub const TestStep = struct {
             .exec_cmd_args = null,
             .include_dirs = ArrayList([]const u8).init(builder.allocator),
             .lib_paths = ArrayList([]const u8).init(builder.allocator),
+            .packages = ArrayList(Pkg).init(builder.allocator),
             .object_files = ArrayList([]const u8).init(builder.allocator),
             .no_rosegment = false,
             .output_path = null,
@@ -1686,6 +1702,13 @@ pub const TestStep = struct {
 
     pub fn addLibPath(self: *TestStep, path: []const u8) void {
         self.lib_paths.append(path) catch unreachable;
+    }
+
+    pub fn addPackagePath(self: *TestStep, name: []const u8, pkg_index_path: []const u8) void {
+        self.packages.append(Pkg{
+            .name = name,
+            .path = pkg_index_path,
+        }) catch unreachable;
     }
 
     pub fn setVerbose(self: *TestStep, value: bool) void {
@@ -1862,6 +1885,13 @@ pub const TestStep = struct {
         for (builder.lib_paths.toSliceConst()) |lib_path| {
             try zig_args.append("--library-path");
             try zig_args.append(lib_path);
+        }
+
+        for (self.packages.toSliceConst()) |pkg| {
+            zig_args.append("--pkg-begin") catch unreachable;
+            zig_args.append(pkg.name) catch unreachable;
+            zig_args.append(builder.pathFromRoot(pkg.path)) catch unreachable;
+            zig_args.append("--pkg-end") catch unreachable;
         }
 
         if (self.no_rosegment) {

@@ -208,7 +208,7 @@ pub const Utf8View = struct {
     }
 };
 
-const Utf8Iterator = struct {
+pub const Utf8Iterator = struct {
     bytes: []const u8,
     i: usize,
 
@@ -249,12 +249,12 @@ pub const Utf16LeIterator = struct {
     pub fn nextCodepoint(it: *Utf16LeIterator) !?u32 {
         assert(it.i <= it.bytes.len);
         if (it.i == it.bytes.len) return null;
-        const c0: u32 = mem.readIntLE(u16, it.bytes[it.i .. it.i + 2]);
+        const c0: u32 = mem.readIntSliceLittle(u16, it.bytes[it.i .. it.i + 2]);
         if (c0 & ~u32(0x03ff) == 0xd800) {
             // surrogate pair
             it.i += 2;
             if (it.i >= it.bytes.len) return error.DanglingSurrogateHalf;
-            const c1: u32 = mem.readIntLE(u16, it.bytes[it.i .. it.i + 2]);
+            const c1: u32 = mem.readIntSliceLittle(u16, it.bytes[it.i .. it.i + 2]);
             if (c1 & ~u32(0x03ff) != 0xdc00) return error.ExpectedSecondSurrogateHalf;
             it.i += 2;
             return 0x10000 + (((c0 & 0x03ff) << 10) | (c1 & 0x03ff));
@@ -510,46 +510,46 @@ test "utf16leToUtf8" {
     const utf16le_as_bytes = @sliceToBytes(utf16le[0..]);
 
     {
-        mem.writeInt(utf16le_as_bytes[0..], u16('A'), builtin.Endian.Little);
-        mem.writeInt(utf16le_as_bytes[2..], u16('a'), builtin.Endian.Little);
+        mem.writeIntSliceLittle(u16, utf16le_as_bytes[0..], 'A');
+        mem.writeIntSliceLittle(u16, utf16le_as_bytes[2..], 'a');
         const utf8 = try utf16leToUtf8Alloc(std.debug.global_allocator, utf16le);
         assert(mem.eql(u8, utf8, "Aa"));
     }
 
     {
-        mem.writeInt(utf16le_as_bytes[0..], u16(0x80), builtin.Endian.Little);
-        mem.writeInt(utf16le_as_bytes[2..], u16(0xffff), builtin.Endian.Little);
+        mem.writeIntSliceLittle(u16, utf16le_as_bytes[0..], 0x80);
+        mem.writeIntSliceLittle(u16, utf16le_as_bytes[2..], 0xffff);
         const utf8 = try utf16leToUtf8Alloc(std.debug.global_allocator, utf16le);
         assert(mem.eql(u8, utf8, "\xc2\x80" ++ "\xef\xbf\xbf"));
     }
 
     {
         // the values just outside the surrogate half range
-        mem.writeInt(utf16le_as_bytes[0..], u16(0xd7ff), builtin.Endian.Little);
-        mem.writeInt(utf16le_as_bytes[2..], u16(0xe000), builtin.Endian.Little);
+        mem.writeIntSliceLittle(u16, utf16le_as_bytes[0..], 0xd7ff);
+        mem.writeIntSliceLittle(u16, utf16le_as_bytes[2..], 0xe000);
         const utf8 = try utf16leToUtf8Alloc(std.debug.global_allocator, utf16le);
         assert(mem.eql(u8, utf8, "\xed\x9f\xbf" ++ "\xee\x80\x80"));
     }
 
     {
         // smallest surrogate pair
-        mem.writeInt(utf16le_as_bytes[0..], u16(0xd800), builtin.Endian.Little);
-        mem.writeInt(utf16le_as_bytes[2..], u16(0xdc00), builtin.Endian.Little);
+        mem.writeIntSliceLittle(u16, utf16le_as_bytes[0..], 0xd800);
+        mem.writeIntSliceLittle(u16, utf16le_as_bytes[2..], 0xdc00);
         const utf8 = try utf16leToUtf8Alloc(std.debug.global_allocator, utf16le);
         assert(mem.eql(u8, utf8, "\xf0\x90\x80\x80"));
     }
 
     {
         // largest surrogate pair
-        mem.writeInt(utf16le_as_bytes[0..], u16(0xdbff), builtin.Endian.Little);
-        mem.writeInt(utf16le_as_bytes[2..], u16(0xdfff), builtin.Endian.Little);
+        mem.writeIntSliceLittle(u16, utf16le_as_bytes[0..], 0xdbff);
+        mem.writeIntSliceLittle(u16, utf16le_as_bytes[2..], 0xdfff);
         const utf8 = try utf16leToUtf8Alloc(std.debug.global_allocator, utf16le);
         assert(mem.eql(u8, utf8, "\xf4\x8f\xbf\xbf"));
     }
 
     {
-        mem.writeInt(utf16le_as_bytes[0..], u16(0xdbff), builtin.Endian.Little);
-        mem.writeInt(utf16le_as_bytes[2..], u16(0xdc00), builtin.Endian.Little);
+        mem.writeIntSliceLittle(u16, utf16le_as_bytes[0..], 0xdbff);
+        mem.writeIntSliceLittle(u16, utf16le_as_bytes[2..], 0xdc00);
         const utf8 = try utf16leToUtf8Alloc(std.debug.global_allocator, utf16le);
         assert(mem.eql(u8, utf8, "\xf4\x8f\xb0\x80"));
     }
@@ -583,7 +583,7 @@ pub fn utf8ToUtf16Le(utf16le: []u16, utf8: []const u8) !usize {
     while (it.nextCodepoint()) |codepoint| {
         if (end_index == utf16le_as_bytes.len) return (end_index / 2) + 1;
         // TODO surrogate pairs
-        mem.writeInt(utf16le_as_bytes[end_index..], @intCast(u16, codepoint), builtin.Endian.Little);
+        mem.writeIntSliceLittle(u16, utf16le_as_bytes[end_index..], @intCast(u16, codepoint));
         end_index += 2;
     }
     return end_index / 2;

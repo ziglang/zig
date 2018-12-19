@@ -1482,6 +1482,18 @@ static void ir_print_error_literal(IrPrint *irp, IrInstructionErrorLiteral *inst
     fprintf(irp->f, "error.%s", buf_ptr(instruction->name));
 }
 
+static void ir_print_bswap(IrPrint *irp, IrInstructionBswap *instruction) {
+    fprintf(irp->f, "@bswap(");
+    if (instruction->type != nullptr) {
+        ir_print_other_instruction(irp, instruction->type);
+    } else {
+        fprintf(irp->f, "null");
+    }
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->op);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -1888,6 +1900,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdSqrt:
             ir_print_sqrt(irp, (IrInstructionSqrt *)instruction);
+            break;
+        case IrInstructionIdBswap:
+            ir_print_bswap(irp, (IrInstructionBswap *)instruction);
             break;
         case IrInstructionIdAtomicLoad:
             ir_print_atomic_load(irp, (IrInstructionAtomicLoad *)instruction);

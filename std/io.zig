@@ -32,6 +32,8 @@ pub fn getStdIn() GetStdIoErrs!File {
     return File.openHandle(handle);
 }
 
+pub const SeekableStream = @import("io/seekable_stream.zig").SeekableStream;
+
 pub fn InStream(comptime ReadError: type) type {
     return struct {
         const Self = @This();
@@ -150,35 +152,43 @@ pub fn InStream(comptime ReadError: type) type {
         }
 
         /// Reads a native-endian integer
-        pub fn readIntNe(self: *Self, comptime T: type) !T {
-            return self.readInt(builtin.endian, T);
-        }
-
-        pub fn readIntLe(self: *Self, comptime T: type) !T {
+        pub fn readIntNative(self: *Self, comptime T: type) !T {
             var bytes: [@sizeOf(T)]u8 = undefined;
             try self.readNoEof(bytes[0..]);
-            return mem.readIntLE(T, bytes);
+            return mem.readIntSliceNative(T, bytes);
         }
 
-        pub fn readIntBe(self: *Self, comptime T: type) !T {
+        /// Reads a foreign-endian integer
+        pub fn readIntForeign(self: *Self, comptime T: type) !T {
             var bytes: [@sizeOf(T)]u8 = undefined;
             try self.readNoEof(bytes[0..]);
-            return mem.readIntBE(T, bytes);
+            return mem.readIntSliceForeign(T, bytes);
         }
 
-        pub fn readInt(self: *Self, endian: builtin.Endian, comptime T: type) !T {
+        pub fn readIntLittle(self: *Self, comptime T: type) !T {
             var bytes: [@sizeOf(T)]u8 = undefined;
             try self.readNoEof(bytes[0..]);
-            return mem.readInt(bytes, T, endian);
+            return mem.readIntSliceLittle(T, bytes);
         }
 
-        pub fn readVarInt(self: *Self, endian: builtin.Endian, comptime T: type, size: usize) !T {
-            assert(size <= @sizeOf(T));
-            assert(size <= 8);
-            var input_buf: [8]u8 = undefined;
-            const input_slice = input_buf[0..size];
-            try self.readNoEof(input_slice);
-            return mem.readInt(input_slice, T, endian);
+        pub fn readIntBig(self: *Self, comptime T: type) !T {
+            var bytes: [@sizeOf(T)]u8 = undefined;
+            try self.readNoEof(bytes[0..]);
+            return mem.readIntSliceBig(T, bytes);
+        }
+
+        pub fn readInt(self: *Self, comptime T: type, endian: builtin.Endian) !T {
+            var bytes: [@sizeOf(T)]u8 = undefined;
+            try self.readNoEof(bytes[0..]);
+            return mem.readIntSlice(T, bytes, endian);
+        }
+
+        pub fn readVarInt(self: *Self, comptime ReturnType: type, endian: builtin.Endian, size: usize) !ReturnType {
+            assert(size <= @sizeOf(ReturnType));
+            var bytes_buf: [@sizeOf(ReturnType)]u8 = undefined;
+            const bytes = bytes_buf[0..size];
+            try self.readNoEof(bytes);
+            return mem.readVarInt(ReturnType, bytes, endian);
         }
 
         pub fn skipBytes(self: *Self, num_bytes: usize) !void {
@@ -227,25 +237,34 @@ pub fn OutStream(comptime WriteError: type) type {
         }
 
         /// Write a native-endian integer.
-        pub fn writeIntNe(self: *Self, comptime T: type, value: T) Error!void {
-            return self.writeInt(builtin.endian, T, value);
-        }
-
-        pub fn writeIntLe(self: *Self, comptime T: type, value: T) Error!void {
+        pub fn writeIntNative(self: *Self, comptime T: type, value: T) Error!void {
             var bytes: [@sizeOf(T)]u8 = undefined;
-            mem.writeIntLE(T, &bytes, value);
+            mem.writeIntNative(T, &bytes, value);
             return self.writeFn(self, bytes);
         }
 
-        pub fn writeIntBe(self: *Self, comptime T: type, value: T) Error!void {
+        /// Write a foreign-endian integer.
+        pub fn writeIntForeign(self: *Self, comptime T: type, value: T) Error!void {
             var bytes: [@sizeOf(T)]u8 = undefined;
-            mem.writeIntBE(T, &bytes, value);
+            mem.writeIntForeign(T, &bytes, value);
             return self.writeFn(self, bytes);
         }
 
-        pub fn writeInt(self: *Self, endian: builtin.Endian, comptime T: type, value: T) Error!void {
+        pub fn writeIntLittle(self: *Self, comptime T: type, value: T) Error!void {
             var bytes: [@sizeOf(T)]u8 = undefined;
-            mem.writeInt(bytes[0..], value, endian);
+            mem.writeIntLittle(T, &bytes, value);
+            return self.writeFn(self, bytes);
+        }
+
+        pub fn writeIntBig(self: *Self, comptime T: type, value: T) Error!void {
+            var bytes: [@sizeOf(T)]u8 = undefined;
+            mem.writeIntBig(T, &bytes, value);
+            return self.writeFn(self, bytes);
+        }
+
+        pub fn writeInt(self: *Self, comptime T: type, value: T, endian: builtin.Endian) Error!void {
+            var bytes: [@sizeOf(T)]u8 = undefined;
+            mem.writeInt(T, &bytes, value, endian);
             return self.writeFn(self, bytes);
         }
     };
@@ -683,25 +702,73 @@ test "import io tests" {
     }
 }
 
-pub fn readLine(buf: []u8) !usize {
-    var stdin = getStdIn() catch return error.StdInUnavailable;
-    var adapter = stdin.inStream();
-    var stream = &adapter.stream;
-    var index: usize = 0;
+pub fn readLine(buf: *std.Buffer) ![]u8 {
+    var stdin = try getStdIn();
+    var stdin_stream = stdin.inStream();
+    return readLineFrom(&stdin_stream.stream, buf);
+}
+
+/// Reads all characters until the next newline into buf, and returns
+/// a slice of the characters read (excluding the newline character(s)).
+pub fn readLineFrom(stream: var, buf: *std.Buffer) ![]u8 {
+    const start = buf.len();
     while (true) {
-        const byte = stream.readByte() catch return error.EndOfFile;
+        const byte = try stream.readByte();
         switch (byte) {
             '\r' => {
                 // trash the following \n
-                _ = stream.readByte() catch return error.EndOfFile;
-                return index;
+                _ = try stream.readByte();
+                return buf.toSlice()[start..];
             },
-            '\n' => return index,
-            else => {
-                if (index == buf.len) return error.InputTooLong;
-                buf[index] = byte;
-                index += 1;
-            },
+            '\n' => return buf.toSlice()[start..],
+            else => try buf.appendByte(byte),
         }
     }
+}
+
+test "io.readLineFrom" {
+    var bytes: [128]u8 = undefined;
+    const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
+
+    var buf = try std.Buffer.initSize(allocator, 0);
+    var mem_stream = SliceInStream.init(
+        \\Line 1
+        \\Line 22
+        \\Line 333
+    );
+    const stream = &mem_stream.stream;
+
+    debug.assert(mem.eql(u8, "Line 1", try readLineFrom(stream, &buf)));
+    debug.assert(mem.eql(u8, "Line 22", try readLineFrom(stream, &buf)));
+    debug.assertError(readLineFrom(stream, &buf), error.EndOfStream);
+    debug.assert(mem.eql(u8, buf.toSlice(), "Line 1Line 22Line 333"));
+}
+
+pub fn readLineSlice(slice: []u8) ![]u8 {
+    var stdin = try getStdIn();
+    var stdin_stream = stdin.inStream();
+    return readLineSliceFrom(&stdin_stream.stream, slice);
+}
+
+/// Reads all characters until the next newline into slice, and returns
+/// a slice of the characters read (excluding the newline character(s)).
+pub fn readLineSliceFrom(stream: var, slice: []u8) ![]u8 {
+    // We cannot use Buffer.fromOwnedSlice, as it wants to append a null byte
+    // after taking ownership, which would always require an allocation.
+    var buf = std.Buffer{ .list = std.ArrayList(u8).fromOwnedSlice(debug.failing_allocator, slice) };
+    try buf.resize(0);
+    return try readLineFrom(stream, &buf);
+}
+
+test "io.readLineSliceFrom" {
+    var buf: [7]u8 = undefined;
+    var mem_stream = SliceInStream.init(
+        \\Line 1
+        \\Line 22
+        \\Line 333
+    );
+    const stream = &mem_stream.stream;
+
+    debug.assert(mem.eql(u8, "Line 1", try readLineSliceFrom(stream, buf[0..])));
+    debug.assertError(readLineSliceFrom(stream, buf[0..]), error.OutOfMemory);
 }

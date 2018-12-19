@@ -2,6 +2,30 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "reading past end of pointer casted array",
+        \\comptime {
+        \\    const array = "aoeu";
+        \\    const slice = array[2..];
+        \\    const int_ptr = @ptrCast(*const u24, slice.ptr);
+        \\    const deref = int_ptr.*;
+        \\}
+    ,
+        ".tmp_source.zig:5:26: error: attempt to read 3 bytes from [4]u8 at index 2 which is 2 bytes",
+    );
+
+    cases.add(
+        "error note for function parameter incompatibility",
+        \\fn do_the_thing(func: fn (arg: i32) void) void {}
+        \\fn bar(arg: bool) void {}
+        \\export fn entry() void {
+        \\    do_the_thing(bar);
+        \\}
+    ,
+        ".tmp_source.zig:4:18: error: expected type 'fn(i32) void', found 'fn(bool) void",
+        ".tmp_source.zig:4:18: note: parameter 0: 'bool' cannot cast into 'i32'",
+    );
+
+    cases.add(
         "cast negative value to unsigned integer",
         \\comptime {
         \\    const value: i32 = -1;
@@ -5248,8 +5272,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn foo() void {
         \\    asm volatile ("" : : [bar]"r"(3) : "");
         \\}
-        ,
-            ".tmp_source.zig:2:35: error: expected sized integer or sized float, found comptime_int",
+    ,
+        ".tmp_source.zig:2:35: error: expected sized integer or sized float, found comptime_int",
     );
 
     cases.add(
@@ -5257,7 +5281,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn foo() void {
         \\    asm volatile ("" : : [bar]"r"(3.17) : "");
         \\}
-        ,
-            ".tmp_source.zig:2:35: error: expected sized integer or sized float, found comptime_float",
+    ,
+        ".tmp_source.zig:2:35: error: expected sized integer or sized float, found comptime_float",
     );
 }
