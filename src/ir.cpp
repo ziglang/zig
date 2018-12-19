@@ -10524,9 +10524,7 @@ static IrInstruction *ir_analyze_instruction_result_optional_payload(IrAnalyze *
     return ir_analyze_result_optional_payload(ira, prev_result_loc, payload_type, instruction->make_non_null);
 }
 
-static IrInstruction *ir_analyze_result_slice_ptr(IrAnalyze *ira, IrInstruction *result_loc,
-        ZigType *ptr_to_array_type, uint64_t len)
-{
+static IrInstruction *ir_analyze_result_slice_ptr(IrAnalyze *ira, IrInstruction *result_loc, uint64_t len) {
     ZigType *slice_type = result_loc->value.type->data.pointer.child_type;
     assert(is_slice(slice_type));
     ZigType *slice_ptr_type = slice_type->data.structure.fields[slice_ptr_index].type_entry;
@@ -10913,11 +10911,9 @@ static IrInstruction *ir_analyze_array_to_slice(IrAnalyze *ira, IrInstruction *s
     // In this function we honor the const-ness of wanted_type, because
     // we may be casting [0]T to []const T which is perfectly valid.
 
-    IrInstruction *array_ptr = nullptr;
     IrInstruction *array;
     if (array_arg->value.type->id == ZigTypeIdPointer) {
         array = ir_get_deref(ira, source_instr, array_arg);
-        array_ptr = array_arg;
     } else {
         array = array_arg;
     }
@@ -10931,23 +10927,9 @@ static IrInstruction *ir_analyze_array_to_slice(IrAnalyze *ira, IrInstruction *s
         return result;
     }
 
-    IrInstruction *start = ir_const(ira, source_instr, ira->codegen->builtin_types.entry_usize);
-    init_const_usize(ira->codegen, &start->value, 0);
-
-    IrInstruction *end = ir_const(ira, source_instr, ira->codegen->builtin_types.entry_usize);
-    init_const_usize(ira->codegen, &end->value, array_type->data.array.len);
-
-    if (!array_ptr) array_ptr = ir_get_ref(ira, source_instr, array, true, false, nullptr);
-
-    // TODO don't pass nullptr to ir_build_slice
-    BREAKPOINT;
-    IrInstruction *result = ir_build_slice(&ira->new_irb, source_instr->scope,
-            source_instr->source_node, array_ptr, start, end, false, nullptr);
-    result->value.type = wanted_type;
-    result->value.data.rh_slice.id = RuntimeHintSliceIdLen;
-    result->value.data.rh_slice.len = array_type->data.array.len;
-
-    return result;
+    // Only the comptime branch above is used here. Once https://github.com/ziglang/zig/issues/265
+    // lands this entire function will be deleted.
+    zig_unreachable();
 }
 
 static IrInstruction *ir_analyze_enum_to_int(IrAnalyze *ira, IrInstruction *source_instr,
@@ -11657,6 +11639,8 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
 
 
     // cast from [N]T to []const T
+    // TODO: once https://github.com/ziglang/zig/issues/265 lands, remove this
+    // only the comptime branch here is used
     if (is_slice(wanted_type) && actual_type->id == ZigTypeIdArray) {
         ZigType *ptr_type = wanted_type->data.structure.fields[slice_ptr_index].type_entry;
         assert(ptr_type->id == ZigTypeIdPointer);
@@ -11668,7 +11652,23 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         }
     }
 
+    // cast from [N]T to [*]const T
+    // TODO: once https://github.com/ziglang/zig/issues/265 lands, remove this
+    // []const T in this situation gets turned into [*]const T with the result location cast
+    if (actual_type->id == ZigTypeIdArray && wanted_type->id == ZigTypeIdPointer &&
+        wanted_type->data.pointer.ptr_len == PtrLenUnknown)
+    {
+        if ((wanted_type->data.pointer.is_const || actual_type->data.array.len == 0) &&
+            types_match_const_cast_only(ira, wanted_type->data.pointer.child_type,
+                actual_type->data.array.child_type, source_node, false).id == ConstCastResultIdOk)
+        {
+            IrInstruction *array_ref = ir_get_ref(ira, source_instr, value, true, false, nullptr);
+            return ir_implicit_cast(ira, array_ref, wanted_type);
+        }
+    }
+
     // cast from [N]T to ?[]const T
+    // TODO: once https://github.com/ziglang/zig/issues/265 lands, remove this
     if (wanted_type->id == ZigTypeIdOptional &&
         is_slice(wanted_type->data.maybe.child_type) &&
         actual_type->id == ZigTypeIdArray)
@@ -12052,7 +12052,19 @@ static IrInstruction *ir_implicit_cast_result(IrAnalyze *ira, IrInstruction *unr
             array_type->data.array.child_type, source_node,
             !slice_ptr_type->data.pointer.is_const).id == ConstCastResultIdOk)
         {
-            return ir_analyze_result_slice_ptr(ira, result_loc, needed_child_type, array_type->data.array.len);
+            return ir_analyze_result_slice_ptr(ira, result_loc, array_type->data.array.len);
+        }
+    }
+
+    // cast from [N]T to []const T
+    if (is_slice(have_child_type) && needed_child_type->id == ZigTypeIdArray) {
+        ZigType *ptr_type = have_child_type->data.structure.fields[slice_ptr_index].type_entry;
+        assert(ptr_type->id == ZigTypeIdPointer);
+        if ((ptr_type->data.pointer.is_const || needed_child_type->data.array.len == 0) &&
+            types_match_const_cast_only(ira, ptr_type->data.pointer.child_type,
+                needed_child_type->data.array.child_type, source_node, false).id == ConstCastResultIdOk)
+        {
+            return ir_analyze_result_slice_ptr(ira, result_loc, needed_child_type->data.array.len);
         }
     }
 
