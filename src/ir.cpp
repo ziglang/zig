@@ -9973,7 +9973,7 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
 static void copy_const_val(ConstExprValue *dest, ConstExprValue *src, bool same_global_refs) {
     ConstGlobalRefs *global_refs = dest->global_refs;
     *dest = *src;
-    if (!same_global_refs) {
+    if (!same_global_refs && src->special != ConstValSpecialUndef) {
         dest->global_refs = global_refs;
         if (dest->type->id == ZigTypeIdStruct) {
             dest->data.x_struct.fields = allocate_nonzero<ConstExprValue>(dest->type->data.structure.src_field_count);
@@ -12146,6 +12146,10 @@ static IrInstruction *ir_get_deref(IrAnalyze *ira, IrInstruction *source_instruc
             init_const_unsigned_negative(&result->value, child_type, 0, false);
             return result;
         }
+        // if it's infer, that means it's void
+        if (child_type == ira->codegen->builtin_types.entry_infer) {
+            return ir_const_void(ira, source_instruction);
+        }
         if (instr_is_comptime(ptr)) {
             if (ptr->value.special == ConstValSpecialUndef) {
                 ir_add_error(ira, ptr, buf_sprintf("attempt to dereference undefined value"));
@@ -13744,7 +13748,7 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira,
             // If this assertion trips, something is wrong with the IR instructions, because
             // we expected the above deref to return a constant value, but it created a runtime
             // instruction.
-            assert(deref->value.special == ConstValSpecialStatic);
+            assert(deref->value.special != ConstValSpecialRuntime);
             var_ptr->value.special = ConstValSpecialRuntime;
             ir_analyze_store_ptr(ira, var_ptr, var_ptr, deref);
         }
