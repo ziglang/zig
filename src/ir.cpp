@@ -10129,13 +10129,16 @@ static IrInstruction *ir_resolve_ptr_of_array_to_unknown_len_ptr(IrAnalyze *ira,
 
     wanted_type = adjust_ptr_align(ira->codegen, wanted_type, get_ptr_align(ira->codegen, value->value.type));
 
+    IrInstruction *result = ir_build_cast(&ira->new_irb, source_instr->scope, source_instr->source_node,
+            wanted_type, value, CastOpBitCast);
+    result->value.type = wanted_type;
+
     if (instr_is_comptime(value)) {
         ConstExprValue *pointee = const_ptr_pointee(ira, ira->codegen, &value->value, source_instr->source_node);
         if (pointee == nullptr)
             return ira->codegen->invalid_instruction;
         if (pointee->special != ConstValSpecialRuntime) {
-            IrInstruction *result = ir_const(ira, source_instr, wanted_type);
-            result->value.type = wanted_type;
+            result->value.special = ConstValSpecialStatic;
             result->value.data.x_ptr.special = ConstPtrSpecialBaseArray;
             result->value.data.x_ptr.mut = value->value.data.x_ptr.mut;
             result->value.data.x_ptr.data.base_array.array_val = pointee;
@@ -10145,9 +10148,6 @@ static IrInstruction *ir_resolve_ptr_of_array_to_unknown_len_ptr(IrAnalyze *ira,
         }
     }
 
-    IrInstruction *result = ir_build_cast(&ira->new_irb, source_instr->scope, source_instr->source_node,
-            wanted_type, value, CastOpBitCast);
-    result->value.type = wanted_type;
     return result;
 }
 
@@ -11663,7 +11663,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
                 actual_type->data.array.child_type, source_node, false).id == ConstCastResultIdOk)
         {
             IrInstruction *array_ref = ir_get_ref(ira, source_instr, value, true, false, nullptr);
-            return ir_implicit_cast(ira, array_ref, wanted_type);
+            return ir_analyze_cast(ira, source_instr, wanted_type, array_ref);
         }
     }
 
@@ -12151,9 +12151,7 @@ static IrInstruction *ir_get_deref(IrAnalyze *ira, IrInstruction *source_instruc
                 ir_add_error(ira, ptr, buf_sprintf("attempt to dereference undefined value"));
                 return ira->codegen->invalid_instruction;
             }
-            if (ptr->value.data.x_ptr.mut == ConstPtrMutComptimeConst ||
-                ptr->value.data.x_ptr.mut == ConstPtrMutComptimeVar)
-            {
+            if (ptr->value.data.x_ptr.mut != ConstPtrMutRuntimeVar) {
                 ConstExprValue *pointee = const_ptr_pointee_unchecked(ira->codegen, &ptr->value);
                 if (pointee->special != ConstValSpecialRuntime) {
                     IrInstruction *result = ir_const(ira, source_instruction, child_type);
@@ -13691,16 +13689,6 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira,
         break;
     }
 
-    if (!type_is_invalid(result_type)) {
-        // Resolve ConstPtrMutInfer
-        if (instr_is_comptime(var_ptr)) {
-            if (var_ptr->value.data.x_ptr.mut == ConstPtrMutInfer) {
-                if (!is_comptime_var && !var->gen_is_const) {
-                    var_ptr->value.data.x_ptr.mut = ConstPtrMutRuntimeVar;
-                }
-            }
-        }
-    }
     if (var->value->type != nullptr && !is_comptime_var) {
         // This is at least the second time we've seen this variable declaration during analysis.
         // This means that this is actually a different variable due to, e.g. an inline while loop.
@@ -13743,6 +13731,7 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira,
     }
 
     if (init_val != nullptr && init_val->special != ConstValSpecialRuntime) {
+        // Resolve ConstPtrMutInfer
         if (var->gen_is_const) {
             var_ptr->value.data.x_ptr.mut = ConstPtrMutComptimeConst;
         } else if (is_comptime_var) {
@@ -13752,6 +13741,10 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira,
             // since it's a comptime val there are no instructions for it.
             // we memcpy the init value here
             IrInstruction *deref = ir_get_deref(ira, var_ptr, var_ptr);
+            // If this assertion trips, something is wrong with the IR instructions, because
+            // we expected the above deref to return a constant value, but it created a runtime
+            // instruction.
+            assert(deref->value.special == ConstValSpecialStatic);
             var_ptr->value.special = ConstValSpecialRuntime;
             ir_analyze_store_ptr(ira, var_ptr, var_ptr, deref);
         }
