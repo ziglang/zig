@@ -12495,6 +12495,7 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruct
     case ReqCompTimeNo:
         if (casted_init_value->value.special == ConstValSpecialStatic &&
             casted_init_value->value.type->id == ZigTypeIdFn &&
+            casted_init_value->value.data.x_ptr.special != ConstPtrSpecialHardCodedAddr &&
             casted_init_value->value.data.x_ptr.data.fn.fn_entry->fn_inline == FnInlineAlways)
         {
             var_class_requires_const = true;
