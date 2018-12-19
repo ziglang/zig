@@ -1,0 +1,16 @@
+freebsd_instance:
+  image: freebsd-12-0-release-amd64
+freebsd_test_task:
+  env:
+    CC: "clang70"
+    CXX: "clang++70"
+  install_script:
+    - pkg install -y cmake gmake llvm70
+  build_script:
+    - mkdir build
+    - cd build
+    - cmake .. -DCMAKE_BUILD_TYPE=Release
+    - gmake -j$(sysctl -n hw.ncpu) install
+  test_script:
+    - cd build
+    - ./zig build --build-file ../build.zig test
