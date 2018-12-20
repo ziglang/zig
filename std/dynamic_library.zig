@@ -19,7 +19,6 @@ pub const DynLib = switch (builtin.os) {
 };
 
 pub const LinuxDynLib = struct {
-    allocator: mem.Allocator,
     elf_lib: ElfLib,
     fd: i32,
     map_addr: usize,
