@@ -15,6 +15,8 @@ pub extern "c" fn sysctlbyname(name: [*]const u8, oldp: ?*c_void, oldlenp: ?*usi
 pub extern "c" fn sysctlnametomib(name: [*]const u8, mibp: ?*c_int, sizep: ?*usize) c_int;
 pub extern "c" fn getdirentries(fd: c_int, buf_ptr: [*]u8, nbytes: usize, basep: *i64) usize;
 pub extern "c" fn pipe2(arg0: *[2]c_int, arg1: u32) c_int;
+pub extern "c" fn preadv(fd: c_int, iov: *const c_void, iovcnt: c_int, offset: usize) isize;
+pub extern "c" fn pwritev(fd: c_int, iov: *const c_void, iovcnt: c_int, offset: usize) isize;
 
 /// Renamed from `kevent` to `Kevent` to avoid conflict with function name.
 pub const Kevent = extern struct {
@@ -50,18 +52,23 @@ pub const Stat = extern struct {
     nlink: usize,
 
     mode: u32,
+    __pad0: u16,
     uid: u32,
     gid: u32,
-    __pad0: u32,
+    __pad1: u32,
     rdev: u64,
-    size: i64,
-    blksize: isize,
-    blocks: i64,
 
     atim: timespec,
     mtim: timespec,
     ctim: timespec,
-    __unused: [3]isize,
+    birthtim: timespec,
+
+    size: i64,
+    blocks: i64,
+    blksize: isize,
+    flags: u32,
+    gen: u64,
+    __spare: [10]u64,
 };
 
 pub const timespec = extern struct {
@@ -72,7 +79,7 @@ pub const timespec = extern struct {
 pub const dirent = extern struct {
     d_fileno: usize,
     d_off: i64,
-    d_reclen: u64,
+    d_reclen: u16,
     d_type: u8,
     d_pad0: u8,
     d_namlen: u16,
