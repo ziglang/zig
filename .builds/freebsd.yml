@@ -2,14 +2,15 @@ arch: x86_64
 image: freebsd
 packages:
   - cmake
+  - ninja
   - llvm70
 sources:
   - https://github.com/ziglang/zig.git
 tasks:
   - build: |
       cd zig && mkdir build && cd build
-      cmake .. -DCMAKE_BUILD_TYPE=Release
-      make -j$(sysctl -n hw.ncpu) install
+      cmake .. -GNinja -DCMAKE_BUILD_TYPE=Release
+      ninja install
   - test: |
       cd zig/build
       bin/zig test ../test/behavior.zig
