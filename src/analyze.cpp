@@ -2686,13 +2686,22 @@ static Error resolve_struct_alignment(CodeGen *g, ZigType *struct_type) {
     }
 
     size_t field_count = struct_type->data.structure.src_field_count;
+    bool self_resolving = false;
     for (size_t i = 0; i < field_count; i += 1) {
         TypeStructField *field = &struct_type->data.structure.fields[i];
 
-        // If this assertion trips, look up the call stack. Probably something is
-        // calling type_resolve with ResolveStatusAlignmentKnown when it should only
-        // be resolving ResolveStatusZeroBitsKnown
-        assert(field->type_entry != nullptr);
+        // If we have no type_entry for the field, assume that we are in the
+        // midst of resolving this struct. We further assume that since the
+        // resolved alignment of the other fields of this struct is ultimately
+        // equal to the resolved alignment of this struct, we can safely ignore.
+        //
+        // If this struct is used down-stream in aligning a sub-struct, ignoring
+        // this struct in the context of a sub struct has the same effect since
+        // the other fields will be calculated and bubble-up.
+        if (nullptr == field->type_entry) {
+            self_resolving = true;
+            continue;
+        }
 
         if (type_is_invalid(field->type_entry)) {
             struct_type->data.structure.resolve_status = ResolveStatusInvalid;
@@ -2723,6 +2732,14 @@ static Error resolve_struct_alignment(CodeGen *g, ZigType *struct_type) {
         return ErrorSemanticAnalyzeFail;
     }
 
+    if ( self_resolving
+      && field_count > 0
+       ) {
+        // If we get here it's due to self-referencing this struct before it has been fully resolved.
+        // In this case, set alignment to target pointer default.
+        struct_type->data.structure.abi_alignment = LLVMABIAlignmentOfType(g->target_data_ref,
+                LLVMPointerType(LLVMInt8Type(), 0));
+    }
     struct_type->data.structure.resolve_status = ResolveStatusAlignmentKnown;
     return ErrorNone;
 }
