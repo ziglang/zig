@@ -626,7 +626,7 @@ pub fn pread(fd: i32, buf: [*]u8, nbyte: usize, offset: u64) usize {
 }
 
 pub fn preadv(fd: i32, iov: [*]const iovec, count: usize, offset: usize) usize {
-    return arch.syscall4(SYS_preadv, @bitCast(usize, isize(fd)), @ptrToInt(iov), count, offset);
+    return errnoWrap(c.preadv(fd, @ptrCast(*const c_void, iov), @intCast(c_int, count), offset));
 }
 
 pub fn pipe(fd: *[2]i32) usize {
@@ -647,7 +647,7 @@ pub fn pwrite(fd: i32, buf: [*]const u8, nbyte: usize, offset: u64) usize {
 }
 
 pub fn pwritev(fd: i32, iov: [*]const iovec_const, count: usize, offset: usize) usize {
-    return arch.syscall4(SYS_pwritev, @bitCast(usize, isize(fd)), @ptrToInt(iov), count, offset);
+    return errnoWrap(c.pwritev(fd, @ptrCast(*const c_void, iov), @intCast(c_int, count), offset));
 }
 
 pub fn rename(old: [*]const u8, new: [*]const u8) usize {
