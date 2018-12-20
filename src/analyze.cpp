@@ -2681,48 +2681,50 @@ static Error resolve_struct_alignment(CodeGen *g, ZigType *struct_type) {
     assert(decl_node->type == NodeTypeContainerDecl);
     assert(struct_type->di_type);
 
+    size_t field_count = struct_type->data.structure.src_field_count;
     if (struct_type->data.structure.layout == ContainerLayoutPacked) {
         struct_type->data.structure.abi_alignment = 1;
-    }
-
-    size_t field_count = struct_type->data.structure.src_field_count;
-    bool self_resolving = false;
-    for (size_t i = 0; i < field_count; i += 1) {
+        for (size_t i = 0; i < field_count; i += 1) {
+            TypeStructField *field = &struct_type->data.structure.fields[i];
+            if (field->type_entry != nullptr && type_is_invalid(field->type_entry)) {
+                struct_type->data.structure.resolve_status = ResolveStatusInvalid;
+                break;
+            }
+        }
+    } else for (size_t i = 0; i < field_count; i += 1) {
         TypeStructField *field = &struct_type->data.structure.fields[i];
+        uint32_t this_field_align;
 
-        // If we have no type_entry for the field, assume that we are in the
-        // midst of resolving this struct. We further assume that since the
-        // resolved alignment of the other fields of this struct is ultimately
-        // equal to the resolved alignment of this struct, we can safely ignore.
-        //
-        // If this struct is used down-stream in aligning a sub-struct, ignoring
-        // this struct in the context of a sub struct has the same effect since
-        // the other fields will be calculated and bubble-up.
-        if (nullptr == field->type_entry) {
-            self_resolving = true;
-            continue;
-        }
+        // TODO If we have no type_entry for the field, we've already failed to
+        // compile the program correctly. This stage1 compiler needs a deeper
+        // reworking to make this correct, or we can ignore the problem
+        // and make sure it is fixed in stage2. This workaround is for when
+        // there is a false positive of a dependency loop, of alignment depending
+        // on itself. When this false positive happens we assume a pointer-aligned
+        // field, which is usually fine but could be incorrectly over-aligned or
+        // even under-aligned. See https://github.com/ziglang/zig/issues/1512
+        if (field->type_entry == nullptr) {
+            this_field_align = LLVMABIAlignmentOfType(g->target_data_ref, LLVMPointerType(LLVMInt8Type(), 0));
+        } else {
+            if (type_is_invalid(field->type_entry)) {
+                struct_type->data.structure.resolve_status = ResolveStatusInvalid;
+                break;
+            }
 
-        if (type_is_invalid(field->type_entry)) {
-            struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-            break;
-        }
+            if (!type_has_bits(field->type_entry))
+                continue;
 
-        if (!type_has_bits(field->type_entry))
-            continue;
-
-        // alignment of structs is the alignment of the most-aligned field
-        if (struct_type->data.structure.layout != ContainerLayoutPacked) {
             if ((err = type_resolve(g, field->type_entry, ResolveStatusAlignmentKnown))) {
                 struct_type->data.structure.resolve_status = ResolveStatusInvalid;
                 break;
             }
 
-            uint32_t this_field_align = get_abi_alignment(g, field->type_entry);
+            this_field_align = get_abi_alignment(g, field->type_entry);
             assert(this_field_align != 0);
-            if (this_field_align > struct_type->data.structure.abi_alignment) {
-                struct_type->data.structure.abi_alignment = this_field_align;
-            }
+        }
+        // alignment of structs is the alignment of the most-aligned field
+        if (this_field_align > struct_type->data.structure.abi_alignment) {
+            struct_type->data.structure.abi_alignment = this_field_align;
         }
     }
 
@@ -2732,14 +2734,6 @@ static Error resolve_struct_alignment(CodeGen *g, ZigType *struct_type) {
         return ErrorSemanticAnalyzeFail;
     }
 
-    if ( self_resolving
-      && field_count > 0
-       ) {
-        // If we get here it's due to self-referencing this struct before it has been fully resolved.
-        // In this case, set alignment to target pointer default.
-        struct_type->data.structure.abi_alignment = LLVMABIAlignmentOfType(g->target_data_ref,
-                LLVMPointerType(LLVMInt8Type(), 0));
-    }
     struct_type->data.structure.resolve_status = ResolveStatusAlignmentKnown;
     return ErrorNone;
 }
