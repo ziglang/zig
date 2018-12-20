@@ -8,10 +8,11 @@ const posix = os.posix;
 const Loop = std.event.Loop;
 
 //@TODO: Ugly hack to get around how async<allocator> works. Unecessary after #1260
-const oaw = std.old_allocator_wrapper;
+const oaw = @import("old_allocator_wrapper.zig");
+const OldAllocator = oaw.OldAllocator;
 
 pub const Server = struct {
-    handleRequestFn: async<*oaw.OldAllocator> fn (*Server, *const std.net.Address, os.File) void,
+    handleRequestFn: async<*OldAllocator> fn (*Server, *const std.net.Address, os.File) void,
 
     loop: *Loop,
     sockfd: ?i32,
@@ -43,7 +44,7 @@ pub const Server = struct {
     pub fn listen(
         self: *Server,
         address: *const std.net.Address,
-        handleRequestFn: async<*oaw.OldAllocator> fn (*Server, *const std.net.Address, os.File) void,
+        handleRequestFn: async<*OldAllocator> fn (*Server, *const std.net.Address, os.File) void,
     ) !void {
         self.handleRequestFn = handleRequestFn;
 
@@ -281,7 +282,7 @@ test "listen on a port, send bytes, receive bytes" {
         tcp_server: Server,
 
         const Self = @This();
-        async<*oaw.OldAllocator> fn handler(tcp_server: *Server, _addr: *const std.net.Address, _socket: os.File) void {
+        async<*OldAllocator> fn handler(tcp_server: *Server, _addr: *const std.net.Address, _socket: os.File) void {
             const self = @fieldParentPtr(Self, "tcp_server", tcp_server);
             var socket = _socket; // TODO https://github.com/ziglang/zig/issues/1592
             defer socket.close();
@@ -349,7 +350,7 @@ pub const OutStream = struct {
         };
     }
 
-    async<*oaw.OldAllocator> fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
+    async<*OldAllocator> fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
         const self = @fieldParentPtr(OutStream, "stream", out_stream);
         return await (async write(self.loop, self.fd, bytes) catch unreachable);
     }
@@ -371,7 +372,7 @@ pub const InStream = struct {
         };
     }
 
-    async<*oaw.OldAllocator> fn readFn(in_stream: *Stream, bytes: []u8) Error!usize {
+    async<*OldAllocator> fn readFn(in_stream: *Stream, bytes: []u8) Error!usize {
         const self = @fieldParentPtr(InStream, "stream", in_stream);
         return await (async read(self.loop, self.fd, bytes) catch unreachable);
     }

@@ -325,7 +325,7 @@ test "std.event.Channel" {
     const allocator = da.allocator();
     
     //@TODO: Ugly hack to get around how async<allocator> works. Unecessary after #1260
-    const oaw = std.old_allocator_wrapper;
+    const oaw = @import("old_allocator_wrapper.zig");
     var wrapper = oaw.OldAllocatorWrapper.init(allocator);
 
     var loop: Loop = undefined;

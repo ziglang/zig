@@ -126,6 +126,22 @@ pub fn AllocatorInterface(comptime I: type) type {
             const non_const_ptr = @intToPtr([*]u8, @ptrToInt(bytes.ptr));
             self.impl.free(non_const_ptr[0..bytes.len]);
         }
+        
+        //@NOTE: This doesn't work because of being a boundFn. Implement old allocator
+        // pattern with a wrapper just to bypass this check for async<>?
+        //@NOTE: These exist only because current async implementation requires them!
+        //see #1260
+        //pub fn allocFn(self: *Self, n: usize, alignment: u29) Error![]u8 {
+        //    return self.impl.alloc(n, alignment);
+        //}
+        //
+        //fn reallocFn(self: *Self, old_mem: []u8, new_size: usize, alignment: u29) Error![]u8 {
+        //    return self.impl.realloc(old_mem, new_size, alignment);
+        //}
+        //
+        //fn freeFn(self: *Self, bytes: []u8) void {
+        //    return self.impl.free(bytes);
+        //}
     };
 }
 
@@ -562,6 +578,21 @@ pub fn readIntSlice(comptime T: type, bytes: []const u8, endian: builtin.Endian)
     assert(bytes.len >= @sizeOf(T));
     // TODO https://github.com/ziglang/zig/issues/863
     return readInt(T, @ptrCast(*const [@sizeOf(T)]u8, bytes.ptr), endian);
+}
+
+test "std.mem comptime read/write int" {
+    comptime {
+        var bytes: [2]u8 = undefined;
+        std.mem.writeIntLittle(u16, &bytes, 0x1234);
+        const result = std.mem.readIntBig(u16, &bytes);
+        std.debug.assert(result == 0x3412);
+    }
+    comptime {
+        var bytes: [2]u8 = undefined;
+        std.mem.writeIntBig(u16, &bytes, 0x1234);
+        const result = std.mem.readIntLittle(u16, &bytes);
+        std.debug.assert(result == 0x3412);
+    }
 }
 
 test "std.mem.readIntBig and readIntLittle" {

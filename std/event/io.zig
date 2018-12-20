@@ -14,7 +14,7 @@ pub fn InStream(comptime ReadError: type) type {
         /// Return the number of bytes read. It may be less than buffer.len.
         /// If the number of bytes read is 0, it means end of stream.
         /// End of stream is not an error condition.
-        readFn: async<*oaw.OldAllocator> fn (self: *Self, buffer: []u8) Error!usize,
+        readFn: async<Allocator> fn (self: *Self, buffer: []u8) Error!usize,
 
         /// Return the number of bytes read. It may be less than buffer.len.
         /// If the number of bytes read is 0, it means end of stream.
@@ -74,6 +74,6 @@ pub fn OutStream(comptime WriteError: type) type {
         const Self = @This();
         pub const Error = WriteError;
 
-        writeFn: async<*oaw.OldAllocator> fn (self: *Self, buffer: []u8) Error!void,
+        writeFn: async<Allocator> fn (self: *Self, buffer: []u8) Error!void,
     };
 }
