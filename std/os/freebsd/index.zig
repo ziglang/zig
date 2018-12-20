@@ -580,6 +580,10 @@ pub fn getdirentries(fd: i32, buf_ptr: [*]u8, buf_len: usize, basep: *i64) usize
     return errnoWrap(@bitCast(isize, c.getdirentries(fd, buf_ptr, buf_len, basep)));
 }
 
+pub fn realpath(noalias filename: [*]const u8, noalias resolved_name: [*]u8) usize {
+    return if (c.realpath(filename, resolved_name) == null) @bitCast(usize, -isize(c._errno().*)) else 0;
+}
+
 pub fn isatty(fd: i32) bool {
     return c.isatty(fd) != 0;
 }
