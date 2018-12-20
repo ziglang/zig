@@ -398,3 +398,14 @@ test "std.ArrayList.insertSlice" {
     assert(list.len == 6);
     assert(list.items[0] == 1);
 }
+
+const Item = struct {
+    integer: i32,
+    sub_items: ArrayList(Item),
+};
+
+test "std.ArrayList: ArrayList(T) of struct T" {
+    var root = Item{ .integer = 1, .sub_items = ArrayList(Item).init(debug.global_allocator) };
+    try root.sub_items.append( Item{ .integer = 42, .sub_items = ArrayList(Item).init(debug.global_allocator) } );
+    assert(root.sub_items.items[0].integer == 42);
+}
