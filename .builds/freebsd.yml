@@ -1,0 +1,21 @@
+arch: x86_64
+image: freebsd
+packages:
+  - cmake
+  - llvm70
+sources:
+  - https://github.com/ziglang/zig.git
+tasks:
+  - build: |
+      cd zig && mkdir build && cd build
+      cmake .. -DCMAKE_BUILD_TYPE=Release
+      make -j$(sysctl -n hw.ncpu) install
+  - test: |
+      cd zig/build
+      bin/zig test ../test/behavior.zig
+      # TODO enable all tests
+      #bin/zig build --build-file ../build.zig test
+      # TODO integrate with the download page updater and make a
+      # static build available to download for FreeBSD.
+      # This will require setting up a cache of LLVM/Clang built
+      # statically.
