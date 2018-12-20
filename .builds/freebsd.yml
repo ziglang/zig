@@ -1,0 +1,15 @@
+arch: x86_64
+image: freebsd
+packages:
+  - cmake
+  - llvm70
+sources:
+  - https://github.com/ziglang/zig.git
+tasks:
+  - build: |
+      cd zig && mkdir build && cd build
+      cmake ..
+      make && make install
+  - test: |
+      cd zig && cd build
+      ./bin/zig build --build-file ../build.zig test
