@@ -14752,20 +14752,10 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call
                 return ira->codegen->invalid_instruction;
         }
 
-        ZigType *scalar_result_type;
-        ZigType *payload_result_type;
-        if (return_type->id == ZigTypeIdErrorUnion) {
-            scalar_result_type = get_optional_type(ira->codegen, return_type->data.error_union.err_set_type);
-            payload_result_type = return_type->data.error_union.payload_type;
-        } else {
-            payload_result_type = return_type;
-            scalar_result_type = return_type;
-        }
-
+        // TODO test with optionals and error unions
         IrInstruction *new_instruction = ir_const(ira, &call_instruction->base, result->value.type);
         // TODO should we use copy_const_val?
         new_instruction->value = result->value;
-        new_instruction->value.type = scalar_result_type;
 
         if (call_instruction->result_loc != nullptr && call_instruction->result_loc->child != nullptr) {
             IrInstruction *prev_result_loc = call_instruction->result_loc->child;
@@ -14780,19 +14770,28 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call
                 }
             }
 
-            bool need_store_ptr = (return_type == payload_result_type) &&
-                (!type_has_bits(return_type) || !handle_is_ptr(return_type));
-            IrInstruction *casted_result_loc = ir_implicit_cast_result(ira, prev_result_loc, payload_result_type, need_store_ptr);
-            if (casted_result_loc == nullptr)
-                casted_result_loc = prev_result_loc;
-            if (type_is_invalid(casted_result_loc->value.type))
+            IrInstruction *store_inst = ir_analyze_store_ptr(ira, &call_instruction->base,
+                    prev_result_loc, new_instruction);
+            if (type_is_invalid(store_inst->value.type))
                 return ira->codegen->invalid_instruction;
-            if (need_store_ptr) {
-                ir_analyze_store_ptr(ira, &call_instruction->base, casted_result_loc, new_instruction);
-            }
         }
 
-        return ir_finish_anal(ira, new_instruction);
+        switch (call_instruction->lval) {
+            case LValNone:
+                return ir_finish_anal(ira, new_instruction);
+            case LValPtr: {
+                IrInstruction *ref_inst = ir_get_ref(ira, &call_instruction->base, new_instruction,
+                        true, false, nullptr);
+                return ir_finish_anal(ira, ref_inst);
+            }
+            case LValErrorUnionVal:
+                zig_unreachable();
+            case LValErrorUnionPtr:
+                zig_unreachable();
+            case LValOptional:
+                zig_unreachable();
+        }
+        zig_unreachable();
     }
 
     IrInstruction *casted_new_stack = nullptr;
@@ -16144,6 +16143,7 @@ static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_
                             }
                         }
                     }
+                    assert(struct_val->special != ConstValSpecialUndef);
                     ConstExprValue *field_val = &struct_val->data.x_struct.fields[field->src_index];
                     ZigType *ptr_type = get_pointer_to_type_extra(ira->codegen, field_val->type,
                             is_const, is_volatile, PtrLenSingle, align_bytes,

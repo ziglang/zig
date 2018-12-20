@@ -378,7 +378,7 @@ pub fn IntFittingRange(comptime from: comptime_int, comptime to: comptime_int) t
         return u0;
     }
     const is_signed = from < 0;
-    const largest_positive_integer = max(if (from<0) (-from)-1 else from, to); // two's complement
+    const largest_positive_integer = max(if (from < 0) (-from) - 1 else from, to); // two's complement
     const base = log2(largest_positive_integer);
     const upper = (1 << base) - 1;
     var magnitude_bits = if (upper >= largest_positive_integer) base else base + 1;
