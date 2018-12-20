@@ -15,7 +15,7 @@ pub const ParseStringLiteralError = error{
 
 /// caller owns returned memory
 pub fn parseStringLiteral(
-    allocator: *std.mem.Allocator,
+    allocator: std.mem.Allocator,
     bytes: []const u8,
     bad_index: *usize, // populated if error.InvalidCharacter is returned
 ) ParseStringLiteralError![]u8 {

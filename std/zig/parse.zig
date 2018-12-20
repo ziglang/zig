@@ -9,14 +9,14 @@ const Error = ast.Error;
 
 /// Result should be freed with tree.deinit() when there are
 /// no more references to any of the tokens or nodes.
-pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
+pub fn parse(allocator: mem.Allocator, source: []const u8) !ast.Tree {
     var tree_arena = std.heap.ArenaAllocator.init(allocator);
     errdefer tree_arena.deinit();
 
     var stack = std.ArrayList(State).init(allocator);
     defer stack.deinit();
 
-    const arena = &tree_arena.allocator;
+    const arena = tree_arena.allocator();
     const root_node = try arena.create(ast.Node.Root{
         .base = ast.Node{ .id = ast.Node.Id.Root },
         .decls = ast.Node.Root.DeclList.init(arena),
@@ -3124,7 +3124,7 @@ const State = union(enum) {
     OptionalTokenSave: OptionalTokenSave,
 };
 
-fn pushDocComment(arena: *mem.Allocator, line_comment: TokenIndex, result: *?*ast.Node.DocComment) !void {
+fn pushDocComment(arena: mem.Allocator, line_comment: TokenIndex, result: *?*ast.Node.DocComment) !void {
     const node = blk: {
         if (result.*) |comment_node| {
             break :blk comment_node;
@@ -3140,7 +3140,7 @@ fn pushDocComment(arena: *mem.Allocator, line_comment: TokenIndex, result: *?*as
     try node.lines.push(line_comment);
 }
 
-fn eatDocComments(arena: *mem.Allocator, tok_it: *ast.Tree.TokenList.Iterator, tree: *ast.Tree) !?*ast.Node.DocComment {
+fn eatDocComments(arena: mem.Allocator, tok_it: *ast.Tree.TokenList.Iterator, tree: *ast.Tree) !?*ast.Node.DocComment {
     var result: ?*ast.Node.DocComment = null;
     while (true) {
         if (eatToken(tok_it, tree, Token.Id.DocComment)) |line_comment| {
@@ -3152,7 +3152,7 @@ fn eatDocComments(arena: *mem.Allocator, tok_it: *ast.Tree.TokenList.Iterator, t
     return result;
 }
 
-fn parseStringLiteral(arena: *mem.Allocator, tok_it: *ast.Tree.TokenList.Iterator, token_ptr: *const Token, token_index: TokenIndex, tree: *ast.Tree) !?*ast.Node {
+fn parseStringLiteral(arena: mem.Allocator, tok_it: *ast.Tree.TokenList.Iterator, token_ptr: *const Token, token_index: TokenIndex, tree: *ast.Tree) !?*ast.Node {
     switch (token_ptr.id) {
         Token.Id.StringLiteral => {
             return &(try createLiteral(arena, ast.Node.StringLiteral, token_index)).base;
@@ -3183,7 +3183,7 @@ fn parseStringLiteral(arena: *mem.Allocator, tok_it: *ast.Tree.TokenList.Iterato
     }
 }
 
-fn parseBlockExpr(stack: *std.ArrayList(State), arena: *mem.Allocator, ctx: OptionalCtx, token_ptr: Token, token_index: TokenIndex) !bool {
+fn parseBlockExpr(stack: *std.ArrayList(State), arena: mem.Allocator, ctx: OptionalCtx, token_ptr: Token, token_index: TokenIndex) !bool {
     switch (token_ptr.id) {
         Token.Id.Keyword_suspend => {
             const node = try arena.create(ast.Node.Suspend{
@@ -3411,14 +3411,14 @@ fn tokenIdToPrefixOp(id: Token.Id) ?ast.Node.PrefixOp.Op {
     };
 }
 
-fn createLiteral(arena: *mem.Allocator, comptime T: type, token_index: TokenIndex) !*T {
+fn createLiteral(arena: mem.Allocator, comptime T: type, token_index: TokenIndex) !*T {
     return arena.create(T{
         .base = ast.Node{ .id = ast.Node.typeToId(T) },
         .token = token_index,
     });
 }
 
-fn createToCtxLiteral(arena: *mem.Allocator, opt_ctx: OptionalCtx, comptime T: type, token_index: TokenIndex) !*T {
+fn createToCtxLiteral(arena: mem.Allocator, opt_ctx: OptionalCtx, comptime T: type, token_index: TokenIndex) !*T {
     const node = try createLiteral(arena, T, token_index);
     opt_ctx.store(&node.base);
 

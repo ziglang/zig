@@ -41,6 +41,7 @@ pub const rand = @import("rand/index.zig");
 pub const rb = @import("rb.zig");
 pub const sort = @import("sort.zig");
 pub const unicode = @import("unicode.zig");
+pub const vtable = @import("vtable.zig");
 pub const zig = @import("zig/index.zig");
 
 pub const lazyInit = @import("lazy_init.zig").lazyInit;
@@ -57,7 +58,7 @@ test "std" {
     _ = @import("mutex.zig");
     _ = @import("segmented_list.zig");
     _ = @import("spinlock.zig");
-    
+
     _ = @import("dynamic_library.zig");
     _ = @import("base64.zig");
     _ = @import("build.zig");

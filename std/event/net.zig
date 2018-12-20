@@ -7,8 +7,12 @@ const os = std.os;
 const posix = os.posix;
 const Loop = std.event.Loop;
 
+//@TODO: Ugly hack to get around how async<allocator> works. Unecessary after #1260
+const oaw = @import("old_allocator_wrapper.zig");
+const OldAllocator = oaw.OldAllocator;
+
 pub const Server = struct {
-    handleRequestFn: async<*mem.Allocator> fn (*Server, *const std.net.Address, os.File) void,
+    handleRequestFn: async<*OldAllocator> fn (*Server, *const std.net.Address, os.File) void,
 
     loop: *Loop,
     sockfd: ?i32,
@@ -40,7 +44,7 @@ pub const Server = struct {
     pub fn listen(
         self: *Server,
         address: *const std.net.Address,
-        handleRequestFn: async<*mem.Allocator> fn (*Server, *const std.net.Address, os.File) void,
+        handleRequestFn: async<*OldAllocator> fn (*Server, *const std.net.Address, os.File) void,
     ) !void {
         self.handleRequestFn = handleRequestFn;
 
@@ -52,7 +56,7 @@ pub const Server = struct {
         try os.posixListen(sockfd, posix.SOMAXCONN);
         self.listen_address = std.net.Address.initPosix(try os.posixGetSockName(sockfd));
 
-        self.accept_coro = try async<self.loop.allocator> Server.handler(self);
+        self.accept_coro = try async<&self.loop.oaw.old_allocator> Server.handler(self);
         errdefer cancel self.accept_coro.?;
 
         self.listen_resume_node.handle = self.accept_coro.?;
@@ -82,7 +86,7 @@ pub const Server = struct {
                     continue;
                 }
                 var socket = os.File.openHandle(accepted_fd);
-                _ = async<self.loop.allocator> self.handleRequestFn(self, &accepted_addr, socket) catch |err| switch (err) {
+                _ = async<&self.loop.oaw.old_allocator> self.handleRequestFn(self, &accepted_addr, socket) catch |err| switch (err) {
                     error.OutOfMemory => {
                         socket.close();
                         continue;
@@ -278,7 +282,7 @@ test "listen on a port, send bytes, receive bytes" {
         tcp_server: Server,
 
         const Self = @This();
-        async<*mem.Allocator> fn handler(tcp_server: *Server, _addr: *const std.net.Address, _socket: os.File) void {
+        async<*OldAllocator> fn handler(tcp_server: *Server, _addr: *const std.net.Address, _socket: os.File) void {
             const self = @fieldParentPtr(Self, "tcp_server", tcp_server);
             var socket = _socket; // TODO https://github.com/ziglang/zig/issues/1592
             defer socket.close();
@@ -309,7 +313,10 @@ test "listen on a port, send bytes, receive bytes" {
     defer server.tcp_server.deinit();
     try server.tcp_server.listen(&addr, MyServer.handler);
 
-    const p = try async<std.debug.global_allocator> doAsyncTest(&loop, &server.tcp_server.listen_address, &server.tcp_server);
+    //@TODO: Ugly hack to get around how async<allocator> works. Unecessary after #1260
+    var wrapper = oaw.OldAllocatorWrapper.init(std.debug.global_allocator);
+    
+    const p = try async<&wrapper.old_allocator> doAsyncTest(&loop, &server.tcp_server.listen_address, &server.tcp_server);
     defer cancel p;
     loop.run();
 }
@@ -343,7 +350,7 @@ pub const OutStream = struct {
         };
     }
 
-    async<*mem.Allocator> fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
+    async<*OldAllocator> fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
         const self = @fieldParentPtr(OutStream, "stream", out_stream);
         return await (async write(self.loop, self.fd, bytes) catch unreachable);
     }
@@ -365,7 +372,7 @@ pub const InStream = struct {
         };
     }
 
-    async<*mem.Allocator> fn readFn(in_stream: *Stream, bytes: []u8) Error!usize {
+    async<*OldAllocator> fn readFn(in_stream: *Stream, bytes: []u8) Error!usize {
         const self = @fieldParentPtr(InStream, "stream", in_stream);
         return await (async read(self.loop, self.fd, bytes) catch unreachable);
     }

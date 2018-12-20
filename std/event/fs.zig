@@ -782,7 +782,7 @@ pub fn Watch(comptime V: type) type {
                     errdefer os.close(inotify_fd);
 
                     var result: *Self = undefined;
-                    _ = try async<loop.allocator> linuxEventPutter(inotify_fd, channel, &result);
+                    _ = try async<&loop.oaw.old_allocator> linuxEventPutter(inotify_fd, channel, &result);
                     return result;
                 },
 
@@ -1316,7 +1316,7 @@ test "write a file, watch it, write it again" {
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
 
-    const allocator = &da.allocator;
+    const allocator = da.allocator();
 
     // TODO move this into event loop too
     try os.makePath(allocator, test_tmp_dir);
@@ -1327,7 +1327,7 @@ test "write a file, watch it, write it again" {
     defer loop.deinit();
 
     var result: anyerror!void = error.ResultNeverWritten;
-    const handle = try async<allocator> testFsWatchCantFail(&loop, &result);
+    const handle = try async<&loop.oaw.old_allocator> testFsWatchCantFail(&loop, &result);
     defer cancel handle;
 
     loop.run();
@@ -1404,7 +1404,7 @@ pub const OutStream = struct {
         };
     }
 
-    async<*mem.Allocator> fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
+    async<mem.Allocator> fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
         const self = @fieldParentPtr(OutStream, "stream", out_stream);
         const offset = self.offset;
         self.offset += bytes.len;
@@ -1430,7 +1430,7 @@ pub const InStream = struct {
         };
     }
 
-    async<*mem.Allocator> fn readFn(in_stream: *Stream, bytes: []u8) Error!usize {
+    async<mem.Allocator> fn readFn(in_stream: *Stream, bytes: []u8) Error!usize {
         const self = @fieldParentPtr(InStream, "stream", in_stream);
         const amt = try await (async preadv(self.loop, self.fd, [][]u8{bytes}, self.offset) catch unreachable);
         self.offset += amt;

@@ -366,22 +366,22 @@ pub const Elf = struct {
     string_section_index: u64,
     string_section: *SectionHeader,
     section_headers: []SectionHeader,
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
     prealloc_file: os.File,
 
     /// Call close when done.
-    pub fn openPath(elf: *Elf, allocator: *mem.Allocator, path: []const u8) !void {
+    pub fn openPath(elf: *Elf, allocator: mem.Allocator, path: []const u8) !void {
         @compileError("TODO implement");
     }
 
     /// Call close when done.
-    pub fn openFile(elf: *Elf, allocator: *mem.Allocator, file: os.File) !void {
+    pub fn openFile(elf: *Elf, allocator: mem.Allocator, file: os.File) !void {
         @compileError("TODO implement");
     }
 
     pub fn openStream(
         elf: *Elf,
-        allocator: *mem.Allocator,
+        allocator: mem.Allocator,
         seekable_stream: *io.SeekableStream(anyerror, anyerror),
         in: *io.InStream(anyerror),
     ) !void {

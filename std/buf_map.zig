@@ -11,7 +11,7 @@ pub const BufMap = struct {
 
     const BufMapHashMap = HashMap([]const u8, []const u8, mem.hash_slice_u8, mem.eql_slice_u8);
 
-    pub fn init(allocator: *Allocator) BufMap {
+    pub fn init(allocator: Allocator) BufMap {
         var self = BufMap{ .hash_map = BufMapHashMap.init(allocator) };
         return self;
     }
@@ -86,7 +86,7 @@ test "BufMap" {
     var direct_allocator = std.heap.DirectAllocator.init();
     defer direct_allocator.deinit();
 
-    var bufmap = BufMap.init(&direct_allocator.allocator);
+    var bufmap = BufMap.init(direct_allocator.allocator());
     defer bufmap.deinit();
 
     try bufmap.set("x", "1");

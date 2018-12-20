@@ -20,7 +20,7 @@ pub const Builder = struct {
     install_tls: TopLevelStep,
     have_uninstall_step: bool,
     have_install_step: bool,
-    allocator: *Allocator,
+    allocator: Allocator,
     lib_paths: ArrayList([]const u8),
     include_paths: ArrayList([]const u8),
     rpaths: ArrayList([]const u8),
@@ -88,7 +88,7 @@ pub const Builder = struct {
         description: []const u8,
     };
 
-    pub fn init(allocator: *Allocator, zig_exe: []const u8, build_root: []const u8, cache_root: []const u8) Builder {
+    pub fn init(allocator: Allocator, zig_exe: []const u8, build_root: []const u8, cache_root: []const u8) Builder {
         const env_map = allocator.createOne(BufMap) catch unreachable;
         env_map.* = os.getEnvMap(allocator) catch unreachable;
         var self = Builder{
@@ -2084,7 +2084,7 @@ pub const Step = struct {
     loop_flag: bool,
     done_flag: bool,
 
-    pub fn init(name: []const u8, allocator: *Allocator, makeFn: fn (*Step) anyerror!void) Step {
+    pub fn init(name: []const u8, allocator: Allocator, makeFn: fn (*Step) anyerror!void) Step {
         return Step{
             .name = name,
             .makeFn = makeFn,
@@ -2093,7 +2093,7 @@ pub const Step = struct {
             .done_flag = false,
         };
     }
-    pub fn initNoOp(name: []const u8, allocator: *Allocator) Step {
+    pub fn initNoOp(name: []const u8, allocator: Allocator) Step {
         return init(name, allocator, makeNoOp);
     }
 
@@ -2111,7 +2111,7 @@ pub const Step = struct {
     fn makeNoOp(self: *Step) anyerror!void {}
 };
 
-fn doAtomicSymLinks(allocator: *Allocator, output_path: []const u8, filename_major_only: []const u8, filename_name_only: []const u8) !void {
+fn doAtomicSymLinks(allocator: Allocator, output_path: []const u8, filename_major_only: []const u8, filename_name_only: []const u8) !void {
     const out_dir = os.path.dirname(output_path) orelse ".";
     const out_basename = os.path.basename(output_path);
     // sym link for libfoo.so.1 to libfoo.so.1.2.3

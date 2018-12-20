@@ -462,7 +462,7 @@ pub const PDBStringTableHeader = packed struct {
 
 pub const Pdb = struct {
     in_file: os.File,
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
     coff: *coff.Coff,
     string_table: *MsfStream,
     dbi: *MsfStream,
@@ -494,7 +494,7 @@ const Msf = struct {
     directory: MsfStream,
     streams: []MsfStream,
 
-    fn openFile(self: *Msf, allocator: *mem.Allocator, file: os.File) !void {
+    fn openFile(self: *Msf, allocator: mem.Allocator, file: os.File) !void {
         var file_stream = file.inStream();
         const in = &file_stream.stream;
 
@@ -600,7 +600,7 @@ const MsfStream = struct {
     pub const Error = @typeOf(read).ReturnType.ErrorSet;
     pub const Stream = io.InStream(Error);
 
-    fn init(block_size: u32, block_count: u32, pos: usize, file: os.File, allocator: *mem.Allocator) !MsfStream {
+    fn init(block_size: u32, block_count: u32, pos: usize, file: os.File, allocator: mem.Allocator) !MsfStream {
         var stream = MsfStream{
             .in_file = file,
             .pos = 0,
@@ -621,7 +621,7 @@ const MsfStream = struct {
         return stream;
     }
 
-    fn readNullTermString(self: *MsfStream, allocator: *mem.Allocator) ![]u8 {
+    fn readNullTermString(self: *MsfStream, allocator: mem.Allocator) ![]u8 {
         var list = ArrayList(u8).init(allocator);
         defer list.deinit();
         while (true) {

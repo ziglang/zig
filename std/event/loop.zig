@@ -10,8 +10,14 @@ const posix = os.posix;
 const windows = os.windows;
 const maxInt = std.math.maxInt;
 
+//@TODO: Ugly hack to get around how async<allocator> works. Unecessary after #1260
+const OldAllocator = @import("old_allocator_wrapper.zig").OldAllocator;
+const OldAllocatorWrapper = @import("old_allocator_wrapper.zig").OldAllocatorWrapper;
+
+
 pub const Loop = struct {
-    allocator: *mem.Allocator,
+    oaw: OldAllocatorWrapper,
+    allocator: mem.Allocator,
     next_tick_queue: std.atomic.Queue(promise),
     os_data: OsData,
     final_resume_node: ResumeNode,
@@ -87,7 +93,7 @@ pub const Loop = struct {
     /// After initialization, call run().
     /// TODO copy elision / named return values so that the threads referencing *Loop
     /// have the correct pointer value.
-    pub fn initSingleThreaded(self: *Loop, allocator: *mem.Allocator) !void {
+    pub fn initSingleThreaded(self: *Loop, allocator: mem.Allocator) !void {
         return self.initInternal(allocator, 1);
     }
 
@@ -96,16 +102,17 @@ pub const Loop = struct {
     /// After initialization, call run().
     /// TODO copy elision / named return values so that the threads referencing *Loop
     /// have the correct pointer value.
-    pub fn initMultiThreaded(self: *Loop, allocator: *mem.Allocator) !void {
+    pub fn initMultiThreaded(self: *Loop, allocator: mem.Allocator) !void {
         const core_count = try os.cpuCount(allocator);
         return self.initInternal(allocator, core_count);
     }
 
     /// Thread count is the total thread count. The thread pool size will be
     /// max(thread_count - 1, 0)
-    fn initInternal(self: *Loop, allocator: *mem.Allocator, thread_count: usize) !void {
+    fn initInternal(self: *Loop, allocator: mem.Allocator, thread_count: usize) !void {
         self.* = Loop{
             .pending_event_count = 1,
+            .oaw = OldAllocatorWrapper.init(allocator),
             .allocator = allocator,
             .os_data = undefined,
             .next_tick_queue = std.atomic.Queue(promise).init(),
@@ -118,6 +125,7 @@ pub const Loop = struct {
                 .overlapped = ResumeNode.overlapped_init,
             },
         };
+        
         const extra_thread_count = thread_count - 1;
         self.eventfd_resume_nodes = try self.allocator.alloc(
             std.atomic.Stack(ResumeNode.EventFd).Node,
@@ -137,8 +145,8 @@ pub const Loop = struct {
         self.allocator.free(self.extra_threads);
     }
 
-    const InitOsDataError = os.LinuxEpollCreateError || mem.Allocator.Error || os.LinuxEventFdError ||
-        os.SpawnThreadError || os.LinuxEpollCtlError || os.BsdKEventError ||
+    const InitOsDataError = os.LinuxEpollCreateError || mem.AllocatorError ||  os.LinuxEventFdError
+        || os.SpawnThreadError || os.LinuxEpollCtlError || os.BsdKEventError ||
         os.WindowsCreateIoCompletionPortError;
 
     const wakeup_bytes = []u8{0x1} ** 8;
@@ -576,7 +584,7 @@ pub const Loop = struct {
             }
         };
         var handle: promise->@typeOf(func).ReturnType = undefined;
-        return async<self.allocator> S.asyncFunc(self, &handle, args);
+        return async<&self.oaw.old_allocator> S.asyncFunc(self, &handle, args);
     }
 
     /// Awaiting a yield lets the event loop run, starting any unstarted async operations.
@@ -848,7 +856,7 @@ test "std.event.Loop - basic" {
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
 
-    const allocator = &da.allocator;
+    const allocator = da.allocator();
 
     var loop: Loop = undefined;
     try loop.initMultiThreaded(allocator);
@@ -861,7 +869,7 @@ test "std.event.Loop - call" {
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
 
-    const allocator = &da.allocator;
+    const allocator = da.allocator();
 
     var loop: Loop = undefined;
     try loop.initMultiThreaded(allocator);

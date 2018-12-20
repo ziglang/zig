@@ -322,7 +322,11 @@ test "std.event.Channel" {
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
 
-    const allocator = &da.allocator;
+    const allocator = da.allocator();
+    
+    //@TODO: Ugly hack to get around how async<allocator> works. Unecessary after #1260
+    const oaw = @import("old_allocator_wrapper.zig");
+    var wrapper = oaw.OldAllocatorWrapper.init(allocator);
 
     var loop: Loop = undefined;
     // TODO make a multi threaded test
@@ -332,10 +336,10 @@ test "std.event.Channel" {
     const channel = try Channel(i32).create(&loop, 0);
     defer channel.destroy();
 
-    const handle = try async<allocator> testChannelGetter(&loop, channel);
+    const handle = try async<&wrapper.old_allocator> testChannelGetter(&loop, channel);
     defer cancel handle;
 
-    const putter = try async<allocator> testChannelPutter(channel);
+    const putter = try async<&wrapper.old_allocator> testChannelPutter(channel);
     defer cancel putter;
 
     loop.run();

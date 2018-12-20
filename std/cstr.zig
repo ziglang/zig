@@ -48,7 +48,7 @@ fn testCStrFnsImpl() void {
 
 /// Returns a mutable slice with 1 more byte of length which is a null byte.
 /// Caller owns the returned memory.
-pub fn addNullByte(allocator: *mem.Allocator, slice: []const u8) ![]u8 {
+pub fn addNullByte(allocator: mem.Allocator, slice: []const u8) ![]u8 {
     const result = try allocator.alloc(u8, slice.len + 1);
     mem.copy(u8, result, slice);
     result[slice.len] = 0;
@@ -56,13 +56,13 @@ pub fn addNullByte(allocator: *mem.Allocator, slice: []const u8) ![]u8 {
 }
 
 pub const NullTerminated2DArray = struct {
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
     byte_count: usize,
     ptr: ?[*]?[*]u8,
 
     /// Takes N lists of strings, concatenates the lists together, and adds a null terminator
     /// Caller must deinit result
-    pub fn fromSlices(allocator: *mem.Allocator, slices: []const []const []const u8) !NullTerminated2DArray {
+    pub fn fromSlices(allocator: mem.Allocator, slices: []const []const []const u8) !NullTerminated2DArray {
         var new_len: usize = 1; // 1 for the list null
         var byte_count: usize = 0;
         for (slices) |slice| {

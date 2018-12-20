@@ -9,6 +9,7 @@ const maxInt = std.math.maxInt;
 const minInt = std.math.minInt;
 
 const TypeId = builtin.TypeId;
+const AllocatorError = mem.AllocatorError;
 
 pub const Limb = usize;
 pub const DoubleLimb = @IntType(false, 2 * Limb.bit_count);
@@ -21,7 +22,7 @@ comptime {
 }
 
 pub const Int = struct {
-    allocator: *Allocator,
+    allocator: Allocator,
     positive: bool,
     //  - little-endian ordered
     //  - len >= 1 always
@@ -31,17 +32,17 @@ pub const Int = struct {
 
     const default_capacity = 4;
 
-    pub fn init(allocator: *Allocator) !Int {
+    pub fn init(allocator: Allocator) !Int {
         return try Int.initCapacity(allocator, default_capacity);
     }
 
-    pub fn initSet(allocator: *Allocator, value: var) !Int {
+    pub fn initSet(allocator: Allocator, value: var) !Int {
         var s = try Int.init(allocator);
         try s.set(value);
         return s;
     }
 
-    pub fn initCapacity(allocator: *Allocator, capacity: usize) !Int {
+    pub fn initCapacity(allocator: Allocator, capacity: usize) !Int {
         return Int{
             .allocator = allocator,
             .positive = true,
@@ -177,7 +178,7 @@ pub const Int = struct {
         return (bit_count / math.log2(base)) + 1;
     }
 
-    pub fn set(self: *Int, value: var) Allocator.Error!void {
+    pub fn set(self: *Int, value: var) AllocatorError!void {
         const T = @typeOf(value);
 
         switch (@typeInfo(T)) {
@@ -316,12 +317,12 @@ pub const Int = struct {
 
         // TODO values less than limb size should guarantee non allocating
         var base_buffer: [512]u8 = undefined;
-        const base_al = &std.heap.FixedBufferAllocator.init(base_buffer[0..]).allocator;
+        const base_al = std.heap.FixedBufferAllocator.init(base_buffer[0..]).allocator();
         const base_ap = try Int.initSet(base_al, base);
 
         var d_buffer: [512]u8 = undefined;
         var d_fba = std.heap.FixedBufferAllocator.init(d_buffer[0..]);
-        const d_al = &d_fba.allocator;
+        const d_al = d_fba.allocator();
 
         try self.set(0);
         for (value[i..]) |ch| {
@@ -336,7 +337,7 @@ pub const Int = struct {
     }
 
     /// TODO make this call format instead of the other way around
-    pub fn toString(self: Int, allocator: *Allocator, base: u8) ![]const u8 {
+    pub fn toString(self: Int, allocator: Allocator, base: u8) ![]const u8 {
         if (base < 2 or base > 16) {
             return error.InvalidBase;
         }
@@ -520,7 +521,7 @@ pub const Int = struct {
     }
 
     // r = a + b
-    pub fn add(r: *Int, a: Int, b: Int) Allocator.Error!void {
+    pub fn add(r: *Int, a: Int, b: Int) AllocatorError!void {
         if (a.eqZero()) {
             try r.copy(b);
             return;
@@ -753,7 +754,7 @@ pub const Int = struct {
         if (!q.positive) {
             // TODO values less than limb size should guarantee non allocating
             var one_buffer: [512]u8 = undefined;
-            const one_al = &std.heap.FixedBufferAllocator.init(one_buffer[0..]).allocator;
+            const one_al = std.heap.FixedBufferAllocator.init(one_buffer[0..]).allocator();
             const one_ap = try Int.initSet(one_al, 1);
 
             try q.sub(q.*, one_ap);
@@ -842,7 +843,7 @@ pub const Int = struct {
     // Handbook of Applied Cryptography, 14.20
     //
     // x = qy + r where 0 <= r < y
-    fn divN(allocator: *Allocator, q: *Int, r: *Int, x: *Int, y: *Int) !void {
+    fn divN(allocator: Allocator, q: *Int, r: *Int, x: *Int, y: *Int) !void {
         debug.assert(y.len >= 2);
         debug.assert(x.len >= y.len);
         debug.assert(q.limbs.len >= x.len + y.len - 1);

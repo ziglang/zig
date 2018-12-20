@@ -164,7 +164,7 @@ pub fn windowsOpen(
 }
 
 /// Caller must free result.
-pub fn createWindowsEnvBlock(allocator: *mem.Allocator, env_map: *const BufMap) ![]u16 {
+pub fn createWindowsEnvBlock(allocator: mem.Allocator, env_map: *const BufMap) ![]u16 {
     // count bytes needed
     const max_chars_needed = x: {
         var max_chars_needed: usize = 1; // 1 for the final null byte

@@ -84,7 +84,7 @@ test "cpu count" {
 
 test "AtomicFile" {
     var buffer: [1024]u8 = undefined;
-    const allocator = &std.heap.FixedBufferAllocator.init(buffer[0..]).allocator;
+    const allocator = std.heap.FixedBufferAllocator.init(buffer[0..]).allocator();
     const test_out_file = "tmp_atomic_file_test_dest.txt";
     const test_content =
         \\ hello!

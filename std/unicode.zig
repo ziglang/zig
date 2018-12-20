@@ -478,7 +478,7 @@ fn testDecode(bytes: []const u8) !u32 {
 }
 
 /// Caller must free returned memory.
-pub fn utf16leToUtf8Alloc(allocator: *mem.Allocator, utf16le: []const u16) ![]u8 {
+pub fn utf16leToUtf8Alloc(allocator: mem.Allocator, utf16le: []const u16) ![]u8 {
     var result = std.ArrayList(u8).init(allocator);
     // optimistically guess that it will all be ascii.
     try result.ensureCapacity(utf16le.len);
@@ -557,7 +557,7 @@ test "utf16leToUtf8" {
 
 /// TODO support codepoints bigger than 16 bits
 /// TODO type for null terminated pointer
-pub fn utf8ToUtf16LeWithNull(allocator: *mem.Allocator, utf8: []const u8) ![]u16 {
+pub fn utf8ToUtf16LeWithNull(allocator: mem.Allocator, utf8: []const u8) ![]u16 {
     var result = std.ArrayList(u16).init(allocator);
     // optimistically guess that it will not require surrogate pairs
     try result.ensureCapacity(utf8.len + 1);

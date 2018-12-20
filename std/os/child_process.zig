@@ -23,7 +23,7 @@ pub const ChildProcess = struct {
     pub handle: if (is_windows) windows.HANDLE else void,
     pub thread_handle: if (is_windows) windows.HANDLE else void,
 
-    pub allocator: *mem.Allocator,
+    pub allocator: mem.Allocator,
 
     pub stdin: ?os.File,
     pub stdout: ?os.File,
@@ -87,7 +87,7 @@ pub const ChildProcess = struct {
 
     /// First argument in argv is the executable.
     /// On success must call deinit.
-    pub fn init(argv: []const []const u8, allocator: *mem.Allocator) !*ChildProcess {
+    pub fn init(argv: []const []const u8, allocator: mem.Allocator) !*ChildProcess {
         const child = try allocator.create(ChildProcess{
             .allocator = allocator,
             .argv = argv,
@@ -195,7 +195,7 @@ pub const ChildProcess = struct {
 
     /// Spawns a child process, waits for it, collecting stdout and stderr, and then returns.
     /// If it succeeds, the caller owns result.stdout and result.stderr memory.
-    pub fn exec(allocator: *mem.Allocator, argv: []const []const u8, cwd: ?[]const u8, env_map: ?*const BufMap, max_output_size: usize) !ExecResult {
+    pub fn exec(allocator: mem.Allocator, argv: []const []const u8, cwd: ?[]const u8, env_map: ?*const BufMap, max_output_size: usize) !ExecResult {
         const child = try ChildProcess.init(argv, allocator);
         defer child.deinit();
 
@@ -696,7 +696,7 @@ fn windowsCreateProcess(app_name: [*]u16, cmd_line: [*]u16, envp_ptr: ?[*]u16, c
 
 /// Caller must dealloc.
 /// Guarantees a null byte at result[result.len].
-fn windowsCreateCommandLine(allocator: *mem.Allocator, argv: []const []const u8) ![]u8 {
+fn windowsCreateCommandLine(allocator: mem.Allocator, argv: []const []const u8) ![]u8 {
     var buf = try Buffer.initSize(allocator, 0);
     defer buf.deinit();
 

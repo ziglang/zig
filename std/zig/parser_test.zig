@@ -1879,7 +1879,7 @@ const maxInt = std.math.maxInt;
 
 var fixed_buffer_mem: [100 * 1024]u8 = undefined;
 
-fn testParse(source: []const u8, allocator: *mem.Allocator, anything_changed: *bool) ![]u8 {
+fn testParse(source: []const u8, allocator: mem.Allocator, anything_changed: *bool) ![]u8 {
     var stderr_file = try io.getStdErr();
     var stderr = &stderr_file.outStream().stream;
 
@@ -1924,9 +1924,9 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
     const needed_alloc_count = x: {
         // Try it once with unlimited memory, make sure it works
         var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
-        var failing_allocator = std.debug.FailingAllocator.init(&fixed_allocator.allocator, maxInt(usize));
+        var failing_allocator = std.debug.FailingAllocator.init(fixed_allocator.allocator(), maxInt(usize));
         var anything_changed: bool = undefined;
-        const result_source = try testParse(source, &failing_allocator.allocator, &anything_changed);
+        const result_source = try testParse(source, failing_allocator.allocator(), &anything_changed);
         if (!mem.eql(u8, result_source, expected_source)) {
             warn("\n====== expected this output: =========\n");
             warn("{}", expected_source);
@@ -1941,16 +1941,16 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
             return error.TestFailed;
         }
         std.debug.assert(anything_changed == changes_expected);
-        failing_allocator.allocator.free(result_source);
+        failing_allocator.allocatorInterface().free(result_source);
         break :x failing_allocator.index;
     };
 
     var fail_index: usize = 0;
     while (fail_index < needed_alloc_count) : (fail_index += 1) {
         var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
-        var failing_allocator = std.debug.FailingAllocator.init(&fixed_allocator.allocator, fail_index);
+        var failing_allocator = std.debug.FailingAllocator.init(fixed_allocator.allocator(), fail_index);
         var anything_changed: bool = undefined;
-        if (testParse(source, &failing_allocator.allocator, &anything_changed)) |_| {
+        if (testParse(source, failing_allocator.allocator(), &anything_changed)) |_| {
             return error.NondeterministicMemoryUsage;
         } else |err| switch (err) {
             error.OutOfMemory => {

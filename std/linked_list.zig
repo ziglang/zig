@@ -189,7 +189,7 @@ pub fn LinkedList(comptime T: type) type {
         ///
         /// Returns:
         ///     A pointer to the new node.
-        pub fn allocateNode(list: *Self, allocator: *Allocator) !*Node {
+        pub fn allocateNode(list: *Self, allocator: Allocator) !*Node {
             return allocator.create(Node(undefined));
         }
 
@@ -198,7 +198,7 @@ pub fn LinkedList(comptime T: type) type {
         /// Arguments:
         ///     node: Pointer to the node to deallocate.
         ///     allocator: Dynamic memory allocator.
-        pub fn destroyNode(list: *Self, node: *Node, allocator: *Allocator) void {
+        pub fn destroyNode(list: *Self, node: *Node, allocator: Allocator) void {
             allocator.destroy(node);
         }
 
@@ -210,7 +210,7 @@ pub fn LinkedList(comptime T: type) type {
         ///
         /// Returns:
         ///     A pointer to the new node.
-        pub fn createNode(list: *Self, data: T, allocator: *Allocator) !*Node {
+        pub fn createNode(list: *Self, data: T, allocator: Allocator) !*Node {
             var node = try list.allocateNode(allocator);
             node.* = Node.init(data);
             return node;

@@ -539,7 +539,7 @@ pub fn posixDup2(old_fd: i32, new_fd: i32) !void {
     }
 }
 
-pub fn createNullDelimitedEnvMap(allocator: *Allocator, env_map: *const BufMap) ![]?[*]u8 {
+pub fn createNullDelimitedEnvMap(allocator: Allocator, env_map: *const BufMap) ![]?[*]u8 {
     const envp_count = env_map.count();
     const envp_buf = try allocator.alloc(?[*]u8, envp_count + 1);
     mem.set(?[*]u8, envp_buf, null);
@@ -562,7 +562,7 @@ pub fn createNullDelimitedEnvMap(allocator: *Allocator, env_map: *const BufMap) 
     return envp_buf;
 }
 
-pub fn freeNullDelimitedEnvMap(allocator: *Allocator, envp_buf: []?[*]u8) void {
+pub fn freeNullDelimitedEnvMap(allocator: Allocator, envp_buf: []?[*]u8) void {
     for (envp_buf) |env| {
         const env_buf = if (env) |ptr| ptr[0 .. cstr.len(ptr) + 1] else break;
         allocator.free(env_buf);
@@ -575,7 +575,7 @@ pub fn freeNullDelimitedEnvMap(allocator: *Allocator, envp_buf: []?[*]u8) void {
 /// pointers after the args and after the environment variables.
 /// `argv[0]` is the executable path.
 /// This function also uses the PATH environment variable to get the full path to the executable.
-pub fn posixExecve(argv: []const []const u8, env_map: *const BufMap, allocator: *Allocator) !void {
+pub fn posixExecve(argv: []const []const u8, env_map: *const BufMap, allocator: Allocator) !void {
     const argv_buf = try allocator.alloc(?[*]u8, argv.len + 1);
     mem.set(?[*]u8, argv_buf, null);
     defer {
@@ -707,7 +707,7 @@ pub fn getBaseAddress() usize {
 
 /// Caller must free result when done.
 /// TODO make this go through libc when we have it
-pub fn getEnvMap(allocator: *Allocator) !BufMap {
+pub fn getEnvMap(allocator: Allocator) !BufMap {
     var result = BufMap.init(allocator);
     errdefer result.deinit();
 
@@ -786,7 +786,7 @@ pub const GetEnvVarOwnedError = error{
 
 /// Caller must free returned memory.
 /// TODO make this go through libc when we have it
-pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwnedError![]u8 {
+pub fn getEnvVarOwned(allocator: mem.Allocator, key: []const u8) GetEnvVarOwnedError![]u8 {
     if (is_windows) {
         const key_with_null = try std.unicode.utf8ToUtf16LeWithNull(allocator, key);
         defer allocator.free(key_with_null);
@@ -833,7 +833,7 @@ test "os.getEnvVarOwned" {
 }
 
 /// Caller must free the returned memory.
-pub fn getCwdAlloc(allocator: *Allocator) ![]u8 {
+pub fn getCwdAlloc(allocator: Allocator) ![]u8 {
     var buf: [MAX_PATH_BYTES]u8 = undefined;
     return mem.dupe(allocator, u8, try getCwd(&buf));
 }
@@ -962,7 +962,7 @@ pub fn symLinkPosix(existing_path: []const u8, new_path: []const u8) PosixSymLin
 const b64_fs_encoder = base64.Base64Encoder.init("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_", base64.standard_pad_char);
 
 /// TODO remove the allocator requirement from this API
-pub fn atomicSymLink(allocator: *Allocator, existing_path: []const u8, new_path: []const u8) !void {
+pub fn atomicSymLink(allocator: Allocator, existing_path: []const u8, new_path: []const u8) !void {
     if (symLink(existing_path, new_path)) {
         return;
     } else |err| switch (err) {
@@ -1284,7 +1284,7 @@ pub fn makeDirPosix(dir_path: []const u8) !void {
 /// Calls makeDir recursively to make an entire path. Returns success if the path
 /// already exists and is a directory.
 /// TODO determine if we can remove the allocator requirement from this function
-pub fn makePath(allocator: *Allocator, full_path: []const u8) !void {
+pub fn makePath(allocator: Allocator, full_path: []const u8) !void {
     const resolved_path = try path.resolve(allocator, full_path);
     defer allocator.free(resolved_path);
 
@@ -1426,7 +1426,7 @@ const DeleteTreeError = error{
 };
 
 /// TODO determine if we can remove the allocator requirement
-pub fn deleteTree(allocator: *Allocator, full_path: []const u8) DeleteTreeError!void {
+pub fn deleteTree(allocator: Allocator, full_path: []const u8) DeleteTreeError!void {
     start_over: while (true) {
         var got_access_denied = false;
         // First, try deleting the item as a file. This way we don't follow sym links.
@@ -1498,7 +1498,7 @@ pub fn deleteTree(allocator: *Allocator, full_path: []const u8) DeleteTreeError!
 
 pub const Dir = struct {
     handle: Handle,
-    allocator: *Allocator,
+    allocator: Allocator,
 
     pub const Handle = switch (builtin.os) {
         Os.macosx, Os.ios, Os.freebsd => struct {
@@ -1564,7 +1564,7 @@ pub const Dir = struct {
     };
 
     /// TODO remove the allocator requirement from this API
-    pub fn open(allocator: *Allocator, dir_path: []const u8) OpenError!Dir {
+    pub fn open(allocator: Allocator, dir_path: []const u8) OpenError!Dir {
         return Dir{
             .allocator = allocator,
             .handle = switch (builtin.os) {
@@ -1820,7 +1820,7 @@ pub const Dir = struct {
     }
 };
 
-pub fn changeCurDir(allocator: *Allocator, dir_path: []const u8) !void {
+pub fn changeCurDir(allocator: Allocator, dir_path: []const u8) !void {
     const path_buf = try allocator.alloc(u8, dir_path.len + 1);
     defer allocator.free(path_buf);
 
@@ -1990,7 +1990,7 @@ pub const ArgIteratorWindows = struct {
     }
 
     /// You must free the returned memory when done.
-    pub fn next(self: *ArgIteratorWindows, allocator: *Allocator) ?(NextError![]u8) {
+    pub fn next(self: *ArgIteratorWindows, allocator: Allocator) ?(NextError![]u8) {
         // march forward over whitespace
         while (true) : (self.index += 1) {
             const byte = self.cmd_line[self.index];
@@ -2043,7 +2043,7 @@ pub const ArgIteratorWindows = struct {
         }
     }
 
-    fn internalNext(self: *ArgIteratorWindows, allocator: *Allocator) NextError![]u8 {
+    fn internalNext(self: *ArgIteratorWindows, allocator: Allocator) NextError![]u8 {
         var buf = try Buffer.initSize(allocator, 0);
         defer buf.deinit();
 
@@ -2127,7 +2127,7 @@ pub const ArgIterator = struct {
     pub const NextError = ArgIteratorWindows.NextError;
 
     /// You must free the returned memory when done.
-    pub fn next(self: *ArgIterator, allocator: *Allocator) ?(NextError![]u8) {
+    pub fn next(self: *ArgIterator, allocator: Allocator) ?(NextError![]u8) {
         if (builtin.os == Os.windows) {
             return self.inner.next(allocator);
         } else {
@@ -2152,7 +2152,7 @@ pub fn args() ArgIterator {
 }
 
 /// Caller must call argsFree on result.
-pub fn argsAlloc(allocator: *mem.Allocator) ![]const []u8 {
+pub fn argsAlloc(allocator: mem.Allocator) ![]const []u8 {
     // TODO refactor to only make 1 allocation.
     var it = args();
     var contents = try Buffer.initSize(allocator, 0);
@@ -2189,7 +2189,7 @@ pub fn argsAlloc(allocator: *mem.Allocator) ![]const []u8 {
     return result_slice_list;
 }
 
-pub fn argsFree(allocator: *mem.Allocator, args_alloc: []const []u8) void {
+pub fn argsFree(allocator: mem.Allocator, args_alloc: []const []u8) void {
     var total_bytes: usize = 0;
     for (args_alloc) |arg| {
         total_bytes += @sizeOf([]u8) + arg.len;
@@ -2337,7 +2337,7 @@ pub fn selfExePath(out_buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
 
 /// `selfExeDirPath` except allocates the result on the heap.
 /// Caller owns returned memory.
-pub fn selfExeDirPathAlloc(allocator: *Allocator) ![]u8 {
+pub fn selfExeDirPathAlloc(allocator: Allocator) ![]u8 {
     var buf: [MAX_PATH_BYTES]u8 = undefined;
     return mem.dupe(allocator, u8, try selfExeDirPath(&buf));
 }
@@ -3199,7 +3199,7 @@ pub const CpuCountError = error{
     Unexpected,
 };
 
-pub fn cpuCount(fallback_allocator: *mem.Allocator) CpuCountError!usize {
+pub fn cpuCount(fallback_allocator: mem.Allocator) CpuCountError!usize {
     switch (builtin.os) {
         builtin.Os.macosx, builtin.Os.freebsd => {
             var count: c_int = undefined;

@@ -125,7 +125,7 @@ test "std.event.Lock" {
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
 
-    const allocator = &da.allocator;
+    const allocator = da.allocator();
 
     var loop: Loop = undefined;
     try loop.initMultiThreaded(allocator);
@@ -134,7 +134,7 @@ test "std.event.Lock" {
     var lock = Lock.init(&loop);
     defer lock.deinit();
 
-    const handle = try async<allocator> testLock(&loop, &lock);
+    const handle = try async<&loop.oaw.old_allocator> testLock(&loop, &lock);
     defer cancel handle;
     loop.run();
 

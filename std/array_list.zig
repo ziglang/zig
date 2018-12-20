@@ -18,10 +18,10 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
         /// you uninitialized memory.
         items: []align(A) T,
         len: usize,
-        allocator: *Allocator,
+        allocator: Allocator,
 
         /// Deinitialize with `deinit` or use `toOwnedSlice`.
-        pub fn init(allocator: *Allocator) Self {
+        pub fn init(allocator: Allocator) Self {
             return Self{
                 .items = []align(A) T{},
                 .len = 0,
@@ -69,7 +69,7 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
         /// ArrayList takes ownership of the passed in slice. The slice must have been
         /// allocated with `allocator`.
         /// Deinitialize with `deinit` or use `toOwnedSlice`.
-        pub fn fromOwnedSlice(allocator: *Allocator, slice: []align(A) T) Self {
+        pub fn fromOwnedSlice(allocator: Allocator, slice: []align(A) T) Self {
             return Self{
                 .items = slice,
                 .len = slice.len,
@@ -207,7 +207,7 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
 
 test "std.ArrayList.init" {
     var bytes: [1024]u8 = undefined;
-    const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
+    const allocator = std.heap.FixedBufferAllocator.init(bytes[0..]).allocator();
 
     var list = ArrayList(i32).init(allocator);
     defer list.deinit();
@@ -218,7 +218,7 @@ test "std.ArrayList.init" {
 
 test "std.ArrayList.basic" {
     var bytes: [1024]u8 = undefined;
-    const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
+    const allocator = std.heap.FixedBufferAllocator.init(bytes[0..]).allocator();
 
     var list = ArrayList(i32).init(allocator);
     defer list.deinit();

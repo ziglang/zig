@@ -1174,7 +1174,7 @@ var fixed_buffer_mem: [100 * 1024]u8 = undefined;
 fn fuzzTest(rng: *std.rand.Random) void {
     const array_size = rng.range(usize, 0, 1000);
     var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
-    var array = fixed_allocator.allocator.alloc(IdAndValue, array_size) catch unreachable;
+    var array = fixed_allocator.allocatorInterface().alloc(IdAndValue, array_size) catch unreachable;
     // populate with random data
     for (array) |*item, index| {
         item.id = index;

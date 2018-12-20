@@ -134,7 +134,7 @@ pub fn Queue(comptime T: type) type {
 }
 
 const Context = struct {
-    allocator: *std.mem.Allocator,
+    allocator: std.mem.Allocator,
     queue: *Queue(i32),
     put_sum: isize,
     get_sum: isize,
@@ -154,11 +154,11 @@ test "std.atomic.Queue" {
     var direct_allocator = std.heap.DirectAllocator.init();
     defer direct_allocator.deinit();
 
-    var plenty_of_memory = try direct_allocator.allocator.alloc(u8, 300 * 1024);
-    defer direct_allocator.allocator.free(plenty_of_memory);
+    var plenty_of_memory = try direct_allocator.allocatorInterface().alloc(u8, 300 * 1024);
+    defer direct_allocator.allocatorInterface().free(plenty_of_memory);
 
     var fixed_buffer_allocator = std.heap.ThreadSafeFixedBufferAllocator.init(plenty_of_memory);
-    var a = &fixed_buffer_allocator.allocator;
+    var a = fixed_buffer_allocator.allocator();
 
     var queue = Queue(i32).init();
     var context = Context{
