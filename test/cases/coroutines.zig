@@ -257,7 +257,7 @@ async fn printTrace(p: promise->(anyerror!void)) void {
 
 test "break from suspend" {
     var buf: [500]u8 = undefined;
-    var a = &std.heap.FixedBufferAllocator.init(buf[0..]).allocator();
+    var a = std.heap.FixedBufferAllocator.init(buf[0..]).allocator();
     var my_result: i32 = 1;
     var wrapper = oaw.OldAllocatorWrapper.init(a);
     const p = try async<&wrapper.old_allocator> testBreakFromSuspend(&my_result);

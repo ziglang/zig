@@ -1027,7 +1027,7 @@ pub const Builder = struct {
             .return_type = null,
             .tree_scope = tree_scope,
         });
-        code.basic_block_list = std.ArrayList(*BasicBlock).init(&code.arena.allocator);
+        code.basic_block_list = std.ArrayList(*BasicBlock).init(code.arena.allocator());
         errdefer code.destroy(comp.gpa());
 
         return Builder{
@@ -1763,7 +1763,7 @@ pub const Builder = struct {
     }
 
     fn arena(self: *Builder) Allocator {
-        return &self.code.arena.allocator;
+        return self.code.arena.allocator();
     }
 
     fn buildExtra(
