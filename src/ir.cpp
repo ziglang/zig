@@ -22894,9 +22894,21 @@ static IrInstruction *ir_analyze_instruction_first_arg_result_loc(IrAnalyze *ira
     }
 
     // Result of this instruction should be the result location for the first argument of the function call.
-    // We give null because this instruction is only ever consumed by the result location of a call
-    // instruction, which knows how to stack allocate if necessary.
-    return nullptr;
+    ZigType *param_type;
+    if (fn_ref->value.type->id == ZigTypeIdFn) {
+        ZigType *fn_type = fn_ref->value.type;
+        param_type = fn_type->data.fn.fn_type_id.param_info[0].type;
+    } else if (fn_ref->value.type->id == ZigTypeIdBoundFn) {
+        ZigType *fn_type = fn_ref->value.type->data.bound_fn.fn_type;
+        param_type = fn_type->data.fn.fn_type_id.param_info[1].type;
+    } else {
+        zig_unreachable();
+    }
+
+    if (param_type != nullptr && type_is_invalid(param_type))
+        return ira->codegen->invalid_instruction;
+
+    return ir_analyze_alloca(ira, &instruction->base, param_type, 0, "");
 }
 
 static IrInstruction *ir_analyze_instruction_infer_array_type(IrAnalyze *ira,
