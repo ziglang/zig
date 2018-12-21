@@ -63,9 +63,17 @@ pub fn fixint(comptime fp_t: type, comptime fixint_t: type, a: fp_t) fixint_t {
 
     // Cast to final signed result
     if (negative) {
-        return if (uint_result >= -math.minInt(fixint_t)) math.minInt(fixint_t) else -@intCast(fixint_t, uint_result);
+        if (uint_result >= -math.minInt(fixint_t)) {
+            return math.minInt(fixint_t);
+        } else {
+            return -@intCast(fixint_t, uint_result);
+        }
     } else {
-        return if (uint_result >= math.maxInt(fixint_t)) math.maxInt(fixint_t) else @intCast(fixint_t, uint_result);
+        if (uint_result >= math.maxInt(fixint_t)) {
+            return math.maxInt(fixint_t);
+        } else {
+            return @intCast(fixint_t, uint_result);
+        }
     }
 }
 
