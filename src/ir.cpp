@@ -3396,9 +3396,11 @@ static IrInstruction *ir_gen_value(IrBuilder *irb, Scope *scope, AstNode *node, 
         return value;
     if (result_loc != nullptr) {
         switch (lval) {
-            case LValNone:
-                ir_build_store_ptr(irb, scope, node, result_loc, value);
-                break;
+            case LValNone: {
+                IrInstruction *store_inst = ir_build_store_ptr(irb, scope, node, result_loc, value);
+                store_inst->is_gen = value->is_gen;
+                return value;
+            }
             case LValPtr:
                 zig_unreachable();
             case LValErrorUnionVal:
@@ -3773,8 +3775,8 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
                 return ir_mark_gen(ir_build_const_void(irb, child_scope, block_node));
             }
         }
-        return ir_gen_value(irb, parent_scope, block_node, lval, result_loc,
-                ir_mark_gen(ir_build_const_void(irb, child_scope, block_node)));
+        IrInstruction *void_inst = ir_mark_gen(ir_build_const_void(irb, child_scope, block_node));
+        return ir_gen_value(irb, parent_scope, block_node, lval, result_loc, void_inst);
     }
 }
 
