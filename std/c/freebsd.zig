@@ -51,7 +51,7 @@ pub const Stat = extern struct {
     ino: u64,
     nlink: usize,
 
-    mode: u32,
+    mode: u16,
     __pad0: u16,
     uid: u32,
     gid: u32,
