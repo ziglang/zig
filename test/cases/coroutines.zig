@@ -2,13 +2,17 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 
+//Remove after #1260
+const oaw = std.old_allocator_wrapper;
+
 var x: i32 = 1;
 
 test "create a coroutine and cancel it" {
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
-
-    const p = try async<&da.allocator> simpleAsyncFn();
+    
+    var wrapper = oaw.OldAllocatorWrapper.init(da.allocator());
+    const p = try async<&wrapper.old_allocator> simpleAsyncFn();
     comptime assert(@typeOf(p) == promise->void);
     cancel p;
     assert(x == 2);
@@ -24,7 +28,8 @@ test "coroutine suspend, resume, cancel" {
     defer da.deinit();
 
     seq('a');
-    const p = try async<&da.allocator> testAsyncSeq();
+    var wrapper = oaw.OldAllocatorWrapper.init(da.allocator());
+    const p = try async<&wrapper.old_allocator> testAsyncSeq();
     seq('c');
     resume p;
     seq('f');
@@ -51,8 +56,9 @@ fn seq(c: u8) void {
 test "coroutine suspend with block" {
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
-
-    const p = try async<&da.allocator> testSuspendBlock();
+    
+    var wrapper = oaw.OldAllocatorWrapper.init(da.allocator());
+    const p = try async<&wrapper.old_allocator> testSuspendBlock();
     std.debug.assert(!result);
     resume a_promise;
     std.debug.assert(result);
@@ -82,7 +88,8 @@ test "coroutine await" {
     defer da.deinit();
 
     await_seq('a');
-    const p = async<&da.allocator> await_amain() catch unreachable;
+    var wrapper = oaw.OldAllocatorWrapper.init(da.allocator());
+    const p = async<&wrapper.old_allocator> await_amain() catch unreachable;
     await_seq('f');
     resume await_a_promise;
     await_seq('i');
@@ -121,7 +128,8 @@ test "coroutine await early return" {
     defer da.deinit();
 
     early_seq('a');
-    const p = async<&da.allocator> early_amain() catch @panic("out of memory");
+    var wrapper = oaw.OldAllocatorWrapper.init(da.allocator());
+    const p = async<&wrapper.old_allocator> early_amain() catch @panic("out of memory");
     early_seq('f');
     assert(early_final_result == 1234);
     assert(std.mem.eql(u8, early_points, "abcdef"));
@@ -148,7 +156,8 @@ fn early_seq(c: u8) void {
 
 test "coro allocation failure" {
     var failing_allocator = std.debug.FailingAllocator.init(std.debug.global_allocator, 0);
-    if (async<&failing_allocator.allocator> asyncFuncThatNeverGetsRun()) {
+    var wrapper = oaw.OldAllocatorWrapper.init(failing_allocator.allocator());
+    if (async<&wrapper.old_allocator> asyncFuncThatNeverGetsRun()) {
         @panic("expected allocation failure");
     } else |err| switch (err) {
         error.OutOfMemory => {},
@@ -168,7 +177,8 @@ test "async function with dot syntax" {
     };
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
-    const p = try async<&da.allocator> S.foo();
+    var wrapper = oaw.OldAllocatorWrapper.init(da.allocator());
+    const p = try async<&wrapper.old_allocator> S.foo();
     cancel p;
     assert(S.y == 2);
 }
@@ -176,17 +186,18 @@ test "async function with dot syntax" {
 test "async fn pointer in a struct field" {
     var data: i32 = 1;
     const Foo = struct {
-        bar: async<*std.mem.Allocator> fn (*i32) void,
+        bar: async<std.mem.Allocator> fn (*i32) void,
     };
     var foo = Foo{ .bar = simpleAsyncFn2 };
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
-    const p = (async<&da.allocator> foo.bar(&data)) catch unreachable;
+    var wrapper = oaw.OldAllocatorWrapper.init(da.allocator());
+    const p = (async<&wrapper.old_allocator> foo.bar(&data)) catch unreachable;
     assert(data == 2);
     cancel p;
     assert(data == 4);
 }
-async<*std.mem.Allocator> fn simpleAsyncFn2(y: *i32) void {
+async<std.mem.Allocator> fn simpleAsyncFn2(y: *i32) void {
     defer y.* += 2;
     y.* += 1;
     suspend;
@@ -195,7 +206,8 @@ async<*std.mem.Allocator> fn simpleAsyncFn2(y: *i32) void {
 test "async fn with inferred error set" {
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
-    const p = (async<&da.allocator> failing()) catch unreachable;
+    var wrapper = oaw.OldAllocatorWrapper.init(da.allocator());
+    const p = (async<&wrapper.old_allocator> failing()) catch unreachable;
     resume p;
     cancel p;
 }
@@ -209,20 +221,23 @@ test "error return trace across suspend points - early return" {
     resume p;
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
-    const p2 = try async<&da.allocator> printTrace(p);
+    var wrapper = oaw.OldAllocatorWrapper.init(da.allocator());
+    const p2 = try async<&wrapper.old_allocator> printTrace(p);
     cancel p2;
 }
 
 test "error return trace across suspend points - async return" {
     const p = nonFailing();
-    const p2 = try async<std.debug.global_allocator> printTrace(p);
+    var wrapper = oaw.OldAllocatorWrapper.init(std.debug.global_allocator);
+    const p2 = try async<&wrapper.old_allocator> printTrace(p);
     resume p;
     cancel p2;
 }
 
 // TODO https://github.com/ziglang/zig/issues/760
 fn nonFailing() promise->(anyerror!void) {
-    return async<std.debug.global_allocator> suspendThenFail() catch unreachable;
+    var wrapper = oaw.OldAllocatorWrapper.init(std.debug.global_allocator);
+    return async<&wrapper.old_allocator> suspendThenFail() catch unreachable;
 }
 async fn suspendThenFail() anyerror!void {
     suspend;
@@ -242,9 +257,10 @@ async fn printTrace(p: promise->(anyerror!void)) void {
 
 test "break from suspend" {
     var buf: [500]u8 = undefined;
-    var a = &std.heap.FixedBufferAllocator.init(buf[0..]).allocator;
+    var a = &std.heap.FixedBufferAllocator.init(buf[0..]).allocator();
     var my_result: i32 = 1;
-    const p = try async<a> testBreakFromSuspend(&my_result);
+    var wrapper = oaw.OldAllocatorWrapper.init(a);
+    const p = try async<&wrapper.old_allocator> testBreakFromSuspend(&my_result);
     cancel p;
     std.debug.assert(my_result == 2);
 }

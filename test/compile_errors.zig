@@ -945,11 +945,13 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "suspend inside suspend block",
         \\const std = @import("std",);
+        \\const oaw = std.old_allocator_wrapper;
         \\
         \\export fn entry() void {
         \\    var buf: [500]u8 = undefined;
-        \\    var a = &std.heap.FixedBufferAllocator.init(buf[0..]).allocator;
-        \\    const p = (async<a> foo()) catch unreachable;
+        \\    var a = &std.heap.FixedBufferAllocator.init(buf[0..]).allocator();
+        \\    var wrapper = oaw.OldAllocatorWrapper.init(a);
+        \\    const p = (async<&wrapper.old_allocator> foo()) catch unreachable;
         \\    cancel p;
         \\}
         \\
@@ -1002,9 +1004,12 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "returning error from void async function",
-        \\const std = @import("std",);
+        \\const std = @import("std");
+        \\const oaw = std.old_allocator_wrapper;
+        \\
         \\export fn entry() void {
-        \\    const p = async<std.debug.global_allocator> amain() catch unreachable;
+        \\    var wrapper = oaw.OldAllocatorWrapper.init(std.debug.global_allocator);
+        \\    const p = async<&wrapper.old_allocator> amain() catch unreachable;
         \\}
         \\async fn amain() void {
         \\    return error.ShouldBeCompileError;
@@ -3466,9 +3471,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "method call with first arg type wrong container",
         \\pub const List = struct {
         \\    len: usize,
-        \\    allocator: *Allocator,
+        \\    allocator: Allocator,
         \\
-        \\    pub fn init(allocator: *Allocator) List {
+        \\    pub fn init(allocator: Allocator) List {
         \\        return List {
         \\            .len = 0,
         \\            .allocator = allocator,
@@ -3489,7 +3494,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    x.init();
         \\}
     ,
-        ".tmp_source.zig:23:5: error: expected type '*Allocator', found '*List'",
+        ".tmp_source.zig:23:5: error: expected type 'Allocator', found '*List'",
     );
 
     cases.add(

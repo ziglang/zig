@@ -2,6 +2,9 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 
+//Remove after #1260
+const oaw = std.old_allocator_wrapper;
+
 const Foo = struct {
     x: i32,
 };
@@ -12,9 +15,10 @@ var await_final_result = Foo{ .x = 0 };
 test "coroutine await struct" {
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
-
+    
     await_seq('a');
-    const p = async<&da.allocator> await_amain() catch unreachable;
+    var wrapper = oaw.OldAllocatorWrapper.init(da.allocator());
+    const p = async<&wrapper.old_allocator> await_amain() catch unreachable;
     await_seq('f');
     resume await_a_promise;
     await_seq('i');

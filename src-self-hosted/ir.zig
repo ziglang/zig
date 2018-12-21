@@ -964,7 +964,7 @@ pub const Code = struct {
     tree_scope: *Scope.AstTree,
 
     /// allocator is comp.gpa()
-    pub fn destroy(self: *Code, allocator: *Allocator) void {
+    pub fn destroy(self: *Code, allocator: Allocator) void {
         self.arena.deinit();
         allocator.destroy(self);
     }
@@ -1762,7 +1762,7 @@ pub const Builder = struct {
         }
     }
 
-    fn arena(self: *Builder) *Allocator {
+    fn arena(self: *Builder) Allocator {
         return &self.code.arena.allocator;
     }
 

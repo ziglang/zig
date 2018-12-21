@@ -17,10 +17,10 @@ pub fn main() !void {
     var direct_allocator = std.heap.DirectAllocator.init();
     defer direct_allocator.deinit();
 
-    var arena = std.heap.ArenaAllocator.init(&direct_allocator.allocator);
+    var arena = std.heap.ArenaAllocator.init(direct_allocator.allocator());
     defer arena.deinit();
 
-    const allocator = &arena.allocator;
+    const allocator = arena.allocator();
 
     var args_it = os.args();
 
@@ -314,7 +314,7 @@ const Action = enum {
     Close,
 };
 
-fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
+fn genToc(allocator: mem.Allocator, tokenizer: *Tokenizer) !Toc {
     var urls = std.HashMap([]const u8, Token, mem.hash_slice_u8, mem.eql_slice_u8).init(allocator);
     errdefer urls.deinit();
 
@@ -557,7 +557,7 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
     };
 }
 
-fn urlize(allocator: *mem.Allocator, input: []const u8) ![]u8 {
+fn urlize(allocator: mem.Allocator, input: []const u8) ![]u8 {
     var buf = try std.Buffer.initSize(allocator, 0);
     defer buf.deinit();
 
@@ -577,7 +577,7 @@ fn urlize(allocator: *mem.Allocator, input: []const u8) ![]u8 {
     return buf.toOwnedSlice();
 }
 
-fn escapeHtml(allocator: *mem.Allocator, input: []const u8) ![]u8 {
+fn escapeHtml(allocator: mem.Allocator, input: []const u8) ![]u8 {
     var buf = try std.Buffer.initSize(allocator, 0);
     defer buf.deinit();
 
@@ -623,7 +623,7 @@ test "term color" {
     assert(mem.eql(u8, result, "A<span class=\"t32\">green</span>B"));
 }
 
-fn termColor(allocator: *mem.Allocator, input: []const u8) ![]u8 {
+fn termColor(allocator: mem.Allocator, input: []const u8) ![]u8 {
     var buf = try std.Buffer.initSize(allocator, 0);
     defer buf.deinit();
 
@@ -933,7 +933,7 @@ fn tokenizeAndPrint(docgen_tokenizer: *Tokenizer, out: var, source_token: Token)
     return tokenizeAndPrintRaw(docgen_tokenizer, out, source_token, raw_src);
 }
 
-fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var, zig_exe: []const u8) !void {
+fn genHtml(allocator: mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var, zig_exe: []const u8) !void {
     var code_progress_index: usize = 0;
 
     var env_map = try os.getEnvMap(allocator);
@@ -1307,7 +1307,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
     }
 }
 
-fn exec(allocator: *mem.Allocator, env_map: *std.BufMap, args: []const []const u8) !os.ChildProcess.ExecResult {
+fn exec(allocator: mem.Allocator, env_map: *std.BufMap, args: []const []const u8) !os.ChildProcess.ExecResult {
     const result = try os.ChildProcess.exec(allocator, args, null, env_map, max_doc_file_size);
     switch (result.term) {
         os.ChildProcess.Term.Exited => |exit_code| {
@@ -1332,7 +1332,7 @@ fn exec(allocator: *mem.Allocator, env_map: *std.BufMap, args: []const []const u
     return result;
 }
 
-fn getBuiltinCode(allocator: *mem.Allocator, env_map: *std.BufMap, zig_exe: []const u8) ![]const u8 {
+fn getBuiltinCode(allocator: mem.Allocator, env_map: *std.BufMap, zig_exe: []const u8) ![]const u8 {
     const result = try exec(allocator, env_map, []const []const u8{
         zig_exe,
         "builtin",

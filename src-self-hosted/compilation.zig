@@ -100,7 +100,7 @@ pub const ZigCompiler = struct {
     }
 
     /// Must be called only once, ever. Sets global state.
-    pub fn setLlvmArgv(allocator: *Allocator, llvm_argv: []const []const u8) !void {
+    pub fn setLlvmArgv(allocator: Allocator, llvm_argv: []const []const u8) !void {
         if (llvm_argv.len != 0) {
             var c_compatible_args = try std.cstr.NullTerminated2DArray.fromSlices(allocator, [][]const []const u8{
                 [][]const u8{"zig (LLVM option parsing)"},
@@ -1166,12 +1166,12 @@ pub const Compilation = struct {
     }
 
     /// General Purpose Allocator. Must free when done.
-    fn gpa(self: Compilation) *mem.Allocator {
+    fn gpa(self: Compilation) mem.Allocator {
         return self.loop.allocator;
     }
 
     /// Arena Allocator. Automatically freed when the Compilation is destroyed.
-    fn arena(self: *Compilation) *mem.Allocator {
+    fn arena(self: *Compilation) mem.Allocator {
         return &self.arena_allocator.allocator;
     }
 
@@ -1371,7 +1371,7 @@ async fn addFnToLinkSet(comp: *Compilation, fn_val: *Value.Fn) void {
     held.value.append(fn_val.link_set_node);
 }
 
-fn getZigDir(allocator: *mem.Allocator) ![]u8 {
+fn getZigDir(allocator: mem.Allocator) ![]u8 {
     return os.getAppDataDir(allocator, "zig");
 }
 
@@ -1457,7 +1457,7 @@ async fn generateDeclFnProto(comp: *Compilation, fn_decl: *Decl.Fn) !void {
 }
 
 // TODO these are hacks which should probably be solved by the language
-fn getAwaitResult(allocator: *Allocator, handle: var) @typeInfo(@typeOf(handle)).Promise.child.? {
+fn getAwaitResult(allocator: Allocator, handle: var) @typeInfo(@typeOf(handle)).Promise.child.? {
     var result: ?@typeInfo(@typeOf(handle)).Promise.child.? = null;
     cancel (async<allocator> getAwaitResultAsync(handle, &result) catch unreachable);
     return result.?;

@@ -46,6 +46,9 @@ pub const zig = @import("zig/index.zig");
 
 pub const lazyInit = @import("lazy_init.zig").lazyInit;
 
+//Remove this after #1260
+pub const old_allocator_wrapper = @import("old_allocator_wrapper.zig");
+
 test "std" {
     // run tests from these
     _ = @import("array_list.zig");

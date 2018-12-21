@@ -4886,6 +4886,11 @@ pub fn main() void {
       {#header_close#}
       {#header_open|Coroutines#}
       <p>
+      NOTE: Coroutines are being redisigned, see GitHub issue <a href="https://github.com/ziglang/zig/issues/1260">#1260</a>.
+      It is not recommended to use them in the current implementation. Due to a redesign of the Allocator implementation, the current coroutine
+      implementation requires the use of a wrapper struct from std.old_allocator_wrapper.
+      </p>,
+      <p>
       A coroutine is a generalization of a function.
       </p>
       <p>
@@ -4908,12 +4913,12 @@ pub fn main() void {
       which has these fields:
       </p>
       <ul>
-          <li>{#syntax#}allocFn: fn (self: *Allocator, byte_count: usize, alignment: u29) Error![]u8{#endsyntax#} - where {#syntax#}Error{#endsyntax#} can be any error set.</li>
-          <li>{#syntax#}freeFn: fn (self: *Allocator, old_mem: []u8) void{#endsyntax#}</li>
+          <li>{#syntax#}allocFn: fn (self: Allocator, byte_count: usize, alignment: u29) Error![]u8{#endsyntax#} - where {#syntax#}Error{#endsyntax#} can be any error set.</li>
+          <li>{#syntax#}freeFn: fn (self: Allocator, old_mem: []u8) void{#endsyntax#}</li>
       </ul>
       <p>
-      You may notice that this corresponds to the {#syntax#}std.mem.Allocator{#endsyntax#} interface.
-      This makes it convenient to integrate with existing allocators. Note, however,
+      <s>You may notice that this corresponds to the {#syntax#}std.mem.Allocator{#endsyntax#} interface. ()
+      This makes it convenient to integrate with existing allocators.</s> (See NOTE above). Note, however,
       that the language feature does not depend on the standard library, and any struct which
       has these fields is allowed.
       </p>
@@ -4936,17 +4941,20 @@ pub fn main() void {
       </p>
       {#code_begin|test#}
 const std = @import("std");
+const oaw = std.old_allocator_wrapper;
 const assert = std.debug.assert;
 
 var x: i32 = 1;
 
 test "create a coroutine and cancel it" {
-    const p = try async<std.debug.global_allocator> simpleAsyncFn();
+    //Note the use of the wrapper struct.
+    var wrapper = oaw.OldAllocatorWrapper.init(std.debug.global_allocator);
+    const p = try async<&wrapper.old_allocator> simpleAsyncFn();
     comptime assert(@typeOf(p) == promise->void);
     cancel p;
     assert(x == 2);
 }
-async<*std.mem.Allocator> fn simpleAsyncFn() void {
+async<*oaw.OldAllocatorWrapper> fn simpleAsyncFn() void {
     x += 1;
 }
       {#code_end#}
@@ -4959,11 +4967,13 @@ async<*std.mem.Allocator> fn simpleAsyncFn() void {
       </p>
       {#code_begin|test#}
 const std = @import("std");
+const oaw = std.old_allocator_wrapper;
 const assert = std.debug.assert;
 
 test "coroutine suspend, resume, cancel" {
     seq('a');
-    const p = try async<std.debug.global_allocator> testAsyncSeq();
+    var wrapper = oaw.OldAllocatorWrapper.init(std.debug.global_allocator);
+    const p = try async<&wrapper.old_allocator> testAsyncSeq();
     seq('c');
     resume p;
     seq('f');
@@ -4995,10 +5005,12 @@ fn seq(c: u8) void {
       </p>
       {#code_begin|test#}
 const std = @import("std");
+const oaw = std.old_allocator_wrapper;
 const assert = std.debug.assert;
 
 test "coroutine suspend with block" {
-    const p = try async<std.debug.global_allocator> testSuspendBlock();
+    var wrapper = oaw.OldAllocatorWrapper.init(std.debug.global_allocator);
+    const p = try async<&wrapper.old_allocator> testSuspendBlock();
     std.debug.assert(!result);
     resume a_promise;
     std.debug.assert(result);
@@ -5037,13 +5049,15 @@ async fn testSuspendBlock() void {
       </p>
       {#code_begin|test#}
 const std = @import("std");
+const oaw = std.old_allocator_wrapper;
 const assert = std.debug.assert;
 
 test "resume from suspend" {
     var buf: [500]u8 = undefined;
-    var a = &std.heap.FixedBufferAllocator.init(buf[0..]).allocator;
+    var a = std.heap.FixedBufferAllocator.init(buf[0..]).allocator();
+    var wrapper = oaw.OldAllocatorWrapper.init(a);
     var my_result: i32 = 1;
-    const p = try async<a> testResumeFromSuspend(&my_result);
+    const p = try async<&wrapper.old_allocator> testResumeFromSuspend(&my_result);
     cancel p;
     std.debug.assert(my_result == 2);
 }
@@ -5086,6 +5100,7 @@ async fn testResumeFromSuspend(my_result: *i32) void {
       </p>
       {#code_begin|test#}
 const std = @import("std");
+const oaw = std.old_allocator_wrapper;
 const assert = std.debug.assert;
 
 var a_promise: promise = undefined;
@@ -5093,7 +5108,8 @@ var final_result: i32 = 0;
 
 test "coroutine await" {
     seq('a');
-    const p = async<std.debug.global_allocator> amain() catch unreachable;
+    var wrapper = oaw.OldAllocatorWrapper.init(std.debug.global_allocator);
+    const p = async<&wrapper.old_allocator> amain() catch unreachable;
     seq('f');
     resume a_promise;
     seq('i');

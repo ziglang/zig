@@ -10,9 +10,7 @@ const posix = os.posix;
 const windows = os.windows;
 const maxInt = std.math.maxInt;
 
-//@TODO: Ugly hack to get around how async<allocator> works. Unecessary after #1260
-const OldAllocator = @import("old_allocator_wrapper.zig").OldAllocator;
-const OldAllocatorWrapper = @import("old_allocator_wrapper.zig").OldAllocatorWrapper;
+const OldAllocatorWrapper = std.old_allocator_wrapper.OldAllocatorWrapper;
 
 
 pub const Loop = struct {

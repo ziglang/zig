@@ -142,9 +142,9 @@ pub const ObjectFile = struct {
     dibuilder: *llvm.DIBuilder,
     context: llvm.ContextRef,
     lock: event.Lock,
-    arena: *std.mem.Allocator,
+    arena: std.mem.Allocator,
 
-    fn gpa(self: *ObjectFile) *std.mem.Allocator {
+    fn gpa(self: *ObjectFile) std.mem.Allocator {
         return self.comp.gpa();
     }
 };

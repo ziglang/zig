@@ -126,22 +126,6 @@ pub fn AllocatorInterface(comptime I: type) type {
             const non_const_ptr = @intToPtr([*]u8, @ptrToInt(bytes.ptr));
             self.impl.free(non_const_ptr[0..bytes.len]);
         }
-        
-        //@NOTE: This doesn't work because of being a boundFn. Implement old allocator
-        // pattern with a wrapper just to bypass this check for async<>?
-        //@NOTE: These exist only because current async implementation requires them!
-        //see #1260
-        //pub fn allocFn(self: *Self, n: usize, alignment: u29) Error![]u8 {
-        //    return self.impl.alloc(n, alignment);
-        //}
-        //
-        //fn reallocFn(self: *Self, old_mem: []u8, new_size: usize, alignment: u29) Error![]u8 {
-        //    return self.impl.realloc(old_mem, new_size, alignment);
-        //}
-        //
-        //fn freeFn(self: *Self, bytes: []u8) void {
-        //    return self.impl.free(bytes);
-        //}
     };
 }
 
