@@ -1174,7 +1174,7 @@ pub const Compilation = struct {
 
     /// Arena Allocator. Automatically freed when the Compilation is destroyed.
     fn arena(self: *Compilation) mem.Allocator {
-        return &self.arena_allocator.allocator;
+        return self.arena_allocator.allocator();
     }
 
     /// If the temporary directory for this compilation has not been created, it creates it.
