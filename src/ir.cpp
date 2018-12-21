@@ -179,7 +179,7 @@ static IrInstruction *ir_analyze_error_union_field_error_set(IrAnalyze *ira,
 static ZigType *adjust_ptr_child(CodeGen *g, ZigType *ptr_type, ZigType *new_child);
 static IrInstruction *ir_analyze_result_slice_to_bytes(IrAnalyze *ira,
         IrInstruction *source_inst, IrInstruction *prev_result_loc, ZigType *elem_type, ZigType *child_type);
-static IrInstruction *ir_analyze_alloca(IrAnalyze *ira, IrInstruction *source_inst, IrInstruction *child_type_inst,
+static IrInstruction *ir_analyze_alloca(IrAnalyze *ira, IrInstruction *source_inst, ZigType *child_type_inst,
         uint32_t align, const char *name_hint);
 static void copy_const_val(ConstExprValue *dest, ConstExprValue *src, bool same_global_refs);
 
@@ -22818,7 +22818,7 @@ static IrInstruction *ir_analyze_instruction_result_cast(IrAnalyze *ira, IrInstr
     return new_result_loc;
 }
 
-static IrInstruction *ir_analyze_alloca(IrAnalyze *ira, IrInstruction *source_inst, IrInstruction *child_type_inst,
+static IrInstruction *ir_analyze_alloca(IrAnalyze *ira, IrInstruction *source_inst, ZigType *var_type,
         uint32_t align, const char *name_hint)
 {
     Error err;
@@ -22833,17 +22833,13 @@ static IrInstruction *ir_analyze_alloca(IrAnalyze *ira, IrInstruction *source_in
     result->base.value.data.x_ptr.mut = ConstPtrMutInfer;
     result->base.value.data.x_ptr.data.ref.pointee = pointee;
 
-    if (child_type_inst == nullptr) {
+    if (var_type == nullptr) {
         // We use a pointer to a special opaque type to signal that we want type inference.
         result->base.value.type = get_pointer_to_type_extra(ira->codegen,
             ira->codegen->builtin_types.entry_infer, false, false, PtrLenSingle, align, 0, 0);
         result->base.value.data.x_ptr.data.ref.pointee->type = ira->codegen->builtin_types.entry_infer;
     } else {
-        ZigType *child_type = ir_resolve_type(ira, child_type_inst);
-        if (type_is_invalid(child_type))
-            return ira->codegen->invalid_instruction;
-
-        if ((err = resolve_alloca_inference(ira, result, child_type)))
+        if ((err = resolve_alloca_inference(ira, result, var_type)))
             return ira->codegen->invalid_instruction;
     }
 
@@ -22862,19 +22858,19 @@ static IrInstruction *ir_analyze_instruction_alloca(IrAnalyze *ira, IrInstructio
         }
     }
 
-    IrInstruction *child_type_inst = nullptr;
+    ZigType *var_type = nullptr;
     if (instruction->child_type != nullptr) {
-        child_type_inst = instruction->child_type->child;
+        var_type = ir_resolve_type(ira, instruction->child_type->child);
+        if (type_is_invalid(var_type))
+            return ira->codegen->invalid_instruction;
     }
 
-    return ir_analyze_alloca(ira, &instruction->base, child_type_inst, align, instruction->name_hint);
+    return ir_analyze_alloca(ira, &instruction->base, var_type, align, instruction->name_hint);
 }
 
 static IrInstruction *ir_analyze_instruction_first_arg_result_loc(IrAnalyze *ira,
         IrInstructionFirstArgResultLoc *instruction)
 {
-    Error err;
-
     IrInstruction *fn_ref = instruction->fn_ref->child;
     if (type_is_invalid(fn_ref->value.type))
         return ira->codegen->invalid_instruction;
@@ -22898,37 +22894,9 @@ static IrInstruction *ir_analyze_instruction_first_arg_result_loc(IrAnalyze *ira
     }
 
     // Result of this instruction should be the result location for the first argument of the function call.
-    // This means it should be a stack allocation.
-    ConstExprValue *pointee = create_const_vals(1);
-    pointee->special = ConstValSpecialUndef;
-
-    IrInstructionAllocaGen *result = ir_create_alloca_gen(&ira->new_irb, instruction->base.scope,
-            instruction->base.source_node, 0, "");
-    result->base.value.special = ConstValSpecialStatic;
-    result->base.value.data.x_ptr.special = ConstPtrSpecialRef;
-    result->base.value.data.x_ptr.mut = ConstPtrMutInfer;
-    result->base.value.data.x_ptr.data.ref.pointee = pointee;
-
-    ZigType *param_type;
-    if (fn_ref->value.type->id == ZigTypeIdFn) {
-        ZigType *fn_type = fn_ref->value.type;
-        param_type = fn_type->data.fn.fn_type_id.param_info[0].type;
-    } else if (fn_ref->value.type->id == ZigTypeIdBoundFn) {
-        ZigType *fn_type = fn_ref->value.type->data.bound_fn.fn_type;
-        param_type = fn_type->data.fn.fn_type_id.param_info[1].type;
-    } else {
-        zig_unreachable();
-    }
-
-    if (type_is_invalid(param_type))
-        return ira->codegen->invalid_instruction;
-    if ((err = resolve_alloca_inference(ira, result, param_type)))
-        return ira->codegen->invalid_instruction;
-    ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
-    if (fn_entry != nullptr) {
-        fn_entry->alloca_list.append(result);
-    }
-    return &result->base;
+    // We give null because this instruction is only ever consumed by the result location of a call
+    // instruction, which knows how to stack allocate if necessary.
+    return nullptr;
 }
 
 static IrInstruction *ir_analyze_instruction_infer_array_type(IrAnalyze *ira,
