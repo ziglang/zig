@@ -949,7 +949,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() void {
         \\    var buf: [500]u8 = undefined;
-        \\    var a = std.heap.FixedBufferAllocator.init(buf[0..]).allocator();
+        \\    var a = &std.heap.FixedBufferAllocator.init(buf[0..]).allocator();
         \\    var wrapper = oaw.OldAllocatorWrapper.init(a);
         \\    const p = (async<&wrapper.old_allocator> foo()) catch unreachable;
         \\    cancel p;
@@ -3494,7 +3494,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    x.init();
         \\}
     ,
-        ".tmp_source.zig:23:5: error: expected type 'Allocator', found 'List'",
+        ".tmp_source.zig:23:5: error: expected type 'Allocator', found '*List'",
     );
 
     cases.add(

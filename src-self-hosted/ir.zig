@@ -1763,7 +1763,7 @@ pub const Builder = struct {
     }
 
     fn arena(self: *Builder) Allocator {
-        return self.code.arena.allocator();
+        return &self.code.arena.allocator;
     }
 
     fn buildExtra(

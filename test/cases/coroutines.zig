@@ -186,7 +186,7 @@ test "async function with dot syntax" {
 test "async fn pointer in a struct field" {
     var data: i32 = 1;
     const Foo = struct {
-        bar: async<*oaw.OldAllocator> fn (*i32) void,
+        bar: async<std.mem.Allocator> fn (*i32) void,
     };
     var foo = Foo{ .bar = simpleAsyncFn2 };
     var da = std.heap.DirectAllocator.init();
@@ -197,7 +197,7 @@ test "async fn pointer in a struct field" {
     cancel p;
     assert(data == 4);
 }
-async<*oaw.OldAllocator> fn simpleAsyncFn2(y: *i32) void {
+async<std.mem.Allocator> fn simpleAsyncFn2(y: *i32) void {
     defer y.* += 2;
     y.* += 1;
     suspend;
@@ -257,7 +257,7 @@ async fn printTrace(p: promise->(anyerror!void)) void {
 
 test "break from suspend" {
     var buf: [500]u8 = undefined;
-    var a = std.heap.FixedBufferAllocator.init(buf[0..]).allocator();
+    var a = &std.heap.FixedBufferAllocator.init(buf[0..]).allocator();
     var my_result: i32 = 1;
     var wrapper = oaw.OldAllocatorWrapper.init(a);
     const p = try async<&wrapper.old_allocator> testBreakFromSuspend(&my_result);

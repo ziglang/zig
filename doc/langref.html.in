@@ -4954,7 +4954,7 @@ test "create a coroutine and cancel it" {
     cancel p;
     assert(x == 2);
 }
-async<*oaw.OldAllocator> fn simpleAsyncFn() void {
+async<*oaw.OldAllocatorWrapper> fn simpleAsyncFn() void {
     x += 1;
 }
       {#code_end#}
