@@ -1093,6 +1093,7 @@ pub const RealError = error{
     NoSpaceLeft,
     FileSystem,
     BadPathName,
+    DeviceBusy,
 
     /// On Windows, file paths must be valid Unicode.
     InvalidUtf8,
