@@ -10916,6 +10916,10 @@ static IrInstruction *ir_get_ref(IrAnalyze *ira, IrInstruction *source_instructi
                 ConstPtrMutComptimeConst, is_const, is_volatile, 0);
     }
 
+    if (result_loc == nullptr) {
+        result_loc = ir_analyze_alloca(ira, source_instruction, value->value.type, 0, "");
+        result_loc->value.special = ConstValSpecialRuntime;
+    }
     ZigType *ptr_type = get_pointer_to_type_extra(ira->codegen, value->value.type,
             is_const, is_volatile, PtrLenSingle, 0, 0, 0);
     IrInstruction *new_instruction = ir_build_ref(&ira->new_irb, source_instruction->scope,
