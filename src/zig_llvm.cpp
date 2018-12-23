@@ -594,8 +594,8 @@ ZigLLVMDIFile *ZigLLVMCreateFile(ZigLLVMDIBuilder *dibuilder, const char *filena
 
 ZigLLVMDISubprogram *ZigLLVMCreateFunction(ZigLLVMDIBuilder *dibuilder, ZigLLVMDIScope *scope,
         const char *name, const char *linkage_name, ZigLLVMDIFile *file, unsigned lineno,
-        ZigLLVMDIType *fn_di_type, bool is_local_to_unit, bool is_definition, unsigned scope_line,
-        unsigned flags, bool is_optimized, ZigLLVMDISubprogram *decl_subprogram)
+        ZigLLVMDIType *fn_di_type, unsigned scope_line,
+        unsigned flags, ZigLLVMDISubprogram *decl_subprogram)
 {
     DISubroutineType *di_sub_type = static_cast<DISubroutineType*>(reinterpret_cast<DIType*>(fn_di_type));
     assert(flags == 0);
@@ -605,9 +605,12 @@ ZigLLVMDISubprogram *ZigLLVMCreateFunction(ZigLLVMDIBuilder *dibuilder, ZigLLVMD
             reinterpret_cast<DIFile*>(file),
             lineno,
             di_sub_type,
-            is_local_to_unit, is_definition, scope_line, DINode::FlagZero, is_optimized,
+            scope_line,
+            DINode::FlagZero,
+            DISubprogram::SPFlagZero,
             nullptr,
-            reinterpret_cast<DISubprogram *>(decl_subprogram));
+            reinterpret_cast<DISubprogram *>(decl_subprogram),
+            nullptr);
     return reinterpret_cast<ZigLLVMDISubprogram*>(result);
 }
 

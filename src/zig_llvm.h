@@ -188,8 +188,8 @@ ZIG_EXTERN_C struct ZigLLVMDIFile *ZigLLVMCreateFile(struct ZigLLVMDIBuilder *di
 
 ZIG_EXTERN_C struct ZigLLVMDISubprogram *ZigLLVMCreateFunction(struct ZigLLVMDIBuilder *dibuilder,
         struct ZigLLVMDIScope *scope, const char *name, const char *linkage_name, struct ZigLLVMDIFile *file,
-        unsigned lineno, struct ZigLLVMDIType *fn_di_type, bool is_local_to_unit, bool is_definition,
-        unsigned scope_line, unsigned flags, bool is_optimized, struct ZigLLVMDISubprogram *decl_subprogram);
+        unsigned lineno, struct ZigLLVMDIType *fn_di_type,
+        unsigned scope_line, unsigned flags, struct ZigLLVMDISubprogram *decl_subprogram);
 
 ZIG_EXTERN_C void ZigLLVMFnSetSubprogram(LLVMValueRef fn, struct ZigLLVMDISubprogram *subprogram);
 
@@ -361,8 +361,9 @@ enum ZigLLVM_OSType {
     ZigLLVM_Contiki,
     ZigLLVM_AMDPAL,     // AMD PAL Runtime
     ZigLLVM_HermitCore, // HermitCore Unikernel/Multikernel
+    ZigLLVM_Hurd,       // GNU/Hurd
 
-    ZigLLVM_LastOSType = ZigLLVM_HermitCore
+    ZigLLVM_LastOSType = ZigLLVM_Hurd
 };
 
 // Synchronize with target.cpp::environ_list

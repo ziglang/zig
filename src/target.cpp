@@ -184,6 +184,7 @@ static const Os os_list[] = {
     OsContiki,
     OsAMDPAL,
     OsHermitCore,
+    OsHurd,
     OsZen,
 };
 
@@ -328,6 +329,8 @@ ZigLLVM_OSType get_llvm_os_type(Os os_type) {
             return ZigLLVM_AMDPAL;
         case OsHermitCore:
             return ZigLLVM_HermitCore;
+        case OsHurd:
+            return ZigLLVM_Hurd;
     }
     zig_unreachable();
 }
@@ -399,6 +402,8 @@ static Os get_zig_os_type(ZigLLVM_OSType os_type) {
             return OsAMDPAL;
         case ZigLLVM_HermitCore:
             return OsHermitCore;
+        case ZigLLVM_Hurd:
+            return OsHurd;
     }
     zig_unreachable();
 }
@@ -440,6 +445,7 @@ const char *get_target_os_name(Os os_type) {
         case OsContiki:
         case OsAMDPAL:
         case OsHermitCore:
+        case OsHurd:
             return ZigLLVMGetOSTypeName(get_llvm_os_type(os_type));
     }
     zig_unreachable();
@@ -814,6 +820,7 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
         case OsContiki:
         case OsAMDPAL:
         case OsHermitCore:
+        case OsHurd:
             zig_panic("TODO c type size in bits for this target");
     }
     zig_unreachable();

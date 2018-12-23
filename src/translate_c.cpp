@@ -906,6 +906,18 @@ static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &sou
                     case BuiltinType::SatUShortFract:
                     case BuiltinType::SatUFract:
                     case BuiltinType::SatULongFract:
+                    case BuiltinType::OCLIntelSubgroupAVCMcePayload:
+                    case BuiltinType::OCLIntelSubgroupAVCImePayload:
+                    case BuiltinType::OCLIntelSubgroupAVCRefPayload:
+                    case BuiltinType::OCLIntelSubgroupAVCSicPayload:
+                    case BuiltinType::OCLIntelSubgroupAVCMceResult:
+                    case BuiltinType::OCLIntelSubgroupAVCImeResult:
+                    case BuiltinType::OCLIntelSubgroupAVCRefResult:
+                    case BuiltinType::OCLIntelSubgroupAVCSicResult:
+                    case BuiltinType::OCLIntelSubgroupAVCImeResultSingleRefStreamout:
+                    case BuiltinType::OCLIntelSubgroupAVCImeResultDualRefStreamout:
+                    case BuiltinType::OCLIntelSubgroupAVCImeSingleRefStreamin:
+                    case BuiltinType::OCLIntelSubgroupAVCImeDualRefStreamin:
                         emit_warning(c, source_loc, "unsupported builtin type");
                         return nullptr;
                 }
@@ -1010,6 +1022,9 @@ static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &sou
                         return nullptr;
                     case CC_PreserveAll:
                         emit_warning(c, source_loc, "unsupported calling convention: PreserveAll");
+                        return nullptr;
+                    case CC_AArch64VectorCall:
+                        emit_warning(c, source_loc, "unsupported calling convention: AArch64VectorCall");
                         return nullptr;
                 }
 
@@ -1202,12 +1217,12 @@ static AstNode *trans_return_stmt(Context *c, TransScope *scope, const ReturnStm
 }
 
 static AstNode *trans_integer_literal(Context *c, const IntegerLiteral *stmt) {
-    llvm::APSInt result;
+    Expr::EvalResult result;
     if (!stmt->EvaluateAsInt(result, *c->ctx)) {
         emit_warning(c, stmt->getBeginLoc(), "invalid integer literal");
         return nullptr;
     }
-    return trans_create_node_apint(c, result);
+    return trans_create_node_apint(c, result.Val.getInt());
 }
 
 static AstNode *trans_conditional_operator(Context *c, ResultUsed result_used, TransScope *scope,
@@ -2510,6 +2525,18 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
                 case BuiltinType::SatUShortFract:
                 case BuiltinType::SatUFract:
                 case BuiltinType::SatULongFract:
+                case BuiltinType::OCLIntelSubgroupAVCMcePayload:
+                case BuiltinType::OCLIntelSubgroupAVCImePayload:
+                case BuiltinType::OCLIntelSubgroupAVCRefPayload:
+                case BuiltinType::OCLIntelSubgroupAVCSicPayload:
+                case BuiltinType::OCLIntelSubgroupAVCMceResult:
+                case BuiltinType::OCLIntelSubgroupAVCImeResult:
+                case BuiltinType::OCLIntelSubgroupAVCRefResult:
+                case BuiltinType::OCLIntelSubgroupAVCSicResult:
+                case BuiltinType::OCLIntelSubgroupAVCImeResultSingleRefStreamout:
+                case BuiltinType::OCLIntelSubgroupAVCImeResultDualRefStreamout:
+                case BuiltinType::OCLIntelSubgroupAVCImeSingleRefStreamin:
+                case BuiltinType::OCLIntelSubgroupAVCImeDualRefStreamin:
                     return res;
             }
             break;

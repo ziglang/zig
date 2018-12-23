@@ -51,6 +51,7 @@ enum Os {
     OsContiki,
     OsAMDPAL,
     OsHermitCore,
+    OsHurd,
     OsZen,
 };
 
