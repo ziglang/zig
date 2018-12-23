@@ -6653,7 +6653,7 @@ static IrInstruction *ir_gen_comptime(IrBuilder *irb, Scope *parent_scope, AstNo
     assert(node->type == NodeTypeCompTime);
 
     Scope *child_scope = create_comptime_scope(irb->codegen, node, parent_scope);
-    return ir_gen_node(irb, node->data.comptime_expr.expr, child_scope, lval, nullptr);
+    return ir_gen_node(irb, node->data.comptime_expr.expr, child_scope, lval, result_loc);
 }
 
 static IrInstruction *ir_gen_return_from_block(IrBuilder *irb, Scope *break_scope, AstNode *node,
