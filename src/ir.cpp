@@ -14516,7 +14516,18 @@ static IrInstruction *analyze_runtime_call(IrAnalyze *ira, ZigType *return_type,
             }
             case LValErrorUnionPtr: {
                 if (return_type->id == ZigTypeIdErrorUnion || return_type->id == ZigTypeIdErrorSet) {
-                    return ir_get_ref(ira, &call_instruction->base, new_call_instruction, true, false, nullptr);
+                    ZigType *err_type;
+                    if (return_type->id == ZigTypeIdErrorUnion) {
+                        err_type = return_type->data.error_union.err_set_type;
+                    } else {
+                        assert(return_type->id == ZigTypeIdErrorSet);
+                        err_type = return_type;
+                    }
+                    ZigType *opt_err_type = get_optional_type(ira->codegen, err_type);
+                    IrInstruction *err_code_alloca = ir_analyze_alloca(ira, &call_instruction->base,
+                            opt_err_type, 0, "err");
+                    ir_analyze_store_ptr(ira, &call_instruction->base, err_code_alloca, new_call_instruction);
+                    return err_code_alloca;
                 } else {
                     IrInstruction *null = ir_const(ira, &call_instruction->base,
                             ira->codegen->builtin_types.entry_null);

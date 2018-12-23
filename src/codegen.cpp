@@ -3919,6 +3919,7 @@ static LLVMValueRef ir_render_ref(CodeGen *g, IrExecutable *executable, IrInstru
     if (handle_is_ptr(instruction->value->value.type)) {
         return value;
     } else {
+        assert(instruction->result_loc != nullptr);
         LLVMValueRef result_ptr = ir_llvm_value(g, instruction->result_loc);
         gen_store_untyped(g, value, result_ptr, 0, false);
         return result_ptr;

@@ -752,7 +752,7 @@ fn formatIntUnsigned(
             if (leftover_padding == 0) break;
         }
         mem.set(u8, buf[0..index], '0');
-        return output(context, buf);
+        return output(context, &buf);
     } else {
         const padded_buf = buf[index - padding ..];
         mem.set(u8, padded_buf[0..padding], '0');
