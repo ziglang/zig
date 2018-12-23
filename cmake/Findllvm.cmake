@@ -8,7 +8,7 @@
 # LLVM_LIBDIRS
 
 find_program(LLVM_CONFIG_EXE
-    NAMES llvm-config-8 llvm-config-8.0 llvm-config
+    NAMES llvm-config-8 llvm-config-8.0 llvm-config80 llvm-config
     PATHS
         "/mingw64/bin"
         "/c/msys64/mingw64/bin"

@@ -605,7 +605,6 @@ enum CastOp {
     CastOpFloatToInt,
     CastOpBoolToInt,
     CastOpResizeSlice,
-    CastOpBytesToSlice,
     CastOpNumLitToConcrete,
     CastOpErrSet,
     CastOpBitCast,
@@ -1415,6 +1414,7 @@ enum BuiltinFnId {
     BuiltinFnIdErrorReturnTrace,
     BuiltinFnIdAtomicRmw,
     BuiltinFnIdAtomicLoad,
+    BuiltinFnIdBswap,
 };
 
 struct BuiltinFnEntry {
@@ -1487,6 +1487,7 @@ enum ZigLLVMFnId {
     ZigLLVMFnIdFloor,
     ZigLLVMFnIdCeil,
     ZigLLVMFnIdSqrt,
+    ZigLLVMFnIdBswap,
 };
 
 enum AddSubMul {
@@ -1516,6 +1517,9 @@ struct ZigLLVMFnKey {
             uint32_t bit_count;
             bool is_signed;
         } overflow_arithmetic;
+        struct {
+            uint32_t bit_count;
+        } bswap;
     } data;
 };
 
@@ -2158,6 +2162,7 @@ enum IrInstructionId {
     IrInstructionIdMergeErrRetTraces,
     IrInstructionIdMarkErrRetTracePtr,
     IrInstructionIdSqrt,
+    IrInstructionIdBswap,
     IrInstructionIdErrSetCast,
     IrInstructionIdToBytes,
     IrInstructionIdFromBytes,
@@ -3249,6 +3254,13 @@ struct IrInstructionCheckRuntimeScope {
 
     IrInstruction *scope_is_comptime;
     IrInstruction *is_comptime;
+};
+
+struct IrInstructionBswap {
+    IrInstruction base;
+
+    IrInstruction *type;
+    IrInstruction *op;
 };
 
 static const size_t slice_ptr_index = 0;

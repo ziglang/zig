@@ -91,7 +91,7 @@ static Token *ast_parse_break_label(ParseContext *pc);
 static Token *ast_parse_block_label(ParseContext *pc);
 static AstNode *ast_parse_field_init(ParseContext *pc);
 static AstNode *ast_parse_while_continue_expr(ParseContext *pc);
-static AstNode *ast_parse_section(ParseContext *pc);
+static AstNode *ast_parse_link_section(ParseContext *pc);
 static Optional<AstNodeFnProto> ast_parse_fn_cc(ParseContext *pc);
 static AstNode *ast_parse_param_decl(ParseContext *pc);
 static AstNode *ast_parse_param_type(ParseContext *pc);
@@ -775,7 +775,7 @@ static AstNode *ast_parse_top_level_decl(ParseContext *pc, VisibMod visib_mod) {
     return nullptr;
 }
 
-// FnProto <- FnCC? KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? Section? EXCLAMATIONMARK? (KEYWORD_var / TypeExpr)
+// FnProto <- FnCC? KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? EXCLAMATIONMARK? (KEYWORD_var / TypeExpr)
 static AstNode *ast_parse_fn_proto(ParseContext *pc) {
     Token *first = peek_token(pc);
     AstNodeFnProto fn_cc;
@@ -806,7 +806,7 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc) {
     expect_token(pc, TokenIdRParen);
 
     AstNode *align_expr = ast_parse_byte_align(pc);
-    AstNode *section_expr = ast_parse_section(pc);
+    AstNode *section_expr = ast_parse_link_section(pc);
     Token *var = eat_token_if(pc, TokenIdKeywordVar);
     Token *exmark = nullptr;
     AstNode *return_type = nullptr;
@@ -842,7 +842,7 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc) {
     return res;
 }
 
-// VarDecl <- (KEYWORD_const / KEYWORD_var) IDENTIFIER (COLON TypeExpr)? ByteAlign? Section? (EQUAL Expr)? SEMICOLON
+// VarDecl <- (KEYWORD_const / KEYWORD_var) IDENTIFIER (COLON TypeExpr)? ByteAlign? LinkSection? (EQUAL Expr)? SEMICOLON
 static AstNode *ast_parse_var_decl(ParseContext *pc) {
     Token *first = eat_token_if(pc, TokenIdKeywordConst);
     if (first == nullptr)
@@ -856,7 +856,7 @@ static AstNode *ast_parse_var_decl(ParseContext *pc) {
         type_expr = ast_expect(pc, ast_parse_type_expr);
 
     AstNode *align_expr = ast_parse_byte_align(pc);
-    AstNode *section_expr = ast_parse_section(pc);
+    AstNode *section_expr = ast_parse_link_section(pc);
     AstNode *expr = nullptr;
     if (eat_token_if(pc, TokenIdEq) != nullptr)
         expr = ast_expect(pc, ast_parse_expr);
@@ -1490,8 +1490,8 @@ static AstNode *ast_parse_error_union_expr(ParseContext *pc) {
 }
 
 // SuffixExpr
-//     <- AsyncPrefix PrimaryTypeExpr SuffixOp* FnCallArgumnets
-//      / PrimaryTypeExpr (SuffixOp / FnCallArgumnets)*
+//     <- AsyncPrefix PrimaryTypeExpr SuffixOp* FnCallArguments
+//      / PrimaryTypeExpr (SuffixOp / FnCallArguments)*
 static AstNode *ast_parse_suffix_expr(ParseContext *pc) {
     AstNode *async_call = ast_parse_async_prefix(pc);
     if (async_call != nullptr) {
@@ -1599,7 +1599,7 @@ static AstNode *ast_parse_suffix_expr(ParseContext *pc) {
 }
 
 // PrimaryTypeExpr
-//     <- BUILTININDENTIFIER FnCallArgumnets
+//     <- BUILTINIDENTIFIER FnCallArguments
 //      / CHAR_LITERAL
 //      / ContainerDecl
 //      / ErrorSetDecl
@@ -1978,7 +1978,7 @@ static AsmOutput *ast_parse_asm_output_item(ParseContext *pc) {
     return res;
 }
 
-// AsmInput <- COLON AsmInputList AsmCloppers?
+// AsmInput <- COLON AsmInputList AsmClobbers?
 static AstNode *ast_parse_asm_input(ParseContext *pc) {
     if (eat_token_if(pc, TokenIdColon) == nullptr)
         return nullptr;
@@ -2011,7 +2011,7 @@ static AsmInput *ast_parse_asm_input_item(ParseContext *pc) {
     return res;
 }
 
-// AsmCloppers <- COLON StringList
+// AsmClobbers <- COLON StringList
 static AstNode *ast_parse_asm_cloppers(ParseContext *pc) {
     if (eat_token_if(pc, TokenIdColon) == nullptr)
         return nullptr;
@@ -2080,8 +2080,8 @@ static AstNode *ast_parse_while_continue_expr(ParseContext *pc) {
     return expr;
 }
 
-// Section <- KEYWORD_section LPAREN Expr RPAREN
-static AstNode *ast_parse_section(ParseContext *pc) {
+// LinkSection <- KEYWORD_linksection LPAREN Expr RPAREN
+static AstNode *ast_parse_link_section(ParseContext *pc) {
     Token *first = eat_token_if(pc, TokenIdKeywordLinkSection);
     if (first == nullptr)
         return nullptr;
@@ -2742,7 +2742,7 @@ static AstNode *ast_parse_async_prefix(ParseContext *pc) {
     return res;
 }
 
-// FnCallArgumnets <- LPAREN ExprList RPAREN
+// FnCallArguments <- LPAREN ExprList RPAREN
 static AstNode *ast_parse_fn_call_argumnets(ParseContext *pc) {
     Token *paren = eat_token_if(pc, TokenIdLParen);
     if (paren == nullptr)

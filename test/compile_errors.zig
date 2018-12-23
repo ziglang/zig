@@ -2,6 +2,85 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "reading past end of pointer casted array",
+        \\comptime {
+        \\    const array = "aoeu";
+        \\    const slice = array[2..];
+        \\    const int_ptr = @ptrCast(*const u24, slice.ptr);
+        \\    const deref = int_ptr.*;
+        \\}
+    ,
+        ".tmp_source.zig:5:26: error: attempt to read 3 bytes from [4]u8 at index 2 which is 2 bytes",
+    );
+
+    cases.add(
+        "error note for function parameter incompatibility",
+        \\fn do_the_thing(func: fn (arg: i32) void) void {}
+        \\fn bar(arg: bool) void {}
+        \\export fn entry() void {
+        \\    do_the_thing(bar);
+        \\}
+    ,
+        ".tmp_source.zig:4:18: error: expected type 'fn(i32) void', found 'fn(bool) void",
+        ".tmp_source.zig:4:18: note: parameter 0: 'bool' cannot cast into 'i32'",
+    );
+
+    cases.add(
+        "cast negative value to unsigned integer",
+        \\comptime {
+        \\    const value: i32 = -1;
+        \\    const unsigned = @intCast(u32, value);
+        \\}
+        \\export fn entry1() void {
+        \\    const value: i32 = -1;
+        \\    const unsigned: u32 = value;
+        \\}
+    ,
+        ".tmp_source.zig:3:36: error: cannot cast negative value -1 to unsigned integer type 'u32'",
+        ".tmp_source.zig:7:27: error: cannot cast negative value -1 to unsigned integer type 'u32'",
+    );
+
+    cases.add(
+        "integer cast truncates bits",
+        \\export fn entry1() void {
+        \\    const spartan_count: u16 = 300;
+        \\    const byte = @intCast(u8, spartan_count);
+        \\}
+        \\export fn entry2() void {
+        \\    const spartan_count: u16 = 300;
+        \\    const byte: u8 = spartan_count;
+        \\}
+        \\export fn entry3() void {
+        \\    var spartan_count: u16 = 300;
+        \\    var byte: u8 = spartan_count;
+        \\}
+    ,
+        ".tmp_source.zig:3:31: error: integer value 300 cannot be implicitly casted to type 'u8'",
+        ".tmp_source.zig:7:22: error: integer value 300 cannot be implicitly casted to type 'u8'",
+        ".tmp_source.zig:11:20: error: expected type 'u8', found 'u16'",
+    );
+
+    cases.add(
+        "comptime implicit cast f64 to f32",
+        \\export fn entry() void {
+        \\    const x: f64 = 16777217;
+        \\    const y: f32 = x;
+        \\}
+    ,
+        ".tmp_source.zig:3:20: error: cast of value 16777217.000000 to type 'f32' loses information",
+    );
+
+    cases.add(
+        "implicit cast from f64 to f32",
+        \\var x: f64 = 1.0;
+        \\var y: f32 = x;
+        \\
+        \\export fn entry() usize { return @sizeOf(@typeOf(y)); }
+    ,
+        ".tmp_source.zig:2:14: error: expected type 'f32', found 'f64'",
+    );
+
+    cases.add(
         "exceeded maximum bit width of integer",
         \\export fn entry1() void {
         \\    const T = @IntType(false, 65536);
@@ -1819,7 +1898,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    if (0) {}
         \\}
     ,
-        ".tmp_source.zig:2:9: error: integer value 0 cannot be implicitly casted to type 'bool'",
+        ".tmp_source.zig:2:9: error: expected type 'bool', found 'comptime_int'",
     );
 
     cases.add(
@@ -2420,16 +2499,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry() usize { return @sizeOf(@typeOf(fns)); }
     ,
         ".tmp_source.zig:1:36: error: expected type 'fn(i32) i32', found 'extern fn(i32) i32'",
-    );
-
-    cases.add(
-        "implicit cast from f64 to f32",
-        \\const x : f64 = 1.0;
-        \\const y : f32 = x;
-        \\
-        \\export fn entry() usize { return @sizeOf(@typeOf(y)); }
-    ,
-        ".tmp_source.zig:2:17: error: expected type 'f32', found 'f64'",
     );
 
     cases.add(
@@ -3174,6 +3243,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\fn something() anyerror!void { }
     ,
         ".tmp_source.zig:2:5: error: expected type 'void', found 'anyerror'",
+        ".tmp_source.zig:1:15: note: return type declared here",
     );
 
     cases.add(
@@ -4050,16 +4120,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "cast negative value to unsigned integer",
-        \\comptime {
-        \\    const value: i32 = -1;
-        \\    const unsigned = @intCast(u32, value);
-        \\}
-    ,
-        ".tmp_source.zig:3:22: error: attempt to cast negative value to unsigned integer",
-    );
-
-    cases.add(
         "compile-time division by zero",
         \\comptime {
         \\    const a: i32 = 1;
@@ -4079,16 +4139,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         ".tmp_source.zig:4:17: error: division by zero",
-    );
-
-    cases.add(
-        "compile-time integer cast truncates bits",
-        \\comptime {
-        \\    const spartan_count: u16 = 300;
-        \\    const byte = @intCast(u8, spartan_count);
-        \\}
-    ,
-        ".tmp_source.zig:3:18: error: cast from 'u16' to 'u8' truncates bits",
     );
 
     cases.add(
@@ -5205,5 +5255,33 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         ".tmp_source.zig:3:36: error: @ArgType could not resolve the type of arg 0 because 'fn(var)var' is generic",
+    );
+
+    cases.add(
+        "unsupported modifier at start of asm output constraint",
+        \\export fn foo() void {
+        \\    var bar: u32 = 3;
+        \\    asm volatile ("" : [baz]"+r"(bar) : : "");
+        \\}
+    ,
+        ".tmp_source.zig:3:5: error: invalid modifier starting output constraint for 'baz': '+', only '=' is supported. Compiler TODO: see https://github.com/ziglang/zig/issues/215",
+    );
+
+    cases.add(
+        "comptime_int in asm input",
+        \\export fn foo() void {
+        \\    asm volatile ("" : : [bar]"r"(3) : "");
+        \\}
+    ,
+        ".tmp_source.zig:2:35: error: expected sized integer or sized float, found comptime_int",
+    );
+
+    cases.add(
+        "comptime_float in asm input",
+        \\export fn foo() void {
+        \\    asm volatile ("" : : [bar]"r"(3.17) : "");
+        \\}
+    ,
+        ".tmp_source.zig:2:35: error: expected sized integer or sized float, found comptime_float",
     );
 }

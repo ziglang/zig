@@ -126,6 +126,14 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
             };
         }
 
+        pub fn getOrPutValue(self: *Self, key: K, value: V) !*KV {
+            const res = try self.getOrPut(key);
+            if (!res.found_existing)
+                res.kv.value = value;
+
+            return res.kv;
+        }
+
         fn ensureCapacity(self: *Self) !void {
             if (self.entries.len == 0) {
                 return self.initCapacity(16);
@@ -353,6 +361,12 @@ test "basic hash map usage" {
     assert(gop2.found_existing == false);
     gop2.kv.value = 42;
     assert(map.get(99).?.value == 42);
+
+    const gop3 = try map.getOrPutValue(5, 5);
+    assert(gop3.value == 77);
+
+    const gop4 = try map.getOrPutValue(100, 41);
+    assert(gop4.value == 41);
 
     assert(map.contains(2));
     assert(map.get(2).?.value == 22);

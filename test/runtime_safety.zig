@@ -275,6 +275,16 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\}
     );
 
+    cases.addRuntimeSafety("signed integer not fitting in cast to unsigned integer - widening",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\pub fn main() void {
+        \\    var value: c_short = -1;
+        \\    var casted = @intCast(u32, value);
+        \\}
+    );
+
     cases.addRuntimeSafety("unwrap error",
         \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
         \\    if (@import("std").mem.eql(u8, message, "attempt to unwrap error: Whatever")) {

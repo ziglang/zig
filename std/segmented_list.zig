@@ -201,6 +201,11 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
             self.dynamic_segments = self.allocator.shrink([*]T, self.dynamic_segments, new_cap_shelf_count);
         }
 
+        pub fn shrink(self: *Self, new_len: usize) void {
+            assert(new_len <= self.len);
+            self.len = new_len;
+        }
+
         pub fn uncheckedAt(self: var, index: usize) AtType(@typeOf(self)) {
             if (index < prealloc_item_count) {
                 return &self.prealloc_segment[index];

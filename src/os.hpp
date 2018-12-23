@@ -23,6 +23,8 @@
 #define ZIG_OS_WINDOWS
 #elif defined(__linux__)
 #define ZIG_OS_LINUX
+#elif defined(__FreeBSD__)
+#define ZIG_OS_FREEBSD
 #else
 #define ZIG_OS_UNKNOWN
 #endif

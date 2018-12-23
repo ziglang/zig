@@ -12,20 +12,20 @@ pub const Message = struct {
     args: [5]usize,
     payload: ?[]const u8,
 
-    pub fn from(mailbox_id: *const MailboxId) Message {
+    pub fn from(mailbox_id: MailboxId) Message {
         return Message{
             .sender = MailboxId.Undefined,
-            .receiver = mailbox_id.*,
+            .receiver = mailbox_id,
             .code = undefined,
             .args = undefined,
             .payload = null,
         };
     }
 
-    pub fn to(mailbox_id: *const MailboxId, msg_code: usize, args: ...) Message {
+    pub fn to(mailbox_id: MailboxId, msg_code: usize, args: ...) Message {
         var message = Message{
             .sender = MailboxId.This,
-            .receiver = mailbox_id.*,
+            .receiver = mailbox_id,
             .code = msg_code,
             .args = undefined,
             .payload = null,
@@ -40,14 +40,14 @@ pub const Message = struct {
         return message;
     }
 
-    pub fn as(self: *const Message, sender: *const MailboxId) Message {
-        var message = self.*;
-        message.sender = sender.*;
+    pub fn as(self: Message, sender: MailboxId) Message {
+        var message = self;
+        message.sender = sender;
         return message;
     }
 
-    pub fn withPayload(self: *const Message, payload: []const u8) Message {
-        var message = self.*;
+    pub fn withPayload(self: Message, payload: []const u8) Message {
+        var message = self;
         message.payload = payload;
         return message;
     }
@@ -93,7 +93,7 @@ pub fn read(fd: i32, buf: [*]u8, count: usize) usize {
         STDIN_FILENO => {
             var i: usize = 0;
             while (i < count) : (i += 1) {
-                send(Message.to(Server.Keyboard, 0));
+                send(&Message.to(Server.Keyboard, 0));
 
                 // FIXME: we should be certain that we are receiving from Keyboard.
                 var message = Message.from(MailboxId.This);
@@ -111,7 +111,7 @@ pub fn read(fd: i32, buf: [*]u8, count: usize) usize {
 pub fn write(fd: i32, buf: [*]const u8, count: usize) usize {
     switch (fd) {
         STDOUT_FILENO, STDERR_FILENO => {
-            send(Message.to(Server.Terminal, 1).withPayload(buf[0..count]));
+            send(&Message.to(Server.Terminal, 1).withPayload(buf[0..count]));
         },
         else => unreachable,
     }

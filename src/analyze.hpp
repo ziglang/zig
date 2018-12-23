@@ -87,7 +87,6 @@ ZigFn *create_fn(CodeGen *g, AstNode *proto_node);
 ZigFn *create_fn_raw(CodeGen *g, FnInline inline_value);
 void init_fn_type_id(FnTypeId *fn_type_id, AstNode *proto_node, size_t param_count_alloc);
 AstNode *get_param_decl_node(ZigFn *fn_entry, size_t index);
-bool type_requires_comptime(ZigType *type_entry);
 Error ATTRIBUTE_MUST_USE ensure_complete_type(CodeGen *g, ZigType *type_entry);
 Error ATTRIBUTE_MUST_USE type_resolve(CodeGen *g, ZigType *type_entry, ResolveStatus status);
 void complete_enum(CodeGen *g, ZigType *enum_type);
@@ -215,5 +214,12 @@ bool type_is_c_abi_int(CodeGen *g, ZigType *ty);
 bool want_first_arg_sret(CodeGen *g, FnTypeId *fn_type_id);
 
 uint32_t get_host_int_bytes(CodeGen *g, ZigType *struct_type, TypeStructField *field);
+
+enum ReqCompTime {
+    ReqCompTimeInvalid,
+    ReqCompTimeNo,
+    ReqCompTimeYes,
+};
+ReqCompTime type_requires_comptime(CodeGen *g, ZigType *type_entry);
 
 #endif

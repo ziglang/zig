@@ -8,6 +8,7 @@ comptime {
     _ = @import("cases/atomics.zig");
     _ = @import("cases/bitcast.zig");
     _ = @import("cases/bool.zig");
+    _ = @import("cases/bswap.zig");
     _ = @import("cases/bugs/1076.zig");
     _ = @import("cases/bugs/1111.zig");
     _ = @import("cases/bugs/1277.zig");
@@ -41,6 +42,7 @@ comptime {
     _ = @import("cases/if.zig");
     _ = @import("cases/import.zig");
     _ = @import("cases/incomplete_struct_param_tld.zig");
+    _ = @import("cases/inttoptr.zig");
     _ = @import("cases/ir_block_deps.zig");
     _ = @import("cases/math.zig");
     _ = @import("cases/merge_error_sets.zig");
@@ -51,6 +53,7 @@ comptime {
     _ = @import("cases/optional.zig");
     _ = @import("cases/pointers.zig");
     _ = @import("cases/popcount.zig");
+    _ = @import("cases/ptrcast.zig");
     _ = @import("cases/pub_enum/index.zig");
     _ = @import("cases/ref_var_in_if_after_if_2nd_switch_prong.zig");
     _ = @import("cases/reflection.zig");
@@ -64,6 +67,7 @@ comptime {
     _ = @import("cases/switch_prong_implicit_cast.zig");
     _ = @import("cases/syntax.zig");
     _ = @import("cases/this.zig");
+    _ = @import("cases/truncate.zig");
     _ = @import("cases/try.zig");
     _ = @import("cases/type_info.zig");
     _ = @import("cases/undefined.zig");

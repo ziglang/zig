@@ -50,7 +50,7 @@ pub extern "kernel32" stdcallcc fn FindFirstFileW(lpFileName: [*]const u16, lpFi
 pub extern "kernel32" stdcallcc fn FindClose(hFindFile: HANDLE) BOOL;
 pub extern "kernel32" stdcallcc fn FindNextFileW(hFindFile: HANDLE, lpFindFileData: *WIN32_FIND_DATAW) BOOL;
 
-pub extern "kernel32" stdcallcc fn FreeEnvironmentStringsA(penv: [*]u8) BOOL;
+pub extern "kernel32" stdcallcc fn FreeEnvironmentStringsW(penv: [*]u16) BOOL;
 
 pub extern "kernel32" stdcallcc fn GetCommandLineA() LPSTR;
 
@@ -63,9 +63,9 @@ pub extern "kernel32" stdcallcc fn GetCurrentDirectoryW(nBufferLength: DWORD, lp
 pub extern "kernel32" stdcallcc fn GetCurrentThread() HANDLE;
 pub extern "kernel32" stdcallcc fn GetCurrentThreadId() DWORD;
 
-pub extern "kernel32" stdcallcc fn GetEnvironmentStringsA() ?[*]u8;
+pub extern "kernel32" stdcallcc fn GetEnvironmentStringsW() ?[*]u16;
 
-pub extern "kernel32" stdcallcc fn GetEnvironmentVariableA(lpName: LPCSTR, lpBuffer: LPSTR, nSize: DWORD) DWORD;
+pub extern "kernel32" stdcallcc fn GetEnvironmentVariableW(lpName: LPWSTR, lpBuffer: LPWSTR, nSize: DWORD) DWORD;
 
 pub extern "kernel32" stdcallcc fn GetExitCodeProcess(hProcess: HANDLE, lpExitCode: *DWORD) BOOL;
 

@@ -129,6 +129,11 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
         Buf *src_dir = buf_alloc();
         os_path_split(root_src_path, src_dir, src_basename);
 
+        if (buf_len(src_basename) == 0) {
+            fprintf(stderr, "Invalid root source path: %s\n", buf_ptr(root_src_path));
+            exit(1);
+        }
+
         g->root_package = new_package(buf_ptr(src_dir), buf_ptr(src_basename));
         g->std_package = new_package(buf_ptr(g->zig_std_dir), "index.zig");
         g->root_package->package_table.put(buf_create_from_str("std"), g->std_package);
@@ -1645,7 +1650,7 @@ static LLVMValueRef gen_widen_or_shorten(CodeGen *g, bool want_runtime_safety, Z
         zig_unreachable();
     }
 
-    if (actual_bits >= wanted_bits && actual_type->id == ZigTypeIdInt &&
+    if (actual_type->id == ZigTypeIdInt &&
         !wanted_type->data.integral.is_signed && actual_type->data.integral.is_signed &&
         want_runtime_safety)
     {
@@ -2879,32 +2884,6 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
 
                 return cast_instruction->tmp_ptr;
             }
-        case CastOpBytesToSlice:
-            {
-                assert(cast_instruction->tmp_ptr);
-                assert(wanted_type->id == ZigTypeIdStruct);
-                assert(wanted_type->data.structure.is_slice);
-                assert(actual_type->id == ZigTypeIdArray);
-
-                ZigType *wanted_pointer_type = wanted_type->data.structure.fields[slice_ptr_index].type_entry;
-                ZigType *wanted_child_type = wanted_pointer_type->data.pointer.child_type;
-
-
-                size_t wanted_ptr_index = wanted_type->data.structure.fields[0].gen_index;
-                LLVMValueRef dest_ptr_ptr = LLVMBuildStructGEP(g->builder, cast_instruction->tmp_ptr,
-                        (unsigned)wanted_ptr_index, "");
-                LLVMValueRef src_ptr_casted = LLVMBuildBitCast(g->builder, expr_val, wanted_pointer_type->type_ref, "");
-                gen_store_untyped(g, src_ptr_casted, dest_ptr_ptr, 0, false);
-
-                size_t wanted_len_index = wanted_type->data.structure.fields[1].gen_index;
-                LLVMValueRef len_ptr = LLVMBuildStructGEP(g->builder, cast_instruction->tmp_ptr,
-                        (unsigned)wanted_len_index, "");
-                LLVMValueRef len_val = LLVMConstInt(g->builtin_types.entry_usize->type_ref,
-                        actual_type->data.array.len / type_size(g, wanted_child_type), false);
-                gen_store_untyped(g, len_val, len_ptr, 0, false);
-
-                return cast_instruction->tmp_ptr;
-            }
         case CastOpIntToFloat:
             assert(actual_type->id == ZigTypeIdInt);
             if (actual_type->data.integral.is_signed) {
@@ -3660,6 +3639,13 @@ static LLVMValueRef ir_render_asm(CodeGen *g, IrExecutable *executable, IrInstru
         AsmOutput *asm_output = asm_expr->output_list.at(i);
         bool is_return = (asm_output->return_type != nullptr);
         assert(*buf_ptr(asm_output->constraint) == '=');
+        // LLVM uses commas internally to separate different constraints,
+        // alternative constraints are achieved with pipes.
+        // We still allow the user to use commas in a way that is similar
+        // to GCC's inline assembly.
+        // http://llvm.org/docs/LangRef.html#constraint-codes
+        buf_replace(asm_output->constraint, ',', '|');
+
         if (is_return) {
             buf_appendf(&constraint_buf, "=%s", buf_ptr(asm_output->constraint) + 1);
         } else {
@@ -3679,14 +3665,30 @@ static LLVMValueRef ir_render_asm(CodeGen *g, IrExecutable *executable, IrInstru
     }
     for (size_t i = 0; i < asm_expr->input_list.length; i += 1, total_index += 1, param_index += 1) {
         AsmInput *asm_input = asm_expr->input_list.at(i);
+        buf_replace(asm_input->constraint, ',', '|');
         IrInstruction *ir_input = instruction->input_list[i];
         buf_append_buf(&constraint_buf, asm_input->constraint);
         if (total_index + 1 < total_constraint_count) {
             buf_append_char(&constraint_buf, ',');
         }
 
-        param_types[param_index] = ir_input->value.type->type_ref;
-        param_values[param_index] = ir_llvm_value(g, ir_input);
+        ZigType *const type = ir_input->value.type;
+        LLVMTypeRef type_ref = type->type_ref;
+        LLVMValueRef value_ref = ir_llvm_value(g, ir_input);
+        // Handle integers of non pot bitsize by widening them.
+        if (type->id == ZigTypeIdInt) {
+            const size_t bitsize = type->data.integral.bit_count;
+            if (bitsize < 8 || !is_power_of_2(bitsize)) {
+                const bool is_signed = type->data.integral.is_signed;
+                const size_t wider_bitsize = bitsize < 8 ? 8 : round_to_next_power_of_2(bitsize);
+                ZigType *const wider_type = get_int_type(g, is_signed, wider_bitsize);
+                type_ref = wider_type->type_ref;
+                value_ref = gen_widen_or_shorten(g, false, type, wider_type, value_ref);
+            }
+        }
+
+        param_types[param_index] = type_ref;
+        param_values[param_index] = value_ref;
     }
     for (size_t i = 0; i < asm_expr->clobber_list.length; i += 1, total_index += 1) {
         Buf *clobber_buf = asm_expr->clobber_list.at(i);
@@ -3705,8 +3707,8 @@ static LLVMValueRef ir_render_asm(CodeGen *g, IrExecutable *executable, IrInstru
     LLVMTypeRef function_type = LLVMFunctionType(ret_type, param_types, (unsigned)input_and_output_count, false);
 
     bool is_volatile = asm_expr->is_volatile || (asm_expr->output_list.length == 0);
-    LLVMValueRef asm_fn = LLVMConstInlineAsm(function_type, buf_ptr(&llvm_template),
-            buf_ptr(&constraint_buf), is_volatile, false);
+    LLVMValueRef asm_fn = LLVMGetInlineAsm(function_type, buf_ptr(&llvm_template), buf_len(&llvm_template),
+            buf_ptr(&constraint_buf), buf_len(&constraint_buf), is_volatile, false, LLVMInlineAsmDialectATT);
 
     return LLVMBuildCall(g->builder, asm_fn, param_values, (unsigned)input_and_output_count, "");
 }
@@ -3786,6 +3788,11 @@ static LLVMValueRef get_int_builtin_fn(CodeGen *g, ZigType *int_type, BuiltinFnI
         n_args = 1;
         key.id = ZigLLVMFnIdPopCount;
         key.data.pop_count.bit_count = (uint32_t)int_type->data.integral.bit_count;
+    } else if (fn_id == BuiltinFnIdBswap) {
+        fn_name = "bswap";
+        n_args = 1;
+        key.id = ZigLLVMFnIdBswap;
+        key.data.bswap.bit_count = (uint32_t)int_type->data.integral.bit_count;
     } else {
         zig_unreachable();
     }
@@ -5070,6 +5077,29 @@ static LLVMValueRef ir_render_sqrt(CodeGen *g, IrExecutable *executable, IrInstr
     return LLVMBuildCall(g->builder, fn_val, &op, 1, "");
 }
 
+static LLVMValueRef ir_render_bswap(CodeGen *g, IrExecutable *executable, IrInstructionBswap *instruction) {
+    LLVMValueRef op = ir_llvm_value(g, instruction->op);
+    ZigType *int_type = instruction->base.value.type;
+    assert(int_type->id == ZigTypeIdInt);
+    if (int_type->data.integral.bit_count % 16 == 0) {
+        LLVMValueRef fn_val = get_int_builtin_fn(g, instruction->base.value.type, BuiltinFnIdBswap);
+        return LLVMBuildCall(g->builder, fn_val, &op, 1, "");
+    }
+    // Not an even number of bytes, so we zext 1 byte, then bswap, shift right 1 byte, truncate
+    ZigType *extended_type = get_int_type(g, int_type->data.integral.is_signed,
+            int_type->data.integral.bit_count + 8);
+    // aabbcc
+    LLVMValueRef extended = LLVMBuildZExt(g->builder, op, extended_type->type_ref, "");
+    // 00aabbcc
+    LLVMValueRef fn_val = get_int_builtin_fn(g, extended_type, BuiltinFnIdBswap);
+    LLVMValueRef swapped = LLVMBuildCall(g->builder, fn_val, &extended, 1, "");
+    // ccbbaa00
+    LLVMValueRef shifted = ZigLLVMBuildLShrExact(g->builder, swapped,
+            LLVMConstInt(extended_type->type_ref, 8, false), "");
+    // 00ccbbaa
+    return LLVMBuildTrunc(g->builder, shifted, int_type->type_ref, "");
+}
+
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
     Scope *scope = instruction->scope;
@@ -5307,6 +5337,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_mark_err_ret_trace_ptr(g, executable, (IrInstructionMarkErrRetTracePtr *)instruction);
         case IrInstructionIdSqrt:
             return ir_render_sqrt(g, executable, (IrInstructionSqrt *)instruction);
+        case IrInstructionIdBswap:
+            return ir_render_bswap(g, executable, (IrInstructionBswap *)instruction);
     }
     zig_unreachable();
 }
@@ -6258,8 +6290,14 @@ static void do_code_gen(CodeGen *g) {
             }
             if (ir_get_var_is_comptime(var))
                 continue;
-            if (type_requires_comptime(var->value->type))
-                continue;
+            switch (type_requires_comptime(g, var->value->type)) {
+                case ReqCompTimeInvalid:
+                    zig_unreachable();
+                case ReqCompTimeYes:
+                    continue;
+                case ReqCompTimeNo:
+                    break;
+            }
 
             if (var->src_arg_index == SIZE_MAX) {
                 var->value_ref = build_alloca(g, var->value->type, buf_ptr(&var->name), var->align_bytes);
@@ -6723,6 +6761,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdToBytes, "sliceToBytes", 1);
     create_builtin_fn(g, BuiltinFnIdFromBytes, "bytesToSlice", 2);
     create_builtin_fn(g, BuiltinFnIdThis, "This", 0);
+    create_builtin_fn(g, BuiltinFnIdBswap, "bswap", 2);
 }
 
 static const char *bool_to_str(bool b) {
@@ -8149,7 +8188,11 @@ void codegen_build_and_link(CodeGen *g) {
         os_path_join(stage1_dir, buf_create_from_str("build"), manifest_dir);
 
         if ((err = check_cache(g, manifest_dir, &digest))) {
-            fprintf(stderr, "Unable to check cache: %s\n", err_str(err));
+            if (err == ErrorCacheUnavailable) {
+                // message already printed
+            } else {
+                fprintf(stderr, "Unable to check cache: %s\n", err_str(err));
+            }
             exit(1);
         }
 

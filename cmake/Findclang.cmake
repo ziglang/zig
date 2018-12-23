@@ -30,6 +30,7 @@ else()
           /usr/lib/llvm/8/include
           /usr/lib/llvm-8/include
           /usr/lib/llvm-8.0/include
+          /usr/local/llvm80/include
           /mingw64/include)
 
       macro(FIND_AND_ADD_CLANG_LIB _libname_)
@@ -40,6 +41,7 @@ else()
               /usr/lib/llvm/8/lib
               /usr/lib/llvm-8/lib
               /usr/lib/llvm-8.0/lib
+              /usr/local/llvm80/lib
               /mingw64/lib
               /c/msys64/mingw64/lib
               c:\\msys64\\mingw64\\lib)

@@ -52,6 +52,16 @@ comptime {
     @export("__fixunstfdi", @import("fixunstfdi.zig").__fixunstfdi, linkage);
     @export("__fixunstfti", @import("fixunstfti.zig").__fixunstfti, linkage);
 
+    @export("__fixdfdi", @import("fixdfdi.zig").__fixdfdi, linkage);
+    @export("__fixdfsi", @import("fixdfsi.zig").__fixdfsi, linkage);
+    @export("__fixdfti", @import("fixdfti.zig").__fixdfti, linkage);
+    @export("__fixsfdi", @import("fixsfdi.zig").__fixsfdi, linkage);
+    @export("__fixsfsi", @import("fixsfsi.zig").__fixsfsi, linkage);
+    @export("__fixsfti", @import("fixsfti.zig").__fixsfti, linkage);
+    @export("__fixtfdi", @import("fixtfdi.zig").__fixtfdi, linkage);
+    @export("__fixtfsi", @import("fixtfsi.zig").__fixtfsi, linkage);
+    @export("__fixtfti", @import("fixtfti.zig").__fixtfti, linkage);
+
     @export("__udivmoddi4", @import("udivmoddi4.zig").__udivmoddi4, linkage);
 
     @export("__udivsi3", __udivsi3, linkage);
@@ -59,7 +69,7 @@ comptime {
     @export("__umoddi3", __umoddi3, linkage);
     @export("__udivmodsi4", __udivmodsi4, linkage);
 
-    if (isArmArch()) {
+    if (is_arm_arch and !is_arm_64) {
         @export("__aeabi_uldivmod", __aeabi_uldivmod, linkage);
         @export("__aeabi_uidivmod", __aeabi_uidivmod, linkage);
         @export("__aeabi_uidiv", __udivsi3, linkage);
@@ -149,68 +159,85 @@ extern fn __aeabi_uldivmod(numerator: u64, denominator: u64) AeabiUlDivModResult
     return result;
 }
 
-fn isArmArch() bool {
-    return switch (builtin.arch) {
-        builtin.Arch.armv8_3a,
-        builtin.Arch.armv8_2a,
-        builtin.Arch.armv8_1a,
-        builtin.Arch.armv8,
-        builtin.Arch.armv8r,
-        builtin.Arch.armv8m_baseline,
-        builtin.Arch.armv8m_mainline,
-        builtin.Arch.armv7,
-        builtin.Arch.armv7em,
-        builtin.Arch.armv7m,
-        builtin.Arch.armv7s,
-        builtin.Arch.armv7k,
-        builtin.Arch.armv7ve,
-        builtin.Arch.armv6,
-        builtin.Arch.armv6m,
-        builtin.Arch.armv6k,
-        builtin.Arch.armv6t2,
-        builtin.Arch.armv5,
-        builtin.Arch.armv5te,
-        builtin.Arch.armv4t,
-        builtin.Arch.armebv8_3a,
-        builtin.Arch.armebv8_2a,
-        builtin.Arch.armebv8_1a,
-        builtin.Arch.armebv8,
-        builtin.Arch.armebv8r,
-        builtin.Arch.armebv8m_baseline,
-        builtin.Arch.armebv8m_mainline,
-        builtin.Arch.armebv7,
-        builtin.Arch.armebv7em,
-        builtin.Arch.armebv7m,
-        builtin.Arch.armebv7s,
-        builtin.Arch.armebv7k,
-        builtin.Arch.armebv7ve,
-        builtin.Arch.armebv6,
-        builtin.Arch.armebv6m,
-        builtin.Arch.armebv6k,
-        builtin.Arch.armebv6t2,
-        builtin.Arch.armebv5,
-        builtin.Arch.armebv5te,
-        builtin.Arch.armebv4t,
-        builtin.Arch.aarch64v8_3a,
-        builtin.Arch.aarch64v8_2a,
-        builtin.Arch.aarch64v8_1a,
-        builtin.Arch.aarch64v8,
-        builtin.Arch.aarch64v8r,
-        builtin.Arch.aarch64v8m_baseline,
-        builtin.Arch.aarch64v8m_mainline,
-        builtin.Arch.aarch64_bev8_3a,
-        builtin.Arch.aarch64_bev8_2a,
-        builtin.Arch.aarch64_bev8_1a,
-        builtin.Arch.aarch64_bev8,
-        builtin.Arch.aarch64_bev8r,
-        builtin.Arch.aarch64_bev8m_baseline,
-        builtin.Arch.aarch64_bev8m_mainline,
-        builtin.Arch.thumb,
-        builtin.Arch.thumbeb,
-        => true,
-        else => false,
-    };
-}
+const is_arm_64 = switch (builtin.arch) {
+    builtin.Arch.aarch64v8_3a,
+    builtin.Arch.aarch64v8_2a,
+    builtin.Arch.aarch64v8_1a,
+    builtin.Arch.aarch64v8,
+    builtin.Arch.aarch64v8r,
+    builtin.Arch.aarch64v8m_baseline,
+    builtin.Arch.aarch64v8m_mainline,
+    builtin.Arch.aarch64_bev8_3a,
+    builtin.Arch.aarch64_bev8_2a,
+    builtin.Arch.aarch64_bev8_1a,
+    builtin.Arch.aarch64_bev8,
+    builtin.Arch.aarch64_bev8r,
+    builtin.Arch.aarch64_bev8m_baseline,
+    builtin.Arch.aarch64_bev8m_mainline,
+    => true,
+    else => false,
+};
+
+const is_arm_arch = switch (builtin.arch) {
+    builtin.Arch.armv8_3a,
+    builtin.Arch.armv8_2a,
+    builtin.Arch.armv8_1a,
+    builtin.Arch.armv8,
+    builtin.Arch.armv8r,
+    builtin.Arch.armv8m_baseline,
+    builtin.Arch.armv8m_mainline,
+    builtin.Arch.armv7,
+    builtin.Arch.armv7em,
+    builtin.Arch.armv7m,
+    builtin.Arch.armv7s,
+    builtin.Arch.armv7k,
+    builtin.Arch.armv7ve,
+    builtin.Arch.armv6,
+    builtin.Arch.armv6m,
+    builtin.Arch.armv6k,
+    builtin.Arch.armv6t2,
+    builtin.Arch.armv5,
+    builtin.Arch.armv5te,
+    builtin.Arch.armv4t,
+    builtin.Arch.armebv8_3a,
+    builtin.Arch.armebv8_2a,
+    builtin.Arch.armebv8_1a,
+    builtin.Arch.armebv8,
+    builtin.Arch.armebv8r,
+    builtin.Arch.armebv8m_baseline,
+    builtin.Arch.armebv8m_mainline,
+    builtin.Arch.armebv7,
+    builtin.Arch.armebv7em,
+    builtin.Arch.armebv7m,
+    builtin.Arch.armebv7s,
+    builtin.Arch.armebv7k,
+    builtin.Arch.armebv7ve,
+    builtin.Arch.armebv6,
+    builtin.Arch.armebv6m,
+    builtin.Arch.armebv6k,
+    builtin.Arch.armebv6t2,
+    builtin.Arch.armebv5,
+    builtin.Arch.armebv5te,
+    builtin.Arch.armebv4t,
+    builtin.Arch.aarch64v8_3a,
+    builtin.Arch.aarch64v8_2a,
+    builtin.Arch.aarch64v8_1a,
+    builtin.Arch.aarch64v8,
+    builtin.Arch.aarch64v8r,
+    builtin.Arch.aarch64v8m_baseline,
+    builtin.Arch.aarch64v8m_mainline,
+    builtin.Arch.aarch64_bev8_3a,
+    builtin.Arch.aarch64_bev8_2a,
+    builtin.Arch.aarch64_bev8_1a,
+    builtin.Arch.aarch64_bev8,
+    builtin.Arch.aarch64_bev8r,
+    builtin.Arch.aarch64_bev8m_baseline,
+    builtin.Arch.aarch64_bev8m_mainline,
+    builtin.Arch.thumb,
+    builtin.Arch.thumbeb,
+    => true,
+    else => false,
+};
 
 nakedcc fn __aeabi_uidivmod() void {
     @setRuntimeSafety(false);

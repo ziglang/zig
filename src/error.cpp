@@ -33,6 +33,7 @@ const char *err_str(Error err) {
         case ErrorSharingViolation: return "sharing violation";
         case ErrorPipeBusy: return "pipe busy";
         case ErrorPrimitiveTypeNotFound: return "primitive type not found";
+        case ErrorCacheUnavailable: return "cache unavailable";
     }
     return "(invalid error)";
 }

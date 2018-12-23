@@ -4784,6 +4784,14 @@ Error parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const 
 
     clang_argv.append(target_file);
 
+    if (codegen->verbose_cimport) {
+        fprintf(stderr, "clang");
+        for (size_t i = 0; i < clang_argv.length; i += 1) {
+            fprintf(stderr, " %s", clang_argv.at(i));
+        }
+        fprintf(stderr, "\n");
+    }
+
     // to make the [start...end] argument work
     clang_argv.append(nullptr);
 
