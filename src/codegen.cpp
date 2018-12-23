@@ -643,14 +643,18 @@ static ZigLLVMDIScope *get_di_scope(CodeGen *g, Scope *scope) {
             unsigned line_number = (unsigned)(fn_table_entry->proto_node->line == 0) ?
                 0 : (fn_table_entry->proto_node->line + 1);
             unsigned scope_line = line_number;
+            bool is_definition = fn_table_entry->body_node != nullptr;
+            bool is_optimized = g->build_mode != BuildModeDebug;
+            bool is_internal_linkage = (fn_table_entry->body_node != nullptr &&
+                    fn_table_entry->export_list.length == 0);
             unsigned flags = 0;
             ZigLLVMDIScope *fn_di_scope = get_di_scope(g, scope->parent);
             assert(fn_di_scope != nullptr);
             ZigLLVMDISubprogram *subprogram = ZigLLVMCreateFunction(g->dbuilder,
                 fn_di_scope, buf_ptr(&fn_table_entry->symbol_name), "",
                 import->di_file, line_number,
-                fn_table_entry->type_entry->di_type,
-                scope_line, flags, nullptr);
+                fn_table_entry->type_entry->di_type, is_internal_linkage,
+                is_definition, scope_line, flags, is_optimized, nullptr);
 
             scope->di_scope = ZigLLVMSubprogramToScope(subprogram);
             ZigLLVMFnSetSubprogram(fn_llvm_value(g, fn_table_entry), subprogram);
