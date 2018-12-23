@@ -2903,29 +2903,6 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
             return expr_val;
         case CastOpBitCast:
             return LLVMBuildBitCast(g->builder, expr_val, wanted_type->type_ref, "");
-        case CastOpPtrOfArrayToSlice: {
-            assert(actual_type->id == ZigTypeIdPointer);
-            ZigType *array_type = actual_type->data.pointer.child_type;
-            assert(array_type->id == ZigTypeIdArray);
-
-            LLVMValueRef result_ptr = ir_llvm_value(g, cast_instruction->result_loc);
-
-            LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, result_ptr,
-                    slice_ptr_index, "");
-            LLVMValueRef indices[] = {
-                LLVMConstNull(g->builtin_types.entry_usize->type_ref),
-                LLVMConstInt(g->builtin_types.entry_usize->type_ref, 0, false),
-            };
-            LLVMValueRef slice_start_ptr = LLVMBuildInBoundsGEP(g->builder, expr_val, indices, 2, "");
-            gen_store_untyped(g, slice_start_ptr, ptr_field_ptr, 0, false);
-
-            LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, result_ptr, slice_len_index, "");
-            LLVMValueRef len_value = LLVMConstInt(g->builtin_types.entry_usize->type_ref,
-                    array_type->data.array.len, false);
-            gen_store_untyped(g, len_value, len_field_ptr, 0, false);
-
-            return result_ptr;
-        }
     }
     zig_unreachable();
 }
@@ -5220,6 +5197,36 @@ static LLVMValueRef ir_render_bswap(CodeGen *g, IrExecutable *executable, IrInst
     return LLVMBuildTrunc(g->builder, shifted, int_type->type_ref, "");
 }
 
+static LLVMValueRef ir_render_ptr_of_array_to_slice(CodeGen *g, IrExecutable *executable,
+        IrInstructionPtrOfArrayToSlice *instruction)
+{
+    ZigType *actual_type = instruction->value->value.type;
+    LLVMValueRef expr_val = ir_llvm_value(g, instruction->value);
+    assert(expr_val);
+
+    assert(actual_type->id == ZigTypeIdPointer);
+    ZigType *array_type = actual_type->data.pointer.child_type;
+    assert(array_type->id == ZigTypeIdArray);
+
+    LLVMValueRef result_ptr = ir_llvm_value(g, instruction->result_loc);
+
+    LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, result_ptr,
+            slice_ptr_index, "");
+    LLVMValueRef indices[] = {
+        LLVMConstNull(g->builtin_types.entry_usize->type_ref),
+        LLVMConstInt(g->builtin_types.entry_usize->type_ref, 0, false),
+    };
+    LLVMValueRef slice_start_ptr = LLVMBuildInBoundsGEP(g->builder, expr_val, indices, 2, "");
+    gen_store_untyped(g, slice_start_ptr, ptr_field_ptr, 0, false);
+
+    LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, result_ptr, slice_len_index, "");
+    LLVMValueRef len_value = LLVMConstInt(g->builtin_types.entry_usize->type_ref,
+            array_type->data.array.len, false);
+    gen_store_untyped(g, len_value, len_field_ptr, 0, false);
+
+    return result_ptr;
+}
+
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
     Scope *scope = instruction->scope;
@@ -5492,6 +5499,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_to_bytes_len(g, executable, (IrInstructionToBytesLenGen *)instruction);
         case IrInstructionIdBswap:
             return ir_render_bswap(g, executable, (IrInstructionBswap *)instruction);
+        case IrInstructionIdPtrOfArrayToSlice:
+            return ir_render_ptr_of_array_to_slice(g, executable, (IrInstructionPtrOfArrayToSlice *)instruction);
     }
     zig_unreachable();
 }

@@ -414,6 +414,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionCast *) {
     return IrInstructionIdCast;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionPtrOfArrayToSlice *) {
+    return IrInstructionIdPtrOfArrayToSlice;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionContainerInitList *) {
     return IrInstructionIdContainerInitList;
 }
@@ -1012,6 +1016,20 @@ static IrInstruction *ir_build_cast(IrBuilder *irb, Scope *scope, AstNode *sourc
     ir_ref_instruction(value, irb->current_basic_block);
 
     return &cast_instruction->base;
+}
+
+static IrInstruction *ir_build_ptr_of_array_to_slice(IrBuilder *irb, Scope *scope, AstNode *source_node,
+    IrInstruction *value, IrInstruction *result_loc)
+{
+    IrInstructionPtrOfArrayToSlice *instruction = ir_build_instruction<IrInstructionPtrOfArrayToSlice>(
+            irb, scope, source_node);
+    instruction->value = value;
+    instruction->result_loc = result_loc;
+
+    ir_ref_instruction(value, irb->current_basic_block);
+    ir_ref_instruction(result_loc, irb->current_basic_block);
+
+    return &instruction->base;
 }
 
 static IrInstruction *ir_build_cond_br(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *condition,
@@ -9997,7 +10015,6 @@ static bool eval_const_expr_implicit_cast(IrAnalyze *ira, IrInstruction *source_
             zig_unreachable();
         case CastOpErrSet:
         case CastOpBitCast:
-        case CastOpPtrOfArrayToSlice:
             zig_panic("TODO");
         case CastOpNoop:
             {
@@ -10185,8 +10202,10 @@ static IrInstruction *ir_resolve_ptr_of_array_to_slice(IrAnalyze *ira, IrInstruc
         }
     }
 
-    IrInstruction *result = ir_build_cast(&ira->new_irb, source_instr->scope, source_instr->source_node,
-            wanted_type, value, CastOpPtrOfArrayToSlice);
+    IrInstruction *result_loc = ir_analyze_alloca(ira, source_instr, wanted_type, 0, "slice");
+    result_loc->value.special = ConstValSpecialRuntime;
+    IrInstruction *result = ir_build_ptr_of_array_to_slice(&ira->new_irb, source_instr->scope,
+            source_instr->source_node, value, result_loc);
     result->value.type = wanted_type;
     return result;
 }
@@ -23268,6 +23287,7 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
         case IrInstructionIdErrWrapCode:
         case IrInstructionIdErrWrapPayload:
         case IrInstructionIdCast:
+        case IrInstructionIdPtrOfArrayToSlice:
         case IrInstructionIdDeclVarGen:
         case IrInstructionIdAllocaGen:
         case IrInstructionIdResultSlicePtr:
@@ -23839,6 +23859,9 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 
         case IrInstructionIdLoadPtr:
             return reinterpret_cast<IrInstructionLoadPtr*>(instruction)->result_loc != nullptr;
+
+        case IrInstructionIdPtrOfArrayToSlice:
+            return reinterpret_cast<IrInstructionPtrOfArrayToSlice*>(instruction)->result_loc != nullptr;
 
         case IrInstructionIdAsm:
             {

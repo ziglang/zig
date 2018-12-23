@@ -631,7 +631,6 @@ enum CastOp {
     CastOpNumLitToConcrete,
     CastOpErrSet,
     CastOpBitCast,
-    CastOpPtrOfArrayToSlice,
 };
 
 struct AstNodeFnCallExpr {
@@ -2247,6 +2246,7 @@ enum IrInstructionId {
     IrInstructionIdToBytesLenGen,
     IrInstructionIdSetNonNullBit,
     IrInstructionIdErrorLiteral,
+    IrInstructionIdPtrOfArrayToSlice,
 };
 
 struct IrInstruction {
@@ -2501,6 +2501,13 @@ struct IrInstructionCast {
     IrInstruction *result_loc;
     ZigType *dest_type;
     CastOp cast_op;
+};
+
+struct IrInstructionPtrOfArrayToSlice {
+    IrInstruction base;
+
+    IrInstruction *value;
+    IrInstruction *result_loc;
 };
 
 struct IrInstructionContainerInitList {
