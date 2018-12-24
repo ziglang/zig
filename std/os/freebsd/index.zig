@@ -573,7 +573,7 @@ pub fn getcwd(buf: [*]u8, size: usize) usize {
 }
 
 pub fn getdents(fd: i32, dirp: [*]u8, count: usize) usize {
-    return arch.syscall3(SYS_getdents, @bitCast(usize, isize(fd)), @ptrToInt(dirp), count);
+    return errnoWrap(@bitCast(isize, c.getdents(fd, drip, count)));
 }
 
 pub fn getdirentries(fd: i32, buf_ptr: [*]u8, buf_len: usize, basep: *i64) usize {
@@ -667,7 +667,7 @@ pub fn create(path: [*]const u8, perm: usize) usize {
 }
 
 pub fn openat(dirfd: i32, path: [*]const u8, flags: usize, mode: usize) usize {
-    return arch.syscall4(SYS_openat, @bitCast(usize, isize(dirfd)), @ptrToInt(path), flags, mode);
+    return errnoWrap(c.openat(@bitCast(usize, isize(dirfd)), @ptrToInt(path), flags, mode));
 }
 
 pub fn close(fd: i32) usize {
@@ -683,7 +683,7 @@ pub fn exit(code: i32) noreturn {
 }
 
 pub fn kill(pid: i32, sig: i32) usize {
-    return arch.syscall2(SYS_kill, @bitCast(usize, isize(pid)), @bitCast(usize, isize(sig)));
+    return errnoWrap(c.kill(pid, sig));
 }
 
 pub fn unlink(path: [*]const u8) usize {
@@ -700,11 +700,11 @@ pub fn nanosleep(req: *const timespec, rem: ?*timespec) usize {
 }
 
 pub fn setuid(uid: u32) usize {
-    return arch.syscall1(SYS_setuid, uid);
+    return errnoWrap(c.setuid(uid));
 }
 
 pub fn setgid(gid: u32) usize {
-    return arch.syscall1(SYS_setgid, gid);
+    return errnoWrap(c.setgid(gid));
 }
 
 pub fn setreuid(ruid: u32, euid: u32) usize {
