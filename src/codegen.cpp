@@ -7231,8 +7231,7 @@ static void init(CodeGen *g) {
     }
 
     if (g->is_test_build) {
-        g->windows_subsystem_windows = false;
-        g->windows_subsystem_console = true;
+        g->msvc_subsystem = ZigLLVM_MSVC_CONSOLE;
     }
 
     assert(g->root_out_name);
