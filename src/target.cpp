@@ -397,8 +397,8 @@ const char *get_target_os_name(Os os_type) {
             return "freestanding";
         case OsZen:
             return "zen";
-		case OsUefi:
-			return "uefi";
+        case OsUefi:
+            return "uefi";
         case OsAnanas:
         case OsCloudABI:
         case OsDragonFly:
