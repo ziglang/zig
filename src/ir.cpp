@@ -159,7 +159,7 @@ static ZigType *ir_resolve_atomic_operand_type(IrAnalyze *ira, IrInstruction *op
 static IrInstruction *ir_lval_wrap(IrBuilder *irb, Scope *scope, IrInstruction *value, LVal lval);
 static ZigType *adjust_ptr_align(CodeGen *g, ZigType *ptr_type, uint32_t new_align);
 static ZigType *adjust_slice_align(CodeGen *g, ZigType *slice_type, uint32_t new_align);
-static void buf_read_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue *val);
+static Error buf_read_value_bytes(IrAnalyze *ira, AstNode *source_node, uint8_t *buf, ConstExprValue *val);
 static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue *val);
 static Error ir_read_const_ptr(IrAnalyze *ira, AstNode *source_node,
         ConstExprValue *out_val, ConstExprValue *ptr_val);
@@ -12495,6 +12495,7 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruct
     case ReqCompTimeNo:
         if (casted_init_value->value.special == ConstValSpecialStatic &&
             casted_init_value->value.type->id == ZigTypeIdFn &&
+            casted_init_value->value.data.x_ptr.special != ConstPtrSpecialHardCodedAddr &&
             casted_init_value->value.data.x_ptr.data.fn.fn_entry->fn_inline == FnInlineAlways)
         {
             var_class_requires_const = true;
@@ -13724,7 +13725,8 @@ static Error ir_read_const_ptr(IrAnalyze *ira, AstNode *source_node,
         Buf buf = BUF_INIT;
         buf_resize(&buf, src_size);
         buf_write_value_bytes(ira->codegen, (uint8_t*)buf_ptr(&buf), pointee);
-        buf_read_value_bytes(ira->codegen, (uint8_t*)buf_ptr(&buf), out_val);
+        if ((err = buf_read_value_bytes(ira, source_node, (uint8_t*)buf_ptr(&buf), out_val)))
+            return err;
         return ErrorNone;
     }
 
@@ -13758,7 +13760,8 @@ static Error ir_read_const_ptr(IrAnalyze *ira, AstNode *source_node,
                 ConstExprValue *elem_val = &array_val->data.x_array.data.s_none.elements[elem_index + i];
                 buf_write_value_bytes(ira->codegen, (uint8_t*)buf_ptr(&buf) + (i * elem_size), elem_val);
             }
-            buf_read_value_bytes(ira->codegen, (uint8_t*)buf_ptr(&buf), out_val);
+            if ((err = buf_read_value_bytes(ira, source_node, (uint8_t*)buf_ptr(&buf), out_val)))
+                return err;
             return ErrorNone;
         }
         case ConstPtrSpecialBaseStruct:
@@ -20076,7 +20079,8 @@ static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue
     zig_unreachable();
 }
 
-static void buf_read_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue *val) {
+static Error buf_read_value_bytes(IrAnalyze *ira, AstNode *source_node, uint8_t *buf, ConstExprValue *val) {
+    Error err;
     assert(val->special == ConstValSpecialStatic);
     switch (val->type->id) {
         case ZigTypeIdInvalid:
@@ -20093,30 +20097,60 @@ static void buf_read_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue 
         case ZigTypeIdPromise:
             zig_unreachable();
         case ZigTypeIdVoid:
-            return;
+            return ErrorNone;
         case ZigTypeIdBool:
             val->data.x_bool = (buf[0] != 0);
-            return;
+            return ErrorNone;
         case ZigTypeIdInt:
             bigint_read_twos_complement(&val->data.x_bigint, buf, val->type->data.integral.bit_count,
-                    codegen->is_big_endian, val->type->data.integral.is_signed);
-            return;
+                    ira->codegen->is_big_endian, val->type->data.integral.is_signed);
+            return ErrorNone;
         case ZigTypeIdFloat:
-            float_read_ieee597(val, buf, codegen->is_big_endian);
-            return;
+            float_read_ieee597(val, buf, ira->codegen->is_big_endian);
+            return ErrorNone;
         case ZigTypeIdPointer:
             {
                 val->data.x_ptr.special = ConstPtrSpecialHardCodedAddr;
                 BigInt bn;
-                bigint_read_twos_complement(&bn, buf, codegen->builtin_types.entry_usize->data.integral.bit_count,
-                        codegen->is_big_endian, false);
+                bigint_read_twos_complement(&bn, buf, ira->codegen->builtin_types.entry_usize->data.integral.bit_count,
+                        ira->codegen->is_big_endian, false);
                 val->data.x_ptr.data.hard_coded_addr.addr = bigint_as_unsigned(&bn);
-                return;
+                return ErrorNone;
             }
         case ZigTypeIdArray:
             zig_panic("TODO buf_read_value_bytes array type");
         case ZigTypeIdStruct:
-            zig_panic("TODO buf_read_value_bytes struct type");
+            switch (val->type->data.structure.layout) {
+                case ContainerLayoutAuto: {
+                    ErrorMsg *msg = ir_add_error_node(ira, source_node,
+                        buf_sprintf("non-extern, non-packed struct '%s' cannot have its bytes reinterpreted",
+                            buf_ptr(&val->type->name)));
+                    add_error_note(ira->codegen, msg, val->type->data.structure.decl_node,
+                            buf_sprintf("declared here"));
+                    return ErrorSemanticAnalyzeFail;
+                }
+                case ContainerLayoutExtern: {
+                    size_t src_field_count = val->type->data.structure.src_field_count;
+                    val->data.x_struct.fields = create_const_vals(src_field_count);
+                    for (size_t field_i = 0; field_i < src_field_count; field_i += 1) {
+                        ConstExprValue *field_val = &val->data.x_struct.fields[field_i];
+                        field_val->special = ConstValSpecialStatic;
+                        TypeStructField *type_field = &val->type->data.structure.fields[field_i];
+                        field_val->type = type_field->type_entry;
+                        if (type_field->gen_index == SIZE_MAX)
+                            continue;
+                        size_t offset = LLVMOffsetOfElement(ira->codegen->target_data_ref, val->type->type_ref,
+                                type_field->gen_index);
+                        uint8_t *new_buf = buf + offset;
+                        if ((err = buf_read_value_bytes(ira, source_node, new_buf, field_val)))
+                            return err;
+                    }
+                    return ErrorNone;
+                }
+                case ContainerLayoutPacked:
+                    zig_panic("TODO buf_read_value_bytes packed struct");
+            }
+            zig_unreachable();
         case ZigTypeIdOptional:
             zig_panic("TODO buf_read_value_bytes maybe type");
         case ZigTypeIdErrorUnion:
@@ -20219,7 +20253,8 @@ static IrInstruction *ir_analyze_instruction_bit_cast(IrAnalyze *ira, IrInstruct
         IrInstruction *result = ir_const(ira, &instruction->base, dest_type);
         uint8_t *buf = allocate_nonzero<uint8_t>(src_size_bytes);
         buf_write_value_bytes(ira->codegen, buf, val);
-        buf_read_value_bytes(ira->codegen, buf, &result->value);
+        if ((err = buf_read_value_bytes(ira, instruction->base.source_node, buf, &result->value)))
+            return ira->codegen->invalid_instruction;
         return result;
     }
 

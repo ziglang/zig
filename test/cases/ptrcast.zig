@@ -15,3 +15,22 @@ fn testReinterpretBytesAsInteger() void {
     };
     assertOrPanic(@ptrCast(*align(1) const u32, bytes[1..5].ptr).* == expected);
 }
+
+test "reinterpret bytes of an array into an extern struct" {
+    testReinterpretBytesAsExternStruct();
+    comptime testReinterpretBytesAsExternStruct();
+}
+
+fn testReinterpretBytesAsExternStruct() void {
+    var bytes align(2) = []u8{ 1, 2, 3, 4, 5, 6 };
+
+    const S = extern struct {
+        a: u8,
+        b: u16,
+        c: u8,
+    };
+
+    var ptr = @ptrCast(*const S, &bytes);
+    var val = ptr.c;
+    assertOrPanic(val == 5);
+}

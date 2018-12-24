@@ -42,6 +42,7 @@ comptime {
     _ = @import("cases/if.zig");
     _ = @import("cases/import.zig");
     _ = @import("cases/incomplete_struct_param_tld.zig");
+    _ = @import("cases/inttoptr.zig");
     _ = @import("cases/ir_block_deps.zig");
     _ = @import("cases/math.zig");
     _ = @import("cases/merge_error_sets.zig");

@@ -144,15 +144,20 @@ test "type info: enum info" {
 }
 
 fn testEnum() void {
-    const Os = @import("builtin").Os;
+    const Os = enum {
+        Windows,
+        Macos,
+        Linux,
+        FreeBSD,
+    };
 
     const os_info = @typeInfo(Os);
     assert(TypeId(os_info) == TypeId.Enum);
     assert(os_info.Enum.layout == TypeInfo.ContainerLayout.Auto);
-    assert(os_info.Enum.fields.len == 32);
-    assert(mem.eql(u8, os_info.Enum.fields[1].name, "ananas"));
-    assert(os_info.Enum.fields[10].value == 10);
-    assert(os_info.Enum.tag_type == u5);
+    assert(os_info.Enum.fields.len == 4);
+    assert(mem.eql(u8, os_info.Enum.fields[1].name, "Macos"));
+    assert(os_info.Enum.fields[3].value == 3);
+    assert(os_info.Enum.tag_type == u2);
     assert(os_info.Enum.defs.len == 0);
 }
 

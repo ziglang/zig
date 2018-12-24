@@ -243,6 +243,9 @@ pub fn formatType(
             }
             return format(context, Errors, output, "{}@{x}", @typeName(T.Child), @ptrToInt(&value));
         },
+        builtin.TypeId.Fn => {
+            return format(context, Errors, output, "{}@{x}", @typeName(T), @ptrToInt(value));
+        },
         else => @compileError("Unable to format type '" ++ @typeName(T) ++ "'"),
     }
 }
@@ -1008,6 +1011,10 @@ test "fmt.format" {
         const value = @intToPtr(*i32, 0xdeadbeef);
         try testFmt("pointer: i32@deadbeef\n", "pointer: {}\n", value);
         try testFmt("pointer: i32@deadbeef\n", "pointer: {*}\n", value);
+    }
+    {
+        const value = @intToPtr(fn () void, 0xdeadbeef);
+        try testFmt("pointer: fn() void@deadbeef\n", "pointer: {}\n", value);
     }
     {
         const value = @intToPtr(fn () void, 0xdeadbeef);

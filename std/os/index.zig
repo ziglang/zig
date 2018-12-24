@@ -459,6 +459,7 @@ pub const PosixOpenError = error{
     NoSpaceLeft,
     NotDir,
     PathAlreadyExists,
+    DeviceBusy,
 
     /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
@@ -497,6 +498,7 @@ pub fn posixOpenC(file_path: [*]const u8, flags: u32, perm: usize) !i32 {
                 posix.ENOTDIR => return PosixOpenError.NotDir,
                 posix.EPERM => return PosixOpenError.AccessDenied,
                 posix.EEXIST => return PosixOpenError.PathAlreadyExists,
+                posix.EBUSY => return PosixOpenError.DeviceBusy,
                 else => return unexpectedErrorPosix(err),
             }
         }
@@ -1402,6 +1404,7 @@ const DeleteTreeError = error{
     FileSystem,
     FileBusy,
     DirNotEmpty,
+    DeviceBusy,
 
     /// On Windows, file paths must be valid Unicode.
     InvalidUtf8,
@@ -1463,6 +1466,7 @@ pub fn deleteTree(allocator: *Allocator, full_path: []const u8) DeleteTreeError!
                 error.Unexpected,
                 error.InvalidUtf8,
                 error.BadPathName,
+                error.DeviceBusy,
                 => return err,
             };
             defer dir.close();
@@ -1545,6 +1549,7 @@ pub const Dir = struct {
         OutOfMemory,
         InvalidUtf8,
         BadPathName,
+        DeviceBusy,
 
         /// See https://github.com/ziglang/zig/issues/1396
         Unexpected,

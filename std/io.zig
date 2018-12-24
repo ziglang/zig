@@ -155,32 +155,32 @@ pub fn InStream(comptime ReadError: type) type {
         pub fn readIntNative(self: *Self, comptime T: type) !T {
             var bytes: [@sizeOf(T)]u8 = undefined;
             try self.readNoEof(bytes[0..]);
-            return mem.readIntSliceNative(T, bytes);
+            return mem.readIntNative(T, &bytes);
         }
 
         /// Reads a foreign-endian integer
         pub fn readIntForeign(self: *Self, comptime T: type) !T {
             var bytes: [@sizeOf(T)]u8 = undefined;
             try self.readNoEof(bytes[0..]);
-            return mem.readIntSliceForeign(T, bytes);
+            return mem.readIntForeign(T, &bytes);
         }
 
         pub fn readIntLittle(self: *Self, comptime T: type) !T {
             var bytes: [@sizeOf(T)]u8 = undefined;
             try self.readNoEof(bytes[0..]);
-            return mem.readIntSliceLittle(T, bytes);
+            return mem.readIntLittle(T, &bytes);
         }
 
         pub fn readIntBig(self: *Self, comptime T: type) !T {
             var bytes: [@sizeOf(T)]u8 = undefined;
             try self.readNoEof(bytes[0..]);
-            return mem.readIntSliceBig(T, bytes);
+            return mem.readIntBig(T, &bytes);
         }
 
         pub fn readInt(self: *Self, comptime T: type, endian: builtin.Endian) !T {
             var bytes: [@sizeOf(T)]u8 = undefined;
             try self.readNoEof(bytes[0..]);
-            return mem.readIntSlice(T, bytes, endian);
+            return mem.readInt(T, &bytes, endian);
         }
 
         pub fn readVarInt(self: *Self, comptime ReturnType: type, endian: builtin.Endian, size: usize) !ReturnType {
