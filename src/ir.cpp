@@ -14415,10 +14415,12 @@ static IrInstruction *ir_analyze_set_non_null_bit(IrAnalyze *ira,
         source_instr->scope, source_instr->source_node, base_ptr, non_null_bit, nullptr);
 }
 
-static IrInstruction *analyze_runtime_call(IrAnalyze *ira, ZigType *return_type,
+static IrInstruction *analyze_runtime_call(IrAnalyze *ira, FnTypeId *fn_type_id,
         IrInstructionCall *call_instruction, ZigFn *fn_entry, IrInstruction *fn_ref, size_t call_param_count,
         IrInstruction **casted_args, FnInline fn_inline, IrInstruction *casted_new_stack)
 {
+    ZigType *return_type = fn_type_id->return_type;
+
     // For an optional or error union, this result location is a pointer to the payload field.
     // For other types this is a base pointer to the value.
     IrInstruction *payload_result_loc = nullptr;
@@ -14455,8 +14457,11 @@ static IrInstruction *analyze_runtime_call(IrAnalyze *ira, ZigType *return_type,
         prev_result_loc = call_instruction->result_loc->child;
     } else {
         need_store_ptr = false;
-        if (return_type->id == ZigTypeIdErrorUnion || return_type->id == ZigTypeIdOptional) {
-            prev_result_loc = ir_analyze_alloca(ira, &call_instruction->base, nullptr, 0, "param", false);
+        if (return_type->id == ZigTypeIdErrorUnion ||
+            return_type->id == ZigTypeIdOptional ||
+            (type_has_bits(return_type) && want_first_arg_sret(ira->codegen, fn_type_id)))
+        {
+            prev_result_loc = ir_analyze_alloca(ira, &call_instruction->base, nullptr, 0, "", false);
             if (type_is_invalid(prev_result_loc->value.type))
                 return ira->codegen->invalid_instruction;
         }
@@ -15080,20 +15085,20 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call
             ira->codegen->fn_defs.append(impl_fn);
         }
 
-        ZigType *return_type = impl_fn->type_entry->data.fn.fn_type_id.return_type;
-        if (fn_type_can_fail(&impl_fn->type_entry->data.fn.fn_type_id)) {
+        FnTypeId *impl_fn_type_id = &impl_fn->type_entry->data.fn.fn_type_id;
+        if (fn_type_can_fail(impl_fn_type_id)) {
             parent_fn_entry->calls_or_awaits_errorable_fn = true;
         }
 
-        size_t impl_param_count = impl_fn->type_entry->data.fn.fn_type_id.param_count;
+        size_t impl_param_count = impl_fn_type_id->param_count;
         if (call_instruction->is_async) {
             IrInstruction *result = ir_analyze_async_call(ira, call_instruction, impl_fn, impl_fn->type_entry,
                     fn_ref, casted_args, impl_param_count, async_allocator_inst);
             return ir_finish_anal(ira, result);
         }
 
-        return analyze_runtime_call(ira, return_type, call_instruction, impl_fn, nullptr,
-                impl_param_count, casted_args, fn_inline, casted_new_stack);
+        return analyze_runtime_call(ira, impl_fn_type_id, call_instruction, impl_fn,
+                nullptr, impl_param_count, casted_args, fn_inline, casted_new_stack);
     }
 
     ZigFn *parent_fn_entry = exec_fn_entry(ira->new_irb.exec);
@@ -15185,7 +15190,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call
         return ira->codegen->invalid_instruction;
     }
 
-    return analyze_runtime_call(ira, return_type, call_instruction, fn_entry, fn_ref,
+    return analyze_runtime_call(ira, fn_type_id, call_instruction, fn_entry, fn_ref,
             call_param_count, casted_args, fn_inline, casted_new_stack);
 }
 
