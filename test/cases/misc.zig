@@ -1,275 +1,12 @@
 const std = @import("std");
-const assert = std.debug.assert;
+const assertOrPanic = std.debug.assertOrPanic;
 const mem = std.mem;
 const cstr = std.cstr;
 const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
 
-fn first4KeysOfHomeRow() []const u8 {
-    return "aoeu";
-}
-
-test "return string from function" {
-    assert(mem.eql(u8, first4KeysOfHomeRow(), "aoeu"));
-}
-
-const g1: i32 = 1233 + 1;
-var g2: i32 = 0;
-
-test "global variables" {
-    assert(g2 == 0);
-    g2 = g1;
-    assert(g2 == 1234);
-}
-
-test "memcpy and memset intrinsics" {
-    var foo: [20]u8 = undefined;
-    var bar: [20]u8 = undefined;
-
-    @memset(foo[0..].ptr, 'A', foo.len);
-    @memcpy(bar[0..].ptr, foo[0..].ptr, bar.len);
-
-    if (bar[11] != 'A') unreachable;
-}
-
-test "builtin static eval" {
-    const x: i32 = comptime x: {
-        break :x 1 + 2 + 3;
-    };
-    assert(x == comptime 6);
-}
-
-test "slicing" {
-    var array: [20]i32 = undefined;
-
-    array[5] = 1234;
-
-    var slice = array[5..10];
-
-    if (slice.len != 5) unreachable;
-
-    const ptr = &slice[0];
-    if (ptr.* != 1234) unreachable;
-
-    var slice_rest = array[10..];
-    if (slice_rest.len != 10) unreachable;
-}
-
-test "constant equal function pointers" {
-    const alias = emptyFn;
-    assert(comptime x: {
-        break :x emptyFn == alias;
-    });
-}
-
-fn emptyFn() void {}
-
-test "hex escape" {
-    assert(mem.eql(u8, "\x68\x65\x6c\x6c\x6f", "hello"));
-}
-
-test "string concatenation" {
-    assert(mem.eql(u8, "OK" ++ " IT " ++ "WORKED", "OK IT WORKED"));
-}
-
-test "array mult operator" {
-    assert(mem.eql(u8, "ab" ** 5, "ababababab"));
-}
-
-test "string escapes" {
-    assert(mem.eql(u8, "\"", "\x22"));
-    assert(mem.eql(u8, "\'", "\x27"));
-    assert(mem.eql(u8, "\n", "\x0a"));
-    assert(mem.eql(u8, "\r", "\x0d"));
-    assert(mem.eql(u8, "\t", "\x09"));
-    assert(mem.eql(u8, "\\", "\x5c"));
-    assert(mem.eql(u8, "\u1234\u0069", "\xe1\x88\xb4\x69"));
-}
-
-test "multiline string" {
-    const s1 =
-        \\one
-        \\two)
-        \\three
-    ;
-    const s2 = "one\ntwo)\nthree";
-    assert(mem.eql(u8, s1, s2));
-}
-
-test "multiline C string" {
-    const s1 =
-        c\\one
-        c\\two)
-        c\\three
-    ;
-    const s2 = c"one\ntwo)\nthree";
-    assert(cstr.cmp(s1, s2) == 0);
-}
-
-test "type equality" {
-    assert(*const u8 != *u8);
-}
-
-const global_a: i32 = 1234;
-const global_b: *const i32 = &global_a;
-const global_c: *const f32 = @ptrCast(*const f32, global_b);
-test "compile time global reinterpret" {
-    const d = @ptrCast(*const i32, global_c);
-    assert(d.* == 1234);
-}
-
-test "explicit cast maybe pointers" {
-    const a: ?*i32 = undefined;
-    const b: ?*f32 = @ptrCast(?*f32, a);
-}
-
-test "generic malloc free" {
-    const a = memAlloc(u8, 10) catch unreachable;
-    memFree(u8, a);
-}
-var some_mem: [100]u8 = undefined;
-fn memAlloc(comptime T: type, n: usize) anyerror![]T {
-    return @ptrCast([*]T, &some_mem[0])[0..n];
-}
-fn memFree(comptime T: type, memory: []T) void {}
-
-test "cast undefined" {
-    const array: [100]u8 = undefined;
-    const slice = ([]const u8)(array);
-    testCastUndefined(slice);
-}
-fn testCastUndefined(x: []const u8) void {}
-
-test "cast small unsigned to larger signed" {
-    assert(castSmallUnsignedToLargerSigned1(200) == i16(200));
-    assert(castSmallUnsignedToLargerSigned2(9999) == i64(9999));
-}
-fn castSmallUnsignedToLargerSigned1(x: u8) i16 {
-    return x;
-}
-fn castSmallUnsignedToLargerSigned2(x: u16) i64 {
-    return x;
-}
-
-test "implicit cast after unreachable" {
-    assert(outer() == 1234);
-}
-fn inner() i32 {
-    return 1234;
-}
-fn outer() i64 {
-    return inner();
-}
-
-test "pointer dereferencing" {
-    var x = i32(3);
-    const y = &x;
-
-    y.* += 1;
-
-    assert(x == 4);
-    assert(y.* == 4);
-}
-
-test "call result of if else expression" {
-    assert(mem.eql(u8, f2(true), "a"));
-    assert(mem.eql(u8, f2(false), "b"));
-}
-fn f2(x: bool) []const u8 {
-    return (if (x) fA else fB)();
-}
-fn fA() []const u8 {
-    return "a";
-}
-fn fB() []const u8 {
-    return "b";
-}
-
-test "const expression eval handling of variables" {
-    var x = true;
-    while (x) {
-        x = false;
-    }
-}
-
-test "constant enum initialization with differing sizes" {
-    test3_1(test3_foo);
-    test3_2(test3_bar);
-}
-const Test3Foo = union(enum) {
-    One: void,
-    Two: f32,
-    Three: Test3Point,
-};
-const Test3Point = struct {
-    x: i32,
-    y: i32,
-};
-const test3_foo = Test3Foo{
-    .Three = Test3Point{
-        .x = 3,
-        .y = 4,
-    },
-};
-const test3_bar = Test3Foo{ .Two = 13 };
-fn test3_1(f: Test3Foo) void {
-    switch (f) {
-        Test3Foo.Three => |pt| {
-            assert(pt.x == 3);
-            assert(pt.y == 4);
-        },
-        else => unreachable,
-    }
-}
-fn test3_2(f: Test3Foo) void {
-    switch (f) {
-        Test3Foo.Two => |x| {
-            assert(x == 13);
-        },
-        else => unreachable,
-    }
-}
-
-test "character literals" {
-    assert('\'' == single_quote);
-}
-const single_quote = '\'';
-
-test "take address of parameter" {
-    testTakeAddressOfParameter(12.34);
-}
-fn testTakeAddressOfParameter(f: f32) void {
-    const f_ptr = &f;
-    assert(f_ptr.* == 12.34);
-}
-
-test "pointer comparison" {
-    const a = ([]const u8)("a");
-    const b = &a;
-    assert(ptrEql(b, b));
-}
-fn ptrEql(a: *const []const u8, b: *const []const u8) bool {
-    return a == b;
-}
-
-test "C string concatenation" {
-    const a = c"OK" ++ c" IT " ++ c"WORKED";
-    const b = c"OK IT WORKED";
-
-    const len = cstr.len(b);
-    const len_with_null = len + 1;
-    {
-        var i: u32 = 0;
-        while (i < len_with_null) : (i += 1) {
-            assert(a[i] == b[i]);
-        }
-    }
-    assert(a[len] == 0);
-    assert(b[len] == 0);
-}
-
 test "cast slice to u8 slice" {
-    assert(@sizeOf(i32) == 4);
+    assertOrPanic(@sizeOf(i32) == 4);
     var big_thing_array = []i32{
         1,
         2,
@@ -278,19 +15,19 @@ test "cast slice to u8 slice" {
     };
     const big_thing_slice: []i32 = big_thing_array[0..];
     const bytes = @sliceToBytes(big_thing_slice);
-    assert(bytes.len == 4 * 4);
+    assertOrPanic(bytes.len == 4 * 4);
     bytes[4] = 0;
     bytes[5] = 0;
     bytes[6] = 0;
     bytes[7] = 0;
-    assert(big_thing_slice[1] == 0);
+    assertOrPanic(big_thing_slice[1] == 0);
     const big_thing_again = @bytesToSlice(i32, bytes);
-    assert(big_thing_again[2] == 3);
+    assertOrPanic(big_thing_again[2] == 3);
     big_thing_again[2] = -1;
-    assert(bytes[8] == maxInt(u8));
-    assert(bytes[9] == maxInt(u8));
-    assert(bytes[10] == maxInt(u8));
-    assert(bytes[11] == maxInt(u8));
+    assertOrPanic(bytes[8] == maxInt(u8));
+    assertOrPanic(bytes[9] == maxInt(u8));
+    assertOrPanic(bytes[10] == maxInt(u8));
+    assertOrPanic(bytes[11] == maxInt(u8));
 }
 
 test "pointer to void return type" {
@@ -307,7 +44,7 @@ fn testPointerToVoidReturnType2() *const void {
 
 test "non const ptr to aliased type" {
     const int = i32;
-    assert(?*int == ?*i32);
+    assertOrPanic(?*int == ?*i32);
 }
 
 test "array 2D const double ptr" {
@@ -320,8 +57,8 @@ test "array 2D const double ptr" {
 
 fn testArray2DConstDoublePtr(ptr: *const f32) void {
     const ptr2 = @ptrCast([*]const f32, ptr);
-    assert(ptr2[0] == 1.0);
-    assert(ptr2[1] == 2.0);
+    assertOrPanic(ptr2[0] == 1.0);
+    assertOrPanic(ptr2[1] == 2.0);
 }
 
 const Tid = builtin.TypeId;
@@ -343,32 +80,32 @@ const AUnion = union {
 
 test "@typeId" {
     comptime {
-        assert(@typeId(type) == Tid.Type);
-        assert(@typeId(void) == Tid.Void);
-        assert(@typeId(bool) == Tid.Bool);
-        assert(@typeId(noreturn) == Tid.NoReturn);
-        assert(@typeId(i8) == Tid.Int);
-        assert(@typeId(u8) == Tid.Int);
-        assert(@typeId(i64) == Tid.Int);
-        assert(@typeId(u64) == Tid.Int);
-        assert(@typeId(f32) == Tid.Float);
-        assert(@typeId(f64) == Tid.Float);
-        assert(@typeId(*f32) == Tid.Pointer);
-        assert(@typeId([2]u8) == Tid.Array);
-        assert(@typeId(AStruct) == Tid.Struct);
-        assert(@typeId(@typeOf(1)) == Tid.ComptimeInt);
-        assert(@typeId(@typeOf(1.0)) == Tid.ComptimeFloat);
-        assert(@typeId(@typeOf(undefined)) == Tid.Undefined);
-        assert(@typeId(@typeOf(null)) == Tid.Null);
-        assert(@typeId(?i32) == Tid.Optional);
-        assert(@typeId(anyerror!i32) == Tid.ErrorUnion);
-        assert(@typeId(anyerror) == Tid.ErrorSet);
-        assert(@typeId(AnEnum) == Tid.Enum);
-        assert(@typeId(@typeOf(AUnionEnum.One)) == Tid.Enum);
-        assert(@typeId(AUnionEnum) == Tid.Union);
-        assert(@typeId(AUnion) == Tid.Union);
-        assert(@typeId(fn () void) == Tid.Fn);
-        assert(@typeId(@typeOf(builtin)) == Tid.Namespace);
+        assertOrPanic(@typeId(type) == Tid.Type);
+        assertOrPanic(@typeId(void) == Tid.Void);
+        assertOrPanic(@typeId(bool) == Tid.Bool);
+        assertOrPanic(@typeId(noreturn) == Tid.NoReturn);
+        assertOrPanic(@typeId(i8) == Tid.Int);
+        assertOrPanic(@typeId(u8) == Tid.Int);
+        assertOrPanic(@typeId(i64) == Tid.Int);
+        assertOrPanic(@typeId(u64) == Tid.Int);
+        assertOrPanic(@typeId(f32) == Tid.Float);
+        assertOrPanic(@typeId(f64) == Tid.Float);
+        assertOrPanic(@typeId(*f32) == Tid.Pointer);
+        assertOrPanic(@typeId([2]u8) == Tid.Array);
+        assertOrPanic(@typeId(AStruct) == Tid.Struct);
+        assertOrPanic(@typeId(@typeOf(1)) == Tid.ComptimeInt);
+        assertOrPanic(@typeId(@typeOf(1.0)) == Tid.ComptimeFloat);
+        assertOrPanic(@typeId(@typeOf(undefined)) == Tid.Undefined);
+        assertOrPanic(@typeId(@typeOf(null)) == Tid.Null);
+        assertOrPanic(@typeId(?i32) == Tid.Optional);
+        assertOrPanic(@typeId(anyerror!i32) == Tid.ErrorUnion);
+        assertOrPanic(@typeId(anyerror) == Tid.ErrorSet);
+        assertOrPanic(@typeId(AnEnum) == Tid.Enum);
+        assertOrPanic(@typeId(@typeOf(AUnionEnum.One)) == Tid.Enum);
+        assertOrPanic(@typeId(AUnionEnum) == Tid.Union);
+        assertOrPanic(@typeId(AUnion) == Tid.Union);
+        assertOrPanic(@typeId(fn () void) == Tid.Fn);
+        assertOrPanic(@typeId(@typeOf(builtin)) == Tid.Namespace);
         // TODO bound fn
         // TODO arg tuple
         // TODO opaque
@@ -384,13 +121,13 @@ test "@typeName" {
         Unused,
     };
     comptime {
-        assert(mem.eql(u8, @typeName(i64), "i64"));
-        assert(mem.eql(u8, @typeName(*usize), "*usize"));
+        assertOrPanic(mem.eql(u8, @typeName(i64), "i64"));
+        assertOrPanic(mem.eql(u8, @typeName(*usize), "*usize"));
         // https://github.com/ziglang/zig/issues/675
-        assert(mem.eql(u8, @typeName(TypeFromFn(u8)), "TypeFromFn(u8)"));
-        assert(mem.eql(u8, @typeName(Struct), "Struct"));
-        assert(mem.eql(u8, @typeName(Union), "Union"));
-        assert(mem.eql(u8, @typeName(Enum), "Enum"));
+        assertOrPanic(mem.eql(u8, @typeName(TypeFromFn(u8)), "TypeFromFn(u8)"));
+        assertOrPanic(mem.eql(u8, @typeName(Struct), "Struct"));
+        assertOrPanic(mem.eql(u8, @typeName(Union), "Union"));
+        assertOrPanic(mem.eql(u8, @typeName(Enum), "Enum"));
     }
 }
 
@@ -402,24 +139,24 @@ test "volatile load and store" {
     var number: i32 = 1234;
     const ptr = (*volatile i32)(&number);
     ptr.* += 1;
-    assert(ptr.* == 1235);
+    assertOrPanic(ptr.* == 1235);
 }
 
 test "slice string literal has type []const u8" {
     comptime {
-        assert(@typeOf("aoeu"[0..]) == []const u8);
+        assertOrPanic(@typeOf("aoeu"[0..]) == []const u8);
         const array = []i32{
             1,
             2,
             3,
             4,
         };
-        assert(@typeOf(array[0..]) == []const i32);
+        assertOrPanic(@typeOf(array[0..]) == []const i32);
     }
 }
 
 test "global variable initialized to global variable array element" {
-    assert(global_ptr == &gdt[0]);
+    assertOrPanic(global_ptr == &gdt[0]);
 }
 const GDTEntry = struct {
     field: i32,
@@ -438,15 +175,15 @@ export fn writeToVRam() void {
 }
 
 test "pointer child field" {
-    assert((*u32).Child == u32);
+    assertOrPanic((*u32).Child == u32);
 }
 
 const OpaqueA = @OpaqueType();
 const OpaqueB = @OpaqueType();
 test "@OpaqueType" {
-    assert(*OpaqueA != *OpaqueB);
-    assert(mem.eql(u8, @typeName(OpaqueA), "OpaqueA"));
-    assert(mem.eql(u8, @typeName(OpaqueB), "OpaqueB"));
+    assertOrPanic(*OpaqueA != *OpaqueB);
+    assertOrPanic(mem.eql(u8, @typeName(OpaqueA), "OpaqueA"));
+    assertOrPanic(mem.eql(u8, @typeName(OpaqueB), "OpaqueB"));
 }
 
 test "variable is allowed to be a pointer to an opaque type" {
@@ -491,7 +228,7 @@ fn testStructInFn() void {
 
     block.kind += 1;
 
-    assert(block.kind == 1235);
+    assertOrPanic(block.kind == 1235);
 }
 
 fn fnThatClosesOverLocalConst() type {
@@ -505,7 +242,7 @@ fn fnThatClosesOverLocalConst() type {
 
 test "function closes over local const" {
     const x = fnThatClosesOverLocalConst().g();
-    assert(x == 1);
+    assertOrPanic(x == 1);
 }
 
 test "cold function" {
@@ -542,21 +279,21 @@ export fn testPackedStuff(a: *const PackedStruct, b: *const PackedUnion, c: Pack
 test "slicing zero length array" {
     const s1 = ""[0..];
     const s2 = ([]u32{})[0..];
-    assert(s1.len == 0);
-    assert(s2.len == 0);
-    assert(mem.eql(u8, s1, ""));
-    assert(mem.eql(u32, s2, []u32{}));
+    assertOrPanic(s1.len == 0);
+    assertOrPanic(s2.len == 0);
+    assertOrPanic(mem.eql(u8, s1, ""));
+    assertOrPanic(mem.eql(u32, s2, []u32{}));
 }
 
 const addr1 = @ptrCast(*const u8, emptyFn);
 test "comptime cast fn to ptr" {
     const addr2 = @ptrCast(*const u8, emptyFn);
-    comptime assert(addr1 == addr2);
+    comptime assertOrPanic(addr1 == addr2);
 }
 
 test "equality compare fn ptrs" {
     var a = emptyFn;
-    assert(a == a);
+    assertOrPanic(a == a);
 }
 
 test "self reference through fn ptr field" {
@@ -571,5 +308,5 @@ test "self reference through fn ptr field" {
     };
     var a: S.A = undefined;
     a.f = S.foo;
-    assert(a.f(a) == 12);
+    assertOrPanic(a.f(a) == 12);
 }
