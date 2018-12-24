@@ -394,3 +394,108 @@ test "cast slice to u8 slice" {
     assertOrPanic(bytes[11] == maxInt(u8));
 }
 
+test "pointer to void return type" {
+    testPointerToVoidReturnType() catch unreachable;
+}
+fn testPointerToVoidReturnType() anyerror!void {
+    const a = testPointerToVoidReturnType2();
+    return a.*;
+}
+const test_pointer_to_void_return_type_x = void{};
+fn testPointerToVoidReturnType2() *const void {
+    return &test_pointer_to_void_return_type_x;
+}
+
+test "non const ptr to aliased type" {
+    const int = i32;
+    assertOrPanic(?*int == ?*i32);
+}
+
+test "array 2D const double ptr" {
+    const rect_2d_vertexes = [][1]f32{
+        []f32{1.0},
+        []f32{2.0},
+    };
+    testArray2DConstDoublePtr(&rect_2d_vertexes[0][0]);
+}
+
+fn testArray2DConstDoublePtr(ptr: *const f32) void {
+    const ptr2 = @ptrCast([*]const f32, ptr);
+    assertOrPanic(ptr2[0] == 1.0);
+    assertOrPanic(ptr2[1] == 2.0);
+}
+
+const Tid = builtin.TypeId;
+const AStruct = struct {
+    x: i32,
+};
+const AnEnum = enum {
+    One,
+    Two,
+};
+const AUnionEnum = union(enum) {
+    One: i32,
+    Two: void,
+};
+const AUnion = union {
+    One: void,
+    Two: void,
+};
+
+test "@typeId" {
+    comptime {
+        assertOrPanic(@typeId(type) == Tid.Type);
+        assertOrPanic(@typeId(void) == Tid.Void);
+        assertOrPanic(@typeId(bool) == Tid.Bool);
+        assertOrPanic(@typeId(noreturn) == Tid.NoReturn);
+        assertOrPanic(@typeId(i8) == Tid.Int);
+        assertOrPanic(@typeId(u8) == Tid.Int);
+        assertOrPanic(@typeId(i64) == Tid.Int);
+        assertOrPanic(@typeId(u64) == Tid.Int);
+        assertOrPanic(@typeId(f32) == Tid.Float);
+        assertOrPanic(@typeId(f64) == Tid.Float);
+        assertOrPanic(@typeId(*f32) == Tid.Pointer);
+        assertOrPanic(@typeId([2]u8) == Tid.Array);
+        assertOrPanic(@typeId(AStruct) == Tid.Struct);
+        assertOrPanic(@typeId(@typeOf(1)) == Tid.ComptimeInt);
+        assertOrPanic(@typeId(@typeOf(1.0)) == Tid.ComptimeFloat);
+        assertOrPanic(@typeId(@typeOf(undefined)) == Tid.Undefined);
+        assertOrPanic(@typeId(@typeOf(null)) == Tid.Null);
+        assertOrPanic(@typeId(?i32) == Tid.Optional);
+        assertOrPanic(@typeId(anyerror!i32) == Tid.ErrorUnion);
+        assertOrPanic(@typeId(anyerror) == Tid.ErrorSet);
+        assertOrPanic(@typeId(AnEnum) == Tid.Enum);
+        assertOrPanic(@typeId(@typeOf(AUnionEnum.One)) == Tid.Enum);
+        assertOrPanic(@typeId(AUnionEnum) == Tid.Union);
+        assertOrPanic(@typeId(AUnion) == Tid.Union);
+        assertOrPanic(@typeId(fn () void) == Tid.Fn);
+        assertOrPanic(@typeId(@typeOf(builtin)) == Tid.Namespace);
+        // TODO bound fn
+        // TODO arg tuple
+        // TODO opaque
+    }
+}
+
+test "@typeName" {
+    const Struct = struct {};
+    const Union = union {
+        unused: u8,
+    };
+    const Enum = enum {
+        Unused,
+    };
+    comptime {
+        assertOrPanic(mem.eql(u8, @typeName(i64), "i64"));
+        assertOrPanic(mem.eql(u8, @typeName(*usize), "*usize"));
+        // https://github.com/ziglang/zig/issues/675
+        assertOrPanic(mem.eql(u8, @typeName(TypeFromFn(u8)), "TypeFromFn(u8)"));
+        assertOrPanic(mem.eql(u8, @typeName(Struct), "Struct"));
+        assertOrPanic(mem.eql(u8, @typeName(Union), "Union"));
+        assertOrPanic(mem.eql(u8, @typeName(Enum), "Enum"));
+    }
+}
+
+fn TypeFromFn(comptime T: type) type {
+    return struct {};
+}
+
