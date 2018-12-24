@@ -111,11 +111,12 @@ inline fn callMain() u8 {
         builtin.TypeId.ErrorUnion => {
             root.main() catch |err| {
                 std.debug.warn("error: {}\n", @errorName(err));
-                if (builtin.os != builtin.Os.zen) {
-                    if (@errorReturnTrace()) |trace| {
-                        std.debug.dumpStackTrace(trace);
-                    }
-                }
+                // TODO restore this
+                //if (builtin.os != builtin.Os.zen) {
+                //    if (@errorReturnTrace()) |trace| {
+                //        std.debug.dumpStackTrace(trace);
+                //    }
+                //}
                 return 1;
             };
             return 0;
