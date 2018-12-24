@@ -3431,6 +3431,7 @@ struct IrInstructionAllocaSrc {
 
     IrInstruction *child_type;
     IrInstruction *align;
+    IrInstruction *is_comptime;
     const char *name_hint;
 };
 
