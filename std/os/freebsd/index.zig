@@ -105,26 +105,26 @@ pub const W_OK = 2; // test for write permission
 pub const R_OK = 4; // test for read permission
 
 
-pub const O_RDONLY = 0o0;
-pub const O_WRONLY = 0o1;
-pub const O_RDWR = 0o2;
-pub const O_ACCMODE = 0o3;
+pub const O_RDONLY = 0x0000;
+pub const O_WRONLY = 0x0001;
+pub const O_RDWR = 0x0002;
+pub const O_ACCMODE = 0x0003;
 
-pub const O_CREAT = 0o100;
-pub const O_EXCL = 0o200;
-pub const O_NOCTTY = 0o400;
-pub const O_TRUNC = 0o1000;
-pub const O_APPEND = 0o2000;
-pub const O_NONBLOCK = 0o4000;
+pub const O_CREAT = 0x0200;
+pub const O_EXCL = 0x0800;
+pub const O_NOCTTY = 0x8000;
+pub const O_TRUNC = 0x0400;
+pub const O_APPEND = 0x0008;
+pub const O_NONBLOCK = 0x0004;
 pub const O_DSYNC = 0o10000;
-pub const O_SYNC = 0o4010000;
+pub const O_SYNC = 0x0080;
 pub const O_RSYNC = 0o4010000;
 pub const O_DIRECTORY = 0o200000;
-pub const O_NOFOLLOW = 0o400000;
-pub const O_CLOEXEC = 0o2000000;
+pub const O_NOFOLLOW = 0x0100;
+pub const O_CLOEXEC = 0x00100000;
 
-pub const O_ASYNC = 0o20000;
-pub const O_DIRECT = 0o40000;
+pub const O_ASYNC = 0x0040;
+pub const O_DIRECT = 0x00010000;
 pub const O_LARGEFILE = 0;
 pub const O_NOATIME = 0o1000000;
 pub const O_PATH = 0o10000000;
