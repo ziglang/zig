@@ -7,12 +7,7 @@ const maxInt = std.math.maxInt;
 
 test "cast slice to u8 slice" {
     assertOrPanic(@sizeOf(i32) == 4);
-    var big_thing_array = []i32{
-        1,
-        2,
-        3,
-        4,
-    };
+    var big_thing_array = []i32{ 1, 2, 3, 4 };
     const big_thing_slice: []i32 = big_thing_array[0..];
     const bytes = @sliceToBytes(big_thing_slice);
     assertOrPanic(bytes.len == 4 * 4);

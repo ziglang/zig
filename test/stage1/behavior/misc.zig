@@ -374,3 +374,23 @@ test "C string concatenation" {
     assertOrPanic(b[len] == 0);
 }
 
+test "cast slice to u8 slice" {
+    assertOrPanic(@sizeOf(i32) == 4);
+    var big_thing_array = []i32{ 1, 2, 3, 4 };
+    const big_thing_slice: []i32 = big_thing_array[0..];
+    const bytes = @sliceToBytes(big_thing_slice);
+    assertOrPanic(bytes.len == 4 * 4);
+    bytes[4] = 0;
+    bytes[5] = 0;
+    bytes[6] = 0;
+    bytes[7] = 0;
+    assertOrPanic(big_thing_slice[1] == 0);
+    const big_thing_again = @bytesToSlice(i32, bytes);
+    assertOrPanic(big_thing_again[2] == 3);
+    big_thing_again[2] = -1;
+    assertOrPanic(bytes[8] == maxInt(u8));
+    assertOrPanic(bytes[9] == maxInt(u8));
+    assertOrPanic(bytes[10] == maxInt(u8));
+    assertOrPanic(bytes[11] == maxInt(u8));
+}
+

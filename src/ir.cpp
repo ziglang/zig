@@ -11991,7 +11991,14 @@ static IrInstruction *resolve_possible_alloca_inference(IrAnalyze *ira, IrInstru
             IrInstructionPtrCastGen *ptr_cast = reinterpret_cast<IrInstructionPtrCastGen *>(base);
             // See above comment
             assert(ptr_cast->base.ref_count == 0);
+            assert(ptr_cast->ptr->ref_count == 1); // The ref is this PtrCast instruction
             ZigType *prev_ptr_type = ptr_cast->ptr->value.type;
+            assert(is_slice(child_type));
+            ZigType *good_slice_ptr_type = child_type->data.structure.fields[slice_ptr_index].type_entry;
+            ZigType *good_u8_ptr_type = adjust_ptr_child(ira->codegen, good_slice_ptr_type,
+                    ira->codegen->builtin_types.entry_u8);
+            ZigType *good_u8_slice_type = get_slice_type(ira->codegen, good_u8_ptr_type);
+            ptr_cast->ptr->value.type = adjust_ptr_child(ira->codegen, prev_ptr_type, good_u8_slice_type);
             ZigType *new_ptr_type = adjust_ptr_child(ira->codegen, prev_ptr_type, child_type);
             ptr_cast->base.value.type = new_ptr_type;
         }
@@ -23228,7 +23235,7 @@ static IrInstruction *ir_analyze_instruction_result_bytes_to_slice(IrAnalyze *ir
 
     // At compile time pointer casts are represented as the pointer type disagreeing
     // with the element type, so that's easy to do here.
-    if (instr_is_comptime(new_result_loc)) {
+    if (instr_is_comptime(new_result_loc) && new_result_loc->value.data.x_ptr.mut != ConstPtrMutInfer) {
         ConstExprValue *val = ir_resolve_const(ira, new_result_loc, UndefOk);
         if (!val)
             return ira->codegen->invalid_instruction;
