@@ -16,6 +16,13 @@
 
 #include <stdio.h>
 
+#ifdef __GNUC__
+#include <strings.h>
+#define STRCASECMP strcasecmp
+#else
+#define STRCASECMP stricmp
+#endif
+
 static int print_error_usage(const char *arg0) {
     fprintf(stderr, "See `%s help` for detailed usage information\n", arg0);
     return EXIT_FAILURE;
@@ -545,21 +552,21 @@ int main(int argc, char **argv) {
                     return print_error_usage(arg0);
                 }
                 i += 1;
-                if (stricmp(argv[i], "CONSOLE") == 0) {
+                if (STRCASECMP(argv[i], "CONSOLE") == 0) {
                    msvc_subsystem_type = ZigLLVM_MSVC_CONSOLE;
-                } else if (stricmp(argv[i], "WINDOWS") == 0) {
+                } else if (STRCASECMP(argv[i], "WINDOWS") == 0) {
                     msvc_subsystem_type = ZigLLVM_MSVC_WINDOWS;
-                } else if (stricmp(argv[i], "POSIX") == 0) {
+                } else if (STRCASECMP(argv[i], "POSIX") == 0) {
                     msvc_subsystem_type = ZigLLVM_MSVC_POSIX;
-                } else if (stricmp(argv[i], "NATIVE") == 0) {
+                } else if (STRCASECMP(argv[i], "NATIVE") == 0) {
                     msvc_subsystem_type = ZigLLVM_MSVC_NATIVE;
-                } else if (stricmp(argv[i], "EFI_APPLICATION") == 0) {
+                } else if (STRCASECMP(argv[i], "EFI_APPLICATION") == 0) {
                     msvc_subsystem_type = ZigLLVM_MSVC_EFI_APPLICATION;
-                } else if (stricmp(argv[i], "EFI_BOOT_SERVICE_DRIVER") == 0) {
+                } else if (STRCASECMP(argv[i], "EFI_BOOT_SERVICE_DRIVER") == 0) {
                     msvc_subsystem_type = ZigLLVM_MSVC_EFI_BOOT_SERVICE_DRIVER;
-                } else if (stricmp(argv[i], "EFI_ROM") == 0) {
+                } else if (STRCASECMP(argv[i], "EFI_ROM") == 0) {
                     msvc_subsystem_type = ZigLLVM_MSVC_EFI_ROM;
-                } else if (stricmp(argv[i], "EFI_RUNTIME_DRIVER") == 0) {
+                } else if (STRCASECMP(argv[i], "EFI_RUNTIME_DRIVER") == 0) {
                     msvc_subsystem_type = ZigLLVM_MSVC_EFI_RUNTIME_DRIVER;
                 } else {
                     fprintf(stderr, "Unknown format %s for --msvc-subsystem argument\n", argv[i]);
