@@ -51,6 +51,7 @@ enum Os {
     OsContiki,
     OsAMDPAL,
     OsZen,
+    OsUefi,
 };
 
 struct ZigTarget {
@@ -59,6 +60,7 @@ struct ZigTarget {
     Os os;
     ZigLLVM_EnvironmentType env_type;
     ZigLLVM_ObjectFormatType oformat;
+    ZigLLVM_MSVCSubsystemType msvc_subsystem = ZigLLVM_MSVC_NONE;
 };
 
 enum CIntType {

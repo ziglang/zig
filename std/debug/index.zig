@@ -1135,7 +1135,7 @@ pub const DebugInfo = switch (builtin.os) {
             return self.ofiles.allocator;
         }
     },
-    builtin.Os.windows => struct {
+    builtin.Os.uefi, builtin.Os.windows => struct {
         pdb: pdb.Pdb,
         coff: *coff.Coff,
         sect_contribs: []pdb.SectionContribEntry,

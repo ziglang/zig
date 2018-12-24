@@ -590,6 +590,7 @@ set(ZIG_STD_FILES
     "os/freebsd/x86_64.zig"
     "os/path.zig"
     "os/time.zig"
+    "os/uefi/index.zig"
     "os/windows/advapi32.zig"
     "os/windows/error.zig"
     "os/windows/index.zig"

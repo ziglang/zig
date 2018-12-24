@@ -291,11 +291,6 @@ void codegen_add_framework(CodeGen *g, const char *framework) {
     g->darwin_frameworks.append(buf_create_from_str(framework));
 }
 
-void codegen_set_windows_subsystem(CodeGen *g, bool mwindows, bool mconsole) {
-    g->windows_subsystem_windows = mwindows;
-    g->windows_subsystem_console = mconsole;
-}
-
 void codegen_set_mmacosx_version_min(CodeGen *g, Buf *mmacosx_version_min) {
     g->mmacosx_version_min = mmacosx_version_min;
 }
@@ -7273,7 +7268,7 @@ static void init(CodeGen *g) {
         // LLVM creates invalid binaries on Windows sometimes.
         // See https://github.com/ziglang/zig/issues/508
         // As a workaround we do not use target native features on Windows.
-        if (g->zig_target.os == OsWindows) {
+        if (g->zig_target.os == OsWindows || g->zig_target.os == OsUefi) {
             target_specific_cpu_args = "";
             target_specific_features = "";
         } else {
@@ -7519,6 +7514,7 @@ static void gen_root_source(CodeGen *g) {
     report_errors_and_maybe_exit(g);
 
     if (!g->is_test_build && g->zig_target.os != OsFreestanding &&
+        g->zig_target.os != OsZen && g->zig_target.os != OsUefi &&
         !g->have_c_main && !g->have_winmain && !g->have_winmain_crt_startup &&
         ((g->have_pub_main && g->out_type == OutTypeObj) || g->out_type == OutTypeExe))
     {
@@ -8079,8 +8075,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_bool(ch, g->strip_debug_symbols);
     cache_bool(ch, g->is_test_build);
     cache_bool(ch, g->is_native_target);
-    cache_bool(ch, g->windows_subsystem_windows);
-    cache_bool(ch, g->windows_subsystem_console);
+    cache_int(ch, g->msvc_subsystem);
     cache_bool(ch, g->linker_rdynamic);
     cache_bool(ch, g->no_rosegment_workaround);
     cache_bool(ch, g->each_lib_rpath);

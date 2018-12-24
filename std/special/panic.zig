@@ -10,7 +10,7 @@ pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn
     @setCold(true);
     switch (builtin.os) {
         // TODO: fix panic in zen.
-        builtin.Os.freestanding, builtin.Os.zen => {
+        builtin.Os.freestanding, builtin.Os.zen, builtin.Os.uefi => {
             while (true) {}
         },
         else => {

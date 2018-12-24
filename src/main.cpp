@@ -90,9 +90,7 @@ static int print_full_usage(const char *arg0) {
         "  -rdynamic                    add all symbols to the dynamic symbol table\n"
         "  -rpath [path]                add directory to the runtime library search path\n"
         "  --no-rosegment               compromise security to workaround valgrind bug\n"
-        "  -mconsole                    (windows) --subsystem console to the linker\n"
-        "  -mwindows                    (windows) --subsystem windows to the linker\n"
-        "  -framework [name]            (darwin) link against framework\n"
+        "  --msvc-subsystem [subsystem] (windows/uefi) /SUBSYSTEM:<subsystem> to the linker\n"        "  -framework [name]            (darwin) link against framework\n"
         "  -mios-version-min [ver]      (darwin) set iOS deployment target\n"
         "  -mmacosx-version-min [ver]   (darwin) set Mac OS X deployment target\n"
         "  --ver-major [ver]            dynamic library semver major version\n"
@@ -395,6 +393,7 @@ int main(int argc, char **argv) {
     int runtime_args_start = -1;
     bool no_rosegment_workaround = false;
     bool system_linker_hack = false;
+    ZigLLVM_MSVCSubsystemType msvc_subsystem_type = ZigLLVM_MSVC_NONE;
 
     if (argc >= 2 && strcmp(argv[1], "build") == 0) {
         Buf zig_exe_path_buf = BUF_INIT;
@@ -540,6 +539,32 @@ int main(int argc, char **argv) {
                 verbose_llvm_ir = true;
             } else if (strcmp(arg, "--verbose-cimport") == 0) {
                 verbose_cimport = true;
+                       } else if (strcmp(arg, "--msvc-subsystem") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "Expected 1 argument after --msvc-subsystem\n");
+                    return print_error_usage(arg0);
+                }
+                i += 1;
+                if (stricmp(argv[i], "CONSOLE") == 0) {
+                   msvc_subsystem_type = ZigLLVM_MSVC_CONSOLE;
+                } else if (stricmp(argv[i], "WINDOWS") == 0) {
+                    msvc_subsystem_type = ZigLLVM_MSVC_WINDOWS;
+                } else if (stricmp(argv[i], "POSIX") == 0) {
+                    msvc_subsystem_type = ZigLLVM_MSVC_POSIX;
+                } else if (stricmp(argv[i], "NATIVE") == 0) {
+                    msvc_subsystem_type = ZigLLVM_MSVC_NATIVE;
+                } else if (stricmp(argv[i], "EFI_APPLICATION") == 0) {
+                    msvc_subsystem_type = ZigLLVM_MSVC_EFI_APPLICATION;
+                } else if (stricmp(argv[i], "EFI_BOOT_SERVICE_DRIVER") == 0) {
+                    msvc_subsystem_type = ZigLLVM_MSVC_EFI_BOOT_SERVICE_DRIVER;
+                } else if (stricmp(argv[i], "EFI_ROM") == 0) {
+                    msvc_subsystem_type = ZigLLVM_MSVC_EFI_ROM;
+                } else if (stricmp(argv[i], "EFI_RUNTIME_DRIVER") == 0) {
+                    msvc_subsystem_type = ZigLLVM_MSVC_EFI_RUNTIME_DRIVER;
+                } else {
+                    fprintf(stderr, "Unknown format %s for --msvc-subsystem argument\n", argv[i]);
+                    return EXIT_FAILURE;
+                }
             } else if (strcmp(arg, "-mwindows") == 0) {
                 mwindows = true;
             } else if (strcmp(arg, "-mconsole") == 0) {
@@ -849,6 +874,8 @@ int main(int argc, char **argv) {
                 buf_out_name = buf_create_from_str("run");
             }
             CodeGen *g = codegen_create(zig_root_source_file, target, out_type, build_mode, get_zig_lib_dir());
+            g->msvc_subsystem = msvc_subsystem_type;
+
             if (disable_pic) {
                 if (out_type != OutTypeLib || !is_static) {
                     fprintf(stderr, "--disable-pic only applies to static libraries");
@@ -909,7 +936,6 @@ int main(int argc, char **argv) {
                 codegen_add_rpath(g, rpath_list.at(i));
             }
 
-            codegen_set_windows_subsystem(g, mwindows, mconsole);
             codegen_set_rdynamic(g, rdynamic);
             g->no_rosegment_workaround = no_rosegment_workaround;
             if (mmacosx_version_min && mios_version_min) {

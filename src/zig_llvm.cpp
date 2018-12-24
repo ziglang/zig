@@ -690,7 +690,14 @@ const char *ZigLLVMGetVendorTypeName(ZigLLVM_VendorType vendor) {
 }
 
 const char *ZigLLVMGetOSTypeName(ZigLLVM_OSType os) {
-    return (const char*)Triple::getOSTypeName((Triple::OSType)os).bytes_begin();
+    switch (os) {
+	case ZigLLVM_Zen:
+		return "unknown";
+	case ZigLLVM_Uefi:
+		return "windows";
+	default:
+		return (const char*)Triple::getOSTypeName((Triple::OSType)os).bytes_begin();
+	}
 }
 
 const char *ZigLLVMGetEnvironmentTypeName(ZigLLVM_EnvironmentType env_type) {
