@@ -455,7 +455,7 @@ static void construct_linker_job_coff(LinkJob *lj) {
 
     lj->args.append("-NOLOGO");
 
-    if (!g->strip_debug_symbols) {
+    if (!g->strip_debug_symbols && g->zig_target.os != Os::OsUefi) {
         lj->args.append("-DEBUG");
     }
 
@@ -466,11 +466,6 @@ static void construct_linker_job_coff(LinkJob *lj) {
 
     coff_append_machine_arg(g, &lj->args);
 
-    if (g->windows_subsystem_windows) {
-        lj->args.append("/SUBSYSTEM:windows");
-    } else if (g->windows_subsystem_console) {
-        lj->args.append("/SUBSYSTEM:console");
-    }
     // The commented out stuff is from when we linked with MinGW
     // Now that we're linking with LLD it remains to be determined
     // how to handle --target-environ gnu
@@ -499,18 +494,47 @@ static void construct_linker_job_coff(LinkJob *lj) {
     //    }
     //}
 
-    lj->args.append(buf_ptr(buf_sprintf("-OUT:%s", buf_ptr(&g->output_file_path))));
 
-    if (g->libc_link_lib != nullptr) {
-        lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(g->msvc_lib_dir))));
-        lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(g->kernel32_lib_dir))));
-
-        lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(g->libc_lib_dir))));
-        if (g->libc_static_lib_dir != nullptr) {
-            lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(g->libc_static_lib_dir))));
-        }
+    // These are n actual command lines from LINK.EXE UEFI builds (app & driver) to be used as guidance cleaning
+    // up a bit for building the COFF linker args:
+    // /OUT:"J:\coding\nebulae\k\x64\Release\k.efi" /LTCG:incremental /Driver /PDB:"J:\coding\nebulae\k\x64\Release\k.pdb" "UefiApplicationEntryPoint.lib" "UefiRuntimeLib.lib" "UefiHiiLib.lib" "UefiHiiServicesLib.lib" "UefiSortLib.lib" "UefiShellLib.lib" "GlueLib.lib" "BaseLib.lib" "BaseDebugPrintErrorLevelLib.lib" "BasePrintLib.lib" "UefiLib.lib" "UefiBootServicesTableLib.lib" "UefiRuntimeServicesTableLib.lib" "UefiDevicePathLibDevicePathProtocol.lib" "UefiDebugLibConOut.lib" "UefiMemoryLib.lib" "UefiMemoryAllocationLib.lib" "BaseSynchronizationLib.lib" "UefiFileHandleLib.lib" /IMPLIB:"J:\coding\nebulae\k\x64\Release\k.lib" /DEBUG:FASTLINK /BASE:"0" /MACHINE:X64 /ENTRY:"EfiMain" /OPT:REF /SAFESEH:NO /SUBSYSTEM:EFI_APPLICATION /MERGE:".rdata=.data" /NOLOGO /ALIGN:32 /NODEFAULTLIB /SECTION:".xdata,D" 
+    // /OUT:"J:\coding\VisualUefi\samples\x64\Release\UefiDriver.efi" /LTCG:incremental /Driver /PDB:"J:\coding\VisualUefi\samples\x64\Release\UefiDriver.pdb" "UefiDriverEntryPoint.lib" "UefiHiiLib.lib" "UefiHiiServicesLib.lib" "UefiSortLib.lib" "UefiShellLib.lib" "GlueLib.lib" "BaseLib.lib" "BaseDebugPrintErrorLevelLib.lib" "BasePrintLib.lib" "UefiLib.lib" "UefiBootServicesTableLib.lib" "UefiRuntimeServicesTableLib.lib" "UefiDevicePathLibDevicePathProtocol.lib" "UefiDebugLibConOut.lib" "UefiMemoryLib.lib" "UefiMemoryAllocationLib.lib" "BaseSynchronizationLib.lib" "UefiFileHandleLib.lib" /IMPLIB:"J:\coding\VisualUefi\samples\x64\Release\UefiDriver.lib" /DEBUG:FASTLINK /BASE:"0" /MACHINE:X64 /ENTRY:"EfiMain" /OPT:REF /SAFESEH:NO /SUBSYSTEM:EFI_BOOT_SERVICE_DRIVER /MERGE:".rdata=.data" /NOLOGO /ALIGN:32 /NODEFAULTLIB /SECTION:".xdata,D" 
+    
+    // Sorry for the goto(s) :)
+    switch (g->msvc_subsystem) {
+        case ZigLLVM_MSVC_CONSOLE:
+            lj->args.append("/SUBSYSTEM:console");
+            goto building_nt;
+        case ZigLLVM_MSVC_EFI_APPLICATION:
+            lj->args.append("/SUBSYSTEM:efi_application");
+            goto building_uefi;
+        case ZigLLVM_MSVC_EFI_BOOT_SERVICE_DRIVER:
+            lj->args.append("/SUBSYSTEM:efi_boot_service_driver");
+            goto building_uefi;
+        case ZigLLVM_MSVC_EFI_ROM:
+            lj->args.append("/SUBSYSTEM:efi_rom");
+            goto building_uefi;
+        case ZigLLVM_MSVC_EFI_RUNTIME_DRIVER:
+            lj->args.append("/SUBSYSTEM:efi_runtime_driver");
+            goto building_uefi;
+        case ZigLLVM_MSVC_NATIVE:
+            lj->args.append("/SUBSYSTEM:native");
+            goto building_nt;
+        case ZigLLVM_MSVC_POSIX:
+            lj->args.append("/SUBSYSTEM:posix");
+            goto building_nt;
+        case ZigLLVM_MSVC_WINDOWS:
+            lj->args.append("/SUBSYSTEM:windows");
+            goto building_nt;
+        case ZigLLVM_MSVC_NONE:
+            goto continuing_build;
     }
 
+building_uefi:
+    lj->args.append("/BASE:\"0\" /ENTRY:\"EfiMain\" /OPT:REF /SAFESEH:NO /MERGE:\".rdata=.data\" /ALIGN:32 /NODEFAULTLIB /SECTION:\".xdata,D\"");
+    goto continuing_build;
+
+building_nt:
     if (lj->link_in_crt) {
         const char *lib_str = g->is_static ? "lib" : "";
         const char *d_str = (g->build_mode == BuildModeDebug) ? "d" : "";
@@ -547,13 +571,27 @@ static void construct_linker_job_coff(LinkJob *lj) {
         // msvcrt depends on kernel32
         lj->args.append("kernel32.lib");
     } else {
-        lj->args.append("-NODEFAULTLIB");
+        lj->args.append("/NODEFAULTLIB");
         if (!is_library) {
             if (g->have_winmain) {
-                lj->args.append("-ENTRY:WinMain");
+                lj->args.append("/ENTRY:WinMain");
             } else {
-                lj->args.append("-ENTRY:WinMainCRTStartup");
+                lj->args.append("/ENTRY:WinMainCRTStartup");
             }
+        }
+    }
+
+continuing_build:
+
+    lj->args.append(buf_ptr(buf_sprintf("-OUT:%s", buf_ptr(&g->output_file_path))));
+
+    if (g->libc_link_lib != nullptr) {
+        lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(g->msvc_lib_dir))));
+        lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(g->kernel32_lib_dir))));
+
+        lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(g->libc_lib_dir))));
+        if (g->libc_static_lib_dir != nullptr) {
+            lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(g->libc_static_lib_dir))));
         }
     }
 

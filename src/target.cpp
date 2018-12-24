@@ -174,6 +174,7 @@ static const Os os_list[] = {
     OsContiki,
     OsAMDPAL,
     OsZen,
+    OsUefi,
 };
 
 // Coordinate with zig_llvm.h
@@ -315,6 +316,8 @@ ZigLLVM_OSType get_llvm_os_type(Os os_type) {
             return ZigLLVM_Contiki;
         case OsAMDPAL:
             return ZigLLVM_AMDPAL;
+        case OsUefi:
+            return ZigLLVM_Uefi;
     }
     zig_unreachable();
 }
@@ -756,6 +759,7 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
                 case CIntTypeCount:
                     zig_unreachable();
             }
+        case OsUefi:
         case OsWindows:
             switch (id) {
                 case CIntTypeShort:
@@ -803,7 +807,7 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
 }
 
 const char *target_o_file_ext(ZigTarget *target) {
-    if (target->env_type == ZigLLVM_MSVC || target->os == OsWindows) {
+    if (target->env_type == ZigLLVM_MSVC || (target->os == OsWindows || target->os == OsUefi)) {
         return ".obj";
     } else {
         return ".o";
@@ -821,13 +825,15 @@ const char *target_llvm_ir_file_ext(ZigTarget *target) {
 const char *target_exe_file_ext(ZigTarget *target) {
     if (target->os == OsWindows) {
         return ".exe";
+    } else if (target->os == OsUefi) {
+        return ".efi";
     } else {
         return "";
     }
 }
 
 const char *target_lib_file_ext(ZigTarget *target, bool is_static, size_t version_major, size_t version_minor, size_t version_patch) {
-    if (target->os == OsWindows) {
+    if (target->os == OsWindows || target->os == OsUefi) {
         if (is_static) {
             return ".lib";
         } else {

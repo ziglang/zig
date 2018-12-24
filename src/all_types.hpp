@@ -1754,8 +1754,7 @@ struct CodeGen {
     bool strip_debug_symbols;
     bool is_test_build;
     bool is_native_target;
-    bool windows_subsystem_windows;
-    bool windows_subsystem_console;
+    ZigLLVM_MSVCSubsystemType msvc_subsystem;
     bool linker_rdynamic;
     bool no_rosegment_workaround;
     bool each_lib_rpath;

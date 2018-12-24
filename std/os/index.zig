@@ -18,6 +18,7 @@ test "std.os" {
     _ = @import("test.zig");
     _ = @import("time.zig");
     _ = @import("windows/index.zig");
+    _ = @import("uefi/index.zig");
     _ = @import("get_app_data_dir.zig");
 }
 
@@ -26,6 +27,8 @@ pub const darwin = @import("darwin.zig");
 pub const linux = @import("linux/index.zig");
 pub const freebsd = @import("freebsd/index.zig");
 pub const zen = @import("zen.zig");
+pub const uefi = @import("uefi/index.zig");
+
 pub const posix = switch (builtin.os) {
     Os.linux => linux,
     Os.macosx, Os.ios => darwin,
@@ -33,6 +36,7 @@ pub const posix = switch (builtin.os) {
     Os.zen => zen,
     else => @compileError("Unsupported OS"),
 };
+
 pub const net = @import("net.zig");
 
 pub const ChildProcess = @import("child_process.zig").ChildProcess;
@@ -186,6 +190,9 @@ pub fn abort() noreturn {
                 @breakpoint();
             }
             windows.ExitProcess(3);
+        },
+        Os.uefi => {
+            while (true) {}
         },
         else => @compileError("Unsupported OS"),
     }
