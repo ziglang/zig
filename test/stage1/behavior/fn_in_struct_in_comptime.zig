@@ -1,4 +1,4 @@
-const assert = @import("std").debug.assert;
+const assertOrPanic = @import("std").debug.assertOrPanic;
 
 fn get_foo() fn (*u8) usize {
     comptime {
@@ -13,5 +13,5 @@ fn get_foo() fn (*u8) usize {
 
 test "define a function in an anonymous struct in comptime" {
     const foo = get_foo();
-    assert(foo(@intToPtr(*u8, 12345)) == 12345);
+    assertOrPanic(foo(@intToPtr(*u8, 12345)) == 12345);
 }

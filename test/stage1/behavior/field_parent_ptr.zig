@@ -1,4 +1,4 @@
-const assert = @import("std").debug.assert;
+const assertOrPanic = @import("std").debug.assertOrPanic;
 
 test "@fieldParentPtr non-first field" {
     testParentFieldPtr(&foo.c);
@@ -25,17 +25,17 @@ const foo = Foo{
 };
 
 fn testParentFieldPtr(c: *const i32) void {
-    assert(c == &foo.c);
+    assertOrPanic(c == &foo.c);
 
     const base = @fieldParentPtr(Foo, "c", c);
-    assert(base == &foo);
-    assert(&base.c == c);
+    assertOrPanic(base == &foo);
+    assertOrPanic(&base.c == c);
 }
 
 fn testParentFieldPtrFirst(a: *const bool) void {
-    assert(a == &foo.a);
+    assertOrPanic(a == &foo.a);
 
     const base = @fieldParentPtr(Foo, "a", a);
-    assert(base == &foo);
-    assert(&base.a == a);
+    assertOrPanic(base == &foo);
+    assertOrPanic(&base.a == a);
 }

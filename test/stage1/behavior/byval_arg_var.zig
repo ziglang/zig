@@ -2,11 +2,11 @@ const std = @import("std");
 
 var result: []const u8 = "wrong";
 
-test "aoeu" {
+test "pass string literal byvalue to a generic var param" {
     start();
     blowUpStack(10);
 
-    std.debug.assert(std.mem.eql(u8, result, "string literal"));
+    std.debug.assertOrPanic(std.mem.eql(u8, result, "string literal"));
 }
 
 fn start() void {

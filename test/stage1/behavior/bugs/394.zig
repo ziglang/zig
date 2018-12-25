@@ -7,12 +7,12 @@ const S = struct {
     y: E,
 };
 
-const assert = @import("std").debug.assert;
+const assertOrPanic = @import("std").debug.assertOrPanic;
 
 test "bug 394 fixed" {
     const x = S{
         .x = 3,
         .y = E{ .B = 1 },
     };
-    assert(x.x == 3);
+    assertOrPanic(x.x == 3);
 }
