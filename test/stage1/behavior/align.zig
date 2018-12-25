@@ -1,13 +1,13 @@
-const assert = @import("std").debug.assert;
+const assertOrPanic = @import("std").debug.assertOrPanic;
 const builtin = @import("builtin");
 
 var foo: u8 align(4) = 100;
 
 test "global variable alignment" {
-    assert(@typeOf(&foo).alignment == 4);
-    assert(@typeOf(&foo) == *align(4) u8);
+    assertOrPanic(@typeOf(&foo).alignment == 4);
+    assertOrPanic(@typeOf(&foo) == *align(4) u8);
     const slice = (*[1]u8)(&foo)[0..];
-    assert(@typeOf(slice) == []align(4) u8);
+    assertOrPanic(@typeOf(slice) == []align(4) u8);
 }
 
 fn derp() align(@sizeOf(usize) * 2) i32 {
@@ -17,9 +17,9 @@ fn noop1() align(1) void {}
 fn noop4() align(4) void {}
 
 test "function alignment" {
-    assert(derp() == 1234);
-    assert(@typeOf(noop1) == fn () align(1) void);
-    assert(@typeOf(noop4) == fn () align(4) void);
+    assertOrPanic(derp() == 1234);
+    assertOrPanic(@typeOf(noop1) == fn () align(1) void);
+    assertOrPanic(@typeOf(noop4) == fn () align(4) void);
     noop1();
     noop4();
 }
@@ -30,7 +30,7 @@ var baz: packed struct {
 } = undefined;
 
 test "packed struct alignment" {
-    assert(@typeOf(&baz.b) == *align(1) u32);
+    assertOrPanic(@typeOf(&baz.b) == *align(1) u32);
 }
 
 const blah: packed struct {
@@ -40,17 +40,17 @@ const blah: packed struct {
 } = undefined;
 
 test "bit field alignment" {
-    assert(@typeOf(&blah.b) == *align(1:3:1) const u3);
+    assertOrPanic(@typeOf(&blah.b) == *align(1:3:1) const u3);
 }
 
 test "default alignment allows unspecified in type syntax" {
-    assert(*u32 == *align(@alignOf(u32)) u32);
+    assertOrPanic(*u32 == *align(@alignOf(u32)) u32);
 }
 
 test "implicitly decreasing pointer alignment" {
     const a: u32 align(4) = 3;
     const b: u32 align(8) = 4;
-    assert(addUnaligned(&a, &b) == 7);
+    assertOrPanic(addUnaligned(&a, &b) == 7);
 }
 
 fn addUnaligned(a: *align(1) const u32, b: *align(1) const u32) u32 {
@@ -60,7 +60,7 @@ fn addUnaligned(a: *align(1) const u32, b: *align(1) const u32) u32 {
 test "implicitly decreasing slice alignment" {
     const a: u32 align(4) = 3;
     const b: u32 align(8) = 4;
-    assert(addUnalignedSlice((*[1]u32)(&a)[0..], (*[1]u32)(&b)[0..]) == 7);
+    assertOrPanic(addUnalignedSlice((*[1]u32)(&a)[0..], (*[1]u32)(&b)[0..]) == 7);
 }
 fn addUnalignedSlice(a: []align(1) const u32, b: []align(1) const u32) u32 {
     return a[0] + b[0];
@@ -77,7 +77,7 @@ fn testBytesAlign(b: u8) void {
         b,
     };
     const ptr = @ptrCast(*u32, &bytes[0]);
-    assert(ptr.* == 0x33333333);
+    assertOrPanic(ptr.* == 0x33333333);
 }
 
 test "specifying alignment allows slice cast" {
@@ -91,13 +91,13 @@ fn testBytesAlignSlice(b: u8) void {
         b,
     };
     const slice: []u32 = @bytesToSlice(u32, bytes[0..]);
-    assert(slice[0] == 0x33333333);
+    assertOrPanic(slice[0] == 0x33333333);
 }
 
 test "@alignCast pointers" {
     var x: u32 align(4) = 1;
     expectsOnly1(&x);
-    assert(x == 2);
+    assertOrPanic(x == 2);
 }
 fn expectsOnly1(x: *align(1) u32) void {
     expects4(@alignCast(4, x));
@@ -113,7 +113,7 @@ test "@alignCast slices" {
     };
     const slice = array[0..];
     sliceExpectsOnly1(slice);
-    assert(slice[0] == 2);
+    assertOrPanic(slice[0] == 2);
 }
 fn sliceExpectsOnly1(slice: []align(1) u32) void {
     sliceExpects4(@alignCast(4, slice));
@@ -128,7 +128,7 @@ test "implicitly decreasing fn alignment" {
 }
 
 fn testImplicitlyDecreaseFnAlign(ptr: fn () align(1) i32, answer: i32) void {
-    assert(ptr() == answer);
+    assertOrPanic(ptr() == answer);
 }
 
 fn alignedSmall() align(8) i32 {
@@ -139,7 +139,7 @@ fn alignedBig() align(16) i32 {
 }
 
 test "@alignCast functions" {
-    assert(fnExpectsOnly1(simple4) == 0x19);
+    assertOrPanic(fnExpectsOnly1(simple4) == 0x19);
 }
 fn fnExpectsOnly1(ptr: fn () align(1) i32) i32 {
     return fnExpects4(@alignCast(4, ptr));
@@ -152,9 +152,9 @@ fn simple4() align(4) i32 {
 }
 
 test "generic function with align param" {
-    assert(whyWouldYouEverDoThis(1) == 0x1);
-    assert(whyWouldYouEverDoThis(4) == 0x1);
-    assert(whyWouldYouEverDoThis(8) == 0x1);
+    assertOrPanic(whyWouldYouEverDoThis(1) == 0x1);
+    assertOrPanic(whyWouldYouEverDoThis(4) == 0x1);
+    assertOrPanic(whyWouldYouEverDoThis(8) == 0x1);
 }
 
 fn whyWouldYouEverDoThis(comptime align_bytes: u8) align(align_bytes) u8 {
@@ -164,28 +164,28 @@ fn whyWouldYouEverDoThis(comptime align_bytes: u8) align(align_bytes) u8 {
 test "@ptrCast preserves alignment of bigger source" {
     var x: u32 align(16) = 1234;
     const ptr = @ptrCast(*u8, &x);
-    assert(@typeOf(ptr) == *align(16) u8);
+    assertOrPanic(@typeOf(ptr) == *align(16) u8);
 }
 
 test "runtime known array index has best alignment possible" {
     // take full advantage of over-alignment
     var array align(4) = []u8{ 1, 2, 3, 4 };
-    assert(@typeOf(&array[0]) == *align(4) u8);
-    assert(@typeOf(&array[1]) == *u8);
-    assert(@typeOf(&array[2]) == *align(2) u8);
-    assert(@typeOf(&array[3]) == *u8);
+    assertOrPanic(@typeOf(&array[0]) == *align(4) u8);
+    assertOrPanic(@typeOf(&array[1]) == *u8);
+    assertOrPanic(@typeOf(&array[2]) == *align(2) u8);
+    assertOrPanic(@typeOf(&array[3]) == *u8);
 
     // because align is too small but we still figure out to use 2
     var bigger align(2) = []u64{ 1, 2, 3, 4 };
-    assert(@typeOf(&bigger[0]) == *align(2) u64);
-    assert(@typeOf(&bigger[1]) == *align(2) u64);
-    assert(@typeOf(&bigger[2]) == *align(2) u64);
-    assert(@typeOf(&bigger[3]) == *align(2) u64);
+    assertOrPanic(@typeOf(&bigger[0]) == *align(2) u64);
+    assertOrPanic(@typeOf(&bigger[1]) == *align(2) u64);
+    assertOrPanic(@typeOf(&bigger[2]) == *align(2) u64);
+    assertOrPanic(@typeOf(&bigger[3]) == *align(2) u64);
 
     // because pointer is align 2 and u32 align % 2 == 0 we can assume align 2
     var smaller align(2) = []u32{ 1, 2, 3, 4 };
-    comptime assert(@typeOf(smaller[0..]) == []align(2) u32);
-    comptime assert(@typeOf(smaller[0..].ptr) == [*]align(2) u32);
+    comptime assertOrPanic(@typeOf(smaller[0..]) == []align(2) u32);
+    comptime assertOrPanic(@typeOf(smaller[0..].ptr) == [*]align(2) u32);
     testIndex(smaller[0..].ptr, 0, *align(2) u32);
     testIndex(smaller[0..].ptr, 1, *align(2) u32);
     testIndex(smaller[0..].ptr, 2, *align(2) u32);
@@ -198,14 +198,14 @@ test "runtime known array index has best alignment possible" {
     testIndex2(array[0..].ptr, 3, *u8);
 }
 fn testIndex(smaller: [*]align(2) u32, index: usize, comptime T: type) void {
-    comptime assert(@typeOf(&smaller[index]) == T);
+    comptime assertOrPanic(@typeOf(&smaller[index]) == T);
 }
 fn testIndex2(ptr: [*]align(4) u8, index: usize, comptime T: type) void {
-    comptime assert(@typeOf(&ptr[index]) == T);
+    comptime assertOrPanic(@typeOf(&ptr[index]) == T);
 }
 
 test "alignstack" {
-    assert(fnWithAlignedStack() == 1234);
+    assertOrPanic(fnWithAlignedStack() == 1234);
 }
 
 fn fnWithAlignedStack() i32 {
@@ -214,7 +214,7 @@ fn fnWithAlignedStack() i32 {
 }
 
 test "alignment of structs" {
-    assert(@alignOf(struct {
+    assertOrPanic(@alignOf(struct {
         a: i32,
         b: *i32,
     }) == @alignOf(usize));

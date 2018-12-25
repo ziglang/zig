@@ -1,11 +1,7 @@
 comptime {
-    _ = @import("cases/align.zig");
-    _ = @import("cases/alignof.zig");
     _ = @import("cases/array.zig");
-    _ = @import("cases/asm.zig");
     _ = @import("cases/atomics.zig");
     _ = @import("cases/bitcast.zig");
-    _ = @import("cases/bool.zig");
     _ = @import("cases/bswap.zig");
     _ = @import("cases/bugs/1076.zig");
     _ = @import("cases/bugs/1111.zig");

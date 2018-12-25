@@ -499,3 +499,143 @@ fn TypeFromFn(comptime T: type) type {
     return struct {};
 }
 
+test "double implicit cast in same expression" {
+    var x = i32(u16(nine()));
+    assertOrPanic(x == 9);
+}
+fn nine() u8 {
+    return 9;
+}
+
+test "global variable initialized to global variable array element" {
+    assertOrPanic(global_ptr == &gdt[0]);
+}
+const GDTEntry = struct {
+    field: i32,
+};
+var gdt = []GDTEntry{
+    GDTEntry{ .field = 1 },
+    GDTEntry{ .field = 2 },
+};
+var global_ptr = &gdt[0];
+
+// can't really run this test but we can make sure it has no compile error
+// and generates code
+const vram = @intToPtr([*]volatile u8, 0x20000000)[0..0x8000];
+export fn writeToVRam() void {
+    vram[0] = 'X';
+}
+
+const OpaqueA = @OpaqueType();
+const OpaqueB = @OpaqueType();
+test "@OpaqueType" {
+    assertOrPanic(*OpaqueA != *OpaqueB);
+    assertOrPanic(mem.eql(u8, @typeName(OpaqueA), "OpaqueA"));
+    assertOrPanic(mem.eql(u8, @typeName(OpaqueB), "OpaqueB"));
+}
+
+test "variable is allowed to be a pointer to an opaque type" {
+    var x: i32 = 1234;
+    _ = hereIsAnOpaqueType(@ptrCast(*OpaqueA, &x));
+}
+fn hereIsAnOpaqueType(ptr: *OpaqueA) *OpaqueA {
+    var a = ptr;
+    return a;
+}
+
+test "comptime if inside runtime while which unconditionally breaks" {
+    testComptimeIfInsideRuntimeWhileWhichUnconditionallyBreaks(true);
+    comptime testComptimeIfInsideRuntimeWhileWhichUnconditionallyBreaks(true);
+}
+fn testComptimeIfInsideRuntimeWhileWhichUnconditionallyBreaks(cond: bool) void {
+    while (cond) {
+        if (false) {}
+        break;
+    }
+}
+
+test "implicit comptime while" {
+    while (false) {
+        @compileError("bad");
+    }
+}
+
+fn fnThatClosesOverLocalConst() type {
+    const c = 1;
+    return struct {
+        fn g() i32 {
+            return c;
+        }
+    };
+}
+
+test "function closes over local const" {
+    const x = fnThatClosesOverLocalConst().g();
+    assertOrPanic(x == 1);
+}
+
+test "cold function" {
+    thisIsAColdFn();
+    comptime thisIsAColdFn();
+}
+
+fn thisIsAColdFn() void {
+    @setCold(true);
+}
+
+const PackedStruct = packed struct {
+    a: u8,
+    b: u8,
+};
+const PackedUnion = packed union {
+    a: u8,
+    b: u32,
+};
+const PackedEnum = packed enum {
+    A,
+    B,
+};
+
+test "packed struct, enum, union parameters in extern function" {
+    testPackedStuff(&(PackedStruct{
+        .a = 1,
+        .b = 2,
+    }), &(PackedUnion{ .a = 1 }), PackedEnum.A);
+}
+
+export fn testPackedStuff(a: *const PackedStruct, b: *const PackedUnion, c: PackedEnum) void {}
+
+test "slicing zero length array" {
+    const s1 = ""[0..];
+    const s2 = ([]u32{})[0..];
+    assertOrPanic(s1.len == 0);
+    assertOrPanic(s2.len == 0);
+    assertOrPanic(mem.eql(u8, s1, ""));
+    assertOrPanic(mem.eql(u32, s2, []u32{}));
+}
+
+const addr1 = @ptrCast(*const u8, emptyFn);
+test "comptime cast fn to ptr" {
+    const addr2 = @ptrCast(*const u8, emptyFn);
+    comptime assertOrPanic(addr1 == addr2);
+}
+
+test "equality compare fn ptrs" {
+    var a = emptyFn;
+    assertOrPanic(a == a);
+}
+
+test "self reference through fn ptr field" {
+    const S = struct {
+        const A = struct {
+            f: fn (A) u8,
+        };
+
+        fn foo(a: A) u8 {
+            return 12;
+        }
+    };
+    var a: S.A = undefined;
+    a.f = S.foo;
+    assertOrPanic(a.f(a) == 12);
+}
