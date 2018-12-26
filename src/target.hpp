@@ -51,6 +51,19 @@ enum Os {
     OsContiki,
     OsAMDPAL,
     OsZen,
+    OsUefi,
+};
+
+enum TargetSubsystem {
+    TargetSubsystemAuto, // Zig should infer the subsystem
+    TargetSubsystemConsole,
+    TargetSubsystemWindows,
+    TargetSubsystemPosix,
+    TargetSubsystemNative,
+    TargetSubsystemEfiApplication,
+    TargetSubsystemEfiBootServiceDriver,
+    TargetSubsystemEfiRom,
+    TargetSubsystemEfiRuntimeDriver,
 };
 
 struct ZigTarget {

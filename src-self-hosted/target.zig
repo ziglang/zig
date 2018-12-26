@@ -520,7 +520,7 @@ pub const Target = union(enum) {
                 => return 64,
             },
 
-            builtin.Os.windows => switch (id) {
+            builtin.Os.windows, builtin.Os.uefi => switch (id) {
                 CInt.Id.Short,
                 CInt.Id.UShort,
                 => return 16,
