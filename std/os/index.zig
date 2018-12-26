@@ -18,7 +18,7 @@ test "std.os" {
     _ = @import("test.zig");
     _ = @import("time.zig");
     _ = @import("windows/index.zig");
-    _ = @import("uefi/index.zig");
+    _ = @import("uefi.zig");
     _ = @import("get_app_data_dir.zig");
 }
 
@@ -27,7 +27,7 @@ pub const darwin = @import("darwin.zig");
 pub const linux = @import("linux/index.zig");
 pub const freebsd = @import("freebsd/index.zig");
 pub const zen = @import("zen.zig");
-pub const uefi = @import("uefi/index.zig");
+pub const uefi = @import("uefi.zig");
 
 pub const posix = switch (builtin.os) {
     Os.linux => linux,
@@ -192,6 +192,7 @@ pub fn abort() noreturn {
             windows.ExitProcess(3);
         },
         Os.uefi => {
+            // TODO there's gotta be a better thing to do here than loop forever
             while (true) {}
         },
         else => @compileError("Unsupported OS"),

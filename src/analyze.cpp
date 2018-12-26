@@ -3203,22 +3203,20 @@ void add_fn_export(CodeGen *g, ZigFn *fn_table_entry, Buf *symbol_name, GlobalLi
     if (ccc) {
         if (buf_eql_str(symbol_name, "main") && g->libc_link_lib != nullptr) {
             g->have_c_main = true;
-            g->msvc_subsystem = ZigLLVM_MSVC_CONSOLE;
+            g->subsystem = TargetSubsystemConsole;
         } else if (buf_eql_str(symbol_name, "WinMain") &&
             g->zig_target.os == OsWindows)
         {
             g->have_winmain = true;
-            g->msvc_subsystem = ZigLLVM_MSVC_WINDOWS;
+            g->subsystem = TargetSubsystemWindows;
         } else if (buf_eql_str(symbol_name, "WinMainCRTStartup") &&
             g->zig_target.os == OsWindows)
         {
             g->have_winmain_crt_startup = true;
-            g->msvc_subsystem = ZigLLVM_MSVC_WINDOWS;
         } else if (buf_eql_str(symbol_name, "DllMainCRTStartup") &&
             g->zig_target.os == OsWindows)
         {
             g->have_dllmain_crt_startup = true;
-            g->msvc_subsystem = ZigLLVM_MSVC_WINDOWS;
         }
     }
 
@@ -4377,7 +4375,7 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *r
             if (is_pub && ok_cc) {
                 if (buf_eql_str(proto_name, "main")) {
                     g->have_pub_main = true;
-                    g->msvc_subsystem = ZigLLVM_MSVC_CONSOLE;
+                    g->subsystem = TargetSubsystemConsole;
                 } else if (buf_eql_str(proto_name, "panic")) {
                     g->have_pub_panic = true;
                 }

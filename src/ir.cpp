@@ -17872,13 +17872,7 @@ static IrInstruction *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruct
     if (type_is_invalid(cimport_result->value.type))
         return ira->codegen->invalid_instruction;
 
-    if (ira->codegen->msvc_subsystem != ZigLLVM_MSVC_EFI_APPLICATION &&
-		ira->codegen->msvc_subsystem != ZigLLVM_MSVC_EFI_BOOT_SERVICE_DRIVER &&
-		ira->codegen->msvc_subsystem != ZigLLVM_MSVC_EFI_ROM &&
-		ira->codegen->msvc_subsystem != ZigLLVM_MSVC_EFI_RUNTIME_DRIVER) {
-
-		find_libc_include_path(ira->codegen);
-	}
+    find_libc_include_path(ira->codegen);
 
     ImportTableEntry *child_import = allocate<ImportTableEntry>(1);
     child_import->decls_scope = create_decls_scope(ira->codegen, node, nullptr, nullptr, child_import);

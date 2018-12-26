@@ -7231,7 +7231,7 @@ static void init(CodeGen *g) {
     }
 
     if (g->is_test_build) {
-        g->msvc_subsystem = ZigLLVM_MSVC_CONSOLE;
+        g->subsystem = TargetSubsystemConsole;
     }
 
     assert(g->root_out_name);
@@ -7513,7 +7513,7 @@ static void gen_root_source(CodeGen *g) {
     report_errors_and_maybe_exit(g);
 
     if (!g->is_test_build && g->zig_target.os != OsFreestanding &&
-        g->zig_target.os != OsZen && g->zig_target.os != OsUefi &&
+        g->zig_target.os != OsUefi &&
         !g->have_c_main && !g->have_winmain && !g->have_winmain_crt_startup &&
         ((g->have_pub_main && g->out_type == OutTypeObj) || g->out_type == OutTypeExe))
     {
@@ -8070,11 +8070,11 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_int(ch, g->zig_target.os);
     cache_int(ch, g->zig_target.env_type);
     cache_int(ch, g->zig_target.oformat);
+    cache_int(ch, g->subsystem);
     cache_bool(ch, g->is_static);
     cache_bool(ch, g->strip_debug_symbols);
     cache_bool(ch, g->is_test_build);
     cache_bool(ch, g->is_native_target);
-    cache_int(ch, g->msvc_subsystem);
     cache_bool(ch, g->linker_rdynamic);
     cache_bool(ch, g->no_rosegment_workaround);
     cache_bool(ch, g->each_lib_rpath);

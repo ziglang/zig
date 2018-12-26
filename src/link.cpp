@@ -444,97 +444,20 @@ static bool zig_lld_link(ZigLLVM_ObjectFormatType oformat, const char **args, si
     return ZigLLDLink(oformat, args, arg_count, link_diag_callback, diag);
 }
 
-static void construct_linker_job_coff(LinkJob *lj) {
+static void add_uefi_link_args(LinkJob *lj) {
+    lj->args.append("/BASE:0");
+    lj->args.append("/ENTRY:EfiMain");
+    lj->args.append("/OPT:REF");
+    lj->args.append("/SAFESEH:NO");
+    lj->args.append("/MERGE:.rdata=.data");
+    lj->args.append("/ALIGN:32");
+    lj->args.append("/NODEFAULTLIB");
+    lj->args.append("/SECTION:.xdata,D");
+}
+
+static void add_nt_link_args(LinkJob *lj, bool is_library) {
     CodeGen *g = lj->codegen;
 
-    lj->args.append("/ERRORLIMIT:0");
-
-    if (g->libc_link_lib != nullptr) {
-        find_libc_lib_path(g);
-    }
-
-    lj->args.append("-NOLOGO");
-
-    if (!g->strip_debug_symbols && g->zig_target.os != Os::OsUefi) {
-        lj->args.append("-DEBUG");
-    }
-
-    if (g->out_type == OutTypeExe) {
-        // TODO compile time stack upper bound detection
-        lj->args.append("/STACK:16777216");
-    }
-
-    coff_append_machine_arg(g, &lj->args);
-
-    // The commented out stuff is from when we linked with MinGW
-    // Now that we're linking with LLD it remains to be determined
-    // how to handle --target-environ gnu
-    // These comments are a clue
-
-    bool is_library = g->out_type == OutTypeLib;
-    //bool dll = g->out_type == OutTypeLib;
-    //bool shared = !g->is_static && dll;
-    //if (g->is_static) {
-    //    lj->args.append("-Bstatic");
-    //} else {
-    //    if (dll) {
-    //        lj->args.append("--dll");
-    //    } else if (shared) {
-    //        lj->args.append("--shared");
-    //    }
-    //    lj->args.append("-Bdynamic");
-    //    if (dll || shared) {
-    //        lj->args.append("-e");
-    //        if (g->zig_target.arch.arch == ZigLLVM_x86) {
-    //            lj->args.append("_DllMainCRTStartup@12");
-    //        } else {
-    //            lj->args.append("DllMainCRTStartup");
-    //        }
-    //        lj->args.append("--enable-auto-image-base");
-    //    }
-    //}
-
-
-    // These are n actual command lines from LINK.EXE UEFI builds (app & driver) to be used as guidance cleaning
-    // up a bit for building the COFF linker args:
-    // /OUT:"J:\coding\nebulae\k\x64\Release\k.efi" /LTCG:incremental /Driver /PDB:"J:\coding\nebulae\k\x64\Release\k.pdb" "UefiApplicationEntryPoint.lib" "UefiRuntimeLib.lib" "UefiHiiLib.lib" "UefiHiiServicesLib.lib" "UefiSortLib.lib" "UefiShellLib.lib" "GlueLib.lib" "BaseLib.lib" "BaseDebugPrintErrorLevelLib.lib" "BasePrintLib.lib" "UefiLib.lib" "UefiBootServicesTableLib.lib" "UefiRuntimeServicesTableLib.lib" "UefiDevicePathLibDevicePathProtocol.lib" "UefiDebugLibConOut.lib" "UefiMemoryLib.lib" "UefiMemoryAllocationLib.lib" "BaseSynchronizationLib.lib" "UefiFileHandleLib.lib" /IMPLIB:"J:\coding\nebulae\k\x64\Release\k.lib" /DEBUG:FASTLINK /BASE:"0" /MACHINE:X64 /ENTRY:"EfiMain" /OPT:REF /SAFESEH:NO /SUBSYSTEM:EFI_APPLICATION /MERGE:".rdata=.data" /NOLOGO /ALIGN:32 /NODEFAULTLIB /SECTION:".xdata,D" 
-    // /OUT:"J:\coding\VisualUefi\samples\x64\Release\UefiDriver.efi" /LTCG:incremental /Driver /PDB:"J:\coding\VisualUefi\samples\x64\Release\UefiDriver.pdb" "UefiDriverEntryPoint.lib" "UefiHiiLib.lib" "UefiHiiServicesLib.lib" "UefiSortLib.lib" "UefiShellLib.lib" "GlueLib.lib" "BaseLib.lib" "BaseDebugPrintErrorLevelLib.lib" "BasePrintLib.lib" "UefiLib.lib" "UefiBootServicesTableLib.lib" "UefiRuntimeServicesTableLib.lib" "UefiDevicePathLibDevicePathProtocol.lib" "UefiDebugLibConOut.lib" "UefiMemoryLib.lib" "UefiMemoryAllocationLib.lib" "BaseSynchronizationLib.lib" "UefiFileHandleLib.lib" /IMPLIB:"J:\coding\VisualUefi\samples\x64\Release\UefiDriver.lib" /DEBUG:FASTLINK /BASE:"0" /MACHINE:X64 /ENTRY:"EfiMain" /OPT:REF /SAFESEH:NO /SUBSYSTEM:EFI_BOOT_SERVICE_DRIVER /MERGE:".rdata=.data" /NOLOGO /ALIGN:32 /NODEFAULTLIB /SECTION:".xdata,D" 
-    
-    // Sorry for the goto(s) :)
-    switch (g->msvc_subsystem) {
-        case ZigLLVM_MSVC_CONSOLE:
-            lj->args.append("/SUBSYSTEM:console");
-            goto building_nt;
-        case ZigLLVM_MSVC_EFI_APPLICATION:
-            lj->args.append("/SUBSYSTEM:efi_application");
-            goto building_uefi;
-        case ZigLLVM_MSVC_EFI_BOOT_SERVICE_DRIVER:
-            lj->args.append("/SUBSYSTEM:efi_boot_service_driver");
-            goto building_uefi;
-        case ZigLLVM_MSVC_EFI_ROM:
-            lj->args.append("/SUBSYSTEM:efi_rom");
-            goto building_uefi;
-        case ZigLLVM_MSVC_EFI_RUNTIME_DRIVER:
-            lj->args.append("/SUBSYSTEM:efi_runtime_driver");
-            goto building_uefi;
-        case ZigLLVM_MSVC_NATIVE:
-            lj->args.append("/SUBSYSTEM:native");
-            goto building_nt;
-        case ZigLLVM_MSVC_POSIX:
-            lj->args.append("/SUBSYSTEM:posix");
-            goto building_nt;
-        case ZigLLVM_MSVC_WINDOWS:
-            lj->args.append("/SUBSYSTEM:windows");
-            goto building_nt;
-        case ZigLLVM_MSVC_NONE:
-            goto continuing_build;
-    }
-
-building_uefi:
-    lj->args.append("/BASE:\"0\" /ENTRY:\"EfiMain\" /OPT:REF /SAFESEH:NO /MERGE:\".rdata=.data\" /ALIGN:32 /NODEFAULTLIB /SECTION:\".xdata,D\"");
-    goto continuing_build;
-
-building_nt:
     if (lj->link_in_crt) {
         const char *lib_str = g->is_static ? "lib" : "";
         const char *d_str = (g->build_mode == BuildModeDebug) ? "d" : "";
@@ -557,17 +480,6 @@ building_nt:
         //https://msdn.microsoft.com/en-us/library/bb531344.aspx
         lj->args.append("legacy_stdio_definitions.lib");
 
-        //if (shared || dll) {
-        //    lj->args.append(get_libc_file(g, "dllcrt2.o"));
-        //} else {
-        //    if (g->windows_linker_unicode) {
-        //        lj->args.append(get_libc_file(g, "crt2u.o"));
-        //    } else {
-        //        lj->args.append(get_libc_file(g, "crt2.o"));
-        //    }
-        //}
-        //lj->args.append(get_libc_static_file(g, "crtbegin.o"));
-
         // msvcrt depends on kernel32
         lj->args.append("kernel32.lib");
     } else {
@@ -580,8 +492,156 @@ building_nt:
             }
         }
     }
+}
 
-continuing_build:
+// These are n actual command lines from LINK.EXE UEFI builds (app & driver) to be used as guidance cleaning
+// up a bit for building the COFF linker args:
+// /OUT:"J:\coding\nebulae\k\x64\Release\k.efi" /LTCG:incremental /Driver /PDB:"J:\coding\nebulae\k\x64\Release\k.pdb" "UefiApplicationEntryPoint.lib" "UefiRuntimeLib.lib" "UefiHiiLib.lib" "UefiHiiServicesLib.lib" "UefiSortLib.lib" "UefiShellLib.lib" "GlueLib.lib" "BaseLib.lib" "BaseDebugPrintErrorLevelLib.lib" "BasePrintLib.lib" "UefiLib.lib" "UefiBootServicesTableLib.lib" "UefiRuntimeServicesTableLib.lib" "UefiDevicePathLibDevicePathProtocol.lib" "UefiDebugLibConOut.lib" "UefiMemoryLib.lib" "UefiMemoryAllocationLib.lib" "BaseSynchronizationLib.lib" "UefiFileHandleLib.lib" /IMPLIB:"J:\coding\nebulae\k\x64\Release\k.lib" /DEBUG:FASTLINK /BASE:"0" /MACHINE:X64 /ENTRY:"EfiMain" /OPT:REF /SAFESEH:NO /SUBSYSTEM:EFI_APPLICATION /MERGE:".rdata=.data" /NOLOGO /ALIGN:32 /NODEFAULTLIB /SECTION:".xdata,D" 
+// /OUT:"J:\coding\VisualUefi\samples\x64\Release\UefiDriver.efi" /LTCG:incremental /Driver /PDB:"J:\coding\VisualUefi\samples\x64\Release\UefiDriver.pdb" "UefiDriverEntryPoint.lib" "UefiHiiLib.lib" "UefiHiiServicesLib.lib" "UefiSortLib.lib" "UefiShellLib.lib" "GlueLib.lib" "BaseLib.lib" "BaseDebugPrintErrorLevelLib.lib" "BasePrintLib.lib" "UefiLib.lib" "UefiBootServicesTableLib.lib" "UefiRuntimeServicesTableLib.lib" "UefiDevicePathLibDevicePathProtocol.lib" "UefiDebugLibConOut.lib" "UefiMemoryLib.lib" "UefiMemoryAllocationLib.lib" "BaseSynchronizationLib.lib" "UefiFileHandleLib.lib" /IMPLIB:"J:\coding\VisualUefi\samples\x64\Release\UefiDriver.lib" /DEBUG:FASTLINK /BASE:"0" /MACHINE:X64 /ENTRY:"EfiMain" /OPT:REF /SAFESEH:NO /SUBSYSTEM:EFI_BOOT_SERVICE_DRIVER /MERGE:".rdata=.data" /NOLOGO /ALIGN:32 /NODEFAULTLIB /SECTION:".xdata,D" 
+// This commented out stuff is from when we linked with MinGW
+// Now that we're linking with LLD it remains to be determined
+// how to handle --target-environ gnu
+// These comments are a clue
+//bool dll = g->out_type == OutTypeLib;
+//bool shared = !g->is_static && dll;
+//if (g->is_static) {
+//    lj->args.append("-Bstatic");
+//} else {
+//    if (dll) {
+//        lj->args.append("--dll");
+//    } else if (shared) {
+//        lj->args.append("--shared");
+//    }
+//    lj->args.append("-Bdynamic");
+//    if (dll || shared) {
+//        lj->args.append("-e");
+//        if (g->zig_target.arch.arch == ZigLLVM_x86) {
+//            lj->args.append("_DllMainCRTStartup@12");
+//        } else {
+//            lj->args.append("DllMainCRTStartup");
+//        }
+//        lj->args.append("--enable-auto-image-base");
+//    }
+//}
+//if (shared || dll) {
+//    lj->args.append(get_libc_file(g, "dllcrt2.o"));
+//} else {
+//    if (g->windows_linker_unicode) {
+//        lj->args.append(get_libc_file(g, "crt2u.o"));
+//    } else {
+//        lj->args.append(get_libc_file(g, "crt2.o"));
+//    }
+//}
+//lj->args.append(get_libc_static_file(g, "crtbegin.o"));
+//if (g->libc_link_lib != nullptr) {
+//if (g->is_static) {
+//    lj->args.append("--start-group");
+//}
+
+//lj->args.append("-lmingw32");
+
+//lj->args.append("-lgcc");
+//bool is_android = (g->zig_target.env_type == ZigLLVM_Android);
+//bool is_cyg_ming = is_target_cyg_mingw(&g->zig_target);
+//if (!g->is_static && !is_android) {
+//    if (!is_cyg_ming) {
+//        lj->args.append("--as-needed");
+//    }
+//    //lj->args.append("-lgcc_s");
+//    if (!is_cyg_ming) {
+//        lj->args.append("--no-as-needed");
+//    }
+//}
+//if (g->is_static && !is_android) {
+//    //lj->args.append("-lgcc_eh");
+//}
+//if (is_android && !g->is_static) {
+//    lj->args.append("-ldl");
+//}
+
+//lj->args.append("-lmoldname");
+//lj->args.append("-lmingwex");
+//lj->args.append("-lmsvcrt");
+
+
+//if (g->windows_subsystem_windows) {
+//    lj->args.append("-lgdi32");
+//    lj->args.append("-lcomdlg32");
+//}
+//lj->args.append("-ladvapi32");
+//lj->args.append("-lshell32");
+//lj->args.append("-luser32");
+//lj->args.append("-lkernel32");
+
+//if (g->is_static) {
+//    lj->args.append("--end-group");
+//}
+
+//if (lj->link_in_crt) {
+//    lj->args.append(get_libc_static_file(g, "crtend.o"));
+//}
+//}
+
+
+static void construct_linker_job_coff(LinkJob *lj) {
+    CodeGen *g = lj->codegen;
+
+    lj->args.append("/ERRORLIMIT:0");
+
+    if (g->libc_link_lib != nullptr) {
+        find_libc_lib_path(g);
+    }
+
+    lj->args.append("/NOLOGO");
+
+    if (!g->strip_debug_symbols) {
+        lj->args.append("/DEBUG");
+    }
+
+    if (g->out_type == OutTypeExe) {
+        // TODO compile time stack upper bound detection
+        lj->args.append("/STACK:16777216");
+    }
+
+    coff_append_machine_arg(g, &lj->args);
+
+    bool is_library = g->out_type == OutTypeLib;
+    switch (g->subsystem) {
+        case TargetSubsystemAuto:
+            break;
+        case TargetSubsystemConsole:
+            lj->args.append("/SUBSYSTEM:console");
+            add_nt_link_args(lj, is_library);
+            break;
+        case TargetSubsystemEfiApplication:
+            lj->args.append("/SUBSYSTEM:efi_application");
+            add_uefi_link_args(lj);
+            break;
+        case TargetSubsystemEfiBootServiceDriver:
+            lj->args.append("/SUBSYSTEM:efi_boot_service_driver");
+            add_uefi_link_args(lj);
+            break;
+        case TargetSubsystemEfiRom:
+            lj->args.append("/SUBSYSTEM:efi_rom");
+            add_uefi_link_args(lj);
+            break;
+        case TargetSubsystemEfiRuntimeDriver:
+            lj->args.append("/SUBSYSTEM:efi_runtime_driver");
+            add_uefi_link_args(lj);
+            break;
+        case TargetSubsystemNative:
+            lj->args.append("/SUBSYSTEM:native");
+            add_nt_link_args(lj, is_library);
+            break;
+        case TargetSubsystemPosix:
+            lj->args.append("/SUBSYSTEM:posix");
+            add_nt_link_args(lj, is_library);
+            break;
+        case TargetSubsystemWindows:
+            lj->args.append("/SUBSYSTEM:windows");
+            add_nt_link_args(lj, is_library);
+            break;
+    }
 
     lj->args.append(buf_ptr(buf_sprintf("-OUT:%s", buf_ptr(&g->output_file_path))));
 
@@ -665,54 +725,6 @@ continuing_build:
         }
     }
 
-    //if (g->libc_link_lib != nullptr) {
-        //if (g->is_static) {
-        //    lj->args.append("--start-group");
-        //}
-
-        //lj->args.append("-lmingw32");
-
-        //lj->args.append("-lgcc");
-        //bool is_android = (g->zig_target.env_type == ZigLLVM_Android);
-        //bool is_cyg_ming = is_target_cyg_mingw(&g->zig_target);
-        //if (!g->is_static && !is_android) {
-        //    if (!is_cyg_ming) {
-        //        lj->args.append("--as-needed");
-        //    }
-        //    //lj->args.append("-lgcc_s");
-        //    if (!is_cyg_ming) {
-        //        lj->args.append("--no-as-needed");
-        //    }
-        //}
-        //if (g->is_static && !is_android) {
-        //    //lj->args.append("-lgcc_eh");
-        //}
-        //if (is_android && !g->is_static) {
-        //    lj->args.append("-ldl");
-        //}
-
-        //lj->args.append("-lmoldname");
-        //lj->args.append("-lmingwex");
-        //lj->args.append("-lmsvcrt");
-
-
-        //if (g->windows_subsystem_windows) {
-        //    lj->args.append("-lgdi32");
-        //    lj->args.append("-lcomdlg32");
-        //}
-        //lj->args.append("-ladvapi32");
-        //lj->args.append("-lshell32");
-        //lj->args.append("-luser32");
-        //lj->args.append("-lkernel32");
-
-        //if (g->is_static) {
-        //    lj->args.append("--end-group");
-        //}
-
-        //if (lj->link_in_crt) {
-        //    lj->args.append(get_libc_static_file(g, "crtend.o"));
-        //}
-    //}
 }
 
 

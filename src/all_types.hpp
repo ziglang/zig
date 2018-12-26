@@ -1750,11 +1750,11 @@ struct CodeGen {
     BuildMode build_mode;
     OutType out_type;
     ZigTarget zig_target;
+    TargetSubsystem subsystem;
     bool is_static;
     bool strip_debug_symbols;
     bool is_test_build;
     bool is_native_target;
-    ZigLLVM_MSVCSubsystemType msvc_subsystem;
     bool linker_rdynamic;
     bool no_rosegment_workaround;
     bool each_lib_rpath;

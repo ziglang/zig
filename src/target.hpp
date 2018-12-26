@@ -54,13 +54,24 @@ enum Os {
     OsUefi,
 };
 
+enum TargetSubsystem {
+    TargetSubsystemAuto, // Zig should infer the subsystem
+    TargetSubsystemConsole,
+    TargetSubsystemWindows,
+    TargetSubsystemPosix,
+    TargetSubsystemNative,
+    TargetSubsystemEfiApplication,
+    TargetSubsystemEfiBootServiceDriver,
+    TargetSubsystemEfiRom,
+    TargetSubsystemEfiRuntimeDriver,
+};
+
 struct ZigTarget {
     ArchType arch;
     ZigLLVM_VendorType vendor;
     Os os;
     ZigLLVM_EnvironmentType env_type;
     ZigLLVM_ObjectFormatType oformat;
-    ZigLLVM_MSVCSubsystemType msvc_subsystem = ZigLLVM_MSVC_NONE;
 };
 
 enum CIntType {

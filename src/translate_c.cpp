@@ -4749,7 +4749,7 @@ Error parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const 
     clang_argv.append("-isystem");
     clang_argv.append(buf_ptr(codegen->zig_c_headers_dir));
 
-    if (codegen->libc_include_dir) {
+    if (codegen->libc_include_dir != nullptr) {
         clang_argv.append("-isystem");
         clang_argv.append(buf_ptr(codegen->libc_include_dir));
     }

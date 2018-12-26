@@ -10,7 +10,6 @@
 
 #include <stdbool.h>
 #include <stddef.h>
-#include <stdint.h>
 #include <llvm-c/Core.h>
 #include <llvm-c/Analysis.h>
 #include <llvm-c/Target.h>
@@ -358,8 +357,8 @@ enum ZigLLVM_OSType {
     ZigLLVM_Mesa3D,
     ZigLLVM_Contiki,
     ZigLLVM_AMDPAL,     // AMD PAL Runtime
-    ZigLLVM_Uefi,
-    ZigLLVM_LastOSType = ZigLLVM_Uefi
+
+    ZigLLVM_LastOSType = ZigLLVM_AMDPAL
 };
 
 // Synchronize with target.cpp::environ_list
@@ -396,19 +395,6 @@ enum ZigLLVM_ObjectFormatType {
     ZigLLVM_ELF,
     ZigLLVM_MachO,
     ZigLLVM_Wasm,
-};
-
-// For MSVC-supported subsystems
-enum ZigLLVM_MSVCSubsystemType {
-    ZigLLVM_MSVC_NONE,
-    ZigLLVM_MSVC_CONSOLE,
-    ZigLLVM_MSVC_WINDOWS,
-    ZigLLVM_MSVC_POSIX,
-    ZigLLVM_MSVC_NATIVE,
-    ZigLLVM_MSVC_EFI_APPLICATION,
-    ZigLLVM_MSVC_EFI_BOOT_SERVICE_DRIVER,
-    ZigLLVM_MSVC_EFI_ROM,
-    ZigLLVM_MSVC_EFI_RUNTIME_DRIVER,                                         
 };
 
 ZIG_EXTERN_C const char *ZigLLVMGetArchTypeName(enum ZigLLVM_ArchType arch);

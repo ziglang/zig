@@ -283,6 +283,7 @@ ZigLLVM_OSType get_llvm_os_type(Os os_type) {
         case OsSolaris:
             return ZigLLVM_Solaris;
         case OsWindows:
+        case OsUefi:
             return ZigLLVM_Win32;
         case OsHaiku:
             return ZigLLVM_Haiku;
@@ -316,8 +317,6 @@ ZigLLVM_OSType get_llvm_os_type(Os os_type) {
             return ZigLLVM_Contiki;
         case OsAMDPAL:
             return ZigLLVM_AMDPAL;
-        case OsUefi:
-            return ZigLLVM_Uefi;
     }
     zig_unreachable();
 }
@@ -809,7 +808,7 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
 }
 
 const char *target_o_file_ext(ZigTarget *target) {
-    if (target->env_type == ZigLLVM_MSVC || (target->os == OsWindows || target->os == OsUefi)) {
+    if (target->env_type == ZigLLVM_MSVC || target->os == OsWindows || target->os == OsUefi) {
         return ".obj";
     } else {
         return ".o";

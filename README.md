@@ -87,26 +87,26 @@ clarity.
 
 #### Support Table
 
-|        | freestanding | linux  | macosx | windows | freebsd | other  |
-|--------|--------------|--------|--------|---------|---------|--------|
-|x86_64  | Tier 2       | Tier 1 | Tier 1 | Tier 1  | Tier 2  | Tier 3 |
-|i386    | Tier 2       | Tier 2 | Tier 2 | Tier 2  | Tier 3  | Tier 3 |
-|arm     | Tier 2       | Tier 3 | Tier 3 | Tier 3  | Tier 3  | Tier 3 |
-|arm64   | Tier 2       | Tier 2 | Tier 3 | Tier 3  | Tier 3  | Tier 3 |
-|bpf     | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 |
-|hexagon | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 |
-|mips    | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 |
-|powerpc | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 |
-|r600    | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 |
-|amdgcn  | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 |
-|sparc   | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 |
-|s390x   | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 |
-|spir    | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 |
-|lanai   | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 |
-|wasm32  | Tier 4       | N/A    | N/A    | N/A     | N/A     | N/A    |
-|wasm64  | Tier 4       | N/A    | N/A    | N/A     | N/A     | N/A    |
-|riscv32 | Tier 4       | Tier 4 | N/A    | N/A     | Tier 4  | Tier 4 |
-|riscv64 | Tier 4       | Tier 4 | N/A    | N/A     | Tier 4  | Tier 4 |
+|        | freestanding | linux  | macosx | windows | freebsd | UEFI   | other  |
+|--------|--------------|--------|--------|---------|---------|--------|--------|
+|x86_64  | Tier 2       | Tier 1 | Tier 1 | Tier 1  | Tier 2  | Tier 2 | Tier 3 |
+|i386    | Tier 2       | Tier 2 | Tier 2 | Tier 2  | Tier 3  | Tier 3 | Tier 3 |
+|arm     | Tier 2       | Tier 3 | Tier 3 | Tier 3  | Tier 3  | Tier 3 | Tier 3 |
+|arm64   | Tier 2       | Tier 2 | Tier 3 | Tier 3  | Tier 3  | Tier 3 | Tier 3 |
+|bpf     | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | Tier 3 |
+|hexagon | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | Tier 3 |
+|mips    | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | Tier 3 |
+|powerpc | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | Tier 3 |
+|r600    | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | Tier 3 |
+|amdgcn  | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | Tier 3 |
+|sparc   | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | Tier 3 |
+|s390x   | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | Tier 3 |
+|spir    | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | Tier 3 |
+|lanai   | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | Tier 3 |
+|wasm32  | Tier 4       | N/A    | N/A    | N/A     | N/A     | N/A    | N/A    |
+|wasm64  | Tier 4       | N/A    | N/A    | N/A     | N/A     | N/A    | N/A    |
+|riscv32 | Tier 4       | Tier 4 | N/A    | N/A     | Tier 4  | Tier 4 | Tier 4 |
+|riscv64 | Tier 4       | Tier 4 | N/A    | N/A     | Tier 4  | Tier 4 | Tier 4 |
 
 ## Community
 
