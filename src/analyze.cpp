@@ -4590,8 +4590,7 @@ static Buf *get_posix_libc_include_path(void) {
 void find_libc_include_path(CodeGen *g) {
     if (g->libc_include_dir == nullptr) {
         if (!g->is_native_target) {
-            fprintf(stderr, "Unable to determine libc include path. --libc-include-dir");
-            exit(1);
+            return;
         }
 
         if (g->zig_target.os == OsWindows) {
