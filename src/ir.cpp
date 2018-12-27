@@ -228,8 +228,13 @@ static bool types_have_same_zig_comptime_repr(ZigType *a, ZigType *b) {
     if (a == b)
         return true;
 
-    if (a->id == b->id)
-        return true;
+    if (a->id == b->id) {
+        if (a->id == ZigTypeIdInt) {
+            return a->data.integral.is_signed == b->data.integral.is_signed;
+        } else {
+            return true;
+        }
+    }
 
     if (get_codegen_ptr_type(a) != nullptr && get_codegen_ptr_type(b) != nullptr)
         return true;
