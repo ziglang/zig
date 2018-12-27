@@ -639,3 +639,11 @@ test "self reference through fn ptr field" {
     a.f = S.foo;
     assertOrPanic(a.f(a) == 12);
 }
+
+test "volatile load and store" {
+    var number: i32 = 1234;
+    const ptr = (*volatile i32)(&number);
+    ptr.* += 1;
+    assertOrPanic(ptr.* == 1235);
+}
+

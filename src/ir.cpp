@@ -22985,12 +22985,10 @@ static IrInstruction *ir_analyze_instruction_first_arg_result_loc(IrAnalyze *ira
         if (type_is_invalid(dest_type))
             return ira->codegen->invalid_instruction;
 
-        if (!type_has_bits(dest_type) || !handle_is_ptr(dest_type)) {
-            return nullptr;
-        }
-
         IrInstruction *new_result_loc = ir_implicit_cast_result(ira, instruction->prev_result_loc->child,
-                dest_type, false);
+                dest_type, true);
+        if (new_result_loc == nullptr)
+            return nullptr;
         if (type_is_invalid(new_result_loc->value.type))
             return ira->codegen->invalid_instruction;
         return new_result_loc;

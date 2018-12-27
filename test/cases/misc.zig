@@ -5,13 +5,6 @@ const cstr = std.cstr;
 const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
 
-test "volatile load and store" {
-    var number: i32 = 1234;
-    const ptr = (*volatile i32)(&number);
-    ptr.* += 1;
-    assertOrPanic(ptr.* == 1235);
-}
-
 test "slice string literal has type []const u8" {
     comptime {
         assertOrPanic(@typeOf("aoeu"[0..]) == []const u8);
