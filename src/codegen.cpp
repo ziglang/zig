@@ -4185,22 +4185,37 @@ static LLVMValueRef ir_render_cmpxchg(CodeGen *g, IrExecutable *executable, IrIn
     LLVMValueRef cmp_val = ir_llvm_value(g, instruction->cmp_value);
     LLVMValueRef new_val = ir_llvm_value(g, instruction->new_value);
 
+    assert(type_has_bits(instruction->type));
+    ZigType *ptr_type = instruction->result_loc->value.type;
+    assert(ptr_type->id == ZigTypeIdPointer);
+    ZigType *child_type = ptr_type->data.pointer.child_type;
+    bool is_scalar = !handle_is_ptr(child_type);
+
     LLVMAtomicOrdering success_order = to_LLVMAtomicOrdering(instruction->success_order);
     LLVMAtomicOrdering failure_order = to_LLVMAtomicOrdering(instruction->failure_order);
 
     LLVMValueRef cmpxchg_val = ZigLLVMBuildCmpXchg(g->builder, ptr_val, cmp_val, new_val,
             success_order, failure_order, instruction->is_weak);
 
-    assert(type_has_bits(instruction->type));
-
+    LLVMValueRef result_ptr = ir_llvm_value(g, instruction->result_loc);
     LLVMValueRef success_bit = LLVMBuildExtractValue(g->builder, cmpxchg_val, 1, "");
-    LLVMBasicBlockRef null_block = LLVMGetInsertBlock(g->builder);
+    LLVMBasicBlockRef null_block = is_scalar ? LLVMAppendBasicBlock(g->cur_fn_val, "CmpXchgNull") :
+        LLVMGetInsertBlock(g->builder);
     LLVMBasicBlockRef non_null_block = LLVMAppendBasicBlock(g->cur_fn_val, "CmpXchgNonNull");
     LLVMBasicBlockRef phi_block = LLVMAppendBasicBlock(g->cur_fn_val, "CmpXchgPhi");
-    LLVMBuildCondBr(g->builder, success_bit, phi_block, non_null_block);
+
+    if (is_scalar) {
+        LLVMBuildCondBr(g->builder, success_bit, null_block, non_null_block);
+
+        LLVMPositionBuilderAtEnd(g->builder, null_block);
+        LLVMValueRef zeroes = LLVMConstNull(child_type->type_ref);
+        gen_assign_raw(g, result_ptr, instruction->result_loc->value.type, zeroes);
+        LLVMBuildBr(g->builder, phi_block);
+    } else {
+        LLVMBuildCondBr(g->builder, success_bit, phi_block, non_null_block);
+    }
 
     LLVMPositionBuilderAtEnd(g->builder, non_null_block);
-    LLVMValueRef result_ptr = ir_llvm_value(g, instruction->result_loc);
     LLVMValueRef payload_val = LLVMBuildExtractValue(g->builder, cmpxchg_val, 0, "");
     gen_assign_raw(g, result_ptr, instruction->result_loc->value.type, payload_val);
     LLVMBuildBr(g->builder, phi_block);
