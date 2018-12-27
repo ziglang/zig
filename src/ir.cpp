@@ -418,6 +418,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionPtrOfArrayToSlic
     return IrInstructionIdPtrOfArrayToSlice;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionArrayToSlice *) {
+    return IrInstructionIdArrayToSlice;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionContainerInitList *) {
     return IrInstructionIdContainerInitList;
 }
@@ -1028,6 +1032,23 @@ static IrInstruction *ir_build_ptr_of_array_to_slice(IrBuilder *irb, Scope *scop
 
     ir_ref_instruction(value, irb->current_basic_block);
     ir_ref_instruction(result_loc, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_array_to_slice(IrAnalyze *ira, IrInstruction *source_instr, ZigType *slice_type,
+    IrInstruction *array, IrInstruction *result_loc)
+{
+    IrInstructionArrayToSlice *instruction = ir_build_instruction<IrInstructionArrayToSlice>(
+            &ira->new_irb, source_instr->scope, source_instr->source_node);
+    instruction->base.value.special = ConstValSpecialRuntime;
+    instruction->base.value.type = slice_type;
+
+    instruction->array = array;
+    instruction->result_loc = result_loc;
+
+    ir_ref_instruction(array, ira->new_irb.current_basic_block);
+    ir_ref_instruction(result_loc, ira->new_irb.current_basic_block);
 
     return &instruction->base;
 }
@@ -10949,16 +10970,18 @@ static IrInstruction *ir_analyze_array_to_slice(IrAnalyze *ira, IrInstruction *s
     ZigType *array_type = array->value.type;
     assert(array_type->id == ZigTypeIdArray);
 
-    if (instr_is_comptime(array)) {
+    if (instr_is_comptime(array) || array_type->data.array.len == 0) {
         IrInstruction *result = ir_const(ira, source_instr, wanted_type);
         init_const_slice(ira->codegen, &result->value, &array->value, 0, array_type->data.array.len, true);
         result->value.type = wanted_type;
         return result;
     }
 
-    // Only the comptime branch above is used here. Once https://github.com/ziglang/zig/issues/265
+    // TODO once https://github.com/ziglang/zig/issues/265
     // lands this entire function will be deleted.
-    zig_unreachable();
+    IrInstruction *slice_alloca = ir_analyze_alloca(ira, source_instr, wanted_type, 0, "", false);
+    slice_alloca->value.special = ConstValSpecialRuntime;
+    return ir_build_array_to_slice(ira, source_instr, wanted_type, array, slice_alloca);
 }
 
 static IrInstruction *ir_analyze_enum_to_int(IrAnalyze *ira, IrInstruction *source_instr,
@@ -23318,6 +23341,7 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
         case IrInstructionIdErrWrapPayload:
         case IrInstructionIdCast:
         case IrInstructionIdPtrOfArrayToSlice:
+        case IrInstructionIdArrayToSlice:
         case IrInstructionIdDeclVarGen:
         case IrInstructionIdAllocaGen:
         case IrInstructionIdResultSlicePtr:
@@ -23781,6 +23805,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdSlice:
         case IrInstructionIdCmpxchgGen:
         case IrInstructionIdCmpxchgSrc:
+        case IrInstructionIdArrayToSlice:
             return true;
 
         case IrInstructionIdPhi:

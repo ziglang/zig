@@ -1490,6 +1490,14 @@ static void ir_print_ptr_of_array_to_slice(IrPrint *irp, IrInstructionPtrOfArray
     fprintf(irp->f, ")");
 }
 
+static void ir_print_array_to_slice(IrPrint *irp, IrInstructionArrayToSlice *instruction) {
+    fprintf(irp->f, "ArrayToSlice(array=");
+    ir_print_other_instruction(irp, instruction->array);
+    fprintf(irp->f, ",result=");
+    ir_print_other_instruction(irp, instruction->result_loc);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_bswap(IrPrint *irp, IrInstructionBswap *instruction) {
     fprintf(irp->f, "@bswap(");
     if (instruction->type != nullptr) {
@@ -2001,6 +2009,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdPtrOfArrayToSlice:
             ir_print_ptr_of_array_to_slice(irp, (IrInstructionPtrOfArrayToSlice *)instruction);
+            break;
+        case IrInstructionIdArrayToSlice:
+            ir_print_array_to_slice(irp, (IrInstructionArrayToSlice *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

@@ -1,5 +1,4 @@
 comptime {
-    _ = @import("cases/array.zig");
     _ = @import("cases/atomics.zig");
     _ = @import("cases/bitcast.zig");
     _ = @import("cases/bswap.zig");

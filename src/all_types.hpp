@@ -2247,6 +2247,7 @@ enum IrInstructionId {
     IrInstructionIdSetNonNullBit,
     IrInstructionIdErrorLiteral,
     IrInstructionIdPtrOfArrayToSlice,
+    IrInstructionIdArrayToSlice,
 };
 
 struct IrInstruction {
@@ -2507,6 +2508,13 @@ struct IrInstructionPtrOfArrayToSlice {
     IrInstruction base;
 
     IrInstruction *value;
+    IrInstruction *result_loc;
+};
+
+struct IrInstructionArrayToSlice {
+    IrInstruction base;
+
+    IrInstruction *array;
     IrInstruction *result_loc;
 };
 
