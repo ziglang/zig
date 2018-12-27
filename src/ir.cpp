@@ -21939,6 +21939,22 @@ static void buf_read_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue 
                 val->data.x_ptr.data.hard_coded_addr.addr = bigint_as_unsigned(&bn);
                 return;
             }
+        case ZigTypeIdEnum: {
+            switch (val->type->data.enumeration.layout) {
+                case ContainerLayoutAuto:
+                    zig_panic("TODO buf_read_value_bytes enum auto");
+                case ContainerLayoutPacked:
+                    zig_panic("TODO buf_read_value_bytes enum packed");
+                case ContainerLayoutExtern: {
+                    ZigType *tag_int_type = val->type->data.enumeration.tag_int_type;
+                    assert(tag_int_type->id == ZigTypeIdInt);
+                    bigint_read_twos_complement(&val->data.x_enum_tag, buf, tag_int_type->data.integral.bit_count,
+                            codegen->is_big_endian, tag_int_type->data.integral.is_signed);
+                    return;
+                }
+            }
+            zig_unreachable();
+        }
         case ZigTypeIdArray:
             zig_panic("TODO buf_read_value_bytes array type");
         case ZigTypeIdStruct:
@@ -21949,8 +21965,6 @@ static void buf_read_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue 
             zig_panic("TODO buf_read_value_bytes error union");
         case ZigTypeIdErrorSet:
             zig_panic("TODO buf_read_value_bytes pure error type");
-        case ZigTypeIdEnum:
-            zig_panic("TODO buf_read_value_bytes enum type");
         case ZigTypeIdFn:
             zig_panic("TODO buf_read_value_bytes fn type");
         case ZigTypeIdUnion:
