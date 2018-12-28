@@ -39,11 +39,6 @@ const test_targets = []TestTarget{
         .environ = builtin.Environ.unknown,
     },
     TestTarget{
-        .os = builtin.Os.freebsd,
-        .arch = builtin.Arch.x86_64,
-        .environ = builtin.Environ.unknown,
-    },
-    TestTarget{
         .os = builtin.Os.windows,
         .arch = builtin.Arch.x86_64,
         .environ = builtin.Environ.msvc,
