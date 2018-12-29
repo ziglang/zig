@@ -18,7 +18,6 @@ comptime {
     _ = @import("cases/for.zig");
     _ = @import("cases/ir_block_deps.zig");
     _ = @import("cases/math.zig");
-    _ = @import("cases/misc.zig");
     _ = @import("cases/namespace_depends_on_compile_var/index.zig");
     _ = @import("cases/new_stack_call.zig");
     _ = @import("cases/null.zig");

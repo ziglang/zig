@@ -659,3 +659,21 @@ test "pointer child field" {
     assertOrPanic((*u32).Child == u32);
 }
 
+test "struct inside function" {
+    testStructInFn();
+    comptime testStructInFn();
+}
+
+fn testStructInFn() void {
+    const BlockKind = u32;
+
+    const Block = struct {
+        kind: BlockKind,
+    };
+
+    var block = Block{ .kind = 1234 };
+
+    block.kind += 1;
+
+    assertOrPanic(block.kind == 1235);
+}

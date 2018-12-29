@@ -16210,9 +16210,7 @@ static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_
                     if (type_is_invalid(struct_val->type))
                         return ira->codegen->invalid_instruction;
 
-                    if (ptr_val->data.x_ptr.mut == ConstPtrMutInfer &&
-                        struct_val->special == ConstValSpecialUndef)
-                    {
+                    if (struct_val->special == ConstValSpecialUndef) {
                         struct_val->data.x_struct.fields = create_const_vals(bare_type->data.structure.src_field_count);
                         struct_val->special = ConstValSpecialStatic;
                         for (size_t i = 0; i < bare_type->data.structure.src_field_count; i += 1) {
