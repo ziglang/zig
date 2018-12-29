@@ -178,7 +178,8 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
 
     // On Darwin/MacOS/iOS, we always link libSystem which contains libc.
     if (g->zig_target.os == OsMacOSX ||
-        g->zig_target.os == OsIOS)
+        g->zig_target.os == OsIOS ||
+	g->zig_target.os == OsFreeBSD)
     {
         g->libc_link_lib = create_link_lib(buf_create_from_str("c"));
         g->link_libs_list.append(g->libc_link_lib);

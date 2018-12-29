@@ -13,7 +13,7 @@ pub const epoch = @import("epoch.zig");
 /// Sleep for the specified duration
 pub fn sleep(nanoseconds: u64) void {
     switch (builtin.os) {
-        Os.linux, Os.macosx, Os.ios => {
+        Os.linux, Os.macosx, Os.ios, Os.freebsd => {
             const s = nanoseconds / ns_per_s;
             const ns = nanoseconds % ns_per_s;
             posixSleep(@intCast(u63, s), @intCast(u63, ns));

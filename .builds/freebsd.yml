@@ -1,5 +1,4 @@
-arch: x86_64
-image: freebsd
+image: freebsd/latest
 packages:
   - cmake
   - ninja
@@ -14,6 +13,28 @@ tasks:
   - test: |
       cd zig/build
       bin/zig test ../test/behavior.zig
+      bin/zig test ../std/special/compiler_rt/index.zig
+
+      bin/zig test ../test/behavior.zig --library c
+      bin/zig test ../std/special/compiler_rt/index.zig --library c
+
+      bin/zig test ../test/behavior.zig --release-fast
+      bin/zig test ../std/special/compiler_rt/index.zig --release-fast
+
+      bin/zig test ../test/behavior.zig --release-fast --library c
+      bin/zig test ../std/special/compiler_rt/index.zig --release-fast --library c
+
+      bin/zig test ../test/behavior.zig --release-small --library c
+      bin/zig test ../std/special/compiler_rt/index.zig --release-small --library c
+
+      bin/zig test ../test/behavior.zig --release-small
+      bin/zig test ../std/special/compiler_rt/index.zig --release-small
+
+      bin/zig test ../test/behavior.zig --release-safe
+      bin/zig test ../std/special/compiler_rt/index.zig --release-safe
+
+      bin/zig test ../test/behavior.zig --release-safe --library c
+      bin/zig test ../std/special/compiler_rt/index.zig --release-safe --library c
       # TODO enable all tests
       #bin/zig build --build-file ../build.zig test
       # TODO integrate with the download page updater and make a
