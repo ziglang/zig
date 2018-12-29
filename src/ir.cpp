@@ -193,11 +193,12 @@ static ConstExprValue *const_ptr_pointee_unchecked(CodeGen *g, ConstExprValue *c
         case ConstPtrSpecialRef:
             result = const_val->data.x_ptr.data.ref.pointee;
             break;
-        case ConstPtrSpecialBaseArray:
-            expand_undef_array(g, const_val->data.x_ptr.data.base_array.array_val);
-            result = &const_val->data.x_ptr.data.base_array.array_val->data.x_array.data.s_none.elements[
-                const_val->data.x_ptr.data.base_array.elem_index];
+        case ConstPtrSpecialBaseArray: {
+            ConstExprValue *array_val = const_val->data.x_ptr.data.base_array.array_val;
+            expand_undef_array(g, array_val);
+            result = &array_val->data.x_array.data.s_none.elements[const_val->data.x_ptr.data.base_array.elem_index];
             break;
+        }
         case ConstPtrSpecialBaseStruct:
             result = &const_val->data.x_ptr.data.base_struct.struct_val->data.x_struct.fields[
                 const_val->data.x_ptr.data.base_struct.field_index];

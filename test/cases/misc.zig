@@ -5,23 +5,6 @@ const cstr = std.cstr;
 const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
 
-test "slice string literal has type []const u8" {
-    comptime {
-        assertOrPanic(@typeOf("aoeu"[0..]) == []const u8);
-        const array = []i32{
-            1,
-            2,
-            3,
-            4,
-        };
-        assertOrPanic(@typeOf(array[0..]) == []const i32);
-    }
-}
-
-test "pointer child field" {
-    assertOrPanic((*u32).Child == u32);
-}
-
 test "struct inside function" {
     testStructInFn();
     comptime testStructInFn();

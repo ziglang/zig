@@ -6210,6 +6210,10 @@ bool zig_llvm_fn_key_eql(ZigLLVMFnKey a, ZigLLVMFnKey b) {
 // Canonicalize the array value as ConstArraySpecialNone
 void expand_undef_array(CodeGen *g, ConstExprValue *const_val) {
     assert(const_val->type->id == ZigTypeIdArray);
+    if (const_val->special == ConstValSpecialUndef) {
+        const_val->special = ConstValSpecialStatic;
+        const_val->data.x_array.special = ConstArraySpecialUndef;
+    }
     switch (const_val->data.x_array.special) {
         case ConstArraySpecialNone:
             return;
