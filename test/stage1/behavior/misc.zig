@@ -677,3 +677,11 @@ fn testStructInFn() void {
 
     assertOrPanic(block.kind == 1235);
 }
+
+test "fn call returning scalar optional in equality expression" {
+    assertOrPanic(getNull() == null);
+}
+
+fn getNull() ?*i32 {
+    return null;
+}

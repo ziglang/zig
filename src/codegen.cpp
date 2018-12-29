@@ -3380,7 +3380,6 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     bool is_error_union = src_return_type->id == ZigTypeIdErrorUnion;
     bool is_optional = src_return_type->id == ZigTypeIdOptional;
     bool first_arg_ret = (is_error_union && type_has_bits(src_return_type->data.error_union.payload_type)) ||
-        (is_optional && type_has_bits(src_return_type->data.maybe.child_type)) ||
         (ret_has_bits && want_first_arg_sret(g, fn_type_id));
     bool prefix_arg_err_ret_stack = get_prefix_arg_err_ret_stack(g, fn_type_id);
     bool is_var_args = fn_type_id->is_var_args;

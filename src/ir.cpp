@@ -14437,7 +14437,7 @@ static IrInstruction *ir_analyze_set_non_null_bit(IrAnalyze *ira,
     if (type_is_invalid(opt_type))
         return ira->codegen->invalid_instruction;
 
-    if (opt_type->id != ZigTypeIdErrorUnion) {
+    if (opt_type->id != ZigTypeIdOptional) {
         ir_add_error(ira, base_ptr,
             buf_sprintf("expected optional type, found '%s'", buf_ptr(&opt_type->name)));
         return ira->codegen->invalid_instruction;
@@ -14446,6 +14446,8 @@ static IrInstruction *ir_analyze_set_non_null_bit(IrAnalyze *ira,
     if (instr_is_comptime(base_ptr)) {
         zig_panic("TODO comptime set non null bit");
     }
+
+    assert(handle_is_ptr(opt_type));
 
     return ir_build_set_nonnull_bit(&ira->new_irb,
         source_instr->scope, source_instr->source_node, base_ptr, non_null_bit, nullptr);
@@ -14475,7 +14477,7 @@ static IrInstruction *analyze_runtime_call(IrAnalyze *ira, FnTypeId *fn_type_id,
         scalar_result_type = return_type;
         payload_result_type = ira->codegen->builtin_types.entry_void;
         convert_to_value = false;
-    } else if (return_type->id == ZigTypeIdOptional) {
+    } else if (return_type->id == ZigTypeIdOptional && handle_is_ptr(return_type)) {
         scalar_result_type = ira->codegen->builtin_types.entry_bool;
         payload_result_type = return_type->data.maybe.child_type;
         convert_to_value = call_instruction->lval != LValOptional;
@@ -14494,7 +14496,6 @@ static IrInstruction *analyze_runtime_call(IrAnalyze *ira, FnTypeId *fn_type_id,
     } else {
         need_store_ptr = false;
         if (return_type->id == ZigTypeIdErrorUnion ||
-            return_type->id == ZigTypeIdOptional ||
             (type_has_bits(return_type) && want_first_arg_sret(ira->codegen, fn_type_id)))
         {
             prev_result_loc = ir_analyze_alloca(ira, &call_instruction->base, nullptr, 0, "", false);
