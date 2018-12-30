@@ -3545,9 +3545,9 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
         case ReturnKindUnconditional:
             {
                 IrInstruction *return_value;
+                ZigType *return_type = fn_entry->type_entry->data.fn.fn_type_id.return_type;
                 if (expr_node) {
                     IrInstruction *return_result_loc = nullptr;
-                    ZigType *return_type = fn_entry->type_entry->data.fn.fn_type_id.return_type;
                     LVal expr_lval = LValNone;
                     if (return_type != nullptr) {
                         if (return_type->id == ZigTypeIdErrorUnion) {
@@ -3567,6 +3567,10 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                     irb->exec->name_fn = prev_name_fn;
                     if (return_value == irb->codegen->invalid_instruction)
                         return irb->codegen->invalid_instruction;
+                } else if (return_type->id == ZigTypeIdErrorUnion && 
+                        return_type->data.error_union.payload_type == irb->codegen->builtin_types.entry_void)
+                {
+                    return_value = ir_build_const_null(irb, scope, node);
                 } else {
                     return_value = ir_build_const_void(irb, scope, node);
                 }

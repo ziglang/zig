@@ -48,3 +48,37 @@ fn runContinueAndBreakTest() void {
     assertOrPanic(i == 4);
 }
 
+test "return with implicit cast from while loop" {
+    returnWithImplicitCastFromWhileLoopTest() catch unreachable;
+}
+fn returnWithImplicitCastFromWhileLoopTest() anyerror!void {
+    while (true) {
+        return;
+    }
+}
+
+test "while with continue expression" {
+    var sum: i32 = 0;
+    {
+        var i: i32 = 0;
+        while (i < 10) : (i += 1) {
+            if (i == 5) continue;
+            sum += i;
+        }
+    }
+    assertOrPanic(sum == 40);
+}
+
+test "while with else" {
+    var sum: i32 = 0;
+    var i: i32 = 0;
+    var got_else: i32 = 0;
+    while (i < 10) : (i += 1) {
+        sum += 1;
+    } else {
+        got_else += 1;
+    }
+    assertOrPanic(sum == 10);
+    assertOrPanic(got_else == 1);
+}
+
