@@ -17438,6 +17438,8 @@ static IrInstruction *ir_analyze_unwrap_optional_payload(IrAnalyze *ira, IrInstr
         return ira->codegen->invalid_instruction;
 
     if (type_entry->id != ZigTypeIdOptional) {
+        if (!safety_check_on)
+            return base_ptr;
         ir_add_error_node(ira, base_ptr->source_node,
                 buf_sprintf("expected optional type, found '%s'", buf_ptr(&type_entry->name)));
         return ira->codegen->invalid_instruction;
