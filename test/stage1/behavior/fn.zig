@@ -1,7 +1,7 @@
-const assert = @import("std").debug.assert;
+const assertOrPanic = @import("std").debug.assertOrPanic;
 
 test "params" {
-    assert(testParamsAdd(22, 11) == 33);
+    assertOrPanic(testParamsAdd(22, 11) == 33);
 }
 fn testParamsAdd(a: i32, b: i32) i32 {
     return a + b;
@@ -21,32 +21,32 @@ test "void parameters" {
 fn voidFun(a: i32, b: void, c: i32, d: void) void {
     const v = b;
     const vv: void = if (a == 1) v else {};
-    assert(a + c == 3);
+    assertOrPanic(a + c == 3);
     return vv;
 }
 
 test "mutable local variables" {
     var zero: i32 = 0;
-    assert(zero == 0);
+    assertOrPanic(zero == 0);
 
     var i = i32(0);
     while (i != 3) {
         i += 1;
     }
-    assert(i == 3);
+    assertOrPanic(i == 3);
 }
 
 test "separate block scopes" {
     {
         const no_conflict: i32 = 5;
-        assert(no_conflict == 5);
+        assertOrPanic(no_conflict == 5);
     }
 
     const c = x: {
         const no_conflict = i32(10);
         break :x no_conflict;
     };
-    assert(c == 10);
+    assertOrPanic(c == 10);
 }
 
 test "call function with empty string" {
@@ -59,7 +59,7 @@ fn @"weird function name"() i32 {
     return 1234;
 }
 test "weird function name" {
-    assert(@"weird function name"() == 1234);
+    assertOrPanic(@"weird function name"() == 1234);
 }
 
 test "implicit cast function unreachable return" {
@@ -80,7 +80,7 @@ test "function pointers" {
         fn4,
     };
     for (fns) |f, i| {
-        assert(f() == @intCast(u32, i) + 5);
+        assertOrPanic(f() == @intCast(u32, i) + 5);
     }
 }
 fn fn1() u32 {
@@ -97,7 +97,7 @@ fn fn4() u32 {
 }
 
 test "inline function call" {
-    assert(@inlineCall(add, 3, 9) == 12);
+    assertOrPanic(@inlineCall(add, 3, 9) == 12);
 }
 
 fn add(a: i32, b: i32) i32 {
@@ -110,7 +110,7 @@ test "number literal as an argument" {
 }
 
 fn numberLiteralArg(a: var) void {
-    assert(a == 3);
+    assertOrPanic(a == 3);
 }
 
 test "assign inline fn to const variable" {
@@ -121,7 +121,7 @@ test "assign inline fn to const variable" {
 inline fn inlineFn() void {}
 
 test "pass by non-copying value" {
-    assert(addPointCoords(Point{ .x = 1, .y = 2 }) == 3);
+    assertOrPanic(addPointCoords(Point{ .x = 1, .y = 2 }) == 3);
 }
 
 const Point = struct {
@@ -134,17 +134,17 @@ fn addPointCoords(pt: Point) i32 {
 }
 
 test "pass by non-copying value through var arg" {
-    assert(addPointCoordsVar(Point{ .x = 1, .y = 2 }) == 3);
+    assertOrPanic(addPointCoordsVar(Point{ .x = 1, .y = 2 }) == 3);
 }
 
 fn addPointCoordsVar(pt: var) i32 {
-    comptime assert(@typeOf(pt) == Point);
+    comptime assertOrPanic(@typeOf(pt) == Point);
     return pt.x + pt.y;
 }
 
 test "pass by non-copying value as method" {
     var pt = Point2{ .x = 1, .y = 2 };
-    assert(pt.addPointCoords() == 3);
+    assertOrPanic(pt.addPointCoords() == 3);
 }
 
 const Point2 = struct {
@@ -158,7 +158,7 @@ const Point2 = struct {
 
 test "pass by non-copying value as method, which is generic" {
     var pt = Point3{ .x = 1, .y = 2 };
-    assert(pt.addPointCoords(i32) == 3);
+    assertOrPanic(pt.addPointCoords(i32) == 3);
 }
 
 const Point3 = struct {
@@ -173,7 +173,7 @@ const Point3 = struct {
 test "pass by non-copying value as method, at comptime" {
     comptime {
         var pt = Point2{ .x = 1, .y = 2 };
-        assert(pt.addPointCoords() == 3);
+        assertOrPanic(pt.addPointCoords() == 3);
     }
 }
 
@@ -189,7 +189,7 @@ fn outer(y: u32) fn (u32) u32 {
 
 test "return inner function which references comptime variable of outer function" {
     var func = outer(10);
-    assert(func(3) == 7);
+    assertOrPanic(func(3) == 7);
 }
 
 test "extern struct with stdcallcc fn pointer" {
@@ -203,5 +203,6 @@ test "extern struct with stdcallcc fn pointer" {
 
     var s: S = undefined;
     s.ptr = S.foo;
-    assert(s.ptr() == 1234);
+    assertOrPanic(s.ptr() == 1234);
 }
+

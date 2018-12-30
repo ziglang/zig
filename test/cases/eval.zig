@@ -1,22 +1,13 @@
 const std = @import("std");
-const assert = std.debug.assert;
+const assertOrPanic = std.debug.assertOrPanic;
 const builtin = @import("builtin");
-
-test "compile time recursion" {
-    assert(some_data.len == 21);
-}
-var some_data: [@intCast(usize, fibonacci(7))]u8 = undefined;
-fn fibonacci(x: i32) i32 {
-    if (x <= 1) return 1;
-    return fibonacci(x - 1) + fibonacci(x - 2);
-}
 
 fn unwrapAndAddOne(blah: ?i32) i32 {
     return blah.? + 1;
 }
 const should_be_1235 = unwrapAndAddOne(1234);
 test "static add one" {
-    assert(should_be_1235 == 1235);
+    assertOrPanic(should_be_1235 == 1235);
 }
 
 test "inlined loop" {
@@ -24,7 +15,7 @@ test "inlined loop" {
     comptime var sum = 0;
     inline while (i <= 5) : (i += 1)
         sum += i;
-    assert(sum == 15);
+    assertOrPanic(sum == 15);
 }
 
 fn gimme1or2(comptime a: bool) i32 {
@@ -34,12 +25,12 @@ fn gimme1or2(comptime a: bool) i32 {
     return z;
 }
 test "inline variable gets result of const if" {
-    assert(gimme1or2(true) == 1);
-    assert(gimme1or2(false) == 2);
+    assertOrPanic(gimme1or2(true) == 1);
+    assertOrPanic(gimme1or2(false) == 2);
 }
 
 test "static function evaluation" {
-    assert(statically_added_number == 3);
+    assertOrPanic(statically_added_number == 3);
 }
 const statically_added_number = staticAdd(1, 2);
 fn staticAdd(a: i32, b: i32) i32 {
@@ -47,7 +38,7 @@ fn staticAdd(a: i32, b: i32) i32 {
 }
 
 test "const expr eval on single expr blocks" {
-    assert(constExprEvalOnSingleExprBlocksFn(1, true) == 3);
+    assertOrPanic(constExprEvalOnSingleExprBlocksFn(1, true) == 3);
 }
 
 fn constExprEvalOnSingleExprBlocksFn(x: i32, b: bool) i32 {
@@ -63,10 +54,10 @@ fn constExprEvalOnSingleExprBlocksFn(x: i32, b: bool) i32 {
 }
 
 test "statically initialized list" {
-    assert(static_point_list[0].x == 1);
-    assert(static_point_list[0].y == 2);
-    assert(static_point_list[1].x == 3);
-    assert(static_point_list[1].y == 4);
+    assertOrPanic(static_point_list[0].x == 1);
+    assertOrPanic(static_point_list[0].y == 2);
+    assertOrPanic(static_point_list[1].x == 3);
+    assertOrPanic(static_point_list[1].y == 4);
 }
 const Point = struct {
     x: i32,
@@ -84,8 +75,8 @@ fn makePoint(x: i32, y: i32) Point {
 }
 
 test "static eval list init" {
-    assert(static_vec3.data[2] == 1.0);
-    assert(vec3(0.0, 0.0, 3.0).data[2] == 3.0);
+    assertOrPanic(static_vec3.data[2] == 1.0);
+    assertOrPanic(vec3(0.0, 0.0, 3.0).data[2] == 3.0);
 }
 const static_vec3 = vec3(0.0, 0.0, 1.0);
 pub const Vec3 = struct {
@@ -101,12 +92,12 @@ pub fn vec3(x: f32, y: f32, z: f32) Vec3 {
 
 test "constant expressions" {
     var array: [array_size]u8 = undefined;
-    assert(@sizeOf(@typeOf(array)) == 20);
+    assertOrPanic(@sizeOf(@typeOf(array)) == 20);
 }
 const array_size: u8 = 20;
 
 test "constant struct with negation" {
-    assert(vertices[0].x == -0.6);
+    assertOrPanic(vertices[0].x == -0.6);
 }
 const Vertex = struct {
     x: f32,
@@ -141,7 +132,7 @@ const vertices = []Vertex{
 
 test "statically initialized struct" {
     st_init_str_foo.x += 1;
-    assert(st_init_str_foo.x == 14);
+    assertOrPanic(st_init_str_foo.x == 14);
 }
 const StInitStrFoo = struct {
     x: i32,
@@ -154,7 +145,7 @@ var st_init_str_foo = StInitStrFoo{
 
 test "statically initalized array literal" {
     const y: [4]u8 = st_init_arr_lit_x;
-    assert(y[3] == 4);
+    assertOrPanic(y[3] == 4);
 }
 const st_init_arr_lit_x = []u8{
     1,
@@ -166,15 +157,15 @@ const st_init_arr_lit_x = []u8{
 test "const slice" {
     comptime {
         const a = "1234567890";
-        assert(a.len == 10);
+        assertOrPanic(a.len == 10);
         const b = a[1..2];
-        assert(b.len == 1);
-        assert(b[0] == '2');
+        assertOrPanic(b.len == 1);
+        assertOrPanic(b[0] == '2');
     }
 }
 
 test "try to trick eval with runtime if" {
-    assert(testTryToTrickEvalWithRuntimeIf(true) == 10);
+    assertOrPanic(testTryToTrickEvalWithRuntimeIf(true) == 10);
 }
 
 fn testTryToTrickEvalWithRuntimeIf(b: bool) usize {
@@ -200,16 +191,16 @@ fn letsTryToCompareBools(a: bool, b: bool) bool {
     return max(bool, a, b);
 }
 test "inlined block and runtime block phi" {
-    assert(letsTryToCompareBools(true, true));
-    assert(letsTryToCompareBools(true, false));
-    assert(letsTryToCompareBools(false, true));
-    assert(!letsTryToCompareBools(false, false));
+    assertOrPanic(letsTryToCompareBools(true, true));
+    assertOrPanic(letsTryToCompareBools(true, false));
+    assertOrPanic(letsTryToCompareBools(false, true));
+    assertOrPanic(!letsTryToCompareBools(false, false));
 
     comptime {
-        assert(letsTryToCompareBools(true, true));
-        assert(letsTryToCompareBools(true, false));
-        assert(letsTryToCompareBools(false, true));
-        assert(!letsTryToCompareBools(false, false));
+        assertOrPanic(letsTryToCompareBools(true, true));
+        assertOrPanic(letsTryToCompareBools(true, false));
+        assertOrPanic(letsTryToCompareBools(false, true));
+        assertOrPanic(!letsTryToCompareBools(false, false));
     }
 }
 
@@ -254,14 +245,14 @@ fn performFn(comptime prefix_char: u8, start_value: i32) i32 {
 }
 
 test "comptime iterate over fn ptr list" {
-    assert(performFn('t', 1) == 6);
-    assert(performFn('o', 0) == 1);
-    assert(performFn('w', 99) == 99);
+    assertOrPanic(performFn('t', 1) == 6);
+    assertOrPanic(performFn('o', 0) == 1);
+    assertOrPanic(performFn('w', 99) == 99);
 }
 
 test "eval @setRuntimeSafety at compile-time" {
     const result = comptime fnWithSetRuntimeSafety();
-    assert(result == 1234);
+    assertOrPanic(result == 1234);
 }
 
 fn fnWithSetRuntimeSafety() i32 {
@@ -271,7 +262,7 @@ fn fnWithSetRuntimeSafety() i32 {
 
 test "eval @setFloatMode at compile-time" {
     const result = comptime fnWithFloatMode();
-    assert(result == 1234.0);
+    assertOrPanic(result == 1234.0);
 }
 
 fn fnWithFloatMode() f32 {
@@ -292,15 +283,15 @@ var simple_struct = SimpleStruct{ .field = 1234 };
 const bound_fn = simple_struct.method;
 
 test "call method on bound fn referring to var instance" {
-    assert(bound_fn() == 1237);
+    assertOrPanic(bound_fn() == 1237);
 }
 
 test "ptr to local array argument at comptime" {
     comptime {
         var bytes: [10]u8 = undefined;
         modifySomeBytes(bytes[0..]);
-        assert(bytes[0] == 'a');
-        assert(bytes[9] == 'b');
+        assertOrPanic(bytes[0] == 'a');
+        assertOrPanic(bytes[9] == 'b');
     }
 }
 
@@ -328,9 +319,9 @@ fn testCompTimeUIntComparisons(x: u32) void {
 }
 
 test "const ptr to variable data changes at runtime" {
-    assert(foo_ref.name[0] == 'a');
+    assertOrPanic(foo_ref.name[0] == 'a');
     foo_ref.name = "b";
-    assert(foo_ref.name[0] == 'b');
+    assertOrPanic(foo_ref.name[0] == 'b');
 }
 
 const Foo = struct {
@@ -341,8 +332,8 @@ var foo_contents = Foo{ .name = "a" };
 const foo_ref = &foo_contents;
 
 test "create global array with for loop" {
-    assert(global_array[5] == 5 * 5);
-    assert(global_array[9] == 9 * 9);
+    assertOrPanic(global_array[5] == 5 * 5);
+    assertOrPanic(global_array[9] == 9 * 9);
 }
 
 const global_array = x: {
@@ -357,7 +348,7 @@ test "compile-time downcast when the bits fit" {
     comptime {
         const spartan_count: u16 = 255;
         const byte = @intCast(u8, spartan_count);
-        assert(byte == 255);
+        assertOrPanic(byte == 255);
     }
 }
 
@@ -365,44 +356,44 @@ const hi1 = "hi";
 const hi2 = hi1;
 test "const global shares pointer with other same one" {
     assertEqualPtrs(&hi1[0], &hi2[0]);
-    comptime assert(&hi1[0] == &hi2[0]);
+    comptime assertOrPanic(&hi1[0] == &hi2[0]);
 }
 fn assertEqualPtrs(ptr1: *const u8, ptr2: *const u8) void {
-    assert(ptr1 == ptr2);
+    assertOrPanic(ptr1 == ptr2);
 }
 
 test "@setEvalBranchQuota" {
     comptime {
-        // 1001 for the loop and then 1 more for the assert fn call
+        // 1001 for the loop and then 1 more for the assertOrPanic fn call
         @setEvalBranchQuota(1002);
         var i = 0;
         var sum = 0;
         while (i < 1001) : (i += 1) {
             sum += i;
         }
-        assert(sum == 500500);
+        assertOrPanic(sum == 500500);
     }
 }
 
 // TODO test "float literal at compile time not lossy" {
-// TODO     assert(16777216.0 + 1.0 == 16777217.0);
-// TODO     assert(9007199254740992.0 + 1.0 == 9007199254740993.0);
+// TODO     assertOrPanic(16777216.0 + 1.0 == 16777217.0);
+// TODO     assertOrPanic(9007199254740992.0 + 1.0 == 9007199254740993.0);
 // TODO }
 
 test "f32 at compile time is lossy" {
-    assert(f32(1 << 24) + 1 == 1 << 24);
+    assertOrPanic(f32(1 << 24) + 1 == 1 << 24);
 }
 
 test "f64 at compile time is lossy" {
-    assert(f64(1 << 53) + 1 == 1 << 53);
+    assertOrPanic(f64(1 << 53) + 1 == 1 << 53);
 }
 
 test "f128 at compile time is lossy" {
-    assert(f128(10384593717069655257060992658440192.0) + 1 == 10384593717069655257060992658440192.0);
+    assertOrPanic(f128(10384593717069655257060992658440192.0) + 1 == 10384593717069655257060992658440192.0);
 }
 
 // TODO need a better implementation of bigfloat_init_bigint
-// assert(f128(1 << 113) == 10384593717069655257060992658440192);
+// assertOrPanic(f128(1 << 113) == 10384593717069655257060992658440192);
 
 pub fn TypeWithCompTimeSlice(comptime field_name: []const u8) type {
     return struct {
@@ -413,15 +404,15 @@ pub fn TypeWithCompTimeSlice(comptime field_name: []const u8) type {
 test "string literal used as comptime slice is memoized" {
     const a = "link";
     const b = "link";
-    comptime assert(TypeWithCompTimeSlice(a).Node == TypeWithCompTimeSlice(b).Node);
-    comptime assert(TypeWithCompTimeSlice("link").Node == TypeWithCompTimeSlice("link").Node);
+    comptime assertOrPanic(TypeWithCompTimeSlice(a).Node == TypeWithCompTimeSlice(b).Node);
+    comptime assertOrPanic(TypeWithCompTimeSlice("link").Node == TypeWithCompTimeSlice("link").Node);
 }
 
 test "comptime slice of undefined pointer of length 0" {
     const slice1 = ([*]i32)(undefined)[0..0];
-    assert(slice1.len == 0);
+    assertOrPanic(slice1.len == 0);
     const slice2 = ([*]i32)(undefined)[100..100];
-    assert(slice2.len == 0);
+    assertOrPanic(slice2.len == 0);
 }
 
 fn copyWithPartialInline(s: []u32, b: []u8) void {
@@ -443,16 +434,16 @@ test "binary math operator in partially inlined function" {
         r.* = @intCast(u8, i + 1);
 
     copyWithPartialInline(s[0..], b[0..]);
-    assert(s[0] == 0x1020304);
-    assert(s[1] == 0x5060708);
-    assert(s[2] == 0x90a0b0c);
-    assert(s[3] == 0xd0e0f10);
+    assertOrPanic(s[0] == 0x1020304);
+    assertOrPanic(s[1] == 0x5060708);
+    assertOrPanic(s[2] == 0x90a0b0c);
+    assertOrPanic(s[3] == 0xd0e0f10);
 }
 
 test "comptime function with the same args is memoized" {
     comptime {
-        assert(MakeType(i32) == MakeType(i32));
-        assert(MakeType(i32) != MakeType(f64));
+        assertOrPanic(MakeType(i32) == MakeType(i32));
+        assertOrPanic(MakeType(i32) != MakeType(f64));
     }
 }
 
@@ -468,7 +459,7 @@ test "comptime function with mutable pointer is not memoized" {
         const ptr = &x;
         increment(ptr);
         increment(ptr);
-        assert(x == 3);
+        assertOrPanic(x == 3);
     }
 }
 
@@ -494,14 +485,14 @@ fn doesAlotT(comptime T: type, value: usize) T {
 }
 
 test "@setEvalBranchQuota at same scope as generic function call" {
-    assert(doesAlotT(u32, 2) == 2);
+    assertOrPanic(doesAlotT(u32, 2) == 2);
 }
 
 test "comptime slice of slice preserves comptime var" {
     comptime {
         var buff: [10]u8 = undefined;
         buff[0..][0..][0] = 1;
-        assert(buff[0..][0..][0] == 1);
+        assertOrPanic(buff[0..][0..][0] == 1);
     }
 }
 
@@ -510,7 +501,7 @@ test "comptime slice of pointer preserves comptime var" {
         var buff: [10]u8 = undefined;
         var a = buff[0..].ptr;
         a[0..1][0] = 1;
-        assert(buff[0..][0..][0] == 1);
+        assertOrPanic(buff[0..][0..][0] == 1);
     }
 }
 
@@ -524,9 +515,9 @@ const SingleFieldStruct = struct {
 test "const ptr to comptime mutable data is not memoized" {
     comptime {
         var foo = SingleFieldStruct{ .x = 1 };
-        assert(foo.read_x() == 1);
+        assertOrPanic(foo.read_x() == 1);
         foo.x = 2;
-        assert(foo.read_x() == 2);
+        assertOrPanic(foo.read_x() == 2);
     }
 }
 
@@ -535,7 +526,7 @@ test "array concat of slices gives slice" {
         var a: []const u8 = "aoeu";
         var b: []const u8 = "asdf";
         const c = a ++ b;
-        assert(std.mem.eql(u8, c, "aoeuasdf"));
+        assertOrPanic(std.mem.eql(u8, c, "aoeuasdf"));
     }
 }
 
@@ -552,14 +543,14 @@ test "comptime shlWithOverflow" {
         break :amt amt;
     };
 
-    assert(ct_shifted == rt_shifted);
+    assertOrPanic(ct_shifted == rt_shifted);
 }
 
 test "runtime 128 bit integer division" {
     var a: u128 = 152313999999999991610955792383;
     var b: u128 = 10000000000000000000;
     var c = a / b;
-    assert(c == 15231399999);
+    assertOrPanic(c == 15231399999);
 }
 
 pub const Info = struct {
@@ -572,20 +563,20 @@ test "comptime modification of const struct field" {
     comptime {
         var res = diamond_info;
         res.version = 1;
-        assert(diamond_info.version == 0);
-        assert(res.version == 1);
+        assertOrPanic(diamond_info.version == 0);
+        assertOrPanic(res.version == 1);
     }
 }
 
 test "pointer to type" {
     comptime {
         var T: type = i32;
-        assert(T == i32);
+        assertOrPanic(T == i32);
         var ptr = &T;
-        assert(@typeOf(ptr) == *type);
+        assertOrPanic(@typeOf(ptr) == *type);
         ptr.* = f32;
-        assert(T == f32);
-        assert(*T == *f32);
+        assertOrPanic(T == f32);
+        assertOrPanic(*T == *f32);
     }
 }
 
@@ -594,17 +585,17 @@ test "slice of type" {
         var types_array = []type{ i32, f64, type };
         for (types_array) |T, i| {
             switch (i) {
-                0 => assert(T == i32),
-                1 => assert(T == f64),
-                2 => assert(T == type),
+                0 => assertOrPanic(T == i32),
+                1 => assertOrPanic(T == f64),
+                2 => assertOrPanic(T == type),
                 else => unreachable,
             }
         }
         for (types_array[0..]) |T, i| {
             switch (i) {
-                0 => assert(T == i32),
-                1 => assert(T == f64),
-                2 => assert(T == type),
+                0 => assertOrPanic(T == i32),
+                1 => assertOrPanic(T == f64),
+                2 => assertOrPanic(T == type),
                 else => unreachable,
             }
         }
@@ -621,7 +612,7 @@ fn wrap(comptime T: type) Wrapper {
 
 test "function which returns struct with type field causes implicit comptime" {
     const ty = wrap(i32).T;
-    assert(ty == i32);
+    assertOrPanic(ty == i32);
 }
 
 test "call method with comptime pass-by-non-copying-value self parameter" {
@@ -635,12 +626,12 @@ test "call method with comptime pass-by-non-copying-value self parameter" {
 
     const s = S{ .a = 2 };
     var b = s.b();
-    assert(b == 2);
+    assertOrPanic(b == 2);
 }
 
 test "@tagName of @typeId" {
     const str = @tagName(@typeId(u8));
-    assert(std.mem.eql(u8, str, "Int"));
+    assertOrPanic(std.mem.eql(u8, str, "Int"));
 }
 
 test "setting backward branch quota just before a generic fn call" {
@@ -661,8 +652,8 @@ fn testVarInsideInlineLoop(args: ...) void {
     comptime var i = 0;
     inline while (i < args.len) : (i += 1) {
         const x = args[i];
-        if (i == 0) assert(x);
-        if (i == 1) assert(x == 42);
+        if (i == 0) assertOrPanic(x);
+        if (i == 1) assertOrPanic(x == 42);
     }
 }
 
@@ -672,7 +663,7 @@ test "inline for with same type but different values" {
         var a: T = undefined;
         res += a.len;
     }
-    assert(res == 5);
+    assertOrPanic(res == 5);
 }
 
 test "refer to the type of a generic function" {
@@ -686,19 +677,19 @@ fn doNothingWithType(comptime T: type) void {}
 test "zero extend from u0 to u1" {
     var zero_u0: u0 = 0;
     var zero_u1: u1 = zero_u0;
-    assert(zero_u1 == 0);
+    assertOrPanic(zero_u1 == 0);
 }
 
 test "bit shift a u1" {
     var x: u1 = 1;
     var y = x << 0;
-    assert(y == 1);
+    assertOrPanic(y == 1);
 }
 
 test "@intCast to a u0" {
     var x: u8 = 0;
     var y: u0 = @intCast(u0, x);
-    assert(y == 0);
+    assertOrPanic(y == 0);
 }
 
 test "@bytesToslice on a packed struct" {
@@ -708,7 +699,7 @@ test "@bytesToslice on a packed struct" {
 
     var b = [1]u8{9};
     var f = @bytesToSlice(F, b);
-    assert(f[0].a == 9);
+    assertOrPanic(f[0].a == 9);
 }
 
 test "comptime pointer cast array and then slice" {
@@ -720,8 +711,8 @@ test "comptime pointer cast array and then slice" {
     const ptrB: [*]const u8 = &array;
     const sliceB: []const u8 = ptrB[0..2];
 
-    assert(sliceA[1] == 2);
-    assert(sliceB[1] == 2);
+    assertOrPanic(sliceA[1] == 2);
+    assertOrPanic(sliceB[1] == 2);
 }
 
 test "slice bounds in comptime concatenation" {
@@ -730,47 +721,47 @@ test "slice bounds in comptime concatenation" {
         break :blk b[0..1];
     };
     const str = "" ++ bs;
-    assert(str.len == 1);
-    assert(std.mem.eql(u8, str, "1"));
+    assertOrPanic(str.len == 1);
+    assertOrPanic(std.mem.eql(u8, str, "1"));
 
     const str2 = bs ++ "";
-    assert(str2.len == 1);
-    assert(std.mem.eql(u8, str2, "1"));
+    assertOrPanic(str2.len == 1);
+    assertOrPanic(std.mem.eql(u8, str2, "1"));
 }
 
 test "comptime bitwise operators" {
     comptime {
-        assert(3 & 1 == 1);
-        assert(3 & -1 == 3);
-        assert(-3 & -1 == -3);
-        assert(3 | -1 == -1);
-        assert(-3 | -1 == -1);
-        assert(3 ^ -1 == -4);
-        assert(-3 ^ -1 == 2);
-        assert(~i8(-1) == 0);
-        assert(~i128(-1) == 0);
-        assert(18446744073709551615 & 18446744073709551611 == 18446744073709551611);
-        assert(-18446744073709551615 & -18446744073709551611 == -18446744073709551615);
-        assert(~u128(0) == 0xffffffffffffffffffffffffffffffff);
+        assertOrPanic(3 & 1 == 1);
+        assertOrPanic(3 & -1 == 3);
+        assertOrPanic(-3 & -1 == -3);
+        assertOrPanic(3 | -1 == -1);
+        assertOrPanic(-3 | -1 == -1);
+        assertOrPanic(3 ^ -1 == -4);
+        assertOrPanic(-3 ^ -1 == 2);
+        assertOrPanic(~i8(-1) == 0);
+        assertOrPanic(~i128(-1) == 0);
+        assertOrPanic(18446744073709551615 & 18446744073709551611 == 18446744073709551611);
+        assertOrPanic(-18446744073709551615 & -18446744073709551611 == -18446744073709551615);
+        assertOrPanic(~u128(0) == 0xffffffffffffffffffffffffffffffff);
     }
 }
 
 test "*align(1) u16 is the same as *align(1:0:2) u16" {
     comptime {
-        assert(*align(1:0:2) u16 == *align(1) u16);
+        assertOrPanic(*align(1:0:2) u16 == *align(1) u16);
         // TODO add parsing support for this syntax
-        //assert(*align(:0:2) u16 == *u16);
+        //assertOrPanic(*align(:0:2) u16 == *u16);
     }
 }
 
 test "array concatenation forces comptime" {
     var a = oneItem(3) ++ oneItem(4);
-    assert(std.mem.eql(i32, a, []i32{3, 4}));
+    assertOrPanic(std.mem.eql(i32, a, []i32{ 3, 4 }));
 }
 
 test "array multiplication forces comptime" {
     var a = oneItem(3) ** scalar(2);
-    assert(std.mem.eql(i32, a, []i32{3, 3}));
+    assertOrPanic(std.mem.eql(i32, a, []i32{ 3, 3 }));
 }
 
 fn oneItem(x: i32) [1]i32 {

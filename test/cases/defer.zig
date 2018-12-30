@@ -1,4 +1,4 @@
-const assert = @import("std").debug.assert;
+const assertOrPanic = @import("std").debug.assertOrPanic;
 
 var result: [3]u8 = undefined;
 var index: usize = undefined;
@@ -21,58 +21,16 @@ fn runSomeErrorDefers(x: bool) !bool {
 }
 
 test "mixing normal and error defers" {
-    assert(runSomeErrorDefers(true) catch unreachable);
-    assert(result[0] == 'c');
-    assert(result[1] == 'a');
+    assertOrPanic(runSomeErrorDefers(true) catch unreachable);
+    assertOrPanic(result[0] == 'c');
+    assertOrPanic(result[1] == 'a');
 
     const ok = runSomeErrorDefers(false) catch |err| x: {
-        assert(err == error.FalseNotAllowed);
+        assertOrPanic(err == error.FalseNotAllowed);
         break :x true;
     };
-    assert(ok);
-    assert(result[0] == 'c');
-    assert(result[1] == 'b');
-    assert(result[2] == 'a');
-}
-
-test "break and continue inside loop inside defer expression" {
-    testBreakContInDefer(10);
-    comptime testBreakContInDefer(10);
-}
-
-fn testBreakContInDefer(x: usize) void {
-    defer {
-        var i: usize = 0;
-        while (i < x) : (i += 1) {
-            if (i < 5) continue;
-            if (i == 5) break;
-        }
-        assert(i == 5);
-    }
-}
-
-test "defer and labeled break" {
-    var i = usize(0);
-
-    blk: {
-        defer i += 1;
-        break :blk;
-    }
-
-    assert(i == 1);
-}
-
-test "errdefer does not apply to fn inside fn" {
-    if (testNestedFnErrDefer()) |_| @panic("expected error") else |e| assert(e == error.Bad);
-}
-
-fn testNestedFnErrDefer() anyerror!void {
-    var a: i32 = 0;
-    errdefer a += 1;
-    const S = struct {
-        fn baz() anyerror {
-            return error.Bad;
-        }
-    };
-    return S.baz();
+    assertOrPanic(ok);
+    assertOrPanic(result[0] == 'c');
+    assertOrPanic(result[1] == 'b');
+    assertOrPanic(result[2] == 'a');
 }

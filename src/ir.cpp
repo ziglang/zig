@@ -8000,7 +8000,8 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         IrInstruction *implicit_return_result = result;
         if (fn_entry != nullptr) {
             ZigType *return_type = fn_entry->type_entry->data.fn.fn_type_id.return_type;
-            if (return_type->id == ZigTypeIdErrorUnion) {
+            // return_type can be null when this function is being executed at comptime
+            if (return_type != nullptr && return_type->id == ZigTypeIdErrorUnion) {
                 implicit_return_result = ir_build_const_null(irb, scope, result->source_node);
             }
         }
