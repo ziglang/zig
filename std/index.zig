@@ -44,6 +44,7 @@ pub const rb = @import("rb.zig");
 pub const sort = @import("sort.zig");
 pub const testing = @import("testing.zig");
 pub const unicode = @import("unicode.zig");
+pub const valgrind = @import("valgrind/index.zig");
 pub const zig = @import("zig/index.zig");
 
 test "std" {
