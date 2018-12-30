@@ -1,28 +1,5 @@
 const assertOrPanic = @import("std").debug.assertOrPanic;
 
-test "while with optional as condition" {
-    numbers_left = 10;
-    var sum: i32 = 0;
-    while (getNumberOrNull()) |value| {
-        sum += value;
-    }
-    assertOrPanic(sum == 45);
-}
-
-test "while with optional as condition with else" {
-    numbers_left = 10;
-    var sum: i32 = 0;
-    var got_else: i32 = 0;
-    while (getNumberOrNull()) |value| {
-        sum += value;
-        assertOrPanic(got_else == 0);
-    } else {
-        got_else += 1;
-    }
-    assertOrPanic(sum == 45);
-    assertOrPanic(got_else == 1);
-}
-
 test "while with error union condition" {
     numbers_left = 10;
     var sum: i32 = 0;
