@@ -49,6 +49,7 @@ pub const Allocator = struct {
     pub fn destroy(self: *Allocator, ptr: var) void {
         const non_const_ptr = @intToPtr([*]u8, @ptrToInt(ptr));
         self.freeFn(self, non_const_ptr[0..@sizeOf(@typeOf(ptr).Child)]);
+        _ = std.valgrind.freeLikeBlock(non_const_ptr, 0);
     }
 
     pub fn alloc(self: *Allocator, comptime T: type, n: usize) ![]T {
@@ -62,6 +63,7 @@ pub const Allocator = struct {
         const byte_count = math.mul(usize, @sizeOf(T), n) catch return Error.OutOfMemory;
         const byte_slice = try self.allocFn(self, byte_count, alignment);
         assert(byte_slice.len == byte_count);
+        _ = std.valgrind.mallocLikeBlock(byte_slice, 0, false);
         // This loop gets optimized out in ReleaseFast mode
         for (byte_slice) |*byte| {
             byte.* = undefined;
@@ -86,6 +88,12 @@ pub const Allocator = struct {
         const byte_count = math.mul(usize, @sizeOf(T), n) catch return Error.OutOfMemory;
         const byte_slice = try self.reallocFn(self, old_byte_slice, byte_count, alignment);
         assert(byte_slice.len == byte_count);
+        if (byte_slice.ptr == old_byte_slice.ptr) {
+            _ = std.valgrind.resizeInPlaceBlock(old_byte_slice, byte_count, 0);
+        } else {
+            _ = std.valgrind.freeLikeBlock(old_byte_slice.ptr, 0);
+            _ = std.valgrind.mallocLikeBlock(byte_slice, 0, false);
+        }
         if (n > old_mem.len) {
             // This loop gets optimized out in ReleaseFast mode
             for (byte_slice[old_byte_slice.len..]) |*byte| {
@@ -114,8 +122,15 @@ pub const Allocator = struct {
         // n <= old_mem.len and the multiplication didn't overflow for that operation.
         const byte_count = @sizeOf(T) * n;
 
-        const byte_slice = self.reallocFn(self, @sliceToBytes(old_mem), byte_count, alignment) catch unreachable;
+        const old_byte_slice = @sliceToBytes(old_mem);
+        const byte_slice = self.reallocFn(self, old_byte_slice, byte_count, alignment) catch unreachable;
         assert(byte_slice.len == byte_count);
+        if (byte_slice.ptr == old_byte_slice.ptr) {
+            _ = std.valgrind.resizeInPlaceBlock(old_byte_slice, byte_count, 0);
+        } else {
+            _ = std.valgrind.freeLikeBlock(old_byte_slice.ptr, 0);
+            _ = std.valgrind.mallocLikeBlock(byte_slice, 0, false);
+        }
         return @bytesToSlice(T, @alignCast(alignment, byte_slice));
     }
 
@@ -124,6 +139,7 @@ pub const Allocator = struct {
         if (bytes.len == 0) return;
         const non_const_ptr = @intToPtr([*]u8, @ptrToInt(bytes.ptr));
         self.freeFn(self, non_const_ptr[0..bytes.len]);
+        _ = std.valgrind.freeLikeBlock(non_const_ptr, 0);
     }
 };
 
