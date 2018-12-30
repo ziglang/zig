@@ -105,19 +105,19 @@ test "while with optional as condition with else" {
     assertOrPanic(got_else == 1);
 }
 
-//test "while with error union condition" {
-//    numbers_left = 10;
-//    var sum: i32 = 0;
-//    var got_else: i32 = 0;
-//    while (getNumberOrErr()) |value| {
-//        sum += value;
-//    } else |err| {
-//        assertOrPanic(err == error.OutOfNumbers);
-//        got_else += 1;
-//    }
-//    assertOrPanic(sum == 45);
-//    assertOrPanic(got_else == 1);
-//}
+test "while with error union condition" {
+    numbers_left = 10;
+    var sum: i32 = 0;
+    var got_else: i32 = 0;
+    while (getNumberOrErr()) |value| {
+        sum += value;
+    } else |err| {
+        assertOrPanic(err == error.OutOfNumbers);
+        got_else += 1;
+    }
+    assertOrPanic(sum == 45);
+    assertOrPanic(got_else == 1);
+}
 
 var numbers_left: i32 = undefined;
 fn getNumberOrErr() anyerror!i32 {
@@ -131,4 +131,31 @@ fn getNumberOrNull() ?i32 {
         numbers_left -= 1;
         break :x numbers_left;
     };
+}
+
+test "while on optional with else result follow else prong" {
+    const result = while (returnNull()) |value| {
+        break value;
+    } else
+        i32(2);
+    assertOrPanic(result == 2);
+}
+
+fn returnNull() ?i32 {
+    return null;
+}
+fn returnOptional(x: i32) ?i32 {
+    return x;
+}
+fn returnError() anyerror!i32 {
+    return error.YouWantedAnError;
+}
+fn returnSuccess(x: i32) anyerror!i32 {
+    return x;
+}
+fn returnFalse() bool {
+    return false;
+}
+fn returnTrue() bool {
+    return true;
 }

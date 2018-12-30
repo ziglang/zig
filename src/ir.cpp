@@ -10037,9 +10037,7 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
                     buf_sprintf("unable to make error union out of number literal"));
                 return ira->codegen->builtin_types.entry_invalid;
             } else if (prev_inst->value.type->id == ZigTypeIdNull) {
-                ir_add_error_node(ira, source_node,
-                    buf_sprintf("unable to make error union out of null literal"));
-                return ira->codegen->builtin_types.entry_invalid;
+                return get_optional_type(ira->codegen, err_set_type);
             } else {
                 if ((err = type_resolve(ira->codegen, prev_inst->value.type, ResolveStatusSizeKnown)))
                     return ira->codegen->builtin_types.entry_invalid;
