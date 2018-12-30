@@ -1,4 +1,4 @@
-const assert = @import("std").debug.assert;
+const assertOrPanic = @import("std").debug.assertOrPanic;
 
 const Foo = struct {
     a: void,
@@ -13,14 +13,14 @@ test "compare void with void compile time known" {
             .b = 1,
             .c = {},
         };
-        assert(foo.a == {});
+        assertOrPanic(foo.a == {});
     }
 }
 
 test "iterate over a void slice" {
     var j: usize = 0;
     for (times(10)) |_, i| {
-        assert(i == j);
+        assertOrPanic(i == j);
         j += 1;
     }
 }

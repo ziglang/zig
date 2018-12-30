@@ -1,9 +1,10 @@
 comptime {
     _ = @import("behavior/align.zig");
     _ = @import("behavior/alignof.zig");
-    _ = @import("behavior/asm.zig");
     _ = @import("behavior/array.zig");
+    _ = @import("behavior/asm.zig");
     _ = @import("behavior/atomics.zig");
+    _ = @import("behavior/bit_shifting.zig");
     _ = @import("behavior/bitcast.zig");
     _ = @import("behavior/bool.zig");
     _ = @import("behavior/bswap.zig");
@@ -25,4 +26,5 @@ comptime {
     _ = @import("behavior/incomplete_struct_param_tld.zig");
     _ = @import("behavior/merge_error_sets.zig");
     _ = @import("behavior/misc.zig");
+    _ = @import("behavior/void.zig");
 }

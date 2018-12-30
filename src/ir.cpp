@@ -15291,7 +15291,19 @@ static IrInstruction *ir_analyze_instruction_call(IrAnalyze *ira, IrInstructionC
             IrInstruction *result = ir_implicit_cast(ira, arg_value, dest_type);
 
             if (call_instruction->result_loc == nullptr || call_instruction->result_loc->child == nullptr) {
-                return ir_finish_anal(ira, result);
+                switch (call_instruction->lval) {
+                    case LValNone:
+                        return ir_finish_anal(ira, result);
+                    case LValPtr: {
+                        IrInstruction *ptr_to_result = ir_get_ref(ira, &call_instruction->base, result,
+                                true, false, nullptr);
+                        return ir_finish_anal(ira, ptr_to_result);
+                    }
+                    case LValErrorUnionVal:
+                    case LValErrorUnionPtr:
+                    case LValOptional:
+                        zig_unreachable();
+                }
             }
 
             // we must store into the result loc

@@ -45,8 +45,6 @@ comptime {
     _ = @import("cases/underscore.zig");
     _ = @import("cases/union.zig");
     _ = @import("cases/var_args.zig");
-    _ = @import("cases/void.zig");
     _ = @import("cases/while.zig");
     _ = @import("cases/widening.zig");
-    _ = @import("cases/bit_shifting.zig");
 }
