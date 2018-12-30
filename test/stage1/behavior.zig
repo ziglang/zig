@@ -55,4 +55,5 @@ comptime {
     _ = @import("behavior/void.zig");
     _ = @import("behavior/while.zig");
     _ = @import("behavior/widening.zig");
+    _ = @import("behavior/optional.zig");
 }

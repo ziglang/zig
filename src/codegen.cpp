@@ -5047,12 +5047,18 @@ static LLVMValueRef ir_render_result_optional_payload(CodeGen *g, IrExecutable *
     ZigType *ptr_type = instruction->base.value.type;
     assert(ptr_type->id == ZigTypeIdPointer);
     ZigType *child_type = ptr_type->data.pointer.child_type;
-    if (type_is_codegen_pointer(child_type) || child_type->id == ZigTypeIdErrorSet) {
+    if (!type_has_bits(child_type)) {
+        if (instruction->make_non_null) {
+            LLVMValueRef non_null_bit = LLVMConstInt(LLVMInt1Type(), 1, true);
+            gen_store_untyped(g, non_null_bit, prev_result_loc, 0, false);
+        }
+        return prev_result_loc;
+    } else if (type_is_codegen_pointer(child_type) || child_type->id == ZigTypeIdErrorSet) {
         return prev_result_loc;
     } else {
         if (instruction->make_non_null) {
             LLVMValueRef nonnull_ptr = LLVMBuildStructGEP(g->builder, prev_result_loc, maybe_null_index, "");
-            gen_store_untyped(g, LLVMConstInt(LLVMInt1Type(), 1, false), nonnull_ptr, 0, false);
+            gen_store_untyped(g, LLVMConstInt(LLVMInt1Type(), 1, true), nonnull_ptr, 0, false);
         }
         return LLVMBuildStructGEP(g->builder, prev_result_loc, maybe_child_index, "");
     }

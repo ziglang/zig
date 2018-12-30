@@ -1,12 +1,4 @@
-const assert = @import("std").debug.assert;
-
-pub const EmptyStruct = struct {};
-
-test "optional pointer to size zero struct" {
-    var e = EmptyStruct{};
-    var o: ?*EmptyStruct = &e;
-    assert(o != null);
-}
+const assertOrPanic = @import("std").debug.assertOrPanic;
 
 test "equality compare nullable pointers" {
     testNullPtrsEql();
@@ -18,13 +10,13 @@ fn testNullPtrsEql() void {
 
     var x: ?*i32 = null;
     var y: ?*i32 = null;
-    assert(x == y);
+    assertOrPanic(x == y);
     y = &number;
-    assert(x != y);
-    assert(x != &number);
-    assert(&number != x);
+    assertOrPanic(x != y);
+    assertOrPanic(x != &number);
+    assertOrPanic(&number != x);
     x = &number;
-    assert(x == y);
-    assert(x == &number);
-    assert(&number == x);
+    assertOrPanic(x == y);
+    assertOrPanic(x == &number);
+    assertOrPanic(&number == x);
 }

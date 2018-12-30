@@ -18216,7 +18216,7 @@ static IrInstruction *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
     size_t elem_count = instruction->elem_count;
 
     if (container_type->id == ZigTypeIdStruct && elem_count == 0)
-        return ir_analyze_container_init_fields(ira, &instruction->base, container_type, 0, nullptr, nullptr);
+        return ir_analyze_container_init_fields(ira, &instruction->base, container_type, 0, nullptr, result_loc);
 
     if (container_type->id == ZigTypeIdVoid) {
         if (elem_count != 0) {
