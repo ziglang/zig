@@ -27,7 +27,6 @@ comptime {
     _ = @import("cases/ptrcast.zig");
     _ = @import("cases/pub_enum/index.zig");
     _ = @import("cases/ref_var_in_if_after_if_2nd_switch_prong.zig");
-    _ = @import("cases/reflection.zig");
     _ = @import("cases/sizeof_and_typeof.zig");
     _ = @import("cases/slice.zig");
     _ = @import("cases/struct.zig");
@@ -36,8 +35,6 @@ comptime {
     _ = @import("cases/switch.zig");
     _ = @import("cases/switch_prong_err_enum.zig");
     _ = @import("cases/switch_prong_implicit_cast.zig");
-    _ = @import("cases/syntax.zig");
-    _ = @import("cases/this.zig");
     _ = @import("cases/truncate.zig");
     _ = @import("cases/try.zig");
     _ = @import("cases/type_info.zig");

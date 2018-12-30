@@ -29,4 +29,8 @@ comptime {
     _ = @import("behavior/void.zig");
     _ = @import("behavior/while.zig");
     _ = @import("behavior/widening.zig");
+    _ = @import("behavior/this.zig");
+    _ = @import("behavior/syntax.zig");
+    _ = @import("behavior/reflection.zig");
+    _ = @import("behavior/math.zig");
 }
