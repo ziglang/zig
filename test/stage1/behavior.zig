@@ -27,4 +27,6 @@ comptime {
     _ = @import("behavior/merge_error_sets.zig");
     _ = @import("behavior/misc.zig");
     _ = @import("behavior/void.zig");
+    _ = @import("behavior/while.zig");
+    _ = @import("behavior/widening.zig");
 }

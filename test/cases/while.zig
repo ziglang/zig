@@ -1,51 +1,4 @@
-const assert = @import("std").debug.assert;
-
-test "while loop" {
-    var i: i32 = 0;
-    while (i < 4) {
-        i += 1;
-    }
-    assert(i == 4);
-    assert(whileLoop1() == 1);
-}
-fn whileLoop1() i32 {
-    return whileLoop2();
-}
-fn whileLoop2() i32 {
-    while (true) {
-        return 1;
-    }
-}
-test "static eval while" {
-    assert(static_eval_while_number == 1);
-}
-const static_eval_while_number = staticWhileLoop1();
-fn staticWhileLoop1() i32 {
-    return whileLoop2();
-}
-fn staticWhileLoop2() i32 {
-    while (true) {
-        return 1;
-    }
-}
-
-test "continue and break" {
-    runContinueAndBreakTest();
-    assert(continue_and_break_counter == 8);
-}
-var continue_and_break_counter: i32 = 0;
-fn runContinueAndBreakTest() void {
-    var i: i32 = 0;
-    while (true) {
-        continue_and_break_counter += 2;
-        i += 1;
-        if (i < 4) {
-            continue;
-        }
-        break;
-    }
-    assert(i == 4);
-}
+const assertOrPanic = @import("std").debug.assertOrPanic;
 
 test "return with implicit cast from while loop" {
     returnWithImplicitCastFromWhileLoopTest() catch unreachable;
@@ -65,7 +18,7 @@ test "while with continue expression" {
             sum += i;
         }
     }
-    assert(sum == 40);
+    assertOrPanic(sum == 40);
 }
 
 test "while with else" {
@@ -77,8 +30,8 @@ test "while with else" {
     } else {
         got_else += 1;
     }
-    assert(sum == 10);
-    assert(got_else == 1);
+    assertOrPanic(sum == 10);
+    assertOrPanic(got_else == 1);
 }
 
 test "while with optional as condition" {
@@ -87,7 +40,7 @@ test "while with optional as condition" {
     while (getNumberOrNull()) |value| {
         sum += value;
     }
-    assert(sum == 45);
+    assertOrPanic(sum == 45);
 }
 
 test "while with optional as condition with else" {
@@ -96,12 +49,12 @@ test "while with optional as condition with else" {
     var got_else: i32 = 0;
     while (getNumberOrNull()) |value| {
         sum += value;
-        assert(got_else == 0);
+        assertOrPanic(got_else == 0);
     } else {
         got_else += 1;
     }
-    assert(sum == 45);
-    assert(got_else == 1);
+    assertOrPanic(sum == 45);
+    assertOrPanic(got_else == 1);
 }
 
 test "while with error union condition" {
@@ -111,11 +64,11 @@ test "while with error union condition" {
     while (getNumberOrErr()) |value| {
         sum += value;
     } else |err| {
-        assert(err == error.OutOfNumbers);
+        assertOrPanic(err == error.OutOfNumbers);
         got_else += 1;
     }
-    assert(sum == 45);
-    assert(got_else == 1);
+    assertOrPanic(sum == 45);
+    assertOrPanic(got_else == 1);
 }
 
 var numbers_left: i32 = undefined;
@@ -137,7 +90,7 @@ test "while on optional with else result follow else prong" {
         break value;
     } else
         i32(2);
-    assert(result == 2);
+    assertOrPanic(result == 2);
 }
 
 test "while on optional with else result follow break prong" {
@@ -145,7 +98,7 @@ test "while on optional with else result follow break prong" {
         break value;
     } else
         i32(2);
-    assert(result == 10);
+    assertOrPanic(result == 10);
 }
 
 test "while on error union with else result follow else prong" {
@@ -153,7 +106,7 @@ test "while on error union with else result follow else prong" {
         break value;
     } else |err|
         i32(2);
-    assert(result == 2);
+    assertOrPanic(result == 2);
 }
 
 test "while on error union with else result follow break prong" {
@@ -161,7 +114,7 @@ test "while on error union with else result follow break prong" {
         break value;
     } else |err|
         i32(2);
-    assert(result == 10);
+    assertOrPanic(result == 10);
 }
 
 test "while on bool with else result follow else prong" {
@@ -169,7 +122,7 @@ test "while on bool with else result follow else prong" {
         break i32(10);
     } else
         i32(2);
-    assert(result == 2);
+    assertOrPanic(result == 2);
 }
 
 test "while on bool with else result follow break prong" {
@@ -177,7 +130,7 @@ test "while on bool with else result follow break prong" {
         break i32(10);
     } else
         i32(2);
-    assert(result == 10);
+    assertOrPanic(result == 10);
 }
 
 test "break from outer while loop" {
