@@ -5186,6 +5186,29 @@ static LLVMValueRef ir_render_bswap(CodeGen *g, IrExecutable *executable, IrInst
     return LLVMBuildTrunc(g->builder, shifted, int_type->type_ref, "");
 }
 
+///  Implements the following in LLVM IR:
+/// (((align_from + align_to - 1) / align_to) * align_to)
+static LLVMValueRef ir_render_align_to(CodeGen *g, IrExecutable *executable, IrInstructionAlignTo *instruction) {
+    LLVMValueRef align_from = ir_llvm_value(g, instruction->align_from);
+    LLVMValueRef align_to = ir_llvm_value(g, instruction->align_to);
+    assert(instruction->align_from->value.type->id == ZigTypeIdInt);
+    assert(instruction->align_to->value.type->id == ZigTypeIdInt);
+    assert(!instruction->align_from->value.type->data.integral.is_signed);
+    assert(!instruction->align_to->value.type->data.integral.is_signed);
+    // add = align_from + align_to
+    LLVMValueRef add = LLVMBuildAdd(g->builder, align_from, align_to, "");
+    // sub = add - 1
+    LLVMValueRef sub = LLVMBuildSub( g->builder
+                                   , add
+                                   , LLVMConstInt(g->builtin_types.entry_usize->type_ref, 1, false)
+                                   , "");
+    // udiv = sub / align_to
+    LLVMValueRef udiv = LLVMBuildUDiv(g->builder, sub, align_to, "");
+    // mul = udiv * align_to
+    LLVMValueRef mul = LLVMBuildMul(g->builder, udiv, align_to, "");
+    return mul;
+}
+
 static LLVMValueRef ir_render_bit_reverse(CodeGen *g, IrExecutable *executable, IrInstructionBitReverse *instruction) {
     LLVMValueRef op = ir_llvm_value(g, instruction->op);
     ZigType *int_type = instruction->base.value.type;
@@ -5437,6 +5460,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_sqrt(g, executable, (IrInstructionSqrt *)instruction);
         case IrInstructionIdBswap:
             return ir_render_bswap(g, executable, (IrInstructionBswap *)instruction);
+        case IrInstructionIdAlignTo:
+            return ir_render_align_to(g, executable, (IrInstructionAlignTo *)instruction);
         case IrInstructionIdBitReverse:
             return ir_render_bit_reverse(g, executable, (IrInstructionBitReverse *)instruction);
     }
@@ -6923,6 +6948,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdMemset, "memset", 3);
     create_builtin_fn(g, BuiltinFnIdSizeof, "sizeOf", 1);
     create_builtin_fn(g, BuiltinFnIdAlignOf, "alignOf", 1);
+    create_builtin_fn(g, BuiltinFnIdAlignTo, "alignTo", 2);
     create_builtin_fn(g, BuiltinFnIdMemberCount, "memberCount", 1);
     create_builtin_fn(g, BuiltinFnIdMemberType, "memberType", 2);
     create_builtin_fn(g, BuiltinFnIdMemberName, "memberName", 2);

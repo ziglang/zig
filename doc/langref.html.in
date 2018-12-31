@@ -5220,6 +5220,20 @@ comptime {
       </p>
       {#see_also|Alignment#}
       {#header_close#}
+      {#header_open|@alignTo#}
+      <pre>{#syntax#}@alignTo(align_from: T, align_to: T) usize{#endsyntax#}</pre>
+      <p>{#syntax#}T{#endsyntax#} must be an unsigned integer type.</p>
+      <p>
+      This function returns the next {#syntax#}T{#endsyntax#} integer that is greater than or equal to {#syntax#}align_from{#endsyntax#} and is a multiple of {#syntax#}align_to{#endsyntax#}.
+      {#syntax#}align_to{#endsyntax#} must be non-zero.
+      </p>
+      <pre>{#syntax#}const assert = @import("std").debug.assert;
+comptime {
+    assert(@alignTo(2, 8) == 8);
+    assert(@alignTo(1, @alignOf(u32)) == @alignOf(u32));
+}{#endsyntax#}</pre>
+      {#see_also|Alignment#}
+      {#header_close#}
       {#header_open|@ArgType#}
       <pre>{#syntax#}@ArgType(comptime T: type, comptime n: usize) type{#endsyntax#}</pre>
       <p>

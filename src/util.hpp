@@ -15,7 +15,7 @@
 
 #if defined(_MSC_VER)
 
-#include <intrin.h>  
+#include <intrin.h>
 
 #define ATTRIBUTE_COLD __declspec(noinline)
 #define ATTRIBUTE_PRINTF(a, b)
@@ -130,6 +130,29 @@ static inline T *reallocate_nonzero(T *old, size_t old_count, size_t new_count) 
 template <typename T, size_t n>
 constexpr size_t array_length(const T (&)[n]) {
     return n;
+}
+
+/// Returns the next integer (mod 2**64) that is greater than or equal to
+/// Value and is a multiple of Align. Align must be non-zero.
+///
+/// If non-zero Skew is specified, the return value will be a minimal
+/// integer that is greater than or equal to Value and equal to
+/// Align * N + Skew for some integer N. If Skew is larger than Align,
+/// its value is adjusted to 'Skew mod Align'.
+///
+/// Examples:
+/// ```
+///   alignTo(2, 8) = 8
+///   alignTo(20, 8) = 24
+///   alignTo(~0LL, 8) = 0
+///   // With Skew:
+///   alignTo(5, 8, 7) = 7
+/// ```
+template <typename T>
+static inline T alignTo(T val, T align, T skew = 0) {
+    assert(align != 0u && "cannot align to 0");
+    skew %= align;
+    return (((val + align - 1 - skew) / align) * align) + skew;
 }
 
 template <typename T>

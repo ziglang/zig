@@ -639,6 +639,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionAlignOf *) {
     return IrInstructionIdAlignOf;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionAlignTo *) {
+    return IrInstructionIdAlignTo;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionOverflowOp *) {
     return IrInstructionIdOverflowOp;
 }
@@ -2105,6 +2109,19 @@ static IrInstruction *ir_build_align_of(IrBuilder *irb, Scope *scope, AstNode *s
     instruction->type_value = type_value;
 
     ir_ref_instruction(type_value, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_align_to(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *align_from, IrInstruction *align_to)
+{
+    IrInstructionAlignTo *instruction = ir_build_instruction<IrInstructionAlignTo>(irb, scope, source_node);
+    instruction->align_from = align_from;
+    instruction->align_to = align_to;
+
+    ir_ref_instruction(align_from, irb->current_basic_block);
+    ir_ref_instruction(align_to, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -4398,6 +4415,21 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
 
                 IrInstruction *align_of = ir_build_align_of(irb, scope, node, arg0_value);
                 return ir_lval_wrap(irb, scope, align_of, lval);
+            }
+        case BuiltinFnIdAlignTo:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                IrInstruction *ptr_cast = ir_build_align_to(irb, scope, node, arg0_value, arg1_value);
+                return ir_lval_wrap(irb, scope, ptr_cast, lval);
             }
         case BuiltinFnIdAddWithOverflow:
             return ir_lval_wrap(irb, scope, ir_gen_overflow_op(irb, scope, node, IrOverflowOpAdd), lval);
@@ -19572,6 +19604,68 @@ static IrInstruction *ir_analyze_instruction_align_of(IrAnalyze *ira, IrInstruct
     zig_unreachable();
 }
 
+static IrInstruction *ir_analyze_instruction_align_to(IrAnalyze *ira, IrInstructionAlignTo *instruction) {
+    IrInstruction *align_from = instruction->align_from->child;
+    if (type_is_invalid(align_from->value.type))
+        return ira->codegen->invalid_instruction;
+
+    IrInstruction *align_to = instruction->align_to->child;
+    if (type_is_invalid(align_to->value.type))
+        return ira->codegen->invalid_instruction;
+
+    if ( ir_should_inline(ira->new_irb.exec, instruction->base.scope)
+      || (instr_is_comptime(align_from) && instr_is_comptime(align_to))
+       ) {
+
+        ConstExprValue *align_from_val = ir_resolve_const(ira, align_from, UndefBad);
+        if (!align_from_val)
+            return ira->codegen->invalid_instruction;
+
+        ConstExprValue *align_to_val = ir_resolve_const(ira, align_to, UndefBad);
+        if (!align_to_val)
+            return ira->codegen->invalid_instruction;
+
+        if ( align_from_val->data.x_bigint.is_negative
+          || align_to_val->data.x_bigint.is_negative)
+        {
+            ir_add_error(ira, (IrInstruction *)instruction,
+                buf_sprintf("@alignTo cannot operate on negative integers"));
+            return ira->codegen->invalid_instruction;
+        }
+
+        uint64_t align_from_unsigned = bigint_as_unsigned(&align_from_val->data.x_bigint);
+        uint64_t align_to_unsigned = bigint_as_unsigned(&align_to_val->data.x_bigint);
+
+        if (0 == align_to_unsigned) {
+            ir_add_error(ira, (IrInstruction *)instruction,
+                buf_sprintf("@alignTo cannot align to 0"));
+            return ira->codegen->invalid_instruction;
+        }
+
+        return ir_const_unsigned( ira
+                                , &instruction->base
+                                , alignTo( align_from_unsigned, align_to_unsigned )
+                                );
+    }
+
+    IrInstruction *align_from_casted = ir_implicit_cast(ira, align_from, ira->codegen->builtin_types.entry_usize);
+    if (type_is_invalid(align_from_casted->value.type))
+        return ira->codegen->invalid_instruction;
+
+    IrInstruction *align_to_casted = ir_implicit_cast(ira, align_to, ira->codegen->builtin_types.entry_usize);
+    if (type_is_invalid(align_to_casted->value.type))
+        return ira->codegen->invalid_instruction;
+
+    IrInstruction *result = ir_build_align_to( &ira->new_irb
+                                             , instruction->base.scope
+                                             , instruction->base.source_node
+                                             , align_from_casted
+                                             , align_to_casted
+                                             );
+    result->value.type = ira->codegen->builtin_types.entry_usize;
+    return result;
+}
+
 static IrInstruction *ir_analyze_instruction_overflow_op(IrAnalyze *ira, IrInstructionOverflowOp *instruction) {
     Error err;
 
@@ -21782,6 +21876,8 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
             return ir_analyze_instruction_handle(ira, (IrInstructionHandle *)instruction);
         case IrInstructionIdAlignOf:
             return ir_analyze_instruction_align_of(ira, (IrInstructionAlignOf *)instruction);
+        case IrInstructionIdAlignTo:
+            return ir_analyze_instruction_align_to(ira, (IrInstructionAlignTo *)instruction);
         case IrInstructionIdOverflowOp:
             return ir_analyze_instruction_overflow_op(ira, (IrInstructionOverflowOp *)instruction);
         case IrInstructionIdTestErr:
@@ -22075,6 +22171,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdMemberType:
         case IrInstructionIdMemberName:
         case IrInstructionIdAlignOf:
+        case IrInstructionIdAlignTo:
         case IrInstructionIdReturnAddress:
         case IrInstructionIdFrameAddress:
         case IrInstructionIdHandle:

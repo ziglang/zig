@@ -1379,6 +1379,7 @@ enum BuiltinFnId {
     BuiltinFnIdMemset,
     BuiltinFnIdSizeof,
     BuiltinFnIdAlignOf,
+    BuiltinFnIdAlignTo,
     BuiltinFnIdMemberCount,
     BuiltinFnIdMemberType,
     BuiltinFnIdMemberName,
@@ -2171,6 +2172,7 @@ enum IrInstructionId {
     IrInstructionIdFrameAddress,
     IrInstructionIdHandle,
     IrInstructionIdAlignOf,
+    IrInstructionIdAlignTo,
     IrInstructionIdOverflowOp,
     IrInstructionIdTestErr,
     IrInstructionIdUnwrapErrCode,
@@ -2925,6 +2927,13 @@ struct IrInstructionAlignOf {
     IrInstruction base;
 
     IrInstruction *type_value;
+};
+
+struct IrInstructionAlignTo {
+    IrInstruction base;
+
+    IrInstruction *align_from;
+    IrInstruction *align_to;
 };
 
 // returns true if error, returns false if not error

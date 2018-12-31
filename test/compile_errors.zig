@@ -2,6 +2,44 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "@alignTo: attempting to align at zero length boundary",
+        \\comptime {
+        \\    _ = @alignTo(1, 0);
+        \\}
+    ,
+        ".tmp_source.zig:2:9: error: @alignTo cannot align to 0",
+    );
+
+    cases.add(
+        "@alignTo: using negative comptime_int (from)",
+        \\comptime {
+        \\    _ = @alignTo(-1, 8);
+        \\}
+    ,
+        ".tmp_source.zig:2:9: error: @alignTo cannot operate on negative integers",
+    );
+
+    cases.add(
+        "@alignTo: using negative comptime_int (to)",
+        \\comptime {
+        \\    _ = @alignTo(1, -8);
+        \\}
+    ,
+        ".tmp_source.zig:2:9: error: @alignTo cannot operate on negative integers",
+    );
+
+    cases.add(
+        "@alignTo: using signed integers at runtime",
+        \\export fn entry() void {
+        \\    var isize_from: isize = 1;
+        \\    var isize_to: isize = 8;
+        \\    _ = @alignTo(isize_from, isize_to);
+        \\}
+    ,
+        ".tmp_source.zig:4:18: error: expected type 'usize', found 'isize'",
+    );
+
+    cases.add(
         "@bitCast same size but bit count mismatch",
         \\export fn entry(byte: u8) void {
         \\    var oops = @bitCast(u7, byte);
