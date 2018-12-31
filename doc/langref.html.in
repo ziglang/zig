@@ -5203,6 +5203,16 @@ fn seq(c: u8) void {
       to the generated code to make sure the pointer is aligned as promised.</p>
 
       {#header_close#}
+      {#header_open|@alignedSizeOf#}
+      <pre>{#syntax#}@alignedSizeOf(comptime T: type) comptime_int{#endsyntax#}</pre>
+      <p>
+      This function returns the number of bytes it takes to store and align {#syntax#}T{#endsyntax#} in memory.
+      </p>
+      <p>
+      The result is a target-specific compile time constant.
+      </p>
+      {#see_also|@sizeOf#}
+      {#header_close#}
       {#header_open|@alignOf#}
       <pre>{#syntax#}@alignOf(comptime T: type) comptime_int{#endsyntax#}</pre>
       <p>
@@ -6302,6 +6312,7 @@ pub const FloatMode = enum {
       <p>
       The result is a target-specific compile time constant.
       </p>
+      {#see_also|@alignedSizeOf#}
       {#header_close#}
 
       {#header_open|@sliceToBytes#}

@@ -639,6 +639,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionAlignOf *) {
     return IrInstructionIdAlignOf;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionAlignedSizeOf *) {
+    return IrInstructionIdAlignedSizeOf;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionAlignTo *) {
     return IrInstructionIdAlignTo;
 }
@@ -2106,6 +2110,15 @@ static IrInstruction *ir_build_overflow_op(IrBuilder *irb, Scope *scope, AstNode
 
 static IrInstruction *ir_build_align_of(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *type_value) {
     IrInstructionAlignOf *instruction = ir_build_instruction<IrInstructionAlignOf>(irb, scope, source_node);
+    instruction->type_value = type_value;
+
+    ir_ref_instruction(type_value, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_aligned_size_of(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *type_value) {
+    IrInstructionAlignedSizeOf *instruction = ir_build_instruction<IrInstructionAlignedSizeOf>(irb, scope, source_node);
     instruction->type_value = type_value;
 
     ir_ref_instruction(type_value, irb->current_basic_block);
@@ -4415,6 +4428,16 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
 
                 IrInstruction *align_of = ir_build_align_of(irb, scope, node, arg0_value);
                 return ir_lval_wrap(irb, scope, align_of, lval);
+            }
+        case BuiltinFnIdAlignedSizeOf:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                IrInstruction *aligned_size_of = ir_build_aligned_size_of(irb, scope, node, arg0_value);
+                return ir_lval_wrap(irb, scope, aligned_size_of, lval);
             }
         case BuiltinFnIdAlignTo:
             {
@@ -19604,6 +19627,59 @@ static IrInstruction *ir_analyze_instruction_align_of(IrAnalyze *ira, IrInstruct
     zig_unreachable();
 }
 
+static IrInstruction *ir_analyze_instruction_aligned_size_of(IrAnalyze *ira, IrInstructionAlignedSizeOf *instruction) {
+    Error err;
+    IrInstruction *type_value = instruction->type_value->child;
+    if (type_is_invalid(type_value->value.type))
+        return ira->codegen->invalid_instruction;
+    ZigType *type_entry = ir_resolve_type(ira, type_value);
+
+    if ((err = type_resolve(ira->codegen, type_entry, ResolveStatusAlignmentKnown)))
+        return ira->codegen->invalid_instruction;
+
+    if ((err = ensure_complete_type(ira->codegen, type_entry)))
+        return ira->codegen->invalid_instruction;
+
+    switch (type_entry->id) {
+        case ZigTypeIdInvalid:
+            zig_unreachable();
+        case ZigTypeIdMetaType:
+        case ZigTypeIdUnreachable:
+        case ZigTypeIdComptimeFloat:
+        case ZigTypeIdComptimeInt:
+        case ZigTypeIdUndefined:
+        case ZigTypeIdNull:
+        case ZigTypeIdNamespace:
+        case ZigTypeIdBoundFn:
+        case ZigTypeIdArgTuple:
+        case ZigTypeIdVoid:
+        case ZigTypeIdOpaque:
+            ir_add_error(ira, instruction->type_value,
+                    buf_sprintf("no align available for type '%s'", buf_ptr(&type_entry->name)));
+            return ira->codegen->invalid_instruction;
+        case ZigTypeIdBool:
+        case ZigTypeIdInt:
+        case ZigTypeIdFloat:
+        case ZigTypeIdPointer:
+        case ZigTypeIdPromise:
+        case ZigTypeIdArray:
+        case ZigTypeIdStruct:
+        case ZigTypeIdOptional:
+        case ZigTypeIdErrorUnion:
+        case ZigTypeIdErrorSet:
+        case ZigTypeIdEnum:
+        case ZigTypeIdUnion:
+        case ZigTypeIdFn:
+        case ZigTypeIdVector:
+            {
+                uint64_t size_in_bytes = type_size(ira->codegen, type_entry);
+                uint64_t align_in_bytes = get_abi_alignment(ira->codegen, type_entry);
+                return ir_const_unsigned(ira, &instruction->base, alignTo(size_in_bytes, align_in_bytes));
+            }
+    }
+    zig_unreachable();
+}
+
 static IrInstruction *ir_analyze_instruction_align_to(IrAnalyze *ira, IrInstructionAlignTo *instruction) {
     IrInstruction *align_from = instruction->align_from->child;
     if (type_is_invalid(align_from->value.type))
@@ -21876,6 +21952,8 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
             return ir_analyze_instruction_handle(ira, (IrInstructionHandle *)instruction);
         case IrInstructionIdAlignOf:
             return ir_analyze_instruction_align_of(ira, (IrInstructionAlignOf *)instruction);
+        case IrInstructionIdAlignedSizeOf:
+            return ir_analyze_instruction_aligned_size_of(ira, (IrInstructionAlignedSizeOf *)instruction);
         case IrInstructionIdAlignTo:
             return ir_analyze_instruction_align_to(ira, (IrInstructionAlignTo *)instruction);
         case IrInstructionIdOverflowOp:
@@ -22171,6 +22249,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdMemberType:
         case IrInstructionIdMemberName:
         case IrInstructionIdAlignOf:
+        case IrInstructionIdAlignedSizeOf:
         case IrInstructionIdAlignTo:
         case IrInstructionIdReturnAddress:
         case IrInstructionIdFrameAddress:

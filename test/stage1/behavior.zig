@@ -1,5 +1,6 @@
 comptime {
     _ = @import("behavior/align.zig");
+    _ = @import("behavior/alignedsizeof.zig");
     _ = @import("behavior/alignof.zig");
     _ = @import("behavior/alignto.zig");
     _ = @import("behavior/array.zig");

@@ -806,6 +806,12 @@ static void ir_print_align_of(IrPrint *irp, IrInstructionAlignOf *instruction) {
     fprintf(irp->f, ")");
 }
 
+static void ir_print_aligned_size_of(IrPrint *irp, IrInstructionAlignedSizeOf *instruction) {
+    fprintf(irp->f, "@alignedSizeOf(");
+    ir_print_other_instruction(irp, instruction->type_value);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_align_to(IrPrint *irp, IrInstructionAlignTo *instruction) {
     fprintf(irp->f, "@alignTo(");
     ir_print_other_instruction(irp, instruction->align_from);
@@ -1630,6 +1636,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdAlignOf:
             ir_print_align_of(irp, (IrInstructionAlignOf *)instruction);
+            break;
+        case IrInstructionIdAlignedSizeOf:
+            ir_print_aligned_size_of(irp, (IrInstructionAlignedSizeOf *)instruction);
             break;
         case IrInstructionIdAlignTo:
             ir_print_align_to(irp, (IrInstructionAlignTo *)instruction);

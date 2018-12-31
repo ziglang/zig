@@ -5261,6 +5261,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdMemberType:
         case IrInstructionIdMemberName:
         case IrInstructionIdAlignOf:
+        case IrInstructionIdAlignedSizeOf:
         case IrInstructionIdFnProto:
         case IrInstructionIdTestComptime:
         case IrInstructionIdCheckSwitchProngs:
@@ -6948,6 +6949,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdMemset, "memset", 3);
     create_builtin_fn(g, BuiltinFnIdSizeof, "sizeOf", 1);
     create_builtin_fn(g, BuiltinFnIdAlignOf, "alignOf", 1);
+    create_builtin_fn(g, BuiltinFnIdAlignedSizeOf, "alignedSizeOf", 1);
     create_builtin_fn(g, BuiltinFnIdAlignTo, "alignTo", 2);
     create_builtin_fn(g, BuiltinFnIdMemberCount, "memberCount", 1);
     create_builtin_fn(g, BuiltinFnIdMemberType, "memberType", 2);
