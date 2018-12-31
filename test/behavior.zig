@@ -9,6 +9,7 @@ comptime {
     _ = @import("cases/bitcast.zig");
     _ = @import("cases/bool.zig");
     _ = @import("cases/bswap.zig");
+    _ = @import("cases/bitreverse.zig");
     _ = @import("cases/bugs/1076.zig");
     _ = @import("cases/bugs/1111.zig");
     _ = @import("cases/bugs/1277.zig");

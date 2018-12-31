@@ -1415,6 +1415,7 @@ enum BuiltinFnId {
     BuiltinFnIdAtomicRmw,
     BuiltinFnIdAtomicLoad,
     BuiltinFnIdBswap,
+    BuiltinFnIdBitReverse,
 };
 
 struct BuiltinFnEntry {
@@ -1488,6 +1489,7 @@ enum ZigLLVMFnId {
     ZigLLVMFnIdCeil,
     ZigLLVMFnIdSqrt,
     ZigLLVMFnIdBswap,
+    ZigLLVMFnIdBitReverse,
 };
 
 enum AddSubMul {
@@ -1520,6 +1522,9 @@ struct ZigLLVMFnKey {
         struct {
             uint32_t bit_count;
         } bswap;
+        struct {
+            uint32_t bit_count;
+        } bit_reverse;
     } data;
 };
 
@@ -2163,6 +2168,7 @@ enum IrInstructionId {
     IrInstructionIdMarkErrRetTracePtr,
     IrInstructionIdSqrt,
     IrInstructionIdBswap,
+    IrInstructionIdBitReverse,
     IrInstructionIdErrSetCast,
     IrInstructionIdToBytes,
     IrInstructionIdFromBytes,
@@ -3257,6 +3263,13 @@ struct IrInstructionCheckRuntimeScope {
 };
 
 struct IrInstructionBswap {
+    IrInstruction base;
+
+    IrInstruction *type;
+    IrInstruction *op;
+};
+
+struct IrInstructionBitReverse {
     IrInstruction base;
 
     IrInstruction *type;

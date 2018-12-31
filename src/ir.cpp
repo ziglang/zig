@@ -861,6 +861,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionBswap *) {
     return IrInstructionIdBswap;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionBitReverse *) {
+    return IrInstructionIdBitReverse;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionCheckRuntimeScope *) {
     return IrInstructionIdCheckRuntimeScope;
 }
@@ -2721,6 +2725,17 @@ static IrInstruction *ir_build_bswap(IrBuilder *irb, Scope *scope, AstNode *sour
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_bit_reverse(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *type, IrInstruction *op) {
+    IrInstructionBitReverse *instruction = ir_build_instruction<IrInstructionBitReverse>(irb, scope, source_node);
+    instruction->type = type;
+    instruction->op = op;
+
+    if (type != nullptr) ir_ref_instruction(type, irb->current_basic_block);
+    ir_ref_instruction(op, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
 static IrInstruction *ir_build_check_runtime_scope(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *scope_is_comptime, IrInstruction *is_comptime) {
     IrInstructionCheckRuntimeScope *instruction = ir_build_instruction<IrInstructionCheckRuntimeScope>(irb, scope, source_node);
     instruction->scope_is_comptime = scope_is_comptime;
@@ -3646,7 +3661,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
     Buf *name = fn_ref_expr->data.symbol_expr.symbol;
     auto entry = irb->codegen->builtin_fn_table.maybe_get(name);
 
-    if (!entry) {
+    if (!entry) { // new built in not found
         add_node_error(irb->codegen, node,
                 buf_sprintf("invalid builtin function: '%s'", buf_ptr(name)));
         return irb->codegen->invalid_instruction;
@@ -4718,6 +4733,21 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg1_value;
 
                 IrInstruction *result = ir_build_bswap(irb, scope, node, arg0_value, arg1_value);
+                return ir_lval_wrap(irb, scope, result, lval);
+            }
+        case BuiltinFnIdBitReverse:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                IrInstruction *result = ir_build_bit_reverse(irb, scope, node, arg0_value, arg1_value);
                 return ir_lval_wrap(irb, scope, result, lval);
             }
     }
@@ -21082,6 +21112,51 @@ static IrInstruction *ir_analyze_instruction_bswap(IrAnalyze *ira, IrInstruction
     return result;
 }
 
+static IrInstruction *ir_analyze_instruction_bit_reverse(IrAnalyze *ira, IrInstructionBitReverse *instruction) {
+    ZigType *int_type = ir_resolve_type(ira, instruction->type->child);
+    if (type_is_invalid(int_type))
+        return ira->codegen->invalid_instruction;
+
+    IrInstruction *op = instruction->op->child;
+    if (type_is_invalid(op->value.type))
+        return ira->codegen->invalid_instruction;
+
+    if (int_type->id != ZigTypeIdInt) {
+        ir_add_error(ira, instruction->type,
+            buf_sprintf("expected integer type, found '%s'", buf_ptr(&int_type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+
+    IrInstruction *casted_op = ir_implicit_cast(ira, op, int_type);
+    if (type_is_invalid(casted_op->value.type))
+        return ira->codegen->invalid_instruction;
+
+    if (int_type->data.integral.bit_count == 0) {
+        IrInstruction *result = ir_const(ira, &instruction->base, int_type);
+        bigint_init_unsigned(&result->value.data.x_bigint, 0);
+        return result;
+    }
+
+    if (instr_is_comptime(casted_op)) {
+        ConstExprValue *val = ir_resolve_const(ira, casted_op, UndefBad);
+        if (!val)
+            return ira->codegen->invalid_instruction;
+
+        IrInstruction *result = ir_const(ira, &instruction->base, int_type);
+        size_t buf_size = int_type->data.integral.bit_count / 8;
+        uint8_t *buf = allocate_nonzero<uint8_t>(buf_size);
+        bigint_write_twos_complement(&val->data.x_bigint, buf, int_type->data.integral.bit_count, true);
+        bigint_read_twos_complement(&result->value.data.x_bigint, buf, int_type->data.integral.bit_count, false,
+                int_type->data.integral.is_signed);
+        return result;
+    }
+
+    IrInstruction *result = ir_build_bit_reverse(&ira->new_irb, instruction->base.scope,
+            instruction->base.source_node, nullptr, casted_op);
+    result->value.type = int_type;
+    return result;
+}
+
 
 static IrInstruction *ir_analyze_instruction_enum_to_int(IrAnalyze *ira, IrInstructionEnumToInt *instruction) {
     Error err;
@@ -21420,6 +21495,8 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
             return ir_analyze_instruction_sqrt(ira, (IrInstructionSqrt *)instruction);
         case IrInstructionIdBswap:
             return ir_analyze_instruction_bswap(ira, (IrInstructionBswap *)instruction);
+        case IrInstructionIdBitReverse:
+            return ir_analyze_instruction_bit_reverse(ira, (IrInstructionBitReverse *)instruction);
         case IrInstructionIdIntToErr:
             return ir_analyze_instruction_int_to_err(ira, (IrInstructionIntToErr *)instruction);
         case IrInstructionIdErrToInt:
@@ -21642,6 +21719,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdPromiseResultType:
         case IrInstructionIdSqrt:
         case IrInstructionIdBswap:
+        case IrInstructionIdBitReverse:
         case IrInstructionIdAtomicLoad:
         case IrInstructionIdIntCast:
         case IrInstructionIdFloatCast:
