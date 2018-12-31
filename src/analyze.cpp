@@ -4795,6 +4795,9 @@ static uint32_t hash_const_val_ptr(ConstExprValue *const_val) {
             hash_val += (uint32_t)2590901619;
             hash_val += hash_ptr(const_val->data.x_ptr.data.fn.fn_entry);
             return hash_val;
+        case ConstPtrSpecialNull:
+            hash_val += (uint32_t)1486246455;
+            return hash_val;
     }
     zig_unreachable();
 }
@@ -5621,6 +5624,8 @@ bool const_values_equal_ptr(ConstExprValue *a, ConstExprValue *b) {
             return true;
         case ConstPtrSpecialFunction:
             return a->data.x_ptr.data.fn.fn_entry == b->data.x_ptr.data.fn.fn_entry;
+        case ConstPtrSpecialNull:
+            return true;
     }
     zig_unreachable();
 }
@@ -5817,6 +5822,9 @@ static void render_const_val_ptr(CodeGen *g, Buf *buf, ConstExprValue *const_val
             return;
         case ConstPtrSpecialDiscard:
             buf_append_str(buf, "*_");
+            return;
+        case ConstPtrSpecialNull:
+            buf_append_str(buf, "null");
             return;
         case ConstPtrSpecialFunction:
             {

@@ -5881,6 +5881,8 @@ static LLVMValueRef gen_const_val_ptr(CodeGen *g, ConstExprValue *const_val, con
             }
         case ConstPtrSpecialFunction:
             return LLVMConstBitCast(fn_llvm_value(g, const_val->data.x_ptr.data.fn.fn_entry), const_val->type->type_ref);
+        case ConstPtrSpecialNull:
+            return LLVMConstNull(const_val->type->type_ref);
     }
     zig_unreachable();
 }

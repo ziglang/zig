@@ -209,6 +209,9 @@ static ConstExprValue *const_ptr_pointee_unchecked(CodeGen *g, ConstExprValue *c
         case ConstPtrSpecialBaseErrorUnionPayload:
             result = const_val->data.x_ptr.data.base_err_union_payload.err_union_val->data.x_err_union.payload;
             break;
+        case ConstPtrSpecialNull:
+            result = const_val;
+            break;
         case ConstPtrSpecialHardCodedAddr:
             zig_unreachable();
         case ConstPtrSpecialDiscard:
@@ -10571,7 +10574,7 @@ static IrInstruction *ir_analyze_result_optional_payload(IrAnalyze *ira, IrInstr
         {
             ConstExprValue *optional_val = const_ptr_pointee(ira, ira->codegen, ptr_val, result_loc->source_node);
             assert(optional_val->type->id == ZigTypeIdOptional);
-            if (optional_val->special == ConstValSpecialUndef) {
+            if (optional_val->special == ConstValSpecialUndef && handle_is_ptr(optional_val->type)) {
                 ConstExprValue *payload_val = create_const_vals(1);
                 payload_val->type = needed_child_type;
                 payload_val->special = ConstValSpecialUndef;
@@ -10579,7 +10582,6 @@ static IrInstruction *ir_analyze_result_optional_payload(IrAnalyze *ira, IrInstr
                 optional_val->data.x_optional = payload_val;
                 optional_val->special = ConstValSpecialStatic;
             }
-            assert(optional_val->data.x_optional != nullptr);
 
             IrInstruction *result;
             if (ptr_val->data.x_ptr.mut == ConstPtrMutInfer) {
@@ -10593,7 +10595,12 @@ static IrInstruction *ir_analyze_result_optional_payload(IrAnalyze *ira, IrInstr
             ConstExprValue *result_val = &result->value;
             result_val->data.x_ptr.special = ConstPtrSpecialRef;
             result_val->data.x_ptr.mut = ptr_val->data.x_ptr.mut;
-            result_val->data.x_ptr.data.ref.pointee = optional_val->data.x_optional;
+            if (handle_is_ptr(optional_val->type)) {
+                assert(optional_val->data.x_optional != nullptr);
+                result_val->data.x_ptr.data.ref.pointee = optional_val->data.x_optional;
+            } else {
+                result_val->data.x_ptr.data.ref.pointee = optional_val;
+            }
 
             return result;
         }
@@ -10958,8 +10965,7 @@ static IrInstruction *ir_analyze_null_to_maybe(IrAnalyze *ira, IrInstruction *so
     IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(&ira->new_irb, source_instr->scope, source_instr->source_node);
     const_instruction->base.value.special = ConstValSpecialStatic;
     if (get_codegen_ptr_type(wanted_type) != nullptr) {
-        const_instruction->base.value.data.x_ptr.special = ConstPtrSpecialHardCodedAddr;
-        const_instruction->base.value.data.x_ptr.data.hard_coded_addr.addr = 0;
+        const_instruction->base.value.data.x_ptr.special = ConstPtrSpecialNull;
     } else if (is_opt_err_set(wanted_type)) {
         const_instruction->base.value.data.x_err_set = nullptr;
     } else {
@@ -15419,6 +15425,13 @@ static Error ir_read_const_ptr(IrAnalyze *ira, CodeGen *codegen, AstNode *source
     switch (ptr_val->data.x_ptr.special) {
         case ConstPtrSpecialInvalid:
             zig_unreachable();
+        case ConstPtrSpecialNull:
+            if (dst_size == 0)
+                return ErrorNone;
+            opt_ir_add_error_node(ira, codegen, source_node,
+                buf_sprintf("attempt to read %zu bytes from null pointer",
+                dst_size));
+            return ErrorSemanticAnalyzeFail;
         case ConstPtrSpecialRef: {
             opt_ir_add_error_node(ira, codegen, source_node,
                 buf_sprintf("attempt to read %zu bytes from pointer to %s which is %zu bytes",
@@ -16077,6 +16090,8 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
                             zig_unreachable();
                         case ConstPtrSpecialFunction:
                             zig_panic("TODO element ptr of a function casted to a ptr");
+                        case ConstPtrSpecialNull:
+                            zig_panic("TODO elem ptr on a null pointer");
                     }
                     if (new_index >= mem_size) {
                         ir_add_error_node(ira, elem_ptr_instruction->base.source_node,
@@ -16134,6 +16149,8 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
                             zig_unreachable();
                         case ConstPtrSpecialFunction:
                             zig_panic("TODO elem ptr on a slice that was ptrcast from a function");
+                        case ConstPtrSpecialNull:
+                            zig_panic("TODO elem ptr on a slice has a null pointer");
                     }
                     return result;
                 } else if (array_type->id == ZigTypeIdArray) {
@@ -20230,6 +20247,8 @@ static IrInstruction *ir_analyze_instruction_memset(IrAnalyze *ira, IrInstructio
                 zig_unreachable();
             case ConstPtrSpecialFunction:
                 zig_panic("TODO memset on ptr cast from function");
+            case ConstPtrSpecialNull:
+                zig_panic("TODO memset on null ptr");
         }
 
         size_t count = bigint_as_unsigned(&casted_count->value.data.x_bigint);
@@ -20349,6 +20368,8 @@ static IrInstruction *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstructio
                 zig_unreachable();
             case ConstPtrSpecialFunction:
                 zig_panic("TODO memcpy on ptr cast from function");
+            case ConstPtrSpecialNull:
+                zig_panic("TODO memcpy on null ptr");
         }
 
         if (dest_start + count > dest_end) {
@@ -20389,6 +20410,8 @@ static IrInstruction *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstructio
                 zig_unreachable();
             case ConstPtrSpecialFunction:
                 zig_panic("TODO memcpy on ptr cast from function");
+            case ConstPtrSpecialNull:
+                zig_panic("TODO memcpy on null ptr");
         }
 
         if (src_start + count > src_end) {
@@ -20573,6 +20596,8 @@ static IrInstruction *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstruction
                     break;
                 case ConstPtrSpecialFunction:
                     zig_panic("TODO slice of ptr cast from function");
+                case ConstPtrSpecialNull:
+                    zig_panic("TODO slice of null ptr");
             }
         } else if (is_slice(array_type)) {
             ConstExprValue *slice_ptr = const_ptr_pointee(ira, ira->codegen, &ptr_ptr->value, instruction->base.source_node);
@@ -20614,6 +20639,8 @@ static IrInstruction *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstruction
                     break;
                 case ConstPtrSpecialFunction:
                     zig_panic("TODO slice of slice cast from function");
+                case ConstPtrSpecialNull:
+                    zig_panic("TODO slice of null");
             }
         } else {
             zig_unreachable();
@@ -20690,6 +20717,8 @@ static IrInstruction *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstruction
                     slice_is_const(return_type));
                 break;
             case ConstPtrSpecialFunction:
+                zig_panic("TODO");
+            case ConstPtrSpecialNull:
                 zig_panic("TODO");
         }
 

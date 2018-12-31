@@ -170,15 +170,19 @@ enum ConstPtrSpecial {
     // understand the value of pointee at compile time. However, we will still
     // emit a binary with a compile time known address.
     // In this case index is the numeric address value.
-    // We also use this for null pointer. We need the data layout for ConstCastOnly == true
-    // types to be the same, so all optionals of pointer types use x_ptr
-    // instead of x_optional
     ConstPtrSpecialHardCodedAddr,
     // This means that the pointer represents memory of assigning to _.
     // That is, storing discards the data, and loading is invalid.
     ConstPtrSpecialDiscard,
     // This is actually a function.
     ConstPtrSpecialFunction,
+    // This means the pointer is null. This is only allowed when the type is ?*T.
+    // We use this instead of ConstPtrSpecialHardCodedAddr because often we check
+    // for that value to avoid doing comptime work.
+    // We need the data layout for ConstCastOnly == true
+    // types to be the same, so all optionals of pointer types use x_ptr
+    // instead of x_optional.
+    ConstPtrSpecialNull,
 };
 
 enum ConstPtrMut {

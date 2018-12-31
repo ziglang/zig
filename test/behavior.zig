@@ -15,7 +15,6 @@ comptime {
     _ = @import("cases/eval.zig");
     _ = @import("cases/ir_block_deps.zig");
     _ = @import("cases/null.zig");
-    _ = @import("cases/optional.zig");
     _ = @import("cases/struct.zig");
     _ = @import("cases/struct_contains_slice_of_itself.zig");
     _ = @import("cases/switch.zig");
