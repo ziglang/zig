@@ -80,7 +80,7 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
         /// The caller owns the returned memory. ArrayList becomes empty.
         pub fn toOwnedSlice(self: *Self) []align(A) T {
             const allocator = self.allocator;
-            const result = allocator.alignedShrink(T, A, self.items, self.len);
+            const result = allocator.alignedShrink(T, self.items, self.len, null);
             self.* = init(allocator);
             return result;
         }
@@ -153,7 +153,7 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
                 better_capacity += better_capacity / 2 + 8;
                 if (better_capacity >= new_capacity) break;
             }
-            self.items = try self.allocator.alignedRealloc(T, A, self.items, better_capacity);
+            self.items = try self.allocator.alignedRealloc(T, self.items, better_capacity, null);
         }
 
         pub fn addOne(self: *Self) !*T {

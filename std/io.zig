@@ -280,16 +280,17 @@ pub fn writeFile(path: []const u8, data: []const u8) !void {
 
 /// On success, caller owns returned buffer.
 pub fn readFileAlloc(allocator: *mem.Allocator, path: []const u8) ![]u8 {
-    return readFileAllocAligned(allocator, path, @alignOf(u8));
+    return readFileAllocAligned(allocator, path, u8);
 }
 
 /// On success, caller owns returned buffer.
-pub fn readFileAllocAligned(allocator: *mem.Allocator, path: []const u8, comptime A: u29) ![]align(A) u8 {
+pub fn readFileAllocAligned(allocator: *mem.Allocator, path: []const u8, comptime T: type) ![]align(@alignOf(T)) u8 {
     var file = try File.openRead(path);
     defer file.close();
 
     const size = try file.getEndPos();
-    const buf = try allocator.alignedAlloc(u8, A, size);
+    // cast to u8
+    const buf = @sliceToBytes( (try allocator.alignedAlloc(T, 0, size))[0..] );
     errdefer allocator.free(buf);
 
     var adapter = file.inStream();

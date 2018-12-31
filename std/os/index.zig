@@ -2172,7 +2172,7 @@ pub fn argsAlloc(allocator: *mem.Allocator) ![]const []u8 {
     const slice_sizes = slice_list.toSliceConst();
     const slice_list_bytes = try math.mul(usize, @sizeOf([]u8), slice_sizes.len);
     const total_bytes = try math.add(usize, slice_list_bytes, contents_slice.len);
-    const buf = try allocator.alignedAlloc(u8, @alignOf([]u8), total_bytes);
+    const buf = @sliceToBytes(try allocator.alignedAlloc([]u8, 0, total_bytes));
     errdefer allocator.free(buf);
 
     const result_slice_list = @bytesToSlice([]u8, buf[0..slice_list_bytes]);

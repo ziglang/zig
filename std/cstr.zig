@@ -76,7 +76,7 @@ pub const NullTerminated2DArray = struct {
         const index_size = @sizeOf(usize) * new_len; // size of the ptrs
         byte_count += index_size;
 
-        const buf = try allocator.alignedAlloc(u8, @alignOf(?*u8), byte_count);
+        const buf = @sliceToBytes(try allocator.alignedAlloc(?*u8, 0, byte_count));
         errdefer allocator.free(buf);
 
         var write_index = index_size;
