@@ -4,6 +4,7 @@ const assertOrPanic = @import("std").debug.assertOrPanic;
 test "@sizeOf and @typeOf" {
     const y: @typeOf(x) = 120;
     assertOrPanic(@sizeOf(@typeOf(y)) == 2);
+    assertOrPanic(@sizeOf(u24) == 3);
 }
 const x: u16 = 13;
 const z: @typeOf(x) = 19;

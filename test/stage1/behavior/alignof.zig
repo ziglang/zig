@@ -11,8 +11,9 @@ const Foo = struct {
 
 test "@alignOf(T) before referencing T" {
     comptime assertOrPanic(@alignOf(Foo) != maxInt(usize));
-    if (builtin.arch == builtin.Arch.x86_64) {
-        comptime assertOrPanic(@alignOf(Foo) == 4);
+    if (builtin.arch != builtin.Arch.x86_64) {
+        return error.SkipZigTest;
     }
+    comptime assertOrPanic(@alignOf(Foo) == 4);
 }
 
