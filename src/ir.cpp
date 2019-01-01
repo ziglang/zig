@@ -21143,11 +21143,26 @@ static IrInstruction *ir_analyze_instruction_bit_reverse(IrAnalyze *ira, IrInstr
             return ira->codegen->invalid_instruction;
 
         IrInstruction *result = ir_const(ira, &instruction->base, int_type);
-        size_t buf_size = int_type->data.integral.bit_count / 8;
+        size_t num_bits = int_type->data.integral.bit_count;
+        size_t buf_size = (num_bits + 7) / 8;
         uint8_t *buf = allocate_nonzero<uint8_t>(buf_size);
-        bigint_write_twos_complement(&val->data.x_bigint, buf, int_type->data.integral.bit_count, true);
-        bigint_read_twos_complement(&result->value.data.x_bigint, buf, int_type->data.integral.bit_count, false,
-                int_type->data.integral.is_signed);
+        memset(buf,0,buf_size);
+
+        const BigInt *comptimeBigIntP = &val->data.x_bigint;
+        size_t bit_i = 0;
+        size_t bit_rev_i = num_bits - 1;
+        for (; bit_i < num_bits; bit_i++, bit_rev_i--) {
+            if (bigint_bit_at_index(comptimeBigIntP, bit_i)) {
+                buf[bit_rev_i / 8] |= (1 << (bit_rev_i % 8));
+            }
+        }
+
+        bigint_read_twos_complement(&result->value.data.x_bigint,
+                                    buf,
+                                    int_type->data.integral.bit_count,
+                                    ira->codegen->is_big_endian,
+                                    int_type->data.integral.is_signed);
+
         return result;
     }
 
