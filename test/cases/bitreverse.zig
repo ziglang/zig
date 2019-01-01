@@ -10,8 +10,8 @@ test "bitReverse" {
 fn testBitReverse() void {
     // using comptime_ints, unsigned
     assert(@bitreverse(u0,   0) == 0);
-    assert(@bitreverse(u8,   0x12) == 0x48);
     assert(@bitreverse(u5,   0x12) == 0x9);
+    assert(@bitreverse(u8,   0x12) == 0x48);
     assert(@bitreverse(u16,  0x1234) == 0x2c48);
     assert(@bitreverse(u24,  0x123456) == 0x6a2c48);
     assert(@bitreverse(u32,  0x12345678) == 0x1e6a2c48);
@@ -20,6 +20,30 @@ fn testBitReverse() void {
     assert(@bitreverse(u56,  0x123456789abcde) == 0x7b3d591e6a2c48);
     assert(@bitreverse(u64,  0x123456789abcdef1) == 0x8f7b3d591e6a2c48);
     assert(@bitreverse(u128, 0x123456789abcdef11121314151617181) == 0x818e868a828c84888f7b3d591e6a2c48);
+
+    // using runtime uints, unsigned
+    var num0: u0 = 0;
+    assert(@bitreverse(u0,   num0) == 0);
+    var num5: u5 = 0x12;
+    assert(@bitreverse(u5,   num5) == 0x9);
+    var num8: u8 = 0x12;
+    assert(@bitreverse(u8,   num8) == 0x48);
+    var num16: u16 = 0x1234;
+    assert(@bitreverse(u16,  num16) == 0x2c48);
+    var num24: u24 = 0x123456;
+    assert(@bitreverse(u24,  num24) == 0x6a2c48);
+    var num32: u32 = 0x12345678;
+    assert(@bitreverse(u32,  num32) == 0x1e6a2c48);
+    var num40: u40 = 0x123456789a;
+    assert(@bitreverse(u40,  num40) == 0x591e6a2c48);
+    var num48: u48 = 0x123456789abc;
+    assert(@bitreverse(u48,  num48) == 0x3d591e6a2c48);
+    var num56: u56 = 0x123456789abcde;
+    assert(@bitreverse(u56,  num56) == 0x7b3d591e6a2c48);
+    var num64: u64 = 0x123456789abcdef1;
+    assert(@bitreverse(u64,  num64) == 0x8f7b3d591e6a2c48);
+    var num128: u128 = 0x123456789abcdef11121314151617181;
+    assert(@bitreverse(u128, num128) == 0x818e868a828c84888f7b3d591e6a2c48);
 
     // using comptime_ints, signed, positive
     assert(@bitreverse(i0,   0) == 0);
