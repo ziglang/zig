@@ -18,6 +18,7 @@ test "std.os" {
     _ = @import("test.zig");
     _ = @import("time.zig");
     _ = @import("windows/index.zig");
+    _ = @import("uefi.zig");
     _ = @import("get_app_data_dir.zig");
 }
 
@@ -26,6 +27,8 @@ pub const darwin = @import("darwin.zig");
 pub const linux = @import("linux/index.zig");
 pub const freebsd = @import("freebsd/index.zig");
 pub const zen = @import("zen.zig");
+pub const uefi = @import("uefi.zig");
+
 pub const posix = switch (builtin.os) {
     Os.linux => linux,
     Os.macosx, Os.ios => darwin,
@@ -33,6 +36,7 @@ pub const posix = switch (builtin.os) {
     Os.zen => zen,
     else => @compileError("Unsupported OS"),
 };
+
 pub const net = @import("net.zig");
 
 pub const ChildProcess = @import("child_process.zig").ChildProcess;
@@ -103,7 +107,7 @@ const math = std.math;
 /// library implementation.
 pub fn getRandomBytes(buf: []u8) !void {
     switch (builtin.os) {
-        Os.linux, Os.freebsd => while (true) {
+        Os.linux => while (true) {
             // TODO check libc version and potentially call c.getrandom.
             // See #397
             const errno = posix.getErrno(posix.getrandom(buf.ptr, buf.len, 0));
@@ -116,7 +120,7 @@ pub fn getRandomBytes(buf: []u8) !void {
                 else => return unexpectedErrorPosix(errno),
             }
         },
-        Os.macosx, Os.ios => return getRandomBytesDevURandom(buf),
+        Os.macosx, Os.ios, Os.freebsd => return getRandomBytesDevURandom(buf),
         Os.windows => {
             // Call RtlGenRandom() instead of CryptGetRandom() on Windows
             // https://github.com/rust-lang-nursery/rand/issues/111
@@ -186,6 +190,10 @@ pub fn abort() noreturn {
                 @breakpoint();
             }
             windows.ExitProcess(3);
+        },
+        Os.uefi => {
+            // TODO there's gotta be a better thing to do here than loop forever
+            while (true) {}
         },
         else => @compileError("Unsupported OS"),
     }
@@ -1758,8 +1766,57 @@ pub const Dir = struct {
     }
 
     fn nextFreebsd(self: *Dir) !?Entry {
-        //self.handle.buf = try self.allocator.alloc(u8, page_size);
-        @compileError("TODO implement dirs for FreeBSD");
+        start_over: while (true) {
+            if (self.handle.index >= self.handle.end_index) {
+                if (self.handle.buf.len == 0) {
+                    self.handle.buf = try self.allocator.alloc(u8, page_size);
+                }
+
+                while (true) {
+                    const result = posix.getdirentries(self.handle.fd, self.handle.buf.ptr, self.handle.buf.len, &self.handle.seek);
+                    const err = posix.getErrno(result);
+                    if (err > 0) {
+                        switch (err) {
+                            posix.EBADF, posix.EFAULT, posix.ENOTDIR => unreachable,
+                            posix.EINVAL => {
+                                self.handle.buf = try self.allocator.realloc(u8, self.handle.buf, self.handle.buf.len * 2);
+                                continue;
+                            },
+                            else => return unexpectedErrorPosix(err),
+                        }
+                    }
+                    if (result == 0) return null;
+                    self.handle.index = 0;
+                    self.handle.end_index = result;
+                    break;
+                }
+            }
+            const freebsd_entry = @ptrCast(*align(1) posix.dirent, &self.handle.buf[self.handle.index]);
+            const next_index = self.handle.index + freebsd_entry.d_reclen;
+            self.handle.index = next_index;
+
+            const name = @ptrCast([*]u8, &freebsd_entry.d_name)[0..freebsd_entry.d_namlen];
+
+            if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..")) {
+                continue :start_over;
+            }
+
+            const entry_kind = switch (freebsd_entry.d_type) {
+                posix.DT_BLK => Entry.Kind.BlockDevice,
+                posix.DT_CHR => Entry.Kind.CharacterDevice,
+                posix.DT_DIR => Entry.Kind.Directory,
+                posix.DT_FIFO => Entry.Kind.NamedPipe,
+                posix.DT_LNK => Entry.Kind.SymLink,
+                posix.DT_REG => Entry.Kind.File,
+                posix.DT_SOCK => Entry.Kind.UnixDomainSocket,
+                posix.DT_WHT => Entry.Kind.Whiteout,
+                else => Entry.Kind.Unknown,
+            };
+            return Entry{
+                .name = name,
+                .kind = entry_kind,
+            };
+        }
     }
 };
 
@@ -2247,7 +2304,20 @@ pub fn selfExePathW(out_buffer: *[windows_util.PATH_MAX_WIDE]u16) ![]u16 {
 pub fn selfExePath(out_buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
     switch (builtin.os) {
         Os.linux => return readLink(out_buffer, "/proc/self/exe"),
-        Os.freebsd => return readLink(out_buffer, "/proc/curproc/file"),
+        Os.freebsd => {
+            var mib = [4]c_int{ posix.CTL_KERN, posix.KERN_PROC, posix.KERN_PROC_PATHNAME, -1};
+            var out_len: usize = out_buffer.len;
+            const err = posix.getErrno(posix.sysctl(&mib, 4, out_buffer, &out_len, null, 0));
+
+            if (err == 0 ) return mem.toSlice(u8, out_buffer);
+
+            return switch (err) {
+                posix.EFAULT => error.BadAdress,
+                posix.EPERM => error.PermissionDenied,
+                else => unexpectedErrorPosix(err),
+            };
+
+        },
         Os.windows => {
             var utf16le_buf: [windows_util.PATH_MAX_WIDE]u16 = undefined;
             const utf16le_slice = try selfExePathW(&utf16le_buf);

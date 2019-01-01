@@ -19787,6 +19787,39 @@ static IrInstruction *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira,
                 return ira->codegen->invalid_instruction;
             }
         }
+    } else if (switch_type->id == ZigTypeIdBool) {
+        int seenTrue = 0;
+        int seenFalse = 0;
+        for (size_t range_i = 0; range_i < instruction->range_count; range_i += 1) {
+            IrInstructionCheckSwitchProngsRange *range = &instruction->ranges[range_i];
+
+            IrInstruction *value = range->start->child;
+
+            IrInstruction *casted_value = ir_implicit_cast(ira, value, switch_type);
+            if (type_is_invalid(casted_value->value.type))
+                return ira->codegen->invalid_instruction;
+
+            ConstExprValue *const_expr_val = ir_resolve_const(ira, casted_value, UndefBad);
+            if (!const_expr_val)
+                return ira->codegen->invalid_instruction;
+
+            assert(const_expr_val->type->id == ZigTypeIdBool);
+
+            if (const_expr_val->data.x_bool == true) {
+                seenTrue += 1;
+            } else {
+                seenFalse += 1;
+            }
+            
+            if ((seenTrue > 1) || (seenFalse > 1)) {
+                ir_add_error(ira, value, buf_sprintf("duplicate switch value"));
+                return ira->codegen->invalid_instruction;
+            }
+        }
+        if (((seenTrue < 1) || (seenFalse < 1)) && !instruction->have_else_prong) {
+            ir_add_error(ira, &instruction->base, buf_sprintf("switch must handle all possibilities"));
+            return ira->codegen->invalid_instruction;
+        }
     } else if (!instruction->have_else_prong) {
         ir_add_error(ira, &instruction->base,
             buf_sprintf("else prong required when switching on type '%s'", buf_ptr(&switch_type->name)));

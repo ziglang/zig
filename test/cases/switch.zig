@@ -232,3 +232,40 @@ test "capture value of switch with all unreachable prongs" {
     };
     assert(x == 1);
 }
+
+test "switching on booleans" {
+    testSwitchOnBools();
+    comptime testSwitchOnBools();
+}
+
+fn testSwitchOnBools() void {
+    assert(testSwitchOnBoolsTrueAndFalse(true) == false);
+    assert(testSwitchOnBoolsTrueAndFalse(false) == true);
+
+    assert(testSwitchOnBoolsTrueWithElse(true) == false);
+    assert(testSwitchOnBoolsTrueWithElse(false) == true);
+
+    assert(testSwitchOnBoolsFalseWithElse(true) == false);
+    assert(testSwitchOnBoolsFalseWithElse(false) == true);
+}
+
+fn testSwitchOnBoolsTrueAndFalse(x: bool) bool {
+    return switch (x) {
+        true => false,
+        false => true,
+    };
+}
+
+fn testSwitchOnBoolsTrueWithElse(x: bool) bool {
+    return switch (x) {
+        true => false,
+        else => true,
+    };
+}
+
+fn testSwitchOnBoolsFalseWithElse(x: bool) bool {
+    return switch (x) {
+        false => true,
+        else => false,
+    };
+}

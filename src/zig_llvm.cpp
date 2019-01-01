@@ -606,7 +606,7 @@ ZigLLVMDISubprogram *ZigLLVMCreateFunction(ZigLLVMDIBuilder *dibuilder, ZigLLVMD
             lineno,
             di_sub_type,
             scope_line,
-            DINode::FlagZero,
+            DINode::FlagStaticMember,
             DISubprogram::toSPFlags(is_local_to_unit, is_definition, is_optimized),
             nullptr,
             reinterpret_cast<DISubprogram *>(decl_subprogram),

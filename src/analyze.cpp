@@ -3203,14 +3203,12 @@ void add_fn_export(CodeGen *g, ZigFn *fn_table_entry, Buf *symbol_name, GlobalLi
     if (ccc) {
         if (buf_eql_str(symbol_name, "main") && g->libc_link_lib != nullptr) {
             g->have_c_main = true;
-            g->windows_subsystem_windows = false;
-            g->windows_subsystem_console = true;
+            g->subsystem = TargetSubsystemConsole;
         } else if (buf_eql_str(symbol_name, "WinMain") &&
             g->zig_target.os == OsWindows)
         {
             g->have_winmain = true;
-            g->windows_subsystem_windows = true;
-            g->windows_subsystem_console = false;
+            g->subsystem = TargetSubsystemWindows;
         } else if (buf_eql_str(symbol_name, "WinMainCRTStartup") &&
             g->zig_target.os == OsWindows)
         {
@@ -3221,6 +3219,7 @@ void add_fn_export(CodeGen *g, ZigFn *fn_table_entry, Buf *symbol_name, GlobalLi
             g->have_dllmain_crt_startup = true;
         }
     }
+
     FnExport *fn_export = fn_table_entry->export_list.add_one();
     memset(fn_export, 0, sizeof(FnExport));
     buf_init_from_buf(&fn_export->name, symbol_name);
@@ -4376,8 +4375,7 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *r
             if (is_pub && ok_cc) {
                 if (buf_eql_str(proto_name, "main")) {
                     g->have_pub_main = true;
-                    g->windows_subsystem_windows = false;
-                    g->windows_subsystem_console = true;
+                    g->subsystem = TargetSubsystemConsole;
                 } else if (buf_eql_str(proto_name, "panic")) {
                     g->have_pub_panic = true;
                 }
@@ -4592,8 +4590,7 @@ static Buf *get_posix_libc_include_path(void) {
 void find_libc_include_path(CodeGen *g) {
     if (g->libc_include_dir == nullptr) {
         if (!g->is_native_target) {
-            fprintf(stderr, "Unable to determine libc include path. --libc-include-dir");
-            exit(1);
+            return;
         }
 
         if (g->zig_target.os == OsWindows) {
@@ -6377,7 +6374,7 @@ LinkLib *add_link_lib(CodeGen *g, Buf *name) {
     if (is_libc && g->libc_link_lib != nullptr)
         return g->libc_link_lib;
 
-    if (g->enable_cache && is_libc && g->zig_target.os != OsMacOSX && g->zig_target.os != OsIOS) {
+    if (g->enable_cache && is_libc && g->zig_target.os != OsMacOSX && g->zig_target.os != OsIOS && g->zig_target.os != OsFreeBSD) {
         fprintf(stderr, "TODO linking against libc is currently incompatible with `--cache on`.\n"
         "Zig is not yet capable of determining whether the libc installation has changed on subsequent builds.\n");
         exit(1);
