@@ -21145,20 +21145,23 @@ static IrInstruction *ir_analyze_instruction_bit_reverse(IrAnalyze *ira, IrInstr
         IrInstruction *result = ir_const(ira, &instruction->base, int_type);
         size_t num_bits = int_type->data.integral.bit_count;
         size_t buf_size = (num_bits + 7) / 8;
-        uint8_t *buf = allocate_nonzero<uint8_t>(buf_size);
-        memset(buf,0,buf_size);
+        uint8_t *comptime_buf = allocate_nonzero<uint8_t>(buf_size);
+        uint8_t *result_buf = allocate_nonzero<uint8_t>(buf_size);
+        memset(comptime_buf,0,buf_size);
+        memset(result_buf,0,buf_size);
 
-        const BigInt *comptimeBigIntP = &val->data.x_bigint;
+        bigint_write_twos_complement(&val->data.x_bigint,comptime_buf,num_bits,ira->codegen->is_big_endian);
+
         size_t bit_i = 0;
         size_t bit_rev_i = num_bits - 1;
         for (; bit_i < num_bits; bit_i++, bit_rev_i--) {
-            if (bigint_bit_at_index(comptimeBigIntP, bit_i)) {
-                buf[bit_rev_i / 8] |= (1 << (bit_rev_i % 8));
+            if (comptime_buf[bit_i / 8] & (1 << (bit_i % 8))) {
+                result_buf[bit_rev_i / 8] |= (1 << (bit_rev_i % 8));
             }
         }
 
         bigint_read_twos_complement(&result->value.data.x_bigint,
-                                    buf,
+                                    result_buf,
                                     int_type->data.integral.bit_count,
                                     ira->codegen->is_big_endian,
                                     int_type->data.integral.is_signed);
