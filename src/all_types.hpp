@@ -2425,7 +2425,7 @@ struct IrInstructionFieldPtr {
     Buf *field_name_buffer;
     IrInstruction *field_name_expr;
     IrInstruction *container_type;
-    bool is_const;
+    bool initialize;
 };
 
 struct IrInstructionStructFieldPtr {
@@ -2448,7 +2448,6 @@ struct IrInstructionUnionFieldPtr {
     IrInstruction *union_ptr;
     TypeUnionField *field;
     IrInstructionUnionFieldPtrId id;
-    bool is_const;
 };
 
 struct IrInstructionElemPtr {

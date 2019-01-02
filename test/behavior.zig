@@ -16,5 +16,4 @@ comptime {
     _ = @import("cases/switch_prong_err_enum.zig");
     _ = @import("cases/switch_prong_implicit_cast.zig");
     _ = @import("cases/try.zig");
-    _ = @import("cases/union.zig");
 }
