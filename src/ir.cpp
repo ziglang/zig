@@ -6148,7 +6148,7 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
     IrBasicBlock *cond_block = ir_create_basic_block(irb, child_scope, "ForCond");
     IrBasicBlock *body_block = ir_create_basic_block(irb, child_scope, "ForBody");
     IrBasicBlock *end_block = ir_create_basic_block(irb, child_scope, "ForEnd");
-    IrBasicBlock *else_block = ir_create_basic_block(irb, child_scope, "ForElse");
+    IrBasicBlock *else_block = else_node ? ir_create_basic_block(irb, child_scope, "ForElse") : end_block;
     IrBasicBlock *continue_block = ir_create_basic_block(irb, child_scope, "ForContinue");
 
     Buf *len_field_name = buf_create_from_str("len");
@@ -6159,6 +6159,8 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
     ir_set_cursor_at_end_and_append_block(irb, cond_block);
     IrInstruction *index_val = ir_build_load_ptr(irb, child_scope, node, index_alloca, nullptr);
     IrInstruction *cond = ir_build_bin_op(irb, child_scope, node, IrBinOpCmpLessThan, index_val, len_val, false);
+    IrBasicBlock *after_cond_block = irb->current_basic_block;
+    IrInstruction *void_else_value = else_node ? nullptr : ir_mark_gen(ir_build_const_void(irb, parent_scope, node));
     ir_mark_gen(ir_build_cond_br(irb, child_scope, node, cond, body_block, else_block, is_comptime, result_loc));
 
     ir_set_cursor_at_end_and_append_block(irb, body_block);
@@ -6177,7 +6179,7 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
     loop_scope->incoming_blocks = &incoming_blocks;
     loop_scope->incoming_values = &incoming_values;
 
-    IrInstruction *body_result = ir_gen_node(irb, body_node, &loop_scope->base, LValNone, result_loc);
+    IrInstruction *body_result = ir_gen_node(irb, body_node, &loop_scope->base, lval, result_loc);
 
     if (!instr_is_unreachable(body_result))
         ir_mark_gen(ir_build_br(irb, child_scope, node, continue_block, is_comptime));
@@ -6187,21 +6189,27 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
     ir_mark_gen(ir_build_store_ptr(irb, child_scope, node, index_alloca, new_index_val));
     ir_build_br(irb, child_scope, node, cond_block, is_comptime);
 
-    ir_set_cursor_at_end_and_append_block(irb, else_block);
     IrInstruction *else_result = nullptr;
     if (else_node) {
-        else_result = ir_gen_node(irb, else_node, parent_scope, LValNone, result_loc);
+        ir_set_cursor_at_end_and_append_block(irb, else_block);
+
+        else_result = ir_gen_node(irb, else_node, parent_scope, lval, result_loc);
         if (else_result == irb->codegen->invalid_instruction)
             return else_result;
-    } else {
-        else_result = ir_mark_gen(ir_build_const_void(irb, parent_scope, node));
-        ir_mark_gen(ir_build_store_ptr(irb, parent_scope, node, result_loc, else_result));
+        if (!instr_is_unreachable(else_result))
+            ir_mark_gen(ir_build_br(irb, parent_scope, node, end_block, is_comptime));
     }
-    if (!instr_is_unreachable(else_result))
-        ir_mark_gen(ir_build_br(irb, parent_scope, node, end_block, is_comptime));
-
+    IrBasicBlock *after_else_block = irb->current_basic_block;
     ir_set_cursor_at_end_and_append_block(irb, end_block);
-    return ir_gen_result(irb, parent_scope, node, lval, result_loc);
+
+    if (else_result) {
+        incoming_blocks.append(after_else_block);
+        incoming_values.append(else_result);
+    } else {
+        incoming_blocks.append(after_cond_block);
+        incoming_values.append(void_else_value);
+    }
+    return ir_build_phi(irb, parent_scope, node, incoming_blocks.length, incoming_blocks.items, incoming_values.items);
 }
 
 static IrInstruction *ir_gen_bool_literal(IrBuilder *irb, Scope *scope, AstNode *node) {
@@ -7773,7 +7781,7 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
         case NodeTypeWhileExpr:
             return ir_gen_while_expr(irb, scope, node, lval, result_loc);
         case NodeTypeForExpr:
-            return ir_gen_for_expr(irb, scope, node, lval, ensure_result_loc(irb, scope, node, result_loc));
+            return ir_gen_for_expr(irb, scope, node, lval, result_loc);
         case NodeTypeArrayAccessExpr:
             return ir_gen_array_access(irb, scope, node, lval, result_loc);
         case NodeTypeReturnExpr:
