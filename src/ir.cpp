@@ -6544,7 +6544,7 @@ static bool ir_gen_switch_prong_expr(IrBuilder *irb, Scope *scope, AstNode *swit
         IrBasicBlock *end_block, IrInstruction *is_comptime, IrInstruction *var_is_comptime,
         IrInstruction *target_value_ptr, IrInstruction *prong_value,
         ZigList<IrBasicBlock *> *incoming_blocks, ZigList<IrInstruction *> *incoming_values,
-        IrInstruction *result_loc)
+        LVal lval, IrInstruction *result_loc)
 {
     assert(switch_node->type == NodeTypeSwitchExpr);
     assert(prong_node->type == NodeTypeSwitchProng);
@@ -6573,7 +6573,7 @@ static bool ir_gen_switch_prong_expr(IrBuilder *irb, Scope *scope, AstNode *swit
         child_scope = scope;
     }
 
-    IrInstruction *expr_result = ir_gen_node(irb, expr_node, child_scope, LValNone, result_loc);
+    IrInstruction *expr_result = ir_gen_node(irb, expr_node, child_scope, lval, result_loc);
     if (expr_result == irb->codegen->invalid_instruction)
         return false;
     if (!instr_is_unreachable(expr_result))
@@ -6635,7 +6635,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
             ir_set_cursor_at_end_and_append_block(irb, else_block);
             if (!ir_gen_switch_prong_expr(irb, subexpr_scope, node, prong_node, end_block,
                 is_comptime, var_is_comptime, target_value_ptr, nullptr, &incoming_blocks, &incoming_values,
-                result_loc))
+                lval, result_loc))
             {
                 return irb->codegen->invalid_instruction;
             }
@@ -6703,7 +6703,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
             ir_set_cursor_at_end_and_append_block(irb, range_block_yes);
             if (!ir_gen_switch_prong_expr(irb, subexpr_scope, node, prong_node, end_block,
                 is_comptime, var_is_comptime, target_value_ptr, nullptr, &incoming_blocks, &incoming_values,
-                result_loc))
+                lval, result_loc))
             {
                 return irb->codegen->invalid_instruction;
             }
@@ -6748,7 +6748,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
         ir_set_cursor_at_end_and_append_block(irb, prong_block);
         if (!ir_gen_switch_prong_expr(irb, subexpr_scope, node, prong_node, end_block,
             is_comptime, var_is_comptime, target_value_ptr, only_item_value, &incoming_blocks, &incoming_values,
-            result_loc))
+            lval, result_loc))
         {
             return irb->codegen->invalid_instruction;
         }
@@ -6774,7 +6774,11 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
 
     ir_set_cursor_at_end_and_append_block(irb, end_block);
     assert(incoming_blocks.length == incoming_values.length);
-    return ir_gen_result(irb, scope, node, lval, result_loc);
+    if (incoming_blocks.length == 0) {
+        return ir_build_const_void(irb, scope, node);
+    } else {
+        return ir_build_phi(irb, scope, node, incoming_blocks.length, incoming_blocks.items, incoming_values.items);
+    }
 }
 
 static IrInstruction *ir_gen_comptime(IrBuilder *irb, Scope *parent_scope, AstNode *node,
@@ -7826,8 +7830,7 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
         case NodeTypeIfOptional:
             return ir_gen_if_optional_expr(irb, scope, node, lval, result_loc);
         case NodeTypeSwitchExpr:
-            return ir_gen_switch_expr(irb, scope, node, lval,
-                    ensure_result_loc(irb, scope, node, result_loc));
+            return ir_gen_switch_expr(irb, scope, node, lval, result_loc);
         case NodeTypeCompTime:
             return ir_gen_comptime(irb, scope, node, lval, result_loc);
         case NodeTypeErrorType:

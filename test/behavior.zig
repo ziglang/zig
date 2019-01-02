@@ -9,7 +9,6 @@ comptime {
     _ = @import("cases/coroutine_await_struct.zig");
     _ = @import("cases/coroutines.zig");
     _ = @import("cases/defer.zig");
-    _ = @import("cases/enum.zig");
     _ = @import("cases/enum_with_members.zig");
     _ = @import("cases/error.zig");
     _ = @import("cases/eval.zig");
