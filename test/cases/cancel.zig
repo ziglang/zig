@@ -10,9 +10,9 @@ test "cancel forwards" {
 
     const p = async<&da.allocator> f1() catch unreachable;
     cancel p;
-    std.debug.assert(defer_f1);
-    std.debug.assert(defer_f2);
-    std.debug.assert(defer_f3);
+    std.debug.assertOrPanic(defer_f1);
+    std.debug.assertOrPanic(defer_f2);
+    std.debug.assertOrPanic(defer_f3);
 }
 
 async fn f1() void {
@@ -47,10 +47,10 @@ test "cancel backwards" {
 
     const p = async<&da.allocator> b1() catch unreachable;
     cancel p;
-    std.debug.assert(defer_b1);
-    std.debug.assert(defer_b2);
-    std.debug.assert(defer_b3);
-    std.debug.assert(defer_b4);
+    std.debug.assertOrPanic(defer_b1);
+    std.debug.assertOrPanic(defer_b2);
+    std.debug.assertOrPanic(defer_b3);
+    std.debug.assertOrPanic(defer_b4);
 }
 
 async fn b1() void {

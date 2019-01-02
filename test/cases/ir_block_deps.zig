@@ -1,4 +1,4 @@
-const assert = @import("std").debug.assert;
+const assertOrPanic = @import("std").debug.assertOrPanic;
 
 fn foo(id: u64) !i32 {
     return switch (id) {
@@ -16,6 +16,6 @@ fn getErrInt() anyerror!i32 {
 }
 
 test "ir block deps" {
-    assert((foo(1) catch unreachable) == 0);
-    assert((foo(2) catch unreachable) == 0);
+    assertOrPanic((foo(1) catch unreachable) == 0);
+    assertOrPanic((foo(2) catch unreachable) == 0);
 }

@@ -1,4 +1,4 @@
-const assert = @import("std").debug.assert;
+const assertOrPanic = @import("std").debug.assertOrPanic;
 
 const FormValue = union(enum) {
     One: void,
@@ -18,5 +18,5 @@ test "switch prong implicit cast" {
         FormValue.One => false,
         FormValue.Two => |x| x,
     };
-    assert(result);
+    assertOrPanic(result);
 }

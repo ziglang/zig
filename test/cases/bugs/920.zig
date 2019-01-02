@@ -60,6 +60,6 @@ test "bug 920 fixed" {
     };
 
     for (NormalDist1.f) |_, i| {
-        std.debug.assert(NormalDist1.f[i] == NormalDist.f[i]);
+        std.debug.assertOrPanic(NormalDist1.f[i] == NormalDist.f[i]);
     }
 }

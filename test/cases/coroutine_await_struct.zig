@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const assert = std.debug.assert;
+const assertOrPanic = std.debug.assertOrPanic;
 
 const Foo = struct {
     x: i32,
@@ -18,8 +18,8 @@ test "coroutine await struct" {
     await_seq('f');
     resume await_a_promise;
     await_seq('i');
-    assert(await_final_result.x == 1234);
-    assert(std.mem.eql(u8, await_points, "abcdefghi"));
+    assertOrPanic(await_final_result.x == 1234);
+    assertOrPanic(std.mem.eql(u8, await_points, "abcdefghi"));
 }
 async fn await_amain() void {
     await_seq('b');
