@@ -1722,3 +1722,4 @@ void bigint_incr(BigInt *x) {
 
     bigint_add(x, &copy, &one);
 }
+
