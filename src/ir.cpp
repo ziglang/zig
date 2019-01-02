@@ -16402,9 +16402,7 @@ static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_
                     if (type_is_invalid(union_val->type))
                         return ira->codegen->invalid_instruction;
 
-                    if (ptr_val->data.x_ptr.mut == ConstPtrMutInfer &&
-                        union_val->special == ConstValSpecialUndef)
-                    {
+                    if (union_val->special == ConstValSpecialUndef) {
                         ConstExprValue *payload_val = create_const_vals(1);
                         payload_val->special = ConstValSpecialUndef;
                         payload_val->type = field->type_entry;

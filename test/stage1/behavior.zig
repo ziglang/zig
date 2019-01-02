@@ -23,7 +23,11 @@ comptime {
     _ = @import("behavior/bugs/828.zig");
     _ = @import("behavior/bugs/920.zig");
     _ = @import("behavior/byval_arg_var.zig");
+    _ = @import("behavior/cancel.zig");
     _ = @import("behavior/cast.zig");
+    _ = @import("behavior/const_slice_child.zig");
+    _ = @import("behavior/coroutine_await_struct.zig");
+    _ = @import("behavior/coroutines.zig");
     _ = @import("behavior/defer.zig");
     _ = @import("behavior/enum.zig");
     _ = @import("behavior/enum_with_members.zig");
@@ -37,6 +41,7 @@ comptime {
     _ = @import("behavior/if.zig");
     _ = @import("behavior/import.zig");
     _ = @import("behavior/incomplete_struct_param_tld.zig");
+    _ = @import("behavior/ir_block_deps.zig");
     _ = @import("behavior/math.zig");
     _ = @import("behavior/merge_error_sets.zig");
     _ = @import("behavior/misc.zig");
@@ -57,6 +62,7 @@ comptime {
     _ = @import("behavior/struct_contains_slice_of_itself.zig");
     _ = @import("behavior/switch.zig");
     _ = @import("behavior/switch_prong_err_enum.zig");
+    _ = @import("behavior/switch_prong_implicit_cast.zig");
     _ = @import("behavior/syntax.zig");
     _ = @import("behavior/this.zig");
     _ = @import("behavior/truncate.zig");
@@ -69,10 +75,4 @@ comptime {
     _ = @import("behavior/void.zig");
     _ = @import("behavior/while.zig");
     _ = @import("behavior/widening.zig");
-    _ = @import("behavior/coroutines.zig");
-    _ = @import("behavior/switch_prong_implicit_cast.zig");
-    _ = @import("behavior/cancel.zig");
-    _ = @import("behavior/ir_block_deps.zig");
-    _ = @import("behavior/const_slice_child.zig");
-    _ = @import("behavior/coroutine_await_struct.zig");
 }
