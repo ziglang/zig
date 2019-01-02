@@ -32,7 +32,6 @@ comptime {
     _ = @import("behavior/enum.zig");
     _ = @import("behavior/enum_with_members.zig");
     _ = @import("behavior/error.zig");
-    _ = @import("behavior/eval.zig");
     _ = @import("behavior/field_parent_ptr.zig");
     _ = @import("behavior/fn.zig");
     _ = @import("behavior/fn_in_struct_in_comptime.zig");
@@ -75,4 +74,5 @@ comptime {
     _ = @import("behavior/void.zig");
     _ = @import("behavior/while.zig");
     _ = @import("behavior/widening.zig");
+    _ = @import("behavior/eval.zig");
 }
