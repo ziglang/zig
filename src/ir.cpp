@@ -15846,14 +15846,24 @@ static IrInstruction *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionPh
     if (type_is_invalid(resolved_type))
         return ira->codegen->invalid_instruction;
 
-    if (resolved_type->id == ZigTypeIdComptimeFloat ||
-        resolved_type->id == ZigTypeIdComptimeInt ||
-        resolved_type->id == ZigTypeIdNull ||
-        resolved_type->id == ZigTypeIdUndefined)
-    {
-        ir_add_error_node(ira, phi_instruction->base.source_node,
-                buf_sprintf("unable to infer expression type"));
+    switch (type_has_one_possible_value(ira->codegen, resolved_type)) {
+    case OnePossibleValueInvalid:
         return ira->codegen->invalid_instruction;
+    case OnePossibleValueYes:
+        return ir_const(ira, &phi_instruction->base, resolved_type);
+    case OnePossibleValueNo:
+        break;
+    }
+
+    switch (type_requires_comptime(ira->codegen, resolved_type)) {
+    case ReqCompTimeInvalid:
+        return ira->codegen->invalid_instruction;
+    case ReqCompTimeYes:
+        ir_add_error_node(ira, phi_instruction->base.source_node,
+                buf_sprintf("values of type '%s' must be comptime known", buf_ptr(&resolved_type->name)));
+        return ira->codegen->invalid_instruction;
+    case ReqCompTimeNo:
+        break;
     }
 
     bool all_stack_ptrs = (resolved_type->id == ZigTypeIdPointer);
