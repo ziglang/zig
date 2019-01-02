@@ -1,4 +1,4 @@
-const assert = @import("std").debug.assert;
+const assertOrPanic = @import("std").debug.assertOrPanic;
 
 test "try on error union" {
     tryOnErrorUnionImpl();
@@ -11,7 +11,7 @@ fn tryOnErrorUnionImpl() void {
         error.CrappedOut => i32(2),
         else => unreachable,
     };
-    assert(x == 11);
+    assertOrPanic(x == 11);
 }
 
 fn returnsTen() anyerror!i32 {
@@ -20,10 +20,10 @@ fn returnsTen() anyerror!i32 {
 
 test "try without vars" {
     const result1 = if (failIfTrue(true)) 1 else |_| i32(2);
-    assert(result1 == 2);
+    assertOrPanic(result1 == 2);
 
     const result2 = if (failIfTrue(false)) 1 else |_| i32(2);
-    assert(result2 == 1);
+    assertOrPanic(result2 == 1);
 }
 
 fn failIfTrue(ok: bool) anyerror!void {
@@ -38,6 +38,6 @@ test "try then not executed with assignment" {
     if (failIfTrue(true)) {
         unreachable;
     } else |err| {
-        assert(err == error.ItBroke);
+        assertOrPanic(err == error.ItBroke);
     }
 }

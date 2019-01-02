@@ -11,6 +11,9 @@ comptime {
     _ = @import("behavior/bugs/1076.zig");
     _ = @import("behavior/bugs/1111.zig");
     _ = @import("behavior/bugs/1381.zig");
+    _ = @import("behavior/bugs/1322.zig");
+    _ = @import("behavior/bugs/828.zig");
+    _ = @import("behavior/bugs/1277.zig");
     _ = @import("behavior/bugs/1421.zig");
     _ = @import("behavior/bugs/1442.zig");
     _ = @import("behavior/bugs/1486.zig");
@@ -56,4 +59,13 @@ comptime {
     _ = @import("behavior/while.zig");
     _ = @import("behavior/widening.zig");
     _ = @import("behavior/optional.zig");
+    _ = @import("behavior/switch.zig");
+    _ = @import("behavior/null.zig");
+    _ = @import("behavior/union.zig");
+    _ = @import("behavior/error.zig");
+    _ = @import("behavior/cast.zig");
+    _ = @import("behavior/try.zig");
+    _ = @import("behavior/enum_with_members.zig");
+    _ = @import("behavior/struct_contains_slice_of_itself.zig");
+    _ = @import("behavior/switch_prong_err_enum.zig");
 }

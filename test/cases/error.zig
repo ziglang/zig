@@ -1,53 +1,13 @@
 const std = @import("std");
-const assert = std.debug.assert;
+const assertOrPanic = std.debug.assertOrPanic;
 const mem = std.mem;
 const builtin = @import("builtin");
-
-pub fn foo() anyerror!i32 {
-    const x = try bar();
-    return x + 1;
-}
-
-pub fn bar() anyerror!i32 {
-    return 13;
-}
-
-pub fn baz() anyerror!i32 {
-    const y = foo() catch 1234;
-    return y + 1;
-}
-
-test "error wrapping" {
-    assert((baz() catch unreachable) == 15);
-}
-
-fn gimmeItBroke() []const u8 {
-    return @errorName(error.ItBroke);
-}
-
-test "@errorName" {
-    assert(mem.eql(u8, @errorName(error.AnError), "AnError"));
-    assert(mem.eql(u8, @errorName(error.ALongerErrorName), "ALongerErrorName"));
-}
-
-test "error values" {
-    const a = @errorToInt(error.err1);
-    const b = @errorToInt(error.err2);
-    assert(a != b);
-}
-
-test "redefinition of error values allowed" {
-    shouldBeNotEqual(error.AnError, error.SecondError);
-}
-fn shouldBeNotEqual(a: anyerror, b: anyerror) void {
-    if (a == b) unreachable;
-}
 
 test "error binary operator" {
     const a = errBinaryOperatorG(true) catch 3;
     const b = errBinaryOperatorG(false) catch 3;
-    assert(a == 3);
-    assert(b == 10);
+    assertOrPanic(a == 3);
+    assertOrPanic(b == 10);
 }
 fn errBinaryOperatorG(x: bool) anyerror!isize {
     return if (x) error.ItBroke else isize(10);
@@ -55,7 +15,7 @@ fn errBinaryOperatorG(x: bool) anyerror!isize {
 
 test "unwrap simple value from error" {
     const i = unwrapSimpleValueFromErrorDo() catch unreachable;
-    assert(i == 13);
+    assertOrPanic(i == 13);
 }
 fn unwrapSimpleValueFromErrorDo() anyerror!isize {
     return 13;
@@ -81,10 +41,10 @@ test "error union type " {
 
 fn testErrorUnionType() void {
     const x: anyerror!i32 = 1234;
-    if (x) |value| assert(value == 1234) else |_| unreachable;
-    assert(@typeId(@typeOf(x)) == builtin.TypeId.ErrorUnion);
-    assert(@typeId(@typeOf(x).ErrorSet) == builtin.TypeId.ErrorSet);
-    assert(@typeOf(x).ErrorSet == anyerror);
+    if (x) |value| assertOrPanic(value == 1234) else |_| unreachable;
+    assertOrPanic(@typeId(@typeOf(x)) == builtin.TypeId.ErrorUnion);
+    assertOrPanic(@typeId(@typeOf(x).ErrorSet) == builtin.TypeId.ErrorSet);
+    assertOrPanic(@typeOf(x).ErrorSet == anyerror);
 }
 
 test "error set type " {
@@ -98,12 +58,12 @@ const MyErrSet = error{
 };
 
 fn testErrorSetType() void {
-    assert(@memberCount(MyErrSet) == 2);
+    assertOrPanic(@memberCount(MyErrSet) == 2);
 
     const a: MyErrSet!i32 = 5678;
     const b: MyErrSet!i32 = MyErrSet.OutOfMemory;
 
-    if (a) |value| assert(value == 5678) else |err| switch (err) {
+    if (a) |value| assertOrPanic(value == 5678) else |err| switch (err) {
         error.OutOfMemory => unreachable,
         error.FileNotFound => unreachable,
     }
@@ -126,7 +86,7 @@ const Set2 = error{
 fn testExplicitErrorSetCast(set1: Set1) void {
     var x = @errSetCast(Set2, set1);
     var y = @errSetCast(Set1, x);
-    assert(y == error.A);
+    assertOrPanic(y == error.A);
 }
 
 test "comptime test error for empty error set" {
@@ -137,12 +97,12 @@ test "comptime test error for empty error set" {
 const EmptyErrorSet = error{};
 
 fn testComptimeTestErrorEmptySet(x: EmptyErrorSet!i32) void {
-    if (x) |v| assert(v == 1234) else |err| @compileError("bad");
+    if (x) |v| assertOrPanic(v == 1234) else |err| @compileError("bad");
 }
 
 test "syntax: optional operator in front of error union operator" {
     comptime {
-        assert(?(anyerror!i32) == ?(anyerror!i32));
+        assertOrPanic(?(anyerror!i32) == ?(anyerror!i32));
     }
 }
 

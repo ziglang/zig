@@ -1,108 +1,4 @@
-const assert = @import("std").debug.assert;
-
-test "switch with numbers" {
-    testSwitchWithNumbers(13);
-}
-
-fn testSwitchWithNumbers(x: u32) void {
-    const result = switch (x) {
-        1, 2, 3, 4...8 => false,
-        13 => true,
-        else => false,
-    };
-    assert(result);
-}
-
-test "switch with all ranges" {
-    assert(testSwitchWithAllRanges(50, 3) == 1);
-    assert(testSwitchWithAllRanges(101, 0) == 2);
-    assert(testSwitchWithAllRanges(300, 5) == 3);
-    assert(testSwitchWithAllRanges(301, 6) == 6);
-}
-
-fn testSwitchWithAllRanges(x: u32, y: u32) u32 {
-    return switch (x) {
-        0...100 => 1,
-        101...200 => 2,
-        201...300 => 3,
-        else => y,
-    };
-}
-
-test "implicit comptime switch" {
-    const x = 3 + 4;
-    const result = switch (x) {
-        3 => 10,
-        4 => 11,
-        5, 6 => 12,
-        7, 8 => 13,
-        else => 14,
-    };
-
-    comptime {
-        assert(result + 1 == 14);
-    }
-}
-
-test "switch on enum" {
-    const fruit = Fruit.Orange;
-    nonConstSwitchOnEnum(fruit);
-}
-const Fruit = enum {
-    Apple,
-    Orange,
-    Banana,
-};
-fn nonConstSwitchOnEnum(fruit: Fruit) void {
-    switch (fruit) {
-        Fruit.Apple => unreachable,
-        Fruit.Orange => {},
-        Fruit.Banana => unreachable,
-    }
-}
-
-test "switch statement" {
-    nonConstSwitch(SwitchStatmentFoo.C);
-}
-fn nonConstSwitch(foo: SwitchStatmentFoo) void {
-    const val = switch (foo) {
-        SwitchStatmentFoo.A => i32(1),
-        SwitchStatmentFoo.B => 2,
-        SwitchStatmentFoo.C => 3,
-        SwitchStatmentFoo.D => 4,
-    };
-    assert(val == 3);
-}
-const SwitchStatmentFoo = enum {
-    A,
-    B,
-    C,
-    D,
-};
-
-test "switch prong with variable" {
-    switchProngWithVarFn(SwitchProngWithVarEnum{ .One = 13 });
-    switchProngWithVarFn(SwitchProngWithVarEnum{ .Two = 13.0 });
-    switchProngWithVarFn(SwitchProngWithVarEnum{ .Meh = {} });
-}
-const SwitchProngWithVarEnum = union(enum) {
-    One: i32,
-    Two: f32,
-    Meh: void,
-};
-fn switchProngWithVarFn(a: SwitchProngWithVarEnum) void {
-    switch (a) {
-        SwitchProngWithVarEnum.One => |x| {
-            assert(x == 13);
-        },
-        SwitchProngWithVarEnum.Two => |x| {
-            assert(x == 13.0);
-        },
-        SwitchProngWithVarEnum.Meh => |x| {
-            const v: void = x;
-        },
-    }
-}
+const assertOrPanic = @import("std").debug.assertOrPanic;
 
 test "switch on enum using pointer capture" {
     testSwitchEnumPtrCapture();
@@ -116,7 +12,7 @@ fn testSwitchEnumPtrCapture() void {
         else => unreachable,
     }
     switch (value) {
-        SwitchProngWithVarEnum.One => |x| assert(x == 1235),
+        SwitchProngWithVarEnum.One => |x| assertOrPanic(x == 1235),
         else => unreachable,
     }
 }
@@ -127,7 +23,7 @@ test "switch with multiple expressions" {
         4, 5, 6 => 2,
         else => i32(3),
     };
-    assert(x == 2);
+    assertOrPanic(x == 2);
 }
 fn returnsFive() i32 {
     return 5;
@@ -149,12 +45,12 @@ fn returnsFalse() bool {
     }
 }
 test "switch on const enum with var" {
-    assert(!returnsFalse());
+    assertOrPanic(!returnsFalse());
 }
 
 test "switch on type" {
-    assert(trueIfBoolFalseOtherwise(bool));
-    assert(!trueIfBoolFalseOtherwise(i32));
+    assertOrPanic(trueIfBoolFalseOtherwise(bool));
+    assertOrPanic(!trueIfBoolFalseOtherwise(i32));
 }
 
 fn trueIfBoolFalseOtherwise(comptime T: type) bool {
@@ -170,16 +66,16 @@ test "switch handles all cases of number" {
 }
 
 fn testSwitchHandleAllCases() void {
-    assert(testSwitchHandleAllCasesExhaustive(0) == 3);
-    assert(testSwitchHandleAllCasesExhaustive(1) == 2);
-    assert(testSwitchHandleAllCasesExhaustive(2) == 1);
-    assert(testSwitchHandleAllCasesExhaustive(3) == 0);
+    assertOrPanic(testSwitchHandleAllCasesExhaustive(0) == 3);
+    assertOrPanic(testSwitchHandleAllCasesExhaustive(1) == 2);
+    assertOrPanic(testSwitchHandleAllCasesExhaustive(2) == 1);
+    assertOrPanic(testSwitchHandleAllCasesExhaustive(3) == 0);
 
-    assert(testSwitchHandleAllCasesRange(100) == 0);
-    assert(testSwitchHandleAllCasesRange(200) == 1);
-    assert(testSwitchHandleAllCasesRange(201) == 2);
-    assert(testSwitchHandleAllCasesRange(202) == 4);
-    assert(testSwitchHandleAllCasesRange(230) == 3);
+    assertOrPanic(testSwitchHandleAllCasesRange(100) == 0);
+    assertOrPanic(testSwitchHandleAllCasesRange(200) == 1);
+    assertOrPanic(testSwitchHandleAllCasesRange(201) == 2);
+    assertOrPanic(testSwitchHandleAllCasesRange(202) == 4);
+    assertOrPanic(testSwitchHandleAllCasesRange(230) == 3);
 }
 
 fn testSwitchHandleAllCasesExhaustive(x: u2) u2 {
@@ -207,8 +103,8 @@ test "switch all prongs unreachable" {
 }
 
 fn testAllProngsUnreachable() void {
-    assert(switchWithUnreachable(1) == 2);
-    assert(switchWithUnreachable(2) == 10);
+    assertOrPanic(switchWithUnreachable(1) == 2);
+    assertOrPanic(switchWithUnreachable(2) == 10);
 }
 
 fn switchWithUnreachable(x: i32) i32 {
@@ -230,5 +126,5 @@ test "capture value of switch with all unreachable prongs" {
     const x = return_a_number() catch |err| switch (err) {
         else => unreachable,
     };
-    assert(x == 1);
+    assertOrPanic(x == 1);
 }

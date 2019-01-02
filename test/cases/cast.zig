@@ -1,74 +1,7 @@
 const std = @import("std");
-const assert = std.debug.assert;
+const assertOrPanic = std.debug.assertOrPanic;
 const mem = std.mem;
 const maxInt = std.math.maxInt;
-
-test "int to ptr cast" {
-    const x = usize(13);
-    const y = @intToPtr(*u8, x);
-    const z = @ptrToInt(y);
-    assert(z == 13);
-}
-
-test "integer literal to pointer cast" {
-    const vga_mem = @intToPtr(*u16, 0xB8000);
-    assert(@ptrToInt(vga_mem) == 0xB8000);
-}
-
-test "pointer reinterpret const float to int" {
-    const float: f64 = 5.99999999999994648725e-01;
-    const float_ptr = &float;
-    const int_ptr = @ptrCast(*const i32, float_ptr);
-    const int_val = int_ptr.*;
-    assert(int_val == 858993411);
-}
-
-test "implicitly cast indirect pointer to maybe-indirect pointer" {
-    const S = struct {
-        const Self = @This();
-        x: u8,
-        fn constConst(p: *const *const Self) u8 {
-            return p.*.x;
-        }
-        fn maybeConstConst(p: ?*const *const Self) u8 {
-            return p.?.*.x;
-        }
-        fn constConstConst(p: *const *const *const Self) u8 {
-            return p.*.*.x;
-        }
-        fn maybeConstConstConst(p: ?*const *const *const Self) u8 {
-            return p.?.*.*.x;
-        }
-    };
-    const s = S{ .x = 42 };
-    const p = &s;
-    const q = &p;
-    const r = &q;
-    assert(42 == S.constConst(q));
-    assert(42 == S.maybeConstConst(q));
-    assert(42 == S.constConstConst(r));
-    assert(42 == S.maybeConstConstConst(r));
-}
-
-test "explicit cast from integer to error type" {
-    testCastIntToErr(error.ItBroke);
-    comptime testCastIntToErr(error.ItBroke);
-}
-fn testCastIntToErr(err: anyerror) void {
-    const x = @errorToInt(err);
-    const y = @intToError(x);
-    assert(error.ItBroke == y);
-}
-
-test "peer resolve arrays of different size to const slice" {
-    assert(mem.eql(u8, boolToStr(true), "true"));
-    assert(mem.eql(u8, boolToStr(false), "false"));
-    comptime assert(mem.eql(u8, boolToStr(true), "true"));
-    comptime assert(mem.eql(u8, boolToStr(false), "false"));
-}
-fn boolToStr(b: bool) []const u8 {
-    return if (b) "true" else "false";
-}
 
 test "peer resolve array and const slice" {
     testPeerResolveArrayConstSlice(true);
@@ -77,8 +10,8 @@ test "peer resolve array and const slice" {
 fn testPeerResolveArrayConstSlice(b: bool) void {
     const value1 = if (b) "aoeu" else ([]const u8)("zz");
     const value2 = if (b) ([]const u8)("zz") else "aoeu";
-    assert(mem.eql(u8, value1, "aoeu"));
-    assert(mem.eql(u8, value2, "zz"));
+    assertOrPanic(mem.eql(u8, value1, "aoeu"));
+    assertOrPanic(mem.eql(u8, value2, "zz"));
 }
 
 test "implicitly cast from T to anyerror!?T" {
@@ -91,14 +24,14 @@ const A = struct {
 fn castToOptionalTypeError(z: i32) void {
     const x = i32(1);
     const y: anyerror!?i32 = x;
-    assert((try y).? == 1);
+    assertOrPanic((try y).? == 1);
 
     const f = z;
     const g: anyerror!?i32 = f;
 
     const a = A{ .a = z };
     const b: anyerror!?A = a;
-    assert((b catch unreachable).?.a == 1);
+    assertOrPanic((b catch unreachable).?.a == 1);
 }
 
 test "implicitly cast from int to anyerror!?T" {
@@ -113,7 +46,7 @@ fn implicitIntLitToOptional() void {
 test "return null from fn() anyerror!?&T" {
     const a = returnNullFromOptionalTypeErrorRef();
     const b = returnNullLitFromOptionalTypeErrorRef();
-    assert((try a) == null and (try b) == null);
+    assertOrPanic((try a) == null and (try b) == null);
 }
 fn returnNullFromOptionalTypeErrorRef() anyerror!?*A {
     const a: ?*A = null;
@@ -124,11 +57,11 @@ fn returnNullLitFromOptionalTypeErrorRef() anyerror!?*A {
 }
 
 test "peer type resolution: ?T and T" {
-    assert(peerTypeTAndOptionalT(true, false).? == 0);
-    assert(peerTypeTAndOptionalT(false, false).? == 3);
+    assertOrPanic(peerTypeTAndOptionalT(true, false).? == 0);
+    assertOrPanic(peerTypeTAndOptionalT(false, false).? == 3);
     comptime {
-        assert(peerTypeTAndOptionalT(true, false).? == 0);
-        assert(peerTypeTAndOptionalT(false, false).? == 3);
+        assertOrPanic(peerTypeTAndOptionalT(true, false).? == 0);
+        assertOrPanic(peerTypeTAndOptionalT(false, false).? == 3);
     }
 }
 fn peerTypeTAndOptionalT(c: bool, b: bool) ?usize {
@@ -140,11 +73,11 @@ fn peerTypeTAndOptionalT(c: bool, b: bool) ?usize {
 }
 
 test "peer type resolution: [0]u8 and []const u8" {
-    assert(peerTypeEmptyArrayAndSlice(true, "hi").len == 0);
-    assert(peerTypeEmptyArrayAndSlice(false, "hi").len == 1);
+    assertOrPanic(peerTypeEmptyArrayAndSlice(true, "hi").len == 0);
+    assertOrPanic(peerTypeEmptyArrayAndSlice(false, "hi").len == 1);
     comptime {
-        assert(peerTypeEmptyArrayAndSlice(true, "hi").len == 0);
-        assert(peerTypeEmptyArrayAndSlice(false, "hi").len == 1);
+        assertOrPanic(peerTypeEmptyArrayAndSlice(true, "hi").len == 0);
+        assertOrPanic(peerTypeEmptyArrayAndSlice(false, "hi").len == 1);
     }
 }
 fn peerTypeEmptyArrayAndSlice(a: bool, slice: []const u8) []const u8 {
@@ -156,8 +89,8 @@ fn peerTypeEmptyArrayAndSlice(a: bool, slice: []const u8) []const u8 {
 }
 
 test "implicitly cast from [N]T to ?[]const T" {
-    assert(mem.eql(u8, castToOptionalSlice().?, "hi"));
-    comptime assert(mem.eql(u8, castToOptionalSlice().?, "hi"));
+    assertOrPanic(mem.eql(u8, castToOptionalSlice().?, "hi"));
+    comptime assertOrPanic(mem.eql(u8, castToOptionalSlice().?, "hi"));
 }
 
 fn castToOptionalSlice() ?[]const u8 {
@@ -170,7 +103,7 @@ test "implicitly cast from [0]T to anyerror![]T" {
 }
 
 fn testCastZeroArrayToErrSliceMut() void {
-    assert((gimmeErrOrSlice() catch unreachable).len == 0);
+    assertOrPanic((gimmeErrOrSlice() catch unreachable).len == 0);
 }
 
 fn gimmeErrOrSlice() anyerror![]u8 {
@@ -181,14 +114,14 @@ test "peer type resolution: [0]u8, []const u8, and anyerror![]u8" {
     {
         var data = "hi";
         const slice = data[0..];
-        assert((try peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
-        assert((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
+        assertOrPanic((try peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
+        assertOrPanic((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
     }
     comptime {
         var data = "hi";
         const slice = data[0..];
-        assert((try peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
-        assert((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
+        assertOrPanic((try peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
+        assertOrPanic((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
     }
 }
 fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) anyerror![]u8 {
@@ -206,7 +139,7 @@ test "resolve undefined with integer" {
 fn testResolveUndefWithInt(b: bool, x: i32) void {
     const value = if (b) x else undefined;
     if (b) {
-        assert(value == x);
+        assertOrPanic(value == x);
     }
 }
 
@@ -218,17 +151,17 @@ test "implicit cast from &const [N]T to []const T" {
 fn testCastConstArrayRefToConstSlice() void {
     const blah = "aoeu";
     const const_array_ref = &blah;
-    assert(@typeOf(const_array_ref) == *const [4]u8);
+    assertOrPanic(@typeOf(const_array_ref) == *const [4]u8);
     const slice: []const u8 = const_array_ref;
-    assert(mem.eql(u8, slice, "aoeu"));
+    assertOrPanic(mem.eql(u8, slice, "aoeu"));
 }
 
 test "peer type resolution: error and [N]T" {
     // TODO: implicit error!T to error!U where T can implicitly cast to U
-    //assert(mem.eql(u8, try testPeerErrorAndArray(0), "OK"));
-    //comptime assert(mem.eql(u8, try testPeerErrorAndArray(0), "OK"));
-    assert(mem.eql(u8, try testPeerErrorAndArray2(1), "OKK"));
-    comptime assert(mem.eql(u8, try testPeerErrorAndArray2(1), "OKK"));
+    //assertOrPanic(mem.eql(u8, try testPeerErrorAndArray(0), "OK"));
+    //comptime assertOrPanic(mem.eql(u8, try testPeerErrorAndArray(0), "OK"));
+    assertOrPanic(mem.eql(u8, try testPeerErrorAndArray2(1), "OKK"));
+    comptime assertOrPanic(mem.eql(u8, try testPeerErrorAndArray2(1), "OKK"));
 }
 
 //fn testPeerErrorAndArray(x: u8) error![]const u8 {
@@ -252,9 +185,9 @@ test "@floatToInt" {
 
 fn testFloatToInts() void {
     const x = i32(1e4);
-    assert(x == 10000);
+    assertOrPanic(x == 10000);
     const y = @floatToInt(i32, f32(1e4));
-    assert(y == 10000);
+    assertOrPanic(y == 10000);
     expectFloatToInt(f16, 255.1, u8, 255);
     expectFloatToInt(f16, 127.2, i8, 127);
     expectFloatToInt(f16, -128.2, i8, -128);
@@ -265,7 +198,7 @@ fn testFloatToInts() void {
 }
 
 fn expectFloatToInt(comptime F: type, f: F, comptime I: type, i: I) void {
-    assert(@floatToInt(I, f) == i);
+    assertOrPanic(@floatToInt(I, f) == i);
 }
 
 test "cast u128 to f128 and back" {
@@ -274,7 +207,7 @@ test "cast u128 to f128 and back" {
 }
 
 fn testCast128() void {
-    assert(cast128Int(cast128Float(0x7fff0000000000000000000000000000)) == 0x7fff0000000000000000000000000000);
+    assertOrPanic(cast128Int(cast128Float(0x7fff0000000000000000000000000000)) == 0x7fff0000000000000000000000000000);
 }
 
 fn cast128Int(x: f128) u128 {
@@ -294,9 +227,9 @@ test "const slice widen cast" {
     };
 
     const u32_value = @bytesToSlice(u32, bytes[0..])[0];
-    assert(u32_value == 0x12121212);
+    assertOrPanic(u32_value == 0x12121212);
 
-    assert(@bitCast(u32, bytes) == 0x12121212);
+    assertOrPanic(@bitCast(u32, bytes) == 0x12121212);
 }
 
 test "single-item pointer of array to slice and to unknown length pointer" {
@@ -308,76 +241,76 @@ fn testCastPtrOfArrayToSliceAndPtr() void {
     var array = "aoeu";
     const x: [*]u8 = &array;
     x[0] += 1;
-    assert(mem.eql(u8, array[0..], "boeu"));
+    assertOrPanic(mem.eql(u8, array[0..], "boeu"));
     const y: []u8 = &array;
     y[0] += 1;
-    assert(mem.eql(u8, array[0..], "coeu"));
+    assertOrPanic(mem.eql(u8, array[0..], "coeu"));
 }
 
 test "cast *[1][*]const u8 to [*]const ?[*]const u8" {
     const window_name = [1][*]const u8{c"window name"};
     const x: [*]const ?[*]const u8 = &window_name;
-    assert(mem.eql(u8, std.cstr.toSliceConst(x[0].?), "window name"));
+    assertOrPanic(mem.eql(u8, std.cstr.toSliceConst(x[0].?), "window name"));
 }
 
 test "@intCast comptime_int" {
     const result = @intCast(i32, 1234);
-    assert(@typeOf(result) == i32);
-    assert(result == 1234);
+    assertOrPanic(@typeOf(result) == i32);
+    assertOrPanic(result == 1234);
 }
 
 test "@floatCast comptime_int and comptime_float" {
     {
         const result = @floatCast(f16, 1234);
-        assert(@typeOf(result) == f16);
-        assert(result == 1234.0);
+        assertOrPanic(@typeOf(result) == f16);
+        assertOrPanic(result == 1234.0);
     }
     {
         const result = @floatCast(f16, 1234.0);
-        assert(@typeOf(result) == f16);
-        assert(result == 1234.0);
+        assertOrPanic(@typeOf(result) == f16);
+        assertOrPanic(result == 1234.0);
     }
     {
         const result = @floatCast(f32, 1234);
-        assert(@typeOf(result) == f32);
-        assert(result == 1234.0);
+        assertOrPanic(@typeOf(result) == f32);
+        assertOrPanic(result == 1234.0);
     }
     {
         const result = @floatCast(f32, 1234.0);
-        assert(@typeOf(result) == f32);
-        assert(result == 1234.0);
+        assertOrPanic(@typeOf(result) == f32);
+        assertOrPanic(result == 1234.0);
     }
 }
 
 test "comptime_int @intToFloat" {
     {
         const result = @intToFloat(f16, 1234);
-        assert(@typeOf(result) == f16);
-        assert(result == 1234.0);
+        assertOrPanic(@typeOf(result) == f16);
+        assertOrPanic(result == 1234.0);
     }
     {
         const result = @intToFloat(f32, 1234);
-        assert(@typeOf(result) == f32);
-        assert(result == 1234.0);
+        assertOrPanic(@typeOf(result) == f32);
+        assertOrPanic(result == 1234.0);
     }
 }
 
 test "@bytesToSlice keeps pointer alignment" {
     var bytes = []u8{ 0x01, 0x02, 0x03, 0x04 };
     const numbers = @bytesToSlice(u32, bytes[0..]);
-    comptime assert(@typeOf(numbers) == []align(@alignOf(@typeOf(bytes))) u32);
+    comptime assertOrPanic(@typeOf(numbers) == []align(@alignOf(@typeOf(bytes))) u32);
 }
 
 test "@intCast i32 to u7" {
     var x: u128 = maxInt(u128);
     var y: i32 = 120;
     var z = x >> @intCast(u7, y);
-    assert(z == 0xff);
+    assertOrPanic(z == 0xff);
 }
 
 test "implicit cast undefined to optional" {
-    assert(MakeType(void).getNull() == null);
-    assert(MakeType(void).getNonNull() != null);
+    assertOrPanic(MakeType(void).getNull() == null);
+    assertOrPanic(MakeType(void).getNonNull() != null);
 }
 
 fn MakeType(comptime T: type) type {
@@ -397,16 +330,16 @@ test "implicit cast from *[N]T to ?[*]T" {
     var y: [4]u16 = [4]u16{ 0, 1, 2, 3 };
 
     x = &y;
-    assert(std.mem.eql(u16, x.?[0..4], y[0..4]));
+    assertOrPanic(std.mem.eql(u16, x.?[0..4], y[0..4]));
     x.?[0] = 8;
     y[3] = 6;
-    assert(std.mem.eql(u16, x.?[0..4], y[0..4]));
+    assertOrPanic(std.mem.eql(u16, x.?[0..4], y[0..4]));
 }
 
 test "implicit cast from *T to ?*c_void" {
     var a: u8 = 1;
     incrementVoidPtrValue(&a);
-    std.debug.assert(a == 2);
+    std.debug.assertOrPanic(a == 2);
 }
 
 fn incrementVoidPtrValue(value: ?*c_void) void {
@@ -416,7 +349,7 @@ fn incrementVoidPtrValue(value: ?*c_void) void {
 test "implicit cast from [*]T to ?*c_void" {
     var a = []u8{ 3, 2, 1 };
     incrementVoidPtrArray(a[0..].ptr, 3);
-    assert(std.mem.eql(u8, a, []u8{ 4, 3, 2 }));
+    assertOrPanic(std.mem.eql(u8, a, []u8{ 4, 3, 2 }));
 }
 
 fn incrementVoidPtrArray(array: ?*c_void, len: usize) void {
@@ -440,27 +373,27 @@ pub const FUNCTION_CONSTANT = @intToPtr(PFN_void, maxInt(usize));
 pub const PFN_void = extern fn (*c_void) void;
 
 fn foobar(func: PFN_void) void {
-    std.debug.assert(@ptrToInt(func) == maxInt(usize));
+    std.debug.assertOrPanic(@ptrToInt(func) == maxInt(usize));
 }
 
 test "implicit ptr to *c_void" {
     var a: u32 = 1;
     var ptr: *c_void = &a;
     var b: *u32 = @ptrCast(*u32, ptr);
-    assert(b.* == 1);
+    assertOrPanic(b.* == 1);
     var ptr2: ?*c_void = &a;
     var c: *u32 = @ptrCast(*u32, ptr2.?);
-    assert(c.* == 1);
+    assertOrPanic(c.* == 1);
 }
 
 test "@intCast to comptime_int" {
-    assert(@intCast(comptime_int, 0) == 0);
+    assertOrPanic(@intCast(comptime_int, 0) == 0);
 }
 
 test "implicit cast comptime numbers to any type when the value fits" {
     const a: u64 = 255;
     var b: u8 = a;
-    assert(b == 255);
+    assertOrPanic(b == 255);
 }
 
 test "@intToEnum passed a comptime_int to an enum with one item" {
@@ -468,5 +401,5 @@ test "@intToEnum passed a comptime_int to an enum with one item" {
         A,
     };
     const x = @intToEnum(E, 0);
-    assert(x == E.A);
+    assertOrPanic(x == E.A);
 }

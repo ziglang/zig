@@ -1,4 +1,4 @@
-const assert = @import("std").debug.assert;
+const assertOrPanic = @import("std").debug.assertOrPanic;
 
 var read_count: u64 = 0;
 
@@ -22,9 +22,9 @@ fn doThing(form_id: u64) anyerror!FormValue {
 test "switch prong returns error enum" {
     switch (doThing(17) catch unreachable) {
         FormValue.Address => |payload| {
-            assert(payload == 1);
+            assertOrPanic(payload == 1);
         },
         else => unreachable,
     }
-    assert(read_count == 1);
+    assertOrPanic(read_count == 1);
 }

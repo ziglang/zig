@@ -1,4 +1,4 @@
-const assert = @import("std").debug.assert;
+const assertOrPanic = @import("std").debug.assertOrPanic;
 
 const Node = struct {
     payload: i32,
@@ -34,10 +34,10 @@ test "struct contains slice of itself" {
         .payload = 1234,
         .children = nodes[0..],
     };
-    assert(root.payload == 1234);
-    assert(root.children[0].payload == 1);
-    assert(root.children[1].payload == 2);
-    assert(root.children[2].payload == 3);
-    assert(root.children[2].children[0].payload == 31);
-    assert(root.children[2].children[1].payload == 32);
+    assertOrPanic(root.payload == 1234);
+    assertOrPanic(root.children[0].payload == 1);
+    assertOrPanic(root.children[1].payload == 2);
+    assertOrPanic(root.children[2].payload == 3);
+    assertOrPanic(root.children[2].children[0].payload == 31);
+    assertOrPanic(root.children[2].children[1].payload == 32);
 }
