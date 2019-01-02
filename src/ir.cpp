@@ -7733,8 +7733,7 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
         case NodeTypeFnCallExpr:
             return ir_gen_fn_call(irb, scope, node, lval, result_loc);
         case NodeTypeIfBoolExpr:
-            return ir_gen_if_bool_expr(irb, scope, node, lval,
-                    ensure_result_loc(irb, scope, node, result_loc));
+            return ir_gen_if_bool_expr(irb, scope, node, lval, result_loc);
         case NodeTypePrefixOpExpr:
             return ir_gen_prefix_op_expr(irb, scope, node, lval, result_loc);
         case NodeTypeContainerInitExpr:
@@ -7787,11 +7786,9 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
         case NodeTypeNullLiteral:
             return ir_gen_null_literal(irb, scope, node, lval, result_loc);
         case NodeTypeIfErrorExpr:
-            return ir_gen_if_err_expr(irb, scope, node, lval,
-                    ensure_result_loc(irb, scope, node, result_loc));
+            return ir_gen_if_err_expr(irb, scope, node, lval, result_loc);
         case NodeTypeIfOptional:
-            return ir_gen_if_optional_expr(irb, scope, node, lval,
-                    ensure_result_loc(irb, scope, node, result_loc));
+            return ir_gen_if_optional_expr(irb, scope, node, lval, result_loc);
         case NodeTypeSwitchExpr:
             return ir_gen_switch_expr(irb, scope, node, lval,
                     ensure_result_loc(irb, scope, node, result_loc));
@@ -12810,19 +12807,18 @@ static IrInstruction *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp *
     if (casted_op2 == ira->codegen->invalid_instruction)
         return ira->codegen->invalid_instruction;
 
-    bool requires_comptime;
-    switch (type_requires_comptime(ira->codegen, resolved_type)) {
-        case ReqCompTimeYes:
-            requires_comptime = true;
-            break;
-        case ReqCompTimeNo:
-            requires_comptime = false;
-            break;
-        case ReqCompTimeInvalid:
+    bool one_possible_value;
+    switch (type_has_one_possible_value(ira->codegen, resolved_type)) {
+        case OnePossibleValueInvalid:
             return ira->codegen->invalid_instruction;
+        case OnePossibleValueYes:
+            one_possible_value = true;
+            break;
+        case OnePossibleValueNo:
+            one_possible_value = false;
+            break;
     }
 
-    bool one_possible_value = !requires_comptime && !type_has_bits(resolved_type);
     if (one_possible_value || (instr_is_comptime(casted_op1) && instr_is_comptime(casted_op2))) {
         ConstExprValue *op1_val = one_possible_value ? &casted_op1->value : ir_resolve_const(ira, casted_op1, UndefBad);
         if (op1_val == nullptr)
@@ -14440,10 +14436,16 @@ static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source
                     return ira->codegen->invalid_instruction;
                 if (dest_val->special != ConstValSpecialRuntime) {
                     *dest_val = value->value;
-                    if (!ira->new_irb.current_basic_block->must_be_comptime_source_instr &&
-                        type_has_bits(child_type))
-                    {
-                        ira->new_irb.current_basic_block->must_be_comptime_source_instr = source_instr;
+                    if (!ira->new_irb.current_basic_block->must_be_comptime_source_instr) {
+                        switch (type_has_one_possible_value(ira->codegen, child_type)) {
+                            case OnePossibleValueInvalid:
+                                return ira->codegen->invalid_instruction;
+                            case OnePossibleValueNo:
+                                ira->new_irb.current_basic_block->must_be_comptime_source_instr = source_instr;
+                                break;
+                            case OnePossibleValueYes:
+                                break;
+                        }
                     }
                     if (ptr->value.data.x_ptr.mut == ConstPtrMutInfer) {
                         ptr->value.data.x_ptr.mut = ConstPtrMutComptimeConst;
@@ -14465,6 +14467,17 @@ static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source
                 return ira->codegen->invalid_instruction;
             }
         }
+    }
+
+    switch (type_requires_comptime(ira->codegen, child_type)) {
+        case ReqCompTimeInvalid:
+            return ira->codegen->invalid_instruction;
+        case ReqCompTimeYes:
+            ir_add_error(ira, source_instr,
+                    buf_sprintf("cannot store runtime value in type '%s'", buf_ptr(&child_type->name)));
+            return ira->codegen->invalid_instruction;
+        case ReqCompTimeNo:
+            break;
     }
 
     IrInstruction *result = ir_build_store_ptr(&ira->new_irb, source_instr->scope, source_instr->source_node,

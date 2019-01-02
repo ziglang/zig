@@ -5137,11 +5137,52 @@ bool fn_eval_eql(Scope *a, Scope *b) {
     return false;
 }
 
+// Whether the type has bits at runtime.
 bool type_has_bits(ZigType *type_entry) {
     assert(type_entry);
     assert(!type_is_invalid(type_entry));
     assert(type_is_resolved(type_entry, ResolveStatusZeroBitsKnown));
     return !type_entry->zero_bits;
+}
+
+// Whether you can infer the value based solely on the type.
+OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry) {
+    assert(type_entry != nullptr);
+    Error err;
+    if ((err = type_resolve(g, type_entry, ResolveStatusZeroBitsKnown)))
+        return OnePossibleValueInvalid;
+    switch (type_entry->id) {
+        case ZigTypeIdInvalid:
+            zig_unreachable();
+        case ZigTypeIdOpaque:
+        case ZigTypeIdComptimeFloat:
+        case ZigTypeIdComptimeInt:
+        case ZigTypeIdMetaType:
+        case ZigTypeIdNamespace:
+        case ZigTypeIdBoundFn:
+        case ZigTypeIdArgTuple:
+        case ZigTypeIdOptional:
+        case ZigTypeIdFn:
+        case ZigTypeIdBool:
+        case ZigTypeIdInt:
+        case ZigTypeIdFloat:
+        case ZigTypeIdPromise:
+            return OnePossibleValueNo;
+        case ZigTypeIdUndefined:
+        case ZigTypeIdNull:
+        case ZigTypeIdVoid:
+        case ZigTypeIdUnreachable:
+            return OnePossibleValueYes;
+        case ZigTypeIdArray:
+        case ZigTypeIdStruct:
+        case ZigTypeIdUnion:
+        case ZigTypeIdErrorUnion:
+        case ZigTypeIdPointer:
+        case ZigTypeIdEnum:
+        case ZigTypeIdErrorSet:
+            return type_has_bits(type_entry) ? OnePossibleValueNo : OnePossibleValueYes;
+    }
+    zig_unreachable();
 }
 
 ReqCompTime type_requires_comptime(CodeGen *g, ZigType *type_entry) {
