@@ -2,7 +2,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const minInt = std.math.minInt;
 
-test "bitReverse" {
+test "@bitreverse" {
     comptime testBitReverse();
     testBitReverse();
 }

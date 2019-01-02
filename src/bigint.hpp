@@ -88,7 +88,6 @@ size_t bigint_bits_needed(const BigInt *op);
 
 
 // convenience functions
-bool bigint_bit_at_index(const BigInt *bi, size_t index);
 Cmp bigint_cmp_zero(const BigInt *op);
 
 void bigint_incr(BigInt *value);

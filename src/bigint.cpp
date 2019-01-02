@@ -1723,7 +1723,3 @@ void bigint_incr(BigInt *x) {
     bigint_add(x, &copy, &one);
 }
 
-bool bigint_bit_at_index(const BigInt *bi, size_t index) {
-    return bit_at_index(bi,index);
-}
-
