@@ -14515,9 +14515,17 @@ static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source
         case ReqCompTimeInvalid:
             return ira->codegen->invalid_instruction;
         case ReqCompTimeYes:
-            ir_add_error(ira, source_instr,
-                    buf_sprintf("cannot store runtime value in type '%s'", buf_ptr(&child_type->name)));
-            return ira->codegen->invalid_instruction;
+            switch (type_has_one_possible_value(ira->codegen, ptr->value.type)) {
+                case OnePossibleValueInvalid:
+                    return ira->codegen->invalid_instruction;
+                case OnePossibleValueNo:
+                    ir_add_error(ira, source_instr,
+                            buf_sprintf("cannot store runtime value in type '%s'", buf_ptr(&child_type->name)));
+                    return ira->codegen->invalid_instruction;
+                case OnePossibleValueYes:
+                    return ir_const_void(ira, source_instr);
+            }
+            zig_unreachable();
         case ReqCompTimeNo:
             break;
     }
