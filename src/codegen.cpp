@@ -4892,7 +4892,26 @@ static LLVMValueRef ir_render_coro_alloc(CodeGen *g, IrExecutable *executable, I
 }
 
 static LLVMValueRef ir_render_coro_size(CodeGen *g, IrExecutable *executable, IrInstructionCoroSize *instruction) {
-    return LLVMBuildCall(g->builder, get_coro_size_fn_val(g), nullptr, 0, "");
+    LLVMValueRef coro_size = LLVMBuildCall(g->builder, get_coro_size_fn_val(g), nullptr, 0, "");
+    LLVMValueRef alignment_val = LLVMConstInt(g->builtin_types.entry_u29->type_ref,
+            get_coro_frame_align_bytes(g), false);
+    //align `coro_size` to `alignment_val` before passing on.
+    LLVMValueRef coro_size_u29 = LLVMBuildTrunc(g->builder, coro_size, g->builtin_types.entry_u29->type_ref, "");
+    // add = coro_size_u29 + alignment_val
+    LLVMValueRef add = LLVMBuildAdd(g->builder, coro_size_u29, alignment_val, "");
+    // sub = add - 1
+    LLVMValueRef sub = LLVMBuildSub( g->builder
+                                   , add
+                                   , LLVMConstInt(g->builtin_types.entry_u29->type_ref, 1, false)
+                                   , "");
+    // udiv = sub / alignment_val
+    LLVMValueRef udiv = LLVMBuildUDiv(g->builder, sub, alignment_val, "");
+    // coro_size_aligned = udiv * alignment_val
+    LLVMValueRef coro_size_aligned = LLVMBuildZExt( g->builder
+                                                  , LLVMBuildMul(g->builder, udiv, alignment_val, "")
+                                                  , g->builtin_types.entry_usize->type_ref
+                                                  , "");
+    return coro_size_aligned;
 }
 
 static LLVMValueRef ir_render_coro_begin(CodeGen *g, IrExecutable *executable, IrInstructionCoroBegin *instruction) {
@@ -5047,25 +5066,7 @@ static LLVMValueRef get_coro_alloc_helper_fn_val(CodeGen *g, LLVMTypeRef alloc_f
         args.append(stack_trace_val);
     }
     args.append(allocator_val);
-    {
-        //align `coro_size` to `alignment_val` before passing on.
-        LLVMValueRef coro_size_u29 = LLVMBuildTrunc(g->builder, coro_size, g->builtin_types.entry_u29->type_ref, "");
-        // add = coro_size_u29 + alignment_val
-        LLVMValueRef add = LLVMBuildAdd(g->builder, coro_size_u29, alignment_val, "");
-        // sub = add - 1
-        LLVMValueRef sub = LLVMBuildSub( g->builder
-                                       , add
-                                       , LLVMConstInt(g->builtin_types.entry_u29->type_ref, 1, false)
-                                       , "");
-        // udiv = sub / alignment_val
-        LLVMValueRef udiv = LLVMBuildUDiv(g->builder, sub, alignment_val, "");
-        // coro_size_aligned = udiv * alignment_val
-        LLVMValueRef coro_size_aligned = LLVMBuildZExt( g->builder
-                                                      , LLVMBuildMul(g->builder, udiv, alignment_val, "")
-                                                      , g->builtin_types.entry_usize->type_ref
-                                                      , "");
-        args.append(coro_size_aligned);
-    }
+    args.append(coro_size);
     args.append(alignment_val);
     LLVMValueRef call_instruction = ZigLLVMBuildCall(g->builder, alloc_fn_val, args.items, args.length,
             get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAuto, "");
