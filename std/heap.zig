@@ -14,14 +14,18 @@ const AbstractAllocator = mem.AbstractAllocator;
 
 pub const CAllocator = struct
 {
+    //Using self: CAllocator instead of a pointer segfaults, but *CAllocator would be
+    // align 0 without this unused field.
+    _: u8,  
+    
     const Error = mem.AllocatorError;
     
-    pub fn alloc(self: CAllocatorInterface, n: usize, alignment: u29) Error![]u8 {
+    pub fn alloc(self: *CAllocator, n: usize, alignment: u29) Error![]u8 {
         assert(alignment <= @alignOf(c_longdouble));
         return if (c.malloc(n)) |buf| @ptrCast([*]u8, buf)[0..n] else error.OutOfMemory;
     }
     
-    pub fn realloc(self: CAllocatorInterface, old_mem: []u8, new_size: usize, alignment: u29) Error![]u8 {
+    pub fn realloc(self: *CAllocator, old_mem: []u8, new_size: usize, alignment: u29) Error![]u8 {
         const old_ptr = @ptrCast(*c_void, old_mem.ptr);
         if (c.realloc(old_ptr, new_size)) |buf| {
             return @ptrCast([*]u8, buf)[0..new_size];
@@ -32,21 +36,21 @@ pub const CAllocator = struct
         }
     }
     
-    pub fn free(self: CAllocatorInterface, old_mem: []u8) void {
+    pub fn free(self: *CAllocator, old_mem: []u8) void {
         const old_ptr = @ptrCast(*c_void, old_mem.ptr);
         c.free(old_ptr);
     }
     
-    pub fn allocatorInterface(self: CAllocator) AllocatorInterface(CAllocator) {
-        return AllocatorInterface(CAllocator).init(self);
+    pub fn allocatorInterface(self: *CAllocator) AllocatorInterface(*CAllocator) {
+        return AllocatorInterface(*CAllocator).init(self);
     }
     
-    pub fn allocator(self: CAllocator) Allocator {
-        return Allocator.init(AbstractAllocator.init(self));
+    pub fn allocator(self:*CAllocator) Allocator {
+        return Allocator.init(AbstractAllocator.init(@alignCast(1, self)));
     }
 };
 
-pub const c_allocator = (CAllocator{}).allocator();
+pub const c_allocator = (CAllocator{._ = 0, }).allocator();
 
 
 
