@@ -290,7 +290,8 @@ pub const FixedBufferAllocator = struct {
         const self = @fieldParentPtr(FixedBufferAllocator, "allocator", allocator);
         const addr = @ptrToInt(self.buffer.ptr) + self.end_index;
         const rem = @rem(addr, alignment);
-        const march_forward_bytes = if (rem == 0) 0 else (alignment - rem);
+        // TODO: https://github.com/ziglang/zig/pull/1682#issuecomment-451303797
+        const march_forward_bytes: usize = if (rem == 0) 0 else (alignment - rem);
         const adjusted_index = self.end_index + march_forward_bytes;
         const new_end_index = adjusted_index + n;
         if (new_end_index > self.buffer.len) {
@@ -348,7 +349,8 @@ pub const ThreadSafeFixedBufferAllocator = struct {
         while (true) {
             const addr = @ptrToInt(self.buffer.ptr) + end_index;
             const rem = @rem(addr, alignment);
-            const march_forward_bytes = if (rem == 0) 0 else (alignment - rem);
+            // TODO: https://github.com/ziglang/zig/pull/1682#issuecomment-451303797
+            const march_forward_bytes: usize = if (rem == 0) 0 else (alignment - rem);
             const adjusted_index = end_index + march_forward_bytes;
             const new_end_index = adjusted_index + n;
             if (new_end_index > self.buffer.len) {
