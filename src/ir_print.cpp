@@ -820,7 +820,7 @@ static void ir_print_test_err(IrPrint *irp, IrInstructionTestErr *instruction) {
 
 static void ir_print_unwrap_err_code(IrPrint *irp, IrInstructionUnwrapErrCode *instruction) {
     fprintf(irp->f, "UnwrapErrorCode(");
-    ir_print_other_instruction(irp, instruction->value);
+    ir_print_other_instruction(irp, instruction->err_union);
     fprintf(irp->f, ")");
 }
 

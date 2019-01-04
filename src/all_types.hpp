@@ -2949,7 +2949,7 @@ struct IrInstructionTestErr {
 struct IrInstructionUnwrapErrCode {
     IrInstruction base;
 
-    IrInstruction *value;
+    IrInstruction *err_union;
 };
 
 struct IrInstructionErrorUnionFieldErrorSet {

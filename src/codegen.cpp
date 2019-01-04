@@ -4555,14 +4555,13 @@ static LLVMValueRef ir_render_test_err(CodeGen *g, IrExecutable *executable, IrI
     return LLVMBuildICmp(g->builder, LLVMIntNE, err_val, zero, "");
 }
 
-static LLVMValueRef ir_render_unwrap_err_code(CodeGen *g, IrExecutable *executable, IrInstructionUnwrapErrCode *instruction) {
-    ZigType *ptr_type = instruction->value->value.type;
-    assert(ptr_type->id == ZigTypeIdPointer);
-    ZigType *err_union_type = ptr_type->data.pointer.child_type;
+static LLVMValueRef ir_render_unwrap_err_code(CodeGen *g, IrExecutable *executable,
+        IrInstructionUnwrapErrCode *instruction)
+{
+    ZigType *err_union_type = instruction->err_union->value.type;
     assert(err_union_type->id == ZigTypeIdErrorUnion);
     ZigType *payload_type = err_union_type->data.error_union.payload_type;
-    LLVMValueRef err_union_ptr = ir_llvm_value(g, instruction->value);
-    LLVMValueRef err_union_handle = get_handle_value(g, err_union_ptr, err_union_type, ptr_type);
+    LLVMValueRef err_union_handle = ir_llvm_value(g, instruction->err_union);
 
     if (type_has_bits(payload_type)) {
         LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, err_union_handle, err_union_err_index, "");
@@ -4914,9 +4913,7 @@ static LLVMValueRef get_coro_alloc_helper_fn_val(CodeGen *g, LLVMTypeRef alloc_f
     args.append(alignment_val);
     LLVMValueRef call_instruction = ZigLLVMBuildCall(g->builder, alloc_fn_val, args.items, args.length,
             get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAuto, "");
-    set_call_instr_sret(g, call_instruction);
-    LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, sret_ptr, err_union_err_index, "");
-    LLVMValueRef err_val = LLVMBuildLoad(g->builder, err_val_ptr, "");
+    LLVMValueRef err_val = call_instruction;
     LLVMBuildStore(g->builder, err_val, err_code_ptr);
     LLVMValueRef ok_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, err_val, LLVMConstNull(LLVMTypeOf(err_val)), "");
     LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(fn_val, "AllocOk");
@@ -4924,7 +4921,7 @@ static LLVMValueRef get_coro_alloc_helper_fn_val(CodeGen *g, LLVMTypeRef alloc_f
     LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
 
     LLVMPositionBuilderAtEnd(g->builder, ok_block);
-    LLVMValueRef payload_ptr = LLVMBuildStructGEP(g->builder, sret_ptr, err_union_payload_index, "");
+    LLVMValueRef payload_ptr = sret_ptr;
     ZigType *u8_ptr_type = get_pointer_to_type_extra(g, g->builtin_types.entry_u8, false, false,
             PtrLenUnknown, get_abi_alignment(g, g->builtin_types.entry_u8), 0, 0);
     ZigType *slice_type = get_slice_type(g, u8_ptr_type);
