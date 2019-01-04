@@ -20363,6 +20363,7 @@ static IrInstruction *ir_analyze_instruction_int_to_ptr(IrAnalyze *ira, IrInstru
 
         IrInstruction *result = ir_const(ira, &instruction->base, dest_type);
         result->value.data.x_ptr.special = ConstPtrSpecialHardCodedAddr;
+        result->value.data.x_ptr.mut = ConstPtrMutRuntimeVar;
         result->value.data.x_ptr.data.hard_coded_addr.addr = bigint_as_unsigned(&val->data.x_bigint);
         return result;
     }
