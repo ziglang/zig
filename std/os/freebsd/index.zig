@@ -26,6 +26,21 @@ pub const PROT_READ = 1;
 pub const PROT_WRITE = 2;
 pub const PROT_EXEC = 4;
 
+pub const CLOCK_REALTIME = 0;
+pub const CLOCK_VIRTUAL = 1;
+pub const CLOCK_PROF = 2;
+pub const CLOCK_MONOTONIC = 4;
+pub const CLOCK_UPTIME = 5;
+pub const CLOCK_UPTIME_PRECISE = 7;
+pub const CLOCK_UPTIME_FAST = 8;
+pub const CLOCK_REALTIME_PRECISE = 9;
+pub const CLOCK_REALTIME_FAST = 10;
+pub const CLOCK_MONOTONIC_PRECISE = 11;
+pub const CLOCK_MONOTONIC_FAST = 12;
+pub const CLOCK_SECOND = 13;
+pub const CLOCK_THREAD_CPUTIME_ID = 14;
+pub const CLOCK_PROCESS_CPUTIME_ID = 15;
+
 pub const MAP_FAILED = maxInt(usize);
 pub const MAP_SHARED = 0x0001;
 pub const MAP_PRIVATE = 0x0002;
