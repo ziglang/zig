@@ -28,3 +28,8 @@ test "iterate over a void slice" {
 fn times(n: usize) []const void {
     return ([*]void)(undefined)[0..n];
 }
+
+test "void optional" {
+    var x: ?void = {};
+    assertOrPanic(x != null);
+}

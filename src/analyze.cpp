@@ -5173,7 +5173,6 @@ OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry) {
         case ZigTypeIdOptional:
         case ZigTypeIdFn:
         case ZigTypeIdBool:
-        case ZigTypeIdInt:
         case ZigTypeIdFloat:
         case ZigTypeIdPromise:
             return OnePossibleValueNo;
@@ -5189,6 +5188,7 @@ OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry) {
         case ZigTypeIdPointer:
         case ZigTypeIdEnum:
         case ZigTypeIdErrorSet:
+        case ZigTypeIdInt:
             return type_has_bits(type_entry) ? OnePossibleValueNo : OnePossibleValueYes;
     }
     zig_unreachable();
