@@ -714,6 +714,14 @@ pub fn nanosleep(req: *const timespec, rem: ?*timespec) usize {
     return errnoWrap(c.nanosleep(req, rem));
 }
 
+pub fn clock_gettime(clk_id: i32, tp: *timespec) usize {
+    return errnoWrap(c.clock_gettime(clk_id, tp));
+}
+
+pub fn clock_getres(clk_id: i32, tp: *timespec) usize {
+    return clock_gettime(clk_id, tp);
+}
+
 pub fn setuid(uid: u32) usize {
     return errnoWrap(c.setuid(uid));
 }
