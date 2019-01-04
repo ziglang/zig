@@ -22,6 +22,8 @@ pub extern "c" fn openat(fd: c_int, path: ?[*]const u8, flags: c_int) c_int;
 pub extern "c" fn setgid(ruid: c_uint, euid: c_uint) c_int;
 pub extern "c" fn setuid(uid: c_uint) c_int;
 pub extern "c" fn kill(pid: c_int, sig: c_int) c_int;
+pub extern "c" fn clock_gettime(clk_id: c_int, tp: *timespec) c_int;
+pub extern "c" fn clock_getres(clk_id: c_int, tp: *timespec) c_int;
 
 /// Renamed from `kevent` to `Kevent` to avoid conflict with function name.
 pub const Kevent = extern struct {
