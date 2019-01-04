@@ -525,6 +525,10 @@ pub const TIOCGPKT = 0x80045438;
 pub const TIOCGPTLCK = 0x80045439;
 pub const TIOCGEXCL = 0x80045440;
 
+pub const sockaddr = c.sockaddr;
+pub const sockaddr_in = c.sockaddr_in;
+pub const sockaddr_in6 = c.sockaddr_in6;
+
 fn unsigned(s: i32) u32 {
     return @bitCast(u32, s);
 }
