@@ -81,7 +81,7 @@ ZigFn *scope_fn_entry(Scope *scope);
 ImportTableEntry *get_scope_import(Scope *scope);
 void init_tld(Tld *tld, TldId id, Buf *name, VisibMod visib_mod, AstNode *source_node, Scope *parent_scope);
 ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf *name,
-    bool is_const, ConstExprValue *init_value, Tld *src_tld);
+    bool is_const, ConstExprValue *init_value, Tld *src_tld, ZigType *var_type);
 ZigType *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node);
 ZigFn *create_fn(CodeGen *g, AstNode *proto_node);
 ZigFn *create_fn_raw(CodeGen *g, FnInline inline_value);

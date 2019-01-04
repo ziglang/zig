@@ -1829,10 +1829,9 @@ enum VarLinkage {
 
 struct ZigVar {
     Buf name;
-    ConstExprValue *value;
+    ConstExprValue *const_value;
+    ZigType *var_type;
     LLVMValueRef value_ref;
-    bool src_is_const;
-    bool gen_is_const;
     IrInstruction *is_comptime;
     // which node is the declaration of the variable
     AstNode *decl_node;
@@ -1842,17 +1841,21 @@ struct ZigVar {
     Scope *parent_scope;
     Scope *child_scope;
     LLVMValueRef param_value_ref;
-    bool shadowable;
     size_t mem_slot_index;
     IrExecutable *owner_exec;
     size_t ref_count;
-    VarLinkage linkage;
-    uint32_t align_bytes;
 
     // In an inline loop, multiple variables may be created,
     // In this case, a reference to a variable should follow
     // this pointer to the redefined variable.
     ZigVar *next_var;
+
+    uint32_t align_bytes;
+    VarLinkage linkage;
+
+    bool shadowable;
+    bool src_is_const;
+    bool gen_is_const;
 };
 
 struct ErrorTableEntry {
@@ -2399,8 +2402,8 @@ struct IrInstructionBinOp {
     IrInstruction base;
 
     IrInstruction *op1;
-    IrBinOp op_id;
     IrInstruction *op2;
+    IrBinOp op_id;
     bool safety_check_on;
 };
 

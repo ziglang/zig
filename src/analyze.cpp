@@ -3426,7 +3426,8 @@ void update_compile_var(CodeGen *g, Buf *name, ConstExprValue *value) {
     resolve_top_level_decl(g, tld, false, tld->source_node);
     assert(tld->id == TldIdVar);
     TldVar *tld_var = (TldVar *)tld;
-    tld_var->var->value = value;
+    tld_var->var->const_value = value;
+    tld_var->var->var_type = value->type;
     tld_var->var->align_bytes = get_abi_alignment(g, value->type);
 }
 
@@ -3590,13 +3591,15 @@ ZigType *validate_var_type(CodeGen *g, AstNode *source_node, ZigType *type_entry
 // Set name to nullptr to make the variable anonymous (not visible to programmer).
 // TODO merge with definition of add_local_var in ir.cpp
 ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf *name,
-    bool is_const, ConstExprValue *value, Tld *src_tld)
+    bool is_const, ConstExprValue *const_value, Tld *src_tld, ZigType *var_type)
 {
     Error err;
-    assert(value);
+    assert(const_value != nullptr);
+    assert(var_type != nullptr);
 
     ZigVar *variable_entry = allocate<ZigVar>(1);
-    variable_entry->value = value;
+    variable_entry->const_value = const_value;
+    variable_entry->var_type = var_type;
     variable_entry->parent_scope = parent_scope;
     variable_entry->shadowable = false;
     variable_entry->mem_slot_index = SIZE_MAX;
@@ -3605,23 +3608,23 @@ ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf 
     assert(name);
     buf_init_from_buf(&variable_entry->name, name);
 
-    if ((err = type_resolve(g, value->type, ResolveStatusAlignmentKnown))) {
-        variable_entry->value->type = g->builtin_types.entry_invalid;
+    if ((err = type_resolve(g, var_type, ResolveStatusAlignmentKnown))) {
+        variable_entry->var_type = g->builtin_types.entry_invalid;
     } else {
-        variable_entry->align_bytes = get_abi_alignment(g, value->type);
+        variable_entry->align_bytes = get_abi_alignment(g, var_type);
 
         ZigVar *existing_var = find_variable(g, parent_scope, name, nullptr);
         if (existing_var && !existing_var->shadowable) {
             ErrorMsg *msg = add_node_error(g, source_node,
                     buf_sprintf("redeclaration of variable '%s'", buf_ptr(name)));
             add_error_note(g, msg, existing_var->decl_node, buf_sprintf("previous declaration is here"));
-            variable_entry->value->type = g->builtin_types.entry_invalid;
+            variable_entry->var_type = g->builtin_types.entry_invalid;
         } else {
             ZigType *type;
             if (get_primitive_type(g, name, &type) != ErrorPrimitiveTypeNotFound) {
                 add_node_error(g, source_node,
                         buf_sprintf("variable shadows primitive type '%s'", buf_ptr(name)));
-                variable_entry->value->type = g->builtin_types.entry_invalid;
+                variable_entry->var_type = g->builtin_types.entry_invalid;
             } else {
                 Scope *search_scope = nullptr;
                 if (src_tld == nullptr) {
@@ -3635,7 +3638,7 @@ ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf 
                         ErrorMsg *msg = add_node_error(g, source_node,
                                 buf_sprintf("redefinition of '%s'", buf_ptr(name)));
                         add_error_note(g, msg, tld->source_node, buf_sprintf("previous definition is here"));
-                        variable_entry->value->type = g->builtin_types.entry_invalid;
+                        variable_entry->var_type = g->builtin_types.entry_invalid;
                     }
                 }
             }
@@ -3724,16 +3727,16 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
     ConstExprValue *init_val = init_value ? &init_value->value : create_const_runtime(type);
 
     tld_var->var = add_variable(g, source_node, tld_var->base.parent_scope, var_decl->symbol,
-            is_const, init_val, &tld_var->base);
+            is_const, init_val, &tld_var->base, type);
     tld_var->var->linkage = linkage;
 
     if (implicit_type != nullptr && type_is_invalid(implicit_type)) {
-        tld_var->var->value->type = g->builtin_types.entry_invalid;
+        tld_var->var->var_type = g->builtin_types.entry_invalid;
     }
 
     if (var_decl->align_expr != nullptr) {
         if (!analyze_const_align(g, tld_var->base.parent_scope, var_decl->align_expr, &tld_var->var->align_bytes)) {
-            tld_var->var->value->type = g->builtin_types.entry_invalid;
+            tld_var->var->var_type = g->builtin_types.entry_invalid;
         }
     }
 
@@ -4098,7 +4101,7 @@ static void define_local_param_variables(CodeGen *g, ZigFn *fn_table_entry) {
         }
 
         ZigVar *var = add_variable(g, param_decl_node, fn_table_entry->child_scope,
-                param_name, true, create_const_runtime(param_type), nullptr);
+                param_name, true, create_const_runtime(param_type), nullptr, param_type);
         var->src_arg_index = i;
         fn_table_entry->child_scope = var->child_scope;
         var->shadowable = var->shadowable || is_var_args;
@@ -5072,9 +5075,9 @@ bool fn_eval_cacheable(Scope *scope, ZigType *return_type) {
     while (scope) {
         if (scope->id == ScopeIdVarDecl) {
             ScopeVarDecl *var_scope = (ScopeVarDecl *)scope;
-            if (type_is_invalid(var_scope->var->value->type))
+            if (type_is_invalid(var_scope->var->var_type))
                 return false;
-            if (can_mutate_comptime_var_state(var_scope->var->value))
+            if (can_mutate_comptime_var_state(var_scope->var->const_value))
                 return false;
         } else if (scope->id == ScopeIdFnDef) {
             return true;
@@ -5092,7 +5095,7 @@ uint32_t fn_eval_hash(Scope* scope) {
     while (scope) {
         if (scope->id == ScopeIdVarDecl) {
             ScopeVarDecl *var_scope = (ScopeVarDecl *)scope;
-            result += hash_const_val(var_scope->var->value);
+            result += hash_const_val(var_scope->var->const_value);
         } else if (scope->id == ScopeIdFnDef) {
             ScopeFnDef *fn_scope = (ScopeFnDef *)scope;
             result += hash_ptr(fn_scope->fn_entry);
@@ -5116,10 +5119,16 @@ bool fn_eval_eql(Scope *a, Scope *b) {
         if (a->id == ScopeIdVarDecl) {
             ScopeVarDecl *a_var_scope = (ScopeVarDecl *)a;
             ScopeVarDecl *b_var_scope = (ScopeVarDecl *)b;
-            if (a_var_scope->var->value->type != b_var_scope->var->value->type)
+            if (a_var_scope->var->var_type != b_var_scope->var->var_type)
                 return false;
-            if (!const_values_equal(a->codegen, a_var_scope->var->value, b_var_scope->var->value))
-                return false;
+            if (a_var_scope->var->var_type == a_var_scope->var->const_value->type &&
+                b_var_scope->var->var_type == b_var_scope->var->const_value->type)
+            {
+                if (!const_values_equal(a->codegen, a_var_scope->var->const_value, b_var_scope->var->const_value))
+                    return false;
+            } else {
+                zig_panic("TODO comptime ptr reinterpret for fn_eval_eql");
+            }
         } else if (a->id == ScopeIdFnDef) {
             ScopeFnDef *a_fn_scope = (ScopeFnDef *)a;
             ScopeFnDef *b_fn_scope = (ScopeFnDef *)b;
@@ -6546,7 +6555,7 @@ ConstExprValue *get_builtin_value(CodeGen *codegen, const char *name) {
     resolve_top_level_decl(codegen, tld, false, nullptr);
     assert(tld->id == TldIdVar);
     TldVar *tld_var = (TldVar *)tld;
-    ConstExprValue *var_value = tld_var->var->value;
+    ConstExprValue *var_value = tld_var->var->const_value;
     assert(var_value != nullptr);
     return var_value;
 }

@@ -2230,10 +2230,10 @@ void walk_function_params(CodeGen *g, ZigType *fn_type, FnWalk *fn_walk) {
                 assert(variable);
                 assert(variable->value_ref);
 
-                if (!handle_is_ptr(variable->value->type)) {
+                if (!handle_is_ptr(variable->var_type)) {
                     clear_debug_source_node(g);
-                    gen_store_untyped(g, LLVMGetParam(llvm_fn, (unsigned)variable->gen_arg_index), variable->value_ref,
-                            variable->align_bytes, false);
+                    gen_store_untyped(g, LLVMGetParam(llvm_fn, (unsigned)variable->gen_arg_index),
+                            variable->value_ref, variable->align_bytes, false);
                 }
 
                 if (variable->decl_node) {
@@ -3090,7 +3090,7 @@ static LLVMValueRef ir_render_bool_not(CodeGen *g, IrExecutable *executable, IrI
 static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable, IrInstructionDeclVarGen *instruction) {
     ZigVar *var = instruction->var;
 
-    if (!type_has_bits(var->value->type))
+    if (!type_has_bits(var->var_type))
         return nullptr;
 
     if (var->ref_count == 0 && g->build_mode != BuildModeDebug)
@@ -3201,7 +3201,7 @@ static LLVMValueRef ir_render_store_ptr(CodeGen *g, IrExecutable *executable, Ir
 
 static LLVMValueRef ir_render_var_ptr(CodeGen *g, IrExecutable *executable, IrInstructionVarPtr *instruction) {
     ZigVar *var = instruction->var;
-    if (type_has_bits(var->value->type)) {
+    if (type_has_bits(var->var_type)) {
         assert(var->value_ref);
         return var->value_ref;
     } else {
@@ -6391,10 +6391,13 @@ static void do_code_gen(CodeGen *g) {
         TldVar *tld_var = g->global_vars.at(i);
         ZigVar *var = tld_var->var;
 
-        if (var->value->type->id == ZigTypeIdComptimeFloat) {
+        if (var->var_type->id == ZigTypeIdComptimeFloat) {
             // Generate debug info for it but that's it.
-            ConstExprValue *const_val = var->value;
+            ConstExprValue *const_val = var->const_value;
             assert(const_val->special != ConstValSpecialRuntime);
+            if (const_val->type != var->var_type) {
+                zig_panic("TODO debug info for var with ptr casted value");
+            }
             ZigType *var_type = g->builtin_types.entry_f128;
             ConstExprValue coerced_value;
             coerced_value.special = ConstValSpecialStatic;
@@ -6405,10 +6408,13 @@ static void do_code_gen(CodeGen *g) {
             continue;
         }
 
-        if (var->value->type->id == ZigTypeIdComptimeInt) {
+        if (var->var_type->id == ZigTypeIdComptimeInt) {
             // Generate debug info for it but that's it.
-            ConstExprValue *const_val = var->value;
+            ConstExprValue *const_val = var->const_value;
             assert(const_val->special != ConstValSpecialRuntime);
+            if (const_val->type != var->var_type) {
+                zig_panic("TODO debug info for var with ptr casted value");
+            }
             size_t bits_needed = bigint_bits_needed(&const_val->data.x_bigint);
             if (bits_needed < 8) {
                 bits_needed = 8;
@@ -6419,7 +6425,7 @@ static void do_code_gen(CodeGen *g) {
             continue;
         }
 
-        if (!type_has_bits(var->value->type))
+        if (!type_has_bits(var->var_type))
             continue;
 
         assert(var->decl_node);
@@ -6428,9 +6434,9 @@ static void do_code_gen(CodeGen *g) {
         if (var->linkage == VarLinkageExternal) {
             LLVMValueRef existing_llvm_var = LLVMGetNamedGlobal(g->module, buf_ptr(&var->name));
             if (existing_llvm_var) {
-                global_value = LLVMConstBitCast(existing_llvm_var, LLVMPointerType(var->value->type->type_ref, 0));
+                global_value = LLVMConstBitCast(existing_llvm_var, LLVMPointerType(var->var_type->type_ref, 0));
             } else {
-                global_value = LLVMAddGlobal(g->module, var->value->type->type_ref, buf_ptr(&var->name));
+                global_value = LLVMAddGlobal(g->module, var->var_type->type_ref, buf_ptr(&var->name));
                 // TODO debug info for the extern variable
 
                 LLVMSetLinkage(global_value, LLVMExternalLinkage);
@@ -6441,9 +6447,9 @@ static void do_code_gen(CodeGen *g) {
         } else {
             bool exported = (var->linkage == VarLinkageExport);
             const char *mangled_name = buf_ptr(get_mangled_name(g, &var->name, exported));
-            render_const_val(g, var->value, mangled_name);
-            render_const_val_global(g, var->value, mangled_name);
-            global_value = var->value->global_refs->llvm_global;
+            render_const_val(g, var->const_value, mangled_name);
+            render_const_val_global(g, var->const_value, mangled_name);
+            global_value = var->const_value->global_refs->llvm_global;
 
             if (exported) {
                 LLVMSetLinkage(global_value, LLVMExternalLinkage);
@@ -6455,8 +6461,10 @@ static void do_code_gen(CodeGen *g) {
             LLVMSetAlignment(global_value, var->align_bytes);
 
             // TODO debug info for function pointers
-            if (var->gen_is_const && var->value->type->id != ZigTypeIdFn) {
-                gen_global_var(g, var, var->value->global_refs->llvm_value, var->value->type);
+            // Here we use const_value->type because that's the type of the llvm global,
+            // which we const ptr cast upon use to whatever it needs to be.
+            if (var->gen_is_const && var->const_value->type->id != ZigTypeIdFn) {
+                gen_global_var(g, var, var->const_value->global_refs->llvm_value, var->const_value->type);
             }
 
             LLVMSetGlobalConstant(global_value, var->gen_is_const);
@@ -6533,12 +6541,12 @@ static void do_code_gen(CodeGen *g) {
         for (size_t var_i = 0; var_i < fn_table_entry->variable_list.length; var_i += 1) {
             ZigVar *var = fn_table_entry->variable_list.at(var_i);
 
-            if (!type_has_bits(var->value->type)) {
+            if (!type_has_bits(var->var_type)) {
                 continue;
             }
             if (ir_get_var_is_comptime(var))
                 continue;
-            switch (type_requires_comptime(g, var->value->type)) {
+            switch (type_requires_comptime(g, var->var_type)) {
                 case ReqCompTimeInvalid:
                     zig_unreachable();
                 case ReqCompTimeYes:
@@ -6550,7 +6558,7 @@ static void do_code_gen(CodeGen *g) {
             if (var->src_arg_index == SIZE_MAX) {
                 var->di_loc_var = ZigLLVMCreateAutoVariable(g->dbuilder, get_di_scope(g, var->parent_scope),
                         buf_ptr(&var->name), import->di_file, (unsigned)(var->decl_node->line + 1),
-                        var->value->type->di_type, !g->strip_debug_symbols, 0);
+                        var->var_type->di_type, !g->strip_debug_symbols, 0);
 
             } else if (is_c_abi) {
                 fn_walk_var.data.vars.var = var;
@@ -6560,16 +6568,16 @@ static void do_code_gen(CodeGen *g) {
                 ZigType *gen_type;
                 FnGenParamInfo *gen_info = &fn_table_entry->type_entry->data.fn.gen_param_info[var->src_arg_index];
 
-                if (handle_is_ptr(var->value->type)) {
+                if (handle_is_ptr(var->var_type)) {
                     if (gen_info->is_byval) {
-                        gen_type = var->value->type;
+                        gen_type = var->var_type;
                     } else {
                         gen_type = gen_info->type;
                     }
                     var->value_ref = LLVMGetParam(fn, (unsigned)var->gen_arg_index);
                 } else {
-                    gen_type = var->value->type;
-                    var->value_ref = build_alloca(g, var->value->type, buf_ptr(&var->name), var->align_bytes);
+                    gen_type = var->var_type;
+                    var->value_ref = build_alloca(g, var->var_type, buf_ptr(&var->name), var->align_bytes);
                 }
                 if (var->decl_node) {
                     var->di_loc_var = ZigLLVMCreateParameterVariable(g->dbuilder, get_di_scope(g, var->parent_scope),

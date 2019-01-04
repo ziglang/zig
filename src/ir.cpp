@@ -3679,7 +3679,7 @@ static ZigVar *create_local_var(CodeGen *codegen, AstNode *node, Scope *parent_s
     variable_entry->mem_slot_index = SIZE_MAX;
     variable_entry->is_comptime = is_comptime;
     variable_entry->src_arg_index = SIZE_MAX;
-    variable_entry->value = create_const_vals(1);
+    variable_entry->const_value = create_const_vals(1);
 
     if (is_comptime != nullptr) {
         is_comptime->ref_count += 1;
@@ -3694,20 +3694,20 @@ static ZigVar *create_local_var(CodeGen *codegen, AstNode *node, Scope *parent_s
                 ErrorMsg *msg = add_node_error(codegen, node,
                         buf_sprintf("redeclaration of variable '%s'", buf_ptr(name)));
                 add_error_note(codegen, msg, existing_var->decl_node, buf_sprintf("previous declaration is here"));
-                variable_entry->value->type = codegen->builtin_types.entry_invalid;
+                variable_entry->var_type = codegen->builtin_types.entry_invalid;
             } else {
                 ZigType *type;
                 if (get_primitive_type(codegen, name, &type) != ErrorPrimitiveTypeNotFound) {
                     add_node_error(codegen, node,
                             buf_sprintf("variable shadows primitive type '%s'", buf_ptr(name)));
-                    variable_entry->value->type = codegen->builtin_types.entry_invalid;
+                    variable_entry->var_type = codegen->builtin_types.entry_invalid;
                 } else {
                     Tld *tld = find_decl(codegen, parent_scope, name);
                     if (tld != nullptr) {
                         ErrorMsg *msg = add_node_error(codegen, node,
                                 buf_sprintf("redefinition of '%s'", buf_ptr(name)));
                         add_error_note(codegen, msg, tld->source_node, buf_sprintf("previous definition is here"));
-                        variable_entry->value->type = codegen->builtin_types.entry_invalid;
+                        variable_entry->var_type = codegen->builtin_types.entry_invalid;
                     }
                 }
             }
@@ -5781,7 +5781,7 @@ static IrInstruction *ir_gen_var_decl(IrBuilder *irb, Scope *scope, AstNode *nod
     // is inside var->child_scope
 
     if (!is_extern && !variable_declaration->expr) {
-        var->value->type = irb->codegen->builtin_types.entry_invalid;
+        var->var_type = irb->codegen->builtin_types.entry_invalid;
         add_node_error(irb->codegen, node, buf_sprintf("variables must be initialized"));
         return irb->codegen->invalid_instruction;
     }
@@ -7074,7 +7074,8 @@ static bool render_instance_name_recursive(CodeGen *codegen, Buf *name, Scope *o
     ScopeVarDecl *var_scope = (ScopeVarDecl *)inner_scope;
     if (need_comma)
         buf_append_char(name, ',');
-    render_const_value(codegen, name, var_scope->var->value);
+    // TODO: const ptr reinterpret here to make the var type agree with the value?
+    render_const_value(codegen, name, var_scope->var->const_value);
     return true;
 }
 
@@ -13774,7 +13775,7 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira,
         ZigType *proposed_type = ir_resolve_type(ira, var_type);
         explicit_type = validate_var_type(ira->codegen, var_type->source_node, proposed_type);
         if (type_is_invalid(explicit_type)) {
-            var->value->type = ira->codegen->builtin_types.entry_invalid;
+            var->var_type = ira->codegen->builtin_types.entry_invalid;
             return ira->codegen->invalid_instruction;
         }
     }
@@ -13787,7 +13788,7 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira,
 
     IrInstruction *var_ptr = decl_var_instruction->ptr->child;
     if (type_is_invalid(var_ptr->value.type)) {
-        var->value->type = ira->codegen->builtin_types.entry_invalid;
+        var->var_type = ira->codegen->builtin_types.entry_invalid;
         return ira->codegen->invalid_instruction;
     }
 
@@ -13810,7 +13811,7 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira,
     if (instr_is_comptime(var_ptr) && var_ptr->value.data.x_ptr.mut != ConstPtrMutRuntimeVar) {
         init_val = const_ptr_pointee(ira, ira->codegen, &var_ptr->value, decl_var_instruction->base.source_node);
         if (is_comptime_var) {
-            var->value = init_val;
+            var->const_value = init_val;
         }
     }
 
@@ -13846,7 +13847,7 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira,
         break;
     }
 
-    if (var->value->type != nullptr && !is_comptime_var) {
+    if (var->var_type != nullptr && !is_comptime_var) {
         // This is at least the second time we've seen this variable declaration during analysis.
         // This means that this is actually a different variable due to, e.g. an inline while loop.
         // We make a new variable so that it can hold a different type, and so the debug info can
@@ -13868,8 +13869,8 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira,
     // This must be done after possibly creating a new variable above
     var->ref_count = 0;
 
-    var->value->type = result_type;
-    assert(var->value->type);
+    var->var_type = result_type;
+    assert(var->var_type);
 
     if (type_is_invalid(result_type)) {
         return ir_const_void(ira, &decl_var_instruction->base);
@@ -13877,13 +13878,13 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira,
 
     if (decl_var_instruction->align_value == nullptr) {
         if ((err = type_resolve(ira->codegen, result_type, ResolveStatusAlignmentKnown))) {
-            var->value->type = ira->codegen->builtin_types.entry_invalid;
+            var->var_type = ira->codegen->builtin_types.entry_invalid;
             return ir_const_void(ira, &decl_var_instruction->base);
         }
         var->align_bytes = get_abi_alignment(ira->codegen, result_type);
     } else {
         if (!ir_resolve_align(ira, decl_var_instruction->align_value->child, &var->align_bytes)) {
-            var->value->type = ira->codegen->builtin_types.entry_invalid;
+            var->var_type = ira->codegen->builtin_types.entry_invalid;
         }
     }
 
@@ -13916,7 +13917,7 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira,
     } else if (is_comptime_var) {
         ir_add_error(ira, &decl_var_instruction->base,
                 buf_sprintf("cannot store runtime value in compile time variable"));
-        var->value->type = ira->codegen->builtin_types.entry_invalid;
+        var->var_type = ira->codegen->builtin_types.entry_invalid;
         return ira->codegen->invalid_instruction;
     }
 
@@ -14258,7 +14259,7 @@ static bool ir_analyze_fn_call_inline_arg(IrAnalyze *ira, AstNode *fn_proto_node
 
     Buf *param_name = param_decl_node->data.param_decl.name;
     ZigVar *var = add_variable(ira->codegen, param_decl_node,
-        *exec_scope, param_name, true, arg_val, nullptr);
+        *exec_scope, param_name, true, arg_val, nullptr, arg_val->type);
     *exec_scope = var->child_scope;
     *next_proto_i += 1;
 
@@ -14316,7 +14317,7 @@ static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_nod
     if (!param_name) return false;
     if (!is_var_args) {
         ZigVar *var = add_variable(ira->codegen, param_decl_node,
-            *child_scope, param_name, true, arg_val, nullptr);
+            *child_scope, param_name, true, arg_val, nullptr, arg_val->type);
         *child_scope = var->child_scope;
         var->shadowable = !comptime_arg;
 
@@ -14379,14 +14380,14 @@ static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
         assert(ira->codegen->errors.length != 0);
         return ira->codegen->invalid_instruction;
     }
-    if (var->value->type == nullptr || type_is_invalid(var->value->type))
+    if (var->var_type == nullptr || type_is_invalid(var->var_type))
         return ira->codegen->invalid_instruction;
 
     bool comptime_var_mem = ir_get_var_is_comptime(var);
 
     ConstExprValue *mem_slot = nullptr;
-    if (var->value->special == ConstValSpecialStatic) {
-        mem_slot = var->value;
+    if (var->const_value->special == ConstValSpecialStatic) {
+        mem_slot = var->const_value;
     } else {
         if (var->mem_slot_index != SIZE_MAX && (comptime_var_mem || var->gen_is_const)) {
             // find the relevant exec_context
@@ -14415,7 +14416,7 @@ static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
                     assert(!comptime_var_mem);
                     ptr_mut = ConstPtrMutRuntimeVar;
                 }
-                return ir_get_const_ptr(ira, instruction, mem_slot, var->value->type,
+                return ir_get_const_ptr(ira, instruction, mem_slot, var->var_type,
                         ptr_mut, is_const, is_volatile, var->align_bytes);
             }
         }
@@ -14426,7 +14427,7 @@ no_mem_slot:
 
     IrInstruction *var_ptr_instruction = ir_build_var_ptr(&ira->new_irb,
             instruction->scope, instruction->source_node, var);
-    var_ptr_instruction->value.type = get_pointer_to_type_extra(ira->codegen, var->value->type,
+    var_ptr_instruction->value.type = get_pointer_to_type_extra(ira->codegen, var->var_type,
             var->src_is_const, is_volatile, PtrLenSingle, var->align_bytes, 0, 0);
 
     bool in_fn_scope = (scope_fn_entry(var->parent_scope) != nullptr);
@@ -15143,7 +15144,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call
             ConstExprValue *var_args_val = create_const_arg_tuple(ira->codegen,
                     first_var_arg, inst_fn_type_id.param_count);
             ZigVar *var = add_variable(ira->codegen, param_decl_node,
-                impl_fn->child_scope, param_name, true, var_args_val, nullptr);
+                impl_fn->child_scope, param_name, true, var_args_val, nullptr, var_args_val->type);
             impl_fn->child_scope = var->child_scope;
         }
 
@@ -18707,10 +18708,11 @@ static ZigType *ir_type_info_get_type(IrAnalyze *ira, const char *type_name, Zig
 
     ZigVar *var = tld->var;
 
-    if ((err = ensure_complete_type(ira->codegen, var->value->type)))
+    if ((err = ensure_complete_type(ira->codegen, var->const_value->type)))
         return ira->codegen->builtin_types.entry_invalid;
-    assert(var->value->type->id == ZigTypeIdMetaType);
-    return var->value->data.x_type;
+
+    assert(var->const_value->type->id == ZigTypeIdMetaType);
+    return var->const_value->data.x_type;
 }
 
 static Error ir_make_type_info_defs(IrAnalyze *ira, ConstExprValue *out_val, ScopeDecls *decls_scope) {
@@ -18804,25 +18806,22 @@ static Error ir_make_type_info_defs(IrAnalyze *ira, ConstExprValue *out_val, Sco
             case TldIdVar:
                 {
                     ZigVar *var = ((TldVar *)curr_entry->value)->var;
-                    if ((err = ensure_complete_type(ira->codegen, var->value->type)))
+                    if ((err = ensure_complete_type(ira->codegen, var->const_value->type)))
                         return ErrorSemanticAnalyzeFail;
 
-                    if (var->value->type->id == ZigTypeIdMetaType)
-                    {
+                    if (var->const_value->type->id == ZigTypeIdMetaType) {
                         // We have a variable of type 'type', so it's actually a type definition.
                         // 0: Data.Type: type
                         bigint_init_unsigned(&inner_fields[2].data.x_union.tag, 0);
-                        inner_fields[2].data.x_union.payload = var->value;
-                    }
-                    else
-                    {
+                        inner_fields[2].data.x_union.payload = var->const_value;
+                    } else {
                         // We have a variable of another type, so we store the type of the variable.
                         // 1: Data.Var: type
                         bigint_init_unsigned(&inner_fields[2].data.x_union.tag, 1);
 
                         ConstExprValue *payload = create_const_vals(1);
                         payload->type = ira->codegen->builtin_types.entry_type;
-                        payload->data.x_type = var->value->type;
+                        payload->data.x_type = var->const_value->type;
 
                         inner_fields[2].data.x_union.payload = payload;
                     }
