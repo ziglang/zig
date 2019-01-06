@@ -39,10 +39,7 @@ pub const Allocator = struct {
     /// Call `destroy` with the result
     /// TODO this is deprecated. use new instead
     pub fn create(self: *Allocator, init: var) Error!*@typeOf(init) {
-        const T = @typeOf(init);
-        if (@sizeOf(T) == 0) return &(T{});
-        const slice = try self.alloc(T, 1);
-        const ptr = &slice[0];
+        const ptr = try new(self, @typeOf(init));
         ptr.* = init;
         return ptr;
     }
