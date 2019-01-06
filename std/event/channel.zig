@@ -54,20 +54,19 @@ pub fn Channel(comptime T: type) type {
             const buffer_nodes = try loop.allocator.alloc(T, capacity);
             errdefer loop.allocator.free(buffer_nodes);
 
-            const self = try loop.allocator.create(SelfChannel{
-                .loop = loop,
-                .buffer_len = 0,
-                .buffer_nodes = buffer_nodes,
-                .buffer_index = 0,
-                .dispatch_lock = 0,
-                .need_dispatch = 0,
-                .getters = std.atomic.Queue(GetNode).init(),
-                .putters = std.atomic.Queue(PutNode).init(),
-                .or_null_queue = std.atomic.Queue(*std.atomic.Queue(GetNode).Node).init(),
-                .get_count = 0,
-                .put_count = 0,
-            });
+            const self = try loop.allocator.new(SelfChannel);
             errdefer loop.allocator.destroy(self);
+            self.loop = loop;
+            self.buffer_len = 0;
+            self.buffer_nodes = buffer_nodes;
+            self.buffer_index = 0;
+            self.dispatch_lock = 0;
+            self.need_dispatch = 0;
+            self.getters = std.atomic.Queue(GetNode).init();
+            self.putters = std.atomic.Queue(PutNode).init();
+            self.or_null_queue = std.atomic.Queue(*std.atomic.Queue(GetNode).Node).init();
+            self.get_count = 0;
+            self.put_count = 0;
 
             return self;
         }

@@ -944,12 +944,11 @@ const CliPkg = struct {
     parent: ?*CliPkg,
 
     pub fn init(allocator: *mem.Allocator, name: []const u8, path: []const u8, parent: ?*CliPkg) !*CliPkg {
-        var pkg = try allocator.create(CliPkg{
-            .name = name,
-            .path = path,
-            .children = ArrayList(*CliPkg).init(allocator),
-            .parent = parent,
-        });
+        var pkg = try allocator.new(CliPkg);
+        pkg.name = name;
+        pkg.path = path;
+        pkg.children = ArrayList(*CliPkg).init(allocator);
+        pkg.parent = parent;
         return pkg;
     }
 

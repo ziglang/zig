@@ -125,10 +125,8 @@ fn startPuts(ctx: *Context) u8 {
     while (put_count != 0) : (put_count -= 1) {
         std.os.time.sleep(1); // let the os scheduler be our fuzz
         const x = @bitCast(i32, r.random.scalar(u32));
-        const node = ctx.allocator.create(Stack(i32).Node{
-            .next = undefined,
-            .data = x,
-        }) catch unreachable;
+        const node = ctx.allocator.new(Stack(i32).Node) catch unreachable;
+        node.data = x;
         ctx.stack.push(node);
         _ = @atomicRmw(isize, &ctx.put_sum, builtin.AtomicRmwOp.Add, x, AtomicOrder.SeqCst);
     }

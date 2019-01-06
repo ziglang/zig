@@ -190,7 +190,7 @@ pub fn LinkedList(comptime T: type) type {
         /// Returns:
         ///     A pointer to the new node.
         pub fn allocateNode(list: *Self, allocator: *Allocator) !*Node {
-            return allocator.create(Node(undefined));
+            return allocator.new(Node);
         }
 
         /// Deallocate a node.

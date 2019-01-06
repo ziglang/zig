@@ -15,11 +15,11 @@ pub const Package = struct {
     /// makes internal copies of root_src_dir and root_src_path
     /// allocator should be an arena allocator because Package never frees anything
     pub fn create(allocator: *mem.Allocator, root_src_dir: []const u8, root_src_path: []const u8) !*Package {
-        return allocator.create(Package{
-            .root_src_dir = try Buffer.init(allocator, root_src_dir),
-            .root_src_path = try Buffer.init(allocator, root_src_path),
-            .table = Table.init(allocator),
-        });
+        const pkg = try allocator.new(Package);
+        pkg.root_src_dir = try Buffer.init(allocator, root_src_dir);
+        pkg.root_src_path = try Buffer.init(allocator, root_src_path);
+        pkg.table = Table.init(allocator);
+        return pkg;
     }
 
     pub fn add(self: *Package, name: []const u8, package: *Package) !void {

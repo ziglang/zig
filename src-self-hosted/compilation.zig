@@ -83,11 +83,9 @@ pub const ZigCompiler = struct {
         const context_ref = c.LLVMContextCreate() orelse return error.OutOfMemory;
         errdefer c.LLVMContextDispose(context_ref);
 
-        const node = try self.loop.allocator.create(std.atomic.Stack(llvm.ContextRef).Node{
-            .next = undefined,
-            .data = context_ref,
-        });
+        const node = try self.loop.allocator.new(std.atomic.Stack(llvm.ContextRef).Node);
         errdefer self.loop.allocator.destroy(node);
+        node.data = context_ref;
 
         return LlvmHandle{ .node = node };
     }

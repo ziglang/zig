@@ -3046,16 +3046,15 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
         const bytes_ptr = windows.HeapAlloc(heap_handle, 0, byte_count) orelse return SpawnThreadError.OutOfMemory;
         errdefer assert(windows.HeapFree(heap_handle, 0, bytes_ptr) != 0);
         const bytes = @ptrCast([*]u8, bytes_ptr)[0..byte_count];
-        const outer_context = std.heap.FixedBufferAllocator.init(bytes).allocator.create(WinThread.OuterContext{
-            .thread = Thread{
-                .data = Thread.Data{
-                    .heap_handle = heap_handle,
-                    .alloc_start = bytes_ptr,
-                    .handle = undefined,
-                },
+        const outer_context = std.heap.FixedBufferAllocator.init(bytes).allocator.new(WinThread.OuterContext) catch unreachable;
+        outer_context.thread = Thread{
+            .data = Thread.Data{
+                .heap_handle = heap_handle,
+                .alloc_start = bytes_ptr,
+                .handle = undefined,
             },
-            .inner = context,
-        }) catch unreachable;
+        };
+        outer_context.inner = context;
 
         const parameter = if (@sizeOf(Context) == 0) null else @ptrCast(*c_void, &outer_context.inner);
         outer_context.thread.data.handle = windows.CreateThread(null, default_stack_size, WinThread.threadMain, parameter, 0, null) orelse {

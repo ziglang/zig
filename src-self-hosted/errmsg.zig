@@ -203,22 +203,20 @@ pub const Msg = struct {
         var out_stream = &std.io.BufferOutStream.init(&text_buf).stream;
         try parse_error.render(&tree.tokens, out_stream);
 
-        const msg = try allocator.create(Msg{
-            .text = undefined,
-            .realpath = realpath_copy,
-            .data = Data{
-                .PathAndTree = PathAndTree{
-                    .allocator = allocator,
-                    .tree = tree,
-                    .span = Span{
-                        .first = loc_token,
-                        .last = loc_token,
-                    },
+        const msg = try allocator.new(Msg);
+        errdefer allocator.destroy(msg);
+        msg.realpath = realpath_copy;
+        msg.data = Data{
+            .PathAndTree = PathAndTree{
+                .allocator = allocator,
+                .tree = tree,
+                .span = Span{
+                    .first = loc_token,
+                    .last = loc_token,
                 },
             },
-        });
+        };
         msg.text = text_buf.toOwnedSlice();
-        errdefer allocator.destroy(msg);
 
         return msg;
     }
