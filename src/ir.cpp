@@ -14577,8 +14577,7 @@ static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_
                         return ira->codegen->invalid_instruction;
                     if (type_is_invalid(struct_val->type))
                         return ira->codegen->invalid_instruction;
-                    ConstExprValue *field_val = &struct_val->data.x_struct.fields[field->src_index];
-                    ZigType *ptr_type = get_pointer_to_type_extra(ira->codegen, field_val->type,
+                    ZigType *ptr_type = get_pointer_to_type_extra(ira->codegen, field->type_entry,
                             is_const, is_volatile, PtrLenSingle, align_bytes,
                             (uint32_t)(ptr_bit_offset + field->bit_offset_in_host),
                             (uint32_t)host_int_bytes_for_result_type);
@@ -16883,16 +16882,12 @@ static void ensure_field_index(ZigType *type, const char *field_name, size_t ind
 
 static ZigType *ir_type_info_get_type(IrAnalyze *ira, const char *type_name, ZigType *root) {
     Error err;
-    static ConstExprValue *type_info_var = nullptr; // TODO oops this global variable made it past code review
-    static ZigType *type_info_type = nullptr; // TODO oops this global variable made it past code review
-    if (type_info_var == nullptr) {
-        type_info_var = get_builtin_value(ira->codegen, "TypeInfo");
-        assert(type_info_var->type->id == ZigTypeIdMetaType);
+    ConstExprValue *type_info_var = get_builtin_value(ira->codegen, "TypeInfo");
+    assert(type_info_var->type->id == ZigTypeIdMetaType);
+    assertNoError(ensure_complete_type(ira->codegen, type_info_var->data.x_type));
 
-        assertNoError(ensure_complete_type(ira->codegen, type_info_var->data.x_type));
-        type_info_type = type_info_var->data.x_type;
-        assert(type_info_type->id == ZigTypeIdUnion);
-    }
+    ZigType *type_info_type = type_info_var->data.x_type;
+    assert(type_info_type->id == ZigTypeIdUnion);
 
     if (type_name == nullptr && root == nullptr)
         return type_info_type;
@@ -20180,8 +20175,29 @@ static Error buf_read_value_bytes(IrAnalyze *ira, AstNode *source_node, uint8_t 
                 val->data.x_ptr.data.hard_coded_addr.addr = bigint_as_unsigned(&bn);
                 return ErrorNone;
             }
-        case ZigTypeIdArray:
-            zig_panic("TODO buf_read_value_bytes array type");
+        case ZigTypeIdArray: {
+            uint64_t elem_size = type_size(ira->codegen, val->type->data.array.child_type);
+            size_t len = val->type->data.array.len;
+
+            switch (val->data.x_array.special) {
+                case ConstArraySpecialNone:
+                    val->data.x_array.data.s_none.elements = create_const_vals(len);
+                    for (size_t i = 0; i < len; i++) {
+                        ConstExprValue *elem = &val->data.x_array.data.s_none.elements[i];
+                        elem->special = ConstValSpecialStatic;
+                        elem->type = val->type->data.array.child_type;
+                        if ((err = buf_read_value_bytes(ira, source_node, buf + (elem_size * i), elem)))
+                            return err;
+                    }
+                    break;
+                case ConstArraySpecialUndef:
+                    zig_panic("TODO buf_read_value_bytes ConstArraySpecialUndef array type");
+                case ConstArraySpecialBuf:
+                    zig_panic("TODO buf_read_value_bytes ConstArraySpecialBuf array type");
+            }
+
+            return ErrorNone;
+        }
         case ZigTypeIdStruct:
             switch (val->type->data.structure.layout) {
                 case ContainerLayoutAuto: {
