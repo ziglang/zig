@@ -20179,8 +20179,29 @@ static Error buf_read_value_bytes(IrAnalyze *ira, AstNode *source_node, uint8_t 
                 val->data.x_ptr.data.hard_coded_addr.addr = bigint_as_unsigned(&bn);
                 return ErrorNone;
             }
-        case ZigTypeIdArray:
-            zig_panic("TODO buf_read_value_bytes array type");
+        case ZigTypeIdArray: {
+            uint64_t elem_size = type_size(ira->codegen, val->type->data.array.child_type);
+            size_t len = val->type->data.array.len;
+
+            switch (val->data.x_array.special) {
+                case ConstArraySpecialNone:
+                    val->data.x_array.data.s_none.elements = create_const_vals(len);
+                    for (size_t i = 0; i < len; i++) {
+                        ConstExprValue *elem = &val->data.x_array.data.s_none.elements[i];
+                        elem->special = ConstValSpecialStatic;
+                        elem->type = val->type->data.array.child_type;
+                        if ((err = buf_read_value_bytes(ira, source_node, buf + (elem_size * i), elem)))
+                            return err;
+                    }
+                    break;
+                case ConstArraySpecialUndef:
+                    zig_panic("TODO buf_read_value_bytes ConstArraySpecialUndef array type");
+                case ConstArraySpecialBuf:
+                    zig_panic("TODO buf_read_value_bytes ConstArraySpecialBuf array type");
+            }
+
+            return ErrorNone;
+        }
         case ZigTypeIdStruct:
             switch (val->type->data.structure.layout) {
                 case ContainerLayoutAuto: {
