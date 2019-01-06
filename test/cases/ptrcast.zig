@@ -34,3 +34,19 @@ fn testReinterpretBytesAsExternStruct() void {
     var val = ptr.c;
     assertOrPanic(val == 5);
 }
+
+test "reinterpret struct field at comptime" {
+    const numLittle = comptime Bytes.init(0x12345678);
+    assertOrPanic(std.mem.eql(u8, []u8{ 0x78, 0x56, 0x34, 0x12 }, numLittle.bytes));
+}
+
+const Bytes = struct {
+    bytes: [4]u8,
+
+    pub fn init(v: u32) Bytes {
+        var res: Bytes = undefined;
+        @ptrCast(*align(1) u32, &res.bytes).* = v;
+
+        return res;
+    }
+};
