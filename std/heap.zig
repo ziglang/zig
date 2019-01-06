@@ -567,7 +567,7 @@ fn testAllocatorAligned(allocator: *mem.Allocator, comptime alignment: u29) !voi
 }
 
 fn testAllocatorLargeAlignment(allocator: *mem.Allocator) mem.Allocator.Error!void {
-    //Maybe a platform's page_size is actually the same as or
+    // Maybe a platform's page_size is actually the same as or
     //  very near usize?
     if (os.page_size << 2 > maxInt(usize)) return;
 

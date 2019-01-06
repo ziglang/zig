@@ -130,7 +130,7 @@ pub fn addAssembleAndLinkTests(b: *build.Builder, test_filter: ?[]const u8, mode
 pub fn addTranslateCTests(b: *build.Builder, test_filter: ?[]const u8) *build.Step {
     const cases = b.allocator.new(TranslateCContext) catch unreachable;
     cases.b = b;
-    cases.step = b.step("test-translate-c", "Run the C transation tests");
+    cases.step = b.step("test-translate-c", "Run the C translation tests");
     cases.test_index = 0;
     cases.test_filter = test_filter;
 
@@ -357,7 +357,7 @@ pub const CompareOutputContext = struct {
                     }
                 },
                 Term.Signal => |sig| {
-                    warn("\nProgram expected to exit with code {} " ++ "but instead signaled {}\n", expected_exit_code, sig);
+                    warn("\nProgram expected to exit with code {} " ++ "but instead signalled {}\n", expected_exit_code, sig);
                     return error.TestFailed;
                 },
                 else => {
