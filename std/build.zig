@@ -89,7 +89,7 @@ pub const Builder = struct {
     };
 
     pub fn init(allocator: *Allocator, zig_exe: []const u8, build_root: []const u8, cache_root: []const u8) Builder {
-        const env_map = allocator.createOne(BufMap) catch unreachable;
+        const env_map = allocator.new(BufMap) catch unreachable;
         env_map.* = os.getEnvMap(allocator) catch unreachable;
         var self = Builder{
             .zig_exe = zig_exe,

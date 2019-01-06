@@ -728,7 +728,7 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
     const self_file = try os.openSelfExe();
     defer self_file.close();
 
-    const coff_obj = try allocator.createOne(coff.Coff);
+    const coff_obj = try allocator.new(coff.Coff);
     coff_obj.* = coff.Coff{
         .in_file = self_file,
         .allocator = allocator,
@@ -1013,7 +1013,7 @@ fn openSelfDebugInfoMacOs(allocator: *mem.Allocator) !DebugInfo {
             }
         }
     }
-    const sentinel = try allocator.createOne(macho.nlist_64);
+    const sentinel = try allocator.new(macho.nlist_64);
     sentinel.* = macho.nlist_64{
         .n_strx = 0,
         .n_type = 36,

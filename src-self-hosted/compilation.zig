@@ -829,7 +829,7 @@ pub const Compilation = struct {
             };
             errdefer self.gpa().free(source_code);
 
-            const tree = try self.gpa().createOne(ast.Tree);
+            const tree = try self.gpa().new(ast.Tree);
             tree.* = try std.zig.parse(self.gpa(), source_code);
             errdefer {
                 tree.deinit();

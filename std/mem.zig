@@ -37,7 +37,7 @@ pub const Allocator = struct {
     freeFn: fn (self: *Allocator, old_mem: []u8) void,
 
     /// Call `destroy` with the result
-    /// TODO this is deprecated. use createOne instead
+    /// TODO this is deprecated. use new instead
     pub fn create(self: *Allocator, init: var) Error!*@typeOf(init) {
         const T = @typeOf(init);
         if (@sizeOf(T) == 0) return &(T{});
@@ -49,7 +49,7 @@ pub const Allocator = struct {
 
     /// Call `destroy` with the result.
     /// Returns undefined memory.
-    pub fn createOne(self: *Allocator, comptime T: type) Error!*T {
+    pub fn new(self: *Allocator, comptime T: type) Error!*T {
         if (@sizeOf(T) == 0) return &(T{});
         const slice = try self.alloc(T, 1);
         return &slice[0];

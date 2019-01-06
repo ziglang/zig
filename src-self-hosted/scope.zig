@@ -120,7 +120,7 @@ pub const Scope = struct {
         /// Creates a Root scope with 1 reference
         /// Takes ownership of realpath
         pub fn create(comp: *Compilation, realpath: []u8) !*Root {
-            const self = try comp.gpa().createOne(Root);
+            const self = try comp.gpa().new(Root);
             self.* = Root{
                 .base = Scope{
                     .id = Id.Root,
@@ -150,7 +150,7 @@ pub const Scope = struct {
         /// Creates a scope with 1 reference
         /// Takes ownership of tree, will deinit and destroy when done.
         pub fn create(comp: *Compilation, tree: *ast.Tree, root_scope: *Root) !*AstTree {
-            const self = try comp.gpa().createOne(AstTree);
+            const self = try comp.gpa().new(AstTree);
             self.* = AstTree{
                 .base = undefined,
                 .tree = tree,
@@ -182,7 +182,7 @@ pub const Scope = struct {
 
         /// Creates a Decls scope with 1 reference
         pub fn create(comp: *Compilation, parent: *Scope) !*Decls {
-            const self = try comp.gpa().createOne(Decls);
+            const self = try comp.gpa().new(Decls);
             self.* = Decls{
                 .base = undefined,
                 .table = event.RwLocked(Decl.Table).init(comp.loop, Decl.Table.init(comp.gpa())),
@@ -235,7 +235,7 @@ pub const Scope = struct {
 
         /// Creates a Block scope with 1 reference
         pub fn create(comp: *Compilation, parent: *Scope) !*Block {
-            const self = try comp.gpa().createOne(Block);
+            const self = try comp.gpa().new(Block);
             self.* = Block{
                 .base = undefined,
                 .incoming_values = undefined,
@@ -262,7 +262,7 @@ pub const Scope = struct {
         /// Creates a FnDef scope with 1 reference
         /// Must set the fn_val later
         pub fn create(comp: *Compilation, parent: *Scope) !*FnDef {
-            const self = try comp.gpa().createOne(FnDef);
+            const self = try comp.gpa().new(FnDef);
             self.* = FnDef{
                 .base = undefined,
                 .fn_val = null,
@@ -281,7 +281,7 @@ pub const Scope = struct {
 
         /// Creates a CompTime scope with 1 reference
         pub fn create(comp: *Compilation, parent: *Scope) !*CompTime {
-            const self = try comp.gpa().createOne(CompTime);
+            const self = try comp.gpa().new(CompTime);
             self.* = CompTime{ .base = undefined };
             self.base.init(Id.CompTime, parent);
             return self;
@@ -309,7 +309,7 @@ pub const Scope = struct {
             kind: Kind,
             defer_expr_scope: *DeferExpr,
         ) !*Defer {
-            const self = try comp.gpa().createOne(Defer);
+            const self = try comp.gpa().new(Defer);
             self.* = Defer{
                 .base = undefined,
                 .defer_expr_scope = defer_expr_scope,
@@ -333,7 +333,7 @@ pub const Scope = struct {
 
         /// Creates a DeferExpr scope with 1 reference
         pub fn create(comp: *Compilation, parent: *Scope, expr_node: *ast.Node) !*DeferExpr {
-            const self = try comp.gpa().createOne(DeferExpr);
+            const self = try comp.gpa().new(DeferExpr);
             self.* = DeferExpr{
                 .base = undefined,
                 .expr_node = expr_node,
@@ -398,7 +398,7 @@ pub const Scope = struct {
         }
 
         fn create(comp: *Compilation, parent: *Scope, name: []const u8, src_node: *ast.Node) !*Var {
-            const self = try comp.gpa().createOne(Var);
+            const self = try comp.gpa().new(Var);
             self.* = Var{
                 .base = undefined,
                 .name = name,

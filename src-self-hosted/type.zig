@@ -409,7 +409,7 @@ pub const Type = struct {
             key.ref();
             errdefer key.deref(comp);
 
-            const self = try comp.gpa().createOne(Fn);
+            const self = try comp.gpa().new(Fn);
             self.* = Fn{
                 .base = undefined,
                 .key = key,
