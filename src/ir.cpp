@@ -16882,16 +16882,12 @@ static void ensure_field_index(ZigType *type, const char *field_name, size_t ind
 
 static ZigType *ir_type_info_get_type(IrAnalyze *ira, const char *type_name, ZigType *root) {
     Error err;
-    static ConstExprValue *type_info_var = nullptr; // TODO oops this global variable made it past code review
-    static ZigType *type_info_type = nullptr; // TODO oops this global variable made it past code review
-    if (type_info_var == nullptr) {
-        type_info_var = get_builtin_value(ira->codegen, "TypeInfo");
-        assert(type_info_var->type->id == ZigTypeIdMetaType);
+    ConstExprValue *type_info_var = get_builtin_value(ira->codegen, "TypeInfo"); // TODO oops this global variable made it past code review
+    assert(type_info_var->type->id == ZigTypeIdMetaType);
+    assertNoError(ensure_complete_type(ira->codegen, type_info_var->data.x_type));
 
-        assertNoError(ensure_complete_type(ira->codegen, type_info_var->data.x_type));
-        type_info_type = type_info_var->data.x_type;
-        assert(type_info_type->id == ZigTypeIdUnion);
-    }
+    ZigType *type_info_type = type_info_var->data.x_type; // TODO oops this global variable made it past code review
+    assert(type_info_type->id == ZigTypeIdUnion);
 
     if (type_name == nullptr && root == nullptr)
         return type_info_type;
