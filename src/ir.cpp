@@ -14577,8 +14577,7 @@ static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_
                         return ira->codegen->invalid_instruction;
                     if (type_is_invalid(struct_val->type))
                         return ira->codegen->invalid_instruction;
-                    ConstExprValue *field_val = &struct_val->data.x_struct.fields[field->src_index];
-                    ZigType *ptr_type = get_pointer_to_type_extra(ira->codegen, field_val->type,
+                    ZigType *ptr_type = get_pointer_to_type_extra(ira->codegen, field->type_entry,
                             is_const, is_volatile, PtrLenSingle, align_bytes,
                             (uint32_t)(ptr_bit_offset + field->bit_offset_in_host),
                             (uint32_t)host_int_bytes_for_result_type);
