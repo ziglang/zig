@@ -6,7 +6,6 @@ comptime {
     _ = @import("cases/coroutines.zig");
     _ = @import("cases/defer.zig");
     _ = @import("cases/enum_with_members.zig");
-    _ = @import("cases/error.zig");
     _ = @import("cases/eval.zig");
     _ = @import("cases/ir_block_deps.zig");
     _ = @import("cases/null.zig");

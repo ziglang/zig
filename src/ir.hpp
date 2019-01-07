@@ -18,7 +18,7 @@ ConstExprValue *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *nod
         ZigFn *fn_entry, Buf *c_import_buf, AstNode *source_node, Buf *exec_name,
         IrExecutable *parent_exec);
 
-ZigType *ir_analyze(CodeGen *g, IrExecutable *old_executable, IrExecutable *new_executable,
+ConstExprValue *ir_analyze(CodeGen *g, IrExecutable *old_executable, IrExecutable *new_executable,
         ZigType *expected_type, AstNode *expected_type_source_node, ConstExprValue *result_value);
 
 bool ir_has_side_effects(IrInstruction *instruction);

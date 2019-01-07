@@ -4145,11 +4145,11 @@ void analyze_fn_ir(CodeGen *g, ZigFn *fn_table_entry, AstNode *return_type_node)
     assert(!fn_type->data.fn.is_generic);
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
 
-    ZigType *block_return_type = ir_analyze(g, &fn_table_entry->ir_executable,
+    ConstExprValue *block_result = ir_analyze(g, &fn_table_entry->ir_executable,
             &fn_table_entry->analyzed_executable, fn_type_id->return_type, return_type_node, nullptr);
-    fn_table_entry->src_implicit_return_type = block_return_type;
+    fn_table_entry->src_implicit_return_type = block_result->type;
 
-    if (type_is_invalid(block_return_type) || fn_table_entry->analyzed_executable.invalid) {
+    if (type_is_invalid(block_result->type) || fn_table_entry->analyzed_executable.invalid) {
         assert(g->errors.length > 0);
         fn_table_entry->anal_state = FnAnalStateInvalid;
         return;
