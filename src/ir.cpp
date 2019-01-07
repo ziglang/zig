@@ -7871,8 +7871,16 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             IrInstruction *err_code = ir_build_error_literal(irb, scope, node, node->data.error_literal.name);
             switch (lval) {
                 case LValErrorUnionVal:
+                    if (result_loc != nullptr) {
+                        IrInstruction *undef = ir_build_const_undefined(irb, scope, node);
+                        ir_build_store_ptr(irb, scope, node, result_loc, undef);
+                    }
                     return err_code;
                 case LValErrorUnionPtr:
+                    if (result_loc != nullptr) {
+                        IrInstruction *undef = ir_build_const_undefined(irb, scope, node);
+                        ir_build_store_ptr(irb, scope, node, result_loc, undef);
+                    }
                     return ir_build_ref(irb, scope, node, err_code, true, false, nullptr);
                 default:
                     return ir_gen_value(irb, scope, node, lval, result_loc, err_code);
@@ -15453,12 +15461,38 @@ static IrInstruction *ir_analyze_instruction_call(IrAnalyze *ira, IrInstructionC
                     return ir_const_void(ira, &call_instruction->base);
                 }
 
-                // This is handled with the result location mechanism. So all we need to do here is
-                // a LoadPtr on the result location.
-                IrInstruction *deref = ir_get_deref(ira, &call_instruction->base, result_loc);
-                if (type_is_invalid(deref->value.type))
-                    return ira->codegen->invalid_instruction;
-                return ir_finish_anal(ira, deref);
+                switch (call_instruction->lval) {
+                    case LValPtr:
+                        zig_unreachable();
+                    case LValNone: {
+                        IrInstruction *deref = ir_get_deref(ira, &call_instruction->base, result_loc);
+                        if (type_is_invalid(deref->value.type))
+                            return ira->codegen->invalid_instruction;
+                        return ir_finish_anal(ira, deref);
+                    }
+                    case LValErrorUnionVal: {
+                        assert(result_loc != nullptr);
+                        IrInstruction *only_arg = call_instruction->args[0]->child;
+                        if (type_is_invalid(only_arg->value.type))
+                            return ira->codegen->invalid_instruction;
+                        if (only_arg->value.type->id == ZigTypeIdErrorSet) {
+                            IrInstruction *undef = ir_const(ira, &call_instruction->base,
+                                    ira->codegen->builtin_types.entry_undef);
+                            ir_analyze_store_ptr(ira, &call_instruction->base, result_loc, undef);
+                            return ir_finish_anal(ira, only_arg);
+                        } else if (only_arg->value.type->id == ZigTypeIdErrorUnion) {
+                            zig_panic("TODO");
+                        } else {
+                            IrInstruction *null = ir_const(ira, &call_instruction->base,
+                                    ira->codegen->builtin_types.entry_null);
+                            return ir_finish_anal(ira, null);
+                        }
+                    }
+                    case LValOptional:
+                        zig_panic("TODO");
+                    case LValErrorUnionPtr:
+                        zig_panic("TODO");
+                }
             }
             IrInstruction *arg_value = call_instruction->args[0]->child;
             if (type_is_invalid(arg_value->value.type))

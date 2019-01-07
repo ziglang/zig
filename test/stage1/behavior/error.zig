@@ -43,7 +43,15 @@ fn shouldBeNotEqual(a: anyerror, b: anyerror) void {
     if (a == b) unreachable;
 }
 
-// test "error binary operator"
+test "error binary operator" {
+    const a = errBinaryOperatorG(true) catch 3;
+    const b = errBinaryOperatorG(false) catch 3;
+    assertOrPanic(a == 3);
+    assertOrPanic(b == 10);
+}
+fn errBinaryOperatorG(x: bool) anyerror!isize {
+    return if (x) error.ItBroke else isize(10);
+}
 
 test "unwrap simple value from error" {
     const i = unwrapSimpleValueFromErrorDo() catch unreachable;

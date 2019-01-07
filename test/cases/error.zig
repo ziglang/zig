@@ -3,16 +3,6 @@ const assertOrPanic = std.debug.assertOrPanic;
 const mem = std.mem;
 const builtin = @import("builtin");
 
-test "error binary operator" {
-    const a = errBinaryOperatorG(true) catch 3;
-    const b = errBinaryOperatorG(false) catch 3;
-    assertOrPanic(a == 3);
-    assertOrPanic(b == 10);
-}
-fn errBinaryOperatorG(x: bool) anyerror!isize {
-    return if (x) error.ItBroke else isize(10);
-}
-
 test "comptime test error for empty error set" {
     testComptimeTestErrorEmptySet(1234);
     comptime testComptimeTestErrorEmptySet(1234);
