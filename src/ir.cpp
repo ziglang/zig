@@ -12194,8 +12194,8 @@ static ZigType *adjust_ptr_len(CodeGen *g, ZigType *ptr_type, PtrLen ptr_len) {
             ptr_type->data.pointer.bit_offset_in_host, ptr_type->data.pointer.host_int_bytes);
 }
 
-static IrInstruction *ir_implicit_cast_result(IrAnalyze *ira, IrInstruction *unresolved_result_loc,
-        ZigType *needed_child_type, bool allow_failure)
+static IrInstruction *ir_implicit_cast_result(IrAnalyze *ira, AstNode *source_node,
+        IrInstruction *unresolved_result_loc, ZigType *needed_child_type, bool allow_failure)
 {
     if (type_is_invalid(unresolved_result_loc->value.type) || type_is_invalid(needed_child_type))
         return ira->codegen->invalid_instruction;
@@ -12211,11 +12211,8 @@ static IrInstruction *ir_implicit_cast_result(IrAnalyze *ira, IrInstruction *unr
     if (have_child_type == needed_child_type)
         return result_loc;
 
-    IrInstruction *source_instr = result_loc;
-    AstNode *source_node = source_instr->source_node;
-
     // perfect match or non-const to const
-    ConstCastOnly const_cast_result = types_match_const_cast_only(ira, needed_child_type, have_child_type,
+    ConstCastOnly const_cast_result = types_match_const_cast_only(ira, have_child_type, needed_child_type,
             source_node, false);
     if (const_cast_result.id == ConstCastResultIdInvalid)
         return ira->codegen->invalid_instruction;
@@ -12292,14 +12289,14 @@ static IrInstruction *ir_implicit_cast_result(IrAnalyze *ira, IrInstruction *unr
             needed_child_type->id == ZigTypeIdComptimeInt ||
             needed_child_type->id == ZigTypeIdComptimeFloat)
         {
-            IrInstruction *cast1 = ir_implicit_cast_result(ira, result_loc,
+            IrInstruction *cast1 = ir_implicit_cast_result(ira, source_node, result_loc,
                     have_child_type->data.error_union.payload_type, allow_failure);
             if (cast1 == nullptr)
                 return nullptr;
             if (type_is_invalid(cast1->value.type))
                 return ira->codegen->invalid_instruction;
 
-            return ir_implicit_cast_result(ira, cast1, needed_child_type, allow_failure);
+            return ir_implicit_cast_result(ira, source_node, cast1, needed_child_type, allow_failure);
         }
     }
 
@@ -14526,9 +14523,11 @@ static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source
         return ira->codegen->invalid_instruction;
     }
 
-    IrInstruction *ptr = ir_implicit_cast_result(ira, uncasted_ptr, uncasted_value->value.type, true);
-    if (ptr == nullptr)
+    IrInstruction *ptr = ir_implicit_cast_result(ira, source_instr->source_node,
+            uncasted_ptr, uncasted_value->value.type, true);
+    if (ptr == nullptr) {
         ptr = uncasted_ptr;
+    }
     if (type_is_invalid(ptr->value.type))
         return ira->codegen->invalid_instruction;
 
@@ -14659,7 +14658,7 @@ static IrInstruction *analyze_runtime_call(IrAnalyze *ira, FnTypeId *fn_type_id,
     } else if (return_type->id == ZigTypeIdErrorSet) {
         scalar_result_type = return_type;
         payload_result_type = ira->codegen->builtin_types.entry_void;
-        convert_to_value = false;
+        convert_to_value = call_instruction->lval != LValErrorUnionVal && call_instruction->lval != LValErrorUnionPtr;
     } else if (return_type->id == ZigTypeIdOptional && handle_is_ptr(return_type)) {
         scalar_result_type = ira->codegen->builtin_types.entry_bool;
         payload_result_type = return_type->data.maybe.child_type;
@@ -14700,26 +14699,34 @@ static IrInstruction *analyze_runtime_call(IrAnalyze *ira, FnTypeId *fn_type_id,
         }
 
         if (convert_to_value) {
-            base_result_loc = ir_implicit_cast_result(ira, prev_result_loc, return_type, false);
+            base_result_loc = ir_implicit_cast_result(ira, call_instruction->base.source_node,
+                    prev_result_loc, return_type, false);
             if (type_is_invalid(base_result_loc->value.type))
                 return ira->codegen->invalid_instruction;
             if (return_type->id == ZigTypeIdErrorUnion) {
                 payload_result_loc = ir_analyze_unwrap_err_payload(ira, &call_instruction->base,
                         base_result_loc, nullptr, false);
+                if (type_is_invalid(payload_result_loc->value.type))
+                    return ira->codegen->invalid_instruction;
+            } else if (return_type->id == ZigTypeIdErrorSet) {
+                payload_result_loc = nullptr;
             } else if (return_type->id == ZigTypeIdOptional) {
                 payload_result_loc = ir_analyze_unwrap_optional_payload(ira, &call_instruction->base,
                         base_result_loc, false);
+                if (type_is_invalid(payload_result_loc->value.type))
+                    return ira->codegen->invalid_instruction;
             } else {
                 zig_unreachable();
             }
         } else {
-            payload_result_loc = ir_implicit_cast_result(ira, prev_result_loc, payload_result_type, need_store_ptr);
+            payload_result_loc = ir_implicit_cast_result(ira, call_instruction->base.source_node,
+                    prev_result_loc, payload_result_type, need_store_ptr);
             if (payload_result_loc == nullptr)
                 payload_result_loc = prev_result_loc;
             base_result_loc = payload_result_loc;
+            if (type_is_invalid(payload_result_loc->value.type))
+                return ira->codegen->invalid_instruction;
         }
-        if (type_is_invalid(payload_result_loc->value.type))
-            return ira->codegen->invalid_instruction;
     }
 
     // This instruction, in the case of optional and error union, is always the error code / bool value.
@@ -14806,6 +14813,21 @@ static IrInstruction *analyze_runtime_call(IrAnalyze *ira, FnTypeId *fn_type_id,
         switch (call_instruction->lval) {
             case LValNone:
                 return ir_get_deref(ira, &call_instruction->base, base_result_loc);
+            case LValPtr:
+                return base_result_loc;
+            case LValErrorUnionVal:
+            case LValErrorUnionPtr:
+                zig_unreachable();
+            case LValOptional:
+                // This means incorrectly used optional syntax for error union.
+                zig_panic("TODO");
+        }
+        zig_unreachable();
+    } else if (return_type->id == ZigTypeIdErrorSet) {
+        ir_analyze_store_ptr(ira, &call_instruction->base, base_result_loc, new_call_instruction);
+        switch (call_instruction->lval) {
+            case LValNone:
+                return new_call_instruction;
             case LValPtr:
                 return base_result_loc;
             case LValErrorUnionVal:
@@ -23100,7 +23122,8 @@ static IrInstruction *ir_analyze_instruction_result_ptr_cast(IrAnalyze *ira,
     if (type_is_invalid(prev_result_loc->value.type))
         return ira->codegen->invalid_instruction;
 
-    IrInstruction *new_result_loc = ir_implicit_cast_result(ira, prev_result_loc, elem_type, false);
+    IrInstruction *new_result_loc = ir_implicit_cast_result(ira, instruction->base.source_node,
+            prev_result_loc, elem_type, false);
     if (type_is_invalid(new_result_loc->value.type))
         return ira->codegen->invalid_instruction;
 
@@ -23121,7 +23144,8 @@ static IrInstruction *ir_analyze_instruction_result_cast(IrAnalyze *ira, IrInstr
     if (type_is_invalid(prev_result_loc->value.type))
         return ira->codegen->invalid_instruction;
 
-    IrInstruction *new_result_loc = ir_implicit_cast_result(ira, prev_result_loc, elem_type, false);
+    IrInstruction *new_result_loc = ir_implicit_cast_result(ira, instruction->base.source_node,
+            prev_result_loc, elem_type, false);
     if (type_is_invalid(new_result_loc->value.type))
         return ira->codegen->invalid_instruction;
 
@@ -23198,8 +23222,8 @@ static IrInstruction *ir_analyze_instruction_first_arg_result_loc(IrAnalyze *ira
         if (type_is_invalid(dest_type))
             return ira->codegen->invalid_instruction;
 
-        IrInstruction *new_result_loc = ir_implicit_cast_result(ira, instruction->prev_result_loc->child,
-                dest_type, true);
+        IrInstruction *new_result_loc = ir_implicit_cast_result(ira, instruction->base.source_node,
+                instruction->prev_result_loc->child, dest_type, true);
         if (new_result_loc == nullptr)
             return nullptr;
         if (type_is_invalid(new_result_loc->value.type))
@@ -23472,7 +23496,8 @@ static IrInstruction *ir_analyze_instruction_result_bytes_to_slice(IrAnalyze *ir
             true, false, PtrLenUnknown, 0, 0, 0);
     ZigType *slice_of_bytes = get_slice_type(ira->codegen, slice_ptr_type);
     IrInstruction *prev_result_loc = instruction->prev_result_loc->child;
-    IrInstruction *new_result_loc = ir_implicit_cast_result(ira, prev_result_loc, slice_of_bytes, false);
+    IrInstruction *new_result_loc = ir_implicit_cast_result(ira, instruction->base.source_node,
+            prev_result_loc, slice_of_bytes, false);
     if (type_is_invalid(new_result_loc->value.type))
         return ira->codegen->invalid_instruction;
 
@@ -23520,7 +23545,8 @@ static IrInstruction *ir_analyze_result_slice_to_bytes(IrAnalyze *ira,
 
     ZigType *elem_ptr_type = adjust_ptr_child(ira->codegen, bytes_ptr_type, elem_type);
     ZigType *slice_of_elem = get_slice_type(ira->codegen, elem_ptr_type);
-    IrInstruction *casted_prev_result_loc = ir_implicit_cast_result(ira, prev_result_loc, slice_of_elem, false);
+    IrInstruction *casted_prev_result_loc = ir_implicit_cast_result(ira, source_inst->source_node,
+            prev_result_loc, slice_of_elem, false);
     if (type_is_invalid(casted_prev_result_loc->value.type))
         return ira->codegen->invalid_instruction;
 

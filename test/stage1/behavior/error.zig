@@ -159,7 +159,36 @@ fn testErrToIntWithOnePossibleValue(
     }
 }
 
-// test "error union peer type resolution" {
+test "error union peer type resolution" {
+    testErrorUnionPeerTypeResolution(1);
+    comptime testErrorUnionPeerTypeResolution(1);
+}
+
+fn testErrorUnionPeerTypeResolution(x: i32) void {
+    // TODO https://github.com/ziglang/zig/pull/1682#issuecomment-451303797
+    const y: anyerror!i32 = switch (x) {
+        1 => bar_1(),
+        2 => baz_1(),
+        else => quux_1(),
+    };
+    if (y) |_| {
+        @panic("expected error");
+    } else |e| {
+        assertOrPanic(e == error.A);
+    }
+}
+
+fn bar_1() anyerror {
+    return error.A;
+}
+
+fn baz_1() !i32 {
+    return error.B;
+}
+
+fn quux_1() !i32 {
+    return error.C;
+}
 
 test "error: fn returning empty error set can be passed as fn returning any error" {
     entry();
