@@ -3,17 +3,6 @@ const assertOrPanic = std.debug.assertOrPanic;
 const mem = std.mem;
 const builtin = @import("builtin");
 
-test "comptime test error for empty error set" {
-    testComptimeTestErrorEmptySet(1234);
-    comptime testComptimeTestErrorEmptySet(1234);
-}
-
-const EmptyErrorSet = error{};
-
-fn testComptimeTestErrorEmptySet(x: EmptyErrorSet!i32) void {
-    if (x) |v| assertOrPanic(v == 1234) else |err| @compileError("bad");
-}
-
 test "error union peer type resolution" {
     testErrorUnionPeerTypeResolution(1);
     comptime testErrorUnionPeerTypeResolution(1);

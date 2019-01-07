@@ -129,7 +129,16 @@ fn testExplicitErrorSetCast(set1: Set1) void {
     assertOrPanic(y == error.A);
 }
 
-// test "comptime test error for empty error set" {
+test "comptime test error for empty error set" {
+    testComptimeTestErrorEmptySet(1234);
+    comptime testComptimeTestErrorEmptySet(1234);
+}
+
+const EmptyErrorSet = error{};
+
+fn testComptimeTestErrorEmptySet(x: EmptyErrorSet!i32) void {
+    if (x) |v| assertOrPanic(v == 1234) else |err| @compileError("bad");
+}
 
 test "syntax: optional operator in front of error union operator" {
     comptime {

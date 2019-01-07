@@ -16191,10 +16191,7 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
             if (array_ptr_val == nullptr)
                 return ira->codegen->invalid_instruction;
 
-            if (orig_array_ptr_val->data.x_ptr.mut == ConstPtrMutInfer &&
-                array_ptr_val->special == ConstValSpecialUndef &&
-                array_type->id == ZigTypeIdArray)
-            {
+            if (array_ptr_val->special == ConstValSpecialUndef && array_type->id == ZigTypeIdArray) {
                 array_ptr_val->data.x_array.special = ConstArraySpecialNone;
                 array_ptr_val->data.x_array.data.s_none.elements = create_const_vals(array_type->data.array.len);
                 array_ptr_val->special = ConstValSpecialStatic;
@@ -21311,10 +21308,18 @@ static IrInstruction *ir_analyze_error_union_field_error_set(IrAnalyze *ira,
         return ira->codegen->invalid_instruction;
     }
 
-    ZigType *opt_err_set = get_optional_type(ira->codegen, type_entry->data.error_union.err_set_type);
+    ZigType *err_set_type = type_entry->data.error_union.err_set_type;
+    ZigType *opt_err_set = get_optional_type(ira->codegen, err_set_type);
     ZigType *result_type = get_pointer_to_type_extra(ira->codegen, opt_err_set,
             ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile, PtrLenSingle,
             ptr_type->data.pointer.explicit_alignment, 0, 0);
+
+    if (!resolve_inferred_error_set(ira->codegen, err_set_type, source_instr->source_node))
+        return ira->codegen->invalid_instruction;
+    if (err_set_type->data.error_set.err_count == 0) {
+        IrInstruction *null = ir_const(ira, source_instr, ira->codegen->builtin_types.entry_null);
+        return ir_get_ref(ira, source_instr, null, true, true, nullptr);
+    }
 
     if (instr_is_comptime(base_ptr)) {
         ConstExprValue *ptr_val = ir_resolve_const(ira, base_ptr, UndefBad);
@@ -21322,9 +21327,7 @@ static IrInstruction *ir_analyze_error_union_field_error_set(IrAnalyze *ira,
             return ira->codegen->invalid_instruction;
         if (ptr_val->data.x_ptr.special != ConstPtrSpecialHardCodedAddr) {
             ConstExprValue *err_union_val = const_ptr_pointee(ira, ira->codegen, ptr_val, source_instr->source_node);
-            if (err_union_val->data.x_ptr.mut == ConstPtrMutInfer &&
-                err_union_val->special == ConstValSpecialUndef)
-            {
+            if (err_union_val->special == ConstValSpecialUndef) {
                 ConstExprValue *vals = create_const_vals(2);
                 ConstExprValue *err_set_val = &vals[0];
                 ConstExprValue *payload_val = &vals[1];
@@ -21413,9 +21416,7 @@ static IrInstruction *ir_analyze_unwrap_err_payload(IrAnalyze *ira, IrInstructio
             ConstExprValue *err_union_val = const_ptr_pointee(ira, ira->codegen, ptr_val, source_instr->source_node);
             if (err_union_val == nullptr)
                 return ira->codegen->invalid_instruction;
-            if (ptr_val->data.x_ptr.mut == ConstPtrMutInfer &&
-                err_union_val->special == ConstValSpecialUndef)
-            {
+            if (err_union_val->special == ConstValSpecialUndef) {
                 ConstExprValue *vals = create_const_vals(2);
                 ConstExprValue *err_set_val = &vals[0];
                 ConstExprValue *payload_val = &vals[1];
