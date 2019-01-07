@@ -3494,7 +3494,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    x.init();
         \\}
     ,
-        ".tmp_source.zig:23:5: error: expected type 'Allocator', found '*List'",
+        ".tmp_source.zig:23:5: error: expected type 'Allocator', found 'List'",
     );
 
     cases.add(
