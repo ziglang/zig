@@ -57,9 +57,6 @@ struct IrExecutable {
     size_t next_debug_id;
     size_t *backward_branch_count;
     size_t backward_branch_quota;
-    bool invalid;
-    bool is_inline;
-    bool is_generic_instantiation;
     ZigFn *fn_entry;
     Buf *c_import_buf;
     AstNode *source_node;
@@ -79,6 +76,10 @@ struct IrExecutable {
     IrBasicBlock *coro_suspend_block;
     IrBasicBlock *coro_final_cleanup_block;
     ZigVar *coro_allocator_var;
+
+    bool invalid;
+    bool is_inline;
+    bool is_generic_instantiation;
 };
 
 enum OutType {
@@ -703,7 +704,7 @@ struct AstNodeUse {
     AstNode *expr;
 
     TldResolution resolution;
-    IrInstruction *value;
+    ConstExprValue *value;
 };
 
 struct AstNodeIfBoolExpr {
@@ -1635,7 +1636,7 @@ struct CodeGen {
     HashMap<FnTypeId *, ZigType *, fn_type_id_hash, fn_type_id_eql> fn_type_table;
     HashMap<Buf *, ErrorTableEntry *, buf_hash, buf_eql_buf> error_table;
     HashMap<GenericFnTypeId *, ZigFn *, generic_fn_type_id_hash, generic_fn_type_id_eql> generic_table;
-    HashMap<Scope *, IrInstruction *, fn_eval_hash, fn_eval_eql> memoized_fn_eval_table;
+    HashMap<Scope *, ConstExprValue *, fn_eval_hash, fn_eval_eql> memoized_fn_eval_table;
     HashMap<ZigLLVMFnKey, LLVMValueRef, zig_llvm_fn_key_hash, zig_llvm_fn_key_eql> llvm_fn_table;
     HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> exported_symbol_names;
     HashMap<Buf *, Tld *, buf_hash, buf_eql_buf> external_prototypes;

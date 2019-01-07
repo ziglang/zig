@@ -3,16 +3,6 @@ const assertOrPanic = std.debug.assertOrPanic;
 const mem = std.mem;
 const builtin = @import("builtin");
 
-test "error: Zero sized error set returned with value payload crash" {
-    _ = foo3(0);
-    _ = comptime foo3(0);
-}
-
-const Error = error{};
-fn foo3(b: usize) Error!usize {
-    return b;
-}
-
 test "error: Infer error set from literals" {
     _ = nullLiteral("n") catch |err| handleErrors(err);
     _ = floatLiteral("n") catch |err| handleErrors(err);

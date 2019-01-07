@@ -205,5 +205,14 @@ fn foo2(f: fn () anyerror!void) void {
 
 fn bar2() (error{}!void) {}
 
-// test "error: Zero sized error set returned with value payload crash" {
+test "error: Zero sized error set returned with value payload crash" {
+    _ = foo3(0);
+    _ = comptime foo3(0);
+}
+
+const Error = error{};
+fn foo3(b: usize) Error!usize {
+    return b;
+}
+
 // test "error: Infer error set from literals" {
