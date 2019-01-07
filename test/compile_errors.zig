@@ -962,8 +962,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    }
         \\}
     ,
-        ".tmp_source.zig:12:9: error: cannot suspend inside suspend block",
-        ".tmp_source.zig:11:5: note: other suspend block here",
+        ".tmp_source.zig:14:9: error: cannot suspend inside suspend block",
+        ".tmp_source.zig:13:5: note: other suspend block here",
     );
 
     cases.add(
@@ -1015,7 +1015,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return error.ShouldBeCompileError;
         \\}
     ,
-        ".tmp_source.zig:6:17: error: expected type 'void', found 'error{ShouldBeCompileError}'",
+        ".tmp_source.zig:9:17: error: expected type 'void', found 'error{ShouldBeCompileError}'",
     );
 
     cases.add(
@@ -3490,11 +3490,11 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\};
         \\
         \\export fn foo() void {
-        \\    var x = List.init(&global_allocator);
+        \\    var x = List.init(global_allocator);
         \\    x.init();
         \\}
     ,
-        ".tmp_source.zig:23:5: error: expected type 'Allocator', found '*List'",
+        ".tmp_source.zig:23:5: error: expected type 'Allocator', found 'List'",
     );
 
     cases.add(

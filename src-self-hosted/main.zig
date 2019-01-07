@@ -20,6 +20,8 @@ const Target = @import("target.zig").Target;
 const errmsg = @import("errmsg.zig");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 
+const oaw = std.old_allocator_wrapper;
+
 var stderr_file: os.File = undefined;
 var stderr: *io.OutStream(os.File.WriteError) = undefined;
 var stdout: *io.OutStream(os.File.WriteError) = undefined;
@@ -468,7 +470,7 @@ fn buildOutputType(allocator: Allocator, args: []const []const u8, out_type: Com
     comp.link_objects = link_objects;
 
     comp.start();
-    const process_build_events_handle = try async<loop.allocator> processBuildEvents(comp, color);
+    const process_build_events_handle = try async<&loop.oaw.old_allocator> processBuildEvents(comp, color);
     defer cancel process_build_events_handle;
     loop.run();
 }
@@ -580,7 +582,7 @@ fn cmdLibC(allocator: Allocator, args: []const []const u8) !void {
     var zig_compiler = try ZigCompiler.init(&loop);
     defer zig_compiler.deinit();
 
-    const handle = try async<loop.allocator> findLibCAsync(&zig_compiler);
+    const handle = try async<&loop.oaw.old_allocator> findLibCAsync(&zig_compiler);
     defer cancel handle;
 
     loop.run();
@@ -665,7 +667,8 @@ fn cmdFmt(allocator: Allocator, args: []const []const u8) !void {
     defer loop.deinit();
 
     var result: FmtError!void = undefined;
-    const main_handle = try async<allocator> asyncFmtMainChecked(
+    var wrapper = oaw.OldAllocatorWrapper.init(allocator);
+    const main_handle = try async<&wrapper.old_allocator> asyncFmtMainChecked(
         &result,
         &loop,
         &flags,

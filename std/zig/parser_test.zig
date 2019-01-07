@@ -1822,7 +1822,8 @@ test "zig fmt: coroutines" {
         \\}
         \\
         \\test "coroutine suspend, resume, cancel" {
-        \\    const p: promise = try async<std.debug.global_allocator> testAsyncSeq();
+        \\    var wrapper = std.old_allocator_wrapper.OldAllocatorWrapper.init(std.debug.global_allocator);
+        \\    const p: promise = try async<&wrapper.old_allocator> testAsyncSeq();
         \\    resume p;
         \\    cancel p;
         \\}

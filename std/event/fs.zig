@@ -8,6 +8,8 @@ const posix = os.posix;
 const windows = os.windows;
 const Loop = event.Loop;
 
+const oaw = std.old_allocator_wrapper;
+
 pub const RequestNode = std.atomic.Queue(Request).Node;
 
 pub const Request = struct {
@@ -1404,7 +1406,7 @@ pub const OutStream = struct {
         };
     }
 
-    async<mem.Allocator> fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
+    async<*oaw.OldAllocator> fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
         const self = @fieldParentPtr(OutStream, "stream", out_stream);
         const offset = self.offset;
         self.offset += bytes.len;
@@ -1430,7 +1432,7 @@ pub const InStream = struct {
         };
     }
 
-    async<mem.Allocator> fn readFn(in_stream: *Stream, bytes: []u8) Error!usize {
+    async<*oaw.OldAllocator> fn readFn(in_stream: *Stream, bytes: []u8) Error!usize {
         const self = @fieldParentPtr(InStream, "stream", in_stream);
         const amt = try await (async preadv(self.loop, self.fd, [][]u8{bytes}, self.offset) catch unreachable);
         self.offset += amt;

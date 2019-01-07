@@ -374,12 +374,14 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\pub fn main() void {
         \\    const p = nonFailing();
         \\    resume p;
-        \\    const p2 = async<std.debug.global_allocator> printTrace(p) catch unreachable;
+        \\    var wrapper = std.old_allocator_wrapper.OldAllocatorWrapper.init(std.debug.global_allocator);
+        \\    const p2 = async<&wrapper.old_allocator> printTrace(p) catch unreachable;
         \\    cancel p2;
         \\}
         \\
         \\fn nonFailing() promise->anyerror!void {
-        \\    return async<std.debug.global_allocator> failing() catch unreachable;
+        \\    var wrapper = std.old_allocator_wrapper.OldAllocatorWrapper.init(std.debug.global_allocator);
+        \\    return async<&wrapper.old_allocator> failing() catch unreachable;
         \\}
         \\
         \\async fn failing() anyerror!void {

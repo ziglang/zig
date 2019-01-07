@@ -32,6 +32,8 @@ const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 const CInt = @import("c_int.zig").CInt;
 const fs = event.fs;
 
+const oaw = std.old_allocator_wrapper;
+
 const max_src_size = 2 * 1024 * 1024 * 1024; // 2 GiB
 
 /// Data that is local to the event loop.
@@ -347,7 +349,7 @@ pub const Compilation = struct {
         zig_lib_dir: []const u8,
     ) !*Compilation {
         var optional_comp: ?*Compilation = null;
-        const handle = try async<zig_compiler.loop.allocator> createAsync(
+        const handle = try async<&zig_compiler.loop.oaw.old_allocator> createAsync(
             &optional_comp,
             zig_compiler,
             name,
@@ -1459,7 +1461,8 @@ async fn generateDeclFnProto(comp: *Compilation, fn_decl: *Decl.Fn) !void {
 // TODO these are hacks which should probably be solved by the language
 fn getAwaitResult(allocator: Allocator, handle: var) @typeInfo(@typeOf(handle)).Promise.child.? {
     var result: ?@typeInfo(@typeOf(handle)).Promise.child.? = null;
-    cancel (async<allocator> getAwaitResultAsync(handle, &result) catch unreachable);
+    var wrapper = oaw.OldAllocatorWrapper.init(allocator);
+    cancel (async<&wrapper.old_allocator> getAwaitResultAsync(handle, &result) catch unreachable);
     return result.?;
 }
 
