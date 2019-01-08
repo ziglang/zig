@@ -17,3 +17,27 @@ fn tryOnErrorUnionImpl() void {
 fn returnsTen() anyerror!i32 {
     return 10;
 }
+
+test "try without vars" {
+    const result1: i32 = if (failIfTrue(true)) 1 else |_| 2;
+    assertOrPanic(result1 == 2);
+
+    const result2: i32 = if (failIfTrue(false)) 1 else |_| 2;
+    assertOrPanic(result2 == 1);
+}
+
+fn failIfTrue(ok: bool) anyerror!void {
+    if (ok) {
+        return error.ItBroke;
+    } else {
+        return;
+    }
+}
+
+test "try then not executed with assignment" {
+    if (failIfTrue(true)) {
+        unreachable;
+    } else |err| {
+        assertOrPanic(err == error.ItBroke);
+    }
+}

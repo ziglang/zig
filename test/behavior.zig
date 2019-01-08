@@ -9,5 +9,4 @@ comptime {
     _ = @import("cases/ir_block_deps.zig");
     _ = @import("cases/null.zig");
     _ = @import("cases/struct_contains_slice_of_itself.zig");
-    _ = @import("cases/try.zig");
 }
