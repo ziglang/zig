@@ -4163,6 +4163,10 @@ void analyze_fn_ir(CodeGen *g, ZigFn *fn_table_entry, AstNode *return_type_node)
                 inferred_err_set_type = fn_table_entry->src_implicit_return_type;
             } else if (fn_table_entry->src_implicit_return_type->id == ZigTypeIdErrorUnion) {
                 inferred_err_set_type = fn_table_entry->src_implicit_return_type->data.error_union.err_set_type;
+            } else if (fn_table_entry->src_implicit_return_type->id == ZigTypeIdOptional &&
+                    fn_table_entry->src_implicit_return_type->data.maybe.child_type->id == ZigTypeIdErrorSet)
+            {
+                inferred_err_set_type = fn_table_entry->src_implicit_return_type->data.maybe.child_type;
             } else {
                 add_node_error(g, return_type_node,
                         buf_sprintf("function with inferred error set must return at least one possible error"));

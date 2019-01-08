@@ -702,7 +702,7 @@ fn formatIntSigned(
         const minus_sign: u8 = '-';
         try output(context, (*[1]u8)(&minus_sign)[0..]);
         const new_value = @intCast(uint, -(value + 1)) + 1;
-        const new_width = if (width == 0) 0 else (width - 1);
+        const new_width: usize = if (width == 0) 0 else (width - 1);
         return formatIntUnsigned(new_value, base, uppercase, new_width, context, Errors, output);
     } else if (width == 0) {
         return formatIntUnsigned(@intCast(uint, value), base, uppercase, width, context, Errors, output);
@@ -710,7 +710,7 @@ fn formatIntSigned(
         const plus_sign: u8 = '+';
         try output(context, (*[1]u8)(&plus_sign)[0..]);
         const new_value = @intCast(uint, value);
-        const new_width = if (width == 0) 0 else (width - 1);
+        const new_width: usize = if (width == 0) 0 else (width - 1);
         return formatIntUnsigned(new_value, base, uppercase, new_width, context, Errors, output);
     }
 }

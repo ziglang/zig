@@ -9618,7 +9618,13 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
 
         if (prev_type->id == ZigTypeIdErrorSet) {
             assert(err_set_type != nullptr);
-            if (cur_type->id == ZigTypeIdErrorSet) {
+            if (cur_type->id == ZigTypeIdErrorSet ||
+                (cur_type->id == ZigTypeIdOptional && cur_type->data.maybe.child_type->id == ZigTypeIdErrorSet))
+            {
+                if (cur_type->id == ZigTypeIdOptional) {
+                    cur_type = cur_type->data.maybe.child_type;
+                    any_are_null = true;
+                }
                 if (type_is_global_error_set(err_set_type)) {
                     continue;
                 }
@@ -10075,8 +10081,15 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
             return slice_type;
         }
     } else if (err_set_type != nullptr) {
-        if (prev_inst->value.type->id == ZigTypeIdErrorSet) {
-            return err_set_type;
+        if (prev_inst->value.type->id == ZigTypeIdErrorSet ||
+            (prev_inst->value.type->id == ZigTypeIdOptional &&
+             prev_inst->value.type->data.maybe.child_type->id == ZigTypeIdErrorSet))
+        {
+            if (any_are_null) {
+                return get_optional_type(ira->codegen, err_set_type);
+            } else {
+                return err_set_type;
+            }
         } else if (prev_inst->value.type->id == ZigTypeIdErrorUnion) {
             ZigType *payload_type = prev_inst->value.type->data.error_union.payload_type;
             if ((err = type_resolve(ira->codegen, payload_type, ResolveStatusSizeKnown)))
@@ -19086,12 +19099,7 @@ static Error ir_make_type_info_defs(IrAnalyze *ira, ConstExprValue *out_val, Sco
                     ensure_field_index(fn_def_val->type, "return_type", 7);
                     fn_def_fields[7].special = ConstValSpecialStatic;
                     fn_def_fields[7].type = ira->codegen->builtin_types.entry_type;
-                    if (fn_entry->src_implicit_return_type != nullptr)
-                        fn_def_fields[7].data.x_type = fn_entry->src_implicit_return_type;
-                    else if (fn_entry->type_entry->data.fn.gen_return_type != nullptr)
-                        fn_def_fields[7].data.x_type = fn_entry->type_entry->data.fn.gen_return_type;
-                    else
-                        fn_def_fields[7].data.x_type = fn_entry->type_entry->data.fn.fn_type_id.return_type;
+                    fn_def_fields[7].data.x_type = fn_entry->type_entry->data.fn.fn_type_id.return_type;
                     // arg_names: [][] const u8
                     ensure_field_index(fn_def_val->type, "arg_names", 8);
                     size_t fn_arg_count = fn_entry->variable_list.length;
