@@ -129,6 +129,7 @@ static TransScope *trans_stmt(Context *c, TransScope *scope, const Stmt *stmt, A
 static AstNode *trans_expr(Context *c, ResultUsed result_used, TransScope *scope, const Expr *expr, TransLRValue lrval);
 static AstNode *trans_qual_type(Context *c, QualType qt, const SourceLocation &source_loc);
 static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *scope, const Expr *expr, TransLRValue lrval);
+static AstNode *trans_ap_value(Context *c, APValue *ap_value, QualType qt, const SourceLocation &source_loc);
 
 ATTRIBUTE_PRINTF(3, 4)
 static void emit_warning(Context *c, const SourceLocation &sl, const char *format, ...) {
@@ -1223,6 +1224,15 @@ static AstNode *trans_integer_literal(Context *c, const IntegerLiteral *stmt) {
         return nullptr;
     }
     return trans_create_node_apint(c, result.Val.getInt());
+}
+
+static AstNode *trans_constant_expr(Context *c, const ConstantExpr *expr) {
+    Expr::EvalResult result;
+    if (!expr->EvaluateAsConstantExpr(result, Expr::EvaluateForCodeGen, *c->ctx)) {
+        emit_warning(c, expr->getBeginLoc(), "invalid constant expression");
+        return nullptr;
+    }
+    return trans_ap_value(c, &result.Val, expr->getType(), expr->getBeginLoc());
 }
 
 static AstNode *trans_conditional_operator(Context *c, ResultUsed result_used, TransScope *scope,
@@ -3183,6 +3193,9 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const Stmt *stmt,
             return trans_switch_case(c, scope, (const CaseStmt *)stmt, out_node, out_child_scope);
         case Stmt::DefaultStmtClass:
             return trans_switch_default(c, scope, (const DefaultStmt *)stmt, out_node, out_child_scope);
+        case Stmt::ConstantExprClass:
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_constant_expr(c, (const ConstantExpr *)stmt));
         case Stmt::NoStmtClass:
             emit_warning(c, stmt->getBeginLoc(), "TODO handle C NoStmtClass");
             return ErrorUnexpected;
@@ -3689,9 +3702,6 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const Stmt *stmt,
             return ErrorUnexpected;
         case Stmt::FixedPointLiteralClass:
             emit_warning(c, stmt->getBeginLoc(), "TODO handle C FixedPointLiteralClass");
-            return ErrorUnexpected;
-        case Stmt::ConstantExprClass:
-            emit_warning(c, stmt->getBeginLoc(), "TODO handle C ConstantExprClass");
             return ErrorUnexpected;
     }
     zig_unreachable();
