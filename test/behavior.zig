@@ -1,6 +1,5 @@
 comptime {
     _ = @import("cases/cast.zig");
-    _ = @import("cases/const_slice_child.zig");
     _ = @import("cases/coroutine_await_struct.zig");
     _ = @import("cases/coroutines.zig");
     _ = @import("cases/defer.zig");
