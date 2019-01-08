@@ -17100,12 +17100,7 @@ static Error ir_make_type_info_defs(IrAnalyze *ira, ConstExprValue *out_val, Sco
                     ensure_field_index(fn_def_val->type, "return_type", 7);
                     fn_def_fields[7].special = ConstValSpecialStatic;
                     fn_def_fields[7].type = ira->codegen->builtin_types.entry_type;
-                    if (fn_entry->src_implicit_return_type != nullptr)
-                        fn_def_fields[7].data.x_type = fn_entry->src_implicit_return_type;
-                    else if (fn_entry->type_entry->data.fn.gen_return_type != nullptr)
-                        fn_def_fields[7].data.x_type = fn_entry->type_entry->data.fn.gen_return_type;
-                    else
-                        fn_def_fields[7].data.x_type = fn_entry->type_entry->data.fn.fn_type_id.return_type;
+                    fn_def_fields[7].data.x_type = fn_entry->type_entry->data.fn.fn_type_id.return_type;
                     // arg_names: [][] const u8
                     ensure_field_index(fn_def_val->type, "arg_names", 8);
                     size_t fn_arg_count = fn_entry->variable_list.length;
