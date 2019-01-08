@@ -5176,6 +5176,7 @@ OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry) {
         case ZigTypeIdBool:
         case ZigTypeIdFloat:
         case ZigTypeIdPromise:
+        case ZigTypeIdErrorUnion:
             return OnePossibleValueNo;
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
@@ -5183,14 +5184,32 @@ OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry) {
         case ZigTypeIdUnreachable:
             return OnePossibleValueYes;
         case ZigTypeIdArray:
+            if (type_entry->data.array.len == 0)
+                return OnePossibleValueYes;
+            return type_has_one_possible_value(g, type_entry->data.array.child_type);
         case ZigTypeIdStruct:
-        case ZigTypeIdUnion:
-        case ZigTypeIdErrorUnion:
-        case ZigTypeIdPointer:
-        case ZigTypeIdEnum:
+            for (size_t i = 0; i < type_entry->data.structure.src_field_count; i += 1) {
+                TypeStructField *field = &type_entry->data.structure.fields[i];
+                switch (type_has_one_possible_value(g, field->type_entry)) {
+                    case OnePossibleValueInvalid:
+                        return OnePossibleValueInvalid;
+                    case OnePossibleValueNo:
+                        return OnePossibleValueNo;
+                    case OnePossibleValueYes:
+                        continue;
+                }
+            }
+            return OnePossibleValueYes;
         case ZigTypeIdErrorSet:
+        case ZigTypeIdEnum:
         case ZigTypeIdInt:
             return type_has_bits(type_entry) ? OnePossibleValueNo : OnePossibleValueYes;
+        case ZigTypeIdPointer:
+            return type_has_one_possible_value(g, type_entry->data.pointer.child_type);
+        case ZigTypeIdUnion:
+            if (type_entry->data.unionation.src_field_count > 1)
+                return OnePossibleValueNo;
+            return type_has_one_possible_value(g, type_entry->data.unionation.fields[0].type_entry);
     }
     zig_unreachable();
 }
