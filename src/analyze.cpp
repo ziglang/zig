@@ -1220,7 +1220,10 @@ ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
         fn_type->data.fn.raw_type_ref = LLVMFunctionType(gen_return_type->type_ref,
                 gen_param_types.items, (unsigned int)gen_param_types.length, fn_type_id->is_var_args);
         fn_type->type_ref = LLVMPointerType(fn_type->data.fn.raw_type_ref, 0);
-        fn_type->di_type = ZigLLVMCreateSubroutineType(g->dbuilder, param_di_types.items, (int)param_di_types.length, 0);
+        fn_type->data.fn.raw_di_type = ZigLLVMCreateSubroutineType(g->dbuilder, param_di_types.items, (int)param_di_types.length, 0);
+        fn_type->di_type = ZigLLVMCreateDebugPointerType(g->dbuilder, fn_type->data.fn.raw_di_type,
+                LLVMStoreSizeOfType(g->target_data_ref, fn_type->type_ref),
+                LLVMABIAlignmentOfType(g->target_data_ref, fn_type->type_ref), "");
     }
 
     g->fn_type_table.put(&fn_type->data.fn.fn_type_id, fn_type);

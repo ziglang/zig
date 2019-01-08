@@ -1166,6 +1166,7 @@ struct ZigTypeFn {
     FnGenParamInfo *gen_param_info;
 
     LLVMTypeRef raw_type_ref;
+    ZigLLVMDIType *raw_di_type;
 
     ZigType *bound_fn_parent;
 };
