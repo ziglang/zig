@@ -22,6 +22,8 @@ pub extern "c" fn openat(fd: c_int, path: ?[*]const u8, flags: c_int) c_int;
 pub extern "c" fn setgid(ruid: c_uint, euid: c_uint) c_int;
 pub extern "c" fn setuid(uid: c_uint) c_int;
 pub extern "c" fn kill(pid: c_int, sig: c_int) c_int;
+pub extern "c" fn clock_gettime(clk_id: c_int, tp: *timespec) c_int;
+pub extern "c" fn clock_getres(clk_id: c_int, tp: *timespec) c_int;
 
 /// Renamed from `kevent` to `Kevent` to avoid conflict with function name.
 pub const Kevent = extern struct {
@@ -90,4 +92,29 @@ pub const dirent = extern struct {
     d_namlen: u16,
     d_pad1: u16,
     d_name: [256]u8,
+};
+
+pub const in_port_t = u16;
+pub const sa_family_t = u16;
+
+pub const sockaddr = extern union {
+    in: sockaddr_in,
+    in6: sockaddr_in6,
+};
+
+pub const sockaddr_in = extern struct {
+    len: u8,
+    family: sa_family_t,
+    port: in_port_t,
+    addr: [16]u8,
+    zero: [8]u8,
+};
+
+pub const sockaddr_in6 = extern struct {
+    len: u8,
+    family: sa_family_t,
+    port: in_port_t,
+    flowinfo: u32,
+    addr: [16]u8,
+    scope_id: u32,
 };

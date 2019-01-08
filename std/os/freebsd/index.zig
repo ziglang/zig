@@ -26,6 +26,21 @@ pub const PROT_READ = 1;
 pub const PROT_WRITE = 2;
 pub const PROT_EXEC = 4;
 
+pub const CLOCK_REALTIME = 0;
+pub const CLOCK_VIRTUAL = 1;
+pub const CLOCK_PROF = 2;
+pub const CLOCK_MONOTONIC = 4;
+pub const CLOCK_UPTIME = 5;
+pub const CLOCK_UPTIME_PRECISE = 7;
+pub const CLOCK_UPTIME_FAST = 8;
+pub const CLOCK_REALTIME_PRECISE = 9;
+pub const CLOCK_REALTIME_FAST = 10;
+pub const CLOCK_MONOTONIC_PRECISE = 11;
+pub const CLOCK_MONOTONIC_FAST = 12;
+pub const CLOCK_SECOND = 13;
+pub const CLOCK_THREAD_CPUTIME_ID = 14;
+pub const CLOCK_PROCESS_CPUTIME_ID = 15;
+
 pub const MAP_FAILED = maxInt(usize);
 pub const MAP_SHARED = 0x0001;
 pub const MAP_PRIVATE = 0x0002;
@@ -510,6 +525,10 @@ pub const TIOCGPKT = 0x80045438;
 pub const TIOCGPTLCK = 0x80045439;
 pub const TIOCGEXCL = 0x80045440;
 
+pub const sockaddr = c.sockaddr;
+pub const sockaddr_in = c.sockaddr_in;
+pub const sockaddr_in6 = c.sockaddr_in6;
+
 fn unsigned(s: i32) u32 {
     return @bitCast(u32, s);
 }
@@ -697,6 +716,14 @@ pub fn waitpid(pid: i32, status: *i32, options: u32) usize {
 
 pub fn nanosleep(req: *const timespec, rem: ?*timespec) usize {
     return errnoWrap(c.nanosleep(req, rem));
+}
+
+pub fn clock_gettime(clk_id: i32, tp: *timespec) usize {
+    return errnoWrap(c.clock_gettime(clk_id, tp));
+}
+
+pub fn clock_getres(clk_id: i32, tp: *timespec) usize {
+    return errnoWrap(c.clock_getres(clk_id, tp));
 }
 
 pub fn setuid(uid: u32) usize {
