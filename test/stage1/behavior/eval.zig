@@ -565,7 +565,20 @@ test "runtime 128 bit integer division" {
     assertOrPanic(c == 15231399999);
 }
 
-// comptime modification of const struct field
+pub const Info = struct {
+    version: u8,
+};
+
+pub const diamond_info = Info{ .version = 0 };
+
+test "comptime modification of const struct field" {
+    comptime {
+        var res = diamond_info;
+        res.version = 1;
+        assertOrPanic(diamond_info.version == 0);
+        assertOrPanic(res.version == 1);
+    }
+}
 
 test "pointer to type" {
     comptime {

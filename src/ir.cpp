@@ -12635,8 +12635,7 @@ static IrInstruction *ir_analyze_instruction_return(IrAnalyze *ira, IrInstructio
 
 static IrInstruction *ir_analyze_instruction_const(IrAnalyze *ira, IrInstructionConst *instruction) {
     IrInstruction *result = ir_const(ira, &instruction->base, nullptr);
-    // TODO determine if we need to use copy_const_val here
-    result->value = instruction->base.value;
+    copy_const_val(&result->value, &instruction->base.value, true);
     return result;
 }
 
@@ -14579,7 +14578,14 @@ static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source
                 if (dest_val == nullptr)
                     return ira->codegen->invalid_instruction;
                 if (dest_val->special != ConstValSpecialRuntime) {
-                    *dest_val = value->value;
+                    // TODO this allows a value stored to have the original value modified and then
+                    // have that affect what should be a copy. We need some kind of advanced copy-on-write
+                    // system to make these two tests pass at the same time:
+                    // * "string literal used as comptime slice is memoized"
+                    // * "comptime modification of const struct field" - except modified to avoid
+                    //   ConstPtrMutComptimeVar, thus defeating the logic below.
+                    bool same_global_refs = ptr->value.data.x_ptr.mut != ConstPtrMutComptimeVar;
+                    copy_const_val(dest_val, &value->value, same_global_refs);
                     if (!ira->new_irb.current_basic_block->must_be_comptime_source_instr) {
                         switch (type_has_one_possible_value(ira->codegen, child_type)) {
                             case OnePossibleValueInvalid:
@@ -14848,6 +14854,8 @@ static IrInstruction *analyze_runtime_call(IrAnalyze *ira, FnTypeId *fn_type_id,
     if (return_type->id == ZigTypeIdErrorUnion) {
         IrInstruction *err_code_ptr = ir_analyze_error_union_field_error_set(ira,
                 &call_instruction->base, base_result_loc, false);
+        if (type_is_invalid(err_code_ptr->value.type))
+            return ira->codegen->invalid_instruction;
         ir_analyze_store_ptr(ira, &call_instruction->base, err_code_ptr, new_call_instruction);
         switch (call_instruction->lval) {
             case LValNone:
@@ -15081,10 +15089,8 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call
                 return ira->codegen->invalid_instruction;
         }
 
-        // TODO test with optionals and error unions
         IrInstruction *new_instruction = ir_const(ira, &call_instruction->base, result->type);
-        // TODO should we use copy_const_val?
-        new_instruction->value = *result;
+        copy_const_val(&new_instruction->value, result, true);
 
         if (call_instruction->result_loc != nullptr && call_instruction->result_loc->child != nullptr) {
             IrInstruction *prev_result_loc = call_instruction->result_loc->child;
@@ -16010,8 +16016,7 @@ static IrInstruction *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionPh
 
             if (value->value.special != ConstValSpecialRuntime) {
                 IrInstruction *result = ir_const(ira, &phi_instruction->base, nullptr);
-                // TODO use copy_const_val?
-                result->value = value->value;
+                copy_const_val(&result->value, &value->value, true);
                 return result;
             } else {
                 return value;
