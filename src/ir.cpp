@@ -23623,6 +23623,8 @@ static IrInstruction *ir_analyze_instruction_result_bytes_to_slice(IrAnalyze *ir
 static IrInstruction *ir_analyze_result_slice_to_bytes(IrAnalyze *ira,
         IrInstruction *source_inst, IrInstruction *prev_result_loc, ZigType *elem_type, ZigType *bytes_slice_type)
 {
+    Error err;
+
     if (!is_slice(bytes_slice_type)) {
         ir_add_error(ira, source_inst,
                 buf_sprintf("expected slice, found '%s'", buf_ptr(&bytes_slice_type->name)));
@@ -23635,6 +23637,9 @@ static IrInstruction *ir_analyze_result_slice_to_bytes(IrAnalyze *ira,
                 buf_sprintf("expected slice of u8, found '%s'", buf_ptr(&bytes_slice_type->name)));
         return ira->codegen->invalid_instruction;
     }
+
+    if ((err = type_resolve(ira->codegen, elem_type, ResolveStatusZeroBitsKnown)))
+        return ira->codegen->invalid_instruction;
 
     ZigType *elem_ptr_type = adjust_ptr_child(ira->codegen, bytes_ptr_type, elem_type);
     ZigType *slice_of_elem = get_slice_type(ira->codegen, elem_ptr_type);

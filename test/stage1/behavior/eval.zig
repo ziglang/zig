@@ -704,7 +704,16 @@ test "@intCast to a u0" {
     assertOrPanic(y == 0);
 }
 
-// test "@bytesToslice on a packed struct"
+test "@bytesToSlice on a packed struct" {
+    const F = packed struct {
+        a: u8,
+    };
+
+    var b = [1]u8{9};
+    // TODO https://github.com/ziglang/zig/pull/1682#issuecomment-452813480
+    var f = @bytesToSlice(F, b[0..]);
+    assertOrPanic(f[0].a == 9);
+}
 
 test "comptime pointer cast array and then slice" {
     const array = []u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
