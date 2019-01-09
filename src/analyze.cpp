@@ -5757,7 +5757,8 @@ void render_const_val_ptr(CodeGen *g, Buf *buf, ConstExprValue *const_val, ZigTy
         case ConstPtrSpecialRef:
         case ConstPtrSpecialBaseStruct:
             buf_appendf(buf, "*");
-            render_const_value(g, buf, const_ptr_pointee(g, const_val));
+            // TODO we need a source node for const_ptr_pointee because it can generate compile errors
+            render_const_value(g, buf, const_ptr_pointee(nullptr, g, const_val, nullptr));
             return;
         case ConstPtrSpecialBaseArray:
             if (const_val->data.x_ptr.data.base_array.is_cstr) {
@@ -5765,7 +5766,8 @@ void render_const_val_ptr(CodeGen *g, Buf *buf, ConstExprValue *const_val, ZigTy
                 return;
             } else {
                 buf_appendf(buf, "*");
-                render_const_value(g, buf, const_ptr_pointee(g, const_val));
+                // TODO we need a source node for const_ptr_pointee because it can generate compile errors
+                render_const_value(g, buf, const_ptr_pointee(nullptr, g, const_val, nullptr));
                 return;
             }
         case ConstPtrSpecialHardCodedAddr:
@@ -6598,4 +6600,19 @@ uint32_t get_host_int_bytes(CodeGen *g, ZigType *struct_type, TypeStructField *f
     }
     LLVMTypeRef field_type = LLVMStructGetTypeAtIndex(struct_type->type_ref, field->gen_index);
     return LLVMStoreSizeOfType(g->target_data_ref, field_type);
+}
+
+Error ensure_const_val_repr(IrAnalyze *ira, CodeGen *codegen, AstNode *source_node,
+        ConstExprValue *const_val, ZigType *wanted_type)
+{
+    ConstExprValue ptr_val = {};
+    ptr_val.special = ConstValSpecialStatic;
+    ptr_val.type = get_pointer_to_type(codegen, wanted_type, true);
+    ptr_val.data.x_ptr.mut = ConstPtrMutComptimeConst;
+    ptr_val.data.x_ptr.special = ConstPtrSpecialRef;
+    ptr_val.data.x_ptr.data.ref.pointee = const_val;
+    if (const_ptr_pointee(ira, codegen, &ptr_val, source_node) == nullptr)
+        return ErrorSemanticAnalyzeFail;
+
+    return ErrorNone;
 }

@@ -5626,6 +5626,8 @@ static LLVMValueRef gen_const_val_ptr(CodeGen *g, ConstExprValue *const_val, con
 }
 
 static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const char *name) {
+    Error err;
+
     ZigType *type_entry = const_val->type;
     assert(!type_entry->zero_bits);
 
@@ -5769,6 +5771,12 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
                         }
                         ConstExprValue *field_val = &const_val->data.x_struct.fields[i];
                         assert(field_val->type != nullptr);
+                        if ((err = ensure_const_val_repr(nullptr, g, nullptr, field_val,
+                                        type_struct_field->type_entry)))
+                        {
+                            zig_unreachable();
+                        }
+
                         LLVMValueRef val = gen_const_val(g, field_val, "");
                         fields[type_struct_field->gen_index] = val;
                         make_unnamed_struct = make_unnamed_struct || is_llvm_value_unnamed_type(field_val->type, val);
