@@ -1869,6 +1869,22 @@ struct ErrorTableEntry {
     ConstExprValue *cached_error_name_val;
 };
 
+enum LVal {
+    // The instruction must return the actual value.
+    LValNone,
+    // The instruction must return a pointer to the actual value.
+    LValPtr,
+    // The instruction must populate the result location, which is
+    // an error union, and return the optional error code value.
+    LValErrorUnionVal,
+    // The instruction must populate the result location, which is
+    // an error union, and return a pointer to optional error code value.
+    LValErrorUnionPtr,
+    // The instruction must populate the result location, which is
+    // an optional, and return non-null bool value.
+    LValOptional,
+};
+
 enum ScopeId {
     ScopeIdDecls,
     ScopeIdBlock,
@@ -1923,10 +1939,12 @@ struct ScopeBlock {
     ZigList<IrInstruction *> *incoming_values;
     ZigList<IrBasicBlock *> *incoming_blocks;
 
-    bool safety_off;
     AstNode *safety_set_node;
-    bool fast_math_on;
     AstNode *fast_math_set_node;
+
+    LVal lval;
+    bool safety_off;
+    bool fast_math_on;
 };
 
 // This scope is created from every defer expression.
@@ -2061,22 +2079,6 @@ struct IrBasicBlock {
     // if the branch is comptime. The instruction points to the reason
     // the basic block must be comptime.
     IrInstruction *must_be_comptime_source_instr;
-};
-
-enum LVal {
-    // The instruction must return the actual value.
-    LValNone,
-    // The instruction must return a pointer to the actual value.
-    LValPtr,
-    // The instruction must populate the result location, which is
-    // an error union, and return the optional error code value.
-    LValErrorUnionVal,
-    // The instruction must populate the result location, which is
-    // an error union, and return a pointer to optional error code value.
-    LValErrorUnionPtr,
-    // The instruction must populate the result location, which is
-    // an optional, and return non-null bool value.
-    LValOptional,
 };
 
 // These instructions are in transition to having "pass 1" instructions

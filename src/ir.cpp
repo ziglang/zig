@@ -3634,13 +3634,9 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
         case ReturnKindError:
             {
                 assert(expr_node);
-                if (lval == LValOptional) {
-                    add_node_error(irb->codegen, expr_node,
-                        buf_sprintf("TODO: compiler bug: copy elision not advanced enough to handle nested try"));
-                    return irb->codegen->invalid_instruction;
-                }
-
                 IrInstruction *ensured_result_loc = ensure_result_loc(irb, scope, expr_node, result_loc);
+                if (ensured_result_loc == irb->codegen->invalid_instruction)
+                    return irb->codegen->invalid_instruction;
                 IrInstruction *opt_err_code = ir_gen_node(irb, expr_node, scope,
                         LValErrorUnionVal, ensured_result_loc);
                 if (opt_err_code == irb->codegen->invalid_instruction)
@@ -3776,7 +3772,8 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
     }
 
     if (block_node->data.block.name != nullptr) {
-        scope_block->result_loc = ensure_result_loc(irb, parent_scope, block_node, result_loc);
+        scope_block->result_loc = result_loc;
+        scope_block->lval = lval;
         scope_block->incoming_blocks = &incoming_blocks;
         scope_block->incoming_values = &incoming_values;
         scope_block->end_block = ir_create_basic_block(irb, parent_scope, "BlockEnd");
@@ -3816,28 +3813,20 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
         }
 
         ir_set_cursor_at_end_and_append_block(irb, scope_block->end_block);
-        return ir_gen_result(irb, parent_scope, block_node, lval, scope_block->result_loc);
+        return ir_build_phi(irb, parent_scope, block_node, incoming_blocks.length, incoming_blocks.items, incoming_values.items);
+    } else {
+        incoming_blocks.append(irb->current_basic_block);
+        incoming_values.append(ir_mark_gen(ir_build_const_void(irb, parent_scope, block_node)));
     }
 
     if (block_node->data.block.name != nullptr) {
-        IrInstruction *continuation_expr_result = ir_build_const_void(irb, parent_scope, block_node);
-        ir_build_store_ptr(irb, parent_scope, block_node, scope_block->result_loc, continuation_expr_result);
-
         ir_gen_defers_for_block(irb, child_scope, outer_block_scope, false);
         ir_mark_gen(ir_build_br(irb, parent_scope, block_node, scope_block->end_block, scope_block->is_comptime));
         ir_set_cursor_at_end_and_append_block(irb, scope_block->end_block);
-        return ir_gen_result(irb, parent_scope, block_node, lval, scope_block->result_loc);
+        return ir_build_phi(irb, parent_scope, block_node, incoming_blocks.length, incoming_blocks.items, incoming_values.items);
     } else {
         ir_gen_defers_for_block(irb, child_scope, outer_block_scope, false);
-        if (parent_scope->id == ScopeIdLoop) {
-            if (reinterpret_cast<ScopeLoop *>(parent_scope)->result_loc == result_loc) {
-                // This block is a loop. We do not need to generate a value for the block
-                // returning as it is handled by the loop generation code.
-                return ir_mark_gen(ir_build_const_void(irb, child_scope, block_node));
-            }
-        }
-        IrInstruction *void_inst = ir_mark_gen(ir_build_const_void(irb, child_scope, block_node));
-        return ir_gen_value(irb, parent_scope, block_node, lval, result_loc, void_inst);
+        return ir_mark_gen(ir_mark_gen(ir_build_const_void(irb, child_scope, block_node)));
     }
 }
 
@@ -3971,6 +3960,10 @@ static IrInstruction *ir_gen_orelse(IrBuilder *irb, Scope *parent_scope, AstNode
         IrInstruction *result_loc)
 {
     assert(node->type == NodeTypeBinOpExpr);
+
+    result_loc = ensure_result_loc(irb, parent_scope, node, result_loc);
+    if (result_loc == irb->codegen->invalid_instruction)
+        return irb->codegen->invalid_instruction;
 
     AstNode *op1_node = node->data.bin_op_expr.op1;
     AstNode *op2_node = node->data.bin_op_expr.op2;
@@ -4146,7 +4139,7 @@ static IrInstruction *ir_gen_bin_op(IrBuilder *irb, Scope *scope, AstNode *node,
                     ir_gen_error_union(irb, scope, node));
 
         case BinOpTypeUnwrapOptional:
-            return ir_gen_orelse(irb, scope, node, lval, ensure_result_loc(irb, scope, node, result_loc));
+            return ir_gen_orelse(irb, scope, node, lval, result_loc);
     }
     zig_unreachable();
 }
@@ -4595,6 +4588,9 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg5_value;
 
                 IrInstruction *ensured_result_loc = ensure_result_loc(irb, scope, node, result_loc);
+                if (ensured_result_loc == irb->codegen->invalid_instruction)
+                    return irb->codegen->invalid_instruction;
+
                 IrInstruction *payload_ptr = (lval == LValOptional) ? ensured_result_loc :
                     ir_build_result_optional_payload(irb, scope, node, ensured_result_loc, arg0_value, false);
 
@@ -4776,6 +4772,9 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg0_value;
 
                 IrInstruction *ensured_result_loc = ensure_result_loc(irb, scope, node, result_loc);
+                if (ensured_result_loc == irb->codegen->invalid_instruction)
+                    return irb->codegen->invalid_instruction;
+
                 IrInstruction *new_result_loc = ir_build_result_slice_to_bytes_src(irb, scope, node, arg0_value,
                         ensured_result_loc);
 
@@ -4791,6 +4790,9 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
         case BuiltinFnIdToBytes:
             {
                 IrInstruction *ensured_result_loc = ensure_result_loc(irb, scope, node, result_loc);
+                if (ensured_result_loc == irb->codegen->invalid_instruction)
+                    return irb->codegen->invalid_instruction;
+
                 IrInstruction *new_result_loc = ir_build_result_bytes_to_slice(irb, scope, node, ensured_result_loc);
 
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
@@ -5065,6 +5067,9 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg0_value;
 
                 IrInstruction *ensured_result_loc = ensure_result_loc(irb, scope, node, result_loc);
+                if (ensured_result_loc == irb->codegen->invalid_instruction)
+                    return irb->codegen->invalid_instruction;
+
                 IrInstruction *new_result_loc = ir_build_result_ptr_cast(irb, scope, node, arg0_value,
                         ensured_result_loc);
 
@@ -5700,6 +5705,10 @@ static IrInstruction *ir_gen_container_init_expr(IrBuilder *irb, Scope *scope, A
         IrInstruction *result_loc)
 {
     assert(node->type == NodeTypeContainerInitExpr);
+
+    result_loc = ensure_result_loc(irb, scope, node, result_loc);
+    if (result_loc == irb->codegen->invalid_instruction)
+        return irb->codegen->invalid_instruction;
 
     AstNodeContainerInitExpr *container_init_expr = &node->data.container_init_expr;
     ContainerInitKind kind = container_init_expr->kind;
@@ -6811,7 +6820,7 @@ static IrInstruction *ir_gen_return_from_block(IrBuilder *irb, Scope *break_scop
 
     IrInstruction *result_value;
     if (node->data.break_expr.expr) {
-        result_value = ir_gen_node(irb, node->data.break_expr.expr, break_scope, LValNone, block_scope->result_loc);
+        result_value = ir_gen_node(irb, node->data.break_expr.expr, break_scope, block_scope->lval, block_scope->result_loc);
         if (result_value == irb->codegen->invalid_instruction)
             return irb->codegen->invalid_instruction;
     } else {
@@ -6973,7 +6982,10 @@ static IrInstruction *ir_gen_slice(IrBuilder *irb, Scope *scope, AstNode *node, 
         IrInstruction *result_loc)
 {
     assert(node->type == NodeTypeSliceExpr);
-    assert(result_loc != nullptr);
+
+    result_loc = ensure_result_loc(irb, scope, node, result_loc);
+    if (result_loc == irb->codegen->invalid_instruction)
+        return irb->codegen->invalid_instruction;
 
     AstNodeSliceExpr *slice_expr = &node->data.slice_expr;
     AstNode *array_node = slice_expr->array_ref_expr;
@@ -7005,6 +7017,10 @@ static IrInstruction *ir_gen_catch(IrBuilder *irb, Scope *parent_scope, AstNode 
         IrInstruction *result_loc)
 {
     assert(node->type == NodeTypeUnwrapErrorExpr);
+
+    result_loc = ensure_result_loc(irb, parent_scope, node, result_loc);
+    if (result_loc == irb->codegen->invalid_instruction)
+        return irb->codegen->invalid_instruction;
 
     AstNode *op1_node = node->data.unwrap_err_expr.op1;
     AstNode *op2_node = node->data.unwrap_err_expr.op2;
@@ -7788,8 +7804,7 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
         case NodeTypePrefixOpExpr:
             return ir_gen_prefix_op_expr(irb, scope, node, lval, result_loc);
         case NodeTypeContainerInitExpr:
-            return ir_gen_container_init_expr(irb, scope, node, lval,
-                    ensure_result_loc(irb, scope, node, result_loc));
+            return ir_gen_container_init_expr(irb, scope, node, lval, result_loc);
         case NodeTypeVariableDeclaration:
             return ir_gen_value(irb, scope, node, lval, result_loc, ir_gen_var_decl(irb, scope, node));
         case NodeTypeWhileExpr:
@@ -7811,6 +7826,9 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
         }
         case NodeTypeUnwrapOptional: {
             IrInstruction *ensured_result_loc = ensure_result_loc(irb, scope, node, result_loc);
+            if (ensured_result_loc == irb->codegen->invalid_instruction)
+                return irb->codegen->invalid_instruction;
+
             AstNode *expr_node = node->data.unwrap_optional.expr;
             IrInstruction *is_non_null = ir_gen_node(irb, expr_node, scope, LValOptional, ensured_result_loc);
             if (is_non_null == irb->codegen->invalid_instruction)
@@ -7854,11 +7872,9 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
         case NodeTypeDefer:
             return ir_gen_value(irb, scope, node, lval, result_loc, ir_gen_defer(irb, scope, node));
         case NodeTypeSliceExpr:
-            return ir_gen_slice(irb, scope, node, lval,
-                    ensure_result_loc(irb, scope, node, result_loc));
+            return ir_gen_slice(irb, scope, node, lval, result_loc);
         case NodeTypeUnwrapErrorExpr:
-            return ir_gen_catch(irb, scope, node, lval,
-                    ensure_result_loc(irb, scope, node, result_loc));
+            return ir_gen_catch(irb, scope, node, lval, result_loc);
         case NodeTypeContainerDecl:
             return ir_gen_value(irb, scope, node, lval, result_loc, ir_gen_container_decl(irb, scope, node));
         case NodeTypeFnProto:
