@@ -222,4 +222,7 @@ enum ReqCompTime {
 };
 ReqCompTime type_requires_comptime(CodeGen *g, ZigType *type_entry);
 
+Error ensure_const_val_repr(IrAnalyze *ira, CodeGen *codegen, AstNode *source_node,
+        ConstExprValue *const_val, ZigType *wanted_type);
+
 #endif
