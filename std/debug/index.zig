@@ -247,8 +247,7 @@ pub fn writeCurrentStackTraceWindows(
     start_addr: ?usize,
 ) !void {
     var addr_buf: [1024]usize = undefined;
-    const casted_len = @intCast(u32, addr_buf.len); // TODO shouldn't need this cast
-    const n = windows.RtlCaptureStackBackTrace(0, casted_len, @ptrCast(**c_void, &addr_buf), null);
+    const n = windows.RtlCaptureStackBackTrace(0, addr_buf.len, @ptrCast(**c_void, &addr_buf), null);
     const addrs = addr_buf[0..n];
     var start_i: usize = if (start_addr) |saddr| blk: {
         for (addrs) |addr, i| {
