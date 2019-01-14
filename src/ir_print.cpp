@@ -70,6 +70,17 @@ static void ir_print_const(IrPrint *irp, IrInstructionConst *const_instruction) 
     ir_print_const_value(irp, &const_instruction->base.value);
 }
 
+static const char *lval_str(LVal lval) {
+    switch (lval) {
+        case LValNone: return "None";
+        case LValPtr: return "Ptr";
+        case LValErrorUnionVal: return "ErrorUnionVal";
+        case LValErrorUnionPtr: return "ErrorUnionPtr";
+        case LValOptional: return "Optional";
+    }
+    zig_unreachable();
+}
+
 static const char *ir_bin_op_id_str(IrBinOp op_id) {
     switch (op_id) {
         case IrBinOpInvalid:
@@ -1354,6 +1365,12 @@ static void ir_print_result_return(IrPrint *irp, IrInstructionResultReturn *inst
     fprintf(irp->f, "ResultReturn");
 }
 
+static void ir_print_result_child(IrPrint *irp, IrInstructionResultChild *instruction) {
+    fprintf(irp->f, "ResultChild(prev_result=");
+    ir_print_other_instruction(irp, instruction->prev_result_loc);
+    fprintf(irp->f, ",lval=%s)", lval_str(instruction->lval));
+}
+
 static void ir_print_result_bytes_to_slice(IrPrint *irp, IrInstructionResultBytesToSlice *instruction) {
     fprintf(irp->f, "ResultBytesToSlice(");
     ir_print_other_instruction(irp, instruction->prev_result_loc);
@@ -1946,6 +1963,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdResultReturn:
             ir_print_result_return(irp, (IrInstructionResultReturn *)instruction);
+            break;
+        case IrInstructionIdResultChild:
+            ir_print_result_child(irp, (IrInstructionResultChild *)instruction);
             break;
         case IrInstructionIdResultBytesToSlice:
             ir_print_result_bytes_to_slice(irp, (IrInstructionResultBytesToSlice *)instruction);

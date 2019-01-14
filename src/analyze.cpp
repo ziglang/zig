@@ -4751,6 +4751,11 @@ bool fn_type_id_eql(FnTypeId *a, FnTypeId *b) {
     return true;
 }
 
+static uint32_t hash_const_val_error_set(ConstExprValue *const_val) {
+    assert(const_val->data.x_err_set != nullptr);
+    return const_val->data.x_err_set->value ^ 2630160122;
+}
+
 static uint32_t hash_const_val_ptr(ConstExprValue *const_val) {
     uint32_t hash_val = 0;
     switch (const_val->data.x_ptr.mut) {
@@ -4791,6 +4796,10 @@ static uint32_t hash_const_val_ptr(ConstExprValue *const_val) {
         case ConstPtrSpecialBaseErrorUnionPayload:
             hash_val += (uint32_t)3456080131;
             hash_val += hash_ptr(const_val->data.x_ptr.data.base_err_union_payload.err_union_val);
+            return hash_val;
+        case ConstPtrSpecialBaseOptionalPayload:
+            hash_val += (uint32_t)3163140517;
+            hash_val += hash_ptr(const_val->data.x_ptr.data.base_optional_payload.optional_val);
             return hash_val;
         case ConstPtrSpecialHardCodedAddr:
             hash_val += (uint32_t)4048518294;
@@ -4904,7 +4913,9 @@ static uint32_t hash_const_val(ConstExprValue *const_val) {
             return 2709806591;
         case ZigTypeIdOptional:
             if (get_codegen_ptr_type(const_val->type) != nullptr) {
-                return hash_const_val(const_val) * 1992916303;
+                return hash_const_val_ptr(const_val) * 1992916303;
+            } else if (const_val->type->data.maybe.child_type->id == ZigTypeIdErrorSet) {
+                return hash_const_val_error_set(const_val) * 3147031929;
             } else {
                 if (const_val->data.x_optional) {
                     return hash_const_val(const_val->data.x_optional) * 1992916303;
@@ -4916,8 +4927,7 @@ static uint32_t hash_const_val(ConstExprValue *const_val) {
             // TODO better hashing algorithm
             return 3415065496;
         case ZigTypeIdErrorSet:
-            assert(const_val->data.x_err_set != nullptr);
-            return const_val->data.x_err_set->value ^ 2630160122;
+            return hash_const_val_error_set(const_val);
         case ZigTypeIdNamespace:
             return hash_ptr(const_val->data.x_import);
         case ZigTypeIdBoundFn:
@@ -5690,6 +5700,15 @@ bool const_values_equal_ptr(ConstExprValue *a, ConstExprValue *b) {
                 return false;
             }
             return true;
+        case ConstPtrSpecialBaseOptionalPayload:
+            if (a->data.x_ptr.data.base_optional_payload.optional_val !=
+                b->data.x_ptr.data.base_optional_payload.optional_val &&
+                a->data.x_ptr.data.base_optional_payload.optional_val->global_refs !=
+                b->data.x_ptr.data.base_optional_payload.optional_val->global_refs)
+            {
+                return false;
+            }
+            return true;
         case ConstPtrSpecialHardCodedAddr:
             if (a->data.x_ptr.data.hard_coded_addr.addr != b->data.x_ptr.data.hard_coded_addr.addr)
                 return false;
@@ -5876,6 +5895,7 @@ static void render_const_val_ptr(CodeGen *g, Buf *buf, ConstExprValue *const_val
         case ConstPtrSpecialBaseStruct:
         case ConstPtrSpecialBaseErrorUnionCode:
         case ConstPtrSpecialBaseErrorUnionPayload:
+        case ConstPtrSpecialBaseOptionalPayload:
             buf_appendf(buf, "*");
             // TODO we need a source node for const_ptr_pointee because it can generate compile errors
             render_const_value(g, buf, const_ptr_pointee(nullptr, g, const_val, nullptr));
@@ -6339,19 +6359,7 @@ void expand_undef_array(CodeGen *g, ConstExprValue *const_val) {
 }
 
 ConstParent *get_const_val_parent(CodeGen *g, ConstExprValue *value) {
-    assert(value->type);
-    ZigType *type_entry = value->type;
-    if (type_entry->id == ZigTypeIdArray) {
-        expand_undef_array(g, value);
-        return &value->data.x_array.data.s_none.parent;
-    } else if (type_entry->id == ZigTypeIdStruct) {
-        return &value->data.x_struct.parent;
-    } else if (type_entry->id == ZigTypeIdUnion) {
-        return &value->data.x_union.parent;
-    } else if (type_entry->id == ZigTypeIdErrorUnion) {
-        return &value->data.x_err_union.parent;
-    }
-    return nullptr;
+    return &value->parent;
 }
 
 static const ZigTypeId all_type_ids[] = {

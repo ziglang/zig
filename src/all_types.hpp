@@ -94,6 +94,7 @@ enum ConstParentId {
     ConstParentIdStruct,
     ConstParentIdErrUnionCode,
     ConstParentIdErrUnionPayload,
+    ConstParentIdOptionalPayload,
     ConstParentIdArray,
     ConstParentIdUnion,
     ConstParentIdScalar,
@@ -118,6 +119,9 @@ struct ConstParent {
             ConstExprValue *err_union_val;
         } p_err_union_payload;
         struct {
+            ConstExprValue *optional_val;
+        } p_optional_payload;
+        struct {
             ConstExprValue *union_val;
         } p_union;
         struct {
@@ -128,13 +132,11 @@ struct ConstParent {
 
 struct ConstStructValue {
     ConstExprValue *fields;
-    ConstParent parent;
 };
 
 struct ConstUnionValue {
     BigInt tag;
     ConstExprValue *payload;
-    ConstParent parent;
 };
 
 enum ConstArraySpecial {
@@ -148,7 +150,6 @@ struct ConstArrayValue {
     union {
         struct {
             ConstExprValue *elements;
-            ConstParent parent;
         } s_none;
         Buf *s_buf;
     } data;
@@ -167,6 +168,8 @@ enum ConstPtrSpecial {
     ConstPtrSpecialBaseErrorUnionCode,
     // The pointer points to the payload field of an error union
     ConstPtrSpecialBaseErrorUnionPayload,
+    // The pointer points to the payload field of an optional
+    ConstPtrSpecialBaseOptionalPayload,
     // This means that we did a compile-time pointer reinterpret and we cannot
     // understand the value of pointee at compile time. However, we will still
     // emit a binary with a compile time known address.
@@ -227,6 +230,9 @@ struct ConstPtrValue {
             ConstExprValue *err_union_val;
         } base_err_union_payload;
         struct {
+            ConstExprValue *optional_val;
+        } base_optional_payload;
+        struct {
             uint64_t addr;
         } hard_coded_addr;
         struct {
@@ -238,7 +244,6 @@ struct ConstPtrValue {
 struct ConstErrValue {
     ConstExprValue *error_set;
     ConstExprValue *payload;
-    ConstParent parent;
 };
 
 struct ConstBoundFnValue {
@@ -293,6 +298,7 @@ struct ConstGlobalRefs {
 struct ConstExprValue {
     ZigType *type;
     ConstValSpecial special;
+    ConstParent parent;
     ConstGlobalRefs *global_refs;
 
     union {
@@ -2236,6 +2242,7 @@ enum IrInstructionId {
     IrInstructionIdResultErrorUnionCode,
     IrInstructionIdResultSlicePtr,
     IrInstructionIdResultReturn,
+    IrInstructionIdResultChild,
     IrInstructionIdResultBytesToSlice,
     IrInstructionIdResultSliceToBytesSrc,
     IrInstructionIdResultSliceToBytesPlaceholder,
@@ -3427,6 +3434,13 @@ struct IrInstructionResultSlicePtr {
 
 struct IrInstructionResultReturn {
     IrInstruction base;
+};
+
+struct IrInstructionResultChild {
+    IrInstruction base;
+
+    IrInstruction *prev_result_loc;
+    LVal lval;
 };
 
 struct IrInstructionResultPtrCast {

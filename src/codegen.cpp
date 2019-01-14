@@ -5351,6 +5351,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdResultBytesToSlice:
         case IrInstructionIdFromBytesLenSrc:
         case IrInstructionIdToBytesLenSrc:
+        case IrInstructionIdResultChild:
             zig_unreachable();
 
         case IrInstructionIdDeclVarGen:
@@ -5554,8 +5555,23 @@ static void ir_render(CodeGen *g, ZigFn *fn_entry) {
         for (size_t instr_i = 0; instr_i < current_block->instruction_list.length; instr_i += 1) {
             IrInstruction *instruction = current_block->instruction_list.at(instr_i);
             if (!ir_has_side_effects(instruction)) {
-                if (instruction->ref_count == 0 || instruction->value.special != ConstValSpecialRuntime)
+                if (instruction->ref_count == 0)
                     continue;
+                if (instruction->value.special != ConstValSpecialRuntime) {
+                    // If it's not a pointer, skip
+                    if (get_codegen_ptr_type(instruction->value.type) == nullptr)
+                        continue;
+                    // If the const-ness isn't inferred, skip
+                    if (instruction->value.data.x_ptr.mut != ConstPtrMutInfer)
+                        continue;
+
+                    // Follow the const ptr reference, see if the underlying value is runtime
+                    if (const_ptr_pointee(nullptr, g, &instruction->value, nullptr)->special !=
+                            ConstValSpecialRuntime)
+                    {
+                        continue;
+                    }
+                }
             }
             instruction->llvm_value = ir_render_instruction(g, executable, instruction);
         }
@@ -5568,6 +5584,7 @@ static LLVMValueRef gen_const_ptr_array_recursive(CodeGen *g, ConstExprValue *ar
 static LLVMValueRef gen_const_ptr_union_recursive(CodeGen *g, ConstExprValue *union_const_val);
 static LLVMValueRef gen_const_ptr_err_union_code_recursive(CodeGen *g, ConstExprValue *err_union_const_val);
 static LLVMValueRef gen_const_ptr_err_union_payload_recursive(CodeGen *g, ConstExprValue *err_union_const_val);
+static LLVMValueRef gen_const_ptr_optional_payload_recursive(CodeGen *g, ConstExprValue *optional_const_val);
 
 static LLVMValueRef gen_parent_ptr(CodeGen *g, ConstExprValue *val, ConstParent *parent) {
     switch (parent->id) {
@@ -5582,6 +5599,8 @@ static LLVMValueRef gen_parent_ptr(CodeGen *g, ConstExprValue *val, ConstParent 
             return gen_const_ptr_err_union_code_recursive(g, parent->data.p_err_union_code.err_union_val);
         case ConstParentIdErrUnionPayload:
             return gen_const_ptr_err_union_payload_recursive(g, parent->data.p_err_union_payload.err_union_val);
+        case ConstParentIdOptionalPayload:
+            return gen_const_ptr_optional_payload_recursive(g, parent->data.p_optional_payload.optional_val);
         case ConstParentIdArray:
             return gen_const_ptr_array_recursive(g, parent->data.p_array.array_val,
                     parent->data.p_array.elem_index);
@@ -5597,7 +5616,7 @@ static LLVMValueRef gen_parent_ptr(CodeGen *g, ConstExprValue *val, ConstParent 
 
 static LLVMValueRef gen_const_ptr_array_recursive(CodeGen *g, ConstExprValue *array_const_val, size_t index) {
     expand_undef_array(g, array_const_val);
-    ConstParent *parent = &array_const_val->data.x_array.data.s_none.parent;
+    ConstParent *parent = &array_const_val->parent;
     LLVMValueRef base_ptr = gen_parent_ptr(g, array_const_val, parent);
 
     LLVMTypeKind el_type = LLVMGetTypeKind(LLVMGetElementType(LLVMTypeOf(base_ptr)));
@@ -5622,7 +5641,7 @@ static LLVMValueRef gen_const_ptr_array_recursive(CodeGen *g, ConstExprValue *ar
 }
 
 static LLVMValueRef gen_const_ptr_struct_recursive(CodeGen *g, ConstExprValue *struct_const_val, size_t field_index) {
-    ConstParent *parent = &struct_const_val->data.x_struct.parent;
+    ConstParent *parent = &struct_const_val->parent;
     LLVMValueRef base_ptr = gen_parent_ptr(g, struct_const_val, parent);
 
     ZigType *u32 = g->builtin_types.entry_u32;
@@ -5634,7 +5653,7 @@ static LLVMValueRef gen_const_ptr_struct_recursive(CodeGen *g, ConstExprValue *s
 }
 
 static LLVMValueRef gen_const_ptr_err_union_code_recursive(CodeGen *g, ConstExprValue *err_union_const_val) {
-    ConstParent *parent = &err_union_const_val->data.x_err_union.parent;
+    ConstParent *parent = &err_union_const_val->parent;
     LLVMValueRef base_ptr = gen_parent_ptr(g, err_union_const_val, parent);
 
     ZigType *u32 = g->builtin_types.entry_u32;
@@ -5646,7 +5665,7 @@ static LLVMValueRef gen_const_ptr_err_union_code_recursive(CodeGen *g, ConstExpr
 }
 
 static LLVMValueRef gen_const_ptr_err_union_payload_recursive(CodeGen *g, ConstExprValue *err_union_const_val) {
-    ConstParent *parent = &err_union_const_val->data.x_err_union.parent;
+    ConstParent *parent = &err_union_const_val->parent;
     LLVMValueRef base_ptr = gen_parent_ptr(g, err_union_const_val, parent);
 
     ZigType *u32 = g->builtin_types.entry_u32;
@@ -5657,8 +5676,20 @@ static LLVMValueRef gen_const_ptr_err_union_payload_recursive(CodeGen *g, ConstE
     return LLVMConstInBoundsGEP(base_ptr, indices, 2);
 }
 
+static LLVMValueRef gen_const_ptr_optional_payload_recursive(CodeGen *g, ConstExprValue *optional_const_val) {
+    ConstParent *parent = &optional_const_val->parent;
+    LLVMValueRef base_ptr = gen_parent_ptr(g, optional_const_val, parent);
+
+    ZigType *u32 = g->builtin_types.entry_u32;
+    LLVMValueRef indices[] = {
+        LLVMConstNull(u32->type_ref),
+        LLVMConstInt(u32->type_ref, maybe_child_index, false),
+    };
+    return LLVMConstInBoundsGEP(base_ptr, indices, 2);
+}
+
 static LLVMValueRef gen_const_ptr_union_recursive(CodeGen *g, ConstExprValue *union_const_val) {
-    ConstParent *parent = &union_const_val->data.x_union.parent;
+    ConstParent *parent = &union_const_val->parent;
     LLVMValueRef base_ptr = gen_parent_ptr(g, union_const_val, parent);
 
     ZigType *u32 = g->builtin_types.entry_u32;
@@ -5861,6 +5892,25 @@ static LLVMValueRef gen_const_val_ptr(CodeGen *g, ConstExprValue *const_val, con
                     return const_val->global_refs->llvm_value;
                 }
                 LLVMValueRef uncasted_ptr_val = gen_const_ptr_err_union_payload_recursive(g, err_union_const_val);
+                LLVMValueRef ptr_val = LLVMConstBitCast(uncasted_ptr_val, const_val->type->type_ref);
+                const_val->global_refs->llvm_value = ptr_val;
+                render_const_val_global(g, const_val, "");
+                return ptr_val;
+            }
+        case ConstPtrSpecialBaseOptionalPayload:
+            {
+                render_const_val_global(g, const_val, name);
+                ConstExprValue *optional_const_val = const_val->data.x_ptr.data.base_optional_payload.optional_val;
+                assert(optional_const_val->type->id == ZigTypeIdOptional);
+                if (optional_const_val->type->zero_bits) {
+                    // make this a null pointer
+                    ZigType *usize = g->builtin_types.entry_usize;
+                    const_val->global_refs->llvm_value = LLVMConstIntToPtr(LLVMConstNull(usize->type_ref),
+                            const_val->type->type_ref);
+                    render_const_val_global(g, const_val, "");
+                    return const_val->global_refs->llvm_value;
+                }
+                LLVMValueRef uncasted_ptr_val = gen_const_ptr_optional_payload_recursive(g, optional_const_val);
                 LLVMValueRef ptr_val = LLVMConstBitCast(uncasted_ptr_val, const_val->type->type_ref);
                 const_val->global_refs->llvm_value = ptr_val;
                 render_const_val_global(g, const_val, "");
@@ -7693,9 +7743,9 @@ static void create_test_compile_var_and_add_test_runner(CodeGen *g) {
         ConstExprValue *this_val = &test_fn_array->data.x_array.data.s_none.elements[i];
         this_val->special = ConstValSpecialStatic;
         this_val->type = struct_type;
-        this_val->data.x_struct.parent.id = ConstParentIdArray;
-        this_val->data.x_struct.parent.data.p_array.array_val = test_fn_array;
-        this_val->data.x_struct.parent.data.p_array.elem_index = i;
+        this_val->parent.id = ConstParentIdArray;
+        this_val->parent.data.p_array.array_val = test_fn_array;
+        this_val->parent.data.p_array.elem_index = i;
         this_val->data.x_struct.fields = create_const_vals(2);
 
         ConstExprValue *name_field = &this_val->data.x_struct.fields[0];

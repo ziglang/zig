@@ -82,7 +82,10 @@ fn testPeerResolveArrayConstSlice(b: bool) void {
     assertOrPanic(mem.eql(u8, value2, "zz"));
 }
 
-// test "implicitly cast from T to anyerror!?T"
+test "implicitly cast from T to anyerror!?T" {
+    castToOptionalTypeError(1);
+    comptime castToOptionalTypeError(1);
+}
 
 const A = struct {
     a: i32,
@@ -100,7 +103,14 @@ fn castToOptionalTypeError(z: i32) void {
     assertOrPanic((b catch unreachable).?.a == 1);
 }
 
-// test "implicitly cast from int to anyerror!?T"
+test "implicitly cast from int to anyerror!?T" {
+    implicitIntLitToOptional();
+    comptime implicitIntLitToOptional();
+}
+fn implicitIntLitToOptional() void {
+    const f: ?i32 = 1;
+    const g: anyerror!?i32 = 1;
+}
 
 test "return null from fn() anyerror!?&T" {
     const a = returnNullFromOptionalTypeErrorRef();

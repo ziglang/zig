@@ -3,20 +3,6 @@ const assertOrPanic = std.debug.assertOrPanic;
 const mem = std.mem;
 const maxInt = std.math.maxInt;
 
-test "implicitly cast from T to anyerror!?T" {
-    castToOptionalTypeError(1);
-    comptime castToOptionalTypeError(1);
-}
-
-test "implicitly cast from int to anyerror!?T" {
-    implicitIntLitToOptional();
-    comptime implicitIntLitToOptional();
-}
-fn implicitIntLitToOptional() void {
-    const f: ?i32 = 1;
-    const g: anyerror!?i32 = 1;
-}
-
 test "peer type resolution: ?T and T" {
     assertOrPanic(peerTypeTAndOptionalT(true, false).? == 0);
     assertOrPanic(peerTypeTAndOptionalT(false, false).? == 3);
