@@ -3695,7 +3695,7 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
         case ReturnKindError:
             {
                 assert(expr_node);
-                IrInstruction *ensured_result_loc = ensure_result_loc(irb, scope, expr_node, LValErrorUnionVal, result_loc);
+                IrInstruction *ensured_result_loc = ensure_result_loc(irb, scope, expr_node, lval, result_loc);
                 if (ensured_result_loc == irb->codegen->invalid_instruction)
                     return irb->codegen->invalid_instruction;
                 IrInstruction *opt_err_code = ir_gen_node(irb, expr_node, scope,
@@ -4023,7 +4023,7 @@ static IrInstruction *ir_gen_orelse(IrBuilder *irb, Scope *parent_scope, AstNode
 {
     assert(node->type == NodeTypeBinOpExpr);
 
-    IrInstruction *new_result_loc = ensure_result_loc(irb, parent_scope, node, LValOptional, old_result_loc);
+    IrInstruction *new_result_loc = ensure_result_loc(irb, parent_scope, node, lval, old_result_loc);
     if (new_result_loc == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
 
@@ -4833,7 +4833,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 if (arg0_value == irb->codegen->invalid_instruction)
                     return arg0_value;
 
-                IrInstruction *ensured_result_loc = ensure_result_loc(irb, scope, node, LValNone, result_loc);
+                IrInstruction *ensured_result_loc = ensure_result_loc(irb, scope, node, lval, result_loc);
                 if (ensured_result_loc == irb->codegen->invalid_instruction)
                     return irb->codegen->invalid_instruction;
 
@@ -4851,7 +4851,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
             }
         case BuiltinFnIdToBytes:
             {
-                IrInstruction *ensured_result_loc = ensure_result_loc(irb, scope, node, LValNone, result_loc);
+                IrInstruction *ensured_result_loc = ensure_result_loc(irb, scope, node, lval, result_loc);
                 if (ensured_result_loc == irb->codegen->invalid_instruction)
                     return irb->codegen->invalid_instruction;
 
@@ -5128,7 +5128,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 if (arg0_value == irb->codegen->invalid_instruction)
                     return arg0_value;
 
-                IrInstruction *ensured_result_loc = ensure_result_loc(irb, scope, node, LValNone, result_loc);
+                IrInstruction *ensured_result_loc = ensure_result_loc(irb, scope, node, lval, result_loc);
                 if (ensured_result_loc == irb->codegen->invalid_instruction)
                     return irb->codegen->invalid_instruction;
 
@@ -5704,7 +5704,7 @@ static IrInstruction *ir_gen_pointer_type(IrBuilder *irb, Scope *scope, AstNode 
 static IrInstruction *ir_gen_catch_unreachable(IrBuilder *irb, Scope *scope, AstNode *source_node,
         AstNode *expr_node, LVal lval, IrInstruction *old_result_loc)
 {
-    IrInstruction *new_result_loc = ensure_result_loc(irb, scope, source_node, LValErrorUnionVal, old_result_loc);
+    IrInstruction *new_result_loc = ensure_result_loc(irb, scope, source_node, lval, old_result_loc);
     if (new_result_loc == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
 
@@ -5772,7 +5772,7 @@ static IrInstruction *ir_gen_container_init_expr(IrBuilder *irb, Scope *scope, A
 {
     assert(node->type == NodeTypeContainerInitExpr);
 
-    IrInstruction *ensured_result_loc = ensure_result_loc(irb, scope, node, LValNone, old_result_loc);
+    IrInstruction *ensured_result_loc = ensure_result_loc(irb, scope, node, lval, old_result_loc);
     if (ensured_result_loc == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
 
@@ -7049,7 +7049,7 @@ static IrInstruction *ir_gen_slice(IrBuilder *irb, Scope *scope, AstNode *node, 
 {
     assert(node->type == NodeTypeSliceExpr);
 
-    IrInstruction *new_result_loc = ensure_result_loc(irb, scope, node, LValNone, old_result_loc);
+    IrInstruction *new_result_loc = ensure_result_loc(irb, scope, node, lval, old_result_loc);
     if (new_result_loc == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
 
@@ -7102,7 +7102,7 @@ static IrInstruction *ir_gen_catch(IrBuilder *irb, Scope *parent_scope, AstNode 
     IrInstruction *ptr_opt_err_code;
     IrInstruction *opt_err_code;
     if (var_node) {
-        new_result_loc = ensure_result_loc(irb, parent_scope, node, LValErrorUnionPtr, old_result_loc);
+        new_result_loc = ensure_result_loc(irb, parent_scope, node, lval, old_result_loc);
         if (new_result_loc == irb->codegen->invalid_instruction)
             return irb->codegen->invalid_instruction;
 
@@ -7111,7 +7111,7 @@ static IrInstruction *ir_gen_catch(IrBuilder *irb, Scope *parent_scope, AstNode 
             return irb->codegen->invalid_instruction;
         opt_err_code = ir_build_load_ptr(irb, parent_scope, node, ptr_opt_err_code, nullptr);
     } else {
-        new_result_loc = ensure_result_loc(irb, parent_scope, node, LValErrorUnionVal, old_result_loc);
+        new_result_loc = ensure_result_loc(irb, parent_scope, node, lval, old_result_loc);
         if (new_result_loc == irb->codegen->invalid_instruction)
             return irb->codegen->invalid_instruction;
 
@@ -7896,7 +7896,7 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             return ir_gen_ptr(irb, scope, node, lval, result_loc, ptr_inst);
         }
         case NodeTypeUnwrapOptional: {
-            IrInstruction *ensured_result_loc = ensure_result_loc(irb, scope, node, LValOptional, result_loc);
+            IrInstruction *ensured_result_loc = ensure_result_loc(irb, scope, node, lval, result_loc);
             if (ensured_result_loc == irb->codegen->invalid_instruction)
                 return irb->codegen->invalid_instruction;
 
@@ -14747,9 +14747,6 @@ static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source
                                 break;
                         }
                     }
-                    if (ptr->value.data.x_ptr.mut == ConstPtrMutInfer) {
-                        ptr->value.data.x_ptr.mut = ConstPtrMutComptimeConst;
-                    }
                     return ir_const_void(ira, source_instr);
                 }
             }
@@ -17914,6 +17911,11 @@ static IrInstruction *ir_analyze_unwrap_optional_payload(IrAnalyze *ira, IrInstr
 
         if (val->data.x_ptr.mut != ConstPtrMutRuntimeVar) {
             if (optional_value_is_null(maybe_val)) {
+                if (!safety_check_on) {
+                    IrInstruction *undef = ir_const_undef(ira, source_instr);
+                    IrInstruction *casted_undef = ir_implicit_cast(ira, undef, child_type);
+                    return ir_get_ref(ira, source_instr, casted_undef, true, false, nullptr);
+                }
                 ir_add_error(ira, source_instr, buf_sprintf("unable to unwrap null"));
                 return ira->codegen->invalid_instruction;
             }

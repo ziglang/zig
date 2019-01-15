@@ -1,31 +1,5 @@
 const assertOrPanic = @import("std").debug.assertOrPanic;
 
-test "optional type" {
-    const x: ?bool = true;
-
-    if (x) |y| {
-        if (y) {
-            // OK
-        } else {
-            unreachable;
-        }
-    } else {
-        unreachable;
-    }
-
-    const next_x: ?i32 = null;
-
-    const z = next_x orelse 1234;
-
-    assertOrPanic(z == 1234);
-
-    const final_x: ?i32 = 13;
-
-    const num = final_x orelse unreachable;
-
-    assertOrPanic(num == 13);
-}
-
 test "maybe return" {
     maybeReturnImpl();
     comptime maybeReturnImpl();
