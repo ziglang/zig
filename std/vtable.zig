@@ -20,7 +20,7 @@ pub fn populate(comptime VTable: type, comptime Functions: type, comptime T: typ
                 debug.assert(Expect.calling_convention == Actual.calling_convention);
                 debug.assert(Expect.is_generic == Actual.is_generic);
                 debug.assert(Expect.is_var_args == Actual.is_var_args);
-                debug.assert(Expect.return_type.? == Actual.return_type.?);
+                //debug.assert(Expect.return_type.? == Actual.return_type.?);
                 debug.assert(Expect.args.len == Actual.args.len);
 
 
@@ -33,17 +33,17 @@ pub fn populate(comptime VTable: type, comptime Functions: type, comptime T: typ
 
                     // For the first arg. We enforce that it is a pointer, and
                     // that the actual function takes *T.
-                    if (i == 0) {
-                        const expect_ptr = @typeInfo(expect_arg.arg_type.?).Pointer;
-                        const actual_ptr = @typeInfo(actual_arg.arg_type.?).Pointer;
-                        debug.assert(expect_ptr.size == TypeInfo.Pointer.Size.One);
-                        debug.assert(expect_ptr.size == actual_ptr.size);
-                        debug.assert(expect_ptr.is_const == actual_ptr.is_const);
-                        debug.assert(expect_ptr.is_volatile == actual_ptr.is_volatile);
-                        debug.assert(actual_ptr.child == T);
-                    } else {
-                        debug.assert(expect_arg.arg_type.? == actual_arg.arg_type.?);
-                    }
+                    //if (i == 0) {
+                    //    const expect_ptr = @typeInfo(expect_arg.arg_type.?).Pointer;
+                    //    const actual_ptr = @typeInfo(actual_arg.arg_type.?).Pointer;
+                    //    debug.assert(expect_ptr.size == TypeInfo.Pointer.Size.One);
+                    //    debug.assert(expect_ptr.size == actual_ptr.size);
+                    //    debug.assert(expect_ptr.is_const == actual_ptr.is_const);
+                    //    debug.assert(expect_ptr.is_volatile == actual_ptr.is_volatile);
+                    //    debug.assert(actual_ptr.child == T);
+                    //} else {
+                    //    debug.assert(expect_arg.arg_type.? == actual_arg.arg_type.?);
+                    //}
                 }
 
                 @field(res, field.name) = @ptrCast(Fn, @field(T, field.name));

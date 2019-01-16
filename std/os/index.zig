@@ -148,7 +148,7 @@ fn getRandomBytesDevURandom(buf: []u8) !void {
     const fd = try posixOpenC(c"/dev/urandom", posix.O_RDONLY | posix.O_CLOEXEC, 0);
     defer close(fd);
 
-    const stream = &File.openHandle(fd).inStream().stream;
+    const stream = File.openHandle(fd).inStreamInterface();
     stream.readNoEof(buf) catch |err| switch (err) {
         error.EndOfStream => unreachable,
         error.OperationAborted => unreachable,

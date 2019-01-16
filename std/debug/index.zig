@@ -35,10 +35,9 @@ const Module = struct {
 /// Tries to write to stderr, unbuffered, and ignores any error returned.
 /// Does not append a newline.
 var stderr_file: os.File = undefined;
-var stderr_file_out_stream: os.File.OutStream = undefined;
 
 /// TODO multithreaded awareness
-var stderr_stream: ?*io.OutStream(os.File.WriteError) = null;
+var stderr_stream: ?io.OutStreamInterface(os.File) = null;
 var stderr_mutex = std.Mutex.init();
 pub fn warn(comptime fmt: []const u8, args: ...) void {
     const held = stderr_mutex.acquire();
@@ -47,13 +46,12 @@ pub fn warn(comptime fmt: []const u8, args: ...) void {
     stderr.print(fmt, args) catch return;
 }
 
-pub fn getStderrStream() !*io.OutStream(os.File.WriteError) {
+pub fn getStderrStream() !io.OutStreamInterface(os.File) {
     if (stderr_stream) |st| {
         return st;
     } else {
         stderr_file = try io.getStdErr();
-        stderr_file_out_stream = stderr_file.outStream();
-        const st = &stderr_file_out_stream.stream;
+        const st = stderr_file.outStreamInterface();
         stderr_stream = st;
         return st;
     }
@@ -938,8 +936,8 @@ pub fn openDwarfDebugInfo(di: *DwarfInfo, allocator: mem.Allocator) !void {
 
 pub fn openElfDebugInfo(
     allocator: mem.Allocator,
-    elf_seekable_stream: *DwarfSeekableStream,
-    elf_in_stream: *DwarfInStream,
+    elf_seekable_stream: DwarfSeekableStream,
+    elf_in_stream: DwarfInStream,
 ) !DwarfInfo {
     var efile: elf.Elf = undefined;
     try efile.openStream(allocator, elf_seekable_stream, elf_in_stream);
@@ -964,21 +962,19 @@ pub fn openElfDebugInfo(
 fn openSelfDebugInfoLinux(allocator: mem.Allocator) !DwarfInfo {
     const S = struct {
         var self_exe_file: os.File = undefined;
-        var self_exe_seekable_stream: os.File.SeekableStream = undefined;
-        var self_exe_in_stream: os.File.InStream = undefined;
+        var self_exe_seekable_stream: io.SeekableStreamInterface(os.File) = undefined;
+        var self_exe_in_stream: io.InStreamInterface(os.File) = undefined;
     };
     S.self_exe_file = try os.openSelfExe();
     errdefer S.self_exe_file.close();
 
-    S.self_exe_seekable_stream = S.self_exe_file.seekableStream();
-    S.self_exe_in_stream = S.self_exe_file.inStream();
+    S.self_exe_seekable_stream = S.self_exe_file.seekableStreamInterface();
+    S.self_exe_in_stream = S.self_exe_file.inStreamInterface();
 
     return openElfDebugInfo(
         allocator,
-        // TODO https://github.com/ziglang/zig/issues/764
-        @ptrCast(*DwarfSeekableStream, &S.self_exe_seekable_stream.stream),
-        // TODO https://github.com/ziglang/zig/issues/764
-        @ptrCast(*DwarfInStream, &S.self_exe_in_stream.stream),
+        S.self_exe_file.seekableStream(),
+        S.self_exe_file.inStream(),
     );
 }
 
@@ -1112,12 +1108,12 @@ const MachOFile = struct {
     sect_debug_line: ?*const macho.section_64,
 };
 
-pub const DwarfSeekableStream = io.SeekableStream(anyerror, anyerror);
-pub const DwarfInStream = io.InStream(anyerror);
+pub const DwarfSeekableStream = io.SeekableStream;
+pub const DwarfInStream = io.InStream;
 
 pub const DwarfInfo = struct {
-    dwarf_seekable_stream: *DwarfSeekableStream,
-    dwarf_in_stream: *DwarfInStream,
+    dwarf_seekable_stream: DwarfSeekableStream,
+    dwarf_in_stream: DwarfInStream,
     endian: builtin.Endian,
     debug_info: Section,
     debug_abbrev: Section,
@@ -1760,7 +1756,7 @@ fn getLineNumberInfoDwarf(di: *DwarfInfo, compile_unit: CompileUnit, target_addr
         try di.dwarf_seekable_stream.seekTo(this_offset);
 
         var is_64: bool = undefined;
-        const unit_length = try readInitialLength(@typeOf(di.dwarf_in_stream.readFn).ReturnType.ErrorSet, di.dwarf_in_stream, &is_64);
+        const unit_length = try readInitialLength(di.dwarf_in_stream, &is_64);
         if (unit_length == 0) return error.MissingDebugInfo;
         const next_offset = unit_length + (if (is_64) usize(12) else usize(4));
 
@@ -1932,7 +1928,7 @@ fn scanAllCompileUnits(di: *DwarfInfo) !void {
         try di.dwarf_seekable_stream.seekTo(this_unit_offset);
 
         var is_64: bool = undefined;
-        const unit_length = try readInitialLength(@typeOf(di.dwarf_in_stream.readFn).ReturnType.ErrorSet, di.dwarf_in_stream, &is_64);
+        const unit_length = try readInitialLength(di.dwarf_in_stream, &is_64);
         if (unit_length == 0) return;
         const next_offset = unit_length + (if (is_64) usize(12) else usize(4));
 
@@ -2107,7 +2103,7 @@ fn readILeb128Mem(ptr: *[*]const u8) !i64 {
     }
 }
 
-fn readInitialLength(comptime E: type, in_stream: *io.InStream(E), is_64: *bool) !u64 {
+fn readInitialLength(in_stream: io.InStream, is_64: *bool) !u64 {
     const first_32_bits = try in_stream.readIntLittle(u32);
     is_64.* = (first_32_bits == 0xffffffff);
     if (is_64.*) {

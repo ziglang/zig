@@ -188,7 +188,9 @@ pub const AbstractAllocator = struct {
         return AllocatorInterface(AbstractAllocator).init(self);
     }
     
-    pub const allocator = allocatorInterface;
+    pub fn allocator(self: AbstractAllocator) Allocator {
+        return self.allocatorInterface();
+    }
 };
 
 pub const Compare = enum {

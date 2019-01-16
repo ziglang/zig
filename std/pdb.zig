@@ -594,19 +594,12 @@ const MsfStream = struct {
     blocks: []u32,
     block_size: u32,
 
-    /// Implementation of InStream trait for Pdb.MsfStream
-    stream: Stream,
-
-    pub const Error = @typeOf(read).ReturnType.ErrorSet;
-    pub const Stream = io.InStream(Error);
-
     fn init(block_size: u32, block_count: u32, pos: usize, file: os.File, allocator: mem.Allocator) !MsfStream {
         var stream = MsfStream{
             .in_file = file,
             .pos = 0,
             .blocks = try allocator.alloc(u32, block_count),
             .block_size = block_size,
-            .stream = Stream{ .readFn = readFn },
         };
 
         var file_stream = file.inStream();
@@ -633,7 +626,7 @@ const MsfStream = struct {
         }
     }
 
-    fn read(self: *MsfStream, buffer: []u8) !usize {
+    pub fn read(self: *MsfStream, buffer: []u8) !usize {
         var block_id = self.pos / self.block_size;
         var block = self.blocks[block_id];
         var offset = self.pos % self.block_size;
@@ -685,9 +678,12 @@ const MsfStream = struct {
 
         return block * self.block_size + offset;
     }
-
-    fn readFn(in_stream: *Stream, buffer: []u8) Error!usize {
-        const self = @fieldParentPtr(MsfStream, "stream", in_stream);
-        return self.read(buffer);
+    
+    pub fn inStreamInterface(self: *MsfStream) io.InStreamInterface(*MsfStream) {
+        return io.InStreamInterface(*MsfStream).init(self);
+    }
+    
+    pub fn inStream(self: *MsfStream) io.InStream {
+        return io.InStream.init(io.AbstractInStream.init(self));
     }
 };
