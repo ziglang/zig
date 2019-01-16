@@ -3,22 +3,6 @@ const assertOrPanic = std.debug.assertOrPanic;
 const mem = std.mem;
 const maxInt = std.math.maxInt;
 
-test "peer type resolution: ?T and T" {
-    assertOrPanic(peerTypeTAndOptionalT(true, false).? == 0);
-    assertOrPanic(peerTypeTAndOptionalT(false, false).? == 3);
-    comptime {
-        assertOrPanic(peerTypeTAndOptionalT(true, false).? == 0);
-        assertOrPanic(peerTypeTAndOptionalT(false, false).? == 3);
-    }
-}
-fn peerTypeTAndOptionalT(c: bool, b: bool) ?usize {
-    if (c) {
-        return if (b) null else usize(0);
-    }
-
-    return usize(3);
-}
-
 test "implicitly cast from [N]T to ?[]const T" {
     assertOrPanic(mem.eql(u8, castToOptionalSlice().?, "hi"));
     comptime assertOrPanic(mem.eql(u8, castToOptionalSlice().?, "hi"));

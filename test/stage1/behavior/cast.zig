@@ -125,7 +125,21 @@ fn returnNullLitFromOptionalTypeErrorRef() anyerror!?*A {
     return null;
 }
 
-//test "peer type resolution: ?T and T" {
+test "peer type resolution: ?T and T" {
+    assertOrPanic(peerTypeTAndOptionalT(true, false).? == 0);
+    assertOrPanic(peerTypeTAndOptionalT(false, false).? == 3);
+    comptime {
+        assertOrPanic(peerTypeTAndOptionalT(true, false).? == 0);
+        assertOrPanic(peerTypeTAndOptionalT(false, false).? == 3);
+    }
+}
+fn peerTypeTAndOptionalT(c: bool, b: bool) ?usize {
+    if (c) {
+        return if (b) null else usize(0);
+    }
+
+    return usize(3);
+}
 
 test "peer type resolution: [0]u8 and []const u8" {
     assertOrPanic(peerTypeEmptyArrayAndSlice(true, "hi").len == 0);

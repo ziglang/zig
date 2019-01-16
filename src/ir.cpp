@@ -183,6 +183,7 @@ static IrInstruction *ir_analyze_result_slice_to_bytes(IrAnalyze *ira,
 static IrInstruction *ir_analyze_alloca(IrAnalyze *ira, IrInstruction *source_inst, ZigType *child_type_inst,
         uint32_t align, const char *name_hint, bool is_comptime);
 static void copy_const_val(ConstExprValue *dest, ConstExprValue *src, bool same_global_refs);
+static IrInstruction *ir_analyze_test_non_null(IrAnalyze *ira, IrInstruction *source_inst, IrInstruction *value);
 
 static ConstExprValue *const_ptr_pointee_unchecked(CodeGen *g, ConstExprValue *const_val) {
     assert(get_src_ptr_type(const_val->type) != nullptr);
@@ -15289,9 +15290,30 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call
                         return ira->codegen->invalid_instruction;
                     return ir_finish_anal(ira, err_code_ptr);
                 }
+                case LValOptional: {
+                    IrInstruction *ref_inst = ir_get_ref(ira, &call_instruction->base, new_instruction,
+                            true, false, nullptr);
+                    if (type_is_invalid(ref_inst->value.type))
+                        return ira->codegen->invalid_instruction;
+                    IrInstruction *payload_ptr = ir_analyze_unwrap_optional_payload(ira,
+                            &call_instruction->base, ref_inst, false);
+                    if (type_is_invalid(payload_ptr->value.type))
+                        return ira->codegen->invalid_instruction;
+                    IrInstruction *payload = ir_get_deref(ira, &call_instruction->base, payload_ptr);
+                    if (type_is_invalid(payload->value.type))
+                        return ira->codegen->invalid_instruction;
+                    IrInstruction *store_inst = ir_analyze_store_ptr(ira, &call_instruction->base,
+                            prev_result_loc, payload);
+                    if (type_is_invalid(store_inst->value.type))
+                        return ira->codegen->invalid_instruction;
+                    assert(new_instruction->value.type->id == ZigTypeIdOptional);
+                    IrInstruction *is_non_null = ir_analyze_test_non_null(ira, &call_instruction->base,
+                            new_instruction);
+                    if (type_is_invalid(is_non_null->value.type))
+                        return ira->codegen->invalid_instruction;
+                    return ir_finish_anal(ira, is_non_null);
+                }
                 case LValPtr:
-                    zig_panic("TODO");
-                case LValOptional:
                     zig_panic("TODO");
                 case LValErrorUnionVal:
                     zig_panic("TODO");
@@ -15746,8 +15768,14 @@ static IrInstruction *ir_analyze_instruction_call(IrAnalyze *ira, IrInstructionC
                             return ir_finish_anal(ira, null);
                         }
                     }
-                    case LValOptional:
-                        zig_panic("TODO");
+                    case LValOptional: {
+                        assert(result_loc != nullptr);
+                        IrInstruction *only_arg = call_instruction->args[0]->child;
+                        if (type_is_invalid(only_arg->value.type))
+                            return ira->codegen->invalid_instruction;
+                        IrInstruction *true_value = ir_const_bool(ira, &call_instruction->base, true);
+                        return ir_finish_anal(ira, true_value);
+                    }
                     case LValErrorUnionPtr:
                         zig_panic("TODO");
                 }
@@ -17852,11 +17880,7 @@ static IrInstruction *ir_analyze_instruction_size_of(IrAnalyze *ira,
     zig_unreachable();
 }
 
-static IrInstruction *ir_analyze_instruction_test_non_null(IrAnalyze *ira, IrInstructionTestNonNull *instruction) {
-    IrInstruction *value = instruction->value->child;
-    if (type_is_invalid(value->value.type))
-        return ira->codegen->invalid_instruction;
-
+static IrInstruction *ir_analyze_test_non_null(IrAnalyze *ira, IrInstruction *source_inst, IrInstruction *value) {
     ZigType *type_entry = value->value.type;
 
     if (type_entry->id == ZigTypeIdOptional) {
@@ -17865,18 +17889,26 @@ static IrInstruction *ir_analyze_instruction_test_non_null(IrAnalyze *ira, IrIns
             if (!maybe_val)
                 return ira->codegen->invalid_instruction;
 
-            return ir_const_bool(ira, &instruction->base, !optional_value_is_null(maybe_val));
+            return ir_const_bool(ira, source_inst, !optional_value_is_null(maybe_val));
         }
 
         IrInstruction *result = ir_build_test_nonnull(&ira->new_irb,
-            instruction->base.scope, instruction->base.source_node, value);
+            source_inst->scope, source_inst->source_node, value);
         result->value.type = ira->codegen->builtin_types.entry_bool;
         return result;
     } else if (type_entry->id == ZigTypeIdNull) {
-        return ir_const_bool(ira, &instruction->base, false);
+        return ir_const_bool(ira, source_inst, false);
     } else {
-        return ir_const_bool(ira, &instruction->base, true);
+        return ir_const_bool(ira, source_inst, true);
     }
+}
+
+static IrInstruction *ir_analyze_instruction_test_non_null(IrAnalyze *ira, IrInstructionTestNonNull *instruction) {
+    IrInstruction *value = instruction->value->child;
+    if (type_is_invalid(value->value.type))
+        return ira->codegen->invalid_instruction;
+
+    return ir_analyze_test_non_null(ira, &instruction->base, value);
 }
 
 static IrInstruction *ir_analyze_unwrap_optional_payload(IrAnalyze *ira, IrInstruction *source_instr,
