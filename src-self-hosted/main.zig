@@ -23,8 +23,8 @@ const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 const oaw = std.old_allocator_wrapper;
 
 var stderr_file: os.File = undefined;
-var stderr: *io.OutStream(os.File.WriteError) = undefined;
-var stdout: *io.OutStream(os.File.WriteError) = undefined;
+var stderr: io.OutStreamInterface(os.File) = undefined;
+var stdout: io.OutStreamInterface(os.File) = undefined;
 
 const max_src_size = 2 * 1024 * 1024 * 1024; // 2 GiB
 
@@ -57,12 +57,12 @@ pub fn main() !void {
     const allocator = std.heap.c_allocator;
 
     var stdout_file = try std.io.getStdOut();
-    var stdout_out_stream = stdout_file.outStream();
-    stdout = &stdout_out_stream.stream;
+    var stdout_out_stream = stdout_file.outStreamInterface();
+    stdout = stdout_out_stream;
 
     stderr_file = try std.io.getStdErr();
-    var stderr_out_stream = stderr_file.outStream();
-    stderr = &stderr_out_stream.stream;
+    var stderr_out_stream = stderr_file.outStreamInterface();
+    stderr = stderr_out_stream;
 
     const args = try os.argsAlloc(allocator);
     // TODO I'm getting  unreachable code here, which shouldn't happen
@@ -626,9 +626,9 @@ fn cmdFmt(allocator: Allocator, args: []const []const u8) !void {
         }
 
         var stdin_file = try io.getStdIn();
-        var stdin = stdin_file.inStream();
+        var stdin = stdin_file.inStreamInterface();
 
-        const source_code = try stdin.stream.readAllAlloc(allocator, max_src_size);
+        const source_code = try stdin.readAllAlloc(allocator, max_src_size);
         defer allocator.free(source_code);
 
         var tree = std.zig.parse(allocator, source_code) catch |err| {

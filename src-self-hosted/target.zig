@@ -164,7 +164,7 @@ pub const Target = union(enum) {
         // using the target triple `wasm32-unknown-unknown-unknown`.
         const env_name = if (self.isWasm()) "wasm" else @tagName(self.getEnviron());
 
-        var out = &std.io.BufferOutStream.init(&result).stream;
+        var out = std.io.BufferOutStream.init(&result).outStreamInterface();
         try out.print("{}-unknown-{}-{}", @tagName(self.getArch()), @tagName(self.getOs()), env_name);
 
         return result;

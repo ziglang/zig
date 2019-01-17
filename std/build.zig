@@ -1144,7 +1144,7 @@ pub const LibExeObjStep = struct {
 
     pub fn addBuildOption(self: *LibExeObjStep, comptime T: type, name: []const u8, value: T) void {
         assert(self.is_zig);
-        const out = &std.io.BufferOutStream.init(&self.build_options_contents).stream;
+        const out = std.io.BufferOutStream.init(&self.build_options_contents).outStreamInterface();
         out.print("pub const {} = {};\n", name, value) catch unreachable;
     }
 

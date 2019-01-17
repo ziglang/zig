@@ -309,7 +309,7 @@ pub fn OutStreamInterface(comptime I: type) type {
             return self.impl.write(slice);
         }
 
-        pub fn writeByteNTimes(self: Self, byte: u8, n: usize) !void {
+        pub fn writeByteNTimes(self: Self, byte: u8, n: usize) Error!void {
             const slice = (*[1]u8)(&byte)[0..];
             var i: usize = 0;
             while (i < n) : (i += 1) {
@@ -648,8 +648,7 @@ test "io.SliceOutStream" {
     debug.assert(mem.eql(u8, "HelloWorld!", slice_stream.getWritten()));
 }
 
-var null_out_stream_state = NullOutStream.init();
-pub const null_out_stream = &null_out_stream_state.outStreamInterface();
+pub const null_out_stream = NullOutStream.init().outStreamInterface();
 
 /// An OutStream that doesn't write to anything.
 pub const NullOutStream = struct {
@@ -712,7 +711,7 @@ pub fn CountingOutStream(comptime Stream: type) type {
 test "io.CountingOutStream" {
     var null_stream = NullOutStream.init();
     var counting_stream = CountingOutStream(NullOutStream).init(null_stream);
-    const stream = &counting_stream.outStreamInterface();
+    const stream = counting_stream.outStreamInterface();
 
     const bytes = "yay" ** 10000;
     stream.write(bytes) catch unreachable;
@@ -810,7 +809,6 @@ pub const BufferedAtomicFile = struct {
         // TODO with well defined copy elision we don't need this allocation
         var self = try allocator.create(BufferedAtomicFile{
             .atomic_file = undefined,
-            .file_stream = undefined,
             .buffered_stream = undefined,
             .allocator = allocator,
         });
@@ -833,6 +831,10 @@ pub const BufferedAtomicFile = struct {
         try self.buffered_stream.flush();
         try self.atomic_file.finish();
     }
+    
+    pub fn stream(self: *BufferedAtomicFile) OutStreamInterface(*BufferedOutStream(os.File)) {
+        return self.buffered_stream.outStreamInterface();
+    }
 };
 
 test "import io tests" {
@@ -843,8 +845,8 @@ test "import io tests" {
 
 pub fn readLine(buf: *std.Buffer) ![]u8 {
     var stdin = try getStdIn();
-    var stdin_stream = stdin.inStream();
-    return readLineFrom(&stdin_stream, buf);
+    var stdin_stream = stdin.inStreamInterface();
+    return readLineFrom(stdin_stream, buf);
 }
 
 /// Reads all characters until the next newline into buf, and returns
@@ -885,8 +887,8 @@ test "io.readLineFrom" {
 
 pub fn readLineSlice(slice: []u8) ![]u8 {
     var stdin = try getStdIn();
-    var stdin_stream = stdin.inStream();
-    return readLineSliceFrom(&stdin_stream, slice);
+    var stdin_stream = stdin.inStreamInterface();
+    return readLineSliceFrom(stdin_stream, slice);
 }
 
 /// Reads all characters until the next newline into slice, and returns

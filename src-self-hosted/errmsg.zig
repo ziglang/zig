@@ -161,7 +161,7 @@ pub const Msg = struct {
         const realpath_copy = try mem.dupe(comp.gpa(), u8, tree_scope.root().realpath);
         errdefer comp.gpa().free(realpath_copy);
 
-        var out_stream = &std.io.BufferOutStream.init(&text_buf).stream;
+        var out_stream = std.io.BufferOutStream.init(&text_buf).outStreamInterface();
         try parse_error.render(&tree_scope.tree.tokens, out_stream);
 
         const msg = try comp.gpa().create(Msg{
@@ -200,7 +200,7 @@ pub const Msg = struct {
         const realpath_copy = try mem.dupe(allocator, u8, realpath);
         errdefer allocator.free(realpath_copy);
 
-        var out_stream = &std.io.BufferOutStream.init(&text_buf).stream;
+        var out_stream = std.io.BufferOutStream.init(&text_buf).outStreamInterface();
         try parse_error.render(&tree.tokens, out_stream);
 
         const msg = try allocator.create(Msg{
@@ -278,7 +278,7 @@ pub const Msg = struct {
             Color.On => true,
             Color.Off => false,
         };
-        var stream = &file.outStream().stream;
+        var stream = file.outStreamInterface();
         return msg.printToStream(stream, color_on);
     }
 };

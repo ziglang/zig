@@ -30,7 +30,7 @@ pub const LibCInstallation = struct {
         self: *LibCInstallation,
         allocator: std.mem.Allocator,
         libc_file: []const u8,
-        stderr: *std.io.OutStream(std.os.File.WriteError),
+        stderr: std.io.OutStreamInterface(std.os.File),
     ) !void {
         self.initEmpty();
 
@@ -100,7 +100,7 @@ pub const LibCInstallation = struct {
         }
     }
 
-    pub fn render(self: *const LibCInstallation, out: *std.io.OutStream(std.os.File.WriteError)) !void {
+    pub fn render(self: *const LibCInstallation, out: std.io.OutStreamInterface(std.os.File)) !void {
         @setEvalBranchQuota(4000);
         try out.print(
             \\# The directory that contains `stdlib.h`.
@@ -251,7 +251,7 @@ pub const LibCInstallation = struct {
 
         for (searches) |search| {
             result_buf.shrink(0);
-            const stream = &std.io.BufferOutStream.init(&result_buf).stream;
+            const stream = std.io.BufferOutStream.init(&result_buf).outStreamInterface();
             try stream.print("{}\\Include\\{}\\ucrt", search.path, search.version);
 
             const stdlib_path = try std.os.path.join(loop.allocator, result_buf.toSliceConst(), "stdlib.h");
@@ -275,7 +275,7 @@ pub const LibCInstallation = struct {
 
         for (searches) |search| {
             result_buf.shrink(0);
-            const stream = &std.io.BufferOutStream.init(&result_buf).stream;
+            const stream = std.io.BufferOutStream.init(&result_buf).outStreamInterface();
             try stream.print("{}\\Lib\\{}\\ucrt\\", search.path, search.version);
             switch (builtin.arch) {
                 builtin.Arch.i386 => try stream.write("x86"),
@@ -350,7 +350,7 @@ pub const LibCInstallation = struct {
 
         for (searches) |search| {
             result_buf.shrink(0);
-            const stream = &std.io.BufferOutStream.init(&result_buf).stream;
+            const stream = std.io.BufferOutStream.init(&result_buf).outStreamInterface();
             try stream.print("{}\\Lib\\{}\\um\\", search.path, search.version);
             switch (builtin.arch) {
                 builtin.Arch.i386 => try stream.write("x86\\"),

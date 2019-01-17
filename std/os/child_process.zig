@@ -212,11 +212,11 @@ pub const ChildProcess = struct {
         defer Buffer.deinit(&stdout);
         defer Buffer.deinit(&stderr);
 
-        var stdout_file_in_stream = child.stdout.?.inStream();
-        var stderr_file_in_stream = child.stderr.?.inStream();
+        var stdout_file_in_stream = child.stdout.?.inStreamInterface();
+        var stderr_file_in_stream = child.stderr.?.inStreamInterface();
 
-        try stdout_file_in_stream.stream.readAllBuffer(&stdout, max_output_size);
-        try stderr_file_in_stream.stream.readAllBuffer(&stderr, max_output_size);
+        try stdout_file_in_stream.readAllBuffer(&stdout, max_output_size);
+        try stderr_file_in_stream.readAllBuffer(&stderr, max_output_size);
 
         return ExecResult{
             .term = try child.wait(),
@@ -700,7 +700,7 @@ fn windowsCreateCommandLine(allocator: mem.Allocator, argv: []const []const u8) 
     var buf = try Buffer.initSize(allocator, 0);
     defer buf.deinit();
 
-    var buf_stream = &io.BufferOutStream.init(&buf).stream;
+    var buf_stream = io.BufferOutStream.init(&buf).inStreamInterface();
 
     for (argv) |arg, arg_i| {
         if (arg_i != 0) try buf.appendByte(' ');
@@ -806,11 +806,11 @@ fn forkChildErrReport(fd: i32, err: ChildProcess.SpawnError) noreturn {
 const ErrInt = @IntType(false, @sizeOf(anyerror) * 8);
 
 fn writeIntFd(fd: i32, value: ErrInt) !void {
-    const stream = &os.File.openHandle(fd).outStream().stream;
+    const stream = os.File.openHandle(fd).outStreamInterface();
     stream.writeIntNative(ErrInt, value) catch return error.SystemResources;
 }
 
 fn readIntFd(fd: i32) !ErrInt {
-    const stream = &os.File.openHandle(fd).inStream().stream;
+    const stream = os.File.openHandle(fd).inStreamInterface();
     return stream.readIntNative(ErrInt) catch return error.SystemResources;
 }

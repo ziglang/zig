@@ -6,7 +6,7 @@ const os = std.os;
 
 pub fn main() !void {
     var stdout_file = try io.getStdOut();
-    const stdout = &stdout_file.outStream().stream;
+    const stdout = stdout_file.outStreamInterface();
 
     try stdout.print("Welcome to the Guess Number Game in Zig.\n");
 
