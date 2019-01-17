@@ -1092,13 +1092,17 @@ static IrInstruction *ir_build_cond_br(IrBuilder *irb, Scope *scope, AstNode *so
     return &cond_br_instruction->base;
 }
 
-static IrInstruction *ir_build_return(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *return_value) {
+static IrInstruction *ir_build_return(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *return_value,
+        IrInstruction *result_loc)
+{
     IrInstructionReturn *return_instruction = ir_build_instruction<IrInstructionReturn>(irb, scope, source_node);
     return_instruction->base.value.type = irb->codegen->builtin_types.entry_unreachable;
     return_instruction->base.value.special = ConstValSpecialStatic;
     return_instruction->value = return_value;
+    return_instruction->result_loc = result_loc;
 
     ir_ref_instruction(return_value, irb->current_basic_block);
+    if (result_loc != nullptr) ir_ref_instruction(result_loc, irb->current_basic_block);
 
     return &return_instruction->base;
 }
@@ -3375,13 +3379,13 @@ static bool exec_is_async(IrExecutable *exec) {
 }
 
 static IrInstruction *ir_gen_async_return(IrBuilder *irb, Scope *scope, AstNode *node, IrInstruction *return_value,
-    bool is_generated_code)
+    bool is_generated_code, IrInstruction *return_result_loc)
 {
     ir_mark_gen(ir_build_add_implicit_return_type(irb, scope, node, return_value));
 
     bool is_async = exec_is_async(irb->exec);
     if (!is_async) {
-        IrInstruction *return_inst = ir_build_return(irb, scope, node, return_value);
+        IrInstruction *return_inst = ir_build_return(irb, scope, node, return_value, return_result_loc);
         return_inst->is_gen = is_generated_code;
         return return_inst;
     }
@@ -3618,8 +3622,8 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
             {
                 IrInstruction *return_value;
                 ZigType *return_type = fn_entry->type_entry->data.fn.fn_type_id.return_type;
+                IrInstruction *return_result_loc = nullptr;
                 if (expr_node) {
-                    IrInstruction *return_result_loc = nullptr;
                     LVal expr_lval = LValNone;
                     if (return_type != nullptr) {
                         if (return_type->id == ZigTypeIdErrorUnion) {
@@ -3686,11 +3690,11 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                     ir_build_br(irb, scope, node, ret_stmt_block, is_comptime);
 
                     ir_set_cursor_at_end_and_append_block(irb, ret_stmt_block);
-                    return ir_gen_async_return(irb, scope, node, return_value, false);
+                    return ir_gen_async_return(irb, scope, node, return_value, false, return_result_loc);
                 } else {
                     // generate unconditional defers
                     ir_gen_defers_for_block(irb, scope, outer_scope, false);
-                    return ir_gen_async_return(irb, scope, node, return_value, false);
+                    return ir_gen_async_return(irb, scope, node, return_value, false, return_result_loc);
                 }
             }
         case ReturnKindError:
@@ -3723,7 +3727,7 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                     if (irb->codegen->have_err_ret_tracing && !should_inline) {
                         ir_build_save_err_ret_addr(irb, scope, node);
                     }
-                    ir_gen_async_return(irb, scope, node, err_val, false);
+                    ir_gen_async_return(irb, scope, node, err_val, false, nullptr);
                 }
 
                 ir_set_cursor_at_end_and_append_block(irb, continue_block);
@@ -8084,7 +8088,7 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         ir_set_cursor_at_end_and_append_block(irb, alloc_err_block);
         // we can return undefined here, because the caller passes a pointer to the error struct field
         // in the error union result, and we populate it in case of allocation failure.
-        ir_build_return(irb, coro_scope, node, undef);
+        ir_build_return(irb, coro_scope, node, undef, nullptr);
 
         ir_set_cursor_at_end_and_append_block(irb, alloc_ok_block);
         IrInstruction *coro_mem_ptr = ir_build_ptr_cast_src(irb, coro_scope, node, u8_ptr_type, maybe_coro_mem_ptr);
@@ -8150,7 +8154,7 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
                 implicit_return_result = ir_build_const_null(irb, scope, result->source_node);
             }
         }
-        ir_gen_async_return(irb, scope, result->source_node, implicit_return_result, true);
+        ir_gen_async_return(irb, scope, result->source_node, implicit_return_result, true, nullptr);
     }
 
     if (is_async) {
@@ -8169,7 +8173,7 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
 
         ir_set_cursor_at_end_and_append_block(irb, irb->exec->coro_suspend_block);
         ir_build_coro_end(irb, scope, node);
-        ir_build_return(irb, scope, node, irb->exec->coro_handle);
+        ir_build_return(irb, scope, node, irb->exec->coro_handle, nullptr);
 
         ir_set_cursor_at_end_and_append_block(irb, invalid_resume_block);
         ir_build_unreachable(irb, scope, node);
@@ -12696,6 +12700,13 @@ static IrInstruction *ir_analyze_instruction_return(IrAnalyze *ira, IrInstructio
     if (type_is_invalid(value->value.type))
         return ir_unreach_error(ira);
 
+    IrInstruction *result_loc = nullptr;
+    if (instruction->result_loc != nullptr) {
+        result_loc = instruction->result_loc->child;
+        if (type_is_invalid(result_loc->value.type))
+            return ir_unreach_error(ira);
+    }
+
     IrInstruction *casted_value = ir_implicit_cast(ira, value, ira->scalar_return_type);
     if (type_is_invalid(casted_value->value.type) && ira->explicit_return_type_source_node != nullptr) {
         ErrorMsg *msg = ira->codegen->errors.last();
@@ -12711,8 +12722,17 @@ static IrInstruction *ir_analyze_instruction_return(IrAnalyze *ira, IrInstructio
         ir_add_error(ira, casted_value, buf_sprintf("function returns address of local variable"));
         return ir_unreach_error(ira);
     }
+
+    if (result_loc != nullptr && instr_is_comptime(result_loc) &&
+        !ir_should_inline(ira->new_irb.exec, instruction->base.scope))
+    {
+        IrInstruction *loaded = ir_get_deref(ira, &instruction->base, result_loc);
+        result_loc->value.special = ConstValSpecialRuntime;
+        ir_analyze_store_ptr(ira, &instruction->base, result_loc, loaded);
+    }
+
     IrInstruction *result = ir_build_return(&ira->new_irb, instruction->base.scope,
-            instruction->base.source_node, casted_value);
+            instruction->base.source_node, casted_value, nullptr);
     result->value.type = ira->codegen->builtin_types.entry_unreachable;
     return ir_finish_anal(ira, result);
 }
@@ -23361,7 +23381,7 @@ static IrInstruction *ir_analyze_result_return(IrAnalyze *ira, IrInstruction *so
     // Here we create a pass2 instruction for getting the return value pointer.
     // However we create a const value for it and mark it with ConstPtrMutInfer
     // so that if the return expression is comptime-known, we can emit a memcpy
-    // rather than runtime instructions instructions.
+    // rather than runtime instructions.
     ZigType *result_type = get_pointer_to_type(ira->codegen, ira->payload_return_type, false);
 
     IrInstruction *result = ir_build_result_return(&ira->new_irb, source_inst->scope, source_inst->source_node);

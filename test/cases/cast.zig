@@ -3,15 +3,6 @@ const assertOrPanic = std.debug.assertOrPanic;
 const mem = std.mem;
 const maxInt = std.math.maxInt;
 
-test "implicitly cast from [N]T to ?[]const T" {
-    assertOrPanic(mem.eql(u8, castToOptionalSlice().?, "hi"));
-    comptime assertOrPanic(mem.eql(u8, castToOptionalSlice().?, "hi"));
-}
-
-fn castToOptionalSlice() ?[]const u8 {
-    return "hi";
-}
-
 test "implicitly cast from [0]T to anyerror![]T" {
     testCastZeroArrayToErrSliceMut();
     comptime testCastZeroArrayToErrSliceMut();

@@ -2276,10 +2276,6 @@ static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrIns
     }
     LLVMValueRef value = ir_llvm_value(g, return_instruction->value);
     if (handle_is_ptr(return_type)) {
-        if (return_instruction->value->value.special == ConstValSpecialStatic) {
-            assert(g->cur_ret_ptr);
-            gen_assign_raw(g, g->cur_ret_ptr, get_pointer_to_type(g, return_type, false), value);
-        }
         LLVMBuildRetVoid(g->builder);
         return nullptr;
     } else {

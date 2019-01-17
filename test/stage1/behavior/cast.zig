@@ -157,7 +157,14 @@ fn peerTypeEmptyArrayAndSlice(a: bool, slice: []const u8) []const u8 {
     return slice[0..1];
 }
 
-// test "implicitly cast from [N]T to ?[]const T" {
+test "implicitly cast from [N]T to ?[]const T" {
+    assertOrPanic(mem.eql(u8, castToOptionalSlice().?, "hi"));
+    comptime assertOrPanic(mem.eql(u8, castToOptionalSlice().?, "hi"));
+}
+
+fn castToOptionalSlice() ?[]const u8 {
+    return "hi";
+}
 
 // test "implicitly cast from [0]T to anyerror![]T" {
 

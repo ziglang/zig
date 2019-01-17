@@ -2508,6 +2508,7 @@ struct IrInstructionReturn {
     IrInstruction base;
 
     IrInstruction *value;
+    IrInstruction *result_loc;
 };
 
 // TODO get rid of this instruction, replace with instructions for each op code
