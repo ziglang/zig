@@ -105,7 +105,7 @@ pub const File = struct {
     pub fn openWriteNoClobber(path: []const u8, file_mode: Mode) OpenError!File {
         if (is_posix) {
             const path_c = try os.toPosixPath(path);
-            return openWriteNoClobberC(path_c, file_mode);
+            return openWriteNoClobberC(&path_c, file_mode);
         } else if (is_windows) {
             const path_w = try windows_util.sliceToPrefixedFileW(path);
             return openWriteNoClobberW(&path_w, file_mode);
@@ -235,7 +235,7 @@ pub const File = struct {
         Unexpected,
     };
 
-    pub fn seekForward(self: File, amount: isize) SeekError!void {
+    pub fn seekForward(self: *const File, amount: isize) SeekError!void {
         switch (builtin.os) {
             Os.linux, Os.macosx, Os.ios, Os.freebsd => {
                 const result = posix.lseek(self.handle, amount, posix.SEEK_CUR);
@@ -266,7 +266,7 @@ pub const File = struct {
         }
     }
 
-    pub fn seekTo(self: File, pos: usize) SeekError!void {
+    pub fn seekTo(self: *const File, pos: usize) SeekError!void {
         switch (builtin.os) {
             Os.linux, Os.macosx, Os.ios, Os.freebsd => {
                 const ipos = try math.cast(isize, pos);
@@ -307,7 +307,7 @@ pub const File = struct {
         Unexpected,
     };
 
-    pub fn getPos(self: File) GetSeekPosError!usize {
+    pub fn getPos(self: *const File) GetSeekPosError!usize {
         switch (builtin.os) {
             Os.linux, Os.macosx, Os.ios, Os.freebsd => {
                 const result = posix.lseek(self.handle, 0, posix.SEEK_CUR);
@@ -343,7 +343,7 @@ pub const File = struct {
         }
     }
 
-    pub fn getEndPos(self: File) GetSeekPosError!usize {
+    pub fn getEndPos(self: *const File) GetSeekPosError!usize {
         if (is_posix) {
             const stat = try os.posixFStat(self.handle);
             return @intCast(usize, stat.size);
@@ -394,7 +394,7 @@ pub const File = struct {
 
     pub const ReadError = os.WindowsReadError || os.PosixReadError;
 
-    pub fn read(self: File, buffer: []u8) ReadError!usize {
+    pub fn read(self: *const File, buffer: []u8) ReadError!usize {
         if (is_posix) {
             return os.posixRead(self.handle, buffer);
         } else if (is_windows) {
@@ -421,7 +421,7 @@ pub const File = struct {
 
     pub const WriteError = os.WindowsWriteError || os.PosixWriteError;
 
-    pub fn write(self: File, bytes: []const u8) WriteError!void {
+    pub fn write(self: *const File, bytes: []const u8) WriteError!void {
         if (is_posix) {
             try os.posixWrite(self.handle, bytes);
         } else if (is_windows) {
@@ -438,7 +438,7 @@ pub const File = struct {
     }
     
     pub fn inStream(self: *File) io.InStream {
-        return io.AbstractInStream.init(self).inStream();
+        return io.AbstractInStream.init(self).inStreamInterface();
     }
 
     /// Implementation of io.OutStream trait for File
@@ -448,7 +448,7 @@ pub const File = struct {
     }
     
     pub fn outStream(self: *File) io.OutStream {
-        return io.AbstractOutStream.init(self).outStream();
+        return io.AbstractOutStream.init(self).outStreamInterface();
     }
 
     /// Implementation of io.SeekableStream trait for File
@@ -458,6 +458,6 @@ pub const File = struct {
     }
     
     pub fn seekableStream(self: *File) io.SeekableStream {
-        return io.AbstractSeekableStream.init(self).seekableStream();
+        return io.AbstractSeekableStream.init(self).seekableStreamInterface();
     }
 };

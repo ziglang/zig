@@ -166,7 +166,7 @@ pub const AbstractAllocator = struct {
 
     pub fn init(impl: var) AbstractAllocator {
         const T = comptime meta.Child(@typeOf(impl));
-        return AbstractAllocator{
+        return AbstractAllocator {
             .vtable = comptime std.vtable.populate(VTable, T, T),
             .impl = @ptrCast(Context, impl),
         };

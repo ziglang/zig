@@ -34,12 +34,12 @@ pub fn getStdIn() GetStdIoErrs!File {
 }
 
 pub fn InStreamError(comptime T: type) type {
-    const I = if(meta.trait.isSingleItemPtr(T)) comptime meta.Child(T) else T;
+    const I = if (meta.trait.isSingleItemPtr(T)) comptime meta.Child(T) else T;
     return @typeOf(I.read).ReturnType.ErrorSet;
 }
 
 pub fn OutStreamError(comptime T: type) type {
-    const I = if(meta.trait.isSingleItemPtr(T)) comptime meta.Child(T) else T;
+    const I = if (meta.trait.isSingleItemPtr(T)) comptime meta.Child(T) else T;
     return @typeOf(I.write).ReturnType.ErrorSet;
 }
 
@@ -60,15 +60,6 @@ pub fn InStreamInterface(comptime I: type) type {
                 .impl = impl,
             };
         }
-        
-        //@WIP: We need to make this more generally available and make stream-wrappers
-        // directly wrap the stream instead of the interface
-        //pub const Error = err: {
-        //    if(comptime !std.meta.trait.isSingleItemPtr(I)) {
-        //        break :err @typeOf(I.read).ReturnType.ErrorSet;
-        //    }
-        //    break :err @typeOf(comptime meta.Child(I).read).ReturnType.ErrorSet;
-        //};
         
         pub const Error = InStreamError(I);
 
@@ -368,7 +359,7 @@ pub const AbstractOutStream = struct {
 
     pub fn init(impl: var) AbstractOutStream {
         const T = comptime std.meta.Child(@typeOf(impl));
-        return AbstractInStream{
+        return AbstractOutStream{
             .vtable = comptime std.vtable.populate(VTable, T, T),
             .impl = @ptrCast(Context, impl),
         };
@@ -482,7 +473,7 @@ pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Stream: type
         }
         
         pub fn inStream(self: *Self) InStream {
-            return InStream.init(self);
+            return InStream.init(AbstractInStream.init(self));
         }
     };
 }
@@ -552,7 +543,7 @@ pub fn PeekStream(comptime buffer_size: usize, comptime Stream: type) type {
         }
         
         pub fn inStream(self: *Self) InStream {
-            return InStream.init(self);
+            return InStream.init(AbstractInStream.init(self));
         }
     };
 }
@@ -587,7 +578,7 @@ pub const SliceInStream = struct {
     }
     
     pub fn inStream(self: *Self) InStream {
-        return InStream.init(self);
+        return InStream.init(AbstractInStream.init(self));
     }
 };
 
@@ -635,7 +626,7 @@ pub const SliceOutStream = struct {
     }
     
     pub fn outStream(self: *SliceOutStream) OutStream {
-        return OutStream.init(self);
+        return OutStream.init(AbstractOutStream.init(self));
     }
 };
 
@@ -653,19 +644,22 @@ pub const null_out_stream = NullOutStream.init().outStreamInterface();
 /// An OutStream that doesn't write to anything.
 pub const NullOutStream = struct {
     pub const Error = error{};
+    
+    _: u1,
 
     pub fn init() NullOutStream {
         return NullOutStream{
+            ._ = 0,
         };
     }
 
-    pub fn write(self: NullOutStream, bytes: []const u8) Error!void {}
+    pub fn write(self: *const NullOutStream, bytes: []const u8) Error!void {}
     
     pub fn outStreamInterface(self: NullOutStream) OutStreamInterface(NullOutStream) {
         return OutStreamInterface(NullOutStream).init(self);
     }
     
-    pub fn outStream(self: NullOutStream) OutStream {
+    pub fn outStream(self: *NullOutStream) OutStream {
         return OutStream.init(AbstractOutStream.init(self));
     }
 };
@@ -673,6 +667,12 @@ pub const NullOutStream = struct {
 test "io.NullOutStream" {
     var null_stream = NullOutStream.init();
     const stream = null_stream.outStreamInterface();
+    stream.write("yay" ** 10000) catch unreachable;
+}
+
+test "io.NullOutStream using abstract stream" {
+    var null_stream = NullOutStream.init();
+    const stream = null_stream.outStream();
     stream.write("yay" ** 10000) catch unreachable;
 }
 
@@ -712,6 +712,16 @@ test "io.CountingOutStream" {
     var null_stream = NullOutStream.init();
     var counting_stream = CountingOutStream(NullOutStream).init(null_stream);
     const stream = counting_stream.outStreamInterface();
+
+    const bytes = "yay" ** 10000;
+    stream.write(bytes) catch unreachable;
+    debug.assert(counting_stream.bytes_written == bytes.len);
+}
+
+test "io.CountingOutStream using abstract streams" {
+    var null_stream = NullOutStream.init();
+    var counting_stream = CountingOutStream(OutStream).init(null_stream.outStream());
+    const stream = counting_stream.outStream();
 
     const bytes = "yay" ** 10000;
     stream.write(bytes) catch unreachable;
@@ -796,7 +806,7 @@ pub const BufferOutStream = struct {
     }
     
     pub fn outStream(self: *BufferOutStream) OutStream {
-        return OutStream.init(self);
+        return OutStream.init(AbstractOutStream.init(self));
     }
 };
 
