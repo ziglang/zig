@@ -6024,7 +6024,7 @@ fn add(a: i32, b: i32) i32 {
       This is typically used for type safety when interacting with C code that does not expose struct details.
       Example:
       </p>
-      {#code_begin|test_err|expected type '*Derp', found '*Wat'#}
+      {#code_begin|test_err|expected '*Derp' type, found '*Wat'#}
 const Derp = @OpaqueType();
 const Wat = @OpaqueType();
 

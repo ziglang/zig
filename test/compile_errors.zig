@@ -59,7 +59,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    do_the_thing(bar);
         \\}
     ,
-        ".tmp_source.zig:4:18: error: expected type 'fn(i32) void', found 'fn(bool) void",
+        ".tmp_source.zig:4:18: error: expected 'fn(i32) void' type, found 'fn(bool) void",
         ".tmp_source.zig:4:18: note: parameter 0: 'bool' cannot cast into 'i32'",
     );
 
@@ -95,7 +95,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     ,
         ".tmp_source.zig:3:31: error: integer value 300 cannot be implicitly casted to type 'u8'",
         ".tmp_source.zig:7:22: error: integer value 300 cannot be implicitly casted to type 'u8'",
-        ".tmp_source.zig:11:20: error: expected type 'u8', found 'u16'",
+        ".tmp_source.zig:11:20: error: expected 'u8' type, found 'u16'",
     );
 
     cases.add(
@@ -115,7 +115,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(y)); }
     ,
-        ".tmp_source.zig:2:14: error: expected type 'f32', found 'f64'",
+        ".tmp_source.zig:2:14: error: expected 'f32' type, found 'f64'",
     );
 
     cases.add(
@@ -163,7 +163,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var ptr2: *c_void = &b;
         \\}
     ,
-        ".tmp_source.zig:5:26: error: expected type '*c_void', found '**u32'",
+        ".tmp_source.zig:5:26: error: expected '*c_void' type, found '**u32'",
     );
 
     cases.add(
@@ -213,7 +213,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const sliceA: []u8 = &buffer;
         \\}
     ,
-        ".tmp_source.zig:3:27: error: expected type '[]u8', found '*const [1]u8'",
+        ".tmp_source.zig:3:27: error: expected '[]u8' type, found '*const [1]u8'",
     );
 
     cases.add(
@@ -754,7 +754,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
             \\
             \\fn bar(x: *b.Foo) void {}
         ,
-            ".tmp_source.zig:6:10: error: expected type '*Foo', found '*Foo'",
+            ".tmp_source.zig:6:10: error: expected '*Foo' type, found '*Foo'",
             ".tmp_source.zig:6:10: note: pointer type child 'Foo' cannot cast into pointer type child 'Foo'",
             "a.zig:1:17: note: Foo declared here",
             "b.zig:1:17: note: Foo declared here",
@@ -824,7 +824,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var y = p.*;
         \\}
     ,
-        ".tmp_source.zig:4:23: error: expected type '*?*i32', found '**i32'",
+        ".tmp_source.zig:4:23: error: expected '*?*i32' type, found '**i32'",
     );
 
     cases.add(
@@ -833,7 +833,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const x: [*]const bool = true;
         \\}
     ,
-        ".tmp_source.zig:2:30: error: expected type '[*]const bool', found 'bool'",
+        ".tmp_source.zig:2:30: error: expected '[*]const bool' type, found 'bool'",
     );
 
     cases.add(
@@ -878,7 +878,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var rule_set = try Foo.init();
         \\}
     ,
-        ".tmp_source.zig:2:13: error: expected type 'i32', found 'type'",
+        ".tmp_source.zig:2:13: error: expected 'i32' type, found 'type'",
     );
 
     cases.add(
@@ -912,7 +912,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return null;
         \\}
     ,
-        ".tmp_source.zig:5:34: error: expected type '?NextError!i32', found '?OtherError!i32'",
+        ".tmp_source.zig:5:34: error: expected '?NextError!i32' type, found '?OtherError!i32'",
         ".tmp_source.zig:5:34: note: optional type child 'OtherError!i32' cannot cast into optional type child 'NextError!i32'",
         ".tmp_source.zig:5:34: note: error set 'OtherError' cannot cast into error set 'NextError'",
         ".tmp_source.zig:2:26: note: 'error.OutOfMemory' not a member of destination error set",
@@ -982,7 +982,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    @panic(e);
         \\}
     ,
-        ".tmp_source.zig:3:12: error: expected type '[]const u8', found 'error{Foo}'",
+        ".tmp_source.zig:3:12: error: expected '[]const u8' type, found 'error{Foo}'",
     );
 
     cases.add(
@@ -1010,7 +1010,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return error.ShouldBeCompileError;
         \\}
     ,
-        ".tmp_source.zig:6:17: error: expected type 'void', found 'error{ShouldBeCompileError}'",
+        ".tmp_source.zig:6:17: error: expected 'void' type, found 'error{ShouldBeCompileError}'",
     );
 
     cases.add(
@@ -1053,7 +1053,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    a(c);
         \\}
     ,
-        ".tmp_source.zig:8:7: error: expected type 'fn(*const u8) void', found 'fn(u8) void'",
+        ".tmp_source.zig:8:7: error: expected 'fn(*const u8) void' type, found 'fn(u8) void'",
     );
 
     cases.add(
@@ -1135,7 +1135,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\        E.One => {},
         \\    }
         \\}
-    , ".tmp_source.zig:9:10: error: expected type 'usize', found 'E'");
+    , ".tmp_source.zig:9:10: error: expected 'usize' type, found 'E'");
 
     cases.add(
         "range operator in switch used on error set",
@@ -1181,7 +1181,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const z = i32!i32;
         \\}
     ,
-        ".tmp_source.zig:2:15: error: expected error set type, found type 'i32'",
+        ".tmp_source.zig:2:15: error: expected error set type, found 'i32'",
     );
 
     cases.add(
@@ -1231,7 +1231,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return error.B;
         \\}
     ,
-        ".tmp_source.zig:3:35: error: expected type 'SmallErrorSet!i32', found 'anyerror!i32'",
+        ".tmp_source.zig:3:35: error: expected 'SmallErrorSet!i32' type, found 'anyerror!i32'",
         ".tmp_source.zig:3:35: note: error set 'anyerror' cannot cast into error set 'SmallErrorSet'",
         ".tmp_source.zig:3:35: note: cannot cast global error set into smaller set",
     );
@@ -1246,7 +1246,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return error.B;
         \\}
     ,
-        ".tmp_source.zig:3:31: error: expected type 'SmallErrorSet', found 'anyerror'",
+        ".tmp_source.zig:3:31: error: expected 'SmallErrorSet' type, found 'anyerror'",
         ".tmp_source.zig:3:31: note: cannot cast global error set into smaller set",
     );
 
@@ -1273,7 +1273,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var x: Set2 = set1;
         \\}
     ,
-        ".tmp_source.zig:7:19: error: expected type 'Set2', found 'Set1'",
+        ".tmp_source.zig:7:19: error: expected 'Set2' type, found 'Set1'",
         ".tmp_source.zig:1:23: note: 'error.B' not a member of destination error set",
     );
 
@@ -1813,7 +1813,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\fn a() noreturn {return;}
         \\export fn entry() void { a(); }
     ,
-        ".tmp_source.zig:1:18: error: expected type 'noreturn', found 'void'",
+        ".tmp_source.zig:1:18: error: expected 'noreturn' type, found 'void'",
     );
 
     cases.add(
@@ -1821,7 +1821,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\fn a() i32 {}
         \\export fn entry() void { _ = a(); }
     ,
-        ".tmp_source.zig:1:12: error: expected type 'i32', found 'void'",
+        ".tmp_source.zig:1:12: error: expected 'i32' type, found 'void'",
     );
 
     cases.add(
@@ -1927,7 +1927,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return a;
         \\}
     ,
-        ".tmp_source.zig:3:12: error: expected type 'i32', found '[*]const u8'",
+        ".tmp_source.zig:3:12: error: expected 'i32' type, found '[*]const u8'",
     );
 
     cases.add(
@@ -1936,7 +1936,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    if (0) {}
         \\}
     ,
-        ".tmp_source.zig:2:9: error: expected type 'bool', found 'comptime_int'",
+        ".tmp_source.zig:2:9: error: expected 'bool' type, found 'comptime_int'",
     );
 
     cases.add(
@@ -2031,8 +2031,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    array[bad] = array[bad];
         \\}
     ,
-        ".tmp_source.zig:4:11: error: expected type 'usize', found 'bool'",
-        ".tmp_source.zig:4:24: error: expected type 'usize', found 'bool'",
+        ".tmp_source.zig:4:11: error: expected 'usize' type, found 'bool'",
+        ".tmp_source.zig:4:24: error: expected 'usize' type, found 'bool'",
     );
 
     cases.add(
@@ -2446,7 +2446,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\fn foo() *const i32 { return y; }
         \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
     ,
-        ".tmp_source.zig:3:30: error: expected type '*const i32', found '*const comptime_int'",
+        ".tmp_source.zig:3:30: error: expected '*const i32' type, found '*const comptime_int'",
     );
 
     cases.add(
@@ -2524,7 +2524,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\fn c() i32 {return 2;}
         \\export fn entry() usize { return @sizeOf(@typeOf(fns)); }
     ,
-        ".tmp_source.zig:1:27: error: expected type 'fn() void', found 'fn() i32'",
+        ".tmp_source.zig:1:27: error: expected 'fn() void' type, found 'fn() i32'",
     );
 
     cases.add(
@@ -2536,7 +2536,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(fns)); }
     ,
-        ".tmp_source.zig:1:36: error: expected type 'fn(i32) i32', found 'extern fn(i32) i32'",
+        ".tmp_source.zig:1:36: error: expected 'fn(i32) i32' type, found 'extern fn(i32) i32'",
     );
 
     cases.add(
@@ -2640,7 +2640,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(a)); }
     ,
-        ".tmp_source.zig:1:16: error: expected type '*u8', found '(null)'",
+        ".tmp_source.zig:1:16: error: expected '*u8' type, found '(null)'",
     );
 
     cases.add(
@@ -3280,7 +3280,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\fn something() anyerror!void { }
     ,
-        ".tmp_source.zig:2:5: error: expected type 'void', found 'anyerror'",
+        ".tmp_source.zig:2:5: error: expected 'void' type, found 'anyerror'",
         ".tmp_source.zig:1:15: note: return type declared here",
     );
 
@@ -3459,7 +3459,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    derp.init();
         \\}
     ,
-        ".tmp_source.zig:14:5: error: expected type 'i32', found 'Foo'",
+        ".tmp_source.zig:14:5: error: expected 'i32' type, found 'Foo'",
     );
 
     cases.add(
@@ -3489,7 +3489,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    x.init();
         \\}
     ,
-        ".tmp_source.zig:23:5: error: expected type '*Allocator', found '*List'",
+        ".tmp_source.zig:23:5: error: expected '*Allocator' type, found '*List'",
     );
 
     cases.add(
@@ -3661,7 +3661,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
     ,
-        ".tmp_source.zig:8:26: error: expected type '*const u3', found '*align(:3:1) const u3'",
+        ".tmp_source.zig:8:26: error: expected '*const u3' type, found '*align(:3:1) const u3'",
     );
 
     cases.add(
@@ -3790,7 +3790,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
     ,
-        ".tmp_source.zig:4:19: error: expected type '*[]const u8', found '*const []const u8'",
+        ".tmp_source.zig:4:19: error: expected '*[]const u8' type, found '*const []const u8'",
     );
 
     cases.addCase(x: {
@@ -3822,7 +3822,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    foo(global_array);
         \\}
     ,
-        ".tmp_source.zig:4:9: error: expected type '[]i32', found '[10]i32'",
+        ".tmp_source.zig:4:9: error: expected '[]i32' type, found '[10]i32'",
     );
 
     cases.add(
@@ -3831,7 +3831,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return @ptrCast(usize, a);
         \\}
     ,
-        ".tmp_source.zig:2:21: error: expected pointer, found 'usize'",
+        ".tmp_source.zig:2:21: error: expected pointer type, found 'usize'",
     );
 
     cases.add(
@@ -3902,7 +3902,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return @fieldParentPtr(Foo, "a", a);
         \\}
     ,
-        ".tmp_source.zig:5:38: error: expected pointer, found 'i32'",
+        ".tmp_source.zig:5:38: error: expected pointer type, found 'i32'",
     );
 
     cases.add(
@@ -4057,7 +4057,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\fn bar() ?i32 { return 1; }
     ,
-        ".tmp_source.zig:2:15: error: expected type 'bool', found '?i32'",
+        ".tmp_source.zig:2:15: error: expected 'bool' type, found '?i32'",
     );
 
     cases.add(
@@ -4067,7 +4067,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\fn bar() anyerror!i32 { return 1; }
     ,
-        ".tmp_source.zig:2:15: error: expected type 'bool', found 'anyerror!i32'",
+        ".tmp_source.zig:2:15: error: expected 'bool' type, found 'anyerror!i32'",
     );
 
     cases.add(
@@ -4328,7 +4328,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return @ptrToInt(x);
         \\}
     ,
-        ".tmp_source.zig:2:22: error: expected pointer, found 'i32'",
+        ".tmp_source.zig:2:22: error: expected pointer type, found 'i32'",
     );
 
     cases.add(
@@ -4364,7 +4364,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return x << y;
         \\}
     ,
-        ".tmp_source.zig:2:17: error: expected type 'u3', found 'u8'",
+        ".tmp_source.zig:2:17: error: expected 'u3' type, found 'u8'",
     );
 
     cases.add(
@@ -4393,7 +4393,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    x.* += 1;
         \\}
     ,
-        ".tmp_source.zig:8:13: error: expected type '*u32', found '*align(1) u32'",
+        ".tmp_source.zig:8:13: error: expected '*u32' type, found '*align(1) u32'",
     );
 
     cases.add(
@@ -4437,7 +4437,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    @alignCast(4, u32(3));
         \\}
     ,
-        ".tmp_source.zig:2:22: error: expected pointer or slice, found 'u32'",
+        ".tmp_source.zig:2:22: error: expected pointer or slice type, found 'u32'",
     );
 
     cases.add(
@@ -4450,7 +4450,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\fn alignedSmall() align(4) i32 { return 1234; }
     ,
-        ".tmp_source.zig:2:35: error: expected type 'fn() align(8) i32', found 'fn() align(4) i32'",
+        ".tmp_source.zig:2:35: error: expected 'fn() align(8) i32' type, found 'fn() align(4) i32'",
     );
 
     cases.add(
@@ -4462,7 +4462,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return x == 5678;
         \\}
     ,
-        ".tmp_source.zig:4:32: error: expected type '*i32', found '*align(1) i32'",
+        ".tmp_source.zig:4:32: error: expected '*i32' type, found '*align(1) i32'",
     );
 
     cases.add(
@@ -4497,7 +4497,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    bar(@ptrCast(*c_void, &x));
         \\}
     ,
-        ".tmp_source.zig:5:9: error: expected type '*Derp', found '*c_void'",
+        ".tmp_source.zig:5:9: error: expected '*Derp' type, found '*c_void'",
     );
 
     cases.add(
@@ -4543,7 +4543,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    while (!@cmpxchgWeak(i32, &x, 1234, 5678, u32(1234), u32(1234))) {}
         \\}
     ,
-        ".tmp_source.zig:3:50: error: expected type 'AtomicOrder', found 'u32'",
+        ".tmp_source.zig:3:50: error: expected 'AtomicOrder' type, found 'u32'",
     );
 
     cases.add(
@@ -4553,7 +4553,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    @export("entry", entry, u32(1234));
         \\}
     ,
-        ".tmp_source.zig:3:32: error: expected type 'GlobalLinkage', found 'u32'",
+        ".tmp_source.zig:3:32: error: expected 'GlobalLinkage' type, found 'u32'",
     );
 
     cases.add(
@@ -4730,7 +4730,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = @ArgType(i32, 3);
         \\}
     ,
-        ".tmp_source.zig:2:18: error: expected function, found 'i32'",
+        ".tmp_source.zig:2:18: error: expected function type, found 'i32'",
     );
 
     cases.add(
@@ -4828,7 +4828,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\pub extern fn foo(format: *const u8, ...) void;
     ,
-        ".tmp_source.zig:2:9: error: expected type '*const u8', found '[5]u8'",
+        ".tmp_source.zig:2:9: error: expected '*const u8' type, found '[5]u8'",
     );
 
     cases.add(
@@ -4897,7 +4897,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var x: u2 = Small.Two;
         \\}
     ,
-        ".tmp_source.zig:9:22: error: expected type 'u2', found 'Small'",
+        ".tmp_source.zig:9:22: error: expected 'u2' type, found 'Small'",
     );
 
     cases.add(
@@ -4914,7 +4914,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var x = @intToEnum(Small, y);
         \\}
     ,
-        ".tmp_source.zig:10:31: error: expected type 'u2', found 'u3'",
+        ".tmp_source.zig:10:31: error: expected 'u2' type, found 'u3'",
     );
 
     cases.add(
@@ -5311,7 +5311,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    asm volatile ("" : : [bar]"r"(3) : "");
         \\}
     ,
-        ".tmp_source.zig:2:35: error: expected sized integer or sized float, found comptime_int",
+        ".tmp_source.zig:2:35: error: expected sized integer or sized float type, found comptime_int",
     );
 
     cases.add(
@@ -5320,6 +5320,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    asm volatile ("" : : [bar]"r"(3.17) : "");
         \\}
     ,
-        ".tmp_source.zig:2:35: error: expected sized integer or sized float, found comptime_float",
+        ".tmp_source.zig:2:35: error: expected sized integer or sized float type, found comptime_float",
     );
 }
