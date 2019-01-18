@@ -2,6 +2,16 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "Use of && in place of `and`",
+        \\export fn entry() void {
+        \\    if (true && false) return;
+        \\}
+    ,
+        ".tmp_source.zig:2:14: error: expected token ')', found '&&'",
+        ".tmp_source.zig:2:14: note: did you mean to use `and`?",
+    );
+
+    cases.add(
         "duplicate boolean switch value",
         \\comptime {
         \\    const x = switch (true) {
