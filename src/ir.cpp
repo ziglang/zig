@@ -15279,6 +15279,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call
                         return ira->codegen->invalid_instruction;
                     return ir_finish_anal(ira, ir_const_void(ira, &call_instruction->base));
                 }
+                case LValErrorUnionVal:
                 case LValErrorUnionPtr: {
                     IrInstruction *ref_inst = ir_get_ref(ira, &call_instruction->base, new_instruction,
                             true, false, nullptr);
@@ -15308,7 +15309,12 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call
                             opt_err_set_type);
                     if (type_is_invalid(err_code_ptr->value.type))
                         return ira->codegen->invalid_instruction;
-                    return ir_finish_anal(ira, err_code_ptr);
+                    if (call_instruction->lval == LValErrorUnionPtr)
+                        return ir_finish_anal(ira, err_code_ptr);
+                    IrInstruction *err_code = ir_get_deref(ira, &call_instruction->base, err_code_ptr);
+                    if (type_is_invalid(err_code->value.type))
+                        return ira->codegen->invalid_instruction;
+                    return ir_finish_anal(ira, err_code);
                 }
                 case LValOptional: {
                     IrInstruction *ref_inst = ir_get_ref(ira, &call_instruction->base, new_instruction,
@@ -15334,8 +15340,6 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call
                     return ir_finish_anal(ira, is_non_null);
                 }
                 case LValPtr:
-                    zig_panic("TODO");
-                case LValErrorUnionVal:
                     zig_panic("TODO");
             }
             zig_unreachable();

@@ -166,9 +166,40 @@ fn castToOptionalSlice() ?[]const u8 {
     return "hi";
 }
 
-// test "implicitly cast from [0]T to anyerror![]T" {
+test "implicitly cast from [0]T to anyerror![]T" {
+    testCastZeroArrayToErrSliceMut();
+    comptime testCastZeroArrayToErrSliceMut();
+}
 
-// test "peer type resolution: [0]u8, []const u8, and anyerror![]u8"
+fn testCastZeroArrayToErrSliceMut() void {
+    assertOrPanic((gimmeErrOrSlice() catch unreachable).len == 0);
+}
+
+fn gimmeErrOrSlice() anyerror![]u8 {
+    return []u8{};
+}
+
+test "peer type resolution: [0]u8, []const u8, and anyerror![]u8" {
+    {
+        var data = "hi";
+        const slice = data[0..];
+        assertOrPanic((try peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
+        assertOrPanic((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
+    }
+    comptime {
+        var data = "hi";
+        const slice = data[0..];
+        assertOrPanic((try peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
+        assertOrPanic((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
+    }
+}
+fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) anyerror![]u8 {
+    if (a) {
+        return []u8{};
+    }
+
+    return slice[0..1];
+}
 
 test "resolve undefined with integer" {
     testResolveUndefWithInt(true, 1234);
@@ -194,7 +225,27 @@ fn testCastConstArrayRefToConstSlice() void {
     assertOrPanic(mem.eql(u8, slice, "aoeu"));
 }
 
-// test "peer type resolution: error and [N]T" {
+test "peer type resolution: error and [N]T" {
+    // TODO: implicit error!T to error!U where T can implicitly cast to U
+    //assertOrPanic(mem.eql(u8, try testPeerErrorAndArray(0), "OK"));
+    //comptime assertOrPanic(mem.eql(u8, try testPeerErrorAndArray(0), "OK"));
+    assertOrPanic(mem.eql(u8, try testPeerErrorAndArray2(1), "OKK"));
+    comptime assertOrPanic(mem.eql(u8, try testPeerErrorAndArray2(1), "OKK"));
+}
+
+//fn testPeerErrorAndArray(x: u8) error![]const u8 {
+//    return switch (x) {
+//        0x00 => "OK",
+//        else => error.BadValue,
+//    };
+//}
+fn testPeerErrorAndArray2(x: u8) anyerror![]const u8 {
+    return switch (x) {
+        0x00 => "OK",
+        0x01 => "OKK",
+        else => error.BadValue,
+    };
+}
 
 test "@floatToInt" {
     testFloatToInts();
