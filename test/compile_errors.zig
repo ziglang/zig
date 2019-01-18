@@ -12,6 +12,15 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
+        "Use of || in place of `or`",
+        \\export fn entry() void {
+        \\    if (1 || 0) return;
+        \\}
+    ,
+        ".tmp_source.zig:2:11: note: did you mean to use `or`?",
+    );
+
+    cases.add(
         "duplicate boolean switch value",
         \\comptime {
         \\    const x = switch (true) {
