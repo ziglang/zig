@@ -287,7 +287,19 @@ fn cast128Float(x: u128) f128 {
     return @bitCast(f128, x);
 }
 
-// test "const slice widen cast"
+test "const slice widen cast" {
+    const bytes align(4) = []u8{
+        0x12,
+        0x12,
+        0x12,
+        0x12,
+    };
+
+    const u32_value = @bytesToSlice(u32, bytes[0..])[0];
+    assertOrPanic(u32_value == 0x12121212);
+
+    assertOrPanic(@bitCast(u32, bytes) == 0x12121212);
+}
 
 test "single-item pointer of array to slice and to unknown length pointer" {
     testCastPtrOfArrayToSliceAndPtr();

@@ -6,6 +6,7 @@ comptime {
     _ = @import("behavior/atomics.zig");
     _ = @import("behavior/bit_shifting.zig");
     _ = @import("behavior/bitcast.zig");
+    _ = @import("behavior/bitreverse.zig");
     _ = @import("behavior/bool.zig");
     _ = @import("behavior/bswap.zig");
     _ = @import("behavior/bugs/1076.zig");
