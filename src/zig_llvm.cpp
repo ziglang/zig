@@ -605,7 +605,7 @@ ZigLLVMDISubprogram *ZigLLVMCreateFunction(ZigLLVMDIBuilder *dibuilder, ZigLLVMD
             reinterpret_cast<DIFile*>(file),
             lineno,
             di_sub_type,
-            is_local_to_unit, is_definition, scope_line, DINode::FlagZero, is_optimized,
+            is_local_to_unit, is_definition, scope_line, DINode::FlagStaticMember, is_optimized,
             nullptr,
             reinterpret_cast<DISubprogram *>(decl_subprogram));
     return reinterpret_cast<ZigLLVMDISubprogram*>(result);

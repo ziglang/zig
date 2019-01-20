@@ -90,8 +90,7 @@ static int print_full_usage(const char *arg0) {
         "  -rdynamic                    add all symbols to the dynamic symbol table\n"
         "  -rpath [path]                add directory to the runtime library search path\n"
         "  --no-rosegment               compromise security to workaround valgrind bug\n"
-        "  -mconsole                    (windows) --subsystem console to the linker\n"
-        "  -mwindows                    (windows) --subsystem windows to the linker\n"
+        "  --subsystem [subsystem]      (windows) /SUBSYSTEM:<subsystem> to the linker\n"
         "  -framework [name]            (darwin) link against framework\n"
         "  -mios-version-min [ver]      (darwin) set iOS deployment target\n"
         "  -mmacosx-version-min [ver]   (darwin) set Mac OS X deployment target\n"
@@ -371,8 +370,6 @@ int main(int argc, char **argv) {
     const char *target_arch = nullptr;
     const char *target_os = nullptr;
     const char *target_environ = nullptr;
-    bool mwindows = false;
-    bool mconsole = false;
     bool rdynamic = false;
     const char *mmacosx_version_min = nullptr;
     const char *mios_version_min = nullptr;
@@ -395,6 +392,7 @@ int main(int argc, char **argv) {
     int runtime_args_start = -1;
     bool no_rosegment_workaround = false;
     bool system_linker_hack = false;
+    TargetSubsystem subsystem = TargetSubsystemAuto;
 
     if (argc >= 2 && strcmp(argv[1], "build") == 0) {
         Buf zig_exe_path_buf = BUF_INIT;
@@ -540,10 +538,6 @@ int main(int argc, char **argv) {
                 verbose_llvm_ir = true;
             } else if (strcmp(arg, "--verbose-cimport") == 0) {
                 verbose_cimport = true;
-            } else if (strcmp(arg, "-mwindows") == 0) {
-                mwindows = true;
-            } else if (strcmp(arg, "-mconsole") == 0) {
-                mconsole = true;
             } else if (strcmp(arg, "-rdynamic") == 0) {
                 rdynamic = true;
             } else if (strcmp(arg, "--no-rosegment") == 0) {
@@ -687,6 +681,37 @@ int main(int argc, char **argv) {
                     ver_patch = atoi(argv[i]);
                 } else if (strcmp(arg, "--test-cmd") == 0) {
                     test_exec_args.append(argv[i]);
+                } else if (strcmp(arg, "--subsystem") == 0) {
+                    if (strcmp(argv[i], "console") == 0) {
+                        subsystem = TargetSubsystemConsole;
+                    } else if (strcmp(argv[i], "windows") == 0) {
+                        subsystem = TargetSubsystemWindows;
+                    } else if (strcmp(argv[i], "posix") == 0) {
+                        subsystem = TargetSubsystemPosix;
+                    } else if (strcmp(argv[i], "native") == 0) {
+                        subsystem = TargetSubsystemNative;
+                    } else if (strcmp(argv[i], "efi_application") == 0) {
+                        subsystem = TargetSubsystemEfiApplication;
+                    } else if (strcmp(argv[i], "efi_boot_service_driver") == 0) {
+                        subsystem = TargetSubsystemEfiBootServiceDriver;
+                    } else if (strcmp(argv[i], "efi_rom") == 0) {
+                        subsystem = TargetSubsystemEfiRom;
+                    } else if (strcmp(argv[i], "efi_runtime_driver") == 0) {
+                        subsystem = TargetSubsystemEfiRuntimeDriver;
+                    } else {
+                        fprintf(stderr, "invalid: --subsystem %s\n"
+                                "Options are:\n"
+                                "  console\n"
+                                "  windows\n"
+                                "  posix\n"
+                                "  native\n"
+                                "  efi_application\n"
+                                "  efi_boot_service_driver\n"
+                                "  efi_rom\n"
+                                "  efi_runtime_driver\n"
+                            , argv[i]);
+                        return EXIT_FAILURE;
+                    }
                 } else {
                     fprintf(stderr, "Invalid argument: %s\n", arg);
                     return print_error_usage(arg0);
@@ -849,6 +874,8 @@ int main(int argc, char **argv) {
                 buf_out_name = buf_create_from_str("run");
             }
             CodeGen *g = codegen_create(zig_root_source_file, target, out_type, build_mode, get_zig_lib_dir());
+            g->subsystem = subsystem;
+
             if (disable_pic) {
                 if (out_type != OutTypeLib || !is_static) {
                     fprintf(stderr, "--disable-pic only applies to static libraries");
@@ -909,7 +936,6 @@ int main(int argc, char **argv) {
                 codegen_add_rpath(g, rpath_list.at(i));
             }
 
-            codegen_set_windows_subsystem(g, mwindows, mconsole);
             codegen_set_rdynamic(g, rdynamic);
             g->no_rosegment_workaround = no_rosegment_workaround;
             if (mmacosx_version_min && mios_version_min) {

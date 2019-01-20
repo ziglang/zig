@@ -4749,8 +4749,10 @@ Error parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const 
     clang_argv.append("-isystem");
     clang_argv.append(buf_ptr(codegen->zig_c_headers_dir));
 
-    clang_argv.append("-isystem");
-    clang_argv.append(buf_ptr(codegen->libc_include_dir));
+    if (codegen->libc_include_dir != nullptr) {
+        clang_argv.append("-isystem");
+        clang_argv.append(buf_ptr(codegen->libc_include_dir));
+    }
 
     // windows c runtime requires -D_DEBUG if using debug libraries
     if (codegen->build_mode == BuildModeDebug) {
@@ -4775,6 +4777,14 @@ Error parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const 
     }
 
     clang_argv.append(target_file);
+
+    if (codegen->verbose_cimport) {
+        fprintf(stderr, "clang");
+        for (size_t i = 0; i < clang_argv.length; i += 1) {
+            fprintf(stderr, " %s", clang_argv.at(i));
+        }
+        fprintf(stderr, "\n");
+    }
 
     // to make the [start...end] argument work
     clang_argv.append(nullptr);

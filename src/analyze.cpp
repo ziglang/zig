@@ -1240,7 +1240,10 @@ ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
         fn_type->data.fn.raw_type_ref = LLVMFunctionType(gen_return_type->type_ref,
                 gen_param_types.items, (unsigned int)gen_param_types.length, fn_type_id->is_var_args);
         fn_type->type_ref = LLVMPointerType(fn_type->data.fn.raw_type_ref, 0);
-        fn_type->di_type = ZigLLVMCreateSubroutineType(g->dbuilder, param_di_types.items, (int)param_di_types.length, 0);
+        fn_type->data.fn.raw_di_type = ZigLLVMCreateSubroutineType(g->dbuilder, param_di_types.items, (int)param_di_types.length, 0);
+        fn_type->di_type = ZigLLVMCreateDebugPointerType(g->dbuilder, fn_type->data.fn.raw_di_type,
+                LLVMStoreSizeOfType(g->target_data_ref, fn_type->type_ref),
+                LLVMABIAlignmentOfType(g->target_data_ref, fn_type->type_ref), "");
     }
 
     g->fn_type_table.put(&fn_type->data.fn.fn_type_id, fn_type);
@@ -2703,39 +2706,50 @@ static Error resolve_struct_alignment(CodeGen *g, ZigType *struct_type) {
     assert(decl_node->type == NodeTypeContainerDecl);
     assert(struct_type->di_type);
 
+    size_t field_count = struct_type->data.structure.src_field_count;
     if (struct_type->data.structure.layout == ContainerLayoutPacked) {
         struct_type->data.structure.abi_alignment = 1;
-    }
-
-    size_t field_count = struct_type->data.structure.src_field_count;
-    for (size_t i = 0; i < field_count; i += 1) {
-        TypeStructField *field = &struct_type->data.structure.fields[i];
-
-        // If this assertion trips, look up the call stack. Probably something is
-        // calling type_resolve with ResolveStatusAlignmentKnown when it should only
-        // be resolving ResolveStatusZeroBitsKnown
-        assert(field->type_entry != nullptr);
-
-        if (type_is_invalid(field->type_entry)) {
-            struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-            break;
+        for (size_t i = 0; i < field_count; i += 1) {
+            TypeStructField *field = &struct_type->data.structure.fields[i];
+            if (field->type_entry != nullptr && type_is_invalid(field->type_entry)) {
+                struct_type->data.structure.resolve_status = ResolveStatusInvalid;
+                break;
+            }
         }
+    } else for (size_t i = 0; i < field_count; i += 1) {
+        TypeStructField *field = &struct_type->data.structure.fields[i];
+        uint32_t this_field_align;
 
-        if (!type_has_bits(field->type_entry))
-            continue;
+        // TODO If we have no type_entry for the field, we've already failed to
+        // compile the program correctly. This stage1 compiler needs a deeper
+        // reworking to make this correct, or we can ignore the problem
+        // and make sure it is fixed in stage2. This workaround is for when
+        // there is a false positive of a dependency loop, of alignment depending
+        // on itself. When this false positive happens we assume a pointer-aligned
+        // field, which is usually fine but could be incorrectly over-aligned or
+        // even under-aligned. See https://github.com/ziglang/zig/issues/1512
+        if (field->type_entry == nullptr) {
+            this_field_align = LLVMABIAlignmentOfType(g->target_data_ref, LLVMPointerType(LLVMInt8Type(), 0));
+        } else {
+            if (type_is_invalid(field->type_entry)) {
+                struct_type->data.structure.resolve_status = ResolveStatusInvalid;
+                break;
+            }
 
-        // alignment of structs is the alignment of the most-aligned field
-        if (struct_type->data.structure.layout != ContainerLayoutPacked) {
+            if (!type_has_bits(field->type_entry))
+                continue;
+
             if ((err = type_resolve(g, field->type_entry, ResolveStatusAlignmentKnown))) {
                 struct_type->data.structure.resolve_status = ResolveStatusInvalid;
                 break;
             }
 
-            uint32_t this_field_align = get_abi_alignment(g, field->type_entry);
+            this_field_align = get_abi_alignment(g, field->type_entry);
             assert(this_field_align != 0);
-            if (this_field_align > struct_type->data.structure.abi_alignment) {
-                struct_type->data.structure.abi_alignment = this_field_align;
-            }
+        }
+        // alignment of structs is the alignment of the most-aligned field
+        if (this_field_align > struct_type->data.structure.abi_alignment) {
+            struct_type->data.structure.abi_alignment = this_field_align;
         }
     }
 
@@ -3214,14 +3228,12 @@ void add_fn_export(CodeGen *g, ZigFn *fn_table_entry, Buf *symbol_name, GlobalLi
     if (ccc) {
         if (buf_eql_str(symbol_name, "main") && g->libc_link_lib != nullptr) {
             g->have_c_main = true;
-            g->windows_subsystem_windows = false;
-            g->windows_subsystem_console = true;
+            g->subsystem = TargetSubsystemConsole;
         } else if (buf_eql_str(symbol_name, "WinMain") &&
             g->zig_target.os == OsWindows)
         {
             g->have_winmain = true;
-            g->windows_subsystem_windows = true;
-            g->windows_subsystem_console = false;
+            g->subsystem = TargetSubsystemWindows;
         } else if (buf_eql_str(symbol_name, "WinMainCRTStartup") &&
             g->zig_target.os == OsWindows)
         {
@@ -3232,6 +3244,7 @@ void add_fn_export(CodeGen *g, ZigFn *fn_table_entry, Buf *symbol_name, GlobalLi
             g->have_dllmain_crt_startup = true;
         }
     }
+
     FnExport *fn_export = fn_table_entry->export_list.add_one();
     memset(fn_export, 0, sizeof(FnExport));
     buf_init_from_buf(&fn_export->name, symbol_name);
@@ -4394,8 +4407,7 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *r
             if (is_pub && ok_cc) {
                 if (buf_eql_str(proto_name, "main")) {
                     g->have_pub_main = true;
-                    g->windows_subsystem_windows = false;
-                    g->windows_subsystem_console = true;
+                    g->subsystem = TargetSubsystemConsole;
                 } else if (buf_eql_str(proto_name, "panic")) {
                     g->have_pub_panic = true;
                 }
@@ -4611,8 +4623,7 @@ static Buf *get_posix_libc_include_path(void) {
 void find_libc_include_path(CodeGen *g) {
     if (g->libc_include_dir == nullptr) {
         if (!g->is_native_target) {
-            fprintf(stderr, "Unable to determine libc include path. --libc-include-dir");
-            exit(1);
+            return;
         }
 
         if (g->zig_target.os == OsWindows) {
@@ -6277,6 +6288,8 @@ uint32_t zig_llvm_fn_key_hash(ZigLLVMFnKey x) {
             return (uint32_t)(x.data.floating.bit_count) * (uint32_t)2225366385;
         case ZigLLVMFnIdBswap:
             return (uint32_t)(x.data.bswap.bit_count) * (uint32_t)3661994335;
+        case ZigLLVMFnIdBitReverse:
+            return (uint32_t)(x.data.bit_reverse.bit_count) * (uint32_t)2621398431;
         case ZigLLVMFnIdOverflowArithmetic:
             return ((uint32_t)(x.data.overflow_arithmetic.bit_count) * 87135777) +
                 ((uint32_t)(x.data.overflow_arithmetic.add_sub_mul) * 31640542) +
@@ -6297,6 +6310,8 @@ bool zig_llvm_fn_key_eql(ZigLLVMFnKey a, ZigLLVMFnKey b) {
             return a.data.pop_count.bit_count == b.data.pop_count.bit_count;
         case ZigLLVMFnIdBswap:
             return a.data.bswap.bit_count == b.data.bswap.bit_count;
+        case ZigLLVMFnIdBitReverse:
+            return a.data.bit_reverse.bit_count == b.data.bit_reverse.bit_count;
         case ZigLLVMFnIdFloor:
         case ZigLLVMFnIdCeil:
         case ZigLLVMFnIdSqrt:
@@ -6524,7 +6539,7 @@ LinkLib *add_link_lib(CodeGen *g, Buf *name) {
     if (is_libc && g->libc_link_lib != nullptr)
         return g->libc_link_lib;
 
-    if (g->enable_cache && is_libc && g->zig_target.os != OsMacOSX && g->zig_target.os != OsIOS) {
+    if (g->enable_cache && is_libc && g->zig_target.os != OsMacOSX && g->zig_target.os != OsIOS && g->zig_target.os != OsFreeBSD) {
         fprintf(stderr, "TODO linking against libc is currently incompatible with `--cache on`.\n"
         "Zig is not yet capable of determining whether the libc installation has changed on subsequent builds.\n");
         exit(1);
@@ -6741,4 +6756,19 @@ uint32_t get_host_int_bytes(CodeGen *g, ZigType *struct_type, TypeStructField *f
     }
     LLVMTypeRef field_type = LLVMStructGetTypeAtIndex(struct_type->type_ref, field->gen_index);
     return LLVMStoreSizeOfType(g->target_data_ref, field_type);
+}
+
+Error ensure_const_val_repr(IrAnalyze *ira, CodeGen *codegen, AstNode *source_node,
+        ConstExprValue *const_val, ZigType *wanted_type)
+{
+    ConstExprValue ptr_val = {};
+    ptr_val.special = ConstValSpecialStatic;
+    ptr_val.type = get_pointer_to_type(codegen, wanted_type, true);
+    ptr_val.data.x_ptr.mut = ConstPtrMutComptimeConst;
+    ptr_val.data.x_ptr.special = ConstPtrSpecialRef;
+    ptr_val.data.x_ptr.data.ref.pointee = const_val;
+    if (const_ptr_pointee(ira, codegen, &ptr_val, source_node) == nullptr)
+        return ErrorSemanticAnalyzeFail;
+
+    return ErrorNone;
 }

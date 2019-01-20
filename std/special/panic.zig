@@ -13,6 +13,10 @@ pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn
         builtin.Os.freestanding, builtin.Os.zen => {
             while (true) {}
         },
+        builtin.Os.uefi => {
+            // TODO look into using the debug info and logging helpful messages
+            std.os.abort();
+        },
         else => {
             // TODO put the original panic code back
             std.debug.warn("panic: {}\n", msg);

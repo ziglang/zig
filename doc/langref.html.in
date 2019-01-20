@@ -165,7 +165,7 @@ const std = @import("std");
 
 pub fn main() !void {
     // If this program is run without stdout attached, exit with an error.
-    var stdout_file = try std.io.getStdOut();
+    const stdout_file = try std.io.getStdOut();
     // If this program encounters pipe failure when printing to stdout, exit
     // with an error.
     try stdout_file.write("Hello, world!\n");
@@ -5313,6 +5313,18 @@ comptime {
       <p>
       Swaps the byte order of the integer. This converts a big endian integer to a little endian integer,
       and converts a little endian integer to a big endian integer.
+      </p>
+      {#header_close#}
+
+      {#header_open|@bitreverse#}
+      <pre>{#syntax#}@bitreverse(comptime T: type, value: T) T{#endsyntax#}</pre>
+      <p>{#syntax#}T{#endsyntax#} accepts any integer type.</p>
+      <p>
+      Reverses the bitpattern of an integer value, including the sign bit if applicable.
+      </p>
+      <p>
+      For example 0b10110110 ({#syntax#}u8 = 182{#endsyntax#}, {#syntax#}i8 = -74{#endsyntax#})
+      becomes 0b01101101 ({#syntax#}u8 = 109{#endsyntax#}, {#syntax#}i8 = 109{#endsyntax#}).
       </p>
       {#header_close#}
 

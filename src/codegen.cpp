@@ -178,7 +178,8 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
 
     // On Darwin/MacOS/iOS, we always link libSystem which contains libc.
     if (g->zig_target.os == OsMacOSX ||
-        g->zig_target.os == OsIOS)
+        g->zig_target.os == OsIOS ||
+	g->zig_target.os == OsFreeBSD)
     {
         g->libc_link_lib = create_link_lib(buf_create_from_str("c"));
         g->link_libs_list.append(g->libc_link_lib);
@@ -289,11 +290,6 @@ void codegen_add_forbidden_lib(CodeGen *codegen, Buf *lib) {
 
 void codegen_add_framework(CodeGen *g, const char *framework) {
     g->darwin_frameworks.append(buf_create_from_str(framework));
-}
-
-void codegen_set_windows_subsystem(CodeGen *g, bool mwindows, bool mconsole) {
-    g->windows_subsystem_windows = mwindows;
-    g->windows_subsystem_console = mconsole;
 }
 
 void codegen_set_mmacosx_version_min(CodeGen *g, Buf *mmacosx_version_min) {
@@ -679,7 +675,7 @@ static ZigLLVMDIScope *get_di_scope(CodeGen *g, Scope *scope) {
             ZigLLVMDISubprogram *subprogram = ZigLLVMCreateFunction(g->dbuilder,
                 fn_di_scope, buf_ptr(&fn_table_entry->symbol_name), "",
                 import->di_file, line_number,
-                fn_table_entry->type_entry->di_type, is_internal_linkage,
+                fn_table_entry->type_entry->data.fn.raw_di_type, is_internal_linkage,
                 is_definition, scope_line, flags, is_optimized, nullptr);
 
             scope->di_scope = ZigLLVMSubprogramToScope(subprogram);
@@ -3794,6 +3790,11 @@ static LLVMValueRef get_int_builtin_fn(CodeGen *g, ZigType *int_type, BuiltinFnI
         n_args = 1;
         key.id = ZigLLVMFnIdBswap;
         key.data.bswap.bit_count = (uint32_t)int_type->data.integral.bit_count;
+    } else if (fn_id == BuiltinFnIdBitReverse) {
+        fn_name = "bitreverse";
+        n_args = 1;
+        key.id = ZigLLVMFnIdBitReverse;
+        key.data.bit_reverse.bit_count = (uint32_t)int_type->data.integral.bit_count;
     } else {
         zig_unreachable();
     }
@@ -5257,6 +5258,14 @@ static LLVMValueRef ir_render_array_to_slice(CodeGen *g, IrExecutable *executabl
     return gen_array_to_slice(g, result_ptr, array_ptr, array_type);
 }
 
+static LLVMValueRef ir_render_bit_reverse(CodeGen *g, IrExecutable *executable, IrInstructionBitReverse *instruction) {
+    LLVMValueRef op = ir_llvm_value(g, instruction->op);
+    ZigType *int_type = instruction->base.value.type;
+    assert(int_type->id == ZigTypeIdInt);
+    LLVMValueRef fn_val = get_int_builtin_fn(g, instruction->base.value.type, BuiltinFnIdBitReverse);
+    return LLVMBuildCall(g->builder, fn_val, &op, 1, "");
+}
+
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
     Scope *scope = instruction->scope;
@@ -5534,6 +5543,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_ptr_of_array_to_slice(g, executable, (IrInstructionPtrOfArrayToSlice *)instruction);
         case IrInstructionIdArrayToSlice:
             return ir_render_array_to_slice(g, executable, (IrInstructionArrayToSlice *)instruction);
+        case IrInstructionIdBitReverse:
+            return ir_render_bit_reverse(g, executable, (IrInstructionBitReverse *)instruction);
     }
     zig_unreachable();
 }
@@ -5936,6 +5947,8 @@ static LLVMValueRef gen_const_val_err_set(CodeGen *g, ConstExprValue *const_val,
 }
 
 static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const char *name) {
+    Error err;
+
     ZigType *type_entry = const_val->type;
     assert(!type_entry->zero_bits);
 
@@ -6079,6 +6092,12 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
                         }
                         ConstExprValue *field_val = &const_val->data.x_struct.fields[i];
                         assert(field_val->type != nullptr);
+                        if ((err = ensure_const_val_repr(nullptr, g, nullptr, field_val,
+                                        type_struct_field->type_entry)))
+                        {
+                            zig_unreachable();
+                        }
+
                         LLVMValueRef val = gen_const_val(g, field_val, "");
                         fields[type_struct_field->gen_index] = val;
                         make_unnamed_struct = make_unnamed_struct || is_llvm_value_unnamed_type(field_val->type, val);
@@ -7062,6 +7081,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdFromBytes, "bytesToSlice", 2);
     create_builtin_fn(g, BuiltinFnIdThis, "This", 0);
     create_builtin_fn(g, BuiltinFnIdBswap, "bswap", 2);
+    create_builtin_fn(g, BuiltinFnIdBitReverse, "bitreverse", 2);
 }
 
 static const char *bool_to_str(bool b) {
@@ -7536,8 +7556,7 @@ static void init(CodeGen *g) {
     }
 
     if (g->is_test_build) {
-        g->windows_subsystem_windows = false;
-        g->windows_subsystem_console = true;
+        g->subsystem = TargetSubsystemConsole;
     }
 
     assert(g->root_out_name);
@@ -7573,7 +7592,7 @@ static void init(CodeGen *g) {
         // LLVM creates invalid binaries on Windows sometimes.
         // See https://github.com/ziglang/zig/issues/508
         // As a workaround we do not use target native features on Windows.
-        if (g->zig_target.os == OsWindows) {
+        if (g->zig_target.os == OsWindows || g->zig_target.os == OsUefi) {
             target_specific_cpu_args = "";
             target_specific_features = "";
         } else {
@@ -7819,6 +7838,7 @@ static void gen_root_source(CodeGen *g) {
     report_errors_and_maybe_exit(g);
 
     if (!g->is_test_build && g->zig_target.os != OsFreestanding &&
+        g->zig_target.os != OsUefi &&
         !g->have_c_main && !g->have_winmain && !g->have_winmain_crt_startup &&
         ((g->have_pub_main && g->out_type == OutTypeObj) || g->out_type == OutTypeExe))
     {
@@ -8375,12 +8395,11 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_int(ch, g->zig_target.os);
     cache_int(ch, g->zig_target.env_type);
     cache_int(ch, g->zig_target.oformat);
+    cache_int(ch, g->subsystem);
     cache_bool(ch, g->is_static);
     cache_bool(ch, g->strip_debug_symbols);
     cache_bool(ch, g->is_test_build);
     cache_bool(ch, g->is_native_target);
-    cache_bool(ch, g->windows_subsystem_windows);
-    cache_bool(ch, g->windows_subsystem_console);
     cache_bool(ch, g->linker_rdynamic);
     cache_bool(ch, g->no_rosegment_workaround);
     cache_bool(ch, g->each_lib_rpath);

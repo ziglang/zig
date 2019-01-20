@@ -57,7 +57,8 @@ test "std" {
     _ = @import("mutex.zig");
     _ = @import("segmented_list.zig");
     _ = @import("spinlock.zig");
-
+    
+    _ = @import("dynamic_library.zig");
     _ = @import("base64.zig");
     _ = @import("build.zig");
     _ = @import("c/index.zig");

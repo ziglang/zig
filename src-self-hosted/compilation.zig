@@ -300,6 +300,7 @@ pub const Compilation = struct {
         UserResourceLimitReached,
         InvalidUtf8,
         BadPathName,
+        DeviceBusy,
     };
 
     pub const Event = union(enum) {

@@ -232,3 +232,40 @@ test "capture value of switch with all unreachable prongs" {
     };
     assertOrPanic(x == 1);
 }
+
+test "switching on booleans" {
+    testSwitchOnBools();
+    comptime testSwitchOnBools();
+}
+
+fn testSwitchOnBools() void {
+    assertOrPanic(testSwitchOnBoolsTrueAndFalse(true) == false);
+    assertOrPanic(testSwitchOnBoolsTrueAndFalse(false) == true);
+
+    assertOrPanic(testSwitchOnBoolsTrueWithElse(true) == false);
+    assertOrPanic(testSwitchOnBoolsTrueWithElse(false) == true);
+
+    assertOrPanic(testSwitchOnBoolsFalseWithElse(true) == false);
+    assertOrPanic(testSwitchOnBoolsFalseWithElse(false) == true);
+}
+
+fn testSwitchOnBoolsTrueAndFalse(x: bool) bool {
+    return switch (x) {
+        true => false,
+        false => true,
+    };
+}
+
+fn testSwitchOnBoolsTrueWithElse(x: bool) bool {
+    return switch (x) {
+        true => false,
+        else => true,
+    };
+}
+
+fn testSwitchOnBoolsFalseWithElse(x: bool) bool {
+    return switch (x) {
+        false => true,
+        else => false,
+    };
+}

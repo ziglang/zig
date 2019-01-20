@@ -1204,6 +1204,7 @@ struct ZigTypeFn {
     FnGenParamInfo *gen_param_info;
 
     LLVMTypeRef raw_type_ref;
+    ZigLLVMDIType *raw_di_type;
 
     ZigType *bound_fn_parent;
 };
@@ -1453,6 +1454,7 @@ enum BuiltinFnId {
     BuiltinFnIdAtomicRmw,
     BuiltinFnIdAtomicLoad,
     BuiltinFnIdBswap,
+    BuiltinFnIdBitReverse,
 };
 
 struct BuiltinFnEntry {
@@ -1526,6 +1528,7 @@ enum ZigLLVMFnId {
     ZigLLVMFnIdCeil,
     ZigLLVMFnIdSqrt,
     ZigLLVMFnIdBswap,
+    ZigLLVMFnIdBitReverse,
 };
 
 enum AddSubMul {
@@ -1558,6 +1561,9 @@ struct ZigLLVMFnKey {
         struct {
             uint32_t bit_count;
         } bswap;
+        struct {
+            uint32_t bit_count;
+        } bit_reverse;
     } data;
 };
 
@@ -1789,12 +1795,11 @@ struct CodeGen {
     BuildMode build_mode;
     OutType out_type;
     ZigTarget zig_target;
+    TargetSubsystem subsystem;
     bool is_static;
     bool strip_debug_symbols;
     bool is_test_build;
     bool is_native_target;
-    bool windows_subsystem_windows;
-    bool windows_subsystem_console;
     bool linker_rdynamic;
     bool no_rosegment_workaround;
     bool each_lib_rpath;
@@ -2235,6 +2240,7 @@ enum IrInstructionId {
     IrInstructionIdMarkErrRetTracePtr,
     IrInstructionIdSqrt,
     IrInstructionIdBswap,
+    IrInstructionIdBitReverse,
     IrInstructionIdErrSetCast,
     IrInstructionIdCheckRuntimeScope,
     IrInstructionIdResultOptionalPayload,
@@ -3553,6 +3559,13 @@ struct IrInstructionToBytesLenGen {
 };
 
 struct IrInstructionBswap {
+    IrInstruction base;
+
+    IrInstruction *type;
+    IrInstruction *op;
+};
+
+struct IrInstructionBitReverse {
     IrInstruction base;
 
     IrInstruction *type;

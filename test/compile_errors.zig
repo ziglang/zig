@@ -2,6 +2,44 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "duplicate boolean switch value",
+        \\comptime {
+        \\    const x = switch (true) {
+        \\        true => false,
+        \\        false => true,
+        \\        true => false,
+        \\    };
+        \\}
+        \\comptime {
+        \\    const x = switch (true) {
+        \\        false => true,
+        \\        true => false,
+        \\        false => true,
+        \\    };
+        \\}
+    ,
+        ".tmp_source.zig:5:9: error: duplicate switch value",
+        ".tmp_source.zig:12:9: error: duplicate switch value",
+    );
+
+    cases.add(
+        "missing boolean switch value",
+        \\comptime {
+        \\    const x = switch (true) {
+        \\        true => false,
+        \\    };
+        \\}
+        \\comptime {
+        \\    const x = switch (true) {
+        \\        false => true,
+        \\    };
+        \\}
+    ,
+        ".tmp_source.zig:2:15: error: switch must handle all possibilities",
+        ".tmp_source.zig:7:15: error: switch must handle all possibilities",
+    );
+
+    cases.add(
         "reading past end of pointer casted array",
         \\comptime {
         \\    const array = "aoeu";

@@ -15,3 +15,38 @@ fn testReinterpretBytesAsInteger() void {
     };
     assertOrPanic(@ptrCast(*align(1) const u32, bytes[1..5].ptr).* == expected);
 }
+
+test "reinterpret bytes of an array into an extern struct" {
+    testReinterpretBytesAsExternStruct();
+    comptime testReinterpretBytesAsExternStruct();
+}
+
+fn testReinterpretBytesAsExternStruct() void {
+    var bytes align(2) = []u8{ 1, 2, 3, 4, 5, 6 };
+
+    const S = extern struct {
+        a: u8,
+        b: u16,
+        c: u8,
+    };
+
+    var ptr = @ptrCast(*const S, &bytes);
+    var val = ptr.c;
+    assertOrPanic(val == 5);
+}
+
+test "reinterpret struct field at comptime" {
+    const numLittle = comptime Bytes.init(0x12345678);
+    assertOrPanic(std.mem.eql(u8, []u8{ 0x78, 0x56, 0x34, 0x12 }, numLittle.bytes));
+}
+
+const Bytes = struct {
+    bytes: [4]u8,
+
+    pub fn init(v: u32) Bytes {
+        var res: Bytes = undefined;
+        @ptrCast(*align(1) u32, &res.bytes).* = v;
+
+        return res;
+    }
+};
