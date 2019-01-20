@@ -3467,6 +3467,7 @@ struct IrInstructionResultCast {
 struct IrInstructionAllocaSrc {
     IrInstruction base;
 
+    // TODO: remove this field. use implicit casts instead.
     IrInstruction *child_type;
     IrInstruction *align;
     IrInstruction *is_comptime;

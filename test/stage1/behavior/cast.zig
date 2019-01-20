@@ -445,7 +445,15 @@ fn foobar(func: PFN_void) void {
     std.debug.assertOrPanic(@ptrToInt(func) == maxInt(usize));
 }
 
-// test "implicit ptr to *c_void"
+test "implicit ptr to *c_void" {
+    var a: u32 = 1;
+    var ptr: *c_void = &a;
+    var b: *u32 = @ptrCast(*u32, ptr);
+    assertOrPanic(b.* == 1);
+    var ptr2: ?*c_void = &a;
+    var c: *u32 = @ptrCast(*u32, ptr2.?);
+    assertOrPanic(c.* == 1);
+}
 
 test "@intCast to comptime_int" {
     assertOrPanic(@intCast(comptime_int, 0) == 0);

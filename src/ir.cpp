@@ -184,6 +184,7 @@ static IrInstruction *ir_analyze_alloca(IrAnalyze *ira, IrInstruction *source_in
         uint32_t align, const char *name_hint, bool is_comptime);
 static void copy_const_val(ConstExprValue *dest, ConstExprValue *src, bool same_global_refs);
 static IrInstruction *ir_analyze_test_non_null(IrAnalyze *ira, IrInstruction *source_inst, IrInstruction *value);
+static Error resolve_ptr_align(IrAnalyze *ira, ZigType *ty, uint32_t *result_align);
 
 static ConstExprValue *const_ptr_pointee_unchecked(CodeGen *g, ConstExprValue *const_val) {
     assert(get_src_ptr_type(const_val->type) != nullptr);
@@ -5914,20 +5915,34 @@ static IrInstruction *ir_gen_var_decl(IrBuilder *irb, Scope *scope, AstNode *nod
             buf_sprintf("cannot set section of local variable '%s'", buf_ptr(variable_declaration->symbol)));
     }
 
-    IrInstruction *alloca = ir_build_alloca_src(irb, scope, node, type_instruction, align_value,
+    IrInstruction *alloca = ir_build_alloca_src(irb, scope, node, nullptr, align_value,
             buf_ptr(variable_declaration->symbol), is_comptime);
+
+    IrInstruction *cast_result_loc = nullptr;
+    if (type_instruction != nullptr) {
+        cast_result_loc = ir_build_first_arg_result_loc(irb, scope, node, alloca, type_instruction);
+    } else {
+        cast_result_loc = alloca;
+    }
 
     // Temporarily set the name of the IrExecutable to the VariableDeclaration
     // so that the struct or enum from the init expression inherits the name.
     Buf *old_exec_name = irb->exec->name;
     irb->exec->name = variable_declaration->symbol;
-    IrInstruction *init_value = ir_gen_node(irb, variable_declaration->expr, scope, LValNone, alloca);
+    IrInstruction *init_value = ir_gen_node(irb, variable_declaration->expr, scope, LValNone, cast_result_loc);
     irb->exec->name = old_exec_name;
 
     if (init_value == irb->codegen->invalid_instruction)
         return init_value;
 
-    return ir_build_var_decl_src(irb, scope, node, var, type_instruction, align_value, alloca);
+    if (type_instruction != nullptr) {
+        IrInstruction **args = allocate<IrInstruction*>(1);
+        args[0] = ir_gen_result(irb, scope, node, LValNone, alloca, LValNone, cast_result_loc);
+        ir_build_call(irb, scope, node, nullptr, type_instruction, 1, args, false,
+                FnInlineAuto, false, nullptr, nullptr, alloca, cast_result_loc, LValNone);
+    }
+
+    return ir_build_var_decl_src(irb, scope, node, var, nullptr, align_value, alloca);
 }
 
 static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval,
@@ -12298,13 +12313,18 @@ static IrInstruction *resolve_possible_alloca_inference(IrAnalyze *ira, IrInstru
 }
 
 static ZigType *adjust_ptr_align(CodeGen *g, ZigType *ptr_type, uint32_t new_align) {
-    assert(ptr_type->id == ZigTypeIdPointer);
-    return get_pointer_to_type_extra(g,
-            ptr_type->data.pointer.child_type,
-            ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile,
-            ptr_type->data.pointer.ptr_len,
-            new_align,
-            ptr_type->data.pointer.bit_offset_in_host, ptr_type->data.pointer.host_int_bytes);
+    if (ptr_type->id == ZigTypeIdPointer) {
+        return get_pointer_to_type_extra(g,
+                ptr_type->data.pointer.child_type,
+                ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile,
+                ptr_type->data.pointer.ptr_len,
+                new_align,
+                ptr_type->data.pointer.bit_offset_in_host, ptr_type->data.pointer.host_int_bytes);
+    } else if (ptr_type->id == ZigTypeIdOptional) {
+        ZigType *actual_ptr_type = ptr_type->data.pointer.child_type;
+        return get_optional_type(g, adjust_ptr_align(g, actual_ptr_type, new_align));
+    }
+    zig_unreachable();
 }
 
 // TODO: audit callsites. The purpose of this function is to change the element type of the pointer
@@ -14744,6 +14764,7 @@ static void make_const_ptr_runtime(IrAnalyze *ira, IrInstruction *ptr) {
 static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source_instr,
         IrInstruction *uncasted_ptr, IrInstruction *uncasted_value)
 {
+    Error err;
     if (uncasted_ptr->value.type->id != ZigTypeIdPointer) {
         ir_add_error(ira, uncasted_ptr,
             buf_sprintf("attempt to dereference non pointer type '%s'", buf_ptr(&uncasted_ptr->value.type->name)));
@@ -14810,6 +14831,18 @@ static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source
             if (ptr->value.data.x_ptr.mut == ConstPtrMutInfer) {
                 make_const_ptr_runtime(ira, ptr);
                 make_const_ptr_runtime(ira, uncasted_ptr);
+                if (get_codegen_ptr_type(value->value.type) != nullptr && ptr->id == IrInstructionIdAllocaGen) {
+                    uint32_t child_ptr_alignment;
+                    if ((err = resolve_ptr_align(ira, value->value.type, &child_ptr_alignment)))
+                        return ira->codegen->invalid_instruction;
+                    uint32_t parent_ptr_alignment;
+                    if ((err = resolve_ptr_align(ira, ptr->value.type->data.pointer.child_type, &parent_ptr_alignment)))
+                        return ira->codegen->invalid_instruction;
+                    if (child_ptr_alignment > parent_ptr_alignment) {
+                        ptr->value.type = adjust_ptr_child(ira->codegen, ptr->value.type,
+                            adjust_ptr_align(ira->codegen, ptr->value.type->data.pointer.child_type, child_ptr_alignment));
+                    }
+                }
             } else {
                 ir_add_error(ira, source_instr,
                         buf_sprintf("cannot store runtime value in compile time variable"));
@@ -24035,9 +24068,14 @@ static IrInstruction *ir_analyze_result_slice_to_bytes(IrAnalyze *ira,
     if ((err = type_resolve(ira->codegen, elem_type, ResolveStatusAlignmentKnown)))
         return ira->codegen->invalid_instruction;
 
+
+    uint32_t bytes_ptr_align;
+    if ((err = resolve_ptr_align(ira, bytes_ptr_type, &bytes_ptr_align)))
+        return ira->codegen->invalid_instruction;
+
     ZigType *elem_ptr_type = get_pointer_to_type_extra(ira->codegen, elem_type,
             bytes_ptr_type->data.pointer.is_const, bytes_ptr_type->data.pointer.is_volatile,
-            PtrLenUnknown, get_ptr_align(ira->codegen, bytes_ptr_type), 0, 0);
+            PtrLenUnknown, bytes_ptr_align, 0, 0);
     ZigType *slice_of_elem = get_slice_type(ira->codegen, elem_ptr_type);
     IrInstruction *casted_prev_result_loc = ir_implicit_cast_result(ira, source_inst->source_node,
             prev_result_loc, slice_of_elem, false);
