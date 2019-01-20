@@ -12307,6 +12307,11 @@ static ZigType *adjust_ptr_align(CodeGen *g, ZigType *ptr_type, uint32_t new_ali
             ptr_type->data.pointer.bit_offset_in_host, ptr_type->data.pointer.host_int_bytes);
 }
 
+// TODO: audit callsites. The purpose of this function is to change the element type of the pointer
+// while leaving the other properties the same. But if the original pointer has ABI alignment and
+// the original element type has different ABI alignment than the new element type, the resulting
+// pointer type will have different alignment, which is probably incorrect. Probably this function
+// will have to be removed and the logic in the callsites reworked.
 static ZigType *adjust_ptr_child(CodeGen *g, ZigType *ptr_type, ZigType *new_child) {
     assert(ptr_type->id == ZigTypeIdPointer);
     return get_pointer_to_type_extra(g,
@@ -24027,10 +24032,12 @@ static IrInstruction *ir_analyze_result_slice_to_bytes(IrAnalyze *ira,
         return ira->codegen->invalid_instruction;
     }
 
-    if ((err = type_resolve(ira->codegen, elem_type, ResolveStatusZeroBitsKnown)))
+    if ((err = type_resolve(ira->codegen, elem_type, ResolveStatusAlignmentKnown)))
         return ira->codegen->invalid_instruction;
 
-    ZigType *elem_ptr_type = adjust_ptr_child(ira->codegen, bytes_ptr_type, elem_type);
+    ZigType *elem_ptr_type = get_pointer_to_type_extra(ira->codegen, elem_type,
+            bytes_ptr_type->data.pointer.is_const, bytes_ptr_type->data.pointer.is_volatile,
+            PtrLenUnknown, get_ptr_align(ira->codegen, bytes_ptr_type), 0, 0);
     ZigType *slice_of_elem = get_slice_type(ira->codegen, elem_ptr_type);
     IrInstruction *casted_prev_result_loc = ir_implicit_cast_result(ira, source_inst->source_node,
             prev_result_loc, slice_of_elem, false);
