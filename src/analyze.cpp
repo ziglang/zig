@@ -5751,6 +5751,13 @@ void eval_min_max_value(CodeGen *g, ZigType *type_entry, ConstExprValue *const_v
 }
 
 void render_const_val_ptr(CodeGen *g, Buf *buf, ConstExprValue *const_val, ZigType *type_entry) {
+    assert(type_entry->id == ZigTypeIdPointer);
+
+    if (type_entry->data.pointer.child_type->id == ZigTypeIdOpaque) {
+        buf_append_buf(buf, &type_entry->name);
+        return;
+    }
+
     switch (const_val->data.x_ptr.special) {
         case ConstPtrSpecialInvalid:
             zig_unreachable();
