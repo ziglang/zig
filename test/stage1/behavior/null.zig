@@ -41,7 +41,21 @@ test "rhs maybe unwrap return" {
     const y = x orelse return;
 }
 
-// test "maybe return" {
+test "maybe return" {
+    maybeReturnImpl();
+    comptime maybeReturnImpl();
+}
+
+fn maybeReturnImpl() void {
+    assertOrPanic(foo(1235).?);
+    if (foo(null) != null) unreachable;
+    assertOrPanic(!foo(1234).?);
+}
+
+fn foo(x: ?i32) ?bool {
+    const value = x orelse return null;
+    return value > 1234;
+}
 
 test "if var maybe pointer" {
     assertOrPanic(shouldBeAPlus1(Particle{

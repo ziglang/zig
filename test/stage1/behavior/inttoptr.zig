@@ -24,4 +24,3 @@ fn forceCompilerAnalyzeBranchHardCodedPtrDereference(x: bool) void {
         return;
     }
 }
-    

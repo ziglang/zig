@@ -42,6 +42,7 @@ comptime {
     _ = @import("behavior/if.zig");
     _ = @import("behavior/import.zig");
     _ = @import("behavior/incomplete_struct_param_tld.zig");
+    _ = @import("behavior/inttoptr.zig");
     _ = @import("behavior/ir_block_deps.zig");
     _ = @import("behavior/math.zig");
     _ = @import("behavior/merge_error_sets.zig");
