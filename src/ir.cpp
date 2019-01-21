@@ -22265,6 +22265,12 @@ static IrInstruction *ir_analyze_instruction_check_statement_is_void(IrAnalyze *
     if (type_is_invalid(statement_type))
         return ira->codegen->invalid_instruction;
 
+    // TODO this is a temporary hack because I'm about to rework coroutines anyway
+    bool is_async = exec_is_async(ira->new_irb.exec);
+    if (is_async) {
+        return ir_const_void(ira, &instruction->base);
+    }
+
     if (statement_type->id != ZigTypeIdVoid && statement_type != ira->codegen->builtin_types.entry_infer) {
         ir_add_error(ira, &instruction->base, buf_sprintf("expression value is ignored"));
     }
