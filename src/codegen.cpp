@@ -5087,8 +5087,15 @@ static LLVMValueRef ir_render_result_error_union_code(CodeGen *g, IrExecutable *
         IrInstructionResultErrorUnionCode *instruction)
 {
     LLVMValueRef prev_result_loc = ir_llvm_value(g, instruction->prev_result_loc);
-    // TODO write 0xaa in debug mode to the undefined payload
-    return LLVMBuildStructGEP(g->builder, prev_result_loc, err_union_err_index, "");
+    ZigType *ptr_to_error_union_type = instruction->prev_result_loc->value.type;
+    assert(ptr_to_error_union_type->id == ZigTypeIdPointer);
+    ZigType *error_union_type = ptr_to_error_union_type->data.pointer.child_type;
+    assert(error_union_type->id == ZigTypeIdErrorUnion);
+    if (type_has_bits(error_union_type->data.error_union.payload_type)) {
+        return LLVMBuildStructGEP(g->builder, prev_result_loc, err_union_err_index, "");
+    } else {
+        return prev_result_loc;
+    }
 }
 
 static LLVMValueRef ir_render_assert_non_error(CodeGen *g, IrExecutable *executable,

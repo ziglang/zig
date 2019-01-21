@@ -2,19 +2,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assertOrPanic = std.debug.assertOrPanic;
 
-test "async fn with inferred error set" {
-    var da = std.heap.DirectAllocator.init();
-    defer da.deinit();
-    const p = (async<&da.allocator> failing()) catch unreachable;
-    resume p;
-    cancel p;
-}
-
-async fn failing() !void {
-    suspend;
-    return error.Fail;
-}
-
 test "error return trace across suspend points - early return" {
     const p = nonFailing();
     resume p;

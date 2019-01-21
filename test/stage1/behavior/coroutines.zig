@@ -192,7 +192,18 @@ async<*std.mem.Allocator> fn simpleAsyncFn2(y: *i32) void {
     suspend;
 }
 
-// test "async fn with inferred error set" {
+test "async fn with inferred error set" {
+    var da = std.heap.DirectAllocator.init();
+    defer da.deinit();
+    const p = (async<&da.allocator> failing()) catch unreachable;
+    resume p;
+    cancel p;
+}
+
+async fn failing() !void {
+    suspend;
+    return error.Fail;
+}
 
 // test "error return trace across suspend points - early return" {
 
