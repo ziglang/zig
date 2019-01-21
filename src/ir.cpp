@@ -5867,7 +5867,7 @@ static IrInstruction *ir_gen_container_init_expr(IrBuilder *irb, Scope *scope, A
             if (expr_value == irb->codegen->invalid_instruction)
                 return expr_value;
 
-            result_locs[i] = expr_value;
+            result_locs[i] = elem_result_loc;
         }
         ir_build_container_init_list(irb, scope, node, array_type, elem_count, result_locs, new_result_loc);
         return ir_gen_result(irb, scope, node, lval, old_result_loc, LValNone, ensured_result_loc);
@@ -18844,6 +18844,8 @@ static IrInstruction *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
         IrInstruction *elem_result_loc = instruction->elem_result_loc_list[i]->child;
         if (type_is_invalid(elem_result_loc->value.type))
             return ira->codegen->invalid_instruction;
+
+        assert(elem_result_loc->value.type->id == ZigTypeIdPointer);
 
         if (instr_is_comptime(elem_result_loc) &&
             elem_result_loc->value.data.x_ptr.mut != ConstPtrMutRuntimeVar)
