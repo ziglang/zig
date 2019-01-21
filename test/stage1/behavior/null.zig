@@ -144,7 +144,16 @@ test "null with default unwrap" {
     assertOrPanic(x == 1);
 }
 
-// test "optional types" {
+test "optional types" {
+    comptime {
+        const opt_type_struct = StructWithOptionalType{ .t = u8 };
+        assertOrPanic(opt_type_struct.t != null and opt_type_struct.t.? == u8);
+    }
+}
+
+const StructWithOptionalType = struct {
+    t: ?type,
+};
 
 test "optional pointer to 0 bit type null value at runtime" {
     const EmptyStruct = struct {};

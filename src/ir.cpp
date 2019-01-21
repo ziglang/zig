@@ -10790,12 +10790,14 @@ static IrInstruction *ir_analyze_result_optional_payload(IrAnalyze *ira, IrInstr
         {
             ConstExprValue *optional_val = const_ptr_pointee(ira, ira->codegen, ptr_val, result_loc->source_node);
             assert(optional_val->type->id == ZigTypeIdOptional);
+            bool same_comptime_repr = types_have_same_zig_comptime_repr(optional_val->type,
+                    optional_val->type->data.maybe.child_type);
             if (optional_val->special == ConstValSpecialUndef) {
                 switch (type_has_one_possible_value(ira->codegen, needed_child_type)) {
                     case OnePossibleValueInvalid:
                         return ira->codegen->invalid_instruction;
                     case OnePossibleValueNo:
-                        if (handle_is_ptr(optional_val->type)) {
+                        if (!same_comptime_repr) {
                             ConstExprValue *payload_val = create_const_vals(1);
                             payload_val->type = needed_child_type;
                             payload_val->special = ConstValSpecialUndef;
@@ -10834,11 +10836,11 @@ static IrInstruction *ir_analyze_result_optional_payload(IrAnalyze *ira, IrInstr
                 case OnePossibleValueInvalid:
                     return ira->codegen->invalid_instruction;
                 case OnePossibleValueNo:
-                    if (handle_is_ptr(optional_val->type)) {
+                    if (same_comptime_repr) {
+                        result_val->data.x_ptr.data.ref.pointee = optional_val;
+                    } else {
                         assert(optional_val->data.x_optional != nullptr);
                         result_val->data.x_ptr.data.ref.pointee = optional_val->data.x_optional;
-                    } else {
-                        result_val->data.x_ptr.data.ref.pointee = optional_val;
                     }
                     break;
                 case OnePossibleValueYes:
