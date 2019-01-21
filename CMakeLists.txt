@@ -35,7 +35,7 @@ if(GIT_EXE)
 endif()
 message("Configuring zig version ${ZIG_VERSION}")
 
-set(ZIG_STATIC off CACHE BOOL "Attempt to build a static zig executable (not compatible with glibc)")
+option(ZIG_STATIC "Attempt to build a static zig executable (not compatible with glibc)")
 
 string(REGEX REPLACE "\\\\" "\\\\\\\\" ZIG_LIBC_LIB_DIR_ESCAPED "${ZIG_LIBC_LIB_DIR}")
 string(REGEX REPLACE "\\\\" "\\\\\\\\" ZIG_LIBC_STATIC_LIB_DIR_ESCAPED "${ZIG_LIBC_STATIC_LIB_DIR}")
