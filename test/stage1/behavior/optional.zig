@@ -28,3 +28,20 @@ fn testNullPtrsEql() void {
     assertOrPanic(x == &number);
     assertOrPanic(&number == x);
 }
+
+test "address of unwrap optional" {
+    const S = struct {
+        const Foo = struct {
+            a: i32,
+        };
+
+        var global: ?Foo = null;
+
+        pub fn getFoo() anyerror!*Foo {
+            return &global.?;
+        }
+    };
+    S.global = S.Foo{ .a = 1234 };
+    const foo = S.getFoo() catch unreachable;
+    assertOrPanic(foo.a == 1234);
+}

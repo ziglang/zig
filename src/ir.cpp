@@ -3508,6 +3508,7 @@ static IrInstruction *ensure_result_loc(IrBuilder *irb, Scope *scope, AstNode *n
     {
         switch (lval) {
             case LValNone:
+            case LValPtr:
                 return result_loc;
             case LValErrorUnionVal:
             case LValErrorUnionPtr:
@@ -3519,8 +3520,6 @@ static IrInstruction *ensure_result_loc(IrBuilder *irb, Scope *scope, AstNode *n
                     return ir_build_result_child(irb, scope, node, result_loc, lval);
                 }
                 break;
-            case LValPtr:
-                zig_unreachable();
         }
     }
     return ir_build_alloca_src(irb, scope, node, nullptr, nullptr, "", nullptr);
@@ -3534,27 +3533,24 @@ static IrInstruction *ir_gen_value(IrBuilder *irb, Scope *scope, AstNode *node, 
     if (instr_is_unreachable(value))
         return value;
     if (result_loc != nullptr) {
+        IrInstruction *store_inst = ir_build_store_ptr(irb, scope, node, result_loc, value);
+        store_inst->is_gen = value->is_gen;
         switch (lval) {
-            case LValNone: {
-                IrInstruction *store_inst = ir_build_store_ptr(irb, scope, node, result_loc, value);
-                store_inst->is_gen = value->is_gen;
-                return value;
-            }
             case LValPtr:
                 zig_unreachable();
+            case LValNone:
+                return value;
             case LValErrorUnionVal:
-                ir_build_store_ptr(irb, scope, node, result_loc, value);
                 return ir_build_const_null(irb, scope, node);
             case LValErrorUnionPtr: {
-                ir_build_store_ptr(irb, scope, node, result_loc, value);
                 IrInstruction *null = ir_build_const_null(irb, scope, node);
                 return ir_build_ref(irb, scope, node, null, true, false, nullptr);
             }
             case LValOptional: {
-                ir_build_store_ptr(irb, scope, node, result_loc, value);
                 return ir_build_const_bool(irb, scope, node, true);
             }
         }
+        zig_unreachable();
     }
     switch (lval) {
         case LValPtr:
@@ -7955,11 +7951,24 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             return ir_gen_ptr(irb, scope, node, lval, result_loc, ptr_inst);
         }
         case NodeTypeUnwrapOptional: {
+            AstNode *expr_node = node->data.unwrap_optional.expr;
+            if (lval == LValPtr) {
+                IrInstruction *maybe_ptr = ir_gen_node(irb, expr_node, scope, LValPtr, nullptr);
+                if (maybe_ptr == irb->codegen->invalid_instruction)
+                    return irb->codegen->invalid_instruction;
+
+                IrInstruction *unwrapped_ptr = ir_build_optional_unwrap_ptr(irb, scope, expr_node, maybe_ptr, true);
+                if (result_loc == nullptr)
+                    return unwrapped_ptr;
+                ir_build_store_ptr(irb, scope, node, result_loc, unwrapped_ptr);
+                return result_loc;
+            }
+
             IrInstruction *ensured_result_loc = ensure_result_loc(irb, scope, node, lval, result_loc);
             if (ensured_result_loc == irb->codegen->invalid_instruction)
                 return irb->codegen->invalid_instruction;
 
-            AstNode *expr_node = node->data.unwrap_optional.expr;
+
             IrInstruction *is_non_null = ir_gen_node(irb, expr_node, scope, LValOptional, ensured_result_loc);
             if (is_non_null == irb->codegen->invalid_instruction)
                 return irb->codegen->invalid_instruction;
