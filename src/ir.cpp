@@ -24493,6 +24493,14 @@ ConstExprValue *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutabl
                 ira->payload_return_type = ira->explicit_return_type->data.maybe.child_type;
             }
         }
+    } else if (is_async) {
+        if (expected_type->id == ZigTypeIdErrorUnion) {
+            ira->payload_return_type = expected_type->data.error_union.payload_type;
+        } else if (expected_type->id == ZigTypeIdOptional) {
+            ira->payload_return_type = expected_type->data.maybe.child_type;
+        } else {
+            ira->payload_return_type = expected_type;
+        }
     }
 
     if (result_value != nullptr) {
