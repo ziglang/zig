@@ -3639,8 +3639,8 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                 IrInstruction *return_value;
                 ZigType *return_type = fn_entry->type_entry->data.fn.fn_type_id.return_type;
                 IrInstruction *return_result_loc = nullptr;
+                LVal expr_lval = LValNone;
                 if (expr_node) {
-                    LVal expr_lval = LValNone;
                     if (return_type != nullptr) {
                         if (return_type->id == ZigTypeIdErrorUnion) {
                             return_result_loc = ir_build_result_return(irb, scope, node);
@@ -3670,14 +3670,23 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                 size_t defer_counts[2];
                 ir_count_defers(irb, scope, outer_scope, defer_counts);
                 bool have_err_defers = defer_counts[ReturnKindError] > 0;
-                if (have_err_defers || irb->codegen->have_err_ret_tracing) {
+                if (expr_node != nullptr && expr_lval != LValOptional &&
+                    (have_err_defers || irb->codegen->have_err_ret_tracing))
+                {
                     IrBasicBlock *err_block = ir_create_basic_block(irb, scope, "ErrRetErr");
                     IrBasicBlock *ok_block = ir_create_basic_block(irb, scope, "ErrRetOk");
                     if (!have_err_defers) {
                         ir_gen_defers_for_block(irb, scope, outer_scope, false);
                     }
 
-                    IrInstruction *is_err = ir_build_test_err(irb, scope, node, return_value);
+                    IrInstruction *is_err;
+                    if (expr_lval == LValNone) {
+                        is_err = ir_build_test_err(irb, scope, node, return_value);
+                    } else if (expr_lval == LValErrorUnionVal) {
+                        is_err = ir_build_test_nonnull(irb, scope, node, return_value);
+                    } else {
+                        zig_unreachable();
+                    }
 
                     bool should_inline = ir_should_inline(irb->exec, scope);
                     IrInstruction *is_comptime;
