@@ -308,3 +308,18 @@ test "widen cast integer payload of error union function call" {
     };
     assertOrPanic((try S.errorable()) == 1234);
 }
+
+test "return function call to error set from error union function" {
+    const S = struct {
+        fn errorable() anyerror!i32 {
+            return fail();
+        }
+
+        fn fail() anyerror {
+            return error.Failure;
+        }
+    };
+    assertError(S.errorable(), error.Failure);
+    // TODO uncomment this
+    //comptime assertError(S.errorable(), error.Failure);
+}

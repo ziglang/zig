@@ -15028,7 +15028,7 @@ static IrInstruction *analyze_runtime_call(IrAnalyze *ira, FnTypeId *fn_type_id,
             } else {
                 zig_unreachable();
             }
-        } else {
+        } else if (return_type->id != ZigTypeIdErrorSet) {
             payload_result_loc = ir_implicit_cast_result(ira, call_instruction->base.source_node,
                     prev_result_loc, payload_result_type, true);
             if (payload_result_loc == nullptr) {
