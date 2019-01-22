@@ -3514,7 +3514,8 @@ static IrInstruction *ensure_result_loc(IrBuilder *irb, Scope *scope, AstNode *n
             case LValErrorUnionPtr:
             case LValOptional:
                 if (result_loc->id == IrInstructionIdAllocaSrc ||
-                    result_loc->id == IrInstructionIdFirstArgResultLoc)
+                    result_loc->id == IrInstructionIdFirstArgResultLoc ||
+                    result_loc->id == IrInstructionIdFieldPtr)
                 {
                     break;
                 }
@@ -11943,6 +11944,11 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         (wanted_type->id == ZigTypeIdInt || wanted_type->id == ZigTypeIdComptimeInt ||
         wanted_type->id == ZigTypeIdFloat || wanted_type->id == ZigTypeIdComptimeFloat))
     {
+        if (value->value.special == ConstValSpecialUndef) {
+            IrInstruction *result = ir_const(ira, source_instr, wanted_type);
+            result->value.special = ConstValSpecialUndef;
+            return result;
+        }
         if (ir_num_lit_fits_in_other_type(ira, value, wanted_type, true)) {
             if (wanted_type->id == ZigTypeIdComptimeInt || wanted_type->id == ZigTypeIdInt) {
                 IrInstruction *result = ir_const(ira, source_instr, wanted_type);
@@ -14988,6 +14994,8 @@ static IrInstruction *analyze_runtime_call(IrAnalyze *ira, FnTypeId *fn_type_id,
         }
     }
 
+    bool need_copy = false;
+
     if (prev_result_loc != nullptr) {
         if (type_is_invalid(prev_result_loc->value.type))
             return ira->codegen->invalid_instruction;
@@ -15022,9 +15030,19 @@ static IrInstruction *analyze_runtime_call(IrAnalyze *ira, FnTypeId *fn_type_id,
             }
         } else {
             payload_result_loc = ir_implicit_cast_result(ira, call_instruction->base.source_node,
-                    prev_result_loc, payload_result_type, need_store_ptr);
-            if (payload_result_loc == nullptr)
-                payload_result_loc = prev_result_loc;
+                    prev_result_loc, payload_result_type, true);
+            if (payload_result_loc == nullptr) {
+                if (need_store_ptr) {
+                    payload_result_loc = prev_result_loc;
+                } else {
+                    payload_result_loc = ir_analyze_alloca(ira, &call_instruction->base, payload_result_type,
+                            0, "", false);
+                    if (type_is_invalid(payload_result_loc->value.type))
+                        return ira->codegen->invalid_instruction;
+                    payload_result_loc->value.special = ConstValSpecialRuntime;
+                    need_copy = true;
+                }
+            }
             base_result_loc = payload_result_loc;
             if (type_is_invalid(payload_result_loc->value.type))
                 return ira->codegen->invalid_instruction;
@@ -15041,6 +15059,15 @@ static IrInstruction *analyze_runtime_call(IrAnalyze *ira, FnTypeId *fn_type_id,
     new_call_instruction->value.type = scalar_result_type;
     if (scalar_result_type->id == ZigTypeIdUnreachable)
         return ir_finish_anal(ira, new_call_instruction);
+
+    if (need_copy) {
+        IrInstruction *loaded = ir_get_deref(ira, &call_instruction->base, payload_result_loc);
+        if (type_is_invalid(loaded->value.type))
+            return ira->codegen->invalid_instruction;
+        IrInstruction *store_inst = ir_analyze_store_ptr(ira, &call_instruction->base, prev_result_loc, loaded);
+        if (type_is_invalid(store_inst->value.type))
+            return ira->codegen->invalid_instruction;
+    }
 
     if (need_store_ptr) {
         ir_analyze_store_ptr(ira, &call_instruction->base, payload_result_loc, new_call_instruction);

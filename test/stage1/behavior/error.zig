@@ -294,3 +294,17 @@ test "nested error union function call in optional unwrap" {
         assertError(S.errorable3(), error.Other);
     }
 }
+
+test "widen cast integer payload of error union function call" {
+    const S = struct {
+        fn errorable() !u64 {
+            var x = u64(try number());
+            return x;
+        }
+
+        fn number() anyerror!u32 {
+            return 1234;
+        }
+    };
+    assertOrPanic((try S.errorable()) == 1234);
+}
