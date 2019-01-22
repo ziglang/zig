@@ -18,11 +18,8 @@ pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn
             std.os.abort();
         },
         else => {
-            // TODO put the original panic code back
-            std.debug.warn("panic: {}\n", msg);
-            std.os.abort();
-            //const first_trace_addr = @ptrToInt(@returnAddress());
-            //std.debug.panicExtra(error_return_trace, first_trace_addr, "{}", msg);
+            const first_trace_addr = @ptrToInt(@returnAddress());
+            std.debug.panicExtra(error_return_trace, first_trace_addr, "{}", msg);
         },
     }
 }

@@ -171,3 +171,43 @@ test "implicit comptime in array type size" {
 fn plusOne(x: u32) u32 {
     return x + 1;
 }
+
+test "array literal as argument to function" {
+    const S = struct {
+        fn entry(two: i32) void {
+            foo([]i32{
+                1,
+                2,
+                3,
+            });
+            foo([]i32{
+                1,
+                two,
+                3,
+            });
+            foo2(true, []i32{
+                1,
+                2,
+                3,
+            });
+            foo2(true, []i32{
+                1,
+                two,
+                3,
+            });
+        }
+        fn foo(x: []const i32) void {
+            assertOrPanic(x[0] == 1);
+            assertOrPanic(x[1] == 2);
+            assertOrPanic(x[2] == 3);
+        }
+        fn foo2(trash: bool, x: []const i32) void {
+            assertOrPanic(trash);
+            assertOrPanic(x[0] == 1);
+            assertOrPanic(x[1] == 2);
+            assertOrPanic(x[2] == 3);
+        }
+    };
+    S.entry(2);
+    comptime S.entry(2);
+}

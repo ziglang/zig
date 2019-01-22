@@ -10887,7 +10887,9 @@ static IrInstruction *ir_analyze_instruction_result_optional_payload(IrAnalyze *
     return ir_analyze_result_optional_payload(ira, prev_result_loc, payload_type, instruction->make_non_null);
 }
 
-static IrInstruction *ir_analyze_result_slice_ptr(IrAnalyze *ira, IrInstruction *result_loc, uint64_t len) {
+static IrInstruction *ir_analyze_result_slice_ptr(IrAnalyze *ira, IrInstruction *result_loc, uint64_t len,
+        bool init_array)
+{
     ZigType *slice_type = result_loc->value.type->data.pointer.child_type;
     assert(is_slice(slice_type));
     ZigType *slice_ptr_type = slice_type->data.structure.fields[slice_ptr_index].type_entry;
@@ -10910,22 +10912,28 @@ static IrInstruction *ir_analyze_result_slice_ptr(IrAnalyze *ira, IrInstruction 
 
                 slice_ptr_val->type = slice_ptr_type;
                 slice_ptr_val->special = ConstValSpecialUndef;
-                ConstParent *slice_ptr_parent = get_const_val_parent(ira->codegen, slice_ptr_val);
-                if (slice_ptr_parent != nullptr) {
-                    slice_ptr_parent->id = ConstParentIdStruct;
-                    slice_ptr_parent->data.p_struct.struct_val = slice_val;
-                    slice_ptr_parent->data.p_struct.field_index = slice_ptr_index;
+                slice_ptr_val->parent.id = ConstParentIdStruct;
+                slice_ptr_val->parent.data.p_struct.struct_val = slice_val;
+                slice_ptr_val->parent.data.p_struct.field_index = slice_ptr_index;
+
+                if (init_array) {
+                    ConstExprValue *array_val = create_const_vals(1);
+                    array_val->type = get_array_type(ira->codegen, slice_ptr_type->data.pointer.child_type, len);
+                    array_val->data.x_array.special = ConstArraySpecialUndef;
+
+                    slice_ptr_val->special = ConstValSpecialStatic;
+                    slice_ptr_val->data.x_ptr.mut = ptr_val->data.x_ptr.mut;
+                    slice_ptr_val->data.x_ptr.special = ConstPtrSpecialBaseArray;
+                    slice_ptr_val->data.x_ptr.data.base_array.array_val = array_val;
                 }
 
                 slice_len_val->type = ira->codegen->builtin_types.entry_usize;
                 slice_len_val->special = ConstValSpecialStatic;
                 bigint_init_unsigned(&slice_len_val->data.x_bigint, len);
-                ConstParent *slice_len_parent = get_const_val_parent(ira->codegen, slice_len_val);
-                if (slice_len_parent != nullptr) {
-                    slice_len_parent->id = ConstParentIdStruct;
-                    slice_len_parent->data.p_struct.struct_val = slice_val;
-                    slice_len_parent->data.p_struct.field_index = slice_len_index;
-                }
+                slice_len_val->parent.id = ConstParentIdStruct;
+                slice_len_val->parent.data.p_struct.struct_val = slice_val;
+                slice_len_val->parent.data.p_struct.field_index = slice_len_index;
+
                 slice_val->special = ConstValSpecialStatic;
             }
             assert(slice_val->data.x_struct.fields != nullptr);
@@ -12448,7 +12456,7 @@ static IrInstruction *ir_implicit_cast_result(IrAnalyze *ira, AstNode *source_no
             array_type->data.array.child_type, source_node,
             !slice_ptr_type->data.pointer.is_const).id == ConstCastResultIdOk)
         {
-            return ir_analyze_result_slice_ptr(ira, result_loc, array_type->data.array.len);
+            return ir_analyze_result_slice_ptr(ira, result_loc, array_type->data.array.len, false);
         }
     }
 
@@ -12460,7 +12468,7 @@ static IrInstruction *ir_implicit_cast_result(IrAnalyze *ira, AstNode *source_no
             types_match_const_cast_only(ira, ptr_type->data.pointer.child_type,
                 needed_child_type->data.array.child_type, source_node, false).id == ConstCastResultIdOk)
         {
-            return ir_analyze_result_slice_ptr(ira, result_loc, needed_child_type->data.array.len);
+            return ir_analyze_result_slice_ptr(ira, result_loc, needed_child_type->data.array.len, true);
         }
     }
 
@@ -16639,12 +16647,9 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
                     ConstExprValue *elem_val = &array_ptr_val->data.x_array.data.s_none.elements[i];
                     elem_val->special = ConstValSpecialUndef;
                     elem_val->type = array_type->data.array.child_type;
-                    ConstParent *parent = get_const_val_parent(ira->codegen, elem_val);
-                    if (parent != nullptr) {
-                        parent->id = ConstParentIdArray;
-                        parent->data.p_array.array_val = array_ptr_val;
-                        parent->data.p_array.elem_index = i;
-                    }
+                    elem_val->parent.id = ConstParentIdArray;
+                    elem_val->parent.data.p_array.array_val = array_ptr_val;
+                    elem_val->parent.data.p_array.elem_index = i;
                 }
             }
 
@@ -23819,23 +23824,8 @@ static IrInstruction *ir_analyze_instruction_first_arg_result_loc(IrAnalyze *ira
         return new_result_loc;
     }
 
-    // Result of this instruction should be the result location for the first argument of the function call.
-    ZigType *param_type;
-    if (fn_ref->value.type->id == ZigTypeIdFn) {
-        ZigType *fn_type = fn_ref->value.type;
-        param_type = fn_type->data.fn.fn_type_id.param_info[0].type;
-    } else if (fn_ref->value.type->id == ZigTypeIdBoundFn) {
-        ZigType *fn_type = fn_ref->value.type->data.bound_fn.fn_type;
-        param_type = fn_type->data.fn.fn_type_id.param_info[1].type;
-    } else {
-        zig_unreachable();
-    }
-
-    if (param_type != nullptr && type_is_invalid(param_type))
-        return ira->codegen->invalid_instruction;
-
     bool is_comptime = ir_should_inline(ira->new_irb.exec, instruction->base.scope);
-    return ir_analyze_alloca(ira, &instruction->base, param_type, 0, "", is_comptime);
+    return ir_analyze_alloca(ira, &instruction->base, nullptr, 0, "", is_comptime);
 }
 
 static IrInstruction *ir_analyze_instruction_infer_array_type(IrAnalyze *ira,

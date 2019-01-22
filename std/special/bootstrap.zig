@@ -22,8 +22,8 @@ nakedcc fn _start() noreturn {
     switch (builtin.arch) {
         builtin.Arch.x86_64 => {
             argc_ptr = asm ("lea (%%rsp), %[argc]"
-                                : [argc] "=r" (-> [*]usize)
-                            );
+                : [argc] "=r" (-> [*]usize)
+            );
         },
         builtin.Arch.i386 => {
             argc_ptr = asm ("lea (%%esp), %[argc]"
@@ -104,12 +104,11 @@ inline fn callMain() u8 {
         builtin.TypeId.ErrorUnion => {
             root.main() catch |err| {
                 std.debug.warn("error: {}\n", @errorName(err));
-                // TODO restore this
-                //if (builtin.os != builtin.Os.zen) {
-                //    if (@errorReturnTrace()) |trace| {
-                //        std.debug.dumpStackTrace(trace);
-                //    }
-                //}
+                if (builtin.os != builtin.Os.zen) {
+                    if (@errorReturnTrace()) |trace| {
+                        std.debug.dumpStackTrace(trace);
+                    }
+                }
                 return 1;
             };
             return 0;
