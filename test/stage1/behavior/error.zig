@@ -1,5 +1,6 @@
 const std = @import("std");
 const assertOrPanic = std.debug.assertOrPanic;
+const assertError = std.debug.assertError;
 const mem = std.mem;
 const builtin = @import("builtin");
 
@@ -248,4 +249,48 @@ fn intLiteral(str: []const u8) !?i64 {
     if (str[0] == 'n') return 1;
 
     return error.T;
+}
+
+test "nested error union function call in optional unwrap" {
+    const S = struct {
+        const Foo = struct {
+            a: i32,
+        };
+
+        fn errorable() !i32 {
+            var x: Foo = (try getFoo()) orelse return error.Other;
+            return x.a;
+        }
+
+        fn errorable2() !i32 {
+            var x: Foo = (try getFoo2()) orelse return error.Other;
+            return x.a;
+        }
+
+        fn errorable3() !i32 {
+            var x: Foo = (try getFoo3()) orelse return error.Other;
+            return x.a;
+        }
+
+        fn getFoo() anyerror!?Foo {
+            return Foo{ .a = 1234 };
+        }
+
+        fn getFoo2() anyerror!?Foo {
+            return error.Failure;
+        }
+
+        fn getFoo3() anyerror!?Foo {
+            return null;
+        }
+    };
+    assertOrPanic((try S.errorable()) == 1234);
+    assertError(S.errorable2(), error.Failure);
+    assertError(S.errorable3(), error.Other);
+    comptime {
+        assertOrPanic((try S.errorable()) == 1234);
+        // TODO uncomment this
+        //assertError(S.errorable2(), error.Failure);
+        assertError(S.errorable3(), error.Other);
+    }
 }

@@ -3513,7 +3513,9 @@ static IrInstruction *ensure_result_loc(IrBuilder *irb, Scope *scope, AstNode *n
             case LValErrorUnionVal:
             case LValErrorUnionPtr:
             case LValOptional:
-                if (result_loc->id == IrInstructionIdAllocaSrc) {
+                if (result_loc->id == IrInstructionIdAllocaSrc ||
+                    result_loc->id == IrInstructionIdFirstArgResultLoc)
+                {
                     break;
                 }
                 if (result_loc->id != IrInstructionIdResultChild) {
