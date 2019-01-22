@@ -243,7 +243,8 @@ pub const ArenaAllocator = struct {
             const cur_buf = cur_node.data[@sizeOf(BufNode)..];
             const addr = @ptrToInt(cur_buf.ptr) + self.end_index;
             const rem = @rem(addr, alignment);
-            const march_forward_bytes = if (rem == 0) 0 else (alignment - rem);
+            // TODO: https://github.com/ziglang/zig/pull/1682#issuecomment-451261326
+            const march_forward_bytes: usize = if (rem == 0) 0 else (alignment - rem);
             const adjusted_index = self.end_index + march_forward_bytes;
             const new_end_index = adjusted_index + n;
             if (new_end_index > cur_buf.len) {
