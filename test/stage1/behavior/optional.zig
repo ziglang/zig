@@ -45,3 +45,18 @@ test "address of unwrap optional" {
     const foo = S.getFoo() catch unreachable;
     assertOrPanic(foo.a == 1234);
 }
+
+test "passing an optional integer as a parameter" {
+    const S = struct {
+        fn entry() bool {
+            var x: i32 = 1234;
+            return foo(x);
+        }
+
+        fn foo(x: ?i32) bool {
+            return x.? == 1234;
+        }
+    };
+    assertOrPanic(S.entry());
+    comptime assertOrPanic(S.entry());
+}

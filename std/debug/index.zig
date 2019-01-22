@@ -1953,7 +1953,8 @@ fn scanAllCompileUnits(di: *DwarfInfo) !void {
 
         if (compile_unit_die.tag_id != DW.TAG_compile_unit) return error.InvalidDebugInfo;
 
-        const pc_range = x: {
+        // TODO: https://github.com/ziglang/zig/pull/1682#issuecomment-451261326
+        const pc_range: ?PcRange = x: {
             if (compile_unit_die.getAttrAddr(DW.AT_low_pc)) |low_pc| {
                 if (compile_unit_die.getAttr(DW.AT_high_pc)) |high_pc_value| {
                     const pc_end = switch (high_pc_value.*) {

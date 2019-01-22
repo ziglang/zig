@@ -1740,11 +1740,15 @@ static IrInstruction *ir_build_optional_unwrap_val(IrBuilder *irb, Scope *scope,
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_maybe_wrap(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *value) {
+static IrInstruction *ir_build_maybe_wrap(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *value, IrInstruction *result_loc)
+{
     IrInstructionOptionalWrap *instruction = ir_build_instruction<IrInstructionOptionalWrap>(irb, scope, source_node);
     instruction->value = value;
+    instruction->result_loc = result_loc;
 
     ir_ref_instruction(value, irb->current_basic_block);
+    if (result_loc != nullptr) ir_ref_instruction(result_loc, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -11071,9 +11075,9 @@ static IrInstruction *ir_analyze_optional_wrap(IrAnalyze *ira, IrInstruction *so
         ZigType *wanted_type)
 {
     assert(wanted_type->id == ZigTypeIdOptional);
+    ZigType *payload_type = wanted_type->data.maybe.child_type;
 
     if (instr_is_comptime(value)) {
-        ZigType *payload_type = wanted_type->data.maybe.child_type;
         IrInstruction *casted_payload = ir_implicit_cast(ira, value, payload_type);
         if (type_is_invalid(casted_payload->value.type))
             return ira->codegen->invalid_instruction;
@@ -11094,7 +11098,14 @@ static IrInstruction *ir_analyze_optional_wrap(IrAnalyze *ira, IrInstruction *so
         return &const_instruction->base;
     }
 
-    IrInstruction *result = ir_build_maybe_wrap(&ira->new_irb, source_instr->scope, source_instr->source_node, value);
+    IrInstruction *result_loc = nullptr;
+    if (type_has_bits(payload_type) && handle_is_ptr(wanted_type)) {
+        result_loc = ir_analyze_alloca(ira, source_instr, wanted_type, 0, "", false);
+        result_loc->value.special = ConstValSpecialRuntime;
+    }
+
+    IrInstruction *result = ir_build_maybe_wrap(&ira->new_irb, source_instr->scope, source_instr->source_node,
+            value, result_loc);
     result->value.type = wanted_type;
     result->value.data.rh_maybe = RuntimeHintOptionalNonNull;
     return result;
