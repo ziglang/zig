@@ -22,10 +22,10 @@ const std = @import("../index.zig");
 const math = std.math;
 const assert = std.debug.assert;
 
-pub fn atan2(comptime T: type, x: T, y: T) T {
+pub fn atan2(comptime T: type, y: T, x: T) T {
     return switch (T) {
-        f32 => atan2_32(x, y),
-        f64 => atan2_64(x, y),
+        f32 => atan2_32(y, x),
+        f64 => atan2_64(y, x),
         else => @compileError("atan2 not implemented for " ++ @typeName(T)),
     };
 }
