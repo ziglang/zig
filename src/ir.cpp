@@ -2956,13 +2956,15 @@ static IrInstruction *ir_build_result_optional_payload(IrBuilder *irb, Scope *sc
 }
 
 static IrInstruction *ir_build_result_slice_ptr(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        IrInstruction *prev_result_loc, uint64_t len)
+        IrInstruction *prev_result_loc, uint64_t len, IrInstruction *array_loc)
 {
     IrInstructionResultSlicePtr *instruction = ir_build_instruction<IrInstructionResultSlicePtr>(irb, scope, source_node);
     instruction->prev_result_loc = prev_result_loc;
     instruction->len = len;
+    instruction->array_loc = array_loc;
 
     ir_ref_instruction(prev_result_loc, irb->current_basic_block);
+    if (array_loc != nullptr) ir_ref_instruction(array_loc, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -3090,6 +3092,7 @@ static IrInstruction *ir_build_alloca_src(IrBuilder *irb, Scope *scope, AstNode 
         IrInstruction *child_type, IrInstruction *align, const char *name_hint, IrInstruction *is_comptime)
 {
     IrInstructionAllocaSrc *instruction = ir_build_instruction<IrInstructionAllocaSrc>(irb, scope, source_node);
+    instruction->base.is_gen = true;
     instruction->child_type = child_type;
     instruction->align = align;
     instruction->name_hint = name_hint;
@@ -3541,7 +3544,7 @@ static IrInstruction *ir_gen_value(IrBuilder *irb, Scope *scope, AstNode *node, 
         return value;
     if (result_loc != nullptr) {
         IrInstruction *store_inst = ir_build_store_ptr(irb, scope, node, result_loc, value);
-        store_inst->is_gen = value->is_gen;
+        store_inst->is_gen = value->is_gen || result_loc->is_gen;
         switch (lval) {
             case LValPtr:
                 zig_unreachable();
@@ -3580,11 +3583,15 @@ static IrInstruction *ir_gen_ptr(IrBuilder *irb, Scope *scope, AstNode *node, LV
     switch (lval) {
         case LValPtr:
             if (result_loc != nullptr) {
-                ir_build_store_ptr(irb, scope, node, result_loc, ptr);
+                IrInstruction *store_inst = ir_build_store_ptr(irb, scope, node, result_loc, ptr);
+                store_inst->is_gen = result_loc->is_gen || ptr->is_gen;
             }
             return ptr;
-        case LValNone:
-            return ir_build_load_ptr(irb, scope, node, ptr, result_loc);
+        case LValNone: {
+            IrInstruction *load_inst = ir_build_load_ptr(irb, scope, node, ptr, result_loc);
+            load_inst->is_gen = (result_loc != nullptr && result_loc->is_gen) || ptr->is_gen;
+            return load_inst;
+        }
         case LValErrorUnionPtr: {
             // ptr points to an error union;
             // result_loc points to the result payload
@@ -5864,8 +5871,8 @@ static IrInstruction *ir_gen_container_init_expr(IrBuilder *irb, Scope *scope, A
         for (size_t i = 0; i < elem_count; i += 1) {
             AstNode *expr_node = container_init_expr->entries.at(i);
             IrInstruction *index_value = ir_build_const_usize(irb, scope, expr_node, i);
-            IrInstruction *elem_result_loc = ir_build_elem_ptr(irb, scope, expr_node, new_result_loc,
-                    index_value, true, PtrLenSingle);
+            IrInstruction *elem_result_loc = ir_mark_gen(ir_build_elem_ptr(irb, scope, expr_node, new_result_loc,
+                    index_value, true, PtrLenSingle));
             IrInstruction *expr_value = ir_gen_node(irb, expr_node, scope, LValNone, elem_result_loc);
             if (expr_value == irb->codegen->invalid_instruction)
                 return expr_value;
@@ -10916,20 +10923,8 @@ static IrInstruction *ir_analyze_result_slice_ptr(IrAnalyze *ira, IrInstruction 
                 slice_ptr_val->parent.data.p_struct.struct_val = slice_val;
                 slice_ptr_val->parent.data.p_struct.field_index = slice_ptr_index;
 
-                if (init_array) {
-                    ConstExprValue *array_val = create_const_vals(1);
-                    array_val->type = get_array_type(ira->codegen, slice_ptr_type->data.pointer.child_type, len);
-                    array_val->data.x_array.special = ConstArraySpecialUndef;
-
-                    slice_ptr_val->special = ConstValSpecialStatic;
-                    slice_ptr_val->data.x_ptr.mut = ptr_val->data.x_ptr.mut;
-                    slice_ptr_val->data.x_ptr.special = ConstPtrSpecialBaseArray;
-                    slice_ptr_val->data.x_ptr.data.base_array.array_val = array_val;
-                }
-
                 slice_len_val->type = ira->codegen->builtin_types.entry_usize;
-                slice_len_val->special = ConstValSpecialStatic;
-                bigint_init_unsigned(&slice_len_val->data.x_bigint, len);
+                slice_len_val->special = ConstValSpecialUndef;
                 slice_len_val->parent.id = ConstParentIdStruct;
                 slice_len_val->parent.data.p_struct.struct_val = slice_val;
                 slice_len_val->parent.data.p_struct.field_index = slice_len_index;
@@ -10937,11 +10932,33 @@ static IrInstruction *ir_analyze_result_slice_ptr(IrAnalyze *ira, IrInstruction 
                 slice_val->special = ConstValSpecialStatic;
             }
             assert(slice_val->data.x_struct.fields != nullptr);
+            ConstExprValue *slice_len_val = &slice_val->data.x_struct.fields[slice_len_index];
+            if (slice_len_val->special == ConstValSpecialUndef) {
+                slice_len_val->special = ConstValSpecialStatic;
+                bigint_init_unsigned(&slice_len_val->data.x_bigint, len);
+            }
+            IrInstruction *array_loc = nullptr;
+            if (init_array) {
+                ConstExprValue *slice_ptr_val = &slice_val->data.x_struct.fields[slice_ptr_index];
+                if (slice_ptr_val->special == ConstValSpecialUndef) {
+                    ZigType *array_type = get_array_type(ira->codegen, slice_ptr_type->data.pointer.child_type, len);
+                    array_loc = ir_analyze_alloca(ira, result_loc, array_type, 0, "", false);
+                    assert(array_loc->value.data.x_ptr.special == ConstPtrSpecialRef);
+                    ConstExprValue *array_val = array_loc->value.data.x_ptr.data.ref.pointee;
+                    array_val->special = ConstValSpecialStatic;
+                    array_val->data.x_array.special = ConstArraySpecialUndef;
+
+                    slice_ptr_val->special = ConstValSpecialStatic;
+                    slice_ptr_val->data.x_ptr.mut = ptr_val->data.x_ptr.mut;
+                    slice_ptr_val->data.x_ptr.special = ConstPtrSpecialBaseArray;
+                    slice_ptr_val->data.x_ptr.data.base_array.array_val = array_val;
+                }
+            }
 
             IrInstruction *result;
             if (ptr_val->data.x_ptr.mut == ConstPtrMutInfer) {
                 result = ir_build_result_slice_ptr(&ira->new_irb, result_loc->scope, result_loc->source_node,
-                    result_loc, len);
+                    result_loc, len, array_loc);
                 result->value.type = new_ptr_type;
                 result->value.special = ConstValSpecialStatic;
             } else {
@@ -10955,8 +10972,14 @@ static IrInstruction *ir_analyze_result_slice_ptr(IrAnalyze *ira, IrInstruction 
             return result;
         }
     }
+    IrInstruction *array_loc = nullptr;
+    if (init_array) {
+        ZigType *array_type = get_array_type(ira->codegen, slice_ptr_type->data.pointer.child_type, len);
+        array_loc = ir_analyze_alloca(ira, result_loc, array_type, 0, "", false);
+        array_loc->value.special = ConstValSpecialRuntime;
+    }
     IrInstruction *result = ir_build_result_slice_ptr(&ira->new_irb, result_loc->scope, result_loc->source_node,
-        result_loc, len);
+        result_loc, len, array_loc);
     result->value.type = new_ptr_type;
     return result;
 }
@@ -14774,6 +14797,7 @@ static void make_const_ptr_runtime(IrAnalyze *ira, IrInstruction *ptr) {
             val = ptr->value.data.x_ptr.data.base_optional_payload.optional_val;
             break;
     }
+
     for (;;) {
         is_static = (val->special != ConstValSpecialRuntime);
         val->special = ConstValSpecialRuntime;
@@ -14822,7 +14846,7 @@ static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source
         return ir_const_void(ira, source_instr);
     }
 
-    if (uncasted_ptr->value.type->data.pointer.is_const && !source_instr->is_gen) {
+    if (uncasted_ptr->value.type->data.pointer.is_const && !source_instr->is_gen && !uncasted_ptr->is_gen) {
         ir_add_error(ira, source_instr, buf_sprintf("cannot assign to constant"));
         return ira->codegen->invalid_instruction;
     }
@@ -16658,8 +16682,13 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
                     array_ptr_val->data.x_ptr.special != ConstPtrSpecialHardCodedAddr))
             {
                 if (array_type->id == ZigTypeIdPointer) {
-                    IrInstruction *result = ir_const(ira, &elem_ptr_instruction->base, return_type);
+                    IrInstruction *result = ir_build_elem_ptr(&ira->new_irb, elem_ptr_instruction->base.scope,
+                            elem_ptr_instruction->base.source_node, array_ptr, casted_elem_index, safety_check_on,
+                            elem_ptr_instruction->ptr_len);
+                    result->is_gen = array_ptr->is_gen;
+                    result->value.type = return_type;
                     ConstExprValue *out_val = &result->value;
+                    out_val->special = ConstValSpecialStatic;
                     out_val->data.x_ptr.mut = array_ptr_val->data.x_ptr.mut;
                     size_t new_index;
                     size_t mem_size;
@@ -16720,11 +16749,13 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
                     if (ptr_field->data.x_ptr.special == ConstPtrSpecialHardCodedAddr) {
                         IrInstruction *result = ir_build_elem_ptr(&ira->new_irb, elem_ptr_instruction->base.scope, elem_ptr_instruction->base.source_node,
                                 array_ptr, casted_elem_index, false, elem_ptr_instruction->ptr_len);
+                        result->is_gen = array_ptr->is_gen;
                         result->value.type = return_type;
                         return result;
                     }
                     ConstExprValue *len_field = &array_ptr_val->data.x_struct.fields[slice_len_index];
                     IrInstruction *result = ir_const(ira, &elem_ptr_instruction->base, return_type);
+                    result->is_gen = array_ptr->is_gen;
                     ConstExprValue *out_val = &result->value;
                     uint64_t slice_len = bigint_as_unsigned(&len_field->data.x_bigint);
                     if (index >= slice_len) {
@@ -16782,6 +16813,7 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
                     } else {
                         result = ir_const(ira, &elem_ptr_instruction->base, return_type);
                     }
+                    result->is_gen = array_ptr->is_gen;
                     ConstExprValue *out_val = &result->value;
                     out_val->data.x_ptr.special = ConstPtrSpecialBaseArray;
                     out_val->data.x_ptr.mut = orig_array_ptr_val->data.x_ptr.mut;
@@ -16821,6 +16853,7 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
 
     IrInstruction *result = ir_build_elem_ptr(&ira->new_irb, elem_ptr_instruction->base.scope, elem_ptr_instruction->base.source_node,
             array_ptr, casted_elem_index, safety_check_on, elem_ptr_instruction->ptr_len);
+    result->is_gen = array_ptr->is_gen;
     result->value.type = return_type;
     return result;
 }
@@ -18904,7 +18937,10 @@ static IrInstruction *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
         if (instr_is_comptime(elem_result_loc) &&
             elem_result_loc->value.data.x_ptr.mut != ConstPtrMutRuntimeVar)
         {
-            const_ptrs.append(elem_result_loc);
+            ConstExprValue *elem_val = const_ptr_pointee_unchecked(ira->codegen, &elem_result_loc->value);
+            if (value_is_comptime(elem_val)) {
+                const_ptrs.append(elem_result_loc);
+            }
         }
     }
 
@@ -18912,11 +18948,12 @@ static IrInstruction *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
         if (const_ptrs.length == elem_count) {
             result_loc->value.data.x_ptr.mut = ConstPtrMutComptimeConst;
         } else {
-            result_loc->value.special = ConstValSpecialRuntime;
+            make_const_ptr_runtime(ira, result_loc);
             for (size_t i = 0; i < const_ptrs.length; i += 1) {
                 IrInstruction *elem_result_loc = const_ptrs.at(i);
+                assert(elem_result_loc->value.special == ConstValSpecialStatic);
                 IrInstruction *deref = ir_get_deref(ira, elem_result_loc, elem_result_loc);
-                elem_result_loc->value.special = ConstValSpecialRuntime;
+                make_const_ptr_runtime(ira, elem_result_loc);
                 ir_analyze_store_ptr(ira, elem_result_loc, elem_result_loc, deref);
             }
         }
@@ -20633,8 +20670,10 @@ static IrInstruction *ir_analyze_instruction_err_set_cast(IrAnalyze *ira, IrInst
 static Error resolve_ptr_align(IrAnalyze *ira, ZigType *ty, uint32_t *result_align) {
     Error err;
 
-    if (ty->id == ZigTypeIdPointer) {
-        if ((err = type_resolve(ira->codegen, ty->data.pointer.child_type, ResolveStatusAlignmentKnown)))
+    ZigType *ptr_type = get_src_ptr_type(ty);
+    assert(ptr_type != nullptr);
+    if (ptr_type->id == ZigTypeIdPointer) {
+        if ((err = type_resolve(ira->codegen, ptr_type->data.pointer.child_type, ResolveStatusAlignmentKnown)))
             return err;
     }
 
@@ -23742,6 +23781,7 @@ static IrInstruction *ir_analyze_instruction_result_cast(IrAnalyze *ira, IrInstr
     if (type_is_invalid(new_result_loc->value.type))
         return ira->codegen->invalid_instruction;
 
+    new_result_loc->is_gen = prev_result_loc->is_gen;
     return new_result_loc;
 }
 
@@ -23774,6 +23814,7 @@ static IrInstruction *ir_analyze_alloca(IrAnalyze *ira, IrInstruction *source_in
     if (fn_entry != nullptr) {
         fn_entry->alloca_list.append(result);
     }
+    result->base.is_gen = true;
     return &result->base;
 }
 

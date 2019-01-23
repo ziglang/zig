@@ -5066,11 +5066,25 @@ static LLVMValueRef ir_render_result_slice_ptr(CodeGen *g, IrExecutable *executa
     ZigType *slice_type = instruction->prev_result_loc->value.type->data.pointer.child_type;
     assert(slice_type->id == ZigTypeIdStruct && slice_type->data.structure.is_slice);
     size_t len_field_index = slice_type->data.structure.fields[slice_len_index].gen_index;
+
     LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, prev_result_loc, (unsigned)len_field_index, "");
     LLVMValueRef len_val = LLVMConstInt(g->builtin_types.entry_usize->type_ref, instruction->len, false);
     gen_store_untyped(g, len_val, len_field_ptr, 0, false);
+
     size_t ptr_field_index = slice_type->data.structure.fields[slice_ptr_index].gen_index;
-    return LLVMBuildStructGEP(g->builder, prev_result_loc, (unsigned)ptr_field_index, "");
+    LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, prev_result_loc, (unsigned)ptr_field_index, "");
+    if (instruction->array_loc == nullptr)
+        return ptr_field_ptr;
+
+    LLVMValueRef array_loc = ir_llvm_value(g, instruction->array_loc);
+    LLVMValueRef indices[] = {
+        LLVMConstNull(g->builtin_types.entry_usize->type_ref),
+        LLVMConstInt(g->builtin_types.entry_usize->type_ref, 0, false),
+    };
+    LLVMValueRef casted_array_loc = LLVMBuildInBoundsGEP(g->builder, array_loc, indices, 2, "");
+    gen_store_untyped(g, casted_array_loc, ptr_field_ptr, 0, false);
+
+    return ptr_field_ptr;
 }
 
 static LLVMValueRef ir_render_result_error_union_payload(CodeGen *g, IrExecutable *executable,
@@ -6588,12 +6602,21 @@ static void do_code_gen(CodeGen *g) {
             ZigType *ptr_type = instruction->base.value.type;
             assert(ptr_type->id == ZigTypeIdPointer);
             ZigType *child_type = ptr_type->data.pointer.child_type;
-            if (type_has_bits(child_type) && instruction->base.value.special == ConstValSpecialRuntime &&
-                child_type != g->builtin_types.entry_infer && instruction->base.ref_count != 0)
-            {
-                instruction->base.llvm_value = build_alloca(g, child_type, instruction->name_hint,
-                        get_ptr_align(g, ptr_type));
+            if (!type_has_bits(child_type))
+                continue;
+            if (child_type == g->builtin_types.entry_infer)
+                continue;
+            if (instruction->base.ref_count == 0)
+                continue;
+            if (instruction->base.value.special != ConstValSpecialRuntime) {
+                if (const_ptr_pointee(nullptr, g, &instruction->base.value, nullptr)->special !=
+                        ConstValSpecialRuntime)
+                {
+                    continue;
+                }
             }
+            instruction->base.llvm_value = build_alloca(g, child_type, instruction->name_hint,
+                    get_ptr_align(g, ptr_type));
         }
 
         ImportTableEntry *import = get_scope_import(&fn_table_entry->fndef_scope->base);

@@ -211,3 +211,60 @@ test "array literal as argument to function" {
     S.entry(2);
     comptime S.entry(2);
 }
+
+test "double nested array to const slice cast in array literal" {
+    const S = struct {
+        fn entry(two: i32) void {
+            const cases = [][]const []const i32{
+                [][]const i32{[]i32{1}},
+                [][]const i32{[]i32{ 2, 3 }},
+                [][]const i32{
+                    []i32{4},
+                    []i32{ 5, 6, 7 },
+                },
+            };
+            check(cases);
+
+            const cases2 = [][]const i32{
+                []i32{1},
+                []i32{ two, 3 },
+            };
+            assertOrPanic(cases2.len == 2);
+            assertOrPanic(cases2[0].len == 1);
+            assertOrPanic(cases2[0][0] == 1);
+            assertOrPanic(cases2[1].len == 2);
+            assertOrPanic(cases2[1][0] == 2);
+            assertOrPanic(cases2[1][1] == 3);
+
+            const cases3 = [][]const []const i32{
+                [][]const i32{[]i32{1}},
+                [][]const i32{[]i32{ two, 3 }},
+                [][]const i32{
+                    []i32{4},
+                    []i32{ 5, 6, 7 },
+                },
+            };
+            check(cases3);
+        }
+
+        fn check(cases: []const []const []const i32) void {
+            assertOrPanic(cases.len == 3);
+            assertOrPanic(cases[0].len == 1);
+            assertOrPanic(cases[0][0].len == 1);
+            assertOrPanic(cases[0][0][0] == 1);
+            assertOrPanic(cases[1].len == 1);
+            assertOrPanic(cases[1][0].len == 2);
+            assertOrPanic(cases[1][0][0] == 2);
+            assertOrPanic(cases[1][0][1] == 3);
+            assertOrPanic(cases[2].len == 2);
+            assertOrPanic(cases[2][0].len == 1);
+            assertOrPanic(cases[2][0][0] == 4);
+            assertOrPanic(cases[2][1].len == 3);
+            assertOrPanic(cases[2][1][0] == 5);
+            assertOrPanic(cases[2][1][1] == 6);
+            assertOrPanic(cases[2][1][2] == 7);
+        }
+    };
+    S.entry(2);
+    comptime S.entry(2);
+}

@@ -3436,6 +3436,7 @@ struct IrInstructionResultSlicePtr {
     IrInstruction base;
 
     IrInstruction *prev_result_loc;
+    IrInstruction *array_loc;
     uint64_t len;
 };
 

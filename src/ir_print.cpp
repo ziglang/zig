@@ -294,7 +294,8 @@ static void ir_print_container_init_list(IrPrint *irp, IrInstructionContainerIni
             ir_print_other_instruction(irp, elem_result_loc);
         }
     }
-    fprintf(irp->f, "}");
+    fprintf(irp->f, "} result=");
+    ir_print_other_instruction(irp, instruction->result_loc);
 }
 
 static void ir_print_container_init_fields(IrPrint *irp, IrInstructionContainerInitFields *instruction) {
