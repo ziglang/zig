@@ -60,3 +60,22 @@ test "passing an optional integer as a parameter" {
     assertOrPanic(S.entry());
     comptime assertOrPanic(S.entry());
 }
+
+test "unwrap function call with optional pointer return value" {
+    const S = struct {
+        fn entry() void {
+            assertOrPanic(foo().?.* == 1234);
+            assertOrPanic(bar() == null);
+        }
+        const global: i32 = 1234;
+        fn foo() ?*const i32 {
+            return &global;
+        }
+        fn bar() ?*i32 {
+            return null;
+        }
+    };
+    S.entry();
+    // TODO uncomment
+    //comptime S.entry();
+}

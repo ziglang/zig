@@ -5908,8 +5908,12 @@ static void render_const_val_ptr(CodeGen *g, Buf *buf, ConstExprValue *const_val
         case ConstPtrSpecialBaseErrorUnionPayload:
         case ConstPtrSpecialBaseOptionalPayload:
             buf_appendf(buf, "*");
-            // TODO we need a source node for const_ptr_pointee because it can generate compile errors
-            render_const_value(g, buf, const_ptr_pointee(nullptr, g, const_val, nullptr));
+            if (const_val->type->id == ZigTypeIdPointer) {
+                // TODO we need a source node for const_ptr_pointee because it can generate compile errors
+                render_const_value(g, buf, const_ptr_pointee(nullptr, g, const_val, nullptr));
+            } else {
+                buf_appendf(buf, "(TODO print this pointer)");
+            }
             return;
         case ConstPtrSpecialBaseArray:
             if (const_val->data.x_ptr.data.base_array.is_cstr) {

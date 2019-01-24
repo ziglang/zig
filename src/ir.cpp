@@ -14553,8 +14553,20 @@ static IrInstruction *ir_analyze_async_call(IrAnalyze *ira, IrInstructionCall *c
             result->value.type = get_optional_type(ira->codegen, alloc_fn_error_set_type);
             return result;
         }
-        case LValErrorUnionPtr:
-            zig_panic("TODO");
+        case LValErrorUnionPtr: {
+            IrInstruction *call_inst_ref = ir_get_ref(ira, &call_instruction->base, new_call_inst,
+                    true, false, nullptr);
+            IrInstruction *payload_ptr = ir_analyze_unwrap_err_payload(ira, &call_instruction->base,
+                    call_inst_ref, nullptr, false);
+            IrInstruction *payload_deref = ir_get_deref(ira, &call_instruction->base, payload_ptr);
+            ir_analyze_store_ptr(ira, &call_instruction->base, result_loc, payload_deref);
+
+            IrInstruction *result = ir_build_error_union_field_error_set(&ira->new_irb,
+                    call_instruction->base.scope, call_instruction->base.source_node, new_call_inst, false);
+            result->value.type = get_pointer_to_type(ira->codegen,
+                get_optional_type(ira->codegen, alloc_fn_error_set_type), true);
+            return result;
+        }
         case LValOptional:
             zig_panic("TODO");
     }
@@ -14991,8 +15003,8 @@ static IrInstruction *analyze_runtime_call(IrAnalyze *ira, FnTypeId *fn_type_id,
     IrInstruction *base_result_loc = nullptr;
 
     bool convert_to_value;
-    ZigType *scalar_result_type;
-    ZigType *payload_result_type;
+    ZigType *scalar_result_type; // of the call instruction
+    ZigType *payload_result_type; // of the call instruction
     if (return_type->id == ZigTypeIdErrorUnion) {
         scalar_result_type = get_optional_type(ira->codegen, return_type->data.error_union.err_set_type);
         payload_result_type = return_type->data.error_union.payload_type;
@@ -15013,6 +15025,9 @@ static IrInstruction *analyze_runtime_call(IrAnalyze *ira, FnTypeId *fn_type_id,
 
     bool need_store_ptr = !convert_to_value &&
         (return_type == payload_result_type) && !handle_is_ptr(return_type);
+
+    bool need_unwrap_optional = call_instruction->lval == LValOptional && need_store_ptr &&
+                payload_result_type->id == ZigTypeIdOptional;
 
     IrInstruction *prev_result_loc = nullptr;
     if (call_instruction->result_loc != nullptr && call_instruction->result_loc->child != nullptr) {
@@ -15072,6 +15087,9 @@ static IrInstruction *analyze_runtime_call(IrAnalyze *ira, FnTypeId *fn_type_id,
                 zig_unreachable();
             }
         } else if (return_type->id != ZigTypeIdErrorSet) {
+            if (need_unwrap_optional) {
+                payload_result_type = payload_result_type->data.maybe.child_type;
+            }
             payload_result_loc = ir_implicit_cast_result(ira, call_instruction->base.source_node,
                     prev_result_loc, payload_result_type, true);
             if (payload_result_loc == nullptr) {
@@ -15113,23 +15131,31 @@ static IrInstruction *analyze_runtime_call(IrAnalyze *ira, FnTypeId *fn_type_id,
     }
 
     if (need_store_ptr) {
-        ir_analyze_store_ptr(ira, &call_instruction->base, payload_result_loc, new_call_instruction);
         switch (call_instruction->lval) {
             case LValNone:
+                ir_analyze_store_ptr(ira, &call_instruction->base, payload_result_loc, new_call_instruction);
                 return new_call_instruction;
             case LValPtr:
-                if (payload_result_loc != nullptr)
-                    return payload_result_loc;
-                return ir_get_ref(ira, &call_instruction->base, new_call_instruction, true, false, nullptr);
-            case LValErrorUnionVal:
-                return ir_const(ira, &call_instruction->base, ira->codegen->builtin_types.entry_null);
-            case LValErrorUnionPtr: {
-                IrInstruction *null = ir_const(ira, &call_instruction->base,
-                        ira->codegen->builtin_types.entry_null);
-                return ir_get_ref(ira, &call_instruction->base, null, true, false, nullptr);
+                ir_analyze_store_ptr(ira, &call_instruction->base, payload_result_loc, new_call_instruction);
+                return payload_result_loc;
+            case LValErrorUnionVal: {
+                ir_analyze_store_ptr(ira, &call_instruction->base, payload_result_loc, new_call_instruction);
+                IrInstruction *err_code_ptr = ir_analyze_error_union_field_error_set(ira, &call_instruction->base,
+                        payload_result_loc, false);
+                return ir_get_deref(ira, &call_instruction->base, err_code_ptr);
             }
-            case LValOptional:
-                return ir_const_bool(ira, &call_instruction->base, false);
+            case LValErrorUnionPtr: {
+                ir_analyze_store_ptr(ira, &call_instruction->base, payload_result_loc, new_call_instruction);
+                return ir_analyze_error_union_field_error_set(ira, &call_instruction->base,
+                        payload_result_loc, false);
+            }
+            case LValOptional: {
+                IrInstruction *ref = ir_get_ref(ira, &call_instruction->base, new_call_instruction, true, false, nullptr);
+                IrInstruction *payload_ptr = ir_analyze_unwrap_optional_payload(ira, &call_instruction->base, ref, false);
+                IrInstruction *payload = ir_get_deref(ira, &call_instruction->base, payload_ptr);
+                ir_analyze_store_ptr(ira, &call_instruction->base, payload_result_loc, payload);
+                return ir_analyze_test_non_null(ira, &call_instruction->base, new_call_instruction);
+            }
         }
         zig_unreachable();
     }
