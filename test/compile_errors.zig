@@ -2,6 +2,53 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "Panic declared with comptime parameter",
+        \\test "" {}
+        \\
+        \\pub fn panic(comptime msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn {}
+        \\
+    ,
+        ".tmp_source.zig:3:5: error: expected 'fn([]const u8, ?*builtin.StackTrace) noreturn', found 'fn([]const u8,var)var'",
+        ".tmp_source.zig:3:14: note: comptime parameters not allowed in panic handler function",
+    );
+
+    cases.add(
+        "Panic declared with invalid return type",
+        \\const builtin = @import("builtin");
+        \\test "" {}
+        \\
+        \\pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) void {}
+        \\
+    ,
+        ".tmp_source.zig:4:5: error: expected 'fn([]const u8, ?*builtin.StackTrace) noreturn', found 'fn([]const u8, ?*StackTrace) void'",
+        ".tmp_source.zig:4:73: note: Incorrect return type 'void' for panic function; function should return type 'noreturn'",
+    );
+
+    cases.add(
+        "Panic declared with invalid first parameter",
+        \\const builtin = @import("builtin");
+        \\test "" {}
+        \\
+        \\pub fn panic(msg: []u8, error_return_trace: ?*builtin.StackTrace) noreturn {}
+        \\
+    ,
+        ".tmp_source.zig:4:5: error: expected 'fn([]const u8, ?*builtin.StackTrace) noreturn', found 'fn([]u8, ?*StackTrace) noreturn'",
+        ".tmp_source.zig:4:14: note: expected []const u8 type, found '[]u8'",
+    );
+
+    cases.add(
+        "Panic declared with invalid second parameter",
+        \\const builtin = @import("builtin");
+        \\test "" {}
+        \\
+        \\pub fn panic(msg: []const u8, error_return_trace: *builtin.StackTrace) noreturn {}
+        \\
+    ,
+        ".tmp_source.zig:4:5: error: expected 'fn([]const u8, ?*builtin.StackTrace) noreturn', found 'fn([]const u8, *StackTrace) noreturn'",
+        ".tmp_source.zig:4:31: note: expected ?*StackTrace type, found '*StackTrace'",
+    );
+
+    cases.add(
         "compile log a pointer to an opaque value",
         \\export fn entry() void {
         \\    @compileLog(@ptrCast(*const c_void, &entry));
