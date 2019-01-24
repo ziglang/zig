@@ -929,7 +929,6 @@ static_assert((Triple::ArchType)ZigLLVM_mipsel == Triple::mipsel, "");
 static_assert((Triple::ArchType)ZigLLVM_mips64 == Triple::mips64, "");
 static_assert((Triple::ArchType)ZigLLVM_mips64el == Triple::mips64el, "");
 static_assert((Triple::ArchType)ZigLLVM_msp430 == Triple::msp430, "");
-static_assert((Triple::ArchType)ZigLLVM_nios2 == Triple::nios2, "");
 static_assert((Triple::ArchType)ZigLLVM_ppc == Triple::ppc, "");
 static_assert((Triple::ArchType)ZigLLVM_ppc64 == Triple::ppc64, "");
 static_assert((Triple::ArchType)ZigLLVM_ppc64le == Triple::ppc64le, "");

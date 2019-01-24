@@ -226,12 +226,11 @@ enum ZigLLVM_ArchType {
     ZigLLVM_bpfel,          // eBPF or extended BPF or 64-bit BPF (little endian)
     ZigLLVM_bpfeb,          // eBPF or extended BPF or 64-bit BPF (big endian)
     ZigLLVM_hexagon,        // Hexagon: hexagon
-    ZigLLVM_mips,           // MIPS: mips, mipsallegrex
-    ZigLLVM_mipsel,         // MIPSEL: mipsel, mipsallegrexel
-    ZigLLVM_mips64,         // MIPS64: mips64
-    ZigLLVM_mips64el,       // MIPS64EL: mips64el
+    ZigLLVM_mips,           // MIPS: mips, mipsallegrex, mipsr6
+    ZigLLVM_mipsel,         // MIPSEL: mipsel, mipsallegrexe, mipsr6el
+    ZigLLVM_mips64,         // MIPS64: mips64, mips64r6, mipsn32, mipsn32r6
+    ZigLLVM_mips64el,       // MIPS64EL: mips64el, mips64r6el, mipsn32el, mipsn32r6el
     ZigLLVM_msp430,         // MSP430: msp430
-    ZigLLVM_nios2,          // NIOSII: nios2
     ZigLLVM_ppc,            // PPC: powerpc
     ZigLLVM_ppc64,          // PPC64: powerpc64, ppu
     ZigLLVM_ppc64le,        // PPC64LE: powerpc64le
@@ -363,8 +362,9 @@ enum ZigLLVM_OSType {
     ZigLLVM_AMDPAL,     // AMD PAL Runtime
     ZigLLVM_HermitCore, // HermitCore Unikernel/Multikernel
     ZigLLVM_Hurd,       // GNU/Hurd
+    ZigLLVM_WASI,       // Experimental WebAssembly OS
 
-    ZigLLVM_LastOSType = ZigLLVM_Hurd
+    ZigLLVM_LastOSType = ZigLLVM_WASI
 };
 
 // Synchronize with target.cpp::environ_list

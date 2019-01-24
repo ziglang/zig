@@ -91,7 +91,6 @@ static const ArchType arch_list[] = {
     {ZigLLVM_mips64el, ZigLLVM_MipsSubArch_r6},
 
     {ZigLLVM_msp430, ZigLLVM_NoSubArch},
-    {ZigLLVM_nios2, ZigLLVM_NoSubArch},
     {ZigLLVM_ppc, ZigLLVM_NoSubArch},
     {ZigLLVM_ppc64, ZigLLVM_NoSubArch},
     {ZigLLVM_ppc64le, ZigLLVM_NoSubArch},
@@ -185,6 +184,7 @@ static const Os os_list[] = {
     OsAMDPAL,
     OsHermitCore,
     OsHurd,
+    OsWASI,
     OsZen,
     OsUefi,
 };
@@ -333,6 +333,8 @@ ZigLLVM_OSType get_llvm_os_type(Os os_type) {
             return ZigLLVM_HermitCore;
         case OsHurd:
             return ZigLLVM_Hurd;
+        case OsWASI:
+            return ZigLLVM_WASI;
     }
     zig_unreachable();
 }
@@ -406,6 +408,8 @@ static Os get_zig_os_type(ZigLLVM_OSType os_type) {
             return OsHermitCore;
         case ZigLLVM_Hurd:
             return OsHurd;
+        case ZigLLVM_WASI:
+            return OsWASI;
     }
     zig_unreachable();
 }
@@ -450,6 +454,7 @@ const char *get_target_os_name(Os os_type) {
         case OsAMDPAL:
         case OsHermitCore:
         case OsHurd:
+        case OsWASI:
             return ZigLLVMGetOSTypeName(get_llvm_os_type(os_type));
     }
     zig_unreachable();
@@ -617,7 +622,6 @@ void resolve_target_object_format(ZigTarget *target) {
         case ZigLLVM_mips64el:
         case ZigLLVM_mipsel:
         case ZigLLVM_msp430:
-        case ZigLLVM_nios2:
         case ZigLLVM_nvptx:
         case ZigLLVM_nvptx64:
         case ZigLLVM_ppc64le:
@@ -674,7 +678,6 @@ static int get_arch_pointer_bit_width(ZigLLVM_ArchType arch) {
         case ZigLLVM_le32:
         case ZigLLVM_mips:
         case ZigLLVM_mipsel:
-        case ZigLLVM_nios2:
         case ZigLLVM_nvptx:
         case ZigLLVM_ppc:
         case ZigLLVM_r600:
@@ -826,6 +829,7 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
         case OsAMDPAL:
         case OsHermitCore:
         case OsHurd:
+        case OsWASI:
             zig_panic("TODO c type size in bits for this target");
     }
     zig_unreachable();
@@ -1014,7 +1018,6 @@ const char *arch_stack_pointer_register_name(const ArchType *arch) {
         case ZigLLVM_mips64el:
         case ZigLLVM_mipsel:
         case ZigLLVM_msp430:
-        case ZigLLVM_nios2:
         case ZigLLVM_nvptx:
         case ZigLLVM_nvptx64:
         case ZigLLVM_ppc64le:
@@ -1076,7 +1079,6 @@ bool target_is_arm(const ZigTarget *target) {
         case ZigLLVM_mips64el:
         case ZigLLVM_mipsel:
         case ZigLLVM_msp430:
-        case ZigLLVM_nios2:
         case ZigLLVM_nvptx:
         case ZigLLVM_nvptx64:
         case ZigLLVM_ppc64le:

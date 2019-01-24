@@ -52,6 +52,7 @@ enum Os {
     OsAMDPAL,
     OsHermitCore,
     OsHurd,
+    OsWASI,
     OsZen,
     OsUefi,
 };

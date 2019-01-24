@@ -233,7 +233,6 @@ pub const Target = union(enum) {
             builtin.Arch.le32,
             builtin.Arch.mipsr6,
             builtin.Arch.mipselr6,
-            builtin.Arch.nios2,
             builtin.Arch.powerpc,
             builtin.Arch.r600,
             builtin.Arch.riscv32,
@@ -438,7 +437,6 @@ pub const Target = union(enum) {
                     builtin.Arch.bpfeb,
                     builtin.Arch.hexagon,
                     builtin.Arch.msp430,
-                    builtin.Arch.nios2,
                     builtin.Arch.r600,
                     builtin.Arch.amdgcn,
                     builtin.Arch.riscv32,
@@ -576,6 +574,7 @@ pub const Target = union(enum) {
             builtin.Os.amdpal,
             builtin.Os.hermit,
             builtin.Os.hurd,
+            builtin.Os.wasi,
             => @panic("TODO specify the C integer type sizes for this OS"),
         }
     }
