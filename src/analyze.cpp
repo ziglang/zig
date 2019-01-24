@@ -3170,24 +3170,73 @@ static void typecheck_panic_fn(CodeGen *g, ZigFn *panic_fn) {
     assert(proto_node->type == NodeTypeFnProto);
     ZigType *fn_type = panic_fn->type_entry;
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
+    AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
+
     if (fn_type_id->param_count != 2) {
         return wrong_panic_prototype(g, proto_node, fn_type);
     }
+
+    // run through params and make sure that none are comptime
+    for (size_t i = 0; i < fn_type_id->param_count; i += 1) {
+        AstNode *param_node = fn_proto->params.at(i);
+        assert(param_node->type == NodeTypeParamDecl);
+
+        bool param_is_comptime = param_node->data.param_decl.is_inline;
+        if (param_is_comptime) {
+            wrong_panic_prototype(g, proto_node, fn_type);
+            ErrorMsg *last_error = g->errors.last();
+            add_error_note(g, last_error, param_node, buf_sprintf("comptime parameters not allowed in panic handler function"));
+            return;
+        }
+    }
+
     ZigType *const_u8_ptr = get_pointer_to_type_extra(g, g->builtin_types.entry_u8, true, false,
             PtrLenUnknown, 0, 0, 0);
     ZigType *const_u8_slice = get_slice_type(g, const_u8_ptr);
     if (fn_type_id->param_info[0].type != const_u8_slice) {
-        return wrong_panic_prototype(g, proto_node, fn_type);
+        wrong_panic_prototype(g, proto_node, fn_type);
+        ErrorMsg *last_error = g->errors.last();
+        AstNode *param_node = fn_proto->params.at(0);
+        add_error_note( g
+                      , last_error
+                      , param_node
+                      , buf_sprintf( "expected %s type, found '%s'"
+                                   , buf_ptr(&const_u8_slice->name)
+                                   , buf_ptr(&fn_type_id->param_info[0].type->name)
+                                   )
+                      );
+        return;
     }
 
     ZigType *optional_ptr_to_stack_trace_type = get_optional_type(g, get_ptr_to_stack_trace_type(g));
     if (fn_type_id->param_info[1].type != optional_ptr_to_stack_trace_type) {
-        return wrong_panic_prototype(g, proto_node, fn_type);
+        wrong_panic_prototype(g, proto_node, fn_type);
+        ErrorMsg *last_error = g->errors.last();
+        AstNode *param_node = fn_proto->params.at(1);
+        add_error_note( g
+                      , last_error
+                      , param_node
+                      , buf_sprintf( "expected %s type, found '%s'"
+                                   , buf_ptr(&optional_ptr_to_stack_trace_type->name)
+                                   , buf_ptr(&fn_type_id->param_info[1].type->name)
+                                   )
+                      );
+        return;
     }
 
     ZigType *actual_return_type = fn_type_id->return_type;
     if (actual_return_type != g->builtin_types.entry_unreachable) {
-        return wrong_panic_prototype(g, proto_node, fn_type);
+        wrong_panic_prototype(g, proto_node, fn_type);
+        ErrorMsg *last_error = g->errors.last();
+        add_error_note( g
+                      , last_error
+                      , fn_proto->return_type
+                      , buf_sprintf( "Incorrect return type '%s' for panic function; function should return type '%s'"
+                                   , buf_ptr(&actual_return_type->name)
+                                   , buf_ptr(&g->builtin_types.entry_unreachable->name)
+                                   )
+                      );
+        return;
     }
 }
 
@@ -3280,21 +3329,20 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
             return;
         }
 
-        if (!fn_table_entry->type_entry->data.fn.is_generic) {
-            if (fn_def_node)
-                g->fn_defs.append(fn_table_entry);
+        if (!fn_table_entry->type_entry->data.fn.is_generic && fn_def_node) {
+            g->fn_defs.append(fn_table_entry);
+        }
 
-            if (scope_is_root_decls(tld_fn->base.parent_scope) &&
-                (import == g->root_import || import->package == g->panic_package))
+        if (scope_is_root_decls(tld_fn->base.parent_scope) &&
+            (import == g->root_import || import->package == g->panic_package))
+        {
+            if (g->have_pub_main && buf_eql_str(&fn_table_entry->symbol_name, "main")) {
+                g->main_fn = fn_table_entry;
+            } else if ((import->package == g->panic_package || g->have_pub_panic) &&
+                    buf_eql_str(&fn_table_entry->symbol_name, "panic"))
             {
-                if (g->have_pub_main && buf_eql_str(&fn_table_entry->symbol_name, "main")) {
-                    g->main_fn = fn_table_entry;
-                } else if ((import->package == g->panic_package || g->have_pub_panic) &&
-                        buf_eql_str(&fn_table_entry->symbol_name, "panic"))
-                {
-                    g->panic_fn = fn_table_entry;
-                    typecheck_panic_fn(g, fn_table_entry);
-                }
+                g->panic_fn = fn_table_entry;
+                typecheck_panic_fn(g, fn_table_entry);
             }
         }
     } else if (source_node->type == NodeTypeTestDecl) {
