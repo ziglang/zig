@@ -14,6 +14,7 @@
 
 enum TokenId {
     TokenIdAmpersand,
+    TokenIdAmpersandAmpersand,
     TokenIdArrow,
     TokenIdAtSign,
     TokenIdBang,
