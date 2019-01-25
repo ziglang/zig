@@ -343,23 +343,24 @@ pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Error: type)
                 const amt_buffered = self.end_index - self.start_index;
                 if (amt_buffered == 0) {
                     assert(self.end_index <= buffer_size);
-                    if (self.end_index == buffer_size) {
-                        // we can read more data from the unbuffered stream
-                        if (dest_space < buffer_size) {
-                            self.start_index = 0;
-                            self.end_index = try self.unbuffered_in_stream.read(self.buffer[0..]);
-                        } else {
-                            // asking for so much data that buffering is actually less efficient.
-                            // forward the request directly to the unbuffered stream
-                            const amt_read = try self.unbuffered_in_stream.read(dest[dest_index..]);
-                            return dest_index + amt_read;
-                        }
-                    } else {
-                        // reading from the unbuffered stream returned less than we asked for
-                        // so we cannot read any more data.
+                    // Make sure the last read actually gave us some data
+                    if (self.end_index == 0) {
+                        // reading from the unbuffered stream returned nothing
+                        // so we have nothing left to read.
                         return dest_index;
                     }
+                    // we can read more data from the unbuffered stream
+                    if (dest_space < buffer_size) {
+                        self.start_index = 0;
+                        self.end_index = try self.unbuffered_in_stream.read(self.buffer[0..]);
+                    } else {
+                        // asking for so much data that buffering is actually less efficient.
+                        // forward the request directly to the unbuffered stream
+                        const amt_read = try self.unbuffered_in_stream.read(dest[dest_index..]);
+                        return dest_index + amt_read;
+                    }
                 }
+
                 const copy_amount = math.min(dest_space, amt_buffered);
                 const copy_end_index = self.start_index + copy_amount;
                 mem.copy(u8, dest[dest_index..], self.buffer[self.start_index..copy_end_index]);
@@ -368,6 +369,46 @@ pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Error: type)
             }
         }
     };
+}
+
+test "io.BufferedInStream" {
+    const OneByteReadInStream = struct {
+        const Error = error{NoError};
+        const Stream = InStream(Error);
+
+        stream: Stream,
+        str: []const u8,
+        curr: usize,
+
+        fn init(str: []const u8) @This() {
+            return @This(){
+                .stream = Stream{ .readFn = readFn },
+                .str = str,
+                .curr = 0,
+            };
+        }
+
+        fn readFn(in_stream: *Stream, dest: []u8) Error!usize {
+            const self = @fieldParentPtr(@This(), "stream", in_stream);
+            if (self.str.len <= self.curr or dest.len == 0)
+                return 0;
+
+            dest[0] = self.str[self.curr];
+            self.curr += 1;
+            return 1;
+        }
+    };
+
+    var buf: [100]u8 = undefined;
+    const allocator = &std.heap.FixedBufferAllocator.init(buf[0..]).allocator;
+
+    const str = "This is a test";
+    var one_byte_stream = OneByteReadInStream.init(str);
+    var buf_in_stream = BufferedInStream(OneByteReadInStream.Error).init(&one_byte_stream.stream);
+    const stream = &buf_in_stream.stream;
+
+    const res = try stream.readAllAlloc(allocator, str.len + 1);
+    debug.assertOrPanic(mem.eql(u8, str, res));
 }
 
 /// Creates a stream which supports 'un-reading' data, so that it can be read again.
@@ -1411,3 +1452,4 @@ test "import io tests" {
         _ = @import("io_test.zig");
     }
 }
+
