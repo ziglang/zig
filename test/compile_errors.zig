@@ -12,12 +12,23 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "Use of || in place of `or`",
+        "Use of || in place of `or` (using comptime_int)",
         \\export fn entry() void {
         \\    if (1 || 0) return;
         \\}
     ,
+        ".tmp_source.zig:2:9: error: expected ErrorSet type, found 'comptime_int'",
         ".tmp_source.zig:2:11: note: did you mean to use `or`?",
+    );
+
+    cases.add(
+        "Use of || in place of `or` (using booleans)",
+        \\export fn entry() void {
+        \\    if (true || false) return;
+        \\}
+    ,
+        ".tmp_source.zig:2:9: error: expected ErrorSet type, found 'bool'",
+        ".tmp_source.zig:2:14: note: did you mean to use `or`?",
     );
 
     cases.add(
@@ -277,8 +288,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const Errors = error{} || u16;
         \\}
     ,
-        ".tmp_source.zig:2:20: error: expected error set type, found 'u8'",
-        ".tmp_source.zig:5:31: error: expected error set type, found 'u16'",
+        ".tmp_source.zig:2:20: error: expected ErrorSet type, found 'u8'",
+        ".tmp_source.zig:2:23: note: did you mean to use `or`?",
+        ".tmp_source.zig:5:31: error: expected ErrorSet type, found 'u16'",
     );
 
     cases.add(
@@ -1200,7 +1212,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const z = i32!i32;
         \\}
     ,
-        ".tmp_source.zig:2:15: error: expected error set type, found 'i32'",
+        ".tmp_source.zig:2:15: error: expected ErrorSet type, found 'i32'",
     );
 
     cases.add(
@@ -3850,7 +3862,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return @ptrCast(usize, a);
         \\}
     ,
-        ".tmp_source.zig:2:21: error: expected pointer type, found 'usize'",
+        ".tmp_source.zig:2:21: error: expected Pointer type, found 'usize'",
     );
 
     cases.add(
@@ -3897,7 +3909,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return @fieldParentPtr(Foo, "a", a);
         \\}
     ,
-        ".tmp_source.zig:3:28: error: expected struct type, found 'i32'",
+        ".tmp_source.zig:3:28: error: expected Struct type, found 'i32'",
     );
 
     cases.add(
@@ -3921,7 +3933,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return @fieldParentPtr(Foo, "a", a);
         \\}
     ,
-        ".tmp_source.zig:5:38: error: expected pointer type, found 'i32'",
+        ".tmp_source.zig:5:38: error: expected Pointer type, found 'i32'",
     );
 
     cases.add(
@@ -3962,7 +3974,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return @byteOffsetOf(Foo, "a",);
         \\}
     ,
-        ".tmp_source.zig:3:26: error: expected struct type, found 'i32'",
+        ".tmp_source.zig:3:26: error: expected Struct type, found 'i32'",
     );
 
     cases.add(
@@ -4347,7 +4359,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return @ptrToInt(x);
         \\}
     ,
-        ".tmp_source.zig:2:22: error: expected pointer type, found 'i32'",
+        ".tmp_source.zig:2:22: error: expected Pointer type, found 'i32'",
     );
 
     cases.add(
@@ -4749,7 +4761,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = @ArgType(i32, 3);
         \\}
     ,
-        ".tmp_source.zig:2:18: error: expected function type, found 'i32'",
+        ".tmp_source.zig:2:18: error: expected Fn type, found 'i32'",
     );
 
     cases.add(
