@@ -32,6 +32,15 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
+        "compile log a pointer to an opaque value",
+        \\export fn entry() void {
+        \\    @compileLog(@ptrCast(*const c_void, &entry));
+        \\}
+    ,
+        ".tmp_source.zig:2:5: error: found compile log statement",
+    );
+
+    cases.add(
         "duplicate boolean switch value",
         \\comptime {
         \\    const x = switch (true) {

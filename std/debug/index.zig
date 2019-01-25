@@ -247,8 +247,7 @@ pub fn writeCurrentStackTraceWindows(
     start_addr: ?usize,
 ) !void {
     var addr_buf: [1024]usize = undefined;
-    const casted_len = @intCast(u32, addr_buf.len); // TODO shouldn't need this cast
-    const n = windows.RtlCaptureStackBackTrace(0, casted_len, @ptrCast(**c_void, &addr_buf), null);
+    const n = windows.RtlCaptureStackBackTrace(0, addr_buf.len, @ptrCast(**c_void, &addr_buf), null);
     const addrs = addr_buf[0..n];
     var start_i: usize = if (start_addr) |saddr| blk: {
         for (addrs) |addr, i| {
@@ -338,50 +337,74 @@ fn printSourceAtAddressWindows(di: *DebugInfo, out_stream: var, relocated_addres
 
             switch (subsect_hdr.Kind) {
                 pdb.DebugSubsectionKind.Lines => {
-                    var line_index: usize = sect_offset;
+                    var line_index = sect_offset;
 
                     const line_hdr = @ptrCast(*pdb.LineFragmentHeader, &subsect_info[line_index]);
                     if (line_hdr.RelocSegment == 0) return error.MissingDebugInfo;
                     line_index += @sizeOf(pdb.LineFragmentHeader);
-
-                    const block_hdr = @ptrCast(*pdb.LineBlockFragmentHeader, &subsect_info[line_index]);
-                    line_index += @sizeOf(pdb.LineBlockFragmentHeader);
-
-                    const has_column = line_hdr.Flags.LF_HaveColumns;
-
                     const frag_vaddr_start = coff_section.header.virtual_address + line_hdr.RelocOffset;
                     const frag_vaddr_end = frag_vaddr_start + line_hdr.CodeSize;
-                    if (relative_address >= frag_vaddr_start and relative_address < frag_vaddr_end) {
-                        var line_i: usize = 0;
+
+                    // There is an unknown number of LineBlockFragmentHeaders (and their accompanying line and column records)
+                    // from now on. We will iterate through them, and eventually find a LineInfo that we're interested in,
+                    // breaking out to :subsections. If not, we will make sure to not read anything outside of this subsection.
+                    const subsection_end_index = sect_offset + subsect_hdr.Length;
+                    while (line_index < subsection_end_index) {
+                        const block_hdr = @ptrCast(*pdb.LineBlockFragmentHeader, &subsect_info[line_index]);
+                        line_index += @sizeOf(pdb.LineBlockFragmentHeader);
                         const start_line_index = line_index;
-                        while (line_i < block_hdr.NumLines) : (line_i += 1) {
-                            const line_num_entry = @ptrCast(*pdb.LineNumberEntry, &subsect_info[line_index]);
-                            line_index += @sizeOf(pdb.LineNumberEntry);
-                            const flags = @ptrCast(*pdb.LineNumberEntry.Flags, &line_num_entry.Flags);
-                            const vaddr_start = frag_vaddr_start + line_num_entry.Offset;
-                            const vaddr_end = if (flags.End == 0) frag_vaddr_end else vaddr_start + flags.End;
-                            if (relative_address >= vaddr_start and relative_address < vaddr_end) {
+
+                        const has_column = line_hdr.Flags.LF_HaveColumns;
+
+                        if (relative_address >= frag_vaddr_start and relative_address < frag_vaddr_end) {
+                            // All line entries are stored inside their line block by ascending start address.
+                            // Heuristic: we want to find the last line entry that has a vaddr_start <= relative_address.
+                            // This is done with a simple linear search.
+                            var line_i: u32 = 0;
+                            while (line_i < block_hdr.NumLines) : (line_i += 1) {
+                                const line_num_entry = @ptrCast(*pdb.LineNumberEntry, &subsect_info[line_index]);
+                                line_index += @sizeOf(pdb.LineNumberEntry);
+
+                                const vaddr_start = frag_vaddr_start + line_num_entry.Offset;
+                                if (relative_address <= vaddr_start) {
+                                    break;
+                                }
+                            }
+
+                            // line_i == 0 would mean that no matching LineNumberEntry was found.
+                            if (line_i > 0) {
                                 const subsect_index = checksum_offset + block_hdr.NameIndex;
                                 const chksum_hdr = @ptrCast(*pdb.FileChecksumEntryHeader, &mod.subsect_info[subsect_index]);
                                 const strtab_offset = @sizeOf(pdb.PDBStringTableHeader) + chksum_hdr.FileNameOffset;
                                 try di.pdb.string_table.seekTo(strtab_offset);
                                 const source_file_name = try di.pdb.string_table.readNullTermString(allocator);
-                                const line = flags.Start;
+
+                                const line_entry_idx = line_i - 1;
+
                                 const column = if (has_column) blk: {
-                                    line_index = start_line_index + @sizeOf(pdb.LineNumberEntry) * block_hdr.NumLines;
-                                    line_index += @sizeOf(pdb.ColumnNumberEntry) * line_i;
-                                    const col_num_entry = @ptrCast(*pdb.ColumnNumberEntry, &subsect_info[line_index]);
+                                    const start_col_index = start_line_index + @sizeOf(pdb.LineNumberEntry) * block_hdr.NumLines;
+                                    const col_index = start_col_index + @sizeOf(pdb.ColumnNumberEntry) * line_entry_idx;
+                                    const col_num_entry = @ptrCast(*pdb.ColumnNumberEntry, &subsect_info[col_index]);
                                     break :blk col_num_entry.StartColumn;
                                 } else 0;
+
+                                const found_line_index = start_line_index + line_entry_idx * @sizeOf(pdb.LineNumberEntry);
+                                const line_num_entry = @ptrCast(*pdb.LineNumberEntry, &subsect_info[found_line_index]);
+                                const flags = @ptrCast(*pdb.LineNumberEntry.Flags, &line_num_entry.Flags);
+
                                 break :subsections LineInfo{
                                     .allocator = allocator,
                                     .file_name = source_file_name,
-                                    .line = line,
+                                    .line = flags.Start,
                                     .column = column,
                                 };
                             }
                         }
-                        break :subsections null;
+                    }
+
+                    // Checking that we are not reading garbage after the (possibly) multiple block fragments.
+                    if (line_index != subsection_end_index) {
+                        return error.InvalidDebugInfo;
                     }
                 },
                 else => {},
