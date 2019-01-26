@@ -4079,7 +4079,7 @@ static AstNode *trans_ap_value(Context *c, APValue *ap_value, QualType qt, const
             init_node->data.container_init_expr.type = arr_type_node;
             init_node->data.container_init_expr.kind = ContainerInitKindArray;
 
-            QualType child_qt = qt.getTypePtr()->getLocallyUnqualifiedSingleStepDesugaredType();
+            QualType child_qt = qt.getTypePtr()->getAsArrayTypeUnsafe()->getElementType();
 
             for (size_t i = 0; i < init_count; i += 1) {
                 APValue &elem_ap_val = ap_value->getArrayInitializedElt(i);
