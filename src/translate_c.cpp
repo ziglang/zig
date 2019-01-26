@@ -4076,6 +4076,9 @@ static AstNode *trans_ap_value(Context *c, APValue *ap_value, QualType qt, const
             unsigned leftover_count = all_count - init_count;
             AstNode *init_node = trans_create_node(c, NodeTypeContainerInitExpr);
             AstNode *arr_type_node = trans_qual_type(c, qt, source_loc);
+            if (leftover_count != 0) { // We can't use the size of the final array for a partial initializer.
+                bigint_init_unsigned(arr_type_node->data.array_type.size->data.int_literal.bigint, init_count);
+            }
             init_node->data.container_init_expr.type = arr_type_node;
             init_node->data.container_init_expr.kind = ContainerInitKindArray;
 
@@ -4097,10 +4100,14 @@ static AstNode *trans_ap_value(Context *c, APValue *ap_value, QualType qt, const
             if (filler_node == nullptr)
                 return nullptr;
 
+            AstNode* filler_arr_type = trans_create_node(c, NodeTypeArrayType);
+            *filler_arr_type = *arr_type_node;
+            filler_arr_type->data.array_type.size = trans_create_node_unsigned(c, 1);
+
             AstNode *filler_arr_1 = trans_create_node(c, NodeTypeContainerInitExpr);
-            init_node->data.container_init_expr.type = arr_type_node;
-            init_node->data.container_init_expr.kind = ContainerInitKindArray;
-            init_node->data.container_init_expr.entries.append(filler_node);
+            filler_arr_1->data.container_init_expr.type = filler_arr_type;
+            filler_arr_1->data.container_init_expr.kind = ContainerInitKindArray;
+            filler_arr_1->data.container_init_expr.entries.append(filler_node);
 
             AstNode *rhs_node;
             if (leftover_count == 1) {
