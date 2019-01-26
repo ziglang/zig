@@ -4117,6 +4117,10 @@ static AstNode *trans_ap_value(Context *c, APValue *ap_value, QualType qt, const
                 rhs_node = trans_create_node_bin_op(c, filler_arr_1, BinOpTypeArrayMult, amt_node);
             }
 
+            if (init_count == 0) {
+                return rhs_node;
+            }
+
             return trans_create_node_bin_op(c, init_node, BinOpTypeArrayCat, rhs_node);
         }
         case APValue::LValue: {
