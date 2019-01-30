@@ -1,9 +1,9 @@
 const std = @import("std");
-const assert = std.debug.assert;
+const assertOrPanic = std.debug.assertOrPanic;
 
 test "struct contains null pointer which contains original struct" {
     var x: ?*NodeLineComment = null;
-    assert(x == null);
+    assertOrPanic(x == null);
 }
 
 pub const Node = struct {
