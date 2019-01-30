@@ -10,7 +10,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return 5678;
         \\}
     ,
-        ".tmp_source.zig:2:11: error: `&&` is invalid. Note that `and` is boolean AND.",
+        ".tmp_source.zig:2:12: error: `&&` is invalid. Note that `and` is boolean AND.",
     );
 
     cases.add(
