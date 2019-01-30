@@ -122,36 +122,18 @@ static AstNode *ast_parse_container_decl_type(ParseContext *pc);
 static AstNode *ast_parse_byte_align(ParseContext *pc);
 
 ATTRIBUTE_PRINTF(3, 4)
-static ErrorMsg *ast_error(ParseContext *pc, Token *token, const char *format, ...) {
-    va_list ap;
-    va_start(ap, format);
-    Buf *msg = buf_vprintf(format, ap);
-    va_end(ap);
-
-    ErrorMsg *err = err_msg_create_with_line(pc->owner->path, token->start_line, token->start_column,
-            pc->owner->source_code, pc->owner->line_offsets, msg);
-    err->line_start = token->start_line;
-    err->column_start = token->start_column;
-
-    return err;
-}
-
-ATTRIBUTE_PRINTF(4, 5)
 ATTRIBUTE_NORETURN
-static void ast_error_exit(ParseContext *pc, Token *token, ErrorMsg *note, const char *format, ...) {
+static void ast_error(ParseContext *pc, Token *token, const char *format, ...) {
     va_list ap;
     va_start(ap, format);
     Buf *msg = buf_vprintf(format, ap);
     va_end(ap);
 
+
     ErrorMsg *err = err_msg_create_with_line(pc->owner->path, token->start_line, token->start_column,
             pc->owner->source_code, pc->owner->line_offsets, msg);
     err->line_start = token->start_line;
     err->column_start = token->start_column;
-
-    if (note) {
-      err->notes.append(note);
-    }
 
     print_err_msg(err, pc->err_color);
     exit(EXIT_FAILURE);
@@ -182,7 +164,7 @@ static Buf ast_token_str(Buf *input, Token *token) {
 ATTRIBUTE_NORETURN
 static void ast_invalid_token_error(ParseContext *pc, Token *token) {
     Buf token_value = ast_token_str(pc->buf, token);
-    ast_error_exit(pc, token, NULL, "invalid token: '%s'", buf_ptr(&token_value));
+    ast_error(pc, token, "invalid token: '%s'", buf_ptr(&token_value));
 }
 
 static AstNode *ast_create_node_no_line_info(ParseContext *pc, NodeType type) {
@@ -232,13 +214,8 @@ static Token *eat_token_if(ParseContext *pc, TokenId id) {
 
 static Token *expect_token(ParseContext *pc, TokenId id) {
     Token *res = eat_token(pc);
-    if (res->id != id) {
-        ErrorMsg *note = NULL;
-        if (res->id == TokenIdAmpersandAmpersand) {
-            note = ast_error(pc, res, "did you mean to use `and`?");
-        }
-        ast_error_exit(pc, res, note, "expected token '%s', found '%s'", token_name(id), token_name(res->id));
-    }
+    if (res->id != id)
+        ast_error(pc, res, "expected token '%s', found '%s'", token_name(id), token_name(res->id));
 
     return res;
 }
@@ -860,7 +837,7 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc) {
         if (param_decl->data.param_decl.is_var_args)
             res->data.fn_proto.is_var_args = true;
         if (i != params.length - 1 && res->data.fn_proto.is_var_args)
-            ast_error_exit(pc, first, NULL, "Function prototype have varargs as a none last paramter.");
+            ast_error(pc, first, "Function prototype have varargs as a none last paramter.");
     }
     return res;
 }

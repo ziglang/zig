@@ -199,7 +199,6 @@ enum TokenizeState {
     TokenizeStateSawDash,
     TokenizeStateSawMinusPercent,
     TokenizeStateSawAmpersand,
-    TokenizeStateSawAmpersandAmpersand,
     TokenizeStateSawCaret,
     TokenizeStateSawBar,
     TokenizeStateSawBarBar,
@@ -887,14 +886,13 @@ void tokenize(Buf *buf, Tokenization *out) {
                 break;
             case TokenizeStateSawAmpersand:
                 switch (c) {
+                    case '&':
+                        tokenize_error(&t, "`&&` is invalid. Note that `and` is boolean AND.");
+                        break;
                     case '=':
                         set_token_id(&t, t.cur_tok, TokenIdBitAndEq);
                         end_token(&t);
                         t.state = TokenizeStateStart;
-                        break;
-                    case '&':
-                        set_token_id(&t, t.cur_tok, TokenIdAmpersandAmpersand);
-                        t.state = TokenizeStateSawAmpersandAmpersand;
                         break;
                     default:
                         t.pos -= 1;
@@ -903,11 +901,6 @@ void tokenize(Buf *buf, Tokenization *out) {
                         continue;
                 }
                 break;
-            case TokenizeStateSawAmpersandAmpersand:
-                t.pos -= 1;
-                end_token(&t);
-                t.state = TokenizeStateStart;
-                continue;
             case TokenizeStateSawCaret:
                 switch (c) {
                     case '=':
@@ -1478,7 +1471,6 @@ void tokenize(Buf *buf, Tokenization *out) {
         case TokenizeStateSawPlus:
         case TokenizeStateSawDash:
         case TokenizeStateSawAmpersand:
-        case TokenizeStateSawAmpersandAmpersand:
         case TokenizeStateSawCaret:
         case TokenizeStateSawBar:
         case TokenizeStateSawEq:
@@ -1526,7 +1518,6 @@ void tokenize(Buf *buf, Tokenization *out) {
 const char * token_name(TokenId id) {
     switch (id) {
         case TokenIdAmpersand: return "&";
-        case TokenIdAmpersandAmpersand: return "&&";
         case TokenIdArrow: return "->";
         case TokenIdAtSign: return "@";
         case TokenIdBang: return "!";
