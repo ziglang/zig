@@ -2645,7 +2645,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
     ,
-        ".tmp_source.zig:1:13: error: newline not allowed in string literal",
+        ".tmp_source.zig:1:15: error: newline not allowed in string literal",
     );
 
     cases.add(

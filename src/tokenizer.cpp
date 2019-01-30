@@ -248,13 +248,8 @@ ATTRIBUTE_PRINTF(2, 3)
 static void tokenize_error(Tokenize *t, const char *format, ...) {
     t->state = TokenizeStateError;
 
-    if (t->cur_tok) {
-        t->out->err_line = t->cur_tok->start_line;
-        t->out->err_column = t->cur_tok->start_column;
-    } else {
-        t->out->err_line = t->line;
-        t->out->err_column = t->column;
-    }
+    t->out->err_line = t->line;
+    t->out->err_column = t->column;
 
     va_list ap;
     va_start(ap, format);
