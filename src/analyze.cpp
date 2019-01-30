@@ -570,7 +570,7 @@ ZigType *get_optional_type(CodeGen *g, ZigType *child_type) {
         if (child_type->zero_bits) {
             entry->type_ref = LLVMInt1Type();
             entry->di_type = g->builtin_types.entry_bool->di_type;
-        } else if (type_is_codegen_pointer(child_type)) {
+        } else if (type_is_codegen_pointer(child_type) || child_type->id == ZigTypeIdErrorSet) {
             assert(child_type->di_type);
             // this is an optimization but also is necessary for calling C
             // functions where all pointers are maybe pointers
@@ -1278,7 +1278,9 @@ ZigType *get_partial_container_type(CodeGen *g, Scope *scope, ContainerKind kind
     return entry;
 }
 
-static IrInstruction *analyze_const_value(CodeGen *g, Scope *scope, AstNode *node, ZigType *type_entry, Buf *type_name) {
+static ConstExprValue *analyze_const_value(CodeGen *g, Scope *scope, AstNode *node, ZigType *type_entry,
+        Buf *type_name)
+{
     size_t backward_branch_count = 0;
     return ir_eval_const_value(g, scope, node, type_entry,
             &backward_branch_count, default_backward_branch_quota,
@@ -1286,12 +1288,12 @@ static IrInstruction *analyze_const_value(CodeGen *g, Scope *scope, AstNode *nod
 }
 
 ZigType *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node) {
-    IrInstruction *result = analyze_const_value(g, scope, node, g->builtin_types.entry_type, nullptr);
-    if (result->value.type->id == ZigTypeIdInvalid)
+    ConstExprValue *result = analyze_const_value(g, scope, node, g->builtin_types.entry_type, nullptr);
+    if (type_is_invalid(result->type))
         return g->builtin_types.entry_invalid;
 
-    assert(result->value.special != ConstValSpecialRuntime);
-    return result->value.data.x_type;
+    assert(result->special != ConstValSpecialRuntime);
+    return result->data.x_type;
 }
 
 ZigType *get_generic_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
@@ -1342,11 +1344,11 @@ void init_fn_type_id(FnTypeId *fn_type_id, AstNode *proto_node, size_t param_cou
 }
 
 static bool analyze_const_align(CodeGen *g, Scope *scope, AstNode *node, uint32_t *result) {
-    IrInstruction *align_result = analyze_const_value(g, scope, node, get_align_amt_type(g), nullptr);
-    if (type_is_invalid(align_result->value.type))
+    ConstExprValue *align_result = analyze_const_value(g, scope, node, get_align_amt_type(g), nullptr);
+    if (type_is_invalid(align_result->type))
         return false;
 
-    uint32_t align_bytes = bigint_as_unsigned(&align_result->value.data.x_bigint);
+    uint32_t align_bytes = bigint_as_unsigned(&align_result->data.x_bigint);
     if (align_bytes == 0) {
         add_node_error(g, node, buf_sprintf("alignment must be >= 1"));
         return false;
@@ -1364,12 +1366,12 @@ static bool analyze_const_string(CodeGen *g, Scope *scope, AstNode *node, Buf **
     ZigType *ptr_type = get_pointer_to_type_extra(g, g->builtin_types.entry_u8, true, false,
             PtrLenUnknown, 0, 0, 0);
     ZigType *str_type = get_slice_type(g, ptr_type);
-    IrInstruction *instr = analyze_const_value(g, scope, node, str_type, nullptr);
-    if (type_is_invalid(instr->value.type))
+    ConstExprValue *result_val = analyze_const_value(g, scope, node, str_type, nullptr);
+    if (type_is_invalid(result_val->type))
         return false;
 
-    ConstExprValue *ptr_field = &instr->value.data.x_struct.fields[slice_ptr_index];
-    ConstExprValue *len_field = &instr->value.data.x_struct.fields[slice_len_index];
+    ConstExprValue *ptr_field = &result_val->data.x_struct.fields[slice_ptr_index];
+    ConstExprValue *len_field = &result_val->data.x_struct.fields[slice_len_index];
 
     assert(ptr_field->data.x_ptr.special == ConstPtrSpecialBaseArray);
     ConstExprValue *array_val = ptr_field->data.x_ptr.data.base_array.array_val;
@@ -2504,20 +2506,20 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
         // In this first pass we resolve explicit tag values.
         // In a second pass we will fill in the unspecified ones.
         if (tag_value != nullptr) {
-            IrInstruction *result_inst = analyze_const_value(g, scope, tag_value, tag_int_type, nullptr);
-            if (result_inst->value.type->id == ZigTypeIdInvalid) {
+            ConstExprValue *result = analyze_const_value(g, scope, tag_value, tag_int_type, nullptr);
+            if (type_is_invalid(result->type)) {
                 enum_type->data.enumeration.is_invalid = true;
                 continue;
             }
-            assert(result_inst->value.special != ConstValSpecialRuntime);
-            assert(result_inst->value.type->id == ZigTypeIdInt ||
-                   result_inst->value.type->id == ZigTypeIdComptimeInt);
-            auto entry = occupied_tag_values.put_unique(result_inst->value.data.x_bigint, tag_value);
+            assert(result->special != ConstValSpecialRuntime);
+            assert(result->type->id == ZigTypeIdInt ||
+                   result->type->id == ZigTypeIdComptimeInt);
+            auto entry = occupied_tag_values.put_unique(result->data.x_bigint, tag_value);
             if (entry == nullptr) {
-                bigint_init_bigint(&type_enum_field->value, &result_inst->value.data.x_bigint);
+                bigint_init_bigint(&type_enum_field->value, &result->data.x_bigint);
             } else {
                 Buf *val_buf = buf_alloc();
-                bigint_append_buf(val_buf, &result_inst->value.data.x_bigint, 10);
+                bigint_append_buf(val_buf, &result->data.x_bigint, 10);
 
                 ErrorMsg *msg = add_node_error(g, tag_value,
                         buf_sprintf("enum tag value %s already taken", buf_ptr(val_buf)));
@@ -2944,19 +2946,19 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
             // In a second pass we will fill in the unspecified ones.
             if (tag_value != nullptr) {
                 ZigType *tag_int_type = tag_type->data.enumeration.tag_int_type;
-                IrInstruction *result_inst = analyze_const_value(g, scope, tag_value, tag_int_type, nullptr);
-                if (result_inst->value.type->id == ZigTypeIdInvalid) {
+                ConstExprValue *result = analyze_const_value(g, scope, tag_value, tag_int_type, nullptr);
+                if (type_is_invalid(result->type)) {
                     union_type->data.unionation.is_invalid = true;
                     continue;
                 }
-                assert(result_inst->value.special != ConstValSpecialRuntime);
-                assert(result_inst->value.type->id == ZigTypeIdInt);
-                auto entry = occupied_tag_values.put_unique(result_inst->value.data.x_bigint, tag_value);
+                assert(result->special != ConstValSpecialRuntime);
+                assert(result->type->id == ZigTypeIdInt);
+                auto entry = occupied_tag_values.put_unique(result->data.x_bigint, tag_value);
                 if (entry == nullptr) {
-                    bigint_init_bigint(&union_field->enum_field->value, &result_inst->value.data.x_bigint);
+                    bigint_init_bigint(&union_field->enum_field->value, &result->data.x_bigint);
                 } else {
                     Buf *val_buf = buf_alloc();
-                    bigint_append_buf(val_buf, &result_inst->value.data.x_bigint, 10);
+                    bigint_append_buf(val_buf, &result->data.x_bigint, 10);
 
                     ErrorMsg *msg = add_node_error(g, tag_value,
                             buf_sprintf("enum tag value %s already taken", buf_ptr(val_buf)));
@@ -3419,7 +3421,8 @@ void update_compile_var(CodeGen *g, Buf *name, ConstExprValue *value) {
     resolve_top_level_decl(g, tld, false, tld->source_node);
     assert(tld->id == TldIdVar);
     TldVar *tld_var = (TldVar *)tld;
-    tld_var->var->value = value;
+    tld_var->var->const_value = value;
+    tld_var->var->var_type = value->type;
     tld_var->var->align_bytes = get_abi_alignment(g, value->type);
 }
 
@@ -3513,7 +3516,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeArrayType:
         case NodeTypeErrorType:
         case NodeTypeIfErrorExpr:
-        case NodeTypeTestExpr:
+        case NodeTypeIfOptional:
         case NodeTypeErrorSetDecl:
         case NodeTypeCancel:
         case NodeTypeResume:
@@ -3582,13 +3585,15 @@ ZigType *validate_var_type(CodeGen *g, AstNode *source_node, ZigType *type_entry
 // Set name to nullptr to make the variable anonymous (not visible to programmer).
 // TODO merge with definition of add_local_var in ir.cpp
 ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf *name,
-    bool is_const, ConstExprValue *value, Tld *src_tld)
+    bool is_const, ConstExprValue *const_value, Tld *src_tld, ZigType *var_type)
 {
     Error err;
-    assert(value);
+    assert(const_value != nullptr);
+    assert(var_type != nullptr);
 
     ZigVar *variable_entry = allocate<ZigVar>(1);
-    variable_entry->value = value;
+    variable_entry->const_value = const_value;
+    variable_entry->var_type = var_type;
     variable_entry->parent_scope = parent_scope;
     variable_entry->shadowable = false;
     variable_entry->mem_slot_index = SIZE_MAX;
@@ -3597,23 +3602,23 @@ ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf 
     assert(name);
     buf_init_from_buf(&variable_entry->name, name);
 
-    if ((err = type_resolve(g, value->type, ResolveStatusAlignmentKnown))) {
-        variable_entry->value->type = g->builtin_types.entry_invalid;
+    if ((err = type_resolve(g, var_type, ResolveStatusAlignmentKnown))) {
+        variable_entry->var_type = g->builtin_types.entry_invalid;
     } else {
-        variable_entry->align_bytes = get_abi_alignment(g, value->type);
+        variable_entry->align_bytes = get_abi_alignment(g, var_type);
 
         ZigVar *existing_var = find_variable(g, parent_scope, name, nullptr);
         if (existing_var && !existing_var->shadowable) {
             ErrorMsg *msg = add_node_error(g, source_node,
                     buf_sprintf("redeclaration of variable '%s'", buf_ptr(name)));
             add_error_note(g, msg, existing_var->decl_node, buf_sprintf("previous declaration is here"));
-            variable_entry->value->type = g->builtin_types.entry_invalid;
+            variable_entry->var_type = g->builtin_types.entry_invalid;
         } else {
             ZigType *type;
             if (get_primitive_type(g, name, &type) != ErrorPrimitiveTypeNotFound) {
                 add_node_error(g, source_node,
                         buf_sprintf("variable shadows primitive type '%s'", buf_ptr(name)));
-                variable_entry->value->type = g->builtin_types.entry_invalid;
+                variable_entry->var_type = g->builtin_types.entry_invalid;
             } else {
                 Scope *search_scope = nullptr;
                 if (src_tld == nullptr) {
@@ -3627,7 +3632,7 @@ ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf 
                         ErrorMsg *msg = add_node_error(g, source_node,
                                 buf_sprintf("redefinition of '%s'", buf_ptr(name)));
                         add_error_note(g, msg, tld->source_node, buf_sprintf("previous definition is here"));
-                        variable_entry->value->type = g->builtin_types.entry_invalid;
+                        variable_entry->var_type = g->builtin_types.entry_invalid;
                     }
                 }
             }
@@ -3677,7 +3682,7 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
         linkage = VarLinkageInternal;
     }
 
-    IrInstruction *init_value = nullptr;
+    ConstExprValue *init_value = nullptr;
 
     // TODO more validation for types that can't be used for export/extern variables
     ZigType *implicit_type = nullptr;
@@ -3686,7 +3691,7 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
     } else if (var_decl->expr) {
         init_value = analyze_const_value(g, tld_var->base.parent_scope, var_decl->expr, explicit_type, var_decl->symbol);
         assert(init_value);
-        implicit_type = init_value->value.type;
+        implicit_type = init_value->type;
 
         if (implicit_type->id == ZigTypeIdUnreachable) {
             add_node_error(g, source_node, buf_sprintf("variable initialization is unreachable"));
@@ -3704,7 +3709,7 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
             add_node_error(g, source_node, buf_sprintf("variable of type 'type' must be constant"));
             implicit_type = g->builtin_types.entry_invalid;
         }
-        assert(implicit_type->id == ZigTypeIdInvalid || init_value->value.special != ConstValSpecialRuntime);
+        assert(implicit_type->id == ZigTypeIdInvalid || init_value->special != ConstValSpecialRuntime);
     } else if (linkage != VarLinkageExternal) {
         add_node_error(g, source_node, buf_sprintf("variables must be initialized"));
         implicit_type = g->builtin_types.entry_invalid;
@@ -3713,19 +3718,19 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
     ZigType *type = explicit_type ? explicit_type : implicit_type;
     assert(type != nullptr); // should have been caught by the parser
 
-    ConstExprValue *init_val = init_value ? &init_value->value : create_const_runtime(type);
+    ConstExprValue *init_val = (init_value != nullptr) ? init_value : create_const_runtime(type);
 
     tld_var->var = add_variable(g, source_node, tld_var->base.parent_scope, var_decl->symbol,
-            is_const, init_val, &tld_var->base);
+            is_const, init_val, &tld_var->base, type);
     tld_var->var->linkage = linkage;
 
     if (implicit_type != nullptr && type_is_invalid(implicit_type)) {
-        tld_var->var->value->type = g->builtin_types.entry_invalid;
+        tld_var->var->var_type = g->builtin_types.entry_invalid;
     }
 
     if (var_decl->align_expr != nullptr) {
         if (!analyze_const_align(g, tld_var->base.parent_scope, var_decl->align_expr, &tld_var->var->align_bytes)) {
-            tld_var->var->value->type = g->builtin_types.entry_invalid;
+            tld_var->var->var_type = g->builtin_types.entry_invalid;
         }
     }
 
@@ -4090,7 +4095,7 @@ static void define_local_param_variables(CodeGen *g, ZigFn *fn_table_entry) {
         }
 
         ZigVar *var = add_variable(g, param_decl_node, fn_table_entry->child_scope,
-                param_name, true, create_const_runtime(param_type), nullptr);
+                param_name, true, create_const_runtime(param_type), nullptr, param_type);
         var->src_arg_index = i;
         fn_table_entry->child_scope = var->child_scope;
         var->shadowable = var->shadowable || is_var_args;
@@ -4228,18 +4233,17 @@ static void add_symbols_from_import(CodeGen *g, AstNode *src_use_node, AstNode *
         preview_use_decl(g, src_use_node);
     }
 
-    IrInstruction *use_target_value = src_use_node->data.use.value;
-    if (use_target_value->value.type->id == ZigTypeIdInvalid) {
+    ConstExprValue *use_target_value = src_use_node->data.use.value;
+    if (type_is_invalid(use_target_value->type)) {
         dst_use_node->owner->any_imports_failed = true;
         return;
     }
 
     dst_use_node->data.use.resolution = TldResolutionOk;
 
-    ConstExprValue *const_val = &use_target_value->value;
-    assert(const_val->special != ConstValSpecialRuntime);
+    assert(use_target_value->special != ConstValSpecialRuntime);
 
-    ImportTableEntry *target_import = const_val->data.x_import;
+    ImportTableEntry *target_import = use_target_value->data.x_import;
     assert(target_import);
 
     if (target_import->any_imports_failed) {
@@ -4302,10 +4306,10 @@ void preview_use_decl(CodeGen *g, AstNode *node) {
     }
 
     node->data.use.resolution = TldResolutionResolving;
-    IrInstruction *result = analyze_const_value(g, &node->owner->decls_scope->base,
+    ConstExprValue *result = analyze_const_value(g, &node->owner->decls_scope->base,
         node->data.use.expr, g->builtin_types.entry_namespace, nullptr);
 
-    if (result->value.type->id == ZigTypeIdInvalid)
+    if (type_is_invalid(result->type))
         node->owner->any_imports_failed = true;
 
     node->data.use.value = result;
@@ -4486,7 +4490,8 @@ bool handle_is_ptr(ZigType *type_entry) {
              return type_has_bits(type_entry->data.error_union.payload_type);
         case ZigTypeIdOptional:
              return type_has_bits(type_entry->data.maybe.child_type) &&
-                    !type_is_codegen_pointer(type_entry->data.maybe.child_type);
+                    !type_is_codegen_pointer(type_entry->data.maybe.child_type) &&
+                    type_entry->data.maybe.child_type->id != ZigTypeIdErrorSet;
         case ZigTypeIdUnion:
              assert(type_entry->data.unionation.zero_bits_known);
              if (type_entry->data.unionation.gen_field_count == 0)
@@ -4732,6 +4737,11 @@ bool fn_type_id_eql(FnTypeId *a, FnTypeId *b) {
     return true;
 }
 
+static uint32_t hash_const_val_error_set(ConstExprValue *const_val) {
+    assert(const_val->data.x_err_set != nullptr);
+    return const_val->data.x_err_set->value ^ 2630160122;
+}
+
 static uint32_t hash_const_val_ptr(ConstExprValue *const_val) {
     uint32_t hash_val = 0;
     switch (const_val->data.x_ptr.mut) {
@@ -4763,6 +4773,18 @@ static uint32_t hash_const_val_ptr(ConstExprValue *const_val) {
             hash_val += hash_ptr(const_val->data.x_ptr.data.base_struct.struct_val);
             hash_val += hash_size(const_val->data.x_ptr.data.base_struct.field_index);
             return hash_val;
+        case ConstPtrSpecialBaseErrorUnionCode:
+            hash_val += (uint32_t)2994743799;
+            hash_val += hash_ptr(const_val->data.x_ptr.data.base_err_union_code.err_union_val);
+            return hash_val;
+        case ConstPtrSpecialBaseErrorUnionPayload:
+            hash_val += (uint32_t)3456080131;
+            hash_val += hash_ptr(const_val->data.x_ptr.data.base_err_union_payload.err_union_val);
+            return hash_val;
+        case ConstPtrSpecialBaseOptionalPayload:
+            hash_val += (uint32_t)3163140517;
+            hash_val += hash_ptr(const_val->data.x_ptr.data.base_optional_payload.optional_val);
+            return hash_val;
         case ConstPtrSpecialHardCodedAddr:
             hash_val += (uint32_t)4048518294;
             hash_val += hash_size(const_val->data.x_ptr.data.hard_coded_addr.addr);
@@ -4773,6 +4795,9 @@ static uint32_t hash_const_val_ptr(ConstExprValue *const_val) {
         case ConstPtrSpecialFunction:
             hash_val += (uint32_t)2590901619;
             hash_val += hash_ptr(const_val->data.x_ptr.data.fn.fn_entry);
+            return hash_val;
+        case ConstPtrSpecialNull:
+            hash_val += (uint32_t)1486246455;
             return hash_val;
     }
     zig_unreachable();
@@ -4872,7 +4897,9 @@ static uint32_t hash_const_val(ConstExprValue *const_val) {
             return 2709806591;
         case ZigTypeIdOptional:
             if (get_codegen_ptr_type(const_val->type) != nullptr) {
-                return hash_const_val(const_val) * 1992916303;
+                return hash_const_val_ptr(const_val) * 1992916303;
+            } else if (const_val->type->data.maybe.child_type->id == ZigTypeIdErrorSet) {
+                return hash_const_val_error_set(const_val) * 3147031929;
             } else {
                 if (const_val->data.x_optional) {
                     return hash_const_val(const_val->data.x_optional) * 1992916303;
@@ -4884,8 +4911,7 @@ static uint32_t hash_const_val(ConstExprValue *const_val) {
             // TODO better hashing algorithm
             return 3415065496;
         case ZigTypeIdErrorSet:
-            assert(const_val->data.x_err_set != nullptr);
-            return const_val->data.x_err_set->value ^ 2630160122;
+            return hash_const_val_error_set(const_val);
         case ZigTypeIdNamespace:
             return hash_ptr(const_val->data.x_import);
         case ZigTypeIdBoundFn:
@@ -4987,7 +5013,7 @@ static bool can_mutate_comptime_var_state(ConstExprValue *value) {
             return can_mutate_comptime_var_state(value->data.x_optional);
 
         case ZigTypeIdErrorUnion:
-            if (value->data.x_err_union.err != nullptr)
+            if (value->data.x_err_union.error_set->data.x_err_set != nullptr)
                 return false;
             assert(value->data.x_err_union.payload != nullptr);
             return can_mutate_comptime_var_state(value->data.x_err_union.payload);
@@ -5048,9 +5074,9 @@ bool fn_eval_cacheable(Scope *scope, ZigType *return_type) {
     while (scope) {
         if (scope->id == ScopeIdVarDecl) {
             ScopeVarDecl *var_scope = (ScopeVarDecl *)scope;
-            if (type_is_invalid(var_scope->var->value->type))
+            if (type_is_invalid(var_scope->var->var_type))
                 return false;
-            if (can_mutate_comptime_var_state(var_scope->var->value))
+            if (can_mutate_comptime_var_state(var_scope->var->const_value))
                 return false;
         } else if (scope->id == ScopeIdFnDef) {
             return true;
@@ -5068,7 +5094,7 @@ uint32_t fn_eval_hash(Scope* scope) {
     while (scope) {
         if (scope->id == ScopeIdVarDecl) {
             ScopeVarDecl *var_scope = (ScopeVarDecl *)scope;
-            result += hash_const_val(var_scope->var->value);
+            result += hash_const_val(var_scope->var->const_value);
         } else if (scope->id == ScopeIdFnDef) {
             ScopeFnDef *fn_scope = (ScopeFnDef *)scope;
             result += hash_ptr(fn_scope->fn_entry);
@@ -5092,10 +5118,16 @@ bool fn_eval_eql(Scope *a, Scope *b) {
         if (a->id == ScopeIdVarDecl) {
             ScopeVarDecl *a_var_scope = (ScopeVarDecl *)a;
             ScopeVarDecl *b_var_scope = (ScopeVarDecl *)b;
-            if (a_var_scope->var->value->type != b_var_scope->var->value->type)
+            if (a_var_scope->var->var_type != b_var_scope->var->var_type)
                 return false;
-            if (!const_values_equal(a->codegen, a_var_scope->var->value, b_var_scope->var->value))
-                return false;
+            if (a_var_scope->var->var_type == a_var_scope->var->const_value->type &&
+                b_var_scope->var->var_type == b_var_scope->var->const_value->type)
+            {
+                if (!const_values_equal(a->codegen, a_var_scope->var->const_value, b_var_scope->var->const_value))
+                    return false;
+            } else {
+                zig_panic("TODO comptime ptr reinterpret for fn_eval_eql");
+            }
         } else if (a->id == ScopeIdFnDef) {
             ScopeFnDef *a_fn_scope = (ScopeFnDef *)a;
             ScopeFnDef *b_fn_scope = (ScopeFnDef *)b;
@@ -5113,11 +5145,71 @@ bool fn_eval_eql(Scope *a, Scope *b) {
     return false;
 }
 
+// Whether the type has bits at runtime.
 bool type_has_bits(ZigType *type_entry) {
     assert(type_entry);
     assert(!type_is_invalid(type_entry));
     assert(type_is_resolved(type_entry, ResolveStatusZeroBitsKnown));
     return !type_entry->zero_bits;
+}
+
+// Whether you can infer the value based solely on the type.
+OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry) {
+    assert(type_entry != nullptr);
+    Error err;
+    if ((err = type_resolve(g, type_entry, ResolveStatusZeroBitsKnown)))
+        return OnePossibleValueInvalid;
+    switch (type_entry->id) {
+        case ZigTypeIdInvalid:
+            zig_unreachable();
+        case ZigTypeIdOpaque:
+        case ZigTypeIdComptimeFloat:
+        case ZigTypeIdComptimeInt:
+        case ZigTypeIdMetaType:
+        case ZigTypeIdNamespace:
+        case ZigTypeIdBoundFn:
+        case ZigTypeIdArgTuple:
+        case ZigTypeIdOptional:
+        case ZigTypeIdFn:
+        case ZigTypeIdBool:
+        case ZigTypeIdFloat:
+        case ZigTypeIdPromise:
+        case ZigTypeIdErrorUnion:
+            return OnePossibleValueNo;
+        case ZigTypeIdUndefined:
+        case ZigTypeIdNull:
+        case ZigTypeIdVoid:
+        case ZigTypeIdUnreachable:
+            return OnePossibleValueYes;
+        case ZigTypeIdArray:
+            if (type_entry->data.array.len == 0)
+                return OnePossibleValueYes;
+            return type_has_one_possible_value(g, type_entry->data.array.child_type);
+        case ZigTypeIdStruct:
+            for (size_t i = 0; i < type_entry->data.structure.src_field_count; i += 1) {
+                TypeStructField *field = &type_entry->data.structure.fields[i];
+                switch (type_has_one_possible_value(g, field->type_entry)) {
+                    case OnePossibleValueInvalid:
+                        return OnePossibleValueInvalid;
+                    case OnePossibleValueNo:
+                        return OnePossibleValueNo;
+                    case OnePossibleValueYes:
+                        continue;
+                }
+            }
+            return OnePossibleValueYes;
+        case ZigTypeIdErrorSet:
+        case ZigTypeIdEnum:
+        case ZigTypeIdInt:
+            return type_has_bits(type_entry) ? OnePossibleValueNo : OnePossibleValueYes;
+        case ZigTypeIdPointer:
+            return type_has_one_possible_value(g, type_entry->data.pointer.child_type);
+        case ZigTypeIdUnion:
+            if (type_entry->data.unionation.src_field_count > 1)
+                return OnePossibleValueNo;
+            return type_has_one_possible_value(g, type_entry->data.unionation.fields[0].type_entry);
+    }
+    zig_unreachable();
 }
 
 ReqCompTime type_requires_comptime(CodeGen *g, ZigType *type_entry) {
@@ -5574,6 +5666,33 @@ bool const_values_equal_ptr(ConstExprValue *a, ConstExprValue *b) {
             if (a->data.x_ptr.data.base_struct.field_index != b->data.x_ptr.data.base_struct.field_index)
                 return false;
             return true;
+        case ConstPtrSpecialBaseErrorUnionCode:
+            if (a->data.x_ptr.data.base_err_union_code.err_union_val !=
+                b->data.x_ptr.data.base_err_union_code.err_union_val &&
+                a->data.x_ptr.data.base_err_union_code.err_union_val->global_refs !=
+                b->data.x_ptr.data.base_err_union_code.err_union_val->global_refs)
+            {
+                return false;
+            }
+            return true;
+        case ConstPtrSpecialBaseErrorUnionPayload:
+            if (a->data.x_ptr.data.base_err_union_payload.err_union_val !=
+                b->data.x_ptr.data.base_err_union_payload.err_union_val &&
+                a->data.x_ptr.data.base_err_union_payload.err_union_val->global_refs !=
+                b->data.x_ptr.data.base_err_union_payload.err_union_val->global_refs)
+            {
+                return false;
+            }
+            return true;
+        case ConstPtrSpecialBaseOptionalPayload:
+            if (a->data.x_ptr.data.base_optional_payload.optional_val !=
+                b->data.x_ptr.data.base_optional_payload.optional_val &&
+                a->data.x_ptr.data.base_optional_payload.optional_val->global_refs !=
+                b->data.x_ptr.data.base_optional_payload.optional_val->global_refs)
+            {
+                return false;
+            }
+            return true;
         case ConstPtrSpecialHardCodedAddr:
             if (a->data.x_ptr.data.hard_coded_addr.addr != b->data.x_ptr.data.hard_coded_addr.addr)
                 return false;
@@ -5582,6 +5701,8 @@ bool const_values_equal_ptr(ConstExprValue *a, ConstExprValue *b) {
             return true;
         case ConstPtrSpecialFunction:
             return a->data.x_ptr.data.fn.fn_entry == b->data.x_ptr.data.fn.fn_entry;
+        case ConstPtrSpecialNull:
+            return true;
     }
     zig_unreachable();
 }
@@ -5750,7 +5871,7 @@ void eval_min_max_value(CodeGen *g, ZigType *type_entry, ConstExprValue *const_v
     }
 }
 
-void render_const_val_ptr(CodeGen *g, Buf *buf, ConstExprValue *const_val, ZigType *type_entry) {
+static void render_const_val_ptr(CodeGen *g, Buf *buf, ConstExprValue *const_val, ZigType *type_entry) {
     assert(type_entry->id == ZigTypeIdPointer);
 
     if (type_entry->data.pointer.child_type->id == ZigTypeIdOpaque) {
@@ -5763,6 +5884,9 @@ void render_const_val_ptr(CodeGen *g, Buf *buf, ConstExprValue *const_val, ZigTy
             zig_unreachable();
         case ConstPtrSpecialRef:
         case ConstPtrSpecialBaseStruct:
+        case ConstPtrSpecialBaseErrorUnionCode:
+        case ConstPtrSpecialBaseErrorUnionPayload:
+        case ConstPtrSpecialBaseOptionalPayload:
             buf_appendf(buf, "*");
             // TODO we need a source node for const_ptr_pointee because it can generate compile errors
             render_const_value(g, buf, const_ptr_pointee(nullptr, g, const_val, nullptr));
@@ -5790,8 +5914,19 @@ void render_const_val_ptr(CodeGen *g, Buf *buf, ConstExprValue *const_val, ZigTy
                 buf_appendf(buf, "@ptrCast(%s, %s)", buf_ptr(&const_val->type->name), buf_ptr(&fn_entry->symbol_name));
                 return;
             }
+        case ConstPtrSpecialNull:
+            buf_append_str(buf, "null");
+            return;
     }
     zig_unreachable();
+}
+
+static void render_const_val_err_set(CodeGen *g, Buf *buf, ConstExprValue *const_val, ZigType *type_entry) {
+    if (const_val->data.x_err_set == nullptr) {
+        buf_append_str(buf, "null");
+    } else {
+        buf_appendf(buf, "%s.%s", buf_ptr(&type_entry->name), buf_ptr(&const_val->data.x_err_set->name));
+    }
 }
 
 void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
@@ -5921,6 +6056,8 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
             {
                 if (get_codegen_ptr_type(const_val->type) != nullptr)
                     return render_const_val_ptr(g, buf, const_val, type_entry->data.maybe.child_type);
+                if (type_entry->data.maybe.child_type->id == ZigTypeIdErrorSet)
+                    return render_const_val_err_set(g, buf, const_val, type_entry->data.maybe.child_type);
                 if (const_val->data.x_optional) {
                     render_const_value(g, buf, const_val->data.x_optional);
                 } else {
@@ -5958,11 +6095,12 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
         case ZigTypeIdErrorUnion:
             {
                 buf_appendf(buf, "%s(", buf_ptr(&type_entry->name));
-                if (const_val->data.x_err_union.err == nullptr) {
+                ErrorTableEntry *err_set = const_val->data.x_err_union.error_set->data.x_err_set;
+                if (err_set == nullptr) {
                     render_const_value(g, buf, const_val->data.x_err_union.payload);
                 } else {
                     buf_appendf(buf, "%s.%s", buf_ptr(&type_entry->data.error_union.err_set_type->name),
-                            buf_ptr(&const_val->data.x_err_union.err->name));
+                            buf_ptr(&err_set->name));
                 }
                 buf_appendf(buf, ")");
                 return;
@@ -5977,10 +6115,7 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
                 return;
             }
         case ZigTypeIdErrorSet:
-            {
-                buf_appendf(buf, "%s.%s", buf_ptr(&type_entry->name), buf_ptr(&const_val->data.x_err_set->name));
-                return;
-            }
+            return render_const_val_err_set(g, buf, const_val, type_entry);
         case ZigTypeIdArgTuple:
             {
                 buf_appendf(buf, "(args value)");
@@ -6172,6 +6307,10 @@ bool zig_llvm_fn_key_eql(ZigLLVMFnKey a, ZigLLVMFnKey b) {
 // Canonicalize the array value as ConstArraySpecialNone
 void expand_undef_array(CodeGen *g, ConstExprValue *const_val) {
     assert(const_val->type->id == ZigTypeIdArray);
+    if (const_val->special == ConstValSpecialUndef) {
+        const_val->special = ConstValSpecialStatic;
+        const_val->data.x_array.special = ConstArraySpecialUndef;
+    }
     switch (const_val->data.x_array.special) {
         case ConstArraySpecialNone:
             return;
@@ -6215,17 +6354,7 @@ void expand_undef_array(CodeGen *g, ConstExprValue *const_val) {
 }
 
 ConstParent *get_const_val_parent(CodeGen *g, ConstExprValue *value) {
-    assert(value->type);
-    ZigType *type_entry = value->type;
-    if (type_entry->id == ZigTypeIdArray) {
-        expand_undef_array(g, value);
-        return &value->data.x_array.data.s_none.parent;
-    } else if (type_entry->id == ZigTypeIdStruct) {
-        return &value->data.x_struct.parent;
-    } else if (type_entry->id == ZigTypeIdUnion) {
-        return &value->data.x_union.parent;
-    }
-    return nullptr;
+    return &value->parent;
 }
 
 static const ZigTypeId all_type_ids[] = {
@@ -6453,7 +6582,7 @@ ConstExprValue *get_builtin_value(CodeGen *codegen, const char *name) {
     resolve_top_level_decl(codegen, tld, false, nullptr);
     assert(tld->id == TldIdVar);
     TldVar *tld_var = (TldVar *)tld;
-    ConstExprValue *var_value = tld_var->var->value;
+    ConstExprValue *var_value = tld_var->var->const_value;
     assert(var_value != nullptr);
     return var_value;
 }

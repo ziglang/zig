@@ -3220,7 +3220,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return 2;
         \\}
     ,
-        ".tmp_source.zig:2:15: error: unable to infer expression type",
+        ".tmp_source.zig:2:15: error: values of type 'comptime_int' must be comptime known",
     );
 
     cases.add(
@@ -3566,7 +3566,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(a)); }
     ,
-        ".tmp_source.zig:2:11: error: expected type, found 'i32'",
+        ".tmp_source.zig:2:11: error: expected type 'type', found 'i32'",
     );
 
     cases.add(
