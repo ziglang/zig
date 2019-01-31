@@ -1,6 +1,7 @@
 const std = @import("std");
 const assertOrPanic = std.debug.assertOrPanic;
 
+// TODO - remove this workaround
 comptime {
     const builtin = @import("builtin");
     if (builtin.os == builtin.Os.macosx) {
