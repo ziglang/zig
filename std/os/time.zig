@@ -79,8 +79,6 @@ fn milliTimestampWindows() u64 {
 }
 
 fn milliTimestampDarwin() u64 {
-    //Sources suggest MacOS 10.12 has support for
-    //  posix clock_gettime.
     var tv: darwin.timeval = undefined;
     var err = darwin.gettimeofday(&tv, null);
     debug.assert(err == 0);
