@@ -222,13 +222,8 @@ static Error populate_file_hash(CacheHash *ch, CacheHashFile *chf, Buf *contents
     assert(chf->path != nullptr);
 
     OsFile this_file;
-    if ((err = os_file_open_r(chf->path, &this_file)))
+    if ((err = os_file_open_r(chf->path, &this_file, &chf->mtime)))
         return err;
-
-    if ((err = os_file_mtime(this_file, &chf->mtime))) {
-        os_file_close(this_file);
-        return err;
-    }
 
     if ((err = hash_file(chf->bin_digest, this_file, contents))) {
         os_file_close(this_file);
@@ -351,16 +346,11 @@ Error cache_hit(CacheHash *ch, Buf *out_digest) {
 
         // if the mtime matches we can trust the digest
         OsFile this_file;
-        if ((err = os_file_open_r(chf->path, &this_file))) {
+        OsTimeStamp actual_mtime;
+        if ((err = os_file_open_r(chf->path, &this_file, &actual_mtime))) {
             fprintf(stderr, "Unable to open %s\n: %s", buf_ptr(chf->path), err_str(err));
             os_file_close(ch->manifest_file);
             return ErrorCacheUnavailable;
-        }
-        OsTimeStamp actual_mtime;
-        if ((err = os_file_mtime(this_file, &actual_mtime))) {
-            os_file_close(this_file);
-            os_file_close(ch->manifest_file);
-            return err;
         }
         if (chf->mtime.sec == actual_mtime.sec && chf->mtime.nsec == actual_mtime.nsec) {
             os_file_close(this_file);

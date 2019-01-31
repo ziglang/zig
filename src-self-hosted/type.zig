@@ -44,6 +44,7 @@ pub const Type = struct {
             Id.ArgTuple => @fieldParentPtr(ArgTuple, "base", base).destroy(comp),
             Id.Opaque => @fieldParentPtr(Opaque, "base", base).destroy(comp),
             Id.Promise => @fieldParentPtr(Promise, "base", base).destroy(comp),
+            Id.Vector => @fieldParentPtr(Vector, "base", base).destroy(comp),
         }
     }
 
@@ -77,6 +78,7 @@ pub const Type = struct {
             Id.ArgTuple => unreachable,
             Id.Opaque => return @fieldParentPtr(Opaque, "base", base).getLlvmType(allocator, llvm_context),
             Id.Promise => return @fieldParentPtr(Promise, "base", base).getLlvmType(allocator, llvm_context),
+            Id.Vector => return @fieldParentPtr(Vector, "base", base).getLlvmType(allocator, llvm_context),
         }
     }
 
@@ -103,6 +105,7 @@ pub const Type = struct {
             Id.Enum,
             Id.Fn,
             Id.Promise,
+            Id.Vector,
             => return false,
 
             Id.Struct => @panic("TODO"),
@@ -135,6 +138,7 @@ pub const Type = struct {
             Id.Float,
             Id.Fn,
             Id.Promise,
+            Id.Vector,
             => return true,
 
             Id.Pointer => {
@@ -899,6 +903,18 @@ pub const Type = struct {
         pub fn getLlvmType(self: *Array, allocator: *Allocator, llvm_context: llvm.ContextRef) !llvm.TypeRef {
             const elem_llvm_type = try self.key.elem_type.getLlvmType(allocator, llvm_context);
             return llvm.ArrayType(elem_llvm_type, @intCast(c_uint, self.key.len)) orelse return error.OutOfMemory;
+        }
+    };
+
+    pub const Vector = struct {
+        base: Type,
+
+        pub fn destroy(self: *Vector, comp: *Compilation) void {
+            comp.gpa().destroy(self);
+        }
+
+        pub fn getLlvmType(self: *Vector, allocator: *Allocator, llvm_context: llvm.ContextRef) llvm.TypeRef {
+            @panic("TODO");
         }
     };
 

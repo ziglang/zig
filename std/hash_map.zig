@@ -508,6 +508,7 @@ pub fn autoHash(key: var, comptime rng: *std.rand.Random, comptime HashInt: type
 
         builtin.TypeId.Optional => @compileError("TODO auto hash for optionals"),
         builtin.TypeId.Array => @compileError("TODO auto hash for arrays"),
+        builtin.TypeId.Vector => @compileError("TODO auto hash for vectors"),
         builtin.TypeId.Struct => @compileError("TODO auto hash for structs"),
         builtin.TypeId.Union => @compileError("TODO auto hash for unions"),
         builtin.TypeId.ErrorUnion => @compileError("TODO auto hash for unions"),
@@ -555,5 +556,6 @@ pub fn autoEql(a: var, b: @typeOf(a)) bool {
         builtin.TypeId.Struct => @compileError("TODO auto eql for structs"),
         builtin.TypeId.Union => @compileError("TODO auto eql for unions"),
         builtin.TypeId.ErrorUnion => @compileError("TODO auto eql for unions"),
+        builtin.TypeId.Vector => @compileError("TODO auto eql for vectors"),
     }
 }

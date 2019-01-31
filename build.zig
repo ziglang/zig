@@ -104,7 +104,7 @@ pub fn build(b: *Builder) !void {
     }
     const modes = chosen_modes[0..chosen_mode_index];
 
-    test_step.dependOn(tests.addPkgTests(b, test_filter, "test/behavior.zig", "behavior", "Run the behavior tests", modes));
+    test_step.dependOn(tests.addPkgTests(b, test_filter, "test/stage1/behavior.zig", "behavior", "Run the behavior tests", modes));
 
     test_step.dependOn(tests.addPkgTests(b, test_filter, "std/index.zig", "std", "Run the standard library tests", modes));
 
@@ -299,8 +299,7 @@ fn configureStage2(b: *Builder, exe: var, ctx: Context) !void {
     } else if (exe.target.isFreeBSD()) {
         try addCxxKnownPath(b, ctx, exe, "libc++.a", null);
         exe.linkSystemLibrary("pthread");
-    }
-    else if (exe.target.isDarwin()) {
+    } else if (exe.target.isDarwin()) {
         if (addCxxKnownPath(b, ctx, exe, "libgcc_eh.a", "")) {
             // Compiler is GCC.
             try addCxxKnownPath(b, ctx, exe, "libstdc++.a", null);

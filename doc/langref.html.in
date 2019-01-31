@@ -1531,6 +1531,29 @@ test "array initialization with function calls" {
       {#code_end#}
       {#see_also|for|Slices#}
       {#header_close#}
+
+      {#header_open|Vectors#}
+      <p>
+      A vector is a group of {#link|Integers#}, {#link|Floats#}, or {#link|Pointers#} which are operated on
+      in parallel using a single instruction ({#link|SIMD#}). Vector types are created with the builtin
+      function {#link|@Vector#}.
+      </p>
+      <p>
+      TODO talk about C ABI interop
+      </p>
+      {#header_open|SIMD#}
+      <p>
+      TODO Zig's SIMD abilities are just beginning to be fleshed out. Here are some talking points to update the
+      docs with:
+      * What kind of operations can you do? All the operations on integers and floats? What about mixing scalar and vector?
+      * How to convert to/from vectors/arrays
+      * How to access individual elements from vectors, how to loop over the elements
+      * "shuffle"
+      * Advice on writing high perf software, how to abstract the best way
+      </p>
+      {#header_close#}
+      {#header_close#}
+
       {#header_open|Pointers#}
       <p>
       Zig has two kinds of pointers:
@@ -4327,7 +4350,7 @@ fn gimmeTheBiggerInteger(a: u64, b: u64) u64 {
       <p>
       For example, if we were to introduce another function to the above snippet:
       </p>
-      {#code_begin|test_err|unable to evaluate constant expression#}
+      {#code_begin|test_err|values of type 'type' must be comptime known#}
 fn max(comptime T: type, a: T, b: T) T {
     return if (a > b) a else b;
 }
@@ -5905,13 +5928,13 @@ fn add(a: i32, b: i32) i32 { return a + b; }
       This function is a low level intrinsic with no safety mechanisms. Most code
       should not use this function, instead using something like this:
       </p>
-      <pre>{#syntax#}for (source[0...byte_count]) |b, i| dest[i] = b;{#endsyntax#}</pre>
+      <pre>{#syntax#}for (source[0..byte_count]) |b, i| dest[i] = b;{#endsyntax#}</pre>
       <p>
       The optimizer is intelligent enough to turn the above snippet into a memcpy.
       </p>
       <p>There is also a standard library function for this:</p>
       <pre>{#syntax#}const mem = @import("std").mem;
-mem.copy(u8, dest[0...byte_count], source[0...byte_count]);{#endsyntax#}</pre>
+mem.copy(u8, dest[0..byte_count], source[0..byte_count]);{#endsyntax#}</pre>
       {#header_close#}
 
       {#header_open|@memset#}
@@ -5923,7 +5946,7 @@ mem.copy(u8, dest[0...byte_count], source[0...byte_count]);{#endsyntax#}</pre>
       This function is a low level intrinsic with no safety mechanisms. Most
       code should not use this function, instead using something like this:
       </p>
-      <pre>{#syntax#}for (dest[0...byte_count]) |*b| b.* = c;{#endsyntax#}</pre>
+      <pre>{#syntax#}for (dest[0..byte_count]) |*b| b.* = c;{#endsyntax#}</pre>
       <p>
       The optimizer is intelligent enough to turn the above snippet into a memset.
       </p>
@@ -6024,7 +6047,7 @@ fn add(a: i32, b: i32) i32 {
       This is typically used for type safety when interacting with C code that does not expose struct details.
       Example:
       </p>
-      {#code_begin|test_err|expected '*Derp' type, found '*Wat'#}
+      {#code_begin|test_err|expected type '*Derp', found '*Wat'#}
 const Derp = @OpaqueType();
 const Wat = @OpaqueType();
 
@@ -6592,9 +6615,10 @@ pub const TypeInfo = union(TypeId) {
       {#header_close#}
 
       {#header_open|@typeName#}
-      <pre>{#syntax#}@typeName(T: type) []u8{#endsyntax#}</pre>
+      <pre>{#syntax#}@typeName(T: type) [N]u8{#endsyntax#}</pre>
       <p>
-      This function returns the string representation of a type.
+      This function returns the string representation of a type, as
+      an array. It is equivalent to a string literal of the type name.
       </p>
 
       {#header_close#}
@@ -6606,6 +6630,17 @@ pub const TypeInfo = union(TypeId) {
       expression passed as an argument. The expression is evaluated.
       </p>
 
+      {#header_close#}
+
+      {#header_open|@Vector#}
+      <pre>{#syntax#}@Vector(comptime len: u32, comptime ElemType: type) type{#endsyntax#}</pre>
+      <p>
+      This function returns a vector type for {#link|SIMD#}.
+      </p>
+      <p>
+      {#syntax#}ElemType{#endsyntax#} must be an {#link|integer|Integers#}, a {#link|float|Floats#}, or a
+      {#link|pointer|Pointers#}.
+      </p>
       {#header_close#}
       {#header_close#}
 

@@ -233,8 +233,8 @@ static const char *node_type_str(NodeType node_type) {
             return "ErrorType";
         case NodeTypeIfErrorExpr:
             return "IfErrorExpr";
-        case NodeTypeTestExpr:
-            return "TestExpr";
+        case NodeTypeIfOptional:
+            return "IfOptional";
         case NodeTypeErrorSetDecl:
             return "ErrorSetDecl";
         case NodeTypeCancel:
@@ -387,7 +387,7 @@ static bool statement_terminates_without_semicolon(AstNode *node) {
             if (node->data.if_err_expr.else_node)
                 return statement_terminates_without_semicolon(node->data.if_err_expr.else_node);
             return node->data.if_err_expr.then_node->type == NodeTypeBlock;
-        case NodeTypeTestExpr:
+        case NodeTypeIfOptional:
             if (node->data.test_expr.else_node)
                 return statement_terminates_without_semicolon(node->data.test_expr.else_node);
             return node->data.test_expr.then_node->type == NodeTypeBlock;
@@ -974,7 +974,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 }
                 break;
             }
-        case NodeTypeTestExpr:
+        case NodeTypeIfOptional:
             {
                 fprintf(ar->f, "if (");
                 render_node_grouped(ar, node->data.test_expr.target_node);
