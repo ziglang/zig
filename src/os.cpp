@@ -1838,7 +1838,7 @@ Error os_file_open_r(Buf *full_path, OsFile *out_file, OsTimeStamp *mtime) {
 
     if (mtime != nullptr) {
         FILETIME last_write_time;
-        if (!GetFileTime(file, nullptr, nullptr, &last_write_time)) {
+        if (!GetFileTime(result, nullptr, nullptr, &last_write_time)) {
             CloseHandle(result);
             return ErrorUnexpected;
         }
