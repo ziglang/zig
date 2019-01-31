@@ -250,6 +250,7 @@ AstNode *type_decl_node(ZigType *type_entry) {
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdPromise:
+        case ZigTypeIdVector:
             return nullptr;
     }
     zig_unreachable();
@@ -311,6 +312,7 @@ bool type_is_resolved(ZigType *type_entry, ResolveStatus status) {
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdPromise:
+        case ZigTypeIdVector:
             return true;
     }
     zig_unreachable();
@@ -1055,11 +1057,7 @@ bool want_first_arg_sret(CodeGen *g, FnTypeId *fn_type_id) {
     }
     if (g->zig_target.arch.arch == ZigLLVM_x86_64) {
         X64CABIClass abi_class = type_c_abi_x86_64_class(g, fn_type_id->return_type);
-        if (abi_class == X64CABIClass_MEMORY) {
-            return true;
-        }
-        zig_panic("TODO implement C ABI for x86_64 return types. type '%s'\nSee https://github.com/ziglang/zig/issues/1481",
-                buf_ptr(&fn_type_id->return_type->name));
+        return abi_class == X64CABIClass_MEMORY;
     } else if (target_is_arm(&g->zig_target)) {
         return type_size(g, fn_type_id->return_type) > 16;
     }
@@ -1424,6 +1422,7 @@ static bool type_allowed_in_packed_struct(ZigType *type_entry) {
         case ZigTypeIdPointer:
         case ZigTypeIdArray:
         case ZigTypeIdFn:
+        case ZigTypeIdVector:
             return true;
         case ZigTypeIdStruct:
             return type_entry->data.structure.layout == ContainerLayoutPacked;
@@ -1472,6 +1471,8 @@ static bool type_allowed_in_extern(CodeGen *g, ZigType *type_entry) {
                 default:
                     return false;
             }
+        case ZigTypeIdVector:
+            return type_allowed_in_extern(g, type_entry->data.vector.elem_type);
         case ZigTypeIdFloat:
             return true;
         case ZigTypeIdArray:
@@ -1625,6 +1626,7 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
             case ZigTypeIdUnion:
             case ZigTypeIdFn:
             case ZigTypeIdPromise:
+            case ZigTypeIdVector:
                 switch (type_requires_comptime(g, type_entry)) {
                     case ReqCompTimeNo:
                         break;
@@ -1720,6 +1722,7 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
         case ZigTypeIdUnion:
         case ZigTypeIdFn:
         case ZigTypeIdPromise:
+        case ZigTypeIdVector:
             switch (type_requires_comptime(g, fn_type_id.return_type)) {
                 case ReqCompTimeInvalid:
                     return g->builtin_types.entry_invalid;
@@ -3577,6 +3580,7 @@ ZigType *validate_var_type(CodeGen *g, AstNode *source_node, ZigType *type_entry
         case ZigTypeIdFn:
         case ZigTypeIdBoundFn:
         case ZigTypeIdPromise:
+        case ZigTypeIdVector:
             return type_entry;
     }
     zig_unreachable();
@@ -3943,6 +3947,7 @@ static bool is_container(ZigType *type_entry) {
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
         case ZigTypeIdPromise:
+        case ZigTypeIdVector:
             return false;
     }
     zig_unreachable();
@@ -4002,6 +4007,7 @@ void resolve_container_type(CodeGen *g, ZigType *type_entry) {
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
         case ZigTypeIdPromise:
+        case ZigTypeIdVector:
             zig_unreachable();
     }
 }
@@ -4451,6 +4457,34 @@ ZigType *get_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits) {
     return new_entry;
 }
 
+ZigType *get_vector_type(CodeGen *g, uint32_t len, ZigType *elem_type) {
+    TypeId type_id = {};
+    type_id.id = ZigTypeIdVector;
+    type_id.data.vector.len = len;
+    type_id.data.vector.elem_type = elem_type;
+
+    {
+        auto entry = g->type_table.maybe_get(type_id);
+        if (entry)
+            return entry->value;
+    }
+
+    ZigType *entry = new_type_table_entry(ZigTypeIdVector);
+    entry->zero_bits = (len == 0) || !type_has_bits(elem_type);
+    entry->type_ref = entry->zero_bits ? LLVMVoidType() : LLVMVectorType(elem_type->type_ref, len);
+    entry->data.vector.len = len;
+    entry->data.vector.elem_type = elem_type;
+
+    buf_resize(&entry->name, 0);
+    buf_appendf(&entry->name, "@Vector(%u, %s)", len, buf_ptr(&elem_type->name));
+
+    entry->di_type = ZigLLVMDIBuilderCreateVectorType(g->dbuilder, len,
+            LLVMABIAlignmentOfType(g->target_data_ref, entry->type_ref), elem_type->di_type);
+
+    g->type_table.put(type_id, entry);
+    return entry;
+}
+
 ZigType **get_c_int_type_ptr(CodeGen *g, CIntType c_int_type) {
     return &g->builtin_types.entry_c_int[c_int_type];
 }
@@ -4482,6 +4516,7 @@ bool handle_is_ptr(ZigType *type_entry) {
         case ZigTypeIdFn:
         case ZigTypeIdEnum:
         case ZigTypeIdPromise:
+        case ZigTypeIdVector:
              return false;
         case ZigTypeIdArray:
         case ZigTypeIdStruct:
@@ -4914,6 +4949,9 @@ static uint32_t hash_const_val(ConstExprValue *const_val) {
             return hash_const_val_error_set(const_val);
         case ZigTypeIdNamespace:
             return hash_ptr(const_val->data.x_import);
+        case ZigTypeIdVector:
+            // TODO better hashing algorithm
+            return 3647867726;
         case ZigTypeIdBoundFn:
         case ZigTypeIdInvalid:
         case ZigTypeIdUnreachable:
@@ -4966,6 +5004,7 @@ static bool can_mutate_comptime_var_state(ConstExprValue *value) {
         case ZigTypeIdBool:
         case ZigTypeIdUnreachable:
         case ZigTypeIdInt:
+        case ZigTypeIdVector:
         case ZigTypeIdFloat:
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
@@ -5049,6 +5088,7 @@ static bool return_type_is_cacheable(ZigType *return_type) {
         case ZigTypeIdErrorSet:
         case ZigTypeIdEnum:
         case ZigTypeIdPointer:
+        case ZigTypeIdVector:
             return true;
 
         case ZigTypeIdArray:
@@ -5201,6 +5241,7 @@ OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry) {
         case ZigTypeIdErrorSet:
         case ZigTypeIdEnum:
         case ZigTypeIdInt:
+        case ZigTypeIdVector:
             return type_has_bits(type_entry) ? OnePossibleValueNo : OnePossibleValueYes;
         case ZigTypeIdPointer:
             return type_has_one_possible_value(g, type_entry->data.pointer.child_type);
@@ -5251,6 +5292,7 @@ ReqCompTime type_requires_comptime(CodeGen *g, ZigType *type_entry) {
         case ZigTypeIdErrorSet:
         case ZigTypeIdBool:
         case ZigTypeIdInt:
+        case ZigTypeIdVector:
         case ZigTypeIdFloat:
         case ZigTypeIdVoid:
         case ZigTypeIdUnreachable:
@@ -5777,7 +5819,7 @@ bool const_values_equal(CodeGen *g, ConstExprValue *a, ConstExprValue *b) {
             ConstExprValue *a_elems = a->data.x_array.data.s_none.elements;
             ConstExprValue *b_elems = b->data.x_array.data.s_none.elements;
 
-            for (size_t i = 0; i < len; ++i) {
+            for (size_t i = 0; i < len; i += 1) {
                 if (!const_values_equal(g, &a_elems[i], &b_elems[i]))
                     return false;
             }
@@ -5811,6 +5853,20 @@ bool const_values_equal(CodeGen *g, ConstExprValue *a, ConstExprValue *b) {
         case ZigTypeIdArgTuple:
             return a->data.x_arg_tuple.start_index == b->data.x_arg_tuple.start_index &&
                    a->data.x_arg_tuple.end_index == b->data.x_arg_tuple.end_index;
+        case ZigTypeIdVector: {
+            assert(a->type->data.vector.len == b->type->data.vector.len);
+
+            size_t len = a->type->data.vector.len;
+            ConstExprValue *a_elems = a->data.x_vector.elements;
+            ConstExprValue *b_elems = b->data.x_vector.elements;
+
+            for (size_t i = 0; i < len; i += 1) {
+                if (!const_values_equal(g, &a_elems[i], &b_elems[i]))
+                    return false;
+            }
+
+            return true;
+        }
         case ZigTypeIdBoundFn:
         case ZigTypeIdInvalid:
         case ZigTypeIdUnreachable:
@@ -6042,6 +6098,18 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
                 }
             }
             zig_unreachable();
+        case ZigTypeIdVector: {
+            buf_appendf(buf, "%s{", buf_ptr(&type_entry->name));
+            uint64_t len = type_entry->data.vector.len;
+            for (uint32_t i = 0; i < len; i += 1) {
+                if (i != 0)
+                    buf_appendf(buf, ",");
+                ConstExprValue *child_value = &const_val->data.x_vector.elements[i];
+                render_const_value(g, buf, child_value);
+            }
+            buf_appendf(buf, "}");
+            return;
+        }
         case ZigTypeIdNull:
             {
                 buf_appendf(buf, "null");
@@ -6200,6 +6268,8 @@ uint32_t type_id_hash(TypeId x) {
         case ZigTypeIdInt:
             return (x.data.integer.is_signed ? (uint32_t)2652528194 : (uint32_t)163929201) +
                     (((uint32_t)x.data.integer.bit_count) ^ (uint32_t)2998081557);
+        case ZigTypeIdVector:
+            return hash_ptr(x.data.vector.elem_type) * (x.data.vector.len * 526582681);
     }
     zig_unreachable();
 }
@@ -6248,6 +6318,9 @@ bool type_id_eql(TypeId a, TypeId b) {
         case ZigTypeIdInt:
             return a.data.integer.is_signed == b.data.integer.is_signed &&
                 a.data.integer.bit_count == b.data.integer.bit_count;
+        case ZigTypeIdVector:
+            return a.data.vector.elem_type == b.data.vector.elem_type &&
+                a.data.vector.len == b.data.vector.len;
     }
     zig_unreachable();
 }
@@ -6382,6 +6455,7 @@ static const ZigTypeId all_type_ids[] = {
     ZigTypeIdArgTuple,
     ZigTypeIdOpaque,
     ZigTypeIdPromise,
+    ZigTypeIdVector,
 };
 
 ZigTypeId type_id_at_index(size_t index) {
@@ -6447,6 +6521,8 @@ size_t type_id_index(ZigType *entry) {
             return 22;
         case ZigTypeIdPromise:
             return 23;
+        case ZigTypeIdVector:
+            return 24;
     }
     zig_unreachable();
 }
@@ -6503,6 +6579,8 @@ const char *type_id_name(ZigTypeId id) {
             return "Opaque";
         case ZigTypeIdPromise:
             return "Promise";
+        case ZigTypeIdVector:
+            return "Vector";
     }
     zig_unreachable();
 }
@@ -6658,6 +6736,7 @@ X64CABIClass type_c_abi_x86_64_class(CodeGen *g, ZigType *ty) {
         case ZigTypeIdBool:
             return X64CABIClass_INTEGER;
         case ZigTypeIdFloat:
+        case ZigTypeIdVector:
             return X64CABIClass_SSE;
         case ZigTypeIdStruct: {
             // "If the size of an object is larger than four eightbytes, or it contains unaligned

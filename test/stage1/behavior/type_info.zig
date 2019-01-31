@@ -171,11 +171,11 @@ fn testUnion() void {
     assertOrPanic(TypeId(typeinfo_info) == TypeId.Union);
     assertOrPanic(typeinfo_info.Union.layout == TypeInfo.ContainerLayout.Auto);
     assertOrPanic(typeinfo_info.Union.tag_type.? == TypeId);
-    assertOrPanic(typeinfo_info.Union.fields.len == 24);
+    assertOrPanic(typeinfo_info.Union.fields.len == 25);
     assertOrPanic(typeinfo_info.Union.fields[4].enum_field != null);
     assertOrPanic(typeinfo_info.Union.fields[4].enum_field.?.value == 4);
     assertOrPanic(typeinfo_info.Union.fields[4].field_type == @typeOf(@typeInfo(u8).Int));
-    assertOrPanic(typeinfo_info.Union.defs.len == 20);
+    assertOrPanic(typeinfo_info.Union.defs.len == 21);
 
     const TestNoTagUnion = union {
         Foo: void,
@@ -261,4 +261,16 @@ test "typeInfo with comptime parameter in struct fn def" {
         pub fn func(comptime x: f32) void {}
     };
     comptime var info = @typeInfo(S);
+}
+
+test "type info: vectors" {
+    testVector();
+    comptime testVector();
+}
+
+fn testVector() void {
+    const vec_info = @typeInfo(@Vector(4, i32));
+    assertOrPanic(TypeId(vec_info) == TypeId.Vector);
+    assertOrPanic(vec_info.Vector.len == 4);
+    assertOrPanic(vec_info.Vector.child == i32);
 }

@@ -1980,7 +1980,7 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
             break;
     }
 
-    if (type_is_c_abi_int(g, ty) || ty->id == ZigTypeIdFloat ||
+    if (type_is_c_abi_int(g, ty) || ty->id == ZigTypeIdFloat || ty->id == ZigTypeIdVector ||
         ty->id == ZigTypeIdInt // TODO investigate if we need to change this
     ) {
         switch (fn_walk->id) {
@@ -2659,6 +2659,27 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
                     return LLVMBuildNSWAdd(g->builder, op1_value, op2_value, "");
                 } else {
                     return LLVMBuildNUWAdd(g->builder, op1_value, op2_value, "");
+                }
+            } else if (type_entry->id == ZigTypeIdVector) {
+                ZigType *elem_type = type_entry->data.vector.elem_type;
+                if (elem_type->id == ZigTypeIdFloat) {
+                    ZigLLVMSetFastMath(g->builder, ir_want_fast_math(g, &bin_op_instruction->base));
+                    return LLVMBuildFAdd(g->builder, op1_value, op2_value, "");
+                } else if (elem_type->id == ZigTypeIdPointer) {
+                    zig_panic("TODO codegen for pointers in vectors");
+                } else if (elem_type->id == ZigTypeIdInt) {
+                    bool is_wrapping = (op_id == IrBinOpAddWrap);
+                    if (is_wrapping) {
+                        return LLVMBuildAdd(g->builder, op1_value, op2_value, "");
+                    } else if (want_runtime_safety) {
+                        zig_panic("TODO runtime safety for vector integer addition");
+                    } else if (elem_type->data.integral.is_signed) {
+                        return LLVMBuildNSWAdd(g->builder, op1_value, op2_value, "");
+                    } else {
+                        return LLVMBuildNUWAdd(g->builder, op1_value, op2_value, "");
+                    }
+                } else {
+                    zig_unreachable();
                 }
             } else {
                 zig_unreachable();
@@ -5211,6 +5232,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdCUndef:
         case IrInstructionIdEmbedFile:
         case IrInstructionIdIntType:
+        case IrInstructionIdVectorType:
         case IrInstructionIdMemberCount:
         case IrInstructionIdMemberType:
         case IrInstructionIdMemberName:
@@ -5620,6 +5642,8 @@ static LLVMValueRef pack_const_int(CodeGen *g, LLVMTypeRef big_int_type_ref, Con
             }
         case ZigTypeIdArray:
             zig_panic("TODO bit pack an array");
+        case ZigTypeIdVector:
+            zig_panic("TODO bit pack a vector");
         case ZigTypeIdUnion:
             zig_panic("TODO bit pack a union");
         case ZigTypeIdStruct:
@@ -5992,6 +6016,14 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
                     }
                 }
             }
+        case ZigTypeIdVector: {
+            uint32_t len = type_entry->data.vector.len;
+            LLVMValueRef *values = allocate<LLVMValueRef>(len);
+            for (uint32_t i = 0; i < len; i += 1) {
+                values[i] = gen_const_val(g, &const_val->data.x_vector.elements[i], "");
+            }
+            return LLVMConstVector(values, len);
+        }
         case ZigTypeIdUnion:
             {
                 LLVMTypeRef union_type_ref = type_entry->data.unionation.union_type_ref;
@@ -6927,6 +6959,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdCompileErr, "compileError", 1);
     create_builtin_fn(g, BuiltinFnIdCompileLog, "compileLog", SIZE_MAX);
     create_builtin_fn(g, BuiltinFnIdIntType, "IntType", 2); // TODO rename to Int
+    create_builtin_fn(g, BuiltinFnIdVectorType, "Vector", 2);
     create_builtin_fn(g, BuiltinFnIdSetCold, "setCold", 1);
     create_builtin_fn(g, BuiltinFnIdSetRuntimeSafety, "setRuntimeSafety", 1);
     create_builtin_fn(g, BuiltinFnIdSetFloatMode, "setFloatMode", 1);
@@ -7152,6 +7185,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             "    ArgTuple: void,\n"
             "    Opaque: void,\n"
             "    Promise: Promise,\n"
+            "    Vector: Vector,\n"
             "\n\n"
             "    pub const Int = struct {\n"
             "        is_signed: bool,\n"
@@ -7268,6 +7302,11 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             "\n"
             "    pub const Promise = struct {\n"
             "        child: ?type,\n"
+            "    };\n"
+            "\n"
+            "    pub const Vector = struct {\n"
+            "        len: u32,\n"
+            "        child: type,\n"
             "    };\n"
             "\n"
             "    pub const Definition = struct {\n"
@@ -7841,6 +7880,9 @@ static void prepend_c_type_to_decl_list(CodeGen *g, GenH *gen_h, ZigType *type_e
         case ZigTypeIdArray:
             prepend_c_type_to_decl_list(g, gen_h, type_entry->data.array.child_type);
             return;
+        case ZigTypeIdVector:
+            prepend_c_type_to_decl_list(g, gen_h, type_entry->data.vector.elem_type);
+            return;
         case ZigTypeIdOptional:
             prepend_c_type_to_decl_list(g, gen_h, type_entry->data.maybe.child_type);
             return;
@@ -7972,6 +8014,8 @@ static void get_c_type(CodeGen *g, GenH *gen_h, ZigType *type_entry, Buf *out_bu
                 buf_appendf(out_buf, "%s", buf_ptr(child_buf));
                 return;
             }
+        case ZigTypeIdVector:
+            zig_panic("TODO implement get_c_type for vector types");
         case ZigTypeIdErrorUnion:
         case ZigTypeIdErrorSet:
         case ZigTypeIdFn:
@@ -8137,6 +8181,7 @@ static void gen_h_file(CodeGen *g) {
             case ZigTypeIdOptional:
             case ZigTypeIdFn:
             case ZigTypeIdPromise:
+            case ZigTypeIdVector:
                 zig_unreachable();
             case ZigTypeIdEnum:
                 if (type_entry->data.enumeration.layout == ContainerLayoutExtern) {

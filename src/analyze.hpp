@@ -20,6 +20,7 @@ ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_cons
 uint64_t type_size(CodeGen *g, ZigType *type_entry);
 uint64_t type_size_bits(CodeGen *g, ZigType *type_entry);
 ZigType *get_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits);
+ZigType *get_vector_type(CodeGen *g, uint32_t len, ZigType *elem_type);
 ZigType **get_c_int_type_ptr(CodeGen *g, CIntType c_int_type);
 ZigType *get_c_int_type(CodeGen *g, CIntType c_int_type);
 ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id);

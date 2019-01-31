@@ -252,6 +252,10 @@ struct ConstArgTuple {
     size_t end_index;
 };
 
+struct ConstVector {
+    ConstExprValue *elements;
+};
+
 enum ConstValSpecial {
     ConstValSpecialRuntime,
     ConstValSpecialStatic,
@@ -318,6 +322,7 @@ struct ConstExprValue {
         ConstPtrValue x_ptr;
         ImportTableEntry *x_import;
         ConstArgTuple x_arg_tuple;
+        ConstVector x_vector;
 
         // populated if special == ConstValSpecialRuntime
         RuntimeHintErrorUnion rh_error_union;
@@ -1210,6 +1215,12 @@ struct ZigTypePromise {
     ZigType *result_type;
 };
 
+struct ZigTypeVector {
+    // The type must be a pointer, integer, or float
+    ZigType *elem_type;
+    uint32_t len;
+};
+
 enum ZigTypeId {
     ZigTypeIdInvalid,
     ZigTypeIdMetaType,
@@ -1236,6 +1247,7 @@ enum ZigTypeId {
     ZigTypeIdArgTuple,
     ZigTypeIdOpaque,
     ZigTypeIdPromise,
+    ZigTypeIdVector,
 };
 
 struct ZigType {
@@ -1262,6 +1274,7 @@ struct ZigType {
         ZigTypeFn fn;
         ZigTypeBoundFn bound_fn;
         ZigTypePromise promise;
+        ZigTypeVector vector;
     } data;
 
     // use these fields to make sure we don't duplicate type table entries for the same type
@@ -1415,6 +1428,7 @@ enum BuiltinFnId {
     BuiltinFnIdEnumToInt,
     BuiltinFnIdIntToEnum,
     BuiltinFnIdIntType,
+    BuiltinFnIdVectorType,
     BuiltinFnIdSetCold,
     BuiltinFnIdSetRuntimeSafety,
     BuiltinFnIdSetFloatMode,
@@ -1505,6 +1519,10 @@ struct TypeId {
             ZigType *err_set_type;
             ZigType *payload_type;
         } error_union;
+        struct {
+            ZigType *elem_type;
+            uint32_t len;
+        } vector;
     } data;
 };
 
@@ -2139,6 +2157,7 @@ enum IrInstructionId {
     IrInstructionIdFloatToInt,
     IrInstructionIdBoolToInt,
     IrInstructionIdIntType,
+    IrInstructionIdVectorType,
     IrInstructionIdBoolNot,
     IrInstructionIdMemset,
     IrInstructionIdMemcpy,
@@ -2805,6 +2824,13 @@ struct IrInstructionIntType {
 
     IrInstruction *is_signed;
     IrInstruction *bit_count;
+};
+
+struct IrInstructionVectorType {
+    IrInstruction base;
+
+    IrInstruction *len;
+    IrInstruction *elem_type;
 };
 
 struct IrInstructionBoolNot {

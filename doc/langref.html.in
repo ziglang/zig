@@ -1531,6 +1531,29 @@ test "array initialization with function calls" {
       {#code_end#}
       {#see_also|for|Slices#}
       {#header_close#}
+
+      {#header_open|Vectors#}
+      <p>
+      A vector is a group of {#link|Integers#}, {#link|Floats#}, or {#link|Pointers#} which are operated on
+      in parallel using a single instruction ({#link|SIMD#}). Vector types are created with the builtin
+      function {#link|@Vector#}.
+      </p>
+      <p>
+      TODO talk about C ABI interop
+      </p>
+      {#header_open|SIMD#}
+      <p>
+      TODO Zig's SIMD abilities are just beginning to be fleshed out. Here are some talking points to update the
+      docs with:
+      * What kind of operations can you do? All the operations on integers and floats? What about mixing scalar and vector?
+      * How to convert to/from vectors/arrays
+      * How to access individual elements from vectors, how to loop over the elements
+      * "shuffle"
+      * Advice on writing high perf software, how to abstract the best way
+      </p>
+      {#header_close#}
+      {#header_close#}
+
       {#header_open|Pointers#}
       <p>
       Zig has two kinds of pointers:
@@ -6607,6 +6630,17 @@ pub const TypeInfo = union(TypeId) {
       expression passed as an argument. The expression is evaluated.
       </p>
 
+      {#header_close#}
+
+      {#header_open|@Vector#}
+      <pre>{#syntax#}@Vector(comptime len: u32, comptime ElemType: type) type{#endsyntax#}</pre>
+      <p>
+      This function returns a vector type for {#link|SIMD#}.
+      </p>
+      <p>
+      {#syntax#}ElemType{#endsyntax#} must be an {#link|integer|Integers#}, a {#link|float|Floats#}, or a
+      {#link|pointer|Pointers#}.
+      </p>
       {#header_close#}
       {#header_close#}
 

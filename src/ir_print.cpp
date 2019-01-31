@@ -719,6 +719,14 @@ static void ir_print_int_type(IrPrint *irp, IrInstructionIntType *instruction) {
     fprintf(irp->f, ")");
 }
 
+static void ir_print_vector_type(IrPrint *irp, IrInstructionVectorType *instruction) {
+    fprintf(irp->f, "@Vector(");
+    ir_print_other_instruction(irp, instruction->len);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->elem_type);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_bool_not(IrPrint *irp, IrInstructionBoolNot *instruction) {
     fprintf(irp->f, "! ");
     ir_print_other_instruction(irp, instruction->value);
@@ -1576,6 +1584,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdIntType:
             ir_print_int_type(irp, (IrInstructionIntType *)instruction);
+            break;
+        case IrInstructionIdVectorType:
+            ir_print_vector_type(irp, (IrInstructionVectorType *)instruction);
             break;
         case IrInstructionIdBoolNot:
             ir_print_bool_not(irp, (IrInstructionBoolNot *)instruction);
