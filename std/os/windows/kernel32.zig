@@ -253,15 +253,17 @@ pub const RTL_CRITICAL_SECTION = extern struct {
 };
 
 pub const CRITICAL_SECTION = RTL_CRITICAL_SECTION;
+pub const INIT_ONCE = RTL_RUN_ONCE;
+pub const INIT_ONCE_STATIC_INIT = RTL_RUN_ONCE_INIT;
 
-pub extern "kernel32" stdcallcc fn InitOnceExecuteOnce(InitOnce: *RTL_RUN_ONCE, InitFn: PINIT_ONCE_FN, Context: ?PVOID, Parameter: ?LPVOID) BOOL;
+pub extern "kernel32" stdcallcc fn InitOnceExecuteOnce(InitOnce: *INIT_ONCE, InitFn: INIT_ONCE_FN, Parameter: ?*c_void, Context: ?*c_void) BOOL;
 
-pub const PINIT_ONCE_FN = ?extern fn(InitOnce: *RTL_RUN_ONCE, Parameter: ?PVOID, Context: ?PVOID) BOOL;
+pub const INIT_ONCE_FN = extern fn(InitOnce: *INIT_ONCE, Parameter: ?*c_void, Context: ?*c_void) BOOL;
 
 pub const RTL_RUN_ONCE = extern struct {
-    Ptr: ?PVOID,
+    Ptr: ?*c_void,
 };
 
-pub const INIT_ONCE_STATIC_INIT = RTL_RUN_ONCE {
-  .Ptr = null,
+pub const RTL_RUN_ONCE_INIT = RTL_RUN_ONCE {
+    .Ptr = null,
 };

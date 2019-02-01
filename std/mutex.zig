@@ -9,6 +9,9 @@ const windows = std.os.windows;
 
 /// Lock may be held only once. If the same thread
 /// tries to acquire the same mutex twice, it deadlocks.
+/// This type must be initialized at runtime, and then deinitialized when no
+/// longer needed, to free resources.
+/// If you need static initialization, use std.StaticallyInitializedMutex.
 /// The Linux implementation is based on mutex3 from
 /// https://www.akkadia.org/drepper/futex.pdf
 pub const Mutex = switch(builtin.os) {
@@ -60,57 +63,15 @@ pub const Mutex = switch(builtin.os) {
             return Held { .mutex = self };
         }
     },
-    builtin.Os.windows => struct {
-
-        lock: windows.CRITICAL_SECTION,
-        init_once: windows.RTL_RUN_ONCE,
-
-        pub const Held = struct {
-            mutex: *Mutex,
-
-            pub fn release(self: Held) void {
-                windows.LeaveCriticalSection(&self.mutex.lock);
-            }
-        };
-
-        pub fn init() Mutex {
-            return Mutex {
-                .lock = undefined,
-                .init_once = windows.INIT_ONCE_STATIC_INIT,
-            };
-        }
-
-        extern fn initCriticalSection(
-            InitOnce: *windows.RTL_RUN_ONCE,
-            Parameter: ?windows.PVOID,
-            Context: ?windows.PVOID
-        ) windows.BOOL {
-            var lock = @ptrCast(
-                *windows.CRITICAL_SECTION,
-                @alignCast(@alignOf(*windows.CRITICAL_SECTION), Context.?)
-            );
-            windows.InitializeCriticalSection(lock);
-            return windows.TRUE;
-        }
-
-        pub fn deinit(self: *Mutex) void {
-            windows.DeleteCriticalSection(&self.lock);
-        }
-
-        pub fn acquire(self: *Mutex) Held {
-            if (windows.InitOnceExecuteOnce(
-                &self.init_once,
-                initCriticalSection,
-                null, @ptrCast(?windows.PVOID, self)
-            ) == windows.FALSE) {
-                unreachable;
-            }
-            windows.EnterCriticalSection(&self.lock);
-            return Held { .mutex = self };
-        }
-    },
+    // TODO once https://github.com/ziglang/zig/issues/287 (copy elision) is solved, we can make a
+    // better implementation of this. The problem is we need the init() function to have access to
+    // the address of the CRITICAL_SECTION, and then have it not move.
+    builtin.Os.windows => std.StaticallyInitializedMutex,
     else => struct {
-        /// TODO better implementation than spin lock
+        /// TODO better implementation than spin lock.
+        /// When changing this, one must also change the corresponding
+        /// std.StaticallyInitializedMutex code, since it aliases this type,
+        /// under the assumption that it works both statically and at runtime.
         lock: SpinLock,
 
         pub const Held = struct {
