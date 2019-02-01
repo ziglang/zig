@@ -503,13 +503,13 @@ pub fn BitInStream(endian: builtin.Endian, comptime Error: type) type {
         ///  containing them in the least significant end. The number of bits successfully
         ///  read is placed in `out_bits`, as reaching the end of the stream is not an error.
         pub fn readBits(self: *Self, comptime U: type, bits: usize, out_bits: *usize) Error!U {
-            debug.assert(trait.isUnsignedInt(U));
+            comptime assert(trait.isUnsignedInt(U));
 
             //by extending the buffer to a minimum of u8 we can cover a number of edge cases
             // related to shifting and casting.
             const u_bit_count = comptime meta.bitCount(U);
             const buf_bit_count = bc: {
-                debug.assert(u_bit_count >= bits);
+                assert(u_bit_count >= bits);
                 break :bc if (u_bit_count <= u8_bit_count) u8_bit_count else u_bit_count;
             };
             const Buf = @IntType(false, buf_bit_count);
@@ -664,7 +664,7 @@ test "io.SliceOutStream" {
     const stream = &slice_stream.stream;
 
     try stream.print("{}{}!", "Hello", "World");
-    debug.assert(mem.eql(u8, "HelloWorld!", slice_stream.getWritten()));
+    debug.assertOrPanic(mem.eql(u8, "HelloWorld!", slice_stream.getWritten()));
 }
 
 var null_out_stream_state = NullOutStream.init();
@@ -726,7 +726,7 @@ test "io.CountingOutStream" {
 
     const bytes = "yay" ** 10000;
     stream.write(bytes) catch unreachable;
-    debug.assert(counting_stream.bytes_written == bytes.len);
+    debug.assertOrPanic(counting_stream.bytes_written == bytes.len);
 }
 
 pub fn BufferedOutStream(comptime Error: type) type {
@@ -835,13 +835,13 @@ pub fn BitOutStream(endian: builtin.Endian, comptime Error: type) type {
             if (bits == 0) return;
 
             const U = @typeOf(value);
-            debug.assert(trait.isUnsignedInt(U));
+            comptime assert(trait.isUnsignedInt(U));
 
             //by extending the buffer to a minimum of u8 we can cover a number of edge cases
             // related to shifting and casting.
             const u_bit_count = comptime meta.bitCount(U);
             const buf_bit_count = bc: {
-                debug.assert(u_bit_count >= bits);
+                assert(u_bit_count >= bits);
                 break :bc if (u_bit_count <= u8_bit_count) u8_bit_count else u_bit_count;
             };
             const Buf = @IntType(false, buf_bit_count);
@@ -1013,10 +1013,10 @@ test "io.readLineFrom" {
     );
     const stream = &mem_stream.stream;
 
-    debug.assert(mem.eql(u8, "Line 1", try readLineFrom(stream, &buf)));
-    debug.assert(mem.eql(u8, "Line 22", try readLineFrom(stream, &buf)));
+    debug.assertOrPanic(mem.eql(u8, "Line 1", try readLineFrom(stream, &buf)));
+    debug.assertOrPanic(mem.eql(u8, "Line 22", try readLineFrom(stream, &buf)));
     debug.assertError(readLineFrom(stream, &buf), error.EndOfStream);
-    debug.assert(mem.eql(u8, buf.toSlice(), "Line 1Line 22Line 333"));
+    debug.assertOrPanic(mem.eql(u8, buf.toSlice(), "Line 1Line 22Line 333"));
 }
 
 pub fn readLineSlice(slice: []u8) ![]u8 {
@@ -1044,7 +1044,7 @@ test "io.readLineSliceFrom" {
     );
     const stream = &mem_stream.stream;
 
-    debug.assert(mem.eql(u8, "Line 1", try readLineSliceFrom(stream, buf[0..])));
+    debug.assertOrPanic(mem.eql(u8, "Line 1", try readLineSliceFrom(stream, buf[0..])));
     debug.assertError(readLineSliceFrom(stream, buf[0..]), error.OutOfMemory);
 }
 
@@ -1057,7 +1057,7 @@ test "io.readLineSliceFrom" {
 ///  which will be called when the deserializer is used to deserialize
 ///  that type. It will pass a pointer to the type instance to deserialize
 ///  into and a pointer to the deserializer struct.
-pub fn Deserializer(endian: builtin.Endian, is_packed: bool, comptime Error: type) type {
+pub fn Deserializer(comptime endian: builtin.Endian, is_packed: bool, comptime Error: type) type {
     return struct {
         const Self = @This();
 
@@ -1079,9 +1079,9 @@ pub fn Deserializer(endian: builtin.Endian, is_packed: bool, comptime Error: typ
 
         //@BUG: inferred error issue. See: #1386 
         fn deserializeInt(self: *Self, comptime T: type) (Stream.Error || error{EndOfStream})!T {
-            debug.assert(trait.is(builtin.TypeId.Int)(T) or trait.is(builtin.TypeId.Float)(T));
+            comptime assert(trait.is(builtin.TypeId.Int)(T) or trait.is(builtin.TypeId.Float)(T));
 
-            const u8_bit_count = comptime meta.bitCount(u8);
+            const u8_bit_count = 8;
             const t_bit_count = comptime meta.bitCount(T);
 
             const U = @IntType(false, t_bit_count);
@@ -1097,13 +1097,17 @@ pub fn Deserializer(endian: builtin.Endian, is_packed: bool, comptime Error: typ
             const read_size = try self.in_stream.read(buffer[0..]);
             if (read_size < int_size) return error.EndOfStream;
 
-            if (int_size == 1) return @bitCast(T, buffer[0]);
+            if (int_size == 1) {
+                if (t_bit_count == 8) return @bitCast(T, buffer[0]);
+                const PossiblySignedByte = @IntType(T.is_signed, 8);
+                return @truncate(T, @bitCast(PossiblySignedByte, buffer[0]));
+            }
 
             var result = U(0);
             for (buffer) |byte, i| {
                 switch (endian) {
                     builtin.Endian.Big => {
-                        result = (result << @intCast(u4, u8_bit_count)) | byte;
+                        result = (result << u8_bit_count) | byte;
                     },
                     builtin.Endian.Little => {
                         result |= U(byte) << @intCast(Log2U, u8_bit_count * i);
@@ -1118,12 +1122,12 @@ pub fn Deserializer(endian: builtin.Endian, is_packed: bool, comptime Error: typ
         // see: #1315
         fn setTag(ptr: var, tag: var) void {
             const T = @typeOf(ptr);
-            comptime debug.assert(trait.isPtrTo(builtin.TypeId.Union)(T));
+            comptime assert(trait.isPtrTo(builtin.TypeId.Union)(T));
             const U = meta.Child(T);
 
             const info = @typeInfo(U).Union;
             if (info.tag_type) |TagType| {
-                debug.assert(TagType == @typeOf(tag));
+                comptime assert(TagType == @typeOf(tag));
 
                 var ptr_tag = ptr: {
                     if (@alignOf(TagType) >= @alignOf(U)) break :ptr @ptrCast(*TagType, ptr);
@@ -1151,7 +1155,7 @@ pub fn Deserializer(endian: builtin.Endian, is_packed: bool, comptime Error: typ
         /// Deserializes data into the type pointed to by `ptr`
         pub fn deserializeInto(self: *Self, ptr: var) !void {
             const T = @typeOf(ptr);
-            debug.assert(trait.is(builtin.TypeId.Pointer)(T));
+            comptime assert(trait.is(builtin.TypeId.Pointer)(T));
 
             if (comptime trait.isSlice(T) or comptime trait.isPtrTo(builtin.TypeId.Array)(T)) {
                 for (ptr) |*v|
@@ -1159,7 +1163,7 @@ pub fn Deserializer(endian: builtin.Endian, is_packed: bool, comptime Error: typ
                 return;
             }
 
-            comptime debug.assert(trait.isSingleItemPtr(T));
+            comptime assert(trait.isSingleItemPtr(T));
 
             const C = comptime meta.Child(T);
             const child_type_id = @typeId(C);
@@ -1266,7 +1270,7 @@ pub fn Deserializer(endian: builtin.Endian, is_packed: bool, comptime Error: typ
 ///  which will be called when the serializer is used to serialize that type. It will
 ///  pass a const pointer to the type instance to be serialized and a pointer
 ///  to the serializer struct.
-pub fn Serializer(endian: builtin.Endian, is_packed: bool, comptime Error: type) type {
+pub fn Serializer(comptime endian: builtin.Endian, comptime is_packed: bool, comptime Error: type) type {
     return struct {
         const Self = @This();
 
@@ -1288,7 +1292,7 @@ pub fn Serializer(endian: builtin.Endian, is_packed: bool, comptime Error: type)
 
         fn serializeInt(self: *Self, value: var) !void {
             const T = @typeOf(value);
-            debug.assert(trait.is(builtin.TypeId.Int)(T) or trait.is(builtin.TypeId.Float)(T));
+            comptime assert(trait.is(builtin.TypeId.Int)(T) or trait.is(builtin.TypeId.Float)(T));
 
             const t_bit_count = comptime meta.bitCount(T);
             const u8_bit_count = comptime meta.bitCount(u8);

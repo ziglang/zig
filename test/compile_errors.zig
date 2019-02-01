@@ -2,6 +2,15 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "@bitCast same size but bit count mismatch",
+        \\export fn entry(byte: u8) void {
+        \\    var oops = @bitCast(u7, byte);
+        \\}
+    ,
+        ".tmp_source.zig:2:16: error: destination type 'u7' has 7 bits but source type 'u8' has 8 bits",
+    );
+
+    cases.add(
         "attempted `&&`",
         \\export fn entry(a: bool, b: bool) i32 {
         \\    if (a && b) {

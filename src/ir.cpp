@@ -20580,10 +20580,10 @@ static IrInstruction *ir_analyze_instruction_bit_cast(IrAnalyze *ira, IrInstruct
     if (type_is_invalid(src_type))
         return ira->codegen->invalid_instruction;
 
-    if ((err = ensure_complete_type(ira->codegen, dest_type)))
+    if ((err = type_resolve(ira->codegen, dest_type, ResolveStatusSizeKnown)))
         return ira->codegen->invalid_instruction;
 
-    if ((err = ensure_complete_type(ira->codegen, src_type)))
+    if ((err = type_resolve(ira->codegen, src_type, ResolveStatusSizeKnown)))
         return ira->codegen->invalid_instruction;
 
     if (get_codegen_ptr_type(src_type) != nullptr) {
@@ -20643,6 +20643,16 @@ static IrInstruction *ir_analyze_instruction_bit_cast(IrAnalyze *ira, IrInstruct
             buf_sprintf("destination type '%s' has size %" ZIG_PRI_u64 " but source type '%s' has size %" ZIG_PRI_u64,
                 buf_ptr(&dest_type->name), dest_size_bytes,
                 buf_ptr(&src_type->name), src_size_bytes));
+        return ira->codegen->invalid_instruction;
+    }
+
+    uint64_t dest_size_bits = type_size_bits(ira->codegen, dest_type);
+    uint64_t src_size_bits = type_size_bits(ira->codegen, src_type);
+    if (dest_size_bits != src_size_bits) {
+        ir_add_error(ira, &instruction->base,
+            buf_sprintf("destination type '%s' has %" ZIG_PRI_u64 " bits but source type '%s' has %" ZIG_PRI_u64 " bits",
+                buf_ptr(&dest_type->name), dest_size_bits,
+                buf_ptr(&src_type->name), src_size_bits));
         return ira->codegen->invalid_instruction;
     }
 
