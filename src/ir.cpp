@@ -16533,7 +16533,8 @@ static IrInstruction *ir_analyze_container_init_fields_union(IrAnalyze *ira, IrI
     if ((err = type_resolve(ira->codegen, casted_field_value->value.type, ResolveStatusZeroBitsKnown)))
         return ira->codegen->invalid_instruction;
 
-    bool is_comptime = ir_should_inline(ira->new_irb.exec, instruction->scope);
+    bool is_comptime = ir_should_inline(ira->new_irb.exec, instruction->scope)
+        || type_requires_comptime(ira->codegen, container_type) == ReqCompTimeYes;
     if (is_comptime || casted_field_value->value.special != ConstValSpecialRuntime ||
         !type_has_bits(casted_field_value->value.type))
     {
@@ -16584,7 +16585,8 @@ static IrInstruction *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstruc
 
     IrInstructionStructInitField *new_fields = allocate<IrInstructionStructInitField>(actual_field_count);
 
-    bool is_comptime = ir_should_inline(ira->new_irb.exec, instruction->scope);
+    bool is_comptime = ir_should_inline(ira->new_irb.exec, instruction->scope)
+        || type_requires_comptime(ira->codegen, container_type) == ReqCompTimeYes;
 
     ConstExprValue const_val = {};
     const_val.special = ConstValSpecialStatic;
