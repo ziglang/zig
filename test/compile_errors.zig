@@ -5367,4 +5367,32 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     ,
         ".tmp_source.zig:2:35: error: expected sized integer or sized float, found comptime_float",
     );
+
+    cases.add(
+        "runtime assignment to comptime struct type",
+        \\const Foo = struct {
+        \\    Bar: u8,
+        \\    Baz: type,
+        \\};
+        \\export fn f() void {
+        \\    var x: u8 = 0;
+        \\    const foo = Foo { .Bar = x, .Baz = u8 };
+        \\}
+    ,
+        ".tmp_source.zig:7:30: error: unable to evaluate constant expression",
+    );
+
+    cases.add(
+        "runtime assignment to comptime union type",
+        \\const Foo = union {
+        \\    Bar: u8,
+        \\    Baz: type,
+        \\};
+        \\export fn f() void {
+        \\    var x: u8 = 0;
+        \\    const foo = Foo { .Bar = x };
+        \\}
+    ,
+        ".tmp_source.zig:7:30: error: unable to evaluate constant expression",
+    );
 }
