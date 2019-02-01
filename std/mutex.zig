@@ -5,74 +5,99 @@ const AtomicRmwOp = builtin.AtomicRmwOp;
 const assert = std.debug.assert;
 const SpinLock = std.SpinLock;
 const linux = std.os.linux;
+const windows = std.os.windows;
 
 /// Lock may be held only once. If the same thread
 /// tries to acquire the same mutex twice, it deadlocks.
+/// This type must be initialized at runtime, and then deinitialized when no
+/// longer needed, to free resources.
+/// If you need static initialization, use std.StaticallyInitializedMutex.
 /// The Linux implementation is based on mutex3 from
 /// https://www.akkadia.org/drepper/futex.pdf
-pub const Mutex = struct {
-    /// 0: unlocked
-    /// 1: locked, no waiters
-    /// 2: locked, one or more waiters
-    linux_lock: @typeOf(linux_lock_init),
+pub const Mutex = switch(builtin.os) {
+    builtin.Os.linux => struct {
+        /// 0: unlocked
+        /// 1: locked, no waiters
+        /// 2: locked, one or more waiters
+        lock: i32,
 
-    /// TODO better implementation than spin lock
-    spin_lock: @typeOf(spin_lock_init),
+        pub const Held = struct {
+            mutex: *Mutex,
 
-    const linux_lock_init = if (builtin.os == builtin.Os.linux) i32(0) else {};
-    const spin_lock_init = if (builtin.os != builtin.Os.linux) SpinLock.init() else {};
-
-    pub const Held = struct {
-        mutex: *Mutex,
-
-        pub fn release(self: Held) void {
-            if (builtin.os == builtin.Os.linux) {
-                const c = @atomicRmw(i32, &self.mutex.linux_lock, AtomicRmwOp.Sub, 1, AtomicOrder.Release);
+            pub fn release(self: Held) void {
+                const c = @atomicRmw(i32, &self.mutex.lock, AtomicRmwOp.Sub, 1, AtomicOrder.Release);
                 if (c != 1) {
-                    _ = @atomicRmw(i32, &self.mutex.linux_lock, AtomicRmwOp.Xchg, 0, AtomicOrder.Release);
-                    const rc = linux.futex_wake(&self.mutex.linux_lock, linux.FUTEX_WAKE | linux.FUTEX_PRIVATE_FLAG, 1);
+                    _ = @atomicRmw(i32, &self.mutex.lock, AtomicRmwOp.Xchg, 0, AtomicOrder.Release);
+                    const rc = linux.futex_wake(&self.mutex.lock, linux.FUTEX_WAKE | linux.FUTEX_PRIVATE_FLAG, 1);
                     switch (linux.getErrno(rc)) {
                         0 => {},
                         linux.EINVAL => unreachable,
                         else => unreachable,
                     }
                 }
-            } else {
-                SpinLock.Held.release(SpinLock.Held{ .spinlock = &self.mutex.spin_lock });
             }
-        }
-    };
-
-    pub fn init() Mutex {
-        return Mutex{
-            .linux_lock = linux_lock_init,
-            .spin_lock = spin_lock_init,
         };
-    }
 
-    pub fn acquire(self: *Mutex) Held {
-        if (builtin.os == builtin.Os.linux) {
-            var c = @cmpxchgWeak(i32, &self.linux_lock, 0, 1, AtomicOrder.Acquire, AtomicOrder.Monotonic) orelse
+        pub fn init() Mutex {
+            return Mutex {
+                .lock = 0,
+            };
+        }
+
+        pub fn deinit(self: *Mutex) void {}
+
+        pub fn acquire(self: *Mutex) Held {
+            var c = @cmpxchgWeak(i32, &self.lock, 0, 1, AtomicOrder.Acquire, AtomicOrder.Monotonic) orelse
                 return Held{ .mutex = self };
             if (c != 2)
-                c = @atomicRmw(i32, &self.linux_lock, AtomicRmwOp.Xchg, 2, AtomicOrder.Acquire);
+                c = @atomicRmw(i32, &self.lock, AtomicRmwOp.Xchg, 2, AtomicOrder.Acquire);
             while (c != 0) {
-                const rc = linux.futex_wait(&self.linux_lock, linux.FUTEX_WAIT | linux.FUTEX_PRIVATE_FLAG, 2, null);
+                const rc = linux.futex_wait(&self.lock, linux.FUTEX_WAIT | linux.FUTEX_PRIVATE_FLAG, 2, null);
                 switch (linux.getErrno(rc)) {
                     0, linux.EINTR, linux.EAGAIN => {},
                     linux.EINVAL => unreachable,
                     else => unreachable,
                 }
-                c = @atomicRmw(i32, &self.linux_lock, AtomicRmwOp.Xchg, 2, AtomicOrder.Acquire);
+                c = @atomicRmw(i32, &self.lock, AtomicRmwOp.Xchg, 2, AtomicOrder.Acquire);
             }
-        } else {
-            _ = self.spin_lock.acquire();
+            return Held { .mutex = self };
         }
-        return Held{ .mutex = self };
-    }
+    },
+    // TODO once https://github.com/ziglang/zig/issues/287 (copy elision) is solved, we can make a
+    // better implementation of this. The problem is we need the init() function to have access to
+    // the address of the CRITICAL_SECTION, and then have it not move.
+    builtin.Os.windows => std.StaticallyInitializedMutex,
+    else => struct {
+        /// TODO better implementation than spin lock.
+        /// When changing this, one must also change the corresponding
+        /// std.StaticallyInitializedMutex code, since it aliases this type,
+        /// under the assumption that it works both statically and at runtime.
+        lock: SpinLock,
+
+        pub const Held = struct {
+            mutex: *Mutex,
+
+            pub fn release(self: Held) void {
+                SpinLock.Held.release(SpinLock.Held { .spinlock = &self.mutex.lock });
+            }
+        };
+
+        pub fn init() Mutex {
+            return Mutex {
+                .lock = SpinLock.init(),
+            };
+        }
+
+        pub fn deinit(self: *Mutex) void {}
+
+        pub fn acquire(self: *Mutex) Held {
+            _ = self.lock.acquire();
+            return Held { .mutex = self };
+        }
+    },
 };
 
-const Context = struct {
+const TestContext = struct {
     mutex: *Mutex,
     data: i128,
 
@@ -90,7 +115,9 @@ test "std.Mutex" {
     var a = &fixed_buffer_allocator.allocator;
 
     var mutex = Mutex.init();
-    var context = Context{
+    defer mutex.deinit();
+
+    var context = TestContext{
         .mutex = &mutex,
         .data = 0,
     };
@@ -103,12 +130,12 @@ test "std.Mutex" {
     for (threads) |t|
         t.wait();
 
-    std.debug.assertOrPanic(context.data == thread_count * Context.incr_count);
+    std.debug.assertOrPanic(context.data == thread_count * TestContext.incr_count);
 }
 
-fn worker(ctx: *Context) void {
+fn worker(ctx: *TestContext) void {
     var i: usize = 0;
-    while (i != Context.incr_count) : (i += 1) {
+    while (i != TestContext.incr_count) : (i += 1) {
         const held = ctx.mutex.acquire();
         defer held.release();
 
