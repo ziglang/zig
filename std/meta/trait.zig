@@ -232,6 +232,37 @@ test "std.meta.trait.isPacked" {
 }
 
 ///
+pub fn isUnsignedInt(comptime T: type) bool {
+    return switch (@typeId(T)) {
+        builtin.TypeId.Int => !@typeInfo(T).Int.is_signed,
+        else => false,
+    };
+}
+
+test "isUnsignedInt" {
+    debug.assert(isUnsignedInt(u32) == true);
+    debug.assert(isUnsignedInt(comptime_int) == false);
+    debug.assert(isUnsignedInt(i64) == false);
+    debug.assert(isUnsignedInt(f64) == false);
+}
+
+///
+pub fn isSignedInt(comptime T: type) bool {
+    return switch (@typeId(T)) {
+        builtin.TypeId.ComptimeInt => true,
+        builtin.TypeId.Int => @typeInfo(T).Int.is_signed,
+        else => false,
+    };
+}
+
+test "isSignedInt" {
+    debug.assert(isSignedInt(u32) == false);
+    debug.assert(isSignedInt(comptime_int) == true);
+    debug.assert(isSignedInt(i64) == true);
+    debug.assert(isSignedInt(f64) == false);
+}
+
+///
 pub fn isSingleItemPtr(comptime T: type) bool {
     if (comptime is(builtin.TypeId.Pointer)(T)) {
         const info = @typeInfo(T);
