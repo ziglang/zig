@@ -118,6 +118,7 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
     g->string_literals_table.init(16);
     g->type_info_cache.init(32);
     g->is_test_build = false;
+    g->is_single_threaded = false;
     buf_resize(&g->global_asm, 0);
 
     for (size_t i = 0; i < array_length(symbols_that_llvm_depends_on); i += 1) {
@@ -7377,6 +7378,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
         buf_appendf(contents, "pub const endian = %s;\n", endian_str);
     }
     buf_appendf(contents, "pub const is_test = %s;\n", bool_to_str(g->is_test_build));
+    buf_appendf(contents, "pub const single_threaded = %s;\n", bool_to_str(g->is_single_threaded));
     buf_appendf(contents, "pub const os = Os.%s;\n", cur_os);
     buf_appendf(contents, "pub const arch = Arch.%s;\n", cur_arch);
     buf_appendf(contents, "pub const environ = Environ.%s;\n", cur_environ);
@@ -7411,6 +7413,7 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     cache_buf(&cache_hash, compiler_id);
     cache_int(&cache_hash, g->build_mode);
     cache_bool(&cache_hash, g->is_test_build);
+    cache_bool(&cache_hash, g->is_single_threaded);
     cache_int(&cache_hash, g->zig_target.arch.arch);
     cache_int(&cache_hash, g->zig_target.arch.sub_arch);
     cache_int(&cache_hash, g->zig_target.vendor);
@@ -8329,6 +8332,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_bool(ch, g->is_static);
     cache_bool(ch, g->strip_debug_symbols);
     cache_bool(ch, g->is_test_build);
+    cache_bool(ch, g->is_single_threaded);
     cache_bool(ch, g->is_native_target);
     cache_bool(ch, g->linker_rdynamic);
     cache_bool(ch, g->no_rosegment_workaround);

@@ -319,6 +319,9 @@ pub fn Channel(comptime T: type) type {
 }
 
 test "std.event.Channel" {
+    // https://github.com/ziglang/zig/issues/1908
+    if (builtin.single_threaded) return error.SkipZigTest;
+
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
 

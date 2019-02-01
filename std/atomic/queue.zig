@@ -170,20 +170,36 @@ test "std.atomic.Queue" {
         .get_count = 0,
     };
 
-    var putters: [put_thread_count]*std.os.Thread = undefined;
-    for (putters) |*t| {
-        t.* = try std.os.spawnThread(&context, startPuts);
-    }
-    var getters: [put_thread_count]*std.os.Thread = undefined;
-    for (getters) |*t| {
-        t.* = try std.os.spawnThread(&context, startGets);
-    }
+    if (builtin.single_threaded) {
+        {
+            var i: usize = 0;
+            while (i < put_thread_count) : (i += 1) {
+                std.debug.assertOrPanic(startPuts(&context) == 0);
+            }
+        }
+        context.puts_done = 1;
+        {
+            var i: usize = 0;
+            while (i < put_thread_count) : (i += 1) {
+                std.debug.assertOrPanic(startGets(&context) == 0);
+            }
+        }
+    } else {
+        var putters: [put_thread_count]*std.os.Thread = undefined;
+        for (putters) |*t| {
+            t.* = try std.os.spawnThread(&context, startPuts);
+        }
+        var getters: [put_thread_count]*std.os.Thread = undefined;
+        for (getters) |*t| {
+            t.* = try std.os.spawnThread(&context, startGets);
+        }
 
-    for (putters) |t|
-        t.wait();
-    _ = @atomicRmw(u8, &context.puts_done, builtin.AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst);
-    for (getters) |t|
-        t.wait();
+        for (putters) |t|
+            t.wait();
+        _ = @atomicRmw(u8, &context.puts_done, builtin.AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst);
+        for (getters) |t|
+            t.wait();
+    }
 
     if (context.put_sum != context.get_sum) {
         std.debug.panic("failure\nput_sum:{} != get_sum:{}", context.put_sum, context.get_sum);

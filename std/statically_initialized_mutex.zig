@@ -93,13 +93,18 @@ test "std.StaticallyInitializedMutex" {
         .data = 0,
     };
 
-    const thread_count = 10;
-    var threads: [thread_count]*std.os.Thread = undefined;
-    for (threads) |*t| {
-        t.* = try std.os.spawnThread(&context, TestContext.worker);
-    }
-    for (threads) |t|
-        t.wait();
+    if (builtin.single_threaded) {
+        TestContext.worker(&context);
+        std.debug.assertOrPanic(context.data == TestContext.incr_count);
+    } else {
+        const thread_count = 10;
+        var threads: [thread_count]*std.os.Thread = undefined;
+        for (threads) |*t| {
+            t.* = try std.os.spawnThread(&context, TestContext.worker);
+        }
+        for (threads) |t|
+            t.wait();
 
-    std.debug.assertOrPanic(context.data == thread_count * TestContext.incr_count);
+        std.debug.assertOrPanic(context.data == thread_count * TestContext.incr_count);
+    }
 }

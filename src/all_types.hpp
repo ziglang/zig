@@ -1808,6 +1808,7 @@ struct CodeGen {
     bool is_static;
     bool strip_debug_symbols;
     bool is_test_build;
+    bool is_single_threaded;
     bool is_native_target;
     bool linker_rdynamic;
     bool no_rosegment_workaround;

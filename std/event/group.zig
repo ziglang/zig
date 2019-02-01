@@ -121,6 +121,9 @@ pub fn Group(comptime ReturnType: type) type {
 }
 
 test "std.event.Group" {
+    // https://github.com/ziglang/zig/issues/1908
+    if (builtin.single_threaded) return error.SkipZigTest;
+
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
 

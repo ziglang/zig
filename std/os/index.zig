@@ -3013,6 +3013,7 @@ pub const SpawnThreadError = error{
 /// where T is u8, noreturn, void, or !void
 /// caller must call wait on the returned thread
 pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread {
+    if (builtin.single_threaded) @compileError("cannot spawn thread when building in single-threaded mode");
     // TODO compile-time call graph analysis to determine stack upper bound
     // https://github.com/ziglang/zig/issues/157
     const default_stack_size = 8 * 1024 * 1024;

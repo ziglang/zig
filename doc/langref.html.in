@@ -6714,6 +6714,25 @@ pub fn build(b: *Builder) void {
       {#header_close#}
       {#see_also|Compile Variables|Zig Build System|Undefined Behavior#}
       {#header_close#}
+
+      {#header_open|Single Threaded Builds#}
+      <p>Zig has a compile option <code>--single-threaded</code> which has the following effects:
+      <ul>
+        <li>{#link|@atomicLoad#} is emitted as a normal load.</li>
+        <li>{#link|@atomicRmw#} is emitted as a normal memory load, modify, store.</li>
+        <li>{#link|@fence#} becomes a no-op.</li>
+        <li>Variables which have Thread Local Storage instead become globals. TODO thread local variables
+        are not implemented yet.</li>
+        <li>The overhead of {#link|Coroutines#} becomes equivalent to function call overhead.
+          TODO: please note this will not be implemented until the upcoming Coroutine Rewrite</li>
+        <li>The {#syntax#}@import("builtin").single_threaded{#endsyntax#} becomes {#syntax#}true{#endsyntax#}
+          and therefore various userland APIs which read this variable become more efficient.
+          For example {#syntax#}std.Mutex{#endsyntax#} becomes
+          an empty data structure and all of its functions become no-ops.</li>
+      </ul>
+      </p>
+      {#header_close#}
+
       {#header_open|Undefined Behavior#}
       <p>
       Zig has many instances of undefined behavior. If undefined behavior is

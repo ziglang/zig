@@ -14,7 +14,36 @@ const windows = std.os.windows;
 /// If you need static initialization, use std.StaticallyInitializedMutex.
 /// The Linux implementation is based on mutex3 from
 /// https://www.akkadia.org/drepper/futex.pdf
-pub const Mutex = switch(builtin.os) {
+/// When an application is built in single threaded release mode, all the functions are
+/// no-ops. In single threaded debug mode, there is deadlock detection.
+pub const Mutex = if (builtin.single_threaded)
+    struct {
+        lock: @typeOf(lock_init),
+
+        const lock_init = if (std.debug.runtime_safety) false else {};
+
+        pub const Held = struct {
+            mutex: *Mutex,
+
+            pub fn release(self: Held) void {
+                if (std.debug.runtime_safety) {
+                    self.mutex.lock = false;
+                }
+            }
+        };
+        pub fn init() Mutex {
+            return Mutex{ .lock = lock_init };
+        }
+        pub fn deinit(self: *Mutex) void {}
+
+        pub fn acquire(self: *Mutex) Held {
+            if (std.debug.runtime_safety and self.lock) {
+                @panic("deadlock detected");
+            }
+            return Held{ .mutex = self };
+        }
+    }
+else switch (builtin.os) {
     builtin.Os.linux => struct {
         /// 0: unlocked
         /// 1: locked, no waiters
@@ -39,9 +68,7 @@ pub const Mutex = switch(builtin.os) {
         };
 
         pub fn init() Mutex {
-            return Mutex {
-                .lock = 0,
-            };
+            return Mutex{ .lock = 0 };
         }
 
         pub fn deinit(self: *Mutex) void {}
@@ -60,7 +87,7 @@ pub const Mutex = switch(builtin.os) {
                 }
                 c = @atomicRmw(i32, &self.lock, AtomicRmwOp.Xchg, 2, AtomicOrder.Acquire);
             }
-            return Held { .mutex = self };
+            return Held{ .mutex = self };
         }
     },
     // TODO once https://github.com/ziglang/zig/issues/287 (copy elision) is solved, we can make a
@@ -78,21 +105,19 @@ pub const Mutex = switch(builtin.os) {
             mutex: *Mutex,
 
             pub fn release(self: Held) void {
-                SpinLock.Held.release(SpinLock.Held { .spinlock = &self.mutex.lock });
+                SpinLock.Held.release(SpinLock.Held{ .spinlock = &self.mutex.lock });
             }
         };
 
         pub fn init() Mutex {
-            return Mutex {
-                .lock = SpinLock.init(),
-            };
+            return Mutex{ .lock = SpinLock.init() };
         }
 
         pub fn deinit(self: *Mutex) void {}
 
         pub fn acquire(self: *Mutex) Held {
             _ = self.lock.acquire();
-            return Held { .mutex = self };
+            return Held{ .mutex = self };
         }
     },
 };
@@ -122,15 +147,20 @@ test "std.Mutex" {
         .data = 0,
     };
 
-    const thread_count = 10;
-    var threads: [thread_count]*std.os.Thread = undefined;
-    for (threads) |*t| {
-        t.* = try std.os.spawnThread(&context, worker);
-    }
-    for (threads) |t|
-        t.wait();
+    if (builtin.single_threaded) {
+        worker(&context);
+        std.debug.assertOrPanic(context.data == TestContext.incr_count);
+    } else {
+        const thread_count = 10;
+        var threads: [thread_count]*std.os.Thread = undefined;
+        for (threads) |*t| {
+            t.* = try std.os.spawnThread(&context, worker);
+        }
+        for (threads) |t|
+            t.wait();
 
-    std.debug.assertOrPanic(context.data == thread_count * TestContext.incr_count);
+        std.debug.assertOrPanic(context.data == thread_count * TestContext.incr_count);
+    }
 }
 
 fn worker(ctx: *TestContext) void {

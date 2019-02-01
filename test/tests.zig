@@ -163,25 +163,32 @@ pub fn addPkgTests(b: *build.Builder, test_filter: ?[]const u8, root_src: []cons
     for (test_targets) |test_target| {
         const is_native = (test_target.os == builtin.os and test_target.arch == builtin.arch);
         for (modes) |mode| {
-            for ([]bool{
-                false,
-                true,
-            }) |link_libc| {
-                if (link_libc and !is_native) {
-                    // don't assume we have a cross-compiling libc set up
-                    continue;
+            for ([]bool{ false, true }) |link_libc| {
+                for ([]bool{ false, true }) |single_threaded| {
+                    if (link_libc and !is_native) {
+                        // don't assume we have a cross-compiling libc set up
+                        continue;
+                    }
+                    const these_tests = b.addTest(root_src);
+                    these_tests.setNamePrefix(b.fmt(
+                        "{}-{}-{}-{}-{}-{} ",
+                        name,
+                        @tagName(test_target.os),
+                        @tagName(test_target.arch),
+                        @tagName(mode),
+                        if (link_libc) "c" else "bare",
+                        if (single_threaded) "single" else "multi",
+                    ));
+                    these_tests.setFilter(test_filter);
+                    these_tests.setBuildMode(mode);
+                    if (!is_native) {
+                        these_tests.setTarget(test_target.arch, test_target.os, test_target.environ);
+                    }
+                    if (link_libc) {
+                        these_tests.linkSystemLibrary("c");
+                    }
+                    step.dependOn(&these_tests.step);
                 }
-                const these_tests = b.addTest(root_src);
-                these_tests.setNamePrefix(b.fmt("{}-{}-{}-{}-{} ", name, @tagName(test_target.os), @tagName(test_target.arch), @tagName(mode), if (link_libc) "c" else "bare"));
-                these_tests.setFilter(test_filter);
-                these_tests.setBuildMode(mode);
-                if (!is_native) {
-                    these_tests.setTarget(test_target.arch, test_target.os, test_target.environ);
-                }
-                if (link_libc) {
-                    these_tests.linkSystemLibrary("c");
-                }
-                step.dependOn(&these_tests.step);
             }
         }
     }
