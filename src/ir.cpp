@@ -12369,7 +12369,7 @@ static IrInstruction *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *i
         op1_array_val = ptr_val->data.x_ptr.data.base_array.array_val;
         op1_array_index = ptr_val->data.x_ptr.data.base_array.elem_index;
         ConstExprValue *len_val = &op1_val->data.x_struct.fields[slice_len_index];
-        op1_array_end = bigint_as_unsigned(&len_val->data.x_bigint);
+        op1_array_end = op1_array_index + bigint_as_unsigned(&len_val->data.x_bigint);
     } else {
         ir_add_error(ira, op1,
             buf_sprintf("expected array or C string literal, found '%s'", buf_ptr(&op1->value.type->name)));
@@ -12379,13 +12379,9 @@ static IrInstruction *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *i
     ConstExprValue *op2_array_val;
     size_t op2_array_index;
     size_t op2_array_end;
+    bool op2_type_valid;
     if (op2_type->id == ZigTypeIdArray) {
-        if (op2_type->data.array.child_type != child_type) {
-            ir_add_error(ira, op2, buf_sprintf("expected array of type '%s', found '%s'",
-                        buf_ptr(&child_type->name),
-                        buf_ptr(&op2->value.type->name)));
-            return ira->codegen->invalid_instruction;
-        }
+        op2_type_valid = op2_type->data.array.child_type == child_type;
         op2_array_val = op2_val;
         op2_array_index = 0;
         op2_array_end = op2_array_val->type->data.array.len;
@@ -12394,33 +12390,28 @@ static IrInstruction *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *i
         op2_val->data.x_ptr.special == ConstPtrSpecialBaseArray &&
         op2_val->data.x_ptr.data.base_array.is_cstr)
     {
-        if (child_type != ira->codegen->builtin_types.entry_u8) {
-            ir_add_error(ira, op2, buf_sprintf("expected array of type '%s', found '%s'",
-                        buf_ptr(&child_type->name),
-                        buf_ptr(&op2->value.type->name)));
-            return ira->codegen->invalid_instruction;
-        }
+        op2_type_valid = child_type == ira->codegen->builtin_types.entry_u8;
         op2_array_val = op2_val->data.x_ptr.data.base_array.array_val;
         op2_array_index = op2_val->data.x_ptr.data.base_array.elem_index;
         op2_array_end = op2_array_val->type->data.array.len - 1;
     } else if (is_slice(op2_type)) {
         ZigType *ptr_type = op2_type->data.structure.fields[slice_ptr_index].type_entry;
-        if (ptr_type->data.pointer.child_type != child_type) {
-            ir_add_error(ira, op2, buf_sprintf("expected array of type '%s', found '%s'",
-                        buf_ptr(&child_type->name),
-                        buf_ptr(&op2->value.type->name)));
-            return ira->codegen->invalid_instruction;
-        }
+        op2_type_valid = ptr_type->data.pointer.child_type == child_type;
         ConstExprValue *ptr_val = &op2_val->data.x_struct.fields[slice_ptr_index];
         assert(ptr_val->data.x_ptr.special == ConstPtrSpecialBaseArray);
         op2_array_val = ptr_val->data.x_ptr.data.base_array.array_val;
         op2_array_index = ptr_val->data.x_ptr.data.base_array.elem_index;
-        op2_array_end = op2_array_val->type->data.array.len;
         ConstExprValue *len_val = &op2_val->data.x_struct.fields[slice_len_index];
-        op2_array_end = bigint_as_unsigned(&len_val->data.x_bigint);
+        op2_array_end = op2_array_index + bigint_as_unsigned(&len_val->data.x_bigint);
     } else {
         ir_add_error(ira, op2,
             buf_sprintf("expected array or C string literal, found '%s'", buf_ptr(&op2->value.type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+    if (!op2_type_valid) {
+        ir_add_error(ira, op2, buf_sprintf("expected array of type '%s', found '%s'",
+                    buf_ptr(&child_type->name),
+                    buf_ptr(&op2->value.type->name)));
         return ira->codegen->invalid_instruction;
     }
 
