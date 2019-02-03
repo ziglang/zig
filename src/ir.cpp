@@ -11217,6 +11217,38 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         return ir_analyze_array_to_vector(ira, source_instr, value, wanted_type);
     }
 
+    // cast from *T to []T
+    // cast from *T to []const T
+    // cast from *const T to []const T
+    if ( actual_type->id == ZigTypeIdPointer && actual_type->data.pointer.ptr_len == PtrLenSingle
+      && is_slice(wanted_type)
+       ) {
+        ZigType *ptr_type = wanted_type->data.structure.fields[slice_ptr_index].type_entry;
+        assert(ptr_type->id == ZigTypeIdPointer);
+        if (types_match_const_cast_only(ira, ptr_type->data.pointer.child_type, actual_type->data.pointer.child_type,
+                source_node, false).id == ConstCastResultIdOk)
+        {
+            // make use of existing infrastructure
+            // first cast from *T to *[1]T (preserving const)
+            ZigType *intermediate_type_array = get_array_type( ira->codegen
+                                                             , actual_type->data.pointer.child_type
+                                                             , 1
+                                                             );
+            ZigType *intermediate_type_array_ptr = get_pointer_to_type( ira->codegen
+                                                                      , intermediate_type_array
+                                                                      // we want to keep const type of
+                                                                      // actual_type, not yet wanted_type
+                                                                      , actual_type->data.pointer.is_const
+                                                                      );
+            IrInstruction *intermediate_cast = ir_analyze_cast(ira, source_instr, intermediate_type_array_ptr, value);
+            if (type_is_invalid(intermediate_cast->value.type))
+                return ira->codegen->invalid_instruction;
+
+            // then cast from *[1]T to []T (preserving const)
+            return ir_analyze_cast(ira, source_instr, wanted_type, intermediate_cast);
+        }
+    }
+
     // cast from undefined to anything
     if (actual_type->id == ZigTypeIdUndefined) {
         return ir_analyze_undefined_to_anything(ira, source_instr, value, wanted_type);
