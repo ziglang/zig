@@ -1,6 +1,16 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add(
+        "attempted implicit cast from *const T to []T",
+        \\export fn entry() void {
+        \\    const u: u32 = 42;
+        \\    const x: []u32 = &u;
+        \\}
+    ,
+        ".tmp_source.zig:3:23: error: expected type '[]u32', found '*const [1]u32'",
+    );
+
     cases.addTest(
         "@truncate undefined value",
         \\export fn entry() void {

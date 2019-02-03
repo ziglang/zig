@@ -321,6 +321,29 @@ test "cast *[1][*]const u8 to [*]const ?[*]const u8" {
     expect(mem.eql(u8, std.cstr.toSliceConst(x[0].?), "window name"));
 }
 
+const C = struct {
+    c: u32,
+};
+test "cast *T to []T" {
+    var c = C{ .c = 42 };
+    mem.secureZero(C, &c);
+    expect(c.c == 0);
+}
+
+test "cast *T to []const T" {
+    var c = C{ .c = 0xFFFFFFFF };
+    var b = @sliceToBytes(([]const u32)(&c.c));
+    expect(b.len == 4);
+    expect(mem.eql(u8, b, []u8{0xFF} ** 4));
+}
+
+test "cast *const T to []const T" {
+    const c = C{ .c = 0xFFFFFFFF };
+    var b = @sliceToBytes(([]const u32)(&c.c));
+    expect(b.len == 4);
+    expect(mem.eql(u8, b, []u8{0xFF} ** 4));
+}
+
 test "@intCast comptime_int" {
     const result = @intCast(i32, 1234);
     expect(@typeOf(result) == i32);
