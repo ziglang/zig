@@ -36,20 +36,9 @@ pub const Allocator = struct {
     /// Guaranteed: `old_mem.len` is the same as what was returned from `allocFn` or `reallocFn`
     freeFn: fn (self: *Allocator, old_mem: []u8) void,
 
-    /// Call `destroy` with the result
-    /// TODO this is deprecated. use createOne instead
-    pub fn create(self: *Allocator, init: var) Error!*@typeOf(init) {
-        const T = @typeOf(init);
-        if (@sizeOf(T) == 0) return &(T{});
-        const slice = try self.alloc(T, 1);
-        const ptr = &slice[0];
-        ptr.* = init;
-        return ptr;
-    }
-
     /// Call `destroy` with the result.
     /// Returns undefined memory.
-    pub fn createOne(self: *Allocator, comptime T: type) Error!*T {
+    pub fn create(self: *Allocator, comptime T: type) Error!*T {
         if (@sizeOf(T) == 0) return &(T{});
         const slice = try self.alloc(T, 1);
         return &slice[0];

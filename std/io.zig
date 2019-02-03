@@ -944,12 +944,13 @@ pub const BufferedAtomicFile = struct {
 
     pub fn create(allocator: *mem.Allocator, dest_path: []const u8) !*BufferedAtomicFile {
         // TODO with well defined copy elision we don't need this allocation
-        var self = try allocator.create(BufferedAtomicFile{
+        var self = try allocator.create(BufferedAtomicFile);
+        self.* = BufferedAtomicFile{
             .atomic_file = undefined,
             .file_stream = undefined,
             .buffered_stream = undefined,
             .allocator = allocator,
-        });
+        };
         errdefer allocator.destroy(self);
 
         self.atomic_file = try os.AtomicFile.init(dest_path, os.File.default_mode);

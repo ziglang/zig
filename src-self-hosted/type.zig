@@ -413,7 +413,7 @@ pub const Type = struct {
             key.ref();
             errdefer key.deref(comp);
 
-            const self = try comp.gpa().createOne(Fn);
+            const self = try comp.gpa().create(Fn);
             self.* = Fn{
                 .base = undefined,
                 .key = key,
@@ -615,11 +615,12 @@ pub const Type = struct {
                 }
             }
 
-            const self = try comp.gpa().create(Int{
+            const self = try comp.gpa().create(Int);
+            self.* = Int{
                 .base = undefined,
                 .key = key,
                 .garbage_node = undefined,
-            });
+            };
             errdefer comp.gpa().destroy(self);
 
             const u_or_i = "ui"[@boolToInt(key.is_signed)];
@@ -781,11 +782,12 @@ pub const Type = struct {
                 }
             }
 
-            const self = try comp.gpa().create(Pointer{
+            const self = try comp.gpa().create(Pointer);
+            self.* = Pointer{
                 .base = undefined,
                 .key = normal_key,
                 .garbage_node = undefined,
-            });
+            };
             errdefer comp.gpa().destroy(self);
 
             const size_str = switch (self.key.size) {
@@ -879,11 +881,12 @@ pub const Type = struct {
                 }
             }
 
-            const self = try comp.gpa().create(Array{
+            const self = try comp.gpa().create(Array);
+            self.* = Array{
                 .base = undefined,
                 .key = key,
                 .garbage_node = undefined,
-            });
+            };
             errdefer comp.gpa().destroy(self);
 
             const name = try std.fmt.allocPrint(comp.gpa(), "[{}]{}", key.len, key.elem_type.name);

@@ -495,7 +495,7 @@ pub const CloseOperation = struct {
     };
 
     pub fn start(loop: *Loop) (error{OutOfMemory}!*CloseOperation) {
-        const self = try loop.allocator.createOne(CloseOperation);
+        const self = try loop.allocator.create(CloseOperation);
         self.* = CloseOperation{
             .loop = loop,
             .os_data = switch (builtin.os) {
@@ -787,7 +787,7 @@ pub fn Watch(comptime V: type) type {
                 },
 
                 builtin.Os.windows => {
-                    const self = try loop.allocator.createOne(Self);
+                    const self = try loop.allocator.create(Self);
                     errdefer loop.allocator.destroy(self);
                     self.* = Self{
                         .channel = channel,
@@ -802,7 +802,7 @@ pub fn Watch(comptime V: type) type {
                 },
 
                 builtin.Os.macosx, builtin.Os.freebsd => {
-                    const self = try loop.allocator.createOne(Self);
+                    const self = try loop.allocator.create(Self);
                     errdefer loop.allocator.destroy(self);
 
                     self.* = Self{
@@ -1068,7 +1068,7 @@ pub fn Watch(comptime V: type) type {
                 }
             } else {
                 errdefer _ = self.os_data.dir_table.remove(dirname);
-                const dir = try self.channel.loop.allocator.createOne(OsData.Dir);
+                const dir = try self.channel.loop.allocator.create(OsData.Dir);
                 errdefer self.channel.loop.allocator.destroy(dir);
 
                 dir.* = OsData.Dir{

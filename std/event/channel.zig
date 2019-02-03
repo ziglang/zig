@@ -54,7 +54,8 @@ pub fn Channel(comptime T: type) type {
             const buffer_nodes = try loop.allocator.alloc(T, capacity);
             errdefer loop.allocator.free(buffer_nodes);
 
-            const self = try loop.allocator.create(SelfChannel{
+            const self = try loop.allocator.create(SelfChannel);
+            self.* = SelfChannel{
                 .loop = loop,
                 .buffer_len = 0,
                 .buffer_nodes = buffer_nodes,
@@ -66,7 +67,7 @@ pub fn Channel(comptime T: type) type {
                 .or_null_queue = std.atomic.Queue(*std.atomic.Queue(GetNode).Node).init(),
                 .get_count = 0,
                 .put_count = 0,
-            });
+            };
             errdefer loop.allocator.destroy(self);
 
             return self;
