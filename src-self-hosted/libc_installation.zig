@@ -57,10 +57,10 @@ pub const LibCInstallation = struct {
         const contents = try std.io.readFileAlloc(allocator, libc_file);
         defer allocator.free(contents);
 
-        var it = std.mem.split(contents, "\n");
+        var it = std.mem.tokenize(contents, "\n");
         while (it.next()) |line| {
             if (line.len == 0 or line[0] == '#') continue;
-            var line_it = std.mem.split(line, "=");
+            var line_it = std.mem.separate(line, "=");
             const name = line_it.next() orelse {
                 try stderr.print("missing equal sign after field name\n");
                 return error.ParseError;
@@ -213,7 +213,7 @@ pub const LibCInstallation = struct {
             },
         }
 
-        var it = std.mem.split(exec_result.stderr, "\n\r");
+        var it = std.mem.tokenize(exec_result.stderr, "\n\r");
         var search_paths = std.ArrayList([]const u8).init(loop.allocator);
         defer search_paths.deinit();
         while (it.next()) |line| {
@@ -410,7 +410,7 @@ async fn ccPrintFileName(loop: *event.Loop, o_file: []const u8, want_dirname: bo
             return error.CCompilerCrashed;
         },
     }
-    var it = std.mem.split(exec_result.stdout, "\n\r");
+    var it = std.mem.tokenize(exec_result.stdout, "\n\r");
     const line = it.next() orelse return error.LibCRuntimeNotFound;
     const dirname = std.os.path.dirname(line) orelse return error.LibCRuntimeNotFound;
 

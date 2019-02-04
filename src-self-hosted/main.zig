@@ -351,7 +351,7 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
     const root_name = if (provided_name) |n| n else blk: {
         if (root_source_file) |file| {
             const basename = os.path.basename(file);
-            var it = mem.split(basename, ".");
+            var it = mem.separate(basename, ".");
             break :blk it.next() orelse basename;
         } else {
             try stderr.write("--name [name] not provided and unable to infer\n");
