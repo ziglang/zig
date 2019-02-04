@@ -689,22 +689,113 @@ pub fn eql_slice_u8(a: []const u8, b: []const u8) bool {
 }
 
 /// Returns an iterator that iterates over the slices of `buffer` that are not
-/// any of the bytes in `split_bytes`.
-/// split("   abc def    ghi  ", " ")
+/// any of the bytes in `delimiter_bytes`.
+/// tokenize("   abc def    ghi  ", " ")
 /// Will return slices for "abc", "def", "ghi", null, in that order.
-pub fn split(buffer: []const u8, split_bytes: []const u8) SplitIterator {
-    return SplitIterator{
+/// If `buffer` is empty, the iterator will return null.
+/// If `delimiter_bytes` does not exist in buffer,
+/// the iterator will return `buffer`, null, in that order.
+/// See also the related function `separate`.
+pub fn tokenize(buffer: []const u8, delimiter_bytes: []const u8) TokenIterator {
+    return TokenIterator{
         .index = 0,
         .buffer = buffer,
-        .split_bytes = split_bytes,
+        .delimiter_bytes = delimiter_bytes,
     };
 }
 
-test "mem.split" {
-    var it = split("   abc def   ghi  ", " ");
+test "mem.tokenize" {
+    var it = tokenize("   abc def   ghi  ", " ");
     assert(eql(u8, it.next().?, "abc"));
     assert(eql(u8, it.next().?, "def"));
     assert(eql(u8, it.next().?, "ghi"));
+    assert(it.next() == null);
+
+    it = tokenize("..\\bob", "\\");
+    assert(eql(u8, it.next().?, ".."));
+    assert(eql(u8, "..", "..\\bob"[0..it.index]));
+    assert(eql(u8, it.next().?, "bob"));
+    assert(it.next() == null);
+
+    it = tokenize("//a/b", "/");
+    assert(eql(u8, it.next().?, "a"));
+    assert(eql(u8, it.next().?, "b"));
+    assert(eql(u8, "//a/b", "//a/b"[0..it.index]));
+    assert(it.next() == null);
+
+    it = tokenize("|", "|");
+    assert(it.next() == null);
+
+    it = tokenize("", "|");
+    assert(it.next() == null);
+
+    it = tokenize("hello", "");
+    assert(eql(u8, it.next().?, "hello"));
+    assert(it.next() == null);
+
+    it = tokenize("hello", " ");
+    assert(eql(u8, it.next().?, "hello"));
+    assert(it.next() == null);
+}
+
+test "mem.tokenize (multibyte)" {
+    var it = tokenize("a|b,c/d e", " /,|");
+    assert(eql(u8, it.next().?, "a"));
+    assert(eql(u8, it.next().?, "b"));
+    assert(eql(u8, it.next().?, "c"));
+    assert(eql(u8, it.next().?, "d"));
+    assert(eql(u8, it.next().?, "e"));
+    assert(it.next() == null);
+}
+
+/// Returns an iterator that iterates over the slices of `buffer` that
+/// are separated by bytes in `delimiter`.
+/// separate("abc|def||ghi", "|")
+/// will return slices for "abc", "def", "", "ghi", null, in that order.
+/// If `delimiter` does not exist in buffer,
+/// the iterator will return `buffer`, null, in that order.
+/// The delimiter length must not be zero.
+/// See also the related function `tokenize`.
+/// It is planned to rename this function to `split` before 1.0.0, like this:
+/// pub fn split(buffer: []const u8, delimiter: []const u8) SplitIterator {
+pub fn separate(buffer: []const u8, delimiter: []const u8) SplitIterator {
+    assert(delimiter.len != 0);
+    return SplitIterator{
+        .index = 0,
+        .buffer = buffer,
+        .delimiter = delimiter,
+    };
+}
+
+test "mem.separate" {
+    var it = separate("abc|def||ghi", "|");
+    assert(eql(u8, it.next().?, "abc"));
+    assert(eql(u8, it.next().?, "def"));
+    assert(eql(u8, it.next().?, ""));
+    assert(eql(u8, it.next().?, "ghi"));
+    assert(it.next() == null);
+
+    it = separate("", "|");
+    assert(eql(u8, it.next().?, ""));
+    assert(it.next() == null);
+
+    it = separate("|", "|");
+    assert(eql(u8, it.next().?, ""));
+    assert(eql(u8, it.next().?, ""));
+    assert(it.next() == null);
+
+    it = separate("hello", " ");
+    assert(eql(u8, it.next().?, "hello"));
+    assert(it.next() == null);
+}
+
+test "mem.separate (multibyte)" {
+    var it = separate("a, b ,, c, d, e", ", ");
+    assert(eql(u8, it.next().?, "a"));
+    assert(eql(u8, it.next().?, "b ,"));
+    assert(eql(u8, it.next().?, "c"));
+    assert(eql(u8, it.next().?, "d"));
+    assert(eql(u8, it.next().?, "e"));
     assert(it.next() == null);
 }
 
@@ -726,12 +817,13 @@ test "mem.endsWith" {
     assert(!endsWith(u8, "Bob", "Bo"));
 }
 
-pub const SplitIterator = struct {
+pub const TokenIterator = struct {
     buffer: []const u8,
-    split_bytes: []const u8,
+    delimiter_bytes: []const u8,
     index: usize,
 
-    pub fn next(self: *SplitIterator) ?[]const u8 {
+    /// Returns a slice of the next token, or null if tokenization is complete.
+    pub fn next(self: *TokenIterator) ?[]const u8 {
         // move to beginning of token
         while (self.index < self.buffer.len and self.isSplitByte(self.buffer[self.index])) : (self.index += 1) {}
         const start = self.index;
@@ -747,20 +839,46 @@ pub const SplitIterator = struct {
     }
 
     /// Returns a slice of the remaining bytes. Does not affect iterator state.
-    pub fn rest(self: *const SplitIterator) []const u8 {
+    pub fn rest(self: TokenIterator) []const u8 {
         // move to beginning of token
         var index: usize = self.index;
         while (index < self.buffer.len and self.isSplitByte(self.buffer[index])) : (index += 1) {}
         return self.buffer[index..];
     }
 
-    fn isSplitByte(self: *const SplitIterator, byte: u8) bool {
-        for (self.split_bytes) |split_byte| {
-            if (byte == split_byte) {
+    fn isSplitByte(self: TokenIterator, byte: u8) bool {
+        for (self.delimiter_bytes) |delimiter_byte| {
+            if (byte == delimiter_byte) {
                 return true;
             }
         }
         return false;
+    }
+};
+
+pub const SplitIterator = struct {
+    buffer: []const u8,
+    index: ?usize,
+    delimiter: []const u8,
+
+    /// Returns a slice of the next field, or null if splitting is complete.
+    pub fn next(self: *SplitIterator) ?[]const u8 {
+        const start = self.index orelse return null;
+        const end = if (indexOfPos(u8, self.buffer, start, self.delimiter)) |delim_start| blk: {
+            self.index = delim_start + self.delimiter.len;
+            break :blk delim_start;
+        } else blk: {
+            self.index = null;
+            break :blk self.buffer.len;
+        };
+        return self.buffer[start..end];
+    }
+
+    /// Returns a slice of the remaining bytes. Does not affect iterator state.
+    pub fn rest(self: SplitIterator) []const u8 {
+        const end = self.buffer.len;
+        const start = self.index orelse end;
+        return self.buffer[start..end];
     }
 };
 
