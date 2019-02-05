@@ -610,6 +610,9 @@ pub const ChildProcess = struct {
                 } else {
                     return err;
                 }
+            } else {
+                // Every other error would have been returned earlier.
+                return error.FileNotFound;
             }
         };
 
