@@ -4486,8 +4486,9 @@ ZigType *get_vector_type(CodeGen *g, uint32_t len, ZigType *elem_type) {
     buf_resize(&entry->name, 0);
     buf_appendf(&entry->name, "@Vector(%u, %s)", len, buf_ptr(&elem_type->name));
 
-    entry->di_type = ZigLLVMDIBuilderCreateVectorType(g->dbuilder, len,
-            LLVMABIAlignmentOfType(g->target_data_ref, entry->type_ref), elem_type->di_type);
+    entry->di_type = ZigLLVMDIBuilderCreateVectorType(g->dbuilder,
+            len * type_size_bits(g, elem_type),
+            LLVMABIAlignmentOfType(g->target_data_ref, entry->type_ref), elem_type->di_type, len);
 
     g->type_table.put(type_id, entry);
     return entry;
