@@ -3192,7 +3192,16 @@ fn foo() void { }
       {#code_end#}
       {#header_open|Pass-by-value Parameters#}
       <p>
-      In Zig, structs, unions, and enums with payloads can be passed directly to a function:
+      Primitive types such as {#link|Integers#} and {#link|Floats#} passed as parameters
+      are copied, and then the copy is available in the function body. This is called "passing by value".
+      Copying a primitive type is essentially free and typically involves nothing more than
+      setting a register.
+      </p>
+      <p>
+      Structs, unions, and arrays can sometimes be more efficiently passed as a reference, since a copy
+      could be arbitrarily expensive depending on the size. When these types are passed
+      as parameters, Zig may choose to copy and pass by value, or pass by reference, whichever way
+      Zig decides will be faster. This is made possible, in part, by the fact that parameters are immutable.
       </p>
       {#code_begin|test#}
 const Point = struct {
@@ -3201,19 +3210,19 @@ const Point = struct {
 };
 
 fn foo(point: Point) i32 {
+    // Here, `point` could be a reference, or a copy. The function body
+    // can ignore the difference and treat it as a value. Be very careful
+    // taking the address of the parameter - it should be treated as if
+    // the address will become invalid when the function returns.
     return point.x + point.y;
 }
 
 const assert = @import("std").debug.assert;
 
-test "pass aggregate type by non-copy value to function" {
+test "pass struct to function" {
     assert(foo(Point{ .x = 1, .y = 2 }) == 3);
 }
       {#code_end#}
-      <p>
-      In this case, the value may be passed by reference, or by value, whichever way
-      Zig decides will be faster.
-      </p>
       <p>
       For extern functions, Zig follows the C ABI for passing structs and unions by value.
       </p>
