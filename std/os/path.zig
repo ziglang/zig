@@ -184,7 +184,7 @@ pub fn windowsParsePath(path: []const u8) WindowsPath {
                 return relative_path;
             }
 
-            var it = mem.split(path, []u8{this_sep});
+            var it = mem.tokenize(path, []u8{this_sep});
             _ = (it.next() orelse return relative_path);
             _ = (it.next() orelse return relative_path);
             return WindowsPath{
@@ -202,7 +202,7 @@ pub fn windowsParsePath(path: []const u8) WindowsPath {
                 return relative_path;
             }
 
-            var it = mem.split(path, []u8{this_sep});
+            var it = mem.tokenize(path, []u8{this_sep});
             _ = (it.next() orelse return relative_path);
             _ = (it.next() orelse return relative_path);
             return WindowsPath{
@@ -264,8 +264,8 @@ fn networkShareServersEql(ns1: []const u8, ns2: []const u8) bool {
     const sep1 = ns1[0];
     const sep2 = ns2[0];
 
-    var it1 = mem.split(ns1, []u8{sep1});
-    var it2 = mem.split(ns2, []u8{sep2});
+    var it1 = mem.tokenize(ns1, []u8{sep1});
+    var it2 = mem.tokenize(ns2, []u8{sep2});
 
     // TODO ASCII is wrong, we actually need full unicode support to compare paths.
     return asciiEqlIgnoreCase(it1.next().?, it2.next().?);
@@ -285,8 +285,8 @@ fn compareDiskDesignators(kind: WindowsPath.Kind, p1: []const u8, p2: []const u8
             const sep1 = p1[0];
             const sep2 = p2[0];
 
-            var it1 = mem.split(p1, []u8{sep1});
-            var it2 = mem.split(p2, []u8{sep2});
+            var it1 = mem.tokenize(p1, []u8{sep1});
+            var it2 = mem.tokenize(p2, []u8{sep2});
 
             // TODO ASCII is wrong, we actually need full unicode support to compare paths.
             return asciiEqlIgnoreCase(it1.next().?, it2.next().?) and asciiEqlIgnoreCase(it1.next().?, it2.next().?);
@@ -337,6 +337,8 @@ pub fn resolveSlice(allocator: *Allocator, paths: []const []const u8) ![]u8 {
 /// If all paths are relative it uses the current working directory as a starting point.
 /// Each drive has its own current working directory.
 /// Path separators are canonicalized to '\\' and drives are canonicalized to capital letters.
+/// Note: all usage of this function should be audited due to the existence of symlinks.
+/// Without performing actual syscalls, resolving `..` could be incorrect.
 pub fn resolveWindows(allocator: *Allocator, paths: []const []const u8) ![]u8 {
     if (paths.len == 0) {
         assert(is_windows); // resolveWindows called on non windows can't use getCwd
@@ -416,7 +418,7 @@ pub fn resolveWindows(allocator: *Allocator, paths: []const []const u8) ![]u8 {
             },
             WindowsPath.Kind.NetworkShare => {
                 result = try allocator.alloc(u8, max_size);
-                var it = mem.split(paths[first_index], "/\\");
+                var it = mem.tokenize(paths[first_index], "/\\");
                 const server_name = it.next().?;
                 const other_name = it.next().?;
 
@@ -483,7 +485,7 @@ pub fn resolveWindows(allocator: *Allocator, paths: []const []const u8) ![]u8 {
         if (!correct_disk_designator) {
             continue;
         }
-        var it = mem.split(p[parsed.disk_designator.len..], "/\\");
+        var it = mem.tokenize(p[parsed.disk_designator.len..], "/\\");
         while (it.next()) |component| {
             if (mem.eql(u8, component, ".")) {
                 continue;
@@ -516,6 +518,8 @@ pub fn resolveWindows(allocator: *Allocator, paths: []const []const u8) ![]u8 {
 /// It resolves "." and "..".
 /// The result does not have a trailing path separator.
 /// If all paths are relative it uses the current working directory as a starting point.
+/// Note: all usage of this function should be audited due to the existence of symlinks.
+/// Without performing actual syscalls, resolving `..` could be incorrect.
 pub fn resolvePosix(allocator: *Allocator, paths: []const []const u8) ![]u8 {
     if (paths.len == 0) {
         assert(!is_windows); // resolvePosix called on windows can't use getCwd
@@ -550,7 +554,7 @@ pub fn resolvePosix(allocator: *Allocator, paths: []const []const u8) ![]u8 {
     errdefer allocator.free(result);
 
     for (paths[first_index..]) |p, i| {
-        var it = mem.split(p, "/");
+        var it = mem.tokenize(p, "/");
         while (it.next()) |component| {
             if (mem.eql(u8, component, ".")) {
                 continue;
@@ -937,8 +941,8 @@ pub fn relativeWindows(allocator: *Allocator, from: []const u8, to: []const u8) 
         return resolved_to;
     }
 
-    var from_it = mem.split(resolved_from, "/\\");
-    var to_it = mem.split(resolved_to, "/\\");
+    var from_it = mem.tokenize(resolved_from, "/\\");
+    var to_it = mem.tokenize(resolved_to, "/\\");
     while (true) {
         const from_component = from_it.next() orelse return mem.dupe(allocator, u8, to_it.rest());
         const to_rest = to_it.rest();
@@ -967,7 +971,7 @@ pub fn relativeWindows(allocator: *Allocator, from: []const u8, to: []const u8) 
         // shave off the trailing slash
         result_index -= 1;
 
-        var rest_it = mem.split(to_rest, "/\\");
+        var rest_it = mem.tokenize(to_rest, "/\\");
         while (rest_it.next()) |to_component| {
             result[result_index] = '\\';
             result_index += 1;
@@ -988,8 +992,8 @@ pub fn relativePosix(allocator: *Allocator, from: []const u8, to: []const u8) ![
     const resolved_to = try resolvePosix(allocator, [][]const u8{to});
     defer allocator.free(resolved_to);
 
-    var from_it = mem.split(resolved_from, "/");
-    var to_it = mem.split(resolved_to, "/");
+    var from_it = mem.tokenize(resolved_from, "/");
+    var to_it = mem.tokenize(resolved_to, "/");
     while (true) {
         const from_component = from_it.next() orelse return mem.dupe(allocator, u8, to_it.rest());
         const to_rest = to_it.rest();

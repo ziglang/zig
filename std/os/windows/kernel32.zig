@@ -220,3 +220,50 @@ pub const FOREGROUND_BLUE = 1;
 pub const FOREGROUND_GREEN = 2;
 pub const FOREGROUND_RED = 4;
 pub const FOREGROUND_INTENSITY = 8;
+
+pub extern "kernel32" stdcallcc fn InitializeCriticalSection(lpCriticalSection: *CRITICAL_SECTION) void;
+pub extern "kernel32" stdcallcc fn EnterCriticalSection(lpCriticalSection: *CRITICAL_SECTION) void;
+pub extern "kernel32" stdcallcc fn LeaveCriticalSection(lpCriticalSection: *CRITICAL_SECTION) void;
+pub extern "kernel32" stdcallcc fn DeleteCriticalSection(lpCriticalSection: *CRITICAL_SECTION) void;
+
+pub const LIST_ENTRY = extern struct {
+    Flink: *LIST_ENTRY,
+    Blink: *LIST_ENTRY,
+};
+
+pub const RTL_CRITICAL_SECTION_DEBUG = extern struct {
+    Type: WORD,
+    CreatorBackTraceIndex: WORD,
+    CriticalSection: *RTL_CRITICAL_SECTION,
+    ProcessLocksList: LIST_ENTRY,
+    EntryCount: DWORD,
+    ContentionCount: DWORD,
+    Flags: DWORD,
+    CreatorBackTraceIndexHigh: WORD,
+    SpareWORD: WORD,
+};
+
+pub const RTL_CRITICAL_SECTION = extern struct {
+    DebugInfo: *RTL_CRITICAL_SECTION_DEBUG,
+    LockCount: LONG,
+    RecursionCount: LONG,
+    OwningThread: HANDLE,
+    LockSemaphore: HANDLE,
+    SpinCount: ULONG_PTR,
+};
+
+pub const CRITICAL_SECTION = RTL_CRITICAL_SECTION;
+pub const INIT_ONCE = RTL_RUN_ONCE;
+pub const INIT_ONCE_STATIC_INIT = RTL_RUN_ONCE_INIT;
+
+pub extern "kernel32" stdcallcc fn InitOnceExecuteOnce(InitOnce: *INIT_ONCE, InitFn: INIT_ONCE_FN, Parameter: ?*c_void, Context: ?*c_void) BOOL;
+
+pub const INIT_ONCE_FN = extern fn(InitOnce: *INIT_ONCE, Parameter: ?*c_void, Context: ?*c_void) BOOL;
+
+pub const RTL_RUN_ONCE = extern struct {
+    Ptr: ?*c_void,
+};
+
+pub const RTL_RUN_ONCE_INIT = RTL_RUN_ONCE {
+    .Ptr = null,
+};

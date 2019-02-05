@@ -1021,12 +1021,13 @@ pub const Builder = struct {
     pub const Error = Analyze.Error;
 
     pub fn init(comp: *Compilation, tree_scope: *Scope.AstTree, begin_scope: ?*Scope) !Builder {
-        const code = try comp.gpa().create(Code{
+        const code = try comp.gpa().create(Code);
+        code.* = Code{
             .basic_block_list = undefined,
             .arena = std.heap.ArenaAllocator.init(comp.gpa()),
             .return_type = null,
             .tree_scope = tree_scope,
-        });
+        };
         code.basic_block_list = std.ArrayList(*BasicBlock).init(&code.arena.allocator);
         errdefer code.destroy(comp.gpa());
 
@@ -1052,7 +1053,8 @@ pub const Builder = struct {
 
     /// No need to clean up resources thanks to the arena allocator.
     pub fn createBasicBlock(self: *Builder, scope: *Scope, name_hint: [*]const u8) !*BasicBlock {
-        const basic_block = try self.arena().create(BasicBlock{
+        const basic_block = try self.arena().create(BasicBlock);
+        basic_block.* = BasicBlock{
             .ref_count = 0,
             .name_hint = name_hint,
             .debug_id = self.next_debug_id,
@@ -1063,7 +1065,7 @@ pub const Builder = struct {
             .ref_instruction = null,
             .llvm_block = undefined,
             .llvm_exit_block = undefined,
-        });
+        };
         self.next_debug_id += 1;
         return basic_block;
     }
@@ -1774,7 +1776,8 @@ pub const Builder = struct {
         params: I.Params,
         is_generated: bool,
     ) !*Inst {
-        const inst = try self.arena().create(I{
+        const inst = try self.arena().create(I);
+        inst.* = I{
             .base = Inst{
                 .id = Inst.typeToId(I),
                 .is_generated = is_generated,
@@ -1793,7 +1796,7 @@ pub const Builder = struct {
                 .owner_bb = self.current_basic_block,
             },
             .params = params,
-        });
+        };
 
         // Look at the params and ref() other instructions
         comptime var i = 0;

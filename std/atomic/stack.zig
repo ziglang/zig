@@ -4,10 +4,13 @@ const AtomicOrder = builtin.AtomicOrder;
 
 /// Many reader, many writer, non-allocating, thread-safe
 /// Uses a spinlock to protect push() and pop()
+/// When building in single threaded mode, this is a simple linked list.
 pub fn Stack(comptime T: type) type {
     return struct {
         root: ?*Node,
-        lock: u8,
+        lock: @typeOf(lock_init),
+
+        const lock_init = if (builtin.single_threaded) {} else u8(0);
 
         pub const Self = @This();
 
@@ -19,7 +22,7 @@ pub fn Stack(comptime T: type) type {
         pub fn init() Self {
             return Self{
                 .root = null,
-                .lock = 0,
+                .lock = lock_init,
             };
         }
 
@@ -31,20 +34,31 @@ pub fn Stack(comptime T: type) type {
         }
 
         pub fn push(self: *Self, node: *Node) void {
-            while (@atomicRmw(u8, &self.lock, builtin.AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst) != 0) {}
-            defer assert(@atomicRmw(u8, &self.lock, builtin.AtomicRmwOp.Xchg, 0, AtomicOrder.SeqCst) == 1);
+            if (builtin.single_threaded) {
+                node.next = self.root;
+                self.root = node;
+            } else {
+                while (@atomicRmw(u8, &self.lock, builtin.AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst) != 0) {}
+                defer assert(@atomicRmw(u8, &self.lock, builtin.AtomicRmwOp.Xchg, 0, AtomicOrder.SeqCst) == 1);
 
-            node.next = self.root;
-            self.root = node;
+                node.next = self.root;
+                self.root = node;
+            }
         }
 
         pub fn pop(self: *Self) ?*Node {
-            while (@atomicRmw(u8, &self.lock, builtin.AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst) != 0) {}
-            defer assert(@atomicRmw(u8, &self.lock, builtin.AtomicRmwOp.Xchg, 0, AtomicOrder.SeqCst) == 1);
+            if (builtin.single_threaded) {
+                const root = self.root orelse return null;
+                self.root = root.next;
+                return root;
+            } else {
+                while (@atomicRmw(u8, &self.lock, builtin.AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst) != 0) {}
+                defer assert(@atomicRmw(u8, &self.lock, builtin.AtomicRmwOp.Xchg, 0, AtomicOrder.SeqCst) == 1);
 
-            const root = self.root orelse return null;
-            self.root = root.next;
-            return root;
+                const root = self.root orelse return null;
+                self.root = root.next;
+                return root;
+            }
         }
 
         pub fn isEmpty(self: *Self) bool {
@@ -90,20 +104,36 @@ test "std.atomic.stack" {
         .get_count = 0,
     };
 
-    var putters: [put_thread_count]*std.os.Thread = undefined;
-    for (putters) |*t| {
-        t.* = try std.os.spawnThread(&context, startPuts);
-    }
-    var getters: [put_thread_count]*std.os.Thread = undefined;
-    for (getters) |*t| {
-        t.* = try std.os.spawnThread(&context, startGets);
-    }
+    if (builtin.single_threaded) {
+        {
+            var i: usize = 0;
+            while (i < put_thread_count) : (i += 1) {
+                std.debug.assertOrPanic(startPuts(&context) == 0);
+            }
+        }
+        context.puts_done = 1;
+        {
+            var i: usize = 0;
+            while (i < put_thread_count) : (i += 1) {
+                std.debug.assertOrPanic(startGets(&context) == 0);
+            }
+        }
+    } else {
+        var putters: [put_thread_count]*std.os.Thread = undefined;
+        for (putters) |*t| {
+            t.* = try std.os.spawnThread(&context, startPuts);
+        }
+        var getters: [put_thread_count]*std.os.Thread = undefined;
+        for (getters) |*t| {
+            t.* = try std.os.spawnThread(&context, startGets);
+        }
 
-    for (putters) |t|
-        t.wait();
-    _ = @atomicRmw(u8, &context.puts_done, builtin.AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst);
-    for (getters) |t|
-        t.wait();
+        for (putters) |t|
+            t.wait();
+        _ = @atomicRmw(u8, &context.puts_done, builtin.AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst);
+        for (getters) |t|
+            t.wait();
+    }
 
     if (context.put_sum != context.get_sum) {
         std.debug.panic("failure\nput_sum:{} != get_sum:{}", context.put_sum, context.get_sum);
@@ -125,10 +155,11 @@ fn startPuts(ctx: *Context) u8 {
     while (put_count != 0) : (put_count -= 1) {
         std.os.time.sleep(1); // let the os scheduler be our fuzz
         const x = @bitCast(i32, r.random.scalar(u32));
-        const node = ctx.allocator.create(Stack(i32).Node{
+        const node = ctx.allocator.create(Stack(i32).Node) catch unreachable;
+        node.* = Stack(i32).Node{
             .next = undefined,
             .data = x,
-        }) catch unreachable;
+        };
         ctx.stack.push(node);
         _ = @atomicRmw(isize, &ctx.put_sum, builtin.AtomicRmwOp.Add, x, AtomicOrder.SeqCst);
     }

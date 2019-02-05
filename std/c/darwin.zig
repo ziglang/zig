@@ -73,8 +73,8 @@ pub const sockaddr_in6 = extern struct {
 };
 
 pub const timeval = extern struct {
-    tv_sec: isize,
-    tv_usec: isize,
+    tv_sec: c_long,
+    tv_usec: i32,
 };
 
 pub const timezone = extern struct {
@@ -175,6 +175,24 @@ pub const kevent64_s = extern struct {
     udata: u64,
     ext: [2]u64,
 };
+
+pub const mach_port_t = c_uint;
+pub const clock_serv_t = mach_port_t;
+pub const clock_res_t = c_int;
+pub const mach_port_name_t = natural_t;
+pub const natural_t = c_uint;
+pub const mach_timespec_t = extern struct {
+    tv_sec: c_uint,
+    tv_nsec: clock_res_t,
+};
+pub const kern_return_t = c_int;
+pub const host_t = mach_port_t;
+pub const CALENDAR_CLOCK = 1;
+
+pub extern fn mach_host_self() mach_port_t;
+pub extern fn clock_get_time(clock_serv: clock_serv_t, cur_time: *mach_timespec_t) kern_return_t;
+pub extern fn host_get_clock_service(host: host_t, clock_id: clock_id_t, clock_serv: ?[*]clock_serv_t) kern_return_t;
+pub extern fn mach_port_deallocate(task: ipc_space_t, name: mach_port_name_t) kern_return_t;
 
 // sys/types.h on macos uses #pragma pack() so these checks are
 // to make sure the struct is laid out the same. These values were

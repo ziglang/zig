@@ -20,6 +20,7 @@ ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_cons
 uint64_t type_size(CodeGen *g, ZigType *type_entry);
 uint64_t type_size_bits(CodeGen *g, ZigType *type_entry);
 ZigType *get_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits);
+ZigType *get_vector_type(CodeGen *g, uint32_t len, ZigType *elem_type);
 ZigType **get_c_int_type_ptr(CodeGen *g, CIntType c_int_type);
 ZigType *get_c_int_type(CodeGen *g, CIntType c_int_type);
 ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id);
@@ -73,6 +74,7 @@ TypeUnionField *find_union_field_by_tag(ZigType *type_entry, const BigInt *tag);
 bool is_ref(ZigType *type_entry);
 bool is_array_ref(ZigType *type_entry);
 bool is_container_ref(ZigType *type_entry);
+bool is_valid_vector_elem_type(ZigType *elem_type);
 void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node);
 void scan_import(CodeGen *g, ImportTableEntry *import);
 void preview_use_decl(CodeGen *g, AstNode *node);
@@ -81,7 +83,7 @@ ZigFn *scope_fn_entry(Scope *scope);
 ImportTableEntry *get_scope_import(Scope *scope);
 void init_tld(Tld *tld, TldId id, Buf *name, VisibMod visib_mod, AstNode *source_node, Scope *parent_scope);
 ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf *name,
-    bool is_const, ConstExprValue *init_value, Tld *src_tld);
+    bool is_const, ConstExprValue *init_value, Tld *src_tld, ZigType *var_type);
 ZigType *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node);
 ZigFn *create_fn(CodeGen *g, AstNode *proto_node);
 ZigFn *create_fn_raw(CodeGen *g, FnInline inline_value);
@@ -221,6 +223,13 @@ enum ReqCompTime {
     ReqCompTimeYes,
 };
 ReqCompTime type_requires_comptime(CodeGen *g, ZigType *type_entry);
+
+enum OnePossibleValue {
+    OnePossibleValueInvalid,
+    OnePossibleValueNo,
+    OnePossibleValueYes,
+};
+OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry);
 
 Error ensure_const_val_repr(IrAnalyze *ira, CodeGen *codegen, AstNode *source_node,
         ConstExprValue *const_val, ZigType *wanted_type);

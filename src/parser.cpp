@@ -381,7 +381,7 @@ static AstNode *ast_parse_if_expr_helper(ParseContext *pc, AstNode *(*body_parse
         else_body = ast_expect(pc, body_parser);
     }
 
-    assert(res->type == NodeTypeTestExpr);
+    assert(res->type == NodeTypeIfOptional);
     if (err_payload != nullptr) {
         AstNodeTestExpr old = res->data.test_expr;
         res->type = NodeTypeIfErrorExpr;
@@ -990,7 +990,7 @@ static AstNode *ast_parse_if_statement(ParseContext *pc) {
     if (requires_semi && else_body == nullptr)
         expect_token(pc, TokenIdSemicolon);
 
-    assert(res->type == NodeTypeTestExpr);
+    assert(res->type == NodeTypeIfOptional);
     if (err_payload != nullptr) {
         AstNodeTestExpr old = res->data.test_expr;
         res->type = NodeTypeIfErrorExpr;
@@ -2204,7 +2204,7 @@ static AstNode *ast_parse_if_prefix(ParseContext *pc) {
     Optional<PtrPayload> opt_payload = ast_parse_ptr_payload(pc);
 
     PtrPayload payload;
-    AstNode *res = ast_create_node(pc, NodeTypeTestExpr, first);
+    AstNode *res = ast_create_node(pc, NodeTypeIfOptional, first);
     res->data.test_expr.target_node = condition;
     if (opt_payload.unwrap(&payload)) {
         res->data.test_expr.var_symbol = token_buf(payload.payload);
@@ -2999,7 +2999,7 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             visit_field(&node->data.if_err_expr.then_node, visit, context);
             visit_field(&node->data.if_err_expr.else_node, visit, context);
             break;
-        case NodeTypeTestExpr:
+        case NodeTypeIfOptional:
             visit_field(&node->data.test_expr.target_node, visit, context);
             visit_field(&node->data.test_expr.then_node, visit, context);
             visit_field(&node->data.test_expr.else_node, visit, context);

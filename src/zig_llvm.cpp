@@ -263,6 +263,19 @@ ZigLLVMDIType *ZigLLVMCreateDebugBasicType(ZigLLVMDIBuilder *dibuilder, const ch
     return reinterpret_cast<ZigLLVMDIType*>(di_type);
 }
 
+struct ZigLLVMDIType *ZigLLVMDIBuilderCreateVectorType(struct ZigLLVMDIBuilder *dibuilder,
+        uint64_t Size, uint32_t AlignInBits, struct ZigLLVMDIType *Ty)
+{
+    SmallVector<Metadata *, 1> subrange;
+    subrange.push_back(reinterpret_cast<DIBuilder*>(dibuilder)->getOrCreateSubrange(0, Size));
+    DIType *di_type = reinterpret_cast<DIBuilder*>(dibuilder)->createVectorType(
+            Size,
+            AlignInBits,
+            reinterpret_cast<DIType*>(Ty),
+            reinterpret_cast<DIBuilder*>(dibuilder)->getOrCreateArray(subrange));
+    return reinterpret_cast<ZigLLVMDIType*>(di_type);
+}
+
 ZigLLVMDIType *ZigLLVMCreateDebugArrayType(ZigLLVMDIBuilder *dibuilder, uint64_t size_in_bits,
         uint64_t align_in_bits, ZigLLVMDIType *elem_type, int elem_count)
 {

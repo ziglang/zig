@@ -248,13 +248,8 @@ ATTRIBUTE_PRINTF(2, 3)
 static void tokenize_error(Tokenize *t, const char *format, ...) {
     t->state = TokenizeStateError;
 
-    if (t->cur_tok) {
-        t->out->err_line = t->cur_tok->start_line;
-        t->out->err_column = t->cur_tok->start_column;
-    } else {
-        t->out->err_line = t->line;
-        t->out->err_column = t->column;
-    }
+    t->out->err_line = t->line;
+    t->out->err_column = t->column;
 
     va_list ap;
     va_start(ap, format);
@@ -886,6 +881,9 @@ void tokenize(Buf *buf, Tokenization *out) {
                 break;
             case TokenizeStateSawAmpersand:
                 switch (c) {
+                    case '&':
+                        tokenize_error(&t, "`&&` is invalid. Note that `and` is boolean AND.");
+                        break;
                     case '=':
                         set_token_id(&t, t.cur_tok, TokenIdBitAndEq);
                         end_token(&t);

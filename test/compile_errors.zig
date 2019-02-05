@@ -2,6 +2,40 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "@bitCast same size but bit count mismatch",
+        \\export fn entry(byte: u8) void {
+        \\    var oops = @bitCast(u7, byte);
+        \\}
+    ,
+        ".tmp_source.zig:2:16: error: destination type 'u7' has 7 bits but source type 'u8' has 8 bits",
+    );
+
+    cases.add(
+        "attempted `&&`",
+        \\export fn entry(a: bool, b: bool) i32 {
+        \\    if (a && b) {
+        \\        return 1234;
+        \\    }
+        \\    return 5678;
+        \\}
+    ,
+        ".tmp_source.zig:2:12: error: `&&` is invalid. Note that `and` is boolean AND.",
+    );
+
+    cases.add(
+        "attempted `||` on boolean values",
+        \\export fn entry(a: bool, b: bool) i32 {
+        \\    if (a || b) {
+        \\        return 1234;
+        \\    }
+        \\    return 5678;
+        \\}
+    ,
+        ".tmp_source.zig:2:9: error: expected error set type, found 'bool'",
+        ".tmp_source.zig:2:11: note: `||` merges error sets; `or` performs boolean OR",
+    );
+
+    cases.add(
         "compile log a pointer to an opaque value",
         \\export fn entry() void {
         \\    @compileLog(@ptrCast(*const c_void, &entry));
@@ -267,8 +301,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const Errors = error{} || u16;
         \\}
     ,
-        ".tmp_source.zig:2:20: error: expected error set type, found 'u8'",
-        ".tmp_source.zig:5:31: error: expected error set type, found 'u16'",
+        ".tmp_source.zig:2:20: error: expected error set type, found type 'u8'",
+        ".tmp_source.zig:2:23: note: `||` merges error sets; `or` performs boolean OR",
+        ".tmp_source.zig:5:31: error: expected error set type, found type 'u16'",
+        ".tmp_source.zig:5:28: note: `||` merges error sets; `or` performs boolean OR",
     );
 
     cases.add(
@@ -2618,7 +2654,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
     ,
-        ".tmp_source.zig:1:13: error: newline not allowed in string literal",
+        ".tmp_source.zig:1:15: error: newline not allowed in string literal",
     );
 
     cases.add(
@@ -3193,7 +3229,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return 2;
         \\}
     ,
-        ".tmp_source.zig:2:15: error: unable to infer expression type",
+        ".tmp_source.zig:2:15: error: values of type 'comptime_int' must be comptime known",
     );
 
     cases.add(
@@ -3539,7 +3575,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(a)); }
     ,
-        ".tmp_source.zig:2:11: error: expected type, found 'i32'",
+        ".tmp_source.zig:2:11: error: expected type 'type', found 'i32'",
     );
 
     cases.add(
@@ -5330,5 +5366,33 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         ".tmp_source.zig:2:35: error: expected sized integer or sized float, found comptime_float",
+    );
+
+    cases.add(
+        "runtime assignment to comptime struct type",
+        \\const Foo = struct {
+        \\    Bar: u8,
+        \\    Baz: type,
+        \\};
+        \\export fn f() void {
+        \\    var x: u8 = 0;
+        \\    const foo = Foo { .Bar = x, .Baz = u8 };
+        \\}
+    ,
+        ".tmp_source.zig:7:30: error: unable to evaluate constant expression",
+    );
+
+    cases.add(
+        "runtime assignment to comptime union type",
+        \\const Foo = union {
+        \\    Bar: u8,
+        \\    Baz: type,
+        \\};
+        \\export fn f() void {
+        \\    var x: u8 = 0;
+        \\    const foo = Foo { .Bar = x };
+        \\}
+    ,
+        ".tmp_source.zig:7:30: error: unable to evaluate constant expression",
     );
 }

@@ -1808,7 +1808,7 @@ Error os_self_exe_shared_libs(ZigList<Buf *> &paths) {
 #endif
 }
 
-Error os_file_open_r(Buf *full_path, OsFile *out_file) {
+Error os_file_open_r(Buf *full_path, OsFile *out_file, OsTimeStamp *mtime) {
 #if defined(ZIG_OS_WINDOWS)
     // TODO use CreateFileW
     HANDLE result = CreateFileA(buf_ptr(full_path), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -1834,8 +1834,18 @@ Error os_file_open_r(Buf *full_path, OsFile *out_file) {
                 return ErrorUnexpected;
         }
     }
-
     *out_file = result;
+
+    if (mtime != nullptr) {
+        FILETIME last_write_time;
+        if (!GetFileTime(result, nullptr, nullptr, &last_write_time)) {
+            CloseHandle(result);
+            return ErrorUnexpected;
+        }
+        mtime->sec = (((ULONGLONG) last_write_time.dwHighDateTime) << 32) + last_write_time.dwLowDateTime;
+        mtime->nsec = 0;
+    }
+
     return ErrorNone;
 #else
     for (;;) {
@@ -1858,7 +1868,26 @@ Error os_file_open_r(Buf *full_path, OsFile *out_file) {
                     return ErrorFileSystem;
             }
         }
+        struct stat statbuf;
+        if (fstat(fd, &statbuf) == -1) {
+            close(fd);
+            return ErrorFileSystem;
+        }
+        if (S_ISDIR(statbuf.st_mode)) {
+            close(fd);
+            return ErrorIsDir;
+        }
         *out_file = fd;
+
+        if (mtime != nullptr) {
+#if defined(ZIG_OS_DARWIN)
+            mtime->sec = statbuf.st_mtimespec.tv_sec;
+            mtime->nsec = statbuf.st_mtimespec.tv_nsec;
+#else
+            mtime->sec = statbuf.st_mtim.tv_sec;
+            mtime->nsec = statbuf.st_mtim.tv_nsec;
+#endif
+        }
         return ErrorNone;
     }
 #endif
@@ -1945,35 +1974,6 @@ Error os_file_open_lock_rw(Buf *full_path, OsFile *out_file) {
     }
     *out_file = fd;
     return ErrorNone;
-#endif
-}
-
-Error os_file_mtime(OsFile file, OsTimeStamp *mtime) {
-#if defined(ZIG_OS_WINDOWS)
-    FILETIME last_write_time;
-    if (!GetFileTime(file, nullptr, nullptr, &last_write_time))
-        return ErrorUnexpected;
-    mtime->sec = (((ULONGLONG) last_write_time.dwHighDateTime) << 32) + last_write_time.dwLowDateTime;
-    mtime->nsec = 0;
-    return ErrorNone;
-#elif defined(ZIG_OS_LINUX) || defined(ZIG_OS_FREEBSD)
-    struct stat statbuf;
-    if (fstat(file, &statbuf) == -1)
-        return ErrorFileSystem;
-
-    mtime->sec = statbuf.st_mtim.tv_sec;
-    mtime->nsec = statbuf.st_mtim.tv_nsec;
-    return ErrorNone;
-#elif defined(ZIG_OS_DARWIN)
-    struct stat statbuf;
-    if (fstat(file, &statbuf) == -1)
-        return ErrorFileSystem;
-
-    mtime->sec = statbuf.st_mtimespec.tv_sec;
-    mtime->nsec = statbuf.st_mtimespec.tv_nsec;
-    return ErrorNone;
-#else
-#error unimplemented
 #endif
 }
 

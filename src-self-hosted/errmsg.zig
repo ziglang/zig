@@ -118,7 +118,8 @@ pub const Msg = struct {
         const realpath = try mem.dupe(comp.gpa(), u8, tree_scope.root().realpath);
         errdefer comp.gpa().free(realpath);
 
-        const msg = try comp.gpa().create(Msg{
+        const msg = try comp.gpa().create(Msg);
+        msg.* = Msg{
             .text = text,
             .realpath = realpath,
             .data = Data{
@@ -128,7 +129,7 @@ pub const Msg = struct {
                     .span = span,
                 },
             },
-        });
+        };
         tree_scope.base.ref();
         return msg;
     }
@@ -139,13 +140,14 @@ pub const Msg = struct {
         const realpath_copy = try mem.dupe(comp.gpa(), u8, realpath);
         errdefer comp.gpa().free(realpath_copy);
 
-        const msg = try comp.gpa().create(Msg{
+        const msg = try comp.gpa().create(Msg);
+        msg.* = Msg{
             .text = text,
             .realpath = realpath_copy,
             .data = Data{
                 .Cli = Cli{ .allocator = comp.gpa() },
             },
-        });
+        };
         return msg;
     }
 
@@ -164,7 +166,8 @@ pub const Msg = struct {
         var out_stream = &std.io.BufferOutStream.init(&text_buf).stream;
         try parse_error.render(&tree_scope.tree.tokens, out_stream);
 
-        const msg = try comp.gpa().create(Msg{
+        const msg = try comp.gpa().create(Msg);
+        msg.* = Msg{
             .text = undefined,
             .realpath = realpath_copy,
             .data = Data{
@@ -177,7 +180,7 @@ pub const Msg = struct {
                     },
                 },
             },
-        });
+        };
         tree_scope.base.ref();
         msg.text = text_buf.toOwnedSlice();
         return msg;
@@ -203,7 +206,8 @@ pub const Msg = struct {
         var out_stream = &std.io.BufferOutStream.init(&text_buf).stream;
         try parse_error.render(&tree.tokens, out_stream);
 
-        const msg = try allocator.create(Msg{
+        const msg = try allocator.create(Msg);
+        msg.* = Msg{
             .text = undefined,
             .realpath = realpath_copy,
             .data = Data{
@@ -216,7 +220,7 @@ pub const Msg = struct {
                     },
                 },
             },
-        });
+        };
         msg.text = text_buf.toOwnedSlice();
         errdefer allocator.destroy(msg);
 

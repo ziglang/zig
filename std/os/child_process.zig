@@ -88,7 +88,8 @@ pub const ChildProcess = struct {
     /// First argument in argv is the executable.
     /// On success must call deinit.
     pub fn init(argv: []const []const u8, allocator: *mem.Allocator) !*ChildProcess {
-        const child = try allocator.create(ChildProcess{
+        const child = try allocator.create(ChildProcess);
+        child.* = ChildProcess{
             .allocator = allocator,
             .argv = argv,
             .pid = undefined,
@@ -109,7 +110,7 @@ pub const ChildProcess = struct {
             .stdin_behavior = StdIo.Inherit,
             .stdout_behavior = StdIo.Inherit,
             .stderr_behavior = StdIo.Inherit,
-        });
+        };
         errdefer allocator.destroy(child);
         return child;
     }
@@ -594,7 +595,7 @@ pub const ChildProcess = struct {
             const PATH = try os.getEnvVarOwned(self.allocator, "PATH");
             defer self.allocator.free(PATH);
 
-            var it = mem.split(PATH, ";");
+            var it = mem.tokenize(PATH, ";");
             while (it.next()) |search_path| {
                 const joined_path = try os.path.join(self.allocator, search_path, app_name);
                 defer self.allocator.free(joined_path);

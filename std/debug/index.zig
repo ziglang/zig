@@ -751,7 +751,7 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
     const self_file = try os.openSelfExe();
     defer self_file.close();
 
-    const coff_obj = try allocator.createOne(coff.Coff);
+    const coff_obj = try allocator.create(coff.Coff);
     coff_obj.* = coff.Coff{
         .in_file = self_file,
         .allocator = allocator,
@@ -1036,7 +1036,7 @@ fn openSelfDebugInfoMacOs(allocator: *mem.Allocator) !DebugInfo {
             }
         }
     }
-    const sentinel = try allocator.createOne(macho.nlist_64);
+    const sentinel = try allocator.create(macho.nlist_64);
     sentinel.* = macho.nlist_64{
         .n_strx = 0,
         .n_type = 36,
@@ -1949,7 +1949,8 @@ fn scanAllCompileUnits(di: *DwarfInfo) !void {
 
         try di.dwarf_seekable_stream.seekTo(compile_unit_pos);
 
-        const compile_unit_die = try di.allocator().create(try parseDie(di, abbrev_table, is_64));
+        const compile_unit_die = try di.allocator().create(Die);
+        compile_unit_die.* = try parseDie(di, abbrev_table, is_64);
 
         if (compile_unit_die.tag_id != DW.TAG_compile_unit) return error.InvalidDebugInfo;
 

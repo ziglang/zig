@@ -83,10 +83,11 @@ pub const ZigCompiler = struct {
         const context_ref = c.LLVMContextCreate() orelse return error.OutOfMemory;
         errdefer c.LLVMContextDispose(context_ref);
 
-        const node = try self.loop.allocator.create(std.atomic.Stack(llvm.ContextRef).Node{
+        const node = try self.loop.allocator.create(std.atomic.Stack(llvm.ContextRef).Node);
+        node.* = std.atomic.Stack(llvm.ContextRef).Node{
             .next = undefined,
             .data = context_ref,
-        });
+        };
         errdefer self.loop.allocator.destroy(node);
 
         return LlvmHandle{ .node = node };
@@ -596,7 +597,8 @@ pub const Compilation = struct {
     }
 
     fn initTypes(comp: *Compilation) !void {
-        comp.meta_type = try comp.arena().create(Type.MetaType{
+        comp.meta_type = try comp.arena().create(Type.MetaType);
+        comp.meta_type.* = Type.MetaType{
             .base = Type{
                 .name = "type",
                 .base = Value{
@@ -608,12 +610,13 @@ pub const Compilation = struct {
                 .abi_alignment = Type.AbiAlignment.init(comp.loop),
             },
             .value = undefined,
-        });
+        };
         comp.meta_type.value = &comp.meta_type.base;
         comp.meta_type.base.base.typ = &comp.meta_type.base;
         assert((try comp.primitive_type_table.put(comp.meta_type.base.name, &comp.meta_type.base)) == null);
 
-        comp.void_type = try comp.arena().create(Type.Void{
+        comp.void_type = try comp.arena().create(Type.Void);
+        comp.void_type.* = Type.Void{
             .base = Type{
                 .name = "void",
                 .base = Value{
@@ -624,10 +627,11 @@ pub const Compilation = struct {
                 .id = builtin.TypeId.Void,
                 .abi_alignment = Type.AbiAlignment.init(comp.loop),
             },
-        });
+        };
         assert((try comp.primitive_type_table.put(comp.void_type.base.name, &comp.void_type.base)) == null);
 
-        comp.noreturn_type = try comp.arena().create(Type.NoReturn{
+        comp.noreturn_type = try comp.arena().create(Type.NoReturn);
+        comp.noreturn_type.* = Type.NoReturn{
             .base = Type{
                 .name = "noreturn",
                 .base = Value{
@@ -638,10 +642,11 @@ pub const Compilation = struct {
                 .id = builtin.TypeId.NoReturn,
                 .abi_alignment = Type.AbiAlignment.init(comp.loop),
             },
-        });
+        };
         assert((try comp.primitive_type_table.put(comp.noreturn_type.base.name, &comp.noreturn_type.base)) == null);
 
-        comp.comptime_int_type = try comp.arena().create(Type.ComptimeInt{
+        comp.comptime_int_type = try comp.arena().create(Type.ComptimeInt);
+        comp.comptime_int_type.* = Type.ComptimeInt{
             .base = Type{
                 .name = "comptime_int",
                 .base = Value{
@@ -652,10 +657,11 @@ pub const Compilation = struct {
                 .id = builtin.TypeId.ComptimeInt,
                 .abi_alignment = Type.AbiAlignment.init(comp.loop),
             },
-        });
+        };
         assert((try comp.primitive_type_table.put(comp.comptime_int_type.base.name, &comp.comptime_int_type.base)) == null);
 
-        comp.bool_type = try comp.arena().create(Type.Bool{
+        comp.bool_type = try comp.arena().create(Type.Bool);
+        comp.bool_type.* = Type.Bool{
             .base = Type{
                 .name = "bool",
                 .base = Value{
@@ -666,45 +672,50 @@ pub const Compilation = struct {
                 .id = builtin.TypeId.Bool,
                 .abi_alignment = Type.AbiAlignment.init(comp.loop),
             },
-        });
+        };
         assert((try comp.primitive_type_table.put(comp.bool_type.base.name, &comp.bool_type.base)) == null);
 
-        comp.void_value = try comp.arena().create(Value.Void{
+        comp.void_value = try comp.arena().create(Value.Void);
+        comp.void_value.* = Value.Void{
             .base = Value{
                 .id = Value.Id.Void,
                 .typ = &Type.Void.get(comp).base,
                 .ref_count = std.atomic.Int(usize).init(1),
             },
-        });
+        };
 
-        comp.true_value = try comp.arena().create(Value.Bool{
+        comp.true_value = try comp.arena().create(Value.Bool);
+        comp.true_value.* = Value.Bool{
             .base = Value{
                 .id = Value.Id.Bool,
                 .typ = &Type.Bool.get(comp).base,
                 .ref_count = std.atomic.Int(usize).init(1),
             },
             .x = true,
-        });
+        };
 
-        comp.false_value = try comp.arena().create(Value.Bool{
+        comp.false_value = try comp.arena().create(Value.Bool);
+        comp.false_value.* = Value.Bool{
             .base = Value{
                 .id = Value.Id.Bool,
                 .typ = &Type.Bool.get(comp).base,
                 .ref_count = std.atomic.Int(usize).init(1),
             },
             .x = false,
-        });
+        };
 
-        comp.noreturn_value = try comp.arena().create(Value.NoReturn{
+        comp.noreturn_value = try comp.arena().create(Value.NoReturn);
+        comp.noreturn_value.* = Value.NoReturn{
             .base = Value{
                 .id = Value.Id.NoReturn,
                 .typ = &Type.NoReturn.get(comp).base,
                 .ref_count = std.atomic.Int(usize).init(1),
             },
-        });
+        };
 
         for (CInt.list) |cint, i| {
-            const c_int_type = try comp.arena().create(Type.Int{
+            const c_int_type = try comp.arena().create(Type.Int);
+            c_int_type.* = Type.Int{
                 .base = Type{
                     .name = cint.zig_name,
                     .base = Value{
@@ -720,11 +731,12 @@ pub const Compilation = struct {
                     .bit_count = comp.target.cIntTypeSizeInBits(cint.id),
                 },
                 .garbage_node = undefined,
-            });
+            };
             comp.c_int_types[i] = c_int_type;
             assert((try comp.primitive_type_table.put(cint.zig_name, &c_int_type.base)) == null);
         }
-        comp.u8_type = try comp.arena().create(Type.Int{
+        comp.u8_type = try comp.arena().create(Type.Int);
+        comp.u8_type.* = Type.Int{
             .base = Type{
                 .name = "u8",
                 .base = Value{
@@ -740,7 +752,7 @@ pub const Compilation = struct {
                 .bit_count = 8,
             },
             .garbage_node = undefined,
-        });
+        };
         assert((try comp.primitive_type_table.put(comp.u8_type.base.name, &comp.u8_type.base)) == null);
     }
 
@@ -829,7 +841,7 @@ pub const Compilation = struct {
             };
             errdefer self.gpa().free(source_code);
 
-            const tree = try self.gpa().createOne(ast.Tree);
+            const tree = try self.gpa().create(ast.Tree);
             tree.* = try std.zig.parse(self.gpa(), source_code);
             errdefer {
                 tree.deinit();
@@ -925,7 +937,8 @@ pub const Compilation = struct {
                         }
                     } else {
                         // add new decl
-                        const fn_decl = try self.gpa().create(Decl.Fn{
+                        const fn_decl = try self.gpa().create(Decl.Fn);
+                        fn_decl.* = Decl.Fn{
                             .base = Decl{
                                 .id = Decl.Id.Fn,
                                 .name = name,
@@ -936,7 +949,7 @@ pub const Compilation = struct {
                             },
                             .value = Decl.Fn.Val{ .Unresolved = {} },
                             .fn_proto = fn_proto,
-                        });
+                        };
                         tree_scope.base.ref();
                         errdefer self.gpa().destroy(fn_decl);
 
@@ -1140,12 +1153,13 @@ pub const Compilation = struct {
             }
         }
 
-        const link_lib = try self.gpa().create(LinkLib{
+        const link_lib = try self.gpa().create(LinkLib);
+        link_lib.* = LinkLib{
             .name = name,
             .path = null,
             .provided_explicitly = provided_explicitly,
             .symbols = ArrayList([]u8).init(self.gpa()),
-        });
+        };
         try self.link_libs_list.append(link_lib);
         if (is_libc) {
             self.libc_link_lib = link_lib;

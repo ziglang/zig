@@ -982,13 +982,11 @@ test "fmt.format" {
         context = BufPrintContext{ .remaining = buf1[0..] };
         try formatType('a', "c", &context, error{BufferTooSmall}, bufPrintWrite);
         res = buf1[0 .. buf1.len - context.remaining.len];
-        debug.warn("{}\n", res);
         assert(mem.eql(u8, res, "a"));
 
         context = BufPrintContext{ .remaining = buf1[0..] };
         try formatType(0b1100, "b", &context, error{BufferTooSmall}, bufPrintWrite);
         res = buf1[0 .. buf1.len - context.remaining.len];
-        debug.warn("{}\n", res);
         assert(mem.eql(u8, res, "1100"));
     }
     {

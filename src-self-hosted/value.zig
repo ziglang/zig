@@ -135,14 +135,15 @@ pub const Value = struct {
         symbol_name: Buffer,
 
         pub fn create(comp: *Compilation, fn_type: *Type.Fn, symbol_name: Buffer) !*FnProto {
-            const self = try comp.gpa().create(FnProto{
+            const self = try comp.gpa().create(FnProto);
+            self.* = FnProto{
                 .base = Value{
                     .id = Value.Id.FnProto,
                     .typ = &fn_type.base,
                     .ref_count = std.atomic.Int(usize).init(1),
                 },
                 .symbol_name = symbol_name,
-            });
+            };
             fn_type.base.base.ref();
             return self;
         }
@@ -190,14 +191,16 @@ pub const Value = struct {
         /// Creates a Fn value with 1 ref
         /// Takes ownership of symbol_name
         pub fn create(comp: *Compilation, fn_type: *Type.Fn, fndef_scope: *Scope.FnDef, symbol_name: Buffer) !*Fn {
-            const link_set_node = try comp.gpa().create(Compilation.FnLinkSet.Node{
+            const link_set_node = try comp.gpa().create(Compilation.FnLinkSet.Node);
+            link_set_node.* = Compilation.FnLinkSet.Node{
                 .data = null,
                 .next = undefined,
                 .prev = undefined,
-            });
+            };
             errdefer comp.gpa().destroy(link_set_node);
 
-            const self = try comp.gpa().create(Fn{
+            const self = try comp.gpa().create(Fn);
+            self.* = Fn{
                 .base = Value{
                     .id = Value.Id.Fn,
                     .typ = &fn_type.base,
@@ -209,7 +212,7 @@ pub const Value = struct {
                 .symbol_name = symbol_name,
                 .containing_object = Buffer.initNull(comp.gpa()),
                 .link_set_node = link_set_node,
-            });
+            };
             fn_type.base.base.ref();
             fndef_scope.fn_val = self;
             fndef_scope.base.ref();
@@ -353,7 +356,8 @@ pub const Value = struct {
             var ptr_type_consumed = false;
             errdefer if (!ptr_type_consumed) ptr_type.base.base.deref(comp);
 
-            const self = try comp.gpa().create(Value.Ptr{
+            const self = try comp.gpa().create(Value.Ptr);
+            self.* = Value.Ptr{
                 .base = Value{
                     .id = Value.Id.Ptr,
                     .typ = &ptr_type.base,
@@ -366,7 +370,7 @@ pub const Value = struct {
                     },
                 },
                 .mut = Mut.CompTimeConst,
-            });
+            };
             ptr_type_consumed = true;
             errdefer comp.gpa().destroy(self);
 
@@ -430,14 +434,15 @@ pub const Value = struct {
             }) catch unreachable);
             errdefer array_type.base.base.deref(comp);
 
-            const self = try comp.gpa().create(Value.Array{
+            const self = try comp.gpa().create(Value.Array);
+            self.* = Value.Array{
                 .base = Value{
                     .id = Value.Id.Array,
                     .typ = &array_type.base,
                     .ref_count = std.atomic.Int(usize).init(1),
                 },
                 .special = Special{ .OwnedBuffer = buffer },
-            });
+            };
             errdefer comp.gpa().destroy(self);
 
             return self;
@@ -509,14 +514,15 @@ pub const Value = struct {
         big_int: std.math.big.Int,
 
         pub fn createFromString(comp: *Compilation, typ: *Type, base: u8, value: []const u8) !*Int {
-            const self = try comp.gpa().create(Value.Int{
+            const self = try comp.gpa().create(Value.Int);
+            self.* = Value.Int{
                 .base = Value{
                     .id = Value.Id.Int,
                     .typ = typ,
                     .ref_count = std.atomic.Int(usize).init(1),
                 },
                 .big_int = undefined,
-            });
+            };
             typ.base.ref();
             errdefer comp.gpa().destroy(self);
 
@@ -557,14 +563,15 @@ pub const Value = struct {
             old.base.typ.base.ref();
             errdefer old.base.typ.base.deref(comp);
 
-            const new = try comp.gpa().create(Value.Int{
+            const new = try comp.gpa().create(Value.Int);
+            new.* = Value.Int{
                 .base = Value{
                     .id = Value.Id.Int,
                     .typ = old.base.typ,
                     .ref_count = std.atomic.Int(usize).init(1),
                 },
                 .big_int = undefined,
-            });
+            };
             errdefer comp.gpa().destroy(new);
 
             new.big_int = try old.big_int.clone();

@@ -608,7 +608,7 @@ pub fn posixExecve(argv: []const []const u8, env_map: *const BufMap, allocator: 
     // +1 for the null terminating byte
     const path_buf = try allocator.alloc(u8, PATH.len + exe_path.len + 2);
     defer allocator.free(path_buf);
-    var it = mem.split(PATH, ":");
+    var it = mem.tokenize(PATH, ":");
     var seen_eacces = false;
     var err: usize = undefined;
     while (it.next()) |search_path| {
@@ -3013,6 +3013,7 @@ pub const SpawnThreadError = error{
 /// where T is u8, noreturn, void, or !void
 /// caller must call wait on the returned thread
 pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread {
+    if (builtin.single_threaded) @compileError("cannot spawn thread when building in single-threaded mode");
     // TODO compile-time call graph analysis to determine stack upper bound
     // https://github.com/ziglang/zig/issues/157
     const default_stack_size = 8 * 1024 * 1024;
@@ -3046,7 +3047,8 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
         const bytes_ptr = windows.HeapAlloc(heap_handle, 0, byte_count) orelse return SpawnThreadError.OutOfMemory;
         errdefer assert(windows.HeapFree(heap_handle, 0, bytes_ptr) != 0);
         const bytes = @ptrCast([*]u8, bytes_ptr)[0..byte_count];
-        const outer_context = std.heap.FixedBufferAllocator.init(bytes).allocator.create(WinThread.OuterContext{
+        const outer_context = std.heap.FixedBufferAllocator.init(bytes).allocator.create(WinThread.OuterContext) catch unreachable;
+        outer_context.* = WinThread.OuterContext{
             .thread = Thread{
                 .data = Thread.Data{
                     .heap_handle = heap_handle,
@@ -3055,7 +3057,7 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
                 },
             },
             .inner = context,
-        }) catch unreachable;
+        };
 
         const parameter = if (@sizeOf(Context) == 0) null else @ptrCast(*c_void, &outer_context.inner);
         outer_context.thread.data.handle = windows.CreateThread(null, default_stack_size, WinThread.threadMain, parameter, 0, null) orelse {

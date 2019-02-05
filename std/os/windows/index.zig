@@ -49,6 +49,7 @@ pub const UNICODE = false;
 pub const WCHAR = u16;
 pub const WORD = u16;
 pub const LARGE_INTEGER = i64;
+pub const LONG = c_long;
 
 pub const TRUE = 1;
 pub const FALSE = 0;

@@ -40,6 +40,8 @@ fn testThreadIdFn(thread_id: *os.Thread.Id) void {
 }
 
 test "std.os.Thread.getCurrentId" {
+    if (builtin.single_threaded) return error.SkipZigTest;
+
     var thread_current_id: os.Thread.Id = undefined;
     const thread = try os.spawnThread(&thread_current_id, testThreadIdFn);
     const thread_id = thread.handle();
@@ -53,6 +55,8 @@ test "std.os.Thread.getCurrentId" {
 }
 
 test "spawn threads" {
+    if (builtin.single_threaded) return error.SkipZigTest;
+
     var shared_ctx: i32 = 1;
 
     const thread1 = try std.os.spawnThread({}, start1);

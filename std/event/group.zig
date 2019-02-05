@@ -42,10 +42,11 @@ pub fn Group(comptime ReturnType: type) type {
 
         /// Add a promise to the group. Thread-safe.
         pub fn add(self: *Self, handle: promise->ReturnType) (error{OutOfMemory}!void) {
-            const node = try self.lock.loop.allocator.create(Stack.Node{
+            const node = try self.lock.loop.allocator.create(Stack.Node);
+            node.* = Stack.Node{
                 .next = undefined,
                 .data = handle,
-            });
+            };
             self.alloc_stack.push(node);
         }
 
@@ -121,6 +122,9 @@ pub fn Group(comptime ReturnType: type) type {
 }
 
 test "std.event.Group" {
+    // https://github.com/ziglang/zig/issues/1908
+    if (builtin.single_threaded) return error.SkipZigTest;
+
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
 
