@@ -972,6 +972,18 @@ static void ir_print_check_runtime_scope(IrPrint *irp, IrInstructionCheckRuntime
     fprintf(irp->f, ")");
 }
 
+static void ir_print_array_to_vector(IrPrint *irp, IrInstructionArrayToVector *instruction) {
+    fprintf(irp->f, "ArrayToVector(");
+    ir_print_other_instruction(irp, instruction->array);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_vector_to_array(IrPrint *irp, IrInstructionVectorToArray *instruction) {
+    fprintf(irp->f, "VectorToArray(");
+    ir_print_other_instruction(irp, instruction->vector);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_int_to_err(IrPrint *irp, IrInstructionIntToErr *instruction) {
     fprintf(irp->f, "inttoerr ");
     ir_print_other_instruction(irp, instruction->target);
@@ -1824,6 +1836,12 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdDeclVarGen:
             ir_print_decl_var_gen(irp, (IrInstructionDeclVarGen *)instruction);
+            break;
+        case IrInstructionIdArrayToVector:
+            ir_print_array_to_vector(irp, (IrInstructionArrayToVector *)instruction);
+            break;
+        case IrInstructionIdVectorToArray:
+            ir_print_vector_to_array(irp, (IrInstructionVectorToArray *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

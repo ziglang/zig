@@ -1921,9 +1921,8 @@ static void give_up_with_c_abi_error(CodeGen *g, AstNode *source_node) {
 }
 
 static LLVMValueRef build_alloca(CodeGen *g, ZigType *type_entry, const char *name, uint32_t alignment) {
-    assert(alignment > 0);
     LLVMValueRef result = LLVMBuildAlloca(g->builder, type_entry->type_ref, name);
-    LLVMSetAlignment(result, alignment);
+    LLVMSetAlignment(result, (alignment == 0) ? get_abi_alignment(g, type_entry) : alignment);
     return result;
 }
 
@@ -3246,6 +3245,22 @@ static LLVMValueRef ir_render_load_ptr(CodeGen *g, IrExecutable *executable, IrI
     return LLVMBuildTrunc(g->builder, shifted_value, child_type->type_ref, "");
 }
 
+static bool value_is_all_undef_array(ConstExprValue *const_val, size_t len) {
+    switch (const_val->data.x_array.special) {
+        case ConstArraySpecialUndef:
+            return true;
+        case ConstArraySpecialBuf:
+            return false;
+        case ConstArraySpecialNone:
+            for (size_t i = 0; i < len; i += 1) {
+                if (!value_is_all_undef(&const_val->data.x_array.data.s_none.elements[i]))
+                    return false;
+            }
+            return true;
+    }
+    zig_unreachable();
+}
+
 static bool value_is_all_undef(ConstExprValue *const_val) {
     switch (const_val->special) {
         case ConstValSpecialRuntime:
@@ -3260,19 +3275,9 @@ static bool value_is_all_undef(ConstExprValue *const_val) {
                 }
                 return true;
             } else if (const_val->type->id == ZigTypeIdArray) {
-                switch (const_val->data.x_array.special) {
-                    case ConstArraySpecialUndef:
-                        return true;
-                    case ConstArraySpecialBuf:
-                        return false;
-                    case ConstArraySpecialNone:
-                        for (size_t i = 0; i < const_val->type->data.array.len; i += 1) {
-                            if (!value_is_all_undef(&const_val->data.x_array.data.s_none.elements[i]))
-                                return false;
-                        }
-                        return true;
-                }
-                zig_unreachable();
+                return value_is_all_undef_array(const_val, const_val->type->data.array.len);
+            } else if (const_val->type->id == ZigTypeIdVector) {
+                return value_is_all_undef_array(const_val, const_val->type->data.vector.len);
             } else {
                 return false;
             }
@@ -5194,6 +5199,32 @@ static LLVMValueRef ir_render_bit_reverse(CodeGen *g, IrExecutable *executable, 
     return LLVMBuildCall(g->builder, fn_val, &op, 1, "");
 }
 
+static LLVMValueRef ir_render_vector_to_array(CodeGen *g, IrExecutable *executable,
+        IrInstructionVectorToArray *instruction)
+{
+    ZigType *array_type = instruction->base.value.type;
+    assert(array_type->id == ZigTypeIdArray);
+    assert(handle_is_ptr(array_type));
+    assert(instruction->tmp_ptr);
+    LLVMValueRef vector = ir_llvm_value(g, instruction->vector);
+    LLVMValueRef casted_ptr = LLVMBuildBitCast(g->builder, instruction->tmp_ptr,
+            LLVMPointerType(instruction->vector->value.type->type_ref, 0), "");
+    gen_store_untyped(g, vector, casted_ptr, 0, false);
+    return instruction->tmp_ptr;
+}
+
+static LLVMValueRef ir_render_array_to_vector(CodeGen *g, IrExecutable *executable,
+        IrInstructionArrayToVector *instruction)
+{
+    ZigType *vector_type = instruction->base.value.type;
+    assert(vector_type->id == ZigTypeIdVector);
+    assert(!handle_is_ptr(vector_type));
+    LLVMValueRef array_ptr = ir_llvm_value(g, instruction->array);
+    LLVMValueRef casted_ptr = LLVMBuildBitCast(g->builder, array_ptr,
+            LLVMPointerType(vector_type->type_ref, 0), "");
+    return gen_load_untyped(g, casted_ptr, 0, false, "");
+}
+
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
     Scope *scope = instruction->scope;
@@ -5439,6 +5470,10 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_bswap(g, executable, (IrInstructionBswap *)instruction);
         case IrInstructionIdBitReverse:
             return ir_render_bit_reverse(g, executable, (IrInstructionBitReverse *)instruction);
+        case IrInstructionIdArrayToVector:
+            return ir_render_array_to_vector(g, executable, (IrInstructionArrayToVector *)instruction);
+        case IrInstructionIdVectorToArray:
+            return ir_render_vector_to_array(g, executable, (IrInstructionVectorToArray *)instruction);
     }
     zig_unreachable();
 }
@@ -6016,14 +6051,32 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
                         return LLVMConstString(buf_ptr(buf), (unsigned)buf_len(buf), true);
                     }
                 }
+                zig_unreachable();
             }
         case ZigTypeIdVector: {
             uint32_t len = type_entry->data.vector.len;
-            LLVMValueRef *values = allocate<LLVMValueRef>(len);
-            for (uint32_t i = 0; i < len; i += 1) {
-                values[i] = gen_const_val(g, &const_val->data.x_vector.elements[i], "");
+            switch (const_val->data.x_array.special) {
+                case ConstArraySpecialUndef:
+                    return LLVMGetUndef(type_entry->type_ref);
+                case ConstArraySpecialNone: {
+                    LLVMValueRef *values = allocate<LLVMValueRef>(len);
+                    for (uint64_t i = 0; i < len; i += 1) {
+                        ConstExprValue *elem_value = &const_val->data.x_array.data.s_none.elements[i];
+                        values[i] = gen_const_val(g, elem_value, "");
+                    }
+                    return LLVMConstVector(values, len);
+                }
+                case ConstArraySpecialBuf: {
+                    Buf *buf = const_val->data.x_array.data.s_buf;
+                    assert(buf_len(buf) == len);
+                    LLVMValueRef *values = allocate<LLVMValueRef>(len);
+                    for (uint64_t i = 0; i < len; i += 1) {
+                        values[i] = LLVMConstInt(g->builtin_types.entry_u8->type_ref, buf_ptr(buf)[i], false);
+                    }
+                    return LLVMConstVector(values, len);
+                }
             }
-            return LLVMConstVector(values, len);
+            zig_unreachable();
         }
         case ZigTypeIdUnion:
             {
@@ -6467,6 +6520,7 @@ static void do_code_gen(CodeGen *g) {
             IrInstruction *instruction = fn_table_entry->alloca_list.at(alloca_i);
             LLVMValueRef *slot;
             ZigType *slot_type = instruction->value.type;
+            uint32_t alignment_bytes = 0;
             if (instruction->id == IrInstructionIdCast) {
                 IrInstructionCast *cast_instruction = (IrInstructionCast *)instruction;
                 slot = &cast_instruction->tmp_ptr;
@@ -6502,10 +6556,14 @@ static void do_code_gen(CodeGen *g) {
             } else if (instruction->id == IrInstructionIdCmpxchgGen) {
                 IrInstructionCmpxchgGen *cmpxchg_instruction = (IrInstructionCmpxchgGen *)instruction;
                 slot = &cmpxchg_instruction->tmp_ptr;
+            } else if (instruction->id == IrInstructionIdVectorToArray) {
+                IrInstructionVectorToArray *vector_to_array_instruction = (IrInstructionVectorToArray *)instruction;
+                alignment_bytes = get_abi_alignment(g, vector_to_array_instruction->vector->value.type);
+                slot = &vector_to_array_instruction->tmp_ptr;
             } else {
                 zig_unreachable();
             }
-            *slot = build_alloca(g, slot_type, "", get_abi_alignment(g, slot_type));
+            *slot = build_alloca(g, slot_type, "", alignment_bytes);
         }
 
         ImportTableEntry *import = get_scope_import(&fn_table_entry->fndef_scope->base);

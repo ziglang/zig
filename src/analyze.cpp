@@ -4457,7 +4457,15 @@ ZigType *get_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits) {
     return new_entry;
 }
 
+bool is_valid_vector_elem_type(ZigType *elem_type) {
+    return elem_type->id == ZigTypeIdInt ||
+        elem_type->id == ZigTypeIdFloat ||
+        get_codegen_ptr_type(elem_type) != nullptr;
+}
+
 ZigType *get_vector_type(CodeGen *g, uint32_t len, ZigType *elem_type) {
+    assert(is_valid_vector_elem_type(elem_type));
+
     TypeId type_id = {};
     type_id.id = ZigTypeIdVector;
     type_id.data.vector.len = len;
@@ -5749,6 +5757,28 @@ bool const_values_equal_ptr(ConstExprValue *a, ConstExprValue *b) {
     zig_unreachable();
 }
 
+static bool const_values_equal_array(CodeGen *g, ConstExprValue *a, ConstExprValue *b, size_t len) {
+    assert(a->data.x_array.special != ConstArraySpecialUndef);
+    assert(b->data.x_array.special != ConstArraySpecialUndef);
+    if (a->data.x_array.special == ConstArraySpecialBuf &&
+        b->data.x_array.special == ConstArraySpecialBuf)
+    {
+        return buf_eql_buf(a->data.x_array.data.s_buf, b->data.x_array.data.s_buf);
+    }
+    expand_undef_array(g, a);
+    expand_undef_array(g, b);
+
+    ConstExprValue *a_elems = a->data.x_array.data.s_none.elements;
+    ConstExprValue *b_elems = b->data.x_array.data.s_none.elements;
+
+    for (size_t i = 0; i < len; i += 1) {
+        if (!const_values_equal(g, &a_elems[i], &b_elems[i]))
+            return false;
+    }
+
+    return true;
+}
+
 bool const_values_equal(CodeGen *g, ConstExprValue *a, ConstExprValue *b) {
     assert(a->type->id == b->type->id);
     assert(a->special == ConstValSpecialStatic);
@@ -5803,28 +5833,12 @@ bool const_values_equal(CodeGen *g, ConstExprValue *a, ConstExprValue *b) {
         case ZigTypeIdPointer:
         case ZigTypeIdFn:
             return const_values_equal_ptr(a, b);
+        case ZigTypeIdVector:
+            assert(a->type->data.vector.len == b->type->data.vector.len);
+            return const_values_equal_array(g, a, b, a->type->data.vector.len);
         case ZigTypeIdArray: {
             assert(a->type->data.array.len == b->type->data.array.len);
-            assert(a->data.x_array.special != ConstArraySpecialUndef);
-            assert(b->data.x_array.special != ConstArraySpecialUndef);
-            if (a->data.x_array.special == ConstArraySpecialBuf &&
-                b->data.x_array.special == ConstArraySpecialBuf)
-            {
-                return buf_eql_buf(a->data.x_array.data.s_buf, b->data.x_array.data.s_buf);
-            }
-            expand_undef_array(g, a);
-            expand_undef_array(g, b);
-
-            size_t len = a->type->data.array.len;
-            ConstExprValue *a_elems = a->data.x_array.data.s_none.elements;
-            ConstExprValue *b_elems = b->data.x_array.data.s_none.elements;
-
-            for (size_t i = 0; i < len; i += 1) {
-                if (!const_values_equal(g, &a_elems[i], &b_elems[i]))
-                    return false;
-            }
-
-            return true;
+            return const_values_equal_array(g, a, b, a->type->data.array.len);
         }
         case ZigTypeIdStruct:
             for (size_t i = 0; i < a->type->data.structure.src_field_count; i += 1) {
@@ -5853,20 +5867,6 @@ bool const_values_equal(CodeGen *g, ConstExprValue *a, ConstExprValue *b) {
         case ZigTypeIdArgTuple:
             return a->data.x_arg_tuple.start_index == b->data.x_arg_tuple.start_index &&
                    a->data.x_arg_tuple.end_index == b->data.x_arg_tuple.end_index;
-        case ZigTypeIdVector: {
-            assert(a->type->data.vector.len == b->type->data.vector.len);
-
-            size_t len = a->type->data.vector.len;
-            ConstExprValue *a_elems = a->data.x_vector.elements;
-            ConstExprValue *b_elems = b->data.x_vector.elements;
-
-            for (size_t i = 0; i < len; i += 1) {
-                if (!const_values_equal(g, &a_elems[i], &b_elems[i]))
-                    return false;
-            }
-
-            return true;
-        }
         case ZigTypeIdBoundFn:
         case ZigTypeIdInvalid:
         case ZigTypeIdUnreachable:
@@ -5985,6 +5985,40 @@ static void render_const_val_err_set(CodeGen *g, Buf *buf, ConstExprValue *const
     }
 }
 
+static void render_const_val_array(CodeGen *g, Buf *buf, ConstExprValue *const_val, size_t len) {
+    switch (const_val->data.x_array.special) {
+        case ConstArraySpecialUndef:
+            buf_append_str(buf, "undefined");
+            return;
+        case ConstArraySpecialBuf: {
+            Buf *array_buf = const_val->data.x_array.data.s_buf;
+            buf_append_char(buf, '"');
+            for (size_t i = 0; i < buf_len(array_buf); i += 1) {
+                uint8_t c = buf_ptr(array_buf)[i];
+                if (c == '"') {
+                    buf_append_str(buf, "\\\"");
+                } else {
+                    buf_append_char(buf, c);
+                }
+            }
+            buf_append_char(buf, '"');
+            return;
+        }
+        case ConstArraySpecialNone: {
+            buf_appendf(buf, "%s{", buf_ptr(&const_val->type->name));
+            for (uint64_t i = 0; i < len; i += 1) {
+                if (i != 0)
+                    buf_appendf(buf, ",");
+                ConstExprValue *child_value = &const_val->data.x_array.data.s_none.elements[i];
+                render_const_value(g, buf, child_value);
+            }
+            buf_appendf(buf, "}");
+            return;
+        }
+    }
+    zig_unreachable();
+}
+
 void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
     switch (const_val->special) {
         case ConstValSpecialRuntime:
@@ -6065,51 +6099,10 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
             }
         case ZigTypeIdPointer:
             return render_const_val_ptr(g, buf, const_val, type_entry);
+        case ZigTypeIdVector:
+            return render_const_val_array(g, buf, const_val, type_entry->data.vector.len);
         case ZigTypeIdArray:
-            switch (const_val->data.x_array.special) {
-                case ConstArraySpecialUndef:
-                    buf_append_str(buf, "undefined");
-                    return;
-                case ConstArraySpecialBuf: {
-                    Buf *array_buf = const_val->data.x_array.data.s_buf;
-                    buf_append_char(buf, '"');
-                    for (size_t i = 0; i < buf_len(array_buf); i += 1) {
-                        uint8_t c = buf_ptr(array_buf)[i];
-                        if (c == '"') {
-                            buf_append_str(buf, "\\\"");
-                        } else {
-                            buf_append_char(buf, c);
-                        }
-                    }
-                    buf_append_char(buf, '"');
-                    return;
-                }
-                case ConstArraySpecialNone: {
-                    buf_appendf(buf, "%s{", buf_ptr(&type_entry->name));
-                    uint64_t len = type_entry->data.array.len;
-                    for (uint64_t i = 0; i < len; i += 1) {
-                        if (i != 0)
-                            buf_appendf(buf, ",");
-                        ConstExprValue *child_value = &const_val->data.x_array.data.s_none.elements[i];
-                        render_const_value(g, buf, child_value);
-                    }
-                    buf_appendf(buf, "}");
-                    return;
-                }
-            }
-            zig_unreachable();
-        case ZigTypeIdVector: {
-            buf_appendf(buf, "%s{", buf_ptr(&type_entry->name));
-            uint64_t len = type_entry->data.vector.len;
-            for (uint32_t i = 0; i < len; i += 1) {
-                if (i != 0)
-                    buf_appendf(buf, ",");
-                ConstExprValue *child_value = &const_val->data.x_vector.elements[i];
-                render_const_value(g, buf, child_value);
-            }
-            buf_appendf(buf, "}");
-            return;
-        }
+            return render_const_val_array(g, buf, const_val, type_entry->data.array.len);
         case ZigTypeIdNull:
             {
                 buf_appendf(buf, "null");
@@ -6379,7 +6372,17 @@ bool zig_llvm_fn_key_eql(ZigLLVMFnKey a, ZigLLVMFnKey b) {
 
 // Canonicalize the array value as ConstArraySpecialNone
 void expand_undef_array(CodeGen *g, ConstExprValue *const_val) {
-    assert(const_val->type->id == ZigTypeIdArray);
+    size_t elem_count;
+    ZigType *elem_type;
+    if (const_val->type->id == ZigTypeIdArray) {
+        elem_count = const_val->type->data.array.len;
+        elem_type = const_val->type->data.array.child_type;
+    } else if (const_val->type->id == ZigTypeIdVector) {
+        elem_count = const_val->type->data.vector.len;
+        elem_type = const_val->type->data.vector.elem_type;
+    } else {
+        zig_unreachable();
+    }
     if (const_val->special == ConstValSpecialUndef) {
         const_val->special = ConstValSpecialStatic;
         const_val->data.x_array.special = ConstArraySpecialUndef;
@@ -6389,18 +6392,14 @@ void expand_undef_array(CodeGen *g, ConstExprValue *const_val) {
             return;
         case ConstArraySpecialUndef: {
             const_val->data.x_array.special = ConstArraySpecialNone;
-            size_t elem_count = const_val->type->data.array.len;
             const_val->data.x_array.data.s_none.elements = create_const_vals(elem_count);
             for (size_t i = 0; i < elem_count; i += 1) {
                 ConstExprValue *element_val = &const_val->data.x_array.data.s_none.elements[i];
-                element_val->type = const_val->type->data.array.child_type;
+                element_val->type = elem_type;
                 init_const_undefined(g, element_val);
-                ConstParent *parent = get_const_val_parent(g, element_val);
-                if (parent != nullptr) {
-                    parent->id = ConstParentIdArray;
-                    parent->data.p_array.array_val = const_val;
-                    parent->data.p_array.elem_index = i;
-                }
+                element_val->parent.id = ConstParentIdArray;
+                element_val->parent.data.p_array.array_val = const_val;
+                element_val->parent.data.p_array.elem_index = i;
             }
             return;
         }
@@ -6411,7 +6410,6 @@ void expand_undef_array(CodeGen *g, ConstExprValue *const_val) {
             g->string_literals_table.maybe_remove(buf);
 
             const_val->data.x_array.special = ConstArraySpecialNone;
-            size_t elem_count = const_val->type->data.array.len;
             assert(elem_count == buf_len(buf));
             const_val->data.x_array.data.s_none.elements = create_const_vals(elem_count);
             for (size_t i = 0; i < elem_count; i += 1) {
@@ -6419,6 +6417,9 @@ void expand_undef_array(CodeGen *g, ConstExprValue *const_val) {
                 this_char->special = ConstValSpecialStatic;
                 this_char->type = g->builtin_types.entry_u8;
                 bigint_init_unsigned(&this_char->data.x_bigint, (uint8_t)buf_ptr(buf)[i]);
+                this_char->parent.id = ConstParentIdArray;
+                this_char->parent.data.p_array.array_val = const_val;
+                this_char->parent.data.p_array.elem_index = i;
             }
             return;
         }
@@ -6426,6 +6427,7 @@ void expand_undef_array(CodeGen *g, ConstExprValue *const_val) {
     zig_unreachable();
 }
 
+// Deprecated. Reference the parent field directly.
 ConstParent *get_const_val_parent(CodeGen *g, ConstExprValue *value) {
     return &value->parent;
 }

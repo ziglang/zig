@@ -252,10 +252,6 @@ struct ConstArgTuple {
     size_t end_index;
 };
 
-struct ConstVector {
-    ConstExprValue *elements;
-};
-
 enum ConstValSpecial {
     ConstValSpecialRuntime,
     ConstValSpecialStatic,
@@ -322,7 +318,6 @@ struct ConstExprValue {
         ConstPtrValue x_ptr;
         ImportTableEntry *x_import;
         ConstArgTuple x_arg_tuple;
-        ConstVector x_vector;
 
         // populated if special == ConstValSpecialRuntime
         RuntimeHintErrorUnion rh_error_union;
@@ -2239,6 +2234,8 @@ enum IrInstructionId {
     IrInstructionIdToBytes,
     IrInstructionIdFromBytes,
     IrInstructionIdCheckRuntimeScope,
+    IrInstructionIdVectorToArray,
+    IrInstructionIdArrayToVector,
 };
 
 struct IrInstruction {
@@ -3366,6 +3363,19 @@ struct IrInstructionBitReverse {
 
     IrInstruction *type;
     IrInstruction *op;
+};
+
+struct IrInstructionArrayToVector {
+    IrInstruction base;
+
+    IrInstruction *array;
+};
+
+struct IrInstructionVectorToArray {
+    IrInstruction base;
+
+    IrInstruction *vector;
+    LLVMValueRef tmp_ptr;
 };
 
 static const size_t slice_ptr_index = 0;

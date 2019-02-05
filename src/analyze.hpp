@@ -74,6 +74,7 @@ TypeUnionField *find_union_field_by_tag(ZigType *type_entry, const BigInt *tag);
 bool is_ref(ZigType *type_entry);
 bool is_array_ref(ZigType *type_entry);
 bool is_container_ref(ZigType *type_entry);
+bool is_valid_vector_elem_type(ZigType *elem_type);
 void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node);
 void scan_import(CodeGen *g, ImportTableEntry *import);
 void preview_use_decl(CodeGen *g, AstNode *node);
