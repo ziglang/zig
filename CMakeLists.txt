@@ -596,6 +596,7 @@ set(ZIG_STD_FILES
     "os/windows/ntdll.zig"
     "os/windows/ole32.zig"
     "os/windows/shell32.zig"
+    "os/windows/tls.zig"
     "os/windows/util.zig"
     "os/zen.zig"
     "pdb.zig"

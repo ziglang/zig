@@ -6365,6 +6365,12 @@ static void validate_inline_fns(CodeGen *g) {
     report_errors_and_maybe_exit(g);
 }
 
+static void set_global_tls(CodeGen *g, ZigVar *var, LLVMValueRef global_value) {
+    if (var->is_thread_local && !g->is_single_threaded) {
+        LLVMSetThreadLocalMode(global_value, LLVMGeneralDynamicTLSModel);
+    }
+}
+
 static void do_code_gen(CodeGen *g) {
     assert(!g->errors.length);
 
@@ -6449,9 +6455,7 @@ static void do_code_gen(CodeGen *g) {
                 maybe_import_dll(g, global_value, GlobalLinkageIdStrong);
                 LLVMSetAlignment(global_value, var->align_bytes);
                 LLVMSetGlobalConstant(global_value, var->gen_is_const);
-                if (var->is_thread_local && !g->is_single_threaded) {
-                    LLVMSetThreadLocalMode(global_value, LLVMGeneralDynamicTLSModel);
-                }
+                set_global_tls(g, var, global_value);
             }
         } else {
             bool exported = (var->linkage == VarLinkageExport);
@@ -6477,9 +6481,7 @@ static void do_code_gen(CodeGen *g) {
             }
 
             LLVMSetGlobalConstant(global_value, var->gen_is_const);
-            if (var->is_thread_local && !g->is_single_threaded) {
-                LLVMSetThreadLocalMode(global_value, LLVMGeneralDynamicTLSModel);
-            }
+            set_global_tls(g, var, global_value);
         }
 
         var->value_ref = global_value;
