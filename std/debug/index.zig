@@ -1191,7 +1191,7 @@ pub const DebugInfo = switch (builtin.os) {
         sect_contribs: []pdb.SectionContribEntry,
         modules: []Module,
     },
-    builtin.Os.linux, builtin.Os.freebsd, builtin.Os.netbsd => DwarfInfo,
+    builtin.Os.linux, builtin.Os.freebsd, builtin.Os.netbsd, builtin.Os.openbsd => DwarfInfo,
     else => @compileError("Unsupported OS"),
 };
 

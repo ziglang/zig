@@ -68,6 +68,7 @@ pub const ChildProcess = struct {
         InvalidExe,
         IsDir,
         FileBusy,
+        InputOutput,
     };
 
     pub const Term = union(enum) {
@@ -788,6 +789,7 @@ fn makePipe() ![2]i32 {
     if (err > 0) {
         return switch (err) {
             posix.EMFILE, posix.ENFILE => error.SystemResources,
+            posix.EFAULT => unreachable,
             else => os.unexpectedErrorPosix(err),
         };
     }

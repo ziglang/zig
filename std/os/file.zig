@@ -14,6 +14,8 @@ const maxInt = std.math.maxInt;
 const is_posix = builtin.os != builtin.Os.windows;
 const is_windows = builtin.os == builtin.Os.windows;
 
+const has_largefile = builtin.os == builtin.Os.linux;
+
 pub const File = struct {
     /// The OS-specific file descriptor or file handle.
     handle: os.FileHandle,
@@ -33,7 +35,8 @@ pub const File = struct {
     /// `openRead` except with a null terminated path
     pub fn openReadC(path: [*]const u8) OpenError!File {
         if (is_posix) {
-            const flags = posix.O_LARGEFILE | posix.O_RDONLY;
+            const largefile = if (builtin.os == builtin.Os.linux) posix.O_LARGEFILE else 0;
+            const flags = largefile | posix.O_RDONLY;
             const fd = try os.posixOpenC(path, flags, 0);
             return openHandle(fd);
         }
@@ -77,7 +80,8 @@ pub const File = struct {
     /// Call close to clean up.
     pub fn openWriteMode(path: []const u8, file_mode: Mode) OpenError!File {
         if (is_posix) {
-            const flags = posix.O_LARGEFILE | posix.O_WRONLY | posix.O_CREAT | posix.O_CLOEXEC | posix.O_TRUNC;
+            const largefile = if (builtin.os == builtin.Os.linux) posix.O_LARGEFILE else 0;
+            const flags = posix.O_WRONLY | posix.O_CREAT | posix.O_CLOEXEC | posix.O_TRUNC | largefile;
             const fd = try os.posixOpen(path, flags, file_mode);
             return openHandle(fd);
         } else if (is_windows) {
@@ -116,7 +120,8 @@ pub const File = struct {
 
     pub fn openWriteNoClobberC(path: [*]const u8, file_mode: Mode) OpenError!File {
         if (is_posix) {
-            const flags = posix.O_LARGEFILE | posix.O_WRONLY | posix.O_CREAT | posix.O_CLOEXEC | posix.O_EXCL;
+            const largefile = if (builtin.os == builtin.Os.linux) posix.O_LARGEFILE else 0;
+            const flags = posix.O_WRONLY | posix.O_CREAT | posix.O_CLOEXEC | posix.O_EXCL | largefile;
             const fd = try os.posixOpenC(path, flags, file_mode);
             return openHandle(fd);
         } else if (is_windows) {
@@ -187,6 +192,7 @@ pub const File = struct {
                 posix.EACCES => return error.PermissionDenied,
                 posix.EROFS => return error.PermissionDenied,
                 posix.ELOOP => return error.PermissionDenied,
+                posix.EPERM => return error.PermissionDenied,
                 posix.ETXTBSY => return error.PermissionDenied,
                 posix.ENOTDIR => return error.FileNotFound,
                 posix.ENOENT => return error.FileNotFound,
@@ -268,7 +274,7 @@ pub const File = struct {
 
     pub fn seekTo(self: File, pos: usize) SeekError!void {
         switch (builtin.os) {
-            Os.linux, Os.macosx, Os.ios, Os.freebsd, Os.netbsd => {
+            Os.linux, Os.macosx, Os.ios, Os.freebsd, Os.netbsd, Os.openbsd => {
                 const ipos = try math.cast(isize, pos);
                 const result = posix.lseek(self.handle, ipos, posix.SEEK_SET);
                 const err = posix.getErrno(result);

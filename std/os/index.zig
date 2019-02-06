@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 const Os = builtin.Os;
 const is_windows = builtin.os == Os.windows;
 const is_posix = switch (builtin.os) {
-    builtin.Os.linux, builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => true,
+    builtin.Os.linux, builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd, builtin.Os.openbsd => true,
     else => false,
 };
 const os = @This();
@@ -31,6 +31,7 @@ pub const darwin = @import("darwin.zig");
 pub const linux = @import("linux/index.zig");
 pub const freebsd = @import("freebsd/index.zig");
 pub const netbsd = @import("netbsd/index.zig");
+pub const openbsd = @import("openbsd/index.zig");
 pub const zen = @import("zen.zig");
 pub const uefi = @import("uefi.zig");
 
@@ -39,6 +40,7 @@ pub const posix = switch (builtin.os) {
     Os.macosx, Os.ios => darwin,
     Os.freebsd => freebsd,
     Os.netbsd => netbsd,
+    Os.openbsd => openbsd,
     Os.zen => zen,
     else => @compileError("Unsupported OS"),
 };
@@ -52,7 +54,7 @@ pub const time = @import("time.zig");
 
 pub const page_size = 4 * 1024;
 pub const MAX_PATH_BYTES = switch (builtin.os) {
-    Os.linux, Os.macosx, Os.ios, Os.freebsd, Os.netbsd => posix.PATH_MAX,
+    Os.linux, Os.macosx, Os.ios, Os.freebsd, Os.netbsd, Os.openbsd => posix.PATH_MAX,
     // Each UTF-16LE character may be expanded to 3 UTF-8 bytes.
     // If it would require 4 UTF-8 bytes, then there would be a surrogate
     // pair in the UTF-16LE, and we (over)account 3 bytes for it that way.
@@ -109,10 +111,14 @@ const ArrayList = std.ArrayList;
 const Buffer = std.Buffer;
 const math = std.math;
 
+pub const GetRandomBytesError = error{
+    Unexpected,
+};
+
 /// Fills `buf` with random bytes. If linking against libc, this calls the
 /// appropriate OS-specific library call. Otherwise it uses the zig standard
 /// library implementation.
-pub fn getRandomBytes(buf: []u8) !void {
+pub fn getRandomBytes(buf: []u8) GetRandomBytesError!void {
     switch (builtin.os) {
         Os.linux => while (true) {
             // TODO check libc version and potentially call c.getrandom.
@@ -128,6 +134,9 @@ pub fn getRandomBytes(buf: []u8) !void {
             }
         },
         Os.macosx, Os.ios, Os.freebsd, Os.netbsd => return getRandomBytesDevURandom(buf),
+        Os.openbsd => {
+            openbsd.arc4random_buf(buf.ptr, buf.len);
+        },
         Os.windows => {
             // Call RtlGenRandom() instead of CryptGetRandom() on Windows
             // https://github.com/rust-lang-nursery/rand/issues/111
@@ -187,7 +196,7 @@ pub fn abort() noreturn {
         c.abort();
     }
     switch (builtin.os) {
-        Os.linux, Os.macosx, Os.ios, Os.freebsd, Os.netbsd => {
+        Os.linux, Os.macosx, Os.ios, Os.freebsd, Os.netbsd, Os.openbsd => {
             _ = posix.raise(posix.SIGABRT);
             _ = posix.raise(posix.SIGKILL);
             while (true) {}
@@ -213,7 +222,7 @@ pub fn exit(status: u8) noreturn {
         c.exit(status);
     }
     switch (builtin.os) {
-        Os.linux, Os.macosx, Os.ios, Os.freebsd, Os.netbsd => {
+        Os.linux, Os.macosx, Os.ios, Os.freebsd, Os.netbsd, Os.openbsd => {
             posix.exit(status);
         },
         Os.windows => {
@@ -351,12 +360,13 @@ pub fn posix_preadv(fd: i32, iov: [*]const posix.iovec, count: usize, offset: u6
 }
 
 pub const PosixWriteError = error{
+    AccessDenied,
+    BrokenPipe,
     DiskQuota,
+    FileNotFound,
     FileTooBig,
     InputOutput,
     NoSpaceLeft,
-    AccessDenied,
-    BrokenPipe,
 
     /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
@@ -379,6 +389,7 @@ pub fn posixWrite(fd: i32, bytes: []const u8) PosixWriteError!void {
                 continue;
             },
             posix.EINTR => continue,
+            posix.EACCES => return PosixWriteError.AccessDenied,
             posix.EINVAL => unreachable,
             posix.EFAULT => unreachable,
             posix.EAGAIN => unreachable, // use posixAsyncWrite for non-blocking
@@ -539,6 +550,8 @@ pub fn posixDup2(old_fd: i32, new_fd: i32) !void {
                 posix.EBUSY, posix.EINTR => continue,
                 posix.EMFILE => error.ProcessFdQuotaExceeded,
                 posix.EINVAL => unreachable,
+                posix.EIO => error.InputOutput,
+                posix.EBADF => unreachable,
                 else => unexpectedErrorPosix(err),
             };
         }
@@ -842,7 +855,12 @@ pub fn getCwdAlloc(allocator: *Allocator) ![]u8 {
     return mem.dupe(allocator, u8, try getCwd(&buf));
 }
 
-pub const GetCwdError = error{Unexpected};
+pub const GetCwdError = error{
+    AccessDenied,
+    FileNotFound,
+    SystemResources,
+    Unexpected,
+};
 
 /// The result is a slice of out_buffer.
 pub fn getCwd(out_buffer: *[MAX_PATH_BYTES]u8) GetCwdError![]u8 {
@@ -868,6 +886,10 @@ pub fn getCwd(out_buffer: *[MAX_PATH_BYTES]u8) GetCwdError![]u8 {
             const err = posix.getErrno(posix.getcwd(out_buffer, out_buffer.len));
             switch (err) {
                 0 => return cstr.toSlice(out_buffer),
+                posix.EACCES => return error.AccessDenied,
+                posix.EINVAL => unreachable,
+                posix.ENOENT => return error.FileNotFound,
+                posix.ENOMEM => return error.SystemResources,
                 posix.ERANGE => unreachable,
                 else => return unexpectedErrorPosix(err),
             }
@@ -1268,6 +1290,7 @@ pub fn makeDirPosixC(dir_path: [*]const u8) !void {
         posix.EDQUOT => return error.DiskQuota,
         posix.EEXIST => return error.PathAlreadyExists,
         posix.EFAULT => unreachable,
+        posix.EIO => return error.InputOutput,
         posix.ELOOP => return error.SymLinkLoop,
         posix.EMLINK => return error.LinkQuotaExceeded,
         posix.ENAMETOOLONG => return error.NameTooLong,

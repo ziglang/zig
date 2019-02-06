@@ -214,7 +214,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
     if (lj->link_in_crt) {
         const char *crt1o;
         const char *crtbegino;
-        if (g->zig_target->os == OsNetBSD) {
+        if (g->zig_target->os == OsNetBSD || g->zig_target->os == OsOpenBSD) {
             crt1o = "crt0.o";
             crtbegino = "crtbegin.o";
         } else if (g->is_static) {
@@ -225,7 +225,9 @@ static void construct_linker_job_elf(LinkJob *lj) {
             crtbegino = "crtbegin.o";
         }
         lj->args.append(get_libc_crt_file(g, crt1o));
-        lj->args.append(get_libc_crt_file(g, "crti.o"));
+        if (g->zig_target->os != OsOpenBSD) {
+            lj->args.append(get_libc_crt_file(g, "crti.o"));
+        }
         lj->args.append(get_libc_static_file(g, crtbegino));
     }
 
@@ -321,7 +323,11 @@ static void construct_linker_job_elf(LinkJob *lj) {
 
     // libc dep
     if (g->libc_link_lib != nullptr) {
-        if (g->is_static) {
+        if (g->zig_target->os == OsOpenBSD) {
+            lj->args.append("--no-as-needed");
+            lj->args.append("-lc");
+            lj->args.append("-lm");
+	} else if (g->is_static) {
             lj->args.append("--start-group");
             lj->args.append("-lgcc");
             lj->args.append("-lgcc_eh");
@@ -345,7 +351,9 @@ static void construct_linker_job_elf(LinkJob *lj) {
     // crt end
     if (lj->link_in_crt) {
         lj->args.append(get_libc_static_file(g, "crtend.o"));
-        lj->args.append(get_libc_crt_file(g, "crtn.o"));
+        if (g->zig_target->os != OsOpenBSD) {
+            lj->args.append(get_libc_crt_file(g, "crtn.o"));
+	}
     }
 
     if (!g->zig_target->is_native) {

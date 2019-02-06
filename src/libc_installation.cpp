@@ -325,7 +325,7 @@ static Error zig_libc_find_native_include_dir_posix(ZigLibCInstallation *self, b
     }
     return ErrorFileNotFound;
 }
-#if !defined(ZIG_OS_DARWIN) && !defined(ZIG_OS_FREEBSD) && !defined(ZIG_OS_NETBSD)
+#if !defined(ZIG_OS_DARWIN) && !defined(ZIG_OS_FREEBSD) && !defined(ZIG_OS_NETBSD) && !defined(ZIG_OS_OPENBSD)
 static Error zig_libc_cc_print_file_name(const char *o_file, Buf *out, bool want_dirname, bool verbose) {
     const char *cc_exe = getenv("CC");
     cc_exe = (cc_exe == nullptr) ? "cc" : cc_exe;
@@ -479,7 +479,7 @@ Error zig_libc_find_native(ZigLibCInstallation *self, bool verbose) {
 #else
     if ((err = zig_libc_find_native_include_dir_posix(self, verbose)))
         return err;
-#if defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD)
+#if defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD) || defined(ZIG_OS_OPENBSD)
     buf_init_from_str(&self->crt_dir, "/usr/lib");
     buf_init_from_str(&self->lib_dir, "/usr/lib");
     buf_init_from_str(&self->static_lib_dir, "/usr/lib");

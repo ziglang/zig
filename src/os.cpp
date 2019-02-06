@@ -50,11 +50,11 @@ typedef SSIZE_T ssize_t;
 
 #endif
 
-#if defined(ZIG_OS_LINUX) || defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD)
+#if defined(ZIG_OS_LINUX) || defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD) || defined(ZIG_OS_OPENBSD)
 #include <link.h>
 #endif
 
-#if defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD)
+#if defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD) || defined(ZIG_OS_OPENBSD)
 #include <sys/sysctl.h>
 #endif
 
@@ -78,7 +78,7 @@ static clock_serv_t cclock;
 #if defined(__APPLE__) && !defined(environ)
 #include <crt_externs.h>
 #define environ (*_NSGetEnviron())
-#elif defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD)
+#elif defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD) || defined(ZIG_OS_OPENBSD)
 extern char **environ;
 #endif
 
@@ -1479,6 +1479,17 @@ Error os_self_exe_path(Buf *out_path) {
     }
     buf_resize(out_path, cb - 1);
     return ErrorNone;
+#elif defined(ZIG_OS_OPENBSD)
+    buf_resize(out_path, PATH_MAX);
+    int mib[3] = { CTL_KERN, KERN_PROC_CWD, getpid() };
+    size_t cb = PATH_MAX;
+    if (sysctl(mib, 3, buf_ptr(out_path), &cb, nullptr, 0) != 0) {
+        return ErrorUnexpected;
+    }
+    buf_resize(out_path, cb - 1);
+    buf_append_str(out_path, "/");
+    buf_append_str(out_path, getprogname());
+    return ErrorNone;
 #endif
     return ErrorFileNotFound;
 }
@@ -1797,7 +1808,7 @@ Error os_get_app_data_dir(Buf *out_path, const char *appname) {
 }
 
 
-#if defined(ZIG_OS_LINUX) || defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD)
+#if defined(ZIG_OS_LINUX) || defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD) || defined(ZIG_OS_OPENBSD)
 static int self_exe_shared_libs_callback(struct dl_phdr_info *info, size_t size, void *data) {
     ZigList<Buf *> *libs = reinterpret_cast< ZigList<Buf *> *>(data);
     if (info->dlpi_name[0] == '/') {
@@ -1808,7 +1819,7 @@ static int self_exe_shared_libs_callback(struct dl_phdr_info *info, size_t size,
 #endif
 
 Error os_self_exe_shared_libs(ZigList<Buf *> &paths) {
-#if defined(ZIG_OS_LINUX) || defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD)
+#if defined(ZIG_OS_LINUX) || defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD) || defined(ZIG_OS_OPENBSD)
     paths.resize(0);
     dl_iterate_phdr(self_exe_shared_libs_callback, &paths);
     return ErrorNone;

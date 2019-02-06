@@ -968,6 +968,8 @@ const char *target_dynamic_linker(const ZigTarget *target) {
             return "/libexec/ld-elf.so.1";
         case OsNetBSD:
             return "/libexec/ld.elf_so";
+        case OsOpenBSD:
+            return "/usr/libexec/ld.so";
         case OsLinux: {
             const ZigLLVM_EnvironmentType abi = target->abi;
             if (abi == ZigLLVM_Android) {
@@ -1088,7 +1090,6 @@ const char *target_dynamic_linker(const ZigTarget *target) {
         case OsFuchsia:
         case OsKFreeBSD:
         case OsLv2:
-        case OsOpenBSD:
         case OsSolaris:
         case OsWindows:
         case OsHaiku:
@@ -1277,9 +1278,9 @@ bool target_has_valgrind_support(const ZigTarget *target) {
 
 bool target_requires_libc(const ZigTarget *target) {
     // On Darwin, we always link libSystem which contains libc.
-    // Similarly on FreeBSD and NetBSD we always link system libc
+    // Similarly on FreeBSD, NetBSD and OpenBSD we always link system libc
     // since this is the stable syscall interface.
-    return (target_is_darwin(target) || target->os == OsFreeBSD || target->os == OsNetBSD);
+    return (target_is_darwin(target) || target->os == OsFreeBSD || target->os == OsNetBSD || target->os == OsOpenBSD);
 }
 
 bool target_supports_fpic(const ZigTarget *target) {

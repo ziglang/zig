@@ -7,6 +7,7 @@ pub use switch (builtin.os) {
     Os.macosx, Os.ios => @import("darwin.zig"),
     Os.freebsd => @import("freebsd.zig"),
     Os.netbsd => @import("netbsd.zig"),
+    Os.openbsd => @import("openbsd.zig"),
     else => empty_import,
 };
 const empty_import = @import("../empty.zig");
