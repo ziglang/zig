@@ -600,7 +600,7 @@ pub const ChildProcess = struct {
                 const joined_path = try os.path.join(self.allocator, search_path, app_name);
                 defer self.allocator.free(joined_path);
 
-                const joined_path_w = try unicode.utf8ToUtf16LeWithNull(self.allocator, app_name);
+                const joined_path_w = try unicode.utf8ToUtf16LeWithNull(self.allocator, joined_path);
                 defer self.allocator.free(joined_path_w);
 
                 if (windowsCreateProcess(joined_path_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo)) |_| {
@@ -610,6 +610,9 @@ pub const ChildProcess = struct {
                 } else {
                     return err;
                 }
+            } else {
+                // Every other error would have been returned earlier.
+                return error.FileNotFound;
             }
         };
 
