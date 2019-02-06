@@ -357,6 +357,15 @@ fn testIntSerializerDeserializer(comptime endian: builtin.Endian, comptime is_pa
     const total_packed_bytes = (total_bits / u8_bit_count) + extra_packed_byte;
 
     assert(in.pos == if (is_packed) total_packed_bytes else total_bytes);
+
+    //Verify that empty error set works with serializer.
+    //deserializer is covered by SliceInStream
+    const NullError = io.NullOutStream.Error;
+    var null_out = io.NullOutStream.init();
+    var null_out_stream = &null_out.stream;
+    var null_serializer = io.Serializer(endian, is_packed, NullError).init(null_out_stream);
+    try null_serializer.serialize(data_mem[0..]);
+    try null_serializer.flush();
 }
 
 test "Serializer/Deserializer Int" {
