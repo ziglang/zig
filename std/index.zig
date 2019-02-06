@@ -33,8 +33,8 @@ pub const io = @import("io.zig");
 pub const json = @import("json.zig");
 pub const macho = @import("macho.zig");
 pub const math = @import("math/index.zig");
-pub const meta = @import("meta/index.zig");
 pub const mem = @import("mem.zig");
+pub const meta = @import("meta/index.zig");
 pub const net = @import("net.zig");
 pub const os = @import("os/index.zig");
 pub const pdb = @import("pdb.zig");
@@ -45,6 +45,7 @@ pub const unicode = @import("unicode.zig");
 pub const zig = @import("zig/index.zig");
 
 pub const lazyInit = @import("lazy_init.zig").lazyInit;
+pub const startup = @import("os/startup.zig");
 
 test "std" {
     // run tests from these

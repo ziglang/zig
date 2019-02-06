@@ -844,12 +844,17 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc) {
 
 // VarDecl <- (KEYWORD_const / KEYWORD_var) IDENTIFIER (COLON TypeExpr)? ByteAlign? LinkSection? (EQUAL Expr)? SEMICOLON
 static AstNode *ast_parse_var_decl(ParseContext *pc) {
-    Token *first = eat_token_if(pc, TokenIdKeywordConst);
-    if (first == nullptr)
-        first = eat_token_if(pc, TokenIdKeywordVar);
-    if (first == nullptr)
-        return nullptr;
-
+    Token *thread_local_kw = eat_token_if(pc, TokenIdKeywordThreadLocal);
+    Token *mut_kw = eat_token_if(pc, TokenIdKeywordConst);
+    if (mut_kw == nullptr)
+        mut_kw = eat_token_if(pc, TokenIdKeywordVar);
+    if (mut_kw == nullptr) {
+        if (thread_local_kw == nullptr) {
+            return nullptr;
+        } else {
+            ast_invalid_token_error(pc, peek_token(pc));
+        }
+    }
     Token *identifier = expect_token(pc, TokenIdSymbol);
     AstNode *type_expr = nullptr;
     if (eat_token_if(pc, TokenIdColon) != nullptr)
@@ -863,8 +868,9 @@ static AstNode *ast_parse_var_decl(ParseContext *pc) {
 
     expect_token(pc, TokenIdSemicolon);
 
-    AstNode *res = ast_create_node(pc, NodeTypeVariableDeclaration, first);
-    res->data.variable_declaration.is_const = first->id == TokenIdKeywordConst;
+    AstNode *res = ast_create_node(pc, NodeTypeVariableDeclaration, mut_kw);
+    res->data.variable_declaration.threadlocal_tok = thread_local_kw;
+    res->data.variable_declaration.is_const = mut_kw->id == TokenIdKeywordConst;
     res->data.variable_declaration.symbol = token_buf(identifier);
     res->data.variable_declaration.type = type_expr;
     res->data.variable_declaration.align_expr = align_expr;

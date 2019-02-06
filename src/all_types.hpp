@@ -544,12 +544,7 @@ struct AstNodeDefer {
 };
 
 struct AstNodeVariableDeclaration {
-    VisibMod visib_mod;
     Buf *symbol;
-    bool is_const;
-    bool is_comptime;
-    bool is_export;
-    bool is_extern;
     // one or both of type and expr will be non null
     AstNode *type;
     AstNode *expr;
@@ -559,6 +554,13 @@ struct AstNodeVariableDeclaration {
     AstNode *align_expr;
     // populated if the "section(S)" is present
     AstNode *section_expr;
+    Token *threadlocal_tok;
+
+    VisibMod visib_mod;
+    bool is_const;
+    bool is_comptime;
+    bool is_export;
+    bool is_extern;
 };
 
 struct AstNodeTestDecl {
@@ -1873,6 +1875,7 @@ struct ZigVar {
     bool shadowable;
     bool src_is_const;
     bool gen_is_const;
+    bool is_thread_local;
 };
 
 struct ErrorTableEntry {

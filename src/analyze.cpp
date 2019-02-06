@@ -28,28 +28,10 @@ static Error ATTRIBUTE_MUST_USE resolve_enum_zero_bits(CodeGen *g, ZigType *enum
 static Error ATTRIBUTE_MUST_USE resolve_union_zero_bits(CodeGen *g, ZigType *union_type);
 static void analyze_fn_body(CodeGen *g, ZigFn *fn_table_entry);
 
-ErrorMsg *add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
-    if (node->owner->c_import_node != nullptr) {
-        // if this happens, then translate_c generated code that
-        // failed semantic analysis, which isn't supposed to happen
-        ErrorMsg *err = add_node_error(g, node->owner->c_import_node,
-            buf_sprintf("compiler bug: @cImport generated invalid zig code"));
-
-        add_error_note(g, err, node, msg);
-
-        g->errors.append(err);
-        return err;
-    }
-
-    ErrorMsg *err = err_msg_create_with_line(node->owner->path, node->line, node->column,
-            node->owner->source_code, node->owner->line_offsets, msg);
-
-    g->errors.append(err);
-    return err;
-}
-
-ErrorMsg *add_error_note(CodeGen *g, ErrorMsg *parent_msg, AstNode *node, Buf *msg) {
-    if (node->owner->c_import_node != nullptr) {
+static ErrorMsg *add_error_note_token(CodeGen *g, ErrorMsg *parent_msg, ImportTableEntry *owner, Token *token,
+        Buf *msg)
+{
+    if (owner->c_import_node != nullptr) {
         // if this happens, then translate_c generated code that
         // failed semantic analysis, which isn't supposed to happen
 
@@ -64,11 +46,44 @@ ErrorMsg *add_error_note(CodeGen *g, ErrorMsg *parent_msg, AstNode *node, Buf *m
         return note;
     }
 
-    ErrorMsg *err = err_msg_create_with_line(node->owner->path, node->line, node->column,
-            node->owner->source_code, node->owner->line_offsets, msg);
+    ErrorMsg *err = err_msg_create_with_line(owner->path, token->start_line, token->start_column,
+            owner->source_code, owner->line_offsets, msg);
 
     err_msg_add_note(parent_msg, err);
     return err;
+}
+
+ErrorMsg *add_token_error(CodeGen *g, ImportTableEntry *owner, Token *token, Buf *msg) {
+    if (owner->c_import_node != nullptr) {
+        // if this happens, then translate_c generated code that
+        // failed semantic analysis, which isn't supposed to happen
+        ErrorMsg *err = add_node_error(g, owner->c_import_node,
+            buf_sprintf("compiler bug: @cImport generated invalid zig code"));
+
+        add_error_note_token(g, err, owner, token, msg);
+
+        g->errors.append(err);
+        return err;
+    }
+    ErrorMsg *err = err_msg_create_with_line(owner->path, token->start_line, token->start_column,
+            owner->source_code, owner->line_offsets, msg);
+
+    g->errors.append(err);
+    return err;
+}
+
+ErrorMsg *add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
+    Token fake_token;
+    fake_token.start_line = node->line;
+    fake_token.start_column = node->column;
+    return add_token_error(g, node->owner, &fake_token, msg);
+}
+
+ErrorMsg *add_error_note(CodeGen *g, ErrorMsg *parent_msg, AstNode *node, Buf *msg) {
+    Token fake_token;
+    fake_token.start_line = node->line;
+    fake_token.start_column = node->column;
+    return add_error_note_token(g, parent_msg, node->owner, &fake_token, msg);
 }
 
 ZigType *new_type_table_entry(ZigTypeId id) {
@@ -3668,6 +3683,7 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
     bool is_const = var_decl->is_const;
     bool is_extern = var_decl->is_extern;
     bool is_export = var_decl->is_export;
+    bool is_thread_local = var_decl->threadlocal_tok != nullptr;
 
     ZigType *explicit_type = nullptr;
     if (var_decl->type) {
@@ -3727,6 +3743,7 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
     tld_var->var = add_variable(g, source_node, tld_var->base.parent_scope, var_decl->symbol,
             is_const, init_val, &tld_var->base, type);
     tld_var->var->linkage = linkage;
+    tld_var->var->is_thread_local = is_thread_local;
 
     if (implicit_type != nullptr && type_is_invalid(implicit_type)) {
         tld_var->var->var_type = g->builtin_types.entry_invalid;
@@ -3745,6 +3762,10 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
         } else if (!analyze_const_string(g, tld_var->base.parent_scope, var_decl->section_expr, &tld_var->section_name)) {
             tld_var->section_name = nullptr;
         }
+    }
+
+    if (is_thread_local && is_const) {
+        add_node_error(g, source_node, buf_sprintf("threadlocal variable cannot be constant"));
     }
 
     g->global_vars.append(tld_var);

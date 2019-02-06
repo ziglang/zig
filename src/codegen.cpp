@@ -6445,6 +6445,9 @@ static void do_code_gen(CodeGen *g) {
                 maybe_import_dll(g, global_value, GlobalLinkageIdStrong);
                 LLVMSetAlignment(global_value, var->align_bytes);
                 LLVMSetGlobalConstant(global_value, var->gen_is_const);
+                if (var->is_thread_local && !g->is_single_threaded) {
+                    LLVMSetThreadLocalMode(global_value, LLVMGeneralDynamicTLSModel);
+                }
             }
         } else {
             bool exported = (var->linkage == VarLinkageExport);
@@ -6470,6 +6473,9 @@ static void do_code_gen(CodeGen *g) {
             }
 
             LLVMSetGlobalConstant(global_value, var->gen_is_const);
+            if (var->is_thread_local && !g->is_single_threaded) {
+                LLVMSetThreadLocalMode(global_value, LLVMGeneralDynamicTLSModel);
+            }
         }
 
         var->value_ref = global_value;
@@ -7520,6 +7526,7 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     g->compile_var_package = new_package(buf_ptr(this_dir), builtin_zig_basename);
     g->root_package->package_table.put(buf_create_from_str("builtin"), g->compile_var_package);
     g->std_package->package_table.put(buf_create_from_str("builtin"), g->compile_var_package);
+    g->std_package->package_table.put(buf_create_from_str("std"), g->std_package);
     g->compile_var_import = add_source_file(g, g->compile_var_package, builtin_zig_path, contents);
     scan_import(g, g->compile_var_import);
 
