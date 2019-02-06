@@ -912,7 +912,7 @@ pub fn BitOutStream(endian: builtin.Endian, comptime Error: type) type {
         }
 
         /// Flush any remaining bits to the stream.
-        pub fn flushBits(self: *Self) !void {
+        pub fn flushBits(self: *Self) Error!void {
             if (self.bit_count == 0) return;
             try self.out_stream.writeByte(self.bit_buffer);
             self.bit_buffer = 0;
@@ -1079,7 +1079,7 @@ pub fn Deserializer(comptime endian: builtin.Endian, is_packed: bool, comptime E
         }
 
         //@BUG: inferred error issue. See: #1386 
-        fn deserializeInt(self: *Self, comptime T: type) (Stream.Error || error{EndOfStream})!T {
+        fn deserializeInt(self: *Self, comptime T: type) (Error || error{EndOfStream})!T {
             comptime assert(trait.is(builtin.TypeId.Int)(T) or trait.is(builtin.TypeId.Float)(T));
 
             const u8_bit_count = 8;
@@ -1287,11 +1287,11 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime is_packed: bool, com
         }
 
         /// Flushes any unwritten bits to the stream
-        pub fn flush(self: *Self) Stream.Error!void {
+        pub fn flush(self: *Self) Error!void {
             if (is_packed) return self.out_stream.flushBits();
         }
 
-        fn serializeInt(self: *Self, value: var) !void {
+        fn serializeInt(self: *Self, value: var) Error!void {
             const T = @typeOf(value);
             comptime assert(trait.is(builtin.TypeId.Int)(T) or trait.is(builtin.TypeId.Float)(T));
 
@@ -1323,7 +1323,7 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime is_packed: bool, com
         }
 
         /// Serializes the passed value into the stream
-        pub fn serialize(self: *Self, value: var) !void {
+        pub fn serialize(self: *Self, value: var) Error!void {
             const T = comptime @typeOf(value);
 
             if (comptime trait.isIndexable(T)) {
