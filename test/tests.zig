@@ -194,6 +194,9 @@ pub fn addPkgTests(b: *build.Builder, test_filter: ?[]const u8, root_src: []cons
                     if (link_libc) {
                         these_tests.linkSystemLibrary("c");
                     }
+                    if (mem.eql(u8, name, "std")) {
+                        these_tests.overrideStdDir("std");
+                    }
                     step.dependOn(&these_tests.step);
                 }
             }

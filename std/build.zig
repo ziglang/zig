@@ -1686,6 +1686,7 @@ pub const TestStep = struct {
     no_rosegment: bool,
     output_path: ?[]const u8,
     system_linker_hack: bool,
+    override_std_dir: ?[]const u8,
 
     pub fn init(builder: *Builder, root_src: []const u8) TestStep {
         const step_name = builder.fmt("test {}", root_src);
@@ -1707,6 +1708,7 @@ pub const TestStep = struct {
             .no_rosegment = false,
             .output_path = null,
             .system_linker_hack = false,
+            .override_std_dir = null,
         };
     }
 
@@ -1735,6 +1737,10 @@ pub const TestStep = struct {
 
     pub fn setBuildMode(self: *TestStep, mode: builtin.Mode) void {
         self.build_mode = mode;
+    }
+
+    pub fn overrideStdDir(self: *TestStep, dir_path: []const u8) void {
+        self.override_std_dir = dir_path;
     }
 
     pub fn setOutputPath(self: *TestStep, file_path: []const u8) void {
@@ -1913,6 +1919,10 @@ pub const TestStep = struct {
         }
         if (self.system_linker_hack) {
             try zig_args.append("--system-linker-hack");
+        }
+        if (self.override_std_dir) |dir| {
+            try zig_args.append("--override-std-dir");
+            try zig_args.append(builder.pathFromRoot(dir));
         }
 
         try builder.spawnChild(zig_args.toSliceConst());

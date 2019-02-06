@@ -88,7 +88,7 @@ static const char *symbols_that_llvm_depends_on[] = {
 };
 
 CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out_type, BuildMode build_mode,
-    Buf *zig_lib_dir)
+    Buf *zig_lib_dir, Buf *override_std_dir)
 {
     CodeGen *g = allocate<CodeGen>(1);
 
@@ -96,8 +96,12 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
 
     g->zig_lib_dir = zig_lib_dir;
 
-    g->zig_std_dir = buf_alloc();
-    os_path_join(zig_lib_dir, buf_create_from_str("std"), g->zig_std_dir);
+    if (override_std_dir == nullptr) {
+        g->zig_std_dir = buf_alloc();
+        os_path_join(zig_lib_dir, buf_create_from_str("std"), g->zig_std_dir);
+    } else {
+        g->zig_std_dir = override_std_dir;
+    }
 
     g->zig_c_headers_dir = buf_alloc();
     os_path_join(zig_lib_dir, buf_create_from_str("include"), g->zig_c_headers_dir);
@@ -8356,8 +8360,12 @@ static void add_cache_pkg(CodeGen *g, CacheHash *ch, PackageTableEntry *pkg) {
         if (!entry)
             break;
 
-        cache_buf(ch, entry->key);
-        add_cache_pkg(g, ch, entry->value);
+        // TODO: I think we need a more sophisticated detection of
+        // packages we have already seen
+        if (entry->value != pkg) {
+            cache_buf(ch, entry->key);
+            add_cache_pkg(g, ch, entry->value);
+        }
     }
 }
 

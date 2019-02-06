@@ -64,7 +64,7 @@ fn posixCallMainAndExit() noreturn {
     if (builtin.os == builtin.Os.linux) {
         // Scan auxiliary vector.
         const auxv = @ptrCast([*]std.elf.Auxv, envp.ptr + envp_count + 1);
-        std.startup.linux_elf_aux_maybe = auxv;
+        std.os.linux_elf_aux_maybe = auxv;
         var i: usize = 0;
         var at_phdr: usize = 0;
         var at_phnum: usize = 0;
@@ -87,8 +87,8 @@ fn posixCallMainAndExit() noreturn {
 // This is marked inline because for some reason LLVM in release mode fails to inline it,
 // and we want fewer call frames in stack traces.
 inline fn callMainWithArgs(argc: usize, argv: [*][*]u8, envp: [][*]u8) u8 {
-    std.startup.posix_argv_raw = argv[0..argc];
-    std.startup.posix_environ_raw = envp;
+    std.os.ArgIteratorPosix.raw = argv[0..argc];
+    std.os.posix_environ_raw = envp;
     return callMain();
 }
 
@@ -145,15 +145,15 @@ fn linuxInitializeThreadLocalStorage(at_phdr: usize, at_phnum: usize, at_phent: 
         // TODO look for PT_DYNAMIC when we have https://github.com/ziglang/zig/issues/1917
         switch (phdr.p_type) {
             std.elf.PT_PHDR => base = at_phdr - phdr.p_vaddr,
-            std.elf.PT_TLS => std.startup.linux_tls_phdr = phdr,
+            std.elf.PT_TLS => std.os.linux_tls_phdr = phdr,
             else => continue,
         }
     }
-    const tls_phdr = std.startup.linux_tls_phdr orelse return;
-    std.startup.linux_tls_img_src = @intToPtr([*]const u8, base + tls_phdr.p_vaddr);
+    const tls_phdr = std.os.linux_tls_phdr orelse return;
+    std.os.linux_tls_img_src = @intToPtr([*]const u8, base + tls_phdr.p_vaddr);
     assert(main_thread_tls_bytes.len >= tls_phdr.p_memsz); // not enough preallocated Thread Local Storage
     assert(main_thread_tls_align >= tls_phdr.p_align); // preallocated Thread Local Storage not aligned enough
-    @memcpy(&main_thread_tls_bytes, std.startup.linux_tls_img_src, tls_phdr.p_filesz);
+    @memcpy(&main_thread_tls_bytes, std.os.linux_tls_img_src, tls_phdr.p_filesz);
     tls_end_addr = @ptrToInt(&main_thread_tls_bytes) + tls_phdr.p_memsz;
     linuxSetThreadArea(@ptrToInt(&tls_end_addr));
 }

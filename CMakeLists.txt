@@ -587,7 +587,6 @@ set(ZIG_STD_FILES
     "os/linux/vdso.zig"
     "os/linux/x86_64.zig"
     "os/path.zig"
-    "os/startup.zig"
     "os/time.zig"
     "os/uefi.zig"
     "os/windows/advapi32.zig"

@@ -8,8 +8,9 @@ const is_posix = switch (builtin.os) {
 };
 const os = @This();
 
-// See the comment in startup.zig for why this does not use the `std` global above.
-const startup = @import("std").startup;
+comptime {
+    assert(@import("std") == std); // You have to run the std lib tests with --override-std-dir
+}
 
 test "std.os" {
     _ = @import("child_process.zig");
@@ -670,11 +671,14 @@ fn posixExecveErrnoToErr(err: usize) PosixExecveError {
     }
 }
 
+pub var linux_elf_aux_maybe: ?[*]std.elf.Auxv = null;
+pub var posix_environ_raw: [][*]u8 = undefined;
+
 /// See std.elf for the constants.
 pub fn linuxGetAuxVal(index: usize) usize {
     if (builtin.link_libc) {
         return usize(std.c.getauxval(index));
-    } else if (startup.linux_elf_aux_maybe) |auxv| {
+    } else if (linux_elf_aux_maybe) |auxv| {
         var i: usize = 0;
         while (auxv[i].a_type != std.elf.AT_NULL) : (i += 1) {
             if (auxv[i].a_type == index)
@@ -734,7 +738,7 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
             try result.setMove(key, value);
         }
     } else {
-        for (startup.posix_environ_raw) |ptr| {
+        for (posix_environ_raw) |ptr| {
             var line_i: usize = 0;
             while (ptr[line_i] != 0 and ptr[line_i] != '=') : (line_i += 1) {}
             const key = ptr[0..line_i];
@@ -756,7 +760,7 @@ test "os.getEnvMap" {
 
 /// TODO make this go through libc when we have it
 pub fn getEnvPosix(key: []const u8) ?[]const u8 {
-    for (startup.posix_environ_raw) |ptr| {
+    for (posix_environ_raw) |ptr| {
         var line_i: usize = 0;
         while (ptr[line_i] != 0 and ptr[line_i] != '=') : (line_i += 1) {}
         const this_key = ptr[0..line_i];
@@ -1937,14 +1941,14 @@ pub const ArgIteratorPosix = struct {
     pub fn init() ArgIteratorPosix {
         return ArgIteratorPosix{
             .index = 0,
-            .count = startup.posix_argv_raw.len,
+            .count = raw.len,
         };
     }
 
     pub fn next(self: *ArgIteratorPosix) ?[]const u8 {
         if (self.index == self.count) return null;
 
-        const s = startup.posix_argv_raw[self.index];
+        const s = raw[self.index];
         self.index += 1;
         return cstr.toSlice(s);
     }
@@ -1955,6 +1959,10 @@ pub const ArgIteratorPosix = struct {
         self.index += 1;
         return true;
     }
+
+    /// This is marked as public but actually it's only meant to be used
+    /// internally by zig's startup code.
+    pub var raw: [][*]u8 = undefined;
 };
 
 pub const ArgIteratorWindows = struct {
@@ -3000,6 +3008,9 @@ pub const SpawnThreadError = error{
     Unexpected,
 };
 
+pub var linux_tls_phdr: ?*std.elf.Phdr = null;
+pub var linux_tls_img_src: [*]const u8 = undefined; // defined if linux_tls_phdr is
+
 /// caller must call wait on the returned thread
 /// fn startFn(@typeOf(context)) T
 /// where T is u8, noreturn, void, or !void
@@ -3109,7 +3120,7 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
         }
         // Finally, the Thread Local Storage, if any.
         if (!Thread.use_pthreads) {
-            if (startup.linux_tls_phdr) |tls_phdr| {
+            if (linux_tls_phdr) |tls_phdr| {
                 l = mem.alignForward(l, tls_phdr.p_align);
                 tls_start_offset = l;
                 l += tls_phdr.p_memsz;
@@ -3153,8 +3164,8 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
             posix.CLONE_THREAD | posix.CLONE_SYSVSEM | posix.CLONE_PARENT_SETTID | posix.CLONE_CHILD_CLEARTID |
             posix.CLONE_DETACHED;
         var newtls: usize = undefined;
-        if (startup.linux_tls_phdr) |tls_phdr| {
-            @memcpy(@intToPtr([*]u8, mmap_addr + tls_start_offset), startup.linux_tls_img_src, tls_phdr.p_filesz);
+        if (linux_tls_phdr) |tls_phdr| {
+            @memcpy(@intToPtr([*]u8, mmap_addr + tls_start_offset), linux_tls_img_src, tls_phdr.p_filesz);
             thread_ptr.data.tls_end_addr = mmap_addr + mmap_len;
             newtls = @ptrToInt(&thread_ptr.data.tls_end_addr);
             flags |= posix.CLONE_SETTLS;

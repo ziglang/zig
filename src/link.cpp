@@ -42,7 +42,7 @@ static Buf *build_a_raw(CodeGen *parent_gen, const char *aname, Buf *full_path) 
     }
 
     CodeGen *child_gen = codegen_create(full_path, child_target, child_out_type,
-        parent_gen->build_mode, parent_gen->zig_lib_dir);
+        parent_gen->build_mode, parent_gen->zig_lib_dir, parent_gen->zig_std_dir);
 
     child_gen->out_h_path = nullptr;
     child_gen->verbose_tokenize = parent_gen->verbose_tokenize;

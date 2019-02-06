@@ -45,7 +45,6 @@ pub const unicode = @import("unicode.zig");
 pub const zig = @import("zig/index.zig");
 
 pub const lazyInit = @import("lazy_init.zig").lazyInit;
-pub const startup = @import("os/startup.zig");
 
 test "std" {
     // run tests from these
