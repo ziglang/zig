@@ -105,3 +105,19 @@ test "AtomicFile" {
 
     try os.deleteFile(test_out_file);
 }
+
+test "thread local storage" {
+    if (builtin.single_threaded) return error.SkipZigTest;
+    const thread1 = try std.os.spawnThread({}, testTls);
+    const thread2 = try std.os.spawnThread({}, testTls);
+    testTls({});
+    thread1.wait();
+    thread2.wait();
+}
+
+threadlocal var x: i32 = 1234;
+fn testTls(context: void) void {
+    if (x != 1234) @panic("bad start value");
+    x += 1;
+    if (x != 1235) @panic("bad end value");
+}

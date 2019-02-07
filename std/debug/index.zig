@@ -37,7 +37,6 @@ const Module = struct {
 var stderr_file: os.File = undefined;
 var stderr_file_out_stream: os.File.OutStream = undefined;
 
-/// TODO multithreaded awareness
 var stderr_stream: ?*io.OutStream(os.File.WriteError) = null;
 var stderr_mutex = std.Mutex.init();
 pub fn warn(comptime fmt: []const u8, args: ...) void {

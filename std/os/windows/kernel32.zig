@@ -164,6 +164,10 @@ pub extern "kernel32" stdcallcc fn Sleep(dwMilliseconds: DWORD) void;
 
 pub extern "kernel32" stdcallcc fn TerminateProcess(hProcess: HANDLE, uExitCode: UINT) BOOL;
 
+pub extern "kernel32" stdcallcc fn TlsAlloc() DWORD;
+
+pub extern "kernel32" stdcallcc fn TlsFree(dwTlsIndex: DWORD) BOOL;
+
 pub extern "kernel32" stdcallcc fn WaitForSingleObject(hHandle: HANDLE, dwMilliseconds: DWORD) DWORD;
 
 pub extern "kernel32" stdcallcc fn WriteFile(

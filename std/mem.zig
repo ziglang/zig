@@ -1366,3 +1366,23 @@ test "std.mem.subArrayPtr" {
     sub2[1] = 'X';
     debug.assert(std.mem.eql(u8, a2, "abcXef"));
 }
+
+/// Round an address up to the nearest aligned address
+pub fn alignForward(addr: usize, alignment: usize) usize {
+    return (addr + alignment - 1) & ~(alignment - 1);
+}
+
+test "std.mem.alignForward" {
+    debug.assertOrPanic(alignForward(1, 1) == 1);
+    debug.assertOrPanic(alignForward(2, 1) == 2);
+    debug.assertOrPanic(alignForward(1, 2) == 2);
+    debug.assertOrPanic(alignForward(2, 2) == 2);
+    debug.assertOrPanic(alignForward(3, 2) == 4);
+    debug.assertOrPanic(alignForward(4, 2) == 4);
+    debug.assertOrPanic(alignForward(7, 8) == 8);
+    debug.assertOrPanic(alignForward(8, 8) == 8);
+    debug.assertOrPanic(alignForward(9, 8) == 16);
+    debug.assertOrPanic(alignForward(15, 8) == 16);
+    debug.assertOrPanic(alignForward(16, 8) == 16);
+    debug.assertOrPanic(alignForward(17, 8) == 24);
+}

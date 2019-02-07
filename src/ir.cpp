@@ -5204,6 +5204,10 @@ static IrInstruction *ir_gen_var_decl(IrBuilder *irb, Scope *scope, AstNode *nod
         add_node_error(irb->codegen, variable_declaration->section_expr,
             buf_sprintf("cannot set section of local variable '%s'", buf_ptr(variable_declaration->symbol)));
     }
+    if (variable_declaration->threadlocal_tok != nullptr) {
+        add_token_error(irb->codegen, node->owner, variable_declaration->threadlocal_tok,
+            buf_sprintf("function-local variable '%s' cannot be threadlocal", buf_ptr(variable_declaration->symbol)));
+    }
 
     // Temporarily set the name of the IrExecutable to the VariableDeclaration
     // so that the struct or enum from the init expression inherits the name.

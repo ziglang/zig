@@ -12,6 +12,7 @@
 
 void semantic_analyze(CodeGen *g);
 ErrorMsg *add_node_error(CodeGen *g, AstNode *node, Buf *msg);
+ErrorMsg *add_token_error(CodeGen *g, ImportTableEntry *owner, Token *token, Buf *msg);
 ErrorMsg *add_error_note(CodeGen *g, ErrorMsg *parent_msg, AstNode *node, Buf *msg);
 ZigType *new_type_table_entry(ZigTypeId id);
 ZigType *get_pointer_to_type(CodeGen *g, ZigType *child_type, bool is_const);

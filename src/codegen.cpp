@@ -88,7 +88,7 @@ static const char *symbols_that_llvm_depends_on[] = {
 };
 
 CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out_type, BuildMode build_mode,
-    Buf *zig_lib_dir)
+    Buf *zig_lib_dir, Buf *override_std_dir)
 {
     CodeGen *g = allocate<CodeGen>(1);
 
@@ -96,8 +96,12 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
 
     g->zig_lib_dir = zig_lib_dir;
 
-    g->zig_std_dir = buf_alloc();
-    os_path_join(zig_lib_dir, buf_create_from_str("std"), g->zig_std_dir);
+    if (override_std_dir == nullptr) {
+        g->zig_std_dir = buf_alloc();
+        os_path_join(zig_lib_dir, buf_create_from_str("std"), g->zig_std_dir);
+    } else {
+        g->zig_std_dir = override_std_dir;
+    }
 
     g->zig_c_headers_dir = buf_alloc();
     os_path_join(zig_lib_dir, buf_create_from_str("include"), g->zig_c_headers_dir);
@@ -6341,6 +6345,12 @@ static void validate_inline_fns(CodeGen *g) {
     report_errors_and_maybe_exit(g);
 }
 
+static void set_global_tls(CodeGen *g, ZigVar *var, LLVMValueRef global_value) {
+    if (var->is_thread_local && !g->is_single_threaded) {
+        LLVMSetThreadLocalMode(global_value, LLVMGeneralDynamicTLSModel);
+    }
+}
+
 static void do_code_gen(CodeGen *g) {
     assert(!g->errors.length);
 
@@ -6425,6 +6435,7 @@ static void do_code_gen(CodeGen *g) {
                 maybe_import_dll(g, global_value, GlobalLinkageIdStrong);
                 LLVMSetAlignment(global_value, var->align_bytes);
                 LLVMSetGlobalConstant(global_value, var->gen_is_const);
+                set_global_tls(g, var, global_value);
             }
         } else {
             bool exported = (var->linkage == VarLinkageExport);
@@ -6450,6 +6461,7 @@ static void do_code_gen(CodeGen *g) {
             }
 
             LLVMSetGlobalConstant(global_value, var->gen_is_const);
+            set_global_tls(g, var, global_value);
         }
 
         var->value_ref = global_value;
@@ -7500,6 +7512,7 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     g->compile_var_package = new_package(buf_ptr(this_dir), builtin_zig_basename);
     g->root_package->package_table.put(buf_create_from_str("builtin"), g->compile_var_package);
     g->std_package->package_table.put(buf_create_from_str("builtin"), g->compile_var_package);
+    g->std_package->package_table.put(buf_create_from_str("std"), g->std_package);
     g->compile_var_import = add_source_file(g, g->compile_var_package, builtin_zig_path, contents);
     scan_import(g, g->compile_var_import);
 
@@ -8329,8 +8342,12 @@ static void add_cache_pkg(CodeGen *g, CacheHash *ch, PackageTableEntry *pkg) {
         if (!entry)
             break;
 
-        cache_buf(ch, entry->key);
-        add_cache_pkg(g, ch, entry->value);
+        // TODO: I think we need a more sophisticated detection of
+        // packages we have already seen
+        if (entry->value != pkg) {
+            cache_buf(ch, entry->key);
+            add_cache_pkg(g, ch, entry->value);
+        }
     }
 }
 

@@ -74,6 +74,7 @@ static int print_full_usage(const char *arg0) {
         "  -dirafter [dir]              same as -isystem but do it last\n"
         "  -isystem [dir]               add additional search path for other .h files\n"
         "  -mllvm [arg]                 forward an arg to LLVM's option processing\n"
+        "  --override-std-dir [arg]     use an alternate Zig standard library\n"
         "\n"
         "Link Options:\n"
         "  --dynamic-linker [path]      set the path to ld.so\n"
@@ -395,6 +396,7 @@ int main(int argc, char **argv) {
     bool system_linker_hack = false;
     TargetSubsystem subsystem = TargetSubsystemAuto;
     bool is_single_threaded = false;
+    Buf *override_std_dir = nullptr;
 
     if (argc >= 2 && strcmp(argv[1], "build") == 0) {
         Buf zig_exe_path_buf = BUF_INIT;
@@ -430,7 +432,8 @@ int main(int argc, char **argv) {
         Buf *build_runner_path = buf_alloc();
         os_path_join(get_zig_special_dir(), buf_create_from_str("build_runner.zig"), build_runner_path);
 
-        CodeGen *g = codegen_create(build_runner_path, nullptr, OutTypeExe, BuildModeDebug, get_zig_lib_dir());
+        CodeGen *g = codegen_create(build_runner_path, nullptr, OutTypeExe, BuildModeDebug, get_zig_lib_dir(),
+                override_std_dir);
         g->enable_time_report = timing_info;
         buf_init_from_str(&g->cache_dir, cache_dir ? cache_dir : default_zig_cache_name);
         codegen_set_out_name(g, buf_create_from_str("build"));
@@ -645,6 +648,8 @@ int main(int argc, char **argv) {
                     clang_argv.append(argv[i]);
 
                     llvm_argv.append(argv[i]);
+                } else if (strcmp(arg, "--override-std-dir") == 0) {
+                    override_std_dir = buf_create_from_str(argv[i]);
                 } else if (strcmp(arg, "--library-path") == 0 || strcmp(arg, "-L") == 0) {
                     lib_dirs.append(argv[i]);
                 } else if (strcmp(arg, "--library") == 0) {
@@ -819,7 +824,7 @@ int main(int argc, char **argv) {
 
     switch (cmd) {
     case CmdBuiltin: {
-        CodeGen *g = codegen_create(nullptr, target, out_type, build_mode, get_zig_lib_dir());
+        CodeGen *g = codegen_create(nullptr, target, out_type, build_mode, get_zig_lib_dir(), override_std_dir);
         g->is_single_threaded = is_single_threaded;
         Buf *builtin_source = codegen_generate_builtin_source(g);
         if (fwrite(buf_ptr(builtin_source), 1, buf_len(builtin_source), stdout) != buf_len(builtin_source)) {
@@ -878,7 +883,8 @@ int main(int argc, char **argv) {
             if (cmd == CmdRun && buf_out_name == nullptr) {
                 buf_out_name = buf_create_from_str("run");
             }
-            CodeGen *g = codegen_create(zig_root_source_file, target, out_type, build_mode, get_zig_lib_dir());
+            CodeGen *g = codegen_create(zig_root_source_file, target, out_type, build_mode, get_zig_lib_dir(),
+                    override_std_dir);
             g->subsystem = subsystem;
 
             if (disable_pic) {

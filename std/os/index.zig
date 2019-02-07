@@ -8,6 +8,10 @@ const is_posix = switch (builtin.os) {
 };
 const os = @This();
 
+comptime {
+    assert(@import("std") == std); // You have to run the std lib tests with --override-std-dir
+}
+
 test "std.os" {
     _ = @import("child_process.zig");
     _ = @import("darwin.zig");
@@ -692,12 +696,7 @@ pub fn getBaseAddress() usize {
                 return base;
             }
             const phdr = linuxGetAuxVal(std.elf.AT_PHDR);
-            const ElfHeader = switch (@sizeOf(usize)) {
-                4 => std.elf.Elf32_Ehdr,
-                8 => std.elf.Elf64_Ehdr,
-                else => @compileError("Unsupported architecture"),
-            };
-            return phdr - @sizeOf(ElfHeader);
+            return phdr - @sizeOf(std.elf.Ehdr);
         },
         builtin.Os.macosx, builtin.Os.freebsd => return @ptrToInt(&std.c._mh_execute_header),
         builtin.Os.windows => return @ptrToInt(windows.GetModuleHandleW(null)),
@@ -2908,14 +2907,15 @@ pub const Thread = struct {
     pub const Data = if (use_pthreads)
         struct {
             handle: Thread.Handle,
-            stack_addr: usize,
-            stack_len: usize,
+            mmap_addr: usize,
+            mmap_len: usize,
         }
     else switch (builtin.os) {
         builtin.Os.linux => struct {
             handle: Thread.Handle,
-            stack_addr: usize,
-            stack_len: usize,
+            mmap_addr: usize,
+            mmap_len: usize,
+            tls_end_addr: usize,
         },
         builtin.Os.windows => struct {
             handle: Thread.Handle,
@@ -2955,7 +2955,7 @@ pub const Thread = struct {
                 posix.EDEADLK => unreachable,
                 else => unreachable,
             }
-            assert(posix.munmap(self.data.stack_addr, self.data.stack_len) == 0);
+            assert(posix.munmap(self.data.mmap_addr, self.data.mmap_len) == 0);
         } else switch (builtin.os) {
             builtin.Os.linux => {
                 while (true) {
@@ -2969,7 +2969,7 @@ pub const Thread = struct {
                         else => unreachable,
                     }
                 }
-                assert(posix.munmap(self.data.stack_addr, self.data.stack_len) == 0);
+                assert(posix.munmap(self.data.mmap_addr, self.data.mmap_len) == 0);
             },
             builtin.Os.windows => {
                 assert(windows.WaitForSingleObject(self.data.handle, windows.INFINITE) == windows.WAIT_OBJECT_0);
@@ -3007,6 +3007,9 @@ pub const SpawnThreadError = error{
     /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
+
+pub var linux_tls_phdr: ?*std.elf.Phdr = null;
+pub var linux_tls_img_src: [*]const u8 = undefined; // defined if linux_tls_phdr is
 
 /// caller must call wait on the returned thread
 /// fn startFn(@typeOf(context)) T
@@ -3097,42 +3100,56 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
 
     const MAP_GROWSDOWN = if (builtin.os == builtin.Os.linux) linux.MAP_GROWSDOWN else 0;
 
-    const mmap_len = default_stack_size;
-    const stack_addr = posix.mmap(null, mmap_len, posix.PROT_READ | posix.PROT_WRITE, posix.MAP_PRIVATE | posix.MAP_ANONYMOUS | MAP_GROWSDOWN, -1, 0);
-    if (stack_addr == posix.MAP_FAILED) return error.OutOfMemory;
-    errdefer assert(posix.munmap(stack_addr, mmap_len) == 0);
+    var stack_end_offset: usize = undefined;
+    var thread_start_offset: usize = undefined;
+    var context_start_offset: usize = undefined;
+    var tls_start_offset: usize = undefined;
+    const mmap_len = blk: {
+        // First in memory will be the stack, which grows downwards.
+        var l: usize = mem.alignForward(default_stack_size, os.page_size);
+        stack_end_offset = l;
+        // Above the stack, so that it can be in the same mmap call, put the Thread object.
+        l = mem.alignForward(l, @alignOf(Thread));
+        thread_start_offset = l;
+        l += @sizeOf(Thread);
+        // Next, the Context object.
+        if (@sizeOf(Context) != 0) {
+            l = mem.alignForward(l, @alignOf(Context));
+            context_start_offset = l;
+            l += @sizeOf(Context);
+        }
+        // Finally, the Thread Local Storage, if any.
+        if (!Thread.use_pthreads) {
+            if (linux_tls_phdr) |tls_phdr| {
+                l = mem.alignForward(l, tls_phdr.p_align);
+                tls_start_offset = l;
+                l += tls_phdr.p_memsz;
+            }
+        }
+        break :blk l;
+    };
+    const mmap_addr = posix.mmap(null, mmap_len, posix.PROT_READ | posix.PROT_WRITE, posix.MAP_PRIVATE | posix.MAP_ANONYMOUS | MAP_GROWSDOWN, -1, 0);
+    if (mmap_addr == posix.MAP_FAILED) return error.OutOfMemory;
+    errdefer assert(posix.munmap(mmap_addr, mmap_len) == 0);
 
-    var stack_end: usize = stack_addr + mmap_len;
+    const thread_ptr = @alignCast(@alignOf(Thread), @intToPtr(*Thread, mmap_addr + thread_start_offset));
+    thread_ptr.data.mmap_addr = mmap_addr;
+    thread_ptr.data.mmap_len = mmap_len;
+
     var arg: usize = undefined;
     if (@sizeOf(Context) != 0) {
-        stack_end -= @sizeOf(Context);
-        stack_end -= stack_end % @alignOf(Context);
-        assert(stack_end >= stack_addr);
-        const context_ptr = @alignCast(@alignOf(Context), @intToPtr(*Context, stack_end));
+        arg = mmap_addr + context_start_offset;
+        const context_ptr = @alignCast(@alignOf(Context), @intToPtr(*Context, arg));
         context_ptr.* = context;
-        arg = stack_end;
     }
 
-    stack_end -= @sizeOf(Thread);
-    stack_end -= stack_end % @alignOf(Thread);
-    assert(stack_end >= stack_addr);
-    const thread_ptr = @alignCast(@alignOf(Thread), @intToPtr(*Thread, stack_end));
-
-    thread_ptr.data.stack_addr = stack_addr;
-    thread_ptr.data.stack_len = mmap_len;
-
-    if (builtin.os == builtin.Os.windows) {
-        // use windows API directly
-        @compileError("TODO support spawnThread for Windows");
-    } else if (Thread.use_pthreads) {
+    if (Thread.use_pthreads) {
         // use pthreads
         var attr: c.pthread_attr_t = undefined;
         if (c.pthread_attr_init(&attr) != 0) return SpawnThreadError.SystemResources;
         defer assert(c.pthread_attr_destroy(&attr) == 0);
 
-        // align to page
-        stack_end -= stack_end % os.page_size;
-        assert(c.pthread_attr_setstack(&attr, @intToPtr(*c_void, stack_addr), stack_end - stack_addr) == 0);
+        assert(c.pthread_attr_setstack(&attr, @intToPtr(*c_void, mmap_addr), stack_end_offset) == 0);
 
         const err = c.pthread_create(&thread_ptr.data.handle, &attr, MainFuncs.posixThreadMain, @intToPtr(*c_void, arg));
         switch (err) {
@@ -3143,10 +3160,17 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
             else => return unexpectedErrorPosix(@intCast(usize, err)),
         }
     } else if (builtin.os == builtin.Os.linux) {
-        // use linux API directly.  TODO use posix.CLONE_SETTLS and initialize thread local storage correctly
-        const flags = posix.CLONE_VM | posix.CLONE_FS | posix.CLONE_FILES | posix.CLONE_SIGHAND | posix.CLONE_THREAD | posix.CLONE_SYSVSEM | posix.CLONE_PARENT_SETTID | posix.CLONE_CHILD_CLEARTID | posix.CLONE_DETACHED;
-        const newtls: usize = 0;
-        const rc = posix.clone(MainFuncs.linuxThreadMain, stack_end, flags, arg, &thread_ptr.data.handle, newtls, &thread_ptr.data.handle);
+        var flags: u32 = posix.CLONE_VM | posix.CLONE_FS | posix.CLONE_FILES | posix.CLONE_SIGHAND |
+            posix.CLONE_THREAD | posix.CLONE_SYSVSEM | posix.CLONE_PARENT_SETTID | posix.CLONE_CHILD_CLEARTID |
+            posix.CLONE_DETACHED;
+        var newtls: usize = undefined;
+        if (linux_tls_phdr) |tls_phdr| {
+            @memcpy(@intToPtr([*]u8, mmap_addr + tls_start_offset), linux_tls_img_src, tls_phdr.p_filesz);
+            thread_ptr.data.tls_end_addr = mmap_addr + mmap_len;
+            newtls = @ptrToInt(&thread_ptr.data.tls_end_addr);
+            flags |= posix.CLONE_SETTLS;
+        }
+        const rc = posix.clone(MainFuncs.linuxThreadMain, mmap_addr + stack_end_offset, flags, arg, &thread_ptr.data.handle, newtls, &thread_ptr.data.handle);
         const err = posix.getErrno(rc);
         switch (err) {
             0 => return thread_ptr,
