@@ -25,4 +25,4 @@ declare i32 @printf(i8*, ...)
 
 ; CHECK: DynamicSymbols [
 ; CHECK: Symbol {
-; CHECK:    Name: puts@
+; CHECK:    Name: puts

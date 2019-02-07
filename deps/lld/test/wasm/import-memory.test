@@ -31,3 +31,20 @@
 # CHECK-MAX-NEXT:          Initial:         0x00000004
 # CHECK-MAX-NEXT:          Maximum:         0x00000005
 # CHECK-MAX-NEXT:  - Type:
+
+# RUN: wasm-ld --import-memory --shared-memory --initial-memory=262144 \
+# RUN:     --max-memory=327680 -o %t.max.wasm %t.start.o
+# RUN: obj2yaml %t.max.wasm | FileCheck -check-prefix=CHECK-SHARED %s
+
+# Verify the --shared-memory flag works with imports
+
+# CHECK-SHARED:       - Type:            IMPORT
+# CHECK-SHARED-NEXT:    Imports:
+# CHECK-SHARED-NEXT:      - Module:          env
+# CHECK-SHARED-NEXT:        Field:           memory
+# CHECK-SHARED-NEXT:        Kind:            MEMORY
+# CHECK-SHARED-NEXT:        Memory:
+# CHECK-SHARED-NEXT:          Flags:           [ HAS_MAX, IS_SHARED ]
+# CHECK-SHARED-NEXT:          Initial:         0x00000004
+# CHECK-SHARED-NEXT:          Maximum:         0x00000005
+# CHECK-SHARED-NEXT:  - Type:

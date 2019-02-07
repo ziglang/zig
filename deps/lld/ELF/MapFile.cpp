@@ -126,7 +126,7 @@ static void printEhFrame(raw_ostream &OS, OutputSection *OSec) {
   };
 
   // Gather section pieces.
-  for (const CieRecord *Rec : InX::EhFrame->getCieRecords()) {
+  for (const CieRecord *Rec : In.EhFrame->getCieRecords()) {
     Add(*Rec->Cie);
     for (const EhSectionPiece *Fde : Rec->Fdes)
       Add(*Fde);
@@ -163,17 +163,18 @@ void elf::writeMapFile() {
   OS << right_justify("VMA", W) << ' ' << right_justify("LMA", W)
      << "     Size Align Out     In      Symbol\n";
 
+  OutputSection* OSec = nullptr;
   for (BaseCommand *Base : Script->SectionCommands) {
     if (auto *Cmd = dyn_cast<SymbolAssignment>(Base)) {
       if (Cmd->Provide && !Cmd->Sym)
         continue;
-      //FIXME: calculate and print LMA.
-      writeHeader(OS, Cmd->Addr, 0, Cmd->Size, 1);
+      uint64_t LMA = OSec ? OSec->getLMA() + Cmd->Addr - OSec->getVA(0) : 0;
+      writeHeader(OS, Cmd->Addr, LMA, Cmd->Size, 1);
       OS << Cmd->CommandString << '\n';
       continue;
     }
 
-    auto *OSec = cast<OutputSection>(Base);
+    OSec = cast<OutputSection>(Base);
     writeHeader(OS, OSec->Addr, OSec->getLMA(), OSec->Size, OSec->Alignment);
     OS << OSec->Name << '\n';
 
@@ -181,7 +182,7 @@ void elf::writeMapFile() {
     for (BaseCommand *Base : OSec->SectionCommands) {
       if (auto *ISD = dyn_cast<InputSectionDescription>(Base)) {
         for (InputSection *IS : ISD->Sections) {
-          if (IS == InX::EhFrame) {
+          if (IS == In.EhFrame) {
             printEhFrame(OS, OSec);
             continue;
           }

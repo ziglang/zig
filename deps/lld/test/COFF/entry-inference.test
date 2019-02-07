@@ -1,17 +1,25 @@
 # RUN: sed -e s/ENTRYNAME/main/ %s | yaml2obj > %t.obj
 # RUN: not lld-link /out:%t.exe %t.obj > %t.log 2>&1
 # RUN: FileCheck -check-prefix=MAIN %s < %t.log
+# RUN: not lld-link /nodefaultlib /out:%t.exe %t.obj > %t.log 2>&1
+# RUN: FileCheck -check-prefix=MAIN %s < %t.log
 
 # RUN: sed s/ENTRYNAME/wmain/ %s | yaml2obj > %t.obj
 # RUN: not lld-link /out:%t.exe %t.obj > %t.log 2>&1
+# RUN: FileCheck -check-prefix=WMAIN %s < %t.log
+# RUN: not lld-link /nodefaultlib /out:%t.exe %t.obj > %t.log 2>&1
 # RUN: FileCheck -check-prefix=WMAIN %s < %t.log
 
 # RUN: sed s/ENTRYNAME/WinMain/ %s | yaml2obj > %t.obj
 # RUN: not lld-link /out:%t.exe %t.obj > %t.log 2>&1
 # RUN: FileCheck -check-prefix=WINMAIN %s < %t.log
+# RUN: not lld-link /nodefaultlib /out:%t.exe %t.obj > %t.log 2>&1
+# RUN: FileCheck -check-prefix=WINMAIN %s < %t.log
 
 # RUN: sed s/ENTRYNAME/wWinMain/ %s | yaml2obj > %t.obj
 # RUN: not lld-link /out:%t.exe %t.obj > %t.log 2>&1
+# RUN: FileCheck -check-prefix=WWINMAIN %s < %t.log
+# RUN: not lld-link /nodefaultlib /out:%t.exe %t.obj > %t.log 2>&1
 # RUN: FileCheck -check-prefix=WWINMAIN %s < %t.log
 
 # MAIN:     error: <root>: undefined symbol: mainCRTStartup

@@ -57,9 +57,7 @@
 # EB-NEXT:    20022:       45 f9           jalrs16 $25
 # EB-NEXT:    20024:       0f 83           move    $gp, $3
 # EB-NEXT:    20026:       0c 00           nop
-# EB-NEXT:    20028:       00 00 00 00     nop
-# EB-NEXT:    2002c:       00 00 00 00     nop
-
+# EB-NEXT:                 ...
 # EB-NEXT:    20030:       79 00 3f f7     addiupc $2, 65500
 # EB-NEXT:    20034:       ff 22 00 00     lw      $25, 0($2)
 # EB-NEXT:    20038:       45 99           jr16    $25
@@ -76,9 +74,7 @@
 # EL-NEXT:    20022:       f9 45           jalrs16 $25
 # EL-NEXT:    20024:       83 0f           move    $gp, $3
 # EL-NEXT:    20026:       00 0c           nop
-# EL-NEXT:    20028:       00 00 00 00     nop
-# EL-NEXT:    2002c:       00 00 00 00     nop
-
+# EL-NEXT:                 ...
 # EL-NEXT:    20030:       00 79 f7 3f     addiupc $2, 65500
 # EL-NEXT:    20034:       22 ff 00 00     lw      $25, 0($2)
 # EL-NEXT:    20038:       99 45           jr16    $25
@@ -127,9 +123,7 @@
 # MIXED-NEXT:    20032:       45 f9           jalrs16 $25
 # MIXED-NEXT:    20034:       0f 83           move    $gp, $3
 # MIXED-NEXT:    20036:       0c 00           nop
-# MIXED-NEXT:    20038:       00 00 00 00     nop
-# MIXED-NEXT:    2003c:       00 00 00 00     nop
-
+# MIXED-NEXT:                 ...
 # MIXED-NEXT:    20040:       79 00 3f f3     addiupc $2, 65484
 # MIXED-NEXT:    20044:       ff 22 00 00     lw      $25, 0($2)
 # MIXED-NEXT:    20048:       45 99           jr16    $25

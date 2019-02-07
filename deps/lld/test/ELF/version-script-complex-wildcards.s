@@ -4,14 +4,14 @@
 # RUN: echo "FOO { global: extern \"C++\" { ab[c]*; }; };" > %t.script
 # RUN: ld.lld --version-script %t.script -shared %t.o -o %t.so
 # RUN: llvm-readobj -V %t.so | FileCheck %s --check-prefix=ABC
-# ABC: Name: _Z3abbi@
+# ABC: Name: _Z3abbi
 # ABC: Name: _Z3abci@@FOO
 
 # RUN: echo "FOO { global: extern \"C++\" { ab[b]*; }; };" > %t1.script
 # RUN: ld.lld --version-script %t1.script -shared %t.o -o %t1.so
 # RUN: llvm-readobj -V %t1.so | FileCheck %s --check-prefix=ABB
 # ABB: Name: _Z3abbi@@FOO
-# ABB: Name: _Z3abci@
+# ABB: Name: _Z3abci
 
 # RUN: echo "FOO { global: extern \"C++\" { ab[a-b]*; }; };" > %t2.script
 # RUN: ld.lld --version-script %t2.script -shared %t.o -o %t2.so
@@ -34,8 +34,8 @@
 # RUN: echo "FOO { global: extern \"C++\" { ab[^a-c]*; }; };" > %t6.script
 # RUN: ld.lld --version-script %t6.script -shared %t.o -o %t6.so
 # RUN: llvm-readobj -V %t6.so | FileCheck %s --check-prefix=NO
-# NO:  Name: _Z3abbi@
-# NO:  Name: _Z3abci@
+# NO:  Name: _Z3abbi
+# NO:  Name: _Z3abci
 
 # RUN: echo "FOO { global: extern \"C++\" { ab[^c-z]*; }; };" > %t7.script
 # RUN: ld.lld --version-script %t7.script -shared %t.o -o %t7.so

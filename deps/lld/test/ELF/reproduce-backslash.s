@@ -6,4 +6,4 @@
 # RUN: ld.lld %T/foo\\.o --reproduce %T/repro.tar -o /dev/null
 # RUN: tar tf %T/repro.tar | FileCheck %s
 
-# CHECK: repro/{{.*}}/foo\\.o
+# CHECK: repro/{{.*}}/foo\{{[\]?}}.o

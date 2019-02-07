@@ -1,11 +1,9 @@
 RUN: llc -filetype=obj %p/Inputs/ret32.ll -o %t.ret32.o
 RUN: not wasm-ld -o %t.wasm %t.ret32.o 2>&1 | FileCheck %s
+RUN: not wasm-ld --allow-undefined -o %t.wasm %t.ret32.o 2>&1 | FileCheck %s
 RUN: not wasm-ld -entry=foo -o %t.wasm %t.ret32.o 2>&1 | FileCheck %s -check-prefix=CHECK-CUSTOM
-RUN: not wasm-ld --allow-undefined -o %t.wasm %t.ret32.o 2>&1 | FileCheck %s -check-prefix=CHECK-ALLOW
 
-CHECK: error: undefined symbol: _start
-CHECK-CUSTOM: error: undefined symbol: foo
-CHECK-ALLOW: error: entry symbol not defined (pass --no-entry to supress):
-_start
+CHECK: error: entry symbol not defined (pass --no-entry to supress): _start
+CHECK-CUSTOM: error: entry symbol not defined (pass --no-entry to supress): foo
 
 RUN: wasm-ld --no-entry -o %t.wasm %t.ret32.o

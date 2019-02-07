@@ -26,7 +26,7 @@ public:
   void addInputSegment(InputSegment *InSeg) {
     Alignment = std::max(Alignment, InSeg->getAlignment());
     InputSegments.push_back(InSeg);
-    Size = llvm::alignTo(Size, InSeg->getAlignment());
+    Size = llvm::alignTo(Size, 1 << InSeg->getAlignment());
     InSeg->OutputSeg = this;
     InSeg->OutputSegmentOffset = Size;
     Size += InSeg->getSize();

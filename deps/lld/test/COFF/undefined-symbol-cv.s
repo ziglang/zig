@@ -2,19 +2,19 @@
 # RUN: llvm-mc -triple=x86_64-windows-msvc -filetype=obj -o %t.obj %s
 # RUN: not lld-link /out:%t.exe %t.obj 2>&1 | FileCheck %s
 
-# CHECK: error: undefined symbol: ?foo@@YAHXZ
+# CHECK: error: undefined symbol: "int __cdecl foo(void)" (?foo@@YAHXZ)
 # CHECK-NEXT: >>> referenced by file1.cpp:1
 # CHECK-NEXT: >>>               {{.*}}.obj:(main)
 # CHECK-NEXT: >>> referenced by file1.cpp:2
 # CHECK-NEXT: >>>               {{.*}}.obj:(main)
-
-# CHECK: error: undefined symbol: ?bar@@YAHXZ
+# CHECK-EMPTY:
+# CHECK-NEXT: error: undefined symbol: "int __cdecl bar(void)" (?bar@@YAHXZ)
 # CHECK-NEXT: >>> referenced by file2.cpp:3
 # CHECK-NEXT: >>>               {{.*}}.obj:(main)
 # CHECK-NEXT: >>> referenced by file1.cpp:4
 # CHECK-NEXT: >>>               {{.*}}.obj:(f1)
-
-# CHECK: error: undefined symbol: ?baz@@YAHXZ
+# CHECK-EMPTY:
+# CHECK-NEXT: error: undefined symbol: "int __cdecl baz(void)" (?baz@@YAHXZ)
 # CHECK-NEXT: >>> referenced by file1.cpp:5
 # CHECK-NEXT: >>>               {{.*}}.obj:(f2)
 

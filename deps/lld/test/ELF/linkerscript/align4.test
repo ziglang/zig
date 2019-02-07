@@ -4,7 +4,6 @@
 # RUN: llvm-objdump -t %t | FileCheck %s
 
 # CHECK-LABEL: SYMBOL TABLE:
-# CHECK-NEXT: 0000000000000000         *UND*           00000000
 # CHECK-NEXT: 0000000000014008         .text           00000000 _start
 # CHECK-NEXT: 0000000000010000         *ABS*           00000000 __code_base__
 # CHECK-NEXT: 0000000000001000         *ABS*           00000000 VAR

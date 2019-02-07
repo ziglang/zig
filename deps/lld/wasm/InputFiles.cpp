@@ -10,6 +10,7 @@
 #include "InputFiles.h"
 #include "Config.h"
 #include "InputChunks.h"
+#include "InputEvent.h"
 #include "InputGlobal.h"
 #include "SymbolTable.h"
 #include "lld/Common/ErrorHandler.h"
@@ -57,12 +58,13 @@ void ObjFile::dumpInfo() const {
   log("info for: " + getName() +
       "\n              Symbols : " + Twine(Symbols.size()) +
       "\n     Function Imports : " + Twine(WasmObj->getNumImportedFunctions()) +
-      "\n       Global Imports : " + Twine(WasmObj->getNumImportedGlobals()));
+      "\n       Global Imports : " + Twine(WasmObj->getNumImportedGlobals()) +
+      "\n        Event Imports : " + Twine(WasmObj->getNumImportedEvents()));
 }
 
 // Relocations contain either symbol or type indices.  This function takes a
 // relocation and returns relocated index (i.e. translates from the input
-// sybmol/type space to the output symbol/type space).
+// symbol/type space to the output symbol/type space).
 uint32_t ObjFile::calcNewIndex(const WasmRelocation &Reloc) const {
   if (Reloc.Type == R_WEBASSEMBLY_TYPE_INDEX_LEB) {
     assert(TypeIsUsed[Reloc.Index]);
@@ -94,16 +96,17 @@ uint32_t ObjFile::calcExpectedValue(const WasmRelocation &Reloc) const {
   switch (Reloc.Type) {
   case R_WEBASSEMBLY_TABLE_INDEX_I32:
   case R_WEBASSEMBLY_TABLE_INDEX_SLEB: {
-    const WasmSymbol& Sym = WasmObj->syms()[Reloc.Index];
+    const WasmSymbol &Sym = WasmObj->syms()[Reloc.Index];
     return TableEntries[Sym.Info.ElementIndex];
   }
   case R_WEBASSEMBLY_MEMORY_ADDR_SLEB:
   case R_WEBASSEMBLY_MEMORY_ADDR_I32:
   case R_WEBASSEMBLY_MEMORY_ADDR_LEB: {
-    const WasmSymbol& Sym = WasmObj->syms()[Reloc.Index];
+    const WasmSymbol &Sym = WasmObj->syms()[Reloc.Index];
     if (Sym.isUndefined())
       return 0;
-    const WasmSegment& Segment = WasmObj->dataSegments()[Sym.Info.DataRef.Segment];
+    const WasmSegment &Segment =
+        WasmObj->dataSegments()[Sym.Info.DataRef.Segment];
     return Segment.Data.Offset.Value.Int32 + Sym.Info.DataRef.Offset +
            Reloc.Addend;
   }
@@ -118,8 +121,9 @@ uint32_t ObjFile::calcExpectedValue(const WasmRelocation &Reloc) const {
   case R_WEBASSEMBLY_TYPE_INDEX_LEB:
     return Reloc.Index;
   case R_WEBASSEMBLY_FUNCTION_INDEX_LEB:
-  case R_WEBASSEMBLY_GLOBAL_INDEX_LEB: {
-    const WasmSymbol& Sym = WasmObj->syms()[Reloc.Index];
+  case R_WEBASSEMBLY_GLOBAL_INDEX_LEB:
+  case R_WEBASSEMBLY_EVENT_INDEX_LEB: {
+    const WasmSymbol &Sym = WasmObj->syms()[Reloc.Index];
     return Sym.Info.ElementIndex;
   }
   default:
@@ -146,16 +150,50 @@ uint32_t ObjFile::calcNewValue(const WasmRelocation &Reloc) const {
     return getFunctionSymbol(Reloc.Index)->getFunctionIndex();
   case R_WEBASSEMBLY_GLOBAL_INDEX_LEB:
     return getGlobalSymbol(Reloc.Index)->getGlobalIndex();
+  case R_WEBASSEMBLY_EVENT_INDEX_LEB:
+    return getEventSymbol(Reloc.Index)->getEventIndex();
   case R_WEBASSEMBLY_FUNCTION_OFFSET_I32:
     if (auto *Sym = dyn_cast<DefinedFunction>(getFunctionSymbol(Reloc.Index))) {
-      return Sym->Function->OutputOffset +
-             Sym->Function->getFunctionCodeOffset() + Reloc.Addend;
+      if (Sym->isLive())
+        return Sym->Function->OutputOffset +
+               Sym->Function->getFunctionCodeOffset() + Reloc.Addend;
     }
     return 0;
   case R_WEBASSEMBLY_SECTION_OFFSET_I32:
     return getSectionSymbol(Reloc.Index)->Section->OutputOffset + Reloc.Addend;
   default:
     llvm_unreachable("unknown relocation type");
+  }
+}
+
+template <class T>
+static void setRelocs(const std::vector<T *> &Chunks,
+                      const WasmSection *Section) {
+  if (!Section)
+    return;
+
+  ArrayRef<WasmRelocation> Relocs = Section->Relocations;
+  assert(std::is_sorted(Relocs.begin(), Relocs.end(),
+                        [](const WasmRelocation &R1, const WasmRelocation &R2) {
+                          return R1.Offset < R2.Offset;
+                        }));
+  assert(std::is_sorted(
+      Chunks.begin(), Chunks.end(), [](InputChunk *C1, InputChunk *C2) {
+        return C1->getInputSectionOffset() < C2->getInputSectionOffset();
+      }));
+
+  auto RelocsNext = Relocs.begin();
+  auto RelocsEnd = Relocs.end();
+  auto RelocLess = [](const WasmRelocation &R, uint32_t Val) {
+    return R.Offset < Val;
+  };
+  for (InputChunk *C : Chunks) {
+    auto RelocsStart = std::lower_bound(RelocsNext, RelocsEnd,
+                                        C->getInputSectionOffset(), RelocLess);
+    RelocsNext = std::lower_bound(
+        RelocsStart, RelocsEnd, C->getInputSectionOffset() + C->getInputSize(),
+        RelocLess);
+    C->setRelocations(ArrayRef<WasmRelocation>(RelocsStart, RelocsNext));
   }
 }
 
@@ -200,7 +238,7 @@ void ObjFile::parse() {
       DataSection = &Section;
     } else if (Section.Type == WASM_SEC_CUSTOM) {
       CustomSections.emplace_back(make<InputSection>(Section, this));
-      CustomSections.back()->copyRelocations(Section);
+      CustomSections.back()->setRelocations(Section.Relocations);
       CustomSectionsByIndex[SectionIndex] = CustomSections.back();
     }
     SectionIndex++;
@@ -215,11 +253,9 @@ void ObjFile::parse() {
     UsedComdats[I] = Symtab->addComdat(Comdats[I]);
 
   // Populate `Segments`.
-  for (const WasmSegment &S : WasmObj->dataSegments()) {
-    InputSegment *Seg = make<InputSegment>(S, this);
-    Seg->copyRelocations(*DataSection);
-    Segments.emplace_back(Seg);
-  }
+  for (const WasmSegment &S : WasmObj->dataSegments())
+    Segments.emplace_back(make<InputSegment>(S, this));
+  setRelocs(Segments, DataSection);
 
   // Populate `Functions`.
   ArrayRef<WasmFunction> Funcs = WasmObj->functions();
@@ -227,16 +263,18 @@ void ObjFile::parse() {
   ArrayRef<WasmSignature> Types = WasmObj->types();
   Functions.reserve(Funcs.size());
 
-  for (size_t I = 0, E = Funcs.size(); I != E; ++I) {
-    InputFunction *F =
-        make<InputFunction>(Types[FuncTypes[I]], &Funcs[I], this);
-    F->copyRelocations(*CodeSection);
-    Functions.emplace_back(F);
-  }
+  for (size_t I = 0, E = Funcs.size(); I != E; ++I)
+    Functions.emplace_back(
+        make<InputFunction>(Types[FuncTypes[I]], &Funcs[I], this));
+  setRelocs(Functions, CodeSection);
 
   // Populate `Globals`.
   for (const WasmGlobal &G : WasmObj->globals())
     Globals.emplace_back(make<InputGlobal>(G, this));
+
+  // Populate `Events`.
+  for (const WasmEvent &E : WasmObj->events())
+    Events.emplace_back(make<InputEvent>(Types[E.Type.SigIndex], E, this));
 
   // Populate `Symbols` based on the WasmSymbols in the object.
   Symbols.reserve(WasmObj->getNumberOfSymbols());
@@ -262,6 +300,10 @@ FunctionSymbol *ObjFile::getFunctionSymbol(uint32_t Index) const {
 
 GlobalSymbol *ObjFile::getGlobalSymbol(uint32_t Index) const {
   return cast<GlobalSymbol>(Symbols[Index]);
+}
+
+EventSymbol *ObjFile::getEventSymbol(uint32_t Index) const {
+  return cast<EventSymbol>(Symbols[Index]);
 }
 
 SectionSymbol *ObjFile::getSectionSymbol(uint32_t Index) const {
@@ -318,6 +360,13 @@ Symbol *ObjFile::createDefined(const WasmSymbol &Sym) {
     assert(Sym.isBindingLocal());
     return make<SectionSymbol>(Name, Flags, Section, this);
   }
+  case WASM_SYMBOL_TYPE_EVENT: {
+    InputEvent *Event =
+        Events[Sym.Info.ElementIndex - WasmObj->getNumImportedEvents()];
+    if (Sym.isBindingLocal())
+      return make<DefinedEvent>(Name, Flags, this, Event);
+    return Symtab->addDefinedEvent(Name, Flags, this, Event);
+  }
   }
   llvm_unreachable("unknown symbol kind");
 }
@@ -328,7 +377,7 @@ Symbol *ObjFile::createUndefined(const WasmSymbol &Sym) {
 
   switch (Sym.Info.Kind) {
   case WASM_SYMBOL_TYPE_FUNCTION:
-    return Symtab->addUndefinedFunction(Name, Flags, this, Sym.FunctionType);
+    return Symtab->addUndefinedFunction(Name, Flags, this, Sym.Signature);
   case WASM_SYMBOL_TYPE_DATA:
     return Symtab->addUndefinedData(Name, Flags, this);
   case WASM_SYMBOL_TYPE_GLOBAL:

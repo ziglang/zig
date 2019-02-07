@@ -45,7 +45,7 @@ using namespace lld::elf;
 template <class ELFT>
 static typename ELFT::uint getAddend(InputSectionBase &Sec,
                                      const typename ELFT::Rel &Rel) {
-  return Target->getImplicitAddend(Sec.Data.begin() + Rel.r_offset,
+  return Target->getImplicitAddend(Sec.data().begin() + Rel.r_offset,
                                    Rel.getType(Config->IsMips64EL));
 }
 
@@ -250,9 +250,10 @@ template <class ELFT> static void doGcSections() {
 
     if (Sec->Flags & SHF_LINK_ORDER)
       continue;
-    if (isReserved<ELFT>(Sec) || Script->shouldKeep(Sec))
+
+    if (isReserved<ELFT>(Sec) || Script->shouldKeep(Sec)) {
       Enqueue(Sec, 0);
-    else if (isValidCIdentifier(Sec->Name)) {
+    } else if (isValidCIdentifier(Sec->Name)) {
       CNamedSections[Saver.save("__start_" + Sec->Name)].push_back(Sec);
       CNamedSections[Saver.save("__stop_" + Sec->Name)].push_back(Sec);
     }
@@ -267,10 +268,16 @@ template <class ELFT> static void doGcSections() {
 // input sections. This function make some or all of them on
 // so that they are emitted to the output file.
 template <class ELFT> void elf::markLive() {
-  // If -gc-sections is missing, no sections are removed.
   if (!Config->GcSections) {
+    // If -gc-sections is missing, no sections are removed.
     for (InputSectionBase *Sec : InputSections)
       Sec->Live = true;
+
+    // If a DSO defines a symbol referenced in a regular object, it is needed.
+    for (Symbol *Sym : Symtab->getSymbols())
+      if (auto *S = dyn_cast<SharedSymbol>(Sym))
+        if (S->IsUsedInRegularObj && !S->isWeak())
+          S->getFile<ELFT>().IsNeeded = true;
     return;
   }
 

@@ -145,3 +145,9 @@ RUN: ld.lld -### foo.o -m i386pep --Map bar.map | FileCheck -check-prefix=MAP %s
 RUN: ld.lld -### foo.o -m i386pep -Map=bar.map | FileCheck -check-prefix=MAP %s
 RUN: ld.lld -### foo.o -m i386pep --Map=bar.map | FileCheck -check-prefix=MAP %s
 MAP: -lldmap:bar.map
+
+RUN: ld.lld -### foo.o -m i386pe -require-defined _foo --require-defined _bar -require-defined=_baz --require-defined=_foo2 | FileCheck -check-prefix=REQUIRE-DEFINED %s
+REQUIRE-DEFINED: -include:_foo -include:_bar -include:_baz -include:_foo2
+
+RUN: ld.lld -### -m i386pep foo.o -Llibpath | FileCheck -check-prefix LIBPATH %s
+LIBPATH: -libpath:libpath

@@ -7,7 +7,7 @@
 # RUN: ld.lld %t1 -o %t2 -r
 # RUN: llvm-readobj -sections -section-data %t2 | FileCheck %s
 
-## Check we decompress section and remove ".z" prefix specific for zlib-gnu compression.
+## Check we uncompress section and remove ".z" prefix specific for zlib-gnu compression.
 # CHECK:      Section {
 # CHECK:        Index:
 # CHECK:        Name: .debug_str

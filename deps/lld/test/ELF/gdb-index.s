@@ -25,7 +25,7 @@
 # DISASM-CHECK:   201004: 90 nop
 # DISASM-CHECK:   201005: 90 nop
 
-# DWARF:      .gnu_index contents:
+# DWARF:      .gdb_index contents:
 # DWARF-NEXT:    Version = 7
 # DWARF:       CU list offset = 0x18, has 2 entries:
 # DWARF-NEXT:    0: Offset = 0x0, Length = 0x34

@@ -1,13 +1,15 @@
 # REQUIRES: ppc
 
 # RUN: llvm-mc -filetype=obj -triple=powerpc64le-unknown-linux %s -o %t.o
-# RUN: llvm-readobj -relocations %t.o | FileCheck -check-prefix=RELOCS %s
+# RUN: llvm-readobj -relocations %t.o | FileCheck -check-prefix=RELOCS-LE %s
 # RUN: ld.lld %t.o -o %t2
 # RUN: llvm-objdump -D %t2 | FileCheck %s
+# RUN: llvm-objdump -D %t2 | FileCheck -check-prefix=CHECK-LE %s
 
 # RUN: llvm-mc -filetype=obj -triple=powerpc64-unknown-linux %s -o %t.o
 # RUN: llvm-readobj -relocations %t.o | FileCheck -check-prefix=RELOCS-BE %s
 # RUN: ld.lld %t.o -o %t2
+# RUN: llvm-objdump -D %t2 | FileCheck %s
 # RUN: llvm-objdump -D %t2 | FileCheck -check-prefix=CHECK-BE %s
 
 # Make sure we calculate the offset correctly for a toc-relative access to a
@@ -45,15 +47,15 @@ _start:
 
 # Verify the relocations that get emitted for the global variable are the
 # expected ones.
-# RELOCS:      Relocations [
-# RELOCS-NEXT:   .rela.text {
-# RELOCS:          0x8 R_PPC64_TOC16_HA global_a 0x0
-# RELOCS:          0xC R_PPC64_TOC16_LO global_a 0x0
+# RELOCS-LE:      Relocations [
+# RELOCS-LE-NEXT:   .rela.text {
+# RELOCS-LE:          0x8 R_PPC64_TOC16_HA global_a 0x0
+# RELOCS-LE:          0xC R_PPC64_TOC16_LO global_a 0x0
 
 # RELOCS-BE:      Relocations [
 # RELOCS-BE-NEXT:   .rela.text {
 # RELOCS-BE:          0xA R_PPC64_TOC16_HA global_a 0x0
-# RELOCS-NE:          0xE R_PPC64_TOC16_LO global_a 0x0
+# RELOCS-BE:          0xE R_PPC64_TOC16_LO global_a 0x0
 
 # Want to check _start for the values used to build the offset from the TOC base
 # to global_a. The .TOC. symbol is expected at address 0x10030000, and the
@@ -70,19 +72,9 @@ _start:
 # CHECK-NEXT: global_a:
 # CHECK-NEXT: 10020000:       {{.*}}
 
-# CHECK:      Disassembly of section .got:
-# CHECK-NEXT: .got:
-# CHECK-NEXT: 10030000:       00 80 03 10
-
-
-# CHECK-BE:      Disassembly of section .text:
-# CHECK-BE-NEXT: _start:
-# CHECK-BE:      10010008:       {{.*}}     addis 3, 2, -1
-# CHECK-BE-NEXT: 1001000c:       {{.*}}     addi 3, 3, -32768
-
-# CHECK-BE:      Disassembly of section .data:
-# CHECK-BE-NEXT: global_a:
-# CHECK-BE-NEXT: 10020000:       {{.*}}
+# CHECK-LE:      Disassembly of section .got:
+# CHECK-LE-NEXT: .got:
+# CHECK-LE-NEXT: 10030000:       00 80 03 10
 
 # CHECK-BE:      Disassembly of section .got:
 # CHECK-BE-NEXT: .got:

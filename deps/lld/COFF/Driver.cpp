@@ -32,6 +32,7 @@
 #include "llvm/Option/ArgList.h"
 #include "llvm/Option/Option.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/LEB128.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/Process.h"
 #include "llvm/Support/TarWriter.h"
@@ -56,7 +57,7 @@ Configuration *Config;
 LinkerDriver *Driver;
 
 bool link(ArrayRef<const char *> Args, bool CanExitEarly, raw_ostream &Diag) {
-  errorHandler().LogName = sys::path::filename(Args[0]);
+  errorHandler().LogName = args::getFilenameWithoutExe(Args[0]);
   errorHandler().ErrorOS = &Diag;
   errorHandler().ColorDiagnostics = Diag.has_colors();
   errorHandler().ErrorLimitExceededMsg =
@@ -370,13 +371,30 @@ Optional<StringRef> LinkerDriver::findFile(StringRef Filename) {
   return Path;
 }
 
+// MinGW specific. If an embedded directive specified to link to
+// foo.lib, but it isn't found, try libfoo.a instead.
+StringRef LinkerDriver::doFindLibMinGW(StringRef Filename) {
+  if (Filename.contains('/') || Filename.contains('\\'))
+    return Filename;
+
+  SmallString<128> S = Filename;
+  sys::path::replace_extension(S, ".a");
+  StringRef LibName = Saver.save("lib" + S.str());
+  return doFindFile(LibName);
+}
+
 // Find library file from search path.
 StringRef LinkerDriver::doFindLib(StringRef Filename) {
   // Add ".lib" to Filename if that has no file extension.
   bool HasExt = Filename.contains('.');
   if (!HasExt)
     Filename = Saver.save(Filename + ".lib");
-  return doFindFile(Filename);
+  StringRef Ret = doFindFile(Filename);
+  // For MinGW, if the find above didn't turn up anything, try
+  // looking for a MinGW formatted library name.
+  if (Config->MinGW && Ret == Filename)
+    return doFindLibMinGW(Filename);
+  return Ret;
 }
 
 // Resolves a library path. /nodefaultlib options are taken into
@@ -429,29 +447,48 @@ StringRef LinkerDriver::findDefaultEntry() {
   assert(Config->Subsystem != IMAGE_SUBSYSTEM_UNKNOWN &&
          "must handle /subsystem before calling this");
 
-  // As a special case, if /nodefaultlib is given, we directly look for an
-  // entry point. This is because, if no default library is linked, users
-  // need to define an entry point instead of a "main".
-  bool FindMain = !Config->NoDefaultLibAll;
+  if (Config->MinGW)
+    return mangle(Config->Subsystem == IMAGE_SUBSYSTEM_WINDOWS_GUI
+                      ? "WinMainCRTStartup"
+                      : "mainCRTStartup");
+
   if (Config->Subsystem == IMAGE_SUBSYSTEM_WINDOWS_GUI) {
-    if (findUnderscoreMangle(FindMain ? "WinMain" : "WinMainCRTStartup"))
-      return mangle("WinMainCRTStartup");
-    if (findUnderscoreMangle(FindMain ? "wWinMain" : "wWinMainCRTStartup"))
-      return mangle("wWinMainCRTStartup");
+    if (findUnderscoreMangle("wWinMain")) {
+      if (!findUnderscoreMangle("WinMain"))
+        return mangle("wWinMainCRTStartup");
+      warn("found both wWinMain and WinMain; using latter");
+    }
+    return mangle("WinMainCRTStartup");
   }
-  if (findUnderscoreMangle(FindMain ? "main" : "mainCRTStartup"))
-    return mangle("mainCRTStartup");
-  if (findUnderscoreMangle(FindMain ? "wmain" : "wmainCRTStartup"))
-    return mangle("wmainCRTStartup");
-  return "";
+  if (findUnderscoreMangle("wmain")) {
+    if (!findUnderscoreMangle("main"))
+      return mangle("wmainCRTStartup");
+    warn("found both wmain and main; using latter");
+  }
+  return mangle("mainCRTStartup");
 }
 
 WindowsSubsystem LinkerDriver::inferSubsystem() {
   if (Config->DLL)
     return IMAGE_SUBSYSTEM_WINDOWS_GUI;
-  if (findUnderscoreMangle("main") || findUnderscoreMangle("wmain"))
+  if (Config->MinGW)
     return IMAGE_SUBSYSTEM_WINDOWS_CUI;
-  if (findUnderscoreMangle("WinMain") || findUnderscoreMangle("wWinMain"))
+  // Note that link.exe infers the subsystem from the presence of these
+  // functions even if /entry: or /nodefaultlib are passed which causes them
+  // to not be called.
+  bool HaveMain = findUnderscoreMangle("main");
+  bool HaveWMain = findUnderscoreMangle("wmain");
+  bool HaveWinMain = findUnderscoreMangle("WinMain");
+  bool HaveWWinMain = findUnderscoreMangle("wWinMain");
+  if (HaveMain || HaveWMain) {
+    if (HaveWinMain || HaveWWinMain) {
+      warn(std::string("found ") + (HaveMain ? "main" : "wmain") + " and " +
+           (HaveWinMain ? "WinMain" : "wWinMain") +
+           "; defaulting to /subsystem:console");
+    }
+    return IMAGE_SUBSYSTEM_WINDOWS_CUI;
+  }
+  if (HaveWinMain || HaveWWinMain)
     return IMAGE_SUBSYSTEM_WINDOWS_GUI;
   return IMAGE_SUBSYSTEM_UNKNOWN;
 }
@@ -497,26 +534,65 @@ static std::string createResponseFile(const opt::InputArgList &Args,
   return Data.str();
 }
 
-static unsigned getDefaultDebugType(const opt::InputArgList &Args) {
-  unsigned DebugTypes = static_cast<unsigned>(DebugType::CV);
+enum class DebugKind { Unknown, None, Full, FastLink, GHash, Dwarf, Symtab };
+
+static DebugKind parseDebugKind(const opt::InputArgList &Args) {
+  auto *A = Args.getLastArg(OPT_debug, OPT_debug_opt);
+  if (!A)
+    return DebugKind::None;
+  if (A->getNumValues() == 0)
+    return DebugKind::Full;
+
+  DebugKind Debug = StringSwitch<DebugKind>(A->getValue())
+                     .CaseLower("none", DebugKind::None)
+                     .CaseLower("full", DebugKind::Full)
+                     .CaseLower("fastlink", DebugKind::FastLink)
+                     // LLD extensions
+                     .CaseLower("ghash", DebugKind::GHash)
+                     .CaseLower("dwarf", DebugKind::Dwarf)
+                     .CaseLower("symtab", DebugKind::Symtab)
+                     .Default(DebugKind::Unknown);
+
+  if (Debug == DebugKind::FastLink) {
+    warn("/debug:fastlink unsupported; using /debug:full");
+    return DebugKind::Full;
+  }
+  if (Debug == DebugKind::Unknown) {
+    error("/debug: unknown option: " + Twine(A->getValue()));
+    return DebugKind::None;
+  }
+  return Debug;
+}
+
+static unsigned parseDebugTypes(const opt::InputArgList &Args) {
+  unsigned DebugTypes = static_cast<unsigned>(DebugType::None);
+
+  if (auto *A = Args.getLastArg(OPT_debugtype)) {
+    SmallVector<StringRef, 3> Types;
+    A->getSpelling().split(Types, ',', /*KeepEmpty=*/false);
+
+    for (StringRef Type : Types) {
+      unsigned V = StringSwitch<unsigned>(Type.lower())
+                       .Case("cv", static_cast<unsigned>(DebugType::CV))
+                       .Case("pdata", static_cast<unsigned>(DebugType::PData))
+                       .Case("fixup", static_cast<unsigned>(DebugType::Fixup))
+                       .Default(0);
+      if (V == 0) {
+        warn("/debugtype: unknown option: " + Twine(A->getValue()));
+        continue;
+      }
+      DebugTypes |= V;
+    }
+    return DebugTypes;
+  }
+
+  // Default debug types
+  DebugTypes = static_cast<unsigned>(DebugType::CV);
   if (Args.hasArg(OPT_driver))
     DebugTypes |= static_cast<unsigned>(DebugType::PData);
   if (Args.hasArg(OPT_profile))
     DebugTypes |= static_cast<unsigned>(DebugType::Fixup);
-  return DebugTypes;
-}
 
-static unsigned parseDebugType(StringRef Arg) {
-  SmallVector<StringRef, 3> Types;
-  Arg.split(Types, ',', /*KeepEmpty=*/false);
-
-  unsigned DebugTypes = static_cast<unsigned>(DebugType::None);
-  for (StringRef Type : Types)
-    DebugTypes |= StringSwitch<unsigned>(Type.lower())
-                      .Case("cv", static_cast<unsigned>(DebugType::CV))
-                      .Case("pdata", static_cast<unsigned>(DebugType::PData))
-                      .Case("fixup", static_cast<unsigned>(DebugType::Fixup))
-                      .Default(0);
   return DebugTypes;
 }
 
@@ -676,131 +752,6 @@ static void parseModuleDefs(StringRef Path) {
   }
 }
 
-// A helper function for filterBitcodeFiles.
-static bool needsRebuilding(MemoryBufferRef MB) {
-  // The MSVC linker doesn't support thin archives, so if it's a thin
-  // archive, we always need to rebuild it.
-  std::unique_ptr<Archive> File =
-      CHECK(Archive::create(MB), "Failed to read " + MB.getBufferIdentifier());
-  if (File->isThin())
-    return true;
-
-  // Returns true if the archive contains at least one bitcode file.
-  for (MemoryBufferRef Member : getArchiveMembers(File.get()))
-    if (identify_magic(Member.getBuffer()) == file_magic::bitcode)
-      return true;
-  return false;
-}
-
-// Opens a given path as an archive file and removes bitcode files
-// from them if exists. This function is to appease the MSVC linker as
-// their linker doesn't like archive files containing non-native
-// object files.
-//
-// If a given archive doesn't contain bitcode files, the archive path
-// is returned as-is. Otherwise, a new temporary file is created and
-// its path is returned.
-static Optional<std::string>
-filterBitcodeFiles(StringRef Path, std::vector<std::string> &TemporaryFiles) {
-  std::unique_ptr<MemoryBuffer> MB = CHECK(
-      MemoryBuffer::getFile(Path, -1, false, true), "could not open " + Path);
-  MemoryBufferRef MBRef = MB->getMemBufferRef();
-  file_magic Magic = identify_magic(MBRef.getBuffer());
-
-  if (Magic == file_magic::bitcode)
-    return None;
-  if (Magic != file_magic::archive)
-    return Path.str();
-  if (!needsRebuilding(MBRef))
-    return Path.str();
-
-  std::unique_ptr<Archive> File =
-      CHECK(Archive::create(MBRef),
-            MBRef.getBufferIdentifier() + ": failed to parse archive");
-
-  std::vector<NewArchiveMember> New;
-  for (MemoryBufferRef Member : getArchiveMembers(File.get()))
-    if (identify_magic(Member.getBuffer()) != file_magic::bitcode)
-      New.emplace_back(Member);
-
-  if (New.empty())
-    return None;
-
-  log("Creating a temporary archive for " + Path + " to remove bitcode files");
-
-  SmallString<128> S;
-  if (std::error_code EC = sys::fs::createTemporaryFile(
-          "lld-" + sys::path::stem(Path), ".lib", S))
-    fatal("cannot create a temporary file: " + EC.message());
-  std::string Temp = S.str();
-  TemporaryFiles.push_back(Temp);
-
-  Error E =
-      llvm::writeArchive(Temp, New, /*WriteSymtab=*/true, Archive::Kind::K_GNU,
-                         /*Deterministics=*/true,
-                         /*Thin=*/false);
-  handleAllErrors(std::move(E), [&](const ErrorInfoBase &EI) {
-    error("failed to create a new archive " + S.str() + ": " + EI.message());
-  });
-  return Temp;
-}
-
-// Create response file contents and invoke the MSVC linker.
-void LinkerDriver::invokeMSVC(opt::InputArgList &Args) {
-  std::string Rsp = "/nologo\n";
-  std::vector<std::string> Temps;
-
-  // Write out archive members that we used in symbol resolution and pass these
-  // to MSVC before any archives, so that MSVC uses the same objects to satisfy
-  // references.
-  for (ObjFile *Obj : ObjFile::Instances) {
-    if (Obj->ParentName.empty())
-      continue;
-    SmallString<128> S;
-    int Fd;
-    if (auto EC = sys::fs::createTemporaryFile(
-            "lld-" + sys::path::filename(Obj->ParentName), ".obj", Fd, S))
-      fatal("cannot create a temporary file: " + EC.message());
-    raw_fd_ostream OS(Fd, /*shouldClose*/ true);
-    OS << Obj->MB.getBuffer();
-    Temps.push_back(S.str());
-    Rsp += quote(S) + "\n";
-  }
-
-  for (auto *Arg : Args) {
-    switch (Arg->getOption().getID()) {
-    case OPT_linkrepro:
-    case OPT_lldmap:
-    case OPT_lldmap_file:
-    case OPT_lldsavetemps:
-    case OPT_msvclto:
-      // LLD-specific options are stripped.
-      break;
-    case OPT_opt:
-      if (!StringRef(Arg->getValue()).startswith("lld"))
-        Rsp += toString(*Arg) + " ";
-      break;
-    case OPT_INPUT: {
-      if (Optional<StringRef> Path = doFindFile(Arg->getValue())) {
-        if (Optional<std::string> S = filterBitcodeFiles(*Path, Temps))
-          Rsp += quote(*S) + "\n";
-        continue;
-      }
-      Rsp += quote(Arg->getValue()) + "\n";
-      break;
-    }
-    default:
-      Rsp += toString(*Arg) + "\n";
-    }
-  }
-
-  std::vector<StringRef> ObjFiles = Symtab->compileBitcodeFiles();
-  runMSVCLinker(Rsp, ObjFiles);
-
-  for (StringRef Path : Temps)
-    sys::fs::remove(Path);
-}
-
 void LinkerDriver::enqueueTask(std::function<void()> Task) {
   TaskQueue.push_back(std::move(Task));
 }
@@ -854,6 +805,97 @@ static void parseOrderFile(StringRef Arg) {
     else
       Config->Order[S] = INT_MIN + Config->Order.size();
   }
+}
+
+static void markAddrsig(Symbol *S) {
+  if (auto *D = dyn_cast_or_null<Defined>(S))
+    if (Chunk *C = D->getChunk())
+      C->KeepUnique = true;
+}
+
+static void findKeepUniqueSections() {
+  // Exported symbols could be address-significant in other executables or DSOs,
+  // so we conservatively mark them as address-significant.
+  for (Export &R : Config->Exports)
+    markAddrsig(R.Sym);
+
+  // Visit the address-significance table in each object file and mark each
+  // referenced symbol as address-significant.
+  for (ObjFile *Obj : ObjFile::Instances) {
+    ArrayRef<Symbol *> Syms = Obj->getSymbols();
+    if (Obj->AddrsigSec) {
+      ArrayRef<uint8_t> Contents;
+      Obj->getCOFFObj()->getSectionContents(Obj->AddrsigSec, Contents);
+      const uint8_t *Cur = Contents.begin();
+      while (Cur != Contents.end()) {
+        unsigned Size;
+        const char *Err;
+        uint64_t SymIndex = decodeULEB128(Cur, &Size, Contents.end(), &Err);
+        if (Err)
+          fatal(toString(Obj) + ": could not decode addrsig section: " + Err);
+        if (SymIndex >= Syms.size())
+          fatal(toString(Obj) + ": invalid symbol index in addrsig section");
+        markAddrsig(Syms[SymIndex]);
+        Cur += Size;
+      }
+    } else {
+      // If an object file does not have an address-significance table,
+      // conservatively mark all of its symbols as address-significant.
+      for (Symbol *S : Syms)
+        markAddrsig(S);
+    }
+  }
+}
+
+// link.exe replaces each %foo% in AltPath with the contents of environment
+// variable foo, and adds the two magic env vars _PDB (expands to the basename
+// of pdb's output path) and _EXT (expands to the extension of the output
+// binary).
+// lld only supports %_PDB% and %_EXT% and warns on references to all other env
+// vars.
+static void parsePDBAltPath(StringRef AltPath) {
+  SmallString<128> Buf;
+  StringRef PDBBasename =
+      sys::path::filename(Config->PDBPath, sys::path::Style::windows);
+  StringRef BinaryExtension =
+      sys::path::extension(Config->OutputFile, sys::path::Style::windows);
+  if (!BinaryExtension.empty())
+    BinaryExtension = BinaryExtension.substr(1); // %_EXT% does not include '.'.
+
+  // Invariant:
+  //   +--------- Cursor ('a...' might be the empty string).
+  //   |   +----- FirstMark
+  //   |   |   +- SecondMark
+  //   v   v   v
+  //   a...%...%...
+  size_t Cursor = 0;
+  while (Cursor < AltPath.size()) {
+    size_t FirstMark, SecondMark;
+    if ((FirstMark = AltPath.find('%', Cursor)) == StringRef::npos ||
+        (SecondMark = AltPath.find('%', FirstMark + 1)) == StringRef::npos) {
+      // Didn't find another full fragment, treat rest of string as literal.
+      Buf.append(AltPath.substr(Cursor));
+      break;
+    }
+
+    // Found a full fragment. Append text in front of first %, and interpret
+    // text between first and second % as variable name.
+    Buf.append(AltPath.substr(Cursor, FirstMark - Cursor));
+    StringRef Var = AltPath.substr(FirstMark, SecondMark - FirstMark + 1);
+    if (Var.equals_lower("%_pdb%"))
+      Buf.append(PDBBasename);
+    else if (Var.equals_lower("%_ext%"))
+      Buf.append(BinaryExtension);
+    else {
+      warn("only %_PDB% and %_EXT% supported in /pdbaltpath:, keeping " +
+           Var + " as literal");
+      Buf.append(Var);
+    }
+
+    Cursor = SecondMark + 1;
+  }
+
+  Config->PDBAltPath = Buf;
 }
 
 void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
@@ -944,11 +986,17 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
 
   // Handle /ignore
   for (auto *Arg : Args.filtered(OPT_ignore)) {
-    if (StringRef(Arg->getValue()) == "4037")
-      Config->WarnMissingOrderSymbol = false;
-    else if (StringRef(Arg->getValue()) == "4217")
-      Config->WarnLocallyDefinedImported = false;
-    // Other warning numbers are ignored.
+    SmallVector<StringRef, 8> Vec;
+    StringRef(Arg->getValue()).split(Vec, ',');
+    for (StringRef S : Vec) {
+      if (S == "4037")
+        Config->WarnMissingOrderSymbol = false;
+      else if (S == "4099")
+        Config->WarnDebugInfoUnusable = false;
+      else if (S == "4217")
+        Config->WarnLocallyDefinedImported = false;
+      // Other warning numbers are ignored.
+    }
   }
 
   // Handle /out
@@ -962,20 +1010,26 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
 
   // Handle /force or /force:unresolved
   if (Args.hasArg(OPT_force, OPT_force_unresolved))
-    Config->Force = true;
+    Config->ForceUnresolved = true;
+
+  // Handle /force or /force:multiple
+  if (Args.hasArg(OPT_force, OPT_force_multiple))
+    Config->ForceMultiple = true;
 
   // Handle /debug
-  if (Args.hasArg(OPT_debug, OPT_debug_dwarf, OPT_debug_ghash)) {
+  DebugKind Debug = parseDebugKind(Args);
+  if (Debug == DebugKind::Full || Debug == DebugKind::Dwarf ||
+      Debug == DebugKind::GHash) {
     Config->Debug = true;
     Config->Incremental = true;
-    if (auto *Arg = Args.getLastArg(OPT_debugtype))
-      Config->DebugTypes = parseDebugType(Arg->getValue());
-    else
-      Config->DebugTypes = getDefaultDebugType(Args);
   }
 
+  // Handle /debugtype
+  Config->DebugTypes = parseDebugTypes(Args);
+
   // Handle /pdb
-  bool ShouldCreatePDB = Args.hasArg(OPT_debug, OPT_debug_ghash);
+  bool ShouldCreatePDB =
+      (Debug == DebugKind::Full || Debug == DebugKind::GHash);
   if (ShouldCreatePDB) {
     if (auto *Arg = Args.getLastArg(OPT_pdb))
       Config->PDBPath = Arg->getValue();
@@ -1096,7 +1150,7 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
     Config->Implib = Arg->getValue();
 
   // Handle /opt.
-  bool DoGC = !Args.hasArg(OPT_debug) || Args.hasArg(OPT_profile);
+  bool DoGC = Debug == DebugKind::None || Args.hasArg(OPT_profile);
   unsigned ICFLevel =
       Args.hasArg(OPT_profile) ? 0 : 1; // 0: off, 1: limited, 2: on
   unsigned TailMerge = 1;
@@ -1181,6 +1235,12 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
   parseMerge(".xdata=.rdata");
   parseMerge(".bss=.data");
 
+  if (Config->MinGW) {
+    parseMerge(".ctors=.rdata");
+    parseMerge(".dtors=.rdata");
+    parseMerge(".CRT=.rdata");
+  }
+
   // Handle /section
   for (auto *Arg : Args.filtered(OPT_section))
     parseSection(Arg->getValue());
@@ -1234,9 +1294,9 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
   Config->NxCompat = Args.hasFlag(OPT_nxcompat, OPT_nxcompat_no, true);
   Config->TerminalServerAware =
       !Config->DLL && Args.hasFlag(OPT_tsaware, OPT_tsaware_no, true);
-  Config->DebugDwarf = Args.hasArg(OPT_debug_dwarf);
-  Config->DebugGHashes = Args.hasArg(OPT_debug_ghash);
-  Config->DebugSymtab = Args.hasArg(OPT_debug_symtab);
+  Config->DebugDwarf = Debug == DebugKind::Dwarf;
+  Config->DebugGHashes = Debug == DebugKind::GHash;
+  Config->DebugSymtab = Debug == DebugKind::Symtab;
 
   Config->MapFile = getMapFile(Args);
 
@@ -1266,10 +1326,14 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
     return;
 
   std::set<sys::fs::UniqueID> WholeArchives;
-  for (auto *Arg : Args.filtered(OPT_wholearchive_file))
-    if (Optional<StringRef> Path = doFindFile(Arg->getValue()))
+  AutoExporter Exporter;
+  for (auto *Arg : Args.filtered(OPT_wholearchive_file)) {
+    if (Optional<StringRef> Path = doFindFile(Arg->getValue())) {
       if (Optional<sys::fs::UniqueID> ID = getUniqueID(*Path))
         WholeArchives.insert(*ID);
+      Exporter.addWholeArchive(*Path);
+    }
+  }
 
   // A predicate returning true if a given path is an argument for
   // /wholearchive:, or /wholearchive is enabled globally.
@@ -1300,12 +1364,16 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
   // Read all input files given via the command line.
   run();
 
+  if (errorCount())
+    return;
+
   // We should have inferred a machine type by now from the input files, but if
   // not we assume x64.
   if (Config->Machine == IMAGE_FILE_MACHINE_UNKNOWN) {
     warn("/machine is not specified. x64 is assumed");
     Config->Machine = AMD64;
   }
+  Config->Wordsize = Config->is64() ? 8 : 4;
 
   // Input files can be Windows resource files (.res files). We use
   // WindowsResource to convert resource files to a regular COFF file,
@@ -1418,6 +1486,9 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
       // tools won't work correctly if these assumptions are not held.
       sys::fs::make_absolute(Config->PDBAltPath);
       sys::path::remove_dots(Config->PDBAltPath);
+    } else {
+      // Don't do this earlier, so that Config->OutputFile is ready.
+      parsePDBAltPath(Config->PDBAltPath);
     }
   }
 
@@ -1440,6 +1511,13 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
   Symtab->addAbsolute(mangle("__guard_longjmp_table"), 0);
   // Needed for MSVC 2017 15.5 CRT.
   Symtab->addAbsolute(mangle("__enclave_config"), 0);
+
+  if (Config->MinGW) {
+    Symtab->addAbsolute(mangle("__RUNTIME_PSEUDO_RELOC_LIST__"), 0);
+    Symtab->addAbsolute(mangle("__RUNTIME_PSEUDO_RELOC_LIST_END__"), 0);
+    Symtab->addAbsolute(mangle("__CTOR_LIST__"), 0);
+    Symtab->addAbsolute(mangle("__DTOR_LIST__"), 0);
+  }
 
   // This code may add new undefined symbols to the link, which may enqueue more
   // symbol resolution tasks, so we need to continue executing tasks until we
@@ -1480,17 +1558,28 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
   if (errorCount())
     return;
 
-  // If /msvclto is given, we use the MSVC linker to link LTO output files.
-  // This is useful because MSVC link.exe can generate complete PDBs.
-  if (Args.hasArg(OPT_msvclto)) {
-    invokeMSVC(Args);
-    return;
-  }
-
   // Do LTO by compiling bitcode input files to a set of native COFF files then
   // link those files.
   Symtab->addCombinedLTOObjects();
   run();
+
+  if (Config->MinGW) {
+    // Load any further object files that might be needed for doing automatic
+    // imports.
+    //
+    // For cases with no automatically imported symbols, this iterates once
+    // over the symbol table and doesn't do anything.
+    //
+    // For the normal case with a few automatically imported symbols, this
+    // should only need to be run once, since each new object file imported
+    // is an import library and wouldn't add any new undefined references,
+    // but there's nothing stopping the __imp_ symbols from coming from a
+    // normal object file as well (although that won't be used for the
+    // actual autoimport later on). If this pass adds new undefined references,
+    // we won't iterate further to resolve them.
+    Symtab->loadMinGWAutomaticImports();
+    run();
+  }
 
   // Make sure we have resolved all symbols.
   Symtab->reportRemainingUndefines();
@@ -1510,7 +1599,7 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
   // are chosen to be exported.
   if (Config->DLL && ((Config->MinGW && Config->Exports.empty()) ||
                       Args.hasArg(OPT_export_all_symbols))) {
-    AutoExporter Exporter;
+    Exporter.initSymbolExcludes();
 
     Symtab->forEachSymbol([=](Symbol *S) {
       auto *Def = dyn_cast<Defined>(S);
@@ -1574,8 +1663,10 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
     markLive(Symtab->getChunks());
 
   // Identify identical COMDAT sections to merge them.
-  if (Config->DoICF)
+  if (Config->DoICF) {
+    findKeepUniqueSections();
     doICF(Symtab->getChunks());
+  }
 
   // Write the result.
   writeResult();

@@ -8,7 +8,7 @@
 
 # CHECK:  Version symbols {
 # CHECK:   Symbols [
-# CHECK:    Name: _Z3bari@
+# CHECK:    Name: _Z3bari
 # CHECK:    Name: _Z3fooi@@FOO
 # CHECK:    Name: _Z3zedi@@BAR
 

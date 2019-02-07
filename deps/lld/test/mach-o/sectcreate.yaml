@@ -8,5 +8,5 @@
 # CHECK:     type:            sectcreate
 # CHECK:     content:         [ 68, 65, 6C, 6C, 6F, 0A ]
 # CHECK:     section-choice:  custom-required
-# CHECK:     section-name:    __DATA/__data
+# CHECK:     section-name:    '__DATA/__data'
 # CHECK:     dead-strip:      never

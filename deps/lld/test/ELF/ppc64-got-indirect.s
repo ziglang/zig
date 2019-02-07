@@ -83,8 +83,8 @@ glob:
 # CHECK: _start:
 # CHECK-NEXT: 10010000:  {{.*}}   addis 2, 12, 3
 # CHECK-NEXT: 10010004:  {{.*}}   addi 2, 2, -32768
-# CHECK-NEXT: 10010008:  {{.*}}   addis 3, 2, 0
-# CHECK-NEXT: 1001000c:  {{.*}}   ld 3, -32760(3)
+# CHECK-NEXT: 10010008:  {{.*}}   nop
+# CHECK-NEXT: 1001000c:  {{.*}}   ld 3, -32760(2)
 # CHECK: 1001001c:  {{.*}}   lwa 3, 0(3)
 
 # CHECK-LE: Disassembly of section .data:

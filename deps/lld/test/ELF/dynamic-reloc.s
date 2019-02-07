@@ -18,7 +18,7 @@
 // CHECK-NEXT: Offset:
 // CHECK-NEXT: Size: [[RELASIZE:.*]]
 // CHECK-NEXT: Link: 1
-// CHECK-NEXT: Info: 0
+// CHECK-NEXT: Info: 7
 // CHECK-NEXT: AddressAlignment: 8
 // CHECK-NEXT: EntrySize: 24
 

@@ -40,6 +40,9 @@ def strip_debug: F<"strip-debug">,
 def whole_archive: F<"whole-archive">,
     HelpText<"Include all object files for following archives">;
 def verbose: F<"verbose">, HelpText<"Verbose mode">;
+def require_defined: S<"require-defined">,
+    HelpText<"Force symbol to be added to symbol table as an undefined one">;
+def require_defined_eq: J<"require-defined=">, Alias<require_defined>;
 
 // LLD specific options
 def _HASH_HASH_HASH : Flag<["-"], "###">,
@@ -75,3 +78,9 @@ def version: F<"version">, HelpText<"Display the version number and exit">;
 def alias_entry_e: JoinedOrSeparate<["-"], "e">, Alias<entry>;
 def alias_strip_s: Flag<["-"], "s">, Alias<strip_all>;
 def alias_strip_S: Flag<["-"], "S">, Alias<strip_debug>;
+
+// Ignored options
+def: S<"plugin">;
+def: J<"plugin=">;
+def: S<"plugin-opt">;
+def: J<"plugin-opt=">;

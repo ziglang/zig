@@ -1,0 +1,16 @@
+Tests /ignore with more than one argument.
+
+RUN: yaml2obj %S/ignore4217.yaml > %t1.obj
+RUN: yaml2obj %S/Inputs/pdb-type-server-missing-2.yaml > %t2.obj
+RUN: echo foo > %t3.order
+
+RUN: lld-link /entry:main /out:%t.exe %t1.obj %t2.obj /order:@%t3.order /debug 2>&1 | FileCheck -check-prefix=WARNINGS %s
+RUN: lld-link /entry:main /out:%t.exe %t1.obj %t2.obj /order:@%t3.order /debug /ignore:4217,4099,4037 2>&1 | FileCheck -allow-empty -check-prefix=SUPPRESSED %s
+
+WARNINGS: locally defined symbol imported
+WARNINGS: missing symbol: foo
+WARNINGS: warning: Cannot use debug info for
+
+SUPPRESSED-NOT: locally defined symbol imported
+SUPPRESSED-NOT: missing symbol: foo
+SUPPRESSED-NOT: warning: Cannot use debug info for

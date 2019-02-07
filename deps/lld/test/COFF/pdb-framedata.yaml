@@ -1,0 +1,462 @@
+# // Compile with clang-cl -m32 /Z7 /GS- /c t.obj pdb-framedata.cpp
+#
+# int func(int x, int y) {
+#  return x + y;
+# }
+#
+# int main(int argc, char **argv) {
+#   return func(argc, argc+1);
+# }
+
+# RUN: yaml2obj %s -o %t.obj
+# RUN: lld-link %t.obj -debug -entry:main -nodefaultlib -debug -out:%t.exe -pdb:%t.pdb
+# RUN: llvm-pdbutil dump -fpo %t.pdb | FileCheck %s
+
+# CHECK:                         New FPO Data
+# CHECK-NEXT: ============================================================
+# CHECK-NEXT:   RVA    | Code | Locals | Params | Stack | Prolog | Saved Regs | Has SEH | Has C++EH | Start | Program
+# CHECK-NEXT: 00001000 |   31 |      0 |      8 |     0 |      6 |          0 |   false |     false | false | $T0 .raSearch = $eip $T0 ^ = $esp $T0 4 + =
+# CHECK-NEXT: 00001001 |   30 |      0 |      8 |     0 |      5 |          4 |   false |     false | false | $T0 .raSearch = $eip $T0 ^ = $esp $T0 4 + = $ebp $T0 4 - ^ =
+# CHECK-NEXT: 00001003 |   28 |      0 |      8 |     0 |      3 |          4 |   false |     false | false | $T0 $ebp 4 + = $eip $T0 ^ = $esp $T0 4 + = $ebp $T0 4 - ^ =
+# CHECK-NEXT: 00001020 |   53 |      0 |      8 |     0 |      7 |          0 |   false |     false | false | $T0 .raSearch = $eip $T0 ^ = $esp $T0 4 + =
+# CHECK-NEXT: 00001021 |   52 |      0 |      8 |     0 |      6 |          4 |   false |     false | false | $T0 .raSearch = $eip $T0 ^ = $esp $T0 4 + = $ebp $T0 4 - ^ =
+# CHECK-NEXT: 00001023 |   50 |      0 |      8 |     0 |      4 |          4 |   false |     false | false | $T0 $ebp 4 + = $eip $T0 ^ = $esp $T0 4 + = $ebp $T0 4 - ^ =
+# CHECK-NEXT: 00001024 |   49 |      0 |      8 |     0 |      3 |          8 |   false |     false | false | $T0 $ebp 4 + = $eip $T0 ^ = $esp $T0 4 + = $ebp $T0 4 - ^ = $esi $T0 8 - ^ =
+
+
+--- !COFF
+header:
+  Machine:         IMAGE_FILE_MACHINE_I386
+  Characteristics: [  ]
+sections:
+  - Name:            .text
+    Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
+    Alignment:       16
+    SectionData:     5589E583EC088B450C8B4D088B550803550C8945FC89D0894DF883C4085DC3905589E55683EC148B450C8B4D08C745F8000000008B550883C2018B7508893424895424048945F4894DF0E80000000083C4145E5DC3
+    Relocations:
+      - VirtualAddress:  75
+        SymbolName:      '?func@@YAHHH@Z'
+        Type:            IMAGE_REL_I386_REL32
+  - Name:            .data
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE ]
+    Alignment:       4
+    SectionData:     ''
+  - Name:            .bss
+    Characteristics: [ IMAGE_SCN_CNT_UNINITIALIZED_DATA, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE ]
+    Alignment:       4
+    SectionData:     ''
+  - Name:            .drectve
+    Characteristics: [ IMAGE_SCN_LNK_INFO, IMAGE_SCN_LNK_REMOVE ]
+    Alignment:       1
+    SectionData:     202F44454641554C544C49423A6C6962636D742E6C6962202F44454641554C544C49423A6F6C646E616D65732E6C6962
+  - Name:            '.debug$S'
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
+    Alignment:       4
+    Subsections:
+      - !Symbols
+        Records:
+          - Kind:            S_COMPILE3
+            Compile3Sym:
+              Flags:           [  ]
+              Machine:         Pentium3
+              FrontendMajor:   8
+              FrontendMinor:   0
+              FrontendBuild:   0
+              FrontendQFE:     0
+              BackendMajor:    8000
+              BackendMinor:    0
+              BackendBuild:    0
+              BackendQFE:      0
+              Version:         'clang version 8.0.0 '
+      - !FrameData
+        Frames:
+          - CodeSize:        31
+            FrameFunc:       '$T0 .raSearch = $eip $T0 ^ = $esp $T0 4 + = '
+            LocalSize:       0
+            MaxStackSize:    0
+            ParamsSize:      8
+            PrologSize:      6
+            RvaStart:        0
+            SavedRegsSize:   0
+          - CodeSize:        30
+            FrameFunc:       '$T0 .raSearch = $eip $T0 ^ = $esp $T0 4 + = $ebp $T0 4 - ^ = '
+            LocalSize:       0
+            MaxStackSize:    0
+            ParamsSize:      8
+            PrologSize:      5
+            RvaStart:        1
+            SavedRegsSize:   4
+          - CodeSize:        28
+            FrameFunc:       '$T0 $ebp 4 + = $eip $T0 ^ = $esp $T0 4 + = $ebp $T0 4 - ^ = '
+            LocalSize:       0
+            MaxStackSize:    0
+            ParamsSize:      8
+            PrologSize:      3
+            RvaStart:        3
+            SavedRegsSize:   4
+      - !Symbols
+        Records:
+          - Kind:            S_GPROC32_ID
+            ProcSym:
+              CodeSize:        31
+              DbgStart:        0
+              DbgEnd:          0
+              FunctionType:    4098
+              Flags:           [  ]
+              DisplayName:     func
+          - Kind:            S_LOCAL
+            LocalSym:
+              Type:            116
+              Flags:           [ IsParameter ]
+              VarName:         x
+          - Kind:            S_DEFRANGE_REGISTER_REL
+            DefRangeRegisterRelSym:
+              Register:        22
+              Flags:           0
+              BasePointerOffset: 8
+              Range:
+                OffsetStart:     12
+                ISectStart:      0
+                Range:           19
+              Gaps:
+          - Kind:            S_LOCAL
+            LocalSym:
+              Type:            116
+              Flags:           [ IsParameter ]
+              VarName:         y
+          - Kind:            S_DEFRANGE_REGISTER_REL
+            DefRangeRegisterRelSym:
+              Register:        22
+              Flags:           0
+              BasePointerOffset: 12
+              Range:
+                OffsetStart:     12
+                ISectStart:      0
+                Range:           19
+              Gaps:
+          - Kind:            S_PROC_ID_END
+            ScopeEndSym:
+      - !Lines
+        CodeSize:        31
+        Flags:           [  ]
+        RelocOffset:     0
+        RelocSegment:    0
+        Blocks:
+          - FileName:        'D:\src\llvmbuild\cl\Debug\x64\pdb-framedata.cpp'
+            Lines:
+              - Offset:          0
+                LineStart:       3
+                IsStatement:     false
+                EndDelta:        0
+              - Offset:          12
+                LineStart:       4
+                IsStatement:     false
+                EndDelta:        0
+            Columns:
+      - !FrameData
+        Frames:
+          - CodeSize:        53
+            FrameFunc:       '$T0 .raSearch = $eip $T0 ^ = $esp $T0 4 + = '
+            LocalSize:       0
+            MaxStackSize:    0
+            ParamsSize:      8
+            PrologSize:      7
+            RvaStart:        0
+            SavedRegsSize:   0
+          - CodeSize:        52
+            FrameFunc:       '$T0 .raSearch = $eip $T0 ^ = $esp $T0 4 + = $ebp $T0 4 - ^ = '
+            LocalSize:       0
+            MaxStackSize:    0
+            ParamsSize:      8
+            PrologSize:      6
+            RvaStart:        1
+            SavedRegsSize:   4
+          - CodeSize:        50
+            FrameFunc:       '$T0 $ebp 4 + = $eip $T0 ^ = $esp $T0 4 + = $ebp $T0 4 - ^ = '
+            LocalSize:       0
+            MaxStackSize:    0
+            ParamsSize:      8
+            PrologSize:      4
+            RvaStart:        3
+            SavedRegsSize:   4
+          - CodeSize:        49
+            FrameFunc:       '$T0 $ebp 4 + = $eip $T0 ^ = $esp $T0 4 + = $ebp $T0 4 - ^ = $esi $T0 8 - ^ = '
+            LocalSize:       0
+            MaxStackSize:    0
+            ParamsSize:      8
+            PrologSize:      3
+            RvaStart:        4
+            SavedRegsSize:   8
+      - !Symbols
+        Records:
+          - Kind:            S_GPROC32_ID
+            ProcSym:
+              CodeSize:        53
+              DbgStart:        0
+              DbgEnd:          0
+              FunctionType:    4102
+              Flags:           [  ]
+              DisplayName:     main
+          - Kind:            S_LOCAL
+            LocalSym:
+              Type:            116
+              Flags:           [ IsParameter ]
+              VarName:         argc
+          - Kind:            S_DEFRANGE_REGISTER_REL
+            DefRangeRegisterRelSym:
+              Register:        22
+              Flags:           0
+              BasePointerOffset: 8
+              Range:
+                OffsetStart:     52
+                ISectStart:      0
+                Range:           33
+              Gaps:
+          - Kind:            S_LOCAL
+            LocalSym:
+              Type:            4099
+              Flags:           [ IsParameter ]
+              VarName:         argv
+          - Kind:            S_DEFRANGE_REGISTER_REL
+            DefRangeRegisterRelSym:
+              Register:        22
+              Flags:           0
+              BasePointerOffset: 12
+              Range:
+                OffsetStart:     52
+                ISectStart:      0
+                Range:           33
+              Gaps:
+          - Kind:            S_PROC_ID_END
+            ScopeEndSym:
+      - !Lines
+        CodeSize:        53
+        Flags:           [  ]
+        RelocOffset:     0
+        RelocSegment:    0
+        Blocks:
+          - FileName:        'D:\src\llvmbuild\cl\Debug\x64\pdb-framedata.cpp'
+            Lines:
+              - Offset:          0
+                LineStart:       7
+                IsStatement:     false
+                EndDelta:        0
+              - Offset:          20
+                LineStart:       8
+                IsStatement:     false
+                EndDelta:        0
+            Columns:
+      - !FileChecksums
+        Checksums:
+          - FileName:        'D:\src\llvmbuild\cl\Debug\x64\pdb-framedata.cpp'
+            Kind:            MD5
+            Checksum:        A611B73E19B77B02646FAAF7CAEB025D
+      - !StringTable
+        Strings:
+          - 'D:\src\llvmbuild\cl\Debug\x64\pdb-framedata.cpp'
+          - '$T0 .raSearch = $eip $T0 ^ = $esp $T0 4 + = '
+          - '$T0 .raSearch = $eip $T0 ^ = $esp $T0 4 + = $ebp $T0 4 - ^ = '
+          - '$T0 $ebp 4 + = $eip $T0 ^ = $esp $T0 4 + = $ebp $T0 4 - ^ = '
+          - '$T0 $ebp 4 + = $eip $T0 ^ = $esp $T0 4 + = $ebp $T0 4 - ^ = $esi $T0 8 - ^ = '
+          - ''
+    Relocations:
+      - VirtualAddress:  68
+        SymbolName:      '?func@@YAHHH@Z'
+        Type:            IMAGE_REL_I386_DIR32NB
+      - VirtualAddress:  208
+        SymbolName:      '?func@@YAHHH@Z'
+        Type:            IMAGE_REL_I386_SECREL
+      - VirtualAddress:  212
+        SymbolName:      '?func@@YAHHH@Z'
+        Type:            IMAGE_REL_I386_SECTION
+      - VirtualAddress:  244
+        SymbolName:      .text
+        Type:            IMAGE_REL_I386_SECREL
+      - VirtualAddress:  248
+        SymbolName:      .text
+        Type:            IMAGE_REL_I386_SECTION
+      - VirtualAddress:  276
+        SymbolName:      .text
+        Type:            IMAGE_REL_I386_SECREL
+      - VirtualAddress:  280
+        SymbolName:      .text
+        Type:            IMAGE_REL_I386_SECTION
+      - VirtualAddress:  296
+        SymbolName:      '?func@@YAHHH@Z'
+        Type:            IMAGE_REL_I386_SECREL
+      - VirtualAddress:  300
+        SymbolName:      '?func@@YAHHH@Z'
+        Type:            IMAGE_REL_I386_SECTION
+      - VirtualAddress:  344
+        SymbolName:      _main
+        Type:            IMAGE_REL_I386_DIR32NB
+      - VirtualAddress:  516
+        SymbolName:      _main
+        Type:            IMAGE_REL_I386_SECREL
+      - VirtualAddress:  520
+        SymbolName:      _main
+        Type:            IMAGE_REL_I386_SECTION
+      - VirtualAddress:  555
+        SymbolName:      .text
+        Type:            IMAGE_REL_I386_SECREL
+      - VirtualAddress:  559
+        SymbolName:      .text
+        Type:            IMAGE_REL_I386_SECTION
+      - VirtualAddress:  590
+        SymbolName:      .text
+        Type:            IMAGE_REL_I386_SECREL
+      - VirtualAddress:  594
+        SymbolName:      .text
+        Type:            IMAGE_REL_I386_SECTION
+      - VirtualAddress:  612
+        SymbolName:      _main
+        Type:            IMAGE_REL_I386_SECREL
+      - VirtualAddress:  616
+        SymbolName:      _main
+        Type:            IMAGE_REL_I386_SECTION
+  - Name:            '.debug$T'
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
+    Alignment:       4
+    Types:
+      - Kind:            LF_ARGLIST
+        ArgList:
+          ArgIndices:      [ 116, 116 ]
+      - Kind:            LF_PROCEDURE
+        Procedure:
+          ReturnType:      116
+          CallConv:        NearC
+          Options:         [ None ]
+          ParameterCount:  2
+          ArgumentList:    4096
+      - Kind:            LF_FUNC_ID
+        FuncId:
+          ParentScope:     0
+          FunctionType:    4097
+          Name:            func
+      - Kind:            LF_POINTER
+        Pointer:
+          ReferentType:    1136
+          Attrs:           32778
+      - Kind:            LF_ARGLIST
+        ArgList:
+          ArgIndices:      [ 116, 4099 ]
+      - Kind:            LF_PROCEDURE
+        Procedure:
+          ReturnType:      116
+          CallConv:        NearC
+          Options:         [ None ]
+          ParameterCount:  2
+          ArgumentList:    4100
+      - Kind:            LF_FUNC_ID
+        FuncId:
+          ParentScope:     0
+          FunctionType:    4101
+          Name:            main
+  - Name:            .llvm_addrsig
+    Characteristics: [ IMAGE_SCN_LNK_REMOVE ]
+    Alignment:       1
+    SectionData:     0F
+symbols:
+  - Name:            .text
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          85
+      NumberOfRelocations: 1
+      NumberOfLinenumbers: 0
+      CheckSum:        1989857796
+      Number:          1
+  - Name:            .data
+    Value:           0
+    SectionNumber:   2
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          0
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          2
+  - Name:            .bss
+    Value:           0
+    SectionNumber:   3
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          0
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          3
+  - Name:            .drectve
+    Value:           0
+    SectionNumber:   4
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          48
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        149686238
+      Number:          4
+  - Name:            '.debug$S'
+    Value:           0
+    SectionNumber:   5
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          988
+      NumberOfRelocations: 18
+      NumberOfLinenumbers: 0
+      CheckSum:        2571438511
+      Number:          5
+  - Name:            '.debug$T'
+    Value:           0
+    SectionNumber:   6
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          120
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        3148269371
+      Number:          6
+  - Name:            .llvm_addrsig
+    Value:           0
+    SectionNumber:   7
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          1
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        2428444049
+      Number:          7
+  - Name:            '@feat.00'
+    Value:           1
+    SectionNumber:   -1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+  - Name:            '?func@@YAHHH@Z'
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+  - Name:            _main
+    Value:           32
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+...

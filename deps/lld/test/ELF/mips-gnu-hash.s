@@ -7,7 +7,7 @@
 # RUN: llvm-mc -filetype=obj -triple=mipsel-unknown-linux %s -o %t-el.o
 # RUN: not ld.lld -shared -hash-style=gnu %t-el.o -o /dev/null 2>&1 | FileCheck %s
 
-# CHECK: the .gnu.hash section is not compatible with the MIPS target.
+# CHECK: the .gnu.hash section is not compatible with the MIPS target
 
   .globl  __start
 __start:

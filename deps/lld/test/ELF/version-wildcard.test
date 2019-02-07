@@ -7,7 +7,7 @@
 
 # CHECK: DynamicSymbols [
 # CHECK-NEXT:   Symbol {
-# CHECK-NEXT:     Name: @
+# CHECK-NEXT:     Name:
 # CHECK-NEXT:     Value: 0x0
 # CHECK-NEXT:     Size: 0
 # CHECK-NEXT:     Binding: Local
@@ -52,7 +52,7 @@
 
 # MIX:      DynamicSymbols [
 # MIX-NEXT:   Symbol {
-# MIX-NEXT:     Name: @
+# MIX-NEXT:     Name:
 # MIX-NEXT:     Value: 0x0
 # MIX-NEXT:     Size: 0
 # MIX-NEXT:     Binding: Local

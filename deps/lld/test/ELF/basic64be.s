@@ -23,7 +23,7 @@
 # CHECK-NEXT:   Version: 1
 # CHECK-NEXT:   Entry: 0x10010000
 # CHECK-NEXT:   ProgramHeaderOffset: 0x40
-# CHECK-NEXT:   SectionHeaderOffset: 0x11050
+# CHECK-NEXT:   SectionHeaderOffset: 0x20058
 # CHECK-NEXT:   Flags [ (0x2)
 # CHECK-NEXT:     0x2
 # CHECK-NEXT:   ]
@@ -31,8 +31,8 @@
 # CHECK-NEXT:   ProgramHeaderEntrySize: 56
 # CHECK-NEXT:   ProgramHeaderCount: 4
 # CHECK-NEXT:   SectionHeaderEntrySize: 64
-# CHECK-NEXT:   SectionHeaderCount: 6
-# CHECK-NEXT:   StringTableSectionIndex: 4
+# CHECK-NEXT:   SectionHeaderCount: 7
+# CHECK-NEXT:   StringTableSectionIndex: 5
 # CHECK-NEXT: }
 # CHECK-NEXT: Sections [
 # CHECK-NEXT:   Section {
@@ -72,14 +72,32 @@
 # CHECK-NEXT:   }
 # CHECK-NEXT:   Section {
 # CHECK-NEXT:     Index: 2
-# CHECK-NEXT:     Name: .comment (7)
+# CHECK-NEXT:     Name: .branch_lt (7)
+# CHECK-NEXT:     Type: SHT_PROGBITS (0x1)
+# CHECK-NEXT:     Flags [ (0x3)
+# CHECK-NEXT:       SHF_ALLOC (0x2)
+# CHECK-NEXT:       SHF_WRITE (0x1)
+# CHECK-NEXT:     ]
+# CHECK-NEXT:     Address: 0x10020000
+# CHECK-NEXT:     Offset: 0x20000
+# CHECK-NEXT:     Size: 0
+# CHECK-NEXT:     Link: 0
+# CHECK-NEXT:     Info: 0
+# CHECK-NEXT:     AddressAlignment: 8
+# CHECK-NEXT:     EntrySize: 0
+# CHECK-NEXT:     SectionData (
+# CHECK-NEXT:     )
+# CHECK-NEXT:   }
+# CHECK-NEXT:   Section {
+# CHECK-NEXT:     Index: 3
+# CHECK-NEXT:     Name: .comment (18)
 # CHECK-NEXT:     Type: SHT_PROGBITS (0x1)
 # CHECK-NEXT:     Flags [ (0x30)
 # CHECK-NEXT:       SHF_MERGE (0x10)
 # CHECK-NEXT:       SHF_STRINGS (0x20)
 # CHECK-NEXT:     ]
 # CHECK-NEXT:     Address: 0x0
-# CHECK-NEXT:     Offset: 0x11000
+# CHECK-NEXT:     Offset: 0x20000
 # CHECK-NEXT:     Size: 8
 # CHECK-NEXT:     Link: 0
 # CHECK-NEXT:     Info: 0
@@ -90,15 +108,15 @@
 # CHECK-NEXT:     )
 # CHECK-NEXT:   }
 # CHECK-NEXT:   Section {
-# CHECK-NEXT:     Index: 3
-# CHECK-NEXT:     Name: .symtab (16)
+# CHECK-NEXT:     Index: 4
+# CHECK-NEXT:     Name: .symtab (27)
 # CHECK-NEXT:     Type: SHT_SYMTAB (0x2)
 # CHECK-NEXT:     Flags [ (0x0)
 # CHECK-NEXT:     ]
 # CHECK-NEXT:     Address: 0x0
-# CHECK-NEXT:     Offset: 0x11008
+# CHECK-NEXT:     Offset: 0x20008
 # CHECK-NEXT:     Size: 24
-# CHECK-NEXT:     Link: 5
+# CHECK-NEXT:     Link: 6
 # CHECK-NEXT:     Info: 1
 # CHECK-NEXT:     AddressAlignment: 8
 # CHECK-NEXT:     EntrySize: 24
@@ -108,32 +126,33 @@
 # CHECK-NEXT:     )
 # CHECK-NEXT:   }
 # CHECK-NEXT:   Section {
-# CHECK-NEXT:     Index: 4
-# CHECK-NEXT:     Name: .shstrtab (24)
+# CHECK-NEXT:     Index: 5
+# CHECK-NEXT:     Name: .shstrtab (35)
 # CHECK-NEXT:     Type: SHT_STRTAB (0x3)
 # CHECK-NEXT:     Flags [ (0x0)
 # CHECK-NEXT:     ]
 # CHECK-NEXT:     Address: 0x0
-# CHECK-NEXT:     Offset: 0x11020
-# CHECK-NEXT:     Size: 42
+# CHECK-NEXT:     Offset: 0x20020
+# CHECK-NEXT:     Size: 53
 # CHECK-NEXT:     Link: 0
 # CHECK-NEXT:     Info: 0
 # CHECK-NEXT:     AddressAlignment: 1
 # CHECK-NEXT:     EntrySize: 0
 # CHECK-NEXT:     SectionData (
-# CHECK-NEXT:       0000: 002E7465 7874002E 636F6D6D 656E7400  |..text..comment.|
-# CHECK-NEXT:       0010: 2E73796D 74616200 2E736873 74727461  |.symtab..shstrta|
-# CHECK-NEXT:       0020: 62002E73 74727461 6200               |b..strtab.|
+# CHECK-NEXT:       0000: 002E7465 7874002E 6272616E 63685F6C  |..text..branch_l|
+# CHECK-NEXT:       0010: 74002E63 6F6D6D65 6E74002E 73796D74  |t..comment..symt|
+# CHECK-NEXT:       0020: 6162002E 73687374 72746162 002E7374  |ab..shstrtab..st|
+# CHECK-NEXT:       0030: 72746162 00                          |rtab.|
 # CHECK-NEXT:     )
 # CHECK-NEXT:   }
 # CHECK-NEXT:   Section {
-# CHECK-NEXT:     Index: 5
-# CHECK-NEXT:     Name: .strtab (34)
+# CHECK-NEXT:     Index: 6
+# CHECK-NEXT:     Name: .strtab (45)
 # CHECK-NEXT:     Type: SHT_STRTAB (0x3)
 # CHECK-NEXT:     Flags [ (0x0)
 # CHECK-NEXT:     ]
 # CHECK-NEXT:     Address: 0x0
-# CHECK-NEXT:     Offset: 0x1104A
+# CHECK-NEXT:     Offset: 0x20055
 # CHECK-NEXT:     Size: 1
 # CHECK-NEXT:     Link: 0
 # CHECK-NEXT:     Info: 0
@@ -150,8 +169,8 @@
 # CHECK-NEXT:     Offset: 0x40
 # CHECK-NEXT:     VirtualAddress: 0x10000040
 # CHECK-NEXT:     PhysicalAddress: 0x10000040
-# CHECK-NEXT:     FileSize: 224
-# CHECK-NEXT:     MemSize: 224
+# CHECK-NEXT:     FileSize: 280
+# CHECK-NEXT:     MemSize: 280
 # CHECK-NEXT:     Flags [ (0x4)
 # CHECK-NEXT:       PF_R (0x4)
 # CHECK-NEXT:     ]
@@ -162,8 +181,8 @@
 # CHECK-NEXT:     Offset: 0x0
 # CHECK-NEXT:     VirtualAddress: 0x10000000
 # CHECK-NEXT:     PhysicalAddress: 0x10000000
-# CHECK-NEXT:     FileSize: 288
-# CHECK-NEXT:     MemSize: 288
+# CHECK-NEXT:     FileSize: 344
+# CHECK-NEXT:     MemSize: 344
 # CHECK-NEXT:     Flags [ (0x4)
 # CHECK-NEXT:       PF_R (0x4)
 # CHECK-NEXT:     ]

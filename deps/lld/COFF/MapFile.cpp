@@ -110,7 +110,7 @@ void coff::writeMapFile(ArrayRef<OutputSection *> OutputSections) {
     writeHeader(OS, Sec->getRVA(), Sec->getVirtualSize(), /*Align=*/PageSize);
     OS << Sec->Name << '\n';
 
-    for (Chunk *C : Sec->getChunks()) {
+    for (Chunk *C : Sec->Chunks) {
       auto *SC = dyn_cast<SectionChunk>(C);
       if (!SC)
         continue;

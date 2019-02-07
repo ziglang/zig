@@ -54,6 +54,9 @@ public:
   // symbols.
   void reportRemainingUndefines();
 
+  void loadMinGWAutomaticImports();
+  bool handleMinGWAutomaticImport(Symbol *Sym, StringRef Name);
+
   // Returns a list of chunks of selected symbols.
   std::vector<Chunk *> getChunks();
 
@@ -108,7 +111,10 @@ public:
   }
 
 private:
+  /// Inserts symbol if not already present.
   std::pair<Symbol *, bool> insert(StringRef Name);
+  /// Same as insert(Name), but also sets IsUsedInRegularObj.
+  std::pair<Symbol *, bool> insert(StringRef Name, InputFile *F);
   StringRef findByPrefix(StringRef Prefix);
 
   llvm::DenseMap<llvm::CachedHashStringRef, Symbol *> SymMap;
@@ -116,6 +122,8 @@ private:
 };
 
 extern SymbolTable *Symtab;
+
+std::string getSymbolLocations(ObjFile *File, uint32_t SymIndex);
 
 } // namespace coff
 } // namespace lld

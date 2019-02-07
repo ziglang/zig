@@ -35,6 +35,7 @@ public:
 SPARCV9::SPARCV9() {
   CopyRel = R_SPARC_COPY;
   GotRel = R_SPARC_GLOB_DAT;
+  NoneRel = R_SPARC_NONE;
   PltRel = R_SPARC_JMP_SLOT;
   RelativeRel = R_SPARC_RELATIVE;
   GotEntrySize = 8;

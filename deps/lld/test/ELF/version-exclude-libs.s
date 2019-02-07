@@ -1,5 +1,6 @@
 // REQUIRES: x86
 // RUN: llvm-mc %p/Inputs/versiondef.s -o %t.o -filetype=obj -triple=x86_64-pc-linux
+// RUN: rm -f %t.a
 // RUN: llvm-ar -r %t.a %t.o
 // RUN: llvm-mc %s -o %t2.o -filetype=obj -triple=x86_64-pc-linux
 // RUN: ld.lld %t2.o %t.a --shared --exclude-libs ALL -o %t.so

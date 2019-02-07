@@ -9,8 +9,8 @@
 ## sections amount is greater than SHN_LORESERVE.
 # RUN: llvm-readobj -file-headers %t | FileCheck %s --check-prefix=HDR
 # HDR:      ElfHeader {
-# HDR:        SectionHeaderCount: 0 (65543)
-# HDR-NEXT:   StringTableSectionIndex: 65535 (65541)
+# HDR:        SectionHeaderCount: 0 (65544)
+# HDR-NEXT:   StringTableSectionIndex: 65535 (65542)
 
 ## Check that:
 ## 1) 65541 is the index of .shstrtab section.
@@ -18,13 +18,15 @@
 ## 3) .symtab_shndxr entry size and alignment == 4.
 ## 4) .symtab_shndxr has size equal to
 ##    (sizeof(.symtab) / entsize(.symtab)) * entsize(.symtab_shndxr) = 0x4 * 0x180048 / 0x18 == 0x04000c
+
 # RUN: llvm-readelf -sections -symbols %t | FileCheck %s
-##              [Nr]    Name           Type                   Address          Off    Size   ES Flg  Lk    Inf    Al
-# CHECK:        [65538] .bar
-# CHECK-NEXT:   [65539] .symtab        SYMTAB                 0000000000000000 000040 180078 18      65542 65539  8
-# CHECK-NEXT:   [65540] .symtab_shndxr SYMTAB SECTION INDICES 0000000000000000 1800b8 040014 04      65539 0      4
-# CHECK-NEXT:   [65541] .shstrtab      STRTAB                 0000000000000000 1c00cc 0f0035 00      0     0      1
-# CHECK-NEXT:   [65542] .strtab        STRTAB                 0000000000000000 2b0101 00000c 00
+#        [Nr] Name              Type            Address          Off    Size   ES Flg Lk Inf Al
+# CHECK: [65539] .note.GNU-stack PROGBITS       0000000000000000 000040 000000 00      0   0  1
+# CHECK: [65540] .symtab        SYMTAB          0000000000000000 000040 180078 18     65543 65539  8
+# CHECK: [65541] .symtab_shndxr SYMTAB SECTION INDICES 0000000000000000 1800b8 040014 04     65540   0  4
+# CHECK: [65542] .shstrtab      STRTAB          0000000000000000 1c00cc 0f0045 00      0   0  1
+# CHECK: [65543] .strtab        STRTAB          0000000000000000 2b0111 00000c 00      0   0  1
+
 # 5) Check we are able to represent symbol foo with section (.bar) index  > 0xFF00 (SHN_LORESERVE).
 # CHECK: GLOBAL DEFAULT  65538 foo
 

@@ -80,6 +80,7 @@ public:
     switch (ref->kindValue()) {
     case ripRel32Got:
       assert(targetNowGOT && "target must be GOT");
+      LLVM_FALLTHROUGH;
     case ripRel32GotLoad:
       const_cast<Reference *>(ref)
         ->setKindValue(targetNowGOT ? ripRel32 : ripRel32GotLoadNowLea);
@@ -621,6 +622,7 @@ void ArchHandler_x86_64::applyFixupFinal(
     // Fall into llvm_unreachable().
     break;
   }
+  llvm_unreachable("invalid x86_64 Reference Kind");
 }
 
 void ArchHandler_x86_64::applyFixupRelocatable(const Reference &ref,

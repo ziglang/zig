@@ -1,0 +1,82 @@
+RUN: lld-link -lldmingw %S/Inputs/inline-weak.o %S/Inputs/inline-weak2.o -out:%t.exe
+
+When compiling certain forms of templated inline functions, some
+versions of GCC (tested with 5.4) produces a weak symbol for the function.
+Newer versions of GCC don't do this though.
+
+The bundled object files are an example of that, they can be produced
+with test code like this:
+
+$ cat inline-weak.h
+class MyClass {
+public:
+    template<typename... _Args> int get(_Args&&... args) {
+        return a;
+    }
+private:
+    int a;
+};
+
+$ cat inline-weak.cpp
+#include "inline-weak.h"
+
+int get(MyClass& a);
+
+int main(int argc, char* argv[]) {
+    MyClass a;
+    int ret = a.get();
+    ret += get(a);
+    return ret;
+}
+extern "C" void mainCRTStartup(void) {
+    main(0, (char**)0);
+}
+extern "C" void __main(void) {
+}
+
+$ cat inline-weak2.cpp
+#include "inline-weak.h"
+
+int get(MyClass& a) {
+    return a.get();
+}
+
+$ x86_64-w64-mingw32-g++ -std=c++11 -c inline-weak.cpp
+$ x86_64-w64-mingw32-g++ -std=c++11 -c inline-weak2.cpp
+
+$ x86_64-w64-mingw32-nm inline-weak.o | grep MyClass3get
+0000000000000000 p .pdata$_ZN7MyClass3getIJEEEiDpOT_
+0000000000000000 t .text$_ZN7MyClass3getIJEEEiDpOT_
+0000000000000000 T .weak._ZN7MyClass3getIIEEEiDpOT_.main
+0000000000000000 r .xdata$_ZN7MyClass3getIJEEEiDpOT_
+                 w _ZN7MyClass3getIIEEEiDpOT_
+0000000000000000 T _ZN7MyClass3getIJEEEiDpOT_
+
+$ x86_64-w64-mingw32-nm inline-weak2.o | grep MyClass3get
+0000000000000000 p .pdata$_ZN7MyClass3getIJEEEiDpOT_
+0000000000000000 t .text$_ZN7MyClass3getIJEEEiDpOT_
+0000000000000000 T .weak._ZN7MyClass3getIIEEEiDpOT_._Z3getR7MyClass
+0000000000000000 r .xdata$_ZN7MyClass3getIJEEEiDpOT_
+                 w _ZN7MyClass3getIIEEEiDpOT_
+0000000000000000 T _ZN7MyClass3getIJEEEiDpOT_
+
+This can't be reproduced by assembling .s files with llvm-mc, since that
+always produces a symbol named .weak.<weaksymbol>.default, therefore
+the test uses prebuilt object files instead.
+
+In these cases, the undefined weak symbol points to the regular symbol
+.weak._ZN7MyClass3getIIEEEiDpOT_.<othersymbol>, where <othersymbol>
+varies among the object files that emit the same function. This regular
+symbol points to the same location as the comdat function
+_ZN7MyClass3getIJEEEiDpOT_.
+
+When linking, the comdat section from the second object file gets
+discarded, as it matches the one that already exists. This means that
+the uniquely named symbol .weak.<weakname>.<othername> points to a
+discarded section chunk.
+
+Previously, this would have triggered adding an Undefined symbol for
+this case, which would later break linking. However, also previously,
+if the second object file is linked in via a static library, this
+leftover symbol is retained as a Lazy symbol, which would make the link
+succeed.

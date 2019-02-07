@@ -30,12 +30,13 @@ namespace lld {
 namespace elf {
 
 class Defined;
-class Symbol;
-class InputSectionBase;
 class InputSection;
-class OutputSection;
 class InputSectionBase;
+class InputSectionBase;
+class OutputSection;
 class SectionBase;
+class Symbol;
+class ThunkSection;
 
 // This represents an r-value in the linker script.
 struct ExprValue {
@@ -145,7 +146,9 @@ struct MemoryRegion {
 // Also it may be surrounded with SORT() command, so contains sorting rules.
 struct SectionPattern {
   SectionPattern(StringMatcher &&Pat1, StringMatcher &&Pat2)
-      : ExcludedFilePat(Pat1), SectionPat(Pat2) {}
+      : ExcludedFilePat(Pat1), SectionPat(Pat2),
+        SortOuter(SortSectionPolicy::Default),
+        SortInner(SortSectionPolicy::Default) {}
 
   StringMatcher ExcludedFilePat;
   StringMatcher SectionPat;
@@ -153,7 +156,6 @@ struct SectionPattern {
   SortSectionPolicy SortInner;
 };
 
-class ThunkSection;
 struct InputSectionDescription : BaseCommand {
   InputSectionDescription(StringRef FilePattern)
       : BaseCommand(InputSectionKind), FilePat(FilePattern) {}

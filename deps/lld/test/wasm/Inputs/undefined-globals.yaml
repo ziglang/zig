@@ -32,7 +32,7 @@ Sections:
         Offset:          0x00000004
   - Type:            CUSTOM
     Name:            linking
-    Version:         1
+    Version:         2
     SymbolTable:
       - Index:           0
         Kind:            GLOBAL

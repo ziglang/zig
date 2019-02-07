@@ -31,6 +31,7 @@
 #define DEBUG_TYPE "lld"
 
 using namespace llvm;
+using namespace llvm::object;
 using namespace llvm::sys;
 using namespace llvm::wasm;
 
@@ -78,7 +79,7 @@ private:
 
 bool lld::wasm::link(ArrayRef<const char *> Args, bool CanExitEarly,
                      raw_ostream &Error) {
-  errorHandler().LogName = sys::path::filename(Args[0]);
+  errorHandler().LogName = args::getFilenameWithoutExe(Args[0]);
   errorHandler().ErrorOS = &Error;
   errorHandler().ColorDiagnostics = Error.has_colors();
   errorHandler().ErrorLimitExceededMsg =
@@ -186,8 +187,7 @@ static void readImportFile(StringRef Filename) {
 
 // Returns slices of MB by parsing MB as an archive file.
 // Each slice consists of a member file in the archive.
-std::vector<MemoryBufferRef> static getArchiveMembers(
-    MemoryBufferRef MB) {
+std::vector<MemoryBufferRef> static getArchiveMembers(MemoryBufferRef MB) {
   std::unique_ptr<Archive> File =
       CHECK(Archive::create(MB),
             MB.getBufferIdentifier() + ": failed to parse archive");
@@ -205,8 +205,8 @@ std::vector<MemoryBufferRef> static getArchiveMembers(
     V.push_back(MBRef);
   }
   if (Err)
-    fatal(MB.getBufferIdentifier() + ": Archive::children failed: " +
-          toString(std::move(Err)));
+    fatal(MB.getBufferIdentifier() +
+          ": Archive::children failed: " + toString(std::move(Err)));
 
   // Take ownership of memory buffers created for members of thin archives.
   for (std::unique_ptr<MemoryBuffer> &MB : File->takeThinBuffers())
@@ -306,17 +306,14 @@ static void handleWeakUndefines() {
 
     // It is possible for undefined functions not to have a signature (eg. if
     // added via "--undefined"), but weak undefined ones do have a signature.
-    assert(FuncSym->FunctionType);
-    const WasmSignature &Sig = *FuncSym->FunctionType;
+    assert(FuncSym->Signature);
+    const WasmSignature &Sig = *FuncSym->Signature;
 
     // Add a synthetic dummy for weak undefined functions.  These dummies will
     // be GC'd if not used as the target of any "call" instructions.
-    Optional<std::string> SymName = demangleItanium(Sym->getName());
-    StringRef DebugName =
-        Saver.save("undefined function " +
-                   (SymName ? StringRef(*SymName) : Sym->getName()));
-    SyntheticFunction *Func =
-        make<SyntheticFunction>(Sig, Sym->getName(), DebugName);
+    std::string SymName = toString(*Sym);
+    StringRef DebugName = Saver.save("undefined function " + SymName);
+    auto *Func = make<SyntheticFunction>(Sig, Sym->getName(), DebugName);
     Func->setBody(UnreachableFn);
     // Ensure it compares equal to the null pointer, and so that table relocs
     // don't pull in the stub body (only call-operand relocs should do that).
@@ -328,15 +325,176 @@ static void handleWeakUndefines() {
   }
 }
 
+// Some Config members do not directly correspond to any particular
+// command line options, but computed based on other Config values.
+// This function initialize such members. See Config.h for the details
+// of these values.
+static void setConfigs(opt::InputArgList &Args) {
+  Config->AllowUndefined = Args.hasArg(OPT_allow_undefined);
+  Config->CompressRelocations = Args.hasArg(OPT_compress_relocations);
+  Config->Demangle = Args.hasFlag(OPT_demangle, OPT_no_demangle, true);
+  Config->DisableVerify = Args.hasArg(OPT_disable_verify);
+  Config->Entry = getEntry(Args, Args.hasArg(OPT_relocatable) ? "" : "_start");
+  Config->ExportAll = Args.hasArg(OPT_export_all);
+  Config->ExportDynamic = Args.hasFlag(OPT_export_dynamic,
+      OPT_no_export_dynamic, false);
+  Config->ExportTable = Args.hasArg(OPT_export_table);
+  errorHandler().FatalWarnings =
+      Args.hasFlag(OPT_fatal_warnings, OPT_no_fatal_warnings, false);
+  Config->ImportMemory = Args.hasArg(OPT_import_memory);
+  Config->SharedMemory = Args.hasArg(OPT_shared_memory);
+  Config->ImportTable = Args.hasArg(OPT_import_table);
+  Config->LTOO = args::getInteger(Args, OPT_lto_O, 2);
+  Config->LTOPartitions = args::getInteger(Args, OPT_lto_partitions, 1);
+  Config->Optimize = args::getInteger(Args, OPT_O, 0);
+  Config->OutputFile = Args.getLastArgValue(OPT_o);
+  Config->Relocatable = Args.hasArg(OPT_relocatable);
+  Config->GcSections =
+      Args.hasFlag(OPT_gc_sections, OPT_no_gc_sections, !Config->Relocatable);
+  Config->MergeDataSegments =
+      Args.hasFlag(OPT_merge_data_segments, OPT_no_merge_data_segments,
+                   !Config->Relocatable);
+  Config->Pie = Args.hasFlag(OPT_pie, OPT_no_pie, false);
+  Config->PrintGcSections =
+      Args.hasFlag(OPT_print_gc_sections, OPT_no_print_gc_sections, false);
+  Config->SaveTemps = Args.hasArg(OPT_save_temps);
+  Config->SearchPaths = args::getStrings(Args, OPT_L);
+  Config->Shared = Args.hasArg(OPT_shared);
+  Config->StripAll = Args.hasArg(OPT_strip_all);
+  Config->StripDebug = Args.hasArg(OPT_strip_debug);
+  Config->StackFirst = Args.hasArg(OPT_stack_first);
+  Config->ThinLTOCacheDir = Args.getLastArgValue(OPT_thinlto_cache_dir);
+  Config->ThinLTOCachePolicy = CHECK(
+      parseCachePruningPolicy(Args.getLastArgValue(OPT_thinlto_cache_policy)),
+      "--thinlto-cache-policy: invalid cache policy");
+  Config->ThinLTOJobs = args::getInteger(Args, OPT_thinlto_jobs, -1u);
+  errorHandler().Verbose = Args.hasArg(OPT_verbose);
+  ThreadsEnabled = Args.hasFlag(OPT_threads, OPT_no_threads, true);
+
+  Config->InitialMemory = args::getInteger(Args, OPT_initial_memory, 0);
+  Config->GlobalBase = args::getInteger(Args, OPT_global_base, 1024);
+  Config->MaxMemory = args::getInteger(Args, OPT_max_memory, 0);
+  Config->ZStackSize =
+      args::getZOptionValue(Args, OPT_z, "stack-size", WasmPageSize);
+}
+
+// Some command line options or some combinations of them are not allowed.
+// This function checks for such errors.
+static void checkOptions(opt::InputArgList &Args) {
+  if (!Config->StripDebug && !Config->StripAll && Config->CompressRelocations)
+    error("--compress-relocations is incompatible with output debug"
+          " information. Please pass --strip-debug or --strip-all");
+
+  if (Config->LTOO > 3)
+    error("invalid optimization level for LTO: " + Twine(Config->LTOO));
+  if (Config->LTOPartitions == 0)
+    error("--lto-partitions: number of threads must be > 0");
+  if (Config->ThinLTOJobs == 0)
+    error("--thinlto-jobs: number of threads must be > 0");
+
+  if (Config->Pie && Config->Shared)
+    error("-shared and -pie may not be used together");
+
+  if (Config->OutputFile.empty())
+    error("no output file specified");
+
+  if (Config->ImportTable && Config->ExportTable)
+    error("--import-table and --export-table may not be used together");
+
+  if (Config->Relocatable) {
+    if (!Config->Entry.empty())
+      error("entry point specified for relocatable output file");
+    if (Config->GcSections)
+      error("-r and --gc-sections may not be used together");
+    if (Config->CompressRelocations)
+      error("-r -and --compress-relocations may not be used together");
+    if (Args.hasArg(OPT_undefined))
+      error("-r -and --undefined may not be used together");
+    if (Config->Pie)
+      error("-r and -pie may not be used together");
+  }
+}
+
 // Force Sym to be entered in the output. Used for -u or equivalent.
-static Symbol *addUndefined(StringRef Name) {
-  Symbol *S = Symtab->addUndefinedFunction(Name, 0, nullptr, nullptr);
+static Symbol *handleUndefined(StringRef Name) {
+  Symbol *Sym = Symtab->find(Name);
+  if (!Sym)
+    return nullptr;
 
   // Since symbol S may not be used inside the program, LTO may
   // eliminate it. Mark the symbol as "used" to prevent it.
-  S->IsUsedInRegularObj = true;
+  Sym->IsUsedInRegularObj = true;
 
-  return S;
+  if (auto *LazySym = dyn_cast<LazySymbol>(Sym))
+    LazySym->fetch();
+
+  return Sym;
+}
+
+static UndefinedGlobal *
+createUndefinedGlobal(StringRef Name, llvm::wasm::WasmGlobalType *Type) {
+  auto *Sym =
+      cast<UndefinedGlobal>(Symtab->addUndefinedGlobal(Name, 0, nullptr, Type));
+  Config->AllowUndefinedSymbols.insert(Sym->getName());
+  Sym->IsUsedInRegularObj = true;
+  return Sym;
+}
+
+// Create ABI-defined synthetic symbols
+static void createSyntheticSymbols() {
+  static WasmSignature NullSignature = {{}, {}};
+  static llvm::wasm::WasmGlobalType GlobalTypeI32 = {WASM_TYPE_I32, false};
+  static llvm::wasm::WasmGlobalType MutableGlobalTypeI32 = {WASM_TYPE_I32,
+                                                            true};
+
+  if (!Config->Relocatable)
+    WasmSym::CallCtors = Symtab->addSyntheticFunction(
+        "__wasm_call_ctors", WASM_SYMBOL_VISIBILITY_HIDDEN,
+        make<SyntheticFunction>(NullSignature, "__wasm_call_ctors"));
+
+  // The __stack_pointer is imported in the shared library case, and exported
+  // in the non-shared (executable) case.
+  if (Config->Shared) {
+    WasmSym::StackPointer =
+        createUndefinedGlobal("__stack_pointer", &MutableGlobalTypeI32);
+  } else {
+    llvm::wasm::WasmGlobal Global;
+    Global.Type = {WASM_TYPE_I32, true};
+    Global.InitExpr.Value.Int32 = 0;
+    Global.InitExpr.Opcode = WASM_OPCODE_I32_CONST;
+    Global.SymbolName = "__stack_pointer";
+    auto *StackPointer = make<InputGlobal>(Global, nullptr);
+    StackPointer->Live = true;
+    // For non-PIC code
+    // TODO(sbc): Remove WASM_SYMBOL_VISIBILITY_HIDDEN when the mutable global
+    // spec proposal is implemented in all major browsers.
+    // See: https://github.com/WebAssembly/mutable-global
+    WasmSym::StackPointer = Symtab->addSyntheticGlobal(
+        "__stack_pointer", WASM_SYMBOL_VISIBILITY_HIDDEN, StackPointer);
+    WasmSym::HeapBase = Symtab->addSyntheticDataSymbol("__heap_base", 0);
+    WasmSym::DataEnd = Symtab->addSyntheticDataSymbol("__data_end", 0);
+
+    // These two synthetic symbols exist purely for the embedder so we always
+    // want to export them.
+    WasmSym::HeapBase->ForceExport = true;
+    WasmSym::DataEnd->ForceExport = true;
+  }
+
+  if (Config->Pic) {
+    // For PIC code, we import two global variables (__memory_base and
+    // __table_base) from the environment and use these as the offset at
+    // which to load our static data and function table.
+    // See:
+    // https://github.com/WebAssembly/tool-conventions/blob/master/DynamicLinking.md
+    WasmSym::MemoryBase =
+        createUndefinedGlobal("__memory_base", &GlobalTypeI32);
+    WasmSym::TableBase = createUndefinedGlobal("__table_base", &GlobalTypeI32);
+    WasmSym::MemoryBase->markLive();
+    WasmSym::TableBase->markLive();
+  }
+
+  WasmSym::DsoHandle = Symtab->addSyntheticDataSymbol(
+      "__dso_handle", WASM_SYMBOL_VISIBILITY_HIDDEN);
 }
 
 void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
@@ -345,7 +503,9 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
 
   // Handle --help
   if (Args.hasArg(OPT_help)) {
-    Parser.PrintHelp(outs(), ArgsArr[0], "LLVM Linker", false);
+    Parser.PrintHelp(outs(),
+                     (std::string(ArgsArr[0]) + " [options] file...").c_str(),
+                     "LLVM Linker", false);
     return;
   }
 
@@ -364,55 +524,8 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
 
   errorHandler().ErrorLimit = args::getInteger(Args, OPT_error_limit, 20);
 
-  Config->AllowUndefined = Args.hasArg(OPT_allow_undefined);
-  Config->Demangle = Args.hasFlag(OPT_demangle, OPT_no_demangle, true);
-  Config->DisableVerify = Args.hasArg(OPT_disable_verify);
-  Config->Entry = getEntry(Args, Args.hasArg(OPT_relocatable) ? "" : "_start");
-  Config->ExportAll = Args.hasArg(OPT_export_all);
-  Config->ExportTable = Args.hasArg(OPT_export_table);
-  errorHandler().FatalWarnings =
-      Args.hasFlag(OPT_fatal_warnings, OPT_no_fatal_warnings, false);
-  Config->ImportMemory = Args.hasArg(OPT_import_memory);
-  Config->ImportTable = Args.hasArg(OPT_import_table);
-  Config->LTOO = args::getInteger(Args, OPT_lto_O, 2);
-  Config->LTOPartitions = args::getInteger(Args, OPT_lto_partitions, 1);
-  Config->Optimize = args::getInteger(Args, OPT_O, 0);
-  Config->OutputFile = Args.getLastArgValue(OPT_o);
-  Config->Relocatable = Args.hasArg(OPT_relocatable);
-  Config->GcSections =
-      Args.hasFlag(OPT_gc_sections, OPT_no_gc_sections, !Config->Relocatable);
-  Config->MergeDataSegments =
-      Args.hasFlag(OPT_merge_data_segments, OPT_no_merge_data_segments,
-                   !Config->Relocatable);
-  Config->PrintGcSections =
-      Args.hasFlag(OPT_print_gc_sections, OPT_no_print_gc_sections, false);
-  Config->SaveTemps = Args.hasArg(OPT_save_temps);
-  Config->SearchPaths = args::getStrings(Args, OPT_L);
-  Config->StripAll = Args.hasArg(OPT_strip_all);
-  Config->StripDebug = Args.hasArg(OPT_strip_debug);
-  Config->StackFirst = Args.hasArg(OPT_stack_first);
-  Config->ThinLTOCacheDir = Args.getLastArgValue(OPT_thinlto_cache_dir);
-  Config->ThinLTOCachePolicy = CHECK(
-      parseCachePruningPolicy(Args.getLastArgValue(OPT_thinlto_cache_policy)),
-      "--thinlto-cache-policy: invalid cache policy");
-  Config->ThinLTOJobs = args::getInteger(Args, OPT_thinlto_jobs, -1u);
-  errorHandler().Verbose = Args.hasArg(OPT_verbose);
-  ThreadsEnabled = Args.hasFlag(OPT_threads, OPT_no_threads, true);
-
-  Config->InitialMemory = args::getInteger(Args, OPT_initial_memory, 0);
-  Config->GlobalBase = args::getInteger(Args, OPT_global_base, 1024);
-  Config->MaxMemory = args::getInteger(Args, OPT_max_memory, 0);
-  Config->ZStackSize =
-      args::getZOptionValue(Args, OPT_z, "stack-size", WasmPageSize);
-
-  Config->CompressRelocTargets = Config->Optimize > 0 && !Config->Relocatable;
-
-  if (Config->LTOO > 3)
-    error("invalid optimization level for LTO: " + Twine(Config->LTOO));
-  if (Config->LTOPartitions == 0)
-    error("--lto-partitions: number of threads must be > 0");
-  if (Config->ThinLTOJobs == 0)
-    error("--thinlto-jobs: number of threads must be > 0");
+  setConfigs(Args);
+  checkOptions(Args);
 
   if (auto *Arg = Args.getLastArg(OPT_allow_undefined_file))
     readImportFile(Arg->getValue());
@@ -422,56 +535,21 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
     return;
   }
 
-  if (Config->OutputFile.empty())
-    error("no output file specified");
+  Config->Pic = Config->Pie || Config->Shared;
 
-  if (Config->ImportTable && Config->ExportTable)
-    error("--import-table and --export-table may not be used together");
-
-  if (Config->Relocatable) {
-    if (!Config->Entry.empty())
-      error("entry point specified for relocatable output file");
-    if (Config->GcSections)
-      error("-r and --gc-sections may not be used together");
-    if (Args.hasArg(OPT_undefined))
-      error("-r -and --undefined may not be used together");
+  if (Config->Pic) {
+    if (Config->ExportTable)
+      error("-shared/-pie is incompatible with --export-table");
+    Config->ImportTable = true;
   }
 
-  Symbol *EntrySym = nullptr;
-  if (!Config->Relocatable) {
-    llvm::wasm::WasmGlobal Global;
-    Global.Type = {WASM_TYPE_I32, true};
-    Global.InitExpr.Value.Int32 = 0;
-    Global.InitExpr.Opcode = WASM_OPCODE_I32_CONST;
-    Global.SymbolName = "__stack_pointer";
-    InputGlobal *StackPointer = make<InputGlobal>(Global, nullptr);
-    StackPointer->Live = true;
-
-    static WasmSignature NullSignature = {{}, WASM_TYPE_NORESULT};
-
-    // Add synthetic symbols before any others
-    WasmSym::CallCtors = Symtab->addSyntheticFunction(
-        "__wasm_call_ctors", WASM_SYMBOL_VISIBILITY_HIDDEN,
-        make<SyntheticFunction>(NullSignature, "__wasm_call_ctors"));
-    // TODO(sbc): Remove WASM_SYMBOL_VISIBILITY_HIDDEN when the mutable global
-    // spec proposal is implemented in all major browsers.
-    // See: https://github.com/WebAssembly/mutable-global
-    WasmSym::StackPointer = Symtab->addSyntheticGlobal(
-        "__stack_pointer", WASM_SYMBOL_VISIBILITY_HIDDEN, StackPointer);
-    WasmSym::HeapBase = Symtab->addSyntheticDataSymbol("__heap_base", 0);
-    WasmSym::DsoHandle = Symtab->addSyntheticDataSymbol(
-        "__dso_handle", WASM_SYMBOL_VISIBILITY_HIDDEN);
-    WasmSym::DataEnd = Symtab->addSyntheticDataSymbol("__data_end", 0);
-
-    // For now, since we don't actually use the start function as the
-    // wasm start symbol, we don't need to care about it signature.
-    if (!Config->Entry.empty())
-      EntrySym = addUndefined(Config->Entry);
-
-    // Handle the `--undefined <sym>` options.
-    for (auto *Arg : Args.filtered(OPT_undefined))
-      addUndefined(Arg->getValue());
+  if (Config->Shared) {
+    Config->ExportDynamic = true;
+    Config->AllowUndefined = true;
   }
+
+  if (!Config->Relocatable)
+    createSyntheticSymbols();
 
   createFiles(Args);
   if (errorCount())
@@ -484,44 +562,46 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
   if (errorCount())
     return;
 
-  // Add synthetic dummies for weak undefined functions.
-  if (!Config->Relocatable)
-    handleWeakUndefines();
+  // Handle the `--undefined <sym>` options.
+  for (auto *Arg : Args.filtered(OPT_undefined))
+    handleUndefined(Arg->getValue());
 
-  // Handle --export.
+  // Handle the `--export <sym>` options
+  // This works like --undefined but also exports the symbol if its found
   for (auto *Arg : Args.filtered(OPT_export)) {
-    StringRef Name = Arg->getValue();
-    Symbol *Sym = Symtab->find(Name);
+    Symbol *Sym = handleUndefined(Arg->getValue());
     if (Sym && Sym->isDefined())
       Sym->ForceExport = true;
     else if (!Config->AllowUndefined)
-      error("symbol exported via --export not found: " + Name);
+      error(Twine("symbol exported via --export not found: ") +
+            Arg->getValue());
   }
+
+  Symbol *EntrySym = nullptr;
+  if (!Config->Relocatable) {
+    // Add synthetic dummies for weak undefined functions.
+    handleWeakUndefines();
+
+    if (!Config->Shared && !Config->Entry.empty()) {
+      EntrySym = handleUndefined(Config->Entry);
+      if (EntrySym && EntrySym->isDefined())
+        EntrySym->ForceExport = true;
+      else
+        error("entry symbol not defined (pass --no-entry to supress): " +
+              Config->Entry);
+    }
+
+    // Make sure we have resolved all symbols.
+    if (!Config->AllowUndefined)
+      Symtab->reportRemainingUndefines();
+  }
+
+  if (errorCount())
+    return;
 
   // Do link-time optimization if given files are LLVM bitcode files.
   // This compiles bitcode files into real object files.
   Symtab->addCombinedLTOObject();
-  if (errorCount())
-    return;
-
-  // Make sure we have resolved all symbols.
-  if (!Config->Relocatable && !Config->AllowUndefined) {
-    Symtab->reportRemainingUndefines();
-  } else {
-    // Even when using --allow-undefined we still want to report the absence of
-    // our initial set of undefined symbols (i.e. the entry point and symbols
-    // specified via --undefined).
-    // Part of the reason for this is that these function don't have signatures
-    // so which means they cannot be written as wasm function imports.
-    for (auto *Arg : Args.filtered(OPT_undefined)) {
-      Symbol *Sym = Symtab->find(Arg->getValue());
-      if (!Sym->isDefined())
-        error("symbol forced with --undefined not found: " + Sym->getName());
-    }
-    if (EntrySym && !EntrySym->isDefined())
-      error("entry symbol not defined (pass --no-entry to supress): " +
-            EntrySym->getName());
-  }
   if (errorCount())
     return;
 

@@ -1,0 +1,25 @@
+# REQUIRES: x86
+
+# RUN: yaml2obj %s -o %t.o
+# RUN: not ld.lld %t.o -o %t.exe 2>&1 | FileCheck %s
+# RUN: not ld.lld %t.o %t.o -o %t.exe 2>&1 | FileCheck %s
+
+# CHECK: error: {{.*}}.o: unsupported SHT_GROUP format
+
+--- !ELF
+FileHeader:
+  Class:               ELFCLASS64
+  Data:                ELFDATA2LSB
+  Type:                ET_REL
+  Machine:             EM_X86_64
+Sections:
+  - Name:              .group
+    Type:              SHT_GROUP
+    Link:              .symtab
+    Info:              foo
+    Members:
+      - SectionOrType: 0xFF
+      - SectionOrType: 3
+Symbols:
+  Global:
+    - Name:            foo

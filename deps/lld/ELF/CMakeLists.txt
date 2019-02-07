@@ -15,17 +15,19 @@ add_lld_library(lldELF
   Arch/Hexagon.cpp
   Arch/Mips.cpp
   Arch/MipsArchTree.cpp
+  Arch/MSP430.cpp
   Arch/PPC.cpp
   Arch/PPC64.cpp
+  Arch/RISCV.cpp
   Arch/SPARCV9.cpp
   Arch/X86.cpp
   Arch/X86_64.cpp
   CallGraphSort.cpp
+  DWARF.cpp
   Driver.cpp
   DriverUtils.cpp
   EhFrame.cpp
   Filesystem.cpp
-  GdbIndex.cpp
   ICF.cpp
   InputFiles.cpp
   InputSection.cpp

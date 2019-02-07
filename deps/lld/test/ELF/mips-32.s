@@ -41,8 +41,8 @@ v2:
 #                         ^-- v2+4 ^-- v1
 
 # SYM: SYMBOL TABLE:
-# SYM: 00020000 l       .data           00000004 v1
-# SYM: 00020004 g       .data           00000008 v2
+# SYM: 00020000 l     O .data           00000004 v1
+# SYM: 00020004 g     O .data           00000008 v2
 
 # REL:      Relocations [
 # REL-NEXT:   Section (7) .rel.dyn {

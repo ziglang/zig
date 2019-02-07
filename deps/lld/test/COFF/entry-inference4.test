@@ -14,10 +14,22 @@
 # RUN: not lld-link /subsystem:console /out:%t.exe %t.obj > %t.log 2>&1
 # RUN: FileCheck -check-prefix=WMAIN %s < %t.log
 
-# MAIN:     error: <root>: undefined symbol: mainCRTStartup
-# WMAIN:    error: <root>: undefined symbol: wmainCRTStartup
-# WINMAIN:  error: <root>: undefined symbol: WinMainCRTStartup
-# WWINMAIN: error: <root>: undefined symbol: wWinMainCRTStartup
+# RUN: sed 's/ENTRY1/wmain/;s/ENTRY2/main/' %s | yaml2obj > %t.obj
+# RUN: not lld-link /out:%t.exe %t.obj > %t.log 2>&1
+# RUN: FileCheck -check-prefix=MAINWMAIN %s < %t.log
+
+# RUN: sed 's/ENTRY1/wWinMain/;s/ENTRY2/WinMain/' %s | yaml2obj > %t.obj
+# RUN: not lld-link /out:%t.exe %t.obj > %t.log 2>&1
+# RUN: FileCheck -check-prefix=WINMAINWWINMAIN %s < %t.log
+
+# MAIN:            error: <root>: undefined symbol: mainCRTStartup
+# WMAIN:           error: <root>: undefined symbol: wmainCRTStartup
+# MAINWMAIN:       warning: found both wmain and main; using latter
+# MAINWMAIN:       error: <root>: undefined symbol: mainCRTStartup
+# WINMAIN:         error: <root>: undefined symbol: WinMainCRTStartup
+# WWINMAIN:        error: <root>: undefined symbol: wWinMainCRTStartup
+# WINMAINWWINMAIN: warning: found both wWinMain and WinMain; using latter
+# WINMAINWWINMAIN: error: <root>: undefined symbol: WinMainCRTStartup
 
 --- !COFF
 header:

@@ -1,0 +1,55 @@
+# RUN: yaml2obj %s -o %t.o
+# RUN: ld.lld %t.o %t.o -o %t -r
+# RUN: llvm-readobj -s %t | FileCheck %s
+
+# CHECK:     Name: .text.foo
+# CHECK:     Name: .rela.text.foo
+
+--- !ELF
+FileHeader:
+  Class:           ELFCLASS64
+  Data:            ELFDATA2LSB
+  Type:            ET_REL
+  Machine:         EM_X86_64
+Sections:
+  - Name:            .group
+    Type:            SHT_GROUP
+    Link:            .symtab
+    Info:            foo
+    Members:
+      - SectionOrType:    GRP_COMDAT
+      - SectionOrType:    .text.foo
+      - SectionOrType:    .text.bar
+      - SectionOrType:    .note
+  - Name:            .note
+    Type:            SHT_NOTE
+    Flags:           [ SHF_GROUP ]
+  - Name:            .text.foo
+    Type:            SHT_PROGBITS
+    Flags:           [ SHF_ALLOC, SHF_EXECINSTR, SHF_GROUP ]
+  - Name:            .text.bar
+    Type:            SHT_PROGBITS
+    Flags:           [ SHF_ALLOC, SHF_EXECINSTR, SHF_GROUP ]
+  - Name:            .rela.text.foo
+    Type:            SHT_RELA
+    Flags:           [ SHF_INFO_LINK, SHF_GROUP ]
+    Link:            .symtab
+    Info:            .text.foo
+    Relocations:
+      - Offset:          0x0000000000000000
+        Symbol:          foo
+        Type:            R_X86_64_64
+  - Name:            .rela.text.bar
+    Type:            SHT_RELA
+    Flags:           [ SHF_INFO_LINK, SHF_GROUP ]
+    Link:            .symtab
+    Info:            .text.bar
+    Relocations:
+      - Offset:          0x0000000000000000
+        Symbol:          bar
+        Type:            R_X86_64_64
+Symbols:
+  Global:
+    - Name:            foo
+    - Name:            bar
+

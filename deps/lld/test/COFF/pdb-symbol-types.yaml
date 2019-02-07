@@ -17,9 +17,13 @@
 # CHECK-NEXT:  ============================================================
 # CHECK-NEXT:   Records
 # CHECK-NEXT:       48 | S_PROCREF [size = 20] `main`
-# CHECK-NEXT:             module = 1, sum name = 0, offset = 116
+# CHECK-NEXT:            module = 1, sum name = 0, offset = 116
+# CHECK-NEXT:       96 | S_UDT [size = 16] `UDT_Foo`
+# CHECK-NEXT:            original type = 0x1004
+# CHECK-NEXT:      112 | S_UDT [size = 12] `Foo`
+# CHECK-NEXT:            original type = 0x1004
 # CHECK-NEXT:       68 | S_GDATA32 [size = 28] `global_foo`
-# CHECK-NEXT:             type = 0x1004 (Foo), addr = 0003:0000
+# CHECK-NEXT:            type = 0x1004 (Foo), addr = 0003:0000
 
 # CHECK:                           Symbols
 # CHECK: ============================================================

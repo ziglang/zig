@@ -20,7 +20,7 @@
 # CHECK-NEXT:  Version:
 # CHECK-NEXT:  Entry:
 # CHECK-NEXT:   ProgramHeaderOffset:
-# CHECK-NEXT:   SectionHeaderOffset: 0xD8
+# CHECK-NEXT:   SectionHeaderOffset: 0xE8
 # CHECK-NEXT:  Flags [
 # CHECK-NEXT:  ]
 # CHECK-NEXT:  HeaderSize:

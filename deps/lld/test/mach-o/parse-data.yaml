@@ -115,5 +115,5 @@ global-symbols:
 # CHECK:     type:            unknown
 # CHECK:     content:         [ 01, 02, 03, 04, 05, 06, 07, 08 ]
 # CHECK:     section-choice:  custom-required
-# CHECK:     section-name:    __CUST/__custom
+# CHECK:     section-name:    '__CUST/__custom'
 

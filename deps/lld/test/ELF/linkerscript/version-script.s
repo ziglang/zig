@@ -14,11 +14,11 @@
 # CHECK:      Symbols [
 # CHECK-NEXT:   Symbol {
 # CHECK-NEXT:     Version: 0
-# CHECK-NEXT:     Name: @
+# CHECK-NEXT:     Name:
 # CHECK-NEXT:   }
 # CHECK-NEXT:   Symbol {
 # CHECK-NEXT:     Version: 0
-# CHECK-NEXT:     Name: und@
+# CHECK-NEXT:     Name: und
 # CHECK-NEXT:   }
 # CHECK-NEXT:   Symbol {
 # CHECK-NEXT:     Version: 2
@@ -41,7 +41,7 @@
 # UNDEF:      Symbols [
 # UNDEF-NEXT:   Symbol {
 # UNDEF-NEXT:     Version: 0
-# UNDEF-NEXT:     Name: @
+# UNDEF-NEXT:     Name:
 # UNDEF-NEXT:   }
 # UNDEF-NEXT:   Symbol {
 # UNDEF-NEXT:     Version: 2

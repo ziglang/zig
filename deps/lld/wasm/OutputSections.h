@@ -13,10 +13,8 @@
 #include "InputChunks.h"
 #include "WriterUtils.h"
 #include "lld/Common/ErrorHandler.h"
+#include "lld/Common/LLVM.h"
 #include "llvm/ADT/DenseMap.h"
-
-using llvm::raw_ostream;
-using llvm::raw_string_ostream;
 
 namespace lld {
 
@@ -82,7 +80,7 @@ public:
   std::string Body;
 
 protected:
-  raw_string_ostream BodyOutputStream;
+  llvm::raw_string_ostream BodyOutputStream;
 };
 
 class CodeSection : public OutputSection {
@@ -113,7 +111,7 @@ protected:
   size_t BodySize = 0;
 };
 
-// Represents a custom section in the output file.  Wasm custom sections are 
+// Represents a custom section in the output file.  Wasm custom sections are
 // used for storing user-defined metadata.  Unlike the core sections types
 // they are identified by their string name.
 // The linker combines custom sections that have the same name by simply

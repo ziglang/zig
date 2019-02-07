@@ -42,6 +42,12 @@ defm compress_debug_sections:
 
 defm defsym: Eq<"defsym", "Define a symbol alias">, MetaVarName<"<symbol>=<value>">;
 
+defm split_stack_adjust_size
+    : Eq<"split-stack-adjust-size",
+         "Specify adjustment to stack size when a split-stack function calls a "
+         "non-split-stack function">,
+      MetaVarName<"<value>">;
+
 defm library_path:
   Eq<"library-path", "Add a directory to the library search path">, MetaVarName<"<dir>">;
 
@@ -67,6 +73,10 @@ defm as_needed: B<"as-needed",
 
 defm call_graph_ordering_file:
   Eq<"call-graph-ordering-file", "Layout sections to optimize the given callgraph">;
+
+defm call_graph_profile_sort: B<"call-graph-profile-sort",
+    "Reorder sections with call graph profile (default)",
+    "Do not reorder sections with call graph profile">;
 
 // -chroot doesn't have a help text because it is an internal option.
 def chroot: Separate<["--", "-"], "chroot">;
@@ -132,7 +142,7 @@ def error_unresolved_symbols: F<"error-unresolved-symbols">,
 defm exclude_libs: Eq<"exclude-libs", "Exclude static libraries from automatic export">;
 
 defm execute_only: B<"execute-only",
-    "Do not mark executable sections readable",
+    "Mark executable sections unreadable",
     "Mark executable sections readable (default)">;
 
 defm export_dynamic: B<"export-dynamic",
@@ -245,6 +255,9 @@ defm use_android_relr_tags: B<"use-android-relr-tags",
     "Use SHT_ANDROID_RELR / DT_ANDROID_RELR* tags instead of SHT_RELR / DT_RELR*",
     "Use SHT_RELR / DT_RELR* tags (default)">;
 
+def pic_veneer: F<"pic-veneer">,
+  HelpText<"Always generate position independent thunks (veneers)">;
+
 defm pie: B<"pie",
     "Create a position independent executable",
     "Do not create a position independent executable (default)">;
@@ -315,6 +328,10 @@ defm threads: B<"threads",
     "Run the linker multi-threaded (default)",
     "Do not run the linker multi-threaded">;
 
+defm toc_optimize : B<"toc-optimize",
+    "(PowerPC64) Enable TOC related optimizations (default)",
+    "(PowerPC64) Disable TOC related optimizations">;
+
 def trace: F<"trace">, HelpText<"Print the names of the input files">;
 
 defm trace_symbol: Eq<"trace-symbol", "Trace references to symbols">;
@@ -347,6 +364,10 @@ defm warn_backrefs: B<"warn-backrefs",
 defm warn_common: B<"warn-common",
     "Warn about duplicate common symbols",
     "Do not warn about duplicate common symbols (default)">;
+
+defm warn_ifunc_textrel: B<"warn-ifunc-textrel",
+    "Warn about using ifunc symbols with text relocations",
+    "Do not warn about using ifunc symbols with text relocations (default)">;
 
 defm warn_symbol_ordering: B<"warn-symbol-ordering",
     "Warn about problems with the symbol ordering file (default)",
@@ -440,6 +461,7 @@ def: F<"plugin-opt=debug-pass-manager">,
 def: F<"plugin-opt=disable-verify">, Alias<disable_verify>, HelpText<"Alias for -disable-verify">;
 def plugin_opt_dwo_dir_eq: J<"plugin-opt=dwo_dir=">,
   HelpText<"Directory to store .dwo files when LTO and debug fission are used">;
+def plugin_opt_emit_llvm: F<"plugin-opt=emit-llvm">;
 def: J<"plugin-opt=jobs=">, Alias<thinlto_jobs>, HelpText<"Alias for -thinlto-jobs">;
 def: J<"plugin-opt=lto-partitions=">, Alias<lto_partitions>, HelpText<"Alias for -lto-partitions">;
 def plugin_opt_mcpu_eq: J<"plugin-opt=mcpu=">;

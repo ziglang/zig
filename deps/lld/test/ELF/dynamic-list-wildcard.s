@@ -8,7 +8,7 @@
 
 # CHECK:      DynamicSymbols [
 # CHECK-NEXT:   Symbol {
-# CHECK-NEXT:     Name:	 @ (0)
+# CHECK-NEXT:     Name:
 # CHECK-NEXT:     Value:	 0x0
 # CHECK-NEXT:     Size:	 0
 # CHECK-NEXT:     Binding:	 Local (0x0)
@@ -17,7 +17,7 @@
 # CHECK-NEXT:     Section:	 Undefined (0x0)
 # CHECK-NEXT:   }
 # CHECK-NEXT:   Symbol {
-# CHECK-NEXT:     Name:	 foo1@ (1)
+# CHECK-NEXT:     Name:	 foo1
 # CHECK-NEXT:     Value:	 0x1000
 # CHECK-NEXT:     Size:	 0
 # CHECK-NEXT:     Binding:	 Global (0x1)
@@ -26,7 +26,7 @@
 # CHECK-NEXT:     Section:	 .text (0x4)
 # CHECK-NEXT:   }
 # CHECK-NEXT:   Symbol {
-# CHECK-NEXT:     Name:	 foo11@ (6)
+# CHECK-NEXT:     Name:	 foo11
 # CHECK-NEXT:     Value:	 0x1001
 # CHECK-NEXT:     Size:	 0
 # CHECK-NEXT:     Binding:	 Global (0x1)

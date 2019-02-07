@@ -29,5 +29,14 @@
 # RUN: ld.lld -o %t --script %t.script %t.o
 # RUN: llvm-readobj -sections %t | FileCheck %s --check-prefix=NONALLOC
 
+# RUN: echo "SECTIONS { .bar 0x20000 (INFO) : { *(.foo) } };" > %t.script
+# RUN: ld.lld -o %t --script %t.script %t.o
+# RUN: llvm-readobj -sections %t | FileCheck %s --check-prefix=NONALLOC
+
+# RUN: echo "SECTIONS { .bar 0x20000 (BAR) : { *(.foo) } };" > %t.script
+# RUN: not ld.lld -o %t --script %t.script %t.o 2>&1 |\
+# RUN:   FileCheck %s --check-prefix=UNKNOWN
+# UNKNOWN: unknown section directive: BAR
+
 .section .foo,"a",@progbits
 .zero 1

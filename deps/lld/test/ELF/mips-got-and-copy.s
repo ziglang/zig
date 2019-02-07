@@ -32,7 +32,7 @@
 # CHECK-NEXT:       Value: 0x[[DATA0]]
 # CHECK-NEXT:       Type: Object
 # CHECK-NEXT:       Section: .bss
-# CHECK-NEXT:       Name: data0@
+# CHECK-NEXT:       Name: data0
 # CHECK-NEXT:     }
 # CHECK-NEXT:     Entry {
 # CHECK-NEXT:       Address:
@@ -41,7 +41,7 @@
 # CHECK-NEXT:       Value: 0x[[DATA1]]
 # CHECK-NEXT:       Type: Object
 # CHECK-NEXT:       Section: .bss
-# CHECK-NEXT:       Name: data1@
+# CHECK-NEXT:       Name: data1
 # CHECK-NEXT:     }
 # CHECK-NEXT:   ]
 # CHECK-NEXT:   Number of TLS and multi-GOT entries: 0

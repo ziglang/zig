@@ -1,7 +1,7 @@
 # REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=i686-pc-linux %s -o %t.o
 # RUN: ld.lld %t.o -o %t -pie
-# RUN: llvm-readelf -r -s %t | FileCheck %s
+# RUN: llvm-readelf -r -S %t | FileCheck %s
 
 # Unlike bfd and gold we accept this.
 

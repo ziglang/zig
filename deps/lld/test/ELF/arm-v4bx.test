@@ -1,0 +1,40 @@
+# REQUIRES: arm
+# RUN: yaml2obj %s -o %t.o
+# RUN: ld.lld %t.o -o %t
+# RUN: llvm-readelf -sections %t | FileCheck %s
+# RUN: ld.lld -shared %t.o -o %t
+# RUN: llvm-readelf -sections %t | FileCheck %s
+
+# CHECK: .text
+
+--- !ELF
+FileHeader:
+  Class:           ELFCLASS32
+  Data:            ELFDATA2LSB
+  Type:            ET_REL
+  Machine:         EM_ARM
+  Flags:           [ EF_ARM_EABI_VER5 ]
+Sections:
+  - Name:            .text
+    Type:            SHT_PROGBITS
+    Flags:           [ SHF_ALLOC, SHF_EXECINSTR ]
+    AddressAlign:    0x0000000000000004
+    Content:         1EFF2F01
+  - Name:            .rel.text
+    Type:            SHT_REL
+    Link:            .symtab
+    AddressAlign:    0x0000000000000004
+    Info:            .text
+    Relocations:
+      - Offset:          0x0000000000000000
+        Symbol:          ''
+        Type:            R_ARM_V4BX
+Symbols:
+  Global:
+    - Name:            _start
+      Section:         .text
+  Local:
+    - Name:            .text
+      Type:            STT_SECTION
+      Section:         .text
+DynamicSymbols:

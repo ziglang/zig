@@ -17,7 +17,7 @@
 // CHECK-NEXT:   SHF_ALLOC
 // CHECK-NEXT:   SHF_EXECINSTR
 // CHECK-NEXT: ]
-// CHECK-NEXT: Address: 0x11020
+// CHECK-NEXT: Address: 0x401020
 // CHECK-NEXT: Offset:
 // CHECK-NEXT: Size: 48
 // CHECK-NEXT: Link: 0
@@ -30,7 +30,7 @@
 // CHECK-NEXT:   SHF_ALLOC
 // CHECK-NEXT:   SHF_WRITE
 // CHECK-NEXT: ]
-// CHECK-NEXT: Address: 0x12000
+// CHECK-NEXT: Address: 0x402000
 // CHECK-NEXT: Offset: 0x2000
 // CHECK-NEXT: Size: 20
 // CHECK-NEXT: Link: 0
@@ -42,8 +42,8 @@
 // 0x12000 + got.plt.reserved(12) + 4 = 0x12010
 // CHECK:      Relocations [
 // CHECK-NEXT:   Section ({{.*}}) .rel.plt {
-// CHECK-NEXT:     0x1200C R_386_JUMP_SLOT bar 0x0
-// CHECK-NEXT:     0x12010 R_386_JUMP_SLOT zed 0x0
+// CHECK-NEXT:     0x40200C R_386_JUMP_SLOT bar 0x0
+// CHECK-NEXT:     0x402010 R_386_JUMP_SLOT zed 0x0
 // CHECK-NEXT:   }
 // CHECK-NEXT: ]
 
@@ -51,40 +51,44 @@
 // values:
 
 // 16 is the size of PLT[0]
-// (0x11010 + 16) - (0x11000 + 1) - 4 = 27
-// (0x11010 + 16) - (0x11005 + 1) - 4 = 22
-// (0x11020 + 16) - (0x1100a + 1) - 4 = 33
+// (0x401010 + 16) - (0x401000 + 1) - 4 = 27
+// (0x401010 + 16) - (0x401005 + 1) - 4 = 22
+// (0x401020 + 16) - (0x40100a + 1) - 4 = 33
 
 // DISASM:       local:
-// DISASM-NEXT:  11000: {{.*}}
-// DISASM-NEXT:  11002: {{.*}}
+// DISASM-NEXT:  401000: {{.*}}
+// DISASM-NEXT:  401002: {{.*}}
 // DISASM:       _start:
-// 0x11013 + 5 - 24 = 0x11000
-// DISASM-NEXT: 11004: e9 27 00 00 00 jmp 39
-// DISASM-NEXT: 11009: e9 22 00 00 00 jmp 34
-// DISASM-NEXT: 1100e: e9 2d 00 00 00 jmp 45
-// DISASM-NEXT: 11013: e9 e8 ff ff ff jmp -24
+// 0x401013 + 5 - 24 = 0x401000
+// DISASM-NEXT: 401004: e9 27 00 00 00 jmp 39
+// DISASM-NEXT: 401009: e9 22 00 00 00 jmp 34
+// DISASM-NEXT: 40100e: e9 2d 00 00 00 jmp 45
+// DISASM-NEXT: 401013: e9 e8 ff ff ff jmp -24
 
-// 0x11010 - 0x1102b - 5 = -32
-// 0x11010 - 0x1103b - 5 = -48
-// 77828 = 0x13004 = .got.plt (0x13000) + 4
-// 77832 = 0x13008 = .got.plt (0x13000) + 8
-// 77836 = 0x1300C = .got.plt (0x13000) + got.plt.reserved(12)
-// 77840 = 0x13010 = .got.plt (0x13000) + got.plt.reserved(12) + 4
+// 0x401010 - 0x40102b - 5 = -32
+// 0x401010 - 0x40103b - 5 = -48
+// 4202500 = 0x402004 = .got.plt (0x402000) + 4
+// 4202504 = 0x402008 = .got.plt (0x402000) + 8
+// 4202508 = 0x40200C = .got.plt (0x402000) + got.plt.reserved(12)
+// 4202512 = 0x402010 = .got.plt (0x402000) + got.plt.reserved(12) + 4
 // DISASM:      Disassembly of section .plt:
 // DISASM-NEXT: .plt:
-// DISASM-NEXT:    11020: ff 35 04 20 01 00 pushl 73732
-// DISASM-NEXT:    11026: ff 25 08 20 01 00 jmpl *73736
-// DISASM-NEXT:    1102c: 90 nop
-// DISASM-NEXT:    1102d: 90 nop
-// DISASM-NEXT:    1102e: 90 nop
-// DISASM-NEXT:    1102f: 90 nop
-// DISASM-NEXT:    11030: ff 25 0c 20 01 00 jmpl *73740
-// DISASM-NEXT:    11036: 68 00 00 00 00 pushl $0
-// DISASM-NEXT:    1103b: e9 e0 ff ff ff jmp -32 <.plt>
-// DISASM-NEXT:    11040: ff 25 10 20 01 00 jmpl *73744
-// DISASM-NEXT:    11046: 68 08 00 00 00 pushl $8
-// DISASM-NEXT:    1104b: e9 d0 ff ff ff jmp -48 <.plt>
+// DISASM-NEXT:    401020: ff 35 04 20 40 00 pushl 4202500
+// DISASM-NEXT:    401026: ff 25 08 20 40 00 jmpl *4202504
+// DISASM-NEXT:    40102c: 90 nop
+// DISASM-NEXT:    40102d: 90 nop
+// DISASM-NEXT:    40102e: 90 nop
+// DISASM-NEXT:    40102f: 90 nop
+// DISASM-EMPTY:
+// DISASM-NEXT:   bar@plt:
+// DISASM-NEXT:    401030: ff 25 0c 20 40 00 jmpl *4202508
+// DISASM-NEXT:    401036: 68 00 00 00 00 pushl $0
+// DISASM-NEXT:    40103b: e9 e0 ff ff ff jmp -32 <.plt>
+// DISASM-EMPTY:
+// DISASM-NEXT:   zed@plt:
+// DISASM-NEXT:    401040: ff 25 10 20 40 00 jmpl *4202512
+// DISASM-NEXT:    401046: 68 08 00 00 00 pushl $8
+// DISASM-NEXT:    40104b: e9 d0 ff ff ff jmp -48 <.plt>
 
 // CHECKSHARED:        Name: .plt
 // CHECKSHARED-NEXT:   Type: SHT_PROGBITS

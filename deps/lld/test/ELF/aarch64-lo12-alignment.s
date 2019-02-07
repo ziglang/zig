@@ -39,7 +39,7 @@ foo4:
 foo8:
  .space 8
 
-// CHECK: improper alignment for relocation R_AARCH64_LDST16_ABS_LO12_NC: 0x30001 is not aligned to 2 bytes
-// CHECK-NEXT: improper alignment for relocation R_AARCH64_LDST32_ABS_LO12_NC: 0x30002 is not aligned to 4 bytes
-// CHECK-NEXT: improper alignment for relocation R_AARCH64_LDST64_ABS_LO12_NC: 0x30004 is not aligned to 8 bytes
-// CHECK-NEXT: improper alignment for relocation R_AARCH64_LDST128_ABS_LO12_NC: 0x30008 is not aligned to 16 bytes
+// CHECK: improper alignment for relocation R_AARCH64_LDST16_ABS_LO12_NC: 0x220001 is not aligned to 2 bytes
+// CHECK-NEXT: improper alignment for relocation R_AARCH64_LDST32_ABS_LO12_NC: 0x220002 is not aligned to 4 bytes
+// CHECK-NEXT: improper alignment for relocation R_AARCH64_LDST64_ABS_LO12_NC: 0x220004 is not aligned to 8 bytes
+// CHECK-NEXT: improper alignment for relocation R_AARCH64_LDST128_ABS_LO12_NC: 0x220008 is not aligned to 16 bytes

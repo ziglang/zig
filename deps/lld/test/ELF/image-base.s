@@ -3,6 +3,9 @@
 # RUN: ld.lld -image-base=0x1000000 %t -o %t1
 # RUN: llvm-readobj -program-headers %t1 | FileCheck %s
 
+# RUN: not ld.lld -image-base=ABC %t -o %t1 2>&1 | FileCheck --check-prefix=ERR %s
+# ERR: error: -image-base: number expected, but got ABC
+
 # RUN: ld.lld -image-base=0x1000 -z max-page-size=0x2000 %t -o %t1 2>&1 | FileCheck --check-prefix=WARN %s
 # WARN: warning: -image-base: address isn't multiple of page size: 0x1000
 

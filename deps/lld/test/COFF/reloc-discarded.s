@@ -10,6 +10,7 @@
 # RUN: not lld-link -entry:main -nodefaultlib %t1.obj %t2.obj -out:%t.exe -opt:noref 2>&1 | FileCheck %s
 
 # CHECK: error: relocation against symbol in discarded section: assoc_global
+# CHECK: >>> referenced by {{.*}}reloc-discarded{{.*}}.obj:(main)
 
 	.section	.bss,"bw",discard,main_global
 	.globl	main_global

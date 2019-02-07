@@ -13,10 +13,10 @@
 
 # CHECK:      Symbol table '.dynsym' contains 4 entries:
 # CHECK-NEXT:    Num:    Value          Size Type    Bind   Vis      Ndx   Name
-# CHECK-NEXT:      0: 0000000000000000     0 NOTYPE  LOCAL  DEFAULT  UND   @
-# CHECK-NEXT:      1: 0000000000000000     0 OBJECT  GLOBAL DEFAULT  UND   foo@
-# CHECK-DAG:        : {{.*}}               4 OBJECT  GLOBAL DEFAULT {{.*}} bar@
-# CHECK-DAG:        : {{.*}}               0 FUNC    GLOBAL DEFAULT  UND   zed@
+# CHECK-NEXT:      0: 0000000000000000     0 NOTYPE  LOCAL  DEFAULT  UND
+# CHECK-NEXT:      1: 0000000000000000     0 OBJECT  GLOBAL DEFAULT  UND   foo
+# CHECK-DAG:        : {{.*}}               4 OBJECT  GLOBAL DEFAULT {{.*}} bar
+# CHECK-DAG:        : {{.*}}               0 FUNC    GLOBAL DEFAULT  UND   zed
 
 # CHECK: First Hashed Symbol Index: 2
 

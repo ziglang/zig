@@ -43,6 +43,7 @@
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t.testdir1/filename-spec1.o
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux \
 # RUN:   %p/Inputs/filename-spec.s -o %t.testdir2/filename-spec2.o
+# RUN: rm -f %t.testdir1/lib1.a %t.testdir2/lib2.a
 # RUN: llvm-ar rsc %t.testdir1/lib1.a %t.testdir1/filename-spec1.o
 # RUN: llvm-ar rsc %t.testdir2/lib2.a %t.testdir2/filename-spec2.o
 

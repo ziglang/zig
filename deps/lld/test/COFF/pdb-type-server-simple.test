@@ -62,10 +62,12 @@ CHECK:            {{.*}}: `b.c`
 CHECK-LABEL:                       Global Symbols
 CHECK:       ============================================================
 CHECK-NEXT:    Records
-CHECK-NEXT:        36 | S_PROCREF [size = 20] `main`
-CHECK-NEXT:             module = 1, sum name = 0, offset = 104
-CHECK-NEXT:        56 | S_PROCREF [size = 16] `g`
-CHECK-NEXT:             module = 2, sum name = 0, offset = 104
+CHECK-NEXT:       36 | S_PROCREF [size = 20] `main`
+CHECK-NEXT:            module = 1, sum name = 0, offset = 104
+CHECK-NEXT:       68 | S_PROCREF [size = 16] `g`
+CHECK-NEXT:            module = 2, sum name = 0, offset = 104
+CHECK-NEXT:       56 | S_UDT [size = 12] `Foo`
+CHECK-NEXT:            original type = 0x1006
 
 CHECK-LABEL:                           Symbols
 CHECK: ============================================================
@@ -89,7 +91,7 @@ CHECK:            size = 0, padding size = 0, offset to padding = 0
 CHECK:            bytes of callee saved registers = 0, exception handler addr = 0000:0000
 CHECK:            flags = has async eh | opt speed
 CHECK:      180 | S_REGREL32 [size = 16] `p`
-CHECK:            type = [[FOO_PTR]] (Foo*), register = CVRegRSP, offset = 8
+CHECK:            type = [[FOO_PTR]] (Foo*), register = RSP, offset = 8
 CHECK:      196 | S_END [size = 4]
 CHECK:      200 | S_BUILDINFO [size = 8] BuildId = `[[B_BUILD]]`
 CHECK-LABEL:   Mod 0002 | `* Linker *`:

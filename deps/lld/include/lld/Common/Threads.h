@@ -74,7 +74,7 @@ template <typename R, class FuncTy> void parallelForEach(R &&Range, FuncTy Fn) {
 }
 
 inline void parallelForEachN(size_t Begin, size_t End,
-                             std::function<void(size_t)> Fn) {
+                             llvm::function_ref<void(size_t)> Fn) {
   if (ThreadsEnabled)
     for_each_n(llvm::parallel::par, Begin, End, Fn);
   else

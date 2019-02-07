@@ -1,5 +1,5 @@
 // REQUIRES: arm
-// RUN: llvm-mc -filetype=obj -triple=thumbv7a-none-linux-gnueabi %s -o %t
+// RUN: llvm-mc -arm-add-build-attributes -filetype=obj -triple=thumbv7a-none-linux-gnueabi %s -o %t
 // RUN: echo "SECTIONS { \
 // RUN:       .text 0x100000 : { *(.text) } \
 // RUN:       .textl : { *(.text_l0*) *(.text_l1*) *(.text_l2*) *(.text_l3*) } \
@@ -21,7 +21,8 @@
 // per OutputSection basis
  .syntax unified
 
-// Define a function that we can match with .text_l* aligned on a megabyte      // boundary
+// Define a function that we can match with .text_l* aligned on a megabyte
+// boundary
  .macro FUNCTIONL suff
  .section .text_l\suff\(), "ax", %progbits
  .thumb

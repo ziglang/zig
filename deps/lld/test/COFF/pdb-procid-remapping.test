@@ -14,6 +14,7 @@ CHECK-NEXT:                type = `0x1004 (int (<no type>))`, debug start = 4, d
 CHECK-NEXT:          136 | S_FRAMEPROC [size = 32]
 CHECK-NEXT:                size = 40, padding size = 0, offset to padding = 0
 CHECK-NEXT:                bytes of callee saved registers = 0, exception handler addr = 0000:0000
+CHECK-NEXT:                local fp reg = NONE, param fp reg = NONE
 CHECK-NEXT:                flags = has async eh | opt speed
 CHECK-NEXT:          168 | S_END [size = 4]
 CHECK-LABEL:    Mod 0001 |
@@ -23,6 +24,7 @@ CHECK-NEXT:                type = `0x1001 (int ())`, debug start = 0, debug end 
 CHECK-NEXT:          136 | S_FRAMEPROC [size = 32]
 CHECK-NEXT:                size = 0, padding size = 0, offset to padding = 0
 CHECK-NEXT:                bytes of callee saved registers = 0, exception handler addr = 0000:0000
+CHECK-NEXT:                local fp reg = NONE, param fp reg = NONE
 CHECK-NEXT:                flags = has async eh | opt speed
 CHECK-NEXT:          168 | S_END [size = 4]
 CHECK-LABEL:    Mod 0002 |

@@ -43,7 +43,7 @@
 # CHECK-NEXT:     Value: 0x0
 # CHECK-NEXT:     Type: None
 # CHECK-NEXT:     Section: Undefined
-# CHECK-NEXT:     Name: _foo@
+# CHECK-NEXT:     Name: _foo
 # CHECK-NEXT:   }
 # CHECK-NEXT: ]
 

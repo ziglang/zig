@@ -7,7 +7,7 @@
 # RUN:  }" > %t.script
 # RUN: ld.lld -shared -o %t.so --script %t.script %t.o
 
-# RUN: llvm-readelf -s %t.so | FileCheck %s
+# RUN: llvm-readelf -S %t.so | FileCheck %s
 # CHECK-NOT:  .got
 # CHECK-NOT:  .plt
 # CHECK:      .dynsym

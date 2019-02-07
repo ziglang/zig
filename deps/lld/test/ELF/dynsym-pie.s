@@ -50,7 +50,7 @@
 
 # CHECK:      DynamicSymbols [
 # CHECK-NEXT:  Symbol {
-# CHECK-NEXT:    Name: @
+# CHECK-NEXT:    Name:
 # CHECK-NEXT:    Value: 0x0
 # CHECK-NEXT:    Size: 0
 # CHECK-NEXT:    Binding: Local

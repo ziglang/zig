@@ -89,6 +89,7 @@ private:
   Optional<StringRef> findLib(StringRef Filename);
   StringRef doFindFile(StringRef Filename);
   StringRef doFindLib(StringRef Filename);
+  StringRef doFindLibMinGW(StringRef Filename);
 
   // Parses LIB environment which contains a list of search paths.
   void addLibSearchPaths();
@@ -113,8 +114,6 @@ private:
   // entry point name.
   StringRef findDefaultEntry();
   WindowsSubsystem inferSubsystem();
-
-  void invokeMSVC(llvm::opt::InputArgList &Args);
 
   void addBuffer(std::unique_ptr<MemoryBuffer> MB, bool WholeArchive);
   void addArchiveBuffer(MemoryBufferRef MBRef, StringRef SymName,

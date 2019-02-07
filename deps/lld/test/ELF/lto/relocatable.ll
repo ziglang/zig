@@ -41,6 +41,15 @@
 ; CHECK-NEXT:     Section: .text.foo
 ; CHECK-NEXT:   }
 ; CHECK-NEXT:   Symbol {
+; CHECK-NEXT:     Name:
+; CHECK-NEXT:     Value: 0x0
+; CHECK-NEXT:     Size: 0
+; CHECK-NEXT:     Binding: Local
+; CHECK-NEXT:     Type: Section
+; CHECK-NEXT:     Other: 0
+; CHECK-NEXT:     Section: .llvm_addrsig
+; CHECK-NEXT:   }
+; CHECK-NEXT:   Symbol {
 ; CHECK-NEXT:     Name: foo
 ; CHECK-NEXT:     Value: 0x0
 ; CHECK-NEXT:     Size: 1

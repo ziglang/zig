@@ -33,13 +33,13 @@
 
 ## 73728 == 0x12000 == ADDR(.got)
 # CHECK:       _start:
-# CHECK-NEXT:   11001: 8b 05 {{.*}} movl 77824, %eax
-# CHECK-NEXT:   11007: 8b 1d {{.*}} movl 77824, %ebx
-# CHECK-NEXT:   1100d: 8b 80 {{.*}} movl -4(%eax), %eax
-# CHECK-NEXT:   11013: 8b 83 {{.*}} movl -4(%ebx), %eax
+# CHECK-NEXT:   401001: 8b 05 {{.*}} movl 4206592, %eax
+# CHECK-NEXT:   401007: 8b 1d {{.*}} movl 4206592, %ebx
+# CHECK-NEXT:   40100d: 8b 80 {{.*}} movl -4(%eax), %eax
+# CHECK-NEXT:   401013: 8b 83 {{.*}} movl -4(%ebx), %eax
 # CHECK: Sections:
 # CHECK:  Name Size     Address
-# CHECK:  .got 00000004 0000000000013000
+# CHECK:  .got 00000004 0000000000403000
 
 # RUN: not ld.lld %S/Inputs/i386-got32x-baseless.elf -o %t1 -pie 2>&1 | \
 # RUN:   FileCheck %s --check-prefix=ERR

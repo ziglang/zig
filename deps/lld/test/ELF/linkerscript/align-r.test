@@ -4,7 +4,7 @@
 
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/align.s -o %t1.o
 # RUN: ld.lld -r -o %t2.o --script %s %t1.o
-# RUN: llvm-readelf -s %t2.o | FileCheck %s
+# RUN: llvm-readelf -S %t2.o | FileCheck %s
 
 # CHECK:      Section Headers:
 # CHECK-NEXT: Name Type     Address          Off    Size   ES Flg Lk Inf Al

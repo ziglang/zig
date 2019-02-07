@@ -1,11 +1,11 @@
 // REQUIRES: ppc
 
 // RUN: llvm-mc -filetype=obj -triple=powerpc64le-unknown-linux %s -o %t.o
-// RUN: ld.lld -shared -z notext %t.o -o %t.so
+// RUN: ld.lld -shared %t.o -o %t.so
 // RUN: llvm-readelf -dyn-relocations %t.so | FileCheck %s
 
 // RUN: llvm-mc -filetype=obj -triple=powerpc64-unknown-linux %s -o %t.o
-// RUN: ld.lld -shared -z notext %t.o -o %t.so
+// RUN: ld.lld -shared %t.o -o %t.so
 // RUN: llvm-readelf -dyn-relocations %t.so | FileCheck %s
 
 

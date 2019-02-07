@@ -1,10 +1,25 @@
 # This is an object compiled with /Zi (see the LF_TYPESERVER2 record) without an
 # adjacent type server PDB. Test that LLD fails gracefully on it.
+# Also try linking another OBJ with a reference to the same PDB
 
-# RUN: yaml2obj %s -o %t.obj
-# RUN: lld-link %t.obj -out:%t.exe -debug -pdb:%t.pdb -nodefaultlib -entry:main 2>&1 | FileCheck %s
+# RUN: yaml2obj %s -o %t1.obj
+# RUN: yaml2obj %p/Inputs/pdb-type-server-missing-2.yaml -o %t2.obj
+# RUN: lld-link %t1.obj %t2.obj -out:%t.exe -debug -pdb:%t.pdb -nodefaultlib -entry:main 2>&1 | FileCheck %s -check-prefix=WARN
+# RUN: lld-link %t1.obj %t2.obj -out:%t.exe -debug -pdb:%t.pdb -nodefaultlib -entry:main /ignore:4099 2>&1 | FileCheck %s -check-prefix=IGNORE -allow-empty
+# RUN: not lld-link %t1.obj %t2.obj -out:%t.exe -debug -pdb:%t.pdb -nodefaultlib -entry:main /WX 2>&1 | FileCheck %s -check-prefix=ERR
+# RUN: lld-link %t1.obj %t2.obj -out:%t.exe -debug -pdb:%t.pdb -nodefaultlib -entry:main /ignore:4099 /WX 2>&1 | FileCheck %s -check-prefix=IGNORE-ERR -allow-empty
 
-# CHECK: warning: Type server PDB for {{.*}}.obj is invalid, ignoring debug info.
+# WARN: warning: Cannot use debug info for '{{.*}}.obj' [LNK4099]
+# WARN-NEXT: {{N|n}}o such file or directory
+
+# IGNORE-NOT: warning: Cannot use debug info for '{{.*}}.obj' [LNK4099]
+# IGNORE-NOT: {{N|n}}o such file or directory
+
+# ERR: error: Cannot use debug info for '{{.*}}.obj' [LNK4099]
+# ERR-NEXT: {{N|n}}o such file or directory
+
+# IGNORE-ERR-NOT: error: Cannot use debug info for '{{.*}}.obj' [LNK4099]
+# IGNORE-ERR-NOT: {{N|n}}o such file or directory
 
 --- !COFF
 header:

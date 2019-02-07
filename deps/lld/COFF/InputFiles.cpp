@@ -54,8 +54,16 @@ std::vector<BitcodeFile *> BitcodeFile::Instances;
 static void checkAndSetWeakAlias(SymbolTable *Symtab, InputFile *F,
                                  Symbol *Source, Symbol *Target) {
   if (auto *U = dyn_cast<Undefined>(Source)) {
-    if (U->WeakAlias && U->WeakAlias != Target)
+    if (U->WeakAlias && U->WeakAlias != Target) {
+      // Weak aliases as produced by GCC are named in the form
+      // .weak.<weaksymbol>.<othersymbol>, where <othersymbol> is the name
+      // of another symbol emitted near the weak symbol.
+      // Just use the definition from the first object file that defined
+      // this weak symbol.
+      if (Config->MinGW)
+        return;
       Symtab->reportDuplicate(Source, F);
+    }
     U->WeakAlias = Target;
   }
 }
@@ -147,9 +155,10 @@ SectionChunk *ObjFile::readSection(uint32_t SectionNumber,
                                    const coff_aux_section_definition *Def,
                                    StringRef LeaderName) {
   const coff_section *Sec;
-  StringRef Name;
   if (auto EC = COFFObj->getSection(SectionNumber, Sec))
     fatal("getSection failed: #" + Twine(SectionNumber) + ": " + EC.message());
+
+  StringRef Name;
   if (auto EC = COFFObj->getSectionName(Sec, Name))
     fatal("getSectionName failed: #" + Twine(SectionNumber) + ": " +
           EC.message());
@@ -161,6 +170,11 @@ SectionChunk *ObjFile::readSection(uint32_t SectionNumber,
     return nullptr;
   }
 
+  if (Name == ".llvm_addrsig") {
+    AddrsigSec = Sec;
+    return nullptr;
+  }
+
   // Object files may have DWARF debug info or MS CodeView debug info
   // (or both).
   //
@@ -168,8 +182,8 @@ SectionChunk *ObjFile::readSection(uint32_t SectionNumber,
   // of the linker; they are just a data section containing relocations.
   // We can just link them to complete debug info.
   //
-  // CodeView needs a linker support. We need to interpret and debug
-  // info, and then write it to a separate .pdb file.
+  // CodeView needs linker support. We need to interpret debug info,
+  // and then write it to a separate .pdb file.
 
   // Ignore DWARF debug info unless /debug is given.
   if (!Config->Debug && Name.startswith(".debug_"))
@@ -267,10 +281,17 @@ Symbol *ObjFile::createRegular(COFFSymbolRef Sym) {
     COFFObj->getSymbolName(Sym, Name);
     if (SC)
       return Symtab->addRegular(this, Name, Sym.getGeneric(), SC);
+    // For MinGW symbols named .weak.* that point to a discarded section,
+    // don't create an Undefined symbol. If nothing ever refers to the symbol,
+    // everything should be fine. If something actually refers to the symbol
+    // (e.g. the undefined weak alias), linking will fail due to undefined
+    // references at the end.
+    if (Config->MinGW && Name.startswith(".weak."))
+      return nullptr;
     return Symtab->addUndefined(Name, this, false);
   }
   if (SC)
-    return make<DefinedRegular>(this, /*Name*/ "", false,
+    return make<DefinedRegular>(this, /*Name*/ "", /*IsCOMDAT*/ false,
                                 /*IsExternal*/ false, Sym.getGeneric(), SC);
   return nullptr;
 }
@@ -318,7 +339,7 @@ void ObjFile::initializeSymbols() {
 
   for (uint32_t I : PendingIndexes) {
     COFFSymbolRef Sym = check(COFFObj->getSymbol(I));
-    if (auto *Def = Sym.getSectionDefinition()) {
+    if (const coff_aux_section_definition *Def = Sym.getSectionDefinition()) {
       if (Def->Selection == IMAGE_COMDAT_SELECT_ASSOCIATIVE)
         readAssociativeDefinition(Sym, Def);
       else if (Config->MinGW)
@@ -401,7 +422,7 @@ Optional<Symbol *> ObjFile::createDefined(
       std::tie(Leader, Prevailing) =
           Symtab->addComdat(this, GetName(), Sym.getGeneric());
     } else {
-      Leader = make<DefinedRegular>(this, /*Name*/ "", false,
+      Leader = make<DefinedRegular>(this, /*Name*/ "", /*IsCOMDAT*/ false,
                                     /*IsExternal*/ false, Sym.getGeneric());
       Prevailing = true;
     }
@@ -421,7 +442,7 @@ Optional<Symbol *> ObjFile::createDefined(
   // leader symbol by setting the section's ComdatDefs pointer if we encounter a
   // non-associative comdat.
   if (SparseChunks[SectionNumber] == PendingComdat) {
-    if (auto *Def = Sym.getSectionDefinition()) {
+    if (const coff_aux_section_definition *Def = Sym.getSectionDefinition()) {
       if (Def->Selection == IMAGE_COMDAT_SELECT_ASSOCIATIVE)
         readAssociativeDefinition(Sym, Def);
       else
@@ -429,8 +450,10 @@ Optional<Symbol *> ObjFile::createDefined(
     }
   }
 
+  // readAssociativeDefinition() writes to SparseChunks, so need to check again.
   if (SparseChunks[SectionNumber] == PendingComdat)
     return None;
+
   return createRegular(Sym);
 }
 
@@ -481,6 +504,10 @@ void ImportFile::parse() {
   ExternalName = ExtName;
 
   ImpSym = Symtab->addImportData(ImpName, this);
+  // If this was a duplicate, we logged an error but may continue;
+  // in this case, ImpSym is nullptr.
+  if (!ImpSym)
+    return;
 
   if (Hdr->getType() == llvm::COFF::IMPORT_CONST)
     static_cast<void>(Symtab->addImportData(Name, this));

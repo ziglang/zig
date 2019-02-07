@@ -80,7 +80,7 @@
 # CHECK-NEXT:       Value: 0x20041
 # CHECK-NEXT:       Type: Function
 # CHECK-NEXT:       Section: Undefined
-# CHECK-NEXT:       Name: foo0@
+# CHECK-NEXT:       Name: foo0
 # CHECK-NEXT:     }
 # CHECK-NEXT:   ]
 # CHECK-NEXT: }

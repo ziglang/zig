@@ -3,7 +3,7 @@
 .\"
 .\" This man page documents only lld's ELF linking support, obtained originally
 .\" from FreeBSD.
-.Dd July 30, 2018
+.Dd September 26, 2018
 .Dt LD.LLD 1
 .Os
 .Sh NAME
@@ -13,6 +13,7 @@
 .Nm ld.lld
 .Op Ar options
 .Ar objfile ...
+
 .Sh DESCRIPTION
 A linker takes one or more object, archive, and library files, and combines
 them into an output file (an executable, a shared library, or another object
@@ -25,7 +26,21 @@ is a drop-in replacement for the GNU BFD and gold linkers.
 It accepts most of the same command line arguments and linker scripts
 as GNU linkers.
 .Pp
-These options are available:
+.Nm
+currently supports i386, x86-64, ARM, AArch64, PowerPC32, PowerPC64,
+MIPS32, MIPS64, RISC-V, AMDGPU, Hexagon and SPARC V9 targets.
+.Nm
+acts as a Microsoft link.exe-compatible linker if invoked as
+.Nm lld-link
+and as macOS's ld if invoked as
+.Nm ld.ld64.
+All these targets are always supported however
+.Nm
+was built, so you can always use
+.Nm
+as a native linker as well as a cross linker.
+
+.Sh OPTIONS
 .Bl -tag -width indent
 .It Fl -allow-multiple-definition
 Do not error if a symbol is defined multiple times.
@@ -144,6 +159,9 @@ Maximum number of errors to emit before stopping.
 A value of zero indicates that there is no limit.
 .It Fl -error-unresolved-symbols
 Report unresolved symbols as errors.
+.It Fl -execute-only
+Mark executable sections unreadable. This option is currently only
+supported on AArch64.
 .It Fl -exclude-libs Ns = Ns Ar value
 Exclude static libraries from automatic export.
 .It Fl -export-dynamic , Fl E
@@ -293,10 +311,14 @@ Write optimization remarks in YAML format to
 .Ar file .
 .It Fl -opt-remarks-with-hotness
 Include hotness information in the optimization remarks file.
+.It Fl -pic-veneer
+Always generate position independent thunks.
 .It Fl -pie
 Create a position independent executable.
 .It Fl -print-gc-sections
 List removed unused sections.
+.It Fl -print-icf-sections
+List identical folded sections.
 .It Fl -print-map
 Print a link map to the standard output.
 .It Fl -push-state
@@ -304,7 +326,7 @@ Save the current state of
 .Fl -as-needed ,
 .Fl -static ,
 and
-.Fl -while-archive.
+.Fl -whole-archive.
 .It Fl -pop-state
 Undo the effect of
 .Fl -push-state.
@@ -426,6 +448,17 @@ This can be used to ensure linker invocation remains compatible with
 traditional Unix-like linkers.
 .It Fl -warn-common
 Warn about duplicate common symbols.
+.It Fl -warn-ifunc-textrel
+Warn about using ifunc symbols in conjunction with text relocations.
+Older versions of glibc library (2.28 and earlier) has a bug that causes
+the segment that includes ifunc symbols to be marked as not executable when
+they are relocated. As a result, although the program compiles and links
+successfully, it gives segmentation fault when the instruction pointer reaches
+an ifunc symbol. Use -warn-ifunc-textrel to let lld give a warning, if the
+code may include ifunc symbols, may do text relocations and be linked with
+an older glibc version. Otherwise, there is no need to use it, as the default
+value does not give a warning. This flag has been introduced in late 2018,
+has no counter part in ld and gold linkers, and may be removed in the future.
 .It Fl -warn-unresolved-symbols
 Report unresolved symbols as warnings.
 .It Fl -whole-archive
@@ -440,10 +473,22 @@ Make the main stack executable.
 Stack permissions are recorded in the
 .Dv PT_GNU_STACK
 segment.
+.It Cm global
+Sets the
+.Dv DF_1_GLOBAL flag in the
+.Dv DYNAMIC
+section.
+Different loaders can decide how to handle this flag on their own.
 .It Cm initfirst
 Sets the
 .Dv DF_1_INITFIRST
 flag to indicate the module should be initialized first.
+.It Cm interpose
+Set the
+.Dv DF_1_INTERPOSE
+flag to indicate to the runtime linker that the object is an interposer.
+During symbol resolution interposers are searched after the application
+but before other dependencies.
 .It Cm muldefs
 Do not error if a symbol is defined multiple times.
 The first definition will be used.
@@ -453,6 +498,10 @@ This is a synonym for
 Disable combining and sorting multiple relocation sections.
 .It Cm nocopyreloc
 Disable the creation of copy relocations.
+.It Cm nodefaultlib
+Set the
+.Dv DF_1_NODEFLIB
+flag to indicate that default library search paths should be ignored.
 .It Cm nodelete
 Set the
 .Dv DF_1_NODELETE
@@ -460,7 +509,7 @@ flag to indicate that the object cannot be unloaded from a process.
 .It Cm nodlopen
 Set the
 .Dv DF_1_NOOPEN
-flag to indcate that the object may not be opened by
+flag to indicate that the object may not be opened by
 .Xr dlopen 3 .
 .It Cm norelro
 Do not indicate that portions of the object shold be mapped read-only

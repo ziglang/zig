@@ -3,6 +3,7 @@
 ; RUN: llc -filetype=obj %S/Inputs/archive2.ll -o %t.a2.o
 ; RUN: llc -filetype=obj %S/Inputs/archive3.ll -o %t.a3.o
 ; RUN: llc -filetype=obj %S/Inputs/hello.ll -o %t.hello.o
+; RUN: rm -f %t.a
 ; RUN: llvm-ar rcs %t.a %t.a1.o %t.a2.o %t.a3.o %t.hello.o
 ; RUN: rm -f %t.imports
 ; RUN: not wasm-ld %t.a %t.o -o %t.wasm 2>&1 | FileCheck -check-prefix=CHECK-UNDEFINED %s

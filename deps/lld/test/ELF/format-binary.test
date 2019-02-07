@@ -55,3 +55,15 @@
 # CHECK-NEXT:     Other: 0
 # CHECK-NEXT:     Section: Absolute
 # CHECK-NEXT:   }
+
+# RUN: echo 'OUTPUT_FORMAT(elf64-x86-64)' > %t.script
+# RUN: ld.lld -b binary %t.binary -T %t.script -o %t.out
+# RUN: llvm-readobj %t.out -sections -section-data -symbols | FileCheck -check-prefix=X86-64 %s
+
+# X86-64: Format: ELF64-x86-64
+
+# RUN: echo 'OUTPUT_FORMAT("elf64-x86-64")' > %t.script
+# RUN: ld.lld -b binary %t.binary -T %t.script -o %t.out
+# RUN: llvm-readobj %t.out -sections -section-data -symbols | FileCheck -check-prefix=X86-64-in-quotes %s
+
+# X86-64-in-quotes: Format: ELF64-x86-64

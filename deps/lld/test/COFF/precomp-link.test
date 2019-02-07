@@ -1,0 +1,42 @@
+RUN: lld-link %S/Inputs/precomp-a.obj %S/Inputs/precomp-b.obj %S/Inputs/precomp.obj /nodefaultlib /entry:main /debug /pdb:%t.pdb /out:%t.exe /opt:ref /opt:icf
+RUN: llvm-pdbutil dump -types %t.pdb | FileCheck %s
+
+RUN: lld-link %S/Inputs/precomp.obj %S/Inputs/precomp-a.obj %S/Inputs/precomp-b.obj /nodefaultlib /entry:main /debug /pdb:%t.pdb /out:%t.exe /opt:ref /opt:icf
+RUN: llvm-pdbutil dump -types %t.pdb | FileCheck %s
+
+RUN: lld-link %S/Inputs/precomp-a.obj %S/Inputs/precomp-invalid.obj %S/Inputs/precomp.obj /nodefaultlib /entry:main /debug /pdb:%t.pdb /out:%t.exe /opt:ref /opt:icf 2>&1 | FileCheck %s -check-prefix FAILURE
+
+RUN: not lld-link %S/Inputs/precomp-a.obj %S/Inputs/precomp-b.obj /nodefaultlib /entry:main /debug /pdb:%t.pdb /out:%t.exe /opt:ref /opt:icf 2>&1 | FileCheck %s -check-prefix FAILURE-MISSING-PRECOMPOBJ
+
+FAILURE: warning: Cannot use debug info for 'precomp-invalid.obj' [LNK4099]
+FAILURE-NEXT: failed to load reference '{{.*}}precomp.obj': The signature does not match; the file(s) might be out of date.
+
+FAILURE-MISSING-PRECOMPOBJ: warning: Cannot use debug info for 'precomp-a.obj' [LNK4099]
+FAILURE-MISSING-PRECOMPOBJ-NEXT: failed to load reference '{{.*}}precomp.obj': The path to this file must be provided on the command-line
+
+CHECK: Types (TPI Stream)
+CHECK-NOT: LF_PRECOMP
+CHECK-NOT: LF_ENDPRECOMP
+
+// precomp.h
+#pragma once
+int Function(char A);
+
+// precomp.cpp
+#include "precomp.h"
+
+// a.cpp
+#include "precomp.h"
+int main(void) {
+  Function('a');
+  return 0;
+}
+
+// b.cpp
+#include "precomp.h"
+int Function(char a) {
+  return (int)a;
+}
+
+// cl.exe precomp.cpp /Z7 /Ycprecomp.h /c
+// cl.exe a.cpp b.cpp /Z7 /Yuprecomp.h /c

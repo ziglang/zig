@@ -22,6 +22,14 @@
 
 namespace lld {
 namespace elf {
+class Symbol;
+class InputFile;
+} // namespace elf
+
+std::string toString(const elf::Symbol &);
+std::string toString(const elf::InputFile *);
+
+namespace elf {
 
 class ArchiveFile;
 class BitcodeFile;
@@ -50,6 +58,7 @@ struct StringRefZ {
 class Symbol {
 public:
   enum Kind {
+    PlaceholderKind,
     DefinedKind,
     SharedKind,
     UndefinedKind,
@@ -70,6 +79,7 @@ public:
   uint32_t DynsymIndex = 0;
   uint32_t GotIndex = -1;
   uint32_t PltIndex = -1;
+
   uint32_t GlobalDynIndex = -1;
 
   // This field is a index to the symbol's version definition.
@@ -77,6 +87,9 @@ public:
 
   // Version definition index.
   uint16_t VersionId;
+
+  // An index into the .branch_lt section on PPC64.
+  uint16_t PPC64BranchltIndex = -1;
 
   // Symbol binding. This is not overwritten by replaceSymbol to track
   // changes during resolution. In particular:
@@ -89,7 +102,7 @@ public:
   uint8_t Type;    // symbol type
   uint8_t StOther; // st_other field value
 
-  const uint8_t SymbolKind;
+  uint8_t SymbolKind;
 
   // Symbol visibility. This is the computed minimum visibility of all
   // observed non-DSO symbols.
@@ -128,8 +141,12 @@ public:
     return SymbolKind == LazyArchiveKind || SymbolKind == LazyObjectKind;
   }
 
-  // True if this is an undefined weak symbol.
-  bool isUndefWeak() const { return isWeak() && isUndefined(); }
+  // True if this is an undefined weak symbol. This only works once
+  // all input files have been added.
+  bool isUndefWeak() const {
+    // See comment on lazy symbols for details.
+    return isWeak() && (isUndefined() || isLazy());
+  }
 
   StringRef getName() const {
     if (NameSize == (uint32_t)-1)
@@ -137,10 +154,16 @@ public:
     return {NameData, NameSize};
   }
 
+  void setName(StringRef S) {
+    NameData = S.data();
+    NameSize = S.size();
+  }
+
   void parseSymbolVersion();
 
   bool isInGot() const { return GotIndex != -1U; }
   bool isInPlt() const { return PltIndex != -1U; }
+  bool isInPPC64Branchlt() const { return PPC64BranchltIndex != 0xffff; }
 
   uint64_t getVA(int64_t Addend = 0) const;
 
@@ -149,7 +172,8 @@ public:
   uint64_t getGotPltOffset() const;
   uint64_t getGotPltVA() const;
   uint64_t getPltVA() const;
-  uint64_t getPltOffset() const;
+  uint64_t getPPC64LongBranchTableVA() const;
+  uint64_t getPPC64LongBranchOffset() const;
   uint64_t getSize() const;
   OutputSection *getOutputSection() const;
 
@@ -159,7 +183,8 @@ protected:
       : File(File), NameData(Name.Data), NameSize(Name.Size), Binding(Binding),
         Type(Type), StOther(StOther), SymbolKind(K), NeedsPltAddr(false),
         IsInIplt(false), IsInIgot(false), IsPreemptible(false),
-        Used(!Config->GcSections), NeedsTocRestore(false) {}
+        Used(!Config->GcSections), NeedsTocRestore(false),
+        ScriptDefined(false) {}
 
 public:
   // True the symbol should point to its PLT entry.
@@ -182,12 +207,8 @@ public:
   // PPC64 toc pointer.
   unsigned NeedsTocRestore : 1;
 
-  // The Type field may also have this value. It means that we have not yet seen
-  // a non-Lazy symbol with this name, so we don't know what its type is. The
-  // Type field is normally set to this value for Lazy symbols unless we saw a
-  // weak undefined symbol first, in which case we need to remember the original
-  // symbol's type in order to check for TLS mismatches.
-  enum { UnknownType = 255 };
+  // True if this symbol is defined by a linker script.
+  unsigned ScriptDefined : 1;
 
   bool isSection() const { return Type == llvm::ELF::STT_SECTION; }
   bool isTls() const { return Type == llvm::ELF::STT_TLS; }
@@ -286,6 +307,7 @@ public:
   static bool classof(const Symbol *S) { return S->kind() == LazyArchiveKind; }
 
   InputFile *fetch();
+  MemoryBufferRef getMemberBuffer();
 
 private:
   const llvm::object::Archive::Symbol Sym;
@@ -330,7 +352,8 @@ struct ElfSym {
   static Defined *MipsGpDisp;
   static Defined *MipsLocalGp;
 
-  // __rela_iplt_end or __rel_iplt_end
+  // __rel{,a}_iplt_{start,end} symbols.
+  static Defined *RelaIpltStart;
   static Defined *RelaIpltEnd;
 };
 
@@ -349,6 +372,8 @@ void printTraceSymbol(Symbol *Sym);
 
 template <typename T, typename... ArgT>
 void replaceSymbol(Symbol *S, ArgT &&... Arg) {
+  using llvm::ELF::STT_TLS;
+
   static_assert(std::is_trivially_destructible<T>(),
                 "Symbol types must be trivially destructible");
   static_assert(sizeof(T) <= sizeof(SymbolUnion), "SymbolUnion too small");
@@ -367,6 +392,19 @@ void replaceSymbol(Symbol *S, ArgT &&... Arg) {
   S->ExportDynamic = Sym.ExportDynamic;
   S->CanInline = Sym.CanInline;
   S->Traced = Sym.Traced;
+  S->ScriptDefined = Sym.ScriptDefined;
+
+  // Symbols representing thread-local variables must be referenced by
+  // TLS-aware relocations, and non-TLS symbols must be reference by
+  // non-TLS relocations, so there's a clear distinction between TLS
+  // and non-TLS symbols. It is an error if the same symbol is defined
+  // as a TLS symbol in one file and as a non-TLS symbol in other file.
+  bool TlsMismatch = (Sym.Type == STT_TLS && S->Type != STT_TLS) ||
+                     (Sym.Type != STT_TLS && S->Type == STT_TLS);
+
+  if (Sym.SymbolKind != Symbol::PlaceholderKind && TlsMismatch && !Sym.isLazy())
+    error("TLS attribute mismatch: " + toString(Sym) + "\n>>> defined in " +
+          toString(Sym.File) + "\n>>> defined in " + toString(S->File));
 
   // Print out a log message if --trace-symbol was specified.
   // This is for debugging.
@@ -374,10 +412,8 @@ void replaceSymbol(Symbol *S, ArgT &&... Arg) {
     printTraceSymbol(S);
 }
 
-void warnUnorderableSymbol(const Symbol *Sym);
+void maybeWarnUnorderableSymbol(const Symbol *Sym);
 } // namespace elf
-
-std::string toString(const elf::Symbol &B);
 } // namespace lld
 
 #endif

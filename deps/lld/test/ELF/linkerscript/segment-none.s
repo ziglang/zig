@@ -9,7 +9,7 @@
 # RUN:           .foo : {*(.foo)} :NONE \
 # RUN:       }" > %t.script
 # RUN: ld.lld -o %t --script %t.script %t.o
-# RUN: llvm-readelf -s -l %t | FileCheck %s
+# RUN: llvm-readelf -S -l %t | FileCheck %s
 
 ## Test that section .foo is placed in segment NONE when assigned to segment
 ## NONE in the linker script and segment NONE is defined.
@@ -19,7 +19,7 @@
 # RUN:           .foo : {*(.foo)} :NONE \
 # RUN:       }" > %t.script
 # RUN: ld.lld -o %t --script %t.script %t.o
-# RUN: llvm-readelf -s -l %t | FileCheck --check-prefix=DEFINED %s
+# RUN: llvm-readelf -S -l %t | FileCheck --check-prefix=DEFINED %s
 
 # CHECK: Section to Segment mapping:
 # CHECK-NEXT: Segment Sections...

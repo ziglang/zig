@@ -34,7 +34,7 @@
 // SYM2-NEXT:   STV_PROTECTED
 // SYM2-NEXT: ]
 // SYM3:      Name: __real_foo
-// SYM3-NEXT: Value: 0x11020
+// SYM3-NEXT: Value: 0x11000
 // SYM3-NEXT: Size:
 // SYM3-NEXT: Binding: Global
 // SYM3-NEXT: Type:    None

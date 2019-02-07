@@ -4,6 +4,7 @@
 
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux \
 // RUN:   %p/Inputs/tls-in-archive.s -o %t1.o
+// RUN: rm -f %t.a
 // RUN: llvm-ar cru %t.a %t1.o
 // RUN: ld.lld %t.o %t.a -o %t
 

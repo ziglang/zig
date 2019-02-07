@@ -1,5 +1,5 @@
 // REQUIRES: arm
-// RUN: llvm-mc -triple armv7-unknown-gnu -filetype=obj -o %t %s
+// RUN: llvm-mc -triple armv7-unknown-gnu -arm-add-build-attributes -filetype=obj -o %t %s
 // RUN: ld.lld %t %S/Inputs/arm-long-thunk-converge.lds -o %t2
 // RUN: llvm-objdump -d -start-address=0x00000000 -stop-address=0x00000010 -triple=armv7a-linux-gnueabihf %t2 | FileCheck --check-prefix=CHECK1 %s
 // RUN: llvm-objdump -d -start-address=0x02000000 -stop-address=0x02000010 -triple=armv7a-linux-gnueabihf %t2 | FileCheck --check-prefix=CHECK2 %s

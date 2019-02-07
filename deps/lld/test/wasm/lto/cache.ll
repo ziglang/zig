@@ -1,5 +1,7 @@
 ; RUN: opt -module-hash -module-summary %s -o %t.o
 ; RUN: opt -module-hash -module-summary %p/Inputs/cache.ll -o %t2.o
+; NetBSD: noatime mounts currently inhibit 'touch' from updating atime
+; UNSUPPORTED: system-netbsd
 
 ; RUN: rm -Rf %t.cache && mkdir %t.cache
 ; Create two files that would be removed by cache pruning due to age.
@@ -16,6 +18,10 @@
 ; This should leave the file in place.
 ; RUN: wasm-ld --thinlto-cache-dir=%t.cache --thinlto-cache-policy cache_size_bytes=128k:prune_interval=0s -o %t.wasm %t2.o %t.o
 ; RUN: ls %t.cache | count 5
+
+; Increase the age of llvmcache-foo, which will give it the oldest time stamp
+; so that it is processed and removed first.
+; RUN: %python -c 'import os,sys,time; t=time.time()-120; os.utime(sys.argv[1],(t,t))' %t.cache/llvmcache-foo
 
 ; This should remove it.
 ; RUN: wasm-ld --thinlto-cache-dir=%t.cache --thinlto-cache-policy cache_size_bytes=32k:prune_interval=0s -o %t.wasm %t2.o %t.o

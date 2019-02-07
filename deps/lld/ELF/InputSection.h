@@ -115,7 +115,12 @@ public:
     return cast_or_null<ObjFile<ELFT>>(File);
   }
 
-  ArrayRef<uint8_t> Data;
+  ArrayRef<uint8_t> data() const {
+    if (UncompressedSize >= 0 && !UncompressedBuf)
+      uncompress();
+    return RawData;
+  }
+
   uint64_t getOffsetInFile() const;
 
   // True if this section has already been placed to a linker script
@@ -169,11 +174,6 @@ public:
   template <class ELFT>
   Defined *getEnclosingFunction(uint64_t Offset);
 
-  // Compilers emit zlib-compressed debug sections if the -gz option
-  // is given. This function checks if this section is compressed, and
-  // if so, decompress in memory.
-  void maybeDecompress();
-
   // Returns a source location string. Used to construct an error message.
   template <class ELFT> std::string getLocation(uint64_t Offset);
   std::string getSrcMsg(const Symbol &Sym, uint64_t Offset);
@@ -200,15 +200,21 @@ public:
 
 
   template <typename T> llvm::ArrayRef<T> getDataAs() const {
-    size_t S = Data.size();
+    size_t S = data().size();
     assert(S % sizeof(T) == 0);
-    return llvm::makeArrayRef<T>((const T *)Data.data(), S / sizeof(T));
+    return llvm::makeArrayRef<T>((const T *)data().data(), S / sizeof(T));
   }
 
-private:
-  // A pointer that owns decompressed data if a section is compressed by zlib.
+protected:
+  void parseCompressedHeader();
+  void uncompress() const;
+
+  mutable ArrayRef<uint8_t> RawData;
+
+  // A pointer that owns uncompressed data if a section is compressed by zlib.
   // Since the feature is not used often, this is usually a nullptr.
-  std::unique_ptr<char[]> DecompressBuf;
+  mutable std::unique_ptr<char[]> UncompressedBuf;
+  int64_t UncompressedSize = -1;
 };
 
 // SectionPiece represents a piece of splittable section contents.
@@ -247,7 +253,6 @@ public:
   // Splittable sections are handled as a sequence of data
   // rather than a single large blob of data.
   std::vector<SectionPiece> Pieces;
-  llvm::DenseMap<uint32_t, uint32_t> OffsetMap;
 
   // Returns I'th piece's data. This function is very hot when
   // string merging is enabled, so we want to inline.
@@ -255,8 +260,8 @@ public:
   llvm::CachedHashStringRef getData(size_t I) const {
     size_t Begin = Pieces[I].InputOff;
     size_t End =
-        (Pieces.size() - 1 == I) ? Data.size() : Pieces[I + 1].InputOff;
-    return {toStringRef(Data.slice(Begin, End - Begin)), Pieces[I].Hash};
+        (Pieces.size() - 1 == I) ? data().size() : Pieces[I + 1].InputOff;
+    return {toStringRef(data().slice(Begin, End - Begin)), Pieces[I].Hash};
   }
 
   // Returns the SectionPiece at a given input section offset.
@@ -277,7 +282,9 @@ struct EhSectionPiece {
                  unsigned FirstRelocation)
       : InputOff(Off), Sec(Sec), Size(Size), FirstRelocation(FirstRelocation) {}
 
-  ArrayRef<uint8_t> data() { return {Sec->Data.data() + this->InputOff, Size}; }
+  ArrayRef<uint8_t> data() {
+    return {Sec->data().data() + this->InputOff, Size};
+  }
 
   size_t InputOff;
   ssize_t OutputOff = -1;
@@ -353,6 +360,7 @@ private:
 
 // The list of all input sections.
 extern std::vector<InputSectionBase *> InputSections;
+
 } // namespace elf
 
 std::string toString(const elf::InputSectionBase *);

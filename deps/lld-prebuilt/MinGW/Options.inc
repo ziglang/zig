@@ -90,6 +90,13 @@ OPTION(prefix_1, "o", o, JoinedOrSeparate, INVALID, INVALID, nullptr, 0, 0,
 OPTION(prefix_2, "pdb", pdb, Separate, INVALID, INVALID, nullptr, 0, 0,
        "Specify output PDB debug information file", nullptr, nullptr)
 OPTION(prefix_2, "pic-executable", pic_executable, Flag, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
+OPTION(prefix_2, "plugin-opt=", anonymous_3, Joined, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
+OPTION(prefix_2, "plugin-opt", anonymous_2, Separate, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
+OPTION(prefix_2, "plugin=", anonymous_1, Joined, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
+OPTION(prefix_2, "plugin", anonymous_0, Separate, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
+OPTION(prefix_2, "require-defined=", require_defined_eq, Joined, INVALID, require_defined, nullptr, 0, 0, nullptr, nullptr, nullptr)
+OPTION(prefix_2, "require-defined", require_defined, Separate, INVALID, INVALID, nullptr, 0, 0,
+       "Force symbol to be added to symbol table as an undefined one", nullptr, nullptr)
 OPTION(prefix_2, "shared", shared, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Build a shared object", nullptr, nullptr)
 OPTION(prefix_2, "stack", stack, Separate, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)

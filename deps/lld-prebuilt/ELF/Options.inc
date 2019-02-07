@@ -62,6 +62,8 @@ OPTION(prefix_1, "b", anonymous_16, Separate, INVALID, format, nullptr, 0, 0,
 OPTION(prefix_2, "call-graph-ordering-file=", call_graph_ordering_file_eq, Joined, INVALID, call_graph_ordering_file, nullptr, 0, 0,
        "Layout sections to optimize the given callgraph", nullptr, nullptr)
 OPTION(prefix_2, "call-graph-ordering-file", call_graph_ordering_file, Separate, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
+OPTION(prefix_2, "call-graph-profile-sort", call_graph_profile_sort, Flag, INVALID, INVALID, nullptr, 0, 0,
+       "Reorder sections with call graph profile (default)", nullptr, nullptr)
 OPTION(prefix_2, "call_shared", anonymous_1, Flag, INVALID, Bdynamic, nullptr, 0, 0,
        "Alias for --Bdynamic", nullptr, nullptr)
 OPTION(prefix_2, "check-sections", check_sections, Flag, INVALID, INVALID, nullptr, 0, 0,
@@ -133,7 +135,7 @@ OPTION(prefix_2, "exclude-libs=", exclude_libs_eq, Joined, INVALID, exclude_libs
        "Exclude static libraries from automatic export", nullptr, nullptr)
 OPTION(prefix_2, "exclude-libs", exclude_libs, Separate, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
 OPTION(prefix_2, "execute-only", execute_only, Flag, INVALID, INVALID, nullptr, 0, 0,
-       "Do not mark executable sections readable", nullptr, nullptr)
+       "Mark executable sections unreadable", nullptr, nullptr)
 OPTION(prefix_2, "export-dynamic-symbol=", export_dynamic_symbol_eq, Joined, INVALID, export_dynamic_symbol, nullptr, 0, 0,
        "Put a symbol in the dynamic symbol table", nullptr, nullptr)
 OPTION(prefix_2, "export-dynamic-symbol", export_dynamic_symbol, Separate, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
@@ -245,6 +247,8 @@ OPTION(prefix_2, "no-apply-dynamic-relocs", no_apply_dynamic_relocs, Flag, INVAL
        "Do not apply link-time values for dynamic relocations (default)", nullptr, nullptr)
 OPTION(prefix_2, "no-as-needed", no_as_needed, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Always set DT_NEEDED for shared libraries (default)", nullptr, nullptr)
+OPTION(prefix_2, "no-call-graph-profile-sort", no_call_graph_profile_sort, Flag, INVALID, INVALID, nullptr, 0, 0,
+       "Do not reorder sections with call graph profile", nullptr, nullptr)
 OPTION(prefix_2, "no-check-sections", no_check_sections, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Do not check section addresses for overlaps", nullptr, nullptr)
 OPTION(prefix_2, "no-color-diagnostics", no_color_diagnostics, Flag, INVALID, INVALID, nullptr, 0, 0,
@@ -291,6 +295,8 @@ OPTION(prefix_2, "no-rosegment", no_rosegment, Flag, INVALID, INVALID, nullptr, 
        "Do not put read-only non-executable sections in their own segment", nullptr, nullptr)
 OPTION(prefix_2, "no-threads", no_threads, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Do not run the linker multi-threaded", nullptr, nullptr)
+OPTION(prefix_2, "no-toc-optimize", no_toc_optimize, Flag, INVALID, INVALID, nullptr, 0, 0,
+       "(PowerPC64) Disable TOC related optimizations", nullptr, nullptr)
 OPTION(prefix_2, "no-undefined-version", no_undefined_version, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Report version scripts that refer undefined symbols", nullptr, nullptr)
 OPTION(prefix_2, "no-undefined", no_undefined, Flag, INVALID, INVALID, nullptr, 0, 0,
@@ -301,6 +307,8 @@ OPTION(prefix_2, "no-warn-backrefs", no_warn_backrefs, Flag, INVALID, INVALID, n
        "Do not warn about backward symbol references to fetch archive members (default)", nullptr, nullptr)
 OPTION(prefix_2, "no-warn-common", no_warn_common, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Do not warn about duplicate common symbols (default)", nullptr, nullptr)
+OPTION(prefix_2, "no-warn-ifunc-textrel", no_warn_ifunc_textrel, Flag, INVALID, INVALID, nullptr, 0, 0,
+       "Do not warn about using ifunc symbols with text relocations (default)", nullptr, nullptr)
 OPTION(prefix_2, "no-warn-mismatch", anonymous_57, Flag, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
 OPTION(prefix_2, "no-warn-symbol-ordering", no_warn_symbol_ordering, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Do not warn about problems with the symbol ordering file", nullptr, nullptr)
@@ -338,6 +346,8 @@ OPTION(prefix_2, "pack-dyn-relocs=", pack_dyn_relocs_eq, Joined, INVALID, pack_d
 OPTION(prefix_2, "pack-dyn-relocs", pack_dyn_relocs, Separate, INVALID, INVALID, nullptr, 0, 0, nullptr, "[none,android,relr,android+relr]", nullptr)
 OPTION(prefix_2, "pic-executable", anonymous_23, Flag, INVALID, pie, nullptr, 0, 0,
        "Alias for --pie", nullptr, nullptr)
+OPTION(prefix_2, "pic-veneer", pic_veneer, Flag, INVALID, INVALID, nullptr, 0, 0,
+       "Always generate position independent thunks (veneers)", nullptr, nullptr)
 OPTION(prefix_2, "pie", pie, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Create a position independent executable", nullptr, nullptr)
 OPTION(prefix_2, "plugin-opt=-fresolution=", plugin_opt_fresolution_eq, Joined, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
@@ -349,6 +359,7 @@ OPTION(prefix_2, "plugin-opt=disable-verify", anonymous_41, Flag, INVALID, disab
        "Alias for -disable-verify", nullptr, nullptr)
 OPTION(prefix_2, "plugin-opt=dwo_dir=", plugin_opt_dwo_dir_eq, Joined, INVALID, INVALID, nullptr, 0, 0,
        "Directory to store .dwo files when LTO and debug fission are used", nullptr, nullptr)
+OPTION(prefix_2, "plugin-opt=emit-llvm", plugin_opt_emit_llvm, Flag, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
 OPTION(prefix_2, "plugin-opt=jobs=", anonymous_42, Joined, INVALID, thinlto_jobs, nullptr, 0, 0,
        "Alias for -thinlto-jobs", nullptr, nullptr)
 OPTION(prefix_2, "plugin-opt=lto-partitions=", anonymous_43, Joined, INVALID, lto_partitions, nullptr, 0, 0,
@@ -424,6 +435,9 @@ OPTION(prefix_2, "sort-common", anonymous_60, Flag, INVALID, INVALID, nullptr, 0
 OPTION(prefix_2, "sort-section=", sort_section_eq, Joined, INVALID, sort_section, nullptr, 0, 0,
        "Specifies sections sorting rule when linkerscript is used", nullptr, nullptr)
 OPTION(prefix_2, "sort-section", sort_section, Separate, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
+OPTION(prefix_2, "split-stack-adjust-size=", split_stack_adjust_size_eq, Joined, INVALID, split_stack_adjust_size, nullptr, 0, 0,
+       "Specify adjustment to stack size when a split-stack function calls a non-split-stack function", "<value>", nullptr)
+OPTION(prefix_2, "split-stack-adjust-size", split_stack_adjust_size, Separate, INVALID, INVALID, nullptr, 0, 0, nullptr, "<value>", nullptr)
 OPTION(prefix_2, "start-group", start_group, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Ignored for compatibility with GNU unless you pass --warn-backrefs", nullptr, nullptr)
 OPTION(prefix_2, "start-lib", start_lib, Flag, INVALID, INVALID, nullptr, 0, 0,
@@ -467,6 +481,8 @@ OPTION(prefix_2, "thinlto-jobs=", thinlto_jobs, Joined, INVALID, INVALID, nullpt
        "Number of ThinLTO jobs", nullptr, nullptr)
 OPTION(prefix_2, "threads", threads, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Run the linker multi-threaded (default)", nullptr, nullptr)
+OPTION(prefix_2, "toc-optimize", toc_optimize, Flag, INVALID, INVALID, nullptr, 0, 0,
+       "(PowerPC64) Enable TOC related optimizations (default)", nullptr, nullptr)
 OPTION(prefix_2, "trace-symbol=", trace_symbol_eq, Joined, INVALID, trace_symbol, nullptr, 0, 0,
        "Trace references to symbols", nullptr, nullptr)
 OPTION(prefix_2, "trace-symbol", trace_symbol, Separate, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
@@ -511,6 +527,8 @@ OPTION(prefix_2, "warn-backrefs", warn_backrefs, Flag, INVALID, INVALID, nullptr
 OPTION(prefix_2, "warn-common", warn_common, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Warn about duplicate common symbols", nullptr, nullptr)
 OPTION(prefix_2, "warn-execstack", anonymous_62, Flag, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
+OPTION(prefix_2, "warn-ifunc-textrel", warn_ifunc_textrel, Flag, INVALID, INVALID, nullptr, 0, 0,
+       "Warn about using ifunc symbols with text relocations", nullptr, nullptr)
 OPTION(prefix_2, "warn-once", anonymous_63, Flag, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
 OPTION(prefix_2, "warn-shared-textrel", anonymous_64, Flag, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
 OPTION(prefix_2, "warn-symbol-ordering", warn_symbol_ordering, Flag, INVALID, INVALID, nullptr, 0, 0,

@@ -1,0 +1,66 @@
+# REQUIRES: x86
+
+# LLD used to crash when linking against a DSO with an undefined STB_LOCAL
+# symbol in the global part of the dynamic symbol table (i.e. an STB_LOCAL
+# symbol with an index >= the sh_info of the dynamic symbol table section). Such
+# a DSO is very broken, because local symbols should precede all global symbols
+# in the symbol table, and because having a symbol that's both undefined and
+# STB_LOCAL is a nonsensical combination. Nevertheless, we should warn on such
+# input files instead of crashing.
+
+# We've found actual broken DSOs of this sort in the wild, but for this test, we
+# created a reduced broken input file. There are no tools capable of producing a
+# broken DSO of this nature, so instead we created a valid DSO with an undefined
+# global symbol in the dynamic symbol table and then manually edited the binary
+# to make that symbol local. The valid DSO was created as follows:
+
+```
+% cat undef.s
+.hidden bar
+bar:
+	movq	foo@GOT, %rax
+
+% llvm-mc -triple=x86_64-linux-gnu -filetype=obj -o undef.o undef.s
+% ld.lld --no-rosegment -shared -o undefined-local-symbol-in-dso.so undef.o
+% strip undef.so
+```
+
+# (--no-rosegment and stripping are unnecessary; they just produce a smaller
+# binary)
+
+# This DSO should only have a single dynamic symbol table entry for foo, and
+# then we can use a small C program to modify that symbol table entry to be
+# STB_LOCAL instead of STB_GLOBAL.
+
+```
+#include <elf.h>
+#include <stdio.h>
+
+int main(int argc, char *argv[]) {
+  FILE *F = fopen(argv[1], "rb+");
+
+  Elf64_Ehdr Ehdr;
+  fread(&Ehdr, sizeof(Ehdr), 1, F);
+  fseek(F, Ehdr.e_shoff, SEEK_SET);
+
+  Elf64_Shdr Shdr;
+  do {
+    fread(&Shdr, sizeof(Shdr), 1, F);
+  } while (Shdr.sh_type != SHT_DYNSYM);
+
+  Elf64_Sym Sym;
+  fseek(F, Shdr.sh_offset + sizeof(Elf64_Sym), SEEK_SET);
+  fread(&Sym, sizeof(Sym), 1, F);
+  Sym.st_info = STB_LOCAL << 4 | ELF64_ST_TYPE(Sym.st_info);
+  fseek(F, Shdr.sh_offset + sizeof(Elf64_Sym), SEEK_SET);
+  fwrite(&Sym, sizeof(Sym), 1, F);
+  fclose(F);
+}
+```
+
+# (the C program just takes its input DSO and modifies the binding of the first
+# dynamic symbol table entry to be STB_LOCAL instead of STB_GLOBAL)
+
+# RUN: ld.lld %p/Inputs/undefined-local-symbol-in-dso.so -o %t 2>&1 | \
+# RUN:   FileCheck -check-prefix=WARN %s
+# WARN: found local symbol 'foo' in global part of symbol table in file {{.*}}undefined-local-symbol-in-dso.so

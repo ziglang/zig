@@ -1,0 +1,58 @@
+# REQUIRES: x86
+# RUN: yaml2obj %s -o %t.o
+# RUN: not ld.lld %t.o -o /dev/null 2>&1 | FileCheck %s
+
+## Previously we would report an error saying the relocation in .debug_info
+## has an unsupported target.
+## Check we do not report debug information parsing errors when relocation
+## used is of type R_*_NONE, what actually means it should be ignored.
+
+# CHECK-NOT: error
+# CHECK: error: undefined symbol: bar
+# CHECK-NOT: error
+
+--- !ELF
+FileHeader:
+  Class:           ELFCLASS64
+  Data:            ELFDATA2LSB
+  Type:            ET_REL
+  Machine:         EM_X86_64
+Sections:
+  - Name:            .text
+    Type:            SHT_PROGBITS
+    Flags:           [ SHF_ALLOC, SHF_EXECINSTR ]
+    Content:         '0000000000000000'
+  - Name:            .rela.text
+    Type:            SHT_RELA
+    AddressAlign:    8
+    Link:            .symtab
+    Info:            .text
+    Relocations:
+      - Offset:          0x0000000000000000
+        Symbol:          bar
+        Type:            R_X86_64_64
+  - Name:            .debug_line
+    Type:            SHT_PROGBITS
+    Content:         3300000002001C0000000101FB0E0D000101010100000001000001006162632E7300000000000009020000000000000000140208000101
+  - Name:            .rela.debug_line
+    AddressAlign:    8
+    Type:            SHT_RELA
+    Link:            .symtab
+    Info:            .debug_line
+    Relocations:
+      - Offset:          0x0000000000000029
+        Type:            R_X86_64_NONE
+  - Name:            .debug_info
+    Type:            SHT_PROGBITS
+    AddressAlign:    0x0000000000000001
+    Content:         0C000000040000000000080100000000
+  - Name:            .debug_abbrev
+    Type:            SHT_PROGBITS
+    AddressAlign:    0x0000000000000001
+    Content:         '0111001017000000'
+
+Symbols:
+  Global:
+    - Name:            _start
+      Section:         .text
+    - Name:            bar

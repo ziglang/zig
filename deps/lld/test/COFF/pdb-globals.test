@@ -15,6 +15,8 @@ RUN: llvm-pdbutil dump -symbols -globals %t.pdb | FileCheck %s
 CHECK-LABEL:                        Global Symbols
 CHECK-NEXT:  ============================================================
 CHECK-NEXT:   Records
+CHECK-NEXT:      340 | S_UDT [size = 20] `HelloPoint`
+CHECK-NEXT:            original type = 0x1007
 CHECK-NEXT:      208 | S_LPROCREF [size = 24] `LocalFunc`
 CHECK-NEXT:            module = 1, sum name = 0, offset = 292
 CHECK-NEXT:      160 | S_PROCREF [size = 28] `GlobalFunc`
@@ -25,9 +27,11 @@ CHECK-NEXT:      232 | S_GDATA32 [size = 28] `__purecall`
 CHECK-NEXT:            type = 0x0403 (void*), addr = 0003:0004
 CHECK-NEXT:      260 | S_GDATA32 [size = 24] `GlobalVar`
 CHECK-NEXT:            type = 0x100B (const int*), addr = 0003:0000
+CHECK-NEXT:      312 | S_UDT [size = 28] `HelloPointTypedef`
+CHECK-NEXT:            original type = 0x1005
 CHECK-NEXT:      284 | S_LDATA32 [size = 28] `ConstantVar`
 CHECK-NEXT:            type = 0x100A (const int), addr = 0002:0000
-CHECK-NEXT:      312 | S_PROCREF [size = 40] `HelloPoint::HelloPoint`
+CHECK-NEXT:      360 | S_PROCREF [size = 40] `HelloPoint::HelloPoint`
 CHECK-NEXT:            module = 1, sum name = 0, offset = 376
 
 CHECK-LABEL:                           Symbols

@@ -12,7 +12,7 @@
 
 # DSO:      DynamicSymbols [
 # DSO-NEXT:    Symbol {
-# DSO-NEXT:      Name: @
+# DSO-NEXT:      Name:
 # DSO-NEXT:      Value: 0x0
 # DSO-NEXT:      Size: 0
 # DSO-NEXT:      Binding: Local
@@ -74,7 +74,7 @@
 # DSO-NEXT:    Symbols [
 # DSO-NEXT:      Symbol {
 # DSO-NEXT:        Version: 0
-# DSO-NEXT:        Name: @
+# DSO-NEXT:        Name:
 # DSO-NEXT:      }
 # DSO-NEXT:      Symbol {
 # DSO-NEXT:        Version: 3
