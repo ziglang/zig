@@ -27,7 +27,7 @@ pub fn main() !void {
         std.debug.warn("Expected second argument to be cache root directory path\n");
         return error.InvalidArgs;
     });
-    const zig_exe = try os.path.resolve(a, zig_exe_rel);
+    const zig_exe = try os.path.resolve(a, [][]const u8{zig_exe_rel});
 
     const dir_path = try os.path.join(a, [][]const u8{ cache_root, "clitest" });
     const TestFn = fn ([]const u8, []const u8) anyerror!void;

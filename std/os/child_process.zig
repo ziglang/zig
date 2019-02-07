@@ -574,7 +574,7 @@ pub const ChildProcess = struct {
         // to match posix semantics
         const app_name = x: {
             if (self.cwd) |cwd| {
-                const resolved = try os.path.resolve(self.allocator, cwd, self.argv[0]);
+                const resolved = try os.path.resolve(self.allocator, [][]const u8{ cwd, self.argv[0] });
                 defer self.allocator.free(resolved);
                 break :x try cstr.addNullByte(self.allocator, resolved);
             } else {

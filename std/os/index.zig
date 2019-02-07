@@ -1284,7 +1284,7 @@ pub fn makeDirPosix(dir_path: []const u8) !void {
 /// already exists and is a directory.
 /// TODO determine if we can remove the allocator requirement from this function
 pub fn makePath(allocator: *Allocator, full_path: []const u8) !void {
-    const resolved_path = try path.resolve(allocator, full_path);
+    const resolved_path = try path.resolve(allocator, [][]const u8{full_path});
     defer allocator.free(resolved_path);
 
     var end_index: usize = resolved_path.len;
@@ -2304,18 +2304,17 @@ pub fn selfExePath(out_buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
     switch (builtin.os) {
         Os.linux => return readLink(out_buffer, "/proc/self/exe"),
         Os.freebsd => {
-            var mib = [4]c_int{ posix.CTL_KERN, posix.KERN_PROC, posix.KERN_PROC_PATHNAME, -1};
+            var mib = [4]c_int{ posix.CTL_KERN, posix.KERN_PROC, posix.KERN_PROC_PATHNAME, -1 };
             var out_len: usize = out_buffer.len;
             const err = posix.getErrno(posix.sysctl(&mib, 4, out_buffer, &out_len, null, 0));
 
-            if (err == 0 ) return mem.toSlice(u8, out_buffer);
+            if (err == 0) return mem.toSlice(u8, out_buffer);
 
             return switch (err) {
                 posix.EFAULT => error.BadAdress,
                 posix.EPERM => error.PermissionDenied,
                 else => unexpectedErrorPosix(err),
             };
-
         },
         Os.windows => {
             var utf16le_buf: [windows_util.PATH_MAX_WIDE]u16 = undefined;
