@@ -911,8 +911,11 @@ pub fn join(allocator: *Allocator, separator: []const u8, slices: []const []cons
 }
 
 test "mem.join" {
-    assert(eql(u8, try join(debug.global_allocator, ",", [][]const u8{ "a", "b", "c" }), "a,b,c"));
-    assert(eql(u8, try join(debug.global_allocator, ",", [][]const u8{"a"}), "a"));
+    var buf: [1024]u8 = undefined;
+    const a = &std.heap.FixedBufferAllocator.init(&buf).allocator;
+    assert(eql(u8, try join(a, ",", [][]const u8{ "a", "b", "c" }), "a,b,c"));
+    assert(eql(u8, try join(a, ",", [][]const u8{"a"}), "a"));
+    assert(eql(u8, try join(a, ",", [][]const u8{ "a", "", "b", "", "c" }), "a,,b,,c"));
 }
 
 test "testStringEquality" {
