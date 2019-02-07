@@ -362,6 +362,23 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\}
     );
 
+    // @intCast a runtime integer to u0 actually results in a comptime-known value,
+    // but we still emit a safety check to ensure the integer was 0 and thus
+    // did not truncate information.
+    cases.addRuntimeSafety("@intCast to u0",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\
+        \\pub fn main() void {
+        \\    bar(1, 1);
+        \\}
+        \\
+        \\fn bar(one: u1, not_zero: i32) void {
+        \\    var x = one << @intCast(u0, not_zero);
+        \\}
+    );
+
     // This case makes sure that the code compiles and runs. There is not actually a special
     // runtime safety check having to do specifically with error return traces across suspend points.
     cases.addRuntimeSafety("error return trace across suspend points",

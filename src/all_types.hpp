@@ -2239,6 +2239,7 @@ enum IrInstructionId {
     IrInstructionIdCheckRuntimeScope,
     IrInstructionIdVectorToArray,
     IrInstructionIdArrayToVector,
+    IrInstructionIdAssertZero,
 };
 
 struct IrInstruction {
@@ -3379,6 +3380,12 @@ struct IrInstructionVectorToArray {
 
     IrInstruction *vector;
     LLVMValueRef tmp_ptr;
+};
+
+struct IrInstructionAssertZero {
+    IrInstruction base;
+
+    IrInstruction *target;
 };
 
 static const size_t slice_ptr_index = 0;

@@ -908,6 +908,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionArrayToVector *)
     return IrInstructionIdArrayToVector;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionAssertZero *) {
+    return IrInstructionIdAssertZero;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -2854,6 +2858,19 @@ static IrInstruction *ir_build_array_to_vector(IrAnalyze *ira, IrInstruction *so
     instruction->array = array;
 
     ir_ref_instruction(array, ira->new_irb.current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_assert_zero(IrAnalyze *ira, IrInstruction *source_instruction,
+        IrInstruction *target)
+{
+    IrInstructionAssertZero *instruction = ir_build_instruction<IrInstructionAssertZero>(&ira->new_irb,
+        source_instruction->scope, source_instruction->source_node);
+    instruction->base.value.type = ira->codegen->builtin_types.entry_void;
+    instruction->target = target;
+
+    ir_ref_instruction(target, ira->new_irb.current_basic_block);
 
     return &instruction->base;
 }
@@ -10392,6 +10409,18 @@ static IrInstruction *ir_analyze_widen_or_shorten(IrAnalyze *ira, IrInstruction 
         } else {
             float_init_float(&result->value, val);
         }
+        return result;
+    }
+
+    // If the destination integer type has no bits, then we can emit a comptime
+    // zero. However, we still want to emit a runtime safety check to make sure
+    // the target is zero.
+    if (!type_has_bits(wanted_type)) {
+        assert(wanted_type->id == ZigTypeIdInt);
+        assert(type_has_bits(target->value.type));
+        ir_build_assert_zero(ira, source_instr, target);
+        IrInstruction *result = ir_const_unsigned(ira, source_instr, 0);
+        result->value.type = wanted_type;
         return result;
     }
 
@@ -21705,6 +21734,7 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
         case IrInstructionIdCmpxchgGen:
         case IrInstructionIdArrayToVector:
         case IrInstructionIdVectorToArray:
+        case IrInstructionIdAssertZero:
             zig_unreachable();
 
         case IrInstructionIdReturn:
@@ -22103,6 +22133,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdAtomicRmw:
         case IrInstructionIdCmpxchgGen:
         case IrInstructionIdCmpxchgSrc:
+        case IrInstructionIdAssertZero:
             return true;
 
         case IrInstructionIdPhi:

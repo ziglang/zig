@@ -1651,10 +1651,25 @@ static void add_bounds_check(CodeGen *g, LLVMValueRef target_val,
     LLVMPositionBuilderAtEnd(g->builder, ok_block);
 }
 
+static LLVMValueRef gen_assert_zero(CodeGen *g, LLVMValueRef expr_val, ZigType *int_type) {
+    LLVMValueRef zero = LLVMConstNull(int_type->type_ref);
+    LLVMValueRef ok_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, expr_val, zero, "");
+    LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "CastShortenOk");
+    LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "CastShortenFail");
+    LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
+
+    LLVMPositionBuilderAtEnd(g->builder, fail_block);
+    gen_safety_crash(g, PanicMsgIdCastTruncatedData);
+
+    LLVMPositionBuilderAtEnd(g->builder, ok_block);
+    return nullptr;
+}
+
 static LLVMValueRef gen_widen_or_shorten(CodeGen *g, bool want_runtime_safety, ZigType *actual_type,
         ZigType *wanted_type, LLVMValueRef expr_val)
 {
     assert(actual_type->id == wanted_type->id);
+    assert(expr_val != nullptr);
 
     uint64_t actual_bits;
     uint64_t wanted_bits;
@@ -1707,17 +1722,7 @@ static LLVMValueRef gen_widen_or_shorten(CodeGen *g, bool want_runtime_safety, Z
                 if (!want_runtime_safety)
                     return nullptr;
 
-                LLVMValueRef zero = LLVMConstNull(actual_type->type_ref);
-                LLVMValueRef ok_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, expr_val, zero, "");
-                LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "CastShortenOk");
-                LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "CastShortenFail");
-                LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
-
-                LLVMPositionBuilderAtEnd(g->builder, fail_block);
-                gen_safety_crash(g, PanicMsgIdCastTruncatedData);
-
-                LLVMPositionBuilderAtEnd(g->builder, ok_block);
-                return nullptr;
+                return gen_assert_zero(g, expr_val, actual_type);
             }
             LLVMValueRef trunc_val = LLVMBuildTrunc(g->builder, expr_val, wanted_type->type_ref, "");
             if (!want_runtime_safety) {
@@ -5209,6 +5214,17 @@ static LLVMValueRef ir_render_array_to_vector(CodeGen *g, IrExecutable *executab
     return gen_load_untyped(g, casted_ptr, 0, false, "");
 }
 
+static LLVMValueRef ir_render_assert_zero(CodeGen *g, IrExecutable *executable,
+        IrInstructionAssertZero *instruction)
+{
+    LLVMValueRef target = ir_llvm_value(g, instruction->target);
+    ZigType *int_type = instruction->target->value.type;
+    if (ir_want_runtime_safety(g, &instruction->base)) {
+        return gen_assert_zero(g, target, int_type);
+    }
+    return nullptr;
+}
+
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
     Scope *scope = instruction->scope;
@@ -5458,6 +5474,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_array_to_vector(g, executable, (IrInstructionArrayToVector *)instruction);
         case IrInstructionIdVectorToArray:
             return ir_render_vector_to_array(g, executable, (IrInstructionVectorToArray *)instruction);
+        case IrInstructionIdAssertZero:
+            return ir_render_assert_zero(g, executable, (IrInstructionAssertZero *)instruction);
     }
     zig_unreachable();
 }

@@ -697,12 +697,6 @@ test "bit shift a u1" {
     assertOrPanic(y == 1);
 }
 
-test "@intCast to a u0" {
-    var x: u8 = 0;
-    var y: u0 = @intCast(u0, x);
-    assertOrPanic(y == 0);
-}
-
 test "@bytesToslice on a packed struct" {
     const F = packed struct {
         a: u8,

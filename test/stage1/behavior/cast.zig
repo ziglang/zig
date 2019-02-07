@@ -471,3 +471,14 @@ test "@intToEnum passed a comptime_int to an enum with one item" {
     const x = @intToEnum(E, 0);
     assertOrPanic(x == E.A);
 }
+
+test "@intCast to u0 and use the result" {
+    const S = struct {
+        fn doTheTest(zero: u1, one: u1, bigzero: i32) void {
+            assertOrPanic((one << @intCast(u0, bigzero)) == 1);
+            assertOrPanic((zero << @intCast(u0, bigzero)) == 0);
+        }
+    };
+    S.doTheTest(0, 1, 0);
+    comptime S.doTheTest(0, 1, 0);
+}

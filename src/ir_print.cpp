@@ -984,6 +984,12 @@ static void ir_print_vector_to_array(IrPrint *irp, IrInstructionVectorToArray *i
     fprintf(irp->f, ")");
 }
 
+static void ir_print_assert_zero(IrPrint *irp, IrInstructionAssertZero *instruction) {
+    fprintf(irp->f, "AssertZero(");
+    ir_print_other_instruction(irp, instruction->target);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_int_to_err(IrPrint *irp, IrInstructionIntToErr *instruction) {
     fprintf(irp->f, "inttoerr ");
     ir_print_other_instruction(irp, instruction->target);
@@ -1842,6 +1848,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdVectorToArray:
             ir_print_vector_to_array(irp, (IrInstructionVectorToArray *)instruction);
+            break;
+        case IrInstructionIdAssertZero:
+            ir_print_assert_zero(irp, (IrInstructionAssertZero *)instruction);
             break;
     }
     fprintf(irp->f, "\n");
