@@ -7553,7 +7553,13 @@ static void init(CodeGen *g) {
     LLVMTargetRef target_ref;
     char *err_msg = nullptr;
     if (LLVMGetTargetFromTriple(buf_ptr(&g->triple_str), &target_ref, &err_msg)) {
-        zig_panic("unable to create target based on: %s", buf_ptr(&g->triple_str));
+        fprintf(stderr,
+            "Zig is expecting LLVM to understand this target: '%s'\n"
+            "However LLVM responded with: \"%s\"\n"
+            "Zig is unable to continue. This is a bug in Zig:\n"
+            "https://github.com/ziglang/zig/issues/438\n"
+        , buf_ptr(&g->triple_str), err_msg);
+        exit(1);
     }
 
     bool is_optimized = g->build_mode != BuildModeDebug;
