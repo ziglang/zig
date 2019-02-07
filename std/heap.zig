@@ -321,51 +321,57 @@ pub const FixedBufferAllocator = struct {
     fn free(allocator: *Allocator, bytes: []u8) void {}
 };
 
-/// lock free
-pub const ThreadSafeFixedBufferAllocator = struct {
-    allocator: Allocator,
-    end_index: usize,
-    buffer: []u8,
+pub const ThreadSafeFixedBufferAllocator = blk: {
+    if (builtin.single_threaded) {
+        break :blk FixedBufferAllocator;
+    } else {
+        /// lock free
+        break :blk struct {
+            allocator: Allocator,
+            end_index: usize,
+            buffer: []u8,
 
-    pub fn init(buffer: []u8) ThreadSafeFixedBufferAllocator {
-        return ThreadSafeFixedBufferAllocator{
-            .allocator = Allocator{
-                .allocFn = alloc,
-                .reallocFn = realloc,
-                .freeFn = free,
-            },
-            .buffer = buffer,
-            .end_index = 0,
+            pub fn init(buffer: []u8) ThreadSafeFixedBufferAllocator {
+                return ThreadSafeFixedBufferAllocator{
+                    .allocator = Allocator{
+                        .allocFn = alloc,
+                        .reallocFn = realloc,
+                        .freeFn = free,
+                    },
+                    .buffer = buffer,
+                    .end_index = 0,
+                };
+            }
+
+            fn alloc(allocator: *Allocator, n: usize, alignment: u29) ![]u8 {
+                const self = @fieldParentPtr(ThreadSafeFixedBufferAllocator, "allocator", allocator);
+                var end_index = @atomicLoad(usize, &self.end_index, builtin.AtomicOrder.SeqCst);
+                while (true) {
+                    const addr = @ptrToInt(self.buffer.ptr) + end_index;
+                    const rem = @rem(addr, alignment);
+                    const march_forward_bytes = if (rem == 0) 0 else (alignment - rem);
+                    const adjusted_index = end_index + march_forward_bytes;
+                    const new_end_index = adjusted_index + n;
+                    if (new_end_index > self.buffer.len) {
+                        return error.OutOfMemory;
+                    }
+                    end_index = @cmpxchgWeak(usize, &self.end_index, end_index, new_end_index, builtin.AtomicOrder.SeqCst, builtin.AtomicOrder.SeqCst) orelse return self.buffer[adjusted_index..new_end_index];
+                }
+            }
+
+            fn realloc(allocator: *Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![]u8 {
+                if (new_size <= old_mem.len) {
+                    return old_mem[0..new_size];
+                } else {
+                    const result = try alloc(allocator, new_size, alignment);
+                    mem.copy(u8, result, old_mem);
+                    return result;
+                }
+            }
+
+            fn free(allocator: *Allocator, bytes: []u8) void {}
         };
     }
-
-    fn alloc(allocator: *Allocator, n: usize, alignment: u29) ![]u8 {
-        const self = @fieldParentPtr(ThreadSafeFixedBufferAllocator, "allocator", allocator);
-        var end_index = @atomicLoad(usize, &self.end_index, builtin.AtomicOrder.SeqCst);
-        while (true) {
-            const addr = @ptrToInt(self.buffer.ptr) + end_index;
-            const rem = @rem(addr, alignment);
-            const march_forward_bytes = if (rem == 0) 0 else (alignment - rem);
-            const adjusted_index = end_index + march_forward_bytes;
-            const new_end_index = adjusted_index + n;
-            if (new_end_index > self.buffer.len) {
-                return error.OutOfMemory;
-            }
-            end_index = @cmpxchgWeak(usize, &self.end_index, end_index, new_end_index, builtin.AtomicOrder.SeqCst, builtin.AtomicOrder.SeqCst) orelse return self.buffer[adjusted_index..new_end_index];
-        }
-    }
-
-    fn realloc(allocator: *Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![]u8 {
-        if (new_size <= old_mem.len) {
-            return old_mem[0..new_size];
-        } else {
-            const result = try alloc(allocator, new_size, alignment);
-            mem.copy(u8, result, old_mem);
-            return result;
-        }
-    }
-
-    fn free(allocator: *Allocator, bytes: []u8) void {}
 };
 
 pub fn stackFallback(comptime size: usize, fallback_allocator: *Allocator) StackFallbackAllocator(size) {
