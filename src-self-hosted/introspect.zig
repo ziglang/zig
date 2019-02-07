@@ -8,10 +8,10 @@ const warn = std.debug.warn;
 
 /// Caller must free result
 pub fn testZigInstallPrefix(allocator: *mem.Allocator, test_path: []const u8) ![]u8 {
-    const test_zig_dir = try os.path.join(allocator, test_path, "lib", "zig");
+    const test_zig_dir = try os.path.join(allocator, [][]const u8{ test_path, "lib", "zig" });
     errdefer allocator.free(test_zig_dir);
 
-    const test_index_file = try os.path.join(allocator, test_zig_dir, "std", "index.zig");
+    const test_index_file = try os.path.join(allocator, [][]const u8{ test_zig_dir, "std", "index.zig" });
     defer allocator.free(test_index_file);
 
     var file = try os.File.openRead(test_index_file);

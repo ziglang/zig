@@ -315,7 +315,7 @@ fn constructLinkerArgsElf(ctx: *Context) !void {
 }
 
 fn addPathJoin(ctx: *Context, dirname: []const u8, basename: []const u8) !void {
-    const full_path = try std.os.path.join(&ctx.arena.allocator, dirname, basename);
+    const full_path = try std.os.path.join(&ctx.arena.allocator, [][]const u8{ dirname, basename });
     const full_path_with_null = try std.cstr.addNullByte(&ctx.arena.allocator, full_path);
     try ctx.args.append(full_path_with_null.ptr);
 }

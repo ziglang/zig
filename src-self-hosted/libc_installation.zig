@@ -230,7 +230,7 @@ pub const LibCInstallation = struct {
         while (path_i < search_paths.len) : (path_i += 1) {
             const search_path_untrimmed = search_paths.at(search_paths.len - path_i - 1);
             const search_path = std.mem.trimLeft(u8, search_path_untrimmed, " ");
-            const stdlib_path = try std.os.path.join(loop.allocator, search_path, "stdlib.h");
+            const stdlib_path = try std.os.path.join(loop.allocator, [][]const u8{ search_path, "stdlib.h" });
             defer loop.allocator.free(stdlib_path);
 
             if (try fileExists(stdlib_path)) {
@@ -254,7 +254,7 @@ pub const LibCInstallation = struct {
             const stream = &std.io.BufferOutStream.init(&result_buf).stream;
             try stream.print("{}\\Include\\{}\\ucrt", search.path, search.version);
 
-            const stdlib_path = try std.os.path.join(loop.allocator, result_buf.toSliceConst(), "stdlib.h");
+            const stdlib_path = try std.os.path.join(loop.allocator, [][]const u8{ result_buf.toSliceConst(), "stdlib.h" });
             defer loop.allocator.free(stdlib_path);
 
             if (try fileExists(stdlib_path)) {
@@ -283,7 +283,7 @@ pub const LibCInstallation = struct {
                 builtin.Arch.aarch64v8 => try stream.write("arm"),
                 else => return error.UnsupportedArchitecture,
             }
-            const ucrt_lib_path = try std.os.path.join(loop.allocator, result_buf.toSliceConst(), "ucrt.lib");
+            const ucrt_lib_path = try std.os.path.join(loop.allocator, [][]const u8{ result_buf.toSliceConst(), "ucrt.lib" });
             defer loop.allocator.free(ucrt_lib_path);
             if (try fileExists(ucrt_lib_path)) {
                 self.lib_dir = result_buf.toOwnedSlice();
@@ -358,7 +358,7 @@ pub const LibCInstallation = struct {
                 builtin.Arch.aarch64v8 => try stream.write("arm\\"),
                 else => return error.UnsupportedArchitecture,
             }
-            const kernel32_path = try std.os.path.join(loop.allocator, result_buf.toSliceConst(), "kernel32.lib");
+            const kernel32_path = try std.os.path.join(loop.allocator, [][]const u8{ result_buf.toSliceConst(), "kernel32.lib" });
             defer loop.allocator.free(kernel32_path);
             if (try fileExists(kernel32_path)) {
                 self.kernel32_lib_dir = result_buf.toOwnedSlice();

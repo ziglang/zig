@@ -439,7 +439,7 @@ pub const CompareOutputContext = struct {
     pub fn addCase(self: *CompareOutputContext, case: TestCase) void {
         const b = self.b;
 
-        const root_src = os.path.join(b.allocator, b.cache_root, case.sources.items[0].filename) catch unreachable;
+        const root_src = os.path.join(b.allocator, [][]const u8{b.cache_root, case.sources.items[0].filename}) catch unreachable;
 
         switch (case.special) {
             Special.Asm => {
@@ -452,7 +452,7 @@ pub const CompareOutputContext = struct {
                 exe.addAssemblyFile(root_src);
 
                 for (case.sources.toSliceConst()) |src_file| {
-                    const expanded_src_path = os.path.join(b.allocator, b.cache_root, src_file.filename) catch unreachable;
+                    const expanded_src_path = os.path.join(b.allocator, [][]const u8{b.cache_root, src_file.filename}) catch unreachable;
                     const write_src = b.addWriteFile(expanded_src_path, src_file.source);
                     exe.step.dependOn(&write_src.step);
                 }
@@ -476,7 +476,7 @@ pub const CompareOutputContext = struct {
                     }
 
                     for (case.sources.toSliceConst()) |src_file| {
-                        const expanded_src_path = os.path.join(b.allocator, b.cache_root, src_file.filename) catch unreachable;
+                        const expanded_src_path = os.path.join(b.allocator, [][]const u8{b.cache_root, src_file.filename}) catch unreachable;
                         const write_src = b.addWriteFile(expanded_src_path, src_file.source);
                         exe.step.dependOn(&write_src.step);
                     }
@@ -499,7 +499,7 @@ pub const CompareOutputContext = struct {
                 }
 
                 for (case.sources.toSliceConst()) |src_file| {
-                    const expanded_src_path = os.path.join(b.allocator, b.cache_root, src_file.filename) catch unreachable;
+                    const expanded_src_path = os.path.join(b.allocator, [][]const u8{b.cache_root, src_file.filename}) catch unreachable;
                     const write_src = b.addWriteFile(expanded_src_path, src_file.source);
                     exe.step.dependOn(&write_src.step);
                 }
@@ -572,8 +572,8 @@ pub const CompileErrorContext = struct {
             const self = @fieldParentPtr(CompileCmpOutputStep, "step", step);
             const b = self.context.b;
 
-            const root_src = os.path.join(b.allocator, b.cache_root, self.case.sources.items[0].filename) catch unreachable;
-            const obj_path = os.path.join(b.allocator, b.cache_root, "test.o") catch unreachable;
+            const root_src = os.path.join(b.allocator, [][]const u8{b.cache_root, self.case.sources.items[0].filename}) catch unreachable;
+            const obj_path = os.path.join(b.allocator, [][]const u8{b.cache_root, "test.o"}) catch unreachable;
 
             var zig_args = ArrayList([]const u8).init(b.allocator);
             zig_args.append(b.zig_exe) catch unreachable;
@@ -721,7 +721,7 @@ pub const CompileErrorContext = struct {
             self.step.dependOn(&compile_and_cmp_errors.step);
 
             for (case.sources.toSliceConst()) |src_file| {
-                const expanded_src_path = os.path.join(b.allocator, b.cache_root, src_file.filename) catch unreachable;
+                const expanded_src_path = os.path.join(b.allocator, [][]const u8{b.cache_root, src_file.filename}) catch unreachable;
                 const write_src = b.addWriteFile(expanded_src_path, src_file.source);
                 compile_and_cmp_errors.step.dependOn(&write_src.step);
             }
@@ -852,7 +852,7 @@ pub const TranslateCContext = struct {
             const self = @fieldParentPtr(TranslateCCmpOutputStep, "step", step);
             const b = self.context.b;
 
-            const root_src = os.path.join(b.allocator, b.cache_root, self.case.sources.items[0].filename) catch unreachable;
+            const root_src = os.path.join(b.allocator, [][]const u8{b.cache_root, self.case.sources.items[0].filename}) catch unreachable;
 
             var zig_args = ArrayList([]const u8).init(b.allocator);
             zig_args.append(b.zig_exe) catch unreachable;
@@ -986,7 +986,7 @@ pub const TranslateCContext = struct {
         self.step.dependOn(&translate_c_and_cmp.step);
 
         for (case.sources.toSliceConst()) |src_file| {
-            const expanded_src_path = os.path.join(b.allocator, b.cache_root, src_file.filename) catch unreachable;
+            const expanded_src_path = os.path.join(b.allocator, [][]const u8{b.cache_root, src_file.filename}) catch unreachable;
             const write_src = b.addWriteFile(expanded_src_path, src_file.source);
             translate_c_and_cmp.step.dependOn(&write_src.step);
         }
@@ -1101,7 +1101,7 @@ pub const GenHContext = struct {
 
     pub fn addCase(self: *GenHContext, case: *const TestCase) void {
         const b = self.b;
-        const root_src = os.path.join(b.allocator, b.cache_root, case.sources.items[0].filename) catch unreachable;
+        const root_src = os.path.join(b.allocator, [][]const u8{b.cache_root, case.sources.items[0].filename}) catch unreachable;
 
         const mode = builtin.Mode.Debug;
         const annotated_case_name = fmt.allocPrint(self.b.allocator, "gen-h {} ({})", case.name, @tagName(mode)) catch unreachable;
@@ -1113,7 +1113,7 @@ pub const GenHContext = struct {
         obj.setBuildMode(mode);
 
         for (case.sources.toSliceConst()) |src_file| {
-            const expanded_src_path = os.path.join(b.allocator, b.cache_root, src_file.filename) catch unreachable;
+            const expanded_src_path = os.path.join(b.allocator, [][]const u8{b.cache_root, src_file.filename}) catch unreachable;
             const write_src = b.addWriteFile(expanded_src_path, src_file.source);
             obj.step.dependOn(&write_src.step);
         }

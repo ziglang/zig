@@ -597,7 +597,7 @@ pub const ChildProcess = struct {
 
             var it = mem.tokenize(PATH, ";");
             while (it.next()) |search_path| {
-                const joined_path = try os.path.join(self.allocator, search_path, app_name);
+                const joined_path = try os.path.join(self.allocator, [][]const u8{ search_path, app_name });
                 defer self.allocator.free(joined_path);
 
                 const joined_path_w = try unicode.utf8ToUtf16LeWithNull(self.allocator, joined_path);

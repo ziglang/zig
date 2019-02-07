@@ -29,7 +29,7 @@ pub fn main() !void {
     });
     const zig_exe = try os.path.resolve(a, zig_exe_rel);
 
-    const dir_path = try os.path.join(a, cache_root, "clitest");
+    const dir_path = try os.path.join(a, [][]const u8{ cache_root, "clitest" });
     const TestFn = fn ([]const u8, []const u8) anyerror!void;
     const test_fns = []TestFn{
         testZigInitLib,
@@ -99,8 +99,8 @@ fn testZigInitExe(zig_exe: []const u8, dir_path: []const u8) !void {
 fn testGodboltApi(zig_exe: []const u8, dir_path: []const u8) anyerror!void {
     if (builtin.os != builtin.Os.linux or builtin.arch != builtin.Arch.x86_64) return;
 
-    const example_zig_path = try os.path.join(a, dir_path, "example.zig");
-    const example_s_path = try os.path.join(a, dir_path, "example.s");
+    const example_zig_path = try os.path.join(a, [][]const u8{ dir_path, "example.zig" });
+    const example_s_path = try os.path.join(a, [][]const u8{ dir_path, "example.s" });
 
     try std.io.writeFile(example_zig_path,
         \\// Type your code here, or load an example.
