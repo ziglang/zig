@@ -882,42 +882,37 @@ pub const SplitIterator = struct {
     }
 };
 
-/// Naively combines a series of strings with a separator.
+/// Naively combines a series of slices with a separator.
 /// Allocates memory for the result, which must be freed by the caller.
-pub fn join(allocator: *Allocator, sep: u8, strings: ...) ![]u8 {
-    comptime assert(strings.len >= 1);
-    var total_strings_len: usize = strings.len; // 1 sep per string
-    {
-        comptime var string_i = 0;
-        inline while (string_i < strings.len) : (string_i += 1) {
-            const arg = ([]const u8)(strings[string_i]);
-            total_strings_len += arg.len;
-        }
-    }
+pub fn join(allocator: *Allocator, separator: []const u8, slices: []const []const u8) ![]u8 {
+    if (slices.len == 0) return (([*]u8)(undefined))[0..0];
 
-    const buf = try allocator.alloc(u8, total_strings_len);
+    const total_len = blk: {
+        var sum: usize = separator.len * (slices.len - 1);
+        for (slices) |slice|
+            sum += slice.len;
+        break :blk sum;
+    };
+
+    const buf = try allocator.alloc(u8, total_len);
     errdefer allocator.free(buf);
 
-    var buf_index: usize = 0;
-    comptime var string_i = 0;
-    inline while (true) {
-        const arg = ([]const u8)(strings[string_i]);
-        string_i += 1;
-        copy(u8, buf[buf_index..], arg);
-        buf_index += arg.len;
-        if (string_i >= strings.len) break;
-        if (buf[buf_index - 1] != sep) {
-            buf[buf_index] = sep;
-            buf_index += 1;
-        }
+    copy(u8, buf, slices[0]);
+    var buf_index: usize = slices[0].len;
+    for (slices[1..]) |slice| {
+        copy(u8, buf[buf_index..], separator);
+        buf_index += separator.len;
+        copy(u8, buf[buf_index..], slice);
+        buf_index += slice.len;
     }
 
-    return allocator.shrink(u8, buf, buf_index);
+    // No need for shrink since buf is exactly the correct size.
+    return buf;
 }
 
 test "mem.join" {
-    assert(eql(u8, try join(debug.global_allocator, ',', "a", "b", "c"), "a,b,c"));
-    assert(eql(u8, try join(debug.global_allocator, ',', "a"), "a"));
+    assert(eql(u8, try join(debug.global_allocator, ",", [][]const u8{ "a", "b", "c" }), "a,b,c"));
+    assert(eql(u8, try join(debug.global_allocator, ",", [][]const u8{"a"}), "a"));
 }
 
 test "testStringEquality" {
