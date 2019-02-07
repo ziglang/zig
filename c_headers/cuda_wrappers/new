@@ -73,10 +73,12 @@ __device__ inline void operator delete[](void *ptr,
 
 // Sized delete, C++14 only.
 #if __cplusplus >= 201402L
-__device__ void operator delete(void *ptr, __SIZE_TYPE__ size) CUDA_NOEXCEPT {
+__device__ inline void operator delete(void *ptr,
+                                       __SIZE_TYPE__ size) CUDA_NOEXCEPT {
   ::operator delete(ptr);
 }
-__device__ void operator delete[](void *ptr, __SIZE_TYPE__ size) CUDA_NOEXCEPT {
+__device__ inline void operator delete[](void *ptr,
+                                         __SIZE_TYPE__ size) CUDA_NOEXCEPT {
   ::operator delete(ptr);
 }
 #endif

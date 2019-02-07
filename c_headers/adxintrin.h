@@ -53,7 +53,7 @@ static __inline unsigned char __DEFAULT_FN_ATTRS
 _addcarry_u32(unsigned char __cf, unsigned int __x, unsigned int __y,
               unsigned int *__p)
 {
-  return __builtin_ia32_addcarry_u32(__cf, __x, __y, __p);
+  return __builtin_ia32_addcarryx_u32(__cf, __x, __y, __p);
 }
 
 #ifdef __x86_64__
@@ -61,7 +61,7 @@ static __inline unsigned char __DEFAULT_FN_ATTRS
 _addcarry_u64(unsigned char __cf, unsigned long long __x,
               unsigned long long __y, unsigned long long  *__p)
 {
-  return __builtin_ia32_addcarry_u64(__cf, __x, __y, __p);
+  return __builtin_ia32_addcarryx_u64(__cf, __x, __y, __p);
 }
 #endif
 
