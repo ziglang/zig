@@ -132,6 +132,10 @@ static const char *const_or_var_string(bool is_const) {
     return is_const ? "const" : "var";
 }
 
+static const char *thread_local_string(Token *tok) {
+    return (tok == nullptr) ? "" : "threadlocal ";
+}
+
 const char *container_string(ContainerKind kind) {
     switch (kind) {
         case ContainerKindEnum: return "enum";
@@ -554,8 +558,9 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             {
                 const char *pub_str = visib_mod_string(node->data.variable_declaration.visib_mod);
                 const char *extern_str = extern_string(node->data.variable_declaration.is_extern);
+                const char *thread_local_str = thread_local_string(node->data.variable_declaration.threadlocal_tok);
                 const char *const_or_var = const_or_var_string(node->data.variable_declaration.is_const);
-                fprintf(ar->f, "%s%s%s ", pub_str, extern_str, const_or_var);
+                fprintf(ar->f, "%s%s%s%s ", pub_str, extern_str, thread_local_str, const_or_var);
                 print_symbol(ar, node->data.variable_declaration.symbol);
 
                 if (node->data.variable_declaration.type) {

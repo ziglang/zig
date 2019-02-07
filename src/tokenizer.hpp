@@ -88,6 +88,7 @@ enum TokenId {
     TokenIdKeywordSuspend,
     TokenIdKeywordSwitch,
     TokenIdKeywordTest,
+    TokenIdKeywordThreadLocal,
     TokenIdKeywordTrue,
     TokenIdKeywordTry,
     TokenIdKeywordUndefined,

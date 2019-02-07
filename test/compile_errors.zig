@@ -2,6 +2,25 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "threadlocal qualifier on const",
+        \\threadlocal const x: i32 = 1234;
+        \\export fn entry() i32 {
+        \\    return x;
+        \\}
+    ,
+        ".tmp_source.zig:1:13: error: threadlocal variable cannot be constant",
+    );
+
+    cases.add(
+        "threadlocal qualifier on local variable",
+        \\export fn entry() void {
+        \\    threadlocal var x: i32 = 1234;
+        \\}
+    ,
+        ".tmp_source.zig:2:5: error: function-local variable 'x' cannot be threadlocal",
+    );
+
+    cases.add(
         "@bitCast same size but bit count mismatch",
         \\export fn entry(byte: u8) void {
         \\    var oops = @bitCast(u7, byte);

@@ -685,3 +685,11 @@ test "fn call returning scalar optional in equality expression" {
 fn getNull() ?*i32 {
     return null;
 }
+
+test "thread local variable" {
+    const S = struct {
+        threadlocal var t: i32 = 1234;
+    };
+    S.t += 1;
+    assertOrPanic(S.t == 1235);
+}

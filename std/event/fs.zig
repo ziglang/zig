@@ -871,7 +871,7 @@ pub fn Watch(comptime V: type) type {
         }
 
         async fn addFileKEvent(self: *Self, file_path: []const u8, value: V) !?V {
-            const resolved_path = try os.path.resolve(self.channel.loop.allocator, file_path);
+            const resolved_path = try os.path.resolve(self.channel.loop.allocator, [][]const u8{file_path});
             var resolved_path_consumed = false;
             defer if (!resolved_path_consumed) self.channel.loop.allocator.free(resolved_path);
 
@@ -1336,7 +1336,7 @@ async fn testFsWatchCantFail(loop: *Loop, result: *(anyerror!void)) void {
 }
 
 async fn testFsWatch(loop: *Loop) !void {
-    const file_path = try os.path.join(loop.allocator, test_tmp_dir, "file.txt");
+    const file_path = try os.path.join(loop.allocator, [][]const u8{ test_tmp_dir, "file.txt" });
     defer loop.allocator.free(file_path);
 
     const contents =

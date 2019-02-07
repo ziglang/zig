@@ -88,7 +88,7 @@ static const char *symbols_that_llvm_depends_on[] = {
 };
 
 CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out_type, BuildMode build_mode,
-    Buf *zig_lib_dir)
+    Buf *zig_lib_dir, Buf *override_std_dir)
 {
     CodeGen *g = allocate<CodeGen>(1);
 
@@ -96,8 +96,12 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
 
     g->zig_lib_dir = zig_lib_dir;
 
-    g->zig_std_dir = buf_alloc();
-    os_path_join(zig_lib_dir, buf_create_from_str("std"), g->zig_std_dir);
+    if (override_std_dir == nullptr) {
+        g->zig_std_dir = buf_alloc();
+        os_path_join(zig_lib_dir, buf_create_from_str("std"), g->zig_std_dir);
+    } else {
+        g->zig_std_dir = override_std_dir;
+    }
 
     g->zig_c_headers_dir = buf_alloc();
     os_path_join(zig_lib_dir, buf_create_from_str("include"), g->zig_c_headers_dir);
@@ -2582,6 +2586,8 @@ static LLVMValueRef gen_rem(CodeGen *g, bool want_runtime_safety, bool want_fast
 
 }
 
+typedef LLVMValueRef (*BuildBinOpFunc)(LLVMBuilderRef, LLVMValueRef, LLVMValueRef, const char *);
+
 static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
         IrInstructionBinOp *bin_op_instruction)
 {
@@ -2640,50 +2646,71 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
             } else {
                 zig_unreachable();
             }
+        case IrBinOpMult:
+        case IrBinOpMultWrap:
         case IrBinOpAdd:
         case IrBinOpAddWrap:
+        case IrBinOpSub:
+        case IrBinOpSubWrap: {
+            // These are lookup table using the AddSubMul enum as the lookup.
+            // If AddSubMul ever changes, then these tables will be out of
+            // date.
+            static const BuildBinOpFunc float_op[3] = { LLVMBuildFAdd, LLVMBuildFSub, LLVMBuildFMul };
+            static const BuildBinOpFunc wrap_op[3] = { LLVMBuildAdd, LLVMBuildSub, LLVMBuildMul };
+            static const BuildBinOpFunc signed_op[3] = { LLVMBuildNSWAdd, LLVMBuildNSWSub, LLVMBuildNSWMul };
+            static const BuildBinOpFunc unsigned_op[3] = { LLVMBuildNUWAdd, LLVMBuildNUWSub, LLVMBuildNUWMul };
+
+            bool is_vector = type_entry->id == ZigTypeIdVector;
+            bool is_wrapping = (op_id == IrBinOpSubWrap || op_id == IrBinOpAddWrap || op_id == IrBinOpMultWrap);
+            AddSubMul add_sub_mul =
+                op_id == IrBinOpAdd || op_id == IrBinOpAddWrap ? AddSubMulAdd :
+                op_id == IrBinOpSub || op_id == IrBinOpSubWrap ? AddSubMulSub :
+                AddSubMulMul;
+
+            // The code that is generated for vectors and scalars are the same,
+            // so we can just set type_entry to the vectors elem_type an avoid
+            // a lot of repeated code.
+            if (is_vector)
+                type_entry = type_entry->data.vector.elem_type;
+
             if (type_entry->id == ZigTypeIdPointer) {
                 assert(type_entry->data.pointer.ptr_len == PtrLenUnknown);
+                LLVMValueRef subscript_value;
+                if (is_vector)
+                    zig_panic("TODO: Implement vector operations on pointers.");
+
+                switch (add_sub_mul) {
+                    case AddSubMulAdd:
+                        subscript_value = op2_value;
+                        break;
+                    case AddSubMulSub:
+                        subscript_value = LLVMBuildNeg(g->builder, op2_value, "");
+                        break;
+                    case AddSubMulMul:
+                        zig_unreachable();
+                }
+
                 // TODO runtime safety
-                return LLVMBuildInBoundsGEP(g->builder, op1_value, &op2_value, 1, "");
+                return LLVMBuildInBoundsGEP(g->builder, op1_value, &subscript_value, 1, "");
             } else if (type_entry->id == ZigTypeIdFloat) {
                 ZigLLVMSetFastMath(g->builder, ir_want_fast_math(g, &bin_op_instruction->base));
-                return LLVMBuildFAdd(g->builder, op1_value, op2_value, "");
+                return float_op[add_sub_mul](g->builder, op1_value, op2_value, "");
             } else if (type_entry->id == ZigTypeIdInt) {
-                bool is_wrapping = (op_id == IrBinOpAddWrap);
                 if (is_wrapping) {
-                    return LLVMBuildAdd(g->builder, op1_value, op2_value, "");
+                    return wrap_op[add_sub_mul](g->builder, op1_value, op2_value, "");
                 } else if (want_runtime_safety) {
-                    return gen_overflow_op(g, type_entry, AddSubMulAdd, op1_value, op2_value);
+                    if (is_vector)
+                        zig_panic("TODO: Implement runtime safety vector operations.");
+                    return gen_overflow_op(g, type_entry, add_sub_mul, op1_value, op2_value);
                 } else if (type_entry->data.integral.is_signed) {
-                    return LLVMBuildNSWAdd(g->builder, op1_value, op2_value, "");
+                    return signed_op[add_sub_mul](g->builder, op1_value, op2_value, "");
                 } else {
-                    return LLVMBuildNUWAdd(g->builder, op1_value, op2_value, "");
-                }
-            } else if (type_entry->id == ZigTypeIdVector) {
-                ZigType *elem_type = type_entry->data.vector.elem_type;
-                if (elem_type->id == ZigTypeIdFloat) {
-                    ZigLLVMSetFastMath(g->builder, ir_want_fast_math(g, &bin_op_instruction->base));
-                    return LLVMBuildFAdd(g->builder, op1_value, op2_value, "");
-                } else if (elem_type->id == ZigTypeIdPointer) {
-                    zig_panic("TODO codegen for pointers in vectors");
-                } else if (elem_type->id == ZigTypeIdInt) {
-                    bool is_wrapping = (op_id == IrBinOpAddWrap);
-                    if (is_wrapping) {
-                        return LLVMBuildAdd(g->builder, op1_value, op2_value, "");
-                    } else if (want_runtime_safety) {
-                        zig_panic("TODO runtime safety for vector integer addition");
-                    } else if (elem_type->data.integral.is_signed) {
-                        return LLVMBuildNSWAdd(g->builder, op1_value, op2_value, "");
-                    } else {
-                        return LLVMBuildNUWAdd(g->builder, op1_value, op2_value, "");
-                    }
-                } else {
-                    zig_unreachable();
+                    return unsigned_op[add_sub_mul](g->builder, op1_value, op2_value, "");
                 }
             } else {
                 zig_unreachable();
             }
+        }
         case IrBinOpBinOr:
             return LLVMBuildOr(g->builder, op1_value, op2_value, "");
         case IrBinOpBinXor:
@@ -2727,49 +2754,6 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
                 } else {
                     return ZigLLVMBuildLShrExact(g->builder, op1_value, op2_casted, "");
                 }
-            }
-        case IrBinOpSub:
-        case IrBinOpSubWrap:
-            if (type_entry->id == ZigTypeIdPointer) {
-                assert(type_entry->data.pointer.ptr_len == PtrLenUnknown);
-                // TODO runtime safety
-                LLVMValueRef subscript_value = LLVMBuildNeg(g->builder, op2_value, "");
-                return LLVMBuildInBoundsGEP(g->builder, op1_value, &subscript_value, 1, "");
-            } else if (type_entry->id == ZigTypeIdFloat) {
-                ZigLLVMSetFastMath(g->builder, ir_want_fast_math(g, &bin_op_instruction->base));
-                return LLVMBuildFSub(g->builder, op1_value, op2_value, "");
-            } else if (type_entry->id == ZigTypeIdInt) {
-                bool is_wrapping = (op_id == IrBinOpSubWrap);
-                if (is_wrapping) {
-                    return LLVMBuildSub(g->builder, op1_value, op2_value, "");
-                } else if (want_runtime_safety) {
-                    return gen_overflow_op(g, type_entry, AddSubMulSub, op1_value, op2_value);
-                } else if (type_entry->data.integral.is_signed) {
-                    return LLVMBuildNSWSub(g->builder, op1_value, op2_value, "");
-                } else {
-                    return LLVMBuildNUWSub(g->builder, op1_value, op2_value, "");
-                }
-            } else {
-                zig_unreachable();
-            }
-        case IrBinOpMult:
-        case IrBinOpMultWrap:
-            if (type_entry->id == ZigTypeIdFloat) {
-                ZigLLVMSetFastMath(g->builder, ir_want_fast_math(g, &bin_op_instruction->base));
-                return LLVMBuildFMul(g->builder, op1_value, op2_value, "");
-            } else if (type_entry->id == ZigTypeIdInt) {
-                bool is_wrapping = (op_id == IrBinOpMultWrap);
-                if (is_wrapping) {
-                    return LLVMBuildMul(g->builder, op1_value, op2_value, "");
-                } else if (want_runtime_safety) {
-                    return gen_overflow_op(g, type_entry, AddSubMulMul, op1_value, op2_value);
-                } else if (type_entry->data.integral.is_signed) {
-                    return LLVMBuildNSWMul(g->builder, op1_value, op2_value, "");
-                } else {
-                    return LLVMBuildNUWMul(g->builder, op1_value, op2_value, "");
-                }
-            } else {
-                zig_unreachable();
             }
         case IrBinOpDivUnspecified:
             return gen_div(g, want_runtime_safety, ir_want_fast_math(g, &bin_op_instruction->base),
@@ -6361,6 +6345,12 @@ static void validate_inline_fns(CodeGen *g) {
     report_errors_and_maybe_exit(g);
 }
 
+static void set_global_tls(CodeGen *g, ZigVar *var, LLVMValueRef global_value) {
+    if (var->is_thread_local && !g->is_single_threaded) {
+        LLVMSetThreadLocalMode(global_value, LLVMGeneralDynamicTLSModel);
+    }
+}
+
 static void do_code_gen(CodeGen *g) {
     assert(!g->errors.length);
 
@@ -6445,6 +6435,7 @@ static void do_code_gen(CodeGen *g) {
                 maybe_import_dll(g, global_value, GlobalLinkageIdStrong);
                 LLVMSetAlignment(global_value, var->align_bytes);
                 LLVMSetGlobalConstant(global_value, var->gen_is_const);
+                set_global_tls(g, var, global_value);
             }
         } else {
             bool exported = (var->linkage == VarLinkageExport);
@@ -6470,6 +6461,7 @@ static void do_code_gen(CodeGen *g) {
             }
 
             LLVMSetGlobalConstant(global_value, var->gen_is_const);
+            set_global_tls(g, var, global_value);
         }
 
         var->value_ref = global_value;
@@ -7520,6 +7512,7 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     g->compile_var_package = new_package(buf_ptr(this_dir), builtin_zig_basename);
     g->root_package->package_table.put(buf_create_from_str("builtin"), g->compile_var_package);
     g->std_package->package_table.put(buf_create_from_str("builtin"), g->compile_var_package);
+    g->std_package->package_table.put(buf_create_from_str("std"), g->std_package);
     g->compile_var_import = add_source_file(g, g->compile_var_package, builtin_zig_path, contents);
     scan_import(g, g->compile_var_import);
 
@@ -7560,7 +7553,13 @@ static void init(CodeGen *g) {
     LLVMTargetRef target_ref;
     char *err_msg = nullptr;
     if (LLVMGetTargetFromTriple(buf_ptr(&g->triple_str), &target_ref, &err_msg)) {
-        zig_panic("unable to create target based on: %s", buf_ptr(&g->triple_str));
+        fprintf(stderr,
+            "Zig is expecting LLVM to understand this target: '%s'\n"
+            "However LLVM responded with: \"%s\"\n"
+            "Zig is unable to continue. This is a bug in Zig:\n"
+            "https://github.com/ziglang/zig/issues/438\n"
+        , buf_ptr(&g->triple_str), err_msg);
+        exit(1);
     }
 
     bool is_optimized = g->build_mode != BuildModeDebug;
@@ -8349,8 +8348,12 @@ static void add_cache_pkg(CodeGen *g, CacheHash *ch, PackageTableEntry *pkg) {
         if (!entry)
             break;
 
-        cache_buf(ch, entry->key);
-        add_cache_pkg(g, ch, entry->value);
+        // TODO: I think we need a more sophisticated detection of
+        // packages we have already seen
+        if (entry->value != pkg) {
+            cache_buf(ch, entry->key);
+            add_cache_pkg(g, ch, entry->value);
+        }
     }
 }
 

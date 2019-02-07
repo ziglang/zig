@@ -106,9 +106,7 @@ pub const DirectAllocator = struct {
                 };
                 const ptr = os.windows.HeapAlloc(heap_handle, 0, amt) orelse return error.OutOfMemory;
                 const root_addr = @ptrToInt(ptr);
-                const rem = @rem(root_addr, alignment);
-                const march_forward_bytes = if (rem == 0) 0 else (alignment - rem);
-                const adjusted_addr = root_addr + march_forward_bytes;
+                const adjusted_addr = mem.alignForward(root_addr, alignment);
                 const record_addr = adjusted_addr + n;
                 @intToPtr(*align(1) usize, record_addr).* = root_addr;
                 return @intToPtr([*]u8, adjusted_addr)[0..n];
@@ -126,8 +124,7 @@ pub const DirectAllocator = struct {
                     const base_addr = @ptrToInt(old_mem.ptr);
                     const old_addr_end = base_addr + old_mem.len;
                     const new_addr_end = base_addr + new_size;
-                    const rem = @rem(new_addr_end, os.page_size);
-                    const new_addr_end_rounded = new_addr_end + if (rem == 0) 0 else (os.page_size - rem);
+                    const new_addr_end_rounded = mem.alignForward(new_addr_end, os.page_size);
                     if (old_addr_end > new_addr_end_rounded) {
                         _ = os.posix.munmap(new_addr_end_rounded, old_addr_end - new_addr_end_rounded);
                     }
