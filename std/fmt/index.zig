@@ -2,7 +2,7 @@ const std = @import("../index.zig");
 const math = std.math;
 const debug = std.debug;
 const assert = debug.assert;
-const assertError = debug.assertError;
+const testing = std.testing;
 const mem = std.mem;
 const builtin = @import("builtin");
 const errol = @import("errol/index.zig");
@@ -588,7 +588,7 @@ pub fn formatFloatDecimal(
         }
 
         // Remaining fractional portion, zero-padding if insufficient.
-        debug.assert(precision >= printed);
+        assert(precision >= printed);
         if (num_digits_whole_no_pad + precision - printed < float_decimal.digits.len) {
             try output(context, float_decimal.digits[num_digits_whole_no_pad .. num_digits_whole_no_pad + precision - printed]);
             return;
@@ -798,13 +798,13 @@ pub fn parseInt(comptime T: type, buf: []const u8, radix: u8) !T {
 }
 
 test "fmt.parseInt" {
-    assert((parseInt(i32, "-10", 10) catch unreachable) == -10);
-    assert((parseInt(i32, "+10", 10) catch unreachable) == 10);
-    assert(if (parseInt(i32, " 10", 10)) |_| false else |err| err == error.InvalidCharacter);
-    assert(if (parseInt(i32, "10 ", 10)) |_| false else |err| err == error.InvalidCharacter);
-    assert(if (parseInt(u32, "-10", 10)) |_| false else |err| err == error.InvalidCharacter);
-    assert((parseInt(u8, "255", 10) catch unreachable) == 255);
-    assert(if (parseInt(u8, "256", 10)) |_| false else |err| err == error.Overflow);
+    testing.expect((parseInt(i32, "-10", 10) catch unreachable) == -10);
+    testing.expect((parseInt(i32, "+10", 10) catch unreachable) == 10);
+    testing.expect(if (parseInt(i32, " 10", 10)) |_| false else |err| err == error.InvalidCharacter);
+    testing.expect(if (parseInt(i32, "10 ", 10)) |_| false else |err| err == error.InvalidCharacter);
+    testing.expect(if (parseInt(u32, "-10", 10)) |_| false else |err| err == error.InvalidCharacter);
+    testing.expect((parseInt(u8, "255", 10) catch unreachable) == 255);
+    testing.expect(if (parseInt(u8, "256", 10)) |_| false else |err| err == error.Overflow);
 }
 
 const ParseUnsignedError = error{
@@ -829,30 +829,30 @@ pub fn parseUnsigned(comptime T: type, buf: []const u8, radix: u8) ParseUnsigned
 }
 
 test "parseUnsigned" {
-    assert((try parseUnsigned(u16, "050124", 10)) == 50124);
-    assert((try parseUnsigned(u16, "65535", 10)) == 65535);
-    assertError(parseUnsigned(u16, "65536", 10), error.Overflow);
+    testing.expect((try parseUnsigned(u16, "050124", 10)) == 50124);
+    testing.expect((try parseUnsigned(u16, "65535", 10)) == 65535);
+    testing.expectError(error.Overflow, parseUnsigned(u16, "65536", 10));
 
-    assert((try parseUnsigned(u64, "0ffffffffffffffff", 16)) == 0xffffffffffffffff);
-    assertError(parseUnsigned(u64, "10000000000000000", 16), error.Overflow);
+    testing.expect((try parseUnsigned(u64, "0ffffffffffffffff", 16)) == 0xffffffffffffffff);
+    testing.expectError(error.Overflow, parseUnsigned(u64, "10000000000000000", 16));
 
-    assert((try parseUnsigned(u32, "DeadBeef", 16)) == 0xDEADBEEF);
+    testing.expect((try parseUnsigned(u32, "DeadBeef", 16)) == 0xDEADBEEF);
 
-    assert((try parseUnsigned(u7, "1", 10)) == 1);
-    assert((try parseUnsigned(u7, "1000", 2)) == 8);
+    testing.expect((try parseUnsigned(u7, "1", 10)) == 1);
+    testing.expect((try parseUnsigned(u7, "1000", 2)) == 8);
 
-    assertError(parseUnsigned(u32, "f", 10), error.InvalidCharacter);
-    assertError(parseUnsigned(u8, "109", 8), error.InvalidCharacter);
+    testing.expectError(error.InvalidCharacter, parseUnsigned(u32, "f", 10));
+    testing.expectError(error.InvalidCharacter, parseUnsigned(u8, "109", 8));
 
-    assert((try parseUnsigned(u32, "NUMBER", 36)) == 1442151747);
+    testing.expect((try parseUnsigned(u32, "NUMBER", 36)) == 1442151747);
 
     // these numbers should fit even though the radix itself doesn't fit in the destination type
-    assert((try parseUnsigned(u1, "0", 10)) == 0);
-    assert((try parseUnsigned(u1, "1", 10)) == 1);
-    assertError(parseUnsigned(u1, "2", 10), error.Overflow);
-    assert((try parseUnsigned(u1, "001", 16)) == 1);
-    assert((try parseUnsigned(u2, "3", 16)) == 3);
-    assertError(parseUnsigned(u2, "4", 16), error.Overflow);
+    testing.expect((try parseUnsigned(u1, "0", 10)) == 0);
+    testing.expect((try parseUnsigned(u1, "1", 10)) == 1);
+    testing.expectError(error.Overflow, parseUnsigned(u1, "2", 10));
+    testing.expect((try parseUnsigned(u1, "001", 16)) == 1);
+    testing.expect((try parseUnsigned(u2, "3", 16)) == 3);
+    testing.expectError(error.Overflow, parseUnsigned(u2, "4", 16));
 }
 
 pub fn charToDigit(c: u8, radix: u8) (error{InvalidCharacter}!u8) {
@@ -910,19 +910,19 @@ fn countSize(size: *usize, bytes: []const u8) (error{}!void) {
 test "buf print int" {
     var buffer: [max_int_digits]u8 = undefined;
     const buf = buffer[0..];
-    assert(mem.eql(u8, bufPrintIntToSlice(buf, i32(-12345678), 2, false, 0), "-101111000110000101001110"));
-    assert(mem.eql(u8, bufPrintIntToSlice(buf, i32(-12345678), 10, false, 0), "-12345678"));
-    assert(mem.eql(u8, bufPrintIntToSlice(buf, i32(-12345678), 16, false, 0), "-bc614e"));
-    assert(mem.eql(u8, bufPrintIntToSlice(buf, i32(-12345678), 16, true, 0), "-BC614E"));
+    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, i32(-12345678), 2, false, 0), "-101111000110000101001110"));
+    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, i32(-12345678), 10, false, 0), "-12345678"));
+    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, i32(-12345678), 16, false, 0), "-bc614e"));
+    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, i32(-12345678), 16, true, 0), "-BC614E"));
 
-    assert(mem.eql(u8, bufPrintIntToSlice(buf, u32(12345678), 10, true, 0), "12345678"));
+    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, u32(12345678), 10, true, 0), "12345678"));
 
-    assert(mem.eql(u8, bufPrintIntToSlice(buf, u32(666), 10, false, 6), "000666"));
-    assert(mem.eql(u8, bufPrintIntToSlice(buf, u32(0x1234), 16, false, 6), "001234"));
-    assert(mem.eql(u8, bufPrintIntToSlice(buf, u32(0x1234), 16, false, 1), "1234"));
+    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, u32(666), 10, false, 6), "000666"));
+    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, u32(0x1234), 16, false, 6), "001234"));
+    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, u32(0x1234), 16, false, 1), "1234"));
 
-    assert(mem.eql(u8, bufPrintIntToSlice(buf, i32(42), 10, false, 3), "+42"));
-    assert(mem.eql(u8, bufPrintIntToSlice(buf, i32(-42), 10, false, 3), "-42"));
+    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, i32(42), 10, false, 3), "+42"));
+    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, i32(-42), 10, false, 3), "-42"));
 }
 
 fn bufPrintIntToSlice(buf: []u8, value: var, base: u8, uppercase: bool, width: usize) []u8 {
@@ -939,7 +939,7 @@ test "parse u64 digit too big" {
 
 test "parse unsigned comptime" {
     comptime {
-        assert((try parseUnsigned(usize, "2", 10)) == 2);
+        testing.expect((try parseUnsigned(usize, "2", 10)) == 2);
     }
 }
 
@@ -977,17 +977,17 @@ test "fmt.format" {
         var context = BufPrintContext{ .remaining = buf1[0..] };
         try formatType(1234, "", &context, error{BufferTooSmall}, bufPrintWrite);
         var res = buf1[0 .. buf1.len - context.remaining.len];
-        assert(mem.eql(u8, res, "1234"));
+        testing.expect(mem.eql(u8, res, "1234"));
 
         context = BufPrintContext{ .remaining = buf1[0..] };
         try formatType('a', "c", &context, error{BufferTooSmall}, bufPrintWrite);
         res = buf1[0 .. buf1.len - context.remaining.len];
-        assert(mem.eql(u8, res, "a"));
+        testing.expect(mem.eql(u8, res, "a"));
 
         context = BufPrintContext{ .remaining = buf1[0..] };
         try formatType(0b1100, "b", &context, error{BufferTooSmall}, bufPrintWrite);
         res = buf1[0 .. buf1.len - context.remaining.len];
-        assert(mem.eql(u8, res, "1100"));
+        testing.expect(mem.eql(u8, res, "1100"));
     }
     {
         const value: [3]u8 = "abc";
@@ -1053,19 +1053,19 @@ test "fmt.format" {
         var buf1: [32]u8 = undefined;
         const value: f32 = 1.34;
         const result = try bufPrint(buf1[0..], "f32: {e}\n", value);
-        assert(mem.eql(u8, result, "f32: 1.34000003e+00\n"));
+        testing.expect(mem.eql(u8, result, "f32: 1.34000003e+00\n"));
     }
     {
         var buf1: [32]u8 = undefined;
         const value: f32 = 12.34;
         const result = try bufPrint(buf1[0..], "f32: {e}\n", value);
-        assert(mem.eql(u8, result, "f32: 1.23400001e+01\n"));
+        testing.expect(mem.eql(u8, result, "f32: 1.23400001e+01\n"));
     }
     {
         var buf1: [32]u8 = undefined;
         const value: f64 = -12.34e10;
         const result = try bufPrint(buf1[0..], "f64: {e}\n", value);
-        assert(mem.eql(u8, result, "f64: -1.234e+11\n"));
+        testing.expect(mem.eql(u8, result, "f64: -1.234e+11\n"));
     }
     {
         // This fails on release due to a minor rounding difference.
@@ -1075,26 +1075,26 @@ test "fmt.format" {
             var buf1: [32]u8 = undefined;
             const value: f64 = 9.999960e-40;
             const result = try bufPrint(buf1[0..], "f64: {e}\n", value);
-            assert(mem.eql(u8, result, "f64: 9.99996e-40\n"));
+            testing.expect(mem.eql(u8, result, "f64: 9.99996e-40\n"));
         }
     }
     {
         var buf1: [32]u8 = undefined;
         const value: f64 = 1.409706e-42;
         const result = try bufPrint(buf1[0..], "f64: {e5}\n", value);
-        assert(mem.eql(u8, result, "f64: 1.40971e-42\n"));
+        testing.expect(mem.eql(u8, result, "f64: 1.40971e-42\n"));
     }
     {
         var buf1: [32]u8 = undefined;
         const value: f64 = @bitCast(f32, u32(814313563));
         const result = try bufPrint(buf1[0..], "f64: {e5}\n", value);
-        assert(mem.eql(u8, result, "f64: 1.00000e-09\n"));
+        testing.expect(mem.eql(u8, result, "f64: 1.00000e-09\n"));
     }
     {
         var buf1: [32]u8 = undefined;
         const value: f64 = @bitCast(f32, u32(1006632960));
         const result = try bufPrint(buf1[0..], "f64: {e5}\n", value);
-        assert(mem.eql(u8, result, "f64: 7.81250e-03\n"));
+        testing.expect(mem.eql(u8, result, "f64: 7.81250e-03\n"));
     }
     {
         // libc rounds 1.000005e+05 to 1.00000e+05 but zig does 1.00001e+05.
@@ -1102,47 +1102,47 @@ test "fmt.format" {
         var buf1: [32]u8 = undefined;
         const value: f64 = @bitCast(f32, u32(1203982400));
         const result = try bufPrint(buf1[0..], "f64: {e5}\n", value);
-        assert(mem.eql(u8, result, "f64: 1.00001e+05\n"));
+        testing.expect(mem.eql(u8, result, "f64: 1.00001e+05\n"));
     }
     {
         var buf1: [32]u8 = undefined;
         const result = try bufPrint(buf1[0..], "f64: {}\n", math.nan_f64);
-        assert(mem.eql(u8, result, "f64: nan\n"));
+        testing.expect(mem.eql(u8, result, "f64: nan\n"));
     }
     if (builtin.arch != builtin.Arch.armv8) {
         // negative nan is not defined by IEE 754,
         // and ARM thus normalizes it to positive nan
         var buf1: [32]u8 = undefined;
         const result = try bufPrint(buf1[0..], "f64: {}\n", -math.nan_f64);
-        assert(mem.eql(u8, result, "f64: -nan\n"));
+        testing.expect(mem.eql(u8, result, "f64: -nan\n"));
     }
     {
         var buf1: [32]u8 = undefined;
         const result = try bufPrint(buf1[0..], "f64: {}\n", math.inf_f64);
-        assert(mem.eql(u8, result, "f64: inf\n"));
+        testing.expect(mem.eql(u8, result, "f64: inf\n"));
     }
     {
         var buf1: [32]u8 = undefined;
         const result = try bufPrint(buf1[0..], "f64: {}\n", -math.inf_f64);
-        assert(mem.eql(u8, result, "f64: -inf\n"));
+        testing.expect(mem.eql(u8, result, "f64: -inf\n"));
     }
     {
         var buf1: [64]u8 = undefined;
         const value: f64 = 1.52314e+29;
         const result = try bufPrint(buf1[0..], "f64: {.}\n", value);
-        assert(mem.eql(u8, result, "f64: 152314000000000000000000000000\n"));
+        testing.expect(mem.eql(u8, result, "f64: 152314000000000000000000000000\n"));
     }
     {
         var buf1: [32]u8 = undefined;
         const value: f32 = 1.1234;
         const result = try bufPrint(buf1[0..], "f32: {.1}\n", value);
-        assert(mem.eql(u8, result, "f32: 1.1\n"));
+        testing.expect(mem.eql(u8, result, "f32: 1.1\n"));
     }
     {
         var buf1: [32]u8 = undefined;
         const value: f32 = 1234.567;
         const result = try bufPrint(buf1[0..], "f32: {.2}\n", value);
-        assert(mem.eql(u8, result, "f32: 1234.57\n"));
+        testing.expect(mem.eql(u8, result, "f32: 1234.57\n"));
     }
     {
         var buf1: [32]u8 = undefined;
@@ -1150,92 +1150,92 @@ test "fmt.format" {
         const result = try bufPrint(buf1[0..], "f32: {.4}\n", value);
         // -11.1234 is converted to f64 -11.12339... internally (errol3() function takes f64).
         // -11.12339... is rounded back up to -11.1234
-        assert(mem.eql(u8, result, "f32: -11.1234\n"));
+        testing.expect(mem.eql(u8, result, "f32: -11.1234\n"));
     }
     {
         var buf1: [32]u8 = undefined;
         const value: f32 = 91.12345;
         const result = try bufPrint(buf1[0..], "f32: {.5}\n", value);
-        assert(mem.eql(u8, result, "f32: 91.12345\n"));
+        testing.expect(mem.eql(u8, result, "f32: 91.12345\n"));
     }
     {
         var buf1: [32]u8 = undefined;
         const value: f64 = 91.12345678901235;
         const result = try bufPrint(buf1[0..], "f64: {.10}\n", value);
-        assert(mem.eql(u8, result, "f64: 91.1234567890\n"));
+        testing.expect(mem.eql(u8, result, "f64: 91.1234567890\n"));
     }
     {
         var buf1: [32]u8 = undefined;
         const value: f64 = 0.0;
         const result = try bufPrint(buf1[0..], "f64: {.5}\n", value);
-        assert(mem.eql(u8, result, "f64: 0.00000\n"));
+        testing.expect(mem.eql(u8, result, "f64: 0.00000\n"));
     }
     {
         var buf1: [32]u8 = undefined;
         const value: f64 = 5.700;
         const result = try bufPrint(buf1[0..], "f64: {.0}\n", value);
-        assert(mem.eql(u8, result, "f64: 6\n"));
+        testing.expect(mem.eql(u8, result, "f64: 6\n"));
     }
     {
         var buf1: [32]u8 = undefined;
         const value: f64 = 9.999;
         const result = try bufPrint(buf1[0..], "f64: {.1}\n", value);
-        assert(mem.eql(u8, result, "f64: 10.0\n"));
+        testing.expect(mem.eql(u8, result, "f64: 10.0\n"));
     }
     {
         var buf1: [32]u8 = undefined;
         const value: f64 = 1.0;
         const result = try bufPrint(buf1[0..], "f64: {.3}\n", value);
-        assert(mem.eql(u8, result, "f64: 1.000\n"));
+        testing.expect(mem.eql(u8, result, "f64: 1.000\n"));
     }
     {
         var buf1: [32]u8 = undefined;
         const value: f64 = 0.0003;
         const result = try bufPrint(buf1[0..], "f64: {.8}\n", value);
-        assert(mem.eql(u8, result, "f64: 0.00030000\n"));
+        testing.expect(mem.eql(u8, result, "f64: 0.00030000\n"));
     }
     {
         var buf1: [32]u8 = undefined;
         const value: f64 = 1.40130e-45;
         const result = try bufPrint(buf1[0..], "f64: {.5}\n", value);
-        assert(mem.eql(u8, result, "f64: 0.00000\n"));
+        testing.expect(mem.eql(u8, result, "f64: 0.00000\n"));
     }
     {
         var buf1: [32]u8 = undefined;
         const value: f64 = 9.999960e-40;
         const result = try bufPrint(buf1[0..], "f64: {.5}\n", value);
-        assert(mem.eql(u8, result, "f64: 0.00000\n"));
+        testing.expect(mem.eql(u8, result, "f64: 0.00000\n"));
     }
     // libc checks
     {
         var buf1: [32]u8 = undefined;
         const value: f64 = f64(@bitCast(f32, u32(916964781)));
         const result = try bufPrint(buf1[0..], "f64: {.5}\n", value);
-        assert(mem.eql(u8, result, "f64: 0.00001\n"));
+        testing.expect(mem.eql(u8, result, "f64: 0.00001\n"));
     }
     {
         var buf1: [32]u8 = undefined;
         const value: f64 = f64(@bitCast(f32, u32(925353389)));
         const result = try bufPrint(buf1[0..], "f64: {.5}\n", value);
-        assert(mem.eql(u8, result, "f64: 0.00001\n"));
+        testing.expect(mem.eql(u8, result, "f64: 0.00001\n"));
     }
     {
         var buf1: [32]u8 = undefined;
         const value: f64 = f64(@bitCast(f32, u32(1036831278)));
         const result = try bufPrint(buf1[0..], "f64: {.5}\n", value);
-        assert(mem.eql(u8, result, "f64: 0.10000\n"));
+        testing.expect(mem.eql(u8, result, "f64: 0.10000\n"));
     }
     {
         var buf1: [32]u8 = undefined;
         const value: f64 = f64(@bitCast(f32, u32(1065353133)));
         const result = try bufPrint(buf1[0..], "f64: {.5}\n", value);
-        assert(mem.eql(u8, result, "f64: 1.00000\n"));
+        testing.expect(mem.eql(u8, result, "f64: 1.00000\n"));
     }
     {
         var buf1: [32]u8 = undefined;
         const value: f64 = f64(@bitCast(f32, u32(1092616192)));
         const result = try bufPrint(buf1[0..], "f64: {.5}\n", value);
-        assert(mem.eql(u8, result, "f64: 10.00000\n"));
+        testing.expect(mem.eql(u8, result, "f64: 10.00000\n"));
     }
     // libc differences
     {
@@ -1245,7 +1245,7 @@ test "fmt.format" {
         // floats of the form x.yyyy25 on a precision point.
         const value: f64 = f64(@bitCast(f32, u32(1015021568)));
         const result = try bufPrint(buf1[0..], "f64: {.5}\n", value);
-        assert(mem.eql(u8, result, "f64: 0.01563\n"));
+        testing.expect(mem.eql(u8, result, "f64: 0.01563\n"));
     }
     // std-windows-x86_64-Debug-bare test case fails
     {
@@ -1255,7 +1255,7 @@ test "fmt.format" {
         var buf1: [32]u8 = undefined;
         const value: f64 = f64(@bitCast(f32, u32(1518338049)));
         const result = try bufPrint(buf1[0..], "f64: {.5}\n", value);
-        assert(mem.eql(u8, result, "f64: 18014400656965630.00000\n"));
+        testing.expect(mem.eql(u8, result, "f64: 18014400656965630.00000\n"));
     }
     //custom type format
     {
@@ -1336,10 +1336,10 @@ test "fmt.format" {
 
         var buf: [100]u8 = undefined;
         const uu_result = try bufPrint(buf[0..], "{}", uu_inst);
-        debug.assert(mem.eql(u8, uu_result[0..3], "UU@"));
+        testing.expect(mem.eql(u8, uu_result[0..3], "UU@"));
 
         const eu_result = try bufPrint(buf[0..], "{}", eu_inst);
-        debug.assert(mem.eql(u8, uu_result[0..3], "EU@"));
+        testing.expect(mem.eql(u8, uu_result[0..3], "EU@"));
     }
     //enum format
     {
@@ -1398,11 +1398,11 @@ pub fn trim(buf: []const u8) []const u8 {
 }
 
 test "fmt.trim" {
-    assert(mem.eql(u8, "abc", trim("\n  abc  \t")));
-    assert(mem.eql(u8, "", trim("   ")));
-    assert(mem.eql(u8, "", trim("")));
-    assert(mem.eql(u8, "abc", trim(" abc")));
-    assert(mem.eql(u8, "abc", trim("abc ")));
+    testing.expect(mem.eql(u8, "abc", trim("\n  abc  \t")));
+    testing.expect(mem.eql(u8, "", trim("   ")));
+    testing.expect(mem.eql(u8, "", trim("")));
+    testing.expect(mem.eql(u8, "abc", trim(" abc")));
+    testing.expect(mem.eql(u8, "abc", trim("abc ")));
 }
 
 pub fn isWhiteSpace(byte: u8) bool {

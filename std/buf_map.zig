@@ -2,7 +2,7 @@ const std = @import("index.zig");
 const HashMap = std.HashMap;
 const mem = std.mem;
 const Allocator = mem.Allocator;
-const assert = std.debug.assert;
+const testing = std.testing;
 
 /// BufMap copies keys and values before they go into the map, and
 /// frees them when they get removed.
@@ -90,17 +90,17 @@ test "BufMap" {
     defer bufmap.deinit();
 
     try bufmap.set("x", "1");
-    assert(mem.eql(u8, bufmap.get("x").?, "1"));
-    assert(1 == bufmap.count());
+    testing.expect(mem.eql(u8, bufmap.get("x").?, "1"));
+    testing.expect(1 == bufmap.count());
 
     try bufmap.set("x", "2");
-    assert(mem.eql(u8, bufmap.get("x").?, "2"));
-    assert(1 == bufmap.count());
+    testing.expect(mem.eql(u8, bufmap.get("x").?, "2"));
+    testing.expect(1 == bufmap.count());
 
     try bufmap.set("x", "3");
-    assert(mem.eql(u8, bufmap.get("x").?, "3"));
-    assert(1 == bufmap.count());
+    testing.expect(mem.eql(u8, bufmap.get("x").?, "3"));
+    testing.expect(1 == bufmap.count());
 
     bufmap.delete("x");
-    assert(0 == bufmap.count());
+    testing.expect(0 == bufmap.count());
 }

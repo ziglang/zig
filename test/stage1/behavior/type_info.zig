@@ -1,4 +1,4 @@
-const assertOrPanic = @import("std").debug.assertOrPanic;
+const expect = @import("std").testing.expect;
 const mem = @import("std").mem;
 const TypeInfo = @import("builtin").TypeInfo;
 const TypeId = @import("builtin").TypeId;
@@ -9,10 +9,10 @@ test "type info: tag type, void info" {
 }
 
 fn testBasic() void {
-    assertOrPanic(@TagType(TypeInfo) == TypeId);
+    expect(@TagType(TypeInfo) == TypeId);
     const void_info = @typeInfo(void);
-    assertOrPanic(TypeId(void_info) == TypeId.Void);
-    assertOrPanic(void_info.Void == {});
+    expect(TypeId(void_info) == TypeId.Void);
+    expect(void_info.Void == {});
 }
 
 test "type info: integer, floating point type info" {
@@ -22,13 +22,13 @@ test "type info: integer, floating point type info" {
 
 fn testIntFloat() void {
     const u8_info = @typeInfo(u8);
-    assertOrPanic(TypeId(u8_info) == TypeId.Int);
-    assertOrPanic(!u8_info.Int.is_signed);
-    assertOrPanic(u8_info.Int.bits == 8);
+    expect(TypeId(u8_info) == TypeId.Int);
+    expect(!u8_info.Int.is_signed);
+    expect(u8_info.Int.bits == 8);
 
     const f64_info = @typeInfo(f64);
-    assertOrPanic(TypeId(f64_info) == TypeId.Float);
-    assertOrPanic(f64_info.Float.bits == 64);
+    expect(TypeId(f64_info) == TypeId.Float);
+    expect(f64_info.Float.bits == 64);
 }
 
 test "type info: pointer type info" {
@@ -38,12 +38,12 @@ test "type info: pointer type info" {
 
 fn testPointer() void {
     const u32_ptr_info = @typeInfo(*u32);
-    assertOrPanic(TypeId(u32_ptr_info) == TypeId.Pointer);
-    assertOrPanic(u32_ptr_info.Pointer.size == TypeInfo.Pointer.Size.One);
-    assertOrPanic(u32_ptr_info.Pointer.is_const == false);
-    assertOrPanic(u32_ptr_info.Pointer.is_volatile == false);
-    assertOrPanic(u32_ptr_info.Pointer.alignment == @alignOf(u32));
-    assertOrPanic(u32_ptr_info.Pointer.child == u32);
+    expect(TypeId(u32_ptr_info) == TypeId.Pointer);
+    expect(u32_ptr_info.Pointer.size == TypeInfo.Pointer.Size.One);
+    expect(u32_ptr_info.Pointer.is_const == false);
+    expect(u32_ptr_info.Pointer.is_volatile == false);
+    expect(u32_ptr_info.Pointer.alignment == @alignOf(u32));
+    expect(u32_ptr_info.Pointer.child == u32);
 }
 
 test "type info: unknown length pointer type info" {
@@ -53,12 +53,12 @@ test "type info: unknown length pointer type info" {
 
 fn testUnknownLenPtr() void {
     const u32_ptr_info = @typeInfo([*]const volatile f64);
-    assertOrPanic(TypeId(u32_ptr_info) == TypeId.Pointer);
-    assertOrPanic(u32_ptr_info.Pointer.size == TypeInfo.Pointer.Size.Many);
-    assertOrPanic(u32_ptr_info.Pointer.is_const == true);
-    assertOrPanic(u32_ptr_info.Pointer.is_volatile == true);
-    assertOrPanic(u32_ptr_info.Pointer.alignment == @alignOf(f64));
-    assertOrPanic(u32_ptr_info.Pointer.child == f64);
+    expect(TypeId(u32_ptr_info) == TypeId.Pointer);
+    expect(u32_ptr_info.Pointer.size == TypeInfo.Pointer.Size.Many);
+    expect(u32_ptr_info.Pointer.is_const == true);
+    expect(u32_ptr_info.Pointer.is_volatile == true);
+    expect(u32_ptr_info.Pointer.alignment == @alignOf(f64));
+    expect(u32_ptr_info.Pointer.child == f64);
 }
 
 test "type info: slice type info" {
@@ -68,12 +68,12 @@ test "type info: slice type info" {
 
 fn testSlice() void {
     const u32_slice_info = @typeInfo([]u32);
-    assertOrPanic(TypeId(u32_slice_info) == TypeId.Pointer);
-    assertOrPanic(u32_slice_info.Pointer.size == TypeInfo.Pointer.Size.Slice);
-    assertOrPanic(u32_slice_info.Pointer.is_const == false);
-    assertOrPanic(u32_slice_info.Pointer.is_volatile == false);
-    assertOrPanic(u32_slice_info.Pointer.alignment == 4);
-    assertOrPanic(u32_slice_info.Pointer.child == u32);
+    expect(TypeId(u32_slice_info) == TypeId.Pointer);
+    expect(u32_slice_info.Pointer.size == TypeInfo.Pointer.Size.Slice);
+    expect(u32_slice_info.Pointer.is_const == false);
+    expect(u32_slice_info.Pointer.is_volatile == false);
+    expect(u32_slice_info.Pointer.alignment == 4);
+    expect(u32_slice_info.Pointer.child == u32);
 }
 
 test "type info: array type info" {
@@ -83,9 +83,9 @@ test "type info: array type info" {
 
 fn testArray() void {
     const arr_info = @typeInfo([42]bool);
-    assertOrPanic(TypeId(arr_info) == TypeId.Array);
-    assertOrPanic(arr_info.Array.len == 42);
-    assertOrPanic(arr_info.Array.child == bool);
+    expect(TypeId(arr_info) == TypeId.Array);
+    expect(arr_info.Array.len == 42);
+    expect(arr_info.Array.child == bool);
 }
 
 test "type info: optional type info" {
@@ -95,8 +95,8 @@ test "type info: optional type info" {
 
 fn testOptional() void {
     const null_info = @typeInfo(?void);
-    assertOrPanic(TypeId(null_info) == TypeId.Optional);
-    assertOrPanic(null_info.Optional.child == void);
+    expect(TypeId(null_info) == TypeId.Optional);
+    expect(null_info.Optional.child == void);
 }
 
 test "type info: promise info" {
@@ -106,12 +106,12 @@ test "type info: promise info" {
 
 fn testPromise() void {
     const null_promise_info = @typeInfo(promise);
-    assertOrPanic(TypeId(null_promise_info) == TypeId.Promise);
-    assertOrPanic(null_promise_info.Promise.child == null);
+    expect(TypeId(null_promise_info) == TypeId.Promise);
+    expect(null_promise_info.Promise.child == null);
 
     const promise_info = @typeInfo(promise->usize);
-    assertOrPanic(TypeId(promise_info) == TypeId.Promise);
-    assertOrPanic(promise_info.Promise.child.? == usize);
+    expect(TypeId(promise_info) == TypeId.Promise);
+    expect(promise_info.Promise.child.? == usize);
 }
 
 test "type info: error set, error union info" {
@@ -127,15 +127,15 @@ fn testErrorSet() void {
     };
 
     const error_set_info = @typeInfo(TestErrorSet);
-    assertOrPanic(TypeId(error_set_info) == TypeId.ErrorSet);
-    assertOrPanic(error_set_info.ErrorSet.errors.len == 3);
-    assertOrPanic(mem.eql(u8, error_set_info.ErrorSet.errors[0].name, "First"));
-    assertOrPanic(error_set_info.ErrorSet.errors[2].value == @errorToInt(TestErrorSet.Third));
+    expect(TypeId(error_set_info) == TypeId.ErrorSet);
+    expect(error_set_info.ErrorSet.errors.len == 3);
+    expect(mem.eql(u8, error_set_info.ErrorSet.errors[0].name, "First"));
+    expect(error_set_info.ErrorSet.errors[2].value == @errorToInt(TestErrorSet.Third));
 
     const error_union_info = @typeInfo(TestErrorSet!usize);
-    assertOrPanic(TypeId(error_union_info) == TypeId.ErrorUnion);
-    assertOrPanic(error_union_info.ErrorUnion.error_set == TestErrorSet);
-    assertOrPanic(error_union_info.ErrorUnion.payload == usize);
+    expect(TypeId(error_union_info) == TypeId.ErrorUnion);
+    expect(error_union_info.ErrorUnion.error_set == TestErrorSet);
+    expect(error_union_info.ErrorUnion.payload == usize);
 }
 
 test "type info: enum info" {
@@ -152,13 +152,13 @@ fn testEnum() void {
     };
 
     const os_info = @typeInfo(Os);
-    assertOrPanic(TypeId(os_info) == TypeId.Enum);
-    assertOrPanic(os_info.Enum.layout == TypeInfo.ContainerLayout.Auto);
-    assertOrPanic(os_info.Enum.fields.len == 4);
-    assertOrPanic(mem.eql(u8, os_info.Enum.fields[1].name, "Macos"));
-    assertOrPanic(os_info.Enum.fields[3].value == 3);
-    assertOrPanic(os_info.Enum.tag_type == u2);
-    assertOrPanic(os_info.Enum.defs.len == 0);
+    expect(TypeId(os_info) == TypeId.Enum);
+    expect(os_info.Enum.layout == TypeInfo.ContainerLayout.Auto);
+    expect(os_info.Enum.fields.len == 4);
+    expect(mem.eql(u8, os_info.Enum.fields[1].name, "Macos"));
+    expect(os_info.Enum.fields[3].value == 3);
+    expect(os_info.Enum.tag_type == u2);
+    expect(os_info.Enum.defs.len == 0);
 }
 
 test "type info: union info" {
@@ -168,14 +168,14 @@ test "type info: union info" {
 
 fn testUnion() void {
     const typeinfo_info = @typeInfo(TypeInfo);
-    assertOrPanic(TypeId(typeinfo_info) == TypeId.Union);
-    assertOrPanic(typeinfo_info.Union.layout == TypeInfo.ContainerLayout.Auto);
-    assertOrPanic(typeinfo_info.Union.tag_type.? == TypeId);
-    assertOrPanic(typeinfo_info.Union.fields.len == 25);
-    assertOrPanic(typeinfo_info.Union.fields[4].enum_field != null);
-    assertOrPanic(typeinfo_info.Union.fields[4].enum_field.?.value == 4);
-    assertOrPanic(typeinfo_info.Union.fields[4].field_type == @typeOf(@typeInfo(u8).Int));
-    assertOrPanic(typeinfo_info.Union.defs.len == 21);
+    expect(TypeId(typeinfo_info) == TypeId.Union);
+    expect(typeinfo_info.Union.layout == TypeInfo.ContainerLayout.Auto);
+    expect(typeinfo_info.Union.tag_type.? == TypeId);
+    expect(typeinfo_info.Union.fields.len == 25);
+    expect(typeinfo_info.Union.fields[4].enum_field != null);
+    expect(typeinfo_info.Union.fields[4].enum_field.?.value == 4);
+    expect(typeinfo_info.Union.fields[4].field_type == @typeOf(@typeInfo(u8).Int));
+    expect(typeinfo_info.Union.defs.len == 21);
 
     const TestNoTagUnion = union {
         Foo: void,
@@ -183,22 +183,22 @@ fn testUnion() void {
     };
 
     const notag_union_info = @typeInfo(TestNoTagUnion);
-    assertOrPanic(TypeId(notag_union_info) == TypeId.Union);
-    assertOrPanic(notag_union_info.Union.tag_type == null);
-    assertOrPanic(notag_union_info.Union.layout == TypeInfo.ContainerLayout.Auto);
-    assertOrPanic(notag_union_info.Union.fields.len == 2);
-    assertOrPanic(notag_union_info.Union.fields[0].enum_field == null);
-    assertOrPanic(notag_union_info.Union.fields[1].field_type == u32);
+    expect(TypeId(notag_union_info) == TypeId.Union);
+    expect(notag_union_info.Union.tag_type == null);
+    expect(notag_union_info.Union.layout == TypeInfo.ContainerLayout.Auto);
+    expect(notag_union_info.Union.fields.len == 2);
+    expect(notag_union_info.Union.fields[0].enum_field == null);
+    expect(notag_union_info.Union.fields[1].field_type == u32);
 
     const TestExternUnion = extern union {
         foo: *c_void,
     };
 
     const extern_union_info = @typeInfo(TestExternUnion);
-    assertOrPanic(extern_union_info.Union.layout == TypeInfo.ContainerLayout.Extern);
-    assertOrPanic(extern_union_info.Union.tag_type == null);
-    assertOrPanic(extern_union_info.Union.fields[0].enum_field == null);
-    assertOrPanic(extern_union_info.Union.fields[0].field_type == *c_void);
+    expect(extern_union_info.Union.layout == TypeInfo.ContainerLayout.Extern);
+    expect(extern_union_info.Union.tag_type == null);
+    expect(extern_union_info.Union.fields[0].enum_field == null);
+    expect(extern_union_info.Union.fields[0].field_type == *c_void);
 }
 
 test "type info: struct info" {
@@ -208,17 +208,17 @@ test "type info: struct info" {
 
 fn testStruct() void {
     const struct_info = @typeInfo(TestStruct);
-    assertOrPanic(TypeId(struct_info) == TypeId.Struct);
-    assertOrPanic(struct_info.Struct.layout == TypeInfo.ContainerLayout.Packed);
-    assertOrPanic(struct_info.Struct.fields.len == 3);
-    assertOrPanic(struct_info.Struct.fields[1].offset == null);
-    assertOrPanic(struct_info.Struct.fields[2].field_type == *TestStruct);
-    assertOrPanic(struct_info.Struct.defs.len == 2);
-    assertOrPanic(struct_info.Struct.defs[0].is_pub);
-    assertOrPanic(!struct_info.Struct.defs[0].data.Fn.is_extern);
-    assertOrPanic(struct_info.Struct.defs[0].data.Fn.lib_name == null);
-    assertOrPanic(struct_info.Struct.defs[0].data.Fn.return_type == void);
-    assertOrPanic(struct_info.Struct.defs[0].data.Fn.fn_type == fn (*const TestStruct) void);
+    expect(TypeId(struct_info) == TypeId.Struct);
+    expect(struct_info.Struct.layout == TypeInfo.ContainerLayout.Packed);
+    expect(struct_info.Struct.fields.len == 3);
+    expect(struct_info.Struct.fields[1].offset == null);
+    expect(struct_info.Struct.fields[2].field_type == *TestStruct);
+    expect(struct_info.Struct.defs.len == 2);
+    expect(struct_info.Struct.defs[0].is_pub);
+    expect(!struct_info.Struct.defs[0].data.Fn.is_extern);
+    expect(struct_info.Struct.defs[0].data.Fn.lib_name == null);
+    expect(struct_info.Struct.defs[0].data.Fn.return_type == void);
+    expect(struct_info.Struct.defs[0].data.Fn.fn_type == fn (*const TestStruct) void);
 }
 
 const TestStruct = packed struct {
@@ -238,18 +238,18 @@ test "type info: function type info" {
 
 fn testFunction() void {
     const fn_info = @typeInfo(@typeOf(foo));
-    assertOrPanic(TypeId(fn_info) == TypeId.Fn);
-    assertOrPanic(fn_info.Fn.calling_convention == TypeInfo.CallingConvention.Unspecified);
-    assertOrPanic(fn_info.Fn.is_generic);
-    assertOrPanic(fn_info.Fn.args.len == 2);
-    assertOrPanic(fn_info.Fn.is_var_args);
-    assertOrPanic(fn_info.Fn.return_type == null);
-    assertOrPanic(fn_info.Fn.async_allocator_type == null);
+    expect(TypeId(fn_info) == TypeId.Fn);
+    expect(fn_info.Fn.calling_convention == TypeInfo.CallingConvention.Unspecified);
+    expect(fn_info.Fn.is_generic);
+    expect(fn_info.Fn.args.len == 2);
+    expect(fn_info.Fn.is_var_args);
+    expect(fn_info.Fn.return_type == null);
+    expect(fn_info.Fn.async_allocator_type == null);
 
     const test_instance: TestStruct = undefined;
     const bound_fn_info = @typeInfo(@typeOf(test_instance.foo));
-    assertOrPanic(TypeId(bound_fn_info) == TypeId.BoundFn);
-    assertOrPanic(bound_fn_info.BoundFn.args[0].arg_type.? == *const TestStruct);
+    expect(TypeId(bound_fn_info) == TypeId.BoundFn);
+    expect(bound_fn_info.BoundFn.args[0].arg_type.? == *const TestStruct);
 }
 
 fn foo(comptime a: usize, b: bool, args: ...) usize {
@@ -270,7 +270,7 @@ test "type info: vectors" {
 
 fn testVector() void {
     const vec_info = @typeInfo(@Vector(4, i32));
-    assertOrPanic(TypeId(vec_info) == TypeId.Vector);
-    assertOrPanic(vec_info.Vector.len == 4);
-    assertOrPanic(vec_info.Vector.child == i32);
+    expect(TypeId(vec_info) == TypeId.Vector);
+    expect(vec_info.Vector.len == 4);
+    expect(vec_info.Vector.child == i32);
 }

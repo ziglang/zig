@@ -1,5 +1,5 @@
 const std = @import("std");
-const assertOrPanic = std.debug.assertOrPanic;
+const expect = std.testing.expect;
 const maxInt = std.math.maxInt;
 const minInt = std.math.minInt;
 
@@ -8,57 +8,57 @@ test "division" {
     comptime testDivision();
 }
 fn testDivision() void {
-    assertOrPanic(div(u32, 13, 3) == 4);
-    assertOrPanic(div(f16, 1.0, 2.0) == 0.5);
-    assertOrPanic(div(f32, 1.0, 2.0) == 0.5);
+    expect(div(u32, 13, 3) == 4);
+    expect(div(f16, 1.0, 2.0) == 0.5);
+    expect(div(f32, 1.0, 2.0) == 0.5);
 
-    assertOrPanic(divExact(u32, 55, 11) == 5);
-    assertOrPanic(divExact(i32, -55, 11) == -5);
-    assertOrPanic(divExact(f16, 55.0, 11.0) == 5.0);
-    assertOrPanic(divExact(f16, -55.0, 11.0) == -5.0);
-    assertOrPanic(divExact(f32, 55.0, 11.0) == 5.0);
-    assertOrPanic(divExact(f32, -55.0, 11.0) == -5.0);
+    expect(divExact(u32, 55, 11) == 5);
+    expect(divExact(i32, -55, 11) == -5);
+    expect(divExact(f16, 55.0, 11.0) == 5.0);
+    expect(divExact(f16, -55.0, 11.0) == -5.0);
+    expect(divExact(f32, 55.0, 11.0) == 5.0);
+    expect(divExact(f32, -55.0, 11.0) == -5.0);
 
-    assertOrPanic(divFloor(i32, 5, 3) == 1);
-    assertOrPanic(divFloor(i32, -5, 3) == -2);
-    assertOrPanic(divFloor(f16, 5.0, 3.0) == 1.0);
-    assertOrPanic(divFloor(f16, -5.0, 3.0) == -2.0);
-    assertOrPanic(divFloor(f32, 5.0, 3.0) == 1.0);
-    assertOrPanic(divFloor(f32, -5.0, 3.0) == -2.0);
-    assertOrPanic(divFloor(i32, -0x80000000, -2) == 0x40000000);
-    assertOrPanic(divFloor(i32, 0, -0x80000000) == 0);
-    assertOrPanic(divFloor(i32, -0x40000001, 0x40000000) == -2);
-    assertOrPanic(divFloor(i32, -0x80000000, 1) == -0x80000000);
+    expect(divFloor(i32, 5, 3) == 1);
+    expect(divFloor(i32, -5, 3) == -2);
+    expect(divFloor(f16, 5.0, 3.0) == 1.0);
+    expect(divFloor(f16, -5.0, 3.0) == -2.0);
+    expect(divFloor(f32, 5.0, 3.0) == 1.0);
+    expect(divFloor(f32, -5.0, 3.0) == -2.0);
+    expect(divFloor(i32, -0x80000000, -2) == 0x40000000);
+    expect(divFloor(i32, 0, -0x80000000) == 0);
+    expect(divFloor(i32, -0x40000001, 0x40000000) == -2);
+    expect(divFloor(i32, -0x80000000, 1) == -0x80000000);
 
-    assertOrPanic(divTrunc(i32, 5, 3) == 1);
-    assertOrPanic(divTrunc(i32, -5, 3) == -1);
-    assertOrPanic(divTrunc(f16, 5.0, 3.0) == 1.0);
-    assertOrPanic(divTrunc(f16, -5.0, 3.0) == -1.0);
-    assertOrPanic(divTrunc(f32, 5.0, 3.0) == 1.0);
-    assertOrPanic(divTrunc(f32, -5.0, 3.0) == -1.0);
-    assertOrPanic(divTrunc(f64, 5.0, 3.0) == 1.0);
-    assertOrPanic(divTrunc(f64, -5.0, 3.0) == -1.0);
+    expect(divTrunc(i32, 5, 3) == 1);
+    expect(divTrunc(i32, -5, 3) == -1);
+    expect(divTrunc(f16, 5.0, 3.0) == 1.0);
+    expect(divTrunc(f16, -5.0, 3.0) == -1.0);
+    expect(divTrunc(f32, 5.0, 3.0) == 1.0);
+    expect(divTrunc(f32, -5.0, 3.0) == -1.0);
+    expect(divTrunc(f64, 5.0, 3.0) == 1.0);
+    expect(divTrunc(f64, -5.0, 3.0) == -1.0);
 
     comptime {
-        assertOrPanic(
+        expect(
             1194735857077236777412821811143690633098347576 % 508740759824825164163191790951174292733114988 == 177254337427586449086438229241342047632117600,
         );
-        assertOrPanic(
+        expect(
             @rem(-1194735857077236777412821811143690633098347576, 508740759824825164163191790951174292733114988) == -177254337427586449086438229241342047632117600,
         );
-        assertOrPanic(
+        expect(
             1194735857077236777412821811143690633098347576 / 508740759824825164163191790951174292733114988 == 2,
         );
-        assertOrPanic(
+        expect(
             @divTrunc(-1194735857077236777412821811143690633098347576, 508740759824825164163191790951174292733114988) == -2,
         );
-        assertOrPanic(
+        expect(
             @divTrunc(1194735857077236777412821811143690633098347576, -508740759824825164163191790951174292733114988) == -2,
         );
-        assertOrPanic(
+        expect(
             @divTrunc(-1194735857077236777412821811143690633098347576, -508740759824825164163191790951174292733114988) == 2,
         );
-        assertOrPanic(
+        expect(
             4126227191251978491697987544882340798050766755606969681711 % 10 == 1,
         );
     }
@@ -78,9 +78,9 @@ fn divTrunc(comptime T: type, a: T, b: T) T {
 
 test "@addWithOverflow" {
     var result: u8 = undefined;
-    assertOrPanic(@addWithOverflow(u8, 250, 100, &result));
-    assertOrPanic(!@addWithOverflow(u8, 100, 150, &result));
-    assertOrPanic(result == 250);
+    expect(@addWithOverflow(u8, 250, 100, &result));
+    expect(!@addWithOverflow(u8, 100, 150, &result));
+    expect(result == 250);
 }
 
 // TODO test mulWithOverflow
@@ -88,9 +88,9 @@ test "@addWithOverflow" {
 
 test "@shlWithOverflow" {
     var result: u16 = undefined;
-    assertOrPanic(@shlWithOverflow(u16, 0b0010111111111111, 3, &result));
-    assertOrPanic(!@shlWithOverflow(u16, 0b0010111111111111, 2, &result));
-    assertOrPanic(result == 0b1011111111111100);
+    expect(@shlWithOverflow(u16, 0b0010111111111111, 3, &result));
+    expect(!@shlWithOverflow(u16, 0b0010111111111111, 2, &result));
+    expect(result == 0b1011111111111100);
 }
 
 test "@clz" {
@@ -99,11 +99,11 @@ test "@clz" {
 }
 
 fn testClz() void {
-    assertOrPanic(clz(u8(0b00001010)) == 4);
-    assertOrPanic(clz(u8(0b10001010)) == 0);
-    assertOrPanic(clz(u8(0b00000000)) == 8);
-    assertOrPanic(clz(u128(0xffffffffffffffff)) == 64);
-    assertOrPanic(clz(u128(0x10000000000000000)) == 63);
+    expect(clz(u8(0b00001010)) == 4);
+    expect(clz(u8(0b10001010)) == 0);
+    expect(clz(u8(0b00000000)) == 8);
+    expect(clz(u128(0xffffffffffffffff)) == 64);
+    expect(clz(u128(0x10000000000000000)) == 63);
 }
 
 fn clz(x: var) usize {
@@ -116,9 +116,9 @@ test "@ctz" {
 }
 
 fn testCtz() void {
-    assertOrPanic(ctz(u8(0b10100000)) == 5);
-    assertOrPanic(ctz(u8(0b10001010)) == 1);
-    assertOrPanic(ctz(u8(0b00000000)) == 8);
+    expect(ctz(u8(0b10100000)) == 5);
+    expect(ctz(u8(0b10001010)) == 1);
+    expect(ctz(u8(0b00000000)) == 8);
 }
 
 fn ctz(x: var) usize {
@@ -128,27 +128,27 @@ fn ctz(x: var) usize {
 test "assignment operators" {
     var i: u32 = 0;
     i += 5;
-    assertOrPanic(i == 5);
+    expect(i == 5);
     i -= 2;
-    assertOrPanic(i == 3);
+    expect(i == 3);
     i *= 20;
-    assertOrPanic(i == 60);
+    expect(i == 60);
     i /= 3;
-    assertOrPanic(i == 20);
+    expect(i == 20);
     i %= 11;
-    assertOrPanic(i == 9);
+    expect(i == 9);
     i <<= 1;
-    assertOrPanic(i == 18);
+    expect(i == 18);
     i >>= 2;
-    assertOrPanic(i == 4);
+    expect(i == 4);
     i = 6;
     i &= 5;
-    assertOrPanic(i == 4);
+    expect(i == 4);
     i ^= 6;
-    assertOrPanic(i == 2);
+    expect(i == 2);
     i = 6;
     i |= 3;
-    assertOrPanic(i == 7);
+    expect(i == 7);
 }
 
 test "three expr in a row" {
@@ -170,14 +170,14 @@ fn testThreeExprInARow(f: bool, t: bool) void {
     assertFalse(i32(7) != --(i32(7)));
 }
 fn assertFalse(b: bool) void {
-    assertOrPanic(!b);
+    expect(!b);
 }
 
 test "const number literal" {
     const one = 1;
     const eleven = ten + one;
 
-    assertOrPanic(eleven == 11);
+    expect(eleven == 11);
 }
 const ten = 10;
 
@@ -187,9 +187,9 @@ test "unsigned wrapping" {
 }
 fn testUnsignedWrappingEval(x: u32) void {
     const zero = x +% 1;
-    assertOrPanic(zero == 0);
+    expect(zero == 0);
     const orig = zero -% 1;
-    assertOrPanic(orig == maxInt(u32));
+    expect(orig == maxInt(u32));
 }
 
 test "signed wrapping" {
@@ -198,9 +198,9 @@ test "signed wrapping" {
 }
 fn testSignedWrappingEval(x: i32) void {
     const min_val = x +% 1;
-    assertOrPanic(min_val == minInt(i32));
+    expect(min_val == minInt(i32));
     const max_val = min_val -% 1;
-    assertOrPanic(max_val == maxInt(i32));
+    expect(max_val == maxInt(i32));
 }
 
 test "negation wrapping" {
@@ -208,9 +208,9 @@ test "negation wrapping" {
     comptime testNegationWrappingEval(minInt(i16));
 }
 fn testNegationWrappingEval(x: i16) void {
-    assertOrPanic(x == -32768);
+    expect(x == -32768);
     const neg = -%x;
-    assertOrPanic(neg == -32768);
+    expect(neg == -32768);
 }
 
 test "unsigned 64-bit division" {
@@ -219,8 +219,8 @@ test "unsigned 64-bit division" {
 }
 fn test_u64_div() void {
     const result = divWithResult(1152921504606846976, 34359738365);
-    assertOrPanic(result.quotient == 33554432);
-    assertOrPanic(result.remainder == 100663296);
+    expect(result.quotient == 33554432);
+    expect(result.remainder == 100663296);
 }
 fn divWithResult(a: u64, b: u64) DivResult {
     return DivResult{
@@ -234,36 +234,36 @@ const DivResult = struct {
 };
 
 test "binary not" {
-    assertOrPanic(comptime x: {
+    expect(comptime x: {
         break :x ~u16(0b1010101010101010) == 0b0101010101010101;
     });
-    assertOrPanic(comptime x: {
+    expect(comptime x: {
         break :x ~u64(2147483647) == 18446744071562067968;
     });
     testBinaryNot(0b1010101010101010);
 }
 
 fn testBinaryNot(x: u16) void {
-    assertOrPanic(~x == 0b0101010101010101);
+    expect(~x == 0b0101010101010101);
 }
 
 test "small int addition" {
     var x: @IntType(false, 2) = 0;
-    assertOrPanic(x == 0);
+    expect(x == 0);
 
     x += 1;
-    assertOrPanic(x == 1);
+    expect(x == 1);
 
     x += 1;
-    assertOrPanic(x == 2);
+    expect(x == 2);
 
     x += 1;
-    assertOrPanic(x == 3);
+    expect(x == 3);
 
     var result: @typeOf(x) = 3;
-    assertOrPanic(@addWithOverflow(@typeOf(x), x, 1, &result));
+    expect(@addWithOverflow(@typeOf(x), x, 1, &result));
 
-    assertOrPanic(result == 0);
+    expect(result == 0);
 }
 
 test "float equality" {
@@ -276,20 +276,20 @@ test "float equality" {
 
 fn testFloatEqualityImpl(x: f64, y: f64) void {
     const y2 = x + 1.0;
-    assertOrPanic(y == y2);
+    expect(y == y2);
 }
 
 test "allow signed integer division/remainder when values are comptime known and positive or exact" {
-    assertOrPanic(5 / 3 == 1);
-    assertOrPanic(-5 / -3 == 1);
-    assertOrPanic(-6 / 3 == -2);
+    expect(5 / 3 == 1);
+    expect(-5 / -3 == 1);
+    expect(-6 / 3 == -2);
 
-    assertOrPanic(5 % 3 == 2);
-    assertOrPanic(-6 % 3 == 0);
+    expect(5 % 3 == 2);
+    expect(-6 % 3 == 0);
 }
 
 test "hex float literal parsing" {
-    comptime assertOrPanic(0x1.0 == 1.0);
+    comptime expect(0x1.0 == 1.0);
 }
 
 test "quad hex float literal parsing in range" {
@@ -304,7 +304,7 @@ test "quad hex float literal parsing accurate" {
 
     // implied 1 is dropped, with an exponent of 0 (0x3fff) after biasing.
     const expected: u128 = 0x3fff1111222233334444555566667777;
-    assertOrPanic(@bitCast(u128, a) == expected);
+    expect(@bitCast(u128, a) == expected);
 }
 
 test "hex float literal within range" {
@@ -319,7 +319,7 @@ test "truncating shift left" {
 }
 fn testShlTrunc(x: u16) void {
     const shifted = x << 1;
-    assertOrPanic(shifted == 65534);
+    expect(shifted == 65534);
 }
 
 test "truncating shift right" {
@@ -328,7 +328,7 @@ test "truncating shift right" {
 }
 fn testShrTrunc(x: u16) void {
     const shifted = x >> 1;
-    assertOrPanic(shifted == 32767);
+    expect(shifted == 32767);
 }
 
 test "exact shift left" {
@@ -337,7 +337,7 @@ test "exact shift left" {
 }
 fn testShlExact(x: u8) void {
     const shifted = @shlExact(x, 2);
-    assertOrPanic(shifted == 0b11010100);
+    expect(shifted == 0b11010100);
 }
 
 test "exact shift right" {
@@ -346,22 +346,22 @@ test "exact shift right" {
 }
 fn testShrExact(x: u8) void {
     const shifted = @shrExact(x, 2);
-    assertOrPanic(shifted == 0b00101101);
+    expect(shifted == 0b00101101);
 }
 
 test "comptime_int addition" {
     comptime {
-        assertOrPanic(35361831660712422535336160538497375248 + 101752735581729509668353361206450473702 == 137114567242441932203689521744947848950);
-        assertOrPanic(594491908217841670578297176641415611445982232488944558774612 + 390603545391089362063884922208143568023166603618446395589768 == 985095453608931032642182098849559179469148836107390954364380);
+        expect(35361831660712422535336160538497375248 + 101752735581729509668353361206450473702 == 137114567242441932203689521744947848950);
+        expect(594491908217841670578297176641415611445982232488944558774612 + 390603545391089362063884922208143568023166603618446395589768 == 985095453608931032642182098849559179469148836107390954364380);
     }
 }
 
 test "comptime_int multiplication" {
     comptime {
-        assertOrPanic(
+        expect(
             45960427431263824329884196484953148229 * 128339149605334697009938835852565949723 == 5898522172026096622534201617172456926982464453350084962781392314016180490567,
         );
-        assertOrPanic(
+        expect(
             594491908217841670578297176641415611445982232488944558774612 * 390603545391089362063884922208143568023166603618446395589768 == 232210647056203049913662402532976186578842425262306016094292237500303028346593132411865381225871291702600263463125370016,
         );
     }
@@ -369,7 +369,7 @@ test "comptime_int multiplication" {
 
 test "comptime_int shifting" {
     comptime {
-        assertOrPanic((u128(1) << 127) == 0x80000000000000000000000000000000);
+        expect((u128(1) << 127) == 0x80000000000000000000000000000000);
     }
 }
 
@@ -377,16 +377,16 @@ test "comptime_int multi-limb shift and mask" {
     comptime {
         var a = 0xefffffffa0000001eeeeeeefaaaaaaab;
 
-        assertOrPanic(u32(a & 0xffffffff) == 0xaaaaaaab);
+        expect(u32(a & 0xffffffff) == 0xaaaaaaab);
         a >>= 32;
-        assertOrPanic(u32(a & 0xffffffff) == 0xeeeeeeef);
+        expect(u32(a & 0xffffffff) == 0xeeeeeeef);
         a >>= 32;
-        assertOrPanic(u32(a & 0xffffffff) == 0xa0000001);
+        expect(u32(a & 0xffffffff) == 0xa0000001);
         a >>= 32;
-        assertOrPanic(u32(a & 0xffffffff) == 0xefffffff);
+        expect(u32(a & 0xffffffff) == 0xefffffff);
         a >>= 32;
 
-        assertOrPanic(a == 0);
+        expect(a == 0);
     }
 }
 
@@ -394,7 +394,7 @@ test "comptime_int multi-limb partial shift right" {
     comptime {
         var a = 0x1ffffffffeeeeeeee;
         a >>= 16;
-        assertOrPanic(a == 0x1ffffffffeeee);
+        expect(a == 0x1ffffffffeeee);
     }
 }
 
@@ -404,23 +404,23 @@ test "xor" {
 }
 
 fn test_xor() void {
-    assertOrPanic(0xFF ^ 0x00 == 0xFF);
-    assertOrPanic(0xF0 ^ 0x0F == 0xFF);
-    assertOrPanic(0xFF ^ 0xF0 == 0x0F);
-    assertOrPanic(0xFF ^ 0x0F == 0xF0);
-    assertOrPanic(0xFF ^ 0xFF == 0x00);
+    expect(0xFF ^ 0x00 == 0xFF);
+    expect(0xF0 ^ 0x0F == 0xFF);
+    expect(0xFF ^ 0xF0 == 0x0F);
+    expect(0xFF ^ 0x0F == 0xF0);
+    expect(0xFF ^ 0xFF == 0x00);
 }
 
 test "comptime_int xor" {
     comptime {
-        assertOrPanic(0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF ^ 0x00000000000000000000000000000000 == 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF);
-        assertOrPanic(0xFFFFFFFFFFFFFFFF0000000000000000 ^ 0x0000000000000000FFFFFFFFFFFFFFFF == 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF);
-        assertOrPanic(0xFFFFFFFFFFFFFFFF0000000000000000 ^ 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF == 0x0000000000000000FFFFFFFFFFFFFFFF);
-        assertOrPanic(0x0000000000000000FFFFFFFFFFFFFFFF ^ 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF == 0xFFFFFFFFFFFFFFFF0000000000000000);
-        assertOrPanic(0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF ^ 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF == 0x00000000000000000000000000000000);
-        assertOrPanic(0xFFFFFFFF00000000FFFFFFFF00000000 ^ 0x00000000FFFFFFFF00000000FFFFFFFF == 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF);
-        assertOrPanic(0xFFFFFFFF00000000FFFFFFFF00000000 ^ 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF == 0x00000000FFFFFFFF00000000FFFFFFFF);
-        assertOrPanic(0x00000000FFFFFFFF00000000FFFFFFFF ^ 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF == 0xFFFFFFFF00000000FFFFFFFF00000000);
+        expect(0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF ^ 0x00000000000000000000000000000000 == 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF);
+        expect(0xFFFFFFFFFFFFFFFF0000000000000000 ^ 0x0000000000000000FFFFFFFFFFFFFFFF == 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF);
+        expect(0xFFFFFFFFFFFFFFFF0000000000000000 ^ 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF == 0x0000000000000000FFFFFFFFFFFFFFFF);
+        expect(0x0000000000000000FFFFFFFFFFFFFFFF ^ 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF == 0xFFFFFFFFFFFFFFFF0000000000000000);
+        expect(0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF ^ 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF == 0x00000000000000000000000000000000);
+        expect(0xFFFFFFFF00000000FFFFFFFF00000000 ^ 0x00000000FFFFFFFF00000000FFFFFFFF == 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF);
+        expect(0xFFFFFFFF00000000FFFFFFFF00000000 ^ 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF == 0x00000000FFFFFFFF00000000FFFFFFFF);
+        expect(0x00000000FFFFFFFF00000000FFFFFFFF ^ 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF == 0xFFFFFFFF00000000FFFFFFFF00000000);
     }
 }
 
@@ -434,23 +434,23 @@ fn make_f128(x: f128) f128 {
 }
 
 fn test_f128() void {
-    assertOrPanic(@sizeOf(f128) == 16);
-    assertOrPanic(make_f128(1.0) == 1.0);
-    assertOrPanic(make_f128(1.0) != 1.1);
-    assertOrPanic(make_f128(1.0) > 0.9);
-    assertOrPanic(make_f128(1.0) >= 0.9);
-    assertOrPanic(make_f128(1.0) >= 1.0);
+    expect(@sizeOf(f128) == 16);
+    expect(make_f128(1.0) == 1.0);
+    expect(make_f128(1.0) != 1.1);
+    expect(make_f128(1.0) > 0.9);
+    expect(make_f128(1.0) >= 0.9);
+    expect(make_f128(1.0) >= 1.0);
     should_not_be_zero(1.0);
 }
 
 fn should_not_be_zero(x: f128) void {
-    assertOrPanic(x != 0.0);
+    expect(x != 0.0);
 }
 
 test "comptime float rem int" {
     comptime {
         var x = f32(1) % 2;
-        assertOrPanic(x == 1.0);
+        expect(x == 1.0);
     }
 }
 
@@ -465,8 +465,8 @@ test "remainder division" {
 }
 
 fn remdiv(comptime T: type) void {
-    assertOrPanic(T(1) == T(1) % T(2));
-    assertOrPanic(T(1) == T(7) % T(3));
+    expect(T(1) == T(1) % T(2));
+    expect(T(1) == T(7) % T(3));
 }
 
 test "@sqrt" {
@@ -480,19 +480,19 @@ test "@sqrt" {
     const x = 14.0;
     const y = x * x;
     const z = @sqrt(@typeOf(y), y);
-    comptime assertOrPanic(z == x);
+    comptime expect(z == x);
 }
 
 fn testSqrt(comptime T: type, x: T) void {
-    assertOrPanic(@sqrt(T, x * x) == x);
+    expect(@sqrt(T, x * x) == x);
 }
 
 test "comptime_int param and return" {
     const a = comptimeAdd(35361831660712422535336160538497375248, 101752735581729509668353361206450473702);
-    assertOrPanic(a == 137114567242441932203689521744947848950);
+    expect(a == 137114567242441932203689521744947848950);
 
     const b = comptimeAdd(594491908217841670578297176641415611445982232488944558774612, 390603545391089362063884922208143568023166603618446395589768);
-    assertOrPanic(b == 985095453608931032642182098849559179469148836107390954364380);
+    expect(b == 985095453608931032642182098849559179469148836107390954364380);
 }
 
 fn comptimeAdd(comptime a: comptime_int, comptime b: comptime_int) comptime_int {

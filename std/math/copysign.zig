@@ -1,6 +1,6 @@
 const std = @import("../index.zig");
 const math = std.math;
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 const maxInt = std.math.maxInt;
 
 pub fn copysign(comptime T: type, x: T, y: T) T {
@@ -40,28 +40,28 @@ fn copysign64(x: f64, y: f64) f64 {
 }
 
 test "math.copysign" {
-    assert(copysign(f16, 1.0, 1.0) == copysign16(1.0, 1.0));
-    assert(copysign(f32, 1.0, 1.0) == copysign32(1.0, 1.0));
-    assert(copysign(f64, 1.0, 1.0) == copysign64(1.0, 1.0));
+    expect(copysign(f16, 1.0, 1.0) == copysign16(1.0, 1.0));
+    expect(copysign(f32, 1.0, 1.0) == copysign32(1.0, 1.0));
+    expect(copysign(f64, 1.0, 1.0) == copysign64(1.0, 1.0));
 }
 
 test "math.copysign16" {
-    assert(copysign16(5.0, 1.0) == 5.0);
-    assert(copysign16(5.0, -1.0) == -5.0);
-    assert(copysign16(-5.0, -1.0) == -5.0);
-    assert(copysign16(-5.0, 1.0) == 5.0);
+    expect(copysign16(5.0, 1.0) == 5.0);
+    expect(copysign16(5.0, -1.0) == -5.0);
+    expect(copysign16(-5.0, -1.0) == -5.0);
+    expect(copysign16(-5.0, 1.0) == 5.0);
 }
 
 test "math.copysign32" {
-    assert(copysign32(5.0, 1.0) == 5.0);
-    assert(copysign32(5.0, -1.0) == -5.0);
-    assert(copysign32(-5.0, -1.0) == -5.0);
-    assert(copysign32(-5.0, 1.0) == 5.0);
+    expect(copysign32(5.0, 1.0) == 5.0);
+    expect(copysign32(5.0, -1.0) == -5.0);
+    expect(copysign32(-5.0, -1.0) == -5.0);
+    expect(copysign32(-5.0, 1.0) == 5.0);
 }
 
 test "math.copysign64" {
-    assert(copysign64(5.0, 1.0) == 5.0);
-    assert(copysign64(5.0, -1.0) == -5.0);
-    assert(copysign64(-5.0, -1.0) == -5.0);
-    assert(copysign64(-5.0, 1.0) == 5.0);
+    expect(copysign64(5.0, 1.0) == 5.0);
+    expect(copysign64(5.0, -1.0) == -5.0);
+    expect(copysign64(-5.0, -1.0) == -5.0);
+    expect(copysign64(-5.0, 1.0) == 5.0);
 }

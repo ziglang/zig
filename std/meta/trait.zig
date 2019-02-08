@@ -2,6 +2,7 @@ const std = @import("../index.zig");
 const builtin = @import("builtin");
 const mem = std.mem;
 const debug = std.debug;
+const testing = std.testing;
 const warn = debug.warn;
 
 const meta = @import("index.zig");
@@ -50,8 +51,8 @@ test "std.meta.trait.multiTrait" {
         hasField("x"),
         hasField("y"),
     });
-    debug.assert(isVector(Vector2));
-    debug.assert(!isVector(u8));
+    testing.expect(isVector(Vector2));
+    testing.expect(!isVector(u8));
 }
 
 ///
@@ -85,12 +86,12 @@ test "std.meta.trait.hasDef" {
         const value = u8(16);
     };
 
-    debug.assert(hasDef("value")(TestStruct));
-    debug.assert(!hasDef("value")(TestStructFail));
-    debug.assert(!hasDef("value")(*TestStruct));
-    debug.assert(!hasDef("value")(**TestStructFail));
-    debug.assert(!hasDef("x")(TestStruct));
-    debug.assert(!hasDef("value")(u8));
+    testing.expect(hasDef("value")(TestStruct));
+    testing.expect(!hasDef("value")(TestStructFail));
+    testing.expect(!hasDef("value")(*TestStruct));
+    testing.expect(!hasDef("value")(**TestStructFail));
+    testing.expect(!hasDef("x")(TestStruct));
+    testing.expect(!hasDef("value")(u8));
 }
 
 ///
@@ -111,9 +112,9 @@ test "std.meta.trait.hasFn" {
         pub fn useless() void {}
     };
 
-    debug.assert(hasFn("useless")(TestStruct));
-    debug.assert(!hasFn("append")(TestStruct));
-    debug.assert(!hasFn("useless")(u8));
+    testing.expect(hasFn("useless")(TestStruct));
+    testing.expect(!hasFn("append")(TestStruct));
+    testing.expect(!hasFn("useless")(u8));
 }
 
 ///
@@ -143,11 +144,11 @@ test "std.meta.trait.hasField" {
         value: u32,
     };
 
-    debug.assert(hasField("value")(TestStruct));
-    debug.assert(!hasField("value")(*TestStruct));
-    debug.assert(!hasField("x")(TestStruct));
-    debug.assert(!hasField("x")(**TestStruct));
-    debug.assert(!hasField("value")(u8));
+    testing.expect(hasField("value")(TestStruct));
+    testing.expect(!hasField("value")(*TestStruct));
+    testing.expect(!hasField("x")(TestStruct));
+    testing.expect(!hasField("x")(**TestStruct));
+    testing.expect(!hasField("value")(u8));
 }
 
 ///
@@ -161,11 +162,11 @@ pub fn is(comptime id: builtin.TypeId) TraitFn {
 }
 
 test "std.meta.trait.is" {
-    debug.assert(is(builtin.TypeId.Int)(u8));
-    debug.assert(!is(builtin.TypeId.Int)(f32));
-    debug.assert(is(builtin.TypeId.Pointer)(*u8));
-    debug.assert(is(builtin.TypeId.Void)(void));
-    debug.assert(!is(builtin.TypeId.Optional)(anyerror));
+    testing.expect(is(builtin.TypeId.Int)(u8));
+    testing.expect(!is(builtin.TypeId.Int)(f32));
+    testing.expect(is(builtin.TypeId.Pointer)(*u8));
+    testing.expect(is(builtin.TypeId.Void)(void));
+    testing.expect(!is(builtin.TypeId.Optional)(anyerror));
 }
 
 ///
@@ -180,9 +181,9 @@ pub fn isPtrTo(comptime id: builtin.TypeId) TraitFn {
 }
 
 test "std.meta.trait.isPtrTo" {
-    debug.assert(!isPtrTo(builtin.TypeId.Struct)(struct {}));
-    debug.assert(isPtrTo(builtin.TypeId.Struct)(*struct {}));
-    debug.assert(!isPtrTo(builtin.TypeId.Struct)(**struct {}));
+    testing.expect(!isPtrTo(builtin.TypeId.Struct)(struct {}));
+    testing.expect(isPtrTo(builtin.TypeId.Struct)(*struct {}));
+    testing.expect(!isPtrTo(builtin.TypeId.Struct)(**struct {}));
 }
 
 ///////////Strait trait Fns
@@ -205,9 +206,9 @@ test "std.meta.trait.isExtern" {
     const TestExStruct = extern struct {};
     const TestStruct = struct {};
 
-    debug.assert(isExtern(TestExStruct));
-    debug.assert(!isExtern(TestStruct));
-    debug.assert(!isExtern(u8));
+    testing.expect(isExtern(TestExStruct));
+    testing.expect(!isExtern(TestStruct));
+    testing.expect(!isExtern(u8));
 }
 
 ///
@@ -226,9 +227,9 @@ test "std.meta.trait.isPacked" {
     const TestPStruct = packed struct {};
     const TestStruct = struct {};
 
-    debug.assert(isPacked(TestPStruct));
-    debug.assert(!isPacked(TestStruct));
-    debug.assert(!isPacked(u8));
+    testing.expect(isPacked(TestPStruct));
+    testing.expect(!isPacked(TestStruct));
+    testing.expect(!isPacked(u8));
 }
 
 ///
@@ -240,10 +241,10 @@ pub fn isUnsignedInt(comptime T: type) bool {
 }
 
 test "isUnsignedInt" {
-    debug.assert(isUnsignedInt(u32) == true);
-    debug.assert(isUnsignedInt(comptime_int) == false);
-    debug.assert(isUnsignedInt(i64) == false);
-    debug.assert(isUnsignedInt(f64) == false);
+    testing.expect(isUnsignedInt(u32) == true);
+    testing.expect(isUnsignedInt(comptime_int) == false);
+    testing.expect(isUnsignedInt(i64) == false);
+    testing.expect(isUnsignedInt(f64) == false);
 }
 
 ///
@@ -256,10 +257,10 @@ pub fn isSignedInt(comptime T: type) bool {
 }
 
 test "isSignedInt" {
-    debug.assert(isSignedInt(u32) == false);
-    debug.assert(isSignedInt(comptime_int) == true);
-    debug.assert(isSignedInt(i64) == true);
-    debug.assert(isSignedInt(f64) == false);
+    testing.expect(isSignedInt(u32) == false);
+    testing.expect(isSignedInt(comptime_int) == true);
+    testing.expect(isSignedInt(i64) == true);
+    testing.expect(isSignedInt(f64) == false);
 }
 
 ///
@@ -273,9 +274,9 @@ pub fn isSingleItemPtr(comptime T: type) bool {
 
 test "std.meta.trait.isSingleItemPtr" {
     const array = []u8{0} ** 10;
-    debug.assert(isSingleItemPtr(@typeOf(&array[0])));
-    debug.assert(!isSingleItemPtr(@typeOf(array)));
-    debug.assert(!isSingleItemPtr(@typeOf(array[0..1])));
+    testing.expect(isSingleItemPtr(@typeOf(&array[0])));
+    testing.expect(!isSingleItemPtr(@typeOf(array)));
+    testing.expect(!isSingleItemPtr(@typeOf(array[0..1])));
 }
 
 ///
@@ -290,9 +291,9 @@ pub fn isManyItemPtr(comptime T: type) bool {
 test "std.meta.trait.isManyItemPtr" {
     const array = []u8{0} ** 10;
     const mip = @ptrCast([*]const u8, &array[0]);
-    debug.assert(isManyItemPtr(@typeOf(mip)));
-    debug.assert(!isManyItemPtr(@typeOf(array)));
-    debug.assert(!isManyItemPtr(@typeOf(array[0..1])));
+    testing.expect(isManyItemPtr(@typeOf(mip)));
+    testing.expect(!isManyItemPtr(@typeOf(array)));
+    testing.expect(!isManyItemPtr(@typeOf(array[0..1])));
 }
 
 ///
@@ -306,9 +307,9 @@ pub fn isSlice(comptime T: type) bool {
 
 test "std.meta.trait.isSlice" {
     const array = []u8{0} ** 10;
-    debug.assert(isSlice(@typeOf(array[0..])));
-    debug.assert(!isSlice(@typeOf(array)));
-    debug.assert(!isSlice(@typeOf(&array[0])));
+    testing.expect(isSlice(@typeOf(array[0..])));
+    testing.expect(!isSlice(@typeOf(array)));
+    testing.expect(!isSlice(@typeOf(&array[0])));
 }
 
 ///
@@ -328,10 +329,10 @@ test "std.meta.trait.isIndexable" {
     const array = []u8{0} ** 10;
     const slice = array[0..];
 
-    debug.assert(isIndexable(@typeOf(array)));
-    debug.assert(isIndexable(@typeOf(&array)));
-    debug.assert(isIndexable(@typeOf(slice)));
-    debug.assert(!isIndexable(meta.Child(@typeOf(slice))));
+    testing.expect(isIndexable(@typeOf(array)));
+    testing.expect(isIndexable(@typeOf(&array)));
+    testing.expect(isIndexable(@typeOf(slice)));
+    testing.expect(!isIndexable(meta.Child(@typeOf(slice))));
 }
 
 ///
@@ -347,13 +348,13 @@ test "std.meta.trait.isNumber" {
         number: u8,
     };
 
-    debug.assert(isNumber(u32));
-    debug.assert(isNumber(f32));
-    debug.assert(isNumber(u64));
-    debug.assert(isNumber(@typeOf(102)));
-    debug.assert(isNumber(@typeOf(102.123)));
-    debug.assert(!isNumber([]u8));
-    debug.assert(!isNumber(NotANumber));
+    testing.expect(isNumber(u32));
+    testing.expect(isNumber(f32));
+    testing.expect(isNumber(u64));
+    testing.expect(isNumber(@typeOf(102)));
+    testing.expect(isNumber(@typeOf(102.123)));
+    testing.expect(!isNumber([]u8));
+    testing.expect(!isNumber(NotANumber));
 }
 
 ///
@@ -366,10 +367,10 @@ pub fn isConstPtr(comptime T: type) bool {
 test "std.meta.trait.isConstPtr" {
     var t = u8(0);
     const c = u8(0);
-    debug.assert(isConstPtr(*const @typeOf(t)));
-    debug.assert(isConstPtr(@typeOf(&c)));
-    debug.assert(!isConstPtr(*@typeOf(t)));
-    debug.assert(!isConstPtr(@typeOf(6)));
+    testing.expect(isConstPtr(*const @typeOf(t)));
+    testing.expect(isConstPtr(@typeOf(&c)));
+    testing.expect(!isConstPtr(*@typeOf(t)));
+    testing.expect(!isConstPtr(@typeOf(6)));
 }
 
 ///
@@ -393,8 +394,8 @@ test "std.meta.trait.isContainer" {
         B,
     };
 
-    debug.assert(isContainer(TestStruct));
-    debug.assert(isContainer(TestUnion));
-    debug.assert(isContainer(TestEnum));
-    debug.assert(!isContainer(u8));
+    testing.expect(isContainer(TestStruct));
+    testing.expect(isContainer(TestUnion));
+    testing.expect(isContainer(TestEnum));
+    testing.expect(!isContainer(u8));
 }

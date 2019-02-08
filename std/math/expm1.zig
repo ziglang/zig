@@ -7,7 +7,7 @@
 const builtin = @import("builtin");
 const std = @import("../index.zig");
 const math = std.math;
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 pub fn expm1(x: var) @typeOf(x) {
     const T = @typeOf(x);
@@ -278,42 +278,42 @@ fn expm1_64(x_: f64) f64 {
 }
 
 test "math.exp1m" {
-    assert(expm1(f32(0.0)) == expm1_32(0.0));
-    assert(expm1(f64(0.0)) == expm1_64(0.0));
+    expect(expm1(f32(0.0)) == expm1_32(0.0));
+    expect(expm1(f64(0.0)) == expm1_64(0.0));
 }
 
 test "math.expm1_32" {
     const epsilon = 0.000001;
 
-    assert(expm1_32(0.0) == 0.0);
-    assert(math.approxEq(f32, expm1_32(0.0), 0.0, epsilon));
-    assert(math.approxEq(f32, expm1_32(0.2), 0.221403, epsilon));
-    assert(math.approxEq(f32, expm1_32(0.8923), 1.440737, epsilon));
-    assert(math.approxEq(f32, expm1_32(1.5), 3.481689, epsilon));
+    expect(expm1_32(0.0) == 0.0);
+    expect(math.approxEq(f32, expm1_32(0.0), 0.0, epsilon));
+    expect(math.approxEq(f32, expm1_32(0.2), 0.221403, epsilon));
+    expect(math.approxEq(f32, expm1_32(0.8923), 1.440737, epsilon));
+    expect(math.approxEq(f32, expm1_32(1.5), 3.481689, epsilon));
 }
 
 test "math.expm1_64" {
     const epsilon = 0.000001;
 
-    assert(expm1_64(0.0) == 0.0);
-    assert(math.approxEq(f64, expm1_64(0.0), 0.0, epsilon));
-    assert(math.approxEq(f64, expm1_64(0.2), 0.221403, epsilon));
-    assert(math.approxEq(f64, expm1_64(0.8923), 1.440737, epsilon));
-    assert(math.approxEq(f64, expm1_64(1.5), 3.481689, epsilon));
+    expect(expm1_64(0.0) == 0.0);
+    expect(math.approxEq(f64, expm1_64(0.0), 0.0, epsilon));
+    expect(math.approxEq(f64, expm1_64(0.2), 0.221403, epsilon));
+    expect(math.approxEq(f64, expm1_64(0.8923), 1.440737, epsilon));
+    expect(math.approxEq(f64, expm1_64(1.5), 3.481689, epsilon));
 }
 
 test "math.expm1_32.special" {
     const epsilon = 0.000001;
 
-    assert(math.isPositiveInf(expm1_32(math.inf(f32))));
-    assert(expm1_32(-math.inf(f32)) == -1.0);
-    assert(math.isNan(expm1_32(math.nan(f32))));
+    expect(math.isPositiveInf(expm1_32(math.inf(f32))));
+    expect(expm1_32(-math.inf(f32)) == -1.0);
+    expect(math.isNan(expm1_32(math.nan(f32))));
 }
 
 test "math.expm1_64.special" {
     const epsilon = 0.000001;
 
-    assert(math.isPositiveInf(expm1_64(math.inf(f64))));
-    assert(expm1_64(-math.inf(f64)) == -1.0);
-    assert(math.isNan(expm1_64(math.nan(f64))));
+    expect(math.isPositiveInf(expm1_64(math.inf(f64))));
+    expect(expm1_64(-math.inf(f64)) == -1.0);
+    expect(math.isNan(expm1_64(math.nan(f64))));
 }

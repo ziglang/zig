@@ -107,37 +107,15 @@ pub fn dumpStackTrace(stack_trace: *const builtin.StackTrace) void {
 /// This function invokes undefined behavior when `ok` is `false`.
 /// In Debug and ReleaseSafe modes, calls to this function are always
 /// generated, and the `unreachable` statement triggers a panic.
-/// In ReleaseFast and ReleaseSmall modes, calls to this function can be
-/// optimized away.
+/// In ReleaseFast and ReleaseSmall modes, calls to this function are
+/// optimized away, and in fact the optimizer is able to use the assertion
+/// in its heuristics.
+/// Inside a test block, it is best to use the `std.testing` module rather
+/// than this function, because this function may not detect a test failure
+/// in ReleaseFast and ReleaseSafe mode. Outside of a test block, this assert
+/// function is the correct function to use.
 pub fn assert(ok: bool) void {
-    if (!ok) {
-        // In ReleaseFast test mode, we still want assert(false) to crash, so
-        // we insert an explicit call to @panic instead of unreachable.
-        // TODO we should use `assertOrPanic` in tests and remove this logic.
-        if (builtin.is_test) {
-            @panic("assertion failure");
-        } else {
-            unreachable; // assertion failure
-        }
-    }
-}
-
-/// TODO: add `==` operator for `error_union == error_set`, and then
-/// remove this function
-pub fn assertError(value: var, expected_error: anyerror) void {
-    if (value) {
-        @panic("expected error");
-    } else |actual_error| {
-        assert(actual_error == expected_error);
-    }
-}
-
-/// Call this function when you want to panic if the condition is not true.
-/// If `ok` is `false`, this function will panic in every release mode.
-pub fn assertOrPanic(ok: bool) void {
-    if (!ok) {
-        @panic("assertion failure");
-    }
+    if (!ok) unreachable; // assertion failure
 }
 
 pub fn panic(comptime format: []const u8, args: ...) noreturn {

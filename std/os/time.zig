@@ -2,6 +2,7 @@ const std = @import("../index.zig");
 const builtin = @import("builtin");
 const Os = builtin.Os;
 const debug = std.debug;
+const testing = std.testing;
 
 const windows = std.os.windows;
 const linux = std.os.linux;
@@ -270,7 +271,7 @@ test "os.time.timestamp" {
     sleep(ns_per_ms);
     const time_1 = milliTimestamp();
     const interval = time_1 - time_0;
-    debug.assert(interval > 0 and interval < margin);
+    testing.expect(interval > 0 and interval < margin);
 }
 
 test "os.time.Timer" {
@@ -280,11 +281,11 @@ test "os.time.Timer" {
     var timer = try Timer.start();
     sleep(10 * ns_per_ms);
     const time_0 = timer.read();
-    debug.assert(time_0 > 0 and time_0 < margin);
+    testing.expect(time_0 > 0 and time_0 < margin);
 
     const time_1 = timer.lap();
-    debug.assert(time_1 >= time_0);
+    testing.expect(time_1 >= time_0);
 
     timer.reset();
-    debug.assert(timer.read() < time_1);
+    testing.expect(timer.read() < time_1);
 }

@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const AtomicOrder = builtin.AtomicOrder;
 const AtomicRmwOp = builtin.AtomicRmwOp;
 const assert = std.debug.assert;
+const expect = std.testing.expect;
 const windows = std.os.windows;
 
 /// Lock may be held only once. If the same thread
@@ -95,7 +96,7 @@ test "std.StaticallyInitializedMutex" {
 
     if (builtin.single_threaded) {
         TestContext.worker(&context);
-        std.debug.assertOrPanic(context.data == TestContext.incr_count);
+        expect(context.data == TestContext.incr_count);
     } else {
         const thread_count = 10;
         var threads: [thread_count]*std.os.Thread = undefined;
@@ -105,6 +106,6 @@ test "std.StaticallyInitializedMutex" {
         for (threads) |t|
             t.wait();
 
-        std.debug.assertOrPanic(context.data == thread_count * TestContext.incr_count);
+        expect(context.data == thread_count * TestContext.incr_count);
     }
 }

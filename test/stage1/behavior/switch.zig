@@ -1,4 +1,4 @@
-const assertOrPanic = @import("std").debug.assertOrPanic;
+const expect = @import("std").testing.expect;
 
 test "switch with numbers" {
     testSwitchWithNumbers(13);
@@ -10,14 +10,14 @@ fn testSwitchWithNumbers(x: u32) void {
         13 => true,
         else => false,
     };
-    assertOrPanic(result);
+    expect(result);
 }
 
 test "switch with all ranges" {
-    assertOrPanic(testSwitchWithAllRanges(50, 3) == 1);
-    assertOrPanic(testSwitchWithAllRanges(101, 0) == 2);
-    assertOrPanic(testSwitchWithAllRanges(300, 5) == 3);
-    assertOrPanic(testSwitchWithAllRanges(301, 6) == 6);
+    expect(testSwitchWithAllRanges(50, 3) == 1);
+    expect(testSwitchWithAllRanges(101, 0) == 2);
+    expect(testSwitchWithAllRanges(300, 5) == 3);
+    expect(testSwitchWithAllRanges(301, 6) == 6);
 }
 
 fn testSwitchWithAllRanges(x: u32, y: u32) u32 {
@@ -40,7 +40,7 @@ test "implicit comptime switch" {
     };
 
     comptime {
-        assertOrPanic(result + 1 == 14);
+        expect(result + 1 == 14);
     }
 }
 
@@ -71,7 +71,7 @@ fn nonConstSwitch(foo: SwitchStatmentFoo) void {
         SwitchStatmentFoo.C => 3,
         SwitchStatmentFoo.D => 4,
     };
-    assertOrPanic(val == 3);
+    expect(val == 3);
 }
 const SwitchStatmentFoo = enum {
     A,
@@ -93,10 +93,10 @@ const SwitchProngWithVarEnum = union(enum) {
 fn switchProngWithVarFn(a: SwitchProngWithVarEnum) void {
     switch (a) {
         SwitchProngWithVarEnum.One => |x| {
-            assertOrPanic(x == 13);
+            expect(x == 13);
         },
         SwitchProngWithVarEnum.Two => |x| {
-            assertOrPanic(x == 13.0);
+            expect(x == 13.0);
         },
         SwitchProngWithVarEnum.Meh => |x| {
             const v: void = x;
@@ -116,7 +116,7 @@ fn testSwitchEnumPtrCapture() void {
         else => unreachable,
     }
     switch (value) {
-        SwitchProngWithVarEnum.One => |x| assertOrPanic(x == 1235),
+        SwitchProngWithVarEnum.One => |x| expect(x == 1235),
         else => unreachable,
     }
 }
@@ -127,7 +127,7 @@ test "switch with multiple expressions" {
         4, 5, 6 => 2,
         else => i32(3),
     };
-    assertOrPanic(x == 2);
+    expect(x == 2);
 }
 fn returnsFive() i32 {
     return 5;
@@ -149,12 +149,12 @@ fn returnsFalse() bool {
     }
 }
 test "switch on const enum with var" {
-    assertOrPanic(!returnsFalse());
+    expect(!returnsFalse());
 }
 
 test "switch on type" {
-    assertOrPanic(trueIfBoolFalseOtherwise(bool));
-    assertOrPanic(!trueIfBoolFalseOtherwise(i32));
+    expect(trueIfBoolFalseOtherwise(bool));
+    expect(!trueIfBoolFalseOtherwise(i32));
 }
 
 fn trueIfBoolFalseOtherwise(comptime T: type) bool {
@@ -170,16 +170,16 @@ test "switch handles all cases of number" {
 }
 
 fn testSwitchHandleAllCases() void {
-    assertOrPanic(testSwitchHandleAllCasesExhaustive(0) == 3);
-    assertOrPanic(testSwitchHandleAllCasesExhaustive(1) == 2);
-    assertOrPanic(testSwitchHandleAllCasesExhaustive(2) == 1);
-    assertOrPanic(testSwitchHandleAllCasesExhaustive(3) == 0);
+    expect(testSwitchHandleAllCasesExhaustive(0) == 3);
+    expect(testSwitchHandleAllCasesExhaustive(1) == 2);
+    expect(testSwitchHandleAllCasesExhaustive(2) == 1);
+    expect(testSwitchHandleAllCasesExhaustive(3) == 0);
 
-    assertOrPanic(testSwitchHandleAllCasesRange(100) == 0);
-    assertOrPanic(testSwitchHandleAllCasesRange(200) == 1);
-    assertOrPanic(testSwitchHandleAllCasesRange(201) == 2);
-    assertOrPanic(testSwitchHandleAllCasesRange(202) == 4);
-    assertOrPanic(testSwitchHandleAllCasesRange(230) == 3);
+    expect(testSwitchHandleAllCasesRange(100) == 0);
+    expect(testSwitchHandleAllCasesRange(200) == 1);
+    expect(testSwitchHandleAllCasesRange(201) == 2);
+    expect(testSwitchHandleAllCasesRange(202) == 4);
+    expect(testSwitchHandleAllCasesRange(230) == 3);
 }
 
 fn testSwitchHandleAllCasesExhaustive(x: u2) u2 {
@@ -207,8 +207,8 @@ test "switch all prongs unreachable" {
 }
 
 fn testAllProngsUnreachable() void {
-    assertOrPanic(switchWithUnreachable(1) == 2);
-    assertOrPanic(switchWithUnreachable(2) == 10);
+    expect(switchWithUnreachable(1) == 2);
+    expect(switchWithUnreachable(2) == 10);
 }
 
 fn switchWithUnreachable(x: i32) i32 {
@@ -230,7 +230,7 @@ test "capture value of switch with all unreachable prongs" {
     const x = return_a_number() catch |err| switch (err) {
         else => unreachable,
     };
-    assertOrPanic(x == 1);
+    expect(x == 1);
 }
 
 test "switching on booleans" {
@@ -239,14 +239,14 @@ test "switching on booleans" {
 }
 
 fn testSwitchOnBools() void {
-    assertOrPanic(testSwitchOnBoolsTrueAndFalse(true) == false);
-    assertOrPanic(testSwitchOnBoolsTrueAndFalse(false) == true);
+    expect(testSwitchOnBoolsTrueAndFalse(true) == false);
+    expect(testSwitchOnBoolsTrueAndFalse(false) == true);
 
-    assertOrPanic(testSwitchOnBoolsTrueWithElse(true) == false);
-    assertOrPanic(testSwitchOnBoolsTrueWithElse(false) == true);
+    expect(testSwitchOnBoolsTrueWithElse(true) == false);
+    expect(testSwitchOnBoolsTrueWithElse(false) == true);
 
-    assertOrPanic(testSwitchOnBoolsFalseWithElse(true) == false);
-    assertOrPanic(testSwitchOnBoolsFalseWithElse(false) == true);
+    expect(testSwitchOnBoolsFalseWithElse(true) == false);
+    expect(testSwitchOnBoolsFalseWithElse(false) == true);
 }
 
 fn testSwitchOnBoolsTrueAndFalse(x: bool) bool {

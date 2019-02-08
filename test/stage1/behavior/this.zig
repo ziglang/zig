@@ -1,4 +1,4 @@
-const assertOrPanic = @import("std").debug.assertOrPanic;
+const expect = @import("std").testing.expect;
 
 const module = @This();
 
@@ -20,7 +20,7 @@ fn add(x: i32, y: i32) i32 {
 }
 
 test "this refer to module call private fn" {
-    assertOrPanic(module.add(1, 2) == 3);
+    expect(module.add(1, 2) == 3);
 }
 
 test "this refer to container" {
@@ -29,7 +29,7 @@ test "this refer to container" {
         .y = 34,
     };
     pt.addOne();
-    assertOrPanic(pt.x == 13);
-    assertOrPanic(pt.y == 35);
+    expect(pt.x == 13);
+    expect(pt.y == 35);
 }
 

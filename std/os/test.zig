@@ -1,6 +1,6 @@
 const std = @import("../index.zig");
 const os = std.os;
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 const io = std.io;
 const mem = std.mem;
 
@@ -18,7 +18,7 @@ test "makePath, put some files in it, deleteTree" {
     if (os.Dir.open(a, "os_test_tmp")) |dir| {
         @panic("expected error");
     } else |err| {
-        assert(err == error.FileNotFound);
+        expect(err == error.FileNotFound);
     }
 }
 
@@ -27,7 +27,7 @@ test "access file" {
     if (os.File.access("os_test_tmp" ++ os.path.sep_str ++ "file.txt")) |ok| {
         @panic("expected error");
     } else |err| {
-        assert(err == error.FileNotFound);
+        expect(err == error.FileNotFound);
     }
 
     try io.writeFile("os_test_tmp" ++ os.path.sep_str ++ "file.txt", "");
@@ -47,9 +47,9 @@ test "std.os.Thread.getCurrentId" {
     const thread_id = thread.handle();
     thread.wait();
     switch (builtin.os) {
-        builtin.Os.windows => assert(os.Thread.getCurrentId() != thread_current_id),
+        builtin.Os.windows => expect(os.Thread.getCurrentId() != thread_current_id),
         else => {
-            assert(thread_current_id == thread_id);
+            expect(thread_current_id == thread_id);
         },
     }
 }
@@ -69,7 +69,7 @@ test "spawn threads" {
     thread3.wait();
     thread4.wait();
 
-    assert(shared_ctx == 4);
+    expect(shared_ctx == 4);
 }
 
 fn start1(ctx: void) u8 {
@@ -83,7 +83,7 @@ fn start2(ctx: *i32) u8 {
 
 test "cpu count" {
     const cpu_count = try std.os.cpuCount(a);
-    assert(cpu_count >= 1);
+    expect(cpu_count >= 1);
 }
 
 test "AtomicFile" {
@@ -101,7 +101,7 @@ test "AtomicFile" {
         try af.finish();
     }
     const content = try io.readFileAlloc(allocator, test_out_file);
-    assert(mem.eql(u8, content, test_content));
+    expect(mem.eql(u8, content, test_content));
 
     try os.deleteFile(test_out_file);
 }

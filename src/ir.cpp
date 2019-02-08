@@ -17543,21 +17543,16 @@ static void make_enum_field_val(IrAnalyze *ira, ConstExprValue *enum_field_val, 
     enum_field_val->data.x_struct.fields = inner_fields;
 }
 
-static Error ir_make_type_info_value(IrAnalyze *ira, ZigType *type_entry, ConstExprValue **out) {
+static Error ir_make_type_info_value(IrAnalyze *ira, AstNode *source_node, ZigType *type_entry, ConstExprValue **out) {
     Error err;
     assert(type_entry != nullptr);
     assert(!type_is_invalid(type_entry));
 
-    if ((err = ensure_complete_type(ira->codegen, type_entry)))
+    if ((err = type_resolve(ira->codegen, type_entry, ResolveStatusSizeKnown)))
         return err;
 
-    if (type_entry == ira->codegen->builtin_types.entry_global_error_set) {
-        zig_panic("TODO implement @typeInfo for global error set");
-    }
-
     ConstExprValue *result = nullptr;
-    switch (type_entry->id)
-    {
+    switch (type_entry->id) {
         case ZigTypeIdInvalid:
             zig_unreachable();
         case ZigTypeIdMetaType:
@@ -17778,6 +17773,15 @@ static Error ir_make_type_info_value(IrAnalyze *ira, ZigType *type_entry, ConstE
                 ensure_field_index(result->type, "errors", 0);
 
                 ZigType *type_info_error_type = ir_type_info_get_type(ira, "Error", nullptr);
+                if (!resolve_inferred_error_set(ira->codegen, type_entry, source_node)) {
+                    return ErrorSemanticAnalyzeFail;
+                }
+                if (type_is_global_error_set(type_entry)) {
+                    ir_add_error_node(ira, source_node,
+                        buf_sprintf("TODO: compiler bug: implement @typeInfo support for anyerror. https://github.com/ziglang/zig/issues/1936"));
+                    return ErrorSemanticAnalyzeFail;
+                }
+
                 uint32_t error_count = type_entry->data.error_set.err_count;
                 ConstExprValue *error_array = create_const_vals(1);
                 error_array->special = ConstValSpecialStatic;
@@ -18103,7 +18107,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, ZigType *type_entry, ConstE
             {
                 ZigType *fn_type = type_entry->data.bound_fn.fn_type;
                 assert(fn_type->id == ZigTypeIdFn);
-                if ((err = ir_make_type_info_value(ira, fn_type, &result)))
+                if ((err = ir_make_type_info_value(ira, source_node, fn_type, &result)))
                     return err;
 
                 break;
@@ -18128,7 +18132,7 @@ static IrInstruction *ir_analyze_instruction_type_info(IrAnalyze *ira,
     ZigType *result_type = ir_type_info_get_type(ira, nullptr, nullptr);
 
     ConstExprValue *payload;
-    if ((err = ir_make_type_info_value(ira, type_entry, &payload)))
+    if ((err = ir_make_type_info_value(ira, instruction->base.source_node, type_entry, &payload)))
         return ira->codegen->invalid_instruction;
 
     IrInstruction *result = ir_const(ira, &instruction->base, result_type);

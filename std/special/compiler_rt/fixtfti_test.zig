@@ -1,13 +1,13 @@
 const __fixtfti = @import("fixtfti.zig").__fixtfti;
 const std = @import("std");
 const math = std.math;
-const assert = std.debug.assert;
+const testing = std.testing;
 const warn = std.debug.warn;
 
 fn test__fixtfti(a: f128, expected: i128) void {
     const x = __fixtfti(a);
     //warn("a={}:{x} x={}:{x} expected={}:{x}:u128({x})\n", a, @bitCast(u128, a), x, x, expected, expected, @bitCast(u128, expected));
-    assert(x == expected);
+    testing.expect(x == expected);
 }
 
 test "fixtfti" {

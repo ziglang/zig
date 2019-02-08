@@ -17,6 +17,7 @@
 const std = @import("../index.zig");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
+const expect = std.testing.expect;
 const mem = std.mem;
 const math = std.math;
 const ziggurat = @import("ziggurat.zig");
@@ -316,43 +317,43 @@ test "Random int" {
 fn testRandomInt() void {
     var r = SequentialPrng.init();
 
-    assert(r.random.int(u0) == 0);
+    expect(r.random.int(u0) == 0);
 
     r.next_value = 0;
-    assert(r.random.int(u1) == 0);
-    assert(r.random.int(u1) == 1);
-    assert(r.random.int(u2) == 2);
-    assert(r.random.int(u2) == 3);
-    assert(r.random.int(u2) == 0);
+    expect(r.random.int(u1) == 0);
+    expect(r.random.int(u1) == 1);
+    expect(r.random.int(u2) == 2);
+    expect(r.random.int(u2) == 3);
+    expect(r.random.int(u2) == 0);
 
     r.next_value = 0xff;
-    assert(r.random.int(u8) == 0xff);
+    expect(r.random.int(u8) == 0xff);
     r.next_value = 0x11;
-    assert(r.random.int(u8) == 0x11);
+    expect(r.random.int(u8) == 0x11);
 
     r.next_value = 0xff;
-    assert(r.random.int(u32) == 0xffffffff);
+    expect(r.random.int(u32) == 0xffffffff);
     r.next_value = 0x11;
-    assert(r.random.int(u32) == 0x11111111);
+    expect(r.random.int(u32) == 0x11111111);
 
     r.next_value = 0xff;
-    assert(r.random.int(i32) == -1);
+    expect(r.random.int(i32) == -1);
     r.next_value = 0x11;
-    assert(r.random.int(i32) == 0x11111111);
+    expect(r.random.int(i32) == 0x11111111);
 
     r.next_value = 0xff;
-    assert(r.random.int(i8) == -1);
+    expect(r.random.int(i8) == -1);
     r.next_value = 0x11;
-    assert(r.random.int(i8) == 0x11);
+    expect(r.random.int(i8) == 0x11);
 
     r.next_value = 0xff;
-    assert(r.random.int(u33) == 0x1ffffffff);
+    expect(r.random.int(u33) == 0x1ffffffff);
     r.next_value = 0xff;
-    assert(r.random.int(i1) == -1);
+    expect(r.random.int(i1) == -1);
     r.next_value = 0xff;
-    assert(r.random.int(i2) == -1);
+    expect(r.random.int(i2) == -1);
     r.next_value = 0xff;
-    assert(r.random.int(i33) == -1);
+    expect(r.random.int(i33) == -1);
 }
 
 test "Random boolean" {
@@ -361,10 +362,10 @@ test "Random boolean" {
 }
 fn testRandomBoolean() void {
     var r = SequentialPrng.init();
-    assert(r.random.boolean() == false);
-    assert(r.random.boolean() == true);
-    assert(r.random.boolean() == false);
-    assert(r.random.boolean() == true);
+    expect(r.random.boolean() == false);
+    expect(r.random.boolean() == true);
+    expect(r.random.boolean() == false);
+    expect(r.random.boolean() == true);
 }
 
 test "Random intLessThan" {
@@ -375,36 +376,36 @@ test "Random intLessThan" {
 fn testRandomIntLessThan() void {
     var r = SequentialPrng.init();
     r.next_value = 0xff;
-    assert(r.random.uintLessThan(u8, 4) == 3);
-    assert(r.next_value == 0);
-    assert(r.random.uintLessThan(u8, 4) == 0);
-    assert(r.next_value == 1);
+    expect(r.random.uintLessThan(u8, 4) == 3);
+    expect(r.next_value == 0);
+    expect(r.random.uintLessThan(u8, 4) == 0);
+    expect(r.next_value == 1);
 
     r.next_value = 0;
-    assert(r.random.uintLessThan(u64, 32) == 0);
+    expect(r.random.uintLessThan(u64, 32) == 0);
 
     // trigger the bias rejection code path
     r.next_value = 0;
-    assert(r.random.uintLessThan(u8, 3) == 0);
+    expect(r.random.uintLessThan(u8, 3) == 0);
     // verify we incremented twice
-    assert(r.next_value == 2);
+    expect(r.next_value == 2);
 
     r.next_value = 0xff;
-    assert(r.random.intRangeLessThan(u8, 0, 0x80) == 0x7f);
+    expect(r.random.intRangeLessThan(u8, 0, 0x80) == 0x7f);
     r.next_value = 0xff;
-    assert(r.random.intRangeLessThan(u8, 0x7f, 0xff) == 0xfe);
+    expect(r.random.intRangeLessThan(u8, 0x7f, 0xff) == 0xfe);
 
     r.next_value = 0xff;
-    assert(r.random.intRangeLessThan(i8, 0, 0x40) == 0x3f);
+    expect(r.random.intRangeLessThan(i8, 0, 0x40) == 0x3f);
     r.next_value = 0xff;
-    assert(r.random.intRangeLessThan(i8, -0x40, 0x40) == 0x3f);
+    expect(r.random.intRangeLessThan(i8, -0x40, 0x40) == 0x3f);
     r.next_value = 0xff;
-    assert(r.random.intRangeLessThan(i8, -0x80, 0) == -1);
+    expect(r.random.intRangeLessThan(i8, -0x80, 0) == -1);
 
     r.next_value = 0xff;
-    assert(r.random.intRangeLessThan(i3, -4, 0) == -1);
+    expect(r.random.intRangeLessThan(i3, -4, 0) == -1);
     r.next_value = 0xff;
-    assert(r.random.intRangeLessThan(i3, -2, 2) == 1);
+    expect(r.random.intRangeLessThan(i3, -2, 2) == 1);
 }
 
 test "Random intAtMost" {
@@ -415,34 +416,34 @@ test "Random intAtMost" {
 fn testRandomIntAtMost() void {
     var r = SequentialPrng.init();
     r.next_value = 0xff;
-    assert(r.random.uintAtMost(u8, 3) == 3);
-    assert(r.next_value == 0);
-    assert(r.random.uintAtMost(u8, 3) == 0);
+    expect(r.random.uintAtMost(u8, 3) == 3);
+    expect(r.next_value == 0);
+    expect(r.random.uintAtMost(u8, 3) == 0);
 
     // trigger the bias rejection code path
     r.next_value = 0;
-    assert(r.random.uintAtMost(u8, 2) == 0);
+    expect(r.random.uintAtMost(u8, 2) == 0);
     // verify we incremented twice
-    assert(r.next_value == 2);
+    expect(r.next_value == 2);
 
     r.next_value = 0xff;
-    assert(r.random.intRangeAtMost(u8, 0, 0x7f) == 0x7f);
+    expect(r.random.intRangeAtMost(u8, 0, 0x7f) == 0x7f);
     r.next_value = 0xff;
-    assert(r.random.intRangeAtMost(u8, 0x7f, 0xfe) == 0xfe);
+    expect(r.random.intRangeAtMost(u8, 0x7f, 0xfe) == 0xfe);
 
     r.next_value = 0xff;
-    assert(r.random.intRangeAtMost(i8, 0, 0x3f) == 0x3f);
+    expect(r.random.intRangeAtMost(i8, 0, 0x3f) == 0x3f);
     r.next_value = 0xff;
-    assert(r.random.intRangeAtMost(i8, -0x40, 0x3f) == 0x3f);
+    expect(r.random.intRangeAtMost(i8, -0x40, 0x3f) == 0x3f);
     r.next_value = 0xff;
-    assert(r.random.intRangeAtMost(i8, -0x80, -1) == -1);
+    expect(r.random.intRangeAtMost(i8, -0x80, -1) == -1);
 
     r.next_value = 0xff;
-    assert(r.random.intRangeAtMost(i3, -4, -1) == -1);
+    expect(r.random.intRangeAtMost(i3, -4, -1) == -1);
     r.next_value = 0xff;
-    assert(r.random.intRangeAtMost(i3, -2, 1) == 1);
+    expect(r.random.intRangeAtMost(i3, -2, 1) == 1);
 
-    assert(r.random.uintAtMost(u0, 0) == 0);
+    expect(r.random.uintAtMost(u0, 0) == 0);
 }
 
 test "Random Biased" {
@@ -450,30 +451,30 @@ test "Random Biased" {
     // Not thoroughly checking the logic here.
     // Just want to execute all the paths with different types.
 
-    assert(r.random.uintLessThanBiased(u1, 1) == 0);
-    assert(r.random.uintLessThanBiased(u32, 10) < 10);
-    assert(r.random.uintLessThanBiased(u64, 20) < 20);
+    expect(r.random.uintLessThanBiased(u1, 1) == 0);
+    expect(r.random.uintLessThanBiased(u32, 10) < 10);
+    expect(r.random.uintLessThanBiased(u64, 20) < 20);
 
-    assert(r.random.uintAtMostBiased(u0, 0) == 0);
-    assert(r.random.uintAtMostBiased(u1, 0) <= 0);
-    assert(r.random.uintAtMostBiased(u32, 10) <= 10);
-    assert(r.random.uintAtMostBiased(u64, 20) <= 20);
+    expect(r.random.uintAtMostBiased(u0, 0) == 0);
+    expect(r.random.uintAtMostBiased(u1, 0) <= 0);
+    expect(r.random.uintAtMostBiased(u32, 10) <= 10);
+    expect(r.random.uintAtMostBiased(u64, 20) <= 20);
 
-    assert(r.random.intRangeLessThanBiased(u1, 0, 1) == 0);
-    assert(r.random.intRangeLessThanBiased(i1, -1, 0) == -1);
-    assert(r.random.intRangeLessThanBiased(u32, 10, 20) >= 10);
-    assert(r.random.intRangeLessThanBiased(i32, 10, 20) >= 10);
-    assert(r.random.intRangeLessThanBiased(u64, 20, 40) >= 20);
-    assert(r.random.intRangeLessThanBiased(i64, 20, 40) >= 20);
+    expect(r.random.intRangeLessThanBiased(u1, 0, 1) == 0);
+    expect(r.random.intRangeLessThanBiased(i1, -1, 0) == -1);
+    expect(r.random.intRangeLessThanBiased(u32, 10, 20) >= 10);
+    expect(r.random.intRangeLessThanBiased(i32, 10, 20) >= 10);
+    expect(r.random.intRangeLessThanBiased(u64, 20, 40) >= 20);
+    expect(r.random.intRangeLessThanBiased(i64, 20, 40) >= 20);
 
     // uncomment for broken module error:
-    //assert(r.random.intRangeAtMostBiased(u0, 0, 0) == 0);
-    assert(r.random.intRangeAtMostBiased(u1, 0, 1) >= 0);
-    assert(r.random.intRangeAtMostBiased(i1, -1, 0) >= -1);
-    assert(r.random.intRangeAtMostBiased(u32, 10, 20) >= 10);
-    assert(r.random.intRangeAtMostBiased(i32, 10, 20) >= 10);
-    assert(r.random.intRangeAtMostBiased(u64, 20, 40) >= 20);
-    assert(r.random.intRangeAtMostBiased(i64, 20, 40) >= 20);
+    //expect(r.random.intRangeAtMostBiased(u0, 0, 0) == 0);
+    expect(r.random.intRangeAtMostBiased(u1, 0, 1) >= 0);
+    expect(r.random.intRangeAtMostBiased(i1, -1, 0) >= -1);
+    expect(r.random.intRangeAtMostBiased(u32, 10, 20) >= 10);
+    expect(r.random.intRangeAtMostBiased(i32, 10, 20) >= 10);
+    expect(r.random.intRangeAtMostBiased(u64, 20, 40) >= 20);
+    expect(r.random.intRangeAtMostBiased(i64, 20, 40) >= 20);
 }
 
 // Generator to extend 64-bit seed values into longer sequences.
@@ -510,7 +511,7 @@ test "splitmix64 sequence" {
     };
 
     for (seq) |s| {
-        std.debug.assert(s == r.next());
+        expect(s == r.next());
     }
 }
 
@@ -603,7 +604,7 @@ test "pcg sequence" {
     };
 
     for (seq) |s| {
-        std.debug.assert(s == r.next());
+        expect(s == r.next());
     }
 }
 
@@ -712,7 +713,7 @@ test "xoroshiro sequence" {
     };
 
     for (seq1) |s| {
-        std.debug.assert(s == r.next());
+        expect(s == r.next());
     }
 
     r.jump();
@@ -727,7 +728,7 @@ test "xoroshiro sequence" {
     };
 
     for (seq2) |s| {
-        std.debug.assert(s == r.next());
+        expect(s == r.next());
     }
 }
 
@@ -930,7 +931,7 @@ test "isaac64 sequence" {
     };
 
     for (seq) |s| {
-        std.debug.assert(s == r.next());
+        expect(s == r.next());
     }
 }
 
@@ -941,12 +942,12 @@ test "Random float" {
     var i: usize = 0;
     while (i < 1000) : (i += 1) {
         const val1 = prng.random.float(f32);
-        std.debug.assert(val1 >= 0.0);
-        std.debug.assert(val1 < 1.0);
+        expect(val1 >= 0.0);
+        expect(val1 < 1.0);
 
         const val2 = prng.random.float(f64);
-        std.debug.assert(val2 >= 0.0);
-        std.debug.assert(val2 < 1.0);
+        expect(val2 >= 0.0);
+        expect(val2 < 1.0);
     }
 }
 
@@ -960,12 +961,12 @@ test "Random shuffle" {
     while (i < 1000) : (i += 1) {
         prng.random.shuffle(u8, seq[0..]);
         seen[seq[0]] = true;
-        std.debug.assert(sumArray(seq[0..]) == 10);
+        expect(sumArray(seq[0..]) == 10);
     }
 
     // we should see every entry at the head at least once
     for (seen) |e| {
-        std.debug.assert(e == true);
+        expect(e == true);
     }
 }
 

@@ -1,4 +1,4 @@
-const assertOrPanic = @import("std").debug.assertOrPanic;
+const expect = @import("std").testing.expect;
 
 var result: [3]u8 = undefined;
 var index: usize = undefined;
@@ -21,18 +21,18 @@ fn runSomeErrorDefers(x: bool) !bool {
 }
 
 test "mixing normal and error defers" {
-    assertOrPanic(runSomeErrorDefers(true) catch unreachable);
-    assertOrPanic(result[0] == 'c');
-    assertOrPanic(result[1] == 'a');
+    expect(runSomeErrorDefers(true) catch unreachable);
+    expect(result[0] == 'c');
+    expect(result[1] == 'a');
 
     const ok = runSomeErrorDefers(false) catch |err| x: {
-        assertOrPanic(err == error.FalseNotAllowed);
+        expect(err == error.FalseNotAllowed);
         break :x true;
     };
-    assertOrPanic(ok);
-    assertOrPanic(result[0] == 'c');
-    assertOrPanic(result[1] == 'b');
-    assertOrPanic(result[2] == 'a');
+    expect(ok);
+    expect(result[0] == 'c');
+    expect(result[1] == 'b');
+    expect(result[2] == 'a');
 }
 
 test "break and continue inside loop inside defer expression" {
@@ -47,7 +47,7 @@ fn testBreakContInDefer(x: usize) void {
             if (i < 5) continue;
             if (i == 5) break;
         }
-        assertOrPanic(i == 5);
+        expect(i == 5);
     }
 }
 
@@ -59,11 +59,11 @@ test "defer and labeled break" {
         break :blk;
     }
 
-    assertOrPanic(i == 1);
+    expect(i == 1);
 }
 
 test "errdefer does not apply to fn inside fn" {
-    if (testNestedFnErrDefer()) |_| @panic("expected error") else |e| assertOrPanic(e == error.Bad);
+    if (testNestedFnErrDefer()) |_| @panic("expected error") else |e| expect(e == error.Bad);
 }
 
 fn testNestedFnErrDefer() anyerror!void {

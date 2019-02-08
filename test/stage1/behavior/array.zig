@@ -1,4 +1,4 @@
-const assertOrPanic = @import("std").debug.assertOrPanic;
+const expect = @import("std").testing.expect;
 const mem = @import("std").mem;
 
 test "arrays" {
@@ -18,8 +18,8 @@ test "arrays" {
         i += 1;
     }
 
-    assertOrPanic(accumulator == 15);
-    assertOrPanic(getArrayLen(array) == 5);
+    expect(accumulator == 15);
+    expect(getArrayLen(array) == 5);
 }
 fn getArrayLen(a: []const u32) usize {
     return a.len;
@@ -29,8 +29,8 @@ test "void arrays" {
     var array: [4]void = undefined;
     array[0] = void{};
     array[1] = array[2];
-    assertOrPanic(@sizeOf(@typeOf(array)) == 0);
-    assertOrPanic(array.len == 4);
+    expect(@sizeOf(@typeOf(array)) == 0);
+    expect(array.len == 4);
 }
 
 test "array literal" {
@@ -41,12 +41,12 @@ test "array literal" {
         1,
     };
 
-    assertOrPanic(hex_mult.len == 4);
-    assertOrPanic(hex_mult[1] == 256);
+    expect(hex_mult.len == 4);
+    expect(hex_mult[1] == 256);
 }
 
 test "array dot len const expr" {
-    assertOrPanic(comptime x: {
+    expect(comptime x: {
         break :x some_array.len == 4;
     });
 }
@@ -70,11 +70,11 @@ test "nested arrays" {
         "thing",
     };
     for (array_of_strings) |s, i| {
-        if (i == 0) assertOrPanic(mem.eql(u8, s, "hello"));
-        if (i == 1) assertOrPanic(mem.eql(u8, s, "this"));
-        if (i == 2) assertOrPanic(mem.eql(u8, s, "is"));
-        if (i == 3) assertOrPanic(mem.eql(u8, s, "my"));
-        if (i == 4) assertOrPanic(mem.eql(u8, s, "thing"));
+        if (i == 0) expect(mem.eql(u8, s, "hello"));
+        if (i == 1) expect(mem.eql(u8, s, "this"));
+        if (i == 2) expect(mem.eql(u8, s, "is"));
+        if (i == 3) expect(mem.eql(u8, s, "my"));
+        if (i == 4) expect(mem.eql(u8, s, "thing"));
     }
 }
 
@@ -92,9 +92,9 @@ test "set global var array via slice embedded in struct" {
     s.a[1].b = 2;
     s.a[2].b = 3;
 
-    assertOrPanic(s_array[0].b == 1);
-    assertOrPanic(s_array[1].b == 2);
-    assertOrPanic(s_array[2].b == 3);
+    expect(s_array[0].b == 1);
+    expect(s_array[1].b == 2);
+    expect(s_array[2].b == 3);
 }
 
 test "array literal with specified size" {
@@ -102,27 +102,27 @@ test "array literal with specified size" {
         1,
         2,
     };
-    assertOrPanic(array[0] == 1);
-    assertOrPanic(array[1] == 2);
+    expect(array[0] == 1);
+    expect(array[1] == 2);
 }
 
 test "array child property" {
     var x: [5]i32 = undefined;
-    assertOrPanic(@typeOf(x).Child == i32);
+    expect(@typeOf(x).Child == i32);
 }
 
 test "array len property" {
     var x: [5]i32 = undefined;
-    assertOrPanic(@typeOf(x).len == 5);
+    expect(@typeOf(x).len == 5);
 }
 
 test "array len field" {
     var arr = [4]u8{ 0, 0, 0, 0 };
     var ptr = &arr;
-    assertOrPanic(arr.len == 4);
-    comptime assertOrPanic(arr.len == 4);
-    assertOrPanic(ptr.len == 4);
-    comptime assertOrPanic(ptr.len == 4);
+    expect(arr.len == 4);
+    comptime expect(arr.len == 4);
+    expect(ptr.len == 4);
+    comptime expect(ptr.len == 4);
 }
 
 test "single-item pointer to array indexing and slicing" {
@@ -133,7 +133,7 @@ test "single-item pointer to array indexing and slicing" {
 fn testSingleItemPtrArrayIndexSlice() void {
     var array = "aaaa";
     doSomeMangling(&array);
-    assertOrPanic(mem.eql(u8, "azya", array));
+    expect(mem.eql(u8, "azya", array));
 }
 
 fn doSomeMangling(array: *[4]u8) void {
@@ -150,7 +150,7 @@ fn testImplicitCastSingleItemPtr() void {
     var byte: u8 = 100;
     const slice = (*[1]u8)(&byte)[0..];
     slice[0] += 1;
-    assertOrPanic(byte == 101);
+    expect(byte == 101);
 }
 
 fn testArrayByValAtComptime(b: [2]u8) u8 {
@@ -165,7 +165,7 @@ test "comptime evalutating function that takes array by value" {
 
 test "implicit comptime in array type size" {
     var arr: [plusOne(10)]bool = undefined;
-    assertOrPanic(arr.len == 11);
+    expect(arr.len == 11);
 }
 
 fn plusOne(x: u32) u32 {
@@ -197,15 +197,15 @@ test "array literal as argument to function" {
             });
         }
         fn foo(x: []const i32) void {
-            assertOrPanic(x[0] == 1);
-            assertOrPanic(x[1] == 2);
-            assertOrPanic(x[2] == 3);
+            expect(x[0] == 1);
+            expect(x[1] == 2);
+            expect(x[2] == 3);
         }
         fn foo2(trash: bool, x: []const i32) void {
-            assertOrPanic(trash);
-            assertOrPanic(x[0] == 1);
-            assertOrPanic(x[1] == 2);
-            assertOrPanic(x[2] == 3);
+            expect(trash);
+            expect(x[0] == 1);
+            expect(x[1] == 2);
+            expect(x[2] == 3);
         }
     };
     S.entry(2);
@@ -229,12 +229,12 @@ test "double nested array to const slice cast in array literal" {
                 []i32{1},
                 []i32{ two, 3 },
             };
-            assertOrPanic(cases2.len == 2);
-            assertOrPanic(cases2[0].len == 1);
-            assertOrPanic(cases2[0][0] == 1);
-            assertOrPanic(cases2[1].len == 2);
-            assertOrPanic(cases2[1][0] == 2);
-            assertOrPanic(cases2[1][1] == 3);
+            expect(cases2.len == 2);
+            expect(cases2[0].len == 1);
+            expect(cases2[0][0] == 1);
+            expect(cases2[1].len == 2);
+            expect(cases2[1][0] == 2);
+            expect(cases2[1][1] == 3);
 
             const cases3 = [][]const []const i32{
                 [][]const i32{[]i32{1}},
@@ -248,21 +248,21 @@ test "double nested array to const slice cast in array literal" {
         }
 
         fn check(cases: []const []const []const i32) void {
-            assertOrPanic(cases.len == 3);
-            assertOrPanic(cases[0].len == 1);
-            assertOrPanic(cases[0][0].len == 1);
-            assertOrPanic(cases[0][0][0] == 1);
-            assertOrPanic(cases[1].len == 1);
-            assertOrPanic(cases[1][0].len == 2);
-            assertOrPanic(cases[1][0][0] == 2);
-            assertOrPanic(cases[1][0][1] == 3);
-            assertOrPanic(cases[2].len == 2);
-            assertOrPanic(cases[2][0].len == 1);
-            assertOrPanic(cases[2][0][0] == 4);
-            assertOrPanic(cases[2][1].len == 3);
-            assertOrPanic(cases[2][1][0] == 5);
-            assertOrPanic(cases[2][1][1] == 6);
-            assertOrPanic(cases[2][1][2] == 7);
+            expect(cases.len == 3);
+            expect(cases[0].len == 1);
+            expect(cases[0][0].len == 1);
+            expect(cases[0][0][0] == 1);
+            expect(cases[1].len == 1);
+            expect(cases[1][0].len == 2);
+            expect(cases[1][0][0] == 2);
+            expect(cases[1][0][1] == 3);
+            expect(cases[2].len == 2);
+            expect(cases[2][0].len == 1);
+            expect(cases[2][0][0] == 4);
+            expect(cases[2][1].len == 3);
+            expect(cases[2][1][0] == 5);
+            expect(cases[2][1][1] == 6);
+            expect(cases[2][1][2] == 7);
         }
     };
     S.entry(2);

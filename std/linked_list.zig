@@ -1,6 +1,7 @@
 const std = @import("index.zig");
 const debug = std.debug;
 const assert = debug.assert;
+const testing = std.testing;
 const mem = std.mem;
 const Allocator = mem.Allocator;
 
@@ -246,7 +247,7 @@ test "basic linked list test" {
         var it = list.first;
         var index: u32 = 1;
         while (it) |node| : (it = node.next) {
-            assert(node.data == index);
+            testing.expect(node.data == index);
             index += 1;
         }
     }
@@ -256,7 +257,7 @@ test "basic linked list test" {
         var it = list.last;
         var index: u32 = 1;
         while (it) |node| : (it = node.prev) {
-            assert(node.data == (6 - index));
+            testing.expect(node.data == (6 - index));
             index += 1;
         }
     }
@@ -265,9 +266,9 @@ test "basic linked list test" {
     var last = list.pop(); // {2, 3, 4}
     list.remove(three); // {2, 4}
 
-    assert(list.first.?.data == 2);
-    assert(list.last.?.data == 4);
-    assert(list.len == 2);
+    testing.expect(list.first.?.data == 2);
+    testing.expect(list.last.?.data == 4);
+    testing.expect(list.len == 2);
 }
 
 test "linked list concatenation" {
@@ -294,18 +295,18 @@ test "linked list concatenation" {
 
     list1.concatByMoving(&list2);
 
-    assert(list1.last == five);
-    assert(list1.len == 5);
-    assert(list2.first == null);
-    assert(list2.last == null);
-    assert(list2.len == 0);
+    testing.expect(list1.last == five);
+    testing.expect(list1.len == 5);
+    testing.expect(list2.first == null);
+    testing.expect(list2.last == null);
+    testing.expect(list2.len == 0);
 
     // Traverse forwards.
     {
         var it = list1.first;
         var index: u32 = 1;
         while (it) |node| : (it = node.next) {
-            assert(node.data == index);
+            testing.expect(node.data == index);
             index += 1;
         }
     }
@@ -315,7 +316,7 @@ test "linked list concatenation" {
         var it = list1.last;
         var index: u32 = 1;
         while (it) |node| : (it = node.prev) {
-            assert(node.data == (6 - index));
+            testing.expect(node.data == (6 - index));
             index += 1;
         }
     }
@@ -328,7 +329,7 @@ test "linked list concatenation" {
         var it = list2.first;
         var index: u32 = 1;
         while (it) |node| : (it = node.next) {
-            assert(node.data == index);
+            testing.expect(node.data == index);
             index += 1;
         }
     }
@@ -338,7 +339,7 @@ test "linked list concatenation" {
         var it = list2.last;
         var index: u32 = 1;
         while (it) |node| : (it = node.prev) {
-            assert(node.data == (6 - index));
+            testing.expect(node.data == (6 - index));
             index += 1;
         }
     }

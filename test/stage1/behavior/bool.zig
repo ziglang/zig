@@ -1,25 +1,25 @@
-const assertOrPanic = @import("std").debug.assertOrPanic;
+const expect = @import("std").testing.expect;
 
 test "bool literals" {
-    assertOrPanic(true);
-    assertOrPanic(!false);
+    expect(true);
+    expect(!false);
 }
 
 test "cast bool to int" {
     const t = true;
     const f = false;
-    assertOrPanic(@boolToInt(t) == u32(1));
-    assertOrPanic(@boolToInt(f) == u32(0));
+    expect(@boolToInt(t) == u32(1));
+    expect(@boolToInt(f) == u32(0));
     nonConstCastBoolToInt(t, f);
 }
 
 fn nonConstCastBoolToInt(t: bool, f: bool) void {
-    assertOrPanic(@boolToInt(t) == u32(1));
-    assertOrPanic(@boolToInt(f) == u32(0));
+    expect(@boolToInt(t) == u32(1));
+    expect(@boolToInt(f) == u32(0));
 }
 
 test "bool cmp" {
-    assertOrPanic(testBoolCmp(true, false) == false);
+    expect(testBoolCmp(true, false) == false);
 }
 fn testBoolCmp(a: bool, b: bool) bool {
     return a == b;
@@ -30,6 +30,6 @@ const global_t = true;
 const not_global_f = !global_f;
 const not_global_t = !global_t;
 test "compile time bool not" {
-    assertOrPanic(not_global_f);
-    assertOrPanic(!not_global_t);
+    expect(not_global_f);
+    expect(!not_global_t);
 }

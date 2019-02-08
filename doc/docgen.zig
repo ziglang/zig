@@ -4,7 +4,7 @@ const io = std.io;
 const os = std.os;
 const warn = std.debug.warn;
 const mem = std.mem;
-const assert = std.debug.assert;
+const testing = std.testing;
 
 const max_doc_file_size = 10 * 1024 * 1024;
 
@@ -620,7 +620,7 @@ const TermState = enum {
 test "term color" {
     const input_bytes = "A\x1b[32;1mgreen\x1b[0mB";
     const result = try termColor(std.debug.global_allocator, input_bytes);
-    assert(mem.eql(u8, result, "A<span class=\"t32\">green</span>B"));
+    testing.expectEqualSlices(u8, "A<span class=\"t32\">green</span>B", result));
 }
 
 fn termColor(allocator: *mem.Allocator, input: []const u8) ![]u8 {

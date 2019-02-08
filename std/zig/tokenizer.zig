@@ -1345,5 +1345,5 @@ fn testTokenize(source: []const u8, expected_tokens: []const Token.Id) void {
         }
     }
     const last_token = tokenizer.next();
-    std.debug.assert(last_token.id == Token.Id.Eof);
+    std.testing.expect(last_token.id == Token.Id.Eof);
 }

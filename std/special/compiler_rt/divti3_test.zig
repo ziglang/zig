@@ -1,9 +1,9 @@
 const __divti3 = @import("divti3.zig").__divti3;
-const assert = @import("std").debug.assert;
+const testing = @import("std").testing;
 
 fn test__divti3(a: i128, b: i128, expected: i128) void {
     const x = __divti3(a, b);
-    assert(x == expected);
+    testing.expect(x == expected);
 }
 
 test "divti3" {

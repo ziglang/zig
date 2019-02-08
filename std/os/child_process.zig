@@ -7,7 +7,6 @@ const posix = os.posix;
 const windows = os.windows;
 const mem = std.mem;
 const debug = std.debug;
-const assert = debug.assert;
 const BufMap = std.BufMap;
 const Buffer = std.Buffer;
 const builtin = @import("builtin");

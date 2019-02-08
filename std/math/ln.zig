@@ -7,7 +7,7 @@
 
 const std = @import("../index.zig");
 const math = std.math;
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 const builtin = @import("builtin");
 const TypeId = builtin.TypeId;
 
@@ -143,42 +143,42 @@ pub fn ln_64(x_: f64) f64 {
 }
 
 test "math.ln" {
-    assert(ln(f32(0.2)) == ln_32(0.2));
-    assert(ln(f64(0.2)) == ln_64(0.2));
+    expect(ln(f32(0.2)) == ln_32(0.2));
+    expect(ln(f64(0.2)) == ln_64(0.2));
 }
 
 test "math.ln32" {
     const epsilon = 0.000001;
 
-    assert(math.approxEq(f32, ln_32(0.2), -1.609438, epsilon));
-    assert(math.approxEq(f32, ln_32(0.8923), -0.113953, epsilon));
-    assert(math.approxEq(f32, ln_32(1.5), 0.405465, epsilon));
-    assert(math.approxEq(f32, ln_32(37.45), 3.623007, epsilon));
-    assert(math.approxEq(f32, ln_32(89.123), 4.490017, epsilon));
-    assert(math.approxEq(f32, ln_32(123123.234375), 11.720941, epsilon));
+    expect(math.approxEq(f32, ln_32(0.2), -1.609438, epsilon));
+    expect(math.approxEq(f32, ln_32(0.8923), -0.113953, epsilon));
+    expect(math.approxEq(f32, ln_32(1.5), 0.405465, epsilon));
+    expect(math.approxEq(f32, ln_32(37.45), 3.623007, epsilon));
+    expect(math.approxEq(f32, ln_32(89.123), 4.490017, epsilon));
+    expect(math.approxEq(f32, ln_32(123123.234375), 11.720941, epsilon));
 }
 
 test "math.ln64" {
     const epsilon = 0.000001;
 
-    assert(math.approxEq(f64, ln_64(0.2), -1.609438, epsilon));
-    assert(math.approxEq(f64, ln_64(0.8923), -0.113953, epsilon));
-    assert(math.approxEq(f64, ln_64(1.5), 0.405465, epsilon));
-    assert(math.approxEq(f64, ln_64(37.45), 3.623007, epsilon));
-    assert(math.approxEq(f64, ln_64(89.123), 4.490017, epsilon));
-    assert(math.approxEq(f64, ln_64(123123.234375), 11.720941, epsilon));
+    expect(math.approxEq(f64, ln_64(0.2), -1.609438, epsilon));
+    expect(math.approxEq(f64, ln_64(0.8923), -0.113953, epsilon));
+    expect(math.approxEq(f64, ln_64(1.5), 0.405465, epsilon));
+    expect(math.approxEq(f64, ln_64(37.45), 3.623007, epsilon));
+    expect(math.approxEq(f64, ln_64(89.123), 4.490017, epsilon));
+    expect(math.approxEq(f64, ln_64(123123.234375), 11.720941, epsilon));
 }
 
 test "math.ln32.special" {
-    assert(math.isPositiveInf(ln_32(math.inf(f32))));
-    assert(math.isNegativeInf(ln_32(0.0)));
-    assert(math.isNan(ln_32(-1.0)));
-    assert(math.isNan(ln_32(math.nan(f32))));
+    expect(math.isPositiveInf(ln_32(math.inf(f32))));
+    expect(math.isNegativeInf(ln_32(0.0)));
+    expect(math.isNan(ln_32(-1.0)));
+    expect(math.isNan(ln_32(math.nan(f32))));
 }
 
 test "math.ln64.special" {
-    assert(math.isPositiveInf(ln_64(math.inf(f64))));
-    assert(math.isNegativeInf(ln_64(0.0)));
-    assert(math.isNan(ln_64(-1.0)));
-    assert(math.isNan(ln_64(math.nan(f64))));
+    expect(math.isPositiveInf(ln_64(math.inf(f64))));
+    expect(math.isNegativeInf(ln_64(0.0)));
+    expect(math.isNan(ln_64(-1.0)));
+    expect(math.isNan(ln_64(math.nan(f64))));
 }

@@ -1,5 +1,6 @@
 const std = @import("index.zig");
 const assert = std.debug.assert;
+const testing = std.testing;
 const mem = std.mem;
 
 pub const standard_alphabet_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -394,7 +395,7 @@ fn testAllApis(expected_decoded: []const u8, expected_encoded: []const u8) !void
         var buffer: [0x100]u8 = undefined;
         var encoded = buffer[0..Base64Encoder.calcSize(expected_decoded.len)];
         standard_encoder.encode(encoded, expected_decoded);
-        assert(mem.eql(u8, encoded, expected_encoded));
+        testing.expectEqualSlices(u8, expected_encoded, encoded);
     }
 
     // Base64Decoder
@@ -402,7 +403,7 @@ fn testAllApis(expected_decoded: []const u8, expected_encoded: []const u8) !void
         var buffer: [0x100]u8 = undefined;
         var decoded = buffer[0..try standard_decoder.calcSize(expected_encoded)];
         try standard_decoder.decode(decoded, expected_encoded);
-        assert(mem.eql(u8, decoded, expected_decoded));
+        testing.expectEqualSlices(u8, expected_decoded, decoded);
     }
 
     // Base64DecoderWithIgnore
@@ -411,8 +412,8 @@ fn testAllApis(expected_decoded: []const u8, expected_encoded: []const u8) !void
         var buffer: [0x100]u8 = undefined;
         var decoded = buffer[0..Base64DecoderWithIgnore.calcSizeUpperBound(expected_encoded.len)];
         var written = try standard_decoder_ignore_nothing.decode(decoded, expected_encoded);
-        assert(written <= decoded.len);
-        assert(mem.eql(u8, decoded[0..written], expected_decoded));
+        testing.expect(written <= decoded.len);
+        testing.expectEqualSlices(u8, expected_decoded, decoded[0..written]);
     }
 
     // Base64DecoderUnsafe
@@ -420,7 +421,7 @@ fn testAllApis(expected_decoded: []const u8, expected_encoded: []const u8) !void
         var buffer: [0x100]u8 = undefined;
         var decoded = buffer[0..standard_decoder_unsafe.calcSize(expected_encoded)];
         standard_decoder_unsafe.decode(decoded, expected_encoded);
-        assert(mem.eql(u8, decoded, expected_decoded));
+        testing.expectEqualSlices(u8, expected_decoded, decoded);
     }
 }
 
@@ -429,7 +430,7 @@ fn testDecodeIgnoreSpace(expected_decoded: []const u8, encoded: []const u8) !voi
     var buffer: [0x100]u8 = undefined;
     var decoded = buffer[0..Base64DecoderWithIgnore.calcSizeUpperBound(encoded.len)];
     var written = try standard_decoder_ignore_space.decode(decoded, encoded);
-    assert(mem.eql(u8, decoded[0..written], expected_decoded));
+    testing.expectEqualSlices(u8, expected_decoded, decoded[0..written]);
 }
 
 fn testError(encoded: []const u8, expected_err: anyerror) !void {

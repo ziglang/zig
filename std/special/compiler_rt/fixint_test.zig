@@ -1,7 +1,7 @@
 const is_test = @import("builtin").is_test;
 const std = @import("std");
 const math = std.math;
-const assert = std.debug.assert;
+const testing = std.testing;
 const warn = std.debug.warn;
 
 const fixint = @import("fixint.zig").fixint;
@@ -9,7 +9,7 @@ const fixint = @import("fixint.zig").fixint;
 fn test__fixint(comptime fp_t: type, comptime fixint_t: type, a: fp_t, expected: fixint_t) void {
     const x = fixint(fp_t, fixint_t, a);
     //warn("a={} x={}:{x} expected={}:{x})\n", a, x, x, expected, expected);
-    assert(x == expected);
+    testing.expect(x == expected);
 }
 
 test "fixint.i1" {

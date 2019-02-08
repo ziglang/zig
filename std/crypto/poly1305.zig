@@ -230,5 +230,5 @@ test "poly1305 rfc7439 vector1" {
     var mac: [16]u8 = undefined;
     Poly1305.create(mac[0..], msg, key);
 
-    std.debug.assert(std.mem.eql(u8, mac, expected_mac));
+    std.testing.expectEqualSlices(u8, expected_mac, mac);
 }

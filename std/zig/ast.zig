@@ -1,5 +1,6 @@
 const std = @import("../index.zig");
 const assert = std.debug.assert;
+const testing = std.testing;
 const SegmentedList = std.SegmentedList;
 const mem = std.mem;
 const Token = std.zig.Token;
@@ -2224,5 +2225,5 @@ test "iterate" {
         .shebang = null,
     };
     var base = &root.base;
-    assert(base.iterate(0) == null);
+    testing.expect(base.iterate(0) == null);
 }

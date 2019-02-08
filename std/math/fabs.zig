@@ -5,7 +5,7 @@
 
 const std = @import("../index.zig");
 const math = std.math;
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 const maxInt = std.math.maxInt;
 
 pub fn fabs(x: var) @typeOf(x) {
@@ -37,40 +37,40 @@ fn fabs64(x: f64) f64 {
 }
 
 test "math.fabs" {
-    assert(fabs(f16(1.0)) == fabs16(1.0));
-    assert(fabs(f32(1.0)) == fabs32(1.0));
-    assert(fabs(f64(1.0)) == fabs64(1.0));
+    expect(fabs(f16(1.0)) == fabs16(1.0));
+    expect(fabs(f32(1.0)) == fabs32(1.0));
+    expect(fabs(f64(1.0)) == fabs64(1.0));
 }
 
 test "math.fabs16" {
-    assert(fabs16(1.0) == 1.0);
-    assert(fabs16(-1.0) == 1.0);
+    expect(fabs16(1.0) == 1.0);
+    expect(fabs16(-1.0) == 1.0);
 }
 
 test "math.fabs32" {
-    assert(fabs32(1.0) == 1.0);
-    assert(fabs32(-1.0) == 1.0);
+    expect(fabs32(1.0) == 1.0);
+    expect(fabs32(-1.0) == 1.0);
 }
 
 test "math.fabs64" {
-    assert(fabs64(1.0) == 1.0);
-    assert(fabs64(-1.0) == 1.0);
+    expect(fabs64(1.0) == 1.0);
+    expect(fabs64(-1.0) == 1.0);
 }
 
 test "math.fabs16.special" {
-    assert(math.isPositiveInf(fabs(math.inf(f16))));
-    assert(math.isPositiveInf(fabs(-math.inf(f16))));
-    assert(math.isNan(fabs(math.nan(f16))));
+    expect(math.isPositiveInf(fabs(math.inf(f16))));
+    expect(math.isPositiveInf(fabs(-math.inf(f16))));
+    expect(math.isNan(fabs(math.nan(f16))));
 }
 
 test "math.fabs32.special" {
-    assert(math.isPositiveInf(fabs(math.inf(f32))));
-    assert(math.isPositiveInf(fabs(-math.inf(f32))));
-    assert(math.isNan(fabs(math.nan(f32))));
+    expect(math.isPositiveInf(fabs(math.inf(f32))));
+    expect(math.isPositiveInf(fabs(-math.inf(f32))));
+    expect(math.isNan(fabs(math.nan(f32))));
 }
 
 test "math.fabs64.special" {
-    assert(math.isPositiveInf(fabs(math.inf(f64))));
-    assert(math.isPositiveInf(fabs(-math.inf(f64))));
-    assert(math.isNan(fabs(math.nan(f64))));
+    expect(math.isPositiveInf(fabs(math.inf(f64))));
+    expect(math.isPositiveInf(fabs(-math.inf(f64))));
+    expect(math.isNan(fabs(math.nan(f64))));
 }

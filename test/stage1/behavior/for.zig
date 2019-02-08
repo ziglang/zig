@@ -1,5 +1,5 @@
 const std = @import("std");
-const assertOrPanic = std.debug.assertOrPanic;
+const expect = std.testing.expect;
 const mem = std.mem;
 
 test "continue in for loop" {
@@ -26,7 +26,7 @@ test "for loop with pointer elem var" {
     var target: [source.len]u8 = undefined;
     mem.copy(u8, target[0..], source);
     mangleString(target[0..]);
-    assertOrPanic(mem.eql(u8, target, "bcdefgh"));
+    expect(mem.eql(u8, target, "bcdefgh"));
 }
 fn mangleString(s: []u8) void {
     for (s) |*c| {
@@ -68,7 +68,7 @@ test "basic for loop" {
         buf_index += 1;
     }
 
-    assertOrPanic(mem.eql(u8, buffer[0..buf_index], expected_result));
+    expect(mem.eql(u8, buffer[0..buf_index], expected_result));
 }
 
 test "break from outer for loop" {
@@ -85,7 +85,7 @@ fn testBreakOuter() void {
             break :outer;
         }
     }
-    assertOrPanic(count == 1);
+    expect(count == 1);
 }
 
 test "continue outer for loop" {
@@ -102,5 +102,5 @@ fn testContinueOuter() void {
             continue :outer;
         }
     }
-    assertOrPanic(counter == array.len);
+    expect(counter == array.len);
 }

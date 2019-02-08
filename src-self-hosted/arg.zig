@@ -1,5 +1,6 @@
 const std = @import("std");
 const debug = std.debug;
+const testing = std.testing;
 const mem = std.mem;
 
 const Allocator = mem.Allocator;
@@ -272,21 +273,21 @@ test "parse arguments" {
 
     var args = try Args.parse(std.debug.global_allocator, spec1, cliargs);
 
-    debug.assert(args.present("help"));
-    debug.assert(!args.present("help2"));
-    debug.assert(!args.present("init"));
+    testing.expect(args.present("help"));
+    testing.expect(!args.present("help2"));
+    testing.expect(!args.present("init"));
 
-    debug.assert(mem.eql(u8, args.single("build-file").?, "build.zig"));
-    debug.assert(mem.eql(u8, args.single("color").?, "on"));
+    testing.expect(mem.eql(u8, args.single("build-file").?, "build.zig"));
+    testing.expect(mem.eql(u8, args.single("color").?, "on"));
 
     const objects = args.many("object").?;
-    debug.assert(mem.eql(u8, objects[0], "obj1"));
-    debug.assert(mem.eql(u8, objects[1], "obj2"));
+    testing.expect(mem.eql(u8, objects[0], "obj1"));
+    testing.expect(mem.eql(u8, objects[1], "obj2"));
 
-    debug.assert(mem.eql(u8, args.single("library").?, "lib2"));
+    testing.expect(mem.eql(u8, args.single("library").?, "lib2"));
 
     const pos = args.positionals.toSliceConst();
-    debug.assert(mem.eql(u8, pos[0], "build"));
-    debug.assert(mem.eql(u8, pos[1], "pos1"));
-    debug.assert(mem.eql(u8, pos[2], "pos2"));
+    testing.expect(mem.eql(u8, pos[0], "build"));
+    testing.expect(mem.eql(u8, pos[1], "pos1"));
+    testing.expect(mem.eql(u8, pos[2], "pos2"));
 }

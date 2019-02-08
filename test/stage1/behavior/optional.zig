@@ -1,11 +1,11 @@
-const assertOrPanic = @import("std").debug.assertOrPanic;
+const expect = @import("std").testing.expect;
 
 pub const EmptyStruct = struct {};
 
 test "optional pointer to size zero struct" {
     var e = EmptyStruct{};
     var o: ?*EmptyStruct = &e;
-    assertOrPanic(o != null);
+    expect(o != null);
 }
 
 test "equality compare nullable pointers" {
@@ -18,15 +18,15 @@ fn testNullPtrsEql() void {
 
     var x: ?*i32 = null;
     var y: ?*i32 = null;
-    assertOrPanic(x == y);
+    expect(x == y);
     y = &number;
-    assertOrPanic(x != y);
-    assertOrPanic(x != &number);
-    assertOrPanic(&number != x);
+    expect(x != y);
+    expect(x != &number);
+    expect(&number != x);
     x = &number;
-    assertOrPanic(x == y);
-    assertOrPanic(x == &number);
-    assertOrPanic(&number == x);
+    expect(x == y);
+    expect(x == &number);
+    expect(&number == x);
 }
 
 test "address of unwrap optional" {
@@ -43,7 +43,7 @@ test "address of unwrap optional" {
     };
     S.global = S.Foo{ .a = 1234 };
     const foo = S.getFoo() catch unreachable;
-    assertOrPanic(foo.a == 1234);
+    expect(foo.a == 1234);
 }
 
 test "passing an optional integer as a parameter" {
@@ -57,15 +57,15 @@ test "passing an optional integer as a parameter" {
             return x.? == 1234;
         }
     };
-    assertOrPanic(S.entry());
-    comptime assertOrPanic(S.entry());
+    expect(S.entry());
+    comptime expect(S.entry());
 }
 
 test "unwrap function call with optional pointer return value" {
     const S = struct {
         fn entry() void {
-            assertOrPanic(foo().?.* == 1234);
-            assertOrPanic(bar() == null);
+            expect(foo().?.* == 1234);
+            expect(bar() == null);
         }
         const global: i32 = 1234;
         fn foo() ?*const i32 {

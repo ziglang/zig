@@ -5,7 +5,7 @@
 // - round(nan)   = nan
 
 const builtin = @import("builtin");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 const std = @import("../index.zig");
 const math = std.math;
 
@@ -85,36 +85,36 @@ fn round64(x_: f64) f64 {
 }
 
 test "math.round" {
-    assert(round(f32(1.3)) == round32(1.3));
-    assert(round(f64(1.3)) == round64(1.3));
+    expect(round(f32(1.3)) == round32(1.3));
+    expect(round(f64(1.3)) == round64(1.3));
 }
 
 test "math.round32" {
-    assert(round32(1.3) == 1.0);
-    assert(round32(-1.3) == -1.0);
-    assert(round32(0.2) == 0.0);
-    assert(round32(1.8) == 2.0);
+    expect(round32(1.3) == 1.0);
+    expect(round32(-1.3) == -1.0);
+    expect(round32(0.2) == 0.0);
+    expect(round32(1.8) == 2.0);
 }
 
 test "math.round64" {
-    assert(round64(1.3) == 1.0);
-    assert(round64(-1.3) == -1.0);
-    assert(round64(0.2) == 0.0);
-    assert(round64(1.8) == 2.0);
+    expect(round64(1.3) == 1.0);
+    expect(round64(-1.3) == -1.0);
+    expect(round64(0.2) == 0.0);
+    expect(round64(1.8) == 2.0);
 }
 
 test "math.round32.special" {
-    assert(round32(0.0) == 0.0);
-    assert(round32(-0.0) == -0.0);
-    assert(math.isPositiveInf(round32(math.inf(f32))));
-    assert(math.isNegativeInf(round32(-math.inf(f32))));
-    assert(math.isNan(round32(math.nan(f32))));
+    expect(round32(0.0) == 0.0);
+    expect(round32(-0.0) == -0.0);
+    expect(math.isPositiveInf(round32(math.inf(f32))));
+    expect(math.isNegativeInf(round32(-math.inf(f32))));
+    expect(math.isNan(round32(math.nan(f32))));
 }
 
 test "math.round64.special" {
-    assert(round64(0.0) == 0.0);
-    assert(round64(-0.0) == -0.0);
-    assert(math.isPositiveInf(round64(math.inf(f64))));
-    assert(math.isNegativeInf(round64(-math.inf(f64))));
-    assert(math.isNan(round64(math.nan(f64))));
+    expect(round64(0.0) == 0.0);
+    expect(round64(-0.0) == -0.0);
+    expect(math.isPositiveInf(round64(math.inf(f64))));
+    expect(math.isNegativeInf(round64(-math.inf(f64))));
+    expect(math.isNan(round64(math.nan(f64))));
 }

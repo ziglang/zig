@@ -13,6 +13,7 @@ const trait = meta.trait;
 const Buffer = std.Buffer;
 const fmt = std.fmt;
 const File = std.os.File;
+const testing = std.testing;
 
 const is_posix = builtin.os != builtin.Os.windows;
 const is_windows = builtin.os == builtin.Os.windows;
@@ -664,7 +665,7 @@ test "io.SliceOutStream" {
     const stream = &slice_stream.stream;
 
     try stream.print("{}{}!", "Hello", "World");
-    debug.assertOrPanic(mem.eql(u8, "HelloWorld!", slice_stream.getWritten()));
+    testing.expectEqualSlices(u8, "HelloWorld!", slice_stream.getWritten());
 }
 
 var null_out_stream_state = NullOutStream.init();
@@ -726,7 +727,7 @@ test "io.CountingOutStream" {
 
     const bytes = "yay" ** 10000;
     stream.write(bytes) catch unreachable;
-    debug.assertOrPanic(counting_stream.bytes_written == bytes.len);
+    testing.expect(counting_stream.bytes_written == bytes.len);
 }
 
 pub fn BufferedOutStream(comptime Error: type) type {
@@ -1014,10 +1015,10 @@ test "io.readLineFrom" {
     );
     const stream = &mem_stream.stream;
 
-    debug.assertOrPanic(mem.eql(u8, "Line 1", try readLineFrom(stream, &buf)));
-    debug.assertOrPanic(mem.eql(u8, "Line 22", try readLineFrom(stream, &buf)));
-    debug.assertError(readLineFrom(stream, &buf), error.EndOfStream);
-    debug.assertOrPanic(mem.eql(u8, buf.toSlice(), "Line 1Line 22Line 333"));
+    testing.expectEqualSlices(u8, "Line 1", try readLineFrom(stream, &buf));
+    testing.expectEqualSlices(u8, "Line 22", try readLineFrom(stream, &buf));
+    testing.expectError(error.EndOfStream, readLineFrom(stream, &buf));
+    testing.expectEqualSlices(u8, "Line 1Line 22Line 333", buf.toSlice());
 }
 
 pub fn readLineSlice(slice: []u8) ![]u8 {
@@ -1045,8 +1046,8 @@ test "io.readLineSliceFrom" {
     );
     const stream = &mem_stream.stream;
 
-    debug.assertOrPanic(mem.eql(u8, "Line 1", try readLineSliceFrom(stream, buf[0..])));
-    debug.assertError(readLineSliceFrom(stream, buf[0..]), error.OutOfMemory);
+    testing.expectEqualSlices(u8, "Line 1", try readLineSliceFrom(stream, buf[0..]));
+    testing.expectError(error.OutOfMemory, readLineSliceFrom(stream, buf[0..]));
 }
 
 /// Creates a deserializer that deserializes types from any stream.

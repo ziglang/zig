@@ -1,13 +1,13 @@
 // Disable formatting to avoid unnecessary source repository bloat.
 // zig fmt: off
 const __udivmoddi4 = @import("udivmoddi4.zig").__udivmoddi4;
-const assert = @import("std").debug.assert;
+const testing = @import("std").testing;
 
 fn test__udivmoddi4(a: u64, b: u64, expected_q: u64, expected_r: u64) void {
     var r: u64 = undefined;
     const q = __udivmoddi4(a, b, &r);
-    assert(q == expected_q);
-    assert(r == expected_r);
+    testing.expect(q == expected_q);
+    testing.expect(r == expected_r);
 }
 
 test "udivmoddi4" {

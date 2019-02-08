@@ -7,7 +7,7 @@
 
 const std = @import("../index.zig");
 const math = std.math;
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 const builtin = @import("builtin");
 const TypeId = builtin.TypeId;
 const maxInt = std.math.maxInt;
@@ -32,75 +32,75 @@ pub fn sqrt(x: var) (if (@typeId(@typeOf(x)) == TypeId.Int) @IntType(false, @typ
 }
 
 test "math.sqrt" {
-    assert(sqrt(f16(0.0)) == @sqrt(f16, 0.0));
-    assert(sqrt(f32(0.0)) == @sqrt(f32, 0.0));
-    assert(sqrt(f64(0.0)) == @sqrt(f64, 0.0));
+    expect(sqrt(f16(0.0)) == @sqrt(f16, 0.0));
+    expect(sqrt(f32(0.0)) == @sqrt(f32, 0.0));
+    expect(sqrt(f64(0.0)) == @sqrt(f64, 0.0));
 }
 
 test "math.sqrt16" {
     const epsilon = 0.000001;
 
-    assert(@sqrt(f16, 0.0) == 0.0);
-    assert(math.approxEq(f16, @sqrt(f16, 2.0), 1.414214, epsilon));
-    assert(math.approxEq(f16, @sqrt(f16, 3.6), 1.897367, epsilon));
-    assert(@sqrt(f16, 4.0) == 2.0);
-    assert(math.approxEq(f16, @sqrt(f16, 7.539840), 2.745877, epsilon));
-    assert(math.approxEq(f16, @sqrt(f16, 19.230934), 4.385309, epsilon));
-    assert(@sqrt(f16, 64.0) == 8.0);
-    assert(math.approxEq(f16, @sqrt(f16, 64.1), 8.006248, epsilon));
-    assert(math.approxEq(f16, @sqrt(f16, 8942.230469), 94.563370, epsilon));
+    expect(@sqrt(f16, 0.0) == 0.0);
+    expect(math.approxEq(f16, @sqrt(f16, 2.0), 1.414214, epsilon));
+    expect(math.approxEq(f16, @sqrt(f16, 3.6), 1.897367, epsilon));
+    expect(@sqrt(f16, 4.0) == 2.0);
+    expect(math.approxEq(f16, @sqrt(f16, 7.539840), 2.745877, epsilon));
+    expect(math.approxEq(f16, @sqrt(f16, 19.230934), 4.385309, epsilon));
+    expect(@sqrt(f16, 64.0) == 8.0);
+    expect(math.approxEq(f16, @sqrt(f16, 64.1), 8.006248, epsilon));
+    expect(math.approxEq(f16, @sqrt(f16, 8942.230469), 94.563370, epsilon));
 }
 
 test "math.sqrt32" {
     const epsilon = 0.000001;
 
-    assert(@sqrt(f32, 0.0) == 0.0);
-    assert(math.approxEq(f32, @sqrt(f32, 2.0), 1.414214, epsilon));
-    assert(math.approxEq(f32, @sqrt(f32, 3.6), 1.897367, epsilon));
-    assert(@sqrt(f32, 4.0) == 2.0);
-    assert(math.approxEq(f32, @sqrt(f32, 7.539840), 2.745877, epsilon));
-    assert(math.approxEq(f32, @sqrt(f32, 19.230934), 4.385309, epsilon));
-    assert(@sqrt(f32, 64.0) == 8.0);
-    assert(math.approxEq(f32, @sqrt(f32, 64.1), 8.006248, epsilon));
-    assert(math.approxEq(f32, @sqrt(f32, 8942.230469), 94.563370, epsilon));
+    expect(@sqrt(f32, 0.0) == 0.0);
+    expect(math.approxEq(f32, @sqrt(f32, 2.0), 1.414214, epsilon));
+    expect(math.approxEq(f32, @sqrt(f32, 3.6), 1.897367, epsilon));
+    expect(@sqrt(f32, 4.0) == 2.0);
+    expect(math.approxEq(f32, @sqrt(f32, 7.539840), 2.745877, epsilon));
+    expect(math.approxEq(f32, @sqrt(f32, 19.230934), 4.385309, epsilon));
+    expect(@sqrt(f32, 64.0) == 8.0);
+    expect(math.approxEq(f32, @sqrt(f32, 64.1), 8.006248, epsilon));
+    expect(math.approxEq(f32, @sqrt(f32, 8942.230469), 94.563370, epsilon));
 }
 
 test "math.sqrt64" {
     const epsilon = 0.000001;
 
-    assert(@sqrt(f64, 0.0) == 0.0);
-    assert(math.approxEq(f64, @sqrt(f64, 2.0), 1.414214, epsilon));
-    assert(math.approxEq(f64, @sqrt(f64, 3.6), 1.897367, epsilon));
-    assert(@sqrt(f64, 4.0) == 2.0);
-    assert(math.approxEq(f64, @sqrt(f64, 7.539840), 2.745877, epsilon));
-    assert(math.approxEq(f64, @sqrt(f64, 19.230934), 4.385309, epsilon));
-    assert(@sqrt(f64, 64.0) == 8.0);
-    assert(math.approxEq(f64, @sqrt(f64, 64.1), 8.006248, epsilon));
-    assert(math.approxEq(f64, @sqrt(f64, 8942.230469), 94.563367, epsilon));
+    expect(@sqrt(f64, 0.0) == 0.0);
+    expect(math.approxEq(f64, @sqrt(f64, 2.0), 1.414214, epsilon));
+    expect(math.approxEq(f64, @sqrt(f64, 3.6), 1.897367, epsilon));
+    expect(@sqrt(f64, 4.0) == 2.0);
+    expect(math.approxEq(f64, @sqrt(f64, 7.539840), 2.745877, epsilon));
+    expect(math.approxEq(f64, @sqrt(f64, 19.230934), 4.385309, epsilon));
+    expect(@sqrt(f64, 64.0) == 8.0);
+    expect(math.approxEq(f64, @sqrt(f64, 64.1), 8.006248, epsilon));
+    expect(math.approxEq(f64, @sqrt(f64, 8942.230469), 94.563367, epsilon));
 }
 
 test "math.sqrt16.special" {
-    assert(math.isPositiveInf(@sqrt(f16, math.inf(f16))));
-    assert(@sqrt(f16, 0.0) == 0.0);
-    assert(@sqrt(f16, -0.0) == -0.0);
-    assert(math.isNan(@sqrt(f16, -1.0)));
-    assert(math.isNan(@sqrt(f16, math.nan(f16))));
+    expect(math.isPositiveInf(@sqrt(f16, math.inf(f16))));
+    expect(@sqrt(f16, 0.0) == 0.0);
+    expect(@sqrt(f16, -0.0) == -0.0);
+    expect(math.isNan(@sqrt(f16, -1.0)));
+    expect(math.isNan(@sqrt(f16, math.nan(f16))));
 }
 
 test "math.sqrt32.special" {
-    assert(math.isPositiveInf(@sqrt(f32, math.inf(f32))));
-    assert(@sqrt(f32, 0.0) == 0.0);
-    assert(@sqrt(f32, -0.0) == -0.0);
-    assert(math.isNan(@sqrt(f32, -1.0)));
-    assert(math.isNan(@sqrt(f32, math.nan(f32))));
+    expect(math.isPositiveInf(@sqrt(f32, math.inf(f32))));
+    expect(@sqrt(f32, 0.0) == 0.0);
+    expect(@sqrt(f32, -0.0) == -0.0);
+    expect(math.isNan(@sqrt(f32, -1.0)));
+    expect(math.isNan(@sqrt(f32, math.nan(f32))));
 }
 
 test "math.sqrt64.special" {
-    assert(math.isPositiveInf(@sqrt(f64, math.inf(f64))));
-    assert(@sqrt(f64, 0.0) == 0.0);
-    assert(@sqrt(f64, -0.0) == -0.0);
-    assert(math.isNan(@sqrt(f64, -1.0)));
-    assert(math.isNan(@sqrt(f64, math.nan(f64))));
+    expect(math.isPositiveInf(@sqrt(f64, math.inf(f64))));
+    expect(@sqrt(f64, 0.0) == 0.0);
+    expect(@sqrt(f64, -0.0) == -0.0);
+    expect(math.isNan(@sqrt(f64, -1.0)));
+    expect(math.isNan(@sqrt(f64, math.nan(f64))));
 }
 
 fn sqrt_int(comptime T: type, value: T) @IntType(false, T.bit_count / 2) {
@@ -127,10 +127,10 @@ fn sqrt_int(comptime T: type, value: T) @IntType(false, T.bit_count / 2) {
 }
 
 test "math.sqrt_int" {
-    assert(sqrt_int(u32, 3) == 1);
-    assert(sqrt_int(u32, 4) == 2);
-    assert(sqrt_int(u32, 5) == 2);
-    assert(sqrt_int(u32, 8) == 2);
-    assert(sqrt_int(u32, 9) == 3);
-    assert(sqrt_int(u32, 10) == 3);
+    expect(sqrt_int(u32, 3) == 1);
+    expect(sqrt_int(u32, 4) == 2);
+    expect(sqrt_int(u32, 5) == 2);
+    expect(sqrt_int(u32, 8) == 2);
+    expect(sqrt_int(u32, 9) == 3);
+    expect(sqrt_int(u32, 10) == 3);
 }

@@ -1,4 +1,4 @@
-const assertOrPanic = @import("std").debug.assertOrPanic;
+const expect = @import("std").testing.expect;
 
 test "if statements" {
     shouldBeEqual(1, 1);
@@ -24,7 +24,7 @@ fn firstEqlThird(a: i32, b: i32, c: i32) void {
 }
 
 test "else if expression" {
-    assertOrPanic(elseIfExpressionF(1) == 1);
+    expect(elseIfExpressionF(1) == 1);
 }
 fn elseIfExpressionF(c: u8) u8 {
     if (c == 0) {

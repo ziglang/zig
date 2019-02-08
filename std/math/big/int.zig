@@ -1,6 +1,7 @@
 const std = @import("../../index.zig");
 const builtin = @import("builtin");
 const debug = std.debug;
+const testing = std.testing;
 const math = std.math;
 const mem = std.mem;
 const Allocator = mem.Allocator;
@@ -1086,44 +1087,40 @@ test "big.int comptime_int set" {
         const result = Limb(s & maxInt(Limb));
         s >>= Limb.bit_count / 2;
         s >>= Limb.bit_count / 2;
-        debug.assert(a.limbs[i] == result);
+        testing.expect(a.limbs[i] == result);
     }
 }
 
 test "big.int comptime_int set negative" {
     var a = try Int.initSet(al, -10);
 
-    debug.assert(a.limbs[0] == 10);
-    debug.assert(a.positive == false);
+    testing.expect(a.limbs[0] == 10);
+    testing.expect(a.positive == false);
 }
 
 test "big.int int set unaligned small" {
     var a = try Int.initSet(al, u7(45));
 
-    debug.assert(a.limbs[0] == 45);
-    debug.assert(a.positive == true);
+    testing.expect(a.limbs[0] == 45);
+    testing.expect(a.positive == true);
 }
 
 test "big.int comptime_int to" {
     const a = try Int.initSet(al, 0xefffffff00000001eeeeeeefaaaaaaab);
 
-    debug.assert((try a.to(u128)) == 0xefffffff00000001eeeeeeefaaaaaaab);
+    testing.expect((try a.to(u128)) == 0xefffffff00000001eeeeeeefaaaaaaab);
 }
 
 test "big.int sub-limb to" {
     const a = try Int.initSet(al, 10);
 
-    debug.assert((try a.to(u8)) == 10);
+    testing.expect((try a.to(u8)) == 10);
 }
 
 test "big.int to target too small error" {
     const a = try Int.initSet(al, 0xffffffff);
 
-    if (a.to(u8)) |_| {
-        unreachable;
-    } else |err| {
-        debug.assert(err == error.TargetTooSmall);
-    }
+    testing.expectError(error.TargetTooSmall, a.to(u8));
 }
 
 test "big.int norm1" {
@@ -1135,22 +1132,22 @@ test "big.int norm1" {
     a.limbs[2] = 3;
     a.limbs[3] = 0;
     a.norm1(4);
-    debug.assert(a.len == 3);
+    testing.expect(a.len == 3);
 
     a.limbs[0] = 1;
     a.limbs[1] = 2;
     a.limbs[2] = 3;
     a.norm1(3);
-    debug.assert(a.len == 3);
+    testing.expect(a.len == 3);
 
     a.limbs[0] = 0;
     a.limbs[1] = 0;
     a.norm1(2);
-    debug.assert(a.len == 1);
+    testing.expect(a.len == 1);
 
     a.limbs[0] = 0;
     a.norm1(1);
-    debug.assert(a.len == 1);
+    testing.expect(a.len == 1);
 }
 
 test "big.int normN" {
@@ -1162,144 +1159,144 @@ test "big.int normN" {
     a.limbs[2] = 0;
     a.limbs[3] = 0;
     a.normN(4);
-    debug.assert(a.len == 2);
+    testing.expect(a.len == 2);
 
     a.limbs[0] = 1;
     a.limbs[1] = 2;
     a.limbs[2] = 3;
     a.normN(3);
-    debug.assert(a.len == 3);
+    testing.expect(a.len == 3);
 
     a.limbs[0] = 0;
     a.limbs[1] = 0;
     a.limbs[2] = 0;
     a.limbs[3] = 0;
     a.normN(4);
-    debug.assert(a.len == 1);
+    testing.expect(a.len == 1);
 
     a.limbs[0] = 0;
     a.normN(1);
-    debug.assert(a.len == 1);
+    testing.expect(a.len == 1);
 }
 
 test "big.int parity" {
     var a = try Int.init(al);
     try a.set(0);
-    debug.assert(a.isEven());
-    debug.assert(!a.isOdd());
+    testing.expect(a.isEven());
+    testing.expect(!a.isOdd());
 
     try a.set(7);
-    debug.assert(!a.isEven());
-    debug.assert(a.isOdd());
+    testing.expect(!a.isEven());
+    testing.expect(a.isOdd());
 }
 
 test "big.int bitcount + sizeInBase" {
     var a = try Int.init(al);
 
     try a.set(0b100);
-    debug.assert(a.bitCountAbs() == 3);
-    debug.assert(a.sizeInBase(2) >= 3);
-    debug.assert(a.sizeInBase(10) >= 1);
+    testing.expect(a.bitCountAbs() == 3);
+    testing.expect(a.sizeInBase(2) >= 3);
+    testing.expect(a.sizeInBase(10) >= 1);
 
     a.negate();
-    debug.assert(a.bitCountAbs() == 3);
-    debug.assert(a.sizeInBase(2) >= 4);
-    debug.assert(a.sizeInBase(10) >= 2);
+    testing.expect(a.bitCountAbs() == 3);
+    testing.expect(a.sizeInBase(2) >= 4);
+    testing.expect(a.sizeInBase(10) >= 2);
 
     try a.set(0xffffffff);
-    debug.assert(a.bitCountAbs() == 32);
-    debug.assert(a.sizeInBase(2) >= 32);
-    debug.assert(a.sizeInBase(10) >= 10);
+    testing.expect(a.bitCountAbs() == 32);
+    testing.expect(a.sizeInBase(2) >= 32);
+    testing.expect(a.sizeInBase(10) >= 10);
 
     try a.shiftLeft(a, 5000);
-    debug.assert(a.bitCountAbs() == 5032);
-    debug.assert(a.sizeInBase(2) >= 5032);
+    testing.expect(a.bitCountAbs() == 5032);
+    testing.expect(a.sizeInBase(2) >= 5032);
     a.positive = false;
 
-    debug.assert(a.bitCountAbs() == 5032);
-    debug.assert(a.sizeInBase(2) >= 5033);
+    testing.expect(a.bitCountAbs() == 5032);
+    testing.expect(a.sizeInBase(2) >= 5033);
 }
 
 test "big.int bitcount/to" {
     var a = try Int.init(al);
 
     try a.set(0);
-    debug.assert(a.bitCountTwosComp() == 0);
+    testing.expect(a.bitCountTwosComp() == 0);
 
     // TODO: stack smashing
-    // debug.assert((try a.to(u0)) == 0);
+    // testing.expect((try a.to(u0)) == 0);
     // TODO: sigsegv
-    // debug.assert((try a.to(i0)) == 0);
+    // testing.expect((try a.to(i0)) == 0);
 
     try a.set(-1);
-    debug.assert(a.bitCountTwosComp() == 1);
-    debug.assert((try a.to(i1)) == -1);
+    testing.expect(a.bitCountTwosComp() == 1);
+    testing.expect((try a.to(i1)) == -1);
 
     try a.set(-8);
-    debug.assert(a.bitCountTwosComp() == 4);
-    debug.assert((try a.to(i4)) == -8);
+    testing.expect(a.bitCountTwosComp() == 4);
+    testing.expect((try a.to(i4)) == -8);
 
     try a.set(127);
-    debug.assert(a.bitCountTwosComp() == 7);
-    debug.assert((try a.to(u7)) == 127);
+    testing.expect(a.bitCountTwosComp() == 7);
+    testing.expect((try a.to(u7)) == 127);
 
     try a.set(-128);
-    debug.assert(a.bitCountTwosComp() == 8);
-    debug.assert((try a.to(i8)) == -128);
+    testing.expect(a.bitCountTwosComp() == 8);
+    testing.expect((try a.to(i8)) == -128);
 
     try a.set(-129);
-    debug.assert(a.bitCountTwosComp() == 9);
-    debug.assert((try a.to(i9)) == -129);
+    testing.expect(a.bitCountTwosComp() == 9);
+    testing.expect((try a.to(i9)) == -129);
 }
 
 test "big.int fits" {
     var a = try Int.init(al);
 
     try a.set(0);
-    debug.assert(a.fits(u0));
-    debug.assert(a.fits(i0));
+    testing.expect(a.fits(u0));
+    testing.expect(a.fits(i0));
 
     try a.set(255);
-    debug.assert(!a.fits(u0));
-    debug.assert(!a.fits(u1));
-    debug.assert(!a.fits(i8));
-    debug.assert(a.fits(u8));
-    debug.assert(a.fits(u9));
-    debug.assert(a.fits(i9));
+    testing.expect(!a.fits(u0));
+    testing.expect(!a.fits(u1));
+    testing.expect(!a.fits(i8));
+    testing.expect(a.fits(u8));
+    testing.expect(a.fits(u9));
+    testing.expect(a.fits(i9));
 
     try a.set(-128);
-    debug.assert(!a.fits(i7));
-    debug.assert(a.fits(i8));
-    debug.assert(a.fits(i9));
-    debug.assert(!a.fits(u9));
+    testing.expect(!a.fits(i7));
+    testing.expect(a.fits(i8));
+    testing.expect(a.fits(i9));
+    testing.expect(!a.fits(u9));
 
     try a.set(0x1ffffffffeeeeeeee);
-    debug.assert(!a.fits(u32));
-    debug.assert(!a.fits(u64));
-    debug.assert(a.fits(u65));
+    testing.expect(!a.fits(u32));
+    testing.expect(!a.fits(u64));
+    testing.expect(a.fits(u65));
 }
 
 test "big.int string set" {
     var a = try Int.init(al);
     try a.setString(10, "120317241209124781241290847124");
 
-    debug.assert((try a.to(u128)) == 120317241209124781241290847124);
+    testing.expect((try a.to(u128)) == 120317241209124781241290847124);
 }
 
 test "big.int string negative" {
     var a = try Int.init(al);
     try a.setString(10, "-1023");
-    debug.assert((try a.to(i32)) == -1023);
+    testing.expect((try a.to(i32)) == -1023);
 }
 
 test "big.int string set bad char error" {
     var a = try Int.init(al);
-    a.setString(10, "x") catch |err| debug.assert(err == error.InvalidCharForDigit);
+    testing.expectError(error.InvalidCharForDigit, a.setString(10, "x"));
 }
 
 test "big.int string set bad base error" {
     var a = try Int.init(al);
-    a.setString(45, "10") catch |err| debug.assert(err == error.InvalidBase);
+    testing.expectError(error.InvalidBase, a.setString(45, "10"));
 }
 
 test "big.int string to" {
@@ -1308,17 +1305,13 @@ test "big.int string to" {
     const as = try a.toString(al, 10);
     const es = "120317241209124781241290847124";
 
-    debug.assert(mem.eql(u8, as, es));
+    testing.expect(mem.eql(u8, as, es));
 }
 
 test "big.int string to base base error" {
     const a = try Int.initSet(al, 0xffffffff);
 
-    if (a.toString(al, 45)) |_| {
-        unreachable;
-    } else |err| {
-        debug.assert(err == error.InvalidBase);
-    }
+    testing.expectError(error.InvalidBase, a.toString(al, 45));
 }
 
 test "big.int string to base 2" {
@@ -1327,7 +1320,7 @@ test "big.int string to base 2" {
     const as = try a.toString(al, 2);
     const es = "-1011";
 
-    debug.assert(mem.eql(u8, as, es));
+    testing.expect(mem.eql(u8, as, es));
 }
 
 test "big.int string to base 16" {
@@ -1336,7 +1329,7 @@ test "big.int string to base 16" {
     const as = try a.toString(al, 16);
     const es = "efffffff00000001eeeeeeefaaaaaaab";
 
-    debug.assert(mem.eql(u8, as, es));
+    testing.expect(mem.eql(u8, as, es));
 }
 
 test "big.int neg string to" {
@@ -1345,7 +1338,7 @@ test "big.int neg string to" {
     const as = try a.toString(al, 10);
     const es = "-123907434";
 
-    debug.assert(mem.eql(u8, as, es));
+    testing.expect(mem.eql(u8, as, es));
 }
 
 test "big.int zero string to" {
@@ -1354,98 +1347,98 @@ test "big.int zero string to" {
     const as = try a.toString(al, 10);
     const es = "0";
 
-    debug.assert(mem.eql(u8, as, es));
+    testing.expect(mem.eql(u8, as, es));
 }
 
 test "big.int clone" {
     var a = try Int.initSet(al, 1234);
     const b = try a.clone();
 
-    debug.assert((try a.to(u32)) == 1234);
-    debug.assert((try b.to(u32)) == 1234);
+    testing.expect((try a.to(u32)) == 1234);
+    testing.expect((try b.to(u32)) == 1234);
 
     try a.set(77);
-    debug.assert((try a.to(u32)) == 77);
-    debug.assert((try b.to(u32)) == 1234);
+    testing.expect((try a.to(u32)) == 77);
+    testing.expect((try b.to(u32)) == 1234);
 }
 
 test "big.int swap" {
     var a = try Int.initSet(al, 1234);
     var b = try Int.initSet(al, 5678);
 
-    debug.assert((try a.to(u32)) == 1234);
-    debug.assert((try b.to(u32)) == 5678);
+    testing.expect((try a.to(u32)) == 1234);
+    testing.expect((try b.to(u32)) == 5678);
 
     a.swap(&b);
 
-    debug.assert((try a.to(u32)) == 5678);
-    debug.assert((try b.to(u32)) == 1234);
+    testing.expect((try a.to(u32)) == 5678);
+    testing.expect((try b.to(u32)) == 1234);
 }
 
 test "big.int to negative" {
     var a = try Int.initSet(al, -10);
 
-    debug.assert((try a.to(i32)) == -10);
+    testing.expect((try a.to(i32)) == -10);
 }
 
 test "big.int compare" {
     var a = try Int.initSet(al, -11);
     var b = try Int.initSet(al, 10);
 
-    debug.assert(a.cmpAbs(b) == 1);
-    debug.assert(a.cmp(b) == -1);
+    testing.expect(a.cmpAbs(b) == 1);
+    testing.expect(a.cmp(b) == -1);
 }
 
 test "big.int compare similar" {
     var a = try Int.initSet(al, 0xffffffffeeeeeeeeffffffffeeeeeeee);
     var b = try Int.initSet(al, 0xffffffffeeeeeeeeffffffffeeeeeeef);
 
-    debug.assert(a.cmpAbs(b) == -1);
-    debug.assert(b.cmpAbs(a) == 1);
+    testing.expect(a.cmpAbs(b) == -1);
+    testing.expect(b.cmpAbs(a) == 1);
 }
 
 test "big.int compare different limb size" {
     var a = try Int.initSet(al, maxInt(Limb) + 1);
     var b = try Int.initSet(al, 1);
 
-    debug.assert(a.cmpAbs(b) == 1);
-    debug.assert(b.cmpAbs(a) == -1);
+    testing.expect(a.cmpAbs(b) == 1);
+    testing.expect(b.cmpAbs(a) == -1);
 }
 
 test "big.int compare multi-limb" {
     var a = try Int.initSet(al, -0x7777777799999999ffffeeeeffffeeeeffffeeeef);
     var b = try Int.initSet(al, 0x7777777799999999ffffeeeeffffeeeeffffeeeee);
 
-    debug.assert(a.cmpAbs(b) == 1);
-    debug.assert(a.cmp(b) == -1);
+    testing.expect(a.cmpAbs(b) == 1);
+    testing.expect(a.cmp(b) == -1);
 }
 
 test "big.int equality" {
     var a = try Int.initSet(al, 0xffffffff1);
     var b = try Int.initSet(al, -0xffffffff1);
 
-    debug.assert(a.eqAbs(b));
-    debug.assert(!a.eq(b));
+    testing.expect(a.eqAbs(b));
+    testing.expect(!a.eq(b));
 }
 
 test "big.int abs" {
     var a = try Int.initSet(al, -5);
 
     a.abs();
-    debug.assert((try a.to(u32)) == 5);
+    testing.expect((try a.to(u32)) == 5);
 
     a.abs();
-    debug.assert((try a.to(u32)) == 5);
+    testing.expect((try a.to(u32)) == 5);
 }
 
 test "big.int negate" {
     var a = try Int.initSet(al, 5);
 
     a.negate();
-    debug.assert((try a.to(i32)) == -5);
+    testing.expect((try a.to(i32)) == -5);
 
     a.negate();
-    debug.assert((try a.to(i32)) == 5);
+    testing.expect((try a.to(i32)) == 5);
 }
 
 test "big.int add single-single" {
@@ -1455,7 +1448,7 @@ test "big.int add single-single" {
     var c = try Int.init(al);
     try c.add(a, b);
 
-    debug.assert((try c.to(u32)) == 55);
+    testing.expect((try c.to(u32)) == 55);
 }
 
 test "big.int add multi-single" {
@@ -1465,10 +1458,10 @@ test "big.int add multi-single" {
     var c = try Int.init(al);
 
     try c.add(a, b);
-    debug.assert((try c.to(DoubleLimb)) == maxInt(Limb) + 2);
+    testing.expect((try c.to(DoubleLimb)) == maxInt(Limb) + 2);
 
     try c.add(b, a);
-    debug.assert((try c.to(DoubleLimb)) == maxInt(Limb) + 2);
+    testing.expect((try c.to(DoubleLimb)) == maxInt(Limb) + 2);
 }
 
 test "big.int add multi-multi" {
@@ -1480,7 +1473,7 @@ test "big.int add multi-multi" {
     var c = try Int.init(al);
     try c.add(a, b);
 
-    debug.assert((try c.to(u128)) == op1 + op2);
+    testing.expect((try c.to(u128)) == op1 + op2);
 }
 
 test "big.int add zero-zero" {
@@ -1490,7 +1483,7 @@ test "big.int add zero-zero" {
     var c = try Int.init(al);
     try c.add(a, b);
 
-    debug.assert((try c.to(u32)) == 0);
+    testing.expect((try c.to(u32)) == 0);
 }
 
 test "big.int add alias multi-limb nonzero-zero" {
@@ -1500,7 +1493,7 @@ test "big.int add alias multi-limb nonzero-zero" {
 
     try a.add(a, b);
 
-    debug.assert((try a.to(u128)) == op1);
+    testing.expect((try a.to(u128)) == op1);
 }
 
 test "big.int add sign" {
@@ -1512,16 +1505,16 @@ test "big.int add sign" {
     const neg_two = try Int.initSet(al, -2);
 
     try a.add(one, two);
-    debug.assert((try a.to(i32)) == 3);
+    testing.expect((try a.to(i32)) == 3);
 
     try a.add(neg_one, two);
-    debug.assert((try a.to(i32)) == 1);
+    testing.expect((try a.to(i32)) == 1);
 
     try a.add(one, neg_two);
-    debug.assert((try a.to(i32)) == -1);
+    testing.expect((try a.to(i32)) == -1);
 
     try a.add(neg_one, neg_two);
-    debug.assert((try a.to(i32)) == -3);
+    testing.expect((try a.to(i32)) == -3);
 }
 
 test "big.int sub single-single" {
@@ -1531,7 +1524,7 @@ test "big.int sub single-single" {
     var c = try Int.init(al);
     try c.sub(a, b);
 
-    debug.assert((try c.to(u32)) == 45);
+    testing.expect((try c.to(u32)) == 45);
 }
 
 test "big.int sub multi-single" {
@@ -1541,7 +1534,7 @@ test "big.int sub multi-single" {
     var c = try Int.init(al);
     try c.sub(a, b);
 
-    debug.assert((try c.to(Limb)) == maxInt(Limb));
+    testing.expect((try c.to(Limb)) == maxInt(Limb));
 }
 
 test "big.int sub multi-multi" {
@@ -1554,7 +1547,7 @@ test "big.int sub multi-multi" {
     var c = try Int.init(al);
     try c.sub(a, b);
 
-    debug.assert((try c.to(u128)) == op1 - op2);
+    testing.expect((try c.to(u128)) == op1 - op2);
 }
 
 test "big.int sub equal" {
@@ -1564,7 +1557,7 @@ test "big.int sub equal" {
     var c = try Int.init(al);
     try c.sub(a, b);
 
-    debug.assert((try c.to(u32)) == 0);
+    testing.expect((try c.to(u32)) == 0);
 }
 
 test "big.int sub sign" {
@@ -1576,19 +1569,19 @@ test "big.int sub sign" {
     const neg_two = try Int.initSet(al, -2);
 
     try a.sub(one, two);
-    debug.assert((try a.to(i32)) == -1);
+    testing.expect((try a.to(i32)) == -1);
 
     try a.sub(neg_one, two);
-    debug.assert((try a.to(i32)) == -3);
+    testing.expect((try a.to(i32)) == -3);
 
     try a.sub(one, neg_two);
-    debug.assert((try a.to(i32)) == 3);
+    testing.expect((try a.to(i32)) == 3);
 
     try a.sub(neg_one, neg_two);
-    debug.assert((try a.to(i32)) == 1);
+    testing.expect((try a.to(i32)) == 1);
 
     try a.sub(neg_two, neg_one);
-    debug.assert((try a.to(i32)) == -1);
+    testing.expect((try a.to(i32)) == -1);
 }
 
 test "big.int mul single-single" {
@@ -1598,7 +1591,7 @@ test "big.int mul single-single" {
     var c = try Int.init(al);
     try c.mul(a, b);
 
-    debug.assert((try c.to(u64)) == 250);
+    testing.expect((try c.to(u64)) == 250);
 }
 
 test "big.int mul multi-single" {
@@ -1608,7 +1601,7 @@ test "big.int mul multi-single" {
     var c = try Int.init(al);
     try c.mul(a, b);
 
-    debug.assert((try c.to(DoubleLimb)) == 2 * maxInt(Limb));
+    testing.expect((try c.to(DoubleLimb)) == 2 * maxInt(Limb));
 }
 
 test "big.int mul multi-multi" {
@@ -1620,7 +1613,7 @@ test "big.int mul multi-multi" {
     var c = try Int.init(al);
     try c.mul(a, b);
 
-    debug.assert((try c.to(u256)) == op1 * op2);
+    testing.expect((try c.to(u256)) == op1 * op2);
 }
 
 test "big.int mul alias r with a" {
@@ -1629,7 +1622,7 @@ test "big.int mul alias r with a" {
 
     try a.mul(a, b);
 
-    debug.assert((try a.to(DoubleLimb)) == 2 * maxInt(Limb));
+    testing.expect((try a.to(DoubleLimb)) == 2 * maxInt(Limb));
 }
 
 test "big.int mul alias r with b" {
@@ -1638,7 +1631,7 @@ test "big.int mul alias r with b" {
 
     try a.mul(b, a);
 
-    debug.assert((try a.to(DoubleLimb)) == 2 * maxInt(Limb));
+    testing.expect((try a.to(DoubleLimb)) == 2 * maxInt(Limb));
 }
 
 test "big.int mul alias r with a and b" {
@@ -1646,7 +1639,7 @@ test "big.int mul alias r with a and b" {
 
     try a.mul(a, a);
 
-    debug.assert((try a.to(DoubleLimb)) == maxInt(Limb) * maxInt(Limb));
+    testing.expect((try a.to(DoubleLimb)) == maxInt(Limb) * maxInt(Limb));
 }
 
 test "big.int mul a*0" {
@@ -1656,7 +1649,7 @@ test "big.int mul a*0" {
     var c = try Int.init(al);
     try c.mul(a, b);
 
-    debug.assert((try c.to(u32)) == 0);
+    testing.expect((try c.to(u32)) == 0);
 }
 
 test "big.int mul 0*0" {
@@ -1666,7 +1659,7 @@ test "big.int mul 0*0" {
     var c = try Int.init(al);
     try c.mul(a, b);
 
-    debug.assert((try c.to(u32)) == 0);
+    testing.expect((try c.to(u32)) == 0);
 }
 
 test "big.int div single-single no rem" {
@@ -1677,8 +1670,8 @@ test "big.int div single-single no rem" {
     var r = try Int.init(al);
     try Int.divTrunc(&q, &r, a, b);
 
-    debug.assert((try q.to(u32)) == 10);
-    debug.assert((try r.to(u32)) == 0);
+    testing.expect((try q.to(u32)) == 10);
+    testing.expect((try r.to(u32)) == 0);
 }
 
 test "big.int div single-single with rem" {
@@ -1689,8 +1682,8 @@ test "big.int div single-single with rem" {
     var r = try Int.init(al);
     try Int.divTrunc(&q, &r, a, b);
 
-    debug.assert((try q.to(u32)) == 9);
-    debug.assert((try r.to(u32)) == 4);
+    testing.expect((try q.to(u32)) == 9);
+    testing.expect((try r.to(u32)) == 4);
 }
 
 test "big.int div multi-single no rem" {
@@ -1704,8 +1697,8 @@ test "big.int div multi-single no rem" {
     var r = try Int.init(al);
     try Int.divTrunc(&q, &r, a, b);
 
-    debug.assert((try q.to(u64)) == op1 / op2);
-    debug.assert((try r.to(u64)) == 0);
+    testing.expect((try q.to(u64)) == op1 / op2);
+    testing.expect((try r.to(u64)) == 0);
 }
 
 test "big.int div multi-single with rem" {
@@ -1719,8 +1712,8 @@ test "big.int div multi-single with rem" {
     var r = try Int.init(al);
     try Int.divTrunc(&q, &r, a, b);
 
-    debug.assert((try q.to(u64)) == op1 / op2);
-    debug.assert((try r.to(u64)) == 3);
+    testing.expect((try q.to(u64)) == op1 / op2);
+    testing.expect((try r.to(u64)) == 3);
 }
 
 test "big.int div multi>2-single" {
@@ -1734,8 +1727,8 @@ test "big.int div multi>2-single" {
     var r = try Int.init(al);
     try Int.divTrunc(&q, &r, a, b);
 
-    debug.assert((try q.to(u128)) == op1 / op2);
-    debug.assert((try r.to(u32)) == 0x3e4e);
+    testing.expect((try q.to(u128)) == op1 / op2);
+    testing.expect((try r.to(u32)) == 0x3e4e);
 }
 
 test "big.int div single-single q < r" {
@@ -1746,8 +1739,8 @@ test "big.int div single-single q < r" {
     var r = try Int.init(al);
     try Int.divTrunc(&q, &r, a, b);
 
-    debug.assert((try q.to(u64)) == 0);
-    debug.assert((try r.to(u64)) == 0x0078f432);
+    testing.expect((try q.to(u64)) == 0);
+    testing.expect((try r.to(u64)) == 0x0078f432);
 }
 
 test "big.int div single-single q == r" {
@@ -1758,8 +1751,8 @@ test "big.int div single-single q == r" {
     var r = try Int.init(al);
     try Int.divTrunc(&q, &r, a, b);
 
-    debug.assert((try q.to(u64)) == 1);
-    debug.assert((try r.to(u64)) == 0);
+    testing.expect((try q.to(u64)) == 1);
+    testing.expect((try r.to(u64)) == 0);
 }
 
 test "big.int div q=0 alias" {
@@ -1768,8 +1761,8 @@ test "big.int div q=0 alias" {
 
     try Int.divTrunc(&a, &b, a, b);
 
-    debug.assert((try a.to(u64)) == 0);
-    debug.assert((try b.to(u64)) == 3);
+    testing.expect((try a.to(u64)) == 0);
+    testing.expect((try b.to(u64)) == 3);
 }
 
 test "big.int div multi-multi q < r" {
@@ -1782,8 +1775,8 @@ test "big.int div multi-multi q < r" {
     var r = try Int.init(al);
     try Int.divTrunc(&q, &r, a, b);
 
-    debug.assert((try q.to(u128)) == 0);
-    debug.assert((try r.to(u128)) == op1);
+    testing.expect((try q.to(u128)) == 0);
+    testing.expect((try r.to(u128)) == op1);
 }
 
 test "big.int div trunc single-single +/+" {
@@ -1802,8 +1795,8 @@ test "big.int div trunc single-single +/+" {
     const eq = @divTrunc(u, v);
     const er = @mod(u, v);
 
-    debug.assert((try q.to(i32)) == eq);
-    debug.assert((try r.to(i32)) == er);
+    testing.expect((try q.to(i32)) == eq);
+    testing.expect((try r.to(i32)) == er);
 }
 
 test "big.int div trunc single-single -/+" {
@@ -1822,8 +1815,8 @@ test "big.int div trunc single-single -/+" {
     const eq = -1;
     const er = -2;
 
-    debug.assert((try q.to(i32)) == eq);
-    debug.assert((try r.to(i32)) == er);
+    testing.expect((try q.to(i32)) == eq);
+    testing.expect((try r.to(i32)) == er);
 }
 
 test "big.int div trunc single-single +/-" {
@@ -1842,8 +1835,8 @@ test "big.int div trunc single-single +/-" {
     const eq = -1;
     const er = 2;
 
-    debug.assert((try q.to(i32)) == eq);
-    debug.assert((try r.to(i32)) == er);
+    testing.expect((try q.to(i32)) == eq);
+    testing.expect((try r.to(i32)) == er);
 }
 
 test "big.int div trunc single-single -/-" {
@@ -1862,8 +1855,8 @@ test "big.int div trunc single-single -/-" {
     const eq = 1;
     const er = -2;
 
-    debug.assert((try q.to(i32)) == eq);
-    debug.assert((try r.to(i32)) == er);
+    testing.expect((try q.to(i32)) == eq);
+    testing.expect((try r.to(i32)) == er);
 }
 
 test "big.int div floor single-single +/+" {
@@ -1882,8 +1875,8 @@ test "big.int div floor single-single +/+" {
     const eq = 1;
     const er = 2;
 
-    debug.assert((try q.to(i32)) == eq);
-    debug.assert((try r.to(i32)) == er);
+    testing.expect((try q.to(i32)) == eq);
+    testing.expect((try r.to(i32)) == er);
 }
 
 test "big.int div floor single-single -/+" {
@@ -1902,8 +1895,8 @@ test "big.int div floor single-single -/+" {
     const eq = -2;
     const er = 1;
 
-    debug.assert((try q.to(i32)) == eq);
-    debug.assert((try r.to(i32)) == er);
+    testing.expect((try q.to(i32)) == eq);
+    testing.expect((try r.to(i32)) == er);
 }
 
 test "big.int div floor single-single +/-" {
@@ -1922,8 +1915,8 @@ test "big.int div floor single-single +/-" {
     const eq = -2;
     const er = -1;
 
-    debug.assert((try q.to(i32)) == eq);
-    debug.assert((try r.to(i32)) == er);
+    testing.expect((try q.to(i32)) == eq);
+    testing.expect((try r.to(i32)) == er);
 }
 
 test "big.int div floor single-single -/-" {
@@ -1942,8 +1935,8 @@ test "big.int div floor single-single -/-" {
     const eq = 1;
     const er = -2;
 
-    debug.assert((try q.to(i32)) == eq);
-    debug.assert((try r.to(i32)) == er);
+    testing.expect((try q.to(i32)) == eq);
+    testing.expect((try r.to(i32)) == er);
 }
 
 test "big.int div multi-multi with rem" {
@@ -1954,8 +1947,8 @@ test "big.int div multi-multi with rem" {
     var r = try Int.init(al);
     try Int.divTrunc(&q, &r, a, b);
 
-    debug.assert((try q.to(u128)) == 0xe38f38e39161aaabd03f0f1b);
-    debug.assert((try r.to(u128)) == 0x28de0acacd806823638);
+    testing.expect((try q.to(u128)) == 0xe38f38e39161aaabd03f0f1b);
+    testing.expect((try r.to(u128)) == 0x28de0acacd806823638);
 }
 
 test "big.int div multi-multi no rem" {
@@ -1966,8 +1959,8 @@ test "big.int div multi-multi no rem" {
     var r = try Int.init(al);
     try Int.divTrunc(&q, &r, a, b);
 
-    debug.assert((try q.to(u128)) == 0xe38f38e39161aaabd03f0f1b);
-    debug.assert((try r.to(u128)) == 0);
+    testing.expect((try q.to(u128)) == 0xe38f38e39161aaabd03f0f1b);
+    testing.expect((try r.to(u128)) == 0);
 }
 
 test "big.int div multi-multi (2 branch)" {
@@ -1978,8 +1971,8 @@ test "big.int div multi-multi (2 branch)" {
     var r = try Int.init(al);
     try Int.divTrunc(&q, &r, a, b);
 
-    debug.assert((try q.to(u128)) == 0x10000000000000000);
-    debug.assert((try r.to(u128)) == 0x44444443444444431111111111111111);
+    testing.expect((try q.to(u128)) == 0x10000000000000000);
+    testing.expect((try r.to(u128)) == 0x44444443444444431111111111111111);
 }
 
 test "big.int div multi-multi (3.1/3.3 branch)" {
@@ -1990,53 +1983,53 @@ test "big.int div multi-multi (3.1/3.3 branch)" {
     var r = try Int.init(al);
     try Int.divTrunc(&q, &r, a, b);
 
-    debug.assert((try q.to(u128)) == 0xfffffffffffffffffff);
-    debug.assert((try r.to(u256)) == 0x1111111111111111111110b12222222222222222282);
+    testing.expect((try q.to(u128)) == 0xfffffffffffffffffff);
+    testing.expect((try r.to(u256)) == 0x1111111111111111111110b12222222222222222282);
 }
 
 test "big.int shift-right single" {
     var a = try Int.initSet(al, 0xffff0000);
     try a.shiftRight(a, 16);
 
-    debug.assert((try a.to(u32)) == 0xffff);
+    testing.expect((try a.to(u32)) == 0xffff);
 }
 
 test "big.int shift-right multi" {
     var a = try Int.initSet(al, 0xffff0000eeee1111dddd2222cccc3333);
     try a.shiftRight(a, 67);
 
-    debug.assert((try a.to(u64)) == 0x1fffe0001dddc222);
+    testing.expect((try a.to(u64)) == 0x1fffe0001dddc222);
 }
 
 test "big.int shift-left single" {
     var a = try Int.initSet(al, 0xffff);
     try a.shiftLeft(a, 16);
 
-    debug.assert((try a.to(u64)) == 0xffff0000);
+    testing.expect((try a.to(u64)) == 0xffff0000);
 }
 
 test "big.int shift-left multi" {
     var a = try Int.initSet(al, 0x1fffe0001dddc222);
     try a.shiftLeft(a, 67);
 
-    debug.assert((try a.to(u128)) == 0xffff0000eeee11100000000000000000);
+    testing.expect((try a.to(u128)) == 0xffff0000eeee11100000000000000000);
 }
 
 test "big.int shift-right negative" {
     var a = try Int.init(al);
 
     try a.shiftRight(try Int.initSet(al, -20), 2);
-    debug.assert((try a.to(i32)) == -20 >> 2);
+    testing.expect((try a.to(i32)) == -20 >> 2);
 
     try a.shiftRight(try Int.initSet(al, -5), 10);
-    debug.assert((try a.to(i32)) == -5 >> 10);
+    testing.expect((try a.to(i32)) == -5 >> 10);
 }
 
 test "big.int shift-left negative" {
     var a = try Int.init(al);
 
     try a.shiftRight(try Int.initSet(al, -10), 1232);
-    debug.assert((try a.to(i32)) == -10 >> 1232);
+    testing.expect((try a.to(i32)) == -10 >> 1232);
 }
 
 test "big.int bitwise and simple" {
@@ -2045,7 +2038,7 @@ test "big.int bitwise and simple" {
 
     try a.bitAnd(a, b);
 
-    debug.assert((try a.to(u64)) == 0xeeeeeeee00000000);
+    testing.expect((try a.to(u64)) == 0xeeeeeeee00000000);
 }
 
 test "big.int bitwise and multi-limb" {
@@ -2054,7 +2047,7 @@ test "big.int bitwise and multi-limb" {
 
     try a.bitAnd(a, b);
 
-    debug.assert((try a.to(u128)) == 0);
+    testing.expect((try a.to(u128)) == 0);
 }
 
 test "big.int bitwise xor simple" {
@@ -2063,7 +2056,7 @@ test "big.int bitwise xor simple" {
 
     try a.bitXor(a, b);
 
-    debug.assert((try a.to(u64)) == 0x1111111133333333);
+    testing.expect((try a.to(u64)) == 0x1111111133333333);
 }
 
 test "big.int bitwise xor multi-limb" {
@@ -2072,7 +2065,7 @@ test "big.int bitwise xor multi-limb" {
 
     try a.bitXor(a, b);
 
-    debug.assert((try a.to(DoubleLimb)) == (maxInt(Limb) + 1) ^ maxInt(Limb));
+    testing.expect((try a.to(DoubleLimb)) == (maxInt(Limb) + 1) ^ maxInt(Limb));
 }
 
 test "big.int bitwise or simple" {
@@ -2081,7 +2074,7 @@ test "big.int bitwise or simple" {
 
     try a.bitOr(a, b);
 
-    debug.assert((try a.to(u64)) == 0xffffffff33333333);
+    testing.expect((try a.to(u64)) == 0xffffffff33333333);
 }
 
 test "big.int bitwise or multi-limb" {
@@ -2091,15 +2084,15 @@ test "big.int bitwise or multi-limb" {
     try a.bitOr(a, b);
 
     // TODO: big.int.cpp or is wrong on multi-limb.
-    debug.assert((try a.to(DoubleLimb)) == (maxInt(Limb) + 1) + maxInt(Limb));
+    testing.expect((try a.to(DoubleLimb)) == (maxInt(Limb) + 1) + maxInt(Limb));
 }
 
 test "big.int var args" {
     var a = try Int.initSet(al, 5);
 
     try a.add(a, try Int.initSet(al, 6));
-    debug.assert((try a.to(u64)) == 11);
+    testing.expect((try a.to(u64)) == 11);
 
-    debug.assert(a.cmp(try Int.initSet(al, 11)) == 0);
-    debug.assert(a.cmp(try Int.initSet(al, 14)) <= 0);
+    testing.expect(a.cmp(try Int.initSet(al, 11)) == 0);
+    testing.expect(a.cmp(try Int.initSet(al, 14)) <= 0);
 }

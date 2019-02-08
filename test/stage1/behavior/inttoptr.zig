@@ -1,6 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
-const assertOrPanic = std.debug.assertOrPanic;
+const expect = std.testing.expect;
 
 test "casting random address to function pointer" {
     randomAddressToFunction();

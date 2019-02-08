@@ -1,6 +1,6 @@
 const std = @import("../index.zig");
 const math = std.math;
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 const maxInt = std.math.maxInt;
 
 pub fn isNan(x: var) bool {
@@ -31,10 +31,10 @@ pub fn isSignalNan(x: var) bool {
 }
 
 test "math.isNan" {
-    assert(isNan(math.nan(f16)));
-    assert(isNan(math.nan(f32)));
-    assert(isNan(math.nan(f64)));
-    assert(!isNan(f16(1.0)));
-    assert(!isNan(f32(1.0)));
-    assert(!isNan(f64(1.0)));
+    expect(isNan(math.nan(f16)));
+    expect(isNan(math.nan(f32)));
+    expect(isNan(math.nan(f64)));
+    expect(!isNan(f16(1.0)));
+    expect(!isNan(f32(1.0)));
+    expect(!isNan(f64(1.0)));
 }

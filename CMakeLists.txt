@@ -658,6 +658,7 @@ set(ZIG_STD_FILES
     "special/test_runner.zig"
     "spinlock.zig"
     "statically_initialized_mutex.zig"
+    "testing.zig"
     "unicode.zig"
     "zig/ast.zig"
     "zig/index.zig"

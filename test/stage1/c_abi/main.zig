@@ -1,5 +1,5 @@
 const std = @import("std");
-const assertOrPanic = std.debug.assertOrPanic;
+const expect = std.testing.expect;
 
 extern fn run_c_tests() void;
 
@@ -33,28 +33,28 @@ test "C ABI integers" {
 }
 
 export fn zig_u8(x: u8) void {
-    assertOrPanic(x == 0xff);
+    expect(x == 0xff);
 }
 export fn zig_u16(x: u16) void {
-    assertOrPanic(x == 0xfffe);
+    expect(x == 0xfffe);
 }
 export fn zig_u32(x: u32) void {
-    assertOrPanic(x == 0xfffffffd);
+    expect(x == 0xfffffffd);
 }
 export fn zig_u64(x: u64) void {
-    assertOrPanic(x == 0xfffffffffffffffc);
+    expect(x == 0xfffffffffffffffc);
 }
 export fn zig_i8(x: i8) void {
-    assertOrPanic(x == -1);
+    expect(x == -1);
 }
 export fn zig_i16(x: i16) void {
-    assertOrPanic(x == -2);
+    expect(x == -2);
 }
 export fn zig_i32(x: i32) void {
-    assertOrPanic(x == -3);
+    expect(x == -3);
 }
 export fn zig_i64(x: i64) void {
-    assertOrPanic(x == -4);
+    expect(x == -4);
 }
 
 extern fn c_f32(f32) void;
@@ -66,10 +66,10 @@ test "C ABI floats" {
 }
 
 export fn zig_f32(x: f32) void {
-    assertOrPanic(x == 12.34);
+    expect(x == 12.34);
 }
 export fn zig_f64(x: f64) void {
-    assertOrPanic(x == 56.78);
+    expect(x == 56.78);
 }
 
 extern fn c_ptr(*c_void) void;
@@ -79,7 +79,7 @@ test "C ABI pointer" {
 }
 
 export fn zig_ptr(x: *c_void) void {
-    assertOrPanic(@ptrToInt(x) == 0xdeadbeef);
+    expect(@ptrToInt(x) == 0xdeadbeef);
 }
 
 extern fn c_bool(bool) void;
@@ -89,7 +89,7 @@ test "C ABI bool" {
 }
 
 export fn zig_bool(x: bool) void {
-    assertOrPanic(x);
+    expect(x);
 }
 
 extern fn c_array([10]u8) void;
@@ -100,7 +100,7 @@ test "C ABI array" {
 }
 
 export fn zig_array(x: [10]u8) void {
-    assertOrPanic(std.mem.eql(u8, x, "1234567890"));
+    expect(std.mem.eql(u8, x, "1234567890"));
 }
 
 const BigStruct = extern struct {
@@ -124,11 +124,11 @@ test "C ABI big struct" {
 }
 
 export fn zig_big_struct(x: BigStruct) void {
-    assertOrPanic(x.a == 1);
-    assertOrPanic(x.b == 2);
-    assertOrPanic(x.c == 3);
-    assertOrPanic(x.d == 4);
-    assertOrPanic(x.e == 5);
+    expect(x.a == 1);
+    expect(x.b == 2);
+    expect(x.c == 3);
+    expect(x.d == 4);
+    expect(x.e == 5);
 }
 
 const BigUnion = extern union {
@@ -150,11 +150,11 @@ test "C ABI big union" {
 }
 
 export fn zig_big_union(x: BigUnion) void {
-    assertOrPanic(x.a.a == 1);
-    assertOrPanic(x.a.b == 2);
-    assertOrPanic(x.a.c == 3);
-    assertOrPanic(x.a.d == 4);
-    assertOrPanic(x.a.e == 5);
+    expect(x.a.a == 1);
+    expect(x.a.b == 2);
+    expect(x.a.c == 3);
+    expect(x.a.d == 4);
+    expect(x.a.e == 5);
 }
 
 const SmallStructInts = extern struct {
@@ -176,10 +176,10 @@ test "C ABI small struct of ints" {
 }
 
 export fn zig_small_struct_ints(x: SmallStructInts) void {
-    assertOrPanic(x.a == 1);
-    assertOrPanic(x.b == 2);
-    assertOrPanic(x.c == 3);
-    assertOrPanic(x.d == 4);
+    expect(x.a == 1);
+    expect(x.b == 2);
+    expect(x.c == 3);
+    expect(x.d == 4);
 }
 
 const SplitStructInt = extern struct {
@@ -199,9 +199,9 @@ test "C ABI split struct of ints" {
 }
 
 export fn zig_split_struct_ints(x: SplitStructInt) void {
-    assertOrPanic(x.a == 1234);
-    assertOrPanic(x.b == 100);
-    assertOrPanic(x.c == 1337);
+    expect(x.a == 1234);
+    expect(x.b == 100);
+    expect(x.c == 1337);
 }
 
 extern fn c_big_struct_both(BigStruct) BigStruct;
@@ -215,19 +215,19 @@ test "C ABI sret and byval together" {
         .e = 5,
     };
     var y = c_big_struct_both(s);
-    assertOrPanic(y.a == 10);
-    assertOrPanic(y.b == 11);
-    assertOrPanic(y.c == 12);
-    assertOrPanic(y.d == 13);
-    assertOrPanic(y.e == 14);
+    expect(y.a == 10);
+    expect(y.b == 11);
+    expect(y.c == 12);
+    expect(y.d == 13);
+    expect(y.e == 14);
 }
 
 export fn zig_big_struct_both(x: BigStruct) BigStruct {
-    assertOrPanic(x.a == 30);
-    assertOrPanic(x.b == 31);
-    assertOrPanic(x.c == 32);
-    assertOrPanic(x.d == 33);
-    assertOrPanic(x.e == 34);
+    expect(x.a == 30);
+    expect(x.b == 31);
+    expect(x.c == 32);
+    expect(x.d == 33);
+    expect(x.e == 34);
     var s = BigStruct{
         .a = 20,
         .b = 21,

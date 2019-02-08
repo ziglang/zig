@@ -1,6 +1,6 @@
 const std = @import("../index.zig");
 const math = std.math;
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 const maxInt = std.math.maxInt;
 
 pub fn isInf(x: var) bool {
@@ -61,46 +61,46 @@ pub fn isNegativeInf(x: var) bool {
 }
 
 test "math.isInf" {
-    assert(!isInf(f16(0.0)));
-    assert(!isInf(f16(-0.0)));
-    assert(!isInf(f32(0.0)));
-    assert(!isInf(f32(-0.0)));
-    assert(!isInf(f64(0.0)));
-    assert(!isInf(f64(-0.0)));
-    assert(isInf(math.inf(f16)));
-    assert(isInf(-math.inf(f16)));
-    assert(isInf(math.inf(f32)));
-    assert(isInf(-math.inf(f32)));
-    assert(isInf(math.inf(f64)));
-    assert(isInf(-math.inf(f64)));
+    expect(!isInf(f16(0.0)));
+    expect(!isInf(f16(-0.0)));
+    expect(!isInf(f32(0.0)));
+    expect(!isInf(f32(-0.0)));
+    expect(!isInf(f64(0.0)));
+    expect(!isInf(f64(-0.0)));
+    expect(isInf(math.inf(f16)));
+    expect(isInf(-math.inf(f16)));
+    expect(isInf(math.inf(f32)));
+    expect(isInf(-math.inf(f32)));
+    expect(isInf(math.inf(f64)));
+    expect(isInf(-math.inf(f64)));
 }
 
 test "math.isPositiveInf" {
-    assert(!isPositiveInf(f16(0.0)));
-    assert(!isPositiveInf(f16(-0.0)));
-    assert(!isPositiveInf(f32(0.0)));
-    assert(!isPositiveInf(f32(-0.0)));
-    assert(!isPositiveInf(f64(0.0)));
-    assert(!isPositiveInf(f64(-0.0)));
-    assert(isPositiveInf(math.inf(f16)));
-    assert(!isPositiveInf(-math.inf(f16)));
-    assert(isPositiveInf(math.inf(f32)));
-    assert(!isPositiveInf(-math.inf(f32)));
-    assert(isPositiveInf(math.inf(f64)));
-    assert(!isPositiveInf(-math.inf(f64)));
+    expect(!isPositiveInf(f16(0.0)));
+    expect(!isPositiveInf(f16(-0.0)));
+    expect(!isPositiveInf(f32(0.0)));
+    expect(!isPositiveInf(f32(-0.0)));
+    expect(!isPositiveInf(f64(0.0)));
+    expect(!isPositiveInf(f64(-0.0)));
+    expect(isPositiveInf(math.inf(f16)));
+    expect(!isPositiveInf(-math.inf(f16)));
+    expect(isPositiveInf(math.inf(f32)));
+    expect(!isPositiveInf(-math.inf(f32)));
+    expect(isPositiveInf(math.inf(f64)));
+    expect(!isPositiveInf(-math.inf(f64)));
 }
 
 test "math.isNegativeInf" {
-    assert(!isNegativeInf(f16(0.0)));
-    assert(!isNegativeInf(f16(-0.0)));
-    assert(!isNegativeInf(f32(0.0)));
-    assert(!isNegativeInf(f32(-0.0)));
-    assert(!isNegativeInf(f64(0.0)));
-    assert(!isNegativeInf(f64(-0.0)));
-    assert(!isNegativeInf(math.inf(f16)));
-    assert(isNegativeInf(-math.inf(f16)));
-    assert(!isNegativeInf(math.inf(f32)));
-    assert(isNegativeInf(-math.inf(f32)));
-    assert(!isNegativeInf(math.inf(f64)));
-    assert(isNegativeInf(-math.inf(f64)));
+    expect(!isNegativeInf(f16(0.0)));
+    expect(!isNegativeInf(f16(-0.0)));
+    expect(!isNegativeInf(f32(0.0)));
+    expect(!isNegativeInf(f32(-0.0)));
+    expect(!isNegativeInf(f64(0.0)));
+    expect(!isNegativeInf(f64(-0.0)));
+    expect(!isNegativeInf(math.inf(f16)));
+    expect(isNegativeInf(-math.inf(f16)));
+    expect(!isNegativeInf(math.inf(f32)));
+    expect(isNegativeInf(-math.inf(f32)));
+    expect(!isNegativeInf(math.inf(f64)));
+    expect(isNegativeInf(-math.inf(f64)));
 }

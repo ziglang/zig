@@ -1,6 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
-const assertOrPanic = std.debug.assertOrPanic;
+const expect = std.testing.expect;
 
 test "reinterpret bytes as integer with nonzero offset" {
     testReinterpretBytesAsInteger();
@@ -13,7 +13,7 @@ fn testReinterpretBytesAsInteger() void {
         builtin.Endian.Little => 0xab785634,
         builtin.Endian.Big => 0x345678ab,
     };
-    assertOrPanic(@ptrCast(*align(1) const u32, bytes[1..5].ptr).* == expected);
+    expect(@ptrCast(*align(1) const u32, bytes[1..5].ptr).* == expected);
 }
 
 test "reinterpret bytes of an array into an extern struct" {
@@ -32,12 +32,12 @@ fn testReinterpretBytesAsExternStruct() void {
 
     var ptr = @ptrCast(*const S, &bytes);
     var val = ptr.c;
-    assertOrPanic(val == 5);
+    expect(val == 5);
 }
 
 test "reinterpret struct field at comptime" {
     const numLittle = comptime Bytes.init(0x12345678);
-    assertOrPanic(std.mem.eql(u8, []u8{ 0x78, 0x56, 0x34, 0x12 }, numLittle.bytes));
+    expect(std.mem.eql(u8, []u8{ 0x78, 0x56, 0x34, 0x12 }, numLittle.bytes));
 }
 
 const Bytes = struct {

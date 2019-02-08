@@ -1,7 +1,7 @@
 const std = @import("index.zig");
 const debug = std.debug;
 const assert = debug.assert;
-const assertError = debug.assertError;
+const testing = std.testing;
 const mem = std.mem;
 const Allocator = mem.Allocator;
 
@@ -212,8 +212,8 @@ test "std.ArrayList.init" {
     var list = ArrayList(i32).init(allocator);
     defer list.deinit();
 
-    assert(list.count() == 0);
-    assert(list.capacity() == 0);
+    testing.expect(list.count() == 0);
+    testing.expect(list.capacity() == 0);
 }
 
 test "std.ArrayList.basic" {
@@ -224,7 +224,7 @@ test "std.ArrayList.basic" {
     defer list.deinit();
 
     // setting on empty list is out of bounds
-    assertError(list.setOrError(0, 1), error.OutOfBounds);
+    testing.expectError(error.OutOfBounds, list.setOrError(0, 1));
 
     {
         var i: usize = 0;
@@ -236,44 +236,44 @@ test "std.ArrayList.basic" {
     {
         var i: usize = 0;
         while (i < 10) : (i += 1) {
-            assert(list.items[i] == @intCast(i32, i + 1));
+            testing.expect(list.items[i] == @intCast(i32, i + 1));
         }
     }
 
     for (list.toSlice()) |v, i| {
-        assert(v == @intCast(i32, i + 1));
+        testing.expect(v == @intCast(i32, i + 1));
     }
 
     for (list.toSliceConst()) |v, i| {
-        assert(v == @intCast(i32, i + 1));
+        testing.expect(v == @intCast(i32, i + 1));
     }
 
-    assert(list.pop() == 10);
-    assert(list.len == 9);
+    testing.expect(list.pop() == 10);
+    testing.expect(list.len == 9);
 
     list.appendSlice([]const i32{
         1,
         2,
         3,
     }) catch unreachable;
-    assert(list.len == 12);
-    assert(list.pop() == 3);
-    assert(list.pop() == 2);
-    assert(list.pop() == 1);
-    assert(list.len == 9);
+    testing.expect(list.len == 12);
+    testing.expect(list.pop() == 3);
+    testing.expect(list.pop() == 2);
+    testing.expect(list.pop() == 1);
+    testing.expect(list.len == 9);
 
     list.appendSlice([]const i32{}) catch unreachable;
-    assert(list.len == 9);
+    testing.expect(list.len == 9);
 
     // can only set on indices < self.len
     list.set(7, 33);
     list.set(8, 42);
 
-    assertError(list.setOrError(9, 99), error.OutOfBounds);
-    assertError(list.setOrError(10, 123), error.OutOfBounds);
+    testing.expectError(error.OutOfBounds, list.setOrError(9, 99));
+    testing.expectError(error.OutOfBounds, list.setOrError(10, 123));
 
-    assert(list.pop() == 42);
-    assert(list.pop() == 33);
+    testing.expect(list.pop() == 42);
+    testing.expect(list.pop() == 33);
 }
 
 test "std.ArrayList.swapRemove" {
@@ -289,18 +289,18 @@ test "std.ArrayList.swapRemove" {
     try list.append(7);
 
     //remove from middle
-    assert(list.swapRemove(3) == 4);
-    assert(list.at(3) == 7);
-    assert(list.len == 6);
+    testing.expect(list.swapRemove(3) == 4);
+    testing.expect(list.at(3) == 7);
+    testing.expect(list.len == 6);
 
     //remove from end
-    assert(list.swapRemove(5) == 6);
-    assert(list.len == 5);
+    testing.expect(list.swapRemove(5) == 6);
+    testing.expect(list.len == 5);
 
     //remove from front
-    assert(list.swapRemove(0) == 1);
-    assert(list.at(0) == 5);
-    assert(list.len == 4);
+    testing.expect(list.swapRemove(0) == 1);
+    testing.expect(list.at(0) == 5);
+    testing.expect(list.len == 4);
 }
 
 test "std.ArrayList.swapRemoveOrError" {
@@ -308,27 +308,27 @@ test "std.ArrayList.swapRemoveOrError" {
     defer list.deinit();
 
     // Test just after initialization
-    assertError(list.swapRemoveOrError(0), error.OutOfBounds);
+    testing.expectError(error.OutOfBounds, list.swapRemoveOrError(0));
 
     // Test after adding one item and remote it
     try list.append(1);
-    assert((try list.swapRemoveOrError(0)) == 1);
-    assertError(list.swapRemoveOrError(0), error.OutOfBounds);
+    testing.expect((try list.swapRemoveOrError(0)) == 1);
+    testing.expectError(error.OutOfBounds, list.swapRemoveOrError(0));
 
     // Test after adding two items and remote both
     try list.append(1);
     try list.append(2);
-    assert((try list.swapRemoveOrError(1)) == 2);
-    assert((try list.swapRemoveOrError(0)) == 1);
-    assertError(list.swapRemoveOrError(0), error.OutOfBounds);
+    testing.expect((try list.swapRemoveOrError(1)) == 2);
+    testing.expect((try list.swapRemoveOrError(0)) == 1);
+    testing.expectError(error.OutOfBounds, list.swapRemoveOrError(0));
 
     // Test out of bounds with one item
     try list.append(1);
-    assertError(list.swapRemoveOrError(1), error.OutOfBounds);
+    testing.expectError(error.OutOfBounds, list.swapRemoveOrError(1));
 
     // Test out of bounds with two items
     try list.append(2);
-    assertError(list.swapRemoveOrError(2), error.OutOfBounds);
+    testing.expectError(error.OutOfBounds, list.swapRemoveOrError(2));
 }
 
 test "std.ArrayList.iterator" {
@@ -342,22 +342,22 @@ test "std.ArrayList.iterator" {
     var count: i32 = 0;
     var it = list.iterator();
     while (it.next()) |next| {
-        assert(next == count + 1);
+        testing.expect(next == count + 1);
         count += 1;
     }
 
-    assert(count == 3);
-    assert(it.next() == null);
+    testing.expect(count == 3);
+    testing.expect(it.next() == null);
     it.reset();
     count = 0;
     while (it.next()) |next| {
-        assert(next == count + 1);
+        testing.expect(next == count + 1);
         count += 1;
         if (count == 2) break;
     }
 
     it.reset();
-    assert(it.next().? == 1);
+    testing.expect(it.next().? == 1);
 }
 
 test "std.ArrayList.insert" {
@@ -368,10 +368,10 @@ test "std.ArrayList.insert" {
     try list.append(2);
     try list.append(3);
     try list.insert(0, 5);
-    assert(list.items[0] == 5);
-    assert(list.items[1] == 1);
-    assert(list.items[2] == 2);
-    assert(list.items[3] == 3);
+    testing.expect(list.items[0] == 5);
+    testing.expect(list.items[1] == 1);
+    testing.expect(list.items[2] == 2);
+    testing.expect(list.items[3] == 3);
 }
 
 test "std.ArrayList.insertSlice" {
@@ -386,17 +386,17 @@ test "std.ArrayList.insertSlice" {
         9,
         8,
     });
-    assert(list.items[0] == 1);
-    assert(list.items[1] == 9);
-    assert(list.items[2] == 8);
-    assert(list.items[3] == 2);
-    assert(list.items[4] == 3);
-    assert(list.items[5] == 4);
+    testing.expect(list.items[0] == 1);
+    testing.expect(list.items[1] == 9);
+    testing.expect(list.items[2] == 8);
+    testing.expect(list.items[3] == 2);
+    testing.expect(list.items[4] == 3);
+    testing.expect(list.items[5] == 4);
 
     const items = []const i32{1};
     try list.insertSlice(0, items[0..0]);
-    assert(list.len == 6);
-    assert(list.items[0] == 1);
+    testing.expect(list.len == 6);
+    testing.expect(list.items[0] == 1);
 }
 
 const Item = struct {
@@ -407,5 +407,5 @@ const Item = struct {
 test "std.ArrayList: ArrayList(T) of struct T" {
     var root = Item{ .integer = 1, .sub_items = ArrayList(Item).init(debug.global_allocator) };
     try root.sub_items.append( Item{ .integer = 42, .sub_items = ArrayList(Item).init(debug.global_allocator) } );
-    assert(root.sub_items.items[0].integer == 42);
+    testing.expect(root.sub_items.items[0].integer == 42);
 }

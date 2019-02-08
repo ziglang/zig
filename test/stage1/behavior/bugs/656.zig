@@ -1,4 +1,4 @@
-const assertOrPanic = @import("std").debug.assertOrPanic;
+const expect = @import("std").testing.expect;
 
 const PrefixOp = union(enum) {
     Return,
@@ -22,7 +22,7 @@ fn foo(a: bool, b: bool) void {
             PrefixOp.AddrOf => |addr_of_info| {
                 if (b) {}
                 if (addr_of_info.align_expr) |align_expr| {
-                    assertOrPanic(align_expr == 1234);
+                    expect(align_expr == 1234);
                 }
             },
             PrefixOp.Return => {},

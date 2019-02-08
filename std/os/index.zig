@@ -91,6 +91,7 @@ pub const GetAppDataDirError = @import("get_app_data_dir.zig").GetAppDataDirErro
 
 const debug = std.debug;
 const assert = debug.assert;
+const testing = std.testing;
 
 const c = std.c;
 
@@ -172,7 +173,7 @@ test "os.getRandomBytes" {
     try getRandomBytes(buf_b[0..]);
 
     // Check if random (not 100% conclusive)
-    assert(!mem.eql(u8, buf_a, buf_b));
+    testing.expect(!mem.eql(u8, buf_a, buf_b));
 }
 
 /// Raises a signal in the current kernel thread, ending its execution.
@@ -828,7 +829,7 @@ pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwned
 
 test "os.getEnvVarOwned" {
     var ga = debug.global_allocator;
-    debug.assertError(getEnvVarOwned(ga, "BADENV"), error.EnvironmentVariableNotFound);
+    testing.expectError(error.EnvironmentVariableNotFound, getEnvVarOwned(ga, "BADENV"));
 }
 
 /// Caller must free the returned memory.
@@ -2219,9 +2220,9 @@ fn testWindowsCmdLine(input_cmd_line: [*]const u8, expected_args: []const []cons
     var it = ArgIteratorWindows.initWithCmdLine(input_cmd_line);
     for (expected_args) |expected_arg| {
         const arg = it.next(debug.global_allocator).? catch unreachable;
-        assert(mem.eql(u8, arg, expected_arg));
+        testing.expectEqualSlices(u8, expected_arg, arg);
     }
-    assert(it.next(debug.global_allocator) == null);
+    testing.expect(it.next(debug.global_allocator) == null);
 }
 
 // TODO make this a build variable that you can set

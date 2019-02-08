@@ -1,4 +1,4 @@
-const assertOrPanic = @import("std").debug.assertOrPanic;
+const expect = @import("std").testing.expect;
 
 const A = struct {
     b: B,
@@ -26,5 +26,5 @@ test "incomplete struct param top level declaration" {
             .c = C{ .x = 13 },
         },
     };
-    assertOrPanic(foo(a) == 13);
+    expect(foo(a) == 13);
 }

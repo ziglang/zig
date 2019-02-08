@@ -1,4 +1,4 @@
-const assertOrPanic = @import("std").debug.assertOrPanic;
+const expect = @import("std").testing.expect;
 const mem = @import("std").mem;
 
 test "enum type" {
@@ -11,16 +11,16 @@ test "enum type" {
     };
     const bar = Bar.B;
 
-    assertOrPanic(bar == Bar.B);
-    assertOrPanic(@memberCount(Foo) == 3);
-    assertOrPanic(@memberCount(Bar) == 4);
-    assertOrPanic(@sizeOf(Foo) == @sizeOf(FooNoVoid));
-    assertOrPanic(@sizeOf(Bar) == 1);
+    expect(bar == Bar.B);
+    expect(@memberCount(Foo) == 3);
+    expect(@memberCount(Bar) == 4);
+    expect(@sizeOf(Foo) == @sizeOf(FooNoVoid));
+    expect(@sizeOf(Bar) == 1);
 }
 
 test "enum as return value" {
     switch (returnAnInt(13)) {
-        Foo.One => |value| assertOrPanic(value == 13),
+        Foo.One => |value| expect(value == 13),
         else => unreachable,
     }
 }
@@ -92,14 +92,14 @@ test "enum to int" {
 }
 
 fn shouldEqual(n: Number, expected: u3) void {
-    assertOrPanic(@enumToInt(n) == expected);
+    expect(@enumToInt(n) == expected);
 }
 
 test "int to enum" {
     testIntToEnumEval(3);
 }
 fn testIntToEnumEval(x: i32) void {
-    assertOrPanic(@intToEnum(IntToEnumNumber, @intCast(u3, x)) == IntToEnumNumber.Three);
+    expect(@intToEnum(IntToEnumNumber, @intCast(u3, x)) == IntToEnumNumber.Three);
 }
 const IntToEnumNumber = enum {
     Zero,
@@ -110,8 +110,8 @@ const IntToEnumNumber = enum {
 };
 
 test "@tagName" {
-    assertOrPanic(mem.eql(u8, testEnumTagNameBare(BareNumber.Three), "Three"));
-    comptime assertOrPanic(mem.eql(u8, testEnumTagNameBare(BareNumber.Three), "Three"));
+    expect(mem.eql(u8, testEnumTagNameBare(BareNumber.Three), "Three"));
+    comptime expect(mem.eql(u8, testEnumTagNameBare(BareNumber.Three), "Three"));
 }
 
 fn testEnumTagNameBare(n: BareNumber) []const u8 {
@@ -126,8 +126,8 @@ const BareNumber = enum {
 
 test "enum alignment" {
     comptime {
-        assertOrPanic(@alignOf(AlignTestEnum) >= @alignOf([9]u8));
-        assertOrPanic(@alignOf(AlignTestEnum) >= @alignOf(u64));
+        expect(@alignOf(AlignTestEnum) >= @alignOf([9]u8));
+        expect(@alignOf(AlignTestEnum) >= @alignOf(u64));
     }
 }
 
@@ -663,10 +663,10 @@ const ValueCount257 = enum {
 
 test "enum sizes" {
     comptime {
-        assertOrPanic(@sizeOf(ValueCount1) == 0);
-        assertOrPanic(@sizeOf(ValueCount2) == 1);
-        assertOrPanic(@sizeOf(ValueCount256) == 1);
-        assertOrPanic(@sizeOf(ValueCount257) == 2);
+        expect(@sizeOf(ValueCount1) == 0);
+        expect(@sizeOf(ValueCount2) == 1);
+        expect(@sizeOf(ValueCount256) == 1);
+        expect(@sizeOf(ValueCount257) == 2);
     }
 }
 
@@ -685,12 +685,12 @@ test "set enum tag type" {
     {
         var x = Small.One;
         x = Small.Two;
-        comptime assertOrPanic(@TagType(Small) == u2);
+        comptime expect(@TagType(Small) == u2);
     }
     {
         var x = Small2.One;
         x = Small2.Two;
-        comptime assertOrPanic(@TagType(Small2) == u2);
+        comptime expect(@TagType(Small2) == u2);
     }
 }
 
@@ -737,17 +737,17 @@ const bit_field_1 = BitFieldOfEnums{
 
 test "bit field access with enum fields" {
     var data = bit_field_1;
-    assertOrPanic(getA(&data) == A.Two);
-    assertOrPanic(getB(&data) == B.Three3);
-    assertOrPanic(getC(&data) == C.Four4);
-    comptime assertOrPanic(@sizeOf(BitFieldOfEnums) == 1);
+    expect(getA(&data) == A.Two);
+    expect(getB(&data) == B.Three3);
+    expect(getC(&data) == C.Four4);
+    comptime expect(@sizeOf(BitFieldOfEnums) == 1);
 
     data.b = B.Four3;
-    assertOrPanic(data.b == B.Four3);
+    expect(data.b == B.Four3);
 
     data.a = A.Three;
-    assertOrPanic(data.a == A.Three);
-    assertOrPanic(data.b == B.Four3);
+    expect(data.a == A.Three);
+    expect(data.b == B.Four3);
 }
 
 fn getA(data: *const BitFieldOfEnums) A {
@@ -768,7 +768,7 @@ test "casting enum to its tag type" {
 }
 
 fn testCastEnumToTagType(value: Small2) void {
-    assertOrPanic(@enumToInt(value) == 1);
+    expect(@enumToInt(value) == 1);
 }
 
 const MultipleChoice = enum(u32) {
@@ -784,8 +784,8 @@ test "enum with specified tag values" {
 }
 
 fn testEnumWithSpecifiedTagValues(x: MultipleChoice) void {
-    assertOrPanic(@enumToInt(x) == 60);
-    assertOrPanic(1234 == switch (x) {
+    expect(@enumToInt(x) == 60);
+    expect(1234 == switch (x) {
         MultipleChoice.A => 1,
         MultipleChoice.B => 2,
         MultipleChoice.C => u32(1234),
@@ -811,8 +811,8 @@ test "enum with specified and unspecified tag values" {
 }
 
 fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) void {
-    assertOrPanic(@enumToInt(x) == 1000);
-    assertOrPanic(1234 == switch (x) {
+    expect(@enumToInt(x) == 1000);
+    expect(1234 == switch (x) {
         MultipleChoice2.A => 1,
         MultipleChoice2.B => 2,
         MultipleChoice2.C => 3,
@@ -826,8 +826,8 @@ fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) void {
 }
 
 test "cast integer literal to enum" {
-    assertOrPanic(@intToEnum(MultipleChoice2, 0) == MultipleChoice2.Unspecified1);
-    assertOrPanic(@intToEnum(MultipleChoice2, 40) == MultipleChoice2.B);
+    expect(@intToEnum(MultipleChoice2, 0) == MultipleChoice2.Unspecified1);
+    expect(@intToEnum(MultipleChoice2, 40) == MultipleChoice2.B);
 }
 
 const EnumWithOneMember = enum {
@@ -865,14 +865,14 @@ const EnumWithTagValues = enum(u4) {
     D = 1 << 3,
 };
 test "enum with tag values don't require parens" {
-    assertOrPanic(@enumToInt(EnumWithTagValues.C) == 0b0100);
+    expect(@enumToInt(EnumWithTagValues.C) == 0b0100);
 }
 
 test "enum with 1 field but explicit tag type should still have the tag type" {
     const Enum = enum(u8) {
         B = 2,
     };
-    comptime @import("std").debug.assertOrPanic(@sizeOf(Enum) == @sizeOf(u8));
+    comptime @import("std").testing.expect(@sizeOf(Enum) == @sizeOf(u8));
 }
 
 test "empty extern enum with members" {
@@ -881,7 +881,7 @@ test "empty extern enum with members" {
         B,
         C,
     };
-    assertOrPanic(@sizeOf(E) == @sizeOf(c_int));
+    expect(@sizeOf(E) == @sizeOf(c_int));
 }
 
 test "tag name with assigned enum values" {
@@ -890,5 +890,5 @@ test "tag name with assigned enum values" {
         B = 0,
     };
     var b = LocalFoo.B;
-    assertOrPanic(mem.eql(u8, @tagName(b), "B"));
+    expect(mem.eql(u8, @tagName(b), "B"));
 }

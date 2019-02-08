@@ -1,9 +1,9 @@
 const __fixunstfsi = @import("fixunstfsi.zig").__fixunstfsi;
-const assert = @import("std").debug.assert;
+const testing = @import("std").testing;
 
 fn test__fixunstfsi(a: f128, expected: u32) void {
     const x = __fixunstfsi(a);
-    assert(x == expected);
+    testing.expect(x == expected);
 }
 
 const inf128 = @bitCast(f128, u128(0x7fff0000000000000000000000000000));

@@ -1,7 +1,7 @@
 const std = @import("./index.zig");
 const builtin = @import("builtin");
-const debug = std.debug;
 const assert = std.debug.assert;
+const testing = std.testing;
 const mem = std.mem;
 
 /// Returns how many bytes the UTF-8 representation would require
@@ -32,7 +32,7 @@ pub fn utf8ByteSequenceLength(first_byte: u8) !u3 {
 /// Returns: the number of bytes written to out.
 pub fn utf8Encode(c: u32, out: []u8) !u3 {
     const length = try utf8CodepointSequenceLength(c);
-    debug.assert(out.len >= length);
+    assert(out.len >= length);
     switch (length) {
         // The pattern for each is the same
         // - Increasing the initial shift by 6 each time
@@ -81,8 +81,8 @@ const Utf8Decode2Error = error{
     Utf8OverlongEncoding,
 };
 pub fn utf8Decode2(bytes: []const u8) Utf8Decode2Error!u32 {
-    debug.assert(bytes.len == 2);
-    debug.assert(bytes[0] & 0b11100000 == 0b11000000);
+    assert(bytes.len == 2);
+    assert(bytes[0] & 0b11100000 == 0b11000000);
     var value: u32 = bytes[0] & 0b00011111;
 
     if (bytes[1] & 0b11000000 != 0b10000000) return error.Utf8ExpectedContinuation;
@@ -100,8 +100,8 @@ const Utf8Decode3Error = error{
     Utf8EncodesSurrogateHalf,
 };
 pub fn utf8Decode3(bytes: []const u8) Utf8Decode3Error!u32 {
-    debug.assert(bytes.len == 3);
-    debug.assert(bytes[0] & 0b11110000 == 0b11100000);
+    assert(bytes.len == 3);
+    assert(bytes[0] & 0b11110000 == 0b11100000);
     var value: u32 = bytes[0] & 0b00001111;
 
     if (bytes[1] & 0b11000000 != 0b10000000) return error.Utf8ExpectedContinuation;
@@ -124,8 +124,8 @@ const Utf8Decode4Error = error{
     Utf8CodepointTooLarge,
 };
 pub fn utf8Decode4(bytes: []const u8) Utf8Decode4Error!u32 {
-    debug.assert(bytes.len == 4);
-    debug.assert(bytes[0] & 0b11111000 == 0b11110000);
+    assert(bytes.len == 4);
+    assert(bytes[0] & 0b11111000 == 0b11110000);
     var value: u32 = bytes[0] & 0b00000111;
 
     if (bytes[1] & 0b11000000 != 0b10000000) return error.Utf8ExpectedContinuation;
@@ -274,23 +274,23 @@ test "utf8 encode" {
 fn testUtf8Encode() !void {
     // A few taken from wikipedia a few taken elsewhere
     var array: [4]u8 = undefined;
-    debug.assert((try utf8Encode(try utf8Decode("€"), array[0..])) == 3);
-    debug.assert(array[0] == 0b11100010);
-    debug.assert(array[1] == 0b10000010);
-    debug.assert(array[2] == 0b10101100);
+    testing.expect((try utf8Encode(try utf8Decode("€"), array[0..])) == 3);
+    testing.expect(array[0] == 0b11100010);
+    testing.expect(array[1] == 0b10000010);
+    testing.expect(array[2] == 0b10101100);
 
-    debug.assert((try utf8Encode(try utf8Decode("$"), array[0..])) == 1);
-    debug.assert(array[0] == 0b00100100);
+    testing.expect((try utf8Encode(try utf8Decode("$"), array[0..])) == 1);
+    testing.expect(array[0] == 0b00100100);
 
-    debug.assert((try utf8Encode(try utf8Decode("¢"), array[0..])) == 2);
-    debug.assert(array[0] == 0b11000010);
-    debug.assert(array[1] == 0b10100010);
+    testing.expect((try utf8Encode(try utf8Decode("¢"), array[0..])) == 2);
+    testing.expect(array[0] == 0b11000010);
+    testing.expect(array[1] == 0b10100010);
 
-    debug.assert((try utf8Encode(try utf8Decode("𐍈"), array[0..])) == 4);
-    debug.assert(array[0] == 0b11110000);
-    debug.assert(array[1] == 0b10010000);
-    debug.assert(array[2] == 0b10001101);
-    debug.assert(array[3] == 0b10001000);
+    testing.expect((try utf8Encode(try utf8Decode("𐍈"), array[0..])) == 4);
+    testing.expect(array[0] == 0b11110000);
+    testing.expect(array[1] == 0b10010000);
+    testing.expect(array[2] == 0b10001101);
+    testing.expect(array[3] == 0b10001000);
 }
 
 test "utf8 encode error" {
@@ -306,11 +306,7 @@ fn testUtf8EncodeError() void {
 }
 
 fn testErrorEncode(codePoint: u32, array: []u8, expectedErr: anyerror) void {
-    if (utf8Encode(codePoint, array)) |_| {
-        unreachable;
-    } else |err| {
-        debug.assert(err == expectedErr);
-    }
+    testing.expectError(expectedErr, utf8Encode(codePoint, array));
 }
 
 test "utf8 iterator on ascii" {
@@ -321,16 +317,16 @@ fn testUtf8IteratorOnAscii() void {
     const s = Utf8View.initComptime("abc");
 
     var it1 = s.iterator();
-    debug.assert(std.mem.eql(u8, "a", it1.nextCodepointSlice().?));
-    debug.assert(std.mem.eql(u8, "b", it1.nextCodepointSlice().?));
-    debug.assert(std.mem.eql(u8, "c", it1.nextCodepointSlice().?));
-    debug.assert(it1.nextCodepointSlice() == null);
+    testing.expect(std.mem.eql(u8, "a", it1.nextCodepointSlice().?));
+    testing.expect(std.mem.eql(u8, "b", it1.nextCodepointSlice().?));
+    testing.expect(std.mem.eql(u8, "c", it1.nextCodepointSlice().?));
+    testing.expect(it1.nextCodepointSlice() == null);
 
     var it2 = s.iterator();
-    debug.assert(it2.nextCodepoint().? == 'a');
-    debug.assert(it2.nextCodepoint().? == 'b');
-    debug.assert(it2.nextCodepoint().? == 'c');
-    debug.assert(it2.nextCodepoint() == null);
+    testing.expect(it2.nextCodepoint().? == 'a');
+    testing.expect(it2.nextCodepoint().? == 'b');
+    testing.expect(it2.nextCodepoint().? == 'c');
+    testing.expect(it2.nextCodepoint() == null);
 }
 
 test "utf8 view bad" {
@@ -340,12 +336,7 @@ test "utf8 view bad" {
 fn testUtf8ViewBad() void {
     // Compile-time error.
     // const s3 = Utf8View.initComptime("\xfe\xf2");
-    const s = Utf8View.init("hel\xadlo");
-    if (s) |_| {
-        unreachable;
-    } else |err| {
-        debug.assert(err == error.InvalidUtf8);
-    }
+    testing.expectError(error.InvalidUtf8, Utf8View.init("hel\xadlo"));
 }
 
 test "utf8 view ok" {
@@ -356,16 +347,16 @@ fn testUtf8ViewOk() void {
     const s = Utf8View.initComptime("東京市");
 
     var it1 = s.iterator();
-    debug.assert(std.mem.eql(u8, "東", it1.nextCodepointSlice().?));
-    debug.assert(std.mem.eql(u8, "京", it1.nextCodepointSlice().?));
-    debug.assert(std.mem.eql(u8, "市", it1.nextCodepointSlice().?));
-    debug.assert(it1.nextCodepointSlice() == null);
+    testing.expect(std.mem.eql(u8, "東", it1.nextCodepointSlice().?));
+    testing.expect(std.mem.eql(u8, "京", it1.nextCodepointSlice().?));
+    testing.expect(std.mem.eql(u8, "市", it1.nextCodepointSlice().?));
+    testing.expect(it1.nextCodepointSlice() == null);
 
     var it2 = s.iterator();
-    debug.assert(it2.nextCodepoint().? == 0x6771);
-    debug.assert(it2.nextCodepoint().? == 0x4eac);
-    debug.assert(it2.nextCodepoint().? == 0x5e02);
-    debug.assert(it2.nextCodepoint() == null);
+    testing.expect(it2.nextCodepoint().? == 0x6771);
+    testing.expect(it2.nextCodepoint().? == 0x4eac);
+    testing.expect(it2.nextCodepoint().? == 0x5e02);
+    testing.expect(it2.nextCodepoint() == null);
 }
 
 test "bad utf8 slice" {
@@ -373,10 +364,10 @@ test "bad utf8 slice" {
     testBadUtf8Slice();
 }
 fn testBadUtf8Slice() void {
-    debug.assert(utf8ValidateSlice("abc"));
-    debug.assert(!utf8ValidateSlice("abc\xc0"));
-    debug.assert(!utf8ValidateSlice("abc\xc0abc"));
-    debug.assert(utf8ValidateSlice("abc\xdf\xbf"));
+    testing.expect(utf8ValidateSlice("abc"));
+    testing.expect(!utf8ValidateSlice("abc\xc0"));
+    testing.expect(!utf8ValidateSlice("abc\xc0abc"));
+    testing.expect(utf8ValidateSlice("abc\xdf\xbf"));
 }
 
 test "valid utf8" {
@@ -459,21 +450,17 @@ fn testMiscInvalidUtf8() void {
 }
 
 fn testError(bytes: []const u8, expected_err: anyerror) void {
-    if (testDecode(bytes)) |_| {
-        unreachable;
-    } else |err| {
-        debug.assert(err == expected_err);
-    }
+    testing.expectError(expected_err, testDecode(bytes));
 }
 
 fn testValid(bytes: []const u8, expected_codepoint: u32) void {
-    debug.assert((testDecode(bytes) catch unreachable) == expected_codepoint);
+    testing.expect((testDecode(bytes) catch unreachable) == expected_codepoint);
 }
 
 fn testDecode(bytes: []const u8) !u32 {
     const length = try utf8ByteSequenceLength(bytes[0]);
     if (bytes.len < length) return error.UnexpectedEof;
-    debug.assert(bytes.len == length);
+    testing.expect(bytes.len == length);
     return utf8Decode(bytes);
 }
 
@@ -513,14 +500,14 @@ test "utf16leToUtf8" {
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[0..], 'A');
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[2..], 'a');
         const utf8 = try utf16leToUtf8Alloc(std.debug.global_allocator, utf16le);
-        assert(mem.eql(u8, utf8, "Aa"));
+        testing.expect(mem.eql(u8, utf8, "Aa"));
     }
 
     {
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[0..], 0x80);
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[2..], 0xffff);
         const utf8 = try utf16leToUtf8Alloc(std.debug.global_allocator, utf16le);
-        assert(mem.eql(u8, utf8, "\xc2\x80" ++ "\xef\xbf\xbf"));
+        testing.expect(mem.eql(u8, utf8, "\xc2\x80" ++ "\xef\xbf\xbf"));
     }
 
     {
@@ -528,7 +515,7 @@ test "utf16leToUtf8" {
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[0..], 0xd7ff);
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[2..], 0xe000);
         const utf8 = try utf16leToUtf8Alloc(std.debug.global_allocator, utf16le);
-        assert(mem.eql(u8, utf8, "\xed\x9f\xbf" ++ "\xee\x80\x80"));
+        testing.expect(mem.eql(u8, utf8, "\xed\x9f\xbf" ++ "\xee\x80\x80"));
     }
 
     {
@@ -536,7 +523,7 @@ test "utf16leToUtf8" {
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[0..], 0xd800);
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[2..], 0xdc00);
         const utf8 = try utf16leToUtf8Alloc(std.debug.global_allocator, utf16le);
-        assert(mem.eql(u8, utf8, "\xf0\x90\x80\x80"));
+        testing.expect(mem.eql(u8, utf8, "\xf0\x90\x80\x80"));
     }
 
     {
@@ -544,14 +531,14 @@ test "utf16leToUtf8" {
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[0..], 0xdbff);
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[2..], 0xdfff);
         const utf8 = try utf16leToUtf8Alloc(std.debug.global_allocator, utf16le);
-        assert(mem.eql(u8, utf8, "\xf4\x8f\xbf\xbf"));
+        testing.expect(mem.eql(u8, utf8, "\xf4\x8f\xbf\xbf"));
     }
 
     {
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[0..], 0xdbff);
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[2..], 0xdc00);
         const utf8 = try utf16leToUtf8Alloc(std.debug.global_allocator, utf16le);
-        assert(mem.eql(u8, utf8, "\xf4\x8f\xb0\x80"));
+        testing.expect(mem.eql(u8, utf8, "\xf4\x8f\xb0\x80"));
     }
 }
 

@@ -1,5 +1,5 @@
 const std = @import("std");
-const assertOrPanic = std.debug.assertOrPanic;
+const expect = std.testing.expect;
 
 test "ignore lval with underscore" {
     _ = false;

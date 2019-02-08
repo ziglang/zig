@@ -6,6 +6,7 @@ const mem = std.mem;
 const cstr = std.cstr;
 const os = std.os;
 const assert = std.debug.assert;
+const testing = std.testing;
 const elf = std.elf;
 const linux = os.linux;
 const windows = os.windows;
@@ -206,7 +207,7 @@ test "dynamic_library" {
     };
 
     const dynlib = DynLib.open(std.debug.global_allocator, libname) catch |err| {
-        assert(err == error.FileNotFound);
+        testing.expect(err == error.FileNotFound);
         return;
     };
     @panic("Expected error from function");

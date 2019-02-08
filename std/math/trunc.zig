@@ -6,7 +6,7 @@
 
 const std = @import("../index.zig");
 const math = std.math;
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 const maxInt = std.math.maxInt;
 
 pub fn trunc(x: var) @typeOf(x) {
@@ -61,34 +61,34 @@ fn trunc64(x: f64) f64 {
 }
 
 test "math.trunc" {
-    assert(trunc(f32(1.3)) == trunc32(1.3));
-    assert(trunc(f64(1.3)) == trunc64(1.3));
+    expect(trunc(f32(1.3)) == trunc32(1.3));
+    expect(trunc(f64(1.3)) == trunc64(1.3));
 }
 
 test "math.trunc32" {
-    assert(trunc32(1.3) == 1.0);
-    assert(trunc32(-1.3) == -1.0);
-    assert(trunc32(0.2) == 0.0);
+    expect(trunc32(1.3) == 1.0);
+    expect(trunc32(-1.3) == -1.0);
+    expect(trunc32(0.2) == 0.0);
 }
 
 test "math.trunc64" {
-    assert(trunc64(1.3) == 1.0);
-    assert(trunc64(-1.3) == -1.0);
-    assert(trunc64(0.2) == 0.0);
+    expect(trunc64(1.3) == 1.0);
+    expect(trunc64(-1.3) == -1.0);
+    expect(trunc64(0.2) == 0.0);
 }
 
 test "math.trunc32.special" {
-    assert(trunc32(0.0) == 0.0); // 0x3F800000
-    assert(trunc32(-0.0) == -0.0);
-    assert(math.isPositiveInf(trunc32(math.inf(f32))));
-    assert(math.isNegativeInf(trunc32(-math.inf(f32))));
-    assert(math.isNan(trunc32(math.nan(f32))));
+    expect(trunc32(0.0) == 0.0); // 0x3F800000
+    expect(trunc32(-0.0) == -0.0);
+    expect(math.isPositiveInf(trunc32(math.inf(f32))));
+    expect(math.isNegativeInf(trunc32(-math.inf(f32))));
+    expect(math.isNan(trunc32(math.nan(f32))));
 }
 
 test "math.trunc64.special" {
-    assert(trunc64(0.0) == 0.0);
-    assert(trunc64(-0.0) == -0.0);
-    assert(math.isPositiveInf(trunc64(math.inf(f64))));
-    assert(math.isNegativeInf(trunc64(-math.inf(f64))));
-    assert(math.isNan(trunc64(math.nan(f64))));
+    expect(trunc64(0.0) == 0.0);
+    expect(trunc64(-0.0) == -0.0);
+    expect(math.isPositiveInf(trunc64(math.inf(f64))));
+    expect(math.isNegativeInf(trunc64(-math.inf(f64))));
+    expect(math.isNan(trunc64(math.nan(f64))));
 }

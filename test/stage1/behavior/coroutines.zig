@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const assertOrPanic = std.debug.assertOrPanic;
+const expect = std.testing.expect;
 
 var x: i32 = 1;
 
@@ -9,9 +9,9 @@ test "create a coroutine and cancel it" {
     defer da.deinit();
 
     const p = try async<&da.allocator> simpleAsyncFn();
-    comptime assertOrPanic(@typeOf(p) == promise->void);
+    comptime expect(@typeOf(p) == promise->void);
     cancel p;
-    assertOrPanic(x == 2);
+    expect(x == 2);
 }
 async fn simpleAsyncFn() void {
     x += 1;
@@ -31,7 +31,7 @@ test "coroutine suspend, resume, cancel" {
     cancel p;
     seq('g');
 
-    assertOrPanic(std.mem.eql(u8, points, "abcdefg"));
+    expect(std.mem.eql(u8, points, "abcdefg"));
 }
 async fn testAsyncSeq() void {
     defer seq('e');
@@ -53,9 +53,9 @@ test "coroutine suspend with block" {
     defer da.deinit();
 
     const p = try async<&da.allocator> testSuspendBlock();
-    std.debug.assertOrPanic(!result);
+    std.testing.expect(!result);
     resume a_promise;
-    std.debug.assertOrPanic(result);
+    std.testing.expect(result);
     cancel p;
 }
 
@@ -63,13 +63,13 @@ var a_promise: promise = undefined;
 var result = false;
 async fn testSuspendBlock() void {
     suspend {
-        comptime assertOrPanic(@typeOf(@handle()) == promise->void);
+        comptime expect(@typeOf(@handle()) == promise->void);
         a_promise = @handle();
     }
 
     //Test to make sure that @handle() works as advertised (issue #1296)
     //var our_handle: promise = @handle();
-    assertOrPanic(a_promise == @handle());
+    expect(a_promise == @handle());
 
     result = true;
 }
@@ -86,8 +86,8 @@ test "coroutine await" {
     await_seq('f');
     resume await_a_promise;
     await_seq('i');
-    assertOrPanic(await_final_result == 1234);
-    assertOrPanic(std.mem.eql(u8, await_points, "abcdefghi"));
+    expect(await_final_result == 1234);
+    expect(std.mem.eql(u8, await_points, "abcdefghi"));
 }
 async fn await_amain() void {
     await_seq('b');
@@ -123,8 +123,8 @@ test "coroutine await early return" {
     early_seq('a');
     const p = async<&da.allocator> early_amain() catch @panic("out of memory");
     early_seq('f');
-    assertOrPanic(early_final_result == 1234);
-    assertOrPanic(std.mem.eql(u8, early_points, "abcdef"));
+    expect(early_final_result == 1234);
+    expect(std.mem.eql(u8, early_points, "abcdef"));
 }
 async fn early_amain() void {
     early_seq('b');
@@ -170,7 +170,7 @@ test "async function with dot syntax" {
     defer da.deinit();
     const p = try async<&da.allocator> S.foo();
     cancel p;
-    assertOrPanic(S.y == 2);
+    expect(S.y == 2);
 }
 
 test "async fn pointer in a struct field" {
@@ -182,9 +182,9 @@ test "async fn pointer in a struct field" {
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
     const p = (async<&da.allocator> foo.bar(&data)) catch unreachable;
-    assertOrPanic(data == 2);
+    expect(data == 2);
     cancel p;
-    assertOrPanic(data == 4);
+    expect(data == 4);
 }
 async<*std.mem.Allocator> fn simpleAsyncFn2(y: *i32) void {
     defer y.* += 2;
@@ -230,9 +230,9 @@ async fn suspendThenFail() anyerror!void {
 }
 async fn printTrace(p: promise->(anyerror!void)) void {
     (await p) catch |e| {
-        std.debug.assertOrPanic(e == error.Fail);
+        std.testing.expect(e == error.Fail);
         if (@errorReturnTrace()) |trace| {
-            assertOrPanic(trace.index == 1);
+            expect(trace.index == 1);
         } else switch (builtin.mode) {
             builtin.Mode.Debug, builtin.Mode.ReleaseSafe => @panic("expected return trace"),
             builtin.Mode.ReleaseFast, builtin.Mode.ReleaseSmall => {},
@@ -246,7 +246,7 @@ test "break from suspend" {
     var my_result: i32 = 1;
     const p = try async<a> testBreakFromSuspend(&my_result);
     cancel p;
-    std.debug.assertOrPanic(my_result == 2);
+    std.testing.expect(my_result == 2);
 }
 async fn testBreakFromSuspend(my_result: *i32) void {
     suspend {

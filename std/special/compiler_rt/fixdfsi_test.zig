@@ -1,13 +1,13 @@
 const __fixdfsi = @import("fixdfsi.zig").__fixdfsi;
 const std = @import("std");
 const math = std.math;
-const assert = std.debug.assert;
+const testing = std.testing;
 const warn = std.debug.warn;
 
 fn test__fixdfsi(a: f64, expected: i32) void {
     const x = __fixdfsi(a);
     //warn("a={}:{x} x={}:{x} expected={}:{x}:u64({x})\n", a, @bitCast(u64, a), x, x, expected, expected, @bitCast(u32, expected));
-    assert(x == expected);
+    testing.expect(x == expected);
 }
 
 test "fixdfsi" {

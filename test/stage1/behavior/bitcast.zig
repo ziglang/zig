@@ -1,5 +1,5 @@
 const std = @import("std");
-const assertOrPanic = std.debug.assertOrPanic;
+const expect = std.testing.expect;
 const maxInt = std.math.maxInt;
 
 test "@bitCast i32 -> u32" {
@@ -8,8 +8,8 @@ test "@bitCast i32 -> u32" {
 }
 
 fn testBitCast_i32_u32() void {
-    assertOrPanic(conv(-1) == maxInt(u32));
-    assertOrPanic(conv2(maxInt(u32)) == -1);
+    expect(conv(-1) == maxInt(u32));
+    expect(conv2(maxInt(u32)) == -1);
 }
 
 fn conv(x: i32) u32 {
@@ -27,7 +27,7 @@ test "@bitCast extern enum to its integer type" {
         fn testBitCastExternEnum() void {
             var SOCK_DGRAM = @This().B;
             var sock_dgram = @bitCast(c_int, SOCK_DGRAM);
-            assertOrPanic(sock_dgram == 1);
+            expect(sock_dgram == 1);
         }
     };
 

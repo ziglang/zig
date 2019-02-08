@@ -1,6 +1,6 @@
 const std = @import("../index.zig");
 const math = std.math;
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 const maxInt = std.math.maxInt;
 
 pub fn isFinite(x: var) bool {
@@ -25,16 +25,16 @@ pub fn isFinite(x: var) bool {
 }
 
 test "math.isFinite" {
-    assert(isFinite(f16(0.0)));
-    assert(isFinite(f16(-0.0)));
-    assert(isFinite(f32(0.0)));
-    assert(isFinite(f32(-0.0)));
-    assert(isFinite(f64(0.0)));
-    assert(isFinite(f64(-0.0)));
-    assert(!isFinite(math.inf(f16)));
-    assert(!isFinite(-math.inf(f16)));
-    assert(!isFinite(math.inf(f32)));
-    assert(!isFinite(-math.inf(f32)));
-    assert(!isFinite(math.inf(f64)));
-    assert(!isFinite(-math.inf(f64)));
+    expect(isFinite(f16(0.0)));
+    expect(isFinite(f16(-0.0)));
+    expect(isFinite(f32(0.0)));
+    expect(isFinite(f32(-0.0)));
+    expect(isFinite(f64(0.0)));
+    expect(isFinite(f64(-0.0)));
+    expect(!isFinite(math.inf(f16)));
+    expect(!isFinite(-math.inf(f16)));
+    expect(!isFinite(math.inf(f32)));
+    expect(!isFinite(-math.inf(f32)));
+    expect(!isFinite(math.inf(f64)));
+    expect(!isFinite(-math.inf(f64)));
 }

@@ -110,6 +110,7 @@ comptime {
 
 const std = @import("std");
 const assert = std.debug.assert;
+const testing = std.testing;
 
 const __udivmoddi4 = @import("udivmoddi4.zig").__udivmoddi4;
 
@@ -417,7 +418,7 @@ test "test_umoddi3" {
 
 fn test_one_umoddi3(a: u64, b: u64, expected_r: u64) void {
     const r = __umoddi3(a, b);
-    assert(r == expected_r);
+    testing.expect(r == expected_r);
 }
 
 test "test_udivsi3" {
@@ -1091,5 +1092,5 @@ test "test_udivsi3" {
 
 fn test_one_udivsi3(a: u32, b: u32, expected_q: u32) void {
     const q: u32 = __udivsi3(a, b);
-    assert(q == expected_q);
+    testing.expect(q == expected_q);
 }

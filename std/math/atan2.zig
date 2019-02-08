@@ -20,7 +20,7 @@
 
 const std = @import("../index.zig");
 const math = std.math;
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 pub fn atan2(comptime T: type, y: T, x: T) T {
     return switch (T) {
@@ -206,78 +206,78 @@ fn atan2_64(y: f64, x: f64) f64 {
 }
 
 test "math.atan2" {
-    assert(atan2(f32, 0.2, 0.21) == atan2_32(0.2, 0.21));
-    assert(atan2(f64, 0.2, 0.21) == atan2_64(0.2, 0.21));
+    expect(atan2(f32, 0.2, 0.21) == atan2_32(0.2, 0.21));
+    expect(atan2(f64, 0.2, 0.21) == atan2_64(0.2, 0.21));
 }
 
 test "math.atan2_32" {
     const epsilon = 0.000001;
 
-    assert(math.approxEq(f32, atan2_32(0.0, 0.0), 0.0, epsilon));
-    assert(math.approxEq(f32, atan2_32(0.2, 0.2), 0.785398, epsilon));
-    assert(math.approxEq(f32, atan2_32(-0.2, 0.2), -0.785398, epsilon));
-    assert(math.approxEq(f32, atan2_32(0.2, -0.2), 2.356194, epsilon));
-    assert(math.approxEq(f32, atan2_32(-0.2, -0.2), -2.356194, epsilon));
-    assert(math.approxEq(f32, atan2_32(0.34, -0.4), 2.437099, epsilon));
-    assert(math.approxEq(f32, atan2_32(0.34, 1.243), 0.267001, epsilon));
+    expect(math.approxEq(f32, atan2_32(0.0, 0.0), 0.0, epsilon));
+    expect(math.approxEq(f32, atan2_32(0.2, 0.2), 0.785398, epsilon));
+    expect(math.approxEq(f32, atan2_32(-0.2, 0.2), -0.785398, epsilon));
+    expect(math.approxEq(f32, atan2_32(0.2, -0.2), 2.356194, epsilon));
+    expect(math.approxEq(f32, atan2_32(-0.2, -0.2), -2.356194, epsilon));
+    expect(math.approxEq(f32, atan2_32(0.34, -0.4), 2.437099, epsilon));
+    expect(math.approxEq(f32, atan2_32(0.34, 1.243), 0.267001, epsilon));
 }
 
 test "math.atan2_64" {
     const epsilon = 0.000001;
 
-    assert(math.approxEq(f64, atan2_64(0.0, 0.0), 0.0, epsilon));
-    assert(math.approxEq(f64, atan2_64(0.2, 0.2), 0.785398, epsilon));
-    assert(math.approxEq(f64, atan2_64(-0.2, 0.2), -0.785398, epsilon));
-    assert(math.approxEq(f64, atan2_64(0.2, -0.2), 2.356194, epsilon));
-    assert(math.approxEq(f64, atan2_64(-0.2, -0.2), -2.356194, epsilon));
-    assert(math.approxEq(f64, atan2_64(0.34, -0.4), 2.437099, epsilon));
-    assert(math.approxEq(f64, atan2_64(0.34, 1.243), 0.267001, epsilon));
+    expect(math.approxEq(f64, atan2_64(0.0, 0.0), 0.0, epsilon));
+    expect(math.approxEq(f64, atan2_64(0.2, 0.2), 0.785398, epsilon));
+    expect(math.approxEq(f64, atan2_64(-0.2, 0.2), -0.785398, epsilon));
+    expect(math.approxEq(f64, atan2_64(0.2, -0.2), 2.356194, epsilon));
+    expect(math.approxEq(f64, atan2_64(-0.2, -0.2), -2.356194, epsilon));
+    expect(math.approxEq(f64, atan2_64(0.34, -0.4), 2.437099, epsilon));
+    expect(math.approxEq(f64, atan2_64(0.34, 1.243), 0.267001, epsilon));
 }
 
 test "math.atan2_32.special" {
     const epsilon = 0.000001;
 
-    assert(math.isNan(atan2_32(1.0, math.nan(f32))));
-    assert(math.isNan(atan2_32(math.nan(f32), 1.0)));
-    assert(atan2_32(0.0, 5.0) == 0.0);
-    assert(atan2_32(-0.0, 5.0) == -0.0);
-    assert(math.approxEq(f32, atan2_32(0.0, -5.0), math.pi, epsilon));
-    //assert(math.approxEq(f32, atan2_32(-0.0, -5.0), -math.pi, epsilon)); TODO support negative zero?
-    assert(math.approxEq(f32, atan2_32(1.0, 0.0), math.pi / 2.0, epsilon));
-    assert(math.approxEq(f32, atan2_32(1.0, -0.0), math.pi / 2.0, epsilon));
-    assert(math.approxEq(f32, atan2_32(-1.0, 0.0), -math.pi / 2.0, epsilon));
-    assert(math.approxEq(f32, atan2_32(-1.0, -0.0), -math.pi / 2.0, epsilon));
-    assert(math.approxEq(f32, atan2_32(math.inf(f32), math.inf(f32)), math.pi / 4.0, epsilon));
-    assert(math.approxEq(f32, atan2_32(-math.inf(f32), math.inf(f32)), -math.pi / 4.0, epsilon));
-    assert(math.approxEq(f32, atan2_32(math.inf(f32), -math.inf(f32)), 3.0 * math.pi / 4.0, epsilon));
-    assert(math.approxEq(f32, atan2_32(-math.inf(f32), -math.inf(f32)), -3.0 * math.pi / 4.0, epsilon));
-    assert(atan2_32(1.0, math.inf(f32)) == 0.0);
-    assert(math.approxEq(f32, atan2_32(1.0, -math.inf(f32)), math.pi, epsilon));
-    assert(math.approxEq(f32, atan2_32(-1.0, -math.inf(f32)), -math.pi, epsilon));
-    assert(math.approxEq(f32, atan2_32(math.inf(f32), 1.0), math.pi / 2.0, epsilon));
-    assert(math.approxEq(f32, atan2_32(-math.inf(f32), 1.0), -math.pi / 2.0, epsilon));
+    expect(math.isNan(atan2_32(1.0, math.nan(f32))));
+    expect(math.isNan(atan2_32(math.nan(f32), 1.0)));
+    expect(atan2_32(0.0, 5.0) == 0.0);
+    expect(atan2_32(-0.0, 5.0) == -0.0);
+    expect(math.approxEq(f32, atan2_32(0.0, -5.0), math.pi, epsilon));
+    //expect(math.approxEq(f32, atan2_32(-0.0, -5.0), -math.pi, epsilon)); TODO support negative zero?
+    expect(math.approxEq(f32, atan2_32(1.0, 0.0), math.pi / 2.0, epsilon));
+    expect(math.approxEq(f32, atan2_32(1.0, -0.0), math.pi / 2.0, epsilon));
+    expect(math.approxEq(f32, atan2_32(-1.0, 0.0), -math.pi / 2.0, epsilon));
+    expect(math.approxEq(f32, atan2_32(-1.0, -0.0), -math.pi / 2.0, epsilon));
+    expect(math.approxEq(f32, atan2_32(math.inf(f32), math.inf(f32)), math.pi / 4.0, epsilon));
+    expect(math.approxEq(f32, atan2_32(-math.inf(f32), math.inf(f32)), -math.pi / 4.0, epsilon));
+    expect(math.approxEq(f32, atan2_32(math.inf(f32), -math.inf(f32)), 3.0 * math.pi / 4.0, epsilon));
+    expect(math.approxEq(f32, atan2_32(-math.inf(f32), -math.inf(f32)), -3.0 * math.pi / 4.0, epsilon));
+    expect(atan2_32(1.0, math.inf(f32)) == 0.0);
+    expect(math.approxEq(f32, atan2_32(1.0, -math.inf(f32)), math.pi, epsilon));
+    expect(math.approxEq(f32, atan2_32(-1.0, -math.inf(f32)), -math.pi, epsilon));
+    expect(math.approxEq(f32, atan2_32(math.inf(f32), 1.0), math.pi / 2.0, epsilon));
+    expect(math.approxEq(f32, atan2_32(-math.inf(f32), 1.0), -math.pi / 2.0, epsilon));
 }
 
 test "math.atan2_64.special" {
     const epsilon = 0.000001;
 
-    assert(math.isNan(atan2_64(1.0, math.nan(f64))));
-    assert(math.isNan(atan2_64(math.nan(f64), 1.0)));
-    assert(atan2_64(0.0, 5.0) == 0.0);
-    assert(atan2_64(-0.0, 5.0) == -0.0);
-    assert(math.approxEq(f64, atan2_64(0.0, -5.0), math.pi, epsilon));
-    //assert(math.approxEq(f64, atan2_64(-0.0, -5.0), -math.pi, epsilon)); TODO support negative zero?
-    assert(math.approxEq(f64, atan2_64(1.0, 0.0), math.pi / 2.0, epsilon));
-    assert(math.approxEq(f64, atan2_64(1.0, -0.0), math.pi / 2.0, epsilon));
-    assert(math.approxEq(f64, atan2_64(-1.0, 0.0), -math.pi / 2.0, epsilon));
-    assert(math.approxEq(f64, atan2_64(-1.0, -0.0), -math.pi / 2.0, epsilon));
-    assert(math.approxEq(f64, atan2_64(math.inf(f64), math.inf(f64)), math.pi / 4.0, epsilon));
-    assert(math.approxEq(f64, atan2_64(-math.inf(f64), math.inf(f64)), -math.pi / 4.0, epsilon));
-    assert(math.approxEq(f64, atan2_64(math.inf(f64), -math.inf(f64)), 3.0 * math.pi / 4.0, epsilon));
-    assert(math.approxEq(f64, atan2_64(-math.inf(f64), -math.inf(f64)), -3.0 * math.pi / 4.0, epsilon));
-    assert(atan2_64(1.0, math.inf(f64)) == 0.0);
-    assert(math.approxEq(f64, atan2_64(1.0, -math.inf(f64)), math.pi, epsilon));
-    assert(math.approxEq(f64, atan2_64(-1.0, -math.inf(f64)), -math.pi, epsilon));
-    assert(math.approxEq(f64, atan2_64(math.inf(f64), 1.0), math.pi / 2.0, epsilon));
-    assert(math.approxEq(f64, atan2_64(-math.inf(f64), 1.0), -math.pi / 2.0, epsilon));
+    expect(math.isNan(atan2_64(1.0, math.nan(f64))));
+    expect(math.isNan(atan2_64(math.nan(f64), 1.0)));
+    expect(atan2_64(0.0, 5.0) == 0.0);
+    expect(atan2_64(-0.0, 5.0) == -0.0);
+    expect(math.approxEq(f64, atan2_64(0.0, -5.0), math.pi, epsilon));
+    //expect(math.approxEq(f64, atan2_64(-0.0, -5.0), -math.pi, epsilon)); TODO support negative zero?
+    expect(math.approxEq(f64, atan2_64(1.0, 0.0), math.pi / 2.0, epsilon));
+    expect(math.approxEq(f64, atan2_64(1.0, -0.0), math.pi / 2.0, epsilon));
+    expect(math.approxEq(f64, atan2_64(-1.0, 0.0), -math.pi / 2.0, epsilon));
+    expect(math.approxEq(f64, atan2_64(-1.0, -0.0), -math.pi / 2.0, epsilon));
+    expect(math.approxEq(f64, atan2_64(math.inf(f64), math.inf(f64)), math.pi / 4.0, epsilon));
+    expect(math.approxEq(f64, atan2_64(-math.inf(f64), math.inf(f64)), -math.pi / 4.0, epsilon));
+    expect(math.approxEq(f64, atan2_64(math.inf(f64), -math.inf(f64)), 3.0 * math.pi / 4.0, epsilon));
+    expect(math.approxEq(f64, atan2_64(-math.inf(f64), -math.inf(f64)), -3.0 * math.pi / 4.0, epsilon));
+    expect(atan2_64(1.0, math.inf(f64)) == 0.0);
+    expect(math.approxEq(f64, atan2_64(1.0, -math.inf(f64)), math.pi, epsilon));
+    expect(math.approxEq(f64, atan2_64(-1.0, -math.inf(f64)), -math.pi, epsilon));
+    expect(math.approxEq(f64, atan2_64(math.inf(f64), 1.0), math.pi / 2.0, epsilon));
+    expect(math.approxEq(f64, atan2_64(-math.inf(f64), 1.0), -math.pi / 2.0, epsilon));
 }
