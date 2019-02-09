@@ -11510,10 +11510,13 @@ static IrInstruction *ir_analyze_instruction_return(IrAnalyze *ira, IrInstructio
         return ir_unreach_error(ira);
 
     IrInstruction *casted_value = ir_implicit_cast(ira, value, ira->explicit_return_type);
-    if (type_is_invalid(casted_value->value.type) && ira->explicit_return_type_source_node != nullptr) {
-        ErrorMsg *msg = ira->codegen->errors.last();
-        add_error_note(ira->codegen, msg, ira->explicit_return_type_source_node,
-            buf_sprintf("return type declared here"));
+    if (type_is_invalid(casted_value->value.type)) {
+        AstNode *source_node = ira->explicit_return_type_source_node;
+        if (source_node != nullptr) {
+            ErrorMsg *msg = ira->codegen->errors.last();
+            add_error_note(ira->codegen, msg, source_node,
+                buf_sprintf("return type declared here"));
+        }
         return ir_unreach_error(ira);
     }
 

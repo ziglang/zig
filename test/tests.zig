@@ -538,6 +538,7 @@ pub const CompileErrorContext = struct {
         expected_errors: ArrayList([]const u8),
         link_libc: bool,
         is_exe: bool,
+        is_test: bool,
 
         const SourceFile = struct {
             filename: []const u8,
@@ -596,7 +597,13 @@ pub const CompileErrorContext = struct {
             var zig_args = ArrayList([]const u8).init(b.allocator);
             zig_args.append(b.zig_exe) catch unreachable;
 
-            zig_args.append(if (self.case.is_exe) "build-exe" else "build-obj") catch unreachable;
+            if (self.case.is_exe) {
+                try zig_args.append("build-exe");
+            } else if (self.case.is_test) {
+                try zig_args.append("test");
+            } else {
+                try zig_args.append("build-obj");
+            }
             zig_args.append(b.pathFromRoot(root_src)) catch unreachable;
 
             zig_args.append("--name") catch unreachable;
@@ -699,6 +706,7 @@ pub const CompileErrorContext = struct {
             .expected_errors = ArrayList([]const u8).init(self.b.allocator),
             .link_libc = false,
             .is_exe = false,
+            .is_test = false,
         };
 
         tc.addSourceFile(".tmp_source.zig", source);
@@ -723,6 +731,12 @@ pub const CompileErrorContext = struct {
 
     pub fn add(self: *CompileErrorContext, name: []const u8, source: []const u8, expected_lines: ...) void {
         const tc = self.create(name, source, expected_lines);
+        self.addCase(tc);
+    }
+
+    pub fn addTest(self: *CompileErrorContext, name: []const u8, source: []const u8, expected_lines: ...) void {
+        const tc = self.create(name, source, expected_lines);
+        tc.is_test = true;
         self.addCase(tc);
     }
 
