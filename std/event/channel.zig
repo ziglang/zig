@@ -1,6 +1,7 @@
 const std = @import("../index.zig");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
+const testing = std.testing;
 const AtomicRmwOp = builtin.AtomicRmwOp;
 const AtomicOrder = builtin.AtomicOrder;
 const Loop = std.event.Loop;
@@ -350,19 +351,19 @@ async fn testChannelGetter(loop: *Loop, channel: *Channel(i32)) void {
 
     const value1_promise = try async channel.get();
     const value1 = await value1_promise;
-    assert(value1 == 1234);
+    testing.expect(value1 == 1234);
 
     const value2_promise = try async channel.get();
     const value2 = await value2_promise;
-    assert(value2 == 4567);
+    testing.expect(value2 == 4567);
 
     const value3_promise = try async channel.getOrNull();
     const value3 = await value3_promise;
-    assert(value3 == null);
+    testing.expect(value3 == null);
 
     const last_put = try async testPut(channel, 4444);
     const value4 = await try async channel.getOrNull();
-    assert(value4.? == 4444);
+    testing.expect(value4.? == 4444);
     await last_put;
 }
 

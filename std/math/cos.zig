@@ -6,7 +6,7 @@
 const builtin = @import("builtin");
 const std = @import("../index.zig");
 const math = std.math;
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 pub fn cos(x: var) @typeOf(x) {
     const T = @typeOf(x);
@@ -139,40 +139,40 @@ fn cos64(x_: f64) f64 {
 }
 
 test "math.cos" {
-    assert(cos(f32(0.0)) == cos32(0.0));
-    assert(cos(f64(0.0)) == cos64(0.0));
+    expect(cos(f32(0.0)) == cos32(0.0));
+    expect(cos(f64(0.0)) == cos64(0.0));
 }
 
 test "math.cos32" {
     const epsilon = 0.000001;
 
-    assert(math.approxEq(f32, cos32(0.0), 1.0, epsilon));
-    assert(math.approxEq(f32, cos32(0.2), 0.980067, epsilon));
-    assert(math.approxEq(f32, cos32(0.8923), 0.627623, epsilon));
-    assert(math.approxEq(f32, cos32(1.5), 0.070737, epsilon));
-    assert(math.approxEq(f32, cos32(37.45), 0.969132, epsilon));
-    assert(math.approxEq(f32, cos32(89.123), 0.400798, epsilon));
+    expect(math.approxEq(f32, cos32(0.0), 1.0, epsilon));
+    expect(math.approxEq(f32, cos32(0.2), 0.980067, epsilon));
+    expect(math.approxEq(f32, cos32(0.8923), 0.627623, epsilon));
+    expect(math.approxEq(f32, cos32(1.5), 0.070737, epsilon));
+    expect(math.approxEq(f32, cos32(37.45), 0.969132, epsilon));
+    expect(math.approxEq(f32, cos32(89.123), 0.400798, epsilon));
 }
 
 test "math.cos64" {
     const epsilon = 0.000001;
 
-    assert(math.approxEq(f64, cos64(0.0), 1.0, epsilon));
-    assert(math.approxEq(f64, cos64(0.2), 0.980067, epsilon));
-    assert(math.approxEq(f64, cos64(0.8923), 0.627623, epsilon));
-    assert(math.approxEq(f64, cos64(1.5), 0.070737, epsilon));
-    assert(math.approxEq(f64, cos64(37.45), 0.969132, epsilon));
-    assert(math.approxEq(f64, cos64(89.123), 0.40080, epsilon));
+    expect(math.approxEq(f64, cos64(0.0), 1.0, epsilon));
+    expect(math.approxEq(f64, cos64(0.2), 0.980067, epsilon));
+    expect(math.approxEq(f64, cos64(0.8923), 0.627623, epsilon));
+    expect(math.approxEq(f64, cos64(1.5), 0.070737, epsilon));
+    expect(math.approxEq(f64, cos64(37.45), 0.969132, epsilon));
+    expect(math.approxEq(f64, cos64(89.123), 0.40080, epsilon));
 }
 
 test "math.cos32.special" {
-    assert(math.isNan(cos32(math.inf(f32))));
-    assert(math.isNan(cos32(-math.inf(f32))));
-    assert(math.isNan(cos32(math.nan(f32))));
+    expect(math.isNan(cos32(math.inf(f32))));
+    expect(math.isNan(cos32(-math.inf(f32))));
+    expect(math.isNan(cos32(math.nan(f32))));
 }
 
 test "math.cos64.special" {
-    assert(math.isNan(cos64(math.inf(f64))));
-    assert(math.isNan(cos64(-math.inf(f64))));
-    assert(math.isNan(cos64(math.nan(f64))));
+    expect(math.isNan(cos64(math.inf(f64))));
+    expect(math.isNan(cos64(-math.inf(f64))));
+    expect(math.isNan(cos64(math.nan(f64))));
 }

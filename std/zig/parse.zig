@@ -229,6 +229,32 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 }) catch unreachable;
                 continue;
             },
+            State.ThreadLocal => |ctx| {
+                const token = nextToken(&tok_it, &tree);
+                const token_index = token.index;
+                const token_ptr = token.ptr;
+                switch (token_ptr.id) {
+                    Token.Id.Keyword_var, Token.Id.Keyword_const => {
+                        try stack.append(State{
+                            .VarDecl = VarDeclCtx{
+                                .comments = ctx.comments,
+                                .visib_token = ctx.visib_token,
+                                .thread_local_token = ctx.thread_local_token,
+                                .lib_name = ctx.lib_name,
+                                .comptime_token = ctx.comptime_token,
+                                .extern_export_token = ctx.extern_export_token,
+                                .mut_token = token_index,
+                                .list = ctx.list,
+                            },
+                        });
+                        continue;
+                    },
+                    else => {
+                        ((try tree.errors.addOne())).* = Error{ .ExpectedVarDecl = Error.ExpectedVarDecl{ .token = token_index } };
+                        return tree;
+                    },
+                }
+            },
             State.TopLevelDecl => |ctx| {
                 const token = nextToken(&tok_it, &tree);
                 const token_index = token.index;
@@ -260,6 +286,28 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         try stack.append(State{ .Expression = OptionalCtx{ .Required = &node.expr } });
                         continue;
                     },
+                    Token.Id.Keyword_threadlocal => {
+                        if (ctx.extern_export_inline_token) |annotated_token| {
+                            if (annotated_token.ptr.id == Token.Id.Keyword_inline) {
+                                ((try tree.errors.addOne())).* = Error{ .InvalidToken = Error.InvalidToken{ .token = annotated_token.index } };
+                                return tree;
+                            }
+                        }
+
+                        try stack.append(State{
+                            .ThreadLocal = VarDeclCtx{
+                                .comments = ctx.comments,
+                                .visib_token = ctx.visib_token,
+                                .thread_local_token = token_index,
+                                .lib_name = ctx.lib_name,
+                                .comptime_token = null,
+                                .extern_export_token = if (ctx.extern_export_inline_token) |at| at.index else null,
+                                .mut_token = undefined,
+                                .list = ctx.decls,
+                            },
+                        });
+                        continue;
+                    },
                     Token.Id.Keyword_var, Token.Id.Keyword_const => {
                         if (ctx.extern_export_inline_token) |annotated_token| {
                             if (annotated_token.ptr.id == Token.Id.Keyword_inline) {
@@ -272,6 +320,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                             .VarDecl = VarDeclCtx{
                                 .comments = ctx.comments,
                                 .visib_token = ctx.visib_token,
+                                .thread_local_token = null,
                                 .lib_name = ctx.lib_name,
                                 .comptime_token = null,
                                 .extern_export_token = if (ctx.extern_export_inline_token) |at| at.index else null,
@@ -611,6 +660,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     .base = ast.Node{ .id = ast.Node.Id.VarDecl },
                     .doc_comments = ctx.comments,
                     .visib_token = ctx.visib_token,
+                    .thread_local_token = ctx.thread_local_token,
                     .mut_token = ctx.mut_token,
                     .comptime_token = ctx.comptime_token,
                     .extern_export_token = ctx.extern_export_token,
@@ -1094,6 +1144,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                             .VarDecl = VarDeclCtx{
                                 .comments = null,
                                 .visib_token = null,
+                                .thread_local_token = null,
                                 .comptime_token = null,
                                 .extern_export_token = null,
                                 .lib_name = null,
@@ -1150,6 +1201,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                             .VarDecl = VarDeclCtx{
                                 .comments = null,
                                 .visib_token = null,
+                                .thread_local_token = null,
                                 .comptime_token = ctx.comptime_token,
                                 .extern_export_token = null,
                                 .lib_name = null,
@@ -2937,6 +2989,7 @@ const TopLevelDeclCtx = struct {
 const VarDeclCtx = struct {
     mut_token: TokenIndex,
     visib_token: ?TokenIndex,
+    thread_local_token: ?TokenIndex,
     comptime_token: ?TokenIndex,
     extern_export_token: ?TokenIndex,
     lib_name: ?*ast.Node,
@@ -3081,6 +3134,7 @@ const State = union(enum) {
     ContainerInitArg: *ast.Node.ContainerDecl,
     ContainerDecl: *ast.Node.ContainerDecl,
 
+    ThreadLocal: VarDeclCtx,
     VarDecl: VarDeclCtx,
     VarDeclAlign: *ast.Node.VarDecl,
     VarDeclSection: *ast.Node.VarDecl,

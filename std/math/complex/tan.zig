@@ -1,5 +1,5 @@
 const std = @import("../../index.zig");
-const debug = std.debug;
+const testing = std.testing;
 const math = std.math;
 const cmath = math.complex;
 const Complex = cmath.Complex;
@@ -17,6 +17,6 @@ test "complex.ctan" {
     const a = Complex(f32).new(5, 3);
     const c = tan(a);
 
-    debug.assert(math.approxEq(f32, c.re, -0.002708233, epsilon));
-    debug.assert(math.approxEq(f32, c.im, 1.004165, epsilon));
+    testing.expect(math.approxEq(f32, c.re, -0.002708233, epsilon));
+    testing.expect(math.approxEq(f32, c.im, 1.004165, epsilon));
 }

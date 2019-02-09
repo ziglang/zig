@@ -1,4 +1,4 @@
-const assertOrPanic = @import("std").debug.assertOrPanic;
+const expect = @import("std").testing.expect;
 
 const Node = struct {
     payload: i32,
@@ -39,12 +39,12 @@ test "struct contains slice of itself" {
         .payload = 1234,
         .children = nodes[0..],
     };
-    assertOrPanic(root.payload == 1234);
-    assertOrPanic(root.children[0].payload == 1);
-    assertOrPanic(root.children[1].payload == 2);
-    assertOrPanic(root.children[2].payload == 3);
-    assertOrPanic(root.children[2].children[0].payload == 31);
-    assertOrPanic(root.children[2].children[1].payload == 32);
+    expect(root.payload == 1234);
+    expect(root.children[0].payload == 1);
+    expect(root.children[1].payload == 2);
+    expect(root.children[2].payload == 3);
+    expect(root.children[2].children[0].payload == 31);
+    expect(root.children[2].children[1].payload == 32);
 }
 
 test "struct contains aligned slice of itself" {
@@ -76,10 +76,10 @@ test "struct contains aligned slice of itself" {
         .payload = 1234,
         .children = nodes[0..],
     };
-    assertOrPanic(root.payload == 1234);
-    assertOrPanic(root.children[0].payload == 1);
-    assertOrPanic(root.children[1].payload == 2);
-    assertOrPanic(root.children[2].payload == 3);
-    assertOrPanic(root.children[2].children[0].payload == 31);
-    assertOrPanic(root.children[2].children[1].payload == 32);
+    expect(root.payload == 1234);
+    expect(root.children[0].payload == 1);
+    expect(root.children[1].payload == 2);
+    expect(root.children[2].payload == 3);
+    expect(root.children[2].children[0].payload == 31);
+    expect(root.children[2].children[1].payload == 32);
 }

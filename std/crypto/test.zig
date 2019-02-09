@@ -1,6 +1,7 @@
-const debug = @import("../debug/index.zig");
-const mem = @import("../mem.zig");
-const fmt = @import("../fmt/index.zig");
+const std = @import("../index.zig");
+const testing = std.testing;
+const mem = std.mem;
+const fmt = std.fmt;
 
 // Hash using the specified hasher `H` asserting `expected == H(input)`.
 pub fn assertEqualHash(comptime Hasher: var, comptime expected: []const u8, input: []const u8) void {
@@ -17,5 +18,5 @@ pub fn assertEqual(comptime expected: []const u8, input: []const u8) void {
         r.* = fmt.parseInt(u8, expected[2 * i .. 2 * i + 2], 16) catch unreachable;
     }
 
-    debug.assert(mem.eql(u8, expected_bytes, input));
+    testing.expectEqualSlices(u8, expected_bytes, input);
 }

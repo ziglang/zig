@@ -1,4 +1,4 @@
-const assertOrPanic = @import("std").debug.assertOrPanic;
+const expect = @import("std").testing.expect;
 
 fn add(args: ...) i32 {
     var sum = i32(0);
@@ -12,9 +12,9 @@ fn add(args: ...) i32 {
 }
 
 test "add arbitrary args" {
-    assertOrPanic(add(i32(1), i32(2), i32(3), i32(4)) == 10);
-    assertOrPanic(add(i32(1234)) == 1234);
-    assertOrPanic(add() == 0);
+    expect(add(i32(1), i32(2), i32(3), i32(4)) == 10);
+    expect(add(i32(1234)) == 1234);
+    expect(add() == 0);
 }
 
 fn readFirstVarArg(args: ...) void {
@@ -26,9 +26,9 @@ test "send void arg to var args" {
 }
 
 test "pass args directly" {
-    assertOrPanic(addSomeStuff(i32(1), i32(2), i32(3), i32(4)) == 10);
-    assertOrPanic(addSomeStuff(i32(1234)) == 1234);
-    assertOrPanic(addSomeStuff() == 0);
+    expect(addSomeStuff(i32(1), i32(2), i32(3), i32(4)) == 10);
+    expect(addSomeStuff(i32(1234)) == 1234);
+    expect(addSomeStuff() == 0);
 }
 
 fn addSomeStuff(args: ...) i32 {
@@ -36,24 +36,24 @@ fn addSomeStuff(args: ...) i32 {
 }
 
 test "runtime parameter before var args" {
-    assertOrPanic(extraFn(10) == 0);
-    assertOrPanic(extraFn(10, false) == 1);
-    assertOrPanic(extraFn(10, false, true) == 2);
+    expect(extraFn(10) == 0);
+    expect(extraFn(10, false) == 1);
+    expect(extraFn(10, false, true) == 2);
 
     // TODO issue #313
     //comptime {
-    //    assertOrPanic(extraFn(10) == 0);
-    //    assertOrPanic(extraFn(10, false) == 1);
-    //    assertOrPanic(extraFn(10, false, true) == 2);
+    //    expect(extraFn(10) == 0);
+    //    expect(extraFn(10, false) == 1);
+    //    expect(extraFn(10, false, true) == 2);
     //}
 }
 
 fn extraFn(extra: u32, args: ...) usize {
     if (args.len >= 1) {
-        assertOrPanic(args[0] == false);
+        expect(args[0] == false);
     }
     if (args.len >= 2) {
-        assertOrPanic(args[1] == true);
+        expect(args[1] == true);
     }
     return args.len;
 }
@@ -71,8 +71,8 @@ fn foo2(args: ...) bool {
 }
 
 test "array of var args functions" {
-    assertOrPanic(foos[0]());
-    assertOrPanic(!foos[1]());
+    expect(foos[0]());
+    expect(!foos[1]());
 }
 
 test "pass zero length array to var args param" {

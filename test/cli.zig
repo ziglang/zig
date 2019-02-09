@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const os = std.os;
-const assertOrPanic = std.debug.assertOrPanic;
+const testing = std.testing;
 
 var a: *std.mem.Allocator = undefined;
 
@@ -87,13 +87,13 @@ fn exec(cwd: []const u8, argv: []const []const u8) !os.ChildProcess.ExecResult {
 fn testZigInitLib(zig_exe: []const u8, dir_path: []const u8) !void {
     _ = try exec(dir_path, [][]const u8{ zig_exe, "init-lib" });
     const test_result = try exec(dir_path, [][]const u8{ zig_exe, "build", "test" });
-    assertOrPanic(std.mem.endsWith(u8, test_result.stderr, "All tests passed.\n"));
+    testing.expect(std.mem.endsWith(u8, test_result.stderr, "All tests passed.\n"));
 }
 
 fn testZigInitExe(zig_exe: []const u8, dir_path: []const u8) !void {
     _ = try exec(dir_path, [][]const u8{ zig_exe, "init-exe" });
     const run_result = try exec(dir_path, [][]const u8{ zig_exe, "build", "run" });
-    assertOrPanic(std.mem.eql(u8, run_result.stderr, "All your base are belong to us.\n"));
+    testing.expect(std.mem.eql(u8, run_result.stderr, "All your base are belong to us.\n"));
 }
 
 fn testGodboltApi(zig_exe: []const u8, dir_path: []const u8) anyerror!void {
@@ -126,7 +126,7 @@ fn testGodboltApi(zig_exe: []const u8, dir_path: []const u8) anyerror!void {
     _ = try exec(dir_path, args);
 
     const out_asm = try std.io.readFileAlloc(a, example_s_path);
-    assertOrPanic(std.mem.indexOf(u8, out_asm, "square:") != null);
-    assertOrPanic(std.mem.indexOf(u8, out_asm, "mov\teax, edi") != null);
-    assertOrPanic(std.mem.indexOf(u8, out_asm, "imul\teax, edi") != null);
+    testing.expect(std.mem.indexOf(u8, out_asm, "square:") != null);
+    testing.expect(std.mem.indexOf(u8, out_asm, "mov\teax, edi") != null);
+    testing.expect(std.mem.indexOf(u8, out_asm, "imul\teax, edi") != null);
 }

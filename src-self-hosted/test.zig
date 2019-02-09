@@ -4,7 +4,7 @@ const builtin = @import("builtin");
 const Target = @import("target.zig").Target;
 const Compilation = @import("compilation.zig").Compilation;
 const introspect = @import("introspect.zig");
-const assertOrPanic = std.debug.assertOrPanic;
+const testing = std.testing;
 const errmsg = @import("errmsg.zig");
 const ZigCompiler = @import("compilation.zig").ZigCompiler;
 
@@ -210,7 +210,7 @@ pub const TestContext = struct {
                 @panic("build incorrectly failed");
             },
             Compilation.Event.Fail => |msgs| {
-                assertOrPanic(msgs.len != 0);
+                testing.expect(msgs.len != 0);
                 for (msgs) |msg| {
                     if (mem.endsWith(u8, msg.realpath, path) and mem.eql(u8, msg.text, text)) {
                         const span = msg.getSpan();

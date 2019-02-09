@@ -1,4 +1,4 @@
-const assertOrPanic = @import("std").debug.assertOrPanic;
+const expect = @import("std").testing.expect;
 
 const Value = union(enum) {
     Int: u64,
@@ -27,11 +27,11 @@ const array = []Value{
 
 test "unions embedded in aggregate types" {
     switch (array[1]) {
-        Value.Array => |arr| assertOrPanic(arr[4] == 3),
+        Value.Array => |arr| expect(arr[4] == 3),
         else => unreachable,
     }
     switch ((err catch unreachable).val1) {
-        Value.Int => |x| assertOrPanic(x == 1234),
+        Value.Int => |x| expect(x == 1234),
         else => unreachable,
     }
 }
@@ -43,18 +43,18 @@ const Foo = union {
 
 test "basic unions" {
     var foo = Foo{ .int = 1 };
-    assertOrPanic(foo.int == 1);
+    expect(foo.int == 1);
     foo = Foo{ .float = 12.34 };
-    assertOrPanic(foo.float == 12.34);
+    expect(foo.float == 12.34);
 }
 
 test "comptime union field access" {
     comptime {
         var foo = Foo{ .int = 0 };
-        assertOrPanic(foo.int == 0);
+        expect(foo.int == 0);
 
         foo = Foo{ .float = 42.42 };
-        assertOrPanic(foo.float == 42.42);
+        expect(foo.float == 42.42);
     }
 }
 
@@ -62,10 +62,10 @@ test "init union with runtime value" {
     var foo: Foo = undefined;
 
     setFloat(&foo, 12.34);
-    assertOrPanic(foo.float == 12.34);
+    expect(foo.float == 12.34);
 
     setInt(&foo, 42);
-    assertOrPanic(foo.int == 42);
+    expect(foo.int == 42);
 }
 
 fn setFloat(foo: *Foo, x: f64) void {
@@ -83,9 +83,9 @@ const FooExtern = extern union {
 
 test "basic extern unions" {
     var foo = FooExtern{ .int = 1 };
-    assertOrPanic(foo.int == 1);
+    expect(foo.int == 1);
     foo.float = 12.34;
-    assertOrPanic(foo.float == 12.34);
+    expect(foo.float == 12.34);
 }
 
 const Letter = enum {
@@ -105,11 +105,11 @@ test "union with specified enum tag" {
 }
 
 fn doTest() void {
-    assertOrPanic(bar(Payload{ .A = 1234 }) == -10);
+    expect(bar(Payload{ .A = 1234 }) == -10);
 }
 
 fn bar(value: Payload) i32 {
-    assertOrPanic(Letter(value) == Letter.A);
+    expect(Letter(value) == Letter.A);
     return switch (value) {
         Payload.A => |x| return x - 1244,
         Payload.B => |x| if (x == 12.34) i32(20) else 21,
@@ -125,8 +125,8 @@ const MultipleChoice = union(enum(u32)) {
 };
 test "simple union(enum(u32))" {
     var x = MultipleChoice.C;
-    assertOrPanic(x == MultipleChoice.C);
-    assertOrPanic(@enumToInt(@TagType(MultipleChoice)(x)) == 60);
+    expect(x == MultipleChoice.C);
+    expect(@enumToInt(@TagType(MultipleChoice)(x)) == 60);
 }
 
 const MultipleChoice2 = union(enum(u32)) {
@@ -142,14 +142,14 @@ const MultipleChoice2 = union(enum(u32)) {
 };
 
 test "union(enum(u32)) with specified and unspecified tag values" {
-    comptime assertOrPanic(@TagType(@TagType(MultipleChoice2)) == u32);
+    comptime expect(@TagType(@TagType(MultipleChoice2)) == u32);
     testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2{ .C = 123 });
     comptime testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2{ .C = 123 });
 }
 
 fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) void {
-    assertOrPanic(@enumToInt(@TagType(MultipleChoice2)(x)) == 60);
-    assertOrPanic(1123 == switch (x) {
+    expect(@enumToInt(@TagType(MultipleChoice2)(x)) == 60);
+    expect(1123 == switch (x) {
         MultipleChoice2.A => 1,
         MultipleChoice2.B => 2,
         MultipleChoice2.C => |v| i32(1000) + v,
@@ -167,7 +167,7 @@ const ExternPtrOrInt = extern union {
     int: u64,
 };
 test "extern union size" {
-    comptime assertOrPanic(@sizeOf(ExternPtrOrInt) == 8);
+    comptime expect(@sizeOf(ExternPtrOrInt) == 8);
 }
 
 const PackedPtrOrInt = packed union {
@@ -175,14 +175,14 @@ const PackedPtrOrInt = packed union {
     int: u64,
 };
 test "extern union size" {
-    comptime assertOrPanic(@sizeOf(PackedPtrOrInt) == 8);
+    comptime expect(@sizeOf(PackedPtrOrInt) == 8);
 }
 
 const ZeroBits = union {
     OnlyField: void,
 };
 test "union with only 1 field which is void should be zero bits" {
-    comptime assertOrPanic(@sizeOf(ZeroBits) == 0);
+    comptime expect(@sizeOf(ZeroBits) == 0);
 }
 
 const TheTag = enum {
@@ -196,9 +196,9 @@ const TheUnion = union(TheTag) {
     C: i32,
 };
 test "union field access gives the enum values" {
-    assertOrPanic(TheUnion.A == TheTag.A);
-    assertOrPanic(TheUnion.B == TheTag.B);
-    assertOrPanic(TheUnion.C == TheTag.C);
+    expect(TheUnion.A == TheTag.A);
+    expect(TheUnion.B == TheTag.B);
+    expect(TheUnion.C == TheTag.C);
 }
 
 test "cast union to tag type of union" {
@@ -207,12 +207,12 @@ test "cast union to tag type of union" {
 }
 
 fn testCastUnionToTagType(x: TheUnion) void {
-    assertOrPanic(TheTag(x) == TheTag.B);
+    expect(TheTag(x) == TheTag.B);
 }
 
 test "cast tag type of union to union" {
     var x: Value2 = Letter2.B;
-    assertOrPanic(Letter2(x) == Letter2.B);
+    expect(Letter2(x) == Letter2.B);
 }
 const Letter2 = enum {
     A,
@@ -227,11 +227,11 @@ const Value2 = union(Letter2) {
 
 test "implicit cast union to its tag type" {
     var x: Value2 = Letter2.B;
-    assertOrPanic(x == Letter2.B);
+    expect(x == Letter2.B);
     giveMeLetterB(x);
 }
 fn giveMeLetterB(x: Letter2) void {
-    assertOrPanic(x == Value2.B);
+    expect(x == Value2.B);
 }
 
 pub const PackThis = union(enum) {
@@ -244,7 +244,7 @@ test "constant packed union" {
 }
 
 fn testConstPackedUnion(expected_tokens: []const PackThis) void {
-    assertOrPanic(expected_tokens[0].StringLiteral == 1);
+    expect(expected_tokens[0].StringLiteral == 1);
 }
 
 test "switch on union with only 1 field" {
@@ -256,7 +256,7 @@ test "switch on union with only 1 field" {
             z = PartialInstWithPayload{ .Compiled = 1234 };
             switch (z) {
                 PartialInstWithPayload.Compiled => |x| {
-                    assertOrPanic(x == 1234);
+                    expect(x == 1234);
                     return;
                 },
             }
@@ -282,11 +282,11 @@ test "access a member of tagged union with conflicting enum tag name" {
         const B = void;
     };
 
-    comptime assertOrPanic(Bar.A == u8);
+    comptime expect(Bar.A == u8);
 }
 
 test "tagged union initialization with runtime void" {
-    assertOrPanic(testTaggedUnionInit({}));
+    expect(testTaggedUnionInit({}));
 }
 
 const TaggedUnionWithAVoid = union(enum) {
@@ -324,9 +324,9 @@ test "union with only 1 field casted to its enum type" {
 
     var e = Expr{ .Literal = Literal{ .Bool = true } };
     const Tag = @TagType(Expr);
-    comptime assertOrPanic(@TagType(Tag) == comptime_int);
+    comptime expect(@TagType(Tag) == comptime_int);
     var t = Tag(e);
-    assertOrPanic(t == Expr.Literal);
+    expect(t == Expr.Literal);
 }
 
 test "union with only 1 field casted to its enum type which has enum value specified" {
@@ -344,9 +344,9 @@ test "union with only 1 field casted to its enum type which has enum value speci
     };
 
     var e = Expr{ .Literal = Literal{ .Bool = true } };
-    comptime assertOrPanic(@TagType(Tag) == comptime_int);
+    comptime expect(@TagType(Tag) == comptime_int);
     var t = Tag(e);
-    assertOrPanic(t == Expr.Literal);
-    assertOrPanic(@enumToInt(t) == 33);
-    comptime assertOrPanic(@enumToInt(t) == 33);
+    expect(t == Expr.Literal);
+    expect(@enumToInt(t) == 33);
+    comptime expect(@enumToInt(t) == 33);
 }

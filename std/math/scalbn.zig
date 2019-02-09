@@ -1,6 +1,6 @@
 const std = @import("../index.zig");
 const math = std.math;
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 pub fn scalbn(x: var, n: i32) @typeOf(x) {
     const T = @typeOf(x);
@@ -72,14 +72,14 @@ fn scalbn64(x: f64, n_: i32) f64 {
 }
 
 test "math.scalbn" {
-    assert(scalbn(f32(1.5), 4) == scalbn32(1.5, 4));
-    assert(scalbn(f64(1.5), 4) == scalbn64(1.5, 4));
+    expect(scalbn(f32(1.5), 4) == scalbn32(1.5, 4));
+    expect(scalbn(f64(1.5), 4) == scalbn64(1.5, 4));
 }
 
 test "math.scalbn32" {
-    assert(scalbn32(1.5, 4) == 24.0);
+    expect(scalbn32(1.5, 4) == 24.0);
 }
 
 test "math.scalbn64" {
-    assert(scalbn64(1.5, 4) == 24.0);
+    expect(scalbn64(1.5, 4) == 24.0);
 }

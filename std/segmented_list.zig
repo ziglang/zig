@@ -1,5 +1,6 @@
 const std = @import("index.zig");
 const assert = std.debug.assert;
+const testing = std.testing;
 const Allocator = std.mem.Allocator;
 
 // Imagine that `fn at(self: *Self, index: usize) &T` is a customer asking for a box
@@ -352,14 +353,14 @@ fn testSegmentedList(comptime prealloc: usize, allocator: *Allocator) !void {
         var i: usize = 0;
         while (i < 100) : (i += 1) {
             try list.push(@intCast(i32, i + 1));
-            assert(list.len == i + 1);
+            testing.expect(list.len == i + 1);
         }
     }
 
     {
         var i: usize = 0;
         while (i < 100) : (i += 1) {
-            assert(list.at(i).* == @intCast(i32, i + 1));
+            testing.expect(list.at(i).* == @intCast(i32, i + 1));
         }
     }
 
@@ -368,35 +369,35 @@ fn testSegmentedList(comptime prealloc: usize, allocator: *Allocator) !void {
         var x: i32 = 0;
         while (it.next()) |item| {
             x += 1;
-            assert(item.* == x);
+            testing.expect(item.* == x);
         }
-        assert(x == 100);
+        testing.expect(x == 100);
         while (it.prev()) |item| : (x -= 1) {
-            assert(item.* == x);
+            testing.expect(item.* == x);
         }
-        assert(x == 0);
+        testing.expect(x == 0);
     }
 
-    assert(list.pop().? == 100);
-    assert(list.len == 99);
+    testing.expect(list.pop().? == 100);
+    testing.expect(list.len == 99);
 
     try list.pushMany([]i32{
         1,
         2,
         3,
     });
-    assert(list.len == 102);
-    assert(list.pop().? == 3);
-    assert(list.pop().? == 2);
-    assert(list.pop().? == 1);
-    assert(list.len == 99);
+    testing.expect(list.len == 102);
+    testing.expect(list.pop().? == 3);
+    testing.expect(list.pop().? == 2);
+    testing.expect(list.pop().? == 1);
+    testing.expect(list.len == 99);
 
     try list.pushMany([]const i32{});
-    assert(list.len == 99);
+    testing.expect(list.len == 99);
 
     var i: i32 = 99;
     while (list.pop()) |item| : (i -= 1) {
-        assert(item == i);
+        testing.expect(item == i);
         list.shrinkCapacity(list.len);
     }
 }

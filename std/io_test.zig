@@ -3,8 +3,8 @@ const io = std.io;
 const meta = std.meta;
 const trait = std.trait;
 const DefaultPrng = std.rand.DefaultPrng;
-const assert = std.debug.assert;
-const assertError = std.debug.assertError;
+const expect = std.testing.expect;
+const expectError = std.testing.expectError;
 const mem = std.mem;
 const os = std.os;
 const builtin = @import("builtin");
@@ -35,7 +35,7 @@ test "write a file, read it, then delete it" {
 
         const file_size = try file.getEndPos();
         const expected_file_size = "begin".len + data.len + "end".len;
-        assert(file_size == expected_file_size);
+        expect(file_size == expected_file_size);
 
         var file_in_stream = file.inStream();
         var buf_stream = io.BufferedInStream(os.File.ReadError).init(&file_in_stream.stream);
@@ -43,9 +43,9 @@ test "write a file, read it, then delete it" {
         const contents = try st.readAllAlloc(allocator, 2 * 1024);
         defer allocator.free(contents);
 
-        assert(mem.eql(u8, contents[0.."begin".len], "begin"));
-        assert(mem.eql(u8, contents["begin".len .. contents.len - "end".len], data));
-        assert(mem.eql(u8, contents[contents.len - "end".len ..], "end"));
+        expect(mem.eql(u8, contents[0.."begin".len], "begin"));
+        expect(mem.eql(u8, contents["begin".len .. contents.len - "end".len], data));
+        expect(mem.eql(u8, contents[contents.len - "end".len ..], "end"));
     }
     try os.deleteFile(tmp_file_name);
 }
@@ -61,7 +61,7 @@ test "BufferOutStream" {
     const y: i32 = 1234;
     try buf_stream.print("x: {}\ny: {}\n", x, y);
 
-    assert(mem.eql(u8, buffer.toSlice(), "x: 42\ny: 1234\n"));
+    expect(mem.eql(u8, buffer.toSlice(), "x: 42\ny: 1234\n"));
 }
 
 test "SliceInStream" {
@@ -71,15 +71,15 @@ test "SliceInStream" {
     var dest: [4]u8 = undefined;
 
     var read = try ss.stream.read(dest[0..4]);
-    assert(read == 4);
-    assert(mem.eql(u8, dest[0..4], bytes[0..4]));
+    expect(read == 4);
+    expect(mem.eql(u8, dest[0..4], bytes[0..4]));
 
     read = try ss.stream.read(dest[0..4]);
-    assert(read == 3);
-    assert(mem.eql(u8, dest[0..3], bytes[4..7]));
+    expect(read == 3);
+    expect(mem.eql(u8, dest[0..3], bytes[4..7]));
 
     read = try ss.stream.read(dest[0..4]);
-    assert(read == 0);
+    expect(read == 0);
 }
 
 test "PeekStream" {
@@ -93,26 +93,26 @@ test "PeekStream" {
     ps.putBackByte(10);
 
     var read = try ps.stream.read(dest[0..4]);
-    assert(read == 4);
-    assert(dest[0] == 10);
-    assert(dest[1] == 9);
-    assert(mem.eql(u8, dest[2..4], bytes[0..2]));
+    expect(read == 4);
+    expect(dest[0] == 10);
+    expect(dest[1] == 9);
+    expect(mem.eql(u8, dest[2..4], bytes[0..2]));
 
     read = try ps.stream.read(dest[0..4]);
-    assert(read == 4);
-    assert(mem.eql(u8, dest[0..4], bytes[2..6]));
+    expect(read == 4);
+    expect(mem.eql(u8, dest[0..4], bytes[2..6]));
 
     read = try ps.stream.read(dest[0..4]);
-    assert(read == 2);
-    assert(mem.eql(u8, dest[0..2], bytes[6..8]));
+    expect(read == 2);
+    expect(mem.eql(u8, dest[0..2], bytes[6..8]));
 
     ps.putBackByte(11);
     ps.putBackByte(12);
 
     read = try ps.stream.read(dest[0..4]);
-    assert(read == 2);
-    assert(dest[0] == 12);
-    assert(dest[1] == 11);
+    expect(read == 2);
+    expect(dest[0] == 12);
+    expect(dest[1] == 11);
 }
 
 test "SliceOutStream" {
@@ -120,19 +120,19 @@ test "SliceOutStream" {
     var ss = io.SliceOutStream.init(buffer[0..]);
 
     try ss.stream.write("Hello");
-    assert(mem.eql(u8, ss.getWritten(), "Hello"));
+    expect(mem.eql(u8, ss.getWritten(), "Hello"));
 
     try ss.stream.write("world");
-    assert(mem.eql(u8, ss.getWritten(), "Helloworld"));
+    expect(mem.eql(u8, ss.getWritten(), "Helloworld"));
 
-    assertError(ss.stream.write("!"), error.OutOfSpace);
-    assert(mem.eql(u8, ss.getWritten(), "Helloworld"));
+    expectError(error.OutOfSpace, ss.stream.write("!"));
+    expect(mem.eql(u8, ss.getWritten(), "Helloworld"));
 
     ss.reset();
-    assert(ss.getWritten().len == 0);
+    expect(ss.getWritten().len == 0);
 
-    assertError(ss.stream.write("Hello world!"), error.OutOfSpace);
-    assert(mem.eql(u8, ss.getWritten(), "Hello worl"));
+    expectError(error.OutOfSpace, ss.stream.write("Hello world!"));
+    expect(mem.eql(u8, ss.getWritten(), "Hello worl"));
 }
 
 test "BitInStream" {
@@ -145,66 +145,66 @@ test "BitInStream" {
 
     var out_bits: usize = undefined;
 
-    assert(1 == try bit_stream_be.readBits(u2, 1, &out_bits));
-    assert(out_bits == 1);
-    assert(2 == try bit_stream_be.readBits(u5, 2, &out_bits));
-    assert(out_bits == 2);
-    assert(3 == try bit_stream_be.readBits(u128, 3, &out_bits));
-    assert(out_bits == 3);
-    assert(4 == try bit_stream_be.readBits(u8, 4, &out_bits));
-    assert(out_bits == 4);
-    assert(5 == try bit_stream_be.readBits(u9, 5, &out_bits));
-    assert(out_bits == 5);
-    assert(1 == try bit_stream_be.readBits(u1, 1, &out_bits));
-    assert(out_bits == 1);
+    expect(1 == try bit_stream_be.readBits(u2, 1, &out_bits));
+    expect(out_bits == 1);
+    expect(2 == try bit_stream_be.readBits(u5, 2, &out_bits));
+    expect(out_bits == 2);
+    expect(3 == try bit_stream_be.readBits(u128, 3, &out_bits));
+    expect(out_bits == 3);
+    expect(4 == try bit_stream_be.readBits(u8, 4, &out_bits));
+    expect(out_bits == 4);
+    expect(5 == try bit_stream_be.readBits(u9, 5, &out_bits));
+    expect(out_bits == 5);
+    expect(1 == try bit_stream_be.readBits(u1, 1, &out_bits));
+    expect(out_bits == 1);
 
     mem_in_be.pos = 0;
     bit_stream_be.bit_count = 0;
-    assert(0b110011010000101 == try bit_stream_be.readBits(u15, 15, &out_bits));
-    assert(out_bits == 15);
+    expect(0b110011010000101 == try bit_stream_be.readBits(u15, 15, &out_bits));
+    expect(out_bits == 15);
 
     mem_in_be.pos = 0;
     bit_stream_be.bit_count = 0;
-    assert(0b1100110100001011 == try bit_stream_be.readBits(u16, 16, &out_bits));
-    assert(out_bits == 16);
+    expect(0b1100110100001011 == try bit_stream_be.readBits(u16, 16, &out_bits));
+    expect(out_bits == 16);
 
     _ = try bit_stream_be.readBits(u0, 0, &out_bits);
     
-    assert(0 == try bit_stream_be.readBits(u1, 1, &out_bits));
-    assert(out_bits == 0);
-    assertError(bit_stream_be.readBitsNoEof(u1, 1), error.EndOfStream);
+    expect(0 == try bit_stream_be.readBits(u1, 1, &out_bits));
+    expect(out_bits == 0);
+    expectError(error.EndOfStream, bit_stream_be.readBitsNoEof(u1, 1));
 
     var mem_in_le = io.SliceInStream.init(mem_le[0..]);
     var bit_stream_le = io.BitInStream(builtin.Endian.Little, InError).init(&mem_in_le.stream);
 
-    assert(1 == try bit_stream_le.readBits(u2, 1, &out_bits));
-    assert(out_bits == 1);
-    assert(2 == try bit_stream_le.readBits(u5, 2, &out_bits));
-    assert(out_bits == 2);
-    assert(3 == try bit_stream_le.readBits(u128, 3, &out_bits));
-    assert(out_bits == 3);
-    assert(4 == try bit_stream_le.readBits(u8, 4, &out_bits));
-    assert(out_bits == 4);
-    assert(5 == try bit_stream_le.readBits(u9, 5, &out_bits));
-    assert(out_bits == 5);
-    assert(1 == try bit_stream_le.readBits(u1, 1, &out_bits));
-    assert(out_bits == 1);
+    expect(1 == try bit_stream_le.readBits(u2, 1, &out_bits));
+    expect(out_bits == 1);
+    expect(2 == try bit_stream_le.readBits(u5, 2, &out_bits));
+    expect(out_bits == 2);
+    expect(3 == try bit_stream_le.readBits(u128, 3, &out_bits));
+    expect(out_bits == 3);
+    expect(4 == try bit_stream_le.readBits(u8, 4, &out_bits));
+    expect(out_bits == 4);
+    expect(5 == try bit_stream_le.readBits(u9, 5, &out_bits));
+    expect(out_bits == 5);
+    expect(1 == try bit_stream_le.readBits(u1, 1, &out_bits));
+    expect(out_bits == 1);
 
     mem_in_le.pos = 0;
     bit_stream_le.bit_count = 0;
-    assert(0b001010100011101 == try bit_stream_le.readBits(u15, 15, &out_bits));
-    assert(out_bits == 15);
+    expect(0b001010100011101 == try bit_stream_le.readBits(u15, 15, &out_bits));
+    expect(out_bits == 15);
 
     mem_in_le.pos = 0;
     bit_stream_le.bit_count = 0;
-    assert(0b1001010100011101 == try bit_stream_le.readBits(u16, 16, &out_bits));
-    assert(out_bits == 16);
+    expect(0b1001010100011101 == try bit_stream_le.readBits(u16, 16, &out_bits));
+    expect(out_bits == 16);
 
     _ = try bit_stream_le.readBits(u0, 0, &out_bits);
     
-    assert(0 == try bit_stream_le.readBits(u1, 1, &out_bits));
-    assert(out_bits == 0);
-    assertError(bit_stream_le.readBitsNoEof(u1, 1), error.EndOfStream);
+    expect(0 == try bit_stream_le.readBits(u1, 1, &out_bits));
+    expect(out_bits == 0);
+    expectError(error.EndOfStream, bit_stream_le.readBitsNoEof(u1, 1));
 }
 
 test "BitOutStream" {
@@ -222,17 +222,17 @@ test "BitOutStream" {
     try bit_stream_be.writeBits(u9(5), 5);
     try bit_stream_be.writeBits(u1(1), 1);
 
-    assert(mem_be[0] == 0b11001101 and mem_be[1] == 0b00001011);
+    expect(mem_be[0] == 0b11001101 and mem_be[1] == 0b00001011);
 
     mem_out_be.pos = 0;
 
     try bit_stream_be.writeBits(u15(0b110011010000101), 15);
     try bit_stream_be.flushBits();
-    assert(mem_be[0] == 0b11001101 and mem_be[1] == 0b00001010);
+    expect(mem_be[0] == 0b11001101 and mem_be[1] == 0b00001010);
 
     mem_out_be.pos = 0;
     try bit_stream_be.writeBits(u32(0b110011010000101), 16);
-    assert(mem_be[0] == 0b01100110 and mem_be[1] == 0b10000101);
+    expect(mem_be[0] == 0b01100110 and mem_be[1] == 0b10000101);
 
     try bit_stream_be.writeBits(u0(0), 0);
 
@@ -246,16 +246,16 @@ test "BitOutStream" {
     try bit_stream_le.writeBits(u9(5), 5);
     try bit_stream_le.writeBits(u1(1), 1);
 
-    assert(mem_le[0] == 0b00011101 and mem_le[1] == 0b10010101);
+    expect(mem_le[0] == 0b00011101 and mem_le[1] == 0b10010101);
 
     mem_out_le.pos = 0;
     try bit_stream_le.writeBits(u15(0b110011010000101), 15);
     try bit_stream_le.flushBits();
-    assert(mem_le[0] == 0b10000101 and mem_le[1] == 0b01100110);
+    expect(mem_le[0] == 0b10000101 and mem_le[1] == 0b01100110);
 
     mem_out_le.pos = 0;
     try bit_stream_le.writeBits(u32(0b1100110100001011), 16);
-    assert(mem_le[0] == 0b00001011 and mem_le[1] == 0b11001101);
+    expect(mem_le[0] == 0b00001011 and mem_le[1] == 0b11001101);
 
     try bit_stream_le.writeBits(u0(0), 0);
 }
@@ -290,20 +290,20 @@ test "BitStreams with File Stream" {
         
         var out_bits: usize = undefined;
 
-        assert(1 == try bit_stream.readBits(u2, 1, &out_bits));
-        assert(out_bits == 1);
-        assert(2 == try bit_stream.readBits(u5, 2, &out_bits));
-        assert(out_bits == 2);
-        assert(3 == try bit_stream.readBits(u128, 3, &out_bits));
-        assert(out_bits == 3);
-        assert(4 == try bit_stream.readBits(u8, 4, &out_bits));
-        assert(out_bits == 4);
-        assert(5 == try bit_stream.readBits(u9, 5, &out_bits));
-        assert(out_bits == 5);
-        assert(1 == try bit_stream.readBits(u1, 1, &out_bits));
-        assert(out_bits == 1);
+        expect(1 == try bit_stream.readBits(u2, 1, &out_bits));
+        expect(out_bits == 1);
+        expect(2 == try bit_stream.readBits(u5, 2, &out_bits));
+        expect(out_bits == 2);
+        expect(3 == try bit_stream.readBits(u128, 3, &out_bits));
+        expect(out_bits == 3);
+        expect(4 == try bit_stream.readBits(u8, 4, &out_bits));
+        expect(out_bits == 4);
+        expect(5 == try bit_stream.readBits(u9, 5, &out_bits));
+        expect(out_bits == 5);
+        expect(1 == try bit_stream.readBits(u1, 1, &out_bits));
+        expect(out_bits == 1);
         
-        assertError(bit_stream.readBitsNoEof(u1, 1), error.EndOfStream);
+        expectError(error.EndOfStream, bit_stream.readBitsNoEof(u1, 1));
     }
     try os.deleteFile(tmp_file_name);
 }
@@ -345,8 +345,8 @@ fn testIntSerializerDeserializer(comptime endian: builtin.Endian, comptime is_pa
         const S = @IntType(true, i);
         const x = try deserializer.deserializeInt(U);
         const y = try deserializer.deserializeInt(S);
-        assert(x == U(i));
-        if (i != 0) assert(y == S(-1)) else assert(y == 0);
+        expect(x == U(i));
+        if (i != 0) expect(y == S(-1)) else expect(y == 0);
     }
 
     const u8_bit_count = comptime meta.bitCount(u8);
@@ -356,7 +356,7 @@ fn testIntSerializerDeserializer(comptime endian: builtin.Endian, comptime is_pa
     const extra_packed_byte = @boolToInt(total_bits % u8_bit_count > 0);
     const total_packed_bytes = (total_bits / u8_bit_count) + extra_packed_byte;
 
-    assert(in.pos == if (is_packed) total_packed_bytes else total_bytes);
+    expect(in.pos == if (is_packed) total_packed_bytes else total_bytes);
 
     //Verify that empty error set works with serializer.
     //deserializer is covered by SliceInStream
@@ -408,14 +408,14 @@ fn testIntSerializerDeserializerInfNaN(comptime endian: builtin.Endian,
     const inf_check_f64 = try deserializer.deserialize(f64);
     //const nan_check_f128 = try deserializer.deserialize(f128);
     //const inf_check_f128 = try deserializer.deserialize(f128);
-    assert(std.math.isNan(nan_check_f16));
-    assert(std.math.isInf(inf_check_f16));
-    assert(std.math.isNan(nan_check_f32));
-    assert(std.math.isInf(inf_check_f32));
-    assert(std.math.isNan(nan_check_f64));
-    assert(std.math.isInf(inf_check_f64));
-    //assert(std.math.isNan(nan_check_f128));
-    //assert(std.math.isInf(inf_check_f128));
+    expect(std.math.isNan(nan_check_f16));
+    expect(std.math.isInf(inf_check_f16));
+    expect(std.math.isNan(nan_check_f32));
+    expect(std.math.isInf(inf_check_f32));
+    expect(std.math.isNan(nan_check_f64));
+    expect(std.math.isInf(inf_check_f64));
+    //expect(std.math.isNan(nan_check_f128));
+    //expect(std.math.isInf(inf_check_f128));
 }
 
 test "Serializer/Deserializer Int: Inf/NaN" {
@@ -528,7 +528,7 @@ fn testSerializerDeserializer(comptime endian: builtin.Endian, comptime is_packe
     try serializer.serialize(my_inst);
 
     const my_copy = try deserializer.deserialize(MyStruct);
-    assert(meta.eql(my_copy, my_inst));
+    expect(meta.eql(my_copy, my_inst));
 }
 
 test "Serializer/Deserializer generic" {
@@ -565,11 +565,11 @@ fn testBadData(comptime endian: builtin.Endian, comptime is_packed: bool) !void 
     var deserializer = io.Deserializer(endian, is_packed, InError).init(in_stream);
 
     try serializer.serialize(u14(3));
-    assertError(deserializer.deserialize(A), error.InvalidEnumTag);
+    expectError(error.InvalidEnumTag, deserializer.deserialize(A));
     out.pos = 0;
     try serializer.serialize(u14(3));
     try serializer.serialize(u14(88));
-    assertError(deserializer.deserialize(C), error.InvalidEnumTag);
+    expectError(error.InvalidEnumTag, deserializer.deserialize(C));
 }
 
 test "Deserializer bad data" {

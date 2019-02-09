@@ -1,4 +1,4 @@
-const assertOrPanic = @import("std").debug.assertOrPanic;
+const expect = @import("std").testing.expect;
 const mem = @import("std").mem;
 const fmt = @import("std").fmt;
 
@@ -19,9 +19,9 @@ test "enum with members" {
     const b = ET{ .UINT = 42 };
     var buf: [20]u8 = undefined;
 
-    assertOrPanic((a.print(buf[0..]) catch unreachable) == 3);
-    assertOrPanic(mem.eql(u8, buf[0..3], "-42"));
+    expect((a.print(buf[0..]) catch unreachable) == 3);
+    expect(mem.eql(u8, buf[0..3], "-42"));
 
-    assertOrPanic((b.print(buf[0..]) catch unreachable) == 2);
-    assertOrPanic(mem.eql(u8, buf[0..2], "42"));
+    expect((b.print(buf[0..]) catch unreachable) == 2);
+    expect(mem.eql(u8, buf[0..2], "42"));
 }

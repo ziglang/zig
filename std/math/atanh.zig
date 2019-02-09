@@ -6,7 +6,7 @@
 
 const std = @import("../index.zig");
 const math = std.math;
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 const maxInt = std.math.maxInt;
 
 pub fn atanh(x: var) @typeOf(x) {
@@ -78,38 +78,38 @@ fn atanh_64(x: f64) f64 {
 }
 
 test "math.atanh" {
-    assert(atanh(f32(0.0)) == atanh_32(0.0));
-    assert(atanh(f64(0.0)) == atanh_64(0.0));
+    expect(atanh(f32(0.0)) == atanh_32(0.0));
+    expect(atanh(f64(0.0)) == atanh_64(0.0));
 }
 
 test "math.atanh_32" {
     const epsilon = 0.000001;
 
-    assert(math.approxEq(f32, atanh_32(0.0), 0.0, epsilon));
-    assert(math.approxEq(f32, atanh_32(0.2), 0.202733, epsilon));
-    assert(math.approxEq(f32, atanh_32(0.8923), 1.433099, epsilon));
+    expect(math.approxEq(f32, atanh_32(0.0), 0.0, epsilon));
+    expect(math.approxEq(f32, atanh_32(0.2), 0.202733, epsilon));
+    expect(math.approxEq(f32, atanh_32(0.8923), 1.433099, epsilon));
 }
 
 test "math.atanh_64" {
     const epsilon = 0.000001;
 
-    assert(math.approxEq(f64, atanh_64(0.0), 0.0, epsilon));
-    assert(math.approxEq(f64, atanh_64(0.2), 0.202733, epsilon));
-    assert(math.approxEq(f64, atanh_64(0.8923), 1.433099, epsilon));
+    expect(math.approxEq(f64, atanh_64(0.0), 0.0, epsilon));
+    expect(math.approxEq(f64, atanh_64(0.2), 0.202733, epsilon));
+    expect(math.approxEq(f64, atanh_64(0.8923), 1.433099, epsilon));
 }
 
 test "math.atanh32.special" {
-    assert(math.isPositiveInf(atanh_32(1)));
-    assert(math.isNegativeInf(atanh_32(-1)));
-    assert(math.isSignalNan(atanh_32(1.5)));
-    assert(math.isSignalNan(atanh_32(-1.5)));
-    assert(math.isNan(atanh_32(math.nan(f32))));
+    expect(math.isPositiveInf(atanh_32(1)));
+    expect(math.isNegativeInf(atanh_32(-1)));
+    expect(math.isSignalNan(atanh_32(1.5)));
+    expect(math.isSignalNan(atanh_32(-1.5)));
+    expect(math.isNan(atanh_32(math.nan(f32))));
 }
 
 test "math.atanh64.special" {
-    assert(math.isPositiveInf(atanh_64(1)));
-    assert(math.isNegativeInf(atanh_64(-1)));
-    assert(math.isSignalNan(atanh_64(1.5)));
-    assert(math.isSignalNan(atanh_64(-1.5)));
-    assert(math.isNan(atanh_64(math.nan(f64))));
+    expect(math.isPositiveInf(atanh_64(1)));
+    expect(math.isNegativeInf(atanh_64(-1)));
+    expect(math.isSignalNan(atanh_64(1.5)));
+    expect(math.isSignalNan(atanh_64(-1.5)));
+    expect(math.isNan(atanh_64(math.nan(f64))));
 }

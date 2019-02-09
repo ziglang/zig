@@ -1,5 +1,5 @@
 const std = @import("std");
-const assertOrPanic = std.debug.assertOrPanic;
+const expect = std.testing.expect;
 const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
 
@@ -12,7 +12,7 @@ const empty_global_instance = StructWithNoFields{};
 
 test "call struct static method" {
     const result = StructWithNoFields.add(3, 4);
-    assertOrPanic(result == 7);
+    expect(result == 7);
 }
 
 test "return empty struct instance" {
@@ -25,7 +25,7 @@ fn returnEmptyStructInstance() StructWithNoFields {
 const should_be_11 = StructWithNoFields.add(5, 6);
 
 test "invoke static method in global scope" {
-    assertOrPanic(should_be_11 == 11);
+    expect(should_be_11 == 11);
 }
 
 test "void struct fields" {
@@ -34,8 +34,8 @@ test "void struct fields" {
         .b = 1,
         .c = void{},
     };
-    assertOrPanic(foo.b == 1);
-    assertOrPanic(@sizeOf(VoidStructFieldsFoo) == 4);
+    expect(foo.b == 1);
+    expect(@sizeOf(VoidStructFieldsFoo) == 4);
 }
 const VoidStructFieldsFoo = struct {
     a: void,
@@ -50,7 +50,7 @@ test "structs" {
     foo.b = foo.a == 1;
     testFoo(foo);
     testMutation(&foo);
-    assertOrPanic(foo.c == 100);
+    expect(foo.c == 100);
 }
 const StructFoo = struct {
     a: i32,
@@ -58,7 +58,7 @@ const StructFoo = struct {
     c: f32,
 };
 fn testFoo(foo: StructFoo) void {
-    assertOrPanic(foo.b);
+    expect(foo.b);
 }
 fn testMutation(foo: *StructFoo) void {
     foo.c = 100;
@@ -83,7 +83,7 @@ test "struct point to self" {
 
     root.next = &node;
 
-    assertOrPanic(node.next.next.next.val.x == 1);
+    expect(node.next.next.next.val.x == 1);
 }
 
 test "struct byval assign" {
@@ -92,18 +92,18 @@ test "struct byval assign" {
 
     foo1.a = 1234;
     foo2.a = 0;
-    assertOrPanic(foo2.a == 0);
+    expect(foo2.a == 0);
     foo2 = foo1;
-    assertOrPanic(foo2.a == 1234);
+    expect(foo2.a == 1234);
 }
 
 fn structInitializer() void {
     const val = Val{ .x = 42 };
-    assertOrPanic(val.x == 42);
+    expect(val.x == 42);
 }
 
 test "fn call of struct field" {
-    assertOrPanic(callStructField(Foo{ .ptr = aFunc }) == 13);
+    expect(callStructField(Foo{ .ptr = aFunc }) == 13);
 }
 
 const Foo = struct {
@@ -122,7 +122,7 @@ test "store member function in variable" {
     const instance = MemberFnTestFoo{ .x = 1234 };
     const memberFn = MemberFnTestFoo.member;
     const result = memberFn(instance);
-    assertOrPanic(result == 1234);
+    expect(result == 1234);
 }
 const MemberFnTestFoo = struct {
     x: i32,
@@ -134,12 +134,12 @@ const MemberFnTestFoo = struct {
 test "call member function directly" {
     const instance = MemberFnTestFoo{ .x = 1234 };
     const result = MemberFnTestFoo.member(instance);
-    assertOrPanic(result == 1234);
+    expect(result == 1234);
 }
 
 test "member functions" {
     const r = MemberFnRand{ .seed = 1234 };
-    assertOrPanic(r.getSeed() == 1234);
+    expect(r.getSeed() == 1234);
 }
 const MemberFnRand = struct {
     seed: u32,
@@ -150,7 +150,7 @@ const MemberFnRand = struct {
 
 test "return struct byval from function" {
     const bar = makeBar(1234, 5678);
-    assertOrPanic(bar.y == 5678);
+    expect(bar.y == 5678);
 }
 const Bar = struct {
     x: i32,
@@ -165,7 +165,7 @@ fn makeBar(x: i32, y: i32) Bar {
 
 test "empty struct method call" {
     const es = EmptyStruct{};
-    assertOrPanic(es.method() == 1234);
+    expect(es.method() == 1234);
 }
 const EmptyStruct = struct {
     fn method(es: *const EmptyStruct) i32 {
@@ -182,7 +182,7 @@ fn testReturnEmptyStructFromFn() EmptyStruct2 {
 }
 
 test "pass slice of empty struct to fn" {
-    assertOrPanic(testPassSliceOfEmptyStructToFn([]EmptyStruct2{EmptyStruct2{}}) == 1);
+    expect(testPassSliceOfEmptyStructToFn([]EmptyStruct2{EmptyStruct2{}}) == 1);
 }
 fn testPassSliceOfEmptyStructToFn(slice: []const EmptyStruct2) usize {
     return slice.len;
@@ -200,7 +200,7 @@ test "packed struct" {
     };
     foo.y += 1;
     const four = foo.x + foo.y;
-    assertOrPanic(four == 4);
+    expect(four == 4);
 }
 
 const BitField1 = packed struct {
@@ -217,17 +217,17 @@ const bit_field_1 = BitField1{
 
 test "bit field access" {
     var data = bit_field_1;
-    assertOrPanic(getA(&data) == 1);
-    assertOrPanic(getB(&data) == 2);
-    assertOrPanic(getC(&data) == 3);
-    comptime assertOrPanic(@sizeOf(BitField1) == 1);
+    expect(getA(&data) == 1);
+    expect(getB(&data) == 2);
+    expect(getC(&data) == 3);
+    comptime expect(@sizeOf(BitField1) == 1);
 
     data.b += 1;
-    assertOrPanic(data.b == 3);
+    expect(data.b == 3);
 
     data.a += 1;
-    assertOrPanic(data.a == 2);
-    assertOrPanic(data.b == 3);
+    expect(data.a == 2);
+    expect(data.b == 3);
 }
 
 fn getA(data: *const BitField1) u3 {
@@ -254,8 +254,8 @@ const Foo96Bits = packed struct {
 
 test "packed struct 24bits" {
     comptime {
-        assertOrPanic(@sizeOf(Foo24Bits) == 3);
-        assertOrPanic(@sizeOf(Foo96Bits) == 12);
+        expect(@sizeOf(Foo24Bits) == 3);
+        expect(@sizeOf(Foo96Bits) == 12);
     }
 
     var value = Foo96Bits{
@@ -265,28 +265,28 @@ test "packed struct 24bits" {
         .d = 0,
     };
     value.a += 1;
-    assertOrPanic(value.a == 1);
-    assertOrPanic(value.b == 0);
-    assertOrPanic(value.c == 0);
-    assertOrPanic(value.d == 0);
+    expect(value.a == 1);
+    expect(value.b == 0);
+    expect(value.c == 0);
+    expect(value.d == 0);
 
     value.b += 1;
-    assertOrPanic(value.a == 1);
-    assertOrPanic(value.b == 1);
-    assertOrPanic(value.c == 0);
-    assertOrPanic(value.d == 0);
+    expect(value.a == 1);
+    expect(value.b == 1);
+    expect(value.c == 0);
+    expect(value.d == 0);
 
     value.c += 1;
-    assertOrPanic(value.a == 1);
-    assertOrPanic(value.b == 1);
-    assertOrPanic(value.c == 1);
-    assertOrPanic(value.d == 0);
+    expect(value.a == 1);
+    expect(value.b == 1);
+    expect(value.c == 1);
+    expect(value.d == 0);
 
     value.d += 1;
-    assertOrPanic(value.a == 1);
-    assertOrPanic(value.b == 1);
-    assertOrPanic(value.c == 1);
-    assertOrPanic(value.d == 1);
+    expect(value.a == 1);
+    expect(value.b == 1);
+    expect(value.c == 1);
+    expect(value.d == 1);
 }
 
 const FooArray24Bits = packed struct {
@@ -297,43 +297,43 @@ const FooArray24Bits = packed struct {
 
 test "packed array 24bits" {
     comptime {
-        assertOrPanic(@sizeOf([9]Foo24Bits) == 9 * 3);
-        assertOrPanic(@sizeOf(FooArray24Bits) == 2 + 2 * 3 + 2);
+        expect(@sizeOf([9]Foo24Bits) == 9 * 3);
+        expect(@sizeOf(FooArray24Bits) == 2 + 2 * 3 + 2);
     }
 
     var bytes = []u8{0} ** (@sizeOf(FooArray24Bits) + 1);
     bytes[bytes.len - 1] = 0xaa;
     const ptr = &@bytesToSlice(FooArray24Bits, bytes[0 .. bytes.len - 1])[0];
-    assertOrPanic(ptr.a == 0);
-    assertOrPanic(ptr.b[0].field == 0);
-    assertOrPanic(ptr.b[1].field == 0);
-    assertOrPanic(ptr.c == 0);
+    expect(ptr.a == 0);
+    expect(ptr.b[0].field == 0);
+    expect(ptr.b[1].field == 0);
+    expect(ptr.c == 0);
 
     ptr.a = maxInt(u16);
-    assertOrPanic(ptr.a == maxInt(u16));
-    assertOrPanic(ptr.b[0].field == 0);
-    assertOrPanic(ptr.b[1].field == 0);
-    assertOrPanic(ptr.c == 0);
+    expect(ptr.a == maxInt(u16));
+    expect(ptr.b[0].field == 0);
+    expect(ptr.b[1].field == 0);
+    expect(ptr.c == 0);
 
     ptr.b[0].field = maxInt(u24);
-    assertOrPanic(ptr.a == maxInt(u16));
-    assertOrPanic(ptr.b[0].field == maxInt(u24));
-    assertOrPanic(ptr.b[1].field == 0);
-    assertOrPanic(ptr.c == 0);
+    expect(ptr.a == maxInt(u16));
+    expect(ptr.b[0].field == maxInt(u24));
+    expect(ptr.b[1].field == 0);
+    expect(ptr.c == 0);
 
     ptr.b[1].field = maxInt(u24);
-    assertOrPanic(ptr.a == maxInt(u16));
-    assertOrPanic(ptr.b[0].field == maxInt(u24));
-    assertOrPanic(ptr.b[1].field == maxInt(u24));
-    assertOrPanic(ptr.c == 0);
+    expect(ptr.a == maxInt(u16));
+    expect(ptr.b[0].field == maxInt(u24));
+    expect(ptr.b[1].field == maxInt(u24));
+    expect(ptr.c == 0);
 
     ptr.c = maxInt(u16);
-    assertOrPanic(ptr.a == maxInt(u16));
-    assertOrPanic(ptr.b[0].field == maxInt(u24));
-    assertOrPanic(ptr.b[1].field == maxInt(u24));
-    assertOrPanic(ptr.c == maxInt(u16));
+    expect(ptr.a == maxInt(u16));
+    expect(ptr.b[0].field == maxInt(u24));
+    expect(ptr.b[1].field == maxInt(u24));
+    expect(ptr.c == maxInt(u16));
 
-    assertOrPanic(bytes[bytes.len - 1] == 0xaa);
+    expect(bytes[bytes.len - 1] == 0xaa);
 }
 
 const FooStructAligned = packed struct {
@@ -347,17 +347,17 @@ const FooArrayOfAligned = packed struct {
 
 test "aligned array of packed struct" {
     comptime {
-        assertOrPanic(@sizeOf(FooStructAligned) == 2);
-        assertOrPanic(@sizeOf(FooArrayOfAligned) == 2 * 2);
+        expect(@sizeOf(FooStructAligned) == 2);
+        expect(@sizeOf(FooArrayOfAligned) == 2 * 2);
     }
 
     var bytes = []u8{0xbb} ** @sizeOf(FooArrayOfAligned);
     const ptr = &@bytesToSlice(FooArrayOfAligned, bytes[0..bytes.len])[0];
 
-    assertOrPanic(ptr.a[0].a == 0xbb);
-    assertOrPanic(ptr.a[0].b == 0xbb);
-    assertOrPanic(ptr.a[1].a == 0xbb);
-    assertOrPanic(ptr.a[1].b == 0xbb);
+    expect(ptr.a[0].a == 0xbb);
+    expect(ptr.a[0].b == 0xbb);
+    expect(ptr.a[1].a == 0xbb);
+    expect(ptr.a[1].b == 0xbb);
 }
 
 test "runtime struct initialization of bitfield" {
@@ -370,10 +370,10 @@ test "runtime struct initialization of bitfield" {
         .y = @intCast(u4, x2),
     };
 
-    assertOrPanic(s1.x == x1);
-    assertOrPanic(s1.y == x1);
-    assertOrPanic(s2.x == @intCast(u4, x2));
-    assertOrPanic(s2.y == @intCast(u4, x2));
+    expect(s1.x == x1);
+    expect(s1.y == x1);
+    expect(s2.x == @intCast(u4, x2));
+    expect(s2.y == @intCast(u4, x2));
 }
 
 var x1 = u4(1);
@@ -400,18 +400,18 @@ test "native bit field understands endianness" {
     @memcpy(bytes[0..].ptr, @ptrCast([*]u8, &all), 8);
     var bitfields = @ptrCast(*Bitfields, bytes[0..].ptr).*;
 
-    assertOrPanic(bitfields.f1 == 0x1111);
-    assertOrPanic(bitfields.f2 == 0x2222);
-    assertOrPanic(bitfields.f3 == 0x33);
-    assertOrPanic(bitfields.f4 == 0x44);
-    assertOrPanic(bitfields.f5 == 0x5);
-    assertOrPanic(bitfields.f6 == 0x6);
-    assertOrPanic(bitfields.f7 == 0x77);
+    expect(bitfields.f1 == 0x1111);
+    expect(bitfields.f2 == 0x2222);
+    expect(bitfields.f3 == 0x33);
+    expect(bitfields.f4 == 0x44);
+    expect(bitfields.f5 == 0x5);
+    expect(bitfields.f6 == 0x6);
+    expect(bitfields.f7 == 0x77);
 }
 
 test "align 1 field before self referential align 8 field as slice return type" {
     const result = alloc(Expr);
-    assertOrPanic(result.len == 0);
+    expect(result.len == 0);
 }
 
 const Expr = union(enum) {
@@ -434,10 +434,10 @@ test "call method with mutable reference to struct with no fields" {
     };
 
     var s = S{};
-    assertOrPanic(S.doC(&s));
-    assertOrPanic(s.doC());
-    assertOrPanic(S.do(&s));
-    assertOrPanic(s.do());
+    expect(S.doC(&s));
+    expect(s.doC());
+    expect(S.do(&s));
+    expect(s.do());
 }
 
 test "implicit cast packed struct field to const ptr" {
@@ -453,7 +453,7 @@ test "implicit cast packed struct field to const ptr" {
     var lup: LevelUpMove = undefined;
     lup.level = 12;
     const res = LevelUpMove.toInt(lup.level);
-    assertOrPanic(res == 12);
+    expect(res == 12);
 }
 
 test "pointer to packed struct member in a stack variable" {
@@ -464,7 +464,7 @@ test "pointer to packed struct member in a stack variable" {
 
     var s = S{ .a = 2, .b = 0 };
     var b_ptr = &s.b;
-    assertOrPanic(s.b == 0);
+    expect(s.b == 0);
     b_ptr.* = 2;
-    assertOrPanic(s.b == 2);
+    expect(s.b == 2);
 }

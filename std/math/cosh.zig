@@ -8,7 +8,7 @@ const builtin = @import("builtin");
 const std = @import("../index.zig");
 const math = std.math;
 const expo2 = @import("expo2.zig").expo2;
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 const maxInt = std.math.maxInt;
 
 pub fn cosh(x: var) @typeOf(x) {
@@ -82,40 +82,40 @@ fn cosh64(x: f64) f64 {
 }
 
 test "math.cosh" {
-    assert(cosh(f32(1.5)) == cosh32(1.5));
-    assert(cosh(f64(1.5)) == cosh64(1.5));
+    expect(cosh(f32(1.5)) == cosh32(1.5));
+    expect(cosh(f64(1.5)) == cosh64(1.5));
 }
 
 test "math.cosh32" {
     const epsilon = 0.000001;
 
-    assert(math.approxEq(f32, cosh32(0.0), 1.0, epsilon));
-    assert(math.approxEq(f32, cosh32(0.2), 1.020067, epsilon));
-    assert(math.approxEq(f32, cosh32(0.8923), 1.425225, epsilon));
-    assert(math.approxEq(f32, cosh32(1.5), 2.352410, epsilon));
+    expect(math.approxEq(f32, cosh32(0.0), 1.0, epsilon));
+    expect(math.approxEq(f32, cosh32(0.2), 1.020067, epsilon));
+    expect(math.approxEq(f32, cosh32(0.8923), 1.425225, epsilon));
+    expect(math.approxEq(f32, cosh32(1.5), 2.352410, epsilon));
 }
 
 test "math.cosh64" {
     const epsilon = 0.000001;
 
-    assert(math.approxEq(f64, cosh64(0.0), 1.0, epsilon));
-    assert(math.approxEq(f64, cosh64(0.2), 1.020067, epsilon));
-    assert(math.approxEq(f64, cosh64(0.8923), 1.425225, epsilon));
-    assert(math.approxEq(f64, cosh64(1.5), 2.352410, epsilon));
+    expect(math.approxEq(f64, cosh64(0.0), 1.0, epsilon));
+    expect(math.approxEq(f64, cosh64(0.2), 1.020067, epsilon));
+    expect(math.approxEq(f64, cosh64(0.8923), 1.425225, epsilon));
+    expect(math.approxEq(f64, cosh64(1.5), 2.352410, epsilon));
 }
 
 test "math.cosh32.special" {
-    assert(cosh32(0.0) == 1.0);
-    assert(cosh32(-0.0) == 1.0);
-    assert(math.isPositiveInf(cosh32(math.inf(f32))));
-    assert(math.isPositiveInf(cosh32(-math.inf(f32))));
-    assert(math.isNan(cosh32(math.nan(f32))));
+    expect(cosh32(0.0) == 1.0);
+    expect(cosh32(-0.0) == 1.0);
+    expect(math.isPositiveInf(cosh32(math.inf(f32))));
+    expect(math.isPositiveInf(cosh32(-math.inf(f32))));
+    expect(math.isNan(cosh32(math.nan(f32))));
 }
 
 test "math.cosh64.special" {
-    assert(cosh64(0.0) == 1.0);
-    assert(cosh64(-0.0) == 1.0);
-    assert(math.isPositiveInf(cosh64(math.inf(f64))));
-    assert(math.isPositiveInf(cosh64(-math.inf(f64))));
-    assert(math.isNan(cosh64(math.nan(f64))));
+    expect(cosh64(0.0) == 1.0);
+    expect(cosh64(-0.0) == 1.0);
+    expect(math.isPositiveInf(cosh64(math.inf(f64))));
+    expect(math.isPositiveInf(cosh64(-math.inf(f64))));
+    expect(math.isNan(cosh64(math.nan(f64))));
 }

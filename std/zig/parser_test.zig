@@ -1,3 +1,10 @@
+test "zig fmt: threadlocal" {
+    try testCanonical(
+        \\threadlocal var x: i32 = 1234;
+        \\
+    );
+}
+
 test "zig fmt: linksection" {
     try testCanonical(
         \\export var aoeu: u64 linksection(".text.derp") = 1234;
@@ -5,6 +12,7 @@ test "zig fmt: linksection" {
         \\
     );
 }
+
 test "zig fmt: shebang line" {
     try testCanonical(
         \\#!/usr/bin/env zig
@@ -1940,7 +1948,7 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
             warn("std.zig.render returned {} instead of {}\n", anything_changed, changes_expected);
             return error.TestFailed;
         }
-        std.debug.assert(anything_changed == changes_expected);
+        std.testing.expect(anything_changed == changes_expected);
         failing_allocator.allocator.free(result_source);
         break :x failing_allocator.index;
     };

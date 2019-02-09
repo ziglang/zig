@@ -1,5 +1,5 @@
 const std = @import("../../index.zig");
-const debug = std.debug;
+const testing = std.testing;
 const math = std.math;
 const cmath = math.complex;
 const Complex = cmath.Complex;
@@ -18,6 +18,6 @@ test "complex.clog" {
     const a = Complex(f32).new(5, 3);
     const c = log(a);
 
-    debug.assert(math.approxEq(f32, c.re, 1.763180, epsilon));
-    debug.assert(math.approxEq(f32, c.im, 0.540419, epsilon));
+    testing.expect(math.approxEq(f32, c.re, 1.763180, epsilon));
+    testing.expect(math.approxEq(f32, c.im, 0.540419, epsilon));
 }

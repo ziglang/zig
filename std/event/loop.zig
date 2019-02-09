@@ -1,6 +1,7 @@
 const std = @import("../index.zig");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
+const testing = std.testing;
 const mem = std.mem;
 const AtomicRmwOp = builtin.AtomicRmwOp;
 const AtomicOrder = builtin.AtomicOrder;
@@ -896,7 +897,7 @@ test "std.event.Loop - call" {
 
     loop.run();
 
-    assert(did_it);
+    testing.expect(did_it);
 }
 
 async fn testEventLoop() i32 {
@@ -905,6 +906,6 @@ async fn testEventLoop() i32 {
 
 async fn testEventLoop2(h: promise->i32, did_it: *bool) void {
     const value = await h;
-    assert(value == 1234);
+    testing.expect(value == 1234);
     did_it.* = true;
 }

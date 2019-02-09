@@ -94,6 +94,20 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\}
     );
 
+    cases.addRuntimeSafety("vector integer addition overflow",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\pub fn main() void {
+        \\    var a: @Vector(4, i32) = []i32{ 1, 2, 2147483643, 4 };
+        \\    var b: @Vector(4, i32) = []i32{ 5, 6, 7, 8 };
+        \\    const x = add(a, b);
+        \\}
+        \\fn add(a: @Vector(4, i32), b: @Vector(4, i32)) @Vector(4, i32) {
+        \\    return a + b;
+        \\}
+    );
+
     cases.addRuntimeSafety("integer subtraction overflow",
         \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
@@ -359,6 +373,23 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\
         \\fn bar(f: *Foo) void {
         \\    f.float = 12.34;
+        \\}
+    );
+
+    // @intCast a runtime integer to u0 actually results in a comptime-known value,
+    // but we still emit a safety check to ensure the integer was 0 and thus
+    // did not truncate information.
+    cases.addRuntimeSafety("@intCast to u0",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\
+        \\pub fn main() void {
+        \\    bar(1, 1);
+        \\}
+        \\
+        \\fn bar(one: u1, not_zero: i32) void {
+        \\    var x = one << @intCast(u0, not_zero);
         \\}
     );
 

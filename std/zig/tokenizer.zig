@@ -53,6 +53,7 @@ pub const Token = struct {
         Keyword{ .bytes = "switch", .id = Id.Keyword_switch },
         Keyword{ .bytes = "test", .id = Id.Keyword_test },
         Keyword{ .bytes = "this", .id = Id.Keyword_this },
+        Keyword{ .bytes = "threadlocal", .id = Id.Keyword_threadlocal },
         Keyword{ .bytes = "true", .id = Id.Keyword_true },
         Keyword{ .bytes = "try", .id = Id.Keyword_try },
         Keyword{ .bytes = "undefined", .id = Id.Keyword_undefined },
@@ -182,6 +183,7 @@ pub const Token = struct {
         Keyword_switch,
         Keyword_test,
         Keyword_this,
+        Keyword_threadlocal,
         Keyword_true,
         Keyword_try,
         Keyword_undefined,
@@ -1345,5 +1347,5 @@ fn testTokenize(source: []const u8, expected_tokens: []const Token.Id) void {
         }
     }
     const last_token = tokenizer.next();
-    std.debug.assert(last_token.id == Token.Id.Eof);
+    std.testing.expect(last_token.id == Token.Id.Eof);
 }

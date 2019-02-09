@@ -2,7 +2,7 @@ const std = @import("index.zig");
 const HashMap = @import("hash_map.zig").HashMap;
 const mem = @import("mem.zig");
 const Allocator = mem.Allocator;
-const assert = std.debug.assert;
+const testing = std.testing;
 
 pub const BufSet = struct {
     hash_map: BufSetHashMap,
@@ -68,9 +68,9 @@ test "BufSet" {
     defer bufset.deinit();
 
     try bufset.put("x");
-    assert(bufset.count() == 1);
+    testing.expect(bufset.count() == 1);
     bufset.delete("x");
-    assert(bufset.count() == 0);
+    testing.expect(bufset.count() == 0);
 
     try bufset.put("x");
     try bufset.put("y");

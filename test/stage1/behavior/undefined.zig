@@ -1,4 +1,4 @@
-const assertOrPanic = @import("std").debug.assertOrPanic;
+const expect = @import("std").testing.expect;
 const mem = @import("std").mem;
 
 fn initStaticArray() [10]i32 {
@@ -11,16 +11,16 @@ fn initStaticArray() [10]i32 {
 }
 const static_array = initStaticArray();
 test "init static array to undefined" {
-    assertOrPanic(static_array[0] == 1);
-    assertOrPanic(static_array[4] == 2);
-    assertOrPanic(static_array[7] == 3);
-    assertOrPanic(static_array[9] == 4);
+    expect(static_array[0] == 1);
+    expect(static_array[4] == 2);
+    expect(static_array[7] == 3);
+    expect(static_array[9] == 4);
 
     comptime {
-        assertOrPanic(static_array[0] == 1);
-        assertOrPanic(static_array[4] == 2);
-        assertOrPanic(static_array[7] == 3);
-        assertOrPanic(static_array[9] == 4);
+        expect(static_array[0] == 1);
+        expect(static_array[4] == 2);
+        expect(static_array[7] == 3);
+        expect(static_array[9] == 4);
     }
 }
 
@@ -40,12 +40,12 @@ test "assign undefined to struct" {
     comptime {
         var foo: Foo = undefined;
         setFooX(&foo);
-        assertOrPanic(foo.x == 2);
+        expect(foo.x == 2);
     }
     {
         var foo: Foo = undefined;
         setFooX(&foo);
-        assertOrPanic(foo.x == 2);
+        expect(foo.x == 2);
     }
 }
 
@@ -53,17 +53,17 @@ test "assign undefined to struct with method" {
     comptime {
         var foo: Foo = undefined;
         foo.setFooXMethod();
-        assertOrPanic(foo.x == 3);
+        expect(foo.x == 3);
     }
     {
         var foo: Foo = undefined;
         foo.setFooXMethod();
-        assertOrPanic(foo.x == 3);
+        expect(foo.x == 3);
     }
 }
 
 test "type name of undefined" {
     const x = undefined;
-    assertOrPanic(mem.eql(u8, @typeName(@typeOf(x)), "(undefined)"));
+    expect(mem.eql(u8, @typeName(@typeOf(x)), "(undefined)"));
 }
 

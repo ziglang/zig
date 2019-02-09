@@ -1,6 +1,7 @@
 const std = @import("index.zig");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
+const testing = std.testing;
 const AtomicRmwOp = builtin.AtomicRmwOp;
 const AtomicOrder = builtin.AtomicOrder;
 
@@ -63,12 +64,12 @@ test "std.lazyInit" {
         global_number.resolve();
     }
     if (global_number.get()) |x| {
-        assert(x.* == 1234);
+        testing.expect(x.* == 1234);
     } else {
         @panic("bad");
     }
     if (global_number.get()) |x| {
-        assert(x.* == 1234);
+        testing.expect(x.* == 1234);
     } else {
         @panic("bad");
     }
@@ -80,6 +81,6 @@ test "std.lazyInit(void)" {
     if (global_void.get()) |_| @panic("bad") else {
         global_void.resolve();
     }
-    assert(global_void.get() != null);
-    assert(global_void.get() != null);
+    testing.expect(global_void.get() != null);
+    testing.expect(global_void.get() != null);
 }

@@ -1,5 +1,5 @@
 const std = @import("../../index.zig");
-const debug = std.debug;
+const testing = std.testing;
 const math = std.math;
 
 pub const abs = @import("abs.zig").abs;
@@ -97,7 +97,7 @@ test "complex.add" {
     const b = Complex(f32).new(2, 7);
     const c = a.add(b);
 
-    debug.assert(c.re == 7 and c.im == 10);
+    testing.expect(c.re == 7 and c.im == 10);
 }
 
 test "complex.sub" {
@@ -105,7 +105,7 @@ test "complex.sub" {
     const b = Complex(f32).new(2, 7);
     const c = a.sub(b);
 
-    debug.assert(c.re == 3 and c.im == -4);
+    testing.expect(c.re == 3 and c.im == -4);
 }
 
 test "complex.mul" {
@@ -113,7 +113,7 @@ test "complex.mul" {
     const b = Complex(f32).new(2, 7);
     const c = a.mul(b);
 
-    debug.assert(c.re == -11 and c.im == 41);
+    testing.expect(c.re == -11 and c.im == 41);
 }
 
 test "complex.div" {
@@ -121,7 +121,7 @@ test "complex.div" {
     const b = Complex(f32).new(2, 7);
     const c = a.div(b);
 
-    debug.assert(math.approxEq(f32, c.re, f32(31) / 53, epsilon) and
+    testing.expect(math.approxEq(f32, c.re, f32(31) / 53, epsilon) and
         math.approxEq(f32, c.im, f32(-29) / 53, epsilon));
 }
 
@@ -129,14 +129,14 @@ test "complex.conjugate" {
     const a = Complex(f32).new(5, 3);
     const c = a.conjugate();
 
-    debug.assert(c.re == 5 and c.im == -3);
+    testing.expect(c.re == 5 and c.im == -3);
 }
 
 test "complex.reciprocal" {
     const a = Complex(f32).new(5, 3);
     const c = a.reciprocal();
 
-    debug.assert(math.approxEq(f32, c.re, f32(5) / 34, epsilon) and
+    testing.expect(math.approxEq(f32, c.re, f32(5) / 34, epsilon) and
         math.approxEq(f32, c.im, f32(-3) / 34, epsilon));
 }
 
@@ -144,7 +144,7 @@ test "complex.magnitude" {
     const a = Complex(f32).new(5, 3);
     const c = a.magnitude();
 
-    debug.assert(math.approxEq(f32, c, 5.83095, epsilon));
+    testing.expect(math.approxEq(f32, c, 5.83095, epsilon));
 }
 
 test "complex.cmath" {

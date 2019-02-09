@@ -1,6 +1,7 @@
 const assert = std.debug.assert;
 const builtin = @import("builtin");
 const AtomicOrder = builtin.AtomicOrder;
+const expect = std.testing.expect;
 
 /// Many reader, many writer, non-allocating, thread-safe
 /// Uses a spinlock to protect push() and pop()
@@ -108,14 +109,14 @@ test "std.atomic.stack" {
         {
             var i: usize = 0;
             while (i < put_thread_count) : (i += 1) {
-                std.debug.assertOrPanic(startPuts(&context) == 0);
+                expect(startPuts(&context) == 0);
             }
         }
         context.puts_done = 1;
         {
             var i: usize = 0;
             while (i < put_thread_count) : (i += 1) {
-                std.debug.assertOrPanic(startGets(&context) == 0);
+                expect(startGets(&context) == 0);
             }
         }
     } else {

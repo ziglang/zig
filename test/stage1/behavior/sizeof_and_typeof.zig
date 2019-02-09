@@ -1,9 +1,9 @@
 const builtin = @import("builtin");
-const assertOrPanic = @import("std").debug.assertOrPanic;
+const expect = @import("std").testing.expect;
 
 test "@sizeOf and @typeOf" {
     const y: @typeOf(x) = 120;
-    assertOrPanic(@sizeOf(@typeOf(y)) == 2);
+    expect(@sizeOf(@typeOf(y)) == 2);
 }
 const x: u16 = 13;
 const z: @typeOf(x) = 19;
@@ -30,40 +30,40 @@ const P = packed struct {
 
 test "@byteOffsetOf" {
     // Packed structs have fixed memory layout
-    assertOrPanic(@byteOffsetOf(P, "a") == 0);
-    assertOrPanic(@byteOffsetOf(P, "b") == 1);
-    assertOrPanic(@byteOffsetOf(P, "c") == 5);
-    assertOrPanic(@byteOffsetOf(P, "d") == 6);
-    assertOrPanic(@byteOffsetOf(P, "e") == 6);
-    assertOrPanic(@byteOffsetOf(P, "f") == 7);
-    assertOrPanic(@byteOffsetOf(P, "g") == 9);
+    expect(@byteOffsetOf(P, "a") == 0);
+    expect(@byteOffsetOf(P, "b") == 1);
+    expect(@byteOffsetOf(P, "c") == 5);
+    expect(@byteOffsetOf(P, "d") == 6);
+    expect(@byteOffsetOf(P, "e") == 6);
+    expect(@byteOffsetOf(P, "f") == 7);
+    expect(@byteOffsetOf(P, "g") == 9);
 
     // Normal struct fields can be moved/padded
     var a: A = undefined;
-    assertOrPanic(@ptrToInt(&a.a) - @ptrToInt(&a) == @byteOffsetOf(A, "a"));
-    assertOrPanic(@ptrToInt(&a.b) - @ptrToInt(&a) == @byteOffsetOf(A, "b"));
-    assertOrPanic(@ptrToInt(&a.c) - @ptrToInt(&a) == @byteOffsetOf(A, "c"));
-    assertOrPanic(@ptrToInt(&a.d) - @ptrToInt(&a) == @byteOffsetOf(A, "d"));
-    assertOrPanic(@ptrToInt(&a.e) - @ptrToInt(&a) == @byteOffsetOf(A, "e"));
-    assertOrPanic(@ptrToInt(&a.f) - @ptrToInt(&a) == @byteOffsetOf(A, "f"));
-    assertOrPanic(@ptrToInt(&a.g) - @ptrToInt(&a) == @byteOffsetOf(A, "g"));
+    expect(@ptrToInt(&a.a) - @ptrToInt(&a) == @byteOffsetOf(A, "a"));
+    expect(@ptrToInt(&a.b) - @ptrToInt(&a) == @byteOffsetOf(A, "b"));
+    expect(@ptrToInt(&a.c) - @ptrToInt(&a) == @byteOffsetOf(A, "c"));
+    expect(@ptrToInt(&a.d) - @ptrToInt(&a) == @byteOffsetOf(A, "d"));
+    expect(@ptrToInt(&a.e) - @ptrToInt(&a) == @byteOffsetOf(A, "e"));
+    expect(@ptrToInt(&a.f) - @ptrToInt(&a) == @byteOffsetOf(A, "f"));
+    expect(@ptrToInt(&a.g) - @ptrToInt(&a) == @byteOffsetOf(A, "g"));
 }
 
 test "@bitOffsetOf" {
     // Packed structs have fixed memory layout
-    assertOrPanic(@bitOffsetOf(P, "a") == 0);
-    assertOrPanic(@bitOffsetOf(P, "b") == 8);
-    assertOrPanic(@bitOffsetOf(P, "c") == 40);
-    assertOrPanic(@bitOffsetOf(P, "d") == 48);
-    assertOrPanic(@bitOffsetOf(P, "e") == 51);
-    assertOrPanic(@bitOffsetOf(P, "f") == 56);
-    assertOrPanic(@bitOffsetOf(P, "g") == 72);
+    expect(@bitOffsetOf(P, "a") == 0);
+    expect(@bitOffsetOf(P, "b") == 8);
+    expect(@bitOffsetOf(P, "c") == 40);
+    expect(@bitOffsetOf(P, "d") == 48);
+    expect(@bitOffsetOf(P, "e") == 51);
+    expect(@bitOffsetOf(P, "f") == 56);
+    expect(@bitOffsetOf(P, "g") == 72);
 
-    assertOrPanic(@byteOffsetOf(A, "a") * 8 == @bitOffsetOf(A, "a"));
-    assertOrPanic(@byteOffsetOf(A, "b") * 8 == @bitOffsetOf(A, "b"));
-    assertOrPanic(@byteOffsetOf(A, "c") * 8 == @bitOffsetOf(A, "c"));
-    assertOrPanic(@byteOffsetOf(A, "d") * 8 == @bitOffsetOf(A, "d"));
-    assertOrPanic(@byteOffsetOf(A, "e") * 8 == @bitOffsetOf(A, "e"));
-    assertOrPanic(@byteOffsetOf(A, "f") * 8 == @bitOffsetOf(A, "f"));
-    assertOrPanic(@byteOffsetOf(A, "g") * 8 == @bitOffsetOf(A, "g"));
+    expect(@byteOffsetOf(A, "a") * 8 == @bitOffsetOf(A, "a"));
+    expect(@byteOffsetOf(A, "b") * 8 == @bitOffsetOf(A, "b"));
+    expect(@byteOffsetOf(A, "c") * 8 == @bitOffsetOf(A, "c"));
+    expect(@byteOffsetOf(A, "d") * 8 == @bitOffsetOf(A, "d"));
+    expect(@byteOffsetOf(A, "e") * 8 == @bitOffsetOf(A, "e"));
+    expect(@byteOffsetOf(A, "f") * 8 == @bitOffsetOf(A, "f"));
+    expect(@byteOffsetOf(A, "g") * 8 == @bitOffsetOf(A, "g"));
 }

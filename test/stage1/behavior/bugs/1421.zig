@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const assertOrPanic = std.debug.assertOrPanic;
+const expect = std.testing.expect;
 
 const S = struct {
     fn method() builtin.TypeInfo {
@@ -10,5 +10,5 @@ const S = struct {
 
 test "functions with return type required to be comptime are generic" {
     const ti = S.method();
-    assertOrPanic(builtin.TypeId(ti) == builtin.TypeId.Struct);
+    expect(builtin.TypeId(ti) == builtin.TypeId.Struct);
 }

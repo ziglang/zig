@@ -1,4 +1,4 @@
-const assertOrPanic = @import("std").debug.assertOrPanic;
+const expect = @import("std").testing.expect;
 
 const Foo = struct {
     a: void,
@@ -13,14 +13,14 @@ test "compare void with void compile time known" {
             .b = 1,
             .c = {},
         };
-        assertOrPanic(foo.a == {});
+        expect(foo.a == {});
     }
 }
 
 test "iterate over a void slice" {
     var j: usize = 0;
     for (times(10)) |_, i| {
-        assertOrPanic(i == j);
+        expect(i == j);
         j += 1;
     }
 }
@@ -31,5 +31,5 @@ fn times(n: usize) []const void {
 
 test "void optional" {
     var x: ?void = {};
-    assertOrPanic(x != null);
+    expect(x != null);
 }

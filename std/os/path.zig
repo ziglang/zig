@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const Os = builtin.Os;
 const debug = std.debug;
 const assert = debug.assert;
+const testing = std.testing;
 const mem = std.mem;
 const fmt = std.fmt;
 const Allocator = mem.Allocator;
@@ -94,14 +95,14 @@ fn testJoinWindows(paths: []const []const u8, expected: []const u8) void {
     var buf: [1024]u8 = undefined;
     const a = &std.heap.FixedBufferAllocator.init(&buf).allocator;
     const actual = joinWindows(a, paths) catch @panic("fail");
-    debug.assertOrPanic(mem.eql(u8, actual, expected));
+    testing.expectEqualSlices(u8, expected, actual);
 }
 
 fn testJoinPosix(paths: []const []const u8, expected: []const u8) void {
     var buf: [1024]u8 = undefined;
     const a = &std.heap.FixedBufferAllocator.init(&buf).allocator;
     const actual = joinPosix(a, paths) catch @panic("fail");
-    debug.assertOrPanic(mem.eql(u8, actual, expected));
+    testing.expectEqualSlices(u8, expected, actual);
 }
 
 test "os.path.join" {
@@ -193,11 +194,11 @@ test "os.path.isAbsolutePosix" {
 }
 
 fn testIsAbsoluteWindows(path: []const u8, expected_result: bool) void {
-    assert(isAbsoluteWindows(path) == expected_result);
+    testing.expectEqual(expected_result, isAbsoluteWindows(path));
 }
 
 fn testIsAbsolutePosix(path: []const u8, expected_result: bool) void {
-    assert(isAbsolutePosix(path) == expected_result);
+    testing.expectEqual(expected_result, isAbsolutePosix(path));
 }
 
 pub const WindowsPath = struct {
@@ -281,33 +282,33 @@ pub fn windowsParsePath(path: []const u8) WindowsPath {
 test "os.path.windowsParsePath" {
     {
         const parsed = windowsParsePath("//a/b");
-        assert(parsed.is_abs);
-        assert(parsed.kind == WindowsPath.Kind.NetworkShare);
-        assert(mem.eql(u8, parsed.disk_designator, "//a/b"));
+        testing.expect(parsed.is_abs);
+        testing.expect(parsed.kind == WindowsPath.Kind.NetworkShare);
+        testing.expect(mem.eql(u8, parsed.disk_designator, "//a/b"));
     }
     {
         const parsed = windowsParsePath("\\\\a\\b");
-        assert(parsed.is_abs);
-        assert(parsed.kind == WindowsPath.Kind.NetworkShare);
-        assert(mem.eql(u8, parsed.disk_designator, "\\\\a\\b"));
+        testing.expect(parsed.is_abs);
+        testing.expect(parsed.kind == WindowsPath.Kind.NetworkShare);
+        testing.expect(mem.eql(u8, parsed.disk_designator, "\\\\a\\b"));
     }
     {
         const parsed = windowsParsePath("\\\\a\\");
-        assert(!parsed.is_abs);
-        assert(parsed.kind == WindowsPath.Kind.None);
-        assert(mem.eql(u8, parsed.disk_designator, ""));
+        testing.expect(!parsed.is_abs);
+        testing.expect(parsed.kind == WindowsPath.Kind.None);
+        testing.expect(mem.eql(u8, parsed.disk_designator, ""));
     }
     {
         const parsed = windowsParsePath("/usr/local");
-        assert(parsed.is_abs);
-        assert(parsed.kind == WindowsPath.Kind.None);
-        assert(mem.eql(u8, parsed.disk_designator, ""));
+        testing.expect(parsed.is_abs);
+        testing.expect(parsed.kind == WindowsPath.Kind.None);
+        testing.expect(mem.eql(u8, parsed.disk_designator, ""));
     }
     {
         const parsed = windowsParsePath("c:../");
-        assert(!parsed.is_abs);
-        assert(parsed.kind == WindowsPath.Kind.Drive);
-        assert(mem.eql(u8, parsed.disk_designator, "c:"));
+        testing.expect(!parsed.is_abs);
+        testing.expect(parsed.kind == WindowsPath.Kind.Drive);
+        testing.expect(mem.eql(u8, parsed.disk_designator, "c:"));
     }
 }
 
@@ -642,10 +643,10 @@ test "os.path.resolve" {
         if (windowsParsePath(cwd).kind == WindowsPath.Kind.Drive) {
             cwd[0] = asciiUpper(cwd[0]);
         }
-        assert(mem.eql(u8, testResolveWindows([][]const u8{"."}), cwd));
+        testing.expect(mem.eql(u8, testResolveWindows([][]const u8{"."}), cwd));
     } else {
-        assert(mem.eql(u8, testResolvePosix([][]const u8{ "a/b/c/", "../../.." }), cwd));
-        assert(mem.eql(u8, testResolvePosix([][]const u8{"."}), cwd));
+        testing.expect(mem.eql(u8, testResolvePosix([][]const u8{ "a/b/c/", "../../.." }), cwd));
+        testing.expect(mem.eql(u8, testResolvePosix([][]const u8{"."}), cwd));
     }
 }
 
@@ -662,7 +663,7 @@ test "os.path.resolveWindows" {
             if (parsed_cwd.kind == WindowsPath.Kind.Drive) {
                 expected[0] = asciiUpper(parsed_cwd.disk_designator[0]);
             }
-            assert(mem.eql(u8, result, expected));
+            testing.expect(mem.eql(u8, result, expected));
         }
         {
             const result = testResolveWindows([][]const u8{ "usr/local", "lib\\zig" });
@@ -673,36 +674,36 @@ test "os.path.resolveWindows" {
             if (parsed_cwd.kind == WindowsPath.Kind.Drive) {
                 expected[0] = asciiUpper(parsed_cwd.disk_designator[0]);
             }
-            assert(mem.eql(u8, result, expected));
+            testing.expect(mem.eql(u8, result, expected));
         }
     }
 
-    assert(mem.eql(u8, testResolveWindows([][]const u8{ "c:\\a\\b\\c", "/hi", "ok" }), "C:\\hi\\ok"));
-    assert(mem.eql(u8, testResolveWindows([][]const u8{ "c:/blah\\blah", "d:/games", "c:../a" }), "C:\\blah\\a"));
-    assert(mem.eql(u8, testResolveWindows([][]const u8{ "c:/blah\\blah", "d:/games", "C:../a" }), "C:\\blah\\a"));
-    assert(mem.eql(u8, testResolveWindows([][]const u8{ "c:/ignore", "d:\\a/b\\c/d", "\\e.exe" }), "D:\\e.exe"));
-    assert(mem.eql(u8, testResolveWindows([][]const u8{ "c:/ignore", "c:/some/file" }), "C:\\some\\file"));
-    assert(mem.eql(u8, testResolveWindows([][]const u8{ "d:/ignore", "d:some/dir//" }), "D:\\ignore\\some\\dir"));
-    assert(mem.eql(u8, testResolveWindows([][]const u8{ "//server/share", "..", "relative\\" }), "\\\\server\\share\\relative"));
-    assert(mem.eql(u8, testResolveWindows([][]const u8{ "c:/", "//" }), "C:\\"));
-    assert(mem.eql(u8, testResolveWindows([][]const u8{ "c:/", "//dir" }), "C:\\dir"));
-    assert(mem.eql(u8, testResolveWindows([][]const u8{ "c:/", "//server/share" }), "\\\\server\\share\\"));
-    assert(mem.eql(u8, testResolveWindows([][]const u8{ "c:/", "//server//share" }), "\\\\server\\share\\"));
-    assert(mem.eql(u8, testResolveWindows([][]const u8{ "c:/", "///some//dir" }), "C:\\some\\dir"));
-    assert(mem.eql(u8, testResolveWindows([][]const u8{ "C:\\foo\\tmp.3\\", "..\\tmp.3\\cycles\\root.js" }), "C:\\foo\\tmp.3\\cycles\\root.js"));
+    testing.expect(mem.eql(u8, testResolveWindows([][]const u8{ "c:\\a\\b\\c", "/hi", "ok" }), "C:\\hi\\ok"));
+    testing.expect(mem.eql(u8, testResolveWindows([][]const u8{ "c:/blah\\blah", "d:/games", "c:../a" }), "C:\\blah\\a"));
+    testing.expect(mem.eql(u8, testResolveWindows([][]const u8{ "c:/blah\\blah", "d:/games", "C:../a" }), "C:\\blah\\a"));
+    testing.expect(mem.eql(u8, testResolveWindows([][]const u8{ "c:/ignore", "d:\\a/b\\c/d", "\\e.exe" }), "D:\\e.exe"));
+    testing.expect(mem.eql(u8, testResolveWindows([][]const u8{ "c:/ignore", "c:/some/file" }), "C:\\some\\file"));
+    testing.expect(mem.eql(u8, testResolveWindows([][]const u8{ "d:/ignore", "d:some/dir//" }), "D:\\ignore\\some\\dir"));
+    testing.expect(mem.eql(u8, testResolveWindows([][]const u8{ "//server/share", "..", "relative\\" }), "\\\\server\\share\\relative"));
+    testing.expect(mem.eql(u8, testResolveWindows([][]const u8{ "c:/", "//" }), "C:\\"));
+    testing.expect(mem.eql(u8, testResolveWindows([][]const u8{ "c:/", "//dir" }), "C:\\dir"));
+    testing.expect(mem.eql(u8, testResolveWindows([][]const u8{ "c:/", "//server/share" }), "\\\\server\\share\\"));
+    testing.expect(mem.eql(u8, testResolveWindows([][]const u8{ "c:/", "//server//share" }), "\\\\server\\share\\"));
+    testing.expect(mem.eql(u8, testResolveWindows([][]const u8{ "c:/", "///some//dir" }), "C:\\some\\dir"));
+    testing.expect(mem.eql(u8, testResolveWindows([][]const u8{ "C:\\foo\\tmp.3\\", "..\\tmp.3\\cycles\\root.js" }), "C:\\foo\\tmp.3\\cycles\\root.js"));
 }
 
 test "os.path.resolvePosix" {
-    assert(mem.eql(u8, testResolvePosix([][]const u8{ "/a/b", "c" }), "/a/b/c"));
-    assert(mem.eql(u8, testResolvePosix([][]const u8{ "/a/b", "c", "//d", "e///" }), "/d/e"));
-    assert(mem.eql(u8, testResolvePosix([][]const u8{ "/a/b/c", "..", "../" }), "/a"));
-    assert(mem.eql(u8, testResolvePosix([][]const u8{ "/", "..", ".." }), "/"));
-    assert(mem.eql(u8, testResolvePosix([][]const u8{"/a/b/c/"}), "/a/b/c"));
+    testing.expect(mem.eql(u8, testResolvePosix([][]const u8{ "/a/b", "c" }), "/a/b/c"));
+    testing.expect(mem.eql(u8, testResolvePosix([][]const u8{ "/a/b", "c", "//d", "e///" }), "/d/e"));
+    testing.expect(mem.eql(u8, testResolvePosix([][]const u8{ "/a/b/c", "..", "../" }), "/a"));
+    testing.expect(mem.eql(u8, testResolvePosix([][]const u8{ "/", "..", ".." }), "/"));
+    testing.expect(mem.eql(u8, testResolvePosix([][]const u8{"/a/b/c/"}), "/a/b/c"));
 
-    assert(mem.eql(u8, testResolvePosix([][]const u8{ "/var/lib", "../", "file/" }), "/var/file"));
-    assert(mem.eql(u8, testResolvePosix([][]const u8{ "/var/lib", "/../", "file/" }), "/file"));
-    assert(mem.eql(u8, testResolvePosix([][]const u8{ "/some/dir", ".", "/absolute/" }), "/absolute"));
-    assert(mem.eql(u8, testResolvePosix([][]const u8{ "/foo/tmp.3/", "../tmp.3/cycles/root.js" }), "/foo/tmp.3/cycles/root.js"));
+    testing.expect(mem.eql(u8, testResolvePosix([][]const u8{ "/var/lib", "../", "file/" }), "/var/file"));
+    testing.expect(mem.eql(u8, testResolvePosix([][]const u8{ "/var/lib", "/../", "file/" }), "/file"));
+    testing.expect(mem.eql(u8, testResolvePosix([][]const u8{ "/some/dir", ".", "/absolute/" }), "/absolute"));
+    testing.expect(mem.eql(u8, testResolvePosix([][]const u8{ "/foo/tmp.3/", "../tmp.3/cycles/root.js" }), "/foo/tmp.3/cycles/root.js"));
 }
 
 fn testResolveWindows(paths: []const []const u8) []u8 {
@@ -833,17 +834,17 @@ test "os.path.dirnameWindows" {
 
 fn testDirnamePosix(input: []const u8, expected_output: ?[]const u8) void {
     if (dirnamePosix(input)) |output| {
-        assert(mem.eql(u8, output, expected_output.?));
+        testing.expect(mem.eql(u8, output, expected_output.?));
     } else {
-        assert(expected_output == null);
+        testing.expect(expected_output == null);
     }
 }
 
 fn testDirnameWindows(input: []const u8, expected_output: ?[]const u8) void {
     if (dirnameWindows(input)) |output| {
-        assert(mem.eql(u8, output, expected_output.?));
+        testing.expect(mem.eql(u8, output, expected_output.?));
     } else {
-        assert(expected_output == null);
+        testing.expect(expected_output == null);
     }
 }
 
@@ -948,15 +949,15 @@ test "os.path.basename" {
 }
 
 fn testBasename(input: []const u8, expected_output: []const u8) void {
-    assert(mem.eql(u8, basename(input), expected_output));
+    testing.expectEqualSlices(u8, expected_output, basename(input));
 }
 
 fn testBasenamePosix(input: []const u8, expected_output: []const u8) void {
-    assert(mem.eql(u8, basenamePosix(input), expected_output));
+    testing.expectEqualSlices(u8, expected_output, basenamePosix(input));
 }
 
 fn testBasenameWindows(input: []const u8, expected_output: []const u8) void {
-    assert(mem.eql(u8, basenameWindows(input), expected_output));
+    testing.expectEqualSlices(u8, expected_output, basenameWindows(input));
 }
 
 /// Returns the relative path from `from` to `to`. If `from` and `to` each
@@ -1131,12 +1132,12 @@ test "os.path.relative" {
 
 fn testRelativePosix(from: []const u8, to: []const u8, expected_output: []const u8) void {
     const result = relativePosix(debug.global_allocator, from, to) catch unreachable;
-    assert(mem.eql(u8, result, expected_output));
+    testing.expectEqualSlices(u8, expected_output, result);
 }
 
 fn testRelativeWindows(from: []const u8, to: []const u8, expected_output: []const u8) void {
     const result = relativeWindows(debug.global_allocator, from, to) catch unreachable;
-    assert(mem.eql(u8, result, expected_output));
+    testing.expectEqualSlices(u8, expected_output, result);
 }
 
 pub const RealError = error{
@@ -1283,5 +1284,5 @@ pub fn realAlloc(allocator: *Allocator, pathname: []const u8) ![]u8 {
 test "os.path.real" {
     // at least call it so it gets compiled
     var buf: [os.MAX_PATH_BYTES]u8 = undefined;
-    std.debug.assertError(real(&buf, "definitely_bogus_does_not_exist1234"), error.FileNotFound);
+    testing.expectError(error.FileNotFound, real(&buf, "definitely_bogus_does_not_exist1234"));
 }

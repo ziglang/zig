@@ -1,9 +1,9 @@
 const __floattisf = @import("floattisf.zig").__floattisf;
-const assert = @import("std").debug.assert;
+const testing = @import("std").testing;
 
 fn test__floattisf(a: i128, expected: f32) void {
     const x = __floattisf(a);
-    assert(x == expected);
+    testing.expect(x == expected);
 }
 
 test "floattisf" {

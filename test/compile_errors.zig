@@ -1,6 +1,13 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.addTest(
+        "return invalid type from test",
+        \\test "example" { return 1; }
+    ,
+        ".tmp_source.zig:1:25: error: integer value 1 cannot be implicitly casted to type 'void'",
+    );
+
     cases.add(
         "threadlocal qualifier on const",
         \\threadlocal const x: i32 = 1234;

@@ -1,5 +1,6 @@
-const debug = @import("std").debug;
-const assertOrPanic = debug.assertOrPanic;
+const std = @import("std");
+const debug = std.debug;
+const expect = std.testing.expect;
 
 var argv: [*]const [*]const u8 = undefined;
 
@@ -15,10 +16,10 @@ test "const slice child" {
 }
 
 fn foo(args: [][]const u8) void {
-    assertOrPanic(args.len == 3);
-    assertOrPanic(streql(args[0], "one"));
-    assertOrPanic(streql(args[1], "two"));
-    assertOrPanic(streql(args[2], "three"));
+    expect(args.len == 3);
+    expect(streql(args[0], "one"));
+    expect(streql(args[1], "two"));
+    expect(streql(args[2], "three"));
 }
 
 fn bar(argc: usize) void {

@@ -5,7 +5,7 @@
 
 const std = @import("../index.zig");
 const math = std.math;
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 const maxInt = std.math.maxInt;
 
 fn modf_result(comptime T: type) type {
@@ -119,11 +119,11 @@ test "math.modf" {
     const a = modf(f32(1.0));
     const b = modf32(1.0);
     // NOTE: No struct comparison on generic return type function? non-named, makes sense, but still.
-    assert(a.ipart == b.ipart and a.fpart == b.fpart);
+    expect(a.ipart == b.ipart and a.fpart == b.fpart);
 
     const c = modf(f64(1.0));
     const d = modf64(1.0);
-    assert(a.ipart == b.ipart and a.fpart == b.fpart);
+    expect(a.ipart == b.ipart and a.fpart == b.fpart);
 }
 
 test "math.modf32" {
@@ -131,24 +131,24 @@ test "math.modf32" {
     var r: modf32_result = undefined;
 
     r = modf32(1.0);
-    assert(math.approxEq(f32, r.ipart, 1.0, epsilon));
-    assert(math.approxEq(f32, r.fpart, 0.0, epsilon));
+    expect(math.approxEq(f32, r.ipart, 1.0, epsilon));
+    expect(math.approxEq(f32, r.fpart, 0.0, epsilon));
 
     r = modf32(2.545);
-    assert(math.approxEq(f32, r.ipart, 2.0, epsilon));
-    assert(math.approxEq(f32, r.fpart, 0.545, epsilon));
+    expect(math.approxEq(f32, r.ipart, 2.0, epsilon));
+    expect(math.approxEq(f32, r.fpart, 0.545, epsilon));
 
     r = modf32(3.978123);
-    assert(math.approxEq(f32, r.ipart, 3.0, epsilon));
-    assert(math.approxEq(f32, r.fpart, 0.978123, epsilon));
+    expect(math.approxEq(f32, r.ipart, 3.0, epsilon));
+    expect(math.approxEq(f32, r.fpart, 0.978123, epsilon));
 
     r = modf32(43874.3);
-    assert(math.approxEq(f32, r.ipart, 43874, epsilon));
-    assert(math.approxEq(f32, r.fpart, 0.300781, epsilon));
+    expect(math.approxEq(f32, r.ipart, 43874, epsilon));
+    expect(math.approxEq(f32, r.fpart, 0.300781, epsilon));
 
     r = modf32(1234.340780);
-    assert(math.approxEq(f32, r.ipart, 1234, epsilon));
-    assert(math.approxEq(f32, r.fpart, 0.340820, epsilon));
+    expect(math.approxEq(f32, r.ipart, 1234, epsilon));
+    expect(math.approxEq(f32, r.fpart, 0.340820, epsilon));
 }
 
 test "math.modf64" {
@@ -156,48 +156,48 @@ test "math.modf64" {
     var r: modf64_result = undefined;
 
     r = modf64(1.0);
-    assert(math.approxEq(f64, r.ipart, 1.0, epsilon));
-    assert(math.approxEq(f64, r.fpart, 0.0, epsilon));
+    expect(math.approxEq(f64, r.ipart, 1.0, epsilon));
+    expect(math.approxEq(f64, r.fpart, 0.0, epsilon));
 
     r = modf64(2.545);
-    assert(math.approxEq(f64, r.ipart, 2.0, epsilon));
-    assert(math.approxEq(f64, r.fpart, 0.545, epsilon));
+    expect(math.approxEq(f64, r.ipart, 2.0, epsilon));
+    expect(math.approxEq(f64, r.fpart, 0.545, epsilon));
 
     r = modf64(3.978123);
-    assert(math.approxEq(f64, r.ipart, 3.0, epsilon));
-    assert(math.approxEq(f64, r.fpart, 0.978123, epsilon));
+    expect(math.approxEq(f64, r.ipart, 3.0, epsilon));
+    expect(math.approxEq(f64, r.fpart, 0.978123, epsilon));
 
     r = modf64(43874.3);
-    assert(math.approxEq(f64, r.ipart, 43874, epsilon));
-    assert(math.approxEq(f64, r.fpart, 0.3, epsilon));
+    expect(math.approxEq(f64, r.ipart, 43874, epsilon));
+    expect(math.approxEq(f64, r.fpart, 0.3, epsilon));
 
     r = modf64(1234.340780);
-    assert(math.approxEq(f64, r.ipart, 1234, epsilon));
-    assert(math.approxEq(f64, r.fpart, 0.340780, epsilon));
+    expect(math.approxEq(f64, r.ipart, 1234, epsilon));
+    expect(math.approxEq(f64, r.fpart, 0.340780, epsilon));
 }
 
 test "math.modf32.special" {
     var r: modf32_result = undefined;
 
     r = modf32(math.inf(f32));
-    assert(math.isPositiveInf(r.ipart) and math.isNan(r.fpart));
+    expect(math.isPositiveInf(r.ipart) and math.isNan(r.fpart));
 
     r = modf32(-math.inf(f32));
-    assert(math.isNegativeInf(r.ipart) and math.isNan(r.fpart));
+    expect(math.isNegativeInf(r.ipart) and math.isNan(r.fpart));
 
     r = modf32(math.nan(f32));
-    assert(math.isNan(r.ipart) and math.isNan(r.fpart));
+    expect(math.isNan(r.ipart) and math.isNan(r.fpart));
 }
 
 test "math.modf64.special" {
     var r: modf64_result = undefined;
 
     r = modf64(math.inf(f64));
-    assert(math.isPositiveInf(r.ipart) and math.isNan(r.fpart));
+    expect(math.isPositiveInf(r.ipart) and math.isNan(r.fpart));
 
     r = modf64(-math.inf(f64));
-    assert(math.isNegativeInf(r.ipart) and math.isNan(r.fpart));
+    expect(math.isNegativeInf(r.ipart) and math.isNan(r.fpart));
 
     r = modf64(math.nan(f64));
-    assert(math.isNan(r.ipart) and math.isNan(r.fpart));
+    expect(math.isNan(r.ipart) and math.isNan(r.fpart));
 }

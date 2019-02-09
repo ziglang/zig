@@ -6,7 +6,8 @@
 // https://131002.net/siphash/
 
 const std = @import("../index.zig");
-const debug = std.debug;
+const assert = std.debug.assert;
+const testing = std.testing;
 const math = std.math;
 const mem = std.mem;
 
@@ -21,8 +22,8 @@ pub fn SipHash128(comptime c_rounds: usize, comptime d_rounds: usize) type {
 }
 
 fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize) type {
-    debug.assert(T == u64 or T == u128);
-    debug.assert(c_rounds > 0 and d_rounds > 0);
+    assert(T == u64 or T == u128);
+    assert(c_rounds > 0 and d_rounds > 0);
 
     return struct {
         const Self = @This();
@@ -40,7 +41,7 @@ fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize)
         msg_len: u8,
 
         pub fn init(key: []const u8) Self {
-            debug.assert(key.len >= 16);
+            assert(key.len >= 16);
 
             const k0 = mem.readIntSliceLittle(u64, key[0..8]);
             const k1 = mem.readIntSliceLittle(u64, key[8..16]);
@@ -119,7 +120,7 @@ fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize)
         }
 
         fn round(d: *Self, b: []const u8) void {
-            debug.assert(b.len == 8);
+            assert(b.len == 8);
 
             const m = mem.readIntSliceLittle(u64, b[0..]);
             d.v3 ^= m;
@@ -236,7 +237,7 @@ test "siphash64-2-4 sanity" {
         buffer[i] = @intCast(u8, i);
 
         const expected = mem.readIntLittle(u64, &vector);
-        debug.assert(siphash.hash(test_key, buffer[0..i]) == expected);
+        testing.expect(siphash.hash(test_key, buffer[0..i]) == expected);
     }
 }
 
@@ -315,6 +316,6 @@ test "siphash128-2-4 sanity" {
         buffer[i] = @intCast(u8, i);
 
         const expected = mem.readIntLittle(u128, &vector);
-        debug.assert(siphash.hash(test_key, buffer[0..i]) == expected);
+        testing.expect(siphash.hash(test_key, buffer[0..i]) == expected);
     }
 }

@@ -1,9 +1,9 @@
 const __fixunssfti = @import("fixunssfti.zig").__fixunssfti;
-const assert = @import("std").debug.assert;
+const testing = @import("std").testing;
 
 fn test__fixunssfti(a: f32, expected: u128) void {
     const x = __fixunssfti(a);
-    assert(x == expected);
+    testing.expect(x == expected);
 }
 
 test "fixunssfti" {

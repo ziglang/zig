@@ -1,14 +1,14 @@
-const assertOrPanic = @import("std").debug.assertOrPanic;
+const expect = @import("std").testing.expect;
 const mem = @import("std").mem;
 
 var ok: bool = false;
 test "reference a variable in an if after an if in the 2nd switch prong" {
     foo(true, Num.Two, false, "aoeu");
-    assertOrPanic(!ok);
+    expect(!ok);
     foo(false, Num.One, false, "aoeu");
-    assertOrPanic(!ok);
+    expect(!ok);
     foo(true, Num.One, false, "aoeu");
-    assertOrPanic(ok);
+    expect(ok);
 }
 
 const Num = enum {
@@ -32,6 +32,6 @@ fn foo(c: bool, k: Num, c2: bool, b: []const u8) void {
 }
 
 fn a(x: []const u8) void {
-    assertOrPanic(mem.eql(u8, x, "aoeu"));
+    expect(mem.eql(u8, x, "aoeu"));
     ok = true;
 }

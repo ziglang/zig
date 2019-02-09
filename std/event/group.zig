@@ -4,7 +4,7 @@ const Lock = std.event.Lock;
 const Loop = std.event.Loop;
 const AtomicRmwOp = builtin.AtomicRmwOp;
 const AtomicOrder = builtin.AtomicOrder;
-const assert = std.debug.assert;
+const testing = std.testing;
 
 /// ReturnType must be `void` or `E!void`
 pub fn Group(comptime ReturnType: type) type {
@@ -146,12 +146,12 @@ async fn testGroup(loop: *Loop) void {
     group.add(async sleepALittle(&count) catch @panic("memory")) catch @panic("memory");
     group.call(increaseByTen, &count) catch @panic("memory");
     await (async group.wait() catch @panic("memory"));
-    assert(count == 11);
+    testing.expect(count == 11);
 
     var another = Group(anyerror!void).init(loop);
     another.add(async somethingElse() catch @panic("memory")) catch @panic("memory");
     another.call(doSomethingThatFails) catch @panic("memory");
-    std.debug.assertError(await (async another.wait() catch @panic("memory")), error.ItBroke);
+    testing.expectError(error.ItBroke, await (async another.wait() catch @panic("memory")));
 }
 
 async fn sleepALittle(count: *usize) void {

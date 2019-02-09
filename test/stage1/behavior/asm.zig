@@ -1,5 +1,5 @@
 const config = @import("builtin");
-const assertOrPanic = @import("std").debug.assertOrPanic;
+const expect = @import("std").testing.expect;
 
 comptime {
     if (config.arch == config.Arch.x86_64 and config.os == config.Os.linux) {
@@ -13,7 +13,7 @@ comptime {
 
 test "module level assembly" {
     if (config.arch == config.Arch.x86_64 and config.os == config.Os.linux) {
-        assertOrPanic(aoeu() == 1234);
+        expect(aoeu() == 1234);
     }
 }
 

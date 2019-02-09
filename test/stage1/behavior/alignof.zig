@@ -1,5 +1,5 @@
 const std = @import("std");
-const assertOrPanic = std.debug.assertOrPanic;
+const expect = std.testing.expect;
 const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
 
@@ -10,9 +10,9 @@ const Foo = struct {
 };
 
 test "@alignOf(T) before referencing T" {
-    comptime assertOrPanic(@alignOf(Foo) != maxInt(usize));
+    comptime expect(@alignOf(Foo) != maxInt(usize));
     if (builtin.arch == builtin.Arch.x86_64) {
-        comptime assertOrPanic(@alignOf(Foo) == 4);
+        comptime expect(@alignOf(Foo) == 4);
     }
 }
 

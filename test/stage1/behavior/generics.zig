@@ -1,9 +1,9 @@
-const assertOrPanic = @import("std").debug.assertOrPanic;
+const expect = @import("std").testing.expect;
 
 test "simple generic fn" {
-    assertOrPanic(max(i32, 3, -1) == 3);
-    assertOrPanic(max(f32, 0.123, 0.456) == 0.456);
-    assertOrPanic(add(2, 3) == 5);
+    expect(max(i32, 3, -1) == 3);
+    expect(max(f32, 0.123, 0.456) == 0.456);
+    expect(add(2, 3) == 5);
 }
 
 fn max(comptime T: type, a: T, b: T) T {
@@ -16,7 +16,7 @@ fn add(comptime a: i32, b: i32) i32 {
 
 const the_max = max(u32, 1234, 5678);
 test "compile time generic eval" {
-    assertOrPanic(the_max == 5678);
+    expect(the_max == 5678);
 }
 
 fn gimmeTheBigOne(a: u32, b: u32) u32 {
@@ -32,19 +32,19 @@ fn sameButWithFloats(a: f64, b: f64) f64 {
 }
 
 test "fn with comptime args" {
-    assertOrPanic(gimmeTheBigOne(1234, 5678) == 5678);
-    assertOrPanic(shouldCallSameInstance(34, 12) == 34);
-    assertOrPanic(sameButWithFloats(0.43, 0.49) == 0.49);
+    expect(gimmeTheBigOne(1234, 5678) == 5678);
+    expect(shouldCallSameInstance(34, 12) == 34);
+    expect(sameButWithFloats(0.43, 0.49) == 0.49);
 }
 
 test "var params" {
-    assertOrPanic(max_i32(12, 34) == 34);
-    assertOrPanic(max_f64(1.2, 3.4) == 3.4);
+    expect(max_i32(12, 34) == 34);
+    expect(max_f64(1.2, 3.4) == 3.4);
 }
 
 comptime {
-    assertOrPanic(max_i32(12, 34) == 34);
-    assertOrPanic(max_f64(1.2, 3.4) == 3.4);
+    expect(max_i32(12, 34) == 34);
+    expect(max_f64(1.2, 3.4) == 3.4);
 }
 
 fn max_var(a: var, b: var) @typeOf(a + b) {
@@ -76,8 +76,8 @@ test "function with return type type" {
     var list2: List(i32) = undefined;
     list.length = 10;
     list2.length = 10;
-    assertOrPanic(list.prealloc_items.len == 8);
-    assertOrPanic(list2.prealloc_items.len == 8);
+    expect(list.prealloc_items.len == 8);
+    expect(list2.prealloc_items.len == 8);
 }
 
 test "generic struct" {
@@ -89,9 +89,9 @@ test "generic struct" {
         .value = true,
         .next = null,
     };
-    assertOrPanic(a1.value == 13);
-    assertOrPanic(a1.value == a1.getVal());
-    assertOrPanic(b1.getVal());
+    expect(a1.value == 13);
+    expect(a1.value == a1.getVal());
+    expect(b1.getVal());
 }
 fn GenNode(comptime T: type) type {
     return struct {
@@ -104,7 +104,7 @@ fn GenNode(comptime T: type) type {
 }
 
 test "const decls in struct" {
-    assertOrPanic(GenericDataThing(3).count_plus_one == 4);
+    expect(GenericDataThing(3).count_plus_one == 4);
 }
 fn GenericDataThing(comptime count: isize) type {
     return struct {
@@ -113,15 +113,15 @@ fn GenericDataThing(comptime count: isize) type {
 }
 
 test "use generic param in generic param" {
-    assertOrPanic(aGenericFn(i32, 3, 4) == 7);
+    expect(aGenericFn(i32, 3, 4) == 7);
 }
 fn aGenericFn(comptime T: type, comptime a: T, b: T) T {
     return a + b;
 }
 
 test "generic fn with implicit cast" {
-    assertOrPanic(getFirstByte(u8, []u8{13}) == 13);
-    assertOrPanic(getFirstByte(u16, []u16{
+    expect(getFirstByte(u8, []u8{13}) == 13);
+    expect(getFirstByte(u16, []u16{
         0,
         13,
     }) == 0);
@@ -146,6 +146,6 @@ fn foo2(arg: var) bool {
 }
 
 test "array of generic fns" {
-    assertOrPanic(foos[0](true));
-    assertOrPanic(!foos[1](true));
+    expect(foos[0](true));
+    expect(!foos[1](true));
 }

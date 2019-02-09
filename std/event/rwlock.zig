@@ -1,6 +1,7 @@
 const std = @import("../index.zig");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
+const testing = std.testing;
 const mem = std.mem;
 const AtomicRmwOp = builtin.AtomicRmwOp;
 const AtomicOrder = builtin.AtomicOrder;
@@ -231,7 +232,7 @@ test "std.event.RwLock" {
     loop.run();
 
     const expected_result = [1]i32{shared_it_count * @intCast(i32, shared_test_data.len)} ** shared_test_data.len;
-    assert(mem.eql(i32, shared_test_data, expected_result));
+    testing.expectEqualSlices(i32, expected_result, shared_test_data);
 }
 
 async fn testLock(loop: *Loop, lock: *RwLock) void {
@@ -293,7 +294,7 @@ async fn readRunner(lock: *RwLock) void {
         const handle = await lock_promise;
         defer handle.release();
 
-        assert(shared_test_index == 0);
-        assert(shared_test_data[i] == @intCast(i32, shared_count));
+        testing.expect(shared_test_index == 0);
+        testing.expect(shared_test_data[i] == @intCast(i32, shared_count));
     }
 }

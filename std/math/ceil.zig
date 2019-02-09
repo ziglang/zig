@@ -7,7 +7,7 @@
 const builtin = @import("builtin");
 const std = @import("../index.zig");
 const math = std.math;
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 pub fn ceil(x: var) @typeOf(x) {
     const T = @typeOf(x);
@@ -81,34 +81,34 @@ fn ceil64(x: f64) f64 {
 }
 
 test "math.ceil" {
-    assert(ceil(f32(0.0)) == ceil32(0.0));
-    assert(ceil(f64(0.0)) == ceil64(0.0));
+    expect(ceil(f32(0.0)) == ceil32(0.0));
+    expect(ceil(f64(0.0)) == ceil64(0.0));
 }
 
 test "math.ceil32" {
-    assert(ceil32(1.3) == 2.0);
-    assert(ceil32(-1.3) == -1.0);
-    assert(ceil32(0.2) == 1.0);
+    expect(ceil32(1.3) == 2.0);
+    expect(ceil32(-1.3) == -1.0);
+    expect(ceil32(0.2) == 1.0);
 }
 
 test "math.ceil64" {
-    assert(ceil64(1.3) == 2.0);
-    assert(ceil64(-1.3) == -1.0);
-    assert(ceil64(0.2) == 1.0);
+    expect(ceil64(1.3) == 2.0);
+    expect(ceil64(-1.3) == -1.0);
+    expect(ceil64(0.2) == 1.0);
 }
 
 test "math.ceil32.special" {
-    assert(ceil32(0.0) == 0.0);
-    assert(ceil32(-0.0) == -0.0);
-    assert(math.isPositiveInf(ceil32(math.inf(f32))));
-    assert(math.isNegativeInf(ceil32(-math.inf(f32))));
-    assert(math.isNan(ceil32(math.nan(f32))));
+    expect(ceil32(0.0) == 0.0);
+    expect(ceil32(-0.0) == -0.0);
+    expect(math.isPositiveInf(ceil32(math.inf(f32))));
+    expect(math.isNegativeInf(ceil32(-math.inf(f32))));
+    expect(math.isNan(ceil32(math.nan(f32))));
 }
 
 test "math.ceil64.special" {
-    assert(ceil64(0.0) == 0.0);
-    assert(ceil64(-0.0) == -0.0);
-    assert(math.isPositiveInf(ceil64(math.inf(f64))));
-    assert(math.isNegativeInf(ceil64(-math.inf(f64))));
-    assert(math.isNan(ceil64(math.nan(f64))));
+    expect(ceil64(0.0) == 0.0);
+    expect(ceil64(-0.0) == -0.0);
+    expect(math.isPositiveInf(ceil64(math.inf(f64))));
+    expect(math.isNegativeInf(ceil64(-math.inf(f64))));
+    expect(math.isNan(ceil64(math.nan(f64))));
 }

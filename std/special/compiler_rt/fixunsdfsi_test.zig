@@ -1,9 +1,9 @@
 const __fixunsdfsi = @import("fixunsdfsi.zig").__fixunsdfsi;
-const assert = @import("std").debug.assert;
+const testing = @import("std").testing;
 
 fn test__fixunsdfsi(a: f64, expected: u32) void {
     const x = __fixunsdfsi(a);
-    assert(x == expected);
+    testing.expect(x == expected);
 }
 
 test "fixunsdfsi" {

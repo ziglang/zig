@@ -2,7 +2,7 @@ const std = @import("index.zig");
 const builtin = @import("builtin");
 const AtomicOrder = builtin.AtomicOrder;
 const AtomicRmwOp = builtin.AtomicRmwOp;
-const assert = std.debug.assert;
+const testing = std.testing;
 const SpinLock = std.SpinLock;
 const linux = std.os.linux;
 const windows = std.os.windows;
@@ -149,7 +149,7 @@ test "std.Mutex" {
 
     if (builtin.single_threaded) {
         worker(&context);
-        std.debug.assertOrPanic(context.data == TestContext.incr_count);
+        testing.expect(context.data == TestContext.incr_count);
     } else {
         const thread_count = 10;
         var threads: [thread_count]*std.os.Thread = undefined;
@@ -159,7 +159,7 @@ test "std.Mutex" {
         for (threads) |t|
             t.wait();
 
-        std.debug.assertOrPanic(context.data == thread_count * TestContext.incr_count);
+        testing.expect(context.data == thread_count * TestContext.incr_count);
     }
 }
 

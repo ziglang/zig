@@ -5,7 +5,7 @@
 // - floor(nan)   = nan
 
 const builtin = @import("builtin");
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 const std = @import("../index.zig");
 const math = std.math;
 
@@ -117,49 +117,49 @@ fn floor64(x: f64) f64 {
 }
 
 test "math.floor" {
-    assert(floor(f16(1.3)) == floor16(1.3));
-    assert(floor(f32(1.3)) == floor32(1.3));
-    assert(floor(f64(1.3)) == floor64(1.3));
+    expect(floor(f16(1.3)) == floor16(1.3));
+    expect(floor(f32(1.3)) == floor32(1.3));
+    expect(floor(f64(1.3)) == floor64(1.3));
 }
 
 test "math.floor16" {
-    assert(floor16(1.3) == 1.0);
-    assert(floor16(-1.3) == -2.0);
-    assert(floor16(0.2) == 0.0);
+    expect(floor16(1.3) == 1.0);
+    expect(floor16(-1.3) == -2.0);
+    expect(floor16(0.2) == 0.0);
 }
 
 test "math.floor32" {
-    assert(floor32(1.3) == 1.0);
-    assert(floor32(-1.3) == -2.0);
-    assert(floor32(0.2) == 0.0);
+    expect(floor32(1.3) == 1.0);
+    expect(floor32(-1.3) == -2.0);
+    expect(floor32(0.2) == 0.0);
 }
 
 test "math.floor64" {
-    assert(floor64(1.3) == 1.0);
-    assert(floor64(-1.3) == -2.0);
-    assert(floor64(0.2) == 0.0);
+    expect(floor64(1.3) == 1.0);
+    expect(floor64(-1.3) == -2.0);
+    expect(floor64(0.2) == 0.0);
 }
 
 test "math.floor16.special" {
-    assert(floor16(0.0) == 0.0);
-    assert(floor16(-0.0) == -0.0);
-    assert(math.isPositiveInf(floor16(math.inf(f16))));
-    assert(math.isNegativeInf(floor16(-math.inf(f16))));
-    assert(math.isNan(floor16(math.nan(f16))));
+    expect(floor16(0.0) == 0.0);
+    expect(floor16(-0.0) == -0.0);
+    expect(math.isPositiveInf(floor16(math.inf(f16))));
+    expect(math.isNegativeInf(floor16(-math.inf(f16))));
+    expect(math.isNan(floor16(math.nan(f16))));
 }
 
 test "math.floor32.special" {
-    assert(floor32(0.0) == 0.0);
-    assert(floor32(-0.0) == -0.0);
-    assert(math.isPositiveInf(floor32(math.inf(f32))));
-    assert(math.isNegativeInf(floor32(-math.inf(f32))));
-    assert(math.isNan(floor32(math.nan(f32))));
+    expect(floor32(0.0) == 0.0);
+    expect(floor32(-0.0) == -0.0);
+    expect(math.isPositiveInf(floor32(math.inf(f32))));
+    expect(math.isNegativeInf(floor32(-math.inf(f32))));
+    expect(math.isNan(floor32(math.nan(f32))));
 }
 
 test "math.floor64.special" {
-    assert(floor64(0.0) == 0.0);
-    assert(floor64(-0.0) == -0.0);
-    assert(math.isPositiveInf(floor64(math.inf(f64))));
-    assert(math.isNegativeInf(floor64(-math.inf(f64))));
-    assert(math.isNan(floor64(math.nan(f64))));
+    expect(floor64(0.0) == 0.0);
+    expect(floor64(-0.0) == -0.0);
+    expect(math.isPositiveInf(floor64(math.inf(f64))));
+    expect(math.isNegativeInf(floor64(-math.inf(f64))));
+    expect(math.isNan(floor64(math.nan(f64))));
 }

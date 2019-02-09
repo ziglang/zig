@@ -908,6 +908,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionArrayToVector *)
     return IrInstructionIdArrayToVector;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionAssertZero *) {
+    return IrInstructionIdAssertZero;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -2854,6 +2858,19 @@ static IrInstruction *ir_build_array_to_vector(IrAnalyze *ira, IrInstruction *so
     instruction->array = array;
 
     ir_ref_instruction(array, ira->new_irb.current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_assert_zero(IrAnalyze *ira, IrInstruction *source_instruction,
+        IrInstruction *target)
+{
+    IrInstructionAssertZero *instruction = ir_build_instruction<IrInstructionAssertZero>(&ira->new_irb,
+        source_instruction->scope, source_instruction->source_node);
+    instruction->base.value.type = ira->codegen->builtin_types.entry_void;
+    instruction->target = target;
+
+    ir_ref_instruction(target, ira->new_irb.current_basic_block);
 
     return &instruction->base;
 }
@@ -10395,6 +10412,18 @@ static IrInstruction *ir_analyze_widen_or_shorten(IrAnalyze *ira, IrInstruction 
         return result;
     }
 
+    // If the destination integer type has no bits, then we can emit a comptime
+    // zero. However, we still want to emit a runtime safety check to make sure
+    // the target is zero.
+    if (!type_has_bits(wanted_type)) {
+        assert(wanted_type->id == ZigTypeIdInt);
+        assert(type_has_bits(target->value.type));
+        ir_build_assert_zero(ira, source_instr, target);
+        IrInstruction *result = ir_const_unsigned(ira, source_instr, 0);
+        result->value.type = wanted_type;
+        return result;
+    }
+
     IrInstruction *result = ir_build_widen_or_shorten(&ira->new_irb, source_instr->scope,
             source_instr->source_node, target);
     result->value.type = wanted_type;
@@ -11481,10 +11510,13 @@ static IrInstruction *ir_analyze_instruction_return(IrAnalyze *ira, IrInstructio
         return ir_unreach_error(ira);
 
     IrInstruction *casted_value = ir_implicit_cast(ira, value, ira->explicit_return_type);
-    if (type_is_invalid(casted_value->value.type) && ira->explicit_return_type_source_node != nullptr) {
-        ErrorMsg *msg = ira->codegen->errors.last();
-        add_error_note(ira->codegen, msg, ira->explicit_return_type_source_node,
-            buf_sprintf("return type declared here"));
+    if (type_is_invalid(casted_value->value.type)) {
+        AstNode *source_node = ira->explicit_return_type_source_node;
+        if (source_node != nullptr) {
+            ErrorMsg *msg = ira->codegen->errors.last();
+            add_error_note(ira->codegen, msg, source_node,
+                buf_sprintf("return type declared here"));
+        }
         return ir_unreach_error(ira);
     }
 
@@ -17514,21 +17546,16 @@ static void make_enum_field_val(IrAnalyze *ira, ConstExprValue *enum_field_val, 
     enum_field_val->data.x_struct.fields = inner_fields;
 }
 
-static Error ir_make_type_info_value(IrAnalyze *ira, ZigType *type_entry, ConstExprValue **out) {
+static Error ir_make_type_info_value(IrAnalyze *ira, AstNode *source_node, ZigType *type_entry, ConstExprValue **out) {
     Error err;
     assert(type_entry != nullptr);
     assert(!type_is_invalid(type_entry));
 
-    if ((err = ensure_complete_type(ira->codegen, type_entry)))
+    if ((err = type_resolve(ira->codegen, type_entry, ResolveStatusSizeKnown)))
         return err;
 
-    if (type_entry == ira->codegen->builtin_types.entry_global_error_set) {
-        zig_panic("TODO implement @typeInfo for global error set");
-    }
-
     ConstExprValue *result = nullptr;
-    switch (type_entry->id)
-    {
+    switch (type_entry->id) {
         case ZigTypeIdInvalid:
             zig_unreachable();
         case ZigTypeIdMetaType:
@@ -17749,6 +17776,15 @@ static Error ir_make_type_info_value(IrAnalyze *ira, ZigType *type_entry, ConstE
                 ensure_field_index(result->type, "errors", 0);
 
                 ZigType *type_info_error_type = ir_type_info_get_type(ira, "Error", nullptr);
+                if (!resolve_inferred_error_set(ira->codegen, type_entry, source_node)) {
+                    return ErrorSemanticAnalyzeFail;
+                }
+                if (type_is_global_error_set(type_entry)) {
+                    ir_add_error_node(ira, source_node,
+                        buf_sprintf("TODO: compiler bug: implement @typeInfo support for anyerror. https://github.com/ziglang/zig/issues/1936"));
+                    return ErrorSemanticAnalyzeFail;
+                }
+
                 uint32_t error_count = type_entry->data.error_set.err_count;
                 ConstExprValue *error_array = create_const_vals(1);
                 error_array->special = ConstValSpecialStatic;
@@ -18074,7 +18110,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, ZigType *type_entry, ConstE
             {
                 ZigType *fn_type = type_entry->data.bound_fn.fn_type;
                 assert(fn_type->id == ZigTypeIdFn);
-                if ((err = ir_make_type_info_value(ira, fn_type, &result)))
+                if ((err = ir_make_type_info_value(ira, source_node, fn_type, &result)))
                     return err;
 
                 break;
@@ -18099,7 +18135,7 @@ static IrInstruction *ir_analyze_instruction_type_info(IrAnalyze *ira,
     ZigType *result_type = ir_type_info_get_type(ira, nullptr, nullptr);
 
     ConstExprValue *payload;
-    if ((err = ir_make_type_info_value(ira, type_entry, &payload)))
+    if ((err = ir_make_type_info_value(ira, instruction->base.source_node, type_entry, &payload)))
         return ira->codegen->invalid_instruction;
 
     IrInstruction *result = ir_const(ira, &instruction->base, result_type);
@@ -21705,6 +21741,7 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
         case IrInstructionIdCmpxchgGen:
         case IrInstructionIdArrayToVector:
         case IrInstructionIdVectorToArray:
+        case IrInstructionIdAssertZero:
             zig_unreachable();
 
         case IrInstructionIdReturn:
@@ -22103,6 +22140,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdAtomicRmw:
         case IrInstructionIdCmpxchgGen:
         case IrInstructionIdCmpxchgSrc:
+        case IrInstructionIdAssertZero:
             return true;
 
         case IrInstructionIdPhi:

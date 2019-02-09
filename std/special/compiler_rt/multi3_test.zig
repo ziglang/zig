@@ -1,9 +1,9 @@
 const __multi3 = @import("multi3.zig").__multi3;
-const assert = @import("std").debug.assert;
+const testing = @import("std").testing;
 
 fn test__multi3(a: i128, b: i128, expected: i128) void {
     const x = __multi3(a, b);
-    assert(x == expected);
+    testing.expect(x == expected);
 }
 
 test "multi3" {

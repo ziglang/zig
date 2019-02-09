@@ -1,5 +1,5 @@
 const std = @import("../../index.zig");
-const debug = std.debug;
+const testing = std.testing;
 const math = std.math;
 const cmath = math.complex;
 const Complex = cmath.Complex;
@@ -17,6 +17,6 @@ test "complex.catanh" {
     const a = Complex(f32).new(5, 3);
     const c = atanh(a);
 
-    debug.assert(math.approxEq(f32, c.re, 0.146947, epsilon));
-    debug.assert(math.approxEq(f32, c.im, 1.480870, epsilon));
+    testing.expect(math.approxEq(f32, c.re, 0.146947, epsilon));
+    testing.expect(math.approxEq(f32, c.im, 1.480870, epsilon));
 }

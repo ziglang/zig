@@ -1,7 +1,6 @@
 const __extenddftf2 = @import("extendXfYf2.zig").__extenddftf2;
 const __extendhfsf2 = @import("extendXfYf2.zig").__extendhfsf2;
 const __extendsftf2 = @import("extendXfYf2.zig").__extendsftf2;
-const assert = @import("std").debug.assert;
 
 fn test__extenddftf2(a: f64, expectedHi: u64, expectedLo: u64) void {
     const x = __extenddftf2(a);

@@ -6,7 +6,7 @@ test "pass string literal byvalue to a generic var param" {
     start();
     blowUpStack(10);
 
-    std.debug.assertOrPanic(std.mem.eql(u8, result, "string literal"));
+    std.testing.expect(std.mem.eql(u8, result, "string literal"));
 }
 
 fn start() void {

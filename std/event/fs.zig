@@ -2,6 +2,7 @@ const builtin = @import("builtin");
 const std = @import("../index.zig");
 const event = std.event;
 const assert = std.debug.assert;
+const testing = std.testing;
 const os = std.os;
 const mem = std.mem;
 const posix = os.posix;
@@ -1349,13 +1350,13 @@ async fn testFsWatch(loop: *Loop) !void {
     try await try async writeFile(loop, file_path, contents);
 
     const read_contents = try await try async readFile(loop, file_path, 1024 * 1024);
-    assert(mem.eql(u8, read_contents, contents));
+    testing.expectEqualSlices(u8, contents, read_contents);
 
     // now watch the file
     var watch = try Watch(void).create(loop, 0);
     defer watch.destroy();
 
-    assert((try await try async watch.addFile(file_path, {})) == null);
+    testing.expect((try await try async watch.addFile(file_path, {})) == null);
 
     const ev = try async watch.channel.get();
     var ev_consumed = false;
@@ -1375,10 +1376,10 @@ async fn testFsWatch(loop: *Loop) !void {
         WatchEventId.Delete => @panic("wrong event"),
     }
     const contents_updated = try await try async readFile(loop, file_path, 1024 * 1024);
-    assert(mem.eql(u8, contents_updated,
+    testing.expectEqualSlices(u8,
         \\line 1
         \\lorem ipsum
-    ));
+    , contents_updated);
 
     // TODO test deleting the file and then re-adding it. we should get events for both
 }

@@ -31,6 +31,7 @@ pub const hash_map = @import("hash_map.zig");
 pub const heap = @import("heap.zig");
 pub const io = @import("io.zig");
 pub const json = @import("json.zig");
+pub const lazyInit = @import("lazy_init.zig").lazyInit;
 pub const macho = @import("macho.zig");
 pub const math = @import("math/index.zig");
 pub const mem = @import("mem.zig");
@@ -41,10 +42,9 @@ pub const pdb = @import("pdb.zig");
 pub const rand = @import("rand/index.zig");
 pub const rb = @import("rb.zig");
 pub const sort = @import("sort.zig");
+pub const testing = @import("testing.zig");
 pub const unicode = @import("unicode.zig");
 pub const zig = @import("zig/index.zig");
-
-pub const lazyInit = @import("lazy_init.zig").lazyInit;
 
 test "std" {
     // run tests from these
@@ -60,7 +60,6 @@ test "std" {
     _ = @import("segmented_list.zig");
     _ = @import("spinlock.zig");
     
-    _ = @import("dynamic_library.zig");
     _ = @import("base64.zig");
     _ = @import("build.zig");
     _ = @import("c/index.zig");
@@ -69,24 +68,26 @@ test "std" {
     _ = @import("cstr.zig");
     _ = @import("debug/index.zig");
     _ = @import("dwarf.zig");
+    _ = @import("dynamic_library.zig");
     _ = @import("elf.zig");
     _ = @import("empty.zig");
     _ = @import("event.zig");
     _ = @import("fmt/index.zig");
     _ = @import("hash/index.zig");
+    _ = @import("heap.zig");
     _ = @import("io.zig");
     _ = @import("json.zig");
+    _ = @import("lazy_init.zig");
     _ = @import("macho.zig");
     _ = @import("math/index.zig");
-    _ = @import("meta/index.zig");
     _ = @import("mem.zig");
+    _ = @import("meta/index.zig");
     _ = @import("net.zig");
-    _ = @import("heap.zig");
     _ = @import("os/index.zig");
-    _ = @import("rand/index.zig");
     _ = @import("pdb.zig");
+    _ = @import("rand/index.zig");
     _ = @import("sort.zig");
+    _ = @import("testing.zig");
     _ = @import("unicode.zig");
     _ = @import("zig/index.zig");
-    _ = @import("lazy_init.zig");
 }

@@ -1,5 +1,5 @@
 const std = @import("std");
-const assertOrPanic = std.debug.assertOrPanic;
+const expect = std.testing.expect;
 const mem = std.mem;
 const cstr = std.cstr;
 const builtin = @import("builtin");
@@ -26,38 +26,38 @@ test "call disabled extern fn" {
 }
 
 test "@IntType builtin" {
-    assertOrPanic(@IntType(true, 8) == i8);
-    assertOrPanic(@IntType(true, 16) == i16);
-    assertOrPanic(@IntType(true, 32) == i32);
-    assertOrPanic(@IntType(true, 64) == i64);
+    expect(@IntType(true, 8) == i8);
+    expect(@IntType(true, 16) == i16);
+    expect(@IntType(true, 32) == i32);
+    expect(@IntType(true, 64) == i64);
 
-    assertOrPanic(@IntType(false, 8) == u8);
-    assertOrPanic(@IntType(false, 16) == u16);
-    assertOrPanic(@IntType(false, 32) == u32);
-    assertOrPanic(@IntType(false, 64) == u64);
+    expect(@IntType(false, 8) == u8);
+    expect(@IntType(false, 16) == u16);
+    expect(@IntType(false, 32) == u32);
+    expect(@IntType(false, 64) == u64);
 
-    assertOrPanic(i8.bit_count == 8);
-    assertOrPanic(i16.bit_count == 16);
-    assertOrPanic(i32.bit_count == 32);
-    assertOrPanic(i64.bit_count == 64);
+    expect(i8.bit_count == 8);
+    expect(i16.bit_count == 16);
+    expect(i32.bit_count == 32);
+    expect(i64.bit_count == 64);
 
-    assertOrPanic(i8.is_signed);
-    assertOrPanic(i16.is_signed);
-    assertOrPanic(i32.is_signed);
-    assertOrPanic(i64.is_signed);
-    assertOrPanic(isize.is_signed);
+    expect(i8.is_signed);
+    expect(i16.is_signed);
+    expect(i32.is_signed);
+    expect(i64.is_signed);
+    expect(isize.is_signed);
 
-    assertOrPanic(!u8.is_signed);
-    assertOrPanic(!u16.is_signed);
-    assertOrPanic(!u32.is_signed);
-    assertOrPanic(!u64.is_signed);
-    assertOrPanic(!usize.is_signed);
+    expect(!u8.is_signed);
+    expect(!u16.is_signed);
+    expect(!u32.is_signed);
+    expect(!u64.is_signed);
+    expect(!usize.is_signed);
 }
 
 test "floating point primitive bit counts" {
-    assertOrPanic(f16.bit_count == 16);
-    assertOrPanic(f32.bit_count == 32);
-    assertOrPanic(f64.bit_count == 64);
+    expect(f16.bit_count == 16);
+    expect(f32.bit_count == 32);
+    expect(f64.bit_count == 64);
 }
 
 test "short circuit" {
@@ -72,7 +72,7 @@ fn testShortCircuit(f: bool, t: bool) void {
     var hit_4 = f;
 
     if (t or x: {
-        assertOrPanic(f);
+        expect(f);
         break :x f;
     }) {
         hit_1 = t;
@@ -81,31 +81,31 @@ fn testShortCircuit(f: bool, t: bool) void {
         hit_2 = t;
         break :x f;
     }) {
-        assertOrPanic(f);
+        expect(f);
     }
 
     if (t and x: {
         hit_3 = t;
         break :x f;
     }) {
-        assertOrPanic(f);
+        expect(f);
     }
     if (f and x: {
-        assertOrPanic(f);
+        expect(f);
         break :x f;
     }) {
-        assertOrPanic(f);
+        expect(f);
     } else {
         hit_4 = t;
     }
-    assertOrPanic(hit_1);
-    assertOrPanic(hit_2);
-    assertOrPanic(hit_3);
-    assertOrPanic(hit_4);
+    expect(hit_1);
+    expect(hit_2);
+    expect(hit_3);
+    expect(hit_4);
 }
 
 test "truncate" {
-    assertOrPanic(testTruncate(0x10fd) == 0xfd);
+    expect(testTruncate(0x10fd) == 0xfd);
 }
 fn testTruncate(x: u32) u8 {
     return @truncate(u8, x);
@@ -116,16 +116,16 @@ fn first4KeysOfHomeRow() []const u8 {
 }
 
 test "return string from function" {
-    assertOrPanic(mem.eql(u8, first4KeysOfHomeRow(), "aoeu"));
+    expect(mem.eql(u8, first4KeysOfHomeRow(), "aoeu"));
 }
 
 const g1: i32 = 1233 + 1;
 var g2: i32 = 0;
 
 test "global variables" {
-    assertOrPanic(g2 == 0);
+    expect(g2 == 0);
     g2 = g1;
-    assertOrPanic(g2 == 1234);
+    expect(g2 == 1234);
 }
 
 test "memcpy and memset intrinsics" {
@@ -142,7 +142,7 @@ test "builtin static eval" {
     const x: i32 = comptime x: {
         break :x 1 + 2 + 3;
     };
-    assertOrPanic(x == comptime 6);
+    expect(x == comptime 6);
 }
 
 test "slicing" {
@@ -163,7 +163,7 @@ test "slicing" {
 
 test "constant equal function pointers" {
     const alias = emptyFn;
-    assertOrPanic(comptime x: {
+    expect(comptime x: {
         break :x emptyFn == alias;
     });
 }
@@ -171,25 +171,25 @@ test "constant equal function pointers" {
 fn emptyFn() void {}
 
 test "hex escape" {
-    assertOrPanic(mem.eql(u8, "\x68\x65\x6c\x6c\x6f", "hello"));
+    expect(mem.eql(u8, "\x68\x65\x6c\x6c\x6f", "hello"));
 }
 
 test "string concatenation" {
-    assertOrPanic(mem.eql(u8, "OK" ++ " IT " ++ "WORKED", "OK IT WORKED"));
+    expect(mem.eql(u8, "OK" ++ " IT " ++ "WORKED", "OK IT WORKED"));
 }
 
 test "array mult operator" {
-    assertOrPanic(mem.eql(u8, "ab" ** 5, "ababababab"));
+    expect(mem.eql(u8, "ab" ** 5, "ababababab"));
 }
 
 test "string escapes" {
-    assertOrPanic(mem.eql(u8, "\"", "\x22"));
-    assertOrPanic(mem.eql(u8, "\'", "\x27"));
-    assertOrPanic(mem.eql(u8, "\n", "\x0a"));
-    assertOrPanic(mem.eql(u8, "\r", "\x0d"));
-    assertOrPanic(mem.eql(u8, "\t", "\x09"));
-    assertOrPanic(mem.eql(u8, "\\", "\x5c"));
-    assertOrPanic(mem.eql(u8, "\u1234\u0069", "\xe1\x88\xb4\x69"));
+    expect(mem.eql(u8, "\"", "\x22"));
+    expect(mem.eql(u8, "\'", "\x27"));
+    expect(mem.eql(u8, "\n", "\x0a"));
+    expect(mem.eql(u8, "\r", "\x0d"));
+    expect(mem.eql(u8, "\t", "\x09"));
+    expect(mem.eql(u8, "\\", "\x5c"));
+    expect(mem.eql(u8, "\u1234\u0069", "\xe1\x88\xb4\x69"));
 }
 
 test "multiline string" {
@@ -199,7 +199,7 @@ test "multiline string" {
         \\three
     ;
     const s2 = "one\ntwo)\nthree";
-    assertOrPanic(mem.eql(u8, s1, s2));
+    expect(mem.eql(u8, s1, s2));
 }
 
 test "multiline C string" {
@@ -209,11 +209,11 @@ test "multiline C string" {
         c\\three
     ;
     const s2 = c"one\ntwo)\nthree";
-    assertOrPanic(cstr.cmp(s1, s2) == 0);
+    expect(cstr.cmp(s1, s2) == 0);
 }
 
 test "type equality" {
-    assertOrPanic(*const u8 != *u8);
+    expect(*const u8 != *u8);
 }
 
 const global_a: i32 = 1234;
@@ -221,7 +221,7 @@ const global_b: *const i32 = &global_a;
 const global_c: *const f32 = @ptrCast(*const f32, global_b);
 test "compile time global reinterpret" {
     const d = @ptrCast(*const i32, global_c);
-    assertOrPanic(d.* == 1234);
+    expect(d.* == 1234);
 }
 
 test "explicit cast maybe pointers" {
@@ -247,8 +247,8 @@ test "cast undefined" {
 fn testCastUndefined(x: []const u8) void {}
 
 test "cast small unsigned to larger signed" {
-    assertOrPanic(castSmallUnsignedToLargerSigned1(200) == i16(200));
-    assertOrPanic(castSmallUnsignedToLargerSigned2(9999) == i64(9999));
+    expect(castSmallUnsignedToLargerSigned1(200) == i16(200));
+    expect(castSmallUnsignedToLargerSigned2(9999) == i64(9999));
 }
 fn castSmallUnsignedToLargerSigned1(x: u8) i16 {
     return x;
@@ -258,7 +258,7 @@ fn castSmallUnsignedToLargerSigned2(x: u16) i64 {
 }
 
 test "implicit cast after unreachable" {
-    assertOrPanic(outer() == 1234);
+    expect(outer() == 1234);
 }
 fn inner() i32 {
     return 1234;
@@ -273,13 +273,13 @@ test "pointer dereferencing" {
 
     y.* += 1;
 
-    assertOrPanic(x == 4);
-    assertOrPanic(y.* == 4);
+    expect(x == 4);
+    expect(y.* == 4);
 }
 
 test "call result of if else expression" {
-    assertOrPanic(mem.eql(u8, f2(true), "a"));
-    assertOrPanic(mem.eql(u8, f2(false), "b"));
+    expect(mem.eql(u8, f2(true), "a"));
+    expect(mem.eql(u8, f2(false), "b"));
 }
 fn f2(x: bool) []const u8 {
     return (if (x) fA else fB)();
@@ -321,8 +321,8 @@ const test3_bar = Test3Foo{ .Two = 13 };
 fn test3_1(f: Test3Foo) void {
     switch (f) {
         Test3Foo.Three => |pt| {
-            assertOrPanic(pt.x == 3);
-            assertOrPanic(pt.y == 4);
+            expect(pt.x == 3);
+            expect(pt.y == 4);
         },
         else => unreachable,
     }
@@ -330,14 +330,14 @@ fn test3_1(f: Test3Foo) void {
 fn test3_2(f: Test3Foo) void {
     switch (f) {
         Test3Foo.Two => |x| {
-            assertOrPanic(x == 13);
+            expect(x == 13);
         },
         else => unreachable,
     }
 }
 
 test "character literals" {
-    assertOrPanic('\'' == single_quote);
+    expect('\'' == single_quote);
 }
 const single_quote = '\'';
 
@@ -346,13 +346,13 @@ test "take address of parameter" {
 }
 fn testTakeAddressOfParameter(f: f32) void {
     const f_ptr = &f;
-    assertOrPanic(f_ptr.* == 12.34);
+    expect(f_ptr.* == 12.34);
 }
 
 test "pointer comparison" {
     const a = ([]const u8)("a");
     const b = &a;
-    assertOrPanic(ptrEql(b, b));
+    expect(ptrEql(b, b));
 }
 fn ptrEql(a: *const []const u8, b: *const []const u8) bool {
     return a == b;
@@ -367,31 +367,31 @@ test "C string concatenation" {
     {
         var i: u32 = 0;
         while (i < len_with_null) : (i += 1) {
-            assertOrPanic(a[i] == b[i]);
+            expect(a[i] == b[i]);
         }
     }
-    assertOrPanic(a[len] == 0);
-    assertOrPanic(b[len] == 0);
+    expect(a[len] == 0);
+    expect(b[len] == 0);
 }
 
 test "cast slice to u8 slice" {
-    assertOrPanic(@sizeOf(i32) == 4);
+    expect(@sizeOf(i32) == 4);
     var big_thing_array = []i32{ 1, 2, 3, 4 };
     const big_thing_slice: []i32 = big_thing_array[0..];
     const bytes = @sliceToBytes(big_thing_slice);
-    assertOrPanic(bytes.len == 4 * 4);
+    expect(bytes.len == 4 * 4);
     bytes[4] = 0;
     bytes[5] = 0;
     bytes[6] = 0;
     bytes[7] = 0;
-    assertOrPanic(big_thing_slice[1] == 0);
+    expect(big_thing_slice[1] == 0);
     const big_thing_again = @bytesToSlice(i32, bytes);
-    assertOrPanic(big_thing_again[2] == 3);
+    expect(big_thing_again[2] == 3);
     big_thing_again[2] = -1;
-    assertOrPanic(bytes[8] == maxInt(u8));
-    assertOrPanic(bytes[9] == maxInt(u8));
-    assertOrPanic(bytes[10] == maxInt(u8));
-    assertOrPanic(bytes[11] == maxInt(u8));
+    expect(bytes[8] == maxInt(u8));
+    expect(bytes[9] == maxInt(u8));
+    expect(bytes[10] == maxInt(u8));
+    expect(bytes[11] == maxInt(u8));
 }
 
 test "pointer to void return type" {
@@ -408,7 +408,7 @@ fn testPointerToVoidReturnType2() *const void {
 
 test "non const ptr to aliased type" {
     const int = i32;
-    assertOrPanic(?*int == ?*i32);
+    expect(?*int == ?*i32);
 }
 
 test "array 2D const double ptr" {
@@ -421,8 +421,8 @@ test "array 2D const double ptr" {
 
 fn testArray2DConstDoublePtr(ptr: *const f32) void {
     const ptr2 = @ptrCast([*]const f32, ptr);
-    assertOrPanic(ptr2[0] == 1.0);
-    assertOrPanic(ptr2[1] == 2.0);
+    expect(ptr2[0] == 1.0);
+    expect(ptr2[1] == 2.0);
 }
 
 const Tid = builtin.TypeId;
@@ -444,32 +444,32 @@ const AUnion = union {
 
 test "@typeId" {
     comptime {
-        assertOrPanic(@typeId(type) == Tid.Type);
-        assertOrPanic(@typeId(void) == Tid.Void);
-        assertOrPanic(@typeId(bool) == Tid.Bool);
-        assertOrPanic(@typeId(noreturn) == Tid.NoReturn);
-        assertOrPanic(@typeId(i8) == Tid.Int);
-        assertOrPanic(@typeId(u8) == Tid.Int);
-        assertOrPanic(@typeId(i64) == Tid.Int);
-        assertOrPanic(@typeId(u64) == Tid.Int);
-        assertOrPanic(@typeId(f32) == Tid.Float);
-        assertOrPanic(@typeId(f64) == Tid.Float);
-        assertOrPanic(@typeId(*f32) == Tid.Pointer);
-        assertOrPanic(@typeId([2]u8) == Tid.Array);
-        assertOrPanic(@typeId(AStruct) == Tid.Struct);
-        assertOrPanic(@typeId(@typeOf(1)) == Tid.ComptimeInt);
-        assertOrPanic(@typeId(@typeOf(1.0)) == Tid.ComptimeFloat);
-        assertOrPanic(@typeId(@typeOf(undefined)) == Tid.Undefined);
-        assertOrPanic(@typeId(@typeOf(null)) == Tid.Null);
-        assertOrPanic(@typeId(?i32) == Tid.Optional);
-        assertOrPanic(@typeId(anyerror!i32) == Tid.ErrorUnion);
-        assertOrPanic(@typeId(anyerror) == Tid.ErrorSet);
-        assertOrPanic(@typeId(AnEnum) == Tid.Enum);
-        assertOrPanic(@typeId(@typeOf(AUnionEnum.One)) == Tid.Enum);
-        assertOrPanic(@typeId(AUnionEnum) == Tid.Union);
-        assertOrPanic(@typeId(AUnion) == Tid.Union);
-        assertOrPanic(@typeId(fn () void) == Tid.Fn);
-        assertOrPanic(@typeId(@typeOf(builtin)) == Tid.Namespace);
+        expect(@typeId(type) == Tid.Type);
+        expect(@typeId(void) == Tid.Void);
+        expect(@typeId(bool) == Tid.Bool);
+        expect(@typeId(noreturn) == Tid.NoReturn);
+        expect(@typeId(i8) == Tid.Int);
+        expect(@typeId(u8) == Tid.Int);
+        expect(@typeId(i64) == Tid.Int);
+        expect(@typeId(u64) == Tid.Int);
+        expect(@typeId(f32) == Tid.Float);
+        expect(@typeId(f64) == Tid.Float);
+        expect(@typeId(*f32) == Tid.Pointer);
+        expect(@typeId([2]u8) == Tid.Array);
+        expect(@typeId(AStruct) == Tid.Struct);
+        expect(@typeId(@typeOf(1)) == Tid.ComptimeInt);
+        expect(@typeId(@typeOf(1.0)) == Tid.ComptimeFloat);
+        expect(@typeId(@typeOf(undefined)) == Tid.Undefined);
+        expect(@typeId(@typeOf(null)) == Tid.Null);
+        expect(@typeId(?i32) == Tid.Optional);
+        expect(@typeId(anyerror!i32) == Tid.ErrorUnion);
+        expect(@typeId(anyerror) == Tid.ErrorSet);
+        expect(@typeId(AnEnum) == Tid.Enum);
+        expect(@typeId(@typeOf(AUnionEnum.One)) == Tid.Enum);
+        expect(@typeId(AUnionEnum) == Tid.Union);
+        expect(@typeId(AUnion) == Tid.Union);
+        expect(@typeId(fn () void) == Tid.Fn);
+        expect(@typeId(@typeOf(builtin)) == Tid.Namespace);
         // TODO bound fn
         // TODO arg tuple
         // TODO opaque
@@ -485,13 +485,13 @@ test "@typeName" {
         Unused,
     };
     comptime {
-        assertOrPanic(mem.eql(u8, @typeName(i64), "i64"));
-        assertOrPanic(mem.eql(u8, @typeName(*usize), "*usize"));
+        expect(mem.eql(u8, @typeName(i64), "i64"));
+        expect(mem.eql(u8, @typeName(*usize), "*usize"));
         // https://github.com/ziglang/zig/issues/675
-        assertOrPanic(mem.eql(u8, @typeName(TypeFromFn(u8)), "TypeFromFn(u8)"));
-        assertOrPanic(mem.eql(u8, @typeName(Struct), "Struct"));
-        assertOrPanic(mem.eql(u8, @typeName(Union), "Union"));
-        assertOrPanic(mem.eql(u8, @typeName(Enum), "Enum"));
+        expect(mem.eql(u8, @typeName(TypeFromFn(u8)), "TypeFromFn(u8)"));
+        expect(mem.eql(u8, @typeName(Struct), "Struct"));
+        expect(mem.eql(u8, @typeName(Union), "Union"));
+        expect(mem.eql(u8, @typeName(Enum), "Enum"));
     }
 }
 
@@ -501,14 +501,14 @@ fn TypeFromFn(comptime T: type) type {
 
 test "double implicit cast in same expression" {
     var x = i32(u16(nine()));
-    assertOrPanic(x == 9);
+    expect(x == 9);
 }
 fn nine() u8 {
     return 9;
 }
 
 test "global variable initialized to global variable array element" {
-    assertOrPanic(global_ptr == &gdt[0]);
+    expect(global_ptr == &gdt[0]);
 }
 const GDTEntry = struct {
     field: i32,
@@ -529,9 +529,9 @@ export fn writeToVRam() void {
 const OpaqueA = @OpaqueType();
 const OpaqueB = @OpaqueType();
 test "@OpaqueType" {
-    assertOrPanic(*OpaqueA != *OpaqueB);
-    assertOrPanic(mem.eql(u8, @typeName(OpaqueA), "OpaqueA"));
-    assertOrPanic(mem.eql(u8, @typeName(OpaqueB), "OpaqueB"));
+    expect(*OpaqueA != *OpaqueB);
+    expect(mem.eql(u8, @typeName(OpaqueA), "OpaqueA"));
+    expect(mem.eql(u8, @typeName(OpaqueB), "OpaqueB"));
 }
 
 test "variable is allowed to be a pointer to an opaque type" {
@@ -571,7 +571,7 @@ fn fnThatClosesOverLocalConst() type {
 
 test "function closes over local const" {
     const x = fnThatClosesOverLocalConst().g();
-    assertOrPanic(x == 1);
+    expect(x == 1);
 }
 
 test "cold function" {
@@ -608,21 +608,21 @@ export fn testPackedStuff(a: *const PackedStruct, b: *const PackedUnion, c: Pack
 test "slicing zero length array" {
     const s1 = ""[0..];
     const s2 = ([]u32{})[0..];
-    assertOrPanic(s1.len == 0);
-    assertOrPanic(s2.len == 0);
-    assertOrPanic(mem.eql(u8, s1, ""));
-    assertOrPanic(mem.eql(u32, s2, []u32{}));
+    expect(s1.len == 0);
+    expect(s2.len == 0);
+    expect(mem.eql(u8, s1, ""));
+    expect(mem.eql(u32, s2, []u32{}));
 }
 
 const addr1 = @ptrCast(*const u8, emptyFn);
 test "comptime cast fn to ptr" {
     const addr2 = @ptrCast(*const u8, emptyFn);
-    comptime assertOrPanic(addr1 == addr2);
+    comptime expect(addr1 == addr2);
 }
 
 test "equality compare fn ptrs" {
     var a = emptyFn;
-    assertOrPanic(a == a);
+    expect(a == a);
 }
 
 test "self reference through fn ptr field" {
@@ -637,26 +637,26 @@ test "self reference through fn ptr field" {
     };
     var a: S.A = undefined;
     a.f = S.foo;
-    assertOrPanic(a.f(a) == 12);
+    expect(a.f(a) == 12);
 }
 
 test "volatile load and store" {
     var number: i32 = 1234;
     const ptr = (*volatile i32)(&number);
     ptr.* += 1;
-    assertOrPanic(ptr.* == 1235);
+    expect(ptr.* == 1235);
 }
 
 test "slice string literal has type []const u8" {
     comptime {
-        assertOrPanic(@typeOf("aoeu"[0..]) == []const u8);
+        expect(@typeOf("aoeu"[0..]) == []const u8);
         const array = []i32{ 1, 2, 3, 4 };
-        assertOrPanic(@typeOf(array[0..]) == []const i32);
+        expect(@typeOf(array[0..]) == []const i32);
     }
 }
 
 test "pointer child field" {
-    assertOrPanic((*u32).Child == u32);
+    expect((*u32).Child == u32);
 }
 
 test "struct inside function" {
@@ -675,11 +675,11 @@ fn testStructInFn() void {
 
     block.kind += 1;
 
-    assertOrPanic(block.kind == 1235);
+    expect(block.kind == 1235);
 }
 
 test "fn call returning scalar optional in equality expression" {
-    assertOrPanic(getNull() == null);
+    expect(getNull() == null);
 }
 
 fn getNull() ?*i32 {
@@ -691,5 +691,5 @@ test "thread local variable" {
         threadlocal var t: i32 = 1234;
     };
     S.t += 1;
-    assertOrPanic(S.t == 1235);
+    expect(S.t == 1235);
 }

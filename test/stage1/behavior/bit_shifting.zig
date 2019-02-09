@@ -1,9 +1,9 @@
 const std = @import("std");
-const assertOrPanic = std.debug.assertOrPanic;
+const expect = std.testing.expect;
 
 fn ShardedTable(comptime Key: type, comptime mask_bit_count: comptime_int, comptime V: type) type {
-    assertOrPanic(Key == @IntType(false, Key.bit_count));
-    assertOrPanic(Key.bit_count >= mask_bit_count);
+    expect(Key == @IntType(false, Key.bit_count));
+    expect(Key.bit_count >= mask_bit_count);
     const ShardKey = @IntType(false, mask_bit_count);
     const shift_amount = Key.bit_count - ShardKey.bit_count;
     return struct {
@@ -77,12 +77,12 @@ fn testShardedTable(comptime Key: type, comptime mask_bit_count: comptime_int, c
     var node_buffer: [node_count]Table.Node = undefined;
     for (node_buffer) |*node, i| {
         const key = @intCast(Key, i);
-        assertOrPanic(table.get(key) == null);
+        expect(table.get(key) == null);
         node.init(key, {});
         table.put(node);
     }
 
     for (node_buffer) |*node, i| {
-        assertOrPanic(table.get(@intCast(Key, i)) == node);
+        expect(table.get(@intCast(Key, i)) == node);
     }
 }

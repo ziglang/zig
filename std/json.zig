@@ -4,6 +4,7 @@
 
 const std = @import("index.zig");
 const debug = std.debug;
+const testing = std.testing;
 const mem = std.mem;
 const maxInt = std.math.maxInt;
 
@@ -960,7 +961,7 @@ test "json.token" {
     checkNext(&p, Token.Id.ObjectEnd);
     checkNext(&p, Token.Id.ObjectEnd);
 
-    debug.assert((try p.next()) == null);
+    testing.expect((try p.next()) == null);
 }
 
 // Validate a JSON string. This does not limit number precision so a decoder may not necessarily
@@ -981,7 +982,7 @@ pub fn validate(s: []const u8) bool {
 }
 
 test "json.validate" {
-    debug.assert(validate("{}"));
+    testing.expect(validate("{}"));
 }
 
 const Allocator = std.mem.Allocator;
@@ -1378,20 +1379,20 @@ test "json.parser.dynamic" {
     var image = root.Object.get("Image").?.value;
 
     const width = image.Object.get("Width").?.value;
-    debug.assert(width.Integer == 800);
+    testing.expect(width.Integer == 800);
 
     const height = image.Object.get("Height").?.value;
-    debug.assert(height.Integer == 600);
+    testing.expect(height.Integer == 600);
 
     const title = image.Object.get("Title").?.value;
-    debug.assert(mem.eql(u8, title.String, "View from 15th Floor"));
+    testing.expect(mem.eql(u8, title.String, "View from 15th Floor"));
 
     const animated = image.Object.get("Animated").?.value;
-    debug.assert(animated.Bool == false);
+    testing.expect(animated.Bool == false);
 
     const array_of_object = image.Object.get("ArrayOfObject").?.value;
-    debug.assert(array_of_object.Array.len == 1);
+    testing.expect(array_of_object.Array.len == 1);
 
     const obj0 = array_of_object.Array.at(0).Object.get("n").?.value;
-    debug.assert(mem.eql(u8, obj0.String, "m"));
+    testing.expect(mem.eql(u8, obj0.String, "m"));
 }
