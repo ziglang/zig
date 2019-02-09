@@ -1,3 +1,10 @@
+test "zig fmt: threadlocal" {
+    try testCanonical(
+        \\threadlocal var x: i32 = 1234;
+        \\
+    );
+}
+
 test "zig fmt: linksection" {
     try testCanonical(
         \\export var aoeu: u64 linksection(".text.derp") = 1234;
@@ -5,6 +12,7 @@ test "zig fmt: linksection" {
         \\
     );
 }
+
 test "zig fmt: shebang line" {
     try testCanonical(
         \\#!/usr/bin/env zig
