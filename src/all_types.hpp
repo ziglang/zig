@@ -1538,6 +1538,8 @@ enum ZigLLVMFnId {
     ZigLLVMFnIdBitReverse,
 };
 
+// There are a bunch of places in code that rely on these values being in
+// exactly this order.
 enum AddSubMul {
     AddSubMulAdd = 0,
     AddSubMulSub = 1,
@@ -1563,6 +1565,7 @@ struct ZigLLVMFnKey {
         struct {
             AddSubMul add_sub_mul;
             uint32_t bit_count;
+            uint32_t vector_len; // 0 means not a vector
             bool is_signed;
         } overflow_arithmetic;
         struct {
