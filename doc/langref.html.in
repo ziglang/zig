@@ -4627,7 +4627,7 @@ test "fibonacci" {
       <p>
       What if we fix the base case, but put the wrong value in the {#syntax#}assert{#endsyntax#} line?
       </p>
-      {#code_begin|test_err|encountered @panic at compile-time#}
+      {#code_begin|test_err|unable to evaluate constant expression#}
 const assert = @import("std").debug.assert;
 
 fn fibonacci(index: i32) i32 {

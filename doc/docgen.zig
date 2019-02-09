@@ -620,7 +620,7 @@ const TermState = enum {
 test "term color" {
     const input_bytes = "A\x1b[32;1mgreen\x1b[0mB";
     const result = try termColor(std.debug.global_allocator, input_bytes);
-    testing.expectEqualSlices(u8, "A<span class=\"t32\">green</span>B", result));
+    testing.expectEqualSlices(u8, "A<span class=\"t32\">green</span>B", result);
 }
 
 fn termColor(allocator: *mem.Allocator, input: []const u8) ![]u8 {
