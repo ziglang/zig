@@ -94,6 +94,20 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\}
     );
 
+    cases.addRuntimeSafety("vector integer addition overflow",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\pub fn main() void {
+        \\    var a: @Vector(4, i32) = []i32{ 1, 2, 2147483643, 4 };
+        \\    var b: @Vector(4, i32) = []i32{ 5, 6, 7, 8 };
+        \\    const x = add(a, b);
+        \\}
+        \\fn add(a: @Vector(4, i32), b: @Vector(4, i32)) @Vector(4, i32) {
+        \\    return a + b;
+        \\}
+    );
+
     cases.addRuntimeSafety("integer subtraction overflow",
         \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
