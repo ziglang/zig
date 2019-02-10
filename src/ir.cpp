@@ -10643,6 +10643,7 @@ static IrInstruction *ir_analyze_ptr_to_array(IrAnalyze *ira, IrInstruction *sou
     Error err;
     if ((err = type_resolve(ira->codegen, target->value.type->data.pointer.child_type, ResolveStatusAlignmentKnown)))
         return ira->codegen->invalid_instruction;
+    assert( (wanted_type->data.pointer.is_const && target->value.type->data.pointer.is_const) || !target->value.type->data.pointer.is_const);
     wanted_type = adjust_ptr_align(ira->codegen, wanted_type, get_ptr_align(ira->codegen, target->value.type));
     ZigType *array_type = wanted_type->data.pointer.child_type;
     assert(array_type->id == ZigTypeIdArray);
@@ -11130,10 +11131,23 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         actual_type->id == ZigTypeIdPointer && actual_type->data.pointer.ptr_len == PtrLenSingle)
     {
         ZigType *array_type = wanted_type->data.pointer.child_type;
-        if (array_type->id == ZigTypeIdArray && array_type->data.array.len == 1 &&
-            types_match_const_cast_only(ira, array_type->data.array.child_type,
-            actual_type->data.pointer.child_type, source_node,
-            !wanted_type->data.pointer.is_const).id == ConstCastResultIdOk)
+        if ( array_type->id == ZigTypeIdArray
+          && array_type->data.array.len == 1
+          && types_match_const_cast_only( ira
+                                        , array_type->data.array.child_type
+                                        , actual_type->data.pointer.child_type
+                                        , source_node
+                                        , !wanted_type->data.pointer.is_const
+                                        ).id == ConstCastResultIdOk
+          &&
+              // This should be the job of `types_match_const_cast_only`
+              // but `types_match_const_cast_only` only gets info for child_types
+              (( wanted_type->data.pointer.is_const
+              && actual_type->data.pointer.is_const
+               )
+              || !actual_type->data.pointer.is_const
+              )
+           )
         {
             if ((err = type_resolve(ira->codegen, wanted_type->data.pointer.child_type,
                             ResolveStatusAlignmentKnown)))
