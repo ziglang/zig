@@ -330,3 +330,8 @@ test "optional error set is the same size as error set" {
     expect(S.returnsOptErrSet() == null);
     comptime expect(S.returnsOptErrSet() == null);
 }
+
+test "debug info for optional error set" {
+    const SomeError = error{Hello};
+    var a_local_variable: ?SomeError = null;
+}
