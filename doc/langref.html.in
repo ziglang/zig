@@ -6381,14 +6381,14 @@ fn List(comptime T: type) type {
       {#header_close#}
 
       {#header_open|@truncate#}
-      <pre>{#syntax#}@truncate(comptime T: type, integer) T{#endsyntax#}</pre>
+      <pre>{#syntax#}@truncate(comptime T: type, integer: var) T{#endsyntax#}</pre>
       <p>
       This function truncates bits from an integer type, resulting in a smaller
       integer type.
       </p>
       <p>
-      The following produces a crash in debug mode and undefined behavior in
-      release mode:
+      The following produces a crash in {#link|Debug#} mode and {#link|Undefined Behavior#} in
+      {#link|ReleaseFast#} mode:
       </p>
       <pre>{#syntax#}const a: u16 = 0xabcd;
 const b: u8 = u8(a);{#endsyntax#}</pre>
@@ -6402,7 +6402,10 @@ const b: u8 = @truncate(u8, a);
       This function always truncates the significant bits of the integer, regardless
       of endianness on the target platform.
       </p>
-
+      <p>
+      If {#syntax#}T{#endsyntax#} is {#syntax#}comptime_int{#endsyntax#},
+      then this is semantically equivalent to an {#link|implicit cast|Implicit Casts#}.
+      </p>
       {#header_close#}
 
       {#header_open|@typeId#}
@@ -7870,7 +7873,7 @@ TopLevelComptime &lt;- KEYWORD_comptime BlockExpr
 
 TopLevelDecl
     &lt;- (KEYWORD_export / KEYWORD_extern STRINGLITERAL? / KEYWORD_inline)? FnProto (SEMICOLON / Block)
-     / (KEYWORD_export / KEYWORD_extern STRINGLITERAL?)? VarDecl
+     / (KEYWORD_export / KEYWORD_extern STRINGLITERAL?)? KEYWORD_threadlocal? VarDecl
      / KEYWORD_use Expr SEMICOLON
 
 FnProto &lt;- FnCC? KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? EXCLAMATIONMARK? (KEYWORD_var / TypeExpr)
@@ -8330,6 +8333,7 @@ KEYWORD_struct      &lt;- 'struct'      end_of_word
 KEYWORD_suspend     &lt;- 'suspend'     end_of_word
 KEYWORD_switch      &lt;- 'switch'      end_of_word
 KEYWORD_test        &lt;- 'test'        end_of_word
+KEYWORD_threadlocal &lt;- 'threadlocal' end_of_word
 KEYWORD_true        &lt;- 'true'        end_of_word
 KEYWORD_try         &lt;- 'try'         end_of_word
 KEYWORD_undefined   &lt;- 'undefined'   end_of_word
@@ -8350,7 +8354,7 @@ keyword &lt;- KEYWORD_align / KEYWORD_and / KEYWORD_anyerror / KEYWORD_asm
          / KEYWORD_orelse / KEYWORD_packed / KEYWORD_promise / KEYWORD_pub
          / KEYWORD_resume / KEYWORD_return / KEYWORD_linksection
          / KEYWORD_stdcallcc / KEYWORD_struct / KEYWORD_suspend
-         / KEYWORD_switch / KEYWORD_test / KEYWORD_true / KEYWORD_try
+         / KEYWORD_switch / KEYWORD_test / KEYWORD_threadlocal / KEYWORD_true / KEYWORD_try
          / KEYWORD_undefined / KEYWORD_union / KEYWORD_unreachable
          / KEYWORD_use / KEYWORD_var / KEYWORD_volatile / KEYWORD_while</code></pre>
       {#header_close#}

@@ -594,6 +594,9 @@ ZigType *get_optional_type(CodeGen *g, ZigType *child_type) {
             // function types are technically pointers
             entry->type_ref = child_type->type_ref;
             entry->di_type = child_type->di_type;
+            if (entry->di_type == g->builtin_types.entry_global_error_set->di_type) {
+                g->error_di_types.append(&entry->di_type);
+            }
         } else {
             assert(child_type->di_type);
             // create a struct with a boolean whether this is the null value
