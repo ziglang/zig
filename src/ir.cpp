@@ -10312,6 +10312,10 @@ static IrInstruction *ir_analyze_enum_to_int(IrAnalyze *ira, IrInstruction *sour
     assert(wanted_type->id == ZigTypeIdInt || wanted_type->id == ZigTypeIdComptimeInt);
 
     ZigType *actual_type = target->value.type;
+
+    if (actual_type->id == ZigTypeIdUnion)
+        actual_type = actual_type->data.unionation.tag_type;
+
     if ((err = ensure_complete_type(ira->codegen, actual_type)))
         return ira->codegen->invalid_instruction;
 
@@ -10330,7 +10334,11 @@ static IrInstruction *ir_analyze_enum_to_int(IrAnalyze *ira, IrInstruction *sour
         if (!val)
             return ira->codegen->invalid_instruction;
         IrInstruction *result = ir_const(ira, source_instr, wanted_type);
-        init_const_bigint(&result->value, wanted_type, &val->data.x_enum_tag);
+        if (target->value.type->id == ZigTypeIdUnion)
+            init_const_bigint(&result->value, wanted_type, &val->data.x_union.tag);
+        else
+            init_const_bigint(&result->value, wanted_type, &val->data.x_enum_tag);
+        
         return result;
     }
 
@@ -10341,12 +10349,18 @@ static IrInstruction *ir_analyze_enum_to_int(IrAnalyze *ira, IrInstruction *sour
         assert(wanted_type== ira->codegen->builtin_types.entry_num_lit_int);
         IrInstruction *result = ir_const(ira, source_instr, wanted_type);
         init_const_bigint(&result->value, wanted_type,
-                &actual_type->data.enumeration.fields[0].value);
+            &actual_type->data.enumeration.fields[0].value);
+
         return result;
     }
 
-    IrInstruction *result = ir_build_widen_or_shorten(&ira->new_irb, source_instr->scope,
-            source_instr->source_node, target);
+    IrInstruction *result = nullptr;
+    if (target->value.type->id == ZigTypeIdUnion)
+        result = ir_build_union_tag(&ira->new_irb, source_instr->scope,
+                    source_instr->source_node, target);
+    else
+        result = ir_build_widen_or_shorten(&ira->new_irb, source_instr->scope,
+                    source_instr->source_node, target);
     result->value.type = wanted_type;
     return result;
 }
@@ -14358,12 +14372,12 @@ static Error ir_read_const_ptr(IrAnalyze *ira, CodeGen *codegen, AstNode *source
             if (dst_size == 0)
                 return ErrorNone;
             opt_ir_add_error_node(ira, codegen, source_node,
-                buf_sprintf("attempt to read %zu bytes from null pointer",
+                buf_sprintf("attempt to read %" ZIG_PRI_usize " bytes from null pointer",
                 dst_size));
             return ErrorSemanticAnalyzeFail;
         case ConstPtrSpecialRef: {
             opt_ir_add_error_node(ira, codegen, source_node,
-                buf_sprintf("attempt to read %zu bytes from pointer to %s which is %zu bytes",
+                buf_sprintf("attempt to read %" ZIG_PRI_usize " bytes from pointer to %s which is %" ZIG_PRI_usize " bytes",
                 dst_size, buf_ptr(&pointee->type->name), src_size));
             return ErrorSemanticAnalyzeFail;
         }
@@ -14377,7 +14391,7 @@ static Error ir_read_const_ptr(IrAnalyze *ira, CodeGen *codegen, AstNode *source
             src_size = elem_size * (array_val->type->data.array.len - elem_index);
             if (dst_size > src_size) {
                 opt_ir_add_error_node(ira, codegen, source_node,
-                    buf_sprintf("attempt to read %zu bytes from %s at index %" ZIG_PRI_usize " which is %zu bytes",
+                    buf_sprintf("attempt to read %" ZIG_PRI_usize " bytes from %s at index %" ZIG_PRI_usize " which is %" ZIG_PRI_usize " bytes",
                         dst_size, buf_ptr(&array_val->type->name), elem_index, src_size));
                 return ErrorSemanticAnalyzeFail;
             }
@@ -21960,21 +21974,36 @@ static IrInstruction *ir_analyze_instruction_bit_reverse(IrAnalyze *ira, IrInstr
 static IrInstruction *ir_analyze_instruction_enum_to_int(IrAnalyze *ira, IrInstructionEnumToInt *instruction) {
     Error err;
     IrInstruction *target = instruction->target->child;
-    if (type_is_invalid(target->value.type))
+    ZigType *enum_type = target->value.type;
+    if (type_is_invalid(enum_type))
         return ira->codegen->invalid_instruction;
 
-    if (target->value.type->id != ZigTypeIdEnum) {
+    if (enum_type->id == ZigTypeIdUnion) {
+        if ((err = ensure_complete_type(ira->codegen, enum_type)))
+            return ira->codegen->invalid_instruction;
+
+        AstNode *decl_node = enum_type->data.unionation.decl_node;
+        if (decl_node->data.container_decl.auto_enum || decl_node->data.container_decl.init_arg_expr != nullptr) {
+            assert(enum_type->data.unionation.tag_type != nullptr);
+            enum_type = target->value.type->data.unionation.tag_type;
+        } else {
+            ErrorMsg *msg = ir_add_error(ira, target, buf_sprintf("union '%s' has no tag",
+                buf_ptr(&enum_type->name)));
+            add_error_note(ira->codegen, msg, decl_node, buf_sprintf("consider 'union(enum)' here"));
+            return ira->codegen->invalid_instruction;
+        }
+    } else if (enum_type->id != ZigTypeIdEnum) {
         ir_add_error(ira, instruction->target,
-            buf_sprintf("expected enum, found type '%s'", buf_ptr(&target->value.type->name)));
+            buf_sprintf("expected enum or union(enum), found type '%s'", buf_ptr(&enum_type->name)));
         return ira->codegen->invalid_instruction;
     }
 
-    if ((err = type_resolve(ira->codegen, target->value.type, ResolveStatusZeroBitsKnown)))
+    if ((err = type_resolve(ira->codegen, enum_type, ResolveStatusZeroBitsKnown)))
         return ira->codegen->invalid_instruction;
 
-    ZigType *tag_type = target->value.type->data.enumeration.tag_int_type;
+    ZigType *int_type = enum_type->data.enumeration.tag_int_type;
 
-    return ir_analyze_enum_to_int(ira, &instruction->base, target, tag_type);
+    return ir_analyze_enum_to_int(ira, &instruction->base, target, int_type);
 }
 
 static IrInstruction *ir_analyze_instruction_int_to_enum(IrAnalyze *ira, IrInstructionIntToEnum *instruction) {
