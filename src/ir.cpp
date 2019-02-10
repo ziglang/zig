@@ -21656,19 +21656,36 @@ static IrInstruction *ir_analyze_instruction_bit_reverse(IrAnalyze *ira, IrInstr
 static IrInstruction *ir_analyze_instruction_enum_to_int(IrAnalyze *ira, IrInstructionEnumToInt *instruction) {
     Error err;
     IrInstruction *target = instruction->target->child;
-    if (type_is_invalid(target->value.type))
+    ZigType *enum_type = target->value.type;
+    if (type_is_invalid(enum_type))
         return ira->codegen->invalid_instruction;
 
-    if (target->value.type->id != ZigTypeIdEnum) {
+    if (enum_type->id == ZigTypeIdUnion) {
+        if ((err = ensure_complete_type(ira->codegen, enum_type)))
+            return ira->codegen->invalid_instruction;
+
+        AstNode *decl_node = enum_type->data.unionation.decl_node;
+        if (decl_node->data.container_decl.auto_enum || decl_node->data.container_decl.init_arg_expr != nullptr) {
+            assert(enum_type->data.unionation.tag_type != nullptr);
+
+            enum_type = target->value.type->data.unionation.tag_type;
+            return ira->codegen->invalid_instruction;
+        } else {
+            ErrorMsg *msg = ir_add_error(ira, target, buf_sprintf("union '%s' has no tag",
+                buf_ptr(&enum_type->name)));
+            add_error_note(ira->codegen, msg, decl_node, buf_sprintf("consider 'union(enum)' here"));
+            return ira->codegen->invalid_instruction;
+        }
+    } else if (enum_type->id != ZigTypeIdEnum) {
         ir_add_error(ira, instruction->target,
-            buf_sprintf("expected enum, found type '%s'", buf_ptr(&target->value.type->name)));
+            buf_sprintf("expected enum or union(enum), found type '%s'", buf_ptr(&enum_type->name)));
         return ira->codegen->invalid_instruction;
     }
 
-    if ((err = type_resolve(ira->codegen, target->value.type, ResolveStatusZeroBitsKnown)))
+    if ((err = type_resolve(ira->codegen, enum_type, ResolveStatusZeroBitsKnown)))
         return ira->codegen->invalid_instruction;
 
-    ZigType *tag_type = target->value.type->data.enumeration.tag_int_type;
+    ZigType *tag_type = enum_type->data.enumeration.tag_int_type;
 
     return ir_analyze_enum_to_int(ira, &instruction->base, target, tag_type);
 }
