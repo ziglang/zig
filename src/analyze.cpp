@@ -417,6 +417,18 @@ ZigType *get_promise_type(CodeGen *g, ZigType *result_type) {
     return entry;
 }
 
+static const char *ptr_len_to_star_str(PtrLen ptr_len) {
+    switch (ptr_len) {
+        case PtrLenSingle:
+            return "*";
+        case PtrLenUnknown:
+            return "[*]";
+        case PtrLenC:
+            return "[*c]";
+    }
+    zig_unreachable();
+}
+
 ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_const,
         bool is_volatile, PtrLen ptr_len, uint32_t byte_alignment,
         uint32_t bit_offset_in_host, uint32_t host_int_bytes)
@@ -466,7 +478,7 @@ ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_cons
 
     ZigType *entry = new_type_table_entry(ZigTypeIdPointer);
 
-    const char *star_str = ptr_len == PtrLenSingle ? "*" : "[*]";
+    const char *star_str = ptr_len_to_star_str(ptr_len);
     const char *const_str = is_const ? "const " : "";
     const char *volatile_str = is_volatile ? "volatile " : "";
     buf_resize(&entry->name, 0);

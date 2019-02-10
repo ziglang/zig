@@ -29,6 +29,7 @@ enum TokenId {
     TokenIdBitShiftRightEq,
     TokenIdBitXorEq,
     TokenIdBracketStarBracket,
+    TokenIdBracketStarCBracket,
     TokenIdCharLiteral,
     TokenIdCmpEq,
     TokenIdCmpGreaterOrEq,

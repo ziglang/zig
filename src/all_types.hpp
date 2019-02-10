@@ -1038,6 +1038,7 @@ bool fn_type_id_eql(FnTypeId *a, FnTypeId *b);
 enum PtrLen {
     PtrLenUnknown,
     PtrLenSingle,
+    PtrLenC,
 };
 
 struct ZigTypePointer {

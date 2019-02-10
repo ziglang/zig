@@ -42,3 +42,9 @@ test "double pointer parsing" {
 fn PtrOf(comptime T: type) type {
     return *T;
 }
+
+test "assigning integer to C pointer" {
+    var x: i32 = 0;
+    var ptr: [*c]u8 = 0;
+    var ptr2: [*c]u8 = x;
+}
