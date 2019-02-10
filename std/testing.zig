@@ -24,11 +24,7 @@ pub fn expectError(expected_error: anyerror, actual_error_union: var) void {
 /// equal, prints diagnostics to stderr to show exactly how they are not equal,
 /// then aborts.
 /// The types must match exactly.
-pub fn expectEqual(expected: var, actual: var) void {
-    if (@typeOf(actual) != @typeOf(expected)) {
-        @compileError("type mismatch. expected " ++ @typeName(@typeOf(expected)) ++ ", found " ++ @typeName(@typeOf(actual)));
-    }
-
+pub fn expectEqual(expected: var, actual: @typeOf(expected)) void {
     switch (@typeInfo(@typeOf(actual))) {
         TypeId.NoReturn,
         TypeId.BoundFn,
