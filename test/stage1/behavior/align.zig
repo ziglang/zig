@@ -6,7 +6,7 @@ var foo: u8 align(4) = 100;
 test "global variable alignment" {
     expect(@typeOf(&foo).alignment == 4);
     expect(@typeOf(&foo) == *align(4) u8);
-    const slice = (*[1]u8)(&foo)[0..];
+    const slice = ([]u8)(&foo);
     expect(@typeOf(slice) == []align(4) u8);
 }
 

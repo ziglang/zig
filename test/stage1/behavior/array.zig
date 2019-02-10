@@ -148,7 +148,7 @@ test "implicit cast single-item pointer" {
 
 fn testImplicitCastSingleItemPtr() void {
     var byte: u8 = 100;
-    const slice = (*[1]u8)(&byte)[0..];
+    const slice = ([]u8)(&byte);
     slice[0] += 1;
     expect(byte == 101);
 }
