@@ -8164,7 +8164,8 @@ ArrayTypeStart &lt;- LBRACKET Expr? RBRACKET
 PtrTypeStart
     &lt;- ASTERISK
      / ASTERISK2
-     / LBRACKET ASTERISK RBRACKET
+     / PTRUNKNOWN
+     / PTRC
 
 # ContainerDecl specific
 ContainerDeclAuto &lt;- ContainerDeclType LBRACE ContainerMembers RBRACE
@@ -8262,7 +8263,7 @@ LARROW2              &lt;- '&lt;&lt;'     ![=]      skip
 LARROW2EQUAL         &lt;- '&lt;&lt;='              skip
 LARROWEQUAL          &lt;- '&lt;='               skip
 LBRACE               &lt;- '{'                skip
-LBRACKET             &lt;- '['                skip
+LBRACKET             &lt;- '['      ![*]      skip
 LPAREN               &lt;- '('                skip
 MINUS                &lt;- '-'      ![%=&gt;]    skip
 MINUSEQUAL           &lt;- '-='               skip
@@ -8279,6 +8280,8 @@ PLUS2                &lt;- '++'               skip
 PLUSEQUAL            &lt;- '+='               skip
 PLUSPERCENT          &lt;- '+%'     ![=]      skip
 PLUSPERCENTEQUAL     &lt;- '+%='              skip
+PTRC                 &lt;- '[*c]'             skip
+PTRUNKNOWN           &lt;- '[*]'              skip
 QUESTIONMARK         &lt;- '?'                skip
 RARROW               &lt;- '&gt;'      ![&gt;=]     skip
 RARROW2              &lt;- '&gt;&gt;'     ![=]      skip
