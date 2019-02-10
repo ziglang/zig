@@ -7870,7 +7870,7 @@ TopLevelComptime &lt;- KEYWORD_comptime BlockExpr
 
 TopLevelDecl
     &lt;- (KEYWORD_export / KEYWORD_extern STRINGLITERAL? / KEYWORD_inline)? FnProto (SEMICOLON / Block)
-     / (KEYWORD_export / KEYWORD_extern STRINGLITERAL?)? VarDecl
+     / (KEYWORD_export / KEYWORD_extern STRINGLITERAL?)? KEYWORD_threadlocal? VarDecl
      / KEYWORD_use Expr SEMICOLON
 
 FnProto &lt;- FnCC? KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? EXCLAMATIONMARK? (KEYWORD_var / TypeExpr)
@@ -8330,6 +8330,7 @@ KEYWORD_struct      &lt;- 'struct'      end_of_word
 KEYWORD_suspend     &lt;- 'suspend'     end_of_word
 KEYWORD_switch      &lt;- 'switch'      end_of_word
 KEYWORD_test        &lt;- 'test'        end_of_word
+KEYWORD_threadlocal &lt;- 'threadlocal' end_of_word
 KEYWORD_true        &lt;- 'true'        end_of_word
 KEYWORD_try         &lt;- 'try'         end_of_word
 KEYWORD_undefined   &lt;- 'undefined'   end_of_word
@@ -8350,7 +8351,7 @@ keyword &lt;- KEYWORD_align / KEYWORD_and / KEYWORD_anyerror / KEYWORD_asm
          / KEYWORD_orelse / KEYWORD_packed / KEYWORD_promise / KEYWORD_pub
          / KEYWORD_resume / KEYWORD_return / KEYWORD_linksection
          / KEYWORD_stdcallcc / KEYWORD_struct / KEYWORD_suspend
-         / KEYWORD_switch / KEYWORD_test / KEYWORD_true / KEYWORD_try
+         / KEYWORD_switch / KEYWORD_test / KEYWORD_threadlocal / KEYWORD_true / KEYWORD_try
          / KEYWORD_undefined / KEYWORD_union / KEYWORD_unreachable
          / KEYWORD_use / KEYWORD_var / KEYWORD_volatile / KEYWORD_while</code></pre>
       {#header_close#}
