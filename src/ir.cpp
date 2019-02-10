@@ -18491,7 +18491,22 @@ static IrInstruction *ir_analyze_instruction_truncate(IrAnalyze *ira, IrInstruct
         return ira->codegen->invalid_instruction;
     }
 
-    if (src_type->data.integral.bit_count == 0) {
+    if (dest_type->id == ZigTypeIdComptimeInt) {
+        return ir_implicit_cast(ira, target, dest_type);
+    }
+
+    if (instr_is_comptime(target)) {
+        ConstExprValue *val = ir_resolve_const(ira, target, UndefBad);
+        if (val == nullptr)
+            return ira->codegen->invalid_instruction;
+
+        IrInstruction *result = ir_const(ira, &instruction->base, dest_type);
+        bigint_truncate(&result->value.data.x_bigint, &val->data.x_bigint,
+                dest_type->data.integral.bit_count, dest_type->data.integral.is_signed);
+        return result;
+    }
+
+    if (src_type->data.integral.bit_count == 0 || dest_type->data.integral.bit_count == 0) {
         IrInstruction *result = ir_const(ira, &instruction->base, dest_type);
         bigint_init_unsigned(&result->value.data.x_bigint, 0);
         return result;
@@ -18505,13 +18520,6 @@ static IrInstruction *ir_analyze_instruction_truncate(IrAnalyze *ira, IrInstruct
         ir_add_error(ira, target, buf_sprintf("type '%s' has fewer bits than destination type '%s'",
                     buf_ptr(&src_type->name), buf_ptr(&dest_type->name)));
         return ira->codegen->invalid_instruction;
-    }
-
-    if (target->value.special == ConstValSpecialStatic) {
-        IrInstruction *result = ir_const(ira, &instruction->base, dest_type);
-        bigint_truncate(&result->value.data.x_bigint, &target->value.data.x_bigint,
-                dest_type->data.integral.bit_count, dest_type->data.integral.is_signed);
-        return result;
     }
 
     IrInstruction *new_instruction = ir_build_truncate(&ira->new_irb, instruction->base.scope,

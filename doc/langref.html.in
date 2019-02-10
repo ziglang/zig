@@ -6381,14 +6381,14 @@ fn List(comptime T: type) type {
       {#header_close#}
 
       {#header_open|@truncate#}
-      <pre>{#syntax#}@truncate(comptime T: type, integer) T{#endsyntax#}</pre>
+      <pre>{#syntax#}@truncate(comptime T: type, integer: var) T{#endsyntax#}</pre>
       <p>
       This function truncates bits from an integer type, resulting in a smaller
       integer type.
       </p>
       <p>
-      The following produces a crash in debug mode and undefined behavior in
-      release mode:
+      The following produces a crash in {#link|Debug#} mode and {#link|Undefined Behavior#} in
+      {#link|ReleaseFast#} mode:
       </p>
       <pre>{#syntax#}const a: u16 = 0xabcd;
 const b: u8 = u8(a);{#endsyntax#}</pre>
@@ -6402,7 +6402,10 @@ const b: u8 = @truncate(u8, a);
       This function always truncates the significant bits of the integer, regardless
       of endianness on the target platform.
       </p>
-
+      <p>
+      If {#syntax#}T{#endsyntax#} is {#syntax#}comptime_int{#endsyntax#},
+      then this is semantically equivalent to an {#link|implicit cast|Implicit Casts#}.
+      </p>
       {#header_close#}
 
       {#header_open|@typeId#}

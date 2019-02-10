@@ -2,6 +2,15 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.addTest(
+        "@truncate undefined value",
+        \\export fn entry() void {
+        \\    var z = @truncate(u8, u16(undefined));
+        \\}
+    ,
+        ".tmp_source.zig:2:30: error: use of undefined value",
+    );
+
+    cases.addTest(
         "return invalid type from test",
         \\test "example" { return 1; }
     ,
@@ -3335,7 +3344,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "truncate sign mismatch",
         \\fn f() i8 {
-        \\    const x: u32 = 10;
+        \\    var x: u32 = 10;
         \\    return @truncate(i8, x);
         \\}
         \\
