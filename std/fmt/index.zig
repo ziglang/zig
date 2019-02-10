@@ -378,7 +378,7 @@ pub fn formatAsciiChar(
     comptime Errors: type,
     output: fn (@typeOf(context), []const u8) Errors!void,
 ) Errors!void {
-    return output(context, (*[1]u8)(&c)[0..]);
+    return output(context, &c);
 }
 
 pub fn formatBuf(
@@ -393,7 +393,7 @@ pub fn formatBuf(
     var leftover_padding = if (width > buf.len) (width - buf.len) else return;
     const pad_byte: u8 = ' ';
     while (leftover_padding > 0) : (leftover_padding -= 1) {
-        try output(context, (*[1]u8)(&pad_byte)[0..1]);
+        try output(context, &pad_byte);
     }
 }
 
@@ -708,7 +708,7 @@ fn formatIntSigned(
     const uint = @IntType(false, @typeOf(value).bit_count);
     if (value < 0) {
         const minus_sign: u8 = '-';
-        try output(context, (*[1]u8)(&minus_sign)[0..]);
+        try output(context, &minus_sign);
         const new_value = @intCast(uint, -(value + 1)) + 1;
         const new_width = if (width == 0) 0 else (width - 1);
         return formatIntUnsigned(new_value, base, uppercase, new_width, context, Errors, output);
@@ -716,7 +716,7 @@ fn formatIntSigned(
         return formatIntUnsigned(@intCast(uint, value), base, uppercase, width, context, Errors, output);
     } else {
         const plus_sign: u8 = '+';
-        try output(context, (*[1]u8)(&plus_sign)[0..]);
+        try output(context, &plus_sign);
         const new_value = @intCast(uint, value);
         const new_width = if (width == 0) 0 else (width - 1);
         return formatIntUnsigned(new_value, base, uppercase, new_width, context, Errors, output);
@@ -755,7 +755,7 @@ fn formatIntUnsigned(
         const zero_byte: u8 = '0';
         var leftover_padding = padding - index;
         while (true) {
-            try output(context, (*[1]u8)(&zero_byte)[0..]);
+            try output(context, &zero_byte);
             leftover_padding -= 1;
             if (leftover_padding == 0) break;
         }
