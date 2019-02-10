@@ -48,3 +48,11 @@ test "assigning integer to C pointer" {
     var ptr: [*c]u8 = 0;
     var ptr2: [*c]u8 = x;
 }
+
+test "implicit cast single item pointer to C pointer and back" {
+    var y: u8 = 11;
+    var x: [*c]u8 = &y;
+    var z: *u8 = x;
+    z.* += 1;
+    expect(y == 12);
+}
