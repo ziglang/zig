@@ -7309,6 +7309,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             "            One,\n"
             "            Many,\n"
             "            Slice,\n"
+            "            C,\n"
             "        };\n"
             "    };\n"
             "\n"

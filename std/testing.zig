@@ -69,7 +69,7 @@ pub fn expectEqual(expected: var, actual: var) void {
                     }
                 },
 
-                builtin.TypeInfo.Pointer.Size.Slice => { 
+                builtin.TypeInfo.Pointer.Size.Slice => {
                     if (actual.ptr != expected.ptr) {
                         std.debug.panic("expected slice ptr {}, found {}", expected.ptr, actual.ptr);
                     }
@@ -122,7 +122,6 @@ pub fn expectEqual(expected: var, actual: var) void {
                 }
             }
         },
-
     }
 }
 

@@ -17584,6 +17584,18 @@ static Error ir_make_type_info_defs(IrAnalyze *ira, ConstExprValue *out_val, Sco
     return ErrorNone;
 }
 
+static uint32_t ptr_len_to_size_enum_index(PtrLen ptr_len) {
+    switch (ptr_len) {
+        case PtrLenSingle:
+            return 0;
+        case PtrLenUnknown:
+            return 1;
+        case PtrLenC:
+            return 3;
+    }
+    zig_unreachable();
+}
+
 static ConstExprValue *create_ptr_like_type_info(IrAnalyze *ira, ZigType *ptr_type_entry) {
     Error err;
     ZigType *attrs_type;
@@ -17593,7 +17605,7 @@ static ConstExprValue *create_ptr_like_type_info(IrAnalyze *ira, ZigType *ptr_ty
         size_enum_index = 2;
     } else if (ptr_type_entry->id == ZigTypeIdPointer) {
         attrs_type = ptr_type_entry;
-        size_enum_index = (ptr_type_entry->data.pointer.ptr_len == PtrLenSingle) ? 0 : 1;
+        size_enum_index = ptr_len_to_size_enum_index(ptr_type_entry->data.pointer.ptr_len);
     } else {
         zig_unreachable();
     }

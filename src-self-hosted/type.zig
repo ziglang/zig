@@ -794,6 +794,7 @@ pub const Type = struct {
                 Size.One => "*",
                 Size.Many => "[*]",
                 Size.Slice => "[]",
+                Size.C => "[*c]",
             };
             const mut_str = switch (self.key.mut) {
                 Mut.Const => "const ",
@@ -1088,6 +1089,7 @@ fn hashAny(x: var, comptime seed: u64) u32 {
                 builtin.TypeInfo.Pointer.Size.One => return hashAny(@ptrToInt(x), seed),
                 builtin.TypeInfo.Pointer.Size.Many => @compileError("implement hash function"),
                 builtin.TypeInfo.Pointer.Size.Slice => @compileError("implement hash function"),
+                builtin.TypeInfo.Pointer.Size.C => unreachable,
             }
         },
         builtin.TypeId.Enum => return hashAny(@enumToInt(x), seed),
