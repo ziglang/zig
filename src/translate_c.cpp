@@ -1677,7 +1677,7 @@ static AstNode *trans_implicit_cast_expr(Context *c, TransScope *scope, const Im
                 return node;
             }
         case CK_NullToPointer:
-            return trans_create_node(c, NodeTypeNullLiteral);
+            return trans_create_node_unsigned(c, 0);
         case CK_Dependent:
             emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_Dependent");
             return nullptr;
@@ -2409,7 +2409,8 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
                 case BuiltinType::Float16:
                     return trans_create_node_bin_op(c, res, BinOpTypeCmpNotEq, trans_create_node_unsigned_negative(c, 0, false));
                 case BuiltinType::NullPtr:
-                    return trans_create_node_bin_op(c, res, BinOpTypeCmpNotEq, trans_create_node(c, NodeTypeNullLiteral));
+                    return trans_create_node_bin_op(c, res, BinOpTypeCmpNotEq,
+                            trans_create_node_unsigned(c, 0));
 
                 case BuiltinType::Void:
                 case BuiltinType::Half:
@@ -2494,7 +2495,8 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
             break;
         }
         case Type::Pointer:
-            return trans_create_node_bin_op(c, res, BinOpTypeCmpNotEq, trans_create_node(c, NodeTypeNullLiteral));
+            return trans_create_node_bin_op(c, res, BinOpTypeCmpNotEq,
+                    trans_create_node_unsigned(c, 0));
 
         case Type::Typedef:
         {

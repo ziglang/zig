@@ -610,11 +610,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     ,
         \\pub export fn and_or_none_bool(a: c_int, b: f32, c: [*c]c_void) c_int {
         \\    if ((a != 0) and (b != 0)) return 0;
-        \\    if ((b != 0) and (c != null)) return 1;
-        \\    if ((a != 0) and (c != null)) return 2;
+        \\    if ((b != 0) and (c != 0)) return 1;
+        \\    if ((a != 0) and (c != 0)) return 2;
         \\    if ((a != 0) or (b != 0)) return 3;
-        \\    if ((b != 0) or (c != null)) return 4;
-        \\    if ((a != 0) or (c != null)) return 5;
+        \\    if ((b != 0) or (c != 0)) return 4;
+        \\    if ((a != 0) or (c != 0)) return 5;
         \\    return 6;
         \\}
     );
@@ -778,7 +778,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     ,
         \\pub export fn foo() [*c]c_int {
-        \\    return null;
+        \\    return 0;
         \\}
     );
 
@@ -1280,7 +1280,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return !(a == 0);
         \\    return !(a != 0);
         \\    return !(b != 0);
-        \\    return !(c != null);
+        \\    return !(c != 0);
         \\}
     );
 
@@ -1337,7 +1337,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub fn if_none_bool(a: c_int, b: f32, c: [*c]c_void, d: enum_SomeEnum) c_int {
         \\    if (a != 0) return 0;
         \\    if (b != 0) return 1;
-        \\    if (c != null) return 2;
+        \\    if (c != 0) return 2;
         \\    if (d != @bitCast(enum_SomeEnum, @TagType(enum_SomeEnum)(0))) return 3;
         \\    return 4;
         \\}
@@ -1354,7 +1354,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub fn while_none_bool(a: c_int, b: f32, c: [*c]c_void) c_int {
         \\    while (a != 0) return 0;
         \\    while (b != 0) return 1;
-        \\    while (c != null) return 2;
+        \\    while (c != 0) return 2;
         \\    return 3;
         \\}
     );
@@ -1370,7 +1370,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub fn for_none_bool(a: c_int, b: f32, c: [*c]c_void) c_int {
         \\    while (a != 0) return 0;
         \\    while (b != 0) return 1;
-        \\    while (c != null) return 2;
+        \\    while (c != 0) return 2;
         \\    return 3;
         \\}
     );

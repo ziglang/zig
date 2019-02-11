@@ -434,7 +434,7 @@ ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_cons
         uint32_t bit_offset_in_host, uint32_t host_int_bytes)
 {
     assert(!type_is_invalid(child_type));
-    assert(ptr_len == PtrLenSingle || child_type->id != ZigTypeIdOpaque);
+    assert(ptr_len != PtrLenUnknown || child_type->id != ZigTypeIdOpaque);
 
     if (byte_alignment != 0) {
         uint32_t abi_alignment = get_abi_alignment(g, child_type);

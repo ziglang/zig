@@ -8943,7 +8943,9 @@ static void update_errors_helper(CodeGen *g, ErrorTableEntry ***errors, size_t *
     *errors = reallocate(*errors, old_errors_count, *errors_count);
 }
 
-static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigType *expected_type, IrInstruction **instructions, size_t instruction_count) {
+static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigType *expected_type,
+        IrInstruction **instructions, size_t instruction_count)
+{
     Error err;
     assert(instruction_count >= 1);
     IrInstruction *prev_inst = instructions[0];
@@ -9257,6 +9259,19 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
 
         if (cur_type->id == ZigTypeIdNull) {
             any_are_null = true;
+            continue;
+        }
+
+        if (prev_type->id == ZigTypeIdPointer && prev_type->data.pointer.ptr_len == PtrLenC &&
+            (cur_type->id == ZigTypeIdComptimeInt || cur_type->id == ZigTypeIdInt))
+        {
+            continue;
+        }
+
+        if (cur_type->id == ZigTypeIdPointer && cur_type->data.pointer.ptr_len == PtrLenC &&
+            (prev_type->id == ZigTypeIdComptimeInt || prev_type->id == ZigTypeIdInt))
+        {
+            prev_inst = cur_inst;
             continue;
         }
 
@@ -11852,7 +11867,6 @@ static IrInstruction *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp *
         case ZigTypeIdBool:
         case ZigTypeIdMetaType:
         case ZigTypeIdVoid:
-        case ZigTypeIdPointer:
         case ZigTypeIdErrorSet:
         case ZigTypeIdFn:
         case ZigTypeIdOpaque:
@@ -11862,6 +11876,10 @@ static IrInstruction *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp *
         case ZigTypeIdPromise:
         case ZigTypeIdEnum:
             operator_allowed = is_equality_cmp;
+            break;
+
+        case ZigTypeIdPointer:
+            operator_allowed = is_equality_cmp || (resolved_type->data.pointer.ptr_len != PtrLenSingle);
             break;
 
         case ZigTypeIdUnreachable:
@@ -12324,6 +12342,26 @@ static bool ok_float_op(IrBinOp op) {
     zig_unreachable();
 }
 
+static bool is_pointer_arithmetic_allowed(ZigType *lhs_type, IrBinOp op) {
+    if (lhs_type->id != ZigTypeIdPointer)
+        return false;
+    switch (op) {
+        case IrBinOpAdd:
+        case IrBinOpSub:
+            break;
+        default:
+            return false;
+    }
+    switch (lhs_type->data.pointer.ptr_len) {
+        case PtrLenSingle:
+            return false;
+        case PtrLenUnknown:
+        case PtrLenC:
+            break;
+    }
+    return true;
+}
+
 static IrInstruction *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp *instruction) {
     IrInstruction *op1 = instruction->op1->child;
     if (type_is_invalid(op1->value.type))
@@ -12336,9 +12374,7 @@ static IrInstruction *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp 
     IrBinOp op_id = instruction->op_id;
 
     // look for pointer math
-    if (op1->value.type->id == ZigTypeIdPointer && op1->value.type->data.pointer.ptr_len == PtrLenUnknown &&
-        (op_id == IrBinOpAdd || op_id == IrBinOpSub))
-    {
+    if (is_pointer_arithmetic_allowed(op1->value.type, op_id)) {
         IrInstruction *casted_op2 = ir_implicit_cast(ira, op2, ira->codegen->builtin_types.entry_usize);
         if (casted_op2 == ira->codegen->invalid_instruction)
             return ira->codegen->invalid_instruction;
