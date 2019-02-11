@@ -1583,7 +1583,7 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
             }
         } else if (param_node->data.param_decl.var_token != nullptr) {
             if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
-                add_node_error(g, param_node->data.param_decl.type,
+                add_node_error(g, param_node,
                         buf_sprintf("parameter of type 'var' not allowed in function with calling convention '%s'",
                             calling_convention_name(fn_type_id.cc)));
                 return g->builtin_types.entry_invalid;
