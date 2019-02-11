@@ -136,13 +136,19 @@ static const char *thread_local_string(Token *tok) {
     return (tok == nullptr) ? "" : "threadlocal ";
 }
 
-const char *container_string(ContainerKind kind) {
-    switch (kind) {
-        case ContainerKindEnum: return "enum";
-        case ContainerKindStruct: return "struct";
-        case ContainerKindUnion: return "union";
+static const char *token_to_ptr_len_str(Token *tok) {
+    assert(tok != nullptr);
+    switch (tok->id) {
+        case TokenIdStar:
+        case TokenIdStarStar:
+            return "*";
+        case TokenIdBracketStarBracket:
+            return "[*]";
+        case TokenIdBracketStarCBracket:
+            return "[*c]";
+        default:
+            zig_unreachable();
     }
-    zig_unreachable();
 }
 
 static const char *node_type_str(NodeType node_type) {
@@ -644,13 +650,8 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
         case NodeTypePointerType:
             {
                 if (!grouped) fprintf(ar->f, "(");
-                const char *star = "[*]";
-                if (node->data.pointer_type.star_token != nullptr &&
-                    (node->data.pointer_type.star_token->id == TokenIdStar || node->data.pointer_type.star_token->id == TokenIdStarStar))
-                {
-                    star = "*";
-                }
-                fprintf(ar->f, "%s", star);
+                const char *ptr_len_str = token_to_ptr_len_str(node->data.pointer_type.star_token);
+                fprintf(ar->f, "%s", ptr_len_str);
                 if (node->data.pointer_type.align_expr != nullptr) {
                     fprintf(ar->f, "align(");
                     render_node_grouped(ar, node->data.pointer_type.align_expr);

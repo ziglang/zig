@@ -6872,3 +6872,12 @@ Error ensure_const_val_repr(IrAnalyze *ira, CodeGen *codegen, AstNode *source_no
 
     return ErrorNone;
 }
+
+const char *container_string(ContainerKind kind) {
+    switch (kind) {
+        case ContainerKindEnum: return "enum";
+        case ContainerKindStruct: return "struct";
+        case ContainerKindUnion: return "union";
+    }
+    zig_unreachable();
+}

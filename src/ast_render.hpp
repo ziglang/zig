@@ -17,7 +17,4 @@ void ast_print(FILE *f, AstNode *node, int indent);
 
 void ast_render(CodeGen *codegen, FILE *f, AstNode *node, int indent_size);
 
-const char *container_string(ContainerKind kind);
-
 #endif
-
