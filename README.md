@@ -84,13 +84,16 @@ clarity.
  * LLVM may have the target as an experimental target, which means that you
    need to use Zig-provided binaries for the target to be available, or
    build LLVM from source with special configure flags.
+ * This target may be considered deprecated by an official party,
+   [such as macosx/i386](https://support.apple.com/en-us/HT208436) in which
+   case this target will remain forever stuck in Tier 4.
 
 #### Support Table
 
 |        | freestanding | linux  | macosx | windows | freebsd | UEFI   | other  |
 |--------|--------------|--------|--------|---------|---------|--------|--------|
 |x86_64  | Tier 2       | Tier 1 | Tier 1 | Tier 1  | Tier 2  | Tier 2 | Tier 3 |
-|i386    | Tier 2       | Tier 2 | Tier 2 | Tier 2  | Tier 3  | Tier 3 | Tier 3 |
+|i386    | Tier 2       | Tier 2 | Tier 4 | Tier 2  | Tier 3  | Tier 3 | Tier 3 |
 |arm     | Tier 2       | Tier 3 | Tier 3 | Tier 3  | Tier 3  | Tier 3 | Tier 3 |
 |arm64   | Tier 2       | Tier 2 | Tier 3 | Tier 3  | Tier 3  | Tier 3 | Tier 3 |
 |bpf     | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | Tier 3 |
