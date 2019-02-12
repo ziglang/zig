@@ -9,6 +9,7 @@
 #include "error.hpp"
 #include "target.hpp"
 #include "util.hpp"
+#include "os.hpp"
 
 #include <stdio.h>
 
@@ -844,7 +845,7 @@ const char *target_lib_file_ext(ZigTarget *target, bool is_static, size_t versio
         if (is_static) {
             return ".a";
         } else {
-            return buf_ptr(buf_sprintf(".so.%" ZIG_PRI_usize "", version_major));
+            return buf_ptr(buf_sprintf(".so.%" ZIG_PRI_usize, version_major));
         }
     }
 }
