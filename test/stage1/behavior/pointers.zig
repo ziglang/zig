@@ -58,21 +58,27 @@ test "implicit cast single item pointer to C pointer and back" {
 }
 
 test "C pointer comparison and arithmetic" {
-    var one: usize = 1;
-    var ptr1: [*c]u8 = 0;
-    var ptr2 = ptr1 + 10;
-    expect(ptr1 == 0);
-    expect(ptr1 >= 0);
-    expect(ptr1 <= 0);
-    expect(ptr1 < 1);
-    expect(ptr1 < one);
-    expect(1 > ptr1);
-    expect(one > ptr1);
-    expect(ptr1 < ptr2);
-    expect(ptr2 > ptr1);
-    expect(ptr2 >= 10);
-    expect(ptr2 == 10);
-    expect(ptr2 <= 10);
-    ptr2 -= 10;
-    expect(ptr1 == ptr2);
+    const S = struct {
+        fn doTheTest() void {
+            var one: usize = 1;
+            var ptr1: [*c]u32 = 0;
+            var ptr2 = ptr1 + 10;
+            expect(ptr1 == 0);
+            expect(ptr1 >= 0);
+            expect(ptr1 <= 0);
+            expect(ptr1 < 1);
+            expect(ptr1 < one);
+            expect(1 > ptr1);
+            expect(one > ptr1);
+            expect(ptr1 < ptr2);
+            expect(ptr2 > ptr1);
+            expect(ptr2 >= 40);
+            expect(ptr2 == 40);
+            expect(ptr2 <= 40);
+            ptr2 -= 10;
+            expect(ptr1 == ptr2);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
 }

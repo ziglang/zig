@@ -11682,28 +11682,34 @@ static IrInstruction *ir_analyze_bin_op_bool(IrAnalyze *ira, IrInstructionBinOp 
 }
 
 static bool resolve_cmp_op_id(IrBinOp op_id, Cmp cmp) {
-    if (op_id == IrBinOpCmpEq) {
-        return cmp == CmpEQ;
-    } else if (op_id == IrBinOpCmpNotEq) {
-        return cmp != CmpEQ;
-    } else if (op_id == IrBinOpCmpLessThan) {
-        return cmp == CmpLT;
-    } else if (op_id == IrBinOpCmpGreaterThan) {
-        return cmp == CmpGT;
-    } else if (op_id == IrBinOpCmpLessOrEq) {
-        return cmp != CmpGT;
-    } else if (op_id == IrBinOpCmpGreaterOrEq) {
-        return cmp != CmpLT;
-    } else {
-        zig_unreachable();
+    switch (op_id) {
+        case IrBinOpCmpEq:
+            return cmp == CmpEQ;
+        case IrBinOpCmpNotEq:
+            return cmp != CmpEQ;
+        case IrBinOpCmpLessThan:
+            return cmp == CmpLT;
+        case IrBinOpCmpGreaterThan:
+            return cmp == CmpGT;
+        case IrBinOpCmpLessOrEq:
+            return cmp != CmpGT;
+        case IrBinOpCmpGreaterOrEq:
+            return cmp != CmpLT;
+        default:
+            zig_unreachable();
     }
 }
 
 static bool optional_value_is_null(ConstExprValue *val) {
     assert(val->special == ConstValSpecialStatic);
     if (get_codegen_ptr_type(val->type) != nullptr) {
-        return val->data.x_ptr.special == ConstPtrSpecialHardCodedAddr &&
-            val->data.x_ptr.data.hard_coded_addr.addr == 0;
+        if (val->data.x_ptr.special == ConstPtrSpecialNull) {
+            return true;
+        } else if (val->data.x_ptr.special == ConstPtrSpecialHardCodedAddr) {
+            return val->data.x_ptr.data.hard_coded_addr.addr == 0;
+        } else {
+            return false;
+        }
     } else if (is_opt_err_set(val->type)) {
         return val->data.x_err_set == nullptr;
     } else {
@@ -11879,7 +11885,7 @@ static IrInstruction *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp *
             break;
 
         case ZigTypeIdPointer:
-            operator_allowed = is_equality_cmp || (resolved_type->data.pointer.ptr_len != PtrLenSingle);
+            operator_allowed = is_equality_cmp || (resolved_type->data.pointer.ptr_len == PtrLenC);
             break;
 
         case ZigTypeIdUnreachable:
@@ -11929,15 +11935,38 @@ static IrInstruction *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp *
         if (op2_val == nullptr)
             return ira->codegen->invalid_instruction;
 
-        bool answer;
         if (resolved_type->id == ZigTypeIdComptimeFloat || resolved_type->id == ZigTypeIdFloat) {
             Cmp cmp_result = float_cmp(op1_val, op2_val);
-            answer = resolve_cmp_op_id(op_id, cmp_result);
+            bool answer = resolve_cmp_op_id(op_id, cmp_result);
+            return ir_const_bool(ira, &bin_op_instruction->base, answer);
         } else if (resolved_type->id == ZigTypeIdComptimeInt || resolved_type->id == ZigTypeIdInt) {
             Cmp cmp_result = bigint_cmp(&op1_val->data.x_bigint, &op2_val->data.x_bigint);
-            answer = resolve_cmp_op_id(op_id, cmp_result);
+            bool answer = resolve_cmp_op_id(op_id, cmp_result);
+            return ir_const_bool(ira, &bin_op_instruction->base, answer);
+        } else if (resolved_type->id == ZigTypeIdPointer && op_id != IrBinOpCmpEq && op_id != IrBinOpCmpNotEq) {
+            if ((op1_val->data.x_ptr.special == ConstPtrSpecialHardCodedAddr ||
+                    op1_val->data.x_ptr.special == ConstPtrSpecialNull) &&
+                (op2_val->data.x_ptr.special == ConstPtrSpecialHardCodedAddr ||
+                    op2_val->data.x_ptr.special == ConstPtrSpecialNull))
+            {
+                uint64_t op1_addr = op1_val->data.x_ptr.special == ConstPtrSpecialNull ?
+                    0 : op1_val->data.x_ptr.data.hard_coded_addr.addr;
+                uint64_t op2_addr = op2_val->data.x_ptr.special == ConstPtrSpecialNull ?
+                    0 : op2_val->data.x_ptr.data.hard_coded_addr.addr;
+                Cmp cmp_result;
+                if (op1_addr > op2_addr) {
+                    cmp_result = CmpGT;
+                } else if (op1_addr < op2_addr) {
+                    cmp_result = CmpLT;
+                } else {
+                    cmp_result = CmpEQ;
+                }
+                bool answer = resolve_cmp_op_id(op_id, cmp_result);
+                return ir_const_bool(ira, &bin_op_instruction->base, answer);
+            }
         } else {
             bool are_equal = one_possible_value || const_values_equal(ira->codegen, op1_val, op2_val);
+            bool answer;
             if (op_id == IrBinOpCmpEq) {
                 answer = are_equal;
             } else if (op_id == IrBinOpCmpNotEq) {
@@ -11945,9 +11974,8 @@ static IrInstruction *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp *
             } else {
                 zig_unreachable();
             }
+            return ir_const_bool(ira, &bin_op_instruction->base, answer);
         }
-
-        return ir_const_bool(ira, &bin_op_instruction->base, answer);
     }
 
     // some comparisons with unsigned numbers can be evaluated
@@ -12363,6 +12391,8 @@ static bool is_pointer_arithmetic_allowed(ZigType *lhs_type, IrBinOp op) {
 }
 
 static IrInstruction *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp *instruction) {
+    Error err;
+
     IrInstruction *op1 = instruction->op1->child;
     if (type_is_invalid(op1->value.type))
         return ira->codegen->invalid_instruction;
@@ -12376,8 +12406,41 @@ static IrInstruction *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp 
     // look for pointer math
     if (is_pointer_arithmetic_allowed(op1->value.type, op_id)) {
         IrInstruction *casted_op2 = ir_implicit_cast(ira, op2, ira->codegen->builtin_types.entry_usize);
-        if (casted_op2 == ira->codegen->invalid_instruction)
+        if (type_is_invalid(casted_op2->value.type))
             return ira->codegen->invalid_instruction;
+
+        if (op1->value.special == ConstValSpecialUndef || casted_op2->value.special == ConstValSpecialUndef) {
+            IrInstruction *result = ir_const(ira, &instruction->base, op1->value.type);
+            result->value.special = ConstValSpecialUndef;
+            return result;
+        }
+        if (casted_op2->value.special == ConstValSpecialStatic && op1->value.special == ConstValSpecialStatic &&
+            (op1->value.data.x_ptr.special == ConstPtrSpecialHardCodedAddr ||
+            op1->value.data.x_ptr.special == ConstPtrSpecialNull))
+        {
+            uint64_t start_addr = (op1->value.data.x_ptr.special == ConstPtrSpecialNull) ?
+                0 : op1->value.data.x_ptr.data.hard_coded_addr.addr;
+            uint64_t elem_offset;
+            if (!ir_resolve_usize(ira, casted_op2, &elem_offset))
+                return ira->codegen->invalid_instruction;
+            ZigType *elem_type = op1->value.type->data.pointer.child_type;
+            if ((err = type_resolve(ira->codegen, elem_type, ResolveStatusSizeKnown)))
+                return ira->codegen->invalid_instruction;
+            uint64_t byte_offset = type_size(ira->codegen, elem_type) * elem_offset;
+            uint64_t new_addr;
+            if (op_id == IrBinOpAdd) {
+                new_addr = start_addr + byte_offset;
+            } else if (op_id == IrBinOpSub) {
+                new_addr = start_addr - byte_offset;
+            } else {
+                zig_unreachable();
+            }
+            IrInstruction *result = ir_const(ira, &instruction->base, op1->value.type);
+            result->value.data.x_ptr.special = ConstPtrSpecialHardCodedAddr;
+            result->value.data.x_ptr.mut = ConstPtrMutRuntimeVar;
+            result->value.data.x_ptr.data.hard_coded_addr.addr = new_addr;
+            return result;
+        }
 
         IrInstruction *result = ir_build_bin_op(&ira->new_irb, instruction->base.scope,
                 instruction->base.source_node, op_id, op1, casted_op2, true);
