@@ -21671,7 +21671,7 @@ static IrInstruction *ir_analyze_instruction_enum_to_int(IrAnalyze *ira, IrInstr
         AstNode *decl_node = enum_type->data.unionation.decl_node;
         if (decl_node->data.container_decl.auto_enum || decl_node->data.container_decl.init_arg_expr != nullptr) {
             assert(enum_type->data.unionation.tag_type != nullptr);
-            
+
             enum_type = target->value.type->data.unionation.tag_type;
         } else {
             ErrorMsg *msg = ir_add_error(ira, target, buf_sprintf("union '%s' has no tag",
