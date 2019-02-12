@@ -691,15 +691,17 @@ struct AstNodePointerType {
     AstNode *align_expr;
     BigInt *bit_offset_start;
     BigInt *host_int_bytes;
+    AstNode *op_expr;
+    Token *allow_zero_token;
     bool is_const;
     bool is_volatile;
-    AstNode *op_expr;
 };
 
 struct AstNodeArrayType {
     AstNode *size;
     AstNode *child_type;
     AstNode *align_expr;
+    Token *allow_zero_token;
     bool is_const;
     bool is_volatile;
 };
@@ -1050,6 +1052,7 @@ struct ZigTypePointer {
     uint32_t host_int_bytes; // size of host integer. 0 means no host integer; this field is aligned
     bool is_const;
     bool is_volatile;
+    bool allow_zero;
 };
 
 struct ZigTypeInt {
@@ -1499,11 +1502,12 @@ struct TypeId {
         struct {
             ZigType *child_type;
             PtrLen ptr_len;
-            bool is_const;
-            bool is_volatile;
             uint32_t alignment;
             uint32_t bit_offset_in_host;
             uint32_t host_int_bytes;
+            bool is_const;
+            bool is_volatile;
+            bool allow_zero;
         } pointer;
         struct {
             ZigType *child_type;
@@ -2592,6 +2596,7 @@ struct IrInstructionPtrType {
     PtrLen ptr_len;
     bool is_const;
     bool is_volatile;
+    bool allow_zero;
 };
 
 struct IrInstructionPromiseType {
@@ -2607,6 +2612,7 @@ struct IrInstructionSliceType {
     IrInstruction *child_type;
     bool is_const;
     bool is_volatile;
+    bool allow_zero;
 };
 
 struct IrInstructionAsm {

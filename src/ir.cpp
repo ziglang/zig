@@ -61,7 +61,7 @@ enum ConstCastResultId {
     ConstCastResultIdType,
     ConstCastResultIdUnresolvedInferredErrSet,
     ConstCastResultIdAsyncAllocatorType,
-    ConstCastResultIdNullWrapPtr
+    ConstCastResultIdBadAllowsZero,
 };
 
 struct ConstCastOnly;
@@ -83,6 +83,7 @@ struct ConstCastErrUnionErrSetMismatch;
 struct ConstCastErrUnionPayloadMismatch;
 struct ConstCastErrSetMismatch;
 struct ConstCastTypeMismatch;
+struct ConstCastBadAllowsZero;
 
 struct ConstCastOnly {
     ConstCastResultId id;
@@ -99,6 +100,7 @@ struct ConstCastOnly {
         ConstCastOnly *null_wrap_ptr_child;
         ConstCastArg fn_arg;
         ConstCastArgNoAlias arg_no_alias;
+        ConstCastBadAllowsZero *bad_allows_zero;
     } data;
 };
 
@@ -140,6 +142,12 @@ struct ConstCastErrUnionPayloadMismatch {
 struct ConstCastErrSetMismatch {
     ZigList<ErrorTableEntry *> missing_errors;
 };
+
+struct ConstCastBadAllowsZero {
+    ZigType *wanted_type;
+    ZigType *actual_type;
+};
+
 
 enum UndefAllowed {
     UndefOk,
@@ -8636,6 +8644,14 @@ static ZigType *get_error_set_intersection(IrAnalyze *ira, ZigType *set1, ZigTyp
     return err_set_type;
 }
 
+static bool ptr_allows_addr_zero(ZigType *ptr_type) {
+    if (ptr_type->id == ZigTypeIdPointer) {
+        return ptr_type->data.pointer.allow_zero;
+    } else if (ptr_type->id == ZigTypeIdOptional) {
+        return true;
+    }
+    return false;
+}
 
 static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted_type,
         ZigType *actual_type, AstNode *source_node, bool wanted_is_mutable)
@@ -8649,34 +8665,35 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
     if (wanted_type == actual_type)
         return result;
 
-    // *T and [*]T may const-cast-only to ?*U and ?[*]U, respectively
-    // but not if we want a mutable pointer
-    // and not if the actual pointer has zero bits
-    if (!wanted_is_mutable && wanted_type->id == ZigTypeIdOptional &&
-        wanted_type->data.maybe.child_type->id == ZigTypeIdPointer &&
-        actual_type->id == ZigTypeIdPointer && type_has_bits(actual_type))
-    {
-        ConstCastOnly child = types_match_const_cast_only(ira,
-                wanted_type->data.maybe.child_type, actual_type, source_node, wanted_is_mutable);
-        if (child.id == ConstCastResultIdInvalid)
-            return child;
-        if (child.id != ConstCastResultIdOk) {
-            result.id = ConstCastResultIdNullWrapPtr;
-            result.data.null_wrap_ptr_child = allocate_nonzero<ConstCastOnly>(1);
-            *result.data.null_wrap_ptr_child = child;
-        }
-        return result;
-    }
-
-    // pointer const
+    // If pointers have the same representation in memory, they can be "const-casted".
+    // `const` attribute can be gained
+    // `volatile` attribute can be gained
+    // `allowzero` attribute can be gained (whether from explicit attribute, C pointer, or optional pointer)
+    //   but only if !wanted_is_mutable
+    // alignment can be decreased
+    // bit offset attributes must match exactly
+    // PtrLenSingle/PtrLenUnknown must match exactly, but PtrLenC matches either one
     ZigType *wanted_ptr_type = get_src_ptr_type(wanted_type);
     ZigType *actual_ptr_type = get_src_ptr_type(actual_type);
+    bool wanted_allows_zero = ptr_allows_addr_zero(wanted_type);
+    bool actual_allows_zero = ptr_allows_addr_zero(actual_type);
     bool wanted_is_c_ptr = wanted_type->id == ZigTypeIdPointer && wanted_type->data.pointer.ptr_len == PtrLenC;
     bool actual_is_c_ptr = actual_type->id == ZigTypeIdPointer && actual_type->data.pointer.ptr_len == PtrLenC;
-    if ((wanted_type->id == ZigTypeIdPointer && actual_type->id == ZigTypeIdPointer) ||
-        (wanted_ptr_type != nullptr && actual_is_c_ptr) ||
-        (actual_ptr_type != nullptr && wanted_is_c_ptr))
-    {
+    bool wanted_opt_or_ptr = wanted_ptr_type != nullptr &&
+        (wanted_type->id == ZigTypeIdPointer || wanted_type->id == ZigTypeIdOptional);
+    bool actual_opt_or_ptr = actual_ptr_type != nullptr &&
+        (actual_type->id == ZigTypeIdPointer || actual_type->id == ZigTypeIdOptional);
+    if (wanted_opt_or_ptr && actual_opt_or_ptr) {
+        bool ok_allows_zero = (wanted_allows_zero &&
+                (actual_allows_zero || wanted_ptr_type->data.pointer.is_const)) ||
+            (!wanted_allows_zero && !actual_allows_zero);
+        if (!ok_allows_zero) {
+            result.id = ConstCastResultIdBadAllowsZero;
+            result.data.bad_allows_zero = allocate_nonzero<ConstCastBadAllowsZero>(1);
+            result.data.bad_allows_zero->wanted_type = wanted_type;
+            result.data.bad_allows_zero->actual_type = actual_type;
+            return result;
+        }
         ConstCastOnly child = types_match_const_cast_only(ira, wanted_ptr_type->data.pointer.child_type,
                 actual_ptr_type->data.pointer.child_type, source_node, !wanted_ptr_type->data.pointer.is_const);
         if (child.id == ConstCastResultIdInvalid)
@@ -8699,6 +8716,7 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
         }
         bool ptr_lens_equal = actual_ptr_type->data.pointer.ptr_len == wanted_ptr_type->data.pointer.ptr_len;
         if ((ptr_lens_equal || wanted_is_c_ptr || actual_is_c_ptr) &&
+            type_has_bits(wanted_type) == type_has_bits(actual_type) &&
             (!actual_ptr_type->data.pointer.is_const || wanted_ptr_type->data.pointer.is_const) &&
             (!actual_ptr_type->data.pointer.is_volatile || wanted_ptr_type->data.pointer.is_volatile) &&
             actual_ptr_type->data.pointer.bit_offset_in_host == wanted_ptr_type->data.pointer.bit_offset_in_host &&
@@ -9922,7 +9940,7 @@ static ConstExprValue *ir_resolve_const(IrAnalyze *ira, IrInstruction *value, Un
             if (undef_allowed == UndefOk) {
                 return &value->value;
             } else {
-                ir_add_error(ira, value, buf_sprintf("use of undefined value"));
+                ir_add_error(ira, value, buf_sprintf("use of undefined value here causes undefined behavior"));
                 return nullptr;
             }
     }
@@ -10828,6 +10846,26 @@ static void report_recursive_error(IrAnalyze *ira, AstNode *source_node, ConstCa
             report_recursive_error(ira, source_node, cast_result->data.fn_arg.child, msg);
             break;
         }
+        case ConstCastResultIdBadAllowsZero: {
+            bool wanted_allows_zero = ptr_allows_addr_zero(cast_result->data.bad_allows_zero->wanted_type);
+            bool actual_allows_zero = ptr_allows_addr_zero(cast_result->data.bad_allows_zero->actual_type);
+            ZigType *wanted_ptr_type = get_src_ptr_type(cast_result->data.bad_allows_zero->wanted_type);
+            ZigType *actual_ptr_type = get_src_ptr_type(cast_result->data.bad_allows_zero->actual_type);
+            ZigType *wanted_elem_type = wanted_ptr_type->data.pointer.child_type;
+            ZigType *actual_elem_type = actual_ptr_type->data.pointer.child_type;
+            if (actual_allows_zero && !wanted_allows_zero) {
+                add_error_note(ira->codegen, parent_msg, source_node,
+                        buf_sprintf("'%s' could have null values which are illegal in type '%s'",
+                            buf_ptr(&actual_elem_type->name),
+                            buf_ptr(&wanted_elem_type->name)));
+            } else {
+                add_error_note(ira->codegen, parent_msg, source_node,
+                        buf_sprintf("mutable '%s' allows illegal null values stored to type '%s'",
+                            buf_ptr(&cast_result->data.bad_allows_zero->wanted_type->name),
+                            buf_ptr(&cast_result->data.bad_allows_zero->actual_type->name)));
+            }
+            break;
+        }
         case ConstCastResultIdFnAlign: // TODO
         case ConstCastResultIdFnCC: // TODO
         case ConstCastResultIdFnVarArgs: // TODO
@@ -10838,7 +10876,6 @@ static void report_recursive_error(IrAnalyze *ira, AstNode *source_node, ConstCa
         case ConstCastResultIdFnArgNoAlias: // TODO
         case ConstCastResultIdUnresolvedInferredErrSet: // TODO
         case ConstCastResultIdAsyncAllocatorType: // TODO
-        case ConstCastResultIdNullWrapPtr: // TODO
             break;
     }
 }
@@ -20589,12 +20626,14 @@ static IrInstruction *ir_analyze_ptr_cast(IrAnalyze *ira, IrInstruction *source_
     // We have a check for zero bits later so we use get_src_ptr_type to
     // validate src_type and dest_type.
 
-    if (get_src_ptr_type(src_type) == nullptr) {
+    ZigType *src_ptr_type = get_src_ptr_type(src_type);
+    if (src_ptr_type == nullptr) {
         ir_add_error(ira, ptr, buf_sprintf("expected pointer, found '%s'", buf_ptr(&src_type->name)));
         return ira->codegen->invalid_instruction;
     }
 
-    if (get_src_ptr_type(dest_type) == nullptr) {
+    ZigType *dest_ptr_type = get_src_ptr_type(dest_type);
+    if (dest_ptr_type == nullptr) {
         ir_add_error(ira, dest_type_src,
                 buf_sprintf("expected pointer, found '%s'", buf_ptr(&dest_type->name)));
         return ira->codegen->invalid_instruction;
@@ -20606,6 +20645,8 @@ static IrInstruction *ir_analyze_ptr_cast(IrAnalyze *ira, IrInstruction *source_
     }
 
     if (instr_is_comptime(ptr)) {
+        // Undefined is OK here; @ptrCast is defined to reinterpret the bit pattern
+        // of the pointer as the new pointer type.
         ConstExprValue *val = ir_resolve_const(ira, ptr, UndefOk);
         if (!val)
             return ira->codegen->invalid_instruction;
