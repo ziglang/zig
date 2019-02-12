@@ -1469,7 +1469,7 @@ static bool type_allowed_in_packed_struct(ZigType *type_entry) {
     zig_unreachable();
 }
 
-static bool type_allowed_in_extern(CodeGen *g, ZigType *type_entry) {
+bool type_allowed_in_extern(CodeGen *g, ZigType *type_entry) {
     switch (type_entry->id) {
         case ZigTypeIdInvalid:
             zig_unreachable();

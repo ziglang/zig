@@ -44,7 +44,7 @@ void find_libc_include_path(CodeGen *g);
 void find_libc_lib_path(CodeGen *g);
 
 bool type_has_bits(ZigType *type_entry);
-
+bool type_allowed_in_extern(CodeGen *g, ZigType *type_entry);
 
 ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *abs_full_path, Buf *source_code);
 

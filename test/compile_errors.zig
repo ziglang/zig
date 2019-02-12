@@ -2,6 +2,16 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.addTest(
+        "C pointer pointing to non C ABI compatible type",
+        \\const Foo = struct {};
+        \\export fn entry() [*c]Foo {
+        \\    return undefined;
+        \\}
+    ,
+        ".tmp_source.zig:2:19: error: C pointers cannot point to non-C-ABI-compatible type 'Foo'",
+    );
+
+    cases.addTest(
         "@truncate undefined value",
         \\export fn entry() void {
         \\    var z = @truncate(u8, u16(undefined));
