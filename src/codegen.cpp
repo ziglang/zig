@@ -3015,6 +3015,9 @@ static LLVMValueRef ir_render_widen_or_shorten(CodeGen *g, IrExecutable *executa
     ZigType *int_type;
     if (actual_type->id == ZigTypeIdEnum) {
         int_type = actual_type->data.enumeration.tag_int_type;
+    } else if (actual_type->id == ZigTypeIdUnion) {
+        actual_type = actual_type->data.unionation.tag_type;
+        int_type = actual_type->data.enumeration.tag_int_type;
     } else {
         int_type = actual_type;
     }

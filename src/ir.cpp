@@ -14133,12 +14133,12 @@ static Error ir_read_const_ptr(IrAnalyze *ira, CodeGen *codegen, AstNode *source
             if (dst_size == 0)
                 return ErrorNone;
             opt_ir_add_error_node(ira, codegen, source_node,
-                buf_sprintf("attempt to read %zu bytes from null pointer",
+                buf_sprintf("attempt to read %" ZIG_PRI_usize " bytes from null pointer",
                 dst_size));
             return ErrorSemanticAnalyzeFail;
         case ConstPtrSpecialRef: {
             opt_ir_add_error_node(ira, codegen, source_node,
-                buf_sprintf("attempt to read %zu bytes from pointer to %s which is %zu bytes",
+                buf_sprintf("attempt to read %" ZIG_PRI_usize " bytes from pointer to %s which is %" ZIG_PRI_usize " bytes",
                 dst_size, buf_ptr(&pointee->type->name), src_size));
             return ErrorSemanticAnalyzeFail;
         }
@@ -14152,7 +14152,7 @@ static Error ir_read_const_ptr(IrAnalyze *ira, CodeGen *codegen, AstNode *source
             src_size = elem_size * (array_val->type->data.array.len - elem_index);
             if (dst_size > src_size) {
                 opt_ir_add_error_node(ira, codegen, source_node,
-                    buf_sprintf("attempt to read %zu bytes from %s at index %" ZIG_PRI_usize " which is %zu bytes",
+                    buf_sprintf("attempt to read %" ZIG_PRI_usize " bytes from %s at index %" ZIG_PRI_usize " which is %" ZIG_PRI_usize " bytes",
                         dst_size, buf_ptr(&array_val->type->name), elem_index, src_size));
                 return ErrorSemanticAnalyzeFail;
             }
@@ -21688,9 +21688,9 @@ static IrInstruction *ir_analyze_instruction_enum_to_int(IrAnalyze *ira, IrInstr
     if ((err = type_resolve(ira->codegen, enum_type, ResolveStatusZeroBitsKnown)))
         return ira->codegen->invalid_instruction;
 
-    ZigType *tag_type = enum_type->data.enumeration.tag_int_type;
+    ZigType *int_type = enum_type->data.enumeration.tag_int_type;
 
-    return ir_analyze_enum_to_int(ira, &instruction->base, target, tag_type);
+    return ir_analyze_enum_to_int(ira, &instruction->base, target, int_type);
 }
 
 static IrInstruction *ir_analyze_instruction_int_to_enum(IrAnalyze *ira, IrInstructionIntToEnum *instruction) {
