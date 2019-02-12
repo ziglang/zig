@@ -97,3 +97,13 @@ test "peer type resolution with C pointers" {
     expect(@typeOf(x3) == [*c]u8);
     expect(@typeOf(x4) == [*c]u8);
 }
+
+test "implicit casting between C pointer and optional non-C pointer" {
+    var slice: []const u8 = "aoeu";
+    const opt_many_ptr: ?[*]const u8 = slice.ptr;
+    var ptr_opt_many_ptr = &opt_many_ptr;
+    var c_ptr: [*c]const [*c]const u8 = ptr_opt_many_ptr;
+    expect(c_ptr.*.* == 'a');
+    ptr_opt_many_ptr = c_ptr;
+    expect(ptr_opt_many_ptr.*.?[1] == 'o');
+}

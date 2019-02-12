@@ -8669,33 +8669,41 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
     }
 
     // pointer const
-    if (wanted_type->id == ZigTypeIdPointer && actual_type->id == ZigTypeIdPointer) {
-        ConstCastOnly child = types_match_const_cast_only(ira, wanted_type->data.pointer.child_type,
-                actual_type->data.pointer.child_type, source_node, !wanted_type->data.pointer.is_const);
+    ZigType *wanted_ptr_type = get_src_ptr_type(wanted_type);
+    ZigType *actual_ptr_type = get_src_ptr_type(actual_type);
+    bool wanted_is_c_ptr = wanted_type->id == ZigTypeIdPointer && wanted_type->data.pointer.ptr_len == PtrLenC;
+    bool actual_is_c_ptr = actual_type->id == ZigTypeIdPointer && actual_type->data.pointer.ptr_len == PtrLenC;
+    if ((wanted_type->id == ZigTypeIdPointer && actual_type->id == ZigTypeIdPointer) ||
+        (wanted_ptr_type != nullptr && actual_is_c_ptr) ||
+        (actual_ptr_type != nullptr && wanted_is_c_ptr))
+    {
+        ConstCastOnly child = types_match_const_cast_only(ira, wanted_ptr_type->data.pointer.child_type,
+                actual_ptr_type->data.pointer.child_type, source_node, !wanted_ptr_type->data.pointer.is_const);
         if (child.id == ConstCastResultIdInvalid)
             return child;
         if (child.id != ConstCastResultIdOk) {
             result.id = ConstCastResultIdPointerChild;
             result.data.pointer_mismatch = allocate_nonzero<ConstCastPointerMismatch>(1);
             result.data.pointer_mismatch->child = child;
-            result.data.pointer_mismatch->wanted_child = wanted_type->data.pointer.child_type;
-            result.data.pointer_mismatch->actual_child = actual_type->data.pointer.child_type;
+            result.data.pointer_mismatch->wanted_child = wanted_ptr_type->data.pointer.child_type;
+            result.data.pointer_mismatch->actual_child = actual_ptr_type->data.pointer.child_type;
             return result;
         }
-        if ((err = type_resolve(g, actual_type->data.pointer.child_type, ResolveStatusAlignmentKnown))) {
+        if ((err = type_resolve(g, actual_ptr_type->data.pointer.child_type, ResolveStatusAlignmentKnown))) {
             result.id = ConstCastResultIdInvalid;
             return result;
         }
-        if ((err = type_resolve(g, wanted_type->data.pointer.child_type, ResolveStatusAlignmentKnown))) {
+        if ((err = type_resolve(g, wanted_ptr_type->data.pointer.child_type, ResolveStatusAlignmentKnown))) {
             result.id = ConstCastResultIdInvalid;
             return result;
         }
-        if ((actual_type->data.pointer.ptr_len == wanted_type->data.pointer.ptr_len) &&
-            (!actual_type->data.pointer.is_const || wanted_type->data.pointer.is_const) &&
-            (!actual_type->data.pointer.is_volatile || wanted_type->data.pointer.is_volatile) &&
-            actual_type->data.pointer.bit_offset_in_host == wanted_type->data.pointer.bit_offset_in_host &&
-            actual_type->data.pointer.host_int_bytes == wanted_type->data.pointer.host_int_bytes &&
-            get_ptr_align(ira->codegen, actual_type) >= get_ptr_align(ira->codegen, wanted_type))
+        bool ptr_lens_equal = actual_ptr_type->data.pointer.ptr_len == wanted_ptr_type->data.pointer.ptr_len;
+        if ((ptr_lens_equal || wanted_is_c_ptr || actual_is_c_ptr) &&
+            (!actual_ptr_type->data.pointer.is_const || wanted_ptr_type->data.pointer.is_const) &&
+            (!actual_ptr_type->data.pointer.is_volatile || wanted_ptr_type->data.pointer.is_volatile) &&
+            actual_ptr_type->data.pointer.bit_offset_in_host == wanted_ptr_type->data.pointer.bit_offset_in_host &&
+            actual_ptr_type->data.pointer.host_int_bytes == wanted_ptr_type->data.pointer.host_int_bytes &&
+            get_ptr_align(ira->codegen, actual_ptr_type) >= get_ptr_align(ira->codegen, wanted_ptr_type))
         {
             return result;
         }
