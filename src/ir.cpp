@@ -9275,6 +9275,24 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
             continue;
         }
 
+        if (prev_type->id == ZigTypeIdPointer && cur_type->id == ZigTypeIdPointer) {
+            if (prev_type->data.pointer.ptr_len == PtrLenC &&
+                types_match_const_cast_only(ira, prev_type->data.pointer.child_type,
+                    cur_type->data.pointer.child_type, source_node,
+                    !prev_type->data.pointer.is_const).id == ConstCastResultIdOk)
+            {
+                continue;
+            }
+            if (cur_type->data.pointer.ptr_len == PtrLenC &&
+                types_match_const_cast_only(ira, cur_type->data.pointer.child_type,
+                    prev_type->data.pointer.child_type, source_node,
+                    !cur_type->data.pointer.is_const).id == ConstCastResultIdOk)
+            {
+                prev_inst = cur_inst;
+                continue;
+            }
+        }
+
         if (types_match_const_cast_only(ira, prev_type, cur_type, source_node, false).id == ConstCastResultIdOk) {
             continue;
         }

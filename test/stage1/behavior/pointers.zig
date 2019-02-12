@@ -82,3 +82,18 @@ test "C pointer comparison and arithmetic" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "peer type resolution with C pointers" {
+    var ptr_one: *u8 = undefined;
+    var ptr_many: [*]u8 = undefined;
+    var ptr_c: [*c]u8 = undefined;
+    var t = true;
+    var x1 = if (t) ptr_one else ptr_c;
+    var x2 = if (t) ptr_many else ptr_c;
+    var x3 = if (t) ptr_c else ptr_one;
+    var x4 = if (t) ptr_c else ptr_many;
+    expect(@typeOf(x1) == [*c]u8);
+    expect(@typeOf(x2) == [*c]u8);
+    expect(@typeOf(x3) == [*c]u8);
+    expect(@typeOf(x4) == [*c]u8);
+}
