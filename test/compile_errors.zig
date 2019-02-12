@@ -2,6 +2,20 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.addTest(
+        "implicit casting too big integers to C pointers",
+        \\export fn a() void {
+        \\    var ptr: [*c]u8 = (1 << 64) + 1;
+        \\}
+        \\export fn b() void {
+        \\    var x: @IntType(false, 65) = 0x1234;
+        \\    var ptr: [*c]u8 = x;
+        \\}
+    ,
+        ".tmp_source.zig:2:33: error: integer value 71615590737044764481 cannot be implicitly casted to type 'usize'",
+        ".tmp_source.zig:6:23: error: integer type 'u65' too big for implicit @intToPtr to type '[*c]u8'",
+    );
+
+    cases.addTest(
         "C pointer pointing to non C ABI compatible type",
         \\const Foo = struct {};
         \\export fn entry() [*c]Foo {

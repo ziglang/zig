@@ -10882,7 +10882,9 @@ static IrInstruction *ir_analyze_int_to_c_ptr(IrAnalyze *ira, IrInstruction *sou
             ira->codegen->builtin_types.entry_usize->data.integral.bit_count)
         {
             ir_add_error(ira, source_instr,
-                buf_sprintf("integer type too big for implicit @intToPtr to type '%s'", buf_ptr(&dest_type->name)));
+                buf_sprintf("integer type '%s' too big for implicit @intToPtr to type '%s'",
+                    buf_ptr(&integer->value.type->name),
+                    buf_ptr(&dest_type->name)));
             return ira->codegen->invalid_instruction;
         }
 
