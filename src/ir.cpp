@@ -8555,20 +8555,6 @@ static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstruction *instruc
             }
         }
     }
-    if (other_type->id == ZigTypeIdPointer && other_type->data.pointer.ptr_len == PtrLenC && const_val_is_int) {
-        if (!bigint_fits_in_bits(&const_val->data.x_bigint, ira->codegen->pointer_size_bytes * 8, true) &&
-            !bigint_fits_in_bits(&const_val->data.x_bigint, ira->codegen->pointer_size_bytes * 8, false))
-        {
-            Buf *val_buf = buf_alloc();
-            bigint_append_buf(val_buf, &const_val->data.x_bigint, 10);
-
-            ir_add_error(ira, instruction,
-                buf_sprintf("integer value %s outside of pointer address range",
-                    buf_ptr(val_buf)));
-            return false;
-        }
-        return true;
-    }
 
     const char *num_lit_str;
     Buf *val_buf = buf_alloc();
