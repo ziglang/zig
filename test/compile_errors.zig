@@ -5430,4 +5430,14 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     ,
         ".tmp_source.zig:7:30: error: unable to evaluate constant expression",
     );
+
+    cases.addTest(
+        "nested vectors",
+        \\export fn entry() void {
+        \\    const V = @Vector(4, @Vector(4, u8));
+        \\    var v: V = undefined;
+        \\}
+    ,
+        ".tmp_source.zig:2:26: error: vector element type must be integer, float, or pointer; '@Vector(4, u8)' is invalid",
+    );
 }
