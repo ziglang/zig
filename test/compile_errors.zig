@@ -138,6 +138,24 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.addTest(
+        "assign to invalid dereference",
+        \\export fn entry() void {
+        \\    'a'.* = 1;
+        \\}
+    ,
+        ".tmp_source.zig:2:8: error: attempt to dereference non-pointer type 'comptime_int'",
+    );
+
+    cases.addTest(
+        "take slice of invalid dereference",
+        \\export fn entry() void {
+        \\    const x = 'a'.*[0..];
+        \\}
+    ,
+        ".tmp_source.zig:2:18: error: attempt to dereference non-pointer type 'comptime_int'",
+    );
+
+    cases.addTest(
         "@truncate undefined value",
         \\export fn entry() void {
         \\    var z = @truncate(u8, u16(undefined));
@@ -447,7 +465,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a.*.len;
         \\}
     ,
-        ".tmp_source.zig:3:12: error: attempt to dereference non-pointer type '[]u8'",
+        ".tmp_source.zig:3:10: error: attempt to dereference non-pointer type '[]u8'",
     );
 
     cases.add(
@@ -1158,7 +1176,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    Filled,
         \\};
     ,
-        ".tmp_source.zig:3:17: error: invalid deref on switch target",
+        ".tmp_source.zig:3:17: error: attempt to dereference non-pointer type 'Tile'",
     );
 
     cases.add(
@@ -4000,7 +4018,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(pass)); }
     ,
-        ".tmp_source.zig:4:10: error: attempt to dereference non pointer type '[10]u8'",
+        ".tmp_source.zig:4:10: error: attempt to dereference non-pointer type '[10]u8'",
     );
 
     cases.add(

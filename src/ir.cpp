@@ -1307,6 +1307,7 @@ static IrInstruction *ir_build_un_op(IrBuilder *irb, Scope *scope, AstNode *sour
     IrInstructionUnOp *br_instruction = ir_build_instruction<IrInstructionUnOp>(irb, scope, source_node);
     br_instruction->op_id = op_id;
     br_instruction->value = value;
+    br_instruction->lval = LValNone;
 
     ir_ref_instruction(value, irb->current_basic_block);
 
@@ -7223,7 +7224,13 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             if (value == irb->codegen->invalid_instruction)
                 return value;
 
-            return ir_build_un_op(irb, scope, node, IrUnOpDereference, value);
+            // We essentially just converted any lvalue from &(x.*) to (&x).*;
+            // this inhibits checking that x is a pointer later, so we directly
+            // record whether the pointer check is needed
+            IrInstructionUnOp *result = (IrInstructionUnOp*)ir_build_un_op(irb, scope, node, IrUnOpDereference, value);
+            result->lval = lval;
+
+            return &result->base;
         }
         case NodeTypeUnwrapOptional: {
             AstNode *expr_node = node->data.unwrap_optional.expr;
@@ -11437,7 +11444,7 @@ static IrInstruction *ir_get_deref(IrAnalyze *ira, IrInstruction *source_instruc
         return load_ptr_instruction;
     } else {
         ir_add_error_node(ira, source_instruction->source_node,
-            buf_sprintf("attempt to dereference non pointer type '%s'",
+            buf_sprintf("attempt to dereference non-pointer type '%s'",
                 buf_ptr(&type_entry->name)));
         return ira->codegen->invalid_instruction;
     }
@@ -13616,12 +13623,6 @@ no_mem_slot:
 static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source_instr,
         IrInstruction *ptr, IrInstruction *uncasted_value)
 {
-    if (ptr->value.type->id != ZigTypeIdPointer) {
-        ir_add_error(ira, ptr,
-            buf_sprintf("attempt to dereference non pointer type '%s'", buf_ptr(&ptr->value.type->name)));
-        return ira->codegen->invalid_instruction;
-    }
-
     if (ptr->value.data.x_ptr.special == ConstPtrSpecialDiscard) {
         return ir_const_void(ira, source_instr);
     }
@@ -14550,11 +14551,18 @@ static IrInstruction *ir_analyze_instruction_un_op(IrAnalyze *ira, IrInstruction
                         buf_ptr(&ptr_type->name)));
                 return ira->codegen->invalid_instruction;
             }
-            // this dereference is always an rvalue because in the IR gen we identify lvalue and emit
-            // one of the ptr instructions
+
             IrInstruction *result = ir_get_deref(ira, &instruction->base, ptr);
             if (result == ira->codegen->invalid_instruction)
                 return ira->codegen->invalid_instruction;
+
+            // If the result needs to be an lvalue, type check it
+            if (instruction->lval == LValPtr && result->value.type->id != ZigTypeIdPointer) {
+                ir_add_error(ira, &instruction->base,
+                    buf_sprintf("attempt to dereference non-pointer type '%s'", buf_ptr(&result->value.type->name)));
+                return ira->codegen->invalid_instruction;
+            }
+
             return result;
         }
         case IrUnOpOptional:
@@ -15380,12 +15388,6 @@ static IrInstruction *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstruc
     if (type_is_invalid(container_ptr->value.type))
         return ira->codegen->invalid_instruction;
 
-    if (container_ptr->value.type->id != ZigTypeIdPointer) {
-        ir_add_error_node(ira, field_ptr_instruction->base.source_node,
-            buf_sprintf("attempt to dereference non-pointer type '%s'",
-                buf_ptr(&container_ptr->value.type->name)));
-        return ira->codegen->invalid_instruction;
-    }
     ZigType *container_type = container_ptr->value.type->data.pointer.child_type;
 
     Buf *field_name = field_ptr_instruction->field_name_buffer;
@@ -16594,11 +16596,6 @@ static IrInstruction *ir_analyze_instruction_switch_target(IrAnalyze *ira,
         ZigType *ptr_type = target_value_ptr->value.data.x_type;
         assert(ptr_type->id == ZigTypeIdPointer);
         return ir_const_type(ira, &switch_target_instruction->base, ptr_type->data.pointer.child_type);
-    }
-
-    if (target_value_ptr->value.type->id != ZigTypeIdPointer) {
-        ir_add_error(ira, target_value_ptr, buf_sprintf("invalid deref on switch target"));
-        return ira->codegen->invalid_instruction;
     }
 
     ZigType *target_type = target_value_ptr->value.type->data.pointer.child_type;
