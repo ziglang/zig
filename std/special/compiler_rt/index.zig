@@ -21,6 +21,9 @@ comptime {
 
     @export("__unordtf2", @import("comparetf2.zig").__unordtf2, linkage);
 
+    @export("__addtf3", @import("addXf3.zig").__addtf3, linkage);
+    @export("__subtf3", @import("addXf3.zig").__subtf3, linkage);
+
     @export("__floattitf", @import("floattitf.zig").__floattitf, linkage);
     @export("__floattidf", @import("floattidf.zig").__floattidf, linkage);
     @export("__floattisf", @import("floattisf.zig").__floattisf, linkage);
@@ -37,6 +40,7 @@ comptime {
     @export("__extendhfsf2", @import("extendXfYf2.zig").__extendhfsf2, linkage);
 
     @export("__truncsfhf2", @import("truncXfYf2.zig").__truncsfhf2, linkage);
+    @export("__truncdfhf2", @import("truncXfYf2.zig").__truncdfhf2, linkage);
     @export("__trunctfdf2", @import("truncXfYf2.zig").__trunctfdf2, linkage);
     @export("__trunctfsf2", @import("truncXfYf2.zig").__trunctfsf2, linkage);
 

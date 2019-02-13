@@ -608,6 +608,7 @@ set(ZIG_STD_FILES
     "special/bootstrap_lib.zig"
     "special/build_runner.zig"
     "special/builtin.zig"
+    "special/compiler_rt/addXf3.zig"
     "special/compiler_rt/aulldiv.zig"
     "special/compiler_rt/aullrem.zig"
     "special/compiler_rt/comparetf2.zig"
