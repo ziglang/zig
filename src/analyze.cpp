@@ -6010,16 +6010,20 @@ static void render_const_val_err_set(CodeGen *g, Buf *buf, ConstExprValue *const
     }
 }
 
-static void render_const_val_array(CodeGen *g, Buf *buf, ConstExprValue *const_val, size_t len) {
-    switch (const_val->data.x_array.special) {
+static void render_const_val_array(CodeGen *g, Buf *buf, Buf *type_name, ConstExprValue *const_val, uint64_t start, uint64_t len) {
+    ConstArrayValue *array = &const_val->data.x_array;
+    switch (array->special) {
         case ConstArraySpecialUndef:
             buf_append_str(buf, "undefined");
             return;
         case ConstArraySpecialBuf: {
-            Buf *array_buf = const_val->data.x_array.data.s_buf;
+            Buf *array_buf = array->data.s_buf;
+            const char *base = &buf_ptr(array_buf)[start];
+            assert(start + len <= buf_len(array_buf));
+
             buf_append_char(buf, '"');
-            for (size_t i = 0; i < buf_len(array_buf); i += 1) {
-                uint8_t c = buf_ptr(array_buf)[i];
+            for (size_t i = 0; i < len; i += 1) {
+                uint8_t c = base[i];
                 if (c == '"') {
                     buf_append_str(buf, "\\\"");
                 } else {
@@ -6030,12 +6034,13 @@ static void render_const_val_array(CodeGen *g, Buf *buf, ConstExprValue *const_v
             return;
         }
         case ConstArraySpecialNone: {
-            buf_appendf(buf, "%s{", buf_ptr(&const_val->type->name));
+            ConstExprValue *base = &array->data.s_none.elements[start];
+            assert(start + len <= const_val->type->data.array.len);
+
+            buf_appendf(buf, "%s{", buf_ptr(type_name));
             for (uint64_t i = 0; i < len; i += 1) {
-                if (i != 0)
-                    buf_appendf(buf, ",");
-                ConstExprValue *child_value = &const_val->data.x_array.data.s_none.elements[i];
-                render_const_value(g, buf, child_value);
+                if (i != 0) buf_appendf(buf, ",");
+                render_const_value(g, buf, &base[i]);
             }
             buf_appendf(buf, "}");
             return;
@@ -6124,10 +6129,16 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
             }
         case ZigTypeIdPointer:
             return render_const_val_ptr(g, buf, const_val, type_entry);
-        case ZigTypeIdVector:
-            return render_const_val_array(g, buf, const_val, type_entry->data.vector.len);
-        case ZigTypeIdArray:
-            return render_const_val_array(g, buf, const_val, type_entry->data.array.len);
+        case ZigTypeIdArray: {
+            uint64_t len = type_entry->data.array.len;
+            render_const_val_array(g, buf, &type_entry->name, const_val, 0, len);
+            return;
+        }
+        case ZigTypeIdVector: {
+            uint32_t len = type_entry->data.vector.len;
+            render_const_val_array(g, buf, &type_entry->name, const_val, 0, len);
+            return;
+        }
         case ZigTypeIdNull:
             {
                 buf_appendf(buf, "null");
@@ -6169,7 +6180,19 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
             }
         case ZigTypeIdStruct:
             {
-                buf_appendf(buf, "(struct %s constant)", buf_ptr(&type_entry->name));
+                if (is_slice(type_entry)) {
+                    ConstPtrValue *ptr = &const_val->data.x_struct.fields[slice_ptr_index].data.x_ptr;
+                    assert(ptr->special == ConstPtrSpecialBaseArray);
+                    ConstExprValue *array = ptr->data.base_array.array_val;
+                    size_t start = ptr->data.base_array.elem_index;
+
+                    ConstExprValue *len_val = &const_val->data.x_struct.fields[slice_len_index];
+                    size_t len = bigint_as_unsigned(&len_val->data.x_bigint);
+
+                    render_const_val_array(g, buf, &type_entry->name, array, start, len);
+                } else {
+                    buf_appendf(buf, "(struct %s constant)", buf_ptr(&type_entry->name));
+                }
                 return;
             }
         case ZigTypeIdEnum:
