@@ -482,6 +482,7 @@ set(ZIG_STD_FILES
     "fmt/errol/index.zig"
     "fmt/errol/lookup.zig"
     "fmt/index.zig"
+    "fmt/parse_float.zig"
     "hash/adler.zig"
     "hash/crc.zig"
     "hash/fnv.zig"
