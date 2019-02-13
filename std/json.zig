@@ -1345,7 +1345,7 @@ pub const Parser = struct {
         return if (token.number_is_integer)
             Value{ .Integer = try std.fmt.parseInt(i64, token.slice(input, i), 10) }
         else
-            @panic("TODO: fmt.parseFloat not yet implemented");
+            Value{ .Float = std.fmt.parseFloat(f64, token.slice(input, i)) };
     }
 };
 
@@ -1366,7 +1366,8 @@ test "json.parser.dynamic" {
         \\      },
         \\      "Animated" : false,
         \\      "IDs": [116, 943, 234, 38793],
-        \\      "ArrayOfObject": [{"n": "m"}]
+        \\      "ArrayOfObject": [{"n": "m"}],
+        \\      "double": 1.3412
         \\    }
         \\}
     ;
@@ -1395,4 +1396,7 @@ test "json.parser.dynamic" {
 
     const obj0 = array_of_object.Array.at(0).Object.get("n").?.value;
     testing.expect(mem.eql(u8, obj0.String, "m"));
+
+    const double = image.Object.get("double").?.value;
+    testing.expect(double.Float == 1.3412);
 }
