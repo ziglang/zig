@@ -10259,7 +10259,11 @@ static IrInstruction *ir_analyze_enum_to_int(IrAnalyze *ira, IrInstruction *sour
         if (!val)
             return ira->codegen->invalid_instruction;
         IrInstruction *result = ir_const(ira, source_instr, wanted_type);
-        init_const_bigint(&result->value, wanted_type, &val->data.x_enum_tag);
+        if (target->value.type == ZigTypeIdUnion) {
+            init_const_bigint(&result->value, wanted_type, &val->data.x_union.tag);
+        } else {
+            init_const_bigint(&result->value, wanted_type, &val->data.x_enum_tag);
+        }
         return result;
     }
 
@@ -10269,8 +10273,14 @@ static IrInstruction *ir_analyze_enum_to_int(IrAnalyze *ira, IrInstruction *sour
     {
         assert(wanted_type== ira->codegen->builtin_types.entry_num_lit_int);
         IrInstruction *result = ir_const(ira, source_instr, wanted_type);
-        init_const_bigint(&result->value, wanted_type,
+        if (target->value.type == ZigTypeIdUnion) {
+            init_const_bigint(&result->value, wanted_type,
+                &actual_type->data.unionation.fields[0].enum_field->value);
+        } else {
+            init_const_bigint(&result->value, wanted_type,
                 &actual_type->data.enumeration.fields[0].value);
+        }
+
         return result;
     }
 
@@ -21671,7 +21681,6 @@ static IrInstruction *ir_analyze_instruction_enum_to_int(IrAnalyze *ira, IrInstr
         AstNode *decl_node = enum_type->data.unionation.decl_node;
         if (decl_node->data.container_decl.auto_enum || decl_node->data.container_decl.init_arg_expr != nullptr) {
             assert(enum_type->data.unionation.tag_type != nullptr);
-
             enum_type = target->value.type->data.unionation.tag_type;
         } else {
             ErrorMsg *msg = ir_add_error(ira, target, buf_sprintf("union '%s' has no tag",
