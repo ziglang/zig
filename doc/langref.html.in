@@ -5660,7 +5660,7 @@ test "main" {
       {#header_open|@enumToInt#}
       <pre>{#syntax#}@enumToInt(enum_value: var) var{#endsyntax#}</pre>
       <p>
-      Converts an enumeration value into its integer tag type.
+      Converts an enumeration or tagged union value into its integer tag type.
       </p>
       <p>
       If the enum has only 1 possible value, the resut is a {#syntax#}comptime_int{#endsyntax#}
