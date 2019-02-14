@@ -8696,7 +8696,7 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
             return result;
         }
         bool ok_allows_zero = (wanted_allows_zero &&
-                (actual_allows_zero || wanted_ptr_type->data.pointer.is_const)) ||
+                (actual_allows_zero || !wanted_is_mutable)) ||
             (!wanted_allows_zero && !actual_allows_zero);
         if (!ok_allows_zero) {
             result.id = ConstCastResultIdBadAllowsZero;

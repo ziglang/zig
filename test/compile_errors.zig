@@ -92,15 +92,15 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var slice: []u8 = &buf;
         \\    var opt_many_ptr: [*]u8 = slice.ptr;
         \\    var ptr_opt_many_ptr = &opt_many_ptr;
-        \\    var c_ptr: [*c]const [*c]u8 = ptr_opt_many_ptr;
+        \\    var c_ptr: [*c][*c]const u8 = ptr_opt_many_ptr;
         \\}
     ,
         ".tmp_source.zig:6:24: error: expected type '*const [*]const u8', found '[*c]const [*c]const u8'",
         ".tmp_source.zig:6:24: note: pointer type child '[*c]const u8' cannot cast into pointer type child '[*]const u8'",
         ".tmp_source.zig:6:24: note: '[*c]const u8' could have null values which are illegal in type '[*]const u8'",
-        ".tmp_source.zig:13:35: error: expected type '[*c]const [*c]u8', found '*[*]u8'",
-        ".tmp_source.zig:13:35: note: pointer type child '[*]u8' cannot cast into pointer type child '[*c]u8'",
-        ".tmp_source.zig:13:35: note: mutable '[*c]u8' allows illegal null values stored to type '[*]u8'",
+        ".tmp_source.zig:13:35: error: expected type '[*c][*c]const u8', found '*[*]u8'",
+        ".tmp_source.zig:13:35: note: pointer type child '[*]u8' cannot cast into pointer type child '[*c]const u8'",
+        ".tmp_source.zig:13:35: note: mutable '[*c]const u8' allows illegal null values stored to type '[*]u8'",
     );
 
     cases.addTest(

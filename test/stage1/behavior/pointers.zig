@@ -1,5 +1,6 @@
 const std = @import("std");
 const expect = std.testing.expect;
+const expectError = std.testing.expectError;
 
 test "dereference pointer" {
     comptime testDerefPtr();
@@ -106,4 +107,20 @@ test "implicit casting between C pointer and optional non-C pointer" {
     expect(c_ptr.*.* == 'a');
     ptr_opt_many_ptr = c_ptr;
     expect(ptr_opt_many_ptr.*.?[1] == 'o');
+}
+
+test "implicit cast error unions with non-optional to optional pointer" {
+    const S = struct {
+        fn doTheTest() void {
+            expectError(error.Fail, foo());
+        }
+        fn foo() anyerror!?*u8 {
+            return bar() orelse error.Fail;
+        }
+        fn bar() ?*u8 {
+            return null;
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
 }

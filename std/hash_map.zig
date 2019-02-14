@@ -496,6 +496,7 @@ pub fn autoHash(key: var, comptime rng: *std.rand.Random, comptime HashInt: type
         builtin.TypeId.Pointer => |info| switch (info.size) {
             builtin.TypeInfo.Pointer.Size.One => @compileError("TODO auto hash for single item pointers"),
             builtin.TypeInfo.Pointer.Size.Many => @compileError("TODO auto hash for many item pointers"),
+            builtin.TypeInfo.Pointer.Size.C => @compileError("TODO auto hash C pointers"),
             builtin.TypeInfo.Pointer.Size.Slice => {
                 const interval = std.math.max(1, key.len / 256);
                 var i: usize = 0;
@@ -543,6 +544,7 @@ pub fn autoEql(a: var, b: @typeOf(a)) bool {
         builtin.TypeId.Pointer => |info| switch (info.size) {
             builtin.TypeInfo.Pointer.Size.One => @compileError("TODO auto eql for single item pointers"),
             builtin.TypeInfo.Pointer.Size.Many => @compileError("TODO auto eql for many item pointers"),
+            builtin.TypeInfo.Pointer.Size.C => @compileError("TODO auto eql for C pointers"),
             builtin.TypeInfo.Pointer.Size.Slice => {
                 if (a.len != b.len) return false;
                 for (a) |a_item, i| {
