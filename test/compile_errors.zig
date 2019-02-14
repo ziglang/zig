@@ -2,6 +2,42 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.addTest(
+        "implicit cast between C pointer and Zig pointer - bad const/align/child",
+        \\export fn a() void {
+        \\    var x: [*c]u8 = undefined;
+        \\    var y: *align(4) u8 = x;
+        \\}
+        \\export fn b() void {
+        \\    var x: [*c]const u8 = undefined;
+        \\    var y: *u8 = x;
+        \\}
+        \\export fn c() void {
+        \\    var x: [*c]u8 = undefined;
+        \\    var y: *u32 = x;
+        \\}
+        \\export fn d() void {
+        \\    var y: *align(1) u32 = undefined;
+        \\    var x: [*c]u32 = y;
+        \\}
+        \\export fn e() void {
+        \\    var y: *const u8 = undefined;
+        \\    var x: [*c]u8 = y;
+        \\}
+        \\export fn f() void {
+        \\    var y: *u8 = undefined;
+        \\    var x: [*c]u32 = y;
+        \\}
+    ,
+        ".tmp_source.zig:3:27: error: cast increases pointer alignment",
+        ".tmp_source.zig:7:18: error: cast discards const qualifier",
+        ".tmp_source.zig:11:19: error: expected type '*u32', found '[*c]u8'",
+        ".tmp_source.zig:11:19: note: pointer type child 'u8' cannot cast into pointer type child 'u32'",
+        ".tmp_source.zig:15:22: error: cast increases pointer alignment",
+        ".tmp_source.zig:19:21: error: cast discards const qualifier",
+        ".tmp_source.zig:23:22: error: expected type '[*c]u32', found '*u8'",
+    );
+
+    cases.addTest(
         "implicit casting null c pointer to zig pointer",
         \\comptime {
         \\    var c_ptr: [*c]u8 = 0;
@@ -39,6 +75,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         ".tmp_source.zig:6:24: error: expected type '*const [*]const u8', found '[*c]const [*c]const u8'",
+        ".tmp_source.zig:6:24: note: pointer type child '[*c]const u8' cannot cast into pointer type child '[*]const u8'",
         ".tmp_source.zig:6:24: note: '[*c]const u8' could have null values which are illegal in type '[*]const u8'",
         ".tmp_source.zig:13:35: error: expected type '[*c]const [*c]u8', found '*[*]u8'",
         ".tmp_source.zig:13:35: note: pointer type child '[*]u8' cannot cast into pointer type child '[*c]u8'",

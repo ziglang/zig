@@ -8683,16 +8683,6 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
     bool actual_opt_or_ptr = actual_ptr_type != nullptr &&
         (actual_type->id == ZigTypeIdPointer || actual_type->id == ZigTypeIdOptional);
     if (wanted_opt_or_ptr && actual_opt_or_ptr) {
-        bool ok_allows_zero = (wanted_allows_zero &&
-                (actual_allows_zero || wanted_ptr_type->data.pointer.is_const)) ||
-            (!wanted_allows_zero && !actual_allows_zero);
-        if (!ok_allows_zero) {
-            result.id = ConstCastResultIdBadAllowsZero;
-            result.data.bad_allows_zero = allocate_nonzero<ConstCastBadAllowsZero>(1);
-            result.data.bad_allows_zero->wanted_type = wanted_type;
-            result.data.bad_allows_zero->actual_type = actual_type;
-            return result;
-        }
         ConstCastOnly child = types_match_const_cast_only(ira, wanted_ptr_type->data.pointer.child_type,
                 actual_ptr_type->data.pointer.child_type, source_node, !wanted_ptr_type->data.pointer.is_const);
         if (child.id == ConstCastResultIdInvalid)
@@ -8703,6 +8693,16 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
             result.data.pointer_mismatch->child = child;
             result.data.pointer_mismatch->wanted_child = wanted_ptr_type->data.pointer.child_type;
             result.data.pointer_mismatch->actual_child = actual_ptr_type->data.pointer.child_type;
+            return result;
+        }
+        bool ok_allows_zero = (wanted_allows_zero &&
+                (actual_allows_zero || wanted_ptr_type->data.pointer.is_const)) ||
+            (!wanted_allows_zero && !actual_allows_zero);
+        if (!ok_allows_zero) {
+            result.id = ConstCastResultIdBadAllowsZero;
+            result.data.bad_allows_zero = allocate_nonzero<ConstCastBadAllowsZero>(1);
+            result.data.bad_allows_zero->wanted_type = wanted_type;
+            result.data.bad_allows_zero->actual_type = actual_type;
             return result;
         }
         if ((err = type_resolve(g, actual_ptr_type->data.pointer.child_type, ResolveStatusAlignmentKnown))) {
@@ -10846,22 +10846,20 @@ static void report_recursive_error(IrAnalyze *ira, AstNode *source_node, ConstCa
             break;
         }
         case ConstCastResultIdBadAllowsZero: {
-            bool wanted_allows_zero = ptr_allows_addr_zero(cast_result->data.bad_allows_zero->wanted_type);
-            bool actual_allows_zero = ptr_allows_addr_zero(cast_result->data.bad_allows_zero->actual_type);
-            ZigType *wanted_ptr_type = get_src_ptr_type(cast_result->data.bad_allows_zero->wanted_type);
-            ZigType *actual_ptr_type = get_src_ptr_type(cast_result->data.bad_allows_zero->actual_type);
-            ZigType *wanted_elem_type = wanted_ptr_type->data.pointer.child_type;
-            ZigType *actual_elem_type = actual_ptr_type->data.pointer.child_type;
+            ZigType *wanted_type = cast_result->data.bad_allows_zero->wanted_type;
+            ZigType *actual_type = cast_result->data.bad_allows_zero->actual_type;
+            bool wanted_allows_zero = ptr_allows_addr_zero(wanted_type);
+            bool actual_allows_zero = ptr_allows_addr_zero(actual_type);
             if (actual_allows_zero && !wanted_allows_zero) {
                 add_error_note(ira->codegen, parent_msg, source_node,
                         buf_sprintf("'%s' could have null values which are illegal in type '%s'",
-                            buf_ptr(&actual_elem_type->name),
-                            buf_ptr(&wanted_elem_type->name)));
+                            buf_ptr(&actual_type->name),
+                            buf_ptr(&wanted_type->name)));
             } else {
                 add_error_note(ira->codegen, parent_msg, source_node,
                         buf_sprintf("mutable '%s' allows illegal null values stored to type '%s'",
-                            buf_ptr(&cast_result->data.bad_allows_zero->wanted_type->name),
-                            buf_ptr(&cast_result->data.bad_allows_zero->actual_type->name)));
+                            buf_ptr(&wanted_type->name),
+                            buf_ptr(&actual_type->name)));
             }
             break;
         }
