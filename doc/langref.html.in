@@ -3164,6 +3164,12 @@ nakedcc fn _start() noreturn {
     abort();
 }
 
+// inline forces a function to be inlined at all call sites.
+// If the function cannot be inlined, it is a compile-time error.
+inline fn shiftLeftOne(a: u32) u32 {
+    return a << 1;
+}
+
 // The pub specifier allows the function to be visible when importing.
 // Another file can use @import and call sub2
 pub fn sub2(a: i8, b: i8) i8 { return a - b; }
