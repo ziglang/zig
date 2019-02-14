@@ -1488,6 +1488,7 @@ enum PanicMsgId {
     PanicMsgIdBadUnionField,
     PanicMsgIdBadEnumValue,
     PanicMsgIdFloatToInt,
+    PanicMsgIdPtrCastNull,
 
     PanicMsgIdCount,
 };
@@ -3001,12 +3002,14 @@ struct IrInstructionPtrCastSrc {
 
     IrInstruction *dest_type;
     IrInstruction *ptr;
+    bool safety_check_on;
 };
 
 struct IrInstructionPtrCastGen {
     IrInstruction base;
 
     IrInstruction *ptr;
+    bool safety_check_on;
 };
 
 struct IrInstructionBitCast {

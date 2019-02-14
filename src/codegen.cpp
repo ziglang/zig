@@ -950,6 +950,8 @@ static Buf *panic_msg_buf(PanicMsgId msg_id) {
             return buf_create_from_str("invalid enum value");
         case PanicMsgIdFloatToInt:
             return buf_create_from_str("integer part of floating point value out of bounds");
+        case PanicMsgIdPtrCastNull:
+            return buf_create_from_str("cast causes pointer to be null");
     }
     zig_unreachable();
 }
@@ -3028,7 +3030,22 @@ static LLVMValueRef ir_render_ptr_cast(CodeGen *g, IrExecutable *executable,
         return nullptr;
     }
     LLVMValueRef ptr = ir_llvm_value(g, instruction->ptr);
-    return LLVMBuildBitCast(g->builder, ptr, wanted_type->type_ref, "");
+    LLVMValueRef result_ptr = LLVMBuildBitCast(g->builder, ptr, wanted_type->type_ref, "");
+    bool want_safety_check = instruction->safety_check_on && ir_want_runtime_safety(g, &instruction->base);
+    if (!want_safety_check || ptr_allows_addr_zero(wanted_type))
+        return result_ptr;
+
+    LLVMValueRef zero = LLVMConstNull(LLVMTypeOf(result_ptr));
+    LLVMValueRef ok_bit = LLVMBuildICmp(g->builder, LLVMIntNE, result_ptr, zero, "");
+    LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "PtrCastFail");
+    LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "PtrCastOk");
+    LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
+
+    LLVMPositionBuilderAtEnd(g->builder, fail_block);
+    gen_safety_crash(g, PanicMsgIdPtrCastNull);
+
+    LLVMPositionBuilderAtEnd(g->builder, ok_block);
+    return result_ptr;
 }
 
 static LLVMValueRef ir_render_bit_cast(CodeGen *g, IrExecutable *executable,

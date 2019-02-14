@@ -6902,3 +6902,12 @@ const char *container_string(ContainerKind kind) {
     }
     zig_unreachable();
 }
+
+bool ptr_allows_addr_zero(ZigType *ptr_type) {
+    if (ptr_type->id == ZigTypeIdPointer) {
+        return ptr_type->data.pointer.allow_zero;
+    } else if (ptr_type->id == ZigTypeIdOptional) {
+        return true;
+    }
+    return false;
+}
