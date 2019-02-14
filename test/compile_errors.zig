@@ -138,6 +138,20 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.addTest(
+        "compile log statement warning deduplication in generic fn",
+        \\export fn entry() void {
+        \\    inner(1);
+        \\    inner(2);
+        \\}
+        \\fn inner(comptime n: usize) void {
+        \\    comptime var i = 0;
+        \\    inline while (i < n) : (i += 1) { @compileLog("!@#$"); }
+        \\}
+    ,
+        ".tmp_source.zig:7:39: error: found compile log statement",
+    );
+
+    cases.addTest(
         "@truncate undefined value",
         \\export fn entry() void {
         \\    var z = @truncate(u8, u16(undefined));
@@ -4920,7 +4934,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "non-printable invalid character",
-        "\xff\xfe" ++            
+        "\xff\xfe" ++
             \\fn test() bool {\r
             \\    true\r
             \\}
@@ -5480,7 +5494,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    Baz: void,
         \\};
         \\comptime {
-        \\    var foo = Foo {.Baz = {}};    
+        \\    var foo = Foo {.Baz = {}};
         \\    const bar_val = foo.Bar;
         \\}
     ,

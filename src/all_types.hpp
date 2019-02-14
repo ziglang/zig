@@ -648,6 +648,7 @@ struct AstNodeFnCallExpr {
     ZigList<AstNode *> params;
     bool is_builtin;
     bool is_async;
+    bool seen; // used by @compileLog
     AstNode *async_allocator;
 };
 
