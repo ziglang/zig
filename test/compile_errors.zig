@@ -2,6 +2,27 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.addTest(
+        "directly embedding opaque type in struct and union",
+        \\const O = @OpaqueType();
+        \\const Foo = struct {
+        \\    o: O,
+        \\};
+        \\const Bar = union {
+        \\    One: i32,
+        \\    Two: O,
+        \\};
+        \\export fn a() void {
+        \\    var foo: Foo = undefined;
+        \\}
+        \\export fn b() void {
+        \\    var bar: Bar = undefined;
+        \\}
+    ,
+        ".tmp_source.zig:3:8: error: opaque types have unknown size and therefore cannot be directly embedded in structs",
+        ".tmp_source.zig:7:10: error: opaque types have unknown size and therefore cannot be directly embedded in unions",
+    );
+
+    cases.addTest(
         "implicit cast between C pointer and Zig pointer - bad const/align/child",
         \\export fn a() void {
         \\    var x: [*c]u8 = undefined;

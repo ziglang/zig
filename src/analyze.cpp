@@ -2679,6 +2679,13 @@ static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
                     buf_sprintf("enums, not structs, support field assignment"));
         }
 
+        if (field_type->id == ZigTypeIdOpaque) {
+            add_node_error(g, field_node->data.struct_field.type,
+                buf_sprintf("opaque types have unknown size and therefore cannot be directly embedded in structs"));
+            struct_type->data.structure.resolve_status = ResolveStatusInvalid;
+            continue;
+        }
+
         switch (type_requires_comptime(g, field_type)) {
             case ReqCompTimeYes:
                 struct_type->data.structure.requires_comptime = true;
@@ -2962,6 +2969,13 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
             }
         }
         union_field->type_entry = field_type;
+
+        if (field_type->id == ZigTypeIdOpaque) {
+            add_node_error(g, field_node->data.struct_field.type,
+                buf_sprintf("opaque types have unknown size and therefore cannot be directly embedded in unions"));
+            union_type->data.unionation.is_invalid = true;
+            continue;
+        }
 
         switch (type_requires_comptime(g, field_type)) {
             case ReqCompTimeInvalid:
