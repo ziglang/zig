@@ -3134,7 +3134,6 @@ const assert = @import("std").debug.assert;
 // Functions are declared like this
 fn add(a: i8, b: i8) i8 {
     if (a == 0) {
-        // You can still return manually if needed.
         return b;
     }
 
