@@ -4100,6 +4100,10 @@ ZigType *get_codegen_ptr_type(ZigType *type) {
     return ty;
 }
 
+bool type_is_nonnull_ptr(ZigType *type) {
+    return type_is_codegen_pointer(type) && !ptr_allows_addr_zero(type);
+}
+
 bool type_is_codegen_pointer(ZigType *type) {
     return get_codegen_ptr_type(type) == type;
 }

@@ -617,9 +617,10 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, ZigFn *fn_table_entry) {
     unsigned init_gen_i = 0;
     if (!type_has_bits(return_type)) {
         // nothing to do
-    } else if (type_is_codegen_pointer(return_type)) {
+    } else if (type_is_nonnull_ptr(return_type)) {
         addLLVMAttr(fn_table_entry->llvm_value, 0, "nonnull");
     } else if (want_first_arg_sret(g, &fn_type->data.fn.fn_type_id)) {
+        // Sret pointers must not be address 0
         addLLVMArgAttr(fn_table_entry->llvm_value, 0, "nonnull");
         addLLVMArgAttr(fn_table_entry->llvm_value, 0, "sret");
         if (cc_want_sret_attr(cc)) {
@@ -637,6 +638,8 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, ZigFn *fn_table_entry) {
 
     uint32_t err_ret_trace_arg_index = get_err_ret_trace_arg_index(g, fn_table_entry);
     if (err_ret_trace_arg_index != UINT32_MAX) {
+        // Error return trace memory is in the stack, which is impossible to be at address 0
+        // on any architecture.
         addLLVMArgAttr(fn_table_entry->llvm_value, (unsigned)err_ret_trace_arg_index, "nonnull");
     }
 
@@ -1246,6 +1249,8 @@ static LLVMValueRef get_add_error_return_trace_addr_fn(CodeGen *g) {
     LLVMSetFunctionCallConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
     addLLVMFnAttr(fn_val, "nounwind");
     add_uwtable_attr(g, fn_val);
+    // Error return trace memory is in the stack, which is impossible to be at address 0
+    // on any architecture.
     addLLVMArgAttr(fn_val, (unsigned)0, "nonnull");
     if (g->build_mode == BuildModeDebug) {
         ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim", "true");
@@ -1320,9 +1325,13 @@ static LLVMValueRef get_merge_err_ret_traces_fn_val(CodeGen *g) {
     LLVMSetFunctionCallConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
     addLLVMFnAttr(fn_val, "nounwind");
     add_uwtable_attr(g, fn_val);
+    // Error return trace memory is in the stack, which is impossible to be at address 0
+    // on any architecture.
     addLLVMArgAttr(fn_val, (unsigned)0, "nonnull");
     addLLVMArgAttr(fn_val, (unsigned)0, "noalias");
     addLLVMArgAttr(fn_val, (unsigned)0, "writeonly");
+    // Error return trace memory is in the stack, which is impossible to be at address 0
+    // on any architecture.
     addLLVMArgAttr(fn_val, (unsigned)1, "nonnull");
     addLLVMArgAttr(fn_val, (unsigned)1, "noalias");
     addLLVMArgAttr(fn_val, (unsigned)1, "readonly");
@@ -1450,6 +1459,8 @@ static LLVMValueRef get_return_err_fn(CodeGen *g) {
     LLVMSetFunctionCallConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
     addLLVMFnAttr(fn_val, "nounwind");
     add_uwtable_attr(g, fn_val);
+    // Error return trace memory is in the stack, which is impossible to be at address 0
+    // on any architecture.
     addLLVMArgAttr(fn_val, (unsigned)0, "nonnull");
     if (g->build_mode == BuildModeDebug) {
         ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim", "true");
@@ -2051,7 +2062,7 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
             case FnWalkIdAttrs: {
                 ZigType *ptr_type = get_codegen_ptr_type(ty);
                 if (ptr_type != nullptr) {
-                    if (ty->id != ZigTypeIdOptional) {
+                    if (type_is_nonnull_ptr(ty)) {
                         addLLVMArgAttr(llvm_fn, fn_walk->data.attrs.gen_i, "nonnull");
                     }
                     if (ptr_type->data.pointer.is_const) {
@@ -2095,6 +2106,7 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
         assert(handle_is_ptr(ty));
         switch (fn_walk->id) {
             case FnWalkIdAttrs:
+                // arrays passed to C ABI functions may not be at address 0
                 addLLVMArgAttr(llvm_fn, fn_walk->data.attrs.gen_i, "nonnull");
                 addLLVMArgAttrInt(llvm_fn, fn_walk->data.attrs.gen_i, "align", get_abi_alignment(g, ty));
                 fn_walk->data.attrs.gen_i += 1;
@@ -2134,6 +2146,7 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
                 case FnWalkIdAttrs:
                     addLLVMArgAttr(llvm_fn, fn_walk->data.attrs.gen_i, "byval");
                     addLLVMArgAttrInt(llvm_fn, fn_walk->data.attrs.gen_i, "align", get_abi_alignment(g, ty));
+                    // Byvalue parameters must not have address 0
                     addLLVMArgAttr(llvm_fn, fn_walk->data.attrs.gen_i, "nonnull");
                     fn_walk->data.attrs.gen_i += 1;
                     break;
@@ -2266,7 +2279,7 @@ void walk_function_params(CodeGen *g, ZigType *fn_type, FnWalk *fn_walk) {
                 if ((param_type->id == ZigTypeIdPointer && param_type->data.pointer.is_const) || is_byval) {
                     addLLVMArgAttr(llvm_fn, (unsigned)gen_index, "readonly");
                 }
-                if (param_type->id == ZigTypeIdPointer) {
+                if (type_is_nonnull_ptr(param_type)) {
                     addLLVMArgAttr(llvm_fn, (unsigned)gen_index, "nonnull");
                 }
                 break;
