@@ -3157,13 +3157,13 @@ fn abort() noreturn {
     while (true) {}
 }
 
-// nakedcc makes a function not have any function prologue or epilogue.
+// The nakedcc specifier makes a function not have any function prologue or epilogue.
 // This can be useful when integrating with assembly.
 nakedcc fn _start() noreturn {
     abort();
 }
 
-// inline forces a function to be inlined at all call sites.
+// The inline specifier forces a function to be inlined at all call sites.
 // If the function cannot be inlined, it is a compile-time error.
 inline fn shiftLeftOne(a: u32) u32 {
     return a << 1;
