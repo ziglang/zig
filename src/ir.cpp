@@ -20645,11 +20645,22 @@ static IrInstruction *ir_analyze_ptr_cast(IrAnalyze *ira, IrInstruction *source_
     }
 
     if (instr_is_comptime(ptr)) {
-        // Undefined is OK here; @ptrCast is defined to reinterpret the bit pattern
-        // of the pointer as the new pointer type.
-        ConstExprValue *val = ir_resolve_const(ira, ptr, UndefOk);
+        bool dest_allows_addr_zero = ptr_allows_addr_zero(dest_type);
+        UndefAllowed is_undef_allowed = dest_allows_addr_zero ? UndefOk : UndefBad;
+        ConstExprValue *val = ir_resolve_const(ira, ptr, is_undef_allowed);
         if (!val)
             return ira->codegen->invalid_instruction;
+
+        if (val->special == ConstValSpecialStatic) {
+            bool is_addr_zero = val->data.x_ptr.special == ConstPtrSpecialNull ||
+                (val->data.x_ptr.special == ConstPtrSpecialHardCodedAddr &&
+                    val->data.x_ptr.data.hard_coded_addr.addr == 0);
+            if (is_addr_zero && !dest_allows_addr_zero) {
+                ir_add_error(ira, source_instr,
+                        buf_sprintf("null pointer casted to type '%s'", buf_ptr(&dest_type->name)));
+                return ira->codegen->invalid_instruction;
+            }
+        }
 
         IrInstruction *result = ir_const(ira, source_instr, dest_type);
         copy_const_val(&result->value, val, false);

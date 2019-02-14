@@ -2,6 +2,26 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.addTest(
+        "implicit casting null c pointer to zig pointer",
+        \\comptime {
+        \\    var c_ptr: [*c]u8 = 0;
+        \\    var zig_ptr: *u8 = c_ptr;
+        \\}
+    ,
+        ".tmp_source.zig:3:24: error: null pointer casted to type '*u8'",
+    );
+
+    cases.addTest(
+        "implicit casting undefined c pointer to zig pointer",
+        \\comptime {
+        \\    var c_ptr: [*c]u8 = undefined;
+        \\    var zig_ptr: *u8 = c_ptr;
+        \\}
+    ,
+        ".tmp_source.zig:3:24: error: use of undefined value here causes undefined behavior",
+    );
+
+    cases.addTest(
         "implicit casting C pointers which would mess up null semantics",
         \\export fn entry() void {
         \\    var slice: []const u8 = "aoeu";
