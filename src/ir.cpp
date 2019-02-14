@@ -10259,7 +10259,7 @@ static IrInstruction *ir_analyze_enum_to_int(IrAnalyze *ira, IrInstruction *sour
         if (!val)
             return ira->codegen->invalid_instruction;
         IrInstruction *result = ir_const(ira, source_instr, wanted_type);
-        if (target->value.type == ZigTypeIdUnion) {
+        if (target->value.type->id == ZigTypeIdUnion) {
             init_const_bigint(&result->value, wanted_type, &val->data.x_union.tag);
         } else {
             init_const_bigint(&result->value, wanted_type, &val->data.x_enum_tag);
@@ -10273,7 +10273,7 @@ static IrInstruction *ir_analyze_enum_to_int(IrAnalyze *ira, IrInstruction *sour
     {
         assert(wanted_type== ira->codegen->builtin_types.entry_num_lit_int);
         IrInstruction *result = ir_const(ira, source_instr, wanted_type);
-        if (target->value.type == ZigTypeIdUnion) {
+        if (target->value.type->id == ZigTypeIdUnion) {
             init_const_bigint(&result->value, wanted_type,
                 &actual_type->data.unionation.fields[0].enum_field->value);
         } else {
@@ -10284,8 +10284,13 @@ static IrInstruction *ir_analyze_enum_to_int(IrAnalyze *ira, IrInstruction *sour
         return result;
     }
 
-    IrInstruction *result = ir_build_widen_or_shorten(&ira->new_irb, source_instr->scope,
-            source_instr->source_node, target);
+    IrInstruction *result = nullptr;
+    if (target->value.type->id == ZigTypeIdUnion)
+        result = ir_build_union_tag(&ira->new_irb, source_instr->scope,
+                    source_instr->source_node, target);
+    else
+        result = ir_build_widen_or_shorten(&ira->new_irb, source_instr->scope,
+                    source_instr->source_node, target);
     result->value.type = wanted_type;
     return result;
 }
