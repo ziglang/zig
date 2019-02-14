@@ -18172,12 +18172,6 @@ static IrInstruction *ir_analyze_instruction_type_id(IrAnalyze *ira,
 static IrInstruction *ir_analyze_instruction_set_eval_branch_quota(IrAnalyze *ira,
         IrInstructionSetEvalBranchQuota *instruction)
 {
-    if (ira->new_irb.exec->parent_exec != nullptr && !ira->new_irb.exec->is_generic_instantiation) {
-        ir_add_error(ira, &instruction->base,
-                buf_sprintf("@setEvalBranchQuota must be called from the top of the comptime stack"));
-        return ira->codegen->invalid_instruction;
-    }
-
     uint64_t new_quota;
     if (!ir_resolve_usize(ira, instruction->new_quota->child, &new_quota))
         return ira->codegen->invalid_instruction;
