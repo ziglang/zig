@@ -29,3 +29,8 @@ test "truncate sign mismatch but comptime known so it works anyway" {
     var result = @truncate(i8, x);
     expect(result == 10);
 }
+
+test "truncate on comptime integer" {
+    var x = @truncate(u16, 9999);
+    expect(x == 9999);
+}
