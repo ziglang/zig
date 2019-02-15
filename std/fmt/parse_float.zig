@@ -84,10 +84,6 @@ const Z96 = struct {
         w += u64(d.d2) -% u64(s.d2);
         d.d2 = @truncate(u32, w);
     }
-
-    fn dump(d: Z96) void {
-        std.debug.warn("{} {} {}\n", d.d0, d.d1, d.d2);
-    }
 };
 
 const FloatRepr = struct {
@@ -178,7 +174,6 @@ fn convertRepr(comptime T: type, n: FloatRepr) T {
 }
 
 const State = enum {
-    SkipLeadingWhitespace,
     MaybeSign,
     LeadingMantissaZeros,
     LeadingFractionalZeros,
@@ -187,7 +182,6 @@ const State = enum {
     ExponentSign,
     LeadingExponentZeros,
     Exponent,
-    Stop,
 };
 
 const ParseResult = enum {
@@ -206,27 +200,19 @@ inline fn isSpace(c: u8) bool {
     return (c >= 0x09 and c <= 0x13) or c == 0x20;
 }
 
-fn parseRepr(s: []const u8, n: *FloatRepr) ParseResult {
+fn parseRepr(s: []const u8, n: *FloatRepr) !ParseResult {
     var digit_index: usize = 0;
     var negative = false;
     var negative_exp = false;
     var exponent: i32 = 0;
 
-    var state = State.SkipLeadingWhitespace;
+    var state = State.MaybeSign;
 
     var i: usize = 0;
-    loop: while (state != State.Stop and i < s.len) {
+    loop: while (i < s.len) {
         const c = s[i];
 
         switch (state) {
-            State.SkipLeadingWhitespace => {
-                if (isSpace(c)) {
-                    i += 1;
-                } else {
-                    state = State.MaybeSign;
-                }
-            },
-
             State.MaybeSign => {
                 state = State.LeadingMantissaZeros;
 
@@ -238,7 +224,7 @@ fn parseRepr(s: []const u8, n: *FloatRepr) ParseResult {
                 } else if (isDigit(c) or c == '.') {
                     // continue
                 } else {
-                    state = State.Stop;
+                    return error.InvalidCharacter;
                 }
             },
 
@@ -329,11 +315,9 @@ fn parseRepr(s: []const u8, n: *FloatRepr) ParseResult {
 
                     i += 1;
                 } else {
-                    state = State.Stop;
+                    return error.InvalidCharacter;
                 }
             },
-
-            State.Stop => break :loop,
         }
     }
 
@@ -371,12 +355,10 @@ fn caseInEql(a: []const u8, b: []const u8) bool {
     return true;
 }
 
-pub fn parseFloat(comptime T: type, s: []const u8) T {
-    var r = FloatRepr{
-        .negative = false,
-        .exponent = 0,
-        .mantissa = 0,
-    };
+pub fn parseFloat(comptime T: type, s: []const u8) !T {
+    if (s.len == 0) {
+        return error.InvalidCharacter;
+    }
 
     if (caseInEql(s, "nan")) {
         return std.math.nan(T);
@@ -386,7 +368,13 @@ pub fn parseFloat(comptime T: type, s: []const u8) T {
         return -std.math.inf(T);
     }
 
-    return switch (parseRepr(s, &r)) {
+    var r = FloatRepr{
+        .negative = false,
+        .exponent = 0,
+        .mantissa = 0,
+    };
+
+    return switch (try parseRepr(s, &r)) {
         ParseResult.Ok => convertRepr(T, r),
         ParseResult.PlusZero => 0.0,
         ParseResult.MinusZero => -T(0.0),
@@ -396,30 +384,37 @@ pub fn parseFloat(comptime T: type, s: []const u8) T {
 }
 
 test "fmt.parseFloat" {
-    const assert = std.debug.assert;
+    const testing = std.testing;
+    const expect = testing.expect;
+    const expectEqual = testing.expectEqual;
     const approxEq = std.math.approxEq;
     const epsilon = 1e-7;
 
-    inline for ([]type{ f32, f64, f128 }) |T| {
+    inline for ([]type{ f16, f32, f64, f128 }) |T| {
         const Z = @IntType(false, T.bit_count);
 
-        assert(parseFloat(T, "0") == 0.0);
-        assert(parseFloat(T, "+0") == 0.0);
-        assert(parseFloat(T, "-0") == 0.0);
+        testing.expectError(error.InvalidCharacter, parseFloat(T, ""));
+        testing.expectError(error.InvalidCharacter, parseFloat(T, "   1"));
+        testing.expectError(error.InvalidCharacter, parseFloat(T, "1abc"));
 
-        assert(approxEq(T, parseFloat(T, "3.141"), 3.141, epsilon));
-        assert(approxEq(T, parseFloat(T, "-3.141"), -3.141, epsilon));
+        expectEqual(try parseFloat(T, "0"), 0.0);
+        expectEqual((try parseFloat(T, "0")), 0.0);
+        expectEqual((try parseFloat(T, "+0")), 0.0);
+        expectEqual((try parseFloat(T, "-0")), 0.0);
 
-        assert(parseFloat(T, "1e-700") == 0);
-        assert(parseFloat(T, "1e+700") == std.math.inf(T));
+        expect(approxEq(T, try parseFloat(T, "3.141"), 3.141, epsilon));
+        expect(approxEq(T, try parseFloat(T, "-3.141"), -3.141, epsilon));
 
-        assert(@bitCast(Z, parseFloat(T, "nAn")) == @bitCast(Z, std.math.nan(T)));
-        assert(parseFloat(T, "inF") == std.math.inf(T));
-        assert(parseFloat(T, "-INF") == -std.math.inf(T));
+        expectEqual((try parseFloat(T, "1e-700")), 0);
+        expectEqual((try parseFloat(T, "1e+700")), std.math.inf(T));
+
+        expectEqual(@bitCast(Z, try parseFloat(T, "nAn")), @bitCast(Z, std.math.nan(T)));
+        expectEqual((try parseFloat(T, "inF")), std.math.inf(T));
+        expectEqual((try parseFloat(T, "-INF")), -std.math.inf(T));
 
         if (T != f16) {
-            assert(approxEq(T, parseFloat(T, "123142.1"), 123142.1, epsilon));
-            assert(approxEq(T, parseFloat(T, "-123142.1124"), T(-123142.1124), epsilon));
+            expect(approxEq(T, try parseFloat(T, "123142.1"), 123142.1, epsilon));
+            expect(approxEq(T, try parseFloat(T, "-123142.1124"), T(-123142.1124), epsilon));
         }
     }
 }

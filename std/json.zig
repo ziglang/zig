@@ -1345,7 +1345,7 @@ pub const Parser = struct {
         return if (token.number_is_integer)
             Value{ .Integer = try std.fmt.parseInt(i64, token.slice(input, i), 10) }
         else
-            Value{ .Float = std.fmt.parseFloat(f64, token.slice(input, i)) };
+            Value{ .Float = try std.fmt.parseFloat(f64, token.slice(input, i)) };
     }
 };
 
