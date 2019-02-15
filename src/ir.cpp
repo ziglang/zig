@@ -5057,11 +5057,6 @@ static IrInstruction *ir_gen_pointer_type(IrBuilder *irb, Scope *scope, AstNode 
 
     IrInstruction *align_value;
     if (align_expr != nullptr) {
-        if (ptr_len == PtrLenC) {
-            exec_add_error_node(irb->codegen, irb->exec, node,
-                buf_sprintf("[*c] pointers may not have align attribute"));
-            return irb->codegen->invalid_instruction;
-        }
         align_value = ir_gen_node(irb, align_expr, scope);
         if (align_value == irb->codegen->invalid_instruction)
             return align_value;

@@ -67,12 +67,12 @@ test "type info: C pointer type info" {
 }
 
 fn testCPtr() void {
-    const ptr_info = @typeInfo([*c]const i8);
+    const ptr_info = @typeInfo([*c]align(4) const i8);
     expect(TypeId(ptr_info) == TypeId.Pointer);
     expect(ptr_info.Pointer.size == TypeInfo.Pointer.Size.C);
     expect(ptr_info.Pointer.is_const);
     expect(!ptr_info.Pointer.is_volatile);
-    expect(ptr_info.Pointer.alignment == 1);
+    expect(ptr_info.Pointer.alignment == 4);
     expect(ptr_info.Pointer.child == i8);
 }
 
