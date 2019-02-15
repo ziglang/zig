@@ -356,6 +356,28 @@ uint64_t type_size(CodeGen *g, ZigType *type_entry) {
         }
     }
 
+    return LLVMABISizeOfType(g->target_data_ref, type_entry->type_ref);
+}
+
+uint64_t type_size_store(CodeGen *g, ZigType *type_entry) {
+    assert(type_is_complete(type_entry));
+
+    if (!type_has_bits(type_entry))
+        return 0;
+
+    if (type_entry->id == ZigTypeIdStruct && type_entry->data.structure.layout == ContainerLayoutPacked) {
+        uint64_t size_in_bits = type_size_bits(g, type_entry);
+        return (size_in_bits + 7) / 8;
+    } else if (type_entry->id == ZigTypeIdArray) {
+        ZigType *child_type = type_entry->data.array.child_type;
+        if (child_type->id == ZigTypeIdStruct &&
+            child_type->data.structure.layout == ContainerLayoutPacked)
+        {
+            uint64_t size_in_bits = type_size_bits(g, type_entry);
+            return (size_in_bits + 7) / 8;
+        }
+    }
+
     return LLVMStoreSizeOfType(g->target_data_ref, type_entry->type_ref);
 }
 
@@ -6230,13 +6252,18 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
         case ZigTypeIdStruct:
             {
                 if (is_slice(type_entry)) {
-                    ConstPtrValue *ptr = &const_val->data.x_struct.fields[slice_ptr_index].data.x_ptr;
-                    assert(ptr->special == ConstPtrSpecialBaseArray);
-                    ConstExprValue *array = ptr->data.base_array.array_val;
-                    size_t start = ptr->data.base_array.elem_index;
-
                     ConstExprValue *len_val = &const_val->data.x_struct.fields[slice_len_index];
                     size_t len = bigint_as_unsigned(&len_val->data.x_bigint);
+
+                    ConstExprValue *ptr_val = &const_val->data.x_struct.fields[slice_ptr_index];
+                    if (ptr_val->special == ConstValSpecialUndef) {
+                        assert(len == 0);
+                        buf_appendf(buf, "((%s)(undefined))[0..0]", buf_ptr(&type_entry->name));
+                        return;
+                    }
+                    assert(ptr_val->data.x_ptr.special == ConstPtrSpecialBaseArray);
+                    ConstExprValue *array = ptr_val->data.x_ptr.data.base_array.array_val;
+                    size_t start = ptr_val->data.x_ptr.data.base_array.elem_index;
 
                     render_const_val_array(g, buf, &type_entry->name, array, start, len);
                 } else {

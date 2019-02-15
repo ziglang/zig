@@ -14331,15 +14331,15 @@ static Error ir_read_const_ptr(IrAnalyze *ira, CodeGen *codegen, AstNode *source
     if ((err = type_resolve(codegen, out_val->type, ResolveStatusSizeKnown)))
         return ErrorSemanticAnalyzeFail;
 
-    size_t src_size = type_size(codegen, pointee->type);
-    size_t dst_size = type_size(codegen, out_val->type);
-
-    if (src_size == dst_size && types_have_same_zig_comptime_repr(pointee->type, out_val->type)) {
-        copy_const_val(out_val, pointee, ptr_val->data.x_ptr.mut == ConstPtrMutComptimeConst);
-        return ErrorNone;
-    }
+    // We don't need to read the padding bytes, so we look at type_size_store bytes
+    size_t src_size = type_size_store(codegen, pointee->type);
+    size_t dst_size = type_size_store(codegen, out_val->type);
 
     if (dst_size <= src_size) {
+        if (types_have_same_zig_comptime_repr(pointee->type, out_val->type)) {
+            copy_const_val(out_val, pointee, ptr_val->data.x_ptr.mut == ConstPtrMutComptimeConst);
+            return ErrorNone;
+        }
         Buf buf = BUF_INIT;
         buf_resize(&buf, src_size);
         buf_write_value_bytes(codegen, (uint8_t*)buf_ptr(&buf), pointee);
@@ -15798,6 +15798,8 @@ static IrInstruction *ir_analyze_instruction_typeof(IrAnalyze *ira, IrInstructio
 static IrInstruction *ir_analyze_instruction_to_ptr_type(IrAnalyze *ira,
         IrInstructionToPtrType *to_ptr_type_instruction)
 {
+    Error err;
+
     IrInstruction *value = to_ptr_type_instruction->value->child;
     ZigType *type_entry = value->value.type;
     if (type_is_invalid(type_entry))
@@ -15813,7 +15815,17 @@ static IrInstruction *ir_analyze_instruction_to_ptr_type(IrAnalyze *ira,
         ptr_type = get_pointer_to_type(ira->codegen,
             type_entry->data.pointer.child_type->data.array.child_type, type_entry->data.pointer.is_const);
     }  else if (is_slice(type_entry)) {
-        ptr_type = adjust_ptr_len(ira->codegen, type_entry->data.structure.fields[0].type_entry, PtrLenSingle);
+        ZigType *slice_ptr_type = type_entry->data.structure.fields[0].type_entry;
+        ptr_type = adjust_ptr_len(ira->codegen, slice_ptr_type, PtrLenSingle);
+        // If the pointer is over-aligned, we may have to reduce it based on the alignment of the element type.
+        if (slice_ptr_type->data.pointer.explicit_alignment != 0) {
+            ZigType *elem_type = slice_ptr_type->data.pointer.child_type;
+            if ((err = type_resolve(ira->codegen, elem_type, ResolveStatusAlignmentKnown)))
+                return ira->codegen->invalid_instruction;
+            uint32_t elem_align = get_abi_alignment(ira->codegen, elem_type);
+            uint32_t reduced_align = min(elem_align, slice_ptr_type->data.pointer.explicit_alignment);
+            ptr_type = adjust_ptr_align(ira->codegen, ptr_type, reduced_align);
+        }
     } else if (type_entry->id == ZigTypeIdArgTuple) {
         ConstExprValue *arg_tuple_val = ir_resolve_const(ira, value, UndefBad);
         if (!arg_tuple_val)

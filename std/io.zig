@@ -935,8 +935,6 @@ pub fn BitOutStream(endian: builtin.Endian, comptime Error: type) type {
     };
 }
 
-
-
 pub const BufferedAtomicFile = struct {
     atomic_file: os.AtomicFile,
     file_stream: os.File.OutStream,
@@ -977,7 +975,6 @@ pub const BufferedAtomicFile = struct {
         return &self.buffered_stream.stream;
     }
 };
-
 
 pub fn readLine(buf: *std.Buffer) ![]u8 {
     var stdin = try getStdIn();
@@ -1073,13 +1070,13 @@ pub fn Deserializer(comptime endian: builtin.Endian, is_packed: bool, comptime E
                 else => in_stream,
             } };
         }
-        
+
         pub fn alignToByte(self: *Self) void {
-            if(!is_packed) return;
+            if (!is_packed) return;
             self.in_stream.alignToByte();
         }
 
-        //@BUG: inferred error issue. See: #1386 
+        //@BUG: inferred error issue. See: #1386
         fn deserializeInt(self: *Self, comptime T: type) (Error || error{EndOfStream})!T {
             comptime assert(trait.is(builtin.TypeId.Int)(T) or trait.is(builtin.TypeId.Float)(T));
 
@@ -1088,7 +1085,7 @@ pub fn Deserializer(comptime endian: builtin.Endian, is_packed: bool, comptime E
 
             const U = @IntType(false, t_bit_count);
             const Log2U = math.Log2Int(U);
-            const int_size = @sizeOf(U);
+            const int_size = (U.bit_count + 7) / 8;
 
             if (is_packed) {
                 const result = try self.in_stream.readBitsNoEof(U, t_bit_count);
@@ -1301,7 +1298,7 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime is_packed: bool, com
 
             const U = @IntType(false, t_bit_count);
             const Log2U = math.Log2Int(U);
-            const int_size = @sizeOf(U);
+            const int_size = (U.bit_count + 7) / 8;
 
             const u_value = @bitCast(U, value);
 

@@ -6299,10 +6299,15 @@ pub const FloatMode = enum {
       <pre>{#syntax#}@sizeOf(comptime T: type) comptime_int{#endsyntax#}</pre>
       <p>
       This function returns the number of bytes it takes to store {#syntax#}T{#endsyntax#} in memory.
-      </p>
-      <p>
       The result is a target-specific compile time constant.
       </p>
+      <p>
+      This size may contain padding bytes. If there were two consecutive T in memory, this would be the offset
+      in bytes between element at index 0 and the element at index 1. For {#link|integer|Integers#},
+      consider whether you want to use {#syntax#}@sizeOf(T){#endsyntax#} or
+      {#syntax#}@typeInfo(T).Int.bits{#endsyntax#}.
+      </p>
+      {#see_also|@typeInfo#}
       {#header_close#}
 
       {#header_open|@sliceToBytes#}
