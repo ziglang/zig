@@ -1,6 +1,6 @@
 // Ported from:
 //
-// https://github.com/llvm-mirror/compiler-rt/blob/92f7768ce940f6437b32ecc0985a1446cd040f7a/lib/builtins/fp_add_impl.inc
+// https://github.com/llvm/llvm-project/blob/02d85149a05cb1f6dc49f0ba7a2ceca53718ae17/compiler-rt/lib/builtins/fp_add_impl.inc
 
 const std = @import("std");
 const builtin = @import("builtin");
