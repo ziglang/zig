@@ -21205,10 +21205,15 @@ static IrInstruction *ir_analyze_instruction_ptr_type(IrAnalyze *ira, IrInstruct
     } else if (child_type->id == ZigTypeIdOpaque && instruction->ptr_len == PtrLenUnknown) {
         ir_add_error(ira, &instruction->base, buf_sprintf("unknown-length pointer to opaque"));
         return ira->codegen->invalid_instruction;
-    } else if (instruction->ptr_len == PtrLenC && !type_allowed_in_extern(ira->codegen, child_type)) {
-        ir_add_error(ira, &instruction->base,
-            buf_sprintf("C pointers cannot point to non-C-ABI-compatible type '%s'", buf_ptr(&child_type->name)));
-        return ira->codegen->invalid_instruction;
+    } else if (instruction->ptr_len == PtrLenC) {
+        if (!type_allowed_in_extern(ira->codegen, child_type)) {
+            ir_add_error(ira, &instruction->base,
+                buf_sprintf("C pointers cannot point to non-C-ABI-compatible type '%s'", buf_ptr(&child_type->name)));
+            return ira->codegen->invalid_instruction;
+        } else if (child_type->id == ZigTypeIdOpaque) {
+            ir_add_error(ira, &instruction->base, buf_sprintf("C pointers cannot point opaque types"));
+            return ira->codegen->invalid_instruction;
+        }
     }
 
     uint32_t align_bytes;

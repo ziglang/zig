@@ -2,6 +2,16 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.addTest(
+        "C pointer to c_void",
+        \\export fn a() void {
+        \\    var x: *c_void = undefined;
+        \\    var y: [*c]c_void = x;
+        \\}
+    ,
+        ".tmp_source.zig:3:12: error: C pointers cannot point opaque types",
+    );
+
+    cases.addTest(
         "directly embedding opaque type in struct and union",
         \\const O = @OpaqueType();
         \\const Foo = struct {

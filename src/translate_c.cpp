@@ -763,6 +763,30 @@ static bool qual_type_has_wrapping_overflow(Context *c, QualType qt) {
     }
 }
 
+static bool type_is_opaque(Context *c, const Type *ty, const SourceLocation &source_loc) {
+    switch (ty->getTypeClass()) {
+        case Type::Builtin: {
+            const BuiltinType *builtin_ty = static_cast<const BuiltinType*>(ty);
+            return builtin_ty->getKind() == BuiltinType::Void;
+        }
+        case Type::Record: {
+            const RecordType *record_ty = static_cast<const RecordType*>(ty);
+            return record_ty->getDecl()->getDefinition() == nullptr;
+        }
+        case Type::Elaborated: {
+            const ElaboratedType *elaborated_ty = static_cast<const ElaboratedType*>(ty);
+            return type_is_opaque(c, elaborated_ty->getNamedType().getTypePtr(), source_loc);
+        }
+        case Type::Typedef: {
+            const TypedefType *typedef_ty = static_cast<const TypedefType*>(ty);
+            const TypedefNameDecl *typedef_decl = typedef_ty->getDecl();
+            return type_is_opaque(c, typedef_decl->getUnderlyingType().getTypePtr(), source_loc);
+        }
+        default:
+            return false;
+    }
+}
+
 static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &source_loc) {
     switch (ty->getTypeClass()) {
         case Type::Builtin:
@@ -912,8 +936,14 @@ static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &sou
                     return trans_create_node_prefix_op(c, PrefixOpOptional, child_node);
                 }
 
-                return trans_create_node_ptr_type(c, child_qt.isConstQualified(),
-                        child_qt.isVolatileQualified(), child_node, PtrLenC);
+                if (type_is_opaque(c, child_qt.getTypePtr(), source_loc)) {
+                    AstNode *pointer_node = trans_create_node_ptr_type(c, child_qt.isConstQualified(),
+                            child_qt.isVolatileQualified(), child_node, PtrLenSingle);
+                    return trans_create_node_prefix_op(c, PrefixOpOptional, pointer_node);
+                } else {
+                    return trans_create_node_ptr_type(c, child_qt.isConstQualified(),
+                            child_qt.isVolatileQualified(), child_node, PtrLenC);
+                }
             }
         case Type::Typedef:
             {
