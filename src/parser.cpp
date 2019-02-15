@@ -2778,7 +2778,8 @@ static AstNode *ast_parse_array_type_start(ParseContext *pc) {
 // PtrTypeStart
 //     <- ASTERISK
 //      / ASTERISK2
-//      / LBRACKET ASTERISK RBRACKET
+//      / PTRUNKNOWN
+//      / PTRC
 static AstNode *ast_parse_ptr_type_start(ParseContext *pc) {
     Token *asterisk = eat_token_if(pc, TokenIdStar);
     if (asterisk != nullptr) {
@@ -2801,6 +2802,13 @@ static AstNode *ast_parse_ptr_type_start(ParseContext *pc) {
     if (multptr != nullptr) {
         AstNode *res = ast_create_node(pc, NodeTypePointerType, multptr);
         res->data.pointer_type.star_token = multptr;
+        return res;
+    }
+
+    Token *cptr = eat_token_if(pc, TokenIdBracketStarCBracket);
+    if (cptr != nullptr) {
+        AstNode *res = ast_create_node(pc, NodeTypePointerType, cptr);
+        res->data.pointer_type.star_token = cptr;
         return res;
     }
 

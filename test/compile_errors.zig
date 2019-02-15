@@ -2,12 +2,148 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.addTest(
+        "C pointer to c_void",
+        \\export fn a() void {
+        \\    var x: *c_void = undefined;
+        \\    var y: [*c]c_void = x;
+        \\}
+    ,
+        ".tmp_source.zig:3:12: error: C pointers cannot point opaque types",
+    );
+
+    cases.addTest(
+        "directly embedding opaque type in struct and union",
+        \\const O = @OpaqueType();
+        \\const Foo = struct {
+        \\    o: O,
+        \\};
+        \\const Bar = union {
+        \\    One: i32,
+        \\    Two: O,
+        \\};
+        \\export fn a() void {
+        \\    var foo: Foo = undefined;
+        \\}
+        \\export fn b() void {
+        \\    var bar: Bar = undefined;
+        \\}
+    ,
+        ".tmp_source.zig:3:8: error: opaque types have unknown size and therefore cannot be directly embedded in structs",
+        ".tmp_source.zig:7:10: error: opaque types have unknown size and therefore cannot be directly embedded in unions",
+    );
+
+    cases.addTest(
+        "implicit cast between C pointer and Zig pointer - bad const/align/child",
+        \\export fn a() void {
+        \\    var x: [*c]u8 = undefined;
+        \\    var y: *align(4) u8 = x;
+        \\}
+        \\export fn b() void {
+        \\    var x: [*c]const u8 = undefined;
+        \\    var y: *u8 = x;
+        \\}
+        \\export fn c() void {
+        \\    var x: [*c]u8 = undefined;
+        \\    var y: *u32 = x;
+        \\}
+        \\export fn d() void {
+        \\    var y: *align(1) u32 = undefined;
+        \\    var x: [*c]u32 = y;
+        \\}
+        \\export fn e() void {
+        \\    var y: *const u8 = undefined;
+        \\    var x: [*c]u8 = y;
+        \\}
+        \\export fn f() void {
+        \\    var y: *u8 = undefined;
+        \\    var x: [*c]u32 = y;
+        \\}
+    ,
+        ".tmp_source.zig:3:27: error: cast increases pointer alignment",
+        ".tmp_source.zig:7:18: error: cast discards const qualifier",
+        ".tmp_source.zig:11:19: error: expected type '*u32', found '[*c]u8'",
+        ".tmp_source.zig:11:19: note: pointer type child 'u8' cannot cast into pointer type child 'u32'",
+        ".tmp_source.zig:15:22: error: cast increases pointer alignment",
+        ".tmp_source.zig:19:21: error: cast discards const qualifier",
+        ".tmp_source.zig:23:22: error: expected type '[*c]u32', found '*u8'",
+    );
+
+    cases.addTest(
+        "implicit casting null c pointer to zig pointer",
+        \\comptime {
+        \\    var c_ptr: [*c]u8 = 0;
+        \\    var zig_ptr: *u8 = c_ptr;
+        \\}
+    ,
+        ".tmp_source.zig:3:24: error: null pointer casted to type '*u8'",
+    );
+
+    cases.addTest(
+        "implicit casting undefined c pointer to zig pointer",
+        \\comptime {
+        \\    var c_ptr: [*c]u8 = undefined;
+        \\    var zig_ptr: *u8 = c_ptr;
+        \\}
+    ,
+        ".tmp_source.zig:3:24: error: use of undefined value here causes undefined behavior",
+    );
+
+    cases.addTest(
+        "implicit casting C pointers which would mess up null semantics",
+        \\export fn entry() void {
+        \\    var slice: []const u8 = "aoeu";
+        \\    const opt_many_ptr: [*]const u8 = slice.ptr;
+        \\    var ptr_opt_many_ptr = &opt_many_ptr;
+        \\    var c_ptr: [*c]const [*c]const u8 = ptr_opt_many_ptr;
+        \\    ptr_opt_many_ptr = c_ptr;
+        \\}
+        \\export fn entry2() void {
+        \\    var buf: [4]u8 = "aoeu";
+        \\    var slice: []u8 = &buf;
+        \\    var opt_many_ptr: [*]u8 = slice.ptr;
+        \\    var ptr_opt_many_ptr = &opt_many_ptr;
+        \\    var c_ptr: [*c][*c]const u8 = ptr_opt_many_ptr;
+        \\}
+    ,
+        ".tmp_source.zig:6:24: error: expected type '*const [*]const u8', found '[*c]const [*c]const u8'",
+        ".tmp_source.zig:6:24: note: pointer type child '[*c]const u8' cannot cast into pointer type child '[*]const u8'",
+        ".tmp_source.zig:6:24: note: '[*c]const u8' could have null values which are illegal in type '[*]const u8'",
+        ".tmp_source.zig:13:35: error: expected type '[*c][*c]const u8', found '*[*]u8'",
+        ".tmp_source.zig:13:35: note: pointer type child '[*]u8' cannot cast into pointer type child '[*c]const u8'",
+        ".tmp_source.zig:13:35: note: mutable '[*c]const u8' allows illegal null values stored to type '[*]u8'",
+    );
+
+    cases.addTest(
+        "implicit casting too big integers to C pointers",
+        \\export fn a() void {
+        \\    var ptr: [*c]u8 = (1 << 64) + 1;
+        \\}
+        \\export fn b() void {
+        \\    var x: @IntType(false, 65) = 0x1234;
+        \\    var ptr: [*c]u8 = x;
+        \\}
+    ,
+        ".tmp_source.zig:2:33: error: integer value 71615590737044764481 cannot be implicitly casted to type 'usize'",
+        ".tmp_source.zig:6:23: error: integer type 'u65' too big for implicit @intToPtr to type '[*c]u8'",
+    );
+
+    cases.addTest(
+        "C pointer pointing to non C ABI compatible type or has align attr",
+        \\const Foo = struct {};
+        \\export fn a() void {
+        \\    const T = [*c]Foo;
+        \\}
+    ,
+        ".tmp_source.zig:3:15: error: C pointers cannot point to non-C-ABI-compatible type 'Foo'",
+    );
+
+    cases.addTest(
         "@truncate undefined value",
         \\export fn entry() void {
         \\    var z = @truncate(u8, u16(undefined));
         \\}
     ,
-        ".tmp_source.zig:2:30: error: use of undefined value",
+        ".tmp_source.zig:2:30: error: use of undefined value here causes undefined behavior",
     );
 
     cases.addTest(
@@ -368,7 +504,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    f(i32);
         \\}
     ,
-        ".tmp_source.zig:4:5: error: use of undefined value",
+        ".tmp_source.zig:4:5: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -768,7 +904,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    command.exec();
         \\}
     ,
-        ".tmp_source.zig:6:12: error: use of undefined value",
+        ".tmp_source.zig:6:12: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -781,7 +917,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    command.exec();
         \\}
     ,
-        ".tmp_source.zig:6:12: error: use of undefined value",
+        ".tmp_source.zig:6:12: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -2752,7 +2888,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(x)); }
     ,
-        ".tmp_source.zig:1:15: error: use of undefined value",
+        ".tmp_source.zig:1:15: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -2762,7 +2898,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a / a;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value",
+        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -2772,7 +2908,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    a /= a;
         \\}
     ,
-        ".tmp_source.zig:3:5: error: use of undefined value",
+        ".tmp_source.zig:3:5: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -2782,7 +2918,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a % a;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value",
+        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -2792,7 +2928,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    a %= a;
         \\}
     ,
-        ".tmp_source.zig:3:5: error: use of undefined value",
+        ".tmp_source.zig:3:5: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -2802,7 +2938,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a + a;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value",
+        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -2812,7 +2948,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    a += a;
         \\}
     ,
-        ".tmp_source.zig:3:5: error: use of undefined value",
+        ".tmp_source.zig:3:5: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -2822,7 +2958,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a +% a;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value",
+        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -2832,7 +2968,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    a +%= a;
         \\}
     ,
-        ".tmp_source.zig:3:5: error: use of undefined value",
+        ".tmp_source.zig:3:5: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -2842,7 +2978,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a - a;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value",
+        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -2852,7 +2988,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    a -= a;
         \\}
     ,
-        ".tmp_source.zig:3:5: error: use of undefined value",
+        ".tmp_source.zig:3:5: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -2862,7 +2998,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a -% a;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value",
+        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -2872,7 +3008,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    a -%= a;
         \\}
     ,
-        ".tmp_source.zig:3:5: error: use of undefined value",
+        ".tmp_source.zig:3:5: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -2882,7 +3018,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a * a;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value",
+        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -2892,7 +3028,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    a *= a;
         \\}
     ,
-        ".tmp_source.zig:3:5: error: use of undefined value",
+        ".tmp_source.zig:3:5: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -2902,7 +3038,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a *% a;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value",
+        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -2912,7 +3048,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    a *%= a;
         \\}
     ,
-        ".tmp_source.zig:3:5: error: use of undefined value",
+        ".tmp_source.zig:3:5: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -2922,7 +3058,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a << 2;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value",
+        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -2932,7 +3068,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    a <<= 2;
         \\}
     ,
-        ".tmp_source.zig:3:5: error: use of undefined value",
+        ".tmp_source.zig:3:5: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -2942,7 +3078,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a >> 2;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value",
+        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -2952,7 +3088,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    a >>= 2;
         \\}
     ,
-        ".tmp_source.zig:3:5: error: use of undefined value",
+        ".tmp_source.zig:3:5: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -2962,7 +3098,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a & a;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value",
+        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -2972,7 +3108,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    a &= a;
         \\}
     ,
-        ".tmp_source.zig:3:5: error: use of undefined value",
+        ".tmp_source.zig:3:5: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -2982,7 +3118,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a | a;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value",
+        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -2992,7 +3128,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    a |= a;
         \\}
     ,
-        ".tmp_source.zig:3:5: error: use of undefined value",
+        ".tmp_source.zig:3:5: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3002,7 +3138,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a ^ a;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value",
+        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3012,7 +3148,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    a ^= a;
         \\}
     ,
-        ".tmp_source.zig:3:5: error: use of undefined value",
+        ".tmp_source.zig:3:5: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3022,7 +3158,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a == a;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value",
+        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3032,7 +3168,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a != a;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value",
+        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3042,7 +3178,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a > a;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value",
+        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3052,7 +3188,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a >= a;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value",
+        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3062,7 +3198,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a < a;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value",
+        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3072,7 +3208,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a <= a;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value",
+        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3082,7 +3218,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a and a;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value",
+        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3092,7 +3228,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a or a;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value",
+        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3102,7 +3238,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = -a;
         \\}
     ,
-        ".tmp_source.zig:3:10: error: use of undefined value",
+        ".tmp_source.zig:3:10: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3112,7 +3248,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = -%a;
         \\}
     ,
-        ".tmp_source.zig:3:11: error: use of undefined value",
+        ".tmp_source.zig:3:11: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3122,7 +3258,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = ~a;
         \\}
     ,
-        ".tmp_source.zig:3:10: error: use of undefined value",
+        ".tmp_source.zig:3:10: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3132,7 +3268,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = !a;
         \\}
     ,
-        ".tmp_source.zig:3:10: error: use of undefined value",
+        ".tmp_source.zig:3:10: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3142,7 +3278,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a orelse false;
         \\}
     ,
-        ".tmp_source.zig:3:11: error: use of undefined value",
+        ".tmp_source.zig:3:11: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3152,7 +3288,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a catch |err| false;
         \\}
     ,
-        ".tmp_source.zig:3:11: error: use of undefined value",
+        ".tmp_source.zig:3:11: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(

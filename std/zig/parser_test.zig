@@ -1,3 +1,10 @@
+test "zig fmt: C pointers" {
+    try testCanonical(
+        \\const Ptr = [*c]i32;
+        \\
+    );
+}
+
 test "zig fmt: threadlocal" {
     try testCanonical(
         \\threadlocal var x: i32 = 1234;

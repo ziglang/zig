@@ -457,8 +457,8 @@ pub const Target = union(enum) {
         }
     }
 
-    pub fn llvmTargetFromTriple(triple: std.Buffer) !llvm.TargetRef {
-        var result: llvm.TargetRef = undefined;
+    pub fn llvmTargetFromTriple(triple: std.Buffer) !*llvm.Target {
+        var result: *llvm.Target = undefined;
         var err_msg: [*]u8 = undefined;
         if (llvm.GetTargetFromTriple(triple.ptr(), &result, &err_msg) != 0) {
             std.debug.warn("triple: {s} error: {s}\n", triple.ptr(), err_msg);

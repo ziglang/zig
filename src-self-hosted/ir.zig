@@ -67,7 +67,7 @@ pub const Inst = struct {
     parent: ?*Inst,
 
     /// populated durign codegen
-    llvm_value: ?llvm.ValueRef,
+    llvm_value: ?*llvm.Value,
 
     pub fn cast(base: *Inst, comptime T: type) ?*T {
         if (base.id == comptime typeToId(T)) {
@@ -129,7 +129,7 @@ pub const Inst = struct {
         }
     }
 
-    pub fn render(base: *Inst, ofile: *ObjectFile, fn_val: *Value.Fn) (error{OutOfMemory}!?llvm.ValueRef) {
+    pub fn render(base: *Inst, ofile: *ObjectFile, fn_val: *Value.Fn) (error{OutOfMemory}!?*llvm.Value) {
         switch (base.id) {
             Id.Return => return @fieldParentPtr(Return, "base", base).render(ofile, fn_val),
             Id.Const => return @fieldParentPtr(Const, "base", base).render(ofile, fn_val),
@@ -313,10 +313,10 @@ pub const Inst = struct {
             return new_inst;
         }
 
-        pub fn render(self: *Call, ofile: *ObjectFile, fn_val: *Value.Fn) !?llvm.ValueRef {
+        pub fn render(self: *Call, ofile: *ObjectFile, fn_val: *Value.Fn) !?*llvm.Value {
             const fn_ref = self.params.fn_ref.llvm_value.?;
 
-            const args = try ofile.arena.alloc(llvm.ValueRef, self.params.args.len);
+            const args = try ofile.arena.alloc(*llvm.Value, self.params.args.len);
             for (self.params.args) |arg, i| {
                 args[i] = arg.llvm_value.?;
             }
@@ -360,7 +360,7 @@ pub const Inst = struct {
             return new_inst;
         }
 
-        pub fn render(self: *Const, ofile: *ObjectFile, fn_val: *Value.Fn) !?llvm.ValueRef {
+        pub fn render(self: *Const, ofile: *ObjectFile, fn_val: *Value.Fn) !?*llvm.Value {
             return self.base.val.KnownValue.getLlvmConst(ofile);
         }
     };
@@ -392,7 +392,7 @@ pub const Inst = struct {
             return ira.irb.build(Return, self.base.scope, self.base.span, Params{ .return_value = casted_value });
         }
 
-        pub fn render(self: *Return, ofile: *ObjectFile, fn_val: *Value.Fn) !?llvm.ValueRef {
+        pub fn render(self: *Return, ofile: *ObjectFile, fn_val: *Value.Fn) !?*llvm.Value {
             const value = self.params.return_value.llvm_value;
             const return_type = self.params.return_value.getKnownType();
 
@@ -540,7 +540,7 @@ pub const Inst = struct {
             }
         }
 
-        pub fn render(self: *VarPtr, ofile: *ObjectFile, fn_val: *Value.Fn) llvm.ValueRef {
+        pub fn render(self: *VarPtr, ofile: *ObjectFile, fn_val: *Value.Fn) *llvm.Value {
             switch (self.params.var_scope.data) {
                 Scope.Var.Data.Const => unreachable, // turned into Inst.Const in analyze pass
                 Scope.Var.Data.Param => |param| return param.llvm_value,
@@ -596,7 +596,7 @@ pub const Inst = struct {
             return new_inst;
         }
 
-        pub fn render(self: *LoadPtr, ofile: *ObjectFile, fn_val: *Value.Fn) !?llvm.ValueRef {
+        pub fn render(self: *LoadPtr, ofile: *ObjectFile, fn_val: *Value.Fn) !?*llvm.Value {
             const child_type = self.base.getKnownType();
             if (!child_type.hasBits()) {
                 return null;
@@ -935,8 +935,8 @@ pub const BasicBlock = struct {
     ref_instruction: ?*Inst,
 
     /// for codegen
-    llvm_block: llvm.BasicBlockRef,
-    llvm_exit_block: llvm.BasicBlockRef,
+    llvm_block: *llvm.BasicBlock,
+    llvm_exit_block: *llvm.BasicBlock,
 
     /// the basic block that is derived from this one in analysis
     child: ?*BasicBlock,

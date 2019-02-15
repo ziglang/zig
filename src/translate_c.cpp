@@ -291,11 +291,22 @@ static AstNode *maybe_suppress_result(Context *c, ResultUsed result_used, AstNod
         node);
 }
 
+static TokenId ptr_len_to_token_id(PtrLen ptr_len) {
+    switch (ptr_len) {
+        case PtrLenSingle:
+            return TokenIdStar;
+        case PtrLenUnknown:
+            return TokenIdBracketStarBracket;
+        case PtrLenC:
+            return TokenIdBracketStarCBracket;
+    }
+    zig_unreachable();
+}
+
 static AstNode *trans_create_node_ptr_type(Context *c, bool is_const, bool is_volatile, AstNode *child_node, PtrLen ptr_len) {
     AstNode *node = trans_create_node(c, NodeTypePointerType);
     node->data.pointer_type.star_token = allocate<ZigToken>(1);
-    node->data.pointer_type.star_token->id = (ptr_len == PtrLenSingle) ? TokenIdStar: TokenIdBracketStarBracket;
-    node->data.pointer_type.is_const = is_const;
+    node->data.pointer_type.star_token->id = ptr_len_to_token_id(ptr_len);
     node->data.pointer_type.is_const = is_const;
     node->data.pointer_type.is_volatile = is_volatile;
     node->data.pointer_type.op_expr = child_node;
@@ -925,11 +936,14 @@ static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &sou
                     return trans_create_node_prefix_op(c, PrefixOpOptional, child_node);
                 }
 
-                PtrLen ptr_len = type_is_opaque(c, child_qt.getTypePtr(), source_loc) ? PtrLenSingle : PtrLenUnknown;
-
-                AstNode *pointer_node = trans_create_node_ptr_type(c, child_qt.isConstQualified(),
-                        child_qt.isVolatileQualified(), child_node, ptr_len);
-                return trans_create_node_prefix_op(c, PrefixOpOptional, pointer_node);
+                if (type_is_opaque(c, child_qt.getTypePtr(), source_loc)) {
+                    AstNode *pointer_node = trans_create_node_ptr_type(c, child_qt.isConstQualified(),
+                            child_qt.isVolatileQualified(), child_node, PtrLenSingle);
+                    return trans_create_node_prefix_op(c, PrefixOpOptional, pointer_node);
+                } else {
+                    return trans_create_node_ptr_type(c, child_qt.isConstQualified(),
+                            child_qt.isVolatileQualified(), child_node, PtrLenC);
+                }
             }
         case Type::Typedef:
             {
@@ -1113,7 +1127,7 @@ static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &sou
                     return nullptr;
                 }
                 AstNode *pointer_node = trans_create_node_ptr_type(c, child_qt.isConstQualified(),
-                        child_qt.isVolatileQualified(), child_type_node, PtrLenUnknown);
+                        child_qt.isVolatileQualified(), child_type_node, PtrLenC);
                 return pointer_node;
             }
         case Type::BlockPointer:
@@ -1693,7 +1707,7 @@ static AstNode *trans_implicit_cast_expr(Context *c, TransScope *scope, const Im
                 return node;
             }
         case CK_NullToPointer:
-            return trans_create_node(c, NodeTypeNullLiteral);
+            return trans_create_node_unsigned(c, 0);
         case CK_Dependent:
             emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_Dependent");
             return nullptr;
@@ -2425,7 +2439,8 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
                 case BuiltinType::Float16:
                     return trans_create_node_bin_op(c, res, BinOpTypeCmpNotEq, trans_create_node_unsigned_negative(c, 0, false));
                 case BuiltinType::NullPtr:
-                    return trans_create_node_bin_op(c, res, BinOpTypeCmpNotEq, trans_create_node(c, NodeTypeNullLiteral));
+                    return trans_create_node_bin_op(c, res, BinOpTypeCmpNotEq,
+                            trans_create_node_unsigned(c, 0));
 
                 case BuiltinType::Void:
                 case BuiltinType::Half:
@@ -2510,7 +2525,8 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
             break;
         }
         case Type::Pointer:
-            return trans_create_node_bin_op(c, res, BinOpTypeCmpNotEq, trans_create_node(c, NodeTypeNullLiteral));
+            return trans_create_node_bin_op(c, res, BinOpTypeCmpNotEq,
+                    trans_create_node_unsigned(c, 0));
 
         case Type::Typedef:
         {
@@ -4568,7 +4584,7 @@ static AstNode *parse_ctok_suffix_op_expr(Context *c, CTokenize *ctok, size_t *t
         } else if (first_tok->id == CTokIdAsterisk) {
             *tok_i += 1;
 
-            node = trans_create_node_ptr_type(c, false, false, node, PtrLenUnknown);
+            node = trans_create_node_ptr_type(c, false, false, node, PtrLenC);
         } else {
             return node;
         }

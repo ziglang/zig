@@ -417,10 +417,25 @@ ZigType *get_promise_type(CodeGen *g, ZigType *result_type) {
     return entry;
 }
 
+static const char *ptr_len_to_star_str(PtrLen ptr_len) {
+    switch (ptr_len) {
+        case PtrLenSingle:
+            return "*";
+        case PtrLenUnknown:
+            return "[*]";
+        case PtrLenC:
+            return "[*c]";
+    }
+    zig_unreachable();
+}
+
 ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_const,
         bool is_volatile, PtrLen ptr_len, uint32_t byte_alignment,
         uint32_t bit_offset_in_host, uint32_t host_int_bytes)
 {
+    // TODO when implementing https://github.com/ziglang/zig/issues/1953
+    // move this to a parameter
+    bool allow_zero = (ptr_len == PtrLenC);
     assert(!type_is_invalid(child_type));
     assert(ptr_len == PtrLenSingle || child_type->id != ZigTypeIdOpaque);
 
@@ -440,7 +455,7 @@ ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_cons
 
     TypeId type_id = {};
     ZigType **parent_pointer = nullptr;
-    if (host_int_bytes != 0 || is_volatile || byte_alignment != 0 || ptr_len != PtrLenSingle) {
+    if (host_int_bytes != 0 || is_volatile || byte_alignment != 0 || ptr_len != PtrLenSingle || allow_zero) {
         type_id.id = ZigTypeIdPointer;
         type_id.data.pointer.child_type = child_type;
         type_id.data.pointer.is_const = is_const;
@@ -449,6 +464,7 @@ ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_cons
         type_id.data.pointer.bit_offset_in_host = bit_offset_in_host;
         type_id.data.pointer.host_int_bytes = host_int_bytes;
         type_id.data.pointer.ptr_len = ptr_len;
+        type_id.data.pointer.allow_zero = allow_zero;
 
         auto existing_entry = g->type_table.maybe_get(type_id);
         if (existing_entry)
@@ -466,21 +482,31 @@ ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_cons
 
     ZigType *entry = new_type_table_entry(ZigTypeIdPointer);
 
-    const char *star_str = ptr_len == PtrLenSingle ? "*" : "[*]";
+    const char *star_str = ptr_len_to_star_str(ptr_len);
     const char *const_str = is_const ? "const " : "";
     const char *volatile_str = is_volatile ? "volatile " : "";
+    const char *allow_zero_str;
+    if (ptr_len == PtrLenC) {
+        assert(allow_zero);
+        allow_zero_str = "";
+    } else {
+        allow_zero_str = allow_zero ? "allowzero " : "";
+    }
     buf_resize(&entry->name, 0);
     if (host_int_bytes == 0 && byte_alignment == 0) {
-        buf_appendf(&entry->name, "%s%s%s%s", star_str, const_str, volatile_str, buf_ptr(&child_type->name));
+        buf_appendf(&entry->name, "%s%s%s%s%s",
+                star_str, const_str, volatile_str, allow_zero_str, buf_ptr(&child_type->name));
     } else if (host_int_bytes == 0) {
-        buf_appendf(&entry->name, "%salign(%" PRIu32 ") %s%s%s", star_str, byte_alignment,
-                const_str, volatile_str, buf_ptr(&child_type->name));
+        buf_appendf(&entry->name, "%salign(%" PRIu32 ") %s%s%s%s", star_str, byte_alignment,
+                const_str, volatile_str, allow_zero_str, buf_ptr(&child_type->name));
     } else if (byte_alignment == 0) {
-        buf_appendf(&entry->name, "%salign(:%" PRIu32 ":%" PRIu32 ") %s%s%s", star_str,
-                bit_offset_in_host, host_int_bytes, const_str, volatile_str, buf_ptr(&child_type->name));
+        buf_appendf(&entry->name, "%salign(:%" PRIu32 ":%" PRIu32 ") %s%s%s%s", star_str,
+                bit_offset_in_host, host_int_bytes, const_str, volatile_str, allow_zero_str,
+                buf_ptr(&child_type->name));
     } else {
-        buf_appendf(&entry->name, "%salign(%" PRIu32 ":%" PRIu32 ":%" PRIu32 ") %s%s%s", star_str, byte_alignment,
-                bit_offset_in_host, host_int_bytes, const_str, volatile_str, buf_ptr(&child_type->name));
+        buf_appendf(&entry->name, "%salign(%" PRIu32 ":%" PRIu32 ":%" PRIu32 ") %s%s%s%s", star_str, byte_alignment,
+                bit_offset_in_host, host_int_bytes, const_str, volatile_str, allow_zero_str,
+                buf_ptr(&child_type->name));
     }
 
     assert(child_type->id != ZigTypeIdInvalid);
@@ -488,7 +514,9 @@ ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_cons
     entry->zero_bits = !type_has_bits(child_type);
 
     if (!entry->zero_bits) {
-        if (is_const || is_volatile || byte_alignment != 0 || ptr_len != PtrLenSingle || bit_offset_in_host != 0) {
+        if (is_const || is_volatile || byte_alignment != 0 || ptr_len != PtrLenSingle ||
+            bit_offset_in_host != 0 || allow_zero)
+        {
             ZigType *peer_type = get_pointer_to_type_extra(g, child_type, false, false,
                     PtrLenSingle, 0, 0, host_int_bytes);
             entry->type_ref = peer_type->type_ref;
@@ -522,6 +550,7 @@ ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_cons
     entry->data.pointer.explicit_alignment = byte_alignment;
     entry->data.pointer.bit_offset_in_host = bit_offset_in_host;
     entry->data.pointer.host_int_bytes = host_int_bytes;
+    entry->data.pointer.allow_zero = allow_zero;
 
     if (parent_pointer) {
         *parent_pointer = entry;
@@ -838,7 +867,7 @@ ZigType *get_slice_type(CodeGen *g, ZigType *ptr_type) {
 
     ZigType *child_type = ptr_type->data.pointer.child_type;
     if (ptr_type->data.pointer.is_const || ptr_type->data.pointer.is_volatile ||
-        ptr_type->data.pointer.explicit_alignment != 0)
+        ptr_type->data.pointer.explicit_alignment != 0 || ptr_type->data.pointer.allow_zero)
     {
         ZigType *peer_ptr_type = get_pointer_to_type_extra(g, child_type, false, false,
                 PtrLenUnknown, 0, 0, 0);
@@ -861,7 +890,7 @@ ZigType *get_slice_type(CodeGen *g, ZigType *ptr_type) {
         ZigType *child_ptr_type = child_type->data.structure.fields[slice_ptr_index].type_entry;
         assert(child_ptr_type->id == ZigTypeIdPointer);
         if (child_ptr_type->data.pointer.is_const || child_ptr_type->data.pointer.is_volatile ||
-            child_ptr_type->data.pointer.explicit_alignment != 0)
+            child_ptr_type->data.pointer.explicit_alignment != 0 || child_ptr_type->data.pointer.allow_zero)
         {
             ZigType *grand_child_type = child_ptr_type->data.pointer.child_type;
             ZigType *bland_child_ptr_type = get_pointer_to_type_extra(g, grand_child_type, false, false,
@@ -1457,7 +1486,7 @@ static bool type_allowed_in_packed_struct(ZigType *type_entry) {
     zig_unreachable();
 }
 
-static bool type_allowed_in_extern(CodeGen *g, ZigType *type_entry) {
+bool type_allowed_in_extern(CodeGen *g, ZigType *type_entry) {
     switch (type_entry->id) {
         case ZigTypeIdInvalid:
             zig_unreachable();
@@ -2650,6 +2679,13 @@ static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
                     buf_sprintf("enums, not structs, support field assignment"));
         }
 
+        if (field_type->id == ZigTypeIdOpaque) {
+            add_node_error(g, field_node->data.struct_field.type,
+                buf_sprintf("opaque types have unknown size and therefore cannot be directly embedded in structs"));
+            struct_type->data.structure.resolve_status = ResolveStatusInvalid;
+            continue;
+        }
+
         switch (type_requires_comptime(g, field_type)) {
             case ReqCompTimeYes:
                 struct_type->data.structure.requires_comptime = true;
@@ -2933,6 +2969,13 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
             }
         }
         union_field->type_entry = field_type;
+
+        if (field_type->id == ZigTypeIdOpaque) {
+            add_node_error(g, field_node->data.struct_field.type,
+                buf_sprintf("opaque types have unknown size and therefore cannot be directly embedded in unions"));
+            union_type->data.unionation.is_invalid = true;
+            continue;
+        }
 
         switch (type_requires_comptime(g, field_type)) {
             case ReqCompTimeInvalid:
@@ -4041,7 +4084,9 @@ ZigType *get_src_ptr_type(ZigType *type) {
     if (type->id == ZigTypeIdFn) return type;
     if (type->id == ZigTypeIdPromise) return type;
     if (type->id == ZigTypeIdOptional) {
-        if (type->data.maybe.child_type->id == ZigTypeIdPointer) return type->data.maybe.child_type;
+        if (type->data.maybe.child_type->id == ZigTypeIdPointer) {
+            return type->data.maybe.child_type->data.pointer.allow_zero ? nullptr : type->data.maybe.child_type;
+        }
         if (type->data.maybe.child_type->id == ZigTypeIdFn) return type->data.maybe.child_type;
         if (type->data.maybe.child_type->id == ZigTypeIdPromise) return type->data.maybe.child_type;
     }
@@ -4053,6 +4098,10 @@ ZigType *get_codegen_ptr_type(ZigType *type) {
     if (ty == nullptr || !type_has_bits(ty))
         return nullptr;
     return ty;
+}
+
+bool type_is_nonnull_ptr(ZigType *type) {
+    return type_is_codegen_pointer(type) && !ptr_allows_addr_zero(type);
 }
 
 bool type_is_codegen_pointer(ZigType *type) {
@@ -6300,6 +6349,7 @@ uint32_t type_id_hash(TypeId x) {
                 ((x.data.pointer.ptr_len == PtrLenSingle) ? (uint32_t)1120226602 : (uint32_t)3200913342) +
                 (x.data.pointer.is_const ? (uint32_t)2749109194 : (uint32_t)4047371087) +
                 (x.data.pointer.is_volatile ? (uint32_t)536730450 : (uint32_t)1685612214) +
+                (x.data.pointer.allow_zero ? (uint32_t)3324284834 : (uint32_t)3584904923) +
                 (((uint32_t)x.data.pointer.alignment) ^ (uint32_t)0x777fbe0e) +
                 (((uint32_t)x.data.pointer.bit_offset_in_host) ^ (uint32_t)2639019452) +
                 (((uint32_t)x.data.pointer.host_int_bytes) ^ (uint32_t)529908881);
@@ -6350,6 +6400,7 @@ bool type_id_eql(TypeId a, TypeId b) {
                 a.data.pointer.ptr_len == b.data.pointer.ptr_len &&
                 a.data.pointer.is_const == b.data.pointer.is_const &&
                 a.data.pointer.is_volatile == b.data.pointer.is_volatile &&
+                a.data.pointer.allow_zero == b.data.pointer.allow_zero &&
                 a.data.pointer.alignment == b.data.pointer.alignment &&
                 a.data.pointer.bit_offset_in_host == b.data.pointer.bit_offset_in_host &&
                 a.data.pointer.host_int_bytes == b.data.pointer.host_int_bytes;
@@ -6882,4 +6933,22 @@ Error ensure_const_val_repr(IrAnalyze *ira, CodeGen *codegen, AstNode *source_no
         return ErrorSemanticAnalyzeFail;
 
     return ErrorNone;
+}
+
+const char *container_string(ContainerKind kind) {
+    switch (kind) {
+        case ContainerKindEnum: return "enum";
+        case ContainerKindStruct: return "struct";
+        case ContainerKindUnion: return "union";
+    }
+    zig_unreachable();
+}
+
+bool ptr_allows_addr_zero(ZigType *ptr_type) {
+    if (ptr_type->id == ZigTypeIdPointer) {
+        return ptr_type->data.pointer.allow_zero;
+    } else if (ptr_type->id == ZigTypeIdOptional) {
+        return true;
+    }
+    return false;
 }

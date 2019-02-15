@@ -617,9 +617,10 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, ZigFn *fn_table_entry) {
     unsigned init_gen_i = 0;
     if (!type_has_bits(return_type)) {
         // nothing to do
-    } else if (type_is_codegen_pointer(return_type)) {
+    } else if (type_is_nonnull_ptr(return_type)) {
         addLLVMAttr(fn_table_entry->llvm_value, 0, "nonnull");
     } else if (want_first_arg_sret(g, &fn_type->data.fn.fn_type_id)) {
+        // Sret pointers must not be address 0
         addLLVMArgAttr(fn_table_entry->llvm_value, 0, "nonnull");
         addLLVMArgAttr(fn_table_entry->llvm_value, 0, "sret");
         if (cc_want_sret_attr(cc)) {
@@ -637,6 +638,8 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, ZigFn *fn_table_entry) {
 
     uint32_t err_ret_trace_arg_index = get_err_ret_trace_arg_index(g, fn_table_entry);
     if (err_ret_trace_arg_index != UINT32_MAX) {
+        // Error return trace memory is in the stack, which is impossible to be at address 0
+        // on any architecture.
         addLLVMArgAttr(fn_table_entry->llvm_value, (unsigned)err_ret_trace_arg_index, "nonnull");
     }
 
@@ -950,6 +953,8 @@ static Buf *panic_msg_buf(PanicMsgId msg_id) {
             return buf_create_from_str("invalid enum value");
         case PanicMsgIdFloatToInt:
             return buf_create_from_str("integer part of floating point value out of bounds");
+        case PanicMsgIdPtrCastNull:
+            return buf_create_from_str("cast causes pointer to be null");
     }
     zig_unreachable();
 }
@@ -1244,6 +1249,8 @@ static LLVMValueRef get_add_error_return_trace_addr_fn(CodeGen *g) {
     LLVMSetFunctionCallConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
     addLLVMFnAttr(fn_val, "nounwind");
     add_uwtable_attr(g, fn_val);
+    // Error return trace memory is in the stack, which is impossible to be at address 0
+    // on any architecture.
     addLLVMArgAttr(fn_val, (unsigned)0, "nonnull");
     if (g->build_mode == BuildModeDebug) {
         ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim", "true");
@@ -1318,9 +1325,13 @@ static LLVMValueRef get_merge_err_ret_traces_fn_val(CodeGen *g) {
     LLVMSetFunctionCallConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
     addLLVMFnAttr(fn_val, "nounwind");
     add_uwtable_attr(g, fn_val);
+    // Error return trace memory is in the stack, which is impossible to be at address 0
+    // on any architecture.
     addLLVMArgAttr(fn_val, (unsigned)0, "nonnull");
     addLLVMArgAttr(fn_val, (unsigned)0, "noalias");
     addLLVMArgAttr(fn_val, (unsigned)0, "writeonly");
+    // Error return trace memory is in the stack, which is impossible to be at address 0
+    // on any architecture.
     addLLVMArgAttr(fn_val, (unsigned)1, "nonnull");
     addLLVMArgAttr(fn_val, (unsigned)1, "noalias");
     addLLVMArgAttr(fn_val, (unsigned)1, "readonly");
@@ -1448,6 +1459,8 @@ static LLVMValueRef get_return_err_fn(CodeGen *g) {
     LLVMSetFunctionCallConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
     addLLVMFnAttr(fn_val, "nounwind");
     add_uwtable_attr(g, fn_val);
+    // Error return trace memory is in the stack, which is impossible to be at address 0
+    // on any architecture.
     addLLVMArgAttr(fn_val, (unsigned)0, "nonnull");
     if (g->build_mode == BuildModeDebug) {
         ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim", "true");
@@ -2049,7 +2062,7 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
             case FnWalkIdAttrs: {
                 ZigType *ptr_type = get_codegen_ptr_type(ty);
                 if (ptr_type != nullptr) {
-                    if (ty->id != ZigTypeIdOptional) {
+                    if (type_is_nonnull_ptr(ty)) {
                         addLLVMArgAttr(llvm_fn, fn_walk->data.attrs.gen_i, "nonnull");
                     }
                     if (ptr_type->data.pointer.is_const) {
@@ -2093,6 +2106,7 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
         assert(handle_is_ptr(ty));
         switch (fn_walk->id) {
             case FnWalkIdAttrs:
+                // arrays passed to C ABI functions may not be at address 0
                 addLLVMArgAttr(llvm_fn, fn_walk->data.attrs.gen_i, "nonnull");
                 addLLVMArgAttrInt(llvm_fn, fn_walk->data.attrs.gen_i, "align", get_abi_alignment(g, ty));
                 fn_walk->data.attrs.gen_i += 1;
@@ -2132,6 +2146,7 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
                 case FnWalkIdAttrs:
                     addLLVMArgAttr(llvm_fn, fn_walk->data.attrs.gen_i, "byval");
                     addLLVMArgAttrInt(llvm_fn, fn_walk->data.attrs.gen_i, "align", get_abi_alignment(g, ty));
+                    // Byvalue parameters must not have address 0
                     addLLVMArgAttr(llvm_fn, fn_walk->data.attrs.gen_i, "nonnull");
                     fn_walk->data.attrs.gen_i += 1;
                     break;
@@ -2264,7 +2279,7 @@ void walk_function_params(CodeGen *g, ZigType *fn_type, FnWalk *fn_walk) {
                 if ((param_type->id == ZigTypeIdPointer && param_type->data.pointer.is_const) || is_byval) {
                     addLLVMArgAttr(llvm_fn, (unsigned)gen_index, "readonly");
                 }
-                if (param_type->id == ZigTypeIdPointer) {
+                if (type_is_nonnull_ptr(param_type)) {
                     addLLVMArgAttr(llvm_fn, (unsigned)gen_index, "nonnull");
                 }
                 break;
@@ -2657,7 +2672,7 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
         (op1->value.type->id == ZigTypeIdErrorSet && op2->value.type->id == ZigTypeIdErrorSet) ||
         (op1->value.type->id == ZigTypeIdPointer &&
             (op_id == IrBinOpAdd || op_id == IrBinOpSub) &&
-            op1->value.type->data.pointer.ptr_len == PtrLenUnknown)
+            op1->value.type->data.pointer.ptr_len != PtrLenSingle)
     );
     ZigType *operand_type = op1->value.type;
     ZigType *scalar_type = (operand_type->id == ZigTypeIdVector) ? operand_type->data.vector.elem_type : operand_type;
@@ -2716,7 +2731,7 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
                 AddSubMulMul;
 
             if (scalar_type->id == ZigTypeIdPointer) {
-                assert(scalar_type->data.pointer.ptr_len == PtrLenUnknown);
+                assert(scalar_type->data.pointer.ptr_len != PtrLenSingle);
                 LLVMValueRef subscript_value;
                 if (operand_type->id == ZigTypeIdVector)
                     zig_panic("TODO: Implement vector operations on pointers.");
@@ -3028,7 +3043,22 @@ static LLVMValueRef ir_render_ptr_cast(CodeGen *g, IrExecutable *executable,
         return nullptr;
     }
     LLVMValueRef ptr = ir_llvm_value(g, instruction->ptr);
-    return LLVMBuildBitCast(g->builder, ptr, wanted_type->type_ref, "");
+    LLVMValueRef result_ptr = LLVMBuildBitCast(g->builder, ptr, wanted_type->type_ref, "");
+    bool want_safety_check = instruction->safety_check_on && ir_want_runtime_safety(g, &instruction->base);
+    if (!want_safety_check || ptr_allows_addr_zero(wanted_type))
+        return result_ptr;
+
+    LLVMValueRef zero = LLVMConstNull(LLVMTypeOf(result_ptr));
+    LLVMValueRef ok_bit = LLVMBuildICmp(g->builder, LLVMIntNE, result_ptr, zero, "");
+    LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "PtrCastFail");
+    LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "PtrCastOk");
+    LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
+
+    LLVMPositionBuilderAtEnd(g->builder, fail_block);
+    gen_safety_crash(g, PanicMsgIdPtrCastNull);
+
+    LLVMPositionBuilderAtEnd(g->builder, ok_block);
+    return result_ptr;
 }
 
 static LLVMValueRef ir_render_bit_cast(CodeGen *g, IrExecutable *executable,
@@ -7294,6 +7324,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             "            One,\n"
             "            Many,\n"
             "            Slice,\n"
+            "            C,\n"
             "        };\n"
             "    };\n"
             "\n"

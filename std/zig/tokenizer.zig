@@ -141,6 +141,7 @@ pub const Token = struct {
         LineComment,
         DocComment,
         BracketStarBracket,
+        BracketStarCBracket,
         ShebangLine,
         Keyword_align,
         Keyword_and,
@@ -279,6 +280,7 @@ pub const Tokenizer = struct {
         SawAtSign,
         LBracket,
         LBracketStar,
+        LBracketStarC,
     };
 
     pub fn next(self: *Tokenizer) Token {
@@ -456,8 +458,23 @@ pub const Tokenizer = struct {
                 },
 
                 State.LBracketStar => switch (c) {
+                    'c' => {
+                        state = State.LBracketStarC;
+                    },
                     ']' => {
                         result.id = Token.Id.BracketStarBracket;
+                        self.index += 1;
+                        break;
+                    },
+                    else => {
+                        result.id = Token.Id.Invalid;
+                        break;
+                    },
+                },
+
+                State.LBracketStarC => switch (c) {
+                    ']' => {
+                        result.id = Token.Id.BracketStarCBracket;
                         self.index += 1;
                         break;
                     },
@@ -1035,6 +1052,7 @@ pub const Tokenizer = struct {
                 State.CharLiteralEnd,
                 State.StringLiteralBackslash,
                 State.LBracketStar,
+                State.LBracketStarC,
                 => {
                     result.id = Token.Id.Invalid;
                 },
@@ -1169,11 +1187,14 @@ test "tokenizer" {
     testTokenize("test", []Token.Id{Token.Id.Keyword_test});
 }
 
-test "tokenizer - unknown length pointer" {
+test "tokenizer - unknown length pointer and then c pointer" {
     testTokenize(
         \\[*]u8
+        \\[*c]u8
     , []Token.Id{
         Token.Id.BracketStarBracket,
+        Token.Id.Identifier,
+        Token.Id.BracketStarCBracket,
         Token.Id.Identifier,
     });
 }

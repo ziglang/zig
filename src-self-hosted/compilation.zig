@@ -37,7 +37,7 @@ const max_src_size = 2 * 1024 * 1024 * 1024; // 2 GiB
 /// Data that is local to the event loop.
 pub const ZigCompiler = struct {
     loop: *event.Loop,
-    llvm_handle_pool: std.atomic.Stack(llvm.ContextRef),
+    llvm_handle_pool: std.atomic.Stack(*llvm.Context),
     lld_lock: event.Lock,
 
     /// TODO pool these so that it doesn't have to lock
@@ -60,7 +60,7 @@ pub const ZigCompiler = struct {
         return ZigCompiler{
             .loop = loop,
             .lld_lock = event.Lock.init(loop),
-            .llvm_handle_pool = std.atomic.Stack(llvm.ContextRef).init(),
+            .llvm_handle_pool = std.atomic.Stack(*llvm.Context).init(),
             .prng = event.Locked(std.rand.DefaultPrng).init(loop, std.rand.DefaultPrng.init(seed)),
             .native_libc = event.Future(LibCInstallation).init(loop),
         };
@@ -70,7 +70,7 @@ pub const ZigCompiler = struct {
     fn deinit(self: *ZigCompiler) void {
         self.lld_lock.deinit();
         while (self.llvm_handle_pool.pop()) |node| {
-            c.LLVMContextDispose(node.data);
+            llvm.ContextDispose(node.data);
             self.loop.allocator.destroy(node);
         }
     }
@@ -80,11 +80,11 @@ pub const ZigCompiler = struct {
     pub fn getAnyLlvmContext(self: *ZigCompiler) !LlvmHandle {
         if (self.llvm_handle_pool.pop()) |node| return LlvmHandle{ .node = node };
 
-        const context_ref = c.LLVMContextCreate() orelse return error.OutOfMemory;
-        errdefer c.LLVMContextDispose(context_ref);
+        const context_ref = llvm.ContextCreate() orelse return error.OutOfMemory;
+        errdefer llvm.ContextDispose(context_ref);
 
-        const node = try self.loop.allocator.create(std.atomic.Stack(llvm.ContextRef).Node);
-        node.* = std.atomic.Stack(llvm.ContextRef).Node{
+        const node = try self.loop.allocator.create(std.atomic.Stack(*llvm.Context).Node);
+        node.* = std.atomic.Stack(*llvm.Context).Node{
             .next = undefined,
             .data = context_ref,
         };
@@ -114,7 +114,7 @@ pub const ZigCompiler = struct {
 };
 
 pub const LlvmHandle = struct {
-    node: *std.atomic.Stack(llvm.ContextRef).Node,
+    node: *std.atomic.Stack(*llvm.Context).Node,
 
     pub fn release(self: LlvmHandle, zig_compiler: *ZigCompiler) void {
         zig_compiler.llvm_handle_pool.push(self.node);
@@ -128,7 +128,7 @@ pub const Compilation = struct {
     llvm_triple: Buffer,
     root_src_path: ?[]const u8,
     target: Target,
-    llvm_target: llvm.TargetRef,
+    llvm_target: *llvm.Target,
     build_mode: builtin.Mode,
     zig_lib_dir: []const u8,
     zig_std_dir: []const u8,
@@ -212,8 +212,8 @@ pub const Compilation = struct {
     false_value: *Value.Bool,
     noreturn_value: *Value.NoReturn,
 
-    target_machine: llvm.TargetMachineRef,
-    target_data_ref: llvm.TargetDataRef,
+    target_machine: *llvm.TargetMachine,
+    target_data_ref: *llvm.TargetData,
     target_layout_str: [*]u8,
     target_ptr_bits: u32,
 

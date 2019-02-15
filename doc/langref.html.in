@@ -1694,7 +1694,7 @@ test "comptime @intToPtr" {
     }
 }
       {#code_end#}
-      {#see_also|Optional Pointers#}
+      {#see_also|Optional Pointers|@intToPtr|@ptrToInt#}
       {#header_open|volatile#}
       <p>Loads and stores are assumed to not have side effects. If a given load or store
       should have side effects, such as Memory Mapped Input/Output (MMIO), use {#syntax#}volatile{#endsyntax#}.
@@ -1823,7 +1823,9 @@ fn foo(bytes: []u8) u32 {
 }
       {#code_end#}
       {#header_close#}
+      {#see_also|C Pointers#}
       {#header_close#}
+
       {#header_open|Slices#}
       {#code_begin|test_safety|index out of bounds#}
 const assert = @import("std").debug.assert;
@@ -3981,7 +3983,7 @@ test "implicit cast - invoke a type as a function" {
       {#code_end#}
       <p>
       Implicit casts are only allowed when it is completely unambiguous how to get from one type to another,
-      and the transformation is guaranteed to be safe.
+      and the transformation is guaranteed to be safe. There is one exception, which is {#link|C Pointers#}.
       </p>
       {#header_open|Implicit Cast: Stricter Qualification#}
       <p>
@@ -6104,6 +6106,10 @@ test "call foo" {
       <p>
       Converts a pointer of one type to a pointer of another type.
       </p>
+      <p>
+      {#link|Optional Pointers#} are allowed. Casting an optional pointer which is {#link|null#}
+      to a non-optional pointer invokes safety-checked {#link|Undefined Behavior#}.
+      </p>
       {#header_close#}
 
       {#header_open|@ptrToInt#}
@@ -7345,8 +7351,25 @@ fn bar(f: *Foo) void {
       {#code_end#}
       {#header_close#}
 
-      {#header_open|Out of Bounds Float To Integer Cast#}
+      {#header_open|Out of Bounds Float to Integer Cast#}
       <p>TODO</p>
+      {#header_close#}
+
+      {#header_open|Pointer Cast Invalid Null#}
+      <p>At compile-time:</p>
+      {#code_begin|test_err|null pointer casted to type#}
+comptime {
+    const opt_ptr: ?*i32 = null;
+    const ptr = @ptrCast(*i32, opt_ptr);
+}
+      {#code_end#}
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+pub fn main() void {
+    var opt_ptr: ?*i32 = null;
+    var ptr = @ptrCast(*i32, opt_ptr);
+}
+      {#code_end#}
       {#header_close#}
 
       {#header_close#}
@@ -7439,6 +7462,7 @@ pub fn main() void {
       {#code_end#}
       {#see_also|String Literals#}
       {#header_close#}
+
       {#header_open|Import from C Header File#}
       <p>
       The {#syntax#}@cImport{#endsyntax#} builtin function can be used
@@ -7477,6 +7501,36 @@ const c = @cImport({
       {#code_end#}
       {#see_also|@cImport|@cInclude|@cDefine|@cUndef|@import#}
       {#header_close#}
+
+      {#header_open|C Pointers#}
+      <p>
+      This type is to be avoided whenever possible. The only valid reason for using a C pointer is in
+      auto-generated code from translating C code.
+      </p>
+      <p>
+      When importing C header files, it is ambiguous whether pointers should be translated as
+      single-item pointers ({#syntax#}*T{#endsyntax#}) or unknown-length pointers ({#syntax#}[*]T{#endsyntax#}).
+      C pointers are a compromise so that Zig code can utilize translated header files directly.
+      </p>
+      <p>{#syntax#}[*c]T{#endsyntax#} - C pointer.</p>
+      <ul>
+        <li>Supports all the syntax of the other two pointer types.</li>
+        <li>Implicitly casts to other pointer types, as well as {#link|Optional Pointers#}.
+            When a C pointer is implicitly casted to a non-optional pointer, safety-checked
+            {#link|Undefined Behavior#} occurs if the address is 0.
+        </li>
+        <li>Allows address 0. On non-freestanding targets, dereferencing address 0 is safety-checked
+            {#link|Undefined Behavior#}. Optional C pointers introduce another bit to keep track of 
+            null, just like {#syntax#}?usize{#endsyntax#}. Note that creating an optional C pointer
+            is unnecessary as one can use normal {#link|Optional Pointers#}.
+        </li>
+        <li>Supports {#link|implicit casting|Implicit Casts#} to and from integers.</li>
+        <li>Supports comparison with integers.</li>
+        <li>Does not support Zig-only pointer attributes such as alignment. Use normal {#link|Pointers#}
+        please!</li>
+      </ul>
+      {#header_close#}
+
       {#header_open|Exporting a C Library#}
       <p>
       One of the primary use cases for Zig is exporting a library with the C ABI for other programming languages
@@ -8164,7 +8218,8 @@ ArrayTypeStart &lt;- LBRACKET Expr? RBRACKET
 PtrTypeStart
     &lt;- ASTERISK
      / ASTERISK2
-     / LBRACKET ASTERISK RBRACKET
+     / PTRUNKNOWN
+     / PTRC
 
 # ContainerDecl specific
 ContainerDeclAuto &lt;- ContainerDeclType LBRACE ContainerMembers RBRACE
@@ -8262,7 +8317,7 @@ LARROW2              &lt;- '&lt;&lt;'     ![=]      skip
 LARROW2EQUAL         &lt;- '&lt;&lt;='              skip
 LARROWEQUAL          &lt;- '&lt;='               skip
 LBRACE               &lt;- '{'                skip
-LBRACKET             &lt;- '['                skip
+LBRACKET             &lt;- '['      ![*]      skip
 LPAREN               &lt;- '('                skip
 MINUS                &lt;- '-'      ![%=&gt;]    skip
 MINUSEQUAL           &lt;- '-='               skip
@@ -8279,6 +8334,8 @@ PLUS2                &lt;- '++'               skip
 PLUSEQUAL            &lt;- '+='               skip
 PLUSPERCENT          &lt;- '+%'     ![=]      skip
 PLUSPERCENTEQUAL     &lt;- '+%='              skip
+PTRC                 &lt;- '[*c]'             skip
+PTRUNKNOWN           &lt;- '[*]'              skip
 QUESTIONMARK         &lt;- '?'                skip
 RARROW               &lt;- '&gt;'      ![&gt;=]     skip
 RARROW2              &lt;- '&gt;&gt;'     ![=]      skip

@@ -362,7 +362,7 @@ pub const Scope = struct {
         pub const Param = struct {
             index: usize,
             typ: *Type,
-            llvm_value: llvm.ValueRef,
+            llvm_value: *llvm.Value,
         };
 
         pub fn createParam(

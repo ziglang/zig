@@ -236,6 +236,9 @@ pub fn formatType(
                 const casted_value = ([]const u8)(value);
                 return output(context, casted_value);
             },
+            builtin.TypeInfo.Pointer.Size.C => {
+                return format(context, Errors, output, "{}@{x}", @typeName(T.Child), @ptrToInt(value));
+            },
         },
         builtin.TypeId.Array => |info| {
             if (info.child == u8) {

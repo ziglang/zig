@@ -1,6 +1,16 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompareOutputContext) void {
+    cases.addRuntimeSafety("pointer casting null to non-optional pointer",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\pub fn main() void {
+        \\    var c_ptr: [*c]u8 = 0;
+        \\    var zig_ptr: *u8 = c_ptr;
+        \\}
+    );
+
     cases.addRuntimeSafety("@intToEnum - no matching tag value",
         \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
