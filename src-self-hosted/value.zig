@@ -283,8 +283,8 @@ pub const Value = struct {
             comp.gpa().destroy(self);
         }
 
-        pub fn getLlvmConst(self: *Bool, ofile: *ObjectFile) ?*llvm.Value {
-            const llvm_type = llvm.Int1TypeInContext(ofile.context);
+        pub fn getLlvmConst(self: *Bool, ofile: *ObjectFile) !?*llvm.Value {
+            const llvm_type = llvm.Int1TypeInContext(ofile.context) orelse return error.OutOfMemory;
             if (self.x) {
                 return llvm.ConstAllOnes(llvm_type);
             } else {
