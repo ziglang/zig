@@ -118,13 +118,17 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.addTest(
-        "C pointer pointing to non C ABI compatible type",
+        "C pointer pointing to non C ABI compatible type or has align attr",
         \\const Foo = struct {};
-        \\export fn entry() [*c]Foo {
-        \\    return undefined;
+        \\export fn a() void {
+        \\    const T = [*c]Foo;
+        \\}
+        \\export fn b() void {
+        \\    const T = [*c]align(4) u8;
         \\}
     ,
-        ".tmp_source.zig:2:19: error: C pointers cannot point to non-C-ABI-compatible type 'Foo'",
+        ".tmp_source.zig:3:15: error: C pointers cannot point to non-C-ABI-compatible type 'Foo'",
+        ".tmp_source.zig:6:15: error: [*c] pointers may not have align attribute",
     );
 
     cases.addTest(
