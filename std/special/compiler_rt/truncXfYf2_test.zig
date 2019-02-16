@@ -63,6 +63,74 @@ test "truncsfhf2" {
     test__truncsfhf2(0x33000000, 0x0000); // 0x1.0p-25 -> zero
 }
 
+const __truncdfhf2 = @import("truncXfYf2.zig").__truncdfhf2;
+
+fn test__truncdfhf2(a: f64, expected: u16) void {
+    const rep = @bitCast(u16, __truncdfhf2(a));
+
+    if (rep == expected) {
+        return;
+    }
+    // test other possible NaN representation(signal NaN)
+    else if (expected == 0x7e00) {
+        if ((rep & 0x7c00) == 0x7c00 and (rep & 0x3ff) > 0) {
+            return;
+        }
+    }
+
+    @panic("__truncdfhf2 test failure");
+}
+
+fn test__truncdfhf2_raw(a: u64, expected: u16) void {
+    const actual = __truncdfhf2(@bitCast(f64, a));
+
+    if (actual == expected) {
+        return;
+    }
+
+    @panic("__truncdfhf2 test failure");
+}
+
+test "truncdfhf2" {
+    test__truncdfhf2_raw(0x7ff8000000000000, 0x7e00); // qNaN
+    test__truncdfhf2_raw(0x7ff0000000008000, 0x7e00); // NaN
+
+    test__truncdfhf2_raw(0x7ff0000000000000, 0x7c00); //inf
+    test__truncdfhf2_raw(0xfff0000000000000, 0xfc00); // -inf
+
+    test__truncdfhf2(0.0, 0x0); // zero
+    test__truncdfhf2_raw(0x80000000 << 32, 0x8000); // -zero
+
+    test__truncdfhf2(3.1415926535, 0x4248);
+    test__truncdfhf2(-3.1415926535, 0xc248);
+
+    test__truncdfhf2(0x1.987124876876324p+1000, 0x7c00);
+    test__truncdfhf2(0x1.987124876876324p+12, 0x6e62);
+    test__truncdfhf2(0x1.0p+0, 0x3c00);
+    test__truncdfhf2(0x1.0p-14, 0x0400);
+
+    // denormal
+    test__truncdfhf2(0x1.0p-20, 0x0010);
+    test__truncdfhf2(0x1.0p-24, 0x0001);
+    test__truncdfhf2(-0x1.0p-24, 0x8001);
+    test__truncdfhf2(0x1.5p-25, 0x0001);
+
+    // and back to zero
+    test__truncdfhf2(0x1.0p-25, 0x0000);
+    test__truncdfhf2(-0x1.0p-25, 0x8000);
+
+    // max (precise)
+    test__truncdfhf2(65504.0, 0x7bff);
+
+    // max (rounded)
+    test__truncdfhf2(65519.0, 0x7bff);
+
+    // max (to +inf)
+    test__truncdfhf2(65520.0, 0x7c00);
+    test__truncdfhf2(-65520.0, 0xfc00);
+    test__truncdfhf2(65536.0, 0x7c00);
+}
+
 const __trunctfsf2 = @import("truncXfYf2.zig").__trunctfsf2;
 
 fn test__trunctfsf2(a: f128, expected: u32) void {
