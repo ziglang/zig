@@ -24,7 +24,7 @@ var stderr_file: os.File = undefined;
 var stderr: *io.OutStream(os.File.WriteError) = undefined;
 var stdout: *io.OutStream(os.File.WriteError) = undefined;
 
-const max_src_size = 2 * 1024 * 1024 * 1024; // 2 GiB
+pub const max_src_size = 2 * 1024 * 1024 * 1024; // 2 GiB
 
 const usage =
     \\usage: zig [command] [options]
@@ -510,7 +510,7 @@ fn cmdBuildObj(allocator: *Allocator, args: []const []const u8) !void {
     return buildOutputType(allocator, args, Compilation.Kind.Obj);
 }
 
-const usage_fmt =
+pub const usage_fmt =
     \\usage: zig fmt [file]...
     \\
     \\   Formats the input files and modifies them in-place.
@@ -527,7 +527,7 @@ const usage_fmt =
     \\
 ;
 
-const args_fmt_spec = []Flag{
+pub const args_fmt_spec = []Flag{
     Flag.Bool("--help"),
     Flag.Bool("--check"),
     Flag.Option("--color", []const []const u8{

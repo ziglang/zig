@@ -21,8 +21,8 @@ static int print_error_usage(const char *arg0) {
     return EXIT_FAILURE;
 }
 
-static int print_full_usage(const char *arg0) {
-    fprintf(stdout,
+static int print_full_usage(const char *arg0, FILE *file, int return_code) {
+    fprintf(file,
         "Usage: %s [command] [options]\n"
         "\n"
         "Commands:\n"
@@ -31,6 +31,7 @@ static int print_full_usage(const char *arg0) {
         "  build-lib [source]           create library from source or object files\n"
         "  build-obj [source]           create object from source or assembly\n"
         "  builtin                      show the source code of that @import(\"builtin\")\n"
+        "  fmt                          parse files and render in canonical zig format\n"
         "  help                         show this usage information\n"
         "  id                           print the base64-encoded compiler id\n"
         "  init-exe                     initialize a `zig build` application in the cwd\n"
@@ -106,7 +107,7 @@ static int print_full_usage(const char *arg0) {
         "  --test-cmd [arg]             specify test execution command one arg at a time\n"
         "  --test-cmd-bin               appends test binary path to test cmd args\n"
     , arg0);
-    return EXIT_SUCCESS;
+    return return_code;
 }
 
 static const char *ZIG_ZEN = "\n"
@@ -515,6 +516,31 @@ int main(int argc, char **argv) {
             fprintf(stderr, "\n");
         }
         return (term.how == TerminationIdClean) ? term.code : -1;
+    } else if (argc >= 2 && strcmp(argv[1], "fmt") == 0) {
+        init_all_targets();
+        Buf *fmt_runner_path = buf_alloc();
+        os_path_join(get_zig_special_dir(), buf_create_from_str("fmt_runner.zig"), fmt_runner_path);
+        CodeGen *g = codegen_create(fmt_runner_path, nullptr, OutTypeExe, BuildModeDebug, get_zig_lib_dir(),
+                nullptr);
+        g->is_single_threaded = true;
+        codegen_set_out_name(g, buf_create_from_str("fmt"));
+        g->enable_cache = true;
+
+        codegen_build_and_link(g);
+
+        ZigList<const char*> args = {0};
+        for (int i = 2; i < argc; i += 1) {
+            args.append(argv[i]);
+        }
+        args.append(nullptr);
+        const char *exec_path = buf_ptr(&g->output_file_path);
+
+        os_execv(exec_path, args.items);
+
+        args.pop();
+        Termination term;
+        os_spawn_process(exec_path, args, &term);
+        return term.code;
     }
 
     for (int i = 1; i < argc; i += 1) {
@@ -527,6 +553,8 @@ int main(int argc, char **argv) {
                 build_mode = BuildModeSafeRelease;
             } else if (strcmp(arg, "--release-small") == 0) {
                 build_mode = BuildModeSmallRelease;
+            } else if (strcmp(arg, "--help") == 0) {
+                return print_full_usage(arg0, stderr, EXIT_FAILURE);
             } else if (strcmp(arg, "--strip") == 0) {
                 strip = true;
             } else if (strcmp(arg, "--static") == 0) {
@@ -1080,7 +1108,7 @@ int main(int argc, char **argv) {
             }
         }
     case CmdHelp:
-        return print_full_usage(arg0);
+        return print_full_usage(arg0, stdout, EXIT_SUCCESS);
     case CmdVersion:
         printf("%s\n", ZIG_VERSION_STRING);
         return EXIT_SUCCESS;
