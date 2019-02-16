@@ -14,7 +14,6 @@
 #include "translate_c.hpp"
 #include "parser.hpp"
 
-
 #if __GNUC__ >= 8
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wclass-memaccess"
@@ -27,6 +26,13 @@
 #if __GNUC__ >= 8
 #pragma GCC diagnostic pop
 #endif
+
+
+// Before the #include of zig_clang.h
+// Temporary transitional thing: override ZigClangSourceLocation with clang::SourceLocation
+#define ZigClangSourceLocation clang::SourceLocation
+#define ZIG_CLANG_SOURCE_LOCATION ZigClangABISourceLocation
+#include "zig_clang.h"
 
 #include <string.h>
 
@@ -85,7 +91,7 @@ struct Context {
     HashMap<const void *, AstNode *, ptr_hash, ptr_eq> decl_table;
     HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> macro_table;
     HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> global_table;
-    clang::SourceManager *source_manager;
+    ZigClangSourceManager *source_manager;
     ZigList<Alias> aliases;
     AstNode *source_node;
     bool warnings_on;
@@ -139,16 +145,16 @@ static void emit_warning(Context *c, const clang::SourceLocation &sl, const char
     Buf *msg = buf_vprintf(format, ap);
     va_end(ap);
 
-    StringRef filename = c->source_manager->getFilename(c->source_manager->getSpellingLoc(sl));
-    const char *filename_bytes = (const char *)filename.bytes_begin();
+    const char *filename_bytes = ZigClangSourceManager_getFilename(c->source_manager,
+            ZigClangSourceManager_getSpellingLoc(c->source_manager, sl));
     Buf *path;
     if (filename_bytes) {
         path = buf_create_from_str(filename_bytes);
     } else {
         path = buf_sprintf("(no file)");
     }
-    unsigned line = c->source_manager->getSpellingLineNumber(sl);
-    unsigned column = c->source_manager->getSpellingColumnNumber(sl);
+    unsigned line = ZigClangSourceManager_getSpellingLineNumber(c->source_manager, sl);
+    unsigned column = ZigClangSourceManager_getSpellingColumnNumber(c->source_manager, sl);
     fprintf(stderr, "%s:%u:%u: warning: %s\n", buf_ptr(path), line, column, buf_ptr(msg));
 }
 
@@ -4701,7 +4707,7 @@ static void process_preprocessor_entities(Context *c, clang::ASTUnit &unit) {
                         continue;
                     }
 
-                    const char *begin_c = c->source_manager->getCharacterData(begin_loc);
+                    const char *begin_c = ZigClangSourceManager_getCharacterData(c->source_manager, begin_loc);
                     process_macro(c, &ctok, name, begin_c);
                 }
         }
@@ -4889,7 +4895,7 @@ Error parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const 
     }
 
     c->ctx = &ast_unit->getASTContext();
-    c->source_manager = &ast_unit->getSourceManager();
+    c->source_manager = reinterpret_cast<ZigClangSourceManager *>(&ast_unit->getSourceManager());
     c->root = trans_create_node(c, NodeTypeContainerDecl);
     c->root->data.container_decl.is_root = true;
 
