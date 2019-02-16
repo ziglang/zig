@@ -12,6 +12,7 @@
  * 2. Provide a C interface to the Clang functions we need for self-hosting purposes.
  * 3. Prevent C++ from infecting the rest of the project.
  */
+#include "zig_clang.h"
 
 #if __GNUC__ >= 8
 #pragma GCC diagnostic push
@@ -25,14 +26,6 @@
 #if __GNUC__ >= 8
 #pragma GCC diagnostic pop
 #endif
-
-// Before the #include of zig_clang.h
-// We'll check that the types are compatible but just use
-// the clang type.
-#define ZigClangSourceLocation clang::SourceLocation
-#define ZIG_CLANG_SOURCE_LOCATION ZigClangABISourceLocation
-
-#include "zig_clang.h"
 
 // Detect additions to the enum
 void zig2clang_BO(ZigClangBO op) {
@@ -144,35 +137,47 @@ static_assert((clang::UnaryOperatorKind)ZigClangUO_PreDec == clang::UO_PreDec, "
 static_assert((clang::UnaryOperatorKind)ZigClangUO_PreInc == clang::UO_PreInc, "");
 static_assert((clang::UnaryOperatorKind)ZigClangUO_Real == clang::UO_Real, "");
 
-static_assert(sizeof(ZigClangABISourceLocation) == sizeof(clang::SourceLocation));
+static_assert(sizeof(ZigClangSourceLocation) == sizeof(clang::SourceLocation), "");
 
-clang::SourceLocation ZigClangSourceManager_getSpellingLoc(const ZigClangSourceManager *self,
-        clang::SourceLocation Loc)
+static ZigClangSourceLocation bitcast(clang::SourceLocation src) {
+    ZigClangSourceLocation dest;
+    memcpy(&dest, &src, sizeof(ZigClangSourceLocation));
+    return dest;
+}
+
+static clang::SourceLocation bitcast(ZigClangSourceLocation src) {
+    clang::SourceLocation dest;
+    memcpy(&dest, &src, sizeof(ZigClangSourceLocation));
+    return dest;
+}
+
+ZigClangSourceLocation ZigClangSourceManager_getSpellingLoc(const ZigClangSourceManager *self,
+        ZigClangSourceLocation Loc)
 {
-    return reinterpret_cast<const clang::SourceManager *>(self)->getSpellingLoc(Loc);
+    return bitcast(reinterpret_cast<const clang::SourceManager *>(self)->getSpellingLoc(bitcast(Loc)));
 }
 
 const char *ZigClangSourceManager_getFilename(const ZigClangSourceManager *self,
-        clang::SourceLocation SpellingLoc)
+        ZigClangSourceLocation SpellingLoc)
 {
-    StringRef s = reinterpret_cast<const clang::SourceManager *>(self)->getFilename(SpellingLoc);
+    StringRef s = reinterpret_cast<const clang::SourceManager *>(self)->getFilename(bitcast(SpellingLoc));
     return (const char *)s.bytes_begin();
 }
 
 unsigned ZigClangSourceManager_getSpellingLineNumber(const ZigClangSourceManager *self,
         ZigClangSourceLocation Loc)
 {
-    return reinterpret_cast<const clang::SourceManager *>(self)->getSpellingLineNumber(Loc);
+    return reinterpret_cast<const clang::SourceManager *>(self)->getSpellingLineNumber(bitcast(Loc));
 }
 
 unsigned ZigClangSourceManager_getSpellingColumnNumber(const ZigClangSourceManager *self,
         ZigClangSourceLocation Loc)
 {
-    return reinterpret_cast<const clang::SourceManager *>(self)->getSpellingColumnNumber(Loc);
+    return reinterpret_cast<const clang::SourceManager *>(self)->getSpellingColumnNumber(bitcast(Loc));
 }
 
 const char* ZigClangSourceManager_getCharacterData(const ZigClangSourceManager *self,
         ZigClangSourceLocation SL)
 {
-    return reinterpret_cast<const clang::SourceManager *>(self)->getCharacterData(SL);
+    return reinterpret_cast<const clang::SourceManager *>(self)->getCharacterData(bitcast(SL));
 }

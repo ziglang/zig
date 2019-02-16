@@ -17,11 +17,7 @@
 // ATTENTION: If you modify this file, be sure to update the corresponding
 // extern function declarations in the self-hosted compiler.
 
-#ifndef ZIG_CLANG_SOURCE_LOCATION
-#define ZIG_CLANG_SOURCE_LOCATION ZigClangSourceLocation
-#endif
-
-struct ZIG_CLANG_SOURCE_LOCATION {
+struct ZigClangSourceLocation {
     unsigned ID;
 };
 

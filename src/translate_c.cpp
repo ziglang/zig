@@ -4,7 +4,6 @@
  * This file is part of zig, which is MIT licensed.
  * See http://opensource.org/licenses/MIT
  */
-
 #include "all_types.hpp"
 #include "analyze.hpp"
 #include "c_tokenizer.hpp"
@@ -13,6 +12,7 @@
 #include "os.hpp"
 #include "translate_c.hpp"
 #include "parser.hpp"
+#include "zig_clang.h"
 
 #if __GNUC__ >= 8
 #pragma GCC diagnostic push
@@ -26,13 +26,6 @@
 #if __GNUC__ >= 8
 #pragma GCC diagnostic pop
 #endif
-
-
-// Before the #include of zig_clang.h
-// Temporary transitional thing: override ZigClangSourceLocation with clang::SourceLocation
-#define ZigClangSourceLocation clang::SourceLocation
-#define ZIG_CLANG_SOURCE_LOCATION ZigClangABISourceLocation
-#include "zig_clang.h"
 
 #include <string.h>
 
@@ -134,8 +127,14 @@ static AstNode *trans_expr(Context *c, ResultUsed result_used, TransScope *scope
 static AstNode *trans_qual_type(Context *c, clang::QualType qt, const clang::SourceLocation &source_loc);
 static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *scope, const clang::Expr *expr, TransLRValue lrval);
 
+static ZigClangSourceLocation bitcast(clang::SourceLocation src) {
+    ZigClangSourceLocation dest;
+    memcpy(&dest, &src, sizeof(ZigClangSourceLocation));
+    return dest;
+}
+
 ATTRIBUTE_PRINTF(3, 4)
-static void emit_warning(Context *c, const clang::SourceLocation &sl, const char *format, ...) {
+static void emit_warning(Context *c, const clang::SourceLocation &clang_sl, const char *format, ...) {
     if (!c->warnings_on) {
         return;
     }
@@ -145,6 +144,7 @@ static void emit_warning(Context *c, const clang::SourceLocation &sl, const char
     Buf *msg = buf_vprintf(format, ap);
     va_end(ap);
 
+    ZigClangSourceLocation sl = bitcast(clang_sl);
     const char *filename_bytes = ZigClangSourceManager_getFilename(c->source_manager,
             ZigClangSourceManager_getSpellingLoc(c->source_manager, sl));
     Buf *path;
@@ -4707,7 +4707,7 @@ static void process_preprocessor_entities(Context *c, clang::ASTUnit &unit) {
                         continue;
                     }
 
-                    const char *begin_c = ZigClangSourceManager_getCharacterData(c->source_manager, begin_loc);
+                    const char *begin_c = ZigClangSourceManager_getCharacterData(c->source_manager, bitcast(begin_loc));
                     process_macro(c, &ctok, name, begin_c);
                 }
         }
