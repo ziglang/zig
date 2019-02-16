@@ -99,11 +99,6 @@ pub fn main() !void {
         os.exit(1);
     }
 
-    if (flags.positionals.len == 0) {
-        try stderr.write("expected at least one source file argument\n");
-        os.exit(1);
-    }
-
     var fmt = Fmt{
         .seen = Fmt.SeenMap.init(allocator),
         .any_error = false,
