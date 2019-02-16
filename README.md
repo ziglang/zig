@@ -3,7 +3,7 @@
 A programming language designed for robustness, optimality, and
 clarity.
 
-[ziglang.org](https://ziglang.org)
+[Download & Documentation](https://ziglang.org/download/)
 
 ## Feature Highlights
 
