@@ -479,7 +479,7 @@ static const char *decl_name(const Decl *decl) {
 static AstNode *trans_create_node_apint(Context *c, const llvm::APSInt &aps_int) {
     AstNode *node = trans_create_node(c, NodeTypeIntLiteral);
     node->data.int_literal.bigint = allocate<BigInt>(1);
-    bool is_negative = aps_int.isNegative(); 
+    bool is_negative = aps_int.isSigned() && aps_int.isNegative();
     if (!is_negative) {
         bigint_init_data(node->data.int_literal.bigint, aps_int.getRawData(), aps_int.getNumWords(), false);
         return node;
@@ -4092,10 +4092,13 @@ static AstNode *trans_ap_value(Context *c, APValue *ap_value, QualType qt, const
             unsigned leftover_count = all_count - init_count;
             AstNode *init_node = trans_create_node(c, NodeTypeContainerInitExpr);
             AstNode *arr_type_node = trans_qual_type(c, qt, source_loc);
+            if (leftover_count != 0) { // We can't use the size of the final array for a partial initializer.
+                bigint_init_unsigned(arr_type_node->data.array_type.size->data.int_literal.bigint, init_count);
+            }
             init_node->data.container_init_expr.type = arr_type_node;
             init_node->data.container_init_expr.kind = ContainerInitKindArray;
 
-            QualType child_qt = qt.getTypePtr()->getLocallyUnqualifiedSingleStepDesugaredType();
+            QualType child_qt = qt.getTypePtr()->getAsArrayTypeUnsafe()->getElementType();
 
             for (size_t i = 0; i < init_count; i += 1) {
                 APValue &elem_ap_val = ap_value->getArrayInitializedElt(i);
@@ -4113,10 +4116,14 @@ static AstNode *trans_ap_value(Context *c, APValue *ap_value, QualType qt, const
             if (filler_node == nullptr)
                 return nullptr;
 
+            AstNode* filler_arr_type = trans_create_node(c, NodeTypeArrayType);
+            *filler_arr_type = *arr_type_node;
+            filler_arr_type->data.array_type.size = trans_create_node_unsigned(c, 1);
+
             AstNode *filler_arr_1 = trans_create_node(c, NodeTypeContainerInitExpr);
-            init_node->data.container_init_expr.type = arr_type_node;
-            init_node->data.container_init_expr.kind = ContainerInitKindArray;
-            init_node->data.container_init_expr.entries.append(filler_node);
+            filler_arr_1->data.container_init_expr.type = filler_arr_type;
+            filler_arr_1->data.container_init_expr.kind = ContainerInitKindArray;
+            filler_arr_1->data.container_init_expr.entries.append(filler_node);
 
             AstNode *rhs_node;
             if (leftover_count == 1) {
@@ -4124,6 +4131,10 @@ static AstNode *trans_ap_value(Context *c, APValue *ap_value, QualType qt, const
             } else {
                 AstNode *amt_node = trans_create_node_unsigned(c, leftover_count);
                 rhs_node = trans_create_node_bin_op(c, filler_arr_1, BinOpTypeArrayMult, amt_node);
+            }
+
+            if (init_count == 0) {
+                return rhs_node;
             }
 
             return trans_create_node_bin_op(c, init_node, BinOpTypeArrayCat, rhs_node);

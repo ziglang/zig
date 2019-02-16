@@ -1416,4 +1416,34 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    }
         \\}
     );
+
+    // cases.add("empty array with initializer",
+    //     "int a[4] = {};"
+    // ,
+    //     "pub var a: [4]c_int = [1]c_int{0} ** 4;"
+    // );
+
+    // cases.add("array with initialization",
+    //     "int a[4] = {1, 2, 3, 4};"
+    // ,
+    //     "pub var a: [4]c_int = [4]c_int{1, 2, 3, 4};"
+    // );
+
+    // cases.add("array with incomplete initialization",
+    //     "int a[4] = {3, 4};"
+    // ,
+    //     "pub var a: [4]c_int = [2]c_int{3, 4} ++ ([1]c_int{0} ** 2);"
+    // );
+
+    // cases.add("2D array with initialization",
+    //     "int a[3][3] = { {1, 2, 3}, {4, 5, 6}, {7, 8, 9} };"
+    // ,
+    //     "pub var a: [3][3]c_int = [3][3]c_int{[3]c_int{1, 2, 3}, [3]c_int{4, 5, 6}, [3]c_int{7, 8, 9}};"
+    // );
+
+    // cases.add("2D array with incomplete initialization",
+    //     "int a[3][3] = { {1, 2}, {4, 5, 6} };"
+    // ,
+    //     "pub var a: [3][3]c_int = [2][3]c_int{[2]c_int{1, 2} ++ [1]c_int{0}, [3]c_int{4, 5, 6}} ++ [1][3]c_int{[1]c_int{0} ** 3};"
+    // );
 }
