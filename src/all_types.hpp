@@ -1758,6 +1758,7 @@ struct CodeGen {
     ZigFn *cur_fn;
     ZigFn *main_fn;
     ZigFn *panic_fn;
+    TldFn *panic_tld_fn;
     AstNode *root_export_decl;
 
     CacheHash cache_hash;

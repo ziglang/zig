@@ -7144,6 +7144,8 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
         "    instruction_addresses: []usize,\n"
         "};\n\n");
 
+    buf_append_str(contents, "pub const PanicFn = fn([]const u8, ?*StackTrace) noreturn;\n\n");
+
     const char *cur_os = nullptr;
     {
         buf_appendf(contents, "pub const Os = enum {\n");
@@ -7912,6 +7914,8 @@ static void gen_root_source(CodeGen *g) {
             semantic_analyze(g);
         }
     }
+
+    typecheck_panic_fn(g, g->panic_tld_fn, g->panic_fn);
 
     report_errors_and_maybe_exit(g);
 

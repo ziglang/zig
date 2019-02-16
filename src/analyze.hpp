@@ -239,4 +239,5 @@ OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry);
 Error ensure_const_val_repr(IrAnalyze *ira, CodeGen *codegen, AstNode *source_node,
         ConstExprValue *const_val, ZigType *wanted_type);
 
+void typecheck_panic_fn(CodeGen *g, TldFn *tld_fn, ZigFn *panic_fn);
 #endif

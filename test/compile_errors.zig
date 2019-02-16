@@ -346,13 +346,23 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "Panic declared with wrong type signature in tests",
+        "wrong panic signature, runtime function",
         \\test "" {}
         \\
         \\pub fn panic() void {}
         \\
     ,
-        ".tmp_source.zig:3:5: error: expected 'fn([]const u8, ?*builtin.StackTrace) noreturn', found 'fn() void'",
+        ".tmp_source.zig:3:5: error: expected type 'fn([]const u8, ?*StackTrace) noreturn', found 'fn() void'",
+    );
+
+    cases.add(
+        "wrong panic signature, generic function",
+        \\pub fn panic(comptime msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn {
+        \\    while (true) {}
+        \\}
+    ,
+        ".tmp_source.zig:1:5: error: expected type 'fn([]const u8, ?*StackTrace) noreturn', found 'fn([]const u8,var)var'",
+        ".tmp_source.zig:1:5: note: only one of the functions is generic",
     );
 
     cases.add(

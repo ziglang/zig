@@ -1351,7 +1351,7 @@ static ConstExprValue *analyze_const_value(CodeGen *g, Scope *scope, AstNode *no
     size_t backward_branch_count = 0;
     return ir_eval_const_value(g, scope, node, type_entry,
             &backward_branch_count, default_backward_branch_quota,
-            nullptr, nullptr, node, type_name, nullptr);
+            nullptr, nullptr, node, type_name, nullptr, nullptr);
 }
 
 ZigType *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node) {
@@ -3247,36 +3247,19 @@ static bool scope_is_root_decls(Scope *scope) {
     zig_unreachable();
 }
 
-static void wrong_panic_prototype(CodeGen *g, AstNode *proto_node, ZigType *fn_type) {
-    add_node_error(g, proto_node,
-            buf_sprintf("expected 'fn([]const u8, ?*builtin.StackTrace) noreturn', found '%s'",
-                buf_ptr(&fn_type->name)));
-}
+void typecheck_panic_fn(CodeGen *g, TldFn *tld_fn, ZigFn *panic_fn) {
+    ConstExprValue *panic_fn_type_val = get_builtin_value(g, "PanicFn");
+    assert(panic_fn_type_val != nullptr);
+    assert(panic_fn_type_val->type->id == ZigTypeIdMetaType);
+    ZigType *panic_fn_type = panic_fn_type_val->data.x_type;
 
-static void typecheck_panic_fn(CodeGen *g, ZigFn *panic_fn) {
-    AstNode *proto_node = panic_fn->proto_node;
-    assert(proto_node->type == NodeTypeFnProto);
-    ZigType *fn_type = panic_fn->type_entry;
-    FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
-    if (fn_type_id->param_count != 2) {
-        return wrong_panic_prototype(g, proto_node, fn_type);
-    }
-    ZigType *const_u8_ptr = get_pointer_to_type_extra(g, g->builtin_types.entry_u8, true, false,
-            PtrLenUnknown, 0, 0, 0);
-    ZigType *const_u8_slice = get_slice_type(g, const_u8_ptr);
-    if (fn_type_id->param_info[0].type != const_u8_slice) {
-        return wrong_panic_prototype(g, proto_node, fn_type);
-    }
+    AstNode *fake_decl = allocate<AstNode>(1);
+    *fake_decl = *panic_fn->proto_node;
+    fake_decl->type = NodeTypeSymbol;
+    fake_decl->data.symbol_expr.symbol = &panic_fn->symbol_name;
 
-    ZigType *optional_ptr_to_stack_trace_type = get_optional_type(g, get_ptr_to_stack_trace_type(g));
-    if (fn_type_id->param_info[1].type != optional_ptr_to_stack_trace_type) {
-        return wrong_panic_prototype(g, proto_node, fn_type);
-    }
-
-    ZigType *actual_return_type = fn_type_id->return_type;
-    if (actual_return_type != g->builtin_types.entry_unreachable) {
-        return wrong_panic_prototype(g, proto_node, fn_type);
-    }
+    // call this for the side effects of casting to panic_fn_type
+    analyze_const_value(g, tld_fn->base.parent_scope, fake_decl, panic_fn_type, nullptr);
 }
 
 ZigType *get_test_fn_type(CodeGen *g) {
@@ -3371,18 +3354,18 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
         if (!fn_table_entry->type_entry->data.fn.is_generic) {
             if (fn_def_node)
                 g->fn_defs.append(fn_table_entry);
+        }
 
-            if (scope_is_root_decls(tld_fn->base.parent_scope) &&
-                (import == g->root_import || import->package == g->panic_package))
+        if (scope_is_root_decls(tld_fn->base.parent_scope) &&
+            (import == g->root_import || import->package == g->panic_package))
+        {
+            if (g->have_pub_main && buf_eql_str(&fn_table_entry->symbol_name, "main")) {
+                g->main_fn = fn_table_entry;
+            } else if ((import->package == g->panic_package || g->have_pub_panic) &&
+                    buf_eql_str(&fn_table_entry->symbol_name, "panic"))
             {
-                if (g->have_pub_main && buf_eql_str(&fn_table_entry->symbol_name, "main")) {
-                    g->main_fn = fn_table_entry;
-                } else if ((import->package == g->panic_package || g->have_pub_panic) &&
-                        buf_eql_str(&fn_table_entry->symbol_name, "panic"))
-                {
-                    g->panic_fn = fn_table_entry;
-                    typecheck_panic_fn(g, fn_table_entry);
-                }
+                g->panic_fn = fn_table_entry;
+                g->panic_tld_fn = tld_fn;
             }
         }
     } else if (source_node->type == NodeTypeTestDecl) {
