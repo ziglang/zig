@@ -105,7 +105,7 @@ pub const File = struct {
     pub fn openWriteNoClobber(path: []const u8, file_mode: Mode) OpenError!File {
         if (is_posix) {
             const path_c = try os.toPosixPath(path);
-            return openWriteNoClobberC(path_c, file_mode);
+            return openWriteNoClobberC(&path_c, file_mode);
         } else if (is_windows) {
             const path_w = try windows_util.sliceToPrefixedFileW(path);
             return openWriteNoClobberW(&path_w, file_mode);
