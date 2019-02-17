@@ -137,19 +137,23 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         ".tmp_source.zig:3:15: error: C pointers cannot point to non-C-ABI-compatible type 'Foo'",
     );
 
-    cases.addTest(
-        "compile log statement warning deduplication in generic fn",
-        \\export fn entry() void {
-        \\    inner(1);
-        \\    inner(2);
-        \\}
-        \\fn inner(comptime n: usize) void {
-        \\    comptime var i = 0;
-        \\    inline while (i < n) : (i += 1) { @compileLog("!@#$"); }
-        \\}
-    ,
-        ".tmp_source.zig:7:39: error: found compile log statement",
-    );
+    cases.addCase(x: {
+        var tc = cases.create(
+            "compile log statement warning deduplication in generic fn",
+            \\export fn entry() void {
+            \\    inner(1);
+            \\    inner(2);
+            \\}
+            \\fn inner(comptime n: usize) void {
+            \\    comptime var i = 0;
+            \\    inline while (i < n) : (i += 1) { @compileLog("!@#$"); }
+            \\}
+        ,
+            ".tmp_source.zig:7:39: error: found compile log statement",
+        );
+        tc.expect_exact = true;
+        break :x tc;
+    });
 
     cases.addTest(
         "@truncate undefined value",
