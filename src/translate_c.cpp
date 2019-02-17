@@ -129,17 +129,17 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
 
 static ZigClangSourceLocation bitcast(clang::SourceLocation src) {
     ZigClangSourceLocation dest;
-    memcpy(&dest, &src, sizeof(ZigClangSourceLocation));
+    memcpy(&dest, static_cast<void *>(&src), sizeof(ZigClangSourceLocation));
     return dest;
 }
 static ZigClangQualType bitcast(clang::QualType src) {
     ZigClangQualType dest;
-    memcpy(&dest, &src, sizeof(ZigClangQualType));
+    memcpy(&dest, static_cast<void *>(&src), sizeof(ZigClangQualType));
     return dest;
 }
 static clang::QualType bitcast(ZigClangQualType src) {
     clang::QualType dest;
-    memcpy(&dest, &src, sizeof(ZigClangQualType));
+    memcpy(&dest, static_cast<void *>(&src), sizeof(ZigClangQualType));
     return dest;
 }
 
