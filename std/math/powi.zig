@@ -25,7 +25,7 @@ pub fn powi(comptime T: type, x: T, y: T) (error{
 
     //  powi(x, +-0)   = 1 for any x
     if (y == 0 or y == -0) {
-        return 0;
+        return 1;
     }
 
     switch (x) {
@@ -174,4 +174,11 @@ test "math.powi.special" {
     testing.expectError(error.Overflow, powi(u64, 2, 64));
     testing.expectError(error.Overflow, powi(u17, 2, 17));
     testing.expectError(error.Overflow, powi(u42, 2, 42));
+
+    testing.expect((try powi(u8, 6, 0)) == 1);
+    testing.expect((try powi(u16, 5, 0)) == 1);
+    testing.expect((try powi(u32, 12, 0)) == 1);
+    testing.expect((try powi(u64, 34, 0)) == 1);
+    testing.expect((try powi(u17, 16, 0)) == 1);
+    testing.expect((try powi(u42, 34, 0)) == 1);
 }
