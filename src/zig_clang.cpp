@@ -138,16 +138,26 @@ static_assert((clang::UnaryOperatorKind)ZigClangUO_PreInc == clang::UO_PreInc, "
 static_assert((clang::UnaryOperatorKind)ZigClangUO_Real == clang::UO_Real, "");
 
 static_assert(sizeof(ZigClangSourceLocation) == sizeof(clang::SourceLocation), "");
-
 static ZigClangSourceLocation bitcast(clang::SourceLocation src) {
     ZigClangSourceLocation dest;
     memcpy(&dest, &src, sizeof(ZigClangSourceLocation));
     return dest;
 }
-
 static clang::SourceLocation bitcast(ZigClangSourceLocation src) {
     clang::SourceLocation dest;
     memcpy(&dest, &src, sizeof(ZigClangSourceLocation));
+    return dest;
+}
+
+static_assert(sizeof(ZigClangQualType) == sizeof(clang::QualType), "");
+static ZigClangQualType bitcast(clang::QualType src) {
+    ZigClangQualType dest;
+    memcpy(&dest, &src, sizeof(ZigClangQualType));
+    return dest;
+}
+static clang::QualType bitcast(ZigClangQualType src) {
+    clang::QualType dest;
+    memcpy(&dest, &src, sizeof(ZigClangQualType));
     return dest;
 }
 
@@ -180,4 +190,25 @@ const char* ZigClangSourceManager_getCharacterData(const ZigClangSourceManager *
         ZigClangSourceLocation SL)
 {
     return reinterpret_cast<const clang::SourceManager *>(self)->getCharacterData(bitcast(SL));
+}
+
+ZigClangQualType ZigClangASTContext_getPointerType(const ZigClangASTContext* self, ZigClangQualType T) {
+    return bitcast(reinterpret_cast<const clang::ASTContext *>(self)->getPointerType(bitcast(T)));
+}
+
+ZigClangASTContext *ZigClangASTUnit_getASTContext(ZigClangASTUnit *self) {
+    clang::ASTContext *result = &reinterpret_cast<clang::ASTUnit *>(self)->getASTContext();
+    return reinterpret_cast<ZigClangASTContext *>(result);
+}
+
+ZigClangSourceManager *ZigClangASTUnit_getSourceManager(ZigClangASTUnit *self) {
+    clang::SourceManager *result = &reinterpret_cast<clang::ASTUnit *>(self)->getSourceManager();
+    return reinterpret_cast<ZigClangSourceManager *>(result);
+}
+
+bool ZigClangASTUnit_visitLocalTopLevelDecls(ZigClangASTUnit *self, void *context, 
+    bool (*Fn)(void *context, const ZigClangDecl *decl))
+{
+    return reinterpret_cast<clang::ASTUnit *>(self)->visitLocalTopLevelDecls(context,
+            reinterpret_cast<bool (*)(void *, const clang::Decl *)>(Fn));
 }

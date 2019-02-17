@@ -90,7 +90,7 @@ struct Context {
     bool warnings_on;
 
     CodeGen *codegen;
-    clang::ASTContext *ctx;
+    ZigClangASTContext *ctx;
 
     TransScopeRoot *global_scope;
     HashMap<Buf *, bool, buf_hash, buf_eql_buf> ptr_params;
@@ -130,6 +130,16 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
 static ZigClangSourceLocation bitcast(clang::SourceLocation src) {
     ZigClangSourceLocation dest;
     memcpy(&dest, &src, sizeof(ZigClangSourceLocation));
+    return dest;
+}
+static ZigClangQualType bitcast(clang::QualType src) {
+    ZigClangQualType dest;
+    memcpy(&dest, &src, sizeof(ZigClangQualType));
+    return dest;
+}
+static clang::QualType bitcast(ZigClangQualType src) {
+    clang::QualType dest;
+    memcpy(&dest, &src, sizeof(ZigClangQualType));
     return dest;
 }
 
@@ -509,7 +519,7 @@ static clang::QualType get_expr_qual_type(Context *c, const clang::Expr *expr) {
                 const clang::ArrayType *array_type = static_cast<const clang::ArrayType *>(array_qt.getTypePtr());
                 clang::QualType pointee_qt = array_type->getElementType();
                 pointee_qt.addConst();
-                return c->ctx->getPointerType(pointee_qt);
+                return bitcast(ZigClangASTContext_getPointerType(c->ctx, bitcast(pointee_qt)));
             }
         }
     }
@@ -1221,7 +1231,7 @@ static AstNode *trans_return_stmt(Context *c, TransScope *scope, const clang::Re
 
 static AstNode *trans_integer_literal(Context *c, const clang::IntegerLiteral *stmt) {
     llvm::APSInt result;
-    if (!stmt->EvaluateAsInt(result, *c->ctx)) {
+    if (!stmt->EvaluateAsInt(result, *reinterpret_cast<clang::ASTContext *>(c->ctx))) {
         emit_warning(c, stmt->getLocStart(), "invalid integer literal");
         return nullptr;
     }
@@ -4240,7 +4250,8 @@ static void visit_var_decl(Context *c, const clang::VarDecl *var_decl) {
     return;
 }
 
-static bool decl_visitor(void *context, const clang::Decl *decl) {
+static bool decl_visitor(void *context, const ZigClangDecl *zdecl) {
+    const clang::Decl *decl = reinterpret_cast<const clang::Decl *>(zdecl);
     Context *c = (Context*)context;
 
     switch (decl->getKind()) {
@@ -4678,12 +4689,13 @@ static void process_macro(Context *c, CTokenize *ctok, Buf *name, const char *ch
     c->macro_table.put(name, result_node);
 }
 
-static void process_preprocessor_entities(Context *c, clang::ASTUnit &unit) {
+static void process_preprocessor_entities(Context *c, ZigClangASTUnit *zunit) {
+    clang::ASTUnit *unit = reinterpret_cast<clang::ASTUnit *>(zunit);
     CTokenize ctok = {{0}};
 
     // TODO if we see #undef, delete it from the table
 
-    for (clang::PreprocessedEntity *entity : unit.getLocalPreprocessingEntities()) {
+    for (clang::PreprocessedEntity *entity : unit->getLocalPreprocessingEntities()) {
         switch (entity->getKind()) {
             case clang::PreprocessedEntity::InvalidKind:
             case clang::PreprocessedEntity::InclusionDirectiveKind:
@@ -4832,7 +4844,7 @@ Error parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const 
     bool for_serialization = false;
     const char *resources_path = buf_ptr(codegen->zig_c_headers_dir);
     std::unique_ptr<clang::ASTUnit> err_unit;
-    std::unique_ptr<clang::ASTUnit> ast_unit(clang::ASTUnit::LoadFromCommandLine(
+    ZigClangASTUnit *ast_unit = reinterpret_cast<ZigClangASTUnit *>(clang::ASTUnit::LoadFromCommandLine(
             &clang_argv.at(0), &clang_argv.last(),
             pch_container_ops, diags, resources_path,
             only_local_decls, capture_diagnostics, clang::None, true, 0, clang::TU_Complete,
@@ -4847,7 +4859,7 @@ Error parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const 
 
     if (diags->getClient()->getNumErrors() > 0) {
         if (ast_unit) {
-            err_unit = std::move(ast_unit);
+            err_unit = std::unique_ptr<clang::ASTUnit>(reinterpret_cast<clang::ASTUnit *>(ast_unit));
         }
 
         for (clang::ASTUnit::stored_diag_iterator it = err_unit->stored_diag_begin(),
@@ -4894,14 +4906,14 @@ Error parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const 
         return ErrorCCompileErrors;
     }
 
-    c->ctx = &ast_unit->getASTContext();
-    c->source_manager = reinterpret_cast<ZigClangSourceManager *>(&ast_unit->getSourceManager());
+    c->ctx = ZigClangASTUnit_getASTContext(ast_unit);
+    c->source_manager = ZigClangASTUnit_getSourceManager(ast_unit);
     c->root = trans_create_node(c, NodeTypeContainerDecl);
     c->root->data.container_decl.is_root = true;
 
-    ast_unit->visitLocalTopLevelDecls(c, decl_visitor);
+    ZigClangASTUnit_visitLocalTopLevelDecls(ast_unit, c, decl_visitor);
 
-    process_preprocessor_entities(c, *ast_unit);
+    process_preprocessor_entities(c, ast_unit);
 
     render_macros(c);
     render_aliases(c);

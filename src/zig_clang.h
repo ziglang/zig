@@ -21,6 +21,10 @@ struct ZigClangSourceLocation {
     unsigned ID;
 };
 
+struct ZigClangQualType {
+    void *ptr;
+};
+
 struct ZigClangAPValue;
 struct ZigClangASTContext;
 struct ZigClangASTUnit;
@@ -71,7 +75,6 @@ struct ZigClangParenType;
 struct ZigClangParmVarDecl;
 struct ZigClangPointerType;
 struct ZigClangPreprocessedEntity;
-struct ZigClangQualType;
 struct ZigClangRecordDecl;
 struct ZigClangRecordType;
 struct ZigClangReturnStmt;
@@ -246,4 +249,11 @@ ZIG_EXTERN_C unsigned ZigClangSourceManager_getSpellingColumnNumber(const ZigCla
         ZigClangSourceLocation Loc);
 ZIG_EXTERN_C const char* ZigClangSourceManager_getCharacterData(const ZigClangSourceManager *,
         ZigClangSourceLocation SL);
+
+ZIG_EXTERN_C ZigClangQualType ZigClangASTContext_getPointerType(const ZigClangASTContext*, ZigClangQualType T);
+
+ZIG_EXTERN_C ZigClangASTContext *ZigClangASTUnit_getASTContext(ZigClangASTUnit *);
+ZIG_EXTERN_C ZigClangSourceManager *ZigClangASTUnit_getSourceManager(ZigClangASTUnit *);
+ZIG_EXTERN_C bool ZigClangASTUnit_visitLocalTopLevelDecls(ZigClangASTUnit *, void *context, 
+    bool (*Fn)(void *context, const ZigClangDecl *decl));
 #endif
