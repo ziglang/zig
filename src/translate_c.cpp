@@ -982,11 +982,12 @@ static AstNode *trans_type(Context *c, const clang::Type *ty, const clang::Sourc
                 }
             }
         case clang::Type::FunctionProto:
+        case clang::Type::FunctionNoProto:
             {
-                const clang::FunctionProtoType *fn_proto_ty = static_cast<const clang::FunctionProtoType*>(ty);
+                const clang::FunctionType *fn_ty = static_cast<const clang::FunctionType*>(ty);
 
                 AstNode *proto_node = trans_create_node(c, NodeTypeFnProto);
-                switch (fn_proto_ty->getCallConv()) {
+                switch (fn_ty->getCallConv()) {
                     case clang::CC_C:           // __attribute__((cdecl))
                         proto_node->data.fn_proto.cc = CallingConventionC;
                         proto_node->data.fn_proto.is_extern = true;
@@ -1041,13 +1042,10 @@ static AstNode *trans_type(Context *c, const clang::Type *ty, const clang::Sourc
                         return nullptr;
                 }
 
-                proto_node->data.fn_proto.is_var_args = fn_proto_ty->isVariadic();
-                size_t param_count = fn_proto_ty->getNumParams();
-
-                if (fn_proto_ty->getNoReturnAttr()) {
+                if (fn_ty->getNoReturnAttr()) {
                     proto_node->data.fn_proto.return_type = trans_create_node_symbol_str(c, "noreturn");
                 } else {
-                    proto_node->data.fn_proto.return_type = trans_qual_type(c, fn_proto_ty->getReturnType(),
+                    proto_node->data.fn_proto.return_type = trans_qual_type(c, fn_ty->getReturnType(),
                             source_loc);
                     if (proto_node->data.fn_proto.return_type == nullptr) {
                         emit_warning(c, source_loc, "unsupported function proto return type");
@@ -1069,6 +1067,15 @@ static AstNode *trans_type(Context *c, const clang::Type *ty, const clang::Sourc
                 if (fn_name != nullptr) {
                     proto_node->data.fn_proto.name = buf_create_from_str(fn_name);
                 }
+
+                if (ty->getTypeClass() == clang::Type::FunctionNoProto) {
+                    return proto_node;
+                }
+
+                const clang::FunctionProtoType *fn_proto_ty = static_cast<const clang::FunctionProtoType*>(ty);
+
+                proto_node->data.fn_proto.is_var_args = fn_proto_ty->isVariadic();
+                size_t param_count = fn_proto_ty->getNumParams();
 
                 for (size_t i = 0; i < param_count; i += 1) {
                     clang::QualType qt = fn_proto_ty->getParamType(i);
@@ -1153,7 +1160,6 @@ static AstNode *trans_type(Context *c, const clang::Type *ty, const clang::Sourc
         case clang::Type::DependentSizedExtVector:
         case clang::Type::Vector:
         case clang::Type::ExtVector:
-        case clang::Type::FunctionNoProto:
         case clang::Type::UnresolvedUsing:
         case clang::Type::Adjusted:
         case clang::Type::TypeOfExpr:
