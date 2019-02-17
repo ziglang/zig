@@ -1,5 +1,5 @@
 const std = @import("../../index.zig");
-const debug = std.debug;
+const testing = std.testing;
 const math = std.math;
 const cmath = math.complex;
 const Complex = cmath.Complex;
@@ -20,5 +20,5 @@ test "complex.cproj" {
     const a = Complex(f32).new(5, 3);
     const c = proj(a);
 
-    debug.assert(c.re == 5 and c.im == 3);
+    testing.expect(c.re == 5 and c.im == 3);
 }

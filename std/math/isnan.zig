@@ -1,6 +1,6 @@
 const std = @import("../index.zig");
 const math = std.math;
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 const maxInt = std.math.maxInt;
 
 pub fn isNan(x: var) bool {
@@ -18,6 +18,10 @@ pub fn isNan(x: var) bool {
             const bits = @bitCast(u64, x);
             return (bits & (maxInt(u64) >> 1)) > (u64(0x7FF) << 52);
         },
+        f128 => {
+            const bits = @bitCast(u128, x);
+            return (bits & (maxInt(u128) >> 1)) > (u128(0x7FFF) << 112);
+        },
         else => {
             @compileError("isNan not implemented for " ++ @typeName(T));
         },
@@ -31,10 +35,12 @@ pub fn isSignalNan(x: var) bool {
 }
 
 test "math.isNan" {
-    assert(isNan(math.nan(f16)));
-    assert(isNan(math.nan(f32)));
-    assert(isNan(math.nan(f64)));
-    assert(!isNan(f16(1.0)));
-    assert(!isNan(f32(1.0)));
-    assert(!isNan(f64(1.0)));
+    expect(isNan(math.nan(f16)));
+    expect(isNan(math.nan(f32)));
+    expect(isNan(math.nan(f64)));
+    expect(isNan(math.nan(f128)));
+    expect(!isNan(f16(1.0)));
+    expect(!isNan(f32(1.0)));
+    expect(!isNan(f64(1.0)));
+    expect(!isNan(f128(1.0)));
 }

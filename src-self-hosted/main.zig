@@ -24,7 +24,7 @@ var stderr_file: os.File = undefined;
 var stderr: *io.OutStream(os.File.WriteError) = undefined;
 var stdout: *io.OutStream(os.File.WriteError) = undefined;
 
-const max_src_size = 2 * 1024 * 1024 * 1024; // 2 GiB
+pub const max_src_size = 2 * 1024 * 1024 * 1024; // 2 GiB
 
 const usage =
     \\usage: zig [command] [options]
@@ -351,7 +351,7 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
     const root_name = if (provided_name) |n| n else blk: {
         if (root_source_file) |file| {
             const basename = os.path.basename(file);
-            var it = mem.split(basename, ".");
+            var it = mem.separate(basename, ".");
             break :blk it.next() orelse basename;
         } else {
             try stderr.write("--name [name] not provided and unable to infer\n");
@@ -510,7 +510,7 @@ fn cmdBuildObj(allocator: *Allocator, args: []const []const u8) !void {
     return buildOutputType(allocator, args, Compilation.Kind.Obj);
 }
 
-const usage_fmt =
+pub const usage_fmt =
     \\usage: zig fmt [file]...
     \\
     \\   Formats the input files and modifies them in-place.
@@ -527,7 +527,7 @@ const usage_fmt =
     \\
 ;
 
-const args_fmt_spec = []Flag{
+pub const args_fmt_spec = []Flag{
     Flag.Bool("--help"),
     Flag.Bool("--check"),
     Flag.Option("--color", []const []const u8{
@@ -757,7 +757,7 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtErro
             var group = event.Group(FmtError!void).init(fmt.loop);
             while (try dir.next()) |entry| {
                 if (entry.kind == std.os.Dir.Entry.Kind.Directory or mem.endsWith(u8, entry.name, ".zig")) {
-                    const full_path = try os.path.join(fmt.loop.allocator, file_path, entry.name);
+                    const full_path = try os.path.join(fmt.loop.allocator, [][]const u8{ file_path, entry.name });
                     try group.call(fmtPath, fmt, full_path, check_mode);
                 }
             }
@@ -944,12 +944,13 @@ const CliPkg = struct {
     parent: ?*CliPkg,
 
     pub fn init(allocator: *mem.Allocator, name: []const u8, path: []const u8, parent: ?*CliPkg) !*CliPkg {
-        var pkg = try allocator.create(CliPkg{
+        var pkg = try allocator.create(CliPkg);
+        pkg.* = CliPkg{
             .name = name,
             .path = path,
             .children = ArrayList(*CliPkg).init(allocator),
             .parent = parent,
-        });
+        };
         return pkg;
     }
 

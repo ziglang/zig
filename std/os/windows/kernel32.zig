@@ -50,7 +50,7 @@ pub extern "kernel32" stdcallcc fn FindFirstFileW(lpFileName: [*]const u16, lpFi
 pub extern "kernel32" stdcallcc fn FindClose(hFindFile: HANDLE) BOOL;
 pub extern "kernel32" stdcallcc fn FindNextFileW(hFindFile: HANDLE, lpFindFileData: *WIN32_FIND_DATAW) BOOL;
 
-pub extern "kernel32" stdcallcc fn FreeEnvironmentStringsA(penv: [*]u8) BOOL;
+pub extern "kernel32" stdcallcc fn FreeEnvironmentStringsW(penv: [*]u16) BOOL;
 
 pub extern "kernel32" stdcallcc fn GetCommandLineA() LPSTR;
 
@@ -63,9 +63,9 @@ pub extern "kernel32" stdcallcc fn GetCurrentDirectoryW(nBufferLength: DWORD, lp
 pub extern "kernel32" stdcallcc fn GetCurrentThread() HANDLE;
 pub extern "kernel32" stdcallcc fn GetCurrentThreadId() DWORD;
 
-pub extern "kernel32" stdcallcc fn GetEnvironmentStringsA() ?[*]u8;
+pub extern "kernel32" stdcallcc fn GetEnvironmentStringsW() ?[*]u16;
 
-pub extern "kernel32" stdcallcc fn GetEnvironmentVariableA(lpName: LPCSTR, lpBuffer: LPSTR, nSize: DWORD) DWORD;
+pub extern "kernel32" stdcallcc fn GetEnvironmentVariableW(lpName: LPWSTR, lpBuffer: LPWSTR, nSize: DWORD) DWORD;
 
 pub extern "kernel32" stdcallcc fn GetExitCodeProcess(hProcess: HANDLE, lpExitCode: *DWORD) BOOL;
 
@@ -164,6 +164,10 @@ pub extern "kernel32" stdcallcc fn Sleep(dwMilliseconds: DWORD) void;
 
 pub extern "kernel32" stdcallcc fn TerminateProcess(hProcess: HANDLE, uExitCode: UINT) BOOL;
 
+pub extern "kernel32" stdcallcc fn TlsAlloc() DWORD;
+
+pub extern "kernel32" stdcallcc fn TlsFree(dwTlsIndex: DWORD) BOOL;
+
 pub extern "kernel32" stdcallcc fn WaitForSingleObject(hHandle: HANDLE, dwMilliseconds: DWORD) DWORD;
 
 pub extern "kernel32" stdcallcc fn WriteFile(
@@ -220,3 +224,50 @@ pub const FOREGROUND_BLUE = 1;
 pub const FOREGROUND_GREEN = 2;
 pub const FOREGROUND_RED = 4;
 pub const FOREGROUND_INTENSITY = 8;
+
+pub extern "kernel32" stdcallcc fn InitializeCriticalSection(lpCriticalSection: *CRITICAL_SECTION) void;
+pub extern "kernel32" stdcallcc fn EnterCriticalSection(lpCriticalSection: *CRITICAL_SECTION) void;
+pub extern "kernel32" stdcallcc fn LeaveCriticalSection(lpCriticalSection: *CRITICAL_SECTION) void;
+pub extern "kernel32" stdcallcc fn DeleteCriticalSection(lpCriticalSection: *CRITICAL_SECTION) void;
+
+pub const LIST_ENTRY = extern struct {
+    Flink: *LIST_ENTRY,
+    Blink: *LIST_ENTRY,
+};
+
+pub const RTL_CRITICAL_SECTION_DEBUG = extern struct {
+    Type: WORD,
+    CreatorBackTraceIndex: WORD,
+    CriticalSection: *RTL_CRITICAL_SECTION,
+    ProcessLocksList: LIST_ENTRY,
+    EntryCount: DWORD,
+    ContentionCount: DWORD,
+    Flags: DWORD,
+    CreatorBackTraceIndexHigh: WORD,
+    SpareWORD: WORD,
+};
+
+pub const RTL_CRITICAL_SECTION = extern struct {
+    DebugInfo: *RTL_CRITICAL_SECTION_DEBUG,
+    LockCount: LONG,
+    RecursionCount: LONG,
+    OwningThread: HANDLE,
+    LockSemaphore: HANDLE,
+    SpinCount: ULONG_PTR,
+};
+
+pub const CRITICAL_SECTION = RTL_CRITICAL_SECTION;
+pub const INIT_ONCE = RTL_RUN_ONCE;
+pub const INIT_ONCE_STATIC_INIT = RTL_RUN_ONCE_INIT;
+
+pub extern "kernel32" stdcallcc fn InitOnceExecuteOnce(InitOnce: *INIT_ONCE, InitFn: INIT_ONCE_FN, Parameter: ?*c_void, Context: ?*c_void) BOOL;
+
+pub const INIT_ONCE_FN = extern fn(InitOnce: *INIT_ONCE, Parameter: ?*c_void, Context: ?*c_void) BOOL;
+
+pub const RTL_RUN_ONCE = extern struct {
+    Ptr: ?*c_void,
+};
+
+pub const RTL_RUN_ONCE_INIT = RTL_RUN_ONCE {
+    .Ptr = null,
+};

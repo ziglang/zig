@@ -51,6 +51,19 @@ enum Os {
     OsContiki,
     OsAMDPAL,
     OsZen,
+    OsUefi,
+};
+
+enum TargetSubsystem {
+    TargetSubsystemAuto, // Zig should infer the subsystem
+    TargetSubsystemConsole,
+    TargetSubsystemWindows,
+    TargetSubsystemPosix,
+    TargetSubsystemNative,
+    TargetSubsystemEfiApplication,
+    TargetSubsystemEfiBootServiceDriver,
+    TargetSubsystemEfiRom,
+    TargetSubsystemEfiRuntimeDriver,
 };
 
 struct ZigTarget {
@@ -122,5 +135,6 @@ bool target_can_exec(const ZigTarget *host_target, const ZigTarget *guest_target
 ZigLLVM_OSType get_llvm_os_type(Os os_type);
 
 bool target_is_arm(const ZigTarget *target);
+bool target_allows_addr_zero(const ZigTarget *target);
 
 #endif

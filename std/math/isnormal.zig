@@ -1,6 +1,6 @@
 const std = @import("../index.zig");
 const math = std.math;
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 const maxInt = std.math.maxInt;
 
 pub fn isNormal(x: var) bool {
@@ -25,13 +25,13 @@ pub fn isNormal(x: var) bool {
 }
 
 test "math.isNormal" {
-    assert(!isNormal(math.nan(f16)));
-    assert(!isNormal(math.nan(f32)));
-    assert(!isNormal(math.nan(f64)));
-    assert(!isNormal(f16(0)));
-    assert(!isNormal(f32(0)));
-    assert(!isNormal(f64(0)));
-    assert(isNormal(f16(1.0)));
-    assert(isNormal(f32(1.0)));
-    assert(isNormal(f64(1.0)));
+    expect(!isNormal(math.nan(f16)));
+    expect(!isNormal(math.nan(f32)));
+    expect(!isNormal(math.nan(f64)));
+    expect(!isNormal(f16(0)));
+    expect(!isNormal(f32(0)));
+    expect(!isNormal(f64(0)));
+    expect(isNormal(f16(1.0)));
+    expect(isNormal(f32(1.0)));
+    expect(isNormal(f64(1.0)));
 }

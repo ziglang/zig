@@ -1,6 +1,7 @@
 const std = @import("../index.zig");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
+const testing = std.testing;
 const mem = std.mem;
 const AtomicRmwOp = builtin.AtomicRmwOp;
 const AtomicOrder = builtin.AtomicOrder;
@@ -97,6 +98,7 @@ pub const Loop = struct {
     /// TODO copy elision / named return values so that the threads referencing *Loop
     /// have the correct pointer value.
     pub fn initMultiThreaded(self: *Loop, allocator: *mem.Allocator) !void {
+        if (builtin.single_threaded) @compileError("initMultiThreaded unavailable when building in single-threaded mode");
         const core_count = try os.cpuCount(allocator);
         return self.initInternal(allocator, core_count);
     }
@@ -201,6 +203,11 @@ pub const Loop = struct {
                     self.os_data.fs_thread.wait();
                 }
 
+                if (builtin.single_threaded) {
+                    assert(extra_thread_count == 0);
+                    return;
+                }
+
                 var extra_thread_index: usize = 0;
                 errdefer {
                     // writing 8 bytes to an eventfd cannot fail
@@ -301,6 +308,11 @@ pub const Loop = struct {
                     self.os_data.fs_thread.wait();
                 }
 
+                if (builtin.single_threaded) {
+                    assert(extra_thread_count == 0);
+                    return;
+                }
+
                 var extra_thread_index: usize = 0;
                 errdefer {
                     _ = os.bsdKEvent(self.os_data.kqfd, final_kev_arr, empty_kevs, null) catch unreachable;
@@ -336,6 +348,11 @@ pub const Loop = struct {
                         .next = undefined,
                     };
                     self.available_eventfd_resume_nodes.push(eventfd_node);
+                }
+
+                if (builtin.single_threaded) {
+                    assert(extra_thread_count == 0);
+                    return;
                 }
 
                 var extra_thread_index: usize = 0;
@@ -845,6 +862,9 @@ pub const Loop = struct {
 };
 
 test "std.event.Loop - basic" {
+    // https://github.com/ziglang/zig/issues/1908
+    if (builtin.single_threaded) return error.SkipZigTest;
+
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
 
@@ -858,6 +878,9 @@ test "std.event.Loop - basic" {
 }
 
 test "std.event.Loop - call" {
+    // https://github.com/ziglang/zig/issues/1908
+    if (builtin.single_threaded) return error.SkipZigTest;
+
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
 
@@ -874,7 +897,7 @@ test "std.event.Loop - call" {
 
     loop.run();
 
-    assert(did_it);
+    testing.expect(did_it);
 }
 
 async fn testEventLoop() i32 {
@@ -883,6 +906,6 @@ async fn testEventLoop() i32 {
 
 async fn testEventLoop2(h: promise->i32, did_it: *bool) void {
     const value = await h;
-    assert(value == 1234);
+    testing.expect(value == 1234);
     did_it.* = true;
 }

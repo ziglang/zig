@@ -1,5 +1,4 @@
 const __floatunsitf = @import("floatunsitf.zig").__floatunsitf;
-const assert = @import("std").debug.assert;
 
 fn test__floatunsitf(a: u64, expected_hi: u64, expected_lo: u64) void {
     const x = __floatunsitf(a);

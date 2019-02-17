@@ -23,7 +23,7 @@ pub const Address = struct {
             .os_addr = posix.sockaddr{
                 .in = posix.sockaddr_in{
                     .family = posix.AF_INET,
-                    .port = std.mem.endianSwapIfLe(u16, _port),
+                    .port = mem.nativeToBig(u16, _port),
                     .addr = ip4,
                     .zero = []u8{0} ** 8,
                 },
@@ -37,7 +37,7 @@ pub const Address = struct {
             .os_addr = posix.sockaddr{
                 .in6 = posix.sockaddr_in6{
                     .family = posix.AF_INET6,
-                    .port = std.mem.endianSwapIfLe(u16, _port),
+                    .port = mem.nativeToBig(u16, _port),
                     .flowinfo = 0,
                     .addr = ip6.addr,
                     .scope_id = ip6.scope_id,
@@ -47,7 +47,7 @@ pub const Address = struct {
     }
 
     pub fn port(self: Address) u16 {
-        return std.mem.endianSwapIfLe(u16, self.os_addr.in.port);
+        return mem.bigToNative(u16, self.os_addr.in.port);
     }
 
     pub fn initPosix(addr: posix.sockaddr) Address {
@@ -57,12 +57,12 @@ pub const Address = struct {
     pub fn format(self: *const Address, out_stream: var) !void {
         switch (self.os_addr.in.family) {
             posix.AF_INET => {
-                const native_endian_port = std.mem.endianSwapIfLe(u16, self.os_addr.in.port);
+                const native_endian_port = mem.bigToNative(u16, self.os_addr.in.port);
                 const bytes = ([]const u8)((*self.os_addr.in.addr)[0..1]);
                 try out_stream.print("{}.{}.{}.{}:{}", bytes[0], bytes[1], bytes[2], bytes[3], native_endian_port);
             },
             posix.AF_INET6 => {
-                const native_endian_port = std.mem.endianSwapIfLe(u16, self.os_addr.in6.port);
+                const native_endian_port = mem.bigToNative(u16, self.os_addr.in6.port);
                 try out_stream.print("[TODO render ip6 address]:{}", native_endian_port);
             },
             else => try out_stream.write("(unrecognized address family)"),
@@ -193,7 +193,7 @@ pub fn parseIp6(buf: []const u8) !Ip6Addr {
 }
 
 test "std.net.parseIp4" {
-    assert((try parseIp4("127.0.0.1")) == std.mem.endianSwapIfLe(u32, 0x7f000001));
+    assert((try parseIp4("127.0.0.1")) == mem.bigToNative(u32, 0x7f000001));
 
     testParseIp4Fail("256.0.0.1", error.Overflow);
     testParseIp4Fail("x.0.0.1", error.InvalidCharacter);

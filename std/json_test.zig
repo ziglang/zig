@@ -6,15 +6,15 @@
 const std = @import("index.zig");
 
 fn ok(comptime s: []const u8) void {
-    std.debug.assert(std.json.validate(s));
+    std.testing.expect(std.json.validate(s));
 }
 
 fn err(comptime s: []const u8) void {
-    std.debug.assert(!std.json.validate(s));
+    std.testing.expect(!std.json.validate(s));
 }
 
 fn any(comptime s: []const u8) void {
-    std.debug.assert(true);
+    std.testing.expect(true);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////

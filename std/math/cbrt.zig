@@ -6,7 +6,7 @@
 
 const std = @import("../index.zig");
 const math = std.math;
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 pub fn cbrt(x: var) @typeOf(x) {
     const T = @typeOf(x);
@@ -114,44 +114,44 @@ fn cbrt64(x: f64) f64 {
 }
 
 test "math.cbrt" {
-    assert(cbrt(f32(0.0)) == cbrt32(0.0));
-    assert(cbrt(f64(0.0)) == cbrt64(0.0));
+    expect(cbrt(f32(0.0)) == cbrt32(0.0));
+    expect(cbrt(f64(0.0)) == cbrt64(0.0));
 }
 
 test "math.cbrt32" {
     const epsilon = 0.000001;
 
-    assert(cbrt32(0.0) == 0.0);
-    assert(math.approxEq(f32, cbrt32(0.2), 0.584804, epsilon));
-    assert(math.approxEq(f32, cbrt32(0.8923), 0.962728, epsilon));
-    assert(math.approxEq(f32, cbrt32(1.5), 1.144714, epsilon));
-    assert(math.approxEq(f32, cbrt32(37.45), 3.345676, epsilon));
-    assert(math.approxEq(f32, cbrt32(123123.234375), 49.748501, epsilon));
+    expect(cbrt32(0.0) == 0.0);
+    expect(math.approxEq(f32, cbrt32(0.2), 0.584804, epsilon));
+    expect(math.approxEq(f32, cbrt32(0.8923), 0.962728, epsilon));
+    expect(math.approxEq(f32, cbrt32(1.5), 1.144714, epsilon));
+    expect(math.approxEq(f32, cbrt32(37.45), 3.345676, epsilon));
+    expect(math.approxEq(f32, cbrt32(123123.234375), 49.748501, epsilon));
 }
 
 test "math.cbrt64" {
     const epsilon = 0.000001;
 
-    assert(cbrt64(0.0) == 0.0);
-    assert(math.approxEq(f64, cbrt64(0.2), 0.584804, epsilon));
-    assert(math.approxEq(f64, cbrt64(0.8923), 0.962728, epsilon));
-    assert(math.approxEq(f64, cbrt64(1.5), 1.144714, epsilon));
-    assert(math.approxEq(f64, cbrt64(37.45), 3.345676, epsilon));
-    assert(math.approxEq(f64, cbrt64(123123.234375), 49.748501, epsilon));
+    expect(cbrt64(0.0) == 0.0);
+    expect(math.approxEq(f64, cbrt64(0.2), 0.584804, epsilon));
+    expect(math.approxEq(f64, cbrt64(0.8923), 0.962728, epsilon));
+    expect(math.approxEq(f64, cbrt64(1.5), 1.144714, epsilon));
+    expect(math.approxEq(f64, cbrt64(37.45), 3.345676, epsilon));
+    expect(math.approxEq(f64, cbrt64(123123.234375), 49.748501, epsilon));
 }
 
 test "math.cbrt.special" {
-    assert(cbrt32(0.0) == 0.0);
-    assert(cbrt32(-0.0) == -0.0);
-    assert(math.isPositiveInf(cbrt32(math.inf(f32))));
-    assert(math.isNegativeInf(cbrt32(-math.inf(f32))));
-    assert(math.isNan(cbrt32(math.nan(f32))));
+    expect(cbrt32(0.0) == 0.0);
+    expect(cbrt32(-0.0) == -0.0);
+    expect(math.isPositiveInf(cbrt32(math.inf(f32))));
+    expect(math.isNegativeInf(cbrt32(-math.inf(f32))));
+    expect(math.isNan(cbrt32(math.nan(f32))));
 }
 
 test "math.cbrt64.special" {
-    assert(cbrt64(0.0) == 0.0);
-    assert(cbrt64(-0.0) == -0.0);
-    assert(math.isPositiveInf(cbrt64(math.inf(f64))));
-    assert(math.isNegativeInf(cbrt64(-math.inf(f64))));
-    assert(math.isNan(cbrt64(math.nan(f64))));
+    expect(cbrt64(0.0) == 0.0);
+    expect(cbrt64(-0.0) == -0.0);
+    expect(math.isPositiveInf(cbrt64(math.inf(f64))));
+    expect(math.isNegativeInf(cbrt64(-math.inf(f64))));
+    expect(math.isNan(cbrt64(math.nan(f64))));
 }

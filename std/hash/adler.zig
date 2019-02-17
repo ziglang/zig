@@ -4,7 +4,7 @@
 // https://github.com/madler/zlib/blob/master/adler32.c
 
 const std = @import("../index.zig");
-const debug = std.debug;
+const testing = std.testing;
 
 pub const Adler32 = struct {
     const base = 65521;
@@ -89,19 +89,19 @@ pub const Adler32 = struct {
 };
 
 test "adler32 sanity" {
-    debug.assert(Adler32.hash("a") == 0x620062);
-    debug.assert(Adler32.hash("example") == 0xbc002ed);
+    testing.expect(Adler32.hash("a") == 0x620062);
+    testing.expect(Adler32.hash("example") == 0xbc002ed);
 }
 
 test "adler32 long" {
     const long1 = []u8{1} ** 1024;
-    debug.assert(Adler32.hash(long1[0..]) == 0x06780401);
+    testing.expect(Adler32.hash(long1[0..]) == 0x06780401);
 
     const long2 = []u8{1} ** 1025;
-    debug.assert(Adler32.hash(long2[0..]) == 0x0a7a0402);
+    testing.expect(Adler32.hash(long2[0..]) == 0x0a7a0402);
 }
 
 test "adler32 very long" {
     const long = []u8{1} ** 5553;
-    debug.assert(Adler32.hash(long[0..]) == 0x707f15b2);
+    testing.expect(Adler32.hash(long[0..]) == 0x707f15b2);
 }

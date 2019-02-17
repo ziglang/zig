@@ -1,6 +1,7 @@
 const std = @import("index.zig");
 const debug = std.debug;
 const assert = debug.assert;
+const testing = std.testing;
 const mem = std.mem;
 const os = std.os;
 const builtin = @import("builtin");
@@ -66,7 +67,7 @@ pub const DirectAllocator = struct {
         }
     }
 
-    fn alloc(allocator: *Allocator, n: usize, alignment: u29) ![]u8 {
+    fn alloc(allocator: *Allocator, n: usize, alignment: u29) error{OutOfMemory}![]u8 {
         const self = @fieldParentPtr(DirectAllocator, "allocator", allocator);
 
         switch (builtin.os) {
@@ -106,9 +107,7 @@ pub const DirectAllocator = struct {
                 };
                 const ptr = os.windows.HeapAlloc(heap_handle, 0, amt) orelse return error.OutOfMemory;
                 const root_addr = @ptrToInt(ptr);
-                const rem = @rem(root_addr, alignment);
-                const march_forward_bytes = if (rem == 0) 0 else (alignment - rem);
-                const adjusted_addr = root_addr + march_forward_bytes;
+                const adjusted_addr = mem.alignForward(root_addr, alignment);
                 const record_addr = adjusted_addr + n;
                 @intToPtr(*align(1) usize, record_addr).* = root_addr;
                 return @intToPtr([*]u8, adjusted_addr)[0..n];
@@ -126,8 +125,7 @@ pub const DirectAllocator = struct {
                     const base_addr = @ptrToInt(old_mem.ptr);
                     const old_addr_end = base_addr + old_mem.len;
                     const new_addr_end = base_addr + new_size;
-                    const rem = @rem(new_addr_end, os.page_size);
-                    const new_addr_end_rounded = new_addr_end + if (rem == 0) 0 else (os.page_size - rem);
+                    const new_addr_end_rounded = mem.alignForward(new_addr_end, os.page_size);
                     if (old_addr_end > new_addr_end_rounded) {
                         _ = os.posix.munmap(new_addr_end_rounded, old_addr_end - new_addr_end_rounded);
                     }
@@ -324,51 +322,57 @@ pub const FixedBufferAllocator = struct {
     fn free(allocator: *Allocator, bytes: []u8) void {}
 };
 
-/// lock free
-pub const ThreadSafeFixedBufferAllocator = struct {
-    allocator: Allocator,
-    end_index: usize,
-    buffer: []u8,
+pub const ThreadSafeFixedBufferAllocator = blk: {
+    if (builtin.single_threaded) {
+        break :blk FixedBufferAllocator;
+    } else {
+        /// lock free
+        break :blk struct {
+            allocator: Allocator,
+            end_index: usize,
+            buffer: []u8,
 
-    pub fn init(buffer: []u8) ThreadSafeFixedBufferAllocator {
-        return ThreadSafeFixedBufferAllocator{
-            .allocator = Allocator{
-                .allocFn = alloc,
-                .reallocFn = realloc,
-                .freeFn = free,
-            },
-            .buffer = buffer,
-            .end_index = 0,
+            pub fn init(buffer: []u8) ThreadSafeFixedBufferAllocator {
+                return ThreadSafeFixedBufferAllocator{
+                    .allocator = Allocator{
+                        .allocFn = alloc,
+                        .reallocFn = realloc,
+                        .freeFn = free,
+                    },
+                    .buffer = buffer,
+                    .end_index = 0,
+                };
+            }
+
+            fn alloc(allocator: *Allocator, n: usize, alignment: u29) ![]u8 {
+                const self = @fieldParentPtr(ThreadSafeFixedBufferAllocator, "allocator", allocator);
+                var end_index = @atomicLoad(usize, &self.end_index, builtin.AtomicOrder.SeqCst);
+                while (true) {
+                    const addr = @ptrToInt(self.buffer.ptr) + end_index;
+                    const rem = @rem(addr, alignment);
+                    const march_forward_bytes = if (rem == 0) 0 else (alignment - rem);
+                    const adjusted_index = end_index + march_forward_bytes;
+                    const new_end_index = adjusted_index + n;
+                    if (new_end_index > self.buffer.len) {
+                        return error.OutOfMemory;
+                    }
+                    end_index = @cmpxchgWeak(usize, &self.end_index, end_index, new_end_index, builtin.AtomicOrder.SeqCst, builtin.AtomicOrder.SeqCst) orelse return self.buffer[adjusted_index..new_end_index];
+                }
+            }
+
+            fn realloc(allocator: *Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![]u8 {
+                if (new_size <= old_mem.len) {
+                    return old_mem[0..new_size];
+                } else {
+                    const result = try alloc(allocator, new_size, alignment);
+                    mem.copy(u8, result, old_mem);
+                    return result;
+                }
+            }
+
+            fn free(allocator: *Allocator, bytes: []u8) void {}
         };
     }
-
-    fn alloc(allocator: *Allocator, n: usize, alignment: u29) ![]u8 {
-        const self = @fieldParentPtr(ThreadSafeFixedBufferAllocator, "allocator", allocator);
-        var end_index = @atomicLoad(usize, &self.end_index, builtin.AtomicOrder.SeqCst);
-        while (true) {
-            const addr = @ptrToInt(self.buffer.ptr) + end_index;
-            const rem = @rem(addr, alignment);
-            const march_forward_bytes = if (rem == 0) 0 else (alignment - rem);
-            const adjusted_index = end_index + march_forward_bytes;
-            const new_end_index = adjusted_index + n;
-            if (new_end_index > self.buffer.len) {
-                return error.OutOfMemory;
-            }
-            end_index = @cmpxchgWeak(usize, &self.end_index, end_index, new_end_index, builtin.AtomicOrder.SeqCst, builtin.AtomicOrder.SeqCst) orelse return self.buffer[adjusted_index..new_end_index];
-        }
-    }
-
-    fn realloc(allocator: *Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![]u8 {
-        if (new_size <= old_mem.len) {
-            return old_mem[0..new_size];
-        } else {
-            const result = try alloc(allocator, new_size, alignment);
-            mem.copy(u8, result, old_mem);
-            return result;
-        }
-    }
-
-    fn free(allocator: *Allocator, bytes: []u8) void {}
 };
 
 pub fn stackFallback(comptime size: usize, fallback_allocator: *Allocator) StackFallbackAllocator(size) {
@@ -484,11 +488,11 @@ test "FixedBufferAllocator Reuse memory on realloc" {
         var fixed_buffer_allocator = FixedBufferAllocator.init(small_fixed_buffer[0..]);
 
         var slice0 = try fixed_buffer_allocator.allocator.alloc(u8, 5);
-        assert(slice0.len == 5);
+        testing.expect(slice0.len == 5);
         var slice1 = try fixed_buffer_allocator.allocator.realloc(u8, slice0, 10);
-        assert(slice1.ptr == slice0.ptr);
-        assert(slice1.len == 10);
-        debug.assertError(fixed_buffer_allocator.allocator.realloc(u8, slice1, 11), error.OutOfMemory);
+        testing.expect(slice1.ptr == slice0.ptr);
+        testing.expect(slice1.len == 10);
+        testing.expectError(error.OutOfMemory, fixed_buffer_allocator.allocator.realloc(u8, slice1, 11));
     }
     // check that we don't re-use the memory if it's not the most recent block
     {
@@ -499,10 +503,10 @@ test "FixedBufferAllocator Reuse memory on realloc" {
         slice0[1] = 2;
         var slice1 = try fixed_buffer_allocator.allocator.alloc(u8, 2);
         var slice2 = try fixed_buffer_allocator.allocator.realloc(u8, slice0, 4);
-        assert(slice0.ptr != slice2.ptr);
-        assert(slice1.ptr != slice2.ptr);
-        assert(slice2[0] == 1);
-        assert(slice2[1] == 2);
+        testing.expect(slice0.ptr != slice2.ptr);
+        testing.expect(slice1.ptr != slice2.ptr);
+        testing.expect(slice2[0] == 1);
+        testing.expect(slice2[1] == 2);
     }
 }
 
@@ -516,27 +520,28 @@ test "ThreadSafeFixedBufferAllocator" {
 
 fn testAllocator(allocator: *mem.Allocator) !void {
     var slice = try allocator.alloc(*i32, 100);
-    assert(slice.len == 100);
+    testing.expect(slice.len == 100);
     for (slice) |*item, i| {
-        item.* = try allocator.create(@intCast(i32, i));
+        item.* = try allocator.create(i32);
+        item.*.* = @intCast(i32, i);
     }
 
     slice = try allocator.realloc(*i32, slice, 20000);
-    assert(slice.len == 20000);
+    testing.expect(slice.len == 20000);
 
     for (slice[0..100]) |item, i| {
-        assert(item.* == @intCast(i32, i));
+        testing.expect(item.* == @intCast(i32, i));
         allocator.destroy(item);
     }
 
     slice = try allocator.realloc(*i32, slice, 50);
-    assert(slice.len == 50);
+    testing.expect(slice.len == 50);
     slice = try allocator.realloc(*i32, slice, 25);
-    assert(slice.len == 25);
+    testing.expect(slice.len == 25);
     slice = try allocator.realloc(*i32, slice, 0);
-    assert(slice.len == 0);
+    testing.expect(slice.len == 0);
     slice = try allocator.realloc(*i32, slice, 10);
-    assert(slice.len == 10);
+    testing.expect(slice.len == 10);
 
     allocator.free(slice);
 }
@@ -544,25 +549,25 @@ fn testAllocator(allocator: *mem.Allocator) !void {
 fn testAllocatorAligned(allocator: *mem.Allocator, comptime alignment: u29) !void {
     // initial
     var slice = try allocator.alignedAlloc(u8, alignment, 10);
-    assert(slice.len == 10);
+    testing.expect(slice.len == 10);
     // grow
     slice = try allocator.alignedRealloc(u8, alignment, slice, 100);
-    assert(slice.len == 100);
+    testing.expect(slice.len == 100);
     // shrink
     slice = try allocator.alignedRealloc(u8, alignment, slice, 10);
-    assert(slice.len == 10);
+    testing.expect(slice.len == 10);
     // go to zero
     slice = try allocator.alignedRealloc(u8, alignment, slice, 0);
-    assert(slice.len == 0);
+    testing.expect(slice.len == 0);
     // realloc from zero
     slice = try allocator.alignedRealloc(u8, alignment, slice, 100);
-    assert(slice.len == 100);
+    testing.expect(slice.len == 100);
     // shrink with shrink
     slice = allocator.alignedShrink(u8, alignment, slice, 10);
-    assert(slice.len == 10);
+    testing.expect(slice.len == 10);
     // shrink to zero
     slice = allocator.alignedShrink(u8, alignment, slice, 0);
-    assert(slice.len == 0);
+    testing.expect(slice.len == 0);
 }
 
 fn testAllocatorLargeAlignment(allocator: *mem.Allocator) mem.Allocator.Error!void {
@@ -577,19 +582,19 @@ fn testAllocatorLargeAlignment(allocator: *mem.Allocator) mem.Allocator.Error!vo
     _ = @shlWithOverflow(usize, ~usize(0), USizeShift(@ctz(large_align)), &align_mask);
 
     var slice = try allocator.allocFn(allocator, 500, large_align);
-    debug.assert(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
+    testing.expect(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
 
     slice = try allocator.reallocFn(allocator, slice, 100, large_align);
-    debug.assert(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
+    testing.expect(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
 
     slice = try allocator.reallocFn(allocator, slice, 5000, large_align);
-    debug.assert(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
+    testing.expect(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
 
     slice = try allocator.reallocFn(allocator, slice, 10, large_align);
-    debug.assert(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
+    testing.expect(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
 
     slice = try allocator.reallocFn(allocator, slice, 20000, large_align);
-    debug.assert(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
+    testing.expect(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
 
     allocator.free(slice);
 }

@@ -1,6 +1,7 @@
 const std = @import("../index.zig");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
+const testing = std.testing;
 const mem = std.mem;
 const AtomicRmwOp = builtin.AtomicRmwOp;
 const AtomicOrder = builtin.AtomicOrder;
@@ -122,6 +123,9 @@ pub const Lock = struct {
 };
 
 test "std.event.Lock" {
+    // https://github.com/ziglang/zig/issues/1908
+    if (builtin.single_threaded) return error.SkipZigTest;
+
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
 
@@ -138,7 +142,7 @@ test "std.event.Lock" {
     defer cancel handle;
     loop.run();
 
-    assert(mem.eql(i32, shared_test_data, [1]i32{3 * @intCast(i32, shared_test_data.len)} ** shared_test_data.len));
+    testing.expectEqualSlices(i32, [1]i32{3 * @intCast(i32, shared_test_data.len)} ** shared_test_data.len, shared_test_data);
 }
 
 async fn testLock(loop: *Loop, lock: *Lock) void {

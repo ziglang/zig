@@ -1,6 +1,7 @@
 const std = @import("index.zig");
 const debug = std.debug;
 const assert = debug.assert;
+const testing = std.testing;
 const math = std.math;
 const mem = std.mem;
 const Allocator = mem.Allocator;
@@ -342,37 +343,37 @@ test "basic hash map usage" {
     var map = AutoHashMap(i32, i32).init(&direct_allocator.allocator);
     defer map.deinit();
 
-    assert((try map.put(1, 11)) == null);
-    assert((try map.put(2, 22)) == null);
-    assert((try map.put(3, 33)) == null);
-    assert((try map.put(4, 44)) == null);
-    assert((try map.put(5, 55)) == null);
+    testing.expect((try map.put(1, 11)) == null);
+    testing.expect((try map.put(2, 22)) == null);
+    testing.expect((try map.put(3, 33)) == null);
+    testing.expect((try map.put(4, 44)) == null);
+    testing.expect((try map.put(5, 55)) == null);
 
-    assert((try map.put(5, 66)).?.value == 55);
-    assert((try map.put(5, 55)).?.value == 66);
+    testing.expect((try map.put(5, 66)).?.value == 55);
+    testing.expect((try map.put(5, 55)).?.value == 66);
 
     const gop1 = try map.getOrPut(5);
-    assert(gop1.found_existing == true);
-    assert(gop1.kv.value == 55);
+    testing.expect(gop1.found_existing == true);
+    testing.expect(gop1.kv.value == 55);
     gop1.kv.value = 77;
-    assert(map.get(5).?.value == 77);
+    testing.expect(map.get(5).?.value == 77);
 
     const gop2 = try map.getOrPut(99);
-    assert(gop2.found_existing == false);
+    testing.expect(gop2.found_existing == false);
     gop2.kv.value = 42;
-    assert(map.get(99).?.value == 42);
+    testing.expect(map.get(99).?.value == 42);
 
     const gop3 = try map.getOrPutValue(5, 5);
-    assert(gop3.value == 77);
+    testing.expect(gop3.value == 77);
 
     const gop4 = try map.getOrPutValue(100, 41);
-    assert(gop4.value == 41);
+    testing.expect(gop4.value == 41);
 
-    assert(map.contains(2));
-    assert(map.get(2).?.value == 22);
+    testing.expect(map.contains(2));
+    testing.expect(map.get(2).?.value == 22);
     _ = map.remove(2);
-    assert(map.remove(2) == null);
-    assert(map.get(2) == null);
+    testing.expect(map.remove(2) == null);
+    testing.expect(map.get(2) == null);
 }
 
 test "iterator hash map" {
@@ -382,9 +383,9 @@ test "iterator hash map" {
     var reset_map = AutoHashMap(i32, i32).init(&direct_allocator.allocator);
     defer reset_map.deinit();
 
-    assert((try reset_map.put(1, 11)) == null);
-    assert((try reset_map.put(2, 22)) == null);
-    assert((try reset_map.put(3, 33)) == null);
+    testing.expect((try reset_map.put(1, 11)) == null);
+    testing.expect((try reset_map.put(2, 22)) == null);
+    testing.expect((try reset_map.put(3, 33)) == null);
 
     var keys = []i32{
         3,
@@ -400,26 +401,26 @@ test "iterator hash map" {
     var it = reset_map.iterator();
     var count: usize = 0;
     while (it.next()) |next| {
-        assert(next.key == keys[count]);
-        assert(next.value == values[count]);
+        testing.expect(next.key == keys[count]);
+        testing.expect(next.value == values[count]);
         count += 1;
     }
 
-    assert(count == 3);
-    assert(it.next() == null);
+    testing.expect(count == 3);
+    testing.expect(it.next() == null);
     it.reset();
     count = 0;
     while (it.next()) |next| {
-        assert(next.key == keys[count]);
-        assert(next.value == values[count]);
+        testing.expect(next.key == keys[count]);
+        testing.expect(next.value == values[count]);
         count += 1;
         if (count == 2) break;
     }
 
     it.reset();
     var entry = it.next().?;
-    assert(entry.key == keys[0]);
-    assert(entry.value == values[0]);
+    testing.expect(entry.key == keys[0]);
+    testing.expect(entry.value == values[0]);
 }
 
 pub fn getHashPtrAddrFn(comptime K: type) (fn (K) u32) {
@@ -495,6 +496,7 @@ pub fn autoHash(key: var, comptime rng: *std.rand.Random, comptime HashInt: type
         builtin.TypeId.Pointer => |info| switch (info.size) {
             builtin.TypeInfo.Pointer.Size.One => @compileError("TODO auto hash for single item pointers"),
             builtin.TypeInfo.Pointer.Size.Many => @compileError("TODO auto hash for many item pointers"),
+            builtin.TypeInfo.Pointer.Size.C => @compileError("TODO auto hash C pointers"),
             builtin.TypeInfo.Pointer.Size.Slice => {
                 const interval = std.math.max(1, key.len / 256);
                 var i: usize = 0;
@@ -508,6 +510,7 @@ pub fn autoHash(key: var, comptime rng: *std.rand.Random, comptime HashInt: type
 
         builtin.TypeId.Optional => @compileError("TODO auto hash for optionals"),
         builtin.TypeId.Array => @compileError("TODO auto hash for arrays"),
+        builtin.TypeId.Vector => @compileError("TODO auto hash for vectors"),
         builtin.TypeId.Struct => @compileError("TODO auto hash for structs"),
         builtin.TypeId.Union => @compileError("TODO auto hash for unions"),
         builtin.TypeId.ErrorUnion => @compileError("TODO auto hash for unions"),
@@ -541,6 +544,7 @@ pub fn autoEql(a: var, b: @typeOf(a)) bool {
         builtin.TypeId.Pointer => |info| switch (info.size) {
             builtin.TypeInfo.Pointer.Size.One => @compileError("TODO auto eql for single item pointers"),
             builtin.TypeInfo.Pointer.Size.Many => @compileError("TODO auto eql for many item pointers"),
+            builtin.TypeInfo.Pointer.Size.C => @compileError("TODO auto eql for C pointers"),
             builtin.TypeInfo.Pointer.Size.Slice => {
                 if (a.len != b.len) return false;
                 for (a) |a_item, i| {
@@ -555,5 +559,6 @@ pub fn autoEql(a: var, b: @typeOf(a)) bool {
         builtin.TypeId.Struct => @compileError("TODO auto eql for structs"),
         builtin.TypeId.Union => @compileError("TODO auto eql for unions"),
         builtin.TypeId.ErrorUnion => @compileError("TODO auto eql for unions"),
+        builtin.TypeId.Vector => @compileError("TODO auto eql for vectors"),
     }
 }

@@ -1706,6 +1706,9 @@ fn renderVarDecl(
         try renderToken(tree, stream, comptime_token, indent, start_col, Space.Space); // comptime
     }
 
+    if (var_decl.thread_local_token) |thread_local_token| {
+        try renderToken(tree, stream, thread_local_token, indent, start_col, Space.Space); // threadlocal
+    }
     try renderToken(tree, stream, var_decl.mut_token, indent, start_col, Space.Space); // var
 
     const name_space = if (var_decl.type_node == null and (var_decl.align_node != null or

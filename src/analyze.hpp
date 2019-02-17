@@ -12,14 +12,17 @@
 
 void semantic_analyze(CodeGen *g);
 ErrorMsg *add_node_error(CodeGen *g, AstNode *node, Buf *msg);
+ErrorMsg *add_token_error(CodeGen *g, ImportTableEntry *owner, Token *token, Buf *msg);
 ErrorMsg *add_error_note(CodeGen *g, ErrorMsg *parent_msg, AstNode *node, Buf *msg);
 ZigType *new_type_table_entry(ZigTypeId id);
 ZigType *get_pointer_to_type(CodeGen *g, ZigType *child_type, bool is_const);
 ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_const,
         bool is_volatile, PtrLen ptr_len, uint32_t byte_alignment, uint32_t bit_offset, uint32_t unaligned_bit_count);
 uint64_t type_size(CodeGen *g, ZigType *type_entry);
+uint64_t type_size_store(CodeGen *g, ZigType *type_entry);
 uint64_t type_size_bits(CodeGen *g, ZigType *type_entry);
 ZigType *get_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits);
+ZigType *get_vector_type(CodeGen *g, uint32_t len, ZigType *elem_type);
 ZigType **get_c_int_type_ptr(CodeGen *g, CIntType c_int_type);
 ZigType *get_c_int_type(CodeGen *g, CIntType c_int_type);
 ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id);
@@ -42,7 +45,9 @@ void find_libc_include_path(CodeGen *g);
 void find_libc_lib_path(CodeGen *g);
 
 bool type_has_bits(ZigType *type_entry);
-
+bool type_allowed_in_extern(CodeGen *g, ZigType *type_entry);
+bool ptr_allows_addr_zero(ZigType *ptr_type);
+bool type_is_nonnull_ptr(ZigType *type);
 
 ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *abs_full_path, Buf *source_code);
 
@@ -73,6 +78,7 @@ TypeUnionField *find_union_field_by_tag(ZigType *type_entry, const BigInt *tag);
 bool is_ref(ZigType *type_entry);
 bool is_array_ref(ZigType *type_entry);
 bool is_container_ref(ZigType *type_entry);
+bool is_valid_vector_elem_type(ZigType *elem_type);
 void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node);
 void scan_import(CodeGen *g, ImportTableEntry *import);
 void preview_use_decl(CodeGen *g, AstNode *node);
@@ -81,7 +87,7 @@ ZigFn *scope_fn_entry(Scope *scope);
 ImportTableEntry *get_scope_import(Scope *scope);
 void init_tld(Tld *tld, TldId id, Buf *name, VisibMod visib_mod, AstNode *source_node, Scope *parent_scope);
 ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf *name,
-    bool is_const, ConstExprValue *init_value, Tld *src_tld);
+    bool is_const, ConstExprValue *init_value, Tld *src_tld, ZigType *var_type);
 ZigType *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node);
 ZigFn *create_fn(CodeGen *g, AstNode *proto_node);
 ZigFn *create_fn_raw(CodeGen *g, FnInline inline_value);
@@ -212,6 +218,7 @@ void walk_function_params(CodeGen *g, ZigType *fn_type, FnWalk *fn_walk);
 X64CABIClass type_c_abi_x86_64_class(CodeGen *g, ZigType *ty);
 bool type_is_c_abi_int(CodeGen *g, ZigType *ty);
 bool want_first_arg_sret(CodeGen *g, FnTypeId *fn_type_id);
+const char *container_string(ContainerKind kind);
 
 uint32_t get_host_int_bytes(CodeGen *g, ZigType *struct_type, TypeStructField *field);
 
@@ -222,4 +229,15 @@ enum ReqCompTime {
 };
 ReqCompTime type_requires_comptime(CodeGen *g, ZigType *type_entry);
 
+enum OnePossibleValue {
+    OnePossibleValueInvalid,
+    OnePossibleValueNo,
+    OnePossibleValueYes,
+};
+OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry);
+
+Error ensure_const_val_repr(IrAnalyze *ira, CodeGen *codegen, AstNode *source_node,
+        ConstExprValue *const_val, ZigType *wanted_type);
+
+void typecheck_panic_fn(CodeGen *g, TldFn *tld_fn, ZigFn *panic_fn);
 #endif

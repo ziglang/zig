@@ -4,6 +4,7 @@
 const root = @import("@root");
 const std = @import("std");
 const builtin = @import("builtin");
+const assert = std.debug.assert;
 
 var argc_ptr: [*]usize = undefined;
 
@@ -20,17 +21,10 @@ comptime {
 
 nakedcc fn _start() noreturn {
     switch (builtin.arch) {
-        builtin.Arch.x86_64 => switch (builtin.os) {
-            builtin.Os.freebsd => {
-                argc_ptr = asm ("lea (%%rdi), %[argc]"
-                    : [argc] "=r" (-> [*]usize)
-                );
-            },
-            else => {
-                argc_ptr = asm ("lea (%%rsp), %[argc]"
-                    : [argc] "=r" (-> [*]usize)
-                );
-            },
+        builtin.Arch.x86_64 => {
+            argc_ptr = asm ("lea (%%rsp), %[argc]"
+                                : [argc] "=r" (-> [*]usize)
+                            );
         },
         builtin.Arch.i386 => {
             argc_ptr = asm ("lea (%%esp), %[argc]"
@@ -51,7 +45,9 @@ nakedcc fn _start() noreturn {
 
 extern fn WinMainCRTStartup() noreturn {
     @setAlignStack(16);
-
+    if (!builtin.single_threaded) {
+        _ = @import("../os/windows/tls.zig");
+    }
     std.os.windows.ExitProcess(callMain());
 }
 
@@ -68,9 +64,23 @@ fn posixCallMainAndExit() noreturn {
     while (envp_optional[envp_count]) |_| : (envp_count += 1) {}
     const envp = @ptrCast([*][*]u8, envp_optional)[0..envp_count];
     if (builtin.os == builtin.Os.linux) {
-        const auxv = @ptrCast([*]usize, envp.ptr + envp_count + 1);
-        std.os.linux_elf_aux_maybe = @ptrCast([*]std.elf.Auxv, auxv);
-        std.debug.assert(std.os.linuxGetAuxVal(std.elf.AT_PAGESZ) == std.os.page_size);
+        // Scan auxiliary vector.
+        const auxv = @ptrCast([*]std.elf.Auxv, envp.ptr + envp_count + 1);
+        std.os.linux_elf_aux_maybe = auxv;
+        var i: usize = 0;
+        var at_phdr: usize = 0;
+        var at_phnum: usize = 0;
+        var at_phent: usize = 0;
+        while (auxv[i].a_un.a_val != 0) : (i += 1) {
+            switch (auxv[i].a_type) {
+                std.elf.AT_PAGESZ => assert(auxv[i].a_un.a_val == std.os.page_size),
+                std.elf.AT_PHDR => at_phdr = auxv[i].a_un.a_val,
+                std.elf.AT_PHNUM => at_phnum = auxv[i].a_un.a_val,
+                std.elf.AT_PHENT => at_phent = auxv[i].a_un.a_val,
+                else => {},
+            }
+        }
+        if (!builtin.single_threaded) linuxInitializeThreadLocalStorage(at_phdr, at_phnum, at_phent);
     }
 
     std.os.posix.exit(callMainWithArgs(argc, argv, envp));
@@ -121,5 +131,43 @@ inline fn callMain() u8 {
             return 0;
         },
         else => @compileError("expected return type of main to be 'u8', 'noreturn', 'void', or '!void'"),
+    }
+}
+
+var tls_end_addr: usize = undefined;
+const main_thread_tls_align = 32;
+var main_thread_tls_bytes: [64]u8 align(main_thread_tls_align) = [1]u8{0} ** 64;
+
+fn linuxInitializeThreadLocalStorage(at_phdr: usize, at_phnum: usize, at_phent: usize) void {
+    var phdr_addr = at_phdr;
+    var n = at_phnum;
+    var base: usize = 0;
+    while (n != 0) : ({n -= 1; phdr_addr += at_phent;}) {
+        const phdr = @intToPtr(*std.elf.Phdr, phdr_addr);
+        // TODO look for PT_DYNAMIC when we have https://github.com/ziglang/zig/issues/1917
+        switch (phdr.p_type) {
+            std.elf.PT_PHDR => base = at_phdr - phdr.p_vaddr,
+            std.elf.PT_TLS => std.os.linux_tls_phdr = phdr,
+            else => continue,
+        }
+    }
+    const tls_phdr = std.os.linux_tls_phdr orelse return;
+    std.os.linux_tls_img_src = @intToPtr([*]const u8, base + tls_phdr.p_vaddr);
+    assert(main_thread_tls_bytes.len >= tls_phdr.p_memsz); // not enough preallocated Thread Local Storage
+    assert(main_thread_tls_align >= tls_phdr.p_align); // preallocated Thread Local Storage not aligned enough
+    @memcpy(&main_thread_tls_bytes, std.os.linux_tls_img_src, tls_phdr.p_filesz);
+    tls_end_addr = @ptrToInt(&main_thread_tls_bytes) + tls_phdr.p_memsz;
+    linuxSetThreadArea(@ptrToInt(&tls_end_addr));
+}
+
+fn linuxSetThreadArea(addr: usize) void {
+    switch (builtin.arch) {
+        builtin.Arch.x86_64 => {
+            const ARCH_SET_FS = 0x1002;
+            const rc = std.os.linux.syscall2(std.os.linux.SYS_arch_prctl, ARCH_SET_FS, addr);
+            // acrh_prctl is documented to never fail
+            assert(rc == 0);
+        },
+        else => @compileError("Unsupported architecture"),
     }
 }

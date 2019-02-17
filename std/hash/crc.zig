@@ -7,6 +7,7 @@
 
 const std = @import("../index.zig");
 const debug = std.debug;
+const testing = std.testing;
 
 pub const Polynomial = struct {
     const IEEE = 0xedb88320;
@@ -101,17 +102,17 @@ pub fn Crc32WithPoly(comptime poly: u32) type {
 test "crc32 ieee" {
     const Crc32Ieee = Crc32WithPoly(Polynomial.IEEE);
 
-    debug.assert(Crc32Ieee.hash("") == 0x00000000);
-    debug.assert(Crc32Ieee.hash("a") == 0xe8b7be43);
-    debug.assert(Crc32Ieee.hash("abc") == 0x352441c2);
+    testing.expect(Crc32Ieee.hash("") == 0x00000000);
+    testing.expect(Crc32Ieee.hash("a") == 0xe8b7be43);
+    testing.expect(Crc32Ieee.hash("abc") == 0x352441c2);
 }
 
 test "crc32 castagnoli" {
     const Crc32Castagnoli = Crc32WithPoly(Polynomial.Castagnoli);
 
-    debug.assert(Crc32Castagnoli.hash("") == 0x00000000);
-    debug.assert(Crc32Castagnoli.hash("a") == 0xc1d04330);
-    debug.assert(Crc32Castagnoli.hash("abc") == 0x364b3fb7);
+    testing.expect(Crc32Castagnoli.hash("") == 0x00000000);
+    testing.expect(Crc32Castagnoli.hash("a") == 0xc1d04330);
+    testing.expect(Crc32Castagnoli.hash("abc") == 0x364b3fb7);
 }
 
 // half-byte lookup table implementation.
@@ -165,15 +166,15 @@ pub fn Crc32SmallWithPoly(comptime poly: u32) type {
 test "small crc32 ieee" {
     const Crc32Ieee = Crc32SmallWithPoly(Polynomial.IEEE);
 
-    debug.assert(Crc32Ieee.hash("") == 0x00000000);
-    debug.assert(Crc32Ieee.hash("a") == 0xe8b7be43);
-    debug.assert(Crc32Ieee.hash("abc") == 0x352441c2);
+    testing.expect(Crc32Ieee.hash("") == 0x00000000);
+    testing.expect(Crc32Ieee.hash("a") == 0xe8b7be43);
+    testing.expect(Crc32Ieee.hash("abc") == 0x352441c2);
 }
 
 test "small crc32 castagnoli" {
     const Crc32Castagnoli = Crc32SmallWithPoly(Polynomial.Castagnoli);
 
-    debug.assert(Crc32Castagnoli.hash("") == 0x00000000);
-    debug.assert(Crc32Castagnoli.hash("a") == 0xc1d04330);
-    debug.assert(Crc32Castagnoli.hash("abc") == 0x364b3fb7);
+    testing.expect(Crc32Castagnoli.hash("") == 0x00000000);
+    testing.expect(Crc32Castagnoli.hash("a") == 0xc1d04330);
+    testing.expect(Crc32Castagnoli.hash("abc") == 0x364b3fb7);
 }

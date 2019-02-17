@@ -5,7 +5,7 @@
 
 const std = @import("../index.zig");
 const math = std.math;
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 const maxInt = std.math.maxInt;
 
 pub fn fabs(x: var) @typeOf(x) {
@@ -14,6 +14,7 @@ pub fn fabs(x: var) @typeOf(x) {
         f16 => fabs16(x),
         f32 => fabs32(x),
         f64 => fabs64(x),
+        f128 => fabs128(x),
         else => @compileError("fabs not implemented for " ++ @typeName(T)),
     };
 }
@@ -36,41 +37,59 @@ fn fabs64(x: f64) f64 {
     return @bitCast(f64, u);
 }
 
+fn fabs128(x: f128) f128 {
+    var u = @bitCast(u128, x);
+    u &= maxInt(u128) >> 1;
+    return @bitCast(f128, u);
+}
+
 test "math.fabs" {
-    assert(fabs(f16(1.0)) == fabs16(1.0));
-    assert(fabs(f32(1.0)) == fabs32(1.0));
-    assert(fabs(f64(1.0)) == fabs64(1.0));
+    expect(fabs(f16(1.0)) == fabs16(1.0));
+    expect(fabs(f32(1.0)) == fabs32(1.0));
+    expect(fabs(f64(1.0)) == fabs64(1.0));
+    expect(fabs(f128(1.0)) == fabs128(1.0));
 }
 
 test "math.fabs16" {
-    assert(fabs16(1.0) == 1.0);
-    assert(fabs16(-1.0) == 1.0);
+    expect(fabs16(1.0) == 1.0);
+    expect(fabs16(-1.0) == 1.0);
 }
 
 test "math.fabs32" {
-    assert(fabs32(1.0) == 1.0);
-    assert(fabs32(-1.0) == 1.0);
+    expect(fabs32(1.0) == 1.0);
+    expect(fabs32(-1.0) == 1.0);
 }
 
 test "math.fabs64" {
-    assert(fabs64(1.0) == 1.0);
-    assert(fabs64(-1.0) == 1.0);
+    expect(fabs64(1.0) == 1.0);
+    expect(fabs64(-1.0) == 1.0);
+}
+
+test "math.fabs128" {
+    expect(fabs128(1.0) == 1.0);
+    expect(fabs128(-1.0) == 1.0);
 }
 
 test "math.fabs16.special" {
-    assert(math.isPositiveInf(fabs(math.inf(f16))));
-    assert(math.isPositiveInf(fabs(-math.inf(f16))));
-    assert(math.isNan(fabs(math.nan(f16))));
+    expect(math.isPositiveInf(fabs(math.inf(f16))));
+    expect(math.isPositiveInf(fabs(-math.inf(f16))));
+    expect(math.isNan(fabs(math.nan(f16))));
 }
 
 test "math.fabs32.special" {
-    assert(math.isPositiveInf(fabs(math.inf(f32))));
-    assert(math.isPositiveInf(fabs(-math.inf(f32))));
-    assert(math.isNan(fabs(math.nan(f32))));
+    expect(math.isPositiveInf(fabs(math.inf(f32))));
+    expect(math.isPositiveInf(fabs(-math.inf(f32))));
+    expect(math.isNan(fabs(math.nan(f32))));
 }
 
 test "math.fabs64.special" {
-    assert(math.isPositiveInf(fabs(math.inf(f64))));
-    assert(math.isPositiveInf(fabs(-math.inf(f64))));
-    assert(math.isNan(fabs(math.nan(f64))));
+    expect(math.isPositiveInf(fabs(math.inf(f64))));
+    expect(math.isPositiveInf(fabs(-math.inf(f64))));
+    expect(math.isNan(fabs(math.nan(f64))));
+}
+
+test "math.fabs128.special" {
+    expect(math.isPositiveInf(fabs(math.inf(f128))));
+    expect(math.isPositiveInf(fabs(-math.inf(f128))));
+    expect(math.isNan(fabs(math.nan(f128))));
 }

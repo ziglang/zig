@@ -21,8 +21,8 @@ static int print_error_usage(const char *arg0) {
     return EXIT_FAILURE;
 }
 
-static int print_full_usage(const char *arg0) {
-    fprintf(stdout,
+static int print_full_usage(const char *arg0, FILE *file, int return_code) {
+    fprintf(file,
         "Usage: %s [command] [options]\n"
         "\n"
         "Commands:\n"
@@ -31,6 +31,7 @@ static int print_full_usage(const char *arg0) {
         "  build-lib [source]           create library from source or object files\n"
         "  build-obj [source]           create object from source or assembly\n"
         "  builtin                      show the source code of that @import(\"builtin\")\n"
+        "  fmt                          parse files and render in canonical zig format\n"
         "  help                         show this usage information\n"
         "  id                           print the base64-encoded compiler id\n"
         "  init-exe                     initialize a `zig build` application in the cwd\n"
@@ -59,6 +60,7 @@ static int print_full_usage(const char *arg0) {
         "  --release-fast               build with optimizations on and safety off\n"
         "  --release-safe               build with optimizations on and safety on\n"
         "  --release-small              build with size optimizations on and safety off\n"
+        "  --single-threaded            source may assume it is only used single-threaded\n"
         "  --static                     output will be statically linked\n"
         "  --strip                      exclude debug symbols\n"
         "  --target-arch [name]         specify target architecture\n"
@@ -73,6 +75,7 @@ static int print_full_usage(const char *arg0) {
         "  -dirafter [dir]              same as -isystem but do it last\n"
         "  -isystem [dir]               add additional search path for other .h files\n"
         "  -mllvm [arg]                 forward an arg to LLVM's option processing\n"
+        "  --override-std-dir [arg]     use an alternate Zig standard library\n"
         "\n"
         "Link Options:\n"
         "  --dynamic-linker [path]      set the path to ld.so\n"
@@ -90,8 +93,7 @@ static int print_full_usage(const char *arg0) {
         "  -rdynamic                    add all symbols to the dynamic symbol table\n"
         "  -rpath [path]                add directory to the runtime library search path\n"
         "  --no-rosegment               compromise security to workaround valgrind bug\n"
-        "  -mconsole                    (windows) --subsystem console to the linker\n"
-        "  -mwindows                    (windows) --subsystem windows to the linker\n"
+        "  --subsystem [subsystem]      (windows) /SUBSYSTEM:<subsystem> to the linker\n"
         "  -framework [name]            (darwin) link against framework\n"
         "  -mios-version-min [ver]      (darwin) set iOS deployment target\n"
         "  -mmacosx-version-min [ver]   (darwin) set Mac OS X deployment target\n"
@@ -105,7 +107,7 @@ static int print_full_usage(const char *arg0) {
         "  --test-cmd [arg]             specify test execution command one arg at a time\n"
         "  --test-cmd-bin               appends test binary path to test cmd args\n"
     , arg0);
-    return EXIT_SUCCESS;
+    return return_code;
 }
 
 static const char *ZIG_ZEN = "\n"
@@ -371,8 +373,6 @@ int main(int argc, char **argv) {
     const char *target_arch = nullptr;
     const char *target_os = nullptr;
     const char *target_environ = nullptr;
-    bool mwindows = false;
-    bool mconsole = false;
     bool rdynamic = false;
     const char *mmacosx_version_min = nullptr;
     const char *mios_version_min = nullptr;
@@ -395,6 +395,9 @@ int main(int argc, char **argv) {
     int runtime_args_start = -1;
     bool no_rosegment_workaround = false;
     bool system_linker_hack = false;
+    TargetSubsystem subsystem = TargetSubsystemAuto;
+    bool is_single_threaded = false;
+    Buf *override_std_dir = nullptr;
 
     if (argc >= 2 && strcmp(argv[1], "build") == 0) {
         Buf zig_exe_path_buf = BUF_INIT;
@@ -430,7 +433,8 @@ int main(int argc, char **argv) {
         Buf *build_runner_path = buf_alloc();
         os_path_join(get_zig_special_dir(), buf_create_from_str("build_runner.zig"), build_runner_path);
 
-        CodeGen *g = codegen_create(build_runner_path, nullptr, OutTypeExe, BuildModeDebug, get_zig_lib_dir());
+        CodeGen *g = codegen_create(build_runner_path, nullptr, OutTypeExe, BuildModeDebug, get_zig_lib_dir(),
+                override_std_dir);
         g->enable_time_report = timing_info;
         buf_init_from_str(&g->cache_dir, cache_dir ? cache_dir : default_zig_cache_name);
         codegen_set_out_name(g, buf_create_from_str("build"));
@@ -512,6 +516,31 @@ int main(int argc, char **argv) {
             fprintf(stderr, "\n");
         }
         return (term.how == TerminationIdClean) ? term.code : -1;
+    } else if (argc >= 2 && strcmp(argv[1], "fmt") == 0) {
+        init_all_targets();
+        Buf *fmt_runner_path = buf_alloc();
+        os_path_join(get_zig_special_dir(), buf_create_from_str("fmt_runner.zig"), fmt_runner_path);
+        CodeGen *g = codegen_create(fmt_runner_path, nullptr, OutTypeExe, BuildModeDebug, get_zig_lib_dir(),
+                nullptr);
+        g->is_single_threaded = true;
+        codegen_set_out_name(g, buf_create_from_str("fmt"));
+        g->enable_cache = true;
+
+        codegen_build_and_link(g);
+
+        ZigList<const char*> args = {0};
+        for (int i = 2; i < argc; i += 1) {
+            args.append(argv[i]);
+        }
+        args.append(nullptr);
+        const char *exec_path = buf_ptr(&g->output_file_path);
+
+        os_execv(exec_path, args.items);
+
+        args.pop();
+        Termination term;
+        os_spawn_process(exec_path, args, &term);
+        return term.code;
     }
 
     for (int i = 1; i < argc; i += 1) {
@@ -524,6 +553,8 @@ int main(int argc, char **argv) {
                 build_mode = BuildModeSafeRelease;
             } else if (strcmp(arg, "--release-small") == 0) {
                 build_mode = BuildModeSmallRelease;
+            } else if (strcmp(arg, "--help") == 0) {
+                return print_full_usage(arg0, stderr, EXIT_FAILURE);
             } else if (strcmp(arg, "--strip") == 0) {
                 strip = true;
             } else if (strcmp(arg, "--static") == 0) {
@@ -540,10 +571,6 @@ int main(int argc, char **argv) {
                 verbose_llvm_ir = true;
             } else if (strcmp(arg, "--verbose-cimport") == 0) {
                 verbose_cimport = true;
-            } else if (strcmp(arg, "-mwindows") == 0) {
-                mwindows = true;
-            } else if (strcmp(arg, "-mconsole") == 0) {
-                mconsole = true;
             } else if (strcmp(arg, "-rdynamic") == 0) {
                 rdynamic = true;
             } else if (strcmp(arg, "--no-rosegment") == 0) {
@@ -556,6 +583,8 @@ int main(int argc, char **argv) {
                 disable_pic = true;
             } else if (strcmp(arg, "--system-linker-hack") == 0) {
                 system_linker_hack = true;
+            } else if (strcmp(arg, "--single-threaded") == 0) {
+                is_single_threaded = true;
             } else if (strcmp(arg, "--test-cmd-bin") == 0) {
                 test_exec_args.append(nullptr);
             } else if (arg[1] == 'L' && arg[2] != 0) {
@@ -647,6 +676,8 @@ int main(int argc, char **argv) {
                     clang_argv.append(argv[i]);
 
                     llvm_argv.append(argv[i]);
+                } else if (strcmp(arg, "--override-std-dir") == 0) {
+                    override_std_dir = buf_create_from_str(argv[i]);
                 } else if (strcmp(arg, "--library-path") == 0 || strcmp(arg, "-L") == 0) {
                     lib_dirs.append(argv[i]);
                 } else if (strcmp(arg, "--library") == 0) {
@@ -687,6 +718,37 @@ int main(int argc, char **argv) {
                     ver_patch = atoi(argv[i]);
                 } else if (strcmp(arg, "--test-cmd") == 0) {
                     test_exec_args.append(argv[i]);
+                } else if (strcmp(arg, "--subsystem") == 0) {
+                    if (strcmp(argv[i], "console") == 0) {
+                        subsystem = TargetSubsystemConsole;
+                    } else if (strcmp(argv[i], "windows") == 0) {
+                        subsystem = TargetSubsystemWindows;
+                    } else if (strcmp(argv[i], "posix") == 0) {
+                        subsystem = TargetSubsystemPosix;
+                    } else if (strcmp(argv[i], "native") == 0) {
+                        subsystem = TargetSubsystemNative;
+                    } else if (strcmp(argv[i], "efi_application") == 0) {
+                        subsystem = TargetSubsystemEfiApplication;
+                    } else if (strcmp(argv[i], "efi_boot_service_driver") == 0) {
+                        subsystem = TargetSubsystemEfiBootServiceDriver;
+                    } else if (strcmp(argv[i], "efi_rom") == 0) {
+                        subsystem = TargetSubsystemEfiRom;
+                    } else if (strcmp(argv[i], "efi_runtime_driver") == 0) {
+                        subsystem = TargetSubsystemEfiRuntimeDriver;
+                    } else {
+                        fprintf(stderr, "invalid: --subsystem %s\n"
+                                "Options are:\n"
+                                "  console\n"
+                                "  windows\n"
+                                "  posix\n"
+                                "  native\n"
+                                "  efi_application\n"
+                                "  efi_boot_service_driver\n"
+                                "  efi_rom\n"
+                                "  efi_runtime_driver\n"
+                            , argv[i]);
+                        return EXIT_FAILURE;
+                    }
                 } else {
                     fprintf(stderr, "Invalid argument: %s\n", arg);
                     return print_error_usage(arg0);
@@ -790,7 +852,8 @@ int main(int argc, char **argv) {
 
     switch (cmd) {
     case CmdBuiltin: {
-        CodeGen *g = codegen_create(nullptr, target, out_type, build_mode, get_zig_lib_dir());
+        CodeGen *g = codegen_create(nullptr, target, out_type, build_mode, get_zig_lib_dir(), override_std_dir);
+        g->is_single_threaded = is_single_threaded;
         Buf *builtin_source = codegen_generate_builtin_source(g);
         if (fwrite(buf_ptr(builtin_source), 1, buf_len(builtin_source), stdout) != buf_len(builtin_source)) {
             fprintf(stderr, "unable to write to stdout: %s\n", strerror(ferror(stdout)));
@@ -848,7 +911,10 @@ int main(int argc, char **argv) {
             if (cmd == CmdRun && buf_out_name == nullptr) {
                 buf_out_name = buf_create_from_str("run");
             }
-            CodeGen *g = codegen_create(zig_root_source_file, target, out_type, build_mode, get_zig_lib_dir());
+            CodeGen *g = codegen_create(zig_root_source_file, target, out_type, build_mode, get_zig_lib_dir(),
+                    override_std_dir);
+            g->subsystem = subsystem;
+
             if (disable_pic) {
                 if (out_type != OutTypeLib || !is_static) {
                     fprintf(stderr, "--disable-pic only applies to static libraries");
@@ -862,6 +928,7 @@ int main(int argc, char **argv) {
             codegen_set_out_name(g, buf_out_name);
             codegen_set_lib_version(g, ver_major, ver_minor, ver_patch);
             codegen_set_is_test(g, cmd == CmdTest);
+            g->is_single_threaded = is_single_threaded;
             codegen_set_linker_script(g, linker_script);
             if (each_lib_rpath)
                 codegen_set_each_lib_rpath(g, each_lib_rpath);
@@ -909,7 +976,6 @@ int main(int argc, char **argv) {
                 codegen_add_rpath(g, rpath_list.at(i));
             }
 
-            codegen_set_windows_subsystem(g, mwindows, mconsole);
             codegen_set_rdynamic(g, rdynamic);
             g->no_rosegment_workaround = no_rosegment_workaround;
             if (mmacosx_version_min && mios_version_min) {
@@ -1042,7 +1108,7 @@ int main(int argc, char **argv) {
             }
         }
     case CmdHelp:
-        return print_full_usage(arg0);
+        return print_full_usage(arg0, stdout, EXIT_SUCCESS);
     case CmdVersion:
         printf("%s\n", ZIG_VERSION_STRING);
         return EXIT_SUCCESS;

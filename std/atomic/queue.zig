@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const AtomicOrder = builtin.AtomicOrder;
 const AtomicRmwOp = builtin.AtomicRmwOp;
 const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 /// Many producer, many consumer, non-allocating, thread-safe.
 /// Uses a mutex to protect access.
@@ -170,20 +171,36 @@ test "std.atomic.Queue" {
         .get_count = 0,
     };
 
-    var putters: [put_thread_count]*std.os.Thread = undefined;
-    for (putters) |*t| {
-        t.* = try std.os.spawnThread(&context, startPuts);
-    }
-    var getters: [put_thread_count]*std.os.Thread = undefined;
-    for (getters) |*t| {
-        t.* = try std.os.spawnThread(&context, startGets);
-    }
+    if (builtin.single_threaded) {
+        {
+            var i: usize = 0;
+            while (i < put_thread_count) : (i += 1) {
+                expect(startPuts(&context) == 0);
+            }
+        }
+        context.puts_done = 1;
+        {
+            var i: usize = 0;
+            while (i < put_thread_count) : (i += 1) {
+                expect(startGets(&context) == 0);
+            }
+        }
+    } else {
+        var putters: [put_thread_count]*std.os.Thread = undefined;
+        for (putters) |*t| {
+            t.* = try std.os.spawnThread(&context, startPuts);
+        }
+        var getters: [put_thread_count]*std.os.Thread = undefined;
+        for (getters) |*t| {
+            t.* = try std.os.spawnThread(&context, startGets);
+        }
 
-    for (putters) |t|
-        t.wait();
-    _ = @atomicRmw(u8, &context.puts_done, builtin.AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst);
-    for (getters) |t|
-        t.wait();
+        for (putters) |t|
+            t.wait();
+        _ = @atomicRmw(u8, &context.puts_done, builtin.AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst);
+        for (getters) |t|
+            t.wait();
+    }
 
     if (context.put_sum != context.get_sum) {
         std.debug.panic("failure\nput_sum:{} != get_sum:{}", context.put_sum, context.get_sum);
@@ -205,11 +222,12 @@ fn startPuts(ctx: *Context) u8 {
     while (put_count != 0) : (put_count -= 1) {
         std.os.time.sleep(1); // let the os scheduler be our fuzz
         const x = @bitCast(i32, r.random.scalar(u32));
-        const node = ctx.allocator.create(Queue(i32).Node{
+        const node = ctx.allocator.create(Queue(i32).Node) catch unreachable;
+        node.* = Queue(i32).Node{
             .prev = undefined,
             .next = undefined,
             .data = x,
-        }) catch unreachable;
+        };
         ctx.queue.put(node);
         _ = @atomicRmw(isize, &ctx.put_sum, builtin.AtomicRmwOp.Add, x, AtomicOrder.SeqCst);
     }
@@ -247,7 +265,7 @@ test "std.atomic.Queue single-threaded" {
     };
     queue.put(&node_1);
 
-    assert(queue.get().?.data == 0);
+    expect(queue.get().?.data == 0);
 
     var node_2 = Queue(i32).Node{
         .data = 2,
@@ -263,9 +281,9 @@ test "std.atomic.Queue single-threaded" {
     };
     queue.put(&node_3);
 
-    assert(queue.get().?.data == 1);
+    expect(queue.get().?.data == 1);
 
-    assert(queue.get().?.data == 2);
+    expect(queue.get().?.data == 2);
 
     var node_4 = Queue(i32).Node{
         .data = 4,
@@ -274,12 +292,12 @@ test "std.atomic.Queue single-threaded" {
     };
     queue.put(&node_4);
 
-    assert(queue.get().?.data == 3);
+    expect(queue.get().?.data == 3);
     node_3.next = null;
 
-    assert(queue.get().?.data == 4);
+    expect(queue.get().?.data == 4);
 
-    assert(queue.get() == null);
+    expect(queue.get() == null);
 }
 
 test "std.atomic.Queue dump" {
@@ -294,7 +312,7 @@ test "std.atomic.Queue dump" {
     // Test empty stream
     sos.reset();
     try queue.dumpToStream(SliceOutStream.Error, &sos.stream);
-    assert(mem.eql(u8, buffer[0..sos.pos],
+    expect(mem.eql(u8, buffer[0..sos.pos],
         \\head: (null)
         \\tail: (null)
         \\
@@ -318,7 +336,7 @@ test "std.atomic.Queue dump" {
         \\ (null)
         \\
     , @ptrToInt(queue.head), @ptrToInt(queue.tail));
-    assert(mem.eql(u8, buffer[0..sos.pos], expected));
+    expect(mem.eql(u8, buffer[0..sos.pos], expected));
 
     // Test a stream with two elements
     var node_1 = Queue(i32).Node{
@@ -339,5 +357,5 @@ test "std.atomic.Queue dump" {
         \\ (null)
         \\
     , @ptrToInt(queue.head), @ptrToInt(queue.head.?.next), @ptrToInt(queue.tail));
-    assert(mem.eql(u8, buffer[0..sos.pos], expected));
+    expect(mem.eql(u8, buffer[0..sos.pos], expected));
 }

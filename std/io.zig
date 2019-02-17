@@ -8,9 +8,12 @@ const debug = std.debug;
 const assert = debug.assert;
 const os = std.os;
 const mem = std.mem;
+const meta = std.meta;
+const trait = meta.trait;
 const Buffer = std.Buffer;
 const fmt = std.fmt;
 const File = std.os.File;
+const testing = std.testing;
 
 const is_posix = builtin.os != builtin.Os.windows;
 const is_windows = builtin.os == builtin.Os.windows;
@@ -152,35 +155,43 @@ pub fn InStream(comptime ReadError: type) type {
         }
 
         /// Reads a native-endian integer
-        pub fn readIntNe(self: *Self, comptime T: type) !T {
-            return self.readInt(builtin.endian, T);
-        }
-
-        pub fn readIntLe(self: *Self, comptime T: type) !T {
+        pub fn readIntNative(self: *Self, comptime T: type) !T {
             var bytes: [@sizeOf(T)]u8 = undefined;
             try self.readNoEof(bytes[0..]);
-            return mem.readIntLE(T, bytes);
+            return mem.readIntNative(T, &bytes);
         }
 
-        pub fn readIntBe(self: *Self, comptime T: type) !T {
+        /// Reads a foreign-endian integer
+        pub fn readIntForeign(self: *Self, comptime T: type) !T {
             var bytes: [@sizeOf(T)]u8 = undefined;
             try self.readNoEof(bytes[0..]);
-            return mem.readIntBE(T, bytes);
+            return mem.readIntForeign(T, &bytes);
         }
 
-        pub fn readInt(self: *Self, endian: builtin.Endian, comptime T: type) !T {
+        pub fn readIntLittle(self: *Self, comptime T: type) !T {
             var bytes: [@sizeOf(T)]u8 = undefined;
             try self.readNoEof(bytes[0..]);
-            return mem.readInt(bytes, T, endian);
+            return mem.readIntLittle(T, &bytes);
         }
 
-        pub fn readVarInt(self: *Self, endian: builtin.Endian, comptime T: type, size: usize) !T {
-            assert(size <= @sizeOf(T));
-            assert(size <= 8);
-            var input_buf: [8]u8 = undefined;
-            const input_slice = input_buf[0..size];
-            try self.readNoEof(input_slice);
-            return mem.readInt(input_slice, T, endian);
+        pub fn readIntBig(self: *Self, comptime T: type) !T {
+            var bytes: [@sizeOf(T)]u8 = undefined;
+            try self.readNoEof(bytes[0..]);
+            return mem.readIntBig(T, &bytes);
+        }
+
+        pub fn readInt(self: *Self, comptime T: type, endian: builtin.Endian) !T {
+            var bytes: [@sizeOf(T)]u8 = undefined;
+            try self.readNoEof(bytes[0..]);
+            return mem.readInt(T, &bytes, endian);
+        }
+
+        pub fn readVarInt(self: *Self, comptime ReturnType: type, endian: builtin.Endian, size: usize) !ReturnType {
+            assert(size <= @sizeOf(ReturnType));
+            var bytes_buf: [@sizeOf(ReturnType)]u8 = undefined;
+            const bytes = bytes_buf[0..size];
+            try self.readNoEof(bytes);
+            return mem.readVarInt(ReturnType, bytes, endian);
         }
 
         pub fn skipBytes(self: *Self, num_bytes: usize) !void {
@@ -229,25 +240,34 @@ pub fn OutStream(comptime WriteError: type) type {
         }
 
         /// Write a native-endian integer.
-        pub fn writeIntNe(self: *Self, comptime T: type, value: T) Error!void {
-            return self.writeInt(builtin.endian, T, value);
-        }
-
-        pub fn writeIntLe(self: *Self, comptime T: type, value: T) Error!void {
+        pub fn writeIntNative(self: *Self, comptime T: type, value: T) Error!void {
             var bytes: [@sizeOf(T)]u8 = undefined;
-            mem.writeIntLE(T, &bytes, value);
+            mem.writeIntNative(T, &bytes, value);
             return self.writeFn(self, bytes);
         }
 
-        pub fn writeIntBe(self: *Self, comptime T: type, value: T) Error!void {
+        /// Write a foreign-endian integer.
+        pub fn writeIntForeign(self: *Self, comptime T: type, value: T) Error!void {
             var bytes: [@sizeOf(T)]u8 = undefined;
-            mem.writeIntBE(T, &bytes, value);
+            mem.writeIntForeign(T, &bytes, value);
             return self.writeFn(self, bytes);
         }
 
-        pub fn writeInt(self: *Self, endian: builtin.Endian, comptime T: type, value: T) Error!void {
+        pub fn writeIntLittle(self: *Self, comptime T: type, value: T) Error!void {
             var bytes: [@sizeOf(T)]u8 = undefined;
-            mem.writeInt(bytes[0..], value, endian);
+            mem.writeIntLittle(T, &bytes, value);
+            return self.writeFn(self, bytes);
+        }
+
+        pub fn writeIntBig(self: *Self, comptime T: type, value: T) Error!void {
+            var bytes: [@sizeOf(T)]u8 = undefined;
+            mem.writeIntBig(T, &bytes, value);
+            return self.writeFn(self, bytes);
+        }
+
+        pub fn writeInt(self: *Self, comptime T: type, value: T, endian: builtin.Endian) Error!void {
+            var bytes: [@sizeOf(T)]u8 = undefined;
+            mem.writeInt(T, &bytes, value, endian);
             return self.writeFn(self, bytes);
         }
     };
@@ -323,23 +343,24 @@ pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Error: type)
                 const amt_buffered = self.end_index - self.start_index;
                 if (amt_buffered == 0) {
                     assert(self.end_index <= buffer_size);
-                    if (self.end_index == buffer_size) {
-                        // we can read more data from the unbuffered stream
-                        if (dest_space < buffer_size) {
-                            self.start_index = 0;
-                            self.end_index = try self.unbuffered_in_stream.read(self.buffer[0..]);
-                        } else {
-                            // asking for so much data that buffering is actually less efficient.
-                            // forward the request directly to the unbuffered stream
-                            const amt_read = try self.unbuffered_in_stream.read(dest[dest_index..]);
-                            return dest_index + amt_read;
-                        }
-                    } else {
-                        // reading from the unbuffered stream returned less than we asked for
-                        // so we cannot read any more data.
+                    // Make sure the last read actually gave us some data
+                    if (self.end_index == 0) {
+                        // reading from the unbuffered stream returned nothing
+                        // so we have nothing left to read.
                         return dest_index;
                     }
+                    // we can read more data from the unbuffered stream
+                    if (dest_space < buffer_size) {
+                        self.start_index = 0;
+                        self.end_index = try self.unbuffered_in_stream.read(self.buffer[0..]);
+                    } else {
+                        // asking for so much data that buffering is actually less efficient.
+                        // forward the request directly to the unbuffered stream
+                        const amt_read = try self.unbuffered_in_stream.read(dest[dest_index..]);
+                        return dest_index + amt_read;
+                    }
                 }
+
                 const copy_amount = math.min(dest_space, amt_buffered);
                 const copy_end_index = self.start_index + copy_amount;
                 mem.copy(u8, dest[dest_index..], self.buffer[self.start_index..copy_end_index]);
@@ -348,6 +369,46 @@ pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Error: type)
             }
         }
     };
+}
+
+test "io.BufferedInStream" {
+    const OneByteReadInStream = struct {
+        const Error = error{NoError};
+        const Stream = InStream(Error);
+
+        stream: Stream,
+        str: []const u8,
+        curr: usize,
+
+        fn init(str: []const u8) @This() {
+            return @This(){
+                .stream = Stream{ .readFn = readFn },
+                .str = str,
+                .curr = 0,
+            };
+        }
+
+        fn readFn(in_stream: *Stream, dest: []u8) Error!usize {
+            const self = @fieldParentPtr(@This(), "stream", in_stream);
+            if (self.str.len <= self.curr or dest.len == 0)
+                return 0;
+
+            dest[0] = self.str[self.curr];
+            self.curr += 1;
+            return 1;
+        }
+    };
+
+    var buf: [100]u8 = undefined;
+    const allocator = &std.heap.FixedBufferAllocator.init(buf[0..]).allocator;
+
+    const str = "This is a test";
+    var one_byte_stream = OneByteReadInStream.init(str);
+    var buf_in_stream = BufferedInStream(OneByteReadInStream.Error).init(&one_byte_stream.stream);
+    const stream = &buf_in_stream.stream;
+
+    const res = try stream.readAllAlloc(allocator, str.len + 1);
+    testing.expectEqualSlices(u8, str, res);
 }
 
 /// Creates a stream which supports 'un-reading' data, so that it can be read again.
@@ -446,6 +507,153 @@ pub const SliceInStream = struct {
     }
 };
 
+/// Creates a stream which allows for reading bit fields from another stream
+pub fn BitInStream(endian: builtin.Endian, comptime Error: type) type {
+    return struct {
+        const Self = @This();
+
+        in_stream: *Stream,
+        bit_buffer: u7,
+        bit_count: u3,
+        stream: Stream,
+
+        pub const Stream = InStream(Error);
+        const u8_bit_count = comptime meta.bitCount(u8);
+        const u7_bit_count = comptime meta.bitCount(u7);
+        const u4_bit_count = comptime meta.bitCount(u4);
+
+        pub fn init(in_stream: *Stream) Self {
+            return Self{
+                .in_stream = in_stream,
+                .bit_buffer = 0,
+                .bit_count = 0,
+                .stream = Stream{ .readFn = read },
+            };
+        }
+
+        /// Reads `bits` bits from the stream and returns a specified unsigned int type
+        ///  containing them in the least significant end, returning an error if the
+        ///  specified number of bits could not be read.
+        pub fn readBitsNoEof(self: *Self, comptime U: type, bits: usize) !U {
+            var n: usize = undefined;
+            const result = try self.readBits(U, bits, &n);
+            if (n < bits) return error.EndOfStream;
+            return result;
+        }
+
+        /// Reads `bits` bits from the stream and returns a specified unsigned int type
+        ///  containing them in the least significant end. The number of bits successfully
+        ///  read is placed in `out_bits`, as reaching the end of the stream is not an error.
+        pub fn readBits(self: *Self, comptime U: type, bits: usize, out_bits: *usize) Error!U {
+            comptime assert(trait.isUnsignedInt(U));
+
+            //by extending the buffer to a minimum of u8 we can cover a number of edge cases
+            // related to shifting and casting.
+            const u_bit_count = comptime meta.bitCount(U);
+            const buf_bit_count = bc: {
+                assert(u_bit_count >= bits);
+                break :bc if (u_bit_count <= u8_bit_count) u8_bit_count else u_bit_count;
+            };
+            const Buf = @IntType(false, buf_bit_count);
+            const BufShift = math.Log2Int(Buf);
+
+            out_bits.* = usize(0);
+            if (U == u0 or bits == 0) return 0;
+            var out_buffer = Buf(0);
+
+            if (self.bit_count > 0) {
+                const n = if (self.bit_count >= bits) @intCast(u3, bits) else self.bit_count;
+                const shift = u7_bit_count - n;
+                switch (endian) {
+                    builtin.Endian.Big => {
+                        out_buffer = Buf(self.bit_buffer >> shift);
+                        self.bit_buffer <<= n;
+                    },
+                    builtin.Endian.Little => {
+                        const value = (self.bit_buffer << shift) >> shift;
+                        out_buffer = Buf(value);
+                        self.bit_buffer >>= n;
+                    },
+                }
+                self.bit_count -= n;
+                out_bits.* = n;
+            }
+            //at this point we know bit_buffer is empty
+
+            //copy bytes until we have enough bits, then leave the rest in bit_buffer
+            while (out_bits.* < bits) {
+                const n = bits - out_bits.*;
+                const next_byte = self.in_stream.readByte() catch |err| {
+                    if (err == error.EndOfStream) {
+                        return @intCast(U, out_buffer);
+                    }
+                    //@BUG: See #1810. Not sure if the bug is that I have to do this for some
+                    // streams, or that I don't for streams with emtpy errorsets.
+                    return @errSetCast(Error, err);
+                };
+
+                switch (endian) {
+                    builtin.Endian.Big => {
+                        if (n >= u8_bit_count) {
+                            out_buffer <<= @intCast(u3, u8_bit_count - 1);
+                            out_buffer <<= 1;
+                            out_buffer |= Buf(next_byte);
+                            out_bits.* += u8_bit_count;
+                            continue;
+                        }
+
+                        const shift = @intCast(u3, u8_bit_count - n);
+                        out_buffer <<= @intCast(BufShift, n);
+                        out_buffer |= Buf(next_byte >> shift);
+                        out_bits.* += n;
+                        self.bit_buffer = @truncate(u7, next_byte << @intCast(u3, n - 1));
+                        self.bit_count = shift;
+                    },
+                    builtin.Endian.Little => {
+                        if (n >= u8_bit_count) {
+                            out_buffer |= Buf(next_byte) << @intCast(BufShift, out_bits.*);
+                            out_bits.* += u8_bit_count;
+                            continue;
+                        }
+
+                        const shift = @intCast(u3, u8_bit_count - n);
+                        const value = (next_byte << shift) >> shift;
+                        out_buffer |= Buf(value) << @intCast(BufShift, out_bits.*);
+                        out_bits.* += n;
+                        self.bit_buffer = @truncate(u7, next_byte >> @intCast(u3, n));
+                        self.bit_count = shift;
+                    },
+                }
+            }
+
+            return @intCast(U, out_buffer);
+        }
+
+        pub fn alignToByte(self: *Self) void {
+            self.bit_buffer = 0;
+            self.bit_count = 0;
+        }
+
+        pub fn read(self_stream: *Stream, buffer: []u8) Error!usize {
+            var self = @fieldParentPtr(Self, "stream", self_stream);
+
+            var out_bits: usize = undefined;
+            var out_bits_total = usize(0);
+            //@NOTE: I'm not sure this is a good idea, maybe alignToByte should be forced
+            if (self.bit_count > 0) {
+                for (buffer) |*b, i| {
+                    b.* = try self.readBits(u8, u8_bit_count, &out_bits);
+                    out_bits_total += out_bits;
+                }
+                const incomplete_byte = @boolToInt(out_bits_total % u8_bit_count > 0);
+                return (out_bits_total / u8_bit_count) + incomplete_byte;
+            }
+
+            return self.in_stream.read(buffer);
+        }
+    };
+}
+
 /// This is a simple OutStream that writes to a slice, and returns an error
 /// when it runs out of space.
 pub const SliceOutStream = struct {
@@ -498,7 +706,7 @@ test "io.SliceOutStream" {
     const stream = &slice_stream.stream;
 
     try stream.print("{}{}!", "Hello", "World");
-    debug.assert(mem.eql(u8, "HelloWorld!", slice_stream.getWritten()));
+    testing.expectEqualSlices(u8, "HelloWorld!", slice_stream.getWritten());
 }
 
 var null_out_stream_state = NullOutStream.init();
@@ -560,7 +768,7 @@ test "io.CountingOutStream" {
 
     const bytes = "yay" ** 10000;
     stream.write(bytes) catch unreachable;
-    debug.assert(counting_stream.bytes_written == bytes.len);
+    testing.expect(counting_stream.bytes_written == bytes.len);
 }
 
 pub fn BufferedOutStream(comptime Error: type) type {
@@ -639,6 +847,135 @@ pub const BufferOutStream = struct {
     }
 };
 
+/// Creates a stream which allows for writing bit fields to another stream
+pub fn BitOutStream(endian: builtin.Endian, comptime Error: type) type {
+    return struct {
+        const Self = @This();
+
+        out_stream: *Stream,
+        bit_buffer: u8,
+        bit_count: u4,
+        stream: Stream,
+
+        pub const Stream = OutStream(Error);
+        const u8_bit_count = comptime meta.bitCount(u8);
+        const u4_bit_count = comptime meta.bitCount(u4);
+
+        pub fn init(out_stream: *Stream) Self {
+            return Self{
+                .out_stream = out_stream,
+                .bit_buffer = 0,
+                .bit_count = 0,
+                .stream = Stream{ .writeFn = write },
+            };
+        }
+
+        /// Write the specified number of bits to the stream from the least significant bits of
+        ///  the specified unsigned int value. Bits will only be written to the stream when there
+        ///  are enough to fill a byte.
+        pub fn writeBits(self: *Self, value: var, bits: usize) Error!void {
+            if (bits == 0) return;
+
+            const U = @typeOf(value);
+            comptime assert(trait.isUnsignedInt(U));
+
+            //by extending the buffer to a minimum of u8 we can cover a number of edge cases
+            // related to shifting and casting.
+            const u_bit_count = comptime meta.bitCount(U);
+            const buf_bit_count = bc: {
+                assert(u_bit_count >= bits);
+                break :bc if (u_bit_count <= u8_bit_count) u8_bit_count else u_bit_count;
+            };
+            const Buf = @IntType(false, buf_bit_count);
+            const BufShift = math.Log2Int(Buf);
+
+            const buf_value = @intCast(Buf, value);
+
+            const high_byte_shift = @intCast(BufShift, buf_bit_count - u8_bit_count);
+            var in_buffer = switch (endian) {
+                builtin.Endian.Big => buf_value << @intCast(BufShift, buf_bit_count - bits),
+                builtin.Endian.Little => buf_value,
+            };
+            var in_bits = bits;
+
+            if (self.bit_count > 0) {
+                const bits_remaining = u8_bit_count - self.bit_count;
+                const n = @intCast(u3, if (bits_remaining > bits) bits else bits_remaining);
+                switch (endian) {
+                    builtin.Endian.Big => {
+                        const shift = @intCast(BufShift, high_byte_shift + self.bit_count);
+                        const v = @intCast(u8, in_buffer >> shift);
+                        self.bit_buffer |= v;
+                        in_buffer <<= n;
+                    },
+                    builtin.Endian.Little => {
+                        const v = @truncate(u8, in_buffer) << @intCast(u3, self.bit_count);
+                        self.bit_buffer |= v;
+                        in_buffer >>= n;
+                    },
+                }
+                self.bit_count += n;
+                in_bits -= n;
+
+                //if we didn't fill the buffer, it's because bits < bits_remaining;
+                if (self.bit_count != u8_bit_count) return;
+                try self.out_stream.writeByte(self.bit_buffer);
+                self.bit_buffer = 0;
+                self.bit_count = 0;
+            }
+            //at this point we know bit_buffer is empty
+
+            //copy bytes until we can't fill one anymore, then leave the rest in bit_buffer
+            while (in_bits >= u8_bit_count) {
+                switch (endian) {
+                    builtin.Endian.Big => {
+                        const v = @intCast(u8, in_buffer >> high_byte_shift);
+                        try self.out_stream.writeByte(v);
+                        in_buffer <<= @intCast(u3, u8_bit_count - 1);
+                        in_buffer <<= 1;
+                    },
+                    builtin.Endian.Little => {
+                        const v = @truncate(u8, in_buffer);
+                        try self.out_stream.writeByte(v);
+                        in_buffer >>= @intCast(u3, u8_bit_count - 1);
+                        in_buffer >>= 1;
+                    },
+                }
+                in_bits -= u8_bit_count;
+            }
+
+            if (in_bits > 0) {
+                self.bit_count = @intCast(u4, in_bits);
+                self.bit_buffer = switch (endian) {
+                    builtin.Endian.Big => @truncate(u8, in_buffer >> high_byte_shift),
+                    builtin.Endian.Little => @truncate(u8, in_buffer),
+                };
+            }
+        }
+
+        /// Flush any remaining bits to the stream.
+        pub fn flushBits(self: *Self) Error!void {
+            if (self.bit_count == 0) return;
+            try self.out_stream.writeByte(self.bit_buffer);
+            self.bit_buffer = 0;
+            self.bit_count = 0;
+        }
+
+        pub fn write(self_stream: *Stream, buffer: []const u8) Error!void {
+            var self = @fieldParentPtr(Self, "stream", self_stream);
+
+            //@NOTE: I'm not sure this is a good idea, maybe flushBits should be forced
+            if (self.bit_count > 0) {
+                for (buffer) |b, i|
+                    try self.writeBits(b, u8_bit_count);
+                return;
+            }
+
+            return self.out_stream.write(buffer);
+        }
+    };
+}
+
 pub const BufferedAtomicFile = struct {
     atomic_file: os.AtomicFile,
     file_stream: os.File.OutStream,
@@ -647,12 +984,13 @@ pub const BufferedAtomicFile = struct {
 
     pub fn create(allocator: *mem.Allocator, dest_path: []const u8) !*BufferedAtomicFile {
         // TODO with well defined copy elision we don't need this allocation
-        var self = try allocator.create(BufferedAtomicFile{
+        var self = try allocator.create(BufferedAtomicFile);
+        self.* = BufferedAtomicFile{
             .atomic_file = undefined,
             .file_stream = undefined,
             .buffered_stream = undefined,
             .allocator = allocator,
-        });
+        };
         errdefer allocator.destroy(self);
 
         self.atomic_file = try os.AtomicFile.init(dest_path, os.File.default_mode);
@@ -678,12 +1016,6 @@ pub const BufferedAtomicFile = struct {
         return &self.buffered_stream.stream;
     }
 };
-
-test "import io tests" {
-    comptime {
-        _ = @import("io_test.zig");
-    }
-}
 
 pub fn readLine(buf: *std.Buffer) ![]u8 {
     var stdin = try getStdIn();
@@ -721,10 +1053,10 @@ test "io.readLineFrom" {
     );
     const stream = &mem_stream.stream;
 
-    debug.assert(mem.eql(u8, "Line 1", try readLineFrom(stream, &buf)));
-    debug.assert(mem.eql(u8, "Line 22", try readLineFrom(stream, &buf)));
-    debug.assertError(readLineFrom(stream, &buf), error.EndOfStream);
-    debug.assert(mem.eql(u8, buf.toSlice(), "Line 1Line 22Line 333"));
+    testing.expectEqualSlices(u8, "Line 1", try readLineFrom(stream, &buf));
+    testing.expectEqualSlices(u8, "Line 22", try readLineFrom(stream, &buf));
+    testing.expectError(error.EndOfStream, readLineFrom(stream, &buf));
+    testing.expectEqualSlices(u8, "Line 1Line 22Line 333", buf.toSlice());
 }
 
 pub fn readLineSlice(slice: []u8) ![]u8 {
@@ -752,6 +1084,372 @@ test "io.readLineSliceFrom" {
     );
     const stream = &mem_stream.stream;
 
-    debug.assert(mem.eql(u8, "Line 1", try readLineSliceFrom(stream, buf[0..])));
-    debug.assertError(readLineSliceFrom(stream, buf[0..]), error.OutOfMemory);
+    testing.expectEqualSlices(u8, "Line 1", try readLineSliceFrom(stream, buf[0..]));
+    testing.expectError(error.OutOfMemory, readLineSliceFrom(stream, buf[0..]));
 }
+
+/// Creates a deserializer that deserializes types from any stream.
+///  If `is_packed` is true, the data stream is treated as bit-packed,
+///  otherwise data is expected to be packed to the smallest byte.
+///  Types may implement a custom deserialization routine with a
+///  function named `deserialize` in the form of:
+///    pub fn deserialize(self: *Self, deserializer: var) !void
+///  which will be called when the deserializer is used to deserialize
+///  that type. It will pass a pointer to the type instance to deserialize
+///  into and a pointer to the deserializer struct.
+pub fn Deserializer(comptime endian: builtin.Endian, is_packed: bool, comptime Error: type) type {
+    return struct {
+        const Self = @This();
+
+        in_stream: if (is_packed) BitInStream(endian, Stream.Error) else *Stream,
+
+        pub const Stream = InStream(Error);
+
+        pub fn init(in_stream: *Stream) Self {
+            return Self{ .in_stream = switch (is_packed) {
+                true => BitInStream(endian, Stream.Error).init(in_stream),
+                else => in_stream,
+            } };
+        }
+
+        pub fn alignToByte(self: *Self) void {
+            if (!is_packed) return;
+            self.in_stream.alignToByte();
+        }
+
+        //@BUG: inferred error issue. See: #1386
+        fn deserializeInt(self: *Self, comptime T: type) (Error || error{EndOfStream})!T {
+            comptime assert(trait.is(builtin.TypeId.Int)(T) or trait.is(builtin.TypeId.Float)(T));
+
+            const u8_bit_count = 8;
+            const t_bit_count = comptime meta.bitCount(T);
+
+            const U = @IntType(false, t_bit_count);
+            const Log2U = math.Log2Int(U);
+            const int_size = (U.bit_count + 7) / 8;
+
+            if (is_packed) {
+                const result = try self.in_stream.readBitsNoEof(U, t_bit_count);
+                return @bitCast(T, result);
+            }
+
+            var buffer: [int_size]u8 = undefined;
+            const read_size = try self.in_stream.read(buffer[0..]);
+            if (read_size < int_size) return error.EndOfStream;
+
+            if (int_size == 1) {
+                if (t_bit_count == 8) return @bitCast(T, buffer[0]);
+                const PossiblySignedByte = @IntType(T.is_signed, 8);
+                return @truncate(T, @bitCast(PossiblySignedByte, buffer[0]));
+            }
+
+            var result = U(0);
+            for (buffer) |byte, i| {
+                switch (endian) {
+                    builtin.Endian.Big => {
+                        result = (result << u8_bit_count) | byte;
+                    },
+                    builtin.Endian.Little => {
+                        result |= U(byte) << @intCast(Log2U, u8_bit_count * i);
+                    },
+                }
+            }
+
+            return @bitCast(T, result);
+        }
+
+        //@TODO: Replace this with @unionInit or whatever when it is added
+        // see: #1315
+        fn setTag(ptr: var, tag: var) void {
+            const T = @typeOf(ptr);
+            comptime assert(trait.isPtrTo(builtin.TypeId.Union)(T));
+            const U = meta.Child(T);
+
+            const info = @typeInfo(U).Union;
+            if (info.tag_type) |TagType| {
+                comptime assert(TagType == @typeOf(tag));
+
+                var ptr_tag = ptr: {
+                    if (@alignOf(TagType) >= @alignOf(U)) break :ptr @ptrCast(*TagType, ptr);
+                    const offset = comptime max: {
+                        var max_field_size: comptime_int = 0;
+                        for (info.fields) |field_info| {
+                            const field_size = @sizeOf(field_info.field_type);
+                            max_field_size = math.max(max_field_size, field_size);
+                        }
+                        break :max math.max(max_field_size, @alignOf(U));
+                    };
+                    break :ptr @intToPtr(*TagType, @ptrToInt(ptr) + offset);
+                };
+                ptr_tag.* = tag;
+            }
+        }
+
+        /// Deserializes and returns data of the specified type from the stream
+        pub fn deserialize(self: *Self, comptime T: type) !T {
+            var value: T = undefined;
+            try self.deserializeInto(&value);
+            return value;
+        }
+
+        /// Deserializes data into the type pointed to by `ptr`
+        pub fn deserializeInto(self: *Self, ptr: var) !void {
+            const T = @typeOf(ptr);
+            comptime assert(trait.is(builtin.TypeId.Pointer)(T));
+
+            if (comptime trait.isSlice(T) or comptime trait.isPtrTo(builtin.TypeId.Array)(T)) {
+                for (ptr) |*v|
+                    try self.deserializeInto(v);
+                return;
+            }
+
+            comptime assert(trait.isSingleItemPtr(T));
+
+            const C = comptime meta.Child(T);
+            const child_type_id = @typeId(C);
+
+            //custom deserializer: fn(self: *Self, deserializer: var) !void
+            if (comptime trait.hasFn("deserialize")(C)) return C.deserialize(ptr, self);
+
+            if (comptime trait.isPacked(C) and !is_packed) {
+                var packed_deserializer = Deserializer(endian, true, Error).init(self.in_stream);
+                return packed_deserializer.deserializeInto(ptr);
+            }
+
+            switch (child_type_id) {
+                builtin.TypeId.Void => return,
+                builtin.TypeId.Bool => ptr.* = (try self.deserializeInt(u1)) > 0,
+                builtin.TypeId.Float, builtin.TypeId.Int => ptr.* = try self.deserializeInt(C),
+                builtin.TypeId.Struct => {
+                    const info = @typeInfo(C).Struct;
+
+                    inline for (info.fields) |*field_info| {
+                        const name = field_info.name;
+                        const FieldType = field_info.field_type;
+
+                        if (FieldType == void or FieldType == u0) continue;
+
+                        //it doesn't make any sense to read pointers
+                        if (comptime trait.is(builtin.TypeId.Pointer)(FieldType)) {
+                            @compileError("Will not " ++ "read field " ++ name ++ " of struct " ++
+                                @typeName(C) ++ " because it " ++ "is of pointer-type " ++
+                                @typeName(FieldType) ++ ".");
+                        }
+
+                        try self.deserializeInto(&@field(ptr, name));
+                    }
+                },
+                builtin.TypeId.Union => {
+                    const info = @typeInfo(C).Union;
+                    if (info.tag_type) |TagType| {
+                        //we avoid duplicate iteration over the enum tags
+                        // by getting the int directly and casting it without
+                        // safety. If it is bad, it will be caught anyway.
+                        const TagInt = @TagType(TagType);
+                        const tag = try self.deserializeInt(TagInt);
+
+                        {
+                            @setRuntimeSafety(false);
+                            //See: #1315
+                            setTag(ptr, @intToEnum(TagType, tag));
+                        }
+
+                        inline for (info.fields) |field_info| {
+                            if (field_info.enum_field.?.value == tag) {
+                                const name = field_info.name;
+                                const FieldType = field_info.field_type;
+                                @field(ptr, name) = FieldType(undefined);
+                                try self.deserializeInto(&@field(ptr, name));
+                                return;
+                            }
+                        }
+                        //This is reachable if the enum data is bad
+                        return error.InvalidEnumTag;
+                    }
+                    @compileError("Cannot meaningfully deserialize " ++ @typeName(C) ++
+                        " because it is an untagged union  Use a custom deserialize().");
+                },
+                builtin.TypeId.Optional => {
+                    const OC = comptime meta.Child(C);
+                    const exists = (try self.deserializeInt(u1)) > 0;
+                    if (!exists) {
+                        ptr.* = null;
+                        return;
+                    }
+
+                    //The way non-pointer optionals are implemented ensures a pointer to them
+                    // will point to the value. The flag is stored at the end of that data.
+                    var val_ptr = @ptrCast(*OC, ptr);
+                    try self.deserializeInto(val_ptr);
+                    //This bit ensures the null flag isn't set. Any actual copying should be
+                    // optimized out... I hope.
+                    ptr.* = val_ptr.*;
+                },
+                builtin.TypeId.Enum => {
+                    var value = try self.deserializeInt(@TagType(C));
+                    ptr.* = try meta.intToEnum(C, value);
+                },
+                else => {
+                    @compileError("Cannot deserialize " ++ @tagName(child_type_id) ++ " types (unimplemented).");
+                },
+            }
+        }
+    };
+}
+
+/// Creates a serializer that serializes types to any stream.
+///  If `is_packed` is true, the data will be bit-packed into the stream.
+///  Note that the you must call `serializer.flush()` when you are done
+///  writing bit-packed data in order ensure any unwritten bits are committed.
+///  If `is_packed` is false, data is packed to the smallest byte. In the case
+///  of packed structs, the struct will written bit-packed and with the specified
+///  endianess, after which data will resume being written at the next byte boundary.
+///  Types may implement a custom serialization routine with a
+///  function named `serialize` in the form of:
+///    pub fn serialize(self: Self, serializer: var) !void
+///  which will be called when the serializer is used to serialize that type. It will
+///  pass a const pointer to the type instance to be serialized and a pointer
+///  to the serializer struct.
+pub fn Serializer(comptime endian: builtin.Endian, comptime is_packed: bool, comptime Error: type) type {
+    return struct {
+        const Self = @This();
+
+        out_stream: if (is_packed) BitOutStream(endian, Stream.Error) else *Stream,
+
+        pub const Stream = OutStream(Error);
+
+        pub fn init(out_stream: *Stream) Self {
+            return Self{ .out_stream = switch (is_packed) {
+                true => BitOutStream(endian, Stream.Error).init(out_stream),
+                else => out_stream,
+            } };
+        }
+
+        /// Flushes any unwritten bits to the stream
+        pub fn flush(self: *Self) Error!void {
+            if (is_packed) return self.out_stream.flushBits();
+        }
+
+        fn serializeInt(self: *Self, value: var) Error!void {
+            const T = @typeOf(value);
+            comptime assert(trait.is(builtin.TypeId.Int)(T) or trait.is(builtin.TypeId.Float)(T));
+
+            const t_bit_count = comptime meta.bitCount(T);
+            const u8_bit_count = comptime meta.bitCount(u8);
+
+            const U = @IntType(false, t_bit_count);
+            const Log2U = math.Log2Int(U);
+            const int_size = (U.bit_count + 7) / 8;
+
+            const u_value = @bitCast(U, value);
+
+            if (is_packed) return self.out_stream.writeBits(u_value, t_bit_count);
+
+            var buffer: [int_size]u8 = undefined;
+            if (int_size == 1) buffer[0] = u_value;
+
+            for (buffer) |*byte, i| {
+                const idx = switch (endian) {
+                    builtin.Endian.Big => int_size - i - 1,
+                    builtin.Endian.Little => i,
+                };
+                const shift = @intCast(Log2U, idx * u8_bit_count);
+                const v = u_value >> shift;
+                byte.* = if (t_bit_count < u8_bit_count) v else @truncate(u8, v);
+            }
+
+            try self.out_stream.write(buffer);
+        }
+
+        /// Serializes the passed value into the stream
+        pub fn serialize(self: *Self, value: var) Error!void {
+            const T = comptime @typeOf(value);
+
+            if (comptime trait.isIndexable(T)) {
+                for (value) |v|
+                    try self.serialize(v);
+                return;
+            }
+
+            //custom serializer: fn(self: Self, serializer: var) !void
+            if (comptime trait.hasFn("serialize")(T)) return T.serialize(value, self);
+
+            if (comptime trait.isPacked(T) and !is_packed) {
+                var packed_serializer = Serializer(endian, true, Error).init(self.out_stream);
+                try packed_serializer.serialize(value);
+                try packed_serializer.flush();
+                return;
+            }
+
+            switch (@typeId(T)) {
+                builtin.TypeId.Void => return,
+                builtin.TypeId.Bool => try self.serializeInt(u1(@boolToInt(value))),
+                builtin.TypeId.Float, builtin.TypeId.Int => try self.serializeInt(value),
+                builtin.TypeId.Struct => {
+                    const info = @typeInfo(T);
+
+                    inline for (info.Struct.fields) |*field_info| {
+                        const name = field_info.name;
+                        const FieldType = field_info.field_type;
+
+                        if (FieldType == void or FieldType == u0) continue;
+
+                        //It doesn't make sense to write pointers
+                        if (comptime trait.is(builtin.TypeId.Pointer)(FieldType)) {
+                            @compileError("Will not " ++ "serialize field " ++ name ++
+                                " of struct " ++ @typeName(T) ++ " because it " ++
+                                "is of pointer-type " ++ @typeName(FieldType) ++ ".");
+                        }
+                        try self.serialize(@field(value, name));
+                    }
+                },
+                builtin.TypeId.Union => {
+                    const info = @typeInfo(T).Union;
+                    if (info.tag_type) |TagType| {
+                        const active_tag = meta.activeTag(value);
+                        try self.serialize(active_tag);
+                        //This inline loop is necessary because active_tag is a runtime
+                        // value, but @field requires a comptime value. Our alternative
+                        // is to check each field for a match
+                        inline for (info.fields) |field_info| {
+                            if (field_info.enum_field.?.value == @enumToInt(active_tag)) {
+                                const name = field_info.name;
+                                const FieldType = field_info.field_type;
+                                try self.serialize(@field(value, name));
+                                return;
+                            }
+                        }
+                        unreachable;
+                    }
+                    @compileError("Cannot meaningfully serialize " ++ @typeName(T) ++
+                        " because it is an untagged union  Use a custom serialize().");
+                },
+                builtin.TypeId.Optional => {
+                    if (value == null) {
+                        try self.serializeInt(u1(@boolToInt(false)));
+                        return;
+                    }
+                    try self.serializeInt(u1(@boolToInt(true)));
+
+                    const OC = comptime meta.Child(T);
+
+                    //The way non-pointer optionals are implemented ensures a pointer to them
+                    // will point to the value. The flag is stored at the end of that data.
+                    var val_ptr = @ptrCast(*const OC, &value);
+                    try self.serialize(val_ptr.*);
+                },
+                builtin.TypeId.Enum => {
+                    try self.serializeInt(@enumToInt(value));
+                },
+                else => @compileError("Cannot serialize " ++ @tagName(@typeId(T)) ++ " types (unimplemented)."),
+            }
+        }
+    };
+}
+
+test "import io tests" {
+    comptime {
+        _ = @import("io_test.zig");
+    }
+}
+

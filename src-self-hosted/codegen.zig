@@ -137,10 +137,10 @@ pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code)
 
 pub const ObjectFile = struct {
     comp: *Compilation,
-    module: llvm.ModuleRef,
-    builder: llvm.BuilderRef,
+    module: *llvm.Module,
+    builder: *llvm.Builder,
     dibuilder: *llvm.DIBuilder,
-    context: llvm.ContextRef,
+    context: *llvm.Context,
     lock: event.Lock,
     arena: *std.mem.Allocator,
 
@@ -323,7 +323,7 @@ pub fn renderToLlvmModule(ofile: *ObjectFile, fn_val: *Value.Fn, code: *ir.Code)
 
 fn addLLVMAttr(
     ofile: *ObjectFile,
-    val: llvm.ValueRef,
+    val: *llvm.Value,
     attr_index: llvm.AttributeIndex,
     attr_name: []const u8,
 ) !void {
@@ -335,7 +335,7 @@ fn addLLVMAttr(
 
 fn addLLVMAttrStr(
     ofile: *ObjectFile,
-    val: llvm.ValueRef,
+    val: *llvm.Value,
     attr_index: llvm.AttributeIndex,
     attr_name: []const u8,
     attr_val: []const u8,
@@ -351,7 +351,7 @@ fn addLLVMAttrStr(
 }
 
 fn addLLVMAttrInt(
-    val: llvm.ValueRef,
+    val: *llvm.Value,
     attr_index: llvm.AttributeIndex,
     attr_name: []const u8,
     attr_val: u64,
@@ -362,25 +362,25 @@ fn addLLVMAttrInt(
     llvm.AddAttributeAtIndex(val, attr_index, llvm_attr);
 }
 
-fn addLLVMFnAttr(ofile: *ObjectFile, fn_val: llvm.ValueRef, attr_name: []const u8) !void {
+fn addLLVMFnAttr(ofile: *ObjectFile, fn_val: *llvm.Value, attr_name: []const u8) !void {
     return addLLVMAttr(ofile, fn_val, maxInt(llvm.AttributeIndex), attr_name);
 }
 
-fn addLLVMFnAttrStr(ofile: *ObjectFile, fn_val: llvm.ValueRef, attr_name: []const u8, attr_val: []const u8) !void {
+fn addLLVMFnAttrStr(ofile: *ObjectFile, fn_val: *llvm.Value, attr_name: []const u8, attr_val: []const u8) !void {
     return addLLVMAttrStr(ofile, fn_val, maxInt(llvm.AttributeIndex), attr_name, attr_val);
 }
 
-fn addLLVMFnAttrInt(ofile: *ObjectFile, fn_val: llvm.ValueRef, attr_name: []const u8, attr_val: u64) !void {
+fn addLLVMFnAttrInt(ofile: *ObjectFile, fn_val: *llvm.Value, attr_name: []const u8, attr_val: u64) !void {
     return addLLVMAttrInt(ofile, fn_val, maxInt(llvm.AttributeIndex), attr_name, attr_val);
 }
 
 fn renderLoadUntyped(
     ofile: *ObjectFile,
-    ptr: llvm.ValueRef,
+    ptr: *llvm.Value,
     alignment: Type.Pointer.Align,
     vol: Type.Pointer.Vol,
     name: [*]const u8,
-) !llvm.ValueRef {
+) !*llvm.Value {
     const result = llvm.BuildLoad(ofile.builder, ptr, name) orelse return error.OutOfMemory;
     switch (vol) {
         Type.Pointer.Vol.Non => {},
@@ -390,11 +390,11 @@ fn renderLoadUntyped(
     return result;
 }
 
-fn renderLoad(ofile: *ObjectFile, ptr: llvm.ValueRef, ptr_type: *Type.Pointer, name: [*]const u8) !llvm.ValueRef {
+fn renderLoad(ofile: *ObjectFile, ptr: *llvm.Value, ptr_type: *Type.Pointer, name: [*]const u8) !*llvm.Value {
     return renderLoadUntyped(ofile, ptr, ptr_type.key.alignment, ptr_type.key.vol, name);
 }
 
-pub fn getHandleValue(ofile: *ObjectFile, ptr: llvm.ValueRef, ptr_type: *Type.Pointer) !?llvm.ValueRef {
+pub fn getHandleValue(ofile: *ObjectFile, ptr: *llvm.Value, ptr_type: *Type.Pointer) !?*llvm.Value {
     const child_type = ptr_type.key.child_type;
     if (!child_type.hasBits()) {
         return null;
@@ -407,11 +407,11 @@ pub fn getHandleValue(ofile: *ObjectFile, ptr: llvm.ValueRef, ptr_type: *Type.Po
 
 pub fn renderStoreUntyped(
     ofile: *ObjectFile,
-    value: llvm.ValueRef,
-    ptr: llvm.ValueRef,
+    value: *llvm.Value,
+    ptr: *llvm.Value,
     alignment: Type.Pointer.Align,
     vol: Type.Pointer.Vol,
-) !llvm.ValueRef {
+) !*llvm.Value {
     const result = llvm.BuildStore(ofile.builder, value, ptr) orelse return error.OutOfMemory;
     switch (vol) {
         Type.Pointer.Vol.Non => {},
@@ -423,10 +423,10 @@ pub fn renderStoreUntyped(
 
 pub fn renderStore(
     ofile: *ObjectFile,
-    value: llvm.ValueRef,
-    ptr: llvm.ValueRef,
+    value: *llvm.Value,
+    ptr: *llvm.Value,
     ptr_type: *Type.Pointer,
-) !llvm.ValueRef {
+) !*llvm.Value {
     return renderStoreUntyped(ofile, value, ptr, ptr_type.key.alignment, ptr_type.key.vol);
 }
 
@@ -435,7 +435,7 @@ pub fn renderAlloca(
     var_type: *Type,
     name: []const u8,
     alignment: Type.Pointer.Align,
-) !llvm.ValueRef {
+) !*llvm.Value {
     const llvm_var_type = try var_type.getLlvmType(ofile.arena, ofile.context);
     const name_with_null = try std.cstr.addNullByte(ofile.arena, name);
     const result = llvm.BuildAlloca(ofile.builder, llvm_var_type, name_with_null.ptr) orelse return error.OutOfMemory;
@@ -443,7 +443,7 @@ pub fn renderAlloca(
     return result;
 }
 
-pub fn resolveAlign(ofile: *ObjectFile, alignment: Type.Pointer.Align, llvm_type: llvm.TypeRef) u32 {
+pub fn resolveAlign(ofile: *ObjectFile, alignment: Type.Pointer.Align, llvm_type: *llvm.Type) u32 {
     return switch (alignment) {
         Type.Pointer.Align.Abi => return llvm.ABIAlignmentOfType(ofile.comp.target_data_ref, llvm_type),
         Type.Pointer.Align.Override => |a| a,

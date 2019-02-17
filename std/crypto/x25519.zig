@@ -7,8 +7,8 @@ const builtin = @import("builtin");
 const fmt = std.fmt;
 
 const Endian = builtin.Endian;
-const readInt = std.mem.readInt;
-const writeInt = std.mem.writeInt;
+const readIntSliceLittle = std.mem.readIntSliceLittle;
+const writeIntSliceLittle = std.mem.writeIntSliceLittle;
 
 // Based on Supercop's ref10 implementation.
 pub const X25519 = struct {
@@ -255,16 +255,16 @@ const Fe = struct {
 
         var t: [10]i64 = undefined;
 
-        t[0] = readInt(s[0..4], u32, Endian.Little);
-        t[1] = readInt(s[4..7], u32, Endian.Little) << 6;
-        t[2] = readInt(s[7..10], u32, Endian.Little) << 5;
-        t[3] = readInt(s[10..13], u32, Endian.Little) << 3;
-        t[4] = readInt(s[13..16], u32, Endian.Little) << 2;
-        t[5] = readInt(s[16..20], u32, Endian.Little);
-        t[6] = readInt(s[20..23], u32, Endian.Little) << 7;
-        t[7] = readInt(s[23..26], u32, Endian.Little) << 5;
-        t[8] = readInt(s[26..29], u32, Endian.Little) << 4;
-        t[9] = (readInt(s[29..32], u32, Endian.Little) & 0x7fffff) << 2;
+        t[0] = readIntSliceLittle(u32, s[0..4]);
+        t[1] = u32(readIntSliceLittle(u24, s[4..7])) << 6;
+        t[2] = u32(readIntSliceLittle(u24, s[7..10])) << 5;
+        t[3] = u32(readIntSliceLittle(u24, s[10..13])) << 3;
+        t[4] = u32(readIntSliceLittle(u24, s[13..16])) << 2;
+        t[5] = readIntSliceLittle(u32, s[16..20]);
+        t[6] = u32(readIntSliceLittle(u24, s[20..23])) << 7;
+        t[7] = u32(readIntSliceLittle(u24, s[23..26])) << 5;
+        t[8] = u32(readIntSliceLittle(u24, s[26..29])) << 4;
+        t[9] = (u32(readIntSliceLittle(u24, s[29..32])) & 0x7fffff) << 2;
 
         carry1(h, t[0..]);
     }
@@ -544,14 +544,15 @@ const Fe = struct {
             ut[i] = @bitCast(u32, @intCast(i32, t[i]));
         }
 
-        writeInt(s[0..], (ut[0] >> 0) | (ut[1] << 26), Endian.Little);
-        writeInt(s[4..], (ut[1] >> 6) | (ut[2] << 19), Endian.Little);
-        writeInt(s[8..], (ut[2] >> 13) | (ut[3] << 13), Endian.Little);
-        writeInt(s[12..], (ut[3] >> 19) | (ut[4] << 6), Endian.Little);
-        writeInt(s[16..], (ut[5] >> 0) | (ut[6] << 25), Endian.Little);
-        writeInt(s[20..], (ut[6] >> 7) | (ut[7] << 19), Endian.Little);
-        writeInt(s[24..], (ut[7] >> 13) | (ut[8] << 12), Endian.Little);
-        writeInt(s[28..], (ut[8] >> 20) | (ut[9] << 6), Endian.Little);
+        // TODO https://github.com/ziglang/zig/issues/863
+        writeIntSliceLittle(u32, s[0..4], (ut[0] >> 0) | (ut[1] << 26));
+        writeIntSliceLittle(u32, s[4..8], (ut[1] >> 6) | (ut[2] << 19));
+        writeIntSliceLittle(u32, s[8..12], (ut[2] >> 13) | (ut[3] << 13));
+        writeIntSliceLittle(u32, s[12..16], (ut[3] >> 19) | (ut[4] << 6));
+        writeIntSliceLittle(u32, s[16..20], (ut[5] >> 0) | (ut[6] << 25));
+        writeIntSliceLittle(u32, s[20..24], (ut[6] >> 7) | (ut[7] << 19));
+        writeIntSliceLittle(u32, s[24..28], (ut[7] >> 13) | (ut[8] << 12));
+        writeIntSliceLittle(u32, s[28..], (ut[8] >> 20) | (ut[9] << 6));
 
         std.mem.secureZero(i64, t[0..]);
     }
@@ -580,8 +581,8 @@ test "x25519 public key calculation from secret key" {
     var pk_calculated: [32]u8 = undefined;
     try fmt.hexToBytes(sk[0..], "8052030376d47112be7f73ed7a019293dd12ad910b654455798b4667d73de166");
     try fmt.hexToBytes(pk_expected[0..], "f1814f0e8ff1043d8a44d25babff3cedcae6c22c3edaa48f857ae70de2baae50");
-    std.debug.assert(X25519.createPublicKey(pk_calculated[0..], sk));
-    std.debug.assert(std.mem.eql(u8, pk_calculated, pk_expected));
+    std.testing.expect(X25519.createPublicKey(pk_calculated[0..], sk));
+    std.testing.expect(std.mem.eql(u8, pk_calculated, pk_expected));
 }
 
 test "x25519 rfc7748 vector1" {
@@ -592,8 +593,8 @@ test "x25519 rfc7748 vector1" {
 
     var output: [32]u8 = undefined;
 
-    std.debug.assert(X25519.create(output[0..], secret_key, public_key));
-    std.debug.assert(std.mem.eql(u8, output, expected_output));
+    std.testing.expect(X25519.create(output[0..], secret_key, public_key));
+    std.testing.expect(std.mem.eql(u8, output, expected_output));
 }
 
 test "x25519 rfc7748 vector2" {
@@ -604,8 +605,8 @@ test "x25519 rfc7748 vector2" {
 
     var output: [32]u8 = undefined;
 
-    std.debug.assert(X25519.create(output[0..], secret_key, public_key));
-    std.debug.assert(std.mem.eql(u8, output, expected_output));
+    std.testing.expect(X25519.create(output[0..], secret_key, public_key));
+    std.testing.expect(std.mem.eql(u8, output, expected_output));
 }
 
 test "x25519 rfc7748 one iteration" {
@@ -618,13 +619,13 @@ test "x25519 rfc7748 one iteration" {
     var i: usize = 0;
     while (i < 1) : (i += 1) {
         var output: [32]u8 = undefined;
-        std.debug.assert(X25519.create(output[0..], k, u));
+        std.testing.expect(X25519.create(output[0..], k, u));
 
         std.mem.copy(u8, u[0..], k[0..]);
         std.mem.copy(u8, k[0..], output[0..]);
     }
 
-    std.debug.assert(std.mem.eql(u8, k[0..], expected_output));
+    std.testing.expect(std.mem.eql(u8, k[0..], expected_output));
 }
 
 test "x25519 rfc7748 1,000 iterations" {
@@ -642,13 +643,13 @@ test "x25519 rfc7748 1,000 iterations" {
     var i: usize = 0;
     while (i < 1000) : (i += 1) {
         var output: [32]u8 = undefined;
-        std.debug.assert(X25519.create(output[0..], k, u));
+        std.testing.expect(X25519.create(output[0..], k, u));
 
         std.mem.copy(u8, u[0..], k[0..]);
         std.mem.copy(u8, k[0..], output[0..]);
     }
 
-    std.debug.assert(std.mem.eql(u8, k[0..], expected_output));
+    std.testing.expect(std.mem.eql(u8, k[0..], expected_output));
 }
 
 test "x25519 rfc7748 1,000,000 iterations" {
@@ -665,11 +666,11 @@ test "x25519 rfc7748 1,000,000 iterations" {
     var i: usize = 0;
     while (i < 1000000) : (i += 1) {
         var output: [32]u8 = undefined;
-        std.debug.assert(X25519.create(output[0..], k, u));
+        std.testing.expect(X25519.create(output[0..], k, u));
 
         std.mem.copy(u8, u[0..], k[0..]);
         std.mem.copy(u8, k[0..], output[0..]);
     }
 
-    std.debug.assert(std.mem.eql(u8, k[0..], expected_output));
+    std.testing.expect(std.mem.eql(u8, k[0..], expected_output));
 }

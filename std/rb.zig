@@ -1,5 +1,6 @@
 const std = @import("index.zig");
 const assert = std.debug.assert;
+const testing = std.testing;
 const mem = std.mem; // For mem.Compare
 
 const Color = enum(u1) {
@@ -533,13 +534,13 @@ test "rb" {
     _ = tree.insert(&ns[8].node);
     _ = tree.insert(&ns[9].node);
     tree.remove(&ns[3].node);
-    assert(tree.insert(&dup.node) == &ns[7].node);
+    testing.expect(tree.insert(&dup.node) == &ns[7].node);
     try tree.replace(&ns[7].node, &dup.node);
 
     var num: *testNumber = undefined;
     num = testGetNumber(tree.first().?);
     while (num.node.next() != null) {
-        assert(testGetNumber(num.node.next().?).value > num.value);
+        testing.expect(testGetNumber(num.node.next().?).value > num.value);
         num = testGetNumber(num.node.next().?);
     }
 }

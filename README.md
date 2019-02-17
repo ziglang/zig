@@ -3,7 +3,7 @@
 A programming language designed for robustness, optimality, and
 clarity.
 
-[ziglang.org](https://ziglang.org)
+[Download & Documentation](https://ziglang.org/download/)
 
 ## Feature Highlights
 
@@ -84,29 +84,32 @@ clarity.
  * LLVM may have the target as an experimental target, which means that you
    need to use Zig-provided binaries for the target to be available, or
    build LLVM from source with special configure flags.
+ * This target may be considered deprecated by an official party,
+   [such as macosx/i386](https://support.apple.com/en-us/HT208436) in which
+   case this target will remain forever stuck in Tier 4.
 
 #### Support Table
 
-|        | freestanding | linux  | macosx | windows | freebsd | other  |
-|--------|--------------|--------|--------|---------|---------|--------|
-|x86_64  | Tier 2       | Tier 1 | Tier 1 | Tier 1  | Tier 2  | Tier 3 |
-|i386    | Tier 2       | Tier 2 | Tier 2 | Tier 2  | Tier 3  | Tier 3 |
-|arm     | Tier 2       | Tier 3 | Tier 3 | Tier 3  | Tier 3  | Tier 3 |
-|arm64   | Tier 2       | Tier 2 | Tier 3 | Tier 3  | Tier 3  | Tier 3 |
-|bpf     | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 |
-|hexagon | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 |
-|mips    | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 |
-|powerpc | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 |
-|r600    | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 |
-|amdgcn  | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 |
-|sparc   | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 |
-|s390x   | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 |
-|spir    | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 |
-|lanai   | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 |
-|wasm32  | Tier 4       | N/A    | N/A    | N/A     | N/A     | N/A    |
-|wasm64  | Tier 4       | N/A    | N/A    | N/A     | N/A     | N/A    |
-|riscv32 | Tier 4       | Tier 4 | N/A    | N/A     | Tier 4  | Tier 4 |
-|riscv64 | Tier 4       | Tier 4 | N/A    | N/A     | Tier 4  | Tier 4 |
+|        | freestanding | linux  | macosx | windows | freebsd | UEFI   | other  |
+|--------|--------------|--------|--------|---------|---------|--------|--------|
+|x86_64  | Tier 2       | Tier 1 | Tier 1 | Tier 1  | Tier 2  | Tier 2 | Tier 3 |
+|i386    | Tier 2       | Tier 2 | Tier 4 | Tier 2  | Tier 3  | Tier 3 | Tier 3 |
+|arm     | Tier 2       | Tier 3 | Tier 3 | Tier 3  | Tier 3  | Tier 3 | Tier 3 |
+|arm64   | Tier 2       | Tier 2 | Tier 3 | Tier 3  | Tier 3  | Tier 3 | Tier 3 |
+|bpf     | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | Tier 3 |
+|hexagon | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | Tier 3 |
+|mips    | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | Tier 3 |
+|powerpc | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | Tier 3 |
+|r600    | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | Tier 3 |
+|amdgcn  | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | Tier 3 |
+|sparc   | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | Tier 3 |
+|s390x   | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | Tier 3 |
+|spir    | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | Tier 3 |
+|lanai   | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | Tier 3 |
+|wasm32  | Tier 4       | N/A    | N/A    | N/A     | N/A     | N/A    | N/A    |
+|wasm64  | Tier 4       | N/A    | N/A    | N/A     | N/A     | N/A    | N/A    |
+|riscv32 | Tier 4       | Tier 4 | N/A    | N/A     | Tier 4  | Tier 4 | Tier 4 |
+|riscv64 | Tier 4       | Tier 4 | N/A    | N/A     | Tier 4  | Tier 4 | Tier 4 |
 
 ## Community
 
@@ -171,7 +174,8 @@ See https://github.com/ziglang/zig/wiki/Building-Zig-on-Windows
 *Note: Stage 2 compiler is not complete. Beta users of Zig should use the
 Stage 1 compiler for now.*
 
-Dependencies are the same as Stage 1, except now you have a working zig compiler.
+Dependencies are the same as Stage 1, except now you can use stage 1 to compile
+Zig code.
 
 ```
 bin/zig build --build-file ../build.zig --prefix $(pwd)/stage2 install
@@ -183,10 +187,12 @@ binary.
 
 ### Stage 3: Rebuild Self-Hosted Zig Using the Self-Hosted Compiler
 
-This is the actual compiler binary that we will install to the system.
-
 *Note: Stage 2 compiler is not yet able to build Stage 3. Building Stage 3 is
 not yet supported.*
+
+Once the self-hosted compiler can build itself, this will be the actual
+compiler binary that we will install to the system. Until then, users should
+use stage 1.
 
 #### Debug / Development Build
 

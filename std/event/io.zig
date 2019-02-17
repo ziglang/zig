@@ -39,18 +39,22 @@ pub fn InStream(comptime ReadError: type) type {
             if (amt_read < buf.len) return error.EndOfStream;
         }
 
-        pub async fn readIntLe(self: *Self, comptime T: type) !T {
-            return await (async self.readInt(builtin.Endian.Little, T) catch unreachable);
+        pub async fn readIntLittle(self: *Self, comptime T: type) !T {
+            var bytes: [@sizeOf(T)]u8 = undefined;
+            try await (async self.readNoEof(bytes[0..]) catch unreachable);
+            return mem.readIntLittle(T, &bytes);
         }
 
         pub async fn readIntBe(self: *Self, comptime T: type) !T {
-            return await (async self.readInt(builtin.Endian.Big, T) catch unreachable);
-        }
-
-        pub async fn readInt(self: *Self, endian: builtin.Endian, comptime T: type) !T {
             var bytes: [@sizeOf(T)]u8 = undefined;
             try await (async self.readNoEof(bytes[0..]) catch unreachable);
-            return mem.readInt(bytes, T, endian);
+            return mem.readIntBig(T, &bytes);
+        }
+
+        pub async fn readInt(self: *Self, comptime T: type, endian: builtin.Endian) !T {
+            var bytes: [@sizeOf(T)]u8 = undefined;
+            try await (async self.readNoEof(bytes[0..]) catch unreachable);
+            return mem.readInt(T, &bytes, endian);
         }
 
         pub async fn readStruct(self: *Self, comptime T: type) !T {

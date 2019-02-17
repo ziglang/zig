@@ -1,5 +1,6 @@
 const std = @import("../index.zig");
 const assert = std.debug.assert;
+const testing = std.testing;
 const SegmentedList = std.SegmentedList;
 const mem = std.mem;
 const Token = std.zig.Token;
@@ -109,6 +110,7 @@ pub const Tree = struct {
 pub const Error = union(enum) {
     InvalidToken: InvalidToken,
     ExpectedVarDeclOrFn: ExpectedVarDeclOrFn,
+    ExpectedVarDecl: ExpectedVarDecl,
     ExpectedAggregateKw: ExpectedAggregateKw,
     UnattachedDocComment: UnattachedDocComment,
     ExpectedEqOrSemi: ExpectedEqOrSemi,
@@ -132,6 +134,7 @@ pub const Error = union(enum) {
             // TODO https://github.com/ziglang/zig/issues/683
             @TagType(Error).InvalidToken => |*x| return x.render(tokens, stream),
             @TagType(Error).ExpectedVarDeclOrFn => |*x| return x.render(tokens, stream),
+            @TagType(Error).ExpectedVarDecl => |*x| return x.render(tokens, stream),
             @TagType(Error).ExpectedAggregateKw => |*x| return x.render(tokens, stream),
             @TagType(Error).UnattachedDocComment => |*x| return x.render(tokens, stream),
             @TagType(Error).ExpectedEqOrSemi => |*x| return x.render(tokens, stream),
@@ -157,6 +160,7 @@ pub const Error = union(enum) {
             // TODO https://github.com/ziglang/zig/issues/683
             @TagType(Error).InvalidToken => |x| return x.token,
             @TagType(Error).ExpectedVarDeclOrFn => |x| return x.token,
+            @TagType(Error).ExpectedVarDecl => |x| return x.token,
             @TagType(Error).ExpectedAggregateKw => |x| return x.token,
             @TagType(Error).UnattachedDocComment => |x| return x.token,
             @TagType(Error).ExpectedEqOrSemi => |x| return x.token,
@@ -179,6 +183,7 @@ pub const Error = union(enum) {
 
     pub const InvalidToken = SingleTokenError("Invalid token {}");
     pub const ExpectedVarDeclOrFn = SingleTokenError("Expected variable declaration or function, found {}");
+    pub const ExpectedVarDecl = SingleTokenError("Expected variable declaration, found {}");
     pub const ExpectedAggregateKw = SingleTokenError("Expected " ++ @tagName(Token.Id.Keyword_struct) ++ ", " ++ @tagName(Token.Id.Keyword_union) ++ ", or " ++ @tagName(Token.Id.Keyword_enum) ++ ", found {}");
     pub const ExpectedEqOrSemi = SingleTokenError("Expected '=' or ';', found {}");
     pub const ExpectedSemiOrLBrace = SingleTokenError("Expected ';' or '{{', found {}");
@@ -495,6 +500,7 @@ pub const Node = struct {
         base: Node,
         doc_comments: ?*DocComment,
         visib_token: ?TokenIndex,
+        thread_local_token: ?TokenIndex,
         name_token: TokenIndex,
         eq_token: TokenIndex,
         mut_token: TokenIndex,
@@ -535,6 +541,7 @@ pub const Node = struct {
 
         pub fn firstToken(self: *const VarDecl) TokenIndex {
             if (self.visib_token) |visib_token| return visib_token;
+            if (self.thread_local_token) |thread_local_token| return thread_local_token;
             if (self.comptime_token) |comptime_token| return comptime_token;
             if (self.extern_export_token) |extern_export_token| return extern_export_token;
             assert(self.lib_name == null);
@@ -2224,5 +2231,5 @@ test "iterate" {
         .shebang = null,
     };
     var base = &root.base;
-    assert(base.iterate(0) == null);
+    testing.expect(base.iterate(0) == null);
 }

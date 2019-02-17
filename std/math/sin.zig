@@ -7,7 +7,7 @@
 const builtin = @import("builtin");
 const std = @import("../index.zig");
 const math = std.math;
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 pub fn sin(x: var) @typeOf(x) {
     const T = @typeOf(x);
@@ -142,45 +142,45 @@ fn sin64(x_: f64) f64 {
 }
 
 test "math.sin" {
-    assert(sin(f32(0.0)) == sin32(0.0));
-    assert(sin(f64(0.0)) == sin64(0.0));
-    assert(comptime (math.sin(f64(2))) == math.sin(f64(2)));
+    expect(sin(f32(0.0)) == sin32(0.0));
+    expect(sin(f64(0.0)) == sin64(0.0));
+    expect(comptime (math.sin(f64(2))) == math.sin(f64(2)));
 }
 
 test "math.sin32" {
     const epsilon = 0.000001;
 
-    assert(math.approxEq(f32, sin32(0.0), 0.0, epsilon));
-    assert(math.approxEq(f32, sin32(0.2), 0.198669, epsilon));
-    assert(math.approxEq(f32, sin32(0.8923), 0.778517, epsilon));
-    assert(math.approxEq(f32, sin32(1.5), 0.997495, epsilon));
-    assert(math.approxEq(f32, sin32(37.45), -0.246544, epsilon));
-    assert(math.approxEq(f32, sin32(89.123), 0.916166, epsilon));
+    expect(math.approxEq(f32, sin32(0.0), 0.0, epsilon));
+    expect(math.approxEq(f32, sin32(0.2), 0.198669, epsilon));
+    expect(math.approxEq(f32, sin32(0.8923), 0.778517, epsilon));
+    expect(math.approxEq(f32, sin32(1.5), 0.997495, epsilon));
+    expect(math.approxEq(f32, sin32(37.45), -0.246544, epsilon));
+    expect(math.approxEq(f32, sin32(89.123), 0.916166, epsilon));
 }
 
 test "math.sin64" {
     const epsilon = 0.000001;
 
-    assert(math.approxEq(f64, sin64(0.0), 0.0, epsilon));
-    assert(math.approxEq(f64, sin64(0.2), 0.198669, epsilon));
-    assert(math.approxEq(f64, sin64(0.8923), 0.778517, epsilon));
-    assert(math.approxEq(f64, sin64(1.5), 0.997495, epsilon));
-    assert(math.approxEq(f64, sin64(37.45), -0.246543, epsilon));
-    assert(math.approxEq(f64, sin64(89.123), 0.916166, epsilon));
+    expect(math.approxEq(f64, sin64(0.0), 0.0, epsilon));
+    expect(math.approxEq(f64, sin64(0.2), 0.198669, epsilon));
+    expect(math.approxEq(f64, sin64(0.8923), 0.778517, epsilon));
+    expect(math.approxEq(f64, sin64(1.5), 0.997495, epsilon));
+    expect(math.approxEq(f64, sin64(37.45), -0.246543, epsilon));
+    expect(math.approxEq(f64, sin64(89.123), 0.916166, epsilon));
 }
 
 test "math.sin32.special" {
-    assert(sin32(0.0) == 0.0);
-    assert(sin32(-0.0) == -0.0);
-    assert(math.isNan(sin32(math.inf(f32))));
-    assert(math.isNan(sin32(-math.inf(f32))));
-    assert(math.isNan(sin32(math.nan(f32))));
+    expect(sin32(0.0) == 0.0);
+    expect(sin32(-0.0) == -0.0);
+    expect(math.isNan(sin32(math.inf(f32))));
+    expect(math.isNan(sin32(-math.inf(f32))));
+    expect(math.isNan(sin32(math.nan(f32))));
 }
 
 test "math.sin64.special" {
-    assert(sin64(0.0) == 0.0);
-    assert(sin64(-0.0) == -0.0);
-    assert(math.isNan(sin64(math.inf(f64))));
-    assert(math.isNan(sin64(-math.inf(f64))));
-    assert(math.isNan(sin64(math.nan(f64))));
+    expect(sin64(0.0) == 0.0);
+    expect(sin64(-0.0) == -0.0);
+    expect(math.isNan(sin64(math.inf(f64))));
+    expect(math.isNan(sin64(-math.inf(f64))));
+    expect(math.isNan(sin64(math.nan(f64))));
 }

@@ -6,6 +6,7 @@ const mem = std.mem;
 const cstr = std.cstr;
 const os = std.os;
 const assert = std.debug.assert;
+const testing = std.testing;
 const elf = std.elf;
 const linux = os.linux;
 const windows = os.windows;
@@ -19,7 +20,6 @@ pub const DynLib = switch (builtin.os) {
 };
 
 pub const LinuxDynLib = struct {
-    allocator: *mem.Allocator,
     elf_lib: ElfLib,
     fd: i32,
     map_addr: usize,
@@ -27,7 +27,7 @@ pub const LinuxDynLib = struct {
 
     /// Trusts the file
     pub fn open(allocator: *mem.Allocator, path: []const u8) !DynLib {
-        const fd = try std.os.posixOpen(allocator, path, 0, linux.O_RDONLY | linux.O_CLOEXEC);
+        const fd = try std.os.posixOpen(path, 0, linux.O_RDONLY | linux.O_CLOEXEC);
         errdefer std.os.close(fd);
 
         const size = @intCast(usize, (try std.os.posixFStat(fd)).size);
@@ -45,7 +45,6 @@ pub const LinuxDynLib = struct {
         const bytes = @intToPtr([*]align(std.os.page_size) u8, addr)[0..size];
 
         return DynLib{
-            .allocator = allocator,
             .elf_lib = try ElfLib.init(bytes),
             .fd = fd,
             .map_addr = addr,
@@ -208,7 +207,7 @@ test "dynamic_library" {
     };
 
     const dynlib = DynLib.open(std.debug.global_allocator, libname) catch |err| {
-        assert(err == error.FileNotFound);
+        testing.expect(err == error.FileNotFound);
         return;
     };
     @panic("Expected error from function");

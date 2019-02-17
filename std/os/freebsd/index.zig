@@ -1,15 +1,19 @@
-const assert = @import("../debug.zig").assert;
 const builtin = @import("builtin");
-const arch = switch (builtin.arch) {
-    builtin.Arch.x86_64 => @import("x86_64.zig"),
-    else => @compileError("unsupported arch"),
-};
-pub use @import("syscall.zig");
+
 pub use @import("errno.zig");
 
 const std = @import("../../index.zig");
 const c = std.c;
+
+const assert = std.debug.assert;
+const maxInt = std.math.maxInt;
 pub const Kevent = c.Kevent;
+
+pub const CTL_KERN = 1;
+pub const CTL_DEBUG = 5;
+
+pub const KERN_PROC = 14; // struct: process entries
+pub const KERN_PROC_PATHNAME = 12; // path to executable
 
 pub const PATH_MAX = 1024;
 
@@ -22,7 +26,22 @@ pub const PROT_READ = 1;
 pub const PROT_WRITE = 2;
 pub const PROT_EXEC = 4;
 
-pub const MAP_FAILED = @maxValue(usize);
+pub const CLOCK_REALTIME = 0;
+pub const CLOCK_VIRTUAL = 1;
+pub const CLOCK_PROF = 2;
+pub const CLOCK_MONOTONIC = 4;
+pub const CLOCK_UPTIME = 5;
+pub const CLOCK_UPTIME_PRECISE = 7;
+pub const CLOCK_UPTIME_FAST = 8;
+pub const CLOCK_REALTIME_PRECISE = 9;
+pub const CLOCK_REALTIME_FAST = 10;
+pub const CLOCK_MONOTONIC_PRECISE = 11;
+pub const CLOCK_MONOTONIC_FAST = 12;
+pub const CLOCK_SECOND = 13;
+pub const CLOCK_THREAD_CPUTIME_ID = 14;
+pub const CLOCK_PROCESS_CPUTIME_ID = 15;
+
+pub const MAP_FAILED = maxInt(usize);
 pub const MAP_SHARED = 0x0001;
 pub const MAP_PRIVATE = 0x0002;
 pub const MAP_FIXED = 0x0010;
@@ -94,26 +113,33 @@ pub const SIGLIBRT = 33;
 pub const SIGRTMIN = 65;
 pub const SIGRTMAX = 126;
 
-pub const O_RDONLY = 0o0;
-pub const O_WRONLY = 0o1;
-pub const O_RDWR = 0o2;
-pub const O_ACCMODE = 0o3;
+// access function
+pub const F_OK = 0; // test for existence of file
+pub const X_OK = 1; // test for execute or search permission
+pub const W_OK = 2; // test for write permission
+pub const R_OK = 4; // test for read permission
 
-pub const O_CREAT = 0o100;
-pub const O_EXCL = 0o200;
-pub const O_NOCTTY = 0o400;
-pub const O_TRUNC = 0o1000;
-pub const O_APPEND = 0o2000;
-pub const O_NONBLOCK = 0o4000;
+
+pub const O_RDONLY = 0x0000;
+pub const O_WRONLY = 0x0001;
+pub const O_RDWR = 0x0002;
+pub const O_ACCMODE = 0x0003;
+
+pub const O_CREAT = 0x0200;
+pub const O_EXCL = 0x0800;
+pub const O_NOCTTY = 0x8000;
+pub const O_TRUNC = 0x0400;
+pub const O_APPEND = 0x0008;
+pub const O_NONBLOCK = 0x0004;
 pub const O_DSYNC = 0o10000;
-pub const O_SYNC = 0o4010000;
+pub const O_SYNC = 0x0080;
 pub const O_RSYNC = 0o4010000;
 pub const O_DIRECTORY = 0o200000;
-pub const O_NOFOLLOW = 0o400000;
-pub const O_CLOEXEC = 0o2000000;
+pub const O_NOFOLLOW = 0x0100;
+pub const O_CLOEXEC = 0x00100000;
 
-pub const O_ASYNC = 0o20000;
-pub const O_DIRECT = 0o40000;
+pub const O_ASYNC = 0x0040;
+pub const O_DIRECT = 0x00010000;
 pub const O_LARGEFILE = 0;
 pub const O_NOATIME = 0o1000000;
 pub const O_PATH = 0o10000000;
@@ -157,7 +183,6 @@ pub const SOCK_SEQPACKET = 5;
 pub const SOCK_CLOEXEC = 0x10000000;
 pub const SOCK_NONBLOCK = 0x20000000;
 
-// TODO: From here
 pub const PROTO_ip = 0o000;
 pub const PROTO_icmp = 0o001;
 pub const PROTO_igmp = 0o002;
@@ -500,6 +525,10 @@ pub const TIOCGPKT = 0x80045438;
 pub const TIOCGPTLCK = 0x80045439;
 pub const TIOCGEXCL = 0x80045440;
 
+pub const sockaddr = c.sockaddr;
+pub const sockaddr_in = c.sockaddr_in;
+pub const sockaddr_in6 = c.sockaddr_in6;
+
 fn unsigned(s: i32) u32 {
     return @bitCast(u32, s);
 }
@@ -539,96 +568,117 @@ pub fn getErrno(r: usize) usize {
 }
 
 pub fn dup2(old: i32, new: i32) usize {
-    return arch.syscall2(SYS_dup2, @intCast(usize, old), @intCast(usize, new));
+    return errnoWrap(c.dup2(old, new));
 }
 
 pub fn chdir(path: [*]const u8) usize {
-    return arch.syscall1(SYS_chdir, @ptrToInt(path));
+    return errnoWrap(c.chdir(path));
 }
 
 pub fn execve(path: [*]const u8, argv: [*]const ?[*]const u8, envp: [*]const ?[*]const u8) usize {
-    return arch.syscall3(SYS_execve, @ptrToInt(path), @ptrToInt(argv), @ptrToInt(envp));
+    return errnoWrap(c.execve(path, argv, envp));
 }
 
 pub fn fork() usize {
-    return arch.syscall0(SYS_fork);
+    return errnoWrap(c.fork());
+}
+
+pub fn access(path: [*]const u8, mode: u32) usize {
+    return errnoWrap(c.access(path, mode));
 }
 
 pub fn getcwd(buf: [*]u8, size: usize) usize {
-    return arch.syscall2(SYS___getcwd, @ptrToInt(buf), size);
+    return if (c.getcwd(buf, size) == null) @bitCast(usize, -isize(c._errno().*)) else 0;
 }
 
 pub fn getdents(fd: i32, dirp: [*]u8, count: usize) usize {
-    return arch.syscall3(SYS_getdents, @intCast(usize, fd), @ptrToInt(dirp), count);
+    return errnoWrap(@bitCast(isize, c.getdents(fd, drip, count)));
+}
+
+pub fn getdirentries(fd: i32, buf_ptr: [*]u8, buf_len: usize, basep: *i64) usize {
+    return errnoWrap(@bitCast(isize, c.getdirentries(fd, buf_ptr, buf_len, basep)));
+}
+
+pub fn realpath(noalias filename: [*]const u8, noalias resolved_name: [*]u8) usize {
+    return if (c.realpath(filename, resolved_name) == null) @bitCast(usize, -isize(c._errno().*)) else 0;
 }
 
 pub fn isatty(fd: i32) bool {
-    var wsz: winsize = undefined;
-    return arch.syscall3(SYS_ioctl, @intCast(usize, fd), TIOCGWINSZ, @ptrToInt(&wsz)) == 0;
+    return c.isatty(fd) != 0;
 }
 
 pub fn readlink(noalias path: [*]const u8, noalias buf_ptr: [*]u8, buf_len: usize) usize {
-    return arch.syscall3(SYS_readlink, @ptrToInt(path), @ptrToInt(buf_ptr), buf_len);
+    return errnoWrap(c.readlink(path, buf_ptr, buf_len));
 }
 
 pub fn mkdir(path: [*]const u8, mode: u32) usize {
-    return arch.syscall2(SYS_mkdir, @ptrToInt(path), mode);
+    return errnoWrap(c.mkdir(path, mode));
 }
 
-pub fn mmap(address: ?*u8, length: usize, prot: usize, flags: usize, fd: i32, offset: isize) usize {
-    return arch.syscall6(SYS_mmap, @ptrToInt(address), length, prot, flags, @intCast(usize, fd), @bitCast(usize, offset));
+pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: u32, fd: i32, offset: isize) usize {
+    const ptr_result = c.mmap(
+        @ptrCast(?*c_void, address),
+        length,
+        @bitCast(c_int, @intCast(c_uint, prot)),
+        @bitCast(c_int, c_uint(flags)),
+        fd,
+        offset,
+    );
+    const isize_result = @bitCast(isize, @ptrToInt(ptr_result));
+    return errnoWrap(isize_result);
 }
 
 pub fn munmap(address: usize, length: usize) usize {
-    return arch.syscall2(SYS_munmap, address, length);
+    return errnoWrap(c.munmap(@intToPtr(*c_void, address), length));
 }
 
-pub fn read(fd: i32, buf: [*]u8, count: usize) usize {
-    return arch.syscall3(SYS_read, @intCast(usize, fd), @ptrToInt(buf), count);
+pub fn read(fd: i32, buf: [*]u8, nbyte: usize) usize {
+    return errnoWrap(c.read(fd, @ptrCast(*c_void, buf), nbyte));
 }
 
 pub fn rmdir(path: [*]const u8) usize {
-    return arch.syscall1(SYS_rmdir, @ptrToInt(path));
+    return errnoWrap(c.rmdir(path));
 }
 
 pub fn symlink(existing: [*]const u8, new: [*]const u8) usize {
-    return arch.syscall2(SYS_symlink, @ptrToInt(existing), @ptrToInt(new));
+    return errnoWrap(c.symlink(existing, new));
 }
 
-pub fn pread(fd: i32, buf: [*]u8, count: usize, offset: usize) usize {
-    return arch.syscall4(SYS_pread, @intCast(usize, fd), @ptrToInt(buf), count, offset);
+pub fn pread(fd: i32, buf: [*]u8, nbyte: usize, offset: u64) usize {
+    return errnoWrap(c.pread(fd, @ptrCast(*c_void, buf), nbyte, offset));
 }
 
 pub fn preadv(fd: i32, iov: [*]const iovec, count: usize, offset: usize) usize {
-    return arch.syscall4(SYS_preadv, @intCast(usize, fd), @ptrToInt(iov), count, offset);
+    return errnoWrap(c.preadv(fd, @ptrCast(*const c_void, iov), @intCast(c_int, count), offset));
 }
 
 pub fn pipe(fd: *[2]i32) usize {
     return pipe2(fd, 0);
 }
 
-pub fn pipe2(fd: *[2]i32, flags: usize) usize {
-    return arch.syscall2(SYS_pipe2, @ptrToInt(fd), flags);
+pub fn pipe2(fd: *[2]i32, flags: u32) usize {
+    comptime assert(i32.bit_count == c_int.bit_count);
+    return errnoWrap(c.pipe2(@ptrCast(*[2]c_int, fd), flags));
 }
 
-pub fn write(fd: i32, buf: [*]const u8, count: usize) usize {
-    return arch.syscall3(SYS_write, @intCast(usize, fd), @ptrToInt(buf), count);
+pub fn write(fd: i32, buf: [*]const u8, nbyte: usize) usize {
+    return errnoWrap(c.write(fd, @ptrCast(*const c_void, buf), nbyte));
 }
 
-pub fn pwrite(fd: i32, buf: [*]const u8, count: usize, offset: usize) usize {
-    return arch.syscall4(SYS_pwrite, @intCast(usize, fd), @ptrToInt(buf), count, offset);
+pub fn pwrite(fd: i32, buf: [*]const u8, nbyte: usize, offset: u64) usize {
+    return errnoWrap(c.pwrite(fd, @ptrCast(*const c_void, buf), nbyte, offset));
 }
 
 pub fn pwritev(fd: i32, iov: [*]const iovec_const, count: usize, offset: usize) usize {
-    return arch.syscall4(SYS_pwritev, @intCast(usize, fd), @ptrToInt(iov), count, offset);
+    return errnoWrap(c.pwritev(fd, @ptrCast(*const c_void, iov), @intCast(c_int, count), offset));
 }
 
 pub fn rename(old: [*]const u8, new: [*]const u8) usize {
-    return arch.syscall2(SYS_rename, @ptrToInt(old), @ptrToInt(new));
+    return errnoWrap(c.rename(old, new));
 }
 
-pub fn open(path: [*]const u8, flags: u32, perm: usize) usize {
-    return arch.syscall3(SYS_open, @ptrToInt(path), flags, perm);
+pub fn open(path: [*]const u8, flags: u32, mode: usize) usize {
+    return errnoWrap(c.open(path, @bitCast(c_int, flags), mode));
 }
 
 pub fn create(path: [*]const u8, perm: usize) usize {
@@ -636,120 +686,114 @@ pub fn create(path: [*]const u8, perm: usize) usize {
 }
 
 pub fn openat(dirfd: i32, path: [*]const u8, flags: usize, mode: usize) usize {
-    return arch.syscall4(SYS_openat, @intCast(usize, dirfd), @ptrToInt(path), flags, mode);
+    return errnoWrap(c.openat(@bitCast(usize, isize(dirfd)), @ptrToInt(path), flags, mode));
 }
 
 pub fn close(fd: i32) usize {
-    return arch.syscall1(SYS_close, @intCast(usize, fd));
+    return errnoWrap(c.close(fd));
 }
 
-pub fn lseek(fd: i32, offset: isize, ref_pos: usize) usize {
-    return arch.syscall3(SYS_lseek, @intCast(usize, fd), @bitCast(usize, offset), ref_pos);
+pub fn lseek(fd: i32, offset: isize, whence: c_int) usize {
+    return errnoWrap(c.lseek(fd, offset, whence));
 }
 
-pub fn exit(status: i32) noreturn {
-    _ = arch.syscall1(SYS_exit, @bitCast(usize, isize(status)));
-    unreachable;
-}
-
-pub fn getrandom(buf: [*]u8, count: usize, flags: u32) usize {
-    return arch.syscall3(SYS_getrandom, @ptrToInt(buf), count, @intCast(usize, flags));
+pub fn exit(code: i32) noreturn {
+    c.exit(code);
 }
 
 pub fn kill(pid: i32, sig: i32) usize {
-    return arch.syscall2(SYS_kill, @bitCast(usize, @intCast(isize, pid)), @intCast(usize, sig));
+    return errnoWrap(c.kill(pid, sig));
 }
 
 pub fn unlink(path: [*]const u8) usize {
-    return arch.syscall1(SYS_unlink, @ptrToInt(path));
+    return errnoWrap(c.unlink(path));
 }
 
-pub fn waitpid(pid: i32, status: *i32, options: i32) usize {
-    return arch.syscall4(SYS_wait4, @bitCast(usize, isize(pid)), @ptrToInt(status), @bitCast(usize, isize(options)), 0);
+pub fn waitpid(pid: i32, status: *i32, options: u32) usize {
+    comptime assert(i32.bit_count == c_int.bit_count);
+    return errnoWrap(c.waitpid(pid, @ptrCast(*c_int, status), @bitCast(c_int, options)));
 }
 
 pub fn nanosleep(req: *const timespec, rem: ?*timespec) usize {
-    return arch.syscall2(SYS_nanosleep, @ptrToInt(req), @ptrToInt(rem));
+    return errnoWrap(c.nanosleep(req, rem));
+}
+
+pub fn clock_gettime(clk_id: i32, tp: *timespec) usize {
+    return errnoWrap(c.clock_gettime(clk_id, tp));
+}
+
+pub fn clock_getres(clk_id: i32, tp: *timespec) usize {
+    return errnoWrap(c.clock_getres(clk_id, tp));
 }
 
 pub fn setuid(uid: u32) usize {
-    return arch.syscall1(SYS_setuid, uid);
+    return errnoWrap(c.setuid(uid));
 }
 
 pub fn setgid(gid: u32) usize {
-    return arch.syscall1(SYS_setgid, gid);
+    return errnoWrap(c.setgid(gid));
 }
 
 pub fn setreuid(ruid: u32, euid: u32) usize {
-    return arch.syscall2(SYS_setreuid, ruid, euid);
+    return errnoWrap(c.setreuid(ruid, euid));
 }
 
 pub fn setregid(rgid: u32, egid: u32) usize {
-    return arch.syscall2(SYS_setregid, rgid, egid);
+    return errnoWrap(c.setregid(rgid, egid));
 }
 
-pub fn sigprocmask(flags: u32, noalias set: *const sigset_t, noalias oldset: ?*sigset_t) usize {
-    // TODO: Implement
-    return 0;
-}
+const NSIG = 32;
 
-pub fn sigaction(sig: u6, noalias act: *const Sigaction, noalias oact: ?*Sigaction) usize {
-    // TODO: Implement
-    return 0;
-}
-
-const NSIG = 65;
-const sigset_t = [128 / @sizeOf(usize)]usize;
-const all_mask = []usize{@maxValue(usize)};
-const app_mask = []usize{0xfffffffc7fffffff};
-
-/// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
-pub const Sigaction = struct {
-    // TODO: Adjust to use freebsd struct layout
-    handler: extern fn (i32) void,
-    mask: sigset_t,
-    flags: u32,
-};
-
-pub const SIG_ERR = @intToPtr(extern fn (i32) void, @maxValue(usize));
+pub const SIG_ERR = @intToPtr(extern fn (i32) void, maxInt(usize));
 pub const SIG_DFL = @intToPtr(extern fn (i32) void, 0);
 pub const SIG_IGN = @intToPtr(extern fn (i32) void, 1);
-pub const empty_sigset = []usize{0} ** sigset_t.len;
+
+/// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
+pub const Sigaction = extern struct {
+    /// signal handler
+    __sigaction_u: extern union {
+        __sa_handler: extern fn (i32) void,
+        __sa_sigaction: extern fn (i32, *__siginfo, usize) void,
+    },
+
+    /// see signal options
+    sa_flags: u32,
+
+    /// signal mask to apply
+    sa_mask: sigset_t,
+};
+
+pub const _SIG_WORDS = 4;
+pub const _SIG_MAXSIG = 128;
+
+pub inline fn _SIG_IDX(sig: usize) usize {
+    return sig - 1;
+}
+pub inline fn _SIG_WORD(sig: usize) usize {
+    return_SIG_IDX(sig) >> 5;
+}
+pub inline fn _SIG_BIT(sig: usize) usize {
+    return 1 << (_SIG_IDX(sig) & 31);
+}
+pub inline fn _SIG_VALID(sig: usize) usize {
+    return sig <= _SIG_MAXSIG and sig > 0;
+}
+
+pub const sigset_t = extern struct {
+    __bits: [_SIG_WORDS]u32,
+};
 
 pub fn raise(sig: i32) usize {
-    // TODO implement, see linux equivalent for what we want to try and do
-    return 0;
+    return errnoWrap(c.raise(sig));
 }
 
-fn blockAllSignals(set: *sigset_t) void {
-    // TODO implement
+pub const Stat = c.Stat;
+pub const dirent = c.dirent;
+pub const timespec = c.timespec;
+
+pub fn fstat(fd: i32, buf: *c.Stat) usize {
+    return errnoWrap(c.fstat(fd, buf));
 }
-
-fn blockAppSignals(set: *sigset_t) void {
-    // TODO implement
-}
-
-fn restoreSignals(set: *sigset_t) void {
-    // TODO implement
-}
-
-pub fn sigaddset(set: *sigset_t, sig: u6) void {
-    const s = sig - 1;
-    (*set)[usize(s) / usize.bit_count] |= usize(1) << (s & (usize.bit_count - 1));
-}
-
-pub fn sigismember(set: *const sigset_t, sig: u6) bool {
-    const s = sig - 1;
-    return ((*set)[usize(s) / usize.bit_count] & (usize(1) << (s & (usize.bit_count - 1)))) != 0;
-}
-
-pub const Stat = arch.Stat;
-pub const timespec = arch.timespec;
-
-pub fn fstat(fd: i32, stat_buf: *Stat) usize {
-    return arch.syscall2(SYS_fstat, @intCast(usize, fd), @ptrToInt(stat_buf));
-}
-
 pub const iovec = extern struct {
     iov_base: [*]u8,
     iov_len: usize,
@@ -760,10 +804,12 @@ pub const iovec_const = extern struct {
     iov_len: usize,
 };
 
+// TODO avoid libc dependency
 pub fn kqueue() usize {
     return errnoWrap(c.kqueue());
 }
 
+// TODO avoid libc dependency
 pub fn kevent(kq: i32, changelist: []const Kevent, eventlist: []Kevent, timeout: ?*const timespec) usize {
     return errnoWrap(c.kevent(
         kq,
@@ -775,17 +821,22 @@ pub fn kevent(kq: i32, changelist: []const Kevent, eventlist: []Kevent, timeout:
     ));
 }
 
+// TODO avoid libc dependency
 pub fn sysctl(name: [*]c_int, namelen: c_uint, oldp: ?*c_void, oldlenp: ?*usize, newp: ?*c_void, newlen: usize) usize {
     return errnoWrap(c.sysctl(name, namelen, oldp, oldlenp, newp, newlen));
 }
 
+// TODO avoid libc dependency
 pub fn sysctlbyname(name: [*]const u8, oldp: ?*c_void, oldlenp: ?*usize, newp: ?*c_void, newlen: usize) usize {
     return errnoWrap(c.sysctlbyname(name, oldp, oldlenp, newp, newlen));
 }
 
+// TODO avoid libc dependency
 pub fn sysctlnametomib(name: [*]const u8, mibp: ?*c_int, sizep: ?*usize) usize {
     return errnoWrap(c.sysctlnametomib(name, wibp, sizep));
 }
+
+// TODO avoid libc dependency
 
 /// Takes the return value from a syscall and formats it back in the way
 /// that the kernel represents it to libc. Errno was a mistake, let's make

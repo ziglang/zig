@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const os = std.os;
-const assertOrPanic = std.debug.assertOrPanic;
+const testing = std.testing;
 
 var a: *std.mem.Allocator = undefined;
 
@@ -27,9 +27,9 @@ pub fn main() !void {
         std.debug.warn("Expected second argument to be cache root directory path\n");
         return error.InvalidArgs;
     });
-    const zig_exe = try os.path.resolve(a, zig_exe_rel);
+    const zig_exe = try os.path.resolve(a, [][]const u8{zig_exe_rel});
 
-    const dir_path = try os.path.join(a, cache_root, "clitest");
+    const dir_path = try os.path.join(a, [][]const u8{ cache_root, "clitest" });
     const TestFn = fn ([]const u8, []const u8) anyerror!void;
     const test_fns = []TestFn{
         testZigInitLib,
@@ -87,20 +87,20 @@ fn exec(cwd: []const u8, argv: []const []const u8) !os.ChildProcess.ExecResult {
 fn testZigInitLib(zig_exe: []const u8, dir_path: []const u8) !void {
     _ = try exec(dir_path, [][]const u8{ zig_exe, "init-lib" });
     const test_result = try exec(dir_path, [][]const u8{ zig_exe, "build", "test" });
-    assertOrPanic(std.mem.endsWith(u8, test_result.stderr, "All tests passed.\n"));
+    testing.expect(std.mem.endsWith(u8, test_result.stderr, "All tests passed.\n"));
 }
 
 fn testZigInitExe(zig_exe: []const u8, dir_path: []const u8) !void {
     _ = try exec(dir_path, [][]const u8{ zig_exe, "init-exe" });
     const run_result = try exec(dir_path, [][]const u8{ zig_exe, "build", "run" });
-    assertOrPanic(std.mem.eql(u8, run_result.stderr, "All your base are belong to us.\n"));
+    testing.expect(std.mem.eql(u8, run_result.stderr, "All your base are belong to us.\n"));
 }
 
 fn testGodboltApi(zig_exe: []const u8, dir_path: []const u8) anyerror!void {
     if (builtin.os != builtin.Os.linux or builtin.arch != builtin.Arch.x86_64) return;
 
-    const example_zig_path = try os.path.join(a, dir_path, "example.zig");
-    const example_s_path = try os.path.join(a, dir_path, "example.s");
+    const example_zig_path = try os.path.join(a, [][]const u8{ dir_path, "example.zig" });
+    const example_s_path = try os.path.join(a, [][]const u8{ dir_path, "example.s" });
 
     try std.io.writeFile(example_zig_path,
         \\// Type your code here, or load an example.
@@ -126,6 +126,6 @@ fn testGodboltApi(zig_exe: []const u8, dir_path: []const u8) anyerror!void {
     _ = try exec(dir_path, args);
 
     const out_asm = try std.io.readFileAlloc(a, example_s_path);
-    assertOrPanic(std.mem.indexOf(u8, out_asm, "square:") != null);
-    assertOrPanic(std.mem.indexOf(u8, out_asm, "imul\tedi, edi") != null);
+    testing.expect(std.mem.indexOf(u8, out_asm, "square:") != null);
+    testing.expect(std.mem.indexOf(u8, out_asm, "imul\tedi, edi") != null);
 }

@@ -6,7 +6,7 @@
 
 const std = @import("../index.zig");
 const math = std.math;
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 fn frexp_result(comptime T: type) type {
     return struct {
@@ -103,11 +103,11 @@ fn frexp64(x: f64) frexp64_result {
 test "math.frexp" {
     const a = frexp(f32(1.3));
     const b = frexp32(1.3);
-    assert(a.significand == b.significand and a.exponent == b.exponent);
+    expect(a.significand == b.significand and a.exponent == b.exponent);
 
     const c = frexp(f64(1.3));
     const d = frexp64(1.3);
-    assert(c.significand == d.significand and c.exponent == d.exponent);
+    expect(c.significand == d.significand and c.exponent == d.exponent);
 }
 
 test "math.frexp32" {
@@ -115,10 +115,10 @@ test "math.frexp32" {
     var r: frexp32_result = undefined;
 
     r = frexp32(1.3);
-    assert(math.approxEq(f32, r.significand, 0.65, epsilon) and r.exponent == 1);
+    expect(math.approxEq(f32, r.significand, 0.65, epsilon) and r.exponent == 1);
 
     r = frexp32(78.0234);
-    assert(math.approxEq(f32, r.significand, 0.609558, epsilon) and r.exponent == 7);
+    expect(math.approxEq(f32, r.significand, 0.609558, epsilon) and r.exponent == 7);
 }
 
 test "math.frexp64" {
@@ -126,46 +126,46 @@ test "math.frexp64" {
     var r: frexp64_result = undefined;
 
     r = frexp64(1.3);
-    assert(math.approxEq(f64, r.significand, 0.65, epsilon) and r.exponent == 1);
+    expect(math.approxEq(f64, r.significand, 0.65, epsilon) and r.exponent == 1);
 
     r = frexp64(78.0234);
-    assert(math.approxEq(f64, r.significand, 0.609558, epsilon) and r.exponent == 7);
+    expect(math.approxEq(f64, r.significand, 0.609558, epsilon) and r.exponent == 7);
 }
 
 test "math.frexp32.special" {
     var r: frexp32_result = undefined;
 
     r = frexp32(0.0);
-    assert(r.significand == 0.0 and r.exponent == 0);
+    expect(r.significand == 0.0 and r.exponent == 0);
 
     r = frexp32(-0.0);
-    assert(r.significand == -0.0 and r.exponent == 0);
+    expect(r.significand == -0.0 and r.exponent == 0);
 
     r = frexp32(math.inf(f32));
-    assert(math.isPositiveInf(r.significand) and r.exponent == 0);
+    expect(math.isPositiveInf(r.significand) and r.exponent == 0);
 
     r = frexp32(-math.inf(f32));
-    assert(math.isNegativeInf(r.significand) and r.exponent == 0);
+    expect(math.isNegativeInf(r.significand) and r.exponent == 0);
 
     r = frexp32(math.nan(f32));
-    assert(math.isNan(r.significand));
+    expect(math.isNan(r.significand));
 }
 
 test "math.frexp64.special" {
     var r: frexp64_result = undefined;
 
     r = frexp64(0.0);
-    assert(r.significand == 0.0 and r.exponent == 0);
+    expect(r.significand == 0.0 and r.exponent == 0);
 
     r = frexp64(-0.0);
-    assert(r.significand == -0.0 and r.exponent == 0);
+    expect(r.significand == -0.0 and r.exponent == 0);
 
     r = frexp64(math.inf(f64));
-    assert(math.isPositiveInf(r.significand) and r.exponent == 0);
+    expect(math.isPositiveInf(r.significand) and r.exponent == 0);
 
     r = frexp64(-math.inf(f64));
-    assert(math.isNegativeInf(r.significand) and r.exponent == 0);
+    expect(math.isNegativeInf(r.significand) and r.exponent == 0);
 
     r = frexp64(math.nan(f64));
-    assert(math.isNan(r.significand));
+    expect(math.isNan(r.significand));
 }

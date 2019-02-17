@@ -21,6 +21,9 @@ comptime {
 
     @export("__unordtf2", @import("comparetf2.zig").__unordtf2, linkage);
 
+    @export("__addtf3", @import("addXf3.zig").__addtf3, linkage);
+    @export("__subtf3", @import("addXf3.zig").__subtf3, linkage);
+
     @export("__floattitf", @import("floattitf.zig").__floattitf, linkage);
     @export("__floattidf", @import("floattidf.zig").__floattidf, linkage);
     @export("__floattisf", @import("floattisf.zig").__floattisf, linkage);
@@ -37,6 +40,7 @@ comptime {
     @export("__extendhfsf2", @import("extendXfYf2.zig").__extendhfsf2, linkage);
 
     @export("__truncsfhf2", @import("truncXfYf2.zig").__truncsfhf2, linkage);
+    @export("__truncdfhf2", @import("truncXfYf2.zig").__truncdfhf2, linkage);
     @export("__trunctfdf2", @import("truncXfYf2.zig").__trunctfdf2, linkage);
     @export("__trunctfsf2", @import("truncXfYf2.zig").__trunctfsf2, linkage);
 
@@ -51,6 +55,16 @@ comptime {
     @export("__fixunstfsi", @import("fixunstfsi.zig").__fixunstfsi, linkage);
     @export("__fixunstfdi", @import("fixunstfdi.zig").__fixunstfdi, linkage);
     @export("__fixunstfti", @import("fixunstfti.zig").__fixunstfti, linkage);
+
+    @export("__fixdfdi", @import("fixdfdi.zig").__fixdfdi, linkage);
+    @export("__fixdfsi", @import("fixdfsi.zig").__fixdfsi, linkage);
+    @export("__fixdfti", @import("fixdfti.zig").__fixdfti, linkage);
+    @export("__fixsfdi", @import("fixsfdi.zig").__fixsfdi, linkage);
+    @export("__fixsfsi", @import("fixsfsi.zig").__fixsfsi, linkage);
+    @export("__fixsfti", @import("fixsfti.zig").__fixsfti, linkage);
+    @export("__fixtfdi", @import("fixtfdi.zig").__fixtfdi, linkage);
+    @export("__fixtfsi", @import("fixtfsi.zig").__fixtfsi, linkage);
+    @export("__fixtfti", @import("fixtfti.zig").__fixtfti, linkage);
 
     @export("__udivmoddi4", @import("udivmoddi4.zig").__udivmoddi4, linkage);
 
@@ -100,6 +114,7 @@ comptime {
 
 const std = @import("std");
 const assert = std.debug.assert;
+const testing = std.testing;
 
 const __udivmoddi4 = @import("udivmoddi4.zig").__udivmoddi4;
 
@@ -407,7 +422,7 @@ test "test_umoddi3" {
 
 fn test_one_umoddi3(a: u64, b: u64, expected_r: u64) void {
     const r = __umoddi3(a, b);
-    assert(r == expected_r);
+    testing.expect(r == expected_r);
 }
 
 test "test_udivsi3" {
@@ -1081,5 +1096,5 @@ test "test_udivsi3" {
 
 fn test_one_udivsi3(a: u32, b: u32, expected_q: u32) void {
     const q: u32 = __udivsi3(a, b);
-    assert(q == expected_q);
+    testing.expect(q == expected_q);
 }

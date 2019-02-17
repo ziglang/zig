@@ -1,9 +1,9 @@
 const __floatuntidf = @import("floatuntidf.zig").__floatuntidf;
-const assert = @import("std").debug.assert;
+const testing = @import("std").testing;
 
 fn test__floatuntidf(a: u128, expected: f64) void {
     const x = __floatuntidf(a);
-    assert(x == expected);
+    testing.expect(x == expected);
 }
 
 test "floatuntidf" {

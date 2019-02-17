@@ -1,6 +1,6 @@
 const std = @import("../index.zig");
 const os = std.os;
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 const io = std.io;
 const mem = std.mem;
 
@@ -18,7 +18,7 @@ test "makePath, put some files in it, deleteTree" {
     if (os.Dir.open(a, "os_test_tmp")) |dir| {
         @panic("expected error");
     } else |err| {
-        assert(err == error.FileNotFound);
+        expect(err == error.FileNotFound);
     }
 }
 
@@ -27,7 +27,7 @@ test "access file" {
     if (os.File.access("os_test_tmp" ++ os.path.sep_str ++ "file.txt")) |ok| {
         @panic("expected error");
     } else |err| {
-        assert(err == error.FileNotFound);
+        expect(err == error.FileNotFound);
     }
 
     try io.writeFile("os_test_tmp" ++ os.path.sep_str ++ "file.txt", "");
@@ -40,19 +40,23 @@ fn testThreadIdFn(thread_id: *os.Thread.Id) void {
 }
 
 test "std.os.Thread.getCurrentId" {
+    if (builtin.single_threaded) return error.SkipZigTest;
+
     var thread_current_id: os.Thread.Id = undefined;
     const thread = try os.spawnThread(&thread_current_id, testThreadIdFn);
     const thread_id = thread.handle();
     thread.wait();
     switch (builtin.os) {
-        builtin.Os.windows => assert(os.Thread.getCurrentId() != thread_current_id),
+        builtin.Os.windows => expect(os.Thread.getCurrentId() != thread_current_id),
         else => {
-            assert(thread_current_id == thread_id);
+            expect(thread_current_id == thread_id);
         },
     }
 }
 
 test "spawn threads" {
+    if (builtin.single_threaded) return error.SkipZigTest;
+
     var shared_ctx: i32 = 1;
 
     const thread1 = try std.os.spawnThread({}, start1);
@@ -65,7 +69,7 @@ test "spawn threads" {
     thread3.wait();
     thread4.wait();
 
-    assert(shared_ctx == 4);
+    expect(shared_ctx == 4);
 }
 
 fn start1(ctx: void) u8 {
@@ -79,7 +83,7 @@ fn start2(ctx: *i32) u8 {
 
 test "cpu count" {
     const cpu_count = try std.os.cpuCount(a);
-    assert(cpu_count >= 1);
+    expect(cpu_count >= 1);
 }
 
 test "AtomicFile" {
@@ -97,7 +101,23 @@ test "AtomicFile" {
         try af.finish();
     }
     const content = try io.readFileAlloc(allocator, test_out_file);
-    assert(mem.eql(u8, content, test_content));
+    expect(mem.eql(u8, content, test_content));
 
     try os.deleteFile(test_out_file);
+}
+
+test "thread local storage" {
+    if (builtin.single_threaded) return error.SkipZigTest;
+    const thread1 = try std.os.spawnThread({}, testTls);
+    const thread2 = try std.os.spawnThread({}, testTls);
+    testTls({});
+    thread1.wait();
+    thread2.wait();
+}
+
+threadlocal var x: i32 = 1234;
+fn testTls(context: void) void {
+    if (x != 1234) @panic("bad start value");
+    x += 1;
+    if (x != 1235) @panic("bad end value");
 }

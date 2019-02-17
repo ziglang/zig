@@ -172,7 +172,7 @@ static void ir_print_bin_op(IrPrint *irp, IrInstructionBinOp *bin_op_instruction
     }
 }
 
-static void ir_print_decl_var(IrPrint *irp, IrInstructionDeclVar *decl_var_instruction) {
+static void ir_print_decl_var_src(IrPrint *irp, IrInstructionDeclVarSrc *decl_var_instruction) {
     const char *var_or_const = decl_var_instruction->var->gen_is_const ? "const" : "var";
     const char *name = buf_ptr(&decl_var_instruction->var->name);
     if (decl_var_instruction->var_type) {
@@ -332,8 +332,8 @@ static void ir_print_var_ptr(IrPrint *irp, IrInstructionVarPtr *instruction) {
 }
 
 static void ir_print_load_ptr(IrPrint *irp, IrInstructionLoadPtr *instruction) {
-    fprintf(irp->f, "*");
     ir_print_other_instruction(irp, instruction->ptr);
+    fprintf(irp->f, ".*");
 }
 
 static void ir_print_store_ptr(IrPrint *irp, IrInstructionStorePtr *instruction) {
@@ -479,15 +479,15 @@ static void ir_print_size_of(IrPrint *irp, IrInstructionSizeOf *instruction) {
     fprintf(irp->f, ")");
 }
 
-static void ir_print_test_null(IrPrint *irp, IrInstructionTestNonNull *instruction) {
-    fprintf(irp->f, "*");
+static void ir_print_test_non_null(IrPrint *irp, IrInstructionTestNonNull *instruction) {
     ir_print_other_instruction(irp, instruction->value);
     fprintf(irp->f, " != null");
 }
 
-static void ir_print_unwrap_maybe(IrPrint *irp, IrInstructionUnwrapOptional *instruction) {
-    fprintf(irp->f, "&??*");
-    ir_print_other_instruction(irp, instruction->value);
+static void ir_print_optional_unwrap_ptr(IrPrint *irp, IrInstructionOptionalUnwrapPtr *instruction) {
+    fprintf(irp->f, "&");
+    ir_print_other_instruction(irp, instruction->base_ptr);
+    fprintf(irp->f, ".*.?");
     if (!instruction->safety_check_on) {
         fprintf(irp->f, " // no safety");
     }
@@ -613,7 +613,7 @@ static void ir_print_embed_file(IrPrint *irp, IrInstructionEmbedFile *instructio
     fprintf(irp->f, ")");
 }
 
-static void ir_print_cmpxchg(IrPrint *irp, IrInstructionCmpxchg *instruction) {
+static void ir_print_cmpxchg_src(IrPrint *irp, IrInstructionCmpxchgSrc *instruction) {
     fprintf(irp->f, "@cmpxchg(");
     ir_print_other_instruction(irp, instruction->ptr);
     fprintf(irp->f, ", ");
@@ -625,6 +625,16 @@ static void ir_print_cmpxchg(IrPrint *irp, IrInstructionCmpxchg *instruction) {
     fprintf(irp->f, ", ");
     ir_print_other_instruction(irp, instruction->failure_order_value);
     fprintf(irp->f, ")");
+}
+
+static void ir_print_cmpxchg_gen(IrPrint *irp, IrInstructionCmpxchgGen *instruction) {
+    fprintf(irp->f, "@cmpxchg(");
+    ir_print_other_instruction(irp, instruction->ptr);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->cmp_value);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->new_value);
+    fprintf(irp->f, ", TODO print atomic orders)");
 }
 
 static void ir_print_fence(IrPrint *irp, IrInstructionFence *instruction) {
@@ -706,6 +716,14 @@ static void ir_print_int_type(IrPrint *irp, IrInstructionIntType *instruction) {
     ir_print_other_instruction(irp, instruction->is_signed);
     fprintf(irp->f, ", ");
     ir_print_other_instruction(irp, instruction->bit_count);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_vector_type(IrPrint *irp, IrInstructionVectorType *instruction) {
+    fprintf(irp->f, "@Vector(");
+    ir_print_other_instruction(irp, instruction->len);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->elem_type);
     fprintf(irp->f, ")");
 }
 
@@ -820,13 +838,13 @@ static void ir_print_test_err(IrPrint *irp, IrInstructionTestErr *instruction) {
 }
 
 static void ir_print_unwrap_err_code(IrPrint *irp, IrInstructionUnwrapErrCode *instruction) {
-    fprintf(irp->f, "@unwrapErrorCode(");
-    ir_print_other_instruction(irp, instruction->value);
+    fprintf(irp->f, "UnwrapErrorCode(");
+    ir_print_other_instruction(irp, instruction->err_union);
     fprintf(irp->f, ")");
 }
 
 static void ir_print_unwrap_err_payload(IrPrint *irp, IrInstructionUnwrapErrPayload *instruction) {
-    fprintf(irp->f, "@unwrapErrorPayload(");
+    fprintf(irp->f, "ErrorUnionFieldPayload(");
     ir_print_other_instruction(irp, instruction->value);
     fprintf(irp->f, ")");
     if (!instruction->safety_check_on) {
@@ -879,12 +897,18 @@ static void ir_print_test_comptime(IrPrint *irp, IrInstructionTestComptime *inst
     fprintf(irp->f, ")");
 }
 
-static void ir_print_ptr_cast(IrPrint *irp, IrInstructionPtrCast *instruction) {
+static void ir_print_ptr_cast_src(IrPrint *irp, IrInstructionPtrCastSrc *instruction) {
     fprintf(irp->f, "@ptrCast(");
     if (instruction->dest_type) {
         ir_print_other_instruction(irp, instruction->dest_type);
     }
     fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->ptr);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_ptr_cast_gen(IrPrint *irp, IrInstructionPtrCastGen *instruction) {
+    fprintf(irp->f, "@ptrCast(");
     ir_print_other_instruction(irp, instruction->ptr);
     fprintf(irp->f, ")");
 }
@@ -900,7 +924,7 @@ static void ir_print_bit_cast(IrPrint *irp, IrInstructionBitCast *instruction) {
 }
 
 static void ir_print_widen_or_shorten(IrPrint *irp, IrInstructionWidenOrShorten *instruction) {
-    fprintf(irp->f, "@widenOrShorten(");
+    fprintf(irp->f, "WidenOrShorten(");
     ir_print_other_instruction(irp, instruction->target);
     fprintf(irp->f, ")");
 }
@@ -945,6 +969,24 @@ static void ir_print_check_runtime_scope(IrPrint *irp, IrInstructionCheckRuntime
     ir_print_other_instruction(irp, instruction->scope_is_comptime);
     fprintf(irp->f, ",");
     ir_print_other_instruction(irp, instruction->is_comptime);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_array_to_vector(IrPrint *irp, IrInstructionArrayToVector *instruction) {
+    fprintf(irp->f, "ArrayToVector(");
+    ir_print_other_instruction(irp, instruction->array);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_vector_to_array(IrPrint *irp, IrInstructionVectorToArray *instruction) {
+    fprintf(irp->f, "VectorToArray(");
+    ir_print_other_instruction(irp, instruction->vector);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_assert_zero(IrPrint *irp, IrInstructionAssertZero *instruction) {
+    fprintf(irp->f, "AssertZero(");
+    ir_print_other_instruction(irp, instruction->target);
     fprintf(irp->f, ")");
 }
 
@@ -1323,6 +1365,44 @@ static void ir_print_sqrt(IrPrint *irp, IrInstructionSqrt *instruction) {
     fprintf(irp->f, ")");
 }
 
+static void ir_print_decl_var_gen(IrPrint *irp, IrInstructionDeclVarGen *decl_var_instruction) {
+    ZigVar *var = decl_var_instruction->var;
+    const char *var_or_const = decl_var_instruction->var->gen_is_const ? "const" : "var";
+    const char *name = buf_ptr(&decl_var_instruction->var->name);
+    fprintf(irp->f, "%s %s: %s align(%u) = ", var_or_const, name, buf_ptr(&var->var_type->name),
+            var->align_bytes);
+
+    ir_print_other_instruction(irp, decl_var_instruction->init_value);
+    if (decl_var_instruction->var->is_comptime != nullptr) {
+        fprintf(irp->f, " // comptime = ");
+        ir_print_other_instruction(irp, decl_var_instruction->var->is_comptime);
+    }
+}
+
+static void ir_print_bswap(IrPrint *irp, IrInstructionBswap *instruction) {
+    fprintf(irp->f, "@bswap(");
+    if (instruction->type != nullptr) {
+        ir_print_other_instruction(irp, instruction->type);
+    } else {
+        fprintf(irp->f, "null");
+    }
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->op);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_bit_reverse(IrPrint *irp, IrInstructionBitReverse *instruction) {
+    fprintf(irp->f, "@bitreverse(");
+    if (instruction->type != nullptr) {
+        ir_print_other_instruction(irp, instruction->type);
+    } else {
+        fprintf(irp->f, "null");
+    }
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->op);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -1337,8 +1417,8 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdBinOp:
             ir_print_bin_op(irp, (IrInstructionBinOp *)instruction);
             break;
-        case IrInstructionIdDeclVar:
-            ir_print_decl_var(irp, (IrInstructionDeclVar *)instruction);
+        case IrInstructionIdDeclVarSrc:
+            ir_print_decl_var_src(irp, (IrInstructionDeclVarSrc *)instruction);
             break;
         case IrInstructionIdCast:
             ir_print_cast(irp, (IrInstructionCast *)instruction);
@@ -1428,10 +1508,10 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             ir_print_size_of(irp, (IrInstructionSizeOf *)instruction);
             break;
         case IrInstructionIdTestNonNull:
-            ir_print_test_null(irp, (IrInstructionTestNonNull *)instruction);
+            ir_print_test_non_null(irp, (IrInstructionTestNonNull *)instruction);
             break;
-        case IrInstructionIdUnwrapOptional:
-            ir_print_unwrap_maybe(irp, (IrInstructionUnwrapOptional *)instruction);
+        case IrInstructionIdOptionalUnwrapPtr:
+            ir_print_optional_unwrap_ptr(irp, (IrInstructionOptionalUnwrapPtr *)instruction);
             break;
         case IrInstructionIdCtz:
             ir_print_ctz(irp, (IrInstructionCtz *)instruction);
@@ -1484,8 +1564,11 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdEmbedFile:
             ir_print_embed_file(irp, (IrInstructionEmbedFile *)instruction);
             break;
-        case IrInstructionIdCmpxchg:
-            ir_print_cmpxchg(irp, (IrInstructionCmpxchg *)instruction);
+        case IrInstructionIdCmpxchgSrc:
+            ir_print_cmpxchg_src(irp, (IrInstructionCmpxchgSrc *)instruction);
+            break;
+        case IrInstructionIdCmpxchgGen:
+            ir_print_cmpxchg_gen(irp, (IrInstructionCmpxchgGen *)instruction);
             break;
         case IrInstructionIdFence:
             ir_print_fence(irp, (IrInstructionFence *)instruction);
@@ -1519,6 +1602,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdIntType:
             ir_print_int_type(irp, (IrInstructionIntType *)instruction);
+            break;
+        case IrInstructionIdVectorType:
+            ir_print_vector_type(irp, (IrInstructionVectorType *)instruction);
             break;
         case IrInstructionIdBoolNot:
             ir_print_bool_not(irp, (IrInstructionBoolNot *)instruction);
@@ -1583,8 +1669,11 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdTestComptime:
             ir_print_test_comptime(irp, (IrInstructionTestComptime *)instruction);
             break;
-        case IrInstructionIdPtrCast:
-            ir_print_ptr_cast(irp, (IrInstructionPtrCast *)instruction);
+        case IrInstructionIdPtrCastSrc:
+            ir_print_ptr_cast_src(irp, (IrInstructionPtrCastSrc *)instruction);
+            break;
+        case IrInstructionIdPtrCastGen:
+            ir_print_ptr_cast_gen(irp, (IrInstructionPtrCastGen *)instruction);
             break;
         case IrInstructionIdBitCast:
             ir_print_bit_cast(irp, (IrInstructionBitCast *)instruction);
@@ -1736,6 +1825,12 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdSqrt:
             ir_print_sqrt(irp, (IrInstructionSqrt *)instruction);
             break;
+        case IrInstructionIdBswap:
+            ir_print_bswap(irp, (IrInstructionBswap *)instruction);
+            break;
+        case IrInstructionIdBitReverse:
+            ir_print_bit_reverse(irp, (IrInstructionBitReverse *)instruction);
+            break;
         case IrInstructionIdAtomicLoad:
             ir_print_atomic_load(irp, (IrInstructionAtomicLoad *)instruction);
             break;
@@ -1744,6 +1839,18 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdCheckRuntimeScope:
             ir_print_check_runtime_scope(irp, (IrInstructionCheckRuntimeScope *)instruction);
+            break;
+        case IrInstructionIdDeclVarGen:
+            ir_print_decl_var_gen(irp, (IrInstructionDeclVarGen *)instruction);
+            break;
+        case IrInstructionIdArrayToVector:
+            ir_print_array_to_vector(irp, (IrInstructionArrayToVector *)instruction);
+            break;
+        case IrInstructionIdVectorToArray:
+            ir_print_vector_to_array(irp, (IrInstructionVectorToArray *)instruction);
+            break;
+        case IrInstructionIdAssertZero:
+            ir_print_assert_zero(irp, (IrInstructionAssertZero *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

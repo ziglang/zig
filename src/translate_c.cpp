@@ -4,7 +4,6 @@
  * This file is part of zig, which is MIT licensed.
  * See http://opensource.org/licenses/MIT
  */
-
 #include "all_types.hpp"
 #include "analyze.hpp"
 #include "c_tokenizer.hpp"
@@ -13,7 +12,7 @@
 #include "os.hpp"
 #include "translate_c.hpp"
 #include "parser.hpp"
-
+#include "zig_clang.h"
 
 #if __GNUC__ >= 8
 #pragma GCC diagnostic push
@@ -29,8 +28,6 @@
 #endif
 
 #include <string.h>
-
-using namespace clang;
 
 struct Alias {
     Buf *new_name;
@@ -87,13 +84,13 @@ struct Context {
     HashMap<const void *, AstNode *, ptr_hash, ptr_eq> decl_table;
     HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> macro_table;
     HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> global_table;
-    SourceManager *source_manager;
+    ZigClangSourceManager *source_manager;
     ZigList<Alias> aliases;
     AstNode *source_node;
     bool warnings_on;
 
     CodeGen *codegen;
-    ASTContext *ctx;
+    ZigClangASTContext *ctx;
 
     TransScopeRoot *global_scope;
     HashMap<Buf *, bool, buf_hash, buf_eql_buf> ptr_params;
@@ -117,21 +114,37 @@ static TransScopeSwitch *trans_scope_switch_create(Context *c, TransScope *paren
 
 static TransScopeBlock *trans_scope_block_find(TransScope *scope);
 
-static AstNode *resolve_record_decl(Context *c, const RecordDecl *record_decl);
-static AstNode *resolve_enum_decl(Context *c, const EnumDecl *enum_decl);
-static AstNode *resolve_typedef_decl(Context *c, const TypedefNameDecl *typedef_decl);
+static AstNode *resolve_record_decl(Context *c, const clang::RecordDecl *record_decl);
+static AstNode *resolve_enum_decl(Context *c, const clang::EnumDecl *enum_decl);
+static AstNode *resolve_typedef_decl(Context *c, const clang::TypedefNameDecl *typedef_decl);
 
-static int trans_stmt_extra(Context *c, TransScope *scope, const Stmt *stmt,
+static int trans_stmt_extra(Context *c, TransScope *scope, const clang::Stmt *stmt,
         ResultUsed result_used, TransLRValue lrval,
         AstNode **out_node, TransScope **out_child_scope,
         TransScope **out_node_scope);
-static TransScope *trans_stmt(Context *c, TransScope *scope, const Stmt *stmt, AstNode **out_node);
-static AstNode *trans_expr(Context *c, ResultUsed result_used, TransScope *scope, const Expr *expr, TransLRValue lrval);
-static AstNode *trans_qual_type(Context *c, QualType qt, const SourceLocation &source_loc);
-static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *scope, const Expr *expr, TransLRValue lrval);
+static TransScope *trans_stmt(Context *c, TransScope *scope, const clang::Stmt *stmt, AstNode **out_node);
+static AstNode *trans_expr(Context *c, ResultUsed result_used, TransScope *scope, const clang::Expr *expr, TransLRValue lrval);
+static AstNode *trans_qual_type(Context *c, clang::QualType qt, const clang::SourceLocation &source_loc);
+static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *scope, const clang::Expr *expr, TransLRValue lrval);
+
+static ZigClangSourceLocation bitcast(clang::SourceLocation src) {
+    ZigClangSourceLocation dest;
+    memcpy(&dest, &src, sizeof(ZigClangSourceLocation));
+    return dest;
+}
+static ZigClangQualType bitcast(clang::QualType src) {
+    ZigClangQualType dest;
+    memcpy(&dest, &src, sizeof(ZigClangQualType));
+    return dest;
+}
+static clang::QualType bitcast(ZigClangQualType src) {
+    clang::QualType dest;
+    memcpy(&dest, &src, sizeof(ZigClangQualType));
+    return dest;
+}
 
 ATTRIBUTE_PRINTF(3, 4)
-static void emit_warning(Context *c, const SourceLocation &sl, const char *format, ...) {
+static void emit_warning(Context *c, const clang::SourceLocation &clang_sl, const char *format, ...) {
     if (!c->warnings_on) {
         return;
     }
@@ -141,16 +154,17 @@ static void emit_warning(Context *c, const SourceLocation &sl, const char *forma
     Buf *msg = buf_vprintf(format, ap);
     va_end(ap);
 
-    StringRef filename = c->source_manager->getFilename(c->source_manager->getSpellingLoc(sl));
-    const char *filename_bytes = (const char *)filename.bytes_begin();
+    ZigClangSourceLocation sl = bitcast(clang_sl);
+    const char *filename_bytes = ZigClangSourceManager_getFilename(c->source_manager,
+            ZigClangSourceManager_getSpellingLoc(c->source_manager, sl));
     Buf *path;
     if (filename_bytes) {
         path = buf_create_from_str(filename_bytes);
     } else {
         path = buf_sprintf("(no file)");
     }
-    unsigned line = c->source_manager->getSpellingLineNumber(sl);
-    unsigned column = c->source_manager->getSpellingColumnNumber(sl);
+    unsigned line = ZigClangSourceManager_getSpellingLineNumber(c->source_manager, sl);
+    unsigned column = ZigClangSourceManager_getSpellingColumnNumber(c->source_manager, sl);
     fprintf(stderr, "%s:%u:%u: warning: %s\n", buf_ptr(path), line, column, buf_ptr(msg));
 }
 
@@ -291,11 +305,22 @@ static AstNode *maybe_suppress_result(Context *c, ResultUsed result_used, AstNod
         node);
 }
 
+static TokenId ptr_len_to_token_id(PtrLen ptr_len) {
+    switch (ptr_len) {
+        case PtrLenSingle:
+            return TokenIdStar;
+        case PtrLenUnknown:
+            return TokenIdBracketStarBracket;
+        case PtrLenC:
+            return TokenIdBracketStarCBracket;
+    }
+    zig_unreachable();
+}
+
 static AstNode *trans_create_node_ptr_type(Context *c, bool is_const, bool is_volatile, AstNode *child_node, PtrLen ptr_len) {
     AstNode *node = trans_create_node(c, NodeTypePointerType);
     node->data.pointer_type.star_token = allocate<ZigToken>(1);
-    node->data.pointer_type.star_token->id = (ptr_len == PtrLenSingle) ? TokenIdStar: TokenIdBracketStarBracket;
-    node->data.pointer_type.is_const = is_const;
+    node->data.pointer_type.star_token->id = ptr_len_to_token_id(ptr_len);
     node->data.pointer_type.is_const = is_const;
     node->data.pointer_type.is_volatile = is_volatile;
     node->data.pointer_type.op_expr = child_node;
@@ -460,15 +485,15 @@ static Buf *string_ref_to_buf(StringRef string_ref) {
     return buf_create_from_mem((const char *)string_ref.bytes_begin(), string_ref.size());
 }
 
-static const char *decl_name(const Decl *decl) {
-    const NamedDecl *named_decl = static_cast<const NamedDecl *>(decl);
+static const char *decl_name(const clang::Decl *decl) {
+    const clang::NamedDecl *named_decl = static_cast<const clang::NamedDecl *>(decl);
     return (const char *)named_decl->getName().bytes_begin();
 }
 
 static AstNode *trans_create_node_apint(Context *c, const llvm::APSInt &aps_int) {
     AstNode *node = trans_create_node(c, NodeTypeIntLiteral);
     node->data.int_literal.bigint = allocate<BigInt>(1);
-    bool is_negative = aps_int.isNegative(); 
+    bool is_negative = aps_int.isSigned() && aps_int.isNegative();
     if (!is_negative) {
         bigint_init_data(node->data.int_literal.bigint, aps_int.getRawData(), aps_int.getNumWords(), false);
         return node;
@@ -479,41 +504,41 @@ static AstNode *trans_create_node_apint(Context *c, const llvm::APSInt &aps_int)
 
 }
 
-static const Type *qual_type_canon(QualType qt) {
+static const clang::Type *qual_type_canon(clang::QualType qt) {
     return qt.getCanonicalType().getTypePtr();
 }
 
-static QualType get_expr_qual_type(Context *c, const Expr *expr) {
+static clang::QualType get_expr_qual_type(Context *c, const clang::Expr *expr) {
     // String literals in C are `char *` but they should really be `const char *`.
-    if (expr->getStmtClass() == Stmt::ImplicitCastExprClass) {
-        const ImplicitCastExpr *cast_expr = static_cast<const ImplicitCastExpr *>(expr);
-        if (cast_expr->getCastKind() == CK_ArrayToPointerDecay) {
-            const Expr *sub_expr = cast_expr->getSubExpr();
-            if (sub_expr->getStmtClass() == Stmt::StringLiteralClass) {
-                QualType array_qt = sub_expr->getType();
-                const ArrayType *array_type = static_cast<const ArrayType *>(array_qt.getTypePtr());
-                QualType pointee_qt = array_type->getElementType();
+    if (expr->getStmtClass() == clang::Stmt::ImplicitCastExprClass) {
+        const clang::ImplicitCastExpr *cast_expr = static_cast<const clang::ImplicitCastExpr *>(expr);
+        if (cast_expr->getCastKind() == clang::CK_ArrayToPointerDecay) {
+            const clang::Expr *sub_expr = cast_expr->getSubExpr();
+            if (sub_expr->getStmtClass() == clang::Stmt::StringLiteralClass) {
+                clang::QualType array_qt = sub_expr->getType();
+                const clang::ArrayType *array_type = static_cast<const clang::ArrayType *>(array_qt.getTypePtr());
+                clang::QualType pointee_qt = array_type->getElementType();
                 pointee_qt.addConst();
-                return c->ctx->getPointerType(pointee_qt);
+                return bitcast(ZigClangASTContext_getPointerType(c->ctx, bitcast(pointee_qt)));
             }
         }
     }
     return expr->getType();
 }
 
-static QualType get_expr_qual_type_before_implicit_cast(Context *c, const Expr *expr) {
-    if (expr->getStmtClass() == Stmt::ImplicitCastExprClass) {
-        const ImplicitCastExpr *cast_expr = static_cast<const ImplicitCastExpr *>(expr);
+static clang::QualType get_expr_qual_type_before_implicit_cast(Context *c, const clang::Expr *expr) {
+    if (expr->getStmtClass() == clang::Stmt::ImplicitCastExprClass) {
+        const clang::ImplicitCastExpr *cast_expr = static_cast<const clang::ImplicitCastExpr *>(expr);
         return get_expr_qual_type(c, cast_expr->getSubExpr());
     }
     return expr->getType();
 }
 
-static AstNode *get_expr_type(Context *c, const Expr *expr) {
+static AstNode *get_expr_type(Context *c, const clang::Expr *expr) {
     return trans_qual_type(c, get_expr_qual_type(c, expr), expr->getLocStart());
 }
 
-static bool qual_types_equal(QualType t1, QualType t2) {
+static bool qual_types_equal(clang::QualType t1, clang::QualType t2) {
     if (t1.isConstQualified() != t2.isConstQualified()) {
         return false;
     }
@@ -530,37 +555,37 @@ static bool is_c_void_type(AstNode *node) {
     return (node->type == NodeTypeSymbol && buf_eql_str(node->data.symbol_expr.symbol, "c_void"));
 }
 
-static bool expr_types_equal(Context *c, const Expr *expr1, const Expr *expr2) {
-    QualType t1 = get_expr_qual_type(c, expr1);
-    QualType t2 = get_expr_qual_type(c, expr2);
+static bool expr_types_equal(Context *c, const clang::Expr *expr1, const clang::Expr *expr2) {
+    clang::QualType t1 = get_expr_qual_type(c, expr1);
+    clang::QualType t2 = get_expr_qual_type(c, expr2);
 
     return qual_types_equal(t1, t2);
 }
 
-static bool qual_type_is_ptr(QualType qt) {
-    const Type *ty = qual_type_canon(qt);
-    return ty->getTypeClass() == Type::Pointer;
+static bool qual_type_is_ptr(clang::QualType qt) {
+    const clang::Type *ty = qual_type_canon(qt);
+    return ty->getTypeClass() == clang::Type::Pointer;
 }
 
-static const FunctionProtoType *qual_type_get_fn_proto(QualType qt, bool *is_ptr) {
-    const Type *ty = qual_type_canon(qt);
+static const clang::FunctionProtoType *qual_type_get_fn_proto(clang::QualType qt, bool *is_ptr) {
+    const clang::Type *ty = qual_type_canon(qt);
     *is_ptr = false;
 
-    if (ty->getTypeClass() == Type::Pointer) {
+    if (ty->getTypeClass() == clang::Type::Pointer) {
         *is_ptr = true;
-        const PointerType *pointer_ty = static_cast<const PointerType*>(ty);
-        QualType child_qt = pointer_ty->getPointeeType();
+        const clang::PointerType *pointer_ty = static_cast<const clang::PointerType*>(ty);
+        clang::QualType child_qt = pointer_ty->getPointeeType();
         ty = child_qt.getTypePtr();
     }
 
-    if (ty->getTypeClass() == Type::FunctionProto) {
-        return static_cast<const FunctionProtoType*>(ty);
+    if (ty->getTypeClass() == clang::Type::FunctionProto) {
+        return static_cast<const clang::FunctionProtoType*>(ty);
     }
 
     return nullptr;
 }
 
-static bool qual_type_is_fn_ptr(QualType qt) {
+static bool qual_type_is_fn_ptr(clang::QualType qt) {
     bool is_ptr;
     if (qual_type_get_fn_proto(qt, &is_ptr)) {
         return is_ptr;
@@ -569,30 +594,30 @@ static bool qual_type_is_fn_ptr(QualType qt) {
     return false;
 }
 
-static uint32_t qual_type_int_bit_width(Context *c, const QualType &qt, const SourceLocation &source_loc) {
-    const Type *ty = qt.getTypePtr();
+static uint32_t qual_type_int_bit_width(Context *c, const clang::QualType &qt, const clang::SourceLocation &source_loc) {
+    const clang::Type *ty = qt.getTypePtr();
     switch (ty->getTypeClass()) {
-        case Type::Builtin:
+        case clang::Type::Builtin:
             {
-                const BuiltinType *builtin_ty = static_cast<const BuiltinType*>(ty);
+                const clang::BuiltinType *builtin_ty = static_cast<const clang::BuiltinType*>(ty);
                 switch (builtin_ty->getKind()) {
-                    case BuiltinType::Char_U:
-                    case BuiltinType::UChar:
-                    case BuiltinType::Char_S:
-                    case BuiltinType::SChar:
+                    case clang::BuiltinType::Char_U:
+                    case clang::BuiltinType::UChar:
+                    case clang::BuiltinType::Char_S:
+                    case clang::BuiltinType::SChar:
                         return 8;
-                    case BuiltinType::UInt128:
-                    case BuiltinType::Int128:
+                    case clang::BuiltinType::UInt128:
+                    case clang::BuiltinType::Int128:
                         return 128;
                     default:
                         return 0;
                 }
                 zig_unreachable();
             }
-        case Type::Typedef:
+        case clang::Type::Typedef:
             {
-                const TypedefType *typedef_ty = static_cast<const TypedefType*>(ty);
-                const TypedefNameDecl *typedef_decl = typedef_ty->getDecl();
+                const clang::TypedefType *typedef_ty = static_cast<const clang::TypedefType*>(ty);
+                const clang::TypedefNameDecl *typedef_decl = typedef_ty->getDecl();
                 const char *type_name = decl_name(typedef_decl);
                 if (strcmp(type_name, "uint8_t") == 0 || strcmp(type_name, "int8_t") == 0) {
                     return 8;
@@ -613,8 +638,8 @@ static uint32_t qual_type_int_bit_width(Context *c, const QualType &qt, const So
 }
 
 
-static AstNode *qual_type_to_log2_int_ref(Context *c, const QualType &qt,
-        const SourceLocation &source_loc)
+static AstNode *qual_type_to_log2_int_ref(Context *c, const clang::QualType &qt,
+        const clang::SourceLocation &source_loc)
 {
     uint32_t int_bit_width = qual_type_int_bit_width(c, qt, source_loc);
     if (int_bit_width != 0) {
@@ -632,7 +657,7 @@ static AstNode *qual_type_to_log2_int_ref(Context *c, const QualType &qt,
 //            FieldAccess
 //                FnCall (.builtin = true)
 //                    Symbol "import"
-//                    StringLiteral "std"
+//                    clang::StringLiteral "std"
 //                Symbol "math"
 //            Symbol "Log2Int"
 //        zig_type_node
@@ -646,21 +671,21 @@ static AstNode *qual_type_to_log2_int_ref(Context *c, const QualType &qt,
     return log2int_fn_call;
 }
 
-static bool qual_type_child_is_fn_proto(const QualType &qt) {
-    if (qt.getTypePtr()->getTypeClass() == Type::Paren) {
-        const ParenType *paren_type = static_cast<const ParenType *>(qt.getTypePtr());
-        if (paren_type->getInnerType()->getTypeClass() == Type::FunctionProto) {
+static bool qual_type_child_is_fn_proto(const clang::QualType &qt) {
+    if (qt.getTypePtr()->getTypeClass() == clang::Type::Paren) {
+        const clang::ParenType *paren_type = static_cast<const clang::ParenType *>(qt.getTypePtr());
+        if (paren_type->getInnerType()->getTypeClass() == clang::Type::FunctionProto) {
             return true;
         }
-    } else if (qt.getTypePtr()->getTypeClass() == Type::Attributed) {
-        const AttributedType *attr_type = static_cast<const AttributedType *>(qt.getTypePtr());
+    } else if (qt.getTypePtr()->getTypeClass() == clang::Type::Attributed) {
+        const clang::AttributedType *attr_type = static_cast<const clang::AttributedType *>(qt.getTypePtr());
         return qual_type_child_is_fn_proto(attr_type->getEquivalentType());
     }
     return false;
 }
 
-static AstNode* trans_c_cast(Context *c, const SourceLocation &source_location, QualType dest_type,
-        QualType src_type, AstNode *expr)
+static AstNode* trans_c_cast(Context *c, const clang::SourceLocation &source_location, clang::QualType dest_type,
+        clang::QualType src_type, AstNode *expr)
 {
     if (qual_types_equal(dest_type, src_type)) {
         return expr;
@@ -677,72 +702,72 @@ static AstNode* trans_c_cast(Context *c, const SourceLocation &source_location, 
     return trans_create_node_fn_call_1(c, trans_qual_type(c, dest_type, source_location), expr);
 }
 
-static bool c_is_signed_integer(Context *c, QualType qt) {
-    const Type *c_type = qual_type_canon(qt);
-    if (c_type->getTypeClass() != Type::Builtin)
+static bool c_is_signed_integer(Context *c, clang::QualType qt) {
+    const clang::Type *c_type = qual_type_canon(qt);
+    if (c_type->getTypeClass() != clang::Type::Builtin)
         return false;
-    const BuiltinType *builtin_ty = static_cast<const BuiltinType*>(c_type);
+    const clang::BuiltinType *builtin_ty = static_cast<const clang::BuiltinType*>(c_type);
     switch (builtin_ty->getKind()) {
-        case BuiltinType::SChar:
-        case BuiltinType::Short:
-        case BuiltinType::Int:
-        case BuiltinType::Long:
-        case BuiltinType::LongLong:
-        case BuiltinType::Int128:
-        case BuiltinType::WChar_S:
+        case clang::BuiltinType::SChar:
+        case clang::BuiltinType::Short:
+        case clang::BuiltinType::Int:
+        case clang::BuiltinType::Long:
+        case clang::BuiltinType::LongLong:
+        case clang::BuiltinType::Int128:
+        case clang::BuiltinType::WChar_S:
             return true;
         default:
             return false;
     }
 }
 
-static bool c_is_unsigned_integer(Context *c, QualType qt) {
-    const Type *c_type = qual_type_canon(qt);
-    if (c_type->getTypeClass() != Type::Builtin)
+static bool c_is_unsigned_integer(Context *c, clang::QualType qt) {
+    const clang::Type *c_type = qual_type_canon(qt);
+    if (c_type->getTypeClass() != clang::Type::Builtin)
         return false;
-    const BuiltinType *builtin_ty = static_cast<const BuiltinType*>(c_type);
+    const clang::BuiltinType *builtin_ty = static_cast<const clang::BuiltinType*>(c_type);
     switch (builtin_ty->getKind()) {
-        case BuiltinType::Char_U:
-        case BuiltinType::UChar:
-        case BuiltinType::Char_S:
-        case BuiltinType::UShort:
-        case BuiltinType::UInt:
-        case BuiltinType::ULong:
-        case BuiltinType::ULongLong:
-        case BuiltinType::UInt128:
-        case BuiltinType::WChar_U:
+        case clang::BuiltinType::Char_U:
+        case clang::BuiltinType::UChar:
+        case clang::BuiltinType::Char_S:
+        case clang::BuiltinType::UShort:
+        case clang::BuiltinType::UInt:
+        case clang::BuiltinType::ULong:
+        case clang::BuiltinType::ULongLong:
+        case clang::BuiltinType::UInt128:
+        case clang::BuiltinType::WChar_U:
             return true;
         default:
             return false;
     }
 }
 
-static bool c_is_builtin_type(Context *c, QualType qt, BuiltinType::Kind kind) {
-    const Type *c_type = qual_type_canon(qt);
-    if (c_type->getTypeClass() != Type::Builtin)
+static bool c_is_builtin_type(Context *c, clang::QualType qt, clang::BuiltinType::Kind kind) {
+    const clang::Type *c_type = qual_type_canon(qt);
+    if (c_type->getTypeClass() != clang::Type::Builtin)
         return false;
-    const BuiltinType *builtin_ty = static_cast<const BuiltinType*>(c_type);
+    const clang::BuiltinType *builtin_ty = static_cast<const clang::BuiltinType*>(c_type);
     return builtin_ty->getKind() == kind;
 }
 
-static bool c_is_float(Context *c, QualType qt) {
-    const Type *c_type = qt.getTypePtr();
-    if (c_type->getTypeClass() != Type::Builtin)
+static bool c_is_float(Context *c, clang::QualType qt) {
+    const clang::Type *c_type = qt.getTypePtr();
+    if (c_type->getTypeClass() != clang::Type::Builtin)
         return false;
-    const BuiltinType *builtin_ty = static_cast<const BuiltinType*>(c_type);
+    const clang::BuiltinType *builtin_ty = static_cast<const clang::BuiltinType*>(c_type);
     switch (builtin_ty->getKind()) {
-        case BuiltinType::Half:
-        case BuiltinType::Float:
-        case BuiltinType::Double:
-        case BuiltinType::Float128:
-        case BuiltinType::LongDouble:
+        case clang::BuiltinType::Half:
+        case clang::BuiltinType::Float:
+        case clang::BuiltinType::Double:
+        case clang::BuiltinType::Float128:
+        case clang::BuiltinType::LongDouble:
             return true;
         default:
             return false;
     }
 }
 
-static bool qual_type_has_wrapping_overflow(Context *c, QualType qt) {
+static bool qual_type_has_wrapping_overflow(Context *c, clang::QualType qt) {
     if (c_is_signed_integer(c, qt) || c_is_float(c, qt)) {
         // float and signed integer overflow is undefined behavior.
         return false;
@@ -752,23 +777,23 @@ static bool qual_type_has_wrapping_overflow(Context *c, QualType qt) {
     }
 }
 
-static bool type_is_opaque(Context *c, const Type *ty, const SourceLocation &source_loc) {
+static bool type_is_opaque(Context *c, const clang::Type *ty, const clang::SourceLocation &source_loc) {
     switch (ty->getTypeClass()) {
-        case Type::Builtin: {
-            const BuiltinType *builtin_ty = static_cast<const BuiltinType*>(ty);
-            return builtin_ty->getKind() == BuiltinType::Void;
+        case clang::Type::Builtin: {
+            const clang::BuiltinType *builtin_ty = static_cast<const clang::BuiltinType*>(ty);
+            return builtin_ty->getKind() == clang::BuiltinType::Void;
         }
-        case Type::Record: {
-            const RecordType *record_ty = static_cast<const RecordType*>(ty);
+        case clang::Type::Record: {
+            const clang::RecordType *record_ty = static_cast<const clang::RecordType*>(ty);
             return record_ty->getDecl()->getDefinition() == nullptr;
         }
-        case Type::Elaborated: {
-            const ElaboratedType *elaborated_ty = static_cast<const ElaboratedType*>(ty);
+        case clang::Type::Elaborated: {
+            const clang::ElaboratedType *elaborated_ty = static_cast<const clang::ElaboratedType*>(ty);
             return type_is_opaque(c, elaborated_ty->getNamedType().getTypePtr(), source_loc);
         }
-        case Type::Typedef: {
-            const TypedefType *typedef_ty = static_cast<const TypedefType*>(ty);
-            const TypedefNameDecl *typedef_decl = typedef_ty->getDecl();
+        case clang::Type::Typedef: {
+            const clang::TypedefType *typedef_ty = static_cast<const clang::TypedefType*>(ty);
+            const clang::TypedefNameDecl *typedef_decl = typedef_ty->getDecl();
             return type_is_opaque(c, typedef_decl->getUnderlyingType().getTypePtr(), source_loc);
         }
         default:
@@ -776,145 +801,145 @@ static bool type_is_opaque(Context *c, const Type *ty, const SourceLocation &sou
     }
 }
 
-static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &source_loc) {
+static AstNode *trans_type(Context *c, const clang::Type *ty, const clang::SourceLocation &source_loc) {
     switch (ty->getTypeClass()) {
-        case Type::Builtin:
+        case clang::Type::Builtin:
             {
-                const BuiltinType *builtin_ty = static_cast<const BuiltinType*>(ty);
+                const clang::BuiltinType *builtin_ty = static_cast<const clang::BuiltinType*>(ty);
                 switch (builtin_ty->getKind()) {
-                    case BuiltinType::Void:
+                    case clang::BuiltinType::Void:
                         return trans_create_node_symbol_str(c, "c_void");
-                    case BuiltinType::Bool:
+                    case clang::BuiltinType::Bool:
                         return trans_create_node_symbol_str(c, "bool");
-                    case BuiltinType::Char_U:
-                    case BuiltinType::UChar:
-                    case BuiltinType::Char_S:
-                    case BuiltinType::Char8:
+                    case clang::BuiltinType::Char_U:
+                    case clang::BuiltinType::UChar:
+                    case clang::BuiltinType::Char_S:
+                    case clang::BuiltinType::Char8:
                         return trans_create_node_symbol_str(c, "u8");
-                    case BuiltinType::SChar:
+                    case clang::BuiltinType::SChar:
                         return trans_create_node_symbol_str(c, "i8");
-                    case BuiltinType::UShort:
+                    case clang::BuiltinType::UShort:
                         return trans_create_node_symbol_str(c, "c_ushort");
-                    case BuiltinType::UInt:
+                    case clang::BuiltinType::UInt:
                         return trans_create_node_symbol_str(c, "c_uint");
-                    case BuiltinType::ULong:
+                    case clang::BuiltinType::ULong:
                         return trans_create_node_symbol_str(c, "c_ulong");
-                    case BuiltinType::ULongLong:
+                    case clang::BuiltinType::ULongLong:
                         return trans_create_node_symbol_str(c, "c_ulonglong");
-                    case BuiltinType::Short:
+                    case clang::BuiltinType::Short:
                         return trans_create_node_symbol_str(c, "c_short");
-                    case BuiltinType::Int:
+                    case clang::BuiltinType::Int:
                         return trans_create_node_symbol_str(c, "c_int");
-                    case BuiltinType::Long:
+                    case clang::BuiltinType::Long:
                         return trans_create_node_symbol_str(c, "c_long");
-                    case BuiltinType::LongLong:
+                    case clang::BuiltinType::LongLong:
                         return trans_create_node_symbol_str(c, "c_longlong");
-                    case BuiltinType::UInt128:
+                    case clang::BuiltinType::UInt128:
                         return trans_create_node_symbol_str(c, "u128");
-                    case BuiltinType::Int128:
+                    case clang::BuiltinType::Int128:
                         return trans_create_node_symbol_str(c, "i128");
-                    case BuiltinType::Float:
+                    case clang::BuiltinType::Float:
                         return trans_create_node_symbol_str(c, "f32");
-                    case BuiltinType::Double:
+                    case clang::BuiltinType::Double:
                         return trans_create_node_symbol_str(c, "f64");
-                    case BuiltinType::Float128:
+                    case clang::BuiltinType::Float128:
                         return trans_create_node_symbol_str(c, "f128");
-                    case BuiltinType::Float16:
+                    case clang::BuiltinType::Float16:
                         return trans_create_node_symbol_str(c, "f16");
-                    case BuiltinType::LongDouble:
+                    case clang::BuiltinType::LongDouble:
                         return trans_create_node_symbol_str(c, "c_longdouble");
-                    case BuiltinType::WChar_U:
-                    case BuiltinType::Char16:
-                    case BuiltinType::Char32:
-                    case BuiltinType::WChar_S:
-                    case BuiltinType::Half:
-                    case BuiltinType::NullPtr:
-                    case BuiltinType::ObjCId:
-                    case BuiltinType::ObjCClass:
-                    case BuiltinType::ObjCSel:
-                    case BuiltinType::OMPArraySection:
-                    case BuiltinType::Dependent:
-                    case BuiltinType::Overload:
-                    case BuiltinType::BoundMember:
-                    case BuiltinType::PseudoObject:
-                    case BuiltinType::UnknownAny:
-                    case BuiltinType::BuiltinFn:
-                    case BuiltinType::ARCUnbridgedCast:
-                    case BuiltinType::ShortAccum:
-                    case BuiltinType::Accum:
-                    case BuiltinType::LongAccum:
-                    case BuiltinType::UShortAccum:
-                    case BuiltinType::UAccum:
-                    case BuiltinType::ULongAccum:
+                    case clang::BuiltinType::WChar_U:
+                    case clang::BuiltinType::Char16:
+                    case clang::BuiltinType::Char32:
+                    case clang::BuiltinType::WChar_S:
+                    case clang::BuiltinType::Half:
+                    case clang::BuiltinType::NullPtr:
+                    case clang::BuiltinType::ObjCId:
+                    case clang::BuiltinType::ObjCClass:
+                    case clang::BuiltinType::ObjCSel:
+                    case clang::BuiltinType::OMPArraySection:
+                    case clang::BuiltinType::Dependent:
+                    case clang::BuiltinType::Overload:
+                    case clang::BuiltinType::BoundMember:
+                    case clang::BuiltinType::PseudoObject:
+                    case clang::BuiltinType::UnknownAny:
+                    case clang::BuiltinType::BuiltinFn:
+                    case clang::BuiltinType::ARCUnbridgedCast:
+                    case clang::BuiltinType::ShortAccum:
+                    case clang::BuiltinType::Accum:
+                    case clang::BuiltinType::LongAccum:
+                    case clang::BuiltinType::UShortAccum:
+                    case clang::BuiltinType::UAccum:
+                    case clang::BuiltinType::ULongAccum:
 
-                    case BuiltinType::OCLImage1dRO:
-                    case BuiltinType::OCLImage1dArrayRO:
-                    case BuiltinType::OCLImage1dBufferRO:
-                    case BuiltinType::OCLImage2dRO:
-                    case BuiltinType::OCLImage2dArrayRO:
-                    case BuiltinType::OCLImage2dDepthRO:
-                    case BuiltinType::OCLImage2dArrayDepthRO:
-                    case BuiltinType::OCLImage2dMSAARO:
-                    case BuiltinType::OCLImage2dArrayMSAARO:
-                    case BuiltinType::OCLImage2dMSAADepthRO:
-                    case BuiltinType::OCLImage2dArrayMSAADepthRO:
-                    case BuiltinType::OCLImage3dRO:
-                    case BuiltinType::OCLImage1dWO:
-                    case BuiltinType::OCLImage1dArrayWO:
-                    case BuiltinType::OCLImage1dBufferWO:
-                    case BuiltinType::OCLImage2dWO:
-                    case BuiltinType::OCLImage2dArrayWO:
-                    case BuiltinType::OCLImage2dDepthWO:
-                    case BuiltinType::OCLImage2dArrayDepthWO:
-                    case BuiltinType::OCLImage2dMSAAWO:
-                    case BuiltinType::OCLImage2dArrayMSAAWO:
-                    case BuiltinType::OCLImage2dMSAADepthWO:
-                    case BuiltinType::OCLImage2dArrayMSAADepthWO:
-                    case BuiltinType::OCLImage3dWO:
-                    case BuiltinType::OCLImage1dRW:
-                    case BuiltinType::OCLImage1dArrayRW:
-                    case BuiltinType::OCLImage1dBufferRW:
-                    case BuiltinType::OCLImage2dRW:
-                    case BuiltinType::OCLImage2dArrayRW:
-                    case BuiltinType::OCLImage2dDepthRW:
-                    case BuiltinType::OCLImage2dArrayDepthRW:
-                    case BuiltinType::OCLImage2dMSAARW:
-                    case BuiltinType::OCLImage2dArrayMSAARW:
-                    case BuiltinType::OCLImage2dMSAADepthRW:
-                    case BuiltinType::OCLImage2dArrayMSAADepthRW:
-                    case BuiltinType::OCLImage3dRW:
-                    case BuiltinType::OCLSampler:
-                    case BuiltinType::OCLEvent:
-                    case BuiltinType::OCLClkEvent:
-                    case BuiltinType::OCLQueue:
-                    case BuiltinType::OCLReserveID:
-                    case BuiltinType::ShortFract:
-                    case BuiltinType::Fract:
-                    case BuiltinType::LongFract:
-                    case BuiltinType::UShortFract:
-                    case BuiltinType::UFract:
-                    case BuiltinType::ULongFract:
-                    case BuiltinType::SatShortAccum:
-                    case BuiltinType::SatAccum:
-                    case BuiltinType::SatLongAccum:
-                    case BuiltinType::SatUShortAccum:
-                    case BuiltinType::SatUAccum:
-                    case BuiltinType::SatULongAccum:
-                    case BuiltinType::SatShortFract:
-                    case BuiltinType::SatFract:
-                    case BuiltinType::SatLongFract:
-                    case BuiltinType::SatUShortFract:
-                    case BuiltinType::SatUFract:
-                    case BuiltinType::SatULongFract:
+                    case clang::BuiltinType::OCLImage1dRO:
+                    case clang::BuiltinType::OCLImage1dArrayRO:
+                    case clang::BuiltinType::OCLImage1dBufferRO:
+                    case clang::BuiltinType::OCLImage2dRO:
+                    case clang::BuiltinType::OCLImage2dArrayRO:
+                    case clang::BuiltinType::OCLImage2dDepthRO:
+                    case clang::BuiltinType::OCLImage2dArrayDepthRO:
+                    case clang::BuiltinType::OCLImage2dMSAARO:
+                    case clang::BuiltinType::OCLImage2dArrayMSAARO:
+                    case clang::BuiltinType::OCLImage2dMSAADepthRO:
+                    case clang::BuiltinType::OCLImage2dArrayMSAADepthRO:
+                    case clang::BuiltinType::OCLImage3dRO:
+                    case clang::BuiltinType::OCLImage1dWO:
+                    case clang::BuiltinType::OCLImage1dArrayWO:
+                    case clang::BuiltinType::OCLImage1dBufferWO:
+                    case clang::BuiltinType::OCLImage2dWO:
+                    case clang::BuiltinType::OCLImage2dArrayWO:
+                    case clang::BuiltinType::OCLImage2dDepthWO:
+                    case clang::BuiltinType::OCLImage2dArrayDepthWO:
+                    case clang::BuiltinType::OCLImage2dMSAAWO:
+                    case clang::BuiltinType::OCLImage2dArrayMSAAWO:
+                    case clang::BuiltinType::OCLImage2dMSAADepthWO:
+                    case clang::BuiltinType::OCLImage2dArrayMSAADepthWO:
+                    case clang::BuiltinType::OCLImage3dWO:
+                    case clang::BuiltinType::OCLImage1dRW:
+                    case clang::BuiltinType::OCLImage1dArrayRW:
+                    case clang::BuiltinType::OCLImage1dBufferRW:
+                    case clang::BuiltinType::OCLImage2dRW:
+                    case clang::BuiltinType::OCLImage2dArrayRW:
+                    case clang::BuiltinType::OCLImage2dDepthRW:
+                    case clang::BuiltinType::OCLImage2dArrayDepthRW:
+                    case clang::BuiltinType::OCLImage2dMSAARW:
+                    case clang::BuiltinType::OCLImage2dArrayMSAARW:
+                    case clang::BuiltinType::OCLImage2dMSAADepthRW:
+                    case clang::BuiltinType::OCLImage2dArrayMSAADepthRW:
+                    case clang::BuiltinType::OCLImage3dRW:
+                    case clang::BuiltinType::OCLSampler:
+                    case clang::BuiltinType::OCLEvent:
+                    case clang::BuiltinType::OCLClkEvent:
+                    case clang::BuiltinType::OCLQueue:
+                    case clang::BuiltinType::OCLReserveID:
+                    case clang::BuiltinType::ShortFract:
+                    case clang::BuiltinType::Fract:
+                    case clang::BuiltinType::LongFract:
+                    case clang::BuiltinType::UShortFract:
+                    case clang::BuiltinType::UFract:
+                    case clang::BuiltinType::ULongFract:
+                    case clang::BuiltinType::SatShortAccum:
+                    case clang::BuiltinType::SatAccum:
+                    case clang::BuiltinType::SatLongAccum:
+                    case clang::BuiltinType::SatUShortAccum:
+                    case clang::BuiltinType::SatUAccum:
+                    case clang::BuiltinType::SatULongAccum:
+                    case clang::BuiltinType::SatShortFract:
+                    case clang::BuiltinType::SatFract:
+                    case clang::BuiltinType::SatLongFract:
+                    case clang::BuiltinType::SatUShortFract:
+                    case clang::BuiltinType::SatUFract:
+                    case clang::BuiltinType::SatULongFract:
                         emit_warning(c, source_loc, "unsupported builtin type");
                         return nullptr;
                 }
                 break;
             }
-        case Type::Pointer:
+        case clang::Type::Pointer:
             {
-                const PointerType *pointer_ty = static_cast<const PointerType*>(ty);
-                QualType child_qt = pointer_ty->getPointeeType();
+                const clang::PointerType *pointer_ty = static_cast<const clang::PointerType*>(ty);
+                clang::QualType child_qt = pointer_ty->getPointeeType();
                 AstNode *child_node = trans_qual_type(c, child_qt, source_loc);
                 if (child_node == nullptr) {
                     emit_warning(c, source_loc, "pointer to unsupported type");
@@ -925,90 +950,93 @@ static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &sou
                     return trans_create_node_prefix_op(c, PrefixOpOptional, child_node);
                 }
 
-                PtrLen ptr_len = type_is_opaque(c, child_qt.getTypePtr(), source_loc) ? PtrLenSingle : PtrLenUnknown;
-
-                AstNode *pointer_node = trans_create_node_ptr_type(c, child_qt.isConstQualified(),
-                        child_qt.isVolatileQualified(), child_node, ptr_len);
-                return trans_create_node_prefix_op(c, PrefixOpOptional, pointer_node);
+                if (type_is_opaque(c, child_qt.getTypePtr(), source_loc)) {
+                    AstNode *pointer_node = trans_create_node_ptr_type(c, child_qt.isConstQualified(),
+                            child_qt.isVolatileQualified(), child_node, PtrLenSingle);
+                    return trans_create_node_prefix_op(c, PrefixOpOptional, pointer_node);
+                } else {
+                    return trans_create_node_ptr_type(c, child_qt.isConstQualified(),
+                            child_qt.isVolatileQualified(), child_node, PtrLenC);
+                }
             }
-        case Type::Typedef:
+        case clang::Type::Typedef:
             {
-                const TypedefType *typedef_ty = static_cast<const TypedefType*>(ty);
-                const TypedefNameDecl *typedef_decl = typedef_ty->getDecl();
+                const clang::TypedefType *typedef_ty = static_cast<const clang::TypedefType*>(ty);
+                const clang::TypedefNameDecl *typedef_decl = typedef_ty->getDecl();
                 return resolve_typedef_decl(c, typedef_decl);
             }
-        case Type::Elaborated:
+        case clang::Type::Elaborated:
             {
-                const ElaboratedType *elaborated_ty = static_cast<const ElaboratedType*>(ty);
+                const clang::ElaboratedType *elaborated_ty = static_cast<const clang::ElaboratedType*>(ty);
                 switch (elaborated_ty->getKeyword()) {
-                    case ETK_Struct:
-                    case ETK_Enum:
-                    case ETK_Union:
+                    case clang::ETK_Struct:
+                    case clang::ETK_Enum:
+                    case clang::ETK_Union:
                         return trans_qual_type(c, elaborated_ty->getNamedType(), source_loc);
-                    case ETK_Interface:
-                    case ETK_Class:
-                    case ETK_Typename:
-                    case ETK_None:
+                    case clang::ETK_Interface:
+                    case clang::ETK_Class:
+                    case clang::ETK_Typename:
+                    case clang::ETK_None:
                         emit_warning(c, source_loc, "unsupported elaborated type");
                         return nullptr;
                 }
             }
-        case Type::FunctionProto:
+        case clang::Type::FunctionProto:
             {
-                const FunctionProtoType *fn_proto_ty = static_cast<const FunctionProtoType*>(ty);
+                const clang::FunctionProtoType *fn_proto_ty = static_cast<const clang::FunctionProtoType*>(ty);
 
                 AstNode *proto_node = trans_create_node(c, NodeTypeFnProto);
                 switch (fn_proto_ty->getCallConv()) {
-                    case CC_C:           // __attribute__((cdecl))
+                    case clang::CC_C:           // __attribute__((cdecl))
                         proto_node->data.fn_proto.cc = CallingConventionC;
                         proto_node->data.fn_proto.is_extern = true;
                         break;
-                    case CC_X86StdCall:  // __attribute__((stdcall))
+                    case clang::CC_X86StdCall:  // __attribute__((stdcall))
                         proto_node->data.fn_proto.cc = CallingConventionStdcall;
                         break;
-                    case CC_X86FastCall: // __attribute__((fastcall))
+                    case clang::CC_X86FastCall: // __attribute__((fastcall))
                         emit_warning(c, source_loc, "unsupported calling convention: x86 fastcall");
                         return nullptr;
-                    case CC_X86ThisCall: // __attribute__((thiscall))
+                    case clang::CC_X86ThisCall: // __attribute__((thiscall))
                         emit_warning(c, source_loc, "unsupported calling convention: x86 thiscall");
                         return nullptr;
-                    case CC_X86VectorCall: // __attribute__((vectorcall))
+                    case clang::CC_X86VectorCall: // __attribute__((vectorcall))
                         emit_warning(c, source_loc, "unsupported calling convention: x86 vectorcall");
                         return nullptr;
-                    case CC_X86Pascal:   // __attribute__((pascal))
+                    case clang::CC_X86Pascal:   // __attribute__((pascal))
                         emit_warning(c, source_loc, "unsupported calling convention: x86 pascal");
                         return nullptr;
-                    case CC_Win64: // __attribute__((ms_abi))
+                    case clang::CC_Win64: // __attribute__((ms_abi))
                         emit_warning(c, source_loc, "unsupported calling convention: win64");
                         return nullptr;
-                    case CC_X86_64SysV:  // __attribute__((sysv_abi))
+                    case clang::CC_X86_64SysV:  // __attribute__((sysv_abi))
                         emit_warning(c, source_loc, "unsupported calling convention: x86 64sysv");
                         return nullptr;
-                    case CC_X86RegCall:
+                    case clang::CC_X86RegCall:
                         emit_warning(c, source_loc, "unsupported calling convention: x86 reg");
                         return nullptr;
-                    case CC_AAPCS:       // __attribute__((pcs("aapcs")))
+                    case clang::CC_AAPCS:       // __attribute__((pcs("aapcs")))
                         emit_warning(c, source_loc, "unsupported calling convention: aapcs");
                         return nullptr;
-                    case CC_AAPCS_VFP:   // __attribute__((pcs("aapcs-vfp")))
+                    case clang::CC_AAPCS_VFP:   // __attribute__((pcs("aapcs-vfp")))
                         emit_warning(c, source_loc, "unsupported calling convention: aapcs-vfp");
                         return nullptr;
-                    case CC_IntelOclBicc: // __attribute__((intel_ocl_bicc))
+                    case clang::CC_IntelOclBicc: // __attribute__((intel_ocl_bicc))
                         emit_warning(c, source_loc, "unsupported calling convention: intel_ocl_bicc");
                         return nullptr;
-                    case CC_SpirFunction: // default for OpenCL functions on SPIR target
+                    case clang::CC_SpirFunction: // default for OpenCL functions on SPIR target
                         emit_warning(c, source_loc, "unsupported calling convention: SPIR function");
                         return nullptr;
-                    case CC_OpenCLKernel:
+                    case clang::CC_OpenCLKernel:
                         emit_warning(c, source_loc, "unsupported calling convention: OpenCLKernel");
                         return nullptr;
-                    case CC_Swift:
+                    case clang::CC_Swift:
                         emit_warning(c, source_loc, "unsupported calling convention: Swift");
                         return nullptr;
-                    case CC_PreserveMost:
+                    case clang::CC_PreserveMost:
                         emit_warning(c, source_loc, "unsupported calling convention: PreserveMost");
                         return nullptr;
-                    case CC_PreserveAll:
+                    case clang::CC_PreserveAll:
                         emit_warning(c, source_loc, "unsupported calling convention: PreserveAll");
                         return nullptr;
                 }
@@ -1026,7 +1054,7 @@ static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &sou
                         return nullptr;
                     }
                     // convert c_void to actual void (only for return type)
-                    // we do want to look at the AstNode instead of QualType, because
+                    // we do want to look at the AstNode instead of clang::QualType, because
                     // if they do something like:
                     //     typedef Foo void;
                     //     void foo(void) -> Foo;
@@ -1043,7 +1071,7 @@ static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &sou
                 }
 
                 for (size_t i = 0; i < param_count; i += 1) {
-                    QualType qt = fn_proto_ty->getParamType(i);
+                    clang::QualType qt = fn_proto_ty->getParamType(i);
                     AstNode *param_type_node = trans_qual_type(c, qt, source_loc);
 
                     if (param_type_node == nullptr) {
@@ -1066,19 +1094,19 @@ static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &sou
 
                 return proto_node;
             }
-        case Type::Record:
+        case clang::Type::Record:
             {
-                const RecordType *record_ty = static_cast<const RecordType*>(ty);
+                const clang::RecordType *record_ty = static_cast<const clang::RecordType*>(ty);
                 return resolve_record_decl(c, record_ty->getDecl());
             }
-        case Type::Enum:
+        case clang::Type::Enum:
             {
-                const EnumType *enum_ty = static_cast<const EnumType*>(ty);
+                const clang::EnumType *enum_ty = static_cast<const clang::EnumType*>(ty);
                 return resolve_enum_decl(c, enum_ty->getDecl());
             }
-        case Type::ConstantArray:
+        case clang::Type::ConstantArray:
             {
-                const ConstantArrayType *const_arr_ty = static_cast<const ConstantArrayType *>(ty);
+                const clang::ConstantArrayType *const_arr_ty = static_cast<const clang::ConstantArrayType *>(ty);
                 AstNode *child_type_node = trans_qual_type(c, const_arr_ty->getElementType(), source_loc);
                 if (child_type_node == nullptr) {
                     emit_warning(c, source_loc, "unresolved array element type");
@@ -1088,84 +1116,84 @@ static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &sou
                 AstNode *size_node = trans_create_node_unsigned(c, size);
                 return trans_create_node_array_type(c, size_node, child_type_node);
             }
-        case Type::Paren:
+        case clang::Type::Paren:
             {
-                const ParenType *paren_ty = static_cast<const ParenType *>(ty);
+                const clang::ParenType *paren_ty = static_cast<const clang::ParenType *>(ty);
                 return trans_qual_type(c, paren_ty->getInnerType(), source_loc);
             }
-        case Type::Decayed:
+        case clang::Type::Decayed:
             {
-                const DecayedType *decayed_ty = static_cast<const DecayedType *>(ty);
+                const clang::DecayedType *decayed_ty = static_cast<const clang::DecayedType *>(ty);
                 return trans_qual_type(c, decayed_ty->getDecayedType(), source_loc);
             }
-        case Type::Attributed:
+        case clang::Type::Attributed:
             {
-                const AttributedType *attributed_ty = static_cast<const AttributedType *>(ty);
+                const clang::AttributedType *attributed_ty = static_cast<const clang::AttributedType *>(ty);
                 return trans_qual_type(c, attributed_ty->getEquivalentType(), source_loc);
             }
-        case Type::IncompleteArray:
+        case clang::Type::IncompleteArray:
             {
-                const IncompleteArrayType *incomplete_array_ty = static_cast<const IncompleteArrayType *>(ty);
-                QualType child_qt = incomplete_array_ty->getElementType();
+                const clang::IncompleteArrayType *incomplete_array_ty = static_cast<const clang::IncompleteArrayType *>(ty);
+                clang::QualType child_qt = incomplete_array_ty->getElementType();
                 AstNode *child_type_node = trans_qual_type(c, child_qt, source_loc);
                 if (child_type_node == nullptr) {
                     emit_warning(c, source_loc, "unresolved array element type");
                     return nullptr;
                 }
                 AstNode *pointer_node = trans_create_node_ptr_type(c, child_qt.isConstQualified(),
-                        child_qt.isVolatileQualified(), child_type_node, PtrLenUnknown);
+                        child_qt.isVolatileQualified(), child_type_node, PtrLenC);
                 return pointer_node;
             }
-        case Type::BlockPointer:
-        case Type::LValueReference:
-        case Type::RValueReference:
-        case Type::MemberPointer:
-        case Type::VariableArray:
-        case Type::DependentSizedArray:
-        case Type::DependentSizedExtVector:
-        case Type::Vector:
-        case Type::ExtVector:
-        case Type::FunctionNoProto:
-        case Type::UnresolvedUsing:
-        case Type::Adjusted:
-        case Type::TypeOfExpr:
-        case Type::TypeOf:
-        case Type::Decltype:
-        case Type::UnaryTransform:
-        case Type::TemplateTypeParm:
-        case Type::SubstTemplateTypeParm:
-        case Type::SubstTemplateTypeParmPack:
-        case Type::TemplateSpecialization:
-        case Type::Auto:
-        case Type::InjectedClassName:
-        case Type::DependentName:
-        case Type::DependentTemplateSpecialization:
-        case Type::PackExpansion:
-        case Type::ObjCObject:
-        case Type::ObjCInterface:
-        case Type::Complex:
-        case Type::ObjCObjectPointer:
-        case Type::Atomic:
-        case Type::Pipe:
-        case Type::ObjCTypeParam:
-        case Type::DeducedTemplateSpecialization:
-        case Type::DependentAddressSpace:
-        case Type::DependentVector:
+        case clang::Type::BlockPointer:
+        case clang::Type::LValueReference:
+        case clang::Type::RValueReference:
+        case clang::Type::MemberPointer:
+        case clang::Type::VariableArray:
+        case clang::Type::DependentSizedArray:
+        case clang::Type::DependentSizedExtVector:
+        case clang::Type::Vector:
+        case clang::Type::ExtVector:
+        case clang::Type::FunctionNoProto:
+        case clang::Type::UnresolvedUsing:
+        case clang::Type::Adjusted:
+        case clang::Type::TypeOfExpr:
+        case clang::Type::TypeOf:
+        case clang::Type::Decltype:
+        case clang::Type::UnaryTransform:
+        case clang::Type::TemplateTypeParm:
+        case clang::Type::SubstTemplateTypeParm:
+        case clang::Type::SubstTemplateTypeParmPack:
+        case clang::Type::TemplateSpecialization:
+        case clang::Type::Auto:
+        case clang::Type::InjectedClassName:
+        case clang::Type::DependentName:
+        case clang::Type::DependentTemplateSpecialization:
+        case clang::Type::PackExpansion:
+        case clang::Type::ObjCObject:
+        case clang::Type::ObjCInterface:
+        case clang::Type::Complex:
+        case clang::Type::ObjCObjectPointer:
+        case clang::Type::Atomic:
+        case clang::Type::Pipe:
+        case clang::Type::ObjCTypeParam:
+        case clang::Type::DeducedTemplateSpecialization:
+        case clang::Type::DependentAddressSpace:
+        case clang::Type::DependentVector:
             emit_warning(c, source_loc, "unsupported type: '%s'", ty->getTypeClassName());
             return nullptr;
     }
     zig_unreachable();
 }
 
-static AstNode *trans_qual_type(Context *c, QualType qt, const SourceLocation &source_loc) {
+static AstNode *trans_qual_type(Context *c, clang::QualType qt, const clang::SourceLocation &source_loc) {
     return trans_type(c, qt.getTypePtr(), source_loc);
 }
 
-static int trans_compound_stmt_inline(Context *c, TransScope *scope, const CompoundStmt *stmt,
+static int trans_compound_stmt_inline(Context *c, TransScope *scope, const clang::CompoundStmt *stmt,
         AstNode *block_node, TransScope **out_node_scope)
 {
     assert(block_node->type == NodeTypeBlock);
-    for (CompoundStmt::const_body_iterator it = stmt->body_begin(), end_it = stmt->body_end(); it != end_it; ++it) {
+    for (clang::CompoundStmt::const_body_iterator it = stmt->body_begin(), end_it = stmt->body_end(); it != end_it; ++it) {
         AstNode *child_node;
         scope = trans_stmt(c, scope, *it, &child_node);
         if (scope == nullptr)
@@ -1179,7 +1207,7 @@ static int trans_compound_stmt_inline(Context *c, TransScope *scope, const Compo
     return ErrorNone;
 }
 
-static AstNode *trans_compound_stmt(Context *c, TransScope *scope, const CompoundStmt *stmt,
+static AstNode *trans_compound_stmt(Context *c, TransScope *scope, const clang::CompoundStmt *stmt,
         TransScope **out_node_scope)
 {
     TransScopeBlock *child_scope_block = trans_scope_block_create(c, scope);
@@ -1188,8 +1216,8 @@ static AstNode *trans_compound_stmt(Context *c, TransScope *scope, const Compoun
     return child_scope_block->node;
 }
 
-static AstNode *trans_return_stmt(Context *c, TransScope *scope, const ReturnStmt *stmt) {
-    const Expr *value_expr = stmt->getRetValue();
+static AstNode *trans_return_stmt(Context *c, TransScope *scope, const clang::ReturnStmt *stmt) {
+    const clang::Expr *value_expr = stmt->getRetValue();
     if (value_expr == nullptr) {
         return trans_create_node(c, NodeTypeReturnExpr);
     } else {
@@ -1201,9 +1229,9 @@ static AstNode *trans_return_stmt(Context *c, TransScope *scope, const ReturnStm
     }
 }
 
-static AstNode *trans_integer_literal(Context *c, const IntegerLiteral *stmt) {
+static AstNode *trans_integer_literal(Context *c, const clang::IntegerLiteral *stmt) {
     llvm::APSInt result;
-    if (!stmt->EvaluateAsInt(result, *c->ctx)) {
+    if (!stmt->EvaluateAsInt(result, *reinterpret_cast<clang::ASTContext *>(c->ctx))) {
         emit_warning(c, stmt->getLocStart(), "invalid integer literal");
         return nullptr;
     }
@@ -1211,13 +1239,13 @@ static AstNode *trans_integer_literal(Context *c, const IntegerLiteral *stmt) {
 }
 
 static AstNode *trans_conditional_operator(Context *c, ResultUsed result_used, TransScope *scope,
-        const ConditionalOperator *stmt)
+        const clang::ConditionalOperator *stmt)
 {
     AstNode *node = trans_create_node(c, NodeTypeIfBoolExpr);
 
-    Expr *cond_expr = stmt->getCond();
-    Expr *true_expr = stmt->getTrueExpr();
-    Expr *false_expr = stmt->getFalseExpr();
+    clang::Expr *cond_expr = stmt->getCond();
+    clang::Expr *true_expr = stmt->getTrueExpr();
+    clang::Expr *false_expr = stmt->getFalseExpr();
 
     node->data.if_bool_expr.condition = trans_expr(c, ResultUsedYes, scope, cond_expr, TransRValue);
     if (node->data.if_bool_expr.condition == nullptr)
@@ -1234,7 +1262,7 @@ static AstNode *trans_conditional_operator(Context *c, ResultUsed result_used, T
     return maybe_suppress_result(c, result_used, node);
 }
 
-static AstNode *trans_create_bin_op(Context *c, TransScope *scope, Expr *lhs, BinOpType bin_op, Expr *rhs) {
+static AstNode *trans_create_bin_op(Context *c, TransScope *scope, clang::Expr *lhs, BinOpType bin_op, clang::Expr *rhs) {
     AstNode *node = trans_create_node(c, NodeTypeBinOpExpr);
     node->data.bin_op_expr.bin_op = bin_op;
 
@@ -1249,7 +1277,7 @@ static AstNode *trans_create_bin_op(Context *c, TransScope *scope, Expr *lhs, Bi
     return node;
 }
 
-static AstNode *trans_create_bool_bin_op(Context *c, TransScope *scope, Expr *lhs, BinOpType bin_op, Expr *rhs) {
+static AstNode *trans_create_bool_bin_op(Context *c, TransScope *scope, clang::Expr *lhs, BinOpType bin_op, clang::Expr *rhs) {
     assert(bin_op == BinOpTypeBoolAnd || bin_op == BinOpTypeBoolOr);
     AstNode *node = trans_create_node(c, NodeTypeBinOpExpr);
     node->data.bin_op_expr.bin_op = bin_op;
@@ -1265,7 +1293,7 @@ static AstNode *trans_create_bool_bin_op(Context *c, TransScope *scope, Expr *lh
     return node;
 }
 
-static AstNode *trans_create_assign(Context *c, ResultUsed result_used, TransScope *scope, Expr *lhs, Expr *rhs) {
+static AstNode *trans_create_assign(Context *c, ResultUsed result_used, TransScope *scope, clang::Expr *lhs, clang::Expr *rhs) {
     if (result_used == ResultUsedNo) {
         // common case
         AstNode *node = trans_create_node(c, NodeTypeBinOpExpr);
@@ -1316,10 +1344,10 @@ static AstNode *trans_create_assign(Context *c, ResultUsed result_used, TransSco
     }
 }
 
-static AstNode *trans_create_shift_op(Context *c, TransScope *scope, QualType result_type,
-        Expr *lhs_expr, BinOpType bin_op, Expr *rhs_expr)
+static AstNode *trans_create_shift_op(Context *c, TransScope *scope, clang::QualType result_type,
+        clang::Expr *lhs_expr, BinOpType bin_op, clang::Expr *rhs_expr)
 {
-    const SourceLocation &rhs_location = rhs_expr->getLocStart();
+    const clang::SourceLocation &rhs_location = rhs_expr->getLocStart();
     AstNode *rhs_type = qual_type_to_log2_int_ref(c, result_type, rhs_location);
     // lhs >> u5(rh)
 
@@ -1333,22 +1361,22 @@ static AstNode *trans_create_shift_op(Context *c, TransScope *scope, QualType re
     return trans_create_node_bin_op(c, lhs, bin_op, coerced_rhs);
 }
 
-static AstNode *trans_binary_operator(Context *c, ResultUsed result_used, TransScope *scope, const BinaryOperator *stmt) {
+static AstNode *trans_binary_operator(Context *c, ResultUsed result_used, TransScope *scope, const clang::BinaryOperator *stmt) {
     switch (stmt->getOpcode()) {
-        case BO_PtrMemD:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_PtrMemD");
+        case clang::BO_PtrMemD:
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: clang::BO_PtrMemD");
             return nullptr;
-        case BO_PtrMemI:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_PtrMemI");
+        case clang::BO_PtrMemI:
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: clang::BO_PtrMemI");
             return nullptr;
-        case BO_Cmp:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_Cmp");
+        case clang::BO_Cmp:
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: clang::BO_Cmp");
             return nullptr;
-        case BO_Mul:
+        case clang::BO_Mul:
             return trans_create_bin_op(c, scope, stmt->getLHS(),
                 qual_type_has_wrapping_overflow(c, stmt->getType()) ? BinOpTypeMultWrap : BinOpTypeMult,
                 stmt->getRHS());
-        case BO_Div:
+        case clang::BO_Div:
             if (qual_type_has_wrapping_overflow(c, stmt->getType())) {
                 // unsigned/float division uses the operator
                 return trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeDiv, stmt->getRHS());
@@ -1363,7 +1391,7 @@ static AstNode *trans_binary_operator(Context *c, ResultUsed result_used, TransS
                 fn_call->data.fn_call_expr.params.append(rhs);
                 return fn_call;
             }
-        case BO_Rem:
+        case clang::BO_Rem:
             if (qual_type_has_wrapping_overflow(c, stmt->getType())) {
                 // unsigned/float division uses the operator
                 return trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeMod, stmt->getRHS());
@@ -1378,43 +1406,43 @@ static AstNode *trans_binary_operator(Context *c, ResultUsed result_used, TransS
                 fn_call->data.fn_call_expr.params.append(rhs);
                 return fn_call;
             }
-        case BO_Add:
+        case clang::BO_Add:
             return trans_create_bin_op(c, scope, stmt->getLHS(),
                 qual_type_has_wrapping_overflow(c, stmt->getType()) ? BinOpTypeAddWrap : BinOpTypeAdd,
                 stmt->getRHS());
-        case BO_Sub:
+        case clang::BO_Sub:
             return trans_create_bin_op(c, scope, stmt->getLHS(),
                 qual_type_has_wrapping_overflow(c, stmt->getType()) ? BinOpTypeSubWrap : BinOpTypeSub,
                 stmt->getRHS());
-        case BO_Shl:
+        case clang::BO_Shl:
             return trans_create_shift_op(c, scope, stmt->getType(), stmt->getLHS(), BinOpTypeBitShiftLeft, stmt->getRHS());
-        case BO_Shr:
+        case clang::BO_Shr:
             return trans_create_shift_op(c, scope, stmt->getType(), stmt->getLHS(), BinOpTypeBitShiftRight, stmt->getRHS());
-        case BO_LT:
+        case clang::BO_LT:
             return trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeCmpLessThan, stmt->getRHS());
-        case BO_GT:
+        case clang::BO_GT:
             return trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeCmpGreaterThan, stmt->getRHS());
-        case BO_LE:
+        case clang::BO_LE:
             return trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeCmpLessOrEq, stmt->getRHS());
-        case BO_GE:
+        case clang::BO_GE:
             return trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeCmpGreaterOrEq, stmt->getRHS());
-        case BO_EQ:
+        case clang::BO_EQ:
             return trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeCmpEq, stmt->getRHS());
-        case BO_NE:
+        case clang::BO_NE:
             return trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeCmpNotEq, stmt->getRHS());
-        case BO_And:
+        case clang::BO_And:
             return trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeBinAnd, stmt->getRHS());
-        case BO_Xor:
+        case clang::BO_Xor:
             return trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeBinXor, stmt->getRHS());
-        case BO_Or:
+        case clang::BO_Or:
             return trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeBinOr, stmt->getRHS());
-        case BO_LAnd:
+        case clang::BO_LAnd:
             return trans_create_bool_bin_op(c, scope, stmt->getLHS(), BinOpTypeBoolAnd, stmt->getRHS());
-        case BO_LOr:
+        case clang::BO_LOr:
             return trans_create_bool_bin_op(c, scope, stmt->getLHS(), BinOpTypeBoolOr, stmt->getRHS());
-        case BO_Assign:
+        case clang::BO_Assign:
             return trans_create_assign(c, result_used, scope, stmt->getLHS(), stmt->getRHS());
-        case BO_Comma:
+        case clang::BO_Comma:
             {
                 TransScopeBlock *scope_block = trans_scope_block_create(c, scope);
                 Buf *label_name = buf_create_from_str("x");
@@ -1431,16 +1459,16 @@ static AstNode *trans_binary_operator(Context *c, ResultUsed result_used, TransS
                 scope_block->node->data.block.statements.append(trans_create_node_break(c, label_name, maybe_suppress_result(c, result_used, rhs)));
                 return scope_block->node;
             }
-        case BO_MulAssign:
-        case BO_DivAssign:
-        case BO_RemAssign:
-        case BO_AddAssign:
-        case BO_SubAssign:
-        case BO_ShlAssign:
-        case BO_ShrAssign:
-        case BO_AndAssign:
-        case BO_XorAssign:
-        case BO_OrAssign:
+        case clang::BO_MulAssign:
+        case clang::BO_DivAssign:
+        case clang::BO_RemAssign:
+        case clang::BO_AddAssign:
+        case clang::BO_SubAssign:
+        case clang::BO_ShlAssign:
+        case clang::BO_ShrAssign:
+        case clang::BO_AndAssign:
+        case clang::BO_XorAssign:
+        case clang::BO_OrAssign:
             zig_unreachable();
     }
 
@@ -1448,9 +1476,9 @@ static AstNode *trans_binary_operator(Context *c, ResultUsed result_used, TransS
 }
 
 static AstNode *trans_create_compound_assign_shift(Context *c, ResultUsed result_used, TransScope *scope,
-        const CompoundAssignOperator *stmt, BinOpType assign_op, BinOpType bin_op)
+        const clang::CompoundAssignOperator *stmt, BinOpType assign_op, BinOpType bin_op)
 {
-    const SourceLocation &rhs_location = stmt->getRHS()->getLocStart();
+    const clang::SourceLocation &rhs_location = stmt->getRHS()->getLocStart();
     AstNode *rhs_type = qual_type_to_log2_int_ref(c, stmt->getComputationLHSType(), rhs_location);
 
     bool use_intermediate_casts = stmt->getComputationLHSType().getTypePtr() != stmt->getComputationResultType().getTypePtr();
@@ -1530,7 +1558,7 @@ static AstNode *trans_create_compound_assign_shift(Context *c, ResultUsed result
 }
 
 static AstNode *trans_create_compound_assign(Context *c, ResultUsed result_used, TransScope *scope,
-        const CompoundAssignOperator *stmt, BinOpType assign_op, BinOpType bin_op)
+        const clang::CompoundAssignOperator *stmt, BinOpType assign_op, BinOpType bin_op)
 {
     if (result_used == ResultUsedNo) {
         // simple common case, where the C and Zig are identical:
@@ -1590,76 +1618,76 @@ static AstNode *trans_create_compound_assign(Context *c, ResultUsed result_used,
 
 
 static AstNode *trans_compound_assign_operator(Context *c, ResultUsed result_used, TransScope *scope,
-        const CompoundAssignOperator *stmt)
+        const clang::CompoundAssignOperator *stmt)
 {
     switch (stmt->getOpcode()) {
-        case BO_MulAssign:
+        case clang::BO_MulAssign:
             if (qual_type_has_wrapping_overflow(c, stmt->getType()))
                 return trans_create_compound_assign(c, result_used, scope, stmt, BinOpTypeAssignTimesWrap, BinOpTypeMultWrap);
             else
                 return trans_create_compound_assign(c, result_used, scope, stmt, BinOpTypeAssignTimes, BinOpTypeMult);
-        case BO_DivAssign:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: BO_DivAssign");
+        case clang::BO_DivAssign:
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: clang::BO_DivAssign");
             return nullptr;
-        case BO_RemAssign:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: BO_RemAssign");
+        case clang::BO_RemAssign:
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: clang::BO_RemAssign");
             return nullptr;
-        case BO_Cmp:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: BO_Cmp");
+        case clang::BO_Cmp:
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: clang::BO_Cmp");
             return nullptr;
-        case BO_AddAssign:
+        case clang::BO_AddAssign:
             if (qual_type_has_wrapping_overflow(c, stmt->getType()))
                 return trans_create_compound_assign(c, result_used, scope, stmt, BinOpTypeAssignPlusWrap, BinOpTypeAddWrap);
             else
                 return trans_create_compound_assign(c, result_used, scope, stmt, BinOpTypeAssignPlus, BinOpTypeAdd);
-        case BO_SubAssign:
+        case clang::BO_SubAssign:
             if (qual_type_has_wrapping_overflow(c, stmt->getType()))
                 return trans_create_compound_assign(c, result_used, scope, stmt, BinOpTypeAssignMinusWrap, BinOpTypeSubWrap);
             else
                 return trans_create_compound_assign(c, result_used, scope, stmt, BinOpTypeAssignMinus, BinOpTypeSub);
-        case BO_ShlAssign:
+        case clang::BO_ShlAssign:
             return trans_create_compound_assign_shift(c, result_used, scope, stmt, BinOpTypeAssignBitShiftLeft, BinOpTypeBitShiftLeft);
-        case BO_ShrAssign:
+        case clang::BO_ShrAssign:
             return trans_create_compound_assign_shift(c, result_used, scope, stmt, BinOpTypeAssignBitShiftRight, BinOpTypeBitShiftRight);
-        case BO_AndAssign:
+        case clang::BO_AndAssign:
             return trans_create_compound_assign(c, result_used, scope, stmt, BinOpTypeAssignBitAnd, BinOpTypeBinAnd);
-        case BO_XorAssign:
+        case clang::BO_XorAssign:
             return trans_create_compound_assign(c, result_used, scope, stmt, BinOpTypeAssignBitXor, BinOpTypeBinXor);
-        case BO_OrAssign:
+        case clang::BO_OrAssign:
             return trans_create_compound_assign(c, result_used, scope, stmt, BinOpTypeAssignBitOr, BinOpTypeBinOr);
-        case BO_PtrMemD:
-        case BO_PtrMemI:
-        case BO_Assign:
-        case BO_Mul:
-        case BO_Div:
-        case BO_Rem:
-        case BO_Add:
-        case BO_Sub:
-        case BO_Shl:
-        case BO_Shr:
-        case BO_LT:
-        case BO_GT:
-        case BO_LE:
-        case BO_GE:
-        case BO_EQ:
-        case BO_NE:
-        case BO_And:
-        case BO_Xor:
-        case BO_Or:
-        case BO_LAnd:
-        case BO_LOr:
-        case BO_Comma:
+        case clang::BO_PtrMemD:
+        case clang::BO_PtrMemI:
+        case clang::BO_Assign:
+        case clang::BO_Mul:
+        case clang::BO_Div:
+        case clang::BO_Rem:
+        case clang::BO_Add:
+        case clang::BO_Sub:
+        case clang::BO_Shl:
+        case clang::BO_Shr:
+        case clang::BO_LT:
+        case clang::BO_GT:
+        case clang::BO_LE:
+        case clang::BO_GE:
+        case clang::BO_EQ:
+        case clang::BO_NE:
+        case clang::BO_And:
+        case clang::BO_Xor:
+        case clang::BO_Or:
+        case clang::BO_LAnd:
+        case clang::BO_LOr:
+        case clang::BO_Comma:
             zig_unreachable();
     }
 
     zig_unreachable();
 }
 
-static AstNode *trans_implicit_cast_expr(Context *c, TransScope *scope, const ImplicitCastExpr *stmt) {
+static AstNode *trans_implicit_cast_expr(Context *c, TransScope *scope, const clang::ImplicitCastExpr *stmt) {
     switch (stmt->getCastKind()) {
-        case CK_LValueToRValue:
+        case clang::CK_LValueToRValue:
             return trans_expr(c, ResultUsedYes, scope, stmt->getSubExpr(), TransRValue);
-        case CK_IntegralCast:
+        case clang::CK_IntegralCast:
             {
                 AstNode *target_node = trans_expr(c, ResultUsedYes, scope, stmt->getSubExpr(), TransRValue);
                 if (target_node == nullptr)
@@ -1667,15 +1695,15 @@ static AstNode *trans_implicit_cast_expr(Context *c, TransScope *scope, const Im
                 return trans_c_cast(c, stmt->getExprLoc(), stmt->getType(),
                         stmt->getSubExpr()->getType(), target_node);
             }
-        case CK_FunctionToPointerDecay:
-        case CK_ArrayToPointerDecay:
+        case clang::CK_FunctionToPointerDecay:
+        case clang::CK_ArrayToPointerDecay:
             {
                 AstNode *target_node = trans_expr(c, ResultUsedYes, scope, stmt->getSubExpr(), TransRValue);
                 if (target_node == nullptr)
                     return nullptr;
                 return target_node;
             }
-        case CK_BitCast:
+        case clang::CK_BitCast:
             {
                 AstNode *target_node = trans_expr(c, ResultUsedYes, scope, stmt->getSubExpr(), TransRValue);
                 if (target_node == nullptr)
@@ -1692,170 +1720,170 @@ static AstNode *trans_implicit_cast_expr(Context *c, TransScope *scope, const Im
                 node->data.fn_call_expr.params.append(target_node);
                 return node;
             }
-        case CK_NullToPointer:
-            return trans_create_node(c, NodeTypeNullLiteral);
-        case CK_Dependent:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_Dependent");
+        case clang::CK_NullToPointer:
+            return trans_create_node_unsigned(c, 0);
+        case clang::CK_Dependent:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_Dependent");
             return nullptr;
-        case CK_LValueBitCast:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_LValueBitCast");
+        case clang::CK_LValueBitCast:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_LValueBitCast");
             return nullptr;
-        case CK_NoOp:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_NoOp");
+        case clang::CK_NoOp:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_NoOp");
             return nullptr;
-        case CK_BaseToDerived:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_BaseToDerived");
+        case clang::CK_BaseToDerived:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_BaseToDerived");
             return nullptr;
-        case CK_DerivedToBase:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_DerivedToBase");
+        case clang::CK_DerivedToBase:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_DerivedToBase");
             return nullptr;
-        case CK_UncheckedDerivedToBase:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_UncheckedDerivedToBase");
+        case clang::CK_UncheckedDerivedToBase:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_UncheckedDerivedToBase");
             return nullptr;
-        case CK_Dynamic:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_Dynamic");
+        case clang::CK_Dynamic:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_Dynamic");
             return nullptr;
-        case CK_ToUnion:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_ToUnion");
+        case clang::CK_ToUnion:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_ToUnion");
             return nullptr;
-        case CK_NullToMemberPointer:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_NullToMemberPointer");
+        case clang::CK_NullToMemberPointer:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_NullToMemberPointer");
             return nullptr;
-        case CK_BaseToDerivedMemberPointer:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_BaseToDerivedMemberPointer");
+        case clang::CK_BaseToDerivedMemberPointer:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_BaseToDerivedMemberPointer");
             return nullptr;
-        case CK_DerivedToBaseMemberPointer:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_DerivedToBaseMemberPointer");
+        case clang::CK_DerivedToBaseMemberPointer:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_DerivedToBaseMemberPointer");
             return nullptr;
-        case CK_MemberPointerToBoolean:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_MemberPointerToBoolean");
+        case clang::CK_MemberPointerToBoolean:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_MemberPointerToBoolean");
             return nullptr;
-        case CK_ReinterpretMemberPointer:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_ReinterpretMemberPointer");
+        case clang::CK_ReinterpretMemberPointer:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_ReinterpretMemberPointer");
             return nullptr;
-        case CK_UserDefinedConversion:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_UserDefinedConversion");
+        case clang::CK_UserDefinedConversion:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_UserDefinedConversion");
             return nullptr;
-        case CK_ConstructorConversion:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_ConstructorConversion");
+        case clang::CK_ConstructorConversion:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_ConstructorConversion");
             return nullptr;
-        case CK_IntegralToPointer:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_IntegralToPointer");
+        case clang::CK_IntegralToPointer:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_IntegralToPointer");
             return nullptr;
-        case CK_PointerToIntegral:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_PointerToIntegral");
+        case clang::CK_PointerToIntegral:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_PointerToIntegral");
             return nullptr;
-        case CK_PointerToBoolean:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_PointerToBoolean");
+        case clang::CK_PointerToBoolean:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_PointerToBoolean");
             return nullptr;
-        case CK_ToVoid:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_ToVoid");
+        case clang::CK_ToVoid:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_ToVoid");
             return nullptr;
-        case CK_VectorSplat:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_VectorSplat");
+        case clang::CK_VectorSplat:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_VectorSplat");
             return nullptr;
-        case CK_IntegralToBoolean:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_IntegralToBoolean");
+        case clang::CK_IntegralToBoolean:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_IntegralToBoolean");
             return nullptr;
-        case CK_IntegralToFloating:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_IntegralToFloating");
+        case clang::CK_IntegralToFloating:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_IntegralToFloating");
             return nullptr;
-        case CK_FloatingToIntegral:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_FloatingToIntegral");
+        case clang::CK_FloatingToIntegral:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_FloatingToIntegral");
             return nullptr;
-        case CK_FloatingToBoolean:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_FloatingToBoolean");
+        case clang::CK_FloatingToBoolean:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_FloatingToBoolean");
             return nullptr;
-        case CK_BooleanToSignedIntegral:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_BooleanToSignedIntegral");
+        case clang::CK_BooleanToSignedIntegral:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_BooleanToSignedIntegral");
             return nullptr;
-        case CK_FloatingCast:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_FloatingCast");
+        case clang::CK_FloatingCast:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_FloatingCast");
             return nullptr;
-        case CK_CPointerToObjCPointerCast:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_CPointerToObjCPointerCast");
+        case clang::CK_CPointerToObjCPointerCast:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_CPointerToObjCPointerCast");
             return nullptr;
-        case CK_BlockPointerToObjCPointerCast:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_BlockPointerToObjCPointerCast");
+        case clang::CK_BlockPointerToObjCPointerCast:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_BlockPointerToObjCPointerCast");
             return nullptr;
-        case CK_AnyPointerToBlockPointerCast:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_AnyPointerToBlockPointerCast");
+        case clang::CK_AnyPointerToBlockPointerCast:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_AnyPointerToBlockPointerCast");
             return nullptr;
-        case CK_ObjCObjectLValueCast:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_ObjCObjectLValueCast");
+        case clang::CK_ObjCObjectLValueCast:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_ObjCObjectLValueCast");
             return nullptr;
-        case CK_FloatingRealToComplex:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_FloatingRealToComplex");
+        case clang::CK_FloatingRealToComplex:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_FloatingRealToComplex");
             return nullptr;
-        case CK_FloatingComplexToReal:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_FloatingComplexToReal");
+        case clang::CK_FloatingComplexToReal:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_FloatingComplexToReal");
             return nullptr;
-        case CK_FloatingComplexToBoolean:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_FloatingComplexToBoolean");
+        case clang::CK_FloatingComplexToBoolean:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_FloatingComplexToBoolean");
             return nullptr;
-        case CK_FloatingComplexCast:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_FloatingComplexCast");
+        case clang::CK_FloatingComplexCast:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_FloatingComplexCast");
             return nullptr;
-        case CK_FloatingComplexToIntegralComplex:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_FloatingComplexToIntegralComplex");
+        case clang::CK_FloatingComplexToIntegralComplex:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_FloatingComplexToIntegralComplex");
             return nullptr;
-        case CK_IntegralRealToComplex:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_IntegralRealToComplex");
+        case clang::CK_IntegralRealToComplex:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_IntegralRealToComplex");
             return nullptr;
-        case CK_IntegralComplexToReal:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_IntegralComplexToReal");
+        case clang::CK_IntegralComplexToReal:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_IntegralComplexToReal");
             return nullptr;
-        case CK_IntegralComplexToBoolean:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_IntegralComplexToBoolean");
+        case clang::CK_IntegralComplexToBoolean:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_IntegralComplexToBoolean");
             return nullptr;
-        case CK_IntegralComplexCast:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_IntegralComplexCast");
+        case clang::CK_IntegralComplexCast:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_IntegralComplexCast");
             return nullptr;
-        case CK_IntegralComplexToFloatingComplex:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_IntegralComplexToFloatingComplex");
+        case clang::CK_IntegralComplexToFloatingComplex:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_IntegralComplexToFloatingComplex");
             return nullptr;
-        case CK_ARCProduceObject:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_ARCProduceObject");
+        case clang::CK_ARCProduceObject:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_ARCProduceObject");
             return nullptr;
-        case CK_ARCConsumeObject:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_ARCConsumeObject");
+        case clang::CK_ARCConsumeObject:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_ARCConsumeObject");
             return nullptr;
-        case CK_ARCReclaimReturnedObject:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_ARCReclaimReturnedObject");
+        case clang::CK_ARCReclaimReturnedObject:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_ARCReclaimReturnedObject");
             return nullptr;
-        case CK_ARCExtendBlockObject:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_ARCExtendBlockObject");
+        case clang::CK_ARCExtendBlockObject:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_ARCExtendBlockObject");
             return nullptr;
-        case CK_AtomicToNonAtomic:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_AtomicToNonAtomic");
+        case clang::CK_AtomicToNonAtomic:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_AtomicToNonAtomic");
             return nullptr;
-        case CK_NonAtomicToAtomic:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_NonAtomicToAtomic");
+        case clang::CK_NonAtomicToAtomic:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_NonAtomicToAtomic");
             return nullptr;
-        case CK_CopyAndAutoreleaseBlockObject:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_CopyAndAutoreleaseBlockObject");
+        case clang::CK_CopyAndAutoreleaseBlockObject:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_CopyAndAutoreleaseBlockObject");
             return nullptr;
-        case CK_BuiltinFnToFnPtr:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_BuiltinFnToFnPtr");
+        case clang::CK_BuiltinFnToFnPtr:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_BuiltinFnToFnPtr");
             return nullptr;
-        case CK_ZeroToOCLEvent:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_ZeroToOCLEvent");
+        case clang::CK_ZeroToOCLEvent:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_ZeroToOCLEvent");
             return nullptr;
-        case CK_ZeroToOCLQueue:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_ZeroToOCLQueue");
+        case clang::CK_ZeroToOCLQueue:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_ZeroToOCLQueue");
             return nullptr;
-        case CK_AddressSpaceConversion:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_AddressSpaceConversion");
+        case clang::CK_AddressSpaceConversion:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_AddressSpaceConversion");
             return nullptr;
-        case CK_IntToOCLSampler:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_IntToOCLSampler");
+        case clang::CK_IntToOCLSampler:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_IntToOCLSampler");
             return nullptr;
     }
     zig_unreachable();
 }
 
-static AstNode *trans_decl_ref_expr(Context *c, TransScope *scope, const DeclRefExpr *stmt, TransLRValue lrval) {
-    const ValueDecl *value_decl = stmt->getDecl();
+static AstNode *trans_decl_ref_expr(Context *c, TransScope *scope, const clang::DeclRefExpr *stmt, TransLRValue lrval) {
+    const clang::ValueDecl *value_decl = stmt->getDecl();
     Buf *c_symbol_name = buf_create_from_str(decl_name(value_decl));
     Buf *zig_symbol_name = trans_lookup_zig_symbol(c, scope, c_symbol_name);
     if (lrval == TransLValue) {
@@ -1865,9 +1893,9 @@ static AstNode *trans_decl_ref_expr(Context *c, TransScope *scope, const DeclRef
 }
 
 static AstNode *trans_create_post_crement(Context *c, ResultUsed result_used, TransScope *scope,
-        const UnaryOperator *stmt, BinOpType assign_op)
+        const clang::UnaryOperator *stmt, BinOpType assign_op)
 {
-    Expr *op_expr = stmt->getSubExpr();
+    clang::Expr *op_expr = stmt->getSubExpr();
 
     if (result_used == ResultUsedNo) {
         // common case
@@ -1921,9 +1949,9 @@ static AstNode *trans_create_post_crement(Context *c, ResultUsed result_used, Tr
 }
 
 static AstNode *trans_create_pre_crement(Context *c, ResultUsed result_used, TransScope *scope,
-        const UnaryOperator *stmt, BinOpType assign_op)
+        const clang::UnaryOperator *stmt, BinOpType assign_op)
 {
-    Expr *op_expr = stmt->getSubExpr();
+    clang::Expr *op_expr = stmt->getSubExpr();
 
     if (result_used == ResultUsedNo) {
         // common case
@@ -1970,36 +1998,36 @@ static AstNode *trans_create_pre_crement(Context *c, ResultUsed result_used, Tra
     return child_scope->node;
 }
 
-static AstNode *trans_unary_operator(Context *c, ResultUsed result_used, TransScope *scope, const UnaryOperator *stmt) {
+static AstNode *trans_unary_operator(Context *c, ResultUsed result_used, TransScope *scope, const clang::UnaryOperator *stmt) {
     switch (stmt->getOpcode()) {
-        case UO_PostInc:
+        case clang::UO_PostInc:
             if (qual_type_has_wrapping_overflow(c, stmt->getType()))
                 return trans_create_post_crement(c, result_used, scope, stmt, BinOpTypeAssignPlusWrap);
             else
                 return trans_create_post_crement(c, result_used, scope, stmt, BinOpTypeAssignPlus);
-        case UO_PostDec:
+        case clang::UO_PostDec:
             if (qual_type_has_wrapping_overflow(c, stmt->getType()))
                 return trans_create_post_crement(c, result_used, scope, stmt, BinOpTypeAssignMinusWrap);
             else
                 return trans_create_post_crement(c, result_used, scope, stmt, BinOpTypeAssignMinus);
-        case UO_PreInc:
+        case clang::UO_PreInc:
             if (qual_type_has_wrapping_overflow(c, stmt->getType()))
                 return trans_create_pre_crement(c, result_used, scope, stmt, BinOpTypeAssignPlusWrap);
             else
                 return trans_create_pre_crement(c, result_used, scope, stmt, BinOpTypeAssignPlus);
-        case UO_PreDec:
+        case clang::UO_PreDec:
             if (qual_type_has_wrapping_overflow(c, stmt->getType()))
                 return trans_create_pre_crement(c, result_used, scope, stmt, BinOpTypeAssignMinusWrap);
             else
                 return trans_create_pre_crement(c, result_used, scope, stmt, BinOpTypeAssignMinus);
-        case UO_AddrOf:
+        case clang::UO_AddrOf:
             {
                 AstNode *value_node = trans_expr(c, result_used, scope, stmt->getSubExpr(), TransLValue);
                 if (value_node == nullptr)
                     return value_node;
                 return trans_create_node_addr_of(c, value_node);
             }
-        case UO_Deref:
+        case clang::UO_Deref:
             {
                 AstNode *value_node = trans_expr(c, result_used, scope, stmt->getSubExpr(), TransRValue);
                 if (value_node == nullptr)
@@ -2010,12 +2038,12 @@ static AstNode *trans_unary_operator(Context *c, ResultUsed result_used, TransSc
                 AstNode *unwrapped = trans_create_node_unwrap_null(c, value_node);
                 return trans_create_node_ptr_deref(c, unwrapped);
             }
-        case UO_Plus:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_Plus");
+        case clang::UO_Plus:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation clang::UO_Plus");
             return nullptr;
-        case UO_Minus:
+        case clang::UO_Minus:
             {
-                Expr *op_expr = stmt->getSubExpr();
+                clang::Expr *op_expr = stmt->getSubExpr();
                 if (!qual_type_has_wrapping_overflow(c, op_expr->getType())) {
                     AstNode *node = trans_create_node(c, NodeTypePrefixOpExpr);
                     node->data.prefix_op_expr.prefix_op = PrefixOpNegation;
@@ -2041,41 +2069,41 @@ static AstNode *trans_unary_operator(Context *c, ResultUsed result_used, TransSc
                     return nullptr;
                 }
             }
-        case UO_Not:
+        case clang::UO_Not:
             {
-                Expr *op_expr = stmt->getSubExpr();
+                clang::Expr *op_expr = stmt->getSubExpr();
                 AstNode *sub_node = trans_expr(c, ResultUsedYes, scope, op_expr, TransRValue);
                 if (sub_node == nullptr)
                     return nullptr;
 
                 return trans_create_node_prefix_op(c, PrefixOpBinNot, sub_node);
             }
-        case UO_LNot:
+        case clang::UO_LNot:
             {
-                Expr *op_expr = stmt->getSubExpr();
+                clang::Expr *op_expr = stmt->getSubExpr();
                 AstNode *sub_node = trans_bool_expr(c, ResultUsedYes, scope, op_expr, TransRValue);
                 if (sub_node == nullptr)
                     return nullptr;
 
                 return trans_create_node_prefix_op(c, PrefixOpBoolNot, sub_node);
             }
-        case UO_Real:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_Real");
+        case clang::UO_Real:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation clang::UO_Real");
             return nullptr;
-        case UO_Imag:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_Imag");
+        case clang::UO_Imag:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation clang::UO_Imag");
             return nullptr;
-        case UO_Extension:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_Extension");
+        case clang::UO_Extension:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation clang::UO_Extension");
             return nullptr;
-        case UO_Coawait:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_Coawait");
+        case clang::UO_Coawait:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation clang::UO_Coawait");
             return nullptr;
     }
     zig_unreachable();
 }
 
-static int trans_local_declaration(Context *c, TransScope *scope, const DeclStmt *stmt,
+static int trans_local_declaration(Context *c, TransScope *scope, const clang::DeclStmt *stmt,
         AstNode **out_node, TransScope **out_scope)
 {
     // declarations are added via the scope
@@ -2085,11 +2113,11 @@ static int trans_local_declaration(Context *c, TransScope *scope, const DeclStmt
     assert(scope_block != nullptr);
 
     for (auto iter = stmt->decl_begin(); iter != stmt->decl_end(); iter++) {
-        Decl *decl = *iter;
+        clang::Decl *decl = *iter;
         switch (decl->getKind()) {
-            case Decl::Var: {
-                VarDecl *var_decl = (VarDecl *)decl;
-                QualType qual_type = var_decl->getTypeSourceInfo()->getType();
+            case clang::Decl::Var: {
+                clang::VarDecl *var_decl = (clang::VarDecl *)decl;
+                clang::QualType qual_type = var_decl->getTypeSourceInfo()->getType();
                 AstNode *init_node = nullptr;
                 if (var_decl->hasInit()) {
                     init_node = trans_expr(c, ResultUsedYes, scope, var_decl->getInit(), TransRValue);
@@ -2114,220 +2142,220 @@ static int trans_local_declaration(Context *c, TransScope *scope, const DeclStmt
                 scope_block->node->data.block.statements.append(node);
                 continue;
             }
-            case Decl::AccessSpec:
+            case clang::Decl::AccessSpec:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind AccessSpec");
                 return ErrorUnexpected;
-            case Decl::Block:
+            case clang::Decl::Block:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Block");
                 return ErrorUnexpected;
-            case Decl::Captured:
+            case clang::Decl::Captured:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Captured");
                 return ErrorUnexpected;
-            case Decl::ClassScopeFunctionSpecialization:
+            case clang::Decl::ClassScopeFunctionSpecialization:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ClassScopeFunctionSpecialization");
                 return ErrorUnexpected;
-            case Decl::Empty:
+            case clang::Decl::Empty:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Empty");
                 return ErrorUnexpected;
-            case Decl::Export:
+            case clang::Decl::Export:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Export");
                 return ErrorUnexpected;
-            case Decl::ExternCContext:
+            case clang::Decl::ExternCContext:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ExternCContext");
                 return ErrorUnexpected;
-            case Decl::FileScopeAsm:
+            case clang::Decl::FileScopeAsm:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind FileScopeAsm");
                 return ErrorUnexpected;
-            case Decl::Friend:
+            case clang::Decl::Friend:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Friend");
                 return ErrorUnexpected;
-            case Decl::FriendTemplate:
+            case clang::Decl::FriendTemplate:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind FriendTemplate");
                 return ErrorUnexpected;
-            case Decl::Import:
+            case clang::Decl::Import:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Import");
                 return ErrorUnexpected;
-            case Decl::LinkageSpec:
+            case clang::Decl::LinkageSpec:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind LinkageSpec");
                 return ErrorUnexpected;
-            case Decl::Label:
+            case clang::Decl::Label:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Label");
                 return ErrorUnexpected;
-            case Decl::Namespace:
+            case clang::Decl::Namespace:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Namespace");
                 return ErrorUnexpected;
-            case Decl::NamespaceAlias:
+            case clang::Decl::NamespaceAlias:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind NamespaceAlias");
                 return ErrorUnexpected;
-            case Decl::ObjCCompatibleAlias:
+            case clang::Decl::ObjCCompatibleAlias:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCCompatibleAlias");
                 return ErrorUnexpected;
-            case Decl::ObjCCategory:
+            case clang::Decl::ObjCCategory:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCCategory");
                 return ErrorUnexpected;
-            case Decl::ObjCCategoryImpl:
+            case clang::Decl::ObjCCategoryImpl:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCCategoryImpl");
                 return ErrorUnexpected;
-            case Decl::ObjCImplementation:
+            case clang::Decl::ObjCImplementation:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCImplementation");
                 return ErrorUnexpected;
-            case Decl::ObjCInterface:
+            case clang::Decl::ObjCInterface:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCInterface");
                 return ErrorUnexpected;
-            case Decl::ObjCProtocol:
+            case clang::Decl::ObjCProtocol:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCProtocol");
                 return ErrorUnexpected;
-            case Decl::ObjCMethod:
+            case clang::Decl::ObjCMethod:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCMethod");
                 return ErrorUnexpected;
-            case Decl::ObjCProperty:
+            case clang::Decl::ObjCProperty:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCProperty");
                 return ErrorUnexpected;
-            case Decl::BuiltinTemplate:
+            case clang::Decl::BuiltinTemplate:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind BuiltinTemplate");
                 return ErrorUnexpected;
-            case Decl::ClassTemplate:
+            case clang::Decl::ClassTemplate:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ClassTemplate");
                 return ErrorUnexpected;
-            case Decl::FunctionTemplate:
+            case clang::Decl::FunctionTemplate:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind FunctionTemplate");
                 return ErrorUnexpected;
-            case Decl::TypeAliasTemplate:
+            case clang::Decl::TypeAliasTemplate:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind TypeAliasTemplate");
                 return ErrorUnexpected;
-            case Decl::VarTemplate:
+            case clang::Decl::VarTemplate:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind VarTemplate");
                 return ErrorUnexpected;
-            case Decl::TemplateTemplateParm:
+            case clang::Decl::TemplateTemplateParm:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind TemplateTemplateParm");
                 return ErrorUnexpected;
-            case Decl::Enum:
+            case clang::Decl::Enum:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Enum");
                 return ErrorUnexpected;
-            case Decl::Record:
+            case clang::Decl::Record:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Record");
                 return ErrorUnexpected;
-            case Decl::CXXRecord:
+            case clang::Decl::CXXRecord:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind CXXRecord");
                 return ErrorUnexpected;
-            case Decl::ClassTemplateSpecialization:
+            case clang::Decl::ClassTemplateSpecialization:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ClassTemplateSpecialization");
                 return ErrorUnexpected;
-            case Decl::ClassTemplatePartialSpecialization:
+            case clang::Decl::ClassTemplatePartialSpecialization:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ClassTemplatePartialSpecialization");
                 return ErrorUnexpected;
-            case Decl::TemplateTypeParm:
+            case clang::Decl::TemplateTypeParm:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind TemplateTypeParm");
                 return ErrorUnexpected;
-            case Decl::ObjCTypeParam:
+            case clang::Decl::ObjCTypeParam:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCTypeParam");
                 return ErrorUnexpected;
-            case Decl::TypeAlias:
+            case clang::Decl::TypeAlias:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind TypeAlias");
                 return ErrorUnexpected;
-            case Decl::Typedef:
+            case clang::Decl::Typedef:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Typedef");
                 return ErrorUnexpected;
-            case Decl::UnresolvedUsingTypename:
+            case clang::Decl::UnresolvedUsingTypename:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind UnresolvedUsingTypename");
                 return ErrorUnexpected;
-            case Decl::Using:
+            case clang::Decl::Using:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Using");
                 return ErrorUnexpected;
-            case Decl::UsingDirective:
+            case clang::Decl::UsingDirective:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind UsingDirective");
                 return ErrorUnexpected;
-            case Decl::UsingPack:
+            case clang::Decl::UsingPack:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind UsingPack");
                 return ErrorUnexpected;
-            case Decl::UsingShadow:
+            case clang::Decl::UsingShadow:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind UsingShadow");
                 return ErrorUnexpected;
-            case Decl::ConstructorUsingShadow:
+            case clang::Decl::ConstructorUsingShadow:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ConstructorUsingShadow");
                 return ErrorUnexpected;
-            case Decl::Binding:
+            case clang::Decl::Binding:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Binding");
                 return ErrorUnexpected;
-            case Decl::Field:
+            case clang::Decl::Field:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Field");
                 return ErrorUnexpected;
-            case Decl::ObjCAtDefsField:
+            case clang::Decl::ObjCAtDefsField:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCAtDefsField");
                 return ErrorUnexpected;
-            case Decl::ObjCIvar:
+            case clang::Decl::ObjCIvar:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCIvar");
                 return ErrorUnexpected;
-            case Decl::Function:
+            case clang::Decl::Function:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Function");
                 return ErrorUnexpected;
-            case Decl::CXXDeductionGuide:
+            case clang::Decl::CXXDeductionGuide:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind CXXDeductionGuide");
                 return ErrorUnexpected;
-            case Decl::CXXMethod:
+            case clang::Decl::CXXMethod:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind CXXMethod");
                 return ErrorUnexpected;
-            case Decl::CXXConstructor:
+            case clang::Decl::CXXConstructor:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind CXXConstructor");
                 return ErrorUnexpected;
-            case Decl::CXXConversion:
+            case clang::Decl::CXXConversion:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind CXXConversion");
                 return ErrorUnexpected;
-            case Decl::CXXDestructor:
+            case clang::Decl::CXXDestructor:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind CXXDestructor");
                 return ErrorUnexpected;
-            case Decl::MSProperty:
+            case clang::Decl::MSProperty:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind MSProperty");
                 return ErrorUnexpected;
-            case Decl::NonTypeTemplateParm:
+            case clang::Decl::NonTypeTemplateParm:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind NonTypeTemplateParm");
                 return ErrorUnexpected;
-            case Decl::Decomposition:
+            case clang::Decl::Decomposition:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Decomposition");
                 return ErrorUnexpected;
-            case Decl::ImplicitParam:
+            case clang::Decl::ImplicitParam:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ImplicitParam");
                 return ErrorUnexpected;
-            case Decl::OMPCapturedExpr:
+            case clang::Decl::OMPCapturedExpr:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind OMPCapturedExpr");
                 return ErrorUnexpected;
-            case Decl::ParmVar:
+            case clang::Decl::ParmVar:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ParmVar");
                 return ErrorUnexpected;
-            case Decl::VarTemplateSpecialization:
+            case clang::Decl::VarTemplateSpecialization:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind VarTemplateSpecialization");
                 return ErrorUnexpected;
-            case Decl::VarTemplatePartialSpecialization:
+            case clang::Decl::VarTemplatePartialSpecialization:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind VarTemplatePartialSpecialization");
                 return ErrorUnexpected;
-            case Decl::EnumConstant:
+            case clang::Decl::EnumConstant:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind EnumConstant");
                 return ErrorUnexpected;
-            case Decl::IndirectField:
+            case clang::Decl::IndirectField:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind IndirectField");
                 return ErrorUnexpected;
-            case Decl::OMPDeclareReduction:
+            case clang::Decl::OMPDeclareReduction:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind OMPDeclareReduction");
                 return ErrorUnexpected;
-            case Decl::UnresolvedUsingValue:
+            case clang::Decl::UnresolvedUsingValue:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind UnresolvedUsingValue");
                 return ErrorUnexpected;
-            case Decl::OMPThreadPrivate:
+            case clang::Decl::OMPThreadPrivate:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind OMPThreadPrivate");
                 return ErrorUnexpected;
-            case Decl::ObjCPropertyImpl:
+            case clang::Decl::ObjCPropertyImpl:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCPropertyImpl");
                 return ErrorUnexpected;
-            case Decl::PragmaComment:
+            case clang::Decl::PragmaComment:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind PragmaComment");
                 return ErrorUnexpected;
-            case Decl::PragmaDetectMismatch:
+            case clang::Decl::PragmaDetectMismatch:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind PragmaDetectMismatch");
                 return ErrorUnexpected;
-            case Decl::StaticAssert:
+            case clang::Decl::StaticAssert:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind StaticAssert");
                 return ErrorUnexpected;
-            case Decl::TranslationUnit:
+            case clang::Decl::TranslationUnit:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind TranslationUnit");
                 return ErrorUnexpected;
         }
@@ -2354,7 +2382,7 @@ static AstNode *to_enum_zero_cmp(Context *c, AstNode *expr, AstNode *enum_type) 
     return trans_create_node_bin_op(c, expr, BinOpTypeCmpNotEq, bitcast);
 }
 
-static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *scope, const Expr *expr, TransLRValue lrval) {
+static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *scope, const clang::Expr *expr, TransLRValue lrval) {
     AstNode *res = trans_expr(c, result_used, scope, expr, lrval);
     if (res == nullptr)
         return nullptr;
@@ -2391,131 +2419,133 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
     }
 
 
-    const Type *ty = get_expr_qual_type_before_implicit_cast(c, expr).getTypePtr();
+    const clang::Type *ty = get_expr_qual_type_before_implicit_cast(c, expr).getTypePtr();
     auto classs = ty->getTypeClass();
     switch (classs) {
-        case Type::Builtin:
+        case clang::Type::Builtin:
         {
-            const BuiltinType *builtin_ty = static_cast<const BuiltinType*>(ty);
+            const clang::BuiltinType *builtin_ty = static_cast<const clang::BuiltinType*>(ty);
             switch (builtin_ty->getKind()) {
-                case BuiltinType::Bool:
-                case BuiltinType::Char_U:
-                case BuiltinType::UChar:
-                case BuiltinType::Char_S:
-                case BuiltinType::SChar:
-                case BuiltinType::UShort:
-                case BuiltinType::UInt:
-                case BuiltinType::ULong:
-                case BuiltinType::ULongLong:
-                case BuiltinType::Short:
-                case BuiltinType::Int:
-                case BuiltinType::Long:
-                case BuiltinType::LongLong:
-                case BuiltinType::UInt128:
-                case BuiltinType::Int128:
-                case BuiltinType::Float:
-                case BuiltinType::Double:
-                case BuiltinType::Float128:
-                case BuiltinType::LongDouble:
-                case BuiltinType::WChar_U:
-                case BuiltinType::Char8:
-                case BuiltinType::Char16:
-                case BuiltinType::Char32:
-                case BuiltinType::WChar_S:
-                case BuiltinType::Float16:
+                case clang::BuiltinType::Bool:
+                case clang::BuiltinType::Char_U:
+                case clang::BuiltinType::UChar:
+                case clang::BuiltinType::Char_S:
+                case clang::BuiltinType::SChar:
+                case clang::BuiltinType::UShort:
+                case clang::BuiltinType::UInt:
+                case clang::BuiltinType::ULong:
+                case clang::BuiltinType::ULongLong:
+                case clang::BuiltinType::Short:
+                case clang::BuiltinType::Int:
+                case clang::BuiltinType::Long:
+                case clang::BuiltinType::LongLong:
+                case clang::BuiltinType::UInt128:
+                case clang::BuiltinType::Int128:
+                case clang::BuiltinType::Float:
+                case clang::BuiltinType::Double:
+                case clang::BuiltinType::Float128:
+                case clang::BuiltinType::LongDouble:
+                case clang::BuiltinType::WChar_U:
+                case clang::BuiltinType::Char8:
+                case clang::BuiltinType::Char16:
+                case clang::BuiltinType::Char32:
+                case clang::BuiltinType::WChar_S:
+                case clang::BuiltinType::Float16:
                     return trans_create_node_bin_op(c, res, BinOpTypeCmpNotEq, trans_create_node_unsigned_negative(c, 0, false));
-                case BuiltinType::NullPtr:
-                    return trans_create_node_bin_op(c, res, BinOpTypeCmpNotEq, trans_create_node(c, NodeTypeNullLiteral));
+                case clang::BuiltinType::NullPtr:
+                    return trans_create_node_bin_op(c, res, BinOpTypeCmpNotEq,
+                            trans_create_node_unsigned(c, 0));
 
-                case BuiltinType::Void:
-                case BuiltinType::Half:
-                case BuiltinType::ObjCId:
-                case BuiltinType::ObjCClass:
-                case BuiltinType::ObjCSel:
-                case BuiltinType::OMPArraySection:
-                case BuiltinType::Dependent:
-                case BuiltinType::Overload:
-                case BuiltinType::BoundMember:
-                case BuiltinType::PseudoObject:
-                case BuiltinType::UnknownAny:
-                case BuiltinType::BuiltinFn:
-                case BuiltinType::ARCUnbridgedCast:
-                case BuiltinType::OCLImage1dRO:
-                case BuiltinType::OCLImage1dArrayRO:
-                case BuiltinType::OCLImage1dBufferRO:
-                case BuiltinType::OCLImage2dRO:
-                case BuiltinType::OCLImage2dArrayRO:
-                case BuiltinType::OCLImage2dDepthRO:
-                case BuiltinType::OCLImage2dArrayDepthRO:
-                case BuiltinType::OCLImage2dMSAARO:
-                case BuiltinType::OCLImage2dArrayMSAARO:
-                case BuiltinType::OCLImage2dMSAADepthRO:
-                case BuiltinType::OCLImage2dArrayMSAADepthRO:
-                case BuiltinType::OCLImage3dRO:
-                case BuiltinType::OCLImage1dWO:
-                case BuiltinType::OCLImage1dArrayWO:
-                case BuiltinType::OCLImage1dBufferWO:
-                case BuiltinType::OCLImage2dWO:
-                case BuiltinType::OCLImage2dArrayWO:
-                case BuiltinType::OCLImage2dDepthWO:
-                case BuiltinType::OCLImage2dArrayDepthWO:
-                case BuiltinType::OCLImage2dMSAAWO:
-                case BuiltinType::OCLImage2dArrayMSAAWO:
-                case BuiltinType::OCLImage2dMSAADepthWO:
-                case BuiltinType::OCLImage2dArrayMSAADepthWO:
-                case BuiltinType::OCLImage3dWO:
-                case BuiltinType::OCLImage1dRW:
-                case BuiltinType::OCLImage1dArrayRW:
-                case BuiltinType::OCLImage1dBufferRW:
-                case BuiltinType::OCLImage2dRW:
-                case BuiltinType::OCLImage2dArrayRW:
-                case BuiltinType::OCLImage2dDepthRW:
-                case BuiltinType::OCLImage2dArrayDepthRW:
-                case BuiltinType::OCLImage2dMSAARW:
-                case BuiltinType::OCLImage2dArrayMSAARW:
-                case BuiltinType::OCLImage2dMSAADepthRW:
-                case BuiltinType::OCLImage2dArrayMSAADepthRW:
-                case BuiltinType::OCLImage3dRW:
-                case BuiltinType::OCLSampler:
-                case BuiltinType::OCLEvent:
-                case BuiltinType::OCLClkEvent:
-                case BuiltinType::OCLQueue:
-                case BuiltinType::OCLReserveID:
-                case BuiltinType::ShortAccum:
-                case BuiltinType::Accum:
-                case BuiltinType::LongAccum:
-                case BuiltinType::UShortAccum:
-                case BuiltinType::UAccum:
-                case BuiltinType::ULongAccum:
-                case BuiltinType::ShortFract:
-                case BuiltinType::Fract:
-                case BuiltinType::LongFract:
-                case BuiltinType::UShortFract:
-                case BuiltinType::UFract:
-                case BuiltinType::ULongFract:
-                case BuiltinType::SatShortAccum:
-                case BuiltinType::SatAccum:
-                case BuiltinType::SatLongAccum:
-                case BuiltinType::SatUShortAccum:
-                case BuiltinType::SatUAccum:
-                case BuiltinType::SatULongAccum:
-                case BuiltinType::SatShortFract:
-                case BuiltinType::SatFract:
-                case BuiltinType::SatLongFract:
-                case BuiltinType::SatUShortFract:
-                case BuiltinType::SatUFract:
-                case BuiltinType::SatULongFract:
+                case clang::BuiltinType::Void:
+                case clang::BuiltinType::Half:
+                case clang::BuiltinType::ObjCId:
+                case clang::BuiltinType::ObjCClass:
+                case clang::BuiltinType::ObjCSel:
+                case clang::BuiltinType::OMPArraySection:
+                case clang::BuiltinType::Dependent:
+                case clang::BuiltinType::Overload:
+                case clang::BuiltinType::BoundMember:
+                case clang::BuiltinType::PseudoObject:
+                case clang::BuiltinType::UnknownAny:
+                case clang::BuiltinType::BuiltinFn:
+                case clang::BuiltinType::ARCUnbridgedCast:
+                case clang::BuiltinType::OCLImage1dRO:
+                case clang::BuiltinType::OCLImage1dArrayRO:
+                case clang::BuiltinType::OCLImage1dBufferRO:
+                case clang::BuiltinType::OCLImage2dRO:
+                case clang::BuiltinType::OCLImage2dArrayRO:
+                case clang::BuiltinType::OCLImage2dDepthRO:
+                case clang::BuiltinType::OCLImage2dArrayDepthRO:
+                case clang::BuiltinType::OCLImage2dMSAARO:
+                case clang::BuiltinType::OCLImage2dArrayMSAARO:
+                case clang::BuiltinType::OCLImage2dMSAADepthRO:
+                case clang::BuiltinType::OCLImage2dArrayMSAADepthRO:
+                case clang::BuiltinType::OCLImage3dRO:
+                case clang::BuiltinType::OCLImage1dWO:
+                case clang::BuiltinType::OCLImage1dArrayWO:
+                case clang::BuiltinType::OCLImage1dBufferWO:
+                case clang::BuiltinType::OCLImage2dWO:
+                case clang::BuiltinType::OCLImage2dArrayWO:
+                case clang::BuiltinType::OCLImage2dDepthWO:
+                case clang::BuiltinType::OCLImage2dArrayDepthWO:
+                case clang::BuiltinType::OCLImage2dMSAAWO:
+                case clang::BuiltinType::OCLImage2dArrayMSAAWO:
+                case clang::BuiltinType::OCLImage2dMSAADepthWO:
+                case clang::BuiltinType::OCLImage2dArrayMSAADepthWO:
+                case clang::BuiltinType::OCLImage3dWO:
+                case clang::BuiltinType::OCLImage1dRW:
+                case clang::BuiltinType::OCLImage1dArrayRW:
+                case clang::BuiltinType::OCLImage1dBufferRW:
+                case clang::BuiltinType::OCLImage2dRW:
+                case clang::BuiltinType::OCLImage2dArrayRW:
+                case clang::BuiltinType::OCLImage2dDepthRW:
+                case clang::BuiltinType::OCLImage2dArrayDepthRW:
+                case clang::BuiltinType::OCLImage2dMSAARW:
+                case clang::BuiltinType::OCLImage2dArrayMSAARW:
+                case clang::BuiltinType::OCLImage2dMSAADepthRW:
+                case clang::BuiltinType::OCLImage2dArrayMSAADepthRW:
+                case clang::BuiltinType::OCLImage3dRW:
+                case clang::BuiltinType::OCLSampler:
+                case clang::BuiltinType::OCLEvent:
+                case clang::BuiltinType::OCLClkEvent:
+                case clang::BuiltinType::OCLQueue:
+                case clang::BuiltinType::OCLReserveID:
+                case clang::BuiltinType::ShortAccum:
+                case clang::BuiltinType::Accum:
+                case clang::BuiltinType::LongAccum:
+                case clang::BuiltinType::UShortAccum:
+                case clang::BuiltinType::UAccum:
+                case clang::BuiltinType::ULongAccum:
+                case clang::BuiltinType::ShortFract:
+                case clang::BuiltinType::Fract:
+                case clang::BuiltinType::LongFract:
+                case clang::BuiltinType::UShortFract:
+                case clang::BuiltinType::UFract:
+                case clang::BuiltinType::ULongFract:
+                case clang::BuiltinType::SatShortAccum:
+                case clang::BuiltinType::SatAccum:
+                case clang::BuiltinType::SatLongAccum:
+                case clang::BuiltinType::SatUShortAccum:
+                case clang::BuiltinType::SatUAccum:
+                case clang::BuiltinType::SatULongAccum:
+                case clang::BuiltinType::SatShortFract:
+                case clang::BuiltinType::SatFract:
+                case clang::BuiltinType::SatLongFract:
+                case clang::BuiltinType::SatUShortFract:
+                case clang::BuiltinType::SatUFract:
+                case clang::BuiltinType::SatULongFract:
                     return res;
             }
             break;
         }
-        case Type::Pointer:
-            return trans_create_node_bin_op(c, res, BinOpTypeCmpNotEq, trans_create_node(c, NodeTypeNullLiteral));
+        case clang::Type::Pointer:
+            return trans_create_node_bin_op(c, res, BinOpTypeCmpNotEq,
+                    trans_create_node_unsigned(c, 0));
 
-        case Type::Typedef:
+        case clang::Type::Typedef:
         {
-            const TypedefType *typedef_ty = static_cast<const TypedefType*>(ty);
-            const TypedefNameDecl *typedef_decl = typedef_ty->getDecl();
+            const clang::TypedefType *typedef_ty = static_cast<const clang::TypedefType*>(ty);
+            const clang::TypedefNameDecl *typedef_decl = typedef_ty->getDecl();
             auto existing_entry = c->decl_table.maybe_get((void*)typedef_decl->getCanonicalDecl());
             if (existing_entry) {
                 return existing_entry->value;
@@ -2524,79 +2554,79 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
             return res;
         }
 
-        case Type::Enum:
+        case clang::Type::Enum:
         {
-            const EnumType *enum_ty = static_cast<const EnumType*>(ty);
+            const clang::EnumType *enum_ty = static_cast<const clang::EnumType*>(ty);
             AstNode *enum_type = resolve_enum_decl(c, enum_ty->getDecl());
             return to_enum_zero_cmp(c, res, enum_type);
         }
 
-        case Type::Elaborated:
+        case clang::Type::Elaborated:
         {
-            const ElaboratedType *elaborated_ty = static_cast<const ElaboratedType*>(ty);
+            const clang::ElaboratedType *elaborated_ty = static_cast<const clang::ElaboratedType*>(ty);
             switch (elaborated_ty->getKeyword()) {
-                case ETK_Enum: {
+                case clang::ETK_Enum: {
                     AstNode *enum_type = trans_qual_type(c, elaborated_ty->getNamedType(), expr->getLocStart());
                     return to_enum_zero_cmp(c, res, enum_type);
                 }
-                case ETK_Struct:
-                case ETK_Union:
-                case ETK_Interface:
-                case ETK_Class:
-                case ETK_Typename:
-                case ETK_None:
+                case clang::ETK_Struct:
+                case clang::ETK_Union:
+                case clang::ETK_Interface:
+                case clang::ETK_Class:
+                case clang::ETK_Typename:
+                case clang::ETK_None:
                     return res;
             }
         }
 
-        case Type::FunctionProto:
-        case Type::Record:
-        case Type::ConstantArray:
-        case Type::Paren:
-        case Type::Decayed:
-        case Type::Attributed:
-        case Type::IncompleteArray:
-        case Type::BlockPointer:
-        case Type::LValueReference:
-        case Type::RValueReference:
-        case Type::MemberPointer:
-        case Type::VariableArray:
-        case Type::DependentSizedArray:
-        case Type::DependentSizedExtVector:
-        case Type::Vector:
-        case Type::ExtVector:
-        case Type::FunctionNoProto:
-        case Type::UnresolvedUsing:
-        case Type::Adjusted:
-        case Type::TypeOfExpr:
-        case Type::TypeOf:
-        case Type::Decltype:
-        case Type::UnaryTransform:
-        case Type::TemplateTypeParm:
-        case Type::SubstTemplateTypeParm:
-        case Type::SubstTemplateTypeParmPack:
-        case Type::TemplateSpecialization:
-        case Type::Auto:
-        case Type::InjectedClassName:
-        case Type::DependentName:
-        case Type::DependentTemplateSpecialization:
-        case Type::PackExpansion:
-        case Type::ObjCObject:
-        case Type::ObjCInterface:
-        case Type::Complex:
-        case Type::ObjCObjectPointer:
-        case Type::Atomic:
-        case Type::Pipe:
-        case Type::ObjCTypeParam:
-        case Type::DeducedTemplateSpecialization:
-        case Type::DependentAddressSpace:
-        case Type::DependentVector:
+        case clang::Type::FunctionProto:
+        case clang::Type::Record:
+        case clang::Type::ConstantArray:
+        case clang::Type::Paren:
+        case clang::Type::Decayed:
+        case clang::Type::Attributed:
+        case clang::Type::IncompleteArray:
+        case clang::Type::BlockPointer:
+        case clang::Type::LValueReference:
+        case clang::Type::RValueReference:
+        case clang::Type::MemberPointer:
+        case clang::Type::VariableArray:
+        case clang::Type::DependentSizedArray:
+        case clang::Type::DependentSizedExtVector:
+        case clang::Type::Vector:
+        case clang::Type::ExtVector:
+        case clang::Type::FunctionNoProto:
+        case clang::Type::UnresolvedUsing:
+        case clang::Type::Adjusted:
+        case clang::Type::TypeOfExpr:
+        case clang::Type::TypeOf:
+        case clang::Type::Decltype:
+        case clang::Type::UnaryTransform:
+        case clang::Type::TemplateTypeParm:
+        case clang::Type::SubstTemplateTypeParm:
+        case clang::Type::SubstTemplateTypeParmPack:
+        case clang::Type::TemplateSpecialization:
+        case clang::Type::Auto:
+        case clang::Type::InjectedClassName:
+        case clang::Type::DependentName:
+        case clang::Type::DependentTemplateSpecialization:
+        case clang::Type::PackExpansion:
+        case clang::Type::ObjCObject:
+        case clang::Type::ObjCInterface:
+        case clang::Type::Complex:
+        case clang::Type::ObjCObjectPointer:
+        case clang::Type::Atomic:
+        case clang::Type::Pipe:
+        case clang::Type::ObjCTypeParam:
+        case clang::Type::DeducedTemplateSpecialization:
+        case clang::Type::DependentAddressSpace:
+        case clang::Type::DependentVector:
             return res;
     }
     zig_unreachable();
 }
 
-static AstNode *trans_while_loop(Context *c, TransScope *scope, const WhileStmt *stmt) {
+static AstNode *trans_while_loop(Context *c, TransScope *scope, const clang::WhileStmt *stmt) {
     TransScopeWhile *while_scope = trans_scope_while_create(c, scope);
 
     while_scope->node->data.while_expr.condition = trans_bool_expr(c, ResultUsedYes, scope, stmt->getCond(), TransRValue);
@@ -2611,7 +2641,7 @@ static AstNode *trans_while_loop(Context *c, TransScope *scope, const WhileStmt 
     return while_scope->node;
 }
 
-static AstNode *trans_if_statement(Context *c, TransScope *scope, const IfStmt *stmt) {
+static AstNode *trans_if_statement(Context *c, TransScope *scope, const clang::IfStmt *stmt) {
     // if (c) t
     // if (c) t else e
     AstNode *if_node = trans_create_node(c, NodeTypeIfBoolExpr);
@@ -2633,7 +2663,7 @@ static AstNode *trans_if_statement(Context *c, TransScope *scope, const IfStmt *
     return if_node;
 }
 
-static AstNode *trans_call_expr(Context *c, ResultUsed result_used, TransScope *scope, const CallExpr *stmt) {
+static AstNode *trans_call_expr(Context *c, ResultUsed result_used, TransScope *scope, const clang::CallExpr *stmt) {
     AstNode *node = trans_create_node(c, NodeTypeFnCallExpr);
 
     AstNode *callee_raw_node = trans_expr(c, ResultUsedYes, scope, stmt->getCallee(), TransRValue);
@@ -2641,16 +2671,16 @@ static AstNode *trans_call_expr(Context *c, ResultUsed result_used, TransScope *
         return nullptr;
 
     bool is_ptr = false;
-    const FunctionProtoType *fn_ty = qual_type_get_fn_proto(stmt->getCallee()->getType(), &is_ptr);
+    const clang::FunctionProtoType *fn_ty = qual_type_get_fn_proto(stmt->getCallee()->getType(), &is_ptr);
     AstNode *callee_node = nullptr;
     if (is_ptr && fn_ty) {
-        if (stmt->getCallee()->getStmtClass() == Stmt::ImplicitCastExprClass) {
-            const ImplicitCastExpr *implicit_cast = static_cast<const ImplicitCastExpr *>(stmt->getCallee());
-            if (implicit_cast->getCastKind() == CK_FunctionToPointerDecay) {
-                if (implicit_cast->getSubExpr()->getStmtClass() == Stmt::DeclRefExprClass) {
-                    const DeclRefExpr *decl_ref = static_cast<const DeclRefExpr *>(implicit_cast->getSubExpr());
-                    const Decl *decl = decl_ref->getFoundDecl();
-                    if (decl->getKind() == Decl::Function) {
+        if (stmt->getCallee()->getStmtClass() == clang::Stmt::ImplicitCastExprClass) {
+            const clang::ImplicitCastExpr *implicit_cast = static_cast<const clang::ImplicitCastExpr *>(stmt->getCallee());
+            if (implicit_cast->getCastKind() == clang::CK_FunctionToPointerDecay) {
+                if (implicit_cast->getSubExpr()->getStmtClass() == clang::Stmt::DeclRefExprClass) {
+                    const clang::DeclRefExpr *decl_ref = static_cast<const clang::DeclRefExpr *>(implicit_cast->getSubExpr());
+                    const clang::Decl *decl = decl_ref->getFoundDecl();
+                    if (decl->getKind() == clang::Decl::Function) {
                         callee_node = callee_raw_node;
                     }
                 }
@@ -2666,7 +2696,7 @@ static AstNode *trans_call_expr(Context *c, ResultUsed result_used, TransScope *
     node->data.fn_call_expr.fn_ref_expr = callee_node;
 
     unsigned num_args = stmt->getNumArgs();
-    const Expr * const* args = stmt->getArgs();
+    const clang::Expr * const* args = stmt->getArgs();
     for (unsigned i = 0; i < num_args; i += 1) {
         AstNode *arg_node = trans_expr(c, ResultUsedYes, scope, args[i], TransRValue);
         if (arg_node == nullptr)
@@ -2682,7 +2712,7 @@ static AstNode *trans_call_expr(Context *c, ResultUsed result_used, TransScope *
     return node;
 }
 
-static AstNode *trans_member_expr(Context *c, TransScope *scope, const MemberExpr *stmt) {
+static AstNode *trans_member_expr(Context *c, TransScope *scope, const clang::MemberExpr *stmt) {
     AstNode *container_node = trans_expr(c, ResultUsedYes, scope, stmt->getBase(), TransRValue);
     if (container_node == nullptr)
         return nullptr;
@@ -2697,7 +2727,7 @@ static AstNode *trans_member_expr(Context *c, TransScope *scope, const MemberExp
     return node;
 }
 
-static AstNode *trans_array_subscript_expr(Context *c, TransScope *scope, const ArraySubscriptExpr *stmt) {
+static AstNode *trans_array_subscript_expr(Context *c, TransScope *scope, const clang::ArraySubscriptExpr *stmt) {
     AstNode *container_node = trans_expr(c, ResultUsedYes, scope, stmt->getBase(), TransRValue);
     if (container_node == nullptr)
         return nullptr;
@@ -2714,7 +2744,7 @@ static AstNode *trans_array_subscript_expr(Context *c, TransScope *scope, const 
 }
 
 static AstNode *trans_c_style_cast_expr(Context *c, ResultUsed result_used, TransScope *scope,
-        const CStyleCastExpr *stmt, TransLRValue lrvalue)
+        const clang::CStyleCastExpr *stmt, TransLRValue lrvalue)
 {
     AstNode *sub_expr_node = trans_expr(c, result_used, scope, stmt->getSubExpr(), lrvalue);
     if (sub_expr_node == nullptr)
@@ -2724,7 +2754,7 @@ static AstNode *trans_c_style_cast_expr(Context *c, ResultUsed result_used, Tran
 }
 
 static AstNode *trans_unary_expr_or_type_trait_expr(Context *c, TransScope *scope,
-        const UnaryExprOrTypeTraitExpr *stmt)
+        const clang::UnaryExprOrTypeTraitExpr *stmt)
 {
     AstNode *type_node = trans_qual_type(c, stmt->getTypeOfArgument(), stmt->getLocStart());
     if (type_node == nullptr)
@@ -2735,14 +2765,14 @@ static AstNode *trans_unary_expr_or_type_trait_expr(Context *c, TransScope *scop
     return node;
 }
 
-static AstNode *trans_do_loop(Context *c, TransScope *parent_scope, const DoStmt *stmt) {
+static AstNode *trans_do_loop(Context *c, TransScope *parent_scope, const clang::DoStmt *stmt) {
     TransScopeWhile *while_scope = trans_scope_while_create(c, parent_scope);
 
     while_scope->node->data.while_expr.condition = trans_create_node_bool(c, true);
 
     AstNode *body_node;
     TransScope *child_scope;
-    if (stmt->getBody()->getStmtClass() == Stmt::CompoundStmtClass) {
+    if (stmt->getBody()->getStmtClass() == clang::Stmt::CompoundStmtClass) {
         // there's already a block in C, so we'll append our condition to it.
         // c: do {
         // c:   a;
@@ -2795,11 +2825,11 @@ static AstNode *trans_do_loop(Context *c, TransScope *parent_scope, const DoStmt
     return while_scope->node;
 }
 
-static AstNode *trans_for_loop(Context *c, TransScope *parent_scope, const ForStmt *stmt) {
+static AstNode *trans_for_loop(Context *c, TransScope *parent_scope, const clang::ForStmt *stmt) {
     AstNode *loop_block_node;
     TransScopeWhile *while_scope;
     TransScope *cond_scope;
-    const Stmt *init_stmt = stmt->getInit();
+    const clang::Stmt *init_stmt = stmt->getInit();
     if (init_stmt == nullptr) {
         while_scope = trans_scope_while_create(c, parent_scope);
         loop_block_node = while_scope->node;
@@ -2820,12 +2850,12 @@ static AstNode *trans_for_loop(Context *c, TransScope *parent_scope, const ForSt
         child_scope->node->data.block.statements.append(while_scope->node);
     }
 
-    const Stmt *cond_stmt = stmt->getCond();
+    const clang::Stmt *cond_stmt = stmt->getCond();
     if (cond_stmt == nullptr) {
         while_scope->node->data.while_expr.condition = trans_create_node_bool(c, true);
     } else {
-        if (Expr::classof(cond_stmt)) {
-            const Expr *cond_expr = static_cast<const Expr*>(cond_stmt);
+        if (clang::Expr::classof(cond_stmt)) {
+            const clang::Expr *cond_expr = static_cast<const clang::Expr*>(cond_stmt);
             while_scope->node->data.while_expr.condition = trans_bool_expr(c, ResultUsedYes, cond_scope, cond_expr, TransRValue);
 
             if (while_scope->node->data.while_expr.condition == nullptr)
@@ -2838,7 +2868,7 @@ static AstNode *trans_for_loop(Context *c, TransScope *parent_scope, const ForSt
         }
     }
 
-    const Stmt *inc_stmt = stmt->getInc();
+    const clang::Stmt *inc_stmt = stmt->getInc();
     if (inc_stmt != nullptr) {
         AstNode *inc_node;
         TransScope *inc_scope = trans_stmt(c, cond_scope, inc_stmt, &inc_node);
@@ -2861,12 +2891,12 @@ static AstNode *trans_for_loop(Context *c, TransScope *parent_scope, const ForSt
     return loop_block_node;
 }
 
-static AstNode *trans_switch_stmt(Context *c, TransScope *parent_scope, const SwitchStmt *stmt) {
+static AstNode *trans_switch_stmt(Context *c, TransScope *parent_scope, const clang::SwitchStmt *stmt) {
     TransScopeBlock *block_scope = trans_scope_block_create(c, parent_scope);
 
     TransScopeSwitch *switch_scope;
 
-    const DeclStmt *var_decl_stmt = stmt->getConditionVariableDeclStmt();
+    const clang::DeclStmt *var_decl_stmt = stmt->getConditionVariableDeclStmt();
     if (var_decl_stmt == nullptr) {
         switch_scope = trans_scope_switch_create(c, &block_scope->base);
     } else {
@@ -2885,7 +2915,7 @@ static AstNode *trans_switch_stmt(Context *c, TransScope *parent_scope, const Sw
     switch_scope->end_label_name = end_label_name;
     block_scope->node->data.block.name = end_label_name;
 
-    const Expr *cond_expr = stmt->getCond();
+    const clang::Expr *cond_expr = stmt->getCond();
     assert(cond_expr != nullptr);
 
     AstNode *expr_node = trans_expr(c, ResultUsedYes, &block_scope->base, cond_expr, TransRValue);
@@ -2894,9 +2924,9 @@ static AstNode *trans_switch_stmt(Context *c, TransScope *parent_scope, const Sw
     switch_scope->switch_node->data.switch_expr.expr = expr_node;
 
     AstNode *body_node;
-    const Stmt *body_stmt = stmt->getBody();
-    if (body_stmt->getStmtClass() == Stmt::CompoundStmtClass) {
-        if (trans_compound_stmt_inline(c, &switch_scope->base, (const CompoundStmt *)body_stmt,
+    const clang::Stmt *body_stmt = stmt->getBody();
+    if (body_stmt->getStmtClass() == clang::Stmt::CompoundStmtClass) {
+        if (trans_compound_stmt_inline(c, &switch_scope->base, (const clang::CompoundStmt *)body_stmt,
                                        block_scope->node, nullptr))
         {
             return nullptr;
@@ -2928,7 +2958,7 @@ static TransScopeSwitch *trans_scope_switch_find(TransScope *scope) {
     return nullptr;
 }
 
-static int trans_switch_case(Context *c, TransScope *parent_scope, const CaseStmt *stmt, AstNode **out_node,
+static int trans_switch_case(Context *c, TransScope *parent_scope, const clang::CaseStmt *stmt, AstNode **out_node,
                              TransScope **out_scope) {
     *out_node = nullptr;
 
@@ -2973,7 +3003,7 @@ static int trans_switch_case(Context *c, TransScope *parent_scope, const CaseStm
     return ErrorNone;
 }
 
-static int trans_switch_default(Context *c, TransScope *parent_scope, const DefaultStmt *stmt, AstNode **out_node,
+static int trans_switch_default(Context *c, TransScope *parent_scope, const clang::DefaultStmt *stmt, AstNode **out_node,
                                 TransScope **out_scope)
 {
     *out_node = nullptr;
@@ -3010,25 +3040,25 @@ static int trans_switch_default(Context *c, TransScope *parent_scope, const Defa
     return ErrorNone;
 }
 
-static AstNode *trans_string_literal(Context *c, TransScope *scope, const StringLiteral *stmt) {
+static AstNode *trans_string_literal(Context *c, TransScope *scope, const clang::StringLiteral *stmt) {
     switch (stmt->getKind()) {
-        case StringLiteral::Ascii:
-        case StringLiteral::UTF8:
+        case clang::StringLiteral::Ascii:
+        case clang::StringLiteral::UTF8:
             return trans_create_node_str_lit_c(c, string_ref_to_buf(stmt->getString()));
-        case StringLiteral::UTF16:
+        case clang::StringLiteral::UTF16:
             emit_warning(c, stmt->getLocStart(), "TODO support UTF16 string literals");
             return nullptr;
-        case StringLiteral::UTF32:
+        case clang::StringLiteral::UTF32:
             emit_warning(c, stmt->getLocStart(), "TODO support UTF32 string literals");
             return nullptr;
-        case StringLiteral::Wide:
+        case clang::StringLiteral::Wide:
             emit_warning(c, stmt->getLocStart(), "TODO support wide string literals");
             return nullptr;
     }
     zig_unreachable();
 }
 
-static AstNode *trans_break_stmt(Context *c, TransScope *scope, const BreakStmt *stmt) {
+static AstNode *trans_break_stmt(Context *c, TransScope *scope, const clang::BreakStmt *stmt) {
     TransScope *cur_scope = scope;
     while (cur_scope != nullptr) {
         if (cur_scope->id == TransScopeIdWhile) {
@@ -3042,7 +3072,7 @@ static AstNode *trans_break_stmt(Context *c, TransScope *scope, const BreakStmt 
     zig_unreachable();
 }
 
-static AstNode *trans_continue_stmt(Context *c, TransScope *scope, const ContinueStmt *stmt) {
+static AstNode *trans_continue_stmt(Context *c, TransScope *scope, const clang::ContinueStmt *stmt) {
     return trans_create_node(c, NodeTypeContinue);
 }
 
@@ -3055,47 +3085,47 @@ static int wrap_stmt(AstNode **out_node, TransScope **out_scope, TransScope *in_
     return ErrorNone;
 }
 
-static int trans_stmt_extra(Context *c, TransScope *scope, const Stmt *stmt,
+static int trans_stmt_extra(Context *c, TransScope *scope, const clang::Stmt *stmt,
         ResultUsed result_used, TransLRValue lrvalue,
         AstNode **out_node, TransScope **out_child_scope,
         TransScope **out_node_scope)
 {
-    Stmt::StmtClass sc = stmt->getStmtClass();
+    clang::Stmt::StmtClass sc = stmt->getStmtClass();
     switch (sc) {
-        case Stmt::ReturnStmtClass:
+        case clang::Stmt::ReturnStmtClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_return_stmt(c, scope, (const ReturnStmt *)stmt));
-        case Stmt::CompoundStmtClass:
+                    trans_return_stmt(c, scope, (const clang::ReturnStmt *)stmt));
+        case clang::Stmt::CompoundStmtClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_compound_stmt(c, scope, (const CompoundStmt *)stmt, out_node_scope));
-        case Stmt::IntegerLiteralClass:
+                    trans_compound_stmt(c, scope, (const clang::CompoundStmt *)stmt, out_node_scope));
+        case clang::Stmt::IntegerLiteralClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_integer_literal(c, (const IntegerLiteral *)stmt));
-        case Stmt::ConditionalOperatorClass:
+                    trans_integer_literal(c, (const clang::IntegerLiteral *)stmt));
+        case clang::Stmt::ConditionalOperatorClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_conditional_operator(c, result_used, scope, (const ConditionalOperator *)stmt));
-        case Stmt::BinaryOperatorClass:
+                    trans_conditional_operator(c, result_used, scope, (const clang::ConditionalOperator *)stmt));
+        case clang::Stmt::BinaryOperatorClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_binary_operator(c, result_used, scope, (const BinaryOperator *)stmt));
-        case Stmt::CompoundAssignOperatorClass:
+                    trans_binary_operator(c, result_used, scope, (const clang::BinaryOperator *)stmt));
+        case clang::Stmt::CompoundAssignOperatorClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_compound_assign_operator(c, result_used, scope, (const CompoundAssignOperator *)stmt));
-        case Stmt::ImplicitCastExprClass:
+                    trans_compound_assign_operator(c, result_used, scope, (const clang::CompoundAssignOperator *)stmt));
+        case clang::Stmt::ImplicitCastExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_implicit_cast_expr(c, scope, (const ImplicitCastExpr *)stmt));
-        case Stmt::DeclRefExprClass:
+                    trans_implicit_cast_expr(c, scope, (const clang::ImplicitCastExpr *)stmt));
+        case clang::Stmt::DeclRefExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_decl_ref_expr(c, scope, (const DeclRefExpr *)stmt, lrvalue));
-        case Stmt::UnaryOperatorClass:
+                    trans_decl_ref_expr(c, scope, (const clang::DeclRefExpr *)stmt, lrvalue));
+        case clang::Stmt::UnaryOperatorClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_unary_operator(c, result_used, scope, (const UnaryOperator *)stmt));
-        case Stmt::DeclStmtClass:
-            return trans_local_declaration(c, scope, (const DeclStmt *)stmt, out_node, out_child_scope);
-        case Stmt::DoStmtClass:
-        case Stmt::WhileStmtClass: {
-            AstNode *while_node = sc == Stmt::DoStmtClass
-                ? trans_do_loop(c, scope, (const DoStmt *)stmt)
-                : trans_while_loop(c, scope, (const WhileStmt *)stmt);
+                    trans_unary_operator(c, result_used, scope, (const clang::UnaryOperator *)stmt));
+        case clang::Stmt::DeclStmtClass:
+            return trans_local_declaration(c, scope, (const clang::DeclStmt *)stmt, out_node, out_child_scope);
+        case clang::Stmt::DoStmtClass:
+        case clang::Stmt::WhileStmtClass: {
+            AstNode *while_node = sc == clang::Stmt::DoStmtClass
+                ? trans_do_loop(c, scope, (const clang::DoStmt *)stmt)
+                : trans_while_loop(c, scope, (const clang::WhileStmt *)stmt);
 
             if (while_node == nullptr)
                 return ErrorUnexpected;
@@ -3106,556 +3136,556 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const Stmt *stmt,
 
             return wrap_stmt(out_node, out_child_scope, scope, while_node);
         }
-        case Stmt::IfStmtClass:
+        case clang::Stmt::IfStmtClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_if_statement(c, scope, (const IfStmt *)stmt));
-        case Stmt::CallExprClass:
+                    trans_if_statement(c, scope, (const clang::IfStmt *)stmt));
+        case clang::Stmt::CallExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_call_expr(c, result_used, scope, (const CallExpr *)stmt));
-        case Stmt::NullStmtClass:
+                    trans_call_expr(c, result_used, scope, (const clang::CallExpr *)stmt));
+        case clang::Stmt::NullStmtClass:
             *out_node = nullptr;
             *out_child_scope = scope;
             return ErrorNone;
-        case Stmt::MemberExprClass:
+        case clang::Stmt::MemberExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_member_expr(c, scope, (const MemberExpr *)stmt));
-        case Stmt::ArraySubscriptExprClass:
+                    trans_member_expr(c, scope, (const clang::MemberExpr *)stmt));
+        case clang::Stmt::ArraySubscriptExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_array_subscript_expr(c, scope, (const ArraySubscriptExpr *)stmt));
-        case Stmt::CStyleCastExprClass:
+                    trans_array_subscript_expr(c, scope, (const clang::ArraySubscriptExpr *)stmt));
+        case clang::Stmt::CStyleCastExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_c_style_cast_expr(c, result_used, scope, (const CStyleCastExpr *)stmt, lrvalue));
-        case Stmt::UnaryExprOrTypeTraitExprClass:
+                    trans_c_style_cast_expr(c, result_used, scope, (const clang::CStyleCastExpr *)stmt, lrvalue));
+        case clang::Stmt::UnaryExprOrTypeTraitExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_unary_expr_or_type_trait_expr(c, scope, (const UnaryExprOrTypeTraitExpr *)stmt));
-        case Stmt::ForStmtClass: {
-            AstNode *node = trans_for_loop(c, scope, (const ForStmt *)stmt);
+                    trans_unary_expr_or_type_trait_expr(c, scope, (const clang::UnaryExprOrTypeTraitExpr *)stmt));
+        case clang::Stmt::ForStmtClass: {
+            AstNode *node = trans_for_loop(c, scope, (const clang::ForStmt *)stmt);
             return wrap_stmt(out_node, out_child_scope, scope, node);
         }
-        case Stmt::StringLiteralClass:
+        case clang::Stmt::StringLiteralClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_string_literal(c, scope, (const StringLiteral *)stmt));
-        case Stmt::BreakStmtClass:
+                    trans_string_literal(c, scope, (const clang::StringLiteral *)stmt));
+        case clang::Stmt::BreakStmtClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_break_stmt(c, scope, (const BreakStmt *)stmt));
-        case Stmt::ContinueStmtClass:
+                    trans_break_stmt(c, scope, (const clang::BreakStmt *)stmt));
+        case clang::Stmt::ContinueStmtClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_continue_stmt(c, scope, (const ContinueStmt *)stmt));
-        case Stmt::ParenExprClass:
+                    trans_continue_stmt(c, scope, (const clang::ContinueStmt *)stmt));
+        case clang::Stmt::ParenExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_expr(c, result_used, scope, ((const ParenExpr*)stmt)->getSubExpr(), lrvalue));
-        case Stmt::SwitchStmtClass:
+                    trans_expr(c, result_used, scope, ((const clang::ParenExpr*)stmt)->getSubExpr(), lrvalue));
+        case clang::Stmt::SwitchStmtClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                             trans_switch_stmt(c, scope, (const SwitchStmt *)stmt));
-        case Stmt::CaseStmtClass:
-            return trans_switch_case(c, scope, (const CaseStmt *)stmt, out_node, out_child_scope);
-        case Stmt::DefaultStmtClass:
-            return trans_switch_default(c, scope, (const DefaultStmt *)stmt, out_node, out_child_scope);
-        case Stmt::NoStmtClass:
+                             trans_switch_stmt(c, scope, (const clang::SwitchStmt *)stmt));
+        case clang::Stmt::CaseStmtClass:
+            return trans_switch_case(c, scope, (const clang::CaseStmt *)stmt, out_node, out_child_scope);
+        case clang::Stmt::DefaultStmtClass:
+            return trans_switch_default(c, scope, (const clang::DefaultStmt *)stmt, out_node, out_child_scope);
+        case clang::Stmt::NoStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C NoStmtClass");
             return ErrorUnexpected;
-        case Stmt::GCCAsmStmtClass:
+        case clang::Stmt::GCCAsmStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C GCCAsmStmtClass");
             return ErrorUnexpected;
-        case Stmt::MSAsmStmtClass:
+        case clang::Stmt::MSAsmStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C MSAsmStmtClass");
             return ErrorUnexpected;
-        case Stmt::AttributedStmtClass:
+        case clang::Stmt::AttributedStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C AttributedStmtClass");
             return ErrorUnexpected;
-        case Stmt::CXXCatchStmtClass:
+        case clang::Stmt::CXXCatchStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXCatchStmtClass");
             return ErrorUnexpected;
-        case Stmt::CXXForRangeStmtClass:
+        case clang::Stmt::CXXForRangeStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXForRangeStmtClass");
             return ErrorUnexpected;
-        case Stmt::CXXTryStmtClass:
+        case clang::Stmt::CXXTryStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXTryStmtClass");
             return ErrorUnexpected;
-        case Stmt::CapturedStmtClass:
+        case clang::Stmt::CapturedStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CapturedStmtClass");
             return ErrorUnexpected;
-        case Stmt::CoreturnStmtClass:
+        case clang::Stmt::CoreturnStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CoreturnStmtClass");
             return ErrorUnexpected;
-        case Stmt::CoroutineBodyStmtClass:
+        case clang::Stmt::CoroutineBodyStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CoroutineBodyStmtClass");
             return ErrorUnexpected;
-        case Stmt::BinaryConditionalOperatorClass:
+        case clang::Stmt::BinaryConditionalOperatorClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C BinaryConditionalOperatorClass");
             return ErrorUnexpected;
-        case Stmt::AddrLabelExprClass:
+        case clang::Stmt::AddrLabelExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C AddrLabelExprClass");
             return ErrorUnexpected;
-        case Stmt::ArrayInitIndexExprClass:
+        case clang::Stmt::ArrayInitIndexExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ArrayInitIndexExprClass");
             return ErrorUnexpected;
-        case Stmt::ArrayInitLoopExprClass:
+        case clang::Stmt::ArrayInitLoopExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ArrayInitLoopExprClass");
             return ErrorUnexpected;
-        case Stmt::ArrayTypeTraitExprClass:
+        case clang::Stmt::ArrayTypeTraitExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ArrayTypeTraitExprClass");
             return ErrorUnexpected;
-        case Stmt::AsTypeExprClass:
+        case clang::Stmt::AsTypeExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C AsTypeExprClass");
             return ErrorUnexpected;
-        case Stmt::AtomicExprClass:
+        case clang::Stmt::AtomicExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C AtomicExprClass");
             return ErrorUnexpected;
-        case Stmt::BlockExprClass:
+        case clang::Stmt::BlockExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C BlockExprClass");
             return ErrorUnexpected;
-        case Stmt::CXXBindTemporaryExprClass:
+        case clang::Stmt::CXXBindTemporaryExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXBindTemporaryExprClass");
             return ErrorUnexpected;
-        case Stmt::CXXBoolLiteralExprClass:
+        case clang::Stmt::CXXBoolLiteralExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXBoolLiteralExprClass");
             return ErrorUnexpected;
-        case Stmt::CXXConstructExprClass:
+        case clang::Stmt::CXXConstructExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXConstructExprClass");
             return ErrorUnexpected;
-        case Stmt::CXXTemporaryObjectExprClass:
+        case clang::Stmt::CXXTemporaryObjectExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXTemporaryObjectExprClass");
             return ErrorUnexpected;
-        case Stmt::CXXDefaultArgExprClass:
+        case clang::Stmt::CXXDefaultArgExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXDefaultArgExprClass");
             return ErrorUnexpected;
-        case Stmt::CXXDefaultInitExprClass:
+        case clang::Stmt::CXXDefaultInitExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXDefaultInitExprClass");
             return ErrorUnexpected;
-        case Stmt::CXXDeleteExprClass:
+        case clang::Stmt::CXXDeleteExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXDeleteExprClass");
             return ErrorUnexpected;
-        case Stmt::CXXDependentScopeMemberExprClass:
+        case clang::Stmt::CXXDependentScopeMemberExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXDependentScopeMemberExprClass");
             return ErrorUnexpected;
-        case Stmt::CXXFoldExprClass:
+        case clang::Stmt::CXXFoldExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXFoldExprClass");
             return ErrorUnexpected;
-        case Stmt::CXXInheritedCtorInitExprClass:
+        case clang::Stmt::CXXInheritedCtorInitExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXInheritedCtorInitExprClass");
             return ErrorUnexpected;
-        case Stmt::CXXNewExprClass:
+        case clang::Stmt::CXXNewExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXNewExprClass");
             return ErrorUnexpected;
-        case Stmt::CXXNoexceptExprClass:
+        case clang::Stmt::CXXNoexceptExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXNoexceptExprClass");
             return ErrorUnexpected;
-        case Stmt::CXXNullPtrLiteralExprClass:
+        case clang::Stmt::CXXNullPtrLiteralExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXNullPtrLiteralExprClass");
             return ErrorUnexpected;
-        case Stmt::CXXPseudoDestructorExprClass:
+        case clang::Stmt::CXXPseudoDestructorExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXPseudoDestructorExprClass");
             return ErrorUnexpected;
-        case Stmt::CXXScalarValueInitExprClass:
+        case clang::Stmt::CXXScalarValueInitExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXScalarValueInitExprClass");
             return ErrorUnexpected;
-        case Stmt::CXXStdInitializerListExprClass:
+        case clang::Stmt::CXXStdInitializerListExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXStdInitializerListExprClass");
             return ErrorUnexpected;
-        case Stmt::CXXThisExprClass:
+        case clang::Stmt::CXXThisExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXThisExprClass");
             return ErrorUnexpected;
-        case Stmt::CXXThrowExprClass:
+        case clang::Stmt::CXXThrowExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXThrowExprClass");
             return ErrorUnexpected;
-        case Stmt::CXXTypeidExprClass:
+        case clang::Stmt::CXXTypeidExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXTypeidExprClass");
             return ErrorUnexpected;
-        case Stmt::CXXUnresolvedConstructExprClass:
+        case clang::Stmt::CXXUnresolvedConstructExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXUnresolvedConstructExprClass");
             return ErrorUnexpected;
-        case Stmt::CXXUuidofExprClass:
+        case clang::Stmt::CXXUuidofExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXUuidofExprClass");
             return ErrorUnexpected;
-        case Stmt::CUDAKernelCallExprClass:
+        case clang::Stmt::CUDAKernelCallExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CUDAKernelCallExprClass");
             return ErrorUnexpected;
-        case Stmt::CXXMemberCallExprClass:
+        case clang::Stmt::CXXMemberCallExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXMemberCallExprClass");
             return ErrorUnexpected;
-        case Stmt::CXXOperatorCallExprClass:
+        case clang::Stmt::CXXOperatorCallExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXOperatorCallExprClass");
             return ErrorUnexpected;
-        case Stmt::UserDefinedLiteralClass:
+        case clang::Stmt::UserDefinedLiteralClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C UserDefinedLiteralClass");
             return ErrorUnexpected;
-        case Stmt::CXXFunctionalCastExprClass:
+        case clang::Stmt::CXXFunctionalCastExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXFunctionalCastExprClass");
             return ErrorUnexpected;
-        case Stmt::CXXConstCastExprClass:
+        case clang::Stmt::CXXConstCastExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXConstCastExprClass");
             return ErrorUnexpected;
-        case Stmt::CXXDynamicCastExprClass:
+        case clang::Stmt::CXXDynamicCastExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXDynamicCastExprClass");
             return ErrorUnexpected;
-        case Stmt::CXXReinterpretCastExprClass:
+        case clang::Stmt::CXXReinterpretCastExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXReinterpretCastExprClass");
             return ErrorUnexpected;
-        case Stmt::CXXStaticCastExprClass:
+        case clang::Stmt::CXXStaticCastExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXStaticCastExprClass");
             return ErrorUnexpected;
-        case Stmt::ObjCBridgedCastExprClass:
+        case clang::Stmt::ObjCBridgedCastExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCBridgedCastExprClass");
             return ErrorUnexpected;
-        case Stmt::CharacterLiteralClass:
+        case clang::Stmt::CharacterLiteralClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CharacterLiteralClass");
             return ErrorUnexpected;
-        case Stmt::ChooseExprClass:
+        case clang::Stmt::ChooseExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ChooseExprClass");
             return ErrorUnexpected;
-        case Stmt::CompoundLiteralExprClass:
+        case clang::Stmt::CompoundLiteralExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CompoundLiteralExprClass");
             return ErrorUnexpected;
-        case Stmt::ConvertVectorExprClass:
+        case clang::Stmt::ConvertVectorExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ConvertVectorExprClass");
             return ErrorUnexpected;
-        case Stmt::CoawaitExprClass:
+        case clang::Stmt::CoawaitExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CoawaitExprClass");
             return ErrorUnexpected;
-        case Stmt::CoyieldExprClass:
+        case clang::Stmt::CoyieldExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CoyieldExprClass");
             return ErrorUnexpected;
-        case Stmt::DependentCoawaitExprClass:
+        case clang::Stmt::DependentCoawaitExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C DependentCoawaitExprClass");
             return ErrorUnexpected;
-        case Stmt::DependentScopeDeclRefExprClass:
+        case clang::Stmt::DependentScopeDeclRefExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C DependentScopeDeclRefExprClass");
             return ErrorUnexpected;
-        case Stmt::DesignatedInitExprClass:
+        case clang::Stmt::DesignatedInitExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C DesignatedInitExprClass");
             return ErrorUnexpected;
-        case Stmt::DesignatedInitUpdateExprClass:
+        case clang::Stmt::DesignatedInitUpdateExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C DesignatedInitUpdateExprClass");
             return ErrorUnexpected;
-        case Stmt::ExprWithCleanupsClass:
+        case clang::Stmt::ExprWithCleanupsClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ExprWithCleanupsClass");
             return ErrorUnexpected;
-        case Stmt::ExpressionTraitExprClass:
+        case clang::Stmt::ExpressionTraitExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ExpressionTraitExprClass");
             return ErrorUnexpected;
-        case Stmt::ExtVectorElementExprClass:
+        case clang::Stmt::ExtVectorElementExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ExtVectorElementExprClass");
             return ErrorUnexpected;
-        case Stmt::FloatingLiteralClass:
+        case clang::Stmt::FloatingLiteralClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C FloatingLiteralClass");
             return ErrorUnexpected;
-        case Stmt::FunctionParmPackExprClass:
+        case clang::Stmt::FunctionParmPackExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C FunctionParmPackExprClass");
             return ErrorUnexpected;
-        case Stmt::GNUNullExprClass:
+        case clang::Stmt::GNUNullExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C GNUNullExprClass");
             return ErrorUnexpected;
-        case Stmt::GenericSelectionExprClass:
+        case clang::Stmt::GenericSelectionExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C GenericSelectionExprClass");
             return ErrorUnexpected;
-        case Stmt::ImaginaryLiteralClass:
+        case clang::Stmt::ImaginaryLiteralClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ImaginaryLiteralClass");
             return ErrorUnexpected;
-        case Stmt::ImplicitValueInitExprClass:
+        case clang::Stmt::ImplicitValueInitExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ImplicitValueInitExprClass");
             return ErrorUnexpected;
-        case Stmt::InitListExprClass:
+        case clang::Stmt::InitListExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C InitListExprClass");
             return ErrorUnexpected;
-        case Stmt::LambdaExprClass:
+        case clang::Stmt::LambdaExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C LambdaExprClass");
             return ErrorUnexpected;
-        case Stmt::MSPropertyRefExprClass:
+        case clang::Stmt::MSPropertyRefExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C MSPropertyRefExprClass");
             return ErrorUnexpected;
-        case Stmt::MSPropertySubscriptExprClass:
+        case clang::Stmt::MSPropertySubscriptExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C MSPropertySubscriptExprClass");
             return ErrorUnexpected;
-        case Stmt::MaterializeTemporaryExprClass:
+        case clang::Stmt::MaterializeTemporaryExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C MaterializeTemporaryExprClass");
             return ErrorUnexpected;
-        case Stmt::NoInitExprClass:
+        case clang::Stmt::NoInitExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C NoInitExprClass");
             return ErrorUnexpected;
-        case Stmt::OMPArraySectionExprClass:
+        case clang::Stmt::OMPArraySectionExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPArraySectionExprClass");
             return ErrorUnexpected;
-        case Stmt::ObjCArrayLiteralClass:
+        case clang::Stmt::ObjCArrayLiteralClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCArrayLiteralClass");
             return ErrorUnexpected;
-        case Stmt::ObjCAvailabilityCheckExprClass:
+        case clang::Stmt::ObjCAvailabilityCheckExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCAvailabilityCheckExprClass");
             return ErrorUnexpected;
-        case Stmt::ObjCBoolLiteralExprClass:
+        case clang::Stmt::ObjCBoolLiteralExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCBoolLiteralExprClass");
             return ErrorUnexpected;
-        case Stmt::ObjCBoxedExprClass:
+        case clang::Stmt::ObjCBoxedExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCBoxedExprClass");
             return ErrorUnexpected;
-        case Stmt::ObjCDictionaryLiteralClass:
+        case clang::Stmt::ObjCDictionaryLiteralClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCDictionaryLiteralClass");
             return ErrorUnexpected;
-        case Stmt::ObjCEncodeExprClass:
+        case clang::Stmt::ObjCEncodeExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCEncodeExprClass");
             return ErrorUnexpected;
-        case Stmt::ObjCIndirectCopyRestoreExprClass:
+        case clang::Stmt::ObjCIndirectCopyRestoreExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCIndirectCopyRestoreExprClass");
             return ErrorUnexpected;
-        case Stmt::ObjCIsaExprClass:
+        case clang::Stmt::ObjCIsaExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCIsaExprClass");
             return ErrorUnexpected;
-        case Stmt::ObjCIvarRefExprClass:
+        case clang::Stmt::ObjCIvarRefExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCIvarRefExprClass");
             return ErrorUnexpected;
-        case Stmt::ObjCMessageExprClass:
+        case clang::Stmt::ObjCMessageExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCMessageExprClass");
             return ErrorUnexpected;
-        case Stmt::ObjCPropertyRefExprClass:
+        case clang::Stmt::ObjCPropertyRefExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCPropertyRefExprClass");
             return ErrorUnexpected;
-        case Stmt::ObjCProtocolExprClass:
+        case clang::Stmt::ObjCProtocolExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCProtocolExprClass");
             return ErrorUnexpected;
-        case Stmt::ObjCSelectorExprClass:
+        case clang::Stmt::ObjCSelectorExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCSelectorExprClass");
             return ErrorUnexpected;
-        case Stmt::ObjCStringLiteralClass:
+        case clang::Stmt::ObjCStringLiteralClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCStringLiteralClass");
             return ErrorUnexpected;
-        case Stmt::ObjCSubscriptRefExprClass:
+        case clang::Stmt::ObjCSubscriptRefExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCSubscriptRefExprClass");
             return ErrorUnexpected;
-        case Stmt::OffsetOfExprClass:
+        case clang::Stmt::OffsetOfExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OffsetOfExprClass");
             return ErrorUnexpected;
-        case Stmt::OpaqueValueExprClass:
+        case clang::Stmt::OpaqueValueExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OpaqueValueExprClass");
             return ErrorUnexpected;
-        case Stmt::UnresolvedLookupExprClass:
+        case clang::Stmt::UnresolvedLookupExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C UnresolvedLookupExprClass");
             return ErrorUnexpected;
-        case Stmt::UnresolvedMemberExprClass:
+        case clang::Stmt::UnresolvedMemberExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C UnresolvedMemberExprClass");
             return ErrorUnexpected;
-        case Stmt::PackExpansionExprClass:
+        case clang::Stmt::PackExpansionExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C PackExpansionExprClass");
             return ErrorUnexpected;
-        case Stmt::ParenListExprClass:
+        case clang::Stmt::ParenListExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ParenListExprClass");
             return ErrorUnexpected;
-        case Stmt::PredefinedExprClass:
+        case clang::Stmt::PredefinedExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C PredefinedExprClass");
             return ErrorUnexpected;
-        case Stmt::PseudoObjectExprClass:
+        case clang::Stmt::PseudoObjectExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C PseudoObjectExprClass");
             return ErrorUnexpected;
-        case Stmt::ShuffleVectorExprClass:
+        case clang::Stmt::ShuffleVectorExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ShuffleVectorExprClass");
             return ErrorUnexpected;
-        case Stmt::SizeOfPackExprClass:
+        case clang::Stmt::SizeOfPackExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C SizeOfPackExprClass");
             return ErrorUnexpected;
-        case Stmt::StmtExprClass:
+        case clang::Stmt::StmtExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C StmtExprClass");
             return ErrorUnexpected;
-        case Stmt::SubstNonTypeTemplateParmExprClass:
+        case clang::Stmt::SubstNonTypeTemplateParmExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C SubstNonTypeTemplateParmExprClass");
             return ErrorUnexpected;
-        case Stmt::SubstNonTypeTemplateParmPackExprClass:
+        case clang::Stmt::SubstNonTypeTemplateParmPackExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C SubstNonTypeTemplateParmPackExprClass");
             return ErrorUnexpected;
-        case Stmt::TypeTraitExprClass:
+        case clang::Stmt::TypeTraitExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C TypeTraitExprClass");
             return ErrorUnexpected;
-        case Stmt::TypoExprClass:
+        case clang::Stmt::TypoExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C TypoExprClass");
             return ErrorUnexpected;
-        case Stmt::VAArgExprClass:
+        case clang::Stmt::VAArgExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C VAArgExprClass");
             return ErrorUnexpected;
-        case Stmt::GotoStmtClass:
+        case clang::Stmt::GotoStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C GotoStmtClass");
             return ErrorUnexpected;
-        case Stmt::IndirectGotoStmtClass:
+        case clang::Stmt::IndirectGotoStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C IndirectGotoStmtClass");
             return ErrorUnexpected;
-        case Stmt::LabelStmtClass:
+        case clang::Stmt::LabelStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C LabelStmtClass");
             return ErrorUnexpected;
-        case Stmt::MSDependentExistsStmtClass:
+        case clang::Stmt::MSDependentExistsStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C MSDependentExistsStmtClass");
             return ErrorUnexpected;
-        case Stmt::OMPAtomicDirectiveClass:
+        case clang::Stmt::OMPAtomicDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPAtomicDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPBarrierDirectiveClass:
+        case clang::Stmt::OMPBarrierDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPBarrierDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPCancelDirectiveClass:
+        case clang::Stmt::OMPCancelDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPCancelDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPCancellationPointDirectiveClass:
+        case clang::Stmt::OMPCancellationPointDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPCancellationPointDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPCriticalDirectiveClass:
+        case clang::Stmt::OMPCriticalDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPCriticalDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPFlushDirectiveClass:
+        case clang::Stmt::OMPFlushDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPFlushDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPDistributeDirectiveClass:
+        case clang::Stmt::OMPDistributeDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPDistributeDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPDistributeParallelForDirectiveClass:
+        case clang::Stmt::OMPDistributeParallelForDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPDistributeParallelForDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPDistributeParallelForSimdDirectiveClass:
+        case clang::Stmt::OMPDistributeParallelForSimdDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPDistributeParallelForSimdDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPDistributeSimdDirectiveClass:
+        case clang::Stmt::OMPDistributeSimdDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPDistributeSimdDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPForDirectiveClass:
+        case clang::Stmt::OMPForDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPForDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPForSimdDirectiveClass:
+        case clang::Stmt::OMPForSimdDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPForSimdDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPParallelForDirectiveClass:
+        case clang::Stmt::OMPParallelForDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPParallelForDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPParallelForSimdDirectiveClass:
+        case clang::Stmt::OMPParallelForSimdDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPParallelForSimdDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPSimdDirectiveClass:
+        case clang::Stmt::OMPSimdDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPSimdDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPTargetParallelForSimdDirectiveClass:
+        case clang::Stmt::OMPTargetParallelForSimdDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetParallelForSimdDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPTargetSimdDirectiveClass:
+        case clang::Stmt::OMPTargetSimdDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetSimdDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPTargetTeamsDistributeDirectiveClass:
+        case clang::Stmt::OMPTargetTeamsDistributeDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetTeamsDistributeDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPTargetTeamsDistributeParallelForDirectiveClass:
+        case clang::Stmt::OMPTargetTeamsDistributeParallelForDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetTeamsDistributeParallelForDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPTargetTeamsDistributeParallelForSimdDirectiveClass:
+        case clang::Stmt::OMPTargetTeamsDistributeParallelForSimdDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetTeamsDistributeParallelForSimdDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPTargetTeamsDistributeSimdDirectiveClass:
+        case clang::Stmt::OMPTargetTeamsDistributeSimdDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetTeamsDistributeSimdDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPTaskLoopDirectiveClass:
+        case clang::Stmt::OMPTaskLoopDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTaskLoopDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPTaskLoopSimdDirectiveClass:
+        case clang::Stmt::OMPTaskLoopSimdDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTaskLoopSimdDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPTeamsDistributeDirectiveClass:
+        case clang::Stmt::OMPTeamsDistributeDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTeamsDistributeDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPTeamsDistributeParallelForDirectiveClass:
+        case clang::Stmt::OMPTeamsDistributeParallelForDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTeamsDistributeParallelForDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPTeamsDistributeParallelForSimdDirectiveClass:
+        case clang::Stmt::OMPTeamsDistributeParallelForSimdDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTeamsDistributeParallelForSimdDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPTeamsDistributeSimdDirectiveClass:
+        case clang::Stmt::OMPTeamsDistributeSimdDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTeamsDistributeSimdDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPMasterDirectiveClass:
+        case clang::Stmt::OMPMasterDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPMasterDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPOrderedDirectiveClass:
+        case clang::Stmt::OMPOrderedDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPOrderedDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPParallelDirectiveClass:
+        case clang::Stmt::OMPParallelDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPParallelDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPParallelSectionsDirectiveClass:
+        case clang::Stmt::OMPParallelSectionsDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPParallelSectionsDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPSectionDirectiveClass:
+        case clang::Stmt::OMPSectionDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPSectionDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPSectionsDirectiveClass:
+        case clang::Stmt::OMPSectionsDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPSectionsDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPSingleDirectiveClass:
+        case clang::Stmt::OMPSingleDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPSingleDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPTargetDataDirectiveClass:
+        case clang::Stmt::OMPTargetDataDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetDataDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPTargetDirectiveClass:
+        case clang::Stmt::OMPTargetDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPTargetEnterDataDirectiveClass:
+        case clang::Stmt::OMPTargetEnterDataDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetEnterDataDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPTargetExitDataDirectiveClass:
+        case clang::Stmt::OMPTargetExitDataDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetExitDataDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPTargetParallelDirectiveClass:
+        case clang::Stmt::OMPTargetParallelDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetParallelDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPTargetParallelForDirectiveClass:
+        case clang::Stmt::OMPTargetParallelForDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetParallelForDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPTargetTeamsDirectiveClass:
+        case clang::Stmt::OMPTargetTeamsDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetTeamsDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPTargetUpdateDirectiveClass:
+        case clang::Stmt::OMPTargetUpdateDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetUpdateDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPTaskDirectiveClass:
+        case clang::Stmt::OMPTaskDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTaskDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPTaskgroupDirectiveClass:
+        case clang::Stmt::OMPTaskgroupDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTaskgroupDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPTaskwaitDirectiveClass:
+        case clang::Stmt::OMPTaskwaitDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTaskwaitDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPTaskyieldDirectiveClass:
+        case clang::Stmt::OMPTaskyieldDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTaskyieldDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::OMPTeamsDirectiveClass:
+        case clang::Stmt::OMPTeamsDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTeamsDirectiveClass");
             return ErrorUnexpected;
-        case Stmt::ObjCAtCatchStmtClass:
+        case clang::Stmt::ObjCAtCatchStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCAtCatchStmtClass");
             return ErrorUnexpected;
-        case Stmt::ObjCAtFinallyStmtClass:
+        case clang::Stmt::ObjCAtFinallyStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCAtFinallyStmtClass");
             return ErrorUnexpected;
-        case Stmt::ObjCAtSynchronizedStmtClass:
+        case clang::Stmt::ObjCAtSynchronizedStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCAtSynchronizedStmtClass");
             return ErrorUnexpected;
-        case Stmt::ObjCAtThrowStmtClass:
+        case clang::Stmt::ObjCAtThrowStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCAtThrowStmtClass");
             return ErrorUnexpected;
-        case Stmt::ObjCAtTryStmtClass:
+        case clang::Stmt::ObjCAtTryStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCAtTryStmtClass");
             return ErrorUnexpected;
-        case Stmt::ObjCAutoreleasePoolStmtClass:
+        case clang::Stmt::ObjCAutoreleasePoolStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCAutoreleasePoolStmtClass");
             return ErrorUnexpected;
-        case Stmt::ObjCForCollectionStmtClass:
+        case clang::Stmt::ObjCForCollectionStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCForCollectionStmtClass");
             return ErrorUnexpected;
-        case Stmt::SEHExceptStmtClass:
+        case clang::Stmt::SEHExceptStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C SEHExceptStmtClass");
             return ErrorUnexpected;
-        case Stmt::SEHFinallyStmtClass:
+        case clang::Stmt::SEHFinallyStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C SEHFinallyStmtClass");
             return ErrorUnexpected;
-        case Stmt::SEHLeaveStmtClass:
+        case clang::Stmt::SEHLeaveStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C SEHLeaveStmtClass");
             return ErrorUnexpected;
-        case Stmt::SEHTryStmtClass:
+        case clang::Stmt::SEHTryStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C SEHTryStmtClass");
             return ErrorUnexpected;
-        case Stmt::FixedPointLiteralClass:
+        case clang::Stmt::FixedPointLiteralClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C FixedPointLiteralClass");
             return ErrorUnexpected;
     }
@@ -3663,7 +3693,7 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const Stmt *stmt,
 }
 
 // Returns null if there was an error
-static AstNode *trans_expr(Context *c, ResultUsed result_used, TransScope *scope, const Expr *expr,
+static AstNode *trans_expr(Context *c, ResultUsed result_used, TransScope *scope, const clang::Expr *expr,
         TransLRValue lrval)
 {
     AstNode *result_node;
@@ -3676,7 +3706,7 @@ static AstNode *trans_expr(Context *c, ResultUsed result_used, TransScope *scope
 
 // Statements have no result and no concept of L or R value.
 // Returns child scope, or null if there was an error
-static TransScope *trans_stmt(Context *c, TransScope *scope, const Stmt *stmt, AstNode **out_node) {
+static TransScope *trans_stmt(Context *c, TransScope *scope, const clang::Stmt *stmt, AstNode **out_node) {
     TransScope *child_scope;
     if (trans_stmt_extra(c, scope, stmt, ResultUsedNo, TransRValue, out_node, &child_scope, nullptr)) {
         return nullptr;
@@ -3684,7 +3714,7 @@ static TransScope *trans_stmt(Context *c, TransScope *scope, const Stmt *stmt, A
     return child_scope;
 }
 
-static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
+static void visit_fn_decl(Context *c, const clang::FunctionDecl *fn_decl) {
     Buf *fn_name = buf_create_from_str(decl_name(fn_decl));
 
     if (get_global(c, fn_name)) {
@@ -3701,13 +3731,13 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
     proto_node->data.fn_proto.name = fn_name;
     proto_node->data.fn_proto.is_extern = !fn_decl->hasBody();
 
-    StorageClass sc = fn_decl->getStorageClass();
-    if (sc == SC_None) {
+    clang::StorageClass sc = fn_decl->getStorageClass();
+    if (sc == clang::SC_None) {
         proto_node->data.fn_proto.visib_mod = c->visib_mod;
         proto_node->data.fn_proto.is_export = fn_decl->hasBody() ? c->want_export : false;
-    } else if (sc == SC_Extern || sc == SC_Static) {
+    } else if (sc == clang::SC_Extern || sc == clang::SC_Static) {
         proto_node->data.fn_proto.visib_mod = c->visib_mod;
-    } else if (sc == SC_PrivateExtern) {
+    } else if (sc == clang::SC_PrivateExtern) {
         emit_warning(c, fn_decl->getLocation(), "unsupported storage class: private extern");
         return;
     } else {
@@ -3719,7 +3749,7 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
 
     for (size_t i = 0; i < proto_node->data.fn_proto.params.length; i += 1) {
         AstNode *param_node = proto_node->data.fn_proto.params.at(i);
-        const ParmVarDecl *param = fn_decl->getParamDecl(i);
+        const clang::ParmVarDecl *param = fn_decl->getParamDecl(i);
         const char *name = decl_name(param);
 
         Buf *proto_param_name;
@@ -3746,7 +3776,7 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
 
     // actual function definition with body
     c->ptr_params.clear();
-    Stmt *body = fn_decl->getBody();
+    clang::Stmt *body = fn_decl->getBody();
     AstNode *actual_body_node;
     TransScope *result_scope = trans_stmt(c, scope, body, &actual_body_node);
     if (result_scope == nullptr) {
@@ -3788,19 +3818,19 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
     add_top_level_decl(c, fn_def_node->data.fn_def.fn_proto->data.fn_proto.name, fn_def_node);
 }
 
-static AstNode *resolve_typdef_as_builtin(Context *c, const TypedefNameDecl *typedef_decl, const char *primitive_name) {
+static AstNode *resolve_typdef_as_builtin(Context *c, const clang::TypedefNameDecl *typedef_decl, const char *primitive_name) {
     AstNode *node = trans_create_node_symbol_str(c, primitive_name);
     c->decl_table.put(typedef_decl, node);
     return node;
 }
 
-static AstNode *resolve_typedef_decl(Context *c, const TypedefNameDecl *typedef_decl) {
+static AstNode *resolve_typedef_decl(Context *c, const clang::TypedefNameDecl *typedef_decl) {
     auto existing_entry = c->decl_table.maybe_get((void*)typedef_decl->getCanonicalDecl());
     if (existing_entry) {
         return existing_entry->value;
     }
 
-    QualType child_qt = typedef_decl->getUnderlyingType();
+    clang::QualType child_qt = typedef_decl->getUnderlyingType();
     Buf *type_name = buf_create_from_str(decl_name(typedef_decl));
 
     if (buf_eql_str(type_name, "uint8_t")) {
@@ -3849,7 +3879,7 @@ static AstNode *resolve_typedef_decl(Context *c, const TypedefNameDecl *typedef_
     return symbol_node;
 }
 
-struct AstNode *demote_enum_to_opaque(Context *c, const EnumDecl *enum_decl,
+struct AstNode *demote_enum_to_opaque(Context *c, const clang::EnumDecl *enum_decl,
         Buf *full_type_name, Buf *bare_name)
 {
     AstNode *opaque_node = trans_create_node_opaque(c);
@@ -3864,7 +3894,7 @@ struct AstNode *demote_enum_to_opaque(Context *c, const EnumDecl *enum_decl,
     return symbol_node;
 }
 
-static AstNode *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) {
+static AstNode *resolve_enum_decl(Context *c, const clang::EnumDecl *enum_decl) {
     auto existing_entry = c->decl_table.maybe_get((void*)enum_decl->getCanonicalDecl());
     if (existing_entry) {
         return existing_entry->value;
@@ -3875,7 +3905,7 @@ static AstNode *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) {
     Buf *bare_name = is_anonymous ? nullptr : buf_create_from_str(raw_name);
     Buf *full_type_name = is_anonymous ? nullptr : buf_sprintf("enum_%s", buf_ptr(bare_name));
 
-    const EnumDecl *enum_def = enum_decl->getDefinition();
+    const clang::EnumDecl *enum_def = enum_decl->getDefinition();
     if (!enum_def) {
         return demote_enum_to_opaque(c, enum_decl, full_type_name, bare_name);
     }
@@ -3887,7 +3917,7 @@ static AstNode *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) {
               it_end = enum_def->enumerator_end();
               it != it_end; ++it, field_count += 1)
     {
-        const EnumConstantDecl *enum_const = *it;
+        const clang::EnumConstantDecl *enum_const = *it;
         if (enum_const->getInitExpr()) {
             pure_enum = false;
         }
@@ -3901,8 +3931,8 @@ static AstNode *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) {
     // TODO only emit this tag type if the enum tag type is not the default.
     // I don't know what the default is, need to figure out how clang is deciding.
     // it appears to at least be different across gcc/msvc
-    if (!c_is_builtin_type(c, enum_decl->getIntegerType(), BuiltinType::UInt) &&
-        !c_is_builtin_type(c, enum_decl->getIntegerType(), BuiltinType::Int))
+    if (!c_is_builtin_type(c, enum_decl->getIntegerType(), clang::BuiltinType::UInt) &&
+        !c_is_builtin_type(c, enum_decl->getIntegerType(), clang::BuiltinType::Int))
     {
         enum_node->data.container_decl.init_arg_expr = tag_int_type;
     }
@@ -3912,7 +3942,7 @@ static AstNode *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) {
             it_end = enum_def->enumerator_end();
             it != it_end; ++it, i += 1)
     {
-        const EnumConstantDecl *enum_const = *it;
+        const clang::EnumConstantDecl *enum_const = *it;
 
         Buf *enum_val_name = buf_create_from_str(decl_name(enum_const));
         Buf *field_name;
@@ -3953,7 +3983,7 @@ static AstNode *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) {
     }
 }
 
-static AstNode *demote_struct_to_opaque(Context *c, const RecordDecl *record_decl,
+static AstNode *demote_struct_to_opaque(Context *c, const clang::RecordDecl *record_decl,
         Buf *full_type_name, Buf *bare_name)
 {
     AstNode *opaque_node = trans_create_node_opaque(c);
@@ -3968,7 +3998,7 @@ static AstNode *demote_struct_to_opaque(Context *c, const RecordDecl *record_dec
     return symbol_node;
 }
 
-static AstNode *resolve_record_decl(Context *c, const RecordDecl *record_decl) {
+static AstNode *resolve_record_decl(Context *c, const clang::RecordDecl *record_decl) {
     auto existing_entry = c->decl_table.maybe_get((void*)record_decl->getCanonicalDecl());
     if (existing_entry) {
         return existing_entry->value;
@@ -3994,7 +4024,7 @@ static AstNode *resolve_record_decl(Context *c, const RecordDecl *record_decl) {
     Buf *full_type_name = (bare_name == nullptr) ?
         nullptr : buf_sprintf("%s_%s", container_kind_name, buf_ptr(bare_name));
 
-    RecordDecl *record_def = record_decl->getDefinition();
+    clang::RecordDecl *record_def = record_decl->getDefinition();
     if (record_def == nullptr) {
         return demote_struct_to_opaque(c, record_decl, full_type_name, bare_name);
     }
@@ -4005,7 +4035,7 @@ static AstNode *resolve_record_decl(Context *c, const RecordDecl *record_decl) {
               it_end = record_def->field_end();
               it != it_end; ++it, field_count += 1)
     {
-        const FieldDecl *field_decl = *it;
+        const clang::FieldDecl *field_decl = *it;
 
         if (field_decl->isBitField()) {
             emit_warning(c, field_decl->getLocation(), "%s %s demoted to opaque type - has bitfield",
@@ -4035,7 +4065,7 @@ static AstNode *resolve_record_decl(Context *c, const RecordDecl *record_decl) {
               it_end = record_def->field_end();
               it != it_end; ++it, i += 1)
     {
-        const FieldDecl *field_decl = *it;
+        const clang::FieldDecl *field_decl = *it;
 
         AstNode *field_node = trans_create_node(c, NodeTypeStructField);
         field_node->data.struct_field.name = buf_create_from_str(decl_name(field_decl));
@@ -4062,13 +4092,13 @@ static AstNode *resolve_record_decl(Context *c, const RecordDecl *record_decl) {
     }
 }
 
-static AstNode *trans_ap_value(Context *c, APValue *ap_value, QualType qt, const SourceLocation &source_loc) {
+static AstNode *trans_ap_value(Context *c, clang::APValue *ap_value, clang::QualType qt, const clang::SourceLocation &source_loc) {
     switch (ap_value->getKind()) {
-        case APValue::Int:
+        case clang::APValue::Int:
             return trans_create_node_apint(c, ap_value->getInt());
-        case APValue::Uninitialized:
+        case clang::APValue::Uninitialized:
             return trans_create_node(c, NodeTypeUndefinedLiteral);
-        case APValue::Array: {
+        case clang::APValue::Array: {
             emit_warning(c, source_loc, "TODO add a test case for this code");
 
             unsigned init_count = ap_value->getArrayInitializedElts();
@@ -4076,13 +4106,16 @@ static AstNode *trans_ap_value(Context *c, APValue *ap_value, QualType qt, const
             unsigned leftover_count = all_count - init_count;
             AstNode *init_node = trans_create_node(c, NodeTypeContainerInitExpr);
             AstNode *arr_type_node = trans_qual_type(c, qt, source_loc);
+            if (leftover_count != 0) { // We can't use the size of the final array for a partial initializer.
+                bigint_init_unsigned(arr_type_node->data.array_type.size->data.int_literal.bigint, init_count);
+            }
             init_node->data.container_init_expr.type = arr_type_node;
             init_node->data.container_init_expr.kind = ContainerInitKindArray;
 
-            QualType child_qt = qt.getTypePtr()->getLocallyUnqualifiedSingleStepDesugaredType();
+            clang::QualType child_qt = qt.getTypePtr()->getAsArrayTypeUnsafe()->getElementType();
 
             for (size_t i = 0; i < init_count; i += 1) {
-                APValue &elem_ap_val = ap_value->getArrayInitializedElt(i);
+                clang::APValue &elem_ap_val = ap_value->getArrayInitializedElt(i);
                 AstNode *elem_node = trans_ap_value(c, &elem_ap_val, child_qt, source_loc);
                 if (elem_node == nullptr)
                     return nullptr;
@@ -4092,15 +4125,19 @@ static AstNode *trans_ap_value(Context *c, APValue *ap_value, QualType qt, const
                 return init_node;
             }
 
-            APValue &filler_ap_val = ap_value->getArrayFiller();
+            clang::APValue &filler_ap_val = ap_value->getArrayFiller();
             AstNode *filler_node = trans_ap_value(c, &filler_ap_val, child_qt, source_loc);
             if (filler_node == nullptr)
                 return nullptr;
 
+            AstNode* filler_arr_type = trans_create_node(c, NodeTypeArrayType);
+            *filler_arr_type = *arr_type_node;
+            filler_arr_type->data.array_type.size = trans_create_node_unsigned(c, 1);
+
             AstNode *filler_arr_1 = trans_create_node(c, NodeTypeContainerInitExpr);
-            init_node->data.container_init_expr.type = arr_type_node;
-            init_node->data.container_init_expr.kind = ContainerInitKindArray;
-            init_node->data.container_init_expr.entries.append(filler_node);
+            filler_arr_1->data.container_init_expr.type = filler_arr_type;
+            filler_arr_1->data.container_init_expr.kind = ContainerInitKindArray;
+            filler_arr_1->data.container_init_expr.entries.append(filler_node);
 
             AstNode *rhs_node;
             if (leftover_count == 1) {
@@ -4110,62 +4147,66 @@ static AstNode *trans_ap_value(Context *c, APValue *ap_value, QualType qt, const
                 rhs_node = trans_create_node_bin_op(c, filler_arr_1, BinOpTypeArrayMult, amt_node);
             }
 
+            if (init_count == 0) {
+                return rhs_node;
+            }
+
             return trans_create_node_bin_op(c, init_node, BinOpTypeArrayCat, rhs_node);
         }
-        case APValue::LValue: {
-            const APValue::LValueBase lval_base = ap_value->getLValueBase();
-            if (const Expr *expr = lval_base.dyn_cast<const Expr *>()) {
+        case clang::APValue::LValue: {
+            const clang::APValue::LValueBase lval_base = ap_value->getLValueBase();
+            if (const clang::Expr *expr = lval_base.dyn_cast<const clang::Expr *>()) {
                 return trans_expr(c, ResultUsedYes, &c->global_scope->base, expr, TransRValue);
             }
-            //const ValueDecl *value_decl = lval_base.get<const ValueDecl *>();
-            emit_warning(c, source_loc, "TODO handle initializer LValue ValueDecl");
+            //const clang::ValueDecl *value_decl = lval_base.get<const clang::ValueDecl *>();
+            emit_warning(c, source_loc, "TODO handle initializer LValue clang::ValueDecl");
             return nullptr;
         }
-        case APValue::Float:
+        case clang::APValue::Float:
             emit_warning(c, source_loc, "unsupported initializer value kind: Float");
             return nullptr;
-        case APValue::ComplexInt:
+        case clang::APValue::ComplexInt:
             emit_warning(c, source_loc, "unsupported initializer value kind: ComplexInt");
             return nullptr;
-        case APValue::ComplexFloat:
+        case clang::APValue::ComplexFloat:
             emit_warning(c, source_loc, "unsupported initializer value kind: ComplexFloat");
             return nullptr;
-        case APValue::Vector:
+        case clang::APValue::Vector:
             emit_warning(c, source_loc, "unsupported initializer value kind: Vector");
             return nullptr;
-        case APValue::Struct:
+        case clang::APValue::Struct:
             emit_warning(c, source_loc, "unsupported initializer value kind: Struct");
             return nullptr;
-        case APValue::Union:
+        case clang::APValue::Union:
             emit_warning(c, source_loc, "unsupported initializer value kind: Union");
             return nullptr;
-        case APValue::MemberPointer:
+        case clang::APValue::MemberPointer:
             emit_warning(c, source_loc, "unsupported initializer value kind: MemberPointer");
             return nullptr;
-        case APValue::AddrLabelDiff:
+        case clang::APValue::AddrLabelDiff:
             emit_warning(c, source_loc, "unsupported initializer value kind: AddrLabelDiff");
             return nullptr;
     }
     zig_unreachable();
 }
 
-static void visit_var_decl(Context *c, const VarDecl *var_decl) {
+static void visit_var_decl(Context *c, const clang::VarDecl *var_decl) {
     Buf *name = buf_create_from_str(decl_name(var_decl));
 
     switch (var_decl->getTLSKind()) {
-        case VarDecl::TLS_None:
+        case clang::VarDecl::TLS_None:
             break;
-        case VarDecl::TLS_Static:
+        case clang::VarDecl::TLS_Static:
             emit_warning(c, var_decl->getLocation(),
                     "ignoring variable '%s' - static thread local storage", buf_ptr(name));
             return;
-        case VarDecl::TLS_Dynamic:
+        case clang::VarDecl::TLS_Dynamic:
             emit_warning(c, var_decl->getLocation(),
                     "ignoring variable '%s' - dynamic thread local storage", buf_ptr(name));
             return;
     }
 
-    QualType qt = var_decl->getType();
+    clang::QualType qt = var_decl->getType();
     AstNode *var_type = trans_qual_type(c, qt, var_decl->getLocation());
     if (var_type == nullptr) {
         emit_warning(c, var_decl->getLocation(), "ignoring variable '%s' - unresolved type", buf_ptr(name));
@@ -4179,7 +4220,7 @@ static void visit_var_decl(Context *c, const VarDecl *var_decl) {
     if (is_static && !is_extern) {
         AstNode *init_node;
         if (var_decl->hasInit()) {
-            APValue *ap_value = var_decl->evaluateValue();
+            clang::APValue *ap_value = var_decl->evaluateValue();
             if (ap_value == nullptr) {
                 emit_warning(c, var_decl->getLocation(),
                         "ignoring variable '%s' - unable to evaluate initializer", buf_ptr(name));
@@ -4209,24 +4250,25 @@ static void visit_var_decl(Context *c, const VarDecl *var_decl) {
     return;
 }
 
-static bool decl_visitor(void *context, const Decl *decl) {
+static bool decl_visitor(void *context, const ZigClangDecl *zdecl) {
+    const clang::Decl *decl = reinterpret_cast<const clang::Decl *>(zdecl);
     Context *c = (Context*)context;
 
     switch (decl->getKind()) {
-        case Decl::Function:
-            visit_fn_decl(c, static_cast<const FunctionDecl*>(decl));
+        case clang::Decl::Function:
+            visit_fn_decl(c, static_cast<const clang::FunctionDecl*>(decl));
             break;
-        case Decl::Typedef:
-            resolve_typedef_decl(c, static_cast<const TypedefNameDecl *>(decl));
+        case clang::Decl::Typedef:
+            resolve_typedef_decl(c, static_cast<const clang::TypedefNameDecl *>(decl));
             break;
-        case Decl::Enum:
-            resolve_enum_decl(c, static_cast<const EnumDecl *>(decl));
+        case clang::Decl::Enum:
+            resolve_enum_decl(c, static_cast<const clang::EnumDecl *>(decl));
             break;
-        case Decl::Record:
-            resolve_record_decl(c, static_cast<const RecordDecl *>(decl));
+        case clang::Decl::Record:
+            resolve_record_decl(c, static_cast<const clang::RecordDecl *>(decl));
             break;
-        case Decl::Var:
-            visit_var_decl(c, static_cast<const VarDecl *>(decl));
+        case clang::Decl::Var:
+            visit_var_decl(c, static_cast<const clang::VarDecl *>(decl));
             break;
         default:
             emit_warning(c, decl->getLocation(), "ignoring %s decl", decl->getDeclKindName());
@@ -4568,7 +4610,7 @@ static AstNode *parse_ctok_suffix_op_expr(Context *c, CTokenize *ctok, size_t *t
         } else if (first_tok->id == CTokIdAsterisk) {
             *tok_i += 1;
 
-            node = trans_create_node_ptr_type(c, false, false, node, PtrLenUnknown);
+            node = trans_create_node_ptr_type(c, false, false, node, PtrLenC);
         } else {
             return node;
         }
@@ -4647,24 +4689,25 @@ static void process_macro(Context *c, CTokenize *ctok, Buf *name, const char *ch
     c->macro_table.put(name, result_node);
 }
 
-static void process_preprocessor_entities(Context *c, ASTUnit &unit) {
+static void process_preprocessor_entities(Context *c, ZigClangASTUnit *zunit) {
+    clang::ASTUnit *unit = reinterpret_cast<clang::ASTUnit *>(zunit);
     CTokenize ctok = {{0}};
 
     // TODO if we see #undef, delete it from the table
 
-    for (PreprocessedEntity *entity : unit.getLocalPreprocessingEntities()) {
+    for (clang::PreprocessedEntity *entity : unit->getLocalPreprocessingEntities()) {
         switch (entity->getKind()) {
-            case PreprocessedEntity::InvalidKind:
-            case PreprocessedEntity::InclusionDirectiveKind:
-            case PreprocessedEntity::MacroExpansionKind:
+            case clang::PreprocessedEntity::InvalidKind:
+            case clang::PreprocessedEntity::InclusionDirectiveKind:
+            case clang::PreprocessedEntity::MacroExpansionKind:
                 continue;
-            case PreprocessedEntity::MacroDefinitionKind:
+            case clang::PreprocessedEntity::MacroDefinitionKind:
                 {
-                    MacroDefinitionRecord *macro = static_cast<MacroDefinitionRecord *>(entity);
+                    clang::MacroDefinitionRecord *macro = static_cast<clang::MacroDefinitionRecord *>(entity);
                     const char *raw_name = macro->getName()->getNameStart();
-                    SourceRange range = macro->getSourceRange();
-                    SourceLocation begin_loc = range.getBegin();
-                    SourceLocation end_loc = range.getEnd();
+                    clang::SourceRange range = macro->getSourceRange();
+                    clang::SourceLocation begin_loc = range.getBegin();
+                    clang::SourceLocation end_loc = range.getEnd();
 
                     if (begin_loc == end_loc) {
                         // this means it is a macro without a value
@@ -4676,7 +4719,7 @@ static void process_preprocessor_entities(Context *c, ASTUnit &unit) {
                         continue;
                     }
 
-                    const char *begin_c = c->source_manager->getCharacterData(begin_loc);
+                    const char *begin_c = ZigClangSourceManager_getCharacterData(c->source_manager, bitcast(begin_loc));
                     process_macro(c, &ctok, name, begin_c);
                 }
         }
@@ -4749,8 +4792,10 @@ Error parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const 
     clang_argv.append("-isystem");
     clang_argv.append(buf_ptr(codegen->zig_c_headers_dir));
 
-    clang_argv.append("-isystem");
-    clang_argv.append(buf_ptr(codegen->libc_include_dir));
+    if (codegen->libc_include_dir != nullptr) {
+        clang_argv.append("-isystem");
+        clang_argv.append(buf_ptr(codegen->libc_include_dir));
+    }
 
     // windows c runtime requires -D_DEBUG if using debug libraries
     if (codegen->build_mode == BuildModeDebug) {
@@ -4776,12 +4821,20 @@ Error parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const 
 
     clang_argv.append(target_file);
 
+    if (codegen->verbose_cimport) {
+        fprintf(stderr, "clang");
+        for (size_t i = 0; i < clang_argv.length; i += 1) {
+            fprintf(stderr, " %s", clang_argv.at(i));
+        }
+        fprintf(stderr, "\n");
+    }
+
     // to make the [start...end] argument work
     clang_argv.append(nullptr);
 
-    IntrusiveRefCntPtr<DiagnosticsEngine> diags(CompilerInstance::createDiagnostics(new DiagnosticOptions));
+    clang::IntrusiveRefCntPtr<clang::DiagnosticsEngine> diags(clang::CompilerInstance::createDiagnostics(new clang::DiagnosticOptions));
 
-    std::shared_ptr<PCHContainerOperations> pch_container_ops = std::make_shared<PCHContainerOperations>();
+    std::shared_ptr<clang::PCHContainerOperations> pch_container_ops = std::make_shared<clang::PCHContainerOperations>();
 
     bool only_local_decls = true;
     bool capture_diagnostics = true;
@@ -4790,13 +4843,13 @@ Error parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const 
     bool single_file_parse = false;
     bool for_serialization = false;
     const char *resources_path = buf_ptr(codegen->zig_c_headers_dir);
-    std::unique_ptr<ASTUnit> err_unit;
-    std::unique_ptr<ASTUnit> ast_unit(ASTUnit::LoadFromCommandLine(
+    std::unique_ptr<clang::ASTUnit> err_unit;
+    ZigClangASTUnit *ast_unit = reinterpret_cast<ZigClangASTUnit *>(clang::ASTUnit::LoadFromCommandLine(
             &clang_argv.at(0), &clang_argv.last(),
             pch_container_ops, diags, resources_path,
-            only_local_decls, capture_diagnostics, None, true, 0, TU_Complete,
-            false, false, allow_pch_with_compiler_errors, SkipFunctionBodiesScope::None,
-            single_file_parse, user_files_are_volatile, for_serialization, None, &err_unit,
+            only_local_decls, capture_diagnostics, clang::None, true, 0, clang::TU_Complete,
+            false, false, allow_pch_with_compiler_errors, clang::SkipFunctionBodiesScope::None,
+            single_file_parse, user_files_are_volatile, for_serialization, clang::None, &err_unit,
             nullptr));
 
     // Early failures in LoadFromCommandLine may return with ErrUnit unset.
@@ -4806,29 +4859,29 @@ Error parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const 
 
     if (diags->getClient()->getNumErrors() > 0) {
         if (ast_unit) {
-            err_unit = std::move(ast_unit);
+            err_unit = std::unique_ptr<clang::ASTUnit>(reinterpret_cast<clang::ASTUnit *>(ast_unit));
         }
 
-        for (ASTUnit::stored_diag_iterator it = err_unit->stored_diag_begin(),
+        for (clang::ASTUnit::stored_diag_iterator it = err_unit->stored_diag_begin(),
                 it_end = err_unit->stored_diag_end();
                 it != it_end; ++it)
         {
             switch (it->getLevel()) {
-                case DiagnosticsEngine::Ignored:
-                case DiagnosticsEngine::Note:
-                case DiagnosticsEngine::Remark:
-                case DiagnosticsEngine::Warning:
+                case clang::DiagnosticsEngine::Ignored:
+                case clang::DiagnosticsEngine::Note:
+                case clang::DiagnosticsEngine::Remark:
+                case clang::DiagnosticsEngine::Warning:
                     continue;
-                case DiagnosticsEngine::Error:
-                case DiagnosticsEngine::Fatal:
+                case clang::DiagnosticsEngine::Error:
+                case clang::DiagnosticsEngine::Fatal:
                     break;
             }
             StringRef msg_str_ref = it->getMessage();
             Buf *msg = string_ref_to_buf(msg_str_ref);
-            FullSourceLoc fsl = it->getLocation();
+            clang::FullSourceLoc fsl = it->getLocation();
             if (fsl.hasManager()) {
-                FileID file_id = fsl.getFileID();
-                StringRef filename = fsl.getManager().getFilename(fsl);
+                clang::FileID file_id = fsl.getFileID();
+                clang::StringRef filename = fsl.getManager().getFilename(fsl);
                 unsigned line = fsl.getSpellingLineNumber() - 1;
                 unsigned column = fsl.getSpellingColumnNumber() - 1;
                 unsigned offset = fsl.getManager().getFileOffset(fsl);
@@ -4853,14 +4906,14 @@ Error parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const 
         return ErrorCCompileErrors;
     }
 
-    c->ctx = &ast_unit->getASTContext();
-    c->source_manager = &ast_unit->getSourceManager();
+    c->ctx = ZigClangASTUnit_getASTContext(ast_unit);
+    c->source_manager = ZigClangASTUnit_getSourceManager(ast_unit);
     c->root = trans_create_node(c, NodeTypeContainerDecl);
     c->root->data.container_decl.is_root = true;
 
-    ast_unit->visitLocalTopLevelDecls(c, decl_visitor);
+    ZigClangASTUnit_visitLocalTopLevelDecls(ast_unit, c, decl_visitor);
 
-    process_preprocessor_entities(c, *ast_unit);
+    process_preprocessor_entities(c, ast_unit);
 
     render_macros(c);
     render_aliases(c);

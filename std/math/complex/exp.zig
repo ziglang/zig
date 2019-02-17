@@ -1,5 +1,5 @@
 const std = @import("../../index.zig");
-const debug = std.debug;
+const testing = std.testing;
 const math = std.math;
 const cmath = math.complex;
 const Complex = cmath.Complex;
@@ -118,14 +118,14 @@ test "complex.cexp32" {
     const a = Complex(f32).new(5, 3);
     const c = exp(a);
 
-    debug.assert(math.approxEq(f32, c.re, -146.927917, epsilon));
-    debug.assert(math.approxEq(f32, c.im, 20.944065, epsilon));
+    testing.expect(math.approxEq(f32, c.re, -146.927917, epsilon));
+    testing.expect(math.approxEq(f32, c.im, 20.944065, epsilon));
 }
 
 test "complex.cexp64" {
     const a = Complex(f64).new(5, 3);
     const c = exp(a);
 
-    debug.assert(math.approxEq(f64, c.re, -146.927917, epsilon));
-    debug.assert(math.approxEq(f64, c.im, 20.944065, epsilon));
+    testing.expect(math.approxEq(f64, c.re, -146.927917, epsilon));
+    testing.expect(math.approxEq(f64, c.im, 20.944065, epsilon));
 }

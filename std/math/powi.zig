@@ -12,7 +12,7 @@ const builtin = @import("builtin");
 const std = @import("../index.zig");
 const math = std.math;
 const assert = std.debug.assert;
-const assertError = std.debug.assertError;
+const testing = std.testing;
 
 // This implementation is based on that from the rust stlib
 pub fn powi(comptime T: type, x: T, y: T) (error{
@@ -103,75 +103,75 @@ pub fn powi(comptime T: type, x: T, y: T) (error{
 }
 
 test "math.powi" {
-    assertError(powi(i8, -66, 6), error.Underflow);
-    assertError(powi(i16, -13, 13), error.Underflow);
-    assertError(powi(i32, -32, 21), error.Underflow);
-    assertError(powi(i64, -24, 61), error.Underflow);
-    assertError(powi(i17, -15, 15), error.Underflow);
-    assertError(powi(i42, -6, 40), error.Underflow);
+    testing.expectError(error.Underflow, powi(i8, -66, 6));
+    testing.expectError(error.Underflow, powi(i16, -13, 13));
+    testing.expectError(error.Underflow, powi(i32, -32, 21));
+    testing.expectError(error.Underflow, powi(i64, -24, 61));
+    testing.expectError(error.Underflow, powi(i17, -15, 15));
+    testing.expectError(error.Underflow, powi(i42, -6, 40));
 
-    assert((try powi(i8, -5, 3)) == -125);
-    assert((try powi(i16, -16, 3)) == -4096);
-    assert((try powi(i32, -91, 3)) == -753571);
-    assert((try powi(i64, -36, 6)) == 2176782336);
-    assert((try powi(i17, -2, 15)) == -32768);
-    assert((try powi(i42, -5, 7)) == -78125);
+    testing.expect((try powi(i8, -5, 3)) == -125);
+    testing.expect((try powi(i16, -16, 3)) == -4096);
+    testing.expect((try powi(i32, -91, 3)) == -753571);
+    testing.expect((try powi(i64, -36, 6)) == 2176782336);
+    testing.expect((try powi(i17, -2, 15)) == -32768);
+    testing.expect((try powi(i42, -5, 7)) == -78125);
 
-    assert((try powi(u8, 6, 2)) == 36);
-    assert((try powi(u16, 5, 4)) == 625);
-    assert((try powi(u32, 12, 6)) == 2985984);
-    assert((try powi(u64, 34, 2)) == 1156);
-    assert((try powi(u17, 16, 3)) == 4096);
-    assert((try powi(u42, 34, 6)) == 1544804416);
+    testing.expect((try powi(u8, 6, 2)) == 36);
+    testing.expect((try powi(u16, 5, 4)) == 625);
+    testing.expect((try powi(u32, 12, 6)) == 2985984);
+    testing.expect((try powi(u64, 34, 2)) == 1156);
+    testing.expect((try powi(u17, 16, 3)) == 4096);
+    testing.expect((try powi(u42, 34, 6)) == 1544804416);
 
-    assertError(powi(i8, 120, 7), error.Overflow);
-    assertError(powi(i16, 73, 15), error.Overflow);
-    assertError(powi(i32, 23, 31), error.Overflow);
-    assertError(powi(i64, 68, 61), error.Overflow);
-    assertError(powi(i17, 15, 15), error.Overflow);
-    assertError(powi(i42, 121312, 41), error.Overflow);
+    testing.expectError(error.Overflow, powi(i8, 120, 7));
+    testing.expectError(error.Overflow, powi(i16, 73, 15));
+    testing.expectError(error.Overflow, powi(i32, 23, 31));
+    testing.expectError(error.Overflow, powi(i64, 68, 61));
+    testing.expectError(error.Overflow, powi(i17, 15, 15));
+    testing.expectError(error.Overflow, powi(i42, 121312, 41));
 
-    assertError(powi(u8, 123, 7), error.Overflow);
-    assertError(powi(u16, 2313, 15), error.Overflow);
-    assertError(powi(u32, 8968, 31), error.Overflow);
-    assertError(powi(u64, 2342, 63), error.Overflow);
-    assertError(powi(u17, 2723, 16), error.Overflow);
-    assertError(powi(u42, 8234, 41), error.Overflow);
+    testing.expectError(error.Overflow, powi(u8, 123, 7));
+    testing.expectError(error.Overflow, powi(u16, 2313, 15));
+    testing.expectError(error.Overflow, powi(u32, 8968, 31));
+    testing.expectError(error.Overflow, powi(u64, 2342, 63));
+    testing.expectError(error.Overflow, powi(u17, 2723, 16));
+    testing.expectError(error.Overflow, powi(u42, 8234, 41));
 }
 
 test "math.powi.special" {
-    assertError(powi(i8, -2, 8), error.Underflow);
-    assertError(powi(i16, -2, 16), error.Underflow);
-    assertError(powi(i32, -2, 32), error.Underflow);
-    assertError(powi(i64, -2, 64), error.Underflow);
-    assertError(powi(i17, -2, 17), error.Underflow);
-    assertError(powi(i42, -2, 42), error.Underflow);
+    testing.expectError(error.Underflow, powi(i8, -2, 8));
+    testing.expectError(error.Underflow, powi(i16, -2, 16));
+    testing.expectError(error.Underflow, powi(i32, -2, 32));
+    testing.expectError(error.Underflow, powi(i64, -2, 64));
+    testing.expectError(error.Underflow, powi(i17, -2, 17));
+    testing.expectError(error.Underflow, powi(i42, -2, 42));
 
-    assert((try powi(i8, -1, 3)) == -1);
-    assert((try powi(i16, -1, 2)) == 1);
-    assert((try powi(i32, -1, 16)) == 1);
-    assert((try powi(i64, -1, 6)) == 1);
-    assert((try powi(i17, -1, 15)) == -1);
-    assert((try powi(i42, -1, 7)) == -1);
+    testing.expect((try powi(i8, -1, 3)) == -1);
+    testing.expect((try powi(i16, -1, 2)) == 1);
+    testing.expect((try powi(i32, -1, 16)) == 1);
+    testing.expect((try powi(i64, -1, 6)) == 1);
+    testing.expect((try powi(i17, -1, 15)) == -1);
+    testing.expect((try powi(i42, -1, 7)) == -1);
 
-    assert((try powi(u8, 1, 2)) == 1);
-    assert((try powi(u16, 1, 4)) == 1);
-    assert((try powi(u32, 1, 6)) == 1);
-    assert((try powi(u64, 1, 2)) == 1);
-    assert((try powi(u17, 1, 3)) == 1);
-    assert((try powi(u42, 1, 6)) == 1);
+    testing.expect((try powi(u8, 1, 2)) == 1);
+    testing.expect((try powi(u16, 1, 4)) == 1);
+    testing.expect((try powi(u32, 1, 6)) == 1);
+    testing.expect((try powi(u64, 1, 2)) == 1);
+    testing.expect((try powi(u17, 1, 3)) == 1);
+    testing.expect((try powi(u42, 1, 6)) == 1);
 
-    assertError(powi(i8, 2, 7), error.Overflow);
-    assertError(powi(i16, 2, 15), error.Overflow);
-    assertError(powi(i32, 2, 31), error.Overflow);
-    assertError(powi(i64, 2, 63), error.Overflow);
-    assertError(powi(i17, 2, 16), error.Overflow);
-    assertError(powi(i42, 2, 41), error.Overflow);
+    testing.expectError(error.Overflow, powi(i8, 2, 7));
+    testing.expectError(error.Overflow, powi(i16, 2, 15));
+    testing.expectError(error.Overflow, powi(i32, 2, 31));
+    testing.expectError(error.Overflow, powi(i64, 2, 63));
+    testing.expectError(error.Overflow, powi(i17, 2, 16));
+    testing.expectError(error.Overflow, powi(i42, 2, 41));
 
-    assertError(powi(u8, 2, 8), error.Overflow);
-    assertError(powi(u16, 2, 16), error.Overflow);
-    assertError(powi(u32, 2, 32), error.Overflow);
-    assertError(powi(u64, 2, 64), error.Overflow);
-    assertError(powi(u17, 2, 17), error.Overflow);
-    assertError(powi(u42, 2, 42), error.Overflow);
+    testing.expectError(error.Overflow, powi(u8, 2, 8));
+    testing.expectError(error.Overflow, powi(u16, 2, 16));
+    testing.expectError(error.Overflow, powi(u32, 2, 32));
+    testing.expectError(error.Overflow, powi(u64, 2, 64));
+    testing.expectError(error.Overflow, powi(u17, 2, 17));
+    testing.expectError(error.Overflow, powi(u42, 2, 42));
 }

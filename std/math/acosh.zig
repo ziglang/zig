@@ -6,7 +6,7 @@
 const builtin = @import("builtin");
 const std = @import("../index.zig");
 const math = std.math;
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 pub fn acosh(x: var) @typeOf(x) {
     const T = @typeOf(x);
@@ -55,34 +55,34 @@ fn acosh64(x: f64) f64 {
 }
 
 test "math.acosh" {
-    assert(acosh(f32(1.5)) == acosh32(1.5));
-    assert(acosh(f64(1.5)) == acosh64(1.5));
+    expect(acosh(f32(1.5)) == acosh32(1.5));
+    expect(acosh(f64(1.5)) == acosh64(1.5));
 }
 
 test "math.acosh32" {
     const epsilon = 0.000001;
 
-    assert(math.approxEq(f32, acosh32(1.5), 0.962424, epsilon));
-    assert(math.approxEq(f32, acosh32(37.45), 4.315976, epsilon));
-    assert(math.approxEq(f32, acosh32(89.123), 5.183133, epsilon));
-    assert(math.approxEq(f32, acosh32(123123.234375), 12.414088, epsilon));
+    expect(math.approxEq(f32, acosh32(1.5), 0.962424, epsilon));
+    expect(math.approxEq(f32, acosh32(37.45), 4.315976, epsilon));
+    expect(math.approxEq(f32, acosh32(89.123), 5.183133, epsilon));
+    expect(math.approxEq(f32, acosh32(123123.234375), 12.414088, epsilon));
 }
 
 test "math.acosh64" {
     const epsilon = 0.000001;
 
-    assert(math.approxEq(f64, acosh64(1.5), 0.962424, epsilon));
-    assert(math.approxEq(f64, acosh64(37.45), 4.315976, epsilon));
-    assert(math.approxEq(f64, acosh64(89.123), 5.183133, epsilon));
-    assert(math.approxEq(f64, acosh64(123123.234375), 12.414088, epsilon));
+    expect(math.approxEq(f64, acosh64(1.5), 0.962424, epsilon));
+    expect(math.approxEq(f64, acosh64(37.45), 4.315976, epsilon));
+    expect(math.approxEq(f64, acosh64(89.123), 5.183133, epsilon));
+    expect(math.approxEq(f64, acosh64(123123.234375), 12.414088, epsilon));
 }
 
 test "math.acosh32.special" {
-    assert(math.isNan(acosh32(math.nan(f32))));
-    assert(math.isSignalNan(acosh32(0.5)));
+    expect(math.isNan(acosh32(math.nan(f32))));
+    expect(math.isSignalNan(acosh32(0.5)));
 }
 
 test "math.acosh64.special" {
-    assert(math.isNan(acosh64(math.nan(f64))));
-    assert(math.isSignalNan(acosh64(0.5)));
+    expect(math.isNan(acosh64(math.nan(f64))));
+    expect(math.isSignalNan(acosh64(0.5)));
 }

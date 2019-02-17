@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const debug = std.debug;
 const mem = std.mem;
 const math = std.math;
+const testing = std.testing;
 
 pub const trait = @import("trait.zig");
 
@@ -64,16 +65,16 @@ test "std.meta.tagName" {
     var u2a = U2{ .C = 0 };
     var u2b = U2{ .D = 0 };
 
-    debug.assert(mem.eql(u8, tagName(E1.A), "A"));
-    debug.assert(mem.eql(u8, tagName(E1.B), "B"));
-    debug.assert(mem.eql(u8, tagName(E2.C), "C"));
-    debug.assert(mem.eql(u8, tagName(E2.D), "D"));
-    debug.assert(mem.eql(u8, tagName(error.E), "E"));
-    debug.assert(mem.eql(u8, tagName(error.F), "F"));
-    debug.assert(mem.eql(u8, tagName(u1g), "G"));
-    debug.assert(mem.eql(u8, tagName(u1h), "H"));
-    debug.assert(mem.eql(u8, tagName(u2a), "C"));
-    debug.assert(mem.eql(u8, tagName(u2b), "D"));
+    testing.expect(mem.eql(u8, tagName(E1.A), "A"));
+    testing.expect(mem.eql(u8, tagName(E1.B), "B"));
+    testing.expect(mem.eql(u8, tagName(E2.C), "C"));
+    testing.expect(mem.eql(u8, tagName(E2.D), "D"));
+    testing.expect(mem.eql(u8, tagName(error.E), "E"));
+    testing.expect(mem.eql(u8, tagName(error.F), "F"));
+    testing.expect(mem.eql(u8, tagName(u1g), "G"));
+    testing.expect(mem.eql(u8, tagName(u1h), "H"));
+    testing.expect(mem.eql(u8, tagName(u2a), "C"));
+    testing.expect(mem.eql(u8, tagName(u2b), "D"));
 }
 
 pub fn stringToEnum(comptime T: type, str: []const u8) ?T {
@@ -90,12 +91,12 @@ test "std.meta.stringToEnum" {
         A,
         B,
     };
-    debug.assert(E1.A == stringToEnum(E1, "A").?);
-    debug.assert(E1.B == stringToEnum(E1, "B").?);
-    debug.assert(null == stringToEnum(E1, "C"));
+    testing.expect(E1.A == stringToEnum(E1, "A").?);
+    testing.expect(E1.B == stringToEnum(E1, "B").?);
+    testing.expect(null == stringToEnum(E1, "C"));
 }
 
-pub fn bitCount(comptime T: type) u32 {
+pub fn bitCount(comptime T: type) comptime_int {
     return switch (@typeInfo(T)) {
         TypeId.Int => |info| info.bits,
         TypeId.Float => |info| info.bits,
@@ -104,22 +105,22 @@ pub fn bitCount(comptime T: type) u32 {
 }
 
 test "std.meta.bitCount" {
-    debug.assert(bitCount(u8) == 8);
-    debug.assert(bitCount(f32) == 32);
+    testing.expect(bitCount(u8) == 8);
+    testing.expect(bitCount(f32) == 32);
 }
 
-pub fn alignment(comptime T: type) u29 {
+pub fn alignment(comptime T: type) comptime_int {
     //@alignOf works on non-pointer types
     const P = if (comptime trait.is(TypeId.Pointer)(T)) T else *T;
     return @typeInfo(P).Pointer.alignment;
 }
 
 test "std.meta.alignment" {
-    debug.assert(alignment(u8) == 1);
-    debug.assert(alignment(*align(1) u8) == 1);
-    debug.assert(alignment(*align(2) u8) == 2);
-    debug.assert(alignment([]align(1) u8) == 1);
-    debug.assert(alignment([]align(2) u8) == 2);
+    testing.expect(alignment(u8) == 1);
+    testing.expect(alignment(*align(1) u8) == 1);
+    testing.expect(alignment(*align(2) u8) == 2);
+    testing.expect(alignment([]align(1) u8) == 1);
+    testing.expect(alignment([]align(2) u8) == 2);
 }
 
 pub fn Child(comptime T: type) type {
@@ -133,11 +134,11 @@ pub fn Child(comptime T: type) type {
 }
 
 test "std.meta.Child" {
-    debug.assert(Child([1]u8) == u8);
-    debug.assert(Child(*u8) == u8);
-    debug.assert(Child([]u8) == u8);
-    debug.assert(Child(?u8) == u8);
-    debug.assert(Child(promise->u8) == u8);
+    testing.expect(Child([1]u8) == u8);
+    testing.expect(Child(*u8) == u8);
+    testing.expect(Child([]u8) == u8);
+    testing.expect(Child(?u8) == u8);
+    testing.expect(Child(promise->u8) == u8);
 }
 
 pub fn containerLayout(comptime T: type) TypeInfo.ContainerLayout {
@@ -172,15 +173,15 @@ test "std.meta.containerLayout" {
         a: u8,
     };
 
-    debug.assert(containerLayout(E1) == TypeInfo.ContainerLayout.Auto);
-    debug.assert(containerLayout(E2) == TypeInfo.ContainerLayout.Packed);
-    debug.assert(containerLayout(E3) == TypeInfo.ContainerLayout.Extern);
-    debug.assert(containerLayout(S1) == TypeInfo.ContainerLayout.Auto);
-    debug.assert(containerLayout(S2) == TypeInfo.ContainerLayout.Packed);
-    debug.assert(containerLayout(S3) == TypeInfo.ContainerLayout.Extern);
-    debug.assert(containerLayout(U1) == TypeInfo.ContainerLayout.Auto);
-    debug.assert(containerLayout(U2) == TypeInfo.ContainerLayout.Packed);
-    debug.assert(containerLayout(U3) == TypeInfo.ContainerLayout.Extern);
+    testing.expect(containerLayout(E1) == TypeInfo.ContainerLayout.Auto);
+    testing.expect(containerLayout(E2) == TypeInfo.ContainerLayout.Packed);
+    testing.expect(containerLayout(E3) == TypeInfo.ContainerLayout.Extern);
+    testing.expect(containerLayout(S1) == TypeInfo.ContainerLayout.Auto);
+    testing.expect(containerLayout(S2) == TypeInfo.ContainerLayout.Packed);
+    testing.expect(containerLayout(S3) == TypeInfo.ContainerLayout.Extern);
+    testing.expect(containerLayout(U1) == TypeInfo.ContainerLayout.Auto);
+    testing.expect(containerLayout(U2) == TypeInfo.ContainerLayout.Packed);
+    testing.expect(containerLayout(U3) == TypeInfo.ContainerLayout.Extern);
 }
 
 pub fn definitions(comptime T: type) []TypeInfo.Definition {
@@ -214,8 +215,8 @@ test "std.meta.definitions" {
     };
 
     inline for (defs) |def| {
-        debug.assert(def.len == 1);
-        debug.assert(comptime mem.eql(u8, def[0].name, "a"));
+        testing.expect(def.len == 1);
+        testing.expect(comptime mem.eql(u8, def[0].name, "a"));
     }
 }
 
@@ -250,8 +251,8 @@ test "std.meta.definitionInfo" {
     };
 
     inline for (infos) |info| {
-        debug.assert(comptime mem.eql(u8, info.name, "a"));
-        debug.assert(!info.is_pub);
+        testing.expect(comptime mem.eql(u8, info.name, "a"));
+        testing.expect(!info.is_pub);
     }
 }
 
@@ -288,16 +289,16 @@ test "std.meta.fields" {
     const sf = comptime fields(S1);
     const uf = comptime fields(U1);
 
-    debug.assert(e1f.len == 1);
-    debug.assert(e2f.len == 1);
-    debug.assert(sf.len == 1);
-    debug.assert(uf.len == 1);
-    debug.assert(mem.eql(u8, e1f[0].name, "A"));
-    debug.assert(mem.eql(u8, e2f[0].name, "A"));
-    debug.assert(mem.eql(u8, sf[0].name, "a"));
-    debug.assert(mem.eql(u8, uf[0].name, "a"));
-    debug.assert(comptime sf[0].field_type == u8);
-    debug.assert(comptime uf[0].field_type == u8);
+    testing.expect(e1f.len == 1);
+    testing.expect(e2f.len == 1);
+    testing.expect(sf.len == 1);
+    testing.expect(uf.len == 1);
+    testing.expect(mem.eql(u8, e1f[0].name, "A"));
+    testing.expect(mem.eql(u8, e2f[0].name, "A"));
+    testing.expect(mem.eql(u8, sf[0].name, "a"));
+    testing.expect(mem.eql(u8, uf[0].name, "a"));
+    testing.expect(comptime sf[0].field_type == u8);
+    testing.expect(comptime uf[0].field_type == u8);
 }
 
 pub fn fieldInfo(comptime T: type, comptime field_name: []const u8) switch (@typeInfo(T)) {
@@ -332,12 +333,12 @@ test "std.meta.fieldInfo" {
     const sf = comptime fieldInfo(S1, "a");
     const uf = comptime fieldInfo(U1, "a");
 
-    debug.assert(mem.eql(u8, e1f.name, "A"));
-    debug.assert(mem.eql(u8, e2f.name, "A"));
-    debug.assert(mem.eql(u8, sf.name, "a"));
-    debug.assert(mem.eql(u8, uf.name, "a"));
-    debug.assert(comptime sf.field_type == u8);
-    debug.assert(comptime uf.field_type == u8);
+    testing.expect(mem.eql(u8, e1f.name, "A"));
+    testing.expect(mem.eql(u8, e2f.name, "A"));
+    testing.expect(mem.eql(u8, sf.name, "a"));
+    testing.expect(mem.eql(u8, uf.name, "a"));
+    testing.expect(comptime sf.field_type == u8);
+    testing.expect(comptime uf.field_type == u8);
 }
 
 pub fn TagType(comptime T: type) type {
@@ -358,8 +359,8 @@ test "std.meta.TagType" {
         D: u16,
     };
 
-    debug.assert(TagType(E) == u8);
-    debug.assert(TagType(U) == E);
+    testing.expect(TagType(E) == u8);
+    testing.expect(TagType(U) == E);
 }
 
 ///Returns the active tag of a tagged union
@@ -380,10 +381,37 @@ test "std.meta.activeTag" {
     };
 
     var u = U{ .Int = 32 };
-    debug.assert(activeTag(u) == UE.Int);
+    testing.expect(activeTag(u) == UE.Int);
 
     u = U{ .Float = 112.9876 };
-    debug.assert(activeTag(u) == UE.Float);
+    testing.expect(activeTag(u) == UE.Float);
+}
+
+///Given a tagged union type, and an enum, return the type of the union
+/// field corresponding to the enum tag.
+pub fn TagPayloadType(comptime U: type, tag: var) type {
+    const Tag = @typeOf(tag);
+    testing.expect(trait.is(builtin.TypeId.Union)(U));
+    testing.expect(trait.is(builtin.TypeId.Enum)(Tag));
+
+    const info = @typeInfo(U).Union;
+
+    inline for (info.fields) |field_info| {
+        if (field_info.enum_field.?.value == @enumToInt(tag)) return field_info.field_type;
+    }
+    unreachable;
+}
+
+test "std.meta.TagPayloadType" {
+    const Event = union(enum) {
+        Moved: struct {
+            from: i32,
+            to: i32,
+        },
+    };
+    const MovedEvent = TagPayloadType(Event, Event.Moved);
+    var e: Event = undefined;
+    testing.expect(MovedEvent == @typeOf(e.Moved));
 }
 
 ///Compares two of any type for equality. Containers are compared on a field-by-field basis,
@@ -435,9 +463,17 @@ pub fn eql(a: var, b: @typeOf(a)) bool {
         builtin.TypeId.Pointer => {
             const info = @typeInfo(T).Pointer;
             switch (info.size) {
-                builtin.TypeInfo.Pointer.Size.One, builtin.TypeInfo.Pointer.Size.Many => return a == b,
+                builtin.TypeInfo.Pointer.Size.One,
+                builtin.TypeInfo.Pointer.Size.Many,
+                builtin.TypeInfo.Pointer.Size.C,
+                => return a == b,
                 builtin.TypeInfo.Pointer.Size.Slice => return a.ptr == b.ptr and a.len == b.len,
             }
+        },
+        builtin.TypeId.Optional => {
+            if (a == null and b == null) return true;
+            if (a == null or b == null) return false;
+            return eql(a.?, b.?);
         },
         else => return a == b,
     }
@@ -452,7 +488,7 @@ test "std.meta.eql" {
 
     const U = union(enum) {
         s: S,
-        f: f32,
+        f: ?f32,
     };
 
     const s_1 = S{
@@ -477,19 +513,19 @@ test "std.meta.eql" {
     const u_2 = U{ .s = s_1 };
     const u_3 = U{ .f = 24 };
 
-    debug.assert(eql(s_1, s_3));
-    debug.assert(eql(&s_1, &s_1));
-    debug.assert(!eql(&s_1, &s_3));
-    debug.assert(eql(u_1, u_3));
-    debug.assert(!eql(u_1, u_2));
+    testing.expect(eql(s_1, s_3));
+    testing.expect(eql(&s_1, &s_1));
+    testing.expect(!eql(&s_1, &s_3));
+    testing.expect(eql(u_1, u_3));
+    testing.expect(!eql(u_1, u_2));
 
     var a1 = "abcdef";
     var a2 = "abcdef";
     var a3 = "ghijkl";
 
-    debug.assert(eql(a1, a2));
-    debug.assert(!eql(a1, a3));
-    debug.assert(!eql(a1[0..], a2[0..]));
+    testing.expect(eql(a1, a2));
+    testing.expect(!eql(a1, a3));
+    testing.expect(!eql(a1[0..], a2[0..]));
 
     const EU = struct {
         fn tst(err: bool) !u8 {
@@ -498,9 +534,9 @@ test "std.meta.eql" {
         }
     };
 
-    debug.assert(eql(EU.tst(true), EU.tst(true)));
-    debug.assert(eql(EU.tst(false), EU.tst(false)));
-    debug.assert(!eql(EU.tst(false), EU.tst(true)));
+    testing.expect(eql(EU.tst(true), EU.tst(true)));
+    testing.expect(eql(EU.tst(false), EU.tst(false)));
+    testing.expect(!eql(EU.tst(false), EU.tst(true)));
 }
 
 test "intToEnum with error return" {
@@ -514,9 +550,9 @@ test "intToEnum with error return" {
 
     var zero: u8 = 0;
     var one: u16 = 1;
-    debug.assert(intToEnum(E1, zero) catch unreachable == E1.A);
-    debug.assert(intToEnum(E2, one) catch unreachable == E2.B);
-    debug.assertError(intToEnum(E1, one), error.InvalidEnumTag);
+    testing.expect(intToEnum(E1, zero) catch unreachable == E1.A);
+    testing.expect(intToEnum(E2, one) catch unreachable == E2.B);
+    testing.expectError(error.InvalidEnumTag, intToEnum(E1, one));
 }
 
 pub const IntToEnumError = error{InvalidEnumTag};

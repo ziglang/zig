@@ -37,7 +37,7 @@ const max_src_size = 2 * 1024 * 1024 * 1024; // 2 GiB
 /// Data that is local to the event loop.
 pub const ZigCompiler = struct {
     loop: *event.Loop,
-    llvm_handle_pool: std.atomic.Stack(llvm.ContextRef),
+    llvm_handle_pool: std.atomic.Stack(*llvm.Context),
     lld_lock: event.Lock,
 
     /// TODO pool these so that it doesn't have to lock
@@ -55,12 +55,12 @@ pub const ZigCompiler = struct {
 
         var seed_bytes: [@sizeOf(u64)]u8 = undefined;
         try std.os.getRandomBytes(seed_bytes[0..]);
-        const seed = std.mem.readInt(seed_bytes, u64, builtin.Endian.Big);
+        const seed = mem.readIntNative(u64, &seed_bytes);
 
         return ZigCompiler{
             .loop = loop,
             .lld_lock = event.Lock.init(loop),
-            .llvm_handle_pool = std.atomic.Stack(llvm.ContextRef).init(),
+            .llvm_handle_pool = std.atomic.Stack(*llvm.Context).init(),
             .prng = event.Locked(std.rand.DefaultPrng).init(loop, std.rand.DefaultPrng.init(seed)),
             .native_libc = event.Future(LibCInstallation).init(loop),
         };
@@ -70,7 +70,7 @@ pub const ZigCompiler = struct {
     fn deinit(self: *ZigCompiler) void {
         self.lld_lock.deinit();
         while (self.llvm_handle_pool.pop()) |node| {
-            c.LLVMContextDispose(node.data);
+            llvm.ContextDispose(node.data);
             self.loop.allocator.destroy(node);
         }
     }
@@ -80,13 +80,14 @@ pub const ZigCompiler = struct {
     pub fn getAnyLlvmContext(self: *ZigCompiler) !LlvmHandle {
         if (self.llvm_handle_pool.pop()) |node| return LlvmHandle{ .node = node };
 
-        const context_ref = c.LLVMContextCreate() orelse return error.OutOfMemory;
-        errdefer c.LLVMContextDispose(context_ref);
+        const context_ref = llvm.ContextCreate() orelse return error.OutOfMemory;
+        errdefer llvm.ContextDispose(context_ref);
 
-        const node = try self.loop.allocator.create(std.atomic.Stack(llvm.ContextRef).Node{
+        const node = try self.loop.allocator.create(std.atomic.Stack(*llvm.Context).Node);
+        node.* = std.atomic.Stack(*llvm.Context).Node{
             .next = undefined,
             .data = context_ref,
-        });
+        };
         errdefer self.loop.allocator.destroy(node);
 
         return LlvmHandle{ .node = node };
@@ -113,7 +114,7 @@ pub const ZigCompiler = struct {
 };
 
 pub const LlvmHandle = struct {
-    node: *std.atomic.Stack(llvm.ContextRef).Node,
+    node: *std.atomic.Stack(*llvm.Context).Node,
 
     pub fn release(self: LlvmHandle, zig_compiler: *ZigCompiler) void {
         zig_compiler.llvm_handle_pool.push(self.node);
@@ -127,7 +128,7 @@ pub const Compilation = struct {
     llvm_triple: Buffer,
     root_src_path: ?[]const u8,
     target: Target,
-    llvm_target: llvm.TargetRef,
+    llvm_target: *llvm.Target,
     build_mode: builtin.Mode,
     zig_lib_dir: []const u8,
     zig_std_dir: []const u8,
@@ -211,8 +212,8 @@ pub const Compilation = struct {
     false_value: *Value.Bool,
     noreturn_value: *Value.NoReturn,
 
-    target_machine: llvm.TargetMachineRef,
-    target_data_ref: llvm.TargetDataRef,
+    target_machine: *llvm.TargetMachine,
+    target_data_ref: *llvm.TargetData,
     target_layout_str: [*]u8,
     target_ptr_bits: u32,
 
@@ -300,6 +301,7 @@ pub const Compilation = struct {
         UserResourceLimitReached,
         InvalidUtf8,
         BadPathName,
+        DeviceBusy,
     };
 
     pub const Event = union(enum) {
@@ -485,7 +487,7 @@ pub const Compilation = struct {
         comp.name = try Buffer.init(comp.arena(), name);
         comp.llvm_triple = try target.getTriple(comp.arena());
         comp.llvm_target = try Target.llvmTargetFromTriple(comp.llvm_triple);
-        comp.zig_std_dir = try std.os.path.join(comp.arena(), zig_lib_dir, "std");
+        comp.zig_std_dir = try std.os.path.join(comp.arena(), [][]const u8{ zig_lib_dir, "std" });
 
         const opt_level = switch (build_mode) {
             builtin.Mode.Debug => llvm.CodeGenLevelNone,
@@ -595,7 +597,8 @@ pub const Compilation = struct {
     }
 
     fn initTypes(comp: *Compilation) !void {
-        comp.meta_type = try comp.arena().create(Type.MetaType{
+        comp.meta_type = try comp.arena().create(Type.MetaType);
+        comp.meta_type.* = Type.MetaType{
             .base = Type{
                 .name = "type",
                 .base = Value{
@@ -607,12 +610,13 @@ pub const Compilation = struct {
                 .abi_alignment = Type.AbiAlignment.init(comp.loop),
             },
             .value = undefined,
-        });
+        };
         comp.meta_type.value = &comp.meta_type.base;
         comp.meta_type.base.base.typ = &comp.meta_type.base;
         assert((try comp.primitive_type_table.put(comp.meta_type.base.name, &comp.meta_type.base)) == null);
 
-        comp.void_type = try comp.arena().create(Type.Void{
+        comp.void_type = try comp.arena().create(Type.Void);
+        comp.void_type.* = Type.Void{
             .base = Type{
                 .name = "void",
                 .base = Value{
@@ -623,10 +627,11 @@ pub const Compilation = struct {
                 .id = builtin.TypeId.Void,
                 .abi_alignment = Type.AbiAlignment.init(comp.loop),
             },
-        });
+        };
         assert((try comp.primitive_type_table.put(comp.void_type.base.name, &comp.void_type.base)) == null);
 
-        comp.noreturn_type = try comp.arena().create(Type.NoReturn{
+        comp.noreturn_type = try comp.arena().create(Type.NoReturn);
+        comp.noreturn_type.* = Type.NoReturn{
             .base = Type{
                 .name = "noreturn",
                 .base = Value{
@@ -637,10 +642,11 @@ pub const Compilation = struct {
                 .id = builtin.TypeId.NoReturn,
                 .abi_alignment = Type.AbiAlignment.init(comp.loop),
             },
-        });
+        };
         assert((try comp.primitive_type_table.put(comp.noreturn_type.base.name, &comp.noreturn_type.base)) == null);
 
-        comp.comptime_int_type = try comp.arena().create(Type.ComptimeInt{
+        comp.comptime_int_type = try comp.arena().create(Type.ComptimeInt);
+        comp.comptime_int_type.* = Type.ComptimeInt{
             .base = Type{
                 .name = "comptime_int",
                 .base = Value{
@@ -651,10 +657,11 @@ pub const Compilation = struct {
                 .id = builtin.TypeId.ComptimeInt,
                 .abi_alignment = Type.AbiAlignment.init(comp.loop),
             },
-        });
+        };
         assert((try comp.primitive_type_table.put(comp.comptime_int_type.base.name, &comp.comptime_int_type.base)) == null);
 
-        comp.bool_type = try comp.arena().create(Type.Bool{
+        comp.bool_type = try comp.arena().create(Type.Bool);
+        comp.bool_type.* = Type.Bool{
             .base = Type{
                 .name = "bool",
                 .base = Value{
@@ -665,45 +672,50 @@ pub const Compilation = struct {
                 .id = builtin.TypeId.Bool,
                 .abi_alignment = Type.AbiAlignment.init(comp.loop),
             },
-        });
+        };
         assert((try comp.primitive_type_table.put(comp.bool_type.base.name, &comp.bool_type.base)) == null);
 
-        comp.void_value = try comp.arena().create(Value.Void{
+        comp.void_value = try comp.arena().create(Value.Void);
+        comp.void_value.* = Value.Void{
             .base = Value{
                 .id = Value.Id.Void,
                 .typ = &Type.Void.get(comp).base,
                 .ref_count = std.atomic.Int(usize).init(1),
             },
-        });
+        };
 
-        comp.true_value = try comp.arena().create(Value.Bool{
+        comp.true_value = try comp.arena().create(Value.Bool);
+        comp.true_value.* = Value.Bool{
             .base = Value{
                 .id = Value.Id.Bool,
                 .typ = &Type.Bool.get(comp).base,
                 .ref_count = std.atomic.Int(usize).init(1),
             },
             .x = true,
-        });
+        };
 
-        comp.false_value = try comp.arena().create(Value.Bool{
+        comp.false_value = try comp.arena().create(Value.Bool);
+        comp.false_value.* = Value.Bool{
             .base = Value{
                 .id = Value.Id.Bool,
                 .typ = &Type.Bool.get(comp).base,
                 .ref_count = std.atomic.Int(usize).init(1),
             },
             .x = false,
-        });
+        };
 
-        comp.noreturn_value = try comp.arena().create(Value.NoReturn{
+        comp.noreturn_value = try comp.arena().create(Value.NoReturn);
+        comp.noreturn_value.* = Value.NoReturn{
             .base = Value{
                 .id = Value.Id.NoReturn,
                 .typ = &Type.NoReturn.get(comp).base,
                 .ref_count = std.atomic.Int(usize).init(1),
             },
-        });
+        };
 
         for (CInt.list) |cint, i| {
-            const c_int_type = try comp.arena().create(Type.Int{
+            const c_int_type = try comp.arena().create(Type.Int);
+            c_int_type.* = Type.Int{
                 .base = Type{
                     .name = cint.zig_name,
                     .base = Value{
@@ -719,11 +731,12 @@ pub const Compilation = struct {
                     .bit_count = comp.target.cIntTypeSizeInBits(cint.id),
                 },
                 .garbage_node = undefined,
-            });
+            };
             comp.c_int_types[i] = c_int_type;
             assert((try comp.primitive_type_table.put(cint.zig_name, &c_int_type.base)) == null);
         }
-        comp.u8_type = try comp.arena().create(Type.Int{
+        comp.u8_type = try comp.arena().create(Type.Int);
+        comp.u8_type.* = Type.Int{
             .base = Type{
                 .name = "u8",
                 .base = Value{
@@ -739,7 +752,7 @@ pub const Compilation = struct {
                 .bit_count = 8,
             },
             .garbage_node = undefined,
-        });
+        };
         assert((try comp.primitive_type_table.put(comp.u8_type.base.name, &comp.u8_type.base)) == null);
     }
 
@@ -828,7 +841,7 @@ pub const Compilation = struct {
             };
             errdefer self.gpa().free(source_code);
 
-            const tree = try self.gpa().createOne(ast.Tree);
+            const tree = try self.gpa().create(ast.Tree);
             tree.* = try std.zig.parse(self.gpa(), source_code);
             errdefer {
                 tree.deinit();
@@ -924,7 +937,8 @@ pub const Compilation = struct {
                         }
                     } else {
                         // add new decl
-                        const fn_decl = try self.gpa().create(Decl.Fn{
+                        const fn_decl = try self.gpa().create(Decl.Fn);
+                        fn_decl.* = Decl.Fn{
                             .base = Decl{
                                 .id = Decl.Id.Fn,
                                 .name = name,
@@ -935,7 +949,7 @@ pub const Compilation = struct {
                             },
                             .value = Decl.Fn.Val{ .Unresolved = {} },
                             .fn_proto = fn_proto,
-                        });
+                        };
                         tree_scope.base.ref();
                         errdefer self.gpa().destroy(fn_decl);
 
@@ -1139,12 +1153,13 @@ pub const Compilation = struct {
             }
         }
 
-        const link_lib = try self.gpa().create(LinkLib{
+        const link_lib = try self.gpa().create(LinkLib);
+        link_lib.* = LinkLib{
             .name = name,
             .path = null,
             .provided_explicitly = provided_explicitly,
             .symbols = ArrayList([]u8).init(self.gpa()),
-        });
+        };
         try self.link_libs_list.append(link_lib);
         if (is_libc) {
             self.libc_link_lib = link_lib;
@@ -1183,7 +1198,7 @@ pub const Compilation = struct {
         const file_name = try std.fmt.allocPrint(self.gpa(), "{}{}", file_prefix[0..], suffix);
         defer self.gpa().free(file_name);
 
-        const full_path = try os.path.join(self.gpa(), tmp_dir, file_name[0..]);
+        const full_path = try os.path.join(self.gpa(), [][]const u8{ tmp_dir, file_name[0..] });
         errdefer self.gpa().free(full_path);
 
         return Buffer.fromOwnedSlice(self.gpa(), full_path);
@@ -1204,7 +1219,7 @@ pub const Compilation = struct {
         const zig_dir_path = try getZigDir(self.gpa());
         defer self.gpa().free(zig_dir_path);
 
-        const tmp_dir = try os.path.join(self.arena(), zig_dir_path, comp_dir_name[0..]);
+        const tmp_dir = try os.path.join(self.arena(), [][]const u8{ zig_dir_path, comp_dir_name[0..] });
         try os.makePath(self.gpa(), tmp_dir);
         return tmp_dir;
     }

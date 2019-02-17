@@ -7,7 +7,7 @@
 const builtin = @import("builtin");
 const std = @import("../index.zig");
 const math = std.math;
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 
 pub fn tan(x: var) @typeOf(x) {
     const T = @typeOf(x);
@@ -129,44 +129,44 @@ fn tan64(x_: f64) f64 {
 }
 
 test "math.tan" {
-    assert(tan(f32(0.0)) == tan32(0.0));
-    assert(tan(f64(0.0)) == tan64(0.0));
+    expect(tan(f32(0.0)) == tan32(0.0));
+    expect(tan(f64(0.0)) == tan64(0.0));
 }
 
 test "math.tan32" {
     const epsilon = 0.000001;
 
-    assert(math.approxEq(f32, tan32(0.0), 0.0, epsilon));
-    assert(math.approxEq(f32, tan32(0.2), 0.202710, epsilon));
-    assert(math.approxEq(f32, tan32(0.8923), 1.240422, epsilon));
-    assert(math.approxEq(f32, tan32(1.5), 14.101420, epsilon));
-    assert(math.approxEq(f32, tan32(37.45), -0.254397, epsilon));
-    assert(math.approxEq(f32, tan32(89.123), 2.285852, epsilon));
+    expect(math.approxEq(f32, tan32(0.0), 0.0, epsilon));
+    expect(math.approxEq(f32, tan32(0.2), 0.202710, epsilon));
+    expect(math.approxEq(f32, tan32(0.8923), 1.240422, epsilon));
+    expect(math.approxEq(f32, tan32(1.5), 14.101420, epsilon));
+    expect(math.approxEq(f32, tan32(37.45), -0.254397, epsilon));
+    expect(math.approxEq(f32, tan32(89.123), 2.285852, epsilon));
 }
 
 test "math.tan64" {
     const epsilon = 0.000001;
 
-    assert(math.approxEq(f64, tan64(0.0), 0.0, epsilon));
-    assert(math.approxEq(f64, tan64(0.2), 0.202710, epsilon));
-    assert(math.approxEq(f64, tan64(0.8923), 1.240422, epsilon));
-    assert(math.approxEq(f64, tan64(1.5), 14.101420, epsilon));
-    assert(math.approxEq(f64, tan64(37.45), -0.254397, epsilon));
-    assert(math.approxEq(f64, tan64(89.123), 2.2858376, epsilon));
+    expect(math.approxEq(f64, tan64(0.0), 0.0, epsilon));
+    expect(math.approxEq(f64, tan64(0.2), 0.202710, epsilon));
+    expect(math.approxEq(f64, tan64(0.8923), 1.240422, epsilon));
+    expect(math.approxEq(f64, tan64(1.5), 14.101420, epsilon));
+    expect(math.approxEq(f64, tan64(37.45), -0.254397, epsilon));
+    expect(math.approxEq(f64, tan64(89.123), 2.2858376, epsilon));
 }
 
 test "math.tan32.special" {
-    assert(tan32(0.0) == 0.0);
-    assert(tan32(-0.0) == -0.0);
-    assert(math.isNan(tan32(math.inf(f32))));
-    assert(math.isNan(tan32(-math.inf(f32))));
-    assert(math.isNan(tan32(math.nan(f32))));
+    expect(tan32(0.0) == 0.0);
+    expect(tan32(-0.0) == -0.0);
+    expect(math.isNan(tan32(math.inf(f32))));
+    expect(math.isNan(tan32(-math.inf(f32))));
+    expect(math.isNan(tan32(math.nan(f32))));
 }
 
 test "math.tan64.special" {
-    assert(tan64(0.0) == 0.0);
-    assert(tan64(-0.0) == -0.0);
-    assert(math.isNan(tan64(math.inf(f64))));
-    assert(math.isNan(tan64(-math.inf(f64))));
-    assert(math.isNan(tan64(math.nan(f64))));
+    expect(tan64(0.0) == 0.0);
+    expect(tan64(-0.0) == -0.0);
+    expect(math.isNan(tan64(math.inf(f64))));
+    expect(math.isNan(tan64(-math.inf(f64))));
+    expect(math.isNan(tan64(math.nan(f64))));
 }

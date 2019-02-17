@@ -7,7 +7,7 @@
 const builtin = @import("builtin");
 const std = @import("../index.zig");
 const math = std.math;
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 const expo2 = @import("expo2.zig").expo2;
 const maxInt = std.math.maxInt;
 
@@ -87,40 +87,40 @@ fn sinh64(x: f64) f64 {
 }
 
 test "math.sinh" {
-    assert(sinh(f32(1.5)) == sinh32(1.5));
-    assert(sinh(f64(1.5)) == sinh64(1.5));
+    expect(sinh(f32(1.5)) == sinh32(1.5));
+    expect(sinh(f64(1.5)) == sinh64(1.5));
 }
 
 test "math.sinh32" {
     const epsilon = 0.000001;
 
-    assert(math.approxEq(f32, sinh32(0.0), 0.0, epsilon));
-    assert(math.approxEq(f32, sinh32(0.2), 0.201336, epsilon));
-    assert(math.approxEq(f32, sinh32(0.8923), 1.015512, epsilon));
-    assert(math.approxEq(f32, sinh32(1.5), 2.129279, epsilon));
+    expect(math.approxEq(f32, sinh32(0.0), 0.0, epsilon));
+    expect(math.approxEq(f32, sinh32(0.2), 0.201336, epsilon));
+    expect(math.approxEq(f32, sinh32(0.8923), 1.015512, epsilon));
+    expect(math.approxEq(f32, sinh32(1.5), 2.129279, epsilon));
 }
 
 test "math.sinh64" {
     const epsilon = 0.000001;
 
-    assert(math.approxEq(f64, sinh64(0.0), 0.0, epsilon));
-    assert(math.approxEq(f64, sinh64(0.2), 0.201336, epsilon));
-    assert(math.approxEq(f64, sinh64(0.8923), 1.015512, epsilon));
-    assert(math.approxEq(f64, sinh64(1.5), 2.129279, epsilon));
+    expect(math.approxEq(f64, sinh64(0.0), 0.0, epsilon));
+    expect(math.approxEq(f64, sinh64(0.2), 0.201336, epsilon));
+    expect(math.approxEq(f64, sinh64(0.8923), 1.015512, epsilon));
+    expect(math.approxEq(f64, sinh64(1.5), 2.129279, epsilon));
 }
 
 test "math.sinh32.special" {
-    assert(sinh32(0.0) == 0.0);
-    assert(sinh32(-0.0) == -0.0);
-    assert(math.isPositiveInf(sinh32(math.inf(f32))));
-    assert(math.isNegativeInf(sinh32(-math.inf(f32))));
-    assert(math.isNan(sinh32(math.nan(f32))));
+    expect(sinh32(0.0) == 0.0);
+    expect(sinh32(-0.0) == -0.0);
+    expect(math.isPositiveInf(sinh32(math.inf(f32))));
+    expect(math.isNegativeInf(sinh32(-math.inf(f32))));
+    expect(math.isNan(sinh32(math.nan(f32))));
 }
 
 test "math.sinh64.special" {
-    assert(sinh64(0.0) == 0.0);
-    assert(sinh64(-0.0) == -0.0);
-    assert(math.isPositiveInf(sinh64(math.inf(f64))));
-    assert(math.isNegativeInf(sinh64(-math.inf(f64))));
-    assert(math.isNan(sinh64(math.nan(f64))));
+    expect(sinh64(0.0) == 0.0);
+    expect(sinh64(-0.0) == -0.0);
+    expect(math.isPositiveInf(sinh64(math.inf(f64))));
+    expect(math.isNegativeInf(sinh64(-math.inf(f64))));
+    expect(math.isNan(sinh64(math.nan(f64))));
 }

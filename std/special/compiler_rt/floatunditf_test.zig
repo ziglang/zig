@@ -1,5 +1,4 @@
 const __floatunditf = @import("floatunditf.zig").__floatunditf;
-const assert = @import("std").debug.assert;
 
 fn test__floatunditf(a: u128, expected_hi: u64, expected_lo: u64) void {
     const x = __floatunditf(a);

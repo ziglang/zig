@@ -2,6 +2,7 @@ const std = @import("../index.zig");
 const builtin = @import("builtin");
 const Os = builtin.Os;
 const debug = std.debug;
+const testing = std.testing;
 
 const windows = std.os.windows;
 const linux = std.os.linux;
@@ -13,7 +14,7 @@ pub const epoch = @import("epoch.zig");
 /// Sleep for the specified duration
 pub fn sleep(nanoseconds: u64) void {
     switch (builtin.os) {
-        Os.linux, Os.macosx, Os.ios => {
+        Os.linux, Os.macosx, Os.ios, Os.freebsd => {
             const s = nanoseconds / ns_per_s;
             const ns = nanoseconds % ns_per_s;
             posixSleep(@intCast(u63, s), @intCast(u63, ns));
@@ -61,7 +62,7 @@ pub fn timestamp() u64 {
 /// Get the posix timestamp, UTC, in milliseconds
 pub const milliTimestamp = switch (builtin.os) {
     Os.windows => milliTimestampWindows,
-    Os.linux => milliTimestampPosix,
+    Os.linux, Os.freebsd => milliTimestampPosix,
     Os.macosx, Os.ios => milliTimestampDarwin,
     else => @compileError("Unsupported OS"),
 };
@@ -79,14 +80,12 @@ fn milliTimestampWindows() u64 {
 }
 
 fn milliTimestampDarwin() u64 {
-    //Sources suggest MacOS 10.12 has support for
-    //  posix clock_gettime.
     var tv: darwin.timeval = undefined;
     var err = darwin.gettimeofday(&tv, null);
     debug.assert(err == 0);
-    const sec_ms = @intCast(u64, tv.tv_sec) * ms_per_s;
-    const usec_ms = @divFloor(@intCast(u64, tv.tv_usec), us_per_s / ms_per_s);
-    return u64(sec_ms) + u64(usec_ms);
+    const sec_ms = tv.tv_sec * ms_per_s;
+    const usec_ms = @divFloor(tv.tv_usec, us_per_s / ms_per_s);
+    return @intCast(u64, sec_ms + usec_ms);
 }
 
 fn milliTimestampPosix() u64 {
@@ -179,7 +178,7 @@ pub const Timer = struct {
                 debug.assert(err != windows.FALSE);
                 self.start_time = @intCast(u64, start_time);
             },
-            Os.linux => {
+            Os.linux, Os.freebsd => {
                 //On Linux, seccomp can do arbitrary things to our ability to call
                 //  syscalls, including return any errno value it wants and
                 //  inconsistently throwing errors. Since we can't account for
@@ -215,7 +214,7 @@ pub const Timer = struct {
         var clock = clockNative() - self.start_time;
         return switch (builtin.os) {
             Os.windows => @divFloor(clock * ns_per_s, self.frequency),
-            Os.linux => clock,
+            Os.linux, Os.freebsd => clock,
             Os.macosx, Os.ios => @divFloor(clock * self.frequency.numer, self.frequency.denom),
             else => @compileError("Unsupported OS"),
         };
@@ -236,7 +235,7 @@ pub const Timer = struct {
 
     const clockNative = switch (builtin.os) {
         Os.windows => clockWindows,
-        Os.linux => clockLinux,
+        Os.linux, Os.freebsd => clockLinux,
         Os.macosx, Os.ios => clockDarwin,
         else => @compileError("Unsupported OS"),
     };
@@ -272,7 +271,7 @@ test "os.time.timestamp" {
     sleep(ns_per_ms);
     const time_1 = milliTimestamp();
     const interval = time_1 - time_0;
-    debug.assert(interval > 0 and interval < margin);
+    testing.expect(interval > 0 and interval < margin);
 }
 
 test "os.time.Timer" {
@@ -282,11 +281,11 @@ test "os.time.Timer" {
     var timer = try Timer.start();
     sleep(10 * ns_per_ms);
     const time_0 = timer.read();
-    debug.assert(time_0 > 0 and time_0 < margin);
+    testing.expect(time_0 > 0 and time_0 < margin);
 
     const time_1 = timer.lap();
-    debug.assert(time_1 >= time_0);
+    testing.expect(time_1 >= time_0);
 
     timer.reset();
-    debug.assert(timer.read() < time_1);
+    testing.expect(timer.read() < time_1);
 }

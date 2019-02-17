@@ -53,6 +53,7 @@ pub const Token = struct {
         Keyword{ .bytes = "switch", .id = Id.Keyword_switch },
         Keyword{ .bytes = "test", .id = Id.Keyword_test },
         Keyword{ .bytes = "this", .id = Id.Keyword_this },
+        Keyword{ .bytes = "threadlocal", .id = Id.Keyword_threadlocal },
         Keyword{ .bytes = "true", .id = Id.Keyword_true },
         Keyword{ .bytes = "try", .id = Id.Keyword_try },
         Keyword{ .bytes = "undefined", .id = Id.Keyword_undefined },
@@ -140,6 +141,7 @@ pub const Token = struct {
         LineComment,
         DocComment,
         BracketStarBracket,
+        BracketStarCBracket,
         ShebangLine,
         Keyword_align,
         Keyword_and,
@@ -182,6 +184,7 @@ pub const Token = struct {
         Keyword_switch,
         Keyword_test,
         Keyword_this,
+        Keyword_threadlocal,
         Keyword_true,
         Keyword_try,
         Keyword_undefined,
@@ -277,6 +280,7 @@ pub const Tokenizer = struct {
         SawAtSign,
         LBracket,
         LBracketStar,
+        LBracketStarC,
     };
 
     pub fn next(self: *Tokenizer) Token {
@@ -454,8 +458,23 @@ pub const Tokenizer = struct {
                 },
 
                 State.LBracketStar => switch (c) {
+                    'c' => {
+                        state = State.LBracketStarC;
+                    },
                     ']' => {
                         result.id = Token.Id.BracketStarBracket;
+                        self.index += 1;
+                        break;
+                    },
+                    else => {
+                        result.id = Token.Id.Invalid;
+                        break;
+                    },
+                },
+
+                State.LBracketStarC => switch (c) {
+                    ']' => {
+                        result.id = Token.Id.BracketStarCBracket;
                         self.index += 1;
                         break;
                     },
@@ -1033,6 +1052,7 @@ pub const Tokenizer = struct {
                 State.CharLiteralEnd,
                 State.StringLiteralBackslash,
                 State.LBracketStar,
+                State.LBracketStarC,
                 => {
                     result.id = Token.Id.Invalid;
                 },
@@ -1167,11 +1187,14 @@ test "tokenizer" {
     testTokenize("test", []Token.Id{Token.Id.Keyword_test});
 }
 
-test "tokenizer - unknown length pointer" {
+test "tokenizer - unknown length pointer and then c pointer" {
     testTokenize(
         \\[*]u8
+        \\[*c]u8
     , []Token.Id{
         Token.Id.BracketStarBracket,
+        Token.Id.Identifier,
+        Token.Id.BracketStarCBracket,
         Token.Id.Identifier,
     });
 }
@@ -1345,5 +1368,5 @@ fn testTokenize(source: []const u8, expected_tokens: []const Token.Id) void {
         }
     }
     const last_token = tokenizer.next();
-    std.debug.assert(last_token.id == Token.Id.Eof);
+    std.testing.expect(last_token.id == Token.Id.Eof);
 }

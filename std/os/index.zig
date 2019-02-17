@@ -8,6 +8,10 @@ const is_posix = switch (builtin.os) {
 };
 const os = @This();
 
+comptime {
+    assert(@import("std") == std); // You have to run the std lib tests with --override-std-dir
+}
+
 test "std.os" {
     _ = @import("child_process.zig");
     _ = @import("darwin.zig");
@@ -18,6 +22,7 @@ test "std.os" {
     _ = @import("test.zig");
     _ = @import("time.zig");
     _ = @import("windows/index.zig");
+    _ = @import("uefi.zig");
     _ = @import("get_app_data_dir.zig");
 }
 
@@ -26,6 +31,8 @@ pub const darwin = @import("darwin.zig");
 pub const linux = @import("linux/index.zig");
 pub const freebsd = @import("freebsd/index.zig");
 pub const zen = @import("zen.zig");
+pub const uefi = @import("uefi.zig");
+
 pub const posix = switch (builtin.os) {
     Os.linux => linux,
     Os.macosx, Os.ios => darwin,
@@ -33,6 +40,7 @@ pub const posix = switch (builtin.os) {
     Os.zen => zen,
     else => @compileError("Unsupported OS"),
 };
+
 pub const net = @import("net.zig");
 
 pub const ChildProcess = @import("child_process.zig").ChildProcess;
@@ -83,6 +91,7 @@ pub const GetAppDataDirError = @import("get_app_data_dir.zig").GetAppDataDirErro
 
 const debug = std.debug;
 const assert = debug.assert;
+const testing = std.testing;
 
 const c = std.c;
 
@@ -103,7 +112,7 @@ const math = std.math;
 /// library implementation.
 pub fn getRandomBytes(buf: []u8) !void {
     switch (builtin.os) {
-        Os.linux, Os.freebsd => while (true) {
+        Os.linux => while (true) {
             // TODO check libc version and potentially call c.getrandom.
             // See #397
             const errno = posix.getErrno(posix.getrandom(buf.ptr, buf.len, 0));
@@ -116,7 +125,7 @@ pub fn getRandomBytes(buf: []u8) !void {
                 else => return unexpectedErrorPosix(errno),
             }
         },
-        Os.macosx, Os.ios => return getRandomBytesDevURandom(buf),
+        Os.macosx, Os.ios, Os.freebsd => return getRandomBytesDevURandom(buf),
         Os.windows => {
             // Call RtlGenRandom() instead of CryptGetRandom() on Windows
             // https://github.com/rust-lang-nursery/rand/issues/111
@@ -164,7 +173,7 @@ test "os.getRandomBytes" {
     try getRandomBytes(buf_b[0..]);
 
     // Check if random (not 100% conclusive)
-    assert(!mem.eql(u8, buf_a, buf_b));
+    testing.expect(!mem.eql(u8, buf_a, buf_b));
 }
 
 /// Raises a signal in the current kernel thread, ending its execution.
@@ -186,6 +195,10 @@ pub fn abort() noreturn {
                 @breakpoint();
             }
             windows.ExitProcess(3);
+        },
+        Os.uefi => {
+            // TODO there's gotta be a better thing to do here than loop forever
+            while (true) {}
         },
         else => @compileError("Unsupported OS"),
     }
@@ -459,6 +472,7 @@ pub const PosixOpenError = error{
     NoSpaceLeft,
     NotDir,
     PathAlreadyExists,
+    DeviceBusy,
 
     /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
@@ -497,6 +511,7 @@ pub fn posixOpenC(file_path: [*]const u8, flags: u32, perm: usize) !i32 {
                 posix.ENOTDIR => return PosixOpenError.NotDir,
                 posix.EPERM => return PosixOpenError.AccessDenied,
                 posix.EEXIST => return PosixOpenError.PathAlreadyExists,
+                posix.EBUSY => return PosixOpenError.DeviceBusy,
                 else => return unexpectedErrorPosix(err),
             }
         }
@@ -598,7 +613,7 @@ pub fn posixExecve(argv: []const []const u8, env_map: *const BufMap, allocator: 
     // +1 for the null terminating byte
     const path_buf = try allocator.alloc(u8, PATH.len + exe_path.len + 2);
     defer allocator.free(path_buf);
-    var it = mem.split(PATH, ":");
+    var it = mem.tokenize(PATH, ":");
     var seen_eacces = false;
     var err: usize = undefined;
     while (it.next()) |search_path| {
@@ -682,12 +697,7 @@ pub fn getBaseAddress() usize {
                 return base;
             }
             const phdr = linuxGetAuxVal(std.elf.AT_PHDR);
-            const ElfHeader = switch (@sizeOf(usize)) {
-                4 => std.elf.Elf32_Ehdr,
-                8 => std.elf.Elf64_Ehdr,
-                else => @compileError("Unsupported architecture"),
-            };
-            return phdr - @sizeOf(ElfHeader);
+            return phdr - @sizeOf(std.elf.Ehdr);
         },
         builtin.Os.macosx, builtin.Os.freebsd => return @ptrToInt(&std.c._mh_execute_header),
         builtin.Os.windows => return @ptrToInt(windows.GetModuleHandleW(null)),
@@ -702,8 +712,8 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
     errdefer result.deinit();
 
     if (is_windows) {
-        const ptr = windows.GetEnvironmentStringsA() orelse return error.OutOfMemory;
-        defer assert(windows.FreeEnvironmentStringsA(ptr) != 0);
+        const ptr = windows.GetEnvironmentStringsW() orelse return error.OutOfMemory;
+        defer assert(windows.FreeEnvironmentStringsW(ptr) != 0);
 
         var i: usize = 0;
         while (true) {
@@ -712,17 +722,21 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
             const key_start = i;
 
             while (ptr[i] != 0 and ptr[i] != '=') : (i += 1) {}
-            const key = ptr[key_start..i];
+            const key_w = ptr[key_start..i];
+            const key = try std.unicode.utf16leToUtf8Alloc(allocator, key_w);
+            errdefer allocator.free(key);
 
             if (ptr[i] == '=') i += 1;
 
             const value_start = i;
             while (ptr[i] != 0) : (i += 1) {}
-            const value = ptr[value_start..i];
+            const value_w = ptr[value_start..i];
+            const value = try std.unicode.utf16leToUtf8Alloc(allocator, value_w);
+            errdefer allocator.free(value);
 
             i += 1; // skip over null byte
 
-            try result.set(key, value);
+            try result.setMove(key, value);
         }
     } else {
         for (posix_environ_raw) |ptr| {
@@ -738,6 +752,11 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
         }
         return result;
     }
+}
+
+test "os.getEnvMap" {
+    var env = try getEnvMap(std.debug.global_allocator);
+    defer env.deinit();
 }
 
 /// TODO make this go through libc when we have it
@@ -760,21 +779,24 @@ pub fn getEnvPosix(key: []const u8) ?[]const u8 {
 pub const GetEnvVarOwnedError = error{
     OutOfMemory,
     EnvironmentVariableNotFound,
+
+    /// See https://github.com/ziglang/zig/issues/1774
+    InvalidUtf8,
 };
 
 /// Caller must free returned memory.
 /// TODO make this go through libc when we have it
 pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwnedError![]u8 {
     if (is_windows) {
-        const key_with_null = try cstr.addNullByte(allocator, key);
+        const key_with_null = try std.unicode.utf8ToUtf16LeWithNull(allocator, key);
         defer allocator.free(key_with_null);
 
-        var buf = try allocator.alloc(u8, 256);
-        errdefer allocator.free(buf);
+        var buf = try allocator.alloc(u16, 256);
+        defer allocator.free(buf);
 
         while (true) {
             const windows_buf_len = math.cast(windows.DWORD, buf.len) catch return error.OutOfMemory;
-            const result = windows.GetEnvironmentVariableA(key_with_null.ptr, buf.ptr, windows_buf_len);
+            const result = windows.GetEnvironmentVariableW(key_with_null.ptr, buf.ptr, windows_buf_len);
 
             if (result == 0) {
                 const err = windows.GetLastError();
@@ -788,16 +810,26 @@ pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwned
             }
 
             if (result > buf.len) {
-                buf = try allocator.realloc(u8, buf, result);
+                buf = try allocator.realloc(u16, buf, result);
                 continue;
             }
 
-            return allocator.shrink(u8, buf, result);
+            return std.unicode.utf16leToUtf8Alloc(allocator, buf) catch |err| switch (err) {
+                error.DanglingSurrogateHalf => return error.InvalidUtf8,
+                error.ExpectedSecondSurrogateHalf => return error.InvalidUtf8,
+                error.UnexpectedSecondSurrogateHalf => return error.InvalidUtf8,
+                error.OutOfMemory => return error.OutOfMemory,
+            };
         }
     } else {
         const result = getEnvPosix(key) orelse return error.EnvironmentVariableNotFound;
         return mem.dupe(allocator, u8, result);
     }
+}
+
+test "os.getEnvVarOwned" {
+    var ga = debug.global_allocator;
+    testing.expectError(error.EnvironmentVariableNotFound, getEnvVarOwned(ga, "BADENV"));
 }
 
 /// Caller must free the returned memory.
@@ -1253,7 +1285,7 @@ pub fn makeDirPosix(dir_path: []const u8) !void {
 /// already exists and is a directory.
 /// TODO determine if we can remove the allocator requirement from this function
 pub fn makePath(allocator: *Allocator, full_path: []const u8) !void {
-    const resolved_path = try path.resolve(allocator, full_path);
+    const resolved_path = try path.resolve(allocator, [][]const u8{full_path});
     defer allocator.free(resolved_path);
 
     var end_index: usize = resolved_path.len;
@@ -1380,6 +1412,7 @@ const DeleteTreeError = error{
     FileSystem,
     FileBusy,
     DirNotEmpty,
+    DeviceBusy,
 
     /// On Windows, file paths must be valid Unicode.
     InvalidUtf8,
@@ -1441,6 +1474,7 @@ pub fn deleteTree(allocator: *Allocator, full_path: []const u8) DeleteTreeError!
                 error.Unexpected,
                 error.InvalidUtf8,
                 error.BadPathName,
+                error.DeviceBusy,
                 => return err,
             };
             defer dir.close();
@@ -1523,6 +1557,7 @@ pub const Dir = struct {
         OutOfMemory,
         InvalidUtf8,
         BadPathName,
+        DeviceBusy,
 
         /// See https://github.com/ziglang/zig/issues/1396
         Unexpected,
@@ -1731,8 +1766,57 @@ pub const Dir = struct {
     }
 
     fn nextFreebsd(self: *Dir) !?Entry {
-        //self.handle.buf = try self.allocator.alloc(u8, page_size);
-        @compileError("TODO implement dirs for FreeBSD");
+        start_over: while (true) {
+            if (self.handle.index >= self.handle.end_index) {
+                if (self.handle.buf.len == 0) {
+                    self.handle.buf = try self.allocator.alloc(u8, page_size);
+                }
+
+                while (true) {
+                    const result = posix.getdirentries(self.handle.fd, self.handle.buf.ptr, self.handle.buf.len, &self.handle.seek);
+                    const err = posix.getErrno(result);
+                    if (err > 0) {
+                        switch (err) {
+                            posix.EBADF, posix.EFAULT, posix.ENOTDIR => unreachable,
+                            posix.EINVAL => {
+                                self.handle.buf = try self.allocator.realloc(u8, self.handle.buf, self.handle.buf.len * 2);
+                                continue;
+                            },
+                            else => return unexpectedErrorPosix(err),
+                        }
+                    }
+                    if (result == 0) return null;
+                    self.handle.index = 0;
+                    self.handle.end_index = result;
+                    break;
+                }
+            }
+            const freebsd_entry = @ptrCast(*align(1) posix.dirent, &self.handle.buf[self.handle.index]);
+            const next_index = self.handle.index + freebsd_entry.d_reclen;
+            self.handle.index = next_index;
+
+            const name = @ptrCast([*]u8, &freebsd_entry.d_name)[0..freebsd_entry.d_namlen];
+
+            if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..")) {
+                continue :start_over;
+            }
+
+            const entry_kind = switch (freebsd_entry.d_type) {
+                posix.DT_BLK => Entry.Kind.BlockDevice,
+                posix.DT_CHR => Entry.Kind.CharacterDevice,
+                posix.DT_DIR => Entry.Kind.Directory,
+                posix.DT_FIFO => Entry.Kind.NamedPipe,
+                posix.DT_LNK => Entry.Kind.SymLink,
+                posix.DT_REG => Entry.Kind.File,
+                posix.DT_SOCK => Entry.Kind.UnixDomainSocket,
+                posix.DT_WHT => Entry.Kind.Whiteout,
+                else => Entry.Kind.Unknown,
+            };
+            return Entry{
+                .name = name,
+                .kind = entry_kind,
+            };
+        }
     }
 };
 
@@ -2136,9 +2220,9 @@ fn testWindowsCmdLine(input_cmd_line: [*]const u8, expected_args: []const []cons
     var it = ArgIteratorWindows.initWithCmdLine(input_cmd_line);
     for (expected_args) |expected_arg| {
         const arg = it.next(debug.global_allocator).? catch unreachable;
-        assert(mem.eql(u8, arg, expected_arg));
+        testing.expectEqualSlices(u8, expected_arg, arg);
     }
-    assert(it.next(debug.global_allocator) == null);
+    testing.expect(it.next(debug.global_allocator) == null);
 }
 
 // TODO make this a build variable that you can set
@@ -2220,7 +2304,19 @@ pub fn selfExePathW(out_buffer: *[windows_util.PATH_MAX_WIDE]u16) ![]u16 {
 pub fn selfExePath(out_buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
     switch (builtin.os) {
         Os.linux => return readLink(out_buffer, "/proc/self/exe"),
-        Os.freebsd => return readLink(out_buffer, "/proc/curproc/file"),
+        Os.freebsd => {
+            var mib = [4]c_int{ posix.CTL_KERN, posix.KERN_PROC, posix.KERN_PROC_PATHNAME, -1 };
+            var out_len: usize = out_buffer.len;
+            const err = posix.getErrno(posix.sysctl(&mib, 4, out_buffer, &out_len, null, 0));
+
+            if (err == 0) return mem.toSlice(u8, out_buffer);
+
+            return switch (err) {
+                posix.EFAULT => error.BadAdress,
+                posix.EPERM => error.PermissionDenied,
+                else => unexpectedErrorPosix(err),
+            };
+        },
         Os.windows => {
             var utf16le_buf: [windows_util.PATH_MAX_WIDE]u16 = undefined;
             const utf16le_slice = try selfExePathW(&utf16le_buf);
@@ -2811,14 +2907,15 @@ pub const Thread = struct {
     pub const Data = if (use_pthreads)
         struct {
             handle: Thread.Handle,
-            stack_addr: usize,
-            stack_len: usize,
+            mmap_addr: usize,
+            mmap_len: usize,
         }
     else switch (builtin.os) {
         builtin.Os.linux => struct {
             handle: Thread.Handle,
-            stack_addr: usize,
-            stack_len: usize,
+            mmap_addr: usize,
+            mmap_len: usize,
+            tls_end_addr: usize,
         },
         builtin.Os.windows => struct {
             handle: Thread.Handle,
@@ -2858,7 +2955,7 @@ pub const Thread = struct {
                 posix.EDEADLK => unreachable,
                 else => unreachable,
             }
-            assert(posix.munmap(self.data.stack_addr, self.data.stack_len) == 0);
+            assert(posix.munmap(self.data.mmap_addr, self.data.mmap_len) == 0);
         } else switch (builtin.os) {
             builtin.Os.linux => {
                 while (true) {
@@ -2872,7 +2969,7 @@ pub const Thread = struct {
                         else => unreachable,
                     }
                 }
-                assert(posix.munmap(self.data.stack_addr, self.data.stack_len) == 0);
+                assert(posix.munmap(self.data.mmap_addr, self.data.mmap_len) == 0);
             },
             builtin.Os.windows => {
                 assert(windows.WaitForSingleObject(self.data.handle, windows.INFINITE) == windows.WAIT_OBJECT_0);
@@ -2911,11 +3008,15 @@ pub const SpawnThreadError = error{
     Unexpected,
 };
 
+pub var linux_tls_phdr: ?*std.elf.Phdr = null;
+pub var linux_tls_img_src: [*]const u8 = undefined; // defined if linux_tls_phdr is
+
 /// caller must call wait on the returned thread
 /// fn startFn(@typeOf(context)) T
 /// where T is u8, noreturn, void, or !void
 /// caller must call wait on the returned thread
 pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread {
+    if (builtin.single_threaded) @compileError("cannot spawn thread when building in single-threaded mode");
     // TODO compile-time call graph analysis to determine stack upper bound
     // https://github.com/ziglang/zig/issues/157
     const default_stack_size = 8 * 1024 * 1024;
@@ -2949,7 +3050,8 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
         const bytes_ptr = windows.HeapAlloc(heap_handle, 0, byte_count) orelse return SpawnThreadError.OutOfMemory;
         errdefer assert(windows.HeapFree(heap_handle, 0, bytes_ptr) != 0);
         const bytes = @ptrCast([*]u8, bytes_ptr)[0..byte_count];
-        const outer_context = std.heap.FixedBufferAllocator.init(bytes).allocator.create(WinThread.OuterContext{
+        const outer_context = std.heap.FixedBufferAllocator.init(bytes).allocator.create(WinThread.OuterContext) catch unreachable;
+        outer_context.* = WinThread.OuterContext{
             .thread = Thread{
                 .data = Thread.Data{
                     .heap_handle = heap_handle,
@@ -2958,7 +3060,7 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
                 },
             },
             .inner = context,
-        }) catch unreachable;
+        };
 
         const parameter = if (@sizeOf(Context) == 0) null else @ptrCast(*c_void, &outer_context.inner);
         outer_context.thread.data.handle = windows.CreateThread(null, default_stack_size, WinThread.threadMain, parameter, 0, null) orelse {
@@ -2998,42 +3100,56 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
 
     const MAP_GROWSDOWN = if (builtin.os == builtin.Os.linux) linux.MAP_GROWSDOWN else 0;
 
-    const mmap_len = default_stack_size;
-    const stack_addr = posix.mmap(null, mmap_len, posix.PROT_READ | posix.PROT_WRITE, posix.MAP_PRIVATE | posix.MAP_ANONYMOUS | MAP_GROWSDOWN, -1, 0);
-    if (stack_addr == posix.MAP_FAILED) return error.OutOfMemory;
-    errdefer assert(posix.munmap(stack_addr, mmap_len) == 0);
+    var stack_end_offset: usize = undefined;
+    var thread_start_offset: usize = undefined;
+    var context_start_offset: usize = undefined;
+    var tls_start_offset: usize = undefined;
+    const mmap_len = blk: {
+        // First in memory will be the stack, which grows downwards.
+        var l: usize = mem.alignForward(default_stack_size, os.page_size);
+        stack_end_offset = l;
+        // Above the stack, so that it can be in the same mmap call, put the Thread object.
+        l = mem.alignForward(l, @alignOf(Thread));
+        thread_start_offset = l;
+        l += @sizeOf(Thread);
+        // Next, the Context object.
+        if (@sizeOf(Context) != 0) {
+            l = mem.alignForward(l, @alignOf(Context));
+            context_start_offset = l;
+            l += @sizeOf(Context);
+        }
+        // Finally, the Thread Local Storage, if any.
+        if (!Thread.use_pthreads) {
+            if (linux_tls_phdr) |tls_phdr| {
+                l = mem.alignForward(l, tls_phdr.p_align);
+                tls_start_offset = l;
+                l += tls_phdr.p_memsz;
+            }
+        }
+        break :blk l;
+    };
+    const mmap_addr = posix.mmap(null, mmap_len, posix.PROT_READ | posix.PROT_WRITE, posix.MAP_PRIVATE | posix.MAP_ANONYMOUS | MAP_GROWSDOWN, -1, 0);
+    if (mmap_addr == posix.MAP_FAILED) return error.OutOfMemory;
+    errdefer assert(posix.munmap(mmap_addr, mmap_len) == 0);
 
-    var stack_end: usize = stack_addr + mmap_len;
+    const thread_ptr = @alignCast(@alignOf(Thread), @intToPtr(*Thread, mmap_addr + thread_start_offset));
+    thread_ptr.data.mmap_addr = mmap_addr;
+    thread_ptr.data.mmap_len = mmap_len;
+
     var arg: usize = undefined;
     if (@sizeOf(Context) != 0) {
-        stack_end -= @sizeOf(Context);
-        stack_end -= stack_end % @alignOf(Context);
-        assert(stack_end >= stack_addr);
-        const context_ptr = @alignCast(@alignOf(Context), @intToPtr(*Context, stack_end));
+        arg = mmap_addr + context_start_offset;
+        const context_ptr = @alignCast(@alignOf(Context), @intToPtr(*Context, arg));
         context_ptr.* = context;
-        arg = stack_end;
     }
 
-    stack_end -= @sizeOf(Thread);
-    stack_end -= stack_end % @alignOf(Thread);
-    assert(stack_end >= stack_addr);
-    const thread_ptr = @alignCast(@alignOf(Thread), @intToPtr(*Thread, stack_end));
-
-    thread_ptr.data.stack_addr = stack_addr;
-    thread_ptr.data.stack_len = mmap_len;
-
-    if (builtin.os == builtin.Os.windows) {
-        // use windows API directly
-        @compileError("TODO support spawnThread for Windows");
-    } else if (Thread.use_pthreads) {
+    if (Thread.use_pthreads) {
         // use pthreads
         var attr: c.pthread_attr_t = undefined;
         if (c.pthread_attr_init(&attr) != 0) return SpawnThreadError.SystemResources;
         defer assert(c.pthread_attr_destroy(&attr) == 0);
 
-        // align to page
-        stack_end -= stack_end % os.page_size;
-        assert(c.pthread_attr_setstack(&attr, @intToPtr(*c_void, stack_addr), stack_end - stack_addr) == 0);
+        assert(c.pthread_attr_setstack(&attr, @intToPtr(*c_void, mmap_addr), stack_end_offset) == 0);
 
         const err = c.pthread_create(&thread_ptr.data.handle, &attr, MainFuncs.posixThreadMain, @intToPtr(*c_void, arg));
         switch (err) {
@@ -3044,10 +3160,17 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
             else => return unexpectedErrorPosix(@intCast(usize, err)),
         }
     } else if (builtin.os == builtin.Os.linux) {
-        // use linux API directly.  TODO use posix.CLONE_SETTLS and initialize thread local storage correctly
-        const flags = posix.CLONE_VM | posix.CLONE_FS | posix.CLONE_FILES | posix.CLONE_SIGHAND | posix.CLONE_THREAD | posix.CLONE_SYSVSEM | posix.CLONE_PARENT_SETTID | posix.CLONE_CHILD_CLEARTID | posix.CLONE_DETACHED;
-        const newtls: usize = 0;
-        const rc = posix.clone(MainFuncs.linuxThreadMain, stack_end, flags, arg, &thread_ptr.data.handle, newtls, &thread_ptr.data.handle);
+        var flags: u32 = posix.CLONE_VM | posix.CLONE_FS | posix.CLONE_FILES | posix.CLONE_SIGHAND |
+            posix.CLONE_THREAD | posix.CLONE_SYSVSEM | posix.CLONE_PARENT_SETTID | posix.CLONE_CHILD_CLEARTID |
+            posix.CLONE_DETACHED;
+        var newtls: usize = undefined;
+        if (linux_tls_phdr) |tls_phdr| {
+            @memcpy(@intToPtr([*]u8, mmap_addr + tls_start_offset), linux_tls_img_src, tls_phdr.p_filesz);
+            thread_ptr.data.tls_end_addr = mmap_addr + mmap_len;
+            newtls = @ptrToInt(&thread_ptr.data.tls_end_addr);
+            flags |= posix.CLONE_SETTLS;
+        }
+        const rc = posix.clone(MainFuncs.linuxThreadMain, mmap_addr + stack_end_offset, flags, arg, &thread_ptr.data.handle, newtls, &thread_ptr.data.handle);
         const err = posix.getErrno(rc);
         switch (err) {
             0 => return thread_ptr,

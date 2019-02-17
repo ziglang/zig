@@ -49,6 +49,10 @@ pub const UNICODE = false;
 pub const WCHAR = u16;
 pub const WORD = u16;
 pub const LARGE_INTEGER = i64;
+pub const ULONG = u32;
+pub const LONG = i32;
+pub const ULONGLONG = u64;
+pub const LONGLONG = i64;
 
 pub const TRUE = 1;
 pub const FALSE = 0;
@@ -379,3 +383,17 @@ pub const COORD = extern struct {
 };
 
 pub const CREATE_UNICODE_ENVIRONMENT = 1024;
+
+pub const TLS_OUT_OF_INDEXES = 4294967295;
+pub const IMAGE_TLS_DIRECTORY = extern struct {
+    StartAddressOfRawData: usize,
+    EndAddressOfRawData: usize,
+    AddressOfIndex: usize,
+    AddressOfCallBacks: usize,
+    SizeOfZeroFill: u32,
+    Characteristics: u32,
+};
+pub const IMAGE_TLS_DIRECTORY64 = IMAGE_TLS_DIRECTORY;
+pub const IMAGE_TLS_DIRECTORY32 = IMAGE_TLS_DIRECTORY;
+
+pub const PIMAGE_TLS_CALLBACK = ?extern fn(PVOID, DWORD, PVOID) void;

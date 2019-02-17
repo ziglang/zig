@@ -263,6 +263,19 @@ ZigLLVMDIType *ZigLLVMCreateDebugBasicType(ZigLLVMDIBuilder *dibuilder, const ch
     return reinterpret_cast<ZigLLVMDIType*>(di_type);
 }
 
+struct ZigLLVMDIType *ZigLLVMDIBuilderCreateVectorType(struct ZigLLVMDIBuilder *dibuilder,
+        uint64_t SizeInBits, uint32_t AlignInBits, struct ZigLLVMDIType *Ty, uint32_t elem_count)
+{
+    SmallVector<Metadata *, 1> subrange;
+    subrange.push_back(reinterpret_cast<DIBuilder*>(dibuilder)->getOrCreateSubrange(0, elem_count));
+    DIType *di_type = reinterpret_cast<DIBuilder*>(dibuilder)->createVectorType(
+            SizeInBits,
+            AlignInBits,
+            reinterpret_cast<DIType*>(Ty),
+            reinterpret_cast<DIBuilder*>(dibuilder)->getOrCreateArray(subrange));
+    return reinterpret_cast<ZigLLVMDIType*>(di_type);
+}
+
 ZigLLVMDIType *ZigLLVMCreateDebugArrayType(ZigLLVMDIBuilder *dibuilder, uint64_t size_in_bits,
         uint64_t align_in_bits, ZigLLVMDIType *elem_type, int elem_count)
 {
@@ -605,7 +618,7 @@ ZigLLVMDISubprogram *ZigLLVMCreateFunction(ZigLLVMDIBuilder *dibuilder, ZigLLVMD
             reinterpret_cast<DIFile*>(file),
             lineno,
             di_sub_type,
-            is_local_to_unit, is_definition, scope_line, DINode::FlagZero, is_optimized,
+            is_local_to_unit, is_definition, scope_line, DINode::FlagStaticMember, is_optimized,
             nullptr,
             reinterpret_cast<DISubprogram *>(decl_subprogram));
     return reinterpret_cast<ZigLLVMDISubprogram*>(result);

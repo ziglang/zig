@@ -9,6 +9,10 @@ const coff = std.coff;
 
 const ArrayList = std.ArrayList;
 
+// Note: most of this is based on information gathered from LLVM source code,
+// documentation and/or contributors.
+
+
 // https://llvm.org/docs/PDB/DbiStream.html#stream-header
 pub const DbiStreamHeader = packed struct {
     VersionSignature: i32,
@@ -345,6 +349,10 @@ pub const RecordPrefix = packed struct {
     RecordKind: SymbolKind,
 };
 
+/// The following variable length array appears immediately after the header.
+/// The structure definition follows.
+/// LineBlockFragmentHeader Blocks[]
+/// Each `LineBlockFragmentHeader` as specified below.
 pub const LineFragmentHeader = packed struct {
     /// Code offset of line contribution.
     RelocOffset: u32,
@@ -386,7 +394,11 @@ pub const LineNumberEntry = packed struct {
 
     /// TODO runtime crash when I make the actual type of Flags this
     const Flags = packed struct {
+        /// Start line number
         Start: u24,
+
+        /// Delta of lines to the end of the expression. Still unclear.
+        // TODO figure out the point of this field.
         End: u7,
         IsStatement: bool,
     };
@@ -508,11 +520,11 @@ const Msf = struct {
             allocator,
         );
 
-        const stream_count = try self.directory.stream.readIntLe(u32);
+        const stream_count = try self.directory.stream.readIntLittle(u32);
 
         const stream_sizes = try allocator.alloc(u32, stream_count);
         for (stream_sizes) |*s| {
-            const size = try self.directory.stream.readIntLe(u32);
+            const size = try self.directory.stream.readIntLittle(u32);
             s.* = blockCountFromSize(size, superblock.BlockSize);
         }
 
@@ -603,7 +615,7 @@ const MsfStream = struct {
 
         var i: u32 = 0;
         while (i < block_count) : (i += 1) {
-            stream.blocks[i] = try in.readIntLe(u32);
+            stream.blocks[i] = try in.readIntLittle(u32);
         }
 
         return stream;

@@ -3,6 +3,7 @@ const io = std.io;
 const mem = std.mem;
 const debug = std.debug;
 const assert = debug.assert;
+const testing = std.testing;
 const Buffer = std.Buffer;
 const ArrayList = std.ArrayList;
 const maxInt = std.math.maxInt;
@@ -220,11 +221,7 @@ fn expectError(test_input: []const u8, expected_err: anyerror) void {
     var output_buf = Buffer.initSize(global_allocator, 0) catch unreachable;
     defer output_buf.deinit();
 
-    if (expandString(test_input, &output_buf)) {
-        unreachable;
-    } else |err| {
-        assert(expected_err == err);
-    }
+    testing.expectError(expected_err, expandString(test_input, &output_buf));
 }
 
 test "valid inputs" {
@@ -256,5 +253,5 @@ fn expectExpansion(test_input: []const u8, expected_result: []const u8) void {
 
     expandString(test_input, &result) catch unreachable;
 
-    assert(mem.eql(u8, result.toSlice(), expected_result));
+    testing.expectEqualSlices(u8, expected_result, result.toSlice());
 }

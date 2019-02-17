@@ -1,5 +1,6 @@
 const std = @import("../index.zig");
 const assert = std.debug.assert;
+const testing = std.testing;
 const builtin = @import("builtin");
 const AtomicRmwOp = builtin.AtomicRmwOp;
 const AtomicOrder = builtin.AtomicOrder;
@@ -84,6 +85,9 @@ pub fn Future(comptime T: type) type {
 }
 
 test "std.event.Future" {
+    // https://github.com/ziglang/zig/issues/1908
+    if (builtin.single_threaded) return error.SkipZigTest;
+
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
 
@@ -111,7 +115,7 @@ async fn testFuture(loop: *Loop) void {
 
     const result = (await a) + (await b);
     cancel c;
-    assert(result == 12);
+    testing.expect(result == 12);
 }
 
 async fn waitOnFuture(future: *Future(i32)) i32 {

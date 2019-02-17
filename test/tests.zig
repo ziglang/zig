@@ -48,13 +48,14 @@ const test_targets = []TestTarget{
 const max_stdout_size = 1 * 1024 * 1024; // 1 MB
 
 pub fn addCompareOutputTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
-    const cases = b.allocator.create(CompareOutputContext{
+    const cases = b.allocator.create(CompareOutputContext) catch unreachable;
+    cases.* = CompareOutputContext{
         .b = b,
         .step = b.step("test-compare-output", "Run the compare output tests"),
         .test_index = 0,
         .test_filter = test_filter,
         .modes = modes,
-    }) catch unreachable;
+    };
 
     compare_output.addCases(cases);
 
@@ -62,13 +63,14 @@ pub fn addCompareOutputTests(b: *build.Builder, test_filter: ?[]const u8, modes:
 }
 
 pub fn addRuntimeSafetyTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
-    const cases = b.allocator.create(CompareOutputContext{
+    const cases = b.allocator.create(CompareOutputContext) catch unreachable;
+    cases.* = CompareOutputContext{
         .b = b,
         .step = b.step("test-runtime-safety", "Run the runtime safety tests"),
         .test_index = 0,
         .test_filter = test_filter,
         .modes = modes,
-    }) catch unreachable;
+    };
 
     runtime_safety.addCases(cases);
 
@@ -76,13 +78,14 @@ pub fn addRuntimeSafetyTests(b: *build.Builder, test_filter: ?[]const u8, modes:
 }
 
 pub fn addCompileErrorTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
-    const cases = b.allocator.create(CompileErrorContext{
+    const cases = b.allocator.create(CompileErrorContext) catch unreachable;
+    cases.* = CompileErrorContext{
         .b = b,
         .step = b.step("test-compile-errors", "Run the compile error tests"),
         .test_index = 0,
         .test_filter = test_filter,
         .modes = modes,
-    }) catch unreachable;
+    };
 
     compile_errors.addCases(cases);
 
@@ -90,13 +93,14 @@ pub fn addCompileErrorTests(b: *build.Builder, test_filter: ?[]const u8, modes: 
 }
 
 pub fn addBuildExampleTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
-    const cases = b.allocator.create(BuildExamplesContext{
+    const cases = b.allocator.create(BuildExamplesContext) catch unreachable;
+    cases.* = BuildExamplesContext{
         .b = b,
         .step = b.step("test-build-examples", "Build the examples"),
         .test_index = 0,
         .test_filter = test_filter,
         .modes = modes,
-    }) catch unreachable;
+    };
 
     build_examples.addCases(cases);
 
@@ -119,13 +123,14 @@ pub fn addCliTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const M
 }
 
 pub fn addAssembleAndLinkTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
-    const cases = b.allocator.create(CompareOutputContext{
+    const cases = b.allocator.create(CompareOutputContext) catch unreachable;
+    cases.* = CompareOutputContext{
         .b = b,
         .step = b.step("test-asm-link", "Run the assemble and link tests"),
         .test_index = 0,
         .test_filter = test_filter,
         .modes = modes,
-    }) catch unreachable;
+    };
 
     assemble_and_link.addCases(cases);
 
@@ -133,12 +138,13 @@ pub fn addAssembleAndLinkTests(b: *build.Builder, test_filter: ?[]const u8, mode
 }
 
 pub fn addTranslateCTests(b: *build.Builder, test_filter: ?[]const u8) *build.Step {
-    const cases = b.allocator.create(TranslateCContext{
+    const cases = b.allocator.create(TranslateCContext) catch unreachable;
+    cases.* = TranslateCContext{
         .b = b,
         .step = b.step("test-translate-c", "Run the C transation tests"),
         .test_index = 0,
         .test_filter = test_filter,
-    }) catch unreachable;
+    };
 
     translate_c.addCases(cases);
 
@@ -146,12 +152,13 @@ pub fn addTranslateCTests(b: *build.Builder, test_filter: ?[]const u8) *build.St
 }
 
 pub fn addGenHTests(b: *build.Builder, test_filter: ?[]const u8) *build.Step {
-    const cases = b.allocator.create(GenHContext{
+    const cases = b.allocator.create(GenHContext) catch unreachable;
+    cases.* = GenHContext{
         .b = b,
         .step = b.step("test-gen-h", "Run the C header file generation tests"),
         .test_index = 0,
         .test_filter = test_filter,
-    }) catch unreachable;
+    };
 
     gen_h.addCases(cases);
 
@@ -163,25 +170,35 @@ pub fn addPkgTests(b: *build.Builder, test_filter: ?[]const u8, root_src: []cons
     for (test_targets) |test_target| {
         const is_native = (test_target.os == builtin.os and test_target.arch == builtin.arch);
         for (modes) |mode| {
-            for ([]bool{
-                false,
-                true,
-            }) |link_libc| {
-                if (link_libc and !is_native) {
-                    // don't assume we have a cross-compiling libc set up
-                    continue;
+            for ([]bool{ false, true }) |link_libc| {
+                for ([]bool{ false, true }) |single_threaded| {
+                    if (link_libc and !is_native) {
+                        // don't assume we have a cross-compiling libc set up
+                        continue;
+                    }
+                    const these_tests = b.addTest(root_src);
+                    these_tests.setNamePrefix(b.fmt(
+                        "{}-{}-{}-{}-{}-{} ",
+                        name,
+                        @tagName(test_target.os),
+                        @tagName(test_target.arch),
+                        @tagName(mode),
+                        if (link_libc) "c" else "bare",
+                        if (single_threaded) "single" else "multi",
+                    ));
+                    these_tests.setFilter(test_filter);
+                    these_tests.setBuildMode(mode);
+                    if (!is_native) {
+                        these_tests.setTarget(test_target.arch, test_target.os, test_target.environ);
+                    }
+                    if (link_libc) {
+                        these_tests.linkSystemLibrary("c");
+                    }
+                    if (mem.eql(u8, name, "std")) {
+                        these_tests.overrideStdDir("std");
+                    }
+                    step.dependOn(&these_tests.step);
                 }
-                const these_tests = b.addTest(root_src);
-                these_tests.setNamePrefix(b.fmt("{}-{}-{}-{}-{} ", name, @tagName(test_target.os), @tagName(test_target.arch), @tagName(mode), if (link_libc) "c" else "bare"));
-                these_tests.setFilter(test_filter);
-                these_tests.setBuildMode(mode);
-                if (!is_native) {
-                    these_tests.setTarget(test_target.arch, test_target.os, test_target.environ);
-                }
-                if (link_libc) {
-                    these_tests.linkSystemLibrary("c");
-                }
-                step.dependOn(&these_tests.step);
             }
         }
     }
@@ -237,7 +254,8 @@ pub const CompareOutputContext = struct {
 
         pub fn create(context: *CompareOutputContext, exe_path: []const u8, name: []const u8, expected_output: []const u8, cli_args: []const []const u8) *RunCompareOutputStep {
             const allocator = context.b.allocator;
-            const ptr = allocator.create(RunCompareOutputStep{
+            const ptr = allocator.create(RunCompareOutputStep) catch unreachable;
+            ptr.* = RunCompareOutputStep{
                 .context = context,
                 .exe_path = exe_path,
                 .name = name,
@@ -245,7 +263,7 @@ pub const CompareOutputContext = struct {
                 .test_index = context.test_index,
                 .step = build.Step.init("RunCompareOutput", allocator, make),
                 .cli_args = cli_args,
-            }) catch unreachable;
+            };
             context.test_index += 1;
             return ptr;
         }
@@ -324,13 +342,14 @@ pub const CompareOutputContext = struct {
 
         pub fn create(context: *CompareOutputContext, exe_path: []const u8, name: []const u8) *RuntimeSafetyRunStep {
             const allocator = context.b.allocator;
-            const ptr = allocator.create(RuntimeSafetyRunStep{
+            const ptr = allocator.create(RuntimeSafetyRunStep) catch unreachable;
+            ptr.* = RuntimeSafetyRunStep{
                 .context = context,
                 .exe_path = exe_path,
                 .name = name,
                 .test_index = context.test_index,
                 .step = build.Step.init("RuntimeSafetyRun", allocator, make),
-            }) catch unreachable;
+            };
 
             context.test_index += 1;
             return ptr;
@@ -420,7 +439,10 @@ pub const CompareOutputContext = struct {
     pub fn addCase(self: *CompareOutputContext, case: TestCase) void {
         const b = self.b;
 
-        const root_src = os.path.join(b.allocator, b.cache_root, case.sources.items[0].filename) catch unreachable;
+        const root_src = os.path.join(
+            b.allocator,
+            [][]const u8{ b.cache_root, case.sources.items[0].filename },
+        ) catch unreachable;
 
         switch (case.special) {
             Special.Asm => {
@@ -433,7 +455,10 @@ pub const CompareOutputContext = struct {
                 exe.addAssemblyFile(root_src);
 
                 for (case.sources.toSliceConst()) |src_file| {
-                    const expanded_src_path = os.path.join(b.allocator, b.cache_root, src_file.filename) catch unreachable;
+                    const expanded_src_path = os.path.join(
+                        b.allocator,
+                        [][]const u8{ b.cache_root, src_file.filename },
+                    ) catch unreachable;
                     const write_src = b.addWriteFile(expanded_src_path, src_file.source);
                     exe.step.dependOn(&write_src.step);
                 }
@@ -457,7 +482,10 @@ pub const CompareOutputContext = struct {
                     }
 
                     for (case.sources.toSliceConst()) |src_file| {
-                        const expanded_src_path = os.path.join(b.allocator, b.cache_root, src_file.filename) catch unreachable;
+                        const expanded_src_path = os.path.join(
+                            b.allocator,
+                            [][]const u8{ b.cache_root, src_file.filename },
+                        ) catch unreachable;
                         const write_src = b.addWriteFile(expanded_src_path, src_file.source);
                         exe.step.dependOn(&write_src.step);
                     }
@@ -480,7 +508,10 @@ pub const CompareOutputContext = struct {
                 }
 
                 for (case.sources.toSliceConst()) |src_file| {
-                    const expanded_src_path = os.path.join(b.allocator, b.cache_root, src_file.filename) catch unreachable;
+                    const expanded_src_path = os.path.join(
+                        b.allocator,
+                        [][]const u8{ b.cache_root, src_file.filename },
+                    ) catch unreachable;
                     const write_src = b.addWriteFile(expanded_src_path, src_file.source);
                     exe.step.dependOn(&write_src.step);
                 }
@@ -507,6 +538,7 @@ pub const CompileErrorContext = struct {
         expected_errors: ArrayList([]const u8),
         link_libc: bool,
         is_exe: bool,
+        is_test: bool,
 
         const SourceFile = struct {
             filename: []const u8,
@@ -535,14 +567,15 @@ pub const CompileErrorContext = struct {
 
         pub fn create(context: *CompileErrorContext, name: []const u8, case: *const TestCase, build_mode: Mode) *CompileCmpOutputStep {
             const allocator = context.b.allocator;
-            const ptr = allocator.create(CompileCmpOutputStep{
+            const ptr = allocator.create(CompileCmpOutputStep) catch unreachable;
+            ptr.* = CompileCmpOutputStep{
                 .step = build.Step.init("CompileCmpOutput", allocator, make),
                 .context = context,
                 .name = name,
                 .test_index = context.test_index,
                 .case = case,
                 .build_mode = build_mode,
-            }) catch unreachable;
+            };
 
             context.test_index += 1;
             return ptr;
@@ -552,13 +585,25 @@ pub const CompileErrorContext = struct {
             const self = @fieldParentPtr(CompileCmpOutputStep, "step", step);
             const b = self.context.b;
 
-            const root_src = os.path.join(b.allocator, b.cache_root, self.case.sources.items[0].filename) catch unreachable;
-            const obj_path = os.path.join(b.allocator, b.cache_root, "test.o") catch unreachable;
+            const root_src = os.path.join(
+                b.allocator,
+                [][]const u8{ b.cache_root, self.case.sources.items[0].filename },
+            ) catch unreachable;
+            const obj_path = os.path.join(
+                b.allocator,
+                [][]const u8{ b.cache_root, "test.o" },
+            ) catch unreachable;
 
             var zig_args = ArrayList([]const u8).init(b.allocator);
             zig_args.append(b.zig_exe) catch unreachable;
 
-            zig_args.append(if (self.case.is_exe) "build-exe" else "build-obj") catch unreachable;
+            if (self.case.is_exe) {
+                try zig_args.append("build-exe");
+            } else if (self.case.is_test) {
+                try zig_args.append("test");
+            } else {
+                try zig_args.append("build-obj");
+            }
             zig_args.append(b.pathFromRoot(root_src)) catch unreachable;
 
             zig_args.append("--name") catch unreachable;
@@ -654,13 +699,15 @@ pub const CompileErrorContext = struct {
     }
 
     pub fn create(self: *CompileErrorContext, name: []const u8, source: []const u8, expected_lines: ...) *TestCase {
-        const tc = self.b.allocator.create(TestCase{
+        const tc = self.b.allocator.create(TestCase) catch unreachable;
+        tc.* = TestCase{
             .name = name,
             .sources = ArrayList(TestCase.SourceFile).init(self.b.allocator),
             .expected_errors = ArrayList([]const u8).init(self.b.allocator),
             .link_libc = false,
             .is_exe = false,
-        }) catch unreachable;
+            .is_test = false,
+        };
 
         tc.addSourceFile(".tmp_source.zig", source);
         comptime var arg_i = 0;
@@ -687,6 +734,12 @@ pub const CompileErrorContext = struct {
         self.addCase(tc);
     }
 
+    pub fn addTest(self: *CompileErrorContext, name: []const u8, source: []const u8, expected_lines: ...) void {
+        const tc = self.create(name, source, expected_lines);
+        tc.is_test = true;
+        self.addCase(tc);
+    }
+
     pub fn addCase(self: *CompileErrorContext, case: *const TestCase) void {
         const b = self.b;
 
@@ -700,7 +753,10 @@ pub const CompileErrorContext = struct {
             self.step.dependOn(&compile_and_cmp_errors.step);
 
             for (case.sources.toSliceConst()) |src_file| {
-                const expanded_src_path = os.path.join(b.allocator, b.cache_root, src_file.filename) catch unreachable;
+                const expanded_src_path = os.path.join(
+                    b.allocator,
+                    [][]const u8{ b.cache_root, src_file.filename },
+                ) catch unreachable;
                 const write_src = b.addWriteFile(expanded_src_path, src_file.source);
                 compile_and_cmp_errors.step.dependOn(&write_src.step);
             }
@@ -814,13 +870,14 @@ pub const TranslateCContext = struct {
 
         pub fn create(context: *TranslateCContext, name: []const u8, case: *const TestCase) *TranslateCCmpOutputStep {
             const allocator = context.b.allocator;
-            const ptr = allocator.create(TranslateCCmpOutputStep{
+            const ptr = allocator.create(TranslateCCmpOutputStep) catch unreachable;
+            ptr.* = TranslateCCmpOutputStep{
                 .step = build.Step.init("ParseCCmpOutput", allocator, make),
                 .context = context,
                 .name = name,
                 .test_index = context.test_index,
                 .case = case,
-            }) catch unreachable;
+            };
 
             context.test_index += 1;
             return ptr;
@@ -830,7 +887,10 @@ pub const TranslateCContext = struct {
             const self = @fieldParentPtr(TranslateCCmpOutputStep, "step", step);
             const b = self.context.b;
 
-            const root_src = os.path.join(b.allocator, b.cache_root, self.case.sources.items[0].filename) catch unreachable;
+            const root_src = os.path.join(
+                b.allocator,
+                [][]const u8{ b.cache_root, self.case.sources.items[0].filename },
+            ) catch unreachable;
 
             var zig_args = ArrayList([]const u8).init(b.allocator);
             zig_args.append(b.zig_exe) catch unreachable;
@@ -921,12 +981,13 @@ pub const TranslateCContext = struct {
     }
 
     pub fn create(self: *TranslateCContext, allow_warnings: bool, filename: []const u8, name: []const u8, source: []const u8, expected_lines: ...) *TestCase {
-        const tc = self.b.allocator.create(TestCase{
+        const tc = self.b.allocator.create(TestCase) catch unreachable;
+        tc.* = TestCase{
             .name = name,
             .sources = ArrayList(TestCase.SourceFile).init(self.b.allocator),
             .expected_lines = ArrayList([]const u8).init(self.b.allocator),
             .allow_warnings = allow_warnings,
-        }) catch unreachable;
+        };
 
         tc.addSourceFile(filename, source);
         comptime var arg_i = 0;
@@ -963,7 +1024,10 @@ pub const TranslateCContext = struct {
         self.step.dependOn(&translate_c_and_cmp.step);
 
         for (case.sources.toSliceConst()) |src_file| {
-            const expanded_src_path = os.path.join(b.allocator, b.cache_root, src_file.filename) catch unreachable;
+            const expanded_src_path = os.path.join(
+                b.allocator,
+                [][]const u8{ b.cache_root, src_file.filename },
+            ) catch unreachable;
             const write_src = b.addWriteFile(expanded_src_path, src_file.source);
             translate_c_and_cmp.step.dependOn(&write_src.step);
         }
@@ -1008,14 +1072,15 @@ pub const GenHContext = struct {
 
         pub fn create(context: *GenHContext, h_path: []const u8, name: []const u8, case: *const TestCase) *GenHCmpOutputStep {
             const allocator = context.b.allocator;
-            const ptr = allocator.create(GenHCmpOutputStep{
+            const ptr = allocator.create(GenHCmpOutputStep) catch unreachable;
+            ptr.* = GenHCmpOutputStep{
                 .step = build.Step.init("ParseCCmpOutput", allocator, make),
                 .context = context,
                 .h_path = h_path,
                 .name = name,
                 .test_index = context.test_index,
                 .case = case,
-            }) catch unreachable;
+            };
 
             context.test_index += 1;
             return ptr;
@@ -1055,11 +1120,12 @@ pub const GenHContext = struct {
     }
 
     pub fn create(self: *GenHContext, filename: []const u8, name: []const u8, source: []const u8, expected_lines: ...) *TestCase {
-        const tc = self.b.allocator.create(TestCase{
+        const tc = self.b.allocator.create(TestCase) catch unreachable;
+        tc.* = TestCase{
             .name = name,
             .sources = ArrayList(TestCase.SourceFile).init(self.b.allocator),
             .expected_lines = ArrayList([]const u8).init(self.b.allocator),
-        }) catch unreachable;
+        };
 
         tc.addSourceFile(filename, source);
         comptime var arg_i = 0;
@@ -1076,7 +1142,10 @@ pub const GenHContext = struct {
 
     pub fn addCase(self: *GenHContext, case: *const TestCase) void {
         const b = self.b;
-        const root_src = os.path.join(b.allocator, b.cache_root, case.sources.items[0].filename) catch unreachable;
+        const root_src = os.path.join(
+            b.allocator,
+            [][]const u8{ b.cache_root, case.sources.items[0].filename },
+        ) catch unreachable;
 
         const mode = builtin.Mode.Debug;
         const annotated_case_name = fmt.allocPrint(self.b.allocator, "gen-h {} ({})", case.name, @tagName(mode)) catch unreachable;
@@ -1088,7 +1157,10 @@ pub const GenHContext = struct {
         obj.setBuildMode(mode);
 
         for (case.sources.toSliceConst()) |src_file| {
-            const expanded_src_path = os.path.join(b.allocator, b.cache_root, src_file.filename) catch unreachable;
+            const expanded_src_path = os.path.join(
+                b.allocator,
+                [][]const u8{ b.cache_root, src_file.filename },
+            ) catch unreachable;
             const write_src = b.addWriteFile(expanded_src_path, src_file.source);
             obj.step.dependOn(&write_src.step);
         }

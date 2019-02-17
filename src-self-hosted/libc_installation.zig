@@ -57,10 +57,10 @@ pub const LibCInstallation = struct {
         const contents = try std.io.readFileAlloc(allocator, libc_file);
         defer allocator.free(contents);
 
-        var it = std.mem.split(contents, "\n");
+        var it = std.mem.tokenize(contents, "\n");
         while (it.next()) |line| {
             if (line.len == 0 or line[0] == '#') continue;
-            var line_it = std.mem.split(line, "=");
+            var line_it = std.mem.separate(line, "=");
             const name = line_it.next() orelse {
                 try stderr.print("missing equal sign after field name\n");
                 return error.ParseError;
@@ -154,8 +154,8 @@ pub const LibCInstallation = struct {
                     c.ZigFindWindowsSdkError.None => {
                         windows_sdk = sdk;
 
-                        if (sdk.msvc_lib_dir_ptr) |ptr| {
-                            self.msvc_lib_dir = try std.mem.dupe(loop.allocator, u8, ptr[0..sdk.msvc_lib_dir_len]);
+                        if (sdk.msvc_lib_dir_ptr != 0) {
+                            self.msvc_lib_dir = try std.mem.dupe(loop.allocator, u8, sdk.msvc_lib_dir_ptr[0..sdk.msvc_lib_dir_len]);
                         }
                         try group.call(findNativeKernel32LibDir, self, loop, sdk);
                         try group.call(findNativeIncludeDirWindows, self, loop, sdk);
@@ -213,7 +213,7 @@ pub const LibCInstallation = struct {
             },
         }
 
-        var it = std.mem.split(exec_result.stderr, "\n\r");
+        var it = std.mem.tokenize(exec_result.stderr, "\n\r");
         var search_paths = std.ArrayList([]const u8).init(loop.allocator);
         defer search_paths.deinit();
         while (it.next()) |line| {
@@ -230,7 +230,7 @@ pub const LibCInstallation = struct {
         while (path_i < search_paths.len) : (path_i += 1) {
             const search_path_untrimmed = search_paths.at(search_paths.len - path_i - 1);
             const search_path = std.mem.trimLeft(u8, search_path_untrimmed, " ");
-            const stdlib_path = try std.os.path.join(loop.allocator, search_path, "stdlib.h");
+            const stdlib_path = try std.os.path.join(loop.allocator, [][]const u8{ search_path, "stdlib.h" });
             defer loop.allocator.free(stdlib_path);
 
             if (try fileExists(stdlib_path)) {
@@ -254,7 +254,10 @@ pub const LibCInstallation = struct {
             const stream = &std.io.BufferOutStream.init(&result_buf).stream;
             try stream.print("{}\\Include\\{}\\ucrt", search.path, search.version);
 
-            const stdlib_path = try std.os.path.join(loop.allocator, result_buf.toSliceConst(), "stdlib.h");
+            const stdlib_path = try std.os.path.join(
+                loop.allocator,
+                [][]const u8{ result_buf.toSliceConst(), "stdlib.h" },
+            );
             defer loop.allocator.free(stdlib_path);
 
             if (try fileExists(stdlib_path)) {
@@ -283,7 +286,10 @@ pub const LibCInstallation = struct {
                 builtin.Arch.aarch64v8 => try stream.write("arm"),
                 else => return error.UnsupportedArchitecture,
             }
-            const ucrt_lib_path = try std.os.path.join(loop.allocator, result_buf.toSliceConst(), "ucrt.lib");
+            const ucrt_lib_path = try std.os.path.join(
+                loop.allocator,
+                [][]const u8{ result_buf.toSliceConst(), "ucrt.lib" },
+            );
             defer loop.allocator.free(ucrt_lib_path);
             if (try fileExists(ucrt_lib_path)) {
                 self.lib_dir = result_buf.toOwnedSlice();
@@ -358,7 +364,10 @@ pub const LibCInstallation = struct {
                 builtin.Arch.aarch64v8 => try stream.write("arm\\"),
                 else => return error.UnsupportedArchitecture,
             }
-            const kernel32_path = try std.os.path.join(loop.allocator, result_buf.toSliceConst(), "kernel32.lib");
+            const kernel32_path = try std.os.path.join(
+                loop.allocator,
+                [][]const u8{ result_buf.toSliceConst(), "kernel32.lib" },
+            );
             defer loop.allocator.free(kernel32_path);
             if (try fileExists(kernel32_path)) {
                 self.kernel32_lib_dir = result_buf.toOwnedSlice();
@@ -410,7 +419,7 @@ async fn ccPrintFileName(loop: *event.Loop, o_file: []const u8, want_dirname: bo
             return error.CCompilerCrashed;
         },
     }
-    var it = std.mem.split(exec_result.stdout, "\n\r");
+    var it = std.mem.tokenize(exec_result.stdout, "\n\r");
     const line = it.next() orelse return error.LibCRuntimeNotFound;
     const dirname = std.os.path.dirname(line) orelse return error.LibCRuntimeNotFound;
 
@@ -428,20 +437,20 @@ const Search = struct {
 
 fn fillSearch(search_buf: *[2]Search, sdk: *c.ZigWindowsSDK) []Search {
     var search_end: usize = 0;
-    if (sdk.path10_ptr) |path10_ptr| {
-        if (sdk.version10_ptr) |ver10_ptr| {
+    if (sdk.path10_ptr != 0) {
+        if (sdk.version10_ptr != 0) {
             search_buf[search_end] = Search{
-                .path = path10_ptr[0..sdk.path10_len],
-                .version = ver10_ptr[0..sdk.version10_len],
+                .path = sdk.path10_ptr[0..sdk.path10_len],
+                .version = sdk.version10_ptr[0..sdk.version10_len],
             };
             search_end += 1;
         }
     }
-    if (sdk.path81_ptr) |path81_ptr| {
-        if (sdk.version81_ptr) |ver81_ptr| {
+    if (sdk.path81_ptr != 0) {
+        if (sdk.version81_ptr != 0) {
             search_buf[search_end] = Search{
-                .path = path81_ptr[0..sdk.path81_len],
-                .version = ver81_ptr[0..sdk.version81_len],
+                .path = sdk.path81_ptr[0..sdk.path81_len],
+                .version = sdk.version81_ptr[0..sdk.version81_len],
             };
             search_end += 1;
         }

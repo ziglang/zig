@@ -7,7 +7,6 @@ const posix = os.posix;
 const windows = os.windows;
 const mem = std.mem;
 const debug = std.debug;
-const assert = debug.assert;
 const BufMap = std.BufMap;
 const Buffer = std.Buffer;
 const builtin = @import("builtin");
@@ -88,7 +87,8 @@ pub const ChildProcess = struct {
     /// First argument in argv is the executable.
     /// On success must call deinit.
     pub fn init(argv: []const []const u8, allocator: *mem.Allocator) !*ChildProcess {
-        const child = try allocator.create(ChildProcess{
+        const child = try allocator.create(ChildProcess);
+        child.* = ChildProcess{
             .allocator = allocator,
             .argv = argv,
             .pid = undefined,
@@ -109,7 +109,7 @@ pub const ChildProcess = struct {
             .stdin_behavior = StdIo.Inherit,
             .stdout_behavior = StdIo.Inherit,
             .stderr_behavior = StdIo.Inherit,
-        });
+        };
         errdefer allocator.destroy(child);
         return child;
     }
@@ -573,7 +573,7 @@ pub const ChildProcess = struct {
         // to match posix semantics
         const app_name = x: {
             if (self.cwd) |cwd| {
-                const resolved = try os.path.resolve(self.allocator, cwd, self.argv[0]);
+                const resolved = try os.path.resolve(self.allocator, [][]const u8{ cwd, self.argv[0] });
                 defer self.allocator.free(resolved);
                 break :x try cstr.addNullByte(self.allocator, resolved);
             } else {
@@ -594,12 +594,12 @@ pub const ChildProcess = struct {
             const PATH = try os.getEnvVarOwned(self.allocator, "PATH");
             defer self.allocator.free(PATH);
 
-            var it = mem.split(PATH, ";");
+            var it = mem.tokenize(PATH, ";");
             while (it.next()) |search_path| {
-                const joined_path = try os.path.join(self.allocator, search_path, app_name);
+                const joined_path = try os.path.join(self.allocator, [][]const u8{ search_path, app_name });
                 defer self.allocator.free(joined_path);
 
-                const joined_path_w = try unicode.utf8ToUtf16LeWithNull(self.allocator, app_name);
+                const joined_path_w = try unicode.utf8ToUtf16LeWithNull(self.allocator, joined_path);
                 defer self.allocator.free(joined_path_w);
 
                 if (windowsCreateProcess(joined_path_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo)) |_| {
@@ -609,6 +609,9 @@ pub const ChildProcess = struct {
                 } else {
                     return err;
                 }
+            } else {
+                // Every other error would have been returned earlier.
+                return error.FileNotFound;
             }
         };
 
@@ -807,10 +810,10 @@ const ErrInt = @IntType(false, @sizeOf(anyerror) * 8);
 
 fn writeIntFd(fd: i32, value: ErrInt) !void {
     const stream = &os.File.openHandle(fd).outStream().stream;
-    stream.writeIntNe(ErrInt, value) catch return error.SystemResources;
+    stream.writeIntNative(ErrInt, value) catch return error.SystemResources;
 }
 
 fn readIntFd(fd: i32) !ErrInt {
     const stream = &os.File.openHandle(fd).inStream().stream;
-    return stream.readIntNe(ErrInt) catch return error.SystemResources;
+    return stream.readIntNative(ErrInt) catch return error.SystemResources;
 }

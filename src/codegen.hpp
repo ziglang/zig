@@ -15,7 +15,7 @@
 #include <stdio.h>
 
 CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out_type, BuildMode build_mode,
-    Buf *zig_lib_dir);
+    Buf *zig_lib_dir, Buf *override_std_dir);
 
 void codegen_set_clang_argv(CodeGen *codegen, const char **args, size_t len);
 void codegen_set_llvm_argv(CodeGen *codegen, const char **args, size_t len);
@@ -33,7 +33,6 @@ void codegen_set_libc_include_dir(CodeGen *codegen, Buf *libc_include_dir);
 void codegen_set_msvc_lib_dir(CodeGen *g, Buf *msvc_lib_dir);
 void codegen_set_kernel32_lib_dir(CodeGen *codegen, Buf *kernel32_lib_dir);
 void codegen_set_dynamic_linker(CodeGen *g, Buf *dynamic_linker);
-void codegen_set_windows_subsystem(CodeGen *g, bool mwindows, bool mconsole);
 void codegen_add_lib_dir(CodeGen *codegen, const char *dir);
 void codegen_add_forbidden_lib(CodeGen *codegen, Buf *lib);
 LinkLib *codegen_add_link_lib(CodeGen *codegen, Buf *lib);

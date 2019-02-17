@@ -7,7 +7,7 @@
 
 const std = @import("../index.zig");
 const math = std.math;
-const assert = std.debug.assert;
+const expect = std.testing.expect;
 const builtin = @import("builtin");
 const TypeId = builtin.TypeId;
 const maxInt = std.math.maxInt;
@@ -169,40 +169,40 @@ pub fn log2_64(x_: f64) f64 {
 }
 
 test "math.log2" {
-    assert(log2(f32(0.2)) == log2_32(0.2));
-    assert(log2(f64(0.2)) == log2_64(0.2));
+    expect(log2(f32(0.2)) == log2_32(0.2));
+    expect(log2(f64(0.2)) == log2_64(0.2));
 }
 
 test "math.log2_32" {
     const epsilon = 0.000001;
 
-    assert(math.approxEq(f32, log2_32(0.2), -2.321928, epsilon));
-    assert(math.approxEq(f32, log2_32(0.8923), -0.164399, epsilon));
-    assert(math.approxEq(f32, log2_32(1.5), 0.584962, epsilon));
-    assert(math.approxEq(f32, log2_32(37.45), 5.226894, epsilon));
-    assert(math.approxEq(f32, log2_32(123123.234375), 16.909744, epsilon));
+    expect(math.approxEq(f32, log2_32(0.2), -2.321928, epsilon));
+    expect(math.approxEq(f32, log2_32(0.8923), -0.164399, epsilon));
+    expect(math.approxEq(f32, log2_32(1.5), 0.584962, epsilon));
+    expect(math.approxEq(f32, log2_32(37.45), 5.226894, epsilon));
+    expect(math.approxEq(f32, log2_32(123123.234375), 16.909744, epsilon));
 }
 
 test "math.log2_64" {
     const epsilon = 0.000001;
 
-    assert(math.approxEq(f64, log2_64(0.2), -2.321928, epsilon));
-    assert(math.approxEq(f64, log2_64(0.8923), -0.164399, epsilon));
-    assert(math.approxEq(f64, log2_64(1.5), 0.584962, epsilon));
-    assert(math.approxEq(f64, log2_64(37.45), 5.226894, epsilon));
-    assert(math.approxEq(f64, log2_64(123123.234375), 16.909744, epsilon));
+    expect(math.approxEq(f64, log2_64(0.2), -2.321928, epsilon));
+    expect(math.approxEq(f64, log2_64(0.8923), -0.164399, epsilon));
+    expect(math.approxEq(f64, log2_64(1.5), 0.584962, epsilon));
+    expect(math.approxEq(f64, log2_64(37.45), 5.226894, epsilon));
+    expect(math.approxEq(f64, log2_64(123123.234375), 16.909744, epsilon));
 }
 
 test "math.log2_32.special" {
-    assert(math.isPositiveInf(log2_32(math.inf(f32))));
-    assert(math.isNegativeInf(log2_32(0.0)));
-    assert(math.isNan(log2_32(-1.0)));
-    assert(math.isNan(log2_32(math.nan(f32))));
+    expect(math.isPositiveInf(log2_32(math.inf(f32))));
+    expect(math.isNegativeInf(log2_32(0.0)));
+    expect(math.isNan(log2_32(-1.0)));
+    expect(math.isNan(log2_32(math.nan(f32))));
 }
 
 test "math.log2_64.special" {
-    assert(math.isPositiveInf(log2_64(math.inf(f64))));
-    assert(math.isNegativeInf(log2_64(0.0)));
-    assert(math.isNan(log2_64(-1.0)));
-    assert(math.isNan(log2_64(math.nan(f64))));
+    expect(math.isPositiveInf(log2_64(math.inf(f64))));
+    expect(math.isNegativeInf(log2_64(0.0)));
+    expect(math.isNan(log2_64(-1.0)));
+    expect(math.isNan(log2_64(math.nan(f64))));
 }

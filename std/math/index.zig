@@ -2,9 +2,17 @@ const builtin = @import("builtin");
 const std = @import("../index.zig");
 const TypeId = builtin.TypeId;
 const assert = std.debug.assert;
+const testing = std.testing;
 
 pub const e = 2.71828182845904523536028747135266249775724709369995;
 pub const pi = 3.14159265358979323846264338327950288419716939937510;
+
+// From a small c++ [program using boost float128](https://github.com/winksaville/cpp_boost_float128)
+pub const f128_true_min = @bitCast(f128, u128(0x00000000000000000000000000000001));
+pub const f128_min = @bitCast(f128, u128(0x00010000000000000000000000000000));
+pub const f128_max = @bitCast(f128, u128(0x7FFEFFFFFFFFFFFFFFFFFFFFFFFFFFFF));
+pub const f128_epsilon = @bitCast(f128, u128(0x3F8F0000000000000000000000000000));
+pub const f128_toint = 1.0 / f128_epsilon;
 
 // float.h details
 pub const f64_true_min = 4.94065645841246544177e-324;
@@ -42,6 +50,12 @@ pub const nan_f64 = @bitCast(f64, nan_u64);
 
 pub const inf_u64 = u64(0x7FF << 52);
 pub const inf_f64 = @bitCast(f64, inf_u64);
+
+pub const nan_u128 = u128(0x7fff0000000000000000000000000001);
+pub const nan_f128 = @bitCast(f128, nan_u128);
+
+pub const inf_u128 = u128(0x7fff0000000000000000000000000000);
+pub const inf_f128 = @bitCast(f128, inf_u128);
 
 pub const nan = @import("nan.zig").nan;
 pub const snan = @import("nan.zig").snan;
@@ -233,7 +247,7 @@ pub fn min(x: var, y: var) @typeOf(x + y) {
 }
 
 test "math.min" {
-    assert(min(i32(-1), i32(2)) == -1);
+    testing.expect(min(i32(-1), i32(2)) == -1);
 }
 
 pub fn max(x: var, y: var) @typeOf(x + y) {
@@ -241,7 +255,7 @@ pub fn max(x: var, y: var) @typeOf(x + y) {
 }
 
 test "math.max" {
-    assert(max(i32(-1), i32(2)) == 2);
+    testing.expect(max(i32(-1), i32(2)) == 2);
 }
 
 pub fn mul(comptime T: type, a: T, b: T) (error{Overflow}!T) {
@@ -286,10 +300,10 @@ pub fn shl(comptime T: type, a: T, shift_amt: var) T {
 }
 
 test "math.shl" {
-    assert(shl(u8, 0b11111111, usize(3)) == 0b11111000);
-    assert(shl(u8, 0b11111111, usize(8)) == 0);
-    assert(shl(u8, 0b11111111, usize(9)) == 0);
-    assert(shl(u8, 0b11111111, isize(-2)) == 0b00111111);
+    testing.expect(shl(u8, 0b11111111, usize(3)) == 0b11111000);
+    testing.expect(shl(u8, 0b11111111, usize(8)) == 0);
+    testing.expect(shl(u8, 0b11111111, usize(9)) == 0);
+    testing.expect(shl(u8, 0b11111111, isize(-2)) == 0b00111111);
 }
 
 /// Shifts right. Overflowed bits are truncated.
@@ -310,10 +324,10 @@ pub fn shr(comptime T: type, a: T, shift_amt: var) T {
 }
 
 test "math.shr" {
-    assert(shr(u8, 0b11111111, usize(3)) == 0b00011111);
-    assert(shr(u8, 0b11111111, usize(8)) == 0);
-    assert(shr(u8, 0b11111111, usize(9)) == 0);
-    assert(shr(u8, 0b11111111, isize(-2)) == 0b11111100);
+    testing.expect(shr(u8, 0b11111111, usize(3)) == 0b00011111);
+    testing.expect(shr(u8, 0b11111111, usize(8)) == 0);
+    testing.expect(shr(u8, 0b11111111, usize(9)) == 0);
+    testing.expect(shr(u8, 0b11111111, isize(-2)) == 0b11111100);
 }
 
 /// Rotates right. Only unsigned values can be rotated.
@@ -328,11 +342,11 @@ pub fn rotr(comptime T: type, x: T, r: var) T {
 }
 
 test "math.rotr" {
-    assert(rotr(u8, 0b00000001, usize(0)) == 0b00000001);
-    assert(rotr(u8, 0b00000001, usize(9)) == 0b10000000);
-    assert(rotr(u8, 0b00000001, usize(8)) == 0b00000001);
-    assert(rotr(u8, 0b00000001, usize(4)) == 0b00010000);
-    assert(rotr(u8, 0b00000001, isize(-1)) == 0b00000010);
+    testing.expect(rotr(u8, 0b00000001, usize(0)) == 0b00000001);
+    testing.expect(rotr(u8, 0b00000001, usize(9)) == 0b10000000);
+    testing.expect(rotr(u8, 0b00000001, usize(8)) == 0b00000001);
+    testing.expect(rotr(u8, 0b00000001, usize(4)) == 0b00010000);
+    testing.expect(rotr(u8, 0b00000001, isize(-1)) == 0b00000010);
 }
 
 /// Rotates left. Only unsigned values can be rotated.
@@ -347,11 +361,11 @@ pub fn rotl(comptime T: type, x: T, r: var) T {
 }
 
 test "math.rotl" {
-    assert(rotl(u8, 0b00000001, usize(0)) == 0b00000001);
-    assert(rotl(u8, 0b00000001, usize(9)) == 0b00000010);
-    assert(rotl(u8, 0b00000001, usize(8)) == 0b00000001);
-    assert(rotl(u8, 0b00000001, usize(4)) == 0b00010000);
-    assert(rotl(u8, 0b00000001, isize(-1)) == 0b10000000);
+    testing.expect(rotl(u8, 0b00000001, usize(0)) == 0b00000001);
+    testing.expect(rotl(u8, 0b00000001, usize(9)) == 0b00000010);
+    testing.expect(rotl(u8, 0b00000001, usize(8)) == 0b00000001);
+    testing.expect(rotl(u8, 0b00000001, usize(4)) == 0b00010000);
+    testing.expect(rotl(u8, 0b00000001, isize(-1)) == 0b10000000);
 }
 
 pub fn Log2Int(comptime T: type) type {
@@ -371,7 +385,7 @@ pub fn IntFittingRange(comptime from: comptime_int, comptime to: comptime_int) t
         return u0;
     }
     const is_signed = from < 0;
-    const largest_positive_integer = max(if (from<0) (-from)-1 else from, to); // two's complement
+    const largest_positive_integer = max(if (from < 0) (-from) - 1 else from, to); // two's complement
     const base = log2(largest_positive_integer);
     const upper = (1 << base) - 1;
     var magnitude_bits = if (upper >= largest_positive_integer) base else base + 1;
@@ -382,50 +396,50 @@ pub fn IntFittingRange(comptime from: comptime_int, comptime to: comptime_int) t
 }
 
 test "math.IntFittingRange" {
-    assert(IntFittingRange(0, 0) == u0);
-    assert(IntFittingRange(0, 1) == u1);
-    assert(IntFittingRange(0, 2) == u2);
-    assert(IntFittingRange(0, 3) == u2);
-    assert(IntFittingRange(0, 4) == u3);
-    assert(IntFittingRange(0, 7) == u3);
-    assert(IntFittingRange(0, 8) == u4);
-    assert(IntFittingRange(0, 9) == u4);
-    assert(IntFittingRange(0, 15) == u4);
-    assert(IntFittingRange(0, 16) == u5);
-    assert(IntFittingRange(0, 17) == u5);
-    assert(IntFittingRange(0, 4095) == u12);
-    assert(IntFittingRange(2000, 4095) == u12);
-    assert(IntFittingRange(0, 4096) == u13);
-    assert(IntFittingRange(2000, 4096) == u13);
-    assert(IntFittingRange(0, 4097) == u13);
-    assert(IntFittingRange(2000, 4097) == u13);
-    assert(IntFittingRange(0, 123456789123456798123456789) == u87);
-    assert(IntFittingRange(0, 123456789123456798123456789123456789123456798123456789) == u177);
+    testing.expect(IntFittingRange(0, 0) == u0);
+    testing.expect(IntFittingRange(0, 1) == u1);
+    testing.expect(IntFittingRange(0, 2) == u2);
+    testing.expect(IntFittingRange(0, 3) == u2);
+    testing.expect(IntFittingRange(0, 4) == u3);
+    testing.expect(IntFittingRange(0, 7) == u3);
+    testing.expect(IntFittingRange(0, 8) == u4);
+    testing.expect(IntFittingRange(0, 9) == u4);
+    testing.expect(IntFittingRange(0, 15) == u4);
+    testing.expect(IntFittingRange(0, 16) == u5);
+    testing.expect(IntFittingRange(0, 17) == u5);
+    testing.expect(IntFittingRange(0, 4095) == u12);
+    testing.expect(IntFittingRange(2000, 4095) == u12);
+    testing.expect(IntFittingRange(0, 4096) == u13);
+    testing.expect(IntFittingRange(2000, 4096) == u13);
+    testing.expect(IntFittingRange(0, 4097) == u13);
+    testing.expect(IntFittingRange(2000, 4097) == u13);
+    testing.expect(IntFittingRange(0, 123456789123456798123456789) == u87);
+    testing.expect(IntFittingRange(0, 123456789123456798123456789123456789123456798123456789) == u177);
 
-    assert(IntFittingRange(-1, -1) == i1);
-    assert(IntFittingRange(-1, 0) == i1);
-    assert(IntFittingRange(-1, 1) == i2);
-    assert(IntFittingRange(-2, -2) == i2);
-    assert(IntFittingRange(-2, -1) == i2);
-    assert(IntFittingRange(-2, 0) == i2);
-    assert(IntFittingRange(-2, 1) == i2);
-    assert(IntFittingRange(-2, 2) == i3);
-    assert(IntFittingRange(-1, 2) == i3);
-    assert(IntFittingRange(-1, 3) == i3);
-    assert(IntFittingRange(-1, 4) == i4);
-    assert(IntFittingRange(-1, 7) == i4);
-    assert(IntFittingRange(-1, 8) == i5);
-    assert(IntFittingRange(-1, 9) == i5);
-    assert(IntFittingRange(-1, 15) == i5);
-    assert(IntFittingRange(-1, 16) == i6);
-    assert(IntFittingRange(-1, 17) == i6);
-    assert(IntFittingRange(-1, 4095) == i13);
-    assert(IntFittingRange(-4096, 4095) == i13);
-    assert(IntFittingRange(-1, 4096) == i14);
-    assert(IntFittingRange(-4097, 4095) == i14);
-    assert(IntFittingRange(-1, 4097) == i14);
-    assert(IntFittingRange(-1, 123456789123456798123456789) == i88);
-    assert(IntFittingRange(-1, 123456789123456798123456789123456789123456798123456789) == i178);
+    testing.expect(IntFittingRange(-1, -1) == i1);
+    testing.expect(IntFittingRange(-1, 0) == i1);
+    testing.expect(IntFittingRange(-1, 1) == i2);
+    testing.expect(IntFittingRange(-2, -2) == i2);
+    testing.expect(IntFittingRange(-2, -1) == i2);
+    testing.expect(IntFittingRange(-2, 0) == i2);
+    testing.expect(IntFittingRange(-2, 1) == i2);
+    testing.expect(IntFittingRange(-2, 2) == i3);
+    testing.expect(IntFittingRange(-1, 2) == i3);
+    testing.expect(IntFittingRange(-1, 3) == i3);
+    testing.expect(IntFittingRange(-1, 4) == i4);
+    testing.expect(IntFittingRange(-1, 7) == i4);
+    testing.expect(IntFittingRange(-1, 8) == i5);
+    testing.expect(IntFittingRange(-1, 9) == i5);
+    testing.expect(IntFittingRange(-1, 15) == i5);
+    testing.expect(IntFittingRange(-1, 16) == i6);
+    testing.expect(IntFittingRange(-1, 17) == i6);
+    testing.expect(IntFittingRange(-1, 4095) == i13);
+    testing.expect(IntFittingRange(-4096, 4095) == i13);
+    testing.expect(IntFittingRange(-1, 4096) == i14);
+    testing.expect(IntFittingRange(-4097, 4095) == i14);
+    testing.expect(IntFittingRange(-1, 4097) == i14);
+    testing.expect(IntFittingRange(-1, 123456789123456798123456789) == i88);
+    testing.expect(IntFittingRange(-1, 123456789123456798123456789123456789123456798123456789) == i178);
 }
 
 test "math overflow functions" {
@@ -434,10 +448,10 @@ test "math overflow functions" {
 }
 
 fn testOverflow() void {
-    assert((mul(i32, 3, 4) catch unreachable) == 12);
-    assert((add(i32, 3, 4) catch unreachable) == 7);
-    assert((sub(i32, 3, 4) catch unreachable) == -1);
-    assert((shlExact(i32, 0b11, 4) catch unreachable) == 0b110000);
+    testing.expect((mul(i32, 3, 4) catch unreachable) == 12);
+    testing.expect((add(i32, 3, 4) catch unreachable) == 7);
+    testing.expect((sub(i32, 3, 4) catch unreachable) == -1);
+    testing.expect((shlExact(i32, 0b11, 4) catch unreachable) == 0b110000);
 }
 
 pub fn absInt(x: var) !@typeOf(x) {
@@ -458,8 +472,8 @@ test "math.absInt" {
     comptime testAbsInt();
 }
 fn testAbsInt() void {
-    assert((absInt(i32(-10)) catch unreachable) == 10);
-    assert((absInt(i32(10)) catch unreachable) == 10);
+    testing.expect((absInt(i32(-10)) catch unreachable) == 10);
+    testing.expect((absInt(i32(10)) catch unreachable) == 10);
 }
 
 pub const absFloat = @import("fabs.zig").fabs;
@@ -476,13 +490,13 @@ test "math.divTrunc" {
     comptime testDivTrunc();
 }
 fn testDivTrunc() void {
-    assert((divTrunc(i32, 5, 3) catch unreachable) == 1);
-    assert((divTrunc(i32, -5, 3) catch unreachable) == -1);
-    if (divTrunc(i8, -5, 0)) |_| unreachable else |err| assert(err == error.DivisionByZero);
-    if (divTrunc(i8, -128, -1)) |_| unreachable else |err| assert(err == error.Overflow);
+    testing.expect((divTrunc(i32, 5, 3) catch unreachable) == 1);
+    testing.expect((divTrunc(i32, -5, 3) catch unreachable) == -1);
+    testing.expectError(error.DivisionByZero, divTrunc(i8, -5, 0));
+    testing.expectError(error.Overflow, divTrunc(i8, -128, -1));
 
-    assert((divTrunc(f32, 5.0, 3.0) catch unreachable) == 1.0);
-    assert((divTrunc(f32, -5.0, 3.0) catch unreachable) == -1.0);
+    testing.expect((divTrunc(f32, 5.0, 3.0) catch unreachable) == 1.0);
+    testing.expect((divTrunc(f32, -5.0, 3.0) catch unreachable) == -1.0);
 }
 
 pub fn divFloor(comptime T: type, numerator: T, denominator: T) !T {
@@ -497,13 +511,13 @@ test "math.divFloor" {
     comptime testDivFloor();
 }
 fn testDivFloor() void {
-    assert((divFloor(i32, 5, 3) catch unreachable) == 1);
-    assert((divFloor(i32, -5, 3) catch unreachable) == -2);
-    if (divFloor(i8, -5, 0)) |_| unreachable else |err| assert(err == error.DivisionByZero);
-    if (divFloor(i8, -128, -1)) |_| unreachable else |err| assert(err == error.Overflow);
+    testing.expect((divFloor(i32, 5, 3) catch unreachable) == 1);
+    testing.expect((divFloor(i32, -5, 3) catch unreachable) == -2);
+    testing.expectError(error.DivisionByZero, divFloor(i8, -5, 0));
+    testing.expectError(error.Overflow, divFloor(i8, -128, -1));
 
-    assert((divFloor(f32, 5.0, 3.0) catch unreachable) == 1.0);
-    assert((divFloor(f32, -5.0, 3.0) catch unreachable) == -2.0);
+    testing.expect((divFloor(f32, 5.0, 3.0) catch unreachable) == 1.0);
+    testing.expect((divFloor(f32, -5.0, 3.0) catch unreachable) == -2.0);
 }
 
 pub fn divExact(comptime T: type, numerator: T, denominator: T) !T {
@@ -520,15 +534,15 @@ test "math.divExact" {
     comptime testDivExact();
 }
 fn testDivExact() void {
-    assert((divExact(i32, 10, 5) catch unreachable) == 2);
-    assert((divExact(i32, -10, 5) catch unreachable) == -2);
-    if (divExact(i8, -5, 0)) |_| unreachable else |err| assert(err == error.DivisionByZero);
-    if (divExact(i8, -128, -1)) |_| unreachable else |err| assert(err == error.Overflow);
-    if (divExact(i32, 5, 2)) |_| unreachable else |err| assert(err == error.UnexpectedRemainder);
+    testing.expect((divExact(i32, 10, 5) catch unreachable) == 2);
+    testing.expect((divExact(i32, -10, 5) catch unreachable) == -2);
+    testing.expectError(error.DivisionByZero, divExact(i8, -5, 0));
+    testing.expectError(error.Overflow, divExact(i8, -128, -1));
+    testing.expectError(error.UnexpectedRemainder, divExact(i32, 5, 2));
 
-    assert((divExact(f32, 10.0, 5.0) catch unreachable) == 2.0);
-    assert((divExact(f32, -10.0, 5.0) catch unreachable) == -2.0);
-    if (divExact(f32, 5.0, 2.0)) |_| unreachable else |err| assert(err == error.UnexpectedRemainder);
+    testing.expect((divExact(f32, 10.0, 5.0) catch unreachable) == 2.0);
+    testing.expect((divExact(f32, -10.0, 5.0) catch unreachable) == -2.0);
+    testing.expectError(error.UnexpectedRemainder, divExact(f32, 5.0, 2.0));
 }
 
 pub fn mod(comptime T: type, numerator: T, denominator: T) !T {
@@ -543,15 +557,15 @@ test "math.mod" {
     comptime testMod();
 }
 fn testMod() void {
-    assert((mod(i32, -5, 3) catch unreachable) == 1);
-    assert((mod(i32, 5, 3) catch unreachable) == 2);
-    if (mod(i32, 10, -1)) |_| unreachable else |err| assert(err == error.NegativeDenominator);
-    if (mod(i32, 10, 0)) |_| unreachable else |err| assert(err == error.DivisionByZero);
+    testing.expect((mod(i32, -5, 3) catch unreachable) == 1);
+    testing.expect((mod(i32, 5, 3) catch unreachable) == 2);
+    testing.expectError(error.NegativeDenominator, mod(i32, 10, -1));
+    testing.expectError(error.DivisionByZero, mod(i32, 10, 0));
 
-    assert((mod(f32, -5, 3) catch unreachable) == 1);
-    assert((mod(f32, 5, 3) catch unreachable) == 2);
-    if (mod(f32, 10, -1)) |_| unreachable else |err| assert(err == error.NegativeDenominator);
-    if (mod(f32, 10, 0)) |_| unreachable else |err| assert(err == error.DivisionByZero);
+    testing.expect((mod(f32, -5, 3) catch unreachable) == 1);
+    testing.expect((mod(f32, 5, 3) catch unreachable) == 2);
+    testing.expectError(error.NegativeDenominator, mod(f32, 10, -1));
+    testing.expectError(error.DivisionByZero, mod(f32, 10, 0));
 }
 
 pub fn rem(comptime T: type, numerator: T, denominator: T) !T {
@@ -566,15 +580,15 @@ test "math.rem" {
     comptime testRem();
 }
 fn testRem() void {
-    assert((rem(i32, -5, 3) catch unreachable) == -2);
-    assert((rem(i32, 5, 3) catch unreachable) == 2);
-    if (rem(i32, 10, -1)) |_| unreachable else |err| assert(err == error.NegativeDenominator);
-    if (rem(i32, 10, 0)) |_| unreachable else |err| assert(err == error.DivisionByZero);
+    testing.expect((rem(i32, -5, 3) catch unreachable) == -2);
+    testing.expect((rem(i32, 5, 3) catch unreachable) == 2);
+    testing.expectError(error.NegativeDenominator, rem(i32, 10, -1));
+    testing.expectError(error.DivisionByZero, rem(i32, 10, 0));
 
-    assert((rem(f32, -5, 3) catch unreachable) == -2);
-    assert((rem(f32, 5, 3) catch unreachable) == 2);
-    if (rem(f32, 10, -1)) |_| unreachable else |err| assert(err == error.NegativeDenominator);
-    if (rem(f32, 10, 0)) |_| unreachable else |err| assert(err == error.DivisionByZero);
+    testing.expect((rem(f32, -5, 3) catch unreachable) == -2);
+    testing.expect((rem(f32, 5, 3) catch unreachable) == 2);
+    testing.expectError(error.NegativeDenominator, rem(f32, 10, -1));
+    testing.expectError(error.DivisionByZero, rem(f32, 10, 0));
 }
 
 /// Returns the absolute value of the integer parameter.
@@ -587,14 +601,14 @@ pub fn absCast(x: var) @IntType(false, @typeOf(x).bit_count) {
 }
 
 test "math.absCast" {
-    assert(absCast(i32(-999)) == 999);
-    assert(@typeOf(absCast(i32(-999))) == u32);
+    testing.expect(absCast(i32(-999)) == 999);
+    testing.expect(@typeOf(absCast(i32(-999))) == u32);
 
-    assert(absCast(i32(999)) == 999);
-    assert(@typeOf(absCast(i32(999))) == u32);
+    testing.expect(absCast(i32(999)) == 999);
+    testing.expect(@typeOf(absCast(i32(999))) == u32);
 
-    assert(absCast(i32(minInt(i32))) == -minInt(i32));
-    assert(@typeOf(absCast(i32(minInt(i32)))) == u32);
+    testing.expect(absCast(i32(minInt(i32))) == -minInt(i32));
+    testing.expect(@typeOf(absCast(i32(minInt(i32)))) == u32);
 }
 
 /// Returns the negation of the integer parameter.
@@ -611,13 +625,13 @@ pub fn negateCast(x: var) !@IntType(true, @typeOf(x).bit_count) {
 }
 
 test "math.negateCast" {
-    assert((negateCast(u32(999)) catch unreachable) == -999);
-    assert(@typeOf(negateCast(u32(999)) catch unreachable) == i32);
+    testing.expect((negateCast(u32(999)) catch unreachable) == -999);
+    testing.expect(@typeOf(negateCast(u32(999)) catch unreachable) == i32);
 
-    assert((negateCast(u32(-minInt(i32))) catch unreachable) == minInt(i32));
-    assert(@typeOf(negateCast(u32(-minInt(i32))) catch unreachable) == i32);
+    testing.expect((negateCast(u32(-minInt(i32))) catch unreachable) == minInt(i32));
+    testing.expect(@typeOf(negateCast(u32(-minInt(i32))) catch unreachable) == i32);
 
-    if (negateCast(u32(maxInt(i32) + 10))) |_| unreachable else |err| assert(err == error.Overflow);
+    testing.expectError(error.Overflow, negateCast(u32(maxInt(i32) + 10)));
 }
 
 /// Cast an integer to a different integer type. If the value doesn't fit,
@@ -635,13 +649,13 @@ pub fn cast(comptime T: type, x: var) (error{Overflow}!T) {
 }
 
 test "math.cast" {
-    if (cast(u8, u32(300))) |_| @panic("fail") else |err| assert(err == error.Overflow);
-    if (cast(i8, i32(-200))) |_| @panic("fail") else |err| assert(err == error.Overflow);
-    if (cast(u8, i8(-1))) |_| @panic("fail") else |err| assert(err == error.Overflow);
-    if (cast(u64, i8(-1))) |_| @panic("fail") else |err| assert(err == error.Overflow);
+    testing.expectError(error.Overflow, cast(u8, u32(300)));
+    testing.expectError(error.Overflow, cast(i8, i32(-200)));
+    testing.expectError(error.Overflow, cast(u8, i8(-1)));
+    testing.expectError(error.Overflow, cast(u64, i8(-1)));
 
-    assert((try cast(u8, u32(255))) == u8(255));
-    assert(@typeOf(try cast(u8, u32(255))) == u8);
+    testing.expect((try cast(u8, u32(255))) == u8(255));
+    testing.expect(@typeOf(try cast(u8, u32(255))) == u8);
 }
 
 pub const AlignCastError = error{UnalignedMemory};
@@ -685,25 +699,25 @@ pub fn log2_int_ceil(comptime T: type, x: T) Log2Int(T) {
 }
 
 test "std.math.log2_int_ceil" {
-    assert(log2_int_ceil(u32, 1) == 0);
-    assert(log2_int_ceil(u32, 2) == 1);
-    assert(log2_int_ceil(u32, 3) == 2);
-    assert(log2_int_ceil(u32, 4) == 2);
-    assert(log2_int_ceil(u32, 5) == 3);
-    assert(log2_int_ceil(u32, 6) == 3);
-    assert(log2_int_ceil(u32, 7) == 3);
-    assert(log2_int_ceil(u32, 8) == 3);
-    assert(log2_int_ceil(u32, 9) == 4);
-    assert(log2_int_ceil(u32, 10) == 4);
+    testing.expect(log2_int_ceil(u32, 1) == 0);
+    testing.expect(log2_int_ceil(u32, 2) == 1);
+    testing.expect(log2_int_ceil(u32, 3) == 2);
+    testing.expect(log2_int_ceil(u32, 4) == 2);
+    testing.expect(log2_int_ceil(u32, 5) == 3);
+    testing.expect(log2_int_ceil(u32, 6) == 3);
+    testing.expect(log2_int_ceil(u32, 7) == 3);
+    testing.expect(log2_int_ceil(u32, 8) == 3);
+    testing.expect(log2_int_ceil(u32, 9) == 4);
+    testing.expect(log2_int_ceil(u32, 10) == 4);
 }
 
 fn testFloorPowerOfTwo() void {
-    assert(floorPowerOfTwo(u32, 63) == 32);
-    assert(floorPowerOfTwo(u32, 64) == 64);
-    assert(floorPowerOfTwo(u32, 65) == 64);
-    assert(floorPowerOfTwo(u4, 7) == 4);
-    assert(floorPowerOfTwo(u4, 8) == 8);
-    assert(floorPowerOfTwo(u4, 9) == 8);
+    testing.expect(floorPowerOfTwo(u32, 63) == 32);
+    testing.expect(floorPowerOfTwo(u32, 64) == 64);
+    testing.expect(floorPowerOfTwo(u32, 65) == 64);
+    testing.expect(floorPowerOfTwo(u4, 7) == 4);
+    testing.expect(floorPowerOfTwo(u4, 8) == 8);
+    testing.expect(floorPowerOfTwo(u4, 9) == 8);
 }
 
 pub fn lossyCast(comptime T: type, value: var) T {
@@ -719,7 +733,7 @@ pub fn lossyCast(comptime T: type, value: var) T {
 test "math.f64_min" {
     const f64_min_u64 = 0x0010000000000000;
     const fmin: f64 = f64_min;
-    assert(@bitCast(u64, fmin) == f64_min_u64);
+    testing.expect(@bitCast(u64, fmin) == f64_min_u64);
 }
 
 pub fn maxInt(comptime T: type) comptime_int {
@@ -738,36 +752,40 @@ pub fn minInt(comptime T: type) comptime_int {
 }
 
 test "minInt and maxInt" {
-    assert(maxInt(u0) == 0);
-    assert(maxInt(u1) == 1);
-    assert(maxInt(u8) == 255);
-    assert(maxInt(u16) == 65535);
-    assert(maxInt(u32) == 4294967295);
-    assert(maxInt(u64) == 18446744073709551615);
+    testing.expect(maxInt(u0) == 0);
+    testing.expect(maxInt(u1) == 1);
+    testing.expect(maxInt(u8) == 255);
+    testing.expect(maxInt(u16) == 65535);
+    testing.expect(maxInt(u32) == 4294967295);
+    testing.expect(maxInt(u64) == 18446744073709551615);
+    testing.expect(maxInt(u128) == 340282366920938463463374607431768211455);
 
-    assert(maxInt(i0) == 0);
-    assert(maxInt(i1) == 0);
-    assert(maxInt(i8) == 127);
-    assert(maxInt(i16) == 32767);
-    assert(maxInt(i32) == 2147483647);
-    assert(maxInt(i63) == 4611686018427387903);
-    assert(maxInt(i64) == 9223372036854775807);
+    testing.expect(maxInt(i0) == 0);
+    testing.expect(maxInt(i1) == 0);
+    testing.expect(maxInt(i8) == 127);
+    testing.expect(maxInt(i16) == 32767);
+    testing.expect(maxInt(i32) == 2147483647);
+    testing.expect(maxInt(i63) == 4611686018427387903);
+    testing.expect(maxInt(i64) == 9223372036854775807);
+    testing.expect(maxInt(i128) == 170141183460469231731687303715884105727);
 
-    assert(minInt(u0) == 0);
-    assert(minInt(u1) == 0);
-    assert(minInt(u8) == 0);
-    assert(minInt(u16) == 0);
-    assert(minInt(u32) == 0);
-    assert(minInt(u63) == 0);
-    assert(minInt(u64) == 0);
+    testing.expect(minInt(u0) == 0);
+    testing.expect(minInt(u1) == 0);
+    testing.expect(minInt(u8) == 0);
+    testing.expect(minInt(u16) == 0);
+    testing.expect(minInt(u32) == 0);
+    testing.expect(minInt(u63) == 0);
+    testing.expect(minInt(u64) == 0);
+    testing.expect(minInt(u128) == 0);
 
-    assert(minInt(i0) == 0);
-    assert(minInt(i1) == -1);
-    assert(minInt(i8) == -128);
-    assert(minInt(i16) == -32768);
-    assert(minInt(i32) == -2147483648);
-    assert(minInt(i63) == -4611686018427387904);
-    assert(minInt(i64) == -9223372036854775808);
+    testing.expect(minInt(i0) == 0);
+    testing.expect(minInt(i1) == -1);
+    testing.expect(minInt(i8) == -128);
+    testing.expect(minInt(i16) == -32768);
+    testing.expect(minInt(i32) == -2147483648);
+    testing.expect(minInt(i63) == -4611686018427387904);
+    testing.expect(minInt(i64) == -9223372036854775808);
+    testing.expect(minInt(i128) == -170141183460469231731687303715884105728);
 }
 
 test "max value type" {
@@ -775,5 +793,5 @@ test "max value type" {
     // u32 would not work. But since the value is a number literal,
     // it works fine.
     const x: u32 = maxInt(i32);
-    assert(x == 2147483647);
+    testing.expect(x == 2147483647);
 }

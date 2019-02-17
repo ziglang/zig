@@ -381,7 +381,7 @@ static AstNode *ast_parse_if_expr_helper(ParseContext *pc, AstNode *(*body_parse
         else_body = ast_expect(pc, body_parser);
     }
 
-    assert(res->type == NodeTypeTestExpr);
+    assert(res->type == NodeTypeIfOptional);
     if (err_payload != nullptr) {
         AstNodeTestExpr old = res->data.test_expr;
         res->type = NodeTypeIfErrorExpr;
@@ -844,12 +844,17 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc) {
 
 // VarDecl <- (KEYWORD_const / KEYWORD_var) IDENTIFIER (COLON TypeExpr)? ByteAlign? LinkSection? (EQUAL Expr)? SEMICOLON
 static AstNode *ast_parse_var_decl(ParseContext *pc) {
-    Token *first = eat_token_if(pc, TokenIdKeywordConst);
-    if (first == nullptr)
-        first = eat_token_if(pc, TokenIdKeywordVar);
-    if (first == nullptr)
-        return nullptr;
-
+    Token *thread_local_kw = eat_token_if(pc, TokenIdKeywordThreadLocal);
+    Token *mut_kw = eat_token_if(pc, TokenIdKeywordConst);
+    if (mut_kw == nullptr)
+        mut_kw = eat_token_if(pc, TokenIdKeywordVar);
+    if (mut_kw == nullptr) {
+        if (thread_local_kw == nullptr) {
+            return nullptr;
+        } else {
+            ast_invalid_token_error(pc, peek_token(pc));
+        }
+    }
     Token *identifier = expect_token(pc, TokenIdSymbol);
     AstNode *type_expr = nullptr;
     if (eat_token_if(pc, TokenIdColon) != nullptr)
@@ -863,8 +868,9 @@ static AstNode *ast_parse_var_decl(ParseContext *pc) {
 
     expect_token(pc, TokenIdSemicolon);
 
-    AstNode *res = ast_create_node(pc, NodeTypeVariableDeclaration, first);
-    res->data.variable_declaration.is_const = first->id == TokenIdKeywordConst;
+    AstNode *res = ast_create_node(pc, NodeTypeVariableDeclaration, mut_kw);
+    res->data.variable_declaration.threadlocal_tok = thread_local_kw;
+    res->data.variable_declaration.is_const = mut_kw->id == TokenIdKeywordConst;
     res->data.variable_declaration.symbol = token_buf(identifier);
     res->data.variable_declaration.type = type_expr;
     res->data.variable_declaration.align_expr = align_expr;
@@ -990,7 +996,7 @@ static AstNode *ast_parse_if_statement(ParseContext *pc) {
     if (requires_semi && else_body == nullptr)
         expect_token(pc, TokenIdSemicolon);
 
-    assert(res->type == NodeTypeTestExpr);
+    assert(res->type == NodeTypeIfOptional);
     if (err_payload != nullptr) {
         AstNodeTestExpr old = res->data.test_expr;
         res->type = NodeTypeIfErrorExpr;
@@ -2204,7 +2210,7 @@ static AstNode *ast_parse_if_prefix(ParseContext *pc) {
     Optional<PtrPayload> opt_payload = ast_parse_ptr_payload(pc);
 
     PtrPayload payload;
-    AstNode *res = ast_create_node(pc, NodeTypeTestExpr, first);
+    AstNode *res = ast_create_node(pc, NodeTypeIfOptional, first);
     res->data.test_expr.target_node = condition;
     if (opt_payload.unwrap(&payload)) {
         res->data.test_expr.var_symbol = token_buf(payload.payload);
@@ -2772,7 +2778,8 @@ static AstNode *ast_parse_array_type_start(ParseContext *pc) {
 // PtrTypeStart
 //     <- ASTERISK
 //      / ASTERISK2
-//      / LBRACKET ASTERISK RBRACKET
+//      / PTRUNKNOWN
+//      / PTRC
 static AstNode *ast_parse_ptr_type_start(ParseContext *pc) {
     Token *asterisk = eat_token_if(pc, TokenIdStar);
     if (asterisk != nullptr) {
@@ -2795,6 +2802,13 @@ static AstNode *ast_parse_ptr_type_start(ParseContext *pc) {
     if (multptr != nullptr) {
         AstNode *res = ast_create_node(pc, NodeTypePointerType, multptr);
         res->data.pointer_type.star_token = multptr;
+        return res;
+    }
+
+    Token *cptr = eat_token_if(pc, TokenIdBracketStarCBracket);
+    if (cptr != nullptr) {
+        AstNode *res = ast_create_node(pc, NodeTypePointerType, cptr);
+        res->data.pointer_type.star_token = cptr;
         return res;
     }
 
@@ -2999,7 +3013,7 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             visit_field(&node->data.if_err_expr.then_node, visit, context);
             visit_field(&node->data.if_err_expr.else_node, visit, context);
             break;
-        case NodeTypeTestExpr:
+        case NodeTypeIfOptional:
             visit_field(&node->data.test_expr.target_node, visit, context);
             visit_field(&node->data.test_expr.then_node, visit, context);
             visit_field(&node->data.test_expr.else_node, visit, context);

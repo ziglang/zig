@@ -3,6 +3,7 @@ const debug = std.debug;
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const assert = debug.assert;
+const testing = std.testing;
 const ArrayList = std.ArrayList;
 
 /// A buffer that allocates memory and maintains a null byte at the end.
@@ -141,19 +142,19 @@ test "simple Buffer" {
     const cstr = @import("cstr.zig");
 
     var buf = try Buffer.init(debug.global_allocator, "");
-    assert(buf.len() == 0);
+    testing.expect(buf.len() == 0);
     try buf.append("hello");
     try buf.append(" ");
     try buf.append("world");
-    assert(buf.eql("hello world"));
-    assert(mem.eql(u8, cstr.toSliceConst(buf.toSliceConst().ptr), buf.toSliceConst()));
+    testing.expect(buf.eql("hello world"));
+    testing.expect(mem.eql(u8, cstr.toSliceConst(buf.toSliceConst().ptr), buf.toSliceConst()));
 
     var buf2 = try Buffer.initFromBuffer(buf);
-    assert(buf.eql(buf2.toSliceConst()));
+    testing.expect(buf.eql(buf2.toSliceConst()));
 
-    assert(buf.startsWith("hell"));
-    assert(buf.endsWith("orld"));
+    testing.expect(buf.startsWith("hell"));
+    testing.expect(buf.endsWith("orld"));
 
     try buf2.resize(4);
-    assert(buf.startsWith(buf2.toSlice()));
+    testing.expect(buf.startsWith(buf2.toSlice()));
 }

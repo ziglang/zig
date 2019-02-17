@@ -1,5 +1,6 @@
 const std = @import("index.zig");
 const assert = std.debug.assert;
+const testing = std.testing;
 const mem = std.mem;
 const math = std.math;
 const builtin = @import("builtin");
@@ -1031,8 +1032,8 @@ fn testStableSort() void {
     for (cases) |*case| {
         insertionSort(IdAndValue, (case.*)[0..], cmpByValue);
         for (case.*) |item, i| {
-            assert(item.id == expected[i].id);
-            assert(item.value == expected[i].value);
+            testing.expect(item.id == expected[i].id);
+            testing.expect(item.value == expected[i].value);
         }
     }
 }
@@ -1077,7 +1078,7 @@ test "std.sort" {
         const slice = buf[0..case[0].len];
         mem.copy(u8, slice, case[0]);
         sort(u8, slice, asc(u8));
-        assert(mem.eql(u8, slice, case[1]));
+        testing.expect(mem.eql(u8, slice, case[1]));
     }
 
     const i32cases = [][]const []const i32{
@@ -1112,7 +1113,7 @@ test "std.sort" {
         const slice = buf[0..case[0].len];
         mem.copy(i32, slice, case[0]);
         sort(i32, slice, asc(i32));
-        assert(mem.eql(i32, slice, case[1]));
+        testing.expect(mem.eql(i32, slice, case[1]));
     }
 }
 
@@ -1149,7 +1150,7 @@ test "std.sort descending" {
         const slice = buf[0..case[0].len];
         mem.copy(i32, slice, case[0]);
         sort(i32, slice, desc(i32));
-        assert(mem.eql(i32, slice, case[1]));
+        testing.expect(mem.eql(i32, slice, case[1]));
     }
 }
 
@@ -1157,7 +1158,7 @@ test "another sort case" {
     var arr = []i32{ 5, 3, 1, 2, 4 };
     sort(i32, arr[0..], asc(i32));
 
-    assert(mem.eql(i32, arr, []i32{ 1, 2, 3, 4, 5 }));
+    testing.expect(mem.eql(i32, arr, []i32{ 1, 2, 3, 4, 5 }));
 }
 
 test "sort fuzz testing" {
@@ -1185,9 +1186,9 @@ fn fuzzTest(rng: *std.rand.Random) void {
     var index: usize = 1;
     while (index < array.len) : (index += 1) {
         if (array[index].value == array[index - 1].value) {
-            assert(array[index].id > array[index - 1].id);
+            testing.expect(array[index].id > array[index - 1].id);
         } else {
-            assert(array[index].value > array[index - 1].value);
+            testing.expect(array[index].value > array[index - 1].value);
         }
     }
 }
