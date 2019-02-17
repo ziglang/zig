@@ -408,7 +408,7 @@ test "io.BufferedInStream" {
     const stream = &buf_in_stream.stream;
 
     const res = try stream.readAllAlloc(allocator, str.len + 1);
-    debug.assertOrPanic(mem.eql(u8, str, res));
+    testing.expectEqualSlices(u8, str, res);
 }
 
 /// Creates a stream which supports 'un-reading' data, so that it can be read again.
