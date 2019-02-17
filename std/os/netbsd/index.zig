@@ -283,9 +283,6 @@ pub const EVFILT_TIMER = 6;
 /// Filesystem events
 pub const EVFILT_FS = 7;
 
-/// XXX no EVFILT_USER, but what is it
-pub const EVFILT_USER = 0;
-
 /// On input, NOTE_TRIGGER causes the event to be triggered for output.
 pub const NOTE_TRIGGER = 0x08000000;
 
