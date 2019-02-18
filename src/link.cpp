@@ -899,7 +899,11 @@ static void construct_linker_job_macho(LinkJob *lj) {
             lj->args.append("-ios_simulator_version_min");
             break;
     }
-    lj->args.append(buf_ptr(buf_sprintf("%d.%d.%d", platform.major, platform.minor, platform.micro)));
+    Buf *version_string = buf_sprintf("%d.%d.%d", platform.major, platform.minor, platform.micro);
+    lj->args.append(buf_ptr(version_string));
+
+    lj->args.append("-sdk_version");
+    lj->args.append(buf_ptr(version_string));
 
 
     if (g->out_type == OutTypeExe) {
@@ -920,7 +924,9 @@ static void construct_linker_job_macho(LinkJob *lj) {
     add_rpath(lj, &g->output_file_path);
 
     if (shared) {
-        lj->args.append("-headerpad_max_install_names");
+        if (g->system_linker_hack) {
+            lj->args.append("-headerpad_max_install_names");
+        }
     } else if (g->is_static) {
         lj->args.append("-lcrt0.o");
     } else {

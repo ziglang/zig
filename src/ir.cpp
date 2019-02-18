@@ -13133,6 +13133,20 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira,
     return ir_build_var_decl_gen(ira, &decl_var_instruction->base, var, casted_init_value);
 }
 
+static VarLinkage global_linkage_to_var_linkage(GlobalLinkageId id) {
+    switch (id) {
+        case GlobalLinkageIdStrong:
+            return VarLinkageExportStrong;
+        case GlobalLinkageIdWeak:
+            return VarLinkageExportWeak;
+        case GlobalLinkageIdLinkOnce:
+            return VarLinkageExportLinkOnce;
+        case GlobalLinkageIdInternal:
+            return VarLinkageInternal;
+    }
+    zig_unreachable();
+}
+
 static IrInstruction *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructionExport *instruction) {
     IrInstruction *name = instruction->name->child;
     Buf *symbol_name = ir_resolve_str(ira, name);
@@ -13161,6 +13175,7 @@ static IrInstruction *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructio
         add_error_note(ira->codegen, msg, other_export_node, buf_sprintf("other symbol is here"));
     }
 
+    bool want_var_export = false;
     switch (target->value.type->id) {
         case ZigTypeIdInvalid:
         case ZigTypeIdUnreachable:
@@ -13196,6 +13211,8 @@ static IrInstruction *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructio
                 ErrorMsg *msg = ir_add_error(ira, target,
                     buf_sprintf("exported struct value must be declared extern"));
                 add_error_note(ira->codegen, msg, target->value.type->data.structure.decl_node, buf_sprintf("declared here"));
+            } else {
+                want_var_export = true;
             }
             break;
         case ZigTypeIdUnion:
@@ -13203,6 +13220,8 @@ static IrInstruction *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructio
                 ErrorMsg *msg = ir_add_error(ira, target,
                     buf_sprintf("exported union value must be declared extern"));
                 add_error_note(ira->codegen, msg, target->value.type->data.unionation.decl_node, buf_sprintf("declared here"));
+            } else {
+                want_var_export = true;
             }
             break;
         case ZigTypeIdEnum:
@@ -13210,6 +13229,8 @@ static IrInstruction *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructio
                 ErrorMsg *msg = ir_add_error(ira, target,
                     buf_sprintf("exported enum value must be declared extern"));
                 add_error_note(ira->codegen, msg, target->value.type->data.enumeration.decl_node, buf_sprintf("declared here"));
+            } else {
+                want_var_export = true;
             }
             break;
         case ZigTypeIdMetaType: {
@@ -13297,6 +13318,16 @@ static IrInstruction *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructio
             ir_add_error(ira, target,
                     buf_sprintf("invalid export target type '%s'", buf_ptr(&target->value.type->name)));
             break;
+    }
+
+    // TODO audit the various ways to use @export
+    if (want_var_export && target->id == IrInstructionIdLoadPtr) {
+        IrInstructionLoadPtr *load_ptr = reinterpret_cast<IrInstructionLoadPtr *>(target);
+        if (load_ptr->ptr->id == IrInstructionIdVarPtr) {
+            IrInstructionVarPtr *var_ptr = reinterpret_cast<IrInstructionVarPtr *>(load_ptr->ptr);
+            ZigVar *var = var_ptr->var;
+            var->linkage = global_linkage_to_var_linkage(global_linkage_id);
+        }
     }
 
     return ir_const_void(ira, &instruction->base);
@@ -13586,9 +13617,16 @@ static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
     if (var->var_type == nullptr || type_is_invalid(var->var_type))
         return ira->codegen->invalid_instruction;
 
-    bool comptime_var_mem = ir_get_var_is_comptime(var);
-
     ConstExprValue *mem_slot = nullptr;
+
+    bool comptime_var_mem = ir_get_var_is_comptime(var);
+    bool linkage_makes_it_runtime = var->linkage == VarLinkageExternal;
+    bool is_const = var->src_is_const;
+    bool is_volatile = false;
+
+    if (linkage_makes_it_runtime)
+        goto no_mem_slot;
+
     if (var->const_value->special == ConstValSpecialStatic) {
         mem_slot = var->const_value;
     } else {
@@ -13602,8 +13640,6 @@ static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
         }
     }
 
-    bool is_const = var->src_is_const;
-    bool is_volatile = false;
     if (mem_slot != nullptr) {
         switch (mem_slot->special) {
             case ConstValSpecialRuntime:
@@ -20679,6 +20715,13 @@ static IrInstruction *ir_analyze_ptr_cast(IrAnalyze *ira, IrInstruction *source_
         ir_add_error(ira, source_instr, buf_sprintf("cast discards const qualifier"));
         return ira->codegen->invalid_instruction;
     }
+    uint32_t src_align_bytes;
+    if ((err = resolve_ptr_align(ira, src_type, &src_align_bytes)))
+        return ira->codegen->invalid_instruction;
+
+    uint32_t dest_align_bytes;
+    if ((err = resolve_ptr_align(ira, dest_type, &dest_align_bytes)))
+        return ira->codegen->invalid_instruction;
 
     if (instr_is_comptime(ptr)) {
         bool dest_allows_addr_zero = ptr_allows_addr_zero(dest_type);
@@ -20701,16 +20744,15 @@ static IrInstruction *ir_analyze_ptr_cast(IrAnalyze *ira, IrInstruction *source_
         IrInstruction *result = ir_const(ira, source_instr, dest_type);
         copy_const_val(&result->value, val, false);
         result->value.type = dest_type;
+
+        // Keep the bigger alignment, it can only help-
+        // unless the target is zero bits.
+        if (src_align_bytes > dest_align_bytes && type_has_bits(dest_type)) {
+            result =  ir_align_cast(ira, result, src_align_bytes, false);
+        }
+
         return result;
     }
-
-    uint32_t src_align_bytes;
-    if ((err = resolve_ptr_align(ira, src_type, &src_align_bytes)))
-        return ira->codegen->invalid_instruction;
-
-    uint32_t dest_align_bytes;
-    if ((err = resolve_ptr_align(ira, dest_type, &dest_align_bytes)))
-        return ira->codegen->invalid_instruction;
 
     if (dest_align_bytes > src_align_bytes) {
         ErrorMsg *msg = ir_add_error(ira, source_instr, buf_sprintf("cast increases pointer alignment"));

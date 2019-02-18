@@ -6421,6 +6421,22 @@ static void set_global_tls(CodeGen *g, ZigVar *var, LLVMValueRef global_value) {
     }
 }
 
+static LLVMLinkage var_linkage_to_llvm(VarLinkage var_linkage) {
+    switch (var_linkage) {
+        case VarLinkageInternal:
+            return LLVMInternalLinkage;
+        case VarLinkageExportStrong:
+            return LLVMExternalLinkage;
+        case VarLinkageExportWeak:
+            return LLVMWeakODRLinkage;
+        case VarLinkageExportLinkOnce:
+            return LLVMLinkOnceODRLinkage;
+        case VarLinkageExternal:
+            return LLVMExternalLinkage;
+    }
+    zig_unreachable();
+}
+
 static void do_code_gen(CodeGen *g) {
     assert(!g->errors.length);
 
@@ -6501,21 +6517,21 @@ static void do_code_gen(CodeGen *g) {
                 global_value = LLVMAddGlobal(g->module, var->var_type->type_ref, buf_ptr(&var->name));
                 // TODO debug info for the extern variable
 
-                LLVMSetLinkage(global_value, LLVMExternalLinkage);
+                LLVMSetLinkage(global_value, var_linkage_to_llvm(var->linkage));
                 maybe_import_dll(g, global_value, GlobalLinkageIdStrong);
                 LLVMSetAlignment(global_value, var->align_bytes);
                 LLVMSetGlobalConstant(global_value, var->gen_is_const);
                 set_global_tls(g, var, global_value);
             }
         } else {
-            bool exported = (var->linkage == VarLinkageExport);
+            bool exported = (var->linkage != VarLinkageInternal);
             const char *mangled_name = buf_ptr(get_mangled_name(g, &var->name, exported));
             render_const_val(g, var->const_value, mangled_name);
             render_const_val_global(g, var->const_value, mangled_name);
             global_value = var->const_value->global_refs->llvm_global;
 
             if (exported) {
-                LLVMSetLinkage(global_value, LLVMExternalLinkage);
+                LLVMSetLinkage(global_value, var_linkage_to_llvm(var->linkage));
                 maybe_export_dll(g, global_value, GlobalLinkageIdStrong);
             }
             if (tld_var->section_name) {

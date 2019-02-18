@@ -1853,7 +1853,9 @@ struct CodeGen {
 
 enum VarLinkage {
     VarLinkageInternal,
-    VarLinkageExport,
+    VarLinkageExportStrong,
+    VarLinkageExportWeak,
+    VarLinkageExportLinkOnce,
     VarLinkageExternal,
 };
 

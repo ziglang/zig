@@ -574,7 +574,7 @@ fn machoSearchSymbols(symbols: []const MachoSymbol, address: usize) ?*const Mach
 }
 
 fn printSourceAtAddressMacOs(di: *DebugInfo, out_stream: var, address: usize, tty_color: bool) !void {
-    const base_addr = @ptrToInt(&std.c._mh_execute_header);
+    const base_addr = std.os.getBaseAddress();
     const adjusted_addr = 0x100000000 + (address - base_addr);
 
     const symbol = machoSearchSymbols(di.symbols, adjusted_addr) orelse {

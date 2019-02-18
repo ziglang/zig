@@ -3746,7 +3746,7 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
 
     VarLinkage linkage;
     if (is_export) {
-        linkage = VarLinkageExport;
+        linkage = VarLinkageExportStrong;
     } else if (is_extern) {
         linkage = VarLinkageExternal;
     } else {

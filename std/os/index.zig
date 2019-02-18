@@ -701,7 +701,9 @@ pub fn getBaseAddress() usize {
             const phdr = linuxGetAuxVal(std.elf.AT_PHDR);
             return phdr - @sizeOf(std.elf.Ehdr);
         },
-        builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => return @ptrToInt(&std.c._mh_execute_header),
+        builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => {
+            return @ptrToInt(&std.c._mh_execute_header);
+        },
         builtin.Os.windows => return @ptrToInt(windows.GetModuleHandleW(null)),
         else => @compileError("Unsupported OS"),
     }
