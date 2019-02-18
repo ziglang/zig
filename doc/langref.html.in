@@ -2377,7 +2377,36 @@ test "labeled break from labeled block expression" {
       {#code_end#}
       <p>Here, {#syntax#}blk{#endsyntax#} can be any name.</p>
       {#see_also|Labeled while|Labeled for#}
+
+      {#header_open|Shadowing#}
+      <p>It is never allowed for an identifier to "hide" another one by using the same name:</p>
+      {#code_begin|test_err|redefinition#}
+const pi = 3.14;
+
+test "inside test block" {
+    // Let's even go inside another block
+    {
+        var pi: i32 = 1234;
+    }
+}
+      {#code_end#}
+      <p>
+      Because of this, when you read Zig code you can rely on an identifier always meaning the same thing,
+      within the scope it is defined. Note that you can, however use the same name if the scopes are separate:
+      </p>
+      {#code_begin|test#}
+test "separate scopes" {
+    {
+        const pi = 3.14;
+    }
+    {
+        var pi: bool = true;
+    }
+}
+      {#code_end#}
       {#header_close#}
+      {#header_close#}
+
       {#header_open|switch#}
       {#code_begin|test|switch#}
 const assert = @import("std").debug.assert;
