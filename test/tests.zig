@@ -572,9 +572,7 @@ pub const CompileErrorContext = struct {
             const source_file = ".tmp_source.zig";
 
             fn init(input: []const u8) ErrLineIter {
-                return ErrLineIter {
-                    .lines = mem.separate(input, "\n"),
-                };
+                return ErrLineIter{ .lines = mem.separate(input, "\n") };
             }
 
             fn next(self: *ErrLineIter) ?[]const u8 {
@@ -718,11 +716,10 @@ pub const CompileErrorContext = struct {
                 for (self.case.expected_errors.toSliceConst()) |expected| {
                     if (mem.indexOf(u8, stderr, expected) == null) {
                         warn(
-                            \\=========== Expected compile error: ============
+                            \\\n=========== Expected compile error: ============
                             \\{}
                             \\
-                        , expected
-                        );
+                        , expected);
                         ok = false;
                         break;
                     }
@@ -734,8 +731,7 @@ pub const CompileErrorContext = struct {
                     \\================= Full output: =================
                     \\{}
                     \\
-                , stderr
-                );
+                , stderr);
                 return error.TestFailed;
             }
 
