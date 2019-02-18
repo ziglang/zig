@@ -2,6 +2,15 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.addTest(
+        "export generic function",
+        \\export fn foo(num: var) i32 {
+        \\    return 0;
+        \\}
+    ,
+        ".tmp_source.zig:1:15: error: parameter of type 'var' not allowed in function with calling convention 'ccc'",
+    );
+
+    cases.addTest(
         "C pointer to c_void",
         \\export fn a() void {
         \\    var x: *c_void = undefined;
