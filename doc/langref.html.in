@@ -3169,7 +3169,6 @@ const assert = @import("std").debug.assert;
 // Functions are declared like this
 fn add(a: i8, b: i8) i8 {
     if (a == 0) {
-        // You can still return manually if needed.
         return b;
     }
 
@@ -3193,10 +3192,16 @@ fn abort() noreturn {
     while (true) {}
 }
 
-// nakedcc makes a function not have any function prologue or epilogue.
+// The nakedcc specifier makes a function not have any function prologue or epilogue.
 // This can be useful when integrating with assembly.
 nakedcc fn _start() noreturn {
     abort();
+}
+
+// The inline specifier forces a function to be inlined at all call sites.
+// If the function cannot be inlined, it is a compile-time error.
+inline fn shiftLeftOne(a: u32) u32 {
+    return a << 1;
 }
 
 // The pub specifier allows the function to be visible when importing.
