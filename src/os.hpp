@@ -25,6 +25,8 @@
 #define ZIG_OS_LINUX
 #elif defined(__FreeBSD__)
 #define ZIG_OS_FREEBSD
+#elif defined(__NetBSD__)
+#define ZIG_OS_NETBSD
 #else
 #define ZIG_OS_UNKNOWN
 #endif
