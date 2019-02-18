@@ -243,8 +243,9 @@ const Timestamp = struct {
       {#header_close#}
       {#header_open|Values#}
       {#code_begin|exe|values#}
-const std = @import("std");
+// Top-level declarations are order-independent:
 const warn = std.debug.warn;
+const std = @import("std");
 const os = std.os;
 const assert = std.debug.assert;
 
@@ -6745,11 +6746,7 @@ pub fn build(b: *Builder) void {
       {#header_open|Single Threaded Builds#}
       <p>Zig has a compile option <code>--single-threaded</code> which has the following effects:
       <ul>
-        <li>{#link|@atomicLoad#} is emitted as a normal load.</li>
-        <li>{#link|@atomicRmw#} is emitted as a normal memory load, modify, store.</li>
-        <li>{#link|@fence#} becomes a no-op.</li>
-        <li>Variables which have Thread Local Storage instead become globals. TODO thread local variables
-        are not implemented yet.</li>
+        <li>Variables which have Thread Local Storage instead become globals.</li>
         <li>The overhead of {#link|Coroutines#} becomes equivalent to function call overhead.
           TODO: please note this will not be implemented until the upcoming Coroutine Rewrite</li>
         <li>The {#syntax#}@import("builtin").single_threaded{#endsyntax#} becomes {#syntax#}true{#endsyntax#}
