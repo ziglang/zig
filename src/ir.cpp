@@ -10305,63 +10305,75 @@ static IrInstruction *ir_analyze_array_to_slice(IrAnalyze *ira, IrInstruction *s
     return result;
 }
 
-static IrInstruction *ir_analyze_enum_to_int(IrAnalyze *ira, IrInstruction *source_instr,
-        IrInstruction *target, ZigType *wanted_type)
-{
+static ZigType *ir_resolve_union_tag_type(IrAnalyze *ira, IrInstruction *source_instr, ZigType *union_type) {
+    assert(union_type->id == ZigTypeIdUnion);
+
     Error err;
-    assert(wanted_type->id == ZigTypeIdInt || wanted_type->id == ZigTypeIdComptimeInt);
+    if ((err = type_resolve(ira->codegen, union_type, ResolveStatusSizeKnown)))
+        return ira->codegen->builtin_types.entry_invalid;
 
-    ZigType *actual_type = target->value.type;
+    AstNode *decl_node = union_type->data.unionation.decl_node;
+    if (decl_node->data.container_decl.auto_enum || decl_node->data.container_decl.init_arg_expr != nullptr) {
+        assert(union_type->data.unionation.tag_type != nullptr);
+        return union_type->data.unionation.tag_type;
+    } else {
+        ErrorMsg *msg = ir_add_error(ira, source_instr, buf_sprintf("union '%s' has no tag",
+            buf_ptr(&union_type->name)));
+        add_error_note(ira->codegen, msg, decl_node, buf_sprintf("consider 'union(enum)' here"));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+}
 
-    if (actual_type->id == ZigTypeIdUnion)
-        actual_type = actual_type->data.unionation.tag_type;
+static IrInstruction *ir_analyze_enum_to_int(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *target) {
+    Error err;
 
-    if ((err = ensure_complete_type(ira->codegen, actual_type)))
-        return ira->codegen->invalid_instruction;
-
-    if (wanted_type != actual_type->data.enumeration.tag_int_type) {
-        ir_add_error(ira, source_instr,
-                buf_sprintf("enum to integer cast to '%s' instead of its tag type, '%s'",
-                    buf_ptr(&wanted_type->name),
-                    buf_ptr(&actual_type->data.enumeration.tag_int_type->name)));
+    IrInstruction *enum_target;
+    ZigType *enum_type;
+    if (target->value.type->id == ZigTypeIdUnion) {
+        enum_type = ir_resolve_union_tag_type(ira, target, target->value.type);
+        if (type_is_invalid(enum_type))
+            return ira->codegen->invalid_instruction;
+        enum_target = ir_implicit_cast(ira, target, enum_type);
+        if (type_is_invalid(enum_target->value.type))
+            return ira->codegen->invalid_instruction;
+    } else if (target->value.type->id == ZigTypeIdEnum) {
+        enum_target = target;
+        enum_type = target->value.type;
+    } else {
+        ir_add_error(ira, target,
+            buf_sprintf("expected enum, found type '%s'", buf_ptr(&target->value.type->name)));
         return ira->codegen->invalid_instruction;
     }
 
-    assert(actual_type->id == ZigTypeIdEnum);
+    if ((err = type_resolve(ira->codegen, enum_type, ResolveStatusSizeKnown)))
+        return ira->codegen->invalid_instruction;
 
-    if (instr_is_comptime(target)) {
-        ConstExprValue *val = ir_resolve_const(ira, target, UndefBad);
+    ZigType *tag_type = enum_type->data.enumeration.tag_int_type;
+    assert(tag_type->id == ZigTypeIdInt || tag_type->id == ZigTypeIdComptimeInt);
+
+    if (instr_is_comptime(enum_target)) {
+        ConstExprValue *val = ir_resolve_const(ira, enum_target, UndefBad);
         if (!val)
             return ira->codegen->invalid_instruction;
-        IrInstruction *result = ir_const(ira, source_instr, wanted_type);
-        if (target->value.type->id == ZigTypeIdUnion)
-            init_const_bigint(&result->value, wanted_type, &val->data.x_union.tag);
-        else
-            init_const_bigint(&result->value, wanted_type, &val->data.x_enum_tag);
-        
+        IrInstruction *result = ir_const(ira, source_instr, tag_type);
+        init_const_bigint(&result->value, tag_type, &val->data.x_enum_tag);
         return result;
     }
 
     // If there is only one possible tag, then we know at comptime what it is.
-    if (actual_type->data.enumeration.layout == ContainerLayoutAuto &&
-        actual_type->data.enumeration.src_field_count == 1)
+    if (enum_type->data.enumeration.layout == ContainerLayoutAuto &&
+        enum_type->data.enumeration.src_field_count == 1)
     {
-        assert(wanted_type== ira->codegen->builtin_types.entry_num_lit_int);
-        IrInstruction *result = ir_const(ira, source_instr, wanted_type);
-        init_const_bigint(&result->value, wanted_type,
-            &actual_type->data.enumeration.fields[0].value);
-
+        assert(tag_type == ira->codegen->builtin_types.entry_num_lit_int);
+        IrInstruction *result = ir_const(ira, source_instr, tag_type);
+        init_const_bigint(&result->value, tag_type,
+                &enum_type->data.enumeration.fields[0].value);
         return result;
     }
 
-    IrInstruction *result = nullptr;
-    if (target->value.type->id == ZigTypeIdUnion)
-        result = ir_build_union_tag(&ira->new_irb, source_instr->scope,
-                    source_instr->source_node, target);
-    else
-        result = ir_build_widen_or_shorten(&ira->new_irb, source_instr->scope,
-                    source_instr->source_node, target);
-    result->value.type = wanted_type;
+    IrInstruction *result = ir_build_widen_or_shorten(&ira->new_irb, source_instr->scope,
+            source_instr->source_node, enum_target);
+    result->value.type = tag_type;
     return result;
 }
 
@@ -21378,20 +21390,10 @@ static IrInstruction *ir_analyze_instruction_tag_type(IrAnalyze *ira, IrInstruct
 
         return ir_const_type(ira, &instruction->base, enum_type->data.enumeration.tag_int_type);
     } else if (enum_type->id == ZigTypeIdUnion) {
-        if ((err = ensure_complete_type(ira->codegen, enum_type)))
+        ZigType *tag_type = ir_resolve_union_tag_type(ira, instruction->target, enum_type);
+        if (type_is_invalid(tag_type))
             return ira->codegen->invalid_instruction;
-
-        AstNode *decl_node = enum_type->data.unionation.decl_node;
-        if (decl_node->data.container_decl.auto_enum || decl_node->data.container_decl.init_arg_expr != nullptr) {
-            assert(enum_type->data.unionation.tag_type != nullptr);
-
-            return ir_const_type(ira, &instruction->base, enum_type->data.unionation.tag_type);
-        } else {
-            ErrorMsg *msg = ir_add_error(ira, target_inst, buf_sprintf("union '%s' has no tag",
-                buf_ptr(&enum_type->name)));
-            add_error_note(ira->codegen, msg, decl_node, buf_sprintf("consider 'union(enum)' here"));
-            return ira->codegen->invalid_instruction;
-        }
+        return ir_const_type(ira, &instruction->base, tag_type);
     } else {
         ir_add_error(ira, target_inst, buf_sprintf("expected enum or union, found '%s'",
             buf_ptr(&enum_type->name)));
@@ -21972,38 +21974,11 @@ static IrInstruction *ir_analyze_instruction_bit_reverse(IrAnalyze *ira, IrInstr
 
 
 static IrInstruction *ir_analyze_instruction_enum_to_int(IrAnalyze *ira, IrInstructionEnumToInt *instruction) {
-    Error err;
     IrInstruction *target = instruction->target->child;
-    ZigType *enum_type = target->value.type;
-    if (type_is_invalid(enum_type))
+    if (type_is_invalid(target->value.type))
         return ira->codegen->invalid_instruction;
 
-    if (enum_type->id == ZigTypeIdUnion) {
-        if ((err = ensure_complete_type(ira->codegen, enum_type)))
-            return ira->codegen->invalid_instruction;
-
-        AstNode *decl_node = enum_type->data.unionation.decl_node;
-        if (decl_node->data.container_decl.auto_enum || decl_node->data.container_decl.init_arg_expr != nullptr) {
-            assert(enum_type->data.unionation.tag_type != nullptr);
-            enum_type = target->value.type->data.unionation.tag_type;
-        } else {
-            ErrorMsg *msg = ir_add_error(ira, target, buf_sprintf("union '%s' has no tag",
-                buf_ptr(&enum_type->name)));
-            add_error_note(ira->codegen, msg, decl_node, buf_sprintf("consider 'union(enum)' here"));
-            return ira->codegen->invalid_instruction;
-        }
-    } else if (enum_type->id != ZigTypeIdEnum) {
-        ir_add_error(ira, instruction->target,
-            buf_sprintf("expected enum or union(enum), found type '%s'", buf_ptr(&enum_type->name)));
-        return ira->codegen->invalid_instruction;
-    }
-
-    if ((err = type_resolve(ira->codegen, enum_type, ResolveStatusZeroBitsKnown)))
-        return ira->codegen->invalid_instruction;
-
-    ZigType *int_type = enum_type->data.enumeration.tag_int_type;
-
-    return ir_analyze_enum_to_int(ira, &instruction->base, target, int_type);
+    return ir_analyze_enum_to_int(ira, &instruction->base, target);
 }
 
 static IrInstruction *ir_analyze_instruction_int_to_enum(IrAnalyze *ira, IrInstructionIntToEnum *instruction) {

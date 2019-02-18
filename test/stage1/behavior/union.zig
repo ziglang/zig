@@ -126,7 +126,7 @@ const MultipleChoice = union(enum(u32)) {
 test "simple union(enum(u32))" {
     var x = MultipleChoice.C;
     expect(x == MultipleChoice.C);
-    expect(@enumToInt(x) == 60);
+    expect(@enumToInt(@TagType(MultipleChoice)(x)) == 60);
 }
 
 const MultipleChoice2 = union(enum(u32)) {
@@ -148,7 +148,7 @@ test "union(enum(u32)) with specified and unspecified tag values" {
 }
 
 fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) void {
-    expect(@enumToInt(x) == 60);
+    expect(@enumToInt(@TagType(MultipleChoice2)(x)) == 60);
     expect(1123 == switch (x) {
         MultipleChoice2.A => 1,
         MultipleChoice2.B => 2,
@@ -345,7 +345,23 @@ test "union with only 1 field casted to its enum type which has enum value speci
 
     var e = Expr{ .Literal = Literal{ .Bool = true } };
     comptime expect(@TagType(Tag) == comptime_int);
-    expect(Tag(e) == Expr.Literal);
-    expect(@enumToInt(e) == 33);
-    comptime expect(@enumToInt(e) == 33);
+    var t = Tag(e);
+    expect(t == Expr.Literal);
+    expect(@enumToInt(t) == 33);
+    comptime expect(@enumToInt(t) == 33);
+}
+
+test "@enumToInt works on unions" {
+    const Bar = union(enum) {
+        A: bool,
+        B: u8,
+        C,
+    };
+
+    const a = Bar{ .A = true };
+    var b = Bar{ .B = undefined };
+    var c = Bar.C;
+    expect(@enumToInt(a) == 0);
+    expect(@enumToInt(b) == 1);
+    expect(@enumToInt(c) == 2);
 }

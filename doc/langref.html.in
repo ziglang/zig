@@ -2221,8 +2221,9 @@ test "packed enum" {
       {#header_close#}
       {#header_open|union#}
       {#code_begin|test|union#}
-const assert = @import("std").debug.assert;
-const mem = @import("std").mem;
+const std = @import("std");
+const assert = std.debug.assert;
+const mem = std.mem;
 
 // A union has only 1 active field at a time.
 const Payload = union {
@@ -2231,16 +2232,19 @@ const Payload = union {
     Bool: bool,
 };
 test "simple union" {
-    var payload = Payload {.Int = 1234};
+    var payload = Payload{ .Int = 1234 };
     // payload.Float = 12.34; // ERROR! field not active
     assert(payload.Int == 1234);
     // You can activate another field by assigning the entire union.
-    payload = Payload {.Float = 12.34};
+    payload = Payload{ .Float = 12.34 };
     assert(payload.Float == 12.34);
 }
 
 // Unions can be given an enum tag type:
-const ComplexTypeTag = enum { Ok, NotOk }; 
+const ComplexTypeTag = enum {
+    Ok,
+    NotOk,
+};
 const ComplexType = union(ComplexTypeTag) {
     Ok: u8,
     NotOk: void,
@@ -2248,11 +2252,11 @@ const ComplexType = union(ComplexTypeTag) {
 
 // Declare a specific instance of the union variant.
 test "declare union value" {
-    const c = ComplexType { .Ok = 0 };
+    const c = ComplexType{ .Ok = 0 };
     assert(ComplexTypeTag(c) == ComplexTypeTag.Ok);
 }
 
-// @TagType can be used to access the enum tag type of a union.
+// @TagType can be used to access the enum tag type of a tagged union.
 test "@TagType" {
     assert(@TagType(ComplexType) == ComplexTypeTag);
 }
@@ -2266,7 +2270,7 @@ const Foo = union(enum) {
     None,
 };
 test "union variant switch" {
-    const p = Foo { .Number = 54 };
+    const p = Foo{ .Number = 54 };
     const what_is_it = switch (p) {
         // Capture by reference
         Foo.String => |*x| blk: {
@@ -2301,13 +2305,12 @@ const Variant = union(enum) {
 };
 
 test "union method" {
-    var v1 = Variant { .Int = 1 };
-    var v2 = Variant { .Bool = false };
+    var v1 = Variant{ .Int = 1 };
+    var v2 = Variant{ .Bool = false };
 
     assert(v1.truthy());
     assert(!v2.truthy());
 }
-
 
 const Small = union {
     A: i32,
@@ -5660,12 +5663,13 @@ test "main" {
       {#header_close#}
 
       {#header_open|@enumToInt#}
-      <pre>{#syntax#}@enumToInt(enum_value: var) var{#endsyntax#}</pre>
+      <pre>{#syntax#}@enumToInt(enum_or_tagged_union: var) var{#endsyntax#}</pre>
       <p>
-      Converts an enumeration or tagged union value into its integer tag type.
+      Converts an enumeration value into its integer tag type. When a tagged union is passed,
+      the tag value is used as the enumeration value.
       </p>
       <p>
-      If the enum has only 1 possible value, the resut is a {#syntax#}comptime_int{#endsyntax#}
+      If there is only one possible enum value, the resut is a {#syntax#}comptime_int{#endsyntax#}
       known at {#link|comptime#}.
       </p>
       {#see_also|@intToEnum#}
