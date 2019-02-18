@@ -2739,6 +2739,7 @@ static AstNode *ast_parse_async_prefix(ParseContext *pc) {
 
     AstNode *res = ast_create_node(pc, NodeTypeFnCallExpr, async);
     res->data.fn_call_expr.is_async = true;
+    res->data.fn_call_expr.seen = false;
     if (eat_token_if(pc, TokenIdCmpLessThan) != nullptr) {
         AstNode *prefix_expr = ast_expect(pc, ast_parse_prefix_expr);
         expect_token(pc, TokenIdCmpGreaterThan);
@@ -2759,6 +2760,7 @@ static AstNode *ast_parse_fn_call_argumnets(ParseContext *pc) {
 
     AstNode *res = ast_create_node(pc, NodeTypeFnCallExpr, paren);
     res->data.fn_call_expr.params = params;
+    res->data.fn_call_expr.seen = false;
     return res;
 }
 

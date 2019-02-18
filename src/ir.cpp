@@ -17194,9 +17194,13 @@ static IrInstruction *ir_analyze_instruction_compile_log(IrAnalyze *ira, IrInstr
     }
     fprintf(stderr, "\n");
 
-    // Here we bypass higher level functions such as ir_add_error because we do not want
-    // invalidate_exec to be called.
-    add_node_error(ira->codegen, instruction->base.source_node, buf_sprintf("found compile log statement"));
+    auto *expr = &instruction->base.source_node->data.fn_call_expr;
+    if (!expr->seen) {
+        // Here we bypass higher level functions such as ir_add_error because we do not want
+        // invalidate_exec to be called.
+        add_node_error(ira->codegen, instruction->base.source_node, buf_sprintf("found compile log statement"));
+    }
+    expr->seen = true;
 
     return ir_const_void(ira, &instruction->base);
 }
