@@ -6276,8 +6276,8 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
             }
         case ZigTypeIdUnion:
             {
-                uint64_t tag = bigint_as_unsigned(&const_val->data.x_union.tag);
-                TypeUnionField *field = &type_entry->data.unionation.fields[tag];
+                const BigInt *tag = &const_val->data.x_union.tag;
+                TypeUnionField *field = find_union_field_by_tag(type_entry, tag);
                 buf_appendf(buf, "%s { .%s = ", buf_ptr(&type_entry->name), buf_ptr(field->name));
                 render_const_value(g, buf, const_val->data.x_union.payload);
                 buf_append_str(buf, "}");
