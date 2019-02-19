@@ -2105,6 +2105,11 @@ struct IrBasicBlock {
     IrInstruction *must_be_comptime_source_instr;
 };
 
+enum LVal {
+    LValNone,
+    LValPtr,
+};
+
 // These instructions are in transition to having "pass 1" instructions
 // and "pass 2" instructions. The pass 1 instructions are suffixed with Src
 // and pass 2 are suffixed with Gen.
@@ -2368,6 +2373,7 @@ struct IrInstructionUnOp {
 
     IrUnOp op_id;
     IrInstruction *value;
+    LVal lval;
 };
 
 enum IrBinOp {
@@ -3102,11 +3108,6 @@ struct IrInstructionTypeName {
     IrInstruction base;
 
     IrInstruction *type_value;
-};
-
-enum LVal {
-    LValNone,
-    LValPtr,
 };
 
 struct IrInstructionDeclRef {
