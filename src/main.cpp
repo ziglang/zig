@@ -49,6 +49,8 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  --cache [auto|off|on]        build in global cache, print out paths to stdout\n"
         "  --color [auto|off|on]        enable or disable colored error messages\n"
         "  --disable-pic                disable Position Independent Code for libraries\n"
+        "  --disable-valgrind           omit valgrind client requests in debug builds\n"
+        "  --enable-valgrind            include valgrind client requests release builds\n"
         "  --emit [asm|bin|llvm-ir]     emit a specific file format as compilation output\n"
         "  -ftime-report                print timing diagnostics\n"
         "  --libc-include-dir [path]    directory where libc stdlib.h resides\n"
@@ -396,6 +398,7 @@ int main(int argc, char **argv) {
     TargetSubsystem subsystem = TargetSubsystemAuto;
     bool is_single_threaded = false;
     Buf *override_std_dir = nullptr;
+    ValgrindSupport valgrind_support = ValgrindSupportAuto;
 
     if (argc >= 2 && strcmp(argv[1], "build") == 0) {
         Buf zig_exe_path_buf = BUF_INIT;
@@ -433,6 +436,7 @@ int main(int argc, char **argv) {
 
         CodeGen *g = codegen_create(build_runner_path, nullptr, OutTypeExe, BuildModeDebug, get_zig_lib_dir(),
                 override_std_dir);
+        g->valgrind_support = valgrind_support;
         g->enable_time_report = timing_info;
         buf_init_from_str(&g->cache_dir, cache_dir ? cache_dir : default_zig_cache_name);
         codegen_set_out_name(g, buf_create_from_str("build"));
@@ -520,6 +524,7 @@ int main(int argc, char **argv) {
         os_path_join(get_zig_special_dir(), buf_create_from_str("fmt_runner.zig"), fmt_runner_path);
         CodeGen *g = codegen_create(fmt_runner_path, nullptr, OutTypeExe, BuildModeDebug, get_zig_lib_dir(),
                 nullptr);
+        g->valgrind_support = valgrind_support;
         g->is_single_threaded = true;
         codegen_set_out_name(g, buf_create_from_str("fmt"));
         g->enable_cache = true;
@@ -577,6 +582,10 @@ int main(int argc, char **argv) {
                 timing_info = true;
             } else if (strcmp(arg, "--disable-pic") == 0) {
                 disable_pic = true;
+            } else if (strcmp(arg, "--enable-valgrind") == 0) {
+                valgrind_support = ValgrindSupportEnabled;
+            } else if (strcmp(arg, "--disable-valgrind") == 0) {
+                valgrind_support = ValgrindSupportDisabled;
             } else if (strcmp(arg, "--system-linker-hack") == 0) {
                 system_linker_hack = true;
             } else if (strcmp(arg, "--single-threaded") == 0) {
@@ -849,6 +858,7 @@ int main(int argc, char **argv) {
     switch (cmd) {
     case CmdBuiltin: {
         CodeGen *g = codegen_create(nullptr, target, out_type, build_mode, get_zig_lib_dir(), override_std_dir);
+        g->valgrind_support = valgrind_support;
         g->is_single_threaded = is_single_threaded;
         Buf *builtin_source = codegen_generate_builtin_source(g);
         if (fwrite(buf_ptr(builtin_source), 1, buf_len(builtin_source), stdout) != buf_len(builtin_source)) {
@@ -909,6 +919,7 @@ int main(int argc, char **argv) {
             }
             CodeGen *g = codegen_create(zig_root_source_file, target, out_type, build_mode, get_zig_lib_dir(),
                     override_std_dir);
+            g->valgrind_support = valgrind_support;
             g->subsystem = subsystem;
 
             if (disable_pic) {

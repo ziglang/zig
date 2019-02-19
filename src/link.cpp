@@ -55,6 +55,7 @@ static Buf *build_a_raw(CodeGen *parent_gen, const char *aname, Buf *full_path) 
     codegen_set_strip(child_gen, parent_gen->strip_debug_symbols);
     codegen_set_is_static(child_gen, true);
     child_gen->disable_pic = parent_gen->disable_pic;
+    child_gen->valgrind_support = ValgrindSupportDisabled;
 
     codegen_set_out_name(child_gen, buf_create_from_str(aname));
 

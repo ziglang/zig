@@ -1345,15 +1345,11 @@ struct ZigFn {
     // in the case of async functions this is the implicit return type according to the
     // zig source code, not according to zig ir
     ZigType *src_implicit_return_type;
-    bool is_test;
-    FnInline fn_inline;
-    FnAnalState anal_state;
     IrExecutable ir_executable;
     IrExecutable analyzed_executable;
     size_t prealloc_bbc;
     AstNode **param_source_nodes;
     Buf **param_names;
-    uint32_t align_bytes;
 
     AstNode *fn_no_inline_set_node;
     AstNode *fn_static_eval_set_node;
@@ -1363,13 +1359,22 @@ struct ZigFn {
 
     Buf *section_name;
     AstNode *set_alignstack_node;
-    uint32_t alignstack_value;
 
     AstNode *set_cold_node;
-    bool is_cold;
 
     ZigList<FnExport> export_list;
+
+    LLVMValueRef valgrind_client_request_array;
+
+    FnInline fn_inline;
+    FnAnalState anal_state;
+
+    uint32_t align_bytes;
+    uint32_t alignstack_value;
+
     bool calls_or_awaits_errorable_fn;
+    bool is_cold;
+    bool is_test;
 };
 
 uint32_t fn_table_entry_hash(ZigFn*);
@@ -1612,6 +1617,12 @@ struct LinkLib {
     bool provided_explicitly;
 };
 
+enum ValgrindSupport {
+    ValgrindSupportAuto,
+    ValgrindSupportDisabled,
+    ValgrindSupportEnabled,
+};
+
 // When adding fields, check if they should be added to the hash computation in build_with_cache
 struct CodeGen {
     //////////////////////////// Runtime State
@@ -1813,6 +1824,7 @@ struct CodeGen {
     OutType out_type;
     ZigTarget zig_target;
     TargetSubsystem subsystem;
+    ValgrindSupport valgrind_support;
     bool is_static;
     bool strip_debug_symbols;
     bool is_test_build;

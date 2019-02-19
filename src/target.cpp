@@ -544,7 +544,7 @@ void get_target_triple(Buf *triple, const ZigTarget *target) {
     }
 }
 
-static bool is_os_darwin(ZigTarget *target) {
+bool target_is_darwin(const ZigTarget *target) {
     switch (target->os) {
         case OsMacOSX:
         case OsIOS:
@@ -566,7 +566,7 @@ void resolve_target_object_format(ZigTarget *target) {
         case ZigLLVM_thumb:
         case ZigLLVM_x86:
         case ZigLLVM_x86_64:
-            if (is_os_darwin(target)) {
+            if (target_is_darwin(target)) {
                 target->oformat = ZigLLVM_MachO;
             } else if (target->os == OsWindows) {
                 target->oformat = ZigLLVM_COFF;
@@ -626,7 +626,7 @@ void resolve_target_object_format(ZigTarget *target) {
 
         case ZigLLVM_ppc:
         case ZigLLVM_ppc64:
-            if (is_os_darwin(target)) {
+            if (target_is_darwin(target)) {
                 target->oformat = ZigLLVM_MachO;
             } else {
                 target->oformat= ZigLLVM_ELF;
@@ -1080,6 +1080,20 @@ bool target_is_arm(const ZigTarget *target) {
         case ZigLLVM_xcore:
         case ZigLLVM_ppc:
         case ZigLLVM_ppc64:
+            return false;
+    }
+    zig_unreachable();
+}
+
+// Valgrind supports more, but Zig does not support them yet.
+bool target_has_valgrind_support(const ZigTarget *target) {
+    switch (target->arch.arch) {
+        case ZigLLVM_UnknownArch:
+            zig_unreachable();
+        case ZigLLVM_x86_64:
+            return (target->os == OsLinux || target_is_darwin(target) || target->os == OsSolaris ||
+                (target->os == OsWindows && target->env_type != ZigLLVM_MSVC));
+        default:
             return false;
     }
     zig_unreachable();

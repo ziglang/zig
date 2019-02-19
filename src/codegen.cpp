@@ -3341,6 +3341,77 @@ static bool value_is_all_undef(ConstExprValue *const_val) {
     zig_unreachable();
 }
 
+static LLVMValueRef gen_valgrind_client_request(CodeGen *g, LLVMValueRef default_value, LLVMValueRef request,
+        LLVMValueRef a1, LLVMValueRef a2, LLVMValueRef a3, LLVMValueRef a4, LLVMValueRef a5)
+{
+    if (!target_has_valgrind_support(&g->zig_target)) {
+        return default_value;
+    }
+    LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->type_ref;
+    bool asm_has_side_effects = true;
+    bool asm_is_alignstack = false;
+    if (g->zig_target.arch.arch == ZigLLVM_x86_64) {
+        if (g->zig_target.os == OsLinux || target_is_darwin(&g->zig_target) || g->zig_target.os == OsSolaris ||
+            (g->zig_target.os == OsWindows && g->zig_target.env_type != ZigLLVM_MSVC))
+        {
+            if (g->cur_fn->valgrind_client_request_array == nullptr) {
+                LLVMBasicBlockRef prev_block = LLVMGetInsertBlock(g->builder);
+                LLVMBasicBlockRef entry_block = LLVMGetEntryBasicBlock(g->cur_fn->llvm_value);
+                LLVMValueRef first_inst = LLVMGetFirstInstruction(entry_block);
+                LLVMPositionBuilderBefore(g->builder, first_inst);
+                LLVMTypeRef array_type_ref = LLVMArrayType(usize_type_ref, 6);
+                g->cur_fn->valgrind_client_request_array = LLVMBuildAlloca(g->builder, array_type_ref, "");
+                LLVMPositionBuilderAtEnd(g->builder, prev_block);
+            }
+            LLVMValueRef array_ptr = g->cur_fn->valgrind_client_request_array;
+            LLVMValueRef array_elements[] = {request, a1, a2, a3, a4, a5};
+            LLVMValueRef zero = LLVMConstInt(usize_type_ref, 0, false);
+            for (unsigned i = 0; i < 6; i += 1) {
+                LLVMValueRef indexes[] = {
+                    zero,
+                    LLVMConstInt(usize_type_ref, i, false),
+                };
+                LLVMValueRef elem_ptr = LLVMBuildInBoundsGEP(g->builder, array_ptr, indexes, 2, "");
+                LLVMBuildStore(g->builder, array_elements[i], elem_ptr);
+            }
+
+            Buf *asm_template = buf_create_from_str(
+                "rolq $$3,  %rdi ; rolq $$13, %rdi\n"
+                "rolq $$61, %rdi ; rolq $$51, %rdi\n"
+                "xchgq %rbx,%rbx\n"
+            );
+            Buf *asm_constraints = buf_create_from_str(
+                "={rdx},{rax},0,~{cc},~{memory}"
+            );
+            unsigned input_and_output_count = 2;
+            LLVMValueRef array_ptr_as_usize = LLVMBuildPtrToInt(g->builder, array_ptr, usize_type_ref, "");
+            LLVMValueRef param_values[] = { array_ptr_as_usize, default_value };
+            LLVMTypeRef param_types[] = {usize_type_ref, usize_type_ref};
+            LLVMTypeRef function_type = LLVMFunctionType(usize_type_ref, param_types,
+                    input_and_output_count, false);
+            LLVMValueRef asm_fn = LLVMGetInlineAsm(function_type, buf_ptr(asm_template), buf_len(asm_template),
+                    buf_ptr(asm_constraints), buf_len(asm_constraints), asm_has_side_effects, asm_is_alignstack,
+                    LLVMInlineAsmDialectATT);
+            return LLVMBuildCall(g->builder, asm_fn, param_values, input_and_output_count, "");
+        }
+    }
+    zig_unreachable();
+}
+
+static bool want_valgrind_support(CodeGen *g) {
+    if (!target_has_valgrind_support(&g->zig_target))
+        return false;
+    switch (g->valgrind_support) {
+        case ValgrindSupportDisabled:
+            return false;
+        case ValgrindSupportEnabled:
+            return true;
+        case ValgrindSupportAuto:
+            return g->build_mode == BuildModeDebug;
+    }
+    zig_unreachable();
+}
+
 static void gen_undef_init(CodeGen *g, uint32_t ptr_align_bytes, ZigType *value_type, LLVMValueRef ptr) {
     assert(type_has_bits(value_type));
     uint64_t size_bytes = LLVMStoreSizeOfType(g->target_data_ref, value_type->type_ref);
@@ -3353,6 +3424,14 @@ static void gen_undef_init(CodeGen *g, uint32_t ptr_align_bytes, ZigType *value_
     ZigType *usize = g->builtin_types.entry_usize;
     LLVMValueRef byte_count = LLVMConstInt(usize->type_ref, size_bytes, false);
     ZigLLVMBuildMemSet(g->builder, dest_ptr, fill_char, byte_count, ptr_align_bytes, false);
+    // then tell valgrind that the memory is undefined even though we just memset it
+    if (want_valgrind_support(g)) {
+        static const uint32_t VG_USERREQ__MAKE_MEM_UNDEFINED = 1296236545;
+        LLVMValueRef zero = LLVMConstInt(usize->type_ref, 0, false);
+        LLVMValueRef req = LLVMConstInt(usize->type_ref, VG_USERREQ__MAKE_MEM_UNDEFINED, false);
+        LLVMValueRef ptr_as_usize = LLVMBuildPtrToInt(g->builder, dest_ptr, usize->type_ref, "");
+        gen_valgrind_client_request(g, zero, req, ptr_as_usize, byte_count, zero, zero, zero);
+    }
 }
 
 static LLVMValueRef ir_render_store_ptr(CodeGen *g, IrExecutable *executable, IrInstructionStorePtr *instruction) {
@@ -7525,6 +7604,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     buf_appendf(contents, "pub const mode = %s;\n", build_mode_to_str(g->build_mode));
     buf_appendf(contents, "pub const link_libc = %s;\n", bool_to_str(g->libc_link_lib != nullptr));
     buf_appendf(contents, "pub const have_error_return_tracing = %s;\n", bool_to_str(g->have_err_ret_tracing));
+    buf_appendf(contents, "pub const valgrind_support = %s;\n", bool_to_str(want_valgrind_support(g)));
 
     buf_appendf(contents, "pub const __zig_test_fn_slice = {}; // overwritten later\n");
 
@@ -8489,6 +8569,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_bool(ch, g->linker_rdynamic);
     cache_bool(ch, g->each_lib_rpath);
     cache_bool(ch, g->disable_pic);
+    cache_bool(ch, g->valgrind_support);
     cache_buf_opt(ch, g->mmacosx_version_min);
     cache_buf_opt(ch, g->mios_version_min);
     cache_usize(ch, g->version_major);
