@@ -1819,7 +1819,6 @@ struct CodeGen {
     bool is_single_threaded;
     bool is_native_target;
     bool linker_rdynamic;
-    bool no_rosegment_workaround;
     bool each_lib_rpath;
     bool disable_pic;
 

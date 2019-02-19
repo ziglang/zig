@@ -145,10 +145,6 @@ fn constructLinkerArgsElf(ctx: *Context) !void {
     //    lj->args.append("-T");
     //    lj->args.append(g->linker_script);
     //}
-
-    //if (g->no_rosegment_workaround) {
-    //    lj->args.append("--no-rosegment");
-    //}
     try ctx.args.append(c"--gc-sections");
 
     //lj->args.append("-m");

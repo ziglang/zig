@@ -8487,7 +8487,6 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_bool(ch, g->is_single_threaded);
     cache_bool(ch, g->is_native_target);
     cache_bool(ch, g->linker_rdynamic);
-    cache_bool(ch, g->no_rosegment_workaround);
     cache_bool(ch, g->each_lib_rpath);
     cache_bool(ch, g->disable_pic);
     cache_buf_opt(ch, g->mmacosx_version_min);

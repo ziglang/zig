@@ -92,7 +92,6 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  -L[dir]                      alias for --library-path\n"
         "  -rdynamic                    add all symbols to the dynamic symbol table\n"
         "  -rpath [path]                add directory to the runtime library search path\n"
-        "  --no-rosegment               compromise security to workaround valgrind bug\n"
         "  --subsystem [subsystem]      (windows) /SUBSYSTEM:<subsystem> to the linker\n"
         "  -framework [name]            (darwin) link against framework\n"
         "  -mios-version-min [ver]      (darwin) set iOS deployment target\n"
@@ -393,7 +392,6 @@ int main(int argc, char **argv) {
     BuildMode build_mode = BuildModeDebug;
     ZigList<const char *> test_exec_args = {0};
     int runtime_args_start = -1;
-    bool no_rosegment_workaround = false;
     bool system_linker_hack = false;
     TargetSubsystem subsystem = TargetSubsystemAuto;
     bool is_single_threaded = false;
@@ -573,8 +571,6 @@ int main(int argc, char **argv) {
                 verbose_cimport = true;
             } else if (strcmp(arg, "-rdynamic") == 0) {
                 rdynamic = true;
-            } else if (strcmp(arg, "--no-rosegment") == 0) {
-                no_rosegment_workaround = true;
             } else if (strcmp(arg, "--each-lib-rpath") == 0) {
                 each_lib_rpath = true;
             } else if (strcmp(arg, "-ftime-report") == 0) {
@@ -977,7 +973,6 @@ int main(int argc, char **argv) {
             }
 
             codegen_set_rdynamic(g, rdynamic);
-            g->no_rosegment_workaround = no_rosegment_workaround;
             if (mmacosx_version_min && mios_version_min) {
                 fprintf(stderr, "-mmacosx-version-min and -mios-version-min options not allowed together\n");
                 return EXIT_FAILURE;

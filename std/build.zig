@@ -851,7 +851,6 @@ pub const LibExeObjStep = struct {
     disable_libc: bool,
     frameworks: BufSet,
     verbose_link: bool,
-    no_rosegment: bool,
     c_std: Builder.CStd,
 
     // zig only stuff
@@ -924,7 +923,6 @@ pub const LibExeObjStep = struct {
 
     fn initExtraArgs(builder: *Builder, name: []const u8, root_src: ?[]const u8, kind: Kind, static: bool, ver: Version) LibExeObjStep {
         var self = LibExeObjStep{
-            .no_rosegment = false,
             .strip = false,
             .builder = builder,
             .verbose_link = false,
@@ -967,7 +965,6 @@ pub const LibExeObjStep = struct {
 
     fn initC(builder: *Builder, name: []const u8, kind: Kind, version: Version, static: bool) LibExeObjStep {
         var self = LibExeObjStep{
-            .no_rosegment = false,
             .builder = builder,
             .name = name,
             .kind = kind,
@@ -1007,10 +1004,6 @@ pub const LibExeObjStep = struct {
         };
         self.computeOutFileNames();
         return self;
-    }
-
-    pub fn setNoRoSegment(self: *LibExeObjStep, value: bool) void {
-        self.no_rosegment = value;
     }
 
     fn computeOutFileNames(self: *LibExeObjStep) void {
@@ -1382,9 +1375,6 @@ pub const LibExeObjStep = struct {
             }
         }
 
-        if (self.no_rosegment) {
-            try zig_args.append("--no-rosegment");
-        }
         if (self.system_linker_hack) {
             try zig_args.append("--system-linker-hack");
         }
@@ -1704,7 +1694,6 @@ pub const TestStep = struct {
     lib_paths: ArrayList([]const u8),
     packages: ArrayList(Pkg),
     object_files: ArrayList([]const u8),
-    no_rosegment: bool,
     output_path: ?[]const u8,
     system_linker_hack: bool,
     override_std_dir: ?[]const u8,
@@ -1726,15 +1715,10 @@ pub const TestStep = struct {
             .lib_paths = ArrayList([]const u8).init(builder.allocator),
             .packages = ArrayList(Pkg).init(builder.allocator),
             .object_files = ArrayList([]const u8).init(builder.allocator),
-            .no_rosegment = false,
             .output_path = null,
             .system_linker_hack = false,
             .override_std_dir = null,
         };
-    }
-
-    pub fn setNoRoSegment(self: *TestStep, value: bool) void {
-        self.no_rosegment = value;
     }
 
     pub fn addLibPath(self: *TestStep, path: []const u8) void {
@@ -1938,9 +1922,6 @@ pub const TestStep = struct {
             zig_args.append("--pkg-end") catch unreachable;
         }
 
-        if (self.no_rosegment) {
-            try zig_args.append("--no-rosegment");
-        }
         if (self.system_linker_hack) {
             try zig_args.append("--system-linker-hack");
         }
