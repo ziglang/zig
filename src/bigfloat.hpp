@@ -25,6 +25,7 @@ struct Buf;
 void bigfloat_init_16(BigFloat *dest, float16_t x);
 void bigfloat_init_32(BigFloat *dest, float x);
 void bigfloat_init_64(BigFloat *dest, double x);
+void bigfloat_init_80(BigFloat *dest, extFloat80_t x);
 void bigfloat_init_128(BigFloat *dest, float128_t x);
 void bigfloat_init_bigfloat(BigFloat *dest, const BigFloat *x);
 void bigfloat_init_bigint(BigFloat *dest, const BigInt *op);
@@ -33,6 +34,7 @@ int bigfloat_init_buf_base10(BigFloat *dest, const uint8_t *buf_ptr, size_t buf_
 float16_t bigfloat_to_f16(const BigFloat *bigfloat);
 float bigfloat_to_f32(const BigFloat *bigfloat);
 double bigfloat_to_f64(const BigFloat *bigfloat);
+extFloat80_t bigfloat_to_f80(const BigFloat *bigfloat);
 float128_t bigfloat_to_f128(const BigFloat *bigfloat);
 
 void bigfloat_add(BigFloat *dest, const BigFloat *op1, const BigFloat *op2);

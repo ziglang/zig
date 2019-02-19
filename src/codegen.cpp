@@ -5942,6 +5942,13 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
                     return LLVMConstReal(type_entry->type_ref, const_val->data.x_f32);
                 case 64:
                     return LLVMConstReal(type_entry->type_ref, const_val->data.x_f64);
+                case 80:
+                    {
+                        // TODO: Best way to do this?
+                        BigFloat b;
+                        bigfloat_init_80(&b, const_val->data.x_f80);
+                        return LLVMConstReal(type_entry->type_ref, bigfloat_to_f64(&b));
+                    }
                 case 128:
                     {
                         // TODO make sure this is correct on big endian targets too

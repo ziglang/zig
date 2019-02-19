@@ -34,6 +34,10 @@ void bigfloat_init_64(BigFloat *dest, double x) {
     f64_to_f128M(f64_val, &dest->value);
 }
 
+void bigfloat_init_80(BigFloat *dest, extFloat80_t x) {
+    extF80M_to_f128M(&x, &dest->value);
+}
+
 void bigfloat_init_bigfloat(BigFloat *dest, const BigFloat *x) {
     memcpy(&dest->value, &x->value, sizeof(float128_t));
 }
@@ -166,6 +170,12 @@ double bigfloat_to_f64(const BigFloat *bigfloat) {
     double result;
     memcpy(&result, &f64_value, sizeof(double));
     return result;
+}
+
+extFloat80_t bigfloat_to_f80(const BigFloat *bigfloat) {
+    extFloat80_t f80_value;
+    f128M_to_extF80M(&bigfloat->value, &f80_value);
+    return f80_value;
 }
 
 float128_t bigfloat_to_f128(const BigFloat *bigfloat) {

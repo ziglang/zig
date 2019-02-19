@@ -6141,6 +6141,20 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
                 case 64:
                     buf_appendf(buf, "%f", const_val->data.x_f64);
                     return;
+                case 80:
+                    {
+                        const size_t extra_len = 100;
+                        size_t old_len = buf_len(buf);
+                        buf_resize(buf, old_len + extra_len);
+                        float64_t f64_value = extF80M_to_f64(&const_val->data.x_f80);
+                        double double_value;
+                        memcpy(&double_value, &f64_value, sizeof(double));
+                        // TODO actual f80 printing to decimal
+                        int len = snprintf(buf_ptr(buf) + old_len, extra_len, "%f", double_value);
+                        assert(len > 0);
+                        buf_resize(buf, old_len + len);
+                        return;
+                    }
                 case 128:
                     {
                         const size_t extra_len = 100;

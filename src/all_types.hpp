@@ -304,6 +304,7 @@ struct ConstExprValue {
         float16_t x_f16;
         float x_f32;
         double x_f64;
+        extFloat80_t x_f80;
         float128_t x_f128;
         bool x_bool;
         ConstBoundFnValue x_bound_fn;

@@ -7673,6 +7673,12 @@ static bool float_has_fraction(ConstExprValue *const_val) {
                 return floorf(const_val->data.x_f32) != const_val->data.x_f32;
             case 64:
                 return floor(const_val->data.x_f64) != const_val->data.x_f64;
+            case 80:
+                {
+                    extFloat80_t floored;
+                    extF80M_roundToInt(&const_val->data.x_f80, softfloat_round_minMag, false, &floored);
+                    return !extF80M_eq(&floored, &const_val->data.x_f80);
+                }
             case 128:
                 {
                     float128_t floored;
@@ -7701,6 +7707,22 @@ static void float_append_buf(Buf *buf, ConstExprValue *const_val) {
             case 64:
                 buf_appendf(buf, "%f", const_val->data.x_f64);
                 break;
+            case 80:
+                {
+                    // TODO actual implementation
+                    const size_t extra_len = 100;
+                    size_t old_len = buf_len(buf);
+                    buf_resize(buf, old_len + extra_len);
+
+                    float64_t f64_value = extF80M_to_f64(&const_val->data.x_f80);
+                    double double_value;
+                    memcpy(&double_value, &f64_value, sizeof(double));
+
+                    int len = snprintf(buf_ptr(buf) + old_len, extra_len, "%f", double_value);
+                    assert(len > 0);
+                    buf_resize(buf, old_len + len);
+                    break;
+                }
             case 128:
                 {
                     // TODO actual implementation
@@ -7757,6 +7779,12 @@ static void float_init_bigint(BigInt *bigint, ConstExprValue *const_val) {
                     bigint->is_negative = true;
                 }
                 break;
+            case 80:
+                {
+                    BigFloat tmp_float;
+                    bigfloat_init_80(&tmp_float, const_val->data.x_f80);
+                    bigint_init_bigfloat(bigint, &tmp_float);
+                }
             case 128:
                 {
                     BigFloat tmp_float;
@@ -7786,6 +7814,9 @@ static void float_init_bigfloat(ConstExprValue *dest_val, BigFloat *bigfloat) {
             case 64:
                 dest_val->data.x_f64 = bigfloat_to_f64(bigfloat);
                 break;
+            case 80:
+                dest_val->data.x_f80 = bigfloat_to_f80(bigfloat);
+                break;
             case 128:
                 dest_val->data.x_f128 = bigfloat_to_f128(bigfloat);
                 break;
@@ -7810,6 +7841,9 @@ static void float_init_f16(ConstExprValue *dest_val, float16_t x) {
                 break;
             case 64:
                 dest_val->data.x_f64 = zig_f16_to_double(x);
+                break;
+            case 80:
+                f16_to_extF80M(x, &dest_val->data.x_f80);
                 break;
             case 128:
                 f16_to_f128M(x, &dest_val->data.x_f128);
@@ -7836,6 +7870,13 @@ static void float_init_f32(ConstExprValue *dest_val, float x) {
             case 64:
                 dest_val->data.x_f64 = x;
                 break;
+            case 80:
+                {
+                    float32_t x_f32;
+                    memcpy(&x_f32, &x, sizeof(float));
+                    f32_to_extF80M(x_f32, &dest_val->data.x_f80);
+                    break;
+                }
             case 128:
                 {
                     float32_t x_f32;
@@ -7865,11 +7906,56 @@ static void float_init_f64(ConstExprValue *dest_val, double x) {
             case 64:
                 dest_val->data.x_f64 = x;
                 break;
+            case 80:
+                {
+                    float64_t x_f64;
+                    memcpy(&x_f64, &x, sizeof(double));
+                    f64_to_extF80M(x_f64, &dest_val->data.x_f80);
+                    break;
+                }
             case 128:
                 {
                     float64_t x_f64;
                     memcpy(&x_f64, &x, sizeof(double));
                     f64_to_f128M(x_f64, &dest_val->data.x_f128);
+                    break;
+                }
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static void float_init_f80(ConstExprValue *dest_val, extFloat80_t x) {
+    if (dest_val->type->id == ZigTypeIdComptimeFloat) {
+        bigfloat_init_80(&dest_val->data.x_bigfloat, x);
+    } else if (dest_val->type->id == ZigTypeIdFloat) {
+        switch (dest_val->type->data.floating.bit_count) {
+            case 16:
+                dest_val->data.x_f16 = extF80M_to_f16(&x);
+                break;
+            case 32:
+                {
+                    float32_t f32_val = extF80M_to_f32(&x);
+                    memcpy(&dest_val->data.x_f32, &f32_val, sizeof(float));
+                    break;
+                }
+            case 64:
+                {
+                    float64_t f64_val = extF80M_to_f64(&x);
+                    memcpy(&dest_val->data.x_f64, &f64_val, sizeof(double));
+                    break;
+                }
+            case 80:
+                {
+                    memcpy(&dest_val->data.x_f80, &x, sizeof(extFloat80_t));
+                    break;
+                }
+            case 128:
+                {
+                    extF80M_to_f128M(&x, &dest_val->data.x_f128);
                     break;
                 }
             default:
@@ -7900,6 +7986,11 @@ static void float_init_f128(ConstExprValue *dest_val, float128_t x) {
                     memcpy(&dest_val->data.x_f64, &f64_val, sizeof(double));
                     break;
                 }
+            case 80:
+                {
+                    f128M_to_extF80M(&x, &dest_val->data.x_f80);
+                    break;
+                }
             case 128:
                 {
                     memcpy(&dest_val->data.x_f128, &x, sizeof(float128_t));
@@ -7926,6 +8017,9 @@ static void float_init_float(ConstExprValue *dest_val, ConstExprValue *src_val) 
                 break;
             case 64:
                 float_init_f64(dest_val, src_val->data.x_f64);
+                break;
+            case 80:
+                float_init_f80(dest_val, src_val->data.x_f80);
                 break;
             case 128:
                 float_init_f128(dest_val, src_val->data.x_f128);
@@ -7967,6 +8061,14 @@ static Cmp float_cmp(ConstExprValue *op1, ConstExprValue *op2) {
                     return CmpLT;
                 } else {
                     return CmpEQ;
+                }
+            case 80:
+                if (extF80M_lt(&op1->data.x_f80, &op2->data.x_f80)) {
+                    return CmpLT;
+                } else if (extF80M_eq(&op1->data.x_f80, &op2->data.x_f80)) {
+                    return CmpEQ;
+                } else {
+                    return CmpGT;
                 }
             case 128:
                 if (f128M_lt(&op1->data.x_f128, &op2->data.x_f128)) {
@@ -8016,7 +8118,18 @@ static Cmp float_cmp_zero(ConstExprValue *op) {
                 } else {
                     return CmpEQ;
                 }
-            case 128:
+            case 80: {
+                extFloat80_t zero_float;
+                ui32_to_extF80M(0, &zero_float);
+                if (extF80M_lt(&op->data.x_f80, &zero_float)) {
+                    return CmpLT;
+                } else if (extF80M_eq(&op->data.x_f80, &zero_float)) {
+                    return CmpEQ;
+                } else {
+                    return CmpGT;
+                }
+            }
+            case 128: {
                 float128_t zero_float;
                 ui32_to_f128M(0, &zero_float);
                 if (f128M_lt(&op->data.x_f128, &zero_float)) {
@@ -8026,6 +8139,7 @@ static Cmp float_cmp_zero(ConstExprValue *op) {
                 } else {
                     return CmpGT;
                 }
+            }
             default:
                 zig_unreachable();
         }
@@ -8049,6 +8163,9 @@ static void float_add(ConstExprValue *out_val, ConstExprValue *op1, ConstExprVal
                 return;
             case 64:
                 out_val->data.x_f64 =  op1->data.x_f64 + op2->data.x_f64;
+                return;
+            case 80:
+                extF80M_add(&op1->data.x_f80, &op2->data.x_f80, &out_val->data.x_f80);
                 return;
             case 128:
                 f128M_add(&op1->data.x_f128, &op2->data.x_f128, &out_val->data.x_f128);
@@ -8077,6 +8194,9 @@ static void float_sub(ConstExprValue *out_val, ConstExprValue *op1, ConstExprVal
             case 64:
                 out_val->data.x_f64 = op1->data.x_f64 - op2->data.x_f64;
                 return;
+            case 80:
+                extF80M_sub(&op1->data.x_f80, &op2->data.x_f80, &out_val->data.x_f80);
+                return;
             case 128:
                 f128M_sub(&op1->data.x_f128, &op2->data.x_f128, &out_val->data.x_f128);
                 return;
@@ -8103,6 +8223,9 @@ static void float_mul(ConstExprValue *out_val, ConstExprValue *op1, ConstExprVal
                 return;
             case 64:
                 out_val->data.x_f64 = op1->data.x_f64 * op2->data.x_f64;
+                return;
+            case 80:
+                extF80M_mul(&op1->data.x_f80, &op2->data.x_f80, &out_val->data.x_f80);
                 return;
             case 128:
                 f128M_mul(&op1->data.x_f128, &op2->data.x_f128, &out_val->data.x_f128);
@@ -8131,6 +8254,9 @@ static void float_div(ConstExprValue *out_val, ConstExprValue *op1, ConstExprVal
             case 64:
                 out_val->data.x_f64 = op1->data.x_f64 / op2->data.x_f64;
                 return;
+            case 80:
+                extF80M_div(&op1->data.x_f80, &op2->data.x_f80, &out_val->data.x_f80);
+                return;
             case 128:
                 f128M_div(&op1->data.x_f128, &op2->data.x_f128, &out_val->data.x_f128);
                 return;
@@ -8158,6 +8284,10 @@ static void float_div_trunc(ConstExprValue *out_val, ConstExprValue *op1, ConstE
                 return;
             case 64:
                 out_val->data.x_f64 = trunc(op1->data.x_f64 / op2->data.x_f64);
+                return;
+            case 80:
+                extF80M_div(&op1->data.x_f80, &op2->data.x_f80, &out_val->data.x_f80);
+                extF80M_roundToInt(&op1->data.x_f80, softfloat_round_minMag, false, &out_val->data.x_f80);
                 return;
             case 128:
                 f128M_div(&op1->data.x_f128, &op2->data.x_f128, &out_val->data.x_f128);
@@ -8188,6 +8318,10 @@ static void float_div_floor(ConstExprValue *out_val, ConstExprValue *op1, ConstE
             case 64:
                 out_val->data.x_f64 = floor(op1->data.x_f64 / op2->data.x_f64);
                 return;
+            case 80:
+                extF80M_div(&op1->data.x_f80, &op2->data.x_f80, &out_val->data.x_f80);
+                extF80M_roundToInt(&op1->data.x_f80, softfloat_round_min, false, &out_val->data.x_f80);
+                return;
             case 128:
                 f128M_div(&op1->data.x_f128, &op2->data.x_f128, &out_val->data.x_f128);
                 f128M_roundToInt(&out_val->data.x_f128, softfloat_round_min, false, &out_val->data.x_f128);
@@ -8216,6 +8350,9 @@ static void float_rem(ConstExprValue *out_val, ConstExprValue *op1, ConstExprVal
             case 64:
                 out_val->data.x_f64 = fmod(op1->data.x_f64, op2->data.x_f64);
                 return;
+            case 80:
+                extF80M_rem(&op1->data.x_f80, &op2->data.x_f80, &out_val->data.x_f80);
+                return;
             case 128:
                 f128M_rem(&op1->data.x_f128, &op2->data.x_f128, &out_val->data.x_f128);
                 return;
@@ -8235,6 +8372,14 @@ static float16_t zig_f16_mod(float16_t a, float16_t b) {
     c = f16_mul(b, c);
     c = f16_sub(a, c);
     return c;
+}
+
+// c = a - b * trunc(a / b)
+static void zig_extF80M_mod(const extFloat80_t* a, const extFloat80_t* b, extFloat80_t* c) {
+    extF80M_div(a, b, c);
+    extF80M_roundToInt(c, softfloat_round_min, true, c);
+    extF80M_mul(b, c, c);
+    extF80M_sub(a, c, c);
 }
 
 // c = a - b * trunc(a / b)
@@ -8260,6 +8405,9 @@ static void float_mod(ConstExprValue *out_val, ConstExprValue *op1, ConstExprVal
                 return;
             case 64:
                 out_val->data.x_f64 = fmod(fmod(op1->data.x_f64, op2->data.x_f64) + op2->data.x_f64, op2->data.x_f64);
+                return;
+            case 80:
+                zig_extF80M_mod(&op1->data.x_f80, &op2->data.x_f80, &out_val->data.x_f80);
                 return;
             case 128:
                 zig_f128M_mod(&op1->data.x_f128, &op2->data.x_f128, &out_val->data.x_f128);
@@ -8290,6 +8438,11 @@ static void float_negate(ConstExprValue *out_val, ConstExprValue *op) {
             case 64:
                 out_val->data.x_f64 = -op->data.x_f64;
                 return;
+            case 80:
+                extFloat80_t zero_f80;
+                ui32_to_extF80M(0, &zero_f80);
+                extF80M_sub(&zero_f80, &op->data.x_f80, &out_val->data.x_f80);
+                return;
             case 128:
                 float128_t zero_f128;
                 ui32_to_f128M(0, &zero_f128);
@@ -8315,6 +8468,9 @@ void float_write_ieee597(ConstExprValue *op, uint8_t *buf, bool is_big_endian) {
             case 64:
                 memcpy(buf, &op->data.x_f64, 8); // TODO wrong when compiler is big endian
                 return;
+            case 80:
+                memcpy(buf, &op->data.x_f80, 10);   // TODO wrong all?
+                return;
             case 128:
                 memcpy(buf, &op->data.x_f128, 16); // TODO wrong when compiler is big endian
                 return;
@@ -8337,6 +8493,9 @@ void float_read_ieee597(ConstExprValue *val, uint8_t *buf, bool is_big_endian) {
                 return;
             case 64:
                 memcpy(&val->data.x_f64, buf, 8); // TODO wrong when compiler is big endian
+                return;
+            case 80:
+                memcpy(&val->data.x_f80, buf, 10);   // TODO wrong all?
                 return;
             case 128:
                 memcpy(&val->data.x_f128, buf, 16); // TODO wrong when compiler is big endian
@@ -8387,8 +8546,11 @@ static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstruction *instruc
                     bigfloat_init_64(&orig_bf, tmp);
                     break;
                 }
-                case 80:
-                    zig_panic("TODO");
+                case 80: {
+                    extFloat80_t tmp = bigfloat_to_f80(&tmp_bf);
+                    bigfloat_init_80(&orig_bf, tmp);
+                    break;
+                }
                 case 128: {
                     float128_t tmp = bigfloat_to_f128(&tmp_bf);
                     bigfloat_init_128(&orig_bf, tmp);
@@ -8432,8 +8594,15 @@ static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstruction *instruc
                         }
                         break;
                     }
-                    case 80:
-                        zig_panic("TODO");
+                    case 80: {
+                        float16_t tmp = extF80M_to_f16(&const_val->data.x_f80);
+                        extFloat80_t orig;
+                        f16_to_extF80M(tmp, &orig);
+                        if (extF80M_eq(&orig, &const_val->data.x_f80)) {
+                            return true;
+                        }
+                        break;
+                    }
                     case 128: {
                         float16_t tmp = f128M_to_f16(&const_val->data.x_f128);
                         float128_t orig;
@@ -8457,8 +8626,15 @@ static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstruction *instruc
                         }
                         break;
                     }
-                    case 80:
-                        zig_panic("TODO");
+                    case 80: {
+                        float32_t tmp = extF80M_to_f32(&const_val->data.x_f80);
+                        extFloat80_t orig;
+                        f32_to_extF80M(tmp, &orig);
+                        if (extF80M_eq(&orig, &const_val->data.x_f80)) {
+                            return true;
+                        }
+                        break;
+                    }
                     case 128: {
                         float32_t tmp = f128M_to_f32(&const_val->data.x_f128);
                         float128_t orig;
@@ -8474,8 +8650,15 @@ static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstruction *instruc
                 break;
             case 64:
                 switch (const_val->type->data.floating.bit_count) {
-                    case 80:
-                        zig_panic("TODO");
+                    case 80: {
+                        float64_t tmp = extF80M_to_f64(&const_val->data.x_f80);
+                        extFloat80_t orig;
+                        f64_to_extF80M(tmp, &orig);
+                        if (extF80M_eq(&orig, &const_val->data.x_f80)) {
+                            return true;
+                        }
+                        break;
+                    }
                     case 128: {
                         float64_t tmp = f128M_to_f64(&const_val->data.x_f128);
                         float128_t orig;
@@ -9596,6 +9779,9 @@ static bool eval_const_expr_implicit_cast(IrAnalyze *ira, IrInstruction *source_
                     case 64:
                         const_val->data.x_f64 = bigfloat_to_f64(&other_val->data.x_bigfloat);
                         break;
+                    case 80:
+                        const_val->data.x_f80 = bigfloat_to_f80(&other_val->data.x_bigfloat);
+                        break;
                     case 128:
                         const_val->data.x_f128 = bigfloat_to_f128(&other_val->data.x_bigfloat);
                         break;
@@ -9627,6 +9813,9 @@ static bool eval_const_expr_implicit_cast(IrAnalyze *ira, IrInstruction *source_
                         break;
                     case 64:
                         const_val->data.x_f64 = bigfloat_to_f64(&bigfloat);
+                        break;
+                    case 80:
+                        const_val->data.x_f80 = bigfloat_to_f80(&bigfloat);
                         break;
                     case 128:
                         const_val->data.x_f128 = bigfloat_to_f128(&bigfloat);
@@ -21867,6 +22056,9 @@ static IrInstruction *ir_analyze_instruction_sqrt(IrAnalyze *ira, IrInstructionS
                     break;
                 case 64:
                     out_val->data.x_f64 = sqrt(val->data.x_f64);
+                    break;
+                case 80:
+                    extF80M_sqrt(&val->data.x_f80, &out_val->data.x_f80);
                     break;
                 case 128:
                     f128M_sqrt(&val->data.x_f128, &out_val->data.x_f128);
