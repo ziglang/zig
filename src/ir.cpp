@@ -1303,15 +1303,23 @@ static IrInstruction *ir_build_ptr_type(IrBuilder *irb, Scope *scope, AstNode *s
     return &ptr_type_of_instruction->base;
 }
 
-static IrInstruction *ir_build_un_op(IrBuilder *irb, Scope *scope, AstNode *source_node, IrUnOp op_id, IrInstruction *value) {
-    IrInstructionUnOp *br_instruction = ir_build_instruction<IrInstructionUnOp>(irb, scope, source_node);
-    br_instruction->op_id = op_id;
-    br_instruction->value = value;
-    br_instruction->lval = LValNone;
+static IrInstruction *ir_build_un_op_lval(IrBuilder *irb, Scope *scope, AstNode *source_node, IrUnOp op_id,
+        IrInstruction *value, LVal lval)
+{
+    IrInstructionUnOp *instruction = ir_build_instruction<IrInstructionUnOp>(irb, scope, source_node);
+    instruction->op_id = op_id;
+    instruction->value = value;
+    instruction->lval = lval;
 
     ir_ref_instruction(value, irb->current_basic_block);
 
-    return &br_instruction->base;
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_un_op(IrBuilder *irb, Scope *scope, AstNode *source_node, IrUnOp op_id,
+        IrInstruction *value)
+{
+    return ir_build_un_op_lval(irb, scope, source_node, op_id, value, LValNone);
 }
 
 static IrInstruction *ir_build_container_init_list(IrBuilder *irb, Scope *scope, AstNode *source_node,
@@ -7227,10 +7235,7 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             // We essentially just converted any lvalue from &(x.*) to (&x).*;
             // this inhibits checking that x is a pointer later, so we directly
             // record whether the pointer check is needed
-            IrInstructionUnOp *result = (IrInstructionUnOp*)ir_build_un_op(irb, scope, node, IrUnOpDereference, value);
-            result->lval = lval;
-
-            return &result->base;
+            return ir_build_un_op_lval(irb, scope, node, IrUnOpDereference, value, lval);
         }
         case NodeTypeUnwrapOptional: {
             AstNode *expr_node = node->data.unwrap_optional.expr;
@@ -13685,6 +13690,8 @@ no_mem_slot:
 static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source_instr,
         IrInstruction *ptr, IrInstruction *uncasted_value)
 {
+    assert(ptr->value.type->id == ZigTypeIdPointer);
+
     if (ptr->value.data.x_ptr.special == ConstPtrSpecialDiscard) {
         return ir_const_void(ira, source_instr);
     }
