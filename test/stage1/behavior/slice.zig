@@ -38,3 +38,16 @@ test "implicitly cast array of size 0 to slice" {
 fn assertLenIsZero(msg: []const u8) void {
     expect(msg.len == 0);
 }
+
+fn sliceSum(comptime q: []const u8) i32 {
+    comptime var result = 0;
+    inline for (q) |item| {
+        result += item;
+    }
+    return result;
+}
+
+test "comptime slices are disambiguated" {
+    expect(sliceSum([]u8{ 1, 2 }) == 3);
+    expect(sliceSum([]u8{ 3, 4 }) == 7);
+}

@@ -17103,7 +17103,9 @@ static IrInstruction *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
         if (const_val.special == ConstValSpecialStatic) {
             IrInstruction *result = ir_const(ira, &instruction->base, nullptr);
             ConstExprValue *out_val = &result->value;
-            copy_const_val(out_val, &const_val, true);
+            // Make sure to pass same_global_refs=false here in order not to
+            // zero the global_refs field for `result` (#1608)
+            copy_const_val(out_val, &const_val, false);
             result->value.type = fixed_size_array_type;
             for (size_t i = 0; i < elem_count; i += 1) {
                 ConstExprValue *elem_val = &out_val->data.x_array.data.s_none.elements[i];
