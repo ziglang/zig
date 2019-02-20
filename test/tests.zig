@@ -716,7 +716,8 @@ pub const CompileErrorContext = struct {
                 for (self.case.expected_errors.toSliceConst()) |expected| {
                     if (mem.indexOf(u8, stderr, expected) == null) {
                         warn(
-                            \\\n=========== Expected compile error: ============
+                            \\
+                            \\=========== Expected compile error: ============
                             \\{}
                             \\
                         , expected);

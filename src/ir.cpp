@@ -3674,6 +3674,22 @@ static IrInstruction *ir_gen_null_literal(IrBuilder *irb, Scope *scope, AstNode 
     return ir_build_const_null(irb, scope, node);
 }
 
+static void populate_invalid_variable_in_scope(CodeGen *g, Scope *scope, AstNode *node, Buf *var_name) {
+    ScopeDecls *scope_decls = nullptr;
+    while (scope != nullptr) {
+        if (scope->id == ScopeIdDecls) {
+            scope_decls = reinterpret_cast<ScopeDecls *>(scope);
+        }
+        scope = scope->parent;
+    }
+    TldVar *tld_var = allocate<TldVar>(1);
+    init_tld(&tld_var->base, TldIdVar, var_name, VisibModPub, node, &scope_decls->base);
+    tld_var->base.resolution = TldResolutionInvalid;
+    tld_var->var = add_variable(g, node, &scope_decls->base, var_name, false, 
+            &g->invalid_instruction->value, &tld_var->base, g->builtin_types.entry_invalid);
+    scope_decls->decl_table.put(var_name, &tld_var->base);
+}
+
 static IrInstruction *ir_gen_symbol(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval) {
     Error err;
     assert(node->type == NodeTypeSymbol);
@@ -3727,8 +3743,9 @@ static IrInstruction *ir_gen_symbol(IrBuilder *irb, Scope *scope, AstNode *node,
         return irb->codegen->invalid_instruction;
     }
 
-    // TODO put a variable of same name with invalid type in global scope
+    // put a variable of same name with invalid type in global scope
     // so that future references to this same name will find a variable with an invalid type
+    populate_invalid_variable_in_scope(irb->codegen, scope, node, variable_name);
     add_node_error(irb->codegen, node, buf_sprintf("use of undeclared identifier '%s'", buf_ptr(variable_name)));
     return irb->codegen->invalid_instruction;
 }

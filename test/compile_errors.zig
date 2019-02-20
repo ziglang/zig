@@ -1,6 +1,22 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.addCase(x: {
+        var tc = cases.create(
+            "deduplicate undeclared identifier",
+            \\export fn a() void {
+            \\    x += 1;
+            \\}
+            \\export fn b() void {
+            \\    x += 1;
+            \\}
+        ,
+            ".tmp_source.zig:2:5: error: use of undeclared identifier 'x'",
+        );
+        tc.expect_exact = true;
+        break :x tc;
+    });
+
     cases.addTest(
         "export generic function",
         \\export fn foo(num: var) i32 {
@@ -2280,7 +2296,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         ".tmp_source.zig:2:5: error: use of undeclared identifier 'i'",
-        ".tmp_source.zig:2:12: error: use of undeclared identifier 'i'",
     );
 
     cases.add(
@@ -5618,8 +5633,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         ".tmp_source.zig:2:26: error: vector element type must be integer, float, or pointer; '@Vector(4, u8)' is invalid",
     );
 
-    cases.add(
-        "compileLog of tagged enum doesn't crash the compiler",
+    cases.add("compileLog of tagged enum doesn't crash the compiler",
         \\const Bar = union(enum(u32)) {
         \\    X: i32 = 1
         \\};
@@ -5631,7 +5645,5 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\pub fn main () void {
         \\    comptime testCompileLog(Bar{.X = 123});
         \\}
-    ,
-        ".tmp_source.zig:6:5: error: found compile log statement"
-    );
+    , ".tmp_source.zig:6:5: error: found compile log statement");
 }
