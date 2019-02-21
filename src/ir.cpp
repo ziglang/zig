@@ -198,10 +198,11 @@ static ConstExprValue *const_ptr_pointee_unchecked(CodeGen *g, ConstExprValue *c
             result = &array_val->data.x_array.data.s_none.elements[const_val->data.x_ptr.data.base_array.elem_index];
             break;
         }
-        case ConstPtrSpecialBaseStruct:
-            result = &const_val->data.x_ptr.data.base_struct.struct_val->data.x_struct.fields[
-                const_val->data.x_ptr.data.base_struct.field_index];
+        case ConstPtrSpecialBaseStruct: {
+            ConstExprValue *struct_val = const_val->data.x_ptr.data.base_struct.struct_val;
+            result = &struct_val->data.x_struct.fields[const_val->data.x_ptr.data.base_struct.field_index];
             break;
+        }
         case ConstPtrSpecialBaseErrorUnionCode:
             result = const_val->data.x_ptr.data.base_err_union_code.err_union_val->data.x_err_union.error_set;
             break;
@@ -230,11 +231,10 @@ static bool is_opt_err_set(ZigType *ty) {
         (ty->id == ZigTypeIdOptional && ty->data.maybe.child_type->id == ZigTypeIdErrorSet);
 }
 
+// This function returns true when you can change the type of a ConstExprValue and the
+// value remains meaningful.
 static bool types_have_same_zig_comptime_repr(ZigType *a, ZigType *b) {
     if (a == b)
-        return true;
-
-    if (a->id == b->id)
         return true;
 
     if (get_codegen_ptr_type(a) != nullptr && get_codegen_ptr_type(b) != nullptr)
@@ -243,7 +243,43 @@ static bool types_have_same_zig_comptime_repr(ZigType *a, ZigType *b) {
     if (is_opt_err_set(a) && is_opt_err_set(b))
         return true;
 
-    return false;
+    if (a->id != b->id)
+        return false;
+
+    switch (a->id) {
+        case ZigTypeIdInvalid:
+        case ZigTypeIdUnreachable:
+            zig_unreachable();
+        case ZigTypeIdMetaType:
+        case ZigTypeIdVoid:
+        case ZigTypeIdBool:
+        case ZigTypeIdComptimeFloat:
+        case ZigTypeIdComptimeInt:
+        case ZigTypeIdPointer:
+        case ZigTypeIdUndefined:
+        case ZigTypeIdNull:
+        case ZigTypeIdNamespace:
+        case ZigTypeIdBoundFn:
+        case ZigTypeIdErrorSet:
+        case ZigTypeIdOpaque:
+            return true;
+        case ZigTypeIdFloat:
+            return a->data.floating.bit_count == b->data.floating.bit_count;
+        case ZigTypeIdInt:
+            return a->data.integral.is_signed == b->data.integral.is_signed;
+        case ZigTypeIdArray:
+        case ZigTypeIdStruct:
+        case ZigTypeIdOptional:
+        case ZigTypeIdErrorUnion:
+        case ZigTypeIdEnum:
+        case ZigTypeIdUnion:
+        case ZigTypeIdFn:
+        case ZigTypeIdArgTuple:
+        case ZigTypeIdPromise:
+        case ZigTypeIdVector:
+            return false;
+    }
+    zig_unreachable();
 }
 
 static bool ir_should_inline(IrExecutable *exec, Scope *scope) {
@@ -14421,12 +14457,11 @@ static Error ir_read_const_ptr(IrAnalyze *ira, CodeGen *codegen, AstNode *source
     if ((err = type_resolve(codegen, out_val->type, ResolveStatusSizeKnown)))
         return ErrorSemanticAnalyzeFail;
 
-    // We don't need to read the padding bytes, so we look at type_size_store bytes
-    size_t src_size = type_size_store(codegen, pointee->type);
-    size_t dst_size = type_size_store(codegen, out_val->type);
+    size_t src_size = type_size(codegen, pointee->type);
+    size_t dst_size = type_size(codegen, out_val->type);
 
     if (dst_size <= src_size) {
-        if (types_have_same_zig_comptime_repr(pointee->type, out_val->type)) {
+        if (src_size == dst_size && types_have_same_zig_comptime_repr(pointee->type, out_val->type)) {
             copy_const_val(out_val, pointee, ptr_val->data.x_ptr.mut == ConstPtrMutComptimeConst);
             return ErrorNone;
         }
@@ -20885,7 +20920,68 @@ static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue
         case ZigTypeIdVector:
             return buf_write_value_bytes_array(codegen, buf, val, val->type->data.vector.len);
         case ZigTypeIdStruct:
-            zig_panic("TODO buf_write_value_bytes struct type");
+            switch (val->type->data.structure.layout) {
+                case ContainerLayoutAuto:
+                    zig_unreachable();
+                case ContainerLayoutExtern:
+                    zig_panic("TODO buf_write_value_bytes extern struct");
+                case ContainerLayoutPacked: {
+                    size_t src_field_count = val->type->data.structure.src_field_count;
+                    size_t gen_field_count = val->type->data.structure.gen_field_count;
+                    size_t gen_i = 0;
+                    size_t src_i = 0;
+                    size_t offset = 0;
+                    bool is_big_endian = codegen->is_big_endian;
+                    uint8_t child_buf_prealloc[16];
+                    size_t child_buf_len = 16;
+                    uint8_t *child_buf = child_buf_prealloc;
+                    while (gen_i < gen_field_count) {
+                        LLVMTypeRef gen_llvm_int_type = LLVMStructGetTypeAtIndex(val->type->type_ref,
+                                    (unsigned)gen_i);
+                        size_t big_int_bit_count = LLVMGetIntTypeWidth(gen_llvm_int_type);
+                        size_t big_int_byte_count = big_int_bit_count / 8;
+                        if (big_int_byte_count > child_buf_len) {
+                            child_buf = allocate_nonzero<uint8_t>(big_int_byte_count);
+                            child_buf_len = big_int_byte_count;
+                        }
+                        BigInt big_int;
+                        bigint_init_unsigned(&big_int, 0);
+                        size_t used_bits = 0;
+                        while (src_i < src_field_count) {
+                            TypeStructField *field = &val->type->data.structure.fields[src_i];
+                            assert(field->gen_index != SIZE_MAX);
+                            if (field->gen_index != gen_i)
+                                break;
+                            uint32_t packed_bits_size = type_size_bits(codegen, field->type_entry);
+                            buf_write_value_bytes(codegen, child_buf, &val->data.x_struct.fields[src_i]);
+                            BigInt child_val;
+                            bigint_read_twos_complement(&child_val, child_buf, packed_bits_size, is_big_endian,
+                                    false);
+                            if (is_big_endian) {
+                                BigInt shift_amt;
+                                bigint_init_unsigned(&shift_amt, packed_bits_size);
+                                BigInt shifted;
+                                bigint_shl(&shifted, &big_int, &shift_amt);
+                                bigint_or(&big_int, &shifted, &child_val);
+                            } else {
+                                BigInt shift_amt;
+                                bigint_init_unsigned(&shift_amt, used_bits);
+                                BigInt child_val_shifted;
+                                bigint_shl(&child_val_shifted, &child_val, &shift_amt);
+                                BigInt tmp;
+                                bigint_or(&tmp, &big_int, &child_val_shifted);
+                                big_int = tmp;
+                                used_bits += packed_bits_size;
+                            }
+                            src_i += 1;
+                        }
+                        bigint_write_twos_complement(&big_int, buf + offset, big_int_bit_count, is_big_endian);
+                        offset += big_int_byte_count;
+                        gen_i += 1;
+                    }
+                }
+            }
+            return;
         case ZigTypeIdOptional:
             zig_panic("TODO buf_write_value_bytes maybe type");
         case ZigTypeIdErrorUnion:
@@ -21012,8 +21108,62 @@ static Error buf_read_value_bytes(IrAnalyze *ira, CodeGen *codegen, AstNode *sou
                     }
                     return ErrorNone;
                 }
-                case ContainerLayoutPacked:
-                    zig_panic("TODO buf_read_value_bytes packed struct");
+                case ContainerLayoutPacked: {
+                    size_t src_field_count = val->type->data.structure.src_field_count;
+                    val->data.x_struct.fields = create_const_vals(src_field_count);
+                    size_t gen_field_count = val->type->data.structure.gen_field_count;
+                    size_t gen_i = 0;
+                    size_t src_i = 0;
+                    size_t offset = 0;
+                    bool is_big_endian = codegen->is_big_endian;
+                    uint8_t child_buf_prealloc[16];
+                    size_t child_buf_len = 16;
+                    uint8_t *child_buf = child_buf_prealloc;
+                    while (gen_i < gen_field_count) {
+                        LLVMTypeRef gen_llvm_int_type = LLVMStructGetTypeAtIndex(val->type->type_ref,
+                                    (unsigned)gen_i);
+                        size_t big_int_bit_count = LLVMGetIntTypeWidth(gen_llvm_int_type);
+                        size_t big_int_byte_count = big_int_bit_count / 8;
+                        if (big_int_byte_count > child_buf_len) {
+                            child_buf = allocate_nonzero<uint8_t>(big_int_byte_count);
+                            child_buf_len = big_int_byte_count;
+                        }
+                        BigInt big_int;
+                        bigint_read_twos_complement(&big_int, buf + offset, big_int_bit_count, is_big_endian, false);
+                        while (src_i < src_field_count) {
+                            TypeStructField *field = &val->type->data.structure.fields[src_i];
+                            assert(field->gen_index != SIZE_MAX);
+                            if (field->gen_index != gen_i)
+                                break;
+                            ConstExprValue *field_val = &val->data.x_struct.fields[src_i];
+                            field_val->special = ConstValSpecialStatic;
+                            field_val->type = field->type_entry;
+                            uint32_t packed_bits_size = type_size_bits(codegen, field->type_entry);
+
+                            BigInt child_val;
+                            if (is_big_endian) {
+                                zig_panic("TODO buf_read_value_bytes packed struct big endian");
+                            } else {
+                                BigInt packed_bits_size_bi;
+                                bigint_init_unsigned(&packed_bits_size_bi, packed_bits_size);
+                                bigint_truncate(&child_val, &big_int, packed_bits_size, false);
+                                BigInt tmp;
+                                bigint_shr(&tmp, &big_int, &packed_bits_size_bi);
+                                big_int = tmp;
+                            }
+
+                            bigint_write_twos_complement(&child_val, child_buf, big_int_bit_count, is_big_endian);
+                            if ((err = buf_read_value_bytes(ira, codegen, source_node, child_buf, field_val))) {
+                                return err;
+                            }
+
+                            src_i += 1;
+                        }
+                        offset += big_int_byte_count;
+                        gen_i += 1;
+                    }
+                    return ErrorNone;
+                }
             }
             zig_unreachable();
         case ZigTypeIdOptional:

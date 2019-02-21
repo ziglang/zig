@@ -3070,7 +3070,10 @@ static LLVMValueRef ir_render_bit_cast(CodeGen *g, IrExecutable *executable,
 {
     ZigType *wanted_type = instruction->base.value.type;
     LLVMValueRef value = ir_llvm_value(g, instruction->value);
-    return LLVMBuildBitCast(g->builder, value, wanted_type->type_ref, "");
+    // We either bitcast the value directly or bitcast the pointer which does a pointer cast
+    LLVMTypeRef wanted_type_ref = handle_is_ptr(wanted_type) ?
+        LLVMPointerType(wanted_type->type_ref, 0) : wanted_type->type_ref;
+    return LLVMBuildBitCast(g->builder, value, wanted_type_ref, "");
 }
 
 static LLVMValueRef ir_render_widen_or_shorten(CodeGen *g, IrExecutable *executable,

@@ -359,28 +359,6 @@ uint64_t type_size(CodeGen *g, ZigType *type_entry) {
     return LLVMABISizeOfType(g->target_data_ref, type_entry->type_ref);
 }
 
-uint64_t type_size_store(CodeGen *g, ZigType *type_entry) {
-    assert(type_is_complete(type_entry));
-
-    if (!type_has_bits(type_entry))
-        return 0;
-
-    if (type_entry->id == ZigTypeIdStruct && type_entry->data.structure.layout == ContainerLayoutPacked) {
-        uint64_t size_in_bits = type_size_bits(g, type_entry);
-        return (size_in_bits + 7) / 8;
-    } else if (type_entry->id == ZigTypeIdArray) {
-        ZigType *child_type = type_entry->data.array.child_type;
-        if (child_type->id == ZigTypeIdStruct &&
-            child_type->data.structure.layout == ContainerLayoutPacked)
-        {
-            uint64_t size_in_bits = type_size_bits(g, type_entry);
-            return (size_in_bits + 7) / 8;
-        }
-    }
-
-    return LLVMStoreSizeOfType(g->target_data_ref, type_entry->type_ref);
-}
-
 uint64_t type_size_bits(CodeGen *g, ZigType *type_entry) {
     assert(type_is_complete(type_entry));
 

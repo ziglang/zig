@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const expect = std.testing.expect;
 const maxInt = std.math.maxInt;
 
@@ -33,4 +34,35 @@ test "@bitCast extern enum to its integer type" {
 
     SOCK.testBitCastExternEnum();
     comptime SOCK.testBitCastExternEnum();
+}
+
+test "@bitCast packed structs at runtime and comptime" {
+    const Full = packed struct {
+        number: u16,
+    };
+    const Divided = packed struct {
+        half1: u8,
+        quarter3: u4,
+        quarter4: u4,
+    };
+    const S = struct {
+        fn doTheTest() void {
+            var full = Full{ .number = 0x1234 };
+            var two_halves = @bitCast(Divided, full);
+            switch (builtin.endian) {
+                builtin.Endian.Big => {
+                    expect(two_halves.half1 == 0x12);
+                    expect(two_halves.quarter3 == 0x3);
+                    expect(two_halves.quarter4 == 0x4);
+                },
+                builtin.Endian.Little => {
+                    expect(two_halves.half1 == 0x34);
+                    expect(two_halves.quarter3 == 0x2);
+                    expect(two_halves.quarter4 == 0x1);
+                },
+            }
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
 }

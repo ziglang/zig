@@ -318,12 +318,12 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "reading past end of pointer casted array",
         \\comptime {
         \\    const array = "aoeu";
-        \\    const slice = array[2..];
+        \\    const slice = array[1..];
         \\    const int_ptr = @ptrCast(*const u24, slice.ptr);
         \\    const deref = int_ptr.*;
         \\}
     ,
-        ".tmp_source.zig:5:26: error: attempt to read 3 bytes from [4]u8 at index 2 which is 2 bytes",
+        ".tmp_source.zig:5:26: error: attempt to read 4 bytes from [4]u8 at index 1 which is 3 bytes",
     );
 
     cases.add(
