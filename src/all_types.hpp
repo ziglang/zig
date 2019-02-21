@@ -2119,6 +2119,7 @@ enum IrInstructionId {
     IrInstructionIdUnOp,
     IrInstructionIdBinOp,
     IrInstructionIdLoadPtr,
+    IrInstructionIdLoadPtrGen,
     IrInstructionIdStorePtr,
     IrInstructionIdFieldPtr,
     IrInstructionIdStructFieldPtr,
@@ -2412,6 +2413,13 @@ struct IrInstructionLoadPtr {
     IrInstruction base;
 
     IrInstruction *ptr;
+};
+
+struct IrInstructionLoadPtrGen {
+    IrInstruction base;
+
+    IrInstruction *ptr;
+    LLVMValueRef tmp_ptr;
 };
 
 struct IrInstructionStorePtr {

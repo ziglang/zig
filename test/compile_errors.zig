@@ -1,6 +1,60 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.addTest(
+        "packed struct with fields of not allowed types",
+        \\const A = packed struct {
+        \\    x: anyerror,
+        \\};
+        \\const B = packed struct {
+        \\    x: [2]u24,
+        \\};
+        \\const C = packed struct {
+        \\    x: [1]anyerror,
+        \\};
+        \\const D = packed struct {
+        \\    x: [1]S,
+        \\};
+        \\const E = packed struct {
+        \\    x: [1]U,
+        \\};
+        \\const F = packed struct {
+        \\    x: ?anyerror,
+        \\};
+        \\const G = packed struct {
+        \\    x: Enum,
+        \\};
+        \\export fn entry() void {
+        \\    var a: A = undefined;
+        \\    var b: B = undefined;
+        \\    var r: C = undefined;
+        \\    var d: D = undefined;
+        \\    var e: E = undefined;
+        \\    var f: F = undefined;
+        \\    var g: G = undefined;
+        \\}
+        \\const S = struct {
+        \\    x: i32,
+        \\};
+        \\const U = struct {
+        \\    A: i32,
+        \\    B: u32,
+        \\};
+        \\const Enum = enum {
+        \\    A,
+        \\    B,
+        \\};
+    ,
+        ".tmp_source.zig:2:5: error: type 'anyerror' not allowed in packed struct; no guaranteed in-memory representation",
+        ".tmp_source.zig:5:5: error: array of 'u24' not allowed in packed struct due to padding bits",
+        ".tmp_source.zig:8:5: error: type 'anyerror' not allowed in packed struct; no guaranteed in-memory representation",
+        ".tmp_source.zig:11:5: error: non-packed, non-extern struct 'S' not allowed in packed struct; no guaranteed in-memory representation",
+        ".tmp_source.zig:14:5: error: non-packed, non-extern struct 'U' not allowed in packed struct; no guaranteed in-memory representation",
+        ".tmp_source.zig:17:5: error: type '?anyerror' not allowed in packed struct; no guaranteed in-memory representation",
+        ".tmp_source.zig:20:5: error: type 'Enum' not allowed in packed struct; no guaranteed in-memory representation",
+        ".tmp_source.zig:38:14: note: enum declaration does not specify an integer tag type",
+    );
+
     cases.addCase(x: {
         var tc = cases.create(
             "deduplicate undeclared identifier",

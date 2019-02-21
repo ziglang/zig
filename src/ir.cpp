@@ -416,6 +416,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionLoadPtr *) {
     return IrInstructionIdLoadPtr;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionLoadPtrGen *) {
+    return IrInstructionIdLoadPtrGen;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionStorePtr *) {
     return IrInstructionIdStorePtr;
 }
@@ -2286,6 +2290,19 @@ static IrInstruction *ir_build_ptr_cast_gen(IrAnalyze *ira, IrInstruction *sourc
     instruction->base.value.type = ptr_type;
     instruction->ptr = ptr;
     instruction->safety_check_on = safety_check_on;
+
+    ir_ref_instruction(ptr, ira->new_irb.current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_load_ptr_gen(IrAnalyze *ira, IrInstruction *source_instruction,
+        IrInstruction *ptr, ZigType *ty)
+{
+    IrInstructionLoadPtrGen *instruction = ir_build_instruction<IrInstructionLoadPtrGen>(
+            &ira->new_irb, source_instruction->scope, source_instruction->source_node);
+    instruction->base.value.type = ty;
+    instruction->ptr = ptr;
 
     ir_ref_instruction(ptr, ira->new_irb.current_basic_block);
 
@@ -11534,10 +11551,11 @@ static IrInstruction *ir_get_deref(IrAnalyze *ira, IrInstruction *source_instruc
             IrInstructionRef *ref_inst = reinterpret_cast<IrInstructionRef *>(ptr);
             return ref_inst->value;
         }
-        IrInstruction *load_ptr_instruction = ir_build_load_ptr(&ira->new_irb, source_instruction->scope,
-                source_instruction->source_node, ptr);
-        load_ptr_instruction->value.type = child_type;
-        return load_ptr_instruction;
+        IrInstruction *result = ir_build_load_ptr_gen(ira, source_instruction, ptr, child_type);
+        if (type_entry->data.pointer.host_int_bytes != 0 && handle_is_ptr(child_type)) {
+            ir_add_alloca(ira, result, child_type);
+        }
+        return result;
     } else {
         ir_add_error_node(ira, source_instruction->source_node,
             buf_sprintf("attempt to dereference non-pointer type '%s'",
@@ -13398,8 +13416,8 @@ static IrInstruction *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructio
     }
 
     // TODO audit the various ways to use @export
-    if (want_var_export && target->id == IrInstructionIdLoadPtr) {
-        IrInstructionLoadPtr *load_ptr = reinterpret_cast<IrInstructionLoadPtr *>(target);
+    if (want_var_export && target->id == IrInstructionIdLoadPtrGen) {
+        IrInstructionLoadPtrGen *load_ptr = reinterpret_cast<IrInstructionLoadPtrGen *>(target);
         if (load_ptr->ptr->id == IrInstructionIdVarPtr) {
             IrInstructionVarPtr *var_ptr = reinterpret_cast<IrInstructionVarPtr *>(load_ptr->ptr);
             ZigVar *var = var_ptr->var;
@@ -22316,6 +22334,7 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
         case IrInstructionIdVectorToArray:
         case IrInstructionIdAssertZero:
         case IrInstructionIdResizeSlice:
+        case IrInstructionIdLoadPtrGen:
             zig_unreachable();
 
         case IrInstructionIdReturn:
@@ -22722,6 +22741,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdUnOp:
         case IrInstructionIdBinOp:
         case IrInstructionIdLoadPtr:
+        case IrInstructionIdLoadPtrGen:
         case IrInstructionIdConst:
         case IrInstructionIdCast:
         case IrInstructionIdContainerInitList:

@@ -3281,7 +3281,7 @@ static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable,
     return nullptr;
 }
 
-static LLVMValueRef ir_render_load_ptr(CodeGen *g, IrExecutable *executable, IrInstructionLoadPtr *instruction) {
+static LLVMValueRef ir_render_load_ptr(CodeGen *g, IrExecutable *executable, IrInstructionLoadPtrGen *instruction) {
     ZigType *child_type = instruction->base.value.type;
     if (!type_has_bits(child_type))
         return nullptr;
@@ -3296,7 +3296,6 @@ static LLVMValueRef ir_render_load_ptr(CodeGen *g, IrExecutable *executable, IrI
 
     bool big_endian = g->is_big_endian;
 
-    assert(!handle_is_ptr(child_type));
     LLVMValueRef containing_int = gen_load(g, ptr, ptr_type, "");
     uint32_t host_bit_count = LLVMGetIntTypeWidth(LLVMTypeOf(containing_int));
     assert(host_bit_count == host_int_bytes * 8);
@@ -3308,7 +3307,16 @@ static LLVMValueRef ir_render_load_ptr(CodeGen *g, IrExecutable *executable, IrI
     LLVMValueRef shift_amt_val = LLVMConstInt(LLVMTypeOf(containing_int), shift_amt, false);
     LLVMValueRef shifted_value = LLVMBuildLShr(g->builder, containing_int, shift_amt_val, "");
 
-    return LLVMBuildTrunc(g->builder, shifted_value, child_type->type_ref, "");
+    if (!handle_is_ptr(child_type))
+        return LLVMBuildTrunc(g->builder, shifted_value, child_type->type_ref, "");
+
+    assert(instruction->tmp_ptr != nullptr);
+    LLVMTypeRef same_size_int = LLVMIntType(size_in_bits);
+    LLVMValueRef truncated_int = LLVMBuildTrunc(g->builder, shifted_value, same_size_int, "");
+    LLVMValueRef bitcasted_ptr = LLVMBuildBitCast(g->builder, instruction->tmp_ptr,
+            LLVMPointerType(same_size_int, 0), "");
+    LLVMBuildStore(g->builder, truncated_int, bitcasted_ptr);
+    return instruction->tmp_ptr;
 }
 
 static bool value_is_all_undef_array(ConstExprValue *const_val, size_t len) {
@@ -5460,6 +5468,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdDeclVarSrc:
         case IrInstructionIdPtrCastSrc:
         case IrInstructionIdCmpxchgSrc:
+        case IrInstructionIdLoadPtr:
             zig_unreachable();
 
         case IrInstructionIdDeclVarGen:
@@ -5478,8 +5487,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_br(g, executable, (IrInstructionBr *)instruction);
         case IrInstructionIdUnOp:
             return ir_render_un_op(g, executable, (IrInstructionUnOp *)instruction);
-        case IrInstructionIdLoadPtr:
-            return ir_render_load_ptr(g, executable, (IrInstructionLoadPtr *)instruction);
+        case IrInstructionIdLoadPtrGen:
+            return ir_render_load_ptr(g, executable, (IrInstructionLoadPtrGen *)instruction);
         case IrInstructionIdStorePtr:
             return ir_render_store_ptr(g, executable, (IrInstructionStorePtr *)instruction);
         case IrInstructionIdVarPtr:
@@ -5836,8 +5845,32 @@ static LLVMValueRef pack_const_int(CodeGen *g, LLVMTypeRef big_int_type_ref, Con
                 LLVMValueRef ptr_size_int_val = LLVMConstPtrToInt(ptr_val, g->builtin_types.entry_usize->type_ref);
                 return LLVMConstZExt(ptr_size_int_val, big_int_type_ref);
             }
-        case ZigTypeIdArray:
-            zig_panic("TODO bit pack an array");
+        case ZigTypeIdArray: {
+            LLVMValueRef val = LLVMConstInt(big_int_type_ref, 0, false);
+            if (const_val->data.x_array.special == ConstArraySpecialUndef) {
+                return val;
+            }
+            expand_undef_array(g, const_val);
+            bool is_big_endian = g->is_big_endian; // TODO get endianness from struct type
+            uint32_t packed_bits_size = type_size_bits(g, type_entry->data.array.child_type);
+            size_t used_bits = 0;
+            for (size_t i = 0; i < type_entry->data.array.len; i += 1) {
+                ConstExprValue *elem_val = &const_val->data.x_array.data.s_none.elements[i];
+                LLVMValueRef child_val = pack_const_int(g, big_int_type_ref, elem_val);
+
+                if (is_big_endian) {
+                    LLVMValueRef shift_amt = LLVMConstInt(big_int_type_ref, packed_bits_size, false);
+                    val = LLVMConstShl(val, shift_amt);
+                    val = LLVMConstOr(val, child_val);
+                } else {
+                    LLVMValueRef shift_amt = LLVMConstInt(big_int_type_ref, used_bits, false);
+                    LLVMValueRef child_val_shifted = LLVMConstShl(child_val, shift_amt);
+                    val = LLVMConstOr(val, child_val_shifted);
+                    used_bits += packed_bits_size;
+                }
+            }
+            return val;
+        }
         case ZigTypeIdVector:
             zig_panic("TODO bit pack a vector");
         case ZigTypeIdUnion:
@@ -6728,6 +6761,9 @@ static void do_code_gen(CodeGen *g) {
             } else if (instruction->id == IrInstructionIdResizeSlice) {
                 IrInstructionResizeSlice *resize_slice_instruction = (IrInstructionResizeSlice *)instruction;
                 slot = &resize_slice_instruction->tmp_ptr;
+            } else if (instruction->id == IrInstructionIdLoadPtrGen) {
+                IrInstructionLoadPtrGen *load_ptr_inst = (IrInstructionLoadPtrGen *)instruction;
+                slot = &load_ptr_inst->tmp_ptr;
             } else if (instruction->id == IrInstructionIdVectorToArray) {
                 IrInstructionVectorToArray *vector_to_array_instruction = (IrInstructionVectorToArray *)instruction;
                 alignment_bytes = get_abi_alignment(g, vector_to_array_instruction->vector->value.type);

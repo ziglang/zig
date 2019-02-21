@@ -336,6 +336,11 @@ static void ir_print_load_ptr(IrPrint *irp, IrInstructionLoadPtr *instruction) {
     fprintf(irp->f, ".*");
 }
 
+static void ir_print_load_ptr_gen(IrPrint *irp, IrInstructionLoadPtrGen *instruction) {
+    ir_print_other_instruction(irp, instruction->ptr);
+    fprintf(irp->f, ".*");
+}
+
 static void ir_print_store_ptr(IrPrint *irp, IrInstructionStorePtr *instruction) {
     fprintf(irp->f, "*");
     ir_print_var_instruction(irp, instruction->ptr);
@@ -1467,6 +1472,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdLoadPtr:
             ir_print_load_ptr(irp, (IrInstructionLoadPtr *)instruction);
+            break;
+        case IrInstructionIdLoadPtrGen:
+            ir_print_load_ptr_gen(irp, (IrInstructionLoadPtrGen *)instruction);
             break;
         case IrInstructionIdStorePtr:
             ir_print_store_ptr(irp, (IrInstructionStorePtr *)instruction);
