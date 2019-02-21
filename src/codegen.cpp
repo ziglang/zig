@@ -2882,6 +2882,76 @@ static void add_error_range_check(CodeGen *g, ZigType *err_set_type, ZigType *in
     }
 }
 
+static LLVMValueRef ir_render_resize_slice(CodeGen *g, IrExecutable *executable,
+        IrInstructionResizeSlice *instruction)
+{
+    ZigType *actual_type = instruction->operand->value.type;
+    ZigType *wanted_type = instruction->base.value.type;
+    LLVMValueRef expr_val = ir_llvm_value(g, instruction->operand);
+    assert(expr_val);
+
+    assert(instruction->tmp_ptr);
+    assert(wanted_type->id == ZigTypeIdStruct);
+    assert(wanted_type->data.structure.is_slice);
+    assert(actual_type->id == ZigTypeIdStruct);
+    assert(actual_type->data.structure.is_slice);
+
+    ZigType *actual_pointer_type = actual_type->data.structure.fields[0].type_entry;
+    ZigType *actual_child_type = actual_pointer_type->data.pointer.child_type;
+    ZigType *wanted_pointer_type = wanted_type->data.structure.fields[0].type_entry;
+    ZigType *wanted_child_type = wanted_pointer_type->data.pointer.child_type;
+
+
+    size_t actual_ptr_index = actual_type->data.structure.fields[slice_ptr_index].gen_index;
+    size_t actual_len_index = actual_type->data.structure.fields[slice_len_index].gen_index;
+    size_t wanted_ptr_index = wanted_type->data.structure.fields[slice_ptr_index].gen_index;
+    size_t wanted_len_index = wanted_type->data.structure.fields[slice_len_index].gen_index;
+
+    LLVMValueRef src_ptr_ptr = LLVMBuildStructGEP(g->builder, expr_val, (unsigned)actual_ptr_index, "");
+    LLVMValueRef src_ptr = gen_load_untyped(g, src_ptr_ptr, 0, false, "");
+    LLVMValueRef src_ptr_casted = LLVMBuildBitCast(g->builder, src_ptr,
+            wanted_type->data.structure.fields[0].type_entry->type_ref, "");
+    LLVMValueRef dest_ptr_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr,
+            (unsigned)wanted_ptr_index, "");
+    gen_store_untyped(g, src_ptr_casted, dest_ptr_ptr, 0, false);
+
+    LLVMValueRef src_len_ptr = LLVMBuildStructGEP(g->builder, expr_val, (unsigned)actual_len_index, "");
+    LLVMValueRef src_len = gen_load_untyped(g, src_len_ptr, 0, false, "");
+    uint64_t src_size = type_size(g, actual_child_type);
+    uint64_t dest_size = type_size(g, wanted_child_type);
+
+    LLVMValueRef new_len;
+    if (dest_size == 1) {
+        LLVMValueRef src_size_val = LLVMConstInt(g->builtin_types.entry_usize->type_ref, src_size, false);
+        new_len = LLVMBuildMul(g->builder, src_len, src_size_val, "");
+    } else if (src_size == 1) {
+        LLVMValueRef dest_size_val = LLVMConstInt(g->builtin_types.entry_usize->type_ref, dest_size, false);
+        if (ir_want_runtime_safety(g, &instruction->base)) {
+            LLVMValueRef remainder_val = LLVMBuildURem(g->builder, src_len, dest_size_val, "");
+            LLVMValueRef zero = LLVMConstNull(g->builtin_types.entry_usize->type_ref);
+            LLVMValueRef ok_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, remainder_val, zero, "");
+            LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "SliceWidenOk");
+            LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "SliceWidenFail");
+            LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
+
+            LLVMPositionBuilderAtEnd(g->builder, fail_block);
+            gen_safety_crash(g, PanicMsgIdSliceWidenRemainder);
+
+            LLVMPositionBuilderAtEnd(g->builder, ok_block);
+        }
+        new_len = LLVMBuildExactUDiv(g->builder, src_len, dest_size_val, "");
+    } else {
+        zig_unreachable();
+    }
+
+    LLVMValueRef dest_len_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr,
+            (unsigned)wanted_len_index, "");
+    gen_store_untyped(g, new_len, dest_len_ptr, 0, false);
+
+
+    return instruction->tmp_ptr;
+}
+
 static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
         IrInstructionCast *cast_instruction)
 {
@@ -2896,69 +2966,6 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
             zig_unreachable();
         case CastOpNoop:
             return expr_val;
-        case CastOpResizeSlice:
-            {
-                assert(cast_instruction->tmp_ptr);
-                assert(wanted_type->id == ZigTypeIdStruct);
-                assert(wanted_type->data.structure.is_slice);
-                assert(actual_type->id == ZigTypeIdStruct);
-                assert(actual_type->data.structure.is_slice);
-
-                ZigType *actual_pointer_type = actual_type->data.structure.fields[0].type_entry;
-                ZigType *actual_child_type = actual_pointer_type->data.pointer.child_type;
-                ZigType *wanted_pointer_type = wanted_type->data.structure.fields[0].type_entry;
-                ZigType *wanted_child_type = wanted_pointer_type->data.pointer.child_type;
-
-
-                size_t actual_ptr_index = actual_type->data.structure.fields[slice_ptr_index].gen_index;
-                size_t actual_len_index = actual_type->data.structure.fields[slice_len_index].gen_index;
-                size_t wanted_ptr_index = wanted_type->data.structure.fields[slice_ptr_index].gen_index;
-                size_t wanted_len_index = wanted_type->data.structure.fields[slice_len_index].gen_index;
-
-                LLVMValueRef src_ptr_ptr = LLVMBuildStructGEP(g->builder, expr_val, (unsigned)actual_ptr_index, "");
-                LLVMValueRef src_ptr = gen_load_untyped(g, src_ptr_ptr, 0, false, "");
-                LLVMValueRef src_ptr_casted = LLVMBuildBitCast(g->builder, src_ptr,
-                        wanted_type->data.structure.fields[0].type_entry->type_ref, "");
-                LLVMValueRef dest_ptr_ptr = LLVMBuildStructGEP(g->builder, cast_instruction->tmp_ptr,
-                        (unsigned)wanted_ptr_index, "");
-                gen_store_untyped(g, src_ptr_casted, dest_ptr_ptr, 0, false);
-
-                LLVMValueRef src_len_ptr = LLVMBuildStructGEP(g->builder, expr_val, (unsigned)actual_len_index, "");
-                LLVMValueRef src_len = gen_load_untyped(g, src_len_ptr, 0, false, "");
-                uint64_t src_size = type_size(g, actual_child_type);
-                uint64_t dest_size = type_size(g, wanted_child_type);
-
-                LLVMValueRef new_len;
-                if (dest_size == 1) {
-                    LLVMValueRef src_size_val = LLVMConstInt(g->builtin_types.entry_usize->type_ref, src_size, false);
-                    new_len = LLVMBuildMul(g->builder, src_len, src_size_val, "");
-                } else if (src_size == 1) {
-                    LLVMValueRef dest_size_val = LLVMConstInt(g->builtin_types.entry_usize->type_ref, dest_size, false);
-                    if (ir_want_runtime_safety(g, &cast_instruction->base)) {
-                        LLVMValueRef remainder_val = LLVMBuildURem(g->builder, src_len, dest_size_val, "");
-                        LLVMValueRef zero = LLVMConstNull(g->builtin_types.entry_usize->type_ref);
-                        LLVMValueRef ok_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, remainder_val, zero, "");
-                        LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "SliceWidenOk");
-                        LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "SliceWidenFail");
-                        LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
-
-                        LLVMPositionBuilderAtEnd(g->builder, fail_block);
-                        gen_safety_crash(g, PanicMsgIdSliceWidenRemainder);
-
-                        LLVMPositionBuilderAtEnd(g->builder, ok_block);
-                    }
-                    new_len = LLVMBuildExactUDiv(g->builder, src_len, dest_size_val, "");
-                } else {
-                    zig_unreachable();
-                }
-
-                LLVMValueRef dest_len_ptr = LLVMBuildStructGEP(g->builder, cast_instruction->tmp_ptr,
-                        (unsigned)wanted_len_index, "");
-                gen_store_untyped(g, new_len, dest_len_ptr, 0, false);
-
-
-                return cast_instruction->tmp_ptr;
-            }
         case CastOpIntToFloat:
             assert(actual_type->id == ZigTypeIdInt);
             if (actual_type->data.integral.is_signed) {
@@ -5625,6 +5632,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_vector_to_array(g, executable, (IrInstructionVectorToArray *)instruction);
         case IrInstructionIdAssertZero:
             return ir_render_assert_zero(g, executable, (IrInstructionAssertZero *)instruction);
+        case IrInstructionIdResizeSlice:
+            return ir_render_resize_slice(g, executable, (IrInstructionResizeSlice *)instruction);
     }
     zig_unreachable();
 }
@@ -6716,6 +6725,9 @@ static void do_code_gen(CodeGen *g) {
             } else if (instruction->id == IrInstructionIdCmpxchgGen) {
                 IrInstructionCmpxchgGen *cmpxchg_instruction = (IrInstructionCmpxchgGen *)instruction;
                 slot = &cmpxchg_instruction->tmp_ptr;
+            } else if (instruction->id == IrInstructionIdResizeSlice) {
+                IrInstructionResizeSlice *resize_slice_instruction = (IrInstructionResizeSlice *)instruction;
+                slot = &resize_slice_instruction->tmp_ptr;
             } else if (instruction->id == IrInstructionIdVectorToArray) {
                 IrInstructionVectorToArray *vector_to_array_instruction = (IrInstructionVectorToArray *)instruction;
                 alignment_bytes = get_abi_alignment(g, vector_to_array_instruction->vector->value.type);

@@ -630,19 +630,6 @@ struct AstNodeUnwrapOptional {
     AstNode *expr;
 };
 
-enum CastOp {
-    CastOpNoCast, // signifies the function call expression is not a cast
-    CastOpNoop, // fn call expr is a cast, but does nothing
-    CastOpIntToFloat,
-    CastOpFloatToInt,
-    CastOpBoolToInt,
-    CastOpResizeSlice,
-    CastOpNumLitToConcrete,
-    CastOpErrSet,
-    CastOpBitCast,
-    CastOpPtrOfArrayToSlice,
-};
-
 struct AstNodeFnCallExpr {
     AstNode *fn_ref_expr;
     ZigList<AstNode *> params;
@@ -2142,6 +2129,7 @@ enum IrInstructionId {
     IrInstructionIdConst,
     IrInstructionIdReturn,
     IrInstructionIdCast,
+    IrInstructionIdResizeSlice,
     IrInstructionIdContainerInitList,
     IrInstructionIdContainerInitFields,
     IrInstructionIdStructInit,
@@ -2503,6 +2491,18 @@ struct IrInstructionReturn {
     IrInstruction *value;
 };
 
+enum CastOp {
+    CastOpNoCast, // signifies the function call expression is not a cast
+    CastOpNoop, // fn call expr is a cast, but does nothing
+    CastOpIntToFloat,
+    CastOpFloatToInt,
+    CastOpBoolToInt,
+    CastOpNumLitToConcrete,
+    CastOpErrSet,
+    CastOpBitCast,
+    CastOpPtrOfArrayToSlice,
+};
+
 // TODO get rid of this instruction, replace with instructions for each op code
 struct IrInstructionCast {
     IrInstruction base;
@@ -2510,6 +2510,13 @@ struct IrInstructionCast {
     IrInstruction *value;
     ZigType *dest_type;
     CastOp cast_op;
+    LLVMValueRef tmp_ptr;
+};
+
+struct IrInstructionResizeSlice {
+    IrInstruction base;
+
+    IrInstruction *operand;
     LLVMValueRef tmp_ptr;
 };
 

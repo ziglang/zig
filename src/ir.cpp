@@ -456,6 +456,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionCast *) {
     return IrInstructionIdCast;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionResizeSlice *) {
+    return IrInstructionIdResizeSlice;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionContainerInitList *) {
     return IrInstructionIdContainerInitList;
 }
@@ -1473,6 +1477,19 @@ static IrInstruction *ir_build_var_decl_gen(IrAnalyze *ira, IrInstruction *sourc
     ir_ref_instruction(init_value, ira->new_irb.current_basic_block);
 
     return &decl_var_instruction->base;
+}
+
+static IrInstruction *ir_build_resize_slice(IrAnalyze *ira, IrInstruction *source_instruction,
+        IrInstruction *operand, ZigType *ty)
+{
+    IrInstructionResizeSlice *instruction = ir_build_instruction<IrInstructionResizeSlice>(&ira->new_irb,
+            source_instruction->scope, source_instruction->source_node);
+    instruction->base.value.type = ty;
+    instruction->operand = operand;
+
+    ir_ref_instruction(operand, ira->new_irb.current_basic_block);
+
+    return &instruction->base;
 }
 
 static IrInstruction *ir_build_export(IrBuilder *irb, Scope *scope, AstNode *source_node,
@@ -9674,9 +9691,6 @@ static bool eval_const_expr_implicit_cast(IrAnalyze *ira, IrInstruction *source_
             }
             const_val->type = new_type;
             break;
-        case CastOpResizeSlice:
-            // can't do it
-            zig_unreachable();
         case CastOpIntToFloat:
             {
                 assert(new_type->id == ZigTypeIdFloat);
@@ -9740,9 +9754,7 @@ static IrInstruction *ir_const(IrAnalyze *ira, IrInstruction *old_instruction, Z
 static IrInstruction *ir_resolve_cast(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value,
         ZigType *wanted_type, CastOp cast_op, bool need_alloca)
 {
-    if ((instr_is_comptime(value) || !type_has_bits(wanted_type)) &&
-        cast_op != CastOpResizeSlice)
-    {
+    if (instr_is_comptime(value) || !type_has_bits(wanted_type)) {
         IrInstruction *result = ir_const(ira, source_instr, wanted_type);
         if (!eval_const_expr_implicit_cast(ira, source_instr, cast_op, &value->value, value->value.type,
             &result->value, wanted_type))
@@ -19082,7 +19094,9 @@ static IrInstruction *ir_analyze_instruction_from_bytes(IrAnalyze *ira, IrInstru
         }
     }
 
-    return ir_resolve_cast(ira, &instruction->base, casted_value, dest_slice_type, CastOpResizeSlice, true);
+    IrInstruction *result = ir_build_resize_slice(ira, &instruction->base, casted_value, dest_slice_type);
+    ir_add_alloca(ira, result, dest_slice_type);
+    return result;
 }
 
 static IrInstruction *ir_analyze_instruction_to_bytes(IrAnalyze *ira, IrInstructionToBytes *instruction) {
@@ -19109,7 +19123,34 @@ static IrInstruction *ir_analyze_instruction_to_bytes(IrAnalyze *ira, IrInstruct
             alignment, 0, 0);
     ZigType *dest_slice_type = get_slice_type(ira->codegen, dest_ptr_type);
 
-    return ir_resolve_cast(ira, &instruction->base, target, dest_slice_type, CastOpResizeSlice, true);
+    if (instr_is_comptime(target)) {
+        ConstExprValue *target_val = ir_resolve_const(ira, target, UndefBad);
+        if (target_val == nullptr)
+            return ira->codegen->invalid_instruction;
+
+        IrInstruction *result = ir_const(ira, &instruction->base, dest_slice_type);
+        result->value.data.x_struct.fields = create_const_vals(2);
+
+        ConstExprValue *ptr_val = &result->value.data.x_struct.fields[slice_ptr_index];
+        ConstExprValue *target_ptr_val = &target_val->data.x_struct.fields[slice_ptr_index];
+        copy_const_val(ptr_val, target_ptr_val, false);
+        ptr_val->type = dest_ptr_type;
+
+        ConstExprValue *len_val = &result->value.data.x_struct.fields[slice_len_index];
+        len_val->special = ConstValSpecialStatic;
+        len_val->type = ira->codegen->builtin_types.entry_usize;
+        ConstExprValue *target_len_val = &target_val->data.x_struct.fields[slice_len_index];
+        ZigType *elem_type = src_ptr_type->data.pointer.child_type;
+        BigInt elem_size_bigint;
+        bigint_init_unsigned(&elem_size_bigint, type_size(ira->codegen, elem_type));
+        bigint_mul(&len_val->data.x_bigint, &target_len_val->data.x_bigint, &elem_size_bigint);
+
+        return result;
+    }
+
+    IrInstruction *result = ir_build_resize_slice(ira, &instruction->base, target, dest_slice_type);
+    ir_add_alloca(ira, result, dest_slice_type);
+    return result;
 }
 
 static Error resolve_ptr_align(IrAnalyze *ira, ZigType *ty, uint32_t *result_align) {
@@ -22274,6 +22315,7 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
         case IrInstructionIdArrayToVector:
         case IrInstructionIdVectorToArray:
         case IrInstructionIdAssertZero:
+        case IrInstructionIdResizeSlice:
             zig_unreachable();
 
         case IrInstructionIdReturn:
@@ -22673,6 +22715,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdCmpxchgGen:
         case IrInstructionIdCmpxchgSrc:
         case IrInstructionIdAssertZero:
+        case IrInstructionIdResizeSlice:
             return true;
 
         case IrInstructionIdPhi:
