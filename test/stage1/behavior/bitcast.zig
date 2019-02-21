@@ -66,3 +66,31 @@ test "@bitCast packed structs at runtime and comptime" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "@bitCast extern structs at runtime and comptime" {
+    const Full = extern struct {
+        number: u16,
+    };
+    const TwoHalves = extern struct {
+        half1: u8,
+        half2: u8,
+    };
+    const S = struct {
+        fn doTheTest() void {
+            var full = Full{ .number = 0x1234 };
+            var two_halves = @bitCast(TwoHalves, full);
+            switch (builtin.endian) {
+                builtin.Endian.Big => {
+                    expect(two_halves.half1 == 0x12);
+                    expect(two_halves.half2 == 0x34);
+                },
+                builtin.Endian.Little => {
+                    expect(two_halves.half1 == 0x34);
+                    expect(two_halves.half2 == 0x12);
+                },
+            }
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}

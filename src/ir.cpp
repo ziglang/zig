@@ -20923,8 +20923,19 @@ static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue
             switch (val->type->data.structure.layout) {
                 case ContainerLayoutAuto:
                     zig_unreachable();
-                case ContainerLayoutExtern:
-                    zig_panic("TODO buf_write_value_bytes extern struct");
+                case ContainerLayoutExtern: {
+                    size_t src_field_count = val->type->data.structure.src_field_count;
+                    for (size_t field_i = 0; field_i < src_field_count; field_i += 1) {
+                        TypeStructField *type_field = &val->type->data.structure.fields[field_i];
+                        if (type_field->gen_index == SIZE_MAX)
+                            continue;
+                        ConstExprValue *field_val = &val->data.x_struct.fields[field_i];
+                        size_t offset = LLVMOffsetOfElement(codegen->target_data_ref, val->type->type_ref,
+                                type_field->gen_index);
+                        buf_write_value_bytes(codegen, buf + offset, field_val);
+                    }
+                    return;
+                }
                 case ContainerLayoutPacked: {
                     size_t src_field_count = val->type->data.structure.src_field_count;
                     size_t gen_field_count = val->type->data.structure.gen_field_count;
@@ -20979,9 +20990,9 @@ static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue
                         offset += big_int_byte_count;
                         gen_i += 1;
                     }
+                    return;
                 }
             }
-            return;
         case ZigTypeIdOptional:
             zig_panic("TODO buf_write_value_bytes maybe type");
         case ZigTypeIdErrorUnion:
