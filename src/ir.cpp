@@ -13779,15 +13779,25 @@ static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source
         return ir_const_void(ira, source_instr);
     }
 
+    ZigType *child_type = ptr->value.type->data.pointer.child_type;
+
     if (ptr->value.type->data.pointer.is_const && !source_instr->is_gen) {
         ir_add_error(ira, source_instr, buf_sprintf("cannot assign to constant"));
         return ira->codegen->invalid_instruction;
     }
 
-    ZigType *child_type = ptr->value.type->data.pointer.child_type;
     IrInstruction *value = ir_implicit_cast(ira, uncasted_value, child_type);
     if (value == ira->codegen->invalid_instruction)
         return ira->codegen->invalid_instruction;
+
+    switch (type_has_one_possible_value(ira->codegen, child_type)) {
+        case OnePossibleValueInvalid:
+            return ira->codegen->invalid_instruction;
+        case OnePossibleValueYes:
+            return ir_const_void(ira, source_instr);
+        case OnePossibleValueNo:
+            break;
+    }
 
     if (instr_is_comptime(ptr) && ptr->value.data.x_ptr.special != ConstPtrSpecialHardCodedAddr) {
         if (ptr->value.data.x_ptr.mut == ConstPtrMutComptimeConst) {
@@ -13809,15 +13819,7 @@ static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source
                     bool same_global_refs = ptr->value.data.x_ptr.mut != ConstPtrMutComptimeVar;
                     copy_const_val(dest_val, &value->value, same_global_refs);
                     if (!ira->new_irb.current_basic_block->must_be_comptime_source_instr) {
-                        switch (type_has_one_possible_value(ira->codegen, child_type)) {
-                            case OnePossibleValueInvalid:
-                                return ira->codegen->invalid_instruction;
-                            case OnePossibleValueNo:
-                                ira->new_irb.current_basic_block->must_be_comptime_source_instr = source_instr;
-                                break;
-                            case OnePossibleValueYes:
-                                break;
-                        }
+                        ira->new_irb.current_basic_block->must_be_comptime_source_instr = source_instr;
                     }
                     return ir_const_void(ira, source_instr);
                 }
@@ -15346,6 +15348,16 @@ static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_
     if (bare_type->id == ZigTypeIdStruct) {
         TypeStructField *field = find_struct_type_field(bare_type, field_name);
         if (field) {
+            switch (type_has_one_possible_value(ira->codegen, field->type_entry)) {
+                case OnePossibleValueInvalid:
+                    return ira->codegen->invalid_instruction;
+                case OnePossibleValueYes: {
+                    IrInstruction *elem = ir_const(ira, source_instr, field->type_entry);
+                    return ir_get_ref(ira, source_instr, elem, false, false);
+                }
+                case OnePossibleValueNo:
+                    break;
+            }
             bool is_packed = (bare_type->data.structure.layout == ContainerLayoutPacked);
             uint32_t align_bytes = is_packed ? 1 : get_abi_alignment(ira->codegen, field->type_entry);
             uint32_t ptr_bit_offset = container_ptr->value.type->data.pointer.bit_offset_in_host;

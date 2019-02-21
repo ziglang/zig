@@ -491,3 +491,11 @@ test "non-byte-aligned array inside packed struct" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "packed struct with u0 field access" {
+    const S = packed struct {
+        f0: u0,
+    };
+    var s = S{ .f0 = 0 };
+    comptime expect(s.f0 == 0);
+}
