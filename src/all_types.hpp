@@ -2198,6 +2198,7 @@ enum IrInstructionId {
     IrInstructionIdPtrCastSrc,
     IrInstructionIdPtrCastGen,
     IrInstructionIdBitCast,
+    IrInstructionIdBitCastGen,
     IrInstructionIdWidenOrShorten,
     IrInstructionIdIntToPtr,
     IrInstructionIdPtrToInt,
@@ -3053,6 +3054,13 @@ struct IrInstructionBitCast {
 
     IrInstruction *dest_type;
     IrInstruction *value;
+};
+
+struct IrInstructionBitCastGen {
+    IrInstruction base;
+
+    IrInstruction *operand;
+    LLVMValueRef tmp_ptr;
 };
 
 struct IrInstructionWidenOrShorten {

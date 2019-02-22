@@ -7823,7 +7823,7 @@ Environments:
   coreclr
   opencl</code></pre>
       <p>
-      The Zig Standard Library ({#syntax#}@import("std"){#endsyntax#}) has architecture, environment, and operating sytsem
+      The Zig Standard Library ({#syntax#}@import("std"){#endsyntax#}) has architecture, environment, and operating system
       abstractions, and thus takes additional work to support more platforms.
       Not all standard library code requires operating system abstractions, however,
       so things such as generic data structures work an all above platforms.

@@ -3073,14 +3073,32 @@ static LLVMValueRef ir_render_ptr_cast(CodeGen *g, IrExecutable *executable,
 }
 
 static LLVMValueRef ir_render_bit_cast(CodeGen *g, IrExecutable *executable,
-        IrInstructionBitCast *instruction)
+        IrInstructionBitCastGen *instruction)
 {
     ZigType *wanted_type = instruction->base.value.type;
-    LLVMValueRef value = ir_llvm_value(g, instruction->value);
-    // We either bitcast the value directly or bitcast the pointer which does a pointer cast
-    LLVMTypeRef wanted_type_ref = handle_is_ptr(wanted_type) ?
-        LLVMPointerType(wanted_type->type_ref, 0) : wanted_type->type_ref;
-    return LLVMBuildBitCast(g->builder, value, wanted_type_ref, "");
+    ZigType *actual_type = instruction->operand->value.type;
+    LLVMValueRef value = ir_llvm_value(g, instruction->operand);
+
+    bool wanted_is_ptr = handle_is_ptr(wanted_type);
+    bool actual_is_ptr = handle_is_ptr(actual_type);
+    if (wanted_is_ptr == actual_is_ptr) {
+        // We either bitcast the value directly or bitcast the pointer which does a pointer cast
+        LLVMTypeRef wanted_type_ref = wanted_is_ptr ?
+            LLVMPointerType(wanted_type->type_ref, 0) : wanted_type->type_ref;
+        return LLVMBuildBitCast(g->builder, value, wanted_type_ref, "");
+    } else if (actual_is_ptr) {
+        LLVMTypeRef wanted_ptr_type_ref = LLVMPointerType(wanted_type->type_ref, 0);
+        LLVMValueRef bitcasted_ptr = LLVMBuildBitCast(g->builder, value, wanted_ptr_type_ref, "");
+        uint32_t alignment = get_abi_alignment(g, actual_type);
+        return gen_load_untyped(g, bitcasted_ptr, alignment, false, "");
+    } else {
+        assert(instruction->tmp_ptr != nullptr);
+        LLVMTypeRef wanted_ptr_type_ref = LLVMPointerType(actual_type->type_ref, 0);
+        LLVMValueRef bitcasted_ptr = LLVMBuildBitCast(g->builder, instruction->tmp_ptr, wanted_ptr_type_ref, "");
+        uint32_t alignment = get_abi_alignment(g, wanted_type);
+        gen_store_untyped(g, value, bitcasted_ptr, alignment, false);
+        return instruction->tmp_ptr;
+    }
 }
 
 static LLVMValueRef ir_render_widen_or_shorten(CodeGen *g, IrExecutable *executable,
@@ -5469,6 +5487,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdPtrCastSrc:
         case IrInstructionIdCmpxchgSrc:
         case IrInstructionIdLoadPtr:
+        case IrInstructionIdBitCast:
             zig_unreachable();
 
         case IrInstructionIdDeclVarGen:
@@ -5565,8 +5584,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_union_init(g, executable, (IrInstructionUnionInit *)instruction);
         case IrInstructionIdPtrCastGen:
             return ir_render_ptr_cast(g, executable, (IrInstructionPtrCastGen *)instruction);
-        case IrInstructionIdBitCast:
-            return ir_render_bit_cast(g, executable, (IrInstructionBitCast *)instruction);
+        case IrInstructionIdBitCastGen:
+            return ir_render_bit_cast(g, executable, (IrInstructionBitCastGen *)instruction);
         case IrInstructionIdWidenOrShorten:
             return ir_render_widen_or_shorten(g, executable, (IrInstructionWidenOrShorten *)instruction);
         case IrInstructionIdPtrToInt:
@@ -6764,6 +6783,9 @@ static void do_code_gen(CodeGen *g) {
             } else if (instruction->id == IrInstructionIdLoadPtrGen) {
                 IrInstructionLoadPtrGen *load_ptr_inst = (IrInstructionLoadPtrGen *)instruction;
                 slot = &load_ptr_inst->tmp_ptr;
+            } else if (instruction->id == IrInstructionIdBitCastGen) {
+                IrInstructionBitCastGen *bit_cast_inst = (IrInstructionBitCastGen *)instruction;
+                slot = &bit_cast_inst->tmp_ptr;
             } else if (instruction->id == IrInstructionIdVectorToArray) {
                 IrInstructionVectorToArray *vector_to_array_instruction = (IrInstructionVectorToArray *)instruction;
                 alignment_bytes = get_abi_alignment(g, vector_to_array_instruction->vector->value.type);

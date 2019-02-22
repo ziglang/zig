@@ -94,3 +94,21 @@ test "@bitCast extern structs at runtime and comptime" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "bitcast packed struct to integer and back" {
+    const LevelUpMove = packed struct {
+        move_id: u9,
+        level: u7,
+    };
+    const S = struct {
+        fn doTheTest() void {
+            var move = LevelUpMove{ .move_id = 1, .level = 2 };
+            var v = @bitCast(u16, move);
+            var back_to_a_move = @bitCast(LevelUpMove, v);
+            expect(back_to_a_move.move_id == 1);
+            expect(back_to_a_move.level == 2);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}

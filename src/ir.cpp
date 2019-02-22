@@ -744,6 +744,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionBitCast *) {
     return IrInstructionIdBitCast;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionBitCastGen *) {
+    return IrInstructionIdBitCastGen;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionWidenOrShorten *) {
     return IrInstructionIdWidenOrShorten;
 }
@@ -2317,8 +2321,21 @@ static IrInstruction *ir_build_bit_cast(IrBuilder *irb, Scope *scope, AstNode *s
     instruction->dest_type = dest_type;
     instruction->value = value;
 
-    if (dest_type) ir_ref_instruction(dest_type, irb->current_basic_block);
+    ir_ref_instruction(dest_type, irb->current_basic_block);
     ir_ref_instruction(value, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_bit_cast_gen(IrAnalyze *ira, IrInstruction *source_instruction,
+        IrInstruction *operand, ZigType *ty)
+{
+    IrInstructionBitCastGen *instruction = ir_build_instruction<IrInstructionBitCastGen>(
+            &ira->new_irb, source_instruction->scope, source_instruction->source_node);
+    instruction->base.value.type = ty;
+    instruction->operand = operand;
+
+    ir_ref_instruction(operand, ira->new_irb.current_basic_block);
 
     return &instruction->base;
 }
@@ -21335,9 +21352,10 @@ static IrInstruction *ir_analyze_bit_cast(IrAnalyze *ira, IrInstruction *source_
         return result;
     }
 
-    IrInstruction *result = ir_build_bit_cast(&ira->new_irb, source_instr->scope,
-            source_instr->source_node, nullptr, value);
-    result->value.type = dest_type;
+    IrInstruction *result = ir_build_bit_cast_gen(ira, source_instr, value, dest_type);
+    if (handle_is_ptr(dest_type) && !handle_is_ptr(src_type)) {
+        ir_add_alloca(ira, result, dest_type);
+    }
     return result;
 }
 
@@ -22347,6 +22365,7 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
         case IrInstructionIdAssertZero:
         case IrInstructionIdResizeSlice:
         case IrInstructionIdLoadPtrGen:
+        case IrInstructionIdBitCastGen:
             zig_unreachable();
 
         case IrInstructionIdReturn:
@@ -22804,6 +22823,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdPtrCastSrc:
         case IrInstructionIdPtrCastGen:
         case IrInstructionIdBitCast:
+        case IrInstructionIdBitCastGen:
         case IrInstructionIdWidenOrShorten:
         case IrInstructionIdPtrToInt:
         case IrInstructionIdIntToPtr:
