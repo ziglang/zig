@@ -2,6 +2,18 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.addTest(
+        "comptime vector overflow shows the index",
+        \\comptime {
+        \\    var a: @Vector(4, u8) = []u8{ 1, 2, 255, 4 };
+        \\    var b: @Vector(4, u8) = []u8{ 5, 6, 1, 8 };
+        \\    var x = a + b;
+        \\}
+    ,
+        ".tmp_source.zig:4:15: error: operation caused overflow",
+        ".tmp_source.zig:4:15: note: when computing vector element at index 2",
+    );
+
+    cases.addTest(
         "packed struct with fields of not allowed types",
         \\const A = packed struct {
         \\    x: anyerror,

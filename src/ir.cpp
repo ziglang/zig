@@ -14620,6 +14620,41 @@ static IrInstruction *ir_analyze_maybe(IrAnalyze *ira, IrInstructionUnOp *un_op_
     zig_unreachable();
 }
 
+static ErrorMsg *ir_eval_negation_scalar(IrAnalyze *ira, IrInstruction *source_instr, ZigType *scalar_type,
+        ConstExprValue *operand_val, ConstExprValue *scalar_out_val, bool is_wrap_op)
+{
+    bool is_float = (scalar_type->id == ZigTypeIdFloat || scalar_type->id == ZigTypeIdComptimeFloat);
+
+    bool ok_type = ((scalar_type->id == ZigTypeIdInt && scalar_type->data.integral.is_signed) ||
+        scalar_type->id == ZigTypeIdComptimeInt || (is_float && !is_wrap_op));
+
+    if (!ok_type) {
+        const char *fmt = is_wrap_op ? "invalid wrapping negation type: '%s'" : "invalid negation type: '%s'";
+        return ir_add_error(ira, source_instr, buf_sprintf(fmt, buf_ptr(&scalar_type->name)));
+    }
+
+    if (is_float) {
+        float_negate(scalar_out_val, operand_val);
+    } else if (is_wrap_op) {
+        bigint_negate_wrap(&scalar_out_val->data.x_bigint, &operand_val->data.x_bigint,
+                scalar_type->data.integral.bit_count);
+    } else {
+        bigint_negate(&scalar_out_val->data.x_bigint, &operand_val->data.x_bigint);
+    }
+
+    scalar_out_val->type = scalar_type;
+    scalar_out_val->special = ConstValSpecialStatic;
+
+    if (is_wrap_op || is_float || scalar_type->id == ZigTypeIdComptimeInt) {
+        return nullptr;
+    }
+
+    if (!bigint_fits_in_bits(&scalar_out_val->data.x_bigint, scalar_type->data.integral.bit_count, true)) {
+        return ir_add_error(ira, source_instr, buf_sprintf("negation caused overflow"));
+    }
+    return nullptr;
+}
+
 static IrInstruction *ir_analyze_negation(IrAnalyze *ira, IrInstructionUnOp *instruction) {
     IrInstruction *value = instruction->value->child;
     ZigType *expr_type = value->value.type;
@@ -14628,47 +14663,50 @@ static IrInstruction *ir_analyze_negation(IrAnalyze *ira, IrInstructionUnOp *ins
 
     bool is_wrap_op = (instruction->op_id == IrUnOpNegationWrap);
 
-    bool is_float = (expr_type->id == ZigTypeIdFloat || expr_type->id == ZigTypeIdComptimeFloat);
+    ZigType *scalar_type = (expr_type->id == ZigTypeIdVector) ? expr_type->data.vector.elem_type : expr_type;
 
-    if ((expr_type->id == ZigTypeIdInt && expr_type->data.integral.is_signed) ||
-        expr_type->id == ZigTypeIdComptimeInt || (is_float && !is_wrap_op))
-    {
-        if (instr_is_comptime(value)) {
-            ConstExprValue *target_const_val = ir_resolve_const(ira, value, UndefBad);
-            if (!target_const_val)
+    if (instr_is_comptime(value)) {
+        ConstExprValue *operand_val = ir_resolve_const(ira, value, UndefBad);
+        if (!operand_val)
+            return ira->codegen->invalid_instruction;
+
+        IrInstruction *result_instruction = ir_const(ira, &instruction->base, expr_type);
+        ConstExprValue *out_val = &result_instruction->value;
+        if (expr_type->id == ZigTypeIdVector) {
+            expand_undef_array(ira->codegen, operand_val);
+            out_val->special = ConstValSpecialUndef;
+            expand_undef_array(ira->codegen, out_val);
+            size_t len = expr_type->data.vector.len;
+            for (size_t i = 0; i < len; i += 1) {
+                ConstExprValue *scalar_operand_val = &operand_val->data.x_array.data.s_none.elements[i];
+                ConstExprValue *scalar_out_val = &out_val->data.x_array.data.s_none.elements[i];
+                assert(scalar_operand_val->type == scalar_type);
+                assert(scalar_out_val->type == scalar_type);
+                ErrorMsg *msg = ir_eval_negation_scalar(ira, &instruction->base, scalar_type,
+                        scalar_operand_val, scalar_out_val, is_wrap_op);
+                if (msg != nullptr) {
+                    add_error_note(ira->codegen, msg, instruction->base.source_node,
+                        buf_sprintf("when computing vector element at index %" ZIG_PRI_usize, i));
+                    return ira->codegen->invalid_instruction;
+                }
+            }
+            out_val->type = expr_type;
+            out_val->special = ConstValSpecialStatic;
+        } else {
+            if (ir_eval_negation_scalar(ira, &instruction->base, scalar_type, operand_val, out_val,
+                        is_wrap_op) != nullptr)
+            {
                 return ira->codegen->invalid_instruction;
-
-            IrInstruction *result = ir_const(ira, &instruction->base, expr_type);
-            ConstExprValue *out_val = &result->value;
-            if (is_float) {
-                float_negate(out_val, target_const_val);
-            } else if (is_wrap_op) {
-                bigint_negate_wrap(&out_val->data.x_bigint, &target_const_val->data.x_bigint,
-                        expr_type->data.integral.bit_count);
-            } else {
-                bigint_negate(&out_val->data.x_bigint, &target_const_val->data.x_bigint);
             }
-            if (is_wrap_op || is_float || expr_type->id == ZigTypeIdComptimeInt) {
-                return result;
-            }
-
-            if (!bigint_fits_in_bits(&out_val->data.x_bigint, expr_type->data.integral.bit_count, true)) {
-                ir_add_error(ira, &instruction->base, buf_sprintf("negation caused overflow"));
-                return ira->codegen->invalid_instruction;
-            }
-            return result;
         }
-
-        IrInstruction *result = ir_build_un_op(&ira->new_irb,
-                instruction->base.scope, instruction->base.source_node,
-                instruction->op_id, value);
-        result->value.type = expr_type;
-        return result;
+        return result_instruction;
     }
 
-    const char *fmt = is_wrap_op ? "invalid wrapping negation type: '%s'" : "invalid negation type: '%s'";
-    ir_add_error(ira, &instruction->base, buf_sprintf(fmt, buf_ptr(&expr_type->name)));
-    return ira->codegen->invalid_instruction;
+    IrInstruction *result = ir_build_un_op(&ira->new_irb,
+            instruction->base.scope, instruction->base.source_node,
+            instruction->op_id, value);
+    result->value.type = expr_type;
+    return result;
 }
 
 static IrInstruction *ir_analyze_bin_not(IrAnalyze *ira, IrInstructionUnOp *instruction) {
