@@ -135,9 +135,9 @@ Error ATTRIBUTE_MUST_USE os_self_exe_path(Buf *out_path);
 
 Error ATTRIBUTE_MUST_USE os_get_app_data_dir(Buf *out_path, const char *appname);
 
-int os_get_win32_ucrt_include_path(ZigWindowsSDK *sdk, Buf *output_buf);
-int os_get_win32_ucrt_lib_path(ZigWindowsSDK *sdk, Buf *output_buf, ZigLLVM_ArchType platform_type);
-int os_get_win32_kern32_path(ZigWindowsSDK *sdk, Buf *output_buf, ZigLLVM_ArchType platform_type);
+Error ATTRIBUTE_MUST_USE os_get_win32_ucrt_include_path(ZigWindowsSDK *sdk, Buf *output_buf);
+Error ATTRIBUTE_MUST_USE os_get_win32_ucrt_lib_path(ZigWindowsSDK *sdk, Buf *output_buf, ZigLLVM_ArchType platform_type);
+Error ATTRIBUTE_MUST_USE os_get_win32_kern32_path(ZigWindowsSDK *sdk, Buf *output_buf, ZigLLVM_ArchType platform_type);
 
 Error ATTRIBUTE_MUST_USE os_self_exe_shared_libs(ZigList<Buf *> &paths);
 

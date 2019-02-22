@@ -13,6 +13,7 @@
 #include "error.hpp"
 #include "os.hpp"
 #include "target.hpp"
+#include "libc_installation.hpp"
 
 #include <stdio.h>
 
@@ -36,6 +37,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  id                           print the base64-encoded compiler id\n"
         "  init-exe                     initialize a `zig build` application in the cwd\n"
         "  init-lib                     initialize a `zig build` library in the cwd\n"
+        "  libc [paths_file]            Display native libc paths file or validate one\n"
         "  run [source]                 create executable and run immediately\n"
         "  translate-c [source]         convert c code to zig code\n"
         "  targets                      list available compilation targets\n"
@@ -53,7 +55,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  --enable-valgrind            include valgrind client requests release builds\n"
         "  --emit [asm|bin|llvm-ir]     emit a specific file format as compilation output\n"
         "  -ftime-report                print timing diagnostics\n"
-        "  --libc-include-dir [path]    directory where libc stdlib.h resides\n"
+        "  --libc [file]                Provide a file which specifies libc paths\n"
         "  --name [name]                override output name\n"
         "  --output [file]              override destination path\n"
         "  --output-h [file]            generate header file\n"
@@ -82,10 +84,6 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "Link Options:\n"
         "  --dynamic-linker [path]      set the path to ld.so\n"
         "  --each-lib-rpath             add rpath for each used dynamic library\n"
-        "  --libc-lib-dir [path]        directory where libc crt1.o resides\n"
-        "  --libc-static-lib-dir [path] directory where libc crtbegin.o resides\n"
-        "  --msvc-lib-dir [path]        (windows) directory where vcruntime.lib resides\n"
-        "  --kernel32-lib-dir [path]    (windows) directory where kernel32.lib resides\n"
         "  --library [lib]              link against lib\n"
         "  --forbid-library [lib]       make it an error to link against lib\n"
         "  --library-path [dir]         add a directory to the library search path\n"
@@ -108,6 +106,26 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  --test-cmd [arg]             specify test execution command one arg at a time\n"
         "  --test-cmd-bin               appends test binary path to test cmd args\n"
     , arg0);
+    return return_code;
+}
+
+static int print_libc_usage(const char *arg0, FILE *file, int return_code) {
+    fprintf(file,
+        "Usage: %s libc\n"
+        "\n"
+        "Detect the native libc installation and print the resulting paths to stdout.\n"
+        "You can save this into a file and then edit the paths to create a cross\n"
+        "compilation libc kit. Then you can pass `--libc [file]` for Zig to use it.\n"
+        "\n"
+        "When compiling natively and no `--libc` argument provided, Zig automatically\n"
+        "creates zig-cache/native_libc.txt so that it does not have to detect libc\n"
+        "on every invocation. You can remove this file to have Zig re-detect the\n"
+        "native libc.\n"
+        "\n\n"
+        "Usage: %s libc [file]\n"
+        "\n"
+        "Parse a libc installation text file and validate it.\n"
+    , arg0, arg0);
     return return_code;
 }
 
@@ -169,6 +187,7 @@ enum Cmd {
     CmdTranslateC,
     CmdVersion,
     CmdZen,
+    CmdLibC,
 };
 
 static const char *default_zig_cache_name = "zig-cache";
@@ -359,12 +378,7 @@ int main(int argc, char **argv) {
     bool verbose_cimport = false;
     ErrColor color = ErrColorAuto;
     CacheOpt enable_cache = CacheOptAuto;
-    const char *libc_lib_dir = nullptr;
-    const char *libc_static_lib_dir = nullptr;
-    const char *libc_include_dir = nullptr;
-    const char *msvc_lib_dir = nullptr;
-    const char *kernel32_lib_dir = nullptr;
-    const char *dynamic_linker = nullptr;
+    const char *libc_txt = nullptr;
     ZigList<const char *> clang_argv = {0};
     ZigList<const char *> llvm_argv = {0};
     ZigList<const char *> lib_dirs = {0};
@@ -434,8 +448,10 @@ int main(int argc, char **argv) {
         Buf *build_runner_path = buf_alloc();
         os_path_join(get_zig_special_dir(), buf_create_from_str("build_runner.zig"), build_runner_path);
 
-        CodeGen *g = codegen_create(build_runner_path, nullptr, OutTypeExe, BuildModeDebug, get_zig_lib_dir(),
-                override_std_dir);
+        ZigTarget target;
+        get_native_target(&target);
+        CodeGen *g = codegen_create(build_runner_path, &target, OutTypeExe, BuildModeDebug, get_zig_lib_dir(),
+                override_std_dir, nullptr);
         g->valgrind_support = valgrind_support;
         g->enable_time_report = timing_info;
         buf_init_from_str(&g->cache_dir, cache_dir ? cache_dir : default_zig_cache_name);
@@ -520,10 +536,12 @@ int main(int argc, char **argv) {
         return (term.how == TerminationIdClean) ? term.code : -1;
     } else if (argc >= 2 && strcmp(argv[1], "fmt") == 0) {
         init_all_targets();
+        ZigTarget target;
+        get_native_target(&target);
         Buf *fmt_runner_path = buf_alloc();
         os_path_join(get_zig_special_dir(), buf_create_from_str("fmt_runner.zig"), fmt_runner_path);
-        CodeGen *g = codegen_create(fmt_runner_path, nullptr, OutTypeExe, BuildModeDebug, get_zig_lib_dir(),
-                nullptr);
+        CodeGen *g = codegen_create(fmt_runner_path, &target, OutTypeExe, BuildModeDebug, get_zig_lib_dir(),
+                nullptr, nullptr);
         g->valgrind_support = valgrind_support;
         g->is_single_threaded = true;
         codegen_set_out_name(g, buf_create_from_str("fmt"));
@@ -557,7 +575,11 @@ int main(int argc, char **argv) {
             } else if (strcmp(arg, "--release-small") == 0) {
                 build_mode = BuildModeSmallRelease;
             } else if (strcmp(arg, "--help") == 0) {
-                return print_full_usage(arg0, stderr, EXIT_FAILURE);
+                if (cmd == CmdLibC) {
+                    return print_libc_usage(arg0, stderr, EXIT_FAILURE);
+                } else {
+                    return print_full_usage(arg0, stderr, EXIT_FAILURE);
+                }
             } else if (strcmp(arg, "--strip") == 0) {
                 strip = true;
             } else if (strcmp(arg, "--static") == 0) {
@@ -658,18 +680,8 @@ int main(int argc, char **argv) {
                     }
                 } else if (strcmp(arg, "--name") == 0) {
                     out_name = argv[i];
-                } else if (strcmp(arg, "--libc-lib-dir") == 0) {
-                    libc_lib_dir = argv[i];
-                } else if (strcmp(arg, "--libc-static-lib-dir") == 0) {
-                    libc_static_lib_dir = argv[i];
-                } else if (strcmp(arg, "--libc-include-dir") == 0) {
-                    libc_include_dir = argv[i];
-                } else if (strcmp(arg, "--msvc-lib-dir") == 0) {
-                    msvc_lib_dir = argv[i];
-                } else if (strcmp(arg, "--kernel32-lib-dir") == 0) {
-                    kernel32_lib_dir = argv[i];
-                } else if (strcmp(arg, "--dynamic-linker") == 0) {
-                    dynamic_linker = argv[i];
+                } else if (strcmp(arg, "--libc") == 0) {
+                    libc_txt = argv[i];
                 } else if (strcmp(arg, "-isystem") == 0) {
                     clang_argv.append("-isystem");
                     clang_argv.append(argv[i]);
@@ -778,6 +790,8 @@ int main(int argc, char **argv) {
                 cmd = CmdVersion;
             } else if (strcmp(arg, "zen") == 0) {
                 cmd = CmdZen;
+            } else if (strcmp(arg, "libc") == 0) {
+                cmd = CmdLibC;
             } else if (strcmp(arg, "translate-c") == 0) {
                 cmd = CmdTranslateC;
             } else if (strcmp(arg, "test") == 0) {
@@ -797,6 +811,7 @@ int main(int argc, char **argv) {
                 case CmdRun:
                 case CmdTranslateC:
                 case CmdTest:
+                case CmdLibC:
                     if (!in_file) {
                         in_file = arg;
                         if (cmd == CmdRun) {
@@ -828,27 +843,25 @@ int main(int argc, char **argv) {
 
     init_all_targets();
 
-    ZigTarget alloc_target;
-    ZigTarget *target;
+    ZigTarget target;
     if (!target_arch && !target_os && !target_environ) {
-        target = nullptr;
+        get_native_target(&target);
     } else {
-        target = &alloc_target;
-        get_unknown_target(target);
+        get_unknown_target(&target);
         if (target_arch) {
-            if (parse_target_arch(target_arch, &target->arch)) {
+            if (parse_target_arch(target_arch, &target.arch)) {
                 fprintf(stderr, "invalid --target-arch argument\n");
                 return print_error_usage(arg0);
             }
         }
         if (target_os) {
-            if (parse_target_os(target_os, &target->os)) {
+            if (parse_target_os(target_os, &target.os)) {
                 fprintf(stderr, "invalid --target-os argument\n");
                 return print_error_usage(arg0);
             }
         }
         if (target_environ) {
-            if (parse_target_environ(target_environ, &target->env_type)) {
+            if (parse_target_environ(target_environ, &target.env_type)) {
                 fprintf(stderr, "invalid --target-environ argument\n");
                 return print_error_usage(arg0);
             }
@@ -856,8 +869,22 @@ int main(int argc, char **argv) {
     }
 
     switch (cmd) {
+    case CmdLibC: {
+        if (in_file) {
+            ZigLibCInstallation libc;
+            if ((err = zig_libc_parse(&libc, buf_create_from_str(in_file), &target, true)))
+                return EXIT_FAILURE;
+            return EXIT_SUCCESS;
+        }
+        ZigLibCInstallation libc;
+        if ((err = zig_libc_find_native(&libc, true)))
+            return EXIT_FAILURE;
+        zig_libc_render(&libc);
+        return EXIT_SUCCESS;
+    }
     case CmdBuiltin: {
-        CodeGen *g = codegen_create(nullptr, target, out_type, build_mode, get_zig_lib_dir(), override_std_dir);
+        CodeGen *g = codegen_create(nullptr, &target, out_type, build_mode, get_zig_lib_dir(), override_std_dir,
+                nullptr);
         g->valgrind_support = valgrind_support;
         g->is_single_threaded = is_single_threaded;
         Buf *builtin_source = codegen_generate_builtin_source(g);
@@ -917,8 +944,16 @@ int main(int argc, char **argv) {
             if (cmd == CmdRun && buf_out_name == nullptr) {
                 buf_out_name = buf_create_from_str("run");
             }
-            CodeGen *g = codegen_create(zig_root_source_file, target, out_type, build_mode, get_zig_lib_dir(),
-                    override_std_dir);
+            ZigLibCInstallation *libc = nullptr;
+            if (libc_txt != nullptr) {
+                libc = allocate<ZigLibCInstallation>(1);
+                if ((err = zig_libc_parse(libc, buf_create_from_str(libc_txt), &target, true))) {
+                    fprintf(stderr, "Unable to parse --libc text file: %s\n", err_str(err));
+                    return EXIT_FAILURE;
+                }
+            }
+            CodeGen *g = codegen_create(zig_root_source_file, &target, out_type, build_mode, get_zig_lib_dir(),
+                    override_std_dir, libc);
             g->valgrind_support = valgrind_support;
             g->subsystem = subsystem;
 
@@ -944,18 +979,6 @@ int main(int argc, char **argv) {
             codegen_set_llvm_argv(g, llvm_argv.items, llvm_argv.length);
             codegen_set_strip(g, strip);
             codegen_set_is_static(g, is_static);
-            if (libc_lib_dir)
-                codegen_set_libc_lib_dir(g, buf_create_from_str(libc_lib_dir));
-            if (libc_static_lib_dir)
-                codegen_set_libc_static_lib_dir(g, buf_create_from_str(libc_static_lib_dir));
-            if (libc_include_dir)
-                codegen_set_libc_include_dir(g, buf_create_from_str(libc_include_dir));
-            if (msvc_lib_dir)
-                codegen_set_msvc_lib_dir(g, buf_create_from_str(msvc_lib_dir));
-            if (kernel32_lib_dir)
-                codegen_set_kernel32_lib_dir(g, buf_create_from_str(kernel32_lib_dir));
-            if (dynamic_linker)
-                codegen_set_dynamic_linker(g, buf_create_from_str(dynamic_linker));
             g->verbose_tokenize = verbose_tokenize;
             g->verbose_ast = verbose_ast;
             g->verbose_link = verbose_link;
@@ -1086,7 +1109,7 @@ int main(int argc, char **argv) {
                     }
                 }
 
-                if (!target_can_exec(&native, target)) {
+                if (!target_can_exec(&native, &target)) {
                     fprintf(stderr, "Created %s but skipping execution because it is non-native.\n",
                             buf_ptr(test_exe_path));
                     return 0;

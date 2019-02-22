@@ -1102,10 +1102,10 @@ bool want_first_arg_sret(CodeGen *g, FnTypeId *fn_type_id) {
     if (type_is_c_abi_int(g, fn_type_id->return_type)) {
         return false;
     }
-    if (g->zig_target.arch.arch == ZigLLVM_x86_64) {
+    if (g->zig_target->arch.arch == ZigLLVM_x86_64) {
         X64CABIClass abi_class = type_c_abi_x86_64_class(g, fn_type_id->return_type);
         return abi_class == X64CABIClass_MEMORY;
-    } else if (target_is_arm(&g->zig_target)) {
+    } else if (target_is_arm(g->zig_target)) {
         return type_size(g, fn_type_id->return_type) > 16;
     }
     zig_panic("TODO implement C ABI for this architecture. See https://github.com/ziglang/zig/issues/1481");
@@ -3304,16 +3304,16 @@ void add_fn_export(CodeGen *g, ZigFn *fn_table_entry, Buf *symbol_name, GlobalLi
             g->have_c_main = true;
             g->subsystem = TargetSubsystemConsole;
         } else if (buf_eql_str(symbol_name, "WinMain") &&
-            g->zig_target.os == OsWindows)
+            g->zig_target->os == OsWindows)
         {
             g->have_winmain = true;
             g->subsystem = TargetSubsystemWindows;
         } else if (buf_eql_str(symbol_name, "WinMainCRTStartup") &&
-            g->zig_target.os == OsWindows)
+            g->zig_target->os == OsWindows)
         {
             g->have_winmain_crt_startup = true;
         } else if (buf_eql_str(symbol_name, "DllMainCRTStartup") &&
-            g->zig_target.os == OsWindows)
+            g->zig_target->os == OsWindows)
         {
             g->have_dllmain_crt_startup = true;
         }
@@ -4649,186 +4649,6 @@ bool handle_is_ptr(ZigType *type_entry) {
 
     }
     zig_unreachable();
-}
-
-static ZigWindowsSDK *get_windows_sdk(CodeGen *g) {
-    if (g->win_sdk == nullptr) {
-        if (zig_find_windows_sdk(&g->win_sdk)) {
-            fprintf(stderr, "unable to determine windows sdk path\n");
-            exit(1);
-        }
-    }
-    assert(g->win_sdk != nullptr);
-    return g->win_sdk;
-}
-
-
-static Buf *get_linux_libc_lib_path(const char *o_file) {
-    const char *cc_exe = getenv("CC");
-    cc_exe = (cc_exe == nullptr) ? "cc" : cc_exe;
-    ZigList<const char *> args = {};
-    args.append(buf_ptr(buf_sprintf("-print-file-name=%s", o_file)));
-    Termination term;
-    Buf *out_stderr = buf_alloc();
-    Buf *out_stdout = buf_alloc();
-    Error err;
-    if ((err = os_exec_process(cc_exe, args, &term, out_stderr, out_stdout))) {
-        zig_panic("unable to determine libc lib path: executing C compiler: %s", err_str(err));
-    }
-    if (term.how != TerminationIdClean || term.code != 0) {
-        zig_panic("unable to determine libc lib path: executing C compiler command failed");
-    }
-    if (buf_ends_with_str(out_stdout, "\n")) {
-        buf_resize(out_stdout, buf_len(out_stdout) - 1);
-    }
-    if (buf_len(out_stdout) == 0 || buf_eql_str(out_stdout, o_file)) {
-        zig_panic("unable to determine libc lib path: C compiler could not find %s", o_file);
-    }
-    Buf *result = buf_alloc();
-    os_path_dirname(out_stdout, result);
-    return result;
-}
-
-static Buf *get_posix_libc_include_path(void) {
-    const char *cc_exe = getenv("CC");
-    cc_exe = (cc_exe == nullptr) ? "cc" : cc_exe;
-    ZigList<const char *> args = {};
-    args.append("-E");
-    args.append("-Wp,-v");
-    args.append("-xc");
-    args.append("/dev/null");
-    Termination term;
-    Buf *out_stderr = buf_alloc();
-    Buf *out_stdout = buf_alloc();
-    Error err;
-    if ((err = os_exec_process(cc_exe, args, &term, out_stderr, out_stdout))) {
-        zig_panic("unable to determine libc include path: executing C compiler: %s", err_str(err));
-    }
-    if (term.how != TerminationIdClean || term.code != 0) {
-        zig_panic("unable to determine libc include path: executing C compiler command failed");
-    }
-    char *prev_newline = buf_ptr(out_stderr);
-    ZigList<const char *> search_paths = {};
-    for (;;) {
-        char *newline = strchr(prev_newline, '\n');
-        if (newline == nullptr) {
-            break;
-        }
-        *newline = 0;
-        if (prev_newline[0] == ' ') {
-            search_paths.append(prev_newline);
-        }
-        prev_newline = newline + 1;
-    }
-    if (search_paths.length == 0) {
-        zig_panic("unable to determine libc include path: even C compiler does not know where libc headers are");
-    }
-    for (size_t i = 0; i < search_paths.length; i += 1) {
-        // search in reverse order
-        const char *search_path = search_paths.items[search_paths.length - i - 1];
-        // cut off spaces
-        while (*search_path == ' ') {
-            search_path += 1;
-        }
-        Buf *stdlib_path = buf_sprintf("%s/stdlib.h", search_path);
-        bool exists;
-        if ((err = os_file_exists(stdlib_path, &exists))) {
-            exists = false;
-        }
-        if (exists) {
-            return buf_create_from_str(search_path);
-        }
-    }
-    zig_panic("unable to determine libc include path: stdlib.h not found in C compiler search paths");
-}
-
-void find_libc_include_path(CodeGen *g) {
-    if (g->libc_include_dir == nullptr) {
-        if (!g->is_native_target) {
-            return;
-        }
-
-        if (g->zig_target.os == OsWindows) {
-            ZigWindowsSDK *sdk = get_windows_sdk(g);
-            g->libc_include_dir = buf_alloc();
-            if (os_get_win32_ucrt_include_path(sdk, g->libc_include_dir)) {
-                fprintf(stderr, "Unable to determine libc include path. --libc-include-dir");
-                exit(1);
-            }
-        } else if (g->zig_target.os == OsLinux ||
-            g->zig_target.os == OsMacOSX ||
-            g->zig_target.os == OsFreeBSD ||
-	    g->zig_target.os == OsNetBSD)
-        {
-            g->libc_include_dir = get_posix_libc_include_path();
-        } else {
-            fprintf(stderr, "Unable to determine libc include path.\n"
-                    "TODO: implement finding libc at runtime for other operating systems.\n"
-                    "in the meantime, you can use as a workaround: --libc-include-dir\n");
-            exit(1);
-        }
-    }
-    assert(buf_len(g->libc_include_dir) != 0);
-}
-
-void find_libc_lib_path(CodeGen *g) {
-    // later we can handle this better by reporting an error via the normal mechanism
-    if (g->libc_lib_dir == nullptr ||
-        (g->zig_target.os == OsWindows && (g->msvc_lib_dir == nullptr || g->kernel32_lib_dir == nullptr)))
-    {
-        if (g->zig_target.os == OsWindows) {
-            ZigWindowsSDK *sdk = get_windows_sdk(g);
-
-            if (g->msvc_lib_dir == nullptr) {
-                if (sdk->msvc_lib_dir_ptr == nullptr) {
-                    fprintf(stderr, "Unable to determine vcruntime path. --msvc-lib-dir");
-                    exit(1);
-                }
-                g->msvc_lib_dir = buf_create_from_mem(sdk->msvc_lib_dir_ptr, sdk->msvc_lib_dir_len);
-            }
-
-            if (g->libc_lib_dir == nullptr) {
-                Buf* ucrt_lib_path = buf_alloc();
-                if (os_get_win32_ucrt_lib_path(sdk, ucrt_lib_path, g->zig_target.arch.arch)) {
-                    fprintf(stderr, "Unable to determine ucrt path. --libc-lib-dir");
-                    exit(1);
-                }
-                g->libc_lib_dir = ucrt_lib_path;
-            }
-
-            if (g->kernel32_lib_dir == nullptr) {
-                Buf* kern_lib_path = buf_alloc();
-                if (os_get_win32_kern32_path(sdk, kern_lib_path, g->zig_target.arch.arch)) {
-                    fprintf(stderr, "Unable to determine kernel32 path. --kernel32-lib-dir");
-                    exit(1);
-                }
-                g->kernel32_lib_dir = kern_lib_path;
-            }
-
-        } else if (g->zig_target.os == OsLinux) {
-            g->libc_lib_dir = get_linux_libc_lib_path("crt1.o");
-        } else if ((g->zig_target.os == OsFreeBSD) || (g->zig_target.os == OsNetBSD)) {
-            g->libc_lib_dir = buf_create_from_str("/usr/lib");
-        } else {
-            zig_panic("Unable to determine libc lib path.");
-        }
-    } else {
-        assert(buf_len(g->libc_lib_dir) != 0);
-    }
-
-    if (g->libc_static_lib_dir == nullptr) {
-        if ((g->zig_target.os == OsWindows) && (g->msvc_lib_dir != NULL)) {
-            return;
-        } else if (g->zig_target.os == OsLinux) {
-            g->libc_static_lib_dir = get_linux_libc_lib_path("crtbegin.o");
-        } else if ((g->zig_target.os == OsFreeBSD) || (g->zig_target.os == OsNetBSD)) {
-            g->libc_static_lib_dir = buf_create_from_str("/usr/lib");
-        } else {
-            zig_panic("Unable to determine libc static lib path.");
-        }
-    } else {
-        assert(buf_len(g->libc_static_lib_dir) != 0);
-    }
 }
 
 static uint32_t hash_ptr(void *ptr) {
@@ -6735,14 +6555,6 @@ LinkLib *add_link_lib(CodeGen *g, Buf *name) {
 
     if (is_libc && g->libc_link_lib != nullptr)
         return g->libc_link_lib;
-
-    if (g->enable_cache && is_libc && g->zig_target.os != OsMacOSX &&
-        g->zig_target.os != OsIOS && g->zig_target.os != OsFreeBSD &&
-	g->zig_target.os != OsNetBSD) {
-        fprintf(stderr, "TODO linking against libc is currently incompatible with `--cache on`.\n"
-        "Zig is not yet capable of determining whether the libc installation has changed on subsequent builds.\n");
-        exit(1);
-    }
 
     for (size_t i = 0; i < g->link_libs_list.length; i += 1) {
         LinkLib *existing_lib = g->link_libs_list.at(i);

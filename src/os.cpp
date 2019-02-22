@@ -1550,7 +1550,7 @@ void os_stderr_set_color(TermColor color) {
 #endif
 }
 
-int os_get_win32_ucrt_lib_path(ZigWindowsSDK *sdk, Buf* output_buf, ZigLLVM_ArchType platform_type) {
+Error os_get_win32_ucrt_lib_path(ZigWindowsSDK *sdk, Buf* output_buf, ZigLLVM_ArchType platform_type) {
 #if defined(ZIG_OS_WINDOWS)
     buf_resize(output_buf, 0);
     buf_appendf(output_buf, "%s\\Lib\\%s\\ucrt\\", sdk->path10_ptr, sdk->version10_ptr);
@@ -1571,7 +1571,7 @@ int os_get_win32_ucrt_lib_path(ZigWindowsSDK *sdk, Buf* output_buf, ZigLLVM_Arch
     buf_init_from_buf(tmp_buf, output_buf);
     buf_append_str(tmp_buf, "ucrt.lib");
     if (GetFileAttributesA(buf_ptr(tmp_buf)) != INVALID_FILE_ATTRIBUTES) {
-        return 0;
+        return ErrorNone;
     }
     else {
         buf_resize(output_buf, 0);
@@ -1582,12 +1582,12 @@ int os_get_win32_ucrt_lib_path(ZigWindowsSDK *sdk, Buf* output_buf, ZigLLVM_Arch
 #endif
 }
 
-int os_get_win32_ucrt_include_path(ZigWindowsSDK *sdk, Buf* output_buf) {
+Error os_get_win32_ucrt_include_path(ZigWindowsSDK *sdk, Buf* output_buf) {
 #if defined(ZIG_OS_WINDOWS)
     buf_resize(output_buf, 0);
     buf_appendf(output_buf, "%s\\Include\\%s\\ucrt", sdk->path10_ptr, sdk->version10_ptr);
     if (GetFileAttributesA(buf_ptr(output_buf)) != INVALID_FILE_ATTRIBUTES) {
-        return 0;
+        return ErrorNone;
     }
     else {
         buf_resize(output_buf, 0);
@@ -1598,7 +1598,7 @@ int os_get_win32_ucrt_include_path(ZigWindowsSDK *sdk, Buf* output_buf) {
 #endif
 }
 
-int os_get_win32_kern32_path(ZigWindowsSDK *sdk, Buf* output_buf, ZigLLVM_ArchType platform_type) {
+Error os_get_win32_kern32_path(ZigWindowsSDK *sdk, Buf* output_buf, ZigLLVM_ArchType platform_type) {
 #if defined(ZIG_OS_WINDOWS)
     {
         buf_resize(output_buf, 0);

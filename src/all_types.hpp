@@ -18,6 +18,7 @@
 #include "bigfloat.hpp"
 #include "target.hpp"
 #include "tokenizer.hpp"
+#include "libc_installation.hpp"
 
 struct AstNode;
 struct ImportTableEntry;
@@ -1743,6 +1744,9 @@ struct CodeGen {
     Buf *wanted_output_file_path;
     Buf cache_dir;
 
+    Buf *zig_c_headers_dir; // Cannot be overridden; derived from zig_lib_dir.
+    Buf *zig_std_special_dir; // Cannot be overridden; derived from zig_lib_dir.
+
     IrInstruction *invalid_instruction;
     IrInstruction *unreach_instruction;
 
@@ -1791,6 +1795,8 @@ struct CodeGen {
     bool system_linker_hack;
 
     //////////////////////////// Participates in Input Parameter Cache Hash
+    /////// Note: there is a separate cache hash for builtin.zig, when adding fields,
+    ///////       consider if they need to go into both.
     ZigList<LinkLib *> link_libs_list;
     // add -framework [name] args to linker
     ZigList<Buf *> darwin_frameworks;
@@ -1801,6 +1807,8 @@ struct CodeGen {
     ZigList<Buf *> assembly_files;
     ZigList<const char *> lib_dirs;
 
+    ZigLibCInstallation *libc;
+
     size_t version_major;
     size_t version_minor;
     size_t version_patch;
@@ -1809,14 +1817,13 @@ struct CodeGen {
     EmitFileType emit_file_type;
     BuildMode build_mode;
     OutType out_type;
-    ZigTarget zig_target;
+    const ZigTarget *zig_target;
     TargetSubsystem subsystem;
     ValgrindSupport valgrind_support;
     bool is_static;
     bool strip_debug_symbols;
     bool is_test_build;
     bool is_single_threaded;
-    bool is_native_target;
     bool linker_rdynamic;
     bool each_lib_rpath;
     bool disable_pic;
@@ -1827,26 +1834,14 @@ struct CodeGen {
     Buf *test_filter;
     Buf *test_name_prefix;
     PackageTableEntry *root_package;
+    Buf *zig_lib_dir;
+    Buf *zig_std_dir;
 
     const char **llvm_argv;
     size_t llvm_argv_len;
 
     const char **clang_argv;
     size_t clang_argv_len;
-
-    //////////////////////////// Unsorted
-
-    Buf *libc_lib_dir;
-    Buf *libc_static_lib_dir;
-    Buf *libc_include_dir;
-    Buf *msvc_lib_dir;
-    Buf *kernel32_lib_dir;
-    Buf *zig_lib_dir;
-    Buf *zig_std_dir;
-    Buf *zig_c_headers_dir;
-    Buf *zig_std_special_dir;
-    Buf *dynamic_linker;
-    ZigWindowsSDK *win_sdk;
 };
 
 enum VarLinkage {

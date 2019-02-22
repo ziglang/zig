@@ -34,6 +34,8 @@ const char *err_str(Error err) {
         case ErrorPipeBusy: return "pipe busy";
         case ErrorPrimitiveTypeNotFound: return "primitive type not found";
         case ErrorCacheUnavailable: return "cache unavailable";
+        case ErrorPathTooLong: return "path too long";
+        case ErrorCCompilerCannotFindFile: return "C compiler cannot find file";
     }
     return "(invalid error)";
 }

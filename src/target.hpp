@@ -71,7 +71,7 @@ struct ZigTarget {
     ZigLLVM_VendorType vendor;
     Os os;
     ZigLLVM_EnvironmentType env_type;
-    ZigLLVM_ObjectFormatType oformat;
+    bool is_native;
 };
 
 enum CIntType {
@@ -105,8 +105,9 @@ ZigLLVM_EnvironmentType get_target_environ(size_t index);
 
 
 size_t target_oformat_count(void);
-const ZigLLVM_ObjectFormatType get_target_oformat(size_t index);
+ZigLLVM_ObjectFormatType get_target_oformat(size_t index);
 const char *get_target_oformat_name(ZigLLVM_ObjectFormatType oformat);
+ZigLLVM_ObjectFormatType target_object_format(const ZigTarget *target);
 
 void get_native_target(ZigTarget *target);
 void get_unknown_target(ZigTarget *target);
@@ -123,13 +124,14 @@ void resolve_target_object_format(ZigTarget *target);
 
 uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id);
 
-const char *target_o_file_ext(ZigTarget *target);
-const char *target_asm_file_ext(ZigTarget *target);
-const char *target_llvm_ir_file_ext(ZigTarget *target);
-const char *target_exe_file_ext(ZigTarget *target);
-const char *target_lib_file_ext(ZigTarget *target, bool is_static, size_t version_major, size_t version_minor, size_t version_patch);
+const char *target_o_file_ext(const ZigTarget *target);
+const char *target_asm_file_ext(const ZigTarget *target);
+const char *target_llvm_ir_file_ext(const ZigTarget *target);
+const char *target_exe_file_ext(const ZigTarget *target);
+const char *target_lib_file_ext(const ZigTarget *target, bool is_static,
+        size_t version_major, size_t version_minor, size_t version_patch);
 
-Buf *target_dynamic_linker(ZigTarget *target);
+Buf *target_dynamic_linker(const ZigTarget *target);
 
 bool target_can_exec(const ZigTarget *host_target, const ZigTarget *guest_target);
 ZigLLVM_OSType get_llvm_os_type(Os os_type);
@@ -138,5 +140,6 @@ bool target_is_arm(const ZigTarget *target);
 bool target_allows_addr_zero(const ZigTarget *target);
 bool target_has_valgrind_support(const ZigTarget *target);
 bool target_is_darwin(const ZigTarget *target);
+bool target_requires_libc(const ZigTarget *target);
 
 #endif

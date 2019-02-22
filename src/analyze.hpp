@@ -40,8 +40,6 @@ ZigType *get_promise_type(CodeGen *g, ZigType *result_type);
 ZigType *get_promise_frame_type(CodeGen *g, ZigType *return_type);
 ZigType *get_test_fn_type(CodeGen *g);
 bool handle_is_ptr(ZigType *type_entry);
-void find_libc_include_path(CodeGen *g);
-void find_libc_lib_path(CodeGen *g);
 
 bool type_has_bits(ZigType *type_entry);
 bool type_allowed_in_extern(CodeGen *g, ZigType *type_entry);

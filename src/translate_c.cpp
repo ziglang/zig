@@ -4776,7 +4776,7 @@ Error parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const 
     clang_argv.append("-x");
     clang_argv.append("c");
 
-    if (c->codegen->is_native_target) {
+    if (c->codegen->zig_target->is_native) {
         char *ZIG_PARSEC_CFLAGS = getenv("ZIG_NATIVE_PARSEC_CFLAGS");
         if (ZIG_PARSEC_CFLAGS) {
             Buf tmp_buf = BUF_INIT;
@@ -4798,9 +4798,9 @@ Error parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const 
     clang_argv.append("-isystem");
     clang_argv.append(buf_ptr(codegen->zig_c_headers_dir));
 
-    if (codegen->libc_include_dir != nullptr) {
+    if (codegen->libc != nullptr) {
         clang_argv.append("-isystem");
-        clang_argv.append(buf_ptr(codegen->libc_include_dir));
+        clang_argv.append(buf_ptr(&codegen->libc->include_dir));
     }
 
     // windows c runtime requires -D_DEBUG if using debug libraries
@@ -4820,7 +4820,7 @@ Error parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const 
     clang_argv.append("-Xclang");
     clang_argv.append("-detailed-preprocessing-record");
 
-    if (!c->codegen->is_native_target) {
+    if (!c->codegen->zig_target->is_native) {
         clang_argv.append("-target");
         clang_argv.append(buf_ptr(&c->codegen->triple_str));
     }

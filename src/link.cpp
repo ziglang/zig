@@ -18,31 +18,32 @@ struct LinkJob {
 };
 
 static const char *get_libc_file(CodeGen *g, const char *file) {
+    assert(g->libc != nullptr);
     Buf *out_buf = buf_alloc();
-    os_path_join(g->libc_lib_dir, buf_create_from_str(file), out_buf);
+    os_path_join(&g->libc->lib_dir, buf_create_from_str(file), out_buf);
     return buf_ptr(out_buf);
 }
 
 static const char *get_libc_static_file(CodeGen *g, const char *file) {
+    assert(g->libc != nullptr);
     Buf *out_buf = buf_alloc();
-    os_path_join(g->libc_static_lib_dir, buf_create_from_str(file), out_buf);
+    os_path_join(&g->libc->static_lib_dir, buf_create_from_str(file), out_buf);
     return buf_ptr(out_buf);
 }
 
 static Buf *build_a_raw(CodeGen *parent_gen, const char *aname, Buf *full_path) {
-    ZigTarget *child_target = parent_gen->is_native_target ? nullptr : &parent_gen->zig_target;
-
     // The Mach-O LLD code is not well maintained, and trips an assertion
     // when we link compiler_rt and builtin as libraries rather than objects.
     // Here we workaround this by having compiler_rt and builtin be objects.
     // TODO write our own linker. https://github.com/ziglang/zig/issues/1535
     OutType child_out_type = OutTypeLib;
-    if (parent_gen->zig_target.os == OsMacOSX) {
+    if (parent_gen->zig_target->os == OsMacOSX) {
         child_out_type = OutTypeObj;
     }
 
-    CodeGen *child_gen = codegen_create(full_path, child_target, child_out_type,
-        parent_gen->build_mode, parent_gen->zig_lib_dir, parent_gen->zig_std_dir);
+    CodeGen *child_gen = codegen_create(full_path, parent_gen->zig_target, child_out_type,
+        parent_gen->build_mode, parent_gen->zig_lib_dir, parent_gen->zig_std_dir,
+        parent_gen->libc);
 
     child_gen->out_h_path = nullptr;
     child_gen->verbose_tokenize = parent_gen->verbose_tokenize;
@@ -171,61 +172,10 @@ static void add_rpath(LinkJob *lj, Buf *rpath) {
     lj->rpath_table.put(rpath, true);
 }
 
-static Buf *try_dynamic_linker_path(const char *ld_name) {
-    const char *cc_exe = getenv("CC");
-    cc_exe = (cc_exe == nullptr) ? "cc" : cc_exe;
-    ZigList<const char *> args = {};
-    args.append(buf_ptr(buf_sprintf("-print-file-name=%s", ld_name)));
-    Termination term;
-    Buf *out_stderr = buf_alloc();
-    Buf *out_stdout = buf_alloc();
-    int err;
-    if ((err = os_exec_process(cc_exe, args, &term, out_stderr, out_stdout))) {
-        return nullptr;
-    }
-    if (term.how != TerminationIdClean || term.code != 0) {
-        return nullptr;
-    }
-    if (buf_ends_with_str(out_stdout, "\n")) {
-        buf_resize(out_stdout, buf_len(out_stdout) - 1);
-    }
-    if (buf_len(out_stdout) == 0 || buf_eql_str(out_stdout, ld_name)) {
-        return nullptr;
-    }
-    return out_stdout;
-}
-
-static Buf *get_dynamic_linker_path(CodeGen *g) {
-    if (g->zig_target.os == OsFreeBSD) {
-        return buf_create_from_str("/libexec/ld-elf.so.1");
-    }
-    if (g->zig_target.os == OsNetBSD) {
-        return buf_create_from_str("/libexec/ld.elf_so");
-    }
-    if (g->is_native_target && g->zig_target.arch.arch == ZigLLVM_x86_64) {
-        static const char *ld_names[] = {
-            "ld-linux-x86-64.so.2",
-            "ld-musl-x86_64.so.1",
-        };
-        for (size_t i = 0; i < array_length(ld_names); i += 1) {
-            const char *ld_name = ld_names[i];
-            Buf *result = try_dynamic_linker_path(ld_name);
-            if (result != nullptr) {
-                return result;
-            }
-        }
-    }
-    return target_dynamic_linker(&g->zig_target);
-}
-
 static void construct_linker_job_elf(LinkJob *lj) {
     CodeGen *g = lj->codegen;
 
     lj->args.append("-error-limit=0");
-
-    if (g->libc_link_lib != nullptr) {
-        find_libc_lib_path(g);
-    }
 
     if (g->linker_script) {
         lj->args.append("-T");
@@ -235,14 +185,14 @@ static void construct_linker_job_elf(LinkJob *lj) {
     lj->args.append("--gc-sections");
 
     lj->args.append("-m");
-    lj->args.append(getLDMOption(&g->zig_target));
+    lj->args.append(getLDMOption(g->zig_target));
 
     bool is_lib = g->out_type == OutTypeLib;
     bool shared = !g->is_static && is_lib;
     Buf *soname = nullptr;
     if (g->is_static) {
-        if (g->zig_target.arch.arch == ZigLLVM_arm || g->zig_target.arch.arch == ZigLLVM_armeb ||
-            g->zig_target.arch.arch == ZigLLVM_thumb || g->zig_target.arch.arch == ZigLLVM_thumbeb)
+        if (g->zig_target->arch.arch == ZigLLVM_arm || g->zig_target->arch.arch == ZigLLVM_armeb ||
+            g->zig_target->arch.arch == ZigLLVM_thumb || g->zig_target->arch.arch == ZigLLVM_thumbeb)
         {
             lj->args.append("-Bstatic");
         } else {
@@ -264,13 +214,13 @@ static void construct_linker_job_elf(LinkJob *lj) {
     if (lj->link_in_crt) {
         const char *crt1o;
         const char *crtbegino;
-        if (g->zig_target.os == OsNetBSD) {
-	    crt1o = "crt0.o";
-	    crtbegino = "crtbegin.o";
-	} else if (g->is_static) {
+        if (g->zig_target->os == OsNetBSD) {
+            crt1o = "crt0.o";
+            crtbegino = "crtbegin.o";
+        } else if (g->is_static) {
             crt1o = "crt1.o";
             crtbegino = "crtbeginT.o";
-	} else {
+        } else {
             crt1o = "Scrt1.o";
             crtbegino = "crtbegin.o";
         }
@@ -311,23 +261,19 @@ static void construct_linker_job_elf(LinkJob *lj) {
     }
 
     if (g->libc_link_lib != nullptr) {
+        assert(g->libc != nullptr);
         lj->args.append("-L");
-        lj->args.append(buf_ptr(g->libc_lib_dir));
+        lj->args.append(buf_ptr(&g->libc->lib_dir));
 
         lj->args.append("-L");
-        lj->args.append(buf_ptr(g->libc_static_lib_dir));
-    }
+        lj->args.append(buf_ptr(&g->libc->static_lib_dir));
 
-    if (!g->is_static) {
-        if (g->dynamic_linker != nullptr) {
-            assert(buf_len(g->dynamic_linker) != 0);
+        if (!g->is_static) {
+            assert(buf_len(&g->libc->dynamic_linker_path) != 0);
             lj->args.append("-dynamic-linker");
-            lj->args.append(buf_ptr(g->dynamic_linker));
-        } else {
-            Buf *resolved_dynamic_linker = get_dynamic_linker_path(g);
-            lj->args.append("-dynamic-linker");
-            lj->args.append(buf_ptr(resolved_dynamic_linker));
+            lj->args.append(buf_ptr(&g->libc->dynamic_linker_path));
         }
+
     }
 
     if (shared) {
@@ -397,11 +343,11 @@ static void construct_linker_job_elf(LinkJob *lj) {
         lj->args.append(get_libc_file(g, "crtn.o"));
     }
 
-    if (!g->is_native_target) {
+    if (!g->zig_target->is_native) {
         lj->args.append("--allow-shlib-undefined");
     }
 
-    if (g->zig_target.os == OsZen) {
+    if (g->zig_target->os == OsZen) {
         lj->args.append("-e");
         lj->args.append("_start");
 
@@ -429,11 +375,11 @@ static void construct_linker_job_wasm(LinkJob *lj) {
 //}
 
 static void coff_append_machine_arg(CodeGen *g, ZigList<const char *> *list) {
-    if (g->zig_target.arch.arch == ZigLLVM_x86) {
+    if (g->zig_target->arch.arch == ZigLLVM_x86) {
         list->append("-MACHINE:X86");
-    } else if (g->zig_target.arch.arch == ZigLLVM_x86_64) {
+    } else if (g->zig_target->arch.arch == ZigLLVM_x86_64) {
         list->append("-MACHINE:X64");
-    } else if (g->zig_target.arch.arch == ZigLLVM_arm) {
+    } else if (g->zig_target->arch.arch == ZigLLVM_arm) {
         list->append("-MACHINE:ARM");
     }
 }
@@ -592,10 +538,6 @@ static void construct_linker_job_coff(LinkJob *lj) {
 
     lj->args.append("/ERRORLIMIT:0");
 
-    if (g->libc_link_lib != nullptr) {
-        find_libc_lib_path(g);
-    }
-
     lj->args.append("/NOLOGO");
 
     if (!g->strip_debug_symbols) {
@@ -650,13 +592,11 @@ static void construct_linker_job_coff(LinkJob *lj) {
     lj->args.append(buf_ptr(buf_sprintf("-OUT:%s", buf_ptr(&g->output_file_path))));
 
     if (g->libc_link_lib != nullptr) {
-        lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(g->msvc_lib_dir))));
-        lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(g->kernel32_lib_dir))));
+        assert(g->libc != nullptr);
 
-        lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(g->libc_lib_dir))));
-        if (g->libc_static_lib_dir != nullptr) {
-            lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(g->libc_static_lib_dir))));
-        }
+        lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(&g->libc->msvc_lib_dir))));
+        lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(&g->libc->kernel32_lib_dir))));
+        lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(&g->libc->lib_dir))));
     }
 
     if (is_library && !g->is_static) {
@@ -691,7 +631,7 @@ static void construct_linker_job_coff(LinkJob *lj) {
             continue;
         }
         if (link_lib->provided_explicitly) {
-            if (lj->codegen->zig_target.env_type == ZigLLVM_GNU) {
+            if (lj->codegen->zig_target->env_type == ZigLLVM_GNU) {
                 Buf *arg = buf_sprintf("-l%s", buf_ptr(link_lib->name));
                 lj->args.append(buf_ptr(arg));
             }
@@ -721,7 +661,8 @@ static void construct_linker_job_coff(LinkJob *lj) {
             gen_lib_args.append(buf_ptr(buf_sprintf("-DEF:%s", buf_ptr(def_path))));
             gen_lib_args.append(buf_ptr(buf_sprintf("-OUT:%s", buf_ptr(generated_lib_path))));
             Buf diag = BUF_INIT;
-            if (!zig_lld_link(g->zig_target.oformat, gen_lib_args.items, gen_lib_args.length, &diag)) {
+            ZigLLVM_ObjectFormatType target_ofmt = target_object_format(g->zig_target);
+            if (!zig_lld_link(target_ofmt, gen_lib_args.items, gen_lib_args.length, &diag)) {
                 fprintf(stderr, "%s\n", buf_ptr(&diag));
                 exit(1);
             }
@@ -790,7 +731,7 @@ static void get_darwin_platform(LinkJob *lj, DarwinPlatform *platform) {
         platform->kind = MacOS;
     } else if (g->mios_version_min) {
         platform->kind = IPhoneOS;
-    } else if (g->zig_target.os == OsMacOSX) {
+    } else if (g->zig_target->os == OsMacOSX) {
         platform->kind = MacOS;
         g->mmacosx_version_min = buf_create_from_str("10.10");
     } else {
@@ -817,8 +758,8 @@ static void get_darwin_platform(LinkJob *lj, DarwinPlatform *platform) {
     }
 
     if (platform->kind == IPhoneOS &&
-        (g->zig_target.arch.arch == ZigLLVM_x86 ||
-         g->zig_target.arch.arch == ZigLLVM_x86_64))
+        (g->zig_target->arch.arch == ZigLLVM_x86 ||
+         g->zig_target->arch.arch == ZigLLVM_x86_64))
     {
         platform->kind = IPhoneOSSimulator;
     }
@@ -882,7 +823,7 @@ static void construct_linker_job_macho(LinkJob *lj) {
     }
 
     lj->args.append("-arch");
-    lj->args.append(get_darwin_arch_string(&g->zig_target));
+    lj->args.append(get_darwin_arch_string(g->zig_target));
 
     DarwinPlatform platform;
     get_darwin_platform(lj, &platform);
@@ -939,7 +880,7 @@ static void construct_linker_job_macho(LinkJob *lj) {
                 }
                 break;
             case IPhoneOS:
-                if (g->zig_target.arch.arch == ZigLLVM_aarch64) {
+                if (g->zig_target->arch.arch == ZigLLVM_aarch64) {
                     // iOS does not need any crt1 files for arm64
                 } else if (darwin_version_lt(&platform, 3, 1)) {
                     lj->args.append("-lcrt1.o");
@@ -969,7 +910,7 @@ static void construct_linker_job_macho(LinkJob *lj) {
         lj->args.append(buf_ptr(compiler_rt_o_path));
     }
 
-    if (g->is_native_target) {
+    if (g->zig_target->is_native) {
         for (size_t lib_i = 0; lib_i < g->link_libs_list.length; lib_i += 1) {
             LinkLib *link_lib = g->link_libs_list.at(lib_i);
             if (buf_eql_str(link_lib->name, "c")) {
@@ -1010,7 +951,7 @@ static void construct_linker_job_macho(LinkJob *lj) {
 }
 
 static void construct_linker_job(LinkJob *lj) {
-    switch (lj->codegen->zig_target.oformat) {
+    switch (target_object_format(lj->codegen->zig_target)) {
         case ZigLLVM_UnknownObjectFormat:
             zig_unreachable();
 
@@ -1050,7 +991,7 @@ void codegen_link(CodeGen *g) {
         for (size_t i = 0; i < g->link_objects.length; i += 1) {
             file_names.append((const char *)buf_ptr(g->link_objects.at(i)));
         }
-        ZigLLVM_OSType os_type = get_llvm_os_type(g->zig_target.os);
+        ZigLLVM_OSType os_type = get_llvm_os_type(g->zig_target->os);
         codegen_add_time_event(g, "LLVM Link");
         if (ZigLLVMWriteArchive(buf_ptr(&g->output_file_path), file_names.items, file_names.length, os_type)) {
             fprintf(stderr, "Unable to write archive '%s'\n", buf_ptr(&g->output_file_path));
@@ -1075,7 +1016,7 @@ void codegen_link(CodeGen *g) {
     Buf diag = BUF_INIT;
 
     codegen_add_time_event(g, "LLVM Link");
-    if (g->system_linker_hack && g->zig_target.os == OsMacOSX) {
+    if (g->system_linker_hack && g->zig_target->os == OsMacOSX) {
         Termination term;
         ZigList<const char *> args = {};
         for (size_t i = 1; i < lj.args.length; i += 1) {
@@ -1085,7 +1026,7 @@ void codegen_link(CodeGen *g) {
         if (term.how != TerminationIdClean || term.code != 0) {
             exit(1);
         }
-    } else if (!zig_lld_link(g->zig_target.oformat, lj.args.items, lj.args.length, &diag)) {
+    } else if (!zig_lld_link(target_object_format(g->zig_target), lj.args.items, lj.args.length, &diag)) {
         fprintf(stderr, "%s\n", buf_ptr(&diag));
         exit(1);
     }

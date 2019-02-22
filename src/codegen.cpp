@@ -29,9 +29,9 @@ static void init_darwin_native(CodeGen *g) {
 
     // Allow conflicts among OSX and iOS, but choose the default platform.
     if (osx_target && ios_target) {
-        if (g->zig_target.arch.arch == ZigLLVM_arm ||
-            g->zig_target.arch.arch == ZigLLVM_aarch64 ||
-            g->zig_target.arch.arch == ZigLLVM_thumb)
+        if (g->zig_target->arch.arch == ZigLLVM_arm ||
+            g->zig_target->arch.arch == ZigLLVM_aarch64 ||
+            g->zig_target->arch.arch == ZigLLVM_thumb)
         {
             osx_target = nullptr;
         } else {
@@ -43,7 +43,7 @@ static void init_darwin_native(CodeGen *g) {
         g->mmacosx_version_min = buf_create_from_str(osx_target);
     } else if (ios_target) {
         g->mios_version_min = buf_create_from_str(ios_target);
-    } else if (g->zig_target.os != OsIOS) {
+    } else if (g->zig_target->os != OsIOS) {
         g->mmacosx_version_min = buf_create_from_str("10.10");
     }
 }
@@ -88,13 +88,15 @@ static const char *symbols_that_llvm_depends_on[] = {
 };
 
 CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out_type, BuildMode build_mode,
-    Buf *zig_lib_dir, Buf *override_std_dir)
+    Buf *zig_lib_dir, Buf *override_std_dir, ZigLibCInstallation *libc)
 {
     CodeGen *g = allocate<CodeGen>(1);
 
     codegen_add_time_event(g, "Initialize");
 
+    g->libc = libc;
     g->zig_lib_dir = zig_lib_dir;
+    g->zig_target = target;
 
     if (override_std_dir == nullptr) {
         g->zig_std_dir = buf_alloc();
@@ -149,44 +151,19 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
     g->zig_std_special_dir = buf_alloc();
     os_path_join(g->zig_std_dir, buf_sprintf("special"), g->zig_std_special_dir);
 
-    if (target) {
-        // cross compiling, so we can't rely on all the configured stuff since
-        // that's for native compilation
-        g->zig_target = *target;
-        resolve_target_object_format(&g->zig_target);
-        g->dynamic_linker = nullptr;
-        g->libc_lib_dir = nullptr;
-        g->libc_static_lib_dir = nullptr;
-        g->libc_include_dir = nullptr;
-        g->msvc_lib_dir = nullptr;
-        g->kernel32_lib_dir = nullptr;
+    assert(target != nullptr);
+    if (!target->is_native) {
         g->each_lib_rpath = false;
     } else {
-        // native compilation, we can rely on the configuration stuff
-        g->is_native_target = true;
-        get_native_target(&g->zig_target);
-        g->dynamic_linker = nullptr; // find it at runtime
-        g->libc_lib_dir = nullptr; // find it at runtime
-        g->libc_static_lib_dir = nullptr; // find it at runtime
-        g->libc_include_dir = nullptr; // find it at runtime
-        g->msvc_lib_dir = nullptr; // find it at runtime
-        g->kernel32_lib_dir = nullptr; // find it at runtime
         g->each_lib_rpath = true;
 
-        if (g->zig_target.os == OsMacOSX ||
-            g->zig_target.os == OsIOS)
-        {
+        if (target_is_darwin(g->zig_target)) {
             init_darwin_native(g);
         }
 
     }
 
-    // On Darwin/MacOS/iOS, we always link libSystem which contains libc.
-    if (g->zig_target.os == OsMacOSX ||
-        g->zig_target.os == OsIOS ||
-	g->zig_target.os == OsFreeBSD ||
-	g->zig_target.os == OsNetBSD)
-    {
+    if (target_requires_libc(g->zig_target)) {
         g->libc_link_lib = create_link_lib(buf_create_from_str("c"));
         g->link_libs_list.append(g->libc_link_lib);
     }
@@ -252,30 +229,6 @@ void codegen_set_strip(CodeGen *g, bool strip) {
 
 void codegen_set_out_name(CodeGen *g, Buf *out_name) {
     g->root_out_name = out_name;
-}
-
-void codegen_set_libc_lib_dir(CodeGen *g, Buf *libc_lib_dir) {
-    g->libc_lib_dir = libc_lib_dir;
-}
-
-void codegen_set_libc_static_lib_dir(CodeGen *g, Buf *libc_static_lib_dir) {
-    g->libc_static_lib_dir = libc_static_lib_dir;
-}
-
-void codegen_set_libc_include_dir(CodeGen *g, Buf *libc_include_dir) {
-    g->libc_include_dir = libc_include_dir;
-}
-
-void codegen_set_msvc_lib_dir(CodeGen *g, Buf *msvc_lib_dir) {
-    g->msvc_lib_dir = msvc_lib_dir;
-}
-
-void codegen_set_kernel32_lib_dir(CodeGen *g, Buf *kernel32_lib_dir) {
-    g->kernel32_lib_dir = kernel32_lib_dir;
-}
-
-void codegen_set_dynamic_linker(CodeGen *g, Buf *dynamic_linker) {
-    g->dynamic_linker = dynamic_linker;
 }
 
 void codegen_add_lib_dir(CodeGen *g, const char *dir) {
@@ -390,11 +343,11 @@ static LLVMCallConv get_llvm_cc(CodeGen *g, CallingConvention cc) {
         case CallingConventionC: return LLVMCCallConv;
         case CallingConventionCold:
             // cold calling convention only works on x86.
-            if (g->zig_target.arch.arch == ZigLLVM_x86 ||
-                g->zig_target.arch.arch == ZigLLVM_x86_64)
+            if (g->zig_target->arch.arch == ZigLLVM_x86 ||
+                g->zig_target->arch.arch == ZigLLVM_x86_64)
             {
                 // cold calling convention is not supported on windows
-                if (g->zig_target.os == OsWindows) {
+                if (g->zig_target->os == OsWindows) {
                     return LLVMCCallConv;
                 } else {
                     return LLVMColdCallConv;
@@ -407,7 +360,7 @@ static LLVMCallConv get_llvm_cc(CodeGen *g, CallingConvention cc) {
             zig_unreachable();
         case CallingConventionStdcall:
             // stdcall calling convention only works on x86.
-            if (g->zig_target.arch.arch == ZigLLVM_x86) {
+            if (g->zig_target->arch.arch == ZigLLVM_x86) {
                 return LLVMX86StdcallCallConv;
             } else {
                 return LLVMCCallConv;
@@ -419,7 +372,7 @@ static LLVMCallConv get_llvm_cc(CodeGen *g, CallingConvention cc) {
 }
 
 static void add_uwtable_attr(CodeGen *g, LLVMValueRef fn_val) {
-    if (g->zig_target.os == OsWindows) {
+    if (g->zig_target->os == OsWindows) {
         addLLVMFnAttr(fn_val, "uwtable");
     }
 }
@@ -455,13 +408,13 @@ static uint32_t get_err_ret_trace_arg_index(CodeGen *g, ZigFn *fn_table_entry) {
 }
 
 static void maybe_export_dll(CodeGen *g, LLVMValueRef global_value, GlobalLinkageId linkage) {
-    if (linkage != GlobalLinkageIdInternal && g->zig_target.os == OsWindows) {
+    if (linkage != GlobalLinkageIdInternal && g->zig_target->os == OsWindows) {
         LLVMSetDLLStorageClass(global_value, LLVMDLLExportStorageClass);
     }
 }
 
 static void maybe_import_dll(CodeGen *g, LLVMValueRef global_value, GlobalLinkageId linkage) {
-    if (linkage != GlobalLinkageIdInternal && g->zig_target.os == OsWindows) {
+    if (linkage != GlobalLinkageIdInternal && g->zig_target->os == OsWindows) {
         // TODO come up with a good explanation/understanding for why we never do
         // DLLImportStorageClass. Empirically it only causes problems. But let's have
         // this documented and then clean up the code accordingly.
@@ -506,7 +459,7 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, ZigFn *fn_table_entry) {
     bool external_linkage = linkage != GlobalLinkageIdInternal;
     CallingConvention cc = fn_table_entry->type_entry->data.fn.fn_type_id.cc;
     if (cc == CallingConventionStdcall && external_linkage &&
-        g->zig_target.arch.arch == ZigLLVM_x86)
+        g->zig_target->arch.arch == ZigLLVM_x86)
     {
         // prevent llvm name mangling
         symbol_name = buf_sprintf("\x01_%s", buf_ptr(symbol_name));
@@ -2138,7 +2091,7 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
         return true;
     }
 
-    if (g->zig_target.arch.arch == ZigLLVM_x86_64) {
+    if (g->zig_target->arch.arch == ZigLLVM_x86_64) {
         X64CABIClass abi_class = type_c_abi_x86_64_class(g, ty);
         size_t ty_size = type_size(g, ty);
         if (abi_class == X64CABIClass_MEMORY) {
@@ -3381,15 +3334,15 @@ static bool value_is_all_undef(ConstExprValue *const_val) {
 static LLVMValueRef gen_valgrind_client_request(CodeGen *g, LLVMValueRef default_value, LLVMValueRef request,
         LLVMValueRef a1, LLVMValueRef a2, LLVMValueRef a3, LLVMValueRef a4, LLVMValueRef a5)
 {
-    if (!target_has_valgrind_support(&g->zig_target)) {
+    if (!target_has_valgrind_support(g->zig_target)) {
         return default_value;
     }
     LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->type_ref;
     bool asm_has_side_effects = true;
     bool asm_is_alignstack = false;
-    if (g->zig_target.arch.arch == ZigLLVM_x86_64) {
-        if (g->zig_target.os == OsLinux || target_is_darwin(&g->zig_target) || g->zig_target.os == OsSolaris ||
-            (g->zig_target.os == OsWindows && g->zig_target.env_type != ZigLLVM_MSVC))
+    if (g->zig_target->arch.arch == ZigLLVM_x86_64) {
+        if (g->zig_target->os == OsLinux || target_is_darwin(g->zig_target) || g->zig_target->os == OsSolaris ||
+            (g->zig_target->os == OsWindows && g->zig_target->env_type != ZigLLVM_MSVC))
         {
             if (g->cur_fn->valgrind_client_request_array == nullptr) {
                 LLVMBasicBlockRef prev_block = LLVMGetInsertBlock(g->builder);
@@ -3436,7 +3389,7 @@ static LLVMValueRef gen_valgrind_client_request(CodeGen *g, LLVMValueRef default
 }
 
 static bool want_valgrind_support(CodeGen *g) {
-    if (!target_has_valgrind_support(&g->zig_target))
+    if (!target_has_valgrind_support(g->zig_target))
         return false;
     switch (g->valgrind_support) {
         case ValgrindSupportDisabled:
@@ -3629,7 +3582,7 @@ static void gen_set_stack_pointer(CodeGen *g, LLVMValueRef aligned_end_addr) {
     LLVMValueRef write_register_fn_val = get_write_register_fn_val(g);
 
     if (g->sp_md_node == nullptr) {
-        Buf *sp_reg_name = buf_create_from_str(arch_stack_pointer_register_name(&g->zig_target.arch));
+        Buf *sp_reg_name = buf_create_from_str(arch_stack_pointer_register_name(&g->zig_target->arch));
         LLVMValueRef str_node = LLVMMDString(buf_ptr(sp_reg_name), buf_len(sp_reg_name) + 1);
         g->sp_md_node = LLVMMDNode(&str_node, 1);
     }
@@ -7042,7 +6995,7 @@ static void define_builtin_types(CodeGen *g) {
 
     for (size_t i = 0; i < array_length(c_int_type_infos); i += 1) {
         const CIntTypeInfo *info = &c_int_type_infos[i];
-        uint32_t size_in_bits = target_c_type_size_in_bits(&g->zig_target, info->id);
+        uint32_t size_in_bits = target_c_type_size_in_bits(g->zig_target, info->id);
         bool is_signed = info->is_signed;
 
         ZigType *entry = new_type_table_entry(ZigTypeIdInt);
@@ -7309,6 +7262,9 @@ static const char *build_mode_to_str(BuildMode build_mode) {
 Buf *codegen_generate_builtin_source(CodeGen *g) {
     Buf *contents = buf_alloc();
 
+    // NOTE: when editing this file, you may need to make modifications to the
+    // cache input parameters in define_builtin_compile_vars
+
     // Modifications to this struct must be coordinated with code that does anything with
     // g->stack_trace_type. There are hard-coded references to the field indexes.
     buf_append_str(contents,
@@ -7328,7 +7284,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             const char *name = get_target_os_name(os_type);
             buf_appendf(contents, "    %s,\n", name);
 
-            if (os_type == g->zig_target.os) {
+            if (os_type == g->zig_target->os) {
                 g->target_os_index = i;
                 cur_os = name;
             }
@@ -7350,8 +7306,8 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
 
             buf_appendf(contents, "    %s,\n", buf_ptr(arch_name));
 
-            if (arch_type->arch == g->zig_target.arch.arch &&
-                arch_type->sub_arch == g->zig_target.arch.sub_arch)
+            if (arch_type->arch == g->zig_target->arch.arch &&
+                arch_type->sub_arch == g->zig_target->arch.sub_arch)
             {
                 g->target_arch_index = i;
                 cur_arch = buf_ptr(arch_name);
@@ -7370,7 +7326,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             const char *name = ZigLLVMGetEnvironmentTypeName(environ_type);
             buf_appendf(contents, "    %s,\n", name);
 
-            if (environ_type == g->zig_target.env_type) {
+            if (environ_type == g->zig_target->env_type) {
                 g->target_environ_index = i;
                 cur_environ = name;
             }
@@ -7388,7 +7344,8 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             const char *name = get_target_oformat_name(oformat);
             buf_appendf(contents, "    %s,\n", name);
 
-            if (oformat == g->zig_target.oformat) {
+            ZigLLVM_ObjectFormatType target_oformat = target_object_format(g->zig_target);
+            if (oformat == target_oformat) {
                 g->target_oformat_index = i;
                 cur_obj_fmt = name;
             }
@@ -7707,14 +7664,15 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     cache_int(&cache_hash, g->build_mode);
     cache_bool(&cache_hash, g->is_test_build);
     cache_bool(&cache_hash, g->is_single_threaded);
-    cache_int(&cache_hash, g->zig_target.arch.arch);
-    cache_int(&cache_hash, g->zig_target.arch.sub_arch);
-    cache_int(&cache_hash, g->zig_target.vendor);
-    cache_int(&cache_hash, g->zig_target.os);
-    cache_int(&cache_hash, g->zig_target.env_type);
-    cache_int(&cache_hash, g->zig_target.oformat);
+    cache_int(&cache_hash, g->zig_target->is_native);
+    cache_int(&cache_hash, g->zig_target->arch.arch);
+    cache_int(&cache_hash, g->zig_target->arch.sub_arch);
+    cache_int(&cache_hash, g->zig_target->vendor);
+    cache_int(&cache_hash, g->zig_target->os);
+    cache_int(&cache_hash, g->zig_target->env_type);
     cache_bool(&cache_hash, g->have_err_ret_tracing);
     cache_bool(&cache_hash, g->libc_link_lib != nullptr);
+    cache_bool(&cache_hash, g->valgrind_support);
 
     Buf digest = BUF_INIT;
     buf_resize(&digest, 0);
@@ -7766,6 +7724,27 @@ static void init(CodeGen *g) {
     if (g->module)
         return;
 
+    if (g->out_type == OutTypeExe && g->libc_link_lib != nullptr && g->libc == nullptr) {
+        Error err;
+
+        // Currently darwin is the only platform that we can link libc on when not compiling natively,
+        // without a cross compiling libc kit.
+        if (g->zig_target->is_native) {
+            g->libc = allocate<ZigLibCInstallation>(1);
+            if ((err = zig_libc_find_native(g->libc, true))) {
+                fprintf(stderr,
+                    "Unable to link against libc: Unable to find libc installation: %s\n"
+                    "See `zig libc --help` for more details.\n", err_str(err));
+                exit(1);
+            }
+        } else if (!target_is_darwin(g->zig_target)) {
+            fprintf(stderr,
+                "Cannot link against libc for non-native OS '%s' without providing a libc installation file.\n"
+                "See `zig libc --help` for more details.\n", get_target_os_name(g->zig_target->os));
+            exit(1);
+        }
+    }
+
     if (g->llvm_argv_len > 0) {
         const char **args = allocate_nonzero<const char *>(g->llvm_argv_len + 2);
         args[0] = "zig (LLVM option parsing)";
@@ -7783,11 +7762,11 @@ static void init(CodeGen *g) {
     assert(g->root_out_name);
     g->module = LLVMModuleCreateWithName(buf_ptr(g->root_out_name));
 
-    get_target_triple(&g->triple_str, &g->zig_target);
+    get_target_triple(&g->triple_str, g->zig_target);
 
     LLVMSetTarget(g->module, buf_ptr(&g->triple_str));
 
-    if (g->zig_target.oformat == ZigLLVM_COFF) {
+    if (target_object_format(g->zig_target) == ZigLLVM_COFF) {
         ZigLLVMAddModuleCodeViewFlag(g->module);
     } else {
         ZigLLVMAddModuleDebugInfoFlag(g->module);
@@ -7815,11 +7794,11 @@ static void init(CodeGen *g) {
 
     const char *target_specific_cpu_args;
     const char *target_specific_features;
-    if (g->is_native_target) {
+    if (g->zig_target->is_native) {
         // LLVM creates invalid binaries on Windows sometimes.
         // See https://github.com/ziglang/zig/issues/508
         // As a workaround we do not use target native features on Windows.
-        if (g->zig_target.os == OsWindows || g->zig_target.os == OsUefi) {
+        if (g->zig_target->os == OsWindows || g->zig_target->os == OsUefi) {
             target_specific_cpu_args = "";
             target_specific_features = "";
         } else {
@@ -7893,8 +7872,6 @@ static void init(CodeGen *g) {
 }
 
 void codegen_translate_c(CodeGen *g, Buf *full_path) {
-    find_libc_include_path(g);
-
     Buf *src_basename = buf_alloc();
     Buf *src_dirname = buf_alloc();
     os_path_split(full_path, src_dirname, src_basename);
@@ -8064,14 +8041,14 @@ static void gen_root_source(CodeGen *g) {
     }
     report_errors_and_maybe_exit(g);
 
-    if (!g->is_test_build && g->zig_target.os != OsFreestanding &&
-        g->zig_target.os != OsUefi &&
+    if (!g->is_test_build && g->zig_target->os != OsFreestanding &&
+        g->zig_target->os != OsUefi &&
         !g->have_c_main && !g->have_winmain && !g->have_winmain_crt_startup &&
         ((g->have_pub_main && g->out_type == OutTypeObj) || g->out_type == OutTypeExe))
     {
         g->bootstrap_import = add_special_code(g, create_bootstrap_pkg(g, g->root_package), "bootstrap.zig");
     }
-    if (g->zig_target.os == OsWindows && !g->have_dllmain_crt_startup &&
+    if (g->zig_target->os == OsWindows && !g->have_dllmain_crt_startup &&
             g->out_type == OutTypeLib && !g->is_static)
     {
         g->bootstrap_import = add_special_code(g, create_bootstrap_pkg(g, g->root_package), "bootstrap_lib.zig");
@@ -8619,6 +8596,8 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     }
     cache_buf(ch, compiler_id);
     cache_buf(ch, g->root_out_name);
+    cache_buf(ch, g->zig_lib_dir);
+    cache_buf(ch, g->zig_std_dir);
     cache_list_of_link_lib(ch, g->link_libs_list.items, g->link_libs_list.length);
     cache_list_of_buf(ch, g->darwin_frameworks.items, g->darwin_frameworks.length);
     cache_list_of_buf(ch, g->rpath_list.items, g->rpath_list.length);
@@ -8628,18 +8607,17 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_int(ch, g->emit_file_type);
     cache_int(ch, g->build_mode);
     cache_int(ch, g->out_type);
-    cache_int(ch, g->zig_target.arch.arch);
-    cache_int(ch, g->zig_target.arch.sub_arch);
-    cache_int(ch, g->zig_target.vendor);
-    cache_int(ch, g->zig_target.os);
-    cache_int(ch, g->zig_target.env_type);
-    cache_int(ch, g->zig_target.oformat);
+    cache_bool(ch, g->zig_target->is_native);
+    cache_int(ch, g->zig_target->arch.arch);
+    cache_int(ch, g->zig_target->arch.sub_arch);
+    cache_int(ch, g->zig_target->vendor);
+    cache_int(ch, g->zig_target->os);
+    cache_int(ch, g->zig_target->env_type);
     cache_int(ch, g->subsystem);
     cache_bool(ch, g->is_static);
     cache_bool(ch, g->strip_debug_symbols);
     cache_bool(ch, g->is_test_build);
     cache_bool(ch, g->is_single_threaded);
-    cache_bool(ch, g->is_native_target);
     cache_bool(ch, g->linker_rdynamic);
     cache_bool(ch, g->each_lib_rpath);
     cache_bool(ch, g->disable_pic);
@@ -8654,6 +8632,14 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_list_of_str(ch, g->llvm_argv, g->llvm_argv_len);
     cache_list_of_str(ch, g->clang_argv, g->clang_argv_len);
     cache_list_of_str(ch, g->lib_dirs.items, g->lib_dirs.length);
+    if (g->libc) {
+        cache_buf(ch, &g->libc->include_dir);
+        cache_buf(ch, &g->libc->lib_dir);
+        cache_buf(ch, &g->libc->static_lib_dir);
+        cache_buf(ch, &g->libc->msvc_lib_dir);
+        cache_buf(ch, &g->libc->kernel32_lib_dir);
+        cache_buf(ch, &g->libc->dynamic_linker_path);
+    }
 
     buf_resize(digest, 0);
     if ((err = cache_hit(ch, digest)))
@@ -8668,19 +8654,19 @@ static void resolve_out_paths(CodeGen *g) {
     switch (g->emit_file_type) {
         case EmitFileTypeBinary:
         {
-            const char *o_ext = target_o_file_ext(&g->zig_target);
+            const char *o_ext = target_o_file_ext(g->zig_target);
             buf_append_str(o_basename, o_ext);
             break;
         }
         case EmitFileTypeAssembly:
         {
-            const char *asm_ext = target_asm_file_ext(&g->zig_target);
+            const char *asm_ext = target_asm_file_ext(g->zig_target);
             buf_append_str(o_basename, asm_ext);
             break;
         }
         case EmitFileTypeLLVMIr:
         {
-            const char *llvm_ir_ext = target_llvm_ir_file_ext(&g->zig_target);
+            const char *llvm_ir_ext = target_llvm_ir_file_ext(g->zig_target);
             buf_append_str(o_basename, llvm_ir_ext);
             break;
         }
@@ -8706,7 +8692,7 @@ static void resolve_out_paths(CodeGen *g) {
 
             Buf basename = BUF_INIT;
             buf_init_from_buf(&basename, g->root_out_name);
-            buf_append_str(&basename, target_exe_file_ext(&g->zig_target));
+            buf_append_str(&basename, target_exe_file_ext(g->zig_target));
             if (g->enable_cache || g->is_test_build) {
                 os_path_join(&g->artifact_dir, &basename, &g->output_file_path);
             } else {
@@ -8719,7 +8705,7 @@ static void resolve_out_paths(CodeGen *g) {
         } else {
             Buf basename = BUF_INIT;
             buf_init_from_buf(&basename, g->root_out_name);
-            buf_append_str(&basename, target_lib_file_ext(&g->zig_target, g->is_static,
+            buf_append_str(&basename, target_lib_file_ext(g->zig_target, g->is_static,
                         g->version_major, g->version_minor, g->version_patch));
             if (g->enable_cache) {
                 os_path_join(&g->artifact_dir, &basename, &g->output_file_path);
