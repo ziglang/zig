@@ -8,13 +8,7 @@
       body{
         background-color:#111;
         color: #bbb;
-        font-family: system-ui,
-          /* Fallbacks for browsers that don't support system-ui */
-          /* https://caniuse.com/#search=system-ui */
-          -apple-system, /* iOS and macOS */
-          Roboto,        /* Android */
-          "Segoe UI",    /* Windows */
-          sans-serif;
+        font-family: system-ui, -apple-system, Roboto, "Segoe UI", sans-serif;
       }
       a {
         color: #88f;
@@ -263,7 +257,7 @@ pub fn main() void {
         true and false,
         true or false,
         !true);
-    
+
     // optional
     var optional_value: ?[]const u8 = null;
     assert(optional_value == null);
@@ -282,7 +276,7 @@ pub fn main() void {
 
     warn("\nerror union 1\ntype: {}\nvalue: {}\n",
         @typeName(@typeOf(number_or_error)), number_or_error);
- 
+
     number_or_error = 1234;
 
     warn("\nerror union 2\ntype: {}\nvalue: {}\n",
@@ -707,15 +701,21 @@ fn divide(a: i32, b: i32) i32 {
       {#code_end#}
       <p>
       In this function, values {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#} are known only at runtime,
-      and thus this division operation is vulnerable to both integer overflow and
-      division by zero.
+      and thus this division operation is vulnerable to both {#link|Integer Overflow#} and
+      {#link|Division by Zero#}.
       </p>
       <p>
       Operators such as {#syntax#}+{#endsyntax#} and {#syntax#}-{#endsyntax#} cause undefined behavior on
               integer overflow. Also available are operations such as {#syntax#}+%{#endsyntax#} and
                   {#syntax#}-%{#endsyntax#} which are defined to have wrapping arithmetic on all targets.
       </p>
-      {#see_also|Integer Overflow|Division by Zero|Wrapping Operations#}
+      <p>
+      Zig supports arbitrary bit-width integers, referenced by using
+      an identifier of <code>i</code> or </code>u</code> followed by digits. For example, the identifier
+      {#syntax#}i7{#endsyntax#} refers to a signed 7-bit integer. The maximum allowed bit-width of an
+      integer type is {#syntax#}65535{#endsyntax#}.
+      </p>
+      {#see_also|Wrapping Operations#}
       {#header_close#}
       {#header_close#}
       {#header_open|Floats#}
@@ -1652,7 +1652,7 @@ test "pointer slicing" {
     assert(array[3] == 5);
 }
       {#code_end#}
-      <p>Pointers work at compile-time too, as long as the code does not depend on 
+      <p>Pointers work at compile-time too, as long as the code does not depend on
       an undefined memory layout:</p>
       {#code_begin|test#}
 const assert = @import("std").debug.assert;
@@ -2047,13 +2047,203 @@ test "linked list" {
 }
       {#code_end#}
       {#header_open|packed struct#}
-      <p>{#syntax#}packed{#endsyntax#} structs have guaranteed in-memory layout.</p>
-      <p>TODO bit fields</p>
-      <p>TODO alignment</p>
-      <p>TODO endianness</p>
-      <p>TODO @bitOffsetOf and @byteOffsetOf</p>
-      <p>TODO mention how volatile loads and stores of bit packed fields could be more efficient when
-      done by hand instead of with packed struct</p>
+      <p>
+      Unlike normal structs, {#syntax#}packed{#endsyntax#} structs have guaranteed in-memory layout:
+      </p>
+      <ul>
+        <li>Fields remain in the order declared.</li>
+        <li>There is no padding between fields.</li>
+        <li>Zig supports arbitrary width {#link|Integers#} and although normally, integers with fewer
+        than 8 bits will still use 1 byte of memory, in packed structs, they use
+        exactly their bit width.
+        </li>
+        <li>{#syntax#}bool{#endsyntax#} fields use exactly 1 bit.</li>
+        <li>A {#link|packed enum#} field uses exactly the bit width of its integer tag type.</li>
+        <li>A {#link|packed union#} field uses exactly the bit width of the union field with
+        the largest bit width.</li>
+        <li>Non-byte-aligned fields are packed into the smallest possible
+        byte-aligned integers in accordance with the target endianness.
+        </li>
+      </ul>
+      <p>
+      This means that a {#syntax#}packed struct{#endsyntax#} can participate
+      in a {#link|@bitCast#} or a {#link|@ptrCast#} to reinterpret memory.
+      This even works at {#link|comptime#}:
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const builtin = @import("builtin");
+const assert = std.debug.assert;
+
+const Full = packed struct {
+    number: u16,
+};
+const Divided = packed struct {
+    half1: u8,
+    quarter3: u4,
+    quarter4: u4,
+};
+
+test "@bitCast between packed structs" {
+    doTheTest();
+    comptime doTheTest();
+}
+
+fn doTheTest() void {
+    assert(@sizeOf(Full) == 2);
+    assert(@sizeOf(Divided) == 2);
+    var full = Full{ .number = 0x1234 };
+    var divided = @bitCast(Divided, full);
+    switch (builtin.endian) {
+        builtin.Endian.Big => {
+            assert(divided.half1 == 0x12);
+            assert(divided.quarter3 == 0x3);
+            assert(divided.quarter4 == 0x4);
+        },
+        builtin.Endian.Little => {
+            assert(divided.half1 == 0x34);
+            assert(divided.quarter3 == 0x2);
+            assert(divided.quarter4 == 0x1);
+        },
+    }
+}
+      {#code_end#}
+      <p>
+      Zig allows the address to be taken of a non-byte-aligned field:
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+const BitField = packed struct {
+    a: u3,
+    b: u3,
+    c: u2,
+};
+
+var foo = BitField{
+    .a = 1,
+    .b = 2,
+    .c = 3,
+};
+
+test "pointer to non-byte-aligned field" {
+    const ptr = &foo.b;
+    assert(ptr.* == 2);
+}
+      {#code_end#}
+      <p>
+      However, the pointer to a non-byte-aligned field has special properties and cannot
+      be passed when a normal pointer is expected:
+      </p>
+      {#code_begin|test_err|expected type#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+const BitField = packed struct {
+    a: u3,
+    b: u3,
+    c: u2,
+};
+
+var bit_field = BitField{
+    .a = 1,
+    .b = 2,
+    .c = 3,
+};
+
+test "pointer to non-bit-aligned field" {
+    assert(bar(&bit_field.b) == 2);
+}
+
+fn bar(x: *const u3) u3 {
+    return x.*;
+}
+      {#code_end#}
+      <p>
+      In this case, the function {#syntax#}bar{#endsyntax#} cannot be called becuse the pointer
+      to the non-byte-aligned field mentions the bit offset, but the function expects a byte-aligned pointer.
+      </p>
+      <p>
+      Pointers to non-byte-aligned fields share the same address as the other fields within their host integer:
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+const BitField = packed struct {
+    a: u3,
+    b: u3,
+    c: u2,
+};
+
+var bit_field = BitField{
+    .a = 1,
+    .b = 2,
+    .c = 3,
+};
+
+test "pointer to non-bit-aligned field" {
+    assert(@ptrToInt(&bit_field.a) == @ptrToInt(&bit_field.b));
+    assert(@ptrToInt(&bit_field.a) == @ptrToInt(&bit_field.c));
+}
+      {#code_end#}
+      <p>
+      This can be observed with {#link|@bitOffsetOf#} and {#link|byteOffsetOf#}:
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+const BitField = packed struct {
+    a: u3,
+    b: u3,
+    c: u2,
+};
+
+test "pointer to non-bit-aligned field" {
+    comptime {
+        assert(@bitOffsetOf(BitField, "a") == 0);
+        assert(@bitOffsetOf(BitField, "b") == 3);
+        assert(@bitOffsetOf(BitField, "c") == 6);
+
+        assert(@byteOffsetOf(BitField, "a") == 0);
+        assert(@byteOffsetOf(BitField, "b") == 0);
+        assert(@byteOffsetOf(BitField, "c") == 0);
+    }
+}
+      {#code_end#}
+      <p>
+      Packed structs have 1-byte alignment. However if you have an overaligned pointer to a packed struct,
+      Zig should correctly understand the alignment of fields. However there is
+      <a href="https://github.com/ziglang/zig/issues/1994">a bug</a>:
+      </p>
+      {#code_begin|test_err#}
+const S = packed struct {
+    a: u32,
+    b: u32,
+};
+test "overaligned pointer to packed struct" {
+    var foo: S align(4) = undefined;
+    const ptr: *align(4) S = &foo;
+    const ptr_to_b: *u32 = &ptr.b;
+}
+      {#code_end#}
+      <p>When this bug is fixed, the above test in the documentation will unexpectedly pass, which will
+      cause the test suite to fail, notifying the bug fixer to update these docs.
+      </p>
+      <p>
+      It's also
+      <a href="https://github.com/ziglang/zig/issues/1512">planned to be able to set alignment of struct fields</a>.
+      </p>
+      <p>
+      Using packed structs with {#link|volatile#} is problematic, and may be a compile error in the future.
+      For details on this subscribe to
+      <a href="https://github.com/ziglang/zig/issues/1761">this issue</a>.
+      TODO update these docs with a recommendation on how to use packed structs with MMIO
+      (the use case for volatile packed structs) once this issue is resolved.
+      Don't worry, there will be a good solution for this use case in zig.
+      </p>
       {#header_close#}
       {#header_open|struct Naming#}
       <p>Since all structs are anonymous, Zig infers the type name based on a few rules.</p>
@@ -2203,8 +2393,8 @@ export fn entry(foo: Foo) void { }
       {#header_close#}
       {#header_open|packed enum#}
       <p>By default, the size of enums is not guaranteed.</p>
-      <p>{#syntax#}packed enum{#endsyntax#} causes the size of the enum to be the same as the size of the integer tag type
-      of the enum:</p>
+      <p>{#syntax#}packed enum{#endsyntax#} causes the size of the enum to be the same as the size of the
+      integer tag type of the enum:</p>
       {#code_begin|test#}
 const std = @import("std");
 
@@ -2217,6 +2407,7 @@ test "packed enum" {
     std.debug.assert(@sizeOf(Number) == @sizeOf(u8));
 }
       {#code_end#}
+      <p>This makes the enum eligible to be in a {#link|packed struct#}.</p>
       {#header_close#}
       {#see_also|@memberName|@memberCount|@tagName|@sizeOf#}
       {#header_close#}
@@ -2344,7 +2535,12 @@ test "@tagName" {
       Unions with an enum tag are generated as a struct with a tag field and union field. Zig
       sorts the order of the tag and union field by the largest alignment.
       </p>
+      {#header_open|packed union#}
+      <p>A {#syntax#}packed union{#endsyntax#} has well-defined in-memory layout and is eligible
+      to be in a {#link|packed struct#}.
       {#header_close#}
+      {#header_close#}
+
       {#header_open|blocks#}
       <p>
       Blocks are used to limit the scope of variable declarations:
@@ -3771,7 +3967,7 @@ fn bang2() void {
       Here, the stack trace does not explain how the control
       flow in {#syntax#}bar{#endsyntax#} got to the {#syntax#}hello(){#endsyntax#} call.
       One would have to open a debugger or further instrument the application
-      in order to find out. The error return trace, on the other hand, 
+      in order to find out. The error return trace, on the other hand,
       shows exactly how the error bubbled up.
       </p>
       <p>
@@ -3963,7 +4159,7 @@ test "optional type" {
       cast it to a different type:
       </p>
       {#code_begin|syntax#}
-const optional_value: ?i32 = null; 
+const optional_value: ?i32 = null;
       {#code_end#}
       {#header_close#}
       {#header_open|Optional Pointers#}
@@ -5141,7 +5337,7 @@ async fn testResumeFromSuspend(my_result: *i32) void {
       <p>
       {#syntax#}await{#endsyntax#} is valid only in an {#syntax#}async{#endsyntax#} function, and it takes
       as an operand a promise handle.
-      If the async function associated with the promise handle has already returned, 
+      If the async function associated with the promise handle has already returned,
       then {#syntax#}await{#endsyntax#} destroys the target async function, and gives the return value.
           Otherwise, {#syntax#}await{#endsyntax#} suspends the current async function, registering its
       promise handle with the target coroutine. It becomes the target coroutine's responsibility
@@ -5225,7 +5421,7 @@ fn seq(c: u8) void {
           </li>
       </ul>
       {#header_close#}
-      
+
       {#header_close#}
       {#header_open|Builtin Functions#}
       <p>
@@ -5580,13 +5776,13 @@ const warn = @import("std").debug.warn;
 
 const num1 = blk: {
     var val1: i32 = 99;
-    @compileLog("comptime val1 = ", val1); 
+    @compileLog("comptime val1 = ", val1);
     val1 = val1 + 1;
     break :blk val1;
 };
 
 test "main" {
-    @compileLog("comptime in main"); 
+    @compileLog("comptime in main");
 
     warn("Runtime in main, num1 = {}.\n", num1);
 }
@@ -5596,10 +5792,10 @@ test "main" {
       will ouput:
       </p>
       <p>
-      If all {#syntax#}@compileLog{#endsyntax#} calls are removed or 
+      If all {#syntax#}@compileLog{#endsyntax#} calls are removed or
       not encountered by analysis, the
       program compiles successfully and the generated executable prints:
-      </p>  
+      </p>
       {#code_begin|test#}
 const warn = @import("std").debug.warn;
 
@@ -6425,7 +6621,7 @@ fn List(comptime T: type) type {
       <p>
       When {#syntax#}@This(){#endsyntax#} is used at global scope, it returns a reference to the
       current import. There is a proposal to remove the import type and use an empty struct
-      type instead. See 
+      type instead. See
       <a href="https://github.com/ziglang/zig/issues/1047">#1047</a> for details.
       </p>
       {#header_close#}
@@ -7560,7 +7756,7 @@ const c = @cImport({
             {#link|Undefined Behavior#} occurs if the address is 0.
         </li>
         <li>Allows address 0. On non-freestanding targets, dereferencing address 0 is safety-checked
-            {#link|Undefined Behavior#}. Optional C pointers introduce another bit to keep track of 
+            {#link|Undefined Behavior#}. Optional C pointers introduce another bit to keep track of
             null, just like {#syntax#}?usize{#endsyntax#}. Note that creating an optional C pointer
             is unnecessary as one can use normal {#link|Optional Pointers#}.
         </li>
