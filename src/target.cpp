@@ -808,6 +808,83 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
     zig_unreachable();
 }
 
+// See clang/lib/Basic/Targets for LongDoubleFormat
+uint32_t target_c_longdouble_type_size_in_bits(const ZigTarget *target) {
+    switch (target->arch.arch) {
+        case ZigLLVM_UnknownArch:
+            zig_unreachable();
+
+        case ZigLLVM_x86:
+            switch (target->env_type) {
+                case ZigLLVM_MSVC:
+                    return 64;
+                default:
+                    return 80;
+            }
+        case ZigLLVM_x86_64:
+            switch (target->env_type) {
+                case ZigLLVM_MSVC:
+                    return 64;
+                case ZigLLVM_Android:
+                    return 128;
+                default:
+                    return 80;
+            }
+        case ZigLLVM_wasm32:
+        case ZigLLVM_wasm64:
+            return 128;
+
+        case ZigLLVM_aarch64:
+        case ZigLLVM_thumb:
+        case ZigLLVM_aarch64_be:
+        case ZigLLVM_amdgcn:
+        case ZigLLVM_amdil:
+        case ZigLLVM_amdil64:
+        case ZigLLVM_arm:
+        case ZigLLVM_armeb:
+        case ZigLLVM_arc:
+        case ZigLLVM_avr:
+        case ZigLLVM_bpfeb:
+        case ZigLLVM_bpfel:
+        case ZigLLVM_hexagon:
+        case ZigLLVM_lanai:
+        case ZigLLVM_hsail:
+        case ZigLLVM_hsail64:
+        case ZigLLVM_kalimba:
+        case ZigLLVM_le32:
+        case ZigLLVM_le64:
+        case ZigLLVM_mips:
+        case ZigLLVM_mips64:
+        case ZigLLVM_mips64el:
+        case ZigLLVM_mipsel:
+        case ZigLLVM_msp430:
+        case ZigLLVM_nios2:
+        case ZigLLVM_nvptx:
+        case ZigLLVM_nvptx64:
+        case ZigLLVM_ppc64le:
+        case ZigLLVM_r600:
+        case ZigLLVM_renderscript32:
+        case ZigLLVM_renderscript64:
+        case ZigLLVM_riscv32:
+        case ZigLLVM_riscv64:
+        case ZigLLVM_shave:
+        case ZigLLVM_sparc:
+        case ZigLLVM_sparcel:
+        case ZigLLVM_sparcv9:
+        case ZigLLVM_spir:
+        case ZigLLVM_spir64:
+        case ZigLLVM_systemz:
+        case ZigLLVM_tce:
+        case ZigLLVM_tcele:
+        case ZigLLVM_thumbeb:
+        case ZigLLVM_xcore:
+        case ZigLLVM_ppc:
+        case ZigLLVM_ppc64:
+            zig_panic("TODO c_longdouble size in bits for this target");
+    }
+    zig_unreachable();
+}
+
 bool target_allows_addr_zero(const ZigTarget *target) {
     return target->os == OsFreestanding;
 }

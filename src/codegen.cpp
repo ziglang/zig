@@ -6974,7 +6974,22 @@ static void define_builtin_types(CodeGen *g) {
     add_fp_entry(g, "f32", 32, LLVMFloatType(), &g->builtin_types.entry_f32);
     add_fp_entry(g, "f64", 64, LLVMDoubleType(), &g->builtin_types.entry_f64);
     add_fp_entry(g, "f128", 128, LLVMFP128Type(), &g->builtin_types.entry_f128);
-    add_fp_entry(g, "c_longdouble", 80, LLVMX86FP80Type(), &g->builtin_types.entry_c_longdouble);
+
+    LLVMTypeRef c_longdouble_type;
+    switch (target_c_longdouble_type_size_in_bits(&g->zig_target)) {
+        case 64:
+            c_longdouble_type = LLVMDoubleType();
+            break;
+        case 80:
+            c_longdouble_type = LLVMX86FP80Type();
+            break;
+        case 128:
+            c_longdouble_type = LLVMFP128Type();
+            break;
+        default:
+            zig_unreachable();
+    }
+    add_fp_entry(g, "c_longdouble", 80, c_longdouble_type, &g->builtin_types.entry_c_longdouble);
 
     {
         ZigType *entry = new_type_table_entry(ZigTypeIdVoid);

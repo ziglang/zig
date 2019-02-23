@@ -122,6 +122,7 @@ void get_target_triple(Buf *triple, const ZigTarget *target);
 void resolve_target_object_format(ZigTarget *target);
 
 uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id);
+uint32_t target_c_longdouble_type_size_in_bits(const ZigTarget *target);
 
 const char *target_o_file_ext(ZigTarget *target);
 const char *target_asm_file_ext(ZigTarget *target);
