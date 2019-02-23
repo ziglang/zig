@@ -23,8 +23,8 @@ nakedcc fn _start() noreturn {
     switch (builtin.arch) {
         builtin.Arch.x86_64 => {
             argc_ptr = asm ("lea (%%rsp), %[argc]"
-                                : [argc] "=r" (-> [*]usize)
-                            );
+                : [argc] "=r" (-> [*]usize)
+            );
         },
         builtin.Arch.i386 => {
             argc_ptr = asm ("lea (%%esp), %[argc]"
@@ -123,7 +123,7 @@ inline fn callMain() u8 {
                 std.debug.warn("error: {}\n", @errorName(err));
                 if (builtin.os != builtin.Os.zen) {
                     if (@errorReturnTrace()) |trace| {
-                        std.debug.dumpStackTrace(trace);
+                        std.debug.dumpStackTrace(trace.*);
                     }
                 }
                 return 1;
@@ -142,7 +142,10 @@ fn linuxInitializeThreadLocalStorage(at_phdr: usize, at_phnum: usize, at_phent: 
     var phdr_addr = at_phdr;
     var n = at_phnum;
     var base: usize = 0;
-    while (n != 0) : ({n -= 1; phdr_addr += at_phent;}) {
+    while (n != 0) : ({
+        n -= 1;
+        phdr_addr += at_phent;
+    }) {
         const phdr = @intToPtr(*std.elf.Phdr, phdr_addr);
         // TODO look for PT_DYNAMIC when we have https://github.com/ziglang/zig/issues/1917
         switch (phdr.p_type) {

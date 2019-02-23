@@ -90,9 +90,60 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
     };
 }
 
+/// Returns a slice with the same pointer as addresses, with a potentially smaller len.
+/// On Windows, when first_address is not null, we ask for at least 32 stack frames,
+/// and then try to find the first address. If addresses.len is more than 32, we
+/// capture that many stack frames exactly, and then look for the first address,
+/// chopping off the irrelevant frames and shifting so that the returned addresses pointer
+/// equals the passed in addresses pointer.
+pub fn captureStackTrace(first_address: ?usize, stack_trace: *builtin.StackTrace) void {
+    switch (builtin.os) {
+        builtin.Os.windows => {
+            const addrs = stack_trace.instruction_addresses;
+            const u32_addrs_len = @intCast(u32, addrs.len);
+            const first_addr = first_address orelse {
+                stack_trace.index = windows.RtlCaptureStackBackTrace(
+                    0,
+                    u32_addrs_len,
+                    @ptrCast(**c_void, addrs.ptr),
+                    null,
+                );
+                return;
+            };
+            var addr_buf_stack: [32]usize = undefined;
+            const addr_buf = if (addr_buf_stack.len > addrs.len) addr_buf_stack[0..] else addrs;
+            const n = windows.RtlCaptureStackBackTrace(0, u32_addrs_len, @ptrCast(**c_void, addr_buf.ptr), null);
+            const first_index = for (addr_buf[0..n]) |addr, i| {
+                if (addr == first_addr) {
+                    break i;
+                }
+            } else {
+                stack_trace.index = 0;
+                return;
+            };
+            const slice = addr_buf[first_index..n];
+            // We use a for loop here because slice and addrs may alias.
+            for (slice) |addr, i| {
+                addrs[i] = addr;
+            }
+            stack_trace.index = slice.len;
+        },
+        else => {
+            var it = StackIterator.init(first_address);
+            for (stack_trace.instruction_addresses) |*addr, i| {
+                addr.* = it.next() orelse {
+                    stack_trace.index = i;
+                    return;
+                };
+            }
+            stack_trace.index = stack_trace.instruction_addresses.len;
+        },
+    }
+}
+
 /// Tries to print a stack trace to stderr, unbuffered, and ignores any error returned.
 /// TODO multithreaded awareness
-pub fn dumpStackTrace(stack_trace: *const builtin.StackTrace) void {
+pub fn dumpStackTrace(stack_trace: builtin.StackTrace) void {
     const stderr = getStderrStream() catch return;
     const debug_info = getSelfDebugInfo() catch |err| {
         stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", @errorName(err)) catch return;
@@ -141,7 +192,7 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
     const stderr = getStderrStream() catch os.abort();
     stderr.print(format ++ "\n", args) catch os.abort();
     if (trace) |t| {
-        dumpStackTrace(t);
+        dumpStackTrace(t.*);
     }
     dumpCurrentStackTrace(first_trace_addr);
 
@@ -155,16 +206,15 @@ const WHITE = "\x1b[37;1m";
 const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
 
-pub fn writeStackTrace(stack_trace: *const builtin.StackTrace, out_stream: var, allocator: *mem.Allocator, debug_info: *DebugInfo, tty_color: bool) !void {
-    var frame_index: usize = undefined;
-    var frames_left: usize = undefined;
-    if (stack_trace.index < stack_trace.instruction_addresses.len) {
-        frame_index = 0;
-        frames_left = stack_trace.index;
-    } else {
-        frame_index = (stack_trace.index + 1) % stack_trace.instruction_addresses.len;
-        frames_left = stack_trace.instruction_addresses.len;
-    }
+pub fn writeStackTrace(
+    stack_trace: builtin.StackTrace,
+    out_stream: var,
+    allocator: *mem.Allocator,
+    debug_info: *DebugInfo,
+    tty_color: bool,
+) !void {
+    var frame_index: usize = 0;
+    var frames_left: usize = stack_trace.index;
 
     while (frames_left != 0) : ({
         frames_left -= 1;
