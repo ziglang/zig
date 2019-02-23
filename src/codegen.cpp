@@ -7869,6 +7869,11 @@ static void detect_libc(CodeGen *g) {
                     "See `zig libc --help` for more details.\n", err_str(err));
                 exit(1);
             }
+            if ((err = os_make_path(&g->cache_dir))) {
+                fprintf(stderr, "Unable to create %s directory: %s\n",
+                    buf_ptr(&g->cache_dir), err_str(err));
+                exit(1);
+            }
             Buf *native_libc_tmp = buf_sprintf("%s.tmp", buf_ptr(native_libc_txt));
             FILE *file = fopen(buf_ptr(native_libc_tmp), "wb");
             if (file == nullptr) {
