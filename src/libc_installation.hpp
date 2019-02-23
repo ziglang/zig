@@ -8,6 +8,8 @@
 #ifndef ZIG_LIBC_INSTALLATION_HPP
 #define ZIG_LIBC_INSTALLATION_HPP
 
+#include <stdio.h>
+
 #include "buffer.hpp"
 #include "error.hpp"
 #include "target.hpp"
@@ -24,7 +26,7 @@ struct ZigLibCInstallation {
 
 Error ATTRIBUTE_MUST_USE zig_libc_parse(ZigLibCInstallation *libc, Buf *libc_file,
         const ZigTarget *target, bool verbose);
-void zig_libc_render(ZigLibCInstallation *self);
+void zig_libc_render(ZigLibCInstallation *self, FILE *file);
 
 Error ATTRIBUTE_MUST_USE zig_libc_find_native(ZigLibCInstallation *self, bool verbose);
 

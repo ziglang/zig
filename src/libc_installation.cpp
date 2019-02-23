@@ -48,7 +48,7 @@ Error zig_libc_parse(ZigLibCInstallation *libc, Buf *libc_file, const ZigTarget 
 
     Buf *contents = buf_alloc();
     if ((err = os_fetch_file_path(libc_file, contents, false))) {
-        if (verbose) {
+        if (err != ErrorFileNotFound && verbose) {
             fprintf(stderr, "Unable to read '%s': %s\n", buf_ptr(libc_file), err_str(err));
         }
         return err;
@@ -323,8 +323,8 @@ static Error zig_libc_find_native_dynamic_linker_posix(ZigLibCInstallation *self
 }
 #endif
 
-void zig_libc_render(ZigLibCInstallation *self) {
-    printf(
+void zig_libc_render(ZigLibCInstallation *self, FILE *file) {
+    fprintf(file,
         "# The directory that contains `stdlib.h`.\n"
         "# On Linux, can be found with: `cc -E -Wp,-v -xc /dev/null`\n"
         "include_dir=%s\n"

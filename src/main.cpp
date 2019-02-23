@@ -879,7 +879,7 @@ int main(int argc, char **argv) {
         ZigLibCInstallation libc;
         if ((err = zig_libc_find_native(&libc, true)))
             return EXIT_FAILURE;
-        zig_libc_render(&libc);
+        zig_libc_render(&libc, stdout);
         return EXIT_SUCCESS;
     }
     case CmdBuiltin: {

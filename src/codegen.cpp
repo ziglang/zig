@@ -7724,27 +7724,6 @@ static void init(CodeGen *g) {
     if (g->module)
         return;
 
-    if (g->out_type == OutTypeExe && g->libc_link_lib != nullptr && g->libc == nullptr) {
-        Error err;
-
-        // Currently darwin is the only platform that we can link libc on when not compiling natively,
-        // without a cross compiling libc kit.
-        if (g->zig_target->is_native) {
-            g->libc = allocate<ZigLibCInstallation>(1);
-            if ((err = zig_libc_find_native(g->libc, true))) {
-                fprintf(stderr,
-                    "Unable to link against libc: Unable to find libc installation: %s\n"
-                    "See `zig libc --help` for more details.\n", err_str(err));
-                exit(1);
-            }
-        } else if (!target_is_darwin(g->zig_target)) {
-            fprintf(stderr,
-                "Cannot link against libc for non-native OS '%s' without providing a libc installation file.\n"
-                "See `zig libc --help` for more details.\n", get_target_os_name(g->zig_target->os));
-            exit(1);
-        }
-    }
-
     if (g->llvm_argv_len > 0) {
         const char **args = allocate_nonzero<const char *>(g->llvm_argv_len + 2);
         args[0] = "zig (LLVM option parsing)";
@@ -7871,6 +7850,53 @@ static void init(CodeGen *g) {
     }
 }
 
+static void detect_libc(CodeGen *g) {
+    Error err;
+
+    if (g->libc != nullptr || g->libc_link_lib == nullptr)
+        return;
+
+    if (g->zig_target->is_native) {
+        g->libc = allocate<ZigLibCInstallation>(1);
+
+        // Look for zig-cache/native_libc.txt
+        Buf *native_libc_txt = buf_alloc();
+        os_path_join(&g->cache_dir, buf_create_from_str("native_libc.txt"), native_libc_txt);
+        if ((err = zig_libc_parse(g->libc, native_libc_txt, g->zig_target, false))) {
+            if ((err = zig_libc_find_native(g->libc, true))) {
+                fprintf(stderr,
+                    "Unable to link against libc: Unable to find libc installation: %s\n"
+                    "See `zig libc --help` for more details.\n", err_str(err));
+                exit(1);
+            }
+            Buf *native_libc_tmp = buf_sprintf("%s.tmp", buf_ptr(native_libc_txt));
+            FILE *file = fopen(buf_ptr(native_libc_tmp), "wb");
+            if (file == nullptr) {
+                fprintf(stderr, "Unable to open %s: %s\n", buf_ptr(native_libc_tmp), strerror(errno));
+                exit(1);
+            }
+            zig_libc_render(g->libc, file);
+            if (fclose(file) != 0) {
+                fprintf(stderr, "Unable to save %s: %s\n", buf_ptr(native_libc_tmp), strerror(errno));
+                exit(1);
+            }
+            if (rename(buf_ptr(native_libc_tmp), buf_ptr(native_libc_txt)) == -1) {
+                fprintf(stderr, "Unable to create %s: %s\n", buf_ptr(native_libc_txt), strerror(errno));
+                exit(1);
+            }
+        }
+    } else if ((g->out_type == OutTypeExe || (g->out_type == OutTypeLib && !g->is_static)) &&
+        !target_is_darwin(g->zig_target))
+    {
+        // Currently darwin is the only platform that we can link libc on when not compiling natively,
+        // without a cross compiling libc kit.
+        fprintf(stderr,
+            "Cannot link against libc for non-native OS '%s' without providing a libc installation file.\n"
+            "See `zig libc --help` for more details.\n", get_target_os_name(g->zig_target->os));
+        exit(1);
+    }
+}
+
 void codegen_translate_c(CodeGen *g, Buf *full_path) {
     Buf *src_basename = buf_alloc();
     Buf *src_dirname = buf_alloc();
@@ -7881,6 +7907,8 @@ void codegen_translate_c(CodeGen *g, Buf *full_path) {
     import->path = full_path;
     g->root_import = import;
     import->decls_scope = create_decls_scope(g, nullptr, nullptr, nullptr, import);
+
+    detect_libc(g);
 
     init(g);
 
@@ -8718,10 +8746,11 @@ static void resolve_out_paths(CodeGen *g) {
     }
 }
 
-
 void codegen_build_and_link(CodeGen *g) {
     Error err;
     assert(g->out_type != OutTypeUnknown);
+
+    detect_libc(g);
 
     Buf *stage1_dir = get_stage1_cache_path();
     Buf *artifact_dir = buf_alloc();
