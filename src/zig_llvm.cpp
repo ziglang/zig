@@ -1029,7 +1029,6 @@ static_assert((Triple::OSType)ZigLLVM_DragonFly == Triple::DragonFly, "");
 static_assert((Triple::OSType)ZigLLVM_FreeBSD == Triple::FreeBSD, "");
 static_assert((Triple::OSType)ZigLLVM_Fuchsia == Triple::Fuchsia, "");
 static_assert((Triple::OSType)ZigLLVM_IOS == Triple::IOS, "");
-static_assert((Triple::OSType)ZigLLVM_KFreeBSD == Triple::KFreeBSD, "");
 static_assert((Triple::OSType)ZigLLVM_Linux == Triple::Linux, "");
 static_assert((Triple::OSType)ZigLLVM_Lv2 == Triple::Lv2, "");
 static_assert((Triple::OSType)ZigLLVM_MacOSX == Triple::MacOSX, "");
