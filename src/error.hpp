@@ -36,6 +36,8 @@ enum Error {
     ErrorPipeBusy,
     ErrorPrimitiveTypeNotFound,
     ErrorCacheUnavailable,
+    ErrorPathTooLong,
+    ErrorCCompilerCannotFindFile,
 };
 
 const char *err_str(Error err);

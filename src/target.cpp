@@ -214,7 +214,7 @@ size_t target_oformat_count(void) {
     return array_length(oformat_list);
 }
 
-const ZigLLVM_ObjectFormatType get_target_oformat(size_t index) {
+ZigLLVM_ObjectFormatType get_target_oformat(size_t index) {
     return oformat_list[index];
 }
 
@@ -443,14 +443,16 @@ ZigLLVM_EnvironmentType get_target_environ(size_t index) {
 
 void get_native_target(ZigTarget *target) {
     ZigLLVM_OSType os_type;
+    ZigLLVM_ObjectFormatType oformat; // ignored; based on arch/os
     ZigLLVMGetNativeTarget(
             &target->arch.arch,
             &target->arch.sub_arch,
             &target->vendor,
             &os_type,
             &target->env_type,
-            &target->oformat);
+            &oformat);
     target->os = get_zig_os_type(os_type);
+    target->is_native = true;
 }
 
 void get_unknown_target(ZigTarget *target) {
@@ -459,7 +461,7 @@ void get_unknown_target(ZigTarget *target) {
     target->vendor = ZigLLVM_UnknownVendor;
     target->os = OsFreestanding;
     target->env_type = ZigLLVM_UnknownEnvironment;
-    target->oformat = ZigLLVM_UnknownObjectFormat;
+    target->is_native = false;
 }
 
 static void get_arch_name_raw(char *out_str, ZigLLVM_ArchType arch, ZigLLVM_SubArchType sub_arch) {
@@ -554,85 +556,18 @@ bool target_is_darwin(const ZigTarget *target) {
     }
 }
 
-void resolve_target_object_format(ZigTarget *target) {
-    if (target->oformat != ZigLLVM_UnknownObjectFormat) {
-        return;
+ZigLLVM_ObjectFormatType target_object_format(const ZigTarget *target) {
+    if (target->os == OsUefi || target->os == OsWindows) {
+        return ZigLLVM_COFF;
+    } else if (target_is_darwin(target)) {
+        return ZigLLVM_MachO;
     }
-
-    switch (target->arch.arch) {
-        case ZigLLVM_UnknownArch:
-        case ZigLLVM_aarch64:
-        case ZigLLVM_arm:
-        case ZigLLVM_thumb:
-        case ZigLLVM_x86:
-        case ZigLLVM_x86_64:
-            if (target_is_darwin(target)) {
-                target->oformat = ZigLLVM_MachO;
-            } else if (target->os == OsWindows) {
-                target->oformat = ZigLLVM_COFF;
-            } else {
-                target->oformat = ZigLLVM_ELF;
-            }
-            return;
-
-        case ZigLLVM_aarch64_be:
-        case ZigLLVM_amdgcn:
-        case ZigLLVM_amdil:
-        case ZigLLVM_amdil64:
-        case ZigLLVM_armeb:
-        case ZigLLVM_arc:
-        case ZigLLVM_avr:
-        case ZigLLVM_bpfeb:
-        case ZigLLVM_bpfel:
-        case ZigLLVM_hexagon:
-        case ZigLLVM_lanai:
-        case ZigLLVM_hsail:
-        case ZigLLVM_hsail64:
-        case ZigLLVM_kalimba:
-        case ZigLLVM_le32:
-        case ZigLLVM_le64:
-        case ZigLLVM_mips:
-        case ZigLLVM_mips64:
-        case ZigLLVM_mips64el:
-        case ZigLLVM_mipsel:
-        case ZigLLVM_msp430:
-        case ZigLLVM_nios2:
-        case ZigLLVM_nvptx:
-        case ZigLLVM_nvptx64:
-        case ZigLLVM_ppc64le:
-        case ZigLLVM_r600:
-        case ZigLLVM_renderscript32:
-        case ZigLLVM_renderscript64:
-        case ZigLLVM_riscv32:
-        case ZigLLVM_riscv64:
-        case ZigLLVM_shave:
-        case ZigLLVM_sparc:
-        case ZigLLVM_sparcel:
-        case ZigLLVM_sparcv9:
-        case ZigLLVM_spir:
-        case ZigLLVM_spir64:
-        case ZigLLVM_systemz:
-        case ZigLLVM_tce:
-        case ZigLLVM_tcele:
-        case ZigLLVM_thumbeb:
-        case ZigLLVM_xcore:
-            target->oformat= ZigLLVM_ELF;
-            return;
-
-        case ZigLLVM_wasm32:
-        case ZigLLVM_wasm64:
-            target->oformat = ZigLLVM_Wasm;
-            return;
-
-        case ZigLLVM_ppc:
-        case ZigLLVM_ppc64:
-            if (target_is_darwin(target)) {
-                target->oformat = ZigLLVM_MachO;
-            } else {
-                target->oformat= ZigLLVM_ELF;
-            }
-            return;
+    if (target->arch.arch == ZigLLVM_wasm32 ||
+        target->arch.arch == ZigLLVM_wasm64)
+    {
+        return ZigLLVM_Wasm;
     }
+    return ZigLLVM_ELF;
 }
 
 // See lib/Support/Triple.cpp in LLVM for the source of this data.
@@ -812,7 +747,7 @@ bool target_allows_addr_zero(const ZigTarget *target) {
     return target->os == OsFreestanding;
 }
 
-const char *target_o_file_ext(ZigTarget *target) {
+const char *target_o_file_ext(const ZigTarget *target) {
     if (target->env_type == ZigLLVM_MSVC || target->os == OsWindows || target->os == OsUefi) {
         return ".obj";
     } else {
@@ -820,15 +755,15 @@ const char *target_o_file_ext(ZigTarget *target) {
     }
 }
 
-const char *target_asm_file_ext(ZigTarget *target) {
+const char *target_asm_file_ext(const ZigTarget *target) {
     return ".s";
 }
 
-const char *target_llvm_ir_file_ext(ZigTarget *target) {
+const char *target_llvm_ir_file_ext(const ZigTarget *target) {
     return ".ll";
 }
 
-const char *target_exe_file_ext(ZigTarget *target) {
+const char *target_exe_file_ext(const ZigTarget *target) {
     if (target->os == OsWindows) {
         return ".exe";
     } else if (target->os == OsUefi) {
@@ -838,7 +773,9 @@ const char *target_exe_file_ext(ZigTarget *target) {
     }
 }
 
-const char *target_lib_file_ext(ZigTarget *target, bool is_static, size_t version_major, size_t version_minor, size_t version_patch) {
+const char *target_lib_file_ext(const ZigTarget *target, bool is_static,
+        size_t version_major, size_t version_minor, size_t version_patch)
+{
     if (target->os == OsWindows || target->os == OsUefi) {
         if (is_static) {
             return ".lib";
@@ -860,7 +797,7 @@ enum FloatAbi {
     FloatAbiSoftFp,
 };
 
-static FloatAbi get_float_abi(ZigTarget *target) {
+static FloatAbi get_float_abi(const ZigTarget *target) {
     const ZigLLVM_EnvironmentType env = target->env_type;
     if (env == ZigLLVM_GNUEABIHF ||
         env == ZigLLVM_EABIHF ||
@@ -876,7 +813,14 @@ static bool is_64_bit(ZigLLVM_ArchType arch) {
     return get_arch_pointer_bit_width(arch) == 64;
 }
 
-Buf *target_dynamic_linker(ZigTarget *target) {
+Buf *target_dynamic_linker(const ZigTarget *target) {
+    if (target->os == OsFreeBSD) {
+        return buf_create_from_str("/libexec/ld-elf.so.1");
+    }
+    if (target->os == OsNetBSD) {
+        return buf_create_from_str("/libexec/ld.elf_so");
+    }
+
     const ZigLLVM_ArchType arch = target->arch.arch;
     const ZigLLVM_EnvironmentType env = target->env_type;
 
@@ -1097,4 +1041,11 @@ bool target_has_valgrind_support(const ZigTarget *target) {
             return false;
     }
     zig_unreachable();
+}
+
+bool target_requires_libc(const ZigTarget *target) {
+    // On Darwin, we always link libSystem which contains libc.
+    // Similarly on FreeBSD and NetBSD we always link system libc
+    // since this is the stable syscall interface.
+    return (target_is_darwin(target) || target->os == OsFreeBSD || target->os == OsNetBSD);
 }
