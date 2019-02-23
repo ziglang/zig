@@ -256,6 +256,7 @@ static Error zig_libc_find_native_include_dir_posix(ZigLibCInstallation *self, b
     }
     return ErrorFileNotFound;
 }
+#if !defined(ZIG_OS_DARWIN)
 static Error zig_libc_cc_print_file_name(const char *o_file, Buf *out, bool want_dirname, bool verbose) {
     const char *cc_exe = getenv("CC");
     cc_exe = (cc_exe == nullptr) ? "cc" : cc_exe;
@@ -297,6 +298,7 @@ static Error zig_libc_find_native_lib_dir_posix(ZigLibCInstallation *self, bool 
 static Error zig_libc_find_native_static_lib_dir_posix(ZigLibCInstallation *self, bool verbose) {
     return zig_libc_cc_print_file_name("crtbegin.o", &self->static_lib_dir, true, verbose);
 }
+#endif
 
 static Error zig_libc_find_native_dynamic_linker_posix(ZigLibCInstallation *self, bool verbose) {
 #if defined(ZIG_OS_LINUX)
