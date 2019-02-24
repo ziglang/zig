@@ -32,6 +32,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  build-lib [source]           create library from source or object files\n"
         "  build-obj [source]           create object from source or assembly\n"
         "  builtin                      show the source code of that @import(\"builtin\")\n"
+        "  cc                           C compiler\n"
         "  fmt                          parse files and render in canonical zig format\n"
         "  help                         show this usage information\n"
         "  id                           print the base64-encoded compiler id\n"
@@ -240,6 +241,8 @@ static bool get_cache_opt(CacheOpt opt, bool default_value) {
     zig_unreachable();
 }
 
+extern "C" int ZigClang_main(int argc, char **argv);
+
 int main(int argc, char **argv) {
     char *arg0 = argv[0];
     Error err;
@@ -255,6 +258,16 @@ int main(int argc, char **argv) {
                 ZIG_C_HEADER_FILES,
                 ZIG_DIA_GUIDS_LIB);
         return 0;
+    }
+
+    if (argc >= 2 && (strcmp(argv[1], "cc") == 0)) {
+        return ZigClang_main(argc - 1, argv + 1);
+    }
+    if (argc >= 2 && strcmp(argv[1], "-cc1") == 0) {
+        return ZigClang_main(argc, argv);
+    }
+    if (argc >= 2 && strcmp(argv[1], "-cc1as") == 0) {
+        return ZigClang_main(argc, argv);
     }
 
     // Must be before all os.hpp function calls.
