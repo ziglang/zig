@@ -37,7 +37,7 @@ pub fn main() !void {
     stderr = &stderr_out_stream.stream;
     const args = try std.os.argsAlloc(allocator);
 
-    var flags = try Args.parse(allocator, self_hosted_main.args_fmt_spec, args);
+    var flags = try Args.parse(allocator, self_hosted_main.args_fmt_spec, args[1..]);
     defer flags.deinit();
 
     if (flags.present("help")) {

@@ -549,18 +549,20 @@ int main(int argc, char **argv) {
 
         codegen_build_and_link(g);
 
-        ZigList<const char*> args = {0};
-        for (int i = 2; i < argc; i += 1) {
-            args.append(argv[i]);
-        }
-        args.append(nullptr);
+        // TODO standardize os.cpp so that the args are supposed to have the exe
+        ZigList<const char*> args_with_exe = {0};
+        ZigList<const char*> args_without_exe = {0};
         const char *exec_path = buf_ptr(&g->output_file_path);
+        args_with_exe.append(exec_path);
+        for (int i = 2; i < argc; i += 1) {
+            args_with_exe.append(argv[i]);
+            args_without_exe.append(argv[i]);
+        }
+        args_with_exe.append(nullptr);
+        os_execv(exec_path, args_with_exe.items);
 
-        os_execv(exec_path, args.items);
-
-        args.pop();
         Termination term;
-        os_spawn_process(exec_path, args, &term);
+        os_spawn_process(exec_path, args_without_exe, &term);
         return term.code;
     }
 
