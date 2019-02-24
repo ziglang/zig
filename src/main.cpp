@@ -260,13 +260,9 @@ int main(int argc, char **argv) {
         return 0;
     }
 
-    if (argc >= 2 && (strcmp(argv[1], "cc") == 0)) {
-        return ZigClang_main(argc - 1, argv + 1);
-    }
-    if (argc >= 2 && strcmp(argv[1], "-cc1") == 0) {
-        return ZigClang_main(argc, argv);
-    }
-    if (argc >= 2 && strcmp(argv[1], "-cc1as") == 0) {
+    if (argc >= 2 && (strcmp(argv[1], "cc") == 0 ||
+            strcmp(argv[1], "-cc1") == 0 || strcmp(argv[1], "-cc1as") == 0))
+    {
         return ZigClang_main(argc, argv);
     }
 

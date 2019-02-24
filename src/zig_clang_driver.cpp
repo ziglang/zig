@@ -318,7 +318,8 @@ static int ExecuteCC1Tool(ArrayRef<const char *> argv, StringRef Tool) {
 extern "C" int ZigClang_main(int argc_, const char **argv_);
 int ZigClang_main(int argc_, const char **argv_) {
   llvm::InitLLVM X(argc_, argv_);
-  SmallVector<const char *, 256> argv(argv_, argv_ + argc_);
+  size_t argv_offset = (strcmp(argv_[1], "-cc1") == 0 || strcmp(argv_[1], "-cc1as") == 0) ? 0 : 1;
+  SmallVector<const char *, 256> argv(argv_ + argv_offset, argv_ + argc_);
 
   if (llvm::sys::Process::FixupStandardFileDescriptors())
     return 1;
