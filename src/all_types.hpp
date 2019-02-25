@@ -1611,6 +1611,11 @@ enum ValgrindSupport {
     ValgrindSupportEnabled,
 };
 
+struct CFile {
+    ZigList<const char *> args;
+    const char *source_path;
+};
+
 // When adding fields, check if they should be added to the hash computation in build_with_cache
 struct CodeGen {
     //////////////////////////// Runtime State
@@ -1788,6 +1793,7 @@ struct CodeGen {
     bool verbose_ir;
     bool verbose_llvm_ir;
     bool verbose_cimport;
+    bool verbose_cc;
     bool error_during_imports;
     bool generate_error_name_table;
     bool enable_cache;
@@ -1805,6 +1811,7 @@ struct CodeGen {
     ZigList<Buf *> forbidden_libs;
     ZigList<Buf *> link_objects;
     ZigList<Buf *> assembly_files;
+    ZigList<CFile *> c_source_files;
     ZigList<const char *> lib_dirs;
 
     ZigLibCInstallation *libc;
