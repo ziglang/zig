@@ -815,6 +815,7 @@ pub const LibExeObjStep = struct {
     linker_script: ?[]const u8,
     out_filename: []const u8,
     output_path: ?[]const u8,
+    output_lib_path: ?[]const u8,
     static: bool,
     version: Version,
     object_files: ArrayList([]const u8),
@@ -839,6 +840,7 @@ pub const LibExeObjStep = struct {
     root_src: ?[]const u8,
     output_h_path: ?[]const u8,
     out_h_filename: []const u8,
+    out_lib_filename: []const u8,
     assembly_files: ArrayList([]const u8),
     packages: ArrayList(Pkg),
     build_options_contents: std.Buffer,
@@ -901,10 +903,12 @@ pub const LibExeObjStep = struct {
             .frameworks = BufSet.init(builder.allocator),
             .step = Step.init(name, builder.allocator, make),
             .output_path = null,
+            .output_lib_path = null,
             .output_h_path = null,
             .version = ver,
             .out_filename = undefined,
             .out_h_filename = builder.fmt("{}.h", name),
+            .out_lib_filename = undefined,
             .major_only_filename = undefined,
             .name_only_filename = undefined,
             .object_files = ArrayList([]const u8).init(builder.allocator),
@@ -941,21 +945,32 @@ pub const LibExeObjStep = struct {
             },
             Kind.Lib => {
                 if (self.static) {
-                    self.out_filename = self.builder.fmt("lib{}.a", self.name);
+                    switch (self.target.getOs()) {
+                        builtin.Os.windows => {
+                            self.out_filename = self.builder.fmt("{}.lib", self.name);
+                        },
+                        else => {
+                            self.out_filename = self.builder.fmt("lib{}.a", self.name);
+                        },
+                    }
+                    self.out_lib_filename = self.out_filename;
                 } else {
                     switch (self.target.getOs()) {
                         builtin.Os.ios, builtin.Os.macosx => {
                             self.out_filename = self.builder.fmt("lib{}.{d}.{d}.{d}.dylib", self.name, self.version.major, self.version.minor, self.version.patch);
                             self.major_only_filename = self.builder.fmt("lib{}.{d}.dylib", self.name, self.version.major);
                             self.name_only_filename = self.builder.fmt("lib{}.dylib", self.name);
+                            self.out_lib_filename = self.out_filename;
                         },
                         builtin.Os.windows => {
                             self.out_filename = self.builder.fmt("{}.dll", self.name);
+                            self.out_lib_filename = self.builder.fmt("{}.lib", self.name);
                         },
                         else => {
                             self.out_filename = self.builder.fmt("lib{}.so.{d}.{d}.{d}", self.name, self.version.major, self.version.minor, self.version.patch);
                             self.major_only_filename = self.builder.fmt("lib{}.so.{d}", self.name, self.version.major);
                             self.name_only_filename = self.builder.fmt("lib{}.so", self.name);
+                            self.out_lib_filename = self.out_filename;
                         },
                     }
                 }
@@ -990,7 +1005,11 @@ pub const LibExeObjStep = struct {
 
         self.step.dependOn(&lib.step);
 
-        self.full_path_libs.append(lib.getOutputPath()) catch unreachable;
+        if (lib.static or self.target.isWindows()) {
+            self.object_files.append(lib.getOutputLibPath()) catch unreachable;
+        } else {
+            self.full_path_libs.append(lib.getOutputPath()) catch unreachable;
+        }
 
         // TODO should be some kind of isolated directory that only has this header in it
         self.include_dirs.append(self.builder.cache_root) catch unreachable;
@@ -1057,6 +1076,22 @@ pub const LibExeObjStep = struct {
         return if (self.output_path) |output_path| output_path else os.path.join(
             self.builder.allocator,
             [][]const u8{ self.builder.cache_root, self.out_filename },
+        ) catch unreachable;
+    }
+
+    pub fn setOutputLibPath(self: *LibExeObjStep, file_path: []const u8) void {
+        assert(self.kind == Kind.Lib);
+        if (self.static)
+            return self.setOutputPath(file_path);
+
+        self.output_lib_path = file_path;
+    }
+
+    pub fn getOutputLibPath(self: *LibExeObjStep) []const u8 {
+        assert(self.kind == Kind.Lib);
+        return if (self.output_lib_path) |output_lib_path| output_lib_path else os.path.join(
+            self.builder.allocator,
+            [][]const u8{ self.builder.cache_root, self.out_lib_filename },
         ) catch unreachable;
     }
 
@@ -1224,6 +1259,12 @@ pub const LibExeObjStep = struct {
         const output_path = builder.pathFromRoot(self.getOutputPath());
         zig_args.append("--output") catch unreachable;
         zig_args.append(output_path) catch unreachable;
+
+        if (self.kind == Kind.Lib and !self.static) {
+            const output_lib_path = builder.pathFromRoot(self.getOutputLibPath());
+            zig_args.append("--output-lib") catch unreachable;
+            zig_args.append(output_lib_path) catch unreachable;
+        }
 
         if (self.kind != Kind.Exe) {
             const output_h_path = self.getOutputHPath();

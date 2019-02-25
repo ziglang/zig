@@ -175,6 +175,10 @@ void codegen_set_output_h_path(CodeGen *g, Buf *h_path) {
     g->out_h_path = h_path;
 }
 
+void codegen_set_output_lib_path(CodeGen *g, Buf *lib_path) {
+    g->out_lib_path = lib_path;
+}
+
 void codegen_set_output_path(CodeGen *g, Buf *path) {
     g->wanted_output_file_path = path;
 }
@@ -8201,7 +8205,7 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
     args.append("-c");
     args.append(buf_ptr(c_source_file));
 
-    if (!g->disable_pic) {
+    if (!g->disable_pic && target_supports_fpic(g->zig_target)) {
         args.append("-fPIC");
     }
 

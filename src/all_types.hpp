@@ -1743,6 +1743,7 @@ struct CodeGen {
     Buf triple_str;
     Buf global_asm;
     Buf *out_h_path;
+    Buf *out_lib_path;
     Buf artifact_dir;
     Buf output_file_path;
     Buf o_file_output_path;

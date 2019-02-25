@@ -554,6 +554,7 @@ static void construct_linker_job_coff(LinkJob *lj) {
     bool is_library = g->out_type == OutTypeLib;
     switch (g->subsystem) {
         case TargetSubsystemAuto:
+            add_nt_link_args(lj, is_library);
             break;
         case TargetSubsystemConsole:
             lj->args.append("/SUBSYSTEM:console");

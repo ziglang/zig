@@ -60,6 +60,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  --name [name]                override output name\n"
         "  --output [file]              override destination path\n"
         "  --output-h [file]            generate header file\n"
+        "  --output-lib [file]          override import library path\n"
         "  --pkg-begin [name] [path]    make pkg available to import and push current pkg\n"
         "  --pkg-end                    pop current pkg\n"
         "  --release-fast               build with optimizations on and safety off\n"
@@ -375,6 +376,7 @@ int main(int argc, char **argv) {
     const char *in_file = nullptr;
     const char *out_file = nullptr;
     const char *out_file_h = nullptr;
+    const char *out_file_lib = nullptr;
     bool strip = false;
     bool is_static = false;
     OutType out_type = OutTypeUnknown;
@@ -661,6 +663,8 @@ int main(int argc, char **argv) {
                     out_file = argv[i];
                 } else if (strcmp(arg, "--output-h") == 0) {
                     out_file_h = argv[i];
+                } else if (strcmp(arg, "--output-lib") == 0) {
+                    out_file_lib = argv[i];
                 } else if (strcmp(arg, "--color") == 0) {
                     if (strcmp(argv[i], "auto") == 0) {
                         color = ErrColorAuto;
@@ -1094,6 +1098,8 @@ int main(int argc, char **argv) {
                 codegen_set_output_path(g, buf_create_from_str(out_file));
             if (out_file_h != nullptr && (out_type == OutTypeObj || out_type == OutTypeLib))
                 codegen_set_output_h_path(g, buf_create_from_str(out_file_h));
+            if (out_file_lib != nullptr && out_type == OutTypeLib && !is_static)
+                codegen_set_output_lib_path(g, buf_create_from_str(out_file_lib));
 
 
             add_package(g, cur_pkg, g->root_package);
