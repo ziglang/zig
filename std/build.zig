@@ -1011,6 +1011,10 @@ pub const LibExeObjStep = struct {
             self.full_path_libs.append(lib.getOutputPath()) catch unreachable;
         }
 
+        if (lib.link_libs.exists("c")) {
+            self.link_libs.put("c") catch unreachable;
+        }
+
         // TODO should be some kind of isolated directory that only has this header in it
         self.include_dirs.append(self.builder.cache_root) catch unreachable;
         self.need_flat_namespace_hack = true;
@@ -1266,7 +1270,7 @@ pub const LibExeObjStep = struct {
             zig_args.append(output_lib_path) catch unreachable;
         }
 
-        if (self.kind != Kind.Exe) {
+        if (self.kind != Kind.Exe and self.root_src != null) {
             const output_h_path = self.getOutputHPath();
             zig_args.append("--output-h") catch unreachable;
             zig_args.append(builder.pathFromRoot(output_h_path)) catch unreachable;
