@@ -1824,7 +1824,7 @@ fn foo(bytes: []u8) u32 {
 }
       {#code_end#}
       {#header_close#}
-      {#see_also|C Pointers#}
+      {#see_also|C Pointers|Pointers to Zero Bit Types#}
       {#header_close#}
 
       {#header_open|Slices#}
@@ -4464,9 +4464,20 @@ fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) anyerror![]u8 {
       {#header_close#}
       {#header_close#}
 
-      {#header_open|void#}
+      {#header_open|Zero Bit Types#}
+      <p>For some types, {#link|@sizeOf#} is 0:</p>
+      <ul>
+          <li>{#link|void#}</li>
+          <li>The {#link|Integers#} {#syntax#}u0{#endsyntax#} and {#syntax#}i0{#endsyntax#}.</li>
+          <li>{#link|Arrays#} and {#link|Vectors#} with len 0, or with an element type that is a zero bit type.</li>
+          <li>An {#link|enum#} with only 1 tag.</li>
+          <li>An {#link|struct#} with all fields being zero bit types.</li>
+          <li>A {#link|union#} with only 1 field which is a zero bit type.</li>
+          <li>{#link|Pointers to Zero Bit Types#} are themselves zero bit types.</li>
+      </ul>
       <p>
-      {#syntax#}void{#endsyntax#} represents a type that has no value. Code that makes use of void values is
+      These types can only ever have one possible value, and thus
+      require 0 bits to represent. Code that makes use of these types is
       not included in the final generated code:
       </p>
       {#code_begin|syntax#}
@@ -4476,8 +4487,8 @@ export fn entry() void {
     x = y;
 }
       {#code_end#}
-      <p>When this turns into LLVM IR, there is no code generated in the body of {#syntax#}entry{#endsyntax#},
-      even in debug mode. For example, on x86_64:</p>
+      <p>When this turns into machine code, there is no code generated in the
+      body of {#syntax#}entry{#endsyntax#}, even in {#link|Debug#} mode. For example, on x86_64:</p>
       <pre><code>0000000000000010 &lt;entry&gt;:
   10:	55                   	push   %rbp
   11:	48 89 e5             	mov    %rsp,%rbp
@@ -4485,6 +4496,8 @@ export fn entry() void {
   15:	c3                   	retq   </code></pre>
       <p>These assembly instructions do not have any code associated with the void values -
       they only perform the function call prologue and epilog.</p>
+
+      {#header_open|void#}
       <p>
       {#syntax#}void{#endsyntax#} can be useful for instantiating generic types. For example, given a
           {#syntax#}Map(Key, Value){#endsyntax#}, one can pass {#syntax#}void{#endsyntax#} for the {#syntax#}Value{#endsyntax#}
@@ -4554,6 +4567,38 @@ fn foo() i32 {
     return 1234;
 }
       {#code_end#}
+      {#header_close#}
+
+      {#header_open|Pointers to Zero Bit Types#}
+      <p>Pointers to zero bit types also have zero bits. They always compare equal to each other:</p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+test "pointer to empty struct" {
+    const Empty = struct {};
+    var a = Empty{};
+    var b = Empty{};
+    var ptr_a = &a;
+    var ptr_b = &b;
+    comptime assert(ptr_a == ptr_b);
+}
+      {#code_end#}
+      <p>The type being pointed to can only ever be one value; therefore loads and stores are
+      never generated. {#link|ptrToInt#} and {#link|intToPtr#} are not allowed:</p>
+      {#code_begin|test_err#}
+const Empty = struct {};
+
+test "@ptrToInt for pointer to zero bit type" {
+    var a = Empty{};
+    _ = @ptrToInt(&a);
+}
+
+test "@intToPtr for pointer to zero bit type" {
+    _ = @intToPtr(*Empty, 0x1);
+}
+      {#code_end#}
+      {#header_close#}
       {#header_close#}
 
       {#header_open|comptime#}
