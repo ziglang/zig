@@ -1049,3 +1049,9 @@ bool target_requires_libc(const ZigTarget *target) {
     // since this is the stable syscall interface.
     return (target_is_darwin(target) || target->os == OsFreeBSD || target->os == OsNetBSD);
 }
+
+bool target_supports_fpic(const ZigTarget *target) {
+  // This is not whether the target supports Position Independent Code, but whether the -fPIC
+  // C compiler argument is valid.
+  return target->os != OsWindows;
+}

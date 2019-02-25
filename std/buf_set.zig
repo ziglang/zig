@@ -32,6 +32,10 @@ pub const BufSet = struct {
         }
     }
 
+    pub fn exists(self: BufSet, key: []const u8) bool {
+        return self.hash_map.get(key) != null;
+    }
+
     pub fn delete(self: *BufSet, key: []const u8) void {
         const entry = self.hash_map.remove(key) orelse return;
         self.free(entry.key);

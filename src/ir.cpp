@@ -18670,12 +18670,6 @@ static IrInstruction *ir_analyze_instruction_type_name(IrAnalyze *ira, IrInstruc
 }
 
 static IrInstruction *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstructionCImport *instruction) {
-    if (ira->codegen->enable_cache) {
-        ir_add_error(ira, &instruction->base,
-            buf_sprintf("TODO @cImport is incompatible with --cache on. The cache system currently is unable to detect subsequent changes in .h files."));
-        return ira->codegen->invalid_instruction;
-    }
-
     AstNode *node = instruction->base.source_node;
     assert(node->type == NodeTypeFnCallExpr);
     AstNode *block_node = node->data.fn_call_expr.params.at(0);

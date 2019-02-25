@@ -3,10 +3,10 @@ const Builder = @import("std").build.Builder;
 pub fn build(b: *Builder) void {
     const obj = b.addObject("base64", "base64.zig");
 
-    const exe = b.addCExecutable("test");
-    exe.addCompileFlags([][]const u8{"-std=c99"});
-    exe.addSourceFile("test.c");
+    const exe = b.addExecutable("test", null);
+    exe.addCSourceFile("test.c",[][]const u8{"-std=c99"});
     exe.addObject(obj);
+    exe.linkSystemLibrary("c");
 
     b.default_step.dependOn(&exe.step);
 

@@ -38,6 +38,7 @@ enum Error {
     ErrorCacheUnavailable,
     ErrorPathTooLong,
     ErrorCCompilerCannotFindFile,
+    ErrorReadingDepFile,
 };
 
 const char *err_str(Error err);

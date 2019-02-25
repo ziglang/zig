@@ -175,6 +175,10 @@ void codegen_set_output_h_path(CodeGen *g, Buf *h_path) {
     g->out_h_path = h_path;
 }
 
+void codegen_set_output_lib_path(CodeGen *g, Buf *lib_path) {
+    g->out_lib_path = lib_path;
+}
+
 void codegen_set_output_path(CodeGen *g, Buf *path) {
     g->wanted_output_file_path = path;
 }
@@ -7885,8 +7889,8 @@ static void detect_libc(CodeGen *g) {
                 fprintf(stderr, "Unable to save %s: %s\n", buf_ptr(native_libc_tmp), strerror(errno));
                 exit(1);
             }
-            if (rename(buf_ptr(native_libc_tmp), buf_ptr(native_libc_txt)) == -1) {
-                fprintf(stderr, "Unable to create %s: %s\n", buf_ptr(native_libc_txt), strerror(errno));
+            if ((err = os_rename(native_libc_tmp, native_libc_txt))) {
+                fprintf(stderr, "Unable to create %s: %s\n", buf_ptr(native_libc_txt), err_str(err));
                 exit(1);
             }
         }
@@ -8120,6 +8124,143 @@ static void gen_global_asm(CodeGen *g) {
             zig_panic("Unable to read %s: %s", buf_ptr(asm_file), err_str(err));
         }
         buf_append_buf(&g->global_asm, &contents);
+    }
+}
+
+static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
+    Error err;
+
+    Buf *c_source_file = buf_create_from_str(c_file->source_path);
+    Buf *c_source_basename = buf_alloc();
+    os_path_split(c_source_file, nullptr, c_source_basename);
+    Buf *out_obj_name = buf_sprintf("%s%s", buf_ptr(c_source_basename), target_o_file_ext(g->zig_target));
+    Buf *out_obj_path = buf_alloc();
+    os_path_join(&g->cache_dir, out_obj_name, out_obj_path);
+    Buf *out_dep_name = buf_sprintf("%s.d", buf_ptr(c_source_file));
+    Buf *out_dep_path = buf_alloc();
+    os_path_join(&g->cache_dir, out_dep_name, out_dep_path);
+
+    Termination term;
+    ZigList<const char *> args = {};
+    args.append("cc");
+
+    if (g->enable_cache) {
+        args.append("-MD");
+        args.append("-MF");
+        args.append(buf_ptr(out_dep_path));
+    }
+
+    args.append("-isystem");
+    args.append(buf_ptr(g->zig_c_headers_dir));
+
+    if (g->libc != nullptr) {
+        args.append("-isystem");
+        args.append(buf_ptr(&g->libc->include_dir));
+    }
+
+    if (g->zig_target->is_native) {
+        args.append("-march=native");
+    } else {
+        args.append("-target");
+        args.append(buf_ptr(&g->triple_str));
+    }
+
+    if (!g->strip_debug_symbols) {
+        args.append("-g");
+    }
+    switch (g->build_mode) {
+        case BuildModeDebug:
+            if (g->libc_link_lib != nullptr) {
+                args.append("-fstack-protector-strong");
+                args.append("--param");
+                args.append("ssp-buffer-size=4");
+            } else {
+                args.append("-fno-stack-protector");
+            }
+            break;
+        case BuildModeSafeRelease:
+            args.append("-O2");
+            if (g->libc_link_lib != nullptr) {
+                args.append("-D_FORTIFY_SOURCE=2");
+                args.append("-fstack-protector-strong");
+                args.append("--param");
+                args.append("ssp-buffer-size=4");
+            } else {
+                args.append("-fno-stack-protector");
+            }
+            break;
+        case BuildModeFastRelease:
+            args.append("-O2");
+            args.append("-fno-stack-protector");
+            break;
+        case BuildModeSmallRelease:
+            args.append("-Os");
+            args.append("-fno-stack-protector");
+            break;
+    }
+
+    args.append("-o");
+    args.append(buf_ptr(out_obj_path));
+
+    args.append("-c");
+    args.append(buf_ptr(c_source_file));
+
+    if (!g->disable_pic && target_supports_fpic(g->zig_target)) {
+        args.append("-fPIC");
+    }
+
+    for (size_t arg_i = 0; arg_i < g->clang_argv_len; arg_i += 1) {
+        args.append(g->clang_argv[arg_i]);
+    }
+
+    for (size_t arg_i = 0; arg_i < c_file->args.length; arg_i += 1) {
+        args.append(c_file->args.at(arg_i));
+    }
+
+    if (g->verbose_cc) {
+        fprintf(stderr, "zig");
+        for (size_t arg_i = 0; arg_i < args.length; arg_i += 1) {
+            fprintf(stderr, " %s", args.at(arg_i));
+        }
+        fprintf(stderr, "\n");
+    }
+
+    os_spawn_process(buf_ptr(self_exe_path), args, &term);
+    if (term.how != TerminationIdClean || term.code != 0) {
+        fprintf(stderr, "`zig cc` failed\n");
+        exit(1);
+    }
+
+    g->link_objects.append(out_obj_path);
+
+    if (g->enable_cache) {
+        // add the files depended on to the cache system
+        if ((err = cache_add_file(&g->cache_hash, c_source_file))) {
+            fprintf(stderr, "unable to add %s to cache: %s\n", buf_ptr(c_source_file), err_str(err));
+            exit(1);
+        }
+        if ((err = cache_add_dep_file(&g->cache_hash, out_dep_path, true))) {
+            fprintf(stderr, "failed to add C source dependencies to cache: %s\n", err_str(err));
+            exit(1);
+        }
+    }
+}
+
+static void gen_c_objects(CodeGen *g) {
+    Error err;
+
+    if (g->c_source_files.length == 0)
+        return;
+
+    Buf *self_exe_path = buf_alloc();
+    if ((err = os_self_exe_path(self_exe_path))) {
+        fprintf(stderr, "Unable to get self exe path: %s\n", err_str(err));
+        exit(1);
+    }
+
+    for (size_t c_file_i = 0; c_file_i < g->c_source_files.length; c_file_i += 1) {
+        CFile *c_file = g->c_source_files.at(c_file_i);
+        gen_c_object(g, self_exe_path, c_file);
     }
 }
 
@@ -8637,6 +8778,13 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_list_of_buf(ch, g->forbidden_libs.items, g->forbidden_libs.length);
     cache_list_of_file(ch, g->link_objects.items, g->link_objects.length);
     cache_list_of_file(ch, g->assembly_files.items, g->assembly_files.length);
+    for (size_t c_file_i = 0; c_file_i < g->c_source_files.length; c_file_i += 1) {
+        CFile *c_file = g->c_source_files.at(c_file_i);
+        cache_file(ch, buf_create_from_str(c_file->source_path));
+        for (size_t opt_i = 0; opt_i < c_file->args.length; opt_i += 1) {
+            cache_buf(ch, buf_create_from_str(c_file->args.at(opt_i)));
+        }
+    }
     cache_int(ch, g->emit_file_type);
     cache_int(ch, g->build_mode);
     cache_int(ch, g->out_type);
@@ -8788,6 +8936,7 @@ void codegen_build_and_link(CodeGen *g) {
 
         gen_global_asm(g);
         gen_root_source(g);
+        gen_c_objects(g);
 
         if (g->enable_cache) {
             if ((err = cache_final(&g->cache_hash, &digest))) {
@@ -8805,16 +8954,25 @@ void codegen_build_and_link(CodeGen *g) {
         resolve_out_paths(g);
 
         codegen_add_time_event(g, "Code Generation");
-        do_code_gen(g);
-        codegen_add_time_event(g, "LLVM Emit Output");
-        zig_llvm_emit_output(g);
+        if (g->out_type == OutTypeObj && g->c_source_files.length == 1) {
+            assert(g->link_objects.length == 1);
+            if ((err = os_rename(g->link_objects.pop(), &g->o_file_output_path))) {
+                fprintf(stderr, "unable to move object to '%s': %s\n",
+                        buf_ptr(&g->o_file_output_path), err_str(err));
+                exit(1);
+            }
+        } else {
+            do_code_gen(g);
+            codegen_add_time_event(g, "LLVM Emit Output");
+            zig_llvm_emit_output(g);
 
-        if (g->out_h_path != nullptr) {
-            codegen_add_time_event(g, "Generate .h");
-            gen_h_file(g);
-        }
-        if (g->out_type != OutTypeObj && g->emit_file_type == EmitFileTypeBinary) {
-            codegen_link(g);
+            if (g->out_h_path != nullptr) {
+                codegen_add_time_event(g, "Generate .h");
+                gen_h_file(g);
+            }
+            if (g->out_type != OutTypeObj && g->emit_file_type == EmitFileTypeBinary) {
+                codegen_link(g);
+            }
         }
     }
 

@@ -141,5 +141,6 @@ bool target_allows_addr_zero(const ZigTarget *target);
 bool target_has_valgrind_support(const ZigTarget *target);
 bool target_is_darwin(const ZigTarget *target);
 bool target_requires_libc(const ZigTarget *target);
+bool target_supports_fpic(const ZigTarget *target);
 
 #endif

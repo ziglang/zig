@@ -18,7 +18,7 @@
 #include <stdio.h>
 
 static int print_error_usage(const char *arg0) {
-    fprintf(stderr, "See `%s help` for detailed usage information\n", arg0);
+    fprintf(stderr, "See `%s --help` for detailed usage information\n", arg0);
     return EXIT_FAILURE;
 }
 
@@ -34,7 +34,6 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  builtin                      show the source code of that @import(\"builtin\")\n"
         "  cc                           C compiler\n"
         "  fmt                          parse files and render in canonical zig format\n"
-        "  help                         show this usage information\n"
         "  id                           print the base64-encoded compiler id\n"
         "  init-exe                     initialize a `zig build` application in the cwd\n"
         "  init-lib                     initialize a `zig build` library in the cwd\n"
@@ -48,6 +47,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "\n"
         "Compile Options:\n"
         "  --assembly [source]          add assembly file to build\n"
+        "  --c-source [options] [file]  compile C source code\n"
         "  --cache-dir [path]           override the cache directory\n"
         "  --cache [auto|off|on]        build in global cache, print out paths to stdout\n"
         "  --color [auto|off|on]        enable or disable colored error messages\n"
@@ -60,6 +60,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  --name [name]                override output name\n"
         "  --output [file]              override destination path\n"
         "  --output-h [file]            generate header file\n"
+        "  --output-lib [file]          override import library path\n"
         "  --pkg-begin [name] [path]    make pkg available to import and push current pkg\n"
         "  --pkg-end                    pop current pkg\n"
         "  --release-fast               build with optimizations on and safety off\n"
@@ -77,6 +78,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  --verbose-ir                 enable compiler debug output for Zig IR\n"
         "  --verbose-llvm-ir            enable compiler debug output for LLVM IR\n"
         "  --verbose-cimport            enable compiler debug output for C imports\n"
+        "  --verbose-cc                 enable compiler debug output for C compilation\n"
         "  -dirafter [dir]              same as -isystem but do it last\n"
         "  -isystem [dir]               add additional search path for other .h files\n"
         "  -mllvm [arg]                 forward an arg to LLVM's option processing\n"
@@ -181,7 +183,6 @@ enum Cmd {
     CmdNone,
     CmdBuild,
     CmdBuiltin,
-    CmdHelp,
     CmdRun,
     CmdTargets,
     CmdTest,
@@ -375,6 +376,7 @@ int main(int argc, char **argv) {
     const char *in_file = nullptr;
     const char *out_file = nullptr;
     const char *out_file_h = nullptr;
+    const char *out_file_lib = nullptr;
     bool strip = false;
     bool is_static = false;
     OutType out_type = OutTypeUnknown;
@@ -385,6 +387,7 @@ int main(int argc, char **argv) {
     bool verbose_ir = false;
     bool verbose_llvm_ir = false;
     bool verbose_cimport = false;
+    bool verbose_cc = false;
     ErrColor color = ErrColorAuto;
     CacheOpt enable_cache = CacheOptAuto;
     const char *libc_txt = nullptr;
@@ -404,6 +407,7 @@ int main(int argc, char **argv) {
     ZigList<const char *> rpath_list = {0};
     bool each_lib_rpath = false;
     ZigList<const char *> objects = {0};
+    ZigList<CFile *> c_source_files = {0};
     ZigList<const char *> asm_files = {0};
     const char *test_filter = nullptr;
     const char *test_name_prefix = nullptr;
@@ -512,6 +516,7 @@ int main(int argc, char **argv) {
                         "  --verbose-ir           Enable compiler debug output for Zig IR\n"
                         "  --verbose-llvm-ir      Enable compiler debug output for LLVM IR\n"
                         "  --verbose-cimport      Enable compiler debug output for C imports\n"
+                        "  --verbose-cc           Enable compiler debug output for C compilation\n"
                         "\n"
                 , zig_exe_path);
                 return EXIT_SUCCESS;
@@ -521,7 +526,7 @@ int main(int argc, char **argv) {
                     "No 'build.zig' file found.\n"
                     "Initialize a 'build.zig' template file with `zig init-lib` or `zig init-exe`,\n"
                     "or build an executable directly with `zig build-exe $FILENAME.zig`.\n"
-                    "See: `zig build --help` or `zig help` for more options.\n"
+                    "See: `zig build --help` or `zig --help` for more options.\n"
                    );
             return EXIT_FAILURE;
         }
@@ -587,9 +592,9 @@ int main(int argc, char **argv) {
                 build_mode = BuildModeSmallRelease;
             } else if (strcmp(arg, "--help") == 0) {
                 if (cmd == CmdLibC) {
-                    return print_libc_usage(arg0, stderr, EXIT_FAILURE);
+                    return print_libc_usage(arg0, stdout, EXIT_SUCCESS);
                 } else {
-                    return print_full_usage(arg0, stderr, EXIT_FAILURE);
+                    return print_full_usage(arg0, stdout, EXIT_SUCCESS);
                 }
             } else if (strcmp(arg, "--strip") == 0) {
                 strip = true;
@@ -607,6 +612,8 @@ int main(int argc, char **argv) {
                 verbose_llvm_ir = true;
             } else if (strcmp(arg, "--verbose-cimport") == 0) {
                 verbose_cimport = true;
+            } else if (strcmp(arg, "--verbose-cc") == 0) {
+                verbose_cc = true;
             } else if (strcmp(arg, "-rdynamic") == 0) {
                 rdynamic = true;
             } else if (strcmp(arg, "--each-lib-rpath") == 0) {
@@ -656,6 +663,8 @@ int main(int argc, char **argv) {
                     out_file = argv[i];
                 } else if (strcmp(arg, "--output-h") == 0) {
                     out_file_h = argv[i];
+                } else if (strcmp(arg, "--output-lib") == 0) {
+                    out_file_lib = argv[i];
                 } else if (strcmp(arg, "--color") == 0) {
                     if (strcmp(argv[i], "auto") == 0) {
                         color = ErrColorAuto;
@@ -714,6 +723,19 @@ int main(int argc, char **argv) {
                     forbidden_link_libs.append(argv[i]);
                 } else if (strcmp(arg, "--object") == 0) {
                     objects.append(argv[i]);
+                } else if (strcmp(arg, "--c-source") == 0) {
+                    CFile *c_file = allocate<CFile>(1);
+                    for (;;) {
+                        if (argv[i][0] == '-') {
+                            c_file->args.append(argv[i]);
+                            i += 1;
+                            continue;
+                        } else {
+                            c_file->source_path = argv[i];
+                            c_source_files.append(c_file);
+                            break;
+                        }
+                    }
                 } else if (strcmp(arg, "--assembly") == 0) {
                     asm_files.append(argv[i]);
                 } else if (strcmp(arg, "--cache-dir") == 0) {
@@ -792,8 +814,6 @@ int main(int argc, char **argv) {
             } else if (strcmp(arg, "build-lib") == 0) {
                 cmd = CmdBuild;
                 out_type = OutTypeLib;
-            } else if (strcmp(arg, "help") == 0) {
-                cmd = CmdHelp;
             } else if (strcmp(arg, "run") == 0) {
                 cmd = CmdRun;
                 out_type = OutTypeExe;
@@ -835,7 +855,6 @@ int main(int argc, char **argv) {
                     }
                     break;
                 case CmdBuiltin:
-                case CmdHelp:
                 case CmdVersion:
                 case CmdZen:
                 case CmdTargets:
@@ -910,15 +929,43 @@ int main(int argc, char **argv) {
     case CmdTranslateC:
     case CmdTest:
         {
-            if (cmd == CmdBuild && !in_file && objects.length == 0 && asm_files.length == 0) {
-                fprintf(stderr, "Expected source file argument or at least one --object or --assembly argument.\n");
+            if (cmd == CmdBuild && !in_file && objects.length == 0 && asm_files.length == 0 &&
+                    c_source_files.length == 0)
+            {
+                fprintf(stderr,
+                    "Expected at least one of these things:\n"
+                    " * Zig root source file argument\n"
+                    " * --object argument\n"
+                    " * --assembly argument\n"
+                    " * --c-source argument\n");
                 return print_error_usage(arg0);
             } else if ((cmd == CmdTranslateC || cmd == CmdTest || cmd == CmdRun) && !in_file) {
                 fprintf(stderr, "Expected source file argument.\n");
                 return print_error_usage(arg0);
-            } else if (cmd == CmdBuild && out_type == OutTypeObj && objects.length != 0) {
-                fprintf(stderr, "When building an object file, --object arguments are invalid.\n");
-                return print_error_usage(arg0);
+            } else if (cmd == CmdBuild && out_type == OutTypeObj) {
+                if (objects.length != 0) {
+                    fprintf(stderr,
+                        "When building an object file, --object arguments are invalid.\n"
+                        "Consider building a static library instead.\n");
+                    return print_error_usage(arg0);
+                }
+                size_t zig_root_src_count = in_file ? 1 : 0;
+                if (zig_root_src_count + c_source_files.length > 1) {
+                    fprintf(stderr,
+                        "When building an object file, only one of these allowed:\n"
+                        " * Zig root source file argument\n"
+                        " * --c-source argument\n"
+                        "Consider building a static library instead.\n");
+                    return print_error_usage(arg0);
+                }
+                if (c_source_files.length != 0 && asm_files.length != 0) {
+                    fprintf(stderr,
+                        "When building an object file, only one of these allowed:\n"
+                        " * --assembly argument\n"
+                        " * --c-source argument\n"
+                        "Consider building a static library instead.\n");
+                    return print_error_usage(arg0);
+                }
             }
 
             assert(cmd != CmdBuild || out_type != OutTypeUnknown);
@@ -943,6 +990,13 @@ int main(int argc, char **argv) {
                     buf_out_name = buf_alloc();
                     os_path_extname(&basename, buf_out_name, nullptr);
                 }
+            }
+
+            if (need_name && buf_out_name == nullptr && c_source_files.length == 1) {
+                Buf basename = BUF_INIT;
+                os_path_split(buf_create_from_str(c_source_files.at(0)->source_path), nullptr, &basename);
+                buf_out_name = buf_alloc();
+                os_path_extname(&basename, buf_out_name, nullptr);
             }
 
             if (need_name && buf_out_name == nullptr) {
@@ -996,6 +1050,7 @@ int main(int argc, char **argv) {
             g->verbose_ir = verbose_ir;
             g->verbose_llvm_ir = verbose_llvm_ir;
             g->verbose_cimport = verbose_cimport;
+            g->verbose_cc = verbose_cc;
             codegen_set_errmsg_color(g, color);
             g->system_linker_hack = system_linker_hack;
 
@@ -1043,11 +1098,14 @@ int main(int argc, char **argv) {
                 codegen_set_output_path(g, buf_create_from_str(out_file));
             if (out_file_h != nullptr && (out_type == OutTypeObj || out_type == OutTypeLib))
                 codegen_set_output_h_path(g, buf_create_from_str(out_file_h));
+            if (out_file_lib != nullptr && out_type == OutTypeLib && !is_static)
+                codegen_set_output_lib_path(g, buf_create_from_str(out_file_lib));
 
 
             add_package(g, cur_pkg, g->root_package);
 
             if (cmd == CmdBuild || cmd == CmdRun || cmd == CmdTest) {
+                g->c_source_files = c_source_files;
                 for (size_t i = 0; i < objects.length; i += 1) {
                     codegen_add_object(g, buf_create_from_str(objects.at(i)));
                 }
@@ -1147,8 +1205,6 @@ int main(int argc, char **argv) {
                 zig_unreachable();
             }
         }
-    case CmdHelp:
-        return print_full_usage(arg0, stdout, EXIT_SUCCESS);
     case CmdVersion:
         printf("%s\n", ZIG_VERSION_STRING);
         return EXIT_SUCCESS;
@@ -1158,7 +1214,6 @@ int main(int argc, char **argv) {
     case CmdTargets:
         return print_target_list(stdout);
     case CmdNone:
-        fprintf(stderr, "Zig programming language\n");
-        return print_error_usage(arg0);
+        return print_full_usage(arg0, stderr, EXIT_FAILURE);
     }
 }
