@@ -609,6 +609,7 @@ set(ZIG_STD_FILES
     "os/windows/util.zig"
     "os/zen.zig"
     "pdb.zig"
+    "priority_queue.zig"
     "rand/index.zig"
     "rand/ziggurat.zig"
     "segmented_list.zig"
