@@ -19,6 +19,7 @@ comptime {
     _ = @import("behavior/bugs/1442.zig");
     _ = @import("behavior/bugs/1486.zig");
     _ = @import("behavior/bugs/1851.zig");
+    _ = @import("behavior/bugs/2006.zig");
     _ = @import("behavior/bugs/394.zig");
     _ = @import("behavior/bugs/421.zig");
     _ = @import("behavior/bugs/655.zig");

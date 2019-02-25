@@ -5129,6 +5129,10 @@ bool type_has_bits(ZigType *type_entry) {
 // Whether you can infer the value based solely on the type.
 OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry) {
     assert(type_entry != nullptr);
+
+    if (type_entry->one_possible_value != OnePossibleValueInvalid)
+        return type_entry->one_possible_value;
+
     Error err;
     if ((err = type_resolve(g, type_entry, ResolveStatusZeroBitsKnown)))
         return OnePossibleValueInvalid;
@@ -5176,8 +5180,14 @@ OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry) {
         case ZigTypeIdInt:
         case ZigTypeIdVector:
             return type_has_bits(type_entry) ? OnePossibleValueNo : OnePossibleValueYes;
-        case ZigTypeIdPointer:
-            return type_has_one_possible_value(g, type_entry->data.pointer.child_type);
+        case ZigTypeIdPointer: {
+            ZigType *elem_type = type_entry->data.pointer.child_type;
+            // If the recursive function call asks, then we are not one possible value.
+            type_entry->one_possible_value = OnePossibleValueNo;
+            // Now update it to be the value of the recursive call.
+            type_entry->one_possible_value = type_has_one_possible_value(g, elem_type);
+            return type_entry->one_possible_value;
+        }
         case ZigTypeIdUnion:
             if (type_entry->data.unionation.src_field_count > 1)
                 return OnePossibleValueNo;

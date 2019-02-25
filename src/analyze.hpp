@@ -226,11 +226,6 @@ enum ReqCompTime {
 };
 ReqCompTime type_requires_comptime(CodeGen *g, ZigType *type_entry);
 
-enum OnePossibleValue {
-    OnePossibleValueInvalid,
-    OnePossibleValueNo,
-    OnePossibleValueYes,
-};
 OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry);
 
 Error ensure_const_val_repr(IrAnalyze *ira, CodeGen *codegen, AstNode *source_node,

@@ -1240,15 +1240,18 @@ enum ZigTypeId {
     ZigTypeIdVector,
 };
 
+enum OnePossibleValue {
+    OnePossibleValueInvalid,
+    OnePossibleValueNo,
+    OnePossibleValueYes,
+};
+
 struct ZigType {
     ZigTypeId id;
     Buf name;
 
     LLVMTypeRef type_ref;
     ZigLLVMDIType *di_type;
-
-    bool zero_bits; // this is denormalized data
-    bool gen_h_loop_flag;
 
     union {
         ZigTypePointer pointer;
@@ -1275,6 +1278,11 @@ struct ZigType {
     // If we generate a constant name value for this type, we memoize it here.
     // The type of this is array
     ConstExprValue *cached_const_name_val;
+
+    OnePossibleValue one_possible_value;
+
+    bool zero_bits; // this is denormalized data
+    bool gen_h_loop_flag;
 };
 
 struct PackageTableEntry {
