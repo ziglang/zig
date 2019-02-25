@@ -121,6 +121,7 @@ Error ATTRIBUTE_MUST_USE os_get_cwd(Buf *out_cwd);
 bool os_stderr_tty(void);
 void os_stderr_set_color(TermColor color);
 
+Buf *os_tmp_filename(Buf *prefix, Buf *suffix);
 Error os_buf_to_tmp_file(Buf *contents, Buf *suffix, Buf *out_tmp_path);
 Error os_delete_file(Buf *path);
 

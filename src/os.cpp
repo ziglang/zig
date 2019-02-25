@@ -1232,6 +1232,18 @@ static Error os_buf_to_tmp_file_posix(Buf *contents, Buf *suffix, Buf *out_tmp_p
 }
 #endif
 
+Buf *os_tmp_filename(Buf *prefix, Buf *suffix) {
+    Buf *result = buf_create_from_buf(prefix);
+
+    const char base64[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_";
+    assert(array_length(base64) == 64 + 1);
+    for (size_t i = 0; i < 12; i += 1) {
+        buf_append_char(result, base64[rand() % 64]);
+    }
+    buf_append_buf(result, suffix);
+    return result;
+}
+
 #if defined(ZIG_OS_WINDOWS)
 static Error os_buf_to_tmp_file_windows(Buf *contents, Buf *suffix, Buf *out_tmp_path) {
     char tmp_dir[MAX_PATH + 1];

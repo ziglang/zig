@@ -8218,8 +8218,9 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
     }
 
     if (g->verbose_cc) {
+        fprintf(stderr, "zig");
         for (size_t arg_i = 0; arg_i < args.length; arg_i += 1) {
-            fprintf(stderr, "%s ", args.at(arg_i));
+            fprintf(stderr, " %s", args.at(arg_i));
         }
         fprintf(stderr, "\n");
     }
@@ -8232,35 +8233,15 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
 
     g->link_objects.append(out_obj_path);
 
-    // add the files depended on to the cache system
     if (g->enable_cache) {
-        Buf *contents = buf_alloc();
-        if ((err = os_fetch_file_path(out_dep_path, contents, false))) {
-            fprintf(stderr, "unable to read .d file: %s\n", err_str(err));
-            exit(1);
-        }
+        // add the files depended on to the cache system
         if ((err = cache_add_file(&g->cache_hash, c_source_file))) {
             fprintf(stderr, "unable to add %s to cache: %s\n", buf_ptr(c_source_file), err_str(err));
             exit(1);
         }
-        SplitIterator it = memSplit(buf_to_slice(contents), str("\n"));
-        // skip first line
-        SplitIterator_next(&it);
-        for (;;) {
-            Optional<Slice<uint8_t>> opt_line = SplitIterator_next(&it);
-            if (!opt_line.is_some)
-                break;
-            if (opt_line.value.len == 0)
-                continue;
-            SplitIterator line_it = memSplit(opt_line.value, str(" \t"));
-            Slice<uint8_t> filename;
-            if (!SplitIterator_next(&line_it).unwrap(&filename))
-                continue;
-            Buf *filename_buf = buf_create_from_slice(filename);
-            if ((err = cache_add_file(&g->cache_hash, filename_buf))) {
-                fprintf(stderr, "unable to add %s to cache: %s\n", buf_ptr(c_source_file), err_str(err));
-                exit(1);
-            }
+        if ((err = cache_add_dep_file(&g->cache_hash, out_dep_path, true))) {
+            fprintf(stderr, "failed to add C source dependencies to cache: %s\n", err_str(err));
+            exit(1);
         }
     }
 }

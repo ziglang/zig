@@ -4776,6 +4776,15 @@ Error parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const 
     clang_argv.append("-x");
     clang_argv.append("c");
 
+    Buf *out_dep_path = nullptr;
+    if (codegen->enable_cache) {
+        Buf *prefix = buf_sprintf("%s" OS_SEP, buf_ptr(&codegen->cache_dir));
+        out_dep_path = os_tmp_filename(prefix, buf_create_from_str(".d"));
+        clang_argv.append("-MD");
+        clang_argv.append("-MF");
+        clang_argv.append(buf_ptr(out_dep_path));
+    }
+
     if (c->codegen->zig_target->is_native) {
         char *ZIG_PARSEC_CFLAGS = getenv("ZIG_NATIVE_PARSEC_CFLAGS");
         if (ZIG_PARSEC_CFLAGS) {
@@ -4910,6 +4919,17 @@ Error parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const 
         }
 
         return ErrorCCompileErrors;
+    }
+
+    if (codegen->enable_cache) {
+        Error err;
+        assert(out_dep_path != nullptr);
+        if ((err = cache_add_dep_file(&codegen->cache_hash, out_dep_path, codegen->verbose_cimport))) {
+            if (codegen->verbose_cimport) {
+                fprintf(stderr, "translate-c: aborting due to failed cache operation: %s\n", err_str(err));
+            }
+            return err;
+        }
     }
 
     c->ctx = ZigClangASTUnit_getASTContext(ast_unit);

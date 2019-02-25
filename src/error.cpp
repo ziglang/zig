@@ -36,6 +36,7 @@ const char *err_str(Error err) {
         case ErrorCacheUnavailable: return "cache unavailable";
         case ErrorPathTooLong: return "path too long";
         case ErrorCCompilerCannotFindFile: return "C compiler cannot find file";
+        case ErrorReadingDepFile: return "failed to read .d file";
     }
     return "(invalid error)";
 }
