@@ -9,6 +9,7 @@ pub const DynLib = @import("dynamic_library.zig").DynLib;
 pub const HashMap = @import("hash_map.zig").HashMap;
 pub const LinkedList = @import("linked_list.zig").LinkedList;
 pub const Mutex = @import("mutex.zig").Mutex;
+pub const PriorityQueue = @import("priority_queue.zig").PriorityQueue;
 pub const StaticallyInitializedMutex = @import("statically_initialized_mutex.zig").StaticallyInitializedMutex;
 pub const SegmentedList = @import("segmented_list.zig").SegmentedList;
 pub const SpinLock = @import("spinlock.zig").SpinLock;
@@ -59,7 +60,7 @@ test "std" {
     _ = @import("statically_initialized_mutex.zig");
     _ = @import("segmented_list.zig");
     _ = @import("spinlock.zig");
-    
+
     _ = @import("base64.zig");
     _ = @import("build.zig");
     _ = @import("c/index.zig");
@@ -85,6 +86,7 @@ test "std" {
     _ = @import("net.zig");
     _ = @import("os/index.zig");
     _ = @import("pdb.zig");
+    _ = @import("priority_queue.zig");
     _ = @import("rand/index.zig");
     _ = @import("sort.zig");
     _ = @import("testing.zig");
