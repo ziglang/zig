@@ -1,26 +1,29 @@
 const tests = @import("tests.zig");
+const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
-    cases.addTest(
-        "implicit dependency on libc",
-        \\extern "c" fn exit(u8) void;
-        \\export fn entry() void {
-        \\    exit(0);
-        \\}
-    ,
-        ".tmp_source.zig:3:5: error: dependency on library c must be explicitly specified in the build command",
-    );
+    if (builtin.os == builtin.Os.linux) {
+        cases.addTest(
+            "implicit dependency on libc",
+            \\extern "c" fn exit(u8) void;
+            \\export fn entry() void {
+            \\    exit(0);
+            \\}
+        ,
+            ".tmp_source.zig:3:5: error: dependency on library c must be explicitly specified in the build command",
+        );
 
-    cases.addTest(
-        "libc headers note",
-        \\const c = @cImport(@cInclude("stdio.h"));
-        \\export fn entry() void {
-        \\    c.printf("hello, world!\n");
-        \\}
-    ,
-        ".tmp_source.zig:1:11: error: C import failed",
-        ".tmp_source.zig:1:11: note: libc headers not available; compilation does not link against libc",
-    );
+        cases.addTest(
+            "libc headers note",
+            \\const c = @cImport(@cInclude("stdio.h"));
+            \\export fn entry() void {
+            \\    _ = c.printf(c"hello, world!\n");
+            \\}
+        ,
+            ".tmp_source.zig:1:11: error: C import failed",
+            ".tmp_source.zig:1:11: note: libc headers not available; compilation does not link against libc",
+        );
+    }
 
     cases.addTest(
         "comptime vector overflow shows the index",
