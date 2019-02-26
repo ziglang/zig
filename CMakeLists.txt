@@ -448,6 +448,7 @@ set(ZIG_STD_FILES
     "buf_set.zig"
     "buffer.zig"
     "build.zig"
+    "build/fmt.zig"
     "c/darwin.zig"
     "c/freebsd.zig"
     "c/index.zig"

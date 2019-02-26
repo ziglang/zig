@@ -15,6 +15,8 @@ const BufSet = std.BufSet;
 const BufMap = std.BufMap;
 const fmt_lib = std.fmt;
 
+pub const FmtStep = @import("build/fmt.zig").FmtStep;
+
 pub const Builder = struct {
     uninstall_tls: TopLevelStep,
     install_tls: TopLevelStep,
@@ -203,6 +205,10 @@ pub const Builder = struct {
         const remove_dir_step = self.allocator.create(RemoveDirStep) catch unreachable;
         remove_dir_step.* = RemoveDirStep.init(self, dir_path);
         return remove_dir_step;
+    }
+
+    pub fn addFmt(self: *Builder, paths: []const []const u8) *FmtStep {
+        return FmtStep.create(self, paths);
     }
 
     pub fn version(self: *const Builder, major: u32, minor: u32, patch: u32) Version {

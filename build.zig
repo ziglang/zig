@@ -55,6 +55,8 @@ pub fn build(b: *Builder) !void {
     var test_stage2 = b.addTest("src-self-hosted/test.zig");
     test_stage2.setBuildMode(builtin.Mode.Debug);
 
+    const fmt_build_zig = b.addFmt([][]const u8{"build.zig"});
+
     var exe = b.addExecutable("zig", "src-self-hosted/main.zig");
     exe.setBuildMode(mode);
 
@@ -105,6 +107,11 @@ pub fn build(b: *Builder) !void {
         chosen_mode_index += 1;
     }
     const modes = chosen_modes[0..chosen_mode_index];
+
+    // run stage1 `zig fmt` on this build.zig file just to make sure it works
+    test_step.dependOn(&fmt_build_zig.step);
+    const fmt_step = b.step("test-fmt", "Run zig fmt against build.zig to make sure it works");
+    fmt_step.dependOn(&fmt_build_zig.step);
 
     test_step.dependOn(tests.addPkgTests(b, test_filter, "test/stage1/behavior.zig", "behavior", "Run the behavior tests", modes));
 
