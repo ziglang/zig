@@ -19451,10 +19451,12 @@ static IrInstruction *ir_analyze_instruction_memset(IrAnalyze *ira, IrInstructio
     if (type_is_invalid(casted_count->value.type))
         return ira->codegen->invalid_instruction;
 
+    // TODO test this at comptime with u8 and non-u8 types
     if (casted_dest_ptr->value.special == ConstValSpecialStatic &&
         casted_byte->value.special == ConstValSpecialStatic &&
         casted_count->value.special == ConstValSpecialStatic &&
-        casted_dest_ptr->value.data.x_ptr.special != ConstPtrSpecialHardCodedAddr)
+        casted_dest_ptr->value.data.x_ptr.special != ConstPtrSpecialHardCodedAddr &&
+        casted_dest_ptr->value.data.x_ptr.mut != ConstPtrMutRuntimeVar)
     {
         ConstExprValue *dest_ptr_val = &casted_dest_ptr->value;
 
@@ -19573,6 +19575,8 @@ static IrInstruction *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstructio
     if (type_is_invalid(casted_count->value.type))
         return ira->codegen->invalid_instruction;
 
+    // TODO test this at comptime with u8 and non-u8 types
+    // TODO test with dest ptr being a global runtime variable 
     if (casted_dest_ptr->value.special == ConstValSpecialStatic &&
         casted_src_ptr->value.special == ConstValSpecialStatic &&
         casted_count->value.special == ConstValSpecialStatic &&
