@@ -1808,6 +1808,7 @@ struct CodeGen {
     bool enable_cache;
     bool enable_time_report;
     bool system_linker_hack;
+    bool reported_bad_link_libc_error;
 
     //////////////////////////// Participates in Input Parameter Cache Hash
     /////// Note: there is a separate cache hash for builtin.zig, when adding fields,

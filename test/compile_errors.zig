@@ -2,6 +2,16 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.addTest(
+        "implicit dependency on libc",
+        \\extern "c" fn exit(u8) void;
+        \\export fn entry() void {
+        \\    exit(0);
+        \\}
+    ,
+        ".tmp_source.zig:3:5: error: dependency on library c must be explicitly specified in the build command",
+    );
+
+    cases.addTest(
         "libc headers note",
         \\const c = @cImport(@cInclude("stdio.h"));
         \\export fn entry() void {

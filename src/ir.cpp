@@ -15520,6 +15520,14 @@ static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_
 }
 
 static void add_link_lib_symbol(IrAnalyze *ira, Buf *lib_name, Buf *symbol_name, AstNode *source_node) {
+    if (buf_eql_str(lib_name, "c") && ira->codegen->libc_link_lib == nullptr &&
+        !ira->codegen->reported_bad_link_libc_error)
+    {
+        ir_add_error_node(ira, source_node,
+            buf_sprintf("dependency on library c must be explicitly specified in the build command"));
+        ira->codegen->reported_bad_link_libc_error = true;
+    }
+
     LinkLib *link_lib = add_link_lib(ira->codegen, lib_name);
     for (size_t i = 0; i < link_lib->symbols.length; i += 1) {
         Buf *existing_symbol_name = link_lib->symbols.at(i);
