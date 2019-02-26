@@ -18705,6 +18705,10 @@ static IrInstruction *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruct
 
     if (errors.length > 0) {
         ErrorMsg *parent_err_msg = ir_add_error_node(ira, node, buf_sprintf("C import failed"));
+        if (ira->codegen->libc_link_lib == nullptr) {
+            add_error_note(ira->codegen, parent_err_msg, node,
+                buf_sprintf("libc headers not available; compilation does not link against libc"));
+        }
         for (size_t i = 0; i < errors.length; i += 1) {
             ErrorMsg *err_msg = errors.at(i);
             err_msg_add_note(parent_err_msg, err_msg);

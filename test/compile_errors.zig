@@ -2,6 +2,17 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.addTest(
+        "libc headers note",
+        \\const c = @cImport(@cInclude("stdio.h"));
+        \\export fn entry() void {
+        \\    c.printf("hello, world!\n");
+        \\}
+    ,
+        ".tmp_source.zig:1:11: error: C import failed",
+        ".tmp_source.zig:1:11: note: libc headers not available; compilation does not link against libc",
+    );
+
+    cases.addTest(
         "comptime vector overflow shows the index",
         \\comptime {
         \\    var a: @Vector(4, u8) = []u8{ 1, 2, 255, 4 };
