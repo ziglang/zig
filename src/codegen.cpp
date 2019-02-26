@@ -8815,6 +8815,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_list_of_str(ch, g->lib_dirs.items, g->lib_dirs.length);
     if (g->libc) {
         cache_buf(ch, &g->libc->include_dir);
+        cache_buf(ch, &g->libc->crt_dir);
         cache_buf(ch, &g->libc->lib_dir);
         cache_buf(ch, &g->libc->static_lib_dir);
         cache_buf(ch, &g->libc->msvc_lib_dir);

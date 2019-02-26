@@ -17,10 +17,10 @@ struct LinkJob {
     HashMap<Buf *, bool, buf_hash, buf_eql_buf> rpath_table;
 };
 
-static const char *get_libc_file(CodeGen *g, const char *file) {
+static const char *get_libc_crt_file(CodeGen *g, const char *file) {
     assert(g->libc != nullptr);
     Buf *out_buf = buf_alloc();
-    os_path_join(&g->libc->lib_dir, buf_create_from_str(file), out_buf);
+    os_path_join(&g->libc->crt_dir, buf_create_from_str(file), out_buf);
     return buf_ptr(out_buf);
 }
 
@@ -224,8 +224,8 @@ static void construct_linker_job_elf(LinkJob *lj) {
             crt1o = "Scrt1.o";
             crtbegino = "crtbegin.o";
         }
-        lj->args.append(get_libc_file(g, crt1o));
-        lj->args.append(get_libc_file(g, "crti.o"));
+        lj->args.append(get_libc_crt_file(g, crt1o));
+        lj->args.append(get_libc_crt_file(g, "crti.o"));
         lj->args.append(get_libc_static_file(g, crtbegino));
     }
 
@@ -263,7 +263,12 @@ static void construct_linker_job_elf(LinkJob *lj) {
     if (g->libc_link_lib != nullptr) {
         assert(g->libc != nullptr);
         lj->args.append("-L");
-        lj->args.append(buf_ptr(&g->libc->lib_dir));
+        lj->args.append(buf_ptr(&g->libc->crt_dir));
+
+        if (!buf_eql_buf(&g->libc->crt_dir, &g->libc->lib_dir)) {
+            lj->args.append("-L");
+            lj->args.append(buf_ptr(&g->libc->lib_dir));
+        }
 
         lj->args.append("-L");
         lj->args.append(buf_ptr(&g->libc->static_lib_dir));
@@ -340,7 +345,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
     // crt end
     if (lj->link_in_crt) {
         lj->args.append(get_libc_static_file(g, "crtend.o"));
-        lj->args.append(get_libc_file(g, "crtn.o"));
+        lj->args.append(get_libc_crt_file(g, "crtn.o"));
     }
 
     if (!g->zig_target->is_native) {
@@ -597,7 +602,7 @@ static void construct_linker_job_coff(LinkJob *lj) {
 
         lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(&g->libc->msvc_lib_dir))));
         lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(&g->libc->kernel32_lib_dir))));
-        lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(&g->libc->lib_dir))));
+        lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(&g->libc->crt_dir))));
     }
 
     if (is_library && !g->is_static) {
