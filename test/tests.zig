@@ -24,24 +24,24 @@ const gen_h = @import("gen_h.zig");
 const TestTarget = struct {
     os: builtin.Os,
     arch: builtin.Arch,
-    environ: builtin.Environ,
+    abi: builtin.Abi,
 };
 
 const test_targets = []TestTarget{
     TestTarget{
         .os = builtin.Os.linux,
         .arch = builtin.Arch.x86_64,
-        .environ = builtin.Environ.gnu,
+        .abi = builtin.Abi.gnu,
     },
     TestTarget{
         .os = builtin.Os.macosx,
         .arch = builtin.Arch.x86_64,
-        .environ = builtin.Environ.unknown,
+        .abi = builtin.Abi.gnu,
     },
     TestTarget{
         .os = builtin.Os.windows,
         .arch = builtin.Arch.x86_64,
-        .environ = builtin.Environ.msvc,
+        .abi = builtin.Abi.msvc,
     },
 };
 
@@ -189,7 +189,7 @@ pub fn addPkgTests(b: *build.Builder, test_filter: ?[]const u8, root_src: []cons
                     these_tests.setFilter(test_filter);
                     these_tests.setBuildMode(mode);
                     if (!is_native) {
-                        these_tests.setTarget(test_target.arch, test_target.os, test_target.environ);
+                        these_tests.setTarget(test_target.arch, test_target.os, test_target.abi);
                     }
                     if (link_libc) {
                         these_tests.linkSystemLibrary("c");

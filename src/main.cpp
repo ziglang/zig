@@ -69,9 +69,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  --single-threaded            source may assume it is only used single-threaded\n"
         "  --static                     output will be statically linked\n"
         "  --strip                      exclude debug symbols\n"
-        "  --target-arch [name]         specify target architecture\n"
-        "  --target-environ [name]      specify target environment\n"
-        "  --target-os [name]           specify target operating system\n"
+        "  -target [name]               <arch><sub>-<os>-<abi> see the targets command\n"
         "  --verbose-tokenize           enable compiler debug output for tokenization\n"
         "  --verbose-ast                enable compiler debug output for AST parsing\n"
         "  --verbose-link               enable compiler debug output for linking\n"
@@ -145,6 +143,14 @@ static const char *ZIG_ZEN = "\n"
 " * Minimize energy spent on coding style.\n"
 " * Together we serve end users.\n";
 
+static bool arch_available_in_llvm(ZigLLVM_ArchType arch) {
+    LLVMTargetRef target_ref;
+    char *err_msg = nullptr;
+    char triple_string[128];
+    sprintf(triple_string, "%s-unknown-unknown-unknown", ZigLLVMGetArchTypeName(arch));
+    return !LLVMGetTargetFromTriple(triple_string, &target_ref, &err_msg);
+}
+
 static int print_target_list(FILE *f) {
     ZigTarget native;
     get_native_target(&native);
@@ -152,28 +158,36 @@ static int print_target_list(FILE *f) {
     fprintf(f, "Architectures:\n");
     size_t arch_count = target_arch_count();
     for (size_t arch_i = 0; arch_i < arch_count; arch_i += 1) {
-        const ArchType *arch = get_target_arch(arch_i);
-        char arch_name[50];
-        get_arch_name(arch_name, arch);
-        const char *native_str = (native.arch.arch == arch->arch && native.arch.sub_arch == arch->sub_arch) ?
-            " (native)" : "";
-        fprintf(f, "  %s%s\n", arch_name, native_str);
+        ZigLLVM_ArchType arch = target_arch_enum(arch_i);
+        if (!arch_available_in_llvm(arch))
+            continue;
+        const char *arch_name = target_arch_name(arch);
+        SubArchList sub_arch_list = target_subarch_list(arch);
+        size_t sub_count = target_subarch_count(sub_arch_list);
+        const char *arch_native_str = (native.arch == arch) ? " (native)" : "";
+        fprintf(stderr, "  %s%s\n", arch_name, arch_native_str);
+        for (size_t sub_i = 0; sub_i < sub_count; sub_i += 1) {
+            ZigLLVM_SubArchType sub = target_subarch_enum(sub_arch_list, sub_i);
+            const char *sub_name = target_subarch_name(sub);
+            const char *sub_native_str = (native.arch == arch && native.sub_arch == sub) ? " (native)" : "";
+            fprintf(f, "    %s%s\n", sub_name, sub_native_str);
+        }
     }
 
     fprintf(f, "\nOperating Systems:\n");
     size_t os_count = target_os_count();
     for (size_t i = 0; i < os_count; i += 1) {
-        Os os_type = get_target_os(i);
+        Os os_type = target_os_enum(i);
         const char *native_str = (native.os == os_type) ? " (native)" : "";
-        fprintf(f, "  %s%s\n", get_target_os_name(os_type), native_str);
+        fprintf(f, "  %s%s\n", target_os_name(os_type), native_str);
     }
 
-    fprintf(f, "\nEnvironments:\n");
-    size_t environ_count = target_environ_count();
-    for (size_t i = 0; i < environ_count; i += 1) {
-        ZigLLVM_EnvironmentType environ_type = get_target_environ(i);
-        const char *native_str = (native.env_type == environ_type) ? " (native)" : "";
-        fprintf(f, "  %s%s\n", ZigLLVMGetEnvironmentTypeName(environ_type), native_str);
+    fprintf(f, "\nC ABIs:\n");
+    size_t abi_count = target_abi_count();
+    for (size_t i = 0; i < abi_count; i += 1) {
+        ZigLLVM_EnvironmentType abi = target_abi_enum(i);
+        const char *native_str = (native.abi == abi) ? " (native)" : "";
+        fprintf(f, "  %s%s\n", target_abi_name(abi), native_str);
     }
 
     return EXIT_SUCCESS;
@@ -397,9 +411,7 @@ int main(int argc, char **argv) {
     ZigList<const char *> link_libs = {0};
     ZigList<const char *> forbidden_link_libs = {0};
     ZigList<const char *> frameworks = {0};
-    const char *target_arch = nullptr;
-    const char *target_os = nullptr;
-    const char *target_environ = nullptr;
+    const char *target_string = nullptr;
     bool rdynamic = false;
     const char *mmacosx_version_min = nullptr;
     const char *mios_version_min = nullptr;
@@ -740,12 +752,8 @@ int main(int argc, char **argv) {
                     asm_files.append(argv[i]);
                 } else if (strcmp(arg, "--cache-dir") == 0) {
                     cache_dir = argv[i];
-                } else if (strcmp(arg, "--target-arch") == 0) {
-                    target_arch = argv[i];
-                } else if (strcmp(arg, "--target-os") == 0) {
-                    target_os = argv[i];
-                } else if (strcmp(arg, "--target-environ") == 0) {
-                    target_environ = argv[i];
+                } else if (strcmp(arg, "-target") == 0) {
+                    target_string = argv[i];
                 } else if (strcmp(arg, "-mmacosx-version-min") == 0) {
                     mmacosx_version_min = argv[i];
                 } else if (strcmp(arg, "-mios-version-min") == 0) {
@@ -874,27 +882,12 @@ int main(int argc, char **argv) {
     init_all_targets();
 
     ZigTarget target;
-    if (!target_arch && !target_os && !target_environ) {
+    if (target_string == nullptr) {
         get_native_target(&target);
     } else {
-        get_unknown_target(&target);
-        if (target_arch) {
-            if (parse_target_arch(target_arch, &target.arch)) {
-                fprintf(stderr, "invalid --target-arch argument\n");
-                return print_error_usage(arg0);
-            }
-        }
-        if (target_os) {
-            if (parse_target_os(target_os, &target.os)) {
-                fprintf(stderr, "invalid --target-os argument\n");
-                return print_error_usage(arg0);
-            }
-        }
-        if (target_environ) {
-            if (parse_target_environ(target_environ, &target.env_type)) {
-                fprintf(stderr, "invalid --target-environ argument\n");
-                return print_error_usage(arg0);
-            }
+        if ((err = target_parse_triple(&target, target_string))) {
+            fprintf(stderr, "invalid target: %s\n", err_str(err));
+            return print_error_usage(arg0);
         }
     }
 

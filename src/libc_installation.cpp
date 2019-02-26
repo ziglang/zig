@@ -103,7 +103,7 @@ Error zig_libc_parse(ZigLibCInstallation *libc, Buf *libc_file, const ZigTarget 
     if (buf_len(&libc->crt_dir) == 0) {
         if (!target_is_darwin(target)) {
             if (verbose) {
-                fprintf(stderr, "crt_dir may not be empty for %s\n", get_target_os_name(target->os));
+                fprintf(stderr, "crt_dir may not be empty for %s\n", target_os_name(target->os));
             }
             return ErrorSemanticAnalyzeFail;
         }
@@ -112,7 +112,7 @@ Error zig_libc_parse(ZigLibCInstallation *libc, Buf *libc_file, const ZigTarget 
     if (buf_len(&libc->lib_dir) == 0) {
         if (!target_is_darwin(target) && target->os != OsWindows) {
             if (verbose) {
-                fprintf(stderr, "lib_dir may not be empty for %s\n", get_target_os_name(target->os));
+                fprintf(stderr, "lib_dir may not be empty for %s\n", target_os_name(target->os));
             }
             return ErrorSemanticAnalyzeFail;
         }
@@ -121,7 +121,7 @@ Error zig_libc_parse(ZigLibCInstallation *libc, Buf *libc_file, const ZigTarget 
     if (buf_len(&libc->static_lib_dir) == 0) {
         if (!target_is_darwin(target) && target->os != OsWindows) {
             if (verbose) {
-                fprintf(stderr, "static_lib_dir may not be empty for %s\n", get_target_os_name(target->os));
+                fprintf(stderr, "static_lib_dir may not be empty for %s\n", target_os_name(target->os));
             }
             return ErrorSemanticAnalyzeFail;
         }
@@ -130,7 +130,7 @@ Error zig_libc_parse(ZigLibCInstallation *libc, Buf *libc_file, const ZigTarget 
     if (buf_len(&libc->msvc_lib_dir) == 0) {
         if (target->os == OsWindows) {
             if (verbose) {
-                fprintf(stderr, "msvc_lib_dir may not be empty for %s\n", get_target_os_name(target->os));
+                fprintf(stderr, "msvc_lib_dir may not be empty for %s\n", target_os_name(target->os));
             }
             return ErrorSemanticAnalyzeFail;
         }
@@ -139,7 +139,7 @@ Error zig_libc_parse(ZigLibCInstallation *libc, Buf *libc_file, const ZigTarget 
     if (buf_len(&libc->kernel32_lib_dir) == 0) {
         if (target->os == OsWindows) {
             if (verbose) {
-                fprintf(stderr, "kernel32_lib_dir may not be empty for %s\n", get_target_os_name(target->os));
+                fprintf(stderr, "kernel32_lib_dir may not be empty for %s\n", target_os_name(target->os));
             }
             return ErrorSemanticAnalyzeFail;
         }
@@ -148,7 +148,7 @@ Error zig_libc_parse(ZigLibCInstallation *libc, Buf *libc_file, const ZigTarget 
     if (buf_len(&libc->dynamic_linker_path) == 0) {
         if (!target_is_darwin(target) && target->os != OsWindows) {
             if (verbose) {
-                fprintf(stderr, "dynamic_linker_path may not be empty for %s\n", get_target_os_name(target->os));
+                fprintf(stderr, "dynamic_linker_path may not be empty for %s\n", target_os_name(target->os));
             }
             return ErrorSemanticAnalyzeFail;
         }
@@ -334,8 +334,10 @@ static Error zig_libc_find_native_dynamic_linker_posix(ZigLibCInstallation *self
 #endif
     ZigTarget native_target;
     get_native_target(&native_target);
-    Buf *dynamic_linker_path = target_dynamic_linker(&native_target);
-    buf_init_from_buf(&self->dynamic_linker_path, dynamic_linker_path);
+    const char *dynamic_linker_path = target_dynamic_linker(&native_target);
+    if (dynamic_linker_path != nullptr) {
+        buf_init_from_str(&self->dynamic_linker_path, dynamic_linker_path);
+    }
     return ErrorNone;
 }
 #endif

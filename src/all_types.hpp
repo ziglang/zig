@@ -1784,7 +1784,8 @@ struct CodeGen {
     unsigned pointer_size_bytes;
     uint32_t target_os_index;
     uint32_t target_arch_index;
-    uint32_t target_environ_index;
+    uint32_t target_sub_arch_index;
+    uint32_t target_abi_index;
     uint32_t target_oformat_index;
     bool is_big_endian;
     bool have_pub_main;

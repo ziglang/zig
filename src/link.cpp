@@ -96,7 +96,7 @@ static Buf *build_compiler_rt(CodeGen *parent_gen) {
 }
 
 static const char *get_darwin_arch_string(const ZigTarget *t) {
-    switch (t->arch.arch) {
+    switch (t->arch) {
         case ZigLLVM_aarch64:
             return "arm64";
         case ZigLLVM_thumb:
@@ -109,13 +109,13 @@ static const char *get_darwin_arch_string(const ZigTarget *t) {
         case ZigLLVM_ppc64le:
             return "ppc64le";
         default:
-            return ZigLLVMGetArchTypeName(t->arch.arch);
+            return ZigLLVMGetArchTypeName(t->arch);
     }
 }
 
 
 static const char *getLDMOption(const ZigTarget *t) {
-    switch (t->arch.arch) {
+    switch (t->arch) {
         case ZigLLVM_x86:
             return "elf_i386";
         case ZigLLVM_aarch64:
@@ -149,7 +149,7 @@ static const char *getLDMOption(const ZigTarget *t) {
         case ZigLLVM_systemz:
             return "elf64_s390";
         case ZigLLVM_x86_64:
-            if (t->env_type == ZigLLVM_GNUX32) {
+            if (t->abi == ZigLLVM_GNUX32) {
                 return "elf32_x86_64";
             }
             // Any target elf will use the freebsd osabi if suffixed with "_fbsd".
@@ -191,8 +191,8 @@ static void construct_linker_job_elf(LinkJob *lj) {
     bool shared = !g->is_static && is_lib;
     Buf *soname = nullptr;
     if (g->is_static) {
-        if (g->zig_target->arch.arch == ZigLLVM_arm || g->zig_target->arch.arch == ZigLLVM_armeb ||
-            g->zig_target->arch.arch == ZigLLVM_thumb || g->zig_target->arch.arch == ZigLLVM_thumbeb)
+        if (g->zig_target->arch == ZigLLVM_arm || g->zig_target->arch == ZigLLVM_armeb ||
+            g->zig_target->arch == ZigLLVM_thumb || g->zig_target->arch == ZigLLVM_thumbeb)
         {
             lj->args.append("-Bstatic");
         } else {
@@ -375,16 +375,16 @@ static void construct_linker_job_wasm(LinkJob *lj) {
 }
 
 //static bool is_target_cyg_mingw(const ZigTarget *target) {
-//    return (target->os == ZigLLVM_Win32 && target->env_type == ZigLLVM_Cygnus) ||
-//        (target->os == ZigLLVM_Win32 && target->env_type == ZigLLVM_GNU);
+//    return (target->os == ZigLLVM_Win32 && target->abi == ZigLLVM_Cygnus) ||
+//        (target->os == ZigLLVM_Win32 && target->abi == ZigLLVM_GNU);
 //}
 
 static void coff_append_machine_arg(CodeGen *g, ZigList<const char *> *list) {
-    if (g->zig_target->arch.arch == ZigLLVM_x86) {
+    if (g->zig_target->arch == ZigLLVM_x86) {
         list->append("-MACHINE:X86");
-    } else if (g->zig_target->arch.arch == ZigLLVM_x86_64) {
+    } else if (g->zig_target->arch == ZigLLVM_x86_64) {
         list->append("-MACHINE:X64");
-    } else if (g->zig_target->arch.arch == ZigLLVM_arm) {
+    } else if (g->zig_target->arch == ZigLLVM_arm) {
         list->append("-MACHINE:ARM");
     }
 }
@@ -470,7 +470,7 @@ static void add_nt_link_args(LinkJob *lj, bool is_library) {
 //    lj->args.append("-Bdynamic");
 //    if (dll || shared) {
 //        lj->args.append("-e");
-//        if (g->zig_target.arch.arch == ZigLLVM_x86) {
+//        if (g->zig_target.arch == ZigLLVM_x86) {
 //            lj->args.append("_DllMainCRTStartup@12");
 //        } else {
 //            lj->args.append("DllMainCRTStartup");
@@ -496,7 +496,7 @@ static void add_nt_link_args(LinkJob *lj, bool is_library) {
 //lj->args.append("-lmingw32");
 
 //lj->args.append("-lgcc");
-//bool is_android = (g->zig_target.env_type == ZigLLVM_Android);
+//bool is_android = (g->zig_target.abi == ZigLLVM_Android);
 //bool is_cyg_ming = is_target_cyg_mingw(&g->zig_target);
 //if (!g->is_static && !is_android) {
 //    if (!is_cyg_ming) {
@@ -637,7 +637,7 @@ static void construct_linker_job_coff(LinkJob *lj) {
             continue;
         }
         if (link_lib->provided_explicitly) {
-            if (lj->codegen->zig_target->env_type == ZigLLVM_GNU) {
+            if (lj->codegen->zig_target->abi == ZigLLVM_GNU) {
                 Buf *arg = buf_sprintf("-l%s", buf_ptr(link_lib->name));
                 lj->args.append(buf_ptr(arg));
             }
@@ -764,8 +764,8 @@ static void get_darwin_platform(LinkJob *lj, DarwinPlatform *platform) {
     }
 
     if (platform->kind == IPhoneOS &&
-        (g->zig_target->arch.arch == ZigLLVM_x86 ||
-         g->zig_target->arch.arch == ZigLLVM_x86_64))
+        (g->zig_target->arch == ZigLLVM_x86 ||
+         g->zig_target->arch == ZigLLVM_x86_64))
     {
         platform->kind = IPhoneOSSimulator;
     }
@@ -886,7 +886,7 @@ static void construct_linker_job_macho(LinkJob *lj) {
                 }
                 break;
             case IPhoneOS:
-                if (g->zig_target->arch.arch == ZigLLVM_aarch64) {
+                if (g->zig_target->arch == ZigLLVM_aarch64) {
                     // iOS does not need any crt1 files for arm64
                 } else if (darwin_version_lt(&platform, 3, 1)) {
                     lj->args.append("-lcrt1.o");

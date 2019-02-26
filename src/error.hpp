@@ -39,6 +39,11 @@ enum Error {
     ErrorPathTooLong,
     ErrorCCompilerCannotFindFile,
     ErrorReadingDepFile,
+    ErrorMissingArchitecture,
+    ErrorMissingOperatingSystem,
+    ErrorUnknownArchitecture,
+    ErrorUnknownOperatingSystem,
+    ErrorUnknownABI,
 };
 
 const char *err_str(Error err);

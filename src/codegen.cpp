@@ -29,9 +29,9 @@ static void init_darwin_native(CodeGen *g) {
 
     // Allow conflicts among OSX and iOS, but choose the default platform.
     if (osx_target && ios_target) {
-        if (g->zig_target->arch.arch == ZigLLVM_arm ||
-            g->zig_target->arch.arch == ZigLLVM_aarch64 ||
-            g->zig_target->arch.arch == ZigLLVM_thumb)
+        if (g->zig_target->arch == ZigLLVM_arm ||
+            g->zig_target->arch == ZigLLVM_aarch64 ||
+            g->zig_target->arch == ZigLLVM_thumb)
         {
             osx_target = nullptr;
         } else {
@@ -347,8 +347,8 @@ static LLVMCallConv get_llvm_cc(CodeGen *g, CallingConvention cc) {
         case CallingConventionC: return LLVMCCallConv;
         case CallingConventionCold:
             // cold calling convention only works on x86.
-            if (g->zig_target->arch.arch == ZigLLVM_x86 ||
-                g->zig_target->arch.arch == ZigLLVM_x86_64)
+            if (g->zig_target->arch == ZigLLVM_x86 ||
+                g->zig_target->arch == ZigLLVM_x86_64)
             {
                 // cold calling convention is not supported on windows
                 if (g->zig_target->os == OsWindows) {
@@ -364,7 +364,7 @@ static LLVMCallConv get_llvm_cc(CodeGen *g, CallingConvention cc) {
             zig_unreachable();
         case CallingConventionStdcall:
             // stdcall calling convention only works on x86.
-            if (g->zig_target->arch.arch == ZigLLVM_x86) {
+            if (g->zig_target->arch == ZigLLVM_x86) {
                 return LLVMX86StdcallCallConv;
             } else {
                 return LLVMCCallConv;
@@ -463,7 +463,7 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, ZigFn *fn_table_entry) {
     bool external_linkage = linkage != GlobalLinkageIdInternal;
     CallingConvention cc = fn_table_entry->type_entry->data.fn.fn_type_id.cc;
     if (cc == CallingConventionStdcall && external_linkage &&
-        g->zig_target->arch.arch == ZigLLVM_x86)
+        g->zig_target->arch == ZigLLVM_x86)
     {
         // prevent llvm name mangling
         symbol_name = buf_sprintf("\x01_%s", buf_ptr(symbol_name));
@@ -2095,7 +2095,7 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
         return true;
     }
 
-    if (g->zig_target->arch.arch == ZigLLVM_x86_64) {
+    if (g->zig_target->arch == ZigLLVM_x86_64) {
         X64CABIClass abi_class = type_c_abi_x86_64_class(g, ty);
         size_t ty_size = type_size(g, ty);
         if (abi_class == X64CABIClass_MEMORY) {
@@ -3344,9 +3344,9 @@ static LLVMValueRef gen_valgrind_client_request(CodeGen *g, LLVMValueRef default
     LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->type_ref;
     bool asm_has_side_effects = true;
     bool asm_is_alignstack = false;
-    if (g->zig_target->arch.arch == ZigLLVM_x86_64) {
+    if (g->zig_target->arch == ZigLLVM_x86_64) {
         if (g->zig_target->os == OsLinux || target_is_darwin(g->zig_target) || g->zig_target->os == OsSolaris ||
-            (g->zig_target->os == OsWindows && g->zig_target->env_type != ZigLLVM_MSVC))
+            (g->zig_target->os == OsWindows && g->zig_target->abi != ZigLLVM_MSVC))
         {
             if (g->cur_fn->valgrind_client_request_array == nullptr) {
                 LLVMBasicBlockRef prev_block = LLVMGetInsertBlock(g->builder);
@@ -3586,7 +3586,7 @@ static void gen_set_stack_pointer(CodeGen *g, LLVMValueRef aligned_end_addr) {
     LLVMValueRef write_register_fn_val = get_write_register_fn_val(g);
 
     if (g->sp_md_node == nullptr) {
-        Buf *sp_reg_name = buf_create_from_str(arch_stack_pointer_register_name(&g->zig_target->arch));
+        Buf *sp_reg_name = buf_create_from_str(arch_stack_pointer_register_name(g->zig_target->arch));
         LLVMValueRef str_node = LLVMMDString(buf_ptr(sp_reg_name), buf_len(sp_reg_name) + 1);
         g->sp_md_node = LLVMMDNode(&str_node, 1);
     }
@@ -7284,8 +7284,8 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
         buf_appendf(contents, "pub const Os = enum {\n");
         uint32_t field_count = (uint32_t)target_os_count();
         for (uint32_t i = 0; i < field_count; i += 1) {
-            Os os_type = get_target_os(i);
-            const char *name = get_target_os_name(os_type);
+            Os os_type = target_os_enum(i);
+            const char *name = target_os_name(os_type);
             buf_appendf(contents, "    %s,\n", name);
 
             if (os_type == g->zig_target->os) {
@@ -7299,53 +7299,77 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
 
     const char *cur_arch = nullptr;
     {
-        buf_appendf(contents, "pub const Arch = enum {\n");
+        buf_appendf(contents, "pub const Arch = union(enum) {\n");
         uint32_t field_count = (uint32_t)target_arch_count();
-        for (uint32_t i = 0; i < field_count; i += 1) {
-            const ArchType *arch_type = get_target_arch(i);
-            Buf *arch_name = buf_alloc();
-            buf_resize(arch_name, 50);
-            get_arch_name(buf_ptr(arch_name), arch_type);
-            buf_resize(arch_name, strlen(buf_ptr(arch_name)));
-
-            buf_appendf(contents, "    %s,\n", buf_ptr(arch_name));
-
-            if (arch_type->arch == g->zig_target->arch.arch &&
-                arch_type->sub_arch == g->zig_target->arch.sub_arch)
-            {
-                g->target_arch_index = i;
-                cur_arch = buf_ptr(arch_name);
+        for (uint32_t arch_i = 0; arch_i < field_count; arch_i += 1) {
+            ZigLLVM_ArchType arch = target_arch_enum(arch_i);
+            const char *arch_name = target_arch_name(arch);
+            SubArchList sub_arch_list = target_subarch_list(arch);
+            if (sub_arch_list == SubArchListNone) {
+                buf_appendf(contents, "    %s,\n", arch_name);
+                if (arch == g->zig_target->arch) {
+                    g->target_arch_index = arch_i;
+                    cur_arch = buf_ptr(buf_sprintf("Arch.%s", arch_name));
+                }
+            } else {
+                const char *sub_arch_list_name = target_subarch_list_name(sub_arch_list);
+                buf_appendf(contents, "    %s: %s,\n", arch_name, sub_arch_list_name);
+                if (arch == g->zig_target->arch) {
+                    size_t sub_count = target_subarch_count(sub_arch_list);
+                    for (size_t sub_i = 0; sub_i < sub_count; sub_i += 1) {
+                        ZigLLVM_SubArchType sub = target_subarch_enum(sub_arch_list, sub_i);
+                        if (sub == g->zig_target->sub_arch) {
+                            g->target_sub_arch_index = sub_i;
+                            cur_arch = buf_ptr(buf_sprintf("Arch{ .%s = Arch.%s.%s }",
+                                        arch_name, sub_arch_list_name, target_subarch_name(sub)));
+                        }
+                    }
+                }
             }
+        }
+
+        uint32_t list_count = target_subarch_list_count();
+        // start at index 1 to skip None
+        for (uint32_t list_i = 1; list_i < list_count; list_i += 1) {
+            SubArchList sub_arch_list = target_subarch_list_enum(list_i);
+            const char *subarch_list_name = target_subarch_list_name(sub_arch_list);
+            buf_appendf(contents, "    pub const %s = enum {\n", subarch_list_name);
+            size_t sub_count = target_subarch_count(sub_arch_list);
+            for (size_t sub_i = 0; sub_i < sub_count; sub_i += 1) {
+                ZigLLVM_SubArchType sub = target_subarch_enum(sub_arch_list, sub_i);
+                buf_appendf(contents, "        %s,\n", target_subarch_name(sub));
+            }
+            buf_appendf(contents, "    };\n");
         }
         buf_appendf(contents, "};\n\n");
     }
     assert(cur_arch != nullptr);
 
-    const char *cur_environ = nullptr;
+    const char *cur_abi = nullptr;
     {
-        buf_appendf(contents, "pub const Environ = enum {\n");
-        uint32_t field_count = (uint32_t)target_environ_count();
+        buf_appendf(contents, "pub const Abi = enum {\n");
+        uint32_t field_count = (uint32_t)target_abi_count();
         for (uint32_t i = 0; i < field_count; i += 1) {
-            ZigLLVM_EnvironmentType environ_type = get_target_environ(i);
-            const char *name = ZigLLVMGetEnvironmentTypeName(environ_type);
+            ZigLLVM_EnvironmentType abi = target_abi_enum(i);
+            const char *name = target_abi_name(abi);
             buf_appendf(contents, "    %s,\n", name);
 
-            if (environ_type == g->zig_target->env_type) {
-                g->target_environ_index = i;
-                cur_environ = name;
+            if (abi == g->zig_target->abi) {
+                g->target_abi_index = i;
+                cur_abi = name;
             }
         }
         buf_appendf(contents, "};\n\n");
     }
-    assert(cur_environ != nullptr);
+    assert(cur_abi != nullptr);
 
     const char *cur_obj_fmt = nullptr;
     {
         buf_appendf(contents, "pub const ObjectFormat = enum {\n");
         uint32_t field_count = (uint32_t)target_oformat_count();
         for (uint32_t i = 0; i < field_count; i += 1) {
-            ZigLLVM_ObjectFormatType oformat = get_target_oformat(i);
-            const char *name = get_target_oformat_name(oformat);
+            ZigLLVM_ObjectFormatType oformat = target_oformat_enum(i);
+            const char *name = target_oformat_name(oformat);
             buf_appendf(contents, "    %s,\n", name);
 
             ZigLLVM_ObjectFormatType target_oformat = target_object_format(g->zig_target);
@@ -7633,8 +7657,8 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     buf_appendf(contents, "pub const is_test = %s;\n", bool_to_str(g->is_test_build));
     buf_appendf(contents, "pub const single_threaded = %s;\n", bool_to_str(g->is_single_threaded));
     buf_appendf(contents, "pub const os = Os.%s;\n", cur_os);
-    buf_appendf(contents, "pub const arch = Arch.%s;\n", cur_arch);
-    buf_appendf(contents, "pub const environ = Environ.%s;\n", cur_environ);
+    buf_appendf(contents, "pub const arch = %s;\n", cur_arch);
+    buf_appendf(contents, "pub const abi = Abi.%s;\n", cur_abi);
     buf_appendf(contents, "pub const object_format = ObjectFormat.%s;\n", cur_obj_fmt);
     buf_appendf(contents, "pub const mode = %s;\n", build_mode_to_str(g->build_mode));
     buf_appendf(contents, "pub const link_libc = %s;\n", bool_to_str(g->libc_link_lib != nullptr));
@@ -7669,11 +7693,11 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     cache_bool(&cache_hash, g->is_test_build);
     cache_bool(&cache_hash, g->is_single_threaded);
     cache_int(&cache_hash, g->zig_target->is_native);
-    cache_int(&cache_hash, g->zig_target->arch.arch);
-    cache_int(&cache_hash, g->zig_target->arch.sub_arch);
+    cache_int(&cache_hash, g->zig_target->arch);
+    cache_int(&cache_hash, g->zig_target->sub_arch);
     cache_int(&cache_hash, g->zig_target->vendor);
     cache_int(&cache_hash, g->zig_target->os);
-    cache_int(&cache_hash, g->zig_target->env_type);
+    cache_int(&cache_hash, g->zig_target->abi);
     cache_bool(&cache_hash, g->have_err_ret_tracing);
     cache_bool(&cache_hash, g->libc_link_lib != nullptr);
     cache_bool(&cache_hash, g->valgrind_support);
@@ -7901,7 +7925,7 @@ static void detect_libc(CodeGen *g) {
         // without a cross compiling libc kit.
         fprintf(stderr,
             "Cannot link against libc for non-native OS '%s' without providing a libc installation file.\n"
-            "See `zig libc --help` for more details.\n", get_target_os_name(g->zig_target->os));
+            "See `zig libc --help` for more details.\n", target_os_name(g->zig_target->os));
         exit(1);
     }
 }
@@ -8799,11 +8823,11 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_int(ch, g->build_mode);
     cache_int(ch, g->out_type);
     cache_bool(ch, g->zig_target->is_native);
-    cache_int(ch, g->zig_target->arch.arch);
-    cache_int(ch, g->zig_target->arch.sub_arch);
+    cache_int(ch, g->zig_target->arch);
+    cache_int(ch, g->zig_target->sub_arch);
     cache_int(ch, g->zig_target->vendor);
     cache_int(ch, g->zig_target->os);
-    cache_int(ch, g->zig_target->env_type);
+    cache_int(ch, g->zig_target->abi);
     cache_int(ch, g->subsystem);
     cache_bool(ch, g->is_static);
     cache_bool(ch, g->strip_debug_symbols);

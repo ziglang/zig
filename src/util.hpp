@@ -147,11 +147,14 @@ static inline T clamp(T min_value, T value, T max_value) {
     return max(min(value, max_value), min_value);
 }
 
-static inline bool mem_eql_str(const char *mem, size_t mem_len, const char *str) {
-    size_t str_len = strlen(str);
-    if (str_len != mem_len)
+static inline bool mem_eql_mem(const char *a_ptr, size_t a_len, const char *b_ptr, size_t b_len) {
+    if (a_len != b_len)
         return false;
-    return memcmp(mem, str, mem_len) == 0;
+    return memcmp(a_ptr, b_ptr, a_len) == 0;
+}
+
+static inline bool mem_eql_str(const char *mem, size_t mem_len, const char *str) {
+    return mem_eql_mem(mem, mem_len, str, strlen(str));
 }
 
 static inline bool is_power_of_2(uint64_t x) {

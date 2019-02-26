@@ -31,7 +31,7 @@ nakedcc fn _start() noreturn {
                 : [argc] "=r" (-> [*]usize)
             );
         },
-        builtin.Arch.aarch64v8 => {
+        builtin.Arch.aarch64, builtin.Arch.aarch64_be => {
             argc_ptr = asm ("mov %[argc], sp"
                 : [argc] "=r" (-> [*]usize)
             );

@@ -1118,7 +1118,7 @@ test "fmt.format" {
         const result = try bufPrint(buf1[0..], "f64: {}\n", math.nan_f64);
         testing.expect(mem.eql(u8, result, "f64: nan\n"));
     }
-    if (builtin.arch != builtin.Arch.armv8) {
+    if (builtin.arch != builtin.Arch.arm) {
         // negative nan is not defined by IEE 754,
         // and ARM thus normalizes it to positive nan
         var buf1: [32]u8 = undefined;

@@ -731,20 +731,40 @@ const Version = struct {
 const CrossTarget = struct {
     arch: builtin.Arch,
     os: builtin.Os,
-    environ: builtin.Environ,
+    abi: builtin.Abi,
 };
 
 pub const Target = union(enum) {
     Native: void,
     Cross: CrossTarget,
 
-    pub fn oFileExt(self: *const Target) []const u8 {
-        const environ = switch (self.*) {
-            Target.Native => builtin.environ,
-            Target.Cross => |t| t.environ,
+    fn archSubArchName(arch: builtin.Arch) []const u8 {
+        return switch (arch) {
+            builtin.Arch.arm => |sub| @tagName(sub),
+            builtin.Arch.armeb => |sub| @tagName(sub),
+            builtin.Arch.thumb => |sub| @tagName(sub),
+            builtin.Arch.thumbeb => |sub| @tagName(sub),
+            builtin.Arch.aarch64 => |sub| @tagName(sub),
+            builtin.Arch.aarch64_be => |sub| @tagName(sub),
+            builtin.Arch.kalimba => |sub| @tagName(sub),
+            else => "",
         };
-        return switch (environ) {
-            builtin.Environ.msvc => ".obj",
+    }
+
+    pub fn subArchName(self: Target) []const u8 {
+        switch (self) {
+            Target.Native => return archSubArchName(builtin.arch),
+            Target.Cross => |cross| return archSubArchName(cross.arch),
+        }
+    }
+
+    pub fn oFileExt(self: *const Target) []const u8 {
+        const abi = switch (self.*) {
+            Target.Native => builtin.abi,
+            Target.Cross => |t| t.abi,
+        };
+        return switch (abi) {
+            builtin.Abi.msvc => ".obj",
             else => ".o",
         };
     }
@@ -978,12 +998,17 @@ pub const LibExeObjStep = struct {
         }
     }
 
-    pub fn setTarget(self: *LibExeObjStep, target_arch: builtin.Arch, target_os: builtin.Os, target_environ: builtin.Environ) void {
+    pub fn setTarget(
+        self: *LibExeObjStep,
+        target_arch: builtin.Arch,
+        target_os: builtin.Os,
+        target_abi: builtin.Abi,
+    ) void {
         self.target = Target{
             .Cross = CrossTarget{
                 .arch = target_arch,
                 .os = target_os,
-                .environ = target_environ,
+                .abi = target_abi,
             },
         };
         self.computeOutFileNames();
@@ -1296,14 +1321,16 @@ pub const LibExeObjStep = struct {
         switch (self.target) {
             Target.Native => {},
             Target.Cross => |cross_target| {
-                zig_args.append("--target-arch") catch unreachable;
-                zig_args.append(@tagName(cross_target.arch)) catch unreachable;
+                const triple = builder.fmt(
+                    "{}{}-{}-{}",
+                    @tagName(cross_target.arch),
+                    Target.archSubArchName(cross_target.arch),
+                    @tagName(cross_target.os),
+                    @tagName(cross_target.abi),
+                );
 
-                zig_args.append("--target-os") catch unreachable;
-                zig_args.append(@tagName(cross_target.os)) catch unreachable;
-
-                zig_args.append("--target-environ") catch unreachable;
-                zig_args.append(@tagName(cross_target.environ)) catch unreachable;
+                try zig_args.append("-target");
+                try zig_args.append(triple);
             },
         }
 
