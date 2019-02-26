@@ -8150,6 +8150,8 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
         args.append(buf_ptr(out_dep_path));
     }
 
+    args.append("-nobuiltininc");
+
     args.append("-isystem");
     args.append(buf_ptr(g->zig_c_headers_dir));
 
