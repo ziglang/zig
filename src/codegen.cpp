@@ -8174,20 +8174,19 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
         args.append(buf_ptr(out_dep_path));
     }
 
-    args.append("-nobuiltininc");
     args.append("-nostdinc");
-    args.append("-nostdinc++");
-
-    if (g->libc_link_lib == nullptr) {
-        args.append("-nolibc");
-    }
-
     args.append("-fno-spell-checking");
 
     args.append("-isystem");
     args.append(buf_ptr(g->zig_c_headers_dir));
 
     if (g->libc != nullptr) {
+        if (buf_len(&g->libc->msvc_lib_dir) != 0) {
+            Buf *include_dir = buf_sprintf("%s" OS_SEP ".." OS_SEP ".." OS_SEP "include", buf_ptr(&g->libc->msvc_lib_dir));
+            args.append("-isystem");
+            args.append(buf_ptr(include_dir));
+        }
+
         args.append("-isystem");
         args.append(buf_ptr(&g->libc->include_dir));
     }

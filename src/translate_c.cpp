@@ -4815,6 +4815,12 @@ Error parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const 
     clang_argv.append(buf_ptr(codegen->zig_c_headers_dir));
 
     if (codegen->libc != nullptr) {
+        if (buf_len(&codegen->libc->msvc_lib_dir) != 0) {
+            Buf *include_dir = buf_sprintf("%s" OS_SEP ".." OS_SEP ".." OS_SEP "include", buf_ptr(&codegen->libc->msvc_lib_dir));
+            clang_argv.append("-isystem");
+            clang_argv.append(buf_ptr(include_dir));
+        }
+
         clang_argv.append("-isystem");
         clang_argv.append(buf_ptr(&codegen->libc->include_dir));
     }

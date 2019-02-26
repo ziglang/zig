@@ -172,7 +172,7 @@ static Error zig_libc_find_crt_dir_windows(ZigLibCInstallation *self, ZigWindows
         bool verbose)
 {
     Error err;
-    if ((err = os_get_win32_ucrt_lib_path(sdk, &self->crt_dir, target->arch.arch))) {
+    if ((err = os_get_win32_ucrt_lib_path(sdk, &self->crt_dir, target->arch))) {
         if (verbose) {
             fprintf(stderr, "Unable to determine ucrt path: %s\n", err_str(err));
         }
@@ -184,7 +184,7 @@ static Error zig_libc_find_kernel32_lib_dir(ZigLibCInstallation *self, ZigWindow
         bool verbose)
 {
     Error err;
-    if ((err = os_get_win32_kern32_path(sdk, &self->kernel32_lib_dir, target->arch.arch))) {
+    if ((err = os_get_win32_kern32_path(sdk, &self->kernel32_lib_dir, target->arch))) {
         if (verbose) {
             fprintf(stderr, "Unable to determine kernel32 path: %s\n", err_str(err));
         }
