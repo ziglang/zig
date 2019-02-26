@@ -4805,7 +4805,11 @@ Error parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const 
     }
 
     clang_argv.append("-nobuiltininc");
+    clang_argv.append("-nostdinc");
     clang_argv.append("-nostdinc++");
+    if (codegen->libc_link_lib == nullptr) {
+        clang_argv.append("-nolibc");
+    }
 
     clang_argv.append("-isystem");
     clang_argv.append(buf_ptr(codegen->zig_c_headers_dir));
@@ -4832,7 +4836,9 @@ Error parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const 
     clang_argv.append("-Xclang");
     clang_argv.append("-detailed-preprocessing-record");
 
-    if (!c->codegen->zig_target->is_native) {
+    if (c->codegen->zig_target->is_native) {
+        clang_argv.append("-march=native");
+    } else {
         clang_argv.append("-target");
         clang_argv.append(buf_ptr(&c->codegen->triple_str));
     }
