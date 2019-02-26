@@ -12,6 +12,7 @@
 
 static const char *zig_libc_keys[] = {
     "include_dir",
+    "sys_include_dir",
     "crt_dir",
     "lib_dir",
     "static_lib_dir",
@@ -34,6 +35,7 @@ static bool zig_libc_match_key(Slice<uint8_t> name, Slice<uint8_t> value, bool *
 static void zig_libc_init_empty(ZigLibCInstallation *libc) {
     *libc = {};
     buf_init_from_str(&libc->include_dir, "");
+    buf_init_from_str(&libc->sys_include_dir, "");
     buf_init_from_str(&libc->crt_dir, "");
     buf_init_from_str(&libc->lib_dir, "");
     buf_init_from_str(&libc->static_lib_dir, "");
@@ -46,7 +48,7 @@ Error zig_libc_parse(ZigLibCInstallation *libc, Buf *libc_file, const ZigTarget 
     Error err;
     zig_libc_init_empty(libc);
 
-    bool found_keys[array_length(zig_libc_keys)] = {}; // zig_libc_keys_len
+    bool found_keys[array_length(zig_libc_keys)] = {};
 
     Buf *contents = buf_alloc();
     if ((err = os_fetch_file_path(libc_file, contents, false))) {
@@ -76,12 +78,13 @@ Error zig_libc_parse(ZigLibCInstallation *libc, Buf *libc_file, const ZigTarget 
         Slice<uint8_t> value = SplitIterator_rest(&line_it);
         bool match = false;
         match = match || zig_libc_match_key(name, value, found_keys, 0, &libc->include_dir);
-        match = match || zig_libc_match_key(name, value, found_keys, 1, &libc->crt_dir);
-        match = match || zig_libc_match_key(name, value, found_keys, 2, &libc->lib_dir);
-        match = match || zig_libc_match_key(name, value, found_keys, 3, &libc->static_lib_dir);
-        match = match || zig_libc_match_key(name, value, found_keys, 4, &libc->msvc_lib_dir);
-        match = match || zig_libc_match_key(name, value, found_keys, 5, &libc->kernel32_lib_dir);
-        match = match || zig_libc_match_key(name, value, found_keys, 6, &libc->dynamic_linker_path);
+        match = match || zig_libc_match_key(name, value, found_keys, 1, &libc->sys_include_dir);
+        match = match || zig_libc_match_key(name, value, found_keys, 2, &libc->crt_dir);
+        match = match || zig_libc_match_key(name, value, found_keys, 3, &libc->lib_dir);
+        match = match || zig_libc_match_key(name, value, found_keys, 4, &libc->static_lib_dir);
+        match = match || zig_libc_match_key(name, value, found_keys, 5, &libc->msvc_lib_dir);
+        match = match || zig_libc_match_key(name, value, found_keys, 6, &libc->kernel32_lib_dir);
+        match = match || zig_libc_match_key(name, value, found_keys, 7, &libc->dynamic_linker_path);
     }
 
     for (size_t i = 0; i < zig_libc_keys_len; i += 1) {
@@ -96,6 +99,13 @@ Error zig_libc_parse(ZigLibCInstallation *libc, Buf *libc_file, const ZigTarget 
     if (buf_len(&libc->include_dir) == 0) {
         if (verbose) {
             fprintf(stderr, "include_dir may not be empty\n");
+        }
+        return ErrorSemanticAnalyzeFail;
+    }
+
+    if (buf_len(&libc->sys_include_dir) == 0) {
+        if (verbose) {
+            fprintf(stderr, "sys_include_dir may not be empty\n");
         }
         return ErrorSemanticAnalyzeFail;
     }
@@ -195,12 +205,39 @@ static Error zig_libc_find_kernel32_lib_dir(ZigLibCInstallation *self, ZigWindow
 static Error zig_libc_find_native_msvc_lib_dir(ZigLibCInstallation *self, ZigWindowsSDK *sdk, bool verbose) {
     if (sdk->msvc_lib_dir_ptr == nullptr) {
         if (verbose) {
-            fprintf(stderr, "Unable to determine vcruntime path\n");
+            fprintf(stderr, "Unable to determine vcruntime.lib path\n");
         }
         return ErrorFileNotFound;
     }
     buf_init_from_mem(&self->msvc_lib_dir, sdk->msvc_lib_dir_ptr, sdk->msvc_lib_dir_len);
     return ErrorNone;
+}
+static Error zig_libc_find_native_msvc_include_dir(ZigLibCInstallation *self, ZigWindowsSDK *sdk, bool verbose) {
+    Error err;
+    if (sdk->msvc_lib_dir_ptr == nullptr) {
+        if (verbose) {
+            fprintf(stderr, "Unable to determine vcruntime.h path\n");
+        }
+        return ErrorFileNotFound;
+    }
+    Buf search_path = BUF_INIT;
+    buf_init_from_mem(&search_path, sdk->msvc_lib_dir_ptr, sdk->msvc_lib_dir_len);
+    buf_append_str(&search_path, "\\..\\..\\include");
+
+    Buf *vcruntime_path = buf_sprintf("%s\\vcruntime.h", buf_ptr(&search_path));
+    bool exists;
+    if ((err = os_file_exists(vcruntime_path, &exists))) {
+        exists = false;
+    }
+    if (exists) {
+        self->sys_include_dir = search_path;
+        return ErrorNone;
+    }
+
+    if (verbose) {
+        fprintf(stderr, "Unable to determine vcruntime.h path\n");
+    }
+    return ErrorFileNotFound;
 }
 #else
 static Error zig_libc_find_native_include_dir_posix(ZigLibCInstallation *self, bool verbose) {
@@ -253,18 +290,38 @@ static Error zig_libc_find_native_include_dir_posix(ZigLibCInstallation *self, b
         while (*search_path == ' ') {
             search_path += 1;
         }
-        Buf *stdlib_path = buf_sprintf("%s/stdlib.h", search_path);
-        bool exists;
-        if ((err = os_file_exists(stdlib_path, &exists))) {
-            exists = false;
+
+        if (buf_len(&self->include_dir) == 0) {
+            Buf *stdlib_path = buf_sprintf("%s/stdlib.h", search_path);
+            bool exists;
+            if ((err = os_file_exists(stdlib_path, &exists))) {
+                exists = false;
+            }
+            if (exists) {
+                buf_init_from_str(&self->include_dir, search_path);
+            }
         }
-        if (exists) {
-            buf_init_from_str(&self->include_dir, search_path);
+        if (buf_len(&self->sys_include_dir) == 0) {
+            Buf *stdlib_path = buf_sprintf("%s/sys/errno.h", search_path);
+            bool exists;
+            if ((err = os_file_exists(stdlib_path, &exists))) {
+                exists = false;
+            }
+            if (exists) {
+                buf_init_from_str(&self->sys_include_dir, search_path);
+            }
+        }
+        if (buf_len(&self->include_dir) != 0 && buf_len(&self->sys_include_dir) != 0) {
             return ErrorNone;
         }
     }
     if (verbose) {
-        fprintf(stderr, "unable to determine libc include path: stdlib.h not found in '%s' search paths\n", cc_exe);
+        if (buf_len(&self->include_dir) == 0) {
+            fprintf(stderr, "unable to determine libc include path: stdlib.h not found in '%s' search paths\n", cc_exe);
+        }
+        if (buf_len(&self->sys_include_dir) == 0) {
+            fprintf(stderr, "unable to determine libc include path: sys/errno.h not found in '%s' search paths\n", cc_exe);
+        }
     }
     return ErrorFileNotFound;
 }
@@ -345,8 +402,12 @@ static Error zig_libc_find_native_dynamic_linker_posix(ZigLibCInstallation *self
 void zig_libc_render(ZigLibCInstallation *self, FILE *file) {
     fprintf(file,
         "# The directory that contains `stdlib.h`.\n"
-        "# On POSIX, can be found with: `cc -E -Wp,-v -xc /dev/null`\n"
+        "# On POSIX, include directories be found with: `cc -E -Wp,-v -xc /dev/null`\n"
         "include_dir=%s\n"
+        "# The system-specific include directory. May be the same as `include_dir`.\n"
+        "# On Windows it's the directory that includes `vcruntime.h`.\n"
+        "# On POSIX it's the directory that includes `sys/errno.h`.\n"
+        "sys_include_dir=%s\n"
         "\n"
         "# The directory that contains `crt1.o`.\n"
         "# On POSIX, can be found with `cc -print-file-name=crt1.o`.\n"
@@ -377,6 +438,7 @@ void zig_libc_render(ZigLibCInstallation *self, FILE *file) {
         "\n"
     ,
         buf_ptr(&self->include_dir),
+        buf_ptr(&self->sys_include_dir),
         buf_ptr(&self->crt_dir),
         buf_ptr(&self->lib_dir),
         buf_ptr(&self->static_lib_dir),
@@ -395,6 +457,8 @@ Error zig_libc_find_native(ZigLibCInstallation *self, bool verbose) {
     ZigWindowsSDK *sdk;
     switch (zig_find_windows_sdk(&sdk)) {
         case ZigFindWindowsSdkErrorNone:
+            if ((err = zig_libc_find_native_msvc_include_dir(self, sdk, verbose)))
+                return err;
             if ((err = zig_libc_find_native_msvc_lib_dir(self, sdk, verbose)))
                 return err;
             if ((err = zig_libc_find_kernel32_lib_dir(self, sdk, &native_target, verbose)))

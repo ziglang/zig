@@ -8181,14 +8181,13 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
     args.append(buf_ptr(g->zig_c_headers_dir));
 
     if (g->libc != nullptr) {
-        if (buf_len(&g->libc->msvc_lib_dir) != 0) {
-            Buf *include_dir = buf_sprintf("%s" OS_SEP ".." OS_SEP ".." OS_SEP "include", buf_ptr(&g->libc->msvc_lib_dir));
-            args.append("-isystem");
-            args.append(buf_ptr(include_dir));
-        }
-
         args.append("-isystem");
         args.append(buf_ptr(&g->libc->include_dir));
+
+        if (!buf_eql_buf(&g->libc->include_dir, &g->libc->sys_include_dir)) {
+            args.append("-isystem");
+            args.append(buf_ptr(&g->libc->sys_include_dir));
+        }
     }
 
     if (g->zig_target->is_native) {
@@ -8848,6 +8847,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_list_of_str(ch, g->lib_dirs.items, g->lib_dirs.length);
     if (g->libc) {
         cache_buf(ch, &g->libc->include_dir);
+        cache_buf(ch, &g->libc->sys_include_dir);
         cache_buf(ch, &g->libc->crt_dir);
         cache_buf(ch, &g->libc->lib_dir);
         cache_buf(ch, &g->libc->static_lib_dir);
