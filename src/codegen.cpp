@@ -8164,6 +8164,14 @@ static void gen_global_asm(CodeGen *g) {
     }
 }
 
+static void print_zig_cc_cmd(const char *zig_exe, ZigList<const char *> *args) {
+    fprintf(stderr, zig_exe);
+    for (size_t arg_i = 0; arg_i < args->length; arg_i += 1) {
+        fprintf(stderr, " %s", args->at(arg_i));
+    }
+    fprintf(stderr, "\n");
+}
+
 static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
     Error err;
 
@@ -8189,6 +8197,19 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
 
     args.append("-nostdinc");
     args.append("-fno-spell-checking");
+
+    switch (g->err_color) {
+        case ErrColorAuto:
+            break;
+        case ErrColorOff:
+            args.append("-fno-color-diagnostics");
+            args.append("-fno-caret-diagnostics");
+            break;
+        case ErrColorOn:
+            args.append("-fcolor-diagnostics");
+            args.append("-fcaret-diagnostics");
+            break;
+    }
 
     args.append("-isystem");
     args.append(buf_ptr(g->zig_c_headers_dir));
@@ -8263,16 +8284,12 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
     }
 
     if (g->verbose_cc) {
-        fprintf(stderr, "zig");
-        for (size_t arg_i = 0; arg_i < args.length; arg_i += 1) {
-            fprintf(stderr, " %s", args.at(arg_i));
-        }
-        fprintf(stderr, "\n");
+        print_zig_cc_cmd("zig", &args);
     }
-
     os_spawn_process(buf_ptr(self_exe_path), args, &term);
     if (term.how != TerminationIdClean || term.code != 0) {
-        fprintf(stderr, "`zig cc` failed\n");
+        fprintf(stderr, "\nThe following command failed:\n");
+        print_zig_cc_cmd(buf_ptr(self_exe_path), &args);
         exit(1);
     }
 
