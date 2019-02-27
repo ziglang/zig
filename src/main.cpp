@@ -568,6 +568,7 @@ int main(int argc, char **argv) {
         os_path_join(get_zig_special_dir(), buf_create_from_str("fmt_runner.zig"), fmt_runner_path);
         CodeGen *g = codegen_create(fmt_runner_path, &target, OutTypeExe, BuildModeDebug, get_zig_lib_dir(),
                 nullptr, nullptr);
+        buf_init_from_str(&g->cache_dir, cache_dir ? cache_dir : default_zig_cache_name);
         g->valgrind_support = valgrind_support;
         g->is_single_threaded = true;
         codegen_set_out_name(g, buf_create_from_str("fmt"));
