@@ -1099,7 +1099,7 @@ Error os_fetch_file_path(Buf *full_path, Buf *out_contents, bool skip_shebang) {
             case EINTR:
                 return ErrorInterrupted;
             case EINVAL:
-                zig_unreachable();
+                return ErrorInvalidFilename;
             case ENFILE:
             case ENOMEM:
                 return ErrorSystemResources;

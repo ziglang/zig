@@ -44,6 +44,7 @@ enum Error {
     ErrorUnknownArchitecture,
     ErrorUnknownOperatingSystem,
     ErrorUnknownABI,
+    ErrorInvalidFilename,
 };
 
 const char *err_str(Error err);

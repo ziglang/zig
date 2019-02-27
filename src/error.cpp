@@ -42,6 +42,7 @@ const char *err_str(Error err) {
         case ErrorUnknownArchitecture: return "unrecognized architecture";
         case ErrorUnknownOperatingSystem: return "unrecognized operating system";
         case ErrorUnknownABI: return "unrecognized C ABI";
+        case ErrorInvalidFilename: return "invalid filename";
     }
     return "(invalid error)";
 }
