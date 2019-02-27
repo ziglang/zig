@@ -2046,6 +2046,13 @@ test "linked list" {
     assert(list2.first.?.data == 1234);
 }
       {#code_end#}
+
+      {#header_open|extern struct#}
+      <p>An {#syntax#}extern struct{#endsyntax#} has in-memory layout guaranteed to match the
+      C ABI for the target.</p>
+      {#see_also|extern union|extern enum#}
+      {#header_close#}
+
       {#header_open|packed struct#}
       <p>
       Unlike normal structs, {#syntax#}packed{#endsyntax#} structs have guaranteed in-memory layout:
@@ -2412,12 +2419,17 @@ test "packed enum" {
       {#see_also|@memberName|@memberCount|@tagName|@sizeOf#}
       {#header_close#}
       {#header_open|union#}
-      {#code_begin|test|union#}
-const std = @import("std");
-const assert = std.debug.assert;
-const mem = std.mem;
-
-// A union has only 1 active field at a time.
+      <p>
+      A bare {#syntax#}union{#endsyntax#} defines a set of possible types that a value
+      can be as a list of fields. Only one field can be active at a time.
+      The in-memory representation of bare unions is not guaranteed.
+      Bare unions cannot be used to reinterpret memory. For that, use {#link|@ptrCast#},
+      or use an {#link|extern union#} or a {#link|packed union#} which have
+      guaranteed in-memory layout.
+      {#link|Accessing the non-active field|Wrong Union Field Access#} is
+      safety-checked {#link|Undefined Behavior#}:
+      </p>
+      {#code_begin|test_err|inactive union field#}
 const Payload = union {
     Int: i64,
     Float: f64,
@@ -2425,14 +2437,40 @@ const Payload = union {
 };
 test "simple union" {
     var payload = Payload{ .Int = 1234 };
-    // payload.Float = 12.34; // ERROR! field not active
+    payload.Float = 12.34;
+}
+      {#code_end#}
+      <p>You can activate another field by assigning the entire union:</p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+const Payload = union {
+    Int: i64,
+    Float: f64,
+    Bool: bool,
+};
+test "simple union" {
+    var payload = Payload{ .Int = 1234 };
     assert(payload.Int == 1234);
-    // You can activate another field by assigning the entire union.
     payload = Payload{ .Float = 12.34 };
     assert(payload.Float == 12.34);
 }
+      {#code_end#}
+      <p>
+      In order to use {#link|switch#} with a union, it must be a {#link|Tagged union#}.
+      </p>
 
-// Unions can be given an enum tag type:
+      {#header_open|Tagged union#}
+      <p>Unions can be declared with an enum tag type.
+      This turns the union into a <em>tagged</em> union, which makes it eligible
+      to use with {#link|switch#} expressions. One can use {#link|@TagType#} to
+      obtain the enum type from the union type.
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+
 const ComplexTypeTag = enum {
     Ok,
     NotOk,
@@ -2442,56 +2480,68 @@ const ComplexType = union(ComplexTypeTag) {
     NotOk: void,
 };
 
-// Declare a specific instance of the union variant.
-test "declare union value" {
-    const c = ComplexType{ .Ok = 0 };
+test "switch on tagged union" {
+    const c = ComplexType{ .Ok = 42 };
     assert(ComplexTypeTag(c) == ComplexTypeTag.Ok);
+
+    switch (c) {
+        ComplexTypeTag.Ok => |value| assert(value == 42),
+        ComplexTypeTag.NotOk => unreachable,
+    }
 }
 
-// @TagType can be used to access the enum tag type of a tagged union.
 test "@TagType" {
     assert(@TagType(ComplexType) == ComplexTypeTag);
 }
+      {#code_end#}
+      <p>In order to modify the payload of a tagged union in a switch expression,
+      place a {#syntax#}*{#endsyntax#} before the variable name to make it a pointer:
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
 
-// Unions can be made to infer the enum tag type.
-const Foo = union(enum) {
-    String: []const u8,
-    Number: u64,
-
-    // void can be omitted when inferring enum tag type.
-    None,
+const ComplexTypeTag = enum {
+    Ok,
+    NotOk,
 };
-test "union variant switch" {
-    const p = Foo{ .Number = 54 };
-    const what_is_it = switch (p) {
-        // Capture by reference
-        Foo.String => |*x| blk: {
-            break :blk "this is a string";
-        },
+const ComplexType = union(ComplexTypeTag) {
+    Ok: u8,
+    NotOk: void,
+};
 
-        // Capture by value
-        Foo.Number => |x| blk: {
-            assert(x == 54);
-            break :blk "this is a number";
-        },
+test "modify tagged union in switch" {
+    var c = ComplexType{ .Ok = 42 };
+    assert(ComplexTypeTag(c) == ComplexTypeTag.Ok);
 
-        Foo.None => blk: {
-            break :blk "this is a none";
-        },
-    };
-    assert(mem.eql(u8, what_is_it, "this is a number"));
+    switch (c) {
+        ComplexTypeTag.Ok => |*value| value.* += 1,
+        ComplexTypeTag.NotOk => unreachable,
+    }
+
+    assert(c.Ok == 43);
 }
-
-// Unions can have methods just like structs and enums:
+      {#code_end#}
+      <p>
+      Unions can be made to infer the enum tag type.
+      Further, unions can have methods just like structs and enums.
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
 
 const Variant = union(enum) {
     Int: i32,
     Bool: bool,
 
+    // void can be omitted when inferring enum tag type.
+    None,
+
     fn truthy(self: Variant) bool {
         return switch (self) {
             Variant.Int => |x_int| x_int != 0,
             Variant.Bool => |x_bool| x_bool,
+            Variant.None => false,
         };
     }
 };
@@ -2503,38 +2553,34 @@ test "union method" {
     assert(v1.truthy());
     assert(!v2.truthy());
 }
+      {#code_end#}
+      <p>
+      {#link|@tagName#} can be used to return a {#link|comptime#}
+      {#syntax#}[]const u8{#endsyntax#} value representing the field name:
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
 
-const Small = union {
-    A: i32,
-    B: bool,
-    C: u8,
-};
-
-// @memberCount tells how many fields a union has:
-test "@memberCount" {
-    assert(@memberCount(Small) == 3);
-}
-
-// @memberName tells the name of a field in an enum:
-test "@memberName" {
-    assert(mem.eql(u8, @memberName(Small, 1), "B"));
-}
-
-// @tagName gives a []const u8 representation of an enum value,
-// but only if the union has an enum tag type.
 const Small2 = union(enum) {
     A: i32,
     B: bool,
     C: u8,
 };
 test "@tagName" {
-    assert(mem.eql(u8, @tagName(Small2.C), "C"));
+    assert(std.mem.eql(u8, @tagName(Small2.C), "C"));
 }
       {#code_end#}
+      {#header_close#}
+
+      {#header_open|extern union#}
       <p>
-      Unions with an enum tag are generated as a struct with a tag field and union field. Zig
-      sorts the order of the tag and union field by the largest alignment.
+      An {#syntax#}extern union{#endsyntax#} has memory layout guaranteed to be compatible with
+      the target C ABI.
       </p>
+      {#see_also|extern struct#}
+      {#header_close#}
+
       {#header_open|packed union#}
       <p>A {#syntax#}packed union{#endsyntax#} has well-defined in-memory layout and is eligible
       to be in a {#link|packed struct#}.
@@ -2623,7 +2669,7 @@ test "switch simple" {
 
         // Ranges can be specified using the ... syntax. These are inclusive
         // both ends.
-        5 ... 100 => 1,
+        5...100 => 1,
 
         // Branches can be arbitrarily complex.
         101 => blk: {
@@ -2649,34 +2695,6 @@ test "switch simple" {
     assert(b == 1);
 }
 
-test "switch enum" {
-    const Item = union(enum) {
-        A: u32,
-        C: struct { x: u8, y: u8 },
-        D,
-    };
-
-    var a = Item { .A = 3 };
-
-    // Switching on more complex enums is allowed.
-    const b = switch (a) {
-        // A capture group is allowed on a match, and will return the enum
-        // value matched.
-        Item.A => |item| item,
-
-        // A reference to the matched value can be obtained using `*` syntax.
-        Item.C => |*item| blk: {
-            item.*.x += 1;
-            break :blk 6;
-        },
-
-        // No else is required if the types cases was exhaustively handled
-        Item.D => 8,
-    };
-
-    assert(b == 3);
-}
-
 // Switch expressions can be used outside a function:
 const os_msg = switch (builtin.os) {
     builtin.Os.linux => "we found a linux user",
@@ -2695,6 +2713,48 @@ test "switch inside function" {
         },
         else => {},
     }
+}
+      {#code_end#}
+      <p>
+      {#syntax#}switch{#endsyntax#} can be used to capture the field values
+      of a {#link|Tagged union#}. Modifications to the field values can be
+      done by placing a {#syntax#}*{#endsyntax#} before the capture variable name,
+      turning it into a pointer.
+      </p>
+      {#code_begin|test#}
+const assert = @import("std").debug.assert;
+
+test "switch on tagged union" {
+    const Point = struct {
+        x: u8,
+        y: u8,
+    };
+    const Item = union(enum) {
+        A: u32,
+        C: Point,
+        D,
+    };
+
+    var a = Item{ .C = Point{ .x = 1, .y = 2 } };
+
+    // Switching on more complex enums is allowed.
+    const b = switch (a) {
+        // A capture group is allowed on a match, and will return the enum
+        // value matched.
+        Item.A => |item| item,
+
+        // A reference to the matched value can be obtained using `*` syntax.
+        Item.C => |*item| blk: {
+            item.*.x += 1;
+            break :blk 6;
+        },
+
+        // No else is required if the types cases was exhaustively handled
+        Item.D => 8,
+    };
+
+    assert(b == 6);
+    assert(a.C.x == 2);
 }
       {#code_end#}
       {#see_also|comptime|enum|@compileError|Compile Variables#}
@@ -7630,6 +7690,7 @@ fn bar(f: *Foo) void {
     f.float = 12.34;
 }
       {#code_end#}
+      {#see_also|union|extern union#}
       {#header_close#}
 
       {#header_open|Out of Bounds Float to Integer Cast#}
