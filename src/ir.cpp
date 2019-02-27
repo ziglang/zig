@@ -13279,12 +13279,21 @@ static IrInstruction *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructio
         }
     }
 
-    auto entry = ira->codegen->exported_symbol_names.put_unique(symbol_name, instruction->base.source_node);
+    // TODO: This function needs to be audited.
+    // It's not clear how all the different types are supposed to be handled.
+    // Need comprehensive tests for exporting one thing in one file and declaring an extern var
+    // in another file.
+    TldFn *tld_fn = allocate<TldFn>(1);
+    tld_fn->base.id = TldIdFn;
+    tld_fn->base.source_node = instruction->base.source_node;
+
+    auto entry = ira->codegen->exported_symbol_names.put_unique(symbol_name, &tld_fn->base);
     if (entry) {
-        AstNode *other_export_node = entry->value;
+        AstNode *other_export_node = entry->value->source_node;
         ErrorMsg *msg = ir_add_error(ira, &instruction->base,
                 buf_sprintf("exported symbol collision: '%s'", buf_ptr(symbol_name)));
         add_error_note(ira->codegen, msg, other_export_node, buf_sprintf("other symbol is here"));
+        return ira->codegen->invalid_instruction;
     }
 
     bool want_var_export = false;
@@ -13295,6 +13304,7 @@ static IrInstruction *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructio
         case ZigTypeIdFn: {
             assert(target->value.data.x_ptr.special == ConstPtrSpecialFunction);
             ZigFn *fn_entry = target->value.data.x_ptr.data.fn.fn_entry;
+            tld_fn->fn_entry = fn_entry;
             CallingConvention cc = fn_entry->type_entry->data.fn.fn_type_id.cc;
             switch (cc) {
                 case CallingConventionUnspecified: {

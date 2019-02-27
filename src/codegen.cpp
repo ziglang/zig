@@ -478,10 +478,23 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, ZigFn *fn_table_entry) {
             fn_table_entry->llvm_value = LLVMConstBitCast(existing_llvm_fn, LLVMPointerType(fn_llvm_type, 0));
             return fn_table_entry->llvm_value;
         } else {
-            fn_table_entry->llvm_value = LLVMAddFunction(g->module, buf_ptr(symbol_name), fn_llvm_type);
+            auto entry = g->exported_symbol_names.maybe_get(symbol_name);
+            if (entry == nullptr) {
+                fn_table_entry->llvm_value = LLVMAddFunction(g->module, buf_ptr(symbol_name), fn_llvm_type);
+            } else {
+                assert(entry->value->id == TldIdFn);
+                TldFn *tld_fn = reinterpret_cast<TldFn *>(entry->value);
+                tld_fn->fn_entry->llvm_value = LLVMAddFunction(g->module, buf_ptr(symbol_name),
+                        tld_fn->fn_entry->type_entry->data.fn.raw_type_ref);
+                fn_table_entry->llvm_value = LLVMConstBitCast(tld_fn->fn_entry->llvm_value,
+                        LLVMPointerType(fn_llvm_type, 0));
+                return fn_table_entry->llvm_value;
+            }
         }
     } else {
-        fn_table_entry->llvm_value = LLVMAddFunction(g->module, buf_ptr(symbol_name), fn_llvm_type);
+        if (fn_table_entry->llvm_value == nullptr) {
+            fn_table_entry->llvm_value = LLVMAddFunction(g->module, buf_ptr(symbol_name), fn_llvm_type);
+        }
 
         for (size_t i = 1; i < fn_table_entry->export_list.length; i += 1) {
             FnExport *fn_export = &fn_table_entry->export_list.items[i];

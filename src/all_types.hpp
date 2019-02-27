@@ -1679,7 +1679,7 @@ struct CodeGen {
     HashMap<GenericFnTypeId *, ZigFn *, generic_fn_type_id_hash, generic_fn_type_id_eql> generic_table;
     HashMap<Scope *, ConstExprValue *, fn_eval_hash, fn_eval_eql> memoized_fn_eval_table;
     HashMap<ZigLLVMFnKey, LLVMValueRef, zig_llvm_fn_key_hash, zig_llvm_fn_key_eql> llvm_fn_table;
-    HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> exported_symbol_names;
+    HashMap<Buf *, Tld *, buf_hash, buf_eql_buf> exported_symbol_names;
     HashMap<Buf *, Tld *, buf_hash, buf_eql_buf> external_prototypes;
     HashMap<Buf *, ConstExprValue *, buf_hash, buf_eql_buf> string_literals_table;
     HashMap<const ZigType *, ConstExprValue *, type_ptr_hash, type_ptr_eql> type_info_cache;

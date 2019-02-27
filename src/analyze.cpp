@@ -3439,9 +3439,9 @@ static void add_top_level_decl(CodeGen *g, ScopeDecls *decls_scope, Tld *tld) {
     if (is_export) {
         g->resolve_queue.append(tld);
 
-        auto entry = g->exported_symbol_names.put_unique(tld->name, tld->source_node);
+        auto entry = g->exported_symbol_names.put_unique(tld->name, tld);
         if (entry) {
-            AstNode *other_source_node = entry->value;
+            AstNode *other_source_node = entry->value->source_node;
             ErrorMsg *msg = add_node_error(g, tld->source_node,
                     buf_sprintf("exported symbol collision: '%s'", buf_ptr(tld->name)));
             add_error_note(g, msg, other_source_node, buf_sprintf("other symbol here"));
