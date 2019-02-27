@@ -2,6 +2,17 @@ const tests = @import("tests.zig");
 const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.addTest(
+        "binary OR operator on error sets",
+        \\pub const A = error.A;
+        \\pub const AB = A | error.B;
+        \\export fn entry() void {
+        \\    var x: AB = undefined;
+        \\}
+    ,
+        ".tmp_source.zig:2:18: error: invalid operands to binary expression: 'error{A}' and 'error{B}'",
+    );
+
     if (builtin.os == builtin.Os.linux) {
         cases.addTest(
             "implicit dependency on libc",
