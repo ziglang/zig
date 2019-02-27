@@ -559,7 +559,11 @@ static void construct_linker_job_coff(LinkJob *lj) {
     bool is_library = g->out_type == OutTypeLib;
     switch (g->subsystem) {
         case TargetSubsystemAuto:
-            add_nt_link_args(lj, is_library);
+            if (g->zig_target->os == OsUefi) {
+                add_uefi_link_args(lj);
+            } else {
+                add_nt_link_args(lj, is_library);
+            }
             break;
         case TargetSubsystemConsole:
             lj->args.append("/SUBSYSTEM:console");
