@@ -3,6 +3,25 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.addTest(
+        "not an enum type",
+        \\export fn entry() void {
+        \\    var self: Error = undefined;
+        \\    switch (self) {
+        \\        InvalidToken => |x| return x.token,
+        \\        ExpectedVarDeclOrFn => |x| return x.token,
+        \\    }
+        \\}
+        \\const Error = union(enum) {
+        \\    A: InvalidToken,
+        \\    B: ExpectedVarDeclOrFn,
+        \\};
+        \\const InvalidToken = struct {};
+        \\const ExpectedVarDeclOrFn = struct {};
+    ,
+        ".tmp_source.zig:4:9: error: not an enum type",
+    );
+
+    cases.addTest(
         "binary OR operator on error sets",
         \\pub const A = error.A;
         \\pub const AB = A | error.B;
