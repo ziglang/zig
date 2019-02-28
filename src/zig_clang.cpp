@@ -170,7 +170,7 @@ ZigClangSourceLocation ZigClangSourceManager_getSpellingLoc(const ZigClangSource
 const char *ZigClangSourceManager_getFilename(const ZigClangSourceManager *self,
         ZigClangSourceLocation SpellingLoc)
 {
-    StringRef s = reinterpret_cast<const clang::SourceManager *>(self)->getFilename(bitcast(SpellingLoc));
+    llvm::StringRef s = reinterpret_cast<const clang::SourceManager *>(self)->getFilename(bitcast(SpellingLoc));
     return (const char *)s.bytes_begin();
 }
 

@@ -1112,8 +1112,10 @@ const char *target_dynamic_linker(const ZigTarget *target) {
         case OsTvOS:
         case OsWatchOS:
         case OsMacOSX:
+        case OsUefi:
             return nullptr;
 
+        case OsWindows:
         case OsAnanas:
         case OsCloudABI:
         case OsDragonFly:
@@ -1122,7 +1124,6 @@ const char *target_dynamic_linker(const ZigTarget *target) {
         case OsLv2:
         case OsOpenBSD:
         case OsSolaris:
-        case OsWindows:
         case OsHaiku:
         case OsMinix:
         case OsRTEMS:
@@ -1138,7 +1139,9 @@ const char *target_dynamic_linker(const ZigTarget *target) {
         case OsContiki:
         case OsAMDPAL:
         case OsZen:
-        case OsUefi:
+        case OsHermitCore:
+        case OsHurd:
+        case OsWASI:
             zig_panic("TODO implement target_dynamic_linker for this OS");
     }
     zig_unreachable();
@@ -1341,6 +1344,7 @@ ZigLLVM_EnvironmentType target_default_abi(ZigLLVM_ArchType arch, Os os) {
         case OsContiki:
         case OsAMDPAL:
         case OsZen:
+        case OsHermitCore:
             return ZigLLVM_EABI;
         case OsOpenBSD:
         case OsMacOSX:
@@ -1351,11 +1355,13 @@ ZigLLVM_EnvironmentType target_default_abi(ZigLLVM_ArchType arch, Os os) {
         case OsFuchsia:
         case OsKFreeBSD:
         case OsNetBSD:
+        case OsHurd:
             return ZigLLVM_GNU;
         case OsWindows:
         case OsUefi:
             return ZigLLVM_MSVC;
         case OsLinux:
+        case OsWASI:
             return ZigLLVM_Musl;
     }
     zig_unreachable();
