@@ -39,8 +39,9 @@ using namespace llvm::wasm;
 using namespace lld;
 using namespace lld::wasm;
 
-static constexpr int kStackAlignment = 16;
-static constexpr const char *kFunctionTableName = "__indirect_function_table";
+static constexpr int StackAlignment = 16;
+static constexpr const char *FunctionTableName = "__indirect_function_table";
+const char *lld::wasm::DefaultModule = "env";
 
 namespace {
 
@@ -155,7 +156,7 @@ void Writer::createImportSection() {
 
   if (Config->ImportMemory) {
     WasmImport Import;
-    Import.Module = "env";
+    Import.Module = DefaultModule;
     Import.Field = "memory";
     Import.Kind = WASM_EXTERNAL_MEMORY;
     Import.Memory.Flags = 0;
@@ -172,8 +173,8 @@ void Writer::createImportSection() {
   if (Config->ImportTable) {
     uint32_t TableSize = TableBase + IndirectFunctions.size();
     WasmImport Import;
-    Import.Module = "env";
-    Import.Field = kFunctionTableName;
+    Import.Module = DefaultModule;
+    Import.Field = FunctionTableName;
     Import.Kind = WASM_EXTERNAL_TABLE;
     Import.Table.ElemType = WASM_TYPE_FUNCREF;
     Import.Table.Limits = {0, TableSize, 0};
@@ -182,8 +183,17 @@ void Writer::createImportSection() {
 
   for (const Symbol *Sym : ImportedSymbols) {
     WasmImport Import;
-    Import.Module = "env";
-    Import.Field = Sym->getName();
+    if (auto *F = dyn_cast<UndefinedFunction>(Sym)) {
+      Import.Field = F->ImportName;
+      Import.Module = F->ImportModule;
+    } else if (auto *G = dyn_cast<UndefinedGlobal>(Sym)) {
+      Import.Field = G->ImportName;
+      Import.Module = G->ImportModule;
+    } else {
+      Import.Field = Sym->getName();
+      Import.Module = DefaultModule;
+    }
+
     if (auto *FunctionSym = dyn_cast<FunctionSymbol>(Sym)) {
       Import.Kind = WASM_EXTERNAL_FUNCTION;
       Import.SigIndex = lookupType(*FunctionSym->Signature);
@@ -441,6 +451,13 @@ static uint32_t getWasmFlags(const Symbol *Sym) {
     Flags |= WASM_SYMBOL_VISIBILITY_HIDDEN;
   if (Sym->isUndefined())
     Flags |= WASM_SYMBOL_UNDEFINED;
+  if (auto *F = dyn_cast<UndefinedFunction>(Sym)) {
+    if (F->getName() != F->ImportName)
+      Flags |= WASM_SYMBOL_EXPLICIT_NAME;
+  } else if (auto *G = dyn_cast<UndefinedGlobal>(Sym)) {
+    if (G->getName() != G->ImportName)
+      Flags |= WASM_SYMBOL_EXPLICIT_NAME;
+  }
   return Flags;
 }
 
@@ -506,15 +523,18 @@ void Writer::createLinkingSection() {
 
       if (auto *F = dyn_cast<FunctionSymbol>(Sym)) {
         writeUleb128(Sub.OS, F->getFunctionIndex(), "index");
-        if (Sym->isDefined())
+        if (Sym->isDefined() ||
+            (Flags & WASM_SYMBOL_EXPLICIT_NAME) != 0)
           writeStr(Sub.OS, Sym->getName(), "sym name");
       } else if (auto *G = dyn_cast<GlobalSymbol>(Sym)) {
         writeUleb128(Sub.OS, G->getGlobalIndex(), "index");
-        if (Sym->isDefined())
+        if (Sym->isDefined() ||
+            (Flags & WASM_SYMBOL_EXPLICIT_NAME) != 0)
           writeStr(Sub.OS, Sym->getName(), "sym name");
       } else if (auto *E = dyn_cast<EventSymbol>(Sym)) {
         writeUleb128(Sub.OS, E->getEventIndex(), "index");
-        if (Sym->isDefined())
+        if (Sym->isDefined() ||
+            (Flags & WASM_SYMBOL_EXPLICIT_NAME) != 0)
           writeStr(Sub.OS, Sym->getName(), "sym name");
       } else if (isa<DataSymbol>(Sym)) {
         writeStr(Sub.OS, Sym->getName(), "sym name");
@@ -663,9 +683,9 @@ void Writer::layoutMemory() {
   auto PlaceStack = [&]() {
     if (Config->Relocatable || Config->Shared)
       return;
-    MemoryPtr = alignTo(MemoryPtr, kStackAlignment);
-    if (Config->ZStackSize != alignTo(Config->ZStackSize, kStackAlignment))
-      error("stack size must be " + Twine(kStackAlignment) + "-byte aligned");
+    MemoryPtr = alignTo(MemoryPtr, StackAlignment);
+    if (Config->ZStackSize != alignTo(Config->ZStackSize, StackAlignment))
+      error("stack size must be " + Twine(StackAlignment) + "-byte aligned");
     log("mem: stack size  = " + Twine(Config->ZStackSize));
     log("mem: stack base  = " + Twine(MemoryPtr));
     MemoryPtr += Config->ZStackSize;
@@ -814,7 +834,7 @@ void Writer::calculateExports() {
     Exports.push_back(WasmExport{"memory", WASM_EXTERNAL_MEMORY, 0});
 
   if (!Config->Relocatable && Config->ExportTable)
-    Exports.push_back(WasmExport{kFunctionTableName, WASM_EXTERNAL_TABLE, 0});
+    Exports.push_back(WasmExport{FunctionTableName, WASM_EXTERNAL_TABLE, 0});
 
   unsigned FakeGlobalIndex = NumImportedGlobals + InputGlobals.size();
 
@@ -858,40 +878,42 @@ void Writer::assignSymtab() {
   StringMap<uint32_t> SectionSymbolIndices;
 
   unsigned SymbolIndex = SymtabEntries.size();
-  for (ObjFile *File : Symtab->ObjectFiles) {
-    LLVM_DEBUG(dbgs() << "Symtab entries: " << File->getName() << "\n");
-    for (Symbol *Sym : File->getSymbols()) {
-      if (Sym->getFile() != File)
-        continue;
 
-      if (auto *S = dyn_cast<SectionSymbol>(Sym)) {
-        StringRef Name = S->getName();
-        if (CustomSectionMapping.count(Name) == 0)
-          continue;
+  auto AddSymbol = [&](Symbol *Sym) {
+    if (auto *S = dyn_cast<SectionSymbol>(Sym)) {
+      StringRef Name = S->getName();
+      if (CustomSectionMapping.count(Name) == 0)
+        return;
 
-        auto SSI = SectionSymbolIndices.find(Name);
-        if (SSI != SectionSymbolIndices.end()) {
-          Sym->setOutputSymbolIndex(SSI->second);
-          continue;
-        }
-
-        SectionSymbolIndices[Name] = SymbolIndex;
-        CustomSectionSymbols[Name] = cast<SectionSymbol>(Sym);
-
-        Sym->markLive();
+      auto SSI = SectionSymbolIndices.find(Name);
+      if (SSI != SectionSymbolIndices.end()) {
+        Sym->setOutputSymbolIndex(SSI->second);
+        return;
       }
 
-      // (Since this is relocatable output, GC is not performed so symbols must
-      // be live.)
-      assert(Sym->isLive());
-      Sym->setOutputSymbolIndex(SymbolIndex++);
-      SymtabEntries.emplace_back(Sym);
-    }
-  }
+      SectionSymbolIndices[Name] = SymbolIndex;
+      CustomSectionSymbols[Name] = cast<SectionSymbol>(Sym);
 
-  // For the moment, relocatable output doesn't contain any synthetic functions,
-  // so no need to look through the Symtab for symbols not referenced by
-  // Symtab->ObjectFiles.
+      Sym->markLive();
+    }
+
+    // (Since this is relocatable output, GC is not performed so symbols must
+    // be live.)
+    assert(Sym->isLive());
+    Sym->setOutputSymbolIndex(SymbolIndex++);
+    SymtabEntries.emplace_back(Sym);
+  };
+
+  for (Symbol *Sym : Symtab->getSymbols())
+    if (!Sym->isLazy())
+      AddSymbol(Sym);
+
+  for (ObjFile *File : Symtab->ObjectFiles) {
+    LLVM_DEBUG(dbgs() << "Local symtab entries: " << File->getName() << "\n");
+    for (Symbol *Sym : File->getSymbols())
+      if (Sym->isLocal())
+        AddSymbol(Sym);
+  }
 }
 
 uint32_t Writer::lookupType(const WasmSignature &Sig) {

@@ -434,7 +434,9 @@ static Symbol *handleUndefined(StringRef Name) {
 static UndefinedGlobal *
 createUndefinedGlobal(StringRef Name, llvm::wasm::WasmGlobalType *Type) {
   auto *Sym =
-      cast<UndefinedGlobal>(Symtab->addUndefinedGlobal(Name, 0, nullptr, Type));
+      cast<UndefinedGlobal>(Symtab->addUndefinedGlobal(Name, Name,
+                                                       DefaultModule, 0,
+                                                       nullptr, Type));
   Config->AllowUndefinedSymbols.insert(Sym->getName());
   Sym->IsUsedInRegularObj = true;
   return Sym;

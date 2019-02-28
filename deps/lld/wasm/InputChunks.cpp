@@ -23,7 +23,7 @@ using namespace llvm::support::endian;
 using namespace lld;
 using namespace lld::wasm;
 
-static StringRef ReloctTypeToString(uint8_t RelocType) {
+static StringRef reloctTypeToString(uint8_t RelocType) {
   switch (RelocType) {
 #define WASM_RELOC(NAME, REL)                                                  \
   case REL:                                                                    \
@@ -77,7 +77,7 @@ void InputChunk::verifyRelocTargets() const {
       warn("expected LEB at relocation site be 5-byte padded");
     uint32_t ExpectedValue = File->calcExpectedValue(Rel);
     if (ExpectedValue != ExistingValue)
-      warn("unexpected existing value for " + ReloctTypeToString(Rel.Type) +
+      warn("unexpected existing value for " + reloctTypeToString(Rel.Type) +
            ": existing=" + Twine(ExistingValue) +
            " expected=" + Twine(ExpectedValue));
   }
@@ -103,7 +103,7 @@ void InputChunk::writeTo(uint8_t *Buf) const {
   for (const WasmRelocation &Rel : Relocations) {
     uint8_t *Loc = Buf + Rel.Offset + Off;
     uint32_t Value = File->calcNewValue(Rel);
-    LLVM_DEBUG(dbgs() << "apply reloc: type=" << ReloctTypeToString(Rel.Type)
+    LLVM_DEBUG(dbgs() << "apply reloc: type=" << reloctTypeToString(Rel.Type)
                       << " addend=" << Rel.Addend << " index=" << Rel.Index
                       << " value=" << Value << " offset=" << Rel.Offset
                       << "\n");

@@ -187,13 +187,13 @@ entry:
 ; RELOC-NEXT:   - Type:            CODE
 ; RELOC-NEXT:     Relocations:
 ; RELOC-NEXT:       - Type:            R_WEBASSEMBLY_FUNCTION_INDEX_LEB
-; RELOC-NEXT:         Index:           4
+; RELOC-NEXT:         Index:           1
 ; RELOC-NEXT:         Offset:          0x00000004
 ; RELOC-NEXT:       - Type:            R_WEBASSEMBLY_FUNCTION_INDEX_LEB
-; RELOC-NEXT:         Index:           1
+; RELOC-NEXT:         Index:           2
 ; RELOC-NEXT:         Offset:          0x00000013
 ; RELOC-NEXT:       - Type:            R_WEBASSEMBLY_FUNCTION_INDEX_LEB
-; RELOC-NEXT:         Index:           4
+; RELOC-NEXT:         Index:           1
 ; RELOC-NEXT:         Offset:          0x0000001C
 ; RELOC-NEXT:       - Type:            R_WEBASSEMBLY_GLOBAL_INDEX_LEB
 ; RELOC-NEXT:         Index:           6
@@ -202,10 +202,10 @@ entry:
 ; RELOC-NEXT:         Index:           6
 ; RELOC-NEXT:         Offset:          0x00000032
 ; RELOC-NEXT:       - Type:            R_WEBASSEMBLY_TABLE_INDEX_SLEB
-; RELOC-NEXT:         Index:           4
+; RELOC-NEXT:         Index:           1
 ; RELOC-NEXT:         Offset:          0x0000003A
 ; RELOC-NEXT:       - Type:            R_WEBASSEMBLY_FUNCTION_INDEX_LEB
-; RELOC-NEXT:         Index:           4
+; RELOC-NEXT:         Index:           1
 ; RELOC-NEXT:         Offset:          0x00000043
 ; RELOC-NEXT:       - Type:            R_WEBASSEMBLY_GLOBAL_INDEX_LEB
 ; RELOC-NEXT:         Index:           6
@@ -217,10 +217,10 @@ entry:
 ; RELOC-NEXT:         Index:           6
 ; RELOC-NEXT:         Offset:          0x00000068
 ; RELOC-NEXT:       - Type:            R_WEBASSEMBLY_TABLE_INDEX_SLEB
-; RELOC-NEXT:         Index:           1
+; RELOC-NEXT:         Index:           2
 ; RELOC-NEXT:         Offset:          0x00000070
 ; RELOC-NEXT:       - Type:            R_WEBASSEMBLY_FUNCTION_INDEX_LEB
-; RELOC-NEXT:         Index:           1
+; RELOC-NEXT:         Index:           2
 ; RELOC-NEXT:         Offset:          0x00000079
 ; RELOC-NEXT:       - Type:            R_WEBASSEMBLY_GLOBAL_INDEX_LEB
 ; RELOC-NEXT:         Index:           6
@@ -259,24 +259,24 @@ entry:
 ; RELOC-NEXT:         Function:        0
 ; RELOC-NEXT:       - Index:           1
 ; RELOC-NEXT:         Kind:            FUNCTION
+; RELOC-NEXT:         Name:            alias_fn
+; RELOC-NEXT:         Flags:           [ BINDING_WEAK ]
+; RELOC-NEXT:         Function:        1
+; RELOC-NEXT:       - Index:           2
+; RELOC-NEXT:         Kind:            FUNCTION
 ; RELOC-NEXT:         Name:            direct_fn
 ; RELOC-NEXT:         Flags:           [  ]
 ; RELOC-NEXT:         Function:        1
-; RELOC-NEXT:       - Index:           2
+; RELOC-NEXT:       - Index:           3
 ; RELOC-NEXT:         Kind:            FUNCTION
 ; RELOC-NEXT:         Name:            call_direct
 ; RELOC-NEXT:         Flags:           [  ]
 ; RELOC-NEXT:         Function:        2
-; RELOC-NEXT:       - Index:           3
+; RELOC-NEXT:       - Index:           4
 ; RELOC-NEXT:         Kind:            FUNCTION
 ; RELOC-NEXT:         Name:            call_alias
 ; RELOC-NEXT:         Flags:           [  ]
 ; RELOC-NEXT:         Function:        3
-; RELOC-NEXT:       - Index:           4
-; RELOC-NEXT:         Kind:            FUNCTION
-; RELOC-NEXT:         Name:            alias_fn
-; RELOC-NEXT:         Flags:           [ BINDING_WEAK ]
-; RELOC-NEXT:         Function:        1
 ; RELOC-NEXT:       - Index:           5
 ; RELOC-NEXT:         Kind:            FUNCTION
 ; RELOC-NEXT:         Name:            call_alias_ptr

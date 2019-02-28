@@ -54,7 +54,7 @@ OPTION(prefix_2, "Bsymbolic-functions", Bsymbolic_functions, Flag, INVALID, INVA
 OPTION(prefix_2, "Bsymbolic", Bsymbolic, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Bind defined symbols locally", nullptr, nullptr)
 OPTION(prefix_2, "build-id=", build_id_eq, Joined, INVALID, INVALID, nullptr, 0, 0,
-       "Generate build ID note", "[fast,md5,sha,uuid,0x<hexstring>]", nullptr)
+       "Generate build ID note", "[fast,md5,sha1,uuid,0x<hexstring>]", nullptr)
 OPTION(prefix_2, "build-id", build_id, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Alias for --build-id=fast", nullptr, nullptr)
 OPTION(prefix_1, "b", anonymous_16, Separate, INVALID, format, nullptr, 0, 0,

@@ -85,7 +85,7 @@ void lld::wasm::markLive() {
       // equal to null pointer, only reachable via direct call).
       if (Reloc.Type == R_WEBASSEMBLY_TABLE_INDEX_SLEB ||
           Reloc.Type == R_WEBASSEMBLY_TABLE_INDEX_I32) {
-        FunctionSymbol *FuncSym = cast<FunctionSymbol>(Sym);
+        auto *FuncSym = cast<FunctionSymbol>(Sym);
         if (FuncSym->hasTableIndex() && FuncSym->getTableIndex() == 0)
           continue;
       }

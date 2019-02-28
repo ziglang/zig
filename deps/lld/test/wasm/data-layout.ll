@@ -85,10 +85,10 @@ target triple = "wasm32-unknown-unknown"
 ; RELOC:       - Type:            DATA
 ; RELOC-NEXT:     Relocations:
 ; RELOC-NEXT:       - Type:            R_WEBASSEMBLY_MEMORY_ADDR_I32
-; RELOC-NEXT:         Index:           6
+; RELOC-NEXT:         Index:           3
 ; RELOC-NEXT:         Offset:          0x00000018
 ; RELOC-NEXT:       - Type:            R_WEBASSEMBLY_MEMORY_ADDR_I32
-; RELOC-NEXT:         Index:           3
+; RELOC-NEXT:         Index:           4
 ; RELOC-NEXT:         Offset:          0x0000002E
 ; RELOC-NEXT:         Addend:          4
 ; RELOC-NEXT:     Segments:
@@ -148,7 +148,7 @@ target triple = "wasm32-unknown-unknown"
 ; RELOC-NEXT:         Flags:           [  ]
 ; RELOC-NEXT:         Segment:         2
 ; RELOC-NEXT:         Size:            4
-; RELOC:            - Index:           6
+; RELOC-NEXT:       - Index:           3
 ; RELOC-NEXT:         Kind:            DATA
 ; RELOC-NEXT:         Name:            hello_str
 ; RELOC-NEXT:         Flags:           [  ]

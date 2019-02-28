@@ -30,7 +30,7 @@ def Bstatic: F<"Bstatic">, HelpText<"Do not link against shared libraries">;
 def build_id: F<"build-id">, HelpText<"Alias for --build-id=fast">;
 
 def build_id_eq: J<"build-id=">, HelpText<"Generate build ID note">,
-  MetaVarName<"[fast,md5,sha,uuid,0x<hexstring>]">;
+  MetaVarName<"[fast,md5,sha1,uuid,0x<hexstring>]">;
 
 defm check_sections: B<"check-sections",
     "Check section addresses for overlaps (default)",

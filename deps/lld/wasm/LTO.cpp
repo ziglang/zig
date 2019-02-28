@@ -79,8 +79,9 @@ BitcodeCompiler::~BitcodeCompiler() = default;
 
 static void undefine(Symbol *S) {
   if (auto F = dyn_cast<DefinedFunction>(S))
-    replaceSymbol<UndefinedFunction>(F, F->getName(), 0, F->getFile(),
-                                     F->Signature);
+    replaceSymbol<UndefinedFunction>(F, F->getName(), F->getName(),
+                                     DefaultModule, 0,
+                                     F->getFile(), F->Signature);
   else if (isa<DefinedData>(S))
     replaceSymbol<UndefinedData>(S, S->getName(), 0, S->getFile());
   else

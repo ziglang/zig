@@ -270,40 +270,40 @@
 ; RELOC-NEXT:   - Type:            CODE
 ; RELOC-NEXT:     Relocations:
 ; RELOC-NEXT:       - Type:            R_WEBASSEMBLY_MEMORY_ADDR_SLEB
-; RELOC-NEXT:         Index:           4
+; RELOC-NEXT:         Index:           18
 ; RELOC-NEXT:         Offset:          0x00000013
 ; RELOC-NEXT:       - Type:            R_WEBASSEMBLY_MEMORY_ADDR_SLEB
-; RELOC-NEXT:         Index:           6
+; RELOC-NEXT:         Index:           3
 ; RELOC-NEXT:         Offset:          0x0000001C
 ; RELOC-NEXT:       - Type:            R_WEBASSEMBLY_MEMORY_ADDR_SLEB
-; RELOC-NEXT:         Index:           8
+; RELOC-NEXT:         Index:           19
 ; RELOC-NEXT:         Offset:          0x00000025
 ; RELOC-NEXT:       - Type:            R_WEBASSEMBLY_TABLE_INDEX_SLEB
-; RELOC-NEXT:         Index:           0
+; RELOC-NEXT:         Index:           16
 ; RELOC-NEXT:         Offset:          0x0000002E
 ; RELOC-NEXT:       - Type:            R_WEBASSEMBLY_TABLE_INDEX_SLEB
-; RELOC-NEXT:         Index:           1
+; RELOC-NEXT:         Index:           0
 ; RELOC-NEXT:         Offset:          0x00000037
 ; RELOC-NEXT:       - Type:            R_WEBASSEMBLY_TABLE_INDEX_SLEB
-; RELOC-NEXT:         Index:           2
+; RELOC-NEXT:         Index:           17
 ; RELOC-NEXT:         Offset:          0x00000040
 ; RELOC-NEXT:       - Type:            R_WEBASSEMBLY_MEMORY_ADDR_SLEB
-; RELOC-NEXT:         Index:           16
+; RELOC-NEXT:         Index:           10
 ; RELOC-NEXT:         Offset:          0x00000058
 ; RELOC-NEXT:       - Type:            R_WEBASSEMBLY_MEMORY_ADDR_SLEB
-; RELOC-NEXT:         Index:           18
+; RELOC-NEXT:         Index:           22
 ; RELOC-NEXT:         Offset:          0x00000061
 ; RELOC-NEXT:       - Type:            R_WEBASSEMBLY_MEMORY_ADDR_SLEB
-; RELOC-NEXT:         Index:           20
+; RELOC-NEXT:         Index:           23
 ; RELOC-NEXT:         Offset:          0x0000006A
 ; RELOC-NEXT:       - Type:            R_WEBASSEMBLY_TABLE_INDEX_SLEB
-; RELOC-NEXT:         Index:           12
+; RELOC-NEXT:         Index:           8
 ; RELOC-NEXT:         Offset:          0x00000073
 ; RELOC-NEXT:       - Type:            R_WEBASSEMBLY_TABLE_INDEX_SLEB
-; RELOC-NEXT:         Index:           13
+; RELOC-NEXT:         Index:           20
 ; RELOC-NEXT:         Offset:          0x0000007C
 ; RELOC-NEXT:       - Type:            R_WEBASSEMBLY_TABLE_INDEX_SLEB
-; RELOC-NEXT:         Index:           14
+; RELOC-NEXT:         Index:           21
 ; RELOC-NEXT:         Offset:          0x00000085
 ; RELOC-NEXT:     Functions:
 ; RELOC-NEXT:       - Index:           0
@@ -386,133 +386,133 @@
 ; RELOC-NEXT:     SymbolTable:
 ; RELOC-NEXT:       - Index:           0
 ; RELOC-NEXT:         Kind:            FUNCTION
-; RELOC-NEXT:         Name:            colliding_func1
-; RELOC-NEXT:         Flags:           [ BINDING_LOCAL ]
-; RELOC-NEXT:         Function:        0
-; RELOC-NEXT:       - Index:           1
-; RELOC-NEXT:         Kind:            FUNCTION
 ; RELOC-NEXT:         Name:            colliding_func2
 ; RELOC-NEXT:         Flags:           [  ]
 ; RELOC-NEXT:         Function:        1
-; RELOC-NEXT:       - Index:           2
-; RELOC-NEXT:         Kind:            FUNCTION
-; RELOC-NEXT:         Name:            colliding_func3
-; RELOC-NEXT:         Flags:           [ BINDING_LOCAL ]
-; RELOC-NEXT:         Function:        2
-; RELOC-NEXT:       - Index:           3
+; RELOC-NEXT:       - Index:           1
 ; RELOC-NEXT:         Kind:            FUNCTION
 ; RELOC-NEXT:         Name:            get_global1A
 ; RELOC-NEXT:         Flags:           [  ]
 ; RELOC-NEXT:         Function:        3
-; RELOC-NEXT:       - Index:           4
-; RELOC-NEXT:         Kind:            DATA
-; RELOC-NEXT:         Name:            colliding_global1
-; RELOC-NEXT:         Flags:           [ BINDING_LOCAL ]
-; RELOC-NEXT:         Segment:         0
-; RELOC-NEXT:         Size:            4
-; RELOC-NEXT:       - Index:           5
+; RELOC-NEXT:       - Index:           2
 ; RELOC-NEXT:         Kind:            FUNCTION
 ; RELOC-NEXT:         Name:            get_global2A
 ; RELOC-NEXT:         Flags:           [  ]
 ; RELOC-NEXT:         Function:        4
-; RELOC-NEXT:       - Index:           6
+; RELOC-NEXT:       - Index:           3
 ; RELOC-NEXT:         Kind:            DATA
 ; RELOC-NEXT:         Name:            colliding_global2
 ; RELOC-NEXT:         Flags:           [  ]
 ; RELOC-NEXT:         Segment:         1
 ; RELOC-NEXT:         Size:            4
-; RELOC-NEXT:       - Index:           7
+; RELOC-NEXT:       - Index:           4
 ; RELOC-NEXT:         Kind:            FUNCTION
 ; RELOC-NEXT:         Name:            get_global3A
 ; RELOC-NEXT:         Flags:           [  ]
 ; RELOC-NEXT:         Function:        5
-; RELOC-NEXT:       - Index:           8
-; RELOC-NEXT:         Kind:            DATA
-; RELOC-NEXT:         Name:            colliding_global3
-; RELOC-NEXT:         Flags:           [ BINDING_LOCAL ]
-; RELOC-NEXT:         Segment:         2
-; RELOC-NEXT:         Size:            4
-; RELOC-NEXT:       - Index:           9
+; RELOC-NEXT:       - Index:           5
 ; RELOC-NEXT:         Kind:            FUNCTION
 ; RELOC-NEXT:         Name:            get_func1A
 ; RELOC-NEXT:         Flags:           [  ]
 ; RELOC-NEXT:         Function:        6
-; RELOC-NEXT:       - Index:           10
+; RELOC-NEXT:       - Index:           6
 ; RELOC-NEXT:         Kind:            FUNCTION
 ; RELOC-NEXT:         Name:            get_func2A
 ; RELOC-NEXT:         Flags:           [  ]
 ; RELOC-NEXT:         Function:        7
-; RELOC-NEXT:       - Index:           11
+; RELOC-NEXT:       - Index:           7
 ; RELOC-NEXT:         Kind:            FUNCTION
 ; RELOC-NEXT:         Name:            get_func3A
 ; RELOC-NEXT:         Flags:           [  ]
 ; RELOC-NEXT:         Function:        8
-; RELOC-NEXT:       - Index:           12
+; RELOC-NEXT:       - Index:           8
 ; RELOC-NEXT:         Kind:            FUNCTION
 ; RELOC-NEXT:         Name:            colliding_func1
 ; RELOC-NEXT:         Flags:           [  ]
 ; RELOC-NEXT:         Function:        9
-; RELOC-NEXT:       - Index:           13
-; RELOC-NEXT:         Kind:            FUNCTION
-; RELOC-NEXT:         Name:            colliding_func2
-; RELOC-NEXT:         Flags:           [ BINDING_LOCAL ]
-; RELOC-NEXT:         Function:        10
-; RELOC-NEXT:       - Index:           14
-; RELOC-NEXT:         Kind:            FUNCTION
-; RELOC-NEXT:         Name:            colliding_func3
-; RELOC-NEXT:         Flags:           [ BINDING_LOCAL ]
-; RELOC-NEXT:         Function:        11
-; RELOC-NEXT:       - Index:           15
+; RELOC-NEXT:       - Index:           9
 ; RELOC-NEXT:         Kind:            FUNCTION
 ; RELOC-NEXT:         Name:            get_global1B
 ; RELOC-NEXT:         Flags:           [  ]
 ; RELOC-NEXT:         Function:        12
-; RELOC-NEXT:       - Index:           16
+; RELOC-NEXT:       - Index:           10
 ; RELOC-NEXT:         Kind:            DATA
 ; RELOC-NEXT:         Name:            colliding_global1
 ; RELOC-NEXT:         Flags:           [  ]
 ; RELOC-NEXT:         Segment:         0
 ; RELOC-NEXT:         Offset:          4
 ; RELOC-NEXT:         Size:            4
-; RELOC-NEXT:       - Index:           17
+; RELOC-NEXT:       - Index:           11
 ; RELOC-NEXT:         Kind:            FUNCTION
 ; RELOC-NEXT:         Name:            get_global2B
 ; RELOC-NEXT:         Flags:           [  ]
 ; RELOC-NEXT:         Function:        13
+; RELOC-NEXT:       - Index:           12
+; RELOC-NEXT:         Kind:            FUNCTION
+; RELOC-NEXT:         Name:            get_global3B
+; RELOC-NEXT:         Flags:           [  ]
+; RELOC-NEXT:         Function:        14
+; RELOC-NEXT:       - Index:           13
+; RELOC-NEXT:         Kind:            FUNCTION
+; RELOC-NEXT:         Name:            get_func1B
+; RELOC-NEXT:         Flags:           [  ]
+; RELOC-NEXT:         Function:        15
+; RELOC-NEXT:       - Index:           14
+; RELOC-NEXT:         Kind:            FUNCTION
+; RELOC-NEXT:         Name:            get_func2B
+; RELOC-NEXT:         Flags:           [  ]
+; RELOC-NEXT:         Function:        16
+; RELOC-NEXT:       - Index:           15
+; RELOC-NEXT:         Kind:            FUNCTION
+; RELOC-NEXT:         Name:            get_func3B
+; RELOC-NEXT:         Flags:           [  ]
+; RELOC-NEXT:         Function:        17
+; RELOC-NEXT:       - Index:           16
+; RELOC-NEXT:         Kind:            FUNCTION
+; RELOC-NEXT:         Name:            colliding_func1
+; RELOC-NEXT:         Flags:           [ BINDING_LOCAL ]
+; RELOC-NEXT:         Function:        0
+; RELOC-NEXT:       - Index:           17
+; RELOC-NEXT:         Kind:            FUNCTION
+; RELOC-NEXT:         Name:            colliding_func3
+; RELOC-NEXT:         Flags:           [ BINDING_LOCAL ]
+; RELOC-NEXT:         Function:        2
 ; RELOC-NEXT:       - Index:           18
+; RELOC-NEXT:         Kind:            DATA
+; RELOC-NEXT:         Name:            colliding_global1
+; RELOC-NEXT:         Flags:           [ BINDING_LOCAL ]
+; RELOC-NEXT:         Segment:         0
+; RELOC-NEXT:         Size:            4
+; RELOC-NEXT:       - Index:           19
+; RELOC-NEXT:         Kind:            DATA
+; RELOC-NEXT:         Name:            colliding_global3
+; RELOC-NEXT:         Flags:           [ BINDING_LOCAL ]
+; RELOC-NEXT:         Segment:         2
+; RELOC-NEXT:         Size:            4
+; RELOC-NEXT:       - Index:           20
+; RELOC-NEXT:         Kind:            FUNCTION
+; RELOC-NEXT:         Name:            colliding_func2
+; RELOC-NEXT:         Flags:           [ BINDING_LOCAL ]
+; RELOC-NEXT:         Function:        10
+; RELOC-NEXT:       - Index:           21
+; RELOC-NEXT:         Kind:            FUNCTION
+; RELOC-NEXT:         Name:            colliding_func3
+; RELOC-NEXT:         Flags:           [ BINDING_LOCAL ]
+; RELOC-NEXT:         Function:        11
+; RELOC-NEXT:       - Index:           22
 ; RELOC-NEXT:         Kind:            DATA
 ; RELOC-NEXT:         Name:            colliding_global2
 ; RELOC-NEXT:         Flags:           [ BINDING_LOCAL ]
 ; RELOC-NEXT:         Segment:         1
 ; RELOC-NEXT:         Offset:          4
 ; RELOC-NEXT:         Size:            4
-; RELOC-NEXT:       - Index:           19
-; RELOC-NEXT:         Kind:            FUNCTION
-; RELOC-NEXT:         Name:            get_global3B
-; RELOC-NEXT:         Flags:           [  ]
-; RELOC-NEXT:         Function:        14
-; RELOC-NEXT:       - Index:           20
+; RELOC-NEXT:       - Index:           23
 ; RELOC-NEXT:         Kind:            DATA
 ; RELOC-NEXT:         Name:            colliding_global3
 ; RELOC-NEXT:         Flags:           [ BINDING_LOCAL ]
 ; RELOC-NEXT:         Segment:         2
 ; RELOC-NEXT:         Offset:          4
 ; RELOC-NEXT:         Size:            4
-; RELOC-NEXT:       - Index:           21
-; RELOC-NEXT:         Kind:            FUNCTION
-; RELOC-NEXT:         Name:            get_func1B
-; RELOC-NEXT:         Flags:           [  ]
-; RELOC-NEXT:         Function:        15
-; RELOC-NEXT:       - Index:           22
-; RELOC-NEXT:         Kind:            FUNCTION
-; RELOC-NEXT:         Name:            get_func2B
-; RELOC-NEXT:         Flags:           [  ]
-; RELOC-NEXT:         Function:        16
-; RELOC-NEXT:       - Index:           23
-; RELOC-NEXT:         Kind:            FUNCTION
-; RELOC-NEXT:         Name:            get_func3B
-; RELOC-NEXT:         Flags:           [  ]
-; RELOC-NEXT:         Function:        17
 ; RELOC-NEXT:     SegmentInfo:
 ; RELOC-NEXT:       - Index:           0
 ; RELOC-NEXT:         Name:            .bss.colliding_global1
