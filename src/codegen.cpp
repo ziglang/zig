@@ -8165,7 +8165,7 @@ static void gen_global_asm(CodeGen *g) {
 }
 
 static void print_zig_cc_cmd(const char *zig_exe, ZigList<const char *> *args) {
-    fprintf(stderr, zig_exe);
+    fprintf(stderr, "%s", zig_exe);
     for (size_t arg_i = 0; arg_i < args->length; arg_i += 1) {
         fprintf(stderr, " %s", args->at(arg_i));
     }
