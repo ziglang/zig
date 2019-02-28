@@ -48,15 +48,15 @@ static void init_darwin_native(CodeGen *g) {
     }
 }
 
-static PackageTableEntry *new_package(const char *root_src_dir, const char *root_src_path) {
-    PackageTableEntry *entry = allocate<PackageTableEntry>(1);
+static ZigPackage *new_package(const char *root_src_dir, const char *root_src_path) {
+    ZigPackage *entry = allocate<ZigPackage>(1);
     entry->package_table.init(4);
     buf_init_from_str(&entry->root_src_dir, root_src_dir);
     buf_init_from_str(&entry->root_src_path, root_src_path);
     return entry;
 }
 
-PackageTableEntry *new_anonymous_package(void) {
+ZigPackage *new_anonymous_package(void) {
     return new_package("", "");
 }
 
@@ -621,7 +621,7 @@ static ZigLLVMDIScope *get_di_scope(CodeGen *g, Scope *scope) {
     if (scope->di_scope)
         return scope->di_scope;
 
-    ImportTableEntry *import = get_scope_import(scope);
+    ZigType *import = get_scope_import(scope);
     switch (scope->id) {
         case ScopeIdCImport:
             zig_unreachable();
@@ -644,7 +644,7 @@ static ZigLLVMDIScope *get_di_scope(CodeGen *g, Scope *scope) {
             assert(fn_di_scope != nullptr);
             ZigLLVMDISubprogram *subprogram = ZigLLVMCreateFunction(g->dbuilder,
                 fn_di_scope, buf_ptr(&fn_table_entry->symbol_name), "",
-                import->di_file, line_number,
+                import->data.structure.root_struct->di_file, line_number,
                 fn_table_entry->type_entry->data.fn.raw_di_type, is_internal_linkage,
                 is_definition, scope_line, flags, is_optimized, nullptr);
 
@@ -658,7 +658,7 @@ static ZigLLVMDIScope *get_di_scope(CodeGen *g, Scope *scope) {
                 assert(decls_scope->container_type);
                 scope->di_scope = ZigLLVMTypeToScope(decls_scope->container_type->di_type);
             } else {
-                scope->di_scope = ZigLLVMFileToScope(import->di_file);
+                scope->di_scope = ZigLLVMFileToScope(import->data.structure.root_struct->di_file);
             }
             return scope->di_scope;
         case ScopeIdBlock:
@@ -668,7 +668,7 @@ static ZigLLVMDIScope *get_di_scope(CodeGen *g, Scope *scope) {
             assert(scope->parent);
             ZigLLVMDILexicalBlock *di_block = ZigLLVMCreateLexicalBlock(g->dbuilder,
                 get_di_scope(g, scope->parent),
-                import->di_file,
+                import->data.structure.root_struct->di_file,
                 (unsigned)scope->source_node->line + 1,
                 (unsigned)scope->source_node->column + 1);
             scope->di_scope = ZigLLVMLexicalBlockToScope(di_block);
@@ -2196,7 +2196,7 @@ var_ok:
     if (dest_ty != nullptr && var->decl_node) {
         // arg index + 1 because the 0 index is return value
         var->di_loc_var = ZigLLVMCreateParameterVariable(g->dbuilder, get_di_scope(g, var->parent_scope),
-                buf_ptr(&var->name), fn_walk->data.vars.import->di_file,
+                buf_ptr(&var->name), fn_walk->data.vars.import->data.structure.root_struct->di_file,
                 (unsigned)(var->decl_node->line + 1),
                 dest_ty->di_type, !g->strip_debug_symbols, 0, di_arg_index + 1);
     }
@@ -5800,7 +5800,6 @@ static LLVMValueRef pack_const_int(CodeGen *g, LLVMTypeRef big_int_type_ref, Con
         case ZigTypeIdNull:
         case ZigTypeIdErrorUnion:
         case ZigTypeIdErrorSet:
-        case ZigTypeIdNamespace:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdVoid:
@@ -6400,7 +6399,6 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
         case ZigTypeIdComptimeInt:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
-        case ZigTypeIdNamespace:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
@@ -6506,12 +6504,12 @@ static void gen_global_var(CodeGen *g, ZigVar *var, LLVMValueRef init_val,
     assert(var->gen_is_const);
     assert(type_entry);
 
-    ImportTableEntry *import = get_scope_import(var->parent_scope);
+    ZigType *import = get_scope_import(var->parent_scope);
     assert(import);
 
     bool is_local_to_unit = true;
     ZigLLVMCreateGlobalVariable(g->dbuilder, get_di_scope(g, var->parent_scope), buf_ptr(&var->name),
-        buf_ptr(&var->name), import->di_file,
+        buf_ptr(&var->name), import->data.structure.root_struct->di_file,
         (unsigned)(var->decl_node->line + 1),
         type_entry->di_type, is_local_to_unit);
 
@@ -6767,7 +6765,7 @@ static void do_code_gen(CodeGen *g) {
             *slot = build_alloca(g, slot_type, "", alignment_bytes);
         }
 
-        ImportTableEntry *import = get_scope_import(&fn_table_entry->fndef_scope->base);
+        ZigType *import = get_scope_import(&fn_table_entry->fndef_scope->base);
 
         unsigned gen_i_init = want_first_arg_sret(g, fn_type_id) ? 1 : 0;
 
@@ -6799,7 +6797,7 @@ static void do_code_gen(CodeGen *g) {
                 var->value_ref = build_alloca(g, var->var_type, buf_ptr(&var->name), var->align_bytes);
 
                 var->di_loc_var = ZigLLVMCreateAutoVariable(g->dbuilder, get_di_scope(g, var->parent_scope),
-                        buf_ptr(&var->name), import->di_file, (unsigned)(var->decl_node->line + 1),
+                        buf_ptr(&var->name), import->data.structure.root_struct->di_file, (unsigned)(var->decl_node->line + 1),
                         var->var_type->di_type, !g->strip_debug_symbols, 0);
 
             } else if (is_c_abi) {
@@ -6823,7 +6821,7 @@ static void do_code_gen(CodeGen *g) {
                 }
                 if (var->decl_node) {
                     var->di_loc_var = ZigLLVMCreateParameterVariable(g->dbuilder, get_di_scope(g, var->parent_scope),
-                            buf_ptr(&var->name), import->di_file,
+                            buf_ptr(&var->name), import->data.structure.root_struct->di_file,
                             (unsigned)(var->decl_node->line + 1),
                             gen_type->di_type, !g->strip_debug_symbols, 0, (unsigned)(var->gen_arg_index + 1));
                 }
@@ -6970,12 +6968,6 @@ static void define_builtin_types(CodeGen *g) {
         buf_init_from_str(&entry->name, "(invalid)");
         entry->zero_bits = true;
         g->builtin_types.entry_invalid = entry;
-    }
-    {
-        ZigType *entry = new_type_table_entry(ZigTypeIdNamespace);
-        buf_init_from_str(&entry->name, "(namespace)");
-        entry->zero_bits = true;
-        g->builtin_types.entry_namespace = entry;
     }
     {
         ZigType *entry = new_type_table_entry(ZigTypeIdComptimeFloat);
@@ -7470,7 +7462,6 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             "    Enum: Enum,\n"
             "    Union: Union,\n"
             "    Fn: Fn,\n"
-            "    Namespace: void,\n"
             "    BoundFn: Fn,\n"
             "    ArgTuple: void,\n"
             "    Opaque: void,\n"
@@ -7948,17 +7939,21 @@ void codegen_translate_c(CodeGen *g, Buf *full_path) {
     Buf *src_dirname = buf_alloc();
     os_path_split(full_path, src_dirname, src_basename);
 
-    ImportTableEntry *import = allocate<ImportTableEntry>(1);
-    import->source_code = nullptr;
-    import->path = full_path;
+    Buf noextname = BUF_INIT;
+    os_path_extname(src_basename, &noextname, nullptr);
+
+    RootStruct *root_struct = allocate<RootStruct>(1);
+    root_struct->source_code = nullptr;
+    root_struct->path = full_path;
+    root_struct->di_file = ZigLLVMCreateFile(g->dbuilder, buf_ptr(src_basename), buf_ptr(src_dirname));
+
+    ZigType *import = get_root_container_type(g, buf_ptr(&noextname), root_struct);
     g->root_import = import;
-    import->decls_scope = create_decls_scope(g, nullptr, nullptr, nullptr, import);
 
     detect_libc(g);
 
     init(g);
 
-    import->di_file = ZigLLVMCreateFile(g->dbuilder, buf_ptr(src_basename), buf_ptr(src_dirname));
 
     ZigList<ErrorMsg *> errors = {0};
     Error err = parse_h_file(import, &errors, buf_ptr(full_path), g, nullptr);
@@ -7977,7 +7972,7 @@ void codegen_translate_c(CodeGen *g, Buf *full_path) {
     }
 }
 
-static ImportTableEntry *add_special_code(CodeGen *g, PackageTableEntry *package, const char *basename) {
+static ZigType *add_special_code(CodeGen *g, ZigPackage *package, const char *basename) {
     Buf *code_basename = buf_create_from_str(basename);
     Buf path_to_code_src = BUF_INIT;
     os_path_join(g->zig_std_special_dir, code_basename, &path_to_code_src);
@@ -7994,17 +7989,17 @@ static ImportTableEntry *add_special_code(CodeGen *g, PackageTableEntry *package
     return add_source_file(g, package, resolved_path, import_code);
 }
 
-static PackageTableEntry *create_bootstrap_pkg(CodeGen *g, PackageTableEntry *pkg_with_main) {
-    PackageTableEntry *package = codegen_create_package(g, buf_ptr(g->zig_std_special_dir), "bootstrap.zig");
+static ZigPackage *create_bootstrap_pkg(CodeGen *g, ZigPackage *pkg_with_main) {
+    ZigPackage *package = codegen_create_package(g, buf_ptr(g->zig_std_special_dir), "bootstrap.zig");
     package->package_table.put(buf_create_from_str("@root"), pkg_with_main);
     return package;
 }
 
-static PackageTableEntry *create_test_runner_pkg(CodeGen *g) {
+static ZigPackage *create_test_runner_pkg(CodeGen *g) {
     return codegen_create_package(g, buf_ptr(g->zig_std_special_dir), "test_runner.zig");
 }
 
-static PackageTableEntry *create_panic_pkg(CodeGen *g) {
+static ZigPackage *create_panic_pkg(CodeGen *g) {
     return codegen_create_package(g, buf_ptr(g->zig_std_special_dir), "panic.zig");
 }
 
@@ -8096,7 +8091,7 @@ static void gen_root_source(CodeGen *g) {
 
     {
         // Zig has lazy top level definitions. Here we semantically analyze the panic function.
-        ImportTableEntry *import_with_panic;
+        ZigType *import_with_panic;
         if (g->have_pub_panic) {
             import_with_panic = g->root_import;
         } else {
@@ -8104,9 +8099,9 @@ static void gen_root_source(CodeGen *g) {
             import_with_panic = add_special_code(g, g->panic_package, "panic.zig");
         }
         scan_import(g, import_with_panic);
-        Tld *panic_tld = find_decl(g, &import_with_panic->decls_scope->base, buf_create_from_str("panic"));
+        Tld *panic_tld = find_decl(g, &get_container_scope(import_with_panic)->base, buf_create_from_str("panic"));
         assert(panic_tld != nullptr);
-        resolve_top_level_decl(g, panic_tld, false, nullptr);
+        resolve_top_level_decl(g, panic_tld, nullptr);
     }
 
 
@@ -8341,7 +8336,6 @@ static void prepend_c_type_to_decl_list(CodeGen *g, GenH *gen_h, ZigType *type_e
         case ZigTypeIdComptimeInt:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
-        case ZigTypeIdNamespace:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdErrorUnion:
@@ -8524,7 +8518,6 @@ static void get_c_type(CodeGen *g, GenH *gen_h, ZigType *type_entry, Buf *out_bu
         case ZigTypeIdInvalid:
         case ZigTypeIdMetaType:
         case ZigTypeIdBoundFn:
-        case ZigTypeIdNamespace:
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
         case ZigTypeIdUndefined:
@@ -8676,7 +8669,6 @@ static void gen_h_file(CodeGen *g) {
             case ZigTypeIdNull:
             case ZigTypeIdErrorUnion:
             case ZigTypeIdErrorSet:
-            case ZigTypeIdNamespace:
             case ZigTypeIdBoundFn:
             case ZigTypeIdArgTuple:
             case ZigTypeIdOptional:
@@ -8775,7 +8767,7 @@ void codegen_add_time_event(CodeGen *g, const char *name) {
     g->timing_events.append({os_get_time(), name});
 }
 
-static void add_cache_pkg(CodeGen *g, CacheHash *ch, PackageTableEntry *pkg) {
+static void add_cache_pkg(CodeGen *g, CacheHash *ch, ZigPackage *pkg) {
     if (buf_len(&pkg->root_src_path) == 0)
         return;
 
@@ -9029,9 +9021,9 @@ void codegen_build_and_link(CodeGen *g) {
     codegen_add_time_event(g, "Done");
 }
 
-PackageTableEntry *codegen_create_package(CodeGen *g, const char *root_src_dir, const char *root_src_path) {
+ZigPackage *codegen_create_package(CodeGen *g, const char *root_src_dir, const char *root_src_path) {
     init(g);
-    PackageTableEntry *pkg = new_package(root_src_dir, root_src_path);
+    ZigPackage *pkg = new_package(root_src_dir, root_src_path);
     if (g->std_package != nullptr) {
         assert(g->compile_var_package != nullptr);
         pkg->package_table.put(buf_create_from_str("std"), g->std_package);

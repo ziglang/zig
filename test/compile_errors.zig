@@ -2,6 +2,47 @@ const tests = @import("tests.zig");
 const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add(
+        "@typeInfo causing depend on itself compile error",
+        \\const start = struct {
+        \\    fn crash() bug() {
+        \\        return bug;
+        \\    }
+        \\};
+        \\fn bug() void {
+        \\    _ = @typeInfo(start).Struct;
+        \\}
+        \\export fn entry() void {
+        \\    var boom = start.crash();
+        \\}
+    ,
+        ".tmp_source.zig:2:5: error: 'crash' depends on itself",
+    );
+
+    cases.add(
+        "enum field value references enum",
+        \\pub const Foo = extern enum {
+        \\    A = Foo.B,
+        \\    C = D,
+        \\};
+        \\export fn entry() void {
+        \\    var s: Foo = Foo.E;
+        \\}
+    ,
+        ".tmp_source.zig:1:17: error: 'Foo' depends on itself",
+    );
+
+    cases.add(
+        "top level decl dependency loop",
+        \\const a : @typeOf(b) = 0;
+        \\const b : @typeOf(a) = 0;
+        \\export fn entry() void {
+        \\    const c = a + b;
+        \\}
+    ,
+        ".tmp_source.zig:1:1: error: 'a' depends on itself",
+    );
+
     cases.addTest(
         "not an enum type",
         \\export fn entry() void {
@@ -918,23 +959,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "@typeInfo causing depend on itself compile error",
-        \\const start = struct {
-        \\    fn crash() bug() {
-        \\        return bug;
-        \\    }
-        \\};
-        \\fn bug() void {
-        \\    _ = @typeInfo(start).Struct;
-        \\}
-        \\export fn entry() void {
-        \\    var boom = start.crash();
-        \\}
-    ,
-        ".tmp_source.zig:2:5: error: 'crash' depends on itself",
-    );
-
-    cases.add(
         "@handle() called outside of function definition",
         \\var handle_undef: promise = undefined;
         \\var handle_dummy: promise = @handle();
@@ -1181,19 +1205,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
         break :x tc;
     });
-
-    cases.add(
-        "enum field value references enum",
-        \\pub const Foo = extern enum {
-        \\    A = Foo.B,
-        \\    C = D,
-        \\};
-        \\export fn entry() void {
-        \\    var s: Foo = Foo.E;
-        \\}
-    ,
-        ".tmp_source.zig:1:17: error: 'Foo' depends on itself",
-    );
 
     cases.add(
         "@floatToInt comptime safety",
@@ -2620,17 +2631,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry() void { _ = f(); }
     ,
         ".tmp_source.zig:1:8: error: invalid builtin function: 'bogus'",
-    );
-
-    cases.add(
-        "top level decl dependency loop",
-        \\const a : @typeOf(b) = 0;
-        \\const b : @typeOf(a) = 0;
-        \\export fn entry() void {
-        \\    const c = a + b;
-        \\}
-    ,
-        ".tmp_source.zig:1:1: error: 'a' depends on itself",
     );
 
     cases.add(

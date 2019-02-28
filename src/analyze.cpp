@@ -28,10 +28,14 @@ static Error ATTRIBUTE_MUST_USE resolve_enum_zero_bits(CodeGen *g, ZigType *enum
 static Error ATTRIBUTE_MUST_USE resolve_union_zero_bits(CodeGen *g, ZigType *union_type);
 static void analyze_fn_body(CodeGen *g, ZigFn *fn_table_entry);
 
-static ErrorMsg *add_error_note_token(CodeGen *g, ErrorMsg *parent_msg, ImportTableEntry *owner, Token *token,
-        Buf *msg)
-{
-    if (owner->c_import_node != nullptr) {
+static bool is_top_level_struct(ZigType *import) {
+    return import->id == ZigTypeIdStruct && import->data.structure.root_struct != nullptr;
+}
+
+static ErrorMsg *add_error_note_token(CodeGen *g, ErrorMsg *parent_msg, ZigType *owner, Token *token, Buf *msg) {
+    assert(is_top_level_struct(owner));
+    RootStruct *root_struct = owner->data.structure.root_struct;
+    if (root_struct->c_import_node != nullptr) {
         // if this happens, then translate_c generated code that
         // failed semantic analysis, which isn't supposed to happen
 
@@ -46,18 +50,20 @@ static ErrorMsg *add_error_note_token(CodeGen *g, ErrorMsg *parent_msg, ImportTa
         return note;
     }
 
-    ErrorMsg *err = err_msg_create_with_line(owner->path, token->start_line, token->start_column,
-            owner->source_code, owner->line_offsets, msg);
+    ErrorMsg *err = err_msg_create_with_line(root_struct->path, token->start_line, token->start_column,
+            root_struct->source_code, root_struct->line_offsets, msg);
 
     err_msg_add_note(parent_msg, err);
     return err;
 }
 
-ErrorMsg *add_token_error(CodeGen *g, ImportTableEntry *owner, Token *token, Buf *msg) {
-    if (owner->c_import_node != nullptr) {
+ErrorMsg *add_token_error(CodeGen *g, ZigType *owner, Token *token, Buf *msg) {
+    assert(is_top_level_struct(owner));
+    RootStruct *root_struct = owner->data.structure.root_struct;
+    if (root_struct->c_import_node != nullptr) {
         // if this happens, then translate_c generated code that
         // failed semantic analysis, which isn't supposed to happen
-        ErrorMsg *err = add_node_error(g, owner->c_import_node,
+        ErrorMsg *err = add_node_error(g, root_struct->c_import_node,
             buf_sprintf("compiler bug: @cImport generated invalid zig code"));
 
         add_error_note_token(g, err, owner, token, msg);
@@ -65,8 +71,8 @@ ErrorMsg *add_token_error(CodeGen *g, ImportTableEntry *owner, Token *token, Buf
         g->errors.append(err);
         return err;
     }
-    ErrorMsg *err = err_msg_create_with_line(owner->path, token->start_line, token->start_column,
-            owner->source_code, owner->line_offsets, msg);
+    ErrorMsg *err = err_msg_create_with_line(root_struct->path, token->start_line, token->start_column,
+            root_struct->source_code, root_struct->line_offsets, msg);
 
     g->errors.append(err);
     return err;
@@ -114,7 +120,7 @@ void init_scope(CodeGen *g, Scope *dest, ScopeId id, AstNode *source_node, Scope
     dest->parent = parent;
 }
 
-ScopeDecls *create_decls_scope(CodeGen *g, AstNode *node, Scope *parent, ZigType *container_type, ImportTableEntry *import) {
+ScopeDecls *create_decls_scope(CodeGen *g, AstNode *node, Scope *parent, ZigType *container_type, ZigType *import) {
     assert(node == nullptr || node->type == NodeTypeContainerDecl || node->type == NodeTypeFnCallExpr);
     ScopeDecls *scope = allocate<ScopeDecls>(1);
     init_scope(g, &scope->base, ScopeIdDecls, node, parent);
@@ -207,11 +213,11 @@ Scope *create_coro_prelude_scope(CodeGen *g, AstNode *node, Scope *parent) {
     return &scope->base;
 }
 
-ImportTableEntry *get_scope_import(Scope *scope) {
+ZigType *get_scope_import(Scope *scope) {
     while (scope) {
         if (scope->id == ScopeIdDecls) {
             ScopeDecls *decls_scope = (ScopeDecls *)scope;
-            assert(decls_scope->import);
+            assert(is_top_level_struct(decls_scope->import));
             return decls_scope->import;
         }
         scope = scope->parent;
@@ -261,7 +267,6 @@ AstNode *type_decl_node(ZigType *type_entry) {
         case ZigTypeIdErrorUnion:
         case ZigTypeIdErrorSet:
         case ZigTypeIdFn:
-        case ZigTypeIdNamespace:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdPromise:
@@ -323,7 +328,6 @@ bool type_is_resolved(ZigType *type_entry, ResolveStatus status) {
         case ZigTypeIdErrorUnion:
         case ZigTypeIdErrorSet:
         case ZigTypeIdFn:
-        case ZigTypeIdNamespace:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdPromise:
@@ -1010,14 +1014,14 @@ ZigType *get_opaque_type(CodeGen *g, Scope *scope, AstNode *source_node, const c
 
     buf_init_from_str(&entry->name, name);
 
-    ImportTableEntry *import = scope ? get_scope_import(scope) : nullptr;
+    ZigType *import = scope ? get_scope_import(scope) : nullptr;
     unsigned line = source_node ? (unsigned)(source_node->line + 1) : 0;
 
     entry->type_ref = LLVMInt8Type();
     entry->di_type = ZigLLVMCreateDebugForwardDeclType(g->dbuilder,
         ZigLLVMTag_DW_structure_type(), buf_ptr(&entry->name),
-        import ? ZigLLVMFileToScope(import->di_file) : nullptr,
-        import ? import->di_file : nullptr,
+        import ? ZigLLVMFileToScope(import->data.structure.root_struct->di_file) : nullptr,
+        import ? import->data.structure.root_struct->di_file : nullptr,
         line);
     entry->zero_bits = false;
 
@@ -1288,6 +1292,25 @@ static ZigTypeId container_to_type(ContainerKind kind) {
     zig_unreachable();
 }
 
+// This is like get_partial_container_type except it's for the implicit root struct of files.
+ZigType *get_root_container_type(CodeGen *g, const char *name, RootStruct *root_struct) {
+    ZigType *entry = new_type_table_entry(ZigTypeIdStruct);
+    entry->data.structure.decls_scope = create_decls_scope(g, nullptr, nullptr, nullptr, entry);
+    entry->data.structure.root_struct = root_struct;
+    entry->data.structure.layout = ContainerLayoutAuto;
+    entry->type_ref = LLVMStructCreateNamed(LLVMGetGlobalContext(), name);
+
+    size_t line = 0; // root therefore first line
+    unsigned dwarf_kind = ZigLLVMTag_DW_structure_type();
+
+    entry->di_type = ZigLLVMCreateReplaceableCompositeType(g->dbuilder,
+        dwarf_kind, name,
+        ZigLLVMFileToScope(root_struct->di_file), root_struct->di_file, (unsigned)(line + 1));
+
+    buf_init_from_str(&entry->name, name);
+    return entry;
+}
+
 ZigType *get_partial_container_type(CodeGen *g, Scope *scope, ContainerKind kind,
         AstNode *decl_node, const char *name, ContainerLayout layout)
 {
@@ -1312,11 +1335,12 @@ ZigType *get_partial_container_type(CodeGen *g, Scope *scope, ContainerKind kind
     size_t line = decl_node ? decl_node->line : 0;
     unsigned dwarf_kind = ZigLLVMTag_DW_structure_type();
 
-    ImportTableEntry *import = get_scope_import(scope);
+    ZigType *import = get_scope_import(scope);
     entry->type_ref = LLVMStructCreateNamed(LLVMGetGlobalContext(), name);
     entry->di_type = ZigLLVMCreateReplaceableCompositeType(g->dbuilder,
         dwarf_kind, name,
-        ZigLLVMFileToScope(import->di_file), import->di_file, (unsigned)(line + 1));
+        ZigLLVMFileToScope(import->data.structure.root_struct->di_file),
+        import->data.structure.root_struct->di_file, (unsigned)(line + 1));
 
     buf_init_from_str(&entry->name, name);
 
@@ -1459,7 +1483,6 @@ static Error emit_error_unless_type_allowed_in_packed_struct(CodeGen *g, ZigType
         case ZigTypeIdNull:
         case ZigTypeIdErrorUnion:
         case ZigTypeIdErrorSet:
-        case ZigTypeIdNamespace:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
@@ -1547,7 +1570,6 @@ bool type_allowed_in_extern(CodeGen *g, ZigType *type_entry) {
         case ZigTypeIdNull:
         case ZigTypeIdErrorUnion:
         case ZigTypeIdErrorSet:
-        case ZigTypeIdNamespace:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdPromise:
@@ -1706,7 +1728,6 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
                 return g->builtin_types.entry_invalid;
             case ZigTypeIdComptimeFloat:
             case ZigTypeIdComptimeInt:
-            case ZigTypeIdNamespace:
             case ZigTypeIdBoundFn:
             case ZigTypeIdMetaType:
             case ZigTypeIdVoid:
@@ -1801,7 +1822,6 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
 
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
-        case ZigTypeIdNamespace:
         case ZigTypeIdBoundFn:
         case ZigTypeIdMetaType:
         case ZigTypeIdUnreachable:
@@ -1895,7 +1915,7 @@ static Error resolve_enum_type(CodeGen *g, ZigType *enum_type) {
     ZigLLVMDIEnumerator **di_enumerators = allocate<ZigLLVMDIEnumerator*>(field_count);
 
     Scope *scope = &enum_type->data.enumeration.decls_scope->base;
-    ImportTableEntry *import = get_scope_import(scope);
+    ZigType *import = get_scope_import(scope);
 
     // set temporary flag
     enum_type->data.enumeration.embedded_in_current = true;
@@ -1924,9 +1944,9 @@ static Error resolve_enum_type(CodeGen *g, ZigType *enum_type) {
         ZigLLVMDIType **di_root_members = nullptr;
         size_t debug_member_count = 0;
         ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugStructType(g->dbuilder,
-                ZigLLVMFileToScope(import->di_file),
+                ZigLLVMFileToScope(import->data.structure.root_struct->di_file),
                 buf_ptr(&enum_type->name),
-                import->di_file, (unsigned)(decl_node->line + 1),
+                import->data.structure.root_struct->di_file, (unsigned)(decl_node->line + 1),
                 debug_size_in_bits,
                 debug_align_in_bits,
                 0, nullptr, di_root_members, (int)debug_member_count, 0, nullptr, "");
@@ -1942,8 +1962,8 @@ static Error resolve_enum_type(CodeGen *g, ZigType *enum_type) {
     uint64_t tag_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, tag_int_type->type_ref);
     uint64_t tag_debug_align_in_bits = 8*LLVMABIAlignmentOfType(g->target_data_ref, tag_int_type->type_ref);
     ZigLLVMDIType *tag_di_type = ZigLLVMCreateDebugEnumerationType(g->dbuilder,
-            ZigLLVMFileToScope(import->di_file), buf_ptr(&enum_type->name),
-            import->di_file, (unsigned)(decl_node->line + 1),
+            ZigLLVMFileToScope(import->data.structure.root_struct->di_file), buf_ptr(&enum_type->name),
+            import->data.structure.root_struct->di_file, (unsigned)(decl_node->line + 1),
             tag_debug_size_in_bits,
             tag_debug_align_in_bits,
             di_enumerators, field_count,
@@ -2159,15 +2179,15 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
     if (struct_type->zero_bits) {
         struct_type->type_ref = LLVMVoidType();
 
-        ImportTableEntry *import = get_scope_import(scope);
+        ZigType *import = get_scope_import(scope);
         uint64_t debug_size_in_bits = 0;
         uint64_t debug_align_in_bits = 0;
         ZigLLVMDIType **di_element_types = nullptr;
         size_t debug_field_count = 0;
         ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugStructType(g->dbuilder,
-                ZigLLVMFileToScope(import->di_file),
+                ZigLLVMFileToScope(import->data.structure.root_struct->di_file),
                 buf_ptr(&struct_type->name),
-                import->di_file, (unsigned)(decl_node->line + 1),
+                import->data.structure.root_struct->di_file, (unsigned)(decl_node->line + 1),
                 debug_size_in_bits,
                 debug_align_in_bits,
                 0, nullptr, di_element_types, (int)debug_field_count, 0, nullptr, "");
@@ -2191,7 +2211,7 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
 
     ZigLLVMDIType **di_element_types = allocate<ZigLLVMDIType*>(debug_field_count);
 
-    ImportTableEntry *import = get_scope_import(scope);
+    ZigType *import = get_scope_import(scope);
     size_t debug_field_index = 0;
     for (size_t i = 0; i < field_count; i += 1) {
         AstNode *field_node = decl_node->data.container_decl.fields.at(i);
@@ -2234,7 +2254,7 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
         }
         di_element_types[debug_field_index] = ZigLLVMCreateDebugMemberType(g->dbuilder,
                 ZigLLVMTypeToScope(struct_type->di_type), buf_ptr(type_struct_field->name),
-                import->di_file, (unsigned)(field_node->line + 1),
+                import->data.structure.root_struct->di_file, (unsigned)(field_node->line + 1),
                 debug_size_in_bits,
                 debug_align_in_bits,
                 debug_offset_in_bits,
@@ -2247,9 +2267,9 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
     uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, struct_type->type_ref);
     uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, struct_type->type_ref);
     ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugStructType(g->dbuilder,
-            ZigLLVMFileToScope(import->di_file),
+            ZigLLVMFileToScope(import->data.structure.root_struct->di_file),
             buf_ptr(&struct_type->name),
-            import->di_file, (unsigned)(decl_node->line + 1),
+            import->data.structure.root_struct->di_file, (unsigned)(decl_node->line + 1),
             debug_size_in_bits,
             debug_align_in_bits,
             0, nullptr, di_element_types, (int)debug_field_count, 0, nullptr, "");
@@ -2298,7 +2318,7 @@ static Error resolve_union_type(CodeGen *g, ZigType *union_type) {
     uint64_t biggest_size_in_bits = 0;
 
     Scope *scope = &union_type->data.unionation.decls_scope->base;
-    ImportTableEntry *import = get_scope_import(scope);
+    ZigType *import = get_scope_import(scope);
 
     // set temporary flag
     union_type->data.unionation.embedded_in_current = true;
@@ -2325,7 +2345,7 @@ static Error resolve_union_type(CodeGen *g, ZigType *union_type) {
 
         union_inner_di_types[union_field->gen_index] = ZigLLVMCreateDebugMemberType(g->dbuilder,
                 ZigLLVMTypeToScope(union_type->di_type), buf_ptr(union_field->enum_field->name),
-                import->di_file, (unsigned)(field_node->line + 1),
+                import->data.structure.root_struct->di_file, (unsigned)(field_node->line + 1),
                 store_size_in_bits,
                 abi_align_in_bits,
                 0,
@@ -2358,9 +2378,9 @@ static Error resolve_union_type(CodeGen *g, ZigType *union_type) {
         ZigLLVMDIType **di_root_members = nullptr;
         size_t debug_member_count = 0;
         ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugUnionType(g->dbuilder,
-                ZigLLVMFileToScope(import->di_file),
+                ZigLLVMFileToScope(import->data.structure.root_struct->di_file),
                 buf_ptr(&union_type->name),
-                import->di_file, (unsigned)(decl_node->line + 1),
+                import->data.structure.root_struct->di_file, (unsigned)(decl_node->line + 1),
                 debug_size_in_bits,
                 debug_align_in_bits,
                 0, di_root_members, (int)debug_member_count, 0, "");
@@ -2396,8 +2416,8 @@ static Error resolve_union_type(CodeGen *g, ZigType *union_type) {
 
         // create debug type for union
         ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugUnionType(g->dbuilder,
-            ZigLLVMFileToScope(import->di_file), buf_ptr(&union_type->name),
-            import->di_file, (unsigned)(decl_node->line + 1),
+            ZigLLVMFileToScope(import->data.structure.root_struct->di_file), buf_ptr(&union_type->name),
+            import->data.structure.root_struct->di_file, (unsigned)(decl_node->line + 1),
             biggest_size_in_bits, biggest_align_in_bits, 0, union_inner_di_types,
             gen_field_count, 0, "");
 
@@ -2452,7 +2472,7 @@ static Error resolve_union_type(CodeGen *g, ZigType *union_type) {
     // create debug type for union
     ZigLLVMDIType *union_di_type = ZigLLVMCreateDebugUnionType(g->dbuilder,
             ZigLLVMTypeToScope(union_type->di_type), "AnonUnion",
-            import->di_file, (unsigned)(decl_node->line + 1),
+            import->data.structure.root_struct->di_file, (unsigned)(decl_node->line + 1),
             biggest_size_in_bits, biggest_align_in_bits, 0, union_inner_di_types,
             gen_field_count, 0, "");
 
@@ -2463,7 +2483,7 @@ static Error resolve_union_type(CodeGen *g, ZigType *union_type) {
 
     ZigLLVMDIType *union_member_di_type = ZigLLVMCreateDebugMemberType(g->dbuilder,
             ZigLLVMTypeToScope(union_type->di_type), "payload",
-            import->di_file, (unsigned)(decl_node->line + 1),
+            import->data.structure.root_struct->di_file, (unsigned)(decl_node->line + 1),
             biggest_size_in_bits,
             biggest_align_in_bits,
             union_offset_in_bits,
@@ -2474,7 +2494,7 @@ static Error resolve_union_type(CodeGen *g, ZigType *union_type) {
 
     ZigLLVMDIType *tag_member_di_type = ZigLLVMCreateDebugMemberType(g->dbuilder,
             ZigLLVMTypeToScope(union_type->di_type), "tag",
-            import->di_file, (unsigned)(decl_node->line + 1),
+            import->data.structure.root_struct->di_file, (unsigned)(decl_node->line + 1),
             tag_debug_size_in_bits,
             tag_debug_align_in_bits,
             tag_offset_in_bits,
@@ -2487,9 +2507,9 @@ static Error resolve_union_type(CodeGen *g, ZigType *union_type) {
     uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, union_type->type_ref);
     uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, union_type->type_ref);
     ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugStructType(g->dbuilder,
-            ZigLLVMFileToScope(import->di_file),
+            ZigLLVMFileToScope(import->data.structure.root_struct->di_file),
             buf_ptr(&union_type->name),
-            import->di_file, (unsigned)(decl_node->line + 1),
+            import->data.structure.root_struct->di_file, (unsigned)(decl_node->line + 1),
             debug_size_in_bits,
             debug_align_in_bits,
             0, nullptr, di_root_members, 2, 0, nullptr, "");
@@ -3185,15 +3205,15 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
     }
 
     if (create_enum_type) {
-        ImportTableEntry *import = get_scope_import(scope);
+        ZigType *import = get_scope_import(scope);
         uint64_t tag_debug_size_in_bits = tag_type->zero_bits ? 0 :
             8*LLVMStoreSizeOfType(g->target_data_ref, tag_type->type_ref);
         uint64_t tag_debug_align_in_bits = tag_type->zero_bits ? 0 :
             8*LLVMABIAlignmentOfType(g->target_data_ref, tag_type->type_ref);
         // TODO get a more accurate debug scope
         ZigLLVMDIType *tag_di_type = ZigLLVMCreateDebugEnumerationType(g->dbuilder,
-                ZigLLVMFileToScope(import->di_file), buf_ptr(&tag_type->name),
-                import->di_file, (unsigned)(decl_node->line + 1),
+                ZigLLVMFileToScope(import->data.structure.root_struct->di_file), buf_ptr(&tag_type->name),
+                import->data.structure.root_struct->di_file, (unsigned)(decl_node->line + 1),
                 tag_debug_size_in_bits, tag_debug_align_in_bits, di_enumerators, field_count,
                 tag_type->di_type, "");
         tag_type->di_type = tag_di_type;
@@ -3265,7 +3285,8 @@ static bool scope_is_root_decls(Scope *scope) {
     while (scope) {
         if (scope->id == ScopeIdDecls) {
             ScopeDecls *scope_decls = (ScopeDecls *)scope;
-            return (scope_decls->container_type == nullptr);
+            return scope_decls->container_type == nullptr ||
+                is_top_level_struct(scope_decls->container_type);
         }
         scope = scope->parent;
     }
@@ -3326,7 +3347,7 @@ void add_fn_export(CodeGen *g, ZigFn *fn_table_entry, Buf *symbol_name, GlobalLi
 }
 
 static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
-    ImportTableEntry *import = tld_fn->base.import;
+    ZigType *import = tld_fn->base.import;
     AstNode *source_node = tld_fn->base.source_node;
     if (source_node->type == NodeTypeFnProto) {
         AstNodeFnProto *fn_proto = &source_node->data.fn_proto;
@@ -3382,11 +3403,11 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
         }
 
         if (scope_is_root_decls(tld_fn->base.parent_scope) &&
-            (import == g->root_import || import->package == g->panic_package))
+            (import == g->root_import || import->data.structure.root_struct->package == g->panic_package))
         {
             if (g->have_pub_main && buf_eql_str(&fn_table_entry->symbol_name, "main")) {
                 g->main_fn = fn_table_entry;
-            } else if ((import->package == g->panic_package || g->have_pub_panic) &&
+            } else if ((import->data.structure.root_struct->package == g->panic_package || g->have_pub_panic) &&
                     buf_eql_str(&fn_table_entry->symbol_name, "panic"))
             {
                 g->panic_fn = fn_table_entry;
@@ -3473,8 +3494,8 @@ static void preview_test_decl(CodeGen *g, AstNode *node, ScopeDecls *decls_scope
     if (!g->is_test_build)
         return;
 
-    ImportTableEntry *import = get_scope_import(&decls_scope->base);
-    if (import->package != g->root_package)
+    ZigType *import = get_scope_import(&decls_scope->base);
+    if (import->data.structure.root_struct->package != g->root_package)
         return;
 
     Buf *decl_name_buf = node->data.test_decl.name;
@@ -3511,8 +3532,8 @@ void init_tld(Tld *tld, TldId id, Buf *name, VisibMod visib_mod, AstNode *source
 }
 
 void update_compile_var(CodeGen *g, Buf *name, ConstExprValue *value) {
-    Tld *tld = g->compile_var_import->decls_scope->decl_table.get(name);
-    resolve_top_level_decl(g, tld, false, tld->source_node);
+    Tld *tld = get_container_scope(g->compile_var_import)->decl_table.get(name);
+    resolve_top_level_decl(g, tld, tld->source_node);
     assert(tld->id == TldIdVar);
     TldVar *tld_var = (TldVar *)tld;
     tld_var->var->const_value = value;
@@ -3561,8 +3582,8 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeUse:
             {
                 g->use_queue.append(node);
-                ImportTableEntry *import = get_scope_import(&decls_scope->base);
-                import->use_decls.append(node);
+                ZigType *import = get_scope_import(&decls_scope->base);
+                get_container_scope(import)->use_decls.append(node);
                 break;
             }
         case NodeTypeTestDecl:
@@ -3654,7 +3675,6 @@ ZigType *validate_var_type(CodeGen *g, AstNode *source_node, ZigType *type_entry
             return g->builtin_types.entry_invalid;
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
-        case ZigTypeIdNamespace:
         case ZigTypeIdMetaType:
         case ZigTypeIdVoid:
         case ZigTypeIdBool:
@@ -3847,15 +3867,9 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
     g->global_vars.append(tld_var);
 }
 
-void resolve_top_level_decl(CodeGen *g, Tld *tld, bool pointer_only, AstNode *source_node) {
+void resolve_top_level_decl(CodeGen *g, Tld *tld, AstNode *source_node) {
     if (tld->resolution != TldResolutionUnresolved)
         return;
-
-    if (tld->dep_loop_flag) {
-        add_node_error(g, tld->source_node, buf_sprintf("'%s' depends on itself", buf_ptr(tld->name)));
-        tld->resolution = TldResolutionInvalid;
-        return;
-    }
 
     tld->dep_loop_flag = true;
     g->tld_ref_source_node_stack.append(source_node);
@@ -3894,9 +3908,9 @@ void resolve_top_level_decl(CodeGen *g, Tld *tld, bool pointer_only, AstNode *so
 
 Tld *find_decl(CodeGen *g, Scope *scope, Buf *name) {
     // we must resolve all the use decls
-    ImportTableEntry *import = get_scope_import(scope);
-    for (size_t i = 0; i < import->use_decls.length; i += 1) {
-        AstNode *use_decl_node = import->use_decls.at(i);
+    ZigType *import = get_scope_import(scope);
+    for (size_t i = 0; i < get_container_scope(import)->use_decls.length; i += 1) {
+        AstNode *use_decl_node = get_container_scope(import)->use_decls.at(i);
         if (use_decl_node->data.use.resolution == TldResolutionUnresolved) {
             preview_use_decl(g, use_decl_node);
             resolve_use_decl(g, use_decl_node);
@@ -4039,7 +4053,6 @@ static bool is_container(ZigType *type_entry) {
         case ZigTypeIdErrorUnion:
         case ZigTypeIdErrorSet:
         case ZigTypeIdFn:
-        case ZigTypeIdNamespace:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
@@ -4098,7 +4111,6 @@ void resolve_container_type(CodeGen *g, ZigType *type_entry) {
         case ZigTypeIdErrorUnion:
         case ZigTypeIdErrorSet:
         case ZigTypeIdFn:
-        case ZigTypeIdNamespace:
         case ZigTypeIdBoundFn:
         case ZigTypeIdInvalid:
         case ZigTypeIdArgTuple:
@@ -4344,7 +4356,7 @@ static void add_symbols_from_import(CodeGen *g, AstNode *src_use_node, AstNode *
 
     ConstExprValue *use_target_value = src_use_node->data.use.value;
     if (type_is_invalid(use_target_value->type)) {
-        dst_use_node->owner->any_imports_failed = true;
+        get_container_scope(dst_use_node->owner)->any_imports_failed = true;
         return;
     }
 
@@ -4352,14 +4364,15 @@ static void add_symbols_from_import(CodeGen *g, AstNode *src_use_node, AstNode *
 
     assert(use_target_value->special != ConstValSpecialRuntime);
 
-    ImportTableEntry *target_import = use_target_value->data.x_import;
+    ZigType *target_import = use_target_value->data.x_type;
     assert(target_import);
+    assert(target_import->id == ZigTypeIdStruct);
 
-    if (target_import->any_imports_failed) {
-        dst_use_node->owner->any_imports_failed = true;
+    if (get_container_scope(target_import)->any_imports_failed) {
+        get_container_scope(dst_use_node->owner)->any_imports_failed = true;
     }
 
-    auto it = target_import->decls_scope->decl_table.entry_iterator();
+    auto it = get_container_scope(target_import)->decl_table.entry_iterator();
     for (;;) {
         auto *entry = it.next();
         if (!entry)
@@ -4374,7 +4387,7 @@ static void add_symbols_from_import(CodeGen *g, AstNode *src_use_node, AstNode *
 
         Buf *target_tld_name = entry->key;
 
-        auto existing_entry = dst_use_node->owner->decls_scope->decl_table.put_unique(target_tld_name, target_tld);
+        auto existing_entry = get_container_scope(dst_use_node->owner)->decl_table.put_unique(target_tld_name, target_tld);
         if (existing_entry) {
             Tld *existing_decl = existing_entry->value;
             if (existing_decl != target_tld) {
@@ -4387,8 +4400,8 @@ static void add_symbols_from_import(CodeGen *g, AstNode *src_use_node, AstNode *
         }
     }
 
-    for (size_t i = 0; i < target_import->use_decls.length; i += 1) {
-        AstNode *use_decl_node = target_import->use_decls.at(i);
+    for (size_t i = 0; i < get_container_scope(target_import)->use_decls.length; i += 1) {
+        AstNode *use_decl_node = get_container_scope(target_import)->use_decls.at(i);
         if (use_decl_node->data.use.visib_mod != VisibModPrivate)
             add_symbols_from_import(g, use_decl_node, dst_use_node);
     }
@@ -4415,16 +4428,16 @@ void preview_use_decl(CodeGen *g, AstNode *node) {
     }
 
     node->data.use.resolution = TldResolutionResolving;
-    ConstExprValue *result = analyze_const_value(g, &node->owner->decls_scope->base,
-        node->data.use.expr, g->builtin_types.entry_namespace, nullptr);
+    ConstExprValue *result = analyze_const_value(g, &get_container_scope(node->owner)->base,
+        node->data.use.expr, g->builtin_types.entry_type, nullptr);
 
     if (type_is_invalid(result->type))
-        node->owner->any_imports_failed = true;
+        get_container_scope(node->owner)->any_imports_failed = true;
 
     node->data.use.value = result;
 }
 
-ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *resolved_path, Buf *source_code) {
+ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *resolved_path, Buf *source_code) {
     if (g->verbose_tokenize) {
         fprintf(stderr, "\nOriginal Source (%s):\n", buf_ptr(resolved_path));
         fprintf(stderr, "----------------\n");
@@ -4452,32 +4465,34 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *r
         fprintf(stderr, "------\n");
     }
 
-    ImportTableEntry *import_entry = allocate<ImportTableEntry>(1);
-    import_entry->package = package;
-    import_entry->source_code = source_code;
-    import_entry->line_offsets = tokenization.line_offsets;
-    import_entry->path = resolved_path;
-
-    import_entry->root = ast_parse(source_code, tokenization.tokens, import_entry, g->err_color);
-    assert(import_entry->root);
-    if (g->verbose_ast) {
-        ast_print(stderr, import_entry->root, 0);
-    }
-
     Buf *src_dirname = buf_alloc();
     Buf *src_basename = buf_alloc();
     os_path_split(resolved_path, src_dirname, src_basename);
 
-    import_entry->di_file = ZigLLVMCreateFile(g->dbuilder, buf_ptr(src_basename), buf_ptr(src_dirname));
+    Buf noextname = BUF_INIT;
+    os_path_extname(src_basename, &noextname, nullptr);
+    RootStruct *root_struct = allocate<RootStruct>(1);
+    root_struct->package = package;
+    root_struct->source_code = source_code;
+    root_struct->line_offsets = tokenization.line_offsets;
+    root_struct->path = resolved_path;
+    root_struct->di_file = ZigLLVMCreateFile(g->dbuilder, buf_ptr(src_basename), buf_ptr(src_dirname));
+    ZigType *import_entry = get_root_container_type(g, buf_ptr(&noextname), root_struct);
+
+    AstNode *root_node = ast_parse(source_code, tokenization.tokens, import_entry, g->err_color);
+    assert(root_node != nullptr);
+    assert(root_node->type == NodeTypeContainerDecl);
+    import_entry->data.structure.decl_node = root_node;
+    import_entry->data.structure.decls_scope->base.source_node = root_node;
+    if (g->verbose_ast) {
+        ast_print(stderr, root_node, 0);
+    }
+
     g->import_table.put(resolved_path, import_entry);
     g->import_queue.append(import_entry);
 
-    import_entry->decls_scope = create_decls_scope(g, import_entry->root, nullptr, nullptr, import_entry);
-
-
-    assert(import_entry->root->type == NodeTypeContainerDecl);
-    for (size_t decl_i = 0; decl_i < import_entry->root->data.container_decl.decls.length; decl_i += 1) {
-        AstNode *top_level_decl = import_entry->root->data.container_decl.decls.at(decl_i);
+    for (size_t decl_i = 0; decl_i < root_node->data.container_decl.decls.length; decl_i += 1) {
+        AstNode *top_level_decl = root_node->data.container_decl.decls.at(decl_i);
 
         if (top_level_decl->type == NodeTypeFnDef) {
             AstNode *proto_node = top_level_decl->data.fn_def.fn_proto;
@@ -4502,16 +4517,16 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *r
     return import_entry;
 }
 
-void scan_import(CodeGen *g, ImportTableEntry *import) {
-    if (!import->scanned) {
-        import->scanned = true;
-        scan_decls(g, import->decls_scope, import->root);
+void scan_import(CodeGen *g, ZigType *import) {
+    if (!import->data.structure.root_struct->scanned) {
+        import->data.structure.root_struct->scanned = true;
+        scan_decls(g, import->data.structure.decls_scope, import->data.structure.decl_node);
     }
 }
 
 void semantic_analyze(CodeGen *g) {
     for (; g->import_queue_index < g->import_queue.length; g->import_queue_index += 1) {
-        ImportTableEntry *import = g->import_queue.at(g->import_queue_index);
+        ZigType *import = g->import_queue.at(g->import_queue_index);
         scan_import(g, import);
     }
 
@@ -4530,9 +4545,8 @@ void semantic_analyze(CodeGen *g) {
     {
         for (; g->resolve_queue_index < g->resolve_queue.length; g->resolve_queue_index += 1) {
             Tld *tld = g->resolve_queue.at(g->resolve_queue_index);
-            bool pointer_only = false;
             AstNode *source_node = nullptr;
-            resolve_top_level_decl(g, tld, pointer_only, source_node);
+            resolve_top_level_decl(g, tld, source_node);
         }
 
         for (; g->fn_defs_index < g->fn_defs.length; g->fn_defs_index += 1) {
@@ -4613,7 +4627,6 @@ bool handle_is_ptr(ZigType *type_entry) {
         case ZigTypeIdComptimeInt:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
-        case ZigTypeIdNamespace:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
@@ -4880,8 +4893,6 @@ static uint32_t hash_const_val(ConstExprValue *const_val) {
             return 3415065496;
         case ZigTypeIdErrorSet:
             return hash_const_val_error_set(const_val);
-        case ZigTypeIdNamespace:
-            return hash_ptr(const_val->data.x_import);
         case ZigTypeIdVector:
             // TODO better hashing algorithm
             return 3647867726;
@@ -4943,7 +4954,6 @@ static bool can_mutate_comptime_var_state(ConstExprValue *value) {
         case ZigTypeIdComptimeInt:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
-        case ZigTypeIdNamespace:
         case ZigTypeIdBoundFn:
         case ZigTypeIdFn:
         case ZigTypeIdOpaque:
@@ -5013,7 +5023,6 @@ static bool return_type_is_cacheable(ZigType *return_type) {
         case ZigTypeIdComptimeInt:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
-        case ZigTypeIdNamespace:
         case ZigTypeIdBoundFn:
         case ZigTypeIdFn:
         case ZigTypeIdOpaque:
@@ -5143,7 +5152,6 @@ OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry) {
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
         case ZigTypeIdMetaType:
-        case ZigTypeIdNamespace:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdOptional:
@@ -5209,7 +5217,6 @@ ReqCompTime type_requires_comptime(CodeGen *g, ZigType *type_entry) {
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
         case ZigTypeIdMetaType:
-        case ZigTypeIdNamespace:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
             return ReqCompTimeYes;
@@ -5797,8 +5804,6 @@ bool const_values_equal(CodeGen *g, ConstExprValue *a, ConstExprValue *b) {
             }
         case ZigTypeIdErrorUnion:
             zig_panic("TODO");
-        case ZigTypeIdNamespace:
-            return a->data.x_import == b->data.x_import;
         case ZigTypeIdArgTuple:
             return a->data.x_arg_tuple.start_index == b->data.x_arg_tuple.start_index &&
                    a->data.x_arg_tuple.end_index == b->data.x_arg_tuple.end_index;
@@ -6072,16 +6077,6 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
                 }
                 return;
             }
-        case ZigTypeIdNamespace:
-            {
-                ImportTableEntry *import = const_val->data.x_import;
-                if (import->c_import_node) {
-                    buf_appendf(buf, "(namespace from C import)");
-                } else {
-                    buf_appendf(buf, "(namespace: %s)", buf_ptr(import->path));
-                }
-                return;
-            }
         case ZigTypeIdBoundFn:
             {
                 ZigFn *fn_entry = const_val->data.x_bound_fn.fn;
@@ -6203,7 +6198,6 @@ uint32_t type_id_hash(TypeId x) {
         case ZigTypeIdEnum:
         case ZigTypeIdUnion:
         case ZigTypeIdFn:
-        case ZigTypeIdNamespace:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdPromise:
@@ -6252,7 +6246,6 @@ bool type_id_eql(TypeId a, TypeId b) {
         case ZigTypeIdEnum:
         case ZigTypeIdUnion:
         case ZigTypeIdFn:
-        case ZigTypeIdNamespace:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
@@ -6419,7 +6412,6 @@ static const ZigTypeId all_type_ids[] = {
     ZigTypeIdEnum,
     ZigTypeIdUnion,
     ZigTypeIdFn,
-    ZigTypeIdNamespace,
     ZigTypeIdBoundFn,
     ZigTypeIdArgTuple,
     ZigTypeIdOpaque,
@@ -6480,18 +6472,16 @@ size_t type_id_index(ZigType *entry) {
             return 17;
         case ZigTypeIdFn:
             return 18;
-        case ZigTypeIdNamespace:
-            return 19;
         case ZigTypeIdBoundFn:
-            return 20;
+            return 19;
         case ZigTypeIdArgTuple:
-            return 21;
+            return 20;
         case ZigTypeIdOpaque:
-            return 22;
+            return 21;
         case ZigTypeIdPromise:
-            return 23;
+            return 22;
         case ZigTypeIdVector:
-            return 24;
+            return 23;
     }
     zig_unreachable();
 }
@@ -6538,8 +6528,6 @@ const char *type_id_name(ZigTypeId id) {
             return "Union";
         case ZigTypeIdFn:
             return "Fn";
-        case ZigTypeIdNamespace:
-            return "Namespace";
         case ZigTypeIdBoundFn:
             return "BoundFn";
         case ZigTypeIdArgTuple:
@@ -6619,8 +6607,8 @@ bool type_ptr_eql(const ZigType *a, const ZigType *b) {
 }
 
 ConstExprValue *get_builtin_value(CodeGen *codegen, const char *name) {
-    Tld *tld = codegen->compile_var_import->decls_scope->decl_table.get(buf_create_from_str(name));
-    resolve_top_level_decl(codegen, tld, false, nullptr);
+    Tld *tld = get_container_scope(codegen->compile_var_import)->decl_table.get(buf_create_from_str(name));
+    resolve_top_level_decl(codegen, tld, nullptr);
     assert(tld->id == TldIdVar);
     TldVar *tld_var = (TldVar *)tld;
     ConstExprValue *var_value = tld_var->var->const_value;

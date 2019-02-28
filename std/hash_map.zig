@@ -486,7 +486,6 @@ pub fn autoHash(key: var, comptime rng: *std.rand.Random, comptime HashInt: type
         builtin.TypeId.ErrorSet => return autoHash(@errorToInt(key), rng),
         builtin.TypeId.Promise, builtin.TypeId.Fn => return autoHash(@ptrToInt(key), rng),
 
-        builtin.TypeId.Namespace,
         builtin.TypeId.BoundFn,
         builtin.TypeId.ComptimeFloat,
         builtin.TypeId.ComptimeInt,
@@ -532,7 +531,6 @@ pub fn autoEql(a: var, b: @typeOf(a)) bool {
         builtin.TypeId.Float,
         builtin.TypeId.ComptimeFloat,
         builtin.TypeId.ComptimeInt,
-        builtin.TypeId.Namespace,
         builtin.TypeId.Promise,
         builtin.TypeId.Enum,
         builtin.TypeId.BoundFn,

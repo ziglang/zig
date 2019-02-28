@@ -39,7 +39,6 @@ pub const Type = struct {
             Id.ErrorSet => @fieldParentPtr(ErrorSet, "base", base).destroy(comp),
             Id.Enum => @fieldParentPtr(Enum, "base", base).destroy(comp),
             Id.Union => @fieldParentPtr(Union, "base", base).destroy(comp),
-            Id.Namespace => @fieldParentPtr(Namespace, "base", base).destroy(comp),
             Id.BoundFn => @fieldParentPtr(BoundFn, "base", base).destroy(comp),
             Id.ArgTuple => @fieldParentPtr(ArgTuple, "base", base).destroy(comp),
             Id.Opaque => @fieldParentPtr(Opaque, "base", base).destroy(comp),
@@ -73,7 +72,6 @@ pub const Type = struct {
             Id.ErrorSet => return @fieldParentPtr(ErrorSet, "base", base).getLlvmType(allocator, llvm_context),
             Id.Enum => return @fieldParentPtr(Enum, "base", base).getLlvmType(allocator, llvm_context),
             Id.Union => return @fieldParentPtr(Union, "base", base).getLlvmType(allocator, llvm_context),
-            Id.Namespace => unreachable,
             Id.BoundFn => return @fieldParentPtr(BoundFn, "base", base).getLlvmType(allocator, llvm_context),
             Id.ArgTuple => unreachable,
             Id.Opaque => return @fieldParentPtr(Opaque, "base", base).getLlvmType(allocator, llvm_context),
@@ -89,7 +87,6 @@ pub const Type = struct {
             Id.ComptimeInt,
             Id.Undefined,
             Id.Null,
-            Id.Namespace,
             Id.BoundFn,
             Id.ArgTuple,
             Id.Opaque,
@@ -123,7 +120,6 @@ pub const Type = struct {
             Id.ComptimeInt,
             Id.Undefined,
             Id.Null,
-            Id.Namespace,
             Id.BoundFn,
             Id.ArgTuple,
             Id.Opaque,
@@ -1017,14 +1013,6 @@ pub const Type = struct {
 
         pub fn getLlvmType(self: *Union, allocator: *Allocator, llvm_context: *llvm.Context) *llvm.Type {
             @panic("TODO");
-        }
-    };
-
-    pub const Namespace = struct {
-        base: Type,
-
-        pub fn destroy(self: *Namespace, comp: *Compilation) void {
-            comp.gpa().destroy(self);
         }
     };
 

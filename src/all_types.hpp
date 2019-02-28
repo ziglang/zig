@@ -21,7 +21,6 @@
 #include "libc_installation.hpp"
 
 struct AstNode;
-struct ImportTableEntry;
 struct ZigFn;
 struct Scope;
 struct ScopeBlock;
@@ -317,7 +316,6 @@ struct ConstExprValue {
         ConstUnionValue x_union;
         ConstArrayValue x_array;
         ConstPtrValue x_ptr;
-        ImportTableEntry *x_import;
         ConstArgTuple x_arg_tuple;
 
         // populated if special == ConstValSpecialRuntime
@@ -369,7 +367,7 @@ struct Tld {
     VisibMod visib_mod;
     AstNode *source_node;
 
-    ImportTableEntry *import;
+    ZigType *import;
     Scope *parent_scope;
     // set this flag temporarily to detect infinite loops
     bool dep_loop_flag;
@@ -937,7 +935,7 @@ struct AstNode {
     enum NodeType type;
     size_t line;
     size_t column;
-    ImportTableEntry *owner;
+    ZigType *owner;
     union {
         AstNodeFnDef fn_def;
         AstNodeFnProto fn_proto;
@@ -1075,12 +1073,32 @@ enum ResolveStatus {
     ResolveStatusSizeKnown,
 };
 
+struct ZigPackage {
+    Buf root_src_dir;
+    Buf root_src_path; // relative to root_src_dir
+
+    // reminder: hash tables must be initialized before use
+    HashMap<Buf *, ZigPackage *, buf_hash, buf_eql_buf> package_table;
+};
+
+// Stuff that only applies to a struct which is the implicit root struct of a file
+struct RootStruct {
+    ZigPackage *package;
+    Buf *path; // relative to root_package->root_src_dir
+    ZigList<size_t> *line_offsets;
+    Buf *source_code;
+    AstNode *c_import_node;
+    ZigLLVMDIFile *di_file;
+    bool scanned;
+};
+
 struct ZigTypeStruct {
     AstNode *decl_node;
     TypeStructField *fields;
     ScopeDecls *decls_scope;
     uint64_t size_bytes;
     HashMap<Buf *, TypeStructField *, buf_hash, buf_eql_buf> fields_by_name;
+    RootStruct *root_struct;
 
     uint32_t src_field_count;
     uint32_t gen_field_count;
@@ -1232,7 +1250,6 @@ enum ZigTypeId {
     ZigTypeIdEnum,
     ZigTypeIdUnion,
     ZigTypeIdFn,
-    ZigTypeIdNamespace,
     ZigTypeIdBoundFn,
     ZigTypeIdArgTuple,
     ZigTypeIdOpaque,
@@ -1283,29 +1300,6 @@ struct ZigType {
 
     bool zero_bits; // this is denormalized data
     bool gen_h_loop_flag;
-};
-
-struct PackageTableEntry {
-    Buf root_src_dir;
-    Buf root_src_path; // relative to root_src_dir
-
-    // reminder: hash tables must be initialized before use
-    HashMap<Buf *, PackageTableEntry *, buf_hash, buf_eql_buf> package_table;
-};
-
-struct ImportTableEntry {
-    AstNode *root;
-    Buf *path; // relative to root_package->root_src_dir
-    PackageTableEntry *package;
-    ZigLLVMDIFile *di_file;
-    Buf *source_code;
-    ZigList<size_t> *line_offsets;
-    ScopeDecls *decls_scope;
-    AstNode *c_import_node;
-    bool any_imports_failed;
-    bool scanned;
-
-    ZigList<AstNode *> use_decls;
 };
 
 enum FnAnalState {
@@ -1670,7 +1664,7 @@ struct CodeGen {
     LLVMValueRef return_err_fn;
 
     // reminder: hash tables must be initialized before use
-    HashMap<Buf *, ImportTableEntry *, buf_hash, buf_eql_buf> import_table;
+    HashMap<Buf *, ZigType *, buf_hash, buf_eql_buf> import_table;
     HashMap<Buf *, BuiltinFnEntry *, buf_hash, buf_eql_buf> builtin_fn_table;
     HashMap<Buf *, ZigType *, buf_hash, buf_eql_buf> primitive_type_table;
     HashMap<TypeId, ZigType *, type_id_hash, type_id_eql> type_table;
@@ -1684,7 +1678,7 @@ struct CodeGen {
     HashMap<Buf *, ConstExprValue *, buf_hash, buf_eql_buf> string_literals_table;
     HashMap<const ZigType *, ConstExprValue *, type_ptr_hash, type_ptr_eql> type_info_cache;
 
-    ZigList<ImportTableEntry *> import_queue;
+    ZigList<ZigType *> import_queue;
     size_t import_queue_index;
     ZigList<Tld *> resolve_queue;
     size_t resolve_queue_index;
@@ -1699,14 +1693,14 @@ struct CodeGen {
     ZigList<ErrorTableEntry *> errors_by_index;
     size_t largest_err_name_len;
 
-    PackageTableEntry *std_package;
-    PackageTableEntry *panic_package;
-    PackageTableEntry *test_runner_package;
-    PackageTableEntry *compile_var_package;
-    ImportTableEntry *compile_var_import;
-    ImportTableEntry *root_import;
-    ImportTableEntry *bootstrap_import;
-    ImportTableEntry *test_runner_import;
+    ZigPackage *std_package;
+    ZigPackage *panic_package;
+    ZigPackage *test_runner_package;
+    ZigPackage *compile_var_package;
+    ZigType *compile_var_import;
+    ZigType *root_import;
+    ZigType *bootstrap_import;
+    ZigType *test_runner_import;
 
     struct {
         ZigType *entry_bool;
@@ -1731,7 +1725,6 @@ struct CodeGen {
         ZigType *entry_unreachable;
         ZigType *entry_type;
         ZigType *entry_invalid;
-        ZigType *entry_namespace;
         ZigType *entry_block;
         ZigType *entry_num_lit_int;
         ZigType *entry_num_lit_float;
@@ -1851,7 +1844,7 @@ struct CodeGen {
     Buf *root_out_name;
     Buf *test_filter;
     Buf *test_name_prefix;
-    PackageTableEntry *root_package;
+    ZigPackage *root_package;
     Buf *zig_lib_dir;
     Buf *zig_std_dir;
 
@@ -1945,13 +1938,16 @@ struct ScopeDecls {
     Scope base;
 
     HashMap<Buf *, Tld *, buf_hash, buf_eql_buf> decl_table;
-    bool safety_off;
+    ZigList<AstNode *> use_decls;
     AstNode *safety_set_node;
-    bool fast_math_on;
     AstNode *fast_math_set_node;
-    ImportTableEntry *import;
+    ZigType *import;
     // If this is a scope from a container, this is the type entry, otherwise null
     ZigType *container_type;
+
+    bool safety_off;
+    bool fast_math_on;
+    bool any_imports_failed;
 };
 
 // This scope comes from a block expression in user code.
@@ -3507,7 +3503,7 @@ struct FnWalkTypes {
 };
 
 struct FnWalkVars {
-    ImportTableEntry *import;
+    ZigType *import;
     LLVMValueRef llvm_fn;
     ZigFn *fn;
     ZigVar *var;

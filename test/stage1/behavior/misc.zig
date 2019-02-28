@@ -469,7 +469,7 @@ test "@typeId" {
         expect(@typeId(AUnionEnum) == Tid.Union);
         expect(@typeId(AUnion) == Tid.Union);
         expect(@typeId(fn () void) == Tid.Fn);
-        expect(@typeId(@typeOf(builtin)) == Tid.Namespace);
+        expect(@typeId(@typeOf(builtin)) == Tid.Type);
         // TODO bound fn
         // TODO arg tuple
         // TODO opaque

@@ -215,7 +215,7 @@ struct CliPkg {
     CliPkg *parent;
 };
 
-static void add_package(CodeGen *g, CliPkg *cli_pkg, PackageTableEntry *pkg) {
+static void add_package(CodeGen *g, CliPkg *cli_pkg, ZigPackage *pkg) {
     for (size_t i = 0; i < cli_pkg->children.length; i += 1) {
         CliPkg *child_cli_pkg = cli_pkg->children.at(i);
 
@@ -223,10 +223,10 @@ static void add_package(CodeGen *g, CliPkg *cli_pkg, PackageTableEntry *pkg) {
         Buf *basename = buf_alloc();
         os_path_split(buf_create_from_str(child_cli_pkg->path), dirname, basename);
 
-        PackageTableEntry *child_pkg = codegen_create_package(g, buf_ptr(dirname), buf_ptr(basename));
+        ZigPackage *child_pkg = codegen_create_package(g, buf_ptr(dirname), buf_ptr(basename));
         auto entry = pkg->package_table.put_unique(buf_create_from_str(child_cli_pkg->name), child_pkg);
         if (entry) {
-            PackageTableEntry *existing_pkg = entry->value;
+            ZigPackage *existing_pkg = entry->value;
             Buf *full_path = buf_alloc();
             os_path_join(&existing_pkg->root_src_dir, &existing_pkg->root_src_path, full_path);
             fprintf(stderr, "Unable to add package '%s'->'%s': already exists as '%s'\n",
@@ -543,7 +543,7 @@ int main(int argc, char **argv) {
             return EXIT_FAILURE;
         }
 
-        PackageTableEntry *build_pkg = codegen_create_package(g, buf_ptr(&build_file_dirname),
+        ZigPackage *build_pkg = codegen_create_package(g, buf_ptr(&build_file_dirname),
                 buf_ptr(&build_file_basename));
         g->root_package->package_table.put(buf_create_from_str("@build"), build_pkg);
         g->enable_cache = get_cache_opt(enable_cache, true);
@@ -1145,7 +1145,7 @@ int main(int argc, char **argv) {
                 }
             } else if (cmd == CmdTranslateC) {
                 codegen_translate_c(g, in_file_buf);
-                ast_render(g, stdout, g->root_import->root, 4);
+                ast_render(g, stdout, g->root_import->data.structure.decl_node, 4);
                 if (timing_info)
                     codegen_print_timing_report(g, stdout);
                 return EXIT_SUCCESS;
