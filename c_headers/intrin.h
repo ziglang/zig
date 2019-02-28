@@ -564,8 +564,8 @@ __nop(void) {
 #if defined(__aarch64__)
 unsigned __int64 __getReg(int);
 long _InterlockedAdd(long volatile *Addend, long Value);
-int _ReadStatusReg(int);
-void _WriteStatusReg(int, int);
+__int64 _ReadStatusReg(int);
+void _WriteStatusReg(int, __int64);
 
 static inline unsigned short _byteswap_ushort (unsigned short val) {
   return __builtin_bswap16(val);
