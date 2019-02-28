@@ -48,16 +48,17 @@ static void init_darwin_native(CodeGen *g) {
     }
 }
 
-static ZigPackage *new_package(const char *root_src_dir, const char *root_src_path) {
+static ZigPackage *new_package(const char *root_src_dir, const char *root_src_path, const char *pkg_path) {
     ZigPackage *entry = allocate<ZigPackage>(1);
     entry->package_table.init(4);
     buf_init_from_str(&entry->root_src_dir, root_src_dir);
     buf_init_from_str(&entry->root_src_path, root_src_path);
+    buf_init_from_str(&entry->pkg_path, pkg_path);
     return entry;
 }
 
-ZigPackage *new_anonymous_package(void) {
-    return new_package("", "");
+ZigPackage *new_anonymous_package() {
+    return new_package("", "", "");
 }
 
 static const char *symbols_that_llvm_depends_on[] = {
@@ -141,11 +142,11 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
             exit(1);
         }
 
-        g->root_package = new_package(buf_ptr(src_dir), buf_ptr(src_basename));
-        g->std_package = new_package(buf_ptr(g->zig_std_dir), "index.zig");
+        g->root_package = new_package(buf_ptr(src_dir), buf_ptr(src_basename), "");
+        g->std_package = new_package(buf_ptr(g->zig_std_dir), "index.zig", "std");
         g->root_package->package_table.put(buf_create_from_str("std"), g->std_package);
     } else {
-        g->root_package = new_package(".", "");
+        g->root_package = new_package(".", "", "");
     }
 
     g->zig_std_special_dir = buf_alloc();
@@ -7742,12 +7743,12 @@ static Error define_builtin_compile_vars(CodeGen *g) {
 
     assert(g->root_package);
     assert(g->std_package);
-    g->compile_var_package = new_package(buf_ptr(this_dir), builtin_zig_basename);
+    g->compile_var_package = new_package(buf_ptr(this_dir), builtin_zig_basename, "builtin");
     g->root_package->package_table.put(buf_create_from_str("builtin"), g->compile_var_package);
     g->std_package->package_table.put(buf_create_from_str("builtin"), g->compile_var_package);
     g->std_package->package_table.put(buf_create_from_str("std"), g->std_package);
-    g->compile_var_import = add_source_file(g, g->compile_var_package, builtin_zig_path, contents);
-    scan_import(g, g->compile_var_import);
+    g->compile_var_import = add_source_file(g, g->compile_var_package, builtin_zig_path, contents,
+            SourceKindNonRoot);
 
     return ErrorNone;
 }
@@ -7986,21 +7987,21 @@ static ZigType *add_special_code(CodeGen *g, ZigPackage *package, const char *ba
         zig_panic("unable to open '%s': %s\n", buf_ptr(&path_to_code_src), err_str(err));
     }
 
-    return add_source_file(g, package, resolved_path, import_code);
+    return add_source_file(g, package, resolved_path, import_code, SourceKindNonRoot);
 }
 
 static ZigPackage *create_bootstrap_pkg(CodeGen *g, ZigPackage *pkg_with_main) {
-    ZigPackage *package = codegen_create_package(g, buf_ptr(g->zig_std_special_dir), "bootstrap.zig");
+    ZigPackage *package = codegen_create_package(g, buf_ptr(g->zig_std_special_dir), "bootstrap.zig", "std.special");
     package->package_table.put(buf_create_from_str("@root"), pkg_with_main);
     return package;
 }
 
 static ZigPackage *create_test_runner_pkg(CodeGen *g) {
-    return codegen_create_package(g, buf_ptr(g->zig_std_special_dir), "test_runner.zig");
+    return codegen_create_package(g, buf_ptr(g->zig_std_special_dir), "test_runner.zig", "std.special");
 }
 
 static ZigPackage *create_panic_pkg(CodeGen *g) {
-    return codegen_create_package(g, buf_ptr(g->zig_std_special_dir), "panic.zig");
+    return codegen_create_package(g, buf_ptr(g->zig_std_special_dir), "panic.zig", "std.special");
 }
 
 static void create_test_compile_var_and_add_test_runner(CodeGen *g) {
@@ -8084,7 +8085,8 @@ static void gen_root_source(CodeGen *g) {
         exit(1);
     }
 
-    g->root_import = add_source_file(g, g->root_package, resolved_path, source_code);
+    ZigType *root_import_alias = add_source_file(g, g->root_package, resolved_path, source_code, SourceKindRoot);
+    assert(root_import_alias == g->root_import);
 
     assert(g->root_out_name);
     assert(g->out_type != OutTypeUnknown);
@@ -8098,7 +8100,6 @@ static void gen_root_source(CodeGen *g) {
             g->panic_package = create_panic_pkg(g);
             import_with_panic = add_special_code(g, g->panic_package, "panic.zig");
         }
-        scan_import(g, import_with_panic);
         Tld *panic_tld = find_decl(g, &get_container_scope(import_with_panic)->base, buf_create_from_str("panic"));
         assert(panic_tld != nullptr);
         resolve_top_level_decl(g, panic_tld, nullptr);
@@ -9021,9 +9022,11 @@ void codegen_build_and_link(CodeGen *g) {
     codegen_add_time_event(g, "Done");
 }
 
-ZigPackage *codegen_create_package(CodeGen *g, const char *root_src_dir, const char *root_src_path) {
+ZigPackage *codegen_create_package(CodeGen *g, const char *root_src_dir, const char *root_src_path,
+        const char *pkg_path)
+{
     init(g);
-    ZigPackage *pkg = new_package(root_src_dir, root_src_path);
+    ZigPackage *pkg = new_package(root_src_dir, root_src_path, pkg_path);
     if (g->std_package != nullptr) {
         assert(g->compile_var_package != nullptr);
         pkg->package_table.put(buf_create_from_str("std"), g->std_package);

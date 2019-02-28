@@ -1,5 +1,6 @@
 const std = @import("std");
 const expect = std.testing.expect;
+const expectEqualSlices = std.testing.expectEqualSlices;
 const mem = std.mem;
 const cstr = std.cstr;
 const builtin = @import("builtin");
@@ -488,7 +489,7 @@ test "@typeName" {
         expect(mem.eql(u8, @typeName(i64), "i64"));
         expect(mem.eql(u8, @typeName(*usize), "*usize"));
         // https://github.com/ziglang/zig/issues/675
-        expect(mem.eql(u8, @typeName(TypeFromFn(u8)), "TypeFromFn(u8)"));
+        expectEqualSlices(u8, "behavior.misc.TypeFromFn(u8)", @typeName(TypeFromFn(u8)));
         expect(mem.eql(u8, @typeName(Struct), "Struct"));
         expect(mem.eql(u8, @typeName(Union), "Union"));
         expect(mem.eql(u8, @typeName(Enum), "Enum"));

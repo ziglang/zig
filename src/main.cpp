@@ -223,7 +223,8 @@ static void add_package(CodeGen *g, CliPkg *cli_pkg, ZigPackage *pkg) {
         Buf *basename = buf_alloc();
         os_path_split(buf_create_from_str(child_cli_pkg->path), dirname, basename);
 
-        ZigPackage *child_pkg = codegen_create_package(g, buf_ptr(dirname), buf_ptr(basename));
+        ZigPackage *child_pkg = codegen_create_package(g, buf_ptr(dirname), buf_ptr(basename),
+                buf_ptr(buf_sprintf("%s.%s", buf_ptr(&pkg->pkg_path), child_cli_pkg->name)));
         auto entry = pkg->package_table.put_unique(buf_create_from_str(child_cli_pkg->name), child_pkg);
         if (entry) {
             ZigPackage *existing_pkg = entry->value;
@@ -544,7 +545,7 @@ int main(int argc, char **argv) {
         }
 
         ZigPackage *build_pkg = codegen_create_package(g, buf_ptr(&build_file_dirname),
-                buf_ptr(&build_file_basename));
+                buf_ptr(&build_file_basename), "std.special");
         g->root_package->package_table.put(buf_create_from_str("@build"), build_pkg);
         g->enable_cache = get_cache_opt(enable_cache, true);
         codegen_build_and_link(g);

@@ -47,8 +47,12 @@ bool type_allowed_in_extern(CodeGen *g, ZigType *type_entry);
 bool ptr_allows_addr_zero(ZigType *ptr_type);
 bool type_is_nonnull_ptr(ZigType *type);
 
-ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *abs_full_path, Buf *source_code);
-
+enum SourceKind {
+    SourceKindRoot,
+    SourceKindNonRoot,
+};
+ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *abs_full_path, Buf *source_code,
+        SourceKind source_kind);
 
 ZigVar *find_variable(CodeGen *g, Scope *orig_context, Buf *name, ScopeFnDef **crossed_fndef_scope);
 Tld *find_decl(CodeGen *g, Scope *scope, Buf *name);
@@ -78,10 +82,10 @@ bool is_array_ref(ZigType *type_entry);
 bool is_container_ref(ZigType *type_entry);
 bool is_valid_vector_elem_type(ZigType *elem_type);
 void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node);
-void scan_import(CodeGen *g, ZigType *import);
 void preview_use_decl(CodeGen *g, AstNode *node);
 void resolve_use_decl(CodeGen *g, AstNode *node);
 ZigFn *scope_fn_entry(Scope *scope);
+ZigPackage *scope_package(Scope *scope);
 ZigType *get_scope_import(Scope *scope);
 void init_tld(Tld *tld, TldId id, Buf *name, VisibMod visib_mod, AstNode *source_node, Scope *parent_scope);
 ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf *name,

@@ -1076,6 +1076,7 @@ enum ResolveStatus {
 struct ZigPackage {
     Buf root_src_dir;
     Buf root_src_path; // relative to root_src_dir
+    Buf pkg_path; // a.b.c.d which follows the package dependency chain from the root package
 
     // reminder: hash tables must be initialized before use
     HashMap<Buf *, ZigPackage *, buf_hash, buf_eql_buf> package_table;
@@ -1089,7 +1090,6 @@ struct RootStruct {
     Buf *source_code;
     AstNode *c_import_node;
     ZigLLVMDIFile *di_file;
-    bool scanned;
 };
 
 struct ZigTypeStruct {
@@ -1678,8 +1678,6 @@ struct CodeGen {
     HashMap<Buf *, ConstExprValue *, buf_hash, buf_eql_buf> string_literals_table;
     HashMap<const ZigType *, ConstExprValue *, type_ptr_hash, type_ptr_eql> type_info_cache;
 
-    ZigList<ZigType *> import_queue;
-    size_t import_queue_index;
     ZigList<Tld *> resolve_queue;
     size_t resolve_queue_index;
     ZigList<AstNode *> use_queue;
@@ -3472,6 +3470,8 @@ static const size_t stack_trace_ptr_count = 30;
 #define ERR_RET_TRACE_PTR_FIELD_NAME "err_ret_trace_ptr"
 #define RESULT_PTR_FIELD_NAME "result_ptr"
 
+#define NAMESPACE_SEP_CHAR '.'
+#define NAMESPACE_SEP_STR "."
 
 enum FloatMode {
     FloatModeStrict,

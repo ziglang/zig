@@ -6608,9 +6608,15 @@ static bool render_instance_name_recursive(CodeGen *codegen, Buf *name, Scope *o
     return true;
 }
 
-static Buf *get_anon_type_name(CodeGen *codegen, IrExecutable *exec, const char *kind_name, AstNode *source_node) {
+static Buf *get_anon_type_name(CodeGen *codegen, IrExecutable *exec, const char *kind_name,
+        Scope *scope, AstNode *source_node)
+{
     if (exec->name) {
-        return exec->name;
+        ZigPackage *cur_scope_pkg = scope_package(scope);
+        Buf *namespace_name = buf_create_from_buf(&cur_scope_pkg->pkg_path);
+        if (buf_len(namespace_name) != 0) buf_append_char(namespace_name, NAMESPACE_SEP_CHAR);
+        buf_append_buf(namespace_name, exec->name);
+        return namespace_name;
     } else if (exec->name_fn != nullptr) {
         Buf *name = buf_alloc();
         buf_append_buf(name, &exec->name_fn->symbol_name);
@@ -6619,37 +6625,52 @@ static Buf *get_anon_type_name(CodeGen *codegen, IrExecutable *exec, const char 
         buf_appendf(name, ")");
         return name;
     } else {
-        // Note: C-imports do not have valid location information
-        // TODO this will get fixed by https://github.com/ziglang/zig/issues/2015
-        return buf_sprintf("(anonymous %s at %s:%" ZIG_PRI_usize ":%" ZIG_PRI_usize ")", kind_name,
-            (source_node->owner->data.structure.root_struct->path != nullptr) ?
-                buf_ptr(source_node->owner->data.structure.root_struct->path) :
-                "(null)", source_node->line + 1, source_node->column + 1);
+        ZigPackage *cur_scope_pkg = scope_package(scope);
+        Buf *namespace_name = buf_create_from_buf(&cur_scope_pkg->pkg_path);
+        if (buf_len(namespace_name) != 0) buf_append_char(namespace_name, NAMESPACE_SEP_CHAR);
+        buf_appendf(namespace_name, "%s:%" ZIG_PRI_usize ":%" ZIG_PRI_usize, kind_name,
+                source_node->line + 1, source_node->column + 1);
+        return namespace_name;
     }
 }
 
+static void get_namespace_name(Buf *buf, Scope *scope, uint8_t sep) {
+    if (!scope)
+        return;
+
+    if (scope->id == ScopeIdDecls) {
+        get_namespace_name(buf, scope->parent, sep);
+
+        ScopeDecls *scope_decls = (ScopeDecls *)scope;
+        if (scope_decls->container_type) {
+            buf_append_buf(buf, &scope_decls->container_type->name);
+            buf_append_char(buf, sep);
+        }
+        return;
+    }
+
+    get_namespace_name(buf, scope->parent, sep);
+}
 static IrInstruction *ir_gen_container_decl(IrBuilder *irb, Scope *parent_scope, AstNode *node) {
     assert(node->type == NodeTypeContainerDecl);
 
     ContainerKind kind = node->data.container_decl.kind;
-    Buf *name = get_anon_type_name(irb->codegen, irb->exec, container_string(kind), node);
-
-    VisibMod visib_mod = VisibModPub;
-    TldContainer *tld_container = allocate<TldContainer>(1);
-    init_tld(&tld_container->base, TldIdContainer, name, visib_mod, node, parent_scope);
+    Buf *name = get_anon_type_name(irb->codegen, irb->exec, container_string(kind), parent_scope, node);
 
     ContainerLayout layout = node->data.container_decl.layout;
     ZigType *container_type = get_partial_container_type(irb->codegen, parent_scope,
             kind, node, buf_ptr(name), layout);
     ScopeDecls *child_scope = get_container_scope(container_type);
 
-    tld_container->type_entry = container_type;
-    tld_container->decls_scope = child_scope;
-
     for (size_t i = 0; i < node->data.container_decl.decls.length; i += 1) {
         AstNode *child_node = node->data.container_decl.decls.at(i);
         scan_decls(irb->codegen, child_scope, child_node);
     }
+
+    TldContainer *tld_container = allocate<TldContainer>(1);
+    init_tld(&tld_container->base, TldIdContainer, name, VisibModPub, node, parent_scope);
+    tld_container->type_entry = container_type;
+    tld_container->decls_scope = child_scope;
     irb->codegen->resolve_queue.append(&tld_container->base);
 
     // Add this to the list to mark as invalid if analyzing this exec fails.
@@ -6734,7 +6755,7 @@ static IrInstruction *ir_gen_err_set_decl(IrBuilder *irb, Scope *parent_scope, A
 
     uint32_t err_count = node->data.err_set_decl.decls.length;
 
-    Buf *type_name = get_anon_type_name(irb->codegen, irb->exec, "error set", node);
+    Buf *type_name = get_anon_type_name(irb->codegen, irb->exec, "error", parent_scope, node);
     ZigType *err_set_type = new_type_table_entry(ZigTypeIdErrorSet);
     buf_init_from_buf(&err_set_type->name, type_name);
     err_set_type->data.error_set.err_count = err_count;
@@ -17018,9 +17039,8 @@ static IrInstruction *ir_analyze_instruction_import(IrAnalyze *ira, IrInstructio
         }
     }
 
-    ZigType *target_import = add_source_file(ira->codegen, target_package, resolved_path, import_code);
-
-    scan_import(ira->codegen, target_import);
+    ZigType *target_import = add_source_file(ira->codegen, target_package, resolved_path, import_code,
+            SourceKindNonRoot);
 
     return ir_const_type(ira, &import_instruction->base, target_import);
 }
@@ -18658,14 +18678,20 @@ static IrInstruction *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruct
     if (type_is_invalid(cimport_result->type))
         return ira->codegen->invalid_instruction;
 
+    ZigPackage *cur_scope_pkg = scope_package(instruction->base.scope);
+    Buf *namespace_name = buf_sprintf("%s.cimport:%" ZIG_PRI_usize ":%" ZIG_PRI_usize,
+            buf_ptr(&cur_scope_pkg->pkg_path), node->line + 1, node->column + 1);
+
     RootStruct *root_struct = allocate<RootStruct>(1);
     root_struct->package = new_anonymous_package();
     root_struct->package->package_table.put(buf_create_from_str("builtin"), ira->codegen->compile_var_package);
     root_struct->package->package_table.put(buf_create_from_str("std"), ira->codegen->std_package);
     root_struct->c_import_node = node;
+    // TODO create namespace_name file in zig-cache instead of /tmp and use it
+    // for this DIFile
     root_struct->di_file = ZigLLVMCreateFile(ira->codegen->dbuilder,
         buf_ptr(buf_create_from_str("cimport.h")), buf_ptr(buf_create_from_str(".")));
-    ZigType *child_import = get_root_container_type(ira->codegen, "cimport", root_struct);
+    ZigType *child_import = get_root_container_type(ira->codegen, buf_ptr(namespace_name), root_struct);
 
     ZigList<ErrorMsg *> errors = {0};
 
@@ -21614,7 +21640,8 @@ static IrInstruction *ir_analyze_instruction_align_cast(IrAnalyze *ira, IrInstru
 }
 
 static IrInstruction *ir_analyze_instruction_opaque_type(IrAnalyze *ira, IrInstructionOpaqueType *instruction) {
-    Buf *name = get_anon_type_name(ira->codegen, ira->new_irb.exec, "opaque", instruction->base.source_node);
+    Buf *name = get_anon_type_name(ira->codegen, ira->new_irb.exec, "opaque",
+            instruction->base.scope, instruction->base.source_node);
     ZigType *result_type = get_opaque_type(ira->codegen, instruction->base.scope, instruction->base.source_node,
             buf_ptr(name));
     return ir_const_type(ira, &instruction->base, result_type);
