@@ -3575,8 +3575,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeUse:
             {
                 g->use_queue.append(node);
-                ZigType *import = get_scope_import(&decls_scope->base);
-                get_container_scope(import)->use_decls.append(node);
+                decls_scope->use_decls.append(node);
                 break;
             }
         case NodeTypeTestDecl:
@@ -3900,19 +3899,19 @@ void resolve_top_level_decl(CodeGen *g, Tld *tld, AstNode *source_node) {
 }
 
 Tld *find_decl(CodeGen *g, Scope *scope, Buf *name) {
-    // we must resolve all the use decls
-    ZigType *import = get_scope_import(scope);
-    for (size_t i = 0; i < get_container_scope(import)->use_decls.length; i += 1) {
-        AstNode *use_decl_node = get_container_scope(import)->use_decls.at(i);
-        if (use_decl_node->data.use.resolution == TldResolutionUnresolved) {
-            preview_use_decl(g, use_decl_node);
-            resolve_use_decl(g, use_decl_node);
-        }
-    }
-
     while (scope) {
         if (scope->id == ScopeIdDecls) {
             ScopeDecls *decls_scope = (ScopeDecls *)scope;
+
+            // resolve all the use decls
+            for (size_t i = 0; i < decls_scope->use_decls.length; i += 1) {
+                AstNode *use_decl_node = decls_scope->use_decls.at(i);
+                if (use_decl_node->data.use.resolution == TldResolutionUnresolved) {
+                    preview_use_decl(g, use_decl_node);
+                    resolve_use_decl(g, use_decl_node);
+                }
+            }
+
             auto entry = decls_scope->decl_table.maybe_get(name);
             if (entry)
                 return entry->value;
@@ -4353,7 +4352,7 @@ static void add_symbols_from_import(CodeGen *g, AstNode *src_use_node, AstNode *
         preview_use_decl(g, src_use_node);
     }
 
-    ConstExprValue *use_target_value = src_use_node->data.use.value;
+    ConstExprValue *use_target_value = src_use_node->data.use.using_namespace_value;
     if (type_is_invalid(use_target_value->type)) {
         get_container_scope(dst_use_node->owner)->any_imports_failed = true;
         return;
@@ -4365,7 +4364,6 @@ static void add_symbols_from_import(CodeGen *g, AstNode *src_use_node, AstNode *
 
     ZigType *target_import = use_target_value->data.x_type;
     assert(target_import);
-    assert(target_import->id == ZigTypeIdStruct);
 
     if (get_container_scope(target_import)->any_imports_failed) {
         get_container_scope(dst_use_node->owner)->any_imports_failed = true;
@@ -4433,7 +4431,7 @@ void preview_use_decl(CodeGen *g, AstNode *node) {
     if (type_is_invalid(result->type))
         get_container_scope(node->owner)->any_imports_failed = true;
 
-    node->data.use.value = result;
+    node->data.use.using_namespace_value = result;
 }
 
 ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *resolved_path, Buf *source_code,
@@ -4542,19 +4540,15 @@ ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *resolved_path, Bu
 }
 
 void semantic_analyze(CodeGen *g) {
-    for (; g->use_queue_index < g->use_queue.length; g->use_queue_index += 1) {
-        AstNode *use_decl_node = g->use_queue.at(g->use_queue_index);
-        preview_use_decl(g, use_decl_node);
-    }
-
-    for (size_t i = 0; i < g->use_queue.length; i += 1) {
-        AstNode *use_decl_node = g->use_queue.at(i);
-        resolve_use_decl(g, use_decl_node);
-    }
-
     while (g->resolve_queue_index < g->resolve_queue.length ||
-           g->fn_defs_index < g->fn_defs.length)
+           g->fn_defs_index < g->fn_defs.length ||
+           g->use_queue_index < g->use_queue.length)
     {
+        for (; g->use_queue_index < g->use_queue.length; g->use_queue_index += 1) {
+            AstNode *use_decl_node = g->use_queue.at(g->use_queue_index);
+            preview_use_decl(g, use_decl_node);
+            resolve_use_decl(g, use_decl_node);
+        }
         for (; g->resolve_queue_index < g->resolve_queue.length; g->resolve_queue_index += 1) {
             Tld *tld = g->resolve_queue.at(g->resolve_queue_index);
             AstNode *source_node = nullptr;

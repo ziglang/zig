@@ -698,7 +698,7 @@ struct AstNodeUse {
     AstNode *expr;
 
     TldResolution resolution;
-    ConstExprValue *value;
+    ConstExprValue *using_namespace_value;
 };
 
 struct AstNodeIfBoolExpr {
