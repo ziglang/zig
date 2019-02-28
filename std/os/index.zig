@@ -3251,6 +3251,9 @@ pub fn posixFStat(fd: i32) !posix.Stat {
             // since the fd could have been reused.
             posix.EBADF => unreachable,
             posix.ENOMEM => error.SystemResources,
+            posix.EIO => error.InputOutput,
+            // raised if stat is an invalid address
+            posix.EFAULT => unreachable,
             else => os.unexpectedErrorPosix(err),
         };
     }

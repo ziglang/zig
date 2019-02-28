@@ -6,6 +6,9 @@ pub use @import("signal.zig");
 const std = @import("../../index.zig");
 const c = std.c;
 
+pub const Stat = c.Stat;
+pub const timespec = c.timespec;
+
 const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
 
@@ -34,6 +37,7 @@ pub const O_RDWR = 0x0002;
 
 pub const O_CREAT = 0x0200;
 pub const O_TRUNC = 0x0400;
+pub const O_EXCL = 0x0800;
 pub const O_CLOEXEC = 0x00100000;
 
 pub const SEEK_SET = 0;
@@ -112,6 +116,10 @@ pub fn write(fd: i32, buf: [*]const u8, nbyte: usize) usize {
 
 pub fn raise(sig: i32) usize {
     return errnoWrap(c.raise(sig));
+}
+
+pub fn fstat(fd: i32, buf: *c.Stat) usize {
+    return errnoWrap(c.fstat(fd, buf));
 }
 
 pub fn exit(code: i32) noreturn {

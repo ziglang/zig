@@ -311,6 +311,7 @@ pub const File = struct {
         SystemResources,
         Unseekable,
         Unexpected,
+        InputOutput,
     };
 
     pub fn getPos(self: File) GetSeekPosError!usize {
