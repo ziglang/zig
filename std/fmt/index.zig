@@ -236,6 +236,9 @@ pub fn formatType(
                 const casted_value = ([]const u8)(value);
                 return output(context, casted_value);
             },
+            builtin.TypeInfo.Pointer.Size.C => {
+                return format(context, Errors, output, "{}@{x}", @typeName(T.Child), @ptrToInt(value));
+            },
         },
         builtin.TypeId.Array => |info| {
             if (info.child == u8) {
@@ -828,7 +831,7 @@ pub fn parseUnsigned(comptime T: type, buf: []const u8, radix: u8) ParseUnsigned
     return x;
 }
 
-test "parseUnsigned" {
+test "fmt.parseUnsigned" {
     testing.expect((try parseUnsigned(u16, "050124", 10)) == 50124);
     testing.expect((try parseUnsigned(u16, "65535", 10)) == 65535);
     testing.expectError(error.Overflow, parseUnsigned(u16, "65536", 10));
@@ -853,6 +856,12 @@ test "parseUnsigned" {
     testing.expect((try parseUnsigned(u1, "001", 16)) == 1);
     testing.expect((try parseUnsigned(u2, "3", 16)) == 3);
     testing.expectError(error.Overflow, parseUnsigned(u2, "4", 16));
+}
+
+pub const parseFloat = @import("parse_float.zig").parseFloat;
+
+test "fmt.parseFloat" {
+    _ = @import("parse_float.zig");
 }
 
 pub fn charToDigit(c: u8, radix: u8) (error{InvalidCharacter}!u8) {
@@ -1109,7 +1118,7 @@ test "fmt.format" {
         const result = try bufPrint(buf1[0..], "f64: {}\n", math.nan_f64);
         testing.expect(mem.eql(u8, result, "f64: nan\n"));
     }
-    if (builtin.arch != builtin.Arch.armv8) {
+    if (builtin.arch != builtin.Arch.arm) {
         // negative nan is not defined by IEE 754,
         // and ARM thus normalizes it to positive nan
         var buf1: [32]u8 = undefined;

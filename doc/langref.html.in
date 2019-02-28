@@ -8,13 +8,7 @@
       body{
         background-color:#111;
         color: #bbb;
-        font-family: system-ui,
-          /* Fallbacks for browsers that don't support system-ui */
-          /* https://caniuse.com/#search=system-ui */
-          -apple-system, /* iOS and macOS */
-          Roboto,        /* Android */
-          "Segoe UI",    /* Windows */
-          sans-serif;
+        font-family: system-ui, -apple-system, Roboto, "Segoe UI", sans-serif;
       }
       a {
         color: #88f;
@@ -243,8 +237,9 @@ const Timestamp = struct {
       {#header_close#}
       {#header_open|Values#}
       {#code_begin|exe|values#}
-const std = @import("std");
+// Top-level declarations are order-independent:
 const warn = std.debug.warn;
+const std = @import("std");
 const os = std.os;
 const assert = std.debug.assert;
 
@@ -262,7 +257,7 @@ pub fn main() void {
         true and false,
         true or false,
         !true);
-    
+
     // optional
     var optional_value: ?[]const u8 = null;
     assert(optional_value == null);
@@ -281,7 +276,7 @@ pub fn main() void {
 
     warn("\nerror union 1\ntype: {}\nvalue: {}\n",
         @typeName(@typeOf(number_or_error)), number_or_error);
- 
+
     number_or_error = 1234;
 
     warn("\nerror union 2\ntype: {}\nvalue: {}\n",
@@ -706,15 +701,21 @@ fn divide(a: i32, b: i32) i32 {
       {#code_end#}
       <p>
       In this function, values {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#} are known only at runtime,
-      and thus this division operation is vulnerable to both integer overflow and
-      division by zero.
+      and thus this division operation is vulnerable to both {#link|Integer Overflow#} and
+      {#link|Division by Zero#}.
       </p>
       <p>
       Operators such as {#syntax#}+{#endsyntax#} and {#syntax#}-{#endsyntax#} cause undefined behavior on
               integer overflow. Also available are operations such as {#syntax#}+%{#endsyntax#} and
                   {#syntax#}-%{#endsyntax#} which are defined to have wrapping arithmetic on all targets.
       </p>
-      {#see_also|Integer Overflow|Division by Zero|Wrapping Operations#}
+      <p>
+      Zig supports arbitrary bit-width integers, referenced by using
+      an identifier of <code>i</code> or </code>u</code> followed by digits. For example, the identifier
+      {#syntax#}i7{#endsyntax#} refers to a signed 7-bit integer. The maximum allowed bit-width of an
+      integer type is {#syntax#}65535{#endsyntax#}.
+      </p>
+      {#see_also|Wrapping Operations#}
       {#header_close#}
       {#header_close#}
       {#header_open|Floats#}
@@ -1651,7 +1652,7 @@ test "pointer slicing" {
     assert(array[3] == 5);
 }
       {#code_end#}
-      <p>Pointers work at compile-time too, as long as the code does not depend on 
+      <p>Pointers work at compile-time too, as long as the code does not depend on
       an undefined memory layout:</p>
       {#code_begin|test#}
 const assert = @import("std").debug.assert;
@@ -1694,7 +1695,7 @@ test "comptime @intToPtr" {
     }
 }
       {#code_end#}
-      {#see_also|Optional Pointers#}
+      {#see_also|Optional Pointers|@intToPtr|@ptrToInt#}
       {#header_open|volatile#}
       <p>Loads and stores are assumed to not have side effects. If a given load or store
       should have side effects, such as Memory Mapped Input/Output (MMIO), use {#syntax#}volatile{#endsyntax#}.
@@ -1823,7 +1824,9 @@ fn foo(bytes: []u8) u32 {
 }
       {#code_end#}
       {#header_close#}
+      {#see_also|C Pointers|Pointers to Zero Bit Types#}
       {#header_close#}
+
       {#header_open|Slices#}
       {#code_begin|test_safety|index out of bounds#}
 const assert = @import("std").debug.assert;
@@ -2043,14 +2046,211 @@ test "linked list" {
     assert(list2.first.?.data == 1234);
 }
       {#code_end#}
+
+      {#header_open|extern struct#}
+      <p>An {#syntax#}extern struct{#endsyntax#} has in-memory layout guaranteed to match the
+      C ABI for the target.</p>
+      {#see_also|extern union|extern enum#}
+      {#header_close#}
+
       {#header_open|packed struct#}
-      <p>{#syntax#}packed{#endsyntax#} structs have guaranteed in-memory layout.</p>
-      <p>TODO bit fields</p>
-      <p>TODO alignment</p>
-      <p>TODO endianness</p>
-      <p>TODO @bitOffsetOf and @byteOffsetOf</p>
-      <p>TODO mention how volatile loads and stores of bit packed fields could be more efficient when
-      done by hand instead of with packed struct</p>
+      <p>
+      Unlike normal structs, {#syntax#}packed{#endsyntax#} structs have guaranteed in-memory layout:
+      </p>
+      <ul>
+        <li>Fields remain in the order declared.</li>
+        <li>There is no padding between fields.</li>
+        <li>Zig supports arbitrary width {#link|Integers#} and although normally, integers with fewer
+        than 8 bits will still use 1 byte of memory, in packed structs, they use
+        exactly their bit width.
+        </li>
+        <li>{#syntax#}bool{#endsyntax#} fields use exactly 1 bit.</li>
+        <li>A {#link|packed enum#} field uses exactly the bit width of its integer tag type.</li>
+        <li>A {#link|packed union#} field uses exactly the bit width of the union field with
+        the largest bit width.</li>
+        <li>Non-byte-aligned fields are packed into the smallest possible
+        byte-aligned integers in accordance with the target endianness.
+        </li>
+      </ul>
+      <p>
+      This means that a {#syntax#}packed struct{#endsyntax#} can participate
+      in a {#link|@bitCast#} or a {#link|@ptrCast#} to reinterpret memory.
+      This even works at {#link|comptime#}:
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const builtin = @import("builtin");
+const assert = std.debug.assert;
+
+const Full = packed struct {
+    number: u16,
+};
+const Divided = packed struct {
+    half1: u8,
+    quarter3: u4,
+    quarter4: u4,
+};
+
+test "@bitCast between packed structs" {
+    doTheTest();
+    comptime doTheTest();
+}
+
+fn doTheTest() void {
+    assert(@sizeOf(Full) == 2);
+    assert(@sizeOf(Divided) == 2);
+    var full = Full{ .number = 0x1234 };
+    var divided = @bitCast(Divided, full);
+    switch (builtin.endian) {
+        builtin.Endian.Big => {
+            assert(divided.half1 == 0x12);
+            assert(divided.quarter3 == 0x3);
+            assert(divided.quarter4 == 0x4);
+        },
+        builtin.Endian.Little => {
+            assert(divided.half1 == 0x34);
+            assert(divided.quarter3 == 0x2);
+            assert(divided.quarter4 == 0x1);
+        },
+    }
+}
+      {#code_end#}
+      <p>
+      Zig allows the address to be taken of a non-byte-aligned field:
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+const BitField = packed struct {
+    a: u3,
+    b: u3,
+    c: u2,
+};
+
+var foo = BitField{
+    .a = 1,
+    .b = 2,
+    .c = 3,
+};
+
+test "pointer to non-byte-aligned field" {
+    const ptr = &foo.b;
+    assert(ptr.* == 2);
+}
+      {#code_end#}
+      <p>
+      However, the pointer to a non-byte-aligned field has special properties and cannot
+      be passed when a normal pointer is expected:
+      </p>
+      {#code_begin|test_err|expected type#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+const BitField = packed struct {
+    a: u3,
+    b: u3,
+    c: u2,
+};
+
+var bit_field = BitField{
+    .a = 1,
+    .b = 2,
+    .c = 3,
+};
+
+test "pointer to non-bit-aligned field" {
+    assert(bar(&bit_field.b) == 2);
+}
+
+fn bar(x: *const u3) u3 {
+    return x.*;
+}
+      {#code_end#}
+      <p>
+      In this case, the function {#syntax#}bar{#endsyntax#} cannot be called becuse the pointer
+      to the non-byte-aligned field mentions the bit offset, but the function expects a byte-aligned pointer.
+      </p>
+      <p>
+      Pointers to non-byte-aligned fields share the same address as the other fields within their host integer:
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+const BitField = packed struct {
+    a: u3,
+    b: u3,
+    c: u2,
+};
+
+var bit_field = BitField{
+    .a = 1,
+    .b = 2,
+    .c = 3,
+};
+
+test "pointer to non-bit-aligned field" {
+    assert(@ptrToInt(&bit_field.a) == @ptrToInt(&bit_field.b));
+    assert(@ptrToInt(&bit_field.a) == @ptrToInt(&bit_field.c));
+}
+      {#code_end#}
+      <p>
+      This can be observed with {#link|@bitOffsetOf#} and {#link|byteOffsetOf#}:
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+const BitField = packed struct {
+    a: u3,
+    b: u3,
+    c: u2,
+};
+
+test "pointer to non-bit-aligned field" {
+    comptime {
+        assert(@bitOffsetOf(BitField, "a") == 0);
+        assert(@bitOffsetOf(BitField, "b") == 3);
+        assert(@bitOffsetOf(BitField, "c") == 6);
+
+        assert(@byteOffsetOf(BitField, "a") == 0);
+        assert(@byteOffsetOf(BitField, "b") == 0);
+        assert(@byteOffsetOf(BitField, "c") == 0);
+    }
+}
+      {#code_end#}
+      <p>
+      Packed structs have 1-byte alignment. However if you have an overaligned pointer to a packed struct,
+      Zig should correctly understand the alignment of fields. However there is
+      <a href="https://github.com/ziglang/zig/issues/1994">a bug</a>:
+      </p>
+      {#code_begin|test_err#}
+const S = packed struct {
+    a: u32,
+    b: u32,
+};
+test "overaligned pointer to packed struct" {
+    var foo: S align(4) = undefined;
+    const ptr: *align(4) S = &foo;
+    const ptr_to_b: *u32 = &ptr.b;
+}
+      {#code_end#}
+      <p>When this bug is fixed, the above test in the documentation will unexpectedly pass, which will
+      cause the test suite to fail, notifying the bug fixer to update these docs.
+      </p>
+      <p>
+      It's also
+      <a href="https://github.com/ziglang/zig/issues/1512">planned to be able to set alignment of struct fields</a>.
+      </p>
+      <p>
+      Using packed structs with {#link|volatile#} is problematic, and may be a compile error in the future.
+      For details on this subscribe to
+      <a href="https://github.com/ziglang/zig/issues/1761">this issue</a>.
+      TODO update these docs with a recommendation on how to use packed structs with MMIO
+      (the use case for volatile packed structs) once this issue is resolved.
+      Don't worry, there will be a good solution for this use case in zig.
+      </p>
       {#header_close#}
       {#header_open|struct Naming#}
       <p>Since all structs are anonymous, Zig infers the type name based on a few rules.</p>
@@ -2200,8 +2400,8 @@ export fn entry(foo: Foo) void { }
       {#header_close#}
       {#header_open|packed enum#}
       <p>By default, the size of enums is not guaranteed.</p>
-      <p>{#syntax#}packed enum{#endsyntax#} causes the size of the enum to be the same as the size of the integer tag type
-      of the enum:</p>
+      <p>{#syntax#}packed enum{#endsyntax#} causes the size of the enum to be the same as the size of the
+      integer tag type of the enum:</p>
       {#code_begin|test#}
 const std = @import("std");
 
@@ -2214,131 +2414,179 @@ test "packed enum" {
     std.debug.assert(@sizeOf(Number) == @sizeOf(u8));
 }
       {#code_end#}
+      <p>This makes the enum eligible to be in a {#link|packed struct#}.</p>
       {#header_close#}
       {#see_also|@memberName|@memberCount|@tagName|@sizeOf#}
       {#header_close#}
       {#header_open|union#}
-      {#code_begin|test|union#}
-const assert = @import("std").debug.assert;
-const mem = @import("std").mem;
-
-// A union has only 1 active field at a time.
+      <p>
+      A bare {#syntax#}union{#endsyntax#} defines a set of possible types that a value
+      can be as a list of fields. Only one field can be active at a time.
+      The in-memory representation of bare unions is not guaranteed.
+      Bare unions cannot be used to reinterpret memory. For that, use {#link|@ptrCast#},
+      or use an {#link|extern union#} or a {#link|packed union#} which have
+      guaranteed in-memory layout.
+      {#link|Accessing the non-active field|Wrong Union Field Access#} is
+      safety-checked {#link|Undefined Behavior#}:
+      </p>
+      {#code_begin|test_err|inactive union field#}
 const Payload = union {
     Int: i64,
     Float: f64,
     Bool: bool,
 };
 test "simple union" {
-    var payload = Payload {.Int = 1234};
-    // payload.Float = 12.34; // ERROR! field not active
+    var payload = Payload{ .Int = 1234 };
+    payload.Float = 12.34;
+}
+      {#code_end#}
+      <p>You can activate another field by assigning the entire union:</p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+const Payload = union {
+    Int: i64,
+    Float: f64,
+    Bool: bool,
+};
+test "simple union" {
+    var payload = Payload{ .Int = 1234 };
     assert(payload.Int == 1234);
-    // You can activate another field by assigning the entire union.
-    payload = Payload {.Float = 12.34};
+    payload = Payload{ .Float = 12.34 };
     assert(payload.Float == 12.34);
 }
+      {#code_end#}
+      <p>
+      In order to use {#link|switch#} with a union, it must be a {#link|Tagged union#}.
+      </p>
 
-// Unions can be given an enum tag type:
-const ComplexTypeTag = enum { Ok, NotOk }; 
+      {#header_open|Tagged union#}
+      <p>Unions can be declared with an enum tag type.
+      This turns the union into a <em>tagged</em> union, which makes it eligible
+      to use with {#link|switch#} expressions. One can use {#link|@TagType#} to
+      obtain the enum type from the union type.
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+const ComplexTypeTag = enum {
+    Ok,
+    NotOk,
+};
 const ComplexType = union(ComplexTypeTag) {
     Ok: u8,
     NotOk: void,
 };
 
-// Declare a specific instance of the union variant.
-test "declare union value" {
-    const c = ComplexType { .Ok = 0 };
+test "switch on tagged union" {
+    const c = ComplexType{ .Ok = 42 };
     assert(ComplexTypeTag(c) == ComplexTypeTag.Ok);
+
+    switch (c) {
+        ComplexTypeTag.Ok => |value| assert(value == 42),
+        ComplexTypeTag.NotOk => unreachable,
+    }
 }
 
-// @TagType can be used to access the enum tag type of a union.
 test "@TagType" {
     assert(@TagType(ComplexType) == ComplexTypeTag);
 }
+      {#code_end#}
+      <p>In order to modify the payload of a tagged union in a switch expression,
+      place a {#syntax#}*{#endsyntax#} before the variable name to make it a pointer:
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
 
-// Unions can be made to infer the enum tag type.
-const Foo = union(enum) {
-    String: []const u8,
-    Number: u64,
-
-    // void can be omitted when inferring enum tag type.
-    None,
+const ComplexTypeTag = enum {
+    Ok,
+    NotOk,
 };
-test "union variant switch" {
-    const p = Foo { .Number = 54 };
-    const what_is_it = switch (p) {
-        // Capture by reference
-        Foo.String => |*x| blk: {
-            break :blk "this is a string";
-        },
+const ComplexType = union(ComplexTypeTag) {
+    Ok: u8,
+    NotOk: void,
+};
 
-        // Capture by value
-        Foo.Number => |x| blk: {
-            assert(x == 54);
-            break :blk "this is a number";
-        },
+test "modify tagged union in switch" {
+    var c = ComplexType{ .Ok = 42 };
+    assert(ComplexTypeTag(c) == ComplexTypeTag.Ok);
 
-        Foo.None => blk: {
-            break :blk "this is a none";
-        },
-    };
-    assert(mem.eql(u8, what_is_it, "this is a number"));
+    switch (c) {
+        ComplexTypeTag.Ok => |*value| value.* += 1,
+        ComplexTypeTag.NotOk => unreachable,
+    }
+
+    assert(c.Ok == 43);
 }
-
-// Unions can have methods just like structs and enums:
+      {#code_end#}
+      <p>
+      Unions can be made to infer the enum tag type.
+      Further, unions can have methods just like structs and enums.
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
 
 const Variant = union(enum) {
     Int: i32,
     Bool: bool,
 
+    // void can be omitted when inferring enum tag type.
+    None,
+
     fn truthy(self: Variant) bool {
         return switch (self) {
             Variant.Int => |x_int| x_int != 0,
             Variant.Bool => |x_bool| x_bool,
+            Variant.None => false,
         };
     }
 };
 
 test "union method" {
-    var v1 = Variant { .Int = 1 };
-    var v2 = Variant { .Bool = false };
+    var v1 = Variant{ .Int = 1 };
+    var v2 = Variant{ .Bool = false };
 
     assert(v1.truthy());
     assert(!v2.truthy());
 }
+      {#code_end#}
+      <p>
+      {#link|@tagName#} can be used to return a {#link|comptime#}
+      {#syntax#}[]const u8{#endsyntax#} value representing the field name:
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
 
-
-const Small = union {
-    A: i32,
-    B: bool,
-    C: u8,
-};
-
-// @memberCount tells how many fields a union has:
-test "@memberCount" {
-    assert(@memberCount(Small) == 3);
-}
-
-// @memberName tells the name of a field in an enum:
-test "@memberName" {
-    assert(mem.eql(u8, @memberName(Small, 1), "B"));
-}
-
-// @tagName gives a []const u8 representation of an enum value,
-// but only if the union has an enum tag type.
 const Small2 = union(enum) {
     A: i32,
     B: bool,
     C: u8,
 };
 test "@tagName" {
-    assert(mem.eql(u8, @tagName(Small2.C), "C"));
+    assert(std.mem.eql(u8, @tagName(Small2.C), "C"));
 }
       {#code_end#}
-      <p>
-      Unions with an enum tag are generated as a struct with a tag field and union field. Zig
-      sorts the order of the tag and union field by the largest alignment.
-      </p>
       {#header_close#}
+
+      {#header_open|extern union#}
+      <p>
+      An {#syntax#}extern union{#endsyntax#} has memory layout guaranteed to be compatible with
+      the target C ABI.
+      </p>
+      {#see_also|extern struct#}
+      {#header_close#}
+
+      {#header_open|packed union#}
+      <p>A {#syntax#}packed union{#endsyntax#} has well-defined in-memory layout and is eligible
+      to be in a {#link|packed struct#}.
+      {#header_close#}
+      {#header_close#}
+
       {#header_open|blocks#}
       <p>
       Blocks are used to limit the scope of variable declarations:
@@ -2371,7 +2619,36 @@ test "labeled break from labeled block expression" {
       {#code_end#}
       <p>Here, {#syntax#}blk{#endsyntax#} can be any name.</p>
       {#see_also|Labeled while|Labeled for#}
+
+      {#header_open|Shadowing#}
+      <p>It is never allowed for an identifier to "hide" another one by using the same name:</p>
+      {#code_begin|test_err|redefinition#}
+const pi = 3.14;
+
+test "inside test block" {
+    // Let's even go inside another block
+    {
+        var pi: i32 = 1234;
+    }
+}
+      {#code_end#}
+      <p>
+      Because of this, when you read Zig code you can rely on an identifier always meaning the same thing,
+      within the scope it is defined. Note that you can, however use the same name if the scopes are separate:
+      </p>
+      {#code_begin|test#}
+test "separate scopes" {
+    {
+        const pi = 3.14;
+    }
+    {
+        var pi: bool = true;
+    }
+}
+      {#code_end#}
       {#header_close#}
+      {#header_close#}
+
       {#header_open|switch#}
       {#code_begin|test|switch#}
 const assert = @import("std").debug.assert;
@@ -2392,7 +2669,7 @@ test "switch simple" {
 
         // Ranges can be specified using the ... syntax. These are inclusive
         // both ends.
-        5 ... 100 => 1,
+        5...100 => 1,
 
         // Branches can be arbitrarily complex.
         101 => blk: {
@@ -2418,34 +2695,6 @@ test "switch simple" {
     assert(b == 1);
 }
 
-test "switch enum" {
-    const Item = union(enum) {
-        A: u32,
-        C: struct { x: u8, y: u8 },
-        D,
-    };
-
-    var a = Item { .A = 3 };
-
-    // Switching on more complex enums is allowed.
-    const b = switch (a) {
-        // A capture group is allowed on a match, and will return the enum
-        // value matched.
-        Item.A => |item| item,
-
-        // A reference to the matched value can be obtained using `*` syntax.
-        Item.C => |*item| blk: {
-            item.*.x += 1;
-            break :blk 6;
-        },
-
-        // No else is required if the types cases was exhaustively handled
-        Item.D => 8,
-    };
-
-    assert(b == 3);
-}
-
 // Switch expressions can be used outside a function:
 const os_msg = switch (builtin.os) {
     builtin.Os.linux => "we found a linux user",
@@ -2464,6 +2713,48 @@ test "switch inside function" {
         },
         else => {},
     }
+}
+      {#code_end#}
+      <p>
+      {#syntax#}switch{#endsyntax#} can be used to capture the field values
+      of a {#link|Tagged union#}. Modifications to the field values can be
+      done by placing a {#syntax#}*{#endsyntax#} before the capture variable name,
+      turning it into a pointer.
+      </p>
+      {#code_begin|test#}
+const assert = @import("std").debug.assert;
+
+test "switch on tagged union" {
+    const Point = struct {
+        x: u8,
+        y: u8,
+    };
+    const Item = union(enum) {
+        A: u32,
+        C: Point,
+        D,
+    };
+
+    var a = Item{ .C = Point{ .x = 1, .y = 2 } };
+
+    // Switching on more complex enums is allowed.
+    const b = switch (a) {
+        // A capture group is allowed on a match, and will return the enum
+        // value matched.
+        Item.A => |item| item,
+
+        // A reference to the matched value can be obtained using `*` syntax.
+        Item.C => |*item| blk: {
+            item.*.x += 1;
+            break :blk 6;
+        },
+
+        // No else is required if the types cases was exhaustively handled
+        Item.D => 8,
+    };
+
+    assert(b == 6);
+    assert(a.C.x == 2);
 }
       {#code_end#}
       {#see_also|comptime|enum|@compileError|Compile Variables#}
@@ -3134,7 +3425,6 @@ const assert = @import("std").debug.assert;
 // Functions are declared like this
 fn add(a: i8, b: i8) i8 {
     if (a == 0) {
-        // You can still return manually if needed.
         return b;
     }
 
@@ -3158,10 +3448,16 @@ fn abort() noreturn {
     while (true) {}
 }
 
-// nakedcc makes a function not have any function prologue or epilogue.
+// The nakedcc specifier makes a function not have any function prologue or epilogue.
 // This can be useful when integrating with assembly.
 nakedcc fn _start() noreturn {
     abort();
+}
+
+// The inline specifier forces a function to be inlined at all call sites.
+// If the function cannot be inlined, it is a compile-time error.
+inline fn shiftLeftOne(a: u32) u32 {
+    return a << 1;
 }
 
 // The pub specifier allows the function to be visible when importing.
@@ -3731,7 +4027,7 @@ fn bang2() void {
       Here, the stack trace does not explain how the control
       flow in {#syntax#}bar{#endsyntax#} got to the {#syntax#}hello(){#endsyntax#} call.
       One would have to open a debugger or further instrument the application
-      in order to find out. The error return trace, on the other hand, 
+      in order to find out. The error return trace, on the other hand,
       shows exactly how the error bubbled up.
       </p>
       <p>
@@ -3923,7 +4219,7 @@ test "optional type" {
       cast it to a different type:
       </p>
       {#code_begin|syntax#}
-const optional_value: ?i32 = null; 
+const optional_value: ?i32 = null;
       {#code_end#}
       {#header_close#}
       {#header_open|Optional Pointers#}
@@ -3981,7 +4277,7 @@ test "implicit cast - invoke a type as a function" {
       {#code_end#}
       <p>
       Implicit casts are only allowed when it is completely unambiguous how to get from one type to another,
-      and the transformation is guaranteed to be safe.
+      and the transformation is guaranteed to be safe. There is one exception, which is {#link|C Pointers#}.
       </p>
       {#header_open|Implicit Cast: Stricter Qualification#}
       <p>
@@ -4228,9 +4524,20 @@ fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) anyerror![]u8 {
       {#header_close#}
       {#header_close#}
 
-      {#header_open|void#}
+      {#header_open|Zero Bit Types#}
+      <p>For some types, {#link|@sizeOf#} is 0:</p>
+      <ul>
+          <li>{#link|void#}</li>
+          <li>The {#link|Integers#} {#syntax#}u0{#endsyntax#} and {#syntax#}i0{#endsyntax#}.</li>
+          <li>{#link|Arrays#} and {#link|Vectors#} with len 0, or with an element type that is a zero bit type.</li>
+          <li>An {#link|enum#} with only 1 tag.</li>
+          <li>An {#link|struct#} with all fields being zero bit types.</li>
+          <li>A {#link|union#} with only 1 field which is a zero bit type.</li>
+          <li>{#link|Pointers to Zero Bit Types#} are themselves zero bit types.</li>
+      </ul>
       <p>
-      {#syntax#}void{#endsyntax#} represents a type that has no value. Code that makes use of void values is
+      These types can only ever have one possible value, and thus
+      require 0 bits to represent. Code that makes use of these types is
       not included in the final generated code:
       </p>
       {#code_begin|syntax#}
@@ -4240,8 +4547,8 @@ export fn entry() void {
     x = y;
 }
       {#code_end#}
-      <p>When this turns into LLVM IR, there is no code generated in the body of {#syntax#}entry{#endsyntax#},
-      even in debug mode. For example, on x86_64:</p>
+      <p>When this turns into machine code, there is no code generated in the
+      body of {#syntax#}entry{#endsyntax#}, even in {#link|Debug#} mode. For example, on x86_64:</p>
       <pre><code>0000000000000010 &lt;entry&gt;:
   10:	55                   	push   %rbp
   11:	48 89 e5             	mov    %rsp,%rbp
@@ -4249,6 +4556,8 @@ export fn entry() void {
   15:	c3                   	retq   </code></pre>
       <p>These assembly instructions do not have any code associated with the void values -
       they only perform the function call prologue and epilog.</p>
+
+      {#header_open|void#}
       <p>
       {#syntax#}void{#endsyntax#} can be useful for instantiating generic types. For example, given a
           {#syntax#}Map(Key, Value){#endsyntax#}, one can pass {#syntax#}void{#endsyntax#} for the {#syntax#}Value{#endsyntax#}
@@ -4318,6 +4627,38 @@ fn foo() i32 {
     return 1234;
 }
       {#code_end#}
+      {#header_close#}
+
+      {#header_open|Pointers to Zero Bit Types#}
+      <p>Pointers to zero bit types also have zero bits. They always compare equal to each other:</p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+test "pointer to empty struct" {
+    const Empty = struct {};
+    var a = Empty{};
+    var b = Empty{};
+    var ptr_a = &a;
+    var ptr_b = &b;
+    comptime assert(ptr_a == ptr_b);
+}
+      {#code_end#}
+      <p>The type being pointed to can only ever be one value; therefore loads and stores are
+      never generated. {#link|ptrToInt#} and {#link|intToPtr#} are not allowed:</p>
+      {#code_begin|test_err#}
+const Empty = struct {};
+
+test "@ptrToInt for pointer to zero bit type" {
+    var a = Empty{};
+    _ = @ptrToInt(&a);
+}
+
+test "@intToPtr for pointer to zero bit type" {
+    _ = @intToPtr(*Empty, 0x1);
+}
+      {#code_end#}
+      {#header_close#}
       {#header_close#}
 
       {#header_open|comptime#}
@@ -5101,7 +5442,7 @@ async fn testResumeFromSuspend(my_result: *i32) void {
       <p>
       {#syntax#}await{#endsyntax#} is valid only in an {#syntax#}async{#endsyntax#} function, and it takes
       as an operand a promise handle.
-      If the async function associated with the promise handle has already returned, 
+      If the async function associated with the promise handle has already returned,
       then {#syntax#}await{#endsyntax#} destroys the target async function, and gives the return value.
           Otherwise, {#syntax#}await{#endsyntax#} suspends the current async function, registering its
       promise handle with the target coroutine. It becomes the target coroutine's responsibility
@@ -5185,7 +5526,7 @@ fn seq(c: u8) void {
           </li>
       </ul>
       {#header_close#}
-      
+
       {#header_close#}
       {#header_open|Builtin Functions#}
       <p>
@@ -5540,13 +5881,13 @@ const warn = @import("std").debug.warn;
 
 const num1 = blk: {
     var val1: i32 = 99;
-    @compileLog("comptime val1 = ", val1); 
+    @compileLog("comptime val1 = ", val1);
     val1 = val1 + 1;
     break :blk val1;
 };
 
 test "main" {
-    @compileLog("comptime in main"); 
+    @compileLog("comptime in main");
 
     warn("Runtime in main, num1 = {}.\n", num1);
 }
@@ -5556,10 +5897,10 @@ test "main" {
       will ouput:
       </p>
       <p>
-      If all {#syntax#}@compileLog{#endsyntax#} calls are removed or 
+      If all {#syntax#}@compileLog{#endsyntax#} calls are removed or
       not encountered by analysis, the
       program compiles successfully and the generated executable prints:
-      </p>  
+      </p>
       {#code_begin|test#}
 const warn = @import("std").debug.warn;
 
@@ -5658,12 +5999,13 @@ test "main" {
       {#header_close#}
 
       {#header_open|@enumToInt#}
-      <pre>{#syntax#}@enumToInt(enum_value: var) var{#endsyntax#}</pre>
+      <pre>{#syntax#}@enumToInt(enum_or_tagged_union: var) var{#endsyntax#}</pre>
       <p>
-      Converts an enumeration value into its integer tag type.
+      Converts an enumeration value into its integer tag type. When a tagged union is passed,
+      the tag value is used as the enumeration value.
       </p>
       <p>
-      If the enum has only 1 possible value, the resut is a {#syntax#}comptime_int{#endsyntax#}
+      If there is only one possible enum value, the resut is a {#syntax#}comptime_int{#endsyntax#}
       known at {#link|comptime#}.
       </p>
       {#see_also|@intToEnum#}
@@ -6104,6 +6446,10 @@ test "call foo" {
       <p>
       Converts a pointer of one type to a pointer of another type.
       </p>
+      <p>
+      {#link|Optional Pointers#} are allowed. Casting an optional pointer which is {#link|null#}
+      to a non-optional pointer invokes safety-checked {#link|Undefined Behavior#}.
+      </p>
       {#header_close#}
 
       {#header_open|@ptrToInt#}
@@ -6293,10 +6639,15 @@ pub const FloatMode = enum {
       <pre>{#syntax#}@sizeOf(comptime T: type) comptime_int{#endsyntax#}</pre>
       <p>
       This function returns the number of bytes it takes to store {#syntax#}T{#endsyntax#} in memory.
-      </p>
-      <p>
       The result is a target-specific compile time constant.
       </p>
+      <p>
+      This size may contain padding bytes. If there were two consecutive T in memory, this would be the offset
+      in bytes between element at index 0 and the element at index 1. For {#link|integer|Integers#},
+      consider whether you want to use {#syntax#}@sizeOf(T){#endsyntax#} or
+      {#syntax#}@typeInfo(T).Int.bits{#endsyntax#}.
+      </p>
+      {#see_also|@typeInfo#}
       {#header_close#}
 
       {#header_open|@sliceToBytes#}
@@ -6375,7 +6726,7 @@ fn List(comptime T: type) type {
       <p>
       When {#syntax#}@This(){#endsyntax#} is used at global scope, it returns a reference to the
       current import. There is a proposal to remove the import type and use an empty struct
-      type instead. See 
+      type instead. See
       <a href="https://github.com/ziglang/zig/issues/1047">#1047</a> for details.
       </p>
       {#header_close#}
@@ -6730,11 +7081,7 @@ pub fn build(b: *Builder) void {
       {#header_open|Single Threaded Builds#}
       <p>Zig has a compile option <code>--single-threaded</code> which has the following effects:
       <ul>
-        <li>{#link|@atomicLoad#} is emitted as a normal load.</li>
-        <li>{#link|@atomicRmw#} is emitted as a normal memory load, modify, store.</li>
-        <li>{#link|@fence#} becomes a no-op.</li>
-        <li>Variables which have Thread Local Storage instead become globals. TODO thread local variables
-        are not implemented yet.</li>
+        <li>Variables which have Thread Local Storage instead become globals.</li>
         <li>The overhead of {#link|Coroutines#} becomes equivalent to function call overhead.
           TODO: please note this will not be implemented until the upcoming Coroutine Rewrite</li>
         <li>The {#syntax#}@import("builtin").single_threaded{#endsyntax#} becomes {#syntax#}true{#endsyntax#}
@@ -7343,10 +7690,28 @@ fn bar(f: *Foo) void {
     f.float = 12.34;
 }
       {#code_end#}
+      {#see_also|union|extern union#}
       {#header_close#}
 
-      {#header_open|Out of Bounds Float To Integer Cast#}
+      {#header_open|Out of Bounds Float to Integer Cast#}
       <p>TODO</p>
+      {#header_close#}
+
+      {#header_open|Pointer Cast Invalid Null#}
+      <p>At compile-time:</p>
+      {#code_begin|test_err|null pointer casted to type#}
+comptime {
+    const opt_ptr: ?*i32 = null;
+    const ptr = @ptrCast(*i32, opt_ptr);
+}
+      {#code_end#}
+      <p>At runtime:</p>
+      {#code_begin|exe_err#}
+pub fn main() void {
+    var opt_ptr: ?*i32 = null;
+    var ptr = @ptrCast(*i32, opt_ptr);
+}
+      {#code_end#}
       {#header_close#}
 
       {#header_close#}
@@ -7439,6 +7804,7 @@ pub fn main() void {
       {#code_end#}
       {#see_also|String Literals#}
       {#header_close#}
+
       {#header_open|Import from C Header File#}
       <p>
       The {#syntax#}@cImport{#endsyntax#} builtin function can be used
@@ -7477,6 +7843,36 @@ const c = @cImport({
       {#code_end#}
       {#see_also|@cImport|@cInclude|@cDefine|@cUndef|@import#}
       {#header_close#}
+
+      {#header_open|C Pointers#}
+      <p>
+      This type is to be avoided whenever possible. The only valid reason for using a C pointer is in
+      auto-generated code from translating C code.
+      </p>
+      <p>
+      When importing C header files, it is ambiguous whether pointers should be translated as
+      single-item pointers ({#syntax#}*T{#endsyntax#}) or unknown-length pointers ({#syntax#}[*]T{#endsyntax#}).
+      C pointers are a compromise so that Zig code can utilize translated header files directly.
+      </p>
+      <p>{#syntax#}[*c]T{#endsyntax#} - C pointer.</p>
+      <ul>
+        <li>Supports all the syntax of the other two pointer types.</li>
+        <li>Implicitly casts to other pointer types, as well as {#link|Optional Pointers#}.
+            When a C pointer is implicitly casted to a non-optional pointer, safety-checked
+            {#link|Undefined Behavior#} occurs if the address is 0.
+        </li>
+        <li>Allows address 0. On non-freestanding targets, dereferencing address 0 is safety-checked
+            {#link|Undefined Behavior#}. Optional C pointers introduce another bit to keep track of
+            null, just like {#syntax#}?usize{#endsyntax#}. Note that creating an optional C pointer
+            is unnecessary as one can use normal {#link|Optional Pointers#}.
+        </li>
+        <li>Supports {#link|implicit casting|Implicit Casts#} to and from integers.</li>
+        <li>Supports comparison with integers.</li>
+        <li>Does not support Zig-only pointer attributes such as alignment. Use normal {#link|Pointers#}
+        please!</li>
+      </ul>
+      {#header_close#}
+
       {#header_open|Exporting a C Library#}
       <p>
       One of the primary use cases for Zig is exporting a library with the C ABI for other programming languages
@@ -7729,7 +8125,7 @@ Environments:
   coreclr
   opencl</code></pre>
       <p>
-      The Zig Standard Library ({#syntax#}@import("std"){#endsyntax#}) has architecture, environment, and operating sytsem
+      The Zig Standard Library ({#syntax#}@import("std"){#endsyntax#}) has architecture, environment, and operating system
       abstractions, and thus takes additional work to support more platforms.
       Not all standard library code requires operating system abstractions, however,
       so things such as generic data structures work an all above platforms.
@@ -8164,7 +8560,8 @@ ArrayTypeStart &lt;- LBRACKET Expr? RBRACKET
 PtrTypeStart
     &lt;- ASTERISK
      / ASTERISK2
-     / LBRACKET ASTERISK RBRACKET
+     / PTRUNKNOWN
+     / PTRC
 
 # ContainerDecl specific
 ContainerDeclAuto &lt;- ContainerDeclType LBRACE ContainerMembers RBRACE
@@ -8262,7 +8659,7 @@ LARROW2              &lt;- '&lt;&lt;'     ![=]      skip
 LARROW2EQUAL         &lt;- '&lt;&lt;='              skip
 LARROWEQUAL          &lt;- '&lt;='               skip
 LBRACE               &lt;- '{'                skip
-LBRACKET             &lt;- '['                skip
+LBRACKET             &lt;- '['      ![*]      skip
 LPAREN               &lt;- '('                skip
 MINUS                &lt;- '-'      ![%=&gt;]    skip
 MINUSEQUAL           &lt;- '-='               skip
@@ -8279,6 +8676,8 @@ PLUS2                &lt;- '++'               skip
 PLUSEQUAL            &lt;- '+='               skip
 PLUSPERCENT          &lt;- '+%'     ![=]      skip
 PLUSPERCENTEQUAL     &lt;- '+%='              skip
+PTRC                 &lt;- '[*c]'             skip
+PTRUNKNOWN           &lt;- '[*]'              skip
 QUESTIONMARK         &lt;- '?'                skip
 RARROW               &lt;- '&gt;'      ![&gt;=]     skip
 RARROW2              &lt;- '&gt;&gt;'     ![=]      skip

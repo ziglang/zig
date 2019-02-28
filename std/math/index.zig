@@ -51,6 +51,12 @@ pub const nan_f64 = @bitCast(f64, nan_u64);
 pub const inf_u64 = u64(0x7FF << 52);
 pub const inf_f64 = @bitCast(f64, inf_u64);
 
+pub const nan_u128 = u128(0x7fff0000000000000000000000000001);
+pub const nan_f128 = @bitCast(f128, nan_u128);
+
+pub const inf_u128 = u128(0x7fff0000000000000000000000000000);
+pub const inf_f128 = @bitCast(f128, inf_u128);
+
 pub const nan = @import("nan.zig").nan;
 pub const snan = @import("nan.zig").snan;
 pub const inf = @import("inf.zig").inf;
@@ -379,7 +385,7 @@ pub fn IntFittingRange(comptime from: comptime_int, comptime to: comptime_int) t
         return u0;
     }
     const is_signed = from < 0;
-    const largest_positive_integer = max(if (from<0) (-from)-1 else from, to); // two's complement
+    const largest_positive_integer = max(if (from < 0) (-from) - 1 else from, to); // two's complement
     const base = log2(largest_positive_integer);
     const upper = (1 << base) - 1;
     var magnitude_bits = if (upper >= largest_positive_integer) base else base + 1;
@@ -752,6 +758,7 @@ test "minInt and maxInt" {
     testing.expect(maxInt(u16) == 65535);
     testing.expect(maxInt(u32) == 4294967295);
     testing.expect(maxInt(u64) == 18446744073709551615);
+    testing.expect(maxInt(u128) == 340282366920938463463374607431768211455);
 
     testing.expect(maxInt(i0) == 0);
     testing.expect(maxInt(i1) == 0);
@@ -760,6 +767,7 @@ test "minInt and maxInt" {
     testing.expect(maxInt(i32) == 2147483647);
     testing.expect(maxInt(i63) == 4611686018427387903);
     testing.expect(maxInt(i64) == 9223372036854775807);
+    testing.expect(maxInt(i128) == 170141183460469231731687303715884105727);
 
     testing.expect(minInt(u0) == 0);
     testing.expect(minInt(u1) == 0);
@@ -768,6 +776,7 @@ test "minInt and maxInt" {
     testing.expect(minInt(u32) == 0);
     testing.expect(minInt(u63) == 0);
     testing.expect(minInt(u64) == 0);
+    testing.expect(minInt(u128) == 0);
 
     testing.expect(minInt(i0) == 0);
     testing.expect(minInt(i1) == -1);
@@ -776,6 +785,7 @@ test "minInt and maxInt" {
     testing.expect(minInt(i32) == -2147483648);
     testing.expect(minInt(i63) == -4611686018427387904);
     testing.expect(minInt(i64) == -9223372036854775808);
+    testing.expect(minInt(i128) == -170141183460469231731687303715884105728);
 }
 
 test "max value type" {

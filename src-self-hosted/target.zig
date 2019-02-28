@@ -16,7 +16,7 @@ pub const Target = union(enum) {
     pub const Cross = struct {
         arch: builtin.Arch,
         os: builtin.Os,
-        environ: builtin.Environ,
+        abi: builtin.Abi,
         object_format: builtin.ObjectFormat,
     };
 
@@ -49,16 +49,16 @@ pub const Target = union(enum) {
     }
 
     pub fn getArch(self: Target) builtin.Arch {
-        return switch (self) {
-            Target.Native => builtin.arch,
-            @TagType(Target).Cross => |t| t.arch,
-        };
+        switch (self) {
+            Target.Native => return builtin.arch,
+            @TagType(Target).Cross => |t| return t.arch,
+        }
     }
 
-    pub fn getEnviron(self: Target) builtin.Environ {
+    pub fn getAbi(self: Target) builtin.Abi {
         return switch (self) {
-            Target.Native => builtin.environ,
-            @TagType(Target).Cross => |t| t.environ,
+            Target.Native => builtin.abi,
+            @TagType(Target).Cross => |t| t.abi,
         };
     }
 
@@ -93,50 +93,10 @@ pub const Target = union(enum) {
     /// TODO expose the arch and subarch separately
     pub fn isArmOrThumb(self: Target) bool {
         return switch (self.getArch()) {
-            builtin.Arch.armv8_5a,
-            builtin.Arch.armv8_4a,
-            builtin.Arch.armv8_3a,
-            builtin.Arch.armv8_2a,
-            builtin.Arch.armv8_1a,
-            builtin.Arch.armv8,
-            builtin.Arch.armv8r,
-            builtin.Arch.armv8m_baseline,
-            builtin.Arch.armv8m_mainline,
-            builtin.Arch.armv7,
-            builtin.Arch.armv7em,
-            builtin.Arch.armv7m,
-            builtin.Arch.armv7s,
-            builtin.Arch.armv7k,
-            builtin.Arch.armv7ve,
-            builtin.Arch.armv6,
-            builtin.Arch.armv6m,
-            builtin.Arch.armv6k,
-            builtin.Arch.armv6t2,
-            builtin.Arch.armv5,
-            builtin.Arch.armv5te,
-            builtin.Arch.armv4t,
-            builtin.Arch.armebv8_5a,
-            builtin.Arch.armebv8_4a,
-            builtin.Arch.armebv8_3a,
-            builtin.Arch.armebv8_2a,
-            builtin.Arch.armebv8_1a,
-            builtin.Arch.armebv8,
-            builtin.Arch.armebv8r,
-            builtin.Arch.armebv8m_baseline,
-            builtin.Arch.armebv8m_mainline,
-            builtin.Arch.armebv7,
-            builtin.Arch.armebv7em,
-            builtin.Arch.armebv7m,
-            builtin.Arch.armebv7s,
-            builtin.Arch.armebv7k,
-            builtin.Arch.armebv7ve,
-            builtin.Arch.armebv6,
-            builtin.Arch.armebv6m,
-            builtin.Arch.armebv6k,
-            builtin.Arch.armebv6t2,
-            builtin.Arch.armebv5,
-            builtin.Arch.armebv5te,
-            builtin.Arch.armebv4t,
+            builtin.Arch.arm,
+            builtin.Arch.armeb,
+            builtin.Arch.aarch64,
+            builtin.Arch.aarch64_be,
             builtin.Arch.thumb,
             builtin.Arch.thumbeb,
             => true,
@@ -159,14 +119,14 @@ pub const Target = union(enum) {
         // LLVM WebAssembly output support requires the target to be activated at
         // build type with -DCMAKE_LLVM_EXPIERMENTAL_TARGETS_TO_BUILD=WebAssembly.
         //
-        // LLVM determines the output format based on the environment suffix,
+        // LLVM determines the output format based on the abi suffix,
         // defaulting to an object based on the architecture. The default format in
         // LLVM 6 sets the wasm arch output incorrectly to ELF. We need to
         // explicitly set this ourself in order for it to work.
         //
         // This is fixed in LLVM 7 and you will be able to get wasm output by
         // using the target triple `wasm32-unknown-unknown-unknown`.
-        const env_name = if (self.isWasm()) "wasm" else @tagName(self.getEnviron());
+        const env_name = if (self.isWasm()) "wasm" else @tagName(self.getAbi());
 
         var out = &std.io.BufferOutStream.init(&result).stream;
         try out.print("{}-unknown-{}-{}", @tagName(self.getArch()), @tagName(self.getOs()), env_name);
@@ -185,50 +145,8 @@ pub const Target = union(enum) {
             => return 16,
 
             builtin.Arch.arc,
-            builtin.Arch.armv8_5a,
-            builtin.Arch.armv8_4a,
-            builtin.Arch.armv8_3a,
-            builtin.Arch.armv8_2a,
-            builtin.Arch.armv8_1a,
-            builtin.Arch.armv8,
-            builtin.Arch.armv8r,
-            builtin.Arch.armv8m_baseline,
-            builtin.Arch.armv8m_mainline,
-            builtin.Arch.armv7,
-            builtin.Arch.armv7em,
-            builtin.Arch.armv7m,
-            builtin.Arch.armv7s,
-            builtin.Arch.armv7k,
-            builtin.Arch.armv7ve,
-            builtin.Arch.armv6,
-            builtin.Arch.armv6m,
-            builtin.Arch.armv6k,
-            builtin.Arch.armv6t2,
-            builtin.Arch.armv5,
-            builtin.Arch.armv5te,
-            builtin.Arch.armv4t,
-            builtin.Arch.armebv8_5a,
-            builtin.Arch.armebv8_4a,
-            builtin.Arch.armebv8_3a,
-            builtin.Arch.armebv8_2a,
-            builtin.Arch.armebv8_1a,
-            builtin.Arch.armebv8,
-            builtin.Arch.armebv8r,
-            builtin.Arch.armebv8m_baseline,
-            builtin.Arch.armebv8m_mainline,
-            builtin.Arch.armebv7,
-            builtin.Arch.armebv7em,
-            builtin.Arch.armebv7m,
-            builtin.Arch.armebv7s,
-            builtin.Arch.armebv7k,
-            builtin.Arch.armebv7ve,
-            builtin.Arch.armebv6,
-            builtin.Arch.armebv6m,
-            builtin.Arch.armebv6k,
-            builtin.Arch.armebv6t2,
-            builtin.Arch.armebv5,
-            builtin.Arch.armebv5te,
-            builtin.Arch.armebv4t,
+            builtin.Arch.arm,
+            builtin.Arch.armeb,
             builtin.Arch.hexagon,
             builtin.Arch.le32,
             builtin.Arch.mipsr6,
@@ -248,35 +166,17 @@ pub const Target = union(enum) {
             builtin.Arch.amdil,
             builtin.Arch.hsail,
             builtin.Arch.spir,
-            builtin.Arch.kalimbav3,
-            builtin.Arch.kalimbav4,
-            builtin.Arch.kalimbav5,
+            builtin.Arch.kalimba,
             builtin.Arch.shave,
             builtin.Arch.lanai,
             builtin.Arch.wasm32,
             builtin.Arch.renderscript32,
             => return 32,
 
-            builtin.Arch.aarch64v8_5a,
-            builtin.Arch.aarch64v8_4a,
-            builtin.Arch.aarch64v8_3a,
-            builtin.Arch.aarch64v8_2a,
-            builtin.Arch.aarch64v8_1a,
-            builtin.Arch.aarch64v8,
-            builtin.Arch.aarch64v8r,
-            builtin.Arch.aarch64v8m_baseline,
-            builtin.Arch.aarch64v8m_mainline,
-            builtin.Arch.aarch64_bev8_5a,
-            builtin.Arch.aarch64_bev8_4a,
-            builtin.Arch.aarch64_bev8_3a,
-            builtin.Arch.aarch64_bev8_2a,
-            builtin.Arch.aarch64_bev8_1a,
-            builtin.Arch.aarch64_bev8,
-            builtin.Arch.aarch64_bev8r,
-            builtin.Arch.aarch64_bev8m_baseline,
-            builtin.Arch.aarch64_bev8m_mainline,
-            builtin.Arch.mips64r6,
-            builtin.Arch.mips64elr6,
+            builtin.Arch.aarch64,
+            builtin.Arch.aarch64_be,
+            builtin.Arch.mips64,
+            builtin.Arch.mips64el,
             builtin.Arch.powerpc64,
             builtin.Arch.powerpc64le,
             builtin.Arch.riscv64,
@@ -298,17 +198,17 @@ pub const Target = union(enum) {
     }
 
     pub fn getFloatAbi(self: Target) FloatAbi {
-        return switch (self.getEnviron()) {
-            builtin.Environ.gnueabihf,
-            builtin.Environ.eabihf,
-            builtin.Environ.musleabihf,
+        return switch (self.getAbi()) {
+            builtin.Abi.gnueabihf,
+            builtin.Abi.eabihf,
+            builtin.Abi.musleabihf,
             => FloatAbi.Hard,
             else => FloatAbi.Soft,
         };
     }
 
     pub fn getDynamicLinkerPath(self: Target) ?[]const u8 {
-        const env = self.getEnviron();
+        const env = self.getAbi();
         const arch = self.getArch();
         const os = self.getOs();
         switch (os) {
@@ -317,21 +217,21 @@ pub const Target = union(enum) {
             },
             builtin.Os.linux => {
                 switch (env) {
-                    builtin.Environ.android => {
+                    builtin.Abi.android => {
                         if (self.is64bit()) {
                             return "/system/bin/linker64";
                         } else {
                             return "/system/bin/linker";
                         }
                     },
-                    builtin.Environ.gnux32 => {
+                    builtin.Abi.gnux32 => {
                         if (arch == builtin.Arch.x86_64) {
                             return "/libx32/ld-linux-x32.so.2";
                         }
                     },
-                    builtin.Environ.musl,
-                    builtin.Environ.musleabi,
-                    builtin.Environ.musleabihf,
+                    builtin.Abi.musl,
+                    builtin.Abi.musleabi,
+                    builtin.Abi.musleabihf,
                     => {
                         if (arch == builtin.Arch.x86_64) {
                             return "/lib/ld-musl-x86_64.so.1";
@@ -345,73 +245,18 @@ pub const Target = union(enum) {
                     builtin.Arch.sparcel,
                     => return "/lib/ld-linux.so.2",
 
-                    builtin.Arch.aarch64v8_5a,
-                    builtin.Arch.aarch64v8_4a,
-                    builtin.Arch.aarch64v8_3a,
-                    builtin.Arch.aarch64v8_2a,
-                    builtin.Arch.aarch64v8_1a,
-                    builtin.Arch.aarch64v8,
-                    builtin.Arch.aarch64v8r,
-                    builtin.Arch.aarch64v8m_baseline,
-                    builtin.Arch.aarch64v8m_mainline,
-                    => return "/lib/ld-linux-aarch64.so.1",
+                    builtin.Arch.aarch64 => return "/lib/ld-linux-aarch64.so.1",
 
-                    builtin.Arch.aarch64_bev8_5a,
-                    builtin.Arch.aarch64_bev8_4a,
-                    builtin.Arch.aarch64_bev8_3a,
-                    builtin.Arch.aarch64_bev8_2a,
-                    builtin.Arch.aarch64_bev8_1a,
-                    builtin.Arch.aarch64_bev8,
-                    builtin.Arch.aarch64_bev8r,
-                    builtin.Arch.aarch64_bev8m_baseline,
-                    builtin.Arch.aarch64_bev8m_mainline,
-                    => return "/lib/ld-linux-aarch64_be.so.1",
+                    builtin.Arch.aarch64_be => return "/lib/ld-linux-aarch64_be.so.1",
 
-                    builtin.Arch.armv8_5a,
-                    builtin.Arch.armv8_4a,
-                    builtin.Arch.armv8_3a,
-                    builtin.Arch.armv8_2a,
-                    builtin.Arch.armv8_1a,
-                    builtin.Arch.armv8,
-                    builtin.Arch.armv8r,
-                    builtin.Arch.armv8m_baseline,
-                    builtin.Arch.armv8m_mainline,
-                    builtin.Arch.armv7,
-                    builtin.Arch.armv7em,
-                    builtin.Arch.armv7m,
-                    builtin.Arch.armv7s,
-                    builtin.Arch.armv7k,
-                    builtin.Arch.armv7ve,
-                    builtin.Arch.armv6,
-                    builtin.Arch.armv6m,
-                    builtin.Arch.armv6k,
-                    builtin.Arch.armv6t2,
-                    builtin.Arch.armv5,
-                    builtin.Arch.armv5te,
-                    builtin.Arch.armv4t,
+                    builtin.Arch.arm,
                     builtin.Arch.thumb,
-                    builtin.Arch.armebv8_5a,
-                    builtin.Arch.armebv8_4a,
-                    builtin.Arch.armebv8_3a,
-                    builtin.Arch.armebv8_2a,
-                    builtin.Arch.armebv8_1a,
-                    builtin.Arch.armebv8,
-                    builtin.Arch.armebv8r,
-                    builtin.Arch.armebv8m_baseline,
-                    builtin.Arch.armebv8m_mainline,
-                    builtin.Arch.armebv7,
-                    builtin.Arch.armebv7em,
-                    builtin.Arch.armebv7m,
-                    builtin.Arch.armebv7s,
-                    builtin.Arch.armebv7k,
-                    builtin.Arch.armebv7ve,
-                    builtin.Arch.armebv6,
-                    builtin.Arch.armebv6m,
-                    builtin.Arch.armebv6k,
-                    builtin.Arch.armebv6t2,
-                    builtin.Arch.armebv5,
-                    builtin.Arch.armebv5te,
-                    builtin.Arch.armebv4t,
+                    => return switch (self.getFloatAbi()) {
+                        FloatAbi.Hard => return "/lib/ld-linux-armhf.so.3",
+                        else => return "/lib/ld-linux.so.3",
+                    },
+
+                    builtin.Arch.armeb,
                     builtin.Arch.thumbeb,
                     => return switch (self.getFloatAbi()) {
                         FloatAbi.Hard => return "/lib/ld-linux-armhf.so.3",
@@ -454,9 +299,7 @@ pub const Target = union(enum) {
                     builtin.Arch.hsail64,
                     builtin.Arch.spir,
                     builtin.Arch.spir64,
-                    builtin.Arch.kalimbav3,
-                    builtin.Arch.kalimbav4,
-                    builtin.Arch.kalimbav5,
+                    builtin.Arch.kalimba,
                     builtin.Arch.shave,
                     builtin.Arch.lanai,
                     builtin.Arch.wasm32,
@@ -470,8 +313,8 @@ pub const Target = union(enum) {
         }
     }
 
-    pub fn llvmTargetFromTriple(triple: std.Buffer) !llvm.TargetRef {
-        var result: llvm.TargetRef = undefined;
+    pub fn llvmTargetFromTriple(triple: std.Buffer) !*llvm.Target {
+        var result: *llvm.Target = undefined;
         var err_msg: [*]u8 = undefined;
         if (llvm.GetTargetFromTriple(triple.ptr(), &result, &err_msg) != 0) {
             std.debug.warn("triple: {s} error: {s}\n", triple.ptr(), err_msg);
@@ -582,39 +425,9 @@ pub const Target = union(enum) {
     pub fn getDarwinArchString(self: Target) []const u8 {
         const arch = self.getArch();
         switch (arch) {
-            builtin.Arch.aarch64v8_5a,
-            builtin.Arch.aarch64v8_4a,
-            builtin.Arch.aarch64v8_3a,
-            builtin.Arch.aarch64v8_2a,
-            builtin.Arch.aarch64v8_1a,
-            builtin.Arch.aarch64v8,
-            builtin.Arch.aarch64v8r,
-            builtin.Arch.aarch64v8m_baseline,
-            builtin.Arch.aarch64v8m_mainline,
-            => return "arm64",
+            builtin.Arch.aarch64 => return "arm64",
             builtin.Arch.thumb,
-            builtin.Arch.armv8_5a,
-            builtin.Arch.armv8_4a,
-            builtin.Arch.armv8_3a,
-            builtin.Arch.armv8_2a,
-            builtin.Arch.armv8_1a,
-            builtin.Arch.armv8,
-            builtin.Arch.armv8r,
-            builtin.Arch.armv8m_baseline,
-            builtin.Arch.armv8m_mainline,
-            builtin.Arch.armv7,
-            builtin.Arch.armv7em,
-            builtin.Arch.armv7m,
-            builtin.Arch.armv7s,
-            builtin.Arch.armv7k,
-            builtin.Arch.armv7ve,
-            builtin.Arch.armv6,
-            builtin.Arch.armv6m,
-            builtin.Arch.armv6k,
-            builtin.Arch.armv6t2,
-            builtin.Arch.armv5,
-            builtin.Arch.armv5te,
-            builtin.Arch.armv4t,
+            builtin.Arch.arm,
             => return "arm",
             builtin.Arch.powerpc => return "ppc",
             builtin.Arch.powerpc64 => return "ppc64",

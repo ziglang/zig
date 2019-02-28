@@ -36,6 +36,15 @@ enum Error {
     ErrorPipeBusy,
     ErrorPrimitiveTypeNotFound,
     ErrorCacheUnavailable,
+    ErrorPathTooLong,
+    ErrorCCompilerCannotFindFile,
+    ErrorReadingDepFile,
+    ErrorMissingArchitecture,
+    ErrorMissingOperatingSystem,
+    ErrorUnknownArchitecture,
+    ErrorUnknownOperatingSystem,
+    ErrorUnknownABI,
+    ErrorInvalidFilename,
 };
 
 const char *err_str(Error err);

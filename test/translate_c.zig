@@ -117,11 +117,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\};
     ,
         \\pub const struct_Foo = extern struct {
-        \\    a: ?[*]Foo,
+        \\    a: [*c]Foo,
         \\};
         \\pub const Foo = struct_Foo;
         \\pub const struct_Bar = extern struct {
-        \\    a: ?[*]Foo,
+        \\    a: [*c]Foo,
         \\};
     );
 
@@ -213,7 +213,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     ,
         \\const struct_Foo = extern struct {
         \\    x: c_int,
-        \\    y: ?[*]u8,
+        \\    y: [*c]u8,
         \\};
     ,
         \\pub const Foo = struct_Foo;
@@ -244,7 +244,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     ,
         \\pub const BarB = enum_Bar.B;
     ,
-        \\pub extern fn func(a: ?[*]struct_Foo, b: ?[*](?[*]enum_Bar)) void;
+        \\pub extern fn func(a: [*c]struct_Foo, b: [*c]([*c]enum_Bar)) void;
     ,
         \\pub const Foo = struct_Foo;
     ,
@@ -254,7 +254,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add("constant size array",
         \\void func(int array[20]);
     ,
-        \\pub extern fn func(array: ?[*]c_int) void;
+        \\pub extern fn func(array: [*c]c_int) void;
     );
 
     cases.add("self referential struct with function pointer",
@@ -263,7 +263,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\};
     ,
         \\pub const struct_Foo = extern struct {
-        \\    derp: ?extern fn(?[*]struct_Foo) void,
+        \\    derp: ?extern fn([*c]struct_Foo) void,
         \\};
     ,
         \\pub const Foo = struct_Foo;
@@ -322,11 +322,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\};
     ,
         \\pub const struct_Bar = extern struct {
-        \\    next: ?[*]struct_Foo,
+        \\    next: [*c]struct_Foo,
         \\};
     ,
         \\pub const struct_Foo = extern struct {
-        \\    next: ?[*]struct_Bar,
+        \\    next: [*c]struct_Bar,
         \\};
     );
 
@@ -610,11 +610,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     ,
         \\pub export fn and_or_none_bool(a: c_int, b: f32, c: ?*c_void) c_int {
         \\    if ((a != 0) and (b != 0)) return 0;
-        \\    if ((b != 0) and (c != null)) return 1;
-        \\    if ((a != 0) and (c != null)) return 2;
+        \\    if ((b != 0) and (c != 0)) return 1;
+        \\    if ((a != 0) and (c != 0)) return 2;
         \\    if ((a != 0) or (b != 0)) return 3;
-        \\    if ((b != 0) or (c != null)) return 4;
-        \\    if ((a != 0) or (c != null)) return 5;
+        \\    if ((b != 0) or (c != 0)) return 4;
+        \\    if ((a != 0) or (c != 0)) return 5;
         \\    return 6;
         \\}
     );
@@ -710,7 +710,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const struct_Foo = extern struct {
         \\    field: c_int,
         \\};
-        \\pub export fn read_field(foo: ?[*]struct_Foo) c_int {
+        \\pub export fn read_field(foo: [*c]struct_Foo) c_int {
         \\    return foo.?.field;
         \\}
     );
@@ -756,7 +756,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return x;
         \\}
     ,
-        \\pub export fn foo(x: ?[*]c_ushort) ?*c_void {
+        \\pub export fn foo(x: [*c]c_ushort) ?*c_void {
         \\    return @ptrCast(?*c_void, x);
         \\}
     );
@@ -777,8 +777,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return 0;
         \\}
     ,
-        \\pub export fn foo() ?[*]c_int {
-        \\    return null;
+        \\pub export fn foo() [*c]c_int {
+        \\    return 0;
         \\}
     );
 
@@ -1086,7 +1086,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    *x = 1;
         \\}
     ,
-        \\pub export fn foo(x: ?[*]c_int) void {
+        \\pub export fn foo(x: [*c]c_int) void {
         \\    x.?.* = 1;
         \\}
     );
@@ -1114,7 +1114,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     ,
         \\pub fn foo() c_int {
         \\    var x: c_int = 1234;
-        \\    var ptr: ?[*]c_int = &x;
+        \\    var ptr: [*c]c_int = &x;
         \\    return ptr.?.*;
         \\}
     );
@@ -1124,7 +1124,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return "bar";
         \\}
     ,
-        \\pub fn foo() ?[*]const u8 {
+        \\pub fn foo() [*c]const u8 {
         \\    return c"bar";
         \\}
     );
@@ -1253,8 +1253,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return (float *)a;
         \\}
     ,
-        \\fn ptrcast(a: ?[*]c_int) ?[*]f32 {
-        \\    return @ptrCast(?[*]f32, a);
+        \\fn ptrcast(a: [*c]c_int) [*c]f32 {
+        \\    return @ptrCast([*c]f32, a);
         \\}
     );
 
@@ -1280,7 +1280,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return !(a == 0);
         \\    return !(a != 0);
         \\    return !(b != 0);
-        \\    return !(c != null);
+        \\    return !(c != 0);
         \\}
     );
 
@@ -1297,7 +1297,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add("const ptr initializer",
         \\static const char *v0 = "0.0.0";
     ,
-        \\pub var v0: ?[*]const u8 = c"0.0.0";
+        \\pub var v0: [*c]const u8 = c"0.0.0";
     );
 
     cases.add("static incomplete array inside function",
@@ -1306,17 +1306,17 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     ,
         \\pub fn foo() void {
-        \\    const v2: [*]const u8 = c"2.2.2";
+        \\    const v2: [*c]const u8 = c"2.2.2";
         \\}
     );
 
     cases.add("macro pointer cast",
         \\#define NRF_GPIO ((NRF_GPIO_Type *) NRF_GPIO_BASE)
     ,
-        \\pub const NRF_GPIO = if (@typeId(@typeOf(NRF_GPIO_BASE)) == @import("builtin").TypeId.Pointer) @ptrCast([*]NRF_GPIO_Type, NRF_GPIO_BASE) else if (@typeId(@typeOf(NRF_GPIO_BASE)) == @import("builtin").TypeId.Int) @intToPtr([*]NRF_GPIO_Type, NRF_GPIO_BASE) else ([*]NRF_GPIO_Type)(NRF_GPIO_BASE);
+        \\pub const NRF_GPIO = if (@typeId(@typeOf(NRF_GPIO_BASE)) == @import("builtin").TypeId.Pointer) @ptrCast([*c]NRF_GPIO_Type, NRF_GPIO_BASE) else if (@typeId(@typeOf(NRF_GPIO_BASE)) == @import("builtin").TypeId.Int) @intToPtr([*c]NRF_GPIO_Type, NRF_GPIO_BASE) else ([*c]NRF_GPIO_Type)(NRF_GPIO_BASE);
     );
 
-    cases.add("if on none bool",
+    cases.add("if on non-bool",
         \\enum SomeEnum { A, B, C };
         \\int if_none_bool(int a, float b, void *c, enum SomeEnum d) {
         \\    if (a) return 0;
@@ -1337,13 +1337,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub fn if_none_bool(a: c_int, b: f32, c: ?*c_void, d: enum_SomeEnum) c_int {
         \\    if (a != 0) return 0;
         \\    if (b != 0) return 1;
-        \\    if (c != null) return 2;
+        \\    if (c != 0) return 2;
         \\    if (d != @bitCast(enum_SomeEnum, @TagType(enum_SomeEnum)(0))) return 3;
         \\    return 4;
         \\}
     );
 
-    cases.add("while on none bool",
+    cases.add("while on non-bool",
         \\int while_none_bool(int a, float b, void *c) {
         \\    while (a) return 0;
         \\    while (b) return 1;
@@ -1354,12 +1354,12 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub fn while_none_bool(a: c_int, b: f32, c: ?*c_void) c_int {
         \\    while (a != 0) return 0;
         \\    while (b != 0) return 1;
-        \\    while (c != null) return 2;
+        \\    while (c != 0) return 2;
         \\    return 3;
         \\}
     );
 
-    cases.add("for on none bool",
+    cases.add("for on non-bool",
         \\int for_none_bool(int a, float b, void *c) {
         \\    for (;a;) return 0;
         \\    for (;b;) return 1;
@@ -1370,7 +1370,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub fn for_none_bool(a: c_int, b: f32, c: ?*c_void) c_int {
         \\    while (a != 0) return 0;
         \\    while (b != 0) return 1;
-        \\    while (c != null) return 2;
+        \\    while (c != 0) return 2;
         \\    return 3;
         \\}
     );
@@ -1416,4 +1416,42 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    }
         \\}
     );
+
+    cases.addC("Parameterless function prototypes",
+        \\void foo() {}
+        \\void bar(void) {}
+    ,
+        \\pub export fn foo() void {}
+        \\pub export fn bar() void {}
+    );
+
+    // cases.add("empty array with initializer",
+    //     "int a[4] = {};"
+    // ,
+    //     "pub var a: [4]c_int = [1]c_int{0} ** 4;"
+    // );
+
+    // cases.add("array with initialization",
+    //     "int a[4] = {1, 2, 3, 4};"
+    // ,
+    //     "pub var a: [4]c_int = [4]c_int{1, 2, 3, 4};"
+    // );
+
+    // cases.add("array with incomplete initialization",
+    //     "int a[4] = {3, 4};"
+    // ,
+    //     "pub var a: [4]c_int = [2]c_int{3, 4} ++ ([1]c_int{0} ** 2);"
+    // );
+
+    // cases.add("2D array with initialization",
+    //     "int a[3][3] = { {1, 2, 3}, {4, 5, 6}, {7, 8, 9} };"
+    // ,
+    //     "pub var a: [3][3]c_int = [3][3]c_int{[3]c_int{1, 2, 3}, [3]c_int{4, 5, 6}, [3]c_int{7, 8, 9}};"
+    // );
+
+    // cases.add("2D array with incomplete initialization",
+    //     "int a[3][3] = { {1, 2}, {4, 5, 6} };"
+    // ,
+    //     "pub var a: [3][3]c_int = [2][3]c_int{[2]c_int{1, 2} ++ [1]c_int{0}, [3]c_int{4, 5, 6}} ++ [1][3]c_int{[1]c_int{0} ** 3};"
+    // );
 }

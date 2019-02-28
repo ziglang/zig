@@ -1,5 +1,6 @@
 const std = @import("std");
 const expect = std.testing.expect;
+const expectEqualSlices = std.testing.expectEqualSlices;
 const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
 
@@ -103,19 +104,20 @@ fn structInitializer() void {
 }
 
 test "fn call of struct field" {
-    expect(callStructField(Foo{ .ptr = aFunc }) == 13);
-}
+    const Foo = struct {
+        ptr: fn () i32,
+    };
+    const S = struct {
+        fn aFunc() i32 {
+            return 13;
+        }
 
-const Foo = struct {
-    ptr: fn () i32,
-};
+        fn callStructField(foo: Foo) i32 {
+            return foo.ptr();
+        }
+    };
 
-fn aFunc() i32 {
-    return 13;
-}
-
-fn callStructField(foo: Foo) i32 {
-    return foo.ptr();
+    expect(S.callStructField(Foo{ .ptr = S.aFunc }) == 13);
 }
 
 test "store member function in variable" {
@@ -467,4 +469,33 @@ test "pointer to packed struct member in a stack variable" {
     expect(s.b == 0);
     b_ptr.* = 2;
     expect(s.b == 2);
+}
+
+test "non-byte-aligned array inside packed struct" {
+    const Foo = packed struct {
+        a: bool,
+        b: [0x16]u8,
+    };
+    const S = struct {
+        fn bar(slice: []const u8) void {
+            expectEqualSlices(u8, slice, "abcdefghijklmnopqurstu");
+        }
+        fn doTheTest() void {
+            var foo = Foo{
+                .a = true,
+                .b = "abcdefghijklmnopqurstu",
+            };
+            bar(foo.b);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "packed struct with u0 field access" {
+    const S = packed struct {
+        f0: u0,
+    };
+    var s = S{ .f0 = 0 };
+    comptime expect(s.f0 == 0);
 }

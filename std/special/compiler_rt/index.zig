@@ -21,6 +21,9 @@ comptime {
 
     @export("__unordtf2", @import("comparetf2.zig").__unordtf2, linkage);
 
+    @export("__addtf3", @import("addXf3.zig").__addtf3, linkage);
+    @export("__subtf3", @import("addXf3.zig").__subtf3, linkage);
+
     @export("__floattitf", @import("floattitf.zig").__floattitf, linkage);
     @export("__floattidf", @import("floattidf.zig").__floattidf, linkage);
     @export("__floattisf", @import("floattisf.zig").__floattisf, linkage);
@@ -37,6 +40,7 @@ comptime {
     @export("__extendhfsf2", @import("extendXfYf2.zig").__extendhfsf2, linkage);
 
     @export("__truncsfhf2", @import("truncXfYf2.zig").__truncsfhf2, linkage);
+    @export("__truncdfhf2", @import("truncXfYf2.zig").__truncdfhf2, linkage);
     @export("__trunctfdf2", @import("truncXfYf2.zig").__trunctfdf2, linkage);
     @export("__trunctfsf2", @import("truncXfYf2.zig").__trunctfsf2, linkage);
 
@@ -180,60 +184,10 @@ const is_arm_64 = switch (builtin.arch) {
 };
 
 const is_arm_arch = switch (builtin.arch) {
-    builtin.Arch.armv8_3a,
-    builtin.Arch.armv8_2a,
-    builtin.Arch.armv8_1a,
-    builtin.Arch.armv8,
-    builtin.Arch.armv8r,
-    builtin.Arch.armv8m_baseline,
-    builtin.Arch.armv8m_mainline,
-    builtin.Arch.armv7,
-    builtin.Arch.armv7em,
-    builtin.Arch.armv7m,
-    builtin.Arch.armv7s,
-    builtin.Arch.armv7k,
-    builtin.Arch.armv7ve,
-    builtin.Arch.armv6,
-    builtin.Arch.armv6m,
-    builtin.Arch.armv6k,
-    builtin.Arch.armv6t2,
-    builtin.Arch.armv5,
-    builtin.Arch.armv5te,
-    builtin.Arch.armv4t,
-    builtin.Arch.armebv8_3a,
-    builtin.Arch.armebv8_2a,
-    builtin.Arch.armebv8_1a,
-    builtin.Arch.armebv8,
-    builtin.Arch.armebv8r,
-    builtin.Arch.armebv8m_baseline,
-    builtin.Arch.armebv8m_mainline,
-    builtin.Arch.armebv7,
-    builtin.Arch.armebv7em,
-    builtin.Arch.armebv7m,
-    builtin.Arch.armebv7s,
-    builtin.Arch.armebv7k,
-    builtin.Arch.armebv7ve,
-    builtin.Arch.armebv6,
-    builtin.Arch.armebv6m,
-    builtin.Arch.armebv6k,
-    builtin.Arch.armebv6t2,
-    builtin.Arch.armebv5,
-    builtin.Arch.armebv5te,
-    builtin.Arch.armebv4t,
-    builtin.Arch.aarch64v8_3a,
-    builtin.Arch.aarch64v8_2a,
-    builtin.Arch.aarch64v8_1a,
-    builtin.Arch.aarch64v8,
-    builtin.Arch.aarch64v8r,
-    builtin.Arch.aarch64v8m_baseline,
-    builtin.Arch.aarch64v8m_mainline,
-    builtin.Arch.aarch64_bev8_3a,
-    builtin.Arch.aarch64_bev8_2a,
-    builtin.Arch.aarch64_bev8_1a,
-    builtin.Arch.aarch64_bev8,
-    builtin.Arch.aarch64_bev8r,
-    builtin.Arch.aarch64_bev8m_baseline,
-    builtin.Arch.aarch64_bev8m_mainline,
+    builtin.Arch.arm,
+    builtin.Arch.armeb,
+    builtin.Arch.aarch64,
+    builtin.Arch.aarch64_be,
     builtin.Arch.thumb,
     builtin.Arch.thumbeb,
     => true,

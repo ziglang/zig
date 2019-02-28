@@ -463,13 +463,16 @@ pub fn eql(a: var, b: @typeOf(a)) bool {
         builtin.TypeId.Pointer => {
             const info = @typeInfo(T).Pointer;
             switch (info.size) {
-                builtin.TypeInfo.Pointer.Size.One, builtin.TypeInfo.Pointer.Size.Many => return a == b,
+                builtin.TypeInfo.Pointer.Size.One,
+                builtin.TypeInfo.Pointer.Size.Many,
+                builtin.TypeInfo.Pointer.Size.C,
+                => return a == b,
                 builtin.TypeInfo.Pointer.Size.Slice => return a.ptr == b.ptr and a.len == b.len,
             }
         },
         builtin.TypeId.Optional => {
-            if(a == null and b == null) return true;
-            if(a == null or b == null) return false;
+            if (a == null and b == null) return true;
+            if (a == null or b == null) return false;
             return eql(a.?, b.?);
         },
         else => return a == b,

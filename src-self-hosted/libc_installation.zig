@@ -154,8 +154,8 @@ pub const LibCInstallation = struct {
                     c.ZigFindWindowsSdkError.None => {
                         windows_sdk = sdk;
 
-                        if (sdk.msvc_lib_dir_ptr) |ptr| {
-                            self.msvc_lib_dir = try std.mem.dupe(loop.allocator, u8, ptr[0..sdk.msvc_lib_dir_len]);
+                        if (sdk.msvc_lib_dir_ptr != 0) {
+                            self.msvc_lib_dir = try std.mem.dupe(loop.allocator, u8, sdk.msvc_lib_dir_ptr[0..sdk.msvc_lib_dir_len]);
                         }
                         try group.call(findNativeKernel32LibDir, self, loop, sdk);
                         try group.call(findNativeIncludeDirWindows, self, loop, sdk);
@@ -172,7 +172,7 @@ pub const LibCInstallation = struct {
                 try group.call(findNativeStaticLibDir, self, loop);
                 try group.call(findNativeDynamicLinker, self, loop);
             },
-            builtin.Os.macosx, builtin.Os.freebsd => {
+            builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => {
                 self.include_dir = try std.mem.dupe(loop.allocator, u8, "/usr/include");
             },
             else => @compileError("unimplemented: find libc for this OS"),
@@ -283,7 +283,7 @@ pub const LibCInstallation = struct {
             switch (builtin.arch) {
                 builtin.Arch.i386 => try stream.write("x86"),
                 builtin.Arch.x86_64 => try stream.write("x64"),
-                builtin.Arch.aarch64v8 => try stream.write("arm"),
+                builtin.Arch.aarch64 => try stream.write("arm"),
                 else => return error.UnsupportedArchitecture,
             }
             const ucrt_lib_path = try std.os.path.join(
@@ -361,7 +361,7 @@ pub const LibCInstallation = struct {
             switch (builtin.arch) {
                 builtin.Arch.i386 => try stream.write("x86\\"),
                 builtin.Arch.x86_64 => try stream.write("x64\\"),
-                builtin.Arch.aarch64v8 => try stream.write("arm\\"),
+                builtin.Arch.aarch64 => try stream.write("arm\\"),
                 else => return error.UnsupportedArchitecture,
             }
             const kernel32_path = try std.os.path.join(
@@ -437,20 +437,20 @@ const Search = struct {
 
 fn fillSearch(search_buf: *[2]Search, sdk: *c.ZigWindowsSDK) []Search {
     var search_end: usize = 0;
-    if (sdk.path10_ptr) |path10_ptr| {
-        if (sdk.version10_ptr) |ver10_ptr| {
+    if (sdk.path10_ptr != 0) {
+        if (sdk.version10_ptr != 0) {
             search_buf[search_end] = Search{
-                .path = path10_ptr[0..sdk.path10_len],
-                .version = ver10_ptr[0..sdk.version10_len],
+                .path = sdk.path10_ptr[0..sdk.path10_len],
+                .version = sdk.version10_ptr[0..sdk.version10_len],
             };
             search_end += 1;
         }
     }
-    if (sdk.path81_ptr) |path81_ptr| {
-        if (sdk.version81_ptr) |ver81_ptr| {
+    if (sdk.path81_ptr != 0) {
+        if (sdk.version81_ptr != 0) {
             search_buf[search_end] = Search{
-                .path = path81_ptr[0..sdk.path81_len],
-                .version = ver81_ptr[0..sdk.version81_len],
+                .path = sdk.path81_ptr[0..sdk.path81_len],
+                .version = sdk.version81_ptr[0..sdk.version81_len],
             };
             search_end += 1;
         }

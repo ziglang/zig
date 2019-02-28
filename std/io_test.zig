@@ -29,6 +29,17 @@ test "write a file, read it, then delete it" {
         try st.print("end");
         try buf_stream.flush();
     }
+
+    {
+        // make sure openWriteNoClobber doesn't harm the file
+        if (os.File.openWriteNoClobber(tmp_file_name, os.File.default_mode)) |file| {
+            unreachable;
+        }
+        else |err| {
+            std.debug.assert(err == os.File.OpenError.PathAlreadyExists);
+        }
+    }
+
     {
         var file = try os.File.openRead(tmp_file_name);
         defer file.close();

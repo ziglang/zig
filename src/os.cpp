@@ -50,11 +50,11 @@ typedef SSIZE_T ssize_t;
 
 #endif
 
-#if defined(ZIG_OS_LINUX) || defined(ZIG_OS_FREEBSD)
+#if defined(ZIG_OS_LINUX) || defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD)
 #include <link.h>
 #endif
 
-#if defined(ZIG_OS_FREEBSD)
+#if defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD)
 #include <sys/sysctl.h>
 #endif
 
@@ -78,7 +78,7 @@ static clock_serv_t cclock;
 #if defined(__APPLE__) && !defined(environ)
 #include <crt_externs.h>
 #define environ (*_NSGetEnviron())
-#elif defined(ZIG_OS_FREEBSD)
+#elif defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD)
 extern char **environ;
 #endif
 
@@ -1099,7 +1099,7 @@ Error os_fetch_file_path(Buf *full_path, Buf *out_contents, bool skip_shebang) {
             case EINTR:
                 return ErrorInterrupted;
             case EINVAL:
-                zig_unreachable();
+                return ErrorInvalidFilename;
             case ENFILE:
             case ENOMEM:
                 return ErrorSystemResources;
@@ -1231,6 +1231,18 @@ static Error os_buf_to_tmp_file_posix(Buf *contents, Buf *suffix, Buf *out_tmp_p
     return ErrorNone;
 }
 #endif
+
+Buf *os_tmp_filename(Buf *prefix, Buf *suffix) {
+    Buf *result = buf_create_from_buf(prefix);
+
+    const char base64[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_";
+    assert(array_length(base64) == 64 + 1);
+    for (size_t i = 0; i < 12; i += 1) {
+        buf_append_char(result, base64[rand() % 64]);
+    }
+    buf_append_buf(result, suffix);
+    return result;
+}
 
 #if defined(ZIG_OS_WINDOWS)
 static Error os_buf_to_tmp_file_windows(Buf *contents, Buf *suffix, Buf *out_tmp_path) {
@@ -1458,6 +1470,15 @@ Error os_self_exe_path(Buf *out_path) {
     }
     buf_resize(out_path, cb - 1);
     return ErrorNone;
+#elif defined(ZIG_OS_NETBSD)
+    buf_resize(out_path, PATH_MAX);
+    int mib[4] = { CTL_KERN, KERN_PROC_ARGS, -1, KERN_PROC_PATHNAME };
+    size_t cb = PATH_MAX;
+    if (sysctl(mib, 4, buf_ptr(out_path), &cb, nullptr, 0) != 0) {
+        return ErrorUnexpected;
+    }
+    buf_resize(out_path, cb - 1);
+    return ErrorNone;
 #endif
     return ErrorFileNotFound;
 }
@@ -1541,7 +1562,7 @@ void os_stderr_set_color(TermColor color) {
 #endif
 }
 
-int os_get_win32_ucrt_lib_path(ZigWindowsSDK *sdk, Buf* output_buf, ZigLLVM_ArchType platform_type) {
+Error os_get_win32_ucrt_lib_path(ZigWindowsSDK *sdk, Buf* output_buf, ZigLLVM_ArchType platform_type) {
 #if defined(ZIG_OS_WINDOWS)
     buf_resize(output_buf, 0);
     buf_appendf(output_buf, "%s\\Lib\\%s\\ucrt\\", sdk->path10_ptr, sdk->version10_ptr);
@@ -1562,7 +1583,7 @@ int os_get_win32_ucrt_lib_path(ZigWindowsSDK *sdk, Buf* output_buf, ZigLLVM_Arch
     buf_init_from_buf(tmp_buf, output_buf);
     buf_append_str(tmp_buf, "ucrt.lib");
     if (GetFileAttributesA(buf_ptr(tmp_buf)) != INVALID_FILE_ATTRIBUTES) {
-        return 0;
+        return ErrorNone;
     }
     else {
         buf_resize(output_buf, 0);
@@ -1573,12 +1594,12 @@ int os_get_win32_ucrt_lib_path(ZigWindowsSDK *sdk, Buf* output_buf, ZigLLVM_Arch
 #endif
 }
 
-int os_get_win32_ucrt_include_path(ZigWindowsSDK *sdk, Buf* output_buf) {
+Error os_get_win32_ucrt_include_path(ZigWindowsSDK *sdk, Buf* output_buf) {
 #if defined(ZIG_OS_WINDOWS)
     buf_resize(output_buf, 0);
     buf_appendf(output_buf, "%s\\Include\\%s\\ucrt", sdk->path10_ptr, sdk->version10_ptr);
     if (GetFileAttributesA(buf_ptr(output_buf)) != INVALID_FILE_ATTRIBUTES) {
-        return 0;
+        return ErrorNone;
     }
     else {
         buf_resize(output_buf, 0);
@@ -1589,7 +1610,7 @@ int os_get_win32_ucrt_include_path(ZigWindowsSDK *sdk, Buf* output_buf) {
 #endif
 }
 
-int os_get_win32_kern32_path(ZigWindowsSDK *sdk, Buf* output_buf, ZigLLVM_ArchType platform_type) {
+Error os_get_win32_kern32_path(ZigWindowsSDK *sdk, Buf* output_buf, ZigLLVM_ArchType platform_type) {
 #if defined(ZIG_OS_WINDOWS)
     {
         buf_resize(output_buf, 0);
@@ -1611,7 +1632,7 @@ int os_get_win32_kern32_path(ZigWindowsSDK *sdk, Buf* output_buf, ZigLLVM_ArchTy
         buf_init_from_buf(tmp_buf, output_buf);
         buf_append_str(tmp_buf, "kernel32.lib");
         if (GetFileAttributesA(buf_ptr(tmp_buf)) != INVALID_FILE_ATTRIBUTES) {
-            return 0;
+            return ErrorNone;
         }
     }
     {
@@ -1634,7 +1655,7 @@ int os_get_win32_kern32_path(ZigWindowsSDK *sdk, Buf* output_buf, ZigLLVM_ArchTy
         buf_init_from_buf(tmp_buf, output_buf);
         buf_append_str(tmp_buf, "kernel32.lib");
         if (GetFileAttributesA(buf_ptr(tmp_buf)) != INVALID_FILE_ATTRIBUTES) {
-            return 0;
+            return ErrorNone;
         }
     }
     return ErrorFileNotFound;
@@ -1776,7 +1797,7 @@ Error os_get_app_data_dir(Buf *out_path, const char *appname) {
 }
 
 
-#if defined(ZIG_OS_LINUX) || defined(ZIG_OS_FREEBSD)
+#if defined(ZIG_OS_LINUX) || defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD)
 static int self_exe_shared_libs_callback(struct dl_phdr_info *info, size_t size, void *data) {
     ZigList<Buf *> *libs = reinterpret_cast< ZigList<Buf *> *>(data);
     if (info->dlpi_name[0] == '/') {
@@ -1787,7 +1808,7 @@ static int self_exe_shared_libs_callback(struct dl_phdr_info *info, size_t size,
 #endif
 
 Error os_self_exe_shared_libs(ZigList<Buf *> &paths) {
-#if defined(ZIG_OS_LINUX) || defined(ZIG_OS_FREEBSD)
+#if defined(ZIG_OS_LINUX) || defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD)
     paths.resize(0);
     dl_iterate_phdr(self_exe_shared_libs_callback, &paths);
     return ErrorNone;

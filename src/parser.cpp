@@ -2739,6 +2739,7 @@ static AstNode *ast_parse_async_prefix(ParseContext *pc) {
 
     AstNode *res = ast_create_node(pc, NodeTypeFnCallExpr, async);
     res->data.fn_call_expr.is_async = true;
+    res->data.fn_call_expr.seen = false;
     if (eat_token_if(pc, TokenIdCmpLessThan) != nullptr) {
         AstNode *prefix_expr = ast_expect(pc, ast_parse_prefix_expr);
         expect_token(pc, TokenIdCmpGreaterThan);
@@ -2759,6 +2760,7 @@ static AstNode *ast_parse_fn_call_argumnets(ParseContext *pc) {
 
     AstNode *res = ast_create_node(pc, NodeTypeFnCallExpr, paren);
     res->data.fn_call_expr.params = params;
+    res->data.fn_call_expr.seen = false;
     return res;
 }
 
@@ -2778,7 +2780,8 @@ static AstNode *ast_parse_array_type_start(ParseContext *pc) {
 // PtrTypeStart
 //     <- ASTERISK
 //      / ASTERISK2
-//      / LBRACKET ASTERISK RBRACKET
+//      / PTRUNKNOWN
+//      / PTRC
 static AstNode *ast_parse_ptr_type_start(ParseContext *pc) {
     Token *asterisk = eat_token_if(pc, TokenIdStar);
     if (asterisk != nullptr) {
@@ -2801,6 +2804,13 @@ static AstNode *ast_parse_ptr_type_start(ParseContext *pc) {
     if (multptr != nullptr) {
         AstNode *res = ast_create_node(pc, NodeTypePointerType, multptr);
         res->data.pointer_type.star_token = multptr;
+        return res;
+    }
+
+    Token *cptr = eat_token_if(pc, TokenIdBracketStarCBracket);
+    if (cptr != nullptr) {
+        AstNode *res = ast_create_node(pc, NodeTypePointerType, cptr);
+        res->data.pointer_type.star_token = cptr;
         return res;
     }
 

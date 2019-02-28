@@ -414,6 +414,39 @@ Error cache_add_file(CacheHash *ch, Buf *path) {
     return cache_add_file_fetch(ch, resolved_path, nullptr);
 }
 
+Error cache_add_dep_file(CacheHash *ch, Buf *dep_file_path, bool verbose) {
+    Error err;
+    Buf *contents = buf_alloc();
+    if ((err = os_fetch_file_path(dep_file_path, contents, false))) {
+        if (verbose) {
+            fprintf(stderr, "unable to read .d file: %s\n", err_str(err));
+        }
+        return ErrorReadingDepFile;
+    }
+    SplitIterator it = memSplit(buf_to_slice(contents), str("\n"));
+    // skip first line
+    SplitIterator_next(&it);
+    for (;;) {
+        Optional<Slice<uint8_t>> opt_line = SplitIterator_next(&it);
+        if (!opt_line.is_some)
+            break;
+        if (opt_line.value.len == 0)
+            continue;
+        SplitIterator line_it = memSplit(opt_line.value, str(" \t"));
+        Slice<uint8_t> filename;
+        if (!SplitIterator_next(&line_it).unwrap(&filename))
+            continue;
+        Buf *filename_buf = buf_create_from_slice(filename);
+        if ((err = cache_add_file(ch, filename_buf))) {
+            if (verbose) {
+                fprintf(stderr, "unable to add %s to cache: %s\n", buf_ptr(filename_buf), err_str(err));
+            }
+            return err;
+        }
+    }
+    return ErrorNone;
+}
+
 static Error write_manifest_file(CacheHash *ch) {
     Error err;
     Buf contents = BUF_INIT;
@@ -464,3 +497,4 @@ void cache_release(CacheHash *ch) {
 
     os_file_close(ch->manifest_file);
 }
+

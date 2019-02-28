@@ -4,7 +4,7 @@ packages:
   - ninja
   - llvm70
 sources:
-  - https://github.com/ziglang/zig.git
+  - https://github.com/ziglang/zig
 tasks:
   - build: |
       cd zig && mkdir build && cd build

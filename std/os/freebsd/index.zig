@@ -617,7 +617,7 @@ pub fn mkdir(path: [*]const u8, mode: u32) usize {
 
 pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: u32, fd: i32, offset: isize) usize {
     const ptr_result = c.mmap(
-        @ptrCast(*c_void, address),
+        @ptrCast(?*c_void, address),
         length,
         @bitCast(c_int, @intCast(c_uint, prot)),
         @bitCast(c_int, c_uint(flags)),

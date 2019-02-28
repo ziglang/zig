@@ -1,6 +1,16 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompareOutputContext) void {
+    cases.addRuntimeSafety("pointer casting null to non-optional pointer",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\pub fn main() void {
+        \\    var c_ptr: [*c]u8 = 0;
+        \\    var zig_ptr: *u8 = c_ptr;
+        \\}
+    );
+
     cases.addRuntimeSafety("@intToEnum - no matching tag value",
         \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
@@ -105,6 +115,47 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\}
         \\fn add(a: @Vector(4, i32), b: @Vector(4, i32)) @Vector(4, i32) {
         \\    return a + b;
+        \\}
+    );
+
+    cases.addRuntimeSafety("vector integer subtraction overflow",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\pub fn main() void {
+        \\    var a: @Vector(4, u32) = []u32{ 1, 2, 8, 4 };
+        \\    var b: @Vector(4, u32) = []u32{ 5, 6, 7, 8 };
+        \\    const x = sub(b, a);
+        \\}
+        \\fn sub(a: @Vector(4, u32), b: @Vector(4, u32)) @Vector(4, u32) {
+        \\    return a - b;
+        \\}
+    );
+
+    cases.addRuntimeSafety("vector integer multiplication overflow",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\pub fn main() void {
+        \\    var a: @Vector(4, u8) = []u8{ 1, 2, 200, 4 };
+        \\    var b: @Vector(4, u8) = []u8{ 5, 6, 2, 8 };
+        \\    const x = mul(b, a);
+        \\}
+        \\fn mul(a: @Vector(4, u8), b: @Vector(4, u8)) @Vector(4, u8) {
+        \\    return a * b;
+        \\}
+    );
+
+    cases.addRuntimeSafety("vector integer negation overflow",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\pub fn main() void {
+        \\    var a: @Vector(4, i16) = []i16{ 1, -32768, 200, 4 };
+        \\    const x = neg(a);
+        \\}
+        \\fn neg(a: @Vector(4, i16)) @Vector(4, i16) {
+        \\    return -a;
         \\}
     );
 

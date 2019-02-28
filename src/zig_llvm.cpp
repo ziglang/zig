@@ -732,7 +732,7 @@ void ZigLLVMGetNativeTarget(ZigLLVM_ArchType *arch_type, ZigLLVM_SubArchType *su
 const char *ZigLLVMGetSubArchTypeName(ZigLLVM_SubArchType sub_arch) {
     switch (sub_arch) {
         case ZigLLVM_NoSubArch:
-            return "(none)";
+            return "";
         case ZigLLVM_ARMSubArch_v8_5a:
             return "v8_5a";
         case ZigLLVM_ARMSubArch_v8_4a:

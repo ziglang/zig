@@ -4,6 +4,10 @@ pub extern fn __truncsfhf2(a: f32) u16 {
     return @bitCast(u16, truncXfYf2(f16, f32, a));
 }
 
+pub extern fn __truncdfhf2(a: f64) u16 {
+    return @bitCast(u16, truncXfYf2(f16, f64, a));
+}
+
 pub extern fn __trunctfsf2(a: f128) f32 {
     return truncXfYf2(f32, f128, a);
 }

@@ -417,6 +417,7 @@ set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/error.cpp"
     "${CMAKE_SOURCE_DIR}/src/ir.cpp"
     "${CMAKE_SOURCE_DIR}/src/ir_print.cpp"
+    "${CMAKE_SOURCE_DIR}/src/libc_installation.cpp"
     "${CMAKE_SOURCE_DIR}/src/link.cpp"
     "${CMAKE_SOURCE_DIR}/src/main.cpp"
     "${CMAKE_SOURCE_DIR}/src/os.cpp"
@@ -432,6 +433,10 @@ set(BLAKE_SOURCES
 )
 set(ZIG_CPP_SOURCES
     "${CMAKE_SOURCE_DIR}/src/zig_llvm.cpp"
+    "${CMAKE_SOURCE_DIR}/src/zig_clang.cpp"
+    "${CMAKE_SOURCE_DIR}/src/zig_clang_driver.cpp"
+    "${CMAKE_SOURCE_DIR}/src/zig_clang_cc1_main.cpp"
+    "${CMAKE_SOURCE_DIR}/src/zig_clang_cc1as_main.cpp"
     "${CMAKE_SOURCE_DIR}/src/windows_sdk.cpp"
 )
 
@@ -446,10 +451,12 @@ set(ZIG_STD_FILES
     "buf_set.zig"
     "buffer.zig"
     "build.zig"
+    "build/fmt.zig"
     "c/darwin.zig"
     "c/freebsd.zig"
     "c/index.zig"
     "c/linux.zig"
+    "c/netbsd.zig"
     "c/windows.zig"
     "coff.zig"
     "crypto/blake2.zig"
@@ -485,6 +492,7 @@ set(ZIG_STD_FILES
     "fmt/errol/index.zig"
     "fmt/errol/lookup.zig"
     "fmt/index.zig"
+    "fmt/parse_float.zig"
     "hash/adler.zig"
     "hash/crc.zig"
     "hash/fnv.zig"
@@ -589,6 +597,8 @@ set(ZIG_STD_FILES
     "os/linux/index.zig"
     "os/linux/vdso.zig"
     "os/linux/x86_64.zig"
+    "os/netbsd/errno.zig"
+    "os/netbsd/index.zig"
     "os/path.zig"
     "os/time.zig"
     "os/uefi.zig"
@@ -603,6 +613,7 @@ set(ZIG_STD_FILES
     "os/windows/util.zig"
     "os/zen.zig"
     "pdb.zig"
+    "priority_queue.zig"
     "rand/index.zig"
     "rand/ziggurat.zig"
     "segmented_list.zig"
@@ -611,6 +622,7 @@ set(ZIG_STD_FILES
     "special/bootstrap_lib.zig"
     "special/build_runner.zig"
     "special/builtin.zig"
+    "special/compiler_rt/addXf3.zig"
     "special/compiler_rt/aulldiv.zig"
     "special/compiler_rt/aullrem.zig"
     "special/compiler_rt/comparetf2.zig"
@@ -653,6 +665,7 @@ set(ZIG_STD_FILES
     "special/compiler_rt/udivmodti4.zig"
     "special/compiler_rt/udivti3.zig"
     "special/compiler_rt/umodti3.zig"
+    "special/fmt_runner.zig"
     "special/init-exe/build.zig"
     "special/init-exe/src/main.zig"
     "special/init-lib/build.zig"
@@ -906,3 +919,7 @@ foreach(file ${ZIG_STD_FILES})
     get_filename_component(file_dir "${ZIG_STD_DEST}/${file}" DIRECTORY)
     install(FILES "${CMAKE_SOURCE_DIR}/std/${file}" DESTINATION "${file_dir}")
 endforeach()
+
+install(FILES "${CMAKE_SOURCE_DIR}/src-self-hosted/arg.zig" DESTINATION "${ZIG_STD_DEST}/special/fmt/")
+install(FILES "${CMAKE_SOURCE_DIR}/src-self-hosted/main.zig" DESTINATION "${ZIG_STD_DEST}/special/fmt/")
+install(FILES "${CMAKE_SOURCE_DIR}/src-self-hosted/errmsg.zig" DESTINATION "${ZIG_STD_DEST}/special/fmt/")

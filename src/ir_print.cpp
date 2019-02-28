@@ -336,6 +336,11 @@ static void ir_print_load_ptr(IrPrint *irp, IrInstructionLoadPtr *instruction) {
     fprintf(irp->f, ".*");
 }
 
+static void ir_print_load_ptr_gen(IrPrint *irp, IrInstructionLoadPtrGen *instruction) {
+    ir_print_other_instruction(irp, instruction->ptr);
+    fprintf(irp->f, ".*");
+}
+
 static void ir_print_store_ptr(IrPrint *irp, IrInstructionStorePtr *instruction) {
     fprintf(irp->f, "*");
     ir_print_var_instruction(irp, instruction->ptr);
@@ -915,11 +920,15 @@ static void ir_print_ptr_cast_gen(IrPrint *irp, IrInstructionPtrCastGen *instruc
 
 static void ir_print_bit_cast(IrPrint *irp, IrInstructionBitCast *instruction) {
     fprintf(irp->f, "@bitCast(");
-    if (instruction->dest_type) {
-        ir_print_other_instruction(irp, instruction->dest_type);
-    }
+    ir_print_other_instruction(irp, instruction->dest_type);
     fprintf(irp->f, ",");
     ir_print_other_instruction(irp, instruction->value);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_bit_cast_gen(IrPrint *irp, IrInstructionBitCastGen *instruction) {
+    fprintf(irp->f, "@bitCast(");
+    ir_print_other_instruction(irp, instruction->operand);
     fprintf(irp->f, ")");
 }
 
@@ -987,6 +996,12 @@ static void ir_print_vector_to_array(IrPrint *irp, IrInstructionVectorToArray *i
 static void ir_print_assert_zero(IrPrint *irp, IrInstructionAssertZero *instruction) {
     fprintf(irp->f, "AssertZero(");
     ir_print_other_instruction(irp, instruction->target);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_resize_slice(IrPrint *irp, IrInstructionResizeSlice *instruction) {
+    fprintf(irp->f, "@resizeSlice(");
+    ir_print_other_instruction(irp, instruction->operand);
     fprintf(irp->f, ")");
 }
 
@@ -1462,6 +1477,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdLoadPtr:
             ir_print_load_ptr(irp, (IrInstructionLoadPtr *)instruction);
             break;
+        case IrInstructionIdLoadPtrGen:
+            ir_print_load_ptr_gen(irp, (IrInstructionLoadPtrGen *)instruction);
+            break;
         case IrInstructionIdStorePtr:
             ir_print_store_ptr(irp, (IrInstructionStorePtr *)instruction);
             break;
@@ -1678,6 +1696,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdBitCast:
             ir_print_bit_cast(irp, (IrInstructionBitCast *)instruction);
             break;
+        case IrInstructionIdBitCastGen:
+            ir_print_bit_cast_gen(irp, (IrInstructionBitCastGen *)instruction);
+            break;
         case IrInstructionIdWidenOrShorten:
             ir_print_widen_or_shorten(irp, (IrInstructionWidenOrShorten *)instruction);
             break;
@@ -1851,6 +1872,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdAssertZero:
             ir_print_assert_zero(irp, (IrInstructionAssertZero *)instruction);
+            break;
+        case IrInstructionIdResizeSlice:
+            ir_print_resize_slice(irp, (IrInstructionResizeSlice *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

@@ -56,6 +56,8 @@ Error ATTRIBUTE_MUST_USE cache_hit(CacheHash *ch, Buf *out_b64_digest);
 // If you did not get a cache hit, call this function for every file
 // that is depended on, and then finish with cache_final.
 Error ATTRIBUTE_MUST_USE cache_add_file(CacheHash *ch, Buf *path);
+// This opens a file created by -MD -MF args to Clang
+Error ATTRIBUTE_MUST_USE cache_add_dep_file(CacheHash *ch, Buf *path, bool verbose);
 
 // This variant of cache_add_file returns the file contents.
 // Also the file path argument must be already resolved.

@@ -916,6 +916,7 @@ fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: var, source_token: Tok
             std.zig.Token.Id.AngleBracketAngleBracketRightEqual,
             std.zig.Token.Id.Tilde,
             std.zig.Token.Id.BracketStarBracket,
+            std.zig.Token.Id.BracketStarCBracket,
             => try writeEscaped(out, src[token.start..token.end]),
 
             std.zig.Token.Id.Invalid => return parseError(
@@ -1104,14 +1105,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             },
                         }
                         if (code.target_windows) {
-                            try test_args.appendSlice([][]const u8{
-                                "--target-os",
-                                "windows",
-                                "--target-arch",
-                                "x86_64",
-                                "--target-environ",
-                                "msvc",
-                            });
+                            try test_args.appendSlice([][]const u8{ "-target", "x86_64-windows" });
                         }
                         const result = exec(allocator, &env_map, test_args.toSliceConst()) catch return parseError(tokenizer, code.source_token, "test failed");
                         const escaped_stderr = try escapeHtml(allocator, result.stderr);

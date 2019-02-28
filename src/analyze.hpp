@@ -40,11 +40,11 @@ ZigType *get_promise_type(CodeGen *g, ZigType *result_type);
 ZigType *get_promise_frame_type(CodeGen *g, ZigType *return_type);
 ZigType *get_test_fn_type(CodeGen *g);
 bool handle_is_ptr(ZigType *type_entry);
-void find_libc_include_path(CodeGen *g);
-void find_libc_lib_path(CodeGen *g);
 
 bool type_has_bits(ZigType *type_entry);
-
+bool type_allowed_in_extern(CodeGen *g, ZigType *type_entry);
+bool ptr_allows_addr_zero(ZigType *ptr_type);
+bool type_is_nonnull_ptr(ZigType *type);
 
 ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *abs_full_path, Buf *source_code);
 
@@ -215,6 +215,7 @@ void walk_function_params(CodeGen *g, ZigType *fn_type, FnWalk *fn_walk);
 X64CABIClass type_c_abi_x86_64_class(CodeGen *g, ZigType *ty);
 bool type_is_c_abi_int(CodeGen *g, ZigType *ty);
 bool want_first_arg_sret(CodeGen *g, FnTypeId *fn_type_id);
+const char *container_string(ContainerKind kind);
 
 uint32_t get_host_int_bytes(CodeGen *g, ZigType *struct_type, TypeStructField *field);
 
@@ -225,14 +226,10 @@ enum ReqCompTime {
 };
 ReqCompTime type_requires_comptime(CodeGen *g, ZigType *type_entry);
 
-enum OnePossibleValue {
-    OnePossibleValueInvalid,
-    OnePossibleValueNo,
-    OnePossibleValueYes,
-};
 OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry);
 
 Error ensure_const_val_repr(IrAnalyze *ira, CodeGen *codegen, AstNode *source_node,
         ConstExprValue *const_val, ZigType *wanted_type);
 
+void typecheck_panic_fn(CodeGen *g, TldFn *tld_fn, ZigFn *panic_fn);
 #endif

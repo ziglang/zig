@@ -3525,7 +3525,12 @@ fn tokenIdToPrefixOp(id: Token.Id) ?ast.Node.PrefixOp.Op {
         Token.Id.Minus => ast.Node.PrefixOp.Op{ .Negation = void{} },
         Token.Id.MinusPercent => ast.Node.PrefixOp.Op{ .NegationWrap = void{} },
         Token.Id.Ampersand => ast.Node.PrefixOp.Op{ .AddressOf = void{} },
-        Token.Id.Asterisk, Token.Id.AsteriskAsterisk, Token.Id.BracketStarBracket => ast.Node.PrefixOp.Op{
+
+        Token.Id.Asterisk,
+        Token.Id.AsteriskAsterisk,
+        Token.Id.BracketStarBracket,
+        Token.Id.BracketStarCBracket,
+        => ast.Node.PrefixOp.Op{
             .PtrType = ast.Node.PrefixOp.PtrInfo{
                 .align_info = null,
                 .const_token = null,

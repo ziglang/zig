@@ -132,9 +132,7 @@ void buf_appendf(Buf *buf, const char *format, ...)
 
 static inline bool buf_eql_mem(Buf *buf, const char *mem, size_t mem_len) {
     assert(buf->list.length);
-    if (buf_len(buf) != mem_len)
-        return false;
-    return memcmp(buf_ptr(buf), mem, mem_len) == 0;
+    return mem_eql_mem(buf_ptr(buf), buf_len(buf), mem, mem_len);
 }
 
 static inline bool buf_eql_str(Buf *buf, const char *str) {
