@@ -13,10 +13,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/Option/Arg.h"
+#include "clang/Basic/Stack.h"
 #include "clang/CodeGen/ObjectFilePCHContainerOperations.h"
 #include "clang/Config/config.h"
-#include "clang/Basic/Stack.h"
 #include "clang/Driver/DriverDiagnostic.h"
 #include "clang/Driver/Options.h"
 #include "clang/Frontend/CompilerInstance.h"
@@ -29,8 +28,10 @@
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Config/llvm-config.h"
 #include "llvm/LinkAllPasses.h"
+#include "llvm/Option/Arg.h"
 #include "llvm/Option/ArgList.h"
 #include "llvm/Option/OptTable.h"
+#include "llvm/Support/BuryPointer.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/ManagedStatic.h"
@@ -217,7 +218,7 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
 
   // When running with -disable-free, don't do any destruction or shutdown.
   if (Clang->getFrontendOpts().DisableFree) {
-    BuryPointer(std::move(Clang));
+    llvm::BuryPointer(std::move(Clang));
     return !Success;
   }
 
