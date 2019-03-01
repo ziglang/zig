@@ -6612,8 +6612,8 @@ static Buf *get_anon_type_name(CodeGen *codegen, IrExecutable *exec, const char 
         Scope *scope, AstNode *source_node)
 {
     if (exec->name) {
-        ZigPackage *cur_scope_pkg = scope_package(scope);
-        Buf *namespace_name = buf_create_from_buf(&cur_scope_pkg->pkg_path);
+        ZigType *import = get_scope_import(scope);
+        Buf *namespace_name = buf_create_from_buf(&import->name);
         if (buf_len(namespace_name) != 0) buf_append_char(namespace_name, NAMESPACE_SEP_CHAR);
         buf_append_buf(namespace_name, exec->name);
         return namespace_name;
@@ -6625,8 +6625,8 @@ static Buf *get_anon_type_name(CodeGen *codegen, IrExecutable *exec, const char 
         buf_appendf(name, ")");
         return name;
     } else {
-        ZigPackage *cur_scope_pkg = scope_package(scope);
-        Buf *namespace_name = buf_create_from_buf(&cur_scope_pkg->pkg_path);
+        ZigType *import = get_scope_import(scope);
+        Buf *namespace_name = buf_create_from_buf(&import->name);
         if (buf_len(namespace_name) != 0) buf_append_char(namespace_name, NAMESPACE_SEP_CHAR);
         buf_appendf(namespace_name, "%s:%" ZIG_PRI_usize ":%" ZIG_PRI_usize, kind_name,
                 source_node->line + 1, source_node->column + 1);
