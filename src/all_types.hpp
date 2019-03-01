@@ -3463,7 +3463,8 @@ static const size_t err_union_err_index = 0;
 static const size_t err_union_payload_index = 1;
 
 // TODO call graph analysis to find out what this number needs to be for every function
-static const size_t stack_trace_ptr_count = 30;
+// MUST BE A POWER OF TWO.
+static const size_t stack_trace_ptr_count = 32;
 
 // these belong to the async function
 #define RETURN_ADDRESSES_FIELD_NAME "return_addresses"

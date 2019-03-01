@@ -1236,7 +1236,7 @@ static LLVMValueRef get_add_error_return_trace_addr_fn(CodeGen *g) {
 
     LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->type_ref;
 
-    // stack_trace.instruction_addresses[stack_trace.index % stack_trace.instruction_addresses.len] = return_address;
+    // stack_trace.instruction_addresses[stack_trace.index & (stack_trace.instruction_addresses.len - 1)] = return_address;
 
     LLVMValueRef err_ret_trace_ptr = LLVMGetParam(fn_val, 0);
     LLVMValueRef address_value = LLVMGetParam(fn_val, 1);
@@ -1254,9 +1254,10 @@ static LLVMValueRef get_add_error_return_trace_addr_fn(CodeGen *g) {
 
     LLVMValueRef len_value = gen_load_untyped(g, len_field_ptr, 0, false, "");
     LLVMValueRef index_val = gen_load_untyped(g, index_field_ptr, 0, false, "");
-    LLVMValueRef modded_val = LLVMBuildURem(g->builder, index_val, len_value, "");
+    LLVMValueRef len_val_minus_one = LLVMBuildSub(g->builder, len_value, LLVMConstInt(usize_type_ref, 1, false), "");
+    LLVMValueRef masked_val = LLVMBuildAnd(g->builder, index_val, len_val_minus_one, "");
     LLVMValueRef address_indices[] = {
-        modded_val,
+        masked_val,
     };
 
     LLVMValueRef ptr_value = gen_load_untyped(g, ptr_field_ptr, 0, false, "");
