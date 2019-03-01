@@ -30,12 +30,13 @@ ZigType *get_optional_type(CodeGen *g, ZigType *child_type);
 ZigType *get_array_type(CodeGen *g, ZigType *child_type, uint64_t array_size);
 ZigType *get_slice_type(CodeGen *g, ZigType *ptr_type);
 ZigType *get_partial_container_type(CodeGen *g, Scope *scope, ContainerKind kind,
-        AstNode *decl_node, const char *name, ContainerLayout layout);
-ZigType *get_root_container_type(CodeGen *g, const char *name, RootStruct *root_struct);
+        AstNode *decl_node, const char *full_name, Buf *bare_name, ContainerLayout layout);
+ZigType *get_root_container_type(CodeGen *g, const char *full_name, Buf *bare_name,
+        RootStruct *root_struct);
 ZigType *get_smallest_unsigned_int_type(CodeGen *g, uint64_t x);
 ZigType *get_error_union_type(CodeGen *g, ZigType *err_set_type, ZigType *payload_type);
 ZigType *get_bound_fn_type(CodeGen *g, ZigFn *fn_entry);
-ZigType *get_opaque_type(CodeGen *g, Scope *scope, AstNode *source_node, const char *name);
+ZigType *get_opaque_type(CodeGen *g, Scope *scope, AstNode *source_node, const char *full_name, Buf *bare_name);
 ZigType *get_struct_type(CodeGen *g, const char *type_name, const char *field_names[],
         ZigType *field_types[], size_t field_count);
 ZigType *get_promise_type(CodeGen *g, ZigType *result_type);
@@ -117,7 +118,6 @@ ScopeCImport *create_cimport_scope(CodeGen *g, AstNode *node, Scope *parent);
 ScopeLoop *create_loop_scope(CodeGen *g, AstNode *node, Scope *parent);
 ScopeSuspend *create_suspend_scope(CodeGen *g, AstNode *node, Scope *parent);
 ScopeFnDef *create_fndef_scope(CodeGen *g, AstNode *node, Scope *parent, ZigFn *fn_entry);
-ScopeDecls *create_decls_scope(CodeGen *g, AstNode *node, Scope *parent, ZigType *container_type, ZigType *import);
 Scope *create_comptime_scope(CodeGen *g, AstNode *node, Scope *parent);
 Scope *create_coro_prelude_scope(CodeGen *g, AstNode *node, Scope *parent);
 Scope *create_runtime_scope(CodeGen *g, AstNode *node, Scope *parent, IrInstruction *is_comptime);

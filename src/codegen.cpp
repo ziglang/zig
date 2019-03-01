@@ -7123,7 +7123,8 @@ static void define_builtin_types(CodeGen *g) {
     g->builtin_types.entry_i64 = get_int_type(g, true, 64);
 
     {
-        g->builtin_types.entry_c_void = get_opaque_type(g, nullptr, nullptr, "c_void");
+        g->builtin_types.entry_c_void = get_opaque_type(g, nullptr, nullptr, "c_void",
+                buf_create_from_str("c_void"));
         g->primitive_type_table.put(&g->builtin_types.entry_c_void->name, g->builtin_types.entry_c_void);
     }
 
@@ -7943,18 +7944,17 @@ void codegen_translate_c(CodeGen *g, Buf *full_path) {
     Buf noextname = BUF_INIT;
     os_path_extname(src_basename, &noextname, nullptr);
 
+    detect_libc(g);
+
+    init(g);
+
     RootStruct *root_struct = allocate<RootStruct>(1);
     root_struct->source_code = nullptr;
     root_struct->path = full_path;
     root_struct->di_file = ZigLLVMCreateFile(g->dbuilder, buf_ptr(src_basename), buf_ptr(src_dirname));
 
-    ZigType *import = get_root_container_type(g, buf_ptr(&noextname), root_struct);
+    ZigType *import = get_root_container_type(g, buf_ptr(&noextname), &noextname, root_struct);
     g->root_import = import;
-
-    detect_libc(g);
-
-    init(g);
-
 
     ZigList<ErrorMsg *> errors = {0};
     Error err = parse_h_file(import, &errors, buf_ptr(full_path), g, nullptr);

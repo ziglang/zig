@@ -980,15 +980,18 @@ pub const TranslateCContext = struct {
                 Term.Exited => |code| {
                     if (code != 0) {
                         warn("Compilation failed with exit code {}\n", code);
+                        printInvocation(zig_args.toSliceConst());
                         return error.TestFailed;
                     }
                 },
                 Term.Signal => |code| {
                     warn("Compilation failed with signal {}\n", code);
+                    printInvocation(zig_args.toSliceConst());
                     return error.TestFailed;
                 },
                 else => {
                     warn("Compilation terminated unexpectedly\n");
+                    printInvocation(zig_args.toSliceConst());
                     return error.TestFailed;
                 },
             }

@@ -120,13 +120,16 @@ void init_scope(CodeGen *g, Scope *dest, ScopeId id, AstNode *source_node, Scope
     dest->parent = parent;
 }
 
-ScopeDecls *create_decls_scope(CodeGen *g, AstNode *node, Scope *parent, ZigType *container_type, ZigType *import) {
+static ScopeDecls *create_decls_scope(CodeGen *g, AstNode *node, Scope *parent, ZigType *container_type,
+        ZigType *import, Buf *bare_name)
+{
     assert(node == nullptr || node->type == NodeTypeContainerDecl || node->type == NodeTypeFnCallExpr);
     ScopeDecls *scope = allocate<ScopeDecls>(1);
     init_scope(g, &scope->base, ScopeIdDecls, node, parent);
     scope->decl_table.init(4);
     scope->container_type = container_type;
     scope->import = import;
+    scope->bare_name = bare_name;
     return scope;
 }
 
@@ -225,9 +228,12 @@ ZigType *get_scope_import(Scope *scope) {
     zig_unreachable();
 }
 
-static ZigType *new_container_type_entry(CodeGen *g, ZigTypeId id, AstNode *source_node, Scope *parent_scope) {
+static ZigType *new_container_type_entry(CodeGen *g, ZigTypeId id, AstNode *source_node, Scope *parent_scope,
+        Buf *bare_name)
+{
     ZigType *entry = new_type_table_entry(id);
-    *get_container_scope_ptr(entry) = create_decls_scope(g, source_node, parent_scope, entry, get_scope_import(parent_scope));
+    *get_container_scope_ptr(entry) = create_decls_scope(g, source_node, parent_scope, entry,
+            get_scope_import(parent_scope), bare_name);
     return entry;
 }
 
@@ -1009,21 +1015,22 @@ ZigType *get_slice_type(CodeGen *g, ZigType *ptr_type) {
     return entry;
 }
 
-ZigType *get_opaque_type(CodeGen *g, Scope *scope, AstNode *source_node, const char *name) {
+ZigType *get_opaque_type(CodeGen *g, Scope *scope, AstNode *source_node, const char *full_name, Buf *bare_name) {
     ZigType *entry = new_type_table_entry(ZigTypeIdOpaque);
 
-    buf_init_from_str(&entry->name, name);
+    buf_init_from_str(&entry->name, full_name);
 
     ZigType *import = scope ? get_scope_import(scope) : nullptr;
     unsigned line = source_node ? (unsigned)(source_node->line + 1) : 0;
 
     entry->type_ref = LLVMInt8Type();
     entry->di_type = ZigLLVMCreateDebugForwardDeclType(g->dbuilder,
-        ZigLLVMTag_DW_structure_type(), buf_ptr(&entry->name),
+        ZigLLVMTag_DW_structure_type(), full_name,
         import ? ZigLLVMFileToScope(import->data.structure.root_struct->di_file) : nullptr,
         import ? import->data.structure.root_struct->di_file : nullptr,
         line);
     entry->zero_bits = false;
+    entry->data.opaque.bare_name = bare_name;
 
     return entry;
 }
@@ -1293,29 +1300,31 @@ static ZigTypeId container_to_type(ContainerKind kind) {
 }
 
 // This is like get_partial_container_type except it's for the implicit root struct of files.
-ZigType *get_root_container_type(CodeGen *g, const char *name, RootStruct *root_struct) {
+ZigType *get_root_container_type(CodeGen *g, const char *full_name, Buf *bare_name,
+        RootStruct *root_struct)
+{
     ZigType *entry = new_type_table_entry(ZigTypeIdStruct);
-    entry->data.structure.decls_scope = create_decls_scope(g, nullptr, nullptr, entry, entry);
+    entry->data.structure.decls_scope = create_decls_scope(g, nullptr, nullptr, entry, entry, bare_name);
     entry->data.structure.root_struct = root_struct;
     entry->data.structure.layout = ContainerLayoutAuto;
-    entry->type_ref = LLVMStructCreateNamed(LLVMGetGlobalContext(), name);
+    entry->type_ref = LLVMStructCreateNamed(LLVMGetGlobalContext(), full_name);
 
     size_t line = 0; // root therefore first line
     unsigned dwarf_kind = ZigLLVMTag_DW_structure_type();
 
     entry->di_type = ZigLLVMCreateReplaceableCompositeType(g->dbuilder,
-        dwarf_kind, name,
+        dwarf_kind, full_name,
         ZigLLVMFileToScope(root_struct->di_file), root_struct->di_file, (unsigned)(line + 1));
 
-    buf_init_from_str(&entry->name, name);
+    buf_init_from_str(&entry->name, full_name);
     return entry;
 }
 
 ZigType *get_partial_container_type(CodeGen *g, Scope *scope, ContainerKind kind,
-        AstNode *decl_node, const char *name, ContainerLayout layout)
+        AstNode *decl_node, const char *full_name, Buf *bare_name, ContainerLayout layout)
 {
     ZigTypeId type_id = container_to_type(kind);
-    ZigType *entry = new_container_type_entry(g, type_id, decl_node, scope);
+    ZigType *entry = new_container_type_entry(g, type_id, decl_node, scope, bare_name);
 
     switch (kind) {
         case ContainerKindStruct:
@@ -1336,13 +1345,13 @@ ZigType *get_partial_container_type(CodeGen *g, Scope *scope, ContainerKind kind
     unsigned dwarf_kind = ZigLLVMTag_DW_structure_type();
 
     ZigType *import = get_scope_import(scope);
-    entry->type_ref = LLVMStructCreateNamed(LLVMGetGlobalContext(), name);
+    entry->type_ref = LLVMStructCreateNamed(LLVMGetGlobalContext(), full_name);
     entry->di_type = ZigLLVMCreateReplaceableCompositeType(g->dbuilder,
-        dwarf_kind, name,
+        dwarf_kind, full_name,
         ZigLLVMFileToScope(import->data.structure.root_struct->di_file),
         import->data.structure.root_struct->di_file, (unsigned)(line + 1));
 
-    buf_init_from_str(&entry->name, name);
+    buf_init_from_str(&entry->name, full_name);
 
     return entry;
 }
@@ -4501,6 +4510,8 @@ ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *resolved_path, Bu
             buf_len(&noextname) - (buf_len(&resolved_root_src_dir) + 1));
         buf_replace(&namespace_name, ZIG_OS_SEP_CHAR, NAMESPACE_SEP_CHAR);
     }
+    Buf *bare_name = buf_alloc();
+    os_path_extname(src_basename, bare_name, nullptr);
 
     RootStruct *root_struct = allocate<RootStruct>(1);
     root_struct->package = package;
@@ -4508,7 +4519,7 @@ ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *resolved_path, Bu
     root_struct->line_offsets = tokenization.line_offsets;
     root_struct->path = resolved_path;
     root_struct->di_file = ZigLLVMCreateFile(g->dbuilder, buf_ptr(src_basename), buf_ptr(src_dirname));
-    ZigType *import_entry = get_root_container_type(g, buf_ptr(&namespace_name), root_struct);
+    ZigType *import_entry = get_root_container_type(g, buf_ptr(&namespace_name), bare_name, root_struct);
     if (source_kind == SourceKindRoot) {
         assert(g->root_import == nullptr);
         g->root_import = import_entry;

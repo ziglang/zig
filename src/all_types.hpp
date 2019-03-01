@@ -1262,6 +1262,10 @@ enum OnePossibleValue {
     OnePossibleValueYes,
 };
 
+struct ZigTypeOpaque {
+    Buf *bare_name;
+};
+
 struct ZigType {
     ZigTypeId id;
     Buf name;
@@ -1284,6 +1288,7 @@ struct ZigType {
         ZigTypeBoundFn bound_fn;
         ZigTypePromise promise;
         ZigTypeVector vector;
+        ZigTypeOpaque opaque;
     } data;
 
     // use these fields to make sure we don't duplicate type table entries for the same type
@@ -1941,6 +1946,7 @@ struct ScopeDecls {
     ZigType *import;
     // If this is a scope from a container, this is the type entry, otherwise null
     ZigType *container_type;
+    Buf *bare_name;
 
     bool safety_off;
     bool fast_math_on;

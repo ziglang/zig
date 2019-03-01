@@ -1231,10 +1231,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
             \\
             \\fn bar(x: *b.Foo) void {}
         ,
-            "tmp.zig:6:10: error: expected type '*Foo', found '*Foo'",
-            "tmp.zig:6:10: note: pointer type child 'Foo' cannot cast into pointer type child 'Foo'",
-            "a.zig:1:17: note: Foo declared here",
-            "b.zig:1:17: note: Foo declared here",
+            "tmp.zig:6:10: error: expected type '*b.Foo', found '*a.Foo'",
+            "tmp.zig:6:10: note: pointer type child 'a.Foo' cannot cast into pointer type child 'b.Foo'",
+            "a.zig:1:17: note: a.Foo declared here",
+            "b.zig:1:17: note: b.Foo declared here",
         );
 
         tc.addSourceFile("a.zig",

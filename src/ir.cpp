@@ -6609,13 +6609,14 @@ static bool render_instance_name_recursive(CodeGen *codegen, Buf *name, Scope *o
 }
 
 static Buf *get_anon_type_name(CodeGen *codegen, IrExecutable *exec, const char *kind_name,
-        Scope *scope, AstNode *source_node)
+        Scope *scope, AstNode *source_node, Buf *out_bare_name)
 {
     if (exec->name) {
         ZigType *import = get_scope_import(scope);
         Buf *namespace_name = buf_create_from_buf(&import->name);
         if (buf_len(namespace_name) != 0) buf_append_char(namespace_name, NAMESPACE_SEP_CHAR);
         buf_append_buf(namespace_name, exec->name);
+        buf_init_from_buf(out_bare_name, exec->name);
         return namespace_name;
     } else if (exec->name_fn != nullptr) {
         Buf *name = buf_alloc();
@@ -6623,6 +6624,7 @@ static Buf *get_anon_type_name(CodeGen *codegen, IrExecutable *exec, const char 
         buf_appendf(name, "(");
         render_instance_name_recursive(codegen, name, &exec->name_fn->fndef_scope->base, exec->begin_scope);
         buf_appendf(name, ")");
+        buf_init_from_buf(out_bare_name, name);
         return name;
     } else {
         ZigType *import = get_scope_import(scope);
@@ -6630,6 +6632,7 @@ static Buf *get_anon_type_name(CodeGen *codegen, IrExecutable *exec, const char 
         if (buf_len(namespace_name) != 0) buf_append_char(namespace_name, NAMESPACE_SEP_CHAR);
         buf_appendf(namespace_name, "%s:%" ZIG_PRI_usize ":%" ZIG_PRI_usize, kind_name,
                 source_node->line + 1, source_node->column + 1);
+        buf_init_from_buf(out_bare_name, namespace_name);
         return namespace_name;
     }
 }
@@ -6655,11 +6658,12 @@ static IrInstruction *ir_gen_container_decl(IrBuilder *irb, Scope *parent_scope,
     assert(node->type == NodeTypeContainerDecl);
 
     ContainerKind kind = node->data.container_decl.kind;
-    Buf *name = get_anon_type_name(irb->codegen, irb->exec, container_string(kind), parent_scope, node);
+    Buf *bare_name = buf_alloc();
+    Buf *name = get_anon_type_name(irb->codegen, irb->exec, container_string(kind), parent_scope, node, bare_name);
 
     ContainerLayout layout = node->data.container_decl.layout;
     ZigType *container_type = get_partial_container_type(irb->codegen, parent_scope,
-            kind, node, buf_ptr(name), layout);
+            kind, node, buf_ptr(name), bare_name, layout);
     ScopeDecls *child_scope = get_container_scope(container_type);
 
     for (size_t i = 0; i < node->data.container_decl.decls.length; i += 1) {
@@ -6668,7 +6672,7 @@ static IrInstruction *ir_gen_container_decl(IrBuilder *irb, Scope *parent_scope,
     }
 
     TldContainer *tld_container = allocate<TldContainer>(1);
-    init_tld(&tld_container->base, TldIdContainer, name, VisibModPub, node, parent_scope);
+    init_tld(&tld_container->base, TldIdContainer, bare_name, VisibModPub, node, parent_scope);
     tld_container->type_entry = container_type;
     tld_container->decls_scope = child_scope;
     irb->codegen->resolve_queue.append(&tld_container->base);
@@ -6755,7 +6759,8 @@ static IrInstruction *ir_gen_err_set_decl(IrBuilder *irb, Scope *parent_scope, A
 
     uint32_t err_count = node->data.err_set_decl.decls.length;
 
-    Buf *type_name = get_anon_type_name(irb->codegen, irb->exec, "error", parent_scope, node);
+    Buf bare_name = BUF_INIT;
+    Buf *type_name = get_anon_type_name(irb->codegen, irb->exec, "error", parent_scope, node, &bare_name);
     ZigType *err_set_type = new_type_table_entry(ZigTypeIdErrorSet);
     buf_init_from_buf(&err_set_type->name, type_name);
     err_set_type->data.error_set.err_count = err_count;
@@ -18680,7 +18685,15 @@ static IrInstruction *ir_analyze_instruction_type_name(IrAnalyze *ira, IrInstruc
         return ira->codegen->invalid_instruction;
 
     if (!type_entry->cached_const_name_val) {
-        type_entry->cached_const_name_val = create_const_str_lit(ira->codegen, &type_entry->name);
+        Buf *name;
+        if (is_container(type_entry)) {
+            name = get_container_scope(type_entry)->bare_name;
+        } else if (type_entry->id == ZigTypeIdOpaque) {
+            name = type_entry->data.opaque.bare_name;
+        } else {
+            name = &type_entry->name;
+        }
+        type_entry->cached_const_name_val = create_const_str_lit(ira->codegen, name);
     }
     IrInstruction *result = ir_const(ira, &instruction->base, nullptr);
     copy_const_val(&result->value, type_entry->cached_const_name_val, true);
@@ -18715,7 +18728,8 @@ static IrInstruction *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruct
     // for this DIFile
     root_struct->di_file = ZigLLVMCreateFile(ira->codegen->dbuilder,
         buf_ptr(buf_create_from_str("cimport.h")), buf_ptr(buf_create_from_str(".")));
-    ZigType *child_import = get_root_container_type(ira->codegen, buf_ptr(namespace_name), root_struct);
+    ZigType *child_import = get_root_container_type(ira->codegen, buf_ptr(namespace_name),
+            namespace_name, root_struct);
 
     ZigList<ErrorMsg *> errors = {0};
 
@@ -21668,10 +21682,11 @@ static IrInstruction *ir_analyze_instruction_align_cast(IrAnalyze *ira, IrInstru
 }
 
 static IrInstruction *ir_analyze_instruction_opaque_type(IrAnalyze *ira, IrInstructionOpaqueType *instruction) {
-    Buf *name = get_anon_type_name(ira->codegen, ira->new_irb.exec, "opaque",
-            instruction->base.scope, instruction->base.source_node);
+    Buf *bare_name = buf_alloc();
+    Buf *full_name = get_anon_type_name(ira->codegen, ira->new_irb.exec, "opaque",
+            instruction->base.scope, instruction->base.source_node, bare_name);
     ZigType *result_type = get_opaque_type(ira->codegen, instruction->base.scope, instruction->base.source_node,
-            buf_ptr(name));
+            buf_ptr(full_name), bare_name);
     return ir_const_type(ira, &instruction->base, result_type);
 }
 
