@@ -569,7 +569,7 @@ pub const CompileErrorContext = struct {
         const ErrLineIter = struct {
             lines: mem.SplitIterator,
 
-            const source_file = ".tmp_source.zig";
+            const source_file = "tmp.zig";
 
             fn init(input: []const u8) ErrLineIter {
                 return ErrLineIter{ .lines = mem.separate(input, "\n") };
@@ -759,7 +759,7 @@ pub const CompileErrorContext = struct {
             .is_test = false,
         };
 
-        tc.addSourceFile(".tmp_source.zig", source);
+        tc.addSourceFile("tmp.zig", source);
         comptime var arg_i = 0;
         inline while (arg_i < expected_lines.len) : (arg_i += 1) {
             tc.addExpectedError(expected_lines[arg_i]);

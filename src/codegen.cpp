@@ -7748,7 +7748,7 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     g->std_package->package_table.put(buf_create_from_str("builtin"), g->compile_var_package);
     g->std_package->package_table.put(buf_create_from_str("std"), g->std_package);
     g->compile_var_import = add_source_file(g, g->compile_var_package, builtin_zig_path, contents,
-            SourceKindNonRoot);
+            SourceKindPkgMain);
 
     return ErrorNone;
 }
@@ -7987,7 +7987,7 @@ static ZigType *add_special_code(CodeGen *g, ZigPackage *package, const char *ba
         zig_panic("unable to open '%s': %s\n", buf_ptr(&path_to_code_src), err_str(err));
     }
 
-    return add_source_file(g, package, resolved_path, import_code, SourceKindNonRoot);
+    return add_source_file(g, package, resolved_path, import_code, SourceKindPkgMain);
 }
 
 static ZigPackage *create_bootstrap_pkg(CodeGen *g, ZigPackage *pkg_with_main) {

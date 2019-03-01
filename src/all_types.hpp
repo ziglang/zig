@@ -369,8 +369,6 @@ struct Tld {
 
     ZigType *import;
     Scope *parent_scope;
-    // set this flag temporarily to detect infinite loops
-    bool dep_loop_flag;
     TldResolution resolution;
 };
 
@@ -380,6 +378,7 @@ struct TldVar {
     ZigVar *var;
     Buf *extern_lib_name;
     Buf *section_name;
+    bool analyzing_type; // flag to detect dependency loops
 };
 
 struct TldFn {

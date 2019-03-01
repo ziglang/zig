@@ -1900,7 +1900,9 @@ static Error resolve_enum_type(CodeGen *g, ZigType *enum_type) {
         if (!enum_type->data.enumeration.reported_infinite_err) {
             enum_type->data.enumeration.is_invalid = true;
             enum_type->data.enumeration.reported_infinite_err = true;
-            add_node_error(g, decl_node, buf_sprintf("enum '%s' contains itself", buf_ptr(&enum_type->name)));
+            ErrorMsg *msg = add_node_error(g, decl_node,
+                    buf_sprintf("enum '%s' contains itself", buf_ptr(&enum_type->name)));
+            emit_error_notes_for_ref_stack(g, msg);
         }
         return ErrorSemanticAnalyzeFail;
     }
@@ -2071,8 +2073,9 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
     if (struct_type->data.structure.resolve_loop_flag) {
         if (struct_type->data.structure.resolve_status != ResolveStatusInvalid) {
             struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-            add_node_error(g, decl_node,
+            ErrorMsg *msg = add_node_error(g, decl_node,
                 buf_sprintf("struct '%s' contains itself", buf_ptr(&struct_type->name)));
+            emit_error_notes_for_ref_stack(g, msg);
         }
         return ErrorSemanticAnalyzeFail;
     }
@@ -2296,7 +2299,9 @@ static Error resolve_union_type(CodeGen *g, ZigType *union_type) {
         if (!union_type->data.unionation.reported_infinite_err) {
             union_type->data.unionation.reported_infinite_err = true;
             union_type->data.unionation.is_invalid = true;
-            add_node_error(g, decl_node, buf_sprintf("union '%s' contains itself", buf_ptr(&union_type->name)));
+            ErrorMsg *msg = add_node_error(g, decl_node,
+                    buf_sprintf("union '%s' contains itself", buf_ptr(&union_type->name)));
+            emit_error_notes_for_ref_stack(g, msg);
         }
         return ErrorSemanticAnalyzeFail;
     }
@@ -2527,8 +2532,9 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
         return ErrorNone;
 
     if (enum_type->data.enumeration.zero_bits_loop_flag) {
-        add_node_error(g, enum_type->data.enumeration.decl_node,
+        ErrorMsg *msg = add_node_error(g, enum_type->data.enumeration.decl_node,
             buf_sprintf("'%s' depends on itself", buf_ptr(&enum_type->name)));
+        emit_error_notes_for_ref_stack(g, msg);
         enum_type->data.enumeration.is_invalid = true;
         return ErrorSemanticAnalyzeFail;
     }
@@ -2800,8 +2806,9 @@ static Error resolve_struct_alignment(CodeGen *g, ZigType *struct_type) {
     if (struct_type->data.structure.resolve_loop_flag) {
         if (struct_type->data.structure.resolve_status != ResolveStatusInvalid) {
             struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-            add_node_error(g, decl_node,
+            ErrorMsg *msg = add_node_error(g, decl_node,
                 buf_sprintf("struct '%s' contains itself", buf_ptr(&struct_type->name)));
+            emit_error_notes_for_ref_stack(g, msg);
         }
         return ErrorSemanticAnalyzeFail;
     }
@@ -3239,7 +3246,7 @@ static void get_fully_qualified_decl_name(Buf *buf, Tld *tld) {
     }
     ScopeDecls *decls_scope = reinterpret_cast<ScopeDecls *>(scope);
     buf_append_buf(buf, &decls_scope->container_type->name);
-    buf_append_char(buf, NAMESPACE_SEP_CHAR);
+    if (buf_len(buf) != 0) buf_append_char(buf, NAMESPACE_SEP_CHAR);
     buf_append_buf(buf, tld->name);
 }
 
@@ -3775,8 +3782,16 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
 
     ZigType *explicit_type = nullptr;
     if (var_decl->type) {
-        ZigType *proposed_type = analyze_type_expr(g, tld_var->base.parent_scope, var_decl->type);
-        explicit_type = validate_var_type(g, var_decl->type, proposed_type);
+        if (tld_var->analyzing_type) {
+            ErrorMsg *msg = add_node_error(g, var_decl->type,
+                buf_sprintf("type of '%s' depends on itself", buf_ptr(tld_var->base.name)));
+            emit_error_notes_for_ref_stack(g, msg);
+            explicit_type = g->builtin_types.entry_invalid;
+        } else {
+            tld_var->analyzing_type = true;
+            ZigType *proposed_type = analyze_type_expr(g, tld_var->base.parent_scope, var_decl->type);
+            explicit_type = validate_var_type(g, var_decl->type, proposed_type);
+        }
     }
 
     assert(!is_export || !is_extern);
@@ -3863,7 +3878,8 @@ void resolve_top_level_decl(CodeGen *g, Tld *tld, AstNode *source_node) {
     if (tld->resolution != TldResolutionUnresolved)
         return;
 
-    tld->dep_loop_flag = true;
+    assert(tld->resolution != TldResolutionResolving);
+    tld->resolution = TldResolutionResolving;
     g->tld_ref_source_node_stack.append(source_node);
 
     switch (tld->id) {
@@ -3894,8 +3910,21 @@ void resolve_top_level_decl(CodeGen *g, Tld *tld, AstNode *source_node) {
     }
 
     tld->resolution = TldResolutionOk;
-    tld->dep_loop_flag = false;
     g->tld_ref_source_node_stack.pop();
+}
+
+Tld *find_container_decl(CodeGen *g, ScopeDecls *decls_scope, Buf *name) {
+    // resolve all the use decls
+    for (size_t i = 0; i < decls_scope->use_decls.length; i += 1) {
+        AstNode *use_decl_node = decls_scope->use_decls.at(i);
+        if (use_decl_node->data.use.resolution == TldResolutionUnresolved) {
+            preview_use_decl(g, use_decl_node);
+            resolve_use_decl(g, use_decl_node);
+        }
+    }
+
+    auto entry = decls_scope->decl_table.maybe_get(name);
+    return (entry == nullptr) ? nullptr : entry->value;
 }
 
 Tld *find_decl(CodeGen *g, Scope *scope, Buf *name) {
@@ -3903,18 +3932,9 @@ Tld *find_decl(CodeGen *g, Scope *scope, Buf *name) {
         if (scope->id == ScopeIdDecls) {
             ScopeDecls *decls_scope = (ScopeDecls *)scope;
 
-            // resolve all the use decls
-            for (size_t i = 0; i < decls_scope->use_decls.length; i += 1) {
-                AstNode *use_decl_node = decls_scope->use_decls.at(i);
-                if (use_decl_node->data.use.resolution == TldResolutionUnresolved) {
-                    preview_use_decl(g, use_decl_node);
-                    resolve_use_decl(g, use_decl_node);
-                }
-            }
-
-            auto entry = decls_scope->decl_table.maybe_get(name);
-            if (entry)
-                return entry->value;
+            Tld *result = find_container_decl(g, decls_scope, name);
+            if (result != nullptr)
+                return result;
         }
         scope = scope->parent;
     }
@@ -4475,10 +4495,12 @@ ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *resolved_path, Bu
     Buf resolved_root_src_dir = os_path_resolve(&pkg_root_src_dir, 1);
     Buf namespace_name = BUF_INIT;
     buf_init_from_buf(&namespace_name, &package->pkg_path);
-    if (buf_len(&namespace_name) != 0) buf_append_char(&namespace_name, NAMESPACE_SEP_CHAR);
-    buf_append_mem(&namespace_name, buf_ptr(&noextname) + buf_len(&resolved_root_src_dir) + 1,
-        buf_len(&noextname) - (buf_len(&resolved_root_src_dir) + 1));
-    buf_replace(&namespace_name, ZIG_OS_SEP_CHAR, NAMESPACE_SEP_CHAR);
+    if (source_kind == SourceKindNonRoot) {
+        if (buf_len(&namespace_name) != 0) buf_append_char(&namespace_name, NAMESPACE_SEP_CHAR);
+        buf_append_mem(&namespace_name, buf_ptr(&noextname) + buf_len(&resolved_root_src_dir) + 1,
+            buf_len(&noextname) - (buf_len(&resolved_root_src_dir) + 1));
+        buf_replace(&namespace_name, ZIG_OS_SEP_CHAR, NAMESPACE_SEP_CHAR);
+    }
 
     RootStruct *root_struct = allocate<RootStruct>(1);
     root_struct->package = package;
@@ -6805,4 +6827,17 @@ bool ptr_allows_addr_zero(ZigType *ptr_type) {
         return true;
     }
     return false;
+}
+
+void emit_error_notes_for_ref_stack(CodeGen *g, ErrorMsg *msg) {
+    size_t i = g->tld_ref_source_node_stack.length;
+    for (;;) {
+        if (i == 0)
+            break;
+        i -= 1;
+        AstNode *source_node = g->tld_ref_source_node_stack.at(i);
+        if (source_node) {
+            msg = add_error_note(g, msg, source_node, buf_sprintf("referenced here"));
+        }
+    }
 }

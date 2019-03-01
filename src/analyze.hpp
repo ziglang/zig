@@ -14,6 +14,7 @@ void semantic_analyze(CodeGen *g);
 ErrorMsg *add_node_error(CodeGen *g, AstNode *node, Buf *msg);
 ErrorMsg *add_token_error(CodeGen *g, ZigType *owner, Token *token, Buf *msg);
 ErrorMsg *add_error_note(CodeGen *g, ErrorMsg *parent_msg, AstNode *node, Buf *msg);
+void emit_error_notes_for_ref_stack(CodeGen *g, ErrorMsg *msg);
 ZigType *new_type_table_entry(ZigTypeId id);
 ZigType *get_pointer_to_type(CodeGen *g, ZigType *child_type, bool is_const);
 ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_const,
@@ -49,6 +50,7 @@ bool type_is_nonnull_ptr(ZigType *type);
 
 enum SourceKind {
     SourceKindRoot,
+    SourceKindPkgMain,
     SourceKindNonRoot,
 };
 ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *abs_full_path, Buf *source_code,
@@ -56,6 +58,7 @@ ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *abs_full_path, Bu
 
 ZigVar *find_variable(CodeGen *g, Scope *orig_context, Buf *name, ScopeFnDef **crossed_fndef_scope);
 Tld *find_decl(CodeGen *g, Scope *scope, Buf *name);
+Tld *find_container_decl(CodeGen *g, ScopeDecls *decls_scope, Buf *name);
 void resolve_top_level_decl(CodeGen *g, Tld *tld, AstNode *source_node);
 bool type_is_codegen_pointer(ZigType *type);
 

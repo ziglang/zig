@@ -12,7 +12,6 @@ const ArrayList = std.ArrayList;
 // Note: most of this is based on information gathered from LLVM source code,
 // documentation and/or contributors.
 
-
 // https://llvm.org/docs/PDB/DbiStream.html#stream-header
 pub const DbiStreamHeader = packed struct {
     VersionSignature: i32,
@@ -393,10 +392,9 @@ pub const LineNumberEntry = packed struct {
     Flags: u32,
 
     /// TODO runtime crash when I make the actual type of Flags this
-    const Flags = packed struct {
+    pub const Flags = packed struct {
         /// Start line number
         Start: u24,
-
         /// Delta of lines to the end of the expression. Still unclear.
         // TODO figure out the point of this field.
         End: u7,
