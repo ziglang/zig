@@ -18685,15 +18685,7 @@ static IrInstruction *ir_analyze_instruction_type_name(IrAnalyze *ira, IrInstruc
         return ira->codegen->invalid_instruction;
 
     if (!type_entry->cached_const_name_val) {
-        Buf *name;
-        if (is_container(type_entry)) {
-            name = get_container_scope(type_entry)->bare_name;
-        } else if (type_entry->id == ZigTypeIdOpaque) {
-            name = type_entry->data.opaque.bare_name;
-        } else {
-            name = &type_entry->name;
-        }
-        type_entry->cached_const_name_val = create_const_str_lit(ira->codegen, name);
+        type_entry->cached_const_name_val = create_const_str_lit(ira->codegen, type_bare_name(type_entry));
     }
     IrInstruction *result = ir_const(ira, &instruction->base, nullptr);
     copy_const_val(&result->value, type_entry->cached_const_name_val, true);

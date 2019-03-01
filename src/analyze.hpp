@@ -240,4 +240,6 @@ Error ensure_const_val_repr(IrAnalyze *ira, CodeGen *codegen, AstNode *source_no
         ConstExprValue *const_val, ZigType *wanted_type);
 
 void typecheck_panic_fn(CodeGen *g, TldFn *tld_fn, ZigFn *panic_fn);
+Buf *type_bare_name(ZigType *t);
+Buf *type_h_name(ZigType *t);
 #endif

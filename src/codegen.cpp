@@ -8484,19 +8484,19 @@ static void get_c_type(CodeGen *g, GenH *gen_h, ZigType *type_entry, Buf *out_bu
         case ZigTypeIdOpaque:
             {
                 buf_init_from_str(out_buf, "struct ");
-                buf_append_buf(out_buf, &type_entry->name);
+                buf_append_buf(out_buf, type_h_name(type_entry));
                 return;
             }
         case ZigTypeIdUnion:
             {
                 buf_init_from_str(out_buf, "union ");
-                buf_append_buf(out_buf, &type_entry->name);
+                buf_append_buf(out_buf, type_h_name(type_entry));
                 return;
             }
         case ZigTypeIdEnum:
             {
                 buf_init_from_str(out_buf, "enum ");
-                buf_append_buf(out_buf, &type_entry->name);
+                buf_append_buf(out_buf, type_h_name(type_entry));
                 return;
             }
         case ZigTypeIdArray:
@@ -8679,7 +8679,7 @@ static void gen_h_file(CodeGen *g) {
                 zig_unreachable();
             case ZigTypeIdEnum:
                 if (type_entry->data.enumeration.layout == ContainerLayoutExtern) {
-                    fprintf(out_h, "enum %s {\n", buf_ptr(&type_entry->name));
+                    fprintf(out_h, "enum %s {\n", buf_ptr(type_h_name(type_entry)));
                     for (uint32_t field_i = 0; field_i < type_entry->data.enumeration.src_field_count; field_i += 1) {
                         TypeEnumField *enum_field = &type_entry->data.enumeration.fields[field_i];
                         Buf *value_buf = buf_alloc();
@@ -8692,12 +8692,12 @@ static void gen_h_file(CodeGen *g) {
                     }
                     fprintf(out_h, "};\n\n");
                 } else {
-                    fprintf(out_h, "enum %s;\n", buf_ptr(&type_entry->name));
+                    fprintf(out_h, "enum %s;\n", buf_ptr(type_h_name(type_entry)));
                 }
                 break;
             case ZigTypeIdStruct:
                 if (type_entry->data.structure.layout == ContainerLayoutExtern) {
-                    fprintf(out_h, "struct %s {\n", buf_ptr(&type_entry->name));
+                    fprintf(out_h, "struct %s {\n", buf_ptr(type_h_name(type_entry)));
                     for (uint32_t field_i = 0; field_i < type_entry->data.structure.src_field_count; field_i += 1) {
                         TypeStructField *struct_field = &type_entry->data.structure.fields[field_i];
 
@@ -8715,12 +8715,12 @@ static void gen_h_file(CodeGen *g) {
                     }
                     fprintf(out_h, "};\n\n");
                 } else {
-                    fprintf(out_h, "struct %s;\n", buf_ptr(&type_entry->name));
+                    fprintf(out_h, "struct %s;\n", buf_ptr(type_h_name(type_entry)));
                 }
                 break;
             case ZigTypeIdUnion:
                 if (type_entry->data.unionation.layout == ContainerLayoutExtern) {
-                    fprintf(out_h, "union %s {\n", buf_ptr(&type_entry->name));
+                    fprintf(out_h, "union %s {\n", buf_ptr(type_h_name(type_entry)));
                     for (uint32_t field_i = 0; field_i < type_entry->data.unionation.src_field_count; field_i += 1) {
                         TypeUnionField *union_field = &type_entry->data.unionation.fields[field_i];
 
@@ -8730,11 +8730,11 @@ static void gen_h_file(CodeGen *g) {
                     }
                     fprintf(out_h, "};\n\n");
                 } else {
-                    fprintf(out_h, "union %s;\n", buf_ptr(&type_entry->name));
+                    fprintf(out_h, "union %s;\n", buf_ptr(type_h_name(type_entry)));
                 }
                 break;
             case ZigTypeIdOpaque:
-                fprintf(out_h, "struct %s;\n\n", buf_ptr(&type_entry->name));
+                fprintf(out_h, "struct %s;\n\n", buf_ptr(type_h_name(type_entry)));
                 break;
         }
     }
