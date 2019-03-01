@@ -8168,7 +8168,7 @@ coding style.
             If {#syntax#}x{#endsyntax#} is a {#syntax#}type{#endsyntax#}
             then {#syntax#}x{#endsyntax#} should be {#syntax#}TitleCase{#endsyntax#}, unless it
             is a {#syntax#}struct{#endsyntax#} with 0 fields and is never meant to be instantiated,
-            in which case it is considered to be a "namespace" and uses {#syntax#}snake_case{#end_syntax#}.
+            in which case it is considered to be a "namespace" and uses {#syntax#}snake_case{#endsyntax#}.
         </li>
         <li>
             If {#syntax#}x{#endsyntax#} is callable, and {#syntax#}x{#endsyntax#}'s return type is
