@@ -6637,23 +6637,6 @@ static Buf *get_anon_type_name(CodeGen *codegen, IrExecutable *exec, const char 
     }
 }
 
-static void get_namespace_name(Buf *buf, Scope *scope, uint8_t sep) {
-    if (!scope)
-        return;
-
-    if (scope->id == ScopeIdDecls) {
-        get_namespace_name(buf, scope->parent, sep);
-
-        ScopeDecls *scope_decls = (ScopeDecls *)scope;
-        if (scope_decls->container_type) {
-            buf_append_buf(buf, &scope_decls->container_type->name);
-            buf_append_char(buf, sep);
-        }
-        return;
-    }
-
-    get_namespace_name(buf, scope->parent, sep);
-}
 static IrInstruction *ir_gen_container_decl(IrBuilder *irb, Scope *parent_scope, AstNode *node) {
     assert(node->type == NodeTypeContainerDecl);
 
