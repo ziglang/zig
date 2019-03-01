@@ -2,6 +2,113 @@ const tests = @import("tests.zig");
 const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add(
+        "bogus compile var",
+        \\const x = @import("builtin").bogus;
+        \\export fn entry() usize { return @sizeOf(@typeOf(x)); }
+    ,
+        "tmp.zig:1:29: error: container 'builtin' has no member called 'bogus'",
+    );
+
+    cases.add(
+        "wrong panic signature, runtime function",
+        \\test "" {}
+        \\
+        \\pub fn panic() void {}
+        \\
+    ,
+        "tmp.zig:3:5: error: expected type 'fn([]const u8, ?*builtin.StackTrace) noreturn', found 'fn() void'",
+    );
+
+    cases.add(
+        "wrong panic signature, generic function",
+        \\pub fn panic(comptime msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn {
+        \\    while (true) {}
+        \\}
+    ,
+        "tmp.zig:1:5: error: expected type 'fn([]const u8, ?*builtin.StackTrace) noreturn', found 'fn([]const u8,var)var'",
+        "tmp.zig:1:5: note: only one of the functions is generic",
+    );
+
+    cases.add(
+        "direct struct loop",
+        \\const A = struct { a : A, };
+        \\export fn entry() usize { return @sizeOf(A); }
+    ,
+        "tmp.zig:1:11: error: struct 'A' contains itself",
+    );
+
+    cases.add(
+        "indirect struct loop",
+        \\const A = struct { b : B, };
+        \\const B = struct { c : C, };
+        \\const C = struct { a : A, };
+        \\export fn entry() usize { return @sizeOf(A); }
+    ,
+        "tmp.zig:1:11: error: struct 'A' contains itself",
+    );
+
+    cases.add(
+        "instantiating an undefined value for an invalid struct that contains itself",
+        \\const Foo = struct {
+        \\    x: Foo,
+        \\};
+        \\
+        \\var foo: Foo = undefined;
+        \\
+        \\export fn entry() usize {
+        \\    return @sizeOf(@typeOf(foo.x));
+        \\}
+    ,
+        "tmp.zig:1:13: error: struct 'Foo' contains itself",
+        "tmp.zig:8:28: note: referenced here",
+    );
+
+    cases.add(
+        "@typeInfo causing depend on itself compile error",
+        \\const start = struct {
+        \\    fn crash() bug() {
+        \\        return bug;
+        \\    }
+        \\};
+        \\fn bug() void {
+        \\    _ = @typeInfo(start).Struct;
+        \\}
+        \\export fn entry() void {
+        \\    var boom = start.crash();
+        \\}
+    ,
+        "tmp.zig:7:9: error: dependency loop detected",
+        "tmp.zig:2:19: note: called from here",
+        "tmp.zig:10:21: note: referenced here",
+    );
+
+    cases.add(
+        "enum field value references enum",
+        \\pub const Foo = extern enum {
+        \\    A = Foo.B,
+        \\    C = D,
+        \\};
+        \\export fn entry() void {
+        \\    var s: Foo = Foo.E;
+        \\}
+    ,
+        "tmp.zig:1:17: error: 'Foo' depends on itself",
+    );
+
+    cases.add(
+        "top level decl dependency loop",
+        \\const a : @typeOf(b) = 0;
+        \\const b : @typeOf(a) = 0;
+        \\export fn entry() void {
+        \\    const c = a + b;
+        \\}
+    ,
+        "tmp.zig:2:19: error: dependency loop detected",
+        "tmp.zig:1:19: note: referenced here",
+        "tmp.zig:4:15: note: referenced here",
+    );
+
     cases.addTest(
         "not an enum type",
         \\export fn entry() void {
@@ -18,7 +125,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const InvalidToken = struct {};
         \\const ExpectedVarDeclOrFn = struct {};
     ,
-        ".tmp_source.zig:4:9: error: not an enum type",
+        "tmp.zig:4:9: error: not an enum type",
     );
 
     cases.addTest(
@@ -29,7 +136,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var x: AB = undefined;
         \\}
     ,
-        ".tmp_source.zig:2:18: error: invalid operands to binary expression: 'error{A}' and 'error{B}'",
+        "tmp.zig:2:18: error: invalid operands to binary expression: 'error{A}' and 'error{B}'",
     );
 
     if (builtin.os == builtin.Os.linux) {
@@ -40,7 +147,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
             \\    exit(0);
             \\}
         ,
-            ".tmp_source.zig:3:5: error: dependency on library c must be explicitly specified in the build command",
+            "tmp.zig:3:5: error: dependency on library c must be explicitly specified in the build command",
         );
 
         cases.addTest(
@@ -50,8 +157,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
             \\    _ = c.printf(c"hello, world!\n");
             \\}
         ,
-            ".tmp_source.zig:1:11: error: C import failed",
-            ".tmp_source.zig:1:11: note: libc headers not available; compilation does not link against libc",
+            "tmp.zig:1:11: error: C import failed",
+            "tmp.zig:1:11: note: libc headers not available; compilation does not link against libc",
         );
     }
 
@@ -63,8 +170,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var x = a + b;
         \\}
     ,
-        ".tmp_source.zig:4:15: error: operation caused overflow",
-        ".tmp_source.zig:4:15: note: when computing vector element at index 2",
+        "tmp.zig:4:15: error: operation caused overflow",
+        "tmp.zig:4:15: note: when computing vector element at index 2",
     );
 
     cases.addTest(
@@ -111,14 +218,14 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    B,
         \\};
     ,
-        ".tmp_source.zig:2:5: error: type 'anyerror' not allowed in packed struct; no guaranteed in-memory representation",
-        ".tmp_source.zig:5:5: error: array of 'u24' not allowed in packed struct due to padding bits",
-        ".tmp_source.zig:8:5: error: type 'anyerror' not allowed in packed struct; no guaranteed in-memory representation",
-        ".tmp_source.zig:11:5: error: non-packed, non-extern struct 'S' not allowed in packed struct; no guaranteed in-memory representation",
-        ".tmp_source.zig:14:5: error: non-packed, non-extern struct 'U' not allowed in packed struct; no guaranteed in-memory representation",
-        ".tmp_source.zig:17:5: error: type '?anyerror' not allowed in packed struct; no guaranteed in-memory representation",
-        ".tmp_source.zig:20:5: error: type 'Enum' not allowed in packed struct; no guaranteed in-memory representation",
-        ".tmp_source.zig:38:14: note: enum declaration does not specify an integer tag type",
+        "tmp.zig:2:5: error: type 'anyerror' not allowed in packed struct; no guaranteed in-memory representation",
+        "tmp.zig:5:5: error: array of 'u24' not allowed in packed struct due to padding bits",
+        "tmp.zig:8:5: error: type 'anyerror' not allowed in packed struct; no guaranteed in-memory representation",
+        "tmp.zig:11:5: error: non-packed, non-extern struct 'S' not allowed in packed struct; no guaranteed in-memory representation",
+        "tmp.zig:14:5: error: non-packed, non-extern struct 'U' not allowed in packed struct; no guaranteed in-memory representation",
+        "tmp.zig:17:5: error: type '?anyerror' not allowed in packed struct; no guaranteed in-memory representation",
+        "tmp.zig:20:5: error: type 'Enum' not allowed in packed struct; no guaranteed in-memory representation",
+        "tmp.zig:38:14: note: enum declaration does not specify an integer tag type",
     );
 
     cases.addCase(x: {
@@ -131,7 +238,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
             \\    x += 1;
             \\}
         ,
-            ".tmp_source.zig:2:5: error: use of undeclared identifier 'x'",
+            "tmp.zig:2:5: error: use of undeclared identifier 'x'",
         );
         tc.expect_exact = true;
         break :x tc;
@@ -143,7 +250,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return 0;
         \\}
     ,
-        ".tmp_source.zig:1:15: error: parameter of type 'var' not allowed in function with calling convention 'ccc'",
+        "tmp.zig:1:15: error: parameter of type 'var' not allowed in function with calling convention 'ccc'",
     );
 
     cases.addTest(
@@ -153,7 +260,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var y: [*c]c_void = x;
         \\}
     ,
-        ".tmp_source.zig:3:12: error: C pointers cannot point opaque types",
+        "tmp.zig:3:12: error: C pointers cannot point opaque types",
     );
 
     cases.addTest(
@@ -173,8 +280,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var bar: Bar = undefined;
         \\}
     ,
-        ".tmp_source.zig:3:8: error: opaque types have unknown size and therefore cannot be directly embedded in structs",
-        ".tmp_source.zig:7:10: error: opaque types have unknown size and therefore cannot be directly embedded in unions",
+        "tmp.zig:3:8: error: opaque types have unknown size and therefore cannot be directly embedded in structs",
+        "tmp.zig:7:10: error: opaque types have unknown size and therefore cannot be directly embedded in unions",
     );
 
     cases.addTest(
@@ -204,13 +311,13 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var x: [*c]u32 = y;
         \\}
     ,
-        ".tmp_source.zig:3:27: error: cast increases pointer alignment",
-        ".tmp_source.zig:7:18: error: cast discards const qualifier",
-        ".tmp_source.zig:11:19: error: expected type '*u32', found '[*c]u8'",
-        ".tmp_source.zig:11:19: note: pointer type child 'u8' cannot cast into pointer type child 'u32'",
-        ".tmp_source.zig:15:22: error: cast increases pointer alignment",
-        ".tmp_source.zig:19:21: error: cast discards const qualifier",
-        ".tmp_source.zig:23:22: error: expected type '[*c]u32', found '*u8'",
+        "tmp.zig:3:27: error: cast increases pointer alignment",
+        "tmp.zig:7:18: error: cast discards const qualifier",
+        "tmp.zig:11:19: error: expected type '*u32', found '[*c]u8'",
+        "tmp.zig:11:19: note: pointer type child 'u8' cannot cast into pointer type child 'u32'",
+        "tmp.zig:15:22: error: cast increases pointer alignment",
+        "tmp.zig:19:21: error: cast discards const qualifier",
+        "tmp.zig:23:22: error: expected type '[*c]u32', found '*u8'",
     );
 
     cases.addTest(
@@ -220,7 +327,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var zig_ptr: *u8 = c_ptr;
         \\}
     ,
-        ".tmp_source.zig:3:24: error: null pointer casted to type '*u8'",
+        "tmp.zig:3:24: error: null pointer casted to type '*u8'",
     );
 
     cases.addTest(
@@ -230,7 +337,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var zig_ptr: *u8 = c_ptr;
         \\}
     ,
-        ".tmp_source.zig:3:24: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:24: error: use of undefined value here causes undefined behavior",
     );
 
     cases.addTest(
@@ -250,12 +357,12 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var c_ptr: [*c][*c]const u8 = ptr_opt_many_ptr;
         \\}
     ,
-        ".tmp_source.zig:6:24: error: expected type '*const [*]const u8', found '[*c]const [*c]const u8'",
-        ".tmp_source.zig:6:24: note: pointer type child '[*c]const u8' cannot cast into pointer type child '[*]const u8'",
-        ".tmp_source.zig:6:24: note: '[*c]const u8' could have null values which are illegal in type '[*]const u8'",
-        ".tmp_source.zig:13:35: error: expected type '[*c][*c]const u8', found '*[*]u8'",
-        ".tmp_source.zig:13:35: note: pointer type child '[*]u8' cannot cast into pointer type child '[*c]const u8'",
-        ".tmp_source.zig:13:35: note: mutable '[*c]const u8' allows illegal null values stored to type '[*]u8'",
+        "tmp.zig:6:24: error: expected type '*const [*]const u8', found '[*c]const [*c]const u8'",
+        "tmp.zig:6:24: note: pointer type child '[*c]const u8' cannot cast into pointer type child '[*]const u8'",
+        "tmp.zig:6:24: note: '[*c]const u8' could have null values which are illegal in type '[*]const u8'",
+        "tmp.zig:13:35: error: expected type '[*c][*c]const u8', found '*[*]u8'",
+        "tmp.zig:13:35: note: pointer type child '[*]u8' cannot cast into pointer type child '[*c]const u8'",
+        "tmp.zig:13:35: note: mutable '[*c]const u8' allows illegal null values stored to type '[*]u8'",
     );
 
     cases.addTest(
@@ -268,8 +375,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var ptr: [*c]u8 = x;
         \\}
     ,
-        ".tmp_source.zig:2:33: error: integer value 71615590737044764481 cannot be implicitly casted to type 'usize'",
-        ".tmp_source.zig:6:23: error: integer type 'u65' too big for implicit @intToPtr to type '[*c]u8'",
+        "tmp.zig:2:33: error: integer value 71615590737044764481 cannot be implicitly casted to type 'usize'",
+        "tmp.zig:6:23: error: integer type 'u65' too big for implicit @intToPtr to type '[*c]u8'",
     );
 
     cases.addTest(
@@ -279,7 +386,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const T = [*c]Foo;
         \\}
     ,
-        ".tmp_source.zig:3:15: error: C pointers cannot point to non-C-ABI-compatible type 'Foo'",
+        "tmp.zig:3:15: error: C pointers cannot point to non-C-ABI-compatible type 'Foo'",
     );
 
     cases.addCase(x: {
@@ -294,7 +401,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
             \\    inline while (i < n) : (i += 1) { @compileLog("!@#$"); }
             \\}
         ,
-            ".tmp_source.zig:7:39: error: found compile log statement",
+            "tmp.zig:7:39: error: found compile log statement",
         );
         tc.expect_exact = true;
         break :x tc;
@@ -306,7 +413,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    'a'.* = 1;
         \\}
     ,
-        ".tmp_source.zig:2:8: error: attempt to dereference non-pointer type 'comptime_int'",
+        "tmp.zig:2:8: error: attempt to dereference non-pointer type 'comptime_int'",
     );
 
     cases.addTest(
@@ -315,7 +422,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const x = 'a'.*[0..];
         \\}
     ,
-        ".tmp_source.zig:2:18: error: attempt to dereference non-pointer type 'comptime_int'",
+        "tmp.zig:2:18: error: attempt to dereference non-pointer type 'comptime_int'",
     );
 
     cases.addTest(
@@ -324,14 +431,14 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var z = @truncate(u8, u16(undefined));
         \\}
     ,
-        ".tmp_source.zig:2:30: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:2:30: error: use of undefined value here causes undefined behavior",
     );
 
     cases.addTest(
         "return invalid type from test",
         \\test "example" { return 1; }
     ,
-        ".tmp_source.zig:1:25: error: integer value 1 cannot be implicitly casted to type 'void'",
+        "tmp.zig:1:25: error: integer value 1 cannot be implicitly casted to type 'void'",
     );
 
     cases.add(
@@ -341,7 +448,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return x;
         \\}
     ,
-        ".tmp_source.zig:1:13: error: threadlocal variable cannot be constant",
+        "tmp.zig:1:13: error: threadlocal variable cannot be constant",
     );
 
     cases.add(
@@ -350,7 +457,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    threadlocal var x: i32 = 1234;
         \\}
     ,
-        ".tmp_source.zig:2:5: error: function-local variable 'x' cannot be threadlocal",
+        "tmp.zig:2:5: error: function-local variable 'x' cannot be threadlocal",
     );
 
     cases.add(
@@ -359,7 +466,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var oops = @bitCast(u7, byte);
         \\}
     ,
-        ".tmp_source.zig:2:16: error: destination type 'u7' has 7 bits but source type 'u8' has 8 bits",
+        "tmp.zig:2:16: error: destination type 'u7' has 7 bits but source type 'u8' has 8 bits",
     );
 
     cases.add(
@@ -371,7 +478,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return 5678;
         \\}
     ,
-        ".tmp_source.zig:2:12: error: `&&` is invalid. Note that `and` is boolean AND.",
+        "tmp.zig:2:12: error: `&&` is invalid. Note that `and` is boolean AND.",
     );
 
     cases.add(
@@ -383,8 +490,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return 5678;
         \\}
     ,
-        ".tmp_source.zig:2:9: error: expected error set type, found 'bool'",
-        ".tmp_source.zig:2:11: note: `||` merges error sets; `or` performs boolean OR",
+        "tmp.zig:2:9: error: expected error set type, found 'bool'",
+        "tmp.zig:2:11: note: `||` merges error sets; `or` performs boolean OR",
     );
 
     cases.add(
@@ -393,7 +500,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    @compileLog(@ptrCast(*const c_void, &entry));
         \\}
     ,
-        ".tmp_source.zig:2:5: error: found compile log statement",
+        "tmp.zig:2:5: error: found compile log statement",
     );
 
     cases.add(
@@ -413,8 +520,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    };
         \\}
     ,
-        ".tmp_source.zig:5:9: error: duplicate switch value",
-        ".tmp_source.zig:12:9: error: duplicate switch value",
+        "tmp.zig:5:9: error: duplicate switch value",
+        "tmp.zig:12:9: error: duplicate switch value",
     );
 
     cases.add(
@@ -430,8 +537,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    };
         \\}
     ,
-        ".tmp_source.zig:2:15: error: switch must handle all possibilities",
-        ".tmp_source.zig:7:15: error: switch must handle all possibilities",
+        "tmp.zig:2:15: error: switch must handle all possibilities",
+        "tmp.zig:7:15: error: switch must handle all possibilities",
     );
 
     cases.add(
@@ -443,7 +550,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const deref = int_ptr.*;
         \\}
     ,
-        ".tmp_source.zig:5:26: error: attempt to read 4 bytes from [4]u8 at index 1 which is 3 bytes",
+        "tmp.zig:5:26: error: attempt to read 4 bytes from [4]u8 at index 1 which is 3 bytes",
     );
 
     cases.add(
@@ -454,8 +561,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    do_the_thing(bar);
         \\}
     ,
-        ".tmp_source.zig:4:18: error: expected type 'fn(i32) void', found 'fn(bool) void",
-        ".tmp_source.zig:4:18: note: parameter 0: 'bool' cannot cast into 'i32'",
+        "tmp.zig:4:18: error: expected type 'fn(i32) void', found 'fn(bool) void",
+        "tmp.zig:4:18: note: parameter 0: 'bool' cannot cast into 'i32'",
     );
 
     cases.add(
@@ -469,8 +576,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const unsigned: u32 = value;
         \\}
     ,
-        ".tmp_source.zig:3:36: error: cannot cast negative value -1 to unsigned integer type 'u32'",
-        ".tmp_source.zig:7:27: error: cannot cast negative value -1 to unsigned integer type 'u32'",
+        "tmp.zig:3:36: error: cannot cast negative value -1 to unsigned integer type 'u32'",
+        "tmp.zig:7:27: error: cannot cast negative value -1 to unsigned integer type 'u32'",
     );
 
     cases.add(
@@ -488,9 +595,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var byte: u8 = spartan_count;
         \\}
     ,
-        ".tmp_source.zig:3:31: error: integer value 300 cannot be implicitly casted to type 'u8'",
-        ".tmp_source.zig:7:22: error: integer value 300 cannot be implicitly casted to type 'u8'",
-        ".tmp_source.zig:11:20: error: expected type 'u8', found 'u16'",
+        "tmp.zig:3:31: error: integer value 300 cannot be implicitly casted to type 'u8'",
+        "tmp.zig:7:22: error: integer value 300 cannot be implicitly casted to type 'u8'",
+        "tmp.zig:11:20: error: expected type 'u8', found 'u16'",
     );
 
     cases.add(
@@ -500,7 +607,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const y: f32 = x;
         \\}
     ,
-        ".tmp_source.zig:3:20: error: cast of value 16777217.000000 to type 'f32' loses information",
+        "tmp.zig:3:20: error: cast of value 16777217.000000 to type 'f32' loses information",
     );
 
     cases.add(
@@ -510,7 +617,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(y)); }
     ,
-        ".tmp_source.zig:2:14: error: expected type 'f32', found 'f64'",
+        "tmp.zig:2:14: error: expected type 'f32', found 'f64'",
     );
 
     cases.add(
@@ -522,28 +629,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var x: i65536 = 1;
         \\}
     ,
-        ".tmp_source.zig:2:31: error: integer value 65536 cannot be implicitly casted to type 'u16'",
-        ".tmp_source.zig:5:12: error: primitive integer type 'i65536' exceeds maximum bit width of 65535",
-    );
-
-    cases.add(
-        "wrong panic signature, runtime function",
-        \\test "" {}
-        \\
-        \\pub fn panic() void {}
-        \\
-    ,
-        ".tmp_source.zig:3:5: error: expected type 'fn([]const u8, ?*StackTrace) noreturn', found 'fn() void'",
-    );
-
-    cases.add(
-        "wrong panic signature, generic function",
-        \\pub fn panic(comptime msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn {
-        \\    while (true) {}
-        \\}
-    ,
-        ".tmp_source.zig:1:5: error: expected type 'fn([]const u8, ?*StackTrace) noreturn', found 'fn([]const u8,var)var'",
-        ".tmp_source.zig:1:5: note: only one of the functions is generic",
+        "tmp.zig:2:31: error: integer value 65536 cannot be implicitly casted to type 'u16'",
+        "tmp.zig:5:12: error: primitive integer type 'i65536' exceeds maximum bit width of 65535",
     );
 
     cases.add(
@@ -556,7 +643,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const car = Car.init();
         \\}
     ,
-        ".tmp_source.zig:2:11: error: use of undeclared identifier 'SymbolThatDoesNotExist'",
+        "tmp.zig:2:11: error: use of undeclared identifier 'SymbolThatDoesNotExist'",
     );
 
     cases.add(
@@ -568,7 +655,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var ptr2: *c_void = &b;
         \\}
     ,
-        ".tmp_source.zig:5:26: error: expected type '*c_void', found '**u32'",
+        "tmp.zig:5:26: error: expected type '*c_void', found '**u32'",
     );
 
     cases.add(
@@ -584,7 +671,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const field = @typeInfo(Struct).Struct.fields[index];
         \\}
     ,
-        ".tmp_source.zig:9:51: error: values of type 'StructField' must be comptime known, but index value is runtime known",
+        "tmp.zig:9:51: error: values of type 'builtin.StructField' must be comptime known, but index value is runtime known",
     );
 
     cases.add(
@@ -598,7 +685,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = @typeName(Foo(i32));
         \\}
     ,
-        ".tmp_source.zig:2:5: error: found compile log statement",
+        "tmp.zig:2:5: error: found compile log statement",
     );
 
     cases.add(
@@ -608,7 +695,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var b = a[0..10];
         \\}
     ,
-        ".tmp_source.zig:3:14: error: slice of undefined",
+        "tmp.zig:3:14: error: slice of undefined",
     );
 
     cases.add(
@@ -618,7 +705,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const sliceA: []u8 = &buffer;
         \\}
     ,
-        ".tmp_source.zig:3:27: error: expected type '[]u8', found '*const [1]u8'",
+        "tmp.zig:3:27: error: expected type '[]u8', found '*const [1]u8'",
     );
 
     cases.add(
@@ -628,7 +715,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a.*.len;
         \\}
     ,
-        ".tmp_source.zig:3:10: error: attempt to dereference non-pointer type '[]u8'",
+        "tmp.zig:3:10: error: attempt to dereference non-pointer type '[]u8'",
     );
 
     cases.add(
@@ -639,9 +726,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return p == null;
         \\}
     ,
-        ".tmp_source.zig:3:15: error: '*u0' and '?*u0' do not have the same in-memory representation",
-        ".tmp_source.zig:3:31: note: '*u0' has no in-memory bits",
-        ".tmp_source.zig:3:24: note: '?*u0' has in-memory bits",
+        "tmp.zig:3:15: error: '*u0' and '?*u0' do not have the same in-memory representation",
+        "tmp.zig:3:31: note: '*u0' has no in-memory bits",
+        "tmp.zig:3:24: note: '?*u0' has in-memory bits",
     );
 
     cases.add(
@@ -651,7 +738,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = &x == null;
         \\}
     ,
-        ".tmp_source.zig:3:12: error: comparison against null can only be done with optionals",
+        "tmp.zig:3:12: error: comparison against null can only be done with optionals",
     );
 
     cases.add(
@@ -663,10 +750,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const Errors = error{} || u16;
         \\}
     ,
-        ".tmp_source.zig:2:20: error: expected error set type, found type 'u8'",
-        ".tmp_source.zig:2:23: note: `||` merges error sets; `or` performs boolean OR",
-        ".tmp_source.zig:5:31: error: expected error set type, found type 'u16'",
-        ".tmp_source.zig:5:28: note: `||` merges error sets; `or` performs boolean OR",
+        "tmp.zig:2:20: error: expected error set type, found type 'u8'",
+        "tmp.zig:2:23: note: `||` merges error sets; `or` performs boolean OR",
+        "tmp.zig:5:31: error: expected error set type, found type 'u16'",
+        "tmp.zig:5:28: note: `||` merges error sets; `or` performs boolean OR",
     );
 
     cases.add(
@@ -684,7 +771,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const S = Gen();
         \\}
     ,
-        ".tmp_source.zig:2:12: error: use of undeclared identifier 'T'",
+        "tmp.zig:2:12: error: use of undeclared identifier 'T'",
     );
 
     cases.add(
@@ -695,7 +782,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    f(i32);
         \\}
     ,
-        ".tmp_source.zig:4:5: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:4:5: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -713,9 +800,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var x = func(3);
         \\}
     ,
-        ".tmp_source.zig:4:24: error: 'y' not accessible from inner function",
-        ".tmp_source.zig:3:28: note: crossed function definition here",
-        ".tmp_source.zig:1:10: note: declared here",
+        "tmp.zig:4:24: error: 'y' not accessible from inner function",
+        "tmp.zig:3:28: note: crossed function definition here",
+        "tmp.zig:1:10: note: declared here",
     );
 
     cases.add(
@@ -724,7 +811,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const x = @intToFloat(f32, 1.1);
         \\}
     ,
-        ".tmp_source.zig:2:32: error: expected int type, found 'comptime_float'",
+        "tmp.zig:2:32: error: expected int type, found 'comptime_float'",
     );
 
     cases.add(
@@ -733,7 +820,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const x = @floatToInt(i32, i32(54));
         \\}
     ,
-        ".tmp_source.zig:2:35: error: expected float type, found 'i32'",
+        "tmp.zig:2:35: error: expected float type, found 'i32'",
     );
 
     cases.add(
@@ -742,7 +829,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const x = @floatToInt(i8, 200);
         \\}
     ,
-        ".tmp_source.zig:2:31: error: integer value 200 cannot be implicitly casted to type 'i8'",
+        "tmp.zig:2:31: error: integer value 200 cannot be implicitly casted to type 'i8'",
     );
 
     cases.add(
@@ -754,7 +841,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const int_val = int_ptr.*;
         \\}
     ,
-        ".tmp_source.zig:5:28: error: attempt to read 8 bytes from pointer to f32 which is 4 bytes",
+        "tmp.zig:5:28: error: attempt to read 8 bytes from pointer to f32 which is 4 bytes",
     );
 
     cases.add(
@@ -767,7 +854,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const a = items[0];
         \\}
     ,
-        ".tmp_source.zig:2:12: error: use of undeclared identifier 'SomeNonexistentType'",
+        "tmp.zig:2:12: error: use of undeclared identifier 'SomeNonexistentType'",
     );
 
     cases.add(
@@ -778,7 +865,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    @noInlineCall(foo);
         \\}
     ,
-        ".tmp_source.zig:4:5: error: no-inline call of inline function",
+        "tmp.zig:4:5: error: no-inline call of inline function",
     );
 
     cases.add(
@@ -795,8 +882,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    }
         \\}
     ,
-        ".tmp_source.zig:6:19: error: comptime control flow inside runtime block",
-        ".tmp_source.zig:5:9: note: runtime block created here",
+        "tmp.zig:6:19: error: comptime control flow inside runtime block",
+        "tmp.zig:5:9: note: runtime block created here",
     );
 
     cases.add(
@@ -812,8 +899,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    }
         \\}
     ,
-        ".tmp_source.zig:6:13: error: comptime control flow inside runtime block",
-        ".tmp_source.zig:5:9: note: runtime block created here",
+        "tmp.zig:6:13: error: comptime control flow inside runtime block",
+        "tmp.zig:5:9: note: runtime block created here",
     );
 
     cases.add(
@@ -827,8 +914,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    }
         \\}
     ,
-        ".tmp_source.zig:5:23: error: comptime control flow inside runtime block",
-        ".tmp_source.zig:5:9: note: runtime block created here",
+        "tmp.zig:5:23: error: comptime control flow inside runtime block",
+        "tmp.zig:5:9: note: runtime block created here",
     );
 
     cases.add(
@@ -842,8 +929,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    }
         \\}
     ,
-        ".tmp_source.zig:5:25: error: comptime control flow inside runtime block",
-        ".tmp_source.zig:5:9: note: runtime block created here",
+        "tmp.zig:5:25: error: comptime control flow inside runtime block",
+        "tmp.zig:5:9: note: runtime block created here",
     );
 
     cases.add(
@@ -857,8 +944,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    }
         \\}
     ,
-        ".tmp_source.zig:5:20: error: comptime control flow inside runtime block",
-        ".tmp_source.zig:5:9: note: runtime block created here",
+        "tmp.zig:5:20: error: comptime control flow inside runtime block",
+        "tmp.zig:5:9: note: runtime block created here",
     );
 
     cases.add(
@@ -872,8 +959,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    }
         \\}
     ,
-        ".tmp_source.zig:5:20: error: comptime control flow inside runtime block",
-        ".tmp_source.zig:5:9: note: runtime block created here",
+        "tmp.zig:5:20: error: comptime control flow inside runtime block",
+        "tmp.zig:5:9: note: runtime block created here",
     );
 
     cases.add(
@@ -887,8 +974,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    }
         \\}
     ,
-        ".tmp_source.zig:5:22: error: comptime control flow inside runtime block",
-        ".tmp_source.zig:5:9: note: runtime block created here",
+        "tmp.zig:5:22: error: comptime control flow inside runtime block",
+        "tmp.zig:5:9: note: runtime block created here",
     );
 
     cases.add(
@@ -904,7 +991,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    };
         \\}
     ,
-        ".tmp_source.zig:7:17: error: switch on type 'type' provides no expression parameter",
+        "tmp.zig:7:17: error: switch on type 'type' provides no expression parameter",
     );
 
     cases.add(
@@ -914,24 +1001,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    foo();
         \\}
     ,
-        ".tmp_source.zig:1:1: error: non-extern function has no body",
-    );
-
-    cases.add(
-        "@typeInfo causing depend on itself compile error",
-        \\const start = struct {
-        \\    fn crash() bug() {
-        \\        return bug;
-        \\    }
-        \\};
-        \\fn bug() void {
-        \\    _ = @typeInfo(start).Struct;
-        \\}
-        \\export fn entry() void {
-        \\    var boom = start.crash();
-        \\}
-    ,
-        ".tmp_source.zig:2:5: error: 'crash' depends on itself",
+        "tmp.zig:1:1: error: non-extern function has no body",
     );
 
     cases.add(
@@ -942,7 +1012,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return handle_undef == handle_dummy;
         \\}
     ,
-        ".tmp_source.zig:2:29: error: @handle() called outside of function definition",
+        "tmp.zig:2:29: error: @handle() called outside of function definition",
     );
 
     cases.add(
@@ -952,7 +1022,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return handle_undef == @handle();
         \\}
     ,
-        ".tmp_source.zig:3:28: error: @handle() in non-async function",
+        "tmp.zig:3:28: error: @handle() in non-async function",
     );
 
     cases.add(
@@ -962,8 +1032,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return _;
         \\}
     ,
-        ".tmp_source.zig:2:5: error: `_` is not a declarable symbol",
-        ".tmp_source.zig:3:12: error: use of undeclared identifier '_'",
+        "tmp.zig:2:5: error: `_` is not a declarable symbol",
+        "tmp.zig:3:12: error: use of undeclared identifier '_'",
     );
 
     cases.add(
@@ -976,7 +1046,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    }
         \\}
     ,
-        ".tmp_source.zig:4:20: error: use of undeclared identifier '_'",
+        "tmp.zig:4:20: error: use of undeclared identifier '_'",
     );
 
     cases.add(
@@ -992,7 +1062,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return 1;
         \\}
     ,
-        ".tmp_source.zig:4:20: error: use of undeclared identifier '_'",
+        "tmp.zig:4:20: error: use of undeclared identifier '_'",
     );
 
     cases.add(
@@ -1010,7 +1080,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return error.optionalReturnError;
         \\}
     ,
-        ".tmp_source.zig:6:17: error: use of undeclared identifier '_'",
+        "tmp.zig:6:17: error: use of undeclared identifier '_'",
     );
 
     cases.add(
@@ -1030,9 +1100,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    while (x) |_| returns() else |_| unreachable;
         \\}
     ,
-        ".tmp_source.zig:5:25: error: expression value is ignored",
-        ".tmp_source.zig:9:26: error: expression value is ignored",
-        ".tmp_source.zig:13:26: error: expression value is ignored",
+        "tmp.zig:5:25: error: expression value is ignored",
+        "tmp.zig:9:26: error: expression value is ignored",
+        "tmp.zig:13:26: error: expression value is ignored",
     );
 
     cases.add(
@@ -1043,7 +1113,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    dump(a);
         \\}
     ,
-        ".tmp_source.zig:1:9: error: missing parameter name",
+        "tmp.zig:1:9: error: missing parameter name",
     );
 
     cases.add(
@@ -1057,7 +1127,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    for (xx) |f| {}
         \\}
     ,
-        ".tmp_source.zig:7:15: error: variable of type 'Foo' must be const or comptime",
+        "tmp.zig:7:15: error: variable of type 'Foo' must be const or comptime",
     );
 
     cases.add(
@@ -1068,7 +1138,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    f(g);
         \\}
     ,
-        ".tmp_source.zig:1:9: error: parameter of type 'fn(var)var' must be declared comptime",
+        "tmp.zig:1:9: error: parameter of type 'fn(var)var' must be declared comptime",
     );
 
     cases.add(
@@ -1082,7 +1152,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\};
         \\export fn entry(bar: *Bar) void {}
     ,
-        ".tmp_source.zig:2:5: error: extern structs cannot contain fields of type '?*const void'",
+        "tmp.zig:2:5: error: extern structs cannot contain fields of type '?*const void'",
     );
 
     cases.add(
@@ -1095,7 +1165,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    command.exec();
         \\}
     ,
-        ".tmp_source.zig:6:12: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:6:12: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -1108,7 +1178,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    command.exec();
         \\}
     ,
-        ".tmp_source.zig:6:12: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:6:12: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -1118,7 +1188,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const aligned = @alignCast(4, ptr);
         \\}
     ,
-        ".tmp_source.zig:3:35: error: pointer address 0x1 is not aligned to 4 bytes",
+        "tmp.zig:3:35: error: pointer address 0x1 is not aligned to 4 bytes",
     );
 
     cases.add(
@@ -1127,7 +1197,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return @ptrToInt(&{}) == @ptrToInt(&{});
         \\}
     ,
-        ".tmp_source.zig:2:23: error: pointer to size 0 type has no address",
+        "tmp.zig:2:23: error: pointer to size 0 type has no address",
     );
 
     cases.add(
@@ -1136,7 +1206,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return @popCount(x);
         \\}
     ,
-        ".tmp_source.zig:2:22: error: expected integer type, found 'f32'",
+        "tmp.zig:2:22: error: expected integer type, found 'f32'",
     );
 
     cases.add(
@@ -1145,7 +1215,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = @popCount(-1);
         \\}
     ,
-        ".tmp_source.zig:2:9: error: @popCount on negative comptime_int value -1",
+        "tmp.zig:2:9: error: @popCount on negative comptime_int value -1",
     );
 
     cases.addCase(x: {
@@ -1161,10 +1231,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
             \\
             \\fn bar(x: *b.Foo) void {}
         ,
-            ".tmp_source.zig:6:10: error: expected type '*Foo', found '*Foo'",
-            ".tmp_source.zig:6:10: note: pointer type child 'Foo' cannot cast into pointer type child 'Foo'",
-            "a.zig:1:17: note: Foo declared here",
-            "b.zig:1:17: note: Foo declared here",
+            "tmp.zig:6:10: error: expected type '*b.Foo', found '*a.Foo'",
+            "tmp.zig:6:10: note: pointer type child 'a.Foo' cannot cast into pointer type child 'b.Foo'",
+            "a.zig:1:17: note: a.Foo declared here",
+            "b.zig:1:17: note: b.Foo declared here",
         );
 
         tc.addSourceFile("a.zig",
@@ -1183,19 +1253,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add(
-        "enum field value references enum",
-        \\pub const Foo = extern enum {
-        \\    A = Foo.B,
-        \\    C = D,
-        \\};
-        \\export fn entry() void {
-        \\    var s: Foo = Foo.E;
-        \\}
-    ,
-        ".tmp_source.zig:1:17: error: 'Foo' depends on itself",
-    );
-
-    cases.add(
         "@floatToInt comptime safety",
         \\comptime {
         \\    _ = @floatToInt(i8, f32(-129.1));
@@ -1207,9 +1264,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = @floatToInt(u8, f32(256.1));
         \\}
     ,
-        ".tmp_source.zig:2:9: error: integer value '-129' cannot be stored in type 'i8'",
-        ".tmp_source.zig:5:9: error: integer value '-1' cannot be stored in type 'u8'",
-        ".tmp_source.zig:8:9: error: integer value '256' cannot be stored in type 'u8'",
+        "tmp.zig:2:9: error: integer value '-129' cannot be stored in type 'i8'",
+        "tmp.zig:5:9: error: integer value '-1' cannot be stored in type 'u8'",
+        "tmp.zig:8:9: error: integer value '256' cannot be stored in type 'u8'",
     );
 
     cases.add(
@@ -1218,7 +1275,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const a: fn () c_void = undefined;
         \\}
     ,
-        ".tmp_source.zig:2:20: error: return type cannot be opaque",
+        "tmp.zig:2:20: error: return type cannot be opaque",
     );
 
     cases.add(
@@ -1231,7 +1288,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var y = p.*;
         \\}
     ,
-        ".tmp_source.zig:4:23: error: expected type '*?*i32', found '**i32'",
+        "tmp.zig:4:23: error: expected type '*?*i32', found '**i32'",
     );
 
     cases.add(
@@ -1240,7 +1297,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const x: [*]const bool = true;
         \\}
     ,
-        ".tmp_source.zig:2:30: error: expected type '[*]const bool', found 'bool'",
+        "tmp.zig:2:30: error: expected type '[*]const bool', found 'bool'",
     );
 
     cases.add(
@@ -1249,7 +1306,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return x.*;
         \\}
     ,
-        ".tmp_source.zig:2:13: error: index syntax required for unknown-length pointer type '[*]i32'",
+        "tmp.zig:2:13: error: index syntax required for unknown-length pointer type '[*]i32'",
     );
 
     cases.add(
@@ -1262,14 +1319,14 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    foo.a += 1;
         \\}
     ,
-        ".tmp_source.zig:6:8: error: type '[*]Foo' does not support field access",
+        "tmp.zig:6:8: error: type '[*]Foo' does not support field access",
     );
 
     cases.add(
         "unknown length pointer to opaque",
         \\export const T = [*]@OpaqueType();
     ,
-        ".tmp_source.zig:1:18: error: unknown-length pointer to opaque",
+        "tmp.zig:1:18: error: unknown-length pointer to opaque",
     );
 
     cases.add(
@@ -1285,7 +1342,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var rule_set = try Foo.init();
         \\}
     ,
-        ".tmp_source.zig:2:13: error: expected type 'i32', found 'type'",
+        "tmp.zig:2:13: error: expected type 'i32', found 'type'",
     );
 
     cases.add(
@@ -1294,7 +1351,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const slice = ptr[0..2];
         \\}
     ,
-        ".tmp_source.zig:2:22: error: slice of single-item pointer",
+        "tmp.zig:2:22: error: slice of single-item pointer",
     );
 
     cases.add(
@@ -1303,7 +1360,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return ptr[1];
         \\}
     ,
-        ".tmp_source.zig:2:15: error: index of single-item pointer",
+        "tmp.zig:2:15: error: index of single-item pointer",
     );
 
     cases.add(
@@ -1319,10 +1376,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return null;
         \\}
     ,
-        ".tmp_source.zig:5:34: error: expected type '?NextError!i32', found '?OtherError!i32'",
-        ".tmp_source.zig:5:34: note: optional type child 'OtherError!i32' cannot cast into optional type child 'NextError!i32'",
-        ".tmp_source.zig:5:34: note: error set 'OtherError' cannot cast into error set 'NextError'",
-        ".tmp_source.zig:2:26: note: 'error.OutOfMemory' not a member of destination error set",
+        "tmp.zig:5:34: error: expected type '?NextError!i32', found '?OtherError!i32'",
+        "tmp.zig:5:34: note: optional type child 'OtherError!i32' cannot cast into optional type child 'NextError!i32'",
+        "tmp.zig:5:34: note: error set 'OtherError' cannot cast into error set 'NextError'",
+        "tmp.zig:2:26: note: 'error.OutOfMemory' not a member of destination error set",
     );
 
     cases.add(
@@ -1339,14 +1396,14 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    Filled,
         \\};
     ,
-        ".tmp_source.zig:3:17: error: attempt to dereference non-pointer type 'Tile'",
+        "tmp.zig:3:17: error: attempt to dereference non-pointer type 'Tile'",
     );
 
     cases.add(
         "invalid field access in comptime",
         \\comptime { var x = doesnt_exist.whatever; }
     ,
-        ".tmp_source.zig:1:20: error: use of undeclared identifier 'doesnt_exist'",
+        "tmp.zig:1:20: error: use of undeclared identifier 'doesnt_exist'",
     );
 
     cases.add(
@@ -1367,8 +1424,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    }
         \\}
     ,
-        ".tmp_source.zig:12:9: error: cannot suspend inside suspend block",
-        ".tmp_source.zig:11:5: note: other suspend block here",
+        "tmp.zig:12:9: error: cannot suspend inside suspend block",
+        "tmp.zig:11:5: note: other suspend block here",
     );
 
     cases.add(
@@ -1378,8 +1435,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\inline fn b() void { }
     ,
-        ".tmp_source.zig:2:5: error: functions marked inline must be stored in const or comptime var",
-        ".tmp_source.zig:4:1: note: declared here",
+        "tmp.zig:2:5: error: functions marked inline must be stored in const or comptime var",
+        "tmp.zig:4:1: note: declared here",
     );
 
     cases.add(
@@ -1389,7 +1446,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    @panic(e);
         \\}
     ,
-        ".tmp_source.zig:3:12: error: expected type '[]const u8', found 'error{Foo}'",
+        "tmp.zig:3:12: error: expected type '[]const u8', found 'error{Foo}'",
     );
 
     cases.add(
@@ -1403,8 +1460,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var tagName = @tagName(fi);
         \\}
     ,
-        ".tmp_source.zig:7:19: error: union has no associated enum",
-        ".tmp_source.zig:1:18: note: declared here",
+        "tmp.zig:7:19: error: union has no associated enum",
+        "tmp.zig:1:18: note: declared here",
     );
 
     cases.add(
@@ -1417,7 +1474,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return error.ShouldBeCompileError;
         \\}
     ,
-        ".tmp_source.zig:6:17: error: expected type 'void', found 'error{ShouldBeCompileError}'",
+        "tmp.zig:6:17: error: expected type 'void', found 'error{ShouldBeCompileError}'",
     );
 
     cases.add(
@@ -1426,7 +1483,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\   var s = (struct{v: var}){.v=i32(10)};
         \\}
     ,
-        ".tmp_source.zig:2:23: error: invalid token: 'var'",
+        "tmp.zig:2:23: error: invalid token: 'var'",
     );
 
     cases.add(
@@ -1436,7 +1493,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const y = @ptrCast(*i32, &x);
         \\}
     ,
-        ".tmp_source.zig:3:15: error: cast discards const qualifier",
+        "tmp.zig:3:15: error: cast discards const qualifier",
     );
 
     cases.add(
@@ -1445,7 +1502,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const slice = ([*]i32)(undefined)[0..1];
         \\}
     ,
-        ".tmp_source.zig:2:38: error: non-zero length slice of undefined pointer",
+        "tmp.zig:2:38: error: non-zero length slice of undefined pointer",
     );
 
     cases.add(
@@ -1460,7 +1517,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    a(c);
         \\}
     ,
-        ".tmp_source.zig:8:7: error: expected type 'fn(*const u8) void', found 'fn(u8) void'",
+        "tmp.zig:8:7: error: expected type 'fn(*const u8) void', found 'fn(u8) void'",
     );
 
     cases.add(
@@ -1474,7 +1531,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    }
         \\}
     ,
-        ".tmp_source.zig:5:5: error: else prong required when switching on type 'anyerror'",
+        "tmp.zig:5:5: error: else prong required when switching on type 'anyerror'",
     );
 
     cases.add(
@@ -1485,7 +1542,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\fn foo() !void {
         \\}
     ,
-        ".tmp_source.zig:4:11: error: function with inferred error set must return at least one possible error",
+        "tmp.zig:4:11: error: function with inferred error set must return at least one possible error",
     );
 
     cases.add(
@@ -1504,8 +1561,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    }
         \\}
     ,
-        ".tmp_source.zig:2:26: error: error.Baz not handled in switch",
-        ".tmp_source.zig:2:26: error: error.Bar not handled in switch",
+        "tmp.zig:2:26: error: error.Baz not handled in switch",
+        "tmp.zig:2:26: error: error.Bar not handled in switch",
     );
 
     cases.add(
@@ -1526,8 +1583,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    }
         \\}
     ,
-        ".tmp_source.zig:5:14: error: duplicate switch value: '@typeOf(foo).ReturnType.ErrorSet.Foo'",
-        ".tmp_source.zig:3:14: note: other value is here",
+        "tmp.zig:5:14: error: duplicate switch value: '@typeOf(foo).ReturnType.ErrorSet.Foo'",
+        "tmp.zig:3:14: note: other value is here",
     );
 
     cases.add("invalid cast from integral type to enum",
@@ -1542,7 +1599,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\        E.One => {},
         \\    }
         \\}
-    , ".tmp_source.zig:9:10: error: expected type 'usize', found 'E'");
+    , "tmp.zig:9:10: error: expected type 'usize', found 'E'");
 
     cases.add(
         "range operator in switch used on error set",
@@ -1560,7 +1617,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    }
         \\}
     ,
-        ".tmp_source.zig:3:17: error: operator not allowed for errors",
+        "tmp.zig:3:17: error: operator not allowed for errors",
     );
 
     cases.add(
@@ -1569,7 +1626,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const z: ?fn()!void = null;
         \\}
     ,
-        ".tmp_source.zig:2:15: error: inferring error set of return type valid only for function definitions",
+        "tmp.zig:2:15: error: inferring error set of return type valid only for function definitions",
     );
 
     cases.add(
@@ -1579,7 +1636,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const z = Foo.Bar;
         \\}
     ,
-        ".tmp_source.zig:3:18: error: no error named 'Bar' in 'Foo'",
+        "tmp.zig:3:18: error: no error named 'Bar' in 'Foo'",
     );
 
     cases.add(
@@ -1588,7 +1645,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const z = i32!i32;
         \\}
     ,
-        ".tmp_source.zig:2:15: error: expected error set type, found type 'i32'",
+        "tmp.zig:2:15: error: expected error set type, found type 'i32'",
     );
 
     cases.add(
@@ -1604,7 +1661,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    }
         \\}
     ,
-        ".tmp_source.zig:7:11: error: error sets 'Set1' and 'Set2' have no common errors",
+        "tmp.zig:7:11: error: error sets 'Set1' and 'Set2' have no common errors",
     );
 
     cases.add(
@@ -1613,7 +1670,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const z = error.A > error.B;
         \\}
     ,
-        ".tmp_source.zig:2:23: error: operator not allowed for errors",
+        "tmp.zig:2:23: error: operator not allowed for errors",
     );
 
     cases.add(
@@ -1625,7 +1682,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var y = @errSetCast(Set2, x);
         \\}
     ,
-        ".tmp_source.zig:5:13: error: error.B not a member of error set 'Set2'",
+        "tmp.zig:5:13: error: error.B not a member of error set 'Set2'",
     );
 
     cases.add(
@@ -1638,9 +1695,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return error.B;
         \\}
     ,
-        ".tmp_source.zig:3:35: error: expected type 'SmallErrorSet!i32', found 'anyerror!i32'",
-        ".tmp_source.zig:3:35: note: error set 'anyerror' cannot cast into error set 'SmallErrorSet'",
-        ".tmp_source.zig:3:35: note: cannot cast global error set into smaller set",
+        "tmp.zig:3:35: error: expected type 'SmallErrorSet!i32', found 'anyerror!i32'",
+        "tmp.zig:3:35: note: error set 'anyerror' cannot cast into error set 'SmallErrorSet'",
+        "tmp.zig:3:35: note: cannot cast global error set into smaller set",
     );
 
     cases.add(
@@ -1653,10 +1710,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return error.B;
         \\}
     ,
-        ".tmp_source.zig:3:31: error: expected type 'SmallErrorSet', found 'anyerror'",
-        ".tmp_source.zig:3:31: note: cannot cast global error set into smaller set",
+        "tmp.zig:3:31: error: expected type 'SmallErrorSet', found 'anyerror'",
+        "tmp.zig:3:31: note: cannot cast global error set into smaller set",
     );
-
     cases.add(
         "recursive inferred error set",
         \\export fn entry() void {
@@ -1666,7 +1722,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    try foo();
         \\}
     ,
-        ".tmp_source.zig:5:5: error: cannot resolve inferred error set '@typeOf(foo).ReturnType.ErrorSet': function 'foo' not fully analyzed yet",
+        "tmp.zig:5:5: error: cannot resolve inferred error set '@typeOf(foo).ReturnType.ErrorSet': function 'foo' not fully analyzed yet",
     );
 
     cases.add(
@@ -1680,8 +1736,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var x: Set2 = set1;
         \\}
     ,
-        ".tmp_source.zig:7:19: error: expected type 'Set2', found 'Set1'",
-        ".tmp_source.zig:1:23: note: 'error.B' not a member of destination error set",
+        "tmp.zig:7:19: error: expected type 'Set2', found 'Set1'",
+        "tmp.zig:1:23: note: 'error.B' not a member of destination error set",
     );
 
     cases.add(
@@ -1695,7 +1751,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var y = @intToError(x);
         \\}
     ,
-        ".tmp_source.zig:7:13: error: integer value 3 represents no error",
+        "tmp.zig:7:13: error: integer value 3 represents no error",
     );
 
     cases.add(
@@ -1713,7 +1769,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var y = @errSetCast(Set2, @intToError(x));
         \\}
     ,
-        ".tmp_source.zig:11:13: error: error.B not a member of error set 'Set2'",
+        "tmp.zig:11:13: error: error.B not a member of error set 'Set2'",
     );
 
     cases.add(
@@ -1722,7 +1778,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = @memberCount(anyerror);
         \\}
     ,
-        ".tmp_source.zig:2:9: error: global error set member count not available at comptime",
+        "tmp.zig:2:9: error: global error set member count not available at comptime",
     );
 
     cases.add(
@@ -1735,8 +1791,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const a: Foo = undefined;
         \\}
     ,
-        ".tmp_source.zig:3:5: error: duplicate error: 'Bar'",
-        ".tmp_source.zig:2:5: note: other error here",
+        "tmp.zig:3:5: error: duplicate error: 'Bar'",
+        "tmp.zig:2:5: note: other error here",
     );
 
     cases.add(
@@ -1745,7 +1801,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const x = usize(-10);
         \\}
     ,
-        ".tmp_source.zig:2:21: error: cannot cast negative value -10 to unsigned integer type 'usize'",
+        "tmp.zig:2:21: error: cannot cast negative value -10 to unsigned integer type 'usize'",
     );
 
     cases.add(
@@ -1755,7 +1811,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var arr: [v]u8 = undefined;
         \\}
     ,
-        ".tmp_source.zig:1:1: error: unable to infer variable type",
+        "tmp.zig:1:1: error: unable to infer variable type",
     );
 
     cases.add(
@@ -1768,8 +1824,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const a: Foo = undefined;
         \\}
     ,
-        ".tmp_source.zig:3:5: error: duplicate struct field: 'Bar'",
-        ".tmp_source.zig:2:5: note: other field here",
+        "tmp.zig:3:5: error: duplicate struct field: 'Bar'",
+        "tmp.zig:2:5: note: other field here",
     );
 
     cases.add(
@@ -1782,8 +1838,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const a: Foo = undefined;
         \\}
     ,
-        ".tmp_source.zig:3:5: error: duplicate union field: 'Bar'",
-        ".tmp_source.zig:2:5: note: other field here",
+        "tmp.zig:3:5: error: duplicate union field: 'Bar'",
+        "tmp.zig:2:5: note: other field here",
     );
 
     cases.add(
@@ -1797,8 +1853,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const a: Foo = undefined;
         \\}
     ,
-        ".tmp_source.zig:3:5: error: duplicate enum field: 'Bar'",
-        ".tmp_source.zig:2:5: note: other field here",
+        "tmp.zig:3:5: error: duplicate enum field: 'Bar'",
+        "tmp.zig:2:5: note: other field here",
     );
 
     cases.add(
@@ -1808,15 +1864,15 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\nakedcc fn foo() void { }
     ,
-        ".tmp_source.zig:2:5: error: unable to call function with naked calling convention",
-        ".tmp_source.zig:4:1: note: declared here",
+        "tmp.zig:2:5: error: unable to call function with naked calling convention",
+        "tmp.zig:4:1: note: declared here",
     );
 
     cases.add(
         "function with invalid return type",
         \\export fn foo() boid {}
     ,
-        ".tmp_source.zig:1:17: error: use of undeclared identifier 'boid'",
+        "tmp.zig:1:17: error: use of undeclared identifier 'boid'",
     );
 
     cases.add(
@@ -1824,7 +1880,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const Foo = enum { A, B, C };
         \\export fn entry(foo: Foo) void { }
     ,
-        ".tmp_source.zig:2:22: error: parameter of type 'Foo' not allowed in function with calling convention 'ccc'",
+        "tmp.zig:2:22: error: parameter of type 'Foo' not allowed in function with calling convention 'ccc'",
     );
 
     cases.add(
@@ -1836,7 +1892,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\};
         \\export fn entry(foo: Foo) void { }
     ,
-        ".tmp_source.zig:6:22: error: parameter of type 'Foo' not allowed in function with calling convention 'ccc'",
+        "tmp.zig:6:22: error: parameter of type 'Foo' not allowed in function with calling convention 'ccc'",
     );
 
     cases.add(
@@ -1848,7 +1904,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\};
         \\export fn entry(foo: Foo) void { }
     ,
-        ".tmp_source.zig:6:22: error: parameter of type 'Foo' not allowed in function with calling convention 'ccc'",
+        "tmp.zig:6:22: error: parameter of type 'Foo' not allowed in function with calling convention 'ccc'",
     );
 
     cases.add(
@@ -1860,7 +1916,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    switch (f) {}
         \\}
     ,
-        ".tmp_source.zig:5:5: error: enumeration value 'Foo.M' not handled in switch",
+        "tmp.zig:5:5: error: enumeration value 'Foo.M' not handled in switch",
     );
 
     cases.add(
@@ -1869,7 +1925,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var a = 1 >> -1;
         \\}
     ,
-        ".tmp_source.zig:2:18: error: shift by negative value -1",
+        "tmp.zig:2:18: error: shift by negative value -1",
     );
 
     cases.add(
@@ -1880,7 +1936,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    }
         \\}
     ,
-        ".tmp_source.zig:3:9: error: encountered @panic at compile-time",
+        "tmp.zig:3:9: error: encountered @panic at compile-time",
     );
 
     cases.add(
@@ -1910,7 +1966,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    bogus;
         \\}
     ,
-        ".tmp_source.zig:8:5: error: use of undeclared identifier 'bogus'",
+        "tmp.zig:8:5: error: use of undeclared identifier 'bogus'",
     );
 
     cases.add(
@@ -1923,7 +1979,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    }
         \\}
     ,
-        ".tmp_source.zig:4:13: error: label not found: 'outer'",
+        "tmp.zig:4:13: error: label not found: 'outer'",
     );
 
     cases.add(
@@ -1937,7 +1993,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    }
         \\}
     ,
-        ".tmp_source.zig:5:13: error: labeled loop not found: 'outer'",
+        "tmp.zig:5:13: error: labeled loop not found: 'outer'",
     );
 
     cases.add(
@@ -1950,8 +2006,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\extern fn bar(x: *void) void { }
     ,
-        ".tmp_source.zig:1:30: error: parameter of type '*void' has 0 bits; not allowed in function with calling convention 'ccc'",
-        ".tmp_source.zig:7:18: error: parameter of type '*void' has 0 bits; not allowed in function with calling convention 'ccc'",
+        "tmp.zig:1:30: error: parameter of type '*void' has 0 bits; not allowed in function with calling convention 'ccc'",
+        "tmp.zig:7:18: error: parameter of type '*void' has 0 bits; not allowed in function with calling convention 'ccc'",
     );
 
     cases.add(
@@ -1963,7 +2019,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var bad = {};
         \\}
     ,
-        ".tmp_source.zig:5:5: error: expected token ';', found 'var'",
+        "tmp.zig:5:5: error: expected token ';', found 'var'",
     );
 
     cases.add(
@@ -1975,7 +2031,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var bad = {};
         \\}
     ,
-        ".tmp_source.zig:5:5: error: expected token ';', found 'var'",
+        "tmp.zig:5:5: error: expected token ';', found 'var'",
     );
 
     cases.add(
@@ -1987,7 +2043,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var bad = {};
         \\}
     ,
-        ".tmp_source.zig:5:5: error: expected token ';', found 'var'",
+        "tmp.zig:5:5: error: expected token ';', found 'var'",
     );
 
     cases.add(
@@ -1999,7 +2055,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var bad = {};
         \\}
     ,
-        ".tmp_source.zig:5:5: error: expected token ';', found 'var'",
+        "tmp.zig:5:5: error: expected token ';', found 'var'",
     );
 
     cases.add(
@@ -2011,7 +2067,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var bad = {};
         \\}
     ,
-        ".tmp_source.zig:5:5: error: expected token ';', found 'var'",
+        "tmp.zig:5:5: error: expected token ';', found 'var'",
     );
 
     cases.add(
@@ -2023,7 +2079,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var bad = {};
         \\}
     ,
-        ".tmp_source.zig:5:5: error: expected token ';', found 'var'",
+        "tmp.zig:5:5: error: expected token ';', found 'var'",
     );
 
     cases.add(
@@ -2035,7 +2091,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var bad = {};
         \\}
     ,
-        ".tmp_source.zig:5:5: error: expected token ';', found 'var'",
+        "tmp.zig:5:5: error: expected token ';', found 'var'",
     );
 
     cases.add(
@@ -2047,7 +2103,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var bad = {};
         \\}
     ,
-        ".tmp_source.zig:5:5: error: expected token ';', found 'var'",
+        "tmp.zig:5:5: error: expected token ';', found 'var'",
     );
 
     cases.add(
@@ -2059,7 +2115,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var bad = {};
         \\}
     ,
-        ".tmp_source.zig:5:5: error: expected token ';', found 'var'",
+        "tmp.zig:5:5: error: expected token ';', found 'var'",
     );
 
     cases.add(
@@ -2071,7 +2127,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var bad = {};
         \\}
     ,
-        ".tmp_source.zig:5:5: error: expected token ';', found 'var'",
+        "tmp.zig:5:5: error: expected token ';', found 'var'",
     );
 
     cases.add(
@@ -2083,7 +2139,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var bad = {};
         \\}
     ,
-        ".tmp_source.zig:5:5: error: expected token ';', found 'var'",
+        "tmp.zig:5:5: error: expected token ';', found 'var'",
     );
 
     cases.add(
@@ -2095,7 +2151,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var bad = {};
         \\}
     ,
-        ".tmp_source.zig:5:5: error: expected token ';', found 'var'",
+        "tmp.zig:5:5: error: expected token ';', found 'var'",
     );
 
     cases.add(
@@ -2107,7 +2163,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var bad = {};
         \\}
     ,
-        ".tmp_source.zig:5:5: error: expected token ';', found 'var'",
+        "tmp.zig:5:5: error: expected token ';', found 'var'",
     );
 
     cases.add(
@@ -2119,7 +2175,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var bad = {};
         \\}
     ,
-        ".tmp_source.zig:5:5: error: expected token ';', found 'var'",
+        "tmp.zig:5:5: error: expected token ';', found 'var'",
     );
 
     cases.add(
@@ -2131,7 +2187,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var bad = {};
         \\}
     ,
-        ".tmp_source.zig:5:5: error: expected token ';', found 'var'",
+        "tmp.zig:5:5: error: expected token ';', found 'var'",
     );
 
     cases.add(
@@ -2143,7 +2199,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var bad = {};
         \\}
     ,
-        ".tmp_source.zig:5:5: error: expected token ';', found 'var'",
+        "tmp.zig:5:5: error: expected token ';', found 'var'",
     );
 
     cases.add(
@@ -2155,7 +2211,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var bad = {};
         \\}
     ,
-        ".tmp_source.zig:5:5: error: expected token ';', found 'var'",
+        "tmp.zig:5:5: error: expected token ';', found 'var'",
     );
 
     cases.add(
@@ -2167,7 +2223,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var bad = {};
         \\}
     ,
-        ".tmp_source.zig:5:5: error: expected token ';', found 'var'",
+        "tmp.zig:5:5: error: expected token ';', found 'var'",
     );
 
     cases.add(
@@ -2179,7 +2235,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var bad = {};
         \\}
     ,
-        ".tmp_source.zig:5:5: error: expected token ';', found 'var'",
+        "tmp.zig:5:5: error: expected token ';', found 'var'",
     );
 
     cases.add(
@@ -2191,7 +2247,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var bad = {};
         \\}
     ,
-        ".tmp_source.zig:5:5: error: expected token ';', found 'var'",
+        "tmp.zig:5:5: error: expected token ';', found 'var'",
     );
 
     cases.add(
@@ -2203,7 +2259,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var bad = {};
         \\}
     ,
-        ".tmp_source.zig:5:5: error: expected token ';', found 'var'",
+        "tmp.zig:5:5: error: expected token ';', found 'var'",
     );
 
     cases.add(
@@ -2212,7 +2268,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\fn a() void {}
         \\export fn entry() void { a(); }
     ,
-        ".tmp_source.zig:2:1: error: redefinition of 'a'",
+        "tmp.zig:2:1: error: redefinition of 'a'",
     );
 
     cases.add(
@@ -2220,7 +2276,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\fn a() noreturn {return;}
         \\export fn entry() void { a(); }
     ,
-        ".tmp_source.zig:1:18: error: expected type 'noreturn', found 'void'",
+        "tmp.zig:1:18: error: expected type 'noreturn', found 'void'",
     );
 
     cases.add(
@@ -2228,7 +2284,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\fn a() i32 {}
         \\export fn entry() void { _ = a(); }
     ,
-        ".tmp_source.zig:1:12: error: expected type 'i32', found 'void'",
+        "tmp.zig:1:12: error: expected type 'i32', found 'void'",
     );
 
     cases.add(
@@ -2237,7 +2293,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    b();
         \\}
     ,
-        ".tmp_source.zig:2:5: error: use of undeclared identifier 'b'",
+        "tmp.zig:2:5: error: use of undeclared identifier 'b'",
     );
 
     cases.add(
@@ -2247,7 +2303,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\fn b(a: i32, b: i32, c: i32) void { }
     ,
-        ".tmp_source.zig:2:6: error: expected 3 arguments, found 1",
+        "tmp.zig:2:6: error: expected 3 arguments, found 1",
     );
 
     cases.add(
@@ -2255,7 +2311,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\fn a() bogus {}
         \\export fn entry() void { _ = a(); }
     ,
-        ".tmp_source.zig:1:8: error: use of undeclared identifier 'bogus'",
+        "tmp.zig:1:8: error: use of undeclared identifier 'bogus'",
     );
 
     cases.add(
@@ -2263,7 +2319,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\fn a() *noreturn {}
         \\export fn entry() void { _ = a(); }
     ,
-        ".tmp_source.zig:1:8: error: pointer to noreturn not allowed",
+        "tmp.zig:1:8: error: pointer to noreturn not allowed",
     );
 
     cases.add(
@@ -2275,7 +2331,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\fn b() void {}
     ,
-        ".tmp_source.zig:3:5: error: unreachable code",
+        "tmp.zig:3:5: error: unreachable code",
     );
 
     cases.add(
@@ -2283,7 +2339,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const bogus = @import("bogus-does-not-exist.zig",);
         \\export fn entry() void { bogus.bogo(); }
     ,
-        ".tmp_source.zig:1:15: error: unable to find 'bogus-does-not-exist.zig'",
+        "tmp.zig:1:15: error: unable to find 'bogus-does-not-exist.zig'",
     );
 
     cases.add(
@@ -2294,8 +2350,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    c;
         \\}
     ,
-        ".tmp_source.zig:3:5: error: use of undeclared identifier 'b'",
-        ".tmp_source.zig:4:5: error: use of undeclared identifier 'c'",
+        "tmp.zig:3:5: error: use of undeclared identifier 'b'",
+        "tmp.zig:4:5: error: use of undeclared identifier 'c'",
     );
 
     cases.add(
@@ -2304,7 +2360,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\export fn entry() void { f(1, 2); }
     ,
-        ".tmp_source.zig:1:15: error: redeclaration of variable 'a'",
+        "tmp.zig:1:15: error: redeclaration of variable 'a'",
     );
 
     cases.add(
@@ -2314,7 +2370,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const a = 0;
         \\}
     ,
-        ".tmp_source.zig:3:5: error: redeclaration of variable 'a'",
+        "tmp.zig:3:5: error: redeclaration of variable 'a'",
     );
 
     cases.add(
@@ -2324,7 +2380,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\export fn entry() void { f(1); }
     ,
-        ".tmp_source.zig:2:5: error: redeclaration of variable 'a'",
+        "tmp.zig:2:5: error: redeclaration of variable 'a'",
     );
 
     cases.add(
@@ -2334,7 +2390,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return a;
         \\}
     ,
-        ".tmp_source.zig:3:12: error: expected type 'i32', found '[*]const u8'",
+        "tmp.zig:3:12: error: expected type 'i32', found '[*]const u8'",
     );
 
     cases.add(
@@ -2343,7 +2399,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    if (0) {}
         \\}
     ,
-        ".tmp_source.zig:2:9: error: expected type 'bool', found 'comptime_int'",
+        "tmp.zig:2:9: error: expected type 'bool', found 'comptime_int'",
     );
 
     cases.add(
@@ -2352,7 +2408,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const a = return;
         \\}
     ,
-        ".tmp_source.zig:2:5: error: unreachable code",
+        "tmp.zig:2:5: error: unreachable code",
     );
 
     cases.add(
@@ -2361,7 +2417,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const a: noreturn = {};
         \\}
     ,
-        ".tmp_source.zig:2:14: error: variable of type 'noreturn' not allowed",
+        "tmp.zig:2:14: error: variable of type 'noreturn' not allowed",
     );
 
     cases.add(
@@ -2369,7 +2425,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\fn f(a: noreturn) void {}
         \\export fn entry() void { f(); }
     ,
-        ".tmp_source.zig:1:9: error: parameter of type 'noreturn' not allowed",
+        "tmp.zig:1:9: error: parameter of type 'noreturn' not allowed",
     );
 
     cases.add(
@@ -2378,7 +2434,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    3 = 3;
         \\}
     ,
-        ".tmp_source.zig:2:7: error: cannot assign to constant",
+        "tmp.zig:2:7: error: cannot assign to constant",
     );
 
     cases.add(
@@ -2388,7 +2444,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    a = 4;
         \\}
     ,
-        ".tmp_source.zig:3:7: error: cannot assign to constant",
+        "tmp.zig:3:7: error: cannot assign to constant",
     );
 
     cases.add(
@@ -2397,7 +2453,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    b = 3;
         \\}
     ,
-        ".tmp_source.zig:2:5: error: use of undeclared identifier 'b'",
+        "tmp.zig:2:5: error: use of undeclared identifier 'b'",
     );
 
     cases.add(
@@ -2406,7 +2462,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    (const a = 0);
         \\}
     ,
-        ".tmp_source.zig:2:6: error: invalid token: 'const'",
+        "tmp.zig:2:6: error: invalid token: 'const'",
     );
 
     cases.add(
@@ -2415,7 +2471,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    i[i] = i[i];
         \\}
     ,
-        ".tmp_source.zig:2:5: error: use of undeclared identifier 'i'",
+        "tmp.zig:2:5: error: use of undeclared identifier 'i'",
     );
 
     cases.add(
@@ -2425,8 +2481,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    bad[bad] = bad[bad];
         \\}
     ,
-        ".tmp_source.zig:3:8: error: array access of non-array type 'bool'",
-        ".tmp_source.zig:3:19: error: array access of non-array type 'bool'",
+        "tmp.zig:3:8: error: array access of non-array type 'bool'",
+        "tmp.zig:3:19: error: array access of non-array type 'bool'",
     );
 
     cases.add(
@@ -2437,8 +2493,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    array[bad] = array[bad];
         \\}
     ,
-        ".tmp_source.zig:4:11: error: expected type 'usize', found 'bool'",
-        ".tmp_source.zig:4:24: error: expected type 'usize', found 'bool'",
+        "tmp.zig:4:11: error: expected type 'usize', found 'bool'",
+        "tmp.zig:4:24: error: expected type 'usize', found 'bool'",
     );
 
     cases.add(
@@ -2449,7 +2505,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\export fn entry() void { f(); }
     ,
-        ".tmp_source.zig:3:7: error: cannot assign to constant",
+        "tmp.zig:3:7: error: cannot assign to constant",
     );
 
     cases.add(
@@ -2460,26 +2516,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\export fn entry() void { f(true); }
     ,
-        ".tmp_source.zig:2:42: error: integer value 1 cannot be implicitly casted to type 'void'",
-        ".tmp_source.zig:3:15: error: incompatible types: 'i32' and 'void'",
-    );
-
-    cases.add(
-        "direct struct loop",
-        \\const A = struct { a : A, };
-        \\export fn entry() usize { return @sizeOf(A); }
-    ,
-        ".tmp_source.zig:1:11: error: struct 'A' contains itself",
-    );
-
-    cases.add(
-        "indirect struct loop",
-        \\const A = struct { b : B, };
-        \\const B = struct { c : C, };
-        \\const C = struct { a : A, };
-        \\export fn entry() usize { return @sizeOf(A); }
-    ,
-        ".tmp_source.zig:1:11: error: struct 'A' contains itself",
+        "tmp.zig:2:42: error: integer value 1 cannot be implicitly casted to type 'void'",
+        "tmp.zig:3:15: error: incompatible types: 'i32' and 'void'",
     );
 
     cases.add(
@@ -2491,8 +2529,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const y = a.bar;
         \\}
     ,
-        ".tmp_source.zig:4:6: error: no member named 'foo' in struct 'A'",
-        ".tmp_source.zig:5:16: error: no member named 'bar' in struct 'A'",
+        "tmp.zig:4:6: error: no member named 'foo' in struct 'A'",
+        "tmp.zig:5:16: error: no member named 'bar' in struct 'A'",
     );
 
     cases.add(
@@ -2500,7 +2538,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const A = struct { x : i32, };
         \\const A = struct { y : i32, };
     ,
-        ".tmp_source.zig:2:1: error: redefinition of 'A'",
+        "tmp.zig:2:1: error: redefinition of 'A'",
     );
 
     cases.add(
@@ -2508,7 +2546,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const A = enum {};
         \\const A = enum {};
     ,
-        ".tmp_source.zig:2:1: error: redefinition of 'A'",
+        "tmp.zig:2:1: error: redefinition of 'A'",
     );
 
     cases.add(
@@ -2516,8 +2554,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\var a : i32 = 1;
         \\var a : i32 = 2;
     ,
-        ".tmp_source.zig:2:1: error: redefinition of 'a'",
-        ".tmp_source.zig:1:1: note: previous definition is here",
+        "tmp.zig:2:1: error: redefinition of 'a'",
+        "tmp.zig:1:1: note: previous definition is here",
     );
 
     cases.add(
@@ -2536,7 +2574,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    };
         \\}
     ,
-        ".tmp_source.zig:11:9: error: duplicate field",
+        "tmp.zig:11:9: error: duplicate field",
     );
 
     cases.add(
@@ -2555,7 +2593,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    };
         \\}
     ,
-        ".tmp_source.zig:9:17: error: missing field: 'x'",
+        "tmp.zig:9:17: error: missing field: 'x'",
     );
 
     cases.add(
@@ -2573,7 +2611,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    };
         \\}
     ,
-        ".tmp_source.zig:10:9: error: no member named 'foo' in struct 'A'",
+        "tmp.zig:10:9: error: no member named 'foo' in struct 'A'",
     );
 
     cases.add(
@@ -2582,7 +2620,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    break;
         \\}
     ,
-        ".tmp_source.zig:2:5: error: break expression outside loop",
+        "tmp.zig:2:5: error: break expression outside loop",
     );
 
     cases.add(
@@ -2591,7 +2629,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    continue;
         \\}
     ,
-        ".tmp_source.zig:2:5: error: continue expression outside loop",
+        "tmp.zig:2:5: error: continue expression outside loop",
     );
 
     cases.add(
@@ -2600,7 +2638,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    if (true) |x| { }
         \\}
     ,
-        ".tmp_source.zig:2:9: error: expected optional type, found 'bool'",
+        "tmp.zig:2:9: error: expected optional type, found 'bool'",
     );
 
     cases.add(
@@ -2610,7 +2648,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\export fn entry() void { _ = f(); }
     ,
-        ".tmp_source.zig:2:15: error: unreachable code",
+        "tmp.zig:2:15: error: unreachable code",
     );
 
     cases.add(
@@ -2619,18 +2657,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\export fn entry() void { _ = f(); }
     ,
-        ".tmp_source.zig:1:8: error: invalid builtin function: 'bogus'",
-    );
-
-    cases.add(
-        "top level decl dependency loop",
-        \\const a : @typeOf(b) = 0;
-        \\const b : @typeOf(a) = 0;
-        \\export fn entry() void {
-        \\    const c = a + b;
-        \\}
-    ,
-        ".tmp_source.zig:1:1: error: 'a' depends on itself",
+        "tmp.zig:1:8: error: invalid builtin function: 'bogus'",
     );
 
     cases.add(
@@ -2638,7 +2665,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\fn f(noalias x: i32) void {}
         \\export fn entry() void { f(1234); }
     ,
-        ".tmp_source.zig:1:6: error: noalias on non-pointer parameter",
+        "tmp.zig:1:6: error: noalias on non-pointer parameter",
     );
 
     cases.add(
@@ -2646,7 +2673,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const foo = []u16{.x = 1024,};
         \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
     ,
-        ".tmp_source.zig:1:18: error: type '[]u16' does not support struct initialization syntax",
+        "tmp.zig:1:18: error: type '[]u16' does not support struct initialization syntax",
     );
 
     cases.add(
@@ -2656,7 +2683,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return 1;
         \\}
     ,
-        ".tmp_source.zig:1:1: error: variable of type 'type' must be constant",
+        "tmp.zig:1:1: error: variable of type 'type' must be constant",
     );
 
     cases.add(
@@ -2672,10 +2699,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    f(1234);
         \\}
     ,
-        ".tmp_source.zig:4:6: error: redefinition of 'Foo'",
-        ".tmp_source.zig:1:1: note: previous definition is here",
-        ".tmp_source.zig:5:5: error: redefinition of 'Bar'",
-        ".tmp_source.zig:2:1: note: previous definition is here",
+        "tmp.zig:4:6: error: redefinition of 'Foo'",
+        "tmp.zig:1:1: note: previous definition is here",
+        "tmp.zig:5:5: error: redefinition of 'Bar'",
+        "tmp.zig:2:1: note: previous definition is here",
     );
 
     cases.add(
@@ -2696,7 +2723,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(f)); }
     ,
-        ".tmp_source.zig:8:5: error: enumeration value 'Number.Four' not handled in switch",
+        "tmp.zig:8:5: error: enumeration value 'Number.Four' not handled in switch",
     );
 
     cases.add(
@@ -2719,8 +2746,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(f)); }
     ,
-        ".tmp_source.zig:13:15: error: duplicate switch value",
-        ".tmp_source.zig:10:15: note: other value is here",
+        "tmp.zig:13:15: error: duplicate switch value",
+        "tmp.zig:10:15: note: other value is here",
     );
 
     cases.add(
@@ -2744,8 +2771,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(f)); }
     ,
-        ".tmp_source.zig:13:15: error: duplicate switch value",
-        ".tmp_source.zig:10:15: note: other value is here",
+        "tmp.zig:13:15: error: duplicate switch value",
+        "tmp.zig:10:15: note: other value is here",
     );
 
     cases.add(
@@ -2761,7 +2788,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    f(1234);
         \\}
     ,
-        ".tmp_source.zig:5:9: error: multiple else prongs in switch expression",
+        "tmp.zig:5:9: error: multiple else prongs in switch expression",
     );
 
     cases.add(
@@ -2773,7 +2800,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
     ,
-        ".tmp_source.zig:2:5: error: switch must handle all possibilities",
+        "tmp.zig:2:5: error: switch must handle all possibilities",
     );
 
     cases.add(
@@ -2788,8 +2815,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
     ,
-        ".tmp_source.zig:6:9: error: duplicate switch value",
-        ".tmp_source.zig:5:14: note: previous value is here",
+        "tmp.zig:6:9: error: duplicate switch value",
+        "tmp.zig:5:14: note: previous value is here",
     );
 
     cases.add(
@@ -2802,7 +2829,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const y: u8 = 100;
         \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
     ,
-        ".tmp_source.zig:2:5: error: else prong required when switching on type '*u8'",
+        "tmp.zig:2:5: error: else prong required when switching on type '*u8'",
     );
 
     cases.add(
@@ -2811,7 +2838,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const x = foo();
         \\export fn entry() i32 { return x; }
     ,
-        ".tmp_source.zig:2:11: error: unable to evaluate constant expression",
+        "tmp.zig:2:11: error: unable to evaluate constant expression",
     );
 
     cases.add(
@@ -2822,7 +2849,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(a)); }
     ,
-        ".tmp_source.zig:3:11: error: expected array or C string literal, found 'usize'",
+        "tmp.zig:3:11: error: expected array or C string literal, found 'usize'",
     );
 
     cases.add(
@@ -2833,7 +2860,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\var s: [10]u8 = undefined;
         \\export fn entry() usize { return @sizeOf(@typeOf(f)); }
     ,
-        ".tmp_source.zig:2:12: error: unable to evaluate constant expression",
+        "tmp.zig:2:12: error: unable to evaluate constant expression",
     );
 
     cases.add(
@@ -2841,7 +2868,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const c = @cImport(@cInclude("bogus.h"));
         \\export fn entry() usize { return @sizeOf(@typeOf(c.bogo)); }
     ,
-        ".tmp_source.zig:1:11: error: C import failed",
+        "tmp.zig:1:11: error: C import failed",
         ".h:1:10: note: 'bogus.h' file not found",
     );
 
@@ -2852,7 +2879,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\fn foo() *const i32 { return y; }
         \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
     ,
-        ".tmp_source.zig:3:30: error: expected type '*const i32', found '*const comptime_int'",
+        "tmp.zig:3:30: error: expected type '*const i32', found '*const comptime_int'",
     );
 
     cases.add(
@@ -2860,7 +2887,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const x : u8 = 300;
         \\export fn entry() usize { return @sizeOf(@typeOf(x)); }
     ,
-        ".tmp_source.zig:1:16: error: integer value 300 cannot be implicitly casted to type 'u8'",
+        "tmp.zig:1:16: error: integer value 300 cannot be implicitly casted to type 'u8'",
     );
 
     cases.add(
@@ -2871,8 +2898,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\export fn entry() u16 { return f(); }
     ,
-        ".tmp_source.zig:3:14: error: RHS of shift is too large for LHS type",
-        ".tmp_source.zig:3:17: note: value 8 cannot fit into type u3",
+        "tmp.zig:3:14: error: RHS of shift is too large for LHS type",
+        "tmp.zig:3:17: note: value 8 cannot fit into type u3",
     );
 
     cases.add(
@@ -2880,7 +2907,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const x = 2 == 2.0;
         \\export fn entry() usize { return @sizeOf(@typeOf(x)); }
     ,
-        ".tmp_source.zig:1:11: error: integer value 2 cannot be implicitly casted to type 'comptime_float'",
+        "tmp.zig:1:11: error: integer value 2 cannot be implicitly casted to type 'comptime_float'",
     );
 
     cases.add(
@@ -2909,7 +2936,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(f)); }
     ,
-        ".tmp_source.zig:20:34: error: expected 1 arguments, found 0",
+        "tmp.zig:20:34: error: expected 1 arguments, found 0",
     );
 
     cases.add(
@@ -2918,8 +2945,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\fn f(i32) void {}
         \\export fn entry() usize { return @sizeOf(@typeOf(f)); }
     ,
-        ".tmp_source.zig:1:1: error: missing function name",
-        ".tmp_source.zig:2:6: error: missing parameter name",
+        "tmp.zig:1:1: error: missing function name",
+        "tmp.zig:2:6: error: missing parameter name",
     );
 
     cases.add(
@@ -2930,7 +2957,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\fn c() i32 {return 2;}
         \\export fn entry() usize { return @sizeOf(@typeOf(fns)); }
     ,
-        ".tmp_source.zig:1:27: error: expected type 'fn() void', found 'fn() i32'",
+        "tmp.zig:1:27: error: expected type 'fn() void', found 'fn() i32'",
     );
 
     cases.add(
@@ -2942,7 +2969,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(fns)); }
     ,
-        ".tmp_source.zig:1:36: error: expected type 'fn(i32) i32', found 'extern fn(i32) i32'",
+        "tmp.zig:1:36: error: expected type 'fn(i32) i32', found 'extern fn(i32) i32'",
     );
 
     cases.add(
@@ -2951,16 +2978,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\fn func() bogus {}
         \\export fn entry() usize { return @sizeOf(@typeOf(func)); }
     ,
-        ".tmp_source.zig:2:1: error: redefinition of 'func'",
-        ".tmp_source.zig:1:11: error: use of undeclared identifier 'bogus'",
-    );
-
-    cases.add(
-        "bogus compile var",
-        \\const x = @import("builtin").bogus;
-        \\export fn entry() usize { return @sizeOf(@typeOf(x)); }
-    ,
-        ".tmp_source.zig:1:29: error: no member named 'bogus' in '",
+        "tmp.zig:2:1: error: redefinition of 'func'",
+        "tmp.zig:1:11: error: use of undeclared identifier 'bogus'",
     );
 
     cases.add(
@@ -2973,9 +2992,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(Foo)); }
     ,
-        ".tmp_source.zig:5:25: error: unable to evaluate constant expression",
-        ".tmp_source.zig:2:12: note: called from here",
-        ".tmp_source.zig:2:8: note: called from here",
+        "tmp.zig:5:25: error: unable to evaluate constant expression",
+        "tmp.zig:2:12: note: called from here",
+        "tmp.zig:2:8: note: called from here",
     );
 
     cases.add(
@@ -2987,7 +3006,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(x)); }
     ,
-        ".tmp_source.zig:4:28: error: invalid operands to binary expression: 'Foo' and 'Foo'",
+        "tmp.zig:4:28: error: invalid operands to binary expression: 'Foo' and 'Foo'",
     );
 
     cases.add(
@@ -3002,10 +3021,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry3() usize { return @sizeOf(@typeOf(int_x)); }
         \\export fn entry4() usize { return @sizeOf(@typeOf(float_x)); }
     ,
-        ".tmp_source.zig:1:21: error: division by zero",
-        ".tmp_source.zig:2:25: error: division by zero",
-        ".tmp_source.zig:3:22: error: division by zero",
-        ".tmp_source.zig:4:26: error: division by zero",
+        "tmp.zig:1:21: error: division by zero",
+        "tmp.zig:2:25: error: division by zero",
+        "tmp.zig:3:22: error: division by zero",
+        "tmp.zig:4:26: error: division by zero",
     );
 
     cases.add(
@@ -3015,7 +3034,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
     ,
-        ".tmp_source.zig:1:15: error: newline not allowed in string literal",
+        "tmp.zig:1:15: error: newline not allowed in string literal",
     );
 
     cases.add(
@@ -3025,7 +3044,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(invalid)); }
     ,
-        ".tmp_source.zig:2:21: error: operator not allowed for type 'fn() void'",
+        "tmp.zig:2:21: error: operator not allowed for type 'fn() void'",
     );
 
     cases.add(
@@ -3037,7 +3056,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(test1)); }
     ,
-        ".tmp_source.zig:3:16: error: unable to evaluate constant expression",
+        "tmp.zig:3:16: error: unable to evaluate constant expression",
     );
 
     cases.add(
@@ -3046,7 +3065,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(a)); }
     ,
-        ".tmp_source.zig:1:16: error: expected type '*u8', found '(null)'",
+        "tmp.zig:1:16: error: expected type '*u8', found '(null)'",
     );
 
     cases.add(
@@ -3056,7 +3075,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const pointer = &array[0];
         \\}
     ,
-        ".tmp_source.zig:3:27: error: index 0 outside array of size 0",
+        "tmp.zig:3:27: error: index 0 outside array of size 0",
     );
 
     cases.add(
@@ -3068,8 +3087,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(y)); }
     ,
-        ".tmp_source.zig:3:14: error: division by zero",
-        ".tmp_source.zig:1:14: note: called from here",
+        "tmp.zig:3:14: error: division by zero",
+        "tmp.zig:1:14: note: called from here",
     );
 
     cases.add(
@@ -3078,7 +3097,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(x)); }
     ,
-        ".tmp_source.zig:1:15: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:1:15: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3088,7 +3107,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a / a;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3098,7 +3117,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    a /= a;
         \\}
     ,
-        ".tmp_source.zig:3:5: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:5: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3108,7 +3127,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a % a;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3118,7 +3137,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    a %= a;
         \\}
     ,
-        ".tmp_source.zig:3:5: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:5: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3128,7 +3147,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a + a;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3138,7 +3157,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    a += a;
         \\}
     ,
-        ".tmp_source.zig:3:5: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:5: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3148,7 +3167,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a +% a;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3158,7 +3177,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    a +%= a;
         \\}
     ,
-        ".tmp_source.zig:3:5: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:5: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3168,7 +3187,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a - a;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3178,7 +3197,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    a -= a;
         \\}
     ,
-        ".tmp_source.zig:3:5: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:5: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3188,7 +3207,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a -% a;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3198,7 +3217,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    a -%= a;
         \\}
     ,
-        ".tmp_source.zig:3:5: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:5: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3208,7 +3227,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a * a;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3218,7 +3237,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    a *= a;
         \\}
     ,
-        ".tmp_source.zig:3:5: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:5: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3228,7 +3247,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a *% a;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3238,7 +3257,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    a *%= a;
         \\}
     ,
-        ".tmp_source.zig:3:5: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:5: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3248,7 +3267,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a << 2;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3258,7 +3277,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    a <<= 2;
         \\}
     ,
-        ".tmp_source.zig:3:5: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:5: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3268,7 +3287,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a >> 2;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3278,7 +3297,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    a >>= 2;
         \\}
     ,
-        ".tmp_source.zig:3:5: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:5: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3288,7 +3307,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a & a;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3298,7 +3317,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    a &= a;
         \\}
     ,
-        ".tmp_source.zig:3:5: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:5: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3308,7 +3327,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a | a;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3318,7 +3337,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    a |= a;
         \\}
     ,
-        ".tmp_source.zig:3:5: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:5: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3328,7 +3347,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a ^ a;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3338,7 +3357,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    a ^= a;
         \\}
     ,
-        ".tmp_source.zig:3:5: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:5: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3348,7 +3367,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a == a;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3358,7 +3377,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a != a;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3368,7 +3387,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a > a;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3378,7 +3397,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a >= a;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3388,7 +3407,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a < a;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3398,7 +3417,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a <= a;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3408,7 +3427,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a and a;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3418,7 +3437,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a or a;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3428,7 +3447,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = -a;
         \\}
     ,
-        ".tmp_source.zig:3:10: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:10: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3438,7 +3457,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = -%a;
         \\}
     ,
-        ".tmp_source.zig:3:11: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:11: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3448,7 +3467,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = ~a;
         \\}
     ,
-        ".tmp_source.zig:3:10: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:10: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3458,7 +3477,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = !a;
         \\}
     ,
-        ".tmp_source.zig:3:10: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:10: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3468,7 +3487,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a orelse false;
         \\}
     ,
-        ".tmp_source.zig:3:11: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:11: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3478,7 +3497,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a catch |err| false;
         \\}
     ,
-        ".tmp_source.zig:3:11: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:11: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3488,7 +3507,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = a.*;
         \\}
     ,
-        ".tmp_source.zig:3:9: error: attempt to dereference undefined value",
+        "tmp.zig:3:9: error: attempt to dereference undefined value",
     );
 
     cases.add(
@@ -3500,8 +3519,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(seventh_fib_number)); }
     ,
-        ".tmp_source.zig:3:21: error: evaluation exceeded 1000 backwards branches",
-        ".tmp_source.zig:3:21: note: called from here",
+        "tmp.zig:3:21: error: evaluation exceeded 1000 backwards branches",
+        "tmp.zig:3:21: note: called from here",
     );
 
     cases.add(
@@ -3510,7 +3529,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(resource)); }
     ,
-        ".tmp_source.zig:1:29: error: unable to find '",
+        "tmp.zig:1:29: error: unable to find '",
         "bogus.txt'",
     );
 
@@ -3524,7 +3543,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(a)); }
     ,
-        ".tmp_source.zig:4:21: error: unable to evaluate constant expression",
+        "tmp.zig:4:21: error: unable to evaluate constant expression",
     );
 
     cases.add(
@@ -3541,8 +3560,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(a)); }
     ,
-        ".tmp_source.zig:6:24: error: unable to evaluate constant expression",
-        ".tmp_source.zig:4:17: note: called from here",
+        "tmp.zig:6:24: error: unable to evaluate constant expression",
+        "tmp.zig:4:17: note: called from here",
     );
 
     cases.add(
@@ -3554,7 +3573,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    bad_fn_call();
         \\}
     ,
-        ".tmp_source.zig:5:5: error: use of undeclared identifier 'bad_fn_call'",
+        "tmp.zig:5:5: error: use of undeclared identifier 'bad_fn_call'",
     );
 
     cases.add(
@@ -3573,8 +3592,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry1() usize { return @sizeOf(@typeOf(bad_eql_1)); }
         \\export fn entry2() usize { return @sizeOf(@typeOf(bad_eql_2)); }
     ,
-        ".tmp_source.zig:2:14: error: operator not allowed for type '[]u8'",
-        ".tmp_source.zig:9:16: error: operator not allowed for type 'EnumWithData'",
+        "tmp.zig:2:14: error: operator not allowed for type '[]u8'",
+        "tmp.zig:9:16: error: operator not allowed for type 'EnumWithData'",
     );
 
     cases.add(
@@ -3590,7 +3609,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return 2;
         \\}
     ,
-        ".tmp_source.zig:2:15: error: values of type 'comptime_int' must be comptime known",
+        "tmp.zig:2:15: error: values of type 'comptime_int' must be comptime known",
     );
 
     cases.add(
@@ -3601,7 +3620,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    while (!@cmpxchgWeak(i32, &x, 1234, 5678, AtomicOrder.Monotonic, AtomicOrder.SeqCst)) {}
         \\}
     ,
-        ".tmp_source.zig:4:81: error: failure atomic ordering must be no stricter than success",
+        "tmp.zig:4:81: error: failure atomic ordering must be no stricter than success",
     );
 
     cases.add(
@@ -3612,7 +3631,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    while (!@cmpxchgWeak(i32, &x, 1234, 5678, AtomicOrder.Unordered, AtomicOrder.Unordered)) {}
         \\}
     ,
-        ".tmp_source.zig:4:58: error: success atomic ordering must be Monotonic or stricter",
+        "tmp.zig:4:58: error: success atomic ordering must be Monotonic or stricter",
     );
 
     cases.add(
@@ -3624,8 +3643,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(y)); }
     ,
-        ".tmp_source.zig:3:12: error: negation caused overflow",
-        ".tmp_source.zig:1:14: note: called from here",
+        "tmp.zig:3:12: error: negation caused overflow",
+        "tmp.zig:1:14: note: called from here",
     );
 
     cases.add(
@@ -3637,8 +3656,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(y)); }
     ,
-        ".tmp_source.zig:3:14: error: operation caused overflow",
-        ".tmp_source.zig:1:14: note: called from here",
+        "tmp.zig:3:14: error: operation caused overflow",
+        "tmp.zig:1:14: note: called from here",
     );
 
     cases.add(
@@ -3650,8 +3669,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(y)); }
     ,
-        ".tmp_source.zig:3:14: error: operation caused overflow",
-        ".tmp_source.zig:1:14: note: called from here",
+        "tmp.zig:3:14: error: operation caused overflow",
+        "tmp.zig:1:14: note: called from here",
     );
 
     cases.add(
@@ -3663,8 +3682,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(y)); }
     ,
-        ".tmp_source.zig:3:14: error: operation caused overflow",
-        ".tmp_source.zig:1:14: note: called from here",
+        "tmp.zig:3:14: error: operation caused overflow",
+        "tmp.zig:1:14: note: called from here",
     );
 
     cases.add(
@@ -3676,7 +3695,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(f)); }
     ,
-        ".tmp_source.zig:3:26: error: expected signed integer type, found 'u32'",
+        "tmp.zig:3:26: error: expected signed integer type, found 'u32'",
     );
 
     cases.add(
@@ -3686,8 +3705,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\fn something() anyerror!void { }
     ,
-        ".tmp_source.zig:2:5: error: expected type 'void', found 'anyerror'",
-        ".tmp_source.zig:1:15: note: return type declared here",
+        "tmp.zig:2:5: error: expected type 'void', found 'anyerror'",
+        "tmp.zig:1:15: note: return type declared here",
     );
 
     cases.add(
@@ -3700,7 +3719,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    }
         \\}
     ,
-        ".tmp_source.zig:2:13: error: unable to evaluate constant expression",
+        "tmp.zig:2:13: error: unable to evaluate constant expression",
     );
 
     cases.add(
@@ -3709,7 +3728,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return x + y;
         \\}
     ,
-        ".tmp_source.zig:1:15: error: comptime parameter not allowed in function with calling convention 'ccc'",
+        "tmp.zig:1:15: error: comptime parameter not allowed in function with calling convention 'ccc'",
     );
 
     cases.add(
@@ -3720,7 +3739,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\export fn entry() usize { return @sizeOf(@typeOf(f)); }
     ,
-        ".tmp_source.zig:1:15: error: comptime parameter not allowed in function with calling convention 'ccc'",
+        "tmp.zig:1:15: error: comptime parameter not allowed in function with calling convention 'ccc'",
     );
 
     cases.add(
@@ -3730,8 +3749,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var foo = @bytesToSlice(u32, array)[0];
         \\}
     ,
-        ".tmp_source.zig:3:15: error: unable to convert [5]u8 to []align(1) const u32: size mismatch",
-        ".tmp_source.zig:3:29: note: u32 has size 4; remaining bytes: 1",
+        "tmp.zig:3:15: error: unable to convert [5]u8 to []align(1) const u32: size mismatch",
+        "tmp.zig:3:29: note: u32 has size 4; remaining bytes: 1",
     );
 
     cases.add(
@@ -3755,8 +3774,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    list.length = 10;
         \\}
     ,
-        ".tmp_source.zig:3:7: error: unable to evaluate constant expression",
-        ".tmp_source.zig:16:19: note: called from here",
+        "tmp.zig:3:7: error: unable to evaluate constant expression",
+        "tmp.zig:16:19: note: called from here",
     );
 
     cases.add(
@@ -3767,7 +3786,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\export fn entry() usize { return @sizeOf(@typeOf(f)); }
     ,
-        ".tmp_source.zig:3:6: error: no member named 'copy' in '[]const u8'",
+        "tmp.zig:3:6: error: no member named 'copy' in '[]const u8'",
     );
 
     cases.add(
@@ -3781,7 +3800,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\export fn entry() usize { return @sizeOf(@typeOf(f)); }
     ,
-        ".tmp_source.zig:6:15: error: expected 2 arguments, found 3",
+        "tmp.zig:6:15: error: expected 2 arguments, found 3",
     );
 
     cases.add(
@@ -3791,7 +3810,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\  cstr[0] = 'W';
         \\}
     ,
-        ".tmp_source.zig:3:11: error: cannot assign to constant",
+        "tmp.zig:3:11: error: cannot assign to constant",
     );
 
     cases.add(
@@ -3801,14 +3820,14 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\  cstr[0] = 'W';
         \\}
     ,
-        ".tmp_source.zig:3:11: error: cannot assign to constant",
+        "tmp.zig:3:11: error: cannot assign to constant",
     );
 
     cases.add(
         "main function with bogus args type",
         \\pub fn main(args: [][]bogus) !void {}
     ,
-        ".tmp_source.zig:1:23: error: use of undeclared identifier 'bogus'",
+        "tmp.zig:1:23: error: use of undeclared identifier 'bogus'",
     );
 
     cases.add(
@@ -3844,7 +3863,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
     ,
-        ".tmp_source.zig:5:16: error: use of undeclared identifier 'JsonList'",
+        "tmp.zig:5:16: error: use of undeclared identifier 'JsonList'",
     );
 
     cases.add(
@@ -3865,7 +3884,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    derp.init();
         \\}
     ,
-        ".tmp_source.zig:14:5: error: expected type 'i32', found 'Foo'",
+        "tmp.zig:14:5: error: expected type 'i32', found 'Foo'",
     );
 
     cases.add(
@@ -3895,7 +3914,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    x.init();
         \\}
     ,
-        ".tmp_source.zig:23:5: error: expected type '*Allocator', found '*List'",
+        "tmp.zig:23:5: error: expected type '*Allocator', found '*List'",
     );
 
     cases.add(
@@ -3906,7 +3925,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(block_aligned_stuff)); }
     ,
-        ".tmp_source.zig:3:60: error: unable to perform binary not operation on type 'comptime_int'",
+        "tmp.zig:3:60: error: unable to perform binary not operation on type 'comptime_int'",
     );
 
     cases.addCase(x: {
@@ -3918,7 +3937,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
             \\    foo.privateFunction();
             \\}
         ,
-            ".tmp_source.zig:4:8: error: 'privateFunction' is private",
+            "tmp.zig:4:8: error: 'privateFunction' is private",
             "foo.zig:1:1: note: declared here",
         );
 
@@ -3936,7 +3955,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(a)); }
     ,
-        ".tmp_source.zig:2:11: error: expected type 'type', found 'i32'",
+        "tmp.zig:2:11: error: expected type 'type', found 'i32'",
     );
 
     cases.add(
@@ -3949,7 +3968,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    f.field = 0;
         \\}
     ,
-        ".tmp_source.zig:6:13: error: cannot assign to constant",
+        "tmp.zig:6:13: error: cannot assign to constant",
     );
 
     cases.add(
@@ -3970,7 +3989,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(testTrickyDefer)); }
     ,
-        ".tmp_source.zig:4:11: error: cannot return from defer expression",
+        "tmp.zig:4:11: error: cannot return from defer expression",
     );
 
     cases.add(
@@ -3985,8 +4004,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
     ,
-        ".tmp_source.zig:2:26: error: index 1 outside argument list of size 1",
-        ".tmp_source.zig:6:15: note: called from here",
+        "tmp.zig:2:26: error: index 1 outside argument list of size 1",
+        "tmp.zig:6:15: note: called from here",
     );
 
     cases.add(
@@ -4005,7 +4024,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(bar)); }
     ,
-        ".tmp_source.zig:10:16: error: compiler bug: integer and float literals in var args function must be casted",
+        "tmp.zig:10:16: error: compiler bug: integer and float literals in var args function must be casted",
     );
 
     cases.add(
@@ -4014,7 +4033,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var vga_mem: u16 = 0xB8000;
         \\}
     ,
-        ".tmp_source.zig:2:24: error: integer value 753664 cannot be implicitly casted to type 'u16'",
+        "tmp.zig:2:24: error: integer value 753664 cannot be implicitly casted to type 'u16'",
     );
 
     cases.add(
@@ -4022,7 +4041,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const some_data: [100]u8 align(3) = undefined;
         \\export fn entry() usize { return @sizeOf(@typeOf(some_data)); }
     ,
-        ".tmp_source.zig:1:32: error: alignment value 3 is not a power of 2",
+        "tmp.zig:1:32: error: alignment value 3 is not a power of 2",
     );
 
     cases.add(
@@ -4030,7 +4049,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\extern fn foo() align(3) void;
         \\export fn entry() void { return foo(); }
     ,
-        ".tmp_source.zig:1:23: error: alignment value 3 is not a power of 2",
+        "tmp.zig:1:23: error: alignment value 3 is not a power of 2",
     );
 
     cases.add(
@@ -4044,9 +4063,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    @compileLog("end",);
         \\}
     ,
-        ".tmp_source.zig:5:5: error: found compile log statement",
-        ".tmp_source.zig:6:5: error: found compile log statement",
-        ".tmp_source.zig:7:5: error: found compile log statement",
+        "tmp.zig:5:5: error: found compile log statement",
+        "tmp.zig:6:5: error: found compile log statement",
+        "tmp.zig:7:5: error: found compile log statement",
     );
 
     cases.add(
@@ -4067,7 +4086,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
     ,
-        ".tmp_source.zig:8:26: error: expected type '*const u3', found '*align(:3:1) const u3'",
+        "tmp.zig:8:26: error: expected type '*const u3', found '*align(:3:1) const u3'",
     );
 
     cases.add(
@@ -4084,8 +4103,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    if (!ok) unreachable;
         \\}
     ,
-        ".tmp_source.zig:10:14: error: unable to evaluate constant expression",
-        ".tmp_source.zig:6:20: note: called from here",
+        "tmp.zig:10:14: error: unable to evaluate constant expression",
+        "tmp.zig:6:20: note: called from here",
     );
 
     cases.add(
@@ -4099,8 +4118,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\fn bar() void { }
     ,
-        ".tmp_source.zig:3:5: error: control flow attempts to use compile-time variable at runtime",
-        ".tmp_source.zig:3:24: note: compile-time variable assigned here",
+        "tmp.zig:3:5: error: control flow attempts to use compile-time variable at runtime",
+        "tmp.zig:3:24: note: compile-time variable assigned here",
     );
 
     cases.add(
@@ -4110,7 +4129,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\fn bar() i32 { return 0; }
     ,
-        ".tmp_source.zig:2:8: error: expression value is ignored",
+        "tmp.zig:2:8: error: expression value is ignored",
     );
 
     cases.add(
@@ -4120,7 +4139,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\fn bar() anyerror!i32 { return 0; }
     ,
-        ".tmp_source.zig:2:11: error: expression value is ignored",
+        "tmp.zig:2:11: error: expression value is ignored",
     );
 
     cases.add(
@@ -4129,7 +4148,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    1;
         \\}
     ,
-        ".tmp_source.zig:2:5: error: expression value is ignored",
+        "tmp.zig:2:5: error: expression value is ignored",
     );
 
     cases.add(
@@ -4138,7 +4157,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    comptime {1;}
         \\}
     ,
-        ".tmp_source.zig:2:15: error: expression value is ignored",
+        "tmp.zig:2:15: error: expression value is ignored",
     );
 
     cases.add(
@@ -4147,7 +4166,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    comptime 1;
         \\}
     ,
-        ".tmp_source.zig:2:5: error: expression value is ignored",
+        "tmp.zig:2:5: error: expression value is ignored",
     );
 
     cases.add(
@@ -4156,7 +4175,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    defer {1;}
         \\}
     ,
-        ".tmp_source.zig:2:12: error: expression value is ignored",
+        "tmp.zig:2:12: error: expression value is ignored",
     );
 
     cases.add(
@@ -4166,7 +4185,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\fn bar() anyerror!i32 { return 0; }
     ,
-        ".tmp_source.zig:2:14: error: expression value is ignored",
+        "tmp.zig:2:14: error: expression value is ignored",
     );
 
     cases.add(
@@ -4180,7 +4199,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(pass)); }
     ,
-        ".tmp_source.zig:4:10: error: attempt to dereference non-pointer type '[10]u8'",
+        "tmp.zig:4:10: error: attempt to dereference non-pointer type '[10]u8'",
     );
 
     cases.add(
@@ -4196,7 +4215,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
     ,
-        ".tmp_source.zig:4:19: error: expected type '*[]const u8', found '*const []const u8'",
+        "tmp.zig:4:19: error: expected type '*[]const u8', found '*const []const u8'",
     );
 
     cases.addCase(x: {
@@ -4209,7 +4228,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
             \\}
         ,
             "foo.zig:1:1: error: exported symbol collision: 'bar'",
-            ".tmp_source.zig:3:1: note: other symbol here",
+            "tmp.zig:3:1: note: other symbol here",
         );
 
         tc.addSourceFile("foo.zig",
@@ -4228,7 +4247,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    foo(global_array);
         \\}
     ,
-        ".tmp_source.zig:4:9: error: expected type '[]i32', found '[10]i32'",
+        "tmp.zig:4:9: error: expected type '[]i32', found '[10]i32'",
     );
 
     cases.add(
@@ -4237,7 +4256,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return @ptrCast(usize, a);
         \\}
     ,
-        ".tmp_source.zig:2:21: error: expected pointer, found 'usize'",
+        "tmp.zig:2:21: error: expected pointer, found 'usize'",
     );
 
     cases.add(
@@ -4254,7 +4273,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    );
         \\}
     ,
-        ".tmp_source.zig:6:5: error: unable to evaluate constant expression",
+        "tmp.zig:6:5: error: unable to evaluate constant expression",
     );
 
     cases.add(
@@ -4264,7 +4283,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const foo = builtin.Arch.x86;
         \\}
     ,
-        ".tmp_source.zig:3:29: error: container 'Arch' has no member called 'x86'",
+        "tmp.zig:3:29: error: container 'builtin.Arch' has no member called 'x86'",
     );
 
     cases.add(
@@ -4274,7 +4293,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var y: *void = @intToPtr(*void, x);
         \\}
     ,
-        ".tmp_source.zig:3:30: error: type '*void' has 0 bits and cannot store information",
+        "tmp.zig:3:30: error: type '*void' has 0 bits and cannot store information",
     );
 
     cases.add(
@@ -4284,7 +4303,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return @fieldParentPtr(Foo, "a", a);
         \\}
     ,
-        ".tmp_source.zig:3:28: error: expected struct type, found 'i32'",
+        "tmp.zig:3:28: error: expected struct type, found 'i32'",
     );
 
     cases.add(
@@ -4296,7 +4315,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return @fieldParentPtr(Foo, "a", a);
         \\}
     ,
-        ".tmp_source.zig:5:33: error: struct 'Foo' has no field 'a'",
+        "tmp.zig:5:33: error: struct 'Foo' has no field 'a'",
     );
 
     cases.add(
@@ -4308,7 +4327,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return @fieldParentPtr(Foo, "a", a);
         \\}
     ,
-        ".tmp_source.zig:5:38: error: expected pointer, found 'i32'",
+        "tmp.zig:5:38: error: expected pointer, found 'i32'",
     );
 
     cases.add(
@@ -4324,7 +4343,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const another_foo_ptr = @fieldParentPtr(Foo, "b", field_ptr);
         \\}
     ,
-        ".tmp_source.zig:9:55: error: pointer value not based on parent struct",
+        "tmp.zig:9:55: error: pointer value not based on parent struct",
     );
 
     cases.add(
@@ -4339,7 +4358,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const another_foo_ptr = @fieldParentPtr(Foo, "b", &foo.a);
         \\}
     ,
-        ".tmp_source.zig:8:29: error: field 'b' has index 1 but pointer value is index 0 of struct 'Foo'",
+        "tmp.zig:8:29: error: field 'b' has index 1 but pointer value is index 0 of struct 'Foo'",
     );
 
     cases.add(
@@ -4349,7 +4368,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return @byteOffsetOf(Foo, "a",);
         \\}
     ,
-        ".tmp_source.zig:3:26: error: expected struct type, found 'i32'",
+        "tmp.zig:3:26: error: expected struct type, found 'i32'",
     );
 
     cases.add(
@@ -4361,14 +4380,14 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return @byteOffsetOf(Foo, "a",);
         \\}
     ,
-        ".tmp_source.zig:5:31: error: struct 'Foo' has no field 'a'",
+        "tmp.zig:5:31: error: struct 'Foo' has no field 'a'",
     );
 
     cases.addExe(
         "missing main fn in executable",
         \\
     ,
-        "error: no member named 'main' in '",
+        "error: root source file has no member called 'main'",
     );
 
     cases.addExe(
@@ -4376,7 +4395,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\fn main() void {}
     ,
         "error: 'main' is private",
-        ".tmp_source.zig:1:1: note: declared here",
+        "tmp.zig:1:1: note: declared here",
     );
 
     cases.add(
@@ -4386,7 +4405,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return foo;
         \\}
     ,
-        ".tmp_source.zig:1:33: error: cannot set section of external variable 'foo'",
+        "tmp.zig:1:33: error: cannot set section of external variable 'foo'",
     );
 
     cases.add(
@@ -4396,7 +4415,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return foo;
         \\}
     ,
-        ".tmp_source.zig:2:30: error: cannot set section of local variable 'foo'",
+        "tmp.zig:2:30: error: cannot set section of local variable 'foo'",
     );
 
     cases.add(
@@ -4406,7 +4425,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    foo();
         \\}
     ,
-        ".tmp_source.zig:1:29: error: cannot set section of external function 'foo'",
+        "tmp.zig:1:29: error: cannot set section of external function 'foo'",
     );
 
     cases.add(
@@ -4416,7 +4435,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return &a;
         \\}
     ,
-        ".tmp_source.zig:3:13: error: function returns address of local variable",
+        "tmp.zig:3:13: error: function returns address of local variable",
     );
 
     cases.add(
@@ -4427,7 +4446,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return if (c) &a else &b;
         \\}
     ,
-        ".tmp_source.zig:4:12: error: function returns address of local variable",
+        "tmp.zig:4:12: error: function returns address of local variable",
     );
 
     cases.add(
@@ -4452,8 +4471,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    if (!ok) unreachable;
         \\}
     ,
-        ".tmp_source.zig:9:17: error: redefinition of 'Self'",
-        ".tmp_source.zig:5:9: note: previous definition is here",
+        "tmp.zig:9:17: error: redefinition of 'Self'",
+        "tmp.zig:5:9: note: previous definition is here",
     );
 
     cases.add(
@@ -4463,7 +4482,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\fn bar() ?i32 { return 1; }
     ,
-        ".tmp_source.zig:2:15: error: expected type 'bool', found '?i32'",
+        "tmp.zig:2:15: error: expected type 'bool', found '?i32'",
     );
 
     cases.add(
@@ -4473,7 +4492,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\fn bar() anyerror!i32 { return 1; }
     ,
-        ".tmp_source.zig:2:15: error: expected type 'bool', found 'anyerror!i32'",
+        "tmp.zig:2:15: error: expected type 'bool', found 'anyerror!i32'",
     );
 
     cases.add(
@@ -4483,7 +4502,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\fn bar() bool { return true; }
     ,
-        ".tmp_source.zig:2:15: error: expected optional type, found 'bool'",
+        "tmp.zig:2:15: error: expected optional type, found 'bool'",
     );
 
     cases.add(
@@ -4493,7 +4512,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\fn bar() anyerror!i32 { return 1; }
     ,
-        ".tmp_source.zig:2:15: error: expected optional type, found 'anyerror!i32'",
+        "tmp.zig:2:15: error: expected optional type, found 'anyerror!i32'",
     );
 
     cases.add(
@@ -4503,7 +4522,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\fn bar() bool { return true; }
     ,
-        ".tmp_source.zig:2:15: error: expected error union type, found 'bool'",
+        "tmp.zig:2:15: error: expected error union type, found 'bool'",
     );
 
     cases.add(
@@ -4513,7 +4532,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\fn bar() ?i32 { return 1; }
     ,
-        ".tmp_source.zig:2:15: error: expected error union type, found '?i32'",
+        "tmp.zig:2:15: error: expected error union type, found '?i32'",
     );
 
     cases.add(
@@ -4531,7 +4550,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\extern fn quux() void;
     ,
-        ".tmp_source.zig:4:1: error: unable to inline function",
+        "tmp.zig:4:1: error: unable to inline function",
     );
 
     cases.add(
@@ -4542,7 +4561,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\inline fn bar() void { }
         \\extern fn quux(usize) void;
     ,
-        ".tmp_source.zig:4:1: error: unable to inline function",
+        "tmp.zig:4:1: error: unable to inline function",
     );
 
     cases.add(
@@ -4551,7 +4570,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return a / b;
         \\}
     ,
-        ".tmp_source.zig:2:14: error: division with 'i32' and 'i32': signed integers must use @divTrunc, @divFloor, or @divExact",
+        "tmp.zig:2:14: error: division with 'i32' and 'i32': signed integers must use @divTrunc, @divFloor, or @divExact",
     );
 
     cases.add(
@@ -4560,7 +4579,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return a % b;
         \\}
     ,
-        ".tmp_source.zig:2:14: error: remainder division with 'i32' and 'i32': signed integers and floats must use @rem or @mod",
+        "tmp.zig:2:14: error: remainder division with 'i32' and 'i32': signed integers and floats must use @rem or @mod",
     );
 
     cases.add(
@@ -4571,7 +4590,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const c = a / b;
         \\}
     ,
-        ".tmp_source.zig:4:17: error: division by zero",
+        "tmp.zig:4:17: error: division by zero",
     );
 
     cases.add(
@@ -4582,7 +4601,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const c = a % b;
         \\}
     ,
-        ".tmp_source.zig:4:17: error: division by zero",
+        "tmp.zig:4:17: error: division by zero",
     );
 
     cases.add(
@@ -4592,8 +4611,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    @setRuntimeSafety(false);
         \\}
     ,
-        ".tmp_source.zig:3:5: error: runtime safety set twice for same scope",
-        ".tmp_source.zig:2:5: note: first set here",
+        "tmp.zig:3:5: error: runtime safety set twice for same scope",
+        "tmp.zig:2:5: note: first set here",
     );
 
     cases.add(
@@ -4603,8 +4622,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    @setFloatMode(@import("builtin").FloatMode.Optimized);
         \\}
     ,
-        ".tmp_source.zig:3:5: error: float mode set twice for same scope",
-        ".tmp_source.zig:2:5: note: first set here",
+        "tmp.zig:3:5: error: float mode set twice for same scope",
+        "tmp.zig:2:5: note: first set here",
     );
 
     cases.add(
@@ -4613,7 +4632,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var b: u8[40] = undefined;
         \\}
     ,
-        ".tmp_source.zig:2:14: error: array access of non-array type 'type'",
+        "tmp.zig:2:14: error: array access of non-array type 'type'",
     );
 
     cases.add(
@@ -4626,7 +4645,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    }
         \\}
     ,
-        ".tmp_source.zig:4:13: error: cannot break out of defer expression",
+        "tmp.zig:4:13: error: cannot break out of defer expression",
     );
 
     cases.add(
@@ -4639,7 +4658,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    }
         \\}
     ,
-        ".tmp_source.zig:4:13: error: cannot continue out of defer expression",
+        "tmp.zig:4:13: error: cannot continue out of defer expression",
     );
 
     cases.add(
@@ -4653,7 +4672,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    foos[0]();
         \\}
     ,
-        ".tmp_source.zig:7:9: error: calling a generic function requires compile-time known function value",
+        "tmp.zig:7:9: error: calling a generic function requires compile-time known function value",
     );
 
     cases.add(
@@ -4667,7 +4686,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    foos[0](true);
         \\}
     ,
-        ".tmp_source.zig:7:9: error: calling a generic function requires compile-time known function value",
+        "tmp.zig:7:9: error: calling a generic function requires compile-time known function value",
     );
 
     cases.add(
@@ -4681,24 +4700,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return bar;
         \\}
     ,
-        ".tmp_source.zig:1:13: error: aoeu",
-        ".tmp_source.zig:3:19: note: referenced here",
-        ".tmp_source.zig:7:12: note: referenced here",
-    );
-
-    cases.add(
-        "instantiating an undefined value for an invalid struct that contains itself",
-        \\const Foo = struct {
-        \\    x: Foo,
-        \\};
-        \\
-        \\var foo: Foo = undefined;
-        \\
-        \\export fn entry() usize {
-        \\    return @sizeOf(@typeOf(foo.x));
-        \\}
-    ,
-        ".tmp_source.zig:1:13: error: struct 'Foo' contains itself",
+        "tmp.zig:1:13: error: aoeu",
+        "tmp.zig:3:19: note: referenced here",
+        "tmp.zig:7:12: note: referenced here",
     );
 
     cases.add(
@@ -4707,7 +4711,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const a = 0x1.0p16384;
         \\}
     ,
-        ".tmp_source.zig:2:15: error: float literal out of range of any type",
+        "tmp.zig:2:15: error: float literal out of range of any type",
     );
 
     cases.add(
@@ -4716,7 +4720,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const a = 0x1.0p-16384;
         \\}
     ,
-        ".tmp_source.zig:2:15: error: float literal out of range of any type",
+        "tmp.zig:2:15: error: float literal out of range of any type",
     );
 
     cases.add(
@@ -4725,7 +4729,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return i32(12.34);
         \\}
     ,
-        ".tmp_source.zig:2:16: error: fractional component prevents float value 12.340000 from being casted to type 'i32'",
+        "tmp.zig:2:16: error: fractional component prevents float value 12.340000 from being casted to type 'i32'",
     );
 
     cases.add(
@@ -4734,7 +4738,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return @ptrToInt(x);
         \\}
     ,
-        ".tmp_source.zig:2:22: error: expected pointer, found 'i32'",
+        "tmp.zig:2:22: error: expected pointer, found 'i32'",
     );
 
     cases.add(
@@ -4743,7 +4747,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const x = @shlExact(u8(0b01010101), 2);
         \\}
     ,
-        ".tmp_source.zig:2:15: error: operation caused overflow",
+        "tmp.zig:2:15: error: operation caused overflow",
     );
 
     cases.add(
@@ -4752,7 +4756,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const x = @shrExact(u8(0b10101010), 2);
         \\}
     ,
-        ".tmp_source.zig:2:15: error: exact shift shifted out 1 bits",
+        "tmp.zig:2:15: error: exact shift shifted out 1 bits",
     );
 
     cases.add(
@@ -4761,7 +4765,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return 0x11 << x;
         \\}
     ,
-        ".tmp_source.zig:2:17: error: LHS of shift must be an integer type, or RHS must be compile-time known",
+        "tmp.zig:2:17: error: LHS of shift must be an integer type, or RHS must be compile-time known",
     );
 
     cases.add(
@@ -4770,7 +4774,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return x << y;
         \\}
     ,
-        ".tmp_source.zig:2:17: error: expected type 'u3', found 'u8'",
+        "tmp.zig:2:17: error: expected type 'u3', found 'u8'",
     );
 
     cases.add(
@@ -4780,7 +4784,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const a: u16 = 300;
         \\}
     ,
-        ".tmp_source.zig:1:1: error: declaration shadows primitive type 'u16'",
+        "tmp.zig:1:1: error: declaration shadows primitive type 'u16'",
     );
 
     cases.add(
@@ -4799,7 +4803,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    x.* += 1;
         \\}
     ,
-        ".tmp_source.zig:8:13: error: expected type '*u32', found '*align(1) u32'",
+        "tmp.zig:8:13: error: expected type '*u32', found '*align(1) u32'",
     );
 
     cases.add(
@@ -4819,9 +4823,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    x[0] += 1;
         \\}
     ,
-        ".tmp_source.zig:9:18: error: cast increases pointer alignment",
-        ".tmp_source.zig:9:23: note: '*align(1) u32' has alignment 1",
-        ".tmp_source.zig:9:18: note: '*[1]u32' has alignment 4",
+        "tmp.zig:9:18: error: cast increases pointer alignment",
+        "tmp.zig:9:23: note: '*align(1) u32' has alignment 1",
+        "tmp.zig:9:18: note: '*[1]u32' has alignment 4",
     );
 
     cases.add(
@@ -4832,9 +4836,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return ptr.*;
         \\}
     ,
-        ".tmp_source.zig:3:17: error: cast increases pointer alignment",
-        ".tmp_source.zig:3:38: note: '*u8' has alignment 1",
-        ".tmp_source.zig:3:26: note: '*u32' has alignment 4",
+        "tmp.zig:3:17: error: cast increases pointer alignment",
+        "tmp.zig:3:38: note: '*u8' has alignment 1",
+        "tmp.zig:3:26: note: '*u32' has alignment 4",
     );
 
     cases.add(
@@ -4843,7 +4847,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    @alignCast(4, u32(3));
         \\}
     ,
-        ".tmp_source.zig:2:22: error: expected pointer or slice, found 'u32'",
+        "tmp.zig:2:22: error: expected pointer or slice, found 'u32'",
     );
 
     cases.add(
@@ -4856,7 +4860,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\fn alignedSmall() align(4) i32 { return 1234; }
     ,
-        ".tmp_source.zig:2:35: error: expected type 'fn() align(8) i32', found 'fn() align(4) i32'",
+        "tmp.zig:2:35: error: expected type 'fn() align(8) i32', found 'fn() align(4) i32'",
     );
 
     cases.add(
@@ -4868,7 +4872,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return x == 5678;
         \\}
     ,
-        ".tmp_source.zig:4:32: error: expected type '*i32', found '*align(1) i32'",
+        "tmp.zig:4:32: error: expected type '*i32', found '*align(1) i32'",
     );
 
     cases.add(
@@ -4877,7 +4881,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const array = [2]u8{1, 2, 3};
         \\}
     ,
-        ".tmp_source.zig:2:24: error: expected [2]u8 literal, found [3]u8 literal",
+        "tmp.zig:2:24: error: expected [2]u8 literal, found [3]u8 literal",
     );
 
     cases.add(
@@ -4889,7 +4893,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    bar(@ptrCast(*c_void, &x));
         \\}
     ,
-        ".tmp_source.zig:5:9: error: expected type '*Derp', found '*c_void'",
+        "tmp.zig:5:9: error: expected type '*Derp', found '*c_void'",
     );
 
     cases.add(
@@ -4906,7 +4910,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\   var d = null;
         \\   var e = opaque.*;
         \\   var f = i32;
-        \\   var g = @import("std",);
         \\   var h = (Foo {}).bar;
         \\
         \\   var z: noreturn = return;
@@ -4916,16 +4919,15 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    fn bar(self: *const Foo) void {}
         \\};
     ,
-        ".tmp_source.zig:4:4: error: variable of type '*comptime_int' must be const or comptime",
-        ".tmp_source.zig:7:4: error: variable of type '(undefined)' must be const or comptime",
-        ".tmp_source.zig:8:4: error: variable of type 'comptime_int' must be const or comptime",
-        ".tmp_source.zig:9:4: error: variable of type 'comptime_float' must be const or comptime",
-        ".tmp_source.zig:10:4: error: variable of type '(null)' must be const or comptime",
-        ".tmp_source.zig:11:4: error: variable of type 'Opaque' not allowed",
-        ".tmp_source.zig:12:4: error: variable of type 'type' must be const or comptime",
-        ".tmp_source.zig:13:4: error: variable of type '(namespace)' must be const or comptime",
-        ".tmp_source.zig:14:4: error: variable of type '(bound fn(*const Foo) void)' must be const or comptime",
-        ".tmp_source.zig:16:4: error: unreachable code",
+        "tmp.zig:4:4: error: variable of type '*comptime_int' must be const or comptime",
+        "tmp.zig:7:4: error: variable of type '(undefined)' must be const or comptime",
+        "tmp.zig:8:4: error: variable of type 'comptime_int' must be const or comptime",
+        "tmp.zig:9:4: error: variable of type 'comptime_float' must be const or comptime",
+        "tmp.zig:10:4: error: variable of type '(null)' must be const or comptime",
+        "tmp.zig:11:4: error: variable of type 'Opaque' not allowed",
+        "tmp.zig:12:4: error: variable of type 'type' must be const or comptime",
+        "tmp.zig:13:4: error: variable of type '(bound fn(*const Foo) void)' must be const or comptime",
+        "tmp.zig:15:4: error: unreachable code",
     );
 
     cases.add(
@@ -4935,7 +4937,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    while (!@cmpxchgWeak(i32, &x, 1234, 5678, u32(1234), u32(1234))) {}
         \\}
     ,
-        ".tmp_source.zig:3:50: error: expected type 'AtomicOrder', found 'u32'",
+        "tmp.zig:3:50: error: expected type 'builtin.AtomicOrder', found 'u32'",
     );
 
     cases.add(
@@ -4945,7 +4947,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    @export("entry", entry, u32(1234));
         \\}
     ,
-        ".tmp_source.zig:3:32: error: expected type 'GlobalLinkage', found 'u32'",
+        "tmp.zig:3:32: error: expected type 'builtin.GlobalLinkage', found 'u32'",
     );
 
     cases.add(
@@ -4974,7 +4976,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    };
         \\}
     ,
-        ".tmp_source.zig:14:17: error: use of undeclared identifier 'HeaderValue'",
+        "tmp.zig:14:17: error: use of undeclared identifier 'HeaderValue'",
     );
 
     cases.add(
@@ -4983,7 +4985,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    @setAlignStack(16);
         \\}
     ,
-        ".tmp_source.zig:2:5: error: @setAlignStack outside function",
+        "tmp.zig:2:5: error: @setAlignStack outside function",
     );
 
     cases.add(
@@ -4992,7 +4994,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    @setAlignStack(16);
         \\}
     ,
-        ".tmp_source.zig:2:5: error: @setAlignStack in naked function",
+        "tmp.zig:2:5: error: @setAlignStack in naked function",
     );
 
     cases.add(
@@ -5004,7 +5006,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    @setAlignStack(16);
         \\}
     ,
-        ".tmp_source.zig:5:5: error: @setAlignStack in inline function",
+        "tmp.zig:5:5: error: @setAlignStack in inline function",
     );
 
     cases.add(
@@ -5014,8 +5016,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    @setAlignStack(16);
         \\}
     ,
-        ".tmp_source.zig:3:5: error: alignstack set twice",
-        ".tmp_source.zig:2:5: note: first set here",
+        "tmp.zig:3:5: error: alignstack set twice",
+        "tmp.zig:2:5: note: first set here",
     );
 
     cases.add(
@@ -5024,7 +5026,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    @setAlignStack(511 + 1);
         \\}
     ,
-        ".tmp_source.zig:2:5: error: attempt to @setAlignStack(512); maximum is 256",
+        "tmp.zig:2:5: error: attempt to @setAlignStack(512); maximum is 256",
     );
 
     cases.add(
@@ -5071,7 +5073,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    }
         \\}
     ,
-        ".tmp_source.zig:37:16: error: cannot store runtime value in compile time variable",
+        "tmp.zig:37:16: error: cannot store runtime value in compile time variable",
     );
 
     cases.add(
@@ -5087,7 +5089,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return x.blah;
         \\}
     ,
-        ".tmp_source.zig:9:13: error: type '*MyType' does not support field access",
+        "tmp.zig:9:13: error: type '*MyType' does not support field access",
     );
 
     cases.add(
@@ -5095,7 +5097,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "fn test() bool {\r\n" ++
             "   true\r\n" ++
             "}\r\n",
-        ".tmp_source.zig:1:17: error: invalid carriage return, only '\\n' line endings are supported",
+        "tmp.zig:1:17: error: invalid carriage return, only '\\n' line endings are supported",
     );
 
     cases.add(
@@ -5105,7 +5107,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
             \\    true\r
             \\}
         ,
-        ".tmp_source.zig:1:1: error: invalid character: '\\xff'",
+        "tmp.zig:1:1: error: invalid character: '\\xff'",
     );
 
     cases.add(
@@ -5113,7 +5115,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "fn test() bool {\n" ++
             "\ttrue\n" ++
             "}\n",
-        ".tmp_source.zig:2:1: error: invalid character: '\\t'",
+        "tmp.zig:2:1: error: invalid character: '\\t'",
     );
 
     cases.add(
@@ -5122,7 +5124,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = @ArgType(i32, 3);
         \\}
     ,
-        ".tmp_source.zig:2:18: error: expected function, found 'i32'",
+        "tmp.zig:2:18: error: expected function, found 'i32'",
     );
 
     cases.add(
@@ -5132,7 +5134,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\fn add(a: i32, b: i32) i32 { return a + b; }
     ,
-        ".tmp_source.zig:2:32: error: arg index 2 out of bounds; 'fn(i32, i32) i32' has 2 arguments",
+        "tmp.zig:2:32: error: arg index 2 out of bounds; 'fn(i32, i32) i32' has 2 arguments",
     );
 
     cases.add(
@@ -5141,7 +5143,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = @memberType(i32, 0);
         \\}
     ,
-        ".tmp_source.zig:2:21: error: type 'i32' does not support @memberType",
+        "tmp.zig:2:21: error: type 'i32' does not support @memberType",
     );
 
     cases.add(
@@ -5151,7 +5153,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\const Foo = enum {A,};
     ,
-        ".tmp_source.zig:2:21: error: type 'Foo' does not support @memberType",
+        "tmp.zig:2:21: error: type 'Foo' does not support @memberType",
     );
 
     cases.add(
@@ -5161,7 +5163,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\const Foo = struct {};
     ,
-        ".tmp_source.zig:2:26: error: member index 0 out of bounds; 'Foo' has 0 members",
+        "tmp.zig:2:26: error: member index 0 out of bounds; 'Foo' has 0 members",
     );
 
     cases.add(
@@ -5171,7 +5173,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\const Foo = union {A: void,};
     ,
-        ".tmp_source.zig:2:26: error: member index 1 out of bounds; 'Foo' has 1 members",
+        "tmp.zig:2:26: error: member index 1 out of bounds; 'Foo' has 1 members",
     );
 
     cases.add(
@@ -5180,7 +5182,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = @memberName(i32, 0);
         \\}
     ,
-        ".tmp_source.zig:2:21: error: type 'i32' does not support @memberName",
+        "tmp.zig:2:21: error: type 'i32' does not support @memberName",
     );
 
     cases.add(
@@ -5190,7 +5192,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\const Foo = struct {};
     ,
-        ".tmp_source.zig:2:26: error: member index 0 out of bounds; 'Foo' has 0 members",
+        "tmp.zig:2:26: error: member index 0 out of bounds; 'Foo' has 0 members",
     );
 
     cases.add(
@@ -5200,7 +5202,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\const Foo = enum {A,};
     ,
-        ".tmp_source.zig:2:26: error: member index 1 out of bounds; 'Foo' has 1 members",
+        "tmp.zig:2:26: error: member index 1 out of bounds; 'Foo' has 1 members",
     );
 
     cases.add(
@@ -5210,7 +5212,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\const Foo = union {A:i32,};
     ,
-        ".tmp_source.zig:2:26: error: member index 1 out of bounds; 'Foo' has 1 members",
+        "tmp.zig:2:26: error: member index 1 out of bounds; 'Foo' has 1 members",
     );
 
     cases.add(
@@ -5220,7 +5222,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\pub extern fn foo(format: *const u8, ...) void;
     ,
-        ".tmp_source.zig:2:9: error: expected type '*const u8', found '[5]u8'",
+        "tmp.zig:2:9: error: expected type '*const u8', found '[5]u8'",
     );
 
     cases.add(
@@ -5239,9 +5241,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var allocator: ContextAllocator = undefined;
         \\}
     ,
-        ".tmp_source.zig:4:25: error: aoeu",
-        ".tmp_source.zig:1:36: note: called from here",
-        ".tmp_source.zig:12:20: note: referenced here",
+        "tmp.zig:4:25: error: aoeu",
+        "tmp.zig:1:36: note: called from here",
+        "tmp.zig:12:20: note: referenced here",
     );
 
     cases.add(
@@ -5258,7 +5260,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var x = Small.One;
         \\}
     ,
-        ".tmp_source.zig:1:21: error: 'u2' too small to hold all bits; must be at least 'u3'",
+        "tmp.zig:1:21: error: 'u2' too small to hold all bits; must be at least 'u3'",
     );
 
     cases.add(
@@ -5273,7 +5275,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var x = Small.One;
         \\}
     ,
-        ".tmp_source.zig:1:21: error: expected integer, found 'f32'",
+        "tmp.zig:1:21: error: expected integer, found 'f32'",
     );
 
     cases.add(
@@ -5289,7 +5291,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var x: u2 = Small.Two;
         \\}
     ,
-        ".tmp_source.zig:9:22: error: expected type 'u2', found 'Small'",
+        "tmp.zig:9:22: error: expected type 'u2', found 'Small'",
     );
 
     cases.add(
@@ -5306,7 +5308,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var x = @intToEnum(Small, y);
         \\}
     ,
-        ".tmp_source.zig:10:31: error: expected type 'u2', found 'u3'",
+        "tmp.zig:10:31: error: expected type 'u2', found 'u3'",
     );
 
     cases.add(
@@ -5322,7 +5324,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var y = Small.Two;
         \\}
     ,
-        ".tmp_source.zig:1:20: error: expected unsigned integer, found 'i2'",
+        "tmp.zig:1:20: error: expected unsigned integer, found 'i2'",
     );
 
     cases.add(
@@ -5334,7 +5336,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\        var x: MultipleChoice = undefined;
         \\}
     ,
-        ".tmp_source.zig:2:14: error: enums, not structs, support field assignment",
+        "tmp.zig:2:14: error: enums, not structs, support field assignment",
     );
 
     cases.add(
@@ -5346,8 +5348,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var x: MultipleChoice = undefined;
         \\}
     ,
-        ".tmp_source.zig:2:14: error: non-enum union field assignment",
-        ".tmp_source.zig:1:24: note: consider 'union(enum)' here",
+        "tmp.zig:2:14: error: non-enum union field assignment",
+        "tmp.zig:1:24: note: consider 'union(enum)' here",
     );
 
     cases.add(
@@ -5357,7 +5359,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return @sizeOf(Foo);
         \\}
     ,
-        ".tmp_source.zig:1:13: error: enums must have 1 or more fields",
+        "tmp.zig:1:13: error: enums must have 1 or more fields",
     );
 
     cases.add(
@@ -5367,7 +5369,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return @sizeOf(Foo);
         \\}
     ,
-        ".tmp_source.zig:1:13: error: unions must have 1 or more fields",
+        "tmp.zig:1:13: error: unions must have 1 or more fields",
     );
 
     cases.add(
@@ -5383,8 +5385,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var x = MultipleChoice.C;
         \\}
     ,
-        ".tmp_source.zig:6:9: error: enum tag value 60 already taken",
-        ".tmp_source.zig:4:9: note: other occurrence here",
+        "tmp.zig:6:9: error: enum tag value 60 already taken",
+        "tmp.zig:4:9: note: other occurrence here",
     );
 
     cases.add(
@@ -5402,8 +5404,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return @sizeOf(Payload);
         \\}
     ,
-        ".tmp_source.zig:6:17: error: enum field missing: 'C'",
-        ".tmp_source.zig:4:5: note: declared here",
+        "tmp.zig:6:17: error: enum field missing: 'C'",
+        "tmp.zig:4:5: note: declared here",
     );
 
     cases.add(
@@ -5415,8 +5417,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const x = @TagType(Foo);
         \\}
     ,
-        ".tmp_source.zig:5:24: error: union 'Foo' has no tag",
-        ".tmp_source.zig:1:13: note: consider 'union(enum)' here",
+        "tmp.zig:5:24: error: union 'Foo' has no tag",
+        "tmp.zig:1:13: note: consider 'union(enum)' here",
     );
 
     cases.add(
@@ -5428,7 +5430,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const x = @TagType(Foo);
         \\}
     ,
-        ".tmp_source.zig:1:24: error: expected integer tag type, found 'f32'",
+        "tmp.zig:1:24: error: expected integer tag type, found 'f32'",
     );
 
     cases.add(
@@ -5440,7 +5442,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const x = @TagType(Foo);
         \\}
     ,
-        ".tmp_source.zig:1:19: error: expected enum tag type, found 'u32'",
+        "tmp.zig:1:19: error: expected enum tag type, found 'u32'",
     );
 
     cases.add(
@@ -5456,8 +5458,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var x = MultipleChoice { .C = {} };
         \\}
     ,
-        ".tmp_source.zig:6:9: error: enum tag value 60 already taken",
-        ".tmp_source.zig:4:9: note: other occurrence here",
+        "tmp.zig:6:9: error: enum tag value 60 already taken",
+        "tmp.zig:4:9: note: other occurrence here",
     );
 
     cases.add(
@@ -5477,8 +5479,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var a = Payload {.A = 1234};
         \\}
     ,
-        ".tmp_source.zig:10:5: error: enum field not found: 'D'",
-        ".tmp_source.zig:1:16: note: enum declared here",
+        "tmp.zig:10:5: error: enum field not found: 'D'",
+        "tmp.zig:1:16: note: enum declared here",
     );
 
     cases.add(
@@ -5492,8 +5494,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var b = Letter.B;
         \\}
     ,
-        ".tmp_source.zig:2:8: error: structs and unions, not enums, support field types",
-        ".tmp_source.zig:1:16: note: consider 'union(enum)' here",
+        "tmp.zig:2:8: error: structs and unions, not enums, support field types",
+        "tmp.zig:1:16: note: consider 'union(enum)' here",
     );
 
     cases.add(
@@ -5505,7 +5507,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var a = Letter { .A = {} };
         \\}
     ,
-        ".tmp_source.zig:2:5: error: struct field missing type",
+        "tmp.zig:2:5: error: struct field missing type",
     );
 
     cases.add(
@@ -5517,7 +5519,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var a = Letter { .A = {} };
         \\}
     ,
-        ".tmp_source.zig:2:5: error: union field missing type",
+        "tmp.zig:2:5: error: union field missing type",
     );
 
     cases.add(
@@ -5536,7 +5538,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var a = Payload { .A = 1234 };
         \\}
     ,
-        ".tmp_source.zig:6:30: error: extern union does not support enum tag type",
+        "tmp.zig:6:30: error: extern union does not support enum tag type",
     );
 
     cases.add(
@@ -5555,7 +5557,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var a = Payload { .A = 1234 };
         \\}
     ,
-        ".tmp_source.zig:6:30: error: packed union does not support enum tag type",
+        "tmp.zig:6:30: error: packed union does not support enum tag type",
     );
 
     cases.add(
@@ -5576,8 +5578,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    }
         \\}
     ,
-        ".tmp_source.zig:11:14: error: switch on union which has no attached enum",
-        ".tmp_source.zig:1:17: note: consider 'union(enum)' here",
+        "tmp.zig:11:14: error: switch on union which has no attached enum",
+        "tmp.zig:1:17: note: consider 'union(enum)' here",
     );
 
     cases.add(
@@ -5590,8 +5592,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var x = @intToEnum(Foo, 0);
         \\}
     ,
-        ".tmp_source.zig:6:13: error: enum 'Foo' has no tag matching integer value 0",
-        ".tmp_source.zig:1:13: note: 'Foo' declared here",
+        "tmp.zig:6:13: error: enum 'Foo' has no tag matching integer value 0",
+        "tmp.zig:1:13: note: 'Foo' declared here",
     );
 
     cases.add(
@@ -5606,8 +5608,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var x: Value = Letter.A;
         \\}
     ,
-        ".tmp_source.zig:8:26: error: cast to union 'Value' must initialize 'i32' field 'A'",
-        ".tmp_source.zig:3:5: note: field 'A' declared here",
+        "tmp.zig:8:26: error: cast to union 'Value' must initialize 'i32' field 'A'",
+        "tmp.zig:3:5: note: field 'A' declared here",
     );
 
     cases.add(
@@ -5625,8 +5627,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var x: Value = l;
         \\}
     ,
-        ".tmp_source.zig:11:20: error: runtime cast to union 'Value' which has non-void fields",
-        ".tmp_source.zig:3:5: note: field 'A' has type 'i32'",
+        "tmp.zig:11:20: error: runtime cast to union 'Value' which has non-void fields",
+        "tmp.zig:3:5: note: field 'A' has type 'i32'",
     );
 
     cases.add(
@@ -5638,7 +5640,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const fieldOffset = @byteOffsetOf(Empty, "val",);
         \\}
     ,
-        ".tmp_source.zig:5:46: error: zero-bit field 'val' in struct 'Empty' has no offset",
+        "tmp.zig:5:46: error: zero-bit field 'val' in struct 'Empty' has no offset",
     );
 
     cases.add(
@@ -5650,7 +5652,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const fieldOffset = @bitOffsetOf(Empty, "val",);
         \\}
     ,
-        ".tmp_source.zig:5:45: error: zero-bit field 'val' in struct 'Empty' has no offset",
+        "tmp.zig:5:45: error: zero-bit field 'val' in struct 'Empty' has no offset",
     );
 
     cases.add(
@@ -5664,7 +5666,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const bar_val = foo.Bar;
         \\}
     ,
-        ".tmp_source.zig:7:24: error: accessing union field 'Bar' while field 'Baz' is set",
+        "tmp.zig:7:24: error: accessing union field 'Bar' while field 'Baz' is set",
     );
 
     cases.add(
@@ -5674,7 +5676,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = @typeOf(generic).ReturnType;
         \\}
     ,
-        ".tmp_source.zig:3:25: error: ReturnType has not been resolved because 'fn(var)var' is generic",
+        "tmp.zig:3:25: error: ReturnType has not been resolved because 'fn(var)var' is generic",
     );
 
     cases.add(
@@ -5684,7 +5686,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = @ArgType(@typeOf(generic), 0);
         \\}
     ,
-        ".tmp_source.zig:3:36: error: @ArgType could not resolve the type of arg 0 because 'fn(var)var' is generic",
+        "tmp.zig:3:36: error: @ArgType could not resolve the type of arg 0 because 'fn(var)var' is generic",
     );
 
     cases.add(
@@ -5694,7 +5696,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    asm volatile ("" : [baz]"+r"(bar) : : "");
         \\}
     ,
-        ".tmp_source.zig:3:5: error: invalid modifier starting output constraint for 'baz': '+', only '=' is supported. Compiler TODO: see https://github.com/ziglang/zig/issues/215",
+        "tmp.zig:3:5: error: invalid modifier starting output constraint for 'baz': '+', only '=' is supported. Compiler TODO: see https://github.com/ziglang/zig/issues/215",
     );
 
     cases.add(
@@ -5703,7 +5705,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    asm volatile ("" : : [bar]"r"(3) : "");
         \\}
     ,
-        ".tmp_source.zig:2:35: error: expected sized integer or sized float, found comptime_int",
+        "tmp.zig:2:35: error: expected sized integer or sized float, found comptime_int",
     );
 
     cases.add(
@@ -5712,7 +5714,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    asm volatile ("" : : [bar]"r"(3.17) : "");
         \\}
     ,
-        ".tmp_source.zig:2:35: error: expected sized integer or sized float, found comptime_float",
+        "tmp.zig:2:35: error: expected sized integer or sized float, found comptime_float",
     );
 
     cases.add(
@@ -5726,7 +5728,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const foo = Foo { .Bar = x, .Baz = u8 };
         \\}
     ,
-        ".tmp_source.zig:7:30: error: unable to evaluate constant expression",
+        "tmp.zig:7:30: error: unable to evaluate constant expression",
     );
 
     cases.add(
@@ -5740,7 +5742,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const foo = Foo { .Bar = x };
         \\}
     ,
-        ".tmp_source.zig:7:30: error: unable to evaluate constant expression",
+        "tmp.zig:7:30: error: unable to evaluate constant expression",
     );
 
     cases.addTest(
@@ -5750,7 +5752,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var v: V = undefined;
         \\}
     ,
-        ".tmp_source.zig:2:26: error: vector element type must be integer, float, or pointer; '@Vector(4, u8)' is invalid",
+        "tmp.zig:2:26: error: vector element type must be integer, float, or pointer; '@Vector(4, u8)' is invalid",
     );
 
     cases.add("compileLog of tagged enum doesn't crash the compiler",
@@ -5765,5 +5767,5 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\pub fn main () void {
         \\    comptime testCompileLog(Bar{.X = 123});
         \\}
-    , ".tmp_source.zig:6:5: error: found compile log statement");
+    , "tmp.zig:6:5: error: found compile log statement");
 }

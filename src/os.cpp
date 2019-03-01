@@ -264,7 +264,7 @@ void os_path_join(Buf *dirname, Buf *basename, Buf *out_full_path) {
     buf_append_buf(out_full_path, basename);
 }
 
-int os_path_real(Buf *rel_path, Buf *out_abs_path) {
+Error os_path_real(Buf *rel_path, Buf *out_abs_path) {
 #if defined(ZIG_OS_WINDOWS)
     buf_resize(out_abs_path, 4096);
     if (_fullpath(buf_ptr(out_abs_path), buf_ptr(rel_path), buf_len(out_abs_path)) == nullptr) {

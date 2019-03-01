@@ -47,7 +47,7 @@ pub const ZigCompiler = struct {
 
     var lazy_init_targets = std.lazyInit(void);
 
-    fn init(loop: *event.Loop) !ZigCompiler {
+    pub fn init(loop: *event.Loop) !ZigCompiler {
         lazy_init_targets.get() orelse {
             Target.initializeAll();
             lazy_init_targets.resolve();

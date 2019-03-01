@@ -48,7 +48,8 @@ void codegen_print_timing_report(CodeGen *g, FILE *f);
 void codegen_link(CodeGen *g);
 void codegen_build_and_link(CodeGen *g);
 
-PackageTableEntry *codegen_create_package(CodeGen *g, const char *root_src_dir, const char *root_src_path);
+ZigPackage *codegen_create_package(CodeGen *g, const char *root_src_dir, const char *root_src_path,
+        const char *pkg_path);
 void codegen_add_assembly(CodeGen *g, Buf *path);
 void codegen_add_object(CodeGen *g, Buf *object_path);
 

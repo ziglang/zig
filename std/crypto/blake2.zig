@@ -34,8 +34,8 @@ pub const Blake2s256 = Blake2s(256);
 fn Blake2s(comptime out_len: usize) type {
     return struct {
         const Self = @This();
-        const block_length = 64;
-        const digest_length = out_len / 8;
+        pub const block_length = 64;
+        pub const digest_length = out_len / 8;
 
         const iv = [8]u32{
             0x6A09E667,

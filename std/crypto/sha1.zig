@@ -26,8 +26,8 @@ fn Rp(a: usize, b: usize, c: usize, d: usize, e: usize, i: u32) RoundParam {
 
 pub const Sha1 = struct {
     const Self = @This();
-    const block_length = 64;
-    const digest_length = 20;
+    pub const block_length = 64;
+    pub const digest_length = 20;
 
     s: [5]u32,
     // Streaming Cache

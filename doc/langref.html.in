@@ -6785,7 +6785,6 @@ pub const TypeId = enum {
     Enum,
     Union,
     Fn,
-    Namespace,
     Block,
     BoundFn,
     ArgTuple,
@@ -6820,7 +6819,6 @@ pub const TypeInfo = union(TypeId) {
     Enum: Enum,
     Union: Union,
     Fn: Fn,
-    Namespace: void,
     BoundFn: Fn,
     ArgTuple: void,
     Opaque: void,
@@ -8167,17 +8165,18 @@ coding style.
       </p>
       <ul>
         <li>
-            If {#syntax#}x{#endsyntax#} is a {#syntax#}struct{#endsyntax#} (or an alias of a {#syntax#}struct{#endsyntax#}),
-                        then {#syntax#}x{#endsyntax#} should be {#syntax#}TitleCase{#endsyntax#}.
+            If {#syntax#}x{#endsyntax#} is a {#syntax#}type{#endsyntax#}
+            then {#syntax#}x{#endsyntax#} should be {#syntax#}TitleCase{#endsyntax#}, unless it
+            is a {#syntax#}struct{#endsyntax#} with 0 fields and is never meant to be instantiated,
+            in which case it is considered to be a "namespace" and uses {#syntax#}snake_case{#endsyntax#}.
         </li>
         <li>
-            If {#syntax#}x{#endsyntax#} otherwise identifies a type, {#syntax#}x{#endsyntax#} should have {#syntax#}snake_case{#endsyntax#}.
+            If {#syntax#}x{#endsyntax#} is callable, and {#syntax#}x{#endsyntax#}'s return type is
+            {#syntax#}type{#endsyntax#}, then {#syntax#}x{#endsyntax#} should be {#syntax#}TitleCase{#endsyntax#}.
         </li>
         <li>
-            If {#syntax#}x{#endsyntax#} is callable, and {#syntax#}x{#endsyntax#}'s return type is {#syntax#}type{#endsyntax#}, then {#syntax#}x{#endsyntax#} should be {#syntax#}TitleCase{#endsyntax#}.
-        </li>
-        <li>
-            If {#syntax#}x{#endsyntax#} is otherwise callable, then {#syntax#}x{#endsyntax#} should be {#syntax#}camelCase{#endsyntax#}.
+            If {#syntax#}x{#endsyntax#} is otherwise callable, then {#syntax#}x{#endsyntax#} should
+            be {#syntax#}camelCase{#endsyntax#}.
         </li>
         <li>
             Otherwise, {#syntax#}x{#endsyntax#} should be {#syntax#}snake_case{#endsyntax#}.
@@ -8203,7 +8202,9 @@ const const_name = 42;
 const primitive_type_alias = f32;
 const string_alias = []u8;
 
-const StructName = struct {};
+const StructName = struct {
+    field: i32,
+};
 const StructAlias = StructName;
 
 fn functionName(param_name: TypeName) void {
@@ -8231,7 +8232,9 @@ const xml_document =
     \\<document>
     \\</document>
 ;
-const XmlParser = struct {};
+const XmlParser = struct {
+    field: i32,
+};
 
 // The initials BE (Big Endian) are just another word in Zig identifier names.
 fn readU32Be() u32 {}

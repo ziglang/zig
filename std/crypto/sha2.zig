@@ -78,8 +78,8 @@ pub const Sha256 = Sha2_32(Sha256Params);
 fn Sha2_32(comptime params: Sha2Params32) type {
     return struct {
         const Self = @This();
-        const block_length = 64;
-        const digest_length = params.out_len / 8;
+        pub const block_length = 64;
+        pub const digest_length = params.out_len / 8;
 
         s: [8]u32,
         // Streaming Cache

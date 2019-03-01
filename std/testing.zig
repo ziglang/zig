@@ -44,7 +44,6 @@ pub fn expectEqual(expected: var, actual: @typeOf(expected)) void {
         TypeId.ComptimeFloat,
         TypeId.ComptimeInt,
         TypeId.Enum,
-        TypeId.Namespace,
         TypeId.Fn,
         TypeId.Promise,
         TypeId.Vector,

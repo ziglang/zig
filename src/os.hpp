@@ -96,7 +96,7 @@ void os_path_dirname(Buf *full_path, Buf *out_dirname);
 void os_path_split(Buf *full_path, Buf *out_dirname, Buf *out_basename);
 void os_path_extname(Buf *full_path, Buf *out_basename, Buf *out_extname);
 void os_path_join(Buf *dirname, Buf *basename, Buf *out_full_path);
-int os_path_real(Buf *rel_path, Buf *out_abs_path);
+Error os_path_real(Buf *rel_path, Buf *out_abs_path);
 Buf os_path_resolve(Buf **paths_ptr, size_t paths_len);
 bool os_path_is_absolute(Buf *path);
 
