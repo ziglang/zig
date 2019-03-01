@@ -3406,3 +3406,27 @@ pub fn linuxINotifyRmWatch(inotify_fd: i32, wd: i32) !void {
         else => unreachable,
     }
 }
+
+pub const MProtectError = error{
+    AccessDenied,
+    OutOfMemory,
+    Unexpected,
+};
+
+/// address and length must be page-aligned
+pub fn posixMProtect(address: usize, length: usize, protection: u32) MProtectError!void {
+    const negative_page_size = @bitCast(usize, -isize(page_size));
+    const aligned_address = address & negative_page_size;
+    const aligned_end = (address + length + page_size - 1) & negative_page_size;
+    assert(address == aligned_address);
+    assert(length == aligned_end - aligned_address);
+    const rc = posix.mprotect(address, length, protection);
+    const err = posix.getErrno(rc);
+    switch (err) {
+        0 => return,
+        posix.EINVAL => unreachable,
+        posix.EACCES => return error.AccessDenied,
+        posix.ENOMEM => return error.OutOfMemory,
+        else => return unexpectedErrorPosix(err),
+    }
+}
