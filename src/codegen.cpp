@@ -8591,10 +8591,17 @@ static void gen_h_file(CodeGen *g) {
         Buf return_type_c = BUF_INIT;
         get_c_type(g, gen_h, fn_type_id->return_type, &return_type_c);
 
+        Buf *symbol_name;
+        if (fn_table_entry->export_list.length == 0) {
+            symbol_name = &fn_table_entry->symbol_name;
+        } else {
+            FnExport *fn_export = &fn_table_entry->export_list.items[0];
+            symbol_name = &fn_export->name;
+        }
         buf_appendf(&h_buf, "%s %s %s(",
                 buf_ptr(export_macro),
                 buf_ptr(&return_type_c),
-                buf_ptr(&fn_table_entry->symbol_name));
+                buf_ptr(symbol_name));
 
         Buf param_type_c = BUF_INIT;
         if (fn_type_id->param_count > 0) {
