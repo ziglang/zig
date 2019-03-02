@@ -4661,7 +4661,8 @@ static LLVMValueRef ir_render_return_address(CodeGen *g, IrExecutable *executabl
         IrInstructionReturnAddress *instruction)
 {
     LLVMValueRef zero = LLVMConstNull(g->builtin_types.entry_i32->type_ref);
-    return LLVMBuildCall(g->builder, get_return_address_fn_val(g), &zero, 1, "");
+    LLVMValueRef ptr_val = LLVMBuildCall(g->builder, get_return_address_fn_val(g), &zero, 1, "");
+    return LLVMBuildPtrToInt(g->builder, ptr_val, g->builtin_types.entry_usize->type_ref, "");
 }
 
 static LLVMValueRef get_frame_address_fn_val(CodeGen *g) {
@@ -4682,7 +4683,8 @@ static LLVMValueRef ir_render_frame_address(CodeGen *g, IrExecutable *executable
         IrInstructionFrameAddress *instruction)
 {
     LLVMValueRef zero = LLVMConstNull(g->builtin_types.entry_i32->type_ref);
-    return LLVMBuildCall(g->builder, get_frame_address_fn_val(g), &zero, 1, "");
+    LLVMValueRef ptr_val = LLVMBuildCall(g->builder, get_frame_address_fn_val(g), &zero, 1, "");
+    return LLVMBuildPtrToInt(g->builder, ptr_val, g->builtin_types.entry_usize->type_ref, "");
 }
 
 static LLVMValueRef get_handle_fn_val(CodeGen *g) {

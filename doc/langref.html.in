@@ -6116,7 +6116,7 @@ test "main" {
       {#header_close#}
 
       {#header_open|@frameAddress#}
-      <pre>{#syntax#}@frameAddress(){#endsyntax#}</pre>
+      <pre>{#syntax#}@frameAddress() usize{#endsyntax#}</pre>
       <p>
       This function returns the base pointer of the current stack frame.
       </p>
@@ -6482,17 +6482,18 @@ test "call foo" {
       {#header_close#}
 
       {#header_open|@returnAddress#}
-      <pre>{#syntax#}@returnAddress(){#endsyntax#}</pre>
+      <pre>{#syntax#}@returnAddress() usize{#endsyntax#}</pre>
       <p>
-      This function returns a pointer to the return address of the current stack
-      frame.
+      This function returns the address of the next machine code instruction that will be executed
+      when the current function returns.
       </p>
       <p>
       The implications of this are target specific and not consistent across
       all platforms.
       </p>
       <p>
-      This function is only valid within function scope.
+      This function is only valid within function scope. If the function gets inlined into
+      a calling function, the returned address will apply to the calling function.
       </p>
       {#header_close#}
       {#header_open|@setAlignStack#}

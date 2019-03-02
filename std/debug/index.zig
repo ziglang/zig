@@ -171,7 +171,7 @@ pub fn assert(ok: bool) void {
 
 pub fn panic(comptime format: []const u8, args: ...) noreturn {
     @setCold(true);
-    const first_trace_addr = @ptrToInt(@returnAddress());
+    const first_trace_addr = @returnAddress();
     panicExtra(null, first_trace_addr, format, args);
 }
 
@@ -232,7 +232,7 @@ pub const StackIterator = struct {
     pub fn init(first_addr: ?usize) StackIterator {
         return StackIterator{
             .first_addr = first_addr,
-            .fp = @ptrToInt(@frameAddress()),
+            .fp = @frameAddress(),
         };
     }
 

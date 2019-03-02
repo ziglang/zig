@@ -20142,18 +20142,14 @@ static IrInstruction *ir_analyze_instruction_breakpoint(IrAnalyze *ira, IrInstru
 static IrInstruction *ir_analyze_instruction_return_address(IrAnalyze *ira, IrInstructionReturnAddress *instruction) {
     IrInstruction *result = ir_build_return_address(&ira->new_irb,
         instruction->base.scope, instruction->base.source_node);
-    ZigType *u8 = ira->codegen->builtin_types.entry_u8;
-    ZigType *u8_ptr_const = get_pointer_to_type(ira->codegen, u8, true);
-    result->value.type = u8_ptr_const;
+    result->value.type = ira->codegen->builtin_types.entry_usize;
     return result;
 }
 
 static IrInstruction *ir_analyze_instruction_frame_address(IrAnalyze *ira, IrInstructionFrameAddress *instruction) {
     IrInstruction *result = ir_build_frame_address(&ira->new_irb,
             instruction->base.scope, instruction->base.source_node);
-    ZigType *u8 = ira->codegen->builtin_types.entry_u8;
-    ZigType *u8_ptr_const = get_pointer_to_type(ira->codegen, u8, true);
-    result->value.type = u8_ptr_const;
+    result->value.type = ira->codegen->builtin_types.entry_usize;
     return result;
 }
 
