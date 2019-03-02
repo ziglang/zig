@@ -1,4 +1,4 @@
-const math = @import("index.zig");
+const math = @import("../math.zig");
 
 pub fn expo2(x: var) @typeOf(x) {
     const T = @typeOf(x);

@@ -1,4 +1,4 @@
-const std = @import("../index.zig");
+const std = @import("../std.zig");
 const c = std.c;
 const assert = std.debug.assert;
 const maxInt = std.math.maxInt;

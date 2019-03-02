@@ -1,6 +1,6 @@
 const udivmod = @import("udivmod.zig").udivmod;
 const builtin = @import("builtin");
-const compiler_rt = @import("index.zig");
+const compiler_rt = @import("../compiler_rt.zig");
 
 pub extern fn __udivmodti4(a: u128, b: u128, maybe_rem: ?*u128) u128 {
     @setRuntimeSafety(builtin.is_test);

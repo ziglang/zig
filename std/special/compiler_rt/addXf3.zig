@@ -4,7 +4,7 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const compiler_rt = @import("index.zig");
+const compiler_rt = @import("../compiler_rt.zig");
 
 pub extern fn __addtf3(a: f128, b: f128) f128 {
     return addXf3(f128, a, b);

@@ -56,14 +56,14 @@ comptime {
     _ = @import("behavior/math.zig");
     _ = @import("behavior/merge_error_sets.zig");
     _ = @import("behavior/misc.zig");
-    _ = @import("behavior/namespace_depends_on_compile_var/index.zig");
+    _ = @import("behavior/namespace_depends_on_compile_var.zig");
     _ = @import("behavior/new_stack_call.zig");
     _ = @import("behavior/null.zig");
     _ = @import("behavior/optional.zig");
     _ = @import("behavior/pointers.zig");
     _ = @import("behavior/popcount.zig");
     _ = @import("behavior/ptrcast.zig");
-    _ = @import("behavior/pub_enum/index.zig");
+    _ = @import("behavior/pub_enum.zig");
     _ = @import("behavior/ref_var_in_if_after_if_2nd_switch_prong.zig");
     _ = @import("behavior/reflection.zig");
     _ = @import("behavior/sizeof_and_typeof.zig");

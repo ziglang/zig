@@ -1,4 +1,4 @@
-const std = @import("index.zig");
+const std = @import("std.zig");
 const builtin = @import("builtin");
 const io = std.io;
 const mem = std.mem;

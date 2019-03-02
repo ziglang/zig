@@ -1,11 +1,11 @@
-const std = @import("../index.zig");
+const std = @import("std.zig");
 const builtin = @import("builtin");
 const debug = std.debug;
 const mem = std.mem;
 const math = std.math;
 const testing = std.testing;
 
-pub const trait = @import("trait.zig");
+pub const trait = @import("meta/trait.zig");
 
 const TypeId = builtin.TypeId;
 const TypeInfo = builtin.TypeInfo;

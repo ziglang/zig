@@ -1,27 +1,27 @@
-const std = @import("../../index.zig");
+const std = @import("../std.zig");
 const testing = std.testing;
 const math = std.math;
 
-pub const abs = @import("abs.zig").abs;
-pub const acosh = @import("acosh.zig").acosh;
-pub const acos = @import("acos.zig").acos;
-pub const arg = @import("arg.zig").arg;
-pub const asinh = @import("asinh.zig").asinh;
-pub const asin = @import("asin.zig").asin;
-pub const atanh = @import("atanh.zig").atanh;
-pub const atan = @import("atan.zig").atan;
-pub const conj = @import("conj.zig").conj;
-pub const cosh = @import("cosh.zig").cosh;
-pub const cos = @import("cos.zig").cos;
-pub const exp = @import("exp.zig").exp;
-pub const log = @import("log.zig").log;
-pub const pow = @import("pow.zig").pow;
-pub const proj = @import("proj.zig").proj;
-pub const sinh = @import("sinh.zig").sinh;
-pub const sin = @import("sin.zig").sin;
-pub const sqrt = @import("sqrt.zig").sqrt;
-pub const tanh = @import("tanh.zig").tanh;
-pub const tan = @import("tan.zig").tan;
+pub const abs = @import("complex/abs.zig").abs;
+pub const acosh = @import("complex/acosh.zig").acosh;
+pub const acos = @import("complex/acos.zig").acos;
+pub const arg = @import("complex/arg.zig").arg;
+pub const asinh = @import("complex/asinh.zig").asinh;
+pub const asin = @import("complex/asin.zig").asin;
+pub const atanh = @import("complex/atanh.zig").atanh;
+pub const atan = @import("complex/atan.zig").atan;
+pub const conj = @import("complex/conj.zig").conj;
+pub const cosh = @import("complex/cosh.zig").cosh;
+pub const cos = @import("complex/cos.zig").cos;
+pub const exp = @import("complex/exp.zig").exp;
+pub const log = @import("complex/log.zig").log;
+pub const pow = @import("complex/pow.zig").pow;
+pub const proj = @import("complex/proj.zig").proj;
+pub const sinh = @import("complex/sinh.zig").sinh;
+pub const sin = @import("complex/sin.zig").sin;
+pub const sqrt = @import("complex/sqrt.zig").sqrt;
+pub const tanh = @import("complex/tanh.zig").tanh;
+pub const tan = @import("complex/tan.zig").tan;
 
 pub fn Complex(comptime T: type) type {
     return struct {
@@ -148,24 +148,24 @@ test "complex.magnitude" {
 }
 
 test "complex.cmath" {
-    _ = @import("abs.zig");
-    _ = @import("acosh.zig");
-    _ = @import("acos.zig");
-    _ = @import("arg.zig");
-    _ = @import("asinh.zig");
-    _ = @import("asin.zig");
-    _ = @import("atanh.zig");
-    _ = @import("atan.zig");
-    _ = @import("conj.zig");
-    _ = @import("cosh.zig");
-    _ = @import("cos.zig");
-    _ = @import("exp.zig");
-    _ = @import("log.zig");
-    _ = @import("pow.zig");
-    _ = @import("proj.zig");
-    _ = @import("sinh.zig");
-    _ = @import("sin.zig");
-    _ = @import("sqrt.zig");
-    _ = @import("tanh.zig");
-    _ = @import("tan.zig");
+    _ = @import("complex/abs.zig");
+    _ = @import("complex/acosh.zig");
+    _ = @import("complex/acos.zig");
+    _ = @import("complex/arg.zig");
+    _ = @import("complex/asinh.zig");
+    _ = @import("complex/asin.zig");
+    _ = @import("complex/atanh.zig");
+    _ = @import("complex/atan.zig");
+    _ = @import("complex/conj.zig");
+    _ = @import("complex/cosh.zig");
+    _ = @import("complex/cos.zig");
+    _ = @import("complex/exp.zig");
+    _ = @import("complex/log.zig");
+    _ = @import("complex/pow.zig");
+    _ = @import("complex/proj.zig");
+    _ = @import("complex/sinh.zig");
+    _ = @import("complex/sin.zig");
+    _ = @import("complex/sqrt.zig");
+    _ = @import("complex/tanh.zig");
+    _ = @import("complex/tan.zig");
 }

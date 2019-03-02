@@ -163,7 +163,7 @@ pub const Kevent = extern struct {
 // sys/types.h on macos uses #pragma pack(4) so these checks are
 // to make sure the struct is laid out the same. These values were
 // produced from C code using the offsetof macro.
-const std = @import("../index.zig");
+const std = @import("../std.zig");
 const assert = std.debug.assert;
 
 comptime {

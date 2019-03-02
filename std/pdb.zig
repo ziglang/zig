@@ -1,5 +1,5 @@
 const builtin = @import("builtin");
-const std = @import("index.zig");
+const std = @import("std.zig");
 const io = std.io;
 const math = std.math;
 const mem = std.mem;

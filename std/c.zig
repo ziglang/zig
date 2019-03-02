@@ -2,14 +2,14 @@ const builtin = @import("builtin");
 const Os = builtin.Os;
 
 pub use switch (builtin.os) {
-    Os.linux => @import("linux.zig"),
-    Os.windows => @import("windows.zig"),
-    Os.macosx, Os.ios => @import("darwin.zig"),
-    Os.freebsd => @import("freebsd.zig"),
-    Os.netbsd => @import("netbsd.zig"),
+    Os.linux => @import("c/linux.zig"),
+    Os.windows => @import("c/windows.zig"),
+    Os.macosx, Os.ios => @import("c/darwin.zig"),
+    Os.freebsd => @import("c/freebsd.zig"),
+    Os.netbsd => @import("c/netbsd.zig"),
     else => empty_import,
 };
-const empty_import = @import("../empty.zig");
+const empty_import = @import("empty.zig");
 
 // TODO https://github.com/ziglang/zig/issues/265 on this whole file
 

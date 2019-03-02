@@ -1,18 +1,18 @@
-const std = @import("../../index.zig");
+const std = @import("../std.zig");
 const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
 
-pub use @import("advapi32.zig");
-pub use @import("kernel32.zig");
-pub use @import("ntdll.zig");
-pub use @import("ole32.zig");
-pub use @import("shell32.zig");
+pub use @import("windows/advapi32.zig");
+pub use @import("windows/kernel32.zig");
+pub use @import("windows/ntdll.zig");
+pub use @import("windows/ole32.zig");
+pub use @import("windows/shell32.zig");
 
 test "import" {
-    _ = @import("util.zig");
+    _ = @import("windows/util.zig");
 }
 
-pub const ERROR = @import("error.zig");
+pub const ERROR = @import("windows/error.zig");
 
 pub const SHORT = c_short;
 pub const BOOL = c_int;
@@ -396,4 +396,4 @@ pub const IMAGE_TLS_DIRECTORY = extern struct {
 pub const IMAGE_TLS_DIRECTORY64 = IMAGE_TLS_DIRECTORY;
 pub const IMAGE_TLS_DIRECTORY32 = IMAGE_TLS_DIRECTORY;
 
-pub const PIMAGE_TLS_CALLBACK = ?extern fn(PVOID, DWORD, PVOID) void;
+pub const PIMAGE_TLS_CALLBACK = ?extern fn (PVOID, DWORD, PVOID) void;

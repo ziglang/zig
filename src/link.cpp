@@ -87,10 +87,8 @@ static Buf *build_a(CodeGen *parent_gen, const char *aname) {
 }
 
 static Buf *build_compiler_rt(CodeGen *parent_gen) {
-    Buf *dir_path = buf_alloc();
-    os_path_join(parent_gen->zig_std_special_dir, buf_create_from_str("compiler_rt"), dir_path);
     Buf *full_path = buf_alloc();
-    os_path_join(dir_path, buf_create_from_str("index.zig"), full_path);
+    os_path_join(parent_gen->zig_std_special_dir, buf_create_from_str("compiler_rt.zig"), full_path);
 
     return build_a_raw(parent_gen, "compiler_rt", full_path);
 }

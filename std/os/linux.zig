@@ -1,15 +1,15 @@
-const std = @import("../../index.zig");
+const std = @import("../std.zig");
 const assert = std.debug.assert;
 const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
-const vdso = @import("vdso.zig");
+const vdso = @import("linux/vdso.zig");
 pub use switch (builtin.arch) {
-    builtin.Arch.x86_64 => @import("x86_64.zig"),
-    builtin.Arch.i386 => @import("i386.zig"),
-    builtin.Arch.aarch64 => @import("arm64.zig"),
+    builtin.Arch.x86_64 => @import("linux/x86_64.zig"),
+    builtin.Arch.i386 => @import("linux/i386.zig"),
+    builtin.Arch.aarch64 => @import("linux/arm64.zig"),
     else => @compileError("unsupported arch"),
 };
-pub use @import("errno.zig");
+pub use @import("linux/errno.zig");
 
 pub const PATH_MAX = 4096;
 
@@ -1536,6 +1536,6 @@ pub const dirent64 = extern struct {
 
 test "import" {
     if (builtin.os == builtin.Os.linux) {
-        _ = @import("test.zig");
+        _ = @import("linux/test.zig");
     }
 }

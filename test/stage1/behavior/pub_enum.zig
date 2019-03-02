@@ -1,4 +1,4 @@
-const other = @import("other.zig");
+const other = @import("pub_enum/other.zig");
 const expect = @import("std").testing.expect;
 
 test "pub enum" {

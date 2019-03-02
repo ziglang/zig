@@ -1,4 +1,4 @@
-const std = @import("../index.zig");
+const std = @import("std.zig");
 const math = std.math;
 const mem = std.mem;
 const io = std.io;
@@ -13,7 +13,7 @@ const ArrayList = std.ArrayList;
 const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
 
-pub const FailingAllocator = @import("failing_allocator.zig").FailingAllocator;
+pub const FailingAllocator = @import("debug/failing_allocator.zig").FailingAllocator;
 pub const failing_allocator = &FailingAllocator.init(global_allocator, 0).allocator;
 
 pub const runtime_safety = switch (builtin.mode) {

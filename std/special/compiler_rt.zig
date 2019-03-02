@@ -5,68 +5,68 @@ comptime {
     const linkage = if (is_test) builtin.GlobalLinkage.Internal else builtin.GlobalLinkage.Weak;
     const strong_linkage = if (is_test) builtin.GlobalLinkage.Internal else builtin.GlobalLinkage.Strong;
 
-    @export("__letf2", @import("comparetf2.zig").__letf2, linkage);
-    @export("__getf2", @import("comparetf2.zig").__getf2, linkage);
+    @export("__letf2", @import("compiler_rt/comparetf2.zig").__letf2, linkage);
+    @export("__getf2", @import("compiler_rt/comparetf2.zig").__getf2, linkage);
 
     if (!is_test) {
         // only create these aliases when not testing
-        @export("__cmptf2", @import("comparetf2.zig").__letf2, linkage);
-        @export("__eqtf2", @import("comparetf2.zig").__letf2, linkage);
-        @export("__lttf2", @import("comparetf2.zig").__letf2, linkage);
-        @export("__netf2", @import("comparetf2.zig").__letf2, linkage);
-        @export("__gttf2", @import("comparetf2.zig").__getf2, linkage);
-        @export("__gnu_h2f_ieee", @import("extendXfYf2.zig").__extendhfsf2, linkage);
-        @export("__gnu_f2h_ieee", @import("truncXfYf2.zig").__truncsfhf2, linkage);
+        @export("__cmptf2", @import("compiler_rt/comparetf2.zig").__letf2, linkage);
+        @export("__eqtf2", @import("compiler_rt/comparetf2.zig").__letf2, linkage);
+        @export("__lttf2", @import("compiler_rt/comparetf2.zig").__letf2, linkage);
+        @export("__netf2", @import("compiler_rt/comparetf2.zig").__letf2, linkage);
+        @export("__gttf2", @import("compiler_rt/comparetf2.zig").__getf2, linkage);
+        @export("__gnu_h2f_ieee", @import("compiler_rt/extendXfYf2.zig").__extendhfsf2, linkage);
+        @export("__gnu_f2h_ieee", @import("compiler_rt/truncXfYf2.zig").__truncsfhf2, linkage);
     }
 
-    @export("__unordtf2", @import("comparetf2.zig").__unordtf2, linkage);
+    @export("__unordtf2", @import("compiler_rt/comparetf2.zig").__unordtf2, linkage);
 
-    @export("__addtf3", @import("addXf3.zig").__addtf3, linkage);
-    @export("__subtf3", @import("addXf3.zig").__subtf3, linkage);
+    @export("__addtf3", @import("compiler_rt/addXf3.zig").__addtf3, linkage);
+    @export("__subtf3", @import("compiler_rt/addXf3.zig").__subtf3, linkage);
 
-    @export("__floattitf", @import("floattitf.zig").__floattitf, linkage);
-    @export("__floattidf", @import("floattidf.zig").__floattidf, linkage);
-    @export("__floattisf", @import("floattisf.zig").__floattisf, linkage);
+    @export("__floattitf", @import("compiler_rt/floattitf.zig").__floattitf, linkage);
+    @export("__floattidf", @import("compiler_rt/floattidf.zig").__floattidf, linkage);
+    @export("__floattisf", @import("compiler_rt/floattisf.zig").__floattisf, linkage);
 
-    @export("__floatunditf", @import("floatunditf.zig").__floatunditf, linkage);
-    @export("__floatunsitf", @import("floatunsitf.zig").__floatunsitf, linkage);
+    @export("__floatunditf", @import("compiler_rt/floatunditf.zig").__floatunditf, linkage);
+    @export("__floatunsitf", @import("compiler_rt/floatunsitf.zig").__floatunsitf, linkage);
 
-    @export("__floatuntitf", @import("floatuntitf.zig").__floatuntitf, linkage);
-    @export("__floatuntidf", @import("floatuntidf.zig").__floatuntidf, linkage);
-    @export("__floatuntisf", @import("floatuntisf.zig").__floatuntisf, linkage);
+    @export("__floatuntitf", @import("compiler_rt/floatuntitf.zig").__floatuntitf, linkage);
+    @export("__floatuntidf", @import("compiler_rt/floatuntidf.zig").__floatuntidf, linkage);
+    @export("__floatuntisf", @import("compiler_rt/floatuntisf.zig").__floatuntisf, linkage);
 
-    @export("__extenddftf2", @import("extendXfYf2.zig").__extenddftf2, linkage);
-    @export("__extendsftf2", @import("extendXfYf2.zig").__extendsftf2, linkage);
-    @export("__extendhfsf2", @import("extendXfYf2.zig").__extendhfsf2, linkage);
+    @export("__extenddftf2", @import("compiler_rt/extendXfYf2.zig").__extenddftf2, linkage);
+    @export("__extendsftf2", @import("compiler_rt/extendXfYf2.zig").__extendsftf2, linkage);
+    @export("__extendhfsf2", @import("compiler_rt/extendXfYf2.zig").__extendhfsf2, linkage);
 
-    @export("__truncsfhf2", @import("truncXfYf2.zig").__truncsfhf2, linkage);
-    @export("__truncdfhf2", @import("truncXfYf2.zig").__truncdfhf2, linkage);
-    @export("__trunctfdf2", @import("truncXfYf2.zig").__trunctfdf2, linkage);
-    @export("__trunctfsf2", @import("truncXfYf2.zig").__trunctfsf2, linkage);
+    @export("__truncsfhf2", @import("compiler_rt/truncXfYf2.zig").__truncsfhf2, linkage);
+    @export("__truncdfhf2", @import("compiler_rt/truncXfYf2.zig").__truncdfhf2, linkage);
+    @export("__trunctfdf2", @import("compiler_rt/truncXfYf2.zig").__trunctfdf2, linkage);
+    @export("__trunctfsf2", @import("compiler_rt/truncXfYf2.zig").__trunctfsf2, linkage);
 
-    @export("__fixunssfsi", @import("fixunssfsi.zig").__fixunssfsi, linkage);
-    @export("__fixunssfdi", @import("fixunssfdi.zig").__fixunssfdi, linkage);
-    @export("__fixunssfti", @import("fixunssfti.zig").__fixunssfti, linkage);
+    @export("__fixunssfsi", @import("compiler_rt/fixunssfsi.zig").__fixunssfsi, linkage);
+    @export("__fixunssfdi", @import("compiler_rt/fixunssfdi.zig").__fixunssfdi, linkage);
+    @export("__fixunssfti", @import("compiler_rt/fixunssfti.zig").__fixunssfti, linkage);
 
-    @export("__fixunsdfsi", @import("fixunsdfsi.zig").__fixunsdfsi, linkage);
-    @export("__fixunsdfdi", @import("fixunsdfdi.zig").__fixunsdfdi, linkage);
-    @export("__fixunsdfti", @import("fixunsdfti.zig").__fixunsdfti, linkage);
+    @export("__fixunsdfsi", @import("compiler_rt/fixunsdfsi.zig").__fixunsdfsi, linkage);
+    @export("__fixunsdfdi", @import("compiler_rt/fixunsdfdi.zig").__fixunsdfdi, linkage);
+    @export("__fixunsdfti", @import("compiler_rt/fixunsdfti.zig").__fixunsdfti, linkage);
 
-    @export("__fixunstfsi", @import("fixunstfsi.zig").__fixunstfsi, linkage);
-    @export("__fixunstfdi", @import("fixunstfdi.zig").__fixunstfdi, linkage);
-    @export("__fixunstfti", @import("fixunstfti.zig").__fixunstfti, linkage);
+    @export("__fixunstfsi", @import("compiler_rt/fixunstfsi.zig").__fixunstfsi, linkage);
+    @export("__fixunstfdi", @import("compiler_rt/fixunstfdi.zig").__fixunstfdi, linkage);
+    @export("__fixunstfti", @import("compiler_rt/fixunstfti.zig").__fixunstfti, linkage);
 
-    @export("__fixdfdi", @import("fixdfdi.zig").__fixdfdi, linkage);
-    @export("__fixdfsi", @import("fixdfsi.zig").__fixdfsi, linkage);
-    @export("__fixdfti", @import("fixdfti.zig").__fixdfti, linkage);
-    @export("__fixsfdi", @import("fixsfdi.zig").__fixsfdi, linkage);
-    @export("__fixsfsi", @import("fixsfsi.zig").__fixsfsi, linkage);
-    @export("__fixsfti", @import("fixsfti.zig").__fixsfti, linkage);
-    @export("__fixtfdi", @import("fixtfdi.zig").__fixtfdi, linkage);
-    @export("__fixtfsi", @import("fixtfsi.zig").__fixtfsi, linkage);
-    @export("__fixtfti", @import("fixtfti.zig").__fixtfti, linkage);
+    @export("__fixdfdi", @import("compiler_rt/fixdfdi.zig").__fixdfdi, linkage);
+    @export("__fixdfsi", @import("compiler_rt/fixdfsi.zig").__fixdfsi, linkage);
+    @export("__fixdfti", @import("compiler_rt/fixdfti.zig").__fixdfti, linkage);
+    @export("__fixsfdi", @import("compiler_rt/fixsfdi.zig").__fixsfdi, linkage);
+    @export("__fixsfsi", @import("compiler_rt/fixsfsi.zig").__fixsfsi, linkage);
+    @export("__fixsfti", @import("compiler_rt/fixsfti.zig").__fixsfti, linkage);
+    @export("__fixtfdi", @import("compiler_rt/fixtfdi.zig").__fixtfdi, linkage);
+    @export("__fixtfsi", @import("compiler_rt/fixtfsi.zig").__fixtfsi, linkage);
+    @export("__fixtfti", @import("compiler_rt/fixtfti.zig").__fixtfti, linkage);
 
-    @export("__udivmoddi4", @import("udivmoddi4.zig").__udivmoddi4, linkage);
+    @export("__udivmoddi4", @import("compiler_rt/udivmoddi4.zig").__udivmoddi4, linkage);
 
     @export("__udivsi3", __udivsi3, linkage);
     @export("__udivdi3", __udivdi3, linkage);
@@ -85,30 +85,30 @@ comptime {
                     @export("_chkstk", _chkstk, strong_linkage);
                     @export("__chkstk_ms", __chkstk_ms, linkage);
                 }
-                @export("_aulldiv", @import("aulldiv.zig")._aulldiv, strong_linkage);
-                @export("_aullrem", @import("aullrem.zig")._aullrem, strong_linkage);
+                @export("_aulldiv", @import("compiler_rt/aulldiv.zig")._aulldiv, strong_linkage);
+                @export("_aullrem", @import("compiler_rt/aullrem.zig")._aullrem, strong_linkage);
             },
             builtin.Arch.x86_64 => {
                 if (!builtin.link_libc) {
                     @export("__chkstk", __chkstk, strong_linkage);
                     @export("___chkstk_ms", ___chkstk_ms, linkage);
                 }
-                @export("__divti3", @import("divti3.zig").__divti3_windows_x86_64, linkage);
-                @export("__multi3", @import("multi3.zig").__multi3_windows_x86_64, linkage);
-                @export("__muloti4", @import("muloti4.zig").__muloti4_windows_x86_64, linkage);
-                @export("__udivti3", @import("udivti3.zig").__udivti3_windows_x86_64, linkage);
-                @export("__udivmodti4", @import("udivmodti4.zig").__udivmodti4_windows_x86_64, linkage);
-                @export("__umodti3", @import("umodti3.zig").__umodti3_windows_x86_64, linkage);
+                @export("__divti3", @import("compiler_rt/divti3.zig").__divti3_windows_x86_64, linkage);
+                @export("__multi3", @import("compiler_rt/multi3.zig").__multi3_windows_x86_64, linkage);
+                @export("__muloti4", @import("compiler_rt/muloti4.zig").__muloti4_windows_x86_64, linkage);
+                @export("__udivti3", @import("compiler_rt/udivti3.zig").__udivti3_windows_x86_64, linkage);
+                @export("__udivmodti4", @import("compiler_rt/udivmodti4.zig").__udivmodti4_windows_x86_64, linkage);
+                @export("__umodti3", @import("compiler_rt/umodti3.zig").__umodti3_windows_x86_64, linkage);
             },
             else => {},
         }
     } else {
-        @export("__divti3", @import("divti3.zig").__divti3, linkage);
-        @export("__multi3", @import("multi3.zig").__multi3, linkage);
-        @export("__muloti4", @import("muloti4.zig").__muloti4, linkage);
-        @export("__udivti3", @import("udivti3.zig").__udivti3, linkage);
-        @export("__udivmodti4", @import("udivmodti4.zig").__udivmodti4, linkage);
-        @export("__umodti3", @import("umodti3.zig").__umodti3, linkage);
+        @export("__divti3", @import("compiler_rt/divti3.zig").__divti3, linkage);
+        @export("__multi3", @import("compiler_rt/multi3.zig").__multi3, linkage);
+        @export("__muloti4", @import("compiler_rt/muloti4.zig").__muloti4, linkage);
+        @export("__udivti3", @import("compiler_rt/udivti3.zig").__udivti3, linkage);
+        @export("__udivmodti4", @import("compiler_rt/udivmodti4.zig").__udivmodti4, linkage);
+        @export("__umodti3", @import("compiler_rt/umodti3.zig").__umodti3, linkage);
     }
 }
 
@@ -116,7 +116,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const testing = std.testing;
 
-const __udivmoddi4 = @import("udivmoddi4.zig").__udivmoddi4;
+const __udivmoddi4 = @import("compiler_rt/udivmoddi4.zig").__udivmoddi4;
 
 // Avoid dragging in the runtime safety mechanisms into this .o file,
 // unless we're trying to test this file.

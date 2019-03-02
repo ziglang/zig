@@ -162,7 +162,7 @@ CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget 
         }
 
         g->root_package = new_package(buf_ptr(root_pkg_path), buf_ptr(rel_root_src_path), "");
-        g->std_package = new_package(buf_ptr(g->zig_std_dir), "index.zig", "std");
+        g->std_package = new_package(buf_ptr(g->zig_std_dir), "std.zig", "std");
         g->root_package->package_table.put(buf_create_from_str("std"), g->std_package);
     } else {
         g->root_package = new_package(".", "", "");

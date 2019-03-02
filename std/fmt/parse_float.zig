@@ -29,7 +29,7 @@
 // - Only supports round-to-zero
 // - Does not handle denormals
 
-const std = @import("../index.zig");
+const std = @import("../std.zig");
 
 const max_digits = 25;
 

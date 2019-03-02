@@ -1,4 +1,4 @@
-const std = @import("../index.zig");
+const std = @import("../std.zig");
 const Lock = std.event.Lock;
 const Loop = std.event.Loop;
 
