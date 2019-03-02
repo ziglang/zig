@@ -6829,18 +6829,18 @@ pub const TypeInfo = union(TypeId) {
 
     pub const Int = struct {
         is_signed: bool,
-        bits: u8,
+        bits: comptime_int,
     };
 
     pub const Float = struct {
-        bits: u8,
+        bits: comptime_int,
     };
 
     pub const Pointer = struct {
         size: Size,
         is_const: bool,
         is_volatile: bool,
-        alignment: u32,
+        alignment: comptime_int,
         child: type,
 
         pub const Size = enum {
@@ -6851,7 +6851,7 @@ pub const TypeInfo = union(TypeId) {
     };
 
     pub const Array = struct {
-        len: usize,
+        len: comptime_int,
         child: type,
     };
 
@@ -6863,7 +6863,7 @@ pub const TypeInfo = union(TypeId) {
 
     pub const StructField = struct {
         name: []const u8,
-        offset: ?usize,
+        offset: ?comptime_int,
         field_type: type,
     };
 
@@ -6884,7 +6884,7 @@ pub const TypeInfo = union(TypeId) {
 
     pub const Error = struct {
         name: []const u8,
-        value: usize,
+        value: comptime_int,
     };
 
     pub const ErrorSet = struct {
@@ -6893,7 +6893,7 @@ pub const TypeInfo = union(TypeId) {
 
     pub const EnumField = struct {
         name: []const u8,
-        value: usize,
+        value: comptime_int,
     };
 
     pub const Enum = struct {

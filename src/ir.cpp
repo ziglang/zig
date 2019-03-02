@@ -18007,7 +18007,7 @@ static ConstExprValue *create_ptr_like_type_info(IrAnalyze *ira, ZigType *ptr_ty
     // alignment: u32
     ensure_field_index(result->type, "alignment", 3);
     fields[3].special = ConstValSpecialStatic;
-    fields[3].type = get_int_type(ira->codegen, false, 29);
+    fields[3].type = ira->codegen->builtin_types.entry_num_lit_int;
     bigint_init_unsigned(&fields[3].data.x_bigint, get_ptr_align(ira->codegen, attrs_type));
     // child: type
     ensure_field_index(result->type, "child", 4);
@@ -18026,7 +18026,7 @@ static void make_enum_field_val(IrAnalyze *ira, ConstExprValue *enum_field_val, 
 
     ConstExprValue *inner_fields = create_const_vals(2);
     inner_fields[1].special = ConstValSpecialStatic;
-    inner_fields[1].type = ira->codegen->builtin_types.entry_usize;
+    inner_fields[1].type = ira->codegen->builtin_types.entry_num_lit_int;
 
     ConstExprValue *name = create_const_str_lit(ira->codegen, enum_field->name);
     init_const_slice(ira->codegen, &inner_fields[0], name, 0, buf_len(enum_field->name), true);
@@ -18089,7 +18089,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, AstNode *source_node, ZigTy
                 // bits: u8
                 ensure_field_index(result->type, "bits", 1);
                 fields[1].special = ConstValSpecialStatic;
-                fields[1].type = ira->codegen->builtin_types.entry_u8;
+                fields[1].type = ira->codegen->builtin_types.entry_num_lit_int;
                 bigint_init_unsigned(&fields[1].data.x_bigint, type_entry->data.integral.bit_count);
 
                 break;
@@ -18106,7 +18106,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, AstNode *source_node, ZigTy
                 // bits: u8
                 ensure_field_index(result->type, "bits", 0);
                 fields[0].special = ConstValSpecialStatic;
-                fields[0].type = ira->codegen->builtin_types.entry_u8;
+                fields[0].type = ira->codegen->builtin_types.entry_num_lit_int;
                 bigint_init_unsigned(&fields->data.x_bigint, type_entry->data.floating.bit_count);
 
                 break;
@@ -18130,7 +18130,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, AstNode *source_node, ZigTy
                 // len: usize
                 ensure_field_index(result->type, "len", 0);
                 fields[0].special = ConstValSpecialStatic;
-                fields[0].type = ira->codegen->builtin_types.entry_usize;
+                fields[0].type = ira->codegen->builtin_types.entry_num_lit_int;
                 bigint_init_unsigned(&fields[0].data.x_bigint, type_entry->data.array.len);
                 // child: type
                 ensure_field_index(result->type, "child", 1);
@@ -18151,7 +18151,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, AstNode *source_node, ZigTy
             // len: usize
             ensure_field_index(result->type, "len", 0);
             fields[0].special = ConstValSpecialStatic;
-            fields[0].type = ira->codegen->builtin_types.entry_u32;
+            fields[0].type = ira->codegen->builtin_types.entry_num_lit_int;
             bigint_init_unsigned(&fields[0].data.x_bigint, type_entry->data.vector.len);
             // child: type
             ensure_field_index(result->type, "child", 1);
@@ -18292,7 +18292,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, AstNode *source_node, ZigTy
 
                     ConstExprValue *inner_fields = create_const_vals(2);
                     inner_fields[1].special = ConstValSpecialStatic;
-                    inner_fields[1].type = ira->codegen->builtin_types.entry_usize;
+                    inner_fields[1].type = ira->codegen->builtin_types.entry_num_lit_int;
 
                     ConstExprValue *name = nullptr;
                     if (error->cached_error_name_val != nullptr)
@@ -18461,7 +18461,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, AstNode *source_node, ZigTy
 
                     ConstExprValue *inner_fields = create_const_vals(3);
                     inner_fields[1].special = ConstValSpecialStatic;
-                    inner_fields[1].type = get_optional_type(ira->codegen, ira->codegen->builtin_types.entry_usize);
+                    inner_fields[1].type = get_optional_type(ira->codegen, ira->codegen->builtin_types.entry_num_lit_int);
 
                     if (!type_has_bits(struct_field->type_entry)) {
                         inner_fields[1].data.x_optional = nullptr;
