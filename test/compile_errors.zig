@@ -3,6 +3,15 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "import outside package path",
+        \\comptime{
+        \\    _ = @import("../a.zig");
+        \\}
+    ,
+        "tmp.zig:2:9: error: import of file outside package path: '../a.zig'",
+    );
+
+    cases.add(
         "bogus compile var",
         \\const x = @import("builtin").bogus;
         \\export fn entry() usize { return @sizeOf(@typeOf(x)); }

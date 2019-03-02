@@ -41,7 +41,7 @@ static Buf *build_a_raw(CodeGen *parent_gen, const char *aname, Buf *full_path) 
         child_out_type = OutTypeObj;
     }
 
-    CodeGen *child_gen = codegen_create(full_path, parent_gen->zig_target, child_out_type,
+    CodeGen *child_gen = codegen_create(nullptr, full_path, parent_gen->zig_target, child_out_type,
         parent_gen->build_mode, parent_gen->zig_lib_dir, parent_gen->zig_std_dir,
         parent_gen->libc);
 

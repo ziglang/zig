@@ -859,6 +859,7 @@ pub const LibExeObjStep = struct {
     verbose_cc: bool,
     c_std: Builder.CStd,
     override_std_dir: ?[]const u8,
+    main_pkg_path: ?[]const u8,
     exec_cmd_args: ?[]const ?[]const u8,
     name_prefix: []const u8,
     filter: ?[]const u8,
@@ -950,6 +951,7 @@ pub const LibExeObjStep = struct {
             .c_std = Builder.CStd.C99,
             .system_linker_hack = false,
             .override_std_dir = null,
+            .main_pkg_path = null,
             .exec_cmd_args = null,
             .name_prefix = "",
             .filter = null,
@@ -1096,6 +1098,10 @@ pub const LibExeObjStep = struct {
 
     pub fn overrideStdDir(self: *LibExeObjStep, dir_path: []const u8) void {
         self.override_std_dir = dir_path;
+    }
+
+    pub fn setMainPkgPath(self: *LibExeObjStep, dir_path: []const u8) void {
+        self.main_pkg_path = dir_path;
     }
 
     pub fn setOutputPath(self: *LibExeObjStep, file_path: []const u8) void {
@@ -1421,6 +1427,11 @@ pub const LibExeObjStep = struct {
 
         if (self.override_std_dir) |dir| {
             try zig_args.append("--override-std-dir");
+            try zig_args.append(builder.pathFromRoot(dir));
+        }
+
+        if (self.main_pkg_path) |dir| {
+            try zig_args.append("--main-pkg-path");
             try zig_args.append(builder.pathFromRoot(dir));
         }
 

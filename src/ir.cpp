@@ -17026,6 +17026,18 @@ static IrInstruction *ir_analyze_instruction_import(IrAnalyze *ira, IrInstructio
         return ir_const_type(ira, &import_instruction->base, import_entry->value);
     }
 
+    if (source_kind == SourceKindNonRoot) {
+        ZigPackage *cur_scope_pkg = scope_package(import_instruction->base.scope);
+        Buf *pkg_root_src_dir = &cur_scope_pkg->root_src_dir;
+        Buf resolved_root_src_dir = os_path_resolve(&pkg_root_src_dir, 1);
+        if (!buf_starts_with_buf(resolved_path, &resolved_root_src_dir)) {
+            ir_add_error_node(ira, source_node,
+                    buf_sprintf("import of file outside package path: '%s'",
+                        buf_ptr(import_target_path)));
+            return ira->codegen->invalid_instruction;
+        }
+    }
+
     if ((err = file_fetch(ira->codegen, resolved_path, import_code))) {
         if (err == ErrorFileNotFound) {
             ir_add_error_node(ira, source_node,

@@ -4502,6 +4502,9 @@ ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *resolved_path, Bu
 
     Buf *pkg_root_src_dir = &package->root_src_dir;
     Buf resolved_root_src_dir = os_path_resolve(&pkg_root_src_dir, 1);
+
+    assert(buf_starts_with_buf(resolved_path, &resolved_root_src_dir));
+
     Buf namespace_name = BUF_INIT;
     buf_init_from_buf(&namespace_name, &package->pkg_path);
     if (source_kind == SourceKindNonRoot) {

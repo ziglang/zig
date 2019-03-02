@@ -88,8 +88,8 @@ static const char *symbols_that_llvm_depends_on[] = {
     // TODO probably all of compiler-rt needs to go here
 };
 
-CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out_type, BuildMode build_mode,
-    Buf *zig_lib_dir, Buf *override_std_dir, ZigLibCInstallation *libc)
+CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget *target,
+    OutType out_type, BuildMode build_mode, Buf *zig_lib_dir, Buf *override_std_dir, ZigLibCInstallation *libc)
 {
     CodeGen *g = allocate<CodeGen>(1);
 
@@ -133,16 +133,35 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
     }
 
     if (root_src_path) {
-        Buf *src_basename = buf_alloc();
-        Buf *src_dir = buf_alloc();
-        os_path_split(root_src_path, src_dir, src_basename);
+        Buf *root_pkg_path;
+        Buf *rel_root_src_path;
+        if (main_pkg_path == nullptr) {
+            Buf *src_basename = buf_alloc();
+            Buf *src_dir = buf_alloc();
+            os_path_split(root_src_path, src_dir, src_basename);
 
-        if (buf_len(src_basename) == 0) {
-            fprintf(stderr, "Invalid root source path: %s\n", buf_ptr(root_src_path));
-            exit(1);
+            if (buf_len(src_basename) == 0) {
+                fprintf(stderr, "Invalid root source path: %s\n", buf_ptr(root_src_path));
+                exit(1);
+            }
+            root_pkg_path = src_dir;
+            rel_root_src_path = src_basename;
+        } else {
+            Buf resolved_root_src_path = os_path_resolve(&root_src_path, 1);
+            Buf resolved_main_pkg_path = os_path_resolve(&main_pkg_path, 1);
+
+            if (!buf_starts_with_buf(&resolved_root_src_path, &resolved_main_pkg_path)) {
+                fprintf(stderr, "Root source path '%s' outside main package path '%s'",
+                        buf_ptr(root_src_path), buf_ptr(main_pkg_path));
+                exit(1);
+            }
+            root_pkg_path = main_pkg_path;
+            rel_root_src_path = buf_create_from_mem(
+                    buf_ptr(&resolved_root_src_path) + buf_len(&resolved_main_pkg_path) + 1,
+                    buf_len(&resolved_root_src_path) - buf_len(&resolved_main_pkg_path) - 1);
         }
 
-        g->root_package = new_package(buf_ptr(src_dir), buf_ptr(src_basename), "");
+        g->root_package = new_package(buf_ptr(root_pkg_path), buf_ptr(rel_root_src_path), "");
         g->std_package = new_package(buf_ptr(g->zig_std_dir), "index.zig", "std");
         g->root_package->package_table.put(buf_create_from_str("std"), g->std_package);
     } else {
