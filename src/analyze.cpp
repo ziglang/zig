@@ -6857,7 +6857,9 @@ void emit_error_notes_for_ref_stack(CodeGen *g, ErrorMsg *msg) {
 }
 
 Buf *type_bare_name(ZigType *type_entry) {
-    if (is_container(type_entry)) {
+    if (is_slice(type_entry)) {
+        return &type_entry->name;
+    } else if (is_container(type_entry)) {
         return get_container_scope(type_entry)->bare_name;
     } else if (type_entry->id == ZigTypeIdOpaque) {
         return type_entry->data.opaque.bare_name;

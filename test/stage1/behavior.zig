@@ -80,6 +80,7 @@ comptime {
     _ = @import("behavior/truncate.zig");
     _ = @import("behavior/try.zig");
     _ = @import("behavior/type_info.zig");
+    _ = @import("behavior/typename.zig");
     _ = @import("behavior/undefined.zig");
     _ = @import("behavior/underscore.zig");
     _ = @import("behavior/union.zig");
