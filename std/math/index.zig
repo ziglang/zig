@@ -738,14 +738,14 @@ test "math.f64_min" {
 
 pub fn maxInt(comptime T: type) comptime_int {
     const info = @typeInfo(T);
-    const bit_count = comptime_int(info.Int.bits); // TODO #1683
+    const bit_count = info.Int.bits;
     if (bit_count == 0) return 0;
     return (1 << (bit_count - @boolToInt(info.Int.is_signed))) - 1;
 }
 
 pub fn minInt(comptime T: type) comptime_int {
     const info = @typeInfo(T);
-    const bit_count = comptime_int(info.Int.bits); // TODO #1683
+    const bit_count = info.Int.bits;
     if (!info.Int.is_signed) return 0;
     if (bit_count == 0) return 0;
     return -(1 << (bit_count - 1));
