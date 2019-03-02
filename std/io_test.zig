@@ -34,8 +34,7 @@ test "write a file, read it, then delete it" {
         // make sure openWriteNoClobber doesn't harm the file
         if (os.File.openWriteNoClobber(tmp_file_name, os.File.default_mode)) |file| {
             unreachable;
-        }
-        else |err| {
+        } else |err| {
             std.debug.assert(err == os.File.OpenError.PathAlreadyExists);
         }
     }
@@ -180,7 +179,7 @@ test "BitInStream" {
     expect(out_bits == 16);
 
     _ = try bit_stream_be.readBits(u0, 0, &out_bits);
-    
+
     expect(0 == try bit_stream_be.readBits(u1, 1, &out_bits));
     expect(out_bits == 0);
     expectError(error.EndOfStream, bit_stream_be.readBitsNoEof(u1, 1));
@@ -212,7 +211,7 @@ test "BitInStream" {
     expect(out_bits == 16);
 
     _ = try bit_stream_le.readBits(u0, 0, &out_bits);
-    
+
     expect(0 == try bit_stream_le.readBits(u1, 1, &out_bits));
     expect(out_bits == 0);
     expectError(error.EndOfStream, bit_stream_le.readBitsNoEof(u1, 1));
@@ -281,7 +280,7 @@ test "BitStreams with File Stream" {
         var file_out_stream = &file_out.stream;
         const OutError = os.File.WriteError;
         var bit_stream = io.BitOutStream(builtin.endian, OutError).init(file_out_stream);
-        
+
         try bit_stream.writeBits(u2(1), 1);
         try bit_stream.writeBits(u5(2), 2);
         try bit_stream.writeBits(u128(3), 3);
@@ -298,7 +297,7 @@ test "BitStreams with File Stream" {
         var file_in_stream = &file_in.stream;
         const InError = os.File.ReadError;
         var bit_stream = io.BitInStream(builtin.endian, InError).init(file_in_stream);
-        
+
         var out_bits: usize = undefined;
 
         expect(1 == try bit_stream.readBits(u2, 1, &out_bits));
@@ -313,7 +312,7 @@ test "BitStreams with File Stream" {
         expect(out_bits == 5);
         expect(1 == try bit_stream.readBits(u1, 1, &out_bits));
         expect(out_bits == 1);
-        
+
         expectError(error.EndOfStream, bit_stream.readBitsNoEof(u1, 1));
     }
     try os.deleteFile(tmp_file_name);
@@ -322,14 +321,14 @@ test "BitStreams with File Stream" {
 fn testIntSerializerDeserializer(comptime endian: builtin.Endian, comptime is_packed: bool) !void {
     //@NOTE: if this test is taking too long, reduce the maximum tested bitsize
     const max_test_bitsize = 128;
-    
+
     const total_bytes = comptime blk: {
         var bytes = 0;
         comptime var i = 0;
         while (i <= max_test_bitsize) : (i += 1) bytes += (i / 8) + @boolToInt(i % 8 > 0);
         break :blk bytes * 2;
     };
-    
+
     var data_mem: [total_bytes]u8 = undefined;
     var out = io.SliceOutStream.init(data_mem[0..]);
     const OutError = io.SliceOutStream.Error;
@@ -382,16 +381,19 @@ fn testIntSerializerDeserializer(comptime endian: builtin.Endian, comptime is_pa
 test "Serializer/Deserializer Int" {
     try testIntSerializerDeserializer(builtin.Endian.Big, false);
     try testIntSerializerDeserializer(builtin.Endian.Little, false);
-    try testIntSerializerDeserializer(builtin.Endian.Big, true);
-    try testIntSerializerDeserializer(builtin.Endian.Little, true);
+    // TODO these tests are disabled due to tripping an LLVM assertion
+    // https://github.com/ziglang/zig/issues/2019
+    //try testIntSerializerDeserializer(builtin.Endian.Big, true);
+    //try testIntSerializerDeserializer(builtin.Endian.Little, true);
 }
 
-fn testIntSerializerDeserializerInfNaN(comptime endian: builtin.Endian, 
-    comptime is_packed: bool) !void
-{
-    const mem_size = (16*2 + 32*2 + 64*2 + 128*2) / comptime meta.bitCount(u8);
+fn testIntSerializerDeserializerInfNaN(
+    comptime endian: builtin.Endian,
+    comptime is_packed: bool,
+) !void {
+    const mem_size = (16 * 2 + 32 * 2 + 64 * 2 + 128 * 2) / comptime meta.bitCount(u8);
     var data_mem: [mem_size]u8 = undefined;
-    
+
     var out = io.SliceOutStream.init(data_mem[0..]);
     const OutError = io.SliceOutStream.Error;
     var out_stream = &out.stream;
@@ -472,8 +474,6 @@ fn testSerializerDeserializer(comptime endian: builtin.Endian, comptime is_packe
         f_u2: u2,
     };
 
-    
-    
     //to test custom serialization
     const Custom = struct {
         f_f16: f16,
