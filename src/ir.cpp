@@ -19757,6 +19757,9 @@ static IrInstruction *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstruction
                 return ira->codegen->invalid_instruction;
             }
         } else {
+            if (array_type->data.pointer.ptr_len == PtrLenC) {
+                array_type = adjust_ptr_len(ira->codegen, array_type, PtrLenUnknown);
+            }
             return_type = get_slice_type(ira->codegen, array_type);
             if (!end) {
                 ir_add_error(ira, &instruction->base, buf_sprintf("slice of pointer must include end value"));
