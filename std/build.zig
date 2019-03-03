@@ -1326,7 +1326,7 @@ pub const LibExeObjStep = struct {
             zig_args.append("--ver-patch") catch unreachable;
             zig_args.append(builder.fmt("{}", self.version.patch)) catch unreachable;
         }
-        if ((self.kind == Kind.Exe or self.kind == Kind.Test) and self.static) {
+        if (self.static) {
             zig_args.append("--static") catch unreachable;
         }
 
