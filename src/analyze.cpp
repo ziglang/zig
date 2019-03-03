@@ -626,7 +626,7 @@ ZigType *get_optional_type(CodeGen *g, ZigType *child_type) {
         if (child_type->zero_bits) {
             entry->type_ref = LLVMInt1Type();
             entry->di_type = g->builtin_types.entry_bool->di_type;
-        } else if (type_is_codegen_pointer(child_type) || child_type->id == ZigTypeIdErrorSet) {
+        } else if (type_is_non_optional_pointer(child_type) || child_type->id == ZigTypeIdErrorSet) {
             assert(child_type->di_type);
             // this is an optimization but also is necessary for calling C
             // functions where all pointers are maybe pointers
@@ -4170,10 +4170,10 @@ ZigType *get_codegen_ptr_type(ZigType *type) {
 }
 
 bool type_is_nonnull_ptr(ZigType *type) {
-    return type_is_codegen_pointer(type) && !ptr_allows_addr_zero(type);
+    return type_is_non_optional_pointer(type) && !ptr_allows_addr_zero(type);
 }
 
-bool type_is_codegen_pointer(ZigType *type) {
+bool type_is_non_optional_pointer(ZigType *type) {
     return get_codegen_ptr_type(type) == type;
 }
 
@@ -4692,7 +4692,7 @@ bool handle_is_ptr(ZigType *type_entry) {
              return type_has_bits(type_entry->data.error_union.payload_type);
         case ZigTypeIdOptional:
              return type_has_bits(type_entry->data.maybe.child_type) &&
-                    !type_is_codegen_pointer(type_entry->data.maybe.child_type) &&
+                    !type_is_non_optional_pointer(type_entry->data.maybe.child_type) &&
                     type_entry->data.maybe.child_type->id != ZigTypeIdErrorSet;
         case ZigTypeIdUnion:
              assert(type_entry->data.unionation.zero_bits_known);

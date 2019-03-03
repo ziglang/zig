@@ -3959,7 +3959,7 @@ static LLVMValueRef gen_non_null_bit(CodeGen *g, ZigType *maybe_type, LLVMValueR
     if (child_type->zero_bits) {
         return maybe_handle;
     } else {
-        bool is_scalar = type_is_codegen_pointer(child_type) || child_type->id == ZigTypeIdErrorSet;
+        bool is_scalar = type_is_non_optional_pointer(child_type) || child_type->id == ZigTypeIdErrorSet;
         if (is_scalar) {
             return LLVMBuildICmp(g->builder, LLVMIntNE, maybe_handle, LLVMConstNull(maybe_type->type_ref), "");
         } else {
@@ -3999,7 +3999,7 @@ static LLVMValueRef ir_render_optional_unwrap_ptr(CodeGen *g, IrExecutable *exec
     if (child_type->zero_bits) {
         return nullptr;
     } else {
-        bool is_scalar = type_is_codegen_pointer(child_type) || child_type->id == ZigTypeIdErrorSet;
+        bool is_scalar = type_is_non_optional_pointer(child_type) || child_type->id == ZigTypeIdErrorSet;
         if (is_scalar) {
             return maybe_ptr;
         } else {
@@ -4862,7 +4862,7 @@ static LLVMValueRef ir_render_maybe_wrap(CodeGen *g, IrExecutable *executable, I
     }
 
     LLVMValueRef payload_val = ir_llvm_value(g, instruction->value);
-    if (type_is_codegen_pointer(child_type) || child_type->id == ZigTypeIdErrorSet) {
+    if (type_is_non_optional_pointer(child_type) || child_type->id == ZigTypeIdErrorSet) {
         return payload_val;
     }
 
@@ -6099,9 +6099,9 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
         case ZigTypeIdOptional:
             {
                 ZigType *child_type = type_entry->data.maybe.child_type;
-                if (child_type->zero_bits) {
+                if (!type_has_bits(child_type)) {
                     return LLVMConstInt(LLVMInt1Type(), const_val->data.x_optional ? 1 : 0, false);
-                } else if (type_is_codegen_pointer(child_type)) {
+                } else if (get_codegen_ptr_type(type_entry) != nullptr) {
                     return gen_const_val_ptr(g, const_val, name);
                 } else if (child_type->id == ZigTypeIdErrorSet) {
                     return gen_const_val_err_set(g, const_val, name);
@@ -8513,7 +8513,7 @@ static void get_c_type(CodeGen *g, GenH *gen_h, ZigType *type_entry, Buf *out_bu
                 if (child_type->zero_bits) {
                     buf_init_from_str(out_buf, "bool");
                     return;
-                } else if (type_is_codegen_pointer(child_type)) {
+                } else if (type_is_non_optional_pointer(child_type)) {
                     return get_c_type(g, gen_h, child_type, out_buf);
                 } else {
                     zig_unreachable();
