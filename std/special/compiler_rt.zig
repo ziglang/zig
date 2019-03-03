@@ -165,20 +165,8 @@ extern fn __aeabi_uldivmod(numerator: u64, denominator: u64) AeabiUlDivModResult
 }
 
 const is_arm_64 = switch (builtin.arch) {
-    builtin.Arch.aarch64v8_3a,
-    builtin.Arch.aarch64v8_2a,
-    builtin.Arch.aarch64v8_1a,
-    builtin.Arch.aarch64v8,
-    builtin.Arch.aarch64v8r,
-    builtin.Arch.aarch64v8m_baseline,
-    builtin.Arch.aarch64v8m_mainline,
-    builtin.Arch.aarch64_bev8_3a,
-    builtin.Arch.aarch64_bev8_2a,
-    builtin.Arch.aarch64_bev8_1a,
-    builtin.Arch.aarch64_bev8,
-    builtin.Arch.aarch64_bev8r,
-    builtin.Arch.aarch64_bev8m_baseline,
-    builtin.Arch.aarch64_bev8m_mainline,
+    builtin.Arch.aarch64,
+    builtin.Arch.aarch64_be,
     => true,
     else => false,
 };
