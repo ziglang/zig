@@ -63,6 +63,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  --output-lib [file]          override import library path\n"
         "  --pkg-begin [name] [path]    make pkg available to import and push current pkg\n"
         "  --pkg-end                    pop current pkg\n"
+        "  --main-pkg-path              set the directory of the root package\n"
         "  --release-fast               build with optimizations on and safety off\n"
         "  --release-safe               build with optimizations on and safety on\n"
         "  --release-small              build with size optimizations on and safety off\n"
@@ -215,7 +216,7 @@ struct CliPkg {
     CliPkg *parent;
 };
 
-static void add_package(CodeGen *g, CliPkg *cli_pkg, PackageTableEntry *pkg) {
+static void add_package(CodeGen *g, CliPkg *cli_pkg, ZigPackage *pkg) {
     for (size_t i = 0; i < cli_pkg->children.length; i += 1) {
         CliPkg *child_cli_pkg = cli_pkg->children.at(i);
 
@@ -223,10 +224,11 @@ static void add_package(CodeGen *g, CliPkg *cli_pkg, PackageTableEntry *pkg) {
         Buf *basename = buf_alloc();
         os_path_split(buf_create_from_str(child_cli_pkg->path), dirname, basename);
 
-        PackageTableEntry *child_pkg = codegen_create_package(g, buf_ptr(dirname), buf_ptr(basename));
+        ZigPackage *child_pkg = codegen_create_package(g, buf_ptr(dirname), buf_ptr(basename),
+                buf_ptr(buf_sprintf("%s.%s", buf_ptr(&pkg->pkg_path), child_cli_pkg->name)));
         auto entry = pkg->package_table.put_unique(buf_create_from_str(child_cli_pkg->name), child_pkg);
         if (entry) {
-            PackageTableEntry *existing_pkg = entry->value;
+            ZigPackage *existing_pkg = entry->value;
             Buf *full_path = buf_alloc();
             os_path_join(&existing_pkg->root_src_dir, &existing_pkg->root_src_path, full_path);
             fprintf(stderr, "Unable to add package '%s'->'%s': already exists as '%s'\n",
@@ -437,6 +439,7 @@ int main(int argc, char **argv) {
     TargetSubsystem subsystem = TargetSubsystemAuto;
     bool is_single_threaded = false;
     Buf *override_std_dir = nullptr;
+    Buf *main_pkg_path = nullptr;
     ValgrindSupport valgrind_support = ValgrindSupportAuto;
 
     if (argc >= 2 && strcmp(argv[1], "build") == 0) {
@@ -475,8 +478,8 @@ int main(int argc, char **argv) {
 
         ZigTarget target;
         get_native_target(&target);
-        CodeGen *g = codegen_create(build_runner_path, &target, OutTypeExe, BuildModeDebug, get_zig_lib_dir(),
-                override_std_dir, nullptr);
+        CodeGen *g = codegen_create(main_pkg_path, build_runner_path, &target, OutTypeExe,
+                BuildModeDebug, get_zig_lib_dir(), override_std_dir, nullptr);
         g->valgrind_support = valgrind_support;
         g->enable_time_report = timing_info;
         buf_init_from_str(&g->cache_dir, cache_dir ? cache_dir : default_zig_cache_name);
@@ -543,8 +546,8 @@ int main(int argc, char **argv) {
             return EXIT_FAILURE;
         }
 
-        PackageTableEntry *build_pkg = codegen_create_package(g, buf_ptr(&build_file_dirname),
-                buf_ptr(&build_file_basename));
+        ZigPackage *build_pkg = codegen_create_package(g, buf_ptr(&build_file_dirname),
+                buf_ptr(&build_file_basename), "std.special");
         g->root_package->package_table.put(buf_create_from_str("@build"), build_pkg);
         g->enable_cache = get_cache_opt(enable_cache, true);
         codegen_build_and_link(g);
@@ -566,8 +569,8 @@ int main(int argc, char **argv) {
         get_native_target(&target);
         Buf *fmt_runner_path = buf_alloc();
         os_path_join(get_zig_special_dir(), buf_create_from_str("fmt_runner.zig"), fmt_runner_path);
-        CodeGen *g = codegen_create(fmt_runner_path, &target, OutTypeExe, BuildModeDebug, get_zig_lib_dir(),
-                nullptr, nullptr);
+        CodeGen *g = codegen_create(main_pkg_path, fmt_runner_path, &target, OutTypeExe,
+                BuildModeDebug, get_zig_lib_dir(), nullptr, nullptr);
         buf_init_from_str(&g->cache_dir, cache_dir ? cache_dir : default_zig_cache_name);
         g->valgrind_support = valgrind_support;
         g->is_single_threaded = true;
@@ -728,6 +731,8 @@ int main(int argc, char **argv) {
                     llvm_argv.append(argv[i]);
                 } else if (strcmp(arg, "--override-std-dir") == 0) {
                     override_std_dir = buf_create_from_str(argv[i]);
+                } else if (strcmp(arg, "--main-pkg-path") == 0) {
+                    main_pkg_path = buf_create_from_str(argv[i]);
                 } else if (strcmp(arg, "--library-path") == 0 || strcmp(arg, "-L") == 0) {
                     lib_dirs.append(argv[i]);
                 } else if (strcmp(arg, "--library") == 0) {
@@ -907,8 +912,8 @@ int main(int argc, char **argv) {
         return EXIT_SUCCESS;
     }
     case CmdBuiltin: {
-        CodeGen *g = codegen_create(nullptr, &target, out_type, build_mode, get_zig_lib_dir(), override_std_dir,
-                nullptr);
+        CodeGen *g = codegen_create(main_pkg_path, nullptr, &target,
+                out_type, build_mode, get_zig_lib_dir(), override_std_dir, nullptr);
         g->valgrind_support = valgrind_support;
         g->is_single_threaded = is_single_threaded;
         Buf *builtin_source = codegen_generate_builtin_source(g);
@@ -1011,8 +1016,8 @@ int main(int argc, char **argv) {
                     return EXIT_FAILURE;
                 }
             }
-            CodeGen *g = codegen_create(zig_root_source_file, &target, out_type, build_mode, get_zig_lib_dir(),
-                    override_std_dir, libc);
+            CodeGen *g = codegen_create(main_pkg_path, zig_root_source_file, &target, out_type, build_mode,
+                    get_zig_lib_dir(), override_std_dir, libc);
             g->valgrind_support = valgrind_support;
             g->subsystem = subsystem;
 
@@ -1095,7 +1100,6 @@ int main(int argc, char **argv) {
             if (out_file_lib != nullptr && out_type == OutTypeLib && !is_static)
                 codegen_set_output_lib_path(g, buf_create_from_str(out_file_lib));
 
-
             add_package(g, cur_pkg, g->root_package);
 
             if (cmd == CmdBuild || cmd == CmdRun || cmd == CmdTest) {
@@ -1145,7 +1149,7 @@ int main(int argc, char **argv) {
                 }
             } else if (cmd == CmdTranslateC) {
                 codegen_translate_c(g, in_file_buf);
-                ast_render(g, stdout, g->root_import->root, 4);
+                ast_render(g, stdout, g->root_import->data.structure.decl_node, 4);
                 if (timing_info)
                     codegen_print_timing_report(g, stdout);
                 return EXIT_SUCCESS;

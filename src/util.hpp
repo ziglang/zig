@@ -94,18 +94,6 @@ ATTRIBUTE_RETURNS_NOALIAS static inline T *allocate(size_t count) {
 }
 
 template<typename T>
-static inline void safe_memcpy(T *dest, const T *src, size_t count) {
-#ifdef NDEBUG
-    memcpy(dest, src, count * sizeof(T));
-#else
-    // manually assign every elment to trigger compile error for non-copyable structs
-    for (size_t i = 0; i < count; i += 1) {
-        dest[i] = src[i];
-    }
-#endif
-}
-
-template<typename T>
 static inline T *reallocate(T *old, size_t old_count, size_t new_count) {
     T *ptr = reallocate_nonzero(old, old_count, new_count);
     if (new_count > old_count) {

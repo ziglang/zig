@@ -41,7 +41,7 @@ static Buf *build_a_raw(CodeGen *parent_gen, const char *aname, Buf *full_path) 
         child_out_type = OutTypeObj;
     }
 
-    CodeGen *child_gen = codegen_create(full_path, parent_gen->zig_target, child_out_type,
+    CodeGen *child_gen = codegen_create(nullptr, full_path, parent_gen->zig_target, child_out_type,
         parent_gen->build_mode, parent_gen->zig_lib_dir, parent_gen->zig_std_dir,
         parent_gen->libc);
 
@@ -87,10 +87,8 @@ static Buf *build_a(CodeGen *parent_gen, const char *aname) {
 }
 
 static Buf *build_compiler_rt(CodeGen *parent_gen) {
-    Buf *dir_path = buf_alloc();
-    os_path_join(parent_gen->zig_std_special_dir, buf_create_from_str("compiler_rt"), dir_path);
     Buf *full_path = buf_alloc();
-    os_path_join(dir_path, buf_create_from_str("index.zig"), full_path);
+    os_path_join(parent_gen->zig_std_special_dir, buf_create_from_str("compiler_rt.zig"), full_path);
 
     return build_a_raw(parent_gen, "compiler_rt", full_path);
 }

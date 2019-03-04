@@ -258,7 +258,6 @@ static bool types_have_same_zig_comptime_repr(ZigType *a, ZigType *b) {
         case ZigTypeIdPointer:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
-        case ZigTypeIdNamespace:
         case ZigTypeIdBoundFn:
         case ZigTypeIdErrorSet:
         case ZigTypeIdOpaque:
@@ -1123,11 +1122,11 @@ static IrInstruction *ir_create_const_fn(IrBuilder *irb, Scope *scope, AstNode *
     return &const_instruction->base;
 }
 
-static IrInstruction *ir_build_const_import(IrBuilder *irb, Scope *scope, AstNode *source_node, ImportTableEntry *import) {
+static IrInstruction *ir_build_const_import(IrBuilder *irb, Scope *scope, AstNode *source_node, ZigType *import) {
     IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, source_node);
-    const_instruction->base.value.type = irb->codegen->builtin_types.entry_namespace;
+    const_instruction->base.value.type = irb->codegen->builtin_types.entry_type;
     const_instruction->base.value.special = ConstValSpecialStatic;
-    const_instruction->base.value.data.x_import = import;
+    const_instruction->base.value.data.x_type = import;
     return &const_instruction->base;
 }
 
@@ -3824,7 +3823,7 @@ static IrInstruction *ir_gen_symbol(IrBuilder *irb, Scope *scope, AstNode *node,
     if (tld)
         return ir_build_decl_ref(irb, scope, node, tld, lval);
 
-    if (node->owner->any_imports_failed) {
+    if (get_container_scope(node->owner)->any_imports_failed) {
         // skip the error message since we had a failing import in this file
         // if an import breaks we don't need redundant undeclared identifier errors
         return irb->codegen->invalid_instruction;
@@ -6609,20 +6608,32 @@ static bool render_instance_name_recursive(CodeGen *codegen, Buf *name, Scope *o
     return true;
 }
 
-static Buf *get_anon_type_name(CodeGen *codegen, IrExecutable *exec, const char *kind_name, AstNode *source_node) {
+static Buf *get_anon_type_name(CodeGen *codegen, IrExecutable *exec, const char *kind_name,
+        Scope *scope, AstNode *source_node, Buf *out_bare_name)
+{
     if (exec->name) {
-        return exec->name;
+        ZigType *import = get_scope_import(scope);
+        Buf *namespace_name = buf_create_from_buf(&import->name);
+        if (buf_len(namespace_name) != 0) buf_append_char(namespace_name, NAMESPACE_SEP_CHAR);
+        buf_append_buf(namespace_name, exec->name);
+        buf_init_from_buf(out_bare_name, exec->name);
+        return namespace_name;
     } else if (exec->name_fn != nullptr) {
         Buf *name = buf_alloc();
         buf_append_buf(name, &exec->name_fn->symbol_name);
         buf_appendf(name, "(");
         render_instance_name_recursive(codegen, name, &exec->name_fn->fndef_scope->base, exec->begin_scope);
         buf_appendf(name, ")");
+        buf_init_from_buf(out_bare_name, name);
         return name;
     } else {
-        //Note: C-imports do not have valid location information
-        return buf_sprintf("(anonymous %s at %s:%" ZIG_PRI_usize ":%" ZIG_PRI_usize ")", kind_name,
-            (source_node->owner->path != nullptr) ? buf_ptr(source_node->owner->path) : "(null)", source_node->line + 1, source_node->column + 1);
+        ZigType *import = get_scope_import(scope);
+        Buf *namespace_name = buf_create_from_buf(&import->name);
+        if (buf_len(namespace_name) != 0) buf_append_char(namespace_name, NAMESPACE_SEP_CHAR);
+        buf_appendf(namespace_name, "%s:%" ZIG_PRI_usize ":%" ZIG_PRI_usize, kind_name,
+                source_node->line + 1, source_node->column + 1);
+        buf_init_from_buf(out_bare_name, namespace_name);
+        return namespace_name;
     }
 }
 
@@ -6630,24 +6641,23 @@ static IrInstruction *ir_gen_container_decl(IrBuilder *irb, Scope *parent_scope,
     assert(node->type == NodeTypeContainerDecl);
 
     ContainerKind kind = node->data.container_decl.kind;
-    Buf *name = get_anon_type_name(irb->codegen, irb->exec, container_string(kind), node);
-
-    VisibMod visib_mod = VisibModPub;
-    TldContainer *tld_container = allocate<TldContainer>(1);
-    init_tld(&tld_container->base, TldIdContainer, name, visib_mod, node, parent_scope);
+    Buf *bare_name = buf_alloc();
+    Buf *name = get_anon_type_name(irb->codegen, irb->exec, container_string(kind), parent_scope, node, bare_name);
 
     ContainerLayout layout = node->data.container_decl.layout;
     ZigType *container_type = get_partial_container_type(irb->codegen, parent_scope,
-            kind, node, buf_ptr(name), layout);
+            kind, node, buf_ptr(name), bare_name, layout);
     ScopeDecls *child_scope = get_container_scope(container_type);
-
-    tld_container->type_entry = container_type;
-    tld_container->decls_scope = child_scope;
 
     for (size_t i = 0; i < node->data.container_decl.decls.length; i += 1) {
         AstNode *child_node = node->data.container_decl.decls.at(i);
         scan_decls(irb->codegen, child_scope, child_node);
     }
+
+    TldContainer *tld_container = allocate<TldContainer>(1);
+    init_tld(&tld_container->base, TldIdContainer, bare_name, VisibModPub, node, parent_scope);
+    tld_container->type_entry = container_type;
+    tld_container->decls_scope = child_scope;
     irb->codegen->resolve_queue.append(&tld_container->base);
 
     // Add this to the list to mark as invalid if analyzing this exec fails.
@@ -6732,7 +6742,8 @@ static IrInstruction *ir_gen_err_set_decl(IrBuilder *irb, Scope *parent_scope, A
 
     uint32_t err_count = node->data.err_set_decl.decls.length;
 
-    Buf *type_name = get_anon_type_name(irb->codegen, irb->exec, "error set", node);
+    Buf bare_name = BUF_INIT;
+    Buf *type_name = get_anon_type_name(irb->codegen, irb->exec, "error", parent_scope, node, &bare_name);
     ZigType *err_set_type = new_type_table_entry(ZigTypeIdErrorSet);
     buf_init_from_buf(&err_set_type->name, type_name);
     err_set_type->data.error_set.err_count = err_count;
@@ -12065,7 +12076,6 @@ static IrInstruction *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp *
         case ZigTypeIdErrorSet:
         case ZigTypeIdFn:
         case ZigTypeIdOpaque:
-        case ZigTypeIdNamespace:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdPromise:
@@ -13407,7 +13417,6 @@ static IrInstruction *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructio
                 case ZigTypeIdOptional:
                 case ZigTypeIdErrorUnion:
                 case ZigTypeIdErrorSet:
-                case ZigTypeIdNamespace:
                 case ZigTypeIdBoundFn:
                 case ZigTypeIdArgTuple:
                 case ZigTypeIdOpaque:
@@ -13432,7 +13441,6 @@ static IrInstruction *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructio
         case ZigTypeIdErrorSet:
         case ZigTypeIdVector:
             zig_panic("TODO export const value of type %s", buf_ptr(&target->value.type->name));
-        case ZigTypeIdNamespace:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
@@ -14616,7 +14624,6 @@ static IrInstruction *ir_analyze_maybe(IrAnalyze *ira, IrInstructionUnOp *un_op_
         case ZigTypeIdEnum:
         case ZigTypeIdUnion:
         case ZigTypeIdFn:
-        case ZigTypeIdNamespace:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdPromise:
@@ -15368,7 +15375,7 @@ static IrInstruction *ir_analyze_container_member_access_inner(IrAnalyze *ira,
         auto entry = container_scope->decl_table.maybe_get(field_name);
         Tld *tld = entry ? entry->value : nullptr;
         if (tld && tld->id == TldIdFn) {
-            resolve_top_level_decl(ira->codegen, tld, false, source_instr->source_node);
+            resolve_top_level_decl(ira->codegen, tld, source_instr->source_node);
             if (tld->resolution == TldResolutionInvalid)
                 return ira->codegen->invalid_instruction;
             TldFn *tld_fn = (TldFn *)tld;
@@ -15557,8 +15564,7 @@ static void add_link_lib_symbol(IrAnalyze *ira, Buf *lib_name, Buf *symbol_name,
 
 
 static IrInstruction *ir_analyze_decl_ref(IrAnalyze *ira, IrInstruction *source_instruction, Tld *tld) {
-    bool pointer_only = false;
-    resolve_top_level_decl(ira->codegen, tld, pointer_only, source_instruction->source_node);
+    resolve_top_level_decl(ira->codegen, tld, source_instruction->source_node);
     if (tld->resolution == TldResolutionInvalid)
         return ira->codegen->invalid_instruction;
 
@@ -15735,12 +15741,17 @@ static IrInstruction *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstruc
                 }
             }
             ScopeDecls *container_scope = get_container_scope(child_type);
-            if (container_scope != nullptr) {
-                auto entry = container_scope->decl_table.maybe_get(field_name);
-                Tld *tld = entry ? entry->value : nullptr;
-                if (tld) {
-                    return ir_analyze_decl_ref(ira, &field_ptr_instruction->base, tld);
+            Tld *tld = find_container_decl(ira->codegen, container_scope, field_name);
+            if (tld) {
+                if (tld->visib_mod == VisibModPrivate &&
+                    tld->import != get_scope_import(field_ptr_instruction->base.scope))
+                {
+                    ErrorMsg *msg = ir_add_error(ira, &field_ptr_instruction->base,
+                        buf_sprintf("'%s' is private", buf_ptr(field_name)));
+                    add_error_note(ira->codegen, msg, tld->source_node, buf_sprintf("declared here"));
+                    return ira->codegen->invalid_instruction;
                 }
+                return ir_analyze_decl_ref(ira, &field_ptr_instruction->base, tld);
             }
             if (child_type->id == ZigTypeIdUnion &&
                     (child_type->data.unionation.decl_node->data.container_decl.init_arg_expr != nullptr ||
@@ -15758,9 +15769,11 @@ static IrInstruction *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstruc
                             ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile, 0);
                 }
             }
+            const char *container_name = (child_type == ira->codegen->root_import) ?
+                "root source file" : buf_ptr(buf_sprintf("container '%s'", buf_ptr(&child_type->name)));
             ir_add_error(ira, &field_ptr_instruction->base,
-                buf_sprintf("container '%s' has no member called '%s'",
-                    buf_ptr(&child_type->name), buf_ptr(field_name)));
+                buf_sprintf("%s has no member called '%s'",
+                    container_name, buf_ptr(field_name)));
             return ira->codegen->invalid_instruction;
         } else if (child_type->id == ZigTypeIdErrorSet) {
             ErrorTableEntry *err_entry;
@@ -15969,37 +15982,6 @@ static IrInstruction *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstruc
         } else {
             ir_add_error(ira, &field_ptr_instruction->base,
                 buf_sprintf("type '%s' does not support field access", buf_ptr(&child_type->name)));
-            return ira->codegen->invalid_instruction;
-        }
-    } else if (container_type->id == ZigTypeIdNamespace) {
-        assert(container_ptr->value.type->id == ZigTypeIdPointer);
-        ConstExprValue *container_ptr_val = ir_resolve_const(ira, container_ptr, UndefBad);
-        if (!container_ptr_val)
-            return ira->codegen->invalid_instruction;
-
-        ConstExprValue *namespace_val = const_ptr_pointee(ira, ira->codegen, container_ptr_val,
-                field_ptr_instruction->base.source_node);
-        if (namespace_val == nullptr)
-            return ira->codegen->invalid_instruction;
-        assert(namespace_val->special == ConstValSpecialStatic);
-
-        ImportTableEntry *namespace_import = namespace_val->data.x_import;
-
-        Tld *tld = find_decl(ira->codegen, &namespace_import->decls_scope->base, field_name);
-        if (tld) {
-            if (tld->visib_mod == VisibModPrivate &&
-                tld->import != source_node->owner)
-            {
-                ErrorMsg *msg = ir_add_error_node(ira, source_node,
-                    buf_sprintf("'%s' is private", buf_ptr(field_name)));
-                add_error_note(ira->codegen, msg, tld->source_node, buf_sprintf("declared here"));
-                return ira->codegen->invalid_instruction;
-            }
-            return ir_analyze_decl_ref(ira, &field_ptr_instruction->base, tld);
-        } else {
-            const char *import_name = namespace_import->path ? buf_ptr(namespace_import->path) : "(C import)";
-            ir_add_error_node(ira, source_node,
-                buf_sprintf("no member named '%s' in '%s'", buf_ptr(field_name), import_name));
             return ira->codegen->invalid_instruction;
         }
     } else {
@@ -16281,7 +16263,6 @@ static IrInstruction *ir_analyze_instruction_slice_type(IrAnalyze *ira,
         case ZigTypeIdEnum:
         case ZigTypeIdUnion:
         case ZigTypeIdFn:
-        case ZigTypeIdNamespace:
         case ZigTypeIdBoundFn:
         case ZigTypeIdPromise:
         case ZigTypeIdVector:
@@ -16402,7 +16383,6 @@ static IrInstruction *ir_analyze_instruction_array_type(IrAnalyze *ira,
         case ZigTypeIdEnum:
         case ZigTypeIdUnion:
         case ZigTypeIdFn:
-        case ZigTypeIdNamespace:
         case ZigTypeIdBoundFn:
         case ZigTypeIdPromise:
         case ZigTypeIdVector:
@@ -16452,7 +16432,6 @@ static IrInstruction *ir_analyze_instruction_size_of(IrAnalyze *ira,
         case ZigTypeIdComptimeInt:
         case ZigTypeIdBoundFn:
         case ZigTypeIdMetaType:
-        case ZigTypeIdNamespace:
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
             ir_add_error_node(ira, size_of_instruction->base.source_node,
@@ -16860,7 +16839,6 @@ static IrInstruction *ir_analyze_instruction_switch_target(IrAnalyze *ira,
         case ZigTypeIdPointer:
         case ZigTypeIdPromise:
         case ZigTypeIdFn:
-        case ZigTypeIdNamespace:
         case ZigTypeIdErrorSet: {
             if (pointee_val) {
                 IrInstruction *result = ir_const(ira, &switch_target_instruction->base, nullptr);
@@ -17009,25 +16987,29 @@ static IrInstruction *ir_analyze_instruction_import(IrAnalyze *ira, IrInstructio
         return ira->codegen->invalid_instruction;
 
     AstNode *source_node = import_instruction->base.source_node;
-    ImportTableEntry *import = source_node->owner;
+    ZigType *import = source_node->owner;
 
     Buf *import_target_path;
     Buf *search_dir;
-    assert(import->package);
-    PackageTableEntry *target_package;
-    auto package_entry = import->package->package_table.maybe_get(import_target_str);
+    assert(import->data.structure.root_struct->package);
+    ZigPackage *target_package;
+    auto package_entry = import->data.structure.root_struct->package->package_table.maybe_get(import_target_str);
+    SourceKind source_kind;
     if (package_entry) {
         target_package = package_entry->value;
         import_target_path = &target_package->root_src_path;
         search_dir = &target_package->root_src_dir;
+        source_kind = SourceKindPkgMain;
     } else {
         // try it as a filename
-        target_package = import->package;
+        target_package = import->data.structure.root_struct->package;
         import_target_path = import_target_str;
 
         // search relative to importing file
         search_dir = buf_alloc();
-        os_path_dirname(import->path, search_dir);
+        os_path_dirname(import->data.structure.root_struct->path, search_dir);
+
+        source_kind = SourceKindNonRoot;
     }
 
     Buf full_path = BUF_INIT;
@@ -17041,10 +17023,19 @@ static IrInstruction *ir_analyze_instruction_import(IrAnalyze *ira, IrInstructio
 
     auto import_entry = ira->codegen->import_table.maybe_get(resolved_path);
     if (import_entry) {
-        IrInstruction *result = ir_const(ira, &import_instruction->base,
-                ira->codegen->builtin_types.entry_namespace);
-        result->value.data.x_import = import_entry->value;
-        return result;
+        return ir_const_type(ira, &import_instruction->base, import_entry->value);
+    }
+
+    if (source_kind == SourceKindNonRoot) {
+        ZigPackage *cur_scope_pkg = scope_package(import_instruction->base.scope);
+        Buf *pkg_root_src_dir = &cur_scope_pkg->root_src_dir;
+        Buf resolved_root_src_dir = os_path_resolve(&pkg_root_src_dir, 1);
+        if (!buf_starts_with_buf(resolved_path, &resolved_root_src_dir)) {
+            ir_add_error_node(ira, source_node,
+                    buf_sprintf("import of file outside package path: '%s'",
+                        buf_ptr(import_target_path)));
+            return ira->codegen->invalid_instruction;
+        }
     }
 
     if ((err = file_fetch(ira->codegen, resolved_path, import_code))) {
@@ -17059,13 +17050,9 @@ static IrInstruction *ir_analyze_instruction_import(IrAnalyze *ira, IrInstructio
         }
     }
 
-    ImportTableEntry *target_import = add_source_file(ira->codegen, target_package, resolved_path, import_code);
+    ZigType *target_import = add_source_file(ira->codegen, target_package, resolved_path, import_code, source_kind);
 
-    scan_import(ira->codegen, target_import);
-
-    IrInstruction *result = ir_const(ira, &import_instruction->base, ira->codegen->builtin_types.entry_namespace);
-    result->value.data.x_import = target_import;
-    return result;
+    return ir_const_type(ira, &import_instruction->base, target_import);
 }
 
 static IrInstruction *ir_analyze_instruction_ref(IrAnalyze *ira, IrInstructionRef *ref_instruction) {
@@ -17398,17 +17385,7 @@ static IrInstruction *ir_analyze_instruction_compile_err(IrAnalyze *ira,
         return ira->codegen->invalid_instruction;
 
     ErrorMsg *msg = ir_add_error(ira, &instruction->base, msg_buf);
-    size_t i = ira->codegen->tld_ref_source_node_stack.length;
-    for (;;) {
-        if (i == 0)
-            break;
-        i -= 1;
-        AstNode *source_node = ira->codegen->tld_ref_source_node_stack.at(i);
-        if (source_node) {
-            add_error_note(ira->codegen, msg, source_node,
-                buf_sprintf("referenced here"));
-        }
-    }
+    emit_error_notes_for_ref_stack(ira->codegen, msg);
 
     return ira->codegen->invalid_instruction;
 }
@@ -17665,6 +17642,12 @@ static IrInstruction *ir_analyze_instruction_bit_offset_of(IrAnalyze *ira,
     return ir_const_unsigned(ira, &instruction->base, bit_offset);
 }
 
+static IrInstruction *ir_error_dependency_loop(IrAnalyze *ira, IrInstruction *source_instr) {
+    ErrorMsg *msg = ir_add_error(ira, source_instr, buf_sprintf("dependency loop detected"));
+    emit_error_notes_for_ref_stack(ira->codegen, msg);
+    return ira->codegen->invalid_instruction;
+}
+
 static void ensure_field_index(ZigType *type, const char *field_name, size_t index) {
     Buf *field_name_buf;
 
@@ -17711,7 +17694,9 @@ static ZigType *ir_type_info_get_type(IrAnalyze *ira, const char *type_name, Zig
     return var->const_value->data.x_type;
 }
 
-static Error ir_make_type_info_defs(IrAnalyze *ira, ConstExprValue *out_val, ScopeDecls *decls_scope) {
+static Error ir_make_type_info_defs(IrAnalyze *ira, IrInstruction *source_instr, ConstExprValue *out_val,
+        ScopeDecls *decls_scope)
+{
     Error err;
     ZigType *type_info_definition_type = ir_type_info_get_type(ira, "Definition", nullptr);
     if ((err = ensure_complete_type(ira->codegen, type_info_definition_type)))
@@ -17741,7 +17726,7 @@ static Error ir_make_type_info_defs(IrAnalyze *ira, ConstExprValue *out_val, Sco
     while ((curr_entry = decl_it.next()) != nullptr) {
         // If the definition is unresolved, force it to be resolved again.
         if (curr_entry->value->resolution == TldResolutionUnresolved) {
-            resolve_top_level_decl(ira->codegen, curr_entry->value, false, curr_entry->value->source_node);
+            resolve_top_level_decl(ira->codegen, curr_entry->value, curr_entry->value->source_node);
             if (curr_entry->value->resolution != TldResolutionOk) {
                 return ErrorSemanticAnalyzeFail;
             }
@@ -17830,6 +17815,11 @@ static Error ir_make_type_info_defs(IrAnalyze *ira, ConstExprValue *out_val, Sco
 
                     ZigFn *fn_entry = ((TldFn *)curr_entry->value)->fn_entry;
                     assert(!fn_entry->is_test);
+
+                    if (fn_entry->type_entry == nullptr) {
+                        ir_error_dependency_loop(ira, source_instr);
+                        return ErrorSemanticAnalyzeFail;
+                    }
 
                     AstNodeFnProto *fn_node = (AstNodeFnProto *)(fn_entry->proto_node);
 
@@ -18007,7 +17997,7 @@ static ConstExprValue *create_ptr_like_type_info(IrAnalyze *ira, ZigType *ptr_ty
     // alignment: u32
     ensure_field_index(result->type, "alignment", 3);
     fields[3].special = ConstValSpecialStatic;
-    fields[3].type = get_int_type(ira->codegen, false, 29);
+    fields[3].type = ira->codegen->builtin_types.entry_num_lit_int;
     bigint_init_unsigned(&fields[3].data.x_bigint, get_ptr_align(ira->codegen, attrs_type));
     // child: type
     ensure_field_index(result->type, "child", 4);
@@ -18026,7 +18016,7 @@ static void make_enum_field_val(IrAnalyze *ira, ConstExprValue *enum_field_val, 
 
     ConstExprValue *inner_fields = create_const_vals(2);
     inner_fields[1].special = ConstValSpecialStatic;
-    inner_fields[1].type = ira->codegen->builtin_types.entry_usize;
+    inner_fields[1].type = ira->codegen->builtin_types.entry_num_lit_int;
 
     ConstExprValue *name = create_const_str_lit(ira->codegen, enum_field->name);
     init_const_slice(ira->codegen, &inner_fields[0], name, 0, buf_len(enum_field->name), true);
@@ -18036,7 +18026,9 @@ static void make_enum_field_val(IrAnalyze *ira, ConstExprValue *enum_field_val, 
     enum_field_val->data.x_struct.fields = inner_fields;
 }
 
-static Error ir_make_type_info_value(IrAnalyze *ira, AstNode *source_node, ZigType *type_entry, ConstExprValue **out) {
+static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr, ZigType *type_entry,
+        ConstExprValue **out)
+{
     Error err;
     assert(type_entry != nullptr);
     assert(!type_is_invalid(type_entry));
@@ -18056,7 +18048,6 @@ static Error ir_make_type_info_value(IrAnalyze *ira, AstNode *source_node, ZigTy
         case ZigTypeIdComptimeInt:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
-        case ZigTypeIdNamespace:
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
             *out = nullptr;
@@ -18089,7 +18080,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, AstNode *source_node, ZigTy
                 // bits: u8
                 ensure_field_index(result->type, "bits", 1);
                 fields[1].special = ConstValSpecialStatic;
-                fields[1].type = ira->codegen->builtin_types.entry_u8;
+                fields[1].type = ira->codegen->builtin_types.entry_num_lit_int;
                 bigint_init_unsigned(&fields[1].data.x_bigint, type_entry->data.integral.bit_count);
 
                 break;
@@ -18106,7 +18097,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, AstNode *source_node, ZigTy
                 // bits: u8
                 ensure_field_index(result->type, "bits", 0);
                 fields[0].special = ConstValSpecialStatic;
-                fields[0].type = ira->codegen->builtin_types.entry_u8;
+                fields[0].type = ira->codegen->builtin_types.entry_num_lit_int;
                 bigint_init_unsigned(&fields->data.x_bigint, type_entry->data.floating.bit_count);
 
                 break;
@@ -18130,7 +18121,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, AstNode *source_node, ZigTy
                 // len: usize
                 ensure_field_index(result->type, "len", 0);
                 fields[0].special = ConstValSpecialStatic;
-                fields[0].type = ira->codegen->builtin_types.entry_usize;
+                fields[0].type = ira->codegen->builtin_types.entry_num_lit_int;
                 bigint_init_unsigned(&fields[0].data.x_bigint, type_entry->data.array.len);
                 // child: type
                 ensure_field_index(result->type, "child", 1);
@@ -18151,7 +18142,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, AstNode *source_node, ZigTy
             // len: usize
             ensure_field_index(result->type, "len", 0);
             fields[0].special = ConstValSpecialStatic;
-            fields[0].type = ira->codegen->builtin_types.entry_u32;
+            fields[0].type = ira->codegen->builtin_types.entry_num_lit_int;
             bigint_init_unsigned(&fields[0].data.x_bigint, type_entry->data.vector.len);
             // child: type
             ensure_field_index(result->type, "child", 1);
@@ -18248,8 +18239,11 @@ static Error ir_make_type_info_value(IrAnalyze *ira, AstNode *source_node, ZigTy
                 }
                 // defs: []TypeInfo.Definition
                 ensure_field_index(result->type, "defs", 3);
-                if ((err = ir_make_type_info_defs(ira, &fields[3], type_entry->data.enumeration.decls_scope)))
+                if ((err = ir_make_type_info_defs(ira, source_instr, &fields[3],
+                            type_entry->data.enumeration.decls_scope)))
+                {
                     return err;
+                }
 
                 break;
             }
@@ -18266,11 +18260,11 @@ static Error ir_make_type_info_value(IrAnalyze *ira, AstNode *source_node, ZigTy
                 ensure_field_index(result->type, "errors", 0);
 
                 ZigType *type_info_error_type = ir_type_info_get_type(ira, "Error", nullptr);
-                if (!resolve_inferred_error_set(ira->codegen, type_entry, source_node)) {
+                if (!resolve_inferred_error_set(ira->codegen, type_entry, source_instr->source_node)) {
                     return ErrorSemanticAnalyzeFail;
                 }
                 if (type_is_global_error_set(type_entry)) {
-                    ir_add_error_node(ira, source_node,
+                    ir_add_error(ira, source_instr,
                         buf_sprintf("TODO: compiler bug: implement @typeInfo support for anyerror. https://github.com/ziglang/zig/issues/1936"));
                     return ErrorSemanticAnalyzeFail;
                 }
@@ -18292,7 +18286,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, AstNode *source_node, ZigTy
 
                     ConstExprValue *inner_fields = create_const_vals(2);
                     inner_fields[1].special = ConstValSpecialStatic;
-                    inner_fields[1].type = ira->codegen->builtin_types.entry_usize;
+                    inner_fields[1].type = ira->codegen->builtin_types.entry_num_lit_int;
 
                     ConstExprValue *name = nullptr;
                     if (error->cached_error_name_val != nullptr)
@@ -18412,8 +18406,11 @@ static Error ir_make_type_info_value(IrAnalyze *ira, AstNode *source_node, ZigTy
                 }
                 // defs: []TypeInfo.Definition
                 ensure_field_index(result->type, "defs", 3);
-                if ((err = ir_make_type_info_defs(ira, &fields[3], type_entry->data.unionation.decls_scope)))
+                if ((err = ir_make_type_info_defs(ira, source_instr, &fields[3],
+                                type_entry->data.unionation.decls_scope)))
+                {
                     return err;
+                }
 
                 break;
             }
@@ -18461,7 +18458,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, AstNode *source_node, ZigTy
 
                     ConstExprValue *inner_fields = create_const_vals(3);
                     inner_fields[1].special = ConstValSpecialStatic;
-                    inner_fields[1].type = get_optional_type(ira->codegen, ira->codegen->builtin_types.entry_usize);
+                    inner_fields[1].type = get_optional_type(ira->codegen, ira->codegen->builtin_types.entry_num_lit_int);
 
                     if (!type_has_bits(struct_field->type_entry)) {
                         inner_fields[1].data.x_optional = nullptr;
@@ -18487,8 +18484,11 @@ static Error ir_make_type_info_value(IrAnalyze *ira, AstNode *source_node, ZigTy
                 }
                 // defs: []TypeInfo.Definition
                 ensure_field_index(result->type, "defs", 2);
-                if ((err = ir_make_type_info_defs(ira, &fields[2], type_entry->data.structure.decls_scope)))
+                if ((err = ir_make_type_info_defs(ira, source_instr, &fields[2],
+                                type_entry->data.structure.decls_scope)))
+                {
                     return err;
+                }
 
                 break;
             }
@@ -18600,7 +18600,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, AstNode *source_node, ZigTy
             {
                 ZigType *fn_type = type_entry->data.bound_fn.fn_type;
                 assert(fn_type->id == ZigTypeIdFn);
-                if ((err = ir_make_type_info_value(ira, source_node, fn_type, &result)))
+                if ((err = ir_make_type_info_value(ira, source_instr, fn_type, &result)))
                     return err;
 
                 break;
@@ -18625,7 +18625,7 @@ static IrInstruction *ir_analyze_instruction_type_info(IrAnalyze *ira,
     ZigType *result_type = ir_type_info_get_type(ira, nullptr, nullptr);
 
     ConstExprValue *payload;
-    if ((err = ir_make_type_info_value(ira, instruction->base.source_node, type_entry, &payload)))
+    if ((err = ir_make_type_info_value(ira, &instruction->base, type_entry, &payload)))
         return ira->codegen->invalid_instruction;
 
     IrInstruction *result = ir_const(ira, &instruction->base, result_type);
@@ -18680,7 +18680,7 @@ static IrInstruction *ir_analyze_instruction_type_name(IrAnalyze *ira, IrInstruc
         return ira->codegen->invalid_instruction;
 
     if (!type_entry->cached_const_name_val) {
-        type_entry->cached_const_name_val = create_const_str_lit(ira->codegen, &type_entry->name);
+        type_entry->cached_const_name_val = create_const_str_lit(ira->codegen, type_bare_name(type_entry));
     }
     IrInstruction *result = ir_const(ira, &instruction->base, nullptr);
     copy_const_val(&result->value, type_entry->cached_const_name_val, true);
@@ -18702,14 +18702,21 @@ static IrInstruction *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruct
     if (type_is_invalid(cimport_result->type))
         return ira->codegen->invalid_instruction;
 
-    ImportTableEntry *child_import = allocate<ImportTableEntry>(1);
-    child_import->decls_scope = create_decls_scope(ira->codegen, node, nullptr, nullptr, child_import);
-    child_import->c_import_node = node;
-    child_import->package = new_anonymous_package();
-    child_import->package->package_table.put(buf_create_from_str("builtin"), ira->codegen->compile_var_package);
-    child_import->package->package_table.put(buf_create_from_str("std"), ira->codegen->std_package);
-    child_import->di_file = ZigLLVMCreateFile(ira->codegen->dbuilder,
+    ZigPackage *cur_scope_pkg = scope_package(instruction->base.scope);
+    Buf *namespace_name = buf_sprintf("%s.cimport:%" ZIG_PRI_usize ":%" ZIG_PRI_usize,
+            buf_ptr(&cur_scope_pkg->pkg_path), node->line + 1, node->column + 1);
+
+    RootStruct *root_struct = allocate<RootStruct>(1);
+    root_struct->package = new_anonymous_package();
+    root_struct->package->package_table.put(buf_create_from_str("builtin"), ira->codegen->compile_var_package);
+    root_struct->package->package_table.put(buf_create_from_str("std"), ira->codegen->std_package);
+    root_struct->c_import_node = node;
+    // TODO create namespace_name file in zig-cache instead of /tmp and use it
+    // for this DIFile
+    root_struct->di_file = ZigLLVMCreateFile(ira->codegen->dbuilder,
         buf_ptr(buf_create_from_str("cimport.h")), buf_ptr(buf_create_from_str(".")));
+    ZigType *child_import = get_root_container_type(ira->codegen, buf_ptr(namespace_name),
+            namespace_name, root_struct);
 
     ZigList<ErrorMsg *> errors = {0};
 
@@ -18738,14 +18745,12 @@ static IrInstruction *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruct
     if (ira->codegen->verbose_cimport) {
         fprintf(stderr, "\nC imports:\n");
         fprintf(stderr, "-----------\n");
-        ast_render(ira->codegen, stderr, child_import->root, 4);
+        ast_render(ira->codegen, stderr, child_import->data.structure.decl_node, 4);
     }
 
-    scan_decls(ira->codegen, child_import->decls_scope, child_import->root);
+    scan_decls(ira->codegen, get_container_scope(child_import), child_import->data.structure.decl_node);
 
-    IrInstruction *result = ir_const(ira, &instruction->base, ira->codegen->builtin_types.entry_namespace);
-    result->value.data.x_import = child_import;
-    return result;
+    return ir_const_type(ira, &instruction->base, child_import);
 }
 
 static IrInstruction *ir_analyze_instruction_c_include(IrAnalyze *ira, IrInstructionCInclude *instruction) {
@@ -18819,10 +18824,10 @@ static IrInstruction *ir_analyze_instruction_embed_file(IrAnalyze *ira, IrInstru
     if (!rel_file_path)
         return ira->codegen->invalid_instruction;
 
-    ImportTableEntry *import = get_scope_import(instruction->base.scope);
+    ZigType *import = get_scope_import(instruction->base.scope);
     // figure out absolute path to resource
     Buf source_dir_path = BUF_INIT;
-    os_path_dirname(import->path, &source_dir_path);
+    os_path_dirname(import->data.structure.root_struct->path, &source_dir_path);
 
     Buf *resolve_paths[] = {
         &source_dir_path,
@@ -19752,6 +19757,9 @@ static IrInstruction *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstruction
                 return ira->codegen->invalid_instruction;
             }
         } else {
+            if (array_type->data.pointer.ptr_len == PtrLenC) {
+                array_type = adjust_ptr_len(ira->codegen, array_type, PtrLenUnknown);
+            }
             return_type = get_slice_type(ira->codegen, array_type);
             if (!end) {
                 ir_add_error(ira, &instruction->base, buf_sprintf("slice of pointer must include end value"));
@@ -20137,18 +20145,14 @@ static IrInstruction *ir_analyze_instruction_breakpoint(IrAnalyze *ira, IrInstru
 static IrInstruction *ir_analyze_instruction_return_address(IrAnalyze *ira, IrInstructionReturnAddress *instruction) {
     IrInstruction *result = ir_build_return_address(&ira->new_irb,
         instruction->base.scope, instruction->base.source_node);
-    ZigType *u8 = ira->codegen->builtin_types.entry_u8;
-    ZigType *u8_ptr_const = get_pointer_to_type(ira->codegen, u8, true);
-    result->value.type = u8_ptr_const;
+    result->value.type = ira->codegen->builtin_types.entry_usize;
     return result;
 }
 
 static IrInstruction *ir_analyze_instruction_frame_address(IrAnalyze *ira, IrInstructionFrameAddress *instruction) {
     IrInstruction *result = ir_build_frame_address(&ira->new_irb,
             instruction->base.scope, instruction->base.source_node);
-    ZigType *u8 = ira->codegen->builtin_types.entry_u8;
-    ZigType *u8_ptr_const = get_pointer_to_type(ira->codegen, u8, true);
-    result->value.type = u8_ptr_const;
+    result->value.type = ira->codegen->builtin_types.entry_usize;
     return result;
 }
 
@@ -20179,7 +20183,6 @@ static IrInstruction *ir_analyze_instruction_align_of(IrAnalyze *ira, IrInstruct
         case ZigTypeIdComptimeInt:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
-        case ZigTypeIdNamespace:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdVoid:
@@ -21025,7 +21028,6 @@ static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue
         case ZigTypeIdOpaque:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
-        case ZigTypeIdNamespace:
         case ZigTypeIdUnreachable:
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
@@ -21185,7 +21187,6 @@ static Error buf_read_value_bytes(IrAnalyze *ira, CodeGen *codegen, AstNode *sou
         case ZigTypeIdOpaque:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
-        case ZigTypeIdNamespace:
         case ZigTypeIdUnreachable:
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
@@ -21343,7 +21344,6 @@ static bool type_can_bit_cast(ZigType *t) {
         case ZigTypeIdOpaque:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
-        case ZigTypeIdNamespace:
         case ZigTypeIdUnreachable:
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
@@ -21516,7 +21516,7 @@ static IrInstruction *ir_analyze_instruction_decl_ref(IrAnalyze *ira,
     Tld *tld = instruction->tld;
     LVal lval = instruction->lval;
 
-    resolve_top_level_decl(ira->codegen, tld, lval == LValPtr, instruction->base.source_node);
+    resolve_top_level_decl(ira->codegen, tld, instruction->base.source_node);
     if (tld->resolution == TldResolutionInvalid)
         return ira->codegen->invalid_instruction;
 
@@ -21527,6 +21527,10 @@ static IrInstruction *ir_analyze_instruction_decl_ref(IrAnalyze *ira,
         case TldIdVar: {
             TldVar *tld_var = (TldVar *)tld;
             ZigVar *var = tld_var->var;
+
+            if (var == nullptr) {
+                return ir_error_dependency_loop(ira, &instruction->base);
+            }
 
             IrInstruction *var_ptr = ir_get_var_ptr(ira, &instruction->base, var);
             if (type_is_invalid(var_ptr->value.type))
@@ -21664,9 +21668,11 @@ static IrInstruction *ir_analyze_instruction_align_cast(IrAnalyze *ira, IrInstru
 }
 
 static IrInstruction *ir_analyze_instruction_opaque_type(IrAnalyze *ira, IrInstructionOpaqueType *instruction) {
-    Buf *name = get_anon_type_name(ira->codegen, ira->new_irb.exec, "opaque", instruction->base.source_node);
+    Buf *bare_name = buf_alloc();
+    Buf *full_name = get_anon_type_name(ira->codegen, ira->new_irb.exec, "opaque",
+            instruction->base.scope, instruction->base.source_node, bare_name);
     ZigType *result_type = get_opaque_type(ira->codegen, instruction->base.scope, instruction->base.source_node,
-            buf_ptr(name));
+            buf_ptr(full_name), bare_name);
     return ir_const_type(ira, &instruction->base, result_type);
 }
 

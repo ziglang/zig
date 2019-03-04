@@ -676,14 +676,14 @@ Error target_parse_triple(ZigTarget *target, const char *triple) {
     if (!opt_archsub.is_some)
         return ErrorMissingArchitecture;
 
-    if (!opt_os.is_some)
-        return ErrorMissingOperatingSystem;
-
     if ((err = target_parse_archsub(&target->arch, &target->sub_arch,
                     (char*)opt_archsub.value.ptr, opt_archsub.value.len)))
     {
         return err;
     }
+
+    if (!opt_os.is_some)
+        return ErrorMissingOperatingSystem;
 
     if ((err = target_parse_os(&target->os, (char*)opt_os.value.ptr, opt_os.value.len))) {
         return err;

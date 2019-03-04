@@ -15,8 +15,8 @@
 
 #include <stdio.h>
 
-CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out_type, BuildMode build_mode,
-    Buf *zig_lib_dir, Buf *override_std_dir, ZigLibCInstallation *libc);
+CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget *target,
+    OutType out_type, BuildMode build_mode, Buf *zig_lib_dir, Buf *override_std_dir, ZigLibCInstallation *libc);
 
 void codegen_set_clang_argv(CodeGen *codegen, const char **args, size_t len);
 void codegen_set_llvm_argv(CodeGen *codegen, const char **args, size_t len);
@@ -48,7 +48,8 @@ void codegen_print_timing_report(CodeGen *g, FILE *f);
 void codegen_link(CodeGen *g);
 void codegen_build_and_link(CodeGen *g);
 
-PackageTableEntry *codegen_create_package(CodeGen *g, const char *root_src_dir, const char *root_src_path);
+ZigPackage *codegen_create_package(CodeGen *g, const char *root_src_dir, const char *root_src_path,
+        const char *pkg_path);
 void codegen_add_assembly(CodeGen *g, Buf *path);
 void codegen_add_object(CodeGen *g, Buf *object_path);
 

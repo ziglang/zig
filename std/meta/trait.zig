@@ -1,11 +1,11 @@
-const std = @import("../index.zig");
+const std = @import("../std.zig");
 const builtin = @import("builtin");
 const mem = std.mem;
 const debug = std.debug;
 const testing = std.testing;
 const warn = debug.warn;
 
-const meta = @import("index.zig");
+const meta = @import("../meta.zig");
 
 //This is necessary if we want to return generic functions directly because of how the
 // the type erasure works. see:  #1375

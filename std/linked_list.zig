@@ -1,4 +1,4 @@
-const std = @import("index.zig");
+const std = @import("std.zig");
 const debug = std.debug;
 const assert = debug.assert;
 const testing = std.testing;

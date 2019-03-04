@@ -1,4 +1,4 @@
-const std = @import("../index.zig");
+const std = @import("std.zig");
 const builtin = @import("builtin");
 const Os = builtin.Os;
 const is_windows = builtin.os == Os.windows;
@@ -13,26 +13,26 @@ comptime {
 }
 
 test "std.os" {
-    _ = @import("child_process.zig");
-    _ = @import("darwin.zig");
-    _ = @import("darwin/errno.zig");
-    _ = @import("get_user_id.zig");
-    _ = @import("linux/index.zig");
-    _ = @import("path.zig");
-    _ = @import("test.zig");
-    _ = @import("time.zig");
-    _ = @import("windows/index.zig");
-    _ = @import("uefi.zig");
-    _ = @import("get_app_data_dir.zig");
+    _ = @import("os/child_process.zig");
+    _ = @import("os/darwin.zig");
+    _ = @import("os/darwin/errno.zig");
+    _ = @import("os/get_user_id.zig");
+    _ = @import("os/linux.zig");
+    _ = @import("os/path.zig");
+    _ = @import("os/test.zig");
+    _ = @import("os/time.zig");
+    _ = @import("os/windows.zig");
+    _ = @import("os/uefi.zig");
+    _ = @import("os/get_app_data_dir.zig");
 }
 
-pub const windows = @import("windows/index.zig");
-pub const darwin = @import("darwin.zig");
-pub const linux = @import("linux/index.zig");
-pub const freebsd = @import("freebsd/index.zig");
-pub const netbsd = @import("netbsd/index.zig");
-pub const zen = @import("zen.zig");
-pub const uefi = @import("uefi.zig");
+pub const windows = @import("os/windows.zig");
+pub const darwin = @import("os/darwin.zig");
+pub const linux = @import("os/linux.zig");
+pub const freebsd = @import("os/freebsd.zig");
+pub const netbsd = @import("os/netbsd.zig");
+pub const zen = @import("os/zen.zig");
+pub const uefi = @import("os/uefi.zig");
 
 pub const posix = switch (builtin.os) {
     Os.linux => linux,
@@ -45,10 +45,10 @@ pub const posix = switch (builtin.os) {
 
 pub const net = @import("net.zig");
 
-pub const ChildProcess = @import("child_process.zig").ChildProcess;
-pub const path = @import("path.zig");
-pub const File = @import("file.zig").File;
-pub const time = @import("time.zig");
+pub const ChildProcess = @import("os/child_process.zig").ChildProcess;
+pub const path = @import("os/path.zig");
+pub const File = @import("os/file.zig").File;
+pub const time = @import("os/time.zig");
 
 pub const page_size = 4 * 1024;
 pub const MAX_PATH_BYTES = switch (builtin.os) {
@@ -61,10 +61,10 @@ pub const MAX_PATH_BYTES = switch (builtin.os) {
     else => @compileError("Unsupported OS"),
 };
 
-pub const UserInfo = @import("get_user_id.zig").UserInfo;
-pub const getUserInfo = @import("get_user_id.zig").getUserInfo;
+pub const UserInfo = @import("os/get_user_id.zig").UserInfo;
+pub const getUserInfo = @import("os/get_user_id.zig").getUserInfo;
 
-const windows_util = @import("windows/util.zig");
+const windows_util = @import("os/windows/util.zig");
 pub const windowsWaitSingle = windows_util.windowsWaitSingle;
 pub const windowsWrite = windows_util.windowsWrite;
 pub const windowsIsCygwinPty = windows_util.windowsIsCygwinPty;
@@ -88,8 +88,8 @@ pub const WindowsReadError = windows_util.ReadError;
 
 pub const FileHandle = if (is_windows) windows.HANDLE else i32;
 
-pub const getAppDataDir = @import("get_app_data_dir.zig").getAppDataDir;
-pub const GetAppDataDirError = @import("get_app_data_dir.zig").GetAppDataDirError;
+pub const getAppDataDir = @import("os/get_app_data_dir.zig").getAppDataDir;
+pub const GetAppDataDirError = @import("os/get_app_data_dir.zig").GetAppDataDirError;
 
 const debug = std.debug;
 const assert = debug.assert;
@@ -3404,5 +3404,29 @@ pub fn linuxINotifyRmWatch(inotify_fd: i32, wd: i32) !void {
         posix.EBADF => unreachable,
         posix.EINVAL => unreachable,
         else => unreachable,
+    }
+}
+
+pub const MProtectError = error{
+    AccessDenied,
+    OutOfMemory,
+    Unexpected,
+};
+
+/// address and length must be page-aligned
+pub fn posixMProtect(address: usize, length: usize, protection: u32) MProtectError!void {
+    const negative_page_size = @bitCast(usize, -isize(page_size));
+    const aligned_address = address & negative_page_size;
+    const aligned_end = (address + length + page_size - 1) & negative_page_size;
+    assert(address == aligned_address);
+    assert(length == aligned_end - aligned_address);
+    const rc = posix.mprotect(address, length, protection);
+    const err = posix.getErrno(rc);
+    switch (err) {
+        0 => return,
+        posix.EINVAL => unreachable,
+        posix.EACCES => return error.AccessDenied,
+        posix.ENOMEM => return error.OutOfMemory,
+        else => return unexpectedErrorPosix(err),
     }
 }

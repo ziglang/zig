@@ -59,7 +59,7 @@ static inline void buf_deinit(Buf *buf) {
 static inline void buf_init_from_mem(Buf *buf, const char *ptr, size_t len) {
     assert(len != SIZE_MAX);
     buf->list.resize(len + 1);
-    safe_memcpy(buf_ptr(buf), ptr, len);
+    memcpy(buf_ptr(buf), ptr, len);
     buf->list.at(buf_len(buf)) = 0;
 }
 
@@ -98,7 +98,7 @@ static inline Buf *buf_slice(Buf *in_buf, size_t start, size_t end) {
     assert(end <= buf_len(in_buf));
     Buf *out_buf = allocate<Buf>(1);
     out_buf->list.resize(end - start + 1);
-    safe_memcpy(buf_ptr(out_buf), buf_ptr(in_buf) + start, end - start);
+    memcpy(buf_ptr(out_buf), buf_ptr(in_buf) + start, end - start);
     out_buf->list.at(buf_len(out_buf)) = 0;
     return out_buf;
 }
@@ -108,7 +108,7 @@ static inline void buf_append_mem(Buf *buf, const char *mem, size_t mem_len) {
     assert(mem_len != SIZE_MAX);
     size_t old_len = buf_len(buf);
     buf_resize(buf, old_len + mem_len);
-    safe_memcpy(buf_ptr(buf) + old_len, mem, mem_len);
+    memcpy(buf_ptr(buf) + old_len, mem, mem_len);
     buf->list.at(buf_len(buf)) = 0;
 }
 

@@ -78,8 +78,8 @@ static bool test_zig_install_prefix(Buf *test_path, Buf *out_zig_lib_dir) {
     Buf std_buf = BUF_INIT;
     buf_init_from_str(&std_buf, "std");
 
-    Buf index_zig_buf = BUF_INIT;
-    buf_init_from_str(&index_zig_buf, "index.zig");
+    Buf std_zig_buf = BUF_INIT;
+    buf_init_from_str(&std_zig_buf, "std.zig");
 
     Buf test_lib_dir = BUF_INIT;
     Buf test_zig_dir = BUF_INIT;
@@ -89,7 +89,7 @@ static bool test_zig_install_prefix(Buf *test_path, Buf *out_zig_lib_dir) {
     os_path_join(test_path, &lib_buf, &test_lib_dir);
     os_path_join(&test_lib_dir, &zig_buf, &test_zig_dir);
     os_path_join(&test_zig_dir, &std_buf, &test_std_dir);
-    os_path_join(&test_std_dir, &index_zig_buf, &test_index_file);
+    os_path_join(&test_std_dir, &std_zig_buf, &test_index_file);
 
     int err;
     bool exists;

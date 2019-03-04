@@ -1,4 +1,4 @@
-const std = @import("../index.zig");
+const std = @import("../std.zig");
 const assert = std.debug.assert;
 
 const State = enum {

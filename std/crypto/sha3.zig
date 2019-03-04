@@ -1,7 +1,7 @@
 const mem = @import("../mem.zig");
-const math = @import("../math/index.zig");
+const math = @import("../math.zig");
 const endian = @import("../endian.zig");
-const debug = @import("../debug/index.zig");
+const debug = @import("../debug.zig");
 const builtin = @import("builtin");
 const htest = @import("test.zig");
 
@@ -13,8 +13,8 @@ pub const Sha3_512 = Keccak(512, 0x06);
 fn Keccak(comptime bits: usize, comptime delim: u8) type {
     return struct {
         const Self = @This();
-        const block_length = 200;
-        const digest_length = bits / 8;
+        pub const block_length = 200;
+        pub const digest_length = bits / 8;
 
         s: [200]u8,
         offset: usize,

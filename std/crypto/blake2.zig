@@ -1,7 +1,7 @@
 const mem = @import("../mem.zig");
-const math = @import("../math/index.zig");
+const math = @import("../math.zig");
 const endian = @import("../endian.zig");
-const debug = @import("../debug/index.zig");
+const debug = @import("../debug.zig");
 const builtin = @import("builtin");
 const htest = @import("test.zig");
 
@@ -34,8 +34,8 @@ pub const Blake2s256 = Blake2s(256);
 fn Blake2s(comptime out_len: usize) type {
     return struct {
         const Self = @This();
-        const block_length = 64;
-        const digest_length = out_len / 8;
+        pub const block_length = 64;
+        pub const digest_length = out_len / 8;
 
         const iv = [8]u32{
             0x6A09E667,

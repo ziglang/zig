@@ -1,6 +1,6 @@
 const builtin = @import("builtin");
 const Os = builtin.Os;
-const os = @import("index.zig");
+const os = @import("../os.zig");
 const io = @import("../io.zig");
 
 pub const UserInfo = struct {

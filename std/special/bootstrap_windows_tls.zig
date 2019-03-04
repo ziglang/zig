@@ -1,4 +1,4 @@
-const std = @import("../../index.zig");
+const std = @import("std");
 
 export var _tls_index: u32 = std.os.windows.TLS_OUT_OF_INDEXES;
 export var _tls_start: u8 linksection(".tls") = 0;
@@ -26,7 +26,7 @@ pub const IMAGE_TLS_DIRECTORY = extern struct {
     SizeOfZeroFill: u32,
     Characteristics: u32,
 };
-export const _tls_used linksection(".rdata$T") = IMAGE_TLS_DIRECTORY {
+export const _tls_used linksection(".rdata$T") = IMAGE_TLS_DIRECTORY{
     .StartAddressOfRawData = &_tls_start,
     .EndAddressOfRawData = &_tls_end,
     .AddressOfIndex = &_tls_index,

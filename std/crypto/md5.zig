@@ -1,9 +1,9 @@
 const mem = @import("../mem.zig");
-const math = @import("../math/index.zig");
+const math = @import("../math.zig");
 const endian = @import("../endian.zig");
 const builtin = @import("builtin");
-const debug = @import("../debug/index.zig");
-const fmt = @import("../fmt/index.zig");
+const debug = @import("../debug.zig");
+const fmt = @import("../fmt.zig");
 
 const RoundParam = struct {
     a: usize,
@@ -29,8 +29,8 @@ fn Rp(a: usize, b: usize, c: usize, d: usize, k: usize, s: u32, t: u32) RoundPar
 
 pub const Md5 = struct {
     const Self = @This();
-    const block_length = 64;
-    const digest_length = 16;
+    pub const block_length = 64;
+    pub const digest_length = 16;
 
     s: [4]u32,
     // Streaming Cache

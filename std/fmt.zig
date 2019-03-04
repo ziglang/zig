@@ -1,11 +1,11 @@
-const std = @import("../index.zig");
+const std = @import("std.zig");
 const math = std.math;
 const debug = std.debug;
 const assert = debug.assert;
 const testing = std.testing;
 const mem = std.mem;
 const builtin = @import("builtin");
-const errol = @import("errol/index.zig");
+const errol = @import("fmt/errol.zig");
 const lossyCast = std.math.lossyCast;
 
 const max_int_digits = 65;
@@ -858,10 +858,10 @@ test "fmt.parseUnsigned" {
     testing.expectError(error.Overflow, parseUnsigned(u2, "4", 16));
 }
 
-pub const parseFloat = @import("parse_float.zig").parseFloat;
+pub const parseFloat = @import("fmt/parse_float.zig").parseFloat;
 
 test "fmt.parseFloat" {
-    _ = @import("parse_float.zig");
+    _ = @import("fmt/parse_float.zig");
 }
 
 pub fn charToDigit(c: u8, radix: u8) (error{InvalidCharacter}!u8) {

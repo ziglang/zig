@@ -1,4 +1,4 @@
-const std = @import("index.zig");
+const std = @import("std.zig");
 const io = std.io;
 const meta = std.meta;
 const trait = std.trait;

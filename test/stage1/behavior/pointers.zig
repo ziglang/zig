@@ -124,3 +124,9 @@ test "implicit cast error unions with non-optional to optional pointer" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "initialize const optional C pointer to null" {
+    const a: ?[*c]i32 = null;
+    expect(a == null);
+    comptime expect(a == null);
+}

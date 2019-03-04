@@ -1,6 +1,6 @@
 const builtin = @import("builtin");
 const TypeId = builtin.TypeId;
-const std = @import("index.zig");
+const std = @import("std.zig");
 
 /// This function is intended to be used only in tests. It prints diagnostics to stderr
 /// and then aborts when actual_error_union is not expected_error.
@@ -44,7 +44,6 @@ pub fn expectEqual(expected: var, actual: @typeOf(expected)) void {
         TypeId.ComptimeFloat,
         TypeId.ComptimeInt,
         TypeId.Enum,
-        TypeId.Namespace,
         TypeId.Fn,
         TypeId.Promise,
         TypeId.Vector,

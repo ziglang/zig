@@ -2,7 +2,7 @@
 //
 // https://tools.ietf.org/html/rfc8259
 
-const std = @import("index.zig");
+const std = @import("std.zig");
 const debug = std.debug;
 const testing = std.testing;
 const mem = std.mem;

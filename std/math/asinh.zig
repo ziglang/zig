@@ -4,7 +4,7 @@
 // - asinh(+-inf) = +-inf
 // - asinh(nan)   = nan
 
-const std = @import("../index.zig");
+const std = @import("../std.zig");
 const math = std.math;
 const expect = std.testing.expect;
 const maxInt = std.math.maxInt;

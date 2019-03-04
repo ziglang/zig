@@ -14,13 +14,13 @@
 //
 // TODO(tiehuis): Benchmark these against other reference implementations.
 
-const std = @import("../index.zig");
+const std = @import("std.zig");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const expect = std.testing.expect;
 const mem = std.mem;
 const math = std.math;
-const ziggurat = @import("ziggurat.zig");
+const ziggurat = @import("rand/ziggurat.zig");
 const maxInt = std.math.maxInt;
 
 // When you need fast unbiased random numbers

@@ -6116,7 +6116,7 @@ test "main" {
       {#header_close#}
 
       {#header_open|@frameAddress#}
-      <pre>{#syntax#}@frameAddress(){#endsyntax#}</pre>
+      <pre>{#syntax#}@frameAddress() usize{#endsyntax#}</pre>
       <p>
       This function returns the base pointer of the current stack frame.
       </p>
@@ -6482,17 +6482,18 @@ test "call foo" {
       {#header_close#}
 
       {#header_open|@returnAddress#}
-      <pre>{#syntax#}@returnAddress(){#endsyntax#}</pre>
+      <pre>{#syntax#}@returnAddress() usize{#endsyntax#}</pre>
       <p>
-      This function returns a pointer to the return address of the current stack
-      frame.
+      This function returns the address of the next machine code instruction that will be executed
+      when the current function returns.
       </p>
       <p>
       The implications of this are target specific and not consistent across
       all platforms.
       </p>
       <p>
-      This function is only valid within function scope.
+      This function is only valid within function scope. If the function gets inlined into
+      a calling function, the returned address will apply to the calling function.
       </p>
       {#header_close#}
       {#header_open|@setAlignStack#}
@@ -6785,7 +6786,6 @@ pub const TypeId = enum {
     Enum,
     Union,
     Fn,
-    Namespace,
     Block,
     BoundFn,
     ArgTuple,
@@ -6820,7 +6820,6 @@ pub const TypeInfo = union(TypeId) {
     Enum: Enum,
     Union: Union,
     Fn: Fn,
-    Namespace: void,
     BoundFn: Fn,
     ArgTuple: void,
     Opaque: void,
@@ -6829,18 +6828,18 @@ pub const TypeInfo = union(TypeId) {
 
     pub const Int = struct {
         is_signed: bool,
-        bits: u8,
+        bits: comptime_int,
     };
 
     pub const Float = struct {
-        bits: u8,
+        bits: comptime_int,
     };
 
     pub const Pointer = struct {
         size: Size,
         is_const: bool,
         is_volatile: bool,
-        alignment: u32,
+        alignment: comptime_int,
         child: type,
 
         pub const Size = enum {
@@ -6851,7 +6850,7 @@ pub const TypeInfo = union(TypeId) {
     };
 
     pub const Array = struct {
-        len: usize,
+        len: comptime_int,
         child: type,
     };
 
@@ -6863,7 +6862,7 @@ pub const TypeInfo = union(TypeId) {
 
     pub const StructField = struct {
         name: []const u8,
-        offset: ?usize,
+        offset: ?comptime_int,
         field_type: type,
     };
 
@@ -6884,7 +6883,7 @@ pub const TypeInfo = union(TypeId) {
 
     pub const Error = struct {
         name: []const u8,
-        value: usize,
+        value: comptime_int,
     };
 
     pub const ErrorSet = struct {
@@ -6893,7 +6892,7 @@ pub const TypeInfo = union(TypeId) {
 
     pub const EnumField = struct {
         name: []const u8,
-        value: usize,
+        value: comptime_int,
     };
 
     pub const Enum = struct {
@@ -8167,17 +8166,18 @@ coding style.
       </p>
       <ul>
         <li>
-            If {#syntax#}x{#endsyntax#} is a {#syntax#}struct{#endsyntax#} (or an alias of a {#syntax#}struct{#endsyntax#}),
-                        then {#syntax#}x{#endsyntax#} should be {#syntax#}TitleCase{#endsyntax#}.
+            If {#syntax#}x{#endsyntax#} is a {#syntax#}type{#endsyntax#}
+            then {#syntax#}x{#endsyntax#} should be {#syntax#}TitleCase{#endsyntax#}, unless it
+            is a {#syntax#}struct{#endsyntax#} with 0 fields and is never meant to be instantiated,
+            in which case it is considered to be a "namespace" and uses {#syntax#}snake_case{#endsyntax#}.
         </li>
         <li>
-            If {#syntax#}x{#endsyntax#} otherwise identifies a type, {#syntax#}x{#endsyntax#} should have {#syntax#}snake_case{#endsyntax#}.
+            If {#syntax#}x{#endsyntax#} is callable, and {#syntax#}x{#endsyntax#}'s return type is
+            {#syntax#}type{#endsyntax#}, then {#syntax#}x{#endsyntax#} should be {#syntax#}TitleCase{#endsyntax#}.
         </li>
         <li>
-            If {#syntax#}x{#endsyntax#} is callable, and {#syntax#}x{#endsyntax#}'s return type is {#syntax#}type{#endsyntax#}, then {#syntax#}x{#endsyntax#} should be {#syntax#}TitleCase{#endsyntax#}.
-        </li>
-        <li>
-            If {#syntax#}x{#endsyntax#} is otherwise callable, then {#syntax#}x{#endsyntax#} should be {#syntax#}camelCase{#endsyntax#}.
+            If {#syntax#}x{#endsyntax#} is otherwise callable, then {#syntax#}x{#endsyntax#} should
+            be {#syntax#}camelCase{#endsyntax#}.
         </li>
         <li>
             Otherwise, {#syntax#}x{#endsyntax#} should be {#syntax#}snake_case{#endsyntax#}.
@@ -8203,7 +8203,9 @@ const const_name = 42;
 const primitive_type_alias = f32;
 const string_alias = []u8;
 
-const StructName = struct {};
+const StructName = struct {
+    field: i32,
+};
 const StructAlias = StructName;
 
 fn functionName(param_name: TypeName) void {
@@ -8231,7 +8233,9 @@ const xml_document =
     \\<document>
     \\</document>
 ;
-const XmlParser = struct {};
+const XmlParser = struct {
+    field: i32,
+};
 
 // The initials BE (Big Endian) are just another word in Zig identifier names.
 fn readU32Be() u32 {}

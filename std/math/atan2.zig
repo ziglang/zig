@@ -18,7 +18,7 @@
 //  atan2(+inf, x)    = +pi/2
 //  atan2(-inf, x)    = -pi/2
 
-const std = @import("../index.zig");
+const std = @import("../std.zig");
 const math = std.math;
 const expect = std.testing.expect;
 

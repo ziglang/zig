@@ -12,8 +12,9 @@
 
 void semantic_analyze(CodeGen *g);
 ErrorMsg *add_node_error(CodeGen *g, AstNode *node, Buf *msg);
-ErrorMsg *add_token_error(CodeGen *g, ImportTableEntry *owner, Token *token, Buf *msg);
+ErrorMsg *add_token_error(CodeGen *g, ZigType *owner, Token *token, Buf *msg);
 ErrorMsg *add_error_note(CodeGen *g, ErrorMsg *parent_msg, AstNode *node, Buf *msg);
+void emit_error_notes_for_ref_stack(CodeGen *g, ErrorMsg *msg);
 ZigType *new_type_table_entry(ZigTypeId id);
 ZigType *get_pointer_to_type(CodeGen *g, ZigType *child_type, bool is_const);
 ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_const,
@@ -29,11 +30,13 @@ ZigType *get_optional_type(CodeGen *g, ZigType *child_type);
 ZigType *get_array_type(CodeGen *g, ZigType *child_type, uint64_t array_size);
 ZigType *get_slice_type(CodeGen *g, ZigType *ptr_type);
 ZigType *get_partial_container_type(CodeGen *g, Scope *scope, ContainerKind kind,
-        AstNode *decl_node, const char *name, ContainerLayout layout);
+        AstNode *decl_node, const char *full_name, Buf *bare_name, ContainerLayout layout);
+ZigType *get_root_container_type(CodeGen *g, const char *full_name, Buf *bare_name,
+        RootStruct *root_struct);
 ZigType *get_smallest_unsigned_int_type(CodeGen *g, uint64_t x);
 ZigType *get_error_union_type(CodeGen *g, ZigType *err_set_type, ZigType *payload_type);
 ZigType *get_bound_fn_type(CodeGen *g, ZigFn *fn_entry);
-ZigType *get_opaque_type(CodeGen *g, Scope *scope, AstNode *source_node, const char *name);
+ZigType *get_opaque_type(CodeGen *g, Scope *scope, AstNode *source_node, const char *full_name, Buf *bare_name);
 ZigType *get_struct_type(CodeGen *g, const char *type_name, const char *field_names[],
         ZigType *field_types[], size_t field_count);
 ZigType *get_promise_type(CodeGen *g, ZigType *result_type);
@@ -46,13 +49,19 @@ bool type_allowed_in_extern(CodeGen *g, ZigType *type_entry);
 bool ptr_allows_addr_zero(ZigType *ptr_type);
 bool type_is_nonnull_ptr(ZigType *type);
 
-ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *abs_full_path, Buf *source_code);
-
+enum SourceKind {
+    SourceKindRoot,
+    SourceKindPkgMain,
+    SourceKindNonRoot,
+};
+ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *abs_full_path, Buf *source_code,
+        SourceKind source_kind);
 
 ZigVar *find_variable(CodeGen *g, Scope *orig_context, Buf *name, ScopeFnDef **crossed_fndef_scope);
 Tld *find_decl(CodeGen *g, Scope *scope, Buf *name);
-void resolve_top_level_decl(CodeGen *g, Tld *tld, bool pointer_only, AstNode *source_node);
-bool type_is_codegen_pointer(ZigType *type);
+Tld *find_container_decl(CodeGen *g, ScopeDecls *decls_scope, Buf *name);
+void resolve_top_level_decl(CodeGen *g, Tld *tld, AstNode *source_node);
+bool type_is_non_optional_pointer(ZigType *type);
 
 ZigType *get_src_ptr_type(ZigType *type);
 ZigType *get_codegen_ptr_type(ZigType *type);
@@ -77,11 +86,11 @@ bool is_array_ref(ZigType *type_entry);
 bool is_container_ref(ZigType *type_entry);
 bool is_valid_vector_elem_type(ZigType *elem_type);
 void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node);
-void scan_import(CodeGen *g, ImportTableEntry *import);
 void preview_use_decl(CodeGen *g, AstNode *node);
 void resolve_use_decl(CodeGen *g, AstNode *node);
 ZigFn *scope_fn_entry(Scope *scope);
-ImportTableEntry *get_scope_import(Scope *scope);
+ZigPackage *scope_package(Scope *scope);
+ZigType *get_scope_import(Scope *scope);
 void init_tld(Tld *tld, TldId id, Buf *name, VisibMod visib_mod, AstNode *source_node, Scope *parent_scope);
 ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf *name,
     bool is_const, ConstExprValue *init_value, Tld *src_tld, ZigType *var_type);
@@ -109,7 +118,6 @@ ScopeCImport *create_cimport_scope(CodeGen *g, AstNode *node, Scope *parent);
 ScopeLoop *create_loop_scope(CodeGen *g, AstNode *node, Scope *parent);
 ScopeSuspend *create_suspend_scope(CodeGen *g, AstNode *node, Scope *parent);
 ScopeFnDef *create_fndef_scope(CodeGen *g, AstNode *node, Scope *parent, ZigFn *fn_entry);
-ScopeDecls *create_decls_scope(CodeGen *g, AstNode *node, Scope *parent, ZigType *container_type, ImportTableEntry *import);
 Scope *create_comptime_scope(CodeGen *g, AstNode *node, Scope *parent);
 Scope *create_coro_prelude_scope(CodeGen *g, AstNode *node, Scope *parent);
 Scope *create_runtime_scope(CodeGen *g, AstNode *node, Scope *parent, IrInstruction *is_comptime);
@@ -186,7 +194,7 @@ LinkLib *add_link_lib(CodeGen *codegen, Buf *lib);
 
 uint32_t get_abi_alignment(CodeGen *g, ZigType *type_entry);
 ZigType *get_align_amt_type(CodeGen *g);
-PackageTableEntry *new_anonymous_package(void);
+ZigPackage *new_anonymous_package(void);
 
 Buf *const_value_to_buffer(ConstExprValue *const_val);
 void add_fn_export(CodeGen *g, ZigFn *fn_table_entry, Buf *symbol_name, GlobalLinkageId linkage, bool ccc);
@@ -232,4 +240,6 @@ Error ensure_const_val_repr(IrAnalyze *ira, CodeGen *codegen, AstNode *source_no
         ConstExprValue *const_val, ZigType *wanted_type);
 
 void typecheck_panic_fn(CodeGen *g, TldFn *tld_fn, ZigFn *panic_fn);
+Buf *type_bare_name(ZigType *t);
+Buf *type_h_name(ZigType *t);
 #endif

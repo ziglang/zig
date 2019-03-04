@@ -76,7 +76,7 @@ struct TransScopeWhile {
 };
 
 struct Context {
-    ImportTableEntry *import;
+    ZigType *import;
     ZigList<ErrorMsg *> *errors;
     VisibMod visib_mod;
     bool want_export;
@@ -4779,7 +4779,7 @@ static void process_preprocessor_entities(Context *c, ZigClangASTUnit *zunit) {
     }
 }
 
-Error parse_h_buf(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, Buf *source,
+Error parse_h_buf(ZigType *import, ZigList<ErrorMsg *> *errors, Buf *source,
         CodeGen *codegen, AstNode *source_node)
 {
     Error err;
@@ -4795,7 +4795,7 @@ Error parse_h_buf(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, Buf *so
     return err;
 }
 
-Error parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const char *target_file,
+Error parse_h_file(ZigType *import, ZigList<ErrorMsg *> *errors, const char *target_file,
         CodeGen *codegen, AstNode *source_node)
 {
     Context context = {0};
@@ -5005,7 +5005,8 @@ Error parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const 
     render_macros(c);
     render_aliases(c);
 
-    import->root = c->root;
+    import->data.structure.decl_node = c->root;
+    import->data.structure.decls_scope->base.source_node = c->root;
 
     return ErrorNone;
 }
