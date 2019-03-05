@@ -16,7 +16,6 @@ static const char *zig_libc_keys[] = {
     "crt_dir",
     "msvc_lib_dir",
     "kernel32_lib_dir",
-    "dynamic_linker_path",
 };
 
 static const size_t zig_libc_keys_len = array_length(zig_libc_keys);
@@ -37,7 +36,6 @@ static void zig_libc_init_empty(ZigLibCInstallation *libc) {
     buf_init_from_str(&libc->crt_dir, "");
     buf_init_from_str(&libc->msvc_lib_dir, "");
     buf_init_from_str(&libc->kernel32_lib_dir, "");
-    buf_init_from_str(&libc->dynamic_linker_path, "");
 }
 
 Error zig_libc_parse(ZigLibCInstallation *libc, Buf *libc_file, const ZigTarget *target, bool verbose) {
@@ -78,7 +76,6 @@ Error zig_libc_parse(ZigLibCInstallation *libc, Buf *libc_file, const ZigTarget 
         match = match || zig_libc_match_key(name, value, found_keys, 2, &libc->crt_dir);
         match = match || zig_libc_match_key(name, value, found_keys, 3, &libc->msvc_lib_dir);
         match = match || zig_libc_match_key(name, value, found_keys, 4, &libc->kernel32_lib_dir);
-        match = match || zig_libc_match_key(name, value, found_keys, 5, &libc->dynamic_linker_path);
     }
 
     for (size_t i = 0; i < zig_libc_keys_len; i += 1) {
@@ -126,15 +123,6 @@ Error zig_libc_parse(ZigLibCInstallation *libc, Buf *libc_file, const ZigTarget 
         if (target->os == OsWindows) {
             if (verbose) {
                 fprintf(stderr, "kernel32_lib_dir may not be empty for %s\n", target_os_name(target->os));
-            }
-            return ErrorSemanticAnalyzeFail;
-        }
-    }
-
-    if (buf_len(&libc->dynamic_linker_path) == 0) {
-        if (!target_is_darwin(target) && target->os != OsWindows) {
-            if (verbose) {
-                fprintf(stderr, "dynamic_linker_path may not be empty for %s\n", target_os_name(target->os));
             }
             return ErrorSemanticAnalyzeFail;
         }
@@ -301,8 +289,8 @@ static Error zig_libc_find_native_include_dir_posix(ZigLibCInstallation *self, b
     }
     return ErrorFileNotFound;
 }
-#if !defined(ZIG_OS_DARWIN) && !defined(ZIG_OS_FREEBSD) && !defined(ZIG_OS_NETBSD)
-static Error zig_libc_cc_print_file_name(const char *o_file, Buf *out, bool want_dirname, bool verbose) {
+#if defined(ZIG_OS_LINUX)
+Error zig_libc_cc_print_file_name(const char *o_file, Buf *out, bool want_dirname, bool verbose) {
     const char *cc_exe = getenv("CC");
     cc_exe = (cc_exe == nullptr) ? "cc" : cc_exe;
     ZigList<const char *> args = {};
@@ -340,32 +328,6 @@ static Error zig_libc_find_native_crt_dir_posix(ZigLibCInstallation *self, bool 
     return zig_libc_cc_print_file_name("crt1.o", &self->crt_dir, true, verbose);
 }
 #endif
-
-static Error zig_libc_find_native_dynamic_linker_posix(ZigLibCInstallation *self, bool verbose) {
-#if defined(ZIG_OS_LINUX)
-    Error err;
-    static const char *dyn_tests[] = {
-        "ld-linux-x86-64.so.2",
-        "ld-musl-x86_64.so.1",
-    };
-    for (size_t i = 0; i < array_length(dyn_tests); i += 1) {
-        const char *lib_name = dyn_tests[i];
-        if ((err = zig_libc_cc_print_file_name(lib_name, &self->dynamic_linker_path, false, true))) {
-            if (err != ErrorCCompilerCannotFindFile)
-                return err;
-            continue;
-        }
-        return ErrorNone;
-    }
-#endif
-    ZigTarget native_target;
-    get_native_target(&native_target);
-    const char *dynamic_linker_path = target_dynamic_linker(&native_target);
-    if (dynamic_linker_path != nullptr) {
-        buf_init_from_str(&self->dynamic_linker_path, dynamic_linker_path);
-    }
-    return ErrorNone;
-}
 #endif
 
 void zig_libc_render(ZigLibCInstallation *self, FILE *file) {
@@ -391,17 +353,12 @@ void zig_libc_render(ZigLibCInstallation *self, FILE *file) {
         "# Only needed when targeting Windows.\n"
         "kernel32_lib_dir=%s\n"
         "\n"
-        "# The full path to the dynamic linker, on the target system.\n"
-        "# Not needed when targeting MacOS or Windows.\n"
-        "dynamic_linker_path=%s\n"
-        "\n"
     ,
         buf_ptr(&self->include_dir),
         buf_ptr(&self->sys_include_dir),
         buf_ptr(&self->crt_dir),
         buf_ptr(&self->msvc_lib_dir),
-        buf_ptr(&self->kernel32_lib_dir),
-        buf_ptr(&self->dynamic_linker_path)
+        buf_ptr(&self->kernel32_lib_dir)
     );
 }
 
@@ -438,12 +395,10 @@ Error zig_libc_find_native(ZigLibCInstallation *self, bool verbose) {
         return err;
 #if defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD)
     buf_init_from_str(&self->crt_dir, "/usr/lib");
-#elif !defined(ZIG_OS_DARWIN)
+#elif defined(ZIG_OS_LINUX)
     if ((err = zig_libc_find_native_crt_dir_posix(self, verbose)))
         return err;
 #endif
-    if ((err = zig_libc_find_native_dynamic_linker_posix(self, verbose)))
-        return err;
     return ErrorNone;
 #endif
 }

@@ -1,4 +1,5 @@
 #include "cache_hash.hpp"
+#include "os.hpp"
 
 #include <stdio.h>
 
@@ -8,8 +9,9 @@ static Buf saved_stage1_path = BUF_INIT;
 static Buf saved_lib_dir = BUF_INIT;
 static Buf saved_special_dir = BUF_INIT;
 static Buf saved_std_dir = BUF_INIT;
+static Buf saved_dynamic_linker_path = BUF_INIT;
 
-Buf *get_stage1_cache_path() {
+Buf *get_stage1_cache_path(void) {
     if (saved_stage1_path.list.length != 0) {
         return &saved_stage1_path;
     }
@@ -57,6 +59,13 @@ Error get_compiler_id(Buf **result) {
         Buf *lib_path = lib_paths.at(i);
         if ((err = cache_add_file(ch, lib_path)))
             return err;
+#if defined(ZIG_OS_LINUX) && defined(ZIG_ARCH_X86_64)
+        if (buf_ends_with_str(lib_path, "ld-linux-x86-64.so.2")) {
+            buf_init_from_buf(&saved_dynamic_linker_path, lib_path);
+        } else if (buf_ends_with_str(lib_path, "ld-musl-x86-64.so.1")) {
+            buf_init_from_buf(&saved_dynamic_linker_path, lib_path);
+        }
+#endif
     }
     if ((err = cache_final(ch, &saved_compiler_id)))
         return err;
@@ -67,6 +76,11 @@ Error get_compiler_id(Buf **result) {
     return ErrorNone;
 }
 
+Buf *get_self_dynamic_linker_path(void) {
+    Buf *dontcare;
+    (void)get_compiler_id(&dontcare); // for the side-effects of caching the dynamic linker path
+    return (saved_dynamic_linker_path.list.length == 0) ? nullptr : &saved_dynamic_linker_path;
+}
 
 static bool test_zig_install_prefix(Buf *test_path, Buf *out_zig_lib_dir) {
     Buf lib_buf = BUF_INIT;

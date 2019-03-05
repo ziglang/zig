@@ -166,7 +166,7 @@ static int print_target_list(FILE *f) {
         SubArchList sub_arch_list = target_subarch_list(arch);
         size_t sub_count = target_subarch_count(sub_arch_list);
         const char *arch_native_str = (native.arch == arch) ? " (native)" : "";
-        fprintf(stderr, "  %s%s\n", arch_name, arch_native_str);
+        fprintf(f, "  %s%s\n", arch_name, arch_native_str);
         for (size_t sub_i = 0; sub_i < sub_count; sub_i += 1) {
             ZigLLVM_SubArchType sub = target_subarch_enum(sub_arch_list, sub_i);
             const char *sub_name = target_subarch_name(sub);
@@ -406,6 +406,7 @@ int main(int argc, char **argv) {
     bool verbose_cc = false;
     ErrColor color = ErrColorAuto;
     CacheOpt enable_cache = CacheOptAuto;
+    const char *dynamic_linker = nullptr;
     const char *libc_txt = nullptr;
     ZigList<const char *> clang_argv = {0};
     ZigList<const char *> llvm_argv = {0};
@@ -715,6 +716,8 @@ int main(int argc, char **argv) {
                     }
                 } else if (strcmp(arg, "--name") == 0) {
                     out_name = argv[i];
+                } else if (strcmp(arg, "--dynamic-linker") == 0) {
+                    dynamic_linker = argv[i];
                 } else if (strcmp(arg, "--libc") == 0) {
                     libc_txt = argv[i];
                 } else if (strcmp(arg, "-isystem") == 0) {
@@ -1027,6 +1030,8 @@ int main(int argc, char **argv) {
             codegen_set_llvm_argv(g, llvm_argv.items, llvm_argv.length);
             codegen_set_strip(g, strip);
             codegen_set_is_static(g, is_static);
+            if (dynamic_linker != nullptr)
+                codegen_set_dynamic_linker(g, buf_create_from_str(dynamic_linker));
             g->verbose_tokenize = verbose_tokenize;
             g->verbose_ast = verbose_ast;
             g->verbose_link = verbose_link;

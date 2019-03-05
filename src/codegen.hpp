@@ -29,6 +29,7 @@ void codegen_set_is_static(CodeGen *codegen, bool is_static);
 void codegen_set_strip(CodeGen *codegen, bool strip);
 void codegen_set_errmsg_color(CodeGen *codegen, ErrColor err_color);
 void codegen_set_out_name(CodeGen *codegen, Buf *out_name);
+void codegen_set_dynamic_linker(CodeGen *g, Buf *dynamic_linker);
 void codegen_add_lib_dir(CodeGen *codegen, const char *dir);
 void codegen_add_forbidden_lib(CodeGen *codegen, Buf *lib);
 LinkLib *codegen_add_link_lib(CodeGen *codegen, Buf *lib);

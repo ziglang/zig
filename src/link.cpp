@@ -517,14 +517,9 @@ static void construct_linker_job_elf(LinkJob *lj) {
         }
 
         if (!g->is_static) {
-            if (g->libc != nullptr) {
-                assert(buf_len(&g->libc->dynamic_linker_path) != 0);
-                lj->args.append("-dynamic-linker");
-                lj->args.append(buf_ptr(&g->libc->dynamic_linker_path));
-            } else {
-                lj->args.append("-dynamic-linker");
-                lj->args.append(target_dynamic_linker(g->zig_target));
-            }
+            assert(g->dynamic_linker_path != nullptr);
+            lj->args.append("-dynamic-linker");
+            lj->args.append(buf_ptr(g->dynamic_linker_path));
         }
 
     }
@@ -545,7 +540,6 @@ static void construct_linker_job_elf(LinkJob *lj) {
             lj->args.append(buf_ptr(builtin_a_path));
         }
 
-        // sometimes libgcc is missing stuff, so we still build compiler_rt and rely on weak linkage
         Buf *compiler_rt_o_path = build_compiler_rt(g);
         lj->args.append(buf_ptr(compiler_rt_o_path));
     }

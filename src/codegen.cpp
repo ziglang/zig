@@ -257,6 +257,10 @@ void codegen_set_out_name(CodeGen *g, Buf *out_name) {
     g->root_out_name = out_name;
 }
 
+void codegen_set_dynamic_linker(CodeGen *g, Buf *dynamic_linker_path) {
+    g->dynamic_linker_path = dynamic_linker_path;
+}
+
 void codegen_add_lib_dir(CodeGen *g, const char *dir) {
     g->lib_dirs.append(dir);
 }
@@ -7908,6 +7912,51 @@ static void init(CodeGen *g) {
     }
 }
 
+static void detect_dynamic_linker(CodeGen *g) {
+    if (g->dynamic_linker_path != nullptr)
+        return;
+
+    if (g->zig_target->is_native) {
+        // target_dynamic_linker is usually correct. However on some systems, such as NixOS
+        // it will be incorrect. See if we can do better by looking at what zig's own
+        // dynamic linker path is.
+        g->dynamic_linker_path = get_self_dynamic_linker_path();
+        if (g->dynamic_linker_path != nullptr)
+            return;
+
+        // If Zig is statically linked, such as via distributed binary static builds, the above
+        // trick won't work. What are we left with? Try to run the system C compiler and get
+        // it to tell us the dynamic linker path
+#if defined(ZIG_OS_LINUX)
+        {
+            Error err;
+            static const char *dyn_tests[] = {
+#if defined(ZIG_ARCH_X86_64)
+                "ld-linux-x86-64.so.2",
+                "ld-musl-x86_64.so.1",
+#endif
+            };
+            Buf *result = buf_alloc();
+            for (size_t i = 0; i < array_length(dyn_tests); i += 1) {
+                const char *lib_name = dyn_tests[i];
+                if ((err = zig_libc_cc_print_file_name(lib_name, result, false, true))) {
+                    if (err != ErrorCCompilerCannotFindFile) {
+                        fprintf(stderr, "Unable to detect native dynamic linker: %s\n", err_str(err));
+                        exit(1);
+                    }
+                    continue;
+                }
+                g->dynamic_linker_path = result;
+                return;
+            }
+        }
+#endif
+    }
+
+    // Otherwise go with the standard linker path.
+    g->dynamic_linker_path = buf_create_from_str(target_dynamic_linker(g->zig_target));
+}
+
 static void detect_libc(CodeGen *g) {
     Error err;
 
@@ -9029,8 +9078,8 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
         cache_buf(ch, &g->libc->crt_dir);
         cache_buf(ch, &g->libc->msvc_lib_dir);
         cache_buf(ch, &g->libc->kernel32_lib_dir);
-        cache_buf(ch, &g->libc->dynamic_linker_path);
     }
+    cache_buf(ch, g->dynamic_linker_path);
 
     gen_c_objects(g);
 
@@ -9132,6 +9181,7 @@ void codegen_build_and_link(CodeGen *g) {
     assert(g->out_type != OutTypeUnknown);
 
     detect_libc(g);
+    detect_dynamic_linker(g);
 
     Buf *artifact_dir = buf_alloc();
     Buf digest = BUF_INIT;
