@@ -9027,8 +9027,6 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
         cache_buf(ch, &g->libc->include_dir);
         cache_buf(ch, &g->libc->sys_include_dir);
         cache_buf(ch, &g->libc->crt_dir);
-        cache_buf(ch, &g->libc->lib_dir);
-        cache_buf(ch, &g->libc->static_lib_dir);
         cache_buf(ch, &g->libc->msvc_lib_dir);
         cache_buf(ch, &g->libc->kernel32_lib_dir);
         cache_buf(ch, &g->libc->dynamic_linker_path);

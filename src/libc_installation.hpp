@@ -19,8 +19,6 @@ struct ZigLibCInstallation {
     Buf include_dir;
     Buf sys_include_dir;
     Buf crt_dir;
-    Buf lib_dir;
-    Buf static_lib_dir;
     Buf msvc_lib_dir;
     Buf kernel32_lib_dir;
     Buf dynamic_linker_path;

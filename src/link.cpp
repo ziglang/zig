@@ -305,13 +305,6 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
     }
 }
 
-static const char *get_libc_static_file(CodeGen *g, const char *file) {
-    assert(g->libc != nullptr);
-    Buf *out_buf = buf_alloc();
-    os_path_join(&g->libc->static_lib_dir, buf_create_from_str(file), out_buf);
-    return buf_ptr(out_buf);
-}
-
 static Buf *build_a_raw(CodeGen *parent_gen, const char *aname, Buf *full_path) {
     // The Mach-O LLD code is not well maintained, and trips an assertion
     // when we link compiler_rt and builtin as libraries rather than objects.
@@ -432,11 +425,6 @@ static void add_rpath(LinkJob *lj, Buf *rpath) {
     lj->rpath_table.put(rpath, true);
 }
 
-// TODO: try to get away with completely removing this functionality
-static bool want_gcc_objects(CodeGen *g) {
-    return g->libc != nullptr && buf_len(&g->libc->static_lib_dir) != 0;
-}
-
 static void construct_linker_job_elf(LinkJob *lj) {
     CodeGen *g = lj->codegen;
 
@@ -480,22 +468,15 @@ static void construct_linker_job_elf(LinkJob *lj) {
 
     if (lj->link_in_crt) {
         const char *crt1o;
-        const char *crtbegino;
         if (g->zig_target->os == OsNetBSD) {
             crt1o = "crt0.o";
-            crtbegino = "crtbegin.o";
         } else if (g->is_static) {
             crt1o = "crt1.o";
-            crtbegino = "crtbeginT.o";
         } else {
             crt1o = "Scrt1.o";
-            crtbegino = "crtbegin.o";
         }
         lj->args.append(get_libc_crt_file(g, crt1o));
         lj->args.append(get_libc_crt_file(g, "crti.o"));
-        if (want_gcc_objects(g)) {
-            lj->args.append(get_libc_static_file(g, crtbegino));
-        }
     }
 
     for (size_t i = 0; i < g->rpath_list.length; i += 1) {
@@ -533,14 +514,6 @@ static void construct_linker_job_elf(LinkJob *lj) {
         if (g->libc != nullptr) {
             lj->args.append("-L");
             lj->args.append(buf_ptr(&g->libc->crt_dir));
-
-            if (!buf_eql_buf(&g->libc->crt_dir, &g->libc->lib_dir)) {
-                lj->args.append("-L");
-                lj->args.append(buf_ptr(&g->libc->lib_dir));
-            }
-
-            lj->args.append("-L");
-            lj->args.append(buf_ptr(&g->libc->static_lib_dir));
         }
 
         if (!g->is_static) {
@@ -624,9 +597,6 @@ static void construct_linker_job_elf(LinkJob *lj) {
 
     // crt end
     if (lj->link_in_crt) {
-        if (want_gcc_objects(g)) {
-            lj->args.append(get_libc_static_file(g, "crtend.o"));
-        }
         lj->args.append(get_libc_crt_file(g, "crtn.o"));
     }
 
@@ -730,95 +700,6 @@ static void add_nt_link_args(LinkJob *lj, bool is_library) {
         }
     }
 }
-
-// These are n actual command lines from LINK.EXE UEFI builds (app & driver) to be used as guidance cleaning
-// up a bit for building the COFF linker args:
-// /OUT:"J:\coding\nebulae\k\x64\Release\k.efi" /LTCG:incremental /Driver /PDB:"J:\coding\nebulae\k\x64\Release\k.pdb" "UefiApplicationEntryPoint.lib" "UefiRuntimeLib.lib" "UefiHiiLib.lib" "UefiHiiServicesLib.lib" "UefiSortLib.lib" "UefiShellLib.lib" "GlueLib.lib" "BaseLib.lib" "BaseDebugPrintErrorLevelLib.lib" "BasePrintLib.lib" "UefiLib.lib" "UefiBootServicesTableLib.lib" "UefiRuntimeServicesTableLib.lib" "UefiDevicePathLibDevicePathProtocol.lib" "UefiDebugLibConOut.lib" "UefiMemoryLib.lib" "UefiMemoryAllocationLib.lib" "BaseSynchronizationLib.lib" "UefiFileHandleLib.lib" /IMPLIB:"J:\coding\nebulae\k\x64\Release\k.lib" /DEBUG:FASTLINK /BASE:"0" /MACHINE:X64 /ENTRY:"EfiMain" /OPT:REF /SAFESEH:NO /SUBSYSTEM:EFI_APPLICATION /MERGE:".rdata=.data" /NOLOGO /ALIGN:32 /NODEFAULTLIB /SECTION:".xdata,D" 
-// /OUT:"J:\coding\VisualUefi\samples\x64\Release\UefiDriver.efi" /LTCG:incremental /Driver /PDB:"J:\coding\VisualUefi\samples\x64\Release\UefiDriver.pdb" "UefiDriverEntryPoint.lib" "UefiHiiLib.lib" "UefiHiiServicesLib.lib" "UefiSortLib.lib" "UefiShellLib.lib" "GlueLib.lib" "BaseLib.lib" "BaseDebugPrintErrorLevelLib.lib" "BasePrintLib.lib" "UefiLib.lib" "UefiBootServicesTableLib.lib" "UefiRuntimeServicesTableLib.lib" "UefiDevicePathLibDevicePathProtocol.lib" "UefiDebugLibConOut.lib" "UefiMemoryLib.lib" "UefiMemoryAllocationLib.lib" "BaseSynchronizationLib.lib" "UefiFileHandleLib.lib" /IMPLIB:"J:\coding\VisualUefi\samples\x64\Release\UefiDriver.lib" /DEBUG:FASTLINK /BASE:"0" /MACHINE:X64 /ENTRY:"EfiMain" /OPT:REF /SAFESEH:NO /SUBSYSTEM:EFI_BOOT_SERVICE_DRIVER /MERGE:".rdata=.data" /NOLOGO /ALIGN:32 /NODEFAULTLIB /SECTION:".xdata,D" 
-// This commented out stuff is from when we linked with MinGW
-// Now that we're linking with LLD it remains to be determined
-// how to handle --target-environ gnu
-// These comments are a clue
-//bool dll = g->out_type == OutTypeLib;
-//bool shared = !g->is_static && dll;
-//if (g->is_static) {
-//    lj->args.append("-Bstatic");
-//} else {
-//    if (dll) {
-//        lj->args.append("--dll");
-//    } else if (shared) {
-//        lj->args.append("--shared");
-//    }
-//    lj->args.append("-Bdynamic");
-//    if (dll || shared) {
-//        lj->args.append("-e");
-//        if (g->zig_target.arch == ZigLLVM_x86) {
-//            lj->args.append("_DllMainCRTStartup@12");
-//        } else {
-//            lj->args.append("DllMainCRTStartup");
-//        }
-//        lj->args.append("--enable-auto-image-base");
-//    }
-//}
-//if (shared || dll) {
-//    lj->args.append(get_libc_file(g, "dllcrt2.o"));
-//} else {
-//    if (g->windows_linker_unicode) {
-//        lj->args.append(get_libc_file(g, "crt2u.o"));
-//    } else {
-//        lj->args.append(get_libc_file(g, "crt2.o"));
-//    }
-//}
-//lj->args.append(get_libc_static_file(g, "crtbegin.o"));
-//if (g->libc_link_lib != nullptr) {
-//if (g->is_static) {
-//    lj->args.append("--start-group");
-//}
-
-//lj->args.append("-lmingw32");
-
-//lj->args.append("-lgcc");
-//bool is_android = (g->zig_target.abi == ZigLLVM_Android);
-//bool is_cyg_ming = is_target_cyg_mingw(&g->zig_target);
-//if (!g->is_static && !is_android) {
-//    if (!is_cyg_ming) {
-//        lj->args.append("--as-needed");
-//    }
-//    //lj->args.append("-lgcc_s");
-//    if (!is_cyg_ming) {
-//        lj->args.append("--no-as-needed");
-//    }
-//}
-//if (g->is_static && !is_android) {
-//    //lj->args.append("-lgcc_eh");
-//}
-//if (is_android && !g->is_static) {
-//    lj->args.append("-ldl");
-//}
-
-//lj->args.append("-lmoldname");
-//lj->args.append("-lmingwex");
-//lj->args.append("-lmsvcrt");
-
-
-//if (g->windows_subsystem_windows) {
-//    lj->args.append("-lgdi32");
-//    lj->args.append("-lcomdlg32");
-//}
-//lj->args.append("-ladvapi32");
-//lj->args.append("-lshell32");
-//lj->args.append("-luser32");
-//lj->args.append("-lkernel32");
-
-//if (g->is_static) {
-//    lj->args.append("--end-group");
-//}
-
-//if (lj->link_in_crt) {
-//    lj->args.append(get_libc_static_file(g, "crtend.o"));
-//}
-//}
-
 
 static void construct_linker_job_coff(LinkJob *lj) {
     CodeGen *g = lj->codegen;
