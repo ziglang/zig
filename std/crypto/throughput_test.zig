@@ -2,7 +2,7 @@ const builtin = @import("builtin");
 const std = @import("std");
 const time = std.os.time;
 const Timer = time.Timer;
-const crypto = @import("index.zig");
+const crypto = @import("../crypto.zig");
 
 const KiB = 1024;
 const MiB = 1024 * KiB;

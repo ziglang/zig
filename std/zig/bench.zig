@@ -5,7 +5,7 @@ const Tokenizer = std.zig.Tokenizer;
 const Parser = std.zig.Parser;
 const io = std.io;
 
-const source = @embedFile("../os/index.zig");
+const source = @embedFile("../os.zig");
 var fixed_buffer_mem: [10 * 1024 * 1024]u8 = undefined;
 
 pub fn main() !void {

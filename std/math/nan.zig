@@ -1,4 +1,4 @@
-const math = @import("index.zig");
+const math = @import("../math.zig");
 
 pub fn nan(comptime T: type) T {
     return switch (T) {

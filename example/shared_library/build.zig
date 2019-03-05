@@ -3,10 +3,10 @@ const Builder = @import("std").build.Builder;
 pub fn build(b: *Builder) void {
     const lib = b.addSharedLibrary("mathtest", "mathtest.zig", b.version(1, 0, 0));
 
-    const exe = b.addCExecutable("test");
-    exe.addCompileFlags([][]const u8{"-std=c99"});
-    exe.addSourceFile("test.c");
+    const exe = b.addExecutable("test", null);
+    exe.addCSourceFile("test.c", [][]const u8{"-std=c99"});
     exe.linkLibrary(lib);
+    exe.linkSystemLibrary("c");
 
     b.default_step.dependOn(&exe.step);
 

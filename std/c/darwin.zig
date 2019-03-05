@@ -36,11 +36,20 @@ pub extern "c" fn sysctlnametomib(name: [*]const u8, mibp: ?*c_int, sizep: ?*usi
 pub extern "c" fn bind(socket: c_int, address: ?*const sockaddr, address_len: socklen_t) c_int;
 pub extern "c" fn socket(domain: c_int, type: c_int, protocol: c_int) c_int;
 
+const mach_hdr = if (@sizeOf(usize) == 8) mach_header_64 else mach_header;
+
 /// The value of the link editor defined symbol _MH_EXECUTE_SYM is the address
 /// of the mach header in a Mach-O executable file type.  It does not appear in
 /// any file type other than a MH_EXECUTE file type.  The type of the symbol is
 /// absolute as the header is not part of any section.
-pub extern "c" var _mh_execute_header: if (@sizeOf(usize) == 8) mach_header_64 else mach_header;
+/// This symbol is populated when linking the system's libc, which is guaranteed
+/// on this operating system. However when building object files or libraries,
+/// the system libc won't be linked until the final executable. So we
+/// export a weak symbol here, to be overridden by the real one.
+pub extern "c" var _mh_execute_header: mach_hdr = undefined;
+comptime {
+    @export("__mh_execute_header", _mh_execute_header, @import("builtin").GlobalLinkage.Weak);
+}
 
 pub const mach_header_64 = macho.mach_header_64;
 pub const mach_header = macho.mach_header;
@@ -154,7 +163,7 @@ pub const Kevent = extern struct {
 // sys/types.h on macos uses #pragma pack(4) so these checks are
 // to make sure the struct is laid out the same. These values were
 // produced from C code using the offsetof macro.
-const std = @import("../index.zig");
+const std = @import("../std.zig");
 const assert = std.debug.assert;
 
 comptime {

@@ -134,7 +134,7 @@ nakedcc fn clone() void {
     }
 }
 
-const math = @import("../math/index.zig");
+const math = std.math;
 
 export fn fmodf(x: f32, y: f32) f32 {
     return generic_fmod(f32, x, y);

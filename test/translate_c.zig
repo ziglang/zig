@@ -1417,6 +1417,14 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     );
 
+    cases.addC("Parameterless function prototypes",
+        \\void foo() {}
+        \\void bar(void) {}
+    ,
+        \\pub export fn foo() void {}
+        \\pub export fn bar() void {}
+    );
+
     // cases.add("empty array with initializer",
     //     "int a[4] = {};"
     // ,

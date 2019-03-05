@@ -49,12 +49,13 @@ pub fn build(b: *Builder) !void {
         .c_header_files = nextValue(&index, build_info),
         .dia_guids_lib = nextValue(&index, build_info),
         .llvm = undefined,
-        .no_rosegment = b.option(bool, "no-rosegment", "Workaround to enable valgrind builds") orelse false,
     };
     ctx.llvm = try findLLVM(b, ctx.llvm_config_exe);
 
     var test_stage2 = b.addTest("src-self-hosted/test.zig");
     test_stage2.setBuildMode(builtin.Mode.Debug);
+
+    const fmt_build_zig = b.addFmt([][]const u8{"build.zig"});
 
     var exe = b.addExecutable("zig", "src-self-hosted/main.zig");
     exe.setBuildMode(mode);
@@ -107,11 +108,16 @@ pub fn build(b: *Builder) !void {
     }
     const modes = chosen_modes[0..chosen_mode_index];
 
+    // run stage1 `zig fmt` on this build.zig file just to make sure it works
+    test_step.dependOn(&fmt_build_zig.step);
+    const fmt_step = b.step("test-fmt", "Run zig fmt against build.zig to make sure it works");
+    fmt_step.dependOn(&fmt_build_zig.step);
+
     test_step.dependOn(tests.addPkgTests(b, test_filter, "test/stage1/behavior.zig", "behavior", "Run the behavior tests", modes));
 
-    test_step.dependOn(tests.addPkgTests(b, test_filter, "std/index.zig", "std", "Run the standard library tests", modes));
+    test_step.dependOn(tests.addPkgTests(b, test_filter, "std/std.zig", "std", "Run the standard library tests", modes));
 
-    test_step.dependOn(tests.addPkgTests(b, test_filter, "std/special/compiler_rt/index.zig", "compiler-rt", "Run the compiler_rt tests", modes));
+    test_step.dependOn(tests.addPkgTests(b, test_filter, "std/special/compiler_rt.zig", "compiler-rt", "Run the compiler_rt tests", modes));
 
     test_step.dependOn(tests.addCompareOutputTests(b, test_filter, modes));
     test_step.dependOn(tests.addBuildExampleTests(b, test_filter, modes));
@@ -289,8 +295,6 @@ fn nextValue(index: *usize, build_info: []const u8) []const u8 {
 }
 
 fn configureStage2(b: *Builder, exe: var, ctx: Context) !void {
-    exe.setNoRoSegment(ctx.no_rosegment);
-
     exe.addIncludeDir("src");
     exe.addIncludeDir(ctx.cmake_binary_dir);
     addCppLib(b, exe, ctx.cmake_binary_dir, "zig_cpp");
@@ -375,5 +379,4 @@ const Context = struct {
     c_header_files: []const u8,
     dia_guids_lib: []const u8,
     llvm: LibraryDep,
-    no_rosegment: bool,
 };

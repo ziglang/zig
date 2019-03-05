@@ -1,4 +1,4 @@
-const std = @import("../index.zig");
+const std = @import("../std.zig");
 const math = std.math;
 
 pub fn inf(comptime T: type) T {

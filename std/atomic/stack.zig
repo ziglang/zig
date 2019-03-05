@@ -68,7 +68,7 @@ pub fn Stack(comptime T: type) type {
     };
 }
 
-const std = @import("../index.zig");
+const std = @import("../std.zig");
 const Context = struct {
     allocator: *std.mem.Allocator,
     stack: *Stack(i32),

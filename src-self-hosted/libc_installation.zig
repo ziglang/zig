@@ -172,7 +172,7 @@ pub const LibCInstallation = struct {
                 try group.call(findNativeStaticLibDir, self, loop);
                 try group.call(findNativeDynamicLinker, self, loop);
             },
-            builtin.Os.macosx, builtin.Os.freebsd => {
+            builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => {
                 self.include_dir = try std.mem.dupe(loop.allocator, u8, "/usr/include");
             },
             else => @compileError("unimplemented: find libc for this OS"),
@@ -283,7 +283,7 @@ pub const LibCInstallation = struct {
             switch (builtin.arch) {
                 builtin.Arch.i386 => try stream.write("x86"),
                 builtin.Arch.x86_64 => try stream.write("x64"),
-                builtin.Arch.aarch64v8 => try stream.write("arm"),
+                builtin.Arch.aarch64 => try stream.write("arm"),
                 else => return error.UnsupportedArchitecture,
             }
             const ucrt_lib_path = try std.os.path.join(
@@ -361,7 +361,7 @@ pub const LibCInstallation = struct {
             switch (builtin.arch) {
                 builtin.Arch.i386 => try stream.write("x86\\"),
                 builtin.Arch.x86_64 => try stream.write("x64\\"),
-                builtin.Arch.aarch64v8 => try stream.write("arm\\"),
+                builtin.Arch.aarch64 => try stream.write("arm\\"),
                 else => return error.UnsupportedArchitecture,
             }
             const kernel32_path = try std.os.path.join(

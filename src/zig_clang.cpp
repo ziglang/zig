@@ -140,24 +140,24 @@ static_assert((clang::UnaryOperatorKind)ZigClangUO_Real == clang::UO_Real, "");
 static_assert(sizeof(ZigClangSourceLocation) == sizeof(clang::SourceLocation), "");
 static ZigClangSourceLocation bitcast(clang::SourceLocation src) {
     ZigClangSourceLocation dest;
-    memcpy(&dest, &src, sizeof(ZigClangSourceLocation));
+    memcpy(&dest, static_cast<void *>(&src), sizeof(ZigClangSourceLocation));
     return dest;
 }
 static clang::SourceLocation bitcast(ZigClangSourceLocation src) {
     clang::SourceLocation dest;
-    memcpy(&dest, &src, sizeof(ZigClangSourceLocation));
+    memcpy(&dest, static_cast<void *>(&src), sizeof(ZigClangSourceLocation));
     return dest;
 }
 
 static_assert(sizeof(ZigClangQualType) == sizeof(clang::QualType), "");
 static ZigClangQualType bitcast(clang::QualType src) {
     ZigClangQualType dest;
-    memcpy(&dest, &src, sizeof(ZigClangQualType));
+    memcpy(&dest, static_cast<void *>(&src), sizeof(ZigClangQualType));
     return dest;
 }
 static clang::QualType bitcast(ZigClangQualType src) {
     clang::QualType dest;
-    memcpy(&dest, &src, sizeof(ZigClangQualType));
+    memcpy(&dest, static_cast<void *>(&src), sizeof(ZigClangQualType));
     return dest;
 }
 

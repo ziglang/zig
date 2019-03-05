@@ -25,6 +25,8 @@
 #define ZIG_OS_LINUX
 #elif defined(__FreeBSD__)
 #define ZIG_OS_FREEBSD
+#elif defined(__NetBSD__)
+#define ZIG_OS_NETBSD
 #else
 #define ZIG_OS_UNKNOWN
 #endif
@@ -94,7 +96,7 @@ void os_path_dirname(Buf *full_path, Buf *out_dirname);
 void os_path_split(Buf *full_path, Buf *out_dirname, Buf *out_basename);
 void os_path_extname(Buf *full_path, Buf *out_basename, Buf *out_extname);
 void os_path_join(Buf *dirname, Buf *basename, Buf *out_full_path);
-int os_path_real(Buf *rel_path, Buf *out_abs_path);
+Error os_path_real(Buf *rel_path, Buf *out_abs_path);
 Buf os_path_resolve(Buf **paths_ptr, size_t paths_len);
 bool os_path_is_absolute(Buf *path);
 
@@ -119,6 +121,7 @@ Error ATTRIBUTE_MUST_USE os_get_cwd(Buf *out_cwd);
 bool os_stderr_tty(void);
 void os_stderr_set_color(TermColor color);
 
+Buf *os_tmp_filename(Buf *prefix, Buf *suffix);
 Error os_buf_to_tmp_file(Buf *contents, Buf *suffix, Buf *out_tmp_path);
 Error os_delete_file(Buf *path);
 
@@ -133,9 +136,9 @@ Error ATTRIBUTE_MUST_USE os_self_exe_path(Buf *out_path);
 
 Error ATTRIBUTE_MUST_USE os_get_app_data_dir(Buf *out_path, const char *appname);
 
-int os_get_win32_ucrt_include_path(ZigWindowsSDK *sdk, Buf *output_buf);
-int os_get_win32_ucrt_lib_path(ZigWindowsSDK *sdk, Buf *output_buf, ZigLLVM_ArchType platform_type);
-int os_get_win32_kern32_path(ZigWindowsSDK *sdk, Buf *output_buf, ZigLLVM_ArchType platform_type);
+Error ATTRIBUTE_MUST_USE os_get_win32_ucrt_include_path(ZigWindowsSDK *sdk, Buf *output_buf);
+Error ATTRIBUTE_MUST_USE os_get_win32_ucrt_lib_path(ZigWindowsSDK *sdk, Buf *output_buf, ZigLLVM_ArchType platform_type);
+Error ATTRIBUTE_MUST_USE os_get_win32_kern32_path(ZigWindowsSDK *sdk, Buf *output_buf, ZigLLVM_ArchType platform_type);
 
 Error ATTRIBUTE_MUST_USE os_self_exe_shared_libs(ZigList<Buf *> &paths);
 

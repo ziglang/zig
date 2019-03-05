@@ -350,3 +350,18 @@ test "union with only 1 field casted to its enum type which has enum value speci
     expect(@enumToInt(t) == 33);
     comptime expect(@enumToInt(t) == 33);
 }
+
+test "@enumToInt works on unions" {
+    const Bar = union(enum) {
+        A: bool,
+        B: u8,
+        C,
+    };
+
+    const a = Bar{ .A = true };
+    var b = Bar{ .B = undefined };
+    var c = Bar.C;
+    expect(@enumToInt(a) == 0);
+    expect(@enumToInt(b) == 1);
+    expect(@enumToInt(c) == 2);
+}

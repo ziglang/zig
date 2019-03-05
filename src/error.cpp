@@ -34,6 +34,15 @@ const char *err_str(Error err) {
         case ErrorPipeBusy: return "pipe busy";
         case ErrorPrimitiveTypeNotFound: return "primitive type not found";
         case ErrorCacheUnavailable: return "cache unavailable";
+        case ErrorPathTooLong: return "path too long";
+        case ErrorCCompilerCannotFindFile: return "C compiler cannot find file";
+        case ErrorReadingDepFile: return "failed to read .d file";
+        case ErrorMissingArchitecture: return "missing architecture";
+        case ErrorMissingOperatingSystem: return "missing operating system";
+        case ErrorUnknownArchitecture: return "unrecognized architecture";
+        case ErrorUnknownOperatingSystem: return "unrecognized operating system";
+        case ErrorUnknownABI: return "unrecognized C ABI";
+        case ErrorInvalidFilename: return "invalid filename";
     }
     return "(invalid error)";
 }

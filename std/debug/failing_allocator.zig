@@ -1,4 +1,4 @@
-const std = @import("../index.zig");
+const std = @import("../std.zig");
 const mem = std.mem;
 
 /// Allocator that fails after N allocations, useful for making sure out of

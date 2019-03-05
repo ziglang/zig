@@ -1,4 +1,4 @@
-const std = @import("../index.zig");
+const std = @import("../std.zig");
 const assert = std.debug.assert;
 const testing = std.testing;
 const SegmentedList = std.SegmentedList;
@@ -617,7 +617,7 @@ pub const Node = struct {
 
         pub const DeclList = Root.DeclList;
 
-        const InitArg = union(enum) {
+        pub const InitArg = union(enum) {
             None,
             Enum: ?*Node,
             Type: *Node,
@@ -1744,7 +1744,7 @@ pub const Node = struct {
         kind: Kind,
         rhs: ?*Node,
 
-        const Kind = union(enum) {
+        pub const Kind = union(enum) {
             Break: ?*Node,
             Continue: ?*Node,
             Return,
@@ -2022,7 +2022,7 @@ pub const Node = struct {
         kind: Kind,
         rparen: TokenIndex,
 
-        const Kind = union(enum) {
+        pub const Kind = union(enum) {
             Variable: *Identifier,
             Return: *Node,
         };
@@ -2101,9 +2101,9 @@ pub const Node = struct {
         clobbers: ClobberList,
         rparen: TokenIndex,
 
-        const OutputList = SegmentedList(*AsmOutput, 2);
-        const InputList = SegmentedList(*AsmInput, 2);
-        const ClobberList = SegmentedList(TokenIndex, 2);
+        pub const OutputList = SegmentedList(*AsmOutput, 2);
+        pub const InputList = SegmentedList(*AsmInput, 2);
+        pub const ClobberList = SegmentedList(TokenIndex, 2);
 
         pub fn iterate(self: *Asm, index: usize) ?*Node {
             var i = index;

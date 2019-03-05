@@ -9,7 +9,7 @@
 //  powi(x, y)     = Underflow for for y > @sizeOf(x) - 1 y < 0
 
 const builtin = @import("builtin");
-const std = @import("../index.zig");
+const std = @import("../std.zig");
 const math = std.math;
 const assert = std.debug.assert;
 const testing = std.testing;

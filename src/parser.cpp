@@ -18,7 +18,7 @@ struct ParseContext {
     Buf *buf;
     size_t current_token;
     ZigList<Token> *tokens;
-    ImportTableEntry *owner;
+    ZigType *owner;
     ErrColor err_color;
 };
 
@@ -130,8 +130,10 @@ static void ast_error(ParseContext *pc, Token *token, const char *format, ...) {
     va_end(ap);
 
 
-    ErrorMsg *err = err_msg_create_with_line(pc->owner->path, token->start_line, token->start_column,
-            pc->owner->source_code, pc->owner->line_offsets, msg);
+    ErrorMsg *err = err_msg_create_with_line(pc->owner->data.structure.root_struct->path,
+            token->start_line, token->start_column,
+            pc->owner->data.structure.root_struct->source_code,
+            pc->owner->data.structure.root_struct->line_offsets, msg);
     err->line_start = token->start_line;
     err->column_start = token->start_column;
 
@@ -148,8 +150,10 @@ static void ast_asm_error(ParseContext *pc, AstNode *node, size_t offset, const 
     Buf *msg = buf_vprintf(format, ap);
     va_end(ap);
 
-    ErrorMsg *err = err_msg_create_with_line(pc->owner->path, node->line, node->column,
-            pc->owner->source_code, pc->owner->line_offsets, msg);
+    ErrorMsg *err = err_msg_create_with_line(pc->owner->data.structure.root_struct->path,
+            node->line, node->column,
+            pc->owner->data.structure.root_struct->source_code,
+            pc->owner->data.structure.root_struct->line_offsets, msg);
 
     print_err_msg(err, pc->err_color);
     exit(EXIT_FAILURE);
@@ -570,9 +574,7 @@ static void ast_parse_asm_template(ParseContext *pc, AstNode *node) {
     }
 }
 
-AstNode *ast_parse(Buf *buf, ZigList<Token> *tokens, ImportTableEntry *owner,
-        ErrColor err_color)
-{
+AstNode *ast_parse(Buf *buf, ZigList<Token> *tokens, ZigType *owner, ErrColor err_color) {
     ParseContext pc = {};
     pc.err_color = err_color;
     pc.owner = owner;
@@ -2739,6 +2741,7 @@ static AstNode *ast_parse_async_prefix(ParseContext *pc) {
 
     AstNode *res = ast_create_node(pc, NodeTypeFnCallExpr, async);
     res->data.fn_call_expr.is_async = true;
+    res->data.fn_call_expr.seen = false;
     if (eat_token_if(pc, TokenIdCmpLessThan) != nullptr) {
         AstNode *prefix_expr = ast_expect(pc, ast_parse_prefix_expr);
         expect_token(pc, TokenIdCmpGreaterThan);
@@ -2759,6 +2762,7 @@ static AstNode *ast_parse_fn_call_argumnets(ParseContext *pc) {
 
     AstNode *res = ast_create_node(pc, NodeTypeFnCallExpr, paren);
     res->data.fn_call_expr.params = params;
+    res->data.fn_call_expr.seen = false;
     return res;
 }
 

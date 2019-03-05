@@ -1,3 +1,12 @@
+test "zig fmt: infix operator and then multiline string literal" {
+    try testCanonical(
+        \\const x = "" ++
+        \\    \\ hi
+        \\;
+        \\
+    );
+}
+
 test "zig fmt: C pointers" {
     try testCanonical(
         \\const Ptr = [*c]i32;

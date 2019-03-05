@@ -1,4 +1,4 @@
-const std = @import("index.zig");
+const std = @import("std.zig");
 const HashMap = std.HashMap;
 const mem = std.mem;
 const Allocator = mem.Allocator;

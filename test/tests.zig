@@ -24,24 +24,24 @@ const gen_h = @import("gen_h.zig");
 const TestTarget = struct {
     os: builtin.Os,
     arch: builtin.Arch,
-    environ: builtin.Environ,
+    abi: builtin.Abi,
 };
 
 const test_targets = []TestTarget{
     TestTarget{
         .os = builtin.Os.linux,
         .arch = builtin.Arch.x86_64,
-        .environ = builtin.Environ.gnu,
+        .abi = builtin.Abi.gnu,
     },
     TestTarget{
         .os = builtin.Os.macosx,
         .arch = builtin.Arch.x86_64,
-        .environ = builtin.Environ.unknown,
+        .abi = builtin.Abi.gnu,
     },
     TestTarget{
         .os = builtin.Os.windows,
         .arch = builtin.Arch.x86_64,
-        .environ = builtin.Environ.msvc,
+        .abi = builtin.Abi.msvc,
     },
 };
 
@@ -189,7 +189,7 @@ pub fn addPkgTests(b: *build.Builder, test_filter: ?[]const u8, root_src: []cons
                     these_tests.setFilter(test_filter);
                     these_tests.setBuildMode(mode);
                     if (!is_native) {
-                        these_tests.setTarget(test_target.arch, test_target.os, test_target.environ);
+                        these_tests.setTarget(test_target.arch, test_target.os, test_target.abi);
                     }
                     if (link_libc) {
                         these_tests.linkSystemLibrary("c");
@@ -536,6 +536,7 @@ pub const CompileErrorContext = struct {
         name: []const u8,
         sources: ArrayList(SourceFile),
         expected_errors: ArrayList([]const u8),
+        expect_exact: bool,
         link_libc: bool,
         is_exe: bool,
         is_test: bool,
@@ -564,6 +565,24 @@ pub const CompileErrorContext = struct {
         test_index: usize,
         case: *const TestCase,
         build_mode: Mode,
+
+        const ErrLineIter = struct {
+            lines: mem.SplitIterator,
+
+            const source_file = "tmp.zig";
+
+            fn init(input: []const u8) ErrLineIter {
+                return ErrLineIter{ .lines = mem.separate(input, "\n") };
+            }
+
+            fn next(self: *ErrLineIter) ?[]const u8 {
+                while (self.lines.next()) |line| {
+                    if (mem.indexOf(u8, line, source_file) != null)
+                        return line;
+                }
+                return null;
+            }
+        };
 
         pub fn create(context: *CompileErrorContext, name: []const u8, case: *const TestCase, build_mode: Mode) *CompileCmpOutputStep {
             const allocator = context.b.allocator;
@@ -674,19 +693,49 @@ pub const CompileErrorContext = struct {
                 return error.TestFailed;
             }
 
-            for (self.case.expected_errors.toSliceConst()) |expected_error| {
-                if (mem.indexOf(u8, stderr, expected_error) == null) {
-                    warn(
-                        \\
-                        \\========= Expected this compile error: =========
-                        \\{}
-                        \\================================================
-                        \\{}
-                        \\
-                    , expected_error, stderr);
-                    return error.TestFailed;
+            var ok = true;
+            if (self.case.expect_exact) {
+                var err_iter = ErrLineIter.init(stderr);
+                var i: usize = 0;
+                ok = while (err_iter.next()) |line| : (i += 1) {
+                    if (i >= self.case.expected_errors.len) break false;
+                    const expected = self.case.expected_errors.at(i);
+                    if (mem.indexOf(u8, line, expected) == null) break false;
+                    continue;
+                } else true;
+
+                ok = ok and i == self.case.expected_errors.len;
+
+                if (!ok) {
+                    warn("\n======== Expected these compile errors: ========\n");
+                    for (self.case.expected_errors.toSliceConst()) |expected| {
+                        warn("{}\n", expected);
+                    }
+                }
+            } else {
+                for (self.case.expected_errors.toSliceConst()) |expected| {
+                    if (mem.indexOf(u8, stderr, expected) == null) {
+                        warn(
+                            \\
+                            \\=========== Expected compile error: ============
+                            \\{}
+                            \\
+                        , expected);
+                        ok = false;
+                        break;
+                    }
                 }
             }
+
+            if (!ok) {
+                warn(
+                    \\================= Full output: =================
+                    \\{}
+                    \\
+                , stderr);
+                return error.TestFailed;
+            }
+
             warn("OK\n");
         }
     };
@@ -704,12 +753,13 @@ pub const CompileErrorContext = struct {
             .name = name,
             .sources = ArrayList(TestCase.SourceFile).init(self.b.allocator),
             .expected_errors = ArrayList([]const u8).init(self.b.allocator),
+            .expect_exact = false,
             .link_libc = false,
             .is_exe = false,
             .is_test = false,
         };
 
-        tc.addSourceFile(".tmp_source.zig", source);
+        tc.addSourceFile("tmp.zig", source);
         comptime var arg_i = 0;
         inline while (arg_i < expected_lines.len) : (arg_i += 1) {
             tc.addExpectedError(expected_lines[arg_i]);
@@ -930,15 +980,18 @@ pub const TranslateCContext = struct {
                 Term.Exited => |code| {
                     if (code != 0) {
                         warn("Compilation failed with exit code {}\n", code);
+                        printInvocation(zig_args.toSliceConst());
                         return error.TestFailed;
                     }
                 },
                 Term.Signal => |code| {
                     warn("Compilation failed with signal {}\n", code);
+                    printInvocation(zig_args.toSliceConst());
                     return error.TestFailed;
                 },
                 else => {
                     warn("Compilation terminated unexpectedly\n");
+                    printInvocation(zig_args.toSliceConst());
                     return error.TestFailed;
                 },
             }

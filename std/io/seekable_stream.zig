@@ -1,4 +1,4 @@
-const std = @import("../index.zig");
+const std = @import("../std.zig");
 const InStream = std.io.InStream;
 
 pub fn SeekableStream(comptime SeekErrorType: type, comptime GetSeekPosErrorType: type) type {

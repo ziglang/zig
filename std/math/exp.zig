@@ -3,7 +3,7 @@
 // - exp(+inf) = +inf
 // - exp(nan)  = nan
 
-const std = @import("../index.zig");
+const std = @import("../std.zig");
 const math = std.math;
 const assert = std.debug.assert;
 const builtin = @import("builtin");

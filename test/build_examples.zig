@@ -7,12 +7,10 @@ pub fn addCases(cases: *tests.BuildExamplesContext) void {
     cases.addC("example/hello_world/hello_libc.zig");
     cases.add("example/cat/main.zig");
     cases.add("example/guess_number/main.zig");
-    if (!is_windows) {
-        // TODO get this test passing on windows
-        // See https://github.com/ziglang/zig/issues/538
-        cases.addBuildFile("example/shared_library/build.zig");
-        cases.addBuildFile("example/mix_o_files/build.zig");
-    }
+    cases.addBuildFile("test/standalone/main_pkg_path/build.zig");
+    cases.addBuildFile("example/shared_library/build.zig");
+    cases.addBuildFile("example/mix_o_files/build.zig");
+    cases.addBuildFile("test/standalone/static_c_lib/build.zig");
     if (builtin.os != builtin.Os.macosx) {
         // TODO https://github.com/ziglang/zig/issues/1126
         cases.addBuildFile("test/standalone/issue_339/build.zig");

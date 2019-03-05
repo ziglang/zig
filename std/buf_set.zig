@@ -1,4 +1,4 @@
-const std = @import("index.zig");
+const std = @import("std.zig");
 const HashMap = @import("hash_map.zig").HashMap;
 const mem = @import("mem.zig");
 const Allocator = mem.Allocator;
@@ -30,6 +30,10 @@ pub const BufSet = struct {
             errdefer self.free(key_copy);
             _ = try self.hash_map.put(key_copy, {});
         }
+    }
+
+    pub fn exists(self: BufSet, key: []const u8) bool {
+        return self.hash_map.get(key) != null;
     }
 
     pub fn delete(self: *BufSet, key: []const u8) void {

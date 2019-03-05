@@ -1,4 +1,4 @@
-const std = @import("index.zig");
+const std = @import("std.zig");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const net = @This();

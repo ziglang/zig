@@ -1,4 +1,4 @@
-const std = @import("../../index.zig");
+const std = @import("../../std.zig");
 const builtin = @import("builtin");
 const linux = std.os.linux;
 const expect = std.testing.expect;
