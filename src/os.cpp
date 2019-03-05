@@ -54,6 +54,10 @@ typedef SSIZE_T ssize_t;
 #include <link.h>
 #endif
 
+#if defined(ZIG_OS_LINUX)
+#include <sys/auxv.h>
+#endif
+
 #if defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD)
 #include <sys/sysctl.h>
 #endif
@@ -1396,8 +1400,34 @@ Error os_make_dir(Buf *path) {
 #endif
 }
 
+static void init_rand() {
+#if defined(ZIG_OS_WINDOWS)
+    const char bytes[sizeof(unsigned)];
+    unsigned seed;
+    RtlGenRandom(bytes, sizeof(unsigned));
+    memcpy(&seed, bytes, sizeof(unsigned));
+    srand(seed);
+#elif defined(ZIG_OS_LINUX)
+    srand(*((unsigned*)getauxval(AT_RANDOM)));
+#else
+    int fd = open("/dev/urandom", O_RDONLY|O_CLOEXEC);
+    if (fd == -1) {
+        zig_panic("unable to open /dev/urandom");
+    }
+    const char bytes[sizeof(unsigned)];
+    unsigned seed;
+    while (read(fd, bytes, sizeof(unsigned)) == -1) {
+        if (errno == EINTR) continue;
+        zig_panic("unable to read /dev/urandom");
+    }
+    close(fd);
+    memcpy(&seed, bytes, sizeof(unsigned));
+    srand(seed);
+#endif
+}
+
 int os_init(void) {
-    srand((unsigned)time(NULL));
+    init_rand();
 #if defined(ZIG_OS_WINDOWS)
     _setmode(fileno(stdout), _O_BINARY);
     _setmode(fileno(stderr), _O_BINARY);

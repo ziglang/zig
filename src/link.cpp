@@ -9,6 +9,8 @@
 #include "config.h"
 #include "codegen.hpp"
 #include "analyze.hpp"
+#include "compiler.hpp"
+
 
 struct LinkJob {
     CodeGen *codegen;
@@ -17,18 +19,290 @@ struct LinkJob {
     HashMap<Buf *, bool, buf_hash, buf_eql_buf> rpath_table;
 };
 
-static const char *get_libc_crt_file(CodeGen *g, const char *file) {
-    assert(g->libc != nullptr);
-    Buf *out_buf = buf_alloc();
-    os_path_join(&g->libc->crt_dir, buf_create_from_str(file), out_buf);
-    return buf_ptr(out_buf);
+static CodeGen *create_child_codegen(CodeGen *parent_gen, Buf *root_src_path, OutType out_type,
+        ZigLibCInstallation *libc)
+{
+    CodeGen *child_gen = codegen_create(nullptr, root_src_path, parent_gen->zig_target, out_type,
+        parent_gen->build_mode, parent_gen->zig_lib_dir, parent_gen->zig_std_dir, libc, get_stage1_cache_path());
+    child_gen->out_h_path = nullptr;
+    child_gen->verbose_tokenize = parent_gen->verbose_tokenize;
+    child_gen->verbose_ast = parent_gen->verbose_ast;
+    child_gen->verbose_link = parent_gen->verbose_link;
+    child_gen->verbose_ir = parent_gen->verbose_ir;
+    child_gen->verbose_llvm_ir = parent_gen->verbose_llvm_ir;
+    child_gen->verbose_cimport = parent_gen->verbose_cimport;
+    child_gen->verbose_cc = parent_gen->verbose_cc;
+
+    codegen_set_strip(child_gen, parent_gen->strip_debug_symbols);
+    child_gen->disable_pic = parent_gen->disable_pic;
+    child_gen->valgrind_support = ValgrindSupportDisabled;
+
+    codegen_set_errmsg_color(child_gen, parent_gen->err_color);
+
+    codegen_set_mmacosx_version_min(child_gen, parent_gen->mmacosx_version_min);
+    codegen_set_mios_version_min(child_gen, parent_gen->mios_version_min);
+
+    child_gen->enable_cache = true;
+
+    return child_gen;
 }
 
-static const char *get_libc_static_file(CodeGen *g, const char *file) {
-    assert(g->libc != nullptr);
-    Buf *out_buf = buf_alloc();
-    os_path_join(&g->libc->static_lib_dir, buf_create_from_str(file), out_buf);
-    return buf_ptr(out_buf);
+
+static bool target_is_glibc(CodeGen *g) {
+    return g->zig_target->os == OsLinux && target_abi_is_gnu(g->zig_target->abi);
+}
+
+static const char *build_libc_object(CodeGen *parent_gen, const char *name, CFile *c_file) {
+    CodeGen *child_gen = create_child_codegen(parent_gen, nullptr, OutTypeObj, nullptr);
+    codegen_set_out_name(child_gen, buf_create_from_str(name));
+    ZigList<CFile *> c_source_files = {0};
+    c_source_files.append(c_file);
+    child_gen->c_source_files = c_source_files;
+    codegen_build_and_link(child_gen);
+    return buf_ptr(&child_gen->output_file_path);
+}
+
+static const char *path_from_libc(CodeGen *g, const char *subpath) {
+    Buf *libc_dir = buf_alloc();
+    os_path_join(g->zig_lib_dir, buf_create_from_str("libc"), libc_dir);
+    Buf *result = buf_alloc();
+    os_path_join(libc_dir, buf_create_from_str(subpath), result);
+    return buf_ptr(result);
+}
+
+static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
+    if (parent->libc == nullptr && target_is_glibc(parent)) {
+        if (strcmp(file, "crti.o") == 0) {
+            CFile *c_file = allocate<CFile>(1);
+            c_file->source_path = path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP "x86_64" OS_SEP "crti.S");
+            c_file->args.append("-I");
+            c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include"));
+            c_file->args.append("-I");
+            c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP "generic"));
+            c_file->args.append("-D_LIBC_REENTRANT");
+            c_file->args.append("-include");
+            c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include" OS_SEP "libc-modules.h"));
+            c_file->args.append("-DMODULE_NAME=libc");
+            c_file->args.append("-include");
+            c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include" OS_SEP "libc-symbols.h"));
+            c_file->args.append("-DTOP_NAMESPACE=glibc");
+            c_file->args.append("-DASSEMBLER");
+
+            // this is a workaround for: 
+            // glibc/sysdeps/x86_64/crti.S:64:2: error: invalid instruction mnemonic '_cet_endbr'
+            //  _CET_ENDBR
+            //  ^~~~~~~~~~
+            c_file->args.append("-D_CET_ENDBR=");
+
+            c_file->args.append("-g");
+            c_file->args.append("-Wa,--noexecstack");
+            return build_libc_object(parent, "crti", c_file);
+        } else if (strcmp(file, "crtn.o") == 0) {
+            CFile *c_file = allocate<CFile>(1);
+            c_file->source_path = path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP "x86_64" OS_SEP "crtn.S");
+            c_file->args.append("-D_LIBC_REENTRANT");
+            c_file->args.append("-DMODULE_NAME=libc");
+            c_file->args.append("-DTOP_NAMESPACE=glibc");
+            c_file->args.append("-DASSEMBLER");
+            c_file->args.append("-g");
+            c_file->args.append("-Wa,--noexecstack");
+            return build_libc_object(parent, "crtn", c_file);
+        } else if (strcmp(file, "start.os") == 0) {
+            CFile *c_file = allocate<CFile>(1);
+            c_file->source_path = path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP "x86_64" OS_SEP "start.S");
+            c_file->args.append("-I");
+            c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP "x86_64"));
+            c_file->args.append("-I");
+            c_file->args.append(path_from_libc(parent, "glibc"));
+            c_file->args.append("-I");
+            c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include"));
+            c_file->args.append("-I");
+            c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP "generic"));
+            c_file->args.append("-D_LIBC_REENTRANT");
+            c_file->args.append("-include");
+            c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include" OS_SEP "libc-modules.h"));
+            c_file->args.append("-DMODULE_NAME=libc");
+            c_file->args.append("-include");
+            c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include" OS_SEP "libc-symbols.h"));
+            c_file->args.append("-DPIC");
+            c_file->args.append("-DSHARED");
+            c_file->args.append("-DTOP_NAMESPACE=glibc");
+            c_file->args.append("-DASSEMBLER");
+            c_file->args.append("-g");
+            c_file->args.append("-Wa,--noexecstack");
+            return build_libc_object(parent, "start", c_file);
+        } else if (strcmp(file, "abi-note.o") == 0) {
+            CFile *c_file = allocate<CFile>(1);
+            c_file->source_path = path_from_libc(parent, "glibc" OS_SEP "csu" OS_SEP "abi-note.S");
+            c_file->args.append("-I");
+            c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include"));
+            c_file->args.append("-I");
+            c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "csu"));
+            c_file->args.append("-D_LIBC_REENTRANT");
+            c_file->args.append("-DMODULE_NAME=libc");
+            c_file->args.append("-DTOP_NAMESPACE=glibc");
+            c_file->args.append("-DASSEMBLER");
+            c_file->args.append("-g");
+            c_file->args.append("-Wa,--noexecstack");
+            return build_libc_object(parent, "abi-note", c_file);
+        } else if (strcmp(file, "init.o") == 0) {
+            CFile *c_file = allocate<CFile>(1);
+            c_file->source_path = path_from_libc(parent, "glibc" OS_SEP "csu" OS_SEP "init.c");
+            c_file->args.append("-std=gnu11");
+            c_file->args.append("-fgnu89-inline");
+            c_file->args.append("-g");
+            c_file->args.append("-O2");
+            c_file->args.append("-fmerge-all-constants");
+            c_file->args.append("-fno-stack-protector");
+            c_file->args.append("-fmath-errno");
+            c_file->args.append("-I");
+            c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include"));
+            c_file->args.append("-I");
+            c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP "generic"));
+            c_file->args.append("-DSTACK_PROTECTOR_LEVEL=0");
+            c_file->args.append("-ftls-model=initial-exec");
+            c_file->args.append("-D_LIBC_REENTRANT");
+            c_file->args.append("-include");
+            c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include" OS_SEP "libc-modules.h"));
+            c_file->args.append("-DMODULE_NAME=libc");
+            c_file->args.append("-include");
+            c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include" OS_SEP "libc-symbols.h"));
+            c_file->args.append("-DTOP_NAMESPACE=glibc");
+            return build_libc_object(parent, "init", c_file);
+        } else if (strcmp(file, "Scrt1.o") == 0) {
+            const char *start_os = get_libc_crt_file(parent, "start.os");
+            const char *abi_note_o = get_libc_crt_file(parent, "abi-note.o");
+            const char *init_o = get_libc_crt_file(parent, "init.o");
+            CodeGen *child_gen = create_child_codegen(parent, nullptr, OutTypeObj, nullptr);
+            codegen_set_out_name(child_gen, buf_create_from_str("Scrt1"));
+            codegen_add_object(child_gen, buf_create_from_str(start_os));
+            codegen_add_object(child_gen, buf_create_from_str(abi_note_o));
+            codegen_add_object(child_gen, buf_create_from_str(init_o));
+            codegen_build_and_link(child_gen);
+            return buf_ptr(&child_gen->output_file_path);
+        } else if (strcmp(file, "libc.so.6") == 0) {
+            Buf *glibc_dummy_root_src = buf_create_from_str(path_from_libc(parent, "symbols.zig"));
+            CodeGen *child_gen = create_child_codegen(parent, glibc_dummy_root_src, OutTypeLib, nullptr);
+            codegen_set_out_name(child_gen, buf_create_from_str("c"));
+            codegen_set_lib_version(child_gen, 6, 0, 0);
+            child_gen->is_static = false;
+            codegen_build_and_link(child_gen);
+            return buf_ptr(&child_gen->output_file_path);
+        } else if (strcmp(file, "libc_nonshared.a") == 0) {
+            CodeGen *child_gen = create_child_codegen(parent, nullptr, OutTypeLib, nullptr);
+            codegen_set_out_name(child_gen, buf_create_from_str("c_nonshared"));
+            child_gen->is_static = true;
+            {
+                CFile *c_file = allocate<CFile>(1);
+                c_file->source_path = path_from_libc(parent, "glibc" OS_SEP "csu" OS_SEP "elf-init.c");
+                c_file->args.append("-std=gnu11");
+                c_file->args.append("-fgnu89-inline");
+                c_file->args.append("-g");
+                c_file->args.append("-O2");
+                c_file->args.append("-fmerge-all-constants");
+                c_file->args.append("-fno-stack-protector");
+                c_file->args.append("-fmath-errno");
+                c_file->args.append("-fno-stack-protector");
+                c_file->args.append("-I");
+                c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include"));
+                c_file->args.append("-I");
+                c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP "generic"));
+                c_file->args.append("-DSTACK_PROTECTOR_LEVEL=0");
+                c_file->args.append("-fPIC");
+                c_file->args.append("-fno-stack-protector");
+                c_file->args.append("-ftls-model=initial-exec");
+                c_file->args.append("-D_LIBC_REENTRANT");
+                c_file->args.append("-include");
+                c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include" OS_SEP "libc-modules.h"));
+                c_file->args.append("-DMODULE_NAME=libc");
+                c_file->args.append("-include");
+                c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include" OS_SEP "libc-symbols.h"));
+                c_file->args.append("-DPIC");
+                c_file->args.append("-DLIBC_NONSHARED=1");
+                c_file->args.append("-DTOP_NAMESPACE=glibc");
+                codegen_add_object(child_gen, buf_create_from_str(build_libc_object(parent, "elf-init", c_file)));
+            }
+            static const struct {
+                const char *name;
+                const char *path;
+            } deps[] = {
+                {"atexit", "glibc" OS_SEP "stdlib" OS_SEP "atexit.c"},
+                {"at_quick_exit", "glibc" OS_SEP "stdlib" OS_SEP "at_quick_exit.c"},
+                {"stat", "glibc" OS_SEP "io" OS_SEP "stat.c"},
+                {"fstat", "glibc" OS_SEP "io" OS_SEP "fstat.c"},
+                {"lstat", "glibc" OS_SEP "io" OS_SEP "lstat.c"},
+                {"stat64", "glibc" OS_SEP "io" OS_SEP "stat64.c"},
+                {"fstat64", "glibc" OS_SEP "io" OS_SEP "fstat64.c"},
+                {"lstat64", "glibc" OS_SEP "io" OS_SEP "lstat64.c"},
+                {"fstatat", "glibc" OS_SEP "io" OS_SEP "fstatat.c"},
+                {"fstatat64", "glibc" OS_SEP "io" OS_SEP "fstatat64.c"},
+                {"mknod", "glibc" OS_SEP "io" OS_SEP "mknod.c"},
+                {"mknodat", "glibc" OS_SEP "io" OS_SEP "mknodat.c"},
+                {"pthread_atfork", "glibc" OS_SEP "nptl" OS_SEP "pthread_atfork.c"},
+                {"warning-nop", "glibc" OS_SEP "debug" OS_SEP "warning-nop.c"},
+                {"stack_chk_fail_local", "glibc" OS_SEP "debug" OS_SEP "stack_chk_fail_local.c"},
+            };
+            for (size_t i = 0; i < array_length(deps); i += 1) {
+                CFile *c_file = allocate<CFile>(1);
+                c_file->source_path = path_from_libc(parent, deps[i].path);
+                c_file->args.append("-std=gnu11");
+                c_file->args.append("-fgnu89-inline");
+                c_file->args.append("-g");
+                c_file->args.append("-O2");
+                c_file->args.append("-fmerge-all-constants");
+                c_file->args.append("-fno-stack-protector");
+                c_file->args.append("-fmath-errno");
+                c_file->args.append("-ftls-model=initial-exec");
+                c_file->args.append("-I");
+                c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include"));
+                c_file->args.append("-I");
+                c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP
+                            "unix" OS_SEP "sysv" OS_SEP "linux" OS_SEP "x86_64"));
+                c_file->args.append("-I");
+                c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP
+                            "unix" OS_SEP "sysv" OS_SEP "linux" OS_SEP "x86"));
+                c_file->args.append("-I");
+                c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP "x86"));
+                c_file->args.append("-I");
+                c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP "x86" OS_SEP "nptl"));
+                c_file->args.append("-I");
+                c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP
+                            "unix" OS_SEP "sysv" OS_SEP "linux" OS_SEP "include"));
+                c_file->args.append("-I");
+                c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP
+                            "unix" OS_SEP "sysv" OS_SEP "linux"));
+                c_file->args.append("-I");
+                c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP "nptl"));
+                c_file->args.append("-I");
+                c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP "pthread"));
+                c_file->args.append("-I");
+                c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP "x86_64"));
+                c_file->args.append("-I");
+                c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP "generic"));
+                c_file->args.append("-I");
+                c_file->args.append(path_from_libc(parent, "glibc"));
+                c_file->args.append("-D_LIBC_REENTRANT");
+                c_file->args.append("-include");
+                c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include" OS_SEP "libc-modules.h"));
+                c_file->args.append("-DMODULE_NAME=libc");
+                c_file->args.append("-include");
+                c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include" OS_SEP "libc-symbols.h"));
+                c_file->args.append("-DPIC");
+                c_file->args.append("-DLIBC_NONSHARED=1");
+                c_file->args.append("-DTOP_NAMESPACE=glibc");
+                codegen_add_object(child_gen, buf_create_from_str(build_libc_object(parent, deps[i].name, c_file)));
+            }
+            codegen_build_and_link(child_gen);
+            return buf_ptr(&child_gen->output_file_path);
+        } else {
+            zig_unreachable();
+        }
+    } else {
+        assert(parent->libc != nullptr);
+        Buf *out_buf = buf_alloc();
+        os_path_join(&parent->libc->crt_dir, buf_create_from_str(file), out_buf);
+        return buf_ptr(out_buf);
+    }
 }
 
 static Buf *build_a_raw(CodeGen *parent_gen, const char *aname, Buf *full_path) {
@@ -41,29 +315,11 @@ static Buf *build_a_raw(CodeGen *parent_gen, const char *aname, Buf *full_path) 
         child_out_type = OutTypeObj;
     }
 
-    CodeGen *child_gen = codegen_create(nullptr, full_path, parent_gen->zig_target, child_out_type,
-        parent_gen->build_mode, parent_gen->zig_lib_dir, parent_gen->zig_std_dir,
-        parent_gen->libc);
 
-    child_gen->out_h_path = nullptr;
-    child_gen->verbose_tokenize = parent_gen->verbose_tokenize;
-    child_gen->verbose_ast = parent_gen->verbose_ast;
-    child_gen->verbose_link = parent_gen->verbose_link;
-    child_gen->verbose_ir = parent_gen->verbose_ir;
-    child_gen->verbose_llvm_ir = parent_gen->verbose_llvm_ir;
-    child_gen->verbose_cimport = parent_gen->verbose_cimport;
-
-    codegen_set_strip(child_gen, parent_gen->strip_debug_symbols);
+    CodeGen *child_gen = create_child_codegen(parent_gen, full_path, child_out_type,
+            parent_gen->libc);
     codegen_set_is_static(child_gen, true);
-    child_gen->disable_pic = parent_gen->disable_pic;
-    child_gen->valgrind_support = ValgrindSupportDisabled;
-
     codegen_set_out_name(child_gen, buf_create_from_str(aname));
-
-    codegen_set_errmsg_color(child_gen, parent_gen->err_color);
-
-    codegen_set_mmacosx_version_min(child_gen, parent_gen->mmacosx_version_min);
-    codegen_set_mios_version_min(child_gen, parent_gen->mios_version_min);
 
     // This is so that compiler_rt and builtin libraries know whether they
     // will eventually be linked with libc. They make different decisions
@@ -73,7 +329,6 @@ static Buf *build_a_raw(CodeGen *parent_gen, const char *aname, Buf *full_path) 
         new_link_lib->provided_explicitly = parent_gen->libc_link_lib->provided_explicitly;
     }
 
-    child_gen->enable_cache = true;
     codegen_build_and_link(child_gen);
     return &child_gen->output_file_path;
 }
@@ -180,7 +435,9 @@ static void construct_linker_job_elf(LinkJob *lj) {
         lj->args.append(g->linker_script);
     }
 
-    lj->args.append("--gc-sections");
+    if (g->out_type != OutTypeObj) {
+        lj->args.append("--gc-sections");
+    }
 
     lj->args.append("-m");
     lj->args.append(getLDMOption(g->zig_target));
@@ -211,20 +468,15 @@ static void construct_linker_job_elf(LinkJob *lj) {
 
     if (lj->link_in_crt) {
         const char *crt1o;
-        const char *crtbegino;
         if (g->zig_target->os == OsNetBSD) {
             crt1o = "crt0.o";
-            crtbegino = "crtbegin.o";
         } else if (g->is_static) {
             crt1o = "crt1.o";
-            crtbegino = "crtbeginT.o";
         } else {
             crt1o = "Scrt1.o";
-            crtbegino = "crtbegin.o";
         }
         lj->args.append(get_libc_crt_file(g, crt1o));
         lj->args.append(get_libc_crt_file(g, "crti.o"));
-        lj->args.append(get_libc_static_file(g, crtbegino));
     }
 
     for (size_t i = 0; i < g->rpath_list.length; i += 1) {
@@ -259,22 +511,28 @@ static void construct_linker_job_elf(LinkJob *lj) {
     }
 
     if (g->libc_link_lib != nullptr) {
-        assert(g->libc != nullptr);
-        lj->args.append("-L");
-        lj->args.append(buf_ptr(&g->libc->crt_dir));
-
-        if (!buf_eql_buf(&g->libc->crt_dir, &g->libc->lib_dir)) {
+        if (g->libc != nullptr) {
             lj->args.append("-L");
-            lj->args.append(buf_ptr(&g->libc->lib_dir));
+            lj->args.append(buf_ptr(&g->libc->crt_dir));
+
+            if (!buf_eql_buf(&g->libc->crt_dir, &g->libc->lib_dir)) {
+                lj->args.append("-L");
+                lj->args.append(buf_ptr(&g->libc->lib_dir));
+            }
+
+            lj->args.append("-L");
+            lj->args.append(buf_ptr(&g->libc->static_lib_dir));
         }
 
-        lj->args.append("-L");
-        lj->args.append(buf_ptr(&g->libc->static_lib_dir));
-
         if (!g->is_static) {
-            assert(buf_len(&g->libc->dynamic_linker_path) != 0);
-            lj->args.append("-dynamic-linker");
-            lj->args.append(buf_ptr(&g->libc->dynamic_linker_path));
+            if (g->libc != nullptr) {
+                assert(buf_len(&g->libc->dynamic_linker_path) != 0);
+                lj->args.append("-dynamic-linker");
+                lj->args.append(buf_ptr(&g->libc->dynamic_linker_path));
+            } else {
+                lj->args.append("-dynamic-linker");
+                lj->args.append(target_dynamic_linker(g->zig_target));
+            }
         }
 
     }
@@ -326,7 +584,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
             lj->args.append("-lc");
             lj->args.append("-lm");
             lj->args.append("--end-group");
-        } else {
+        } else if (g->libc != nullptr) {
             lj->args.append("-lgcc");
             lj->args.append("--as-needed");
             lj->args.append("-lgcc_s");
@@ -337,12 +595,16 @@ static void construct_linker_job_elf(LinkJob *lj) {
             lj->args.append("--as-needed");
             lj->args.append("-lgcc_s");
             lj->args.append("--no-as-needed");
+        } else if (target_is_glibc(g)) {
+            lj->args.append(get_libc_crt_file(g, "libc.so.6")); // this is our dummy so file
+            lj->args.append(get_libc_crt_file(g, "libc_nonshared.a"));
+        } else {
+            zig_unreachable();
         }
     }
 
     // crt end
     if (lj->link_in_crt) {
-        lj->args.append(get_libc_static_file(g, "crtend.o"));
         lj->args.append(get_libc_crt_file(g, "crtn.o"));
     }
 
@@ -975,7 +1237,6 @@ static void construct_linker_job(LinkJob *lj) {
 }
 
 void codegen_link(CodeGen *g) {
-    assert(g->out_type != OutTypeObj);
     codegen_add_time_event(g, "Build Dependencies");
 
     LinkJob lj = {0};
@@ -992,6 +1253,10 @@ void codegen_link(CodeGen *g) {
         fprintf(stderr, "---------------\n");
         fflush(stderr);
         LLVMDumpModule(g->module);
+    }
+
+    if (g->out_type == OutTypeObj) {
+        lj.args.append("-r");
     }
 
     if (g->out_type == OutTypeLib && g->is_static) {

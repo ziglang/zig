@@ -1693,6 +1693,7 @@ struct CodeGen {
     ZigList<ZigFn *> test_fns;
     ZigList<ZigLLVMDIEnumerator *> err_enumerators;
     ZigList<ErrorTableEntry *> errors_by_index;
+    ZigList<CacheHash *> caches_to_release;
     size_t largest_err_name_len;
 
     ZigPackage *std_package;
@@ -1751,7 +1752,8 @@ struct CodeGen {
     Buf output_file_path;
     Buf o_file_output_path;
     Buf *wanted_output_file_path;
-    Buf cache_dir;
+    Buf *cache_dir;
+    Buf *libc_include_dir;
 
     Buf *zig_c_headers_dir; // Cannot be overridden; derived from zig_lib_dir.
     Buf *zig_std_special_dir; // Cannot be overridden; derived from zig_lib_dir.

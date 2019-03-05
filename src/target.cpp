@@ -1330,3 +1330,17 @@ ZigLLVM_EnvironmentType target_default_abi(ZigLLVM_ArchType arch, Os os) {
     }
     zig_unreachable();
 }
+
+bool target_abi_is_gnu(ZigLLVM_EnvironmentType abi) {
+    switch (abi) {
+        case ZigLLVM_GNU:
+        case ZigLLVM_GNUABIN32:
+        case ZigLLVM_GNUABI64:
+        case ZigLLVM_GNUEABI:
+        case ZigLLVM_GNUEABIHF:
+        case ZigLLVM_GNUX32:
+            return true;
+        default:
+            return false;
+    }
+}

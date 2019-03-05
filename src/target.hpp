@@ -157,5 +157,6 @@ bool target_has_valgrind_support(const ZigTarget *target);
 bool target_is_darwin(const ZigTarget *target);
 bool target_requires_libc(const ZigTarget *target);
 bool target_supports_fpic(const ZigTarget *target);
+bool target_abi_is_gnu(ZigLLVM_EnvironmentType abi);
 
 #endif

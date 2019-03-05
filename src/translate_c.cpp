@@ -4778,7 +4778,7 @@ Error parse_h_file(ZigType *import, ZigList<ErrorMsg *> *errors, const char *tar
 
     Buf *out_dep_path = nullptr;
     if (codegen->enable_cache) {
-        Buf *prefix = buf_sprintf("%s" OS_SEP, buf_ptr(&codegen->cache_dir));
+        Buf *prefix = buf_sprintf("%s" OS_SEP, buf_ptr(codegen->cache_dir));
         out_dep_path = os_tmp_filename(prefix, buf_create_from_str(".d"));
         clang_argv.append("-MD");
         clang_argv.append("-MF");

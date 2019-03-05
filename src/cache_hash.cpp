@@ -281,8 +281,6 @@ Error cache_hit(CacheHash *ch, Buf *out_digest) {
     SplitIterator line_it = memSplit(buf_to_slice(&line_buf), str("\n"));
     for (;; file_i += 1) {
         Optional<Slice<uint8_t>> opt_line = SplitIterator_next(&line_it);
-        if (!opt_line.is_some)
-            break;
 
         CacheHashFile *chf;
         if (file_i < input_file_count) {
@@ -301,10 +299,15 @@ Error cache_hit(CacheHash *ch, Buf *out_digest) {
             }
             // caller can notice that out_digest is unmodified.
             return ErrorNone;
+        } else if (!opt_line.is_some) {
+            break;
         } else {
             chf = ch->files.add_one();
             chf->path = nullptr;
         }
+
+        if (!opt_line.is_some)
+            break;
 
         SplitIterator it = memSplit(opt_line.value, str(" "));
 
