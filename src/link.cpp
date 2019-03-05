@@ -305,6 +305,13 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
     }
 }
 
+static const char *get_libc_static_file(CodeGen *g, const char *file) {
+    assert(g->libc != nullptr);
+    Buf *out_buf = buf_alloc();
+    os_path_join(&g->libc->static_lib_dir, buf_create_from_str(file), out_buf);
+    return buf_ptr(out_buf);
+}
+
 static Buf *build_a_raw(CodeGen *parent_gen, const char *aname, Buf *full_path) {
     // The Mach-O LLD code is not well maintained, and trips an assertion
     // when we link compiler_rt and builtin as libraries rather than objects.
@@ -425,6 +432,11 @@ static void add_rpath(LinkJob *lj, Buf *rpath) {
     lj->rpath_table.put(rpath, true);
 }
 
+// TODO: try to get away with completely removing this functionality
+static bool want_gcc_objects(CodeGen *g) {
+    return g->libc != nullptr && buf_len(&g->libc->static_lib_dir) != 0;
+}
+
 static void construct_linker_job_elf(LinkJob *lj) {
     CodeGen *g = lj->codegen;
 
@@ -468,15 +480,22 @@ static void construct_linker_job_elf(LinkJob *lj) {
 
     if (lj->link_in_crt) {
         const char *crt1o;
+        const char *crtbegino;
         if (g->zig_target->os == OsNetBSD) {
             crt1o = "crt0.o";
+            crtbegino = "crtbegin.o";
         } else if (g->is_static) {
             crt1o = "crt1.o";
+            crtbegino = "crtbeginT.o";
         } else {
             crt1o = "Scrt1.o";
+            crtbegino = "crtbegin.o";
         }
         lj->args.append(get_libc_crt_file(g, crt1o));
         lj->args.append(get_libc_crt_file(g, "crti.o"));
+        if (want_gcc_objects(g)) {
+            lj->args.append(get_libc_static_file(g, crtbegino));
+        }
     }
 
     for (size_t i = 0; i < g->rpath_list.length; i += 1) {
@@ -605,6 +624,9 @@ static void construct_linker_job_elf(LinkJob *lj) {
 
     // crt end
     if (lj->link_in_crt) {
+        if (want_gcc_objects(g)) {
+            lj->args.append(get_libc_static_file(g, "crtend.o"));
+        }
         lj->args.append(get_libc_crt_file(g, "crtn.o"));
     }
 
