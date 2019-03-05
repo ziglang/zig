@@ -4814,10 +4814,11 @@ Error parse_h_file(ZigType *import, ZigList<ErrorMsg *> *errors, const char *tar
     clang_argv.append("-isystem");
     clang_argv.append(buf_ptr(codegen->zig_c_headers_dir));
 
-    if (codegen->libc != nullptr) {
+    if (codegen->libc_include_dir != nullptr) {
         clang_argv.append("-isystem");
-        clang_argv.append(buf_ptr(&codegen->libc->include_dir));
-
+        clang_argv.append(buf_ptr(codegen->libc_include_dir));
+    }
+    if (codegen->libc != nullptr) {
         if (!buf_eql_buf(&codegen->libc->include_dir, &codegen->libc->sys_include_dir)) {
             clang_argv.append("-isystem");
             clang_argv.append(buf_ptr(&codegen->libc->sys_include_dir));
