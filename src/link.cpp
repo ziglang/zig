@@ -70,6 +70,17 @@ static const char *path_from_libc(CodeGen *g, const char *subpath) {
     return buf_ptr(result);
 }
 
+static const char *build_dummy_so(CodeGen *parent, const char *name, size_t major_version) {
+    Buf *glibc_dummy_root_src = buf_sprintf("%s" OS_SEP "libc" OS_SEP "dummy" OS_SEP "%s.zig",
+            buf_ptr(parent->zig_lib_dir), name);
+    CodeGen *child_gen = create_child_codegen(parent, glibc_dummy_root_src, OutTypeLib, nullptr);
+    codegen_set_out_name(child_gen, buf_create_from_str(name));
+    codegen_set_lib_version(child_gen, major_version, 0, 0);
+    child_gen->is_static = false;
+    codegen_build_and_link(child_gen);
+    return buf_ptr(&child_gen->output_file_path);
+}
+
 static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
     if (parent->libc == nullptr && target_is_glibc(parent)) {
         if (strcmp(file, "crti.o") == 0) {
@@ -181,13 +192,15 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
             codegen_build_and_link(child_gen);
             return buf_ptr(&child_gen->output_file_path);
         } else if (strcmp(file, "libc.so.6") == 0) {
-            Buf *glibc_dummy_root_src = buf_create_from_str(path_from_libc(parent, "symbols.zig"));
-            CodeGen *child_gen = create_child_codegen(parent, glibc_dummy_root_src, OutTypeLib, nullptr);
-            codegen_set_out_name(child_gen, buf_create_from_str("c"));
-            codegen_set_lib_version(child_gen, 6, 0, 0);
-            child_gen->is_static = false;
-            codegen_build_and_link(child_gen);
-            return buf_ptr(&child_gen->output_file_path);
+            return build_dummy_so(parent, "c", 6);
+        } else if (strcmp(file, "libm.so.6") == 0) {
+            return build_dummy_so(parent, "m", 6);
+        } else if (strcmp(file, "libpthread.so.0") == 0) {
+            return build_dummy_so(parent, "pthread", 0);
+        } else if (strcmp(file, "librt.so.1") == 0) {
+            return build_dummy_so(parent, "rt", 1);
+        } else if (strcmp(file, "libdl.so.2") == 0) {
+            return build_dummy_so(parent, "dl", 2);
         } else if (strcmp(file, "libc_nonshared.a") == 0) {
             CodeGen *child_gen = create_child_codegen(parent, nullptr, OutTypeLib, nullptr);
             codegen_set_out_name(child_gen, buf_create_from_str("c_nonshared"));
@@ -548,6 +561,22 @@ static void construct_linker_job_elf(LinkJob *lj) {
         LinkLib *link_lib = g->link_libs_list.at(i);
         if (buf_eql_str(link_lib->name, "c")) {
             continue;
+        }
+        if (g->libc == nullptr && target_is_glibc(g)) {
+            // glibc
+            if (buf_eql_str(link_lib->name, "m")) {
+                lj->args.append(get_libc_crt_file(g, "libm.so.6")); // this is our dummy so file
+                continue;
+            } else if (buf_eql_str(link_lib->name, "pthread")) {
+                lj->args.append(get_libc_crt_file(g, "libpthread.so.0")); // this is our dummy so file
+                continue;
+            } else if (buf_eql_str(link_lib->name, "dl")) {
+                lj->args.append(get_libc_crt_file(g, "libdl.so.2")); // this is our dummy so file
+                continue;
+            } else if (buf_eql_str(link_lib->name, "rt")) {
+                lj->args.append(get_libc_crt_file(g, "librt.so.1")); // this is our dummy so file
+                continue;
+            }
         }
         Buf *arg;
         if (buf_starts_with_str(link_lib->name, "/") || buf_ends_with_str(link_lib->name, ".a") ||

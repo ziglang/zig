@@ -9148,6 +9148,7 @@ static void resolve_out_paths(CodeGen *g) {
         return;
     }
 
+    const char *prefix = "";
     const char *extname;
     switch (g->out_type) {
         case OutTypeUnknown:
@@ -9159,6 +9160,7 @@ static void resolve_out_paths(CodeGen *g) {
             extname = target_exe_file_ext(g->zig_target);
             break;
         case OutTypeLib:
+            prefix = target_lib_file_prefix(g->zig_target);
             extname = target_lib_file_ext(g->zig_target, g->is_static,
                         g->version_major, g->version_minor, g->version_patch);
             break;
@@ -9167,7 +9169,8 @@ static void resolve_out_paths(CodeGen *g) {
     assert(g->root_out_name);
 
     Buf basename = BUF_INIT;
-    buf_init_from_buf(&basename, g->root_out_name);
+    buf_init_from_str(&basename, prefix);
+    buf_append_buf(&basename, g->root_out_name);
     buf_append_str(&basename, extname);
     if (g->enable_cache || g->is_test_build) {
         os_path_join(&g->artifact_dir, &basename, &g->output_file_path);

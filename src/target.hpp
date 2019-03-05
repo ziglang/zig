@@ -143,6 +143,7 @@ const char *target_o_file_ext(const ZigTarget *target);
 const char *target_asm_file_ext(const ZigTarget *target);
 const char *target_llvm_ir_file_ext(const ZigTarget *target);
 const char *target_exe_file_ext(const ZigTarget *target);
+const char *target_lib_file_prefix(const ZigTarget *target);
 const char *target_lib_file_ext(const ZigTarget *target, bool is_static,
         size_t version_major, size_t version_minor, size_t version_patch);
 
