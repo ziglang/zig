@@ -289,3 +289,13 @@ fn testVector() void {
     expect(vec_info.Vector.len == 4);
     expect(vec_info.Vector.child == i32);
 }
+
+test "type info: optional field unwrapping" {
+    const Struct = struct {
+        cdOffset: u32,
+    };
+
+    const field = @typeInfo(Struct).Struct.fields[0];
+
+    _ = field.offset orelse 0;
+}

@@ -18466,7 +18466,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                         size_t byte_offset = LLVMOffsetOfElement(ira->codegen->target_data_ref, type_entry->type_ref, struct_field->gen_index);
                         inner_fields[1].data.x_optional = create_const_vals(1);
                         inner_fields[1].data.x_optional->special = ConstValSpecialStatic;
-                        inner_fields[1].data.x_optional->type = ira->codegen->builtin_types.entry_usize;
+                        inner_fields[1].data.x_optional->type = ira->codegen->builtin_types.entry_num_lit_int;
                         bigint_init_unsigned(&inner_fields[1].data.x_optional->data.x_bigint, byte_offset);
                     }
 
