@@ -404,7 +404,7 @@ pub const ChildProcess = struct {
             }
 
             if (self.cwd) |cwd| {
-                os.changeCurDir(self.allocator, cwd) catch |err| forkChildErrReport(err_pipe[1], err);
+                os.changeCurDir(cwd) catch |err| forkChildErrReport(err_pipe[1], err);
             }
 
             if (self.gid) |gid| {

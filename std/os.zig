@@ -1825,26 +1825,20 @@ pub const Dir = struct {
     }
 };
 
-pub fn changeCurDir(allocator: *Allocator, dir_path: []const u8) !void {
-    const path_buf = try allocator.alloc(u8, dir_path.len + 1);
-    defer allocator.free(path_buf);
-
-    mem.copy(u8, path_buf, dir_path);
-    path_buf[dir_path.len] = 0;
-
-    const err = posix.getErrno(posix.chdir(path_buf.ptr));
-    if (err > 0) {
-        return switch (err) {
-            posix.EACCES => error.AccessDenied,
-            posix.EFAULT => unreachable,
-            posix.EIO => error.FileSystem,
-            posix.ELOOP => error.SymLinkLoop,
-            posix.ENAMETOOLONG => error.NameTooLong,
-            posix.ENOENT => error.FileNotFound,
-            posix.ENOMEM => error.SystemResources,
-            posix.ENOTDIR => error.NotDir,
-            else => unexpectedErrorPosix(err),
-        };
+pub fn changeCurDir(dir_path: []const u8) !void {
+    const dir_path_c = try toPosixPath(dir_path);
+    const err = posix.getErrno(posix.chdir(&dir_path_c));
+    switch (err) {
+        0 => return,
+        posix.EACCES => return error.AccessDenied,
+        posix.EFAULT => unreachable,
+        posix.EIO => return error.FileSystem,
+        posix.ELOOP => return error.SymLinkLoop,
+        posix.ENAMETOOLONG => return error.NameTooLong,
+        posix.ENOENT => return error.FileNotFound,
+        posix.ENOMEM => return error.SystemResources,
+        posix.ENOTDIR => return error.NotDir,
+        else => return unexpectedErrorPosix(err),
     }
 }
 
