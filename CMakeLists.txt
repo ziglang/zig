@@ -1270,7 +1270,6 @@ set(ZIG_LIBC_FILES
     "glibc/csu/elf-init.c"
     "glibc/csu/init.c"
     "glibc/debug/stack_chk_fail_local.c"
-    "glibc/debug/warning-nop.c"
     "glibc/include/alloca.h"
     "glibc/include/bits/types.h"
     "glibc/include/bits/types/__locale_t.h"
@@ -1399,6 +1398,9 @@ set(ZIG_LIBC_FILES
     "glibc/bits/signum-generic.h"
     "glibc/include/bits/types/sig_atomic_t.h"
     "glibc/signal/bits/types/sig_atomic_t.h"
+    "glibc/sysdeps/unix/sysv/linux/x86/bits/stat.h"
+    "glibc/sysdeps/unix/sysv/linux/generic/bits/stat.h"
+    "glibc/sysdeps/unix/sysv/linux/bits/stat.h"
     "symbols.zig"
 )
 

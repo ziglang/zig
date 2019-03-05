@@ -32,16 +32,14 @@
    License along with the GNU C Library; if not, see
    <http://www.gnu.org/licenses/>.  */
 
-#include <stdlib.h>
-#include <dso_handle.h>
-#include "exit.h"
+extern int __cxa_atexit (void (*func) (void *), void *arg, void *d);
+libc_hidden_proto (__cxa_atexit);
+extern void *__dso_handle __attribute__ ((__visibility__ ("hidden")));
 
 /* Register FUNC to be executed by `exit'.  */
 int
-#ifndef atexit
-attribute_hidden
-#endif
+__attribute__ ((__visibility__ ("hidden")))
 atexit (void (*func) (void))
 {
-  return __cxa_atexit ((void (*) (void *)) func, NULL, __dso_handle);
+  return __cxa_atexit ((void (*) (void *)) func, 0, __dso_handle);
 }

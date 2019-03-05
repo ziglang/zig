@@ -239,7 +239,6 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
                 {"mknod", "glibc" OS_SEP "io" OS_SEP "mknod.c"},
                 {"mknodat", "glibc" OS_SEP "io" OS_SEP "mknodat.c"},
                 {"pthread_atfork", "glibc" OS_SEP "nptl" OS_SEP "pthread_atfork.c"},
-                {"warning-nop", "glibc" OS_SEP "debug" OS_SEP "warning-nop.c"},
                 {"stack_chk_fail_local", "glibc" OS_SEP "debug" OS_SEP "stack_chk_fail_local.c"},
             };
             for (size_t i = 0; i < array_length(deps); i += 1) {
@@ -253,6 +252,7 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
                 c_file->args.append("-fno-stack-protector");
                 c_file->args.append("-fmath-errno");
                 c_file->args.append("-ftls-model=initial-exec");
+                c_file->args.append("-Wno-ignored-attributes");
                 c_file->args.append("-I");
                 c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include"));
                 c_file->args.append("-I");

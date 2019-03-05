@@ -32,14 +32,12 @@
    License along with the GNU C Library; if not, see
    <http://www.gnu.org/licenses/>.  */
 
-#include <stdlib.h>
-#include <dso_handle.h>
-#include "exit.h"
-
+extern void *__dso_handle __attribute__ ((__visibility__ ("hidden")));
+extern int __cxa_at_quick_exit (void (*func) (void *), void *d);
 
 /* Register FUNC to be executed by `quick_exit'.  */
 int
-attribute_hidden
+__attribute__ ((__visibility__ ("hidden")))
 at_quick_exit (void (*func) (void))
 {
   return __cxa_at_quick_exit ((void (*) (void *)) func, __dso_handle);

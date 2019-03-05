@@ -33,9 +33,14 @@
    License along with the GNU C Library; if not, see
    <http://www.gnu.org/licenses/>.  */
 
-#include "pthreadP.h"
-#include <fork.h>
-#include <dso_handle.h>
+extern int __pthread_atfork (void (*prepare) (void), void (*parent) (void),
+			     void (*child) (void));
+extern int __register_atfork (void (*__prepare) (void),
+			      void (*__parent) (void),
+			      void (*__child) (void),
+			      void *dso_handle);
+libc_hidden_proto (__register_atfork)
+extern void *__dso_handle __attribute__ ((__visibility__ ("hidden")));
 
 
 /* Hide the symbol so that no definition but the one locally in the
