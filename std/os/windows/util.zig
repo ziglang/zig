@@ -165,6 +165,17 @@ pub fn windowsOpen(
 
 /// Caller must free result.
 pub fn createWindowsEnvBlock(allocator: *mem.Allocator, env_map: *const BufMap) ![]u16 {
+
+    // turns out CreateProcessW expects empty environment block to be composed of 4 null bytes
+    if (env_map.count()==0)
+    {
+        const result = try allocator.alloc(u16, 2);
+        errdefer allocator.free(result);
+        result[0]=0;
+        result[1]=0;
+        return result;
+    }
+
     // count bytes needed
     const max_chars_needed = x: {
         var max_chars_needed: usize = 1; // 1 for the final null byte
