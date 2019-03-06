@@ -655,6 +655,7 @@ set(ZIG_STD_FILES
     "special/compiler_rt/floatuntitf.zig"
     "special/compiler_rt/muloti4.zig"
     "special/compiler_rt/multi3.zig"
+    "special/compiler_rt/popcountdi2.zig"
     "special/compiler_rt/truncXfYf2.zig"
     "special/compiler_rt/udivmod.zig"
     "special/compiler_rt/udivmoddi4.zig"
