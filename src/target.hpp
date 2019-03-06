@@ -160,4 +160,6 @@ bool target_requires_libc(const ZigTarget *target);
 bool target_supports_fpic(const ZigTarget *target);
 bool target_abi_is_gnu(ZigLLVM_EnvironmentType abi);
 
+uint32_t target_arch_pointer_bit_width(ZigLLVM_ArchType arch);
+
 #endif

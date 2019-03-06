@@ -153,15 +153,147 @@ static const char *build_libunwind(CodeGen *parent) {
     return buf_ptr(&child_gen->output_file_path);
 }
 
+static void glibc_add_include_dirs_arch(CFile *c_file, ZigLLVM_ArchType arch, const char *nptl, const char *dir) {
+    bool is_x86 = arch == ZigLLVM_x86 || arch == ZigLLVM_x86_64;
+    bool is_aarch64 = arch == ZigLLVM_aarch64 || arch == ZigLLVM_aarch64_be;
+    bool is_mips = arch == ZigLLVM_mips || arch == ZigLLVM_mipsel ||
+        arch == ZigLLVM_mips64el || arch == ZigLLVM_mips64;
+    bool is_arm = arch == ZigLLVM_arm || arch == ZigLLVM_armeb;
+    bool is_ppc = arch == ZigLLVM_ppc || arch == ZigLLVM_ppc64 || arch == ZigLLVM_ppc64le;
+    bool is_riscv = arch == ZigLLVM_riscv32 || arch == ZigLLVM_riscv64;
+    bool is_64 = target_arch_pointer_bit_width(arch) == 64;
+
+    if (is_x86) {
+        if (arch == ZigLLVM_x86_64) {
+            if (nptl != nullptr) {
+                c_file->args.append("-I");
+                c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "x86_64" OS_SEP "%s", dir, nptl)));
+            } else {
+                c_file->args.append("-I");
+                c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "x86_64", dir)));
+            }
+        }
+        if (nptl != nullptr) {
+            c_file->args.append("-I");
+            c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "x86" OS_SEP "%s", dir, nptl)));
+        } else {
+            c_file->args.append("-I");
+            c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "x86", dir)));
+        }
+    } else if (is_arm) {
+        if (nptl != nullptr) {
+            c_file->args.append("-I");
+            c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "arm" OS_SEP "%s", dir, nptl)));
+        } else {
+            c_file->args.append("-I");
+            c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "arm", dir)));
+        }
+    } else if (is_mips) {
+        if (nptl != nullptr) {
+            c_file->args.append("-I");
+            c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "mips" OS_SEP "%s", dir, nptl)));
+        } else {
+            if (is_64) {
+                c_file->args.append("-I");
+                c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "mips64", dir)));
+            } else {
+                c_file->args.append("-I");
+                c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "mips32", dir)));
+            }
+            c_file->args.append("-I");
+            c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "mips", dir)));
+        }
+    } else if (is_aarch64) {
+        if (nptl != nullptr) {
+            c_file->args.append("-I");
+            c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "aarch64" OS_SEP "%s", dir, nptl)));
+        } else {
+            c_file->args.append("-I");
+            c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "aarch64", dir)));
+        }
+    } else if (is_ppc) {
+        if (nptl != nullptr) {
+            c_file->args.append("-I");
+            c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "powerpc" OS_SEP "%s", dir, nptl)));
+        } else {
+            if (is_64) {
+                c_file->args.append("-I");
+                c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "powerpc64", dir)));
+            } else {
+                c_file->args.append("-I");
+                c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "powerpc32", dir)));
+            }
+            c_file->args.append("-I");
+            c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "powerpc", dir)));
+        }
+    } else if (is_riscv) {
+        if (nptl != nullptr) {
+            c_file->args.append("-I");
+            c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "riscv" OS_SEP "%s", dir, nptl)));
+        } else {
+            c_file->args.append("-I");
+            c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "riscv", dir)));
+        }
+    }
+}
+
+static void glibc_add_include_dirs(CodeGen *parent, CFile *c_file) {
+    ZigLLVM_ArchType arch = parent->zig_target->arch;
+    const char *nptl = (parent->zig_target->os == OsLinux) ? "nptl" : "htl";
+    const char *glibc = path_from_libc(parent, "glibc");
+
+    c_file->args.append("-I");
+    c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "include", glibc)));
+
+    if (parent->zig_target->os == OsLinux) {
+        glibc_add_include_dirs_arch(c_file, arch, nullptr,
+            path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP "unix" OS_SEP "sysv" OS_SEP "linux"));
+    }
+
+    if (nptl != nullptr) {
+        glibc_add_include_dirs_arch(c_file, arch, nptl, path_from_libc(parent, "glibc" OS_SEP "sysdeps"));
+    }
+
+    if (parent->zig_target->os == OsLinux) {
+        c_file->args.append("-I");
+        c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP
+                    "unix" OS_SEP "sysv" OS_SEP "linux" OS_SEP "include"));
+        c_file->args.append("-I");
+        c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP
+                    "unix" OS_SEP "sysv" OS_SEP "linux"));
+    }
+    if (nptl != nullptr) {
+        c_file->args.append("-I");
+        c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "sysdeps" OS_SEP "%s", glibc, nptl)));
+    }
+
+    c_file->args.append("-I");
+    c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP "pthread"));
+
+    c_file->args.append("-I");
+    c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP "unix" OS_SEP "sysv"));
+
+    glibc_add_include_dirs_arch(c_file, arch, nullptr,
+            path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP "unix"));
+
+    c_file->args.append("-I");
+    c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP "unix"));
+
+    glibc_add_include_dirs_arch(c_file, arch, nullptr, path_from_libc(parent, "glibc" OS_SEP "sysdeps"));
+
+    c_file->args.append("-I");
+    c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP "generic"));
+
+    c_file->args.append("-I");
+    c_file->args.append(path_from_libc(parent, "glibc"));
+}
+
 static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
     if (parent->libc == nullptr && target_is_glibc(parent)) {
         if (strcmp(file, "crti.o") == 0) {
             CFile *c_file = allocate<CFile>(1);
             c_file->source_path = path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP "x86_64" OS_SEP "crti.S");
-            c_file->args.append("-I");
-            c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include"));
-            c_file->args.append("-I");
-            c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP "generic"));
+            glibc_add_include_dirs(parent, c_file);
             c_file->args.append("-D_LIBC_REENTRANT");
             c_file->args.append("-include");
             c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include" OS_SEP "libc-modules.h"));
@@ -183,6 +315,7 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
         } else if (strcmp(file, "crtn.o") == 0) {
             CFile *c_file = allocate<CFile>(1);
             c_file->source_path = path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP "x86_64" OS_SEP "crtn.S");
+            glibc_add_include_dirs(parent, c_file);
             c_file->args.append("-D_LIBC_REENTRANT");
             c_file->args.append("-DMODULE_NAME=libc");
             c_file->args.append("-DTOP_NAMESPACE=glibc");
@@ -193,14 +326,7 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
         } else if (strcmp(file, "start.os") == 0) {
             CFile *c_file = allocate<CFile>(1);
             c_file->source_path = path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP "x86_64" OS_SEP "start.S");
-            c_file->args.append("-I");
-            c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP "x86_64"));
-            c_file->args.append("-I");
-            c_file->args.append(path_from_libc(parent, "glibc"));
-            c_file->args.append("-I");
-            c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include"));
-            c_file->args.append("-I");
-            c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP "generic"));
+            glibc_add_include_dirs(parent, c_file);
             c_file->args.append("-D_LIBC_REENTRANT");
             c_file->args.append("-include");
             c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include" OS_SEP "libc-modules.h"));
@@ -218,9 +344,8 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
             CFile *c_file = allocate<CFile>(1);
             c_file->source_path = path_from_libc(parent, "glibc" OS_SEP "csu" OS_SEP "abi-note.S");
             c_file->args.append("-I");
-            c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include"));
-            c_file->args.append("-I");
             c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "csu"));
+            glibc_add_include_dirs(parent, c_file);
             c_file->args.append("-D_LIBC_REENTRANT");
             c_file->args.append("-DMODULE_NAME=libc");
             c_file->args.append("-DTOP_NAMESPACE=glibc");
@@ -231,6 +356,9 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
         } else if (strcmp(file, "init.o") == 0) {
             CFile *c_file = allocate<CFile>(1);
             c_file->source_path = path_from_libc(parent, "glibc" OS_SEP "csu" OS_SEP "init.c");
+            c_file->args.append("-I");
+            c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "csu"));
+            glibc_add_include_dirs(parent, c_file);
             c_file->args.append("-std=gnu11");
             c_file->args.append("-fgnu89-inline");
             c_file->args.append("-g");
@@ -238,10 +366,6 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
             c_file->args.append("-fmerge-all-constants");
             c_file->args.append("-fno-stack-protector");
             c_file->args.append("-fmath-errno");
-            c_file->args.append("-I");
-            c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include"));
-            c_file->args.append("-I");
-            c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP "generic"));
             c_file->args.append("-DSTACK_PROTECTOR_LEVEL=0");
             c_file->args.append("-ftls-model=initial-exec");
             c_file->args.append("-D_LIBC_REENTRANT");
@@ -289,9 +413,8 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
                 c_file->args.append("-fmath-errno");
                 c_file->args.append("-fno-stack-protector");
                 c_file->args.append("-I");
-                c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include"));
-                c_file->args.append("-I");
-                c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP "generic"));
+                c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "csu"));
+                glibc_add_include_dirs(parent, c_file);
                 c_file->args.append("-DSTACK_PROTECTOR_LEVEL=0");
                 c_file->args.append("-fPIC");
                 c_file->args.append("-fno-stack-protector");
@@ -338,34 +461,7 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
                 c_file->args.append("-fmath-errno");
                 c_file->args.append("-ftls-model=initial-exec");
                 c_file->args.append("-Wno-ignored-attributes");
-                c_file->args.append("-I");
-                c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include"));
-                c_file->args.append("-I");
-                c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP
-                            "unix" OS_SEP "sysv" OS_SEP "linux" OS_SEP "x86_64"));
-                c_file->args.append("-I");
-                c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP
-                            "unix" OS_SEP "sysv" OS_SEP "linux" OS_SEP "x86"));
-                c_file->args.append("-I");
-                c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP "x86"));
-                c_file->args.append("-I");
-                c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP "x86" OS_SEP "nptl"));
-                c_file->args.append("-I");
-                c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP
-                            "unix" OS_SEP "sysv" OS_SEP "linux" OS_SEP "include"));
-                c_file->args.append("-I");
-                c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP
-                            "unix" OS_SEP "sysv" OS_SEP "linux"));
-                c_file->args.append("-I");
-                c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP "nptl"));
-                c_file->args.append("-I");
-                c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP "pthread"));
-                c_file->args.append("-I");
-                c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP "x86_64"));
-                c_file->args.append("-I");
-                c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP "generic"));
-                c_file->args.append("-I");
-                c_file->args.append(path_from_libc(parent, "glibc"));
+                glibc_add_include_dirs(parent, c_file);
                 c_file->args.append("-D_LIBC_REENTRANT");
                 c_file->args.append("-include");
                 c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include" OS_SEP "libc-modules.h"));

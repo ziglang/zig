@@ -721,7 +721,7 @@ ZigLLVM_ObjectFormatType target_object_format(const ZigTarget *target) {
 
 // See lib/Support/Triple.cpp in LLVM for the source of this data.
 // getArchPointerBitWidth
-static int get_arch_pointer_bit_width(ZigLLVM_ArchType arch) {
+uint32_t target_arch_pointer_bit_width(ZigLLVM_ArchType arch) {
     switch (arch) {
         case ZigLLVM_UnknownArch:
             return 0;
@@ -816,7 +816,7 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
                             return 32;
                         case CIntTypeLong:
                         case CIntTypeULong:
-                            return get_arch_pointer_bit_width(target->arch);
+                            return target_arch_pointer_bit_width(target->arch);
                         case CIntTypeLongLong:
                         case CIntTypeULongLong:
                             return 64;
@@ -839,7 +839,7 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
                     return 32;
                 case CIntTypeLong:
                 case CIntTypeULong:
-                    return get_arch_pointer_bit_width(target->arch);
+                    return target_arch_pointer_bit_width(target->arch);
                 case CIntTypeLongLong:
                 case CIntTypeULongLong:
                     return 64;
@@ -967,7 +967,7 @@ static FloatAbi get_float_abi(const ZigTarget *target) {
 }
 
 static bool is_64_bit(ZigLLVM_ArchType arch) {
-    return get_arch_pointer_bit_width(arch) == 64;
+    return target_arch_pointer_bit_width(arch) == 64;
 }
 
 const char *target_dynamic_linker(const ZigTarget *target) {
