@@ -62,12 +62,20 @@ static const char *build_libc_object(CodeGen *parent_gen, const char *name, CFil
     return buf_ptr(&child_gen->output_file_path);
 }
 
-static const char *path_from_libc(CodeGen *g, const char *subpath) {
-    Buf *libc_dir = buf_alloc();
-    os_path_join(g->zig_lib_dir, buf_create_from_str("libc"), libc_dir);
+static const char *path_from_zig_lib(CodeGen *g, const char *dir, const char *subpath) {
+    Buf *dir1 = buf_alloc();
+    os_path_join(g->zig_lib_dir, buf_create_from_str(dir), dir1);
     Buf *result = buf_alloc();
-    os_path_join(libc_dir, buf_create_from_str(subpath), result);
+    os_path_join(dir1, buf_create_from_str(subpath), result);
     return buf_ptr(result);
+}
+
+static const char *path_from_libc(CodeGen *g, const char *subpath) {
+    return path_from_zig_lib(g, "libc", subpath);
+}
+
+static const char *path_from_libunwind(CodeGen *g, const char *subpath) {
+    return path_from_zig_lib(g, "libunwind", subpath);
 }
 
 static const char *build_dummy_so(CodeGen *parent, const char *name, size_t major_version) {
@@ -77,6 +85,70 @@ static const char *build_dummy_so(CodeGen *parent, const char *name, size_t majo
     codegen_set_out_name(child_gen, buf_create_from_str(name));
     codegen_set_lib_version(child_gen, major_version, 0, 0);
     child_gen->is_static = false;
+    codegen_build_and_link(child_gen);
+    return buf_ptr(&child_gen->output_file_path);
+}
+
+static const char *build_libunwind(CodeGen *parent) {
+    CodeGen *child_gen = create_child_codegen(parent, nullptr, OutTypeLib, nullptr);
+    codegen_set_out_name(child_gen, buf_create_from_str("unwind"));
+    child_gen->is_static = true;
+    LinkLib *new_link_lib = codegen_add_link_lib(child_gen, buf_create_from_str("c"));
+    new_link_lib->provided_explicitly = false;
+    enum SrcKind {
+        SrcCpp,
+        SrcC,
+        SrcAsm,
+    };
+    static const struct {
+        const char *path;
+        SrcKind kind;
+    } unwind_src[] = {
+        {"src" OS_SEP "libunwind.cpp", SrcCpp},
+        {"src" OS_SEP "Unwind-EHABI.cpp", SrcCpp},
+        {"src" OS_SEP "Unwind-seh.cpp", SrcCpp},
+
+        {"src" OS_SEP "UnwindLevel1.c", SrcC},
+        {"src" OS_SEP "UnwindLevel1-gcc-ext.c", SrcC},
+        {"src" OS_SEP "Unwind-sjlj.c", SrcC},
+
+        {"src" OS_SEP "UnwindRegistersRestore.S", SrcAsm},
+        {"src" OS_SEP "UnwindRegistersSave.S", SrcAsm},
+    };
+    ZigList<CFile *> c_source_files = {0};
+    for (size_t i = 0; i < array_length(unwind_src); i += 1) {
+        CFile *c_file = allocate<CFile>(1);
+        c_file->source_path = path_from_libunwind(parent, unwind_src[i].path);
+        switch (unwind_src[i].kind) {
+            case SrcC:
+                c_file->args.append("-std=c99");
+                break;
+            case SrcCpp:
+                c_file->args.append("-fno-rtti");
+                c_file->args.append("-I");
+                c_file->args.append(path_from_zig_lib(parent, "libcxx", "include"));
+                break;
+            case SrcAsm:
+                break;
+        }
+        c_file->args.append("-I");
+        c_file->args.append(path_from_libunwind(parent, "include"));
+        c_file->args.append("-fPIC");
+        c_file->args.append("-D_LIBUNWIND_DISABLE_VISIBILITY_ANNOTATIONS");
+        if (parent->zig_target->is_native) {
+            c_file->args.append("-D_LIBUNWIND_IS_NATIVE_ONLY");
+        }
+        if (parent->build_mode == BuildModeDebug) {
+            c_file->args.append("-D_DEBUG");
+        } else {
+            c_file->args.append("-NDEBUG");
+        }
+        if (parent->is_single_threaded) {
+            c_file->args.append("-D_LIBUNWIND_HAS_NO_THREADS");
+        }
+        c_source_files.append(c_file);
+    }
+    child_gen->c_source_files = c_source_files;
     codegen_build_and_link(child_gen);
     return buf_ptr(&child_gen->output_file_path);
 }
@@ -611,6 +683,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
             lj->args.append("-lgcc_s");
             lj->args.append("--no-as-needed");
         } else if (target_is_glibc(g)) {
+            lj->args.append(build_libunwind(g));
             lj->args.append(get_libc_crt_file(g, "libc.so.6")); // this is our dummy so file
             lj->args.append(get_libc_crt_file(g, "libc_nonshared.a"));
         } else {
@@ -1192,6 +1265,13 @@ void codegen_link(CodeGen *g) {
         }
         ZigLLVM_OSType os_type = get_llvm_os_type(g->zig_target->os);
         codegen_add_time_event(g, "LLVM Link");
+        if (g->verbose_link) {
+            fprintf(stderr, "ar rcs %s", buf_ptr(&g->output_file_path));
+            for (size_t i = 0; i < g->link_objects.length; i += 1) {
+                fprintf(stderr, " %s", (const char *)buf_ptr(g->link_objects.at(i)));
+            }
+            fprintf(stderr, "\n");
+        }
         if (ZigLLVMWriteArchive(buf_ptr(&g->output_file_path), file_names.items, file_names.length, os_type)) {
             fprintf(stderr, "Unable to write archive '%s'\n", buf_ptr(&g->output_file_path));
             exit(1);

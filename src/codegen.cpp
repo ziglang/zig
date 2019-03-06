@@ -8275,7 +8275,8 @@ static Error get_tmp_filename(CodeGen *g, Buf *out, Buf *suffix) {
     return ErrorNone;
 }
 
-static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
+// returns true if it was a cache miss
+static bool gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
     Error err;
 
     Buf *artifact_dir;
@@ -8346,8 +8347,8 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
         }
         exit(1);
     }
-    if (buf_len(&digest) == 0) {
-        // cache miss
+    bool is_cache_miss = (buf_len(&digest) == 0);
+    if (is_cache_miss) {
         // we can't know the digest until we do the C compiler invocation, so we
         // need a tmp filename.
         Buf *out_obj_path = buf_alloc();
@@ -8428,10 +8429,12 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
                 }
                 break;
             case BuildModeFastRelease:
+                args.append("-DNDEBUG");
                 args.append("-O2");
                 args.append("-fno-stack-protector");
                 break;
             case BuildModeSmallRelease:
+                args.append("-DNDEBUG");
                 args.append("-Os");
                 args.append("-fno-stack-protector");
                 break;
@@ -8504,13 +8507,17 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
 
     g->link_objects.append(o_final_path);
     g->caches_to_release.append(cache_hash);
+
+    return is_cache_miss;
 }
 
-static void gen_c_objects(CodeGen *g) {
+// returns true if we had any cache misses
+static bool gen_c_objects(CodeGen *g) {
     Error err;
+    bool any_cache_misses = false;
 
     if (g->c_source_files.length == 0)
-        return;
+        return any_cache_misses;
 
     Buf *self_exe_path = buf_alloc();
     if ((err = os_self_exe_path(self_exe_path))) {
@@ -8522,8 +8529,10 @@ static void gen_c_objects(CodeGen *g) {
 
     for (size_t c_file_i = 0; c_file_i < g->c_source_files.length; c_file_i += 1) {
         CFile *c_file = g->c_source_files.at(c_file_i);
-        gen_c_object(g, self_exe_path, c_file);
+        bool is_cache_miss = gen_c_object(g, self_exe_path, c_file);
+        any_cache_misses = any_cache_misses || is_cache_miss;
     }
+    return any_cache_misses;
 }
 
 void codegen_add_object(CodeGen *g, Buf *object_path) {
@@ -9020,7 +9029,8 @@ static void add_cache_pkg(CodeGen *g, CacheHash *ch, ZigPackage *pkg) {
 }
 
 // Called before init()
-static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
+// is_cache_hit takes into account gen_c_objects
+static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest, bool *c_objects_generated) {
     Error err;
 
     Buf *compiler_id;
@@ -9081,7 +9091,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     }
     cache_buf(ch, g->dynamic_linker_path);
 
-    gen_c_objects(g);
+    *c_objects_generated = gen_c_objects(g);
 
     buf_resize(digest, 0);
     if ((err = cache_hit(ch, digest)))
@@ -9188,11 +9198,12 @@ void codegen_build_and_link(CodeGen *g) {
 
     Buf *artifact_dir = buf_alloc();
     Buf digest = BUF_INIT;
+    bool any_c_objects_generated;
     if (g->enable_cache) {
         Buf *manifest_dir = buf_alloc();
         os_path_join(g->cache_dir, buf_create_from_str("build"), manifest_dir);
 
-        if ((err = check_cache(g, manifest_dir, &digest))) {
+        if ((err = check_cache(g, manifest_dir, &digest, &any_c_objects_generated))) {
             if (err == ErrorCacheUnavailable) {
                 // message already printed
             } else {
@@ -9204,24 +9215,28 @@ void codegen_build_and_link(CodeGen *g) {
         os_path_join(g->cache_dir, buf_create_from_str("artifact"), artifact_dir);
     } else {
         // There is a call to this in check_cache
-        gen_c_objects(g);
+        any_c_objects_generated = gen_c_objects(g);
     }
 
-    if (g->enable_cache && buf_len(&digest) != 0) {
+    if (g->enable_cache && buf_len(&digest) != 0 && !any_c_objects_generated) {
         os_path_join(artifact_dir, &digest, &g->artifact_dir);
         resolve_out_paths(g);
     } else {
-        init(g);
+        if (need_llvm_module(g)) {
+            init(g);
 
-        codegen_add_time_event(g, "Semantic Analysis");
+            codegen_add_time_event(g, "Semantic Analysis");
 
-        gen_global_asm(g);
-        gen_root_source(g);
+            gen_global_asm(g);
+            gen_root_source(g);
 
+        }
         if (g->enable_cache) {
-            if ((err = cache_final(&g->cache_hash, &digest))) {
-                fprintf(stderr, "Unable to finalize cache hash: %s\n", err_str(err));
-                exit(1);
+            if (buf_len(&digest) == 0) {
+                if ((err = cache_final(&g->cache_hash, &digest))) {
+                    fprintf(stderr, "Unable to finalize cache hash: %s\n", err_str(err));
+                    exit(1);
+                }
             }
             os_path_join(artifact_dir, &digest, &g->artifact_dir);
         } else {
@@ -9233,9 +9248,9 @@ void codegen_build_and_link(CodeGen *g) {
         }
         resolve_out_paths(g);
 
-        codegen_add_time_event(g, "Code Generation");
-
         if (need_llvm_module(g)) {
+            codegen_add_time_event(g, "Code Generation");
+
             do_code_gen(g);
             codegen_add_time_event(g, "LLVM Emit Output");
             zig_llvm_emit_output(g);
