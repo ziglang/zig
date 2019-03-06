@@ -409,7 +409,6 @@ int main(int argc, char **argv) {
     const char *dynamic_linker = nullptr;
     const char *libc_txt = nullptr;
     ZigList<const char *> clang_argv = {0};
-    ZigList<const char *> llvm_argv = {0};
     ZigList<const char *> lib_dirs = {0};
     ZigList<const char *> link_libs = {0};
     ZigList<const char *> forbidden_link_libs = {0};
@@ -442,6 +441,9 @@ int main(int argc, char **argv) {
     Buf *override_std_dir = nullptr;
     Buf *main_pkg_path = nullptr;
     ValgrindSupport valgrind_support = ValgrindSupportAuto;
+
+    ZigList<const char *> llvm_argv = {0};
+    llvm_argv.append("zig (LLVM option parsing)");
 
     if (argc >= 2 && strcmp(argv[1], "build") == 0) {
         Buf zig_exe_path_buf = BUF_INIT;
@@ -1027,7 +1029,13 @@ int main(int argc, char **argv) {
                 codegen_set_each_lib_rpath(g, each_lib_rpath);
 
             codegen_set_clang_argv(g, clang_argv.items, clang_argv.length);
-            codegen_set_llvm_argv(g, llvm_argv.items, llvm_argv.length);
+
+            if (llvm_argv.length > 1) {
+                llvm_argv.append(nullptr);
+                ZigLLVMParseCommandLineOptions(llvm_argv.length, llvm_argv.items);
+            }
+
+            codegen_set_llvm_argv(g, llvm_argv.items + 1, llvm_argv.length - 2);
             codegen_set_strip(g, strip);
             codegen_set_is_static(g, is_static);
             if (dynamic_linker != nullptr)

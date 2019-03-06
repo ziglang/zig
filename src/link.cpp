@@ -32,6 +32,7 @@ static CodeGen *create_child_codegen(CodeGen *parent_gen, Buf *root_src_path, Ou
     child_gen->verbose_llvm_ir = parent_gen->verbose_llvm_ir;
     child_gen->verbose_cimport = parent_gen->verbose_cimport;
     child_gen->verbose_cc = parent_gen->verbose_cc;
+    child_gen->llvm_argv = parent_gen->llvm_argv;
 
     codegen_set_strip(child_gen, parent_gen->strip_debug_symbols);
     child_gen->disable_pic = parent_gen->disable_pic;
@@ -161,6 +162,7 @@ static void glibc_add_include_dirs_arch(CFile *c_file, ZigLLVM_ArchType arch, co
     bool is_arm = arch == ZigLLVM_arm || arch == ZigLLVM_armeb;
     bool is_ppc = arch == ZigLLVM_ppc || arch == ZigLLVM_ppc64 || arch == ZigLLVM_ppc64le;
     bool is_riscv = arch == ZigLLVM_riscv32 || arch == ZigLLVM_riscv64;
+    bool is_sparc = arch == ZigLLVM_sparc || arch == ZigLLVM_sparcel || arch == ZigLLVM_sparcv9;
     bool is_64 = target_arch_pointer_bit_width(arch) == 64;
 
     if (is_x86) {
@@ -195,13 +197,28 @@ static void glibc_add_include_dirs_arch(CFile *c_file, ZigLLVM_ArchType arch, co
         } else {
             if (is_64) {
                 c_file->args.append("-I");
-                c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "mips64", dir)));
+                c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "mips" OS_SEP "mips64", dir)));
             } else {
                 c_file->args.append("-I");
-                c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "mips32", dir)));
+                c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "mips" OS_SEP "mips32", dir)));
             }
             c_file->args.append("-I");
             c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "mips", dir)));
+        }
+    } else if (is_sparc) {
+        if (nptl != nullptr) {
+            c_file->args.append("-I");
+            c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "sparc" OS_SEP "%s", dir, nptl)));
+        } else {
+            if (is_64) {
+                c_file->args.append("-I");
+                c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "sparc" OS_SEP "sparc64", dir)));
+            } else {
+                c_file->args.append("-I");
+                c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "sparc" OS_SEP "sparc32", dir)));
+            }
+            c_file->args.append("-I");
+            c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "sparc", dir)));
         }
     } else if (is_aarch64) {
         if (nptl != nullptr) {
@@ -218,10 +235,10 @@ static void glibc_add_include_dirs_arch(CFile *c_file, ZigLLVM_ArchType arch, co
         } else {
             if (is_64) {
                 c_file->args.append("-I");
-                c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "powerpc64", dir)));
+                c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "powerpc" OS_SEP "powerpc64", dir)));
             } else {
                 c_file->args.append("-I");
-                c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "powerpc32", dir)));
+                c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "powerpc" OS_SEP "powerpc32", dir)));
             }
             c_file->args.append("-I");
             c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "powerpc", dir)));
@@ -288,11 +305,59 @@ static void glibc_add_include_dirs(CodeGen *parent, CFile *c_file) {
     c_file->args.append(path_from_libc(parent, "glibc"));
 }
 
+static const char *glibc_start_asm_path(CodeGen *parent, const char *file) {
+    ZigLLVM_ArchType arch = parent->zig_target->arch;
+    bool is_aarch64 = arch == ZigLLVM_aarch64 || arch == ZigLLVM_aarch64_be;
+    bool is_mips = arch == ZigLLVM_mips || arch == ZigLLVM_mipsel ||
+        arch == ZigLLVM_mips64el || arch == ZigLLVM_mips64;
+    bool is_arm = arch == ZigLLVM_arm || arch == ZigLLVM_armeb;
+    bool is_ppc = arch == ZigLLVM_ppc || arch == ZigLLVM_ppc64 || arch == ZigLLVM_ppc64le;
+    bool is_riscv = arch == ZigLLVM_riscv32 || arch == ZigLLVM_riscv64;
+    bool is_sparc = arch == ZigLLVM_sparc || arch == ZigLLVM_sparcel || arch == ZigLLVM_sparcv9;
+    bool is_64 = target_arch_pointer_bit_width(arch) == 64;
+
+    Buf result = BUF_INIT;
+    buf_resize(&result, 0);
+    buf_append_buf(&result, parent->zig_lib_dir);
+    buf_append_str(&result, OS_SEP "libc" OS_SEP "glibc" OS_SEP "sysdeps" OS_SEP);
+    if (arch == ZigLLVM_nios2) {
+        buf_append_str(&result, "nios2");
+    } else if (is_sparc) {
+        if (is_64) {
+            buf_append_str(&result, "sparc" OS_SEP "sparc64");
+        } else {
+            buf_append_str(&result, "sparc" OS_SEP "sparc32");
+        }
+    } else if (is_arm) {
+        buf_append_str(&result, "arm");
+    } else if (is_mips) {
+        buf_append_str(&result, "mips");
+    } else if (arch == ZigLLVM_x86_64) {
+        buf_append_str(&result, "x86_64");
+    } else if (arch == ZigLLVM_x86) {
+        buf_append_str(&result, "i386");
+    } else if (is_aarch64) {
+        buf_append_str(&result, "aarch64");
+    } else if (is_riscv) {
+        buf_append_str(&result, "riscv");
+    } else if (is_ppc) {
+        if (is_64) {
+            buf_append_str(&result, "powerpc" OS_SEP "powerpc64");
+        } else {
+            buf_append_str(&result, "powerpc" OS_SEP "powerpc32");
+        }
+    }
+
+    buf_append_str(&result, OS_SEP);
+    buf_append_str(&result, file);
+    return buf_ptr(&result);
+}
+
 static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
     if (parent->libc == nullptr && target_is_glibc(parent)) {
         if (strcmp(file, "crti.o") == 0) {
             CFile *c_file = allocate<CFile>(1);
-            c_file->source_path = path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP "x86_64" OS_SEP "crti.S");
+            c_file->source_path = glibc_start_asm_path(parent, "crti.S");
             glibc_add_include_dirs(parent, c_file);
             c_file->args.append("-D_LIBC_REENTRANT");
             c_file->args.append("-include");
@@ -314,7 +379,7 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
             return build_libc_object(parent, "crti", c_file);
         } else if (strcmp(file, "crtn.o") == 0) {
             CFile *c_file = allocate<CFile>(1);
-            c_file->source_path = path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP "x86_64" OS_SEP "crtn.S");
+            c_file->source_path = glibc_start_asm_path(parent, "crtn.S");
             glibc_add_include_dirs(parent, c_file);
             c_file->args.append("-D_LIBC_REENTRANT");
             c_file->args.append("-DMODULE_NAME=libc");
@@ -325,7 +390,7 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
             return build_libc_object(parent, "crtn", c_file);
         } else if (strcmp(file, "start.os") == 0) {
             CFile *c_file = allocate<CFile>(1);
-            c_file->source_path = path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP "x86_64" OS_SEP "start.S");
+            c_file->source_path = glibc_start_asm_path(parent, "start.S");
             glibc_add_include_dirs(parent, c_file);
             c_file->args.append("-D_LIBC_REENTRANT");
             c_file->args.append("-include");

@@ -190,6 +190,9 @@ CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget 
         g->link_libs_list.append(g->libc_link_lib);
     }
 
+    get_target_triple(&g->triple_str, g->zig_target);
+    g->pointer_size_bytes = target_arch_pointer_bit_width(g->zig_target->arch) / 8;
+
     return g;
 }
 
@@ -7786,24 +7789,12 @@ static void init(CodeGen *g) {
     if (g->module)
         return;
 
-    if (g->llvm_argv_len > 0) {
-        const char **args = allocate_nonzero<const char *>(g->llvm_argv_len + 2);
-        args[0] = "zig (LLVM option parsing)";
-        for (size_t i = 0; i < g->llvm_argv_len; i += 1) {
-            args[i + 1] = g->llvm_argv[i];
-        }
-        args[g->llvm_argv_len + 1] = nullptr;
-        ZigLLVMParseCommandLineOptions(g->llvm_argv_len + 1, args);
-    }
-
     if (g->is_test_build) {
         g->subsystem = TargetSubsystemConsole;
     }
 
     assert(g->root_out_name);
     g->module = LLVMModuleCreateWithName(buf_ptr(g->root_out_name));
-
-    get_target_triple(&g->triple_str, g->zig_target);
 
     LLVMSetTarget(g->module, buf_ptr(&g->triple_str));
 
@@ -7860,7 +7851,7 @@ static void init(CodeGen *g) {
     LLVMSetDataLayout(g->module, layout_str);
 
 
-    g->pointer_size_bytes = LLVMPointerSize(g->target_data_ref);
+    assert(g->pointer_size_bytes == LLVMPointerSize(g->target_data_ref));
     g->is_big_endian = (LLVMByteOrder(g->target_data_ref) == LLVMBigEndian);
 
     g->builder = LLVMCreateBuilder();
