@@ -1032,7 +1032,7 @@ int main(int argc, char **argv) {
 
             if (llvm_argv.length > 1) {
                 llvm_argv.append(nullptr);
-                ZigLLVMParseCommandLineOptions(llvm_argv.length, llvm_argv.items);
+                ZigLLVMParseCommandLineOptions(llvm_argv.length - 1, llvm_argv.items);
             }
 
             codegen_set_llvm_argv(g, llvm_argv.items + 1, llvm_argv.length - 2);
