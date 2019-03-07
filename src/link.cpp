@@ -142,8 +142,6 @@ static const char *build_libunwind(CodeGen *parent) {
         }
         if (parent->build_mode == BuildModeDebug) {
             c_file->args.append("-D_DEBUG");
-        } else {
-            c_file->args.append("-NDEBUG");
         }
         if (parent->is_single_threaded) {
             c_file->args.append("-D_LIBUNWIND_HAS_NO_THREADS");
