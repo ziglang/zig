@@ -35,6 +35,7 @@
 #include <shlobj.h>
 #include <io.h>
 #include <fcntl.h>
+#include <ntsecapi.h>
 
 typedef SSIZE_T ssize_t;
 #else
@@ -1402,7 +1403,7 @@ Error os_make_dir(Buf *path) {
 
 static void init_rand() {
 #if defined(ZIG_OS_WINDOWS)
-    const char bytes[sizeof(unsigned)];
+    char bytes[sizeof(unsigned)];
     unsigned seed;
     RtlGenRandom(bytes, sizeof(unsigned));
     memcpy(&seed, bytes, sizeof(unsigned));
