@@ -166,7 +166,7 @@ static int print_target_list(FILE *f) {
         SubArchList sub_arch_list = target_subarch_list(arch);
         size_t sub_count = target_subarch_count(sub_arch_list);
         const char *arch_native_str = (native.arch == arch) ? " (native)" : "";
-        fprintf(stderr, "  %s%s\n", arch_name, arch_native_str);
+        fprintf(f, "  %s%s\n", arch_name, arch_native_str);
         for (size_t sub_i = 0; sub_i < sub_count; sub_i += 1) {
             ZigLLVM_SubArchType sub = target_subarch_enum(sub_arch_list, sub_i);
             const char *sub_name = target_subarch_name(sub);
@@ -406,9 +406,9 @@ int main(int argc, char **argv) {
     bool verbose_cc = false;
     ErrColor color = ErrColorAuto;
     CacheOpt enable_cache = CacheOptAuto;
+    const char *dynamic_linker = nullptr;
     const char *libc_txt = nullptr;
     ZigList<const char *> clang_argv = {0};
-    ZigList<const char *> llvm_argv = {0};
     ZigList<const char *> lib_dirs = {0};
     ZigList<const char *> link_libs = {0};
     ZigList<const char *> forbidden_link_libs = {0};
@@ -441,6 +441,9 @@ int main(int argc, char **argv) {
     Buf *override_std_dir = nullptr;
     Buf *main_pkg_path = nullptr;
     ValgrindSupport valgrind_support = ValgrindSupportAuto;
+
+    ZigList<const char *> llvm_argv = {0};
+    llvm_argv.append("zig (LLVM option parsing)");
 
     if (argc >= 2 && strcmp(argv[1], "build") == 0) {
         Buf zig_exe_path_buf = BUF_INIT;
@@ -478,19 +481,12 @@ int main(int argc, char **argv) {
 
         ZigTarget target;
         get_native_target(&target);
-        CodeGen *g = codegen_create(main_pkg_path, build_runner_path, &target, OutTypeExe,
-                BuildModeDebug, get_zig_lib_dir(), override_std_dir, nullptr);
-        g->valgrind_support = valgrind_support;
-        g->enable_time_report = timing_info;
-        buf_init_from_str(&g->cache_dir, cache_dir ? cache_dir : default_zig_cache_name);
-        codegen_set_out_name(g, buf_create_from_str("build"));
 
         Buf *build_file_buf = buf_create_from_str(build_file);
         Buf build_file_abs = os_path_resolve(&build_file_buf, 1);
         Buf build_file_basename = BUF_INIT;
         Buf build_file_dirname = BUF_INIT;
         os_path_split(&build_file_abs, &build_file_dirname, &build_file_basename);
-
 
         Buf full_cache_dir = BUF_INIT;
         if (cache_dir == nullptr) {
@@ -499,6 +495,12 @@ int main(int argc, char **argv) {
             Buf *cache_dir_buf = buf_create_from_str(cache_dir);
             full_cache_dir = os_path_resolve(&cache_dir_buf, 1);
         }
+
+        CodeGen *g = codegen_create(main_pkg_path, build_runner_path, &target, OutTypeExe,
+                BuildModeDebug, get_zig_lib_dir(), override_std_dir, nullptr, &full_cache_dir);
+        g->valgrind_support = valgrind_support;
+        g->enable_time_report = timing_info;
+        codegen_set_out_name(g, buf_create_from_str("build"));
 
         args.items[1] = buf_ptr(&build_file_dirname);
         args.items[2] = buf_ptr(&full_cache_dir);
@@ -569,9 +571,9 @@ int main(int argc, char **argv) {
         get_native_target(&target);
         Buf *fmt_runner_path = buf_alloc();
         os_path_join(get_zig_special_dir(), buf_create_from_str("fmt_runner.zig"), fmt_runner_path);
+        Buf *cache_dir_buf = buf_create_from_str(cache_dir ? cache_dir : default_zig_cache_name);
         CodeGen *g = codegen_create(main_pkg_path, fmt_runner_path, &target, OutTypeExe,
-                BuildModeDebug, get_zig_lib_dir(), nullptr, nullptr);
-        buf_init_from_str(&g->cache_dir, cache_dir ? cache_dir : default_zig_cache_name);
+                BuildModeDebug, get_zig_lib_dir(), nullptr, nullptr, cache_dir_buf);
         g->valgrind_support = valgrind_support;
         g->is_single_threaded = true;
         codegen_set_out_name(g, buf_create_from_str("fmt"));
@@ -716,6 +718,8 @@ int main(int argc, char **argv) {
                     }
                 } else if (strcmp(arg, "--name") == 0) {
                     out_name = argv[i];
+                } else if (strcmp(arg, "--dynamic-linker") == 0) {
+                    dynamic_linker = argv[i];
                 } else if (strcmp(arg, "--libc") == 0) {
                     libc_txt = argv[i];
                 } else if (strcmp(arg, "-isystem") == 0) {
@@ -913,7 +917,7 @@ int main(int argc, char **argv) {
     }
     case CmdBuiltin: {
         CodeGen *g = codegen_create(main_pkg_path, nullptr, &target,
-                out_type, build_mode, get_zig_lib_dir(), override_std_dir, nullptr);
+                out_type, build_mode, get_zig_lib_dir(), override_std_dir, nullptr, nullptr);
         g->valgrind_support = valgrind_support;
         g->is_single_threaded = is_single_threaded;
         Buf *builtin_source = codegen_generate_builtin_source(g);
@@ -941,30 +945,6 @@ int main(int argc, char **argv) {
             } else if ((cmd == CmdTranslateC || cmd == CmdTest || cmd == CmdRun) && !in_file) {
                 fprintf(stderr, "Expected source file argument.\n");
                 return print_error_usage(arg0);
-            } else if (cmd == CmdBuild && out_type == OutTypeObj) {
-                if (objects.length != 0) {
-                    fprintf(stderr,
-                        "When building an object file, --object arguments are invalid.\n"
-                        "Consider building a static library instead.\n");
-                    return print_error_usage(arg0);
-                }
-                size_t zig_root_src_count = in_file ? 1 : 0;
-                if (zig_root_src_count + c_source_files.length > 1) {
-                    fprintf(stderr,
-                        "When building an object file, only one of these allowed:\n"
-                        " * Zig root source file argument\n"
-                        " * --c-source argument\n"
-                        "Consider building a static library instead.\n");
-                    return print_error_usage(arg0);
-                }
-                if (c_source_files.length != 0 && asm_files.length != 0) {
-                    fprintf(stderr,
-                        "When building an object file, only one of these allowed:\n"
-                        " * --assembly argument\n"
-                        " * --c-source argument\n"
-                        "Consider building a static library instead.\n");
-                    return print_error_usage(arg0);
-                }
             }
 
             assert(cmd != CmdBuild || out_type != OutTypeUnknown);
@@ -1016,8 +996,18 @@ int main(int argc, char **argv) {
                     return EXIT_FAILURE;
                 }
             }
+            Buf *cache_dir_buf;
+            if (cache_dir == nullptr) {
+                if (cmd == CmdRun) {
+                    cache_dir_buf = get_stage1_cache_path();
+                } else {
+                    cache_dir_buf = buf_create_from_str(default_zig_cache_name);
+                }
+            } else {
+                cache_dir_buf = buf_create_from_str(cache_dir);
+            }
             CodeGen *g = codegen_create(main_pkg_path, zig_root_source_file, &target, out_type, build_mode,
-                    get_zig_lib_dir(), override_std_dir, libc);
+                    get_zig_lib_dir(), override_std_dir, libc, cache_dir_buf);
             g->valgrind_support = valgrind_support;
             g->subsystem = subsystem;
 
@@ -1030,7 +1020,6 @@ int main(int argc, char **argv) {
             }
 
             g->enable_time_report = timing_info;
-            buf_init_from_str(&g->cache_dir, cache_dir ? cache_dir : default_zig_cache_name);
             codegen_set_out_name(g, buf_out_name);
             codegen_set_lib_version(g, ver_major, ver_minor, ver_patch);
             codegen_set_is_test(g, cmd == CmdTest);
@@ -1040,9 +1029,17 @@ int main(int argc, char **argv) {
                 codegen_set_each_lib_rpath(g, each_lib_rpath);
 
             codegen_set_clang_argv(g, clang_argv.items, clang_argv.length);
-            codegen_set_llvm_argv(g, llvm_argv.items, llvm_argv.length);
+
+            if (llvm_argv.length > 1) {
+                llvm_argv.append(nullptr);
+                ZigLLVMParseCommandLineOptions(llvm_argv.length - 1, llvm_argv.items);
+            }
+
+            codegen_set_llvm_argv(g, llvm_argv.items + 1, llvm_argv.length - 2);
             codegen_set_strip(g, strip);
-            codegen_set_is_static(g, is_static);
+            g->is_static = is_static;
+            if (dynamic_linker != nullptr)
+                codegen_set_dynamic_linker(g, buf_create_from_str(dynamic_linker));
             g->verbose_tokenize = verbose_tokenize;
             g->verbose_ast = verbose_ast;
             g->verbose_link = verbose_link;

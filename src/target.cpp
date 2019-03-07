@@ -721,7 +721,7 @@ ZigLLVM_ObjectFormatType target_object_format(const ZigTarget *target) {
 
 // See lib/Support/Triple.cpp in LLVM for the source of this data.
 // getArchPointerBitWidth
-static int get_arch_pointer_bit_width(ZigLLVM_ArchType arch) {
+uint32_t target_arch_pointer_bit_width(ZigLLVM_ArchType arch) {
     switch (arch) {
         case ZigLLVM_UnknownArch:
             return 0;
@@ -816,7 +816,7 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
                             return 32;
                         case CIntTypeLong:
                         case CIntTypeULong:
-                            return get_arch_pointer_bit_width(target->arch);
+                            return target_arch_pointer_bit_width(target->arch);
                         case CIntTypeLongLong:
                         case CIntTypeULongLong:
                             return 64;
@@ -839,7 +839,7 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
                     return 32;
                 case CIntTypeLong:
                 case CIntTypeULong:
-                    return get_arch_pointer_bit_width(target->arch);
+                    return target_arch_pointer_bit_width(target->arch);
                 case CIntTypeLongLong:
                 case CIntTypeULongLong:
                     return 64;
@@ -922,6 +922,14 @@ const char *target_exe_file_ext(const ZigTarget *target) {
     }
 }
 
+const char *target_lib_file_prefix(const ZigTarget *target) {
+    if (target->os == OsWindows || target->os == OsUefi) {
+        return "";
+    } else {
+        return "lib";
+    }
+}
+
 const char *target_lib_file_ext(const ZigTarget *target, bool is_static,
         size_t version_major, size_t version_minor, size_t version_patch)
 {
@@ -959,7 +967,7 @@ static FloatAbi get_float_abi(const ZigTarget *target) {
 }
 
 static bool is_64_bit(ZigLLVM_ArchType arch) {
-    return get_arch_pointer_bit_width(arch) == 64;
+    return target_arch_pointer_bit_width(arch) == 64;
 }
 
 const char *target_dynamic_linker(const ZigTarget *target) {
@@ -1080,7 +1088,23 @@ const char *target_dynamic_linker(const ZigTarget *target) {
         case OsTvOS:
         case OsWatchOS:
         case OsMacOSX:
+        case OsUefi:
             return nullptr;
+
+        case OsWindows:
+            switch (target->abi) {
+                case ZigLLVM_GNU:
+                case ZigLLVM_GNUABIN32:
+                case ZigLLVM_GNUABI64:
+                case ZigLLVM_GNUEABI:
+                case ZigLLVM_GNUEABIHF:
+                case ZigLLVM_GNUX32:
+                case ZigLLVM_Cygnus:
+                    zig_panic("TODO implement target_dynamic_linker for mingw/cygwin");
+                default:
+                    return nullptr;
+            }
+            zig_unreachable();
 
         case OsAnanas:
         case OsCloudABI:
@@ -1090,7 +1114,6 @@ const char *target_dynamic_linker(const ZigTarget *target) {
         case OsLv2:
         case OsOpenBSD:
         case OsSolaris:
-        case OsWindows:
         case OsHaiku:
         case OsMinix:
         case OsRTEMS:
@@ -1106,7 +1129,6 @@ const char *target_dynamic_linker(const ZigTarget *target) {
         case OsContiki:
         case OsAMDPAL:
         case OsZen:
-        case OsUefi:
             zig_panic("TODO implement target_dynamic_linker for this OS");
     }
     zig_unreachable();
@@ -1329,4 +1351,18 @@ ZigLLVM_EnvironmentType target_default_abi(ZigLLVM_ArchType arch, Os os) {
             return ZigLLVM_Musl;
     }
     zig_unreachable();
+}
+
+bool target_abi_is_gnu(ZigLLVM_EnvironmentType abi) {
+    switch (abi) {
+        case ZigLLVM_GNU:
+        case ZigLLVM_GNUABIN32:
+        case ZigLLVM_GNUABI64:
+        case ZigLLVM_GNUEABI:
+        case ZigLLVM_GNUEABIHF:
+        case ZigLLVM_GNUX32:
+            return true;
+        default:
+            return false;
+    }
 }

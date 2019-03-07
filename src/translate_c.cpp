@@ -4778,9 +4778,10 @@ Error parse_h_file(ZigType *import, ZigList<ErrorMsg *> *errors, const char *tar
 
     Buf *out_dep_path = nullptr;
     if (codegen->enable_cache) {
-        Buf *prefix = buf_sprintf("%s" OS_SEP, buf_ptr(&codegen->cache_dir));
+        Buf *prefix = buf_sprintf("%s" OS_SEP, buf_ptr(codegen->cache_dir));
         out_dep_path = os_tmp_filename(prefix, buf_create_from_str(".d"));
         clang_argv.append("-MD");
+        clang_argv.append("-MV");
         clang_argv.append("-MF");
         clang_argv.append(buf_ptr(out_dep_path));
     }
@@ -4814,14 +4815,10 @@ Error parse_h_file(ZigType *import, ZigList<ErrorMsg *> *errors, const char *tar
     clang_argv.append("-isystem");
     clang_argv.append(buf_ptr(codegen->zig_c_headers_dir));
 
-    if (codegen->libc != nullptr) {
+    for (size_t i = 0; i < codegen->libc_include_dir_len; i += 1) {
+        Buf *include_dir = codegen->libc_include_dir_list[i];
         clang_argv.append("-isystem");
-        clang_argv.append(buf_ptr(&codegen->libc->include_dir));
-
-        if (!buf_eql_buf(&codegen->libc->include_dir, &codegen->libc->sys_include_dir)) {
-            clang_argv.append("-isystem");
-            clang_argv.append(buf_ptr(&codegen->libc->sys_include_dir));
-        }
+        clang_argv.append(buf_ptr(include_dir));
     }
 
     // windows c runtime requires -D_DEBUG if using debug libraries

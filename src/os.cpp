@@ -35,6 +35,7 @@
 #include <shlobj.h>
 #include <io.h>
 #include <fcntl.h>
+#include <ntsecapi.h>
 
 typedef SSIZE_T ssize_t;
 #else
@@ -52,6 +53,10 @@ typedef SSIZE_T ssize_t;
 
 #if defined(ZIG_OS_LINUX) || defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD)
 #include <link.h>
+#endif
+
+#if defined(ZIG_OS_LINUX)
+#include <sys/auxv.h>
 #endif
 
 #if defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD)
@@ -1396,8 +1401,38 @@ Error os_make_dir(Buf *path) {
 #endif
 }
 
+static void init_rand() {
+#if defined(ZIG_OS_WINDOWS)
+    char bytes[sizeof(unsigned)];
+    unsigned seed;
+    RtlGenRandom(bytes, sizeof(unsigned));
+    memcpy(&seed, bytes, sizeof(unsigned));
+    srand(seed);
+#elif defined(ZIG_OS_LINUX)
+    srand(*((unsigned*)getauxval(AT_RANDOM)));
+#else
+    int fd = open("/dev/urandom", O_RDONLY|O_CLOEXEC);
+    if (fd == -1) {
+        zig_panic("unable to open /dev/urandom");
+    }
+    char bytes[sizeof(unsigned)];
+    size_t amt_read;
+    while ((amt_read = read(fd, bytes, sizeof(unsigned))) == -1) {
+        if (errno == EINTR) continue;
+        zig_panic("unable to read /dev/urandom");
+    }
+    if (amt_read != sizeof(unsigned)) {
+        zig_panic("unable to read enough bytes from /dev/urandom");
+    }
+    close(fd);
+    unsigned seed;
+    memcpy(&seed, bytes, sizeof(unsigned));
+    srand(seed);
+#endif
+}
+
 int os_init(void) {
-    srand((unsigned)time(NULL));
+    init_rand();
 #if defined(ZIG_OS_WINDOWS)
     _setmode(fileno(stdout), _O_BINARY);
     _setmode(fileno(stderr), _O_BINARY);
@@ -1964,6 +1999,8 @@ Error os_file_open_lock_rw(Buf *full_path, OsFile *out_file) {
                     return ErrorIsDir;
                 case ENOENT:
                     return ErrorFileNotFound;
+                case ENOTDIR:
+                    return ErrorNotDir;
                 default:
                     return ErrorFileSystem;
             }

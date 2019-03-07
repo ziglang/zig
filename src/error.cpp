@@ -29,6 +29,7 @@ const char *err_str(Error err) {
         case ErrorCCompileErrors: return "C compile errors";
         case ErrorEndOfFile: return "end of file";
         case ErrorIsDir: return "is directory";
+        case ErrorNotDir: return "not a directory";
         case ErrorUnsupportedOperatingSystem: return "unsupported operating system";
         case ErrorSharingViolation: return "sharing violation";
         case ErrorPipeBusy: return "pipe busy";
@@ -37,6 +38,7 @@ const char *err_str(Error err) {
         case ErrorPathTooLong: return "path too long";
         case ErrorCCompilerCannotFindFile: return "C compiler cannot find file";
         case ErrorReadingDepFile: return "failed to read .d file";
+        case ErrorInvalidDepFile: return "invalid .d file";
         case ErrorMissingArchitecture: return "missing architecture";
         case ErrorMissingOperatingSystem: return "missing operating system";
         case ErrorUnknownArchitecture: return "unrecognized architecture";

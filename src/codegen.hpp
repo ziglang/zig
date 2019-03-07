@@ -16,7 +16,8 @@
 #include <stdio.h>
 
 CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget *target,
-    OutType out_type, BuildMode build_mode, Buf *zig_lib_dir, Buf *override_std_dir, ZigLibCInstallation *libc);
+    OutType out_type, BuildMode build_mode, Buf *zig_lib_dir, Buf *override_std_dir,
+    ZigLibCInstallation *libc, Buf *cache_dir);
 
 void codegen_set_clang_argv(CodeGen *codegen, const char **args, size_t len);
 void codegen_set_llvm_argv(CodeGen *codegen, const char **args, size_t len);
@@ -24,10 +25,10 @@ void codegen_set_is_test(CodeGen *codegen, bool is_test);
 void codegen_set_each_lib_rpath(CodeGen *codegen, bool each_lib_rpath);
 
 void codegen_set_emit_file_type(CodeGen *g, EmitFileType emit_file_type);
-void codegen_set_is_static(CodeGen *codegen, bool is_static);
 void codegen_set_strip(CodeGen *codegen, bool strip);
 void codegen_set_errmsg_color(CodeGen *codegen, ErrColor err_color);
 void codegen_set_out_name(CodeGen *codegen, Buf *out_name);
+void codegen_set_dynamic_linker(CodeGen *g, Buf *dynamic_linker);
 void codegen_add_lib_dir(CodeGen *codegen, const char *dir);
 void codegen_add_forbidden_lib(CodeGen *codegen, Buf *lib);
 LinkLib *codegen_add_link_lib(CodeGen *codegen, Buf *lib);

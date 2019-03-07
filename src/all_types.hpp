@@ -1693,6 +1693,7 @@ struct CodeGen {
     ZigList<ZigFn *> test_fns;
     ZigList<ZigLLVMDIEnumerator *> err_enumerators;
     ZigList<ErrorTableEntry *> errors_by_index;
+    ZigList<CacheHash *> caches_to_release;
     size_t largest_err_name_len;
 
     ZigPackage *std_package;
@@ -1751,7 +1752,9 @@ struct CodeGen {
     Buf output_file_path;
     Buf o_file_output_path;
     Buf *wanted_output_file_path;
-    Buf cache_dir;
+    Buf *cache_dir;
+    Buf **libc_include_dir_list;
+    size_t libc_include_dir_len;
 
     Buf *zig_c_headers_dir; // Cannot be overridden; derived from zig_lib_dir.
     Buf *zig_std_special_dir; // Cannot be overridden; derived from zig_lib_dir.
@@ -1840,6 +1843,7 @@ struct CodeGen {
     bool linker_rdynamic;
     bool each_lib_rpath;
     bool disable_pic;
+    bool is_dummy_so;
 
     Buf *mmacosx_version_min;
     Buf *mios_version_min;
@@ -1849,6 +1853,7 @@ struct CodeGen {
     ZigPackage *root_package;
     Buf *zig_lib_dir;
     Buf *zig_std_dir;
+    Buf *dynamic_linker_path;
 
     const char **llvm_argv;
     size_t llvm_argv_len;

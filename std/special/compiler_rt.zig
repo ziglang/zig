@@ -67,6 +67,7 @@ comptime {
     @export("__fixtfti", @import("compiler_rt/fixtfti.zig").__fixtfti, linkage);
 
     @export("__udivmoddi4", @import("compiler_rt/udivmoddi4.zig").__udivmoddi4, linkage);
+    @export("__popcountdi2", @import("compiler_rt/popcountdi2.zig").__popcountdi2, linkage);
 
     @export("__udivsi3", __udivsi3, linkage);
     @export("__udivdi3", __udivdi3, linkage);
