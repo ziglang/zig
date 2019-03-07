@@ -40,6 +40,7 @@ enum Error {
     ErrorPathTooLong,
     ErrorCCompilerCannotFindFile,
     ErrorReadingDepFile,
+    ErrorInvalidDepFile,
     ErrorMissingArchitecture,
     ErrorMissingOperatingSystem,
     ErrorUnknownArchitecture,

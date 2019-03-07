@@ -8367,6 +8367,7 @@ static bool gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
 
         Buf *out_dep_path = buf_sprintf("%s.d", buf_ptr(out_obj_path));
         args.append("-MD");
+        args.append("-MV");
         args.append("-MF");
         args.append(buf_ptr(out_dep_path));
 
