@@ -1753,7 +1753,8 @@ struct CodeGen {
     Buf o_file_output_path;
     Buf *wanted_output_file_path;
     Buf *cache_dir;
-    Buf *libc_include_dir;
+    Buf **libc_include_dir_list;
+    size_t libc_include_dir_len;
 
     Buf *zig_c_headers_dir; // Cannot be overridden; derived from zig_lib_dir.
     Buf *zig_std_special_dir; // Cannot be overridden; derived from zig_lib_dir.
@@ -1842,6 +1843,7 @@ struct CodeGen {
     bool linker_rdynamic;
     bool each_lib_rpath;
     bool disable_pic;
+    bool is_dummy_so;
 
     Buf *mmacosx_version_min;
     Buf *mios_version_min;

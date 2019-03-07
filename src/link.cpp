@@ -86,6 +86,7 @@ static const char *build_dummy_so(CodeGen *parent, const char *name, size_t majo
     codegen_set_out_name(child_gen, buf_create_from_str(name));
     codegen_set_lib_version(child_gen, major_version, 0, 0);
     child_gen->is_static = false;
+    child_gen->is_dummy_so = true;
     codegen_build_and_link(child_gen);
     return buf_ptr(&child_gen->output_file_path);
 }
@@ -173,6 +174,14 @@ static void glibc_add_include_dirs_arch(CFile *c_file, ZigLLVM_ArchType arch, co
             } else {
                 c_file->args.append("-I");
                 c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "x86_64", dir)));
+            }
+        } else if (arch == ZigLLVM_x86) {
+            if (nptl != nullptr) {
+                c_file->args.append("-I");
+                c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "i386" OS_SEP "%s", dir, nptl)));
+            } else {
+                c_file->args.append("-I");
+                c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "i386", dir)));
             }
         }
         if (nptl != nullptr) {
@@ -303,6 +312,14 @@ static void glibc_add_include_dirs(CodeGen *parent, CFile *c_file) {
 
     c_file->args.append("-I");
     c_file->args.append(path_from_libc(parent, "glibc"));
+
+    c_file->args.append("-I");
+    c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "libc" OS_SEP "include" OS_SEP "%s-%s-%s",
+                    buf_ptr(parent->zig_lib_dir), target_arch_name(parent->zig_target->arch),
+                    target_os_name(parent->zig_target->os), target_abi_name(parent->zig_target->abi))));
+
+    c_file->args.append("-I");
+    c_file->args.append(path_from_libc(parent, "include" OS_SEP "generic-glibc"));
 }
 
 static const char *glibc_start_asm_path(CodeGen *parent, const char *file) {
@@ -367,13 +384,6 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
             c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include" OS_SEP "libc-symbols.h"));
             c_file->args.append("-DTOP_NAMESPACE=glibc");
             c_file->args.append("-DASSEMBLER");
-
-            // this is a workaround for: 
-            // glibc/sysdeps/x86_64/crti.S:64:2: error: invalid instruction mnemonic '_cet_endbr'
-            //  _CET_ENDBR
-            //  ^~~~~~~~~~
-            c_file->args.append("-D_CET_ENDBR=");
-
             c_file->args.append("-g");
             c_file->args.append("-Wa,--noexecstack");
             return build_libc_object(parent, "crti", c_file);
@@ -781,13 +791,15 @@ static void construct_linker_job_elf(LinkJob *lj) {
     }
 
     if (g->out_type == OutTypeExe || (g->out_type == OutTypeLib && !g->is_static)) {
-        if (g->libc_link_lib == nullptr) {
+        if (g->libc_link_lib == nullptr && !g->is_dummy_so) {
             Buf *builtin_a_path = build_a(g, "builtin");
             lj->args.append(buf_ptr(builtin_a_path));
         }
 
-        Buf *compiler_rt_o_path = build_compiler_rt(g);
-        lj->args.append(buf_ptr(compiler_rt_o_path));
+        if (!g->is_dummy_so) {
+            Buf *compiler_rt_o_path = build_compiler_rt(g);
+            lj->args.append(buf_ptr(compiler_rt_o_path));
+        }
     }
 
     for (size_t i = 0; i < g->link_libs_list.length; i += 1) {
@@ -1043,7 +1055,7 @@ static void construct_linker_job_coff(LinkJob *lj) {
     }
 
     if (g->out_type == OutTypeExe || (g->out_type == OutTypeLib && !g->is_static)) {
-        if (g->libc_link_lib == nullptr) {
+        if (g->libc_link_lib == nullptr && !g->is_dummy_so) {
             Buf *builtin_a_path = build_a(g, "builtin");
             lj->args.append(buf_ptr(builtin_a_path));
         }

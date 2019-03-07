@@ -1,8 +1,3 @@
-const builtin = @import("builtin");
-pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn {
-    unreachable;
-}
-
 // This file exists to create a librt.so file so that LLD has something to look at
 // and emit linker errors if an attempt to link against a non-existent C symbol happens.
 

@@ -1,11 +1,17 @@
-const builtin = @import("builtin");
-pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn {
-    unreachable;
-}
-
 // This file exists to create a libc.so file so that LLD has something to look at
 // and emit linker errors if an attempt to link against a non-existent C symbol happens.
 
+const builtin = @import("builtin");
+
+comptime {
+    switch (builtin.arch) {
+        builtin.Arch.i386 => _ = @import("c/i386.zig"),
+        builtin.Arch.x86_64 => _ = @import("c/x86_64.zig"),
+        else => {},
+    }
+}
+
+export fn @"error"() void {}
 export fn _Exit() void {}
 export fn _IO_2_1_stderr_() void {}
 export fn _IO_2_1_stdin_() void {}
@@ -141,7 +147,6 @@ export fn _IO_wsetb() void {}
 export fn __abort_msg() void {}
 export fn __adjtimex() void {}
 export fn __after_morecore_hook() void {}
-export fn __arch_prctl() void {}
 export fn __argz_count() void {}
 export fn __argz_next() void {}
 export fn __argz_stringify() void {}
@@ -713,7 +718,6 @@ export fn alarm() void {}
 export fn aligned_alloc() void {}
 export fn alphasort() void {}
 export fn alphasort64() void {}
-export fn arch_prctl() void {}
 export fn argp_err_exit_status() void {}
 export fn argp_error() void {}
 export fn argp_failure() void {}
@@ -886,7 +890,6 @@ export fn erand48() void {}
 export fn erand48_r() void {}
 export fn err() void {}
 export fn errno() void {}
-export fn @"error"() void {}
 export fn error_at_line() void {}
 export fn error_message_count() void {}
 export fn error_one_per_line() void {}

@@ -7961,11 +7961,20 @@ static void detect_libc(CodeGen *g) {
             exit(1);
         }
 
-        Buf *libc_dir = buf_alloc();
-        os_path_join(g->zig_lib_dir, buf_create_from_str("libc"), libc_dir);
+        Buf libc_include_dir = BUF_INIT;
+        os_path_join(g->zig_lib_dir, buf_create_from_str("libc" OS_SEP "include"), &libc_include_dir);
 
-        g->libc_include_dir = buf_alloc();
-        os_path_join(libc_dir, buf_create_from_str("glibc-include"), g->libc_include_dir);
+        Buf *arch_include_dir = buf_sprintf("%s" OS_SEP "libc" OS_SEP "include" OS_SEP "%s-%s-%s",
+                buf_ptr(g->zig_lib_dir), target_arch_name(g->zig_target->arch),
+                target_os_name(g->zig_target->os), target_abi_name(g->zig_target->abi));
+
+        Buf *generic_include_dir = buf_sprintf("%s" OS_SEP "libc" OS_SEP "include" OS_SEP "generic-glibc",
+                buf_ptr(g->zig_lib_dir));
+
+        g->libc_include_dir_len = 2;
+        g->libc_include_dir_list = allocate<Buf*>(2);
+        g->libc_include_dir_list[0] = arch_include_dir;
+        g->libc_include_dir_list[1] = generic_include_dir;
         return;
     }
 
@@ -8003,7 +8012,14 @@ static void detect_libc(CodeGen *g) {
                 exit(1);
             }
         }
-        g->libc_include_dir = &g->libc->include_dir;
+        bool want_sys_dir = !buf_eql_buf(&g->libc->include_dir, &g->libc->sys_include_dir);
+        size_t dir_count = 1 + want_sys_dir;
+        g->libc_include_dir_len = dir_count;
+        g->libc_include_dir_list = allocate<Buf*>(dir_count);
+        g->libc_include_dir_list[0] = &g->libc->include_dir;
+        if (want_sys_dir) {
+            g->libc_include_dir_list[1] = &g->libc->sys_include_dir;
+        }
     } else if ((g->out_type == OutTypeExe || (g->out_type == OutTypeLib && !g->is_static)) &&
         !target_is_darwin(g->zig_target))
     {
@@ -8171,7 +8187,7 @@ static void gen_root_source(CodeGen *g) {
     assert(g->root_out_name);
     assert(g->out_type != OutTypeUnknown);
 
-    {
+    if (!g->is_dummy_so) {
         // Zig has lazy top level definitions. Here we semantically analyze the panic function.
         ZigType *import_with_panic;
         if (g->have_pub_panic) {
@@ -8216,7 +8232,9 @@ static void gen_root_source(CodeGen *g) {
         }
     }
 
-    typecheck_panic_fn(g, g->panic_tld_fn, g->panic_fn);
+    if (!g->is_dummy_so) {
+        typecheck_panic_fn(g, g->panic_tld_fn, g->panic_fn);
+    }
 
     report_errors_and_maybe_exit(g);
 
@@ -8296,10 +8314,7 @@ static bool gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
     cache_buf(cache_hash, compiler_id);
     cache_int(cache_hash, g->err_color);
     cache_buf(cache_hash, g->zig_c_headers_dir);
-    cache_buf_opt(cache_hash, g->libc_include_dir);
-    if (g->libc != nullptr) {
-        cache_buf(cache_hash, &g->libc->sys_include_dir);
-    }
+    cache_list_of_buf(cache_hash, g->libc_include_dir_list, g->libc_include_dir_len);
     cache_int(cache_hash, g->zig_target->is_native);
     cache_int(cache_hash, g->zig_target->arch);
     cache_int(cache_hash, g->zig_target->sub_arch);
@@ -8376,15 +8391,10 @@ static bool gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
         args.append("-isystem");
         args.append(buf_ptr(g->zig_c_headers_dir));
 
-        if (g->libc_include_dir != nullptr) {
+        for (size_t i = 0; i < g->libc_include_dir_len; i += 1) {
+            Buf *include_dir = g->libc_include_dir_list[i];
             args.append("-isystem");
-            args.append(buf_ptr(g->libc_include_dir));
-        }
-        if (g->libc != nullptr) {
-            if (!buf_eql_buf(&g->libc->include_dir, &g->libc->sys_include_dir)) {
-                args.append("-isystem");
-                args.append(buf_ptr(&g->libc->sys_include_dir));
-            }
+            args.append(buf_ptr(include_dir));
         }
 
         if (g->zig_target->is_native) {
@@ -9063,6 +9073,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest, bool *c_obj
     cache_bool(ch, g->each_lib_rpath);
     cache_bool(ch, g->disable_pic);
     cache_bool(ch, g->valgrind_support);
+    cache_bool(ch, g->is_dummy_so);
     cache_buf_opt(ch, g->mmacosx_version_min);
     cache_buf_opt(ch, g->mios_version_min);
     cache_usize(ch, g->version_major);
