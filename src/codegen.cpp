@@ -240,10 +240,6 @@ void codegen_set_emit_file_type(CodeGen *g, EmitFileType emit_file_type) {
     g->emit_file_type = emit_file_type;
 }
 
-void codegen_set_is_static(CodeGen *g, bool is_static) {
-    g->is_static = is_static;
-}
-
 void codegen_set_each_lib_rpath(CodeGen *g, bool each_lib_rpath) {
     g->each_lib_rpath = each_lib_rpath;
 }
@@ -9265,7 +9261,9 @@ void codegen_build_and_link(CodeGen *g) {
             }
         }
 
-        if (g->emit_file_type == EmitFileTypeBinary && !compilation_is_already_done(g)) {
+        if (g->emit_file_type == EmitFileTypeBinary &&
+            (g->link_objects.length > 1 || g->out_type != OutTypeObj))
+        {
             codegen_link(g);
         }
     }

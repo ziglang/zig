@@ -574,7 +574,7 @@ static Buf *build_a_raw(CodeGen *parent_gen, const char *aname, Buf *full_path) 
 
     CodeGen *child_gen = create_child_codegen(parent_gen, full_path, child_out_type,
             parent_gen->libc);
-    codegen_set_is_static(child_gen, true);
+    child_gen->is_static = true;
     codegen_set_out_name(child_gen, buf_create_from_str(aname));
 
     // This is so that compiler_rt and builtin libraries know whether they
@@ -699,7 +699,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
     lj->args.append(getLDMOption(g->zig_target));
 
     bool is_lib = g->out_type == OutTypeLib;
-    bool shared = !g->is_static && is_lib;
+    bool is_dyn_lib = !g->is_static && is_lib;
     Buf *soname = nullptr;
     if (g->is_static) {
         if (g->zig_target->arch == ZigLLVM_arm || g->zig_target->arch == ZigLLVM_armeb ||
@@ -709,7 +709,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
         } else {
             lj->args.append("-static");
         }
-    } else if (shared) {
+    } else if (is_dyn_lib) {
         lj->args.append("-shared");
 
         if (buf_len(&g->output_file_path) == 0) {
@@ -780,7 +780,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
 
     }
 
-    if (shared) {
+    if (is_dyn_lib) {
         lj->args.append("-soname");
         lj->args.append(buf_ptr(soname));
     }
@@ -1231,36 +1231,34 @@ static void construct_linker_job_macho(LinkJob *lj) {
     }
 
     bool is_lib = g->out_type == OutTypeLib;
-    bool shared = !g->is_static && is_lib;
+    bool is_dyn_lib = !g->is_static && is_lib;
     if (g->is_static) {
         lj->args.append("-static");
     } else {
         lj->args.append("-dynamic");
     }
 
-    if (is_lib) {
-        if (!g->is_static) {
-            lj->args.append("-dylib");
+    if (is_dyn_lib) {
+        lj->args.append("-dylib");
 
-            Buf *compat_vers = buf_sprintf("%" ZIG_PRI_usize ".0.0", g->version_major);
-            lj->args.append("-compatibility_version");
-            lj->args.append(buf_ptr(compat_vers));
+        Buf *compat_vers = buf_sprintf("%" ZIG_PRI_usize ".0.0", g->version_major);
+        lj->args.append("-compatibility_version");
+        lj->args.append(buf_ptr(compat_vers));
 
-            Buf *cur_vers = buf_sprintf("%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".%" ZIG_PRI_usize,
-                g->version_major, g->version_minor, g->version_patch);
-            lj->args.append("-current_version");
-            lj->args.append(buf_ptr(cur_vers));
+        Buf *cur_vers = buf_sprintf("%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".%" ZIG_PRI_usize,
+            g->version_major, g->version_minor, g->version_patch);
+        lj->args.append("-current_version");
+        lj->args.append(buf_ptr(cur_vers));
 
-            // TODO getting an error when running an executable when doing this rpath thing
-            //Buf *dylib_install_name = buf_sprintf("@rpath/lib%s.%" ZIG_PRI_usize ".dylib",
-            //    buf_ptr(g->root_out_name), g->version_major);
-            //lj->args.append("-install_name");
-            //lj->args.append(buf_ptr(dylib_install_name));
+        // TODO getting an error when running an executable when doing this rpath thing
+        //Buf *dylib_install_name = buf_sprintf("@rpath/lib%s.%" ZIG_PRI_usize ".dylib",
+        //    buf_ptr(g->root_out_name), g->version_major);
+        //lj->args.append("-install_name");
+        //lj->args.append(buf_ptr(dylib_install_name));
 
-            if (buf_len(&g->output_file_path) == 0) {
-                buf_appendf(&g->output_file_path, "lib%s.%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".dylib",
-                    buf_ptr(g->root_out_name), g->version_major, g->version_minor, g->version_patch);
-            }
+        if (buf_len(&g->output_file_path) == 0) {
+            buf_appendf(&g->output_file_path, "lib%s.%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".dylib",
+                buf_ptr(g->root_out_name), g->version_major, g->version_minor, g->version_patch);
         }
     }
 
@@ -1302,37 +1300,13 @@ static void construct_linker_job_macho(LinkJob *lj) {
         Buf *rpath = g->rpath_list.at(i);
         add_rpath(lj, rpath);
     }
-    add_rpath(lj, &g->output_file_path);
+    if (is_dyn_lib) {
+        add_rpath(lj, &g->output_file_path);
+    }
 
-    if (shared) {
+    if (is_dyn_lib) {
         if (g->system_linker_hack) {
             lj->args.append("-headerpad_max_install_names");
-        }
-    } else if (g->is_static) {
-        lj->args.append("-lcrt0.o");
-    } else {
-        switch (platform.kind) {
-            case MacOS:
-                if (darwin_version_lt(&platform, 10, 5)) {
-                    lj->args.append("-lcrt1.o");
-                } else if (darwin_version_lt(&platform, 10, 6)) {
-                    lj->args.append("-lcrt1.10.5.o");
-                } else if (darwin_version_lt(&platform, 10, 8)) {
-                    lj->args.append("-lcrt1.10.6.o");
-                }
-                break;
-            case IPhoneOS:
-                if (g->zig_target->arch == ZigLLVM_aarch64) {
-                    // iOS does not need any crt1 files for arm64
-                } else if (darwin_version_lt(&platform, 3, 1)) {
-                    lj->args.append("-lcrt1.o");
-                } else if (darwin_version_lt(&platform, 6, 0)) {
-                    lj->args.append("-lcrt1.3.1.o");
-                }
-                break;
-            case IPhoneOSSimulator:
-                // no crt1.o needed
-                break;
         }
     }
 
@@ -1347,7 +1321,7 @@ static void construct_linker_job_macho(LinkJob *lj) {
     }
 
     // compiler_rt on darwin is missing some stuff, so we still build it and rely on LinkOnce
-    if (g->out_type == OutTypeExe || (g->out_type == OutTypeLib && !g->is_static)) {
+    if (g->out_type == OutTypeExe || is_dyn_lib) {
         Buf *compiler_rt_o_path = build_compiler_rt(g);
         lj->args.append(buf_ptr(compiler_rt_o_path));
     }
@@ -1356,11 +1330,7 @@ static void construct_linker_job_macho(LinkJob *lj) {
         for (size_t lib_i = 0; lib_i < g->link_libs_list.length; lib_i += 1) {
             LinkLib *link_lib = g->link_libs_list.at(lib_i);
             if (buf_eql_str(link_lib->name, "c")) {
-                // on Darwin, libSystem has libc in it, but also you have to use it
-                // to make syscalls because the syscall numbers are not documented
-                // and change between versions.
-                // so we always link against libSystem
-                lj->args.append("-lSystem");
+                continue;
             } else {
                 if (strchr(buf_ptr(link_lib->name), '/') == nullptr) {
                     Buf *arg = buf_sprintf("-l%s", buf_ptr(link_lib->name));
@@ -1370,6 +1340,11 @@ static void construct_linker_job_macho(LinkJob *lj) {
                 }
             }
         }
+        // on Darwin, libSystem has libc in it, but also you have to use it
+        // to make syscalls because the syscall numbers are not documented
+        // and change between versions.
+        // so we always link against libSystem
+        lj->args.append("-lSystem");
     } else {
         lj->args.append("-undefined");
         lj->args.append("dynamic_lookup");

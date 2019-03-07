@@ -1037,7 +1037,7 @@ int main(int argc, char **argv) {
 
             codegen_set_llvm_argv(g, llvm_argv.items + 1, llvm_argv.length - 2);
             codegen_set_strip(g, strip);
-            codegen_set_is_static(g, is_static);
+            g->is_static = is_static;
             if (dynamic_linker != nullptr)
                 codegen_set_dynamic_linker(g, buf_create_from_str(dynamic_linker));
             g->verbose_tokenize = verbose_tokenize;

@@ -1414,13 +1414,17 @@ static void init_rand() {
     if (fd == -1) {
         zig_panic("unable to open /dev/urandom");
     }
-    const char bytes[sizeof(unsigned)];
-    unsigned seed;
-    while (read(fd, bytes, sizeof(unsigned)) == -1) {
+    char bytes[sizeof(unsigned)];
+    size_t amt_read;
+    while ((amt_read = read(fd, bytes, sizeof(unsigned))) == -1) {
         if (errno == EINTR) continue;
         zig_panic("unable to read /dev/urandom");
     }
+    if (amt_read != sizeof(unsigned)) {
+        zig_panic("unable to read enough bytes from /dev/urandom");
+    }
     close(fd);
+    unsigned seed;
     memcpy(&seed, bytes, sizeof(unsigned));
     srand(seed);
 #endif
