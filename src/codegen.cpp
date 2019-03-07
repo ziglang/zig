@@ -9201,11 +9201,14 @@ void codegen_build_and_link(CodeGen *g) {
     bool any_c_objects_generated;
     if (g->enable_cache) {
         Buf *manifest_dir = buf_alloc();
-        os_path_join(g->cache_dir, buf_create_from_str("build"), manifest_dir);
+        os_path_join(g->cache_dir, buf_create_from_str("h"), manifest_dir);
 
         if ((err = check_cache(g, manifest_dir, &digest, &any_c_objects_generated))) {
             if (err == ErrorCacheUnavailable) {
                 // message already printed
+            } else if (err == ErrorNotDir) {
+                fprintf(stderr, "Unable to check cache: %s is not a directory\n",
+                    buf_ptr(manifest_dir));
             } else {
                 fprintf(stderr, "Unable to check cache: %s\n", err_str(err));
             }

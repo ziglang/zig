@@ -1998,6 +1998,8 @@ Error os_file_open_lock_rw(Buf *full_path, OsFile *out_file) {
                     return ErrorIsDir;
                 case ENOENT:
                     return ErrorFileNotFound;
+                case ENOTDIR:
+                    return ErrorNotDir;
                 default:
                     return ErrorFileSystem;
             }

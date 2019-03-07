@@ -29,6 +29,7 @@ const char *err_str(Error err) {
         case ErrorCCompileErrors: return "C compile errors";
         case ErrorEndOfFile: return "end of file";
         case ErrorIsDir: return "is directory";
+        case ErrorNotDir: return "not a directory";
         case ErrorUnsupportedOperatingSystem: return "unsupported operating system";
         case ErrorSharingViolation: return "sharing violation";
         case ErrorPipeBusy: return "pipe busy";

@@ -31,6 +31,7 @@ enum Error {
     ErrorCCompileErrors,
     ErrorEndOfFile,
     ErrorIsDir,
+    ErrorNotDir,
     ErrorUnsupportedOperatingSystem,
     ErrorSharingViolation,
     ErrorPipeBusy,
