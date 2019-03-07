@@ -462,16 +462,6 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
             codegen_add_object(child_gen, buf_create_from_str(init_o));
             codegen_build_and_link(child_gen);
             return buf_ptr(&child_gen->output_file_path);
-        } else if (strcmp(file, "libc.so.6") == 0) {
-            return build_dummy_so(parent, "c", 6);
-        } else if (strcmp(file, "libm.so.6") == 0) {
-            return build_dummy_so(parent, "m", 6);
-        } else if (strcmp(file, "libpthread.so.0") == 0) {
-            return build_dummy_so(parent, "pthread", 0);
-        } else if (strcmp(file, "librt.so.1") == 0) {
-            return build_dummy_so(parent, "rt", 1);
-        } else if (strcmp(file, "libdl.so.2") == 0) {
-            return build_dummy_so(parent, "dl", 2);
         } else if (strcmp(file, "libc_nonshared.a") == 0) {
             CodeGen *child_gen = create_child_codegen(parent, nullptr, OutTypeLib, nullptr);
             codegen_set_out_name(child_gen, buf_create_from_str("c_nonshared"));
@@ -805,21 +795,18 @@ static void construct_linker_job_elf(LinkJob *lj) {
     for (size_t i = 0; i < g->link_libs_list.length; i += 1) {
         LinkLib *link_lib = g->link_libs_list.at(i);
         if (buf_eql_str(link_lib->name, "c")) {
+            // libc is linked specially
             continue;
         }
         if (g->libc == nullptr && target_is_glibc(g)) {
-            // glibc
+            // these libraries are always linked below when targeting glibc
             if (buf_eql_str(link_lib->name, "m")) {
-                lj->args.append(get_libc_crt_file(g, "libm.so.6")); // this is our dummy so file
                 continue;
             } else if (buf_eql_str(link_lib->name, "pthread")) {
-                lj->args.append(get_libc_crt_file(g, "libpthread.so.0")); // this is our dummy so file
                 continue;
             } else if (buf_eql_str(link_lib->name, "dl")) {
-                lj->args.append(get_libc_crt_file(g, "libdl.so.2")); // this is our dummy so file
                 continue;
             } else if (buf_eql_str(link_lib->name, "rt")) {
-                lj->args.append(get_libc_crt_file(g, "librt.so.1")); // this is our dummy so file
                 continue;
             }
         }
@@ -857,7 +844,11 @@ static void construct_linker_job_elf(LinkJob *lj) {
             lj->args.append("--no-as-needed");
         } else if (target_is_glibc(g)) {
             lj->args.append(build_libunwind(g));
-            lj->args.append(get_libc_crt_file(g, "libc.so.6")); // this is our dummy so file
+            lj->args.append(build_dummy_so(g, "c", 6));
+            lj->args.append(build_dummy_so(g, "m", 6));
+            lj->args.append(build_dummy_so(g, "pthread", 0));
+            lj->args.append(build_dummy_so(g, "dl", 2));
+            lj->args.append(build_dummy_so(g, "rt", 1));
             lj->args.append(get_libc_crt_file(g, "libc_nonshared.a"));
         } else {
             zig_unreachable();

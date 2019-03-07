@@ -8283,7 +8283,7 @@ static Error get_tmp_filename(CodeGen *g, Buf *out, Buf *suffix) {
 }
 
 // returns true if it was a cache miss
-static bool gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
+static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
     Error err;
 
     Buf *artifact_dir;
@@ -8501,23 +8501,16 @@ static bool gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
         os_path_join(artifact_dir, final_o_basename, o_final_path);
     }
 
-    if (g->enable_cache) {
-        cache_buf(&g->cache_hash, &digest);
-    }
-
     g->link_objects.append(o_final_path);
     g->caches_to_release.append(cache_hash);
-
-    return is_cache_miss;
 }
 
 // returns true if we had any cache misses
-static bool gen_c_objects(CodeGen *g) {
+static void gen_c_objects(CodeGen *g) {
     Error err;
-    bool any_cache_misses = false;
 
     if (g->c_source_files.length == 0)
-        return any_cache_misses;
+        return;
 
     Buf *self_exe_path = buf_alloc();
     if ((err = os_self_exe_path(self_exe_path))) {
@@ -8529,10 +8522,8 @@ static bool gen_c_objects(CodeGen *g) {
 
     for (size_t c_file_i = 0; c_file_i < g->c_source_files.length; c_file_i += 1) {
         CFile *c_file = g->c_source_files.at(c_file_i);
-        bool is_cache_miss = gen_c_object(g, self_exe_path, c_file);
-        any_cache_misses = any_cache_misses || is_cache_miss;
+        gen_c_object(g, self_exe_path, c_file);
     }
-    return any_cache_misses;
 }
 
 void codegen_add_object(CodeGen *g, Buf *object_path) {
@@ -9030,7 +9021,7 @@ static void add_cache_pkg(CodeGen *g, CacheHash *ch, ZigPackage *pkg) {
 
 // Called before init()
 // is_cache_hit takes into account gen_c_objects
-static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest, bool *c_objects_generated) {
+static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     Error err;
 
     Buf *compiler_id;
@@ -9052,7 +9043,6 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest, bool *c_obj
     cache_list_of_buf(ch, g->darwin_frameworks.items, g->darwin_frameworks.length);
     cache_list_of_buf(ch, g->rpath_list.items, g->rpath_list.length);
     cache_list_of_buf(ch, g->forbidden_libs.items, g->forbidden_libs.length);
-    cache_list_of_file(ch, g->link_objects.items, g->link_objects.length);
     cache_list_of_file(ch, g->assembly_files.items, g->assembly_files.length);
     cache_int(ch, g->emit_file_type);
     cache_int(ch, g->build_mode);
@@ -9067,6 +9057,10 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest, bool *c_obj
     cache_bool(ch, g->is_static);
     cache_bool(ch, g->strip_debug_symbols);
     cache_bool(ch, g->is_test_build);
+    if (g->is_test_build) {
+        cache_buf_opt(ch, g->test_filter);
+        cache_buf_opt(ch, g->test_name_prefix);
+    }
     cache_bool(ch, g->is_single_threaded);
     cache_bool(ch, g->linker_rdynamic);
     cache_bool(ch, g->each_lib_rpath);
@@ -9078,8 +9072,6 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest, bool *c_obj
     cache_usize(ch, g->version_major);
     cache_usize(ch, g->version_minor);
     cache_usize(ch, g->version_patch);
-    cache_buf_opt(ch, g->test_filter);
-    cache_buf_opt(ch, g->test_name_prefix);
     cache_list_of_str(ch, g->llvm_argv, g->llvm_argv_len);
     cache_list_of_str(ch, g->clang_argv, g->clang_argv_len);
     cache_list_of_str(ch, g->lib_dirs.items, g->lib_dirs.length);
@@ -9092,7 +9084,9 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest, bool *c_obj
     }
     cache_buf_opt(ch, g->dynamic_linker_path);
 
-    *c_objects_generated = gen_c_objects(g);
+    // gen_c_objects appends objects to g->link_objects which we want to include in the hash
+    gen_c_objects(g);
+    cache_list_of_file(ch, g->link_objects.items, g->link_objects.length);
 
     buf_resize(digest, 0);
     if ((err = cache_hit(ch, digest)))
@@ -9199,12 +9193,11 @@ void codegen_build_and_link(CodeGen *g) {
 
     Buf *artifact_dir = buf_alloc();
     Buf digest = BUF_INIT;
-    bool any_c_objects_generated;
     if (g->enable_cache) {
         Buf *manifest_dir = buf_alloc();
         os_path_join(g->cache_dir, buf_create_from_str("h"), manifest_dir);
 
-        if ((err = check_cache(g, manifest_dir, &digest, &any_c_objects_generated))) {
+        if ((err = check_cache(g, manifest_dir, &digest))) {
             if (err == ErrorCacheUnavailable) {
                 // message already printed
             } else if (err == ErrorNotDir) {
@@ -9219,10 +9212,10 @@ void codegen_build_and_link(CodeGen *g) {
         os_path_join(g->cache_dir, buf_create_from_str("artifact"), artifact_dir);
     } else {
         // There is a call to this in check_cache
-        any_c_objects_generated = gen_c_objects(g);
+        gen_c_objects(g);
     }
 
-    if (g->enable_cache && buf_len(&digest) != 0 && !any_c_objects_generated) {
+    if (g->enable_cache && buf_len(&digest) != 0) {
         os_path_join(artifact_dir, &digest, &g->artifact_dir);
         resolve_out_paths(g);
     } else {
