@@ -7906,6 +7906,9 @@ static void init(CodeGen *g) {
 static void detect_dynamic_linker(CodeGen *g) {
     if (g->dynamic_linker_path != nullptr)
         return;
+    const char *standard_ld_path = target_dynamic_linker(g->zig_target);
+    if (standard_ld_path == nullptr)
+        return;
 
     if (g->zig_target->is_native) {
         // target_dynamic_linker is usually correct. However on some systems, such as NixOS
@@ -7944,8 +7947,7 @@ static void detect_dynamic_linker(CodeGen *g) {
 #endif
     }
 
-    // Otherwise go with the standard linker path.
-    g->dynamic_linker_path = buf_create_from_str(target_dynamic_linker(g->zig_target));
+    g->dynamic_linker_path = buf_create_from_str(standard_ld_path);
 }
 
 static void detect_libc(CodeGen *g) {
@@ -9091,7 +9093,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest, bool *c_obj
         cache_buf(ch, &g->libc->msvc_lib_dir);
         cache_buf(ch, &g->libc->kernel32_lib_dir);
     }
-    cache_buf(ch, g->dynamic_linker_path);
+    cache_buf_opt(ch, g->dynamic_linker_path);
 
     *c_objects_generated = gen_c_objects(g);
 
