@@ -10558,18 +10558,25 @@ static IrInstruction *ir_analyze_enum_to_union(IrAnalyze *ira, IrInstruction *so
         assert(union_field != nullptr);
         if ((err = type_resolve(ira->codegen, union_field->type_entry, ResolveStatusZeroBitsKnown)))
             return ira->codegen->invalid_instruction;
-        if (type_has_bits(union_field->type_entry)) {
-            AstNode *field_node = wanted_type->data.unionation.decl_node->data.container_decl.fields.at(
-                    union_field->enum_field->decl_index);
-            ErrorMsg *msg = ir_add_error(ira, source_instr,
-                    buf_sprintf("cast to union '%s' must initialize '%s' field '%s'",
-                        buf_ptr(&wanted_type->name),
-                        buf_ptr(&union_field->type_entry->name),
-                        buf_ptr(union_field->name)));
-            add_error_note(ira->codegen, msg, field_node,
-                    buf_sprintf("field '%s' declared here", buf_ptr(union_field->name)));
-            return ira->codegen->invalid_instruction;
+
+        switch (type_has_one_possible_value(ira->codegen, union_field->type_entry)) {
+            case OnePossibleValueNo:
+            case OnePossibleValueInvalid: {
+                AstNode *field_node = wanted_type->data.unionation.decl_node->data.container_decl.fields.at(
+                        union_field->enum_field->decl_index);
+                ErrorMsg *msg = ir_add_error(ira, source_instr,
+                        buf_sprintf("cast to union '%s' must initialize '%s' field '%s'",
+                            buf_ptr(&wanted_type->name),
+                            buf_ptr(&union_field->type_entry->name),
+                            buf_ptr(union_field->name)));
+                add_error_note(ira->codegen, msg, field_node,
+                        buf_sprintf("field '%s' declared here", buf_ptr(union_field->name)));
+                return ira->codegen->invalid_instruction;
+            }
+            case OnePossibleValueYes:
+                break;
         }
+
         IrInstruction *result = ir_const(ira, source_instr, wanted_type);
         result->value.special = ConstValSpecialStatic;
         result->value.type = wanted_type;
@@ -18031,6 +18038,12 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
 
     if ((err = type_resolve(ira->codegen, type_entry, ResolveStatusSizeKnown)))
         return err;
+
+    auto entry = ira->codegen->type_info_cache.maybe_get(type_entry);
+    if (entry != nullptr) {
+        *out = entry->value;
+        return ErrorNone;
+    }
 
     ConstExprValue *result = nullptr;
     switch (type_entry->id) {
