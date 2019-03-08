@@ -18046,7 +18046,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
             result = create_const_vals(1);
             result->special = ConstValSpecialStatic;
             result->type = ira->codegen->builtin_types.entry_void;
-        	break;
+            break;
         case ZigTypeIdInt:
             {
                 result = create_const_vals(1);
