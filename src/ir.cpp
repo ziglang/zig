@@ -10574,6 +10574,9 @@ static IrInstruction *ir_analyze_enum_to_union(IrAnalyze *ira, IrInstruction *so
         result->value.special = ConstValSpecialStatic;
         result->value.type = wanted_type;
         bigint_init_bigint(&result->value.data.x_union.tag, &val->data.x_enum_tag);
+        result->value.data.x_union.payload = create_const_vals(1);
+        result->value.data.x_union.payload->special = ConstValSpecialStatic;
+        result->value.data.x_union.payload->type = union_field->type_entry;
         return result;
     }
 
