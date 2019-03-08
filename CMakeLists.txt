@@ -835,7 +835,6 @@ set(ZIG_LIBC_FILES
     "glibc/csu/abi-note.S"
     "glibc/csu/abi-tag.h"
     "glibc/csu/elf-init.c"
-    "glibc/csu/init.c"
     "glibc/debug/stack_chk_fail_local.c"
     "glibc/elf/elf.h"
     "glibc/include/alloca.h"

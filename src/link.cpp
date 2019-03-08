@@ -426,38 +426,13 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
             c_file->args.append("-g");
             c_file->args.append("-Wa,--noexecstack");
             return build_libc_object(parent, "abi-note", c_file);
-        } else if (strcmp(file, "init.o") == 0) {
-            CFile *c_file = allocate<CFile>(1);
-            c_file->source_path = path_from_libc(parent, "glibc" OS_SEP "csu" OS_SEP "init.c");
-            c_file->args.append("-I");
-            c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "csu"));
-            glibc_add_include_dirs(parent, c_file);
-            c_file->args.append("-std=gnu11");
-            c_file->args.append("-fgnu89-inline");
-            c_file->args.append("-g");
-            c_file->args.append("-O2");
-            c_file->args.append("-fmerge-all-constants");
-            c_file->args.append("-fno-stack-protector");
-            c_file->args.append("-fmath-errno");
-            c_file->args.append("-DSTACK_PROTECTOR_LEVEL=0");
-            c_file->args.append("-ftls-model=initial-exec");
-            c_file->args.append("-D_LIBC_REENTRANT");
-            c_file->args.append("-include");
-            c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include" OS_SEP "libc-modules.h"));
-            c_file->args.append("-DMODULE_NAME=libc");
-            c_file->args.append("-include");
-            c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include" OS_SEP "libc-symbols.h"));
-            c_file->args.append("-DTOP_NAMESPACE=glibc");
-            return build_libc_object(parent, "init", c_file);
         } else if (strcmp(file, "Scrt1.o") == 0) {
             const char *start_os = get_libc_crt_file(parent, "start.os");
             const char *abi_note_o = get_libc_crt_file(parent, "abi-note.o");
-            const char *init_o = get_libc_crt_file(parent, "init.o");
             CodeGen *child_gen = create_child_codegen(parent, nullptr, OutTypeObj, nullptr);
             codegen_set_out_name(child_gen, buf_create_from_str("Scrt1"));
             codegen_add_object(child_gen, buf_create_from_str(start_os));
             codegen_add_object(child_gen, buf_create_from_str(abi_note_o));
-            codegen_add_object(child_gen, buf_create_from_str(init_o));
             codegen_build_and_link(child_gen);
             return buf_ptr(&child_gen->output_file_path);
         } else if (strcmp(file, "libc_nonshared.a") == 0) {
