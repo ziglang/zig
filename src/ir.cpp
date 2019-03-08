@@ -15506,13 +15506,6 @@ static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_
                     ConstExprValue *payload_val = union_val->data.x_union.payload;
 
                     ZigType *field_type = field->type_entry;
-                    if (field_type->id == ZigTypeIdVoid) {
-                        assert(payload_val == nullptr);
-                        payload_val = create_const_vals(1);
-                        payload_val->special = ConstValSpecialStatic;
-                        payload_val->type = field_type;
-                    }
-
                     ZigType *ptr_type = get_pointer_to_type_extra(ira->codegen, field_type,
                             is_const, is_volatile, PtrLenSingle, 0, 0, 0);
 
@@ -18052,19 +18045,10 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
         case ZigTypeIdNull:
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
-            *out = nullptr;
-            return ErrorNone;
-        default:
-            {
-                // Lookup an available value in our cache.
-                auto entry = ira->codegen->type_info_cache.maybe_get(type_entry);
-                if (entry != nullptr) {
-                    *out = entry->value;
-                    return ErrorNone;
-                }
-
-                // Fallthrough if we don't find one.
-            }
+            result = create_const_vals(1);
+            result->special = ConstValSpecialStatic;
+            result->type = ira->codegen->builtin_types.entry_void;
+        	break;
         case ZigTypeIdInt:
             {
                 result = create_const_vals(1);
@@ -18636,7 +18620,6 @@ static IrInstruction *ir_analyze_instruction_type_info(IrAnalyze *ira,
     out_val->data.x_union.payload = payload;
 
     if (payload != nullptr) {
-        assert(payload->type->id == ZigTypeIdStruct);
         payload->parent.id = ConstParentIdUnion;
         payload->parent.data.p_union.union_val = out_val;
     }
