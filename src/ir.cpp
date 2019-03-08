@@ -18045,9 +18045,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
         case ZigTypeIdNull:
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
-            result = create_const_vals(1);
-            result->special = ConstValSpecialStatic;
-            result->type = ira->codegen->builtin_types.entry_void;
+            result = &ira->codegen->const_void_val;
             break;
         case ZigTypeIdInt:
             {
