@@ -299,3 +299,17 @@ test "type info: optional field unwrapping" {
 
     _ = field.offset orelse 0;
 }
+
+test "type info: pass to function" {
+    _ = passTypeInfo(@typeInfo(void));
+    _ = comptime passTypeInfo(@typeInfo(void));
+}
+
+fn passTypeInfo(comptime info: TypeInfo) type {
+    return void;
+}
+
+test "type info: TypeId -> TypeInfo impl cast" {
+    _ = passTypeInfo(TypeId.Void);
+    _ = comptime passTypeInfo(TypeId.Void);
+}
