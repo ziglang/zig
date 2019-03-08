@@ -289,3 +289,17 @@ fn testVector() void {
     expect(vec_info.Vector.len == 4);
     expect(vec_info.Vector.child == i32);
 }
+
+test "type info: pass to function" {
+    _ = passTypeInfo(@typeInfo(void));
+    _ = comptime passTypeInfo(@typeInfo(void));
+}
+
+fn passTypeInfo(comptime info: TypeInfo) type {
+    return void;
+}
+
+test "type info: TypeId -> TypeInfo impl cast" {
+    _ = passTypeInfo(TypeId.Void);
+    _ = comptime passTypeInfo(TypeId.Void);
+}
