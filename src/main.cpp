@@ -48,9 +48,10 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "Compile Options:\n"
         "  --assembly [source]          add assembly file to build\n"
         "  --c-source [options] [file]  compile C source code\n"
-        "  --cache-dir [path]           override the cache directory\n"
-        "  --cache [auto|off|on]        build in global cache, print out paths to stdout\n"
+        "  --cache-dir [path]           override the local cache directory\n"
+        "  --cache [auto|off|on]        build in cache, print output path to stdout\n"
         "  --color [auto|off|on]        enable or disable colored error messages\n"
+        "  --disable-gen-h              do not generate a C header file (.h)\n"
         "  --disable-pic                disable Position Independent Code for libraries\n"
         "  --disable-valgrind           omit valgrind client requests in debug builds\n"
         "  --enable-valgrind            include valgrind client requests release builds\n"
@@ -58,9 +59,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  -ftime-report                print timing diagnostics\n"
         "  --libc [file]                Provide a file which specifies libc paths\n"
         "  --name [name]                override output name\n"
-        "  --output [file]              override destination path\n"
-        "  --output-h [file]            generate header file\n"
-        "  --output-lib [file]          override import library path\n"
+        "  --output-dir [dir]           override output directory (defaults to cwd)\n"
         "  --pkg-begin [name] [path]    make pkg available to import and push current pkg\n"
         "  --pkg-end                    pop current pkg\n"
         "  --main-pkg-path              set the directory of the root package\n"
@@ -371,8 +370,14 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "Unable to make directory: %s: %s\n", buf_ptr(out_src_dir_path), err_str(err));
                 return EXIT_FAILURE;
             }
-            os_write_file(out_build_zig_path, modified_build_zig_contents);
-            os_write_file(out_main_zig_path, main_zig_contents);
+            if ((err = os_write_file(out_build_zig_path, modified_build_zig_contents))) {
+                fprintf(stderr, "Unable to write file: %s: %s\n", buf_ptr(out_build_zig_path), err_str(err));
+                return EXIT_FAILURE;
+            }
+            if ((err = os_write_file(out_main_zig_path, main_zig_contents))) {
+                fprintf(stderr, "Unable to write file: %s: %s\n", buf_ptr(out_main_zig_path), err_str(err));
+                return EXIT_FAILURE;
+            }
             fprintf(stderr, "Created %s\n", buf_ptr(out_build_zig_path));
             fprintf(stderr, "Created %s\n", buf_ptr(out_main_zig_path));
             if (init_kind == InitKindExe) {
@@ -390,9 +395,7 @@ int main(int argc, char **argv) {
     Cmd cmd = CmdNone;
     EmitFileType emit_file_type = EmitFileTypeBinary;
     const char *in_file = nullptr;
-    const char *out_file = nullptr;
-    const char *out_file_h = nullptr;
-    const char *out_file_lib = nullptr;
+    Buf *output_dir = nullptr;
     bool strip = false;
     bool is_static = false;
     OutType out_type = OutTypeUnknown;
@@ -406,7 +409,7 @@ int main(int argc, char **argv) {
     bool verbose_cc = false;
     ErrColor color = ErrColorAuto;
     CacheOpt enable_cache = CacheOptAuto;
-    const char *dynamic_linker = nullptr;
+    Buf *dynamic_linker = nullptr;
     const char *libc_txt = nullptr;
     ZigList<const char *> clang_argv = {0};
     ZigList<const char *> lib_dirs = {0};
@@ -438,6 +441,7 @@ int main(int argc, char **argv) {
     bool system_linker_hack = false;
     TargetSubsystem subsystem = TargetSubsystemAuto;
     bool is_single_threaded = false;
+    bool disable_gen_h = false;
     Buf *override_std_dir = nullptr;
     Buf *main_pkg_path = nullptr;
     ValgrindSupport valgrind_support = ValgrindSupportAuto;
@@ -648,6 +652,8 @@ int main(int argc, char **argv) {
                 system_linker_hack = true;
             } else if (strcmp(arg, "--single-threaded") == 0) {
                 is_single_threaded = true;
+            } else if (strcmp(arg, "--disable-gen-h") == 0) {
+                disable_gen_h = true;
             } else if (strcmp(arg, "--test-cmd-bin") == 0) {
                 test_exec_args.append(nullptr);
             } else if (arg[1] == 'L' && arg[2] != 0) {
@@ -677,12 +683,8 @@ int main(int argc, char **argv) {
                 return print_error_usage(arg0);
             } else {
                 i += 1;
-                if (strcmp(arg, "--output") == 0) {
-                    out_file = argv[i];
-                } else if (strcmp(arg, "--output-h") == 0) {
-                    out_file_h = argv[i];
-                } else if (strcmp(arg, "--output-lib") == 0) {
-                    out_file_lib = argv[i];
+                if (strcmp(arg, "--output-dir") == 0) {
+                    output_dir = buf_create_from_str(argv[i]);
                 } else if (strcmp(arg, "--color") == 0) {
                     if (strcmp(argv[i], "auto") == 0) {
                         color = ErrColorAuto;
@@ -719,7 +721,7 @@ int main(int argc, char **argv) {
                 } else if (strcmp(arg, "--name") == 0) {
                     out_name = argv[i];
                 } else if (strcmp(arg, "--dynamic-linker") == 0) {
-                    dynamic_linker = argv[i];
+                    dynamic_linker = buf_create_from_str(argv[i]);
                 } else if (strcmp(arg, "--libc") == 0) {
                     libc_txt = argv[i];
                 } else if (strcmp(arg, "-isystem") == 0) {
@@ -901,6 +903,21 @@ int main(int argc, char **argv) {
         }
     }
 
+    if (output_dir != nullptr && enable_cache == CacheOptOn) {
+        fprintf(stderr, "The --output-dir argument is incompatible with --cache on.\n");
+        return print_error_usage(arg0);
+    }
+
+    if (emit_file_type != EmitFileTypeBinary && in_file == nullptr) {
+        fprintf(stderr, "A root source file is required when using --emit asm or --emit llvm-ir");
+        return print_error_usage(arg0);
+    }
+
+    if (llvm_argv.length > 1) {
+        llvm_argv.append(nullptr);
+        ZigLLVMParseCommandLineOptions(llvm_argv.length - 1, llvm_argv.items);
+    }
+
     switch (cmd) {
     case CmdLibC: {
         if (in_file) {
@@ -1008,6 +1025,7 @@ int main(int argc, char **argv) {
             }
             CodeGen *g = codegen_create(main_pkg_path, zig_root_source_file, &target, out_type, build_mode,
                     get_zig_lib_dir(), override_std_dir, libc, cache_dir_buf);
+            if (llvm_argv.length >= 2) codegen_set_llvm_argv(g, llvm_argv.items + 1, llvm_argv.length - 2);
             g->valgrind_support = valgrind_support;
             g->subsystem = subsystem;
 
@@ -1030,16 +1048,9 @@ int main(int argc, char **argv) {
 
             codegen_set_clang_argv(g, clang_argv.items, clang_argv.length);
 
-            if (llvm_argv.length > 1) {
-                llvm_argv.append(nullptr);
-                ZigLLVMParseCommandLineOptions(llvm_argv.length - 1, llvm_argv.items);
-            }
-
-            codegen_set_llvm_argv(g, llvm_argv.items + 1, llvm_argv.length - 2);
             codegen_set_strip(g, strip);
             g->is_static = is_static;
-            if (dynamic_linker != nullptr)
-                codegen_set_dynamic_linker(g, buf_create_from_str(dynamic_linker));
+            g->dynamic_linker_path = dynamic_linker;
             g->verbose_tokenize = verbose_tokenize;
             g->verbose_ast = verbose_ast;
             g->verbose_link = verbose_link;
@@ -1047,6 +1058,8 @@ int main(int argc, char **argv) {
             g->verbose_llvm_ir = verbose_llvm_ir;
             g->verbose_cimport = verbose_cimport;
             g->verbose_cc = verbose_cc;
+            g->output_dir = output_dir;
+            g->disable_gen_h = disable_gen_h;
             codegen_set_errmsg_color(g, color);
             g->system_linker_hack = system_linker_hack;
 
@@ -1090,13 +1103,6 @@ int main(int argc, char **argv) {
                 codegen_set_test_name_prefix(g, buf_create_from_str(test_name_prefix));
             }
 
-            if (out_file)
-                codegen_set_output_path(g, buf_create_from_str(out_file));
-            if (out_file_h != nullptr && (out_type == OutTypeObj || out_type == OutTypeLib))
-                codegen_set_output_h_path(g, buf_create_from_str(out_file_h));
-            if (out_file_lib != nullptr && out_type == OutTypeLib && !is_static)
-                codegen_set_output_lib_path(g, buf_create_from_str(out_file_lib));
-
             add_package(g, cur_pkg, g->root_package);
 
             if (cmd == CmdBuild || cmd == CmdRun || cmd == CmdTest) {
@@ -1135,20 +1141,18 @@ int main(int argc, char **argv) {
                     return term.code;
                 } else if (cmd == CmdBuild) {
                     if (g->enable_cache) {
-                        printf("%s\n", buf_ptr(&g->output_file_path));
-                        if (g->out_h_path != nullptr) {
-                            printf("%s\n", buf_ptr(g->out_h_path));
-                        }
+                        if (printf("%s\n", buf_ptr(&g->output_file_path)) < 0)
+                            return EXIT_FAILURE;
                     }
                     return EXIT_SUCCESS;
                 } else {
                     zig_unreachable();
                 }
             } else if (cmd == CmdTranslateC) {
-                codegen_translate_c(g, in_file_buf);
-                ast_render(g, stdout, g->root_import->data.structure.decl_node, 4);
+                AstNode *root_node = codegen_translate_c(g, in_file_buf);
+                ast_render(g, stdout, root_node, 4);
                 if (timing_info)
-                    codegen_print_timing_report(g, stdout);
+                    codegen_print_timing_report(g, stderr);
                 return EXIT_SUCCESS;
             } else if (cmd == CmdTest) {
                 codegen_set_emit_file_type(g, emit_file_type);
@@ -1156,7 +1160,7 @@ int main(int argc, char **argv) {
                 ZigTarget native;
                 get_native_target(&native);
 
-                g->enable_cache = get_cache_opt(enable_cache, false);
+                g->enable_cache = get_cache_opt(enable_cache, true);
                 codegen_build_and_link(g);
 
                 if (timing_info) {

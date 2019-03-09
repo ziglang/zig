@@ -1087,7 +1087,6 @@ struct RootStruct {
     Buf *path; // relative to root_package->root_src_dir
     ZigList<size_t> *line_offsets;
     Buf *source_code;
-    AstNode *c_import_node;
     ZigLLVMDIFile *di_file;
 };
 
@@ -1746,13 +1745,12 @@ struct CodeGen {
 
     Buf triple_str;
     Buf global_asm;
-    Buf *out_h_path;
-    Buf *out_lib_path;
-    Buf artifact_dir;
     Buf output_file_path;
     Buf o_file_output_path;
-    Buf *wanted_output_file_path;
     Buf *cache_dir;
+    // As an input parameter, mutually exclusive with enable_cache. But it gets
+    // populated in codegen_build_and_link.
+    Buf *output_dir;
     Buf **libc_include_dir_list;
     size_t libc_include_dir_len;
 
@@ -1804,7 +1802,7 @@ struct CodeGen {
     bool verbose_cc;
     bool error_during_imports;
     bool generate_error_name_table;
-    bool enable_cache;
+    bool enable_cache; // mutually exclusive with output_dir
     bool enable_time_report;
     bool system_linker_hack;
     bool reported_bad_link_libc_error;
@@ -1844,6 +1842,7 @@ struct CodeGen {
     bool each_lib_rpath;
     bool disable_pic;
     bool is_dummy_so;
+    bool disable_gen_h;
 
     Buf *mmacosx_version_min;
     Buf *mios_version_min;

@@ -942,8 +942,12 @@ const char *target_lib_file_ext(const ZigTarget *target, bool is_static,
     } else {
         if (is_static) {
             return ".a";
+        } else if (target_is_darwin(target)) {
+            return buf_ptr(buf_sprintf(".%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".dylib",
+                        version_major, version_minor, version_patch));
         } else {
-            return buf_ptr(buf_sprintf(".so.%" ZIG_PRI_usize, version_major));
+            return buf_ptr(buf_sprintf(".so.%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".%" ZIG_PRI_usize,
+                        version_major, version_minor, version_patch));
         }
     }
 }

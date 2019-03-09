@@ -25,8 +25,10 @@ struct CacheHash {
     ZigList<CacheHashFile> files;
     Buf *manifest_dir;
     Buf *manifest_file_path;
+    Buf b64_digest;
     OsFile manifest_file;
     bool manifest_dirty;
+    bool force_check_manifest;
 };
 
 // Always call this first to set up.
@@ -51,6 +53,10 @@ void cache_file_opt(CacheHash *ch, Buf *path);
 // If you got a cache hit, the next step is cache_release.
 // From this point on, there is a lock on the input params. Release
 // the lock with cache_release.
+// Set force_check_manifest if you plan to add files later, but have not
+// added any files before calling cache_hit. CacheHash::b64_digest becomes
+// available for use after this call, even in the case of a miss, and it
+// is a hash of the input parameters only.
 Error ATTRIBUTE_MUST_USE cache_hit(CacheHash *ch, Buf *out_b64_digest);
 
 // If you did not get a cache hit, call this function for every file
