@@ -167,7 +167,7 @@ pub fn windowsOpen(
 pub fn createWindowsEnvBlock(allocator: *mem.Allocator, env_map: *const BufMap) ![]u16 {
     // count bytes needed
     const max_chars_needed = x: {
-        var max_chars_needed: usize = 1; // 1 for the final null byte
+        var max_chars_needed: usize = 4; // 4 for the final 4 null bytes
         var it = env_map.iterator();
         while (it.next()) |pair| {
             // +1 for '='
@@ -189,6 +189,12 @@ pub fn createWindowsEnvBlock(allocator: *mem.Allocator, env_map: *const BufMap) 
         result[i] = 0;
         i += 1;
     }
+    result[i] = 0;
+    i += 1;
+    result[i] = 0;
+    i += 1;
+    result[i] = 0;
+    i += 1;
     result[i] = 0;
     i += 1;
     return allocator.shrink(u16, result, i);

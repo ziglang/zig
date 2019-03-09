@@ -1060,6 +1060,7 @@ pub const LibExeObjStep = struct {
     /// Add command line arguments with `addArg`.
     pub fn run(exe: *LibExeObjStep) *RunStep {
         assert(exe.kind == Kind.Exe);
+        assert(exe.target == Target.Native);
         const run_step = RunStep.create(exe.builder, exe.builder.fmt("run {}", exe.step.name));
         run_step.addArtifactArg(exe);
         return run_step;
@@ -1276,7 +1277,7 @@ pub const LibExeObjStep = struct {
                     LibExeObjStep.Kind.Lib => {
                         if (other.static or self.target.isWindows()) {
                             try zig_args.append("--object");
-                            try zig_args.append(other.getOutputPath());
+                            try zig_args.append(other.getOutputLibPath());
                         } else {
                             const full_path_lib = other.getOutputPath();
                             try zig_args.append("--library");
@@ -1495,7 +1496,7 @@ pub const RunStep = struct {
     cwd: ?[]const u8,
 
     /// Override this field to modify the environment, or use setEnvironmentVariable
-    env_map: ?*const BufMap,
+    env_map: ?*BufMap,
 
     pub const Arg = union(enum) {
         Artifact: *LibExeObjStep,
@@ -1529,12 +1530,28 @@ pub const RunStep = struct {
         }
     }
 
-    pub fn setEnvironmentVariable(self: *RunStep, key: []const u8, value: []const u8) void {
-        const env_map = self.env_map orelse blk: {
-            const env_map = os.getEnvMap(allocator) catch unreachable;
-            self.env_map = env_map;
-            break :blk env_map;
+    pub fn addPathDir(self: *RunStep, search_path: []const u8) void {
+        const PATH = if (builtin.os == builtin.Os.windows) "Path" else "PATH";
+        const env_map = self.getEnvMap();
+        const prev_path = env_map.get(PATH) orelse {
+            env_map.set(PATH, search_path) catch unreachable;
+            return;
         };
+        const new_path = self.builder.fmt("{}" ++ [1]u8{os.path.delimiter} ++ "{}", prev_path, search_path);
+        env_map.set(PATH, new_path) catch unreachable;
+    }
+
+    pub fn getEnvMap(self: *RunStep) *BufMap {
+        return self.env_map orelse {
+            const env_map = self.builder.allocator.create(BufMap) catch unreachable;
+            env_map.* = os.getEnvMap(self.builder.allocator) catch unreachable;
+            self.env_map = env_map;
+            return env_map;
+        };
+    }
+
+    pub fn setEnvironmentVariable(self: *RunStep, key: []const u8, value: []const u8) void {
+        const env_map = self.getEnvMap();
         env_map.set(key, value) catch unreachable;
     }
 
@@ -1547,11 +1564,31 @@ pub const RunStep = struct {
         for (self.argv.toSlice()) |arg| {
             switch (arg) {
                 Arg.Bytes => |bytes| try argv.append(bytes),
-                Arg.Artifact => |artifact| try argv.append(artifact.getOutputPath()),
+                Arg.Artifact => |artifact| {
+                    if (artifact.target.isWindows()) {
+                        // On Windows we don't have rpaths so we have to add .dll search paths to PATH
+                        self.addPathForDynLibs(artifact);
+                    }
+                    try argv.append(artifact.getOutputPath());
+                },
             }
         }
 
         return self.builder.spawnChildEnvMap(cwd, self.env_map orelse self.builder.env_map, argv.toSliceConst());
+    }
+
+    fn addPathForDynLibs(self: *RunStep, artifact: *LibExeObjStep) void {
+        for (artifact.link_objects.toSliceConst()) |link_object| {
+            switch (link_object) {
+                LibExeObjStep.LinkObject.OtherStep => |other| {
+                    if (other.target.isWindows() and other.isDynamicLibrary()) {
+                        self.addPathDir(os.path.dirname(other.getOutputPath()).?);
+                        self.addPathForDynLibs(other);
+                    }
+                },
+                else => {},
+            }
+        }
     }
 };
 
