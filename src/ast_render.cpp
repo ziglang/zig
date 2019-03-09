@@ -470,6 +470,9 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                         fprintf(ar->f, ", ");
                     }
                 }
+                if (node->data.fn_proto.is_var_args) {
+                    fprintf(ar->f, ", ...");
+                }
                 fprintf(ar->f, ")");
                 if (node->data.fn_proto.align_expr) {
                     fprintf(ar->f, " align(");

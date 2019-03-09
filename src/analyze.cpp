@@ -35,20 +35,6 @@ static bool is_top_level_struct(ZigType *import) {
 static ErrorMsg *add_error_note_token(CodeGen *g, ErrorMsg *parent_msg, ZigType *owner, Token *token, Buf *msg) {
     assert(is_top_level_struct(owner));
     RootStruct *root_struct = owner->data.structure.root_struct;
-    if (root_struct->c_import_node != nullptr) {
-        // if this happens, then translate_c generated code that
-        // failed semantic analysis, which isn't supposed to happen
-
-        Buf *note_path = buf_create_from_str("?.c");
-        Buf *note_source = buf_create_from_str("TODO: remember C source location to display here ");
-        ZigList<size_t> note_line_offsets = {0};
-        note_line_offsets.append(0);
-        ErrorMsg *note = err_msg_create_with_line(note_path, 0, 0,
-                note_source, &note_line_offsets, msg);
-
-        err_msg_add_note(parent_msg, note);
-        return note;
-    }
 
     ErrorMsg *err = err_msg_create_with_line(root_struct->path, token->start_line, token->start_column,
             root_struct->source_code, root_struct->line_offsets, msg);
@@ -60,17 +46,6 @@ static ErrorMsg *add_error_note_token(CodeGen *g, ErrorMsg *parent_msg, ZigType 
 ErrorMsg *add_token_error(CodeGen *g, ZigType *owner, Token *token, Buf *msg) {
     assert(is_top_level_struct(owner));
     RootStruct *root_struct = owner->data.structure.root_struct;
-    if (root_struct->c_import_node != nullptr) {
-        // if this happens, then translate_c generated code that
-        // failed semantic analysis, which isn't supposed to happen
-        ErrorMsg *err = add_node_error(g, root_struct->c_import_node,
-            buf_sprintf("compiler bug: @cImport generated invalid zig code"));
-
-        add_error_note_token(g, err, owner, token, msg);
-
-        g->errors.append(err);
-        return err;
-    }
     ErrorMsg *err = err_msg_create_with_line(root_struct->path, token->start_line, token->start_column,
             root_struct->source_code, root_struct->line_offsets, msg);
 
@@ -1300,7 +1275,7 @@ static ZigTypeId container_to_type(ContainerKind kind) {
 }
 
 // This is like get_partial_container_type except it's for the implicit root struct of files.
-ZigType *get_root_container_type(CodeGen *g, const char *full_name, Buf *bare_name,
+static ZigType *get_root_container_type(CodeGen *g, const char *full_name, Buf *bare_name,
         RootStruct *root_struct)
 {
     ZigType *entry = new_type_table_entry(ZigTypeIdStruct);
@@ -4503,11 +4478,11 @@ ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *resolved_path, Bu
     Buf *pkg_root_src_dir = &package->root_src_dir;
     Buf resolved_root_src_dir = os_path_resolve(&pkg_root_src_dir, 1);
 
-    assert(buf_starts_with_buf(resolved_path, &resolved_root_src_dir));
-
     Buf namespace_name = BUF_INIT;
     buf_init_from_buf(&namespace_name, &package->pkg_path);
     if (source_kind == SourceKindNonRoot) {
+        assert(buf_starts_with_buf(resolved_path, &resolved_root_src_dir));
+
         if (buf_len(&namespace_name) != 0) buf_append_char(&namespace_name, NAMESPACE_SEP_CHAR);
         buf_append_mem(&namespace_name, buf_ptr(&noextname) + buf_len(&resolved_root_src_dir) + 1,
             buf_len(&noextname) - (buf_len(&resolved_root_src_dir) + 1));

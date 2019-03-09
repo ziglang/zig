@@ -24,7 +24,7 @@ static CodeGen *create_child_codegen(CodeGen *parent_gen, Buf *root_src_path, Ou
 {
     CodeGen *child_gen = codegen_create(nullptr, root_src_path, parent_gen->zig_target, out_type,
         parent_gen->build_mode, parent_gen->zig_lib_dir, parent_gen->zig_std_dir, libc, get_stage1_cache_path());
-    child_gen->out_h_path = nullptr;
+    child_gen->disable_gen_h = true;
     child_gen->verbose_tokenize = parent_gen->verbose_tokenize;
     child_gen->verbose_ast = parent_gen->verbose_ast;
     child_gen->verbose_link = parent_gen->verbose_link;
@@ -700,11 +700,8 @@ static void construct_linker_job_elf(LinkJob *lj) {
     } else if (is_dyn_lib) {
         lj->args.append("-shared");
 
-        if (buf_len(&g->output_file_path) == 0) {
-            buf_appendf(&g->output_file_path, "lib%s.so.%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".%" ZIG_PRI_usize "",
-                    buf_ptr(g->root_out_name), g->version_major, g->version_minor, g->version_patch);
-        }
-        soname = buf_sprintf("lib%s.so.%" ZIG_PRI_usize "", buf_ptr(g->root_out_name), g->version_major);
+        assert(buf_len(&g->output_file_path) != 0);
+        soname = buf_sprintf("lib%s.so.%" ZIG_PRI_usize, buf_ptr(g->root_out_name), g->version_major);
     }
 
     lj->args.append("-o");
@@ -884,11 +881,6 @@ static void construct_linker_job_wasm(LinkJob *lj) {
     }
 }
 
-//static bool is_target_cyg_mingw(const ZigTarget *target) {
-//    return (target->os == ZigLLVM_Win32 && target->abi == ZigLLVM_Cygnus) ||
-//        (target->os == ZigLLVM_Win32 && target->abi == ZigLLVM_GNU);
-//}
-
 static void coff_append_machine_arg(CodeGen *g, ZigList<const char *> *list) {
     if (g->zig_target->arch == ZigLLVM_x86) {
         list->append("-MACHINE:X86");
@@ -960,6 +952,7 @@ static void add_nt_link_args(LinkJob *lj, bool is_library) {
 }
 
 static void construct_linker_job_coff(LinkJob *lj) {
+    Error err;
     CodeGen *g = lj->codegen;
 
     lj->args.append("/ERRORLIMIT:0");
@@ -1079,11 +1072,13 @@ static void construct_linker_job_coff(LinkJob *lj) {
             buf_appendf(def_contents, "\n");
 
             Buf *def_path = buf_alloc();
-            os_path_join(&g->artifact_dir, buf_sprintf("%s.def", buf_ptr(link_lib->name)), def_path);
-            os_write_file(def_path, def_contents);
+            os_path_join(g->output_dir, buf_sprintf("%s.def", buf_ptr(link_lib->name)), def_path);
+            if ((err = os_write_file(def_path, def_contents))) {
+                zig_panic("error writing def file: %s", err_str(err));
+            }
 
             Buf *generated_lib_path = buf_alloc();
-            os_path_join(&g->artifact_dir, buf_sprintf("%s.lib", buf_ptr(link_lib->name)), generated_lib_path);
+            os_path_join(g->output_dir, buf_sprintf("%s.lib", buf_ptr(link_lib->name)), generated_lib_path);
 
             gen_lib_args.resize(0);
             gen_lib_args.append("link");
@@ -1245,10 +1240,7 @@ static void construct_linker_job_macho(LinkJob *lj) {
         //lj->args.append("-install_name");
         //lj->args.append(buf_ptr(dylib_install_name));
 
-        if (buf_len(&g->output_file_path) == 0) {
-            buf_appendf(&g->output_file_path, "lib%s.%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".dylib",
-                buf_ptr(g->root_out_name), g->version_major, g->version_minor, g->version_patch);
-        }
+        assert(buf_len(&g->output_file_path) != 0);
     }
 
     lj->args.append("-arch");

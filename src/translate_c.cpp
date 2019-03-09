@@ -76,7 +76,6 @@ struct TransScopeWhile {
 };
 
 struct Context {
-    ZigType *import;
     ZigList<ErrorMsg *> *errors;
     VisibMod visib_mod;
     bool want_export;
@@ -86,7 +85,6 @@ struct Context {
     HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> global_table;
     ZigClangSourceManager *source_manager;
     ZigList<Alias> aliases;
-    AstNode *source_node;
     bool warnings_on;
 
     CodeGen *codegen;
@@ -190,7 +188,6 @@ static Buf *trans_lookup_zig_symbol(Context *c, TransScope *scope, Buf *c_symbol
 static AstNode * trans_create_node(Context *c, NodeType id) {
     AstNode *node = allocate<AstNode>(1);
     node->type = id;
-    node->owner = c->import;
     // TODO line/column. mapping to C file??
     return node;
 }
@@ -4732,29 +4729,12 @@ static void process_preprocessor_entities(Context *c, ZigClangASTUnit *zunit) {
     }
 }
 
-Error parse_h_buf(ZigType *import, ZigList<ErrorMsg *> *errors, Buf *source,
-        CodeGen *codegen, AstNode *source_node)
-{
-    Error err;
-    Buf tmp_file_path = BUF_INIT;
-    if ((err = os_buf_to_tmp_file(source, buf_create_from_str(".h"), &tmp_file_path))) {
-        return err;
-    }
-
-    err = parse_h_file(import, errors, buf_ptr(&tmp_file_path), codegen, source_node);
-
-    os_delete_file(&tmp_file_path);
-
-    return err;
-}
-
-Error parse_h_file(ZigType *import, ZigList<ErrorMsg *> *errors, const char *target_file,
-        CodeGen *codegen, AstNode *source_node)
+Error parse_h_file(AstNode **out_root_node, ZigList<ErrorMsg *> *errors, const char *target_file,
+        CodeGen *codegen, Buf *tmp_dep_file)
 {
     Context context = {0};
     Context *c = &context;
     c->warnings_on = codegen->verbose_cimport;
-    c->import = import;
     c->errors = errors;
     if (buf_ends_with_str(buf_create_from_str(target_file), ".h")) {
         c->visib_mod = VisibModPub;
@@ -4768,7 +4748,6 @@ Error parse_h_file(ZigType *import, ZigList<ErrorMsg *> *errors, const char *tar
     c->global_table.init(8);
     c->ptr_params.init(8);
     c->codegen = codegen;
-    c->source_node = source_node;
     c->global_scope = trans_scope_root_create(c);
 
     ZigList<const char *> clang_argv = {0};
@@ -4776,14 +4755,11 @@ Error parse_h_file(ZigType *import, ZigList<ErrorMsg *> *errors, const char *tar
     clang_argv.append("-x");
     clang_argv.append("c");
 
-    Buf *out_dep_path = nullptr;
-    if (codegen->enable_cache) {
-        Buf *prefix = buf_sprintf("%s" OS_SEP, buf_ptr(codegen->cache_dir));
-        out_dep_path = os_tmp_filename(prefix, buf_create_from_str(".d"));
+    if (tmp_dep_file != nullptr) {
         clang_argv.append("-MD");
         clang_argv.append("-MV");
         clang_argv.append("-MF");
-        clang_argv.append(buf_ptr(out_dep_path));
+        clang_argv.append(buf_ptr(tmp_dep_file));
     }
 
     if (c->codegen->zig_target->is_native) {
@@ -4847,7 +4823,7 @@ Error parse_h_file(ZigType *import, ZigList<ErrorMsg *> *errors, const char *tar
 
     clang_argv.append(target_file);
 
-    if (codegen->verbose_cimport) {
+    if (codegen->verbose_cc) {
         fprintf(stderr, "clang");
         for (size_t i = 0; i < clang_argv.length; i += 1) {
             fprintf(stderr, " %s", clang_argv.at(i));
@@ -4932,17 +4908,6 @@ Error parse_h_file(ZigType *import, ZigList<ErrorMsg *> *errors, const char *tar
         return ErrorCCompileErrors;
     }
 
-    if (codegen->enable_cache) {
-        Error err;
-        assert(out_dep_path != nullptr);
-        if ((err = cache_add_dep_file(&codegen->cache_hash, out_dep_path, codegen->verbose_cimport))) {
-            if (codegen->verbose_cimport) {
-                fprintf(stderr, "translate-c: aborting due to failed cache operation: %s\n", err_str(err));
-            }
-            return err;
-        }
-    }
-
     c->ctx = ZigClangASTUnit_getASTContext(ast_unit);
     c->source_manager = ZigClangASTUnit_getSourceManager(ast_unit);
     c->root = trans_create_node(c, NodeTypeContainerDecl);
@@ -4955,8 +4920,7 @@ Error parse_h_file(ZigType *import, ZigList<ErrorMsg *> *errors, const char *tar
     render_macros(c);
     render_aliases(c);
 
-    import->data.structure.decl_node = c->root;
-    import->data.structure.decls_scope->base.source_node = c->root;
+    *out_root_node = c->root;
 
     return ErrorNone;
 }

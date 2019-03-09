@@ -19,6 +19,8 @@ void cache_init(CacheHash *ch, Buf *manifest_dir) {
     ch->manifest_dir = manifest_dir;
     ch->manifest_file_path = nullptr;
     ch->manifest_dirty = false;
+    ch->force_check_manifest = false;
+    ch->b64_digest = BUF_INIT;
 }
 
 void cache_str(CacheHash *ch, const char *ptr) {
@@ -243,22 +245,21 @@ Error cache_hit(CacheHash *ch, Buf *out_digest) {
     int rc = blake2b_final(&ch->blake, bin_digest, 48);
     assert(rc == 0);
 
-    if (ch->files.length == 0) {
+    buf_resize(&ch->b64_digest, 64);
+    base64_encode(buf_to_slice(&ch->b64_digest), {bin_digest, 48});
+
+    if (ch->files.length == 0 && !ch->force_check_manifest) {
         buf_resize(out_digest, 64);
         base64_encode(buf_to_slice(out_digest), {bin_digest, 48});
         return ErrorNone;
     }
-
-    Buf b64_digest = BUF_INIT;
-    buf_resize(&b64_digest, 64);
-    base64_encode(buf_to_slice(&b64_digest), {bin_digest, 48});
 
     rc = blake2b_init(&ch->blake, 48);
     assert(rc == 0);
     blake2b_update(&ch->blake, bin_digest, 48);
 
     ch->manifest_file_path = buf_alloc();
-    os_path_join(ch->manifest_dir, &b64_digest, ch->manifest_file_path);
+    os_path_join(ch->manifest_dir, &ch->b64_digest, ch->manifest_file_path);
 
     buf_append_str(ch->manifest_file_path, ".txt");
 
@@ -380,7 +381,7 @@ Error cache_hit(CacheHash *ch, Buf *out_digest) {
             blake2b_update(&ch->blake, chf->bin_digest, 48);
         }
     }
-    if (file_i < input_file_count) {
+    if (file_i < input_file_count || file_i == 0) {
         // manifest file is empty or missing entries, so this is a cache miss
         ch->manifest_dirty = true;
         for (; file_i < input_file_count; file_i += 1) {
@@ -442,6 +443,7 @@ Error cache_add_dep_file(CacheHash *ch, Buf *dep_file_path, bool verbose) {
         }
         if (opt_line.value.len == 0)
             continue;
+
         if (opt_line.value.ptr[0] == '"') {
             if (opt_line.value.len < 2) {
                 if (verbose) {
@@ -460,21 +462,28 @@ Error cache_add_dep_file(CacheHash *ch, Buf *dep_file_path, bool verbose) {
                 }
                 return ErrorInvalidDepFile;
             }
+            Buf *filename_buf = buf_create_from_slice(opt_line.value);
+            if ((err = cache_add_file(ch, filename_buf))) {
+                if (verbose) {
+                    fprintf(stderr, "unable to add %s to cache: %s\n", buf_ptr(filename_buf), err_str(err));
+                    fprintf(stderr, "when processing .d file: %s\n", buf_ptr(dep_file_path));
+                }
+                return err;
+            }
         } else {
-            if (opt_line.value.ptr[opt_line.value.len - 1] == '\\') {
-                opt_line.value.len -= 2; // cut off ` \`
+            // sometimes there are multiple files on the same line; we actually need space tokenization.
+            SplitIterator line_it = memSplit(opt_line.value, str(" \t\\"));
+            Slice<uint8_t> filename;
+            while (SplitIterator_next(&line_it).unwrap(&filename)) {
+                Buf *filename_buf = buf_create_from_slice(filename);
+                if ((err = cache_add_file(ch, filename_buf))) {
+                    if (verbose) {
+                        fprintf(stderr, "unable to add %s to cache: %s\n", buf_ptr(filename_buf), err_str(err));
+                        fprintf(stderr, "when processing .d file: %s\n", buf_ptr(dep_file_path));
+                    }
+                    return err;
+                }
             }
-            if (opt_line.value.len == 0)
-                continue;
-        }
-
-        Buf *filename_buf = buf_create_from_slice(opt_line.value);
-        if ((err = cache_add_file(ch, filename_buf))) {
-            if (verbose) {
-                fprintf(stderr, "unable to add %s to cache: %s\n", buf_ptr(filename_buf), err_str(err));
-                fprintf(stderr, "when processing .d file: %s\n", buf_ptr(dep_file_path));
-            }
-            return err;
         }
     }
     return ErrorNone;

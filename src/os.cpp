@@ -1031,7 +1031,7 @@ Error os_exec_process(const char *exe, ZigList<const char *> &args,
 #endif
 }
 
-void os_write_file(Buf *full_path, Buf *contents) {
+Error os_write_file(Buf *full_path, Buf *contents) {
     FILE *f = fopen(buf_ptr(full_path), "wb");
     if (!f) {
         zig_panic("os_write_file failed for %s", buf_ptr(full_path));
@@ -1041,6 +1041,7 @@ void os_write_file(Buf *full_path, Buf *contents) {
         zig_panic("write failed: %s", strerror(errno));
     if (fclose(f))
         zig_panic("close failed");
+    return ErrorNone;
 }
 
 Error os_copy_file(Buf *src_path, Buf *dest_path) {
@@ -1205,91 +1206,6 @@ bool os_stderr_tty(void) {
     return isatty(STDERR_FILENO) != 0;
 #else
 #error "missing os_stderr_tty implementation"
-#endif
-}
-
-#if defined(ZIG_OS_POSIX)
-static Error os_buf_to_tmp_file_posix(Buf *contents, Buf *suffix, Buf *out_tmp_path) {
-    const char *tmp_dir = getenv("TMPDIR");
-    if (!tmp_dir) {
-        tmp_dir = P_tmpdir;
-    }
-    buf_resize(out_tmp_path, 0);
-    buf_appendf(out_tmp_path, "%s/XXXXXX%s", tmp_dir, buf_ptr(suffix));
-
-    int fd = mkstemps(buf_ptr(out_tmp_path), (int)buf_len(suffix));
-    if (fd < 0) {
-        return ErrorFileSystem;
-    }
-
-    FILE *f = fdopen(fd, "wb");
-    if (!f) {
-        zig_panic("fdopen failed");
-    }
-
-    size_t amt_written = fwrite(buf_ptr(contents), 1, buf_len(contents), f);
-    if (amt_written != (size_t)buf_len(contents))
-        zig_panic("write failed: %s", strerror(errno));
-    if (fclose(f))
-        zig_panic("close failed");
-
-    return ErrorNone;
-}
-#endif
-
-Buf *os_tmp_filename(Buf *prefix, Buf *suffix) {
-    Buf *result = buf_create_from_buf(prefix);
-
-    const char base64[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_";
-    assert(array_length(base64) == 64 + 1);
-    for (size_t i = 0; i < 12; i += 1) {
-        buf_append_char(result, base64[rand() % 64]);
-    }
-    buf_append_buf(result, suffix);
-    return result;
-}
-
-#if defined(ZIG_OS_WINDOWS)
-static Error os_buf_to_tmp_file_windows(Buf *contents, Buf *suffix, Buf *out_tmp_path) {
-    char tmp_dir[MAX_PATH + 1];
-    if (GetTempPath(MAX_PATH, tmp_dir) == 0) {
-        zig_panic("GetTempPath failed");
-    }
-    buf_init_from_str(out_tmp_path, tmp_dir);
-
-    const char base64[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_";
-    assert(array_length(base64) == 64 + 1);
-    for (size_t i = 0; i < 8; i += 1) {
-        buf_append_char(out_tmp_path, base64[rand() % 64]);
-    }
-
-    buf_append_buf(out_tmp_path, suffix);
-
-    FILE *f = fopen(buf_ptr(out_tmp_path), "wb");
-
-    if (!f) {
-        zig_panic("unable to open %s: %s", buf_ptr(out_tmp_path), strerror(errno));
-    }
-
-    size_t amt_written = fwrite(buf_ptr(contents), 1, buf_len(contents), f);
-    if (amt_written != (size_t)buf_len(contents)) {
-        zig_panic("write failed: %s", strerror(errno));
-    }
-
-    if (fclose(f)) {
-        zig_panic("fclose failed");
-    }
-    return ErrorNone;
-}
-#endif
-
-Error os_buf_to_tmp_file(Buf *contents, Buf *suffix, Buf *out_tmp_path) {
-#if defined(ZIG_OS_WINDOWS)
-    return os_buf_to_tmp_file_windows(contents, suffix, out_tmp_path);
-#elif defined(ZIG_OS_POSIX)
-    return os_buf_to_tmp_file_posix(contents, suffix, out_tmp_path);
-#else
-#error "missing os_buf_to_tmp_file implementation"
 #endif
 }
 

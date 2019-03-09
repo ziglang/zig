@@ -28,7 +28,6 @@ void codegen_set_emit_file_type(CodeGen *g, EmitFileType emit_file_type);
 void codegen_set_strip(CodeGen *codegen, bool strip);
 void codegen_set_errmsg_color(CodeGen *codegen, ErrColor err_color);
 void codegen_set_out_name(CodeGen *codegen, Buf *out_name);
-void codegen_set_dynamic_linker(CodeGen *g, Buf *dynamic_linker);
 void codegen_add_lib_dir(CodeGen *codegen, const char *dir);
 void codegen_add_forbidden_lib(CodeGen *codegen, Buf *lib);
 LinkLib *codegen_add_link_lib(CodeGen *codegen, Buf *lib);
@@ -41,9 +40,6 @@ void codegen_set_linker_script(CodeGen *g, const char *linker_script);
 void codegen_set_test_filter(CodeGen *g, Buf *filter);
 void codegen_set_test_name_prefix(CodeGen *g, Buf *prefix);
 void codegen_set_lib_version(CodeGen *g, size_t major, size_t minor, size_t patch);
-void codegen_set_output_h_path(CodeGen *g, Buf *h_path);
-void codegen_set_output_lib_path(CodeGen *g, Buf *lib_path);
-void codegen_set_output_path(CodeGen *g, Buf *path);
 void codegen_add_time_event(CodeGen *g, const char *name);
 void codegen_print_timing_report(CodeGen *g, FILE *f);
 void codegen_link(CodeGen *g);
@@ -54,7 +50,7 @@ ZigPackage *codegen_create_package(CodeGen *g, const char *root_src_dir, const c
 void codegen_add_assembly(CodeGen *g, Buf *path);
 void codegen_add_object(CodeGen *g, Buf *object_path);
 
-void codegen_translate_c(CodeGen *g, Buf *path);
+AstNode *codegen_translate_c(CodeGen *g, Buf *path);
 
 Buf *codegen_generate_builtin_source(CodeGen *g);
 

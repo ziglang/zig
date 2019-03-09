@@ -16,6 +16,8 @@
 #include "translate_c.hpp"
 #include "util.hpp"
 
+#include <errno.h>
+
 struct IrExecContext {
     ZigList<ConstExprValue *> mem_slot_list;
 };
@@ -18687,7 +18689,15 @@ static IrInstruction *ir_analyze_instruction_type_name(IrAnalyze *ira, IrInstruc
     return result;
 }
 
+static void ir_cimport_cache_paths(Buf *cache_dir, Buf *tmp_c_file_digest, Buf *out_zig_dir, Buf *out_zig_path) {
+    buf_resize(out_zig_dir, 0);
+    buf_resize(out_zig_path, 0);
+    buf_appendf(out_zig_dir, "%s" OS_SEP "o" OS_SEP "%s",
+            buf_ptr(cache_dir), buf_ptr(tmp_c_file_digest));
+    buf_appendf(out_zig_path, "%s" OS_SEP "cimport.zig", buf_ptr(out_zig_dir));
+}
 static IrInstruction *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstructionCImport *instruction) {
+    Error err;
     AstNode *node = instruction->base.source_node;
     assert(node->type == NodeTypeFnCallExpr);
     AstNode *block_node = node->data.fn_call_expr.params.at(0);
@@ -18706,50 +18716,128 @@ static IrInstruction *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruct
     Buf *namespace_name = buf_sprintf("%s.cimport:%" ZIG_PRI_usize ":%" ZIG_PRI_usize,
             buf_ptr(&cur_scope_pkg->pkg_path), node->line + 1, node->column + 1);
 
-    RootStruct *root_struct = allocate<RootStruct>(1);
-    root_struct->package = new_anonymous_package();
-    root_struct->package->package_table.put(buf_create_from_str("builtin"), ira->codegen->compile_var_package);
-    root_struct->package->package_table.put(buf_create_from_str("std"), ira->codegen->std_package);
-    root_struct->c_import_node = node;
-    // TODO create namespace_name file in zig-cache instead of /tmp and use it
-    // for this DIFile
-    root_struct->di_file = ZigLLVMCreateFile(ira->codegen->dbuilder,
-        buf_ptr(buf_create_from_str("cimport.h")), buf_ptr(buf_create_from_str(".")));
-    ZigType *child_import = get_root_container_type(ira->codegen, buf_ptr(namespace_name),
-            namespace_name, root_struct);
+    ZigPackage *cimport_pkg = new_anonymous_package();
+    cimport_pkg->package_table.put(buf_create_from_str("builtin"), ira->codegen->compile_var_package);
+    cimport_pkg->package_table.put(buf_create_from_str("std"), ira->codegen->std_package);
+    buf_init_from_buf(&cimport_pkg->pkg_path, namespace_name);
 
-    ZigList<ErrorMsg *> errors = {0};
-
-    Error err;
-    if ((err = parse_h_buf(child_import, &errors, &cimport_scope->buf, ira->codegen, node))) {
-        if (err != ErrorCCompileErrors) {
-            ir_add_error_node(ira, node, buf_sprintf("C import failed: %s", err_str(err)));
-            return ira->codegen->invalid_instruction;
-        }
-    }
-
-    if (errors.length > 0) {
-        ErrorMsg *parent_err_msg = ir_add_error_node(ira, node, buf_sprintf("C import failed"));
-        if (ira->codegen->libc_link_lib == nullptr) {
-            add_error_note(ira->codegen, parent_err_msg, node,
-                buf_sprintf("libc headers not available; compilation does not link against libc"));
-        }
-        for (size_t i = 0; i < errors.length; i += 1) {
-            ErrorMsg *err_msg = errors.at(i);
-            err_msg_add_note(parent_err_msg, err_msg);
-        }
-
+    CacheHash *cache_hash;
+    if ((err = create_c_object_cache(ira->codegen, &cache_hash, false))) {
+        ir_add_error_node(ira, node, buf_sprintf("C import failed: unable to create cache: %s", err_str(err)));
         return ira->codegen->invalid_instruction;
     }
+    cache_buf(cache_hash, &cimport_scope->buf);
 
-    if (ira->codegen->verbose_cimport) {
-        fprintf(stderr, "\nC imports:\n");
-        fprintf(stderr, "-----------\n");
-        ast_render(ira->codegen, stderr, child_import->data.structure.decl_node, 4);
+    // Set this because we're not adding any files before checking for a hit.
+    cache_hash->force_check_manifest = true;
+
+    Buf tmp_c_file_digest = BUF_INIT;
+    buf_resize(&tmp_c_file_digest, 0);
+    if ((err = cache_hit(cache_hash, &tmp_c_file_digest))) {
+        ir_add_error_node(ira, node, buf_sprintf("C import failed: unable to check cache: %s", err_str(err)));
+        return ira->codegen->invalid_instruction;
+    }
+    ira->codegen->caches_to_release.append(cache_hash);
+
+    Buf *out_zig_dir = buf_alloc();
+    Buf *out_zig_path = buf_alloc();
+    if (buf_len(&tmp_c_file_digest) == 0 || cache_hash->files.length == 0) {
+        // Cache Miss
+        Buf *tmp_c_file_dir = buf_sprintf("%s" OS_SEP "o" OS_SEP "%s",
+                buf_ptr(ira->codegen->cache_dir), buf_ptr(&cache_hash->b64_digest));
+        Buf *resolve_paths[] = {
+            tmp_c_file_dir,
+            buf_create_from_str("cimport.h"),
+        };
+        Buf tmp_c_file_path = os_path_resolve(resolve_paths, 2);
+
+        if ((err = os_make_path(tmp_c_file_dir))) {
+            ir_add_error_node(ira, node, buf_sprintf("C import failed: unable to make dir: %s", err_str(err)));
+            return ira->codegen->invalid_instruction;
+        }
+        
+        if ((err = os_write_file(&tmp_c_file_path, &cimport_scope->buf))) {
+            ir_add_error_node(ira, node, buf_sprintf("C import failed: unable to write .h file: %s", err_str(err)));
+            return ira->codegen->invalid_instruction;
+        }
+        if (ira->codegen->verbose_cimport) {
+            fprintf(stderr, "@cImport source: %s\n", buf_ptr(&tmp_c_file_path));
+        }
+
+        ZigList<ErrorMsg *> errors = {0};
+
+        Buf *tmp_dep_file = buf_sprintf("%s.d", buf_ptr(&tmp_c_file_path));
+        AstNode *root_node;
+        if ((err = parse_h_file(&root_node, &errors, buf_ptr(&tmp_c_file_path), ira->codegen, tmp_dep_file))) {
+            if (err != ErrorCCompileErrors) {
+                ir_add_error_node(ira, node, buf_sprintf("C import failed: %s", err_str(err)));
+                return ira->codegen->invalid_instruction;
+            }
+            assert(errors.length > 0);
+
+            ErrorMsg *parent_err_msg = ir_add_error_node(ira, node, buf_sprintf("C import failed"));
+            if (ira->codegen->libc_link_lib == nullptr) {
+                add_error_note(ira->codegen, parent_err_msg, node,
+                    buf_sprintf("libc headers not available; compilation does not link against libc"));
+            }
+            for (size_t i = 0; i < errors.length; i += 1) {
+                ErrorMsg *err_msg = errors.at(i);
+                err_msg_add_note(parent_err_msg, err_msg);
+            }
+
+            return ira->codegen->invalid_instruction;
+        }
+        if (ira->codegen->verbose_cimport) {
+            fprintf(stderr, "@cImport .d file: %s\n", buf_ptr(tmp_dep_file));
+        }
+
+        if ((err = cache_add_dep_file(cache_hash, tmp_dep_file, false))) {
+            ir_add_error_node(ira, node, buf_sprintf("C import failed: unable to parse .d file: %s", err_str(err)));
+            return ira->codegen->invalid_instruction;
+        }
+        if ((err = cache_final(cache_hash, &tmp_c_file_digest))) {
+            ir_add_error_node(ira, node, buf_sprintf("C import failed: unable to finalize cache: %s", err_str(err)));
+            return ira->codegen->invalid_instruction;
+        }
+
+        ir_cimport_cache_paths(ira->codegen->cache_dir, &tmp_c_file_digest, out_zig_dir, out_zig_path);
+        if ((err = os_make_path(out_zig_dir))) {
+            ir_add_error_node(ira, node, buf_sprintf("C import failed: unable to make output dir: %s", err_str(err)));
+            return ira->codegen->invalid_instruction;
+        }
+        FILE *out_file = fopen(buf_ptr(out_zig_path), "wb");
+        if (out_file == nullptr) {
+            ir_add_error_node(ira, node,
+                    buf_sprintf("C import failed: unable to open output file: %s", strerror(errno)));
+            return ira->codegen->invalid_instruction;
+        }
+        ast_render(ira->codegen, out_file, root_node, 4);
+        if (fclose(out_file) != 0) {
+            ir_add_error_node(ira, node,
+                    buf_sprintf("C import failed: unable to write to output file: %s", strerror(errno)));
+            return ira->codegen->invalid_instruction;
+        }
+
+        if (ira->codegen->verbose_cimport) {
+            fprintf(stderr, "@cImport output: %s\n", buf_ptr(out_zig_path));
+        }
+
+    } else {
+        // Cache Hit
+        ir_cimport_cache_paths(ira->codegen->cache_dir, &tmp_c_file_digest, out_zig_dir, out_zig_path);
+        if (ira->codegen->verbose_cimport) {
+            fprintf(stderr, "@cImport cache hit: %s\n", buf_ptr(out_zig_path));
+        }
     }
 
-    scan_decls(ira->codegen, get_container_scope(child_import), child_import->data.structure.decl_node);
-
+    Buf *import_code = buf_alloc();
+    if ((err = file_fetch(ira->codegen, out_zig_path, import_code))) {
+        ir_add_error_node(ira, node,
+                buf_sprintf("unable to open '%s': %s", buf_ptr(out_zig_path), err_str(err)));
+        return ira->codegen->invalid_instruction;
+    }
+    ZigType *child_import = add_source_file(ira->codegen, cimport_pkg, out_zig_path,
+            import_code, SourceKindCImport);
     return ir_const_type(ira, &instruction->base, child_import);
 }
 

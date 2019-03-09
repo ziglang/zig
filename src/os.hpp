@@ -110,8 +110,8 @@ Error ATTRIBUTE_MUST_USE os_file_read_all(OsFile file, Buf *contents);
 Error ATTRIBUTE_MUST_USE os_file_overwrite(OsFile file, Buf *contents);
 void os_file_close(OsFile file);
 
-void os_write_file(Buf *full_path, Buf *contents);
-Error os_copy_file(Buf *src_path, Buf *dest_path);
+Error ATTRIBUTE_MUST_USE os_write_file(Buf *full_path, Buf *contents);
+Error ATTRIBUTE_MUST_USE os_copy_file(Buf *src_path, Buf *dest_path);
 
 Error ATTRIBUTE_MUST_USE os_fetch_file(FILE *file, Buf *out_contents, bool skip_shebang);
 Error ATTRIBUTE_MUST_USE os_fetch_file_path(Buf *full_path, Buf *out_contents, bool skip_shebang);
@@ -121,8 +121,6 @@ Error ATTRIBUTE_MUST_USE os_get_cwd(Buf *out_cwd);
 bool os_stderr_tty(void);
 void os_stderr_set_color(TermColor color);
 
-Buf *os_tmp_filename(Buf *prefix, Buf *suffix);
-Error os_buf_to_tmp_file(Buf *contents, Buf *suffix, Buf *out_tmp_path);
 Error os_delete_file(Buf *path);
 
 Error ATTRIBUTE_MUST_USE os_file_exists(Buf *full_path, bool *result);
