@@ -1578,6 +1578,7 @@ set(ZIG_LIBC_FILES
     "include/generic-glibc/libintl.h"
     "include/generic-glibc/limits.h"
     "include/generic-glibc/link.h"
+    "include/generic-glibc/linux/limits.h"
     "include/generic-glibc/locale.h"
     "include/generic-glibc/malloc.h"
     "include/generic-glibc/math.h"
