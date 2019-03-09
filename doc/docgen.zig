@@ -1089,6 +1089,8 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             tmp_source_file_name,
                             "--output-dir",
                             tmp_dir_name,
+                            "--cache",
+                            "off",
                         });
                         try out.print("<pre><code class=\"shell\">$ zig test {}.zig", code.name);
                         switch (code.mode) {
@@ -1126,6 +1128,8 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             tmp_source_file_name,
                             "--output-dir",
                             tmp_dir_name,
+                            "--cache",
+                            "off",
                         });
                         try out.print("<pre><code class=\"shell\">$ zig test {}.zig", code.name);
                         switch (code.mode) {
@@ -1183,6 +1187,8 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             tmp_source_file_name,
                             "--output-dir",
                             tmp_dir_name,
+                            "--cache",
+                            "off",
                         });
                         switch (code.mode) {
                             builtin.Mode.Debug => {},
