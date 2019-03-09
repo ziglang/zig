@@ -9120,18 +9120,14 @@ static void resolve_out_paths(CodeGen *g) {
                         buf_init_from_buf(&g->output_file_path, g->link_objects.at(0));
                         return;
                     }
-                    if (!need_llvm_module(g) || (g->enable_cache && g->link_objects.length == 0)) {
-                        // Either we're not creating an object file from our LLVM Module,
-                        // or we have caching enabled and do not need to link objects together.
-                        // In both cases, the output file path and object file path basename can match.
-                        buf_append_str(o_basename, target_o_file_ext(g->zig_target));
-                        buf_append_str(out_basename, target_o_file_ext(g->zig_target));
-                    } else {
+                    if (need_llvm_module(g) && g->link_objects.length != 0 && !g->enable_cache &&
+                        buf_eql_buf(o_basename, out_basename))
+                    {
                         // make it not collide with main output object
                         buf_append_str(o_basename, ".root");
-                        buf_append_str(o_basename, target_o_file_ext(g->zig_target));
-                        buf_append_str(out_basename, target_o_file_ext(g->zig_target));
                     }
+                    buf_append_str(o_basename, target_o_file_ext(g->zig_target));
+                    buf_append_str(out_basename, target_o_file_ext(g->zig_target));
                     break;
                 case OutTypeExe:
                     buf_append_str(o_basename, target_o_file_ext(g->zig_target));
