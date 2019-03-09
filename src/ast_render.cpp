@@ -317,7 +317,7 @@ static bool is_digit(uint8_t c) {
 
 static bool is_printable(uint8_t c) {
     static const uint8_t printables[] =
-        " abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.~`!@#$%^&*()_-+=\\{}[];'\"?/<>,";
+        " abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.~`!@#$%^&*()_-+=\\{}[];'\"?/<>,:";
     for (size_t i = 0; i < array_length(printables); i += 1) {
         if (c == printables[i]) return true;
     }
@@ -328,9 +328,7 @@ static void string_literal_escape(Buf *source, Buf *dest) {
     buf_resize(dest, 0);
     for (size_t i = 0; i < buf_len(source); i += 1) {
         uint8_t c = *((uint8_t*)buf_ptr(source) + i);
-        if (is_printable(c)) {
-            buf_append_char(dest, c);
-        } else if (c == '\'') {
+        if (c == '\'') {
             buf_append_str(dest, "\\'");
         } else if (c == '"') {
             buf_append_str(dest, "\\\"");
@@ -350,6 +348,8 @@ static void string_literal_escape(Buf *source, Buf *dest) {
             buf_append_str(dest, "\\t");
         } else if (c == '\v') {
             buf_append_str(dest, "\\v");
+        } else if (is_printable(c)) {
+            buf_append_char(dest, c);
         } else {
             buf_appendf(dest, "\\x%x", (int)c);
         }

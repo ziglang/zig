@@ -472,10 +472,11 @@ Error cache_add_dep_file(CacheHash *ch, Buf *dep_file_path, bool verbose) {
             }
         } else {
             // sometimes there are multiple files on the same line; we actually need space tokenization.
-            SplitIterator line_it = memSplit(opt_line.value, str(" \t\\"));
+            SplitIterator line_it = memSplit(opt_line.value, str(" \t"));
             Slice<uint8_t> filename;
             while (SplitIterator_next(&line_it).unwrap(&filename)) {
                 Buf *filename_buf = buf_create_from_slice(filename);
+                if (buf_eql_str(filename_buf, "\\")) continue;
                 if ((err = cache_add_file(ch, filename_buf))) {
                     if (verbose) {
                         fprintf(stderr, "unable to add %s to cache: %s\n", buf_ptr(filename_buf), err_str(err));
