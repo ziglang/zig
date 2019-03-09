@@ -1093,22 +1093,8 @@ const char *target_dynamic_linker(const ZigTarget *target) {
         case OsWatchOS:
         case OsMacOSX:
         case OsUefi:
-            return nullptr;
-
         case OsWindows:
-            switch (target->abi) {
-                case ZigLLVM_GNU:
-                case ZigLLVM_GNUABIN32:
-                case ZigLLVM_GNUABI64:
-                case ZigLLVM_GNUEABI:
-                case ZigLLVM_GNUEABIHF:
-                case ZigLLVM_GNUX32:
-                case ZigLLVM_Cygnus:
-                    zig_panic("TODO implement target_dynamic_linker for mingw/cygwin");
-                default:
-                    return nullptr;
-            }
-            zig_unreachable();
+            return nullptr;
 
         case OsAnanas:
         case OsCloudABI:

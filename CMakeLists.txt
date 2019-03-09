@@ -50,6 +50,10 @@ option(ZIG_FORCE_EXTERNAL_LLD "If your system has the LLD patches use it instead
 find_package(llvm)
 find_package(clang)
 
+if(MINGW)
+    find_package(z3)
+endif()
+
 if(APPLE AND ZIG_STATIC)
     list(REMOVE_ITEM LLVM_LIBRARIES "-lz")
     list(REMOVE_ITEM LLVM_LIBRARIES "-lcurses")
@@ -2713,9 +2717,15 @@ target_link_libraries(zig LINK_PUBLIC
     ${LLVM_LIBRARIES}
     ${CMAKE_THREAD_LIBS_INIT}
 )
+
 if(NOT MSVC)
     target_link_libraries(zig LINK_PUBLIC ${LIBXML2})
 endif()
+
+if(MINGW)
+    target_link_libraries(zig LINK_PUBLIC ${Z3_LIBRARIES})
+endif()
+
 if(ZIG_DIA_GUIDS_LIB)
     target_link_libraries(zig LINK_PUBLIC ${ZIG_DIA_GUIDS_LIB})
 endif()
