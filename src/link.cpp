@@ -627,6 +627,10 @@ static const char *getLDMOption(const ZigTarget *t) {
                 return "elf_x86_64_fbsd";
             }
             return "elf_x86_64";
+        case ZigLLVM_riscv32:
+            return "elf32lriscv";
+        case ZigLLVM_riscv64:
+            return "elf64lriscv";
         default:
             zig_unreachable();
     }
