@@ -3948,10 +3948,10 @@ static LLVMValueRef ir_render_asm(CodeGen *g, IrExecutable *executable, IrInstru
 static LLVMValueRef gen_non_null_bit(CodeGen *g, ZigType *maybe_type, LLVMValueRef maybe_handle) {
     assert(maybe_type->id == ZigTypeIdOptional);
     ZigType *child_type = maybe_type->data.maybe.child_type;
-    if (child_type->zero_bits) {
+    if (!type_has_bits(child_type)) {
         return maybe_handle;
     } else {
-        bool is_scalar = type_is_non_optional_pointer(child_type) || child_type->id == ZigTypeIdErrorSet;
+        bool is_scalar = !handle_is_ptr(maybe_type);
         if (is_scalar) {
             return LLVMBuildICmp(g->builder, LLVMIntNE, maybe_handle, LLVMConstNull(maybe_type->type_ref), "");
         } else {
@@ -3991,7 +3991,7 @@ static LLVMValueRef ir_render_optional_unwrap_ptr(CodeGen *g, IrExecutable *exec
     if (child_type->zero_bits) {
         return nullptr;
     } else {
-        bool is_scalar = type_is_non_optional_pointer(child_type) || child_type->id == ZigTypeIdErrorSet;
+        bool is_scalar = !handle_is_ptr(maybe_type);
         if (is_scalar) {
             return maybe_ptr;
         } else {
@@ -4854,7 +4854,7 @@ static LLVMValueRef ir_render_maybe_wrap(CodeGen *g, IrExecutable *executable, I
     }
 
     LLVMValueRef payload_val = ir_llvm_value(g, instruction->value);
-    if (type_is_non_optional_pointer(child_type) || child_type->id == ZigTypeIdErrorSet) {
+    if (!handle_is_ptr(wanted_type)) {
         return payload_val;
     }
 
@@ -8690,10 +8690,10 @@ static void get_c_type(CodeGen *g, GenH *gen_h, ZigType *type_entry, Buf *out_bu
         case ZigTypeIdOptional:
             {
                 ZigType *child_type = type_entry->data.maybe.child_type;
-                if (child_type->zero_bits) {
+                if (!type_has_bits(child_type)) {
                     buf_init_from_str(out_buf, "bool");
                     return;
-                } else if (type_is_non_optional_pointer(child_type)) {
+                } else if (type_is_nonnull_ptr(child_type)) {
                     return get_c_type(g, gen_h, child_type, out_buf);
                 } else {
                     zig_unreachable();
