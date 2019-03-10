@@ -795,7 +795,6 @@ fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: var, source_token: Tok
             std.zig.Token.Id.Keyword_null,
             std.zig.Token.Id.Keyword_true,
             std.zig.Token.Id.Keyword_false,
-            std.zig.Token.Id.Keyword_this,
             => {
                 try out.write("<span class=\"tok-null\">");
                 try writeEscaped(out, src[token.start..token.end]);

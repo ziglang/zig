@@ -302,7 +302,6 @@ pub const Node = struct {
         BoolLiteral,
         NullLiteral,
         UndefinedLiteral,
-        ThisLiteral,
         Unreachable,
         Identifier,
         GroupedExpression,
@@ -1993,23 +1992,6 @@ pub const Node = struct {
         }
 
         pub fn lastToken(self: *const UndefinedLiteral) TokenIndex {
-            return self.token;
-        }
-    };
-
-    pub const ThisLiteral = struct {
-        base: Node,
-        token: TokenIndex,
-
-        pub fn iterate(self: *ThisLiteral, index: usize) ?*Node {
-            return null;
-        }
-
-        pub fn firstToken(self: *const ThisLiteral) TokenIndex {
-            return self.token;
-        }
-
-        pub fn lastToken(self: *const ThisLiteral) TokenIndex {
             return self.token;
         }
     };

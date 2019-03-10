@@ -2563,10 +2563,6 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         _ = try createToCtxLiteral(arena, opt_ctx, ast.Node.NullLiteral, token.index);
                         continue;
                     },
-                    Token.Id.Keyword_this => {
-                        _ = try createToCtxLiteral(arena, opt_ctx, ast.Node.ThisLiteral, token.index);
-                        continue;
-                    },
                     Token.Id.Keyword_var => {
                         _ = try createToCtxLiteral(arena, opt_ctx, ast.Node.VarType, token.index);
                         continue;

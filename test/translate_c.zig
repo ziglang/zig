@@ -1425,6 +1425,48 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn bar() void {}
     );
 
+    cases.addC("u integer suffix after 0 (zero) in macro definition",
+        "#define ZERO 0U"
+    ,
+        "pub const ZERO = c_uint(0);"
+    );
+
+    cases.addC("l integer suffix after 0 (zero) in macro definition",
+        "#define ZERO 0L"
+    ,
+        "pub const ZERO = c_long(0);"
+    );
+
+    cases.addC("ul integer suffix after 0 (zero) in macro definition",
+        "#define ZERO 0UL"
+    ,
+        "pub const ZERO = c_ulong(0);"
+    );
+
+    cases.addC("lu integer suffix after 0 (zero) in macro definition",
+        "#define ZERO 0LU"
+    ,
+        "pub const ZERO = c_ulong(0);"
+    );
+
+    cases.addC("ll integer suffix after 0 (zero) in macro definition",
+        "#define ZERO 0LL"
+    ,
+        "pub const ZERO = c_longlong(0);"
+    );
+
+    cases.addC("ull integer suffix after 0 (zero) in macro definition",
+        "#define ZERO 0ULL"
+    ,
+        "pub const ZERO = c_ulonglong(0);"
+    );
+
+    cases.addC("llu integer suffix after 0 (zero) in macro definition",
+        "#define ZERO 0LLU"
+    ,
+        "pub const ZERO = c_ulonglong(0);"
+    );
+
     // cases.add("empty array with initializer",
     //     "int a[4] = {};"
     // ,
