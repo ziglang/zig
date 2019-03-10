@@ -20,8 +20,8 @@ pub fn build(b: *Builder) !void {
         b.allocator,
         [][]const u8{ b.cache_root, "langref.html" },
     ) catch unreachable;
-    var docgen_cmd = b.addCommand(null, b.env_map, [][]const u8{
-        docgen_exe.getOutputPath(),
+    var docgen_cmd = docgen_exe.run();
+    docgen_cmd.addArgs([][]const u8{
         rel_zig_exe,
         "doc" ++ os.path.sep_str ++ "langref.html.in",
         langref_out_path,

@@ -23,6 +23,9 @@
 #include <stdio.h>
 #include <errno.h>
 
+#define CACHE_OUT_SUBDIR "o"
+#define CACHE_HASH_SUBDIR "h"
+
 static void init_darwin_native(CodeGen *g) {
     char *osx_target = getenv("MACOSX_DEPLOYMENT_TARGET");
     char *ios_target = getenv("IPHONEOS_DEPLOYMENT_TARGET");
@@ -89,7 +92,8 @@ static const char *symbols_that_llvm_depends_on[] = {
 };
 
 CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget *target,
-    OutType out_type, BuildMode build_mode, Buf *zig_lib_dir, Buf *override_std_dir, ZigLibCInstallation *libc)
+    OutType out_type, BuildMode build_mode, Buf *zig_lib_dir, Buf *override_std_dir,
+    ZigLibCInstallation *libc, Buf *cache_dir)
 {
     CodeGen *g = allocate<CodeGen>(1);
 
@@ -98,6 +102,7 @@ CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget 
     g->libc = libc;
     g->zig_lib_dir = zig_lib_dir;
     g->zig_target = target;
+    g->cache_dir = cache_dir;
 
     if (override_std_dir == nullptr) {
         g->zig_std_dir = buf_alloc();
@@ -188,19 +193,10 @@ CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget 
         g->link_libs_list.append(g->libc_link_lib);
     }
 
+    get_target_triple(&g->triple_str, g->zig_target);
+    g->pointer_size_bytes = target_arch_pointer_bit_width(g->zig_target->arch) / 8;
+
     return g;
-}
-
-void codegen_set_output_h_path(CodeGen *g, Buf *h_path) {
-    g->out_h_path = h_path;
-}
-
-void codegen_set_output_lib_path(CodeGen *g, Buf *lib_path) {
-    g->out_lib_path = lib_path;
-}
-
-void codegen_set_output_path(CodeGen *g, Buf *path) {
-    g->wanted_output_file_path = path;
 }
 
 void codegen_set_clang_argv(CodeGen *g, const char **args, size_t len) {
@@ -233,10 +229,6 @@ void codegen_set_is_test(CodeGen *g, bool is_test_build) {
 
 void codegen_set_emit_file_type(CodeGen *g, EmitFileType emit_file_type) {
     g->emit_file_type = emit_file_type;
-}
-
-void codegen_set_is_static(CodeGen *g, bool is_static) {
-    g->is_static = is_static;
 }
 
 void codegen_set_each_lib_rpath(CodeGen *g, bool each_lib_rpath) {
@@ -7761,7 +7753,10 @@ static Error define_builtin_compile_vars(CodeGen *g) {
         }
     } else {
         contents = codegen_generate_builtin_source(g);
-        os_write_file(builtin_zig_path, contents);
+        if ((err = os_write_file(builtin_zig_path, contents))) {
+            fprintf(stderr, "Unable to write file '%s': %s\n", buf_ptr(builtin_zig_path), err_str(err));
+            exit(1);
+        }
     }
 
     assert(g->root_package);
@@ -7780,24 +7775,12 @@ static void init(CodeGen *g) {
     if (g->module)
         return;
 
-    if (g->llvm_argv_len > 0) {
-        const char **args = allocate_nonzero<const char *>(g->llvm_argv_len + 2);
-        args[0] = "zig (LLVM option parsing)";
-        for (size_t i = 0; i < g->llvm_argv_len; i += 1) {
-            args[i + 1] = g->llvm_argv[i];
-        }
-        args[g->llvm_argv_len + 1] = nullptr;
-        ZigLLVMParseCommandLineOptions(g->llvm_argv_len + 1, args);
-    }
-
     if (g->is_test_build) {
         g->subsystem = TargetSubsystemConsole;
     }
 
     assert(g->root_out_name);
     g->module = LLVMModuleCreateWithName(buf_ptr(g->root_out_name));
-
-    get_target_triple(&g->triple_str, g->zig_target);
 
     LLVMSetTarget(g->module, buf_ptr(&g->triple_str));
 
@@ -7854,7 +7837,7 @@ static void init(CodeGen *g) {
     LLVMSetDataLayout(g->module, layout_str);
 
 
-    g->pointer_size_bytes = LLVMPointerSize(g->target_data_ref);
+    assert(g->pointer_size_bytes == LLVMPointerSize(g->target_data_ref));
     g->is_big_endian = (LLVMByteOrder(g->target_data_ref) == LLVMBigEndian);
 
     g->builder = LLVMCreateBuilder();
@@ -7906,18 +7889,89 @@ static void init(CodeGen *g) {
     }
 }
 
+static void detect_dynamic_linker(CodeGen *g) {
+    if (g->dynamic_linker_path != nullptr)
+        return;
+    const char *standard_ld_path = target_dynamic_linker(g->zig_target);
+    if (standard_ld_path == nullptr)
+        return;
+
+    if (g->zig_target->is_native) {
+        // target_dynamic_linker is usually correct. However on some systems, such as NixOS
+        // it will be incorrect. See if we can do better by looking at what zig's own
+        // dynamic linker path is.
+        g->dynamic_linker_path = get_self_dynamic_linker_path();
+        if (g->dynamic_linker_path != nullptr)
+            return;
+
+        // If Zig is statically linked, such as via distributed binary static builds, the above
+        // trick won't work. What are we left with? Try to run the system C compiler and get
+        // it to tell us the dynamic linker path
+#if defined(ZIG_OS_LINUX)
+        {
+            Error err;
+            static const char *dyn_tests[] = {
+#if defined(ZIG_ARCH_X86_64)
+                "ld-linux-x86-64.so.2",
+                "ld-musl-x86_64.so.1",
+#endif
+            };
+            Buf *result = buf_alloc();
+            for (size_t i = 0; i < array_length(dyn_tests); i += 1) {
+                const char *lib_name = dyn_tests[i];
+                if ((err = zig_libc_cc_print_file_name(lib_name, result, false, true))) {
+                    if (err != ErrorCCompilerCannotFindFile) {
+                        fprintf(stderr, "Unable to detect native dynamic linker: %s\n", err_str(err));
+                        exit(1);
+                    }
+                    continue;
+                }
+                g->dynamic_linker_path = result;
+                return;
+            }
+        }
+#endif
+    }
+
+    g->dynamic_linker_path = buf_create_from_str(standard_ld_path);
+}
+
 static void detect_libc(CodeGen *g) {
     Error err;
 
     if (g->libc != nullptr || g->libc_link_lib == nullptr)
         return;
 
+    if (g->zig_target->os == OsLinux && target_abi_is_gnu(g->zig_target->abi)) {
+        // we have glibc headers and can build glibc start files from source
+        if (g->is_static && g->out_type == OutTypeExe) {
+            fprintf(stderr, "glibc does not support static linking\n");
+            exit(1);
+        }
+
+        Buf libc_include_dir = BUF_INIT;
+        os_path_join(g->zig_lib_dir, buf_create_from_str("libc" OS_SEP "include"), &libc_include_dir);
+
+        Buf *arch_include_dir = buf_sprintf("%s" OS_SEP "libc" OS_SEP "include" OS_SEP "%s-%s-%s",
+                buf_ptr(g->zig_lib_dir), target_arch_name(g->zig_target->arch),
+                target_os_name(g->zig_target->os), target_abi_name(g->zig_target->abi));
+
+        Buf *generic_include_dir = buf_sprintf("%s" OS_SEP "libc" OS_SEP "include" OS_SEP "generic-glibc",
+                buf_ptr(g->zig_lib_dir));
+
+        g->libc_include_dir_len = 2;
+        g->libc_include_dir_list = allocate<Buf*>(2);
+        g->libc_include_dir_list[0] = arch_include_dir;
+        g->libc_include_dir_list[1] = generic_include_dir;
+        return;
+    }
+
     if (g->zig_target->is_native) {
         g->libc = allocate<ZigLibCInstallation>(1);
 
         // Look for zig-cache/native_libc.txt
         Buf *native_libc_txt = buf_alloc();
-        os_path_join(&g->cache_dir, buf_create_from_str("native_libc.txt"), native_libc_txt);
+        os_path_join(g->cache_dir, buf_create_from_str("native_libc.txt"), native_libc_txt);
         if ((err = zig_libc_parse(g->libc, native_libc_txt, g->zig_target, false))) {
             if ((err = zig_libc_find_native(g->libc, true))) {
                 fprintf(stderr,
@@ -7925,9 +7979,9 @@ static void detect_libc(CodeGen *g) {
                     "See `zig libc --help` for more details.\n", err_str(err));
                 exit(1);
             }
-            if ((err = os_make_path(&g->cache_dir))) {
+            if ((err = os_make_path(g->cache_dir))) {
                 fprintf(stderr, "Unable to create %s directory: %s\n",
-                    buf_ptr(&g->cache_dir), err_str(err));
+                    buf_ptr(g->cache_dir), err_str(err));
                 exit(1);
             }
             Buf *native_libc_tmp = buf_sprintf("%s.tmp", buf_ptr(native_libc_txt));
@@ -7946,6 +8000,14 @@ static void detect_libc(CodeGen *g) {
                 exit(1);
             }
         }
+        bool want_sys_dir = !buf_eql_buf(&g->libc->include_dir, &g->libc->sys_include_dir);
+        size_t dir_count = 1 + want_sys_dir;
+        g->libc_include_dir_len = dir_count;
+        g->libc_include_dir_list = allocate<Buf*>(dir_count);
+        g->libc_include_dir_list[0] = &g->libc->include_dir;
+        if (want_sys_dir) {
+            g->libc_include_dir_list[1] = &g->libc->sys_include_dir;
+        }
     } else if ((g->out_type == OutTypeExe || (g->out_type == OutTypeLib && !g->is_static)) &&
         !target_is_darwin(g->zig_target))
     {
@@ -7958,7 +8020,7 @@ static void detect_libc(CodeGen *g) {
     }
 }
 
-void codegen_translate_c(CodeGen *g, Buf *full_path) {
+AstNode *codegen_translate_c(CodeGen *g, Buf *full_path) {
     Buf *src_basename = buf_alloc();
     Buf *src_dirname = buf_alloc();
     os_path_split(full_path, src_dirname, src_basename);
@@ -7970,16 +8032,9 @@ void codegen_translate_c(CodeGen *g, Buf *full_path) {
 
     init(g);
 
-    RootStruct *root_struct = allocate<RootStruct>(1);
-    root_struct->source_code = nullptr;
-    root_struct->path = full_path;
-    root_struct->di_file = ZigLLVMCreateFile(g->dbuilder, buf_ptr(src_basename), buf_ptr(src_dirname));
-
-    ZigType *import = get_root_container_type(g, buf_ptr(&noextname), &noextname, root_struct);
-    g->root_import = import;
-
     ZigList<ErrorMsg *> errors = {0};
-    Error err = parse_h_file(import, &errors, buf_ptr(full_path), g, nullptr);
+    AstNode *root_node;
+    Error err = parse_h_file(&root_node, &errors, buf_ptr(full_path), g, nullptr);
 
     if (err == ErrorCCompileErrors && errors.length > 0) {
         for (size_t i = 0; i < errors.length; i += 1) {
@@ -7993,6 +8048,8 @@ void codegen_translate_c(CodeGen *g, Buf *full_path) {
         fprintf(stderr, "unable to parse C file: %s\n", err_str(err));
         exit(1);
     }
+
+    return root_node;
 }
 
 static ZigType *add_special_code(CodeGen *g, ZigPackage *package, const char *basename) {
@@ -8113,7 +8170,7 @@ static void gen_root_source(CodeGen *g) {
     assert(g->root_out_name);
     assert(g->out_type != OutTypeUnknown);
 
-    {
+    if (!g->is_dummy_so) {
         // Zig has lazy top level definitions. Here we semantically analyze the panic function.
         ZigType *import_with_panic;
         if (g->have_pub_panic) {
@@ -8158,7 +8215,9 @@ static void gen_root_source(CodeGen *g) {
         }
     }
 
-    typecheck_panic_fn(g, g->panic_tld_fn, g->panic_fn);
+    if (!g->is_dummy_so) {
+        typecheck_panic_fn(g, g->panic_tld_fn, g->panic_fn);
+    }
 
     report_errors_and_maybe_exit(g);
 
@@ -8190,142 +8249,261 @@ static void print_zig_cc_cmd(const char *zig_exe, ZigList<const char *> *args) {
     fprintf(stderr, "\n");
 }
 
+// Caller should delete the file when done or rename it into a better location.
+static Error get_tmp_filename(CodeGen *g, Buf *out, Buf *suffix) {
+    Error err;
+    buf_resize(out, 0);
+    os_path_join(g->cache_dir, buf_create_from_str("tmp" OS_SEP), out);
+    if ((err = os_make_path(out))) {
+        return err;
+    }
+    const char base64[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_";
+    assert(array_length(base64) == 64 + 1);
+    for (size_t i = 0; i < 12; i += 1) {
+        buf_append_char(out, base64[rand() % 64]);
+    }
+    buf_append_char(out, '-');
+    buf_append_buf(out, suffix);
+    return ErrorNone;
+}
+
+Error create_c_object_cache(CodeGen *g, CacheHash **out_cache_hash, bool verbose) {
+    Error err;
+    CacheHash *cache_hash = allocate<CacheHash>(1);
+    Buf *manifest_dir = buf_sprintf("%s" OS_SEP CACHE_HASH_SUBDIR, buf_ptr(g->cache_dir));
+    cache_init(cache_hash, manifest_dir);
+
+    Buf *compiler_id;
+    if ((err = get_compiler_id(&compiler_id))) {
+        if (verbose) {
+            fprintf(stderr, "unable to get compiler id: %s\n", err_str(err));
+        }
+        return err;
+    }
+    cache_buf(cache_hash, compiler_id);
+    cache_int(cache_hash, g->err_color);
+    cache_buf(cache_hash, g->zig_c_headers_dir);
+    cache_list_of_buf(cache_hash, g->libc_include_dir_list, g->libc_include_dir_len);
+    cache_int(cache_hash, g->zig_target->is_native);
+    cache_int(cache_hash, g->zig_target->arch);
+    cache_int(cache_hash, g->zig_target->sub_arch);
+    cache_int(cache_hash, g->zig_target->vendor);
+    cache_int(cache_hash, g->zig_target->os);
+    cache_int(cache_hash, g->zig_target->abi);
+    cache_bool(cache_hash, g->strip_debug_symbols);
+    cache_int(cache_hash, g->build_mode);
+    cache_bool(cache_hash, g->disable_pic);
+    for (size_t arg_i = 0; arg_i < g->clang_argv_len; arg_i += 1) {
+        cache_str(cache_hash, g->clang_argv[arg_i]);
+    }
+
+    *out_cache_hash = cache_hash;
+    return ErrorNone;
+}
+
+// returns true if it was a cache miss
 static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
     Error err;
+
+    Buf *artifact_dir;
+    Buf *o_final_path;
+
+    Buf *o_dir = buf_sprintf("%s" OS_SEP CACHE_OUT_SUBDIR, buf_ptr(g->cache_dir));
 
     Buf *c_source_file = buf_create_from_str(c_file->source_path);
     Buf *c_source_basename = buf_alloc();
     os_path_split(c_source_file, nullptr, c_source_basename);
-    Buf *out_obj_name = buf_sprintf("%s%s", buf_ptr(c_source_basename), target_o_file_ext(g->zig_target));
-    Buf *out_obj_path = buf_alloc();
-    os_path_join(&g->cache_dir, out_obj_name, out_obj_path);
-    Buf *out_dep_name = buf_sprintf("%s.d", buf_ptr(c_source_file));
-    Buf *out_dep_path = buf_alloc();
-    os_path_join(&g->cache_dir, out_dep_name, out_dep_path);
+    Buf *final_o_basename = buf_alloc();
+    os_path_extname(c_source_basename, final_o_basename, nullptr);
+    buf_append_str(final_o_basename, target_o_file_ext(g->zig_target));
 
-    Termination term;
-    ZigList<const char *> args = {};
-    args.append("cc");
-
-    if (g->enable_cache) {
-        args.append("-MD");
-        args.append("-MF");
-        args.append(buf_ptr(out_dep_path));
-    }
-
-    args.append("-nostdinc");
-    args.append("-fno-spell-checking");
-
-    switch (g->err_color) {
-        case ErrColorAuto:
-            break;
-        case ErrColorOff:
-            args.append("-fno-color-diagnostics");
-            args.append("-fno-caret-diagnostics");
-            break;
-        case ErrColorOn:
-            args.append("-fcolor-diagnostics");
-            args.append("-fcaret-diagnostics");
-            break;
-    }
-
-    args.append("-isystem");
-    args.append(buf_ptr(g->zig_c_headers_dir));
-
-    if (g->libc != nullptr) {
-        args.append("-isystem");
-        args.append(buf_ptr(&g->libc->include_dir));
-
-        if (!buf_eql_buf(&g->libc->include_dir, &g->libc->sys_include_dir)) {
-            args.append("-isystem");
-            args.append(buf_ptr(&g->libc->sys_include_dir));
-        }
-    }
-
-    if (g->zig_target->is_native) {
-        args.append("-march=native");
-    } else {
-        args.append("-target");
-        args.append(buf_ptr(&g->triple_str));
-    }
-
-    if (!g->strip_debug_symbols) {
-        args.append("-g");
-    }
-    switch (g->build_mode) {
-        case BuildModeDebug:
-            if (g->libc_link_lib != nullptr) {
-                args.append("-fstack-protector-strong");
-                args.append("--param");
-                args.append("ssp-buffer-size=4");
-            } else {
-                args.append("-fno-stack-protector");
-            }
-            break;
-        case BuildModeSafeRelease:
-            args.append("-O2");
-            if (g->libc_link_lib != nullptr) {
-                args.append("-D_FORTIFY_SOURCE=2");
-                args.append("-fstack-protector-strong");
-                args.append("--param");
-                args.append("ssp-buffer-size=4");
-            } else {
-                args.append("-fno-stack-protector");
-            }
-            break;
-        case BuildModeFastRelease:
-            args.append("-O2");
-            args.append("-fno-stack-protector");
-            break;
-        case BuildModeSmallRelease:
-            args.append("-Os");
-            args.append("-fno-stack-protector");
-            break;
-    }
-
-    args.append("-o");
-    args.append(buf_ptr(out_obj_path));
-
-    args.append("-c");
-    args.append(buf_ptr(c_source_file));
-
-    if (!g->disable_pic && target_supports_fpic(g->zig_target)) {
-        args.append("-fPIC");
-    }
-
-    for (size_t arg_i = 0; arg_i < g->clang_argv_len; arg_i += 1) {
-        args.append(g->clang_argv[arg_i]);
-    }
-
-    for (size_t arg_i = 0; arg_i < c_file->args.length; arg_i += 1) {
-        args.append(c_file->args.at(arg_i));
-    }
-
-    if (g->verbose_cc) {
-        print_zig_cc_cmd("zig", &args);
-    }
-    os_spawn_process(buf_ptr(self_exe_path), args, &term);
-    if (term.how != TerminationIdClean || term.code != 0) {
-        fprintf(stderr, "\nThe following command failed:\n");
-        print_zig_cc_cmd(buf_ptr(self_exe_path), &args);
+    CacheHash *cache_hash;
+    if ((err = create_c_object_cache(g, &cache_hash, true))) {
+        // Already printed error; verbose = true
         exit(1);
     }
+    cache_file(cache_hash, c_source_file);
 
-    g->link_objects.append(out_obj_path);
-
-    if (g->enable_cache) {
-        // add the files depended on to the cache system
-        if ((err = cache_add_file(&g->cache_hash, c_source_file))) {
-            fprintf(stderr, "unable to add %s to cache: %s\n", buf_ptr(c_source_file), err_str(err));
-            exit(1);
-        }
-        if ((err = cache_add_dep_file(&g->cache_hash, out_dep_path, true))) {
-            fprintf(stderr, "failed to add C source dependencies to cache: %s\n", err_str(err));
-            exit(1);
+    // Note: not directory args, just args that always have a file next
+    static const char *file_args[] = {
+        "-include",
+    };
+    for (size_t arg_i = 0; arg_i < c_file->args.length; arg_i += 1) {
+        const char *arg = c_file->args.at(arg_i);
+        cache_str(cache_hash, arg);
+        for (size_t file_arg_i = 0; file_arg_i < array_length(file_args); file_arg_i += 1) {
+            if (strcmp(arg, file_args[file_arg_i]) == 0 && arg_i + 1 < c_file->args.length) {
+                arg_i += 1;
+                cache_file(cache_hash, buf_create_from_str(c_file->args.at(arg_i)));
+            }
         }
     }
+
+    Buf digest = BUF_INIT;
+    buf_resize(&digest, 0);
+    if ((err = cache_hit(cache_hash, &digest))) {
+        if (err == ErrorCacheUnavailable) {
+            // already printed error
+        } else {
+            fprintf(stderr, "unable to check cache when compiling C object: %s\n", err_str(err));
+        }
+        exit(1);
+    }
+    bool is_cache_miss = (buf_len(&digest) == 0);
+    if (is_cache_miss) {
+        // we can't know the digest until we do the C compiler invocation, so we
+        // need a tmp filename.
+        Buf *out_obj_path = buf_alloc();
+        if ((err = get_tmp_filename(g, out_obj_path, final_o_basename))) {
+            fprintf(stderr, "unable to create tmp dir: %s\n", err_str(err));
+            exit(1);
+        }
+
+        Termination term;
+        ZigList<const char *> args = {};
+        args.append("cc");
+
+        Buf *out_dep_path = buf_sprintf("%s.d", buf_ptr(out_obj_path));
+        args.append("-MD");
+        args.append("-MV");
+        args.append("-MF");
+        args.append(buf_ptr(out_dep_path));
+
+        args.append("-nostdinc");
+        args.append("-fno-spell-checking");
+
+        switch (g->err_color) {
+            case ErrColorAuto:
+                break;
+            case ErrColorOff:
+                args.append("-fno-color-diagnostics");
+                args.append("-fno-caret-diagnostics");
+                break;
+            case ErrColorOn:
+                args.append("-fcolor-diagnostics");
+                args.append("-fcaret-diagnostics");
+                break;
+        }
+
+        args.append("-isystem");
+        args.append(buf_ptr(g->zig_c_headers_dir));
+
+        for (size_t i = 0; i < g->libc_include_dir_len; i += 1) {
+            Buf *include_dir = g->libc_include_dir_list[i];
+            args.append("-isystem");
+            args.append(buf_ptr(include_dir));
+        }
+
+        if (g->zig_target->is_native) {
+            args.append("-march=native");
+        } else {
+            args.append("-target");
+            args.append(buf_ptr(&g->triple_str));
+        }
+
+        if (!g->strip_debug_symbols) {
+            args.append("-g");
+        }
+
+        switch (g->build_mode) {
+            case BuildModeDebug:
+                if (g->libc_link_lib != nullptr) {
+                    args.append("-fstack-protector-strong");
+                    args.append("--param");
+                    args.append("ssp-buffer-size=4");
+                } else {
+                    args.append("-fno-stack-protector");
+                }
+                break;
+            case BuildModeSafeRelease:
+                args.append("-O2");
+                if (g->libc_link_lib != nullptr) {
+                    args.append("-D_FORTIFY_SOURCE=2");
+                    args.append("-fstack-protector-strong");
+                    args.append("--param");
+                    args.append("ssp-buffer-size=4");
+                } else {
+                    args.append("-fno-stack-protector");
+                }
+                break;
+            case BuildModeFastRelease:
+                args.append("-DNDEBUG");
+                args.append("-O2");
+                args.append("-fno-stack-protector");
+                break;
+            case BuildModeSmallRelease:
+                args.append("-DNDEBUG");
+                args.append("-Os");
+                args.append("-fno-stack-protector");
+                break;
+        }
+
+        args.append("-o");
+        args.append(buf_ptr(out_obj_path));
+
+        args.append("-c");
+        args.append(buf_ptr(c_source_file));
+
+        if (target_supports_fpic(g->zig_target) && !g->disable_pic) {
+            args.append("-fPIC");
+        }
+
+        for (size_t arg_i = 0; arg_i < g->clang_argv_len; arg_i += 1) {
+            args.append(g->clang_argv[arg_i]);
+        }
+
+        for (size_t arg_i = 0; arg_i < c_file->args.length; arg_i += 1) {
+            args.append(c_file->args.at(arg_i));
+        }
+
+
+        if (g->verbose_cc) {
+            print_zig_cc_cmd("zig", &args);
+        }
+        os_spawn_process(buf_ptr(self_exe_path), args, &term);
+        if (term.how != TerminationIdClean || term.code != 0) {
+            fprintf(stderr, "\nThe following command failed:\n");
+            print_zig_cc_cmd(buf_ptr(self_exe_path), &args);
+            exit(1);
+        }
+
+        // add the files depended on to the cache system
+        if ((err = cache_add_dep_file(cache_hash, out_dep_path, true))) {
+            fprintf(stderr, "Failed to add C source dependencies to cache: %s\n", err_str(err));
+            exit(1);
+        }
+        os_delete_file(out_dep_path);
+
+        if ((err = cache_final(cache_hash, &digest))) {
+            fprintf(stderr, "Unable to finalize cache hash: %s\n", err_str(err));
+            exit(1);
+        }
+        artifact_dir = buf_alloc();
+        os_path_join(o_dir, &digest, artifact_dir);
+        if ((err = os_make_path(artifact_dir))) {
+            fprintf(stderr, "Unable to create output directory '%s': %s",
+                    buf_ptr(artifact_dir), err_str(err));
+            exit(1);
+        }
+        o_final_path = buf_alloc();
+        os_path_join(artifact_dir, final_o_basename, o_final_path);
+        if ((err = os_rename(out_obj_path, o_final_path))) {
+            fprintf(stderr, "Unable to rename object: %s\n", err_str(err));
+            exit(1);
+        }
+    } else {
+        // cache hit
+        artifact_dir = buf_alloc();
+        os_path_join(o_dir, &digest, artifact_dir);
+        o_final_path = buf_alloc();
+        os_path_join(artifact_dir, final_o_basename, o_final_path);
+    }
+
+    g->link_objects.append(o_final_path);
+    g->caches_to_release.append(cache_hash);
 }
 
+// returns true if we had any cache misses
 static void gen_c_objects(CodeGen *g) {
     Error err;
 
@@ -8337,6 +8515,8 @@ static void gen_c_objects(CodeGen *g) {
         fprintf(stderr, "Unable to get self exe path: %s\n", err_str(err));
         exit(1);
     }
+
+    codegen_add_time_event(g, "Compile C Code");
 
     for (size_t c_file_i = 0; c_file_i < g->c_source_files.length; c_file_i += 1) {
         CFile *c_file = g->c_source_files.at(c_file_i);
@@ -8605,11 +8785,13 @@ static void gen_h_file(CodeGen *g) {
     GenH *gen_h = &gen_h_data;
 
     assert(!g->is_test_build);
-    assert(g->out_h_path != nullptr);
+    assert(!g->disable_gen_h);
 
-    FILE *out_h = fopen(buf_ptr(g->out_h_path), "wb");
+    Buf *out_h_path = buf_sprintf("%s" OS_SEP "%s.h", buf_ptr(g->output_dir), buf_ptr(g->root_out_name));
+
+    FILE *out_h = fopen(buf_ptr(out_h_path), "wb");
     if (!out_h)
-        zig_panic("unable to open %s: %s\n", buf_ptr(g->out_h_path), strerror(errno));
+        zig_panic("unable to open %s: %s\n", buf_ptr(out_h_path), strerror(errno));
 
     Buf *export_macro = preprocessor_mangle(buf_sprintf("%s_EXPORT", buf_ptr(g->root_out_name)));
     buf_upcase(export_macro);
@@ -8838,6 +9020,7 @@ static void add_cache_pkg(CodeGen *g, CacheHash *ch, ZigPackage *pkg) {
 }
 
 // Called before init()
+// is_cache_hit takes into account gen_c_objects
 static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     Error err;
 
@@ -8860,15 +9043,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_list_of_buf(ch, g->darwin_frameworks.items, g->darwin_frameworks.length);
     cache_list_of_buf(ch, g->rpath_list.items, g->rpath_list.length);
     cache_list_of_buf(ch, g->forbidden_libs.items, g->forbidden_libs.length);
-    cache_list_of_file(ch, g->link_objects.items, g->link_objects.length);
     cache_list_of_file(ch, g->assembly_files.items, g->assembly_files.length);
-    for (size_t c_file_i = 0; c_file_i < g->c_source_files.length; c_file_i += 1) {
-        CFile *c_file = g->c_source_files.at(c_file_i);
-        cache_file(ch, buf_create_from_str(c_file->source_path));
-        for (size_t opt_i = 0; opt_i < c_file->args.length; opt_i += 1) {
-            cache_buf(ch, buf_create_from_str(c_file->args.at(opt_i)));
-        }
-    }
     cache_int(ch, g->emit_file_type);
     cache_int(ch, g->build_mode);
     cache_int(ch, g->out_type);
@@ -8882,18 +9057,22 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_bool(ch, g->is_static);
     cache_bool(ch, g->strip_debug_symbols);
     cache_bool(ch, g->is_test_build);
+    if (g->is_test_build) {
+        cache_buf_opt(ch, g->test_filter);
+        cache_buf_opt(ch, g->test_name_prefix);
+    }
     cache_bool(ch, g->is_single_threaded);
     cache_bool(ch, g->linker_rdynamic);
     cache_bool(ch, g->each_lib_rpath);
     cache_bool(ch, g->disable_pic);
+    cache_bool(ch, g->disable_gen_h);
     cache_bool(ch, g->valgrind_support);
+    cache_bool(ch, g->is_dummy_so);
     cache_buf_opt(ch, g->mmacosx_version_min);
     cache_buf_opt(ch, g->mios_version_min);
     cache_usize(ch, g->version_major);
     cache_usize(ch, g->version_minor);
     cache_usize(ch, g->version_patch);
-    cache_buf_opt(ch, g->test_filter);
-    cache_buf_opt(ch, g->test_name_prefix);
     cache_list_of_str(ch, g->llvm_argv, g->llvm_argv_len);
     cache_list_of_str(ch, g->clang_argv, g->clang_argv_len);
     cache_list_of_str(ch, g->lib_dirs.items, g->lib_dirs.length);
@@ -8901,169 +9080,178 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
         cache_buf(ch, &g->libc->include_dir);
         cache_buf(ch, &g->libc->sys_include_dir);
         cache_buf(ch, &g->libc->crt_dir);
-        cache_buf(ch, &g->libc->lib_dir);
-        cache_buf(ch, &g->libc->static_lib_dir);
         cache_buf(ch, &g->libc->msvc_lib_dir);
         cache_buf(ch, &g->libc->kernel32_lib_dir);
-        cache_buf(ch, &g->libc->dynamic_linker_path);
     }
+    cache_buf_opt(ch, g->dynamic_linker_path);
+
+    // gen_c_objects appends objects to g->link_objects which we want to include in the hash
+    gen_c_objects(g);
+    cache_list_of_file(ch, g->link_objects.items, g->link_objects.length);
 
     buf_resize(digest, 0);
     if ((err = cache_hit(ch, digest)))
         return err;
 
+    if (ch->manifest_file_path != nullptr) {
+        g->caches_to_release.append(ch);
+    }
+
     return ErrorNone;
 }
 
-static void resolve_out_paths(CodeGen *g) {
-    Buf *o_basename = buf_create_from_buf(g->root_out_name);
+static bool need_llvm_module(CodeGen *g) {
+    return g->assembly_files.length != 0 || buf_len(&g->root_package->root_src_path) != 0;
+}
 
+static void resolve_out_paths(CodeGen *g) {
+    assert(g->output_dir != nullptr);
+    assert(g->root_out_name != nullptr);
+
+    Buf *out_basename = buf_create_from_buf(g->root_out_name);
+    Buf *o_basename = buf_create_from_buf(g->root_out_name);
     switch (g->emit_file_type) {
-        case EmitFileTypeBinary:
-        {
-            const char *o_ext = target_o_file_ext(g->zig_target);
-            buf_append_str(o_basename, o_ext);
+        case EmitFileTypeBinary: {
+            switch (g->out_type) {
+                case OutTypeUnknown:
+                    zig_unreachable();
+                case OutTypeObj:
+                    if (g->enable_cache && g->link_objects.length == 1 && !need_llvm_module(g)) {
+                        buf_init_from_buf(&g->output_file_path, g->link_objects.at(0));
+                        return;
+                    }
+                    if (need_llvm_module(g) && g->link_objects.length != 0 && !g->enable_cache &&
+                        buf_eql_buf(o_basename, out_basename))
+                    {
+                        // make it not collide with main output object
+                        buf_append_str(o_basename, ".root");
+                    }
+                    buf_append_str(o_basename, target_o_file_ext(g->zig_target));
+                    buf_append_str(out_basename, target_o_file_ext(g->zig_target));
+                    break;
+                case OutTypeExe:
+                    buf_append_str(o_basename, target_o_file_ext(g->zig_target));
+                    buf_append_str(out_basename, target_exe_file_ext(g->zig_target));
+                    break;
+                case OutTypeLib:
+                    buf_append_str(o_basename, target_o_file_ext(g->zig_target));
+                    buf_resize(out_basename, 0);
+                    buf_append_str(out_basename, target_lib_file_prefix(g->zig_target));
+                    buf_append_buf(out_basename, g->root_out_name);
+                    buf_append_str(out_basename, target_lib_file_ext(g->zig_target, g->is_static,
+                                g->version_major, g->version_minor, g->version_patch));
+                    break;
+            }
             break;
         }
-        case EmitFileTypeAssembly:
-        {
+        case EmitFileTypeAssembly: {
             const char *asm_ext = target_asm_file_ext(g->zig_target);
             buf_append_str(o_basename, asm_ext);
+            buf_append_str(out_basename, asm_ext);
             break;
         }
-        case EmitFileTypeLLVMIr:
-        {
+        case EmitFileTypeLLVMIr: {
             const char *llvm_ir_ext = target_llvm_ir_file_ext(g->zig_target);
             buf_append_str(o_basename, llvm_ir_ext);
+            buf_append_str(out_basename, llvm_ir_ext);
             break;
         }
-        default:
-            zig_unreachable();
     }
 
-    if (g->enable_cache || g->out_type != OutTypeObj) {
-        os_path_join(&g->artifact_dir, o_basename, &g->o_file_output_path);
-    } else if (g->wanted_output_file_path != nullptr && g->out_type == OutTypeObj) {
-        buf_init_from_buf(&g->o_file_output_path, g->wanted_output_file_path);
-    } else {
-        buf_init_from_buf(&g->o_file_output_path, o_basename);
-    }
-
-    if (g->out_type == OutTypeObj) {
-        buf_init_from_buf(&g->output_file_path, &g->o_file_output_path);
-    } else if (g->out_type == OutTypeExe) {
-        if (!g->enable_cache && g->wanted_output_file_path != nullptr) {
-            buf_init_from_buf(&g->output_file_path, g->wanted_output_file_path);
-        } else {
-            assert(g->root_out_name);
-
-            Buf basename = BUF_INIT;
-            buf_init_from_buf(&basename, g->root_out_name);
-            buf_append_str(&basename, target_exe_file_ext(g->zig_target));
-            if (g->enable_cache || g->is_test_build) {
-                os_path_join(&g->artifact_dir, &basename, &g->output_file_path);
-            } else {
-                buf_init_from_buf(&g->output_file_path, &basename);
-            }
-        }
-    } else if (g->out_type == OutTypeLib) {
-        if (!g->enable_cache && g->wanted_output_file_path != nullptr) {
-            buf_init_from_buf(&g->output_file_path, g->wanted_output_file_path);
-        } else {
-            Buf basename = BUF_INIT;
-            buf_init_from_buf(&basename, g->root_out_name);
-            buf_append_str(&basename, target_lib_file_ext(g->zig_target, g->is_static,
-                        g->version_major, g->version_minor, g->version_patch));
-            if (g->enable_cache) {
-                os_path_join(&g->artifact_dir, &basename, &g->output_file_path);
-            } else {
-                buf_init_from_buf(&g->output_file_path, &basename);
-            }
-        }
-    } else {
-        zig_unreachable();
-    }
+    os_path_join(g->output_dir, o_basename, &g->o_file_output_path);
+    os_path_join(g->output_dir, out_basename, &g->output_file_path);
 }
 
 void codegen_build_and_link(CodeGen *g) {
     Error err;
     assert(g->out_type != OutTypeUnknown);
 
-    detect_libc(g);
+    if (!g->enable_cache && g->output_dir == nullptr) {
+        g->output_dir = buf_create_from_str(".");
+    }
 
-    Buf *stage1_dir = get_stage1_cache_path();
-    Buf *artifact_dir = buf_alloc();
+    detect_libc(g);
+    detect_dynamic_linker(g);
+
     Buf digest = BUF_INIT;
     if (g->enable_cache) {
-        codegen_add_time_event(g, "Check Cache");
-
         Buf *manifest_dir = buf_alloc();
-        os_path_join(stage1_dir, buf_create_from_str("build"), manifest_dir);
+        os_path_join(g->cache_dir, buf_create_from_str(CACHE_HASH_SUBDIR), manifest_dir);
 
         if ((err = check_cache(g, manifest_dir, &digest))) {
             if (err == ErrorCacheUnavailable) {
                 // message already printed
+            } else if (err == ErrorNotDir) {
+                fprintf(stderr, "Unable to check cache: %s is not a directory\n",
+                    buf_ptr(manifest_dir));
             } else {
                 fprintf(stderr, "Unable to check cache: %s\n", err_str(err));
             }
             exit(1);
         }
-
-        os_path_join(stage1_dir, buf_create_from_str("artifact"), artifact_dir);
+    } else {
+        // There is a call to this in check_cache
+        gen_c_objects(g);
     }
 
     if (g->enable_cache && buf_len(&digest) != 0) {
-        os_path_join(artifact_dir, &digest, &g->artifact_dir);
+        g->output_dir = buf_sprintf("%s" OS_SEP CACHE_OUT_SUBDIR OS_SEP "%s",
+                buf_ptr(g->cache_dir), buf_ptr(&digest));
         resolve_out_paths(g);
     } else {
-        init(g);
+        if (need_llvm_module(g)) {
+            init(g);
 
-        codegen_add_time_event(g, "Semantic Analysis");
+            codegen_add_time_event(g, "Semantic Analysis");
 
-        gen_global_asm(g);
-        gen_root_source(g);
-        gen_c_objects(g);
+            gen_global_asm(g);
+            gen_root_source(g);
 
+        }
         if (g->enable_cache) {
-            if ((err = cache_final(&g->cache_hash, &digest))) {
-                fprintf(stderr, "Unable to finalize cache hash: %s\n", err_str(err));
+            if (buf_len(&digest) == 0) {
+                if ((err = cache_final(&g->cache_hash, &digest))) {
+                    fprintf(stderr, "Unable to finalize cache hash: %s\n", err_str(err));
+                    exit(1);
+                }
+            }
+            g->output_dir = buf_sprintf("%s" OS_SEP CACHE_OUT_SUBDIR OS_SEP "%s",
+                    buf_ptr(g->cache_dir), buf_ptr(&digest));
+
+            if ((err = os_make_path(g->output_dir))) {
+                fprintf(stderr, "Unable to create output directory: %s\n", err_str(err));
                 exit(1);
             }
-            os_path_join(artifact_dir, &digest, &g->artifact_dir);
-        } else {
-            buf_init_from_buf(&g->artifact_dir, &g->cache_dir);
-        }
-        if ((err = os_make_path(&g->artifact_dir))) {
-            fprintf(stderr, "Unable to create artifact directory: %s\n", err_str(err));
-            exit(1);
         }
         resolve_out_paths(g);
 
-        codegen_add_time_event(g, "Code Generation");
-        if (g->out_type == OutTypeObj && g->c_source_files.length == 1) {
-            assert(g->link_objects.length == 1);
-            if ((err = os_rename(g->link_objects.pop(), &g->o_file_output_path))) {
-                fprintf(stderr, "unable to move object to '%s': %s\n",
-                        buf_ptr(&g->o_file_output_path), err_str(err));
-                exit(1);
-            }
-        } else {
+        if (need_llvm_module(g)) {
+            codegen_add_time_event(g, "Code Generation");
+
             do_code_gen(g);
             codegen_add_time_event(g, "LLVM Emit Output");
             zig_llvm_emit_output(g);
 
-            if (g->out_h_path != nullptr) {
+            if (!g->disable_gen_h && (g->out_type == OutTypeObj || g->out_type == OutTypeLib)) {
                 codegen_add_time_event(g, "Generate .h");
                 gen_h_file(g);
             }
-            if (g->out_type != OutTypeObj && g->emit_file_type == EmitFileTypeBinary) {
-                codegen_link(g);
-            }
+        }
+
+        // If we're outputting assembly or llvm IR we skip linking.
+        // If we're making a library or executable we must link.
+        // If there is more than one object, we have to link them (with -r).
+        // Finally, if we didn't make an object from zig source, and we don't have caching enabled,
+        // then we have an object from C source that we must copy to the output dir which we do with a -r link.
+        if (g->emit_file_type == EmitFileTypeBinary && (g->out_type != OutTypeObj || g->link_objects.length > 1 ||
+                    (!need_llvm_module(g) && !g->enable_cache)))
+        {
+            codegen_link(g);
         }
     }
 
-    if (g->enable_cache) {
-        cache_release(&g->cache_hash);
+    while (g->caches_to_release.length != 0) {
+        cache_release(g->caches_to_release.pop());
     }
     codegen_add_time_event(g, "Done");
 }

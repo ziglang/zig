@@ -1011,8 +1011,10 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             zig_exe,
                             "build-exe",
                             tmp_source_file_name,
-                            "--output",
-                            tmp_bin_file_name,
+                            "--output-dir",
+                            tmp_dir_name,
+                            "--name",
+                            code.name,
                         });
                         try out.print("<pre><code class=\"shell\">$ zig build-exe {}.zig", code.name);
                         switch (code.mode) {
@@ -1085,8 +1087,10 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             zig_exe,
                             "test",
                             tmp_source_file_name,
-                            "--output",
-                            test_out_path,
+                            "--output-dir",
+                            tmp_dir_name,
+                            "--cache",
+                            "off",
                         });
                         try out.print("<pre><code class=\"shell\">$ zig test {}.zig", code.name);
                         switch (code.mode) {
@@ -1122,8 +1126,10 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             "--color",
                             "on",
                             tmp_source_file_name,
-                            "--output",
-                            test_out_path,
+                            "--output-dir",
+                            tmp_dir_name,
+                            "--cache",
+                            "off",
                         });
                         try out.print("<pre><code class=\"shell\">$ zig test {}.zig", code.name);
                         switch (code.mode) {
@@ -1179,8 +1185,10 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             zig_exe,
                             "test",
                             tmp_source_file_name,
-                            "--output",
-                            test_out_path,
+                            "--output-dir",
+                            tmp_dir_name,
+                            "--cache",
+                            "off",
                         });
                         switch (code.mode) {
                             builtin.Mode.Debug => {},
@@ -1239,10 +1247,10 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             tmp_source_file_name,
                             "--color",
                             "on",
-                            "--output",
-                            tmp_obj_file_name,
-                            "--output-h",
-                            output_h_file_name,
+                            "--name",
+                            code.name,
+                            "--output-dir",
+                            tmp_dir_name,
                         });
 
                         if (!code.is_inline) {

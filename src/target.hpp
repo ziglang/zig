@@ -147,6 +147,7 @@ const char *target_o_file_ext(const ZigTarget *target);
 const char *target_asm_file_ext(const ZigTarget *target);
 const char *target_llvm_ir_file_ext(const ZigTarget *target);
 const char *target_exe_file_ext(const ZigTarget *target);
+const char *target_lib_file_prefix(const ZigTarget *target);
 const char *target_lib_file_ext(const ZigTarget *target, bool is_static,
         size_t version_major, size_t version_minor, size_t version_patch);
 
@@ -161,5 +162,8 @@ bool target_has_valgrind_support(const ZigTarget *target);
 bool target_is_darwin(const ZigTarget *target);
 bool target_requires_libc(const ZigTarget *target);
 bool target_supports_fpic(const ZigTarget *target);
+bool target_abi_is_gnu(ZigLLVM_EnvironmentType abi);
+
+uint32_t target_arch_pointer_bit_width(ZigLLVM_ArchType arch);
 
 #endif

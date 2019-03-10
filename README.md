@@ -54,6 +54,8 @@ clarity.
    branch, and updates ziglang.org/download with links to pre-built binaries.
  * These targets have debug info capabilities and therefore produce stack
    traces on failed assertions.
+ * ([coming soon](https://github.com/ziglang/zig/issues/514)) libc is available
+   for this target even when cross compiling.
 
 #### Tier 2 Support
 

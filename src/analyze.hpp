@@ -31,8 +31,6 @@ ZigType *get_array_type(CodeGen *g, ZigType *child_type, uint64_t array_size);
 ZigType *get_slice_type(CodeGen *g, ZigType *ptr_type);
 ZigType *get_partial_container_type(CodeGen *g, Scope *scope, ContainerKind kind,
         AstNode *decl_node, const char *full_name, Buf *bare_name, ContainerLayout layout);
-ZigType *get_root_container_type(CodeGen *g, const char *full_name, Buf *bare_name,
-        RootStruct *root_struct);
 ZigType *get_smallest_unsigned_int_type(CodeGen *g, uint64_t x);
 ZigType *get_error_union_type(CodeGen *g, ZigType *err_set_type, ZigType *payload_type);
 ZigType *get_bound_fn_type(CodeGen *g, ZigFn *fn_entry);
@@ -53,6 +51,7 @@ enum SourceKind {
     SourceKindRoot,
     SourceKindPkgMain,
     SourceKindNonRoot,
+    SourceKindCImport,
 };
 ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *abs_full_path, Buf *source_code,
         SourceKind source_kind);
@@ -242,4 +241,6 @@ Error ensure_const_val_repr(IrAnalyze *ira, CodeGen *codegen, AstNode *source_no
 void typecheck_panic_fn(CodeGen *g, TldFn *tld_fn, ZigFn *panic_fn);
 Buf *type_bare_name(ZigType *t);
 Buf *type_h_name(ZigType *t);
+Error create_c_object_cache(CodeGen *g, CacheHash **out_cache_hash, bool verbose);
+
 #endif

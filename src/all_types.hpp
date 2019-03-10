@@ -1087,7 +1087,6 @@ struct RootStruct {
     Buf *path; // relative to root_package->root_src_dir
     ZigList<size_t> *line_offsets;
     Buf *source_code;
-    AstNode *c_import_node;
     ZigLLVMDIFile *di_file;
 };
 
@@ -1693,6 +1692,7 @@ struct CodeGen {
     ZigList<ZigFn *> test_fns;
     ZigList<ZigLLVMDIEnumerator *> err_enumerators;
     ZigList<ErrorTableEntry *> errors_by_index;
+    ZigList<CacheHash *> caches_to_release;
     size_t largest_err_name_len;
 
     ZigPackage *std_package;
@@ -1745,13 +1745,14 @@ struct CodeGen {
 
     Buf triple_str;
     Buf global_asm;
-    Buf *out_h_path;
-    Buf *out_lib_path;
-    Buf artifact_dir;
     Buf output_file_path;
     Buf o_file_output_path;
-    Buf *wanted_output_file_path;
-    Buf cache_dir;
+    Buf *cache_dir;
+    // As an input parameter, mutually exclusive with enable_cache. But it gets
+    // populated in codegen_build_and_link.
+    Buf *output_dir;
+    Buf **libc_include_dir_list;
+    size_t libc_include_dir_len;
 
     Buf *zig_c_headers_dir; // Cannot be overridden; derived from zig_lib_dir.
     Buf *zig_std_special_dir; // Cannot be overridden; derived from zig_lib_dir.
@@ -1801,7 +1802,7 @@ struct CodeGen {
     bool verbose_cc;
     bool error_during_imports;
     bool generate_error_name_table;
-    bool enable_cache;
+    bool enable_cache; // mutually exclusive with output_dir
     bool enable_time_report;
     bool system_linker_hack;
     bool reported_bad_link_libc_error;
@@ -1840,6 +1841,8 @@ struct CodeGen {
     bool linker_rdynamic;
     bool each_lib_rpath;
     bool disable_pic;
+    bool is_dummy_so;
+    bool disable_gen_h;
 
     Buf *mmacosx_version_min;
     Buf *mios_version_min;
@@ -1849,6 +1852,7 @@ struct CodeGen {
     ZigPackage *root_package;
     Buf *zig_lib_dir;
     Buf *zig_std_dir;
+    Buf *dynamic_linker_path;
 
     const char **llvm_argv;
     size_t llvm_argv_len;

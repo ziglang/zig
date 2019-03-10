@@ -9,12 +9,8 @@ pub fn build(b: *Builder) void {
     const main = b.addExecutable("main", "main.zig");
     main.setBuildMode(opts);
 
-    const run = b.addCommand(".", b.env_map, [][]const u8{
-        main.getOutputPath(),
-        lib.getOutputPath(),
-    });
-    run.step.dependOn(&lib.step);
-    run.step.dependOn(&main.step);
+    const run = main.run();
+    run.addArtifactArg(lib);
 
     const test_step = b.step("test", "Test the program");
     test_step.dependOn(&run.step);

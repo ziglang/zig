@@ -116,12 +116,12 @@ fn testGodboltApi(zig_exe: []const u8, dir_path: []const u8) anyerror!void {
     const args = [][]const u8{
         zig_exe, "build-obj",
         "--cache-dir", dir_path,
-        "--output", example_s_path,
-        "--output-h", "/dev/null",
+        "--name", "example",
+        "--output-dir", dir_path,
         "--emit", "asm",
         "-mllvm", "--x86-asm-syntax=intel",
         "--strip", "--release-fast",
-        example_zig_path,
+        example_zig_path, "--disable-gen-h",
     };
     _ = try exec(dir_path, args);
 
