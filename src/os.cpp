@@ -70,8 +70,7 @@ typedef SSIZE_T ssize_t;
 #endif
 
 #if defined(ZIG_OS_WINDOWS)
-static double win32_time_resolution;
-static LARGE_INTEGER windows_perf_freq;
+static uint64_t windows_perf_freq;
 #elif defined(__MACH__)
 static clock_serv_t macos_calendar_clock;
 static clock_serv_t macos_monotonic_clock;
@@ -1269,8 +1268,8 @@ OsTimeStamp os_timestamp_calendar(void) {
 OsTimeStamp os_timestamp_monotonic(void) {
     OsTimeStamp result;
 #if defined(ZIG_OS_WINDOWS)
-    LARGE_INTEGER counts;
-    QueryPerformanceCounter(&counts);
+    uint64_t counts;
+    QueryPerformanceCounter((LARGE_INTEGER*)&counts);
     result.sec = counts / windows_perf_freq;
     result.nsec = (counts % windows_perf_freq) * 1000000000u / windows_perf_freq;
 #elif defined(__MACH__)
@@ -1386,9 +1385,7 @@ int os_init(void) {
 #if defined(ZIG_OS_WINDOWS)
     _setmode(fileno(stdout), _O_BINARY);
     _setmode(fileno(stderr), _O_BINARY);
-    if (QueryPerformanceFrequency(&windows_perf_freq)) {
-        win32_time_resolution = 1.0 / (double) windows_perf_freq;
-    } else {
+    if (!QueryPerformanceFrequency((LARGE_INTEGER*)&windows_perf_freq)) {
         return ErrorSystemResources;
     }
 #elif defined(__MACH__)
