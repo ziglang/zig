@@ -269,3 +269,17 @@ fn testSwitchOnBoolsFalseWithElse(x: bool) bool {
         else => false,
     };
 }
+
+test "u0" {
+    var val: u0 = 0;
+    switch (val) {
+        0 => expect(val == 0),
+    }
+}
+
+test "undefined.u0" {
+    var val: u0 = undefined;
+    switch (val) {
+        0 => expect(val == 0),
+    }
+}
