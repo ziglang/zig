@@ -15,7 +15,7 @@ struct LinkLib;
 
 struct CacheHashFile {
     Buf *path;
-    OsTimeStamp mtime;
+    OsFileAttr attr;
     uint8_t bin_digest[48];
     Buf *contents;
 };
@@ -57,6 +57,8 @@ void cache_file_opt(CacheHash *ch, Buf *path);
 // added any files before calling cache_hit. CacheHash::b64_digest becomes
 // available for use after this call, even in the case of a miss, and it
 // is a hash of the input parameters only.
+// If this function returns ErrorInvalidFormat, that error may be treated
+// as a cache miss.
 Error ATTRIBUTE_MUST_USE cache_hit(CacheHash *ch, Buf *out_b64_digest);
 
 // If you did not get a cache hit, call this function for every file
