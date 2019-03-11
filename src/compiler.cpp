@@ -75,8 +75,10 @@ Error get_compiler_id(Buf **result) {
     cache_file(ch, &self_exe_path);
 
     buf_resize(&saved_compiler_id, 0);
-    if ((err = cache_hit(ch, &saved_compiler_id)))
-        return err;
+    if ((err = cache_hit(ch, &saved_compiler_id))) {
+        if (err != ErrorInvalidFormat)
+            return err;
+    }
     if (buf_len(&saved_compiler_id) != 0) {
         cache_release(ch);
         *result = &saved_compiler_id;

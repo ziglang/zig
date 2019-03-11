@@ -18732,8 +18732,10 @@ static IrInstruction *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruct
     Buf tmp_c_file_digest = BUF_INIT;
     buf_resize(&tmp_c_file_digest, 0);
     if ((err = cache_hit(cache_hash, &tmp_c_file_digest))) {
-        ir_add_error_node(ira, node, buf_sprintf("C import failed: unable to check cache: %s", err_str(err)));
-        return ira->codegen->invalid_instruction;
+        if (err != ErrorInvalidFormat) {
+            ir_add_error_node(ira, node, buf_sprintf("C import failed: unable to check cache: %s", err_str(err)));
+            return ira->codegen->invalid_instruction;
+        }
     }
     ira->codegen->caches_to_release.append(cache_hash);
 

@@ -7724,8 +7724,11 @@ static Error define_builtin_compile_vars(CodeGen *g) {
 
     Buf digest = BUF_INIT;
     buf_resize(&digest, 0);
-    if ((err = cache_hit(&cache_hash, &digest)))
-        return err;
+    if ((err = cache_hit(&cache_hash, &digest))) {
+        // Treat an invalid format error as a cache miss.
+        if (err != ErrorInvalidFormat)
+            return err;
+    }
 
     // We should always get a cache hit because there are no
     // files in the input hash.
@@ -8342,12 +8345,14 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
     Buf digest = BUF_INIT;
     buf_resize(&digest, 0);
     if ((err = cache_hit(cache_hash, &digest))) {
-        if (err == ErrorCacheUnavailable) {
-            // already printed error
-        } else {
-            fprintf(stderr, "unable to check cache when compiling C object: %s\n", err_str(err));
+        if (err != ErrorInvalidFormat) {
+            if (err == ErrorCacheUnavailable) {
+                // already printed error
+            } else {
+                fprintf(stderr, "unable to check cache when compiling C object: %s\n", err_str(err));
+            }
+            exit(1);
         }
-        exit(1);
     }
     bool is_cache_miss = (buf_len(&digest) == 0);
     if (is_cache_miss) {
@@ -8993,7 +8998,10 @@ void codegen_print_timing_report(CodeGen *g, FILE *f) {
 }
 
 void codegen_add_time_event(CodeGen *g, const char *name) {
-    g->timing_events.append({os_get_time(), name});
+    OsTimeStamp timestamp = os_timestamp_monotonic();
+    double seconds = (double)timestamp.sec;
+    seconds += ((double)timestamp.nsec) / 1000000000.0;
+    g->timing_events.append({seconds, name});
 }
 
 static void add_cache_pkg(CodeGen *g, CacheHash *ch, ZigPackage *pkg) {
@@ -9090,8 +9098,10 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_list_of_file(ch, g->link_objects.items, g->link_objects.length);
 
     buf_resize(digest, 0);
-    if ((err = cache_hit(ch, digest)))
-        return err;
+    if ((err = cache_hit(ch, digest))) {
+        if (err != ErrorInvalidFormat)
+            return err;
+    }
 
     if (ch->manifest_file_path != nullptr) {
         g->caches_to_release.append(ch);

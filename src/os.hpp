@@ -85,6 +85,11 @@ struct OsTimeStamp {
     uint64_t nsec;
 };
 
+struct OsFileAttr {
+    OsTimeStamp mtime;
+    uint64_t inode;
+};
+
 int os_init(void);
 
 void os_spawn_process(const char *exe, ZigList<const char *> &args, Termination *term);
@@ -103,7 +108,7 @@ bool os_path_is_absolute(Buf *path);
 Error ATTRIBUTE_MUST_USE os_make_path(Buf *path);
 Error ATTRIBUTE_MUST_USE os_make_dir(Buf *path);
 
-Error ATTRIBUTE_MUST_USE os_file_open_r(Buf *full_path, OsFile *out_file, OsTimeStamp *mtime);
+Error ATTRIBUTE_MUST_USE os_file_open_r(Buf *full_path, OsFile *out_file, OsFileAttr *attr);
 Error ATTRIBUTE_MUST_USE os_file_open_lock_rw(Buf *full_path, OsFile *out_file);
 Error ATTRIBUTE_MUST_USE os_file_read(OsFile file, void *ptr, size_t *len);
 Error ATTRIBUTE_MUST_USE os_file_read_all(OsFile file, Buf *contents);
@@ -126,7 +131,8 @@ Error os_delete_file(Buf *path);
 Error ATTRIBUTE_MUST_USE os_file_exists(Buf *full_path, bool *result);
 
 Error os_rename(Buf *src_path, Buf *dest_path);
-double os_get_time(void);
+OsTimeStamp os_timestamp_monotonic(void);
+OsTimeStamp os_timestamp_calendar(void);
 
 bool os_is_sep(uint8_t c);
 
