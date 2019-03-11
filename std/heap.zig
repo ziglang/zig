@@ -273,6 +273,10 @@ pub const FixedBufferAllocator = struct {
     buffer: []u8,
 
     pub fn init(buffer: []u8) FixedBufferAllocator {
+        // This loop gets optimized out in ReleaseFast mode
+        for (buffer) |*byte| {
+            byte.* = undefined;
+        }
         return FixedBufferAllocator{
             .allocator = Allocator{
                 .allocFn = alloc,
