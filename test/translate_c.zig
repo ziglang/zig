@@ -1467,6 +1467,12 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         "pub const ZERO = c_ulonglong(0);"
     );
 
+    cases.addC("bitwise not on u-suffixed 0 (zero) in macro definition",
+        "#define NOT_ZERO (~0U)"
+    ,
+        "pub const NOT_ZERO = ~c_uint(0);"
+    );
+
     // cases.add("empty array with initializer",
     //     "int a[4] = {};"
     // ,
