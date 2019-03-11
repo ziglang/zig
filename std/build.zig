@@ -1530,6 +1530,12 @@ pub const RunStep = struct {
         }
     }
 
+    pub fn clearEnvironment(self: *RunStep) void {
+        const new_env_map = self.builder.allocator.create(BufMap) catch unreachable;
+        new_env_map.* = BufMap.init(self.builder.allocator);
+        self.env_map = new_env_map;
+    }
+
     pub fn addPathDir(self: *RunStep, search_path: []const u8) void {
         const PATH = if (builtin.os == builtin.Os.windows) "Path" else "PATH";
         const env_map = self.getEnvMap();
