@@ -240,9 +240,8 @@ pub const ArenaAllocator = struct {
         while (true) {
             const cur_buf = cur_node.data[@sizeOf(BufNode)..];
             const addr = @ptrToInt(cur_buf.ptr) + self.end_index;
-            const rem = @rem(addr, alignment);
-            const march_forward_bytes = if (rem == 0) 0 else (alignment - rem);
-            const adjusted_index = self.end_index + march_forward_bytes;
+            const adjusted_addr = mem.alignForward(addr, alignment);
+            const adjusted_index = self.end_index + (adjusted_addr - addr);
             const new_end_index = adjusted_index + n;
             if (new_end_index > cur_buf.len) {
                 cur_node = try self.createNode(cur_buf.len, n + alignment);
@@ -273,10 +272,6 @@ pub const FixedBufferAllocator = struct {
     buffer: []u8,
 
     pub fn init(buffer: []u8) FixedBufferAllocator {
-        // This loop gets optimized out in ReleaseFast mode
-        for (buffer) |*byte| {
-            byte.* = undefined;
-        }
         return FixedBufferAllocator{
             .allocator = Allocator{
                 .allocFn = alloc,
@@ -291,9 +286,8 @@ pub const FixedBufferAllocator = struct {
     fn alloc(allocator: *Allocator, n: usize, alignment: u29) ![]u8 {
         const self = @fieldParentPtr(FixedBufferAllocator, "allocator", allocator);
         const addr = @ptrToInt(self.buffer.ptr) + self.end_index;
-        const rem = @rem(addr, alignment);
-        const march_forward_bytes = if (rem == 0) 0 else (alignment - rem);
-        const adjusted_index = self.end_index + march_forward_bytes;
+        const adjusted_addr = mem.alignForward(addr, alignment);
+        const adjusted_index = self.end_index + (adjusted_addr - addr);
         const new_end_index = adjusted_index + n;
         if (new_end_index > self.buffer.len) {
             return error.OutOfMemory;
@@ -330,7 +324,7 @@ pub const ThreadSafeFixedBufferAllocator = blk: {
     if (builtin.single_threaded) {
         break :blk FixedBufferAllocator;
     } else {
-        /// lock free
+        // lock free
         break :blk struct {
             allocator: Allocator,
             end_index: usize,
@@ -353,9 +347,8 @@ pub const ThreadSafeFixedBufferAllocator = blk: {
                 var end_index = @atomicLoad(usize, &self.end_index, builtin.AtomicOrder.SeqCst);
                 while (true) {
                     const addr = @ptrToInt(self.buffer.ptr) + end_index;
-                    const rem = @rem(addr, alignment);
-                    const march_forward_bytes = if (rem == 0) 0 else (alignment - rem);
-                    const adjusted_index = end_index + march_forward_bytes;
+                    const adjusted_addr = mem.alignForward(addr, alignment);
+                    const adjusted_index = end_index + (adjusted_addr - addr);
                     const new_end_index = adjusted_index + n;
                     if (new_end_index > self.buffer.len) {
                         return error.OutOfMemory;
