@@ -10562,8 +10562,9 @@ static IrInstruction *ir_analyze_enum_to_union(IrAnalyze *ira, IrInstruction *so
             return ira->codegen->invalid_instruction;
 
         switch (type_has_one_possible_value(ira->codegen, union_field->type_entry)) {
-            case OnePossibleValueNo:
-            case OnePossibleValueInvalid: {
+            case OnePossibleValueInvalid:
+                return ira->codegen->invalid_instruction;
+            case OnePossibleValueNo: {
                 AstNode *field_node = wanted_type->data.unionation.decl_node->data.container_decl.fields.at(
                         union_field->enum_field->decl_index);
                 ErrorMsg *msg = ir_add_error(ira, source_instr,
