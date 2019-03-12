@@ -2049,7 +2049,6 @@ set(ZIG_MUSL_SRC_FILES
     "musl/src/stat/statvfs.c"
     "musl/src/stat/umask.c"
     "musl/src/stat/utimensat.c"
-    "musl/src/stdio/.fwrite.c.swp"
     "musl/src/stdio/__fclose_ca.c"
     "musl/src/stdio/__fdopen.c"
     "musl/src/stdio/__fmodeflags.c"
