@@ -53,12 +53,24 @@ static bool target_is_glibc(CodeGen *g) {
     return g->zig_target->os == OsLinux && target_abi_is_gnu(g->zig_target->abi);
 }
 
+static bool target_is_musl(CodeGen *g) {
+    return g->zig_target->os == OsLinux && target_abi_is_musl(g->zig_target->abi);
+}
+
 static const char *build_libc_object(CodeGen *parent_gen, const char *name, CFile *c_file) {
     CodeGen *child_gen = create_child_codegen(parent_gen, nullptr, OutTypeObj, nullptr);
     codegen_set_out_name(child_gen, buf_create_from_str(name));
     ZigList<CFile *> c_source_files = {0};
     c_source_files.append(c_file);
     child_gen->c_source_files = c_source_files;
+    codegen_build_and_link(child_gen);
+    return buf_ptr(&child_gen->output_file_path);
+}
+
+static const char *build_asm_object(CodeGen *parent_gen, const char *name, Buf *file) {
+    CodeGen *child_gen = create_child_codegen(parent_gen, nullptr, OutTypeObj, nullptr);
+    codegen_set_out_name(child_gen, buf_create_from_str(name));
+    codegen_add_assembly(child_gen, file);
     codegen_build_and_link(child_gen);
     return buf_ptr(&child_gen->output_file_path);
 }
@@ -368,6 +380,89 @@ static const char *glibc_start_asm_path(CodeGen *parent, const char *file) {
     return buf_ptr(&result);
 }
 
+static const char *musl_arch_name(const ZigTarget *target) {
+    switch (target->arch) {
+        case ZigLLVM_aarch64:
+        case ZigLLVM_aarch64_be:
+            return "aarch64";
+        case ZigLLVM_arm:
+        case ZigLLVM_armeb:
+            return "arm";
+        case ZigLLVM_mips:
+        case ZigLLVM_mipsel:
+            return "mips";
+        case ZigLLVM_mips64el:
+        case ZigLLVM_mips64:
+            return "mips64";
+        case ZigLLVM_ppc:
+            return "powerpc";
+        case ZigLLVM_ppc64:
+        case ZigLLVM_ppc64le:
+            return "powerpc64";
+        case ZigLLVM_systemz:
+            return "s390x";
+        case ZigLLVM_x86:
+            return "i386";
+        case ZigLLVM_x86_64:
+            return "x86_64";
+        default:
+            zig_unreachable();
+    }
+}
+
+static Buf *musl_start_asm_path(CodeGen *parent, const char *file) {
+    return buf_sprintf("%s" OS_SEP "libc" OS_SEP "musl" OS_SEP "crt" OS_SEP "%s" OS_SEP "%s",
+        buf_ptr(parent->zig_lib_dir), musl_arch_name(parent->zig_target), file);
+}
+
+static void musl_add_cc_args(CodeGen *parent, CFile *c_file) {
+    c_file->args.append("-std=c99");
+    c_file->args.append("-ffreestanding");
+    // Musl adds these args to builds with gcc but clang does not support them. 
+    //c_file->args.append("-fexcess-precision=standard");
+    //c_file->args.append("-frounding-math");
+    c_file->args.append("-Wa,--noexecstack");
+    c_file->args.append("-D_XOPEN_SOURCE=700");
+
+    c_file->args.append("-I");
+    c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "libc" OS_SEP "musl" OS_SEP "arch" OS_SEP "%s",
+            buf_ptr(parent->zig_lib_dir), musl_arch_name(parent->zig_target))));
+
+    c_file->args.append("-I");
+    c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "libc" OS_SEP "musl" OS_SEP "arch" OS_SEP "generic",
+            buf_ptr(parent->zig_lib_dir))));
+
+    c_file->args.append("-I");
+    c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "libc" OS_SEP "musl" OS_SEP "src" OS_SEP "internal",
+            buf_ptr(parent->zig_lib_dir))));
+
+    c_file->args.append("-I");
+    c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "libc" OS_SEP "musl" OS_SEP "src" OS_SEP "include",
+            buf_ptr(parent->zig_lib_dir))));
+
+    c_file->args.append("-I");
+    c_file->args.append(buf_ptr(buf_sprintf(
+            "%s" OS_SEP "libc" OS_SEP "include" OS_SEP "%s-%s-%s",
+        buf_ptr(parent->zig_lib_dir),
+        target_arch_name(parent->zig_target->arch),
+        target_os_name(parent->zig_target->os),
+        target_abi_name(parent->zig_target->abi))));
+
+    c_file->args.append("-I");
+    c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "libc" OS_SEP "include" OS_SEP "generic-musl",
+            buf_ptr(parent->zig_lib_dir))));
+
+    c_file->args.append("-Os");
+    c_file->args.append("-fomit-frame-pointer");
+    c_file->args.append("-fno-unwind-tables");
+    c_file->args.append("-fno-asynchronous-unwind-tables");
+    c_file->args.append("-ffunction-sections");
+    c_file->args.append("-fdata-sections");
+
+    c_file->args.append("-fno-stack-protector");
+    c_file->args.append("-DCRT");
+}
+
 static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
     if (parent->libc == nullptr && target_is_glibc(parent)) {
         if (strcmp(file, "crti.o") == 0) {
@@ -513,6 +608,25 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
             }
             codegen_build_and_link(child_gen);
             return buf_ptr(&child_gen->output_file_path);
+        } else {
+            zig_unreachable();
+        }
+    } else if (parent->libc == nullptr && target_is_musl(parent)) {
+        if (strcmp(file, "crti.o") == 0) {
+            return build_asm_object(parent, "crti", musl_start_asm_path(parent, "crti.s"));
+        } else if (strcmp(file, "crtn.o") == 0) {
+            return build_asm_object(parent, "crtn", musl_start_asm_path(parent, "crtn.s"));
+        } else if (strcmp(file, "crt1.o") == 0) {
+            CFile *c_file = allocate<CFile>(1);
+            c_file->source_path = path_from_libc(parent, "musl" OS_SEP "crt" OS_SEP "crt1.c");
+            musl_add_cc_args(parent, c_file);
+            return build_libc_object(parent, "crt1", c_file);
+        } else if (strcmp(file, "Scrt1.o") == 0) {
+            CFile *c_file = allocate<CFile>(1);
+            c_file->source_path = path_from_libc(parent, "musl" OS_SEP "crt" OS_SEP "Scrt1.c");
+            musl_add_cc_args(parent, c_file);
+            c_file->args.append("-fPIC");
+            return build_libc_object(parent, "Scrt1", c_file);
         } else {
             zig_unreachable();
         }
@@ -768,7 +882,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
             // libc is linked specially
             continue;
         }
-        if (g->libc == nullptr && target_is_glibc(g)) {
+        if (g->libc == nullptr && (target_is_glibc(g) || target_is_musl(g))) {
             // these libraries are always linked below when targeting glibc
             if (buf_eql_str(link_lib->name, "m")) {
                 continue;
@@ -794,24 +908,26 @@ static void construct_linker_job_elf(LinkJob *lj) {
 
     // libc dep
     if (g->libc_link_lib != nullptr) {
-        if (g->is_static) {
-            lj->args.append("--start-group");
-            lj->args.append("-lgcc");
-            lj->args.append("-lgcc_eh");
-            lj->args.append("-lc");
-            lj->args.append("-lm");
-            lj->args.append("--end-group");
-        } else if (g->libc != nullptr) {
-            lj->args.append("-lgcc");
-            lj->args.append("--as-needed");
-            lj->args.append("-lgcc_s");
-            lj->args.append("--no-as-needed");
-            lj->args.append("-lc");
-            lj->args.append("-lm");
-            lj->args.append("-lgcc");
-            lj->args.append("--as-needed");
-            lj->args.append("-lgcc_s");
-            lj->args.append("--no-as-needed");
+        if (g->libc != nullptr) {
+            if (g->is_static) {
+                lj->args.append("--start-group");
+                lj->args.append("-lgcc");
+                lj->args.append("-lgcc_eh");
+                lj->args.append("-lc");
+                lj->args.append("-lm");
+                lj->args.append("--end-group");
+            } else {
+                lj->args.append("-lgcc");
+                lj->args.append("--as-needed");
+                lj->args.append("-lgcc_s");
+                lj->args.append("--no-as-needed");
+                lj->args.append("-lc");
+                lj->args.append("-lm");
+                lj->args.append("-lgcc");
+                lj->args.append("--as-needed");
+                lj->args.append("-lgcc_s");
+                lj->args.append("--no-as-needed");
+            }
         } else if (target_is_glibc(g)) {
             lj->args.append(build_libunwind(g));
             lj->args.append(build_dummy_so(g, "c", 6));
@@ -820,6 +936,8 @@ static void construct_linker_job_elf(LinkJob *lj) {
             lj->args.append(build_dummy_so(g, "dl", 2));
             lj->args.append(build_dummy_so(g, "rt", 1));
             lj->args.append(get_libc_crt_file(g, "libc_nonshared.a"));
+        } else if (target_is_musl(g)) {
+            //lj->args.append(build_musl(g)); TODO
         } else {
             zig_unreachable();
         }

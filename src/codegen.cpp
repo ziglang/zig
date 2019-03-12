@@ -7945,22 +7945,22 @@ static void detect_libc(CodeGen *g) {
     if (g->libc != nullptr || g->libc_link_lib == nullptr)
         return;
 
-    if (g->zig_target->os == OsLinux && target_abi_is_gnu(g->zig_target->abi)) {
-        // we have glibc headers and can build glibc start files from source
-        if (g->is_static && g->out_type == OutTypeExe) {
-            fprintf(stderr, "glibc does not support static linking\n");
-            exit(1);
-        }
+    if (g->zig_target->os == OsLinux && target_abi_is_gnu(g->zig_target->abi) &&
+        g->is_static && g->out_type == OutTypeExe)
+    {
+        fprintf(stderr, "glibc does not support static linking\n");
+        exit(1);
+    }
 
-        Buf libc_include_dir = BUF_INIT;
-        os_path_join(g->zig_lib_dir, buf_create_from_str("libc" OS_SEP "include"), &libc_include_dir);
+    if (target_can_build_libc(g->zig_target)) {
+        const char *generic_name = target_libc_generic_name(g->zig_target);
 
         Buf *arch_include_dir = buf_sprintf("%s" OS_SEP "libc" OS_SEP "include" OS_SEP "%s-%s-%s",
                 buf_ptr(g->zig_lib_dir), target_arch_name(g->zig_target->arch),
                 target_os_name(g->zig_target->os), target_abi_name(g->zig_target->abi));
 
-        Buf *generic_include_dir = buf_sprintf("%s" OS_SEP "libc" OS_SEP "include" OS_SEP "generic-glibc",
-                buf_ptr(g->zig_lib_dir));
+        Buf *generic_include_dir = buf_sprintf("%s" OS_SEP "libc" OS_SEP "include" OS_SEP "generic-%s",
+                buf_ptr(g->zig_lib_dir), generic_name);
 
         g->libc_include_dir_len = 2;
         g->libc_include_dir_list = allocate<Buf*>(2);
