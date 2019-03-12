@@ -8014,11 +8014,14 @@ static void detect_libc(CodeGen *g) {
     } else if ((g->out_type == OutTypeExe || (g->out_type == OutTypeLib && !g->is_static)) &&
         !target_is_darwin(g->zig_target))
     {
-        // Currently darwin is the only platform that we can link libc on when not compiling natively,
-        // without a cross compiling libc kit.
         fprintf(stderr,
-            "Cannot link against libc for non-native OS '%s' without providing a libc installation file.\n"
-            "See `zig libc --help` for more details.\n", target_os_name(g->zig_target->os));
+            "Zig is unable to provide a libc for the chosen target '%s-%s-%s'.\n"
+            "The target is non-native, so Zig also cannot use the native libc installation.\n"
+            "Choose a target which has a libc available, or provide a libc installation text file.\n"
+            "See `zig libc --help` for more details.\n",
+            target_arch_name(g->zig_target->arch),
+            target_os_name(g->zig_target->os),
+            target_abi_name(g->zig_target->abi));
         exit(1);
     }
 }

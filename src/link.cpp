@@ -10,7 +10,7 @@
 #include "codegen.hpp"
 #include "analyze.hpp"
 #include "compiler.hpp"
-
+#include "install_files.h"
 
 struct LinkJob {
     CodeGen *codegen;
@@ -458,10 +458,156 @@ static void musl_add_cc_args(CodeGen *parent, CFile *c_file) {
     c_file->args.append("-fno-asynchronous-unwind-tables");
     c_file->args.append("-ffunction-sections");
     c_file->args.append("-fdata-sections");
-
-    c_file->args.append("-fno-stack-protector");
-    c_file->args.append("-DCRT");
 }
+
+static const char *musl_arch_names[] = {
+    "aarch64",
+    "arm",
+    "generic",
+    "i386",
+    "m68k",
+    "microblaze",
+    "mips",
+    "mips64",
+    "mipsn32",
+    "or1k",
+    "powerpc",
+    "powerpc64",
+    "s390x",
+    "sh",
+    "x32",
+    "x86_64",
+};
+
+static bool is_musl_arch_name(const char *name) {
+    for (size_t i = 0; i < array_length(musl_arch_names); i += 1) {
+        if (strcmp(name, musl_arch_names[i]) == 0)
+            return true;
+    }
+    return false;
+}
+
+static const char *build_musl(CodeGen *parent) {
+    CodeGen *child_gen = create_child_codegen(parent, nullptr, OutTypeLib, nullptr);
+    codegen_set_out_name(child_gen, buf_create_from_str("c"));
+    child_gen->is_static = true;
+
+    // When there is a src/<arch>/foo.* then it should substitute for src/foo.*
+    // Even a .s file can substitute for a .c file.
+
+    enum MuslSrc {
+        MuslSrcAsm,
+        MuslSrcNormal,
+        MuslSrcO3,
+    };
+
+    HashMap<Buf *, MuslSrc, buf_hash, buf_eql_buf> source_table = {};
+    source_table.init(1800);
+
+    SplitIterator install_h_it = memSplit(str(ZIG_MUSL_SRC_FILES), str(";"));
+    const char *target_musl_arch_name = musl_arch_name(parent->zig_target);
+    for (;;) {
+        Optional<Slice<uint8_t>> opt_item = SplitIterator_next(&install_h_it);
+        if (!opt_item.is_some) break;
+        Buf *src_file = buf_create_from_slice(opt_item.value);
+
+        MuslSrc src_kind;
+        if (buf_ends_with_str(src_file, ".c")) {
+            assert(buf_starts_with_str(src_file, "musl/src/"));
+            bool want_O3 = buf_starts_with_str(src_file, "musl/src/malloc/") ||
+                buf_starts_with_str(src_file, "musl/src/string/") ||
+                buf_starts_with_str(src_file, "musl/src/internal/");
+            src_kind = want_O3 ? MuslSrcO3 : MuslSrcNormal;
+        } else if (buf_ends_with_str(src_file, ".s") || buf_ends_with_str(src_file, ".S")) {
+            src_kind = MuslSrcAsm;
+        } else {
+            continue;
+        }
+        if (ZIG_OS_SEP_CHAR != '/') {
+            buf_replace(src_file, '/', ZIG_OS_SEP_CHAR);
+        }
+        source_table.put_unique(src_file, src_kind);
+    }
+
+    ZigList<CFile *> c_source_files = {0};
+
+    Buf dirname = BUF_INIT;
+    Buf basename = BUF_INIT;
+    Buf noextbasename = BUF_INIT;
+    Buf dirbasename = BUF_INIT;
+    Buf before_arch_dir = BUF_INIT;
+    Buf override_c = BUF_INIT;
+    Buf override_s = BUF_INIT;
+    Buf override_S = BUF_INIT;
+
+    auto source_it = source_table.entry_iterator();
+    for (;;) {
+        auto *entry = source_it.next();
+        if (!entry) break;
+
+        Buf *src_file = entry->key;
+        MuslSrc src_kind = entry->value;
+
+        os_path_split(src_file, &dirname, &basename);
+        os_path_extname(&basename, &noextbasename, nullptr);
+        os_path_split(&dirname, &before_arch_dir, &dirbasename);
+        if (is_musl_arch_name(buf_ptr(&dirbasename))) {
+            // We find these by explicitly looking for overrides.
+            continue;
+        }
+        // Look for an arch specific override.
+        buf_resize(&override_c, 0);
+        buf_resize(&override_s, 0);
+        buf_resize(&override_S, 0);
+
+        buf_appendf(&override_c, "%s" OS_SEP "%s" OS_SEP "%s.c",
+                buf_ptr(&dirname), target_musl_arch_name, buf_ptr(&noextbasename));
+        buf_appendf(&override_s, "%s" OS_SEP "%s" OS_SEP "%s.s",
+                buf_ptr(&dirname), target_musl_arch_name, buf_ptr(&noextbasename));
+        buf_appendf(&override_S, "%s" OS_SEP "%s" OS_SEP "%s.S",
+                buf_ptr(&dirname), target_musl_arch_name, buf_ptr(&noextbasename));
+
+        if (source_table.maybe_get(&override_c) != nullptr) {
+            src_file = &override_c;
+            src_kind = (src_kind == MuslSrcAsm) ? MuslSrcNormal : src_kind;
+        } else if (source_table.maybe_get(&override_s) != nullptr) {
+            src_file = &override_s;
+            src_kind = MuslSrcAsm;
+        } else if (source_table.maybe_get(&override_S) != nullptr) {
+            src_file = &override_S;
+            src_kind = MuslSrcAsm;
+        }
+
+        Buf *full_path = buf_sprintf("%s" OS_SEP "libc" OS_SEP "%s",
+                buf_ptr(parent->zig_lib_dir), buf_ptr(src_file));
+
+        if (src_kind == MuslSrcAsm) {
+            codegen_add_assembly(child_gen, full_path);
+        } else {
+            CFile *c_file = allocate<CFile>(1);
+            c_file->source_path = buf_ptr(full_path);
+            musl_add_cc_args(parent, c_file);
+            c_file->args.append("-Wno-ignored-attributes");
+            c_file->args.append("-Wno-bitwise-op-parentheses");
+            c_file->args.append("-Wno-logical-op-parentheses");
+            c_file->args.append("-Wno-dangling-else");
+            c_file->args.append("-Wno-shift-op-parentheses");
+            c_file->args.append("-Qunused-arguments");
+            c_file->args.append("-Wno-unknown-pragmas");
+            c_file->args.append("-Wno-string-plus-int");
+            c_file->args.append("-Wno-parentheses");
+            if (src_kind == MuslSrcO3) {
+                c_file->args.append("-O3");
+            }
+            c_source_files.append(c_file);
+        }
+    }
+
+    child_gen->c_source_files = c_source_files;
+    codegen_build_and_link(child_gen);
+    return buf_ptr(&child_gen->output_file_path);
+}
+
 
 static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
     if (parent->libc == nullptr && target_is_glibc(parent)) {
@@ -620,12 +766,16 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
             CFile *c_file = allocate<CFile>(1);
             c_file->source_path = path_from_libc(parent, "musl" OS_SEP "crt" OS_SEP "crt1.c");
             musl_add_cc_args(parent, c_file);
+            c_file->args.append("-fno-stack-protector");
+            c_file->args.append("-DCRT");
             return build_libc_object(parent, "crt1", c_file);
         } else if (strcmp(file, "Scrt1.o") == 0) {
             CFile *c_file = allocate<CFile>(1);
             c_file->source_path = path_from_libc(parent, "musl" OS_SEP "crt" OS_SEP "Scrt1.c");
             musl_add_cc_args(parent, c_file);
             c_file->args.append("-fPIC");
+            c_file->args.append("-fno-stack-protector");
+            c_file->args.append("-DCRT");
             return build_libc_object(parent, "Scrt1", c_file);
         } else {
             zig_unreachable();
@@ -937,7 +1087,8 @@ static void construct_linker_job_elf(LinkJob *lj) {
             lj->args.append(build_dummy_so(g, "rt", 1));
             lj->args.append(get_libc_crt_file(g, "libc_nonshared.a"));
         } else if (target_is_musl(g)) {
-            //lj->args.append(build_musl(g)); TODO
+            lj->args.append(build_libunwind(g));
+            lj->args.append(build_musl(g));
         } else {
             zig_unreachable();
         }
