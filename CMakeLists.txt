@@ -6639,10 +6639,17 @@ configure_file (
     "${CMAKE_SOURCE_DIR}/src/config.h.in"
     "${CMAKE_BINARY_DIR}/config.h"
 )
-configure_file (
-    "${CMAKE_SOURCE_DIR}/src/install_files.h.in"
-    "${CMAKE_BINARY_DIR}/install_files.h"
-)
+set(INSTALL_FILES_H "${CMAKE_BINARY_DIR}/install_files.h")
+file(REMOVE "${INSTALL_FILES_H}")
+file(APPEND "${INSTALL_FILES_H}" "#ifndef ZIG_INSTALL_FILES_H\n")
+file(APPEND "${INSTALL_FILES_H}" "#define ZIG_INSTALL_FILES_H\n")
+file(APPEND "${INSTALL_FILES_H}" "static const char *ZIG_MUSL_SRC_FILES[] = {\n")
+foreach(filename ${ZIG_MUSL_SRC_FILES})
+    file(APPEND "${INSTALL_FILES_H}" "\"${filename}\",\n")
+endforeach(filename)
+file(APPEND "${INSTALL_FILES_H}" "};\n")
+file(APPEND "${INSTALL_FILES_H}" "#endif\n")
+
 
 include_directories(
     ${CMAKE_SOURCE_DIR}

@@ -10,7 +10,6 @@
 #include "codegen.hpp"
 #include "compiler.hpp"
 #include "config.h"
-#include "install_files.h"
 #include "error.hpp"
 #include "os.hpp"
 #include "target.hpp"

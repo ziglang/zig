@@ -501,15 +501,13 @@ static const char *build_musl(CodeGen *parent) {
         MuslSrcO3,
     };
 
+    const char *target_musl_arch_name = musl_arch_name(parent->zig_target);
+
     HashMap<Buf *, MuslSrc, buf_hash, buf_eql_buf> source_table = {};
     source_table.init(1800);
 
-    SplitIterator install_h_it = memSplit(str(ZIG_MUSL_SRC_FILES), str(";"));
-    const char *target_musl_arch_name = musl_arch_name(parent->zig_target);
-    for (;;) {
-        Optional<Slice<uint8_t>> opt_item = SplitIterator_next(&install_h_it);
-        if (!opt_item.is_some) break;
-        Buf *src_file = buf_create_from_slice(opt_item.value);
+    for (size_t i = 0; i < array_length(ZIG_MUSL_SRC_FILES); i += 1) {
+        Buf *src_file = buf_create_from_str(ZIG_MUSL_SRC_FILES[i]);
 
         MuslSrc src_kind;
         if (buf_ends_with_str(src_file, ".c")) {
