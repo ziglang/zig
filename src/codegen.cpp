@@ -7893,7 +7893,7 @@ static void init(CodeGen *g) {
 }
 
 static void detect_dynamic_linker(CodeGen *g) {
-    if (g->dynamic_linker_path != nullptr)
+    if (g->dynamic_linker_path != nullptr || g->is_static)
         return;
     const char *standard_ld_path = target_dynamic_linker(g->zig_target);
     if (standard_ld_path == nullptr)
