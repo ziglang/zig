@@ -5,7 +5,7 @@
 // every target. So the process to create libc headers that Zig ships is to use
 // this tool.
 // First, use the musl/glibc build systems to create installations of all the
-// targets in the `libc_targets` variable.
+// targets in the `glibc_targets`/`musl_targets` variables.
 // Next, run this tool to create a new directory which puts .h files into
 // <arch> subdirectories, with `generic` being files that apply to all architectures.
 // You'll then have to manually update Zig source repo with these new files.
@@ -23,7 +23,7 @@ const LibCTarget = struct {
     zig_abi: ?Abi,
 };
 
-const libc_targets = []LibCTarget{
+const glibc_targets = []LibCTarget{
     LibCTarget{
         .name = "aarch64_be-linux-gnu",
         .zig_arch = Arch.aarch64_be,
@@ -420,6 +420,258 @@ const libc_targets = []LibCTarget{
         .zig_abi = null,
     },
 };
+const musl_targets = []LibCTarget{
+    LibCTarget{
+        .name = "aarch64_be-linux-musl-native",
+        .zig_arch = Arch.aarch64_be,
+        .zig_abi = Abi.musl,
+    },
+    LibCTarget{
+        .name = "aarch64-linux-musleabi-native",
+        .zig_arch = Arch.aarch64,
+        .zig_abi = Abi.musleabi,
+    },
+    LibCTarget{
+        .name = "armeb-linux-musleabihf-native",
+        .zig_arch = Arch.armeb,
+        .zig_abi = Abi.musleabihf,
+    },
+    LibCTarget{
+        .name = "armeb-linux-musleabi-native",
+        .zig_arch = Arch.armeb,
+        .zig_abi = Abi.musleabi,
+    },
+    LibCTarget{
+        .name = "armel-linux-musleabihf-native",
+        .zig_arch = null,
+        .zig_abi = Abi.musleabihf,
+    },
+    LibCTarget{
+        .name = "armel-linux-musleabi-native",
+        .zig_arch = null,
+        .zig_abi = Abi.musleabi,
+    },
+    LibCTarget{
+        .name = "arm-linux-musleabihf-native",
+        .zig_arch = Arch.arm,
+        .zig_abi = Abi.musleabihf,
+    },
+    LibCTarget{
+        .name = "arm-linux-musleabi-native",
+        .zig_arch = Arch.arm,
+        .zig_abi = Abi.musleabi,
+    },
+    LibCTarget{
+        .name = "armv5l-linux-musleabihf-native",
+        .zig_arch = null,
+        .zig_abi = Abi.musleabihf,
+    },
+    LibCTarget{
+        .name = "armv7l-linux-musleabihf-native",
+        .zig_arch = null,
+        .zig_abi = Abi.musleabihf,
+    },
+    LibCTarget{
+        .name = "armv7m-linux-musleabi-native",
+        .zig_arch = null,
+        .zig_abi = Abi.musleabi,
+    },
+    LibCTarget{
+        .name = "armv7r-linux-musleabihf-native",
+        .zig_arch = null,
+        .zig_abi = Abi.musleabihf,
+    },
+    LibCTarget{
+        .name = "i486-linux-musl-native",
+        .zig_arch = null,
+        .zig_abi = Abi.musl,
+    },
+    LibCTarget{
+        .name = "i686-linux-musl-native",
+        .zig_arch = Arch.i386,
+        .zig_abi = Abi.musl,
+    },
+    LibCTarget{
+        .name = "i686-w64-mingw32-native",
+        .zig_arch = null,
+        .zig_abi = null,
+    },
+    LibCTarget{
+        .name = "m68k-linux-musl-native",
+        .zig_arch = null,
+        .zig_abi = Abi.musl,
+    },
+    LibCTarget{
+        .name = "microblazeel-linux-musl-native",
+        .zig_arch = null,
+        .zig_abi = Abi.musl,
+    },
+    LibCTarget{
+        .name = "microblaze-linux-musl-native",
+        .zig_arch = null,
+        .zig_abi = Abi.musl,
+    },
+    LibCTarget{
+        .name = "mips64el-linux-musln32-native",
+        .zig_arch = Arch.mips64el,
+        .zig_abi = null,
+    },
+    LibCTarget{
+        .name = "mips64el-linux-musln32sf-native",
+        .zig_arch = Arch.mips64el,
+        .zig_abi = null,
+    },
+    LibCTarget{
+        .name = "mips64el-linux-musl-native",
+        .zig_arch = Arch.mips64el,
+        .zig_abi = Abi.musl,
+    },
+    LibCTarget{
+        .name = "mips64-linux-musln32-native",
+        .zig_arch = Arch.mips64,
+        .zig_abi = null,
+    },
+    LibCTarget{
+        .name = "mips64-linux-musln32sf-native",
+        .zig_arch = Arch.mips64,
+        .zig_abi = null,
+    },
+    LibCTarget{
+        .name = "mips64-linux-musl-native",
+        .zig_arch = Arch.mips64,
+        .zig_abi = Abi.musl,
+    },
+    LibCTarget{
+        .name = "mipsel-linux-musln32-native",
+        .zig_arch = null,
+        .zig_abi = Abi.musl,
+    },
+    LibCTarget{
+        .name = "mipsel-linux-musln32sf-native",
+        .zig_arch = Arch.mipsel,
+        .zig_abi = null,
+    },
+    LibCTarget{
+        .name = "mipsel-linux-musl-native",
+        .zig_arch = Arch.mipsel,
+        .zig_abi = Abi.musl,
+    },
+    LibCTarget{
+        .name = "mipsel-linux-muslsf-native",
+        .zig_arch = Arch.mipsel,
+        .zig_abi = null,
+    },
+    LibCTarget{
+        .name = "mips-linux-musln32sf-native",
+        .zig_arch = Arch.mips,
+        .zig_abi = null,
+    },
+    LibCTarget{
+        .name = "mips-linux-musl-native",
+        .zig_arch = Arch.mips,
+        .zig_abi = Abi.musl,
+    },
+    LibCTarget{
+        .name = "mips-linux-muslsf-native",
+        .zig_arch = Arch.mips,
+        .zig_abi = null,
+    },
+    LibCTarget{
+        .name = "or1k-linux-musl-native",
+        .zig_arch = null,
+        .zig_abi = Abi.musl,
+    },
+    LibCTarget{
+        .name = "powerpc64le-linux-musl-native",
+        .zig_arch = Arch.powerpc64le,
+        .zig_abi = Abi.musl,
+    },
+    LibCTarget{
+        .name = "powerpc64-linux-musl-native",
+        .zig_arch = Arch.powerpc64,
+        .zig_abi = Abi.musl,
+    },
+    LibCTarget{
+        .name = "powerpcle-linux-musl-native",
+        .zig_arch = null,
+        .zig_abi = Abi.musl,
+    },
+    LibCTarget{
+        .name = "powerpcle-linux-muslsf-native",
+        .zig_arch = null,
+        .zig_abi = null,
+    },
+    LibCTarget{
+        .name = "powerpc-linux-musl-native",
+        .zig_arch = Arch.powerpc,
+        .zig_abi = Abi.musl,
+    },
+    LibCTarget{
+        .name = "powerpc-linux-muslsf-native",
+        .zig_arch = Arch.powerpc,
+        .zig_abi = null,
+    },
+    LibCTarget{
+        .name = "riscv32-linux-musl-native",
+        .zig_arch = Arch.riscv32,
+        .zig_abi = Abi.musl,
+    },
+    LibCTarget{
+        .name = "riscv64-linux-musl-native",
+        .zig_arch = Arch.riscv64,
+        .zig_abi = Abi.musl,
+    },
+    LibCTarget{
+        .name = "s390x-linux-musl-native",
+        .zig_arch = Arch.s390x,
+        .zig_abi = Abi.musl,
+    },
+    LibCTarget{
+        .name = "sh2eb-linux-muslfdpic-native",
+        .zig_arch = null,
+        .zig_abi = null,
+    },
+    LibCTarget{
+        .name = "sh2eb-linux-musl-native",
+        .zig_arch = null,
+        .zig_abi = Abi.musl,
+    },
+    LibCTarget{
+        .name = "sh2-linux-muslfdpic-native",
+        .zig_arch = null,
+        .zig_abi = null,
+    },
+    LibCTarget{
+        .name = "sh2-linux-musl-native",
+        .zig_arch = null,
+        .zig_abi = Abi.musl,
+    },
+    LibCTarget{
+        .name = "sh4eb-linux-musl-native",
+        .zig_arch = null,
+        .zig_abi = Abi.musl,
+    },
+    LibCTarget{
+        .name = "sh4-linux-musl-native",
+        .zig_arch = null,
+        .zig_abi = Abi.musl,
+    },
+    LibCTarget{
+        .name = "x86_64-linux-musl-native",
+        .zig_arch = Arch.x86_64,
+        .zig_abi = Abi.musl,
+    },
+    LibCTarget{
+        .name = "x86_64-linux-muslx32-native",
+        .zig_arch = Arch.x86_64,
+        .zig_abi = null,
+    },
+    LibCTarget{
+        .name = "x86_64-w64-mingw32-native",
+        .zig_arch = null,
+        .zig_abi = null,
+    },
+};
 
 const DestTarget = struct {
     arch: @TagType(Arch),
@@ -461,6 +713,7 @@ pub fn main() !void {
     const args = try std.os.argsAlloc(allocator);
     var search_paths = std.ArrayList([]const u8).init(allocator);
     var opt_out_dir: ?[]const u8 = null;
+    var opt_abi: ?[]const u8 = null;
 
     var arg_i: usize = 1;
     while (arg_i < args.len) : (arg_i += 1) {
@@ -476,6 +729,9 @@ pub fn main() !void {
         } else if (std.mem.eql(u8, args[arg_i], "--out")) {
             assert(opt_out_dir == null);
             opt_out_dir = args[arg_i + 1];
+        } else if (std.mem.eql(u8, args[arg_i], "--abi")) {
+            assert(opt_abi == null);
+            opt_abi = args[arg_i + 1];
         } else {
             std.debug.warn("unrecognized argument: {}\n", args[arg_i]);
             usageAndExit(args[0]);
@@ -485,6 +741,15 @@ pub fn main() !void {
     }
 
     const out_dir = opt_out_dir orelse usageAndExit(args[0]);
+    const abi_name = opt_abi orelse usageAndExit(args[0]);
+    const libc_targets = if (std.mem.eql(u8, abi_name, "musl"))
+        musl_targets
+    else if (std.mem.eql(u8, abi_name, "glibc"))
+        glibc_targets
+    else {
+        std.debug.warn("unrecognized C ABI: {}\n", abi_name);
+        usageAndExit(args[0]);
+    };
 
     var path_table = PathTable.init(allocator);
     var hash_to_contents = HashToContents.init(allocator);
@@ -619,9 +884,10 @@ pub fn main() !void {
 }
 
 fn usageAndExit(arg0: []const u8) noreturn {
-    std.debug.warn("Usage: {} [--search-path <dir>] --out <dir>\n", arg0);
+    std.debug.warn("Usage: {} [--search-path <dir>] --out <dir> --abi <name>\n", arg0);
     std.debug.warn("--search-path can be used any number of times.\n");
     std.debug.warn("    subdirectories of search paths look like, e.g. x86_64-linux-gnu\n");
     std.debug.warn("--out is a dir that will be created, and populated with the results\n");
+    std.debug.warn("--abi is either musl or glibc\n");
     std.os.exit(1);
 }

@@ -10560,22 +10560,33 @@ static IrInstruction *ir_analyze_enum_to_union(IrAnalyze *ira, IrInstruction *so
         assert(union_field != nullptr);
         if ((err = type_resolve(ira->codegen, union_field->type_entry, ResolveStatusZeroBitsKnown)))
             return ira->codegen->invalid_instruction;
-        if (type_has_bits(union_field->type_entry)) {
-            AstNode *field_node = wanted_type->data.unionation.decl_node->data.container_decl.fields.at(
-                    union_field->enum_field->decl_index);
-            ErrorMsg *msg = ir_add_error(ira, source_instr,
-                    buf_sprintf("cast to union '%s' must initialize '%s' field '%s'",
-                        buf_ptr(&wanted_type->name),
-                        buf_ptr(&union_field->type_entry->name),
-                        buf_ptr(union_field->name)));
-            add_error_note(ira->codegen, msg, field_node,
-                    buf_sprintf("field '%s' declared here", buf_ptr(union_field->name)));
-            return ira->codegen->invalid_instruction;
+
+        switch (type_has_one_possible_value(ira->codegen, union_field->type_entry)) {
+            case OnePossibleValueInvalid:
+                return ira->codegen->invalid_instruction;
+            case OnePossibleValueNo: {
+                AstNode *field_node = wanted_type->data.unionation.decl_node->data.container_decl.fields.at(
+                        union_field->enum_field->decl_index);
+                ErrorMsg *msg = ir_add_error(ira, source_instr,
+                        buf_sprintf("cast to union '%s' must initialize '%s' field '%s'",
+                            buf_ptr(&wanted_type->name),
+                            buf_ptr(&union_field->type_entry->name),
+                            buf_ptr(union_field->name)));
+                add_error_note(ira->codegen, msg, field_node,
+                        buf_sprintf("field '%s' declared here", buf_ptr(union_field->name)));
+                return ira->codegen->invalid_instruction;
+            }
+            case OnePossibleValueYes:
+                break;
         }
+
         IrInstruction *result = ir_const(ira, source_instr, wanted_type);
         result->value.special = ConstValSpecialStatic;
         result->value.type = wanted_type;
         bigint_init_bigint(&result->value.data.x_union.tag, &val->data.x_enum_tag);
+        result->value.data.x_union.payload = create_const_vals(1);
+        result->value.data.x_union.payload->special = ConstValSpecialStatic;
+        result->value.data.x_union.payload->type = union_field->type_entry;
         return result;
     }
 
@@ -15506,13 +15517,6 @@ static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_
                     ConstExprValue *payload_val = union_val->data.x_union.payload;
 
                     ZigType *field_type = field->type_entry;
-                    if (field_type->id == ZigTypeIdVoid) {
-                        assert(payload_val == nullptr);
-                        payload_val = create_const_vals(1);
-                        payload_val->special = ConstValSpecialStatic;
-                        payload_val->type = field_type;
-                    }
-
                     ZigType *ptr_type = get_pointer_to_type_extra(ira->codegen, field_type,
                             is_const, is_volatile, PtrLenSingle, 0, 0, 0);
 
@@ -17325,7 +17329,9 @@ static IrInstruction *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
         if (const_val.special == ConstValSpecialStatic) {
             IrInstruction *result = ir_const(ira, &instruction->base, nullptr);
             ConstExprValue *out_val = &result->value;
-            copy_const_val(out_val, &const_val, true);
+            // Make sure to pass same_global_refs=false here in order not to
+            // zero the global_refs field for `result` (#1608)
+            copy_const_val(out_val, &const_val, false);
             result->value.type = fixed_size_array_type;
             for (size_t i = 0; i < elem_count; i += 1) {
                 ConstExprValue *elem_val = &out_val->data.x_array.data.s_none.elements[i];
@@ -18038,6 +18044,12 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
     if ((err = type_resolve(ira->codegen, type_entry, ResolveStatusSizeKnown)))
         return err;
 
+    auto entry = ira->codegen->type_info_cache.maybe_get(type_entry);
+    if (entry != nullptr) {
+        *out = entry->value;
+        return ErrorNone;
+    }
+
     ConstExprValue *result = nullptr;
     switch (type_entry->id) {
         case ZigTypeIdInvalid:
@@ -18052,19 +18064,8 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
         case ZigTypeIdNull:
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
-            *out = nullptr;
-            return ErrorNone;
-        default:
-            {
-                // Lookup an available value in our cache.
-                auto entry = ira->codegen->type_info_cache.maybe_get(type_entry);
-                if (entry != nullptr) {
-                    *out = entry->value;
-                    return ErrorNone;
-                }
-
-                // Fallthrough if we don't find one.
-            }
+            result = &ira->codegen->const_void_val;
+            break;
         case ZigTypeIdInt:
             {
                 result = create_const_vals(1);
@@ -18636,7 +18637,6 @@ static IrInstruction *ir_analyze_instruction_type_info(IrAnalyze *ira,
     out_val->data.x_union.payload = payload;
 
     if (payload != nullptr) {
-        assert(payload->type->id == ZigTypeIdStruct);
         payload->parent.id = ConstParentIdUnion;
         payload->parent.data.p_union.union_val = out_val;
     }
@@ -18734,8 +18734,10 @@ static IrInstruction *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruct
     Buf tmp_c_file_digest = BUF_INIT;
     buf_resize(&tmp_c_file_digest, 0);
     if ((err = cache_hit(cache_hash, &tmp_c_file_digest))) {
-        ir_add_error_node(ira, node, buf_sprintf("C import failed: unable to check cache: %s", err_str(err)));
-        return ira->codegen->invalid_instruction;
+        if (err != ErrorInvalidFormat) {
+            ir_add_error_node(ira, node, buf_sprintf("C import failed: unable to check cache: %s", err_str(err)));
+            return ira->codegen->invalid_instruction;
+        }
     }
     ira->codegen->caches_to_release.append(cache_hash);
 

@@ -19,6 +19,7 @@ pub fn addCases(cases: *tests.BuildExamplesContext) void {
     cases.addBuildFile("test/standalone/pkg_import/build.zig");
     cases.addBuildFile("test/standalone/use_alias/build.zig");
     cases.addBuildFile("test/standalone/brace_expansion/build.zig");
+    cases.addBuildFile("test/standalone/empty_env/build.zig");
     if (false) {
         // TODO this test is disabled because it is failing on the CI server's linux. when this is fixed
         // enable it for at least linux
@@ -29,7 +30,6 @@ pub fn addCases(cases: *tests.BuildExamplesContext) void {
 
     if (!is_windows // TODO support compiling C files on windows with zig build system
         and builtin.arch == builtin.Arch.x86_64 // TODO add C ABI support for other architectures
-        and builtin.os != builtin.Os.macosx // TODO macosx C ABI test failures
     ) {
         cases.addBuildFile("test/stage1/c_abi/build.zig");
     }

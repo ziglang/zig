@@ -1,10 +1,9 @@
 const Builder = @import("std").build.Builder;
 
 pub fn build(b: *Builder) void {
-    b.addCIncludePath(".");
-
     const main = b.addTest("main.zig");
     main.setBuildMode(b.standardReleaseOptions());
+    main.addIncludeDir(".");
 
     const test_step = b.step("test", "Test it");
     test_step.dependOn(&main.step);

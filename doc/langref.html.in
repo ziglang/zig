@@ -4352,42 +4352,191 @@ test "float widening" {
 }
       {#code_end#}
       {#header_close#}
-      {#header_open|Implicit Cast: Arrays#}
-      <p>TODO: [N]T to []const T</p>
-      <p>TODO: *const [N]T to []const T</p>
-      <p>TODO: [N]T to *const []const T</p>
-      <p>TODO: [N]T to ?[]const T</p>
-      <p>TODO: *[N]T to []T</p>
-      <p>TODO: *[N]T to [*]T</p>
-      <p>TODO: *[N]T to ?[*]T</p>
-      <p>TODO: *T to *[1]T</p>
-      <p>TODO: [N]T to E![]const T</p>
+      {#header_open|Implicit Cast: Arrays and Pointers#}
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+// This cast exists primarily so that string literals can be
+// passed to functions that accept const slices. However
+// it is probably going to be removed from the language when
+// https://github.com/ziglang/zig/issues/265 is implemented.
+test "[N]T to []const T" {
+    var x1: []const u8 = "hello";
+    var x2: []const u8 = [5]u8{ 'h', 'e', 'l', 'l', 111 };
+    assert(std.mem.eql(u8, x1, x2));
+
+    var y: []const f32 = [2]f32{ 1.2, 3.4 };
+    assert(y[0] == 1.2);
+}
+
+// Likewise, it works when the destination type is an error union.
+test "[N]T to E![]const T" {
+    var x1: anyerror![]const u8 = "hello";
+    var x2: anyerror![]const u8 = [5]u8{ 'h', 'e', 'l', 'l', 111 };
+    assert(std.mem.eql(u8, try x1, try x2));
+
+    var y: anyerror![]const f32 = [2]f32{ 1.2, 3.4 };
+    assert((try y)[0] == 1.2);
+}
+
+// Likewise, it works when the destination type is an optional.
+test "[N]T to ?[]const T" {
+    var x1: ?[]const u8 = "hello";
+    var x2: ?[]const u8 = [5]u8{ 'h', 'e', 'l', 'l', 111 };
+    assert(std.mem.eql(u8, x1.?, x2.?));
+
+    var y: ?[]const f32 = [2]f32{ 1.2, 3.4 };
+    assert(y.?[0] == 1.2);
+}
+
+// In this cast, the array length becomes the slice length.
+test "*[N]T to []T" {
+    var buf: [5]u8 = "hello";
+    const x: []u8 = &buf;
+    assert(std.mem.eql(u8, x, "hello"));
+
+    const buf2 = [2]f32{ 1.2, 3.4 };
+    const x2: []const f32 = &buf2;
+    assert(std.mem.eql(f32, x2, [2]f32{ 1.2, 3.4 }));
+}
+
+// Single-item pointers to arrays can be implicitly casted to
+// unknown length pointers.
+test "*[N]T to [*]T" {
+    var buf: [5]u8 = "hello";
+    const x: [*]u8 = &buf;
+    assert(x[4] == 'o');
+    // x[5] would be an uncaught out of bounds pointer dereference!
+}
+
+// Likewise, it works when the destination type is an optional.
+test "*[N]T to ?[*]T" {
+    var buf: [5]u8 = "hello";
+    const x: ?[*]u8 = &buf;
+    assert(x.?[4] == 'o');
+}
+
+// Single-item pointers can be cast to len-1 single-item arrays.
+test "*T to *[1]T" {
+    var x: i32 = 1234;
+    const y: *[1]i32 = &x;
+    const z: [*]i32 = y;
+    assert(z[0] == 1234);
+}
+      {#code_end#}
+      {#see_also|C Pointers#}
       {#header_close#}
       {#header_open|Implicit Cast: Optionals#}
-      <p>TODO: T to ?T</p>
-      <p>TODO: T to E!?T</p>
-      <p>TODO: null to ?T</p>
+      <p>
+      The payload type of {#link|Optionals#}, as well as {#link|null#}, implicitly cast to the optional type.
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+test "implicit casting to optionals" {
+    const x: ?i32 = 1234;
+    const y: ?i32 = null;
+
+    assert(x.? == 1234);
+    assert(y == null);
+}
+      {#code_end#}
+      <p>It works nested inside the {#link|Error Union Type#}, too:</p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+test "implicit casting to optionals wrapped in error union" {
+    const x: anyerror!?i32 = 1234;
+    const y: anyerror!?i32 = null;
+
+    assert((try x).? == 1234);
+    assert((try y) == null);
+}
+      {#code_end#}
       {#header_close#}
-      {#header_open|Implicit Cast: T to E!T#}
-      <p>TODO</p>
+      {#header_open|Implicit Cast: Error Unions#}
+      <p>The the payload type of an {#link|Error Union Type#} as well as the {#link|Error Set Type#}
+      implicitly cast to the error union type:
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+test "implicit casting to error unions" {
+    const x: anyerror!i32 = 1234;
+    const y: anyerror!i32 = error.Failure;
+
+    assert((try x) == 1234);
+    std.testing.expectError(error.Failure, y);
+}
+      {#code_end#}
       {#header_close#}
-      {#header_open|Implicit Cast: E to E!T#}
-      <p>TODO</p>
+      {#header_open|Implicit Cast: Compile-Time Known Numbers#}
+      <p>When a number is {#link|comptime#}-known to be representable in the destination type,
+      it may be implicitly casted:
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+test "implicit casting large integer type to smaller one when value is comptime known to fit" {
+    const x: u64 = 255;
+    const y: u8 = x;
+    assert(y == 255);
+}
+      {#code_end#}
       {#header_close#}
-      {#header_open|Implicit Cast: compile-time known numbers#}
-      <p>TODO</p>
+      {#header_open|Implicit Cast: unions and enums#}
+      <p>Tagged unions can be implicitly cast to enums, and enums can be implicitly casted to tagged unions
+      when they are {#link|comptime#}-known to be a field of the union that has only one possible value, such as
+      {#link|void#}:
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+const E = enum {
+    One,
+    Two,
+    Three,
+};
+
+const U = union(E) {
+    One: i32,
+    Two: f32,
+    Three,
+};
+
+test "implicit casting between unions and enums" {
+    var u = U{ .Two = 12.34 };
+    var e: E = u;
+    assert(e == E.Two);
+
+    const three = E.Three;
+    var another_u: U = three;
+    assert(another_u == E.Three);
+}
+      {#code_end#}
+      {#see_also|union|enum#}
       {#header_close#}
-      {#header_open|Implicit Cast: union to enum#}
-      <p>TODO</p>
-      {#header_close#}
-      {#header_open|Implicit Cast: enum to union#}
-      <p>TODO</p>
-      {#header_close#}
-      {#header_open|Implicit Cast: T to *T when @sizeOf(T) == 0#}
-      <p>TODO</p>
+      {#header_open|Implicit Cast: Zero Bit Types#}
+      <p>{#link|Zero Bit Types#} may be implicitly casted to single-item {#link|Pointers#},
+      regardless of const.</p>
+      <p>TODO document the reasoning for this</p>
+      <p>TODO document whether vice versa should work and why</p>
+      {#code_begin|test#}
+test "implicit casting of zero bit types" {
+    var x: void = {};
+    var y: *void = x;
+    //var z: void = y; // TODO
+}
+      {#code_end#}
       {#header_close#}
       {#header_open|Implicit Cast: undefined#}
-      <p>TODO</p>
+      <p>{#link|undefined#} can be cast to any type.</p>
       {#header_close#}
       {#header_close#}
 
@@ -6066,6 +6215,35 @@ test "main" {
       <p>
       Creates a symbol in the output object file.
       </p>
+      <p>
+      This function can be called from a {#link|comptime#} block to conditionally export symbols.
+      When {#syntax#}target{#endsyntax#} is a function with the C calling convention and
+      {#syntax#}linkage{#endsyntax#} is {#syntax#}Strong{#endsyntax#}, this is equivalent to
+      the {#syntax#}export{#endsyntax#} keyword used on a function:
+      </p>
+      {#code_begin|obj#}
+const builtin = @import("builtin");
+
+comptime {
+    @export("foo", internalName, builtin.GlobalLinkage.Strong);
+}
+
+extern fn internalName() void {}
+      {#code_end#}
+      <p>This is equivalent to:</p>
+      {#code_begin|obj#}
+export fn foo() void {}
+      {#code_end#}
+      <p>Note that even when using {#syntax#}export{#endsyntax#}, {#syntax#}@"foo"{#endsyntax#} syntax can
+      be used to choose any string for the symbol name:</p>
+      {#code_begin|obj#}
+export fn @"A function name that is a complete sentence."() void {}
+      {#code_end#}
+      <p>
+      When looking at the resulting object, you can see the symbol is used verbatim:
+      </p>
+      <pre>00000000000001f0 T A function name that is a complete sentence.</pre>
+      {#see_also|Exporting a C Library#}
       {#header_close#}
 
       {#header_open|@fence#}
@@ -7925,6 +8103,7 @@ pub fn build(b: *Builder) void {
 $ ./test
 $ echo $?
 0</code></pre>
+      {#see_also|export#}
       {#header_close#}
       {#header_open|Mixing Object Files#}
       <p>

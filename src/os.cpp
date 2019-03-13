@@ -70,9 +70,10 @@ typedef SSIZE_T ssize_t;
 #endif
 
 #if defined(ZIG_OS_WINDOWS)
-static double win32_time_resolution;
+static uint64_t windows_perf_freq;
 #elif defined(__MACH__)
-static clock_serv_t cclock;
+static clock_serv_t macos_calendar_clock;
+static clock_serv_t macos_monotonic_clock;
 #endif
 
 #include <stdlib.h>
@@ -1233,28 +1234,60 @@ Error os_rename(Buf *src_path, Buf *dest_path) {
     return ErrorNone;
 }
 
-double os_get_time(void) {
 #if defined(ZIG_OS_WINDOWS)
-    unsigned __int64 time;
-    QueryPerformanceCounter((LARGE_INTEGER*) &time);
-    return time * win32_time_resolution;
+static void windows_filetime_to_os_timestamp(FILETIME *ft, OsTimeStamp *mtime) {
+    mtime->sec = (((ULONGLONG) ft->dwHighDateTime) << 32) + ft->dwLowDateTime;
+    mtime->nsec = 0;
+}
+#endif
+
+OsTimeStamp os_timestamp_calendar(void) {
+    OsTimeStamp result;
+#if defined(ZIG_OS_WINDOWS)
+    FILETIME ft;
+    GetSystemTimeAsFileTime(&ft);
+    windows_filetime_to_os_timestamp(&ft, &result);
 #elif defined(__MACH__)
     mach_timespec_t mts;
 
-    kern_return_t err = clock_get_time(cclock, &mts);
+    kern_return_t err = clock_get_time(macos_calendar_clock, &mts);
     assert(!err);
 
-    double seconds = (double)mts.tv_sec;
-    seconds += ((double)mts.tv_nsec) / 1000000000.0;
+    result.sec = mts.tv_sec;
+    result.nsec = mts.tv_nsec;
+#else
+    struct timespec tms;
+    clock_gettime(CLOCK_REALTIME, &tms);
 
-    return seconds;
+    result.sec = tms.tv_sec;
+    result.nsec = tms.tv_nsec;
+#endif
+    return result;
+}
+
+OsTimeStamp os_timestamp_monotonic(void) {
+    OsTimeStamp result;
+#if defined(ZIG_OS_WINDOWS)
+    uint64_t counts;
+    QueryPerformanceCounter((LARGE_INTEGER*)&counts);
+    result.sec = counts / windows_perf_freq;
+    result.nsec = (counts % windows_perf_freq) * 1000000000u / windows_perf_freq;
+#elif defined(__MACH__)
+    mach_timespec_t mts;
+
+    kern_return_t err = clock_get_time(macos_monotonic_clock, &mts);
+    assert(!err);
+
+    result.sec = mts.tv_sec;
+    result.nsec = mts.tv_nsec;
 #else
     struct timespec tms;
     clock_gettime(CLOCK_MONOTONIC, &tms);
-    double seconds = (double)tms.tv_sec;
-    seconds += ((double)tms.tv_nsec) / 1000000000.0;
-    return seconds;
+
+    result.sec = tms.tv_sec;
+    result.nsec = tms.tv_nsec;
 #endif
+    return result;
 }
 
 Error os_make_path(Buf *path) {
@@ -1352,14 +1385,12 @@ int os_init(void) {
 #if defined(ZIG_OS_WINDOWS)
     _setmode(fileno(stdout), _O_BINARY);
     _setmode(fileno(stderr), _O_BINARY);
-    unsigned __int64 frequency;
-    if (QueryPerformanceFrequency((LARGE_INTEGER*) &frequency)) {
-        win32_time_resolution = 1.0 / (double) frequency;
-    } else {
+    if (!QueryPerformanceFrequency((LARGE_INTEGER*)&windows_perf_freq)) {
         return ErrorSystemResources;
     }
 #elif defined(__MACH__)
-    host_get_clock_service(mach_host_self(), SYSTEM_CLOCK, &cclock);
+    host_get_clock_service(mach_host_self(), SYSTEM_CLOCK, &macos_monotonic_clock);
+    host_get_clock_service(mach_host_self(), CALENDAR_CLOCK, &macos_calendar_clock);
 #endif
     return 0;
 }
@@ -1780,7 +1811,7 @@ Error os_self_exe_shared_libs(ZigList<Buf *> &paths) {
 #endif
 }
 
-Error os_file_open_r(Buf *full_path, OsFile *out_file, OsTimeStamp *mtime) {
+Error os_file_open_r(Buf *full_path, OsFile *out_file, OsFileAttr *attr) {
 #if defined(ZIG_OS_WINDOWS)
     // TODO use CreateFileW
     HANDLE result = CreateFileA(buf_ptr(full_path), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -1808,14 +1839,14 @@ Error os_file_open_r(Buf *full_path, OsFile *out_file, OsTimeStamp *mtime) {
     }
     *out_file = result;
 
-    if (mtime != nullptr) {
-        FILETIME last_write_time;
-        if (!GetFileTime(result, nullptr, nullptr, &last_write_time)) {
+    if (attr != nullptr) {
+        BY_HANDLE_FILE_INFORMATION file_info;
+        if (!GetFileInformationByHandle(result, &file_info)) {
             CloseHandle(result);
             return ErrorUnexpected;
         }
-        mtime->sec = (((ULONGLONG) last_write_time.dwHighDateTime) << 32) + last_write_time.dwLowDateTime;
-        mtime->nsec = 0;
+        windows_filetime_to_os_timestamp(&file_info.ftLastWriteTime, &attr->mtime);
+        attr->inode = (((uint64_t)file_info.nFileIndexHigh) << 32) | file_info.nFileIndexLow;
     }
 
     return ErrorNone;
@@ -1851,13 +1882,14 @@ Error os_file_open_r(Buf *full_path, OsFile *out_file, OsTimeStamp *mtime) {
         }
         *out_file = fd;
 
-        if (mtime != nullptr) {
+        if (attr != nullptr) {
+            attr->inode = statbuf.st_ino;
 #if defined(ZIG_OS_DARWIN)
-            mtime->sec = statbuf.st_mtimespec.tv_sec;
-            mtime->nsec = statbuf.st_mtimespec.tv_nsec;
+            attr->mtime.sec = statbuf.st_mtimespec.tv_sec;
+            attr->mtime.nsec = statbuf.st_mtimespec.tv_nsec;
 #else
-            mtime->sec = statbuf.st_mtim.tv_sec;
-            mtime->nsec = statbuf.st_mtim.tv_nsec;
+            attr->mtime.sec = statbuf.st_mtim.tv_sec;
+            attr->mtime.nsec = statbuf.st_mtim.tv_nsec;
 #endif
         }
         return ErrorNone;

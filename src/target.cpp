@@ -1392,3 +1392,105 @@ bool target_abi_is_gnu(ZigLLVM_EnvironmentType abi) {
             return false;
     }
 }
+
+bool target_abi_is_musl(ZigLLVM_EnvironmentType abi) {
+    switch (abi) {
+        case ZigLLVM_Musl:
+        case ZigLLVM_MuslEABI:
+        case ZigLLVM_MuslEABIHF:
+            return true;
+        default:
+            return false;
+    }
+}
+
+struct AvailableLibC {
+    ZigLLVM_ArchType arch;
+    Os os;
+    ZigLLVM_EnvironmentType abi;
+};
+
+static const AvailableLibC libcs_available[] = {
+    {ZigLLVM_aarch64_be, OsLinux, ZigLLVM_GNU},
+    {ZigLLVM_aarch64_be, OsLinux, ZigLLVM_Musl},
+    {ZigLLVM_aarch64, OsLinux, ZigLLVM_GNU},
+    {ZigLLVM_aarch64, OsLinux, ZigLLVM_MuslEABI},
+    {ZigLLVM_armeb, OsLinux, ZigLLVM_GNUEABI},
+    {ZigLLVM_armeb, OsLinux, ZigLLVM_GNUEABIHF},
+    {ZigLLVM_armeb, OsLinux, ZigLLVM_MuslEABI},
+    {ZigLLVM_armeb, OsLinux, ZigLLVM_MuslEABIHF},
+    {ZigLLVM_arm, OsLinux, ZigLLVM_GNUEABI},
+    {ZigLLVM_arm, OsLinux, ZigLLVM_GNUEABIHF},
+    {ZigLLVM_arm, OsLinux, ZigLLVM_MuslEABI},
+    {ZigLLVM_arm, OsLinux, ZigLLVM_MuslEABIHF},
+    {ZigLLVM_x86, OsLinux, ZigLLVM_GNU},
+    {ZigLLVM_x86, OsLinux, ZigLLVM_Musl},
+    {ZigLLVM_mips64el, OsLinux, ZigLLVM_GNUABI64},
+    {ZigLLVM_mips64el, OsLinux, ZigLLVM_GNUABIN32},
+    {ZigLLVM_mips64el, OsLinux, ZigLLVM_Musl},
+    {ZigLLVM_mips64, OsLinux, ZigLLVM_GNUABI64},
+    {ZigLLVM_mips64, OsLinux, ZigLLVM_GNUABIN32},
+    {ZigLLVM_mips64, OsLinux, ZigLLVM_Musl},
+    {ZigLLVM_mipsel, OsLinux, ZigLLVM_GNU},
+    {ZigLLVM_mipsel, OsLinux, ZigLLVM_Musl},
+    {ZigLLVM_mips, OsLinux, ZigLLVM_GNU},
+    {ZigLLVM_mips, OsLinux, ZigLLVM_Musl},
+    {ZigLLVM_nios2, OsLinux, ZigLLVM_GNU},
+    {ZigLLVM_ppc64le, OsLinux, ZigLLVM_GNU},
+    {ZigLLVM_ppc64le, OsLinux, ZigLLVM_Musl},
+    {ZigLLVM_ppc64, OsLinux, ZigLLVM_GNU},
+    {ZigLLVM_ppc64, OsLinux, ZigLLVM_Musl},
+    {ZigLLVM_ppc, OsLinux, ZigLLVM_GNU},
+    {ZigLLVM_ppc, OsLinux, ZigLLVM_Musl},
+    {ZigLLVM_riscv32, OsLinux, ZigLLVM_Musl},
+    {ZigLLVM_riscv64, OsLinux, ZigLLVM_GNU},
+    {ZigLLVM_riscv64, OsLinux, ZigLLVM_Musl},
+    {ZigLLVM_systemz, OsLinux, ZigLLVM_GNU},
+    {ZigLLVM_systemz, OsLinux, ZigLLVM_Musl},
+    {ZigLLVM_sparc, OsLinux, ZigLLVM_GNU},
+    {ZigLLVM_sparcv9, OsLinux, ZigLLVM_GNU},
+    {ZigLLVM_x86_64, OsLinux, ZigLLVM_GNU},
+    {ZigLLVM_x86_64, OsLinux, ZigLLVM_GNUX32},
+    {ZigLLVM_x86_64, OsLinux, ZigLLVM_Musl},
+};
+
+bool target_can_build_libc(const ZigTarget *target) {
+    for (size_t i = 0; i < array_length(libcs_available); i += 1) {
+        if (target->arch == libcs_available[i].arch &&
+            target->os == libcs_available[i].os &&
+            target->abi == libcs_available[i].abi)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+const char *target_libc_generic_name(const ZigTarget *target) {
+    assert(target->os == OsLinux);
+    switch (target->abi) {
+        case ZigLLVM_GNU:
+        case ZigLLVM_GNUABIN32:
+        case ZigLLVM_GNUABI64:
+        case ZigLLVM_GNUEABI:
+        case ZigLLVM_GNUEABIHF:
+        case ZigLLVM_GNUX32:
+            return "glibc";
+        case ZigLLVM_Musl:
+        case ZigLLVM_MuslEABI:
+        case ZigLLVM_MuslEABIHF:
+            return "musl";
+        case ZigLLVM_CODE16:
+        case ZigLLVM_EABI:
+        case ZigLLVM_EABIHF:
+        case ZigLLVM_Android:
+        case ZigLLVM_MSVC:
+        case ZigLLVM_Itanium:
+        case ZigLLVM_Cygnus:
+        case ZigLLVM_CoreCLR:
+        case ZigLLVM_Simulator:
+        case ZigLLVM_UnknownEnvironment:
+            zig_unreachable();
+    }
+    zig_unreachable();
+}

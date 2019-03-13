@@ -161,8 +161,11 @@ bool target_allows_addr_zero(const ZigTarget *target);
 bool target_has_valgrind_support(const ZigTarget *target);
 bool target_is_darwin(const ZigTarget *target);
 bool target_requires_libc(const ZigTarget *target);
+bool target_can_build_libc(const ZigTarget *target);
+const char *target_libc_generic_name(const ZigTarget *target);
 bool target_supports_fpic(const ZigTarget *target);
 bool target_abi_is_gnu(ZigLLVM_EnvironmentType abi);
+bool target_abi_is_musl(ZigLLVM_EnvironmentType abi);
 
 uint32_t target_arch_pointer_bit_width(ZigLLVM_ArchType arch);
 
