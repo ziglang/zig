@@ -1435,7 +1435,6 @@ static const AvailableLibC libcs_available[] = {
     {ZigLLVM_mipsel, OsLinux, ZigLLVM_Musl},
     {ZigLLVM_mips, OsLinux, ZigLLVM_GNU},
     {ZigLLVM_mips, OsLinux, ZigLLVM_Musl},
-    {ZigLLVM_nios2, OsLinux, ZigLLVM_GNU},
     {ZigLLVM_ppc64le, OsLinux, ZigLLVM_GNU},
     {ZigLLVM_ppc64le, OsLinux, ZigLLVM_Musl},
     {ZigLLVM_ppc64, OsLinux, ZigLLVM_GNU},
