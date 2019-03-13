@@ -15543,9 +15543,8 @@ static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_
 }
 
 static void add_link_lib_symbol(IrAnalyze *ira, Buf *lib_name, Buf *symbol_name, AstNode *source_node) {
-    if (buf_eql_str(lib_name, "c") && ira->codegen->libc_link_lib == nullptr &&
-        !ira->codegen->reported_bad_link_libc_error)
-    {
+    bool is_libc = target_is_libc_lib_name(ira->codegen->zig_target, buf_ptr(lib_name));
+    if (is_libc && ira->codegen->libc_link_lib == nullptr && !ira->codegen->reported_bad_link_libc_error) {
         ir_add_error_node(ira, source_node,
             buf_sprintf("dependency on library c must be explicitly specified in the build command"));
         ira->codegen->reported_bad_link_libc_error = true;
@@ -15558,6 +15557,16 @@ static void add_link_lib_symbol(IrAnalyze *ira, Buf *lib_name, Buf *symbol_name,
             return;
         }
     }
+
+    if (!is_libc && !ira->codegen->have_pic && !ira->codegen->reported_bad_link_libc_error) {
+        ErrorMsg *msg = ir_add_error_node(ira, source_node,
+            buf_sprintf("dependency on dynamic library '%s' requires enabling Position Independent Code",
+                buf_ptr(lib_name)));
+        add_error_note(ira->codegen, msg, source_node,
+                buf_sprintf("fixed by `--library %s` or `--enable-pic`", buf_ptr(lib_name)));
+        ira->codegen->reported_bad_link_libc_error = true;
+    }
+
     for (size_t i = 0; i < ira->codegen->forbidden_libs.length; i += 1) {
         Buf *forbidden_lib_name = ira->codegen->forbidden_libs.at(i);
         if (buf_eql_buf(lib_name, forbidden_lib_name)) {

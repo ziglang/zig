@@ -35,7 +35,7 @@ static CodeGen *create_child_codegen(CodeGen *parent_gen, Buf *root_src_path, Ou
     child_gen->llvm_argv = parent_gen->llvm_argv;
 
     codegen_set_strip(child_gen, parent_gen->strip_debug_symbols);
-    child_gen->disable_pic = parent_gen->disable_pic;
+    child_gen->want_pic = parent_gen->have_pic ? WantPICEnabled : WantPICDisabled;
     child_gen->valgrind_support = ValgrindSupportDisabled;
 
     codegen_set_errmsg_color(child_gen, parent_gen->err_color);
@@ -46,15 +46,6 @@ static CodeGen *create_child_codegen(CodeGen *parent_gen, Buf *root_src_path, Ou
     child_gen->enable_cache = true;
 
     return child_gen;
-}
-
-
-static bool target_is_glibc(CodeGen *g) {
-    return g->zig_target->os == OsLinux && target_abi_is_gnu(g->zig_target->abi);
-}
-
-static bool target_is_musl(CodeGen *g) {
-    return g->zig_target->os == OsLinux && target_abi_is_musl(g->zig_target->abi);
 }
 
 static const char *build_libc_object(CodeGen *parent_gen, const char *name, CFile *c_file) {
@@ -97,7 +88,7 @@ static const char *build_dummy_so(CodeGen *parent, const char *name, size_t majo
     CodeGen *child_gen = create_child_codegen(parent, glibc_dummy_root_src, OutTypeLib, nullptr);
     codegen_set_out_name(child_gen, buf_create_from_str(name));
     codegen_set_lib_version(child_gen, major_version, 0, 0);
-    child_gen->is_static = false;
+    child_gen->is_dynamic = true;
     child_gen->is_dummy_so = true;
     codegen_build_and_link(child_gen);
     return buf_ptr(&child_gen->output_file_path);
@@ -106,7 +97,6 @@ static const char *build_dummy_so(CodeGen *parent, const char *name, size_t majo
 static const char *build_libunwind(CodeGen *parent) {
     CodeGen *child_gen = create_child_codegen(parent, nullptr, OutTypeLib, nullptr);
     codegen_set_out_name(child_gen, buf_create_from_str("unwind"));
-    child_gen->is_static = true;
     LinkLib *new_link_lib = codegen_add_link_lib(child_gen, buf_create_from_str("c"));
     new_link_lib->provided_explicitly = false;
     enum SrcKind {
@@ -490,7 +480,6 @@ static bool is_musl_arch_name(const char *name) {
 static const char *build_musl(CodeGen *parent) {
     CodeGen *child_gen = create_child_codegen(parent, nullptr, OutTypeLib, nullptr);
     codegen_set_out_name(child_gen, buf_create_from_str("c"));
-    child_gen->is_static = true;
 
     // When there is a src/<arch>/foo.* then it should substitute for src/foo.*
     // Even a .s file can substitute for a .c file.
@@ -608,7 +597,7 @@ static const char *build_musl(CodeGen *parent) {
 
 
 static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
-    if (parent->libc == nullptr && target_is_glibc(parent)) {
+    if (parent->libc == nullptr && target_is_glibc(parent->zig_target)) {
         if (strcmp(file, "crti.o") == 0) {
             CFile *c_file = allocate<CFile>(1);
             c_file->source_path = glibc_start_asm_path(parent, "crti.S");
@@ -677,7 +666,6 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
         } else if (strcmp(file, "libc_nonshared.a") == 0) {
             CodeGen *child_gen = create_child_codegen(parent, nullptr, OutTypeLib, nullptr);
             codegen_set_out_name(child_gen, buf_create_from_str("c_nonshared"));
-            child_gen->is_static = true;
             {
                 CFile *c_file = allocate<CFile>(1);
                 c_file->source_path = path_from_libc(parent, "glibc" OS_SEP "csu" OS_SEP "elf-init.c");
@@ -755,7 +743,7 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
         } else {
             zig_unreachable();
         }
-    } else if (parent->libc == nullptr && target_is_musl(parent)) {
+    } else if (parent->libc == nullptr && target_is_musl(parent->zig_target)) {
         if (strcmp(file, "crti.o") == 0) {
             return build_asm_object(parent, "crti", musl_start_asm_path(parent, "crti.s"));
         } else if (strcmp(file, "crtn.o") == 0) {
@@ -799,7 +787,6 @@ static Buf *build_a_raw(CodeGen *parent_gen, const char *aname, Buf *full_path) 
 
     CodeGen *child_gen = create_child_codegen(parent_gen, full_path, child_out_type,
             parent_gen->libc);
-    child_gen->is_static = true;
     codegen_set_out_name(child_gen, buf_create_from_str(aname));
 
     // This is so that compiler_rt and builtin libraries know whether they
@@ -924,9 +911,9 @@ static void construct_linker_job_elf(LinkJob *lj) {
     lj->args.append(getLDMOption(g->zig_target));
 
     bool is_lib = g->out_type == OutTypeLib;
-    bool is_dyn_lib = !g->is_static && is_lib;
+    bool is_dyn_lib = g->is_dynamic && is_lib;
     Buf *soname = nullptr;
-    if (g->is_static) {
+    if (!g->have_dynamic_link) {
         if (g->zig_target->arch == ZigLLVM_arm || g->zig_target->arch == ZigLLVM_armeb ||
             g->zig_target->arch == ZigLLVM_thumb || g->zig_target->arch == ZigLLVM_thumbeb)
         {
@@ -948,7 +935,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
         const char *crt1o;
         if (g->zig_target->os == OsNetBSD) {
             crt1o = "crt0.o";
-        } else if (g->is_static) {
+        } else if (!g->have_dynamic_link) {
             crt1o = "crt1.o";
         } else {
             crt1o = "Scrt1.o";
@@ -994,12 +981,11 @@ static void construct_linker_job_elf(LinkJob *lj) {
             lj->args.append(buf_ptr(&g->libc->crt_dir));
         }
 
-        if (!g->is_static) {
+        if (g->have_dynamic_link && (is_dyn_lib || g->out_type == OutTypeExe)) {
             assert(g->dynamic_linker_path != nullptr);
             lj->args.append("-dynamic-linker");
             lj->args.append(buf_ptr(g->dynamic_linker_path));
         }
-
     }
 
     if (is_dyn_lib) {
@@ -1012,16 +998,14 @@ static void construct_linker_job_elf(LinkJob *lj) {
         lj->args.append((const char *)buf_ptr(g->link_objects.at(i)));
     }
 
-    if (g->out_type == OutTypeExe || (g->out_type == OutTypeLib && !g->is_static)) {
-        if (g->libc_link_lib == nullptr && !g->is_dummy_so) {
+    if (!g->is_dummy_so && (g->out_type == OutTypeExe || is_dyn_lib)) {
+        if (g->libc_link_lib == nullptr) {
             Buf *builtin_a_path = build_a(g, "builtin");
             lj->args.append(buf_ptr(builtin_a_path));
         }
 
-        if (!g->is_dummy_so) {
-            Buf *compiler_rt_o_path = build_compiler_rt(g);
-            lj->args.append(buf_ptr(compiler_rt_o_path));
-        }
+        Buf *compiler_rt_o_path = build_compiler_rt(g);
+        lj->args.append(buf_ptr(compiler_rt_o_path));
     }
 
     for (size_t i = 0; i < g->link_libs_list.length; i += 1) {
@@ -1030,17 +1014,9 @@ static void construct_linker_job_elf(LinkJob *lj) {
             // libc is linked specially
             continue;
         }
-        if (g->libc == nullptr && (target_is_glibc(g) || target_is_musl(g))) {
+        if (g->libc == nullptr && target_is_libc_lib_name(g->zig_target, buf_ptr(link_lib->name))) {
             // these libraries are always linked below when targeting glibc
-            if (buf_eql_str(link_lib->name, "m")) {
-                continue;
-            } else if (buf_eql_str(link_lib->name, "pthread")) {
-                continue;
-            } else if (buf_eql_str(link_lib->name, "dl")) {
-                continue;
-            } else if (buf_eql_str(link_lib->name, "rt")) {
-                continue;
-            }
+            continue;
         }
         Buf *arg;
         if (buf_starts_with_str(link_lib->name, "/") || buf_ends_with_str(link_lib->name, ".a") ||
@@ -1057,7 +1033,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
     // libc dep
     if (g->libc_link_lib != nullptr) {
         if (g->libc != nullptr) {
-            if (g->is_static) {
+            if (!g->have_dynamic_link) {
                 lj->args.append("--start-group");
                 lj->args.append("-lgcc");
                 lj->args.append("-lgcc_eh");
@@ -1076,7 +1052,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
                 lj->args.append("-lgcc_s");
                 lj->args.append("--no-as-needed");
             }
-        } else if (target_is_glibc(g)) {
+        } else if (target_is_glibc(g->zig_target)) {
             lj->args.append(build_libunwind(g));
             lj->args.append(build_dummy_so(g, "c", 6));
             lj->args.append(build_dummy_so(g, "m", 6));
@@ -1084,7 +1060,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
             lj->args.append(build_dummy_so(g, "dl", 2));
             lj->args.append(build_dummy_so(g, "rt", 1));
             lj->args.append(get_libc_crt_file(g, "libc_nonshared.a"));
-        } else if (target_is_musl(g)) {
+        } else if (target_is_musl(g->zig_target)) {
             lj->args.append(build_libunwind(g));
             lj->args.append(build_musl(g));
         } else {
@@ -1158,10 +1134,10 @@ static void add_nt_link_args(LinkJob *lj, bool is_library) {
     CodeGen *g = lj->codegen;
 
     if (lj->link_in_crt) {
-        const char *lib_str = g->is_static ? "lib" : "";
+        const char *lib_str = g->is_dynamic ? "" : "lib";
         const char *d_str = (g->build_mode == BuildModeDebug) ? "d" : "";
 
-        if (g->is_static) {
+        if (!g->is_dynamic) {
             Buf *cmt_lib_name = buf_sprintf("libcmt%s.lib", d_str);
             lj->args.append(buf_ptr(cmt_lib_name));
         } else {
@@ -1265,7 +1241,7 @@ static void construct_linker_job_coff(LinkJob *lj) {
         lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(&g->libc->crt_dir))));
     }
 
-    if (is_library && !g->is_static) {
+    if (is_library && g->is_dynamic) {
         lj->args.append("-DLL");
     }
 
@@ -1278,7 +1254,7 @@ static void construct_linker_job_coff(LinkJob *lj) {
         lj->args.append((const char *)buf_ptr(g->link_objects.at(i)));
     }
 
-    if (g->out_type == OutTypeExe || (g->out_type == OutTypeLib && !g->is_static)) {
+    if (g->out_type == OutTypeExe || (g->out_type == OutTypeLib && g->is_dynamic)) {
         if (g->libc_link_lib == nullptr && !g->is_dummy_so) {
             Buf *builtin_a_path = build_a(g, "builtin");
             lj->args.append(buf_ptr(builtin_a_path));
@@ -1457,8 +1433,8 @@ static void construct_linker_job_macho(LinkJob *lj) {
     }
 
     bool is_lib = g->out_type == OutTypeLib;
-    bool is_dyn_lib = !g->is_static && is_lib;
-    if (g->is_static) {
+    bool is_dyn_lib = g->is_dynamic && is_lib;
+    if (!g->is_dynamic) {
         lj->args.append("-static");
     } else {
         lj->args.append("-dynamic");
@@ -1509,11 +1485,7 @@ static void construct_linker_job_macho(LinkJob *lj) {
 
 
     if (g->out_type == OutTypeExe) {
-        if (g->is_static) {
-            lj->args.append("-no_pie");
-        } else {
-            lj->args.append("-pie");
-        }
+        lj->args.append("-pie");
     }
 
     lj->args.append("-o");
@@ -1629,7 +1601,7 @@ void codegen_link(CodeGen *g) {
         lj.args.append("-r");
     }
 
-    if (g->out_type == OutTypeLib && g->is_static) {
+    if (g->out_type == OutTypeLib && !g->is_dynamic) {
         ZigList<const char *> file_names = {};
         for (size_t i = 0; i < g->link_objects.length; i += 1) {
             file_names.append((const char *)buf_ptr(g->link_objects.at(i)));

@@ -52,7 +52,8 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  --cache [auto|off|on]        build in cache, print output path to stdout\n"
         "  --color [auto|off|on]        enable or disable colored error messages\n"
         "  --disable-gen-h              do not generate a C header file (.h)\n"
-        "  --disable-pic                disable Position Independent Code for libraries\n"
+        "  --disable-pic                disable Position Independent Code\n"
+        "  --enable-pic                 enable Position Independent Code\n"
         "  --disable-valgrind           omit valgrind client requests in debug builds\n"
         "  --enable-valgrind            include valgrind client requests release builds\n"
         "  --emit [asm|bin|llvm-ir]     emit a specific file format as compilation output\n"
@@ -67,7 +68,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  --release-safe               build with optimizations on and safety on\n"
         "  --release-small              build with size optimizations on and safety off\n"
         "  --single-threaded            source may assume it is only used single-threaded\n"
-        "  --static                     output will be statically linked\n"
+        "  -dynamic                     create a shared library (.so; .dll; .dylib)\n"
         "  --strip                      exclude debug symbols\n"
         "  -target [name]               <arch><sub>-<os>-<abi> see the targets command\n"
         "  --verbose-tokenize           enable compiler debug output for tokenization\n"
@@ -397,7 +398,7 @@ int main(int argc, char **argv) {
     const char *in_file = nullptr;
     Buf *output_dir = nullptr;
     bool strip = false;
-    bool is_static = false;
+    bool is_dynamic = false;
     OutType out_type = OutTypeUnknown;
     const char *out_name = nullptr;
     bool verbose_tokenize = false;
@@ -432,7 +433,6 @@ int main(int argc, char **argv) {
     size_t ver_minor = 0;
     size_t ver_patch = 0;
     bool timing_info = false;
-    bool disable_pic = false;
     const char *cache_dir = nullptr;
     CliPkg *cur_pkg = allocate<CliPkg>(1);
     BuildMode build_mode = BuildModeDebug;
@@ -445,6 +445,7 @@ int main(int argc, char **argv) {
     Buf *override_std_dir = nullptr;
     Buf *main_pkg_path = nullptr;
     ValgrindSupport valgrind_support = ValgrindSupportAuto;
+    WantPIC want_pic = WantPICAuto;
 
     ZigList<const char *> llvm_argv = {0};
     llvm_argv.append("zig (LLVM option parsing)");
@@ -620,8 +621,8 @@ int main(int argc, char **argv) {
                 }
             } else if (strcmp(arg, "--strip") == 0) {
                 strip = true;
-            } else if (strcmp(arg, "--static") == 0) {
-                is_static = true;
+            } else if (strcmp(arg, "-dynamic") == 0) {
+                is_dynamic = true;
             } else if (strcmp(arg, "--verbose-tokenize") == 0) {
                 verbose_tokenize = true;
             } else if (strcmp(arg, "--verbose-ast") == 0) {
@@ -642,12 +643,14 @@ int main(int argc, char **argv) {
                 each_lib_rpath = true;
             } else if (strcmp(arg, "-ftime-report") == 0) {
                 timing_info = true;
-            } else if (strcmp(arg, "--disable-pic") == 0) {
-                disable_pic = true;
             } else if (strcmp(arg, "--enable-valgrind") == 0) {
                 valgrind_support = ValgrindSupportEnabled;
             } else if (strcmp(arg, "--disable-valgrind") == 0) {
                 valgrind_support = ValgrindSupportDisabled;
+            } else if (strcmp(arg, "--enable-pic") == 0) {
+                want_pic = WantPICEnabled;
+            } else if (strcmp(arg, "--disable-pic") == 0) {
+                want_pic = WantPICDisabled;
             } else if (strcmp(arg, "--system-linker-hack") == 0) {
                 system_linker_hack = true;
             } else if (strcmp(arg, "--single-threaded") == 0) {
@@ -904,12 +907,24 @@ int main(int argc, char **argv) {
     }
 
     if (output_dir != nullptr && enable_cache == CacheOptOn) {
-        fprintf(stderr, "The --output-dir argument is incompatible with --cache on.\n");
+        fprintf(stderr, "`--output-dir` is incompatible with --cache on.\n");
+        return print_error_usage(arg0);
+    }
+
+    if (target_requires_pic(&target) && want_pic == WantPICDisabled) {
+        Buf triple_buf = BUF_INIT;
+        get_target_triple(&triple_buf, &target);
+        fprintf(stderr, "`--disable-pic` is incompatible with target '%s'\n", buf_ptr(&triple_buf));
         return print_error_usage(arg0);
     }
 
     if (emit_file_type != EmitFileTypeBinary && in_file == nullptr) {
-        fprintf(stderr, "A root source file is required when using --emit asm or --emit llvm-ir");
+        fprintf(stderr, "A root source file is required when using `--emit asm` or `--emit llvm-ir`\n");
+        return print_error_usage(arg0);
+    }
+
+    if (out_type != OutTypeLib && is_dynamic) {
+        fprintf(stderr, "`-dynamic` may only be specified with `build-lib`.\n");
         return print_error_usage(arg0);
     }
 
@@ -936,6 +951,7 @@ int main(int argc, char **argv) {
         CodeGen *g = codegen_create(main_pkg_path, nullptr, &target,
                 out_type, build_mode, get_zig_lib_dir(), override_std_dir, nullptr, nullptr);
         g->valgrind_support = valgrind_support;
+        g->want_pic = want_pic;
         g->is_single_threaded = is_single_threaded;
         Buf *builtin_source = codegen_generate_builtin_source(g);
         if (fwrite(buf_ptr(builtin_source), 1, buf_len(builtin_source), stdout) != buf_len(builtin_source)) {
@@ -1027,15 +1043,8 @@ int main(int argc, char **argv) {
                     get_zig_lib_dir(), override_std_dir, libc, cache_dir_buf);
             if (llvm_argv.length >= 2) codegen_set_llvm_argv(g, llvm_argv.items + 1, llvm_argv.length - 2);
             g->valgrind_support = valgrind_support;
+            g->want_pic = want_pic;
             g->subsystem = subsystem;
-
-            if (disable_pic) {
-                if (out_type != OutTypeLib || !is_static) {
-                    fprintf(stderr, "--disable-pic only applies to static libraries");
-                    return EXIT_FAILURE;
-                }
-                g->disable_pic = true;
-            }
 
             g->enable_time_report = timing_info;
             codegen_set_out_name(g, buf_out_name);
@@ -1049,7 +1058,7 @@ int main(int argc, char **argv) {
             codegen_set_clang_argv(g, clang_argv.items, clang_argv.length);
 
             codegen_set_strip(g, strip);
-            g->is_static = is_static;
+            g->is_dynamic = is_dynamic;
             g->dynamic_linker_path = dynamic_linker;
             g->verbose_tokenize = verbose_tokenize;
             g->verbose_ast = verbose_ast;

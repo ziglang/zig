@@ -693,8 +693,8 @@ void get_target_triple(Buf *triple, const ZigTarget *target) {
             ZigLLVMGetEnvironmentTypeName(target->abi));
 }
 
-bool target_is_darwin(const ZigTarget *target) {
-    switch (target->os) {
+bool target_os_is_darwin(Os os) {
+    switch (os) {
         case OsMacOSX:
         case OsIOS:
         case OsWatchOS:
@@ -708,7 +708,7 @@ bool target_is_darwin(const ZigTarget *target) {
 ZigLLVM_ObjectFormatType target_object_format(const ZigTarget *target) {
     if (target->os == OsUefi || target->os == OsWindows) {
         return ZigLLVM_COFF;
-    } else if (target_is_darwin(target)) {
+    } else if (target_os_is_darwin(target->os)) {
         return ZigLLVM_MachO;
     }
     if (target->arch == ZigLLVM_wasm32 ||
@@ -942,7 +942,7 @@ const char *target_lib_file_ext(const ZigTarget *target, bool is_static,
     } else {
         if (is_static) {
             return ".a";
-        } else if (target_is_darwin(target)) {
+        } else if (target_os_is_darwin(target->os)) {
             return buf_ptr(buf_sprintf(".%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".dylib",
                         version_major, version_minor, version_patch));
         } else {
@@ -1279,7 +1279,7 @@ bool target_has_valgrind_support(const ZigTarget *target) {
         case ZigLLVM_UnknownArch:
             zig_unreachable();
         case ZigLLVM_x86_64:
-            return (target->os == OsLinux || target_is_darwin(target) || target->os == OsSolaris ||
+            return (target->os == OsLinux || target_os_is_darwin(target->os) || target->os == OsSolaris ||
                 (target->os == OsWindows && target->abi != ZigLLVM_MSVC));
         default:
             return false;
@@ -1287,17 +1287,30 @@ bool target_has_valgrind_support(const ZigTarget *target) {
     zig_unreachable();
 }
 
-bool target_requires_libc(const ZigTarget *target) {
+bool target_os_requires_libc(Os os) {
     // On Darwin, we always link libSystem which contains libc.
     // Similarly on FreeBSD and NetBSD we always link system libc
     // since this is the stable syscall interface.
-    return (target_is_darwin(target) || target->os == OsFreeBSD || target->os == OsNetBSD);
+    return (target_os_is_darwin(os) || os == OsFreeBSD || os == OsNetBSD);
 }
 
 bool target_supports_fpic(const ZigTarget *target) {
   // This is not whether the target supports Position Independent Code, but whether the -fPIC
   // C compiler argument is valid.
   return target->os != OsWindows;
+}
+
+bool target_requires_pic(const ZigTarget *target) {
+  // This function returns whether non-pic code is completely invalid on the given target.
+  return target->os == OsWindows || target_os_requires_libc(target->os) || target_is_glibc(target);
+}
+
+bool target_is_glibc(const ZigTarget *target) {
+    return target->os == OsLinux && target_abi_is_gnu(target->abi);
+}
+
+bool target_is_musl(const ZigTarget *target) {
+    return target->os == OsLinux && target_abi_is_musl(target->abi);
 }
 
 ZigLLVM_EnvironmentType target_default_abi(ZigLLVM_ArchType arch, Os os) {
@@ -1457,4 +1470,30 @@ const char *target_libc_generic_name(const ZigTarget *target) {
             zig_unreachable();
     }
     zig_unreachable();
+}
+
+bool target_is_libc_lib_name(const ZigTarget *target, const char *name) {
+    if (strcmp(name, "c") == 0)
+        return true;
+
+    if (target_abi_is_gnu(target->abi) || target_abi_is_musl(target->abi)) {
+        if (strcmp(name, "m") == 0)
+            return true;
+        if (strcmp(name, "rt") == 0)
+            return true;
+        if (strcmp(name, "pthread") == 0)
+            return true;
+        if (strcmp(name, "crypt") == 0)
+            return true;
+        if (strcmp(name, "util") == 0)
+            return true;
+        if (strcmp(name, "xnet") == 0)
+            return true;
+        if (strcmp(name, "resolv") == 0)
+            return true;
+        if (strcmp(name, "dl") == 0)
+            return true;
+    }
+
+    return false;
 }

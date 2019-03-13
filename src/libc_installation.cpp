@@ -102,7 +102,7 @@ Error zig_libc_parse(ZigLibCInstallation *libc, Buf *libc_file, const ZigTarget 
     }
 
     if (buf_len(&libc->crt_dir) == 0) {
-        if (!target_is_darwin(target)) {
+        if (!target_os_is_darwin(target->os)) {
             if (verbose) {
                 fprintf(stderr, "crt_dir may not be empty for %s\n", target_os_name(target->os));
             }

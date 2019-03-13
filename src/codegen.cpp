@@ -182,13 +182,13 @@ CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget 
     } else {
         g->each_lib_rpath = true;
 
-        if (target_is_darwin(g->zig_target)) {
+        if (target_os_is_darwin(g->zig_target->os)) {
             init_darwin_native(g);
         }
 
     }
 
-    if (target_requires_libc(g->zig_target)) {
+    if (target_os_requires_libc(g->zig_target->os)) {
         g->libc_link_lib = create_link_lib(buf_create_from_str("c"));
         g->link_libs_list.append(g->libc_link_lib);
     }
@@ -3370,7 +3370,7 @@ static LLVMValueRef gen_valgrind_client_request(CodeGen *g, LLVMValueRef default
     bool asm_has_side_effects = true;
     bool asm_is_alignstack = false;
     if (g->zig_target->arch == ZigLLVM_x86_64) {
-        if (g->zig_target->os == OsLinux || target_is_darwin(g->zig_target) || g->zig_target->os == OsSolaris ||
+        if (g->zig_target->os == OsLinux || target_os_is_darwin(g->zig_target->os) || g->zig_target->os == OsSolaris ||
             (g->zig_target->os == OsWindows && g->zig_target->abi != ZigLLVM_MSVC))
         {
             if (g->cur_fn->valgrind_client_request_array == nullptr) {
@@ -7283,7 +7283,44 @@ static const char *build_mode_to_str(BuildMode build_mode) {
     zig_unreachable();
 }
 
+static bool detect_dynamic_link(CodeGen *g) {
+    if (g->is_dynamic)
+        return true;
+    if (g->zig_target->os == OsFreestanding)
+        return false;
+    if (target_requires_pic(g->zig_target))
+        return true;
+    if (g->out_type == OutTypeExe) {
+        // If there are no dynamic libraries then we can disable PIC
+        for (size_t i = 0; i < g->link_libs_list.length; i += 1) {
+            LinkLib *link_lib = g->link_libs_list.at(i);
+            if (target_is_libc_lib_name(g->zig_target, buf_ptr(link_lib->name)))
+                continue;
+            return true;
+        }
+        return false;
+    }
+    return true;
+}
+
+static bool detect_pic(CodeGen *g) {
+    if (target_requires_pic(g->zig_target))
+        return true;
+    switch (g->want_pic) {
+        case WantPICDisabled:
+            return false;
+        case WantPICEnabled:
+            return true;
+        case WantPICAuto:
+            return g->have_dynamic_link;
+    }
+    zig_unreachable();
+}
+
 Buf *codegen_generate_builtin_source(CodeGen *g) {
+    g->have_dynamic_link = detect_dynamic_link(g);
+    g->have_pic = detect_pic(g);
+
     Buf *contents = buf_alloc();
 
     // NOTE: when editing this file, you may need to make modifications to the
@@ -7683,6 +7720,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     buf_appendf(contents, "pub const link_libc = %s;\n", bool_to_str(g->libc_link_lib != nullptr));
     buf_appendf(contents, "pub const have_error_return_tracing = %s;\n", bool_to_str(g->have_err_ret_tracing));
     buf_appendf(contents, "pub const valgrind_support = %s;\n", bool_to_str(want_valgrind_support(g)));
+    buf_appendf(contents, "pub const position_independent_code = %s;\n", bool_to_str(g->have_pic));
 
     buf_appendf(contents, "pub const __zig_test_fn_slice = {}; // overwritten later\n");
 
@@ -7777,6 +7815,9 @@ static void init(CodeGen *g) {
     if (g->module)
         return;
 
+    g->have_dynamic_link = detect_dynamic_link(g);
+    g->have_pic = detect_pic(g);
+
     if (g->is_test_build) {
         g->subsystem = TargetSubsystemConsole;
     }
@@ -7807,10 +7848,7 @@ static void init(CodeGen *g) {
     bool is_optimized = g->build_mode != BuildModeDebug;
     LLVMCodeGenOptLevel opt_level = is_optimized ? LLVMCodeGenLevelAggressive : LLVMCodeGenLevelNone;
 
-    if (g->out_type == OutTypeExe && g->is_static) {
-        g->disable_pic = true;
-    }
-    LLVMRelocMode reloc_mode = g->disable_pic ? LLVMRelocStatic : LLVMRelocPIC;
+    LLVMRelocMode reloc_mode = g->have_pic ? LLVMRelocPIC: LLVMRelocStatic;
 
     const char *target_specific_cpu_args;
     const char *target_specific_features;
@@ -7892,8 +7930,13 @@ static void init(CodeGen *g) {
 }
 
 static void detect_dynamic_linker(CodeGen *g) {
-    if (g->dynamic_linker_path != nullptr || g->is_static)
+    if (g->dynamic_linker_path != nullptr)
         return;
+    if (!g->have_dynamic_link)
+        return;
+    if (g->out_type == OutTypeObj || (g->out_type == OutTypeLib && !g->is_dynamic))
+        return;
+
     const char *standard_ld_path = target_dynamic_linker(g->zig_target);
     if (standard_ld_path == nullptr)
         return;
@@ -7943,13 +7986,6 @@ static void detect_libc(CodeGen *g) {
 
     if (g->libc != nullptr || g->libc_link_lib == nullptr)
         return;
-
-    if (g->zig_target->os == OsLinux && target_abi_is_gnu(g->zig_target->abi) &&
-        g->is_static && g->out_type == OutTypeExe)
-    {
-        fprintf(stderr, "glibc does not support static linking\n");
-        exit(1);
-    }
 
     if (target_can_build_libc(g->zig_target)) {
         const char *generic_name = target_libc_generic_name(g->zig_target);
@@ -8010,17 +8046,16 @@ static void detect_libc(CodeGen *g) {
         if (want_sys_dir) {
             g->libc_include_dir_list[1] = &g->libc->sys_include_dir;
         }
-    } else if ((g->out_type == OutTypeExe || (g->out_type == OutTypeLib && !g->is_static)) &&
-        !target_is_darwin(g->zig_target))
+    } else if ((g->out_type == OutTypeExe || (g->out_type == OutTypeLib && g->is_dynamic)) &&
+        !target_os_is_darwin(g->zig_target->os))
     {
+        Buf triple_buf = BUF_INIT;
+        get_target_triple(&triple_buf, g->zig_target);
         fprintf(stderr,
-            "Zig is unable to provide a libc for the chosen target '%s-%s-%s'.\n"
+            "Zig is unable to provide a libc for the chosen target '%s'.\n"
             "The target is non-native, so Zig also cannot use the native libc installation.\n"
             "Choose a target which has a libc available, or provide a libc installation text file.\n"
-            "See `zig libc --help` for more details.\n",
-            target_arch_name(g->zig_target->arch),
-            target_os_name(g->zig_target->os),
-            target_abi_name(g->zig_target->abi));
+            "See `zig libc --help` for more details.\n", buf_ptr(&triple_buf));
         exit(1);
     }
 }
@@ -8203,7 +8238,7 @@ static void gen_root_source(CodeGen *g) {
         g->bootstrap_import = add_special_code(g, create_bootstrap_pkg(g, g->root_package), "bootstrap.zig");
     }
     if (g->zig_target->os == OsWindows && !g->have_dllmain_crt_startup &&
-            g->out_type == OutTypeLib && !g->is_static)
+            g->out_type == OutTypeLib && g->is_dynamic)
     {
         g->bootstrap_import = add_special_code(g, create_bootstrap_pkg(g, g->root_package), "bootstrap_lib.zig");
     }
@@ -8297,7 +8332,8 @@ Error create_c_object_cache(CodeGen *g, CacheHash **out_cache_hash, bool verbose
     cache_int(cache_hash, g->zig_target->abi);
     cache_bool(cache_hash, g->strip_debug_symbols);
     cache_int(cache_hash, g->build_mode);
-    cache_bool(cache_hash, g->disable_pic);
+    cache_bool(cache_hash, g->have_pic);
+    cache_bool(cache_hash, want_valgrind_support(g));
     for (size_t arg_i = 0; arg_i < g->clang_argv_len; arg_i += 1) {
         cache_str(cache_hash, g->clang_argv[arg_i]);
     }
@@ -8451,7 +8487,7 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
         args.append("-c");
         args.append(buf_ptr(c_source_file));
 
-        if (target_supports_fpic(g->zig_target) && !g->disable_pic) {
+        if (target_supports_fpic(g->zig_target) && g->have_pic) {
             args.append("-fPIC");
         }
 
@@ -9064,7 +9100,6 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_int(ch, g->zig_target->os);
     cache_int(ch, g->zig_target->abi);
     cache_int(ch, g->subsystem);
-    cache_bool(ch, g->is_static);
     cache_bool(ch, g->strip_debug_symbols);
     cache_bool(ch, g->is_test_build);
     if (g->is_test_build) {
@@ -9074,9 +9109,10 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_bool(ch, g->is_single_threaded);
     cache_bool(ch, g->linker_rdynamic);
     cache_bool(ch, g->each_lib_rpath);
-    cache_bool(ch, g->disable_pic);
     cache_bool(ch, g->disable_gen_h);
-    cache_bool(ch, g->valgrind_support);
+    cache_bool(ch, want_valgrind_support(g));
+    cache_bool(ch, g->have_pic);
+    cache_bool(ch, g->have_dynamic_link);
     cache_bool(ch, g->is_dummy_so);
     cache_buf_opt(ch, g->mmacosx_version_min);
     cache_buf_opt(ch, g->mios_version_min);
@@ -9150,7 +9186,7 @@ static void resolve_out_paths(CodeGen *g) {
                     buf_resize(out_basename, 0);
                     buf_append_str(out_basename, target_lib_file_prefix(g->zig_target));
                     buf_append_buf(out_basename, g->root_out_name);
-                    buf_append_str(out_basename, target_lib_file_ext(g->zig_target, g->is_static,
+                    buf_append_str(out_basename, target_lib_file_ext(g->zig_target, !g->is_dynamic,
                                 g->version_major, g->version_minor, g->version_patch));
                     break;
             }
@@ -9182,6 +9218,8 @@ void codegen_build_and_link(CodeGen *g) {
         g->output_dir = buf_create_from_str(".");
     }
 
+    g->have_dynamic_link = detect_dynamic_link(g);
+    g->have_pic = detect_pic(g);
     detect_libc(g);
     detect_dynamic_linker(g);
 
