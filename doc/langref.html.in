@@ -5890,10 +5890,11 @@ comptime {
       {#see_also|Import from C Header File|@cInclude|@cImport|@cUndef|void#}
       {#header_close#}
       {#header_open|@cImport#}
-      <pre>{#syntax#}@cImport(expression) (namespace){#endsyntax#}</pre>
+      <pre>{#syntax#}@cImport(expression) type{#endsyntax#}</pre>
       <p>
-      This function parses C code and imports the functions, types, variables, and
-      compatible macro definitions into the result namespace.
+      This function parses C code and imports the functions, types, variables,
+      and compatible macro definitions into a new empty struct type, and then
+      returns that type.
       </p>
       <p>
       {#syntax#}expression{#endsyntax#} is interpreted at compile time. The builtin functions
@@ -6320,14 +6321,22 @@ export fn @"A function name that is a complete sentence."() void {}
       {#header_close#}
 
       {#header_open|@import#}
-      <pre>{#syntax#}@import(comptime path: []u8) (namespace){#endsyntax#}</pre>
+      <pre>{#syntax#}@import(comptime path: []u8) type{#endsyntax#}</pre>
       <p>
-      This function finds a zig file corresponding to {#syntax#}path{#endsyntax#} and imports all the
-      public top level declarations into the resulting namespace.
+      This function finds a zig file corresponding to {#syntax#}path{#endsyntax#} and adds it to the build,
+      if it is not already added.
+      </p>
+      <p>
+      Zig source files are implicitly structs, with a name equal to the file's basename with the extension
+      truncated. {#syntax#}@import{#endsyntax#} returns the struct type corresponding to the file.
+      </p>
+      <p>
+      Declarations which have the {#syntax#}pub{#endsyntax#} keyword may be referenced from a different
+      source file than the one they are declared in.
       </p>
       <p>
       {#syntax#}path{#endsyntax#} can be a relative or absolute path, or it can be the name of a package.
-          If it is a relative path, it is relative to the file that contains the {#syntax#}@import{#endsyntax#}
+      If it is a relative path, it is relative to the file that contains the {#syntax#}@import{#endsyntax#}
       function call.
       </p>
       <p>
@@ -6335,7 +6344,9 @@ export fn @"A function name that is a complete sentence."() void {}
       </p>
       <ul>
           <li>{#syntax#}@import("std"){#endsyntax#} - Zig Standard Library</li>
-          <li>{#syntax#}@import("builtin"){#endsyntax#} - Compiler-provided types and variables</li>
+          <li>{#syntax#}@import("builtin"){#endsyntax#} - Compiler-provided types and variables.
+              The command <code>zig builtin</code> outputs the source to stdout for reference.
+          </li>
       </ul>
       {#see_also|Compile Variables|@embedFile#}
       {#header_close#}
@@ -8177,28 +8188,68 @@ all your base are belong to us</code></pre>
       </p>
       <pre><code class="shell">$ zig targets
 Architectures:
-  armv8_2a
-  armv8_1a
-  armv8
-  armv8r
-  armv8m_baseline
-  armv8m_mainline
-  armv7
-  armv7em
-  armv7m
-  armv7s
-  armv7k
-  armv7ve
-  armv6
-  armv6m
-  armv6k
-  armv6t2
-  armv5
-  armv5te
-  armv4t
+  arm
+    v8_4a
+    v8_3a
+    v8_2a
+    v8_1a
+    v8
+    v8r
+    v8m_baseline
+    v8m_mainline
+    v7
+    v7em
+    v7m
+    v7s
+    v7k
+    v7ve
+    v6
+    v6m
+    v6k
+    v6t2
+    v5
+    v5te
+    v4t
   armeb
+    v8_4a
+    v8_3a
+    v8_2a
+    v8_1a
+    v8
+    v8r
+    v8m_baseline
+    v8m_mainline
+    v7
+    v7em
+    v7m
+    v7s
+    v7k
+    v7ve
+    v6
+    v6m
+    v6k
+    v6t2
+    v5
+    v5te
+    v4t
   aarch64
+    v8_4a
+    v8_3a
+    v8_2a
+    v8_1a
+    v8
+    v8r
+    v8m_baseline
+    v8m_mainline
   aarch64_be
+    v8_4a
+    v8_3a
+    v8_2a
+    v8_1a
+    v8
+    v8r
+    v8m_baseline
+    v8m_mainline
   avr
   bpfel
   bpfeb
@@ -8208,7 +8259,6 @@ Architectures:
   mips64
   mips64el
   msp430
-  nios2
   powerpc
   powerpc64
   powerpc64le
@@ -8220,32 +8270,58 @@ Architectures:
   sparcv9
   sparcel
   s390x
-  tce
-  tcele
   thumb
+    v8_4a
+    v8_3a
+    v8_2a
+    v8_1a
+    v8
+    v8r
+    v8m_baseline
+    v8m_mainline
+    v7
+    v7em
+    v7m
+    v7s
+    v7k
+    v7ve
+    v6
+    v6m
+    v6k
+    v6t2
+    v5
+    v5te
+    v4t
   thumbeb
+    v8_4a
+    v8_3a
+    v8_2a
+    v8_1a
+    v8
+    v8r
+    v8m_baseline
+    v8m_mainline
+    v7
+    v7em
+    v7m
+    v7s
+    v7k
+    v7ve
+    v6
+    v6m
+    v6k
+    v6t2
+    v5
+    v5te
+    v4t
   i386
   x86_64 (native)
   xcore
   nvptx
   nvptx64
-  le32
-  le64
-  amdil
-  amdil64
-  hsail
-  hsail64
-  spir
-  spir64
-  kalimbav3
-  kalimbav4
-  kalimbav5
-  shave
   lanai
   wasm32
   wasm64
-  renderscript32
-  renderscript64
 
 Operating Systems:
   freestanding
@@ -8268,7 +8344,6 @@ Operating Systems:
   rtems
   nacl
   cnk
-  bitrig
   aix
   cuda
   nvcl
@@ -8279,11 +8354,14 @@ Operating Systems:
   watchos
   mesa3d
   contiki
+  amdpal
   zen
+  uefi
 
-Environments:
-  unknown
+C ABIs:
+  none
   gnu (native)
+  gnuabin32
   gnuabi64
   gnueabi
   gnueabihf
@@ -8298,9 +8376,8 @@ Environments:
   msvc
   itanium
   cygnus
-  amdopencl
   coreclr
-  opencl</code></pre>
+  simulator</code></pre>
       <p>
       The Zig Standard Library ({#syntax#}@import("std"){#endsyntax#}) has architecture, environment, and operating system
       abstractions, and thus takes additional work to support more platforms.
@@ -8433,6 +8510,19 @@ fn readU32Be() u32 {}
       <p>The codepoint U+000a (LF) (which is encoded as the single-byte value 0x0a) is the line terminator character. This character always terminates a line of zig source code (except possbly the last line of the file).</p>
       <p>For some discussion on the rationale behind these design decisions, see <a href="https://github.com/ziglang/zig/issues/663">issue #663</a></p>
       {#header_close#}
+
+      {#header_open|Keyword Reference#}
+      <p>
+      TODO the rest of the keywords. Most of these can just be links to the relevant section.
+      </p>
+      {#header_open|Keyword: pub#}
+      <p>The {#syntax#}pub{#endsyntax#} in front of a top level declaration makes the
+      declaration available to reference from a different file than the one it is declared in.</p>
+      <p><a href="https://github.com/ziglang/zig/issues/2059">TODO delete pub syntax for fields, or make it do something.</a></p>
+      {#see_also|@import#}
+      {#header_close#}
+      {#header_close#}
+
       {#header_open|Grammar#}
       <pre><code>Root &lt;- skip ContainerMembers eof
 
