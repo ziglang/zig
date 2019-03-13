@@ -6215,6 +6215,35 @@ test "main" {
       <p>
       Creates a symbol in the output object file.
       </p>
+      <p>
+      This function can be called from a {#link|comptime#} block to conditionally export symbols.
+      When {#syntax#}target{#endsyntax#} is a function with the C calling convention and
+      {#syntax#}linkage{#endsyntax#} is {#syntax#}Strong{#endsyntax#}, this is equivalent to
+      the {#syntax#}export{#endsyntax#} keyword used on a function:
+      </p>
+      {#code_begin|obj#}
+const builtin = @import("builtin");
+
+comptime {
+    @export("foo", internalName, builtin.GlobalLinkage.Strong);
+}
+
+extern fn internalName() void {}
+      {#code_end#}
+      <p>This is equivalent to:</p>
+      {#code_begin|obj#}
+export fn foo() void {}
+      {#code_end#}
+      <p>Note that even when using {#syntax#}export{#endsyntax#}, {#syntax#}@"foo"{#endsyntax#} syntax can
+      be used to choose any string for the symbol name:</p>
+      {#code_begin|obj#}
+export fn @"A function name that is a complete sentence."() void {}
+      {#code_end#}
+      <p>
+      When looking at the resulting object, you can see the symbol is used verbatim:
+      </p>
+      <pre>00000000000001f0 T A function name that is a complete sentence.</pre>
+      {#see_also|Exporting a C Library#}
       {#header_close#}
 
       {#header_open|@fence#}
@@ -8074,6 +8103,7 @@ pub fn build(b: *Builder) void {
 $ ./test
 $ echo $?
 0</code></pre>
+      {#see_also|export#}
       {#header_close#}
       {#header_open|Mixing Object Files#}
       <p>
