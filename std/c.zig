@@ -7,9 +7,8 @@ pub use switch (builtin.os) {
     Os.macosx, Os.ios => @import("c/darwin.zig"),
     Os.freebsd => @import("c/freebsd.zig"),
     Os.netbsd => @import("c/netbsd.zig"),
-    else => empty_import,
+    else => struct {},
 };
-const empty_import = @import("empty.zig");
 
 // TODO https://github.com/ziglang/zig/issues/265 on this whole file
 

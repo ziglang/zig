@@ -24,7 +24,6 @@ pub const cstr = @import("cstr.zig");
 pub const debug = @import("debug.zig");
 pub const dwarf = @import("dwarf.zig");
 pub const elf = @import("elf.zig");
-pub const empty_import = @import("empty.zig");
 pub const event = @import("event.zig");
 pub const fmt = @import("fmt.zig");
 pub const hash = @import("hash.zig");
@@ -72,7 +71,6 @@ test "std" {
     _ = @import("dwarf.zig");
     _ = @import("dynamic_library.zig");
     _ = @import("elf.zig");
-    _ = @import("empty.zig");
     _ = @import("event.zig");
     _ = @import("fmt.zig");
     _ = @import("hash.zig");

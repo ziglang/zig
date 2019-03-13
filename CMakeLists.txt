@@ -476,7 +476,6 @@ set(ZIG_STD_FILES
     "dwarf.zig"
     "dynamic_library.zig"
     "elf.zig"
-    "empty.zig"
     "event.zig"
     "event/channel.zig"
     "event/fs.zig"
