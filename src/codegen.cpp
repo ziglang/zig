@@ -878,9 +878,6 @@ static bool ir_want_fast_math(CodeGen *g, IrInstruction *instruction) {
 }
 
 static bool ir_want_runtime_safety(CodeGen *g, IrInstruction *instruction) {
-    if (g->build_mode == BuildModeFastRelease || g->build_mode == BuildModeSmallRelease)
-        return false;
-
     // TODO memoize
     Scope *scope = instruction->scope;
     while (scope) {
@@ -895,7 +892,9 @@ static bool ir_want_runtime_safety(CodeGen *g, IrInstruction *instruction) {
         }
         scope = scope->parent;
     }
-    return true;
+
+    return (g->build_mode != BuildModeFastRelease &&
+            g->build_mode != BuildModeSmallRelease);
 }
 
 static Buf *panic_msg_buf(PanicMsgId msg_id) {

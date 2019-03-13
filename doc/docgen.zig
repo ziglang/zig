@@ -1183,11 +1183,21 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             "--output-dir",
                             tmp_dir_name,
                         });
+                        var mode_arg: []const u8 = "";
                         switch (code.mode) {
                             builtin.Mode.Debug => {},
-                            builtin.Mode.ReleaseSafe => try test_args.append("--release-safe"),
-                            builtin.Mode.ReleaseFast => try test_args.append("--release-fast"),
-                            builtin.Mode.ReleaseSmall => try test_args.append("--release-small"),
+                            builtin.Mode.ReleaseSafe => {
+                                try test_args.append("--release-safe");
+                                mode_arg = " --release-safe";
+                            },
+                            builtin.Mode.ReleaseFast => {
+                                try test_args.append("--release-fast");
+                                mode_arg = " --release-fast";
+                            },
+                            builtin.Mode.ReleaseSmall => {
+                                try test_args.append("--release-small");
+                                mode_arg = " --release-small";
+                            },
                         }
 
                         const result = try os.ChildProcess.exec(allocator, test_args.toSliceConst(), null, &env_map, max_doc_file_size);
@@ -1217,7 +1227,12 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         }
                         const escaped_stderr = try escapeHtml(allocator, result.stderr);
                         const colored_stderr = try termColor(allocator, escaped_stderr);
-                        try out.print("<pre><code class=\"shell\">$ zig test {}.zig\n{}</code></pre>\n", code.name, colored_stderr);
+                        try out.print(
+                            "<pre><code class=\"shell\">$ zig test {}.zig{}\n{}</code></pre>\n",
+                            code.name,
+                            mode_arg,
+                            colored_stderr,
+                        );
                     },
                     Code.Id.Obj => |maybe_error_match| {
                         const name_plus_obj_ext = try std.fmt.allocPrint(allocator, "{}{}", code.name, obj_ext);
