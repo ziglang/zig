@@ -7893,7 +7893,7 @@ static void init(CodeGen *g) {
 }
 
 static void detect_dynamic_linker(CodeGen *g) {
-    if (g->dynamic_linker_path != nullptr)
+    if (g->dynamic_linker_path != nullptr || g->is_static)
         return;
     const char *standard_ld_path = target_dynamic_linker(g->zig_target);
     if (standard_ld_path == nullptr)
@@ -7945,22 +7945,22 @@ static void detect_libc(CodeGen *g) {
     if (g->libc != nullptr || g->libc_link_lib == nullptr)
         return;
 
-    if (g->zig_target->os == OsLinux && target_abi_is_gnu(g->zig_target->abi)) {
-        // we have glibc headers and can build glibc start files from source
-        if (g->is_static && g->out_type == OutTypeExe) {
-            fprintf(stderr, "glibc does not support static linking\n");
-            exit(1);
-        }
+    if (g->zig_target->os == OsLinux && target_abi_is_gnu(g->zig_target->abi) &&
+        g->is_static && g->out_type == OutTypeExe)
+    {
+        fprintf(stderr, "glibc does not support static linking\n");
+        exit(1);
+    }
 
-        Buf libc_include_dir = BUF_INIT;
-        os_path_join(g->zig_lib_dir, buf_create_from_str("libc" OS_SEP "include"), &libc_include_dir);
+    if (target_can_build_libc(g->zig_target)) {
+        const char *generic_name = target_libc_generic_name(g->zig_target);
 
         Buf *arch_include_dir = buf_sprintf("%s" OS_SEP "libc" OS_SEP "include" OS_SEP "%s-%s-%s",
                 buf_ptr(g->zig_lib_dir), target_arch_name(g->zig_target->arch),
                 target_os_name(g->zig_target->os), target_abi_name(g->zig_target->abi));
 
-        Buf *generic_include_dir = buf_sprintf("%s" OS_SEP "libc" OS_SEP "include" OS_SEP "generic-glibc",
-                buf_ptr(g->zig_lib_dir));
+        Buf *generic_include_dir = buf_sprintf("%s" OS_SEP "libc" OS_SEP "include" OS_SEP "generic-%s",
+                buf_ptr(g->zig_lib_dir), generic_name);
 
         g->libc_include_dir_len = 2;
         g->libc_include_dir_list = allocate<Buf*>(2);
@@ -8014,11 +8014,14 @@ static void detect_libc(CodeGen *g) {
     } else if ((g->out_type == OutTypeExe || (g->out_type == OutTypeLib && !g->is_static)) &&
         !target_is_darwin(g->zig_target))
     {
-        // Currently darwin is the only platform that we can link libc on when not compiling natively,
-        // without a cross compiling libc kit.
         fprintf(stderr,
-            "Cannot link against libc for non-native OS '%s' without providing a libc installation file.\n"
-            "See `zig libc --help` for more details.\n", target_os_name(g->zig_target->os));
+            "Zig is unable to provide a libc for the chosen target '%s-%s-%s'.\n"
+            "The target is non-native, so Zig also cannot use the native libc installation.\n"
+            "Choose a target which has a libc available, or provide a libc installation text file.\n"
+            "See `zig libc --help` for more details.\n",
+            target_arch_name(g->zig_target->arch),
+            target_os_name(g->zig_target->os),
+            target_abi_name(g->zig_target->abi));
         exit(1);
     }
 }

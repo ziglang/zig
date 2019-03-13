@@ -1,0 +1,22 @@
+
+
+In principle, this memory allocator is roughly equivalent to Doug
+Lea's dlmalloc with fine-grained locking.
+
+
+
+malloc:
+
+Uses a freelist binned by chunk size, with a bitmap to optimize
+searching for the smallest non-empty bin which can satisfy an
+allocation. If no free chunks are available, it creates a new chunk of
+the requested size and attempts to merge it with any existing free
+chunk immediately below the newly created chunk.
+
+Whether the chunk was obtained from a bin or newly created, it's
+likely to be larger than the requested allocation. malloc always
+finishes its work by passing the new chunk to realloc, which will
+split it into two chunks and free the tail portion.
+
+
+
