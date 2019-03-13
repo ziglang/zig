@@ -76,7 +76,6 @@ struct TransScopeWhile {
 };
 
 struct Context {
-    ImportTableEntry *import;
     ZigList<ErrorMsg *> *errors;
     VisibMod visib_mod;
     bool want_export;
@@ -86,7 +85,6 @@ struct Context {
     HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> global_table;
     ZigClangSourceManager *source_manager;
     ZigList<Alias> aliases;
-    AstNode *source_node;
     bool warnings_on;
 
     CodeGen *codegen;
@@ -190,7 +188,6 @@ static Buf *trans_lookup_zig_symbol(Context *c, TransScope *scope, Buf *c_symbol
 static AstNode * trans_create_node(Context *c, NodeType id) {
     AstNode *node = allocate<AstNode>(1);
     node->type = id;
-    node->owner = c->import;
     // TODO line/column. mapping to C file??
     return node;
 }
@@ -982,11 +979,12 @@ static AstNode *trans_type(Context *c, const clang::Type *ty, const clang::Sourc
                 }
             }
         case clang::Type::FunctionProto:
+        case clang::Type::FunctionNoProto:
             {
-                const clang::FunctionProtoType *fn_proto_ty = static_cast<const clang::FunctionProtoType*>(ty);
+                const clang::FunctionType *fn_ty = static_cast<const clang::FunctionType*>(ty);
 
                 AstNode *proto_node = trans_create_node(c, NodeTypeFnProto);
-                switch (fn_proto_ty->getCallConv()) {
+                switch (fn_ty->getCallConv()) {
                     case clang::CC_C:           // __attribute__((cdecl))
                         proto_node->data.fn_proto.cc = CallingConventionC;
                         proto_node->data.fn_proto.is_extern = true;
@@ -1041,13 +1039,10 @@ static AstNode *trans_type(Context *c, const clang::Type *ty, const clang::Sourc
                         return nullptr;
                 }
 
-                proto_node->data.fn_proto.is_var_args = fn_proto_ty->isVariadic();
-                size_t param_count = fn_proto_ty->getNumParams();
-
-                if (fn_proto_ty->getNoReturnAttr()) {
+                if (fn_ty->getNoReturnAttr()) {
                     proto_node->data.fn_proto.return_type = trans_create_node_symbol_str(c, "noreturn");
                 } else {
-                    proto_node->data.fn_proto.return_type = trans_qual_type(c, fn_proto_ty->getReturnType(),
+                    proto_node->data.fn_proto.return_type = trans_qual_type(c, fn_ty->getReturnType(),
                             source_loc);
                     if (proto_node->data.fn_proto.return_type == nullptr) {
                         emit_warning(c, source_loc, "unsupported function proto return type");
@@ -1069,6 +1064,15 @@ static AstNode *trans_type(Context *c, const clang::Type *ty, const clang::Sourc
                 if (fn_name != nullptr) {
                     proto_node->data.fn_proto.name = buf_create_from_str(fn_name);
                 }
+
+                if (ty->getTypeClass() == clang::Type::FunctionNoProto) {
+                    return proto_node;
+                }
+
+                const clang::FunctionProtoType *fn_proto_ty = static_cast<const clang::FunctionProtoType*>(ty);
+
+                proto_node->data.fn_proto.is_var_args = fn_proto_ty->isVariadic();
+                size_t param_count = fn_proto_ty->getNumParams();
 
                 for (size_t i = 0; i < param_count; i += 1) {
                     clang::QualType qt = fn_proto_ty->getParamType(i);
@@ -1153,7 +1157,6 @@ static AstNode *trans_type(Context *c, const clang::Type *ty, const clang::Sourc
         case clang::Type::DependentSizedExtVector:
         case clang::Type::Vector:
         case clang::Type::ExtVector:
-        case clang::Type::FunctionNoProto:
         case clang::Type::UnresolvedUsing:
         case clang::Type::Adjusted:
         case clang::Type::TypeOfExpr:
@@ -4726,29 +4729,12 @@ static void process_preprocessor_entities(Context *c, ZigClangASTUnit *zunit) {
     }
 }
 
-Error parse_h_buf(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, Buf *source,
-        CodeGen *codegen, AstNode *source_node)
-{
-    Error err;
-    Buf tmp_file_path = BUF_INIT;
-    if ((err = os_buf_to_tmp_file(source, buf_create_from_str(".h"), &tmp_file_path))) {
-        return err;
-    }
-
-    err = parse_h_file(import, errors, buf_ptr(&tmp_file_path), codegen, source_node);
-
-    os_delete_file(&tmp_file_path);
-
-    return err;
-}
-
-Error parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const char *target_file,
-        CodeGen *codegen, AstNode *source_node)
+Error parse_h_file(AstNode **out_root_node, ZigList<ErrorMsg *> *errors, const char *target_file,
+        CodeGen *codegen, Buf *tmp_dep_file)
 {
     Context context = {0};
     Context *c = &context;
     c->warnings_on = codegen->verbose_cimport;
-    c->import = import;
     c->errors = errors;
     if (buf_ends_with_str(buf_create_from_str(target_file), ".h")) {
         c->visib_mod = VisibModPub;
@@ -4762,7 +4748,6 @@ Error parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const 
     c->global_table.init(8);
     c->ptr_params.init(8);
     c->codegen = codegen;
-    c->source_node = source_node;
     c->global_scope = trans_scope_root_create(c);
 
     ZigList<const char *> clang_argv = {0};
@@ -4770,7 +4755,14 @@ Error parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const 
     clang_argv.append("-x");
     clang_argv.append("c");
 
-    if (c->codegen->is_native_target) {
+    if (tmp_dep_file != nullptr) {
+        clang_argv.append("-MD");
+        clang_argv.append("-MV");
+        clang_argv.append("-MF");
+        clang_argv.append(buf_ptr(tmp_dep_file));
+    }
+
+    if (c->codegen->zig_target->is_native) {
         char *ZIG_PARSEC_CFLAGS = getenv("ZIG_NATIVE_PARSEC_CFLAGS");
         if (ZIG_PARSEC_CFLAGS) {
             Buf tmp_buf = BUF_INIT;
@@ -4789,12 +4781,20 @@ Error parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const 
         }
     }
 
+    clang_argv.append("-nobuiltininc");
+    clang_argv.append("-nostdinc");
+    clang_argv.append("-nostdinc++");
+    if (codegen->libc_link_lib == nullptr) {
+        clang_argv.append("-nolibc");
+    }
+
     clang_argv.append("-isystem");
     clang_argv.append(buf_ptr(codegen->zig_c_headers_dir));
 
-    if (codegen->libc_include_dir != nullptr) {
+    for (size_t i = 0; i < codegen->libc_include_dir_len; i += 1) {
+        Buf *include_dir = codegen->libc_include_dir_list[i];
         clang_argv.append("-isystem");
-        clang_argv.append(buf_ptr(codegen->libc_include_dir));
+        clang_argv.append(buf_ptr(include_dir));
     }
 
     // windows c runtime requires -D_DEBUG if using debug libraries
@@ -4814,14 +4814,16 @@ Error parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const 
     clang_argv.append("-Xclang");
     clang_argv.append("-detailed-preprocessing-record");
 
-    if (!c->codegen->is_native_target) {
+    if (c->codegen->zig_target->is_native) {
+        clang_argv.append("-march=native");
+    } else {
         clang_argv.append("-target");
         clang_argv.append(buf_ptr(&c->codegen->triple_str));
     }
 
     clang_argv.append(target_file);
 
-    if (codegen->verbose_cimport) {
+    if (codegen->verbose_cc) {
         fprintf(stderr, "clang");
         for (size_t i = 0; i < clang_argv.length; i += 1) {
             fprintf(stderr, " %s", clang_argv.at(i));
@@ -4918,7 +4920,7 @@ Error parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const 
     render_macros(c);
     render_aliases(c);
 
-    import->root = c->root;
+    *out_root_node = c->root;
 
     return ErrorNone;
 }

@@ -1,4 +1,4 @@
-const std = @import("index.zig");
+const std = @import("std.zig");
 const builtin = @import("builtin");
 const io = std.io;
 const mem = std.mem;
@@ -15,15 +15,17 @@ const BufSet = std.BufSet;
 const BufMap = std.BufMap;
 const fmt_lib = std.fmt;
 
+pub const FmtStep = @import("build/fmt.zig").FmtStep;
+
 pub const Builder = struct {
     uninstall_tls: TopLevelStep,
     install_tls: TopLevelStep,
     have_uninstall_step: bool,
     have_install_step: bool,
     allocator: *Allocator,
-    lib_paths: ArrayList([]const u8),
-    include_paths: ArrayList([]const u8),
-    rpaths: ArrayList([]const u8),
+    native_system_lib_paths: ArrayList([]const u8),
+    native_system_include_dirs: ArrayList([]const u8),
+    native_system_rpaths: ArrayList([]const u8),
     user_input_options: UserInputOptionsMap,
     available_options_map: AvailableOptionsMap,
     available_options_list: ArrayList(AvailableOption),
@@ -31,6 +33,7 @@ pub const Builder = struct {
     verbose_tokenize: bool,
     verbose_ast: bool,
     verbose_link: bool,
+    verbose_cc: bool,
     verbose_ir: bool,
     verbose_llvm_ir: bool,
     verbose_cimport: bool,
@@ -99,14 +102,15 @@ pub const Builder = struct {
             .verbose_tokenize = false,
             .verbose_ast = false,
             .verbose_link = false,
+            .verbose_cc = false,
             .verbose_ir = false,
             .verbose_llvm_ir = false,
             .verbose_cimport = false,
             .invalid_user_input = false,
             .allocator = allocator,
-            .lib_paths = ArrayList([]const u8).init(allocator),
-            .include_paths = ArrayList([]const u8).init(allocator),
-            .rpaths = ArrayList([]const u8).init(allocator),
+            .native_system_lib_paths = ArrayList([]const u8).init(allocator),
+            .native_system_include_dirs = ArrayList([]const u8).init(allocator),
+            .native_system_rpaths = ArrayList([]const u8).init(allocator),
             .user_input_options = UserInputOptionsMap.init(allocator),
             .available_options_map = AvailableOptionsMap.init(allocator),
             .available_options_list = ArrayList(AvailableOption).init(allocator),
@@ -130,15 +134,15 @@ pub const Builder = struct {
             .have_install_step = false,
             .release_mode = null,
         };
-        self.processNixOSEnvVars();
+        self.detectNativeSystemPaths();
         self.default_step = self.step("default", "Build the project");
         return self;
     }
 
     pub fn deinit(self: *Builder) void {
-        self.lib_paths.deinit();
-        self.include_paths.deinit();
-        self.rpaths.deinit();
+        self.native_system_lib_paths.deinit();
+        self.native_system_include_dirs.deinit();
+        self.native_system_rpaths.deinit();
         self.env_map.deinit();
         self.top_level_steps.deinit();
     }
@@ -157,7 +161,7 @@ pub const Builder = struct {
         return LibExeObjStep.createExecutable(self, name, root_src, true);
     }
 
-    pub fn addObject(self: *Builder, name: []const u8, root_src: []const u8) *LibExeObjStep {
+    pub fn addObject(self: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
         return LibExeObjStep.createObject(self, name, root_src);
     }
 
@@ -169,10 +173,8 @@ pub const Builder = struct {
         return LibExeObjStep.createStaticLibrary(self, name, root_src);
     }
 
-    pub fn addTest(self: *Builder, root_src: []const u8) *TestStep {
-        const test_step = self.allocator.create(TestStep) catch unreachable;
-        test_step.* = TestStep.init(self, root_src);
-        return test_step;
+    pub fn addTest(self: *Builder, root_src: []const u8) *LibExeObjStep {
+        return LibExeObjStep.createTest(self, "test", root_src);
     }
 
     pub fn addAssemble(self: *Builder, name: []const u8, src: []const u8) *LibExeObjStep {
@@ -181,25 +183,20 @@ pub const Builder = struct {
         return obj_step;
     }
 
-    pub fn addCStaticLibrary(self: *Builder, name: []const u8) *LibExeObjStep {
-        return LibExeObjStep.createCStaticLibrary(self, name);
+    /// Initializes a RunStep with argv, which must at least have the path to the
+    /// executable. More command line arguments can be added with `addArg`,
+    /// `addArgs`, and `addArtifactArg`.
+    /// Be careful using this function, as it introduces a system dependency.
+    /// To run an executable built with zig build, see `LibExeObjStep.run`.
+    pub fn addSystemCommand(self: *Builder, argv: []const []const u8) *RunStep {
+        assert(argv.len >= 1);
+        const run_step = RunStep.create(self, self.fmt("run {}", argv[0]));
+        run_step.addArgs(argv);
+        return run_step;
     }
 
-    pub fn addCSharedLibrary(self: *Builder, name: []const u8, ver: Version) *LibExeObjStep {
-        return LibExeObjStep.createCSharedLibrary(self, name, ver);
-    }
-
-    pub fn addCExecutable(self: *Builder, name: []const u8) *LibExeObjStep {
-        return LibExeObjStep.createCExecutable(self, name);
-    }
-
-    pub fn addCObject(self: *Builder, name: []const u8, src: []const u8) *LibExeObjStep {
-        return LibExeObjStep.createCObject(self, name, src);
-    }
-
-    /// ::argv is copied.
-    pub fn addCommand(self: *Builder, cwd: ?[]const u8, env_map: *const BufMap, argv: []const []const u8) *CommandStep {
-        return CommandStep.create(self, cwd, env_map, argv);
+    fn dupe(self: *Builder, bytes: []const u8) []u8 {
+        return mem.dupe(self.allocator, u8, bytes) catch unreachable;
     }
 
     pub fn addWriteFile(self: *Builder, file_path: []const u8, data: []const u8) *WriteFileStep {
@@ -221,6 +218,10 @@ pub const Builder = struct {
         return remove_dir_step;
     }
 
+    pub fn addFmt(self: *Builder, paths: []const []const u8) *FmtStep {
+        return FmtStep.create(self, paths);
+    }
+
     pub fn version(self: *const Builder, major: u32, minor: u32, patch: u32) Version {
         return Version{
             .major = major,
@@ -229,16 +230,16 @@ pub const Builder = struct {
         };
     }
 
-    pub fn addCIncludePath(self: *Builder, path: []const u8) void {
-        self.include_paths.append(path) catch unreachable;
+    pub fn addNativeSystemIncludeDir(self: *Builder, path: []const u8) void {
+        self.native_system_include_dirs.append(path) catch unreachable;
     }
 
-    pub fn addRPath(self: *Builder, path: []const u8) void {
-        self.rpaths.append(path) catch unreachable;
+    pub fn addNativeSystemRPath(self: *Builder, path: []const u8) void {
+        self.native_system_rpaths.append(path) catch unreachable;
     }
 
-    pub fn addLibPath(self: *Builder, path: []const u8) void {
-        self.lib_paths.append(path) catch unreachable;
+    pub fn addNativeSystemLibPath(self: *Builder, path: []const u8) void {
+        self.native_system_lib_paths.append(path) catch unreachable;
     }
 
     pub fn make(self: *Builder, step_names: []const []const u8) !void {
@@ -322,8 +323,10 @@ pub const Builder = struct {
         return error.InvalidStepName;
     }
 
-    fn processNixOSEnvVars(self: *Builder) void {
+    fn detectNativeSystemPaths(self: *Builder) void {
+        var is_nixos = false;
         if (os.getEnvVarOwned(self.allocator, "NIX_CFLAGS_COMPILE")) |nix_cflags_compile| {
+            is_nixos = true;
             var it = mem.tokenize(nix_cflags_compile, " ");
             while (true) {
                 const word = it.next() orelse break;
@@ -332,7 +335,7 @@ pub const Builder = struct {
                         warn("Expected argument after -isystem in NIX_CFLAGS_COMPILE\n");
                         break;
                     };
-                    self.addCIncludePath(include_path);
+                    self.addNativeSystemIncludeDir(include_path);
                 } else {
                     warn("Unrecognized C flag from NIX_CFLAGS_COMPILE: {}\n", word);
                     break;
@@ -342,6 +345,7 @@ pub const Builder = struct {
             assert(err == error.EnvironmentVariableNotFound);
         }
         if (os.getEnvVarOwned(self.allocator, "NIX_LDFLAGS")) |nix_ldflags| {
+            is_nixos = true;
             var it = mem.tokenize(nix_ldflags, " ");
             while (true) {
                 const word = it.next() orelse break;
@@ -350,10 +354,10 @@ pub const Builder = struct {
                         warn("Expected argument after -rpath in NIX_LDFLAGS\n");
                         break;
                     };
-                    self.addRPath(rpath);
+                    self.addNativeSystemRPath(rpath);
                 } else if (word.len > 2 and word[0] == '-' and word[1] == 'L') {
                     const lib_path = word[2..];
-                    self.addLibPath(lib_path);
+                    self.addNativeSystemLibPath(lib_path);
                 } else {
                     warn("Unrecognized C flag from NIX_LDFLAGS: {}\n", word);
                     break;
@@ -361,6 +365,26 @@ pub const Builder = struct {
             }
         } else |err| {
             assert(err == error.EnvironmentVariableNotFound);
+        }
+        if (is_nixos) return;
+        switch (builtin.os) {
+            builtin.Os.windows => {},
+            else => {
+                const triple = (CrossTarget{
+                    .arch = builtin.arch,
+                    .os = builtin.os,
+                    .abi = builtin.abi,
+                }).linuxTriple(self.allocator);
+
+                self.addNativeSystemIncludeDir("/usr/local/include");
+                self.addNativeSystemLibPath("/usr/local/lib");
+
+                self.addNativeSystemIncludeDir(self.fmt("/usr/include/{}", triple));
+                self.addNativeSystemLibPath(self.fmt("/usr/lib/{}", triple));
+
+                self.addNativeSystemIncludeDir("/usr/include");
+                self.addNativeSystemLibPath("/usr/lib");
+            },
         }
     }
 
@@ -663,14 +687,6 @@ pub const Builder = struct {
         return fmt_lib.allocPrint(self.allocator, format, args) catch unreachable;
     }
 
-    fn getCCExe(self: *Builder) []const u8 {
-        if (builtin.environ == builtin.Environ.msvc) {
-            return "cl.exe";
-        } else {
-            return os.getEnvVarOwned(self.allocator, "CC") catch |err| if (err == error.EnvironmentVariableNotFound) ([]const u8)("cc") else debug.panic("Unable to get environment variable: {}", err);
-        }
-    }
-
     pub fn findProgram(self: *Builder, names: []const []const u8, paths: []const []const u8) ![]const u8 {
         // TODO report error for ambiguous situations
         const exe_extension = (Target{ .Native = {} }).exeFileExt();
@@ -720,25 +736,42 @@ pub const Builder = struct {
     }
 
     pub fn exec(self: *Builder, argv: []const []const u8) ![]u8 {
+        assert(argv.len != 0);
+
         const max_output_size = 100 * 1024;
-        const result = try os.ChildProcess.exec(self.allocator, argv, null, null, max_output_size);
-        switch (result.term) {
+        const child = try os.ChildProcess.init(argv, self.allocator);
+        defer child.deinit();
+
+        child.stdin_behavior = os.ChildProcess.StdIo.Ignore;
+        child.stdout_behavior = os.ChildProcess.StdIo.Pipe;
+        child.stderr_behavior = os.ChildProcess.StdIo.Inherit;
+
+        try child.spawn();
+
+        var stdout = std.Buffer.initNull(self.allocator);
+        defer std.Buffer.deinit(&stdout);
+
+        var stdout_file_in_stream = child.stdout.?.inStream();
+        try stdout_file_in_stream.stream.readAllBuffer(&stdout, max_output_size);
+
+        const term = child.wait() catch |err| std.debug.panic("unable to spawn {}: {}", argv[0], err);
+        switch (term) {
             os.ChildProcess.Term.Exited => |code| {
                 if (code != 0) {
                     warn("The following command exited with error code {}:\n", code);
                     printCmd(null, argv);
-                    warn("stderr:{}\n", result.stderr);
-                    std.debug.panic("command failed");
+                    std.debug.panic("exec failed");
                 }
-                return result.stdout;
+                return stdout.toOwnedSlice();
             },
             else => {
                 warn("The following command terminated unexpectedly:\n");
                 printCmd(null, argv);
-                warn("stderr:{}\n", result.stderr);
-                std.debug.panic("command failed");
+                std.debug.panic("exec failed");
             },
         }
+
+        return stdout.toOwnedSlice();
     }
 
     pub fn addSearchPrefix(self: *Builder, search_prefix: []const u8) void {
@@ -755,20 +788,61 @@ const Version = struct {
 const CrossTarget = struct {
     arch: builtin.Arch,
     os: builtin.Os,
-    environ: builtin.Environ,
+    abi: builtin.Abi,
+
+    pub fn zigTriple(cross_target: CrossTarget, allocator: *Allocator) []u8 {
+        return std.fmt.allocPrint(
+            allocator,
+            "{}{}-{}-{}",
+            @tagName(cross_target.arch),
+            Target.archSubArchName(cross_target.arch),
+            @tagName(cross_target.os),
+            @tagName(cross_target.abi),
+        ) catch unreachable;
+    }
+
+    pub fn linuxTriple(cross_target: CrossTarget, allocator: *Allocator) []u8 {
+        return std.fmt.allocPrint(
+            allocator,
+            "{}-{}-{}",
+            @tagName(cross_target.arch),
+            @tagName(cross_target.os),
+            @tagName(cross_target.abi),
+        ) catch unreachable;
+    }
 };
 
 pub const Target = union(enum) {
     Native: void,
     Cross: CrossTarget,
 
-    pub fn oFileExt(self: *const Target) []const u8 {
-        const environ = switch (self.*) {
-            Target.Native => builtin.environ,
-            Target.Cross => |t| t.environ,
+    fn archSubArchName(arch: builtin.Arch) []const u8 {
+        return switch (arch) {
+            builtin.Arch.arm => |sub| @tagName(sub),
+            builtin.Arch.armeb => |sub| @tagName(sub),
+            builtin.Arch.thumb => |sub| @tagName(sub),
+            builtin.Arch.thumbeb => |sub| @tagName(sub),
+            builtin.Arch.aarch64 => |sub| @tagName(sub),
+            builtin.Arch.aarch64_be => |sub| @tagName(sub),
+            builtin.Arch.kalimba => |sub| @tagName(sub),
+            else => "",
         };
-        return switch (environ) {
-            builtin.Environ.msvc => ".obj",
+    }
+
+    pub fn subArchName(self: Target) []const u8 {
+        switch (self) {
+            Target.Native => return archSubArchName(builtin.arch),
+            Target.Cross => |cross| return archSubArchName(cross.arch),
+        }
+    }
+
+    pub fn oFileExt(self: *const Target) []const u8 {
+        const abi = switch (self.*) {
+            Target.Native => builtin.abi,
+            Target.Cross => |t| t.abi,
+        };
+        return switch (abi) {
+            builtin.Abi.msvc => ".obj",
             else => ".o",
         };
     }
@@ -825,63 +899,83 @@ const Pkg = struct {
     path: []const u8,
 };
 
+const CSourceFile = struct {
+    source_path: []const u8,
+    args: []const []const u8,
+};
+
+fn isLibCLibrary(name: []const u8) bool {
+    const libc_libraries = [][]const u8{ "c", "m", "dl", "rt", "pthread" };
+    for (libc_libraries) |libc_lib_name| {
+        if (mem.eql(u8, name, libc_lib_name))
+            return true;
+    }
+    return false;
+}
+
 pub const LibExeObjStep = struct {
     step: Step,
     builder: *Builder,
     name: []const u8,
     target: Target,
-    link_libs: BufSet,
     linker_script: ?[]const u8,
     out_filename: []const u8,
-    output_path: ?[]const u8,
     static: bool,
     version: Version,
-    object_files: ArrayList([]const u8),
     build_mode: builtin.Mode,
     kind: Kind,
     major_only_filename: []const u8,
     name_only_filename: []const u8,
     strip: bool,
-    full_path_libs: ArrayList([]const u8),
-    need_flat_namespace_hack: bool,
-    is_zig: bool,
-    cflags: ArrayList([]const u8),
-    include_dirs: ArrayList([]const u8),
     lib_paths: ArrayList([]const u8),
-    disable_libc: bool,
     frameworks: BufSet,
     verbose_link: bool,
-    no_rosegment: bool,
+    verbose_cc: bool,
+    disable_gen_h: bool,
     c_std: Builder.CStd,
+    override_std_dir: ?[]const u8,
+    main_pkg_path: ?[]const u8,
+    exec_cmd_args: ?[]const ?[]const u8,
+    name_prefix: []const u8,
+    filter: ?[]const u8,
 
-    // zig only stuff
     root_src: ?[]const u8,
-    output_h_path: ?[]const u8,
     out_h_filename: []const u8,
-    assembly_files: ArrayList([]const u8),
+    out_lib_filename: []const u8,
     packages: ArrayList(Pkg),
     build_options_contents: std.Buffer,
     system_linker_hack: bool,
 
-    // C only stuff
-    source_files: ArrayList([]const u8),
     object_src: []const u8,
+
+    link_objects: ArrayList(LinkObject),
+    include_dirs: ArrayList(IncludeDir),
+    output_dir: ?[]const u8,
+    need_system_paths: bool,
+
+    const LinkObject = union(enum) {
+        StaticPath: []const u8,
+        OtherStep: *LibExeObjStep,
+        SystemLib: []const u8,
+        AssemblyFile: []const u8,
+        CSourceFile: *CSourceFile,
+    };
+
+    const IncludeDir = union(enum) {
+        RawPath: []const u8,
+        OtherStep: *LibExeObjStep,
+    };
 
     const Kind = enum {
         Exe,
         Lib,
         Obj,
+        Test,
     };
 
     pub fn createSharedLibrary(builder: *Builder, name: []const u8, root_src: ?[]const u8, ver: Version) *LibExeObjStep {
         const self = builder.allocator.create(LibExeObjStep) catch unreachable;
         self.* = initExtraArgs(builder, name, root_src, Kind.Lib, false, ver);
-        return self;
-    }
-
-    pub fn createCSharedLibrary(builder: *Builder, name: []const u8, version: Version) *LibExeObjStep {
-        const self = builder.allocator.create(LibExeObjStep) catch unreachable;
-        self.* = initC(builder, name, Kind.Lib, version, false);
         return self;
     }
 
@@ -891,22 +985,9 @@ pub const LibExeObjStep = struct {
         return self;
     }
 
-    pub fn createCStaticLibrary(builder: *Builder, name: []const u8) *LibExeObjStep {
-        const self = builder.allocator.create(LibExeObjStep) catch unreachable;
-        self.* = initC(builder, name, Kind.Lib, builder.version(0, 0, 0), true);
-        return self;
-    }
-
-    pub fn createObject(builder: *Builder, name: []const u8, root_src: []const u8) *LibExeObjStep {
+    pub fn createObject(builder: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
         const self = builder.allocator.create(LibExeObjStep) catch unreachable;
         self.* = initExtraArgs(builder, name, root_src, Kind.Obj, false, builder.version(0, 0, 0));
-        return self;
-    }
-
-    pub fn createCObject(builder: *Builder, name: []const u8, src: []const u8) *LibExeObjStep {
-        const self = builder.allocator.create(LibExeObjStep) catch unreachable;
-        self.* = initC(builder, name, Kind.Obj, builder.version(0, 0, 0), false);
-        self.object_src = src;
         return self;
     }
 
@@ -916,18 +997,18 @@ pub const LibExeObjStep = struct {
         return self;
     }
 
-    pub fn createCExecutable(builder: *Builder, name: []const u8) *LibExeObjStep {
+    pub fn createTest(builder: *Builder, name: []const u8, root_src: []const u8) *LibExeObjStep {
         const self = builder.allocator.create(LibExeObjStep) catch unreachable;
-        self.* = initC(builder, name, Kind.Exe, builder.version(0, 0, 0), false);
+        self.* = initExtraArgs(builder, name, root_src, Kind.Test, false, builder.version(0, 0, 0));
         return self;
     }
 
     fn initExtraArgs(builder: *Builder, name: []const u8, root_src: ?[]const u8, kind: Kind, static: bool, ver: Version) LibExeObjStep {
         var self = LibExeObjStep{
-            .no_rosegment = false,
             .strip = false,
             .builder = builder,
             .verbose_link = false,
+            .verbose_cc = false,
             .build_mode = builtin.Mode.Debug,
             .static = static,
             .kind = kind,
@@ -935,82 +1016,33 @@ pub const LibExeObjStep = struct {
             .name = name,
             .target = Target.Native,
             .linker_script = null,
-            .link_libs = BufSet.init(builder.allocator),
             .frameworks = BufSet.init(builder.allocator),
             .step = Step.init(name, builder.allocator, make),
-            .output_path = null,
-            .output_h_path = null,
             .version = ver,
             .out_filename = undefined,
             .out_h_filename = builder.fmt("{}.h", name),
+            .out_lib_filename = undefined,
             .major_only_filename = undefined,
             .name_only_filename = undefined,
-            .object_files = ArrayList([]const u8).init(builder.allocator),
-            .assembly_files = ArrayList([]const u8).init(builder.allocator),
             .packages = ArrayList(Pkg).init(builder.allocator),
-            .is_zig = true,
-            .full_path_libs = ArrayList([]const u8).init(builder.allocator),
-            .need_flat_namespace_hack = false,
-            .cflags = ArrayList([]const u8).init(builder.allocator),
-            .source_files = undefined,
-            .include_dirs = ArrayList([]const u8).init(builder.allocator),
+            .include_dirs = ArrayList(IncludeDir).init(builder.allocator),
+            .link_objects = ArrayList(LinkObject).init(builder.allocator),
             .lib_paths = ArrayList([]const u8).init(builder.allocator),
             .object_src = undefined,
-            .disable_libc = true,
             .build_options_contents = std.Buffer.initSize(builder.allocator, 0) catch unreachable,
             .c_std = Builder.CStd.C99,
             .system_linker_hack = false,
+            .override_std_dir = null,
+            .main_pkg_path = null,
+            .exec_cmd_args = null,
+            .name_prefix = "",
+            .filter = null,
+            .disable_gen_h = false,
+            .output_dir = null,
+            .need_system_paths = false,
         };
         self.computeOutFileNames();
         return self;
-    }
-
-    fn initC(builder: *Builder, name: []const u8, kind: Kind, version: Version, static: bool) LibExeObjStep {
-        var self = LibExeObjStep{
-            .no_rosegment = false,
-            .builder = builder,
-            .name = name,
-            .kind = kind,
-            .version = version,
-            .static = static,
-            .target = Target.Native,
-            .cflags = ArrayList([]const u8).init(builder.allocator),
-            .source_files = ArrayList([]const u8).init(builder.allocator),
-            .object_files = ArrayList([]const u8).init(builder.allocator),
-            .step = Step.init(name, builder.allocator, make),
-            .link_libs = BufSet.init(builder.allocator),
-            .frameworks = BufSet.init(builder.allocator),
-            .full_path_libs = ArrayList([]const u8).init(builder.allocator),
-            .include_dirs = ArrayList([]const u8).init(builder.allocator),
-            .lib_paths = ArrayList([]const u8).init(builder.allocator),
-            .output_path = null,
-            .out_filename = undefined,
-            .major_only_filename = undefined,
-            .name_only_filename = undefined,
-            .object_src = undefined,
-            .build_mode = builtin.Mode.Debug,
-            .strip = false,
-            .need_flat_namespace_hack = false,
-            .disable_libc = false,
-            .is_zig = false,
-            .linker_script = null,
-            .c_std = Builder.CStd.C99,
-            .system_linker_hack = false,
-
-            .root_src = undefined,
-            .verbose_link = false,
-            .output_h_path = undefined,
-            .out_h_filename = undefined,
-            .assembly_files = undefined,
-            .packages = undefined,
-            .build_options_contents = undefined,
-        };
-        self.computeOutFileNames();
-        return self;
-    }
-
-    pub fn setNoRoSegment(self: *LibExeObjStep, value: bool) void {
-        self.no_rosegment = value;
     }
 
     fn computeOutFileNames(self: *LibExeObjStep) void {
@@ -1021,23 +1053,37 @@ pub const LibExeObjStep = struct {
             Kind.Exe => {
                 self.out_filename = self.builder.fmt("{}{}", self.name, self.target.exeFileExt());
             },
+            Kind.Test => {
+                self.out_filename = self.builder.fmt("test{}", self.target.exeFileExt());
+            },
             Kind.Lib => {
                 if (self.static) {
-                    self.out_filename = self.builder.fmt("lib{}.a", self.name);
+                    switch (self.target.getOs()) {
+                        builtin.Os.windows => {
+                            self.out_filename = self.builder.fmt("{}.lib", self.name);
+                        },
+                        else => {
+                            self.out_filename = self.builder.fmt("lib{}.a", self.name);
+                        },
+                    }
+                    self.out_lib_filename = self.out_filename;
                 } else {
                     switch (self.target.getOs()) {
                         builtin.Os.ios, builtin.Os.macosx => {
                             self.out_filename = self.builder.fmt("lib{}.{d}.{d}.{d}.dylib", self.name, self.version.major, self.version.minor, self.version.patch);
                             self.major_only_filename = self.builder.fmt("lib{}.{d}.dylib", self.name, self.version.major);
                             self.name_only_filename = self.builder.fmt("lib{}.dylib", self.name);
+                            self.out_lib_filename = self.out_filename;
                         },
                         builtin.Os.windows => {
                             self.out_filename = self.builder.fmt("{}.dll", self.name);
+                            self.out_lib_filename = self.builder.fmt("{}.lib", self.name);
                         },
                         else => {
                             self.out_filename = self.builder.fmt("lib{}.so.{d}.{d}.{d}", self.name, self.version.major, self.version.minor, self.version.patch);
                             self.major_only_filename = self.builder.fmt("lib{}.so.{d}", self.name, self.version.major);
                             self.name_only_filename = self.builder.fmt("lib{}.so", self.name);
+                            self.out_lib_filename = self.out_filename;
                         },
                     }
                 }
@@ -1045,18 +1091,36 @@ pub const LibExeObjStep = struct {
         }
     }
 
-    pub fn setTarget(self: *LibExeObjStep, target_arch: builtin.Arch, target_os: builtin.Os, target_environ: builtin.Environ) void {
+    pub fn setTarget(
+        self: *LibExeObjStep,
+        target_arch: builtin.Arch,
+        target_os: builtin.Os,
+        target_abi: builtin.Abi,
+    ) void {
         self.target = Target{
             .Cross = CrossTarget{
                 .arch = target_arch,
                 .os = target_os,
-                .environ = target_environ,
+                .abi = target_abi,
             },
         };
         self.computeOutFileNames();
     }
 
-    // TODO respect this in the C args
+    pub fn setOutputDir(self: *LibExeObjStep, dir: []const u8) void {
+        self.output_dir = self.builder.dupe(dir);
+    }
+
+    /// Creates a `RunStep` with an executable built with `addExecutable`.
+    /// Add command line arguments with `addArg`.
+    pub fn run(exe: *LibExeObjStep) *RunStep {
+        assert(exe.kind == Kind.Exe);
+        assert(exe.target == Target.Native);
+        const run_step = RunStep.create(exe.builder, exe.builder.fmt("run {}", exe.step.name));
+        run_step.addArtifactArg(exe);
+        return run_step;
+    }
+
     pub fn setLinkerScriptPath(self: *LibExeObjStep, path: []const u8) void {
         self.linker_script = path;
     }
@@ -1066,113 +1130,127 @@ pub const LibExeObjStep = struct {
         self.frameworks.put(framework_name) catch unreachable;
     }
 
-    pub fn linkLibrary(self: *LibExeObjStep, lib: *LibExeObjStep) void {
-        assert(self.kind != Kind.Obj);
-        assert(lib.kind == Kind.Lib);
-
-        self.step.dependOn(&lib.step);
-
-        self.full_path_libs.append(lib.getOutputPath()) catch unreachable;
-
-        // TODO should be some kind of isolated directory that only has this header in it
-        self.include_dirs.append(self.builder.cache_root) catch unreachable;
-        self.need_flat_namespace_hack = true;
-
-        // inherit the object's frameworks
-        if (self.target.isDarwin() and lib.static) {
-            var it = lib.frameworks.iterator();
-            while (it.next()) |entry| {
-                self.frameworks.put(entry.key) catch unreachable;
+    /// Returns whether the library, executable, or object depends on a particular system library.
+    pub fn dependsOnSystemLibrary(self: LibExeObjStep, name: []const u8) bool {
+        for (self.link_objects.toSliceConst()) |link_object| {
+            switch (link_object) {
+                LinkObject.SystemLib => |n| if (mem.eql(u8, n, name)) return true,
+                else => continue,
             }
         }
+        return false;
+    }
+
+    pub fn linkLibrary(self: *LibExeObjStep, lib: *LibExeObjStep) void {
+        assert(lib.kind == Kind.Lib);
+        self.linkLibraryOrObject(lib);
+    }
+
+    pub fn isDynamicLibrary(self: *LibExeObjStep) bool {
+        return self.kind == Kind.Lib and !self.static;
     }
 
     pub fn linkSystemLibrary(self: *LibExeObjStep, name: []const u8) void {
-        assert(self.kind != Kind.Obj);
-        self.link_libs.put(name) catch unreachable;
+        self.link_objects.append(LinkObject{ .SystemLib = self.builder.dupe(name) }) catch unreachable;
+        if (!isLibCLibrary(name)) {
+            self.need_system_paths = true;
+        }
     }
 
-    pub fn addSourceFile(self: *LibExeObjStep, file: []const u8) void {
-        assert(self.kind != Kind.Obj);
-        assert(!self.is_zig);
-        self.source_files.append(file) catch unreachable;
+    pub fn setNamePrefix(self: *LibExeObjStep, text: []const u8) void {
+        assert(self.kind == Kind.Test);
+        self.name_prefix = text;
+    }
+
+    pub fn setFilter(self: *LibExeObjStep, text: ?[]const u8) void {
+        assert(self.kind == Kind.Test);
+        self.filter = text;
+    }
+
+    pub fn addCSourceFile(self: *LibExeObjStep, file: []const u8, args: []const []const u8) void {
+        const c_source_file = self.builder.allocator.create(CSourceFile) catch unreachable;
+        const args_copy = self.builder.allocator.alloc([]u8, args.len) catch unreachable;
+        for (args) |arg, i| {
+            args_copy[i] = self.builder.dupe(arg);
+        }
+        c_source_file.* = CSourceFile{
+            .source_path = self.builder.dupe(file),
+            .args = args_copy,
+        };
+        self.link_objects.append(LinkObject{ .CSourceFile = c_source_file }) catch unreachable;
     }
 
     pub fn setVerboseLink(self: *LibExeObjStep, value: bool) void {
         self.verbose_link = value;
     }
 
+    pub fn setVerboseCC(self: *LibExeObjStep, value: bool) void {
+        self.verbose_cc = value;
+    }
+
     pub fn setBuildMode(self: *LibExeObjStep, mode: builtin.Mode) void {
         self.build_mode = mode;
     }
 
-    pub fn setOutputPath(self: *LibExeObjStep, file_path: []const u8) void {
-        self.output_path = file_path;
-
-        // catch a common mistake
-        if (mem.eql(u8, self.builder.pathFromRoot(file_path), self.builder.pathFromRoot("."))) {
-            debug.panic("setOutputPath wants a file path, not a directory\n");
-        }
+    pub fn overrideStdDir(self: *LibExeObjStep, dir_path: []const u8) void {
+        self.override_std_dir = dir_path;
     }
 
+    pub fn setMainPkgPath(self: *LibExeObjStep, dir_path: []const u8) void {
+        self.main_pkg_path = dir_path;
+    }
+
+    /// Unless setOutputDir was called, this function must be called only in
+    /// the make step, from a step that has declared a dependency on this one.
+    /// To run an executable built with zig build, use `run`, or create an install step and invoke it.
     pub fn getOutputPath(self: *LibExeObjStep) []const u8 {
-        return if (self.output_path) |output_path| output_path else os.path.join(
+        return os.path.join(
             self.builder.allocator,
-            [][]const u8{ self.builder.cache_root, self.out_filename },
+            [][]const u8{ self.output_dir.?, self.out_filename },
         ) catch unreachable;
     }
 
-    pub fn setOutputHPath(self: *LibExeObjStep, file_path: []const u8) void {
-        self.output_h_path = file_path;
-
-        // catch a common mistake
-        if (mem.eql(u8, self.builder.pathFromRoot(file_path), self.builder.pathFromRoot("."))) {
-            debug.panic("setOutputHPath wants a file path, not a directory\n");
-        }
+    /// Unless setOutputDir was called, this function must be called only in
+    /// the make step, from a step that has declared a dependency on this one.
+    pub fn getOutputLibPath(self: *LibExeObjStep) []const u8 {
+        assert(self.kind == Kind.Lib);
+        return os.path.join(
+            self.builder.allocator,
+            [][]const u8{ self.output_dir.?, self.out_lib_filename },
+        ) catch unreachable;
     }
 
+    /// Unless setOutputDir was called, this function must be called only in
+    /// the make step, from a step that has declared a dependency on this one.
     pub fn getOutputHPath(self: *LibExeObjStep) []const u8 {
-        return if (self.output_h_path) |output_h_path| output_h_path else os.path.join(
+        assert(self.kind != Kind.Exe);
+        assert(!self.disable_gen_h);
+        return os.path.join(
             self.builder.allocator,
-            [][]const u8{ self.builder.cache_root, self.out_h_filename },
+            [][]const u8{ self.output_dir.?, self.out_h_filename },
         ) catch unreachable;
     }
 
     pub fn addAssemblyFile(self: *LibExeObjStep, path: []const u8) void {
-        self.assembly_files.append(path) catch unreachable;
+        self.link_objects.append(LinkObject{ .AssemblyFile = self.builder.dupe(path) }) catch unreachable;
     }
 
     pub fn addObjectFile(self: *LibExeObjStep, path: []const u8) void {
-        assert(self.kind != Kind.Obj);
-
-        self.object_files.append(path) catch unreachable;
+        self.link_objects.append(LinkObject{ .StaticPath = self.builder.dupe(path) }) catch unreachable;
     }
 
     pub fn addObject(self: *LibExeObjStep, obj: *LibExeObjStep) void {
         assert(obj.kind == Kind.Obj);
-        assert(self.kind != Kind.Obj);
-
-        self.step.dependOn(&obj.step);
-
-        self.object_files.append(obj.getOutputPath()) catch unreachable;
-
-        // TODO make this lazy instead of stateful
-        if (!obj.disable_libc) {
-            self.disable_libc = false;
-        }
-
-        // TODO should be some kind of isolated directory that only has this header in it
-        self.include_dirs.append(self.builder.cache_root) catch unreachable;
+        self.linkLibraryOrObject(obj);
     }
 
     pub fn addBuildOption(self: *LibExeObjStep, comptime T: type, name: []const u8, value: T) void {
-        assert(self.is_zig);
         const out = &std.io.BufferOutStream.init(&self.build_options_contents).stream;
         out.print("pub const {} = {};\n", name, value) catch unreachable;
     }
 
     pub fn addIncludeDir(self: *LibExeObjStep, path: []const u8) void {
-        self.include_dirs.append(path) catch unreachable;
+        self.include_dirs.append(IncludeDir{ .RawPath = self.builder.dupe(path) }) catch unreachable;
     }
 
     pub fn addLibPath(self: *LibExeObjStep, path: []const u8) void {
@@ -1180,40 +1258,45 @@ pub const LibExeObjStep = struct {
     }
 
     pub fn addPackagePath(self: *LibExeObjStep, name: []const u8, pkg_index_path: []const u8) void {
-        assert(self.is_zig);
-
         self.packages.append(Pkg{
             .name = name,
             .path = pkg_index_path,
         }) catch unreachable;
     }
 
-    pub fn addCompileFlags(self: *LibExeObjStep, flags: []const []const u8) void {
-        for (flags) |flag| {
-            self.cflags.append(flag) catch unreachable;
-        }
-    }
-
-    pub fn setNoStdLib(self: *LibExeObjStep, disable: bool) void {
-        assert(!self.is_zig);
-        self.disable_libc = disable;
+    pub fn setExecCmd(self: *LibExeObjStep, args: []const ?[]const u8) void {
+        assert(self.kind == Kind.Test);
+        self.exec_cmd_args = args;
     }
 
     pub fn enableSystemLinkerHack(self: *LibExeObjStep) void {
         self.system_linker_hack = true;
     }
 
-    fn make(step: *Step) !void {
-        const self = @fieldParentPtr(LibExeObjStep, "step", step);
-        return if (self.is_zig) self.makeZig() else self.makeC();
+    fn linkLibraryOrObject(self: *LibExeObjStep, other: *LibExeObjStep) void {
+        self.step.dependOn(&other.step);
+        self.link_objects.append(LinkObject{ .OtherStep = other }) catch unreachable;
+        self.include_dirs.append(IncludeDir{ .OtherStep = other }) catch unreachable;
+
+        // Inherit dependency on libc
+        if (other.dependsOnSystemLibrary("c")) {
+            self.linkSystemLibrary("c");
+        }
+
+        // Inherit dependencies on darwin frameworks
+        if (self.target.isDarwin() and !other.isDynamicLibrary()) {
+            var it = other.frameworks.iterator();
+            while (it.next()) |entry| {
+                self.frameworks.put(entry.key) catch unreachable;
+            }
+        }
     }
 
-    fn makeZig(self: *LibExeObjStep) !void {
+    fn make(step: *Step) !void {
+        const self = @fieldParentPtr(LibExeObjStep, "step", step);
         const builder = self.builder;
 
-        assert(self.is_zig);
-
-        if (self.root_src == null and self.object_files.len == 0 and self.assembly_files.len == 0) {
+        if (self.root_src == null and self.link_objects.len == 0) {
             warn("{}: linker needs 1 or more objects to link\n", self.step.name);
             return error.NeedAnObject;
         }
@@ -1227,11 +1310,60 @@ pub const LibExeObjStep = struct {
             Kind.Lib => "build-lib",
             Kind.Exe => "build-exe",
             Kind.Obj => "build-obj",
+            Kind.Test => "test",
         };
         zig_args.append(cmd) catch unreachable;
 
         if (self.root_src) |root_src| {
             zig_args.append(builder.pathFromRoot(root_src)) catch unreachable;
+        }
+
+        for (self.link_objects.toSlice()) |link_object| {
+            switch (link_object) {
+                LinkObject.StaticPath => |static_path| {
+                    try zig_args.append("--object");
+                    try zig_args.append(builder.pathFromRoot(static_path));
+                },
+
+                LinkObject.OtherStep => |other| switch (other.kind) {
+                    LibExeObjStep.Kind.Exe => unreachable,
+                    LibExeObjStep.Kind.Test => unreachable,
+                    LibExeObjStep.Kind.Obj => {
+                        try zig_args.append("--object");
+                        try zig_args.append(other.getOutputPath());
+                    },
+                    LibExeObjStep.Kind.Lib => {
+                        if (other.static or self.target.isWindows()) {
+                            try zig_args.append("--object");
+                            try zig_args.append(other.getOutputLibPath());
+                        } else {
+                            const full_path_lib = other.getOutputPath();
+                            try zig_args.append("--library");
+                            try zig_args.append(full_path_lib);
+
+                            if (os.path.dirname(full_path_lib)) |dirname| {
+                                try zig_args.append("-rpath");
+                                try zig_args.append(dirname);
+                            }
+                        }
+                    },
+                },
+                LinkObject.SystemLib => |name| {
+                    try zig_args.append("--library");
+                    try zig_args.append(name);
+                },
+                LinkObject.AssemblyFile => |asm_file| {
+                    try zig_args.append("--assembly");
+                    try zig_args.append(builder.pathFromRoot(asm_file));
+                },
+                LinkObject.CSourceFile => |c_source_file| {
+                    try zig_args.append("--c-source");
+                    for (c_source_file.args) |arg| {
+                        try zig_args.append(arg);
+                    }
+                    try zig_args.append(self.builder.pathFromRoot(c_source_file.source_path));
+                },
+            }
         }
 
         if (self.build_options_contents.len() > 0) {
@@ -1246,14 +1378,14 @@ pub const LibExeObjStep = struct {
             try zig_args.append("--pkg-end");
         }
 
-        for (self.object_files.toSliceConst()) |object_file| {
-            zig_args.append("--object") catch unreachable;
-            zig_args.append(builder.pathFromRoot(object_file)) catch unreachable;
+        if (self.filter) |filter| {
+            try zig_args.append("--test-filter");
+            try zig_args.append(filter);
         }
 
-        for (self.assembly_files.toSliceConst()) |asm_file| {
-            zig_args.append("--assembly") catch unreachable;
-            zig_args.append(builder.pathFromRoot(asm_file)) catch unreachable;
+        if (self.name_prefix.len != 0) {
+            try zig_args.append("--test-name-prefix");
+            try zig_args.append(self.name_prefix);
         }
 
         if (builder.verbose_tokenize) zig_args.append("--verbose-tokenize") catch unreachable;
@@ -1262,6 +1394,7 @@ pub const LibExeObjStep = struct {
         if (builder.verbose_ir) zig_args.append("--verbose-ir") catch unreachable;
         if (builder.verbose_llvm_ir) zig_args.append("--verbose-llvm-ir") catch unreachable;
         if (builder.verbose_link or self.verbose_link) zig_args.append("--verbose-link") catch unreachable;
+        if (builder.verbose_cc or self.verbose_cc) zig_args.append("--verbose-cc") catch unreachable;
 
         if (self.strip) {
             zig_args.append("--strip") catch unreachable;
@@ -1274,18 +1407,8 @@ pub const LibExeObjStep = struct {
             builtin.Mode.ReleaseSmall => zig_args.append("--release-small") catch unreachable,
         }
 
-        zig_args.append("--cache-dir") catch unreachable;
-        zig_args.append(builder.pathFromRoot(builder.cache_root)) catch unreachable;
-
-        const output_path = builder.pathFromRoot(self.getOutputPath());
-        zig_args.append("--output") catch unreachable;
-        zig_args.append(output_path) catch unreachable;
-
-        if (self.kind != Kind.Exe) {
-            const output_h_path = self.getOutputHPath();
-            zig_args.append("--output-h") catch unreachable;
-            zig_args.append(builder.pathFromRoot(output_h_path)) catch unreachable;
-        }
+        try zig_args.append("--cache-dir");
+        try zig_args.append(builder.pathFromRoot(builder.cache_root));
 
         zig_args.append("--name") catch unreachable;
         zig_args.append(self.name) catch unreachable;
@@ -1300,599 +1423,21 @@ pub const LibExeObjStep = struct {
             zig_args.append("--ver-patch") catch unreachable;
             zig_args.append(builder.fmt("{}", self.version.patch)) catch unreachable;
         }
-        if (self.kind == Kind.Exe and self.static) {
+        if (self.static) {
             zig_args.append("--static") catch unreachable;
         }
 
         switch (self.target) {
             Target.Native => {},
             Target.Cross => |cross_target| {
-                zig_args.append("--target-arch") catch unreachable;
-                zig_args.append(@tagName(cross_target.arch)) catch unreachable;
-
-                zig_args.append("--target-os") catch unreachable;
-                zig_args.append(@tagName(cross_target.os)) catch unreachable;
-
-                zig_args.append("--target-environ") catch unreachable;
-                zig_args.append(@tagName(cross_target.environ)) catch unreachable;
+                try zig_args.append("-target");
+                try zig_args.append(cross_target.zigTriple(builder.allocator));
             },
         }
 
         if (self.linker_script) |linker_script| {
             zig_args.append("--linker-script") catch unreachable;
             zig_args.append(linker_script) catch unreachable;
-        }
-
-        {
-            var it = self.link_libs.iterator();
-            while (true) {
-                const entry = it.next() orelse break;
-                zig_args.append("--library") catch unreachable;
-                zig_args.append(entry.key) catch unreachable;
-            }
-        }
-
-        if (!self.disable_libc) {
-            zig_args.append("--library") catch unreachable;
-            zig_args.append("c") catch unreachable;
-        }
-
-        for (self.packages.toSliceConst()) |pkg| {
-            zig_args.append("--pkg-begin") catch unreachable;
-            zig_args.append(pkg.name) catch unreachable;
-            zig_args.append(builder.pathFromRoot(pkg.path)) catch unreachable;
-            zig_args.append("--pkg-end") catch unreachable;
-        }
-
-        for (self.include_dirs.toSliceConst()) |include_path| {
-            zig_args.append("-isystem") catch unreachable;
-            zig_args.append(self.builder.pathFromRoot(include_path)) catch unreachable;
-        }
-
-        for (builder.include_paths.toSliceConst()) |include_path| {
-            zig_args.append("-isystem") catch unreachable;
-            zig_args.append(builder.pathFromRoot(include_path)) catch unreachable;
-        }
-
-        for (builder.rpaths.toSliceConst()) |rpath| {
-            zig_args.append("-rpath") catch unreachable;
-            zig_args.append(rpath) catch unreachable;
-        }
-
-        for (self.lib_paths.toSliceConst()) |lib_path| {
-            zig_args.append("--library-path") catch unreachable;
-            zig_args.append(lib_path) catch unreachable;
-        }
-
-        for (builder.lib_paths.toSliceConst()) |lib_path| {
-            zig_args.append("--library-path") catch unreachable;
-            zig_args.append(lib_path) catch unreachable;
-        }
-
-        for (self.full_path_libs.toSliceConst()) |full_path_lib| {
-            zig_args.append("--library") catch unreachable;
-            zig_args.append(builder.pathFromRoot(full_path_lib)) catch unreachable;
-        }
-
-        if (self.target.isDarwin()) {
-            var it = self.frameworks.iterator();
-            while (it.next()) |entry| {
-                zig_args.append("-framework") catch unreachable;
-                zig_args.append(entry.key) catch unreachable;
-            }
-        }
-
-        if (self.no_rosegment) {
-            try zig_args.append("--no-rosegment");
-        }
-        if (self.system_linker_hack) {
-            try zig_args.append("--system-linker-hack");
-        }
-
-        try builder.spawnChild(zig_args.toSliceConst());
-
-        if (self.kind == Kind.Lib and !self.static and self.target.wantSharedLibSymLinks()) {
-            try doAtomicSymLinks(builder.allocator, output_path, self.major_only_filename, self.name_only_filename);
-        }
-    }
-
-    fn appendCompileFlags(self: *LibExeObjStep, args: *ArrayList([]const u8)) void {
-        if (!self.strip) {
-            args.append("-g") catch unreachable;
-        }
-        switch (self.build_mode) {
-            builtin.Mode.Debug => {
-                if (self.disable_libc) {
-                    args.append("-fno-stack-protector") catch unreachable;
-                } else {
-                    args.append("-fstack-protector-strong") catch unreachable;
-                    args.append("--param") catch unreachable;
-                    args.append("ssp-buffer-size=4") catch unreachable;
-                }
-            },
-            builtin.Mode.ReleaseSafe => {
-                args.append("-O2") catch unreachable;
-                if (self.disable_libc) {
-                    args.append("-fno-stack-protector") catch unreachable;
-                } else {
-                    args.append("-D_FORTIFY_SOURCE=2") catch unreachable;
-                    args.append("-fstack-protector-strong") catch unreachable;
-                    args.append("--param") catch unreachable;
-                    args.append("ssp-buffer-size=4") catch unreachable;
-                }
-            },
-            builtin.Mode.ReleaseFast, builtin.Mode.ReleaseSmall => {
-                args.append("-O2") catch unreachable;
-                args.append("-fno-stack-protector") catch unreachable;
-            },
-        }
-
-        for (self.include_dirs.toSliceConst()) |dir| {
-            args.append("-I") catch unreachable;
-            args.append(self.builder.pathFromRoot(dir)) catch unreachable;
-        }
-
-        for (self.cflags.toSliceConst()) |cflag| {
-            args.append(cflag) catch unreachable;
-        }
-
-        if (self.disable_libc) {
-            args.append("-nostdlib") catch unreachable;
-        }
-    }
-
-    fn makeC(self: *LibExeObjStep) !void {
-        const builder = self.builder;
-
-        const cc = builder.getCCExe();
-
-        assert(!self.is_zig);
-
-        var cc_args = ArrayList([]const u8).init(builder.allocator);
-        defer cc_args.deinit();
-
-        cc_args.append(cc) catch unreachable;
-
-        const is_darwin = self.target.isDarwin();
-
-        const c_std_arg = switch (self.c_std) {
-            Builder.CStd.C89 => "-std=c89",
-            Builder.CStd.C99 => "-std=c99",
-            Builder.CStd.C11 => "-std=c11",
-        };
-        try cc_args.append(c_std_arg);
-
-        switch (self.kind) {
-            Kind.Obj => {
-                cc_args.append("-c") catch unreachable;
-                cc_args.append(builder.pathFromRoot(self.object_src)) catch unreachable;
-
-                const output_path = builder.pathFromRoot(self.getOutputPath());
-                cc_args.append("-o") catch unreachable;
-                cc_args.append(output_path) catch unreachable;
-
-                self.appendCompileFlags(&cc_args);
-
-                try builder.spawnChild(cc_args.toSliceConst());
-            },
-            Kind.Lib => {
-                for (self.source_files.toSliceConst()) |source_file| {
-                    cc_args.resize(0) catch unreachable;
-                    cc_args.append(cc) catch unreachable;
-
-                    if (!self.static) {
-                        cc_args.append("-fPIC") catch unreachable;
-                    }
-
-                    const abs_source_file = builder.pathFromRoot(source_file);
-                    cc_args.append("-c") catch unreachable;
-                    cc_args.append(abs_source_file) catch unreachable;
-
-                    const cache_o_src = os.path.join(
-                        builder.allocator,
-                        [][]const u8{ builder.cache_root, source_file },
-                    ) catch unreachable;
-                    if (os.path.dirname(cache_o_src)) |cache_o_dir| {
-                        try builder.makePath(cache_o_dir);
-                    }
-                    const cache_o_file = builder.fmt("{}{}", cache_o_src, self.target.oFileExt());
-                    cc_args.append("-o") catch unreachable;
-                    cc_args.append(builder.pathFromRoot(cache_o_file)) catch unreachable;
-
-                    self.appendCompileFlags(&cc_args);
-
-                    try builder.spawnChild(cc_args.toSliceConst());
-
-                    self.object_files.append(cache_o_file) catch unreachable;
-                }
-
-                if (self.static) {
-                    // ar
-                    cc_args.resize(0) catch unreachable;
-                    cc_args.append("ar") catch unreachable;
-
-                    cc_args.append("qc") catch unreachable;
-
-                    const output_path = builder.pathFromRoot(self.getOutputPath());
-                    cc_args.append(output_path) catch unreachable;
-
-                    for (self.object_files.toSliceConst()) |object_file| {
-                        cc_args.append(builder.pathFromRoot(object_file)) catch unreachable;
-                    }
-
-                    try builder.spawnChild(cc_args.toSliceConst());
-
-                    // ranlib
-                    cc_args.resize(0) catch unreachable;
-                    cc_args.append("ranlib") catch unreachable;
-                    cc_args.append(output_path) catch unreachable;
-
-                    try builder.spawnChild(cc_args.toSliceConst());
-                } else {
-                    cc_args.resize(0) catch unreachable;
-                    cc_args.append(cc) catch unreachable;
-
-                    if (is_darwin) {
-                        cc_args.append("-dynamiclib") catch unreachable;
-
-                        cc_args.append("-Wl,-headerpad_max_install_names") catch unreachable;
-
-                        cc_args.append("-compatibility_version") catch unreachable;
-                        cc_args.append(builder.fmt("{}.0.0", self.version.major)) catch unreachable;
-
-                        cc_args.append("-current_version") catch unreachable;
-                        cc_args.append(builder.fmt("{}.{}.{}", self.version.major, self.version.minor, self.version.patch)) catch unreachable;
-
-                        const install_name = builder.pathFromRoot(os.path.join(
-                            builder.allocator,
-                            [][]const u8{ builder.cache_root, self.major_only_filename },
-                        ) catch unreachable);
-                        cc_args.append("-install_name") catch unreachable;
-                        cc_args.append(install_name) catch unreachable;
-                    } else {
-                        cc_args.append("-fPIC") catch unreachable;
-                        cc_args.append("-shared") catch unreachable;
-
-                        const soname_arg = builder.fmt("-Wl,-soname,lib{}.so.{d}", self.name, self.version.major);
-                        defer builder.allocator.free(soname_arg);
-                        cc_args.append(soname_arg) catch unreachable;
-                    }
-
-                    const output_path = builder.pathFromRoot(self.getOutputPath());
-                    cc_args.append("-o") catch unreachable;
-                    cc_args.append(output_path) catch unreachable;
-
-                    for (self.object_files.toSliceConst()) |object_file| {
-                        cc_args.append(builder.pathFromRoot(object_file)) catch unreachable;
-                    }
-
-                    if (!is_darwin) {
-                        const rpath_arg = builder.fmt("-Wl,-rpath,{}", try os.path.realAlloc(
-                            builder.allocator,
-                            builder.pathFromRoot(builder.cache_root),
-                        ));
-                        defer builder.allocator.free(rpath_arg);
-                        try cc_args.append(rpath_arg);
-
-                        try cc_args.append("-rdynamic");
-                    }
-
-                    for (self.full_path_libs.toSliceConst()) |full_path_lib| {
-                        cc_args.append(builder.pathFromRoot(full_path_lib)) catch unreachable;
-                    }
-
-                    {
-                        var it = self.link_libs.iterator();
-                        while (it.next()) |entry| {
-                            cc_args.append(builder.fmt("-l{}", entry.key)) catch unreachable;
-                        }
-                    }
-
-                    if (is_darwin and !self.static) {
-                        var it = self.frameworks.iterator();
-                        while (it.next()) |entry| {
-                            cc_args.append("-framework") catch unreachable;
-                            cc_args.append(entry.key) catch unreachable;
-                        }
-                    }
-
-                    try builder.spawnChild(cc_args.toSliceConst());
-
-                    if (self.target.wantSharedLibSymLinks()) {
-                        try doAtomicSymLinks(builder.allocator, output_path, self.major_only_filename, self.name_only_filename);
-                    }
-                }
-            },
-            Kind.Exe => {
-                for (self.source_files.toSliceConst()) |source_file| {
-                    cc_args.resize(0) catch unreachable;
-                    cc_args.append(cc) catch unreachable;
-
-                    const abs_source_file = builder.pathFromRoot(source_file);
-                    cc_args.append("-c") catch unreachable;
-                    cc_args.append(abs_source_file) catch unreachable;
-
-                    const cache_o_src = os.path.join(
-                        builder.allocator,
-                        [][]const u8{ builder.cache_root, source_file },
-                    ) catch unreachable;
-                    if (os.path.dirname(cache_o_src)) |cache_o_dir| {
-                        try builder.makePath(cache_o_dir);
-                    }
-                    const cache_o_file = builder.fmt("{}{}", cache_o_src, self.target.oFileExt());
-                    cc_args.append("-o") catch unreachable;
-                    cc_args.append(builder.pathFromRoot(cache_o_file)) catch unreachable;
-
-                    for (self.cflags.toSliceConst()) |cflag| {
-                        cc_args.append(cflag) catch unreachable;
-                    }
-
-                    for (self.include_dirs.toSliceConst()) |dir| {
-                        cc_args.append("-I") catch unreachable;
-                        cc_args.append(builder.pathFromRoot(dir)) catch unreachable;
-                    }
-
-                    try builder.spawnChild(cc_args.toSliceConst());
-
-                    self.object_files.append(cache_o_file) catch unreachable;
-                }
-
-                cc_args.resize(0) catch unreachable;
-                cc_args.append(cc) catch unreachable;
-
-                for (self.object_files.toSliceConst()) |object_file| {
-                    cc_args.append(builder.pathFromRoot(object_file)) catch unreachable;
-                }
-
-                const output_path = builder.pathFromRoot(self.getOutputPath());
-                cc_args.append("-o") catch unreachable;
-                cc_args.append(output_path) catch unreachable;
-
-                const rpath_arg = builder.fmt("-Wl,-rpath,{}", try os.path.realAlloc(
-                    builder.allocator,
-                    builder.pathFromRoot(builder.cache_root),
-                ));
-                defer builder.allocator.free(rpath_arg);
-                try cc_args.append(rpath_arg);
-
-                try cc_args.append("-rdynamic");
-
-                {
-                    var it = self.link_libs.iterator();
-                    while (it.next()) |entry| {
-                        cc_args.append(builder.fmt("-l{}", entry.key)) catch unreachable;
-                    }
-                }
-
-                if (is_darwin) {
-                    if (self.need_flat_namespace_hack) {
-                        cc_args.append("-Wl,-flat_namespace") catch unreachable;
-                    }
-                    cc_args.append("-Wl,-search_paths_first") catch unreachable;
-                }
-
-                for (self.full_path_libs.toSliceConst()) |full_path_lib| {
-                    cc_args.append(builder.pathFromRoot(full_path_lib)) catch unreachable;
-                }
-
-                if (is_darwin) {
-                    var it = self.frameworks.iterator();
-                    while (it.next()) |entry| {
-                        cc_args.append("-framework") catch unreachable;
-                        cc_args.append(entry.key) catch unreachable;
-                    }
-                }
-
-                try builder.spawnChild(cc_args.toSliceConst());
-            },
-        }
-    }
-};
-
-pub const TestStep = struct {
-    step: Step,
-    builder: *Builder,
-    root_src: []const u8,
-    build_mode: builtin.Mode,
-    verbose: bool,
-    link_libs: BufSet,
-    name_prefix: []const u8,
-    filter: ?[]const u8,
-    target: Target,
-    exec_cmd_args: ?[]const ?[]const u8,
-    include_dirs: ArrayList([]const u8),
-    lib_paths: ArrayList([]const u8),
-    packages: ArrayList(Pkg),
-    object_files: ArrayList([]const u8),
-    no_rosegment: bool,
-    output_path: ?[]const u8,
-    system_linker_hack: bool,
-    override_std_dir: ?[]const u8,
-
-    pub fn init(builder: *Builder, root_src: []const u8) TestStep {
-        const step_name = builder.fmt("test {}", root_src);
-        return TestStep{
-            .step = Step.init(step_name, builder.allocator, make),
-            .builder = builder,
-            .root_src = root_src,
-            .build_mode = builtin.Mode.Debug,
-            .verbose = false,
-            .name_prefix = "",
-            .filter = null,
-            .link_libs = BufSet.init(builder.allocator),
-            .target = Target{ .Native = {} },
-            .exec_cmd_args = null,
-            .include_dirs = ArrayList([]const u8).init(builder.allocator),
-            .lib_paths = ArrayList([]const u8).init(builder.allocator),
-            .packages = ArrayList(Pkg).init(builder.allocator),
-            .object_files = ArrayList([]const u8).init(builder.allocator),
-            .no_rosegment = false,
-            .output_path = null,
-            .system_linker_hack = false,
-            .override_std_dir = null,
-        };
-    }
-
-    pub fn setNoRoSegment(self: *TestStep, value: bool) void {
-        self.no_rosegment = value;
-    }
-
-    pub fn addLibPath(self: *TestStep, path: []const u8) void {
-        self.lib_paths.append(path) catch unreachable;
-    }
-
-    pub fn addPackagePath(self: *TestStep, name: []const u8, pkg_index_path: []const u8) void {
-        self.packages.append(Pkg{
-            .name = name,
-            .path = pkg_index_path,
-        }) catch unreachable;
-    }
-
-    pub fn setVerbose(self: *TestStep, value: bool) void {
-        self.verbose = value;
-    }
-
-    pub fn addIncludeDir(self: *TestStep, path: []const u8) void {
-        self.include_dirs.append(path) catch unreachable;
-    }
-
-    pub fn setBuildMode(self: *TestStep, mode: builtin.Mode) void {
-        self.build_mode = mode;
-    }
-
-    pub fn overrideStdDir(self: *TestStep, dir_path: []const u8) void {
-        self.override_std_dir = dir_path;
-    }
-
-    pub fn setOutputPath(self: *TestStep, file_path: []const u8) void {
-        self.output_path = file_path;
-
-        // catch a common mistake
-        if (mem.eql(u8, self.builder.pathFromRoot(file_path), self.builder.pathFromRoot("."))) {
-            debug.panic("setOutputPath wants a file path, not a directory\n");
-        }
-    }
-
-    pub fn getOutputPath(self: *TestStep) []const u8 {
-        if (self.output_path) |output_path| {
-            return output_path;
-        } else {
-            const basename = self.builder.fmt("test{}", self.target.exeFileExt());
-            return os.path.join(
-                self.builder.allocator,
-                [][]const u8{ self.builder.cache_root, basename },
-            ) catch unreachable;
-        }
-    }
-
-    pub fn linkSystemLibrary(self: *TestStep, name: []const u8) void {
-        self.link_libs.put(name) catch unreachable;
-    }
-
-    pub fn setNamePrefix(self: *TestStep, text: []const u8) void {
-        self.name_prefix = text;
-    }
-
-    pub fn setFilter(self: *TestStep, text: ?[]const u8) void {
-        self.filter = text;
-    }
-
-    pub fn addObject(self: *TestStep, obj: *LibExeObjStep) void {
-        assert(obj.kind == LibExeObjStep.Kind.Obj);
-
-        self.step.dependOn(&obj.step);
-
-        self.object_files.append(obj.getOutputPath()) catch unreachable;
-
-        // TODO should be some kind of isolated directory that only has this header in it
-        self.include_dirs.append(self.builder.cache_root) catch unreachable;
-    }
-
-    pub fn addObjectFile(self: *TestStep, path: []const u8) void {
-        self.object_files.append(path) catch unreachable;
-    }
-
-    pub fn setTarget(self: *TestStep, target_arch: builtin.Arch, target_os: builtin.Os, target_environ: builtin.Environ) void {
-        self.target = Target{
-            .Cross = CrossTarget{
-                .arch = target_arch,
-                .os = target_os,
-                .environ = target_environ,
-            },
-        };
-    }
-
-    pub fn setExecCmd(self: *TestStep, args: []const ?[]const u8) void {
-        self.exec_cmd_args = args;
-    }
-
-    pub fn enableSystemLinkerHack(self: *TestStep) void {
-        self.system_linker_hack = true;
-    }
-
-    fn make(step: *Step) !void {
-        const self = @fieldParentPtr(TestStep, "step", step);
-        const builder = self.builder;
-
-        var zig_args = ArrayList([]const u8).init(builder.allocator);
-        defer zig_args.deinit();
-
-        try zig_args.append(builder.zig_exe);
-
-        try zig_args.append("test");
-        try zig_args.append(builder.pathFromRoot(self.root_src));
-
-        if (self.verbose) {
-            try zig_args.append("--verbose");
-        }
-
-        switch (self.build_mode) {
-            builtin.Mode.Debug => {},
-            builtin.Mode.ReleaseSafe => try zig_args.append("--release-safe"),
-            builtin.Mode.ReleaseFast => try zig_args.append("--release-fast"),
-            builtin.Mode.ReleaseSmall => try zig_args.append("--release-small"),
-        }
-
-        const output_path = builder.pathFromRoot(self.getOutputPath());
-        try zig_args.append("--output");
-        try zig_args.append(output_path);
-
-        switch (self.target) {
-            Target.Native => {},
-            Target.Cross => |cross_target| {
-                try zig_args.append("--target-arch");
-                try zig_args.append(@tagName(cross_target.arch));
-
-                try zig_args.append("--target-os");
-                try zig_args.append(@tagName(cross_target.os));
-
-                try zig_args.append("--target-environ");
-                try zig_args.append(@tagName(cross_target.environ));
-            },
-        }
-
-        if (self.filter) |filter| {
-            try zig_args.append("--test-filter");
-            try zig_args.append(filter);
-        }
-
-        if (self.name_prefix.len != 0) {
-            try zig_args.append("--test-name-prefix");
-            try zig_args.append(self.name_prefix);
-        }
-
-        for (self.object_files.toSliceConst()) |object_file| {
-            try zig_args.append("--object");
-            try zig_args.append(builder.pathFromRoot(object_file));
-        }
-
-        {
-            var it = self.link_libs.iterator();
-            while (true) {
-                const entry = it.next() orelse break;
-                try zig_args.append("--library");
-                try zig_args.append(entry.key);
-            }
         }
 
         if (self.exec_cmd_args) |exec_cmd_args| {
@@ -1905,32 +1450,6 @@ pub const TestStep = struct {
                 }
             }
         }
-
-        for (self.include_dirs.toSliceConst()) |include_path| {
-            try zig_args.append("-isystem");
-            try zig_args.append(builder.pathFromRoot(include_path));
-        }
-
-        for (builder.include_paths.toSliceConst()) |include_path| {
-            try zig_args.append("-isystem");
-            try zig_args.append(builder.pathFromRoot(include_path));
-        }
-
-        for (builder.rpaths.toSliceConst()) |rpath| {
-            try zig_args.append("-rpath");
-            try zig_args.append(rpath);
-        }
-
-        for (self.lib_paths.toSliceConst()) |lib_path| {
-            try zig_args.append("--library-path");
-            try zig_args.append(lib_path);
-        }
-
-        for (builder.lib_paths.toSliceConst()) |lib_path| {
-            try zig_args.append("--library-path");
-            try zig_args.append(lib_path);
-        }
-
         for (self.packages.toSliceConst()) |pkg| {
             zig_args.append("--pkg-begin") catch unreachable;
             zig_args.append(pkg.name) catch unreachable;
@@ -1938,49 +1457,196 @@ pub const TestStep = struct {
             zig_args.append("--pkg-end") catch unreachable;
         }
 
-        if (self.no_rosegment) {
-            try zig_args.append("--no-rosegment");
+        for (self.include_dirs.toSliceConst()) |include_dir| {
+            switch (include_dir) {
+                IncludeDir.RawPath => |include_path| {
+                    try zig_args.append("-isystem");
+                    try zig_args.append(self.builder.pathFromRoot(include_path));
+                },
+                IncludeDir.OtherStep => |other| {
+                    const h_path = other.getOutputHPath();
+                    try zig_args.append("-isystem");
+                    try zig_args.append(os.path.dirname(h_path).?);
+                },
+            }
         }
+
+        for (self.lib_paths.toSliceConst()) |lib_path| {
+            zig_args.append("--library-path") catch unreachable;
+            zig_args.append(lib_path) catch unreachable;
+        }
+
+        if (self.need_system_paths and self.target == Target.Native) {
+            for (builder.native_system_include_dirs.toSliceConst()) |include_path| {
+                zig_args.append("-isystem") catch unreachable;
+                zig_args.append(builder.pathFromRoot(include_path)) catch unreachable;
+            }
+
+            for (builder.native_system_rpaths.toSliceConst()) |rpath| {
+                zig_args.append("-rpath") catch unreachable;
+                zig_args.append(rpath) catch unreachable;
+            }
+
+            for (builder.native_system_lib_paths.toSliceConst()) |lib_path| {
+                zig_args.append("--library-path") catch unreachable;
+                zig_args.append(lib_path) catch unreachable;
+            }
+        }
+
+        if (self.target.isDarwin()) {
+            var it = self.frameworks.iterator();
+            while (it.next()) |entry| {
+                zig_args.append("-framework") catch unreachable;
+                zig_args.append(entry.key) catch unreachable;
+            }
+        }
+
         if (self.system_linker_hack) {
             try zig_args.append("--system-linker-hack");
         }
+
         if (self.override_std_dir) |dir| {
             try zig_args.append("--override-std-dir");
             try zig_args.append(builder.pathFromRoot(dir));
         }
 
-        try builder.spawnChild(zig_args.toSliceConst());
+        if (self.main_pkg_path) |dir| {
+            try zig_args.append("--main-pkg-path");
+            try zig_args.append(builder.pathFromRoot(dir));
+        }
+
+        if (self.output_dir) |output_dir| {
+            try zig_args.append("--output-dir");
+            try zig_args.append(output_dir);
+
+            try builder.spawnChild(zig_args.toSliceConst());
+        } else if (self.kind == Kind.Test) {
+            try builder.spawnChild(zig_args.toSliceConst());
+        } else {
+            try zig_args.append("--cache");
+            try zig_args.append("on");
+
+            const output_path_nl = try builder.exec(zig_args.toSliceConst());
+            const output_path = mem.trimRight(u8, output_path_nl, "\r\n");
+            self.output_dir = os.path.dirname(output_path).?;
+        }
+
+        if (self.kind == Kind.Lib and !self.static and self.target.wantSharedLibSymLinks()) {
+            try doAtomicSymLinks(builder.allocator, self.getOutputPath(), self.major_only_filename, self.name_only_filename);
+        }
     }
 };
 
-pub const CommandStep = struct {
+pub const RunStep = struct {
     step: Step,
     builder: *Builder,
-    argv: [][]const u8,
+
+    /// See also addArg and addArgs to modifying this directly
+    argv: ArrayList(Arg),
+
+    /// Set this to modify the current working directory
     cwd: ?[]const u8,
-    env_map: *const BufMap,
 
-    /// ::argv is copied.
-    pub fn create(builder: *Builder, cwd: ?[]const u8, env_map: *const BufMap, argv: []const []const u8) *CommandStep {
-        const self = builder.allocator.create(CommandStep) catch unreachable;
-        self.* = CommandStep{
+    /// Override this field to modify the environment, or use setEnvironmentVariable
+    env_map: ?*BufMap,
+
+    pub const Arg = union(enum) {
+        Artifact: *LibExeObjStep,
+        Bytes: []u8,
+    };
+
+    pub fn create(builder: *Builder, name: []const u8) *RunStep {
+        const self = builder.allocator.create(RunStep) catch unreachable;
+        self.* = RunStep{
             .builder = builder,
-            .step = Step.init(argv[0], builder.allocator, make),
-            .argv = builder.allocator.alloc([]u8, argv.len) catch unreachable,
-            .cwd = cwd,
-            .env_map = env_map,
+            .step = Step.init(name, builder.allocator, make),
+            .argv = ArrayList(Arg).init(builder.allocator),
+            .cwd = null,
+            .env_map = null,
         };
-
-        mem.copy([]const u8, self.argv, argv);
-        self.step.name = self.argv[0];
         return self;
     }
 
+    pub fn addArtifactArg(self: *RunStep, artifact: *LibExeObjStep) void {
+        self.argv.append(Arg{ .Artifact = artifact }) catch unreachable;
+        self.step.dependOn(&artifact.step);
+    }
+
+    pub fn addArg(self: *RunStep, arg: []const u8) void {
+        self.argv.append(Arg{ .Bytes = self.builder.dupe(arg) }) catch unreachable;
+    }
+
+    pub fn addArgs(self: *RunStep, args: []const []const u8) void {
+        for (args) |arg| {
+            self.addArg(arg);
+        }
+    }
+
+    pub fn clearEnvironment(self: *RunStep) void {
+        const new_env_map = self.builder.allocator.create(BufMap) catch unreachable;
+        new_env_map.* = BufMap.init(self.builder.allocator);
+        self.env_map = new_env_map;
+    }
+
+    pub fn addPathDir(self: *RunStep, search_path: []const u8) void {
+        const PATH = if (builtin.os == builtin.Os.windows) "Path" else "PATH";
+        const env_map = self.getEnvMap();
+        const prev_path = env_map.get(PATH) orelse {
+            env_map.set(PATH, search_path) catch unreachable;
+            return;
+        };
+        const new_path = self.builder.fmt("{}" ++ [1]u8{os.path.delimiter} ++ "{}", prev_path, search_path);
+        env_map.set(PATH, new_path) catch unreachable;
+    }
+
+    pub fn getEnvMap(self: *RunStep) *BufMap {
+        return self.env_map orelse {
+            const env_map = self.builder.allocator.create(BufMap) catch unreachable;
+            env_map.* = os.getEnvMap(self.builder.allocator) catch unreachable;
+            self.env_map = env_map;
+            return env_map;
+        };
+    }
+
+    pub fn setEnvironmentVariable(self: *RunStep, key: []const u8, value: []const u8) void {
+        const env_map = self.getEnvMap();
+        env_map.set(key, value) catch unreachable;
+    }
+
     fn make(step: *Step) !void {
-        const self = @fieldParentPtr(CommandStep, "step", step);
+        const self = @fieldParentPtr(RunStep, "step", step);
 
         const cwd = if (self.cwd) |cwd| self.builder.pathFromRoot(cwd) else self.builder.build_root;
-        return self.builder.spawnChildEnvMap(cwd, self.env_map, self.argv);
+
+        var argv = ArrayList([]const u8).init(self.builder.allocator);
+        for (self.argv.toSlice()) |arg| {
+            switch (arg) {
+                Arg.Bytes => |bytes| try argv.append(bytes),
+                Arg.Artifact => |artifact| {
+                    if (artifact.target.isWindows()) {
+                        // On Windows we don't have rpaths so we have to add .dll search paths to PATH
+                        self.addPathForDynLibs(artifact);
+                    }
+                    try argv.append(artifact.getOutputPath());
+                },
+            }
+        }
+
+        return self.builder.spawnChildEnvMap(cwd, self.env_map orelse self.builder.env_map, argv.toSliceConst());
+    }
+
+    fn addPathForDynLibs(self: *RunStep, artifact: *LibExeObjStep) void {
+        for (artifact.link_objects.toSliceConst()) |link_object| {
+            switch (link_object) {
+                LibExeObjStep.LinkObject.OtherStep => |other| {
+                    if (other.target.isWindows() and other.isDynamicLibrary()) {
+                        self.addPathDir(os.path.dirname(other.getOutputPath()).?);
+                        self.addPathForDynLibs(other);
+                    }
+                },
+                else => {},
+            }
+        }
     }
 };
 
@@ -1995,6 +1661,7 @@ const InstallArtifactStep = struct {
     pub fn create(builder: *Builder, artifact: *LibExeObjStep) *Self {
         const dest_dir = switch (artifact.kind) {
             LibExeObjStep.Kind.Obj => unreachable,
+            LibExeObjStep.Kind.Test => unreachable,
             LibExeObjStep.Kind.Exe => builder.exe_dir,
             LibExeObjStep.Kind.Lib => builder.lib_dir,
         };
@@ -2031,6 +1698,7 @@ const InstallArtifactStep = struct {
             builtin.Os.windows => {},
             else => switch (self.artifact.kind) {
                 LibExeObjStep.Kind.Obj => unreachable,
+                LibExeObjStep.Kind.Test => unreachable,
                 LibExeObjStep.Kind.Exe => u32(0o755),
                 LibExeObjStep.Kind.Lib => if (self.artifact.static) u32(0o666) else u32(0o755),
             },

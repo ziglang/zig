@@ -5,7 +5,7 @@
 // - cosh(nan)   = nan
 
 const builtin = @import("builtin");
-const std = @import("../index.zig");
+const std = @import("../std.zig");
 const math = std.math;
 const expo2 = @import("expo2.zig").expo2;
 const expect = std.testing.expect;

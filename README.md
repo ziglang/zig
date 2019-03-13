@@ -54,6 +54,8 @@ clarity.
    branch, and updates ziglang.org/download with links to pre-built binaries.
  * These targets have debug info capabilities and therefore produce stack
    traces on failed assertions.
+ * ([coming soon](https://github.com/ziglang/zig/issues/514)) libc is available
+   for this target even when cross compiling.
 
 #### Tier 2 Support
 
@@ -77,39 +79,54 @@ clarity.
    - what sizes are the C integer types
    - C ABI calling convention for this target
    - bootstrap code and default panic handler
+ * `zig targets` is guaranteed to include this target.
 
 #### Tier 4 Support
 
  * Support for these targets is entirely experimental.
  * LLVM may have the target as an experimental target, which means that you
    need to use Zig-provided binaries for the target to be available, or
-   build LLVM from source with special configure flags.
+   build LLVM from source with special configure flags. `zig targets` will
+   display the target if it is available.
  * This target may be considered deprecated by an official party,
    [such as macosx/i386](https://support.apple.com/en-us/HT208436) in which
    case this target will remain forever stuck in Tier 4.
+ * This target may only support `--emit asm` and cannot emit object files.
 
 #### Support Table
 
-|        | freestanding | linux  | macosx | windows | freebsd | netbsd | UEFI   | other  |
-|--------|--------------|--------|--------|---------|---------|------- | -------|--------|
-|x86_64  | Tier 2       | Tier 1 | Tier 1 | Tier 1  | Tier 2  | Tier 2 | Tier 2 | Tier 3 |
-|i386    | Tier 2       | Tier 2 | Tier 4 | Tier 2  | Tier 3  | Tier 3 | Tier 3 | Tier 3 |
-|arm     | Tier 2       | Tier 3 | Tier 3 | Tier 3  | Tier 3  | Tier 3 | Tier 3 | Tier 3 |
-|arm64   | Tier 2       | Tier 2 | Tier 3 | Tier 3  | Tier 3  | Tier 3 | Tier 3 | Tier 3 |
-|bpf     | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | Tier 3 | Tier 3 |
-|hexagon | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | Tier 3 | Tier 3 |
-|mips    | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | Tier 3 | Tier 3 |
-|powerpc | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | Tier 3 | Tier 3 |
-|r600    | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | Tier 3 | Tier 3 |
-|amdgcn  | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | Tier 3 | Tier 3 |
-|sparc   | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | Tier 3 | Tier 3 |
-|s390x   | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | Tier 3 | Tier 3 |
-|spir    | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | Tier 3 | Tier 3 |
-|lanai   | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | Tier 3 | Tier 3 |
-|wasm32  | Tier 4       | N/A    | N/A    | N/A     | N/A     | N/A    | N/A    | N/A    |
-|wasm64  | Tier 4       | N/A    | N/A    | N/A     | N/A     | N/A    | N/A    | N/A    |
-|riscv32 | Tier 4       | Tier 4 | N/A    | N/A     | Tier 4  | Tier 4 | Tier 4 | Tier 4 |
-|riscv64 | Tier 4       | Tier 4 | N/A    | N/A     | Tier 4  | Tier 4 | Tier 4 | Tier 4 |
+|             | freestanding | linux  | macosx | windows | freebsd | netbsd | UEFI   | other  |
+|-------------|--------------|--------|--------|---------|---------|------- | -------|--------|
+|x86_64       | Tier 2       | Tier 1 | Tier 1 | Tier 1  | Tier 2  | Tier 2 | Tier 2 | Tier 3 |
+|i386         | Tier 2       | Tier 2 | Tier 4 | Tier 2  | Tier 3  | Tier 3 | Tier 3 | Tier 3 |
+|arm          | Tier 2       | Tier 3 | Tier 3 | Tier 3  | Tier 3  | Tier 3 | Tier 3 | Tier 3 |
+|arm64        | Tier 2       | Tier 2 | Tier 3 | Tier 3  | Tier 3  | Tier 3 | Tier 3 | Tier 3 |
+|avr          | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | N/A    | Tier 3 |
+|bpf          | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | N/A    | Tier 3 |
+|hexagon      | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | N/A    | Tier 3 |
+|mips         | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | N/A    | Tier 3 |
+|powerpc      | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | N/A    | Tier 3 |
+|amdgcn       | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | N/A    | Tier 3 |
+|sparc        | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | N/A    | Tier 3 |
+|s390x        | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | N/A    | Tier 3 |
+|lanai        | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | N/A    | Tier 3 |
+|wasm32       | Tier 4       | N/A    | N/A    | N/A     | N/A     | N/A    | N/A    | N/A    |
+|wasm64       | Tier 4       | N/A    | N/A    | N/A     | N/A     | N/A    | N/A    | N/A    |
+|riscv32      | Tier 4       | Tier 4 | N/A    | N/A     | Tier 4  | Tier 4 | Tier 4 | Tier 4 |
+|riscv64      | Tier 4       | Tier 4 | N/A    | N/A     | Tier 4  | Tier 4 | Tier 4 | Tier 4 |
+|xcore        | Tier 4       | Tier 4 | N/A    | N/A     | Tier 4  | Tier 4 | N/A    | Tier 4 |
+|nvptx        | Tier 4       | Tier 4 | N/A    | N/A     | Tier 4  | Tier 4 | N/A    | Tier 4 |
+|msp430       | Tier 4       | Tier 4 | N/A    | N/A     | Tier 4  | Tier 4 | N/A    | Tier 4 |
+|r600         | Tier 4       | Tier 4 | N/A    | N/A     | Tier 4  | Tier 4 | N/A    | Tier 4 |
+|arc          | Tier 4       | Tier 4 | N/A    | N/A     | Tier 4  | Tier 4 | N/A    | Tier 4 |
+|tce          | Tier 4       | Tier 4 | N/A    | N/A     | Tier 4  | Tier 4 | N/A    | Tier 4 |
+|le           | Tier 4       | Tier 4 | N/A    | N/A     | Tier 4  | Tier 4 | N/A    | Tier 4 |
+|amdil        | Tier 4       | Tier 4 | N/A    | N/A     | Tier 4  | Tier 4 | N/A    | Tier 4 |
+|hsail        | Tier 4       | Tier 4 | N/A    | N/A     | Tier 4  | Tier 4 | N/A    | Tier 4 |
+|spir         | Tier 4       | Tier 4 | N/A    | N/A     | Tier 4  | Tier 4 | N/A    | Tier 4 |
+|kalimba      | Tier 4       | Tier 4 | N/A    | N/A     | Tier 4  | Tier 4 | N/A    | Tier 4 |
+|shave        | Tier 4       | Tier 4 | N/A    | N/A     | Tier 4  | Tier 4 | N/A    | Tier 4 |
+|renderscript | Tier 4       | Tier 4 | N/A    | N/A     | Tier 4  | Tier 4 | N/A    | Tier 4 |
 
 ## Community
 

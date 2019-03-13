@@ -1,7 +1,7 @@
 const mem = @import("../mem.zig");
-const math = @import("../math/index.zig");
+const math = @import("../math.zig");
 const endian = @import("../endian.zig");
-const debug = @import("../debug/index.zig");
+const debug = @import("../debug.zig");
 const builtin = @import("builtin");
 
 const RoundParam = struct {
@@ -26,8 +26,8 @@ fn Rp(a: usize, b: usize, c: usize, d: usize, e: usize, i: u32) RoundParam {
 
 pub const Sha1 = struct {
     const Self = @This();
-    const block_length = 64;
-    const digest_length = 20;
+    pub const block_length = 64;
+    pub const digest_length = 20;
 
     s: [5]u32,
     // Streaming Cache

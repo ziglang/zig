@@ -4,16 +4,16 @@ const expect = @import("std").testing.expect;
 comptime {
     if (config.arch == config.Arch.x86_64 and config.os == config.Os.linux) {
         asm volatile (
-            \\.globl aoeu;
-            \\.type aoeu, @function;
-            \\.set aoeu, derp;
+            \\.globl this_is_my_alias;
+            \\.type this_is_my_alias, @function;
+            \\.set this_is_my_alias, derp;
         );
     }
 }
 
 test "module level assembly" {
     if (config.arch == config.Arch.x86_64 and config.os == config.Os.linux) {
-        expect(aoeu() == 1234);
+        expect(this_is_my_alias() == 1234);
     }
 }
 
@@ -85,7 +85,7 @@ test "sized integer/float in asm input" {
     );
 }
 
-extern fn aoeu() i32;
+extern fn this_is_my_alias() i32;
 
 export fn derp() i32 {
     return 1234;

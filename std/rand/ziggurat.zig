@@ -8,7 +8,7 @@
 // NOTE: This seems interesting but reference code is a bit hard to grok:
 // https://sbarral.github.io/etf.
 
-const std = @import("../index.zig");
+const std = @import("../std.zig");
 const math = std.math;
 const Random = std.rand.Random;
 

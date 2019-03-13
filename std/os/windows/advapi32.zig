@@ -1,4 +1,4 @@
-use @import("index.zig");
+use @import("../windows.zig");
 
 pub const PROV_RSA_FULL = 1;
 

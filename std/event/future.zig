@@ -1,4 +1,4 @@
-const std = @import("../index.zig");
+const std = @import("../std.zig");
 const assert = std.debug.assert;
 const testing = std.testing;
 const builtin = @import("builtin");
@@ -86,7 +86,7 @@ pub fn Future(comptime T: type) type {
 
 test "std.event.Future" {
     // https://github.com/ziglang/zig/issues/1908
-    if (builtin.single_threaded) return error.SkipZigTest;
+    if (builtin.single_threaded or builtin.os != builtin.Os.linux) return error.SkipZigTest;
 
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();

@@ -1,4 +1,4 @@
-use @import("index.zig");
+use @import("../windows.zig");
 
 pub extern "kernel32" stdcallcc fn CancelIoEx(hFile: HANDLE, lpOverlapped: LPOVERLAPPED) BOOL;
 
@@ -262,12 +262,10 @@ pub const INIT_ONCE_STATIC_INIT = RTL_RUN_ONCE_INIT;
 
 pub extern "kernel32" stdcallcc fn InitOnceExecuteOnce(InitOnce: *INIT_ONCE, InitFn: INIT_ONCE_FN, Parameter: ?*c_void, Context: ?*c_void) BOOL;
 
-pub const INIT_ONCE_FN = extern fn(InitOnce: *INIT_ONCE, Parameter: ?*c_void, Context: ?*c_void) BOOL;
+pub const INIT_ONCE_FN = extern fn (InitOnce: *INIT_ONCE, Parameter: ?*c_void, Context: ?*c_void) BOOL;
 
 pub const RTL_RUN_ONCE = extern struct {
     Ptr: ?*c_void,
 };
 
-pub const RTL_RUN_ONCE_INIT = RTL_RUN_ONCE {
-    .Ptr = null,
-};
+pub const RTL_RUN_ONCE_INIT = RTL_RUN_ONCE{ .Ptr = null };

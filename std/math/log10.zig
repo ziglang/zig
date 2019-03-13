@@ -5,7 +5,7 @@
 // - log10(x)     = nan if x < 0
 // - log10(nan)   = nan
 
-const std = @import("../index.zig");
+const std = @import("../std.zig");
 const math = std.math;
 const testing = std.testing;
 const builtin = @import("builtin");

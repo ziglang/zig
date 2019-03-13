@@ -1,4 +1,4 @@
-const std = @import("../index.zig");
+const std = @import("../std.zig");
 const assert = std.debug.assert;
 const mem = std.mem;
 const ast = std.zig.ast;
@@ -2561,10 +2561,6 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     },
                     Token.Id.Keyword_null => {
                         _ = try createToCtxLiteral(arena, opt_ctx, ast.Node.NullLiteral, token.index);
-                        continue;
-                    },
-                    Token.Id.Keyword_this => {
-                        _ = try createToCtxLiteral(arena, opt_ctx, ast.Node.ThisLiteral, token.index);
                         continue;
                     },
                     Token.Id.Keyword_var => {

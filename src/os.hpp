@@ -85,6 +85,11 @@ struct OsTimeStamp {
     uint64_t nsec;
 };
 
+struct OsFileAttr {
+    OsTimeStamp mtime;
+    uint64_t inode;
+};
+
 int os_init(void);
 
 void os_spawn_process(const char *exe, ZigList<const char *> &args, Termination *term);
@@ -96,22 +101,22 @@ void os_path_dirname(Buf *full_path, Buf *out_dirname);
 void os_path_split(Buf *full_path, Buf *out_dirname, Buf *out_basename);
 void os_path_extname(Buf *full_path, Buf *out_basename, Buf *out_extname);
 void os_path_join(Buf *dirname, Buf *basename, Buf *out_full_path);
-int os_path_real(Buf *rel_path, Buf *out_abs_path);
+Error os_path_real(Buf *rel_path, Buf *out_abs_path);
 Buf os_path_resolve(Buf **paths_ptr, size_t paths_len);
 bool os_path_is_absolute(Buf *path);
 
 Error ATTRIBUTE_MUST_USE os_make_path(Buf *path);
 Error ATTRIBUTE_MUST_USE os_make_dir(Buf *path);
 
-Error ATTRIBUTE_MUST_USE os_file_open_r(Buf *full_path, OsFile *out_file, OsTimeStamp *mtime);
+Error ATTRIBUTE_MUST_USE os_file_open_r(Buf *full_path, OsFile *out_file, OsFileAttr *attr);
 Error ATTRIBUTE_MUST_USE os_file_open_lock_rw(Buf *full_path, OsFile *out_file);
 Error ATTRIBUTE_MUST_USE os_file_read(OsFile file, void *ptr, size_t *len);
 Error ATTRIBUTE_MUST_USE os_file_read_all(OsFile file, Buf *contents);
 Error ATTRIBUTE_MUST_USE os_file_overwrite(OsFile file, Buf *contents);
 void os_file_close(OsFile file);
 
-void os_write_file(Buf *full_path, Buf *contents);
-Error os_copy_file(Buf *src_path, Buf *dest_path);
+Error ATTRIBUTE_MUST_USE os_write_file(Buf *full_path, Buf *contents);
+Error ATTRIBUTE_MUST_USE os_copy_file(Buf *src_path, Buf *dest_path);
 
 Error ATTRIBUTE_MUST_USE os_fetch_file(FILE *file, Buf *out_contents, bool skip_shebang);
 Error ATTRIBUTE_MUST_USE os_fetch_file_path(Buf *full_path, Buf *out_contents, bool skip_shebang);
@@ -121,13 +126,13 @@ Error ATTRIBUTE_MUST_USE os_get_cwd(Buf *out_cwd);
 bool os_stderr_tty(void);
 void os_stderr_set_color(TermColor color);
 
-Error os_buf_to_tmp_file(Buf *contents, Buf *suffix, Buf *out_tmp_path);
 Error os_delete_file(Buf *path);
 
 Error ATTRIBUTE_MUST_USE os_file_exists(Buf *full_path, bool *result);
 
 Error os_rename(Buf *src_path, Buf *dest_path);
-double os_get_time(void);
+OsTimeStamp os_timestamp_monotonic(void);
+OsTimeStamp os_timestamp_calendar(void);
 
 bool os_is_sep(uint8_t c);
 
@@ -135,9 +140,9 @@ Error ATTRIBUTE_MUST_USE os_self_exe_path(Buf *out_path);
 
 Error ATTRIBUTE_MUST_USE os_get_app_data_dir(Buf *out_path, const char *appname);
 
-int os_get_win32_ucrt_include_path(ZigWindowsSDK *sdk, Buf *output_buf);
-int os_get_win32_ucrt_lib_path(ZigWindowsSDK *sdk, Buf *output_buf, ZigLLVM_ArchType platform_type);
-int os_get_win32_kern32_path(ZigWindowsSDK *sdk, Buf *output_buf, ZigLLVM_ArchType platform_type);
+Error ATTRIBUTE_MUST_USE os_get_win32_ucrt_include_path(ZigWindowsSDK *sdk, Buf *output_buf);
+Error ATTRIBUTE_MUST_USE os_get_win32_ucrt_lib_path(ZigWindowsSDK *sdk, Buf *output_buf, ZigLLVM_ArchType platform_type);
+Error ATTRIBUTE_MUST_USE os_get_win32_kern32_path(ZigWindowsSDK *sdk, Buf *output_buf, ZigLLVM_ArchType platform_type);
 
 Error ATTRIBUTE_MUST_USE os_self_exe_shared_libs(ZigList<Buf *> &paths);
 

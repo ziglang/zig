@@ -2,7 +2,7 @@
 //
 // - acos(x)   = nan if x < -1 or x > 1
 
-const std = @import("../index.zig");
+const std = @import("../std.zig");
 const math = std.math;
 const expect = std.testing.expect;
 

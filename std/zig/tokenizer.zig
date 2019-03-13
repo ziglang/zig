@@ -1,4 +1,4 @@
-const std = @import("../index.zig");
+const std = @import("../std.zig");
 const mem = std.mem;
 
 pub const Token = struct {
@@ -52,7 +52,6 @@ pub const Token = struct {
         Keyword{ .bytes = "suspend", .id = Id.Keyword_suspend },
         Keyword{ .bytes = "switch", .id = Id.Keyword_switch },
         Keyword{ .bytes = "test", .id = Id.Keyword_test },
-        Keyword{ .bytes = "this", .id = Id.Keyword_this },
         Keyword{ .bytes = "threadlocal", .id = Id.Keyword_threadlocal },
         Keyword{ .bytes = "true", .id = Id.Keyword_true },
         Keyword{ .bytes = "try", .id = Id.Keyword_try },
@@ -183,7 +182,6 @@ pub const Token = struct {
         Keyword_suspend,
         Keyword_switch,
         Keyword_test,
-        Keyword_this,
         Keyword_threadlocal,
         Keyword_true,
         Keyword_try,

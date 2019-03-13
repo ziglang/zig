@@ -19,6 +19,8 @@ void cache_init(CacheHash *ch, Buf *manifest_dir) {
     ch->manifest_dir = manifest_dir;
     ch->manifest_file_path = nullptr;
     ch->manifest_dirty = false;
+    ch->force_check_manifest = false;
+    ch->b64_digest = BUF_INIT;
 }
 
 void cache_str(CacheHash *ch, const char *ptr) {
@@ -156,8 +158,10 @@ static void base64_encode(Slice<uint8_t> dest, Slice<uint8_t> source) {
 
 // Ported from std/base64.zig
 static Error base64_decode(Slice<uint8_t> dest, Slice<uint8_t> source) {
-    assert(source.len % 4 == 0);
-    assert(dest.len == (source.len / 4) * 3);
+    if (source.len % 4 != 0)
+        return ErrorInvalidFormat;
+    if (dest.len != (source.len / 4) * 3)
+        return ErrorInvalidFormat;
 
     // In Zig this is comptime computed. In C++ it's not worth it to do that.
     uint8_t char_to_index[256];
@@ -216,14 +220,40 @@ static Error hash_file(uint8_t *digest, OsFile handle, Buf *contents) {
     }
 }
 
+// If the wall clock time, rounded to the same precision as the
+// mtime, is equal to the mtime, then we cannot rely on this mtime
+// yet. We will instead save an mtime value that indicates the hash
+// must be unconditionally computed.
+static bool is_problematic_timestamp(const OsTimeStamp *fs_clock) {
+    OsTimeStamp wall_clock = os_timestamp_calendar();
+    // First make all the least significant zero bits in the fs_clock, also zero bits in the wall clock.
+    if (fs_clock->nsec == 0) {
+        wall_clock.nsec = 0;
+        if (fs_clock->sec == 0) {
+            wall_clock.sec = 0;
+        } else {
+            wall_clock.sec &= (-1ull) << ctzll(fs_clock->sec);
+        }
+    } else {
+        wall_clock.nsec &= (-1ull) << ctzll(fs_clock->nsec);
+    }
+    return wall_clock.nsec == fs_clock->nsec && wall_clock.sec == fs_clock->sec;
+}
+
 static Error populate_file_hash(CacheHash *ch, CacheHashFile *chf, Buf *contents) {
     Error err;
 
     assert(chf->path != nullptr);
 
     OsFile this_file;
-    if ((err = os_file_open_r(chf->path, &this_file, &chf->mtime)))
+    if ((err = os_file_open_r(chf->path, &this_file, &chf->attr)))
         return err;
+
+    if (is_problematic_timestamp(&chf->attr.mtime)) {
+        chf->attr.mtime.sec = 0;
+        chf->attr.mtime.nsec = 0;
+        chf->attr.inode = 0;
+    }
 
     if ((err = hash_file(chf->bin_digest, this_file, contents))) {
         os_file_close(this_file);
@@ -243,22 +273,21 @@ Error cache_hit(CacheHash *ch, Buf *out_digest) {
     int rc = blake2b_final(&ch->blake, bin_digest, 48);
     assert(rc == 0);
 
-    if (ch->files.length == 0) {
+    buf_resize(&ch->b64_digest, 64);
+    base64_encode(buf_to_slice(&ch->b64_digest), {bin_digest, 48});
+
+    if (ch->files.length == 0 && !ch->force_check_manifest) {
         buf_resize(out_digest, 64);
         base64_encode(buf_to_slice(out_digest), {bin_digest, 48});
         return ErrorNone;
     }
-
-    Buf b64_digest = BUF_INIT;
-    buf_resize(&b64_digest, 64);
-    base64_encode(buf_to_slice(&b64_digest), {bin_digest, 48});
 
     rc = blake2b_init(&ch->blake, 48);
     assert(rc == 0);
     blake2b_update(&ch->blake, bin_digest, 48);
 
     ch->manifest_file_path = buf_alloc();
-    os_path_join(ch->manifest_dir, &b64_digest, ch->manifest_file_path);
+    os_path_join(ch->manifest_dir, &ch->b64_digest, ch->manifest_file_path);
 
     buf_append_str(ch->manifest_file_path, ".txt");
 
@@ -277,12 +306,11 @@ Error cache_hit(CacheHash *ch, Buf *out_digest) {
 
     size_t input_file_count = ch->files.length;
     bool any_file_changed = false;
+    Error return_code = ErrorNone;
     size_t file_i = 0;
     SplitIterator line_it = memSplit(buf_to_slice(&line_buf), str("\n"));
     for (;; file_i += 1) {
         Optional<Slice<uint8_t>> opt_line = SplitIterator_next(&line_it);
-        if (!opt_line.is_some)
-            break;
 
         CacheHashFile *chf;
         if (file_i < input_file_count) {
@@ -300,65 +328,86 @@ Error cache_hit(CacheHash *ch, Buf *out_digest) {
                 blake2b_update(&ch->blake, ch->files.at(file_i).bin_digest, 48);
             }
             // caller can notice that out_digest is unmodified.
-            return ErrorNone;
+            return return_code;
+        } else if (!opt_line.is_some) {
+            break;
         } else {
             chf = ch->files.add_one();
             chf->path = nullptr;
         }
 
+        if (!opt_line.is_some)
+            break;
+
         SplitIterator it = memSplit(opt_line.value, str(" "));
+
+        Optional<Slice<uint8_t>> opt_inode = SplitIterator_next(&it);
+        if (!opt_inode.is_some) {
+            return_code = ErrorInvalidFormat;
+            break;
+        }
+        chf->attr.inode = strtoull((const char *)opt_inode.value.ptr, nullptr, 10);
 
         Optional<Slice<uint8_t>> opt_mtime_sec = SplitIterator_next(&it);
         if (!opt_mtime_sec.is_some) {
-            os_file_close(ch->manifest_file);
-            return ErrorInvalidFormat;
+            return_code = ErrorInvalidFormat;
+            break;
         }
-        chf->mtime.sec = strtoull((const char *)opt_mtime_sec.value.ptr, nullptr, 10);
+        chf->attr.mtime.sec = strtoull((const char *)opt_mtime_sec.value.ptr, nullptr, 10);
 
         Optional<Slice<uint8_t>> opt_mtime_nsec = SplitIterator_next(&it);
         if (!opt_mtime_nsec.is_some) {
-            os_file_close(ch->manifest_file);
-            return ErrorInvalidFormat;
+            return_code = ErrorInvalidFormat;
+            break;
         }
-        chf->mtime.nsec = strtoull((const char *)opt_mtime_nsec.value.ptr, nullptr, 10);
+        chf->attr.mtime.nsec = strtoull((const char *)opt_mtime_nsec.value.ptr, nullptr, 10);
 
         Optional<Slice<uint8_t>> opt_digest = SplitIterator_next(&it);
         if (!opt_digest.is_some) {
-            os_file_close(ch->manifest_file);
-            return ErrorInvalidFormat;
+            return_code = ErrorInvalidFormat;
+            break;
         }
         if ((err = base64_decode({chf->bin_digest, 48}, opt_digest.value))) {
-            os_file_close(ch->manifest_file);
-            return ErrorInvalidFormat;
+            return_code = ErrorInvalidFormat;
+            break;
         }
 
         Slice<uint8_t> file_path = SplitIterator_rest(&it);
         if (file_path.len == 0) {
-            os_file_close(ch->manifest_file);
-            return ErrorInvalidFormat;
+            return_code = ErrorInvalidFormat;
+            break;
         }
         Buf *this_path = buf_create_from_slice(file_path);
         if (chf->path != nullptr && !buf_eql_buf(this_path, chf->path)) {
-            os_file_close(ch->manifest_file);
-            return ErrorInvalidFormat;
+            return_code = ErrorInvalidFormat;
+            break;
         }
         chf->path = this_path;
 
         // if the mtime matches we can trust the digest
         OsFile this_file;
-        OsTimeStamp actual_mtime;
-        if ((err = os_file_open_r(chf->path, &this_file, &actual_mtime))) {
+        OsFileAttr actual_attr;
+        if ((err = os_file_open_r(chf->path, &this_file, &actual_attr))) {
             fprintf(stderr, "Unable to open %s\n: %s", buf_ptr(chf->path), err_str(err));
             os_file_close(ch->manifest_file);
             return ErrorCacheUnavailable;
         }
-        if (chf->mtime.sec == actual_mtime.sec && chf->mtime.nsec == actual_mtime.nsec) {
+        if (chf->attr.mtime.sec == actual_attr.mtime.sec &&
+            chf->attr.mtime.nsec == actual_attr.mtime.nsec &&
+            chf->attr.inode == actual_attr.inode)
+        {
             os_file_close(this_file);
         } else {
             // we have to recompute the digest.
             // later we'll rewrite the manifest with the new mtime/digest values
             ch->manifest_dirty = true;
-            chf->mtime = actual_mtime;
+            chf->attr = actual_attr;
+
+            if (is_problematic_timestamp(&actual_attr.mtime)) {
+                chf->attr.mtime.sec = 0;
+                chf->attr.mtime.nsec = 0;
+                chf->attr.inode = 0;
+            }
 
             uint8_t actual_digest[48];
             if ((err = hash_file(actual_digest, this_file, nullptr))) {
@@ -377,7 +426,7 @@ Error cache_hit(CacheHash *ch, Buf *out_digest) {
             blake2b_update(&ch->blake, chf->bin_digest, 48);
         }
     }
-    if (file_i < input_file_count) {
+    if (file_i < input_file_count || file_i == 0 || return_code != ErrorNone) {
         // manifest file is empty or missing entries, so this is a cache miss
         ch->manifest_dirty = true;
         for (; file_i < input_file_count; file_i += 1) {
@@ -388,7 +437,7 @@ Error cache_hit(CacheHash *ch, Buf *out_digest) {
                 return ErrorCacheUnavailable;
             }
         }
-        return ErrorNone;
+        return return_code;
     }
     // Cache Hit
     return cache_final(ch, out_digest);
@@ -414,6 +463,78 @@ Error cache_add_file(CacheHash *ch, Buf *path) {
     return cache_add_file_fetch(ch, resolved_path, nullptr);
 }
 
+Error cache_add_dep_file(CacheHash *ch, Buf *dep_file_path, bool verbose) {
+    Error err;
+    Buf *contents = buf_alloc();
+    if ((err = os_fetch_file_path(dep_file_path, contents, false))) {
+        if (verbose) {
+            fprintf(stderr, "unable to read .d file: %s\n", err_str(err));
+        }
+        return ErrorReadingDepFile;
+    }
+    SplitIterator it = memSplit(buf_to_slice(contents), str("\r\n"));
+    // skip first line
+    SplitIterator_next(&it);
+    for (;;) {
+        Optional<Slice<uint8_t>> opt_line = SplitIterator_next(&it);
+        if (!opt_line.is_some)
+            break;
+        if (opt_line.value.len == 0)
+            continue;
+        // skip over indentation
+        while (opt_line.value.len != 0 && (opt_line.value.ptr[0] == ' ' || opt_line.value.ptr[0] == '\t')) {
+            opt_line.value.ptr += 1;
+            opt_line.value.len -= 1;
+        }
+        if (opt_line.value.len == 0)
+            continue;
+
+        if (opt_line.value.ptr[0] == '"') {
+            if (opt_line.value.len < 2) {
+                if (verbose) {
+                    fprintf(stderr, "unable to process invalid .d file %s: line too short\n", buf_ptr(dep_file_path));
+                }
+                return ErrorInvalidDepFile;
+            }
+            opt_line.value.ptr += 1;
+            opt_line.value.len -= 2;
+            while (opt_line.value.len != 0 && opt_line.value.ptr[opt_line.value.len] != '"') {
+                opt_line.value.len -= 1;
+            }
+            if (opt_line.value.len == 0) {
+                if (verbose) {
+                    fprintf(stderr, "unable to process invalid .d file %s: missing double quote\n", buf_ptr(dep_file_path));
+                }
+                return ErrorInvalidDepFile;
+            }
+            Buf *filename_buf = buf_create_from_slice(opt_line.value);
+            if ((err = cache_add_file(ch, filename_buf))) {
+                if (verbose) {
+                    fprintf(stderr, "unable to add %s to cache: %s\n", buf_ptr(filename_buf), err_str(err));
+                    fprintf(stderr, "when processing .d file: %s\n", buf_ptr(dep_file_path));
+                }
+                return err;
+            }
+        } else {
+            // sometimes there are multiple files on the same line; we actually need space tokenization.
+            SplitIterator line_it = memSplit(opt_line.value, str(" \t"));
+            Slice<uint8_t> filename;
+            while (SplitIterator_next(&line_it).unwrap(&filename)) {
+                Buf *filename_buf = buf_create_from_slice(filename);
+                if (buf_eql_str(filename_buf, "\\")) continue;
+                if ((err = cache_add_file(ch, filename_buf))) {
+                    if (verbose) {
+                        fprintf(stderr, "unable to add %s to cache: %s\n", buf_ptr(filename_buf), err_str(err));
+                        fprintf(stderr, "when processing .d file: %s\n", buf_ptr(dep_file_path));
+                    }
+                    return err;
+                }
+            }
+        }
+    }
+    return ErrorNone;
+}
+
 static Error write_manifest_file(CacheHash *ch) {
     Error err;
     Buf contents = BUF_INIT;
@@ -423,8 +544,8 @@ static Error write_manifest_file(CacheHash *ch) {
     for (size_t i = 0; i < ch->files.length; i += 1) {
         CacheHashFile *chf = &ch->files.at(i);
         base64_encode({encoded_digest, 64}, {chf->bin_digest, 48});
-        buf_appendf(&contents, "%" ZIG_PRI_u64 " %" ZIG_PRI_u64 " %s %s\n",
-            chf->mtime.sec, chf->mtime.nsec, encoded_digest, buf_ptr(chf->path));
+        buf_appendf(&contents, "%" ZIG_PRI_u64 " %" ZIG_PRI_u64 " %" ZIG_PRI_u64 " %s %s\n",
+            chf->attr.inode, chf->attr.mtime.sec, chf->attr.mtime.nsec, encoded_digest, buf_ptr(chf->path));
     }
     if ((err = os_file_overwrite(ch->manifest_file, &contents)))
         return err;
@@ -464,3 +585,4 @@ void cache_release(CacheHash *ch) {
 
     os_file_close(ch->manifest_file);
 }
+

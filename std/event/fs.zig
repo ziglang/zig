@@ -1,5 +1,5 @@
 const builtin = @import("builtin");
-const std = @import("../index.zig");
+const std = @import("../std.zig");
 const event = std.event;
 const assert = std.debug.assert;
 const testing = std.testing;
@@ -404,11 +404,7 @@ pub async fn openPosix(
 
 pub async fn openRead(loop: *Loop, path: []const u8) os.File.OpenError!os.FileHandle {
     switch (builtin.os) {
-        builtin.Os.macosx,
-        builtin.Os.linux,
-        builtin.Os.freebsd,
-        builtin.Os.netbsd
-        => {
+        builtin.Os.macosx, builtin.Os.linux, builtin.Os.freebsd, builtin.Os.netbsd => {
             const flags = posix.O_LARGEFILE | posix.O_RDONLY | posix.O_CLOEXEC;
             return await (async openPosix(loop, path, flags, os.File.default_mode) catch unreachable);
         },
@@ -876,10 +872,7 @@ pub fn Watch(comptime V: type) type {
 
         pub async fn addFile(self: *Self, file_path: []const u8, value: V) !?V {
             switch (builtin.os) {
-                builtin.Os.macosx,
-                builtin.Os.freebsd,
-                builtin.Os.netbsd
-                => return await (async addFileKEvent(self, file_path, value) catch unreachable),
+                builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => return await (async addFileKEvent(self, file_path, value) catch unreachable),
                 builtin.Os.linux => return await (async addFileLinux(self, file_path, value) catch unreachable),
                 builtin.Os.windows => return await (async addFileWindows(self, file_path, value) catch unreachable),
                 else => @compileError("Unsupported OS"),

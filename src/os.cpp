@@ -35,6 +35,7 @@
 #include <shlobj.h>
 #include <io.h>
 #include <fcntl.h>
+#include <ntsecapi.h>
 
 typedef SSIZE_T ssize_t;
 #else
@@ -54,6 +55,10 @@ typedef SSIZE_T ssize_t;
 #include <link.h>
 #endif
 
+#if defined(ZIG_OS_LINUX)
+#include <sys/auxv.h>
+#endif
+
 #if defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD)
 #include <sys/sysctl.h>
 #endif
@@ -65,9 +70,10 @@ typedef SSIZE_T ssize_t;
 #endif
 
 #if defined(ZIG_OS_WINDOWS)
-static double win32_time_resolution;
+static uint64_t windows_perf_freq;
 #elif defined(__MACH__)
-static clock_serv_t cclock;
+static clock_serv_t macos_calendar_clock;
+static clock_serv_t macos_monotonic_clock;
 #endif
 
 #include <stdlib.h>
@@ -264,7 +270,7 @@ void os_path_join(Buf *dirname, Buf *basename, Buf *out_full_path) {
     buf_append_buf(out_full_path, basename);
 }
 
-int os_path_real(Buf *rel_path, Buf *out_abs_path) {
+Error os_path_real(Buf *rel_path, Buf *out_abs_path) {
 #if defined(ZIG_OS_WINDOWS)
     buf_resize(out_abs_path, 4096);
     if (_fullpath(buf_ptr(out_abs_path), buf_ptr(rel_path), buf_len(out_abs_path)) == nullptr) {
@@ -1026,7 +1032,7 @@ Error os_exec_process(const char *exe, ZigList<const char *> &args,
 #endif
 }
 
-void os_write_file(Buf *full_path, Buf *contents) {
+Error os_write_file(Buf *full_path, Buf *contents) {
     FILE *f = fopen(buf_ptr(full_path), "wb");
     if (!f) {
         zig_panic("os_write_file failed for %s", buf_ptr(full_path));
@@ -1036,6 +1042,7 @@ void os_write_file(Buf *full_path, Buf *contents) {
         zig_panic("write failed: %s", strerror(errno));
     if (fclose(f))
         zig_panic("close failed");
+    return ErrorNone;
 }
 
 Error os_copy_file(Buf *src_path, Buf *dest_path) {
@@ -1099,7 +1106,7 @@ Error os_fetch_file_path(Buf *full_path, Buf *out_contents, bool skip_shebang) {
             case EINTR:
                 return ErrorInterrupted;
             case EINVAL:
-                zig_unreachable();
+                return ErrorInvalidFilename;
             case ENFILE:
             case ENOMEM:
                 return ErrorSystemResources;
@@ -1203,79 +1210,6 @@ bool os_stderr_tty(void) {
 #endif
 }
 
-#if defined(ZIG_OS_POSIX)
-static Error os_buf_to_tmp_file_posix(Buf *contents, Buf *suffix, Buf *out_tmp_path) {
-    const char *tmp_dir = getenv("TMPDIR");
-    if (!tmp_dir) {
-        tmp_dir = P_tmpdir;
-    }
-    buf_resize(out_tmp_path, 0);
-    buf_appendf(out_tmp_path, "%s/XXXXXX%s", tmp_dir, buf_ptr(suffix));
-
-    int fd = mkstemps(buf_ptr(out_tmp_path), (int)buf_len(suffix));
-    if (fd < 0) {
-        return ErrorFileSystem;
-    }
-
-    FILE *f = fdopen(fd, "wb");
-    if (!f) {
-        zig_panic("fdopen failed");
-    }
-
-    size_t amt_written = fwrite(buf_ptr(contents), 1, buf_len(contents), f);
-    if (amt_written != (size_t)buf_len(contents))
-        zig_panic("write failed: %s", strerror(errno));
-    if (fclose(f))
-        zig_panic("close failed");
-
-    return ErrorNone;
-}
-#endif
-
-#if defined(ZIG_OS_WINDOWS)
-static Error os_buf_to_tmp_file_windows(Buf *contents, Buf *suffix, Buf *out_tmp_path) {
-    char tmp_dir[MAX_PATH + 1];
-    if (GetTempPath(MAX_PATH, tmp_dir) == 0) {
-        zig_panic("GetTempPath failed");
-    }
-    buf_init_from_str(out_tmp_path, tmp_dir);
-
-    const char base64[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_";
-    assert(array_length(base64) == 64 + 1);
-    for (size_t i = 0; i < 8; i += 1) {
-        buf_append_char(out_tmp_path, base64[rand() % 64]);
-    }
-
-    buf_append_buf(out_tmp_path, suffix);
-
-    FILE *f = fopen(buf_ptr(out_tmp_path), "wb");
-
-    if (!f) {
-        zig_panic("unable to open %s: %s", buf_ptr(out_tmp_path), strerror(errno));
-    }
-
-    size_t amt_written = fwrite(buf_ptr(contents), 1, buf_len(contents), f);
-    if (amt_written != (size_t)buf_len(contents)) {
-        zig_panic("write failed: %s", strerror(errno));
-    }
-
-    if (fclose(f)) {
-        zig_panic("fclose failed");
-    }
-    return ErrorNone;
-}
-#endif
-
-Error os_buf_to_tmp_file(Buf *contents, Buf *suffix, Buf *out_tmp_path) {
-#if defined(ZIG_OS_WINDOWS)
-    return os_buf_to_tmp_file_windows(contents, suffix, out_tmp_path);
-#elif defined(ZIG_OS_POSIX)
-    return os_buf_to_tmp_file_posix(contents, suffix, out_tmp_path);
-#else
-#error "missing os_buf_to_tmp_file implementation"
-#endif
-}
-
 Error os_delete_file(Buf *path) {
     if (remove(buf_ptr(path))) {
         return ErrorFileSystem;
@@ -1300,28 +1234,60 @@ Error os_rename(Buf *src_path, Buf *dest_path) {
     return ErrorNone;
 }
 
-double os_get_time(void) {
 #if defined(ZIG_OS_WINDOWS)
-    unsigned __int64 time;
-    QueryPerformanceCounter((LARGE_INTEGER*) &time);
-    return time * win32_time_resolution;
+static void windows_filetime_to_os_timestamp(FILETIME *ft, OsTimeStamp *mtime) {
+    mtime->sec = (((ULONGLONG) ft->dwHighDateTime) << 32) + ft->dwLowDateTime;
+    mtime->nsec = 0;
+}
+#endif
+
+OsTimeStamp os_timestamp_calendar(void) {
+    OsTimeStamp result;
+#if defined(ZIG_OS_WINDOWS)
+    FILETIME ft;
+    GetSystemTimeAsFileTime(&ft);
+    windows_filetime_to_os_timestamp(&ft, &result);
 #elif defined(__MACH__)
     mach_timespec_t mts;
 
-    kern_return_t err = clock_get_time(cclock, &mts);
+    kern_return_t err = clock_get_time(macos_calendar_clock, &mts);
     assert(!err);
 
-    double seconds = (double)mts.tv_sec;
-    seconds += ((double)mts.tv_nsec) / 1000000000.0;
+    result.sec = mts.tv_sec;
+    result.nsec = mts.tv_nsec;
+#else
+    struct timespec tms;
+    clock_gettime(CLOCK_REALTIME, &tms);
 
-    return seconds;
+    result.sec = tms.tv_sec;
+    result.nsec = tms.tv_nsec;
+#endif
+    return result;
+}
+
+OsTimeStamp os_timestamp_monotonic(void) {
+    OsTimeStamp result;
+#if defined(ZIG_OS_WINDOWS)
+    uint64_t counts;
+    QueryPerformanceCounter((LARGE_INTEGER*)&counts);
+    result.sec = counts / windows_perf_freq;
+    result.nsec = (counts % windows_perf_freq) * 1000000000u / windows_perf_freq;
+#elif defined(__MACH__)
+    mach_timespec_t mts;
+
+    kern_return_t err = clock_get_time(macos_monotonic_clock, &mts);
+    assert(!err);
+
+    result.sec = mts.tv_sec;
+    result.nsec = mts.tv_nsec;
 #else
     struct timespec tms;
     clock_gettime(CLOCK_MONOTONIC, &tms);
-    double seconds = (double)tms.tv_sec;
-    seconds += ((double)tms.tv_nsec) / 1000000000.0;
-    return seconds;
+
+    result.sec = tms.tv_sec;
+    result.nsec = tms.tv_nsec;
 #endif
+    return result;
 }
 
 Error os_make_path(Buf *path) {
@@ -1384,19 +1350,47 @@ Error os_make_dir(Buf *path) {
 #endif
 }
 
+static void init_rand() {
+#if defined(ZIG_OS_WINDOWS)
+    char bytes[sizeof(unsigned)];
+    unsigned seed;
+    RtlGenRandom(bytes, sizeof(unsigned));
+    memcpy(&seed, bytes, sizeof(unsigned));
+    srand(seed);
+#elif defined(ZIG_OS_LINUX)
+    srand(*((unsigned*)getauxval(AT_RANDOM)));
+#else
+    int fd = open("/dev/urandom", O_RDONLY|O_CLOEXEC);
+    if (fd == -1) {
+        zig_panic("unable to open /dev/urandom");
+    }
+    char bytes[sizeof(unsigned)];
+    size_t amt_read;
+    while ((amt_read = read(fd, bytes, sizeof(unsigned))) == -1) {
+        if (errno == EINTR) continue;
+        zig_panic("unable to read /dev/urandom");
+    }
+    if (amt_read != sizeof(unsigned)) {
+        zig_panic("unable to read enough bytes from /dev/urandom");
+    }
+    close(fd);
+    unsigned seed;
+    memcpy(&seed, bytes, sizeof(unsigned));
+    srand(seed);
+#endif
+}
+
 int os_init(void) {
-    srand((unsigned)time(NULL));
+    init_rand();
 #if defined(ZIG_OS_WINDOWS)
     _setmode(fileno(stdout), _O_BINARY);
     _setmode(fileno(stderr), _O_BINARY);
-    unsigned __int64 frequency;
-    if (QueryPerformanceFrequency((LARGE_INTEGER*) &frequency)) {
-        win32_time_resolution = 1.0 / (double) frequency;
-    } else {
+    if (!QueryPerformanceFrequency((LARGE_INTEGER*)&windows_perf_freq)) {
         return ErrorSystemResources;
     }
 #elif defined(__MACH__)
-    host_get_clock_service(mach_host_self(), SYSTEM_CLOCK, &cclock);
+    host_get_clock_service(mach_host_self(), SYSTEM_CLOCK, &macos_monotonic_clock);
+    host_get_clock_service(mach_host_self(), CALENDAR_CLOCK, &macos_calendar_clock);
 #endif
     return 0;
 }
@@ -1550,7 +1544,7 @@ void os_stderr_set_color(TermColor color) {
 #endif
 }
 
-int os_get_win32_ucrt_lib_path(ZigWindowsSDK *sdk, Buf* output_buf, ZigLLVM_ArchType platform_type) {
+Error os_get_win32_ucrt_lib_path(ZigWindowsSDK *sdk, Buf* output_buf, ZigLLVM_ArchType platform_type) {
 #if defined(ZIG_OS_WINDOWS)
     buf_resize(output_buf, 0);
     buf_appendf(output_buf, "%s\\Lib\\%s\\ucrt\\", sdk->path10_ptr, sdk->version10_ptr);
@@ -1571,7 +1565,7 @@ int os_get_win32_ucrt_lib_path(ZigWindowsSDK *sdk, Buf* output_buf, ZigLLVM_Arch
     buf_init_from_buf(tmp_buf, output_buf);
     buf_append_str(tmp_buf, "ucrt.lib");
     if (GetFileAttributesA(buf_ptr(tmp_buf)) != INVALID_FILE_ATTRIBUTES) {
-        return 0;
+        return ErrorNone;
     }
     else {
         buf_resize(output_buf, 0);
@@ -1582,12 +1576,12 @@ int os_get_win32_ucrt_lib_path(ZigWindowsSDK *sdk, Buf* output_buf, ZigLLVM_Arch
 #endif
 }
 
-int os_get_win32_ucrt_include_path(ZigWindowsSDK *sdk, Buf* output_buf) {
+Error os_get_win32_ucrt_include_path(ZigWindowsSDK *sdk, Buf* output_buf) {
 #if defined(ZIG_OS_WINDOWS)
     buf_resize(output_buf, 0);
     buf_appendf(output_buf, "%s\\Include\\%s\\ucrt", sdk->path10_ptr, sdk->version10_ptr);
     if (GetFileAttributesA(buf_ptr(output_buf)) != INVALID_FILE_ATTRIBUTES) {
-        return 0;
+        return ErrorNone;
     }
     else {
         buf_resize(output_buf, 0);
@@ -1598,7 +1592,7 @@ int os_get_win32_ucrt_include_path(ZigWindowsSDK *sdk, Buf* output_buf) {
 #endif
 }
 
-int os_get_win32_kern32_path(ZigWindowsSDK *sdk, Buf* output_buf, ZigLLVM_ArchType platform_type) {
+Error os_get_win32_kern32_path(ZigWindowsSDK *sdk, Buf* output_buf, ZigLLVM_ArchType platform_type) {
 #if defined(ZIG_OS_WINDOWS)
     {
         buf_resize(output_buf, 0);
@@ -1620,7 +1614,7 @@ int os_get_win32_kern32_path(ZigWindowsSDK *sdk, Buf* output_buf, ZigLLVM_ArchTy
         buf_init_from_buf(tmp_buf, output_buf);
         buf_append_str(tmp_buf, "kernel32.lib");
         if (GetFileAttributesA(buf_ptr(tmp_buf)) != INVALID_FILE_ATTRIBUTES) {
-            return 0;
+            return ErrorNone;
         }
     }
     {
@@ -1643,7 +1637,7 @@ int os_get_win32_kern32_path(ZigWindowsSDK *sdk, Buf* output_buf, ZigLLVM_ArchTy
         buf_init_from_buf(tmp_buf, output_buf);
         buf_append_str(tmp_buf, "kernel32.lib");
         if (GetFileAttributesA(buf_ptr(tmp_buf)) != INVALID_FILE_ATTRIBUTES) {
-            return 0;
+            return ErrorNone;
         }
     }
     return ErrorFileNotFound;
@@ -1817,7 +1811,7 @@ Error os_self_exe_shared_libs(ZigList<Buf *> &paths) {
 #endif
 }
 
-Error os_file_open_r(Buf *full_path, OsFile *out_file, OsTimeStamp *mtime) {
+Error os_file_open_r(Buf *full_path, OsFile *out_file, OsFileAttr *attr) {
 #if defined(ZIG_OS_WINDOWS)
     // TODO use CreateFileW
     HANDLE result = CreateFileA(buf_ptr(full_path), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -1845,14 +1839,14 @@ Error os_file_open_r(Buf *full_path, OsFile *out_file, OsTimeStamp *mtime) {
     }
     *out_file = result;
 
-    if (mtime != nullptr) {
-        FILETIME last_write_time;
-        if (!GetFileTime(result, nullptr, nullptr, &last_write_time)) {
+    if (attr != nullptr) {
+        BY_HANDLE_FILE_INFORMATION file_info;
+        if (!GetFileInformationByHandle(result, &file_info)) {
             CloseHandle(result);
             return ErrorUnexpected;
         }
-        mtime->sec = (((ULONGLONG) last_write_time.dwHighDateTime) << 32) + last_write_time.dwLowDateTime;
-        mtime->nsec = 0;
+        windows_filetime_to_os_timestamp(&file_info.ftLastWriteTime, &attr->mtime);
+        attr->inode = (((uint64_t)file_info.nFileIndexHigh) << 32) | file_info.nFileIndexLow;
     }
 
     return ErrorNone;
@@ -1888,13 +1882,14 @@ Error os_file_open_r(Buf *full_path, OsFile *out_file, OsTimeStamp *mtime) {
         }
         *out_file = fd;
 
-        if (mtime != nullptr) {
+        if (attr != nullptr) {
+            attr->inode = statbuf.st_ino;
 #if defined(ZIG_OS_DARWIN)
-            mtime->sec = statbuf.st_mtimespec.tv_sec;
-            mtime->nsec = statbuf.st_mtimespec.tv_nsec;
+            attr->mtime.sec = statbuf.st_mtimespec.tv_sec;
+            attr->mtime.nsec = statbuf.st_mtimespec.tv_nsec;
 #else
-            mtime->sec = statbuf.st_mtim.tv_sec;
-            mtime->nsec = statbuf.st_mtim.tv_nsec;
+            attr->mtime.sec = statbuf.st_mtim.tv_sec;
+            attr->mtime.nsec = statbuf.st_mtim.tv_nsec;
 #endif
         }
         return ErrorNone;
@@ -1952,6 +1947,8 @@ Error os_file_open_lock_rw(Buf *full_path, OsFile *out_file) {
                     return ErrorIsDir;
                 case ENOENT:
                     return ErrorFileNotFound;
+                case ENOTDIR:
+                    return ErrorNotDir;
                 default:
                     return ErrorFileSystem;
             }

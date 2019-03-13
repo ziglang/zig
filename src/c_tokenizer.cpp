@@ -362,6 +362,13 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                         ctok->cur_tok->id = CTokIdNumLitFloat;
                         buf_append_char(&ctok->buf, '.');
                         break;
+                    case 'l':
+                    case 'L':
+                    case 'u':
+                    case 'U':
+                        c -= 1;
+                        ctok->state = CTokStateDecimal;
+                        continue;
                     default:
                         c -= 1;
                         ctok->state = CTokStateOctal;

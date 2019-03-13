@@ -101,7 +101,7 @@ nakedcc fn clone() void {
             \\1:    ret
             \\
         );
-    } else if (builtin.arch == builtin.Arch.aarch64v8) {
+    } else if (builtin.arch == builtin.Arch.aarch64) {
         // __clone(func, stack, flags, arg, ptid, tls, ctid)
         //         x0,   x1,    w2,    x3,  x4,   x5,  x6
 
@@ -134,7 +134,7 @@ nakedcc fn clone() void {
     }
 }
 
-const math = @import("../math/index.zig");
+const math = std.math;
 
 export fn fmodf(x: f32, y: f32) f32 {
     return generic_fmod(f32, x, y);

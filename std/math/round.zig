@@ -6,7 +6,7 @@
 
 const builtin = @import("builtin");
 const expect = std.testing.expect;
-const std = @import("../index.zig");
+const std = @import("../std.zig");
 const math = std.math;
 
 pub fn round(x: var) @typeOf(x) {

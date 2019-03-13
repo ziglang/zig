@@ -1,4 +1,4 @@
-const std = @import("index.zig");
+const std = @import("std.zig");
 const debug = std.debug;
 const assert = debug.assert;
 const math = std.math;
@@ -114,7 +114,8 @@ pub const Allocator = struct {
         // n <= old_mem.len and the multiplication didn't overflow for that operation.
         const byte_count = @sizeOf(T) * n;
 
-        const byte_slice = self.reallocFn(self, @sliceToBytes(old_mem), byte_count, alignment) catch unreachable;
+        const old_byte_slice = @sliceToBytes(old_mem);
+        const byte_slice = self.reallocFn(self, old_byte_slice, byte_count, alignment) catch unreachable;
         assert(byte_slice.len == byte_count);
         return @bytesToSlice(T, @alignCast(alignment, byte_slice));
     }

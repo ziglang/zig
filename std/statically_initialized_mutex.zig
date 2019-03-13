@@ -1,4 +1,4 @@
-const std = @import("index.zig");
+const std = @import("std.zig");
 const builtin = @import("builtin");
 const AtomicOrder = builtin.AtomicOrder;
 const AtomicRmwOp = builtin.AtomicRmwOp;
@@ -13,7 +13,7 @@ const windows = std.os.windows;
 /// On Windows, this mutex allocates resources when it is
 /// first used, and the resources cannot be freed.
 /// On Linux, this is an alias of std.Mutex.
-pub const StaticallyInitializedMutex = switch(builtin.os) {
+pub const StaticallyInitializedMutex = switch (builtin.os) {
     builtin.Os.linux => std.Mutex,
     builtin.Os.windows => struct {
         lock: windows.CRITICAL_SECTION,
@@ -28,7 +28,7 @@ pub const StaticallyInitializedMutex = switch(builtin.os) {
         };
 
         pub fn init() StaticallyInitializedMutex {
-            return StaticallyInitializedMutex {
+            return StaticallyInitializedMutex{
                 .lock = undefined,
                 .init_once = windows.INIT_ONCE_STATIC_INIT,
             };
@@ -54,7 +54,7 @@ pub const StaticallyInitializedMutex = switch(builtin.os) {
         pub fn acquire(self: *StaticallyInitializedMutex) Held {
             assert(windows.InitOnceExecuteOnce(&self.init_once, initCriticalSection, &self.lock, null) != 0);
             windows.EnterCriticalSection(&self.lock);
-            return Held { .mutex = self };
+            return Held{ .mutex = self };
         }
     },
     else => std.Mutex,
@@ -89,10 +89,7 @@ test "std.StaticallyInitializedMutex" {
     var fixed_buffer_allocator = std.heap.ThreadSafeFixedBufferAllocator.init(plenty_of_memory);
     var a = &fixed_buffer_allocator.allocator;
 
-
-    var context = TestContext{
-        .data = 0,
-    };
+    var context = TestContext{ .data = 0 };
 
     if (builtin.single_threaded) {
         TestContext.worker(&context);

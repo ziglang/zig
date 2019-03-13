@@ -186,7 +186,7 @@ fn testUnion() void {
     expect(TypeId(typeinfo_info) == TypeId.Union);
     expect(typeinfo_info.Union.layout == TypeInfo.ContainerLayout.Auto);
     expect(typeinfo_info.Union.tag_type.? == TypeId);
-    expect(typeinfo_info.Union.fields.len == 25);
+    expect(typeinfo_info.Union.fields.len == 24);
     expect(typeinfo_info.Union.fields[4].enum_field != null);
     expect(typeinfo_info.Union.fields[4].enum_field.?.value == 4);
     expect(typeinfo_info.Union.fields[4].field_type == @typeOf(@typeInfo(u8).Int));
@@ -288,4 +288,28 @@ fn testVector() void {
     expect(TypeId(vec_info) == TypeId.Vector);
     expect(vec_info.Vector.len == 4);
     expect(vec_info.Vector.child == i32);
+}
+
+test "type info: optional field unwrapping" {
+    const Struct = struct {
+        cdOffset: u32,
+    };
+
+    const field = @typeInfo(Struct).Struct.fields[0];
+
+    _ = field.offset orelse 0;
+}
+
+test "type info: pass to function" {
+    _ = passTypeInfo(@typeInfo(void));
+    _ = comptime passTypeInfo(@typeInfo(void));
+}
+
+fn passTypeInfo(comptime info: TypeInfo) type {
+    return void;
+}
+
+test "type info: TypeId -> TypeInfo impl cast" {
+    _ = passTypeInfo(TypeId.Void);
+    _ = comptime passTypeInfo(TypeId.Void);
 }

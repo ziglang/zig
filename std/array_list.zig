@@ -1,4 +1,4 @@
-const std = @import("index.zig");
+const std = @import("std.zig");
 const debug = std.debug;
 const assert = debug.assert;
 const testing = std.testing;
@@ -406,6 +406,6 @@ const Item = struct {
 
 test "std.ArrayList: ArrayList(T) of struct T" {
     var root = Item{ .integer = 1, .sub_items = ArrayList(Item).init(debug.global_allocator) };
-    try root.sub_items.append( Item{ .integer = 42, .sub_items = ArrayList(Item).init(debug.global_allocator) } );
+    try root.sub_items.append(Item{ .integer = 42, .sub_items = ArrayList(Item).init(debug.global_allocator) });
     testing.expect(root.sub_items.items[0].integer == 42);
 }

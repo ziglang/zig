@@ -1,4 +1,4 @@
-const std = @import("../../index.zig");
+const std = @import("../../std.zig");
 const linux = std.os.linux;
 const socklen_t = linux.socklen_t;
 const iovec = linux.iovec;

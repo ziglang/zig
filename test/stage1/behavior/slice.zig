@@ -1,5 +1,7 @@
-const expect = @import("std").testing.expect;
-const mem = @import("std").mem;
+const std = @import("std");
+const expect = std.testing.expect;
+const expectEqualSlices = std.testing.expectEqualSlices;
+const mem = std.mem;
 
 const x = @intToPtr([*]i32, 0x1000)[0..0x500];
 const y = x[0x100..];
@@ -50,4 +52,11 @@ fn sliceSum(comptime q: []const u8) i32 {
 test "comptime slices are disambiguated" {
     expect(sliceSum([]u8{ 1, 2 }) == 3);
     expect(sliceSum([]u8{ 3, 4 }) == 7);
+}
+
+test "C pointer" {
+    var buf: [*c]const u8 = c"kjdhfkjdhfdkjhfkfjhdfkjdhfkdjhfdkjhf";
+    var len: u32 = 10;
+    var slice = buf[0..len];
+    expectEqualSlices(u8, "kjdhfkjdhf", slice);
 }

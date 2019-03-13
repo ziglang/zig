@@ -154,9 +154,7 @@ const usage_build_generic =
     \\    release-small              optimize for small binary, safety off
     \\  --static                     Output will be statically linked
     \\  --strip                      Exclude debug symbols
-    \\  --target-arch [name]         Specify target architecture
-    \\  --target-environ [name]      Specify target environment
-    \\  --target-os [name]           Specify target operating system
+    \\  -target [name]               <arch><sub>-<os>-<abi> see the targets command
     \\  --verbose-tokenize           Turn on compiler debug output for tokenization
     \\  --verbose-ast-tree           Turn on compiler debug output for parsing into an AST (tree view)
     \\  --verbose-ast-fmt            Turn on compiler debug output for parsing into an AST (render source)
@@ -220,9 +218,7 @@ const args_build_generic = []Flag{
     Flag.Bool("--pkg-end"),
     Flag.Bool("--static"),
     Flag.Bool("--strip"),
-    Flag.Arg1("--target-arch"),
-    Flag.Arg1("--target-environ"),
-    Flag.Arg1("--target-os"),
+    Flag.Arg1("-target"),
     Flag.Bool("--verbose-tokenize"),
     Flag.Bool("--verbose-ast-tree"),
     Flag.Bool("--verbose-ast-fmt"),
@@ -839,15 +835,15 @@ fn cmdTargets(allocator: *Allocator, args: []const []const u8) !void {
     }
     try stdout.write("\n");
 
-    try stdout.write("Environments:\n");
+    try stdout.write("C ABIs:\n");
     {
         comptime var i: usize = 0;
-        inline while (i < @memberCount(builtin.Environ)) : (i += 1) {
-            comptime const environ_tag = @memberName(builtin.Environ, i);
+        inline while (i < @memberCount(builtin.Abi)) : (i += 1) {
+            comptime const abi_tag = @memberName(builtin.Abi, i);
             // NOTE: Cannot use empty string, see #918.
-            comptime const native_str = if (comptime mem.eql(u8, environ_tag, @tagName(builtin.environ))) " (native)\n" else "\n";
+            comptime const native_str = if (comptime mem.eql(u8, abi_tag, @tagName(builtin.abi))) " (native)\n" else "\n";
 
-            try stdout.print("  {}{}", environ_tag, native_str);
+            try stdout.print("  {}{}", abi_tag, native_str);
         }
     }
 }

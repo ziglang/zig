@@ -47,7 +47,7 @@ pub const ZigCompiler = struct {
 
     var lazy_init_targets = std.lazyInit(void);
 
-    fn init(loop: *event.Loop) !ZigCompiler {
+    pub fn init(loop: *event.Loop) !ZigCompiler {
         lazy_init_targets.get() orelse {
             Target.initializeAll();
             lazy_init_targets.resolve();
@@ -533,7 +533,7 @@ pub const Compilation = struct {
             const basename = std.os.path.basename(root_src);
 
             comp.root_package = try Package.create(comp.arena(), dirname, basename);
-            comp.std_package = try Package.create(comp.arena(), comp.zig_std_dir, "index.zig");
+            comp.std_package = try Package.create(comp.arena(), comp.zig_std_dir, "std.zig");
             try comp.root_package.add("std", comp.std_package);
         } else {
             comp.root_package = try Package.create(comp.arena(), ".", "");

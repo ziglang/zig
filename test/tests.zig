@@ -12,6 +12,7 @@ const fmt = std.fmt;
 const ArrayList = std.ArrayList;
 const builtin = @import("builtin");
 const Mode = builtin.Mode;
+const LibExeObjStep = build.LibExeObjStep;
 
 const compare_output = @import("compare_output.zig");
 const build_examples = @import("build_examples.zig");
@@ -24,24 +25,24 @@ const gen_h = @import("gen_h.zig");
 const TestTarget = struct {
     os: builtin.Os,
     arch: builtin.Arch,
-    environ: builtin.Environ,
+    abi: builtin.Abi,
 };
 
 const test_targets = []TestTarget{
     TestTarget{
         .os = builtin.Os.linux,
         .arch = builtin.Arch.x86_64,
-        .environ = builtin.Environ.gnu,
+        .abi = builtin.Abi.gnu,
     },
     TestTarget{
         .os = builtin.Os.macosx,
         .arch = builtin.Arch.x86_64,
-        .environ = builtin.Environ.unknown,
+        .abi = builtin.Abi.gnu,
     },
     TestTarget{
         .os = builtin.Os.windows,
         .arch = builtin.Arch.x86_64,
-        .environ = builtin.Environ.msvc,
+        .abi = builtin.Abi.msvc,
     },
 };
 
@@ -111,12 +112,11 @@ pub fn addCliTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const M
     const step = b.step("test-cli", "Test the command line interface");
 
     const exe = b.addExecutable("test-cli", "test/cli.zig");
-    const run_cmd = b.addCommand(null, b.env_map, [][]const u8{
-        b.pathFromRoot(exe.getOutputPath()),
+    const run_cmd = exe.run();
+    run_cmd.addArgs([][]const u8{
         os.path.realAlloc(b.allocator, b.zig_exe) catch unreachable,
         b.pathFromRoot(b.cache_root),
     });
-    run_cmd.step.dependOn(&exe.step);
 
     step.dependOn(&run_cmd.step);
     return step;
@@ -189,7 +189,7 @@ pub fn addPkgTests(b: *build.Builder, test_filter: ?[]const u8, root_src: []cons
                     these_tests.setFilter(test_filter);
                     these_tests.setBuildMode(mode);
                     if (!is_native) {
-                        these_tests.setTarget(test_target.arch, test_target.os, test_target.environ);
+                        these_tests.setTarget(test_target.arch, test_target.os, test_target.abi);
                     }
                     if (link_libc) {
                         these_tests.linkSystemLibrary("c");
@@ -246,24 +246,31 @@ pub const CompareOutputContext = struct {
     const RunCompareOutputStep = struct {
         step: build.Step,
         context: *CompareOutputContext,
-        exe_path: []const u8,
+        exe: *LibExeObjStep,
         name: []const u8,
         expected_output: []const u8,
         test_index: usize,
         cli_args: []const []const u8,
 
-        pub fn create(context: *CompareOutputContext, exe_path: []const u8, name: []const u8, expected_output: []const u8, cli_args: []const []const u8) *RunCompareOutputStep {
+        pub fn create(
+            context: *CompareOutputContext,
+            exe: *LibExeObjStep,
+            name: []const u8,
+            expected_output: []const u8,
+            cli_args: []const []const u8,
+        ) *RunCompareOutputStep {
             const allocator = context.b.allocator;
             const ptr = allocator.create(RunCompareOutputStep) catch unreachable;
             ptr.* = RunCompareOutputStep{
                 .context = context,
-                .exe_path = exe_path,
+                .exe = exe,
                 .name = name,
                 .expected_output = expected_output,
                 .test_index = context.test_index,
                 .step = build.Step.init("RunCompareOutput", allocator, make),
                 .cli_args = cli_args,
             };
+            ptr.step.dependOn(&exe.step);
             context.test_index += 1;
             return ptr;
         }
@@ -272,7 +279,7 @@ pub const CompareOutputContext = struct {
             const self = @fieldParentPtr(RunCompareOutputStep, "step", step);
             const b = self.context.b;
 
-            const full_exe_path = b.pathFromRoot(self.exe_path);
+            const full_exe_path = self.exe.getOutputPath();
             var args = ArrayList([]const u8).init(b.allocator);
             defer args.deinit();
 
@@ -336,21 +343,21 @@ pub const CompareOutputContext = struct {
     const RuntimeSafetyRunStep = struct {
         step: build.Step,
         context: *CompareOutputContext,
-        exe_path: []const u8,
+        exe: *LibExeObjStep,
         name: []const u8,
         test_index: usize,
 
-        pub fn create(context: *CompareOutputContext, exe_path: []const u8, name: []const u8) *RuntimeSafetyRunStep {
+        pub fn create(context: *CompareOutputContext, exe: *LibExeObjStep, name: []const u8) *RuntimeSafetyRunStep {
             const allocator = context.b.allocator;
             const ptr = allocator.create(RuntimeSafetyRunStep) catch unreachable;
             ptr.* = RuntimeSafetyRunStep{
                 .context = context,
-                .exe_path = exe_path,
+                .exe = exe,
                 .name = name,
                 .test_index = context.test_index,
                 .step = build.Step.init("RuntimeSafetyRun", allocator, make),
             };
-
+            ptr.step.dependOn(&exe.step);
             context.test_index += 1;
             return ptr;
         }
@@ -359,11 +366,11 @@ pub const CompareOutputContext = struct {
             const self = @fieldParentPtr(RuntimeSafetyRunStep, "step", step);
             const b = self.context.b;
 
-            const full_exe_path = b.pathFromRoot(self.exe_path);
+            const full_exe_path = self.exe.getOutputPath();
 
             warn("Test {}/{} {}...", self.test_index + 1, self.context.test_index, self.name);
 
-            const child = os.ChildProcess.init([][]u8{full_exe_path}, b.allocator) catch unreachable;
+            const child = os.ChildProcess.init([][]const u8{full_exe_path}, b.allocator) catch unreachable;
             defer child.deinit();
 
             child.env_map = b.env_map;
@@ -463,8 +470,13 @@ pub const CompareOutputContext = struct {
                     exe.step.dependOn(&write_src.step);
                 }
 
-                const run_and_cmp_output = RunCompareOutputStep.create(self, exe.getOutputPath(), annotated_case_name, case.expected_output, case.cli_args);
-                run_and_cmp_output.step.dependOn(&exe.step);
+                const run_and_cmp_output = RunCompareOutputStep.create(
+                    self,
+                    exe,
+                    annotated_case_name,
+                    case.expected_output,
+                    case.cli_args,
+                );
 
                 self.step.dependOn(&run_and_cmp_output.step);
             },
@@ -490,8 +502,13 @@ pub const CompareOutputContext = struct {
                         exe.step.dependOn(&write_src.step);
                     }
 
-                    const run_and_cmp_output = RunCompareOutputStep.create(self, exe.getOutputPath(), annotated_case_name, case.expected_output, case.cli_args);
-                    run_and_cmp_output.step.dependOn(&exe.step);
+                    const run_and_cmp_output = RunCompareOutputStep.create(
+                        self,
+                        exe,
+                        annotated_case_name,
+                        case.expected_output,
+                        case.cli_args,
+                    );
 
                     self.step.dependOn(&run_and_cmp_output.step);
                 }
@@ -516,8 +533,7 @@ pub const CompareOutputContext = struct {
                     exe.step.dependOn(&write_src.step);
                 }
 
-                const run_and_cmp_output = RuntimeSafetyRunStep.create(self, exe.getOutputPath(), annotated_case_name);
-                run_and_cmp_output.step.dependOn(&exe.step);
+                const run_and_cmp_output = RuntimeSafetyRunStep.create(self, exe, annotated_case_name);
 
                 self.step.dependOn(&run_and_cmp_output.step);
             },
@@ -569,12 +585,10 @@ pub const CompileErrorContext = struct {
         const ErrLineIter = struct {
             lines: mem.SplitIterator,
 
-            const source_file = ".tmp_source.zig";
+            const source_file = "tmp.zig";
 
             fn init(input: []const u8) ErrLineIter {
-                return ErrLineIter {
-                    .lines = mem.separate(input, "\n"),
-                };
+                return ErrLineIter{ .lines = mem.separate(input, "\n") };
             }
 
             fn next(self: *ErrLineIter) ?[]const u8 {
@@ -610,10 +624,6 @@ pub const CompileErrorContext = struct {
                 b.allocator,
                 [][]const u8{ b.cache_root, self.case.sources.items[0].filename },
             ) catch unreachable;
-            const obj_path = os.path.join(
-                b.allocator,
-                [][]const u8{ b.cache_root, "test.o" },
-            ) catch unreachable;
 
             var zig_args = ArrayList([]const u8).init(b.allocator);
             zig_args.append(b.zig_exe) catch unreachable;
@@ -630,8 +640,8 @@ pub const CompileErrorContext = struct {
             zig_args.append("--name") catch unreachable;
             zig_args.append("test") catch unreachable;
 
-            zig_args.append("--output") catch unreachable;
-            zig_args.append(b.pathFromRoot(obj_path)) catch unreachable;
+            zig_args.append("--output-dir") catch unreachable;
+            zig_args.append(b.pathFromRoot(b.cache_root)) catch unreachable;
 
             switch (self.build_mode) {
                 Mode.Debug => {},
@@ -718,11 +728,11 @@ pub const CompileErrorContext = struct {
                 for (self.case.expected_errors.toSliceConst()) |expected| {
                     if (mem.indexOf(u8, stderr, expected) == null) {
                         warn(
+                            \\
                             \\=========== Expected compile error: ============
                             \\{}
                             \\
-                        , expected
-                        );
+                        , expected);
                         ok = false;
                         break;
                     }
@@ -734,8 +744,7 @@ pub const CompileErrorContext = struct {
                     \\================= Full output: =================
                     \\{}
                     \\
-                , stderr
-                );
+                , stderr);
                 return error.TestFailed;
             }
 
@@ -762,7 +771,7 @@ pub const CompileErrorContext = struct {
             .is_test = false,
         };
 
-        tc.addSourceFile(".tmp_source.zig", source);
+        tc.addSourceFile("tmp.zig", source);
         comptime var arg_i = 0;
         inline while (arg_i < expected_lines.len) : (arg_i += 1) {
             tc.addExpectedError(expected_lines[arg_i]);
@@ -854,7 +863,7 @@ pub const BuildExamplesContext = struct {
             zig_args.append("--verbose") catch unreachable;
         }
 
-        const run_cmd = b.addCommand(null, b.env_map, zig_args.toSliceConst());
+        const run_cmd = b.addSystemCommand(zig_args.toSliceConst());
 
         const log_step = b.addLog("PASS {}\n", annotated_case_name);
         log_step.step.dependOn(&run_cmd.step);
@@ -983,15 +992,18 @@ pub const TranslateCContext = struct {
                 Term.Exited => |code| {
                     if (code != 0) {
                         warn("Compilation failed with exit code {}\n", code);
+                        printInvocation(zig_args.toSliceConst());
                         return error.TestFailed;
                     }
                 },
                 Term.Signal => |code| {
                     warn("Compilation failed with signal {}\n", code);
+                    printInvocation(zig_args.toSliceConst());
                     return error.TestFailed;
                 },
                 else => {
                     warn("Compilation terminated unexpectedly\n");
+                    printInvocation(zig_args.toSliceConst());
                     return error.TestFailed;
                 },
             }
@@ -1118,23 +1130,28 @@ pub const GenHContext = struct {
     const GenHCmpOutputStep = struct {
         step: build.Step,
         context: *GenHContext,
-        h_path: []const u8,
+        obj: *LibExeObjStep,
         name: []const u8,
         test_index: usize,
         case: *const TestCase,
 
-        pub fn create(context: *GenHContext, h_path: []const u8, name: []const u8, case: *const TestCase) *GenHCmpOutputStep {
+        pub fn create(
+            context: *GenHContext,
+            obj: *LibExeObjStep,
+            name: []const u8,
+            case: *const TestCase,
+        ) *GenHCmpOutputStep {
             const allocator = context.b.allocator;
             const ptr = allocator.create(GenHCmpOutputStep) catch unreachable;
             ptr.* = GenHCmpOutputStep{
                 .step = build.Step.init("ParseCCmpOutput", allocator, make),
                 .context = context,
-                .h_path = h_path,
+                .obj = obj,
                 .name = name,
                 .test_index = context.test_index,
                 .case = case,
             };
-
+            ptr.step.dependOn(&obj.step);
             context.test_index += 1;
             return ptr;
         }
@@ -1145,7 +1162,7 @@ pub const GenHContext = struct {
 
             warn("Test {}/{} {}...", self.test_index + 1, self.context.test_index, self.name);
 
-            const full_h_path = b.pathFromRoot(self.h_path);
+            const full_h_path = self.obj.getOutputHPath();
             const actual_h = try io.readFileAlloc(b.allocator, full_h_path);
 
             for (self.case.expected_lines.toSliceConst()) |expected_line| {
@@ -1218,8 +1235,7 @@ pub const GenHContext = struct {
             obj.step.dependOn(&write_src.step);
         }
 
-        const cmp_h = GenHCmpOutputStep.create(self, obj.getOutputHPath(), annotated_case_name, case);
-        cmp_h.step.dependOn(&obj.step);
+        const cmp_h = GenHCmpOutputStep.create(self, obj, annotated_case_name, case);
 
         self.step.dependOn(&cmp_h.step);
     }

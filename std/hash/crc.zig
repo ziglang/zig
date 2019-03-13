@@ -5,7 +5,7 @@
 // - Crc32SmallWithPoly uses only 64 bytes of memory but is slower. Be aware that this is
 //   still moderately fast just slow relative to the slicing approach.
 
-const std = @import("../index.zig");
+const std = @import("../std.zig");
 const debug = std.debug;
 const testing = std.testing;
 

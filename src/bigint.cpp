@@ -1665,7 +1665,6 @@ int64_t bigint_as_signed(const BigInt *bigint) {
         return 0;
     } else if (bigint->digit_count == 1) {
         if (bigint->is_negative) {
-            // TODO this code path is untested
             if (bigint->data.digit <= 9223372036854775808ULL) {
                 return (-((int64_t)(bigint->data.digit - 1))) - 1;
             } else {

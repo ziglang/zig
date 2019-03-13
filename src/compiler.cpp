@@ -1,4 +1,5 @@
 #include "cache_hash.hpp"
+#include "os.hpp"
 
 #include <stdio.h>
 
@@ -8,8 +9,10 @@ static Buf saved_stage1_path = BUF_INIT;
 static Buf saved_lib_dir = BUF_INIT;
 static Buf saved_special_dir = BUF_INIT;
 static Buf saved_std_dir = BUF_INIT;
+static Buf saved_dynamic_linker_path = BUF_INIT;
+static bool searched_for_dyn_linker = false;
 
-Buf *get_stage1_cache_path() {
+Buf *get_stage1_cache_path(void) {
     if (saved_stage1_path.list.length != 0) {
         return &saved_stage1_path;
     }
@@ -20,6 +23,35 @@ Buf *get_stage1_cache_path() {
     }
     os_path_join(&saved_app_data_dir, buf_create_from_str("stage1"), &saved_stage1_path);
     return &saved_stage1_path;
+}
+
+static void detect_dynamic_linker(Buf *lib_path) {
+#if defined(ZIG_OS_LINUX) && defined(ZIG_ARCH_X86_64)
+    if (buf_ends_with_str(lib_path, "ld-linux-x86-64.so.2")) {
+        buf_init_from_buf(&saved_dynamic_linker_path, lib_path);
+    } else if (buf_ends_with_str(lib_path, "ld-musl-x86-64.so.1")) {
+        buf_init_from_buf(&saved_dynamic_linker_path, lib_path);
+    }
+#endif
+}
+
+Buf *get_self_dynamic_linker_path(void) {
+    for (;;) {
+        if (saved_dynamic_linker_path.list.length != 0) {
+            return &saved_dynamic_linker_path;
+        }
+        if (searched_for_dyn_linker)
+            return nullptr;
+        ZigList<Buf *> lib_paths = {};
+        Error err;
+        if ((err = os_self_exe_shared_libs(lib_paths)))
+            return nullptr;
+        for (size_t i = 0; i < lib_paths.length; i += 1) {
+            Buf *lib_path = lib_paths.at(i);
+            detect_dynamic_linker(lib_path);
+        }
+        searched_for_dyn_linker = true;
+    }
 }
 
 Error get_compiler_id(Buf **result) {
@@ -43,8 +75,10 @@ Error get_compiler_id(Buf **result) {
     cache_file(ch, &self_exe_path);
 
     buf_resize(&saved_compiler_id, 0);
-    if ((err = cache_hit(ch, &saved_compiler_id)))
-        return err;
+    if ((err = cache_hit(ch, &saved_compiler_id))) {
+        if (err != ErrorInvalidFormat)
+            return err;
+    }
     if (buf_len(&saved_compiler_id) != 0) {
         cache_release(ch);
         *result = &saved_compiler_id;
@@ -55,6 +89,7 @@ Error get_compiler_id(Buf **result) {
         return err;
     for (size_t i = 0; i < lib_paths.length; i += 1) {
         Buf *lib_path = lib_paths.at(i);
+        detect_dynamic_linker(lib_path);
         if ((err = cache_add_file(ch, lib_path)))
             return err;
     }
@@ -67,7 +102,6 @@ Error get_compiler_id(Buf **result) {
     return ErrorNone;
 }
 
-
 static bool test_zig_install_prefix(Buf *test_path, Buf *out_zig_lib_dir) {
     Buf lib_buf = BUF_INIT;
     buf_init_from_str(&lib_buf, "lib");
@@ -78,8 +112,8 @@ static bool test_zig_install_prefix(Buf *test_path, Buf *out_zig_lib_dir) {
     Buf std_buf = BUF_INIT;
     buf_init_from_str(&std_buf, "std");
 
-    Buf index_zig_buf = BUF_INIT;
-    buf_init_from_str(&index_zig_buf, "index.zig");
+    Buf std_zig_buf = BUF_INIT;
+    buf_init_from_str(&std_zig_buf, "std.zig");
 
     Buf test_lib_dir = BUF_INIT;
     Buf test_zig_dir = BUF_INIT;
@@ -89,7 +123,7 @@ static bool test_zig_install_prefix(Buf *test_path, Buf *out_zig_lib_dir) {
     os_path_join(test_path, &lib_buf, &test_lib_dir);
     os_path_join(&test_lib_dir, &zig_buf, &test_zig_dir);
     os_path_join(&test_zig_dir, &std_buf, &test_std_dir);
-    os_path_join(&test_std_dir, &index_zig_buf, &test_index_file);
+    os_path_join(&test_std_dir, &std_zig_buf, &test_index_file);
 
     int err;
     bool exists;

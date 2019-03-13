@@ -1,5 +1,5 @@
 const builtin = @import("builtin");
-const compiler_rt = @import("index.zig");
+const compiler_rt = @import("../compiler_rt.zig");
 
 // Ported from git@github.com:llvm-project/llvm-project-20170507.git
 // ae684fad6d34858c014c94da69c15e7774a633c3
