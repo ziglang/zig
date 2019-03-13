@@ -1160,7 +1160,7 @@ int main(int argc, char **argv) {
                 ZigTarget native;
                 get_native_target(&native);
 
-                g->enable_cache = get_cache_opt(enable_cache, true);
+                g->enable_cache = get_cache_opt(enable_cache, output_dir == nullptr);
                 codegen_build_and_link(g);
 
                 if (timing_info) {
