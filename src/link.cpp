@@ -1134,10 +1134,12 @@ static void add_nt_link_args(LinkJob *lj, bool is_library) {
     CodeGen *g = lj->codegen;
 
     if (lj->link_in_crt) {
-        const char *lib_str = g->is_dynamic ? "" : "lib";
+        // TODO: https://github.com/ziglang/zig/issues/2064
+        bool is_dynamic = true; // g->is_dynamic;
+        const char *lib_str = is_dynamic ? "" : "lib";
         const char *d_str = (g->build_mode == BuildModeDebug) ? "d" : "";
 
-        if (!g->is_dynamic) {
+        if (!is_dynamic) {
             Buf *cmt_lib_name = buf_sprintf("libcmt%s.lib", d_str);
             lj->args.append(buf_ptr(cmt_lib_name));
         } else {
