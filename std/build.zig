@@ -372,6 +372,10 @@ pub const Builder = struct {
                     .abi = builtin.abi,
                 }).linuxTriple(self.allocator);
 
+                // TODO: $ ld --verbose | grep SEARCH_DIR
+                // the output contains some paths that end with lib64, maybe include them too?
+                // also, what is the best possible order of things?
+
                 self.addNativeSystemIncludeDir("/usr/local/include");
                 self.addNativeSystemLibPath("/usr/local/lib");
 
@@ -380,6 +384,11 @@ pub const Builder = struct {
 
                 self.addNativeSystemIncludeDir("/usr/include");
                 self.addNativeSystemLibPath("/usr/lib");
+
+                // example: on a 64-bit debian-based linux distro, with zlib installed from apt:
+                // zlib.h is in /usr/include (added above)
+                // libz.so.1 is in /lib/x86_64-linux-gnu (added here)
+                self.addNativeSystemLibPath(self.fmt("/lib/{}", triple));
             },
         }
     }
