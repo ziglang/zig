@@ -7288,7 +7288,7 @@ static bool detect_dynamic_link(CodeGen *g) {
         return true;
     if (g->zig_target->os == OsFreestanding)
         return false;
-    if (target_requires_pic(g->zig_target))
+    if (target_requires_pic(g->zig_target, g->libc_link_lib != nullptr))
         return true;
     if (g->out_type == OutTypeExe) {
         // If there are no dynamic libraries then we can disable PIC
@@ -7304,7 +7304,7 @@ static bool detect_dynamic_link(CodeGen *g) {
 }
 
 static bool detect_pic(CodeGen *g) {
-    if (target_requires_pic(g->zig_target))
+    if (target_requires_pic(g->zig_target, g->libc_link_lib != nullptr))
         return true;
     switch (g->want_pic) {
         case WantPICDisabled:
@@ -7848,7 +7848,14 @@ static void init(CodeGen *g) {
     bool is_optimized = g->build_mode != BuildModeDebug;
     LLVMCodeGenOptLevel opt_level = is_optimized ? LLVMCodeGenLevelAggressive : LLVMCodeGenLevelNone;
 
-    LLVMRelocMode reloc_mode = g->have_pic ? LLVMRelocPIC: LLVMRelocStatic;
+    LLVMRelocMode reloc_mode;
+    if (g->have_pic) {
+        reloc_mode = LLVMRelocPIC;
+    } else if (g->have_dynamic_link) {
+        reloc_mode = LLVMRelocDynamicNoPic;
+    } else {
+        reloc_mode = LLVMRelocStatic;
+    }
 
     const char *target_specific_cpu_args;
     const char *target_specific_features;

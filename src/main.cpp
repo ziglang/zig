@@ -417,6 +417,7 @@ int main(int argc, char **argv) {
     ZigList<const char *> link_libs = {0};
     ZigList<const char *> forbidden_link_libs = {0};
     ZigList<const char *> frameworks = {0};
+    bool have_libc = false;
     const char *target_string = nullptr;
     bool rdynamic = false;
     const char *mmacosx_version_min = nullptr;
@@ -745,6 +746,8 @@ int main(int argc, char **argv) {
                 } else if (strcmp(arg, "--library-path") == 0 || strcmp(arg, "-L") == 0) {
                     lib_dirs.append(argv[i]);
                 } else if (strcmp(arg, "--library") == 0) {
+                    if (strcmp(argv[i], "c") == 0)
+                        have_libc = true;
                     link_libs.append(argv[i]);
                 } else if (strcmp(arg, "--forbid-library") == 0) {
                     forbidden_link_libs.append(argv[i]);
@@ -911,7 +914,7 @@ int main(int argc, char **argv) {
         return print_error_usage(arg0);
     }
 
-    if (target_requires_pic(&target) && want_pic == WantPICDisabled) {
+    if (target_requires_pic(&target, have_libc) && want_pic == WantPICDisabled) {
         Buf triple_buf = BUF_INIT;
         get_target_triple(&triple_buf, &target);
         fprintf(stderr, "`--disable-pic` is incompatible with target '%s'\n", buf_ptr(&triple_buf));
