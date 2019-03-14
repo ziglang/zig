@@ -112,10 +112,6 @@ pub fn formatType(
     output: fn (@typeOf(context), []const u8) Errors!void,
 ) Errors!void {
     const T = @typeOf(value);
-    if (T == anyerror) {
-        try output(context, "error.");
-        return output(context, @errorName(value));
-    }
     switch (@typeInfo(T)) {
         builtin.TypeId.ComptimeInt, builtin.TypeId.Int, builtin.TypeId.Float => {
             return formatValue(value, fmt, context, Errors, output);

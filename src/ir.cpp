@@ -18265,21 +18265,16 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                 result->special = ConstValSpecialStatic;
                 result->type = ir_type_info_get_type(ira, "ErrorSet", nullptr);
 
-                ConstExprValue *fields = create_const_vals(1);
-                result->data.x_struct.fields = fields;
-
-                // errors: []TypeInfo.Error
-                ensure_field_index(result->type, "errors", 0);
-
                 ZigType *type_info_error_type = ir_type_info_get_type(ira, "Error", nullptr);
                 if (!resolve_inferred_error_set(ira->codegen, type_entry, source_instr->source_node)) {
                     return ErrorSemanticAnalyzeFail;
                 }
                 if (type_is_global_error_set(type_entry)) {
-                    ir_add_error(ira, source_instr,
-                        buf_sprintf("TODO: compiler bug: implement @typeInfo support for anyerror. https://github.com/ziglang/zig/issues/1936"));
-                    return ErrorSemanticAnalyzeFail;
+                    result->data.x_optional = nullptr;
+                    break;
                 }
+                ConstExprValue *slice_val = create_const_vals(1);
+                result->data.x_optional = slice_val;
 
                 uint32_t error_count = type_entry->data.error_set.err_count;
                 ConstExprValue *error_array = create_const_vals(1);
@@ -18288,7 +18283,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                 error_array->data.x_array.special = ConstArraySpecialNone;
                 error_array->data.x_array.data.s_none.elements = create_const_vals(error_count);
 
-                init_const_slice(ira->codegen, &fields[0], error_array, 0, error_count, false);
+                init_const_slice(ira->codegen, slice_val, error_array, 0, error_count, false);
                 for (uint32_t error_index = 0; error_index < error_count; error_index++) {
                     ErrorTableEntry *error = type_entry->data.error_set.errors[error_index];
                     ConstExprValue *error_val = &error_array->data.x_array.data.s_none.elements[error_index];
