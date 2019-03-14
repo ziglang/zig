@@ -1436,7 +1436,7 @@ static void construct_linker_job_macho(LinkJob *lj) {
 
     bool is_lib = g->out_type == OutTypeLib;
     bool is_dyn_lib = g->is_dynamic && is_lib;
-    if (!g->is_dynamic) {
+    if (is_lib && !g->is_dynamic) {
         lj->args.append("-static");
     } else {
         lj->args.append("-dynamic");
