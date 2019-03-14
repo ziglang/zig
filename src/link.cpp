@@ -1526,15 +1526,15 @@ static void construct_linker_job_macho(LinkJob *lj) {
     if (g->zig_target->is_native) {
         for (size_t lib_i = 0; lib_i < g->link_libs_list.length; lib_i += 1) {
             LinkLib *link_lib = g->link_libs_list.at(lib_i);
-            if (buf_eql_str(link_lib->name, "c")) {
+            if (target_is_libc_lib_name(g->zig_target, buf_ptr(link_lib->name))) {
+                // handled by libSystem
                 continue;
+            }
+            if (strchr(buf_ptr(link_lib->name), '/') == nullptr) {
+                Buf *arg = buf_sprintf("-l%s", buf_ptr(link_lib->name));
+                lj->args.append(buf_ptr(arg));
             } else {
-                if (strchr(buf_ptr(link_lib->name), '/') == nullptr) {
-                    Buf *arg = buf_sprintf("-l%s", buf_ptr(link_lib->name));
-                    lj->args.append(buf_ptr(arg));
-                } else {
-                    lj->args.append(buf_ptr(link_lib->name));
-                }
+                lj->args.append(buf_ptr(link_lib->name));
             }
         }
         // on Darwin, libSystem has libc in it, but also you have to use it

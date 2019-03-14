@@ -1477,7 +1477,7 @@ bool target_is_libc_lib_name(const ZigTarget *target, const char *name) {
     if (strcmp(name, "c") == 0)
         return true;
 
-    if (target_abi_is_gnu(target->abi) || target_abi_is_musl(target->abi)) {
+    if (target_abi_is_gnu(target->abi) || target_abi_is_musl(target->abi) || target_os_is_darwin(target->os)) {
         if (strcmp(name, "m") == 0)
             return true;
         if (strcmp(name, "rt") == 0)
