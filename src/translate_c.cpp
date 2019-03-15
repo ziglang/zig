@@ -446,6 +446,12 @@ static AstNode *trans_create_node_inline_fn(Context *c, Buf *fn_name, AstNode *r
     return fn_def;
 }
 
+static AstNode *trans_create_node_grouped_expr(Context *c, AstNode *child) {
+	AstNode *node = trans_create_node(c, NodeTypeGroupedExpr);
+	node->data.grouped_expr = child;
+	return node;
+}
+
 static AstNode *get_global(Context *c, Buf *name) {
     {
         auto entry = c->global_table.maybe_get(name);
@@ -1314,11 +1320,11 @@ static AstNode *trans_create_assign(Context *c, ResultUsed result_used, TransSco
     } else {
         // worst case
         // c: lhs = rhs
-        // zig: x: {
+        // zig: (x: {
         // zig:     const _tmp = rhs;
         // zig:     lhs = _tmp;
         // zig:     break :x _tmp
-        // zig: }
+        // zig: })
 
         TransScopeBlock *child_scope = trans_scope_block_create(c, scope);
         Buf *label_name = buf_create_from_str("x");
@@ -1343,7 +1349,7 @@ static AstNode *trans_create_assign(Context *c, ResultUsed result_used, TransSco
         AstNode *tmp_symbol_node = trans_create_node_symbol(c, tmp_var_name);
         child_scope->node->data.block.statements.append(trans_create_node_break(c, label_name, tmp_symbol_node));
 
-        return child_scope->node;
+        return trans_create_node_grouped_expr(c, child_scope->node);
     }
 }
 
@@ -1499,11 +1505,11 @@ static AstNode *trans_create_compound_assign_shift(Context *c, ResultUsed result
     } else {
         // need more complexity. worst case, this looks like this:
         // c:   lhs >>= rhs
-        // zig: x: {
+        // zig: (x: {
         // zig:     const _ref = &lhs;
         // zig:     *_ref = result_type(operation_type(*_ref) >> u5(rhs));
         // zig:     break :x *_ref
-        // zig: }
+        // zig: })
         // where u5 is the appropriate type
 
         TransScopeBlock *child_scope = trans_scope_block_create(c, scope);
@@ -1556,7 +1562,7 @@ static AstNode *trans_create_compound_assign_shift(Context *c, ResultUsed result
                         trans_create_node_symbol(c, tmp_var_name))));
         }
 
-        return child_scope->node;
+        return trans_create_node_grouped_expr(c, child_scope->node);
     }
 }
 
@@ -1574,11 +1580,11 @@ static AstNode *trans_create_compound_assign(Context *c, ResultUsed result_used,
     } else {
         // need more complexity. worst case, this looks like this:
         // c:   lhs += rhs
-        // zig: x: {
+        // zig: (x: {
         // zig:     const _ref = &lhs;
         // zig:     *_ref = *_ref + rhs;
         // zig:     break :x *_ref
-        // zig: }
+        // zig: })
 
         TransScopeBlock *child_scope = trans_scope_block_create(c, scope);
         Buf *label_name = buf_create_from_str("x");
@@ -1615,7 +1621,7 @@ static AstNode *trans_create_compound_assign(Context *c, ResultUsed result_used,
                 trans_create_node_ptr_deref(c,
                     trans_create_node_symbol(c, tmp_var_name))));
 
-        return child_scope->node;
+        return trans_create_node_grouped_expr(c, child_scope->node);
     }
 }
 
@@ -1911,12 +1917,12 @@ static AstNode *trans_create_post_crement(Context *c, ResultUsed result_used, Tr
     }
     // worst case
     // c: expr++
-    // zig: x: {
+    // zig: (x: {
     // zig:     const _ref = &expr;
     // zig:     const _tmp = *_ref;
     // zig:     *_ref += 1;
     // zig:     break :x _tmp
-    // zig: }
+    // zig: })
     TransScopeBlock *child_scope = trans_scope_block_create(c, scope);
     Buf *label_name = buf_create_from_str("x");
     child_scope->node->data.block.name = label_name;
@@ -1948,7 +1954,7 @@ static AstNode *trans_create_post_crement(Context *c, ResultUsed result_used, Tr
     // break :x _tmp
     child_scope->node->data.block.statements.append(trans_create_node_break(c, label_name, trans_create_node_symbol(c, tmp_var_name)));
 
-    return child_scope->node;
+    return trans_create_node_grouped_expr(c, child_scope->node);
 }
 
 static AstNode *trans_create_pre_crement(Context *c, ResultUsed result_used, TransScope *scope,
@@ -1967,11 +1973,11 @@ static AstNode *trans_create_pre_crement(Context *c, ResultUsed result_used, Tra
     }
     // worst case
     // c: ++expr
-    // zig: x: {
+    // zig: (x: {
     // zig:     const _ref = &expr;
     // zig:     *_ref += 1;
     // zig:     break :x *_ref
-    // zig: }
+    // zig: })
     TransScopeBlock *child_scope = trans_scope_block_create(c, scope);
     Buf *label_name = buf_create_from_str("x");
     child_scope->node->data.block.name = label_name;
@@ -1998,7 +2004,7 @@ static AstNode *trans_create_pre_crement(Context *c, ResultUsed result_used, Tra
             trans_create_node_symbol(c, ref_var_name));
     child_scope->node->data.block.statements.append(trans_create_node_break(c, label_name, deref_expr));
 
-    return child_scope->node;
+    return trans_create_node_grouped_expr(c, child_scope->node);
 }
 
 static AstNode *trans_unary_operator(Context *c, ResultUsed result_used, TransScope *scope, const clang::UnaryOperator *stmt) {
