@@ -565,11 +565,12 @@ fn populateModule(di: *DebugInfo, mod: *Module) !void {
         return;
     const allocator = getDebugInfoAllocator();
 
-    if (mod.mod_info.C11ByteSize != 0)
+    // At most one can be non-zero.
+    if (mod.mod_info.C11ByteSize != 0 and mod.mod_info.C13ByteSize != 0)
         return error.InvalidDebugInfo;
 
     if (mod.mod_info.C13ByteSize == 0)
-        return error.MissingDebugInfo;
+        return;
 
     const modi = di.pdb.getStreamById(mod.mod_info.ModuleSymStream) orelse return error.MissingDebugInfo;
 
