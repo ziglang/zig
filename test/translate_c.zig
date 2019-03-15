@@ -59,7 +59,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         );
     }
 
-    cases.add("for loop with var init but empty body",
+    cases.add("predefined expressions",
         \\void foo(void) {
         \\    __func__;
         \\    __FUNCTION__;
@@ -526,11 +526,14 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\        return b;
         \\    else
         \\        return a;
+        \\
+        \\    if (a < b) ; else ;
         \\}
     ,
         \\pub export fn max(a: c_int, b: c_int) c_int {
         \\    if (a < b) return b;
         \\    if (a < b) return b else return a;
+        \\    if (a < b) {} else {}
         \\}
     );
 
@@ -769,6 +772,16 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     ,
         \\pub export fn float_to_int(a: f32) c_int {
         \\    return c_int(a);
+        \\}
+    );
+
+    cases.addC("void cast",
+        \\void foo(int a) {
+        \\    (void) a;
+        \\}
+    ,
+        \\pub export fn foo(a: c_int) void {
+        \\    _ = a;
         \\}
     );
 
@@ -1472,21 +1485,53 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn bar() void {}
     );
 
-    cases.addC("u integer suffix after 0 (zero) in macro definition", "#define ZERO 0U", "pub const ZERO = c_uint(0);");
+    cases.addC(
+        "u integer suffix after 0 (zero) in macro definition",
+        "#define ZERO 0U",
+        "pub const ZERO = c_uint(0);",
+    );
 
-    cases.addC("l integer suffix after 0 (zero) in macro definition", "#define ZERO 0L", "pub const ZERO = c_long(0);");
+    cases.addC(
+        "l integer suffix after 0 (zero) in macro definition",
+        "#define ZERO 0L",
+        "pub const ZERO = c_long(0);",
+    );
 
-    cases.addC("ul integer suffix after 0 (zero) in macro definition", "#define ZERO 0UL", "pub const ZERO = c_ulong(0);");
+    cases.addC(
+        "ul integer suffix after 0 (zero) in macro definition",
+        "#define ZERO 0UL",
+        "pub const ZERO = c_ulong(0);",
+    );
 
-    cases.addC("lu integer suffix after 0 (zero) in macro definition", "#define ZERO 0LU", "pub const ZERO = c_ulong(0);");
+    cases.addC(
+        "lu integer suffix after 0 (zero) in macro definition",
+        "#define ZERO 0LU",
+        "pub const ZERO = c_ulong(0);",
+    );
 
-    cases.addC("ll integer suffix after 0 (zero) in macro definition", "#define ZERO 0LL", "pub const ZERO = c_longlong(0);");
+    cases.addC(
+        "ll integer suffix after 0 (zero) in macro definition",
+        "#define ZERO 0LL",
+        "pub const ZERO = c_longlong(0);",
+    );
 
-    cases.addC("ull integer suffix after 0 (zero) in macro definition", "#define ZERO 0ULL", "pub const ZERO = c_ulonglong(0);");
+    cases.addC(
+        "ull integer suffix after 0 (zero) in macro definition",
+        "#define ZERO 0ULL",
+        "pub const ZERO = c_ulonglong(0);",
+    );
 
-    cases.addC("llu integer suffix after 0 (zero) in macro definition", "#define ZERO 0LLU", "pub const ZERO = c_ulonglong(0);");
+    cases.addC(
+        "llu integer suffix after 0 (zero) in macro definition",
+        "#define ZERO 0LLU",
+        "pub const ZERO = c_ulonglong(0);",
+    );
 
-    cases.addC("bitwise not on u-suffixed 0 (zero) in macro definition", "#define NOT_ZERO (~0U)", "pub const NOT_ZERO = ~c_uint(0);");
+    cases.addC(
+        "bitwise not on u-suffixed 0 (zero) in macro definition",
+        "#define NOT_ZERO (~0U)",
+        "pub const NOT_ZERO = ~c_uint(0);",
+    );
 
     // cases.add("empty array with initializer",
     //     "int a[4] = {};"

@@ -2784,7 +2784,11 @@ static AstNode *trans_c_style_cast_expr(Context *c, ResultUsed result_used, Tran
     if (sub_expr_node == nullptr)
         return nullptr;
 
-    return trans_c_cast(c, stmt->getLocStart(), stmt->getType(), stmt->getSubExpr()->getType(), sub_expr_node);
+    AstNode *cast = trans_c_cast(c, stmt->getLocStart(), stmt->getType(), stmt->getSubExpr()->getType(), sub_expr_node);
+    if (cast == nullptr)
+        return nullptr;
+
+    return maybe_suppress_result(c, result_used, cast);
 }
 
 static AstNode *trans_unary_expr_or_type_trait_expr(Context *c, TransScope *scope,
