@@ -478,6 +478,11 @@ fn printSourceAtAddressWindows(di: *DebugInfo, out_stream: var, relocated_addres
                 }
             } else |err| switch (err) {
                 error.EndOfFile => {},
+                error.FileNotFound => {
+                    setTtyColor(TtyColor.Dim);
+                    try out_stream.write("file not found\n\n");
+                    setTtyColor(TtyColor.White);
+                },
                 else => return err,
             }
         } else {
