@@ -881,8 +881,9 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
         const obj_file_name = try dbi.readNullTermString(allocator);
         this_record_len += obj_file_name.len + 1;
 
-        const march_forward_bytes = this_record_len % 4;
-        if (march_forward_bytes != 0) {
+        if (this_record_len % 4 != 0) {
+            const round_to_next_4 = (this_record_len | 0x3) + 1;
+            const march_forward_bytes = round_to_next_4 - this_record_len;
             try dbi.seekForward(march_forward_bytes);
             this_record_len += march_forward_bytes;
         }
