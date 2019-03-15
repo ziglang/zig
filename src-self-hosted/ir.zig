@@ -1364,7 +1364,7 @@ pub const Builder = struct {
 
         if (str_token[0] == 'c') {
             // first we add a null
-            buf = try irb.comp.gpa().realloc(u8, buf, buf.len + 1);
+            buf = try irb.comp.gpa().realloc(buf, buf.len + 1);
             buf[buf.len - 1] = 0;
 
             // next make an array value

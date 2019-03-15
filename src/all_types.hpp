@@ -3356,7 +3356,7 @@ struct IrInstructionCoroPromise {
 struct IrInstructionCoroAllocHelper {
     IrInstruction base;
 
-    IrInstruction *alloc_fn;
+    IrInstruction *realloc_fn;
     IrInstruction *coro_size;
 };
 
@@ -3481,8 +3481,8 @@ static const size_t stack_trace_ptr_count = 32;
 #define RETURN_ADDRESSES_FIELD_NAME "return_addresses"
 #define ERR_RET_TRACE_FIELD_NAME "err_ret_trace"
 #define RESULT_FIELD_NAME "result"
-#define ASYNC_ALLOC_FIELD_NAME "allocFn"
-#define ASYNC_FREE_FIELD_NAME "freeFn"
+#define ASYNC_REALLOC_FIELD_NAME "reallocFn"
+#define ASYNC_SHRINK_FIELD_NAME "shrinkFn"
 #define ATOMIC_STATE_FIELD_NAME "atomic_state"
 // these point to data belonging to the awaiter
 #define ERR_RET_TRACE_PTR_FIELD_NAME "err_ret_trace_ptr"

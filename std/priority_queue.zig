@@ -141,7 +141,7 @@ pub fn PriorityQueue(comptime T: type) type {
                 better_capacity += better_capacity / 2 + 8;
                 if (better_capacity >= new_capacity) break;
             }
-            self.items = try self.allocator.realloc(T, self.items, better_capacity);
+            self.items = try self.allocator.realloc(self.items, better_capacity);
         }
 
         pub fn resize(self: *Self, new_len: usize) !void {
@@ -150,6 +150,7 @@ pub fn PriorityQueue(comptime T: type) type {
         }
 
         pub fn shrink(self: *Self, new_len: usize) void {
+            // TODO take advantage of the new realloc semantics
             assert(new_len <= self.len);
             self.len = new_len;
         }

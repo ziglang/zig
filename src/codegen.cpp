@@ -5177,7 +5177,7 @@ static LLVMValueRef get_coro_alloc_helper_fn_val(CodeGen *g, LLVMTypeRef alloc_f
     LLVMValueRef sret_ptr = LLVMBuildAlloca(g->builder, LLVMGetElementType(alloc_fn_arg_types[0]), "");
 
     size_t next_arg = 0;
-    LLVMValueRef alloc_fn_val = LLVMGetParam(fn_val, next_arg);
+    LLVMValueRef realloc_fn_val = LLVMGetParam(fn_val, next_arg);
     next_arg += 1;
 
     LLVMValueRef stack_trace_val;
@@ -5195,15 +5195,22 @@ static LLVMValueRef get_coro_alloc_helper_fn_val(CodeGen *g, LLVMTypeRef alloc_f
     LLVMValueRef alignment_val = LLVMConstInt(g->builtin_types.entry_u29->type_ref,
             get_coro_frame_align_bytes(g), false);
 
+    ConstExprValue *zero_array = create_const_str_lit(g, buf_create_from_str(""));
+    ConstExprValue *undef_slice_zero = create_const_slice(g, zero_array, 0, 0, false);
+    render_const_val(g, undef_slice_zero, "");
+    render_const_val_global(g, undef_slice_zero, "");
+
     ZigList<LLVMValueRef> args = {};
     args.append(sret_ptr);
     if (g->have_err_ret_tracing) {
         args.append(stack_trace_val);
     }
     args.append(allocator_val);
+    args.append(undef_slice_zero->global_refs->llvm_global);
+    args.append(LLVMGetUndef(g->builtin_types.entry_u29->type_ref));
     args.append(coro_size);
     args.append(alignment_val);
-    LLVMValueRef call_instruction = ZigLLVMBuildCall(g->builder, alloc_fn_val, args.items, args.length,
+    LLVMValueRef call_instruction = ZigLLVMBuildCall(g->builder, realloc_fn_val, args.items, args.length,
             get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAuto, "");
     set_call_instr_sret(g, call_instruction);
     LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, sret_ptr, err_union_err_index, "");
@@ -5239,14 +5246,14 @@ static LLVMValueRef get_coro_alloc_helper_fn_val(CodeGen *g, LLVMTypeRef alloc_f
 static LLVMValueRef ir_render_coro_alloc_helper(CodeGen *g, IrExecutable *executable,
         IrInstructionCoroAllocHelper *instruction)
 {
-    LLVMValueRef alloc_fn = ir_llvm_value(g, instruction->alloc_fn);
+    LLVMValueRef realloc_fn = ir_llvm_value(g, instruction->realloc_fn);
     LLVMValueRef coro_size = ir_llvm_value(g, instruction->coro_size);
-    LLVMValueRef fn_val = get_coro_alloc_helper_fn_val(g, LLVMTypeOf(alloc_fn), instruction->alloc_fn->value.type);
+    LLVMValueRef fn_val = get_coro_alloc_helper_fn_val(g, LLVMTypeOf(realloc_fn), instruction->realloc_fn->value.type);
     size_t err_code_ptr_arg_index = get_async_err_code_arg_index(g, &g->cur_fn->type_entry->data.fn.fn_type_id);
     size_t allocator_arg_index = get_async_allocator_arg_index(g, &g->cur_fn->type_entry->data.fn.fn_type_id);
 
     ZigList<LLVMValueRef> params = {};
-    params.append(alloc_fn);
+    params.append(realloc_fn);
     uint32_t err_ret_trace_arg_index = get_err_ret_trace_arg_index(g, g->cur_fn);
     if (err_ret_trace_arg_index != UINT32_MAX) {
         params.append(LLVMGetParam(g->cur_fn_val, err_ret_trace_arg_index));

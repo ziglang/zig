@@ -1072,7 +1072,7 @@ fn openSelfDebugInfoMacOs(allocator: *mem.Allocator) !DebugInfo {
         .n_value = symbols_buf[symbol_index - 1].nlist.n_value + last_len,
     };
 
-    const symbols = allocator.shrink(MachoSymbol, symbols_buf, symbol_index);
+    const symbols = allocator.shrink(symbols_buf, symbol_index);
 
     // Even though lld emits symbols in ascending order, this debug code
     // should work for programs linked in any valid way.

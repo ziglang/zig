@@ -814,7 +814,7 @@ pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwned
             }
 
             if (result > buf.len) {
-                buf = try allocator.realloc(u16, buf, result);
+                buf = try allocator.realloc(buf, result);
                 continue;
             }
 
@@ -1648,7 +1648,7 @@ pub const Dir = struct {
                         switch (err) {
                             posix.EBADF, posix.EFAULT, posix.ENOTDIR => unreachable,
                             posix.EINVAL => {
-                                self.handle.buf = try self.allocator.realloc(u8, self.handle.buf, self.handle.buf.len * 2);
+                                self.handle.buf = try self.allocator.realloc(self.handle.buf, self.handle.buf.len * 2);
                                 continue;
                             },
                             else => return unexpectedErrorPosix(err),
@@ -1730,7 +1730,7 @@ pub const Dir = struct {
                         switch (err) {
                             posix.EBADF, posix.EFAULT, posix.ENOTDIR => unreachable,
                             posix.EINVAL => {
-                                self.handle.buf = try self.allocator.realloc(u8, self.handle.buf, self.handle.buf.len * 2);
+                                self.handle.buf = try self.allocator.realloc(self.handle.buf, self.handle.buf.len * 2);
                                 continue;
                             },
                             else => return unexpectedErrorPosix(err),
@@ -1784,7 +1784,7 @@ pub const Dir = struct {
                         switch (err) {
                             posix.EBADF, posix.EFAULT, posix.ENOTDIR => unreachable,
                             posix.EINVAL => {
-                                self.handle.buf = try self.allocator.realloc(u8, self.handle.buf, self.handle.buf.len * 2);
+                                self.handle.buf = try self.allocator.realloc(self.handle.buf, self.handle.buf.len * 2);
                                 continue;
                             },
                             else => return unexpectedErrorPosix(err),
@@ -3279,7 +3279,7 @@ pub fn cpuCount(fallback_allocator: *mem.Allocator) CpuCountError!usize {
                             }
                             return sum;
                         } else {
-                            set = try allocator.realloc(usize, set, set.len * 2);
+                            set = try allocator.realloc(set, set.len * 2);
                             continue;
                         }
                     },

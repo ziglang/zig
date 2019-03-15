@@ -53,7 +53,7 @@ pub extern "c" fn rmdir(path: [*]const u8) c_int;
 
 pub extern "c" fn aligned_alloc(alignment: usize, size: usize) ?*c_void;
 pub extern "c" fn malloc(usize) ?*c_void;
-pub extern "c" fn realloc(*c_void, usize) ?*c_void;
+pub extern "c" fn realloc(?*c_void, usize) ?*c_void;
 pub extern "c" fn free(*c_void) void;
 pub extern "c" fn posix_memalign(memptr: **c_void, alignment: usize, size: usize) c_int;
 

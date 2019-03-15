@@ -80,7 +80,7 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
         /// The caller owns the returned memory. ArrayList becomes empty.
         pub fn toOwnedSlice(self: *Self) []align(A) T {
             const allocator = self.allocator;
-            const result = allocator.alignedShrink(T, A, self.items, self.len);
+            const result = allocator.shrink(self.items, self.len);
             self.* = init(allocator);
             return result;
         }
@@ -144,6 +144,9 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
         pub fn shrink(self: *Self, new_len: usize) void {
             assert(new_len <= self.len);
             self.len = new_len;
+            self.items = self.allocator.realloc(self.items, new_len) catch |e| switch (e) {
+                error.OutOfMemory => return, // no problem, capacity is still correct then.
+            };
         }
 
         pub fn ensureCapacity(self: *Self, new_capacity: usize) !void {
@@ -153,7 +156,7 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
                 better_capacity += better_capacity / 2 + 8;
                 if (better_capacity >= new_capacity) break;
             }
-            self.items = try self.allocator.alignedRealloc(T, A, self.items, better_capacity);
+            self.items = try self.allocator.realloc(self.items, better_capacity);
         }
 
         pub fn addOne(self: *Self) !*T {

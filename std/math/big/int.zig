@@ -60,7 +60,7 @@ pub const Int = struct {
             return;
         }
 
-        self.limbs = try self.allocator.realloc(Limb, self.limbs, capacity);
+        self.limbs = try self.allocator.realloc(self.limbs, capacity);
     }
 
     pub fn deinit(self: *Int) void {

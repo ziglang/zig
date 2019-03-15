@@ -565,7 +565,7 @@ pub fn resolveWindows(allocator: *Allocator, paths: []const []const u8) ![]u8 {
         result_index += 1;
     }
 
-    return allocator.shrink(u8, result, result_index);
+    return allocator.shrink(result, result_index);
 }
 
 /// This function is like a series of `cd` statements executed one after another.
@@ -634,7 +634,7 @@ pub fn resolvePosix(allocator: *Allocator, paths: []const []const u8) ![]u8 {
         result_index += 1;
     }
 
-    return allocator.shrink(u8, result, result_index);
+    return allocator.shrink(result, result_index);
 }
 
 test "os.path.resolve" {
