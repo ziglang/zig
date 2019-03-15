@@ -143,8 +143,9 @@ pub const DirectAllocator = struct {
                 return result;
             },
             Os.windows => {
-                const self = @fieldParentPtr(DirectAllocator, "allocator", allocator);
+                if (old_mem.len == 0) return alloc(allocator, new_size, new_align);
 
+                const self = @fieldParentPtr(DirectAllocator, "allocator", allocator);
                 const old_adjusted_addr = @ptrToInt(old_mem.ptr);
                 const old_record_addr = old_adjusted_addr + old_mem.len;
                 const root_addr = @intToPtr(*align(1) usize, old_record_addr).*;
