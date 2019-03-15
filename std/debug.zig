@@ -372,18 +372,20 @@ fn printSourceAtAddressWindows(di: *DebugInfo, out_stream: var, relocated_addres
                     const frag_vaddr_start = coff_section.header.virtual_address + line_hdr.RelocOffset;
                     const frag_vaddr_end = frag_vaddr_start + line_hdr.CodeSize;
 
-                    // There is an unknown number of LineBlockFragmentHeaders (and their accompanying line and column records)
-                    // from now on. We will iterate through them, and eventually find a LineInfo that we're interested in,
-                    // breaking out to :subsections. If not, we will make sure to not read anything outside of this subsection.
-                    const subsection_end_index = sect_offset + subsect_hdr.Length;
-                    while (line_index < subsection_end_index) {
-                        const block_hdr = @ptrCast(*pdb.LineBlockFragmentHeader, &subsect_info[line_index]);
-                        line_index += @sizeOf(pdb.LineBlockFragmentHeader);
-                        const start_line_index = line_index;
+                    if (relative_address >= frag_vaddr_start and relative_address < frag_vaddr_end) {
+                        // There is an unknown number of LineBlockFragmentHeaders (and their accompanying line and column records)
+                        // from now on. We will iterate through them, and eventually find a LineInfo that we're interested in,
+                        // breaking out to :subsections. If not, we will make sure to not read anything outside of this subsection.
 
-                        const has_column = line_hdr.Flags.LF_HaveColumns;
+                        const subsection_end_index = sect_offset + subsect_hdr.Length;
 
-                        if (relative_address >= frag_vaddr_start and relative_address < frag_vaddr_end) {
+                        while (line_index < subsection_end_index) {
+                            const block_hdr = @ptrCast(*pdb.LineBlockFragmentHeader, &subsect_info[line_index]);
+                            line_index += @sizeOf(pdb.LineBlockFragmentHeader);
+                            const start_line_index = line_index;
+
+                            const has_column = line_hdr.Flags.LF_HaveColumns;
+
                             // All line entries are stored inside their line block by ascending start address.
                             // Heuristic: we want to find the last line entry that has a vaddr_start <= relative_address.
                             // This is done with a simple linear search.
@@ -427,11 +429,11 @@ fn printSourceAtAddressWindows(di: *DebugInfo, out_stream: var, relocated_addres
                                 };
                             }
                         }
-                    }
 
-                    // Checking that we are not reading garbage after the (possibly) multiple block fragments.
-                    if (line_index != subsection_end_index) {
-                        return error.InvalidDebugInfo;
+                        // Checking that we are not reading garbage after the (possibly) multiple block fragments.
+                        if (line_index != subsection_end_index) {
+                            return error.InvalidDebugInfo;
+                        }
                     }
                 },
                 else => {},
