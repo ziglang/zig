@@ -684,6 +684,13 @@ static bool qual_type_child_is_fn_proto(const clang::QualType &qt) {
 static AstNode* trans_c_cast(Context *c, const clang::SourceLocation &source_location, clang::QualType dest_type,
         clang::QualType src_type, AstNode *expr)
 {
+    // The only way void pointer casts are valid C code, is if
+    // the value of the expression is ignored. We therefore just
+    // return the expr, and let the system that ignores values
+    // translate this correctly.
+    if (qual_type_canon(dest_type)->isVoidType()) {
+        return expr;
+    }
     if (qual_types_equal(dest_type, src_type)) {
         return expr;
     }
@@ -1219,6 +1226,31 @@ static AstNode *trans_compound_stmt(Context *c, TransScope *scope, const clang::
     return child_scope_block->node;
 }
 
+static AstNode *trans_stmt_expr(Context *c, TransScope *scope, const clang::StmtExpr *stmt,
+        TransScope **out_node_scope)
+{
+    AstNode *block = trans_compound_stmt(c, scope, stmt->getSubStmt(), out_node_scope);
+    if (block == nullptr)
+        return block;
+    assert(block->type == NodeTypeBlock);
+    if (block->data.block.statements.length == 0)
+        return block;
+
+    Buf *label = buf_create_from_str("x");
+    block->data.block.name = label;
+    AstNode *return_expr = block->data.block.statements.pop();
+    if (return_expr->type == NodeTypeBinOpExpr &&
+        return_expr->data.bin_op_expr.bin_op == BinOpTypeAssign &&
+        return_expr->data.bin_op_expr.op1->type == NodeTypeSymbol)
+       {
+        Buf *symbol_buf = return_expr->data.bin_op_expr.op1->data.symbol_expr.symbol;
+           if (strcmp("_", buf_ptr(symbol_buf)) == 0)
+               return_expr = return_expr->data.bin_op_expr.op2;
+       }
+    block->data.block.statements.append(trans_create_node_break(c, label, return_expr));
+    return block;
+}
+
 static AstNode *trans_return_stmt(Context *c, TransScope *scope, const clang::ReturnStmt *stmt) {
     const clang::Expr *value_expr = stmt->getRetValue();
     if (value_expr == nullptr) {
@@ -1459,7 +1491,7 @@ static AstNode *trans_binary_operator(Context *c, ResultUsed result_used, TransS
                 AstNode *rhs = trans_expr(c, result_used, &scope_block->base, stmt->getRHS(), TransRValue);
                 if (rhs == nullptr)
                     return nullptr;
-                scope_block->node->data.block.statements.append(trans_create_node_break(c, label_name, maybe_suppress_result(c, result_used, rhs)));
+                scope_block->node->data.block.statements.append(trans_create_node_break(c, label_name, rhs));
                 return scope_block->node;
             }
         case clang::BO_MulAssign:
@@ -2097,8 +2129,7 @@ static AstNode *trans_unary_operator(Context *c, ResultUsed result_used, TransSc
             emit_warning(c, stmt->getLocStart(), "TODO handle C translation clang::UO_Imag");
             return nullptr;
         case clang::UO_Extension:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation clang::UO_Extension");
-            return nullptr;
+            return trans_expr(c, result_used, scope, stmt->getSubExpr(), TransLValue);
         case clang::UO_Coawait:
             emit_warning(c, stmt->getLocStart(), "TODO handle C translation clang::UO_Coawait");
             return nullptr;
@@ -3079,6 +3110,10 @@ static AstNode *trans_continue_stmt(Context *c, TransScope *scope, const clang::
     return trans_create_node(c, NodeTypeContinue);
 }
 
+static AstNode *trans_predefined_expr(Context *c, TransScope *scope, const clang::PredefinedExpr *expr) {
+    return trans_string_literal(c, scope, expr->getFunctionName());
+}
+
 static int wrap_stmt(AstNode **out_node, TransScope **out_scope, TransScope *in_scope, AstNode *result_node) {
     if (result_node == nullptr)
         return ErrorUnexpected;
@@ -3146,7 +3181,7 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const clang::Stmt *st
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_call_expr(c, result_used, scope, (const clang::CallExpr *)stmt));
         case clang::Stmt::NullStmtClass:
-            *out_node = nullptr;
+            *out_node = trans_create_node(c, NodeTypeBlock);
             *out_child_scope = scope;
             return ErrorNone;
         case clang::Stmt::MemberExprClass:
@@ -3473,8 +3508,8 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const clang::Stmt *st
             emit_warning(c, stmt->getLocStart(), "TODO handle C ParenListExprClass");
             return ErrorUnexpected;
         case clang::Stmt::PredefinedExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C PredefinedExprClass");
-            return ErrorUnexpected;
+            return wrap_stmt(out_node, out_child_scope, scope,
+                             trans_predefined_expr(c, scope, (const clang::PredefinedExpr *)stmt));
         case clang::Stmt::PseudoObjectExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C PseudoObjectExprClass");
             return ErrorUnexpected;
@@ -3485,8 +3520,8 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const clang::Stmt *st
             emit_warning(c, stmt->getLocStart(), "TODO handle C SizeOfPackExprClass");
             return ErrorUnexpected;
         case clang::Stmt::StmtExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C StmtExprClass");
-            return ErrorUnexpected;
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_stmt_expr(c, scope, (const clang::StmtExpr *)stmt, out_node_scope));
         case clang::Stmt::SubstNonTypeTemplateParmExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C SubstNonTypeTemplateParmExprClass");
             return ErrorUnexpected;
