@@ -3,6 +3,13 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "usingnamespace with wrong type",
+        \\use void;
+    ,
+        "tmp.zig:1:1: error: expected struct, found 'void'",
+    );
+
+    cases.add(
         "ignored expression in while continuation",
         \\export fn a() void {
         \\    while (true) : (bad()) {}
