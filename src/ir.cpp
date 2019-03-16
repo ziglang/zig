@@ -5462,8 +5462,10 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
             IrInstruction *expr_result = ir_gen_node(irb, continue_expr_node, payload_scope);
             if (expr_result == irb->codegen->invalid_instruction)
                 return expr_result;
-            if (!instr_is_unreachable(expr_result))
+            if (!instr_is_unreachable(expr_result)) {
+                ir_mark_gen(ir_build_check_statement_is_void(irb, payload_scope, continue_expr_node, expr_result));
                 ir_mark_gen(ir_build_br(irb, payload_scope, node, cond_block, is_comptime));
+            }
         }
 
         ir_set_cursor_at_end_and_append_block(irb, else_block);
@@ -5544,8 +5546,10 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
             IrInstruction *expr_result = ir_gen_node(irb, continue_expr_node, child_scope);
             if (expr_result == irb->codegen->invalid_instruction)
                 return expr_result;
-            if (!instr_is_unreachable(expr_result))
+            if (!instr_is_unreachable(expr_result)) {
+                ir_mark_gen(ir_build_check_statement_is_void(irb, child_scope, continue_expr_node, expr_result));
                 ir_mark_gen(ir_build_br(irb, child_scope, node, cond_block, is_comptime));
+            }
         }
 
         IrInstruction *else_result = nullptr;
@@ -5609,8 +5613,10 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
             IrInstruction *expr_result = ir_gen_node(irb, continue_expr_node, subexpr_scope);
             if (expr_result == irb->codegen->invalid_instruction)
                 return expr_result;
-            if (!instr_is_unreachable(expr_result))
+            if (!instr_is_unreachable(expr_result)) {
+                ir_mark_gen(ir_build_check_statement_is_void(irb, scope, continue_expr_node, expr_result));
                 ir_mark_gen(ir_build_br(irb, scope, node, cond_block, is_comptime));
+            }
         }
 
         IrInstruction *else_result = nullptr;
