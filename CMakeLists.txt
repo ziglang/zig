@@ -614,6 +614,7 @@ set(ZIG_STD_FILES
     "priority_queue.zig"
     "rand.zig"
     "rand/ziggurat.zig"
+    "rb.zig"
     "segmented_list.zig"
     "sort.zig"
     "special/bootstrap.zig"
