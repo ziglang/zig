@@ -1157,8 +1157,9 @@ static void add_nt_link_args(LinkJob *lj, bool is_library) {
         //https://msdn.microsoft.com/en-us/library/bb531344.aspx
         lj->args.append("legacy_stdio_definitions.lib");
 
-        // msvcrt depends on kernel32
+        // msvcrt depends on kernel32 and ntdll
         lj->args.append("kernel32.lib");
+        lj->args.append("ntdll.lib");
     } else {
         lj->args.append("/NODEFAULTLIB");
         if (!is_library) {
