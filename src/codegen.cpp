@@ -8474,8 +8474,11 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
                 } else {
                     args.append("-fno-stack-protector");
                 }
+                args.append("-fno-omit-frame-pointer");
                 break;
             case BuildModeSafeRelease:
+                // See the comment in the BuildModeFastRelease case for why we pass -O2 rather
+                // than -O3 here.
                 args.append("-O2");
                 if (g->libc_link_lib != nullptr) {
                     args.append("-D_FORTIFY_SOURCE=2");
@@ -8485,16 +8488,24 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
                 } else {
                     args.append("-fno-stack-protector");
                 }
+                args.append("-fomit-frame-pointer");
                 break;
             case BuildModeFastRelease:
                 args.append("-DNDEBUG");
+                // Here we pass -O2 rather than -O3 because, although we do the equivalent of
+                // -O3 in Zig code, the justification for the difference here is that Zig
+                // has better detection and prevention of undefined behavior, so -O3 is safer for
+                // Zig code than it is for C code. Also, C programmers are used to their code
+                // running in -O2 and thus the -O3 path has been tested less.
                 args.append("-O2");
                 args.append("-fno-stack-protector");
+                args.append("-fomit-frame-pointer");
                 break;
             case BuildModeSmallRelease:
                 args.append("-DNDEBUG");
                 args.append("-Os");
                 args.append("-fno-stack-protector");
+                args.append("-fomit-frame-pointer");
                 break;
         }
 
