@@ -67,9 +67,29 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     ,
         \\pub fn foo() void {
-        \\    c"foo";
-        \\    c"foo";
-        \\    c"void foo(void)";
+        \\    _ = c"foo";
+        \\    _ = c"foo";
+        \\    _ = c"void foo(void)";
+        \\}
+    );
+    
+    cases.add("ignore result",
+        \\void foo() {
+        \\    int a;
+        \\    1;
+        \\    "hey";
+        \\    1 + 1;
+        \\    1 - 1;
+        \\    a = 1;
+        \\}
+    ,
+        \\pub fn foo() void {
+        \\    var a: c_int = undefined;
+        \\    _ = 1;
+        \\    _ = c"hey";
+        \\    _ = (1 + 1);
+        \\    _ = (1 - 1);
+        \\    a = 1;
         \\}
     );
 

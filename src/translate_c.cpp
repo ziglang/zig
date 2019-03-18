@@ -1226,8 +1226,8 @@ static AstNode *trans_compound_stmt(Context *c, TransScope *scope, const clang::
     return child_scope_block->node;
 }
 
-static AstNode *trans_stmt_expr(Context *c, TransScope *scope, const clang::StmtExpr *stmt,
-        TransScope **out_node_scope)
+static AstNode *trans_stmt_expr(Context *c, ResultUsed result_used, TransScope *scope,
+        const clang::StmtExpr *stmt, TransScope **out_node_scope)
 {
     AstNode *block = trans_compound_stmt(c, scope, stmt->getSubStmt(), out_node_scope);
     if (block == nullptr)
@@ -1248,7 +1248,7 @@ static AstNode *trans_stmt_expr(Context *c, TransScope *scope, const clang::Stmt
                return_expr = return_expr->data.bin_op_expr.op2;
        }
     block->data.block.statements.append(trans_create_node_break(c, label, return_expr));
-    return block;
+    return maybe_suppress_result(c, result_used, block);
 }
 
 static AstNode *trans_return_stmt(Context *c, TransScope *scope, const clang::ReturnStmt *stmt) {
@@ -1264,13 +1264,15 @@ static AstNode *trans_return_stmt(Context *c, TransScope *scope, const clang::Re
     }
 }
 
-static AstNode *trans_integer_literal(Context *c, const clang::IntegerLiteral *stmt) {
+static AstNode *trans_integer_literal(Context *c, ResultUsed result_used, const clang::IntegerLiteral *stmt) {
     llvm::APSInt result;
     if (!stmt->EvaluateAsInt(result, *reinterpret_cast<clang::ASTContext *>(c->ctx))) {
         emit_warning(c, stmt->getLocStart(), "invalid integer literal");
         return nullptr;
     }
-    return trans_create_node_apint(c, result);
+
+    AstNode *node = trans_create_node_apint(c, result);
+    return maybe_suppress_result(c, result_used, node);
 }
 
 static AstNode *trans_conditional_operator(Context *c, ResultUsed result_used, TransScope *scope,
@@ -1407,14 +1409,17 @@ static AstNode *trans_binary_operator(Context *c, ResultUsed result_used, TransS
         case clang::BO_Cmp:
             emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: clang::BO_Cmp");
             return nullptr;
-        case clang::BO_Mul:
-            return trans_create_bin_op(c, scope, stmt->getLHS(),
+        case clang::BO_Mul: {
+            AstNode *node = trans_create_bin_op(c, scope, stmt->getLHS(),
                 qual_type_has_wrapping_overflow(c, stmt->getType()) ? BinOpTypeMultWrap : BinOpTypeMult,
                 stmt->getRHS());
+            return maybe_suppress_result(c, result_used, node);
+        }
         case clang::BO_Div:
             if (qual_type_has_wrapping_overflow(c, stmt->getType())) {
                 // unsigned/float division uses the operator
-                return trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeDiv, stmt->getRHS());
+                AstNode *node = trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeDiv, stmt->getRHS());
+                return maybe_suppress_result(c, result_used, node);
             } else {
                 // signed integer division uses @divTrunc
                 AstNode *fn_call = trans_create_node_builtin_fn_call_str(c, "divTrunc");
@@ -1424,12 +1429,13 @@ static AstNode *trans_binary_operator(Context *c, ResultUsed result_used, TransS
                 AstNode *rhs = trans_expr(c, ResultUsedYes, scope, stmt->getRHS(), TransLValue);
                 if (rhs == nullptr) return nullptr;
                 fn_call->data.fn_call_expr.params.append(rhs);
-                return fn_call;
+                return maybe_suppress_result(c, result_used, fn_call);
             }
         case clang::BO_Rem:
             if (qual_type_has_wrapping_overflow(c, stmt->getType())) {
                 // unsigned/float division uses the operator
-                return trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeMod, stmt->getRHS());
+                AstNode *node = trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeMod, stmt->getRHS());
+                return maybe_suppress_result(c, result_used, node);
             } else {
                 // signed integer division uses @rem
                 AstNode *fn_call = trans_create_node_builtin_fn_call_str(c, "rem");
@@ -1439,42 +1445,72 @@ static AstNode *trans_binary_operator(Context *c, ResultUsed result_used, TransS
                 AstNode *rhs = trans_expr(c, ResultUsedYes, scope, stmt->getRHS(), TransLValue);
                 if (rhs == nullptr) return nullptr;
                 fn_call->data.fn_call_expr.params.append(rhs);
-                return fn_call;
+                return maybe_suppress_result(c, result_used, fn_call);
             }
-        case clang::BO_Add:
-            return trans_create_bin_op(c, scope, stmt->getLHS(),
+        case clang::BO_Add: {
+            AstNode *node = trans_create_bin_op(c, scope, stmt->getLHS(),
                 qual_type_has_wrapping_overflow(c, stmt->getType()) ? BinOpTypeAddWrap : BinOpTypeAdd,
                 stmt->getRHS());
-        case clang::BO_Sub:
-            return trans_create_bin_op(c, scope, stmt->getLHS(),
+            return maybe_suppress_result(c, result_used, node);
+        }
+        case clang::BO_Sub: {
+            AstNode *node = trans_create_bin_op(c, scope, stmt->getLHS(),
                 qual_type_has_wrapping_overflow(c, stmt->getType()) ? BinOpTypeSubWrap : BinOpTypeSub,
                 stmt->getRHS());
-        case clang::BO_Shl:
-            return trans_create_shift_op(c, scope, stmt->getType(), stmt->getLHS(), BinOpTypeBitShiftLeft, stmt->getRHS());
-        case clang::BO_Shr:
-            return trans_create_shift_op(c, scope, stmt->getType(), stmt->getLHS(), BinOpTypeBitShiftRight, stmt->getRHS());
-        case clang::BO_LT:
-            return trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeCmpLessThan, stmt->getRHS());
-        case clang::BO_GT:
-            return trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeCmpGreaterThan, stmt->getRHS());
-        case clang::BO_LE:
-            return trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeCmpLessOrEq, stmt->getRHS());
-        case clang::BO_GE:
-            return trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeCmpGreaterOrEq, stmt->getRHS());
-        case clang::BO_EQ:
-            return trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeCmpEq, stmt->getRHS());
-        case clang::BO_NE:
-            return trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeCmpNotEq, stmt->getRHS());
-        case clang::BO_And:
-            return trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeBinAnd, stmt->getRHS());
-        case clang::BO_Xor:
-            return trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeBinXor, stmt->getRHS());
-        case clang::BO_Or:
-            return trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeBinOr, stmt->getRHS());
-        case clang::BO_LAnd:
-            return trans_create_bool_bin_op(c, scope, stmt->getLHS(), BinOpTypeBoolAnd, stmt->getRHS());
-        case clang::BO_LOr:
-            return trans_create_bool_bin_op(c, scope, stmt->getLHS(), BinOpTypeBoolOr, stmt->getRHS());
+            return maybe_suppress_result(c, result_used, node);
+        }
+        case clang::BO_Shl: {
+            AstNode *node = trans_create_shift_op(c, scope, stmt->getType(), stmt->getLHS(), BinOpTypeBitShiftLeft, stmt->getRHS());
+            return maybe_suppress_result(c, result_used, node);
+        }
+        case clang::BO_Shr: {
+            AstNode *node = trans_create_shift_op(c, scope, stmt->getType(), stmt->getLHS(), BinOpTypeBitShiftRight, stmt->getRHS());
+            return maybe_suppress_result(c, result_used, node);
+        }
+        case clang::BO_LT: {
+            AstNode *node =trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeCmpLessThan, stmt->getRHS());
+            return maybe_suppress_result(c, result_used, node);
+        }
+        case clang::BO_GT: {
+            AstNode *node = trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeCmpGreaterThan, stmt->getRHS());
+            return maybe_suppress_result(c, result_used, node);
+        }
+        case clang::BO_LE: {
+            AstNode *node = trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeCmpLessOrEq, stmt->getRHS());
+            return maybe_suppress_result(c, result_used, node);
+        }
+        case clang::BO_GE: {
+            AstNode *node = trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeCmpGreaterOrEq, stmt->getRHS());
+            return maybe_suppress_result(c, result_used, node);
+        }
+        case clang::BO_EQ: {
+            AstNode *node = trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeCmpEq, stmt->getRHS());
+            return maybe_suppress_result(c, result_used, node);
+        }
+        case clang::BO_NE: {
+            AstNode *node = trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeCmpNotEq, stmt->getRHS());
+            return maybe_suppress_result(c, result_used, node);
+        }
+        case clang::BO_And: {
+            AstNode *node = trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeBinAnd, stmt->getRHS());
+            return maybe_suppress_result(c, result_used, node);
+        }
+        case clang::BO_Xor: {
+            AstNode *node = trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeBinXor, stmt->getRHS());
+            return maybe_suppress_result(c, result_used, node);
+        }
+        case clang::BO_Or: {
+            AstNode *node = trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeBinOr, stmt->getRHS());
+            return maybe_suppress_result(c, result_used, node);
+        }
+        case clang::BO_LAnd: {
+            AstNode *node = trans_create_bool_bin_op(c, scope, stmt->getLHS(), BinOpTypeBoolAnd, stmt->getRHS());
+            return maybe_suppress_result(c, result_used, node);
+        }
+        case clang::BO_LOr: {
+            AstNode *node = trans_create_bool_bin_op(c, scope, stmt->getLHS(), BinOpTypeBoolOr, stmt->getRHS());
+            return maybe_suppress_result(c, result_used, node);
+        }
         case clang::BO_Assign:
             return trans_create_assign(c, result_used, scope, stmt->getLHS(), stmt->getRHS());
         case clang::BO_Comma:
@@ -1486,13 +1522,15 @@ static AstNode *trans_binary_operator(Context *c, ResultUsed result_used, TransS
                 AstNode *lhs = trans_expr(c, ResultUsedNo, &scope_block->base, stmt->getLHS(), TransRValue);
                 if (lhs == nullptr)
                     return nullptr;
-                scope_block->node->data.block.statements.append(maybe_suppress_result(c, ResultUsedNo, lhs));
+                scope_block->node->data.block.statements.append(lhs);
 
-                AstNode *rhs = trans_expr(c, result_used, &scope_block->base, stmt->getRHS(), TransRValue);
+                AstNode *rhs = trans_expr(c, ResultUsedYes, &scope_block->base, stmt->getRHS(), TransRValue);
                 if (rhs == nullptr)
                     return nullptr;
-                scope_block->node->data.block.statements.append(trans_create_node_break(c, label_name, rhs));
-                return scope_block->node;
+
+                rhs = trans_create_node_break(c, label_name, rhs);
+                scope_block->node->data.block.statements.append(rhs);
+                return maybe_suppress_result(c, result_used, scope_block->node);
             }
         case clang::BO_MulAssign:
         case clang::BO_DivAssign:
@@ -1718,7 +1756,7 @@ static AstNode *trans_compound_assign_operator(Context *c, ResultUsed result_use
     zig_unreachable();
 }
 
-static AstNode *trans_implicit_cast_expr(Context *c, TransScope *scope, const clang::ImplicitCastExpr *stmt) {
+static AstNode *trans_implicit_cast_expr(Context *c, ResultUsed result_used, TransScope *scope, const clang::ImplicitCastExpr *stmt) {
     switch (stmt->getCastKind()) {
         case clang::CK_LValueToRValue:
             return trans_expr(c, ResultUsedYes, scope, stmt->getSubExpr(), TransRValue);
@@ -1727,8 +1765,9 @@ static AstNode *trans_implicit_cast_expr(Context *c, TransScope *scope, const cl
                 AstNode *target_node = trans_expr(c, ResultUsedYes, scope, stmt->getSubExpr(), TransRValue);
                 if (target_node == nullptr)
                     return nullptr;
-                return trans_c_cast(c, stmt->getExprLoc(), stmt->getType(),
+                AstNode *node = trans_c_cast(c, stmt->getExprLoc(), stmt->getType(),
                         stmt->getSubExpr()->getType(), target_node);
+                return maybe_suppress_result(c, result_used, node);
             }
         case clang::CK_FunctionToPointerDecay:
         case clang::CK_ArrayToPointerDecay:
@@ -1736,7 +1775,7 @@ static AstNode *trans_implicit_cast_expr(Context *c, TransScope *scope, const cl
                 AstNode *target_node = trans_expr(c, ResultUsedYes, scope, stmt->getSubExpr(), TransRValue);
                 if (target_node == nullptr)
                     return nullptr;
-                return target_node;
+                return maybe_suppress_result(c, result_used, target_node);
             }
         case clang::CK_BitCast:
             {
@@ -1753,7 +1792,7 @@ static AstNode *trans_implicit_cast_expr(Context *c, TransScope *scope, const cl
                 AstNode *node = trans_create_node_builtin_fn_call_str(c, "ptrCast");
                 node->data.fn_call_expr.params.append(dest_type_node);
                 node->data.fn_call_expr.params.append(target_node);
-                return node;
+                return maybe_suppress_result(c, result_used, node);
             }
         case clang::CK_NullToPointer:
             return trans_create_node_unsigned(c, 0);
@@ -2746,7 +2785,9 @@ static AstNode *trans_call_expr(Context *c, ResultUsed result_used, TransScope *
     return node;
 }
 
-static AstNode *trans_member_expr(Context *c, TransScope *scope, const clang::MemberExpr *stmt) {
+static AstNode *trans_member_expr(Context *c, ResultUsed result_used, TransScope *scope,
+    const clang::MemberExpr *stmt)
+{
     AstNode *container_node = trans_expr(c, ResultUsedYes, scope, stmt->getBase(), TransRValue);
     if (container_node == nullptr)
         return nullptr;
@@ -2758,10 +2799,10 @@ static AstNode *trans_member_expr(Context *c, TransScope *scope, const clang::Me
     const char *name = decl_name(stmt->getMemberDecl());
 
     AstNode *node = trans_create_node_field_access_str(c, container_node, name);
-    return node;
+    return maybe_suppress_result(c, result_used, node);
 }
 
-static AstNode *trans_array_subscript_expr(Context *c, TransScope *scope, const clang::ArraySubscriptExpr *stmt) {
+static AstNode *trans_array_subscript_expr(Context *c, ResultUsed result_used, TransScope *scope, const clang::ArraySubscriptExpr *stmt) {
     AstNode *container_node = trans_expr(c, ResultUsedYes, scope, stmt->getBase(), TransRValue);
     if (container_node == nullptr)
         return nullptr;
@@ -2774,13 +2815,13 @@ static AstNode *trans_array_subscript_expr(Context *c, TransScope *scope, const 
     AstNode *node = trans_create_node(c, NodeTypeArrayAccessExpr);
     node->data.array_access_expr.array_ref_expr = container_node;
     node->data.array_access_expr.subscript = idx_node;
-    return node;
+    return maybe_suppress_result(c, result_used, node);
 }
 
 static AstNode *trans_c_style_cast_expr(Context *c, ResultUsed result_used, TransScope *scope,
         const clang::CStyleCastExpr *stmt, TransLRValue lrvalue)
 {
-    AstNode *sub_expr_node = trans_expr(c, result_used, scope, stmt->getSubExpr(), lrvalue);
+    AstNode *sub_expr_node = trans_expr(c, ResultUsedYes, scope, stmt->getSubExpr(), lrvalue);
     if (sub_expr_node == nullptr)
         return nullptr;
 
@@ -2791,8 +2832,8 @@ static AstNode *trans_c_style_cast_expr(Context *c, ResultUsed result_used, Tran
     return maybe_suppress_result(c, result_used, cast);
 }
 
-static AstNode *trans_unary_expr_or_type_trait_expr(Context *c, TransScope *scope,
-        const clang::UnaryExprOrTypeTraitExpr *stmt)
+static AstNode *trans_unary_expr_or_type_trait_expr(Context *c, ResultUsed result_used,
+        TransScope *scope, const clang::UnaryExprOrTypeTraitExpr *stmt)
 {
     AstNode *type_node = trans_qual_type(c, stmt->getTypeOfArgument(), stmt->getLocStart());
     if (type_node == nullptr)
@@ -2800,7 +2841,7 @@ static AstNode *trans_unary_expr_or_type_trait_expr(Context *c, TransScope *scop
 
     AstNode *node = trans_create_node_builtin_fn_call_str(c, "sizeOf");
     node->data.fn_call_expr.params.append(type_node);
-    return node;
+    return maybe_suppress_result(c, result_used, node);
 }
 
 static AstNode *trans_do_loop(Context *c, TransScope *parent_scope, const clang::DoStmt *stmt) {
@@ -3078,11 +3119,13 @@ static int trans_switch_default(Context *c, TransScope *parent_scope, const clan
     return ErrorNone;
 }
 
-static AstNode *trans_string_literal(Context *c, TransScope *scope, const clang::StringLiteral *stmt) {
+static AstNode *trans_string_literal(Context *c, ResultUsed result_used, TransScope *scope, const clang::StringLiteral *stmt) {
     switch (stmt->getKind()) {
         case clang::StringLiteral::Ascii:
-        case clang::StringLiteral::UTF8:
-            return trans_create_node_str_lit_c(c, string_ref_to_buf(stmt->getString()));
+        case clang::StringLiteral::UTF8: {
+            AstNode *node = trans_create_node_str_lit_c(c, string_ref_to_buf(stmt->getString()));
+            return maybe_suppress_result(c, result_used, node);
+        }
         case clang::StringLiteral::UTF16:
             emit_warning(c, stmt->getLocStart(), "TODO support UTF16 string literals");
             return nullptr;
@@ -3114,8 +3157,10 @@ static AstNode *trans_continue_stmt(Context *c, TransScope *scope, const clang::
     return trans_create_node(c, NodeTypeContinue);
 }
 
-static AstNode *trans_predefined_expr(Context *c, TransScope *scope, const clang::PredefinedExpr *expr) {
-    return trans_string_literal(c, scope, expr->getFunctionName());
+static AstNode *trans_predefined_expr(Context *c, ResultUsed result_used, TransScope *scope,
+    const clang::PredefinedExpr *expr)
+{
+    return trans_string_literal(c, result_used, scope, expr->getFunctionName());
 }
 
 static int wrap_stmt(AstNode **out_node, TransScope **out_scope, TransScope *in_scope, AstNode *result_node) {
@@ -3142,7 +3187,7 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const clang::Stmt *st
                     trans_compound_stmt(c, scope, (const clang::CompoundStmt *)stmt, out_node_scope));
         case clang::Stmt::IntegerLiteralClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_integer_literal(c, (const clang::IntegerLiteral *)stmt));
+                    trans_integer_literal(c, result_used, (const clang::IntegerLiteral *)stmt));
         case clang::Stmt::ConditionalOperatorClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_conditional_operator(c, result_used, scope, (const clang::ConditionalOperator *)stmt));
@@ -3154,7 +3199,7 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const clang::Stmt *st
                     trans_compound_assign_operator(c, result_used, scope, (const clang::CompoundAssignOperator *)stmt));
         case clang::Stmt::ImplicitCastExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_implicit_cast_expr(c, scope, (const clang::ImplicitCastExpr *)stmt));
+                    trans_implicit_cast_expr(c, result_used, scope, (const clang::ImplicitCastExpr *)stmt));
         case clang::Stmt::DeclRefExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_decl_ref_expr(c, scope, (const clang::DeclRefExpr *)stmt, lrvalue));
@@ -3190,23 +3235,23 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const clang::Stmt *st
             return ErrorNone;
         case clang::Stmt::MemberExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_member_expr(c, scope, (const clang::MemberExpr *)stmt));
+                    trans_member_expr(c, result_used, scope, (const clang::MemberExpr *)stmt));
         case clang::Stmt::ArraySubscriptExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_array_subscript_expr(c, scope, (const clang::ArraySubscriptExpr *)stmt));
+                    trans_array_subscript_expr(c, result_used, scope, (const clang::ArraySubscriptExpr *)stmt));
         case clang::Stmt::CStyleCastExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_c_style_cast_expr(c, result_used, scope, (const clang::CStyleCastExpr *)stmt, lrvalue));
         case clang::Stmt::UnaryExprOrTypeTraitExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_unary_expr_or_type_trait_expr(c, scope, (const clang::UnaryExprOrTypeTraitExpr *)stmt));
+                    trans_unary_expr_or_type_trait_expr(c, result_used, scope, (const clang::UnaryExprOrTypeTraitExpr *)stmt));
         case clang::Stmt::ForStmtClass: {
             AstNode *node = trans_for_loop(c, scope, (const clang::ForStmt *)stmt);
             return wrap_stmt(out_node, out_child_scope, scope, node);
         }
         case clang::Stmt::StringLiteralClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_string_literal(c, scope, (const clang::StringLiteral *)stmt));
+                    trans_string_literal(c, result_used, scope, (const clang::StringLiteral *)stmt));
         case clang::Stmt::BreakStmtClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_break_stmt(c, scope, (const clang::BreakStmt *)stmt));
@@ -3513,7 +3558,7 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const clang::Stmt *st
             return ErrorUnexpected;
         case clang::Stmt::PredefinedExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                             trans_predefined_expr(c, scope, (const clang::PredefinedExpr *)stmt));
+                             trans_predefined_expr(c, result_used, scope, (const clang::PredefinedExpr *)stmt));
         case clang::Stmt::PseudoObjectExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C PseudoObjectExprClass");
             return ErrorUnexpected;
@@ -3525,7 +3570,7 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const clang::Stmt *st
             return ErrorUnexpected;
         case clang::Stmt::StmtExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_stmt_expr(c, scope, (const clang::StmtExpr *)stmt, out_node_scope));
+                    trans_stmt_expr(c, result_used, scope, (const clang::StmtExpr *)stmt, out_node_scope));
         case clang::Stmt::SubstNonTypeTemplateParmExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C SubstNonTypeTemplateParmExprClass");
             return ErrorUnexpected;
