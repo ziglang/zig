@@ -56,10 +56,8 @@ endif()
 
 if(APPLE AND ZIG_STATIC)
     list(REMOVE_ITEM LLVM_LIBRARIES "-lz")
-    list(REMOVE_ITEM LLVM_LIBRARIES "-lcurses")
     find_library(ZLIB NAMES z zlib libz)
-    find_library(LIBNCURSES NAMES libncurses.a)
-    list(APPEND LLVM_LIBRARIES "${LIBNCURSES}" "${ZLIB}")
+    list(APPEND LLVM_LIBRARIES "${ZLIB}")
 endif()
 
 set(ZIG_CPP_LIB_DIR "${CMAKE_BINARY_DIR}/zig_cpp")
