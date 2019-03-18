@@ -320,6 +320,13 @@ static void glibc_add_include_dirs(CodeGen *parent, CFile *c_file) {
 
     c_file->args.append("-I");
     c_file->args.append(path_from_libc(parent, "include" OS_SEP "generic-glibc"));
+
+    c_file->args.append("-I");
+    c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "libc" OS_SEP "include" OS_SEP "%s-linux-any",
+                    buf_ptr(parent->zig_lib_dir), target_arch_name(parent->zig_target->arch))));
+
+    c_file->args.append("-I");
+    c_file->args.append(path_from_libc(parent, "include" OS_SEP "any-linux-any"));
 }
 
 static const char *glibc_start_asm_path(CodeGen *parent, const char *file) {

@@ -8005,14 +8005,19 @@ static void detect_libc(CodeGen *g) {
         Buf *arch_include_dir = buf_sprintf("%s" OS_SEP "libc" OS_SEP "include" OS_SEP "%s-%s-%s",
                 buf_ptr(g->zig_lib_dir), target_arch_name(g->zig_target->arch),
                 target_os_name(g->zig_target->os), target_abi_name(g->zig_target->abi));
-
         Buf *generic_include_dir = buf_sprintf("%s" OS_SEP "libc" OS_SEP "include" OS_SEP "generic-%s",
                 buf_ptr(g->zig_lib_dir), generic_name);
+        Buf *arch_os_include_dir = buf_sprintf("%s" OS_SEP "libc" OS_SEP "include" OS_SEP "%s-%s-any",
+                buf_ptr(g->zig_lib_dir), target_arch_name(g->zig_target->arch), target_os_name(g->zig_target->os));
+        Buf *generic_os_include_dir = buf_sprintf("%s" OS_SEP "libc" OS_SEP "include" OS_SEP "any-%s-any",
+                buf_ptr(g->zig_lib_dir), target_os_name(g->zig_target->os));
 
-        g->libc_include_dir_len = 2;
-        g->libc_include_dir_list = allocate<Buf*>(2);
+        g->libc_include_dir_len = 4;
+        g->libc_include_dir_list = allocate<Buf*>(g->libc_include_dir_len);
         g->libc_include_dir_list[0] = arch_include_dir;
         g->libc_include_dir_list[1] = generic_include_dir;
+        g->libc_include_dir_list[2] = arch_os_include_dir;
+        g->libc_include_dir_list[3] = generic_os_include_dir;
         return;
     }
 

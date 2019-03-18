@@ -106,6 +106,8 @@ pub fn main() !void {
                 builder.verbose_llvm_ir = true;
             } else if (mem.eql(u8, arg, "--verbose-cimport")) {
                 builder.verbose_cimport = true;
+            } else if (mem.eql(u8, arg, "--verbose-cc")) {
+                builder.verbose_cc = true;
             } else {
                 warn("Unrecognized argument: {}\n\n", arg);
                 return usageAndErr(&builder, false, try stderr_stream);
@@ -193,6 +195,7 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: var) !void {
         \\  --verbose-ir           Enable compiler debug output for Zig IR
         \\  --verbose-llvm-ir      Enable compiler debug output for LLVM IR
         \\  --verbose-cimport      Enable compiler debug output for C imports
+        \\  --verbose-cc           Enable compiler debug output for C compilation
         \\
     );
 }
