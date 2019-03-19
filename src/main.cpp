@@ -191,6 +191,15 @@ static int print_target_list(FILE *f) {
         fprintf(f, "  %s%s\n", target_abi_name(abi), native_str);
     }
 
+    fprintf(f, "\nAvailable libcs:\n");
+    size_t libc_count = target_libc_count();
+    for (size_t i = 0; i < libc_count; i += 1) {
+        ZigTarget libc_target;
+        target_libc_enum(i, &libc_target);
+        fprintf(f, "  %s-%s-%s\n", target_arch_name(libc_target.arch),
+                target_os_name(libc_target.os), target_abi_name(libc_target.abi));
+    }
+
     return EXIT_SUCCESS;
 }
 

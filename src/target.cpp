@@ -1498,3 +1498,17 @@ bool target_is_libc_lib_name(const ZigTarget *target, const char *name) {
 
     return false;
 }
+
+size_t target_libc_count(void) {
+    return array_length(libcs_available);
+}
+
+void target_libc_enum(size_t index, ZigTarget *out_target) {
+    assert(index < array_length(libcs_available));
+    out_target->arch = libcs_available[index].arch;
+    out_target->os = libcs_available[index].os;
+    out_target->abi = libcs_available[index].abi;
+    out_target->sub_arch = ZigLLVM_NoSubArch;
+    out_target->vendor = ZigLLVM_UnknownVendor;
+    out_target->is_native = false;
+}

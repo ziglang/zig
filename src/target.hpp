@@ -169,4 +169,7 @@ bool target_is_musl(const ZigTarget *target);
 
 uint32_t target_arch_pointer_bit_width(ZigLLVM_ArchType arch);
 
+size_t target_libc_count(void);
+void target_libc_enum(size_t index, ZigTarget *out_target);
+
 #endif

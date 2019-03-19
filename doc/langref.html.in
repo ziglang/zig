@@ -8649,7 +8649,50 @@ C ABIs:
   itanium
   cygnus
   coreclr
-  simulator</code></pre>
+  simulator
+
+Available libcs:
+  aarch64_be-linux-gnu
+  aarch64_be-linux-musl
+  aarch64-linux-gnu
+  aarch64-linux-musleabi
+  armeb-linux-gnueabi
+  armeb-linux-gnueabihf
+  armeb-linux-musleabi
+  armeb-linux-musleabihf
+  arm-linux-gnueabi
+  arm-linux-gnueabihf
+  arm-linux-musleabi
+  arm-linux-musleabihf
+  i386-linux-gnu
+  i386-linux-musl
+  mips64el-linux-gnuabi64
+  mips64el-linux-gnuabin32
+  mips64el-linux-musl
+  mips64-linux-gnuabi64
+  mips64-linux-gnuabin32
+  mips64-linux-musl
+  mipsel-linux-gnu
+  mipsel-linux-musl
+  mips-linux-gnu
+  mips-linux-musl
+  nios2-linux-gnu
+  powerpc64le-linux-gnu
+  powerpc64le-linux-musl
+  powerpc64-linux-gnu
+  powerpc64-linux-musl
+  powerpc-linux-gnu
+  powerpc-linux-musl
+  riscv32-linux-musl
+  riscv64-linux-gnu
+  riscv64-linux-musl
+  s390x-linux-gnu
+  s390x-linux-musl
+  sparc-linux-gnu
+  sparcv9-linux-gnu
+  x86_64-linux-gnu
+  x86_64-linux-gnux32
+  x86_64-linux-musl</code></pre>
       <p>
       The Zig Standard Library ({#syntax#}@import("std"){#endsyntax#}) has architecture, environment, and operating system
       abstractions, and thus takes additional work to support more platforms.
