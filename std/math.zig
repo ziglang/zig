@@ -593,7 +593,16 @@ fn testRem() void {
 
 /// Returns the absolute value of the integer parameter.
 /// Result is an unsigned integer.
-pub fn absCast(x: var) @IntType(false, @typeOf(x).bit_count) {
+pub fn absCast(x: var) t: {
+    if (@typeOf(x) == comptime_int) {
+        break :t comptime_int;
+    } else {
+        break :t @IntType(false, @typeOf(x).bit_count);
+    }
+} {
+    if (@typeOf(x) == comptime_int) {
+        return if (x < 0) -x else x;
+    }
     const uint = @IntType(false, @typeOf(x).bit_count);
     if (x >= 0) return @intCast(uint, x);
 
@@ -609,6 +618,8 @@ test "math.absCast" {
 
     testing.expect(absCast(i32(minInt(i32))) == -minInt(i32));
     testing.expect(@typeOf(absCast(i32(minInt(i32)))) == u32);
+
+    testing.expect(absCast(-999) == 999);
 }
 
 /// Returns the negation of the integer parameter.

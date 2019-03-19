@@ -24,6 +24,10 @@ comptime {
     @export("__addtf3", @import("compiler_rt/addXf3.zig").__addtf3, linkage);
     @export("__subtf3", @import("compiler_rt/addXf3.zig").__subtf3, linkage);
 
+    @export("__mulsf3", @import("compiler_rt/mulXf3.zig").__mulsf3, linkage);
+    @export("__muldf3", @import("compiler_rt/mulXf3.zig").__muldf3, linkage);
+    @export("__multf3", @import("compiler_rt/mulXf3.zig").__multf3, linkage);
+
     @export("__floattitf", @import("compiler_rt/floattitf.zig").__floattitf, linkage);
     @export("__floattidf", @import("compiler_rt/floattidf.zig").__floattidf, linkage);
     @export("__floattisf", @import("compiler_rt/floattisf.zig").__floattisf, linkage);
