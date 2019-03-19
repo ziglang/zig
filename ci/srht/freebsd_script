@@ -1,5 +1,8 @@
 #!/bin/sh
 
+set -x
+set -e
+
 ZIGDIR="$(pwd)"
 CACHE_BASENAME="llvm+clang-8.0.0-freebsd-x86_64-release"
 PREFIX="$HOME/$CACHE_BASENAME"

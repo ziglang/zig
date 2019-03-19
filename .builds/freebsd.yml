@@ -2,6 +2,7 @@ image: freebsd/latest
 packages:
   - cmake
   - py27-s3cmd
+  - wget
 secrets:
   - 6c60aaee-92e7-4e7d-812c-114817689b4d
 sources:
