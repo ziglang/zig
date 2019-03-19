@@ -7928,13 +7928,261 @@ pub fn main() void {
 
       {#header_close#}
       {#header_open|Memory#}
-      <p>TODO: explain no default allocator in zig</p>
-      <p>TODO: show how to use the allocator interface</p>
-      <p>TODO: mention debug allocator</p>
-      <p>TODO: importance of checking for allocation failure</p>
-      <p>TODO: mention overcommit and the OOM Killer</p>
-      <p>TODO: mention recursion</p>
-      {#see_also|Pointers#}
+      <p>
+      The Zig language performs no memory management on behalf of the programmer. This is
+      why Zig has no runtime, and why Zig code works seamlessly in so many environments,
+      including real-time software, operating system kernels, embedded devices, and
+      low latency servers. As a consequence, Zig programmers must always be able to answer
+      the question:
+      </p>
+      <p>{#link|Where are the bytes?#}</p>
+      <p>
+      Like Zig, the C programming language has manual memory management. However, unlike Zig,
+      C has a default allocator - <code>malloc</code>, <code>realloc</code>, and <code>free</code>.
+      When linking against libc, Zig exposes this allocator with {#syntax#}std.heap.c_allocator{#endsyntax#}.
+      However, by convention, there is no default allocator in Zig. Instead, functions which need to
+      allocate accept an {#syntax#}*Allocator{#endsyntax#} parameter. Likewise, data structures such as
+      {#syntax#}std.ArrayList{#endsyntax#} accept an {#syntax#}*Allocator{#endsyntax#} parameter in
+      their initialization functions:
+      </p>
+      {#code_begin|test|allocator#}
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
+
+test "using an allocator" {
+    var buffer: [100]u8 = undefined;
+    const allocator = &std.heap.FixedBufferAllocator.init(&buffer).allocator;
+    const result = try concat(allocator, "foo", "bar");
+    assert(std.mem.eql(u8, "foobar", result));
+}
+
+fn concat(allocator: *Allocator, a: []const u8, b: []const u8) ![]u8 {
+    const result = try allocator.alloc(u8, a.len + b.len);
+    std.mem.copy(u8, result, a);
+    std.mem.copy(u8, result[a.len..], b);
+    return result;
+}
+      {#code_end#}
+      <p>
+      In the above example, 100 bytes of stack memory are used to initialize a
+      {#syntax#}FixedBufferAllocator{#endsyntax#}, which is then passed to a function.
+      As a convenience there is a global {#syntax#}FixedBufferAllocator{#endsyntax#}
+      available for quick tests at {#syntax#}std.debug.global_allocator{#endsyntax#},
+      however it is deprecated and should be avoided in favor of directly using a
+      {#syntax#}FixedBufferAllocator{#endsyntax#} as in the example above.
+      </p>
+      <p>
+      Currently Zig has no general purpose allocator, but there is
+      <a href="https://github.com/andrewrk/zig-general-purpose-allocator/">one under active development</a>.
+      Once it is merged into the Zig standard library it will become available to import
+      with {#syntax#}std.heap.default_allocator{#endsyntax#}. However, it will still be recommended to
+      follow the {#link|Choosing an Allocator#} guide.
+      </p>
+
+      {#header_open|Choosing an Allocator#}
+      <p>What allocator to use depends on a number of factors. Here is a flow chart to help you decide:
+      </p>
+      <ol>
+          <li>
+              Are you making a library? In this case, best to accept an {#syntax#}*Allocator{#endsyntax#}
+              as a parameter and allow your library's users to decide what allocator to use.
+          </li>
+          <li>Are you linking libc? In this case, {#syntax#}std.heap.c_allocator{#endsyntax#} is likely
+              the right choice, at least for your main allocator.</li>
+          <li>
+              Is the maximum number of bytes that you will need bounded by a number known at
+              {#link|comptime#}? In this case, use {#syntax#}std.heap.FixedBufferAllocator{#endsyntax#} or
+              {#syntax#}std.heap.ThreadSafeFixedBufferAllocator{#endsyntax#} depending on whether you need
+              thread-safety or not.
+          </li>
+          <li>
+              Is your program a command line application which runs from start to end without any fundamental
+              cyclical pattern (such as a video game main loop, or a web server request handler),
+              such that it would make sense to free everything at once at the end?
+              In this case, it is recommended to follow this pattern:
+              {#code_begin|exe|cli_allocation#}
+const std = @import("std");
+
+pub fn main() !void {
+    var direct_allocator = std.heap.DirectAllocator.init();
+    defer direct_allocator.deinit();
+
+    var arena = std.heap.ArenaAllocator.init(&direct_allocator.allocator);
+    defer arena.deinit();
+
+    const allocator = &arena.allocator;
+
+    const ptr = try allocator.create(i32);
+    std.debug.warn("ptr={*}\n", ptr);
+}
+              {#code_end#}
+              When using this kind of allocator, there is no need to free anything manually. Everything
+              gets freed at once with the call to {#syntax#}arena.deinit(){#endsyntax#}.
+          </li>
+          <li>
+              Are the allocations part of a cyclical pattern such as a video game main loop, or a web
+              server request handler? If the allocations can all be freed at once, at the end of the cycle,
+              for example once the video game frame has been fully rendered, or the web server request has
+              been served, then {#syntax#}std.heap.ArenaAllocator{#endsyntax#} is a great candidate. As
+              demonstrated in the previous bullet point, this allows you to free entire arenas at once.
+              Note also that if an upper bound of memory can be established, then
+              {#syntax#}std.heap.FixedBufferAllocator{#endsyntax#} can be used as a further optimization.
+          </li>
+          <li>
+              Are you writing a test, and you want to make sure {#syntax#}error.OutOfMemory{#endsyntax#}
+              is handled correctly? In this case, use {#syntax#}std.debug.FailingAllocator{#endsyntax#}.
+          </li>
+          <li>
+              Finally, if none of the above apply, you need a general purpose allocator. Zig does not
+              yet have a general purpose allocator in the standard library,
+              <a href="https://github.com/andrewrk/zig-general-purpose-allocator/">but one is being actively developed</a>.
+              You can also consider {#link|Implementing an Allocator#}.
+          </li>
+      </ol>
+      {#header_close#}
+
+      {#header_open|Where are the bytes?#}
+      <p>String literals such as {#syntax#}"foo"{#endsyntax#} are in the global constant data section.
+      This is why it is an error to pass a string literal to a mutable slice, like this:
+      </p>
+      {#code_begin|test_err|expected type '[]u8'#}
+fn foo(s: []u8) void {}
+
+test "string literal to mutable slice" {
+    foo("hello");
+}
+      {#code_end#}
+      <p>However if you make the slice constant, then it works:</p>
+      {#code_begin|test|strlit#}
+fn foo(s: []const u8) void {}
+
+test "string literal to constant slice" {
+    foo("hello");
+}
+      {#code_end#}
+      <p>
+      Just like string literals, `const` declarations, when the value is known at {#link|comptime#},
+      are stored in the global constant data section. Also {#link|Compile Time Variables#} are stored
+      in the global constant data section.
+      </p>
+      <p>
+      `var` declarations inside functions are stored in the function's stack frame. Once a function returns,
+      any {#link|Pointers#} to variables in the function's stack frame become invalid references, and
+      dereferencing them becomes unchecked {#link|Undefined Behavior#}.
+      </p>
+      <p>
+      `var` declarations at the top level or in {#link|struct#} declarations are stored in the global
+      data section.
+      </p>
+      <p>
+      The location of memory allocated with {#syntax#}allocator.alloc{#endsyntax#} or
+      {#syntax#}allocator.create{#endsyntax#} is determined by the allocator's implementation.
+      </p>
+      </p>TODO: thread local variables</p>
+      {#header_close#}
+
+      {#header_open|Implementing an Allocator#}
+      <p>Zig programmers can implement their own allocators by fulfilling the Allocator interface.
+      In order to do this one must read carefully the documentation comments in std/mem.zig and
+      then supply a {#syntax#}reallocFn{#endsyntax#} and a {#syntax#}shrinkFn{#endsyntax#}.
+      </p>
+      <p>
+      There are many example allocators to look at for inspiration. Look at std/heap.zig and
+      at this
+      <a href="https://github.com/andrewrk/zig-general-purpose-allocator/">work-in-progress general purpose allocator</a>.
+      TODO: once <a href="https://github.com/ziglang/zig/issues/21">#21</a> is done, link to the docs
+      here.
+      </p>
+      {#header_close#}
+
+      {#header_open|Heap Allocation Failure#}
+      <p>
+      Many programming languages choose to handle the possibility of heap allocation failure by
+      unconditionally crashing. By convention, Zig programmers do not consider this to be a
+      satisfactory solution. Instead, {#syntax#}error.OutOfMemory{#endsyntax#} represents
+      heap allocation failure, and Zig libraries return this error code whenever heap allocation
+      failure prevented an operation from completing successfully.
+      </p>
+      <p>
+      Some have argued that because some operating systems such as Linux have memory overcommit enabled by
+      default, it is pointless to handle heap allocation failure. There are many problems with this reasoning:
+      </p>
+      <ul>
+          <li>Only some operating systems have an overcommit feature.
+              <ul>
+                  <li>Linux has it enabled by default, but it is configurable.</li>
+                  <li>Windows does not overcommit.</li>
+                  <li>Embedded systems do not have overcommit.</li>
+                  <li>Hobby operating systems may or may not have overcommit.</li>
+              </ul>
+          </li>
+          <li>
+              For real-time systems, not only is there no overcommit, but typically the maximum amount
+              of memory per application is determined ahead of time.
+          </li>
+          <li>
+              When writing a library, one of the main goals is code reuse. By making code handle
+              allocation failure correctly, a library becomes eligible to be reused in
+              more contexts.
+          </li>
+          <li>
+              Although some software has grown to depend on overcommit being enabled, its existence
+              is the source of countless user experience disasters. When a system with overcommit enabled,
+              such as Linux on default settings, comes close to memory exhaustion, the system locks up
+              and becomes unusable. At this point, the OOM Killer selects an application to kill
+              based on heuristics. This non-deterministic decision often results in an important process
+              being killed, and often fails to return the system back to working order.
+          </li>
+      </ul>
+      {#header_close#}
+
+      {#header_open|Recursion#}
+      <p>
+      Recursion is a fundamental tool in modeling software. However it has an often-overlooked problem:
+      unbounded memory allocation.
+      </p>
+      <p>
+      Recursion is an area of active experimentation in Zig and so the documentation here is not final.
+      You can read a
+      <a href="https://ziglang.org/download/0.3.0/release-notes.html#recursion">summary of recursion status in the 0.3.0 release notes</a>.
+      </p>
+      <p>
+      The short summary is that currently recursion works normally as you would expect. Although Zig code
+      is not yet protected from stack overflow, it is planned that a future version of Zig will provide
+      such protection, with some degree of cooperation from Zig code required.
+      </p>
+      {#header_close#}
+
+      {#header_open|Lifetime and Ownership#}
+      <p>
+      It is the Zig programmer's responsibility to ensure that a {#link|pointer|Pointers#} is not
+      accessed when the memory pointed to is no longer available. Note that a {#link|slice|Slices#}
+      is a form of pointer, in that it references other memory.
+      </p>
+      <p>
+      In order to prevent bugs, there are some helpful conventions to follow when dealing with pointers.
+      In general, when a function returns a pointer, the documentation for the function should explain
+      who "owns" the pointer. This concept helps the programmer decide when it is appropriate, if ever,
+      to free the pointer.
+      </p>
+      <p>
+      For example, the function's documentation may say "caller owns the returned memory", in which case
+      the code that calls the function must have a plan for when to free that memory. Probably in this situation,
+      the function will accept an {#syntax#}*Allocator{#endsyntax#} parameter.
+      </p>
+      <p>
+      Sometimes the lifetime of a pointer may be more complicated. For example, when using
+      {#syntax#}std.ArrayList(T).toSlice(){#endsyntax#}, the returned slice has a lifetime that remains
+      valid until the next time the list is resized, such as by appending new elements.
+      </p>
+      <p>
+      The API documentation for functions and data structures should take great care to explain
+      the ownership and lifetime semantics of pointers. Ownership determines whose responsibility it
+      is to free the memory referenced by the pointer, and lifetime determines the point at which
+      the memory becomes inaccessible (lest {#link|Undefined Behavior#} occur).
+      </p>
+      {#header_close#}
 
       {#header_close#}
       {#header_open|Compile Variables#}
