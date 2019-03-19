@@ -1015,6 +1015,7 @@ pub const TranslateCContext = struct {
                     \\============================================
                     \\
                 , stderr);
+                printInvocation(zig_args.toSliceConst());
                 return error.TestFailed;
             }
 
@@ -1028,6 +1029,7 @@ pub const TranslateCContext = struct {
                         \\{}
                         \\
                     , expected_line, stdout);
+                    printInvocation(zig_args.toSliceConst());
                     return error.TestFailed;
                 }
             }

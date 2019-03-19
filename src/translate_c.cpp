@@ -1292,7 +1292,8 @@ static AstNode *trans_integer_literal(Context *c, ResultUsed result_used, const 
         emit_warning(c, stmt->getBeginLoc(), "invalid integer literal");
         return nullptr;
     }
-    return trans_create_node_apint(c, result.Val.getInt());
+    AstNode *node = trans_create_node_apint(c, result.Val.getInt());
+    return maybe_suppress_result(c, result_used, node);
 }
 
 static AstNode *trans_constant_expr(Context *c, ResultUsed result_used, const clang::ConstantExpr *expr) {
