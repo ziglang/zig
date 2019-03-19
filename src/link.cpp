@@ -581,15 +581,8 @@ static const char *build_musl(CodeGen *parent) {
             CFile *c_file = allocate<CFile>(1);
             c_file->source_path = buf_ptr(full_path);
             musl_add_cc_args(parent, c_file);
-            c_file->args.append("-Wno-ignored-attributes");
-            c_file->args.append("-Wno-bitwise-op-parentheses");
-            c_file->args.append("-Wno-logical-op-parentheses");
-            c_file->args.append("-Wno-dangling-else");
-            c_file->args.append("-Wno-shift-op-parentheses");
             c_file->args.append("-Qunused-arguments");
-            c_file->args.append("-Wno-unknown-pragmas");
-            c_file->args.append("-Wno-string-plus-int");
-            c_file->args.append("-Wno-parentheses");
+            c_file->args.append("-w"); // disable all warnings
             if (src_kind == MuslSrcO3) {
                 c_file->args.append("-O3");
             }
