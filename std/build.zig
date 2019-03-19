@@ -1120,7 +1120,9 @@ pub const LibExeObjStep = struct {
     /// Add command line arguments with `addArg`.
     pub fn run(exe: *LibExeObjStep) *RunStep {
         assert(exe.kind == Kind.Exe);
-        assert(exe.target == Target.Native);
+        // It doesn't have to be native. We catch that if you actually try to run it.
+        // Consider that this is declarative; the run step may not be run unless a user
+        // option is supplied.
         const run_step = RunStep.create(exe.builder, exe.builder.fmt("run {}", exe.step.name));
         run_step.addArtifactArg(exe);
         return run_step;
