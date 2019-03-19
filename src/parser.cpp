@@ -61,7 +61,6 @@ static AstNode *ast_parse_multiply_expr(ParseContext *pc);
 static AstNode *ast_parse_prefix_expr(ParseContext *pc);
 static AstNode *ast_parse_primary_expr(ParseContext *pc);
 static AstNode *ast_parse_if_expr(ParseContext *pc);
-static AstNode *ast_parse_labeled_expr(ParseContext *pc);
 static AstNode *ast_parse_block(ParseContext *pc);
 static AstNode *ast_parse_loop_expr(ParseContext *pc);
 static AstNode *ast_parse_for_expr(ParseContext *pc);
@@ -1263,7 +1262,8 @@ static AstNode *ast_parse_prefix_expr(ParseContext *pc) {
 //      / KEYWORD_continue BreakLabel?
 //      / KEYWORD_resume Expr
 //      / KEYWORD_return Expr?
-//      / LabeledExpr
+//      / BlockLabel? LoopExpr
+//      / Block
 //      / CurlySuffixExpr
 static AstNode *ast_parse_primary_expr(ParseContext *pc) {
     AstNode *asm_expr = ast_parse_asm_expr(pc);
@@ -1325,32 +1325,7 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc) {
         return res;
     }
 
-    AstNode *labeled_expr = ast_parse_labeled_expr(pc);
-    if (labeled_expr != nullptr)
-        return labeled_expr;
-
-    AstNode *curly_suffix = ast_parse_curly_suffix_expr(pc);
-    if (curly_suffix != nullptr)
-        return curly_suffix;
-
-    return nullptr;
-}
-
-// IfExpr <- IfPrefix Expr (KEYWORD_else Payload? Expr)?
-static AstNode *ast_parse_if_expr(ParseContext *pc) {
-    return ast_parse_if_expr_helper(pc, ast_parse_expr);
-}
-
-// LabeledExpr <- BlockLabel? (Block / LoopExpr)
-static AstNode *ast_parse_labeled_expr(ParseContext *pc) {
     Token *label = ast_parse_block_label(pc);
-    AstNode *block = ast_parse_block(pc);
-    if (block != nullptr) {
-        assert(block->type == NodeTypeBlock);
-        block->data.block.name = token_buf(label);
-        return block;
-    }
-
     AstNode *loop = ast_parse_loop_expr(pc);
     if (loop != nullptr) {
         switch (loop->type) {
@@ -1364,11 +1339,29 @@ static AstNode *ast_parse_labeled_expr(ParseContext *pc) {
                 zig_unreachable();
         }
         return loop;
+    } else if (label != nullptr) {
+        // Restore the tokens that we eaten by ast_parse_block_label.
+        put_back_token(pc);
+        put_back_token(pc);
     }
 
-    if (label != nullptr)
-        ast_invalid_token_error(pc, peek_token(pc));
+    AstNode *block = ast_parse_block(pc);
+    if (block != nullptr) {
+        assert(block->type == NodeTypeBlock);
+        block->data.block.name = token_buf(label);
+        return block;
+    }
+
+    AstNode *curly_suffix = ast_parse_curly_suffix_expr(pc);
+    if (curly_suffix != nullptr)
+        return curly_suffix;
+
     return nullptr;
+}
+
+// IfExpr <- IfPrefix Expr (KEYWORD_else Payload? Expr)?
+static AstNode *ast_parse_if_expr(ParseContext *pc) {
+    return ast_parse_if_expr_helper(pc, ast_parse_expr);
 }
 
 // Block <- LBRACE Statement* RBRACE
