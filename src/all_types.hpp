@@ -1616,6 +1616,12 @@ enum ValgrindSupport {
     ValgrindSupportEnabled,
 };
 
+enum WantPIC {
+    WantPICAuto,
+    WantPICDisabled,
+    WantPICEnabled,
+};
+
 struct CFile {
     ZigList<const char *> args;
     const char *source_path;
@@ -1791,6 +1797,8 @@ struct CodeGen {
     bool have_dllmain_crt_startup;
     bool have_pub_panic;
     bool have_err_ret_tracing;
+    bool have_pic;
+    bool have_dynamic_link; // this is whether the final thing will be dynamically linked. see also is_dynamic
     bool c_want_stdint;
     bool c_want_stdbool;
     bool verbose_tokenize;
@@ -1834,13 +1842,13 @@ struct CodeGen {
     const ZigTarget *zig_target;
     TargetSubsystem subsystem;
     ValgrindSupport valgrind_support;
-    bool is_static;
+    WantPIC want_pic;
+    bool is_dynamic; // shared library rather than static library. dynamic musl rather than static musl.
     bool strip_debug_symbols;
     bool is_test_build;
     bool is_single_threaded;
     bool linker_rdynamic;
     bool each_lib_rpath;
-    bool disable_pic;
     bool is_dummy_so;
     bool disable_gen_h;
 
@@ -3348,7 +3356,7 @@ struct IrInstructionCoroPromise {
 struct IrInstructionCoroAllocHelper {
     IrInstruction base;
 
-    IrInstruction *alloc_fn;
+    IrInstruction *realloc_fn;
     IrInstruction *coro_size;
 };
 
@@ -3473,8 +3481,8 @@ static const size_t stack_trace_ptr_count = 32;
 #define RETURN_ADDRESSES_FIELD_NAME "return_addresses"
 #define ERR_RET_TRACE_FIELD_NAME "err_ret_trace"
 #define RESULT_FIELD_NAME "result"
-#define ASYNC_ALLOC_FIELD_NAME "allocFn"
-#define ASYNC_FREE_FIELD_NAME "freeFn"
+#define ASYNC_REALLOC_FIELD_NAME "reallocFn"
+#define ASYNC_SHRINK_FIELD_NAME "shrinkFn"
 #define ATOMIC_STATE_FIELD_NAME "atomic_state"
 // these point to data belonging to the awaiter
 #define ERR_RET_TRACE_PTR_FIELD_NAME "err_ret_trace_ptr"

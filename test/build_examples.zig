@@ -11,10 +11,7 @@ pub fn addCases(cases: *tests.BuildExamplesContext) void {
     cases.addBuildFile("example/shared_library/build.zig");
     cases.addBuildFile("example/mix_o_files/build.zig");
     cases.addBuildFile("test/standalone/static_c_lib/build.zig");
-    if (builtin.os != builtin.Os.macosx) {
-        // TODO https://github.com/ziglang/zig/issues/1126
-        cases.addBuildFile("test/standalone/issue_339/build.zig");
-    }
+    cases.addBuildFile("test/standalone/issue_339/build.zig");
     cases.addBuildFile("test/standalone/issue_794/build.zig");
     cases.addBuildFile("test/standalone/pkg_import/build.zig");
     cases.addBuildFile("test/standalone/use_alias/build.zig");

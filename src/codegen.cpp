@@ -182,13 +182,13 @@ CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget 
     } else {
         g->each_lib_rpath = true;
 
-        if (target_is_darwin(g->zig_target)) {
+        if (target_os_is_darwin(g->zig_target->os)) {
             init_darwin_native(g);
         }
 
     }
 
-    if (target_requires_libc(g->zig_target)) {
+    if (target_os_requires_libc(g->zig_target->os)) {
         g->libc_link_lib = create_link_lib(buf_create_from_str("c"));
         g->link_libs_list.append(g->libc_link_lib);
     }
@@ -878,9 +878,6 @@ static bool ir_want_fast_math(CodeGen *g, IrInstruction *instruction) {
 }
 
 static bool ir_want_runtime_safety(CodeGen *g, IrInstruction *instruction) {
-    if (g->build_mode == BuildModeFastRelease || g->build_mode == BuildModeSmallRelease)
-        return false;
-
     // TODO memoize
     Scope *scope = instruction->scope;
     while (scope) {
@@ -895,7 +892,9 @@ static bool ir_want_runtime_safety(CodeGen *g, IrInstruction *instruction) {
         }
         scope = scope->parent;
     }
-    return true;
+
+    return (g->build_mode != BuildModeFastRelease &&
+            g->build_mode != BuildModeSmallRelease);
 }
 
 static Buf *panic_msg_buf(PanicMsgId msg_id) {
@@ -3371,7 +3370,7 @@ static LLVMValueRef gen_valgrind_client_request(CodeGen *g, LLVMValueRef default
     bool asm_has_side_effects = true;
     bool asm_is_alignstack = false;
     if (g->zig_target->arch == ZigLLVM_x86_64) {
-        if (g->zig_target->os == OsLinux || target_is_darwin(g->zig_target) || g->zig_target->os == OsSolaris ||
+        if (g->zig_target->os == OsLinux || target_os_is_darwin(g->zig_target->os) || g->zig_target->os == OsSolaris ||
             (g->zig_target->os == OsWindows && g->zig_target->abi != ZigLLVM_MSVC))
         {
             if (g->cur_fn->valgrind_client_request_array == nullptr) {
@@ -5178,7 +5177,7 @@ static LLVMValueRef get_coro_alloc_helper_fn_val(CodeGen *g, LLVMTypeRef alloc_f
     LLVMValueRef sret_ptr = LLVMBuildAlloca(g->builder, LLVMGetElementType(alloc_fn_arg_types[0]), "");
 
     size_t next_arg = 0;
-    LLVMValueRef alloc_fn_val = LLVMGetParam(fn_val, next_arg);
+    LLVMValueRef realloc_fn_val = LLVMGetParam(fn_val, next_arg);
     next_arg += 1;
 
     LLVMValueRef stack_trace_val;
@@ -5196,15 +5195,22 @@ static LLVMValueRef get_coro_alloc_helper_fn_val(CodeGen *g, LLVMTypeRef alloc_f
     LLVMValueRef alignment_val = LLVMConstInt(g->builtin_types.entry_u29->type_ref,
             get_coro_frame_align_bytes(g), false);
 
+    ConstExprValue *zero_array = create_const_str_lit(g, buf_create_from_str(""));
+    ConstExprValue *undef_slice_zero = create_const_slice(g, zero_array, 0, 0, false);
+    render_const_val(g, undef_slice_zero, "");
+    render_const_val_global(g, undef_slice_zero, "");
+
     ZigList<LLVMValueRef> args = {};
     args.append(sret_ptr);
     if (g->have_err_ret_tracing) {
         args.append(stack_trace_val);
     }
     args.append(allocator_val);
+    args.append(undef_slice_zero->global_refs->llvm_global);
+    args.append(LLVMGetUndef(g->builtin_types.entry_u29->type_ref));
     args.append(coro_size);
     args.append(alignment_val);
-    LLVMValueRef call_instruction = ZigLLVMBuildCall(g->builder, alloc_fn_val, args.items, args.length,
+    LLVMValueRef call_instruction = ZigLLVMBuildCall(g->builder, realloc_fn_val, args.items, args.length,
             get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAuto, "");
     set_call_instr_sret(g, call_instruction);
     LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, sret_ptr, err_union_err_index, "");
@@ -5240,14 +5246,14 @@ static LLVMValueRef get_coro_alloc_helper_fn_val(CodeGen *g, LLVMTypeRef alloc_f
 static LLVMValueRef ir_render_coro_alloc_helper(CodeGen *g, IrExecutable *executable,
         IrInstructionCoroAllocHelper *instruction)
 {
-    LLVMValueRef alloc_fn = ir_llvm_value(g, instruction->alloc_fn);
+    LLVMValueRef realloc_fn = ir_llvm_value(g, instruction->realloc_fn);
     LLVMValueRef coro_size = ir_llvm_value(g, instruction->coro_size);
-    LLVMValueRef fn_val = get_coro_alloc_helper_fn_val(g, LLVMTypeOf(alloc_fn), instruction->alloc_fn->value.type);
+    LLVMValueRef fn_val = get_coro_alloc_helper_fn_val(g, LLVMTypeOf(realloc_fn), instruction->realloc_fn->value.type);
     size_t err_code_ptr_arg_index = get_async_err_code_arg_index(g, &g->cur_fn->type_entry->data.fn.fn_type_id);
     size_t allocator_arg_index = get_async_allocator_arg_index(g, &g->cur_fn->type_entry->data.fn.fn_type_id);
 
     ZigList<LLVMValueRef> params = {};
-    params.append(alloc_fn);
+    params.append(realloc_fn);
     uint32_t err_ret_trace_arg_index = get_err_ret_trace_arg_index(g, g->cur_fn);
     if (err_ret_trace_arg_index != UINT32_MAX) {
         params.append(LLVMGetParam(g->cur_fn_val, err_ret_trace_arg_index));
@@ -7284,7 +7290,44 @@ static const char *build_mode_to_str(BuildMode build_mode) {
     zig_unreachable();
 }
 
+static bool detect_dynamic_link(CodeGen *g) {
+    if (g->is_dynamic)
+        return true;
+    if (g->zig_target->os == OsFreestanding)
+        return false;
+    if (target_requires_pic(g->zig_target, g->libc_link_lib != nullptr))
+        return true;
+    if (g->out_type == OutTypeExe) {
+        // If there are no dynamic libraries then we can disable PIC
+        for (size_t i = 0; i < g->link_libs_list.length; i += 1) {
+            LinkLib *link_lib = g->link_libs_list.at(i);
+            if (target_is_libc_lib_name(g->zig_target, buf_ptr(link_lib->name)))
+                continue;
+            return true;
+        }
+        return false;
+    }
+    return true;
+}
+
+static bool detect_pic(CodeGen *g) {
+    if (target_requires_pic(g->zig_target, g->libc_link_lib != nullptr))
+        return true;
+    switch (g->want_pic) {
+        case WantPICDisabled:
+            return false;
+        case WantPICEnabled:
+            return true;
+        case WantPICAuto:
+            return g->have_dynamic_link;
+    }
+    zig_unreachable();
+}
+
 Buf *codegen_generate_builtin_source(CodeGen *g) {
+    g->have_dynamic_link = detect_dynamic_link(g);
+    g->have_pic = detect_pic(g);
+
     Buf *contents = buf_alloc();
 
     // NOTE: when editing this file, you may need to make modifications to the
@@ -7545,9 +7588,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             "        value: comptime_int,\n"
             "    };\n"
             "\n"
-            "    pub const ErrorSet = struct {\n"
-            "        errors: []Error,\n"
-            "    };\n"
+            "    pub const ErrorSet = ?[]Error;\n"
             "\n"
             "    pub const EnumField = struct {\n"
             "        name: []const u8,\n"
@@ -7684,6 +7725,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     buf_appendf(contents, "pub const link_libc = %s;\n", bool_to_str(g->libc_link_lib != nullptr));
     buf_appendf(contents, "pub const have_error_return_tracing = %s;\n", bool_to_str(g->have_err_ret_tracing));
     buf_appendf(contents, "pub const valgrind_support = %s;\n", bool_to_str(want_valgrind_support(g)));
+    buf_appendf(contents, "pub const position_independent_code = %s;\n", bool_to_str(g->have_pic));
 
     buf_appendf(contents, "pub const __zig_test_fn_slice = {}; // overwritten later\n");
 
@@ -7778,6 +7820,9 @@ static void init(CodeGen *g) {
     if (g->module)
         return;
 
+    g->have_dynamic_link = detect_dynamic_link(g);
+    g->have_pic = detect_pic(g);
+
     if (g->is_test_build) {
         g->subsystem = TargetSubsystemConsole;
     }
@@ -7808,10 +7853,14 @@ static void init(CodeGen *g) {
     bool is_optimized = g->build_mode != BuildModeDebug;
     LLVMCodeGenOptLevel opt_level = is_optimized ? LLVMCodeGenLevelAggressive : LLVMCodeGenLevelNone;
 
-    if (g->out_type == OutTypeExe && g->is_static) {
-        g->disable_pic = true;
+    LLVMRelocMode reloc_mode;
+    if (g->have_pic) {
+        reloc_mode = LLVMRelocPIC;
+    } else if (g->have_dynamic_link) {
+        reloc_mode = LLVMRelocDynamicNoPic;
+    } else {
+        reloc_mode = LLVMRelocStatic;
     }
-    LLVMRelocMode reloc_mode = g->disable_pic ? LLVMRelocStatic : LLVMRelocPIC;
 
     const char *target_specific_cpu_args;
     const char *target_specific_features;
@@ -7893,8 +7942,13 @@ static void init(CodeGen *g) {
 }
 
 static void detect_dynamic_linker(CodeGen *g) {
-    if (g->dynamic_linker_path != nullptr || g->is_static)
+    if (g->dynamic_linker_path != nullptr)
         return;
+    if (!g->have_dynamic_link)
+        return;
+    if (g->out_type == OutTypeObj || (g->out_type == OutTypeLib && !g->is_dynamic))
+        return;
+
     const char *standard_ld_path = target_dynamic_linker(g->zig_target);
     if (standard_ld_path == nullptr)
         return;
@@ -7945,27 +7999,25 @@ static void detect_libc(CodeGen *g) {
     if (g->libc != nullptr || g->libc_link_lib == nullptr)
         return;
 
-    if (g->zig_target->os == OsLinux && target_abi_is_gnu(g->zig_target->abi) &&
-        g->is_static && g->out_type == OutTypeExe)
-    {
-        fprintf(stderr, "glibc does not support static linking\n");
-        exit(1);
-    }
-
     if (target_can_build_libc(g->zig_target)) {
         const char *generic_name = target_libc_generic_name(g->zig_target);
 
         Buf *arch_include_dir = buf_sprintf("%s" OS_SEP "libc" OS_SEP "include" OS_SEP "%s-%s-%s",
                 buf_ptr(g->zig_lib_dir), target_arch_name(g->zig_target->arch),
                 target_os_name(g->zig_target->os), target_abi_name(g->zig_target->abi));
-
         Buf *generic_include_dir = buf_sprintf("%s" OS_SEP "libc" OS_SEP "include" OS_SEP "generic-%s",
                 buf_ptr(g->zig_lib_dir), generic_name);
+        Buf *arch_os_include_dir = buf_sprintf("%s" OS_SEP "libc" OS_SEP "include" OS_SEP "%s-%s-any",
+                buf_ptr(g->zig_lib_dir), target_arch_name(g->zig_target->arch), target_os_name(g->zig_target->os));
+        Buf *generic_os_include_dir = buf_sprintf("%s" OS_SEP "libc" OS_SEP "include" OS_SEP "any-%s-any",
+                buf_ptr(g->zig_lib_dir), target_os_name(g->zig_target->os));
 
-        g->libc_include_dir_len = 2;
-        g->libc_include_dir_list = allocate<Buf*>(2);
+        g->libc_include_dir_len = 4;
+        g->libc_include_dir_list = allocate<Buf*>(g->libc_include_dir_len);
         g->libc_include_dir_list[0] = arch_include_dir;
         g->libc_include_dir_list[1] = generic_include_dir;
+        g->libc_include_dir_list[2] = arch_os_include_dir;
+        g->libc_include_dir_list[3] = generic_os_include_dir;
         return;
     }
 
@@ -8011,17 +8063,16 @@ static void detect_libc(CodeGen *g) {
         if (want_sys_dir) {
             g->libc_include_dir_list[1] = &g->libc->sys_include_dir;
         }
-    } else if ((g->out_type == OutTypeExe || (g->out_type == OutTypeLib && !g->is_static)) &&
-        !target_is_darwin(g->zig_target))
+    } else if ((g->out_type == OutTypeExe || (g->out_type == OutTypeLib && g->is_dynamic)) &&
+        !target_os_is_darwin(g->zig_target->os))
     {
+        Buf triple_buf = BUF_INIT;
+        get_target_triple(&triple_buf, g->zig_target);
         fprintf(stderr,
-            "Zig is unable to provide a libc for the chosen target '%s-%s-%s'.\n"
+            "Zig is unable to provide a libc for the chosen target '%s'.\n"
             "The target is non-native, so Zig also cannot use the native libc installation.\n"
             "Choose a target which has a libc available, or provide a libc installation text file.\n"
-            "See `zig libc --help` for more details.\n",
-            target_arch_name(g->zig_target->arch),
-            target_os_name(g->zig_target->os),
-            target_abi_name(g->zig_target->abi));
+            "See `zig libc --help` for more details.\n", buf_ptr(&triple_buf));
         exit(1);
     }
 }
@@ -8204,7 +8255,7 @@ static void gen_root_source(CodeGen *g) {
         g->bootstrap_import = add_special_code(g, create_bootstrap_pkg(g, g->root_package), "bootstrap.zig");
     }
     if (g->zig_target->os == OsWindows && !g->have_dllmain_crt_startup &&
-            g->out_type == OutTypeLib && !g->is_static)
+            g->out_type == OutTypeLib && g->is_dynamic)
     {
         g->bootstrap_import = add_special_code(g, create_bootstrap_pkg(g, g->root_package), "bootstrap_lib.zig");
     }
@@ -8298,7 +8349,8 @@ Error create_c_object_cache(CodeGen *g, CacheHash **out_cache_hash, bool verbose
     cache_int(cache_hash, g->zig_target->abi);
     cache_bool(cache_hash, g->strip_debug_symbols);
     cache_int(cache_hash, g->build_mode);
-    cache_bool(cache_hash, g->disable_pic);
+    cache_bool(cache_hash, g->have_pic);
+    cache_bool(cache_hash, want_valgrind_support(g));
     for (size_t arg_i = 0; arg_i < g->clang_argv_len; arg_i += 1) {
         cache_str(cache_hash, g->clang_argv[arg_i]);
     }
@@ -8422,8 +8474,11 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
                 } else {
                     args.append("-fno-stack-protector");
                 }
+                args.append("-fno-omit-frame-pointer");
                 break;
             case BuildModeSafeRelease:
+                // See the comment in the BuildModeFastRelease case for why we pass -O2 rather
+                // than -O3 here.
                 args.append("-O2");
                 if (g->libc_link_lib != nullptr) {
                     args.append("-D_FORTIFY_SOURCE=2");
@@ -8433,16 +8488,24 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
                 } else {
                     args.append("-fno-stack-protector");
                 }
+                args.append("-fomit-frame-pointer");
                 break;
             case BuildModeFastRelease:
                 args.append("-DNDEBUG");
+                // Here we pass -O2 rather than -O3 because, although we do the equivalent of
+                // -O3 in Zig code, the justification for the difference here is that Zig
+                // has better detection and prevention of undefined behavior, so -O3 is safer for
+                // Zig code than it is for C code. Also, C programmers are used to their code
+                // running in -O2 and thus the -O3 path has been tested less.
                 args.append("-O2");
                 args.append("-fno-stack-protector");
+                args.append("-fomit-frame-pointer");
                 break;
             case BuildModeSmallRelease:
                 args.append("-DNDEBUG");
                 args.append("-Os");
                 args.append("-fno-stack-protector");
+                args.append("-fomit-frame-pointer");
                 break;
         }
 
@@ -8452,7 +8515,7 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
         args.append("-c");
         args.append(buf_ptr(c_source_file));
 
-        if (target_supports_fpic(g->zig_target) && !g->disable_pic) {
+        if (target_supports_fpic(g->zig_target) && g->have_pic) {
             args.append("-fPIC");
         }
 
@@ -9065,7 +9128,6 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_int(ch, g->zig_target->os);
     cache_int(ch, g->zig_target->abi);
     cache_int(ch, g->subsystem);
-    cache_bool(ch, g->is_static);
     cache_bool(ch, g->strip_debug_symbols);
     cache_bool(ch, g->is_test_build);
     if (g->is_test_build) {
@@ -9075,9 +9137,10 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_bool(ch, g->is_single_threaded);
     cache_bool(ch, g->linker_rdynamic);
     cache_bool(ch, g->each_lib_rpath);
-    cache_bool(ch, g->disable_pic);
     cache_bool(ch, g->disable_gen_h);
-    cache_bool(ch, g->valgrind_support);
+    cache_bool(ch, want_valgrind_support(g));
+    cache_bool(ch, g->have_pic);
+    cache_bool(ch, g->have_dynamic_link);
     cache_bool(ch, g->is_dummy_so);
     cache_buf_opt(ch, g->mmacosx_version_min);
     cache_buf_opt(ch, g->mios_version_min);
@@ -9151,7 +9214,7 @@ static void resolve_out_paths(CodeGen *g) {
                     buf_resize(out_basename, 0);
                     buf_append_str(out_basename, target_lib_file_prefix(g->zig_target));
                     buf_append_buf(out_basename, g->root_out_name);
-                    buf_append_str(out_basename, target_lib_file_ext(g->zig_target, g->is_static,
+                    buf_append_str(out_basename, target_lib_file_ext(g->zig_target, !g->is_dynamic,
                                 g->version_major, g->version_minor, g->version_patch));
                     break;
             }
@@ -9183,6 +9246,8 @@ void codegen_build_and_link(CodeGen *g) {
         g->output_dir = buf_create_from_str(".");
     }
 
+    g->have_dynamic_link = detect_dynamic_link(g);
+    g->have_pic = detect_pic(g);
     detect_libc(g);
     detect_dynamic_linker(g);
 

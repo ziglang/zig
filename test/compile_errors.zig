@@ -3,6 +3,54 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "invalid multiple dereferences",
+        \\export fn a() void {
+        \\    var box = Box{ .field = 0 };
+        \\    box.*.field = 1;
+        \\}
+        \\export fn b() void {
+        \\    var box = Box{ .field = 0 };
+        \\    var boxPtr = &box;
+        \\    boxPtr.*.*.field = 1;
+        \\}
+        \\pub const Box = struct {
+        \\    field: i32,
+        \\};
+    ,
+        "tmp.zig:3:8: error: attempt to dereference non-pointer type 'Box'",
+        "tmp.zig:8:13: error: attempt to dereference non-pointer type 'Box'",
+    );
+
+    cases.add(
+        "usingnamespace with wrong type",
+        \\use void;
+    ,
+        "tmp.zig:1:1: error: expected struct, found 'void'",
+    );
+
+    cases.add(
+        "ignored expression in while continuation",
+        \\export fn a() void {
+        \\    while (true) : (bad()) {}
+        \\}
+        \\export fn b() void {
+        \\    var x: anyerror!i32 = 1234;
+        \\    while (x) |_| : (bad()) {} else |_| {}
+        \\}
+        \\export fn c() void {
+        \\    var x: ?i32 = 1234;
+        \\    while (x) |_| : (bad()) {}
+        \\}
+        \\fn bad() anyerror!void {
+        \\    return error.Bad;
+        \\}
+    ,
+        "tmp.zig:2:24: error: expression value is ignored",
+        "tmp.zig:6:25: error: expression value is ignored",
+        "tmp.zig:10:25: error: expression value is ignored",
+    );
+
+    cases.add(
         "import outside package path",
         \\comptime{
         \\    _ = @import("../a.zig");

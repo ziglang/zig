@@ -3707,9 +3707,11 @@ ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf 
 
         ZigVar *existing_var = find_variable(g, parent_scope, name, nullptr);
         if (existing_var && !existing_var->shadowable) {
-            ErrorMsg *msg = add_node_error(g, source_node,
-                    buf_sprintf("redeclaration of variable '%s'", buf_ptr(name)));
-            add_error_note(g, msg, existing_var->decl_node, buf_sprintf("previous declaration is here"));
+            if (existing_var->var_type == nullptr || !type_is_invalid(existing_var->var_type)) {
+                ErrorMsg *msg = add_node_error(g, source_node,
+                        buf_sprintf("redeclaration of variable '%s'", buf_ptr(name)));
+                add_error_note(g, msg, existing_var->decl_node, buf_sprintf("previous declaration is here"));
+            }
             variable_entry->var_type = g->builtin_types.entry_invalid;
         } else {
             ZigType *type;
@@ -4364,6 +4366,13 @@ static void add_symbols_from_import(CodeGen *g, AstNode *src_use_node, AstNode *
 
     ZigType *target_import = use_target_value->data.x_type;
     assert(target_import);
+
+    if (target_import->id != ZigTypeIdStruct) {
+        add_node_error(g, dst_use_node,
+            buf_sprintf("expected struct, found '%s'", buf_ptr(&target_import->name)));
+        get_container_scope(dst_use_node->owner)->any_imports_failed = true;
+        return;
+    }
 
     if (get_container_scope(target_import)->any_imports_failed) {
         get_container_scope(dst_use_node->owner)->any_imports_failed = true;

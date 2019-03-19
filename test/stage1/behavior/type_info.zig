@@ -143,14 +143,18 @@ fn testErrorSet() void {
 
     const error_set_info = @typeInfo(TestErrorSet);
     expect(TypeId(error_set_info) == TypeId.ErrorSet);
-    expect(error_set_info.ErrorSet.errors.len == 3);
-    expect(mem.eql(u8, error_set_info.ErrorSet.errors[0].name, "First"));
-    expect(error_set_info.ErrorSet.errors[2].value == @errorToInt(TestErrorSet.Third));
+    expect(error_set_info.ErrorSet.?.len == 3);
+    expect(mem.eql(u8, error_set_info.ErrorSet.?[0].name, "First"));
+    expect(error_set_info.ErrorSet.?[2].value == @errorToInt(TestErrorSet.Third));
 
     const error_union_info = @typeInfo(TestErrorSet!usize);
     expect(TypeId(error_union_info) == TypeId.ErrorUnion);
     expect(error_union_info.ErrorUnion.error_set == TestErrorSet);
     expect(error_union_info.ErrorUnion.payload == usize);
+
+    const global_info = @typeInfo(anyerror);
+    expect(TypeId(global_info) == TypeId.ErrorSet);
+    expect(global_info.ErrorSet == null);
 }
 
 test "type info: enum info" {

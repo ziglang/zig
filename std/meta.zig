@@ -13,32 +13,8 @@ const TypeInfo = builtin.TypeInfo;
 pub fn tagName(v: var) []const u8 {
     const T = @typeOf(v);
     switch (@typeInfo(T)) {
-        TypeId.Enum => |info| {
-            const Tag = info.tag_type;
-            inline for (info.fields) |field| {
-                if (field.value == @enumToInt(v)) return field.name;
-            }
-
-            unreachable;
-        },
-        TypeId.Union => |info| {
-            const UnionTag = if (info.tag_type) |UT| UT else @compileError("union is untagged");
-            const Tag = @typeInfo(UnionTag).Enum.tag_type;
-            inline for (info.fields) |field| {
-                if (field.enum_field.?.value == @enumToInt(UnionTag(v)))
-                    return field.name;
-            }
-
-            unreachable;
-        },
-        TypeId.ErrorSet => |info| {
-            inline for (info.errors) |err| {
-                if (err.value == @errorToInt(v)) return err.name;
-            }
-
-            unreachable;
-        },
-        else => @compileError("expected enum, error set or union type, found '" ++ @typeName(T) ++ "'"),
+        TypeId.ErrorSet => return @errorName(v),
+        else => return @tagName(v),
     }
 }
 
@@ -267,7 +243,7 @@ pub fn fields(comptime T: type) switch (@typeInfo(T)) {
         TypeId.Struct => |info| info.fields,
         TypeId.Union => |info| info.fields,
         TypeId.Enum => |info| info.fields,
-        TypeId.ErrorSet => |info| info.errors,
+        TypeId.ErrorSet => |errors| errors.?, // must be non global error set
         else => @compileError("Expected struct, union, error set or enum type, found '" ++ @typeName(T) ++ "'"),
     };
 }

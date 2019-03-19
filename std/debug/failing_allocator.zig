@@ -21,44 +21,37 @@ pub const FailingAllocator = struct {
             .freed_bytes = 0,
             .deallocations = 0,
             .allocator = mem.Allocator{
-                .allocFn = alloc,
                 .reallocFn = realloc,
-                .freeFn = free,
+                .shrinkFn = shrink,
             },
         };
     }
 
-    fn alloc(allocator: *mem.Allocator, n: usize, alignment: u29) ![]u8 {
+    fn realloc(allocator: *mem.Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
         const self = @fieldParentPtr(FailingAllocator, "allocator", allocator);
         if (self.index == self.fail_index) {
             return error.OutOfMemory;
         }
-        const result = try self.internal_allocator.allocFn(self.internal_allocator, n, alignment);
-        self.allocated_bytes += result.len;
-        self.index += 1;
-        return result;
-    }
-
-    fn realloc(allocator: *mem.Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![]u8 {
-        const self = @fieldParentPtr(FailingAllocator, "allocator", allocator);
+        const result = try self.internal_allocator.reallocFn(
+            self.internal_allocator,
+            old_mem,
+            old_align,
+            new_size,
+            new_align,
+        );
         if (new_size <= old_mem.len) {
             self.freed_bytes += old_mem.len - new_size;
-            return self.internal_allocator.reallocFn(self.internal_allocator, old_mem, new_size, alignment);
+        } else {
+            self.allocated_bytes += new_size - old_mem.len;
         }
-        if (self.index == self.fail_index) {
-            return error.OutOfMemory;
-        }
-        const result = try self.internal_allocator.reallocFn(self.internal_allocator, old_mem, new_size, alignment);
-        self.allocated_bytes += new_size - old_mem.len;
         self.deallocations += 1;
         self.index += 1;
         return result;
     }
 
-    fn free(allocator: *mem.Allocator, bytes: []u8) void {
+    fn shrink(allocator: *mem.Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
         const self = @fieldParentPtr(FailingAllocator, "allocator", allocator);
-        self.freed_bytes += bytes.len;
-        self.deallocations += 1;
-        return self.internal_allocator.freeFn(self.internal_allocator, bytes);
+        self.freed_bytes += old_mem.len - new_size;
+        return self.internal_allocator.shrinkFn(self.internal_allocator, old_mem, old_align, new_size, new_align);
     }
 };

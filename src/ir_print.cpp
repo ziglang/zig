@@ -1286,7 +1286,7 @@ static void ir_print_promise_result_type(IrPrint *irp, IrInstructionPromiseResul
 
 static void ir_print_coro_alloc_helper(IrPrint *irp, IrInstructionCoroAllocHelper *instruction) {
     fprintf(irp->f, "@coroAllocHelper(");
-    ir_print_other_instruction(irp, instruction->alloc_fn);
+    ir_print_other_instruction(irp, instruction->realloc_fn);
     fprintf(irp->f, ",");
     ir_print_other_instruction(irp, instruction->coro_size);
     fprintf(irp->f, ")");

@@ -688,6 +688,11 @@ fn getNull() ?*i32 {
 }
 
 test "thread local variable" {
+    if (!builtin.position_independent_code and !builtin.link_libc) {
+        // TODO https://github.com/ziglang/zig/issues/2063
+        return error.SkipZigTest;
+    }
+
     const S = struct {
         threadlocal var t: i32 = 1234;
     };

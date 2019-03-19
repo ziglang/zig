@@ -108,6 +108,10 @@ test "AtomicFile" {
 
 test "thread local storage" {
     if (builtin.single_threaded) return error.SkipZigTest;
+    if (!builtin.position_independent_code and !builtin.link_libc) {
+        // TODO https://github.com/ziglang/zig/issues/2063
+        return error.SkipZigTest;
+    }
     const thread1 = try std.os.spawnThread({}, testTls);
     const thread2 = try std.os.spawnThread({}, testTls);
     testTls({});

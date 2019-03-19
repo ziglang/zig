@@ -169,11 +169,11 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
             const new_cap_shelf_count = shelfCount(new_capacity);
             const old_shelf_count = @intCast(ShelfIndex, self.dynamic_segments.len);
             if (new_cap_shelf_count > old_shelf_count) {
-                self.dynamic_segments = try self.allocator.realloc([*]T, self.dynamic_segments, new_cap_shelf_count);
+                self.dynamic_segments = try self.allocator.realloc(self.dynamic_segments, new_cap_shelf_count);
                 var i = old_shelf_count;
                 errdefer {
                     self.freeShelves(i, old_shelf_count);
-                    self.dynamic_segments = self.allocator.shrink([*]T, self.dynamic_segments, old_shelf_count);
+                    self.dynamic_segments = self.allocator.shrink(self.dynamic_segments, old_shelf_count);
                 }
                 while (i < new_cap_shelf_count) : (i += 1) {
                     self.dynamic_segments[i] = (try self.allocator.alloc(T, shelfSize(i))).ptr;
@@ -199,11 +199,12 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
             }
 
             self.freeShelves(old_shelf_count, new_cap_shelf_count);
-            self.dynamic_segments = self.allocator.shrink([*]T, self.dynamic_segments, new_cap_shelf_count);
+            self.dynamic_segments = self.allocator.shrink(self.dynamic_segments, new_cap_shelf_count);
         }
 
         pub fn shrink(self: *Self, new_len: usize) void {
             assert(new_len <= self.len);
+            // TODO take advantage of the new realloc semantics
             self.len = new_len;
         }
 

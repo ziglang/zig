@@ -197,7 +197,7 @@ pub fn createWindowsEnvBlock(allocator: *mem.Allocator, env_map: *const BufMap) 
     i += 1;
     result[i] = 0;
     i += 1;
-    return allocator.shrink(u16, result, i);
+    return allocator.shrink(result, i);
 }
 
 pub fn windowsFindFirstFile(

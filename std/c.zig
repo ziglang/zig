@@ -7,9 +7,8 @@ pub use switch (builtin.os) {
     Os.macosx, Os.ios => @import("c/darwin.zig"),
     Os.freebsd => @import("c/freebsd.zig"),
     Os.netbsd => @import("c/netbsd.zig"),
-    else => empty_import,
+    else => struct {},
 };
-const empty_import = @import("empty.zig");
 
 // TODO https://github.com/ziglang/zig/issues/265 on this whole file
 
@@ -54,7 +53,7 @@ pub extern "c" fn rmdir(path: [*]const u8) c_int;
 
 pub extern "c" fn aligned_alloc(alignment: usize, size: usize) ?*c_void;
 pub extern "c" fn malloc(usize) ?*c_void;
-pub extern "c" fn realloc(*c_void, usize) ?*c_void;
+pub extern "c" fn realloc(?*c_void, usize) ?*c_void;
 pub extern "c" fn free(*c_void) void;
 pub extern "c" fn posix_memalign(memptr: **c_void, alignment: usize, size: usize) c_int;
 

@@ -5,7 +5,6 @@ const std = @import("std.zig");
 /// This function is intended to be used only in tests. It prints diagnostics to stderr
 /// and then aborts when actual_error_union is not expected_error.
 pub fn expectError(expected_error: anyerror, actual_error_union: var) void {
-    // TODO remove the workaround here for https://github.com/ziglang/zig/issues/1936
     if (actual_error_union) |actual_payload| {
         // TODO remove workaround here for https://github.com/ziglang/zig/issues/557
         if (@sizeOf(@typeOf(actual_payload)) == 0) {
