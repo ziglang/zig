@@ -8,8 +8,6 @@ const builtin = @import("builtin");
 const errol = @import("fmt/errol.zig");
 const lossyCast = std.math.lossyCast;
 
-const max_int_digits = 65;
-
 /// Renders fmt string with args, calling output with slices of bytes.
 /// If `output` returns an error, the error is returned from `format` and
 /// `output` is not called again.
@@ -731,9 +729,8 @@ fn formatIntUnsigned(
     comptime Errors: type,
     output: fn (@typeOf(context), []const u8) Errors!void,
 ) Errors!void {
-    // max_int_digits accounts for the minus sign. when printing an unsigned
-    // number we don't need to do that.
-    var buf: [max_int_digits - 1]u8 = undefined;
+    assert(base >= 2);
+    var buf: [math.max(@typeOf(value).bit_count, 1)]u8 = undefined;
     const min_int_bits = comptime math.max(@typeOf(value).bit_count, @typeOf(base).bit_count);
     const MinInt = @IntType(@typeOf(value).is_signed, min_int_bits);
     var a: MinInt = value;
@@ -913,7 +910,7 @@ fn countSize(size: *usize, bytes: []const u8) (error{}!void) {
 }
 
 test "buf print int" {
-    var buffer: [max_int_digits]u8 = undefined;
+    var buffer: [100]u8 = undefined;
     const buf = buffer[0..];
     testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, i32(-12345678), 2, false, 0), "-101111000110000101001110"));
     testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, i32(-12345678), 10, false, 0), "-12345678"));
