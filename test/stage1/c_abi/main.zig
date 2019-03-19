@@ -20,6 +20,17 @@ extern fn c_i16(i16) void;
 extern fn c_i32(i32) void;
 extern fn c_i64(i64) void;
 
+// On windows x64, the first 4 are passed via registers, others on the stack.
+extern fn c_five_integers(i32, i32, i32, i32, i32) void;
+
+export fn zig_five_integers(a: i32, b: i32, c: i32, d: i32, e: i32) void {
+    expect(a == 12);
+    expect(b == 34);
+    expect(c == 56);
+    expect(d == 78);
+    expect(e == 90);
+}
+
 test "C ABI integers" {
     c_u8(0xff);
     c_u16(0xfffe);
@@ -30,6 +41,7 @@ test "C ABI integers" {
     c_i16(-2);
     c_i32(-3);
     c_i64(-4);
+    c_five_integers(12, 34, 56, 78, 90);
 }
 
 export fn zig_u8(x: u8) void {
@@ -60,9 +72,21 @@ export fn zig_i64(x: i64) void {
 extern fn c_f32(f32) void;
 extern fn c_f64(f64) void;
 
+// On windows x64, the first 4 are passed via registers, others on the stack.
+extern fn c_five_floats(f32, f32, f32, f32, f32) void;
+
+export fn zig_five_floats(a: f32, b: f32, c: f32, d: f32, e: f32) void {
+    expect(a == 1.0);
+    expect(b == 2.0);
+    expect(c == 3.0);
+    expect(d == 4.0);
+    expect(e == 5.0);
+}
+
 test "C ABI floats" {
     c_f32(12.34);
     c_f64(56.78);
+    c_five_floats(1.0, 2.0, 3.0, 4.0, 5.0);
 }
 
 export fn zig_f32(x: f32) void {
