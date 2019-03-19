@@ -23,7 +23,7 @@ cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=$PREFIX -DCMAKE_INSTALL_PREFIX=$(pwd)/release -DZIG_STATIC=ON
 make $JOBS install
 # TODO test everything. I just made it short to test the part after this
-release/bin/zig build --build-file ../build.zig test-behavior -Dskip-release
+release/bin/zig build --build-file ../build.zig test-behavior -Dskip-release docs
 
 if [ -f ~/.s3cfg ]; then
   mv ../LICENSE release/
