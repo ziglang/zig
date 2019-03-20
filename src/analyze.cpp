@@ -6699,10 +6699,28 @@ Error file_fetch(CodeGen *g, Buf *resolved_path, Buf *contents) {
     }
 }
 
-X64CABIClass type_c_abi_x86_64_class(CodeGen *g, ZigType *ty) {
-    size_t ty_size = type_size(g, ty);
-    if (get_codegen_ptr_type(ty) != nullptr)
-        return X64CABIClass_INTEGER;
+static X64CABIClass type_windows_abi_x86_64_class(CodeGen *g, ZigType *ty, size_t ty_size) {
+    // https://docs.microsoft.com/en-gb/cpp/build/x64-calling-convention?view=vs-2017
+    switch (ty->id) {
+        case ZigTypeIdEnum:
+        case ZigTypeIdInt:
+        case ZigTypeIdBool:
+            return X64CABIClass_INTEGER;
+        case ZigTypeIdFloat:
+        case ZigTypeIdVector:
+            return X64CABIClass_SSE;
+        case ZigTypeIdStruct:
+        case ZigTypeIdUnion: {
+            if (ty_size <= 8)
+                return X64CABIClass_INTEGER;
+            return X64CABIClass_MEMORY;
+        }
+        default:
+            return X64CABIClass_Unknown;
+    }
+}
+
+static X64CABIClass type_system_V_abi_x86_64_class(CodeGen *g, ZigType *ty, size_t ty_size) {
     switch (ty->id) {
         case ZigTypeIdEnum:
         case ZigTypeIdInt:
@@ -6767,6 +6785,18 @@ X64CABIClass type_c_abi_x86_64_class(CodeGen *g, ZigType *ty) {
         }
         default:
             return X64CABIClass_Unknown;
+    }
+}
+
+X64CABIClass type_c_abi_x86_64_class(CodeGen *g, ZigType *ty) {
+    const size_t ty_size = type_size(g, ty);
+    if (get_codegen_ptr_type(ty) != nullptr)
+        return X64CABIClass_INTEGER;
+
+    if (g->zig_target->os == OsWindows || g->zig_target->os == OsUefi) {
+        return type_windows_abi_x86_64_class(g, ty, ty_size);
+    } else {
+        return type_system_V_abi_x86_64_class(g, ty, ty_size);
     }
 }
 

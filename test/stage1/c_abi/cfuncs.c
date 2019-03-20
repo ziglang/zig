@@ -18,9 +18,11 @@ void zig_i8(int8_t);
 void zig_i16(int16_t);
 void zig_i32(int32_t);
 void zig_i64(int64_t);
+void zig_five_integers(int32_t, int32_t, int32_t, int32_t, int32_t);
 
 void zig_f32(float);
 void zig_f64(double);
+void zig_five_floats(float, float, float, float, float);
 
 void zig_ptr(void *);
 
@@ -71,9 +73,11 @@ void run_c_tests(void) {
     zig_i16(-2);
     zig_i32(-3);
     zig_i64(-4);
+    zig_five_integers(12, 34, 56, 78, 90);
 
     zig_f32(12.34f);
     zig_f64(56.78);
+    zig_five_floats(1.0f, 2.0f, 3.0f, 4.0f, 5.0f);
 
     zig_ptr((void*)0xdeadbeefL);
 
@@ -154,6 +158,22 @@ void c_ptr(void *x) {
 
 void c_bool(bool x) {
     assert_or_panic(x);
+}
+
+void c_five_integers(int32_t a, int32_t b, int32_t c, int32_t d, int32_t e) {
+    assert_or_panic(a == 12);
+    assert_or_panic(b == 34);
+    assert_or_panic(c == 56);
+    assert_or_panic(d == 78);
+    assert_or_panic(e == 90);
+}
+
+void c_five_floats(float a, float b, float c, float d, float e) {
+    assert_or_panic(a == 1.0);
+    assert_or_panic(b == 2.0);
+    assert_or_panic(c == 3.0);
+    assert_or_panic(d == 4.0);
+    assert_or_panic(e == 5.0);
 }
 
 void c_array(uint8_t x[10]) {
