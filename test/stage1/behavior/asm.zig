@@ -3,7 +3,7 @@ const expect = @import("std").testing.expect;
 
 comptime {
     if (config.arch == config.Arch.x86_64 and config.os == config.Os.linux) {
-        asm volatile (
+        asm (
             \\.globl this_is_my_alias;
             \\.type this_is_my_alias, @function;
             \\.set this_is_my_alias, derp;

@@ -800,9 +800,8 @@ struct AsmToken {
 };
 
 struct AstNodeAsmExpr {
-    bool is_volatile;
-    Buf *asm_template;
-    ZigList<AsmToken> token_list;
+    Token *volatile_token;
+    Token *asm_template;
     ZigList<AsmOutput*> output_list;
     ZigList<AsmInput*> input_list;
     ZigList<Buf*> clobber_list;
@@ -2169,6 +2168,7 @@ enum IrInstructionId {
     IrInstructionIdArrayType,
     IrInstructionIdPromiseType,
     IrInstructionIdSliceType,
+    IrInstructionIdGlobalAsm,
     IrInstructionIdAsm,
     IrInstructionIdSizeOf,
     IrInstructionIdTestNonNull,
@@ -2677,10 +2677,18 @@ struct IrInstructionSliceType {
     bool allow_zero;
 };
 
+struct IrInstructionGlobalAsm {
+    IrInstruction base;
+
+    Buf *asm_code;
+};
+
 struct IrInstructionAsm {
     IrInstruction base;
 
-    // Most information on inline assembly comes from the source node.
+    Buf *asm_template;
+    AsmToken *token_list;
+    size_t token_list_len;
     IrInstruction **input_list;
     IrInstruction **output_types;
     ZigVar **output_vars;

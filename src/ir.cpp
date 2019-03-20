@@ -513,6 +513,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionSliceType *) {
     return IrInstructionIdSliceType;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionGlobalAsm *) {
+    return IrInstructionIdGlobalAsm;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionAsm *) {
     return IrInstructionIdAsm;
 }
@@ -1628,10 +1632,21 @@ static IrInstruction *ir_build_slice_type(IrBuilder *irb, Scope *scope, AstNode 
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_asm(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction **input_list,
-        IrInstruction **output_types, ZigVar **output_vars, size_t return_count, bool has_side_effects)
+static IrInstruction *ir_build_global_asm(IrBuilder *irb, Scope *scope, AstNode *source_node, Buf *asm_code) {
+    IrInstructionGlobalAsm *instruction = ir_build_instruction<IrInstructionGlobalAsm>(irb, scope, source_node);
+    instruction->asm_code = asm_code;
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_asm(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        Buf *asm_template, AsmToken *token_list, size_t token_list_len,
+        IrInstruction **input_list, IrInstruction **output_types, ZigVar **output_vars, size_t return_count,
+        bool has_side_effects)
 {
     IrInstructionAsm *instruction = ir_build_instruction<IrInstructionAsm>(irb, scope, source_node);
+    instruction->asm_template = asm_template;
+    instruction->token_list = token_list;
+    instruction->token_list_len = token_list_len;
     instruction->input_list = input_list;
     instruction->output_types = output_types;
     instruction->output_vars = output_vars;
@@ -5861,21 +5876,142 @@ static IrInstruction *ir_gen_undefined_literal(IrBuilder *irb, Scope *scope, Ast
     return ir_build_const_undefined(irb, scope, node);
 }
 
-static IrInstruction *ir_gen_asm_expr(IrBuilder *irb, Scope *scope, AstNode *node) {
-    assert(node->type == NodeTypeAsmExpr);
+static Error parse_asm_template(IrBuilder *irb, AstNode *source_node, Buf *asm_template,
+        ZigList<AsmToken> *tok_list)
+{
+    // TODO Connect the errors in this function back up to the actual source location
+    // rather than just the token. https://github.com/ziglang/zig/issues/2080
+    enum State {
+        StateStart,
+        StatePercent,
+        StateTemplate,
+        StateVar,
+    };
 
-    IrInstruction **input_list = allocate<IrInstruction *>(node->data.asm_expr.input_list.length);
-    IrInstruction **output_types = allocate<IrInstruction *>(node->data.asm_expr.output_list.length);
-    ZigVar **output_vars = allocate<ZigVar *>(node->data.asm_expr.output_list.length);
+    assert(tok_list->length == 0);
+
+    AsmToken *cur_tok = nullptr;
+
+    enum State state = StateStart;
+
+    for (size_t i = 0; i < buf_len(asm_template); i += 1) {
+        uint8_t c = *((uint8_t*)buf_ptr(asm_template) + i);
+        switch (state) {
+            case StateStart:
+                if (c == '%') {
+                    tok_list->add_one();
+                    cur_tok = &tok_list->last();
+                    cur_tok->id = AsmTokenIdPercent;
+                    cur_tok->start = i;
+                    state = StatePercent;
+                } else {
+                    tok_list->add_one();
+                    cur_tok = &tok_list->last();
+                    cur_tok->id = AsmTokenIdTemplate;
+                    cur_tok->start = i;
+                    state = StateTemplate;
+                }
+                break;
+            case StatePercent:
+                if (c == '%') {
+                    cur_tok->end = i;
+                    state = StateStart;
+                } else if (c == '[') {
+                    cur_tok->id = AsmTokenIdVar;
+                    state = StateVar;
+                } else if (c == '=') {
+                    cur_tok->id = AsmTokenIdUniqueId;
+                    cur_tok->end = i;
+                    state = StateStart;
+                } else {
+                    add_node_error(irb->codegen, source_node,
+                        buf_create_from_str("expected a '%' or '['"));
+                    return ErrorSemanticAnalyzeFail;
+                }
+                break;
+            case StateTemplate:
+                if (c == '%') {
+                    cur_tok->end = i;
+                    i -= 1;
+                    cur_tok = nullptr;
+                    state = StateStart;
+                }
+                break;
+            case StateVar:
+                if (c == ']') {
+                    cur_tok->end = i;
+                    state = StateStart;
+                } else if ((c >= 'a' && c <= 'z') ||
+                        (c >= '0' && c <= '9') ||
+                        (c == '_'))
+                {
+                    // do nothing
+                } else {
+                    add_node_error(irb->codegen, source_node,
+                        buf_sprintf("invalid substitution character: '%c'", c));
+                    return ErrorSemanticAnalyzeFail;
+                }
+                break;
+        }
+    }
+
+    switch (state) {
+        case StateStart:
+            break;
+        case StatePercent:
+        case StateVar:
+            add_node_error(irb->codegen, source_node, buf_sprintf("unexpected end of assembly template"));
+            return ErrorSemanticAnalyzeFail;
+        case StateTemplate:
+            cur_tok->end = buf_len(asm_template);
+            break;
+    }
+    return ErrorNone;
+}
+
+static IrInstruction *ir_gen_asm_expr(IrBuilder *irb, Scope *scope, AstNode *node) {
+    Error err;
+    assert(node->type == NodeTypeAsmExpr);
+    AstNodeAsmExpr *asm_expr = &node->data.asm_expr;
+    bool is_volatile = asm_expr->volatile_token != nullptr;
+    bool in_fn_scope = (scope_fn_entry(scope) != nullptr);
+
+    Buf *template_buf = &asm_expr->asm_template->data.str_lit.str;
+
+    if (!in_fn_scope) {
+        if (is_volatile) {
+            add_token_error(irb->codegen, node->owner, asm_expr->volatile_token,
+                    buf_sprintf("volatile is meaningless on global assembly"));
+            return irb->codegen->invalid_instruction;
+        }
+
+        if (asm_expr->output_list.length != 0 || asm_expr->input_list.length != 0 ||
+            asm_expr->clobber_list.length != 0)
+        {
+            add_node_error(irb->codegen, node,
+                buf_sprintf("global assembly cannot have inputs, outputs, or clobbers"));
+            return irb->codegen->invalid_instruction;
+        }
+
+        return ir_build_global_asm(irb, scope, node, template_buf);
+    }
+
+    ZigList<AsmToken> tok_list = {};
+    if ((err = parse_asm_template(irb, node, template_buf, &tok_list))) {
+        return irb->codegen->invalid_instruction;
+    }
+
+    IrInstruction **input_list = allocate<IrInstruction *>(asm_expr->input_list.length);
+    IrInstruction **output_types = allocate<IrInstruction *>(asm_expr->output_list.length);
+    ZigVar **output_vars = allocate<ZigVar *>(asm_expr->output_list.length);
     size_t return_count = 0;
-    bool is_volatile = node->data.asm_expr.is_volatile;
-    if (!is_volatile && node->data.asm_expr.output_list.length == 0) {
+    if (!is_volatile && asm_expr->output_list.length == 0) {
         add_node_error(irb->codegen, node,
                 buf_sprintf("assembly expression with no output must be marked volatile"));
         return irb->codegen->invalid_instruction;
     }
-    for (size_t i = 0; i < node->data.asm_expr.output_list.length; i += 1) {
-        AsmOutput *asm_output = node->data.asm_expr.output_list.at(i);
+    for (size_t i = 0; i < asm_expr->output_list.length; i += 1) {
+        AsmOutput *asm_output = asm_expr->output_list.at(i);
         if (asm_output->return_type) {
             return_count += 1;
 
@@ -5911,8 +6047,8 @@ static IrInstruction *ir_gen_asm_expr(IrBuilder *irb, Scope *scope, AstNode *nod
             return irb->codegen->invalid_instruction;
         }
     }
-    for (size_t i = 0; i < node->data.asm_expr.input_list.length; i += 1) {
-        AsmInput *asm_input = node->data.asm_expr.input_list.at(i);
+    for (size_t i = 0; i < asm_expr->input_list.length; i += 1) {
+        AsmInput *asm_input = asm_expr->input_list.at(i);
         IrInstruction *input_value = ir_gen_node(irb, asm_input->expr, scope);
         if (input_value == irb->codegen->invalid_instruction)
             return irb->codegen->invalid_instruction;
@@ -5920,7 +6056,8 @@ static IrInstruction *ir_gen_asm_expr(IrBuilder *irb, Scope *scope, AstNode *nod
         input_list[i] = input_value;
     }
 
-    return ir_build_asm(irb, scope, node, input_list, output_types, output_vars, return_count, is_volatile);
+    return ir_build_asm(irb, scope, node, template_buf, tok_list.items, tok_list.length,
+            input_list, output_types, output_vars, return_count, is_volatile);
 }
 
 static IrInstruction *ir_gen_if_optional_expr(IrBuilder *irb, Scope *scope, AstNode *node) {
@@ -16309,26 +16446,17 @@ static IrInstruction *ir_analyze_instruction_slice_type(IrAnalyze *ira,
     zig_unreachable();
 }
 
+static IrInstruction *ir_analyze_instruction_global_asm(IrAnalyze *ira, IrInstructionGlobalAsm *instruction) {
+    buf_append_char(&ira->codegen->global_asm, '\n');
+    buf_append_buf(&ira->codegen->global_asm, instruction->asm_code);
+
+    return ir_const_void(ira, &instruction->base);
+}
+
 static IrInstruction *ir_analyze_instruction_asm(IrAnalyze *ira, IrInstructionAsm *asm_instruction) {
     assert(asm_instruction->base.source_node->type == NodeTypeAsmExpr);
 
     AstNodeAsmExpr *asm_expr = &asm_instruction->base.source_node->data.asm_expr;
-
-    bool global_scope = (scope_fn_entry(asm_instruction->base.scope) == nullptr);
-    if (global_scope) {
-        if (asm_expr->output_list.length != 0 || asm_expr->input_list.length != 0 ||
-            asm_expr->clobber_list.length != 0)
-        {
-            ir_add_error(ira, &asm_instruction->base,
-                buf_sprintf("global assembly cannot have inputs, outputs, or clobbers"));
-            return ira->codegen->invalid_instruction;
-        }
-
-        buf_append_char(&ira->codegen->global_asm, '\n');
-        buf_append_buf(&ira->codegen->global_asm, asm_expr->asm_template);
-
-        return ir_const_void(ira, &asm_instruction->base);
-    }
 
     if (!ir_emit_global_runtime_side_effect(ira, &asm_instruction->base))
         return ira->codegen->invalid_instruction;
@@ -16367,6 +16495,7 @@ static IrInstruction *ir_analyze_instruction_asm(IrAnalyze *ira, IrInstructionAs
 
     IrInstruction *result = ir_build_asm(&ira->new_irb,
         asm_instruction->base.scope, asm_instruction->base.source_node,
+        asm_instruction->asm_template, asm_instruction->token_list, asm_instruction->token_list_len,
         input_list, output_types, asm_instruction->output_vars, asm_instruction->return_count,
         asm_instruction->has_side_effects);
     result->value.type = return_type;
@@ -22584,6 +22713,8 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
             return ir_analyze_instruction_set_float_mode(ira, (IrInstructionSetFloatMode *)instruction);
         case IrInstructionIdSliceType:
             return ir_analyze_instruction_slice_type(ira, (IrInstructionSliceType *)instruction);
+        case IrInstructionIdGlobalAsm:
+            return ir_analyze_instruction_global_asm(ira, (IrInstructionGlobalAsm *)instruction);
         case IrInstructionIdAsm:
             return ir_analyze_instruction_asm(ira, (IrInstructionAsm *)instruction);
         case IrInstructionIdArrayType:
@@ -22938,6 +23069,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdCmpxchgSrc:
         case IrInstructionIdAssertZero:
         case IrInstructionIdResizeSlice:
+        case IrInstructionIdGlobalAsm:
             return true;
 
         case IrInstructionIdPhi:

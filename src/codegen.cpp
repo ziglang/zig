@@ -3793,8 +3793,8 @@ static LLVMValueRef ir_render_union_field_ptr(CodeGen *g, IrExecutable *executab
     return bitcasted_union_field_ptr;
 }
 
-static size_t find_asm_index(CodeGen *g, AstNode *node, AsmToken *tok) {
-    const char *ptr = buf_ptr(node->data.asm_expr.asm_template) + tok->start + 2;
+static size_t find_asm_index(CodeGen *g, AstNode *node, AsmToken *tok, Buf *src_template) {
+    const char *ptr = buf_ptr(src_template) + tok->start + 2;
     size_t len = tok->end - tok->start - 2;
     size_t result = 0;
     for (size_t i = 0; i < node->data.asm_expr.output_list.length; i += 1, result += 1) {
@@ -3817,13 +3817,13 @@ static LLVMValueRef ir_render_asm(CodeGen *g, IrExecutable *executable, IrInstru
     assert(asm_node->type == NodeTypeAsmExpr);
     AstNodeAsmExpr *asm_expr = &asm_node->data.asm_expr;
 
-    Buf *src_template = asm_expr->asm_template;
+    Buf *src_template = instruction->asm_template;
 
     Buf llvm_template = BUF_INIT;
     buf_resize(&llvm_template, 0);
 
-    for (size_t token_i = 0; token_i < asm_expr->token_list.length; token_i += 1) {
-        AsmToken *asm_token = &asm_expr->token_list.at(token_i);
+    for (size_t token_i = 0; token_i < instruction->token_list_len; token_i += 1) {
+        AsmToken *asm_token = &instruction->token_list[token_i];
         switch (asm_token->id) {
             case AsmTokenIdTemplate:
                 for (size_t offset = asm_token->start; offset < asm_token->end; offset += 1) {
@@ -3840,7 +3840,7 @@ static LLVMValueRef ir_render_asm(CodeGen *g, IrExecutable *executable, IrInstru
                 break;
             case AsmTokenIdVar:
                 {
-                    size_t index = find_asm_index(g, asm_node, asm_token);
+                    size_t index = find_asm_index(g, asm_node, asm_token, src_template);
                     assert(index < SIZE_MAX);
                     buf_appendf(&llvm_template, "$%" ZIG_PRI_usize "", index);
                     break;
@@ -3937,7 +3937,7 @@ static LLVMValueRef ir_render_asm(CodeGen *g, IrExecutable *executable, IrInstru
     }
     LLVMTypeRef function_type = LLVMFunctionType(ret_type, param_types, (unsigned)input_and_output_count, false);
 
-    bool is_volatile = asm_expr->is_volatile || (asm_expr->output_list.length == 0);
+    bool is_volatile = instruction->has_side_effects || (asm_expr->output_list.length == 0);
     LLVMValueRef asm_fn = LLVMGetInlineAsm(function_type, buf_ptr(&llvm_template), buf_len(&llvm_template),
             buf_ptr(&constraint_buf), buf_len(&constraint_buf), is_volatile, false, LLVMInlineAsmDialectATT);
 
@@ -5480,6 +5480,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdCmpxchgSrc:
         case IrInstructionIdLoadPtr:
         case IrInstructionIdBitCast:
+        case IrInstructionIdGlobalAsm:
             zig_unreachable();
 
         case IrInstructionIdDeclVarGen:

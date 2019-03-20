@@ -85,7 +85,7 @@ static AstNode *ast_parse_asm_output(ParseContext *pc);
 static AsmOutput *ast_parse_asm_output_item(ParseContext *pc);
 static AstNode *ast_parse_asm_input(ParseContext *pc);
 static AsmInput *ast_parse_asm_input_item(ParseContext *pc);
-static AstNode *ast_parse_asm_cloppers(ParseContext *pc);
+static AstNode *ast_parse_asm_clobbers(ParseContext *pc);
 static Token *ast_parse_break_label(ParseContext *pc);
 static Token *ast_parse_block_label(ParseContext *pc);
 static AstNode *ast_parse_field_init(ParseContext *pc);
@@ -135,24 +135,6 @@ static void ast_error(ParseContext *pc, Token *token, const char *format, ...) {
             pc->owner->data.structure.root_struct->line_offsets, msg);
     err->line_start = token->start_line;
     err->column_start = token->start_column;
-
-    print_err_msg(err, pc->err_color);
-    exit(EXIT_FAILURE);
-}
-
-ATTRIBUTE_PRINTF(4, 5)
-ATTRIBUTE_NORETURN
-static void ast_asm_error(ParseContext *pc, AstNode *node, size_t offset, const char *format, ...) {
-    assert(node->type == NodeTypeAsmExpr);
-    va_list ap;
-    va_start(ap, format);
-    Buf *msg = buf_vprintf(format, ap);
-    va_end(ap);
-
-    ErrorMsg *err = err_msg_create_with_line(pc->owner->data.structure.root_struct->path,
-            node->line, node->column,
-            pc->owner->data.structure.root_struct->source_code,
-            pc->owner->data.structure.root_struct->line_offsets, msg);
 
     print_err_msg(err, pc->err_color);
     exit(EXIT_FAILURE);
@@ -484,93 +466,6 @@ AstNode *ast_parse_bin_op_simple(ParseContext *pc) {
     AstNode *res = ast_create_node(pc, NodeTypeBinOpExpr, op_token);
     res->data.bin_op_expr.bin_op = op;
     return res;
-}
-
-static void ast_parse_asm_template(ParseContext *pc, AstNode *node) {
-    Buf *asm_template = node->data.asm_expr.asm_template;
-
-    enum State {
-        StateStart,
-        StatePercent,
-        StateTemplate,
-        StateVar,
-    };
-
-    ZigList<AsmToken> *tok_list = &node->data.asm_expr.token_list;
-    assert(tok_list->length == 0);
-
-    AsmToken *cur_tok = nullptr;
-
-    enum State state = StateStart;
-
-    for (size_t i = 0; i < buf_len(asm_template); i += 1) {
-        uint8_t c = *((uint8_t*)buf_ptr(asm_template) + i);
-        switch (state) {
-            case StateStart:
-                if (c == '%') {
-                    tok_list->add_one();
-                    cur_tok = &tok_list->last();
-                    cur_tok->id = AsmTokenIdPercent;
-                    cur_tok->start = i;
-                    state = StatePercent;
-                } else {
-                    tok_list->add_one();
-                    cur_tok = &tok_list->last();
-                    cur_tok->id = AsmTokenIdTemplate;
-                    cur_tok->start = i;
-                    state = StateTemplate;
-                }
-                break;
-            case StatePercent:
-                if (c == '%') {
-                    cur_tok->end = i;
-                    state = StateStart;
-                } else if (c == '[') {
-                    cur_tok->id = AsmTokenIdVar;
-                    state = StateVar;
-                } else if (c == '=') {
-                    cur_tok->id = AsmTokenIdUniqueId;
-                    cur_tok->end = i;
-                    state = StateStart;
-                } else {
-                    ast_asm_error(pc, node, i, "expected a '%%' or '['");
-                }
-                break;
-            case StateTemplate:
-                if (c == '%') {
-                    cur_tok->end = i;
-                    i -= 1;
-                    cur_tok = nullptr;
-                    state = StateStart;
-                }
-                break;
-            case StateVar:
-                if (c == ']') {
-                    cur_tok->end = i;
-                    state = StateStart;
-                } else if ((c >= 'a' && c <= 'z') ||
-                        (c >= '0' && c <= '9') ||
-                        (c == '_'))
-                {
-                    // do nothing
-                } else {
-                    ast_asm_error(pc, node, i, "invalid substitution character: '%c'", c);
-                }
-                break;
-        }
-    }
-
-    switch (state) {
-        case StateStart:
-            break;
-        case StatePercent:
-        case StateVar:
-            ast_asm_error(pc, node, buf_len(asm_template), "unexpected end of assembly template");
-            break;
-        case StateTemplate:
-            cur_tok->end = buf_len(asm_template);
-            break;
-    }
 }
 
 AstNode *ast_parse(Buf *buf, ZigList<Token> *tokens, ZigType *owner, ErrColor err_color) {
@@ -1931,9 +1826,8 @@ static AstNode *ast_parse_asm_expr(ParseContext *pc) {
 
     res->line = asm_token->start_line;
     res->column = asm_token->start_column;
-    res->data.asm_expr.is_volatile = volatile_token != nullptr;
-    res->data.asm_expr.asm_template = token_buf(asm_template);
-    ast_parse_asm_template(pc, res);
+    res->data.asm_expr.volatile_token = volatile_token;
+    res->data.asm_expr.asm_template = asm_template;
     return res;
 }
 
@@ -1985,7 +1879,7 @@ static AstNode *ast_parse_asm_input(ParseContext *pc) {
         return nullptr;
 
     ZigList<AsmInput *> input_list = ast_parse_list(pc, TokenIdComma, ast_parse_asm_input_item);
-    AstNode *res = ast_parse_asm_cloppers(pc);
+    AstNode *res = ast_parse_asm_clobbers(pc);
     if (res == nullptr)
         res = ast_create_node_no_line_info(pc, NodeTypeAsmExpr);
 
@@ -2013,7 +1907,7 @@ static AsmInput *ast_parse_asm_input_item(ParseContext *pc) {
 }
 
 // AsmClobbers <- COLON StringList
-static AstNode *ast_parse_asm_cloppers(ParseContext *pc) {
+static AstNode *ast_parse_asm_clobbers(ParseContext *pc) {
     if (eat_token_if(pc, TokenIdColon) == nullptr)
         return nullptr;
 

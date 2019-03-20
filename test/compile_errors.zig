@@ -3,6 +3,15 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "volatile on global assembly",
+        \\comptime {
+        \\    asm volatile ("");
+        \\}
+    ,
+        "tmp.zig:2:9: error: volatile is meaningless on global assembly",
+    );
+
+    cases.add(
         "invalid multiple dereferences",
         \\export fn a() void {
         \\    var box = Box{ .field = 0 };

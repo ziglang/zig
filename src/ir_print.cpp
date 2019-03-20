@@ -436,11 +436,15 @@ static void ir_print_slice_type(IrPrint *irp, IrInstructionSliceType *instructio
     ir_print_other_instruction(irp, instruction->child_type);
 }
 
+static void ir_print_global_asm(IrPrint *irp, IrInstructionGlobalAsm *instruction) {
+    fprintf(irp->f, "asm(\"%s\")", buf_ptr(instruction->asm_code));
+}
+
 static void ir_print_asm(IrPrint *irp, IrInstructionAsm *instruction) {
     assert(instruction->base.source_node->type == NodeTypeAsmExpr);
     AstNodeAsmExpr *asm_expr = &instruction->base.source_node->data.asm_expr;
     const char *volatile_kw = instruction->has_side_effects ? " volatile" : "";
-    fprintf(irp->f, "asm%s (\"%s\") : ", volatile_kw, buf_ptr(asm_expr->asm_template));
+    fprintf(irp->f, "asm%s (\"%s\") : ", volatile_kw, buf_ptr(instruction->asm_template));
 
     for (size_t i = 0; i < asm_expr->output_list.length; i += 1) {
         AsmOutput *asm_output = asm_expr->output_list.at(i);
@@ -1518,6 +1522,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdSliceType:
             ir_print_slice_type(irp, (IrInstructionSliceType *)instruction);
+            break;
+        case IrInstructionIdGlobalAsm:
+            ir_print_global_asm(irp, (IrInstructionGlobalAsm *)instruction);
             break;
         case IrInstructionIdAsm:
             ir_print_asm(irp, (IrInstructionAsm *)instruction);
