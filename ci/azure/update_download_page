@@ -5,6 +5,7 @@ set -e
 
 SRCDIR=$(pwd)
 rm -rf .git
+sudo apt-get update -y
 sudo apt-get install -y s3cmd
 
 cd "$HOME"
