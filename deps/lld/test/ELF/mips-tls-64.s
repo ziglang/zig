@@ -28,9 +28,9 @@
 # DIS-NEXT:  30040 00000000 00000001 00000000 00000000
 # DIS-NEXT:  30050 00000000 00000001 ffffffff ffff8004
 
-# DIS: 0000000000000000 l       .tdata          00000000 loc
-# DIS: 0000000000000004 g       .tdata          00000000 bar
-# DIS: 0000000000000000 g       *UND*           00000000 foo
+# DIS: 0000000000000000 l     O .tdata          00000000 loc
+# DIS: 0000000000000004 g     O .tdata          00000000 bar
+# DIS: 0000000000000000 g     O *UND*           00000000 foo
 
 # CHECK:      Relocations [
 # CHECK-NEXT:   Section (7) .rel.dyn {

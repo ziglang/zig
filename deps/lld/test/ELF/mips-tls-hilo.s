@@ -20,7 +20,7 @@
 # DIS-NEXT:    2000c:   24 62 90 00   addiu   $2, $3, -28672
 #                       %lo(loc0 - .tdata - 0x7000) --^
 
-# DIS: 00000000 l       .tdata          00000000 loc0
+# DIS: 00000000 l    O .tdata          00000000 loc0
 
 # CHECK:      Relocations [
 # CHECK-NEXT: ]

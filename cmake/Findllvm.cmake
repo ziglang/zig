@@ -8,12 +8,16 @@
 # LLVM_LIBDIRS
 
 find_program(LLVM_CONFIG_EXE
-    NAMES llvm-config-7 llvm-config-7.0 llvm-config70 llvm-config
+    NAMES llvm-config-8 llvm-config-8.0 llvm-config80 llvm-config
     PATHS
         "/mingw64/bin"
         "/c/msys64/mingw64/bin"
         "c:/msys64/mingw64/bin"
-        "C:/Libraries/llvm-7.0.0/bin")
+        "C:/Libraries/llvm-8.0.0/bin")
+
+if ("${LLVM_CONFIG_EXE}" STREQUAL "LLVM_CONFIG_EXE-NOTFOUND")
+  message(FATAL_ERROR "unable to find llvm-config")
+endif()
 
 if ("${LLVM_CONFIG_EXE}" STREQUAL "LLVM_CONFIG_EXE-NOTFOUND")
   message(FATAL_ERROR "unable to find llvm-config")
@@ -24,14 +28,14 @@ execute_process(
 	OUTPUT_VARIABLE LLVM_CONFIG_VERSION
 	OUTPUT_STRIP_TRAILING_WHITESPACE)
 
-if("${LLVM_CONFIG_VERSION}" VERSION_LESS 7)
-  message(FATAL_ERROR "expected LLVM 7.x but found ${LLVM_CONFIG_VERSION}")
+if("${LLVM_CONFIG_VERSION}" VERSION_LESS 8)
+  message(FATAL_ERROR "expected LLVM 8.x but found ${LLVM_CONFIG_VERSION}")
 endif()
-if("${LLVM_CONFIG_VERSION}" VERSION_EQUAL 8)
-  message(FATAL_ERROR "expected LLVM 7.x but found ${LLVM_CONFIG_VERSION}")
+if("${LLVM_CONFIG_VERSION}" VERSION_EQUAL 9)
+  message(FATAL_ERROR "expected LLVM 8.x but found ${LLVM_CONFIG_VERSION}")
 endif()
-if("${LLVM_CONFIG_VERSION}" VERSION_GREATER 8)
-  message(FATAL_ERROR "expected LLVM 7.x but found ${LLVM_CONFIG_VERSION}")
+if("${LLVM_CONFIG_VERSION}" VERSION_GREATER 9)
+  message(FATAL_ERROR "expected LLVM 8.x but found ${LLVM_CONFIG_VERSION}")
 endif()
 
 execute_process(
@@ -57,6 +61,7 @@ NEED_TARGET("NVPTX")
 NEED_TARGET("PowerPC")
 NEED_TARGET("Sparc")
 NEED_TARGET("SystemZ")
+NEED_TARGET("WebAssembly")
 NEED_TARGET("X86")
 NEED_TARGET("XCore")
 
@@ -107,7 +112,7 @@ execute_process(
 set(LLVM_LIBRARIES ${LLVM_LIBRARIES} ${LLVM_SYSTEM_LIBS})
 
 if(NOT LLVM_LIBRARIES)
-  find_library(LLVM_LIBRARIES NAMES LLVM LLVM-7 LLVM-7.0)
+  find_library(LLVM_LIBRARIES NAMES LLVM LLVM-8 LLVM-8.0)
 endif()
 
 link_directories("${CMAKE_PREFIX_PATH}/lib")

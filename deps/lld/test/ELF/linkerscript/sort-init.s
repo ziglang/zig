@@ -1,16 +1,18 @@
 # REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t1.o
-# RUN: echo "SECTIONS { .init_array : { *(SORT_BY_INIT_PRIORITY(.init_array.*)) } }" > %t1.script
+# RUN: echo "SECTIONS { .init_array : { *(SORT_BY_INIT_PRIORITY(.init_array.* foo*)) } }" > %t1.script
 # RUN: ld.lld --script %t1.script %t1.o -o %t2
 # RUN: llvm-objdump -s %t2 | FileCheck %s
 
 # CHECK:      Contents of section .init_array:
-# CHECK-NEXT: 03020000 00000000 010405
+# CHECK-NEXT: 03020000 00060000 010405
 
 .globl _start
 _start:
   nop
 
+.section foo, "aw", @init_array
+  .byte 6
 .section .init_array, "aw", @init_array
   .align 8
   .byte 1

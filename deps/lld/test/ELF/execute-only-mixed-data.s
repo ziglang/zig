@@ -16,7 +16,7 @@
 // RUN: }" > %t.lds
 // RUN: ld.lld -T%t.lds %t.o -o %t -execute-only 2>&1
 
-// CHECK: -execute-only does not support intermingling data and code
+// CHECK: cannot place {{.*}}:(.rodata.foo) into .text: -execute-only does not support intermingling data and code
 
     br lr
 

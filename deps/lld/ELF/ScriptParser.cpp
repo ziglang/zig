@@ -72,13 +72,15 @@ private:
   void readRegionAlias();
   void readSearchDir();
   void readSections();
+  void readTarget();
   void readVersion();
   void readVersionScriptCommand();
 
   SymbolAssignment *readSymbolAssignment(StringRef Name);
   ByteCommand *readByteCommand(StringRef Tok);
-  uint32_t readFill();
-  uint32_t parseFill(StringRef Tok);
+  std::array<uint8_t, 4> readFill();
+  std::array<uint8_t, 4> parseFill(StringRef Tok);
+  bool readSectionDirective(OutputSection *Cmd, StringRef Tok1, StringRef Tok2);
   void readSectionAddressType(OutputSection *Cmd);
   OutputSection *readOverlaySectionDescription();
   OutputSection *readOutputSectionDescription(StringRef OutSec);
@@ -255,6 +257,8 @@ void ScriptParser::readLinkerScript() {
       readSearchDir();
     } else if (Tok == "SECTIONS") {
       readSections();
+    } else if (Tok == "TARGET") {
+      readTarget();
     } else if (Tok == "VERSION") {
       readVersion();
     } else if (SymbolAssignment *Cmd = readAssignment(Tok)) {
@@ -266,6 +270,8 @@ void ScriptParser::readLinkerScript() {
 }
 
 void ScriptParser::readDefsym(StringRef Name) {
+  if (errorCount())
+    return;
   Expr E = readExpr();
   if (!atEOF())
     setError("EOF expected, but got " + next());
@@ -378,10 +384,43 @@ void ScriptParser::readOutputArch() {
     skip();
 }
 
+static std::pair<ELFKind, uint16_t> parseBfdName(StringRef S) {
+  return StringSwitch<std::pair<ELFKind, uint16_t>>(S)
+      .Case("elf32-i386", {ELF32LEKind, EM_386})
+      .Case("elf32-iamcu", {ELF32LEKind, EM_IAMCU})
+      .Case("elf32-littlearm", {ELF32LEKind, EM_ARM})
+      .Case("elf32-x86-64", {ELF32LEKind, EM_X86_64})
+      .Case("elf64-aarch64", {ELF64LEKind, EM_AARCH64})
+      .Case("elf64-littleaarch64", {ELF64LEKind, EM_AARCH64})
+      .Case("elf32-powerpc", {ELF32BEKind, EM_PPC})
+      .Case("elf64-powerpc", {ELF64BEKind, EM_PPC64})
+      .Case("elf64-powerpcle", {ELF64LEKind, EM_PPC64})
+      .Case("elf64-x86-64", {ELF64LEKind, EM_X86_64})
+      .Cases("elf32-tradbigmips", "elf32-bigmips", {ELF32BEKind, EM_MIPS})
+      .Case("elf32-ntradbigmips", {ELF32BEKind, EM_MIPS})
+      .Case("elf32-tradlittlemips", {ELF32LEKind, EM_MIPS})
+      .Case("elf32-ntradlittlemips", {ELF32LEKind, EM_MIPS})
+      .Case("elf64-tradbigmips", {ELF64BEKind, EM_MIPS})
+      .Case("elf64-tradlittlemips", {ELF64LEKind, EM_MIPS})
+      .Default({ELFNoneKind, EM_NONE});
+}
+
+// Parse OUTPUT_FORMAT(bfdname) or OUTPUT_FORMAT(bfdname, big, little).
+// Currently we ignore big and little parameters.
 void ScriptParser::readOutputFormat() {
-  // Error checking only for now.
   expect("(");
-  skip();
+
+  StringRef Name = unquote(next());
+  StringRef S = Name;
+  if (S.consume_back("-freebsd"))
+    Config->OSABI = ELFOSABI_FREEBSD;
+
+  std::tie(Config->EKind, Config->EMachine) = parseBfdName(S);
+  if (Config->EMachine == EM_NONE)
+    setError("unknown output format name: " + Name);
+  if (S == "elf32-ntradlittlemips" || S == "elf32-ntradbigmips")
+    Config->MipsN32Abi = true;
+
   if (consume(")"))
     return;
   expect(",");
@@ -497,6 +536,9 @@ void ScriptParser::readSections() {
       for (BaseCommand *Cmd : readOverlay())
         V.push_back(Cmd);
       continue;
+    } else if (Tok == "INCLUDE") {
+      readInclude();
+      continue;
     }
 
     if (BaseCommand *Cmd = readAssignment(Tok))
@@ -520,6 +562,23 @@ void ScriptParser::readSections() {
 
   Script->SectionCommands.insert(Script->SectionCommands.end(), V.begin(),
                                  V.end());
+}
+
+void ScriptParser::readTarget() {
+  // TARGET(foo) is an alias for "--format foo". Unlike GNU linkers,
+  // we accept only a limited set of BFD names (i.e. "elf" or "binary")
+  // for --format. We recognize only /^elf/ and "binary" in the linker
+  // script as well.
+  expect("(");
+  StringRef Tok = next();
+  expect(")");
+
+  if (Tok.startswith("elf"))
+    Config->FormatBinary = false;
+  else if (Tok == "binary")
+    Config->FormatBinary = true;
+  else
+    setError("unknown target: " + Tok);
 }
 
 static int precedence(StringRef Op) {
@@ -672,11 +731,31 @@ Expr ScriptParser::readAssert() {
 // alias for =fillexp section attribute, which is different from
 // what GNU linkers do.
 // https://sourceware.org/binutils/docs/ld/Output-Section-Data.html
-uint32_t ScriptParser::readFill() {
+std::array<uint8_t, 4> ScriptParser::readFill() {
   expect("(");
-  uint32_t V = parseFill(next());
+  std::array<uint8_t, 4> V = parseFill(next());
   expect(")");
   return V;
+}
+
+// Tries to read the special directive for an output section definition which
+// can be one of following: "(NOLOAD)", "(COPY)", "(INFO)" or "(OVERLAY)".
+// Tok1 and Tok2 are next 2 tokens peeked. See comment for readSectionAddressType below.
+bool ScriptParser::readSectionDirective(OutputSection *Cmd, StringRef Tok1, StringRef Tok2) {
+  if (Tok1 != "(")
+    return false;
+  if (Tok2 != "NOLOAD" && Tok2 != "COPY" && Tok2 != "INFO" && Tok2 != "OVERLAY")
+    return false;
+
+  expect("(");
+  if (consume("NOLOAD")) {
+    Cmd->Noload = true;
+  } else {
+    skip(); // This is "COPY", "INFO" or "OVERLAY".
+    Cmd->NonAlloc = true;
+  }
+  expect(")");
+  return true;
 }
 
 // Reads an expression and/or the special directive for an output
@@ -691,28 +770,12 @@ uint32_t ScriptParser::readFill() {
 // https://sourceware.org/binutils/docs/ld/Output-Section-Address.html
 // https://sourceware.org/binutils/docs/ld/Output-Section-Type.html
 void ScriptParser::readSectionAddressType(OutputSection *Cmd) {
-  if (consume("(")) {
-    if (consume("NOLOAD")) {
-      expect(")");
-      Cmd->Noload = true;
-      return;
-    }
-    if (consume("COPY") || consume("INFO") || consume("OVERLAY")) {
-      expect(")");
-      Cmd->NonAlloc = true;
-      return;
-    }
-    Cmd->AddrExpr = readExpr();
-    expect(")");
-  } else {
-    Cmd->AddrExpr = readExpr();
-  }
+  if (readSectionDirective(Cmd, peek(), peek2()))
+    return;
 
-  if (consume("(")) {
-    expect("NOLOAD");
-    expect(")");
-    Cmd->Noload = true;
-  }
+  Cmd->AddrExpr = readExpr();
+  if (peek() == "(" && !readSectionDirective(Cmd, "(", peek2()))
+    setError("unknown section directive: " + peek2());
 }
 
 static Expr checkAlignment(Expr E, std::string &Loc) {
@@ -778,10 +841,17 @@ OutputSection *ScriptParser::readOutputSectionDescription(StringRef OutSec) {
       Cmd->Filler = readFill();
     } else if (Tok == "SORT") {
       readSort();
+    } else if (Tok == "INCLUDE") {
+      readInclude();
     } else if (peek() == "(") {
       Cmd->SectionCommands.push_back(readInputSectionDescription(Tok));
     } else {
-      setError("unknown command " + Tok);
+      // We have a file name and no input sections description. It is not a
+      // commonly used syntax, but still acceptable. In that case, all sections
+      // from the file will be included.
+      auto *ISD = make<InputSectionDescription>(Tok);
+      ISD->SectionPatterns.push_back({{}, StringMatcher({"*"})});
+      Cmd->SectionCommands.push_back(ISD);
     }
   }
 
@@ -818,13 +888,13 @@ OutputSection *ScriptParser::readOutputSectionDescription(StringRef OutSec) {
 // When reading a hexstring, ld.bfd handles it as a blob of arbitrary
 // size, while ld.gold always handles it as a 32-bit big-endian number.
 // We are compatible with ld.gold because it's easier to implement.
-uint32_t ScriptParser::parseFill(StringRef Tok) {
+std::array<uint8_t, 4> ScriptParser::parseFill(StringRef Tok) {
   uint32_t V = 0;
   if (!to_integer(Tok, V))
     setError("invalid filler expression: " + Tok);
 
-  uint32_t Buf;
-  write32be(&Buf, V);
+  std::array<uint8_t, 4> Buf;
+  write32be(Buf.data(), V);
   return Buf;
 }
 
@@ -1404,7 +1474,11 @@ uint64_t ScriptParser::readMemoryAssignment(StringRef S1, StringRef S2,
 void ScriptParser::readMemory() {
   expect("{");
   while (!errorCount() && !consume("}")) {
-    StringRef Name = next();
+    StringRef Tok = next();
+    if (Tok == "INCLUDE") {
+      readInclude();
+      continue;
+    }
 
     uint32_t Flags = 0;
     uint32_t NegFlags = 0;
@@ -1419,10 +1493,9 @@ void ScriptParser::readMemory() {
     uint64_t Length = readMemoryAssignment("LENGTH", "len", "l");
 
     // Add the memory region to the region map.
-    MemoryRegion *MR =
-        make<MemoryRegion>(Name, Origin, Length, Flags, NegFlags);
-    if (!Script->MemoryRegions.insert({Name, MR}).second)
-      setError("region '" + Name + "' already defined");
+    MemoryRegion *MR = make<MemoryRegion>(Tok, Origin, Length, Flags, NegFlags);
+    if (!Script->MemoryRegions.insert({Tok, MR}).second)
+      setError("region '" + Tok + "' already defined");
   }
 }
 

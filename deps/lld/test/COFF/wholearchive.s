@@ -1,6 +1,7 @@
 # REQUIRES: x86
 
 # RUN: yaml2obj < %p/Inputs/export.yaml > %t.archive.obj
+# RUN: rm -f %t.archive.lib
 # RUN: llvm-ar rcs %t.archive.lib %t.archive.obj
 # RUN: llvm-mc -triple=x86_64-windows-msvc %s -filetype=obj -o %t.main.obj
 

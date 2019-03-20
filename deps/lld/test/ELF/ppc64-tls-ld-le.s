@@ -1,16 +1,16 @@
 // REQUIRES: ppc
 
 // RUN: llvm-mc -filetype=obj -triple=powerpc64le-unknown-linux %s -o %t.o
-// RUN: llvm-readelf -relocations --wide %t.o | FileCheck --check-prefix=InputRelocs %s
+// RUN: llvm-readelf -r %t.o | FileCheck --check-prefix=InputRelocs %s
 // RUN: ld.lld  %t.o -o %t
-// RUN: llvm-objdump -D %t | FileCheck --check-prefix=Dis %s
-// RUN: llvm-readelf -relocations --wide %t | FileCheck --check-prefix=OutputRelocs %s
+// RUN: llvm-objdump -d %t | FileCheck --check-prefix=Dis %s
+// RUN: llvm-readelf -r %t | FileCheck --check-prefix=OutputRelocs %s
 
 // RUN: llvm-mc -filetype=obj -triple=powerpc64-unknown-linux %s -o %t.o
-// RUN: llvm-readelf -relocations --wide %t.o | FileCheck --check-prefix=InputRelocs %s
+// RUN: llvm-readelf -r %t.o | FileCheck --check-prefix=InputRelocs %s
 // RUN: ld.lld  %t.o -o %t
-// RUN: llvm-objdump -D %t | FileCheck --check-prefix=Dis %s
-// RUN: llvm-readelf -relocations --wide %t | FileCheck --check-prefix=OutputRelocs %s
+// RUN: llvm-objdump -d %t | FileCheck --check-prefix=Dis %s
+// RUN: llvm-readelf -r %t | FileCheck --check-prefix=OutputRelocs %s
 
 	.text
 	.abiversion 2

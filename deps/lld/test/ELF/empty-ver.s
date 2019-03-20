@@ -29,7 +29,7 @@
 // CHECK-NEXT:   Symbols [
 // CHECK-NEXT:     Symbol {
 // CHECK-NEXT:       Version: 0
-// CHECK-NEXT:       Name: @
+// CHECK-NEXT:       Name:
 // CHECK-NEXT:     }
 // CHECK-NEXT:     Symbol {
 // CHECK-NEXT:       Version: 2

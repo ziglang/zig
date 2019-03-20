@@ -18,9 +18,11 @@ static const SubArchList subarch_list_list[] = {
     SubArchListArm32,
     SubArchListArm64,
     SubArchListKalimba,
+    SubArchListMips,
 };
 
 static const ZigLLVM_SubArchType subarch_list_arm32[] = {
+    ZigLLVM_ARMSubArch_v8_5a,
     ZigLLVM_ARMSubArch_v8_4a,
     ZigLLVM_ARMSubArch_v8_3a,
     ZigLLVM_ARMSubArch_v8_2a,
@@ -42,9 +44,11 @@ static const ZigLLVM_SubArchType subarch_list_arm32[] = {
     ZigLLVM_ARMSubArch_v5,
     ZigLLVM_ARMSubArch_v5te,
     ZigLLVM_ARMSubArch_v4t,
+
 };
 
 static const ZigLLVM_SubArchType subarch_list_arm64[] = {
+    ZigLLVM_ARMSubArch_v8_5a,
     ZigLLVM_ARMSubArch_v8_4a,
     ZigLLVM_ARMSubArch_v8_3a,
     ZigLLVM_ARMSubArch_v8_2a,
@@ -61,57 +65,60 @@ static const ZigLLVM_SubArchType subarch_list_kalimba[] = {
     ZigLLVM_KalimbaSubArch_v3,
 };
 
+static const ZigLLVM_SubArchType subarch_list_mips[] = {
+    ZigLLVM_MipsSubArch_r6,
+};
+
 static const ZigLLVM_ArchType arch_list[] = {
-    ZigLLVM_arm,
-    ZigLLVM_armeb,
-    ZigLLVM_aarch64,
-    ZigLLVM_aarch64_be,
-    ZigLLVM_arc,
-    ZigLLVM_avr,
-    ZigLLVM_bpfel,
-    ZigLLVM_bpfeb,
-    ZigLLVM_hexagon,
-    ZigLLVM_mips,
-    ZigLLVM_mipsel,
-    ZigLLVM_mips64,
-    ZigLLVM_mips64el,
-    ZigLLVM_msp430,
-    ZigLLVM_nios2,
-    ZigLLVM_ppc,
-    ZigLLVM_ppc64,
-    ZigLLVM_ppc64le,
-    ZigLLVM_r600,
-    ZigLLVM_amdgcn,
-    ZigLLVM_riscv32,
-    ZigLLVM_riscv64,
-    ZigLLVM_sparc,
-    ZigLLVM_sparcv9,
-    ZigLLVM_sparcel,
-    ZigLLVM_systemz,
-    ZigLLVM_tce,
-    ZigLLVM_tcele,
-    ZigLLVM_thumb,
-    ZigLLVM_thumbeb,
-    ZigLLVM_x86,
-    ZigLLVM_x86_64,
-    ZigLLVM_xcore,
-    ZigLLVM_nvptx,
-    ZigLLVM_nvptx64,
-    ZigLLVM_le32,
-    ZigLLVM_le64,
-    ZigLLVM_amdil,
-    ZigLLVM_amdil64,
-    ZigLLVM_hsail,
-    ZigLLVM_hsail64,
-    ZigLLVM_spir,
-    ZigLLVM_spir64,
-    ZigLLVM_kalimba,
-    ZigLLVM_shave,
-    ZigLLVM_lanai,
-    ZigLLVM_wasm32,
-    ZigLLVM_wasm64,
-    ZigLLVM_renderscript32,
-    ZigLLVM_renderscript64,
+    ZigLLVM_arm,            // ARM (little endian): arm, armv.*, xscale
+    ZigLLVM_armeb,          // ARM (big endian): armeb
+    ZigLLVM_aarch64,        // AArch64 (little endian): aarch64
+    ZigLLVM_aarch64_be,     // AArch64 (big endian): aarch64_be
+    ZigLLVM_arc,            // ARC: Synopsys ARC
+    ZigLLVM_avr,            // AVR: Atmel AVR microcontroller
+    ZigLLVM_bpfel,          // eBPF or extended BPF or 64-bit BPF (little endian)
+    ZigLLVM_bpfeb,          // eBPF or extended BPF or 64-bit BPF (big endian)
+    ZigLLVM_hexagon,        // Hexagon: hexagon
+    ZigLLVM_mips,           // MIPS: mips, mipsallegrex, mipsr6
+    ZigLLVM_mipsel,         // MIPSEL: mipsel, mipsallegrexe, mipsr6el
+    ZigLLVM_mips64,         // MIPS64: mips64, mips64r6, mipsn32, mipsn32r6
+    ZigLLVM_mips64el,       // MIPS64EL: mips64el, mips64r6el, mipsn32el, mipsn32r6el
+    ZigLLVM_msp430,         // MSP430: msp430
+    ZigLLVM_ppc,            // PPC: powerpc
+    ZigLLVM_ppc64,          // PPC64: powerpc64, ppu
+    ZigLLVM_ppc64le,        // PPC64LE: powerpc64le
+    ZigLLVM_r600,           // R600: AMD GPUs HD2XXX - HD6XXX
+    ZigLLVM_amdgcn,         // AMDGCN: AMD GCN GPUs
+    ZigLLVM_riscv32,        // RISC-V (32-bit): riscv32
+    ZigLLVM_riscv64,        // RISC-V (64-bit): riscv64
+    ZigLLVM_sparc,          // Sparc: sparc
+    ZigLLVM_sparcv9,        // Sparcv9: Sparcv9
+    ZigLLVM_sparcel,        // Sparc: (endianness = little). NB: 'Sparcle' is a CPU variant
+    ZigLLVM_systemz,        // SystemZ: s390x
+    ZigLLVM_tce,            // TCE (http://tce.cs.tut.fi/): tce
+    ZigLLVM_tcele,          // TCE little endian (http://tce.cs.tut.fi/): tcele
+    ZigLLVM_thumb,          // Thumb (little endian): thumb, thumbv.*
+    ZigLLVM_thumbeb,        // Thumb (big endian): thumbeb
+    ZigLLVM_x86,            // X86: i[3-9]86
+    ZigLLVM_x86_64,         // X86-64: amd64, x86_64
+    ZigLLVM_xcore,          // XCore: xcore
+    ZigLLVM_nvptx,          // NVPTX: 32-bit
+    ZigLLVM_nvptx64,        // NVPTX: 64-bit
+    ZigLLVM_le32,           // le32: generic little-endian 32-bit CPU (PNaCl)
+    ZigLLVM_le64,           // le64: generic little-endian 64-bit CPU (PNaCl)
+    ZigLLVM_amdil,          // AMDIL
+    ZigLLVM_amdil64,        // AMDIL with 64-bit pointers
+    ZigLLVM_hsail,          // AMD HSAIL
+    ZigLLVM_hsail64,        // AMD HSAIL with 64-bit pointers
+    ZigLLVM_spir,           // SPIR: standard portable IR for OpenCL 32-bit version
+    ZigLLVM_spir64,         // SPIR: standard portable IR for OpenCL 64-bit version
+    ZigLLVM_kalimba,        // Kalimba: generic kalimba
+    ZigLLVM_shave,          // SHAVE: Movidius vector VLIW processors
+    ZigLLVM_lanai,          // Lanai: Lanai 32-bit
+    ZigLLVM_wasm32,         // WebAssembly with 32-bit pointers
+    ZigLLVM_wasm64,         // WebAssembly with 64-bit pointers
+    ZigLLVM_renderscript32, // 32-bit RenderScript
+    ZigLLVM_renderscript64, // 64-bit RenderScript
 };
 
 static const ZigLLVM_VendorType vendor_list[] = {
@@ -164,6 +171,9 @@ static const Os os_list[] = {
     OsMesa3D,
     OsContiki,
     OsAMDPAL,
+    OsHermitCore,
+    OsHurd,
+    OsWASI,
     OsZen,
     OsUefi,
 };
@@ -312,6 +322,12 @@ ZigLLVM_OSType get_llvm_os_type(Os os_type) {
             return ZigLLVM_Contiki;
         case OsAMDPAL:
             return ZigLLVM_AMDPAL;
+        case OsHermitCore:
+            return ZigLLVM_HermitCore;
+        case OsHurd:
+            return ZigLLVM_Hurd;
+        case OsWASI:
+            return ZigLLVM_WASI;
     }
     zig_unreachable();
 }
@@ -381,6 +397,12 @@ static Os get_zig_os_type(ZigLLVM_OSType os_type) {
             return OsContiki;
         case ZigLLVM_AMDPAL:
             return OsAMDPAL;
+        case ZigLLVM_HermitCore:
+            return OsHermitCore;
+        case ZigLLVM_Hurd:
+            return OsHurd;
+        case ZigLLVM_WASI:
+            return OsWASI;
     }
     zig_unreachable();
 }
@@ -423,6 +445,9 @@ const char *target_os_name(Os os_type) {
         case OsMesa3D:
         case OsContiki:
         case OsAMDPAL:
+        case OsHermitCore:
+        case OsHurd:
+        case OsWASI:
             return ZigLLVMGetOSTypeName(get_llvm_os_type(os_type));
     }
     zig_unreachable();
@@ -514,7 +539,6 @@ SubArchList target_subarch_list(ZigLLVM_ArchType arch) {
         case ZigLLVM_mips64:
         case ZigLLVM_mips64el:
         case ZigLLVM_msp430:
-        case ZigLLVM_nios2:
         case ZigLLVM_ppc:
         case ZigLLVM_ppc64:
         case ZigLLVM_ppc64le:
@@ -562,6 +586,8 @@ size_t target_subarch_count(SubArchList sub_arch_list) {
             return array_length(subarch_list_arm64);
         case SubArchListKalimba:
             return array_length(subarch_list_kalimba);
+        case SubArchListMips:
+            return array_length(subarch_list_mips);
     }
     zig_unreachable();
 }
@@ -579,6 +605,9 @@ ZigLLVM_SubArchType target_subarch_enum(SubArchList sub_arch_list, size_t i) {
         case SubArchListKalimba:
             assert(i < array_length(subarch_list_kalimba));
             return subarch_list_kalimba[i];
+        case SubArchListMips:
+            assert(i < array_length(subarch_list_mips));
+            return subarch_list_mips[i];
     }
     zig_unreachable();
 }
@@ -606,6 +635,8 @@ const char *target_subarch_list_name(SubArchList sub_arch_list) {
             return "Arm64";
         case SubArchListKalimba:
             return "Kalimba";
+        case SubArchListMips:
+            return "Mips";
     }
     zig_unreachable();
 }
@@ -737,7 +768,6 @@ uint32_t target_arch_pointer_bit_width(ZigLLVM_ArchType arch) {
         case ZigLLVM_le32:
         case ZigLLVM_mips:
         case ZigLLVM_mipsel:
-        case ZigLLVM_nios2:
         case ZigLLVM_nvptx:
         case ZigLLVM_ppc:
         case ZigLLVM_r600:
@@ -887,6 +917,9 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
         case OsFuchsia:
         case OsContiki:
         case OsAMDPAL:
+        case OsHermitCore:
+        case OsHurd:
+        case OsWASI:
             zig_panic("TODO c type size in bits for this target");
     }
     zig_unreachable();
@@ -1060,7 +1093,6 @@ const char *target_dynamic_linker(const ZigTarget *target) {
                 case ZigLLVM_bpfeb:
                 case ZigLLVM_hexagon:
                 case ZigLLVM_msp430:
-                case ZigLLVM_nios2:
                 case ZigLLVM_r600:
                 case ZigLLVM_amdgcn:
                 case ZigLLVM_riscv32:
@@ -1119,6 +1151,9 @@ const char *target_dynamic_linker(const ZigTarget *target) {
         case OsContiki:
         case OsAMDPAL:
         case OsZen:
+        case OsHermitCore:
+        case OsHurd:
+        case OsWASI:
             zig_panic("TODO implement target_dynamic_linker for this OS");
     }
     zig_unreachable();
@@ -1183,7 +1218,6 @@ const char *arch_stack_pointer_register_name(ZigLLVM_ArchType arch) {
         case ZigLLVM_mips64el:
         case ZigLLVM_mipsel:
         case ZigLLVM_msp430:
-        case ZigLLVM_nios2:
         case ZigLLVM_nvptx:
         case ZigLLVM_nvptx64:
         case ZigLLVM_ppc64le:
@@ -1245,7 +1279,6 @@ bool target_is_arm(const ZigTarget *target) {
         case ZigLLVM_mips64el:
         case ZigLLVM_mipsel:
         case ZigLLVM_msp430:
-        case ZigLLVM_nios2:
         case ZigLLVM_nvptx:
         case ZigLLVM_nvptx64:
         case ZigLLVM_ppc64le:
@@ -1337,6 +1370,7 @@ ZigLLVM_EnvironmentType target_default_abi(ZigLLVM_ArchType arch, Os os) {
         case OsContiki:
         case OsAMDPAL:
         case OsZen:
+        case OsHermitCore:
             return ZigLLVM_EABI;
         case OsOpenBSD:
         case OsMacOSX:
@@ -1347,11 +1381,13 @@ ZigLLVM_EnvironmentType target_default_abi(ZigLLVM_ArchType arch, Os os) {
         case OsFuchsia:
         case OsKFreeBSD:
         case OsNetBSD:
+        case OsHurd:
             return ZigLLVM_GNU;
         case OsWindows:
         case OsUefi:
             return ZigLLVM_MSVC;
         case OsLinux:
+        case OsWASI:
             return ZigLLVM_Musl;
     }
     zig_unreachable();
@@ -1413,7 +1449,6 @@ static const AvailableLibC libcs_available[] = {
     {ZigLLVM_mipsel, OsLinux, ZigLLVM_Musl},
     {ZigLLVM_mips, OsLinux, ZigLLVM_GNU},
     {ZigLLVM_mips, OsLinux, ZigLLVM_Musl},
-    {ZigLLVM_nios2, OsLinux, ZigLLVM_GNU},
     {ZigLLVM_ppc64le, OsLinux, ZigLLVM_GNU},
     {ZigLLVM_ppc64le, OsLinux, ZigLLVM_Musl},
     {ZigLLVM_ppc64, OsLinux, ZigLLVM_GNU},

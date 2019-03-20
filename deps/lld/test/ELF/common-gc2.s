@@ -3,8 +3,8 @@
 # RUN: ld.lld -gc-sections -export-dynamic %t -o %t1
 # RUN: llvm-readobj --dyn-symbols %t1 | FileCheck %s
 
-# CHECK: Name: bar@
-# CHECK: Name: foo@
+# CHECK: Name: bar
+# CHECK: Name: foo
 
 .comm foo,4,4
 .comm bar,4,4

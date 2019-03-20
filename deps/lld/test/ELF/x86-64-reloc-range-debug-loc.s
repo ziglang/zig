@@ -5,7 +5,7 @@
 
 ## Check we are able to report file and location from debug information
 ## when reporting such kind of errors.
-# CHECK: error: test.s:3: relocation R_X86_64_32 out of range: 68719476736 is not in [0, 4294967295]
+# CHECK: error: test.s:3:(.text+0x1): relocation R_X86_64_32 out of range: 68719476736 is not in [0, 4294967295]
 
 .section .text,"ax",@progbits
 foo:

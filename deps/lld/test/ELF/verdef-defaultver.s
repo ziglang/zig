@@ -8,7 +8,7 @@
 
 # DSO:      DynamicSymbols [
 # DSO-NEXT:    Symbol {
-# DSO-NEXT:      Name: @
+# DSO-NEXT:      Name:
 # DSO-NEXT:      Value: 0x0
 # DSO-NEXT:      Size: 0
 # DSO-NEXT:      Binding: Local
@@ -61,7 +61,7 @@
 # DSO-NEXT:    Symbols [
 # DSO-NEXT:      Symbol {
 # DSO-NEXT:        Version: 0
-# DSO-NEXT:        Name: @
+# DSO-NEXT:        Name:
 # DSO-NEXT:      }
 # DSO-NEXT:      Symbol {
 # DSO-NEXT:        Version: 2
@@ -112,7 +112,7 @@
 
 # EXE:      DynamicSymbols [
 # EXE-NEXT:    Symbol {
-# EXE-NEXT:      Name: @
+# EXE-NEXT:      Name:
 # EXE-NEXT:      Value: 0x0
 # EXE-NEXT:      Size: 0
 # EXE-NEXT:      Binding: Local
@@ -156,7 +156,7 @@
 # EXE-NEXT:    Symbols [
 # EXE-NEXT:      Symbol {
 # EXE-NEXT:        Version: 0
-# EXE-NEXT:        Name: @
+# EXE-NEXT:        Name:
 # EXE-NEXT:      }
 # EXE-NEXT:      Symbol {
 # EXE-NEXT:        Version: 2

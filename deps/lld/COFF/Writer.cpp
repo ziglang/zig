@@ -77,35 +77,37 @@ static const int SectorSize = 512;
 static const int DOSStubSize = sizeof(dos_header) + sizeof(DOSProgram);
 static_assert(DOSStubSize % 8 == 0, "DOSStub size must be multiple of 8");
 
-static const int NumberfOfDataDirectory = 16;
+static const int NumberOfDataDirectory = 16;
 
 namespace {
 
 class DebugDirectoryChunk : public Chunk {
 public:
-  DebugDirectoryChunk(const std::vector<Chunk *> &R) : Records(R) {}
+  DebugDirectoryChunk(const std::vector<Chunk *> &R, bool WriteRepro)
+      : Records(R), WriteRepro(WriteRepro) {}
 
   size_t getSize() const override {
-    return Records.size() * sizeof(debug_directory);
+    return (Records.size() + int(WriteRepro)) * sizeof(debug_directory);
   }
 
   void writeTo(uint8_t *B) const override {
     auto *D = reinterpret_cast<debug_directory *>(B + OutputSectionOff);
 
     for (const Chunk *Record : Records) {
-      D->Characteristics = 0;
-      D->TimeDateStamp = 0;
-      D->MajorVersion = 0;
-      D->MinorVersion = 0;
-      D->Type = COFF::IMAGE_DEBUG_TYPE_CODEVIEW;
-      D->SizeOfData = Record->getSize();
-      D->AddressOfRawData = Record->getRVA();
       OutputSection *OS = Record->getOutputSection();
       uint64_t Offs = OS->getFileOff() + (Record->getRVA() - OS->getRVA());
-      D->PointerToRawData = Offs;
-
-      TimeDateStamps.push_back(&D->TimeDateStamp);
+      fillEntry(D, COFF::IMAGE_DEBUG_TYPE_CODEVIEW, Record->getSize(),
+                Record->getRVA(), Offs);
       ++D;
+    }
+
+    if (WriteRepro) {
+      // FIXME: The COFF spec allows either a 0-sized entry to just say
+      // "the timestamp field is really a hash", or a 4-byte size field
+      // followed by that many bytes containing a longer hash (with the
+      // lowest 4 bytes usually being the timestamp in little-endian order).
+      // Consider storing the full 8 bytes computed by xxHash64 here.
+      fillEntry(D, COFF::IMAGE_DEBUG_TYPE_REPRO, 0, 0, 0);
     }
   }
 
@@ -115,8 +117,23 @@ public:
   }
 
 private:
+  void fillEntry(debug_directory *D, COFF::DebugType DebugType, size_t Size,
+                 uint64_t RVA, uint64_t Offs) const {
+    D->Characteristics = 0;
+    D->TimeDateStamp = 0;
+    D->MajorVersion = 0;
+    D->MinorVersion = 0;
+    D->Type = DebugType;
+    D->SizeOfData = Size;
+    D->AddressOfRawData = RVA;
+    D->PointerToRawData = Offs;
+
+    TimeDateStamps.push_back(&D->TimeDateStamp);
+  }
+
   mutable std::vector<support::ulittle32_t *> TimeDateStamps;
   const std::vector<Chunk *> &Records;
+  bool WriteRepro;
 };
 
 class CVDebugRecordChunk : public Chunk {
@@ -150,14 +167,22 @@ private:
   void createSections();
   void createMiscChunks();
   void createImportTables();
+  void appendImportThunks();
+  void locateImportTables(
+      std::map<std::pair<StringRef, uint32_t>, std::vector<Chunk *>> &Map);
   void createExportTable();
   void mergeSections();
+  void readRelocTargets();
+  void removeUnusedSections();
   void assignAddresses();
+  void finalizeAddresses();
   void removeEmptySections();
   void createSymbolAndStringTable();
   void openFile(StringRef OutputPath);
   template <typename PEHeaderTy> void writeHeader();
   void createSEHTable();
+  void createRuntimePseudoRelocs();
+  void insertCtorDtorSymbols();
   void createGuardCFTables();
   void markSymbolsForRVATable(ObjFile *File,
                               ArrayRef<SectionChunk *> SymIdxChunks,
@@ -168,6 +193,7 @@ private:
   void writeSections();
   void writeBuildId();
   void sortExceptionTable();
+  void sortCRTSectionChunks(std::vector<Chunk *> &Chunks);
 
   llvm::Optional<coff_symbol16> createSymbol(Defined *D);
   size_t addEntryToStringTable(StringRef Str);
@@ -184,6 +210,10 @@ private:
   std::vector<char> Strtab;
   std::vector<llvm::object::coff_symbol16> OutputSymtab;
   IdataContents Idata;
+  Chunk *ImportTableStart = nullptr;
+  uint64_t ImportTableSize = 0;
+  Chunk *IATStart = nullptr;
+  uint64_t IATSize = 0;
   DelayLoadContents DelayIdata;
   EdataContents Edata;
   bool SetNoSEHCharacteristic = false;
@@ -191,7 +221,6 @@ private:
   DebugDirectoryChunk *DebugDirectory = nullptr;
   std::vector<Chunk *> DebugRecords;
   CVDebugRecordChunk *BuildId = nullptr;
-  Optional<codeview::DebugInfo> PreviousBuildId;
   ArrayRef<uint8_t> SectionTable;
 
   uint64_t FileSize;
@@ -209,6 +238,8 @@ private:
   OutputSection *DidatSec;
   OutputSection *RsrcSec;
   OutputSection *RelocSec;
+  OutputSection *CtorsSec;
+  OutputSection *DtorsSec;
 
   // The first and last .pdata sections in the output file.
   //
@@ -234,6 +265,11 @@ void writeResult() { Writer().run(); }
 
 void OutputSection::addChunk(Chunk *C) {
   Chunks.push_back(C);
+  C->setOutputSection(this);
+}
+
+void OutputSection::insertChunkAtStart(Chunk *C) {
+  Chunks.insert(Chunks.begin(), C);
   C->setOutputSection(this);
 }
 
@@ -267,77 +303,232 @@ void OutputSection::writeHeaderTo(uint8_t *Buf) {
 } // namespace coff
 } // namespace lld
 
-// PDBs are matched against executables using a build id which consists of three
-// components:
-//   1. A 16-bit GUID
-//   2. An age
-//   3. A time stamp.
-//
-// Debuggers and symbol servers match executables against debug info by checking
-// each of these components of the EXE/DLL against the corresponding value in
-// the PDB and failing a match if any of the components differ.  In the case of
-// symbol servers, symbols are cached in a folder that is a function of the
-// GUID.  As a result, in order to avoid symbol cache pollution where every
-// incremental build copies a new PDB to the symbol cache, we must try to re-use
-// the existing GUID if one exists, but bump the age.  This way the match will
-// fail, so the symbol cache knows to use the new PDB, but the GUID matches, so
-// it overwrites the existing item in the symbol cache rather than making a new
-// one.
-static Optional<codeview::DebugInfo> loadExistingBuildId(StringRef Path) {
-  // We don't need to incrementally update a previous build id if we're not
-  // writing codeview debug info.
-  if (!Config->Debug)
-    return None;
-
-  auto ExpectedBinary = llvm::object::createBinary(Path);
-  if (!ExpectedBinary) {
-    consumeError(ExpectedBinary.takeError());
-    return None;
+// Check whether the target address S is in range from a relocation
+// of type RelType at address P.
+static bool isInRange(uint16_t RelType, uint64_t S, uint64_t P, int Margin) {
+  if (Config->Machine == ARMNT) {
+    int64_t Diff = AbsoluteDifference(S, P + 4) + Margin;
+    switch (RelType) {
+    case IMAGE_REL_ARM_BRANCH20T:
+      return isInt<21>(Diff);
+    case IMAGE_REL_ARM_BRANCH24T:
+    case IMAGE_REL_ARM_BLX23T:
+      return isInt<25>(Diff);
+    default:
+      return true;
+    }
+  } else if (Config->Machine == ARM64) {
+    int64_t Diff = AbsoluteDifference(S, P) + Margin;
+    switch (RelType) {
+    case IMAGE_REL_ARM64_BRANCH26:
+      return isInt<28>(Diff);
+    case IMAGE_REL_ARM64_BRANCH19:
+      return isInt<21>(Diff);
+    case IMAGE_REL_ARM64_BRANCH14:
+      return isInt<16>(Diff);
+    default:
+      return true;
+    }
+  } else {
+    llvm_unreachable("Unexpected architecture");
   }
+}
 
-  auto Binary = std::move(*ExpectedBinary);
-  if (!Binary.getBinary()->isCOFF())
-    return None;
+// Return the last thunk for the given target if it is in range,
+// or create a new one.
+static std::pair<Defined *, bool>
+getThunk(DenseMap<uint64_t, Defined *> &LastThunks, Defined *Target, uint64_t P,
+         uint16_t Type, int Margin) {
+  Defined *&LastThunk = LastThunks[Target->getRVA()];
+  if (LastThunk && isInRange(Type, LastThunk->getRVA(), P, Margin))
+    return {LastThunk, false};
+  Chunk *C;
+  switch (Config->Machine) {
+  case ARMNT:
+    C = make<RangeExtensionThunkARM>(Target);
+    break;
+  case ARM64:
+    C = make<RangeExtensionThunkARM64>(Target);
+    break;
+  default:
+    llvm_unreachable("Unexpected architecture");
+  }
+  Defined *D = make<DefinedSynthetic>("", C);
+  LastThunk = D;
+  return {D, true};
+}
 
-  std::error_code EC;
-  COFFObjectFile File(Binary.getBinary()->getMemoryBufferRef(), EC);
-  if (EC)
-    return None;
+// This checks all relocations, and for any relocation which isn't in range
+// it adds a thunk after the section chunk that contains the relocation.
+// If the latest thunk for the specific target is in range, that is used
+// instead of creating a new thunk. All range checks are done with the
+// specified margin, to make sure that relocations that originally are in
+// range, but only barely, also get thunks - in case other added thunks makes
+// the target go out of range.
+//
+// After adding thunks, we verify that all relocations are in range (with
+// no extra margin requirements). If this failed, we restart (throwing away
+// the previously created thunks) and retry with a wider margin.
+static bool createThunks(OutputSection *OS, int Margin) {
+  bool AddressesChanged = false;
+  DenseMap<uint64_t, Defined *> LastThunks;
+  size_t ThunksSize = 0;
+  // Recheck Chunks.size() each iteration, since we can insert more
+  // elements into it.
+  for (size_t I = 0; I != OS->Chunks.size(); ++I) {
+    SectionChunk *SC = dyn_cast_or_null<SectionChunk>(OS->Chunks[I]);
+    if (!SC)
+      continue;
+    size_t ThunkInsertionSpot = I + 1;
 
-  // If the machine of the binary we're outputting doesn't match the machine
-  // of the existing binary, don't try to re-use the build id.
-  if (File.is64() != Config->is64() || File.getMachine() != Config->Machine)
-    return None;
+    // Try to get a good enough estimate of where new thunks will be placed.
+    // Offset this by the size of the new thunks added so far, to make the
+    // estimate slightly better.
+    size_t ThunkInsertionRVA = SC->getRVA() + SC->getSize() + ThunksSize;
+    for (size_t J = 0, E = SC->Relocs.size(); J < E; ++J) {
+      const coff_relocation &Rel = SC->Relocs[J];
+      Symbol *&RelocTarget = SC->RelocTargets[J];
 
-  for (const auto &DebugDir : File.debug_directories()) {
-    if (DebugDir.Type != IMAGE_DEBUG_TYPE_CODEVIEW)
+      // The estimate of the source address P should be pretty accurate,
+      // but we don't know whether the target Symbol address should be
+      // offset by ThunkSize or not (or by some of ThunksSize but not all of
+      // it), giving us some uncertainty once we have added one thunk.
+      uint64_t P = SC->getRVA() + Rel.VirtualAddress + ThunksSize;
+
+      Defined *Sym = dyn_cast_or_null<Defined>(RelocTarget);
+      if (!Sym)
+        continue;
+
+      uint64_t S = Sym->getRVA();
+
+      if (isInRange(Rel.Type, S, P, Margin))
+        continue;
+
+      // If the target isn't in range, hook it up to an existing or new
+      // thunk.
+      Defined *Thunk;
+      bool WasNew;
+      std::tie(Thunk, WasNew) = getThunk(LastThunks, Sym, P, Rel.Type, Margin);
+      if (WasNew) {
+        Chunk *ThunkChunk = Thunk->getChunk();
+        ThunkChunk->setRVA(
+            ThunkInsertionRVA); // Estimate of where it will be located.
+        ThunkChunk->setOutputSection(OS);
+        OS->Chunks.insert(OS->Chunks.begin() + ThunkInsertionSpot, ThunkChunk);
+        ThunkInsertionSpot++;
+        ThunksSize += ThunkChunk->getSize();
+        ThunkInsertionRVA += ThunkChunk->getSize();
+        AddressesChanged = true;
+      }
+      RelocTarget = Thunk;
+    }
+  }
+  return AddressesChanged;
+}
+
+// Verify that all relocations are in range, with no extra margin requirements.
+static bool verifyRanges(const std::vector<Chunk *> Chunks) {
+  for (Chunk *C : Chunks) {
+    SectionChunk *SC = dyn_cast_or_null<SectionChunk>(C);
+    if (!SC)
       continue;
 
-    const codeview::DebugInfo *ExistingDI = nullptr;
-    StringRef PDBFileName;
-    if (auto EC = File.getDebugPDBInfo(ExistingDI, PDBFileName)) {
-      (void)EC;
-      return None;
+    for (size_t J = 0, E = SC->Relocs.size(); J < E; ++J) {
+      const coff_relocation &Rel = SC->Relocs[J];
+      Symbol *RelocTarget = SC->RelocTargets[J];
+
+      Defined *Sym = dyn_cast_or_null<Defined>(RelocTarget);
+      if (!Sym)
+        continue;
+
+      uint64_t P = SC->getRVA() + Rel.VirtualAddress;
+      uint64_t S = Sym->getRVA();
+
+      if (!isInRange(Rel.Type, S, P, 0))
+        return false;
     }
-    // We only support writing PDBs in v70 format.  So if this is not a build
-    // id that we recognize / support, ignore it.
-    if (ExistingDI->Signature.CVSignature != OMF::Signature::PDB70)
-      return None;
-    return *ExistingDI;
   }
-  return None;
+  return true;
+}
+
+// Assign addresses and add thunks if necessary.
+void Writer::finalizeAddresses() {
+  assignAddresses();
+  if (Config->Machine != ARMNT && Config->Machine != ARM64)
+    return;
+
+  size_t OrigNumChunks = 0;
+  for (OutputSection *Sec : OutputSections) {
+    Sec->OrigChunks = Sec->Chunks;
+    OrigNumChunks += Sec->Chunks.size();
+  }
+
+  int Pass = 0;
+  int Margin = 1024 * 100;
+  while (true) {
+    // First check whether we need thunks at all, or if the previous pass of
+    // adding them turned out ok.
+    bool RangesOk = true;
+    size_t NumChunks = 0;
+    for (OutputSection *Sec : OutputSections) {
+      if (!verifyRanges(Sec->Chunks)) {
+        RangesOk = false;
+        break;
+      }
+      NumChunks += Sec->Chunks.size();
+    }
+    if (RangesOk) {
+      if (Pass > 0)
+        log("Added " + Twine(NumChunks - OrigNumChunks) + " thunks with " +
+            "margin " + Twine(Margin) + " in " + Twine(Pass) + " passes");
+      return;
+    }
+
+    if (Pass >= 10)
+      fatal("adding thunks hasn't converged after " + Twine(Pass) + " passes");
+
+    if (Pass > 0) {
+      // If the previous pass didn't work out, reset everything back to the
+      // original conditions before retrying with a wider margin. This should
+      // ideally never happen under real circumstances.
+      for (OutputSection *Sec : OutputSections) {
+        Sec->Chunks = Sec->OrigChunks;
+        for (Chunk *C : Sec->Chunks)
+          C->resetRelocTargets();
+      }
+      Margin *= 2;
+    }
+
+    // Try adding thunks everywhere where it is needed, with a margin
+    // to avoid things going out of range due to the added thunks.
+    bool AddressesChanged = false;
+    for (OutputSection *Sec : OutputSections)
+      AddressesChanged |= createThunks(Sec, Margin);
+    // If the verification above thought we needed thunks, we should have
+    // added some.
+    assert(AddressesChanged);
+
+    // Recalculate the layout for the whole image (and verify the ranges at
+    // the start of the next round).
+    assignAddresses();
+
+    Pass++;
+  }
 }
 
 // The main function of the writer.
 void Writer::run() {
   ScopedTimer T1(CodeLayoutTimer);
 
+  createImportTables();
   createSections();
   createMiscChunks();
-  createImportTables();
+  appendImportThunks();
   createExportTable();
   mergeSections();
-  assignAddresses();
+  readRelocTargets();
+  removeUnusedSections();
+  finalizeAddresses();
   removeEmptySections();
   setSectionPermissions();
   createSymbolAndStringTable();
@@ -346,9 +537,6 @@ void Writer::run() {
     fatal("image size (" + Twine(FileSize) + ") " +
         "exceeds maximum allowable size (" + Twine(UINT32_MAX) + ")");
 
-  // We must do this before opening the output file, as it depends on being able
-  // to read the contents of the existing output file.
-  PreviousBuildId = loadExistingBuildId(Config->OutputFile);
   openFile(Config->OutputFile);
   if (Config->is64()) {
     writeHeader<pe32plus_header>();
@@ -357,14 +545,14 @@ void Writer::run() {
   }
   writeSections();
   sortExceptionTable();
-  writeBuildId();
 
   T1.stop();
 
   if (!Config->PDBPath.empty() && Config->Debug) {
     assert(BuildId);
-    createPDB(Symtab, OutputSections, SectionTable, *BuildId->BuildId);
+    createPDB(Symtab, OutputSections, SectionTable, BuildId->BuildId);
   }
+  writeBuildId();
 
   writeMapFile(OutputSections);
 
@@ -394,6 +582,110 @@ static void sortBySectionOrder(std::vector<Chunk *> &Chunks) {
                    [=](const Chunk *A, const Chunk *B) {
                      return GetPriority(A) < GetPriority(B);
                    });
+}
+
+// Sort concrete section chunks from GNU import libraries.
+//
+// GNU binutils doesn't use short import files, but instead produces import
+// libraries that consist of object files, with section chunks for the .idata$*
+// sections. These are linked just as regular static libraries. Each import
+// library consists of one header object, one object file for every imported
+// symbol, and one trailer object. In order for the .idata tables/lists to
+// be formed correctly, the section chunks within each .idata$* section need
+// to be grouped by library, and sorted alphabetically within each library
+// (which makes sure the header comes first and the trailer last).
+static bool fixGnuImportChunks(
+    std::map<std::pair<StringRef, uint32_t>, std::vector<Chunk *>> &Map) {
+  uint32_t RDATA = IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ;
+
+  // Make sure all .idata$* section chunks are mapped as RDATA in order to
+  // be sorted into the same sections as our own synthesized .idata chunks.
+  for (auto &Pair : Map) {
+    StringRef SectionName = Pair.first.first;
+    uint32_t OutChars = Pair.first.second;
+    if (!SectionName.startswith(".idata"))
+      continue;
+    if (OutChars == RDATA)
+      continue;
+    std::vector<Chunk *> &SrcVect = Pair.second;
+    std::vector<Chunk *> &DestVect = Map[{SectionName, RDATA}];
+    DestVect.insert(DestVect.end(), SrcVect.begin(), SrcVect.end());
+    SrcVect.clear();
+  }
+
+  bool HasIdata = false;
+  // Sort all .idata$* chunks, grouping chunks from the same library,
+  // with alphabetical ordering of the object fils within a library.
+  for (auto &Pair : Map) {
+    StringRef SectionName = Pair.first.first;
+    if (!SectionName.startswith(".idata"))
+      continue;
+
+    std::vector<Chunk *> &Chunks = Pair.second;
+    if (!Chunks.empty())
+      HasIdata = true;
+    std::stable_sort(Chunks.begin(), Chunks.end(), [&](Chunk *S, Chunk *T) {
+      SectionChunk *SC1 = dyn_cast_or_null<SectionChunk>(S);
+      SectionChunk *SC2 = dyn_cast_or_null<SectionChunk>(T);
+      if (!SC1 || !SC2) {
+        // if SC1, order them ascending. If SC2 or both null,
+        // S is not less than T.
+        return SC1 != nullptr;
+      }
+      // Make a string with "libraryname/objectfile" for sorting, achieving
+      // both grouping by library and sorting of objects within a library,
+      // at once.
+      std::string Key1 =
+          (SC1->File->ParentName + "/" + SC1->File->getName()).str();
+      std::string Key2 =
+          (SC2->File->ParentName + "/" + SC2->File->getName()).str();
+      return Key1 < Key2;
+    });
+  }
+  return HasIdata;
+}
+
+// Add generated idata chunks, for imported symbols and DLLs, and a
+// terminator in .idata$2.
+static void addSyntheticIdata(
+    IdataContents &Idata,
+    std::map<std::pair<StringRef, uint32_t>, std::vector<Chunk *>> &Map) {
+  uint32_t RDATA = IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ;
+  Idata.create();
+
+  // Add the .idata content in the right section groups, to allow
+  // chunks from other linked in object files to be grouped together.
+  // See Microsoft PE/COFF spec 5.4 for details.
+  auto Add = [&](StringRef N, std::vector<Chunk *> &V) {
+    std::vector<Chunk *> &DestVect = Map[{N, RDATA}];
+    DestVect.insert(DestVect.end(), V.begin(), V.end());
+  };
+
+  // The loader assumes a specific order of data.
+  // Add each type in the correct order.
+  Add(".idata$2", Idata.Dirs);
+  Add(".idata$4", Idata.Lookups);
+  Add(".idata$5", Idata.Addresses);
+  Add(".idata$6", Idata.Hints);
+  Add(".idata$7", Idata.DLLNames);
+}
+
+// Locate the first Chunk and size of the import directory list and the
+// IAT.
+void Writer::locateImportTables(
+    std::map<std::pair<StringRef, uint32_t>, std::vector<Chunk *>> &Map) {
+  uint32_t RDATA = IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ;
+  std::vector<Chunk *> &ImportTables = Map[{".idata$2", RDATA}];
+  if (!ImportTables.empty())
+    ImportTableStart = ImportTables.front();
+  for (Chunk *C : ImportTables)
+    ImportTableSize += C->getSize();
+
+  std::vector<Chunk *> &IAT = Map[{".idata$5", RDATA}];
+  if (!IAT.empty())
+    IATStart = IAT.front();
+  for (Chunk *C : IAT)
+    IATSize += C->getSize();
 }
 
 // Create output section objects and add them to OutputSections.
@@ -429,12 +721,14 @@ void Writer::createSections() {
   DidatSec = CreateSection(".didat", DATA | R);
   RsrcSec = CreateSection(".rsrc", DATA | R);
   RelocSec = CreateSection(".reloc", DATA | DISCARDABLE | R);
+  CtorsSec = CreateSection(".ctors", DATA | R | W);
+  DtorsSec = CreateSection(".dtors", DATA | R | W);
 
   // Then bin chunks by name and output characteristics.
   std::map<std::pair<StringRef, uint32_t>, std::vector<Chunk *>> Map;
   for (Chunk *C : Symtab->getChunks()) {
     auto *SC = dyn_cast<SectionChunk>(C);
-    if (SC && !SC->isLive()) {
+    if (SC && !SC->Live) {
       if (Config->Verbose)
         SC->printDiscardedMessage();
       continue;
@@ -442,25 +736,42 @@ void Writer::createSections() {
     Map[{C->getSectionName(), C->getOutputCharacteristics()}].push_back(C);
   }
 
+  // Even in non MinGW cases, we might need to link against GNU import
+  // libraries.
+  bool HasIdata = fixGnuImportChunks(Map);
+  if (!Idata.empty())
+    HasIdata = true;
+
+  if (HasIdata)
+    addSyntheticIdata(Idata, Map);
+
   // Process an /order option.
   if (!Config->Order.empty())
     for (auto &Pair : Map)
       sortBySectionOrder(Pair.second);
 
+  if (HasIdata)
+    locateImportTables(Map);
+
   // Then create an OutputSection for each section.
   // '$' and all following characters in input section names are
   // discarded when determining output section. So, .text$foo
   // contributes to .text, for example. See PE/COFF spec 3.2.
-  for (auto Pair : Map) {
+  for (auto &Pair : Map) {
     StringRef Name = getOutputSectionName(Pair.first.first);
     uint32_t OutChars = Pair.first.second;
 
-    // In link.exe, there is a special case for the I386 target where .CRT
-    // sections are treated as if they have output characteristics DATA | R if
-    // their characteristics are DATA | R | W. This implements the same special
-    // case for all architectures.
-    if (Name == ".CRT")
+    if (Name == ".CRT") {
+      // In link.exe, there is a special case for the I386 target where .CRT
+      // sections are treated as if they have output characteristics DATA | R if
+      // their characteristics are DATA | R | W. This implements the same
+      // special case for all architectures.
       OutChars = DATA | R;
+
+      log("Processing section " + Pair.first.first + " -> " + Name);
+
+      sortCRTSectionChunks(Pair.second);
+    }
 
     OutputSection *Sec = CreateSection(Name, OutChars);
     std::vector<Chunk *> &Chunks = Pair.second;
@@ -499,20 +810,20 @@ void Writer::createMiscChunks() {
   }
 
   // Create Debug Information Chunks
+  OutputSection *DebugInfoSec = Config->MinGW ? BuildidSec : RdataSec;
+  if (Config->Debug || Config->Repro) {
+    DebugDirectory = make<DebugDirectoryChunk>(DebugRecords, Config->Repro);
+    DebugInfoSec->addChunk(DebugDirectory);
+  }
+
   if (Config->Debug) {
-    DebugDirectory = make<DebugDirectoryChunk>(DebugRecords);
-
-    OutputSection *DebugInfoSec = Config->MinGW ? BuildidSec : RdataSec;
-
     // Make a CVDebugRecordChunk even when /DEBUG:CV is not specified.  We
     // output a PDB no matter what, and this chunk provides the only means of
     // allowing a debugger to match a PDB and an executable.  So we need it even
     // if we're ultimately not going to write CodeView data to the PDB.
-    auto *CVChunk = make<CVDebugRecordChunk>();
-    BuildId = CVChunk;
-    DebugRecords.push_back(CVChunk);
+    BuildId = make<CVDebugRecordChunk>();
+    DebugRecords.push_back(BuildId);
 
-    DebugInfoSec->addChunk(DebugDirectory);
     for (Chunk *C : DebugRecords)
       DebugInfoSec->addChunk(C);
   }
@@ -524,6 +835,12 @@ void Writer::createMiscChunks() {
   // Create /guard:cf tables if requested.
   if (Config->GuardCF != GuardCFLevel::Off)
     createGuardCFTables();
+
+  if (Config->MinGW) {
+    createRuntimePseudoRelocs();
+
+    insertCtorDtorSymbols();
+  }
 }
 
 // Create .idata section for the DLL-imported symbol table.
@@ -531,9 +848,6 @@ void Writer::createMiscChunks() {
 // IdataContents class abstracted away the details for us,
 // so we just let it create chunks and add them to the section.
 void Writer::createImportTables() {
-  if (ImportFile::Instances.empty())
-    return;
-
   // Initialize DLLOrder so that import entries are ordered in
   // the same order as in the command line. (That affects DLL
   // initialization order, and this ordering is MSVC-compatible.)
@@ -544,14 +858,6 @@ void Writer::createImportTables() {
     std::string DLL = StringRef(File->DLLName).lower();
     if (Config->DLLOrder.count(DLL) == 0)
       Config->DLLOrder[DLL] = Config->DLLOrder.size();
-
-    if (File->ThunkSym) {
-      if (!isa<DefinedImportThunk>(File->ThunkSym))
-        fatal(toString(*File->ThunkSym) + " was replaced");
-      DefinedImportThunk *Thunk = cast<DefinedImportThunk>(File->ThunkSym);
-      if (File->ThunkLive)
-        TextSec->addChunk(Thunk->getChunk());
-    }
 
     if (File->ImpSym && !isa<DefinedImportData>(File->ImpSym))
       fatal(toString(*File->ImpSym) + " was replaced");
@@ -565,10 +871,25 @@ void Writer::createImportTables() {
       Idata.add(ImpSym);
     }
   }
+}
 
-  if (!Idata.empty())
-    for (Chunk *C : Idata.getChunks())
-      IdataSec->addChunk(C);
+void Writer::appendImportThunks() {
+  if (ImportFile::Instances.empty())
+    return;
+
+  for (ImportFile *File : ImportFile::Instances) {
+    if (!File->Live)
+      continue;
+
+    if (!File->ThunkSym)
+      continue;
+
+    if (!isa<DefinedImportThunk>(File->ThunkSym))
+      fatal(toString(*File->ThunkSym) + " was replaced");
+    DefinedImportThunk *Thunk = cast<DefinedImportThunk>(File->ThunkSym);
+    if (File->ThunkLive)
+      TextSec->addChunk(Thunk->getChunk());
+  }
 
   if (!DelayIdata.empty()) {
     Defined *Helper = cast<Defined>(Config->DelayLoadHelper);
@@ -587,6 +908,21 @@ void Writer::createExportTable() {
     return;
   for (Chunk *C : Edata.Chunks)
     EdataSec->addChunk(C);
+}
+
+void Writer::removeUnusedSections() {
+  // Remove sections that we can be sure won't get content, to avoid
+  // allocating space for their section headers.
+  auto IsUnused = [this](OutputSection *S) {
+    if (S == RelocSec)
+      return false; // This section is populated later.
+    // MergeChunks have zero size at this point, as their size is finalized
+    // later. Only remove sections that have no Chunks at all.
+    return S->Chunks.empty();
+  };
+  OutputSections.erase(
+      std::remove_if(OutputSections.begin(), OutputSections.end(), IsUnused),
+      OutputSections.end());
 }
 
 // The Windows loader doesn't seem to like empty sections,
@@ -699,9 +1035,9 @@ void Writer::createSymbolAndStringTable() {
 }
 
 void Writer::mergeSections() {
-  if (!PdataSec->getChunks().empty()) {
-    FirstPdata = PdataSec->getChunks().front();
-    LastPdata = PdataSec->getChunks().back();
+  if (!PdataSec->Chunks.empty()) {
+    FirstPdata = PdataSec->Chunks.front();
+    LastPdata = PdataSec->Chunks.back();
   }
 
   for (auto &P : Config->Merge) {
@@ -729,11 +1065,18 @@ void Writer::mergeSections() {
   }
 }
 
+// Visits all sections to initialize their relocation targets.
+void Writer::readRelocTargets() {
+  for (OutputSection *Sec : OutputSections)
+    for_each(parallel::par, Sec->Chunks.begin(), Sec->Chunks.end(),
+             [&](Chunk *C) { C->readRelocTargets(); });
+}
+
 // Visits all sections to assign incremental, non-overlapping RVAs and
 // file offsets.
 void Writer::assignAddresses() {
   SizeOfHeaders = DOSStubSize + sizeof(PEMagic) + sizeof(coff_file_header) +
-                  sizeof(data_directory) * NumberfOfDataDirectory +
+                  sizeof(data_directory) * NumberOfDataDirectory +
                   sizeof(coff_section) * OutputSections.size();
   SizeOfHeaders +=
       Config->is64() ? sizeof(pe32plus_header) : sizeof(pe32_header);
@@ -746,7 +1089,7 @@ void Writer::assignAddresses() {
       addBaserels();
     uint64_t RawSize = 0, VirtualSize = 0;
     Sec->Header.VirtualAddress = RVA;
-    for (Chunk *C : Sec->getChunks()) {
+    for (Chunk *C : Sec->Chunks) {
       VirtualSize = alignTo(VirtualSize, C->Alignment);
       C->setRVA(RVA + VirtualSize);
       C->OutputSectionOff = VirtualSize;
@@ -808,7 +1151,7 @@ template <typename PEHeaderTy> void Writer::writeHeader() {
   if (!Config->Relocatable)
     COFF->Characteristics |= IMAGE_FILE_RELOCS_STRIPPED;
   COFF->SizeOfOptionalHeader =
-      sizeof(PEHeaderTy) + sizeof(data_directory) * NumberfOfDataDirectory;
+      sizeof(PEHeaderTy) + sizeof(data_directory) * NumberOfDataDirectory;
 
   // Write PE header
   auto *PE = reinterpret_cast<PEHeaderTy *>(Buf);
@@ -866,7 +1209,7 @@ template <typename PEHeaderTy> void Writer::writeHeader() {
     PE->DLLCharacteristics |= IMAGE_DLL_CHARACTERISTICS_NO_SEH;
   if (Config->TerminalServerAware)
     PE->DLLCharacteristics |= IMAGE_DLL_CHARACTERISTICS_TERMINAL_SERVER_AWARE;
-  PE->NumberOfRvaAndSize = NumberfOfDataDirectory;
+  PE->NumberOfRvaAndSize = NumberOfDataDirectory;
   if (TextSec->getVirtualSize()) {
     PE->BaseOfCode = TextSec->getRVA();
     PE->SizeOfCode = TextSec->getRawSize();
@@ -875,16 +1218,18 @@ template <typename PEHeaderTy> void Writer::writeHeader() {
 
   // Write data directory
   auto *Dir = reinterpret_cast<data_directory *>(Buf);
-  Buf += sizeof(*Dir) * NumberfOfDataDirectory;
+  Buf += sizeof(*Dir) * NumberOfDataDirectory;
   if (!Config->Exports.empty()) {
     Dir[EXPORT_TABLE].RelativeVirtualAddress = Edata.getRVA();
     Dir[EXPORT_TABLE].Size = Edata.getSize();
   }
-  if (!Idata.empty()) {
-    Dir[IMPORT_TABLE].RelativeVirtualAddress = Idata.getDirRVA();
-    Dir[IMPORT_TABLE].Size = Idata.getDirSize();
-    Dir[IAT].RelativeVirtualAddress = Idata.getIATRVA();
-    Dir[IAT].Size = Idata.getIATSize();
+  if (ImportTableStart) {
+    Dir[IMPORT_TABLE].RelativeVirtualAddress = ImportTableStart->getRVA();
+    Dir[IMPORT_TABLE].Size = ImportTableSize;
+  }
+  if (IATStart) {
+    Dir[IAT].RelativeVirtualAddress = IATStart->getRVA();
+    Dir[IAT].Size = IATSize;
   }
   if (RsrcSec->getVirtualSize()) {
     Dir[RESOURCE_TABLE].RelativeVirtualAddress = RsrcSec->getRVA();
@@ -907,7 +1252,7 @@ template <typename PEHeaderTy> void Writer::writeHeader() {
                                 : sizeof(object::coff_tls_directory32);
     }
   }
-  if (Config->Debug) {
+  if (DebugDirectory) {
     Dir[DEBUG_DIRECTORY].RelativeVirtualAddress = DebugDirectory->getRVA();
     Dir[DEBUG_DIRECTORY].Size = DebugDirectory->getSize();
   }
@@ -1002,6 +1347,25 @@ static void addSymbolToRVASet(SymbolRVASet &RVASet, Defined *S) {
   RVASet.insert({C, Off});
 }
 
+// Given a symbol, add it to the GFIDs table if it is a live, defined, function
+// symbol in an executable section.
+static void maybeAddAddressTakenFunction(SymbolRVASet &AddressTakenSyms,
+                                         Symbol *S) {
+  auto *D = dyn_cast_or_null<DefinedCOFF>(S);
+
+  // Ignore undefined symbols and references to non-functions (e.g. globals and
+  // labels).
+  if (!D ||
+      D->getCOFFSymbol().getComplexType() != COFF::IMAGE_SYM_DTYPE_FUNCTION)
+    return;
+
+  // Mark the symbol as address taken if it's in an executable section.
+  Chunk *RefChunk = D->getChunk();
+  OutputSection *OS = RefChunk ? RefChunk->getOutputSection() : nullptr;
+  if (OS && OS->Header.Characteristics & IMAGE_SCN_MEM_EXECUTE)
+    addSymbolToRVASet(AddressTakenSyms, D);
+}
+
 // Visit all relocations from all section contributions of this object file and
 // mark the relocation target as address-taken.
 static void markSymbolsWithRelocations(ObjFile *File,
@@ -1010,21 +1374,17 @@ static void markSymbolsWithRelocations(ObjFile *File,
     // We only care about live section chunks. Common chunks and other chunks
     // don't generally contain relocations.
     SectionChunk *SC = dyn_cast<SectionChunk>(C);
-    if (!SC || !SC->isLive())
+    if (!SC || !SC->Live)
       continue;
 
-    // Look for relocations in this section against symbols in executable output
-    // sections.
-    for (Symbol *Ref : SC->symbols()) {
-      // FIXME: Do further testing to see if the relocation type matters,
-      // especially for 32-bit where taking the address of something usually
-      // uses an absolute relocation instead of a relative one.
-      if (auto *D = dyn_cast_or_null<Defined>(Ref)) {
-        Chunk *RefChunk = D->getChunk();
-        OutputSection *OS = RefChunk ? RefChunk->getOutputSection() : nullptr;
-        if (OS && OS->Header.Characteristics & IMAGE_SCN_MEM_EXECUTE)
-          addSymbolToRVASet(UsedSymbols, D);
-      }
+    for (const coff_relocation &Reloc : SC->Relocs) {
+      if (Config->Machine == I386 && Reloc.Type == COFF::IMAGE_REL_I386_REL32)
+        // Ignore relative relocations on x86. On x86_64 they can't be ignored
+        // since they're also used to compute absolute addresses.
+        continue;
+
+      Symbol *Ref = SC->File->getSymbol(Reloc.SymbolTableIndex);
+      maybeAddAddressTakenFunction(UsedSymbols, Ref);
     }
   }
 }
@@ -1051,7 +1411,11 @@ void Writer::createGuardCFTables() {
 
   // Mark the image entry as address-taken.
   if (Config->Entry)
-    addSymbolToRVASet(AddressTakenSyms, cast<Defined>(Config->Entry));
+    maybeAddAddressTakenFunction(AddressTakenSyms, Config->Entry);
+
+  // Mark exported symbols in executable sections as address-taken.
+  for (Export &E : Config->Exports)
+    maybeAddAddressTakenFunction(AddressTakenSyms, E.Sym);
 
   // Ensure sections referenced in the gfid table are 16-byte aligned.
   for (const ChunkAndOffset &C : AddressTakenSyms)
@@ -1087,7 +1451,7 @@ void Writer::markSymbolsForRVATable(ObjFile *File,
     // is associated with something like a vtable and the vtable is discarded.
     // In this case, the associated gfids section is discarded, and we don't
     // mark the virtual member functions as address-taken by the vtable.
-    if (!C->isLive())
+    if (!C->Live)
       continue;
 
     // Validate that the contents look like symbol table indices.
@@ -1134,6 +1498,56 @@ void Writer::maybeAddRVATable(SymbolRVASet TableSymbols, StringRef TableSym,
   cast<DefinedAbsolute>(C)->setVA(TableChunk->getSize() / 4);
 }
 
+// MinGW specific. Gather all relocations that are imported from a DLL even
+// though the code didn't expect it to, produce the table that the runtime
+// uses for fixing them up, and provide the synthetic symbols that the
+// runtime uses for finding the table.
+void Writer::createRuntimePseudoRelocs() {
+  std::vector<RuntimePseudoReloc> Rels;
+
+  for (Chunk *C : Symtab->getChunks()) {
+    auto *SC = dyn_cast<SectionChunk>(C);
+    if (!SC || !SC->Live)
+      continue;
+    SC->getRuntimePseudoRelocs(Rels);
+  }
+
+  if (!Rels.empty())
+    log("Writing " + Twine(Rels.size()) + " runtime pseudo relocations");
+  PseudoRelocTableChunk *Table = make<PseudoRelocTableChunk>(Rels);
+  RdataSec->addChunk(Table);
+  EmptyChunk *EndOfList = make<EmptyChunk>();
+  RdataSec->addChunk(EndOfList);
+
+  Symbol *HeadSym = Symtab->findUnderscore("__RUNTIME_PSEUDO_RELOC_LIST__");
+  Symbol *EndSym = Symtab->findUnderscore("__RUNTIME_PSEUDO_RELOC_LIST_END__");
+  replaceSymbol<DefinedSynthetic>(HeadSym, HeadSym->getName(), Table);
+  replaceSymbol<DefinedSynthetic>(EndSym, EndSym->getName(), EndOfList);
+}
+
+// MinGW specific.
+// The MinGW .ctors and .dtors lists have sentinels at each end;
+// a (uintptr_t)-1 at the start and a (uintptr_t)0 at the end.
+// There's a symbol pointing to the start sentinel pointer, __CTOR_LIST__
+// and __DTOR_LIST__ respectively.
+void Writer::insertCtorDtorSymbols() {
+  AbsolutePointerChunk *CtorListHead = make<AbsolutePointerChunk>(-1);
+  AbsolutePointerChunk *CtorListEnd = make<AbsolutePointerChunk>(0);
+  AbsolutePointerChunk *DtorListHead = make<AbsolutePointerChunk>(-1);
+  AbsolutePointerChunk *DtorListEnd = make<AbsolutePointerChunk>(0);
+  CtorsSec->insertChunkAtStart(CtorListHead);
+  CtorsSec->addChunk(CtorListEnd);
+  DtorsSec->insertChunkAtStart(DtorListHead);
+  DtorsSec->addChunk(DtorListEnd);
+
+  Symbol *CtorListSym = Symtab->findUnderscore("__CTOR_LIST__");
+  Symbol *DtorListSym = Symtab->findUnderscore("__DTOR_LIST__");
+  replaceSymbol<DefinedSynthetic>(CtorListSym, CtorListSym->getName(),
+                                  CtorListHead);
+  replaceSymbol<DefinedSynthetic>(DtorListSym, DtorListSym->getName(),
+                                  DtorListHead);
+}
+
 // Handles /section options to allow users to overwrite
 // section attributes.
 void Writer::setSectionPermissions() {
@@ -1160,7 +1574,7 @@ void Writer::writeSections() {
     // ADD instructions).
     if (Sec->Header.Characteristics & IMAGE_SCN_CNT_CODE)
       memset(SecBuf, 0xCC, Sec->getRawSize());
-    for_each(parallel::par, Sec->getChunks().begin(), Sec->getChunks().end(),
+    for_each(parallel::par, Sec->Chunks.begin(), Sec->Chunks.end(),
              [&](Chunk *C) { C->writeTo(SecBuf); });
   }
 }
@@ -1171,25 +1585,10 @@ void Writer::writeBuildId() {
   //    timestamp as well as a Guid and Age of the PDB.
   // 2) In all cases, the PE COFF file header also contains a timestamp.
   // For reproducibility, instead of a timestamp we want to use a hash of the
-  // binary, however when building with debug info the hash needs to take into
-  // account the debug info, since it's possible to add blank lines to a file
-  // which causes the debug info to change but not the generated code.
-  //
-  // To handle this, we first set the Guid and Age in the debug directory (but
-  // only if we're doing a debug build).  Then, we hash the binary (thus causing
-  // the hash to change if only the debug info changes, since the Age will be
-  // different).  Finally, we write that hash into the debug directory (if
-  // present) as well as the COFF file header (always).
+  // PE contents.
   if (Config->Debug) {
     assert(BuildId && "BuildId is not set!");
-    if (PreviousBuildId.hasValue()) {
-      *BuildId->BuildId = *PreviousBuildId;
-      BuildId->BuildId->PDB70.Age = BuildId->BuildId->PDB70.Age + 1;
-    } else {
-      BuildId->BuildId->Signature.CVSignature = OMF::Signature::PDB70;
-      BuildId->BuildId->PDB70.Age = 1;
-      llvm::getRandomBytes(BuildId->BuildId->PDB70.Signature, 16);
-    }
+    // BuildId->BuildId was filled in when the PDB was written.
   }
 
   // At this point the only fields in the COFF file which remain unset are the
@@ -1201,8 +1600,25 @@ void Writer::writeBuildId() {
       Buffer->getBufferSize());
 
   uint32_t Timestamp = Config->Timestamp;
+  uint64_t Hash = 0;
+  bool GenerateSyntheticBuildId =
+      Config->MinGW && Config->Debug && Config->PDBPath.empty();
+
+  if (Config->Repro || GenerateSyntheticBuildId)
+    Hash = xxHash64(OutputFileData);
+
   if (Config->Repro)
-    Timestamp = static_cast<uint32_t>(xxHash64(OutputFileData));
+    Timestamp = static_cast<uint32_t>(Hash);
+
+  if (GenerateSyntheticBuildId) {
+    // For MinGW builds without a PDB file, we still generate a build id
+    // to allow associating a crash dump to the executable.
+    BuildId->BuildId->PDB70.CVSignature = OMF::Signature::PDB70;
+    BuildId->BuildId->PDB70.Age = 1;
+    memcpy(BuildId->BuildId->PDB70.Signature, &Hash, 8);
+    // xxhash only gives us 8 bytes, so put some fixed data in the other half.
+    memcpy(&BuildId->BuildId->PDB70.Signature[8], "LLD PDB.", 8);
+  }
 
   if (DebugDirectory)
     DebugDirectory->setTimeDateStamp(Timestamp);
@@ -1240,6 +1656,42 @@ void Writer::sortExceptionTable() {
   errs() << "warning: don't know how to handle .pdata.\n";
 }
 
+// The CRT section contains, among other things, the array of function
+// pointers that initialize every global variable that is not trivially
+// constructed. The CRT calls them one after the other prior to invoking
+// main().
+//
+// As per C++ spec, 3.6.2/2.3,
+// "Variables with ordered initialization defined within a single
+// translation unit shall be initialized in the order of their definitions
+// in the translation unit"
+//
+// It is therefore critical to sort the chunks containing the function
+// pointers in the order that they are listed in the object file (top to
+// bottom), otherwise global objects might not be initialized in the
+// correct order.
+void Writer::sortCRTSectionChunks(std::vector<Chunk *> &Chunks) {
+  auto SectionChunkOrder = [](const Chunk *A, const Chunk *B) {
+    auto SA = dyn_cast<SectionChunk>(A);
+    auto SB = dyn_cast<SectionChunk>(B);
+    assert(SA && SB && "Non-section chunks in CRT section!");
+
+    StringRef SAObj = SA->File->MB.getBufferIdentifier();
+    StringRef SBObj = SB->File->MB.getBufferIdentifier();
+
+    return SAObj == SBObj && SA->getSectionNumber() < SB->getSectionNumber();
+  };
+  std::stable_sort(Chunks.begin(), Chunks.end(), SectionChunkOrder);
+
+  if (Config->Verbose) {
+    for (auto &C : Chunks) {
+      auto SC = dyn_cast<SectionChunk>(C);
+      log("  " + SC->File->MB.getBufferIdentifier().str() +
+          ", SectionID: " + Twine(SC->getSectionNumber()));
+    }
+  }
+}
+
 OutputSection *Writer::findSection(StringRef Name) {
   for (OutputSection *Sec : OutputSections)
     if (Sec->Name == Name)
@@ -1259,12 +1711,13 @@ uint32_t Writer::getSizeOfInitializedData() {
 void Writer::addBaserels() {
   if (!Config->Relocatable)
     return;
+  RelocSec->Chunks.clear();
   std::vector<Baserel> V;
   for (OutputSection *Sec : OutputSections) {
     if (Sec->Header.Characteristics & IMAGE_SCN_MEM_DISCARDABLE)
       continue;
     // Collect all locations for base relocations.
-    for (Chunk *C : Sec->getChunks())
+    for (Chunk *C : Sec->Chunks)
       C->getBaserels(&V);
     // Add the addresses to .reloc section.
     if (!V.empty())

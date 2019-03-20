@@ -4,7 +4,6 @@
 // RUN: ld.lld -static %t -o %tout
 // RUN: ld.lld %t -o %tout
 // RUN: ld.lld -shared %tso -o %tshared
-// RUN: ld.lld -static %t %tshared -o %tout
 
 .global _start
 _start:

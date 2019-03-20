@@ -56,10 +56,8 @@ endif()
 
 if(APPLE AND ZIG_STATIC)
     list(REMOVE_ITEM LLVM_LIBRARIES "-lz")
-    list(REMOVE_ITEM LLVM_LIBRARIES "-lcurses")
     find_library(ZLIB NAMES z zlib libz)
-    find_library(LIBNCURSES NAMES libncurses.a)
-    list(APPEND LLVM_LIBRARIES "${LIBNCURSES}" "${ZLIB}")
+    list(APPEND LLVM_LIBRARIES "${ZLIB}")
 endif()
 
 set(ZIG_CPP_LIB_DIR "${CMAKE_BINARY_DIR}/zig_cpp")
@@ -117,6 +115,7 @@ else()
         "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/WriterMachO.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/YAML/ReaderWriterYAML.cpp"
     )
+
     set(EMBEDDED_LLD_ELF_SOURCES
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/AArch64ErrataFix.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/AArch64.cpp"
@@ -124,19 +123,21 @@ else()
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/ARM.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/AVR.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/Hexagon.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/MSP430.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/Mips.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/MipsArchTree.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/PPC.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/PPC64.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/RISCV.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/SPARCV9.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/X86.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/X86_64.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/CallGraphSort.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/DWARF.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Driver.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/DriverUtils.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/EhFrame.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Filesystem.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/GdbIndex.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/ICF.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/InputFiles.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/InputSection.cpp"
@@ -2800,13 +2801,6 @@ set(ZIG_LIBC_FILES
     "glibc/sysdeps/mips/mips64/n64/crtn.S"
     "glibc/sysdeps/mips/nptl/bits/pthreadtypes-arch.h"
     "glibc/sysdeps/mips/start.S"
-    "glibc/sysdeps/nios2/bits/endian.h"
-    "glibc/sysdeps/nios2/crti.S"
-    "glibc/sysdeps/nios2/crtn.S"
-    "glibc/sysdeps/nios2/dl-sysdep.h"
-    "glibc/sysdeps/nios2/nptl/bits/pthreadtypes-arch.h"
-    "glibc/sysdeps/nios2/start.S"
-    "glibc/sysdeps/nios2/sysdep.h"
     "glibc/sysdeps/nptl/bits/pthreadtypes.h"
     "glibc/sysdeps/nptl/bits/thread-shared-types.h"
     "glibc/sysdeps/nptl/libc-lock.h"
@@ -2909,7 +2903,6 @@ set(ZIG_LIBC_FILES
     "glibc/sysdeps/unix/sysv/linux/mips/mips32/sysdep.h"
     "glibc/sysdeps/unix/sysv/linux/mips/mips64/n32/sysdep.h"
     "glibc/sysdeps/unix/sysv/linux/mips/mips64/n64/sysdep.h"
-    "glibc/sysdeps/unix/sysv/linux/nios2/sysdep.h"
     "glibc/sysdeps/unix/sysv/linux/powerpc/bits/stat.h"
     "glibc/sysdeps/unix/sysv/linux/powerpc/kernel-features.h"
     "glibc/sysdeps/unix/sysv/linux/powerpc/powerpc32/sysdep.h"

@@ -10,7 +10,7 @@
 // CHECK-NEXT:   SHF_ALLOC
 // CHECK-NEXT:   SHF_WRITE
 // CHECK-NEXT: ]
-// CHECK-NEXT: Address: 0x12000
+// CHECK-NEXT: Address: 0x402000
 // CHECK-NEXT: Offset:
 // CHECK-NEXT: Size: 0
 // CHECK-NEXT: Link:
@@ -19,7 +19,7 @@
 
 // CHECK:      Symbol {
 // CHECK:       Name: bar
-// CHECK-NEXT:  Value: 0x12000
+// CHECK-NEXT:  Value: 0x402000
 // CHECK-NEXT:  Size: 10
 // CHECK-NEXT:  Binding: Global
 // CHECK-NEXT:  Type: Object
@@ -28,7 +28,7 @@
 // CHECK-NEXT: }
 // CHECK-NEXT: Symbol {
 // CHECK-NEXT:  Name: obj
-// CHECK-NEXT:  Value: 0x1200A
+// CHECK-NEXT:  Value: 0x40200A
 // CHECK-NEXT:  Size: 10
 // CHECK-NEXT:  Binding: Global
 // CHECK-NEXT:  Type: Object
@@ -36,14 +36,14 @@
 // CHECK-NEXT:  Section: .bss
 // CHECK-NEXT: }
 
-// 0x12000 - 0 = addr(.got) = 0x12000
-// 0x1200A - 10 = addr(.got) = 0x12000
-// 0x1200A + 5 - 15 = addr(.got) = 0x12000
+// 0x402000 - 0 = addr(.got) = 0x402000
+// 0x40200A - 10 = addr(.got) = 0x402000
+// 0x40200A + 5 - 15 = addr(.got) = 0x402000
 // DISASM:      Disassembly of section .text:
 // DISASM-NEXT: _start:
-// DISASM-NEXT: 11000: c7 81 00 00 00 00 01 00 00 00 movl $1, (%ecx)
-// DISASM-NEXT: 1100a: c7 81 0a 00 00 00 02 00 00 00 movl $2, 10(%ecx)
-// DISASM-NEXT: 11014: c7 81 0f 00 00 00 03 00 00 00 movl $3, 15(%ecx)
+// DISASM-NEXT: 401000: c7 81 00 00 00 00 01 00 00 00 movl $1, (%ecx)
+// DISASM-NEXT: 40100a: c7 81 0a 00 00 00 02 00 00 00 movl $2, 10(%ecx)
+// DISASM-NEXT: 401014: c7 81 0f 00 00 00 03 00 00 00 movl $3, 15(%ecx)
 
 .global _start
 _start:

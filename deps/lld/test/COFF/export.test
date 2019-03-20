@@ -97,3 +97,12 @@ FORWARDER:  Ordinal      RVA  Name
 FORWARDER:        0        0
 FORWARDER:        1   0x1010  exportfn
 FORWARDER:        2           foo (forwarded to kernel32.foobar)
+
+# RUN: lld-link /out:%t.dll /dll %t.obj /merge:.rdata=.text /export:exportfn1 /export:exportfn2
+# RUN: llvm-objdump -p %t.dll | FileCheck -check-prefix=MERGE -match-full-lines %s
+
+MERGE:      DLL name: export.test.tmp.dll
+MERGE:      Ordinal      RVA  Name
+MERGE-NEXT:       0        0
+MERGE-NEXT:       1   0x1008  exportfn1
+MERGE-NEXT:       2   0x1010  exportfn2

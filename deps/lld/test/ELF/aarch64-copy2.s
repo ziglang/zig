@@ -19,7 +19,7 @@ _start:
 // CHECK-NEXT: Section: Undefined
 
 // CHECK:      Name: foo
-// CHECK-NEXT: Value: 0x20030
+// CHECK-NEXT: Value: 0x210030
 // CHECK-NEXT: Size: 0
 // CHECK-NEXT: Binding: Global
 // CHECK-NEXT: Type: Function

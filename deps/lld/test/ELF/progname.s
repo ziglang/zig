@@ -17,7 +17,7 @@
 // RUN: ld.lld -dynamic-list %t.dynlist -o %t %t.o %t.so
 // RUN: llvm-readobj -dyn-symbols %t | FileCheck %s
 
-// CHECK:      Name:     __progname@
+// CHECK:      Name:     __progname
 // CHECK-NEXT: Value:    0x201000
 // CHECK-NEXT: Size:     0
 // CHECK-NEXT: Binding:  Global (0x1)

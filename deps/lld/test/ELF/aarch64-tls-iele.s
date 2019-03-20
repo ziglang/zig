@@ -9,13 +9,13 @@
 # RELOC:      Relocations [
 # RELOC-NEXT: ]
 
-# TCB size = 0x16 and foo is first element from TLS register.
+# TCB size = 64 and foo is first element from TLS register.
 # CHECK: Disassembly of section .text:
 # CHECK: _start:
-# CHECK-NEXT: 20000:  00 00 a0 d2   movz   x0, #0, lsl #16
-# CHECK-NEXT: 20004:  80 02 80 f2   movk   x0, #20
-# CHECK-NEXT: 20008:  00 00 a0 d2   movz   x0, #0, lsl #16
-# CHECK-NEXT: 2000c:  00 02 80 f2   movk   x0, #16
+# CHECK-NEXT: 210000:  00 00 a0 d2   movz   x0, #0, lsl #16
+# CHECK-NEXT: 210004:  80 08 80 f2   movk   x0, #68
+# CHECK-NEXT: 210008:  00 00 a0 d2   movz   x0, #0, lsl #16
+# CHECK-NEXT: 21000c:  00 08 80 f2   movk   x0, #64
 
 .section .tdata
 .align 2

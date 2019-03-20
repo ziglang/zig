@@ -14,7 +14,7 @@
 
 # SECTIONS:         Name: .data (2E 64 61 74 61 00 00 00)
 # SECTIONS-NEXT:    VirtualSize: 0x8
-# SECTIONS-NEXT:    VirtualAddress: 0x2000
+# SECTIONS-NEXT:    VirtualAddress: 0x3000
 # SECTIONS-NEXT:    RawDataSize: 512
 
 

@@ -6,9 +6,10 @@ class F<string name>: Flag<["--", "-"], name>;
 class J<string name>: Joined<["--", "-"], name>;
 class S<string name>: Separate<["--", "-"], name>;
 
-multiclass Eq<string name> {
-  def "": Separate<["--", "-"], name>;
-  def _eq: Joined<["--", "-"], name # "=">, Alias<!cast<Separate>(NAME)>;
+multiclass Eq<string name, string help> {
+  def NAME: Separate<["--", "-"], name>;
+  def NAME # _eq: Joined<["--", "-"], name # "=">, Alias<!cast<Separate>(NAME)>,
+    HelpText<help>;
 }
 
 multiclass B<string name, string help1, string help2> {
@@ -16,16 +17,23 @@ multiclass B<string name, string help1, string help2> {
   def no_ # NAME: Flag<["--", "-"], "no-" # name>, HelpText<help2>;
 }
 
-// The follow flags are shared with the ELF linker
+// The following flags are shared with the ELF linker
 def color_diagnostics: F<"color-diagnostics">,
   HelpText<"Use colors in diagnostics">;
 
 def color_diagnostics_eq: J<"color-diagnostics=">,
   HelpText<"Use colors in diagnostics; one of 'always', 'never', 'auto'">;
 
+def compress_relocations: F<"compress-relocations">,
+  HelpText<"Compress the relocation targets in the code section.">;
+
 defm demangle: B<"demangle",
     "Demangle symbol names",
     "Do not demangle symbol names">;
+
+defm export_dynamic: B<"export-dynamic",
+    "Put symbols in the dynamic symbol table",
+    "Do not put symbols in the dynamic symbol table (default)">;
 
 def entry: S<"entry">, MetaVarName<"<entry>">,
   HelpText<"Name of entry point symbol">;
@@ -67,11 +75,17 @@ def o: JoinedOrSeparate<["-"], "o">, MetaVarName<"<path>">,
 
 def O: JoinedOrSeparate<["-"], "O">, HelpText<"Optimize output file size">;
 
+defm pie: B<"pie",
+    "Create a position independent executable",
+    "Do not create a position independent executable (default)">;
+
 defm print_gc_sections: B<"print-gc-sections",
     "List removed unused sections",
     "Do not list removed unused sections">;
 
 def relocatable: F<"relocatable">, HelpText<"Create relocatable object file">;
+
+def shared: F<"shared">, HelpText<"Build a shared object">;
 
 def strip_all: F<"strip-all">, HelpText<"Strip all symbols">;
 
@@ -79,8 +93,7 @@ def strip_debug: F<"strip-debug">, HelpText<"Strip debugging information">;
 
 def threads: F<"threads">, HelpText<"Run the linker multi-threaded">;
 
-defm undefined: Eq<"undefined">,
-  HelpText<"Force undefined symbol during linking">;
+defm undefined: Eq<"undefined", "Force undefined symbol during linking">;
 
 def v: Flag<["-"], "v">, HelpText<"Display the version number">;
 
@@ -102,8 +115,7 @@ def allow_undefined_file: J<"allow-undefined-file=">,
 def allow_undefined_file_s: Separate<["-"], "allow-undefined-file">,
   Alias<allow_undefined_file>;
 
-defm export: Eq<"export">,
-  HelpText<"Force a symbol to be exported">;
+defm export: Eq<"export", "Force a symbol to be exported">;
 
 def export_all: F<"export-all">,
   HelpText<"Export all symbols (normally combined with --no-gc-sections)">;
@@ -116,6 +128,9 @@ def global_base: J<"global-base=">,
 
 def import_memory: F<"import-memory">,
   HelpText<"Import memory from the environment">;
+
+def shared_memory: F<"shared-memory">,
+  HelpText<"Use shared linear memory">;
 
 def import_table: F<"import-table">,
   HelpText<"Import function table from the environment">;
@@ -137,12 +152,15 @@ defm whole_archive: B<"whole-archive",
     "Do not force load of all members in a static library (default)">;
 
 // Aliases
-def alias_entry_e: JoinedOrSeparate<["-"], "e">, Alias<entry>;
-def alias_entry_entry: J<"entry=">, Alias<entry>;
-def alias_initial_memory_i: Flag<["-"], "i">, Alias<initial_memory>;
-def alias_max_memory_m: Flag<["-"], "m">, Alias<max_memory>;
-def alias_relocatable_r: Flag<["-"], "r">, Alias<relocatable>;
-def alias_undefined_u: JoinedOrSeparate<["-"], "u">, Alias<undefined>;
+def: JoinedOrSeparate<["-"], "e">, Alias<entry>;
+def: J<"entry=">, Alias<entry>;
+def: Flag<["-"], "E">, Alias<export_dynamic>, HelpText<"Alias for --export-dynamic">;
+def: Flag<["-"], "i">, Alias<initial_memory>;
+def: Flag<["-"], "m">, Alias<max_memory>;
+def: Flag<["-"], "r">, Alias<relocatable>;
+def: Flag<["-"], "s">, Alias<strip_all>, HelpText<"Alias for --strip-all">;
+def: Flag<["-"], "S">, Alias<strip_debug>, HelpText<"Alias for --strip-debug">;
+def: JoinedOrSeparate<["-"], "u">, Alias<undefined>;
 
 // LTO-related options.
 def lto_O: J<"lto-O">, MetaVarName<"<opt-level>">,
@@ -153,6 +171,5 @@ def disable_verify: F<"disable-verify">;
 def save_temps: F<"save-temps">;
 def thinlto_cache_dir: J<"thinlto-cache-dir=">,
   HelpText<"Path to ThinLTO cached object file directory">;
-defm thinlto_cache_policy: Eq<"thinlto-cache-policy">,
-  HelpText<"Pruning policy for the ThinLTO cache">;
+defm thinlto_cache_policy: Eq<"thinlto-cache-policy", "Pruning policy for the ThinLTO cache">;
 def thinlto_jobs: J<"thinlto-jobs=">, HelpText<"Number of ThinLTO jobs">;

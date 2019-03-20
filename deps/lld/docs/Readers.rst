@@ -74,7 +74,7 @@ files in parallel. Therefore, there should be no parsing state in you Reader
 object.  Any parsing state should be in ivars of your File subclass or in
 some temporary object.
 
-The key method to implement in a reader is::
+The key function to implement in a reader is::
 
   virtual error_code loadFile(LinkerInput &input,
                               std::vector<std::unique_ptr<File>> &result);

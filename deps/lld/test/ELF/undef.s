@@ -3,6 +3,7 @@
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %p/Inputs/undef.s -o %t2.o
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %p/Inputs/undef-debug.s -o %t3.o
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %p/Inputs/undef-bad-debug.s -o %t4.o
+# RUN: rm -f %t2.a
 # RUN: llvm-ar rc %t2.a %t2.o
 # RUN: not ld.lld %t.o %t2.a %t3.o %t4.o -o %t.exe 2>&1 | FileCheck %s
 # RUN: not ld.lld -pie %t.o %t2.a %t3.o %t4.o -o %t.exe 2>&1 | FileCheck %s
@@ -18,6 +19,9 @@
 # CHECK: error: undefined symbol: foo(int)
 # CHECK: >>> referenced by undef.s
 # CHECK: >>>               {{.*}}:(.text+0x10)
+
+# CHECK: error: undefined symbol: vtable for Foo
+# CHECK: the vtable symbol may be undefined because the class is missing its key function (see https://lld.llvm.org/missingkeyfunction)
 
 # CHECK: error: undefined symbol: zed2
 # CHECK: >>> referenced by {{.*}}.o:(.text+0x0) in archive {{.*}}2.a
@@ -59,3 +63,4 @@ _start:
   call bar
   call zed1
   call _Z3fooi
+  call _ZTV3Foo

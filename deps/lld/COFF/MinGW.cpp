@@ -19,7 +19,23 @@ using namespace lld::coff;
 using namespace llvm;
 using namespace llvm::COFF;
 
-AutoExporter::AutoExporter() {
+void AutoExporter::initSymbolExcludes() {
+  ExcludeSymbolPrefixes = {
+      // Import symbols
+      "__imp_",
+      "__IMPORT_DESCRIPTOR_",
+      // Extra import symbols from GNU import libraries
+      "__nm_",
+      // C++ symbols
+      "__rtti_",
+      "__builtin_",
+      // Artifical symbols such as .refptr
+      ".",
+  };
+  ExcludeSymbolSuffixes = {
+      "_iname",
+      "_NULL_THUNK_DATA",
+  };
   if (Config->Machine == I386) {
     ExcludeSymbols = {
         "__NULL_IMPORT_DESCRIPTOR",
@@ -36,9 +52,10 @@ AutoExporter::AutoExporter() {
         "_DllEntryPoint@12",
         "_DllMainCRTStartup@12",
     };
+    ExcludeSymbolPrefixes.insert("__head_");
   } else {
     ExcludeSymbols = {
-        "_NULL_IMPORT_DESCRIPTOR",
+        "__NULL_IMPORT_DESCRIPTOR",
         "_pei386_runtime_relocator",
         "do_pseudo_reloc",
         "impure_ptr",
@@ -52,8 +69,11 @@ AutoExporter::AutoExporter() {
         "DllEntryPoint",
         "DllMainCRTStartup",
     };
+    ExcludeSymbolPrefixes.insert("_head_");
   }
+}
 
+AutoExporter::AutoExporter() {
   ExcludeLibs = {
       "libgcc",
       "libgcc_s",
@@ -64,6 +84,7 @@ AutoExporter::AutoExporter() {
       "libsupc++",
       "libobjc",
       "libgcj",
+      "libclang_rt.builtins",
       "libclang_rt.builtins-aarch64",
       "libclang_rt.builtins-arm",
       "libclang_rt.builtins-i386",
@@ -90,6 +111,13 @@ AutoExporter::AutoExporter() {
   };
 }
 
+void AutoExporter::addWholeArchive(StringRef Path) {
+  StringRef LibName = sys::path::filename(Path);
+  // Drop the file extension, to match the processing below.
+  LibName = LibName.substr(0, LibName.rfind('.'));
+  ExcludeLibs.erase(LibName);
+}
+
 bool AutoExporter::shouldExport(Defined *Sym) const {
   if (!Sym || !Sym->isLive() || !Sym->getChunk())
     return false;
@@ -101,10 +129,12 @@ bool AutoExporter::shouldExport(Defined *Sym) const {
   if (ExcludeSymbols.count(Sym->getName()))
     return false;
 
-  // Don't export anything that looks like an import symbol (which also can be
-  // a manually defined data symbol with such a name).
-  if (Sym->getName().startswith("__imp_"))
-    return false;
+  for (StringRef Prefix : ExcludeSymbolPrefixes.keys())
+    if (Sym->getName().startswith(Prefix))
+      return false;
+  for (StringRef Suffix : ExcludeSymbolSuffixes.keys())
+    if (Sym->getName().endswith(Suffix))
+      return false;
 
   // If a corresponding __imp_ symbol exists and is defined, don't export it.
   if (Symtab->find(("__imp_" + Sym->getName()).str()))

@@ -3,14 +3,14 @@
 ; RUN: llvm-as %s -o %t.o
 ; RUN: llvm-as %S/Inputs/defsym-bar.ll -o %t1.o
 ; RUN: ld.lld %t.o %t1.o -shared -o %t.so -defsym=bar2=bar3 -save-temps
-; RUN: llvm-readelf -t %t.so.lto.o | FileCheck --check-prefix=OBJ %s
+; RUN: llvm-readelf --symbols %t.so.lto.o | FileCheck --check-prefix=OBJ %s
 ; RUN: llvm-objdump -d %t.so | FileCheck %s
 
 ; ThinLTO
 ; RUN: opt -module-summary %s -o %t.o
 ; RUN: opt -module-summary %S/Inputs/defsym-bar.ll -o %t1.o
 ; RUN: ld.lld %t.o %t1.o -shared -o %t2.so -defsym=bar2=bar3 -save-temps
-; RUN: llvm-readelf -t %t2.so1.lto.o | FileCheck --check-prefix=OBJ %s
+; RUN: llvm-readelf --symbols %t2.so1.lto.o | FileCheck --check-prefix=OBJ %s
 ; RUN: llvm-objdump -d %t2.so | FileCheck %s --check-prefix=THIN
 
 ; OBJ:  UND bar2

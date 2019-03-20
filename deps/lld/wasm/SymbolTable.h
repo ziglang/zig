@@ -13,12 +13,9 @@
 #include "InputFiles.h"
 #include "LTO.h"
 #include "Symbols.h"
+#include "lld/Common/LLVM.h"
 #include "llvm/ADT/CachedHashString.h"
 #include "llvm/ADT/DenseSet.h"
-#include "llvm/Support/raw_ostream.h"
-
-using llvm::wasm::WasmGlobalType;
-using llvm::wasm::WasmSignature;
 
 namespace lld {
 namespace wasm {
@@ -59,14 +56,18 @@ public:
                          uint32_t Size);
   Symbol *addDefinedGlobal(StringRef Name, uint32_t Flags, InputFile *File,
                            InputGlobal *G);
+  Symbol *addDefinedEvent(StringRef Name, uint32_t Flags, InputFile *File,
+                          InputEvent *E);
 
-  Symbol *addUndefinedFunction(StringRef Name, uint32_t Flags, InputFile *File,
-                               const WasmSignature *Signature);
+  Symbol *addUndefinedFunction(StringRef Name, StringRef ImportName,
+                               StringRef ImportModule, uint32_t Flags,
+                               InputFile *File, const WasmSignature *Signature);
   Symbol *addUndefinedData(StringRef Name, uint32_t Flags, InputFile *File);
-  Symbol *addUndefinedGlobal(StringRef Name, uint32_t Flags, InputFile *File,
-                             const WasmGlobalType *Type);
+  Symbol *addUndefinedGlobal(StringRef Name, StringRef ImportName,
+                             StringRef ImportModule,  uint32_t Flags,
+                             InputFile *File, const WasmGlobalType *Type);
 
-  void addLazy(ArchiveFile *F, const Archive::Symbol *Sym);
+  void addLazy(ArchiveFile *F, const llvm::object::Archive::Symbol *Sym);
 
   bool addComdat(StringRef Name);
 
@@ -77,7 +78,7 @@ public:
                                         InputFunction *Function);
 
 private:
-  std::pair<Symbol *, bool> insert(StringRef Name);
+  std::pair<Symbol *, bool> insert(StringRef Name, InputFile *File);
 
   llvm::DenseMap<llvm::CachedHashStringRef, Symbol *> SymMap;
   std::vector<Symbol *> SymVector;

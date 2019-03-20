@@ -40,6 +40,7 @@ public:
   void addPltHeaderSymbols(InputSection &ISD) const override;
   bool needsThunk(RelExpr Expr, RelType Type, const InputFile *File,
                   uint64_t BranchAddr, const Symbol &S) const override;
+  uint32_t getThunkSectionSpacing() const override;
   bool inBranchRange(RelType Type, uint64_t Src, uint64_t Dst) const override;
   void relocateOne(uint8_t *Loc, RelType Type, uint64_t Val) const override;
 };
@@ -50,6 +51,7 @@ ARM::ARM() {
   RelativeRel = R_ARM_RELATIVE;
   IRelativeRel = R_ARM_IRELATIVE;
   GotRel = R_ARM_GLOB_DAT;
+  NoneRel = R_ARM_NONE;
   PltRel = R_ARM_JUMP_SLOT;
   TlsGotRel = R_ARM_TLS_TPOFF32;
   TlsModuleIndexRel = R_ARM_TLS_DTPMOD32;
@@ -59,41 +61,8 @@ ARM::ARM() {
   GotPltEntrySize = 4;
   PltEntrySize = 16;
   PltHeaderSize = 32;
-  TrapInstr = 0xd4d4d4d4;
-  // ARM uses Variant 1 TLS
-  TcbSize = 8;
+  TrapInstr = {0xd4, 0xd4, 0xd4, 0xd4};
   NeedsThunks = true;
-
-  // The placing of pre-created ThunkSections is controlled by the
-  // ThunkSectionSpacing parameter. The aim is to place the
-  // ThunkSection such that all branches from the InputSections prior to the
-  // ThunkSection can reach a Thunk placed at the end of the ThunkSection.
-  // Graphically:
-  // | up to ThunkSectionSpacing .text input sections |
-  // | ThunkSection                                   |
-  // | up to ThunkSectionSpacing .text input sections |
-  // | ThunkSection                                   |
-
-  // Pre-created ThunkSections are spaced roughly 16MiB apart on ARM. This is to
-  // match the most common expected case of a Thumb 2 encoded BL, BLX or B.W
-  // ARM B, BL, BLX range +/- 32MiB
-  // Thumb B.W, BL, BLX range +/- 16MiB
-  // Thumb B<cc>.W range +/- 1MiB
-  // If a branch cannot reach a pre-created ThunkSection a new one will be
-  // created so we can handle the rare cases of a Thumb 2 conditional branch.
-  // We intentionally use a lower size for ThunkSectionSpacing than the maximum
-  // branch range so the end of the ThunkSection is more likely to be within
-  // range of the branch instruction that is furthest away. The value we shorten
-  // ThunkSectionSpacing by is set conservatively to allow us to create 16,384
-  // 12 byte Thunks at any offset in a ThunkSection without risk of a branch to
-  // one of the Thunks going out of range.
-
-  // FIXME: lld assumes that the Thumb BL and BLX encoding permits the J1 and
-  // J2 bits to be used to extend the branch range. On earlier Architectures
-  // such as ARMv4, ARMv5 and ARMv6 (except ARMv6T2) the range is +/- 4MiB. If
-  // support for the earlier encodings is added then when they are used the
-  // ThunkSectionSpacing will need lowering.
-  ThunkSectionSpacing = 0x1000000 - 0x30000;
 }
 
 uint32_t ARM::calcEFlags() const {
@@ -165,6 +134,12 @@ RelExpr ARM::getRelExpr(RelType Type, const Symbol &S,
     return R_NONE;
   case R_ARM_TLS_LE32:
     return R_TLS;
+  case R_ARM_V4BX:
+    // V4BX is just a marker to indicate there's a "bx rN" instruction at the
+    // given address. It can be used to implement a special linker mode which
+    // rewrites ARMv4T inputs to ARMv4. Since we support only ARMv4 input and
+    // not ARMv4 output, we can just ignore it.
+    return R_HINT;
   default:
     return R_ABS;
   }
@@ -177,7 +152,7 @@ RelType ARM::getDynRel(RelType Type) const {
 }
 
 void ARM::writeGotPlt(uint8_t *Buf, const Symbol &) const {
-  write32le(Buf, InX::Plt->getVA());
+  write32le(Buf, In.Plt->getVA());
 }
 
 void ARM::writeIgotPlt(uint8_t *Buf, const Symbol &S) const {
@@ -198,8 +173,8 @@ static void writePltHeaderLong(uint8_t *Buf) {
       0xd4, 0xd4, 0xd4, 0xd4, //     Pad to 32-byte boundary
       0xd4, 0xd4, 0xd4, 0xd4};
   memcpy(Buf, PltData, sizeof(PltData));
-  uint64_t GotPlt = InX::GotPlt->getVA();
-  uint64_t L1 = InX::Plt->getVA() + 8;
+  uint64_t GotPlt = In.GotPlt->getVA();
+  uint64_t L1 = In.Plt->getVA() + 8;
   write32le(Buf + 16, GotPlt - L1 - 8);
 }
 
@@ -217,7 +192,7 @@ void ARM::writePltHeader(uint8_t *Buf) const {
       0xe5bef000, //     ldr pc, [lr, #0x00000NNN] &(.got.plt -L1 - 4)
   };
 
-  uint64_t Offset = InX::GotPlt->getVA() - InX::Plt->getVA() - 4;
+  uint64_t Offset = In.GotPlt->getVA() - In.Plt->getVA() - 4;
   if (!llvm::isUInt<27>(Offset)) {
     // We cannot encode the Offset, use the long form.
     writePltHeaderLong(Buf);
@@ -227,10 +202,10 @@ void ARM::writePltHeader(uint8_t *Buf) const {
   write32le(Buf + 4, PltData[1] | ((Offset >> 20) & 0xff));
   write32le(Buf + 8, PltData[2] | ((Offset >> 12) & 0xff));
   write32le(Buf + 12, PltData[3] | (Offset & 0xfff));
-  write32le(Buf + 16, TrapInstr); // Pad to 32-byte boundary
-  write32le(Buf + 20, TrapInstr);
-  write32le(Buf + 24, TrapInstr);
-  write32le(Buf + 28, TrapInstr);
+  memcpy(Buf + 16, TrapInstr.data(), 4); // Pad to 32-byte boundary
+  memcpy(Buf + 20, TrapInstr.data(), 4);
+  memcpy(Buf + 24, TrapInstr.data(), 4);
+  memcpy(Buf + 28, TrapInstr.data(), 4);
 }
 
 void ARM::addPltHeaderSymbols(InputSection &IS) const {
@@ -279,7 +254,7 @@ void ARM::writePlt(uint8_t *Buf, uint64_t GotPltEntryAddr,
   write32le(Buf + 0, PltData[0] | ((Offset >> 20) & 0xff));
   write32le(Buf + 4, PltData[1] | ((Offset >> 12) & 0xff));
   write32le(Buf + 8, PltData[2] | (Offset & 0xfff));
-  write32le(Buf + 12, TrapInstr); // Pad to 16-byte boundary
+  memcpy(Buf + 12, TrapInstr.data(), 4); // Pad to 16-byte boundary
 }
 
 void ARM::addPltSymbols(InputSection &IS, uint64_t Off) const {
@@ -324,6 +299,40 @@ bool ARM::needsThunk(RelExpr Expr, RelType Type, const InputFile *File,
   return false;
 }
 
+uint32_t ARM::getThunkSectionSpacing() const {
+  // The placing of pre-created ThunkSections is controlled by the value
+  // ThunkSectionSpacing returned by getThunkSectionSpacing(). The aim is to
+  // place the ThunkSection such that all branches from the InputSections
+  // prior to the ThunkSection can reach a Thunk placed at the end of the
+  // ThunkSection. Graphically:
+  // | up to ThunkSectionSpacing .text input sections |
+  // | ThunkSection                                   |
+  // | up to ThunkSectionSpacing .text input sections |
+  // | ThunkSection                                   |
+
+  // Pre-created ThunkSections are spaced roughly 16MiB apart on ARMv7. This
+  // is to match the most common expected case of a Thumb 2 encoded BL, BLX or
+  // B.W:
+  // ARM B, BL, BLX range +/- 32MiB
+  // Thumb B.W, BL, BLX range +/- 16MiB
+  // Thumb B<cc>.W range +/- 1MiB
+  // If a branch cannot reach a pre-created ThunkSection a new one will be
+  // created so we can handle the rare cases of a Thumb 2 conditional branch.
+  // We intentionally use a lower size for ThunkSectionSpacing than the maximum
+  // branch range so the end of the ThunkSection is more likely to be within
+  // range of the branch instruction that is furthest away. The value we shorten
+  // ThunkSectionSpacing by is set conservatively to allow us to create 16,384
+  // 12 byte Thunks at any offset in a ThunkSection without risk of a branch to
+  // one of the Thunks going out of range.
+
+  // On Arm the ThunkSectionSpacing depends on the range of the Thumb Branch
+  // range. On earlier Architectures such as ARMv4, ARMv5 and ARMv6 (except
+  // ARMv6T2) the range is +/- 4MiB.
+
+  return (Config->ARMJ1J2BranchEncoding) ? 0x1000000 - 0x30000
+                                         : 0x400000 - 0x7500;
+}
+
 bool ARM::inBranchRange(RelType Type, uint64_t Src, uint64_t Dst) const {
   uint64_t Range;
   uint64_t InstrSize;
@@ -342,7 +351,7 @@ bool ARM::inBranchRange(RelType Type, uint64_t Src, uint64_t Dst) const {
     break;
   case R_ARM_THM_JUMP24:
   case R_ARM_THM_CALL:
-    Range = 0x1000000;
+    Range = Config->ARMJ1J2BranchEncoding ? 0x1000000 : 0x400000;
     InstrSize = 2;
     break;
   default:
@@ -447,11 +456,23 @@ void ARM::relocateOne(uint8_t *Loc, RelType Type, uint64_t Val) const {
     }
     // Bit 12 is 0 for BLX, 1 for BL
     write16le(Loc + 2, (read16le(Loc + 2) & ~0x1000) | (Val & 1) << 12);
+    if (!Config->ARMJ1J2BranchEncoding) {
+      // Older Arm architectures do not support R_ARM_THM_JUMP24 and have
+      // different encoding rules and range due to J1 and J2 always being 1.
+      checkInt(Loc, Val, 23, Type);
+      write16le(Loc,
+                0xf000 |                     // opcode
+                    ((Val >> 12) & 0x07ff)); // imm11
+      write16le(Loc + 2,
+                (read16le(Loc + 2) & 0xd000) | // opcode
+                    0x2800 |                   // J1 == J2 == 1
+                    ((Val >> 1) & 0x07ff));    // imm11
+      break;
+    }
     // Fall through as rest of encoding is the same as B.W
     LLVM_FALLTHROUGH;
   case R_ARM_THM_JUMP24:
     // Encoding B  T4, BL T1, BLX T2: Val = S:I1:I2:imm10:imm11:0
-    // FIXME: Use of I1 and I2 require v6T2ops
     checkInt(Loc, Val, 25, Type);
     write16le(Loc,
               0xf000 |                     // opcode
@@ -470,14 +491,12 @@ void ARM::relocateOne(uint8_t *Loc, RelType Type, uint64_t Val) const {
     break;
   case R_ARM_MOVT_ABS:
   case R_ARM_MOVT_PREL:
-    checkInt(Loc, Val, 32, Type);
     write32le(Loc, (read32le(Loc) & ~0x000f0fff) |
                        (((Val >> 16) & 0xf000) << 4) | ((Val >> 16) & 0xfff));
     break;
   case R_ARM_THM_MOVT_ABS:
   case R_ARM_THM_MOVT_PREL:
     // Encoding T1: A = imm4:i:imm3:imm8
-    checkInt(Loc, Val, 32, Type);
     write16le(Loc,
               0xf2c0 |                     // opcode
                   ((Val >> 17) & 0x0400) | // i
@@ -542,10 +561,19 @@ int64_t ARM::getImplicitAddend(const uint8_t *Buf, RelType Type) const {
                             ((Lo & 0x07ff) << 1));  // imm11:0
   }
   case R_ARM_THM_CALL:
+    if (!Config->ARMJ1J2BranchEncoding) {
+      // Older Arm architectures do not support R_ARM_THM_JUMP24 and have
+      // different encoding rules and range due to J1 and J2 always being 1.
+      uint16_t Hi = read16le(Buf);
+      uint16_t Lo = read16le(Buf + 2);
+      return SignExtend64<22>(((Hi & 0x7ff) << 12) | // imm11
+                              ((Lo & 0x7ff) << 1));  // imm11:0
+      break;
+    }
+    LLVM_FALLTHROUGH;
   case R_ARM_THM_JUMP24: {
     // Encoding B T4, BL T1, BLX T2: A = S:I1:I2:imm10:imm11:0
     // I1 = NOT(J1 EOR S), I2 = NOT(J2 EOR S)
-    // FIXME: I1 and I2 require v6T2ops
     uint16_t Hi = read16le(Buf);
     uint16_t Lo = read16le(Buf + 2);
     return SignExtend64<24>(((Hi & 0x0400) << 14) |                    // S

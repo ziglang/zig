@@ -53,7 +53,7 @@ sections:
             RegRelativeSym:
               Offset:          32
               Type:            4102
-              Register:        CVRegRSP
+              Register:        RSP
               VarName:         f
           - Kind:            S_PROC_ID_END
             ScopeEndSym:

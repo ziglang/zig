@@ -53,7 +53,7 @@ between speed, simplicity and extensibility.
   until we need them to continue linking.
   When we need to do some costly operation (such as looking up
   a hash table for each symbol), we do it only once.
-  We obtain a handler (which is typically just a pointer to actual data)
+  We obtain a handle (which is typically just a pointer to actual data)
   on the first operation and use it throughout the process.
 
 * Efficient archive file handling
@@ -90,18 +90,18 @@ between speed, simplicity and extensibility.
   `--end-group`, to let the linker loop over the files between the options until
   no new symbols are added to the set.
 
-  Visiting the same archive files multiple makes the linker slower.
+  Visiting the same archive files multiple times makes the linker slower.
 
   Here is how LLD approaches the problem. Instead of memorizing only undefined
   symbols, we program LLD so that it memorizes all symbols.  When it sees an
   undefined symbol that can be resolved by extracting an object file from an
-  archive file it previously visited, it immediately extracts the file and link
-  it.  It is doable because LLD does not forget symbols it have seen in archive
+  archive file it previously visited, it immediately extracts the file and links
+  it.  It is doable because LLD does not forget symbols it has seen in archive
   files.
 
-  We believe that the LLD's way is efficient and easy to justify.
+  We believe that LLD's way is efficient and easy to justify.
 
-  The semantics of LLD's archive handling is different from the traditional
+  The semantics of LLD's archive handling are different from the traditional
   Unix's.  You can observe it if you carefully craft archive files to exploit
   it.  However, in reality, we don't know any program that cannot link with our
   algorithm so far, so it's not going to cause trouble.
@@ -157,7 +157,7 @@ functions, the code of the linker should look obvious to you.
   - Undefined symbols represent undefined symbols, which need to be replaced by
     Defined symbols by the resolver until the link is complete.
   - Lazy symbols represent symbols we found in archive file headers
-    which can turn into Defined if we read archieve members.
+    which can turn into Defined if we read archive members.
 
   There's only one Symbol instance for each unique symbol name. This uniqueness
   is guaranteed by the symbol table. As the resolver reads symbols from input

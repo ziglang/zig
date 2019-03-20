@@ -35,8 +35,6 @@ namespace {
 
 // Import table
 
-static int ptrSize() { return Config->is64() ? 8 : 4; }
-
 // A chunk for the import descriptor table.
 class HintNameChunk : public Chunk {
 public:
@@ -49,6 +47,7 @@ public:
   }
 
   void writeTo(uint8_t *Buf) const override {
+    memset(Buf + OutputSectionOff, 0, getSize());
     write16le(Buf + OutputSectionOff, Hint);
     memcpy(Buf + OutputSectionOff + 2, Name.data(), Name.size());
   }
@@ -61,11 +60,14 @@ private:
 // A chunk for the import descriptor table.
 class LookupChunk : public Chunk {
 public:
-  explicit LookupChunk(Chunk *C) : HintName(C) { Alignment = ptrSize(); }
-  size_t getSize() const override { return ptrSize(); }
+  explicit LookupChunk(Chunk *C) : HintName(C) { Alignment = Config->Wordsize; }
+  size_t getSize() const override { return Config->Wordsize; }
 
   void writeTo(uint8_t *Buf) const override {
-    write32le(Buf + OutputSectionOff, HintName->getRVA());
+    if (Config->is64())
+      write64le(Buf + OutputSectionOff, HintName->getRVA());
+    else
+      write32le(Buf + OutputSectionOff, HintName->getRVA());
   }
 
   Chunk *HintName;
@@ -76,8 +78,10 @@ public:
 // See Microsoft PE/COFF spec 7.1. Import Header for details.
 class OrdinalOnlyChunk : public Chunk {
 public:
-  explicit OrdinalOnlyChunk(uint16_t V) : Ordinal(V) { Alignment = ptrSize(); }
-  size_t getSize() const override { return ptrSize(); }
+  explicit OrdinalOnlyChunk(uint16_t V) : Ordinal(V) {
+    Alignment = Config->Wordsize;
+  }
+  size_t getSize() const override { return Config->Wordsize; }
 
   void writeTo(uint8_t *Buf) const override {
     // An import-by-ordinal slot has MSB 1 to indicate that
@@ -99,6 +103,8 @@ public:
   size_t getSize() const override { return sizeof(ImportDirectoryTableEntry); }
 
   void writeTo(uint8_t *Buf) const override {
+    memset(Buf + OutputSectionOff, 0, getSize());
+
     auto *E = (coff_import_directory_table_entry *)(Buf + OutputSectionOff);
     E->ImportLookupTableRVA = LookupTab->getRVA();
     E->NameRVA = DLLName->getRVA();
@@ -117,6 +123,10 @@ public:
   explicit NullChunk(size_t N) : Size(N) {}
   bool hasData() const override { return false; }
   size_t getSize() const override { return Size; }
+
+  void writeTo(uint8_t *Buf) const override {
+    memset(Buf + OutputSectionOff, 0, Size);
+  }
 
 private:
   size_t Size;
@@ -160,6 +170,8 @@ public:
   }
 
   void writeTo(uint8_t *Buf) const override {
+    memset(Buf + OutputSectionOff, 0, getSize());
+
     auto *E = (delay_import_directory_table_entry *)(Buf + OutputSectionOff);
     E->Attributes = 1;
     E->Name = DLLName->getRVA();
@@ -230,6 +242,36 @@ static const uint8_t ThunkARM[] = {
     0x60, 0x47,             // bx      ip
 };
 
+static const uint8_t ThunkARM64[] = {
+    0x11, 0x00, 0x00, 0x90, // adrp    x17, #0      __imp_<FUNCNAME>
+    0x31, 0x02, 0x00, 0x91, // add     x17, x17, #0 :lo12:__imp_<FUNCNAME>
+    0xfd, 0x7b, 0xb3, 0xa9, // stp     x29, x30, [sp, #-208]!
+    0xfd, 0x03, 0x00, 0x91, // mov     x29, sp
+    0xe0, 0x07, 0x01, 0xa9, // stp     x0, x1, [sp, #16]
+    0xe2, 0x0f, 0x02, 0xa9, // stp     x2, x3, [sp, #32]
+    0xe4, 0x17, 0x03, 0xa9, // stp     x4, x5, [sp, #48]
+    0xe6, 0x1f, 0x04, 0xa9, // stp     x6, x7, [sp, #64]
+    0xe0, 0x87, 0x02, 0xad, // stp     q0, q1, [sp, #80]
+    0xe2, 0x8f, 0x03, 0xad, // stp     q2, q3, [sp, #112]
+    0xe4, 0x97, 0x04, 0xad, // stp     q4, q5, [sp, #144]
+    0xe6, 0x9f, 0x05, 0xad, // stp     q6, q7, [sp, #176]
+    0xe1, 0x03, 0x11, 0xaa, // mov     x1, x17
+    0x00, 0x00, 0x00, 0x90, // adrp    x0, #0     DELAY_IMPORT_DESCRIPTOR
+    0x00, 0x00, 0x00, 0x91, // add     x0, x0, #0 :lo12:DELAY_IMPORT_DESCRIPTOR
+    0x00, 0x00, 0x00, 0x94, // bl      #0 __delayLoadHelper2
+    0xf0, 0x03, 0x00, 0xaa, // mov     x16, x0
+    0xe6, 0x9f, 0x45, 0xad, // ldp     q6, q7, [sp, #176]
+    0xe4, 0x97, 0x44, 0xad, // ldp     q4, q5, [sp, #144]
+    0xe2, 0x8f, 0x43, 0xad, // ldp     q2, q3, [sp, #112]
+    0xe0, 0x87, 0x42, 0xad, // ldp     q0, q1, [sp, #80]
+    0xe6, 0x1f, 0x44, 0xa9, // ldp     x6, x7, [sp, #64]
+    0xe4, 0x17, 0x43, 0xa9, // ldp     x4, x5, [sp, #48]
+    0xe2, 0x0f, 0x42, 0xa9, // ldp     x2, x3, [sp, #32]
+    0xe0, 0x07, 0x41, 0xa9, // ldp     x0, x1, [sp, #16]
+    0xfd, 0x7b, 0xcd, 0xa8, // ldp     x29, x30, [sp], #208
+    0x00, 0x02, 0x1f, 0xd6, // br      x16
+};
+
 // A chunk for the delay import thunk.
 class ThunkChunkX64 : public Chunk {
 public:
@@ -298,11 +340,35 @@ public:
   Defined *Helper = nullptr;
 };
 
+class ThunkChunkARM64 : public Chunk {
+public:
+  ThunkChunkARM64(Defined *I, Chunk *D, Defined *H)
+      : Imp(I), Desc(D), Helper(H) {}
+
+  size_t getSize() const override { return sizeof(ThunkARM64); }
+
+  void writeTo(uint8_t *Buf) const override {
+    memcpy(Buf + OutputSectionOff, ThunkARM64, sizeof(ThunkARM64));
+    applyArm64Addr(Buf + OutputSectionOff + 0, Imp->getRVA(), RVA + 0, 12);
+    applyArm64Imm(Buf + OutputSectionOff + 4, Imp->getRVA() & 0xfff, 0);
+    applyArm64Addr(Buf + OutputSectionOff + 52, Desc->getRVA(), RVA + 52, 12);
+    applyArm64Imm(Buf + OutputSectionOff + 56, Desc->getRVA() & 0xfff, 0);
+    applyArm64Branch26(Buf + OutputSectionOff + 60,
+                       Helper->getRVA() - RVA - 60);
+  }
+
+  Defined *Imp = nullptr;
+  Chunk *Desc = nullptr;
+  Defined *Helper = nullptr;
+};
+
 // A chunk for the import descriptor table.
 class DelayAddressChunk : public Chunk {
 public:
-  explicit DelayAddressChunk(Chunk *C) : Thunk(C) { Alignment = ptrSize(); }
-  size_t getSize() const override { return ptrSize(); }
+  explicit DelayAddressChunk(Chunk *C) : Thunk(C) {
+    Alignment = Config->Wordsize;
+  }
+  size_t getSize() const override { return Config->Wordsize; }
 
   void writeTo(uint8_t *Buf) const override {
     if (Config->is64()) {
@@ -338,6 +404,8 @@ public:
   }
 
   void writeTo(uint8_t *Buf) const override {
+    memset(Buf + OutputSectionOff, 0, getSize());
+
     auto *E = (export_directory_table_entry *)(Buf + OutputSectionOff);
     E->NameRVA = DLLName->getRVA();
     E->OrdinalBase = 0;
@@ -362,6 +430,8 @@ public:
   size_t getSize() const override { return Size * 4; }
 
   void writeTo(uint8_t *Buf) const override {
+    memset(Buf + OutputSectionOff, 0, getSize());
+
     for (const Export &E : Config->Exports) {
       uint8_t *P = Buf + OutputSectionOff + E.Ordinal * 4;
       uint32_t Bit = 0;
@@ -418,30 +488,6 @@ private:
 
 } // anonymous namespace
 
-uint64_t IdataContents::getDirSize() {
-  return Dirs.size() * sizeof(ImportDirectoryTableEntry);
-}
-
-uint64_t IdataContents::getIATSize() {
-  return Addresses.size() * ptrSize();
-}
-
-// Returns a list of .idata contents.
-// See Microsoft PE/COFF spec 5.4 for details.
-std::vector<Chunk *> IdataContents::getChunks() {
-  create();
-
-  // The loader assumes a specific order of data.
-  // Add each type in the correct order.
-  std::vector<Chunk *> V;
-  V.insert(V.end(), Dirs.begin(), Dirs.end());
-  V.insert(V.end(), Lookups.begin(), Lookups.end());
-  V.insert(V.end(), Addresses.begin(), Addresses.end());
-  V.insert(V.end(), Hints.begin(), Hints.end());
-  V.insert(V.end(), DLLNames.begin(), DLLNames.end());
-  return V;
-}
-
 void IdataContents::create() {
   std::vector<std::vector<DefinedImportData *>> V = binImports(Imports);
 
@@ -465,8 +511,8 @@ void IdataContents::create() {
       Hints.push_back(C);
     }
     // Terminate with null values.
-    Lookups.push_back(make<NullChunk>(ptrSize()));
-    Addresses.push_back(make<NullChunk>(ptrSize()));
+    Lookups.push_back(make<NullChunk>(Config->Wordsize));
+    Addresses.push_back(make<NullChunk>(Config->Wordsize));
 
     for (int I = 0, E = Syms.size(); I < E; ++I)
       Syms[I]->setLocation(Addresses[Base + I]);
@@ -555,6 +601,8 @@ Chunk *DelayLoadContents::newThunkChunk(DefinedImportData *S, Chunk *Dir) {
     return make<ThunkChunkX86>(S, Dir, Helper);
   case ARMNT:
     return make<ThunkChunkARM>(S, Dir, Helper);
+  case ARM64:
+    return make<ThunkChunkARM64>(S, Dir, Helper);
   default:
     llvm_unreachable("unsupported machine type");
   }

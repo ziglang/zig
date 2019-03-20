@@ -1,0 +1,31 @@
+# RUN: yaml2obj %s -o %t.o
+# RUN: not ld.lld --icf=all %t.o -o /dev/null 2>&1 | FileCheck %s
+# CHECK: .eh_frame: relocation is not in any piece
+
+!ELF
+FileHeader:
+  Class:           ELFCLASS64
+  Data:            ELFDATA2LSB
+  OSABI:           ELFOSABI_FREEBSD
+  Type:            ET_REL
+  Machine:         EM_X86_64
+Sections:
+  - Name:            .eh_frame
+    Type:            SHT_PROGBITS
+    Flags:           [ SHF_ALLOC]
+    Content:         "1400000000000000017a5200017810011b0c070890010000140000001c00000000000000000000000000000000000000"
+  - Name:            .rela.eh_frame
+    Type:            SHT_RELA
+    Link:            .symtab
+    Info:            .eh_frame
+    Relocations:
+      - Offset:          0x99999999
+        Symbol:          zed
+        Type:            R_X86_64_64
+Symbols:
+  Global:
+    - Name:     zed
+      Type:     STT_FUNC
+      Section:  .eh_frame
+      Value:    0x0
+      Size:     8

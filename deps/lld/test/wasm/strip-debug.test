@@ -2,5 +2,9 @@ RUN: llc -filetype=obj %p/Inputs/start.ll -o %t.start.o
 RUN: wasm-ld --strip-debug -o %t.wasm %t.start.o
 RUN: obj2yaml %t.wasm | FileCheck %s
 
+# Test alias -S
+RUN: wasm-ld -S -o %t.wasm %t.start.o
+RUN: obj2yaml %t.wasm | FileCheck %s
+
 # Check that there is no name section
 CHECK-NOT:   Name:    name

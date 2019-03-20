@@ -1,7 +1,7 @@
 ; RUN: llc -filetype=obj -mtriple=wasm32-unknown-uknown-wasm %p/Inputs/comdat1.ll -o %t1.o
 ; RUN: llc -filetype=obj -mtriple=wasm32-unknown-uknown-wasm %p/Inputs/comdat2.ll -o %t2.o
 ; RUN: llc -filetype=obj -mtriple=wasm32-unknown-uknown-wasm %s -o %t.o
-; RUN: wasm-ld -o %t.wasm %t.o %t1.o %t2.o
+; RUN: wasm-ld --export-dynamic -o %t.wasm %t.o %t1.o %t2.o
 ; RUN: obj2yaml %t.wasm | FileCheck %s
 
 target triple = "wasm32-unknown-unknown"

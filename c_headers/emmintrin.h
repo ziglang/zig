@@ -1675,7 +1675,49 @@ _mm_loadu_si64(void const *__a)
     long long __v;
   } __attribute__((__packed__, __may_alias__));
   long long __u = ((struct __loadu_si64*)__a)->__v;
-  return __extension__ (__m128i)(__v2di){__u, 0L};
+  return __extension__ (__m128i)(__v2di){__u, 0LL};
+}
+
+/// Loads a 32-bit integer value to the low element of a 128-bit integer
+///    vector and clears the upper element.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VMOVD / MOVD </c> instruction.
+///
+/// \param __a
+///    A pointer to a 32-bit memory location. The address of the memory
+///    location does not have to be aligned.
+/// \returns A 128-bit vector of [4 x i32] containing the loaded value.
+static __inline__ __m128i __DEFAULT_FN_ATTRS
+_mm_loadu_si32(void const *__a)
+{
+  struct __loadu_si32 {
+    int __v;
+  } __attribute__((__packed__, __may_alias__));
+  int __u = ((struct __loadu_si32*)__a)->__v;
+  return __extension__ (__m128i)(__v4si){__u, 0, 0, 0};
+}
+
+/// Loads a 16-bit integer value to the low element of a 128-bit integer
+///    vector and clears the upper element.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic does not correspond to a specific instruction.
+///
+/// \param __a
+///    A pointer to a 16-bit memory location. The address of the memory
+///    location does not have to be aligned.
+/// \returns A 128-bit vector of [8 x i16] containing the loaded value.
+static __inline__ __m128i __DEFAULT_FN_ATTRS
+_mm_loadu_si16(void const *__a)
+{
+  struct __loadu_si16 {
+    short __v;
+  } __attribute__((__packed__, __may_alias__));
+  short __u = ((struct __loadu_si16*)__a)->__v;
+  return __extension__ (__m128i)(__v8hi){__u, 0, 0, 0, 0, 0, 0, 0};
 }
 
 /// Loads a 64-bit double-precision value to the low element of a
@@ -3991,6 +4033,69 @@ _mm_storeu_si128(__m128i *__p, __m128i __b)
     __m128i __v;
   } __attribute__((__packed__, __may_alias__));
   ((struct __storeu_si128*)__p)->__v = __b;
+}
+
+/// Stores a 64-bit integer value from the low element of a 128-bit integer
+///    vector.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VMOVQ / MOVQ </c> instruction.
+///
+/// \param __p
+///    A pointer to a 64-bit memory location. The address of the memory
+///    location does not have to be algned.
+/// \param __b
+///    A 128-bit integer vector containing the value to be stored.
+static __inline__ void __DEFAULT_FN_ATTRS
+_mm_storeu_si64(void const *__p, __m128i __b)
+{
+  struct __storeu_si64 {
+    long long __v;
+  } __attribute__((__packed__, __may_alias__));
+  ((struct __storeu_si64*)__p)->__v = ((__v2di)__b)[0];
+}
+
+/// Stores a 32-bit integer value from the low element of a 128-bit integer
+///    vector.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VMOVD / MOVD </c> instruction.
+///
+/// \param __p
+///    A pointer to a 32-bit memory location. The address of the memory
+///    location does not have to be aligned.
+/// \param __b
+///    A 128-bit integer vector containing the value to be stored.
+static __inline__ void __DEFAULT_FN_ATTRS
+_mm_storeu_si32(void const *__p, __m128i __b)
+{
+  struct __storeu_si32 {
+    int __v;
+  } __attribute__((__packed__, __may_alias__));
+  ((struct __storeu_si32*)__p)->__v = ((__v4si)__b)[0];
+}
+
+/// Stores a 16-bit integer value from the low element of a 128-bit integer
+///    vector.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic does not correspond to a specific instruction.
+///
+/// \param __p
+///    A pointer to a 16-bit memory location. The address of the memory
+///    location does not have to be aligned.
+/// \param __b
+///    A 128-bit integer vector containing the value to be stored.
+static __inline__ void __DEFAULT_FN_ATTRS
+_mm_storeu_si16(void const *__p, __m128i __b)
+{
+  struct __storeu_si16 {
+    short __v;
+  } __attribute__((__packed__, __may_alias__));
+  ((struct __storeu_si16*)__p)->__v = ((__v8hi)__b)[0];
 }
 
 /// Moves bytes selected by the mask from the first operand to the

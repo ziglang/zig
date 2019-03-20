@@ -55,10 +55,8 @@ OPTION(prefix_2, "color-diagnostics=", color_diagnostics_eq, Joined, INVALID, IN
        "Use colors in diagnostics; one of 'always', 'never', 'auto'", nullptr, nullptr)
 OPTION(prefix_2, "color-diagnostics", color_diagnostics, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Use colors in diagnostics", nullptr, nullptr)
-OPTION(prefix_1, "debug:dwarf", debug_dwarf, Flag, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
-OPTION(prefix_1, "debug:full", debug_full, Flag, INVALID, debug, nullptr, 0, 0, nullptr, nullptr, nullptr)
-OPTION(prefix_1, "debug:ghash", debug_ghash, Flag, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
-OPTION(prefix_1, "debug:symtab", debug_symtab, Flag, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
+OPTION(prefix_1, "debug:", debug_opt, Joined, INVALID, INVALID, nullptr, 0, 0,
+       "Embed a symbol table in the image with option", nullptr, nullptr)
 OPTION(prefix_1, "debugtype:", debugtype, Joined, INVALID, INVALID, nullptr, 0, 0,
        "Debug Info Options", nullptr, nullptr)
 OPTION(prefix_1, "debug", debug, Flag, INVALID, INVALID, nullptr, 0, 0,
@@ -95,9 +93,12 @@ OPTION(prefix_1, "fixed:no", fixed_no, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Enable base relocations (default)", nullptr, nullptr)
 OPTION(prefix_1, "fixed", fixed, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Disable base relocations", nullptr, nullptr)
-OPTION(prefix_1, "force:unresolved", force_unresolved, Flag, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
-OPTION(prefix_1, "force", force, Flag, INVALID, INVALID, nullptr, 0, 0,
+OPTION(prefix_1, "force:multiple", force_multiple, Flag, INVALID, INVALID, nullptr, 0, 0,
+       "Allow multiply defined symbols when creating executables", nullptr, nullptr)
+OPTION(prefix_1, "force:unresolved", force_unresolved, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Allow undefined symbols when creating executables", nullptr, nullptr)
+OPTION(prefix_1, "force", force, Flag, INVALID, INVALID, nullptr, 0, 0,
+       "Allow undefined and multiply defined symbols when creating executables", nullptr, nullptr)
 OPTION(prefix_1, "functionpadmin", functionpadmin, Flag, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
 OPTION(prefix_1, "guard:", guard, Joined, INVALID, INVALID, nullptr, 0, 0,
        "Control flow guard", nullptr, nullptr)
@@ -148,30 +149,32 @@ OPTION(prefix_1, "lldsavetemps", lldsavetemps, Flag, INVALID, INVALID, nullptr, 
 OPTION(prefix_1, "machine:", machine, Joined, INVALID, INVALID, nullptr, 0, 0,
        "Specify target platform", nullptr, nullptr)
 OPTION(prefix_1, "manifest:", manifest_colon, Joined, INVALID, INVALID, nullptr, 0, 0,
-       "Create manifest file", nullptr, nullptr)
+       "NO disables manifest output; EMBED[,ID=#] embeds manifest as resource in the image", nullptr, nullptr)
 OPTION(prefix_1, "manifestdependency:", manifestdependency, Joined, INVALID, INVALID, nullptr, 0, 0,
-       "Attributes for <dependency> in manifest file", nullptr, nullptr)
+       "Attributes for <dependency> element in manifest file; implies /manifest", nullptr, nullptr)
 OPTION(prefix_1, "manifestfile:", manifestfile, Joined, INVALID, INVALID, nullptr, 0, 0,
-       "Manifest file path", nullptr, nullptr)
+       "Manifest output path, with /manifest", nullptr, nullptr)
 OPTION(prefix_1, "manifestinput:", manifestinput, Joined, INVALID, INVALID, nullptr, 0, 0,
-       "Specify manifest file", nullptr, nullptr)
+       "Additional manifest inputs; only valid with /manifest:embed", nullptr, nullptr)
 OPTION(prefix_1, "manifestuac:", manifestuac, Joined, INVALID, INVALID, nullptr, 0, 0,
        "User access control", nullptr, nullptr)
-OPTION(prefix_1, "manifest", manifest, Flag, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
+OPTION(prefix_1, "manifest", manifest, Flag, INVALID, INVALID, nullptr, 0, 0,
+       "Create .manifest file", nullptr, nullptr)
 OPTION(prefix_1, "maxilksize:", maxilksize, Joined, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
 OPTION(prefix_1, "merge:", merge, Joined, INVALID, INVALID, nullptr, 0, 0,
        "Combine sections", nullptr, nullptr)
 OPTION(prefix_1, "mllvm:", mllvm, Joined, INVALID, INVALID, nullptr, 0, 0,
        "Options to pass to LLVM", nullptr, nullptr)
-OPTION(prefix_1, "msvclto", msvclto, Flag, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
 OPTION(prefix_1, "natvis:", natvis, Joined, INVALID, INVALID, nullptr, 0, 0,
        "Path to natvis file to embed in the PDB", nullptr, nullptr)
 OPTION(prefix_1, "no-color-diagnostics", no_color_diagnostics, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Do not use colors in diagnostics", nullptr, nullptr)
 OPTION(prefix_1, "nodefaultlib:", nodefaultlib, Joined, INVALID, INVALID, nullptr, 0, 0,
        "Remove a default library", nullptr, nullptr)
-OPTION(prefix_1, "nodefaultlib", nodefaultlib_all, Flag, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
-OPTION(prefix_1, "noentry", noentry, Flag, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
+OPTION(prefix_1, "nodefaultlib", nodefaultlib_all, Flag, INVALID, INVALID, nullptr, 0, 0,
+       "Remove all default libraries", nullptr, nullptr)
+OPTION(prefix_1, "noentry", noentry, Flag, INVALID, INVALID, nullptr, 0, 0,
+       "Don't add reference to DllMainCRTStartup; only valid with /dll", nullptr, nullptr)
 OPTION(prefix_1, "nologo", nologo, Flag, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
 OPTION(prefix_1, "nxcompat:no", nxcompat_no, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Disable data execution provention", nullptr, nullptr)

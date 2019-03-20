@@ -27,7 +27,7 @@
 #include <stdint.h>
 
 typedef __fp16 float16_t;
-#define __ai static inline __attribute__((__always_inline__, __nodebug__))
+#define __ai static __inline__ __attribute__((__always_inline__, __nodebug__))
 
 #if defined(__ARM_FEATURE_FP16_SCALAR_ARITHMETIC) && defined(__aarch64__)
 #ifdef __LITTLE_ENDIAN__

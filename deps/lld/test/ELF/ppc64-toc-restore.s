@@ -22,7 +22,7 @@ bar_local:
   blr
 
 # Calling external function foo in a shared object needs a nop.
-# Calling local function bar_local doe snot need a nop.
+# Calling local function bar_local doe not need a nop.
 .global _start
 _start:
   bl foo

@@ -1,4 +1,4 @@
-# REQUIRES: x86
+# REQUIRES: x86, zlib
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t
 # RUN: ld.lld %t -o %t2 --strip-debug
 # RUN: llvm-readobj -sections %t2 | FileCheck %s
@@ -12,3 +12,5 @@
 
 .section .debug_Foo,"",@progbits
 .section .zdebug_Bar,"",@progbits
+.ascii "ZLIB"
+.quad 0

@@ -23,6 +23,7 @@
 
 #include "lld/Common/LLVM.h"
 #include "llvm/ADT/SmallString.h"
+#include "Writer.h"
 #include <memory>
 #include <vector>
 

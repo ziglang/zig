@@ -15,6 +15,8 @@ namespace wasm {
 
 void writeResult();
 
+extern const char *DefaultModule;
+
 } // namespace wasm
 } // namespace lld
 

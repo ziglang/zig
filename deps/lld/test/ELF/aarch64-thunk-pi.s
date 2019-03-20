@@ -81,10 +81,14 @@ high_target2:
 // CHECK-NEXT: 10000034:       1f 20 03 d5     nop
 // CHECK-NEXT: 10000038:       1f 20 03 d5     nop
 // CHECK-NEXT: 1000003c:       1f 20 03 d5     nop
+// CHECK-EMPTY:
+// CHECK-NEXT:   high_target@plt:
 // CHECK-NEXT: 10000040:       10 00 00 90     adrp    x16, #0
 // CHECK-NEXT: 10000044:       11 3e 40 f9     ldr     x17, [x16, #120]
 // CHECK-NEXT: 10000048:       10 e2 01 91     add     x16, x16, #120
 // CHECK-NEXT: 1000004c:       20 02 1f d6     br      x17
+// CHECK-EMPTY:
+// CHECK-NEXT:   low_target@plt:
 // CHECK-NEXT: 10000050:       10 00 00 90     adrp    x16, #0
 // CHECK-NEXT: 10000054:       11 42 40 f9     ldr     x17, [x16, #128]
 // CHECK-NEXT: 10000058:       10 02 02 91     add     x16, x16, #128

@@ -62,7 +62,7 @@
 static __inline__ unsigned short __RELAXED_FN_ATTRS
 __tzcnt_u16(unsigned short __X)
 {
-  return __X ? __builtin_ctzs(__X) : 16;
+  return __builtin_ia32_tzcnt_u16(__X);
 }
 
 /// Performs a bitwise AND of the second operand with the one's
@@ -196,7 +196,7 @@ __blsr_u32(unsigned int __X)
 static __inline__ unsigned int __RELAXED_FN_ATTRS
 __tzcnt_u32(unsigned int __X)
 {
-  return __X ? __builtin_ctz(__X) : 32;
+  return __builtin_ia32_tzcnt_u32(__X);
 }
 
 /// Counts the number of trailing zero bits in the operand.
@@ -212,7 +212,7 @@ __tzcnt_u32(unsigned int __X)
 static __inline__ int __RELAXED_FN_ATTRS
 _mm_tzcnt_32(unsigned int __X)
 {
-  return __X ? __builtin_ctz(__X) : 32;
+  return __builtin_ia32_tzcnt_u32(__X);
 }
 
 #ifdef __x86_64__
@@ -359,7 +359,7 @@ __blsr_u64(unsigned long long __X)
 static __inline__ unsigned long long __RELAXED_FN_ATTRS
 __tzcnt_u64(unsigned long long __X)
 {
-  return __X ? __builtin_ctzll(__X) : 64;
+  return __builtin_ia32_tzcnt_u64(__X);
 }
 
 /// Counts the number of trailing zero bits in the operand.
@@ -375,7 +375,7 @@ __tzcnt_u64(unsigned long long __X)
 static __inline__ long long __RELAXED_FN_ATTRS
 _mm_tzcnt_64(unsigned long long __X)
 {
-  return __X ? __builtin_ctzll(__X) : 64;
+  return __builtin_ia32_tzcnt_u64(__X);
 }
 
 #endif /* __x86_64__ */

@@ -1,7 +1,7 @@
 // REQUIRES: arm
-// RUN: llvm-mc -filetype=obj -triple=armv7a-none-linux-gnueabi %S/Inputs/arm-shared.s -o %t
+// RUN: llvm-mc -arm-add-build-attributes -filetype=obj -triple=armv7a-none-linux-gnueabi %S/Inputs/arm-shared.s -o %t
 // RUN: ld.lld %t --shared -o %t.so
-// RUN: llvm-mc -filetype=obj -triple=armv7a-none-linux-gnueabi %s -o %t2
+// RUN: llvm-mc -arm-add-build-attributes -filetype=obj -triple=armv7a-none-linux-gnueabi %s -o %t2
 // RUN: ld.lld %t2 %t.so -o %t3
 // RUN: llvm-objdump -d -triple=armv7a-none-linux-gnueabi -start-address=69632 -stop-address=69664 %t3 | FileCheck %s
 

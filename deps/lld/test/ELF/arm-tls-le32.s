@@ -69,9 +69,9 @@ x:
 
 // CHECK: Disassembly of section .text:
 // CHECK-NEXT: _start:
-// offset of x from Thread pointer = (TcbSize + 0x0 = 0x8)
-// CHECK-NEXT:   11000:         08 00 00 00
-// offset of z from Thread pointer = (TcbSize + 0x8 = 0x10)
-// CHECK-NEXT:   11004:         10 00 00 00
-// offset of y from Thread pointer = (TcbSize + 0x4 = 0xc)
-// CHECK-NEXT:   11008:         0c 00 00 00
+// offset of x from Thread pointer = (TcbSize + 0x0 = 0x20)
+// CHECK-NEXT:   11000:         20 00 00 00
+// offset of z from Thread pointer = (TcbSize + 0x8 = 0x28)
+// CHECK-NEXT:   11004:         28 00 00 00
+// offset of y from Thread pointer = (TcbSize + 0x4 = 0x24)
+// CHECK-NEXT:   11008:         24 00 00 00

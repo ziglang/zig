@@ -10,7 +10,7 @@
 # RUN:  /DISCARD/ : { *(.comment) } \
 # RUN: }" > %t.script
 # RUN: ld.lld -o %t --script %t.script %t.o
-# RUN: llvm-readelf -s -symbols %t | FileCheck %s
+# RUN: llvm-readelf -S -symbols %t | FileCheck %s
 
 # CHECK: .bss NOBITS ffffffff80002000 002008 000002 00 WA 0 0 4096
 # CHECK: ffffffff80003000 0 NOTYPE GLOBAL DEFAULT 3 _end

@@ -3,7 +3,7 @@
 # RUN: ld.lld --gdb-index %t1.o -o %t
 # RUN: llvm-dwarfdump -gdb-index %t | FileCheck %s
 
-# CHECK:      .gnu_index contents:
+# CHECK:      .gdb_index contents:
 # CHECK:       Address area offset = 0x28, has 2 entries:
 # CHECK-NEXT:  Low/High address = [0x201000, 0x201001) (Size: 0x1), CU id = 0
 # CHECK-NEXT:  Low/High address = [0x201003, 0x201006) (Size: 0x3), CU id = 0

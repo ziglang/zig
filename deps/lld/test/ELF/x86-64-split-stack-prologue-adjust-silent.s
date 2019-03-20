@@ -2,7 +2,7 @@
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t1.o
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/x86-64-split-stack-main.s -o %t2.o
 
-# RUN: ld.lld --defsym __morestack=0x100 %t1.o %t2.o -o %t
+# RUN: ld.lld --defsym __morestack=0x100 --defsym __morestack_non_split=0x200 %t1.o %t2.o -o %t
 # RUN: llvm-objdump -d %t 2>&1 | FileCheck %s
 
 # An unknown prologue ordinarily gives a match failure, except that this

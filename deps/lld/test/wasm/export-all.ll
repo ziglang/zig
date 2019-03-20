@@ -42,7 +42,7 @@ entry:
 ; CHECK-NOT:     - Name:            internal_func
 
 ; EXPORT:     - Type:            EXPORT
-; EXPORT:        - Name:            _start
 ; EXPORT:        - Name:            bar
 ; EXPORT:        - Name:            foo
+; EXPORT:        - Name:            _start
 ; EXPORT-NOT:    - Name:            internal_func

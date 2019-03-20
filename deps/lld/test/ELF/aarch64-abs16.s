@@ -14,14 +14,14 @@ _start:
 // RUN: llvm-objdump -s -section=.data %t2 | FileCheck %s
 
 // CHECK: Contents of section .data:
-// 11000: S = 0x100, A = 0xfeff
-//        S + A = 0xffff
-// 11002: S = 0x100, A = -0x8100
-//        S + A = 0x8000
-// CHECK-NEXT: 20000 ffff0080
+// 210000: S = 0x100, A = 0xfeff
+//         S + A = 0xffff
+// 210002: S = 0x100, A = -0x8100
+//         S + A = 0x8000
+// CHECK-NEXT: 210000 ffff0080
 
-// RUN: not ld.lld %t.o %t255.o -o %t2
-//   | FileCheck %s --check-prefix=OVERFLOW
-// RUN: not ld.lld %t.o %t257.o -o %t2
-//   | FileCheck %s --check-prefix=OVERFLOW
-// OVERFLOW: Relocation R_AARCH64_ABS16 out of range: 65536 is not in [-32768, 65535]
+// RUN: not ld.lld %t.o %t255.o -o %t2 2>&1 | FileCheck %s --check-prefix=OVERFLOW1
+// OVERFLOW1: relocation R_AARCH64_ABS16 out of range: -32769 is not in [-32768, 32767]
+
+// RUN: not ld.lld %t.o %t257.o -o %t2 2>&1 | FileCheck %s --check-prefix=OVERFLOW2
+// OVERFLOW2: relocation R_AARCH64_ABS16 out of range: 65536 is not in [-32768, 32767]

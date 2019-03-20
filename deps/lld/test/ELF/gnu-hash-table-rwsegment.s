@@ -8,8 +8,8 @@
 # CHECK-NEXT:   Num Buckets: 1
 # CHECK-NEXT:   First Hashed Symbol Index: 1
 # CHECK-NEXT:   Num Mask Words: 1
-# CHECK-NEXT:   Shift Count: 6
-# CHECK-NEXT:   Bloom Filter: [0x400000000004204]
+# CHECK-NEXT:   Shift Count: 26
+# CHECK-NEXT:   Bloom Filter: [0x400000000000204]
 # CHECK-NEXT:   Buckets: [1]
 # CHECK-NEXT:   Values: [0xB8860BA, 0xB887389]
 # CHECK-NEXT: }

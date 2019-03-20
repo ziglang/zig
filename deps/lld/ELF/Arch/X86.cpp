@@ -48,6 +48,7 @@ public:
 X86::X86() {
   CopyRel = R_386_COPY;
   GotRel = R_386_GLOB_DAT;
+  NoneRel = R_386_NONE;
   PltRel = R_386_JUMP_SLOT;
   IRelativeRel = R_386_IRELATIVE;
   RelativeRel = R_386_RELATIVE;
@@ -59,7 +60,11 @@ X86::X86() {
   PltEntrySize = 16;
   PltHeaderSize = 16;
   TlsGdRelaxSkip = 2;
-  TrapInstr = 0xcccccccc; // 0xcc = INT3
+  TrapInstr = {0xcc, 0xcc, 0xcc, 0xcc}; // 0xcc = INT3
+
+  // Align to the non-PAE large page size (known as a superpage or huge page).
+  // FreeBSD automatically promotes large, superpage-aligned allocations.
+  DefaultImageBase = 0x400000;
 }
 
 static bool hasBaseReg(uint8_t ModRM) { return (ModRM & 0xc7) != 0x5; }
@@ -152,7 +157,7 @@ RelExpr X86::adjustRelaxExpr(RelType Type, const uint8_t *Data,
 }
 
 void X86::writeGotPltHeader(uint8_t *Buf) const {
-  write32le(Buf, InX::Dynamic->getVA());
+  write32le(Buf, In.Dynamic->getVA());
 }
 
 void X86::writeGotPlt(uint8_t *Buf, const Symbol &S) const {
@@ -183,8 +188,8 @@ void X86::writePltHeader(uint8_t *Buf) const {
     };
     memcpy(Buf, V, sizeof(V));
 
-    uint32_t Ebx = InX::Got->getVA() + InX::Got->getSize();
-    uint32_t GotPlt = InX::GotPlt->getVA() - Ebx;
+    uint32_t Ebx = In.Got->getVA() + In.Got->getSize();
+    uint32_t GotPlt = In.GotPlt->getVA() - Ebx;
     write32le(Buf + 2, GotPlt + 4);
     write32le(Buf + 8, GotPlt + 8);
     return;
@@ -196,7 +201,7 @@ void X86::writePltHeader(uint8_t *Buf) const {
       0x90, 0x90, 0x90, 0x90, // nop
   };
   memcpy(Buf, PltData, sizeof(PltData));
-  uint32_t GotPlt = InX::GotPlt->getVA();
+  uint32_t GotPlt = In.GotPlt->getVA();
   write32le(Buf + 2, GotPlt + 4);
   write32le(Buf + 8, GotPlt + 8);
 }
@@ -213,7 +218,7 @@ void X86::writePlt(uint8_t *Buf, uint64_t GotPltEntryAddr,
 
   if (Config->Pic) {
     // jmp *foo@GOT(%ebx)
-    uint32_t Ebx = InX::Got->getVA() + InX::Got->getSize();
+    uint32_t Ebx = In.Got->getVA() + In.Got->getSize();
     Buf[1] = 0xa3;
     write32le(Buf + 2, GotPltEntryAddr - Ebx);
   } else {
@@ -447,8 +452,8 @@ void RetpolinePic::writePltHeader(uint8_t *Buf) const {
   };
   memcpy(Buf, Insn, sizeof(Insn));
 
-  uint32_t Ebx = InX::Got->getVA() + InX::Got->getSize();
-  uint32_t GotPlt = InX::GotPlt->getVA() - Ebx;
+  uint32_t Ebx = In.Got->getVA() + In.Got->getSize();
+  uint32_t GotPlt = In.GotPlt->getVA() - Ebx;
   write32le(Buf + 2, GotPlt + 4);
   write32le(Buf + 9, GotPlt + 8);
 }
@@ -467,7 +472,7 @@ void RetpolinePic::writePlt(uint8_t *Buf, uint64_t GotPltEntryAddr,
   };
   memcpy(Buf, Insn, sizeof(Insn));
 
-  uint32_t Ebx = InX::Got->getVA() + InX::Got->getSize();
+  uint32_t Ebx = In.Got->getVA() + In.Got->getSize();
   unsigned Off = getPltEntryOffset(Index);
   write32le(Buf + 3, GotPltEntryAddr - Ebx);
   write32le(Buf + 8, -Off - 12 + 32);
@@ -506,7 +511,7 @@ void RetpolineNoPic::writePltHeader(uint8_t *Buf) const {
   };
   memcpy(Buf, Insn, sizeof(Insn));
 
-  uint32_t GotPlt = InX::GotPlt->getVA();
+  uint32_t GotPlt = In.GotPlt->getVA();
   write32le(Buf + 2, GotPlt + 4);
   write32le(Buf + 8, GotPlt + 8);
 }

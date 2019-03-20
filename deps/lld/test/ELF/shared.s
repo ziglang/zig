@@ -141,7 +141,7 @@
 // CHECK-NEXT:   }
 // CHECK-NEXT:   Symbol {
 // CHECK-NEXT:     Name: _DYNAMIC
-// CHECK-NEXT:     Value: 0x12000
+// CHECK-NEXT:     Value: 0x402000
 // CHECK-NEXT:     Size: 0
 // CHECK-NEXT:     Binding: Local
 // CHECK-NEXT:     Type: None
@@ -152,7 +152,7 @@
 // CHECK-NEXT:   }
 // CHECK-NEXT:   Symbol {
 // CHECK-NEXT:     Name: _start
-// CHECK-NEXT:     Value: 0x11000
+// CHECK-NEXT:     Value: 0x401000
 // CHECK-NEXT:     Size: 0
 // CHECK-NEXT:     Binding: Global
 // CHECK-NEXT:     Type: None
@@ -181,7 +181,7 @@
 
 // CHECK:      DynamicSymbols [
 // CHECK-NEXT:   Symbol {
-// CHECK-NEXT:     Name: @
+// CHECK-NEXT:     Name:
 // CHECK-NEXT:     Value: 0x0
 // CHECK-NEXT:     Size: 0
 // CHECK-NEXT:     Binding: Local
@@ -190,8 +190,8 @@
 // CHECK-NEXT:     Section: Undefined
 // CHECK-NEXT:   }
 // CHECK-NEXT:   Symbol {
-// CHECK-NEXT:     Name: _start@
-// CHECK-NEXT:     Value: 0x11000
+// CHECK-NEXT:     Name: _start
+// CHECK-NEXT:     Value: 0x401000
 // CHECK-NEXT:     Size: 0
 // CHECK-NEXT:     Binding: Global
 // CHECK-NEXT:     Type: Non
@@ -199,7 +199,7 @@
 // CHECK-NEXT:     Section: .text
 // CHECK-NEXT:   }
 // CHECK-NEXT:   Symbol {
-// CHECK-NEXT:     Name: bar@
+// CHECK-NEXT:     Name: bar
 // CHECK-NEXT:     Value: 0x0
 // CHECK-NEXT:     Size: 0
 // CHECK-NEXT:     Binding: Global
@@ -208,7 +208,7 @@
 // CHECK-NEXT:     Section: Undefined
 // CHECK-NEXT:   }
 // CHECK-NEXT:   Symbol {
-// CHECK-NEXT:     Name: zed@
+// CHECK-NEXT:     Name: zed
 // CHECK-NEXT:     Value: 0x0
 // CHECK-NEXT:     Size: 0
 // CHECK-NEXT:     Binding: Global
@@ -220,7 +220,7 @@
 
 // DONT_EXPORT:      DynamicSymbols [
 // DONT_EXPORT-NEXT:   Symbol {
-// DONT_EXPORT-NEXT:     Name: @
+// DONT_EXPORT-NEXT:     Name:
 // DONT_EXPORT-NEXT:     Value: 0x0
 // DONT_EXPORT-NEXT:     Size: 0
 // DONT_EXPORT-NEXT:     Binding: Local (0x0)
@@ -229,7 +229,7 @@
 // DONT_EXPORT-NEXT:     Section: Undefined (0x0)
 // DONT_EXPORT-NEXT:   }
 // DONT_EXPORT-NEXT:   Symbol {
-// DONT_EXPORT-NEXT:     Name: bar@
+// DONT_EXPORT-NEXT:     Name: bar
 // DONT_EXPORT-NEXT:     Value: 0x0
 // DONT_EXPORT-NEXT:     Size: 0
 // DONT_EXPORT-NEXT:     Binding: Global
@@ -238,7 +238,7 @@
 // DONT_EXPORT-NEXT:     Section: Undefined
 // DONT_EXPORT-NEXT:   }
 // DONT_EXPORT-NEXT:   Symbol {
-// DONT_EXPORT-NEXT:     Name: zed@
+// DONT_EXPORT-NEXT:     Name: zed
 // DONT_EXPORT-NEXT:     Value: 0x0
 // DONT_EXPORT-NEXT:     Size: 0
 // DONT_EXPORT-NEXT:     Binding: Global

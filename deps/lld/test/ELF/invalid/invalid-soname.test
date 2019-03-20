@@ -1,0 +1,18 @@
+# REQUIRES: x86
+# RUN: yaml2obj %s -o %t.so
+# RUN: not ld.lld %t.so -o %t.exe 2>&1 | FileCheck %s
+
+# CHECK: error: {{.*}}.so: invalid DT_SONAME entry
+
+--- !ELF
+FileHeader:
+  Class:           ELFCLASS64
+  Data:            ELFDATA2LSB
+  Type:            ET_DYN
+  Machine:         EM_X86_64
+Sections:
+  - Name:          .test
+    Type:          SHT_DYNAMIC
+    Flags:         [ SHF_ALLOC ]
+    Content:         "0e000000000000000000000000000001"
+    Link:          .strtab

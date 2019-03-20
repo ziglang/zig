@@ -1,10 +1,16 @@
 // REQUIRES: arm
 // RUN: llvm-mc -filetype=obj -triple=thumbv7a-windows-gnu %s -o %t.obj
-// RUN: llvm-mc -filetype=obj -triple=thumbv7a-windows-gnu %S/Inputs/far-arm-thumb-abs20.s -o %t.far.obj
-// RUN: not lld-link -entry:_start -subsystem:console %t.obj %t.far.obj -out:%t.exe 2>&1 | FileCheck %s
+// RUN: not lld-link -entry:_start -subsystem:console %t.obj -out:%t.exe 2>&1 | FileCheck %s
  .syntax unified
  .globl _start
 _start:
  bne too_far20
+ .space 0x100000
+ .section .text$a, "xr"
+too_far20:
+ bx lr
 
-// CHECK: relocation out of range
+// When trying to add a thunk at the end of the section, the thunk itself
+// will be too far away, so this won't converge.
+
+// CHECK: adding thunks hasn't converged

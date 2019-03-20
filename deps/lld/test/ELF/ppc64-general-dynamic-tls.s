@@ -2,17 +2,17 @@
 
 // RUN: llvm-mc -filetype=obj -triple=powerpc64le-unknown-linux %s -o %t.o
 // RUN: ld.lld -shared %t.o -o %t.so
-// RUN: llvm-readelf -relocations --wide %t.o | FileCheck --check-prefix=InputRelocs %s
-// RUN: llvm-readelf -relocations --wide %t.so | FileCheck --check-prefix=OutputRelocs %s
+// RUN: llvm-readelf -r %t.o | FileCheck --check-prefix=InputRelocs %s
+// RUN: llvm-readelf -r %t.so | FileCheck --check-prefix=OutputRelocs %s
 // RUN: llvm-objdump --section-headers %t.so | FileCheck --check-prefix=CheckGot %s
-// RUN: llvm-objdump -D %t.so | FileCheck --check-prefix=Dis %s
+// RUN: llvm-objdump -d %t.so | FileCheck --check-prefix=Dis %s
 
 // RUN: llvm-mc -filetype=obj -triple=powerpc64-unknown-linux %s -o %t.o
 // RUN: ld.lld -shared %t.o -o %t.so
-// RUN: llvm-readelf -relocations --wide %t.o | FileCheck --check-prefix=InputRelocs %s
-// RUN: llvm-readelf -relocations --wide %t.so | FileCheck --check-prefix=OutputRelocs %s
+// RUN: llvm-readelf -r %t.o | FileCheck --check-prefix=InputRelocs %s
+// RUN: llvm-readelf -r %t.so | FileCheck --check-prefix=OutputRelocs %s
 // RUN: llvm-objdump --section-headers %t.so | FileCheck --check-prefix=CheckGot %s
-// RUN: llvm-objdump -D %t.so | FileCheck --check-prefix=Dis %s
+// RUN: llvm-objdump -d %t.so | FileCheck --check-prefix=Dis %s
 
 	.text
 	.abiversion 2

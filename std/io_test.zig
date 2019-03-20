@@ -381,8 +381,10 @@ fn testIntSerializerDeserializer(comptime endian: builtin.Endian, comptime is_pa
 test "Serializer/Deserializer Int" {
     try testIntSerializerDeserializer(builtin.Endian.Big, false);
     try testIntSerializerDeserializer(builtin.Endian.Little, false);
-    try testIntSerializerDeserializer(builtin.Endian.Big, true);
-    try testIntSerializerDeserializer(builtin.Endian.Little, true);
+    // TODO these tests are disabled due to tripping an LLVM assertion
+    // https://github.com/ziglang/zig/issues/2019
+    //try testIntSerializerDeserializer(builtin.Endian.Big, true);
+    //try testIntSerializerDeserializer(builtin.Endian.Little, true);
 }
 
 fn testIntSerializerDeserializerInfNaN(

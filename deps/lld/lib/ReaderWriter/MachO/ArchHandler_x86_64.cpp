@@ -80,6 +80,7 @@ public:
     switch (ref->kindValue()) {
     case ripRel32Got:
       assert(targetNowGOT && "target must be GOT");
+      LLVM_FALLTHROUGH;
     case ripRel32GotLoad:
       const_cast<Reference *>(ref)
         ->setKindValue(targetNowGOT ? ripRel32 : ripRel32GotLoadNowLea);

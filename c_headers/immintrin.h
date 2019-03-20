@@ -306,6 +306,65 @@ _writegsbase_u64(unsigned long long __V)
 #endif
 #endif /* __FSGSBASE__ */
 
+#if !defined(_MSC_VER) || __has_feature(modules) || defined(__MOVBE__)
+
+/* The structs used below are to force the load/store to be unaligned. This
+ * is accomplished with the __packed__ attribute. The __may_alias__ prevents
+ * tbaa metadata from being generated based on the struct and the type of the
+ * field inside of it.
+ */
+
+static __inline__ short __attribute__((__always_inline__, __nodebug__, __target__("movbe")))
+_loadbe_i16(void const * __P) {
+  struct __loadu_i16 {
+    short __v;
+  } __attribute__((__packed__, __may_alias__));
+  return __builtin_bswap16(((struct __loadu_i16*)__P)->__v);
+}
+
+static __inline__ void __attribute__((__always_inline__, __nodebug__, __target__("movbe")))
+_storebe_i16(void * __P, short __D) {
+  struct __storeu_i16 {
+    short __v;
+  } __attribute__((__packed__, __may_alias__));
+  ((struct __storeu_i16*)__P)->__v = __builtin_bswap16(__D);
+}
+
+static __inline__ int __attribute__((__always_inline__, __nodebug__, __target__("movbe")))
+_loadbe_i32(void const * __P) {
+  struct __loadu_i32 {
+    int __v;
+  } __attribute__((__packed__, __may_alias__));
+  return __builtin_bswap32(((struct __loadu_i32*)__P)->__v);
+}
+
+static __inline__ void __attribute__((__always_inline__, __nodebug__, __target__("movbe")))
+_storebe_i32(void * __P, int __D) {
+  struct __storeu_i32 {
+    int __v;
+  } __attribute__((__packed__, __may_alias__));
+  ((struct __storeu_i32*)__P)->__v = __builtin_bswap32(__D);
+}
+
+#ifdef __x86_64__
+static __inline__ long long __attribute__((__always_inline__, __nodebug__, __target__("movbe")))
+_loadbe_i64(void const * __P) {
+  struct __loadu_i64 {
+    long long __v;
+  } __attribute__((__packed__, __may_alias__));
+  return __builtin_bswap64(((struct __loadu_i64*)__P)->__v);
+}
+
+static __inline__ void __attribute__((__always_inline__, __nodebug__, __target__("movbe")))
+_storebe_i64(void * __P, long long __D) {
+  struct __storeu_i64 {
+    long long __v;
+  } __attribute__((__packed__, __may_alias__));
+  ((struct __storeu_i64*)__P)->__v = __builtin_bswap64(__D);
+}
+#endif
+#endif /* __MOVBE */
+
 #if !defined(_MSC_VER) || __has_feature(modules) || defined(__RTM__)
 #include <rtmintrin.h>
 #include <xtestintrin.h>

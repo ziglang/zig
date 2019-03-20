@@ -7,11 +7,11 @@
 # ABB:      Symbols [
 # ABB-NEXT:   Symbol {
 # ABB-NEXT:     Version: 0
-# ABB-NEXT:     Name: @
+# ABB-NEXT:     Name:
 # ABB-NEXT:   }
 # ABB-NEXT:   Symbol {
 # ABB-NEXT:     Version: 1
-# ABB-NEXT:     Name: _Z3abci@
+# ABB-NEXT:     Name: _Z3abci
 # ABB-NEXT:   }
 # ABB-NEXT: ]
 
@@ -26,11 +26,11 @@
 # ABC:      Symbols [
 # ABC-NEXT:   Symbol {
 # ABC-NEXT:     Version: 0
-# ABC-NEXT:     Name: @
+# ABC-NEXT:     Name:
 # ABC-NEXT:   }
 # ABC-NEXT:   Symbol {
 # ABC-NEXT:     Version: 1
-# ABC-NEXT:     Name: _Z3abbi@
+# ABC-NEXT:     Name: _Z3abbi
 # ABC-NEXT:   }
 # ABC-NEXT: ]
 

@@ -1,7 +1,7 @@
 LLD - The LLVM Linker
 =====================
 
-LLD is a linker from the LLVM project. That is a drop-in replacement
+LLD is a linker from the LLVM project that is a drop-in replacement
 for system linkers and runs much faster than them. It also provides
 features that are useful for toolchain developers.
 
@@ -17,7 +17,7 @@ read :doc:`AtomLLD`.
 Features
 --------
 
-- LLD is a drop-in replacement for the GNU linkers. That accepts the
+- LLD is a drop-in replacement for the GNU linkers that accepts the
   same command line arguments and linker scripts as GNU.
 
   We are currently working closely with the FreeBSD project to make
@@ -30,29 +30,27 @@ Features
   <https://www.freebsd.org/news/status/report-2016-10-2016-12.html#Using-LLVM%27s-LLD-Linker-as-FreeBSD%27s-System-Linker>`_.
 
 - LLD is very fast. When you link a large program on a multicore
-  machine, you can expect that LLD runs more than twice as fast as GNU
+  machine, you can expect that LLD runs more than twice as fast as the GNU
   gold linker. Your milage may vary, though.
 
 - It supports various CPUs/ABIs including x86-64, x86, x32, AArch64,
   ARM, MIPS 32/64 big/little-endian, PowerPC, PowerPC 64 and AMDGPU.
-  Among these, x86-64 is the most well-supported target and have
-  reached production quality. AArch64 and MIPS seem decent too. x86
-  should be OK but not well tested yet. ARM support is being developed
-  actively.
+  Among these, x86-64, AArch64, and ARM (>= v6) are production quality.
+  MIPS seems decent too. x86 should be OK but is not well tested yet.
 
 - It is always a cross-linker, meaning that it always supports all the
   above targets however it was built. In fact, we don't provide a
   build-time option to enable/disable each target. This should make it
   easy to use our linker as part of a cross-compile toolchain.
 
-- You can embed LLD to your program to eliminate dependency to
+- You can embed LLD in your program to eliminate dependencies on
   external linkers. All you have to do is to construct object files
   and command line arguments just like you would do to invoke an
   external linker and then call the linker's main function,
   ``lld::elf::link``, from your code.
 
 - It is small. We are using LLVM libObject library to read from object
-  files, so it is not completely a fair comparison, but as of February
+  files, so it is not a completely fair comparison, but as of February
   2017, LLD/ELF consists only of 21k lines of C++ code while GNU gold
   consists of 198k lines of C++ code.
 
@@ -102,8 +100,8 @@ under ``tools`` directory just like you probably did for clang. For the
 details, see `Getting Started with the LLVM System
 <http://llvm.org/docs/GettingStarted.html>`_.
 
-If you haven't checkout out LLVM, the easiest way to build LLD is to
-checkout the entire LLVM projects/sub-projects from a git mirror and
+If you haven't checked out LLVM, the easiest way to build LLD is to
+check out the entire LLVM projects/sub-projects from a git mirror and
 build that tree. You need `cmake` and of course a C++ compiler.
 
 .. code-block:: console
@@ -175,4 +173,5 @@ document soon.
    AtomLLD
    WebAssembly
    windows_support
+   missingkeyfunction
    ReleaseNotes

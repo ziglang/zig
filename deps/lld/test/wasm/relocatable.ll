@@ -63,7 +63,7 @@ entry:
 ; CHECK-NEXT:     FunctionTypes:   [ 2, 1, 1 ]
 ; CHECK-NEXT:   - Type:            TABLE
 ; CHECK-NEXT:     Tables:
-; CHECK-NEXT:       - ElemType:        ANYFUNC
+; CHECK-NEXT:       - ElemType:        FUNCREF
 ; CHECK-NEXT:         Limits:
 ; CHECK-NEXT:           Flags:           [ HAS_MAX ]
 ; CHECK-NEXT:           Initial:         0x00000004
@@ -157,7 +157,7 @@ entry:
 ; CHECK-NEXT:         Content:         '616263'
 ; CHECK-NEXT:   - Type:            CUSTOM
 ; CHECK-NEXT:     Name:            linking
-; CHECK-NEXT:     Version:         1
+; CHECK-NEXT:     Version:         2
 ; CHECK-NEXT:     SymbolTable:
 ; CHECK-NEXT:       - Index:           0
 ; CHECK-NEXT:         Kind:            FUNCTION
@@ -232,27 +232,27 @@ entry:
 ; CHECK-NEXT:     SegmentInfo:
 ; CHECK-NEXT:       - Index:           0
 ; CHECK-NEXT:         Name:            .rodata.hello_str
-; CHECK-NEXT:         Alignment:       1
+; CHECK-NEXT:         Alignment:       0
 ; CHECK-NEXT:         Flags:           [  ]
 ; CHECK-NEXT:       - Index:           1
 ; CHECK-NEXT:         Name:            .data.func_addr1
-; CHECK-NEXT:         Alignment:       4
+; CHECK-NEXT:         Alignment:       2
 ; CHECK-NEXT:         Flags:           [  ]
 ; CHECK-NEXT:       - Index:           2
 ; CHECK-NEXT:         Name:            .data.func_addr2
-; CHECK-NEXT:         Alignment:       4
+; CHECK-NEXT:         Alignment:       2
 ; CHECK-NEXT:         Flags:           [  ]
 ; CHECK-NEXT:       - Index:           3
 ; CHECK-NEXT:         Name:            .data.func_addr3
-; CHECK-NEXT:         Alignment:       4
+; CHECK-NEXT:         Alignment:       2
 ; CHECK-NEXT:         Flags:           [  ]
 ; CHECK-NEXT:       - Index:           4
 ; CHECK-NEXT:         Name:            .data.data_addr1
-; CHECK-NEXT:         Alignment:       8
+; CHECK-NEXT:         Alignment:       3
 ; CHECK-NEXT:         Flags:           [  ]
 ; CHECK-NEXT:       - Index:           5
 ; CHECK-NEXT:         Name:            .rodata.data_comdat
-; CHECK-NEXT:         Alignment:       1
+; CHECK-NEXT:         Alignment:       0
 ; CHECK-NEXT:         Flags:           [  ]
 ; CHECK-NEXT:     Comdats:
 ; CHECK-NEXT:       - Name:            func_comdat

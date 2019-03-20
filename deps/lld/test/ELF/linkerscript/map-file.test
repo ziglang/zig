@@ -44,10 +44,10 @@ SECTIONS {
 # CHECK-NEXT:   2017             2017      246     1         . += 0x123 * ( 1 + 1 )
 # CHECK-NEXT:   225d             225d        0     1         foo = .
 # CHECK-NEXT:   225d             225d        0     1         bar = 0x42 - 0x26
-# CHECK-NEXT:   225d                0        0     1 sym1 = .
-# CHECK-NEXT:   225d                0      500     1 . += 0x500
-# CHECK-NEXT:   275d                0        0     1 sym2 = .
-# CHECK-NEXT:   275d                0        0     1 PROVIDE ( sym3 = 42 )
+# CHECK-NEXT:   225d             225d        0     1 sym1 = .
+# CHECK-NEXT:   225d             225d      500     1 . += 0x500
+# CHECK-NEXT:   275d             275d        0     1 sym2 = .
+# CHECK-NEXT:   275d             275d        0     1 PROVIDE ( sym3 = 42 )
 # CHECK-NEXT:   2760             2760       10     4 .text
 # CHECK-NEXT:   2760             2760       10     4         {{.*}}{{/|\\}}map-file.test.tmp.o:(.text)
 # CHECK-NEXT:      0                0        8     1 .comment

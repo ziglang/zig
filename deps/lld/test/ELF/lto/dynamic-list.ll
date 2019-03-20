@@ -4,7 +4,7 @@
 ; RUN: ld.lld -o %t --dynamic-list %t.list -pie %t.o
 ; RUN: llvm-readobj -dyn-symbols %t | FileCheck %s
 
-; CHECK:      Name:     foo@
+; CHECK:      Name:     foo
 ; CHECK-NEXT: Value:    0x1010
 ; CHECK-NEXT: Size:     1
 ; CHECK-NEXT: Binding:  Global (0x1)

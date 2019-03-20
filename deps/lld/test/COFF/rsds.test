@@ -1,9 +1,9 @@
 # RUN: yaml2obj %s > %t.obj
 
 # RUN: rm -f %t.dll %t.pdb
-# RUN: lld-link /debug /pdbaltpath:test1.pdb /dll /out:%t.dll /entry:DllMain %t.obj
+# RUN: lld-link /debug /pdbaltpath:test.pdb /dll /out:%t.dll /entry:DllMain %t.obj
 # RUN: llvm-readobj -coff-debug-directory %t.dll > %t.1.txt
-# RUN: lld-link /debug /pdbaltpath:test2.pdb /dll /out:%t.dll /entry:DllMain %t.obj
+# RUN: lld-link /debug /pdbaltpath:test.pdb /dll /out:%t.dll /entry:DllMain %t.obj
 # RUN: llvm-readobj -coff-debug-directory %t.dll > %t.2.txt
 # RUN: cat %t.1.txt %t.2.txt | FileCheck %s
 
@@ -12,7 +12,19 @@
 # RUN: llvm-readobj -coff-debug-directory %t.dll > %t.3.txt
 # RUN: lld-link /debug /pdb:%t2.pdb /dll /out:%t.dll /entry:DllMain %t.obj
 # RUN: llvm-readobj -coff-debug-directory %t.dll > %t.4.txt
-# RUN: cat %t.3.txt %t.4.txt | FileCheck %s
+# RUN: cat %t.3.txt %t.4.txt | FileCheck --check-prefix TWOPDBS %s
+
+# RUN: rm -f %t.dll %t.pdb
+# RUN: lld-link /Brepro /dll /out:%t.dll /entry:DllMain %t.obj
+# RUN: llvm-readobj -coff-debug-directory %t.dll | FileCheck --check-prefix REPRO %s
+
+# RUN: rm -f %t.dll %t.pdb
+# RUN: lld-link /Brepro /debug /dll /out:%t.dll /entry:DllMain %t.obj
+# RUN: llvm-readobj -coff-debug-directory %t.dll | FileCheck --check-prefix REPRODEBUG %s
+
+# RUN: rm -f %t.dll %t.pdb
+# RUN: lld-link /lldmingw /debug:dwarf /dll /out:%t.dll /entry:DllMain %t.obj
+# RUN: llvm-readobj -coff-debug-directory %t.dll | FileCheck --check-prefix MINGW %s
 
 # CHECK: File: [[FILE:.*]].dll
 # CHECK: DebugDirectory [
@@ -29,7 +41,7 @@
 # CHECK:       PDBSignature: 0x53445352
 # CHECK:       PDBGUID: [[GUID:\(([A-Za-z0-9]{2} ?){16}\)]]
 # CHECK:       PDBAge: 1
-# CHECK:       PDBFileName: {{.*}}1.pdb
+# CHECK:       PDBFileName: {{.*}}.pdb
 # CHECK:     }
 # CHECK:   }
 # CHECK: ]
@@ -47,12 +59,114 @@
 # CHECK:     PDBInfo {
 # CHECK:       PDBSignature: 0x53445352
 # CHECK:       PDBGUID: [[GUID]]
-# CHECK:       PDBAge: 2
-# CHECK:       PDBFileName: {{.*}}2.pdb
+# CHECK:       PDBAge: 1
+# CHECK:       PDBFileName: {{.*}}.pdb
 # CHECK:     }
 # CHECK:   }
 # CHECK: ]
 
+# TWOPDBS: File: [[FILE:.*]].dll
+# TWOPDBS: DebugDirectory [
+# TWOPDBS:   DebugEntry {
+# TWOPDBS:     Characteristics: 0x0
+# TWOPDBS:     TimeDateStamp: 
+# TWOPDBS:     MajorVersion: 0x0
+# TWOPDBS:     MinorVersion: 0x0
+# TWOPDBS:     Type: CodeView (0x2)
+# TWOPDBS:     SizeOfData: 0x{{[^0]}}
+# TWOPDBS:     AddressOfRawData: 0x{{[^0]}}
+# TWOPDBS:     PointerToRawData: 0x{{[^0]}}
+# TWOPDBS:     PDBInfo {
+# TWOPDBS:       PDBSignature: 0x53445352
+# TWOPDBS:       PDBGUID: [[GUID:\(([A-Za-z0-9]{2} ?){16}\)]]
+# TWOPDBS:       PDBAge: 1
+# TWOPDBS:       PDBFileName: {{.*}}.pdb
+# TWOPDBS:     }
+# TWOPDBS:   }
+# TWOPDBS: ]
+# TWOPDBS: File: [[FILE]].dll
+# TWOPDBS: DebugDirectory [
+# TWOPDBS:   DebugEntry {
+# TWOPDBS:     Characteristics: 0x0
+# TWOPDBS:     TimeDateStamp: 
+# TWOPDBS:     MajorVersion: 0x0
+# TWOPDBS:     MinorVersion: 0x0
+# TWOPDBS:     Type: CodeView (0x2)
+# TWOPDBS:     SizeOfData: 0x{{[^0]}}
+# TWOPDBS:     AddressOfRawData: 0x{{[^0]}}
+# TWOPDBS:     PointerToRawData: 0x{{[^0]}}
+# TWOPDBS:     PDBInfo {
+# TWOPDBS:       PDBSignature: 0x53445352
+# TWOPDBS-NOT:       PDBGUID: [[GUID]]
+# TWOPDBS:       PDBAge: 1
+# TWOPDBS:       PDBFileName: {{.*}}.pdb
+# TWOPDBS:     }
+# TWOPDBS:   }
+# TWOPDBS: ]
+
+# REPRO: File: {{.*}}.dll
+# REPRO: DebugDirectory [
+# REPRO:   DebugEntry {
+# REPRO:     Characteristics: 0x0
+# REPRO:     TimeDateStamp: 
+# REPRO:     MajorVersion: 0x0
+# REPRO:     MinorVersion: 0x0
+# REPRO:     Type: Repro (0x10)
+# REPRO:     SizeOfData: 0x0
+# REPRO:     AddressOfRawData: 0x0
+# REPRO:     PointerToRawData: 0x0
+# REPRO:   }
+# REPRO: ]
+
+# REPRODEBUG: File: {{.*}}.dll
+# REPRODEBUG: DebugDirectory [
+# REPRODEBUG:   DebugEntry {
+# REPRODEBUG:     Characteristics: 0x0
+# REPRODEBUG:     TimeDateStamp: 
+# REPRODEBUG:     MajorVersion: 0x0
+# REPRODEBUG:     MinorVersion: 0x0
+# REPRODEBUG:     Type: CodeView (0x2)
+# REPRODEBUG:     SizeOfData: 0x{{[^0]}}
+# REPRODEBUG:     AddressOfRawData: 0x{{[^0]}}
+# REPRODEBUG:     PointerToRawData: 0x{{[^0]}}
+# REPRODEBUG:     PDBInfo {
+# REPRODEBUG:       PDBSignature: 0x53445352
+# REPRODEBUG:       PDBGUID: 
+# REPRODEBUG:       PDBAge: 1
+# REPRODEBUG:       PDBFileName:
+# REPRODEBUG:     }
+# REPRODEBUG:   }
+# REPRODEBUG:   DebugEntry {
+# REPRODEBUG:     Characteristics: 0x0
+# REPRODEBUG:     TimeDateStamp: 
+# REPRODEBUG:     MajorVersion: 0x0
+# REPRODEBUG:     MinorVersion: 0x0
+# REPRODEBUG:     Type: Repro (0x10)
+# REPRODEBUG:     SizeOfData: 0x0
+# REPRODEBUG:     AddressOfRawData: 0x0
+# REPRODEBUG:     PointerToRawData: 0x0
+# REPRODEBUG:   }
+# REPRODEBUG: ]
+
+# MINGW: File: {{.*}}.dll
+# MINGW: DebugDirectory [
+# MINGW:   DebugEntry {
+# MINGW:     Characteristics: 0x0
+# MINGW:     TimeDateStamp:
+# MINGW:     MajorVersion: 0x0
+# MINGW:     MinorVersion: 0x0
+# MINGW:     Type: CodeView (0x2)
+# MINGW:     SizeOfData: 0x{{[^0]}}
+# MINGW:     AddressOfRawData: 0x{{[^0]}}
+# MINGW:     PointerToRawData: 0x{{[^0]}}
+# MINGW:     PDBInfo {
+# MINGW:       PDBSignature: 0x53445352
+# MINGW:       PDBGUID: [[GUID:\(([A-Za-z0-9]{2} ?){16}\)]]
+# MINGW:       PDBAge: 1
+# MINGW:       PDBFileName:
+# MINGW:     }
+# MINGW:   }
+# MINGW: ]
 --- !COFF
 header:
   Machine:         IMAGE_FILE_MACHINE_I386

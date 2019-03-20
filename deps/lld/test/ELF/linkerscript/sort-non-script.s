@@ -3,7 +3,7 @@
 
 # RUN: echo "SECTIONS { foo : {*(foo)} }" > %t.script
 # RUN: ld.lld --hash-style=sysv -o %t --script %t.script %t.o -shared
-# RUN: llvm-readelf -s %t | FileCheck %s
+# RUN: llvm-readelf -S %t | FileCheck %s
 
 # CHECK:      .dynsym  {{.*}}   A
 # CHECK-NEXT: .hash    {{.*}}   A

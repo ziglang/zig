@@ -16,14 +16,6 @@
 #include <mutex>
 #include <vector>
 
-#if defined(_MSC_VER)
-#include <Windows.h>
-
-// DbgHelp.h must be included after Windows.h.
-#include <DbgHelp.h>
-#pragma comment(lib, "dbghelp.lib")
-#endif
-
 using namespace llvm;
 using namespace lld;
 
@@ -45,18 +37,21 @@ Optional<std::string> lld::demangleItanium(StringRef Name) {
   return S;
 }
 
-Optional<std::string> lld::demangleMSVC(StringRef S) {
-#if defined(_MSC_VER)
-  // UnDecorateSymbolName is not thread-safe, so we need a mutex.
-  static std::mutex Mu;
-  std::lock_guard<std::mutex> Lock(Mu);
+Optional<std::string> lld::demangleMSVC(StringRef Name) {
+  std::string Prefix;
+  if (Name.consume_front("__imp_"))
+    Prefix = "__declspec(dllimport) ";
 
-  char Buf[4096];
-  if (S.startswith("?"))
-    if (size_t Len = UnDecorateSymbolName(S.str().c_str(), Buf, sizeof(Buf), 0))
-      return std::string(Buf, Len);
-#endif
-  return None;
+  // Demangle only C++ names.
+  if (!Name.startswith("?"))
+    return None;
+
+  char *Buf = microsoftDemangle(Name.str().c_str(), nullptr, nullptr, nullptr);
+  if (!Buf)
+    return None;
+  std::string S(Buf);
+  free(Buf);
+  return Prefix + S;
 }
 
 StringMatcher::StringMatcher(ArrayRef<StringRef> Pat) {

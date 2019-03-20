@@ -18,13 +18,13 @@
 # CHECK-NEXT:  60040 00000000 00000000 00000000
 
 # CHECK: SYMBOL TABLE:
-# CHECK: 00000000 l       .tdata          00000000 loc0
-# CHECK: 00010000         .text           00000000 foo0
-# CHECK: 00000000 g       .tdata          00000000 tls0
-# CHECK: 00010020         .text           00000000 foo1
-# CHECK: 00000004 g       .tdata          00000000 tls1
-# CHECK: 00010030         .text           00000000 foo2
-# CHECK: 00000008 g       .tdata          00000000 tls2
+# CHECK: 00000000 l    O .tdata          00000000 loc0
+# CHECK: 00010000        .text           00000000 foo0
+# CHECK: 00000000 g    O .tdata          00000000 tls0
+# CHECK: 00010020        .text           00000000 foo1
+# CHECK: 00000004 g    O .tdata          00000000 tls1
+# CHECK: 00010030        .text           00000000 foo2
+# CHECK: 00000008 g    O .tdata          00000000 tls2
 
 # GOT:      Relocations [
 # GOT-NEXT:   Section (7) .rel.dyn {

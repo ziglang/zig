@@ -55,7 +55,7 @@ private:
   std::vector<std::unique_ptr<MemoryBuffer>> Files;
   llvm::DenseSet<StringRef> UsedStartStop;
   std::unique_ptr<llvm::raw_fd_ostream> IndexFile;
-  llvm::StringMap<bool> ObjectToIndexFileState;
+  llvm::DenseSet<StringRef> ThinIndices;
 };
 } // namespace elf
 } // namespace lld

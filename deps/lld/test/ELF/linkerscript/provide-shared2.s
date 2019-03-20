@@ -6,7 +6,7 @@
 # RUN: ld.lld -o %t --script %t.script %t.o %t2.so
 # RUN: llvm-readelf --dyn-symbols %t | FileCheck  %s
 
-# CHECK: 1 1: 000000000000002a 0 NOTYPE GLOBAL DEFAULT ABS foo@
+# CHECK: 1 1: 000000000000002a 0 NOTYPE GLOBAL DEFAULT ABS foo
 
 .global _start
 _start:

@@ -1,5 +1,5 @@
 // REQUIRES: arm
-// RUN: llvm-mc -filetype=obj -triple=armv7a-none-linux-gnueabi %s -o %t.o
+// RUN: llvm-mc -arm-add-build-attributes -filetype=obj -triple=armv7a-none-linux-gnueabi %s -o %t.o
 // RUN: echo "SECTIONS { \
 // RUN:           .text_armfunc 0x1000 : { *(.text_armfunc) } \
 // RUN:           .text_thumbfunc 0x11010 : { *(.text_thumbfunc) } \

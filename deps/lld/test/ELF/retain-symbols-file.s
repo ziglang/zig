@@ -11,7 +11,7 @@
 
 # CHECK:      DynamicSymbols [
 # CHECK-NEXT:   Symbol {
-# CHECK-NEXT:     Name: @
+# CHECK-NEXT:     Name:
 # CHECK-NEXT:     Value:
 # CHECK-NEXT:     Size:
 # CHECK-NEXT:     Binding:

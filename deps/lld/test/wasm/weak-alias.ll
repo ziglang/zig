@@ -1,6 +1,6 @@
 ; RUN: llc -filetype=obj -o %t.o %s
 ; RUN: llc -filetype=obj %S/Inputs/weak-alias.ll -o %t2.o
-; RUN: wasm-ld %t.o %t2.o -o %t.wasm
+; RUN: wasm-ld --export-dynamic %t.o %t2.o -o %t.wasm
 ; RUN: obj2yaml %t.wasm | FileCheck %s
 
 ; Test that weak aliases (alias_fn is a weak alias of direct_fn) are linked correctly
@@ -32,7 +32,7 @@ entry:
 ; CHECK-NEXT:     FunctionTypes:   [ 0, 0, 1, 1, 1, 1, 1 ]
 ; CHECK-NEXT:   - Type:            TABLE
 ; CHECK-NEXT:     Tables:
-; CHECK-NEXT:       - ElemType:        ANYFUNC
+; CHECK-NEXT:       - ElemType:        FUNCREF
 ; CHECK-NEXT:         Limits:
 ; CHECK-NEXT:           Flags:           [ HAS_MAX ]
 ; CHECK-NEXT:           Initial:         0x00000002
@@ -170,7 +170,7 @@ entry:
 ; RELOC-NEXT:     FunctionTypes:   [ 0, 1, 1, 1, 1, 1 ]
 ; RELOC-NEXT:   - Type:            TABLE
 ; RELOC-NEXT:     Tables:
-; RELOC-NEXT:       - ElemType:        ANYFUNC
+; RELOC-NEXT:       - ElemType:        FUNCREF
 ; RELOC-NEXT:         Limits:
 ; RELOC-NEXT:           Flags:           [ HAS_MAX ]
 ; RELOC-NEXT:           Initial:         0x00000002
@@ -187,13 +187,13 @@ entry:
 ; RELOC-NEXT:   - Type:            CODE
 ; RELOC-NEXT:     Relocations:
 ; RELOC-NEXT:       - Type:            R_WEBASSEMBLY_FUNCTION_INDEX_LEB
-; RELOC-NEXT:         Index:           4
+; RELOC-NEXT:         Index:           1
 ; RELOC-NEXT:         Offset:          0x00000004
 ; RELOC-NEXT:       - Type:            R_WEBASSEMBLY_FUNCTION_INDEX_LEB
-; RELOC-NEXT:         Index:           1
+; RELOC-NEXT:         Index:           2
 ; RELOC-NEXT:         Offset:          0x00000013
 ; RELOC-NEXT:       - Type:            R_WEBASSEMBLY_FUNCTION_INDEX_LEB
-; RELOC-NEXT:         Index:           4
+; RELOC-NEXT:         Index:           1
 ; RELOC-NEXT:         Offset:          0x0000001C
 ; RELOC-NEXT:       - Type:            R_WEBASSEMBLY_GLOBAL_INDEX_LEB
 ; RELOC-NEXT:         Index:           6
@@ -202,10 +202,10 @@ entry:
 ; RELOC-NEXT:         Index:           6
 ; RELOC-NEXT:         Offset:          0x00000032
 ; RELOC-NEXT:       - Type:            R_WEBASSEMBLY_TABLE_INDEX_SLEB
-; RELOC-NEXT:         Index:           4
+; RELOC-NEXT:         Index:           1
 ; RELOC-NEXT:         Offset:          0x0000003A
 ; RELOC-NEXT:       - Type:            R_WEBASSEMBLY_FUNCTION_INDEX_LEB
-; RELOC-NEXT:         Index:           4
+; RELOC-NEXT:         Index:           1
 ; RELOC-NEXT:         Offset:          0x00000043
 ; RELOC-NEXT:       - Type:            R_WEBASSEMBLY_GLOBAL_INDEX_LEB
 ; RELOC-NEXT:         Index:           6
@@ -217,10 +217,10 @@ entry:
 ; RELOC-NEXT:         Index:           6
 ; RELOC-NEXT:         Offset:          0x00000068
 ; RELOC-NEXT:       - Type:            R_WEBASSEMBLY_TABLE_INDEX_SLEB
-; RELOC-NEXT:         Index:           1
+; RELOC-NEXT:         Index:           2
 ; RELOC-NEXT:         Offset:          0x00000070
 ; RELOC-NEXT:       - Type:            R_WEBASSEMBLY_FUNCTION_INDEX_LEB
-; RELOC-NEXT:         Index:           1
+; RELOC-NEXT:         Index:           2
 ; RELOC-NEXT:         Offset:          0x00000079
 ; RELOC-NEXT:       - Type:            R_WEBASSEMBLY_GLOBAL_INDEX_LEB
 ; RELOC-NEXT:         Index:           6
@@ -250,7 +250,7 @@ entry:
 ; RELOC-NEXT:         Body:            23808080800041106B220024808080800020004181808080003602081081808080002101200041106A24808080800020010B
 ; RELOC-NEXT:   - Type:            CUSTOM
 ; RELOC-NEXT:     Name:            linking
-; RELOC-NEXT:     Version:         1
+; RELOC-NEXT:     Version:         2
 ; RELOC-NEXT:     SymbolTable:
 ; RELOC-NEXT:       - Index:           0
 ; RELOC-NEXT:         Kind:            FUNCTION
@@ -259,24 +259,24 @@ entry:
 ; RELOC-NEXT:         Function:        0
 ; RELOC-NEXT:       - Index:           1
 ; RELOC-NEXT:         Kind:            FUNCTION
+; RELOC-NEXT:         Name:            alias_fn
+; RELOC-NEXT:         Flags:           [ BINDING_WEAK ]
+; RELOC-NEXT:         Function:        1
+; RELOC-NEXT:       - Index:           2
+; RELOC-NEXT:         Kind:            FUNCTION
 ; RELOC-NEXT:         Name:            direct_fn
 ; RELOC-NEXT:         Flags:           [  ]
 ; RELOC-NEXT:         Function:        1
-; RELOC-NEXT:       - Index:           2
+; RELOC-NEXT:       - Index:           3
 ; RELOC-NEXT:         Kind:            FUNCTION
 ; RELOC-NEXT:         Name:            call_direct
 ; RELOC-NEXT:         Flags:           [  ]
 ; RELOC-NEXT:         Function:        2
-; RELOC-NEXT:       - Index:           3
+; RELOC-NEXT:       - Index:           4
 ; RELOC-NEXT:         Kind:            FUNCTION
 ; RELOC-NEXT:         Name:            call_alias
 ; RELOC-NEXT:         Flags:           [  ]
 ; RELOC-NEXT:         Function:        3
-; RELOC-NEXT:       - Index:           4
-; RELOC-NEXT:         Kind:            FUNCTION
-; RELOC-NEXT:         Name:            alias_fn
-; RELOC-NEXT:         Flags:           [ BINDING_WEAK ]
-; RELOC-NEXT:         Function:        1
 ; RELOC-NEXT:       - Index:           5
 ; RELOC-NEXT:         Kind:            FUNCTION
 ; RELOC-NEXT:         Name:            call_alias_ptr

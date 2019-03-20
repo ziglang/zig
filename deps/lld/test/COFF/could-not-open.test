@@ -1,0 +1,5 @@
+RUN: not lld-link 01 2>&1 | FileCheck %s
+
+CHECK:     could not open 01
+CHECK-NOT: /machine is not specified
+CHECK-NOT: subsystem must be defined

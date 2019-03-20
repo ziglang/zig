@@ -34,8 +34,8 @@ public:
     Header.Characteristics = Chars;
   }
   void addChunk(Chunk *C);
+  void insertChunkAtStart(Chunk *C);
   void merge(OutputSection *Other);
-  ArrayRef<Chunk *> getChunks() { return Chunks; }
   void addPermissions(uint32_t C);
   void setPermissions(uint32_t C);
   uint64_t getRVA() { return Header.VirtualAddress; }
@@ -62,9 +62,11 @@ public:
   llvm::StringRef Name;
   llvm::object::coff_section Header = {};
 
+  std::vector<Chunk *> Chunks;
+  std::vector<Chunk *> OrigChunks;
+
 private:
   uint32_t StringTableOff = 0;
-  std::vector<Chunk *> Chunks;
 };
 
 }

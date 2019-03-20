@@ -8,21 +8,21 @@
 
 // NORELOC:      Relocations [
 // NORELOC-NEXT: Section ({{.*}}) .rel.dyn {
-// NORELOC-NEXT:   0x12058 R_386_TLS_TPOFF tlsshared0 0x0
-// NORELOC-NEXT:   0x1205C R_386_TLS_TPOFF tlsshared1 0x0
+// NORELOC-NEXT:   0x402058 R_386_TLS_TPOFF tlsshared0 0x0
+// NORELOC-NEXT:   0x40205C R_386_TLS_TPOFF tlsshared1 0x0
 // NORELOC-NEXT:   }
 // NORELOC-NEXT: ]
 
 // DISASM:      Disassembly of section .text:
 // DISASM-NEXT: _start:
-// DISASM-NEXT: 11000: 65 a1 00 00 00 00 movl %gs:0, %eax
-// DISASM-NEXT: 11006: 03 83 f8 ff ff ff addl -8(%ebx), %eax
-// DISASM-NEXT: 1100c: 65 a1 00 00 00 00 movl %gs:0, %eax
-// DISASM-NEXT: 11012: 03 83 fc ff ff ff addl -4(%ebx), %eax
-// DISASM-NEXT: 11018: 65 a1 00 00 00 00 movl %gs:0, %eax
-// DISASM-NEXT: 1101e: 81 e8 08 00 00 00 subl $8, %eax
-// DISASM-NEXT: 11024: 65 a1 00 00 00 00 movl %gs:0, %eax
-// DISASM-NEXT: 1102a: 81 e8 04 00 00 00 subl $4, %eax
+// DISASM-NEXT: 401000: 65 a1 00 00 00 00 movl %gs:0, %eax
+// DISASM-NEXT: 401006: 03 83 f8 ff ff ff addl -8(%ebx), %eax
+// DISASM-NEXT: 40100c: 65 a1 00 00 00 00 movl %gs:0, %eax
+// DISASM-NEXT: 401012: 03 83 fc ff ff ff addl -4(%ebx), %eax
+// DISASM-NEXT: 401018: 65 a1 00 00 00 00 movl %gs:0, %eax
+// DISASM-NEXT: 40101e: 81 e8 08 00 00 00 subl $8, %eax
+// DISASM-NEXT: 401024: 65 a1 00 00 00 00 movl %gs:0, %eax
+// DISASM-NEXT: 40102a: 81 e8 04 00 00 00 subl $4, %eax
 
 .type tlsexe1,@object
 .section .tbss,"awT",@nobits

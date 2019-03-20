@@ -17,7 +17,7 @@ mov $set_data, %eax
 // CHECK-NEXT:   SHF_ALLOC
 // CHECK-NEXT:   SHF_EXECINSTR
 // CHECK-NEXT: ]
-// CHECK-NEXT: Address: 0x11010
+// CHECK-NEXT: Address: 0x401010
 
 // CHECK:      Name:    set_data
-// CHECK-NEXT: Value:   0x11020
+// CHECK-NEXT: Value:   0x401020

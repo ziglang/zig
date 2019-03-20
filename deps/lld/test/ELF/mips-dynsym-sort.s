@@ -36,7 +36,7 @@ __start:
 # the MIPS rules. v2 comes first as it is not in the GOT.
 # v1 and v3 are sorted according to their order in the GOT.
 # CHECK: DynamicSymbols [
-# CHECK:     Name: v2@
-# CHECK:     Name: v3@
-# CHECK:     Name: v1@
+# CHECK:     Name: v2
+# CHECK:     Name: v3
+# CHECK:     Name: v1
 # CHECK: ]

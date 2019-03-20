@@ -34,14 +34,14 @@
 # BEFORE:       64:       e0 03 1f 2a     mov      w0, wzr
 # BEFORE:       68:       fe 07 41 f8     ldr     x30, [sp], #16
 # BEFORE:       6c:       c0 03 5f d6     ret
-# BEFORE:       70:       08 00 00 00     <unknown>
-# BEFORE:       74:       00 00 00 00     <unknown>
-# BEFORE:       78:       01 00 00 00     <unknown>
-# BEFORE:       7c:       01 00 00 00     <unknown>
+# BEFORE:       70:       08 00 00 00     udf #8
+# BEFORE:       74:       00 00 00 00     udf #0
+# BEFORE:       78:       01 00 00 00     udf #1
+# BEFORE:       7c:       01 00 00 00     udf #1
 # BEFORE:       80:       00 00 00 91     add     x0, x0, #0
 # BEFORE:       84:       00 00 40 91     add     x0, x0, #0, lsl #12
 # BEFORE:       88:       00 00 40 f9     ldr     x0, [x0]
-# BEFORE:       8c:       01 00 00 00     <unknown>
+# BEFORE:       8c:       01 00 00 00     udf #1
 # BEFORE:       90:       20 1a 09 30     adr x0, #74565
 # BEFORE:       94:       01 00 00 54     b.ne    #0
 # BEFORE:       98:       00 00 00 36     tbz     w0, #0, #0
@@ -76,13 +76,13 @@
 # AFTER:  140001068:      fe 07 41 f8     ldr     x30, [sp], #16
 # AFTER:  14000106c:      c0 03 5f d6     ret
 # AFTER:  140001070:      10 20 00 40     <unknown>
-# AFTER:  140001074:      01 00 00 00     <unknown>
-# AFTER:  140001078:      09 20 00 00     <unknown>
-# AFTER:  14000107c:      09 00 00 00     <unknown>
+# AFTER:  140001074:      01 00 00 00     udf #1
+# AFTER:  140001078:      09 20 00 00     udf #8201
+# AFTER:  14000107c:      09 00 00 00     udf #9
 # AFTER:  140001080:      00 20 0e 91     add     x0, x0, #904
 # AFTER:  140001084:      00 04 40 91     add     x0, x0, #1, lsl #12
 # AFTER:  140001088:      00 c4 41 f9     ldr     x0, [x0, #904]
-# AFTER:  14000108c:      03 00 00 00     <unknown>
+# AFTER:  14000108c:      03 00 00 00     udf #3
 # AFTER:  140001090:      e0 95 09 30     adr     x0, #78525
 # AFTER:  140001094:      41 00 00 54     b.ne    #8
 # AFTER:  140001098:      20 00 00 36     tbz     w0, #0, #4

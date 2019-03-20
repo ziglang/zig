@@ -62,6 +62,9 @@
 # RUN: not ld.lld %t -z foo 2>&1 | FileCheck -check-prefix=ERR10 %s
 # ERR10: unknown -z value: foo
 
+## Check we report "unknown -z value" error even with -v.
+# RUN: not ld.lld %t -z foo -v 2>&1 | FileCheck -check-prefix=ERR10 %s
+
 # RUN: not ld.lld %t -z max-page-size 2>&1 | FileCheck -check-prefix=ERR11 %s
 # ERR11: unknown -z value: max-page-size
 

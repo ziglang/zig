@@ -96,7 +96,7 @@
 # GOT-NEXT:       Value: 0x0
 # GOT-NEXT:       Type: None
 # GOT-NEXT:       Section: Undefined
-# GOT-NEXT:       Name: foo@
+# GOT-NEXT:       Name: foo
 # GOT-NEXT:     }
 # GOT-NEXT:   ]
 # GOT-NEXT:   Number of TLS and multi-GOT entries: 0

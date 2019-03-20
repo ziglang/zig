@@ -38,10 +38,10 @@ if(MSVC)
 else()
   find_path(CLANG_INCLUDE_DIRS NAMES clang/Frontend/ASTUnit.h
       PATHS
-          /usr/lib/llvm/7/include
-          /usr/lib/llvm-7/include
-          /usr/lib/llvm-7.0/include
-          /usr/local/llvm70/include
+          /usr/lib/llvm/8/include
+          /usr/lib/llvm-8/include
+          /usr/lib/llvm-8.0/include
+          /usr/local/llvm80/include
           /mingw64/include)
 
       macro(FIND_AND_ADD_CLANG_LIB _libname_)
@@ -49,10 +49,10 @@ else()
       find_library(CLANG_${_prettylibname_}_LIB NAMES ${_libname_}
           PATHS
               ${CLANG_LIBDIRS}
-              /usr/lib/llvm/7/lib
-              /usr/lib/llvm-7/lib
-              /usr/lib/llvm-7.0/lib
-              /usr/local/llvm70/lib
+              /usr/lib/llvm/8/lib
+              /usr/lib/llvm-8/lib
+              /usr/lib/llvm-8.0/lib
+              /usr/local/llvm80/lib
               /mingw64/lib
               /c/msys64/mingw64/lib
               c:\\msys64\\mingw64\\lib)

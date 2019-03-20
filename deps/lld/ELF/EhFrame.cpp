@@ -44,7 +44,7 @@ public:
 private:
   template <class P> void failOn(const P *Loc, const Twine &Msg) {
     fatal("corrupted .eh_frame: " + Msg + "\n>>> defined in " +
-          IS->getObjMsg((const uint8_t *)Loc - IS->Data.data()));
+          IS->getObjMsg((const uint8_t *)Loc - IS->data().data()));
   }
 
   uint8_t readByte();
@@ -59,7 +59,7 @@ private:
 }
 
 size_t elf::readEhRecordSize(InputSectionBase *S, size_t Off) {
-  return EhReader(S, S->Data.slice(Off)).readEhRecordSize();
+  return EhReader(S, S->data().slice(Off)).readEhRecordSize();
 }
 
 // .eh_frame section is a sequence of records. Each record starts with

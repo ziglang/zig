@@ -43,8 +43,8 @@ public:
   void relaxTlsGdToLe(uint8_t *Loc, RelType Type, uint64_t Val) const override;
   void relaxTlsIeToLe(uint8_t *Loc, RelType Type, uint64_t Val) const override;
   void relaxTlsLdToLe(uint8_t *Loc, RelType Type, uint64_t Val) const override;
-  bool adjustPrologueForCrossSplitStack(uint8_t *Loc,
-                                        uint8_t *End) const override;
+  bool adjustPrologueForCrossSplitStack(uint8_t *Loc, uint8_t *End,
+                                        uint8_t StOther) const override;
 
 private:
   void relaxGotNoPic(uint8_t *Loc, uint64_t Val, uint8_t Op,
@@ -55,6 +55,7 @@ private:
 template <class ELFT> X86_64<ELFT>::X86_64() {
   CopyRel = R_X86_64_COPY;
   GotRel = R_X86_64_GLOB_DAT;
+  NoneRel = R_X86_64_NONE;
   PltRel = R_X86_64_JUMP_SLOT;
   RelativeRel = R_X86_64_RELATIVE;
   IRelativeRel = R_X86_64_IRELATIVE;
@@ -66,7 +67,7 @@ template <class ELFT> X86_64<ELFT>::X86_64() {
   PltEntrySize = 16;
   PltHeaderSize = 16;
   TlsGdRelaxSkip = 2;
-  TrapInstr = 0xcccccccc; // 0xcc = INT3
+  TrapInstr = {0xcc, 0xcc, 0xcc, 0xcc}; // 0xcc = INT3
 
   // Align to the large page size (known as a superpage or huge page).
   // FreeBSD automatically promotes large, superpage-aligned allocations.
@@ -124,7 +125,7 @@ template <class ELFT> void X86_64<ELFT>::writeGotPltHeader(uint8_t *Buf) const {
   // required, but it is documented in the psabi and the glibc dynamic linker
   // seems to use it (note that this is relevant for linking ld.so, not any
   // other program).
-  write64le(Buf, InX::Dynamic->getVA());
+  write64le(Buf, In.Dynamic->getVA());
 }
 
 template <class ELFT>
@@ -140,8 +141,8 @@ template <class ELFT> void X86_64<ELFT>::writePltHeader(uint8_t *Buf) const {
       0x0f, 0x1f, 0x40, 0x00, // nop
   };
   memcpy(Buf, PltData, sizeof(PltData));
-  uint64_t GotPlt = InX::GotPlt->getVA();
-  uint64_t Plt = InX::Plt->getVA();
+  uint64_t GotPlt = In.GotPlt->getVA();
+  uint64_t Plt = In.Plt->getVA();
   write32le(Buf + 2, GotPlt - Plt + 2); // GOTPLT+8
   write32le(Buf + 8, GotPlt - Plt + 4); // GOTPLT+16
 }
@@ -263,15 +264,6 @@ void X86_64<ELFT>::relaxTlsIeToLe(uint8_t *Loc, RelType Type,
 template <class ELFT>
 void X86_64<ELFT>::relaxTlsLdToLe(uint8_t *Loc, RelType Type,
                                   uint64_t Val) const {
-  // Convert
-  //   leaq bar@tlsld(%rip), %rdi
-  //   callq __tls_get_addr@PLT
-  //   leaq bar@dtpoff(%rax), %rcx
-  // to
-  //   .word 0x6666
-  //   .byte 0x66
-  //   mov %fs:0,%rax
-  //   leaq bar@tpoff(%rax), %rcx
   if (Type == R_X86_64_DTPOFF64) {
     write64le(Loc, Val);
     return;
@@ -286,7 +278,37 @@ void X86_64<ELFT>::relaxTlsLdToLe(uint8_t *Loc, RelType Type,
       0x66,                                                 // .byte 0x66
       0x64, 0x48, 0x8b, 0x04, 0x25, 0x00, 0x00, 0x00, 0x00, // mov %fs:0,%rax
   };
-  memcpy(Loc - 3, Inst, sizeof(Inst));
+
+  if (Loc[4] == 0xe8) {
+    // Convert
+    //   leaq bar@tlsld(%rip), %rdi           # 48 8d 3d <Loc>
+    //   callq __tls_get_addr@PLT             # e8 <disp32>
+    //   leaq bar@dtpoff(%rax), %rcx
+    // to
+    //   .word 0x6666
+    //   .byte 0x66
+    //   mov %fs:0,%rax
+    //   leaq bar@tpoff(%rax), %rcx
+    memcpy(Loc - 3, Inst, sizeof(Inst));
+    return;
+  }
+
+  if (Loc[4] == 0xff && Loc[5] == 0x15) {
+    // Convert
+    //   leaq  x@tlsld(%rip),%rdi               # 48 8d 3d <Loc>
+    //   call *__tls_get_addr@GOTPCREL(%rip)    # ff 15 <disp32>
+    // to
+    //   .long  0x66666666
+    //   movq   %fs:0,%rax
+    // See "Table 11.9: LD -> LE Code Transition (LP64)" in
+    // https://raw.githubusercontent.com/wiki/hjl-tools/x86-psABI/x86-64-psABI-1.0.pdf
+    Loc[-3] = 0x66;
+    memcpy(Loc - 2, Inst, sizeof(Inst));
+    return;
+  }
+
+  error(getErrorLocation(Loc - 3) +
+        "expected R_X86_64_PLT32 or R_X86_64_GOTPCRELX after R_X86_64_TLSLD");
 }
 
 template <class ELFT>
@@ -481,23 +503,27 @@ namespace {
 // B) Or a load of a stack pointer offset with an lea to r10 or r11.
 template <>
 bool X86_64<ELF64LE>::adjustPrologueForCrossSplitStack(uint8_t *Loc,
-                                                       uint8_t *End) const {
+                                                       uint8_t *End,
+                                                       uint8_t StOther) const {
+  if (Loc + 8 >= End)
+    return false;
+
   // Replace "cmp %fs:0x70,%rsp" and subsequent branch
   // with "stc, nopl 0x0(%rax,%rax,1)"
-  if (Loc + 8 < End && memcmp(Loc, "\x64\x48\x3b\x24\x25", 4) == 0) {
+  if (memcmp(Loc, "\x64\x48\x3b\x24\x25", 5) == 0) {
     memcpy(Loc, "\xf9\x0f\x1f\x84\x00\x00\x00\x00", 8);
     return true;
   }
 
-  // Adjust "lea -0x200(%rsp),%r10" to lea "-0x4200(%rsp),%r10"
-  if (Loc + 7 < End && memcmp(Loc, "\x4c\x8d\x94\x24\x00\xfe\xff", 7) == 0) {
-    memcpy(Loc, "\x4c\x8d\x94\x24\x00\xbe\xff", 7);
-    return true;
-  }
-
-  // Adjust "lea -0x200(%rsp),%r11" to lea "-0x4200(%rsp),%r11"
-  if (Loc + 7 < End && memcmp(Loc, "\x4c\x8d\x9c\x24\x00\xfe\xff", 7) == 0) {
-    memcpy(Loc, "\x4c\x8d\x9c\x24\x00\xbe\xff", 7);
+  // Adjust "lea X(%rsp),%rYY" to lea "(X - 0x4000)(%rsp),%rYY" where rYY could
+  // be r10 or r11. The lea instruction feeds a subsequent compare which checks
+  // if there is X available stack space. Making X larger effectively reserves
+  // that much additional space. The stack grows downward so subtract the value.
+  if (memcmp(Loc, "\x4c\x8d\x94\x24", 4) == 0 ||
+      memcmp(Loc, "\x4c\x8d\x9c\x24", 4) == 0) {
+    // The offset bytes are encoded four bytes after the start of the
+    // instruction.
+    write32le(Loc + 4, read32le(Loc + 4) - 0x4000);
     return true;
   }
   return false;
@@ -505,7 +531,8 @@ bool X86_64<ELF64LE>::adjustPrologueForCrossSplitStack(uint8_t *Loc,
 
 template <>
 bool X86_64<ELF32LE>::adjustPrologueForCrossSplitStack(uint8_t *Loc,
-                                                       uint8_t *End) const {
+                                                       uint8_t *End,
+                                                       uint8_t StOther) const {
   llvm_unreachable("Target doesn't support split stacks.");
 }
 
@@ -566,8 +593,8 @@ template <class ELFT> void Retpoline<ELFT>::writePltHeader(uint8_t *Buf) const {
   };
   memcpy(Buf, Insn, sizeof(Insn));
 
-  uint64_t GotPlt = InX::GotPlt->getVA();
-  uint64_t Plt = InX::Plt->getVA();
+  uint64_t GotPlt = In.GotPlt->getVA();
+  uint64_t Plt = In.Plt->getVA();
   write32le(Buf + 2, GotPlt - Plt - 6 + 8);
   write32le(Buf + 9, GotPlt - Plt - 13 + 16);
 }
@@ -586,7 +613,7 @@ void Retpoline<ELFT>::writePlt(uint8_t *Buf, uint64_t GotPltEntryAddr,
   };
   memcpy(Buf, Insn, sizeof(Insn));
 
-  uint64_t Off = TargetInfo::getPltEntryOffset(Index);
+  uint64_t Off = getPltEntryOffset(Index);
 
   write32le(Buf + 3, GotPltEntryAddr - PltEntryAddr - 7);
   write32le(Buf + 8, -Off - 12 + 32);
@@ -629,7 +656,7 @@ void RetpolineZNow<ELFT>::writePlt(uint8_t *Buf, uint64_t GotPltEntryAddr,
   memcpy(Buf, Insn, sizeof(Insn));
 
   write32le(Buf + 3, GotPltEntryAddr - PltEntryAddr - 7);
-  write32le(Buf + 8, -TargetInfo::getPltEntryOffset(Index) - 12);
+  write32le(Buf + 8, -getPltEntryOffset(Index) - 12);
 }
 
 template <class ELFT> static TargetInfo *getTargetInfo() {

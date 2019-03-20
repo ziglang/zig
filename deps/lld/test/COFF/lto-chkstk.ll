@@ -2,6 +2,7 @@
 ; RUN: llvm-as -o %t.obj %s
 ; RUN: llvm-mc -triple=x86_64-pc-windows-msvc -filetype=obj -o %T/lto-chkstk-foo.obj %S/Inputs/lto-chkstk-foo.s
 ; RUN: llvm-mc -triple=x86_64-pc-windows-msvc -filetype=obj -o %T/lto-chkstk-chkstk.obj %S/Inputs/lto-chkstk-chkstk.s
+; RUN: rm -f %t.lib
 ; RUN: llvm-ar cru %t.lib %T/lto-chkstk-chkstk.obj
 ; RUN: lld-link /out:%t.exe /entry:main /subsystem:console %t.obj %T/lto-chkstk-foo.obj %t.lib
 

@@ -1,7 +1,7 @@
 ; RUN: llc -filetype=obj %p/Inputs/weak-symbol1.ll -o %t1.o
 ; RUN: llc -filetype=obj %p/Inputs/weak-symbol2.ll -o %t2.o
 ; RUN: llc -filetype=obj %s -o %t.o
-; RUN: wasm-ld -no-gc-sections -o %t.wasm %t.o %t1.o %t2.o
+; RUN: wasm-ld --export-dynamic -o %t.wasm %t.o %t1.o %t2.o
 ; RUN: obj2yaml %t.wasm | FileCheck %s
 
 target triple = "wasm32-unknown-unknown"
@@ -29,10 +29,10 @@ entry:
 ; CHECK-NEXT:         ReturnType:      I32
 ; CHECK-NEXT:         ParamTypes:
 ; CHECK-NEXT:   - Type:            FUNCTION
-; CHECK-NEXT:     FunctionTypes:   [ 0, 0, 1, 1, 1, 1 ]
+; CHECK-NEXT:     FunctionTypes:   [ 0, 0, 1, 1, 1 ]
 ; CHECK-NEXT:   - Type:            TABLE
 ; CHECK-NEXT:     Tables:
-; CHECK-NEXT:       - ElemType:        ANYFUNC
+; CHECK-NEXT:       - ElemType:        FUNCREF
 ; CHECK-NEXT:         Limits:
 ; CHECK-NEXT:           Flags:           [ HAS_MAX ]
 ; CHECK-NEXT:           Initial:         0x00000002
@@ -59,7 +59,7 @@ entry:
 ; CHECK-NEXT:         Mutable:         false
 ; CHECK-NEXT:         InitExpr:
 ; CHECK-NEXT:           Opcode:          I32_CONST
-; CHECK-NEXT:           Value:           1032
+; CHECK-NEXT:           Value:           1028
 ; CHECK-NEXT:       - Index:           3
 ; CHECK-NEXT:         Type:            I32
 ; CHECK-NEXT:         Mutable:         false
@@ -91,7 +91,7 @@ entry:
 ; CHECK-NEXT:         Index:           3
 ; CHECK-NEXT:       - Name:            exportWeak2
 ; CHECK-NEXT:         Kind:            FUNCTION
-; CHECK-NEXT:         Index:           5
+; CHECK-NEXT:         Index:           4
 ; CHECK-NEXT:   - Type:            ELEM
 ; CHECK-NEXT:     Segments:
 ; CHECK-NEXT:       - Offset:
@@ -114,9 +114,6 @@ entry:
 ; CHECK-NEXT:         Body:            4181808080000B
 ; CHECK-NEXT:       - Index:           4
 ; CHECK-NEXT:         Locals:
-; CHECK-NEXT:         Body:            41020B
-; CHECK-NEXT:       - Index:           5
-; CHECK-NEXT:         Locals:
 ; CHECK-NEXT:         Body:            4181808080000B
 ; CHECK-NEXT:   - Type:            DATA
 ; CHECK-NEXT:     Segments:
@@ -125,7 +122,7 @@ entry:
 ; CHECK-NEXT:         Offset:
 ; CHECK-NEXT:           Opcode:          I32_CONST
 ; CHECK-NEXT:           Value:           1024
-; CHECK-NEXT:         Content:         '0100000002000000'
+; CHECK-NEXT:         Content:         '01000000'
 ; CHECK-NEXT:   - Type:            CUSTOM
 ; CHECK-NEXT:     Name:            name
 ; CHECK-NEXT:     FunctionNames:
@@ -138,7 +135,5 @@ entry:
 ; CHECK-NEXT:       - Index:           3
 ; CHECK-NEXT:         Name:            exportWeak1
 ; CHECK-NEXT:       - Index:           4
-; CHECK-NEXT:         Name:            weakFn
-; CHECK-NEXT:       - Index:           5
 ; CHECK-NEXT:         Name:            exportWeak2
 ; CHECK-NEXT: ...

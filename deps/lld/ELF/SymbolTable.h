@@ -37,22 +37,17 @@ class SymbolTable {
 public:
   template <class ELFT> void addFile(InputFile *File);
   template <class ELFT> void addCombinedLTOObject();
-  template <class ELFT> void addSymbolWrap(StringRef Name);
-  void applySymbolWrap();
+  void wrap(Symbol *Sym, Symbol *Real, Symbol *Wrap);
 
   ArrayRef<Symbol *> getSymbols() const { return SymVector; }
 
-  Defined *addAbsolute(StringRef Name,
-                       uint8_t Visibility = llvm::ELF::STV_HIDDEN,
-                       uint8_t Binding = llvm::ELF::STB_GLOBAL);
-
-  template <class ELFT> Symbol *addUndefined(StringRef Name);
   template <class ELFT>
   Symbol *addUndefined(StringRef Name, uint8_t Binding, uint8_t StOther,
                        uint8_t Type, bool CanOmitFromDynSym, InputFile *File);
-  Symbol *addRegular(StringRef Name, uint8_t StOther, uint8_t Type,
-                     uint64_t Value, uint64_t Size, uint8_t Binding,
-                     SectionBase *Section, InputFile *File);
+
+  Defined *addDefined(StringRef Name, uint8_t StOther, uint8_t Type,
+                      uint64_t Value, uint64_t Size, uint8_t Binding,
+                      SectionBase *Section, InputFile *File);
 
   template <class ELFT>
   void addShared(StringRef Name, SharedFile<ELFT> &F,
@@ -72,10 +67,8 @@ public:
                     uint8_t Binding, uint8_t StOther, uint8_t Type,
                     InputFile &File);
 
-  std::pair<Symbol *, bool> insert(StringRef Name);
-  std::pair<Symbol *, bool> insert(StringRef Name, uint8_t Type,
-                                   uint8_t Visibility, bool CanOmitFromDynSym,
-                                   InputFile *File);
+  std::pair<Symbol *, bool> insert(StringRef Name, uint8_t Visibility,
+                                   bool CanOmitFromDynSym, InputFile *File);
 
   template <class ELFT> void fetchLazy(Symbol *Sym);
 
@@ -88,6 +81,8 @@ public:
   void handleDynamicList();
 
 private:
+  std::pair<Symbol *, bool> insertName(StringRef Name);
+
   std::vector<Symbol *> findByVersion(SymbolVersion Ver);
   std::vector<Symbol *> findAllByVersion(SymbolVersion Ver);
 
@@ -113,22 +108,13 @@ private:
   llvm::DenseSet<llvm::CachedHashStringRef> ComdatGroups;
 
   // Set of .so files to not link the same shared object file more than once.
-  llvm::DenseSet<StringRef> SoNames;
+  llvm::DenseMap<StringRef, InputFile *> SoNames;
 
   // A map from demangled symbol names to their symbol objects.
   // This mapping is 1:N because two symbols with different versions
   // can have the same name. We use this map to handle "extern C++ {}"
   // directive in version scripts.
   llvm::Optional<llvm::StringMap<std::vector<Symbol *>>> DemangledSyms;
-
-  struct WrappedSymbol {
-    Symbol *Sym;
-    Symbol *Real;
-    Symbol *Wrap;
-  };
-
-  // For -wrap.
-  std::vector<WrappedSymbol> WrappedSymbols;
 
   // For LTO.
   std::unique_ptr<BitcodeCompiler> LTO;

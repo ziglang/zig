@@ -53,6 +53,9 @@ add_lit_testsuite(check-lld "Running lld test suite"
   DEPENDS ${LLD_TEST_DEPS}
   )
 
+add_custom_target(lld-test-depends DEPENDS ${LLD_TEST_DEPS})
+set_target_properties(lld-test-depends PROPERTIES FOLDER "lld tests")
+
 add_lit_testsuites(LLD ${CMAKE_CURRENT_SOURCE_DIR}
   PARAMS lld_site_config=${CMAKE_CURRENT_BINARY_DIR}/lit.site.cfg
        lld_unit_site_config=${CMAKE_CURRENT_BINARY_DIR}/Unit/lit.site.cfg

@@ -1,5 +1,5 @@
 ; RUN: llc -filetype=obj %s -o %t.o
-; RUN: wasm-ld --no-entry --print-gc-sections %t.o \
+; RUN: wasm-ld --entry=callWeakFuncs --print-gc-sections %t.o \
 ; RUN:     -o %t.wasm 2>&1 | FileCheck -check-prefix=CHECK-GC %s
 ; RUN: obj2yaml %t.wasm | FileCheck %s
 
@@ -45,7 +45,7 @@ define i32 @callWeakFuncs() {
 ; CHECK-NEXT:     FunctionTypes:   [ 0, 0, 0, 1, 2 ]
 ; CHECK-NEXT:   - Type:            TABLE
 ; CHECK-NEXT:     Tables:
-; CHECK-NEXT:       - ElemType:        ANYFUNC
+; CHECK-NEXT:       - ElemType:        FUNCREF
 ; CHECK-NEXT:         Limits:
 ; CHECK-NEXT:           Flags:           [ HAS_MAX ]
 ; CHECK-NEXT:           Initial:         0x00000001

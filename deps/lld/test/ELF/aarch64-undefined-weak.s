@@ -34,16 +34,16 @@ _start:
  ldr x8, target
 
 // CHECK: Disassembly of section .text:
-// 131072 = 0x20000
-// CHECK:         20000: {{.*}} b       #4
-// CHECK-NEXT:    20004: {{.*}} bl      #4
-// CHECK-NEXT:    20008: {{.*}} b.eq    #4
-// CHECK-NEXT:    2000c: {{.*}} cbz     x1, #4
-// CHECK-NEXT:    20010: {{.*}} adr     x0, #0
-// CHECK-NEXT:    20014: {{.*}} adrp    x0, #-131072
-// CHECK:         20018: {{.*}} .word   0x00000000
-// CHECK-NEXT:    2001c: {{.*}} .word   0x00000000
-// CHECK-NEXT:    20020: {{.*}} .word   0x00000000
-// CHECK-NEXT:    20024: {{.*}} .short  0x0000
+// 2162688 = 0x210000
+// CHECK:         210000: {{.*}} b       #4
+// CHECK-NEXT:    210004: {{.*}} bl      #4
+// CHECK-NEXT:    210008: {{.*}} b.eq    #4
+// CHECK-NEXT:    21000c: {{.*}} cbz     x1, #4
+// CHECK-NEXT:    210010: {{.*}} adr     x0, #0
+// CHECK-NEXT:    210014: {{.*}} adrp    x0, #0
+// CHECK:         210018: {{.*}} .word   0x00000000
+// CHECK-NEXT:    21001c: {{.*}} .word   0x00000000
+// CHECK-NEXT:    210020: {{.*}} .word   0x00000000
+// CHECK-NEXT:    210024: {{.*}} .short  0x0000
 // CHECK:         $x.2:
-// CHECK-NEXT:    20026: {{.*}} ldr     x8, #0
+// CHECK-NEXT:    210026: {{.*}} ldr     x8, #0

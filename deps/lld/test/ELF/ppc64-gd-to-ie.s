@@ -5,16 +5,16 @@
 # RUN: ld.lld -shared %t2.o -o %t3.so
 # RUN: ld.lld  %t.o %t3.so -o %t
 # RUN: llvm-objdump --section-headers %t | FileCheck --check-prefix=CheckGot %s
-# RUN: llvm-objdump -D %t | FileCheck --check-prefix=Dis %s
-# RUN: llvm-readelf -relocations --wide %t | FileCheck --check-prefix=OutputRelocs %s
+# RUN: llvm-objdump -d %t | FileCheck --check-prefix=Dis %s
+# RUN: llvm-readelf -r %t | FileCheck --check-prefix=OutputRelocs %s
 
 # RUN: llvm-mc -filetype=obj -triple=powerpc64-unknown-linux %s -o %t.o
 # RUN: llvm-mc -filetype=obj -triple=powerpc64-unknown-linux %p/Inputs/ppc64-tls.s -o %t2.o
 # RUN: ld.lld -shared %t2.o -o %t3.so
 # RUN: ld.lld  %t.o %t3.so -o %t
 # RUN: llvm-objdump --section-headers %t | FileCheck --check-prefix=CheckGot %s
-# RUN: llvm-objdump -D %t | FileCheck --check-prefix=Dis %s
-# RUN: llvm-readelf -relocations --wide %t | FileCheck --check-prefix=OutputRelocs %s
+# RUN: llvm-objdump -d %t | FileCheck --check-prefix=Dis %s
+# RUN: llvm-readelf -r %t | FileCheck --check-prefix=OutputRelocs %s
 
         .text
         .abiversion 2

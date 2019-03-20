@@ -43,11 +43,14 @@ using namespace lld::elf;
 namespace {
 class AVR final : public TargetInfo {
 public:
+  AVR();
   RelExpr getRelExpr(RelType Type, const Symbol &S,
                      const uint8_t *Loc) const override;
   void relocateOne(uint8_t *Loc, RelType Type, uint64_t Val) const override;
 };
 } // namespace
+
+AVR::AVR() { NoneRel = R_AVR_NONE; }
 
 RelExpr AVR::getRelExpr(RelType Type, const Symbol &S,
                         const uint8_t *Loc) const {

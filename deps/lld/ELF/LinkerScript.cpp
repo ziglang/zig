@@ -169,7 +169,7 @@ void LinkerScript::addSymbol(SymbolAssignment *Cmd) {
   // Define a symbol.
   Symbol *Sym;
   uint8_t Visibility = Cmd->Hidden ? STV_HIDDEN : STV_DEFAULT;
-  std::tie(Sym, std::ignore) = Symtab->insert(Cmd->Name, /*Type*/ 0, Visibility,
+  std::tie(Sym, std::ignore) = Symtab->insert(Cmd->Name, Visibility,
                                               /*CanOmitFromDynSym*/ false,
                                               /*File*/ nullptr);
   ExprValue Value = Cmd->Expression();
@@ -202,13 +202,14 @@ static void declareSymbol(SymbolAssignment *Cmd) {
   // We can't calculate final value right now.
   Symbol *Sym;
   uint8_t Visibility = Cmd->Hidden ? STV_HIDDEN : STV_DEFAULT;
-  std::tie(Sym, std::ignore) = Symtab->insert(Cmd->Name, /*Type*/ 0, Visibility,
+  std::tie(Sym, std::ignore) = Symtab->insert(Cmd->Name, Visibility,
                                               /*CanOmitFromDynSym*/ false,
                                               /*File*/ nullptr);
   replaceSymbol<Defined>(Sym, nullptr, Cmd->Name, STB_GLOBAL, Visibility,
                          STT_NOTYPE, 0, 0, nullptr);
   Cmd->Sym = cast<Defined>(Sym);
   Cmd->Provide = false;
+  Sym->ScriptDefined = true;
 }
 
 // This method is used to handle INSERT AFTER statement. Here we rebuild
@@ -414,18 +415,16 @@ LinkerScript::computeInputSections(const InputSectionDescription *Cmd) {
 
 void LinkerScript::discard(ArrayRef<InputSection *> V) {
   for (InputSection *S : V) {
-    if (S == InX::ShStrTab || S == InX::Dynamic || S == InX::DynSymTab ||
-        S == InX::DynStrTab || S == InX::RelaPlt || S == InX::RelaDyn ||
-        S == InX::RelrDyn)
+    if (S == In.ShStrTab || S == In.RelaDyn || S == In.RelrDyn)
       error("discarding " + S->Name + " section is not allowed");
 
     // You can discard .hash and .gnu.hash sections by linker scripts. Since
     // they are synthesized sections, we need to handle them differently than
     // other regular sections.
-    if (S == InX::GnuHashTab)
-      InX::GnuHashTab = nullptr;
-    if (S == InX::HashTab)
-      InX::HashTab = nullptr;
+    if (S == In.GnuHashTab)
+      In.GnuHashTab = nullptr;
+    if (S == In.HashTab)
+      In.HashTab = nullptr;
 
     S->Assigned = false;
     S->Live = false;
@@ -701,6 +700,7 @@ uint64_t LinkerScript::advance(uint64_t Size, unsigned Alignment) {
 }
 
 void LinkerScript::output(InputSection *S) {
+  assert(Ctx->OutSec == S->getParent());
   uint64_t Before = advance(0, 1);
   uint64_t Pos = advance(S->getSize(), S->Alignment);
   S->OutSecOff = Pos - S->getSize() - Ctx->OutSec->Addr;
@@ -816,21 +816,8 @@ void LinkerScript::assignOffsets(OutputSection *Sec) {
     // Handle a single input section description command.
     // It calculates and assigns the offsets for each section and also
     // updates the output section size.
-    auto *Cmd = cast<InputSectionDescription>(Base);
-    for (InputSection *Sec : Cmd->Sections) {
-      // We tentatively added all synthetic sections at the beginning and
-      // removed empty ones afterwards (because there is no way to know
-      // whether they were going be empty or not other than actually running
-      // linker scripts.) We need to ignore remains of empty sections.
-      if (auto *S = dyn_cast<SyntheticSection>(Sec))
-        if (S->empty())
-          continue;
-
-      if (!Sec->Live)
-        continue;
-      assert(Ctx->OutSec == Sec->getParent());
+    for (InputSection *Sec : cast<InputSectionDescription>(Base)->Sections)
       output(Sec);
-    }
   }
 }
 

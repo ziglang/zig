@@ -367,6 +367,6 @@ page-size:       0x00000000
 # CHECK:    type:            unknown
 # CHECK:    content:         [ 00, 00, 00, 00, 00, 00, 00, 00 ]
 # CHECK:    section-choice:  custom-required
-# CHECK:    section-name:    __DATA/__custom
+# CHECK:    section-name:    '__DATA/__custom'
 # CHECK:    dead-strip:      never
 

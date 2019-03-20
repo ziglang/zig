@@ -381,7 +381,7 @@ vec_insert_and_zero(const unsigned long long *__ptr) {
 static inline __ATTRS_o_ai vector float
 vec_insert_and_zero(const float *__ptr) {
   vector float __vec = (vector float)0;
-  __vec[0] = *__ptr;
+  __vec[1] = *__ptr;
   return __vec;
 }
 #endif
@@ -5942,13 +5942,13 @@ vec_orc(vector unsigned long long __a, vector unsigned long long __b) {
 
 static inline __ATTRS_o_ai vector float
 vec_orc(vector float __a, vector float __b) {
-  return (vector float)((vector unsigned int)__a &
+  return (vector float)((vector unsigned int)__a |
                         ~(vector unsigned int)__b);
 }
 
 static inline __ATTRS_o_ai vector double
 vec_orc(vector double __a, vector double __b) {
-  return (vector double)((vector unsigned long long)__a &
+  return (vector double)((vector unsigned long long)__a |
                          ~(vector unsigned long long)__b);
 }
 #endif

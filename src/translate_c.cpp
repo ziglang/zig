@@ -124,6 +124,7 @@ static TransScope *trans_stmt(Context *c, TransScope *scope, const clang::Stmt *
 static AstNode *trans_expr(Context *c, ResultUsed result_used, TransScope *scope, const clang::Expr *expr, TransLRValue lrval);
 static AstNode *trans_qual_type(Context *c, clang::QualType qt, const clang::SourceLocation &source_loc);
 static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *scope, const clang::Expr *expr, TransLRValue lrval);
+static AstNode *trans_ap_value(Context *c, clang::APValue *ap_value, clang::QualType qt, const clang::SourceLocation &source_loc);
 
 static ZigClangSourceLocation bitcast(clang::SourceLocation src) {
     ZigClangSourceLocation dest;
@@ -484,7 +485,7 @@ static AstNode *add_global_var(Context *c, Buf *var_name, AstNode *value_node) {
     return node;
 }
 
-static Buf *string_ref_to_buf(StringRef string_ref) {
+static Buf *string_ref_to_buf(llvm::StringRef string_ref) {
     return buf_create_from_mem((const char *)string_ref.bytes_begin(), string_ref.size());
 }
 
@@ -538,7 +539,7 @@ static clang::QualType get_expr_qual_type_before_implicit_cast(Context *c, const
 }
 
 static AstNode *get_expr_type(Context *c, const clang::Expr *expr) {
-    return trans_qual_type(c, get_expr_qual_type(c, expr), expr->getLocStart());
+    return trans_qual_type(c, get_expr_qual_type(c, expr), expr->getBeginLoc());
 }
 
 static bool qual_types_equal(clang::QualType t1, clang::QualType t2) {
@@ -941,6 +942,18 @@ static AstNode *trans_type(Context *c, const clang::Type *ty, const clang::Sourc
                     case clang::BuiltinType::SatUShortFract:
                     case clang::BuiltinType::SatUFract:
                     case clang::BuiltinType::SatULongFract:
+                    case clang::BuiltinType::OCLIntelSubgroupAVCMcePayload:
+                    case clang::BuiltinType::OCLIntelSubgroupAVCImePayload:
+                    case clang::BuiltinType::OCLIntelSubgroupAVCRefPayload:
+                    case clang::BuiltinType::OCLIntelSubgroupAVCSicPayload:
+                    case clang::BuiltinType::OCLIntelSubgroupAVCMceResult:
+                    case clang::BuiltinType::OCLIntelSubgroupAVCImeResult:
+                    case clang::BuiltinType::OCLIntelSubgroupAVCRefResult:
+                    case clang::BuiltinType::OCLIntelSubgroupAVCSicResult:
+                    case clang::BuiltinType::OCLIntelSubgroupAVCImeResultSingleRefStreamout:
+                    case clang::BuiltinType::OCLIntelSubgroupAVCImeResultDualRefStreamout:
+                    case clang::BuiltinType::OCLIntelSubgroupAVCImeSingleRefStreamin:
+                    case clang::BuiltinType::OCLIntelSubgroupAVCImeDualRefStreamin:
                         emit_warning(c, source_loc, "unsupported builtin type");
                         return nullptr;
                 }
@@ -1049,6 +1062,9 @@ static AstNode *trans_type(Context *c, const clang::Type *ty, const clang::Sourc
                         return nullptr;
                     case clang::CC_PreserveAll:
                         emit_warning(c, source_loc, "unsupported calling convention: PreserveAll");
+                        return nullptr;
+                    case clang::CC_AArch64VectorCall:
+                        emit_warning(c, source_loc, "unsupported calling convention: AArch64VectorCall");
                         return nullptr;
                 }
 
@@ -1271,13 +1287,24 @@ static AstNode *trans_return_stmt(Context *c, TransScope *scope, const clang::Re
 }
 
 static AstNode *trans_integer_literal(Context *c, ResultUsed result_used, const clang::IntegerLiteral *stmt) {
-    llvm::APSInt result;
+    clang::Expr::EvalResult result;
     if (!stmt->EvaluateAsInt(result, *reinterpret_cast<clang::ASTContext *>(c->ctx))) {
-        emit_warning(c, stmt->getLocStart(), "invalid integer literal");
+        emit_warning(c, stmt->getBeginLoc(), "invalid integer literal");
         return nullptr;
     }
+    AstNode *node = trans_create_node_apint(c, result.Val.getInt());
+    return maybe_suppress_result(c, result_used, node);
+}
 
-    AstNode *node = trans_create_node_apint(c, result);
+static AstNode *trans_constant_expr(Context *c, ResultUsed result_used, const clang::ConstantExpr *expr) {
+    clang::Expr::EvalResult result;
+    if (!expr->EvaluateAsConstantExpr(result, clang::Expr::EvaluateForCodeGen,
+                *reinterpret_cast<clang::ASTContext *>(c->ctx)))
+    {
+        emit_warning(c, expr->getBeginLoc(), "invalid constant expression");
+        return nullptr;
+    }
+    AstNode *node = trans_ap_value(c, &result.Val, expr->getType(), expr->getBeginLoc());
     return maybe_suppress_result(c, result_used, node);
 }
 
@@ -1390,7 +1417,7 @@ static AstNode *trans_create_assign(Context *c, ResultUsed result_used, TransSco
 static AstNode *trans_create_shift_op(Context *c, TransScope *scope, clang::QualType result_type,
         clang::Expr *lhs_expr, BinOpType bin_op, clang::Expr *rhs_expr)
 {
-    const clang::SourceLocation &rhs_location = rhs_expr->getLocStart();
+    const clang::SourceLocation &rhs_location = rhs_expr->getBeginLoc();
     AstNode *rhs_type = qual_type_to_log2_int_ref(c, result_type, rhs_location);
     // lhs >> u5(rh)
 
@@ -1407,13 +1434,13 @@ static AstNode *trans_create_shift_op(Context *c, TransScope *scope, clang::Qual
 static AstNode *trans_binary_operator(Context *c, ResultUsed result_used, TransScope *scope, const clang::BinaryOperator *stmt) {
     switch (stmt->getOpcode()) {
         case clang::BO_PtrMemD:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: clang::BO_PtrMemD");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle more C binary operators: BO_PtrMemD");
             return nullptr;
         case clang::BO_PtrMemI:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: clang::BO_PtrMemI");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle more C binary operators: BO_PtrMemI");
             return nullptr;
         case clang::BO_Cmp:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: clang::BO_Cmp");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle more C binary operators: BO_Cmp");
             return nullptr;
         case clang::BO_Mul: {
             AstNode *node = trans_create_bin_op(c, scope, stmt->getLHS(),
@@ -1557,7 +1584,7 @@ static AstNode *trans_binary_operator(Context *c, ResultUsed result_used, TransS
 static AstNode *trans_create_compound_assign_shift(Context *c, ResultUsed result_used, TransScope *scope,
         const clang::CompoundAssignOperator *stmt, BinOpType assign_op, BinOpType bin_op)
 {
-    const clang::SourceLocation &rhs_location = stmt->getRHS()->getLocStart();
+    const clang::SourceLocation &rhs_location = stmt->getRHS()->getBeginLoc();
     AstNode *rhs_type = qual_type_to_log2_int_ref(c, stmt->getComputationLHSType(), rhs_location);
 
     bool use_intermediate_casts = stmt->getComputationLHSType().getTypePtr() != stmt->getComputationResultType().getTypePtr();
@@ -1706,13 +1733,13 @@ static AstNode *trans_compound_assign_operator(Context *c, ResultUsed result_use
             else
                 return trans_create_compound_assign(c, result_used, scope, stmt, BinOpTypeAssignTimes, BinOpTypeMult);
         case clang::BO_DivAssign:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: clang::BO_DivAssign");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle more C compound assign operators: BO_DivAssign");
             return nullptr;
         case clang::BO_RemAssign:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: clang::BO_RemAssign");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle more C compound assign operators: BO_RemAssign");
             return nullptr;
         case clang::BO_Cmp:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: clang::BO_Cmp");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle more C compound assign operators: BO_Cmp");
             return nullptr;
         case clang::BO_AddAssign:
             if (qual_type_has_wrapping_overflow(c, stmt->getType()))
@@ -1802,161 +1829,163 @@ static AstNode *trans_implicit_cast_expr(Context *c, ResultUsed result_used, Tra
             }
         case clang::CK_NullToPointer:
             return trans_create_node_unsigned(c, 0);
+        case clang::CK_NoOp:
+            return trans_expr(c, ResultUsedYes, scope, stmt->getSubExpr(), TransRValue);
         case clang::CK_Dependent:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_Dependent");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C translation cast CK_Dependent");
             return nullptr;
         case clang::CK_LValueBitCast:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_LValueBitCast");
-            return nullptr;
-        case clang::CK_NoOp:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_NoOp");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C translation cast CK_LValueBitCast");
             return nullptr;
         case clang::CK_BaseToDerived:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_BaseToDerived");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C translation cast CK_BaseToDerived");
             return nullptr;
         case clang::CK_DerivedToBase:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_DerivedToBase");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C translation cast CK_DerivedToBase");
             return nullptr;
         case clang::CK_UncheckedDerivedToBase:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_UncheckedDerivedToBase");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C translation cast CK_UncheckedDerivedToBase");
             return nullptr;
         case clang::CK_Dynamic:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_Dynamic");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C translation cast CK_Dynamic");
             return nullptr;
         case clang::CK_ToUnion:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_ToUnion");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C translation cast CK_ToUnion");
             return nullptr;
         case clang::CK_NullToMemberPointer:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_NullToMemberPointer");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C translation cast CK_NullToMemberPointer");
             return nullptr;
         case clang::CK_BaseToDerivedMemberPointer:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_BaseToDerivedMemberPointer");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C translation cast CK_BaseToDerivedMemberPointer");
             return nullptr;
         case clang::CK_DerivedToBaseMemberPointer:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_DerivedToBaseMemberPointer");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C translation cast CK_DerivedToBaseMemberPointer");
             return nullptr;
         case clang::CK_MemberPointerToBoolean:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_MemberPointerToBoolean");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C translation cast CK_MemberPointerToBoolean");
             return nullptr;
         case clang::CK_ReinterpretMemberPointer:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_ReinterpretMemberPointer");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C translation cast CK_ReinterpretMemberPointer");
             return nullptr;
         case clang::CK_UserDefinedConversion:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_UserDefinedConversion");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C translation cast CK_UserDefinedConversion");
             return nullptr;
         case clang::CK_ConstructorConversion:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_ConstructorConversion");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CK_ConstructorConversion");
             return nullptr;
         case clang::CK_IntegralToPointer:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_IntegralToPointer");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CK_IntegralToPointer");
             return nullptr;
         case clang::CK_PointerToIntegral:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_PointerToIntegral");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CK_PointerToIntegral");
             return nullptr;
         case clang::CK_PointerToBoolean:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_PointerToBoolean");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CK_PointerToBoolean");
             return nullptr;
         case clang::CK_ToVoid:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_ToVoid");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CK_ToVoid");
             return nullptr;
         case clang::CK_VectorSplat:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_VectorSplat");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CK_VectorSplat");
             return nullptr;
         case clang::CK_IntegralToBoolean:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_IntegralToBoolean");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CK_IntegralToBoolean");
             return nullptr;
         case clang::CK_IntegralToFloating:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_IntegralToFloating");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CK_IntegralToFloating");
+            return nullptr;
+        case clang::CK_FixedPointCast:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CK_FixedPointCast");
+            return nullptr;
+        case clang::CK_FixedPointToBoolean:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CK_FixedPointToBoolean");
             return nullptr;
         case clang::CK_FloatingToIntegral:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_FloatingToIntegral");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CK_FloatingToIntegral");
             return nullptr;
         case clang::CK_FloatingToBoolean:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_FloatingToBoolean");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CK_FloatingToBoolean");
             return nullptr;
         case clang::CK_BooleanToSignedIntegral:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_BooleanToSignedIntegral");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CK_BooleanToSignedIntegral");
             return nullptr;
         case clang::CK_FloatingCast:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_FloatingCast");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CK_FloatingCast");
             return nullptr;
         case clang::CK_CPointerToObjCPointerCast:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_CPointerToObjCPointerCast");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CK_CPointerToObjCPointerCast");
             return nullptr;
         case clang::CK_BlockPointerToObjCPointerCast:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_BlockPointerToObjCPointerCast");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CK_BlockPointerToObjCPointerCast");
             return nullptr;
         case clang::CK_AnyPointerToBlockPointerCast:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_AnyPointerToBlockPointerCast");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CK_AnyPointerToBlockPointerCast");
             return nullptr;
         case clang::CK_ObjCObjectLValueCast:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_ObjCObjectLValueCast");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CK_ObjCObjectLValueCast");
             return nullptr;
         case clang::CK_FloatingRealToComplex:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_FloatingRealToComplex");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CK_FloatingRealToComplex");
             return nullptr;
         case clang::CK_FloatingComplexToReal:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_FloatingComplexToReal");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CK_FloatingComplexToReal");
             return nullptr;
         case clang::CK_FloatingComplexToBoolean:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_FloatingComplexToBoolean");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CK_FloatingComplexToBoolean");
             return nullptr;
         case clang::CK_FloatingComplexCast:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_FloatingComplexCast");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CK_FloatingComplexCast");
             return nullptr;
         case clang::CK_FloatingComplexToIntegralComplex:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_FloatingComplexToIntegralComplex");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CK_FloatingComplexToIntegralComplex");
             return nullptr;
         case clang::CK_IntegralRealToComplex:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_IntegralRealToComplex");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CK_IntegralRealToComplex");
             return nullptr;
         case clang::CK_IntegralComplexToReal:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_IntegralComplexToReal");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CK_IntegralComplexToReal");
             return nullptr;
         case clang::CK_IntegralComplexToBoolean:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_IntegralComplexToBoolean");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CK_IntegralComplexToBoolean");
             return nullptr;
         case clang::CK_IntegralComplexCast:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_IntegralComplexCast");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CK_IntegralComplexCast");
             return nullptr;
         case clang::CK_IntegralComplexToFloatingComplex:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_IntegralComplexToFloatingComplex");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CK_IntegralComplexToFloatingComplex");
             return nullptr;
         case clang::CK_ARCProduceObject:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_ARCProduceObject");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CK_ARCProduceObject");
             return nullptr;
         case clang::CK_ARCConsumeObject:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_ARCConsumeObject");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CK_ARCConsumeObject");
             return nullptr;
         case clang::CK_ARCReclaimReturnedObject:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_ARCReclaimReturnedObject");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CK_ARCReclaimReturnedObject");
             return nullptr;
         case clang::CK_ARCExtendBlockObject:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_ARCExtendBlockObject");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CK_ARCExtendBlockObject");
             return nullptr;
         case clang::CK_AtomicToNonAtomic:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_AtomicToNonAtomic");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CK_AtomicToNonAtomic");
             return nullptr;
         case clang::CK_NonAtomicToAtomic:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_NonAtomicToAtomic");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CK_NonAtomicToAtomic");
             return nullptr;
         case clang::CK_CopyAndAutoreleaseBlockObject:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_CopyAndAutoreleaseBlockObject");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CK_CopyAndAutoreleaseBlockObject");
             return nullptr;
         case clang::CK_BuiltinFnToFnPtr:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_BuiltinFnToFnPtr");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CK_BuiltinFnToFnPtr");
             return nullptr;
-        case clang::CK_ZeroToOCLEvent:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_ZeroToOCLEvent");
-            return nullptr;
-        case clang::CK_ZeroToOCLQueue:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_ZeroToOCLQueue");
+        case clang::CK_ZeroToOCLOpaqueType:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CK_ZeroToOCLOpaqueType");
             return nullptr;
         case clang::CK_AddressSpaceConversion:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_AddressSpaceConversion");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CK_AddressSpaceConversion");
             return nullptr;
         case clang::CK_IntToOCLSampler:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast clang::CK_IntToOCLSampler");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CK_IntToOCLSampler");
             return nullptr;
     }
     zig_unreachable();
@@ -2119,7 +2148,7 @@ static AstNode *trans_unary_operator(Context *c, ResultUsed result_used, TransSc
                 return trans_create_node_ptr_deref(c, unwrapped);
             }
         case clang::UO_Plus:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation clang::UO_Plus");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C translation UO_Plus");
             return nullptr;
         case clang::UO_Minus:
             {
@@ -2145,7 +2174,7 @@ static AstNode *trans_unary_operator(Context *c, ResultUsed result_used, TransSc
                     node->data.bin_op_expr.bin_op = BinOpTypeSubWrap;
                     return node;
                 } else {
-                    emit_warning(c, stmt->getLocStart(), "C negation with non float non integer");
+                    emit_warning(c, stmt->getBeginLoc(), "C negation with non float non integer");
                     return nullptr;
                 }
             }
@@ -2168,15 +2197,15 @@ static AstNode *trans_unary_operator(Context *c, ResultUsed result_used, TransSc
                 return trans_create_node_prefix_op(c, PrefixOpBoolNot, sub_node);
             }
         case clang::UO_Real:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation clang::UO_Real");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C translation UO_Real");
             return nullptr;
         case clang::UO_Imag:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation clang::UO_Imag");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C translation UO_Imag");
             return nullptr;
         case clang::UO_Extension:
             return trans_expr(c, result_used, scope, stmt->getSubExpr(), TransLValue);
         case clang::UO_Coawait:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation clang::UO_Coawait");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C translation UO_Coawait");
             return nullptr;
     }
     zig_unreachable();
@@ -2206,7 +2235,7 @@ static int trans_local_declaration(Context *c, TransScope *scope, const clang::D
                 } else {
                     init_node = trans_create_node(c, NodeTypeUndefinedLiteral);
                 }
-                AstNode *type_node = trans_qual_type(c, qual_type, stmt->getLocStart());
+                AstNode *type_node = trans_qual_type(c, qual_type, stmt->getBeginLoc());
                 if (type_node == nullptr)
                     return ErrorUnexpected;
 
@@ -2222,220 +2251,223 @@ static int trans_local_declaration(Context *c, TransScope *scope, const clang::D
                 continue;
             }
             case clang::Decl::AccessSpec:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind AccessSpec");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle decl kind AccessSpec");
                 return ErrorUnexpected;
             case clang::Decl::Block:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Block");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C Block");
                 return ErrorUnexpected;
             case clang::Decl::Captured:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Captured");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C Captured");
                 return ErrorUnexpected;
             case clang::Decl::ClassScopeFunctionSpecialization:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ClassScopeFunctionSpecialization");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C ClassScopeFunctionSpecialization");
                 return ErrorUnexpected;
             case clang::Decl::Empty:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Empty");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C Empty");
                 return ErrorUnexpected;
             case clang::Decl::Export:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Export");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C Export");
                 return ErrorUnexpected;
             case clang::Decl::ExternCContext:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ExternCContext");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C ExternCContext");
                 return ErrorUnexpected;
             case clang::Decl::FileScopeAsm:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind FileScopeAsm");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C FileScopeAsm");
                 return ErrorUnexpected;
             case clang::Decl::Friend:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Friend");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C Friend");
                 return ErrorUnexpected;
             case clang::Decl::FriendTemplate:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind FriendTemplate");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C FriendTemplate");
                 return ErrorUnexpected;
             case clang::Decl::Import:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Import");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C Import");
                 return ErrorUnexpected;
             case clang::Decl::LinkageSpec:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind LinkageSpec");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C LinkageSpec");
                 return ErrorUnexpected;
             case clang::Decl::Label:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Label");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C Label");
                 return ErrorUnexpected;
             case clang::Decl::Namespace:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Namespace");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C Namespace");
                 return ErrorUnexpected;
             case clang::Decl::NamespaceAlias:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind NamespaceAlias");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C NamespaceAlias");
                 return ErrorUnexpected;
             case clang::Decl::ObjCCompatibleAlias:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCCompatibleAlias");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C ObjCCompatibleAlias");
                 return ErrorUnexpected;
             case clang::Decl::ObjCCategory:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCCategory");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C ObjCCategory");
                 return ErrorUnexpected;
             case clang::Decl::ObjCCategoryImpl:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCCategoryImpl");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C ObjCCategoryImpl");
                 return ErrorUnexpected;
             case clang::Decl::ObjCImplementation:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCImplementation");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C ObjCImplementation");
                 return ErrorUnexpected;
             case clang::Decl::ObjCInterface:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCInterface");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C ObjCInterface");
                 return ErrorUnexpected;
             case clang::Decl::ObjCProtocol:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCProtocol");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C ObjCProtocol");
                 return ErrorUnexpected;
             case clang::Decl::ObjCMethod:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCMethod");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C ObjCMethod");
                 return ErrorUnexpected;
             case clang::Decl::ObjCProperty:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCProperty");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C ObjCProperty");
                 return ErrorUnexpected;
             case clang::Decl::BuiltinTemplate:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind BuiltinTemplate");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C BuiltinTemplate");
                 return ErrorUnexpected;
             case clang::Decl::ClassTemplate:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ClassTemplate");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C ClassTemplate");
                 return ErrorUnexpected;
             case clang::Decl::FunctionTemplate:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind FunctionTemplate");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C FunctionTemplate");
                 return ErrorUnexpected;
             case clang::Decl::TypeAliasTemplate:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind TypeAliasTemplate");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C TypeAliasTemplate");
                 return ErrorUnexpected;
             case clang::Decl::VarTemplate:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind VarTemplate");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C VarTemplate");
                 return ErrorUnexpected;
             case clang::Decl::TemplateTemplateParm:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind TemplateTemplateParm");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C TemplateTemplateParm");
                 return ErrorUnexpected;
             case clang::Decl::Enum:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Enum");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C Enum");
                 return ErrorUnexpected;
             case clang::Decl::Record:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Record");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C Record");
                 return ErrorUnexpected;
             case clang::Decl::CXXRecord:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind CXXRecord");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C CXXRecord");
                 return ErrorUnexpected;
             case clang::Decl::ClassTemplateSpecialization:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ClassTemplateSpecialization");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C ClassTemplateSpecialization");
                 return ErrorUnexpected;
             case clang::Decl::ClassTemplatePartialSpecialization:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ClassTemplatePartialSpecialization");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C ClassTemplatePartialSpecialization");
                 return ErrorUnexpected;
             case clang::Decl::TemplateTypeParm:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind TemplateTypeParm");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C TemplateTypeParm");
                 return ErrorUnexpected;
             case clang::Decl::ObjCTypeParam:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCTypeParam");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C ObjCTypeParam");
                 return ErrorUnexpected;
             case clang::Decl::TypeAlias:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind TypeAlias");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C TypeAlias");
                 return ErrorUnexpected;
             case clang::Decl::Typedef:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Typedef");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C Typedef");
                 return ErrorUnexpected;
             case clang::Decl::UnresolvedUsingTypename:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind UnresolvedUsingTypename");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C UnresolvedUsingTypename");
                 return ErrorUnexpected;
             case clang::Decl::Using:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Using");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C Using");
                 return ErrorUnexpected;
             case clang::Decl::UsingDirective:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind UsingDirective");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C UsingDirective");
                 return ErrorUnexpected;
             case clang::Decl::UsingPack:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind UsingPack");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C UsingPack");
                 return ErrorUnexpected;
             case clang::Decl::UsingShadow:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind UsingShadow");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C UsingShadow");
                 return ErrorUnexpected;
             case clang::Decl::ConstructorUsingShadow:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ConstructorUsingShadow");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C ConstructorUsingShadow");
                 return ErrorUnexpected;
             case clang::Decl::Binding:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Binding");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C Binding");
                 return ErrorUnexpected;
             case clang::Decl::Field:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Field");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C Field");
                 return ErrorUnexpected;
             case clang::Decl::ObjCAtDefsField:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCAtDefsField");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C ObjCAtDefsField");
                 return ErrorUnexpected;
             case clang::Decl::ObjCIvar:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCIvar");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C ObjCIvar");
                 return ErrorUnexpected;
             case clang::Decl::Function:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Function");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C Function");
                 return ErrorUnexpected;
             case clang::Decl::CXXDeductionGuide:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind CXXDeductionGuide");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C CXXDeductionGuide");
                 return ErrorUnexpected;
             case clang::Decl::CXXMethod:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind CXXMethod");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C CXXMethod");
                 return ErrorUnexpected;
             case clang::Decl::CXXConstructor:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind CXXConstructor");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C CXXConstructor");
                 return ErrorUnexpected;
             case clang::Decl::CXXConversion:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind CXXConversion");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C CXXConversion");
                 return ErrorUnexpected;
             case clang::Decl::CXXDestructor:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind CXXDestructor");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C CXXDestructor");
                 return ErrorUnexpected;
             case clang::Decl::MSProperty:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind MSProperty");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C MSProperty");
                 return ErrorUnexpected;
             case clang::Decl::NonTypeTemplateParm:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind NonTypeTemplateParm");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C NonTypeTemplateParm");
                 return ErrorUnexpected;
             case clang::Decl::Decomposition:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Decomposition");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C Decomposition");
                 return ErrorUnexpected;
             case clang::Decl::ImplicitParam:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ImplicitParam");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C ImplicitParam");
                 return ErrorUnexpected;
             case clang::Decl::OMPCapturedExpr:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind OMPCapturedExpr");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPCapturedExpr");
                 return ErrorUnexpected;
             case clang::Decl::ParmVar:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ParmVar");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C ParmVar");
                 return ErrorUnexpected;
             case clang::Decl::VarTemplateSpecialization:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind VarTemplateSpecialization");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C VarTemplateSpecialization");
                 return ErrorUnexpected;
             case clang::Decl::VarTemplatePartialSpecialization:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind VarTemplatePartialSpecialization");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C VarTemplatePartialSpecialization");
                 return ErrorUnexpected;
             case clang::Decl::EnumConstant:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind EnumConstant");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C EnumConstant");
                 return ErrorUnexpected;
             case clang::Decl::IndirectField:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind IndirectField");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C IndirectField");
                 return ErrorUnexpected;
             case clang::Decl::OMPDeclareReduction:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind OMPDeclareReduction");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPDeclareReduction");
                 return ErrorUnexpected;
             case clang::Decl::UnresolvedUsingValue:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind UnresolvedUsingValue");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C UnresolvedUsingValue");
+                return ErrorUnexpected;
+            case clang::Decl::OMPRequires:
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPRequires");
                 return ErrorUnexpected;
             case clang::Decl::OMPThreadPrivate:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind OMPThreadPrivate");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPThreadPrivate");
                 return ErrorUnexpected;
             case clang::Decl::ObjCPropertyImpl:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCPropertyImpl");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C ObjCPropertyImpl");
                 return ErrorUnexpected;
             case clang::Decl::PragmaComment:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind PragmaComment");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C PragmaComment");
                 return ErrorUnexpected;
             case clang::Decl::PragmaDetectMismatch:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind PragmaDetectMismatch");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C PragmaDetectMismatch");
                 return ErrorUnexpected;
             case clang::Decl::StaticAssert:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind StaticAssert");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C StaticAssert");
                 return ErrorUnexpected;
             case clang::Decl::TranslationUnit:
-                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind TranslationUnit");
+                emit_warning(c, stmt->getBeginLoc(), "TODO handle C TranslationUnit");
                 return ErrorUnexpected;
         }
         zig_unreachable();
@@ -2613,6 +2645,18 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
                 case clang::BuiltinType::SatUShortFract:
                 case clang::BuiltinType::SatUFract:
                 case clang::BuiltinType::SatULongFract:
+                case clang::BuiltinType::OCLIntelSubgroupAVCMcePayload:
+                case clang::BuiltinType::OCLIntelSubgroupAVCImePayload:
+                case clang::BuiltinType::OCLIntelSubgroupAVCRefPayload:
+                case clang::BuiltinType::OCLIntelSubgroupAVCSicPayload:
+                case clang::BuiltinType::OCLIntelSubgroupAVCMceResult:
+                case clang::BuiltinType::OCLIntelSubgroupAVCImeResult:
+                case clang::BuiltinType::OCLIntelSubgroupAVCRefResult:
+                case clang::BuiltinType::OCLIntelSubgroupAVCSicResult:
+                case clang::BuiltinType::OCLIntelSubgroupAVCImeResultSingleRefStreamout:
+                case clang::BuiltinType::OCLIntelSubgroupAVCImeResultDualRefStreamout:
+                case clang::BuiltinType::OCLIntelSubgroupAVCImeSingleRefStreamin:
+                case clang::BuiltinType::OCLIntelSubgroupAVCImeDualRefStreamin:
                     return res;
             }
             break;
@@ -2645,7 +2689,7 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
             const clang::ElaboratedType *elaborated_ty = static_cast<const clang::ElaboratedType*>(ty);
             switch (elaborated_ty->getKeyword()) {
                 case clang::ETK_Enum: {
-                    AstNode *enum_type = trans_qual_type(c, elaborated_ty->getNamedType(), expr->getLocStart());
+                    AstNode *enum_type = trans_qual_type(c, elaborated_ty->getNamedType(), expr->getBeginLoc());
                     return to_enum_zero_cmp(c, res, enum_type);
                 }
                 case clang::ETK_Struct:
@@ -2831,7 +2875,7 @@ static AstNode *trans_c_style_cast_expr(Context *c, ResultUsed result_used, Tran
     if (sub_expr_node == nullptr)
         return nullptr;
 
-    AstNode *cast = trans_c_cast(c, stmt->getLocStart(), stmt->getType(), stmt->getSubExpr()->getType(), sub_expr_node);
+    AstNode *cast = trans_c_cast(c, stmt->getBeginLoc(), stmt->getType(), stmt->getSubExpr()->getType(), sub_expr_node);
     if (cast == nullptr)
         return nullptr;
 
@@ -2841,7 +2885,7 @@ static AstNode *trans_c_style_cast_expr(Context *c, ResultUsed result_used, Tran
 static AstNode *trans_unary_expr_or_type_trait_expr(Context *c, ResultUsed result_used,
         TransScope *scope, const clang::UnaryExprOrTypeTraitExpr *stmt)
 {
-    AstNode *type_node = trans_qual_type(c, stmt->getTypeOfArgument(), stmt->getLocStart());
+    AstNode *type_node = trans_qual_type(c, stmt->getTypeOfArgument(), stmt->getBeginLoc());
     if (type_node == nullptr)
         return nullptr;
 
@@ -3048,7 +3092,7 @@ static int trans_switch_case(Context *c, TransScope *parent_scope, const clang::
     *out_node = nullptr;
 
     if (stmt->getRHS() != nullptr) {
-        emit_warning(c, stmt->getLocStart(), "TODO support GNU switch case a ... b extension");
+        emit_warning(c, stmt->getBeginLoc(), "TODO support GNU switch case a ... b extension");
         return ErrorUnexpected;
     }
 
@@ -3133,13 +3177,13 @@ static AstNode *trans_string_literal(Context *c, ResultUsed result_used, TransSc
             return maybe_suppress_result(c, result_used, node);
         }
         case clang::StringLiteral::UTF16:
-            emit_warning(c, stmt->getLocStart(), "TODO support UTF16 string literals");
+            emit_warning(c, stmt->getBeginLoc(), "TODO support UTF16 string literals");
             return nullptr;
         case clang::StringLiteral::UTF32:
-            emit_warning(c, stmt->getLocStart(), "TODO support UTF32 string literals");
+            emit_warning(c, stmt->getBeginLoc(), "TODO support UTF32 string literals");
             return nullptr;
         case clang::StringLiteral::Wide:
-            emit_warning(c, stmt->getLocStart(), "TODO support wide string literals");
+            emit_warning(c, stmt->getBeginLoc(), "TODO support wide string literals");
             return nullptr;
     }
     zig_unreachable();
@@ -3274,512 +3318,515 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const clang::Stmt *st
             return trans_switch_case(c, scope, (const clang::CaseStmt *)stmt, out_node, out_child_scope);
         case clang::Stmt::DefaultStmtClass:
             return trans_switch_default(c, scope, (const clang::DefaultStmt *)stmt, out_node, out_child_scope);
-        case clang::Stmt::NoStmtClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C NoStmtClass");
-            return ErrorUnexpected;
-        case clang::Stmt::GCCAsmStmtClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C GCCAsmStmtClass");
-            return ErrorUnexpected;
-        case clang::Stmt::MSAsmStmtClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C MSAsmStmtClass");
-            return ErrorUnexpected;
-        case clang::Stmt::AttributedStmtClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C AttributedStmtClass");
-            return ErrorUnexpected;
-        case clang::Stmt::CXXCatchStmtClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXCatchStmtClass");
-            return ErrorUnexpected;
-        case clang::Stmt::CXXForRangeStmtClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXForRangeStmtClass");
-            return ErrorUnexpected;
-        case clang::Stmt::CXXTryStmtClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXTryStmtClass");
-            return ErrorUnexpected;
-        case clang::Stmt::CapturedStmtClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CapturedStmtClass");
-            return ErrorUnexpected;
-        case clang::Stmt::CoreturnStmtClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CoreturnStmtClass");
-            return ErrorUnexpected;
-        case clang::Stmt::CoroutineBodyStmtClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CoroutineBodyStmtClass");
-            return ErrorUnexpected;
-        case clang::Stmt::BinaryConditionalOperatorClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C BinaryConditionalOperatorClass");
-            return ErrorUnexpected;
-        case clang::Stmt::AddrLabelExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C AddrLabelExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::ArrayInitIndexExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ArrayInitIndexExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::ArrayInitLoopExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ArrayInitLoopExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::ArrayTypeTraitExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ArrayTypeTraitExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::AsTypeExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C AsTypeExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::AtomicExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C AtomicExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::BlockExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C BlockExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::CXXBindTemporaryExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXBindTemporaryExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::CXXBoolLiteralExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXBoolLiteralExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::CXXConstructExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXConstructExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::CXXTemporaryObjectExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXTemporaryObjectExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::CXXDefaultArgExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXDefaultArgExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::CXXDefaultInitExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXDefaultInitExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::CXXDeleteExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXDeleteExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::CXXDependentScopeMemberExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXDependentScopeMemberExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::CXXFoldExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXFoldExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::CXXInheritedCtorInitExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXInheritedCtorInitExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::CXXNewExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXNewExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::CXXNoexceptExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXNoexceptExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::CXXNullPtrLiteralExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXNullPtrLiteralExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::CXXPseudoDestructorExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXPseudoDestructorExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::CXXScalarValueInitExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXScalarValueInitExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::CXXStdInitializerListExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXStdInitializerListExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::CXXThisExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXThisExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::CXXThrowExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXThrowExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::CXXTypeidExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXTypeidExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::CXXUnresolvedConstructExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXUnresolvedConstructExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::CXXUuidofExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXUuidofExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::CUDAKernelCallExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CUDAKernelCallExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::CXXMemberCallExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXMemberCallExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::CXXOperatorCallExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXOperatorCallExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::UserDefinedLiteralClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C UserDefinedLiteralClass");
-            return ErrorUnexpected;
-        case clang::Stmt::CXXFunctionalCastExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXFunctionalCastExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::CXXConstCastExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXConstCastExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::CXXDynamicCastExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXDynamicCastExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::CXXReinterpretCastExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXReinterpretCastExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::CXXStaticCastExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXStaticCastExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::ObjCBridgedCastExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCBridgedCastExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::CharacterLiteralClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CharacterLiteralClass");
-            return ErrorUnexpected;
-        case clang::Stmt::ChooseExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ChooseExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::CompoundLiteralExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CompoundLiteralExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::ConvertVectorExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ConvertVectorExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::CoawaitExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CoawaitExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::CoyieldExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CoyieldExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::DependentCoawaitExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C DependentCoawaitExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::DependentScopeDeclRefExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C DependentScopeDeclRefExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::DesignatedInitExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C DesignatedInitExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::DesignatedInitUpdateExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C DesignatedInitUpdateExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::ExprWithCleanupsClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ExprWithCleanupsClass");
-            return ErrorUnexpected;
-        case clang::Stmt::ExpressionTraitExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ExpressionTraitExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::ExtVectorElementExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ExtVectorElementExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::FloatingLiteralClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C FloatingLiteralClass");
-            return ErrorUnexpected;
-        case clang::Stmt::FunctionParmPackExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C FunctionParmPackExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::GNUNullExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C GNUNullExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::GenericSelectionExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C GenericSelectionExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::ImaginaryLiteralClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ImaginaryLiteralClass");
-            return ErrorUnexpected;
-        case clang::Stmt::ImplicitValueInitExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ImplicitValueInitExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::InitListExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C InitListExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::LambdaExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C LambdaExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::MSPropertyRefExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C MSPropertyRefExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::MSPropertySubscriptExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C MSPropertySubscriptExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::MaterializeTemporaryExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C MaterializeTemporaryExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::NoInitExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C NoInitExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::OMPArraySectionExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPArraySectionExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::ObjCArrayLiteralClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCArrayLiteralClass");
-            return ErrorUnexpected;
-        case clang::Stmt::ObjCAvailabilityCheckExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCAvailabilityCheckExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::ObjCBoolLiteralExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCBoolLiteralExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::ObjCBoxedExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCBoxedExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::ObjCDictionaryLiteralClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCDictionaryLiteralClass");
-            return ErrorUnexpected;
-        case clang::Stmt::ObjCEncodeExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCEncodeExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::ObjCIndirectCopyRestoreExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCIndirectCopyRestoreExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::ObjCIsaExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCIsaExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::ObjCIvarRefExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCIvarRefExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::ObjCMessageExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCMessageExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::ObjCPropertyRefExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCPropertyRefExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::ObjCProtocolExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCProtocolExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::ObjCSelectorExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCSelectorExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::ObjCStringLiteralClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCStringLiteralClass");
-            return ErrorUnexpected;
-        case clang::Stmt::ObjCSubscriptRefExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCSubscriptRefExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::OffsetOfExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OffsetOfExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::OpaqueValueExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OpaqueValueExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::UnresolvedLookupExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C UnresolvedLookupExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::UnresolvedMemberExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C UnresolvedMemberExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::PackExpansionExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C PackExpansionExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::ParenListExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ParenListExprClass");
-            return ErrorUnexpected;
+        case clang::Stmt::ConstantExprClass:
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_constant_expr(c, result_used, (const clang::ConstantExpr *)stmt));
         case clang::Stmt::PredefinedExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                              trans_predefined_expr(c, result_used, scope, (const clang::PredefinedExpr *)stmt));
-        case clang::Stmt::PseudoObjectExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C PseudoObjectExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::ShuffleVectorExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ShuffleVectorExprClass");
-            return ErrorUnexpected;
-        case clang::Stmt::SizeOfPackExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C SizeOfPackExprClass");
-            return ErrorUnexpected;
         case clang::Stmt::StmtExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_stmt_expr(c, result_used, scope, (const clang::StmtExpr *)stmt, out_node_scope));
-        case clang::Stmt::SubstNonTypeTemplateParmExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C SubstNonTypeTemplateParmExprClass");
+        case clang::Stmt::NoStmtClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C NoStmtClass");
             return ErrorUnexpected;
-        case clang::Stmt::SubstNonTypeTemplateParmPackExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C SubstNonTypeTemplateParmPackExprClass");
+        case clang::Stmt::GCCAsmStmtClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C GCCAsmStmtClass");
             return ErrorUnexpected;
-        case clang::Stmt::TypeTraitExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C TypeTraitExprClass");
+        case clang::Stmt::MSAsmStmtClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C MSAsmStmtClass");
             return ErrorUnexpected;
-        case clang::Stmt::TypoExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C TypoExprClass");
+        case clang::Stmt::AttributedStmtClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C AttributedStmtClass");
             return ErrorUnexpected;
-        case clang::Stmt::VAArgExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C VAArgExprClass");
+        case clang::Stmt::CXXCatchStmtClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CXXCatchStmtClass");
             return ErrorUnexpected;
-        case clang::Stmt::GotoStmtClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C GotoStmtClass");
+        case clang::Stmt::CXXForRangeStmtClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CXXForRangeStmtClass");
             return ErrorUnexpected;
-        case clang::Stmt::IndirectGotoStmtClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C IndirectGotoStmtClass");
+        case clang::Stmt::CXXTryStmtClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CXXTryStmtClass");
             return ErrorUnexpected;
-        case clang::Stmt::LabelStmtClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C LabelStmtClass");
+        case clang::Stmt::CapturedStmtClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CapturedStmtClass");
             return ErrorUnexpected;
-        case clang::Stmt::MSDependentExistsStmtClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C MSDependentExistsStmtClass");
+        case clang::Stmt::CoreturnStmtClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CoreturnStmtClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPAtomicDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPAtomicDirectiveClass");
+        case clang::Stmt::CoroutineBodyStmtClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CoroutineBodyStmtClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPBarrierDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPBarrierDirectiveClass");
+        case clang::Stmt::BinaryConditionalOperatorClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C BinaryConditionalOperatorClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPCancelDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPCancelDirectiveClass");
+        case clang::Stmt::AddrLabelExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C AddrLabelExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPCancellationPointDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPCancellationPointDirectiveClass");
+        case clang::Stmt::ArrayInitIndexExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C ArrayInitIndexExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPCriticalDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPCriticalDirectiveClass");
+        case clang::Stmt::ArrayInitLoopExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C ArrayInitLoopExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPFlushDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPFlushDirectiveClass");
+        case clang::Stmt::ArrayTypeTraitExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C ArrayTypeTraitExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPDistributeDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPDistributeDirectiveClass");
+        case clang::Stmt::AsTypeExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C AsTypeExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPDistributeParallelForDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPDistributeParallelForDirectiveClass");
+        case clang::Stmt::AtomicExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C AtomicExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPDistributeParallelForSimdDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPDistributeParallelForSimdDirectiveClass");
+        case clang::Stmt::BlockExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C BlockExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPDistributeSimdDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPDistributeSimdDirectiveClass");
+        case clang::Stmt::CXXBindTemporaryExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CXXBindTemporaryExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPForDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPForDirectiveClass");
+        case clang::Stmt::CXXBoolLiteralExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CXXBoolLiteralExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPForSimdDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPForSimdDirectiveClass");
+        case clang::Stmt::CXXConstructExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CXXConstructExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPParallelForDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPParallelForDirectiveClass");
+        case clang::Stmt::CXXTemporaryObjectExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CXXTemporaryObjectExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPParallelForSimdDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPParallelForSimdDirectiveClass");
+        case clang::Stmt::CXXDefaultArgExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CXXDefaultArgExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPSimdDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPSimdDirectiveClass");
+        case clang::Stmt::CXXDefaultInitExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CXXDefaultInitExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTargetParallelForSimdDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetParallelForSimdDirectiveClass");
+        case clang::Stmt::CXXDeleteExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CXXDeleteExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTargetSimdDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetSimdDirectiveClass");
+        case clang::Stmt::CXXDependentScopeMemberExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CXXDependentScopeMemberExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTargetTeamsDistributeDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetTeamsDistributeDirectiveClass");
+        case clang::Stmt::CXXFoldExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CXXFoldExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTargetTeamsDistributeParallelForDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetTeamsDistributeParallelForDirectiveClass");
+        case clang::Stmt::CXXInheritedCtorInitExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CXXInheritedCtorInitExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTargetTeamsDistributeParallelForSimdDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetTeamsDistributeParallelForSimdDirectiveClass");
+        case clang::Stmt::CXXNewExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CXXNewExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTargetTeamsDistributeSimdDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetTeamsDistributeSimdDirectiveClass");
+        case clang::Stmt::CXXNoexceptExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CXXNoexceptExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTaskLoopDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTaskLoopDirectiveClass");
+        case clang::Stmt::CXXNullPtrLiteralExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CXXNullPtrLiteralExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTaskLoopSimdDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTaskLoopSimdDirectiveClass");
+        case clang::Stmt::CXXPseudoDestructorExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CXXPseudoDestructorExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTeamsDistributeDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTeamsDistributeDirectiveClass");
+        case clang::Stmt::CXXScalarValueInitExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CXXScalarValueInitExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTeamsDistributeParallelForDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTeamsDistributeParallelForDirectiveClass");
+        case clang::Stmt::CXXStdInitializerListExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CXXStdInitializerListExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTeamsDistributeParallelForSimdDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTeamsDistributeParallelForSimdDirectiveClass");
+        case clang::Stmt::CXXThisExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CXXThisExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTeamsDistributeSimdDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTeamsDistributeSimdDirectiveClass");
+        case clang::Stmt::CXXThrowExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CXXThrowExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPMasterDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPMasterDirectiveClass");
+        case clang::Stmt::CXXTypeidExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CXXTypeidExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPOrderedDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPOrderedDirectiveClass");
+        case clang::Stmt::CXXUnresolvedConstructExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CXXUnresolvedConstructExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPParallelDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPParallelDirectiveClass");
+        case clang::Stmt::CXXUuidofExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CXXUuidofExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPParallelSectionsDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPParallelSectionsDirectiveClass");
+        case clang::Stmt::CUDAKernelCallExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CUDAKernelCallExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPSectionDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPSectionDirectiveClass");
+        case clang::Stmt::CXXMemberCallExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CXXMemberCallExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPSectionsDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPSectionsDirectiveClass");
+        case clang::Stmt::CXXOperatorCallExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CXXOperatorCallExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPSingleDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPSingleDirectiveClass");
+        case clang::Stmt::UserDefinedLiteralClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C UserDefinedLiteralClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTargetDataDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetDataDirectiveClass");
+        case clang::Stmt::CXXFunctionalCastExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CXXFunctionalCastExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTargetDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetDirectiveClass");
+        case clang::Stmt::CXXConstCastExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CXXConstCastExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTargetEnterDataDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetEnterDataDirectiveClass");
+        case clang::Stmt::CXXDynamicCastExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CXXDynamicCastExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTargetExitDataDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetExitDataDirectiveClass");
+        case clang::Stmt::CXXReinterpretCastExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CXXReinterpretCastExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTargetParallelDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetParallelDirectiveClass");
+        case clang::Stmt::CXXStaticCastExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CXXStaticCastExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTargetParallelForDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetParallelForDirectiveClass");
+        case clang::Stmt::ObjCBridgedCastExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C ObjCBridgedCastExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTargetTeamsDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetTeamsDirectiveClass");
+        case clang::Stmt::CharacterLiteralClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CharacterLiteralClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTargetUpdateDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetUpdateDirectiveClass");
+        case clang::Stmt::ChooseExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C ChooseExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTaskDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTaskDirectiveClass");
+        case clang::Stmt::CompoundLiteralExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CompoundLiteralExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTaskgroupDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTaskgroupDirectiveClass");
+        case clang::Stmt::ConvertVectorExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C ConvertVectorExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTaskwaitDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTaskwaitDirectiveClass");
+        case clang::Stmt::CoawaitExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CoawaitExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTaskyieldDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTaskyieldDirectiveClass");
+        case clang::Stmt::CoyieldExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C CoyieldExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTeamsDirectiveClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTeamsDirectiveClass");
+        case clang::Stmt::DependentCoawaitExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C DependentCoawaitExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::ObjCAtCatchStmtClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCAtCatchStmtClass");
+        case clang::Stmt::DependentScopeDeclRefExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C DependentScopeDeclRefExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::ObjCAtFinallyStmtClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCAtFinallyStmtClass");
+        case clang::Stmt::DesignatedInitExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C DesignatedInitExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::ObjCAtSynchronizedStmtClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCAtSynchronizedStmtClass");
+        case clang::Stmt::DesignatedInitUpdateExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C DesignatedInitUpdateExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::ObjCAtThrowStmtClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCAtThrowStmtClass");
+        case clang::Stmt::ExpressionTraitExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C ExpressionTraitExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::ObjCAtTryStmtClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCAtTryStmtClass");
-            return ErrorUnexpected;
-        case clang::Stmt::ObjCAutoreleasePoolStmtClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCAutoreleasePoolStmtClass");
-            return ErrorUnexpected;
-        case clang::Stmt::ObjCForCollectionStmtClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCForCollectionStmtClass");
-            return ErrorUnexpected;
-        case clang::Stmt::SEHExceptStmtClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C SEHExceptStmtClass");
-            return ErrorUnexpected;
-        case clang::Stmt::SEHFinallyStmtClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C SEHFinallyStmtClass");
-            return ErrorUnexpected;
-        case clang::Stmt::SEHLeaveStmtClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C SEHLeaveStmtClass");
-            return ErrorUnexpected;
-        case clang::Stmt::SEHTryStmtClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C SEHTryStmtClass");
+        case clang::Stmt::ExtVectorElementExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C ExtVectorElementExprClass");
             return ErrorUnexpected;
         case clang::Stmt::FixedPointLiteralClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C FixedPointLiteralClass");
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C FixedPointLiteralClass");
+            return ErrorUnexpected;
+        case clang::Stmt::FloatingLiteralClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C FloatingLiteralClass");
+            return ErrorUnexpected;
+        case clang::Stmt::ExprWithCleanupsClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C ExprWithCleanupsClass");
+            return ErrorUnexpected;
+        case clang::Stmt::FunctionParmPackExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C FunctionParmPackExprClass");
+            return ErrorUnexpected;
+        case clang::Stmt::GNUNullExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C GNUNullExprClass");
+            return ErrorUnexpected;
+        case clang::Stmt::GenericSelectionExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C GenericSelectionExprClass");
+            return ErrorUnexpected;
+        case clang::Stmt::ImaginaryLiteralClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C ImaginaryLiteralClass");
+            return ErrorUnexpected;
+        case clang::Stmt::ImplicitValueInitExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C ImplicitValueInitExprClass");
+            return ErrorUnexpected;
+        case clang::Stmt::InitListExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C InitListExprClass");
+            return ErrorUnexpected;
+        case clang::Stmt::LambdaExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C LambdaExprClass");
+            return ErrorUnexpected;
+        case clang::Stmt::MSPropertyRefExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C MSPropertyRefExprClass");
+            return ErrorUnexpected;
+        case clang::Stmt::MSPropertySubscriptExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C MSPropertySubscriptExprClass");
+            return ErrorUnexpected;
+        case clang::Stmt::MaterializeTemporaryExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C MaterializeTemporaryExprClass");
+            return ErrorUnexpected;
+        case clang::Stmt::NoInitExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C NoInitExprClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPArraySectionExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPArraySectionExprClass");
+            return ErrorUnexpected;
+        case clang::Stmt::ObjCArrayLiteralClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C ObjCArrayLiteralClass");
+            return ErrorUnexpected;
+        case clang::Stmt::ObjCAvailabilityCheckExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C ObjCAvailabilityCheckExprClass");
+            return ErrorUnexpected;
+        case clang::Stmt::ObjCBoolLiteralExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C ObjCBoolLiteralExprClass");
+            return ErrorUnexpected;
+        case clang::Stmt::ObjCBoxedExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C ObjCBoxedExprClass");
+            return ErrorUnexpected;
+        case clang::Stmt::ObjCDictionaryLiteralClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C ObjCDictionaryLiteralClass");
+            return ErrorUnexpected;
+        case clang::Stmt::ObjCEncodeExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C ObjCEncodeExprClass");
+            return ErrorUnexpected;
+        case clang::Stmt::ObjCIndirectCopyRestoreExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C ObjCIndirectCopyRestoreExprClass");
+            return ErrorUnexpected;
+        case clang::Stmt::ObjCIsaExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C ObjCIsaExprClass");
+            return ErrorUnexpected;
+        case clang::Stmt::ObjCIvarRefExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C ObjCIvarRefExprClass");
+            return ErrorUnexpected;
+        case clang::Stmt::ObjCMessageExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C ObjCMessageExprClass");
+            return ErrorUnexpected;
+        case clang::Stmt::ObjCPropertyRefExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C ObjCPropertyRefExprClass");
+            return ErrorUnexpected;
+        case clang::Stmt::ObjCProtocolExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C ObjCProtocolExprClass");
+            return ErrorUnexpected;
+        case clang::Stmt::ObjCSelectorExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C ObjCSelectorExprClass");
+            return ErrorUnexpected;
+        case clang::Stmt::ObjCStringLiteralClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C ObjCStringLiteralClass");
+            return ErrorUnexpected;
+        case clang::Stmt::ObjCSubscriptRefExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C ObjCSubscriptRefExprClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OffsetOfExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OffsetOfExprClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OpaqueValueExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OpaqueValueExprClass");
+            return ErrorUnexpected;
+        case clang::Stmt::UnresolvedLookupExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C UnresolvedLookupExprClass");
+            return ErrorUnexpected;
+        case clang::Stmt::UnresolvedMemberExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C UnresolvedMemberExprClass");
+            return ErrorUnexpected;
+        case clang::Stmt::PackExpansionExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C PackExpansionExprClass");
+            return ErrorUnexpected;
+        case clang::Stmt::ParenListExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C ParenListExprClass");
+            return ErrorUnexpected;
+        case clang::Stmt::PseudoObjectExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C PseudoObjectExprClass");
+            return ErrorUnexpected;
+        case clang::Stmt::ShuffleVectorExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C ShuffleVectorExprClass");
+            return ErrorUnexpected;
+        case clang::Stmt::SizeOfPackExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C SizeOfPackExprClass");
+            return ErrorUnexpected;
+        case clang::Stmt::SubstNonTypeTemplateParmExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C SubstNonTypeTemplateParmExprClass");
+            return ErrorUnexpected;
+        case clang::Stmt::SubstNonTypeTemplateParmPackExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C SubstNonTypeTemplateParmPackExprClass");
+            return ErrorUnexpected;
+        case clang::Stmt::TypeTraitExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C TypeTraitExprClass");
+            return ErrorUnexpected;
+        case clang::Stmt::TypoExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C TypoExprClass");
+            return ErrorUnexpected;
+        case clang::Stmt::VAArgExprClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C VAArgExprClass");
+            return ErrorUnexpected;
+        case clang::Stmt::GotoStmtClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C GotoStmtClass");
+            return ErrorUnexpected;
+        case clang::Stmt::IndirectGotoStmtClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C IndirectGotoStmtClass");
+            return ErrorUnexpected;
+        case clang::Stmt::LabelStmtClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C LabelStmtClass");
+            return ErrorUnexpected;
+        case clang::Stmt::MSDependentExistsStmtClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C MSDependentExistsStmtClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPAtomicDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPAtomicDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPBarrierDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPBarrierDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPCancelDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPCancelDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPCancellationPointDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPCancellationPointDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPCriticalDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPCriticalDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPFlushDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPFlushDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPDistributeDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPDistributeDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPDistributeParallelForDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPDistributeParallelForDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPDistributeParallelForSimdDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPDistributeParallelForSimdDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPDistributeSimdDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPDistributeSimdDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPForDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPForDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPForSimdDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPForSimdDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPParallelForDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPParallelForDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPParallelForSimdDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPParallelForSimdDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPSimdDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPSimdDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPTargetParallelForSimdDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPTargetParallelForSimdDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPTargetSimdDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPTargetSimdDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPTargetTeamsDistributeDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPTargetTeamsDistributeDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPTargetTeamsDistributeParallelForDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPTargetTeamsDistributeParallelForDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPTargetTeamsDistributeParallelForSimdDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPTargetTeamsDistributeParallelForSimdDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPTargetTeamsDistributeSimdDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPTargetTeamsDistributeSimdDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPTaskLoopDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPTaskLoopDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPTaskLoopSimdDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPTaskLoopSimdDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPTeamsDistributeDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPTeamsDistributeDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPTeamsDistributeParallelForDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPTeamsDistributeParallelForDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPTeamsDistributeParallelForSimdDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPTeamsDistributeParallelForSimdDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPTeamsDistributeSimdDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPTeamsDistributeSimdDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPMasterDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPMasterDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPOrderedDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPOrderedDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPParallelDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPParallelDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPParallelSectionsDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPParallelSectionsDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPSectionDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPSectionDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPSectionsDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPSectionsDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPSingleDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPSingleDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPTargetDataDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPTargetDataDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPTargetDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPTargetDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPTargetEnterDataDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPTargetEnterDataDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPTargetExitDataDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPTargetExitDataDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPTargetParallelDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPTargetParallelDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPTargetParallelForDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPTargetParallelForDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPTargetTeamsDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPTargetTeamsDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPTargetUpdateDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPTargetUpdateDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPTaskDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPTaskDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPTaskgroupDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPTaskgroupDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPTaskwaitDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPTaskwaitDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPTaskyieldDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPTaskyieldDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::OMPTeamsDirectiveClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C OMPTeamsDirectiveClass");
+            return ErrorUnexpected;
+        case clang::Stmt::ObjCAtCatchStmtClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C ObjCAtCatchStmtClass");
+            return ErrorUnexpected;
+        case clang::Stmt::ObjCAtFinallyStmtClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C ObjCAtFinallyStmtClass");
+            return ErrorUnexpected;
+        case clang::Stmt::ObjCAtSynchronizedStmtClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C ObjCAtSynchronizedStmtClass");
+            return ErrorUnexpected;
+        case clang::Stmt::ObjCAtThrowStmtClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C ObjCAtThrowStmtClass");
+            return ErrorUnexpected;
+        case clang::Stmt::ObjCAtTryStmtClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C ObjCAtTryStmtClass");
+            return ErrorUnexpected;
+        case clang::Stmt::ObjCAutoreleasePoolStmtClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C ObjCAutoreleasePoolStmtClass");
+            return ErrorUnexpected;
+        case clang::Stmt::ObjCForCollectionStmtClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C ObjCForCollectionStmtClass");
+            return ErrorUnexpected;
+        case clang::Stmt::SEHExceptStmtClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C SEHExceptStmtClass");
+            return ErrorUnexpected;
+        case clang::Stmt::SEHFinallyStmtClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C SEHFinallyStmtClass");
+            return ErrorUnexpected;
+        case clang::Stmt::SEHLeaveStmtClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C SEHLeaveStmtClass");
+            return ErrorUnexpected;
+        case clang::Stmt::SEHTryStmtClass:
+            emit_warning(c, stmt->getBeginLoc(), "TODO handle C SEHTryStmtClass");
             return ErrorUnexpected;
     }
     zig_unreachable();
@@ -4968,7 +5015,7 @@ Error parse_h_file(AstNode **out_root_node, ZigList<ErrorMsg *> *errors, const c
                 case clang::DiagnosticsEngine::Fatal:
                     break;
             }
-            StringRef msg_str_ref = it->getMessage();
+            llvm::StringRef msg_str_ref = it->getMessage();
             Buf *msg = string_ref_to_buf(msg_str_ref);
             clang::FullSourceLoc fsl = it->getLocation();
             if (fsl.hasManager()) {

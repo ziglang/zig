@@ -5,7 +5,7 @@
 # The debug info has a broken relocation. Check that we don't crash
 # and still report the undefined symbol.
 
-# CHECK: error: unsupported relocation target while parsing debug info
+# CHECK: error: {{.*}}.o: relocation R_X86_64_64 at 0x29 has unsupported target
 # CHECK: error: undefined symbol: bar
 
 --- !ELF

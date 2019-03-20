@@ -14,7 +14,7 @@
 # DSO-NEXT:   Symbols [
 # DSO-NEXT:     Symbol {
 # DSO-NEXT:       Version: 0
-# DSO-NEXT:       Name: @
+# DSO-NEXT:       Name:
 # DSO-NEXT:     }
 # DSO-NEXT:     Symbol {
 # DSO-NEXT:       Version: 2
@@ -76,7 +76,7 @@
 # MAIN-NEXT:   Symbols [
 # MAIN-NEXT:     Symbol {
 # MAIN-NEXT:       Version: 0
-# MAIN-NEXT:       Name: @
+# MAIN-NEXT:       Name:
 # MAIN-NEXT:     }
 # MAIN-NEXT:     Symbol {
 # MAIN-NEXT:       Version: 2

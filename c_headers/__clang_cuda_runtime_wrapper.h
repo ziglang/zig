@@ -62,8 +62,13 @@
 #include "cuda.h"
 #if !defined(CUDA_VERSION)
 #error "cuda.h did not define CUDA_VERSION"
-#elif CUDA_VERSION < 7000 || CUDA_VERSION > 9020
+#elif CUDA_VERSION < 7000 || CUDA_VERSION > 10000
 #error "Unsupported CUDA version!"
+#endif
+
+#pragma push_macro("__CUDA_INCLUDE_COMPILER_INTERNAL_HEADERS__")
+#if CUDA_VERSION >= 10000
+#define __CUDA_INCLUDE_COMPILER_INTERNAL_HEADERS__
 #endif
 
 // Make largest subset of device functions available during host
@@ -419,6 +424,7 @@ __device__ inline __cuda_builtin_gridDim_t::operator dim3() const {
 #pragma pop_macro("dim3")
 #pragma pop_macro("uint3")
 #pragma pop_macro("__USE_FAST_MATH__")
+#pragma pop_macro("__CUDA_INCLUDE_COMPILER_INTERNAL_HEADERS__")
 
 #endif // __CUDA__
 #endif // __CLANG_CUDA_RUNTIME_WRAPPER_H__

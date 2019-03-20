@@ -66,13 +66,18 @@ def wholearchive_file : P<"wholearchive", "Include all object files from this ar
 
 def disallowlib : Joined<["/", "-", "-?"], "disallowlib:">, Alias<nodefaultlib>;
 
-def manifest : F<"manifest">;
-def manifest_colon : P<"manifest", "Create manifest file">;
+def manifest : F<"manifest">, HelpText<"Create .manifest file">;
+def manifest_colon : P<
+    "manifest",
+    "NO disables manifest output; EMBED[,ID=#] embeds manifest as resource in the image">;
 def manifestuac : P<"manifestuac", "User access control">;
-def manifestfile : P<"manifestfile", "Manifest file path">;
-def manifestdependency : P<"manifestdependency",
-                           "Attributes for <dependency> in manifest file">;
-def manifestinput : P<"manifestinput", "Specify manifest file">;
+def manifestfile : P<"manifestfile", "Manifest output path, with /manifest">;
+def manifestdependency : P<
+    "manifestdependency",
+    "Attributes for <dependency> element in manifest file; implies /manifest">;
+def manifestinput : P<
+    "manifestinput",
+    "Additional manifest inputs; only valid with /manifest:embed">;
 
 // We cannot use multiclass P because class name "incl" is different
 // from its command line option name. We do this because "include" is
@@ -85,22 +90,28 @@ def deffile : Joined<["/", "-"], "def:">,
     HelpText<"Use module-definition file">;
 
 def debug : F<"debug">, HelpText<"Embed a symbol table in the image">;
-def debug_full : F<"debug:full">, Alias<debug>;
+def debug_opt : P<"debug", "Embed a symbol table in the image with option">;
 def debugtype : P<"debugtype", "Debug Info Options">;
 def dll : F<"dll">, HelpText<"Create a DLL">;
 def driver : P<"driver", "Generate a Windows NT Kernel Mode Driver">;
-def nodefaultlib_all : F<"nodefaultlib">;
-def noentry : F<"noentry">;
+def nodefaultlib_all : F<"nodefaultlib">,
+    HelpText<"Remove all default libraries">;
+def noentry : F<"noentry">,
+    HelpText<"Don't add reference to DllMainCRTStartup; only valid with /dll">;
 def profile : F<"profile">;
-def repro : F<"Brepro">, HelpText<"Use a hash of the executable as the PE header timestamp">;
+def repro : F<"Brepro">,
+    HelpText<"Use a hash of the executable as the PE header timestamp">;
 def swaprun_cd : F<"swaprun:cd">;
 def swaprun_net : F<"swaprun:net">;
 def verbose : F<"verbose">;
 def wholearchive_flag : F<"wholearchive">;
 
 def force : F<"force">,
+    HelpText<"Allow undefined and multiply defined symbols when creating executables">;
+def force_unresolved : F<"force:unresolved">,
     HelpText<"Allow undefined symbols when creating executables">;
-def force_unresolved : F<"force:unresolved">;
+def force_multiple : F<"force:multiple">,
+    HelpText<"Allow multiply defined symbols when creating executables">;
 defm WX : B<"WX", "Treat warnings as errors", "Don't treat warnings as errors">;
 
 defm allowbind : B<"allowbind", "Enable DLL binding (default)",
@@ -139,13 +150,9 @@ def help : F<"help">;
 def help_q : Flag<["/?", "-?"], "">, Alias<help>;
 
 // LLD extensions
-def debug_ghash : F<"debug:ghash">;
-def debug_dwarf : F<"debug:dwarf">;
-def debug_symtab : F<"debug:symtab">;
 def export_all_symbols : F<"export-all-symbols">;
 def kill_at : F<"kill-at">;
 def lldmingw : F<"lldmingw">;
-def msvclto : F<"msvclto">;
 def output_def : Joined<["/", "-"], "output-def:">;
 def pdb_source_path : P<"pdbsourcepath",
                         "Base path used to make relative source file path absolute in PDB">;

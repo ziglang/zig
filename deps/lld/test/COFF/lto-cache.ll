@@ -1,4 +1,6 @@
 ; REQUIRES: x86
+; NetBSD: noatime mounts currently inhibit 'touch' from updating atime
+; UNSUPPORTED: system-netbsd
 
 ; RUN: opt -module-hash -module-summary %s -o %t.o
 ; RUN: opt -module-hash -module-summary %p/Inputs/lto-cache.ll -o %t2.o

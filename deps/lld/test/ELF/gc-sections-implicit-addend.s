@@ -12,10 +12,10 @@
 # CHECK-NEXT:   SHF_MERGE
 # CHECK-NEXT:   SHF_STRINGS
 # CHECK-NEXT: ]
-# CHECK-NEXT: Address: 0x100B4
+# CHECK-NEXT: Address: 0x4000B4
 
-# 0x100B4 == 65716
-# DISASM: leal    65716, %eax
+# 0x4000B4 == 4194484
+# DISASM: leal    4194484, %eax
 
         .section        .foo,"aMS",@progbits,1
         .byte 0

@@ -68,6 +68,16 @@ target triple = "wasm32-unknown-unknown"
 ; CHECK-MAX-NEXT:         Initial:         0x00000002
 ; CHECK-MAX-NEXT:         Maximum:         0x00000002
 
+; RUN: wasm-ld -no-gc-sections --allow-undefined --no-entry --shared-memory \
+; RUN:     --initial-memory=131072 --max-memory=131072 -o %t_max.wasm %t.o \
+; RUN:     %t.hello.o
+; RUN: obj2yaml %t_max.wasm | FileCheck %s -check-prefix=CHECK-SHARED
+
+; CHECK-SHARED:        - Type:            MEMORY
+; CHECK-SHARED-NEXT:     Memories:
+; CHECK-SHARED-NEXT:       - Flags:           [ HAS_MAX, IS_SHARED ]
+; CHECK-SHARED-NEXT:         Initial:         0x00000002
+; CHECK-SHARED-NEXT:         Maximum:         0x00000002
 
 ; RUN: wasm-ld --relocatable -o %t_reloc.wasm %t.o %t.hello.o
 ; RUN: obj2yaml %t_reloc.wasm | FileCheck %s -check-prefix=RELOC
@@ -75,10 +85,10 @@ target triple = "wasm32-unknown-unknown"
 ; RELOC:       - Type:            DATA
 ; RELOC-NEXT:     Relocations:
 ; RELOC-NEXT:       - Type:            R_WEBASSEMBLY_MEMORY_ADDR_I32
-; RELOC-NEXT:         Index:           6
+; RELOC-NEXT:         Index:           3
 ; RELOC-NEXT:         Offset:          0x00000018
 ; RELOC-NEXT:       - Type:            R_WEBASSEMBLY_MEMORY_ADDR_I32
-; RELOC-NEXT:         Index:           3
+; RELOC-NEXT:         Index:           4
 ; RELOC-NEXT:         Offset:          0x0000002E
 ; RELOC-NEXT:         Addend:          4
 ; RELOC-NEXT:     Segments:
@@ -138,7 +148,7 @@ target triple = "wasm32-unknown-unknown"
 ; RELOC-NEXT:         Flags:           [  ]
 ; RELOC-NEXT:         Segment:         2
 ; RELOC-NEXT:         Size:            4
-; RELOC:            - Index:           6
+; RELOC-NEXT:       - Index:           3
 ; RELOC-NEXT:         Kind:            DATA
 ; RELOC-NEXT:         Name:            hello_str
 ; RELOC-NEXT:         Flags:           [  ]

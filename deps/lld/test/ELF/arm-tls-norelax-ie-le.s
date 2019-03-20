@@ -37,5 +37,5 @@ x2:
  .type x2, %object
 
 // CHECK: Contents of section .got:
-// x1 at offset 8 from TP, x2 at offset c from TP. Offsets include TCB size of 8
-// CHECK-NEXT: 13064 08000000 0c000000
+// x1 at offset 0x20 from TP, x2 at offset 0x24 from TP. Offsets include TCB size of 0x20
+// CHECK-NEXT: 13064 20000000 24000000

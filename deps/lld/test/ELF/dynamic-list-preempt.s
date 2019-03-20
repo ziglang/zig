@@ -16,7 +16,7 @@
 
 # DYNSYMS:      DynamicSymbols [
 # DYNSYMS-NEXT:   Symbol {
-# DYNSYMS-NEXT:     Name: @ (0)
+# DYNSYMS-NEXT:     Name:
 # DYNSYMS-NEXT:     Value: 0x0
 # DYNSYMS-NEXT:     Size: 0
 # DYNSYMS-NEXT:     Binding: Local
@@ -25,7 +25,7 @@
 # DYNSYMS-NEXT:     Section: Undefined
 # DYNSYMS-NEXT:   }
 # DYNSYMS-NEXT:   Symbol {
-# DYNSYMS-NEXT:     Name: bar@
+# DYNSYMS-NEXT:     Name: bar
 # DYNSYMS-NEXT:     Value:
 # DYNSYMS-NEXT:     Size:
 # DYNSYMS-NEXT:     Binding: Global
@@ -34,7 +34,7 @@
 # DYNSYMS-NEXT:     Section:
 # DYNSYMS-NEXT:   }
 # DYNSYMS-NEXT:   Symbol {
-# DYNSYMS-NEXT:     Name: ext@
+# DYNSYMS-NEXT:     Name: ext
 # DYNSYMS-NEXT:     Value:
 # DYNSYMS-NEXT:     Size:
 # DYNSYMS-NEXT:     Binding: Global
@@ -43,7 +43,7 @@
 # DYNSYMS-NEXT:     Section:
 # DYNSYMS-NEXT:   }
 # DYNSYMS-NEXT:   Symbol {
-# DYNSYMS-NEXT:     Name: foo@
+# DYNSYMS-NEXT:     Name: foo
 # DYNSYMS-NEXT:     Value:
 # DYNSYMS-NEXT:     Size:
 # DYNSYMS-NEXT:     Binding: Global

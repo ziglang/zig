@@ -618,9 +618,12 @@ ZigLLVMDISubprogram *ZigLLVMCreateFunction(ZigLLVMDIBuilder *dibuilder, ZigLLVMD
             reinterpret_cast<DIFile*>(file),
             lineno,
             di_sub_type,
-            is_local_to_unit, is_definition, scope_line, DINode::FlagStaticMember, is_optimized,
+            scope_line,
+            DINode::FlagStaticMember,
+            DISubprogram::toSPFlags(is_local_to_unit, is_definition, is_optimized),
             nullptr,
-            reinterpret_cast<DISubprogram *>(decl_subprogram));
+            reinterpret_cast<DISubprogram *>(decl_subprogram),
+            nullptr);
     return reinterpret_cast<ZigLLVMDISubprogram*>(result);
 }
 
@@ -693,7 +696,6 @@ void ZigLLVMParseCommandLineOptions(size_t argc, const char *const *argv) {
     llvm::cl::ParseCommandLineOptions(argc, argv);
 }
 
-
 const char *ZigLLVMGetArchTypeName(ZigLLVM_ArchType arch) {
     return (const char*)Triple::getArchTypeName((Triple::ArchType)arch).bytes_begin();
 }
@@ -731,6 +733,8 @@ const char *ZigLLVMGetSubArchTypeName(ZigLLVM_SubArchType sub_arch) {
     switch (sub_arch) {
         case ZigLLVM_NoSubArch:
             return "";
+        case ZigLLVM_ARMSubArch_v8_5a:
+            return "v8_5a";
         case ZigLLVM_ARMSubArch_v8_4a:
             return "v8_4a";
         case ZigLLVM_ARMSubArch_v8_3a:
@@ -779,6 +783,8 @@ const char *ZigLLVMGetSubArchTypeName(ZigLLVM_SubArchType sub_arch) {
             return "v4";
         case ZigLLVM_KalimbaSubArch_v5:
             return "v5";
+        case ZigLLVM_MipsSubArch_r6:
+            return "r6";
     }
     abort();
 }
@@ -936,7 +942,6 @@ static_assert((Triple::ArchType)ZigLLVM_mipsel == Triple::mipsel, "");
 static_assert((Triple::ArchType)ZigLLVM_mips64 == Triple::mips64, "");
 static_assert((Triple::ArchType)ZigLLVM_mips64el == Triple::mips64el, "");
 static_assert((Triple::ArchType)ZigLLVM_msp430 == Triple::msp430, "");
-static_assert((Triple::ArchType)ZigLLVM_nios2 == Triple::nios2, "");
 static_assert((Triple::ArchType)ZigLLVM_ppc == Triple::ppc, "");
 static_assert((Triple::ArchType)ZigLLVM_ppc64 == Triple::ppc64, "");
 static_assert((Triple::ArchType)ZigLLVM_ppc64le == Triple::ppc64le, "");
@@ -972,8 +977,7 @@ static_assert((Triple::ArchType)ZigLLVM_wasm32 == Triple::wasm32, "");
 static_assert((Triple::ArchType)ZigLLVM_wasm64 == Triple::wasm64, "");
 static_assert((Triple::ArchType)ZigLLVM_renderscript32 == Triple::renderscript32, "");
 static_assert((Triple::ArchType)ZigLLVM_renderscript64 == Triple::renderscript64, "");
-// Uncomment this when testing LLVM 8.0.0
-//static_assert((Triple::ArchType)ZigLLVM_LastArchType == Triple::LastArchType, "");
+static_assert((Triple::ArchType)ZigLLVM_LastArchType == Triple::LastArchType, "");
 
 static_assert((Triple::SubArchType)ZigLLVM_NoSubArch == Triple::NoSubArch, "");
 static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v8_4a == Triple::ARMSubArch_v8_4a, "");
@@ -1000,6 +1004,8 @@ static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v4t == Triple::ARMSubArch_
 static_assert((Triple::SubArchType)ZigLLVM_KalimbaSubArch_v3 == Triple::KalimbaSubArch_v3, "");
 static_assert((Triple::SubArchType)ZigLLVM_KalimbaSubArch_v4 == Triple::KalimbaSubArch_v4, "");
 static_assert((Triple::SubArchType)ZigLLVM_KalimbaSubArch_v5 == Triple::KalimbaSubArch_v5, "");
+static_assert((Triple::SubArchType)ZigLLVM_KalimbaSubArch_v5 == Triple::KalimbaSubArch_v5, "");
+static_assert((Triple::SubArchType)ZigLLVM_MipsSubArch_r6 == Triple::MipsSubArch_r6, "");
 
 static_assert((Triple::VendorType)ZigLLVM_UnknownVendor == Triple::UnknownVendor, "");
 static_assert((Triple::VendorType)ZigLLVM_Apple == Triple::Apple, "");
@@ -1018,8 +1024,7 @@ static_assert((Triple::VendorType)ZigLLVM_AMD == Triple::AMD, "");
 static_assert((Triple::VendorType)ZigLLVM_Mesa == Triple::Mesa, "");
 static_assert((Triple::VendorType)ZigLLVM_SUSE == Triple::SUSE, "");
 static_assert((Triple::VendorType)ZigLLVM_OpenEmbedded == Triple::OpenEmbedded, "");
-// Uncomment this when testing LLVM 8.0.0
-//static_assert((Triple::VendorType)ZigLLVM_LastVendorType == Triple::LastVendorType, "");
+static_assert((Triple::VendorType)ZigLLVM_LastVendorType == Triple::LastVendorType, "");
 
 static_assert((Triple::OSType)ZigLLVM_UnknownOS == Triple::UnknownOS, "");
 static_assert((Triple::OSType)ZigLLVM_Ananas == Triple::Ananas, "");
@@ -1029,7 +1034,9 @@ static_assert((Triple::OSType)ZigLLVM_DragonFly == Triple::DragonFly, "");
 static_assert((Triple::OSType)ZigLLVM_FreeBSD == Triple::FreeBSD, "");
 static_assert((Triple::OSType)ZigLLVM_Fuchsia == Triple::Fuchsia, "");
 static_assert((Triple::OSType)ZigLLVM_IOS == Triple::IOS, "");
-static_assert((Triple::OSType)ZigLLVM_KFreeBSD == Triple::KFreeBSD, "");
+// Commented out to work around a Debian/Ubuntu bug.
+// See https://github.com/ziglang/zig/issues/2076
+//static_assert((Triple::OSType)ZigLLVM_KFreeBSD == Triple::KFreeBSD, "");
 static_assert((Triple::OSType)ZigLLVM_Linux == Triple::Linux, "");
 static_assert((Triple::OSType)ZigLLVM_Lv2 == Triple::Lv2, "");
 static_assert((Triple::OSType)ZigLLVM_MacOSX == Triple::MacOSX, "");
@@ -1053,8 +1060,7 @@ static_assert((Triple::OSType)ZigLLVM_WatchOS == Triple::WatchOS, "");
 static_assert((Triple::OSType)ZigLLVM_Mesa3D == Triple::Mesa3D, "");
 static_assert((Triple::OSType)ZigLLVM_Contiki == Triple::Contiki, "");
 static_assert((Triple::OSType)ZigLLVM_AMDPAL == Triple::AMDPAL, "");
-// Uncomment this when testing LLVM 8.0.0
-//static_assert((Triple::OSType)ZigLLVM_LastOSType == Triple::LastOSType, "");
+static_assert((Triple::OSType)ZigLLVM_LastOSType == Triple::LastOSType, "");
 
 static_assert((Triple::EnvironmentType)ZigLLVM_UnknownEnvironment == Triple::UnknownEnvironment, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_GNU == Triple::GNU, "");
@@ -1075,8 +1081,7 @@ static_assert((Triple::EnvironmentType)ZigLLVM_Itanium == Triple::Itanium, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_Cygnus == Triple::Cygnus, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_CoreCLR == Triple::CoreCLR, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_Simulator == Triple::Simulator, "");
-// Uncomment this when testing LLVM 8.0.0
-//static_assert((Triple::EnvironmentType)ZigLLVM_LastEnvironmentType == Triple::LastEnvironmentType, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_LastEnvironmentType == Triple::LastEnvironmentType, "");
 
 static_assert((Triple::ObjectFormatType)ZigLLVM_UnknownObjectFormat == Triple::UnknownObjectFormat, "");
 static_assert((Triple::ObjectFormatType)ZigLLVM_COFF == Triple::COFF, "");

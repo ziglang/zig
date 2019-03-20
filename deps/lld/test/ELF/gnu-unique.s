@@ -20,7 +20,7 @@ _start:
 .type symb, @gnu_unique_object
 symb:
 
-# GNU:        Name: symb@
+# GNU:        Name: symb
 # GNU-NEXT:   Value:
 # GNU-NEXT:   Size: 0
 # GNU-NEXT:   Binding: Unique
@@ -29,7 +29,7 @@ symb:
 # GNU-NEXT:   Section: .data
 # GNU-NEXT: }
 
-# NO:        Name: symb@
+# NO:        Name: symb
 # NO-NEXT:   Value:
 # NO-NEXT:   Size: 0
 # NO-NEXT:   Binding: Global

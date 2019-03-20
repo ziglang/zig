@@ -14,7 +14,7 @@
 // GOTREL-NEXT:     SHF_ALLOC
 // GOTREL-NEXT:     SHF_WRITE
 // GOTREL-NEXT:   ]
-// GOTREL-NEXT:   Address: 0x12058
+// GOTREL-NEXT:   Address: 0x402058
 // GOTREL-NEXT:   Offset: 0x2058
 // GOTREL-NEXT:   Size: 8
 // GOTREL-NEXT:   Link: 0
@@ -24,8 +24,8 @@
 // GOTREL-NEXT: }
 // GOTREL:      Relocations [
 // GOTREL-NEXT: Section ({{.*}}) .rel.dyn {
-// GOTREL-NEXT:   0x12058 R_386_TLS_TPOFF tlsshared0 0x0
-// GOTREL-NEXT:   0x1205C R_386_TLS_TPOFF tlsshared1 0x0
+// GOTREL-NEXT:   0x402058 R_386_TLS_TPOFF tlsshared0 0x0
+// GOTREL-NEXT:   0x40205C R_386_TLS_TPOFF tlsshared1 0x0
 // GOTREL-NEXT:  }
 // GOTREL-NEXT: ]
 
@@ -33,24 +33,24 @@
 // DISASM-NEXT: _start:
 // 4294967288 = 0xFFFFFFF8
 // 4294967292 = 0xFFFFFFFC
-// 73808 = (.got)[0] = 0x12058
-// 73812 = (.got)[1] = 0x1205C
-// DISASM-NEXT: 11000: c7 c1 f8 ff ff ff movl $4294967288, %ecx
-// DISASM-NEXT: 11006: 65 8b 01          movl %gs:(%ecx), %eax
-// DISASM-NEXT: 11009: b8 f8 ff ff ff    movl $4294967288, %eax
-// DISASM-NEXT: 1100e: 65 8b 00          movl %gs:(%eax), %eax
-// DISASM-NEXT: 11011: 81 c1 f8 ff ff ff addl $4294967288, %ecx
-// DISASM-NEXT: 11017: 65 8b 01          movl %gs:(%ecx), %eax
-// DISASM-NEXT: 1101a: c7 c1 fc ff ff ff movl $4294967292, %ecx
-// DISASM-NEXT: 11020: 65 8b 01          movl %gs:(%ecx), %eax
-// DISASM-NEXT: 11023: b8 fc ff ff ff    movl $4294967292, %eax
-// DISASM-NEXT: 11028: 65 8b 00          movl %gs:(%eax), %eax
-// DISASM-NEXT: 1102b: 81 c1 fc ff ff ff addl $4294967292, %ecx
-// DISASM-NEXT: 11031: 65 8b 01          movl %gs:(%ecx), %eax
-// DISASM-NEXT: 11034: 8b 0d 58 20 01 00 movl 73816, %ecx
-// DISASM-NEXT: 1103a: 65 8b 01          movl %gs:(%ecx), %eax
-// DISASM-NEXT: 1103d: 03 0d 5c 20 01 00 addl 73820, %ecx
-// DISASM-NEXT: 11043: 65 8b 01          movl %gs:(%ecx), %eax
+// 4202584 = (.got)[0] = 0x402058
+// 4202588 = (.got)[1] = 0x40205C
+// DISASM-NEXT: 401000: c7 c1 f8 ff ff ff movl $4294967288, %ecx
+// DISASM-NEXT: 401006: 65 8b 01          movl %gs:(%ecx), %eax
+// DISASM-NEXT: 401009: b8 f8 ff ff ff    movl $4294967288, %eax
+// DISASM-NEXT: 40100e: 65 8b 00          movl %gs:(%eax), %eax
+// DISASM-NEXT: 401011: 81 c1 f8 ff ff ff addl $4294967288, %ecx
+// DISASM-NEXT: 401017: 65 8b 01          movl %gs:(%ecx), %eax
+// DISASM-NEXT: 40101a: c7 c1 fc ff ff ff movl $4294967292, %ecx
+// DISASM-NEXT: 401020: 65 8b 01          movl %gs:(%ecx), %eax
+// DISASM-NEXT: 401023: b8 fc ff ff ff    movl $4294967292, %eax
+// DISASM-NEXT: 401028: 65 8b 00          movl %gs:(%eax), %eax
+// DISASM-NEXT: 40102b: 81 c1 fc ff ff ff addl $4294967292, %ecx
+// DISASM-NEXT: 401031: 65 8b 01          movl %gs:(%ecx), %eax
+// DISASM-NEXT: 401034: 8b 0d 58 20 40 00 movl 4202584, %ecx
+// DISASM-NEXT: 40103a: 65 8b 01          movl %gs:(%ecx), %eax
+// DISASM-NEXT: 40103d: 03 0d 5c 20 40 00 addl 4202588, %ecx
+// DISASM-NEXT: 401043: 65 8b 01          movl %gs:(%ecx), %eax
 
 .type tlslocal0,@object
 .section .tbss,"awT",@nobits

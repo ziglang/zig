@@ -101,7 +101,6 @@ clarity.
 |i386         | Tier 2       | Tier 2 | Tier 4 | Tier 2  | Tier 3  | Tier 3 | Tier 3 | Tier 3 |
 |arm          | Tier 2       | Tier 3 | Tier 3 | Tier 3  | Tier 3  | Tier 3 | Tier 3 | Tier 3 |
 |arm64        | Tier 2       | Tier 2 | Tier 3 | Tier 3  | Tier 3  | Tier 3 | Tier 3 | Tier 3 |
-|avr          | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | N/A    | Tier 3 |
 |bpf          | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | N/A    | Tier 3 |
 |hexagon      | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | N/A    | Tier 3 |
 |mips         | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | N/A    | Tier 3 |
@@ -110,8 +109,9 @@ clarity.
 |sparc        | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | N/A    | Tier 3 |
 |s390x        | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | N/A    | Tier 3 |
 |lanai        | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | N/A    | Tier 3 |
-|wasm32       | Tier 4       | N/A    | N/A    | N/A     | N/A     | N/A    | N/A    | N/A    |
-|wasm64       | Tier 4       | N/A    | N/A    | N/A     | N/A     | N/A    | N/A    | N/A    |
+|wasm32       | Tier 3       | N/A    | N/A    | N/A     | N/A     | N/A    | N/A    | N/A    |
+|wasm64       | Tier 3       | N/A    | N/A    | N/A     | N/A     | N/A    | N/A    | N/A    |
+|avr          | Tier 4       | Tier 4 | N/A    | N/A     | Tier 4  | Tier 4 | N/A    | Tier 4 |
 |riscv32      | Tier 4       | Tier 4 | N/A    | N/A     | Tier 4  | Tier 4 | Tier 4 | Tier 4 |
 |riscv64      | Tier 4       | Tier 4 | N/A    | N/A     | Tier 4  | Tier 4 | Tier 4 | Tier 4 |
 |xcore        | Tier 4       | Tier 4 | N/A    | N/A     | Tier 4  | Tier 4 | N/A    | Tier 4 |
@@ -149,13 +149,13 @@ Note that you can
 
  * cmake >= 2.8.5
  * gcc >= 5.0.0 or clang >= 3.6.0
- * LLVM, Clang, LLD development libraries == 7.x, compiled with the same gcc or clang version above
+ * LLVM, Clang, LLD development libraries == 8.x, compiled with the same gcc or clang version above
 
 ##### Windows
 
  * cmake >= 2.8.5
- * Microsoft Visual Studio 2017
- * LLVM, Clang, LLD development libraries == 7.x, compiled with the same MSVC version above
+ * Microsoft Visual Studio 2017 (version 15.8)
+ * LLVM, Clang, LLD development libraries == 8.x, compiled with the same MSVC version above
 
 #### Instructions
 
@@ -173,11 +173,11 @@ bin/zig build --build-file ../build.zig test
 ##### MacOS
 
 ```
-brew install cmake llvm@7
-brew outdated llvm@7 || brew upgrade llvm@7
+brew install cmake llvm@8
+brew outdated llvm@8 || brew upgrade llvm@8
 mkdir build
 cd build
-cmake .. -DCMAKE_PREFIX_PATH=/usr/local/opt/llvm@7/
+cmake .. -DCMAKE_PREFIX_PATH=/usr/local/opt/llvm@8/
 make install
 bin/zig build --build-file ../build.zig test
 ```

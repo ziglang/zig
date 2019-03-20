@@ -34,3 +34,16 @@ IMPORT-NEXT:   Symbol: ExitProcess (0)
 IMPORT-NEXT:   Symbol:  (50)
 IMPORT-NEXT:   Symbol: MessageBoxA (1)
 IMPORT-NEXT: }
+
+# RUN: lld-link /out:%t.exe /entry:main /subsystem:console /merge:.rdata=.text \
+# RUN:   %p/Inputs/hello64.obj %p/Inputs/std64.lib /include:ExitProcess
+# RUN: llvm-readobj -coff-imports %t.exe | FileCheck -check-prefix=MERGE %s
+
+MERGE:      Import {
+MERGE-NEXT:   Name: std64.dll
+MERGE-NEXT:   ImportLookupTableRVA: 0x1090
+MERGE-NEXT:   ImportAddressTableRVA: 0x10B0
+MERGE-NEXT:   Symbol: ExitProcess (0)
+MERGE-NEXT:   Symbol:  (50)
+MERGE-NEXT:   Symbol: MessageBoxA (1)
+MERGE-NEXT: }

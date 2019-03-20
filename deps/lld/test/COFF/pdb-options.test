@@ -6,6 +6,11 @@
 # RUN: lld-link /pdb:%t.pdb /entry:main /nodefaultlib %t1.obj %t2.obj
 # RUN: not ls %t.pdb
 
+; If /DEBUG:NONE is specified after /DEBUG, /pdb is ignored.
+# RUN: rm -f %t.pdb
+# RUN: lld-link /DEBUG /pdb:%t.pdb /DEBUG:NONE /entry:main /nodefaultlib %t1.obj %t2.obj
+# RUN: not ls %t.pdb
+
 ; If /DEBUG and /pdb are specified, it uses the specified name.
 # RUN: lld-link /DEBUG /pdb:%t.pdb /entry:main /nodefaultlib %t1.obj %t2.obj
 # RUN: ls %t.pdb

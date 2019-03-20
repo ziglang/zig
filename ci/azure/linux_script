@@ -5,14 +5,14 @@ set -e
 
 BUILDDIR="$(pwd)"
 
-sudo sh -c 'echo "deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-7 main" >> /etc/apt/sources.list'
+sudo sh -c 'echo "deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-8 main" >> /etc/apt/sources.list'
 wget -O - http://apt.llvm.org/llvm-snapshot.gpg.key|sudo apt-key add -
 sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
 sudo apt-get update -q
 
 sudo apt-get remove -y llvm-*
 sudo rm -rf /usr/local/*
-sudo apt-get install -y libxml2-dev libclang-7-dev llvm-7 llvm-7-dev cmake s3cmd gcc-7 g++-7
+sudo apt-get install -y libxml2-dev libclang-8-dev llvm-8 llvm-8-dev cmake s3cmd gcc-7 g++-7
 
 export CC=gcc-7
 export CXX=g++-7
@@ -25,7 +25,7 @@ make -j2 install
 if [ "${BUILD_REASON}" != "PullRequest" ]; then
   ARTIFACTSDIR="$BUILDDIR/artifacts"
   mkdir "$ARTIFACTSDIR"
-  docker run -i --mount type=bind,source="$ARTIFACTSDIR",target=/z ziglang/static-base:llvm7-1 -j2 $BUILD_SOURCEVERSION
+  docker run -i --mount type=bind,source="$ARTIFACTSDIR",target=/z ziglang/static-base:llvm8-1 -j2 $BUILD_SOURCEVERSION
   TARBALL="$(ls $ARTIFACTSDIR)"
   mv "$DOWNLOADSECUREFILE_SECUREFILEPATH" "$HOME/.s3cfg"
   s3cmd put -P "$ARTIFACTSDIR/$TARBALL" s3://ziglang.org/builds/

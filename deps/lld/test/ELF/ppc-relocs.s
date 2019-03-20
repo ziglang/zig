@@ -55,6 +55,17 @@ mystr:
 # CHECK: .FR_PPC_REL24:
 # CHECK:    1101c:       48 00 00 04     b .+4
 
+.section .R_PPC_REL14,"ax",@progbits
+.globl .FR_PPC_REL14
+.FR_PPC_REL14:
+  beq .Lfooy
+.section .R_PPC_REL14_2,"ax",@progbits
+.Lfooy:
+
+# CHECK: Disassembly of section .R_PPC_REL14:
+# CHECK: .FR_PPC_REL14:
+# CHECK:    11020: {{.*}} bt 2, .+4
+
 .section .R_PPC_REL32,"ax",@progbits
 .globl .FR_PPC_REL32
 .FR_PPC_REL32:
@@ -64,7 +75,7 @@ mystr:
 
 # CHECK: Disassembly of section .R_PPC_REL32:
 # CHECK: .FR_PPC_REL32:
-# CHECK:    11020:       00 00 00 04
+# CHECK:    11024:       00 00 00 04
 
 .section .R_PPC_ADDR32,"ax",@progbits
 .globl .FR_PPC_ADDR32
@@ -75,7 +86,7 @@ mystr:
 
 # CHECK: Disassembly of section .R_PPC_ADDR32:
 # CHECK: .FR_PPC_ADDR32:
-# CHECK:    11024:       00 01 10 28
+# CHECK:    11028:       00 01 10 2c
 
 .align  2
 .section .R_PPC_PLTREL24,"ax",@progbits
@@ -87,4 +98,4 @@ mystr:
 
 # CHECK: Disassembly of section .R_PPC_PLTREL24:
 # CHECK: .R_PPC_PLTREL24:
-# CHECK:    11028:       48 00 00 04     b .+4
+# CHECK:    1102c:       48 00 00 04     b .+4

@@ -7,8 +7,8 @@
 .globl _start
 _start:
 .data
-  .hword foo - . + 0x20eff
-  .hword foo - . + 0x8f02
+  .hword foo - . + 0x210eff
+  .hword foo - . + 0x1f8f02
 
 // Note: If this test fails, it probably happens because of
 //       the change of the address of the .data section.
@@ -18,14 +18,14 @@ _start:
 // RUN: llvm-objdump -s -section=.data %t2 | FileCheck %s
 
 // CHECK: Contents of section .data:
-// 11000: S = 0x100, A = 0x20eff, P = 0x11000
-//        S + A - P = 0xffff
-// 11002: S = 0x100, A = 0x8f02, P = 0x11002
-//        S + A - P = 0x8000
-// CHECK-NEXT: 11000 ffff0080
+// 201000: S = 0x100, A = 0x210eff, P = 0x201000
+//         S + A - P = 0xffff
+// 201002: S = 0x100, A = 0x1f8f02, P = 0x201002
+//         S + A - P = 0x8000
+// CHECK-NEXT: 201000 ffff0080
 
-// RUN: not ld.lld %t.o %t255.o -o %t2
-//   | FileCheck %s --check-prefix=OVERFLOW
-// RUN: not ld.lld %t.o %t257.o -o %t2
-//   | FileCheck %s --check-prefix=OVERFLOW
-// OVERFLOW: Relocation R_AARCH64_PREL16 out of range: -94209 is not in [-32768, 65535]
+// RUN: not ld.lld -z max-page-size=4096 %t.o %t255.o -o %t2 2>&1 | FileCheck %s --check-prefix=OVERFLOW1
+// OVERFLOW1: relocation R_AARCH64_PREL16 out of range: -32769 is not in [-32768, 32767]
+
+// RUN: not ld.lld -z max-page-size=4096 %t.o %t257.o -o %t2 2>&1 | FileCheck %s --check-prefix=OVERFLOW2
+// OVERFLOW2: relocation R_AARCH64_PREL16 out of range: 65536 is not in [-32768, 32767]

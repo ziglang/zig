@@ -38,6 +38,7 @@ Defined *ElfSym::GlobalOffsetTable;
 Defined *ElfSym::MipsGp;
 Defined *ElfSym::MipsGpDisp;
 Defined *ElfSym::MipsLocalGp;
+Defined *ElfSym::RelaIpltStart;
 Defined *ElfSym::RelaIpltEnd;
 
 static uint64_t getSymVA(const Symbol &Sym, int64_t &Addend) {
@@ -90,10 +91,15 @@ static uint64_t getSymVA(const Symbol &Sym, int64_t &Addend) {
     uint64_t VA = IS->getVA(Offset);
 
     if (D.isTls() && !Config->Relocatable) {
-      if (!Out::TlsPhdr)
+      // Use the address of the TLS segment's first section rather than the
+      // segment's address, because segment addresses aren't initialized until
+      // after sections are finalized. (e.g. Measuring the size of .rela.dyn
+      // for Android relocation packing requires knowing TLS symbol addresses
+      // during section finalization.)
+      if (!Out::TlsPhdr || !Out::TlsPhdr->FirstSec)
         fatal(toString(D.File) +
               " has an STT_TLS symbol but doesn't have an SHF_TLS section");
-      return VA - Out::TlsPhdr->p_vaddr;
+      return VA - Out::TlsPhdr->FirstSec->Addr;
     }
     return VA;
   }
@@ -102,7 +108,10 @@ static uint64_t getSymVA(const Symbol &Sym, int64_t &Addend) {
     return 0;
   case Symbol::LazyArchiveKind:
   case Symbol::LazyObjectKind:
-    llvm_unreachable("lazy symbol reached writer");
+    assert(Sym.IsUsedInRegularObj && "lazy symbol reached writer");
+    return 0;
+  case Symbol::PlaceholderKind:
+    llvm_unreachable("placeholder symbol reached writer");
   }
   llvm_unreachable("invalid symbol kind");
 }
@@ -112,7 +121,7 @@ uint64_t Symbol::getVA(int64_t Addend) const {
   return OutVA + Addend;
 }
 
-uint64_t Symbol::getGotVA() const { return InX::Got->getVA() + getGotOffset(); }
+uint64_t Symbol::getGotVA() const { return In.Got->getVA() + getGotOffset(); }
 
 uint64_t Symbol::getGotOffset() const {
   return GotIndex * Target->GotEntrySize;
@@ -120,8 +129,8 @@ uint64_t Symbol::getGotOffset() const {
 
 uint64_t Symbol::getGotPltVA() const {
   if (this->IsInIgot)
-    return InX::IgotPlt->getVA() + getGotPltOffset();
-  return InX::GotPlt->getVA() + getGotPltOffset();
+    return In.IgotPlt->getVA() + getGotPltOffset();
+  return In.GotPlt->getVA() + getGotPltOffset();
 }
 
 uint64_t Symbol::getGotPltOffset() const {
@@ -130,15 +139,20 @@ uint64_t Symbol::getGotPltOffset() const {
   return (PltIndex + Target->GotPltHeaderEntriesNum) * Target->GotPltEntrySize;
 }
 
-uint64_t Symbol::getPltVA() const {
-  if (this->IsInIplt)
-    return InX::Iplt->getVA() + PltIndex * Target->PltEntrySize;
-  return InX::Plt->getVA() + Target->getPltEntryOffset(PltIndex);
+uint64_t Symbol::getPPC64LongBranchOffset() const {
+  assert(PPC64BranchltIndex != 0xffff);
+  return PPC64BranchltIndex * Target->GotPltEntrySize;
 }
 
-uint64_t Symbol::getPltOffset() const {
-  assert(!this->IsInIplt);
-  return Target->getPltEntryOffset(PltIndex);
+uint64_t Symbol::getPltVA() const {
+  PltSection *Plt = IsInIplt ? In.Iplt : In.Plt;
+  return Plt->getVA() + Plt->HeaderSize + PltIndex * Target->PltEntrySize;
+}
+
+uint64_t Symbol::getPPC64LongBranchTableVA() const {
+  assert(PPC64BranchltIndex != 0xffff);
+  return In.PPC64LongBranchTarget->getVA() +
+         PPC64BranchltIndex * Target->GotPltEntrySize;
 }
 
 uint64_t Symbol::getSize() const {
@@ -204,12 +218,21 @@ void Symbol::parseSymbolVersion() {
 
 InputFile *LazyArchive::fetch() { return cast<ArchiveFile>(File)->fetch(Sym); }
 
+MemoryBufferRef LazyArchive::getMemberBuffer() {
+  Archive::Child C = CHECK(
+      Sym.getMember(), "could not get the member for symbol " + Sym.getName());
+
+  return CHECK(C.getMemoryBufferRef(),
+               "could not get the buffer for the member defining symbol " +
+                   Sym.getName());
+}
+
 uint8_t Symbol::computeBinding() const {
   if (Config->Relocatable)
     return Binding;
   if (Visibility != STV_DEFAULT && Visibility != STV_PROTECTED)
     return STB_LOCAL;
-  if (VersionId == VER_NDX_LOCAL && isDefined())
+  if (VersionId == VER_NDX_LOCAL && isDefined() && !IsPreemptible)
     return STB_LOCAL;
   if (!Config->GnuUnique && Binding == STB_GNU_UNIQUE)
     return STB_GLOBAL;
@@ -243,8 +266,17 @@ void elf::printTraceSymbol(Symbol *Sym) {
   message(toString(Sym->File) + S + Sym->getName());
 }
 
-void elf::warnUnorderableSymbol(const Symbol *Sym) {
+void elf::maybeWarnUnorderableSymbol(const Symbol *Sym) {
   if (!Config->WarnSymbolOrdering)
+    return;
+
+  // If UnresolvedPolicy::Ignore is used, no "undefined symbol" error/warning
+  // is emitted. It makes sense to not warn on undefined symbols.
+  //
+  // Note, ld.bfd --symbol-ordering-file= does not warn on undefined symbols,
+  // but we don't have to be compatible here.
+  if (Sym->isUndefined() &&
+      Config->UnresolvedSymbols == UnresolvedPolicy::Ignore)
     return;
 
   const InputFile *File = Sym->File;

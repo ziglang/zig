@@ -19,37 +19,37 @@
 # CHECK-NEXT:    20004:       08 00 80 08     j       131104 <foo1a>
 # CHECK-NEXT:    20008:       27 39 00 20     addiu   $25, $25, 32
 # CHECK-NEXT:    2000c:       00 00 00 00     nop
+
 # CHECK: __LA25Thunk_foo1b:
 # CHECK-NEXT:    20010:       3c 19 00 02     lui     $25, 2
 # CHECK-NEXT:    20014:       08 00 80 09     j       131108 <foo1b>
 # CHECK-NEXT:    20018:       27 39 00 24     addiu   $25, $25, 36
 # CHECK-NEXT:    2001c:       00 00 00 00     nop
+
 # CHECK: foo1a:
 # CHECK-NEXT:    20020:       00 00 00 00     nop
+
 # CHECK: foo1b:
 # CHECK-NEXT:    20024:       00 00 00 00     nop
+
 # CHECK: __LA25Thunk_foo2:
 # CHECK-NEXT:    20028:       3c 19 00 02     lui     $25, 2
 # CHECK-NEXT:    2002c:       08 00 80 10     j       131136 <foo2>
 # CHECK-NEXT:    20030:       27 39 00 40     addiu   $25, $25, 64
 # CHECK-NEXT:    20034:       00 00 00 00     nop
-# CHECK-NEXT:    20038:       ef ef ef ef     <unknown>
-# CHECK-NEXT:    2003c:       ef ef ef ef     <unknown>
+
 # CHECK: foo2:
 # CHECK-NEXT:    20040:       00 00 00 00     nop
+
 # CHECK: __LA25Thunk_fpic:
 # CHECK-NEXT:    20044:       3c 19 00 02     lui     $25, 2
 # CHECK-NEXT:    20048:       08 00 80 18     j       131168 <fpic>
 # CHECK-NEXT:    2004c:       27 39 00 60     addiu   $25, $25, 96
 # CHECK-NEXT:    20050:       00 00 00 00     nop
-# CHECK-NEXT:    20054:       ef ef ef ef     <unknown>
-# CHECK-NEXT:    20058:       ef ef ef ef     <unknown>
-# CHECK-NEXT:    2005c:       ef ef ef ef     <unknown>
+
 # CHECK: fpic:
 # CHECK-NEXT:    20060:       00 00 00 00     nop
-# CHECK-NEXT:    20064:       ef ef ef ef     <unknown>
-# CHECK-NEXT:    20068:       ef ef ef ef     <unknown>
-# CHECK-NEXT:    2006c:       ef ef ef ef     <unknown>
+
 # CHECK: fnpic:
 # CHECK-NEXT:    20070:       00 00 00 00     nop
 # CHECK-NEXT: Disassembly of section differentos:
@@ -79,40 +79,41 @@
 # REVERSE-NEXT:    20004:       08 00 80 08     j       131104 <foo1a>
 # REVERSE-NEXT:    20008:       27 39 00 20     addiu   $25, $25, 32
 # REVERSE-NEXT:    2000c:       00 00 00 00     nop
+
 # REVERSE: __LA25Thunk_foo1b:
 # REVERSE-NEXT:    20010:       3c 19 00 02     lui     $25, 2
 # REVERSE-NEXT:    20014:       08 00 80 09     j       131108 <foo1b>
 # REVERSE-NEXT:    20018:       27 39 00 24     addiu   $25, $25, 36
 # REVERSE-NEXT:    2001c:       00 00 00 00     nop
+
 # REVERSE: foo1a:
 # REVERSE-NEXT:    20020:       00 00 00 00     nop
+
 # REVERSE: foo1b:
 # REVERSE-NEXT:    20024:       00 00 00 00     nop
+
 # REVERSE: __LA25Thunk_foo2:
 # REVERSE-NEXT:    20028:       3c 19 00 02     lui     $25, 2
 # REVERSE-NEXT:    2002c:       08 00 80 10     j       131136 <foo2>
 # REVERSE-NEXT:    20030:       27 39 00 40     addiu   $25, $25, 64
 # REVERSE-NEXT:    20034:       00 00 00 00     nop
-# REVERSE-NEXT:    20038:       ef ef ef ef     <unknown>
-# REVERSE-NEXT:    2003c:       ef ef ef ef     <unknown>
+
 # REVERSE: foo2:
 # REVERSE-NEXT:    20040:       00 00 00 00     nop
-# REVERSE-NEXT:    20044:       ef ef ef ef     <unknown>
-# REVERSE-NEXT:    20048:       ef ef ef ef     <unknown>
-# REVERSE-NEXT:    2004c:       ef ef ef ef     <unknown>
+
 # REVERSE: __LA25Thunk_fpic:
 # REVERSE-NEXT:    20050:       3c 19 00 02     lui     $25, 2
 # REVERSE-NEXT:    20054:       08 00 80 18     j       131168 <fpic>
 # REVERSE-NEXT:    20058:       27 39 00 60     addiu   $25, $25, 96
 # REVERSE-NEXT:    2005c:       00 00 00 00     nop
+
 # REVERSE: fpic:
 # REVERSE-NEXT:    20060:       00 00 00 00     nop
-# REVERSE-NEXT:    20064:       ef ef ef ef     <unknown>
-# REVERSE-NEXT:    20068:       ef ef ef ef     <unknown>
-# REVERSE-NEXT:    2006c:       ef ef ef ef     <unknown>
+
 # REVERSE: fnpic:
 # REVERSE-NEXT:    20070:       00 00 00 00     nop
-# REVERSE-NEXT: Disassembly of section differentos:
+
+# REVERSE: Disassembly of section differentos:
 # REVERSE-NEXT: __start:
 # REVERSE-NEXT:    20074:       0c 00 80 00     jal     131072 <__LA25Thunk_foo1a>
 # REVERSE-NEXT:    20078:       00 00 00 00     nop

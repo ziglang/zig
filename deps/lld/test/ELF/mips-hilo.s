@@ -47,6 +47,6 @@ g1:
 #                                                    ^-- %lo(l1-4)
 
 # CHECK: SYMBOL TABLE:
-# CHECK: 0030000 l   .data   00000004 l1
-# CHECK: 0020000     .text   00000000 __start
-# CHECK: 0030004 g   .data   00000004 g1
+# CHECK: 0030000 l     O .data   00000004 l1
+# CHECK: 0020000         .text   00000000 __start
+# CHECK: 0030004 g     O .data   00000004 g1

@@ -13,7 +13,7 @@
 # RUN: llvm-mc -filetype=obj -triple=powerpc64le-unknown-linux %t2.s -o %t2-ppc64le.o
 # RUN: llvm-mc -filetype=obj -triple=powerpc64-unknown-linux %t2.s -o %t2-ppc64.o
 
-# RUN: rm -f %t2-i386.a %t2-x86_64.a %t2-ppc64.a
+# RUN: rm -f %t2-i386.a %t2-x86_64.a %t2-ppc64.a %t2-ppc64le.a
 # RUN: llvm-ar rc %t2-i386.a %t2-i386.o
 # RUN: llvm-ar rc %t2-x86_64.a %t2-x86_64.o
 # RUN: llvm-ar rc %t2-ppc64le.a %t2-ppc64le.o
@@ -49,7 +49,7 @@
 
 # EMPTY:      DynamicSymbols [
 # EMPTY:        Symbol {
-# EMPTY:          Name: foo@
+# EMPTY:          Name: foo
 # EMPTY-NEXT:     Value: 0x0
 # EMPTY-NEXT:     Size: 0
 # EMPTY-NEXT:     Binding: Global
@@ -62,7 +62,7 @@
 # EMPTY-NEXT:   Num Buckets: 1
 # EMPTY-NEXT:   First Hashed Symbol Index: 2
 # EMPTY-NEXT:   Num Mask Words: 1
-# EMPTY-NEXT:   Shift Count: 6
+# EMPTY-NEXT:   Shift Count: 26
 # EMPTY-NEXT:   Bloom Filter: [0x0]
 # EMPTY-NEXT:   Buckets: [0]
 # EMPTY-NEXT:   Values: []
@@ -87,32 +87,32 @@
 # I386:      ]
 # I386:      DynamicSymbols [
 # I386:        Symbol {
-# I386:          Name: @
+# I386:          Name:
 # I386:          Binding: Local
 # I386:          Section: Undefined
 # I386:        }
 # I386:        Symbol {
-# I386:          Name: baz@
+# I386:          Name: baz
 # I386:          Binding: Global
 # I386:          Section: Undefined
 # I386:        }
 # I386:        Symbol {
-# I386:          Name: xyz@
+# I386:          Name: xyz
 # I386:          Binding: Global
 # I386:          Section: Undefined
 # I386:        }
 # I386:        Symbol {
-# I386:          Name: zed@
+# I386:          Name: zed
 # I386:          Binding: Weak
 # I386:          Section: Undefined
 # I386:        }
 # I386:        Symbol {
-# I386:          Name: bar@
+# I386:          Name: bar
 # I386:          Binding: Global
 # I386:          Section: .text
 # I386:        }
 # I386:        Symbol {
-# I386:          Name: foo@
+# I386:          Name: foo
 # I386:          Binding: Global
 # I386:          Section: .text
 # I386:        }
@@ -121,8 +121,8 @@
 # I386-NEXT:   Num Buckets: 1
 # I386-NEXT:   First Hashed Symbol Index: 4
 # I386-NEXT:   Num Mask Words: 1
-# I386-NEXT:   Shift Count: 6
-# I386-NEXT:   Bloom Filter: [0x4004204]
+# I386-NEXT:   Shift Count: 26
+# I386-NEXT:   Bloom Filter: [0x4000204]
 # I386-NEXT:   Buckets: [4]
 # I386-NEXT:   Values: [0xB8860BA, 0xB887389]
 # I386-NEXT: }
@@ -147,32 +147,32 @@
 # X86_64:      ]
 # X86_64:      DynamicSymbols [
 # X86_64:        Symbol {
-# X86_64:          Name: @
+# X86_64:          Name:
 # X86_64:          Binding: Local
 # X86_64:          Section: Undefined
 # X86_64:        }
 # X86_64:        Symbol {
-# X86_64:          Name: baz@
+# X86_64:          Name: baz
 # X86_64:          Binding: Global
 # X86_64:          Section: Undefined
 # X86_64:        }
 # X86_64:        Symbol {
-# X86_64:          Name: xyz@
+# X86_64:          Name: xyz
 # X86_64:          Binding: Global
 # X86_64:          Section: Undefined
 # X86_64:        }
 # X86_64:        Symbol {
-# X86_64:          Name: zed@
+# X86_64:          Name: zed
 # X86_64:          Binding: Weak
 # X86_64:          Section: Undefined
 # X86_64:        }
 # X86_64:        Symbol {
-# X86_64:          Name: bar@
+# X86_64:          Name: bar
 # X86_64:          Binding: Global
 # X86_64:          Section: .text
 # X86_64:        }
 # X86_64:        Symbol {
-# X86_64:          Name: foo@
+# X86_64:          Name: foo
 # X86_64:          Binding: Global
 # X86_64:          Section: .text
 # X86_64:        }
@@ -181,8 +181,8 @@
 # X86_64-NEXT:   Num Buckets: 1
 # X86_64-NEXT:   First Hashed Symbol Index: 4
 # X86_64-NEXT:   Num Mask Words: 1
-# X86_64-NEXT:   Shift Count: 6
-# X86_64-NEXT:   Bloom Filter: [0x400000000004204]
+# X86_64-NEXT:   Shift Count: 26
+# X86_64-NEXT:   Bloom Filter: [0x400000000000204]
 # X86_64-NEXT:   Buckets: [4]
 # X86_64-NEXT:   Values: [0xB8860BA, 0xB887389]
 # X86_64-NEXT: }
@@ -207,32 +207,32 @@
 # PPC64:      ]
 # PPC64:      DynamicSymbols [
 # PPC64:        Symbol {
-# PPC64:          Name: @
+# PPC64:          Name:
 # PPC64:          Binding: Local
 # PPC64:          Section: Undefined
 # PPC64:        }
 # PPC64:        Symbol {
-# PPC64:          Name: baz@
+# PPC64:          Name: baz
 # PPC64:          Binding: Global
 # PPC64:          Section: Undefined
 # PPC64:        }
 # PPC64:        Symbol {
-# PPC64:          Name: xyz@
+# PPC64:          Name: xyz
 # PPC64:          Binding: Global
 # PPC64:          Section: Undefined
 # PPC64:        }
 # PPC64:        Symbol {
-# PPC64:          Name: zed@
+# PPC64:          Name: zed
 # PPC64:          Binding: Weak
 # PPC64:          Section: Undefined
 # PPC64:        }
 # PPC64:        Symbol {
-# PPC64:          Name: bar@
+# PPC64:          Name: bar
 # PPC64:          Binding: Global
 # PPC64:          Section: .text
 # PPC64:        }
 # PPC64:        Symbol {
-# PPC64:          Name: foo@
+# PPC64:          Name: foo
 # PPC64:          Binding: Global
 # PPC64:          Section: .text
 # PPC64:        }
@@ -241,8 +241,8 @@
 # PPC64-NEXT:   Num Buckets: 1
 # PPC64-NEXT:   First Hashed Symbol Index: 4
 # PPC64-NEXT:   Num Mask Words: 1
-# PPC64-NEXT:   Shift Count: 6
-# PPC64-NEXT:   Bloom Filter: [0x400000000004204]
+# PPC64-NEXT:   Shift Count: 26
+# PPC64-NEXT:   Bloom Filter: [0x400000000000204]
 # PPC64-NEXT:   Buckets: [4]
 # PPC64-NEXT:   Values: [0xB8860BA, 0xB887389]
 # PPC64-NEXT: }

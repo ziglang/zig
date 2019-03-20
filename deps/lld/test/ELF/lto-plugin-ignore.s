@@ -6,5 +6,5 @@
 # RUN:   -plugin-opt=-data-sections -plugin-opt=thinlto -o /dev/null
 
 # RUN: not ld.lld %t -plugin-opt=-abc -plugin-opt=-xyz 2>&1 | FileCheck %s
-# CHECK: error: --plugin-opt: ld.lld{{.*}}: Unknown command line argument '-abc'
-# CHECK: error: --plugin-opt: ld.lld{{.*}}: Unknown command line argument '-xyz'
+# CHECK: ld.lld: error: --plugin-opt: ld.lld{{.*}}: Unknown command line argument '-abc'
+# CHECK: ld.lld: error: --plugin-opt: ld.lld{{.*}}: Unknown command line argument '-xyz'

@@ -16,7 +16,7 @@
 # RUN:           .foo : {*(.foo)} :foo \
 # RUN:       }" > %t.script
 # RUN: ld.lld -o %t --script %t.script %t.o
-# RUN: llvm-readelf -s -l %t | FileCheck %s
+# RUN: llvm-readelf -S -l %t | FileCheck %s
 # RUN: llvm-readobj -l %t | FileCheck --check-prefix=PHDR %s
 
 # CHECK: Program Headers:

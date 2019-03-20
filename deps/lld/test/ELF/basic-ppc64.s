@@ -28,7 +28,7 @@
 // CHECK-NEXT:  Version: 1
 // CHECK-NEXT:  Entry: 0x10000
 // CHECK-NEXT:  ProgramHeaderOffset: 0x40
-// CHECK-NEXT:  SectionHeaderOffset:
+// CHECK-NEXT:  SectionHeaderOffset: 0x200F8
 // CHECK-NEXT:  Flags [ (0x2)
 // CHECK-NEXT:    0x2
 // CHECK-NEXT:  ]
@@ -36,8 +36,8 @@
 // CHECK-NEXT:  ProgramHeaderEntrySize: 56
 // CHECK-NEXT:  ProgramHeaderCount: 7
 // CHECK-NEXT:  SectionHeaderEntrySize: 64
-// CHECK-NEXT:  SectionHeaderCount: 10
-// CHECK-NEXT:  StringTableSectionIndex: 8
+// CHECK-NEXT:  SectionHeaderCount: 11
+// CHECK-NEXT:  StringTableSectionIndex: 9
 // CHECK-NEXT:}
 // CHECK-NEXT:Sections [
 // CHECK-NEXT:  Section {
@@ -156,7 +156,23 @@
 // CHECK-NEXT:  }
 // CHECK-NEXT:  Section {
 // CHECK-NEXT:    Index: 6
-// CHECK-NEXT:    Name: .comment (38)
+// CHECK-NEXT:    Name: .branch_lt (38)
+// CHECK-NEXT:    Type: SHT_NOBITS (0x8)
+// CHECK-NEXT:    Flags [ (0x3)
+// CHECK-NEXT:      SHF_ALLOC (0x2)
+// CHECK-NEXT:      SHF_WRITE (0x1)
+// CHECK-NEXT:    ]
+// CHECK-NEXT:    Address: 0x30000
+// CHECK-NEXT:    Offset: 0x20060
+// CHECK-NEXT:    Size: 0
+// CHECK-NEXT:    Link: 0
+// CHECK-NEXT:    Info: 0
+// CHECK-NEXT:    AddressAlignment: 8
+// CHECK-NEXT:    EntrySize: 0
+// CHECK-NEXT:  }
+// CHECK-NEXT:  Section {
+// CHECK-NEXT:    Index: 7
+// CHECK-NEXT:    Name: .comment (49)
 // CHECK-NEXT:    Type: SHT_PROGBITS (0x1)
 // CHECK-NEXT:    Flags [ (0x30)
 // CHECK-NEXT:      SHF_MERGE (0x10)
@@ -174,15 +190,15 @@
 // CHECK-NEXT:    )
 // CHECK-NEXT:  }
 // CHECK-NEXT:  Section {
-// CHECK-NEXT:    Index: 7
-// CHECK-NEXT:    Name: .symtab (47)
+// CHECK-NEXT:    Index: 8
+// CHECK-NEXT:    Name: .symtab (58)
 // CHECK-NEXT:    Type: SHT_SYMTAB (0x2)
 // CHECK-NEXT:    Flags [ (0x0)
 // CHECK-NEXT:    ]
 // CHECK-NEXT:    Address: 0x0
 // CHECK-NEXT:    Offset: 0x20068
 // CHECK-NEXT:    Size: 48
-// CHECK-NEXT:    Link: 9
+// CHECK-NEXT:    Link: 10
 // CHECK-NEXT:    Info: 2
 // CHECK-NEXT:    AddressAlignment: 8
 // CHECK-NEXT:    EntrySize: 24
@@ -193,14 +209,14 @@
 // CHECK-NEXT:    )
 // CHECK-NEXT:  }
 // CHECK-NEXT:  Section {
-// CHECK-NEXT:    Index: 8
-// CHECK-NEXT:    Name: .shstrtab (55)
+// CHECK-NEXT:    Index: 9
+// CHECK-NEXT:    Name: .shstrtab (66)
 // CHECK-NEXT:    Type: SHT_STRTAB (0x3)
 // CHECK-NEXT:    Flags [ (0x0)
 // CHECK-NEXT:    ]
 // CHECK-NEXT:    Address: 0x0
 // CHECK-NEXT:    Offset: 0x20098
-// CHECK-NEXT:    Size: 73
+// CHECK-NEXT:    Size: 84
 // CHECK-NEXT:    Link: 0
 // CHECK-NEXT:    Info: 0
 // CHECK-NEXT:    AddressAlignment: 1
@@ -208,19 +224,20 @@
 // CHECK-NEXT:    SectionData (
 // CHECK-NEXT:      0000: 002E6479 6E73796D 002E6861 7368002E  |..dynsym..hash..|
 // CHECK-NEXT:      0010: 64796E73 7472002E 74657874 002E6479  |dynstr..text..dy|
-// CHECK-NEXT:      0020: 6E616D69 63002E63 6F6D6D65 6E74002E  |namic..comment..|
-// CHECK-NEXT:      0030: 73796D74 6162002E 73687374 72746162  |symtab..shstrtab|
-// CHECK-NEXT:      0040: 002E7374 72746162 00                 |..strtab.|
+// CHECK-NEXT:      0020: 6E616D69 63002E62 72616E63 685F6C74  |namic..branch_lt|
+// CHECK-NEXT:      0030: 002E636F 6D6D656E 74002E73 796D7461  |..comment..symta|
+// CHECK-NEXT:      0040: 62002E73 68737472 74616200 2E737472  |b..shstrtab..str|
+// CHECK-NEXT:      0050: 74616200                             |tab.|
 // CHECK-NEXT:    )
 // CHECK-NEXT:  }
 // CHECK-NEXT:  Section {
-// CHECK-NEXT:    Index: 9
-// CHECK-NEXT:    Name: .strtab (65)
+// CHECK-NEXT:    Index: 10
+// CHECK-NEXT:    Name: .strtab (76)
 // CHECK-NEXT:    Type: SHT_STRTAB (0x3)
 // CHECK-NEXT:    Flags [ (0x0)
 // CHECK-NEXT:    ]
 // CHECK-NEXT:    Address: 0x0
-// CHECK-NEXT:    Offset: 0x200E1
+// CHECK-NEXT:    Offset: 0x200EC
 // CHECK-NEXT:    Size: 10
 // CHECK-NEXT:    Link: 0
 // CHECK-NEXT:    Info: 0
@@ -275,7 +292,7 @@
 // CHECK-NEXT:    VirtualAddress: 0x20000
 // CHECK-NEXT:    PhysicalAddress: 0x20000
 // CHECK-NEXT:    FileSize: 96
-// CHECK-NEXT:    MemSize: 96
+// CHECK-NEXT:    MemSize: 65536
 // CHECK-NEXT:    Flags [ (0x6)
 // CHECK-NEXT:      PF_R (0x4)
 // CHECK-NEXT:      PF_W (0x2)

@@ -2,6 +2,7 @@
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t.foo.o
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/trace-ar1.s -o %t.obj1.o
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/trace-ar2.s -o %t.obj2.o
+# RUN: rm -f %t.boo.a
 # RUN: llvm-ar rcs %t.boo.a %t.obj1.o %t.obj2.o
 
 ## Check how -t works with achieves

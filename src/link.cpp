@@ -344,9 +344,7 @@ static const char *glibc_start_asm_path(CodeGen *parent, const char *file) {
     buf_resize(&result, 0);
     buf_append_buf(&result, parent->zig_lib_dir);
     buf_append_str(&result, OS_SEP "libc" OS_SEP "glibc" OS_SEP "sysdeps" OS_SEP);
-    if (arch == ZigLLVM_nios2) {
-        buf_append_str(&result, "nios2");
-    } else if (is_sparc) {
+    if (is_sparc) {
         if (is_64) {
             buf_append_str(&result, "sparc" OS_SEP "sparc64");
         } else {
@@ -878,6 +876,10 @@ static const char *getLDMOption(const ZigTarget *t) {
                 return "elf_x86_64_fbsd";
             }
             return "elf_x86_64";
+        case ZigLLVM_riscv32:
+            return "elf32lriscv";
+        case ZigLLVM_riscv64:
+            return "elf64lriscv";
         default:
             zig_unreachable();
     }

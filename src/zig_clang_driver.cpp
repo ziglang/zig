@@ -258,9 +258,9 @@ static void FixupDiagPrefixExeName(TextDiagnosticPrinter *DiagClient,
                                    const std::string &Path) {
   // If the clang binary happens to be named cl.exe for compatibility reasons,
   // use clang-cl.exe as the prefix to avoid confusion between clang and MSVC.
-  StringRef ExeBasename(llvm::sys::path::filename(Path));
-  if (ExeBasename.equals_lower("cl.exe"))
-    ExeBasename = "clang-cl.exe";
+  StringRef ExeBasename(llvm::sys::path::stem(Path));
+  if (ExeBasename.equals_lower("cl"))
+    ExeBasename = "clang-cl";
   DiagClient->setPrefix(ExeBasename);
 }
 

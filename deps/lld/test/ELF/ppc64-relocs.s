@@ -63,7 +63,7 @@ _start:
 
 # CHECK: Disassembly of section .R_PPC64_TOC16_HA:
 # CHECK: .FR_PPC64_TOC16_HA:
-# CHECK: 10010018: {{.*}} addis 1, 2, 0
+# CHECK: 10010018: {{.*}} nop
 
 .section .R_PPC64_REL24,"ax",@progbits
 .globl .FR_PPC64_REL24
@@ -76,6 +76,17 @@ _start:
 # CHECK: .FR_PPC64_REL24:
 # CHECK: 1001001c: {{.*}} b .+4
 
+.section .R_PPC64_REL14,"ax",@progbits
+.globl .FR_PPC64_REL14
+.FR_PPC64_REL14:
+  beq .Lfooy
+.section .R_PPC64_REL14_2,"ax",@progbits
+.Lfooy:
+
+# CHECK: Disassembly of section .R_PPC64_REL14:
+# CHECK: .FR_PPC64_REL14:
+# CHECK: 10010020: {{.*}} bt 2, .+4
+
 .section .R_PPC64_ADDR16_LO,"ax",@progbits
 .globl .FR_PPC64_ADDR16_LO
 .FR_PPC64_ADDR16_LO:
@@ -83,7 +94,7 @@ _start:
 
 # CHECK: Disassembly of section .R_PPC64_ADDR16_LO:
 # CHECK: .FR_PPC64_ADDR16_LO:
-# CHECK: 10010020: {{.*}} li 1, 0
+# CHECK: 10010024: {{.*}} li 1, 0
 
 .section .R_PPC64_ADDR16_HI,"ax",@progbits
 .globl .FR_PPC64_ADDR16_HI
@@ -92,7 +103,7 @@ _start:
 
 # CHECK: Disassembly of section .R_PPC64_ADDR16_HI:
 # CHECK: .FR_PPC64_ADDR16_HI:
-# CHECK: 10010024: {{.*}} li 1, 4097
+# CHECK: 10010028: {{.*}} li 1, 4097
 
 .section .R_PPC64_ADDR16_HA,"ax",@progbits
 .globl .FR_PPC64_ADDR16_HA
@@ -101,7 +112,7 @@ _start:
 
 # CHECK: Disassembly of section .R_PPC64_ADDR16_HA:
 # CHECK: .FR_PPC64_ADDR16_HA:
-# CHECK: 10010028: {{.*}} li 1, 4097
+# CHECK: 1001002c: {{.*}} li 1, 4097
 
 .section .R_PPC64_ADDR16_HIGHER,"ax",@progbits
 .globl .FR_PPC64_ADDR16_HIGHER
@@ -110,7 +121,7 @@ _start:
 
 # CHECK: Disassembly of section .R_PPC64_ADDR16_HIGHER:
 # CHECK: .FR_PPC64_ADDR16_HIGHER:
-# CHECK: 1001002c: {{.*}} li 1, 0
+# CHECK: 10010030: {{.*}} li 1, 0
 
 .section .R_PPC64_ADDR16_HIGHERA,"ax",@progbits
 .globl .FR_PPC64_ADDR16_HIGHERA
@@ -119,7 +130,7 @@ _start:
 
 # CHECK: Disassembly of section .R_PPC64_ADDR16_HIGHERA:
 # CHECK: .FR_PPC64_ADDR16_HIGHERA:
-# CHECK: 10010030: {{.*}} li 1, 0
+# CHECK: 10010034: {{.*}} li 1, 0
 
 .section .R_PPC64_ADDR16_HIGHEST,"ax",@progbits
 .globl .FR_PPC64_ADDR16_HIGHEST
@@ -128,7 +139,7 @@ _start:
 
 # CHECK: Disassembly of section .R_PPC64_ADDR16_HIGHEST:
 # CHECK: .FR_PPC64_ADDR16_HIGHEST:
-# CHECK: 10010034: {{.*}} li 1, 0
+# CHECK: 10010038: {{.*}} li 1, 0
 
 .section .R_PPC64_ADDR16_HIGHESTA,"ax",@progbits
 .globl .FR_PPC64_ADDR16_HIGHESTA
@@ -137,7 +148,7 @@ _start:
 
 # CHECK: Disassembly of section .R_PPC64_ADDR16_HIGHESTA:
 # CHECK: .FR_PPC64_ADDR16_HIGHESTA:
-# CHECK: 10010038: {{.*}} li 1, 0
+# CHECK: 1001003c: {{.*}} li 1, 0
 
 .section  .R_PPC64_REL32, "ax",@progbits
 .globl .FR_PPC64_REL32
@@ -149,20 +160,20 @@ _start:
 
 # DATALE: Disassembly of section .rodata:
 # DATALE: .rodata:
-# DATALE: 10000190: b4 fe 00 00
+# DATALE: 10000190: b8 fe 00 00
 
 # DATABE: Disassembly of section .rodata:
 # DATABE: .rodata:
-# DATABE: 10000190: 00 00 fe b4
+# DATABE: 10000190: 00 00 fe b8
 
 # Address of rodata + value stored at rodata entry
 # should equal address of LBB0_2.
 # 0x10000190 + 0xfeb4 = 0x10010044
 # CHECK: Disassembly of section .R_PPC64_REL32:
 # CHECK: .FR_PPC64_REL32:
-# CHECK: 1001003c: {{.*}} addis 5, 2, 0
-# CHECK: 10010040: {{.*}} ld 5, -32736(5)
-# CHECK: 10010044: {{.*}} add 3, 3, 4
+# CHECK: 10010040: {{.*}} nop
+# CHECK: 10010044: {{.*}} ld 5, -32736(2)
+# CHECK: 10010048: {{.*}} add 3, 3, 4
 
 .section .R_PPC64_REL64, "ax",@progbits
 .globl  .FR_PPC64_REL64
@@ -178,16 +189,16 @@ __foo:
 
 # Check that address of eh_frame entry + value stored
 # should equal the address of foo. Since it is not aligned,
-# the entry is not stored exactly at 100001a8. It starts at
-# address 0x100001aa and has the value 0xfeaa.
-# 0x100001aa + 0xfeaa = 0x10010054
+# the entry is not stored exactly at 10000198. It starts at
+# address 0x1000019a and has the value 0xfeaa.
+# 0x100001aa + 0xfeae = 0x10010058
 # DATALE: Disassembly of section .eh_frame:
 # DATALE: .eh_frame:
-# DATALE: 100001a8: {{.*}} aa fe
+# DATALE: 100001a8: {{.*}} ae fe
 
 # DATABE: Disassembly of section .eh_frame:
 # DATABE: .eh_frame:
-# DATABE: 100001b0: fe aa {{.*}}
+# DATABE: 100001b0: fe ae {{.*}}
 
 # CHECK: __foo
-# CHECK-NEXT: 10010054: {{.*}} li 3, 0
+# CHECK-NEXT: 10010058: {{.*}} li 3, 0

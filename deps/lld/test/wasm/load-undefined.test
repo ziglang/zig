@@ -4,6 +4,7 @@
 ; RUN: llc -filetype=obj %S/Inputs/ret64.ll -o %t.o
 ; RUN: llc -filetype=obj %S/Inputs/ret32.ll -o %t2.o
 ; RUN: llc -filetype=obj %S/Inputs/start.ll -o %t.start.o
+; RUN: rm -f %t2.a
 ; RUN: llvm-ar rcs %t2.a %t2.o
 ; RUN: wasm-ld %t.start.o --no-gc-sections %t2.a %t.o -o %t.wasm -u ret32 --undefined ret64
 ; RUN: obj2yaml %t.wasm | FileCheck %s
@@ -17,9 +18,9 @@
 ; CHECK-NEXT:      - Index:           1
 ; CHECK-NEXT:        Name:            _start
 ; CHECK-NEXT:      - Index:           2
-; CHECK-NEXT:        Name:            ret32
-; CHECK-NEXT:      - Index:           3
 ; CHECK-NEXT:        Name:            ret64
+; CHECK-NEXT:      - Index:           3
+; CHECK-NEXT:        Name:            ret32
 ; CHECK-NEXT: ...
 
 ; NO-LOAD:         Name:            name
@@ -32,9 +33,6 @@
 ; NO-LOAD-NEXT:        Name:            ret64
 ; NO-LOAD-NEXT: ...
 
-; Verify that referencing a symbol that doesn't exist won't work
-; RUN: not wasm-ld %t.start.o -o %t.wasm -u symboldoesnotexist 2>&1 | FileCheck -check-prefix=CHECK-UNDEFINED1 %s
-; CHECK-UNDEFINED1: error: undefined symbol: symboldoesnotexist
-
-; RUN: not wasm-ld %t.start.o -o %t.wasm --undefined symboldoesnotexist --allow-undefined 2>&1 | FileCheck -check-prefix=CHECK-UNDEFINED2 %s
-; CHECK-UNDEFINED2: symbol forced with --undefined not found: symboldoesnotexist
+; Verify that referencing a symbol that is not found doesn't result in a link
+; failure.  This matches the behaviour of the ELF linker.
+; RUN: wasm-ld %t.start.o -o %t.wasm -u symboldoesnotexist

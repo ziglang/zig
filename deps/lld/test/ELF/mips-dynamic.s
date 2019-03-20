@@ -97,9 +97,9 @@
 # DSO-NEXT:     Size: 8
 # DSO:      ]
 # DSO:      DynamicSymbols [
-# DSO:          Name: @
-# DSO:          Name: __start@
-# DSO:          Name: _foo@
+# DSO:          Name:
+# DSO:          Name: __start
+# DSO:          Name: _foo
 # DSO:      ]
 # DSO:      DynamicSection [
 # DSO-NEXT:   Tag        Type                 Name/Value

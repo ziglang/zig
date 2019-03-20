@@ -48,6 +48,7 @@
 // We used to fail to identify this incompatibility and crash trying to
 // read a 64 bit file as a 32 bit one.
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %p/Inputs/archive2.s -o %ta.o
+// RUN: rm -f %t.a
 // RUN: llvm-ar rc %t.a %ta.o
 // RUN: llvm-mc -filetype=obj -triple=i686-linux %s -o %tb.o
 // RUN: not ld.lld %t.a %tb.o 2>&1 -o %t | FileCheck --check-prefix=ARCHIVE %s

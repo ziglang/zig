@@ -35,6 +35,8 @@ _start:
 // CHECK-NEXT:     Address: 0x100F4
 // CHECK-NEXT:     Offset: 0xF4
 // CHECK-NEXT:     Size: 16
+// CHECK-NEXT:     Link:
+// CHECK-NEXT:     Info: 4
 // CHECK:          Name: .plt
 // CHECK-NEXT:     Type: SHT_PROGBITS
 // CHECK-NEXT:     Flags [
@@ -44,7 +46,8 @@ _start:
 // CHECK-NEXT:     Address: 0x11020
 // CHECK-NEXT:     Offset: 0x1020
 // CHECK-NEXT:     Size: 32
-// CHECK:          Name: .got
+// CHECK:          Index: 4
+// CHECK-NEXT:     Name: .got
 // CHECK-NEXT:     Type: SHT_PROGBITS
 // CHECK-NEXT:     Flags [
 // CHECK-NEXT:       SHF_ALLOC

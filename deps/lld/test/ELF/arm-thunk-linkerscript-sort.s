@@ -1,5 +1,5 @@
 // REQUIRES: arm
-// RUN: llvm-mc -filetype=obj -triple=thumbv7a-none-linux-gnueabi %s -o %t
+// RUN: llvm-mc -arm-add-build-attributes -filetype=obj -triple=thumbv7a-none-linux-gnueabi %s -o %t
 // RUN: echo "SECTIONS { \
 // RUN:       .text 0x100000 : { *(SORT_BY_NAME(.text.*)) } \
 // RUN:       }" > %t.script

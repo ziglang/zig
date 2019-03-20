@@ -11,8 +11,8 @@
 # CHECK-NEXT:  30010 ffff9004
 #
 # CHECK: SYMBOL TABLE:
-# CHECK: 0000000000020004         .text           00000000 __tls_get_addr
-# CHECK: 0000000000000000 g       .tdata          00000000 tls1
+# CHECK: 0000000000020004        .text           00000000 __tls_get_addr
+# CHECK: 0000000000000000 g    O .tdata          00000000 tls1
 
   .text
   .global __start

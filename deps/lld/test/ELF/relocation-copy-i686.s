@@ -21,7 +21,7 @@ movl $9, z
 // CHECK-NEXT:   SHF_ALLOC
 // CHECK-NEXT:   SHF_WRITE
 // CHECK-NEXT:  ]
-// CHECK-NEXT:  Address: 0x13000
+// CHECK-NEXT:  Address:  0x403000
 // CHECK-NEXT:  Offset:
 // CHECK-NEXT:  Size: 24
 // CHECK-NEXT:  Link: 0
@@ -52,12 +52,12 @@ movl $9, z
 // CHECK-NEXT:   }
 // CHECK-NEXT: ]
 
-// 77824 = 0x13000
+// 4206592 =  0x403000
 // 16 is alignment here
-// 77840 = 0x13000 + 16
-// 77844 = 0x13000 + 16 + 4
+// 4206608 =  0x403000 + 16
+// 4206612 =  0x403000 + 16 + 4
 // CODE: Disassembly of section .text:
 // CODE-NEXT: main:
-// CODE-NEXT: 11000: c7 05 00 30 01 00 05 00 00 00 movl $5, 77824
-// CODE-NEXT: 1100a: c7 05 10 30 01 00 07 00 00 00 movl $7, 77840
-// CODE-NEXT: 11014: c7 05 14 30 01 00 09 00 00 00 movl $9, 77844
+// CODE-NEXT: 401000: c7 05 00 30 40 00 05 00 00 00 movl $5, 4206592
+// CODE-NEXT: 40100a: c7 05 10 30 40 00 07 00 00 00 movl $7, 4206608
+// CODE-NEXT: 401014: c7 05 14 30 40 00 09 00 00 00 movl $9, 4206612

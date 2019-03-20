@@ -153,7 +153,7 @@ T check2(Expected<T> E, llvm::function_ref<std::string()> Prefix) {
 inline std::string toString(const Twine &S) { return S.str(); }
 
 // To evaluate the second argument lazily, we use C macro.
-#define CHECK(E, S) check2(E, [&] { return toString(S); })
+#define CHECK(E, S) check2((E), [&] { return toString(S); })
 
 } // namespace lld
 

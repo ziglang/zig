@@ -45,6 +45,9 @@ enum Os {
     OsMesa3D,
     OsContiki,
     OsAMDPAL,
+    OsHermitCore,
+    OsHurd,
+    OsWASI,
     OsZen,
     OsUefi,
 };
@@ -55,6 +58,7 @@ enum SubArchList {
     SubArchListArm32,
     SubArchListArm64,
     SubArchListKalimba,
+    SubArchListMips,
 };
 
 enum TargetSubsystem {
