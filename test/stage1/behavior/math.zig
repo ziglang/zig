@@ -307,6 +307,70 @@ test "quad hex float literal parsing accurate" {
     // implied 1 is dropped, with an exponent of 0 (0x3fff) after biasing.
     const expected: u128 = 0x3fff1111222233334444555566667777;
     expect(@bitCast(u128, a) == expected);
+
+    const S = struct {
+        fn doTheTest() void {
+            var f1: f128 = 0x1.2eab345678439abcdefea56782346p+5;
+            expect(@bitCast(u128, f1) == 0x40042eab345678439abcdefea5678234);
+            const exp2ft = []f64{
+                0x1.6a09e667f3bcdp-1,
+                0x1.7a11473eb0187p-1,
+                0x1.8ace5422aa0dbp-1,
+                0x1.9c49182a3f090p-1,
+                0x1.ae89f995ad3adp-1,
+                0x1.c199bdd85529cp-1,
+                0x1.d5818dcfba487p-1,
+                0x1.ea4afa2a490dap-1,
+                0x1.0000000000000p+0,
+                0x1.0b5586cf9890fp+0,
+                0x1.172b83c7d517bp+0,
+                0x1.2387a6e756238p+0,
+                0x1.306fe0a31b715p+0,
+                0x1.3dea64c123422p+0,
+                0x1.4bfdad5362a27p+0,
+                0x1.5ab07dd485429p+0,
+                0x1.8p23,
+                0x1.62e430p-1,
+                0x1.ebfbe0p-3,
+                0x1.c6b348p-5,
+                0x1.3b2c9cp-7,
+                0x1.0p127,
+                -0x1.0p-149,
+            };
+
+            const answers = []u64{
+                0x3fe6a09e667f3bcd,
+                0x3fe7a11473eb0187,
+                0x3fe8ace5422aa0db,
+                0x3fe9c49182a3f090,
+                0x3feae89f995ad3ad,
+                0x3fec199bdd85529c,
+                0x3fed5818dcfba487,
+                0x3feea4afa2a490da,
+                0x3ff0000000000000,
+                0x3ff0b5586cf9890f,
+                0x3ff172b83c7d517b,
+                0x3ff2387a6e756238,
+                0x3ff306fe0a31b715,
+                0x3ff3dea64c123422,
+                0x3ff4bfdad5362a27,
+                0x3ff5ab07dd485429,
+                0x4168000000000000,
+                0x3fe62e4300000000,
+                0x3fcebfbe00000000,
+                0x3fac6b3480000000,
+                0x3f83b2c9c0000000,
+                0x47e0000000000000,
+                0xb6a0000000000000,
+            };
+
+            for (exp2ft) |x, i| {
+                expect(@bitCast(u64, x) == answers[i]);
+            }
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
 }
 
 test "hex float literal within range" {

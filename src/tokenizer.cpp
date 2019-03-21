@@ -326,7 +326,7 @@ static void end_float_token(Tokenize *t) {
         return;
     }
 
-    // A SoftFloat-3d float128 is represented internally as a standard
+    // A SoftFloat-3e float128 is represented internally as a standard
     // quad-precision float with 15bit exponent and 113bit fractional.
     union { uint64_t repr[2]; float128_t actual; } f_bits;
 
@@ -345,29 +345,37 @@ static void end_float_token(Tokenize *t) {
                 return;
             }
 
-            uint64_t sig_bits[2] = {0, 0};
-            bigint_write_twos_complement(&t->significand, (uint8_t*) sig_bits, 128, false);
-
-            const uint64_t shift = 112 - significand_magnitude_in_bin;
-            const uint64_t exp_shift = 48;
-            // Mask the sign bit to 0 since always non-negative lex
-            const uint64_t exp_mask = 0xffffull << exp_shift;
+            const int shift = 112 - significand_magnitude_in_bin;
 
             // must be special-cased to avoid undefined behavior on shift == 64
             if (shift == 128) {
+                uint64_t sig_bits[2] = {0, 0};
+                bigint_write_twos_complement(&t->significand, (uint8_t*) sig_bits, 128, false);
                 f_bits.repr[0] = 0;
                 f_bits.repr[1] = sig_bits[0];
             } else if (shift == 0) {
-                f_bits.repr[0] = sig_bits[0];
-                f_bits.repr[1] = sig_bits[1];
+                bigint_write_twos_complement(&t->significand, (uint8_t*) f_bits.repr, 128, false);
             } else if (shift >= 64) {
+                uint64_t sig_bits[2] = {0, 0};
+                bigint_write_twos_complement(&t->significand, (uint8_t*) sig_bits, 128, false);
                 f_bits.repr[0] = 0;
                 f_bits.repr[1] = sig_bits[0] << (shift - 64);
+            } else if (shift < 0) {
+                BigInt shift_bigint;
+                bigint_init_unsigned(&shift_bigint, -shift);
+                BigInt shifted_significand;
+                bigint_shr(&shifted_significand, &t->significand, &shift_bigint);
+                bigint_write_twos_complement(&shifted_significand, (uint8_t*) f_bits.repr, 128, false);
             } else {
+                uint64_t sig_bits[2] = {0, 0};
+                bigint_write_twos_complement(&t->significand, (uint8_t*) sig_bits, 128, false);
                 f_bits.repr[0] = sig_bits[0] << shift;
                 f_bits.repr[1] = (sig_bits[1] << shift) | (sig_bits[0] >> (64 - shift));
             }
 
+            const uint64_t exp_shift = 48;
+            // Mask the sign bit to 0 since always non-negative lex
+            const uint64_t exp_mask = 0xffffull << exp_shift;
             f_bits.repr[1] &= ~exp_mask;
             f_bits.repr[1] |= (uint64_t)(t->exponent_in_bin_or_dec + 16383) << exp_shift;
         }
