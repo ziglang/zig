@@ -310,8 +310,14 @@ test "quad hex float literal parsing accurate" {
 
     const S = struct {
         fn doTheTest() void {
-            var f1: f128 = 0x1.2eab345678439abcdefea56782346p+5;
-            expect(@bitCast(u128, f1) == 0x40042eab345678439abcdefea5678234);
+            {
+                var f1: f128 = 0x1.2eab345678439abcdefea56782346p+5;
+                expect(@bitCast(u128, f1) == 0x40042eab345678439abcdefea5678234);
+            }
+            {
+                var f: f128 = 0x1.edcb34a235253948765432134674fp-1;
+                expect(@bitCast(u128, f) == 0x3ffeedcb34a235253948765432134675);
+            }
             const exp2ft = []f64{
                 0x1.6a09e667f3bcdp-1,
                 0x1.7a11473eb0187p-1,

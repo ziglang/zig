@@ -365,6 +365,9 @@ static void end_float_token(Tokenize *t) {
                 bigint_init_unsigned(&shift_bigint, -shift);
                 BigInt shifted_significand;
                 bigint_shr(&shifted_significand, &t->significand, &shift_bigint);
+                if (t->exponent_in_bin_or_dec == -1) {
+                    bigint_incr(&shifted_significand);
+                }
                 bigint_write_twos_complement(&shifted_significand, (uint8_t*) f_bits.repr, 128, false);
             } else {
                 uint64_t sig_bits[2] = {0, 0};
