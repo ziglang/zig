@@ -24,9 +24,9 @@ export SRC_BYTESIZE=$(wc -c < $SRC_TARBALL)
 
 # the freebsd build has to be there too
 FREEBSD_JSON=$(curl --fail "https://ziglang.org/builds/freebsd-$VERSION.json" || exit 1)
-export FREEBSD_TARBALL=$(echo "$FREEBSD_JSON" | jq .tarball -r)
-export FREEBSD_BYTESIZE=$(echo "$FREEBSD_JSON" | jq .size -r)
-export FREEBSD_SHASUM=$(echo "$FREEBSD_JSON" | jq .shasum -r)
+export FREEBSD_TARBALL="$(echo "$FREEBSD_JSON" | jq .tarball -r)"
+export FREEBSD_BYTESIZE="$(echo "$FREEBSD_JSON" | jq .size -r)"
+export FREEBSD_SHASUM="$(echo "$FREEBSD_JSON" | jq .shasum -r)"
 
 git clone https://github.com/ziglang/www.ziglang.org --depth 1
 cd www.ziglang.org
