@@ -12,12 +12,10 @@
 
 #ifdef __cplusplus
 #define ZIG_EXTERN_C extern "C"
-#define ZIG_RESTRICT
 #else
 #define ZIG_EXTERN_C
-#define ZIG_RESTRICT restrict
 #endif
 
-ZIG_EXTERN_C float128_t parse_f128(const char *ZIG_RESTRICT s, char **ZIG_RESTRICT p);
+ZIG_EXTERN_C float128_t parse_f128(const char *s, char **p);
 
 #endif

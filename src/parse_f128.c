@@ -1028,7 +1028,7 @@ float128_t __floatscan(struct MuslFILE *f, int prec, int pok)
 	return decfloat(f, c, bits, emin, sign, pok);
 }
 
-float128_t parse_f128(const char *restrict s, char **restrict p) {
+float128_t parse_f128(const char *s, char **p) {
 	struct MuslFILE f;
 	sh_fromstring(&f, s);
 	shlim(&f, 0);
