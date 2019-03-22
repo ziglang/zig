@@ -9181,7 +9181,8 @@ PrimaryExpr
      / KEYWORD_continue BreakLabel?
      / KEYWORD_resume Expr
      / KEYWORD_return Expr?
-     / LabeledExpr
+     / BlockLabel? LoopExpr
+     / Block
      / CurlySuffixExpr
 
 IfExpr &lt;- IfPrefix Expr (KEYWORD_else Payload? Expr)?
@@ -9195,8 +9196,6 @@ LoopExpr &lt;- KEYWORD_inline? (ForExpr / WhileExpr)
 ForExpr &lt;- ForPrefix Expr (KEYWORD_else Expr)?
 
 WhileExpr &lt;- WhilePrefix Expr (KEYWORD_else Payload? Expr)?
-
-CurlySuffixExpr &lt;- TypeExpr InitList?
 
 InitList
     &lt;- LBRACE FieldInit (COMMA FieldInit)* COMMA? RBRACE
