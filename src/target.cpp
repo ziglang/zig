@@ -1087,6 +1087,11 @@ const char *target_dynamic_linker(const ZigTarget *target) {
                 case ZigLLVM_wasm64:
                     return nullptr;
 
+                case ZigLLVM_riscv32:
+                    return "/lib/ld-linux-riscv32-ilp32.so.1";
+                case ZigLLVM_riscv64:
+                    return "/lib/ld-linux-riscv64-lp64.so.1";
+
                 case ZigLLVM_arc:
                 case ZigLLVM_avr:
                 case ZigLLVM_bpfel:
@@ -1095,8 +1100,6 @@ const char *target_dynamic_linker(const ZigTarget *target) {
                 case ZigLLVM_msp430:
                 case ZigLLVM_r600:
                 case ZigLLVM_amdgcn:
-                case ZigLLVM_riscv32:
-                case ZigLLVM_riscv64:
                 case ZigLLVM_tce:
                 case ZigLLVM_tcele:
                 case ZigLLVM_xcore:
