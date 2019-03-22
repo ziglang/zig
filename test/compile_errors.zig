@@ -441,7 +441,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var ptr: [*c]u8 = x;
         \\}
     ,
-        "tmp.zig:2:33: error: integer value 71615590737044764481 cannot be implicitly casted to type 'usize'",
+        "tmp.zig:2:33: error: integer value 18446744073709551617 cannot be implicitly casted to type 'usize'",
         "tmp.zig:6:23: error: integer type 'u65' too big for implicit @intToPtr to type '[*c]u8'",
     );
 
