@@ -1370,7 +1370,7 @@ mem.eql(u8, pattern, "ababab"){#endsyntax#}</pre>
           <td>
             <pre>{#syntax#}const x: u32 = 1234;
 const ptr = &x;
-x.* == 1234{#endsyntax#}</pre>
+ptr.* == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
@@ -1384,7 +1384,7 @@ x.* == 1234{#endsyntax#}</pre>
           <td>
             <pre>{#syntax#}const x: u32 = 1234;
 const ptr = &x;
-x.* == 1234{#endsyntax#}</pre>
+ptr.* == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
@@ -1603,7 +1603,7 @@ test "address of syntax" {
     const x: i32 = 1234;
     const x_ptr = &x;
 
-    // Deference a pointer:
+    // Dereference a pointer:
     assert(x_ptr.* == 1234);
 
     // When you get the address of a const variable, you get a const pointer to a single item.
