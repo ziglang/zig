@@ -42,6 +42,7 @@ pub const pdb = @import("pdb.zig");
 pub const rand = @import("rand.zig");
 pub const rb = @import("rb.zig");
 pub const sort = @import("sort.zig");
+pub const ascii = @import("ascii.zig");
 pub const testing = @import("testing.zig");
 pub const unicode = @import("unicode.zig");
 pub const valgrind = @import("valgrind.zig");

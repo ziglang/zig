@@ -444,6 +444,7 @@ set(ZIG_CPP_SOURCES
 
 set(ZIG_STD_FILES
     "array_list.zig"
+    "ascii.zig"
     "atomic.zig"
     "atomic/int.zig"
     "atomic/queue.zig"
