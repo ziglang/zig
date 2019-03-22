@@ -40,7 +40,7 @@ static uint8_t digit_to_char(uint8_t digit, bool uppercase) {
     if (digit <= 9) {
         return digit + '0';
     } else if (digit <= 35) {
-        return digit + (uppercase ? 'A' : 'a');
+        return (digit - 10) + (uppercase ? 'A' : 'a');
     } else {
         zig_unreachable();
     }
@@ -1545,6 +1545,10 @@ void bigint_append_buf(Buf *buf, const BigInt *op, uint64_t base) {
         buf_appendf(buf, "%" ZIG_PRI_u64, op->data.digit);
         return;
     }
+    if (op->digit_count == 1 && base == 16) {
+        buf_appendf(buf, "%" ZIG_PRI_x64, op->data.digit);
+        return;
+    }
     size_t first_digit_index = buf_len(buf);
 
     BigInt digit_bi = {0};
@@ -1556,7 +1560,7 @@ void bigint_append_buf(Buf *buf, const BigInt *op, uint64_t base) {
     bigint_init_bigint(a, op);
 
     BigInt base_bi = {0};
-    bigint_init_unsigned(&base_bi, 10);
+    bigint_init_unsigned(&base_bi, base);
 
     for (;;) {
         bigint_rem(&digit_bi, a, &base_bi);
@@ -1574,7 +1578,7 @@ void bigint_append_buf(Buf *buf, const BigInt *op, uint64_t base) {
     }
 
     // reverse
-    for (size_t i = first_digit_index; i < buf_len(buf); i += 1) {
+    for (size_t i = first_digit_index; i < buf_len(buf) / 2; i += 1) {
         size_t other_i = buf_len(buf) + first_digit_index - i - 1;
         uint8_t tmp = buf_ptr(buf)[i];
         buf_ptr(buf)[i] = buf_ptr(buf)[other_i];
