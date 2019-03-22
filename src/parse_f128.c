@@ -347,10 +347,11 @@ static void mul_eq_f128_int(float128_t *y, int sign) {
     *y = new_value;
 }
 
-static float128_t literal_f128(__float128 x) {
-    float128_t result;
-    memcpy(&result, &x, 16);
-    return result;
+static float128_t make_f128(uint64_t hi, uint64_t lo) {
+	union ldshape ux;
+    ux.i2.hi = hi;
+    ux.i2.lo = lo;
+    return ux.f;
 }
 
 static void mul_eq_f128_f128(float128_t *a, float128_t b) {
@@ -377,11 +378,11 @@ static float128_t scalbnf128(float128_t x, int n)
 
 	if (n > 16383) {
 		//x *= 0x1p16383q;
-        mul_eq_f128_f128(&x, literal_f128(0x1p16383q));
+        mul_eq_f128_f128(&x, make_f128(0x7ffe000000000000, 0x0000000000000000));
 		n -= 16383;
 		if (n > 16383) {
 			//x *= 0x1p16383q;
-            mul_eq_f128_f128(&x, literal_f128(0x1p16383q));
+            mul_eq_f128_f128(&x, make_f128(0x7ffe000000000000, 0x0000000000000000));
 			n -= 16383;
 			if (n > 16383)
 				n = 16383;
@@ -390,8 +391,8 @@ static float128_t scalbnf128(float128_t x, int n)
 		//x *= 0x1p-16382q * 0x1p113q;
         {
             float128_t mul_result;
-            float128_t a = literal_f128(0x1p-16382q);
-            float128_t b = literal_f128(0x1p113q);
+            float128_t a = make_f128(0x0001000000000000, 0x0000000000000000);
+            float128_t b = make_f128(0x4070000000000000, 0x0000000000000000);
             f128M_mul(&a, &b, &mul_result);
             mul_eq_f128_f128(&x, mul_result);
         }
@@ -400,8 +401,8 @@ static float128_t scalbnf128(float128_t x, int n)
 			//x *= 0x1p-16382q * 0x1p113q;
             {
                 float128_t mul_result;
-                float128_t a = literal_f128(0x1p-16382q);
-                float128_t b = literal_f128(0x1p113q);
+                float128_t a = make_f128(0x0001000000000000, 0x0000000000000000);
+                float128_t b = make_f128(0x4070000000000000, 0x0000000000000000);
                 f128M_mul(&a, &b, &mul_result);
                 mul_eq_f128_f128(&x, mul_result);
             }
@@ -728,7 +729,7 @@ static float128_t decfloat(struct MuslFILE *f, int c, int bits, int emin, int si
 	if ((e2+LDBL_MANT_DIG & INT_MAX) > emax-5) {
 		//if (fabsf128(y) >= 0x1p113) 
         float128_t abs_y = fabsf128(y);
-        float128_t mant_f128 = literal_f128(0x1p113q);
+        float128_t mant_f128 = make_f128(0x4070000000000000, 0x0000000000000000);
 		if (!f128M_lt(&abs_y, &mant_f128)) {
 			if (denormal && bits==LDBL_MANT_DIG+e2-emin)
 				denormal = 0;
