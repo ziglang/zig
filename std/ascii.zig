@@ -154,12 +154,8 @@ pub fn isAlpha(c: u8) bool {
     return inTable(c, tIndex.Alpha);
 }
 
-pub fn isCtrl(c: u8) bool {
-    return c < 0x20 or c == 127; //DEL
-}
-
 pub fn isCntrl(c: u8) bool {
-    return isCtrl(c);
+    return c < 0x20 or c == 127; //DEL
 }
 
 pub fn isDigit(c: u8) bool {
@@ -204,7 +200,7 @@ pub fn isBlank(c: u8) bool {
 
 pub fn toUpper(c: u8) u8 {
     if (isLower(c)) {
-        return c - 0x20;
+        return c | ~0b00100000;
     } else {
         return c;
     }
@@ -212,7 +208,7 @@ pub fn toUpper(c: u8) u8 {
 
 pub fn toLower(c: u8) u8 {
     if (isUpper(c)) {
-        return c + 0x20;
+        return c &  0b00100000;
     } else {
         return c;
     }
