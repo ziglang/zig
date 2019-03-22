@@ -326,51 +326,49 @@ static void end_float_token(Tokenize *t) {
         return;
     }
 
-    // A SoftFloat-3d float128 is represented internally as a standard
-    // quad-precision float with 15bit exponent and 113bit fractional.
+    // A SoftFloat-3e float128 is represented internally as a standard
+    // quad-precision float with 15bit exponent and 112bit fractional.
     union { uint64_t repr[2]; float128_t actual; } f_bits;
 
     if (bigint_cmp_zero(&t->significand) == CmpEQ) {
         f_bits.repr[0] = 0;
         f_bits.repr[1] = 0;
     } else {
-        // normalize the significand
-        if (t->radix == 10) {
-            zig_panic("TODO: decimal floats");
-        } else {
-            int significand_magnitude_in_bin = 127 - bigint_clz(&t->significand, 128);
-            t->exponent_in_bin_or_dec += significand_magnitude_in_bin;
-            if (!(-16382 <= t->exponent_in_bin_or_dec && t->exponent_in_bin_or_dec <= 16383)) {
-                t->cur_tok->data.float_lit.overflow = true;
-                return;
-            }
-
-            uint64_t sig_bits[2] = {0, 0};
-            bigint_write_twos_complement(&t->significand, (uint8_t*) sig_bits, 128, false);
-
-            const uint64_t shift = 112 - significand_magnitude_in_bin;
-            const uint64_t exp_shift = 48;
-            // Mask the sign bit to 0 since always non-negative lex
-            const uint64_t exp_mask = 0xffffull << exp_shift;
-
-            // must be special-cased to avoid undefined behavior on shift == 64
-            if (shift == 128) {
-                f_bits.repr[0] = 0;
-                f_bits.repr[1] = sig_bits[0];
-            } else if (shift == 0) {
-                f_bits.repr[0] = sig_bits[0];
-                f_bits.repr[1] = sig_bits[1];
-            } else if (shift >= 64) {
-                f_bits.repr[0] = 0;
-                f_bits.repr[1] = sig_bits[0] << (shift - 64);
-            } else {
-                f_bits.repr[0] = sig_bits[0] << shift;
-                f_bits.repr[1] = (sig_bits[1] << shift) | (sig_bits[0] >> (64 - shift));
-            }
-
-            f_bits.repr[1] &= ~exp_mask;
-            f_bits.repr[1] |= (uint64_t)(t->exponent_in_bin_or_dec + 16383) << exp_shift;
+        int significand_magnitude_in_bin = 127 - bigint_clz(&t->significand, 128);
+        t->exponent_in_bin_or_dec += significand_magnitude_in_bin;
+        if (!(-16382 <= t->exponent_in_bin_or_dec && t->exponent_in_bin_or_dec <= 16383)) {
+            t->cur_tok->data.float_lit.overflow = true;
+            return;
         }
+
+        // Shift bits of significand so they are left-justified at the 112-bit
+        // mark. We truncate excess bits and lose precision. No rounding.
+        //
+        // -16 <= shift <= 112
+        //
+        // NOTE: The loss of precision could be considered a limitation of using
+        // 128-bit floats. In stage2 we should use an arbitrary precision
+        // float/rational type to represent these and avoid this.
+        const int shift = 112 - significand_magnitude_in_bin;
+        bigint_write_twos_complement(&t->significand, (uint8_t*) f_bits.repr, 128, false);
+
+        if (shift >= 64) {
+            f_bits.repr[1] = f_bits.repr[0] << (shift - 64);
+            f_bits.repr[0] = 0;
+        } else if (shift > 0) {
+            f_bits.repr[1] = (f_bits.repr[1] << shift) | (f_bits.repr[0] >> (64 - shift));
+            f_bits.repr[0] = f_bits.repr[0] << shift;
+        } else if (shift < 0) {
+            int positive_shift = -shift;
+            assert(positive_shift <= 16);
+            f_bits.repr[0] = (f_bits.repr[0] >> positive_shift) | (f_bits.repr[1] << (64 - positive_shift));
+            f_bits.repr[1] = f_bits.repr[1] >> positive_shift;
+        }
+
+        // Lexer separates negative sign from value so this is always non-negative.
+        const uint64_t exp_mask = 0xffffull << 48;
+        f_bits.repr[1] &= ~exp_mask;
+        f_bits.repr[1] |= (uint64_t)(t->exponent_in_bin_or_dec + 16383) << 48;
     }
 
     bigfloat_init_128(&t->cur_tok->data.float_lit.bigfloat, f_bits.actual);
