@@ -313,6 +313,7 @@ set(EMBEDDED_SOFTFLOAT_SOURCES
     "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f32_to_f128M.c"
     "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f64_to_f128M.c"
     "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f64_to_f16.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/i32_to_f128M.c"
     "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_add256M.c"
     "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_addCarryM.c"
     "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_addComplCarryM.c"
@@ -427,11 +428,12 @@ set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/range_set.cpp"
     "${CMAKE_SOURCE_DIR}/src/target.cpp"
     "${CMAKE_SOURCE_DIR}/src/tokenizer.cpp"
-    "${CMAKE_SOURCE_DIR}/src/util.cpp"
     "${CMAKE_SOURCE_DIR}/src/translate_c.cpp"
+    "${CMAKE_SOURCE_DIR}/src/util.cpp"
 )
-set(BLAKE_SOURCES
+set(OPTIMIZED_C_SOURCES
     "${CMAKE_SOURCE_DIR}/src/blake2b.c"
+    "${CMAKE_SOURCE_DIR}/src/parse_f128.c"
 )
 set(ZIG_CPP_SOURCES
     "${CMAKE_SOURCE_DIR}/src/zig_llvm.cpp"
@@ -6600,7 +6602,7 @@ else()
   endif()
 endif()
 
-set(BLAKE_CFLAGS "-std=c99")
+set(OPTIMIZED_C_FLAGS "-std=c99 -O3")
 
 set(EXE_LDFLAGS " ")
 if(MINGW)
@@ -6626,9 +6628,9 @@ set_target_properties(zig_cpp PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
 )
 
-add_library(embedded_blake STATIC ${BLAKE_SOURCES})
-set_target_properties(embedded_blake PROPERTIES
-    COMPILE_FLAGS "${BLAKE_CFLAGS} -O3"
+add_library(opt_c_util STATIC ${OPTIMIZED_C_SOURCES})
+set_target_properties(opt_c_util PROPERTIES
+    COMPILE_FLAGS "${OPTIMIZED_C_FLAGS}"
 )
 
 add_executable(zig ${ZIG_SOURCES})
@@ -6639,7 +6641,7 @@ set_target_properties(zig PROPERTIES
 
 target_link_libraries(zig LINK_PUBLIC
     zig_cpp
-    embedded_blake
+    opt_c_util
     ${SOFTFLOAT_LIBRARIES}
     ${CLANG_LIBRARIES}
     ${LLD_LIBRARIES}

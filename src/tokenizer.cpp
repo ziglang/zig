@@ -293,10 +293,10 @@ static void cancel_token(Tokenize *t) {
 }
 
 static void end_float_token(Tokenize *t) {
-    if (t->radix == 10) {
+    if (t->radix == 10 || t->radix == 16) {
         uint8_t *ptr_buf = (uint8_t*)buf_ptr(t->buf) + t->cur_tok->start_pos;
         size_t buf_len = t->cur_tok->end_pos - t->cur_tok->start_pos;
-        if (bigfloat_init_buf_base10(&t->cur_tok->data.float_lit.bigfloat, ptr_buf, buf_len)) {
+        if (bigfloat_init_buf(&t->cur_tok->data.float_lit.bigfloat, ptr_buf, buf_len)) {
             t->cur_tok->data.float_lit.overflow = true;
         }
         return;

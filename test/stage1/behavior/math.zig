@@ -324,11 +324,11 @@ test "quad hex float literal parsing accurate" {
             }
             {
                 var f: f128 = 0x1.353e45674d89abacc3a2ebf3ff4ffp-50;
-                expect(@bitCast(u128, f) == 0x3fcd353e45674d89abacc3a2ebf3ff4f);
+                expect(@bitCast(u128, f) == 0x3fcd353e45674d89abacc3a2ebf3ff50);
             }
             {
                 var f: f128 = 0x1.ed8764648369535adf4be3214567fp-9;
-                expect(@bitCast(u128, f) == 0x3ff6ed8764648369535adf4be3214567);
+                expect(@bitCast(u128, f) == 0x3ff6ed8764648369535adf4be3214568);
             }
             const exp2ft = []f64{
                 0x1.6a09e667f3bcdp-1,
@@ -596,4 +596,9 @@ test "vector integer addition" {
     };
     S.doTheTest();
     comptime S.doTheTest();
+}
+
+test "binary and octal float literals" {
+    expect(0b10100.00010e0 == 0x1.4100000000000p+4);
+    expect(0o10700.00010e0 == 0x1.1c00010000000p+12);
 }
