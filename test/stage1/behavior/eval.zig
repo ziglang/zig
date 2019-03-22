@@ -385,10 +385,10 @@ test "@setEvalBranchQuota" {
     }
 }
 
-// TODO test "float literal at compile time not lossy" {
-// TODO     expect(16777216.0 + 1.0 == 16777217.0);
-// TODO     expect(9007199254740992.0 + 1.0 == 9007199254740993.0);
-// TODO }
+test "float literal at compile time not lossy" {
+    expect(16777216.0 + 1.0 == 16777217.0);
+    expect(9007199254740992.0 + 1.0 == 9007199254740993.0);
+}
 
 test "f32 at compile time is lossy" {
     expect(f32(1 << 24) + 1 == 1 << 24);

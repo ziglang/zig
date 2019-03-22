@@ -9,6 +9,7 @@
 #include "bigint.hpp"
 #include "buffer.hpp"
 #include "softfloat.hpp"
+#include "parse_f128.h"
 #include <stdio.h>
 #include <math.h>
 #include <errno.h>
@@ -65,22 +66,18 @@ void bigfloat_init_bigint(BigFloat *dest, const BigInt *op) {
     }
 }
 
-int bigfloat_init_buf_base10(BigFloat *dest, const uint8_t *buf_ptr, size_t buf_len) {
+Error bigfloat_init_buf(BigFloat *dest, const uint8_t *buf_ptr, size_t buf_len) {
     char *str_begin = (char *)buf_ptr;
     char *str_end;
 
     errno = 0;
-    double value = strtod(str_begin, &str_end); // TODO actual f128 parsing
+    dest->value = parse_f128(str_begin, &str_end);
     if (errno) {
         return ErrorOverflow;
     }
 
-    float64_t value_f64;
-    memcpy(&value_f64, &value, sizeof(double));
-    f64_to_f128M(value_f64, &dest->value);
-
     assert(str_end <= ((char*)buf_ptr) + buf_len);
-    return 0;
+    return ErrorNone;
 }
 
 void bigfloat_add(BigFloat *dest, const BigFloat *op1, const BigFloat *op2) {
