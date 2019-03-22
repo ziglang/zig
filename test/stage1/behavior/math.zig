@@ -308,15 +308,27 @@ test "quad hex float literal parsing accurate" {
     const expected: u128 = 0x3fff1111222233334444555566667777;
     expect(@bitCast(u128, a) == expected);
 
+    // non-normalized
+    const b: f128 = 0x11.111222233334444555566667777p-4;
+    expect(@bitCast(u128, b) == expected);
+
     const S = struct {
         fn doTheTest() void {
             {
-                var f1: f128 = 0x1.2eab345678439abcdefea56782346p+5;
-                expect(@bitCast(u128, f1) == 0x40042eab345678439abcdefea5678234);
+                var f: f128 = 0x1.2eab345678439abcdefea56782346p+5;
+                expect(@bitCast(u128, f) == 0x40042eab345678439abcdefea5678234);
             }
             {
                 var f: f128 = 0x1.edcb34a235253948765432134674fp-1;
-                expect(@bitCast(u128, f) == 0x3ffeedcb34a235253948765432134675);
+                expect(@bitCast(u128, f) == 0x3ffeedcb34a235253948765432134674);
+            }
+            {
+                var f: f128 = 0x1.353e45674d89abacc3a2ebf3ff4ffp-50;
+                expect(@bitCast(u128, f) == 0x3fcd353e45674d89abacc3a2ebf3ff4f);
+            }
+            {
+                var f: f128 = 0x1.ed8764648369535adf4be3214567fp-9;
+                expect(@bitCast(u128, f) == 0x3ff6ed8764648369535adf4be3214567);
             }
             const exp2ft = []f64{
                 0x1.6a09e667f3bcdp-1,
