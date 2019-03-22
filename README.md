@@ -177,7 +177,7 @@ brew install cmake llvm@8
 brew outdated llvm@8 || brew upgrade llvm@8
 mkdir build
 cd build
-cmake .. -DCMAKE_PREFIX_PATH=/usr/local/opt/llvm@8/
+cmake .. -DCMAKE_PREFIX_PATH=/usr/local/Cellar/llvm/8.0.0
 make install
 bin/zig build --build-file ../build.zig test
 ```
