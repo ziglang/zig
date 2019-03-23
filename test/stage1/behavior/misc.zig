@@ -699,3 +699,8 @@ test "thread local variable" {
     S.t += 1;
     expect(S.t == 1235);
 }
+
+test "unicode escape in character literal" {
+    var a: u24 = '\U01f4a9';
+    expect(a == 128169);
+}

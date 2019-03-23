@@ -501,7 +501,16 @@ pub fn main() void {
       </div>
       {#see_also|Optionals|undefined#}
       {#header_close#}
-      {#header_open|String Literals#}
+      {#header_open|String Literals and Character Literals#}
+      <p>
+      String literals are UTF-8 encoded byte arrays.
+      </p>
+      <p>
+      Character literals have type {#syntax#}comptime_int{#endsyntax#}, the same as
+      {#link|Integer Literals#}. All {#link|Escape Sequences#} are valid in both string literals
+      and character literals. Once https://github.com/ziglang/zig/issues/2097 is implemented,
+      character literals will be allowed to have a single UTF-8 encoded codepoint.
+      </p>
       {#code_begin|test#}
 const assert = @import("std").debug.assert;
 const mem = @import("std").mem;
@@ -513,6 +522,7 @@ test "string literals" {
     assert(normal_bytes.len == 5);
     assert(normal_bytes[1] == 'e');
     assert('e' == '\x65');
+    assert('\U01f4a9' == 128169);
     assert(mem.eql(u8, "hello", "h\x65llo"));
 
     // A C string literal is a null terminated pointer.
@@ -521,7 +531,7 @@ test "string literals" {
     assert(null_terminated_bytes[5] == 0);
 }
       {#code_end#}
-      {#see_also|Arrays|Zig Test#}
+      {#see_also|Arrays|Zig Test|Source Encoding#}
       {#header_open|Escape Sequences#}
       <div class="table-wrapper">
       <table>
@@ -8530,7 +8540,7 @@ pub fn main() void {
     );
 }
       {#code_end#}
-      {#see_also|String Literals#}
+      {#see_also|String Literals and Character Literals#}
       {#header_close#}
 
       {#header_open|Import from C Header File#}

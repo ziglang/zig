@@ -148,7 +148,7 @@ struct TokenStrLit {
 };
 
 struct TokenCharLit {
-    uint8_t c;
+    uint32_t c;
 };
 
 struct Token {

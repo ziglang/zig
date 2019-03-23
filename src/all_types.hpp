@@ -845,7 +845,7 @@ struct AstNodeStringLiteral {
 };
 
 struct AstNodeCharLiteral {
-    uint8_t value;
+    uint32_t value;
 };
 
 struct AstNodeFloatLiteral {

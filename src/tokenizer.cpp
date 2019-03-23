@@ -1103,11 +1103,15 @@ void tokenize(Buf *buf, Tokenization *out) {
 
                     if (t.char_code_index >= t.char_code_end) {
                         if (t.unicode) {
-                            if (t.char_code <= 0x7f) {
+                            if (t.char_code > 0x10ffff) {
+                                tokenize_error(&t, "unicode value out of range: %x", t.char_code);
+                            }
+                            if (t.cur_tok->id == TokenIdCharLiteral) {
+                                t.cur_tok->data.char_lit.c = t.char_code;
+                                t.state = TokenizeStateCharLiteralEnd;
+                            } else if (t.char_code <= 0x7f) {
                                 // 00000000 00000000 00000000 0xxxxxxx
                                 handle_string_escape(&t, (uint8_t)t.char_code);
-                            } else if (t.cur_tok->id == TokenIdCharLiteral) {
-                                tokenize_error(&t, "unicode value too large for character literal: %x", t.char_code);
                             } else if (t.char_code <= 0x7ff) {
                                 // 00000000 00000000 00000xxx xx000000
                                 handle_string_escape(&t, (uint8_t)(0xc0 | (t.char_code >> 6)));
@@ -1129,14 +1133,9 @@ void tokenize(Buf *buf, Tokenization *out) {
                                 handle_string_escape(&t, (uint8_t)(0x80 | ((t.char_code >> 6) & 0x3f)));
                                 // 00000000 00000000 00000000 00xxxxxx
                                 handle_string_escape(&t, (uint8_t)(0x80 | (t.char_code & 0x3f)));
-                            } else {
-                                tokenize_error(&t, "unicode value out of range: %x", t.char_code);
                             }
                         } else {
-                            if (t.cur_tok->id == TokenIdCharLiteral && t.char_code > UINT8_MAX) {
-                                tokenize_error(&t, "value too large for character literal: '%x'",
-                                        t.char_code);
-                            }
+                            assert(t.char_code <= 255);
                             handle_string_escape(&t, (uint8_t)t.char_code);
                         }
                     }

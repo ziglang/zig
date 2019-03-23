@@ -1,3 +1,10 @@
+test "zig fmt: character literal larger than u8" {
+    try testCanonical(
+        \\const x = '\U01f4a9';
+        \\
+    );
+}
+
 test "zig fmt: infix operator and then multiline string literal" {
     try testCanonical(
         \\const x = "" ++
