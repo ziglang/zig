@@ -113,10 +113,31 @@ comptime {
         @export("__aeabi_fneg", @import("compiler_rt/negXf2.zig").__negsf2, linkage);
         @export("__aeabi_dneg", @import("compiler_rt/negXf2.zig").__negdf2, linkage);
 
+        @export("__aeabi_fmul", @import("compiler_rt/mulXf3.zig").__mulsf3, linkage);
+        @export("__aeabi_dmul", @import("compiler_rt/mulXf3.zig").__muldf3, linkage);
+
+        @export("__aeabi_d2h", @import("compiler_rt/truncXfYf2.zig").__truncdfhf2, linkage);
+
+        @export("__aeabi_f2ulz", @import("compiler_rt/fixunssfdi.zig").__fixunssfdi, linkage);
+        @export("__aeabi_d2ulz", @import("compiler_rt/fixunsdfdi.zig").__fixunsdfdi, linkage);
+
+        @export("__aeabi_f2lz", @import("compiler_rt/fixsfdi.zig").__fixsfdi, linkage);
+        @export("__aeabi_d2lz", @import("compiler_rt/fixdfdi.zig").__fixdfdi, linkage);
+
+        @export("__aeabi_d2uiz", @import("compiler_rt/fixunsdfsi.zig").__fixunsdfsi, linkage);
+
+        @export("__aeabi_h2f", @import("compiler_rt/extendXfYf2.zig").__extendhfsf2, linkage);
+        @export("__aeabi_f2h", @import("compiler_rt/truncXfYf2.zig").__truncsfhf2, linkage);
+
         @export("__aeabi_fadd", @import("compiler_rt/addXf3.zig").__addsf3, linkage);
         @export("__aeabi_dadd", @import("compiler_rt/addXf3.zig").__adddf3, linkage);
         @export("__aeabi_fsub", @import("compiler_rt/addXf3.zig").__subsf3, linkage);
         @export("__aeabi_dsub", @import("compiler_rt/addXf3.zig").__subdf3, linkage);
+
+        @export("__aeabi_f2uiz", @import("compiler_rt/fixunssfsi.zig").__fixunssfsi, linkage);
+
+        @export("__aeabi_f2iz", @import("compiler_rt/fixsfsi.zig").__fixsfsi, linkage);
+        @export("__aeabi_d2iz", @import("compiler_rt/fixdfsi.zig").__fixdfsi, linkage);
     }
     if (builtin.os == builtin.Os.windows) {
         switch (builtin.arch) {
