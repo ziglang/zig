@@ -82,6 +82,26 @@ comptime {
         @export("__aeabi_uldivmod", __aeabi_uldivmod, linkage);
         @export("__aeabi_uidivmod", __aeabi_uidivmod, linkage);
         @export("__aeabi_uidiv", __udivsi3, linkage);
+
+        @export("__aeabi_memcpy", __aeabi_memcpy, linkage);
+        @export("__aeabi_memcpy4", __aeabi_memcpy, linkage);
+        @export("__aeabi_memcpy8", __aeabi_memcpy, linkage);
+
+        @export("__aeabi_memmove", __aeabi_memmove, linkage);
+        @export("__aeabi_memmove4", __aeabi_memmove, linkage);
+        @export("__aeabi_memmove8", __aeabi_memmove, linkage);
+
+        @export("__aeabi_memset", __aeabi_memset, linkage);
+        @export("__aeabi_memset4", __aeabi_memset, linkage);
+        @export("__aeabi_memset8", __aeabi_memset, linkage);
+
+        @export("__aeabi_memclr", __aeabi_memclr, linkage);
+        @export("__aeabi_memclr4", __aeabi_memclr, linkage);
+        @export("__aeabi_memclr8", __aeabi_memclr, linkage);
+
+        @export("__aeabi_memcmp", __aeabi_memcmp, linkage);
+        @export("__aeabi_memcmp4", __aeabi_memcmp, linkage);
+        @export("__aeabi_memcmp8", __aeabi_memcmp, linkage);
     }
     if (builtin.os == builtin.Os.windows) {
         switch (builtin.arch) {
@@ -187,6 +207,17 @@ const is_arm_arch = switch (builtin.arch) {
     else => false,
 };
 
+const is_arm_32 = is_arm_arch and !is_arm_64;
+
+const use_thumb_1 = is_arm_32 and switch (builtin.arch.arm) {
+    builtin.Arch.Arm32.v6,
+    builtin.Arch.Arm32.v6m,
+    builtin.Arch.Arm32.v6k,
+    builtin.Arch.Arm32.v6t2,
+    => true,
+    else => false,
+};
+
 nakedcc fn __aeabi_uidivmod() void {
     @setRuntimeSafety(false);
     asm volatile (
@@ -201,6 +232,96 @@ nakedcc fn __aeabi_uidivmod() void {
         :
         : "r2", "r1"
     );
+}
+
+nakedcc fn __aeabi_memcpy() noreturn {
+    @setRuntimeSafety(false);
+    if (use_thumb_1) {
+        asm volatile (
+            \\ push    {r7, lr}
+            \\ bl      memcpy
+            \\ pop     {r7, pc}
+        );
+    } else {
+        asm volatile (
+            \\ b       memcpy
+        );
+    }
+    unreachable;
+}
+
+nakedcc fn __aeabi_memmove() noreturn {
+    @setRuntimeSafety(false);
+    if (use_thumb_1) {
+        asm volatile (
+            \\ push    {r7, lr}
+            \\ bl      memmove
+            \\ pop     {r7, pc}
+        );
+    } else {
+        asm volatile (
+            \\ b       memmove
+        );
+    }
+    unreachable;
+}
+
+nakedcc fn __aeabi_memset() noreturn {
+    @setRuntimeSafety(false);
+    if (use_thumb_1) {
+        asm volatile (
+            \\ mov     r3, r1
+            \\ mov     r1, r2
+            \\ mov     r2, r3
+            \\ push    {r7, lr}
+            \\ b       memset
+            \\ pop     {r7, pc}
+        );
+    } else {
+        asm volatile (
+            \\ mov     r3, r1
+            \\ mov     r1, r2
+            \\ mov     r2, r3
+            \\ b       memset
+        );
+    }
+    unreachable;
+}
+
+nakedcc fn __aeabi_memclr() noreturn {
+    @setRuntimeSafety(false);
+    if (use_thumb_1) {
+        asm volatile (
+            \\ mov     r2, r1
+            \\ movs    r1, #0
+            \\ push    {r7, lr}
+            \\ bl      memset
+            \\ pop     {r7, pc}
+        );
+    } else {
+        asm volatile (
+            \\ mov     r2, r1
+            \\ movs    r1, #0
+            \\ b       memset
+        );
+    }
+    unreachable;
+}
+
+nakedcc fn __aeabi_memcmp() noreturn {
+    @setRuntimeSafety(false);
+    if (use_thumb_1) {
+        asm volatile (
+            \\ push    {r7, lr}
+            \\ bl      memcmp
+            \\ pop     {r7, pc}
+        );
+    } else {
+        asm volatile (
+            \\ b       memcmp
+        );
+    }
+    unreachable;
 }
 
 // _chkstk (_alloca) routine - probe stack between %esp and (%esp-%eax) in 4k increments,
