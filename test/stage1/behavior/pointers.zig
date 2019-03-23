@@ -130,3 +130,10 @@ test "initialize const optional C pointer to null" {
     expect(a == null);
     comptime expect(a == null);
 }
+
+test "compare equality of optional and non-optional pointer" {
+    const a = @intToPtr(*const usize, 0x123456789);
+    const b = @intToPtr(?*usize, 0x123456789);
+    expect(a == b);
+    expect(b == a);
+}

@@ -4695,6 +4695,13 @@ fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) anyerror![]u8 {
 
     return slice[0..1];
 }
+
+test "peer type resolution: *const T and ?*T" {
+    const a = @intToPtr(*const usize, 0x123456789);
+    const b = @intToPtr(?*usize, 0x123456789);
+    assert(a == b);
+    assert(b == a);
+}
       {#code_end#}
       {#header_close#}
       {#header_close#}
