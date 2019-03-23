@@ -729,8 +729,13 @@ fn divide(a: i32, b: i32) i32 {
       </ul>
       {#header_open|Float Literals#}
       <p>
-      Float literals have type {#syntax#}comptime_float{#endsyntax#} which is guaranteed to hold at least all possible values
-      that the largest other floating point type can hold. Float literals {#link|implicitly cast|Implicit Casts#} to any other type.
+      Float literals have type {#syntax#}comptime_float{#endsyntax#} which is guaranteed to have
+      the same precision and operations of the largest other floating point type, which is
+      {#syntax#}f128{#endsyntax#}.
+      </p>
+      <p>
+      Float literals {#link|implicitly cast|Implicit Casts#} to any floating point type,
+      and to any {#link|integer|Integers#} type when there is no fractional component.
       </p>
       {#code_begin|syntax#}
 const floating_point = 123.0E+77;
@@ -740,6 +745,17 @@ const yet_another = 123.0e+77;
 const hex_floating_point = 0x103.70p-5;
 const another_hex_float = 0x103.70;
 const yet_another_hex_float = 0x103.70P-5;
+      {#code_end#}
+      <p>
+      There is no syntax for NaN, infinity, or negative infinity. For these special values,
+      one must use the standard library:
+      </p>
+      {#code_begin|syntax#}
+const std = @import("std");
+
+const inf = std.math.inf(f32);
+const negative_inf = -std.math.inf(f64);
+const nan = std.math.nan(f128);
       {#code_end#}
       {#header_close#}
       {#header_open|Floating Point Operations#}
