@@ -21,7 +21,11 @@ comptime {
 
     @export("__unordtf2", @import("compiler_rt/comparetf2.zig").__unordtf2, linkage);
 
+    @export("__addsf3", @import("compiler_rt/addXf3.zig").__addsf3, linkage);
+    @export("__adddf3", @import("compiler_rt/addXf3.zig").__adddf3, linkage);
     @export("__addtf3", @import("compiler_rt/addXf3.zig").__addtf3, linkage);
+    @export("__subsf3", @import("compiler_rt/addXf3.zig").__subsf3, linkage);
+    @export("__subdf3", @import("compiler_rt/addXf3.zig").__subdf3, linkage);
     @export("__subtf3", @import("compiler_rt/addXf3.zig").__subtf3, linkage);
 
     @export("__mulsf3", @import("compiler_rt/mulXf3.zig").__mulsf3, linkage);
@@ -102,6 +106,11 @@ comptime {
         @export("__aeabi_memcmp", __aeabi_memcmp, linkage);
         @export("__aeabi_memcmp4", __aeabi_memcmp, linkage);
         @export("__aeabi_memcmp8", __aeabi_memcmp, linkage);
+
+        @export("__aeabi_fadd", @import("compiler_rt/addXf3.zig").__addsf3, linkage);
+        @export("__aeabi_dadd", @import("compiler_rt/addXf3.zig").__adddf3, linkage);
+        @export("__aeabi_fsub", @import("compiler_rt/addXf3.zig").__subsf3, linkage);
+        @export("__aeabi_dsub", @import("compiler_rt/addXf3.zig").__subdf3, linkage);
     }
     if (builtin.os == builtin.Os.windows) {
         switch (builtin.arch) {

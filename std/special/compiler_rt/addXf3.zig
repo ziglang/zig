@@ -6,8 +6,26 @@ const std = @import("std");
 const builtin = @import("builtin");
 const compiler_rt = @import("../compiler_rt.zig");
 
+pub extern fn __addsf3(a: f32, b: f32) f32 {
+    return addXf3(f32, a, b);
+}
+
+pub extern fn __adddf3(a: f64, b: f64) f64 {
+    return addXf3(f64, a, b);
+}
+
 pub extern fn __addtf3(a: f128, b: f128) f128 {
     return addXf3(f128, a, b);
+}
+
+pub extern fn __subsf3(a: f32, b: f32) f32 {
+    const neg_b = @bitCast(f32, @bitCast(u32, b) ^ (u32(1) << 31));
+    return addXf3(f32, a, neg_b);
+}
+
+pub extern fn __subdf3(a: f64, b: f64) f64 {
+    const neg_b = @bitCast(f64, @bitCast(u64, b) ^ (u64(1) << 63));
+    return addXf3(f64, a, neg_b);
 }
 
 pub extern fn __subtf3(a: f128, b: f128) f128 {
@@ -17,16 +35,18 @@ pub extern fn __subtf3(a: f128, b: f128) f128 {
 
 inline fn normalize(comptime T: type, significand: *@IntType(false, T.bit_count)) i32 {
     const Z = @IntType(false, T.bit_count);
+    const S = @IntType(false, T.bit_count - @clz(Z(T.bit_count) - 1));
     const significandBits = std.math.floatMantissaBits(T);
     const implicitBit = Z(1) << significandBits;
 
     const shift = @clz(significand.*) - @clz(implicitBit);
-    significand.* <<= @intCast(u7, shift);
+    significand.* <<= @intCast(S, shift);
     return 1 - shift;
 }
 
 inline fn addXf3(comptime T: type, a: T, b: T) T {
     const Z = @IntType(false, T.bit_count);
+    const S = @IntType(false, T.bit_count - @clz(Z(T.bit_count) - 1));
 
     const typeWidth = T.bit_count;
     const significandBits = std.math.floatMantissaBits(T);
@@ -126,8 +146,8 @@ inline fn addXf3(comptime T: type, a: T, b: T) T {
     const @"align" = @intCast(Z, aExponent - bExponent);
     if (@"align" != 0) {
         if (@"align" < typeWidth) {
-            const sticky = if (bSignificand << @intCast(u7, typeWidth - @"align") != 0) Z(1) else 0;
-            bSignificand = (bSignificand >> @truncate(u7, @"align")) | sticky;
+            const sticky = if (bSignificand << @intCast(S, typeWidth - @"align") != 0) Z(1) else 0;
+            bSignificand = (bSignificand >> @truncate(S, @"align")) | sticky;
         } else {
             bSignificand = 1; // sticky; b is known to be non-zero.
         }
@@ -141,7 +161,7 @@ inline fn addXf3(comptime T: type, a: T, b: T) T {
         // and adjust the exponent:
         if (aSignificand < implicitBit << 3) {
             const shift = @intCast(i32, @clz(aSignificand)) - @intCast(i32, @clz(implicitBit << 3));
-            aSignificand <<= @intCast(u7, shift);
+            aSignificand <<= @intCast(S, shift);
             aExponent -= shift;
         }
     } else { // addition
@@ -163,8 +183,8 @@ inline fn addXf3(comptime T: type, a: T, b: T) T {
         // Result is denormal before rounding; the exponent is zero and we
         // need to shift the significand.
         const shift = @intCast(Z, 1 - aExponent);
-        const sticky = if (aSignificand << @intCast(u7, typeWidth - shift) != 0) Z(1) else 0;
-        aSignificand = aSignificand >> @intCast(u7, shift | sticky);
+        const sticky = if (aSignificand << @intCast(S, typeWidth - shift) != 0) Z(1) else 0;
+        aSignificand = aSignificand >> @intCast(S, shift | sticky);
         aExponent = 0;
     }
 
