@@ -282,7 +282,7 @@ pub const Builder = struct {
             if (self.verbose) {
                 warn("rm {}\n", installed_file);
             }
-            _ = os.deleteFile(installed_file);
+            os.deleteFile(installed_file) catch {};
         }
 
         // TODO remove empty directories

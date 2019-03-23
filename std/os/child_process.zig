@@ -802,7 +802,7 @@ fn destroyPipe(pipe: [2]i32) void {
 // Child of fork calls this to report an error to the fork parent.
 // Then the child exits.
 fn forkChildErrReport(fd: i32, err: ChildProcess.SpawnError) noreturn {
-    _ = writeIntFd(fd, ErrInt(@errorToInt(err)));
+    writeIntFd(fd, ErrInt(@errorToInt(err))) catch {};
     posix.exit(1);
 }
 

@@ -370,7 +370,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    @import("std").os.exit(126);
         \\}
         \\pub fn main() void {
-        \\    _ = bar(9999);
+        \\    bar(9999) catch {};
         \\}
         \\fn bar(x: u16) anyerror {
         \\    return @intToError(x);
@@ -384,7 +384,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\const Set1 = error{A, B};
         \\const Set2 = error{A, C};
         \\pub fn main() void {
-        \\    _ = foo(Set1.B);
+        \\    foo(Set1.B) catch {};
         \\}
         \\fn foo(set1: Set1) Set2 {
         \\    return @errSetCast(Set2, set1);

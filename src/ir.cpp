@@ -13994,6 +13994,12 @@ static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source
     assert(ptr->value.type->id == ZigTypeIdPointer);
 
     if (ptr->value.data.x_ptr.special == ConstPtrSpecialDiscard) {
+        if (uncasted_value->value.type->id == ZigTypeIdErrorUnion ||
+            uncasted_value->value.type->id == ZigTypeIdErrorSet)
+        {
+            ir_add_error(ira, source_instr, buf_sprintf("error is discarded"));
+            return ira->codegen->invalid_instruction;
+        }
         return ir_const_void(ira, source_instr);
     }
 

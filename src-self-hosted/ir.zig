@@ -1453,7 +1453,7 @@ pub const Builder = struct {
                 child_scope = decl_var.params.variable.child_scope;
             } else if (!is_continuation_unreachable) {
                 // this statement's value must be void
-                _ = irb.build(
+                _ = try irb.build(
                     Inst.CheckVoidStmt,
                     child_scope,
                     Span{
@@ -1887,7 +1887,7 @@ pub const Builder = struct {
     }
 
     fn genAsyncReturn(irb: *Builder, scope: *Scope, span: Span, result: *Inst, is_gen: bool) !*Inst {
-        _ = irb.buildGen(
+        _ = try irb.buildGen(
             Inst.AddImplicitReturnType,
             scope,
             span,

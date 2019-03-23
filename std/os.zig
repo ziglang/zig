@@ -807,7 +807,7 @@ pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwned
                 return switch (err) {
                     windows.ERROR.ENVVAR_NOT_FOUND => error.EnvironmentVariableNotFound,
                     else => {
-                        _ = unexpectedErrorWindows(err);
+                        unexpectedErrorWindows(err) catch {};
                         return error.EnvironmentVariableNotFound;
                     },
                 };
@@ -877,9 +877,9 @@ pub fn getCwd(out_buffer: *[MAX_PATH_BYTES]u8) GetCwdError![]u8 {
 
 test "os.getCwd" {
     // at least call it so it gets compiled
-    _ = getCwdAlloc(debug.global_allocator);
+    _ = getCwdAlloc(debug.global_allocator) catch undefined;
     var buf: [MAX_PATH_BYTES]u8 = undefined;
-    _ = getCwd(&buf);
+    _ = getCwd(&buf) catch undefined;
 }
 
 pub const SymLinkError = PosixSymLinkError || WindowsSymLinkError;

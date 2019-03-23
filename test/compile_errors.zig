@@ -3,6 +3,18 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "discarding error value",
+        \\export fn entry() void {
+        \\    _ = foo();
+        \\}
+        \\fn foo() !void {
+        \\    return error.OutOfMemory;
+        \\}
+    ,
+        "tmp.zig:2:7: error: error is discarded",
+    );
+
+    cases.add(
         "volatile on global assembly",
         \\comptime {
         \\    asm volatile ("");

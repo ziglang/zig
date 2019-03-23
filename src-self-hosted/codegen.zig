@@ -296,7 +296,7 @@ pub fn renderToLlvmModule(ofile: *ObjectFile, fn_val: *Value.Fn, code: *ir.Code)
         if (!param.typ.handleIsPtr()) {
             //clear_debug_source_node(g);
             const llvm_param = llvm.GetParam(llvm_fn, @intCast(c_uint, i));
-            _ = renderStoreUntyped(
+            _ = try renderStoreUntyped(
                 ofile,
                 llvm_param,
                 scope_var.data.Param.llvm_value,

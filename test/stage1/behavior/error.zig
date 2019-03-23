@@ -205,8 +205,8 @@ fn foo2(f: fn () anyerror!void) void {
 fn bar2() (error{}!void) {}
 
 test "error: Zero sized error set returned with value payload crash" {
-    _ = foo3(0);
-    _ = comptime foo3(0);
+    _ = foo3(0) catch {};
+    _ = comptime foo3(0) catch {};
 }
 
 const Error = error{};

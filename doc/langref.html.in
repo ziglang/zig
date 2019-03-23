@@ -3346,8 +3346,8 @@ fn deferErrorExample(is_error: bool) !void {
 }
 
 test "errdefer unwinding" {
-    _ = deferErrorExample(false);
-    _ = deferErrorExample(true);
+    deferErrorExample(false) catch {};
+    deferErrorExample(true) catch {};
 }
       {#code_end#}
       {#see_also|Errors#}
