@@ -597,8 +597,3 @@ test "vector integer addition" {
     S.doTheTest();
     comptime S.doTheTest();
 }
-
-test "binary and octal float literals" {
-    expect(0b10100.00010e0 == 0x1.4100000000000p+4);
-    expect(0o10700.00010e0 == 0x1.1c00010000000p+12);
-}

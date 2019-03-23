@@ -215,13 +215,6 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    _ = c.printf(c"0x103.70p-5: %.013a\n",
         \\         f64(0x103.70p-5));
         \\
-        \\    _ = c.printf(c"\n");
-        \\
-        \\    _ = c.printf(c"0b10100.00010e0: %.013a\n",
-        \\         f64(0b10100.00010e0));
-        \\    _ = c.printf(c"0o10700.00010e0: %.013a\n",
-        \\         f64(0o10700.00010e0));
-        \\
         \\    return 0;
         \\}
     ,
@@ -259,9 +252,6 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\0x103.70p5: 0x1.0370000000000p+13
         \\0x103.70p+5: 0x1.0370000000000p+13
         \\0x103.70p-5: 0x1.0370000000000p+3
-        \\
-        \\0b10100.00010e0: 0x1.4100000000000p+4
-        \\0o10700.00010e0: 0x1.1c00010000000p+12
         \\
     );
 
