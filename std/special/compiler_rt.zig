@@ -82,6 +82,9 @@ comptime {
     @export("__umoddi3", __umoddi3, linkage);
     @export("__udivmodsi4", __udivmodsi4, linkage);
 
+    @export("__negsf2", @import("compiler_rt/negXf2.zig").__negsf2, linkage);
+    @export("__negdf2", @import("compiler_rt/negXf2.zig").__negdf2, linkage);
+
     if (is_arm_arch and !is_arm_64) {
         @export("__aeabi_uldivmod", __aeabi_uldivmod, linkage);
         @export("__aeabi_uidivmod", __aeabi_uidivmod, linkage);
@@ -106,6 +109,9 @@ comptime {
         @export("__aeabi_memcmp", __aeabi_memcmp, linkage);
         @export("__aeabi_memcmp4", __aeabi_memcmp, linkage);
         @export("__aeabi_memcmp8", __aeabi_memcmp, linkage);
+
+        @export("__aeabi_fneg", @import("compiler_rt/negXf2.zig").__negsf2, linkage);
+        @export("__aeabi_dneg", @import("compiler_rt/negXf2.zig").__negdf2, linkage);
 
         @export("__aeabi_fadd", @import("compiler_rt/addXf3.zig").__addsf3, linkage);
         @export("__aeabi_dadd", @import("compiler_rt/addXf3.zig").__adddf3, linkage);
