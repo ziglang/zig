@@ -913,3 +913,13 @@ test "enum literal cast to enum" {
     var color2 = Color.Auto;
     expect(color1 == color2);
 }
+
+test "peer type resolution with enum literal" {
+    const Items = enum {
+        one,
+        two,
+    };
+
+    expect(Items.two == .two);
+    expect(.two == Items.two);
+}

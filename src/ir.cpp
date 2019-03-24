@@ -9573,6 +9573,21 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
             continue;
         }
 
+        if (prev_type->id == ZigTypeIdEnum && cur_type->id == ZigTypeIdEnumLiteral) {
+            TypeEnumField *field = find_enum_type_field(prev_type, cur_inst->value.data.x_enum_literal);
+            if (field != nullptr) {
+                continue;
+            }
+        }
+
+        if (cur_type->id == ZigTypeIdEnum && prev_type->id == ZigTypeIdEnumLiteral) {
+            TypeEnumField *field = find_enum_type_field(cur_type, prev_inst->value.data.x_enum_literal);
+            if (field != nullptr) {
+                prev_inst = cur_inst;
+                continue;
+            }
+        }
+
         if (prev_type->id == ZigTypeIdPointer && prev_type->data.pointer.ptr_len == PtrLenC &&
             (cur_type->id == ZigTypeIdComptimeInt || cur_type->id == ZigTypeIdInt))
         {
