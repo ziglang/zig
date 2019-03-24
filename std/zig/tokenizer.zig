@@ -1,5 +1,6 @@
 const std = @import("../std.zig");
 const mem = std.mem;
+const unicode = std.unicode;
 
 pub const Token = struct {
     id: Id,
@@ -234,12 +235,8 @@ pub const Tokenizer = struct {
         Builtin,
         C,
         StringLiteral,
-        StringLiteralBackslash,
         MultilineStringLiteralLine,
         CharLiteral,
-        CharLiteralBackslash,
-        CharLiteralHexEscape,
-        CharLiteralEnd,
         Backslash,
         Equal,
         Bang,
@@ -619,90 +616,28 @@ pub const Tokenizer = struct {
                     else => break,
                 },
                 State.StringLiteral => switch (c) {
-                    '\\' => {
-                        state = State.StringLiteralBackslash;
-                    },
                     '"' => {
                         self.index += 1;
                         break;
                     },
-                    '\n' => break, // Look for this error later.
-                    else => self.checkLiteralCharacter(),
-                },
-
-                State.StringLiteralBackslash => switch (c) {
-                    '\n' => break, // Look for this error later.
-                    else => {
-                        state = State.StringLiteral;
-                    },
-                },
-
-                State.CharLiteral => switch (c) {
-                    '\\' => {
-                        state = State.CharLiteralBackslash;
-                    },
-                    '\'' => {
-                        result.id = Token.Id.Invalid;
-                        break;
-                    },
-                    else => {
-                        if (c < 0x20 or c == 0x7f) {
-                            result.id = Token.Id.Invalid;
-                            break;
-                        }
-
-                        state = State.CharLiteralEnd;
-                    },
-                },
-
-                State.CharLiteralBackslash => switch (c) {
                     '\n' => {
                         result.id = Token.Id.Invalid;
                         break;
                     },
-                    'x' => {
-                        state = State.CharLiteralHexEscape;
-                        seen_escape_digits = 0;
-                        expected_escape_digits = 2;
-                    },
-                    'u' => {
-                        state = State.CharLiteralHexEscape;
-                        seen_escape_digits = 0;
-                        expected_escape_digits = 4;
-                    },
-                    'U' => {
-                        state = State.CharLiteralHexEscape;
-                        seen_escape_digits = 0;
-                        expected_escape_digits = 6;
-                    },
-                    else => {
-                        state = State.CharLiteralEnd;
-                    },
+                    else => self.checkLiteralCharacter(),
                 },
 
-                State.CharLiteralHexEscape => switch (c) {
-                    '0'...'9', 'a'...'z', 'A'...'F' => {
-                        seen_escape_digits += 1;
-                        if (seen_escape_digits == expected_escape_digits) {
-                            state = State.CharLiteralEnd;
-                        }
-                    },
-                    else => {
-                        result.id = Token.Id.Invalid;
-                        break;
-                    },
-                },
-
-                State.CharLiteralEnd => switch (c) {
+                State.CharLiteral => switch (c) {
                     '\'' => {
                         result.id = Token.Id.CharLiteral;
                         self.index += 1;
                         break;
                     },
-                    else => {
+                    '\n' => {
                         result.id = Token.Id.Invalid;
                         break;
                     },
+                    else => self.checkLiteralCharacter(),
                 },
 
                 State.MultilineStringLiteralLine => switch (c) {
@@ -1052,10 +987,6 @@ pub const Tokenizer = struct {
                 State.SawAtSign,
                 State.Backslash,
                 State.CharLiteral,
-                State.CharLiteralBackslash,
-                State.CharLiteralHexEscape,
-                State.CharLiteralEnd,
-                State.StringLiteralBackslash,
                 State.LBracketStar,
                 State.LBracketStarC,
                 => {

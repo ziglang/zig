@@ -1147,7 +1147,10 @@ pub const Builder = struct {
                 return irb.lvalWrap(scope, inst, lval);
             },
             ast.Node.Id.MultilineStringLiteral => return error.Unimplemented,
-            ast.Node.Id.CharLiteral => return error.Unimplemented,
+            ast.Node.Id.CharLiteral => {
+                const char_lit = @fieldParentPtr(ast.Node.CharLiteral, "base", node);
+                return irb.lvalWrap(scope, try irb.genCharLit(char_lit, scope), lval);
+            },
             ast.Node.Id.BoolLiteral => return error.Unimplemented,
             ast.Node.Id.NullLiteral => return error.Unimplemented,
             ast.Node.Id.UndefinedLiteral => return error.Unimplemented,
@@ -1333,12 +1336,78 @@ pub const Builder = struct {
         ) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.InvalidBase => unreachable,
-            error.InvalidCharForDigit => unreachable,
-            error.DigitTooLargeForBase => unreachable,
+            error.InvalidCharacter => unreachable,
         };
         errdefer int_val.base.deref(irb.comp);
 
         const inst = try irb.build(Inst.Const, scope, Span.token(int_lit.token), Inst.Const.Params{});
+        inst.val = IrVal{ .KnownValue = &int_val.base };
+        return inst;
+    }
+
+    pub fn genCharLit(irb: *Builder, char_lit: *ast.Node.CharLiteral, scope: *Scope) !*Inst {
+        const char_token = irb.code.tree_scope.tree.tokenSlice(char_lit.token);
+
+        var char: u21 = undefined;
+        got_char: {
+            if (char_token[1] == '\\') {
+                char = switch (char_token[2]) {
+                'x' => {
+                    const hi = charToDigit(char_token[off], 16) catch unreachable;
+                    const lo = charToDigit(char_token[off + 1], 16) catch unreachable;
+                    char |= ((hi << 4) | lo) << ((hex_escape_byes - 1) * 8);
+                    break :got_char;
+                },
+                'u' => {
+                    // char_token[3] == '{';
+                    if (char_token[6] == '}') {
+                        hex_escape_bytes = 1;
+                    } else if (char_token[8] == '}') {
+                        hex_escape_bytes = 2;
+                    } else if (char_token[10] == '}') {
+                        hex_escape_bytes = 3;
+                    } else {
+                        unreachable;
+                    }
+                    var off: u8 = 4;
+                    while (hex_escape_bytes > 0) : (hex_escape_bytes -= 1) {
+                        const hi = charToDigit(char_token[off], 16) catch unreachable;
+                        const lo = charToDigit(char_token[off + 1], 16) catch unreachable;
+                        char |= ((hi << 4) | lo) << ((hex_escape_byes - 1) * 8);
+                        off += 2;
+                    }
+                    break :got_char;
+                },
+                'n' => '\n',
+                'r' => '\r',
+                '\\' => '\\',
+                '\t' => '\t',
+                '\'' => '\'',
+                '\"' => '\"',
+                else => unreachable,
+                };
+                break :got_char;
+            }
+            // This could read one byte past the end of the file, except
+            // this guarantees to not read past the first character, and we
+            // have already validated the file as UTF-8.
+            _ = utf8Decode(char_token[1..4], &char);
+            break :got_char;
+        }
+
+        const comptime_int_type = Type.ComptimeInt.get(irb.comp);
+        defer comptime_int_type.base.base.deref(irb.comp);
+
+        const int_val = Value.Int.createFromCharLiteral(
+            irb.comp,
+            &comptime_int_type.base,
+            rest,
+        ) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+        };
+        errdefer int_val.base.deref(irb.comp);
+
+        const inst = try irb.build(Inst.Const, scope, Span.token(char_lit.token), Inst.Const.Params{});
         inst.val = IrVal{ .KnownValue = &int_val.base };
         return inst;
     }
@@ -1349,12 +1418,27 @@ pub const Builder = struct {
 
         var bad_index: usize = undefined;
         var buf = std.zig.parseStringLiteral(irb.comp.gpa(), str_token, &bad_index) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            error.InvalidCharacter => {
+            .OutOfMemory => return error.OutOfMemory,
+            .UnicodeSurrogateHalf, .UnicodeCodepointTooLarge => {
+                var hex_string = if (mem.indexOfScalar(u8, str_token, '}')) |i| str_token[2..i] else str_token[2..str_token.len];
                 try irb.comp.addCompileError(
                     irb.code.tree_scope,
                     src_span,
-                    "invalid character in string literal: '{c}'",
+                    "Unicode codepoint U+{} cannot be represented in UTF-16 and is invalid",
+                    hex_string,
+                );
+                return error.SemanticAnalysisFailed;
+            },
+            .ExpectXDigit, .ExpectLCurly, .ExpectRCurly => {
+                try irb.comp.addCompileError(
+                    irb.code.tree_scope,
+                    src_span,
+                    "expected {}, got '{c}'",
+                    switch (err) {
+                    .ExpectXDigit => "hexidecimal digit",
+                    .ExpectLCurly => "left curly bracket '{'",
+                    .ExpectRCurly => "right curly bracket '}'",
+                    },
                     str_token[bad_index],
                 );
                 return error.SemanticAnalysisFailed;

@@ -534,6 +534,27 @@ pub const Value = struct {
             return self;
         }
 
+        pub fn createFromCharLiteral(comp: *Compilation, typ: *Type, value: u21) !*Int {
+            const self = try comp.gpa().create(Value.Int);
+            self.* = Value.Int{
+                .base = Value{
+                    .id = Value.Id.Int,
+                    .typ = typ,
+                    .ref_count = std.atomic.Int(usize).init(1),
+                },
+                .big_int = undefined,
+            };
+            typ.base.ref();
+            errdefer comp.gpa().destroy(self);
+
+            self.big_int = try std.math.big.Int.init(comp.gpa());
+            errdefer self.big_int.deinit();
+
+            try self.big_int.set(value);
+
+            return self;
+        }
+
         pub fn getLlvmConst(self: *Int, ofile: *ObjectFile) !?*llvm.Value {
             switch (self.base.typ.id) {
                 Type.Id.Int => {

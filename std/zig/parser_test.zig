@@ -12,9 +12,21 @@ test "zig fmt: enum literal" {
     );
 }
 
-test "zig fmt: character literal larger than u8" {
+test "zig fmt: character literals" {
     try testCanonical(
-        \\const x = '\U01f4a9';
+        \\const x = '\x80';
+        \\
+    );
+    try testCanonical(
+        \\const x = '\u{80}';
+        \\
+    );
+    try testCanonical(
+        \\const x = '\u{01f4}';
+        \\
+    );
+    try testCanonical(
+        \\const x = '\u{01f4a9}';
         \\
     );
 }

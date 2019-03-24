@@ -190,7 +190,7 @@ test "string escapes" {
     expect(mem.eql(u8, "\r", "\x0d"));
     expect(mem.eql(u8, "\t", "\x09"));
     expect(mem.eql(u8, "\\", "\x5c"));
-    expect(mem.eql(u8, "\u1234\u0069", "\xe1\x88\xb4\x69"));
+    expect(mem.eql(u8, "\u{1234}\u{0069}", "\xe1\x88\xb4\x69"));
 }
 
 test "multiline string" {
@@ -696,6 +696,11 @@ test "thread local variable" {
 }
 
 test "unicode escape in character literal" {
-    var a: u24 = '\U01f4a9';
+    var a: u24 = '\u{01f4a9}';
+    expect(a == 128169);
+}
+
+test "utf-8 in character literal" {
+    var a: u24 = '💩';
     expect(a == 128169);
 }
