@@ -257,6 +257,7 @@ static bool types_have_same_zig_comptime_repr(ZigType *a, ZigType *b) {
         case ZigTypeIdBool:
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
+        case ZigTypeIdEnumLiteral:
         case ZigTypeIdPointer:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
@@ -1141,6 +1142,14 @@ static IrInstruction *ir_build_const_bool(IrBuilder *irb, Scope *scope, AstNode 
     const_instruction->base.value.type = irb->codegen->builtin_types.entry_bool;
     const_instruction->base.value.special = ConstValSpecialStatic;
     const_instruction->base.value.data.x_bool = value;
+    return &const_instruction->base;
+}
+
+static IrInstruction *ir_build_const_enum_literal(IrBuilder *irb, Scope *scope, AstNode *source_node, Buf *name) {
+    IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, source_node);
+    const_instruction->base.value.type = irb->codegen->builtin_types.entry_enum_literal;
+    const_instruction->base.value.special = ConstValSpecialStatic;
+    const_instruction->base.value.data.x_enum_literal = name;
     return &const_instruction->base;
 }
 
@@ -5794,6 +5803,12 @@ static IrInstruction *ir_gen_bool_literal(IrBuilder *irb, Scope *scope, AstNode 
     return ir_build_const_bool(irb, scope, node, node->data.bool_literal.value);
 }
 
+static IrInstruction *ir_gen_enum_literal(IrBuilder *irb, Scope *scope, AstNode *node) {
+    assert(node->type == NodeTypeEnumLiteral);
+    Buf *name = &node->data.enum_literal.identifier->data.str_lit.str;
+    return ir_build_const_enum_literal(irb, scope, node, name);
+}
+
 static IrInstruction *ir_gen_string_literal(IrBuilder *irb, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeStringLiteral);
 
@@ -7564,6 +7579,8 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             return ir_lval_wrap(irb, scope, ir_gen_await_expr(irb, scope, node), lval);
         case NodeTypeSuspend:
             return ir_lval_wrap(irb, scope, ir_gen_suspend(irb, scope, node), lval);
+        case NodeTypeEnumLiteral:
+            return ir_lval_wrap(irb, scope, ir_gen_enum_literal(irb, scope, node), lval);
     }
     zig_unreachable();
 }
@@ -12264,6 +12281,7 @@ static IrInstruction *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp *
         case ZigTypeIdArgTuple:
         case ZigTypeIdPromise:
         case ZigTypeIdEnum:
+        case ZigTypeIdEnumLiteral:
             operator_allowed = is_equality_cmp;
             break;
 
@@ -13596,6 +13614,7 @@ static IrInstruction *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructio
                 case ZigTypeIdUnreachable:
                 case ZigTypeIdComptimeFloat:
                 case ZigTypeIdComptimeInt:
+                case ZigTypeIdEnumLiteral:
                 case ZigTypeIdUndefined:
                 case ZigTypeIdNull:
                 case ZigTypeIdOptional:
@@ -13629,6 +13648,7 @@ static IrInstruction *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructio
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
         case ZigTypeIdPromise:
+        case ZigTypeIdEnumLiteral:
             ir_add_error(ira, target,
                     buf_sprintf("invalid export target type '%s'", buf_ptr(&target->value.type->name)));
             break;
@@ -14805,6 +14825,7 @@ static IrInstruction *ir_analyze_maybe(IrAnalyze *ira, IrInstructionUnOp *un_op_
         case ZigTypeIdStruct:
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
+        case ZigTypeIdEnumLiteral:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
         case ZigTypeIdOptional:
@@ -16448,6 +16469,7 @@ static IrInstruction *ir_analyze_instruction_slice_type(IrAnalyze *ira,
         case ZigTypeIdStruct:
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
+        case ZigTypeIdEnumLiteral:
         case ZigTypeIdOptional:
         case ZigTypeIdErrorUnion:
         case ZigTypeIdErrorSet:
@@ -16560,6 +16582,7 @@ static IrInstruction *ir_analyze_instruction_array_type(IrAnalyze *ira,
         case ZigTypeIdStruct:
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
+        case ZigTypeIdEnumLiteral:
         case ZigTypeIdOptional:
         case ZigTypeIdErrorUnion:
         case ZigTypeIdErrorSet:
@@ -16613,6 +16636,7 @@ static IrInstruction *ir_analyze_instruction_size_of(IrAnalyze *ira,
         case ZigTypeIdNull:
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
+        case ZigTypeIdEnumLiteral:
         case ZigTypeIdBoundFn:
         case ZigTypeIdMetaType:
         case ZigTypeIdArgTuple:
@@ -17019,6 +17043,7 @@ static IrInstruction *ir_analyze_instruction_switch_target(IrAnalyze *ira,
         case ZigTypeIdFloat:
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
+        case ZigTypeIdEnumLiteral:
         case ZigTypeIdPointer:
         case ZigTypeIdPromise:
         case ZigTypeIdFn:
@@ -18237,6 +18262,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
         case ZigTypeIdUnreachable:
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
+        case ZigTypeIdEnumLiteral:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
         case ZigTypeIdArgTuple:
@@ -20443,6 +20469,7 @@ static IrInstruction *ir_analyze_instruction_align_of(IrAnalyze *ira, IrInstruct
         case ZigTypeIdUnreachable:
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
+        case ZigTypeIdEnumLiteral:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
         case ZigTypeIdBoundFn:
@@ -21293,6 +21320,7 @@ static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue
         case ZigTypeIdUnreachable:
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
+        case ZigTypeIdEnumLiteral:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
         case ZigTypeIdPromise:
@@ -21452,6 +21480,7 @@ static Error buf_read_value_bytes(IrAnalyze *ira, CodeGen *codegen, AstNode *sou
         case ZigTypeIdUnreachable:
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
+        case ZigTypeIdEnumLiteral:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
         case ZigTypeIdPromise:
@@ -21609,6 +21638,7 @@ static bool type_can_bit_cast(ZigType *t) {
         case ZigTypeIdUnreachable:
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
+        case ZigTypeIdEnumLiteral:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
         case ZigTypeIdPointer:

@@ -242,6 +242,7 @@ AstNode *type_decl_node(ZigType *type_entry) {
         case ZigTypeIdArray:
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
+        case ZigTypeIdEnumLiteral:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
         case ZigTypeIdOptional:
@@ -303,6 +304,7 @@ bool type_is_resolved(ZigType *type_entry, ResolveStatus status) {
         case ZigTypeIdArray:
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
+        case ZigTypeIdEnumLiteral:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
         case ZigTypeIdOptional:
@@ -1463,6 +1465,7 @@ static Error emit_error_unless_type_allowed_in_packed_struct(CodeGen *g, ZigType
         case ZigTypeIdUnreachable:
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
+        case ZigTypeIdEnumLiteral:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
         case ZigTypeIdErrorUnion:
@@ -1550,6 +1553,7 @@ bool type_allowed_in_extern(CodeGen *g, ZigType *type_entry) {
         case ZigTypeIdMetaType:
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
+        case ZigTypeIdEnumLiteral:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
         case ZigTypeIdErrorUnion:
@@ -1712,6 +1716,7 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
                 return g->builtin_types.entry_invalid;
             case ZigTypeIdComptimeFloat:
             case ZigTypeIdComptimeInt:
+            case ZigTypeIdEnumLiteral:
             case ZigTypeIdBoundFn:
             case ZigTypeIdMetaType:
             case ZigTypeIdVoid:
@@ -1806,6 +1811,7 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
 
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
+        case ZigTypeIdEnumLiteral:
         case ZigTypeIdBoundFn:
         case ZigTypeIdMetaType:
         case ZigTypeIdUnreachable:
@@ -3621,6 +3627,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeAwaitExpr:
         case NodeTypeSuspend:
         case NodeTypePromiseType:
+        case NodeTypeEnumLiteral:
             zig_unreachable();
     }
 }
@@ -3658,6 +3665,7 @@ ZigType *validate_var_type(CodeGen *g, AstNode *source_node, ZigType *type_entry
             return g->builtin_types.entry_invalid;
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
+        case ZigTypeIdEnumLiteral:
         case ZigTypeIdMetaType:
         case ZigTypeIdVoid:
         case ZigTypeIdBool:
@@ -3807,7 +3815,8 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
             implicit_type = g->builtin_types.entry_invalid;
         } else if ((!is_const || linkage == VarLinkageExternal) &&
                 (implicit_type->id == ZigTypeIdComptimeFloat ||
-                implicit_type->id == ZigTypeIdComptimeInt))
+                implicit_type->id == ZigTypeIdComptimeInt ||
+                implicit_type->id == ZigTypeIdEnumLiteral))
         {
             add_node_error(g, source_node, buf_sprintf("unable to infer variable type"));
             implicit_type = g->builtin_types.entry_invalid;
@@ -4051,6 +4060,7 @@ static bool is_container(ZigType *type_entry) {
         case ZigTypeIdArray:
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
+        case ZigTypeIdEnumLiteral:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
         case ZigTypeIdOptional:
@@ -4109,6 +4119,7 @@ void resolve_container_type(CodeGen *g, ZigType *type_entry) {
         case ZigTypeIdArray:
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
+        case ZigTypeIdEnumLiteral:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
         case ZigTypeIdOptional:
@@ -4647,6 +4658,7 @@ bool handle_is_ptr(ZigType *type_entry) {
         case ZigTypeIdMetaType:
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
+        case ZigTypeIdEnumLiteral:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
         case ZigTypeIdBoundFn:
@@ -4827,6 +4839,8 @@ static uint32_t hash_const_val(ConstExprValue *const_val) {
                 }
                 return result;
             }
+        case ZigTypeIdEnumLiteral:
+            return buf_hash(const_val->data.x_enum_literal) * 2691276464;
         case ZigTypeIdEnum:
             {
                 uint32_t result = 31643936;
@@ -4974,6 +4988,7 @@ static bool can_mutate_comptime_var_state(ConstExprValue *value) {
         case ZigTypeIdFloat:
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
+        case ZigTypeIdEnumLiteral:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
         case ZigTypeIdBoundFn:
@@ -5043,6 +5058,7 @@ static bool return_type_is_cacheable(ZigType *return_type) {
         case ZigTypeIdFloat:
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
+        case ZigTypeIdEnumLiteral:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
         case ZigTypeIdBoundFn:
@@ -5173,6 +5189,7 @@ OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry) {
         case ZigTypeIdOpaque:
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
+        case ZigTypeIdEnumLiteral:
         case ZigTypeIdMetaType:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
@@ -5236,6 +5253,7 @@ ReqCompTime type_requires_comptime(CodeGen *g, ZigType *type_entry) {
             zig_unreachable();
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
+        case ZigTypeIdEnumLiteral:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
         case ZigTypeIdMetaType:
@@ -5794,6 +5812,8 @@ bool const_values_equal(CodeGen *g, ConstExprValue *a, ConstExprValue *b) {
         case ZigTypeIdInt:
         case ZigTypeIdComptimeInt:
             return bigint_cmp(&a->data.x_bigint, &b->data.x_bigint) == CmpEQ;
+        case ZigTypeIdEnumLiteral:
+            return buf_eql_buf(a->data.x_enum_literal, b->data.x_enum_literal);
         case ZigTypeIdPointer:
         case ZigTypeIdFn:
             return const_values_equal_ptr(a, b);
@@ -6044,6 +6064,9 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
         case ZigTypeIdInt:
             bigint_append_buf(buf, &const_val->data.x_bigint, 10);
             return;
+        case ZigTypeIdEnumLiteral:
+            buf_append_buf(buf, const_val->data.x_enum_literal);
+            return;
         case ZigTypeIdMetaType:
             buf_appendf(buf, "%s", buf_ptr(&const_val->data.x_type->name));
             return;
@@ -6213,6 +6236,7 @@ uint32_t type_id_hash(TypeId x) {
         case ZigTypeIdStruct:
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
+        case ZigTypeIdEnumLiteral:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
         case ZigTypeIdOptional:
@@ -6260,6 +6284,7 @@ bool type_id_eql(TypeId a, TypeId b) {
         case ZigTypeIdStruct:
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
+        case ZigTypeIdEnumLiteral:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
         case ZigTypeIdOptional:
@@ -6439,6 +6464,7 @@ static const ZigTypeId all_type_ids[] = {
     ZigTypeIdOpaque,
     ZigTypeIdPromise,
     ZigTypeIdVector,
+    ZigTypeIdEnumLiteral,
 };
 
 ZigTypeId type_id_at_index(size_t index) {
@@ -6504,6 +6530,8 @@ size_t type_id_index(ZigType *entry) {
             return 22;
         case ZigTypeIdVector:
             return 23;
+        case ZigTypeIdEnumLiteral:
+            return 24;
     }
     zig_unreachable();
 }
@@ -6534,6 +6562,8 @@ const char *type_id_name(ZigTypeId id) {
             return "ComptimeFloat";
         case ZigTypeIdComptimeInt:
             return "ComptimeInt";
+        case ZigTypeIdEnumLiteral:
+            return "EnumLiteral";
         case ZigTypeIdUndefined:
             return "Undefined";
         case ZigTypeIdNull:

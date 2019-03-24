@@ -259,6 +259,8 @@ static const char *node_type_str(NodeType node_type) {
             return "PromiseType";
         case NodeTypePointerType:
             return "PointerType";
+        case NodeTypeEnumLiteral:
+            return "EnumLiteral";
     }
     zig_unreachable();
 }
@@ -1152,6 +1154,11 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 if (node->data.suspend.block != nullptr) {
                     render_node_grouped(ar, node->data.suspend.block);
                 }
+                break;
+            }
+        case NodeTypeEnumLiteral:
+            {
+                fprintf(ar->f, ".%s", buf_ptr(&node->data.enum_literal.identifier->data.str_lit.str));
                 break;
             }
         case NodeTypeParamDecl:

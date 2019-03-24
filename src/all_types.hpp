@@ -317,6 +317,7 @@ struct ConstExprValue {
         ConstArrayValue x_array;
         ConstPtrValue x_ptr;
         ConstArgTuple x_arg_tuple;
+        Buf *x_enum_literal;
 
         // populated if special == ConstValSpecialRuntime
         RuntimeHintErrorUnion rh_error_union;
@@ -468,6 +469,7 @@ enum NodeType {
     NodeTypeAwaitExpr,
     NodeTypeSuspend,
     NodeTypePromiseType,
+    NodeTypeEnumLiteral,
 };
 
 enum CallingConvention {
@@ -929,6 +931,11 @@ struct AstNodePromiseType {
     AstNode *payload_type; // can be NULL
 };
 
+struct AstNodeEnumLiteral {
+    Token *period;
+    Token *identifier;
+};
+
 struct AstNode {
     enum NodeType type;
     size_t line;
@@ -989,6 +996,7 @@ struct AstNode {
         AstNodeAwaitExpr await_expr;
         AstNodeSuspend suspend;
         AstNodePromiseType promise_type;
+        AstNodeEnumLiteral enum_literal;
     } data;
 };
 
@@ -1252,6 +1260,7 @@ enum ZigTypeId {
     ZigTypeIdOpaque,
     ZigTypeIdPromise,
     ZigTypeIdVector,
+    ZigTypeIdEnumLiteral,
 };
 
 enum OnePossibleValue {
@@ -1741,6 +1750,7 @@ struct CodeGen {
         ZigType *entry_global_error_set;
         ZigType *entry_arg_tuple;
         ZigType *entry_promise;
+        ZigType *entry_enum_literal;
     } builtin_types;
     ZigType *align_amt_type;
     ZigType *stack_trace_type;

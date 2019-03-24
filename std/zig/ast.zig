@@ -296,6 +296,7 @@ pub const Node = struct {
         // Primary expressions
         IntegerLiteral,
         FloatLiteral,
+        EnumLiteral,
         StringLiteral,
         MultilineStringLiteral,
         CharLiteral,
@@ -1846,6 +1847,24 @@ pub const Node = struct {
 
         pub fn lastToken(self: *const IntegerLiteral) TokenIndex {
             return self.token;
+        }
+    };
+
+    pub const EnumLiteral = struct {
+        base: Node,
+        dot: TokenIndex,
+        name: TokenIndex,
+
+        pub fn iterate(self: *EnumLiteral, index: usize) ?*Node {
+            return null;
+        }
+
+        pub fn firstToken(self: *const EnumLiteral) TokenIndex {
+            return self.dot;
+        }
+
+        pub fn lastToken(self: *const EnumLiteral) TokenIndex {
+            return self.name;
         }
     };
 

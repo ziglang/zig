@@ -2543,6 +2543,27 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         _ = try createToCtxLiteral(arena, opt_ctx, ast.Node.IntegerLiteral, token.index);
                         continue;
                     },
+                    Token.Id.Period => {
+                        const name_token = nextToken(&tok_it, &tree);
+                        if (name_token.ptr.id != Token.Id.Identifier) {
+                            ((try tree.errors.addOne())).* = Error{
+                                .ExpectedToken = Error.ExpectedToken{
+                                    .token = name_token.index,
+                                    .expected_id = Token.Id.Identifier,
+                                },
+                            };
+                            return tree;
+                        }
+
+                        const node = try arena.create(ast.Node.EnumLiteral);
+                        node.* = ast.Node.EnumLiteral{
+                            .base = ast.Node{ .id = ast.Node.Id.EnumLiteral },
+                            .dot = token.index,
+                            .name = name_token.index,
+                        };
+                        opt_ctx.store(&node.base);
+                        continue;
+                    },
                     Token.Id.FloatLiteral => {
                         _ = try createToCtxLiteral(arena, opt_ctx, ast.Node.FloatLiteral, token.index);
                         continue;

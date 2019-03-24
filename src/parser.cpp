@@ -81,6 +81,7 @@ static AstNode *ast_parse_for_type_expr(ParseContext *pc);
 static AstNode *ast_parse_while_type_expr(ParseContext *pc);
 static AstNode *ast_parse_switch_expr(ParseContext *pc);
 static AstNode *ast_parse_asm_expr(ParseContext *pc);
+static AstNode *ast_parse_enum_lit(ParseContext *pc);
 static AstNode *ast_parse_asm_output(ParseContext *pc);
 static AsmOutput *ast_parse_asm_output_item(ParseContext *pc);
 static AstNode *ast_parse_asm_input(ParseContext *pc);
@@ -1161,6 +1162,10 @@ static AstNode *ast_parse_prefix_expr(ParseContext *pc) {
 //      / Block
 //      / CurlySuffixExpr
 static AstNode *ast_parse_primary_expr(ParseContext *pc) {
+    AstNode *enum_lit = ast_parse_enum_lit(pc);
+    if (enum_lit != nullptr)
+        return enum_lit;
+
     AstNode *asm_expr = ast_parse_asm_expr(pc);
     if (asm_expr != nullptr)
         return asm_expr;
@@ -1828,6 +1833,18 @@ static AstNode *ast_parse_asm_expr(ParseContext *pc) {
     res->column = asm_token->start_column;
     res->data.asm_expr.volatile_token = volatile_token;
     res->data.asm_expr.asm_template = asm_template;
+    return res;
+}
+
+static AstNode *ast_parse_enum_lit(ParseContext *pc) {
+    Token *period = eat_token_if(pc, TokenIdDot);
+    if (period == nullptr)
+        return nullptr;
+
+    Token *identifier = expect_token(pc, TokenIdSymbol);
+    AstNode *res = ast_create_node(pc, NodeTypeEnumLiteral, period);
+    res->data.enum_literal.period = period;
+    res->data.enum_literal.identifier = identifier;
     return res;
 }
 
@@ -2999,6 +3016,8 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             break;
         case NodeTypeSuspend:
             visit_field(&node->data.suspend.block, visit, context);
+            break;
+        case NodeTypeEnumLiteral:
             break;
     }
 }

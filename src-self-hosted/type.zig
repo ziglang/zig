@@ -32,6 +32,7 @@ pub const Type = struct {
             Id.Array => @fieldParentPtr(Array, "base", base).destroy(comp),
             Id.ComptimeFloat => @fieldParentPtr(ComptimeFloat, "base", base).destroy(comp),
             Id.ComptimeInt => @fieldParentPtr(ComptimeInt, "base", base).destroy(comp),
+            Id.EnumLiteral => @fieldParentPtr(EnumLiteral, "base", base).destroy(comp),
             Id.Undefined => @fieldParentPtr(Undefined, "base", base).destroy(comp),
             Id.Null => @fieldParentPtr(Null, "base", base).destroy(comp),
             Id.Optional => @fieldParentPtr(Optional, "base", base).destroy(comp),
@@ -65,6 +66,7 @@ pub const Type = struct {
             Id.Array => return @fieldParentPtr(Array, "base", base).getLlvmType(allocator, llvm_context),
             Id.ComptimeFloat => unreachable,
             Id.ComptimeInt => unreachable,
+            Id.EnumLiteral => unreachable,
             Id.Undefined => unreachable,
             Id.Null => unreachable,
             Id.Optional => return @fieldParentPtr(Optional, "base", base).getLlvmType(allocator, llvm_context),
@@ -85,6 +87,7 @@ pub const Type = struct {
             Id.Type,
             Id.ComptimeFloat,
             Id.ComptimeInt,
+            Id.EnumLiteral,
             Id.Undefined,
             Id.Null,
             Id.BoundFn,
@@ -118,6 +121,7 @@ pub const Type = struct {
             Id.Type,
             Id.ComptimeFloat,
             Id.ComptimeInt,
+            Id.EnumLiteral,
             Id.Undefined,
             Id.Null,
             Id.BoundFn,
@@ -936,6 +940,20 @@ pub const Type = struct {
         }
 
         pub fn destroy(self: *ComptimeInt, comp: *Compilation) void {
+            comp.gpa().destroy(self);
+        }
+    };
+
+    pub const EnumLiteral = struct {
+        base: Type,
+
+        /// Adds 1 reference to the resulting type
+        pub fn get(comp: *Compilation) *EnumLiteral {
+            comp.comptime_int_type.base.base.ref();
+            return comp.comptime_int_type;
+        }
+
+        pub fn destroy(self: *EnumLiteral, comp: *Compilation) void {
             comp.gpa().destroy(self);
         }
     };

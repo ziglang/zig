@@ -1667,6 +1667,13 @@ fn renderExpression(
             return renderToken(tree, stream, asm_output.lastToken(), indent, start_col, space); // )
         },
 
+        ast.Node.Id.EnumLiteral => {
+            const enum_literal = @fieldParentPtr(ast.Node.EnumLiteral, "base", base);
+
+            try renderToken(tree, stream, enum_literal.dot, indent, start_col, Space.None); // .
+            return renderToken(tree, stream, enum_literal.name, indent, start_col, space); // name
+        },
+
         ast.Node.Id.StructField,
         ast.Node.Id.UnionTag,
         ast.Node.Id.EnumTag,

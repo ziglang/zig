@@ -490,6 +490,7 @@ pub fn autoHash(key: var, comptime rng: *std.rand.Random, comptime HashInt: type
         builtin.TypeId.ComptimeFloat,
         builtin.TypeId.ComptimeInt,
         builtin.TypeId.Type,
+        builtin.TypeId.EnumLiteral,
         => return 0,
 
         builtin.TypeId.Pointer => |info| switch (info.size) {
@@ -531,6 +532,7 @@ pub fn autoEql(a: var, b: @typeOf(a)) bool {
         builtin.TypeId.Float,
         builtin.TypeId.ComptimeFloat,
         builtin.TypeId.ComptimeInt,
+        builtin.TypeId.EnumLiteral,
         builtin.TypeId.Promise,
         builtin.TypeId.Enum,
         builtin.TypeId.BoundFn,
