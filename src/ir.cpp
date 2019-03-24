@@ -20884,18 +20884,19 @@ static IrInstruction *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira,
         for (size_t range_i = 0; range_i < instruction->range_count; range_i += 1) {
             IrInstructionCheckSwitchProngsRange *range = &instruction->ranges[range_i];
 
-            IrInstruction *start_value = range->start->child;
+            IrInstruction *start_value_uncasted = range->start->child;
+            if (type_is_invalid(start_value_uncasted->value.type))
+                return ira->codegen->invalid_instruction;
+            IrInstruction *start_value = ir_implicit_cast(ira, start_value_uncasted, switch_type);
             if (type_is_invalid(start_value->value.type))
                 return ira->codegen->invalid_instruction;
 
-            IrInstruction *end_value = range->end->child;
+            IrInstruction *end_value_uncasted = range->end->child;
+            if (type_is_invalid(end_value_uncasted->value.type))
+                return ira->codegen->invalid_instruction;
+            IrInstruction *end_value = ir_implicit_cast(ira, end_value_uncasted, switch_type);
             if (type_is_invalid(end_value->value.type))
                 return ira->codegen->invalid_instruction;
-
-            if (start_value->value.type->id != ZigTypeIdEnum) {
-                ir_add_error(ira, range->start, buf_sprintf("not an enum type"));
-                return ira->codegen->invalid_instruction;
-            }
 
             BigInt start_index;
             bigint_init_bigint(&start_index, &start_value->value.data.x_enum_tag);

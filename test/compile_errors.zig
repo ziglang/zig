@@ -203,7 +203,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const InvalidToken = struct {};
         \\const ExpectedVarDeclOrFn = struct {};
     ,
-        "tmp.zig:4:9: error: not an enum type",
+        "tmp.zig:4:9: error: expected type '@TagType(Error)', found 'type'",
     );
 
     cases.addTest(
