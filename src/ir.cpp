@@ -11579,6 +11579,22 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         return ir_analyze_number_to_literal(ira, source_instr, value, wanted_type);
     }
 
+    // cast from enum literal to enum with matching field name
+    if (actual_type->id == ZigTypeIdEnumLiteral && wanted_type->id == ZigTypeIdEnum) {
+        if ((err = type_resolve(ira->codegen, wanted_type, ResolveStatusZeroBitsKnown)))
+            return ira->codegen->invalid_instruction;
+
+        TypeEnumField *field = find_enum_type_field(wanted_type, value->value.data.x_enum_literal);
+        if (field == nullptr) {
+            ir_add_error(ira, source_instr, buf_sprintf("enum '%s' has no field named '%s'",
+                    buf_ptr(&wanted_type->name), buf_ptr(value->value.data.x_enum_literal)));
+            return ira->codegen->invalid_instruction;
+        }
+        IrInstruction *result = ir_const(ira, source_instr, wanted_type);
+        bigint_init_bigint(&result->value.data.x_enum_tag, &field->value);
+        return result;
+    }
+
     // cast from union to the enum type of the union
     if (actual_type->id == ZigTypeIdUnion && wanted_type->id == ZigTypeIdEnum) {
         if ((err = type_resolve(ira->codegen, actual_type, ResolveStatusZeroBitsKnown)))
