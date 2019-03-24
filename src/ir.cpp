@@ -11601,8 +11601,10 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
 
         TypeEnumField *field = find_enum_type_field(wanted_type, value->value.data.x_enum_literal);
         if (field == nullptr) {
-            ir_add_error(ira, source_instr, buf_sprintf("enum '%s' has no field named '%s'",
+            ErrorMsg *msg = ir_add_error(ira, source_instr, buf_sprintf("enum '%s' has no field named '%s'",
                     buf_ptr(&wanted_type->name), buf_ptr(value->value.data.x_enum_literal)));
+            add_error_note(ira->codegen, msg, wanted_type->data.enumeration.decl_node,
+                    buf_sprintf("'%s' declared here", buf_ptr(&wanted_type->name)));
             return ira->codegen->invalid_instruction;
         }
         IrInstruction *result = ir_const(ira, source_instr, wanted_type);
