@@ -628,7 +628,7 @@ pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: u32, fd: i32, of
 }
 
 pub fn munmap(address: usize, length: usize) usize {
-    return errnoWrap(c.munmap(@intToPtr(*c_void, address), length));
+    return errnoWrap(c.munmap(@intToPtr(?*c_void, address), length));
 }
 
 pub fn read(fd: i32, buf: [*]u8, nbyte: usize) usize {
