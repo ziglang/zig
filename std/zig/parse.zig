@@ -1688,6 +1688,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                             .align_info = null,
                             .const_token = null,
                             .volatile_token = null,
+                            .allowzero_token = null,
                         },
                     };
                     stack.append(State{ .TypeExprBegin = OptionalCtx{ .Required = &node.rhs } }) catch unreachable;
@@ -1741,6 +1742,15 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                             return tree;
                         }
                         addr_of_info.volatile_token = token_index;
+                        continue;
+                    },
+                    Token.Id.Keyword_allowzero => {
+                        stack.append(state) catch unreachable;
+                        if (addr_of_info.allowzero_token != null) {
+                            ((try tree.errors.addOne())).* = Error{ .ExtraAllowZeroQualifier = Error.ExtraAllowZeroQualifier{ .token = token_index } };
+                            return tree;
+                        }
+                        addr_of_info.allowzero_token = token_index;
                         continue;
                     },
                     else => {
@@ -3552,6 +3562,7 @@ fn tokenIdToPrefixOp(id: Token.Id) ?ast.Node.PrefixOp.Op {
                 .align_info = null,
                 .const_token = null,
                 .volatile_token = null,
+                .allowzero_token = null,
             },
         },
         Token.Id.QuestionMark => ast.Node.PrefixOp.Op{ .OptionalType = void{} },

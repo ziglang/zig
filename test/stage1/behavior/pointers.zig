@@ -137,3 +137,16 @@ test "compare equality of optional and non-optional pointer" {
     expect(a == b);
     expect(b == a);
 }
+
+test "allowzero pointer and slice" {
+    var ptr = @intToPtr([*]allowzero i32, 0);
+    var opt_ptr: ?[*]allowzero i32 = ptr;
+    expect(opt_ptr != null);
+    expect(@ptrToInt(ptr) == 0);
+    var slice = ptr[0..10];
+    expect(@typeOf(slice) == []allowzero i32);
+    expect(@ptrToInt(&slice[5]) == 20);
+
+    expect(@typeInfo(@typeOf(ptr)).Pointer.is_allowzero);
+    expect(@typeInfo(@typeOf(slice)).Pointer.is_allowzero);
+}

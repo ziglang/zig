@@ -418,11 +418,9 @@ static const char *ptr_len_to_star_str(PtrLen ptr_len) {
 
 ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_const,
         bool is_volatile, PtrLen ptr_len, uint32_t byte_alignment,
-        uint32_t bit_offset_in_host, uint32_t host_int_bytes)
+        uint32_t bit_offset_in_host, uint32_t host_int_bytes, bool allow_zero)
 {
-    // TODO when implementing https://github.com/ziglang/zig/issues/1953
-    // move this to a parameter
-    bool allow_zero = (ptr_len == PtrLenC);
+    assert(ptr_len != PtrLenC || allow_zero);
     assert(!type_is_invalid(child_type));
     assert(ptr_len == PtrLenSingle || child_type->id != ZigTypeIdOpaque);
 
@@ -505,7 +503,7 @@ ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_cons
             bit_offset_in_host != 0 || allow_zero)
         {
             ZigType *peer_type = get_pointer_to_type_extra(g, child_type, false, false,
-                    PtrLenSingle, 0, 0, host_int_bytes);
+                    PtrLenSingle, 0, 0, host_int_bytes, false);
             entry->type_ref = peer_type->type_ref;
             entry->di_type = peer_type->di_type;
         } else {
@@ -548,7 +546,7 @@ ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_cons
 }
 
 ZigType *get_pointer_to_type(CodeGen *g, ZigType *child_type, bool is_const) {
-    return get_pointer_to_type_extra(g, child_type, is_const, false, PtrLenSingle, 0, 0, 0);
+    return get_pointer_to_type_extra(g, child_type, is_const, false, PtrLenSingle, 0, 0, 0, false);
 }
 
 ZigType *get_promise_frame_type(CodeGen *g, ZigType *return_type) {
@@ -857,7 +855,7 @@ ZigType *get_slice_type(CodeGen *g, ZigType *ptr_type) {
         ptr_type->data.pointer.explicit_alignment != 0 || ptr_type->data.pointer.allow_zero)
     {
         ZigType *peer_ptr_type = get_pointer_to_type_extra(g, child_type, false, false,
-                PtrLenUnknown, 0, 0, 0);
+                PtrLenUnknown, 0, 0, 0, false);
         ZigType *peer_slice_type = get_slice_type(g, peer_ptr_type);
 
         slice_type_common_init(g, ptr_type, entry);
@@ -881,10 +879,10 @@ ZigType *get_slice_type(CodeGen *g, ZigType *ptr_type) {
         {
             ZigType *grand_child_type = child_ptr_type->data.pointer.child_type;
             ZigType *bland_child_ptr_type = get_pointer_to_type_extra(g, grand_child_type, false, false,
-                    PtrLenUnknown, 0, 0, 0);
+                    PtrLenUnknown, 0, 0, 0, false);
             ZigType *bland_child_slice = get_slice_type(g, bland_child_ptr_type);
             ZigType *peer_ptr_type = get_pointer_to_type_extra(g, bland_child_slice, false, false,
-                    PtrLenUnknown, 0, 0, 0);
+                    PtrLenUnknown, 0, 0, 0, false);
             ZigType *peer_slice_type = get_slice_type(g, peer_ptr_type);
 
             entry->type_ref = peer_slice_type->type_ref;
@@ -1419,7 +1417,7 @@ static bool analyze_const_align(CodeGen *g, Scope *scope, AstNode *node, uint32_
 
 static bool analyze_const_string(CodeGen *g, Scope *scope, AstNode *node, Buf **out_buffer) {
     ZigType *ptr_type = get_pointer_to_type_extra(g, g->builtin_types.entry_u8, true, false,
-            PtrLenUnknown, 0, 0, 0);
+            PtrLenUnknown, 0, 0, 0, false);
     ZigType *str_type = get_slice_type(g, ptr_type);
     ConstExprValue *result_val = analyze_const_value(g, scope, node, str_type, nullptr);
     if (type_is_invalid(result_val->type))
@@ -5336,7 +5334,7 @@ void init_const_c_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str) {
     const_val->special = ConstValSpecialStatic;
     // TODO make this `[*]null u8` instead of `[*]u8`
     const_val->type = get_pointer_to_type_extra(g, g->builtin_types.entry_u8, true, false,
-            PtrLenUnknown, 0, 0, 0);
+            PtrLenUnknown, 0, 0, 0, false);
     const_val->data.x_ptr.special = ConstPtrSpecialBaseArray;
     const_val->data.x_ptr.data.base_array.array_val = array_val;
     const_val->data.x_ptr.data.base_array.elem_index = 0;
@@ -5481,7 +5479,7 @@ void init_const_slice(CodeGen *g, ConstExprValue *const_val, ConstExprValue *arr
     assert(array_val->type->id == ZigTypeIdArray);
 
     ZigType *ptr_type = get_pointer_to_type_extra(g, array_val->type->data.array.child_type,
-            is_const, false, PtrLenUnknown, 0, 0, 0);
+            is_const, false, PtrLenUnknown, 0, 0, 0, false);
 
     const_val->special = ConstValSpecialStatic;
     const_val->type = get_slice_type(g, ptr_type);
@@ -5506,7 +5504,7 @@ void init_const_ptr_array(CodeGen *g, ConstExprValue *const_val, ConstExprValue 
 
     const_val->special = ConstValSpecialStatic;
     const_val->type = get_pointer_to_type_extra(g, child_type, is_const, false,
-            ptr_len, 0, 0, 0);
+            ptr_len, 0, 0, 0, false);
     const_val->data.x_ptr.special = ConstPtrSpecialBaseArray;
     const_val->data.x_ptr.data.base_array.array_val = array_val;
     const_val->data.x_ptr.data.base_array.elem_index = elem_index;

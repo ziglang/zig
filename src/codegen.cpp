@@ -956,7 +956,7 @@ static LLVMValueRef get_panic_msg_ptr_val(CodeGen *g, PanicMsgId msg_id) {
     }
 
     ZigType *u8_ptr_type = get_pointer_to_type_extra(g, g->builtin_types.entry_u8, true, false,
-            PtrLenUnknown, get_abi_alignment(g, g->builtin_types.entry_u8), 0, 0);
+            PtrLenUnknown, get_abi_alignment(g, g->builtin_types.entry_u8), 0, 0, false);
     ZigType *str_type = get_slice_type(g, u8_ptr_type);
     return LLVMConstBitCast(val->global_refs->llvm_global, LLVMPointerType(str_type->type_ref, 0));
 }
@@ -1515,7 +1515,7 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
 
 
     ZigType *u8_ptr_type = get_pointer_to_type_extra(g, g->builtin_types.entry_u8, true, false,
-            PtrLenUnknown, get_abi_alignment(g, g->builtin_types.entry_u8), 0, 0);
+            PtrLenUnknown, get_abi_alignment(g, g->builtin_types.entry_u8), 0, 0, false);
     ZigType *str_type = get_slice_type(g, u8_ptr_type);
     LLVMValueRef global_slice_fields[] = {
         full_buf_ptr,
@@ -3103,6 +3103,18 @@ static LLVMValueRef ir_render_widen_or_shorten(CodeGen *g, IrExecutable *executa
 static LLVMValueRef ir_render_int_to_ptr(CodeGen *g, IrExecutable *executable, IrInstructionIntToPtr *instruction) {
     ZigType *wanted_type = instruction->base.value.type;
     LLVMValueRef target_val = ir_llvm_value(g, instruction->target);
+    if (!ptr_allows_addr_zero(wanted_type) && ir_want_runtime_safety(g, &instruction->base)) {
+        LLVMValueRef zero = LLVMConstNull(LLVMTypeOf(target_val));
+        LLVMValueRef is_zero_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, target_val, zero, "");
+        LLVMBasicBlockRef bad_block = LLVMAppendBasicBlock(g->cur_fn_val, "PtrToIntBad");
+        LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "PtrToIntOk");
+        LLVMBuildCondBr(g->builder, is_zero_bit, bad_block, ok_block);
+
+        LLVMPositionBuilderAtEnd(g->builder, bad_block);
+        gen_safety_crash(g, PanicMsgIdPtrCastNull);
+
+        LLVMPositionBuilderAtEnd(g->builder, ok_block);
+    }
     return LLVMBuildIntToPtr(g->builder, target_val, wanted_type->type_ref, "");
 }
 
@@ -3270,7 +3282,7 @@ static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable,
 
     if (have_init_expr) {
         ZigType *var_ptr_type = get_pointer_to_type_extra(g, var->var_type, false, false,
-                PtrLenSingle, var->align_bytes, 0, 0);
+                PtrLenSingle, var->align_bytes, 0, 0, false);
         LLVMValueRef llvm_init_val = ir_llvm_value(g, init_value);
         gen_assign_raw(g, var->value_ref, var_ptr_type, llvm_init_val);
     } else if (ir_want_runtime_safety(g, &decl_var_instruction->base)) {
@@ -4160,7 +4172,7 @@ static LLVMValueRef get_enum_tag_name_function(CodeGen *g, ZigType *enum_type) {
         return enum_type->data.enumeration.name_function;
 
     ZigType *u8_ptr_type = get_pointer_to_type_extra(g, g->builtin_types.entry_u8, false, false,
-            PtrLenUnknown, get_abi_alignment(g, g->builtin_types.entry_u8), 0, 0);
+            PtrLenUnknown, get_abi_alignment(g, g->builtin_types.entry_u8), 0, 0, false);
     ZigType *u8_slice_type = get_slice_type(g, u8_ptr_type);
     ZigType *tag_int_type = enum_type->data.enumeration.tag_int_type;
 
@@ -4953,7 +4965,7 @@ static LLVMValueRef ir_render_struct_init(CodeGen *g, IrExecutable *executable, 
 
         ZigType *ptr_type = get_pointer_to_type_extra(g, type_struct_field->type_entry,
                 false, false, PtrLenSingle, field_align_bytes,
-                (uint32_t)type_struct_field->bit_offset_in_host, host_int_bytes);
+                (uint32_t)type_struct_field->bit_offset_in_host, host_int_bytes, false);
 
         gen_assign_raw(g, field_ptr, ptr_type, value);
     }
@@ -4969,7 +4981,7 @@ static LLVMValueRef ir_render_union_init(CodeGen *g, IrExecutable *executable, I
     uint32_t field_align_bytes = get_abi_alignment(g, type_union_field->type_entry);
     ZigType *ptr_type = get_pointer_to_type_extra(g, type_union_field->type_entry,
             false, false, PtrLenSingle, field_align_bytes,
-            0, 0);
+            0, 0, false);
 
     LLVMValueRef uncasted_union_ptr;
     // Even if safety is off in this block, if the union type has the safety field, we have to populate it
@@ -5224,7 +5236,7 @@ static LLVMValueRef get_coro_alloc_helper_fn_val(CodeGen *g, LLVMTypeRef alloc_f
     LLVMPositionBuilderAtEnd(g->builder, ok_block);
     LLVMValueRef payload_ptr = LLVMBuildStructGEP(g->builder, sret_ptr, err_union_payload_index, "");
     ZigType *u8_ptr_type = get_pointer_to_type_extra(g, g->builtin_types.entry_u8, false, false,
-            PtrLenUnknown, get_abi_alignment(g, g->builtin_types.entry_u8), 0, 0);
+            PtrLenUnknown, get_abi_alignment(g, g->builtin_types.entry_u8), 0, 0, false);
     ZigType *slice_type = get_slice_type(g, u8_ptr_type);
     size_t ptr_field_index = slice_type->data.structure.fields[slice_ptr_index].gen_index;
     LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, payload_ptr, ptr_field_index, "");
@@ -6470,7 +6482,7 @@ static void generate_error_name_table(CodeGen *g) {
     assert(g->errors_by_index.length > 0);
 
     ZigType *u8_ptr_type = get_pointer_to_type_extra(g, g->builtin_types.entry_u8, true, false,
-            PtrLenUnknown, get_abi_alignment(g, g->builtin_types.entry_u8), 0, 0);
+            PtrLenUnknown, get_abi_alignment(g, g->builtin_types.entry_u8), 0, 0, false);
     ZigType *str_type = get_slice_type(g, u8_ptr_type);
 
     LLVMValueRef *values = allocate<LLVMValueRef>(g->errors_by_index.length);
@@ -7551,6 +7563,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             "        is_volatile: bool,\n"
             "        alignment: comptime_int,\n"
             "        child: type,\n"
+            "        is_allowzero: bool,\n"
             "\n"
             "        pub const Size = enum {\n"
             "            One,\n"
@@ -8158,7 +8171,7 @@ static void create_test_compile_var_and_add_test_runner(CodeGen *g) {
     }
 
     ZigType *u8_ptr_type = get_pointer_to_type_extra(g, g->builtin_types.entry_u8, true, false,
-            PtrLenUnknown, get_abi_alignment(g, g->builtin_types.entry_u8), 0, 0);
+            PtrLenUnknown, get_abi_alignment(g, g->builtin_types.entry_u8), 0, 0, false);
     ZigType *str_type = get_slice_type(g, u8_ptr_type);
     ZigType *fn_type = get_test_fn_type(g);
 

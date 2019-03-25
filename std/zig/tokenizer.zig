@@ -13,6 +13,7 @@ pub const Token = struct {
 
     pub const keywords = []Keyword{
         Keyword{ .bytes = "align", .id = Id.Keyword_align },
+        Keyword{ .bytes = "allowzero", .id = Id.Keyword_allowzero },
         Keyword{ .bytes = "and", .id = Id.Keyword_and },
         Keyword{ .bytes = "anyerror", .id = Id.Keyword_anyerror },
         Keyword{ .bytes = "asm", .id = Id.Keyword_asm },
@@ -143,6 +144,7 @@ pub const Token = struct {
         BracketStarCBracket,
         ShebangLine,
         Keyword_align,
+        Keyword_allowzero,
         Keyword_and,
         Keyword_anyerror,
         Keyword_asm,

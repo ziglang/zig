@@ -779,6 +779,7 @@ fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: var, source_token: Tok
             std.zig.Token.Id.Keyword_use,
             std.zig.Token.Id.Keyword_var,
             std.zig.Token.Id.Keyword_volatile,
+            std.zig.Token.Id.Keyword_allowzero,
             std.zig.Token.Id.Keyword_while,
             => {
                 try out.write("<span class=\"tok-kw\">");

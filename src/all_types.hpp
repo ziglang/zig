@@ -2668,7 +2668,7 @@ struct IrInstructionPtrType {
     PtrLen ptr_len;
     bool is_const;
     bool is_volatile;
-    bool allow_zero;
+    bool is_allow_zero;
 };
 
 struct IrInstructionPromiseType {
@@ -2684,7 +2684,7 @@ struct IrInstructionSliceType {
     IrInstruction *child_type;
     bool is_const;
     bool is_volatile;
-    bool allow_zero;
+    bool is_allow_zero;
 };
 
 struct IrInstructionGlobalAsm {

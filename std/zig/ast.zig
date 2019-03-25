@@ -125,6 +125,7 @@ pub const Error = union(enum) {
     ExtraAlignQualifier: ExtraAlignQualifier,
     ExtraConstQualifier: ExtraConstQualifier,
     ExtraVolatileQualifier: ExtraVolatileQualifier,
+    ExtraAllowZeroQualifier: ExtraAllowZeroQualifier,
     ExpectedPrimaryExpr: ExpectedPrimaryExpr,
     ExpectedToken: ExpectedToken,
     ExpectedCommaOrEnd: ExpectedCommaOrEnd,
@@ -149,6 +150,7 @@ pub const Error = union(enum) {
             @TagType(Error).ExtraAlignQualifier => |*x| return x.render(tokens, stream),
             @TagType(Error).ExtraConstQualifier => |*x| return x.render(tokens, stream),
             @TagType(Error).ExtraVolatileQualifier => |*x| return x.render(tokens, stream),
+            @TagType(Error).ExtraAllowZeroQualifier => |*x| return x.render(tokens, stream),
             @TagType(Error).ExpectedPrimaryExpr => |*x| return x.render(tokens, stream),
             @TagType(Error).ExpectedToken => |*x| return x.render(tokens, stream),
             @TagType(Error).ExpectedCommaOrEnd => |*x| return x.render(tokens, stream),
@@ -175,6 +177,7 @@ pub const Error = union(enum) {
             @TagType(Error).ExtraAlignQualifier => |x| return x.token,
             @TagType(Error).ExtraConstQualifier => |x| return x.token,
             @TagType(Error).ExtraVolatileQualifier => |x| return x.token,
+            @TagType(Error).ExtraAllowZeroQualifier => |x| return x.token,
             @TagType(Error).ExpectedPrimaryExpr => |x| return x.token,
             @TagType(Error).ExpectedToken => |x| return x.token,
             @TagType(Error).ExpectedCommaOrEnd => |x| return x.token,
@@ -198,6 +201,7 @@ pub const Error = union(enum) {
     pub const ExtraAlignQualifier = SimpleError("Extra align qualifier");
     pub const ExtraConstQualifier = SimpleError("Extra const qualifier");
     pub const ExtraVolatileQualifier = SimpleError("Extra volatile qualifier");
+    pub const ExtraAllowZeroQualifier = SimpleError("Extra allowzero qualifier");
 
     pub const ExpectedCall = struct {
         node: *Node,
@@ -1540,6 +1544,7 @@ pub const Node = struct {
         };
 
         pub const PtrInfo = struct {
+            allowzero_token: ?TokenIndex,
             align_info: ?Align,
             const_token: ?TokenIndex,
             volatile_token: ?TokenIndex,

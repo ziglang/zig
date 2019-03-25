@@ -2530,6 +2530,12 @@ static AstNode *ast_parse_prefix_type_op(ParseContext *pc) {
     if (array != nullptr) {
         assert(array->type == NodeTypeArrayType);
         while (true) {
+            Token *allowzero_token = eat_token_if(pc, TokenIdKeywordAllowZero);
+            if (allowzero_token != nullptr) {
+                array->data.array_type.allow_zero_token = allowzero_token;
+                continue;
+            }
+
             AstNode *align_expr = ast_parse_byte_align(pc);
             if (align_expr != nullptr) {
                 array->data.array_type.align_expr = align_expr;
@@ -2545,7 +2551,6 @@ static AstNode *ast_parse_prefix_type_op(ParseContext *pc) {
                 array->data.array_type.is_volatile = true;
                 continue;
             }
-
             break;
         }
 
@@ -2560,6 +2565,12 @@ static AstNode *ast_parse_prefix_type_op(ParseContext *pc) {
         if (child == nullptr)
             child = ptr;
         while (true) {
+            Token *allowzero_token = eat_token_if(pc, TokenIdKeywordAllowZero);
+            if (allowzero_token != nullptr) {
+                child->data.pointer_type.allow_zero_token = allowzero_token;
+                continue;
+            }
+
             if (eat_token_if(pc, TokenIdKeywordAlign) != nullptr) {
                 expect_token(pc, TokenIdLParen);
                 AstNode *align_expr = ast_parse_expr(pc);

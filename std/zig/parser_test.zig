@@ -1,3 +1,10 @@
+test "zig fmt: allowzero pointer" {
+    try testCanonical(
+        \\const T = [*]allowzero const u8;
+        \\
+    );
+}
+
 test "zig fmt: enum literal" {
     try testCanonical(
         \\const x = .hi;

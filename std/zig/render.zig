@@ -379,6 +379,9 @@ fn renderExpression(
                         else => usize(0),
                     };
                     try renderTokenOffset(tree, stream, prefix_op_node.op_token, indent, start_col, Space.None, star_offset); // *
+                    if (ptr_info.allowzero_token) |allowzero_token| {
+                        try renderToken(tree, stream, allowzero_token, indent, start_col, Space.Space); // allowzero
+                    }
                     if (ptr_info.align_info) |align_info| {
                         const lparen_token = tree.prevToken(align_info.node.firstToken());
                         const align_token = tree.prevToken(lparen_token);
@@ -416,6 +419,9 @@ fn renderExpression(
                     try renderToken(tree, stream, prefix_op_node.op_token, indent, start_col, Space.None); // [
                     try renderToken(tree, stream, tree.nextToken(prefix_op_node.op_token), indent, start_col, Space.None); // ]
 
+                    if (ptr_info.allowzero_token) |allowzero_token| {
+                        try renderToken(tree, stream, allowzero_token, indent, start_col, Space.Space); // allowzero
+                    }
                     if (ptr_info.align_info) |align_info| {
                         const lparen_token = tree.prevToken(align_info.node.firstToken());
                         const align_token = tree.prevToken(lparen_token);

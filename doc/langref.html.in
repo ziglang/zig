@@ -1721,7 +1721,7 @@ test "comptime @intToPtr" {
     }
 }
       {#code_end#}
-      {#see_also|Optional Pointers|@intToPtr|@ptrToInt#}
+      {#see_also|Optional Pointers|@intToPtr|@ptrToInt|C Pointers|Pointers to Zero Bit Types#}
       {#header_open|volatile#}
       <p>Loads and stores are assumed to not have side effects. If a given load or store
       should have side effects, such as Memory Mapped Input/Output (MMIO), use {#syntax#}volatile{#endsyntax#}.
@@ -1850,7 +1850,25 @@ fn foo(bytes: []u8) u32 {
 }
       {#code_end#}
       {#header_close#}
-      {#see_also|C Pointers|Pointers to Zero Bit Types#}
+
+      {#header_open|allowzero#}
+      <p>
+      This pointer attribute allows a pointer to have address zero. This is only ever needed on the
+      freestanding OS target, where the address zero is mappable. In this code example, if the pointer
+      did not have the {#syntax#}allowzero{#endsyntax#} attribute, this would be a
+      {#link|Pointer Cast Invalid Null#} panic:
+      </p>
+      {#code_begin|test|allowzero#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+test "allowzero" {
+    var zero: usize = 0;
+    var ptr = @intToPtr(*allowzero i32, zero);
+    assert(@ptrToInt(ptr) == 0);
+}
+      {#code_end#}
+      {#header_close#}
       {#header_close#}
 
       {#header_open|Slices#}
@@ -6635,9 +6653,13 @@ fn add(a: i32, b: i32) i32 { return a + b; }
       {#header_close#}
 
       {#header_open|@intToPtr#}
-      <pre>{#syntax#}@intToPtr(comptime DestType: type, int: usize) DestType{#endsyntax#}</pre>
+      <pre>{#syntax#}@intToPtr(comptime DestType: type, address: usize) DestType{#endsyntax#}</pre>
       <p>
-      Converts an integer to a pointer. To convert the other way, use {#link|@ptrToInt#}.
+      Converts an integer to a {#link|pointer|Pointers#}. To convert the other way, use {#link|@ptrToInt#}.
+      </p>
+      <p>
+      If the destination pointer type does not allow address zero and {#syntax#}address{#endsyntax#}
+      is zero, this invokes safety-checked {#link|Undefined Behavior#}.
       </p>
       {#header_close#}
 
@@ -8128,6 +8150,11 @@ fn bar(f: *Foo) void {
       {#header_close#}
 
       {#header_open|Pointer Cast Invalid Null#}
+      <p>
+      This happens when casting a pointer with the address 0 to a pointer which may not have the address 0.
+      For example, {#link|C Pointers#}, {#link|Optional Pointers#}, and {#link|allowzero#} pointers
+      allow address zero, but normal {#link|Pointers#} do not.
+      </p>
       <p>At compile-time:</p>
       {#code_begin|test_err|null pointer casted to type#}
 comptime {
@@ -8988,7 +9015,7 @@ Available libcs:
       <ul>
       <li>Linux x86_64</li>
       <li>Windows x86_64</li>
-      <li>MacOS x86_64</li>
+      <li>macOS x86_64</li>
       </ul>
       {#header_close#}
       {#header_open|Style Guide#}
@@ -9412,8 +9439,8 @@ PrefixOp
 PrefixTypeOp
     &lt;- QUESTIONMARK
      / KEYWORD_promise MINUSRARROW
-     / ArrayTypeStart (ByteAlign / KEYWORD_const / KEYWORD_volatile)*
-     / PtrTypeStart (KEYWORD_align LPAREN Expr (COLON INTEGER COLON INTEGER)? RPAREN / KEYWORD_const / KEYWORD_volatile)*
+     / ArrayTypeStart (ByteAlign / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
+     / PtrTypeStart (KEYWORD_align LPAREN Expr (COLON INTEGER COLON INTEGER)? RPAREN / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
 
 SuffixOp
     &lt;- LBRACKET Expr (DOT2 Expr?)? RBRACKET
@@ -9564,6 +9591,7 @@ TILDE                &lt;- '~'                skip
 
 end_of_word &lt;- ![a-zA-Z0-9_] skip
 KEYWORD_align       &lt;- 'align'       end_of_word
+KEYWORD_allowzero   &lt;- 'allowzero'   end_of_word
 KEYWORD_and         &lt;- 'and'         end_of_word
 KEYWORD_anyerror    &lt;- 'anyerror'    end_of_word
 KEYWORD_asm         &lt;- 'asm'         end_of_word
@@ -9614,7 +9642,7 @@ KEYWORD_var         &lt;- 'var'         end_of_word
 KEYWORD_volatile    &lt;- 'volatile'    end_of_word
 KEYWORD_while       &lt;- 'while'       end_of_word
 
-keyword &lt;- KEYWORD_align / KEYWORD_and / KEYWORD_anyerror / KEYWORD_asm
+keyword &lt;- KEYWORD_align / KEYWORD_and / KEYWORD_allowzero / KEYWORD_anyerror / KEYWORD_asm
          / KEYWORD_async / KEYWORD_await / KEYWORD_break / KEYWORD_cancel
          / KEYWORD_catch / KEYWORD_comptime / KEYWORD_const / KEYWORD_continue
          / KEYWORD_defer / KEYWORD_else / KEYWORD_enum / KEYWORD_errdefer
