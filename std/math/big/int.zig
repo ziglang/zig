@@ -449,9 +449,11 @@ pub const Int = struct {
         comptime FmtError: type,
         output: fn (@typeOf(context), []const u8) FmtError!void,
     ) FmtError!void {
+        self.assertWritable();
         // TODO look at fmt and support other bases
-        const str = self.toString(self.allocator, 10) catch @panic("TODO make this non allocating");
-        defer self.allocator.free(str);
+        // TODO support read-only fixed integers
+        const str = self.toString(self.allocator.?, 10) catch @panic("TODO make this non allocating");
+        defer self.allocator.?.free(str);
         return output(context, str);
     }
 
