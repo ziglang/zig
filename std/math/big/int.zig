@@ -22,7 +22,7 @@ comptime {
 }
 
 pub const Int = struct {
-    allocator: *Allocator,
+    allocator: ?*Allocator,
     positive: bool,
     //  - little-endian ordered
     //  - len >= 1 always
@@ -55,16 +55,40 @@ pub const Int = struct {
         };
     }
 
+    // Initialize an Int directly from a fixed set of limb values. This is considered read-only
+    // and cannot be used as a receiver argument to any functions. If this tries to allocate
+    // at any point a panic will occur due to the null allocator.
+    pub fn initFixed(limbs: []const Limb) Int {
+        var self = Int{
+            .allocator = null,
+            .positive = true,
+            // Cast away the const, invalid use to pass as a pointer argument.
+            .limbs = @intToPtr([*]Limb, @ptrToInt(limbs.ptr))[0..limbs.len],
+            .len = limbs.len,
+        };
+
+        self.normN(limbs.len);
+        return self;
+    }
+
     pub fn ensureCapacity(self: *Int, capacity: usize) !void {
+        self.assertWritable();
         if (capacity <= self.limbs.len) {
             return;
         }
 
-        self.limbs = try self.allocator.realloc(self.limbs, capacity);
+        self.limbs = try self.allocator.?.realloc(self.limbs, capacity);
+    }
+
+    fn assertWritable(self: Int) void {
+        if (self.allocator == null) {
+            @panic("provided Int value is read-only but must be writable");
+        }
     }
 
     pub fn deinit(self: *Int) void {
-        self.allocator.free(self.limbs);
+        self.assertWritable();
+        self.allocator.?.free(self.limbs);
         self.* = undefined;
     }
 
@@ -73,7 +97,7 @@ pub const Int = struct {
             .allocator = other.allocator,
             .positive = other.positive,
             .limbs = block: {
-                var limbs = try other.allocator.alloc(Limb, other.len);
+                var limbs = try other.allocator.?.alloc(Limb, other.len);
                 mem.copy(Limb, limbs[0..], other.limbs[0..other.len]);
                 break :block limbs;
             },
@@ -82,7 +106,8 @@ pub const Int = struct {
     }
 
     pub fn copy(self: *Int, other: Int) !void {
-        if (self == &other) {
+        self.assertWritable();
+        if (self.limbs.ptr == other.limbs.ptr) {
             return;
         }
 
@@ -93,6 +118,7 @@ pub const Int = struct {
     }
 
     pub fn swap(self: *Int, other: *Int) void {
+        self.assertWritable();
         mem.swap(Int, self, other);
     }
 
@@ -103,20 +129,20 @@ pub const Int = struct {
         debug.warn("\n");
     }
 
-    pub fn negate(r: *Int) void {
-        r.positive = !r.positive;
+    pub fn negate(self: *Int) void {
+        self.positive = !self.positive;
     }
 
-    pub fn abs(r: *Int) void {
-        r.positive = true;
+    pub fn abs(self: *Int) void {
+        self.positive = true;
     }
 
-    pub fn isOdd(r: Int) bool {
-        return r.limbs[0] & 1 != 0;
+    pub fn isOdd(self: Int) bool {
+        return self.limbs[0] & 1 != 0;
     }
 
-    pub fn isEven(r: Int) bool {
-        return !r.isOdd();
+    pub fn isEven(self: Int) bool {
+        return !self.isOdd();
     }
 
     // Returns the number of bits required to represent the absolute value of self.
@@ -179,6 +205,7 @@ pub const Int = struct {
     }
 
     pub fn set(self: *Int, value: var) Allocator.Error!void {
+        self.assertWritable();
         const T = @typeOf(value);
 
         switch (@typeInfo(T)) {
@@ -304,6 +331,7 @@ pub const Int = struct {
     }
 
     pub fn setString(self: *Int, base: u8, value: []const u8) !void {
+        self.assertWritable();
         if (base < 2 or base > 16) {
             return error.InvalidBase;
         }
@@ -315,23 +343,16 @@ pub const Int = struct {
             i += 1;
         }
 
-        // TODO values less than limb size should guarantee non allocating
-        var base_buffer: [512]u8 = undefined;
-        const base_al = &std.heap.FixedBufferAllocator.init(base_buffer[0..]).allocator;
-        const base_ap = try Int.initSet(base_al, base);
-
-        var d_buffer: [512]u8 = undefined;
-        var d_fba = std.heap.FixedBufferAllocator.init(d_buffer[0..]);
-        const d_al = &d_fba.allocator;
-
+        const ap_base = Int.initFixed(([]Limb{base})[0..]);
         try self.set(0);
+
         for (value[i..]) |ch| {
             const d = try charToDigit(ch, base);
-            d_fba.end_index = 0;
-            const d_ap = try Int.initSet(d_al, d);
 
-            try self.mul(self.*, base_ap);
-            try self.add(self.*, d_ap);
+            const ap_d = Int.initFixed(([]Limb{d})[0..]);
+
+            try self.mul(self.*, ap_base);
+            try self.add(self.*, ap_d);
         }
         self.positive = positive;
     }
@@ -520,8 +541,19 @@ pub const Int = struct {
         r.len = if (j != 0) j else 1;
     }
 
+    // Cannot be used as a result argument to any function.
+    fn readOnlyPositive(a: Int) Int {
+        return Int{
+            .allocator = null,
+            .positive = true,
+            .limbs = a.limbs,
+            .len = a.len,
+        };
+    }
+
     // r = a + b
     pub fn add(r: *Int, a: Int, b: Int) Allocator.Error!void {
+        r.assertWritable();
         if (a.eqZero()) {
             try r.copy(b);
             return;
@@ -533,22 +565,10 @@ pub const Int = struct {
         if (a.positive != b.positive) {
             if (a.positive) {
                 // (a) + (-b) => a - b
-                const bp = Int{
-                    .allocator = undefined,
-                    .positive = true,
-                    .limbs = b.limbs,
-                    .len = b.len,
-                };
-                try r.sub(a, bp);
+                try r.sub(a, readOnlyPositive(b));
             } else {
                 // (-a) + (b) => b - a
-                const ap = Int{
-                    .allocator = undefined,
-                    .positive = true,
-                    .limbs = a.limbs,
-                    .len = a.len,
-                };
-                try r.sub(b, ap);
+                try r.sub(b, readOnlyPositive(a));
             }
         } else {
             if (a.len >= b.len) {
@@ -591,25 +611,14 @@ pub const Int = struct {
 
     // r = a - b
     pub fn sub(r: *Int, a: Int, b: Int) !void {
+        r.assertWritable();
         if (a.positive != b.positive) {
             if (a.positive) {
                 // (a) - (-b) => a + b
-                const bp = Int{
-                    .allocator = undefined,
-                    .positive = true,
-                    .limbs = b.limbs,
-                    .len = b.len,
-                };
-                try r.add(a, bp);
+                try r.add(a, readOnlyPositive(b));
             } else {
                 // (-a) - (b) => -(a + b)
-                const ap = Int{
-                    .allocator = undefined,
-                    .positive = true,
-                    .limbs = a.limbs,
-                    .len = a.len,
-                };
-                try r.add(ap, b);
+                try r.add(readOnlyPositive(a), b);
                 r.positive = false;
             }
         } else {
@@ -671,12 +680,14 @@ pub const Int = struct {
     //
     // For greatest efficiency, ensure rma does not alias a or b.
     pub fn mul(rma: *Int, a: Int, b: Int) !void {
+        rma.assertWritable();
+
         var r = rma;
         var aliased = rma.limbs.ptr == a.limbs.ptr or rma.limbs.ptr == b.limbs.ptr;
 
         var sr: Int = undefined;
         if (aliased) {
-            sr = try Int.initCapacity(rma.allocator, a.len + b.len);
+            sr = try Int.initCapacity(rma.allocator.?, a.len + b.len);
             r = &sr;
             aliased = true;
         }
@@ -745,13 +756,9 @@ pub const Int = struct {
 
         // Trunc -> Floor.
         if (!q.positive) {
-            // TODO values less than limb size should guarantee non allocating
-            var one_buffer: [512]u8 = undefined;
-            const one_al = &std.heap.FixedBufferAllocator.init(one_buffer[0..]).allocator;
-            const one_ap = try Int.initSet(one_al, 1);
-
-            try q.sub(q.*, one_ap);
-            try r.add(q.*, one_ap);
+            const one = Int.initFixed(([]Limb{1})[0..]);
+            try q.sub(q.*, one);
+            try r.add(q.*, one);
         }
         r.positive = b.positive;
     }
@@ -763,6 +770,9 @@ pub const Int = struct {
 
     // Truncates by default.
     fn div(quo: *Int, rem: *Int, a: Int, b: Int) !void {
+        quo.assertWritable();
+        rem.assertWritable();
+
         if (b.eqZero()) {
             @panic("division by zero");
         }
@@ -800,7 +810,7 @@ pub const Int = struct {
 
             // x may grow one limb during normalization
             try quo.ensureCapacity(a.len + y.len);
-            try divN(quo.allocator, quo, rem, &x, &y);
+            try divN(quo.allocator.?, quo, rem, &x, &y);
 
             quo.positive = a.positive == b.positive;
         }
@@ -919,6 +929,8 @@ pub const Int = struct {
 
     // r = a << shift, in other words, r = a * 2^shift
     pub fn shiftLeft(r: *Int, a: Int, shift: usize) !void {
+        r.assertWritable();
+
         try r.ensureCapacity(a.len + (shift / Limb.bit_count) + 1);
         llshl(r.limbs[0..], a.limbs[0..a.len], shift);
         r.norm1(a.len + (shift / Limb.bit_count) + 1);
@@ -950,6 +962,8 @@ pub const Int = struct {
 
     // r = a >> shift
     pub fn shiftRight(r: *Int, a: Int, shift: usize) !void {
+        r.assertWritable();
+
         if (a.len <= shift / Limb.bit_count) {
             r.len = 1;
             r.limbs[0] = 0;
@@ -985,6 +999,8 @@ pub const Int = struct {
 
     // r = a | b
     pub fn bitOr(r: *Int, a: Int, b: Int) !void {
+        r.assertWritable();
+
         if (a.len > b.len) {
             try r.ensureCapacity(a.len);
             llor(r.limbs[0..], a.limbs[0..a.len], b.limbs[0..b.len]);
@@ -1012,6 +1028,8 @@ pub const Int = struct {
 
     // r = a & b
     pub fn bitAnd(r: *Int, a: Int, b: Int) !void {
+        r.assertWritable();
+
         if (a.len > b.len) {
             try r.ensureCapacity(b.len);
             lland(r.limbs[0..], a.limbs[0..a.len], b.limbs[0..b.len]);
@@ -1036,6 +1054,8 @@ pub const Int = struct {
 
     // r = a ^ b
     pub fn bitXor(r: *Int, a: Int, b: Int) !void {
+        r.assertWritable();
+
         if (a.len > b.len) {
             try r.ensureCapacity(a.len);
             llxor(r.limbs[0..], a.limbs[0..a.len], b.limbs[0..b.len]);
