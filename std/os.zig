@@ -213,7 +213,14 @@ pub fn exit(status: u8) noreturn {
         c.exit(status);
     }
     switch (builtin.os) {
-        Os.linux, Os.macosx, Os.ios, Os.freebsd, Os.netbsd => {
+        Os.linux => {
+            if (builtin.single_threaded) {
+                linux.exit(status);
+            } else {
+                linux.exit_group(status);
+            }
+        },
+        Os.macosx, Os.ios, Os.freebsd, Os.netbsd => {
             posix.exit(status);
         },
         Os.windows => {
