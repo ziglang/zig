@@ -59,6 +59,10 @@ pub fn render(allocator: *mem.Allocator, stream: var, tree: *ast.Tree) (@typeOf(
 
     try renderRoot(allocator, &my_stream.stream, tree);
 
+    if (!anything_changed and my_stream.source_index != my_stream.source.len) {
+        anything_changed = true;
+    }
+
     return anything_changed;
 }
 
