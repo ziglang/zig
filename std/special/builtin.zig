@@ -55,6 +55,31 @@ export fn memmove(dest: ?[*]u8, src: ?[*]const u8, n: usize) ?[*]u8 {
     return dest;
 }
 
+export fn memcmp(vl: ?[*]const u8, vr: ?[*]const u8, n: usize) isize {
+    @setRuntimeSafety(false);
+
+    var index: usize = 0;
+    while (index != n) : (index += 1) {
+        const compare_val = @bitCast(i8, vl.?[index] -% vr.?[index]);
+        if (compare_val != 0) {
+            return compare_val;
+        }
+    }
+
+    return 0;
+}
+
+test "test_memcmp" {
+    const base_arr = []u8{ 1, 1, 1 };
+    const arr1 = []u8{ 1, 1, 1 };
+    const arr2 = []u8{ 1, 0, 1 };
+    const arr3 = []u8{ 1, 2, 1 };
+
+    std.testing.expect(memcmp(base_arr[0..].ptr, arr1[0..].ptr, base_arr.len) == 0);
+    std.testing.expect(memcmp(base_arr[0..].ptr, arr2[0..].ptr, base_arr.len) == 1);
+    std.testing.expect(memcmp(base_arr[0..].ptr, arr3[0..].ptr, base_arr.len) == -1);
+}
+
 comptime {
     if (builtin.mode != builtin.Mode.ReleaseFast and
         builtin.mode != builtin.Mode.ReleaseSmall and
