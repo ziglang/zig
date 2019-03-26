@@ -517,6 +517,18 @@ test "zig fmt: no trailing comma on struct decl" {
     );
 }
 
+test "zig fmt: extra newlines at the end" {
+    try testTransform(
+        \\const a = b;
+        \\
+        \\
+        \\
+    ,
+        \\const a = b;
+        \\
+    );
+}
+
 test "zig fmt: simple asm" {
     try testTransform(
         \\comptime {
