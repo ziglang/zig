@@ -93,6 +93,7 @@ pub const Int = struct {
     }
 
     pub fn clone(other: Int) !Int {
+        other.assertWritable();
         return Int{
             .allocator = other.allocator,
             .positive = other.positive,
@@ -804,11 +805,13 @@ pub const Int = struct {
             rem.positive = true;
         } else {
             // x and y are modified during division
-            var x = try a.clone();
+            var x = try Int.initCapacity(quo.allocator.?, a.len);
             defer x.deinit();
+            try x.copy(a);
 
-            var y = try b.clone();
+            var y = try Int.initCapacity(quo.allocator.?, b.len);
             defer y.deinit();
+            try y.copy(b);
 
             // x may grow one limb during normalization
             try quo.ensureCapacity(a.len + y.len);
