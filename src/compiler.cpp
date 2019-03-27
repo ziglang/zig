@@ -26,11 +26,12 @@ Buf *get_stage1_cache_path(void) {
 }
 
 static void detect_dynamic_linker(Buf *lib_path) {
-#if defined(ZIG_OS_LINUX) && defined(ZIG_ARCH_X86_64)
-    if (buf_ends_with_str(lib_path, "ld-linux-x86-64.so.2")) {
-        buf_init_from_buf(&saved_dynamic_linker_path, lib_path);
-    } else if (buf_ends_with_str(lib_path, "ld-musl-x86-64.so.1")) {
-        buf_init_from_buf(&saved_dynamic_linker_path, lib_path);
+#if defined(ZIG_OS_LINUX)
+    for (size_t i = 0; possible_ld_names[i] != NULL; i += 1) {
+        if (buf_ends_with_str(lib_path, possible_ld_names[i])) {
+            buf_init_from_buf(&saved_dynamic_linker_path, lib_path);
+            break;
+        }
     }
 #endif
 }
