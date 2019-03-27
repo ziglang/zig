@@ -858,8 +858,9 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
         case OsMacOSX:
         case OsZen:
         case OsFreeBSD:
-	case OsNetBSD:
+        case OsNetBSD:
         case OsOpenBSD:
+        case OsWASI:
             switch (id) {
                 case CIntTypeShort:
                 case CIntTypeUShort:
@@ -919,7 +920,6 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
         case OsAMDPAL:
         case OsHermitCore:
         case OsHurd:
-        case OsWASI:
             zig_panic("TODO c type size in bits for this target");
     }
     zig_unreachable();
