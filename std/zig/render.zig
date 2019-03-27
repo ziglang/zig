@@ -1137,7 +1137,7 @@ fn renderExpression(
                 var it = fn_proto.params.iterator(0);
                 while (it.next()) |param_decl_node| {
                     try stream.writeByteNTimes(' ', new_indent);
-                    try renderParamDecl(allocator, stream, tree, indent, start_col, param_decl_node.*, Space.Comma);
+                    try renderParamDecl(allocator, stream, tree, new_indent, start_col, param_decl_node.*, Space.Comma);
                 }
                 try stream.writeByteNTimes(' ', indent);
             }
@@ -1778,6 +1778,8 @@ fn renderParamDecl(
     space: Space,
 ) (@typeOf(stream).Child.Error || Error)!void {
     const param_decl = @fieldParentPtr(ast.Node.ParamDecl, "base", base);
+
+    try renderDocComments(tree, stream, param_decl, indent, start_col);
 
     if (param_decl.comptime_token) |comptime_token| {
         try renderToken(tree, stream, comptime_token, indent, start_col, Space.Space);

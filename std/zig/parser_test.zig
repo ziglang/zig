@@ -75,6 +75,26 @@ test "zig fmt: correctly move doc comments on struct fields" {
     );
 }
 
+test "zig fmt: doc comments on param decl" {
+    try testCanonical(
+        \\pub const Allocator = struct {
+        \\    shrinkFn: fn (
+        \\        self: *Allocator,
+        \\        /// Guaranteed to be the same as what was returned from most recent call to
+        \\        /// `allocFn`, `reallocFn`, or `shrinkFn`.
+        \\        old_mem: []u8,
+        \\        /// Guaranteed to be the same as what was returned from most recent call to
+        \\        /// `allocFn`, `reallocFn`, or `shrinkFn`.
+        \\        old_alignment: u29,
+        \\        /// Guaranteed to be less than or equal to `old_mem.len`.
+        \\        new_byte_count: usize,
+        \\        /// Guaranteed to be less than or equal to `old_alignment`.
+        \\        new_alignment: u29,
+        \\    ) []u8,
+        \\};
+    );
+}
+
 test "zig fmt: preserve space between async fn definitions" {
     try testCanonical(
         \\async fn a() void {}
