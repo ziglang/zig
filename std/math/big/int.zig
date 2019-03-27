@@ -705,14 +705,7 @@ pub const Int = struct {
         const c1: Limb = @boolToInt(@addWithOverflow(Limb, a, carry.*, &r1));
 
         // r2 = b * c
-        //
-        // We still use a DoubleLimb here since the @mulWithOverflow builtin does not
-        // return the carry and lower bits separately so we would need to perform this
-        // anyway to get the carry bits. The branch on the overflow case costs more than
-        // just computing them unconditionally and splitting.
-        //
-        // This could be a single x86 mul instruction, which stores the carry/lower in rdx:rax.
-        const bc = DoubleLimb(b) * DoubleLimb(c);
+        const bc = DoubleLimb(math.mulWide(Limb, b, c));
         const r2 = @truncate(Limb, bc);
         const c2 = @truncate(Limb, bc >> Limb.bit_count);
 
