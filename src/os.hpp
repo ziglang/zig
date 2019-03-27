@@ -33,8 +33,16 @@
 
 #if defined(__x86_64__)
 #define ZIG_ARCH_X86_64
+#elif defined(__aarch64__)
+#define ZIG_ARCH_ARM64
+#elif defined(__arm__)
+#define ZIG_ARCH_ARM
 #else
 #define ZIG_ARCH_UNKNOWN
+#endif
+
+#ifdef ZIG_OS_LINUX
+extern const char *possible_ld_names[];
 #endif
 
 #if defined(ZIG_OS_WINDOWS)

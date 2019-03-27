@@ -7989,15 +7989,9 @@ static void detect_dynamic_linker(CodeGen *g) {
 #if defined(ZIG_OS_LINUX)
         {
             Error err;
-            static const char *dyn_tests[] = {
-#if defined(ZIG_ARCH_X86_64)
-                "ld-linux-x86-64.so.2",
-                "ld-musl-x86_64.so.1",
-#endif
-            };
             Buf *result = buf_alloc();
-            for (size_t i = 0; i < array_length(dyn_tests); i += 1) {
-                const char *lib_name = dyn_tests[i];
+            for (size_t i = 0; possible_ld_names[i] != NULL; i += 1) {
+                const char *lib_name = possible_ld_names[i];
                 if ((err = zig_libc_cc_print_file_name(lib_name, result, false, true))) {
                     if (err != ErrorCCompilerCannotFindFile) {
                         fprintf(stderr, "Unable to detect native dynamic linker: %s\n", err_str(err));
