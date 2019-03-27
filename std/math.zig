@@ -806,3 +806,14 @@ test "max value type" {
     const x: u32 = maxInt(i32);
     testing.expect(x == 2147483647);
 }
+
+pub fn mulWide(comptime T: type, a: T, b: T) @IntType(T.is_signed, T.bit_count * 2) {
+    const ResultInt = @IntType(T.is_signed, T.bit_count * 2);
+    return ResultInt(a) * ResultInt(b);
+}
+
+test "math.wideMul" {
+    testing.expect(wideMul(u8, 5, 5) == 25);
+    testing.expect(wideMul(i8, 5, -5) == -25);
+    testing.expect(wideMul(u8, 100, 100) == 10000);
+}
