@@ -35,7 +35,7 @@
 #define ZIG_ARCH_X86_64
 #elif defined(__aarch64__)
 #define ZIG_ARCH_ARM64
-#elif defined(__arm__)
+#elif defined(__ARM_EABI__)
 #define ZIG_ARCH_ARM
 #else
 #define ZIG_ARCH_UNKNOWN
