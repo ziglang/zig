@@ -171,6 +171,13 @@ fn linuxSetThreadArea(addr: usize) void {
             // acrh_prctl is documented to never fail
             assert(rc == 0);
         },
+        builtin.Arch.aarch64 => {
+            asm volatile (
+                \\        msr tpidr_el0,x0
+                \\        mov w0,#0
+                \\        ret
+            );
+        },
         else => @compileError("Unsupported architecture"),
     }
 }
