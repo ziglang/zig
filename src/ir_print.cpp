@@ -1417,7 +1417,7 @@ static void ir_print_decl_var_gen(IrPrint *irp, IrInstructionDeclVarGen *decl_va
 }
 
 static void ir_print_bswap(IrPrint *irp, IrInstructionBswap *instruction) {
-    fprintf(irp->f, "@bswap(");
+    fprintf(irp->f, "@bSwap(");
     if (instruction->type != nullptr) {
         ir_print_other_instruction(irp, instruction->type);
     } else {
@@ -1429,7 +1429,7 @@ static void ir_print_bswap(IrPrint *irp, IrInstructionBswap *instruction) {
 }
 
 static void ir_print_bit_reverse(IrPrint *irp, IrInstructionBitReverse *instruction) {
-    fprintf(irp->f, "@bitreverse(");
+    fprintf(irp->f, "@bitReverse(");
     if (instruction->type != nullptr) {
         ir_print_other_instruction(irp, instruction->type);
     } else {

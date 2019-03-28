@@ -22672,7 +22672,7 @@ static IrInstruction *ir_analyze_instruction_bswap(IrAnalyze *ira, IrInstruction
 
     if (int_type->data.integral.bit_count % 8 != 0) {
         ir_add_error(ira, instruction->type,
-            buf_sprintf("@bswap integer type '%s' has %" PRIu32 " bits which is not evenly divisible by 8",
+            buf_sprintf("@bSwap integer type '%s' has %" PRIu32 " bits which is not evenly divisible by 8",
                 buf_ptr(&int_type->name), int_type->data.integral.bit_count));
         return ira->codegen->invalid_instruction;
     }

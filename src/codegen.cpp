@@ -7292,8 +7292,8 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdToBytes, "sliceToBytes", 1);
     create_builtin_fn(g, BuiltinFnIdFromBytes, "bytesToSlice", 2);
     create_builtin_fn(g, BuiltinFnIdThis, "This", 0);
-    create_builtin_fn(g, BuiltinFnIdBswap, "bswap", 2);
-    create_builtin_fn(g, BuiltinFnIdBitReverse, "bitreverse", 2);
+    create_builtin_fn(g, BuiltinFnIdBswap, "bSwap", 2);
+    create_builtin_fn(g, BuiltinFnIdBitReverse, "bitReverse", 2);
 }
 
 static const char *bool_to_str(bool b) {
