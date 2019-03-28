@@ -794,11 +794,30 @@ pub const Int = struct {
             return;
         }
 
-        if (b.len == 1) {
+        // Handle trailing zero-words of divisor/dividend. These are not handled in the following
+        // algorithms.
+        const a_zero_limb_count = blk: {
+            var i: usize = 0;
+            while (i < a.len) : (i += 1) {
+                if (a.limbs[i] != 0) break;
+            }
+            break :blk i;
+        };
+        const b_zero_limb_count = blk: {
+            var i: usize = 0;
+            while (i < b.len) : (i += 1) {
+                if (b.limbs[i] != 0) break;
+            }
+            break :blk i;
+        };
+
+        const ab_zero_limb_count = std.math.min(a_zero_limb_count, b_zero_limb_count);
+
+        if (b.len - ab_zero_limb_count == 1) {
             try quo.ensureCapacity(a.len);
 
-            lldiv1(quo.limbs[0..], &rem.limbs[0], a.limbs[0..a.len], b.limbs[0]);
-            quo.norm1(a.len);
+            lldiv1(quo.limbs[0..], &rem.limbs[0], a.limbs[ab_zero_limb_count..a.len], b.limbs[b.len - 1]);
+            quo.norm1(a.len - ab_zero_limb_count);
             quo.positive = a.positive == b.positive;
 
             rem.len = 1;
@@ -815,9 +834,25 @@ pub const Int = struct {
 
             // x may grow one limb during normalization
             try quo.ensureCapacity(a.len + y.len);
+
+            // Shrink x, y such that the trailing zero limbs shared between are removed.
+            if (ab_zero_limb_count != 0) {
+                std.mem.copy(Limb, x.limbs[0..], x.limbs[ab_zero_limb_count..]);
+                std.mem.copy(Limb, y.limbs[0..], y.limbs[ab_zero_limb_count..]);
+                x.len -= ab_zero_limb_count;
+                y.len -= ab_zero_limb_count;
+            }
+
             try divN(quo.allocator.?, quo, rem, &x, &y);
 
             quo.positive = a.positive == b.positive;
+
+            // If dividend had trailing zeros beyond divisor, add extra trailing limbs.
+            // Single-limb division never has multi-limb remainder so nothing to add.
+            if (a_zero_limb_count > b_zero_limb_count) {
+                const shift = a_zero_limb_count - b_zero_limb_count;
+                try rem.shiftLeft(rem.*, shift * Limb.bit_count);
+            }
         }
     }
 
@@ -860,8 +895,11 @@ pub const Int = struct {
         var tmp = try Int.init(allocator);
         defer tmp.deinit();
 
-        // Normalize so y > Limb.bit_count / 2 (i.e. leading bit is set)
-        const norm_shift = @clz(y.limbs[y.len - 1]);
+        // Normalize so y > Limb.bit_count / 2 (i.e. leading bit is set) and even
+        var norm_shift = @clz(y.limbs[y.len - 1]);
+        if (norm_shift == 0 and y.isOdd()) {
+            norm_shift = Limb.bit_count;
+        }
         try x.shiftLeft(x.*, norm_shift);
         try y.shiftLeft(y.*, norm_shift);
 
@@ -2003,6 +2041,58 @@ test "big.int div multi-multi (3.1/3.3 branch)" {
 
     testing.expect((try q.to(u128)) == 0xfffffffffffffffffff);
     testing.expect((try r.to(u256)) == 0x1111111111111111111110b12222222222222222282);
+}
+
+test "big.int div multi-single zero-limb trailing" {
+    var a = try Int.initSet(al, 0x60000000000000000000000000000000000000000000000000000000000000000);
+    var b = try Int.initSet(al, 0x10000000000000000);
+
+    var q = try Int.init(al);
+    var r = try Int.init(al);
+    try Int.divTrunc(&q, &r, a, b);
+
+    var expected = try Int.initSet(al, 0x6000000000000000000000000000000000000000000000000);
+    testing.expect(q.eq(expected));
+    testing.expect(r.eqZero());
+}
+
+test "big.int div multi-multi zero-limb trailing (with rem)" {
+    var a = try Int.initSet(al, 0x86666666555555558888888777777776111111111111111100000000000000000000000000000000);
+    var b = try Int.initSet(al, 0x8666666655555555444444443333333300000000000000000000000000000000);
+
+    var q = try Int.init(al);
+    var r = try Int.init(al);
+    try Int.divTrunc(&q, &r, a, b);
+
+    testing.expect((try q.to(u128)) == 0x10000000000000000);
+    testing.expect((try r.to(u128)) == 0x44444443444444431111111111111111);
+}
+
+test "big.int div multi-multi zero-limb trailing (with rem) and dividend zero-limb count > divisor zero-limb count" {
+    var a = try Int.initSet(al, 0x8666666655555555888888877777777611111111111111110000000000000000);
+    var b = try Int.initSet(al, 0x8666666655555555444444443333333300000000000000000000000000000000);
+
+    var q = try Int.init(al);
+    var r = try Int.init(al);
+    try Int.divTrunc(&q, &r, a, b);
+
+    testing.expect((try q.to(u128)) == 0x1);
+    testing.expect((try r.to(u128)) == 0x44444443444444431111111111111111);
+}
+
+test "big.int div multi-multi zero-limb trailing (with rem) and dividend zero-limb count < divisor zero-limb count" {
+    var a = try Int.initSet(al, 0x86666666555555558888888777777776111111111111111100000000000000000000000000000000);
+    var b = try Int.initSet(al, 0x866666665555555544444444333333330000000000000000);
+
+    var q = try Int.init(al);
+    var r = try Int.init(al);
+    try Int.divTrunc(&q, &r, a, b);
+
+    const qs = try q.toString(al, 16);
+    testing.expect(std.mem.eql(u8, qs, "10000000000000000820820803105186f"));
+
+    const rs = try r.toString(al, 16);
+    testing.expect(std.mem.eql(u8, rs, "4e11f2baa5896a321d463b543d0104e30000000000000000"));
 }
 
 test "big.int shift-right single" {
