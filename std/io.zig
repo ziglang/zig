@@ -227,12 +227,12 @@ pub fn OutStream(comptime WriteError: type) type {
         }
 
         pub fn writeByte(self: *Self, byte: u8) Error!void {
-            const slice = (*[1]u8)(&byte)[0..];
+            const slice = (*const [1]u8)(&byte)[0..];
             return self.writeFn(self, slice);
         }
 
         pub fn writeByteNTimes(self: *Self, byte: u8, n: usize) Error!void {
-            const slice = (*[1]u8)(&byte)[0..];
+            const slice = (*const [1]u8)(&byte)[0..];
             var i: usize = 0;
             while (i < n) : (i += 1) {
                 try self.writeFn(self, slice);

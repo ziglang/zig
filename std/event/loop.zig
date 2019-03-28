@@ -263,7 +263,7 @@ pub const Loop = struct {
                         .next = undefined,
                     };
                     self.available_eventfd_resume_nodes.push(eventfd_node);
-                    const kevent_array = (*[1]posix.Kevent)(&eventfd_node.data.kevent);
+                    const kevent_array = (*const [1]posix.Kevent)(&eventfd_node.data.kevent);
                     _ = try os.bsdKEvent(self.os_data.kqfd, kevent_array, empty_kevs, null);
                     eventfd_node.data.kevent.flags = posix.EV_CLEAR | posix.EV_ENABLE;
                     eventfd_node.data.kevent.fflags = posix.NOTE_TRIGGER;
@@ -279,7 +279,7 @@ pub const Loop = struct {
                     .data = 0,
                     .udata = @ptrToInt(&self.final_resume_node),
                 };
-                const final_kev_arr = (*[1]posix.Kevent)(&self.os_data.final_kevent);
+                const final_kev_arr = (*const [1]posix.Kevent)(&self.os_data.final_kevent);
                 _ = try os.bsdKEvent(self.os_data.kqfd, final_kev_arr, empty_kevs, null);
                 self.os_data.final_kevent.flags = posix.EV_ENABLE;
                 self.os_data.final_kevent.fflags = posix.NOTE_TRIGGER;
@@ -472,7 +472,7 @@ pub const Loop = struct {
             .data = 0,
             .udata = @ptrToInt(&resume_node.base),
         };
-        const kevent_array = (*[1]posix.Kevent)(&kev);
+        const kevent_array = (*const [1]posix.Kevent)(&kev);
         const empty_kevs = ([*]posix.Kevent)(undefined)[0..0];
         _ = try os.bsdKEvent(self.os_data.kqfd, kevent_array, empty_kevs, null);
     }
@@ -486,7 +486,7 @@ pub const Loop = struct {
             .data = 0,
             .udata = 0,
         };
-        const kevent_array = (*[1]posix.Kevent)(&kev);
+        const kevent_array = (*const [1]posix.Kevent)(&kev);
         const empty_kevs = ([*]posix.Kevent)(undefined)[0..0];
         _ = os.bsdKEvent(self.os_data.kqfd, kevent_array, empty_kevs, null) catch undefined;
         self.finishOneEvent();
@@ -502,7 +502,7 @@ pub const Loop = struct {
             eventfd_node.base.handle = next_tick_node.data;
             switch (builtin.os) {
                 builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => {
-                    const kevent_array = (*[1]posix.Kevent)(&eventfd_node.kevent);
+                    const kevent_array = (*const [1]posix.Kevent)(&eventfd_node.kevent);
                     const empty_kevs = ([*]posix.Kevent)(undefined)[0..0];
                     _ = os.bsdKEvent(self.os_data.kqfd, kevent_array, empty_kevs, null) catch {
                         self.next_tick_queue.unget(next_tick_node);
@@ -631,7 +631,7 @@ pub const Loop = struct {
                 },
                 builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => {
                     self.posixFsRequest(&self.os_data.fs_end_request);
-                    const final_kevent = (*[1]posix.Kevent)(&self.os_data.final_kevent);
+                    const final_kevent = (*const [1]posix.Kevent)(&self.os_data.final_kevent);
                     const empty_kevs = ([*]posix.Kevent)(undefined)[0..0];
                     // cannot fail because we already added it and this just enables it
                     _ = os.bsdKEvent(self.os_data.kqfd, final_kevent, empty_kevs, null) catch unreachable;
@@ -751,7 +751,7 @@ pub const Loop = struct {
         self.os_data.fs_queue.put(request_node);
         switch (builtin.os) {
             builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => {
-                const fs_kevs = (*[1]posix.Kevent)(&self.os_data.fs_kevent_wake);
+                const fs_kevs = (*const [1]posix.Kevent)(&self.os_data.fs_kevent_wake);
                 const empty_kevs = ([*]posix.Kevent)(undefined)[0..0];
                 _ = os.bsdKEvent(self.os_data.fs_kqfd, fs_kevs, empty_kevs, null) catch unreachable;
             },
@@ -821,7 +821,7 @@ pub const Loop = struct {
                     }
                 },
                 builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => {
-                    const fs_kevs = (*[1]posix.Kevent)(&self.os_data.fs_kevent_wait);
+                    const fs_kevs = (*const [1]posix.Kevent)(&self.os_data.fs_kevent_wait);
                     var out_kevs: [1]posix.Kevent = undefined;
                     _ = os.bsdKEvent(self.os_data.fs_kqfd, fs_kevs, out_kevs[0..], null) catch unreachable;
                 },
