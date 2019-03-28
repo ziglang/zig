@@ -14,7 +14,7 @@ pub extern fn __floatunsitf(a: u64) f128 {
     const exponent_bias = (1 << (exponent_bits - 1)) - 1;
     const implicit_bit = 1 << mantissa_bits;
 
-    const exp = (u64.bit_count - 1) - @clz(a);
+    const exp = (u64.bit_count - 1) - @clz(u64, a);
     const shift = mantissa_bits - @intCast(u7, exp);
 
     // TODO(#1148): @bitCast alignment error

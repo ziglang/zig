@@ -20,7 +20,7 @@ inline fn normalize(comptime T: type, significand: *@IntType(false, T.bit_count)
     const significandBits = std.math.floatMantissaBits(T);
     const implicitBit = Z(1) << significandBits;
 
-    const shift = @clz(significand.*) - @clz(implicitBit);
+    const shift = @clz(@typeOf(significand.*), significand.*) - @clz(@typeOf(implicitBit), implicitBit);
     significand.* <<= @intCast(u7, shift);
     return 1 - shift;
 }
@@ -140,7 +140,7 @@ inline fn addXf3(comptime T: type, a: T, b: T) T {
         // If partial cancellation occured, we need to left-shift the result
         // and adjust the exponent:
         if (aSignificand < implicitBit << 3) {
-            const shift = @intCast(i32, @clz(aSignificand)) - @intCast(i32, @clz(implicitBit << 3));
+            const shift = @intCast(i32, @clz(Z, aSignificand)) - @intCast(i32, @clz(Z, implicitBit << 3));
             aSignificand <<= @intCast(u7, shift);
             aExponent -= shift;
         }

@@ -504,19 +504,37 @@ static void ir_print_optional_unwrap_ptr(IrPrint *irp, IrInstructionOptionalUnwr
 
 static void ir_print_clz(IrPrint *irp, IrInstructionClz *instruction) {
     fprintf(irp->f, "@clz(");
-    ir_print_other_instruction(irp, instruction->value);
+    if (instruction->type != nullptr) {
+        ir_print_other_instruction(irp, instruction->type);
+    } else {
+        fprintf(irp->f, "null");
+    }
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->op);
     fprintf(irp->f, ")");
 }
 
 static void ir_print_ctz(IrPrint *irp, IrInstructionCtz *instruction) {
     fprintf(irp->f, "@ctz(");
-    ir_print_other_instruction(irp, instruction->value);
+    if (instruction->type != nullptr) {
+        ir_print_other_instruction(irp, instruction->type);
+    } else {
+        fprintf(irp->f, "null");
+    }
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->op);
     fprintf(irp->f, ")");
 }
 
 static void ir_print_pop_count(IrPrint *irp, IrInstructionPopCount *instruction) {
     fprintf(irp->f, "@popCount(");
-    ir_print_other_instruction(irp, instruction->value);
+    if (instruction->type != nullptr) {
+        ir_print_other_instruction(irp, instruction->type);
+    } else {
+        fprintf(irp->f, "null");
+    }
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->op);
     fprintf(irp->f, ")");
 }
 

@@ -13,7 +13,7 @@ pub extern fn __floatuntisf(arg: u128) f32 {
 
     var a = arg;
     const N: u32 = @sizeOf(u128) * 8;
-    const sd = @bitCast(i32, N - @clz(a)); // number of significant digits
+    const sd = @bitCast(i32, N - @clz(u128, a)); // number of significant digits
     var e: i32 = sd - 1; // exponent
     if (sd > FLT_MANT_DIG) {
         //  start:  0000000000000000000001xxxxxxxxxxxxxxxxxxxxxxPQxxxxxxxxxxxxxxxxxx

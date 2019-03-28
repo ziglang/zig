@@ -2732,19 +2732,22 @@ struct IrInstructionOptionalUnwrapPtr {
 struct IrInstructionCtz {
     IrInstruction base;
 
-    IrInstruction *value;
+    IrInstruction *type;
+    IrInstruction *op;
 };
 
 struct IrInstructionClz {
     IrInstruction base;
 
-    IrInstruction *value;
+    IrInstruction *type;
+    IrInstruction *op;
 };
 
 struct IrInstructionPopCount {
     IrInstruction base;
 
-    IrInstruction *value;
+    IrInstruction *type;
+    IrInstruction *op;
 };
 
 struct IrInstructionUnionTag {

@@ -101,15 +101,15 @@ test "@clz" {
 }
 
 fn testClz() void {
-    expect(clz(u8(0b00001010)) == 4);
-    expect(clz(u8(0b10001010)) == 0);
-    expect(clz(u8(0b00000000)) == 8);
-    expect(clz(u128(0xffffffffffffffff)) == 64);
-    expect(clz(u128(0x10000000000000000)) == 63);
+    expect(clz(u8, u8(0b00001010)) == 4);
+    expect(clz(u8, u8(0b10001010)) == 0);
+    expect(clz(u8, u8(0b00000000)) == 8);
+    expect(clz(u128, u128(0xffffffffffffffff)) == 64);
+    expect(clz(u128, u128(0x10000000000000000)) == 63);
 }
 
-fn clz(x: var) usize {
-    return @clz(x);
+fn clz(comptime T: type, x: T) usize {
+    return @clz(T, x);
 }
 
 test "@ctz" {
@@ -118,13 +118,13 @@ test "@ctz" {
 }
 
 fn testCtz() void {
-    expect(ctz(u8(0b10100000)) == 5);
-    expect(ctz(u8(0b10001010)) == 1);
-    expect(ctz(u8(0b00000000)) == 8);
+    expect(ctz(u8, u8(0b10100000)) == 5);
+    expect(ctz(u8, u8(0b10001010)) == 1);
+    expect(ctz(u8, u8(0b00000000)) == 8);
 }
 
-fn ctz(x: var) usize {
-    return @ctz(x);
+fn ctz(comptime T: type, x: T) usize {
+    return @ctz(T, x);
 }
 
 test "assignment operators" {
