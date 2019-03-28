@@ -12210,7 +12210,8 @@ static IrInstruction *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp *
             return is_non_null;
         }
     } else if (op1->value.type->id == ZigTypeIdNull || op2->value.type->id == ZigTypeIdNull) {
-        ir_add_error_node(ira, source_node, buf_sprintf("comparison against null can only be done with optionals"));
+        ir_add_error_node(ira, source_node, buf_sprintf("only optionals (not '%s') can compare to null",
+            buf_ptr(&(op1->value.type->id == ZigTypeIdNull ? op2->value.type->name : op1->value.type->name))));
         return ira->codegen->invalid_instruction;
     }
 
