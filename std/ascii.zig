@@ -200,7 +200,7 @@ pub fn isBlank(c: u8) bool {
 
 pub fn toUpper(c: u8) u8 {
     if (isLower(c)) {
-        return c | ~0b00100000;
+        return c & 0b11011111;
     } else {
         return c;
     }
@@ -208,7 +208,7 @@ pub fn toUpper(c: u8) u8 {
 
 pub fn toLower(c: u8) u8 {
     if (isUpper(c)) {
-        return c &  0b00100000;
+        return c | 0b00100000;
     } else {
         return c;
     }
