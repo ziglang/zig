@@ -62,6 +62,7 @@ test "std" {
     _ = @import("segmented_list.zig");
     _ = @import("spinlock.zig");
 
+    _ = @import("ascii.zig");
     _ = @import("base64.zig");
     _ = @import("build.zig");
     _ = @import("c.zig");
