@@ -812,8 +812,8 @@ pub fn mulWide(comptime T: type, a: T, b: T) @IntType(T.is_signed, T.bit_count *
     return ResultInt(a) * ResultInt(b);
 }
 
-test "math.wideMul" {
-    testing.expect(wideMul(u8, 5, 5) == 25);
-    testing.expect(wideMul(i8, 5, -5) == -25);
-    testing.expect(wideMul(u8, 100, 100) == 10000);
+test "math.mulWide" {
+    testing.expect(mulWide(u8, 5, 5) == 25);
+    testing.expect(mulWide(i8, 5, -5) == -25);
+    testing.expect(mulWide(u8, 100, 100) == 10000);
 }
