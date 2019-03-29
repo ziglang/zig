@@ -159,6 +159,24 @@ Note that you can
 
 #### Instructions
 
+##### Build LLVM
+
+Optionally build LLVM sources if current version isn't installed:
+```
+cd vendor/llvm && make -jN
+```
+Then link them statically to zig by adding to your zig cmake line:
+`-DCMAKE_PREFIX_PATH=$(pwd)/../vendor/llvm/dist -DLLVM_LINK_STATIC=on`,
+for example, POSIX would be:
+```
+mkdir build
+cd build
+cmake .. -DCMAKE_PREFIX_PATH=$(pwd)/../vendor/llvm/dist -DLLVM_LINK_STATIC=on
+make
+make install
+bin/zig build --build-file ../build.zig test
+```
+
 ##### POSIX
 
 ```

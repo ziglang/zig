@@ -15,12 +15,16 @@ find_program(LLVM_CONFIG_EXE
         "c:/msys64/mingw64/bin"
         "C:/Libraries/llvm-8.0.0/bin")
 
+set(LLVM_MAKE_MESSAGE "See https://github.com/ziglang/zig#build-llvm")
+set(LLVM_CONFIG_NOT_FOUND "unable to find llvm-config, ${LLVM_MAKE_MESSAGE}")
+set(LLVM_CONFIG_WRONG_VERSION "expected LLVM 8.x but found ${LLVM_CONFIG_VERSION}, ${LLVM_MAKE_MESSAGE}")
+
 if ("${LLVM_CONFIG_EXE}" STREQUAL "LLVM_CONFIG_EXE-NOTFOUND")
-  message(FATAL_ERROR "unable to find llvm-config")
+  message(FATAL_ERROR "${LLVM_CONFIG_NOT_FOUND}")
 endif()
 
 if ("${LLVM_CONFIG_EXE}" STREQUAL "LLVM_CONFIG_EXE-NOTFOUND")
-  message(FATAL_ERROR "unable to find llvm-config")
+  message(FATAL_ERROR "${LLVM_CONFIG_NOT_FOUND}")
 endif()
 
 execute_process(
@@ -29,13 +33,13 @@ execute_process(
 	OUTPUT_STRIP_TRAILING_WHITESPACE)
 
 if("${LLVM_CONFIG_VERSION}" VERSION_LESS 8)
-  message(FATAL_ERROR "expected LLVM 8.x but found ${LLVM_CONFIG_VERSION}")
+  message(FATAL_ERROR "${LLVM_CONFIG_WRONG_VERSION}")
 endif()
 if("${LLVM_CONFIG_VERSION}" VERSION_EQUAL 9)
-  message(FATAL_ERROR "expected LLVM 8.x but found ${LLVM_CONFIG_VERSION}")
+  message(FATAL_ERROR "${LLVM_CONFIG_WRONG_VERSION}")
 endif()
 if("${LLVM_CONFIG_VERSION}" VERSION_GREATER 9)
-  message(FATAL_ERROR "expected LLVM 8.x but found ${LLVM_CONFIG_VERSION}")
+  message(FATAL_ERROR "${LLVM_CONFIG_WRONG_VERSION}")
 endif()
 
 execute_process(
@@ -65,7 +69,7 @@ NEED_TARGET("WebAssembly")
 NEED_TARGET("X86")
 NEED_TARGET("XCore")
 
-if(NOT(CMAKE_BUILD_TYPE STREQUAL "Debug") OR ZIG_STATIC)
+if(NOT(CMAKE_BUILD_TYPE STREQUAL "Debug") OR ZIG_STATIC OR LLVM_LINK_STATIC)
   execute_process(
       COMMAND ${LLVM_CONFIG_EXE} --libfiles --link-static
       OUTPUT_VARIABLE LLVM_LIBRARIES_SPACES

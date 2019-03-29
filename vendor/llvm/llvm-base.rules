@@ -1,0 +1,94 @@
+# Base rules
+
+all: $(LLVM_BUILD_DIR) $(LLVM_TGT_DIR) install
+
+.PHONY: install
+install: $(LLVM_TGT_DIR)/installed-llvm-$(LLVM_TGT_TAG)
+	@ln -sf -T $(LLVM_INSTALL_DIR) $(LLVM_INSTALL_DIR_SYMLINK)
+
+.PHONY: rebuild
+rebuild: clean-built-installed
+	@$(MAKE) $(LLVM_TGT_DIR)/installed-llvm-$(LLVM_TGT_TAG)
+	@ln -sf -T $(LLVM_INSTALL_DIR) $(LLVM_INSTALL_DIR_SYMLINK)
+
+$(LLVM_BUILD_DIR):
+	@mkdir -p $(LLVM_BUILD_DIR)
+
+$(LLVM_TGT_DIR):
+	@mkdir -p $(LLVM_TGT_DIR)
+
+$(LLVM_TGT_DIR)/generated-llvm-makefile-$(LLVM_TGT_TAG): $(GET_LLVM_SRC_TARGET)
+	@echo generate $(LLVM_TGT_TAG) `git -C src log -1 --pretty="format:hash=%h ref=%d"`
+	@cd $(LLVM_BUILD_DIR); cmake -G "$(LLVM_BUILD_ENGINE)" $(VERBOSE_CMAKE) $(LLVM_USE_LINKER) $(LLVM_ENABLE_PROJECTS) -DCMAKE_INSTALL_PREFIX=$(LLVM_INSTALL_DIR) -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD=WebAssembly -DCMAKE_BUILD_TYPE=$(LLVM_BUILD_TYPE) -DLLVM_BUILD_LLVM_DYLIB=ON -DLLVM_LINK_LLVM_DYLIB=ON $(LLVM_SRC_DIR)/llvm
+	@touch $@
+
+$(LLVM_TGT_DIR)/built-llvm-$(LLVM_TGT_TAG): $(LLVM_TGT_DIR)/generated-llvm-makefile-$(LLVM_TGT_TAG)
+	@echo building $(LLVM_TGT_TAG) `git -C src log -1 --pretty="format:hash=%h ref=%d subject='%s'"`
+ifeq ($(LLVM_BUILD_ENGINE),Ninja)
+	@ninja -C $(LLVM_BUILD_DIR)
+else
+	@$(MAKE) -C $(LLVM_BUILD_DIR)
+endif
+	@touch $@
+
+$(LLVM_TGT_DIR)/installed-llvm-$(LLVM_TGT_TAG): $(LLVM_TGT_DIR)/built-llvm-$(LLVM_TGT_TAG)
+	@echo installing $(LLVM_TGT_TAG)
+ifeq ($(LLVM_BUILD_ENGINE),Ninja)
+	@ninja -C $(LLVM_BUILD_DIR) install
+else
+	@$(MAKE) -C $(LLVM_BUILD_DIR) install
+endif
+	@touch $@
+
+$(LLVM_TGT_DIR)/get-nothing:
+	@touch $@
+
+$(LLVM_TGT_DIR)/get-submodule:
+	@echo getting $@
+	@git submodule sync
+	@git submodule update --init
+	@touch $@
+
+get-submodule: rmvmksrc
+	@echo getting $@
+	@git submodule sync
+	@git submodule update --init
+
+$(LLVM_TGT_DIR)/get-llvm-src-$(LLVM_TGT_TAG): $(LLVM_TGT_DIR)/get-submodule
+ifneq (default,$(LLVM_CHECKOUT_REF))
+	@echo checkout $(LLVM_CHECKOUT_REF)
+	@git -C $(LLVM_SRC_DIR) checkout $(LLVM_CHECKOUT_REF)
+endif
+	@touch $@
+
+.PHONY: distclean
+distclean: clean
+	@rm -rf $(LLVM_BASE_GEN_DIR) $(LLVM_INSTALL_DIR_SYMLINK)
+.PHONY: clean
+clean: rmvmksrc
+	@rm -rf $(LLVM_GEN_DIR)
+
+.PHONY: rmvmksrc
+rmvmksrc:
+	@rm -rf $(LLVM_SRC_DIR)
+	@mkdir $(LLVM_SRC_DIR)
+
+
+.PHONY: clean-built-installed
+clean-built-installed:
+	@rm -f $(LLVM_TGT_DIR)/built-llvm-$(LLVM_TGT_TAG) $(LLVM_TGT_DIR)/installed-llvm-$(LLVM_TGT_TAG)
+
+.PHONY: help
+help:
+	@echo 'Usage: make [options] [target]'
+	@echo
+	@echo 'options:'
+	@sh llvm-options.sh
+	@echo
+	@echo 'target                 Make LLVM where target is one of:'
+	@echo '                          all           (Creates build tgt dirs, builds and install llvm)'
+	@echo '                          install       (builds and installs llvm)'
+	@echo '                          clean         (remove src and current gen/LLVM_TGT_TAG)'
+	@echo '                          distclean     (Distribuation clean remove src and gen/)'
+	@echo '                          rebuild       (Rebuild the current src if modified)'
+	@echo '                          get-submodule (Only remove src and get it again)'
