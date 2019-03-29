@@ -244,4 +244,6 @@ Buf *type_bare_name(ZigType *t);
 Buf *type_h_name(ZigType *t);
 Error create_c_object_cache(CodeGen *g, CacheHash **out_cache_hash, bool verbose);
 
+LLVMTypeRef get_llvm_type(CodeGen *g, ZigType *type);
+ZigLLVMDIType *get_llvm_di_type(CodeGen *g, ZigType *type);
 #endif

@@ -6842,6 +6842,9 @@ static ZigType *get_error_set_union(CodeGen *g, ErrorTableEntry **errors, ZigTyp
     assert(set2->id == ZigTypeIdErrorSet);
 
     ZigType *err_set_type = new_type_table_entry(ZigTypeIdErrorSet);
+    err_set_type->size_in_bits = g->builtin_types.entry_global_error_set->size_in_bits;
+    err_set_type->abi_align = g->builtin_types.entry_global_error_set->abi_align;
+    err_set_type->abi_size = g->builtin_types.entry_global_error_set->abi_size;
     buf_resize(&err_set_type->name, 0);
     buf_appendf(&err_set_type->name, "error{");
 
@@ -6857,8 +6860,6 @@ static ZigType *get_error_set_union(CodeGen *g, ErrorTableEntry **errors, ZigTyp
         }
     }
 
-    err_set_type->type_ref = g->builtin_types.entry_global_error_set->type_ref;
-    err_set_type->di_type = g->builtin_types.entry_global_error_set->di_type;
     err_set_type->data.error_set.err_count = count;
     err_set_type->data.error_set.errors = allocate<ErrorTableEntry *>(count);
 
@@ -6883,8 +6884,6 @@ static ZigType *get_error_set_union(CodeGen *g, ErrorTableEntry **errors, ZigTyp
 
     buf_appendf(&err_set_type->name, "}");
 
-    g->error_di_types.append(&err_set_type->di_type);
-
     return err_set_type;
 
 }
@@ -6895,12 +6894,11 @@ static ZigType *make_err_set_with_one_item(CodeGen *g, Scope *parent_scope, AstN
     ZigType *err_set_type = new_type_table_entry(ZigTypeIdErrorSet);
     buf_resize(&err_set_type->name, 0);
     buf_appendf(&err_set_type->name, "error{%s}", buf_ptr(&err_entry->name));
-    err_set_type->type_ref = g->builtin_types.entry_global_error_set->type_ref;
-    err_set_type->di_type = g->builtin_types.entry_global_error_set->di_type;
+    err_set_type->size_in_bits = g->builtin_types.entry_global_error_set->size_in_bits;
+    err_set_type->abi_align = g->builtin_types.entry_global_error_set->abi_align;
+    err_set_type->abi_size = g->builtin_types.entry_global_error_set->abi_size;
     err_set_type->data.error_set.err_count = 1;
     err_set_type->data.error_set.errors = allocate<ErrorTableEntry *>(1);
-
-    g->error_di_types.append(&err_set_type->di_type);
 
     err_set_type->data.error_set.errors[0] = err_entry;
 
@@ -6917,9 +6915,9 @@ static IrInstruction *ir_gen_err_set_decl(IrBuilder *irb, Scope *parent_scope, A
     ZigType *err_set_type = new_type_table_entry(ZigTypeIdErrorSet);
     buf_init_from_buf(&err_set_type->name, type_name);
     err_set_type->data.error_set.err_count = err_count;
-    err_set_type->type_ref = irb->codegen->builtin_types.entry_global_error_set->type_ref;
-    err_set_type->di_type = irb->codegen->builtin_types.entry_global_error_set->di_type;
-    irb->codegen->error_di_types.append(&err_set_type->di_type);
+    err_set_type->size_in_bits = irb->codegen->builtin_types.entry_global_error_set->size_in_bits;
+    err_set_type->abi_align = irb->codegen->builtin_types.entry_global_error_set->abi_align;
+    err_set_type->abi_size = irb->codegen->builtin_types.entry_global_error_set->abi_size;
     err_set_type->data.error_set.errors = allocate<ErrorTableEntry *>(err_count);
 
     ErrorTableEntry **errors = allocate<ErrorTableEntry *>(irb->codegen->errors_by_index.length + err_count);
@@ -6940,8 +6938,6 @@ static IrInstruction *ir_gen_err_set_decl(IrBuilder *irb, Scope *parent_scope, A
             assert((uint32_t)error_value_count < (((uint32_t)1) << (uint32_t)irb->codegen->err_tag_type->data.integral.bit_count));
             err->value = error_value_count;
             irb->codegen->errors_by_index.append(err);
-            irb->codegen->err_enumerators.append(ZigLLVMCreateDebugEnumerator(irb->codegen->dbuilder,
-                buf_ptr(err_name), error_value_count));
         }
         err_set_type->data.error_set.errors[i] = err;
 
@@ -8947,15 +8943,15 @@ static ZigType *get_error_set_intersection(IrAnalyze *ira, ZigType *set1, ZigTyp
     }
     free(errors);
 
-    err_set_type->type_ref = ira->codegen->builtin_types.entry_global_error_set->type_ref;
-    err_set_type->di_type = ira->codegen->builtin_types.entry_global_error_set->di_type;
     err_set_type->data.error_set.err_count = intersection_list.length;
     err_set_type->data.error_set.errors = intersection_list.items;
-    err_set_type->zero_bits = intersection_list.length == 0;
+    if (intersection_list.length != 0) {
+        err_set_type->size_in_bits = ira->codegen->builtin_types.entry_global_error_set->size_in_bits;
+        err_set_type->abi_align = ira->codegen->builtin_types.entry_global_error_set->abi_align;
+        err_set_type->abi_size = ira->codegen->builtin_types.entry_global_error_set->abi_size;
+    }
 
     buf_appendf(&err_set_type->name, "}");
-
-    ira->codegen->error_di_types.append(&err_set_type->di_type);
 
     return err_set_type;
 }
@@ -14855,7 +14851,7 @@ static IrInstruction *ir_analyze_maybe(IrAnalyze *ira, IrInstructionUnOp *un_op_
     ZigType *type_entry = ir_resolve_type(ira, value);
     if (type_is_invalid(type_entry))
         return ira->codegen->invalid_instruction;
-    if ((err = ensure_complete_type(ira->codegen, type_entry)))
+    if ((err = type_resolve(ira->codegen, type_entry, ResolveStatusSizeKnown)))
         return ira->codegen->invalid_instruction;
 
     switch (type_entry->id) {
@@ -16051,8 +16047,6 @@ static IrInstruction *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstruc
                     assert((uint32_t)error_value_count < (((uint32_t)1) << (uint32_t)ira->codegen->err_tag_type->data.integral.bit_count));
                     err_entry->value = error_value_count;
                     ira->codegen->errors_by_index.append(err_entry);
-                    ira->codegen->err_enumerators.append(ZigLLVMCreateDebugEnumerator(ira->codegen->dbuilder,
-                        buf_ptr(field_name), error_value_count));
                     ira->codegen->error_table.put(field_name, err_entry);
                 }
                 if (err_entry->set_with_only_this_in_it == nullptr) {
@@ -17873,7 +17867,7 @@ static TypeStructField *validate_byte_offset(IrAnalyze *ira,
         return nullptr;
     }
 
-    *byte_offset = LLVMOffsetOfElement(ira->codegen->target_data_ref, container_type->type_ref, field->gen_index);
+    *byte_offset = field->offset;
     return field;
 }
 
@@ -18726,7 +18720,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                     if (!type_has_bits(struct_field->type_entry)) {
                         inner_fields[1].data.x_optional = nullptr;
                     } else {
-                        size_t byte_offset = LLVMOffsetOfElement(ira->codegen->target_data_ref, type_entry->type_ref, struct_field->gen_index);
+                        size_t byte_offset = struct_field->offset;
                         inner_fields[1].data.x_optional = create_const_vals(1);
                         inner_fields[1].data.x_optional->special = ConstValSpecialStatic;
                         inner_fields[1].data.x_optional->type = ira->codegen->builtin_types.entry_num_lit_int;
@@ -21425,12 +21419,11 @@ static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue
                 case ContainerLayoutExtern: {
                     size_t src_field_count = val->type->data.structure.src_field_count;
                     for (size_t field_i = 0; field_i < src_field_count; field_i += 1) {
-                        TypeStructField *type_field = &val->type->data.structure.fields[field_i];
-                        if (type_field->gen_index == SIZE_MAX)
+                        TypeStructField *struct_field = &val->type->data.structure.fields[field_i];
+                        if (struct_field->gen_index == SIZE_MAX)
                             continue;
                         ConstExprValue *field_val = &val->data.x_struct.fields[field_i];
-                        size_t offset = LLVMOffsetOfElement(codegen->target_data_ref, val->type->type_ref,
-                                type_field->gen_index);
+                        size_t offset = struct_field->offset;
                         buf_write_value_bytes(codegen, buf + offset, field_val);
                     }
                     return;
@@ -21446,10 +21439,7 @@ static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue
                     size_t child_buf_len = 16;
                     uint8_t *child_buf = child_buf_prealloc;
                     while (gen_i < gen_field_count) {
-                        LLVMTypeRef gen_llvm_int_type = LLVMStructGetTypeAtIndex(val->type->type_ref,
-                                    (unsigned)gen_i);
-                        size_t big_int_bit_count = LLVMGetIntTypeWidth(gen_llvm_int_type);
-                        size_t big_int_byte_count = big_int_bit_count / 8;
+                        size_t big_int_byte_count = val->type->data.structure.host_int_bytes[gen_i];
                         if (big_int_byte_count > child_buf_len) {
                             child_buf = allocate_nonzero<uint8_t>(big_int_byte_count);
                             child_buf_len = big_int_byte_count;
@@ -21485,7 +21475,7 @@ static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue
                             }
                             src_i += 1;
                         }
-                        bigint_write_twos_complement(&big_int, buf + offset, big_int_bit_count, is_big_endian);
+                        bigint_write_twos_complement(&big_int, buf + offset, big_int_byte_count * 8, is_big_endian);
                         offset += big_int_byte_count;
                         gen_i += 1;
                     }
@@ -21606,12 +21596,11 @@ static Error buf_read_value_bytes(IrAnalyze *ira, CodeGen *codegen, AstNode *sou
                     for (size_t field_i = 0; field_i < src_field_count; field_i += 1) {
                         ConstExprValue *field_val = &val->data.x_struct.fields[field_i];
                         field_val->special = ConstValSpecialStatic;
-                        TypeStructField *type_field = &val->type->data.structure.fields[field_i];
-                        field_val->type = type_field->type_entry;
-                        if (type_field->gen_index == SIZE_MAX)
+                        TypeStructField *struct_field = &val->type->data.structure.fields[field_i];
+                        field_val->type = struct_field->type_entry;
+                        if (struct_field->gen_index == SIZE_MAX)
                             continue;
-                        size_t offset = LLVMOffsetOfElement(codegen->target_data_ref, val->type->type_ref,
-                                type_field->gen_index);
+                        size_t offset = struct_field->offset;
                         uint8_t *new_buf = buf + offset;
                         if ((err = buf_read_value_bytes(ira, codegen, source_node, new_buf, field_val)))
                             return err;
@@ -21630,16 +21619,13 @@ static Error buf_read_value_bytes(IrAnalyze *ira, CodeGen *codegen, AstNode *sou
                     size_t child_buf_len = 16;
                     uint8_t *child_buf = child_buf_prealloc;
                     while (gen_i < gen_field_count) {
-                        LLVMTypeRef gen_llvm_int_type = LLVMStructGetTypeAtIndex(val->type->type_ref,
-                                    (unsigned)gen_i);
-                        size_t big_int_bit_count = LLVMGetIntTypeWidth(gen_llvm_int_type);
-                        size_t big_int_byte_count = big_int_bit_count / 8;
+                        size_t big_int_byte_count = val->type->data.structure.host_int_bytes[gen_i];
                         if (big_int_byte_count > child_buf_len) {
                             child_buf = allocate_nonzero<uint8_t>(big_int_byte_count);
                             child_buf_len = big_int_byte_count;
                         }
                         BigInt big_int;
-                        bigint_read_twos_complement(&big_int, buf + offset, big_int_bit_count, is_big_endian, false);
+                        bigint_read_twos_complement(&big_int, buf + offset, big_int_byte_count * 8, is_big_endian, false);
                         while (src_i < src_field_count) {
                             TypeStructField *field = &val->type->data.structure.fields[src_i];
                             assert(field->gen_index != SIZE_MAX);
@@ -21662,7 +21648,7 @@ static Error buf_read_value_bytes(IrAnalyze *ira, CodeGen *codegen, AstNode *sou
                                 big_int = tmp;
                             }
 
-                            bigint_write_twos_complement(&child_val, child_buf, big_int_bit_count, is_big_endian);
+                            bigint_write_twos_complement(&child_val, child_buf, big_int_byte_count * 8, is_big_endian);
                             if ((err = buf_read_value_bytes(ira, codegen, source_node, child_buf, field_val))) {
                                 return err;
                             }
