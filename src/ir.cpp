@@ -17192,6 +17192,11 @@ static IrInstruction *ir_analyze_instruction_switch_var(IrAnalyze *ira, IrInstru
         if (!prong_val)
             return ira->codegen->invalid_instruction;
 
+        if (prong_value->value.type->id == ZigTypeIdEnumLiteral) {
+            ir_add_error(ira, &instruction->base,
+                buf_sprintf("switch on type '%s' is non-void enum literal", buf_ptr(&target_type->name)));
+            return ira->codegen->invalid_instruction;
+        }
         assert(prong_value->value.type->id == ZigTypeIdEnum);
         TypeUnionField *field = find_union_field_by_tag(target_type, &prong_val->data.x_enum_tag);
 
