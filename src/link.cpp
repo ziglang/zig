@@ -1359,16 +1359,24 @@ static void construct_linker_job_coff(LinkJob *lj) {
         }
         if (link_lib->provided_explicitly) {
             if (target_abi_is_gnu(lj->codegen->zig_target->abi)) {
-                static const char *test_names[3] = { "lib%s.dll.a", "lib%s.a", nullptr };
+                static const char *test_names[3] = { "%s\\lib%s.dll.a", "%s\\lib%s.a", nullptr };
+                bool exists = false;
 
-                for (size_t i = 0; test_names[i] != nullptr; i++) {
-                    Buf *test_path = buf_sprintf(test_names[i], buf_ptr(link_lib->name));
-                    bool exists = false;
-                    if (os_file_exists(test_path, &exists) != ErrorNone) {
-                        zig_panic("link: unable to check if file exists: %s", buf_ptr(test_path));
-                    } else if (exists) {
-                        lj->args.append(buf_ptr(test_path));
+                for (size_t i = 0; test_names[i] != nullptr && !exists; i++) {
+                    for (size_t j = 0; j < g->lib_dirs.length; j += 1) {
+                        const char *lib_dir = g->lib_dirs.at(j);
+                        Buf *test_path = buf_sprintf(test_names[i], lib_dir, buf_ptr(link_lib->name));
+                        if (os_file_exists(test_path, &exists) != ErrorNone) {
+                            zig_panic("link: unable to check if file exists: %s", buf_ptr(test_path));
+                        } else if (exists) {
+                            lj->args.append(buf_ptr(test_path));
+                            break;
+                        }
                     }
+                }
+
+                if (!exists) {
+                    zig_panic("link: unable to find library: %s", buf_ptr(link_lib->name));
                 }
             } else {
                 lj->args.append(buf_ptr(link_lib->name));
