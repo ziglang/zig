@@ -92,6 +92,7 @@ test "zig fmt: doc comments on param decl" {
         \\        new_alignment: u29,
         \\    ) []u8,
         \\};
+        \\
     );
 }
 
