@@ -961,6 +961,32 @@ pub const SplitIterator = struct {
     }
 };
 
+// It would be nice to have type interence in structs, such that this could be iterator/Iterator
+// This is useful because of the lack of a ++ operator in zig.
+pub fn byteIterator(slice: []const u8) ByteIterator {
+    return ByteIterator{
+        .buf = slice,
+        .i = 0,
+    };
+}
+
+pub const ByteIterator = struct {
+    buf: []const u8,
+    i: usize,
+
+    pub fn next(self: *ByteIterator) ?u8 {
+        if (self.i > self.buf.len) return null;
+        self.i += 1;
+        return self.buf[self.i - 1];
+    }
+    /// Unsafe version
+    pub fn n(self: *ByteIterator) u8 {
+        assert(self.i <= self.buf.len);
+        self.i += 1;
+        return self.buf[self.i - 1];
+    }
+};
+
 /// Naively combines a series of slices with a separator.
 /// Allocates memory for the result, which must be freed by the caller.
 pub fn join(allocator: *Allocator, separator: []const u8, slices: []const []const u8) ![]u8 {
