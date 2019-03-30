@@ -854,12 +854,14 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.ParamDecl => |fn_proto| {
+                const comments = try eatDocComments(arena, &tok_it, &tree);
                 if (eatToken(&tok_it, &tree, Token.Id.RParen)) |_| {
                     continue;
                 }
                 const param_decl = try arena.create(ast.Node.ParamDecl);
                 param_decl.* = ast.Node.ParamDecl{
                     .base = ast.Node{ .id = ast.Node.Id.ParamDecl },
+                    .doc_comments = comments,
                     .comptime_token = null,
                     .noalias_token = null,
                     .name_token = null,

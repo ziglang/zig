@@ -940,6 +940,7 @@ pub const Node = struct {
 
     pub const ParamDecl = struct {
         base: Node,
+        doc_comments: ?*DocComment,
         comptime_token: ?TokenIndex,
         noalias_token: ?TokenIndex,
         name_token: ?TokenIndex,
