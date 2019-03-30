@@ -1122,14 +1122,14 @@ static bool zig_lld_link(ZigLLVM_ObjectFormatType oformat, const char **args, si
 }
 
 static void add_uefi_link_args(LinkJob *lj) {
-    lj->args.append("/BASE:0");
-    lj->args.append("/ENTRY:EfiMain");
-    lj->args.append("/OPT:REF");
-    lj->args.append("/SAFESEH:NO");
-    lj->args.append("/MERGE:.rdata=.data");
-    lj->args.append("/ALIGN:32");
-    lj->args.append("/NODEFAULTLIB");
-    lj->args.append("/SECTION:.xdata,D");
+    lj->args.append("-BASE:0");
+    lj->args.append("-ENTRY:EfiMain");
+    lj->args.append("-OPT:REF");
+    lj->args.append("-SAFESEH:NO");
+    lj->args.append("-MERGE:.rdata=.data");
+    lj->args.append("-ALIGN:32");
+    lj->args.append("-NODEFAULTLIB");
+    lj->args.append("-SECTION:.xdata,D");
 }
 
 static void add_nt_link_args(LinkJob *lj, bool is_library) {
@@ -1163,12 +1163,12 @@ static void add_nt_link_args(LinkJob *lj, bool is_library) {
         lj->args.append("kernel32.lib");
         lj->args.append("ntdll.lib");
     } else {
-        lj->args.append("/NODEFAULTLIB");
+        lj->args.append("-NODEFAULTLIB");
         if (!is_library) {
             if (g->have_winmain) {
-                lj->args.append("/ENTRY:WinMain");
+                lj->args.append("-ENTRY:WinMain");
             } else {
-                lj->args.append("/ENTRY:WinMainCRTStartup");
+                lj->args.append("-ENTRY:WinMainCRTStartup");
             }
         }
     }
@@ -1178,17 +1178,17 @@ static void construct_linker_job_coff(LinkJob *lj) {
     Error err;
     CodeGen *g = lj->codegen;
 
-    lj->args.append("/ERRORLIMIT:0");
+    lj->args.append("-ERRORLIMIT:0");
 
-    lj->args.append("/NOLOGO");
+    lj->args.append("-NOLOGO");
 
     if (!g->strip_debug_symbols) {
-        lj->args.append("/DEBUG");
+        lj->args.append("-DEBUG");
     }
 
     if (g->out_type == OutTypeExe) {
         // TODO compile time stack upper bound detection
-        lj->args.append("/STACK:16777216");
+        lj->args.append("-STACK:16777216");
     }
 
     coff_append_machine_arg(g, &lj->args);
@@ -1203,35 +1203,35 @@ static void construct_linker_job_coff(LinkJob *lj) {
             }
             break;
         case TargetSubsystemConsole:
-            lj->args.append("/SUBSYSTEM:console");
+            lj->args.append("-SUBSYSTEM:console");
             add_nt_link_args(lj, is_library);
             break;
         case TargetSubsystemEfiApplication:
-            lj->args.append("/SUBSYSTEM:efi_application");
+            lj->args.append("-SUBSYSTEM:efi_application");
             add_uefi_link_args(lj);
             break;
         case TargetSubsystemEfiBootServiceDriver:
-            lj->args.append("/SUBSYSTEM:efi_boot_service_driver");
+            lj->args.append("-SUBSYSTEM:efi_boot_service_driver");
             add_uefi_link_args(lj);
             break;
         case TargetSubsystemEfiRom:
-            lj->args.append("/SUBSYSTEM:efi_rom");
+            lj->args.append("-SUBSYSTEM:efi_rom");
             add_uefi_link_args(lj);
             break;
         case TargetSubsystemEfiRuntimeDriver:
-            lj->args.append("/SUBSYSTEM:efi_runtime_driver");
+            lj->args.append("-SUBSYSTEM:efi_runtime_driver");
             add_uefi_link_args(lj);
             break;
         case TargetSubsystemNative:
-            lj->args.append("/SUBSYSTEM:native");
+            lj->args.append("-SUBSYSTEM:native");
             add_nt_link_args(lj, is_library);
             break;
         case TargetSubsystemPosix:
-            lj->args.append("/SUBSYSTEM:posix");
+            lj->args.append("-SUBSYSTEM:posix");
             add_nt_link_args(lj, is_library);
             break;
         case TargetSubsystemWindows:
-            lj->args.append("/SUBSYSTEM:windows");
+            lj->args.append("-SUBSYSTEM:windows");
             add_nt_link_args(lj, is_library);
             break;
     }
