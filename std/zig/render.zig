@@ -717,24 +717,54 @@ fn renderExpression(
                     };
 
                     if (maybe_row_size) |row_size| {
+                        // A place to store the width of each expression and its column's maximum
+                        var widths = try allocator.alloc(usize, exprs.len + row_size);
+                        defer allocator.free(widths);
+                        mem.set(usize, widths, 0);
+
+                        var expr_widths = widths[0 .. widths.len - row_size];
+                        var column_widths = widths[widths.len - row_size ..];
+
+                        // Null stream for counting the printed length of each expression
+                        var null_stream = std.io.NullOutStream.init();
+                        var counting_stream = std.io.CountingOutStream(std.io.NullOutStream.Error).init(&null_stream.stream);
+
+                        var it = exprs.iterator(0);
+                        var i: usize = 0;
+
+                        while (it.next()) |expr| : (i += 1) {
+                            counting_stream.bytes_written = 0;
+                            var dummy_col: usize = 0;
+                            try renderExpression(allocator, &counting_stream.stream, tree, 0, &dummy_col, expr.*, Space.None);
+                            const width = counting_stream.bytes_written;
+                            const col = i % row_size;
+                            column_widths[col] = std.math.max(column_widths[col], width);
+                            expr_widths[i] = width;
+                        }
+
                         const new_indent = indent + indent_delta;
                         try renderToken(tree, stream, lbrace, new_indent, start_col, Space.Newline);
                         try stream.writeByteNTimes(' ', new_indent);
 
-                        var it = exprs.iterator(0);
-                        var i: usize = 1;
-                        while (it.next()) |expr| {
+                        it.set(0);
+                        i = 0;
+                        var col: usize = 1;
+                        while (it.next()) |expr| : (i += 1) {
                             if (it.peek()) |next_expr| {
                                 try renderExpression(allocator, stream, tree, new_indent, start_col, expr.*, Space.None);
 
                                 const comma = tree.nextToken(expr.*.lastToken());
 
-                                if (i != row_size) {
+                                if (col != row_size) {
                                     try renderToken(tree, stream, comma, new_indent, start_col, Space.Space); // ,
-                                    i += 1;
+
+                                    const padding = column_widths[i % row_size] - expr_widths[i];
+                                    try stream.writeByteNTimes(' ', padding);
+
+                                    col += 1;
                                     continue;
                                 }
-                                i = 1;
+                                col = 1;
 
                                 try renderToken(tree, stream, comma, new_indent, start_col, Space.Newline); // ,
 

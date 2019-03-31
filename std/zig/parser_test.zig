@@ -470,6 +470,34 @@ test "zig fmt: array literal with hint" {
     );
 }
 
+test "zig fmt: array literal veritical column alignment" {
+    try testTransform(
+        \\const a = []u8{
+        \\    1000, 200,
+        \\    30, 4,
+        \\    50000, 60
+        \\};
+        \\const a = []u8{0,   1, 2, 3, 40,
+        \\    4,5,600,7,
+        \\           80,
+        \\    9, 10, 11, 0, 13, 14, 15};
+        \\
+    ,
+        \\const a = []u8{
+        \\    1000,  200,
+        \\    30,    4,
+        \\    50000, 60,
+        \\};
+        \\const a = []u8{
+        \\    0,  1,  2,   3, 40,
+        \\    4,  5,  600, 7, 80,
+        \\    9,  10, 11,  0, 13,
+        \\    14, 15,
+        \\};
+        \\
+    );
+}
+
 test "zig fmt: multiline string with backslash at end of line" {
     try testCanonical(
         \\comptime {
