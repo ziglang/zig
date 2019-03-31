@@ -624,7 +624,7 @@ pub const Tokenizer = struct {
                         result.id = Token.Id.Invalid;
                         break;
                     },
-                    else => self.checkLiteralCharacter(),
+                    else => {}
                 },
 
                 State.CharLiteral => switch (c) {
@@ -637,7 +637,7 @@ pub const Tokenizer = struct {
                         result.id = Token.Id.Invalid;
                         break;
                     },
-                    else => self.checkLiteralCharacter(),
+                    else => {},
                 },
 
                 State.MultilineStringLiteralLine => switch (c) {
@@ -645,7 +645,7 @@ pub const Tokenizer = struct {
                         self.index += 1;
                         break;
                     },
-                    else => self.checkLiteralCharacter(),
+                    else => {},
                 },
 
                 State.Bang => switch (c) {
@@ -824,7 +824,6 @@ pub const Tokenizer = struct {
                     '\n' => break,
                     else => {
                         state = State.LineComment;
-                        self.checkLiteralCharacter();
                     },
                 },
                 State.DocCommentStart => switch (c) {
@@ -838,12 +837,11 @@ pub const Tokenizer = struct {
                     else => {
                         state = State.DocComment;
                         result.id = Token.Id.DocComment;
-                        self.checkLiteralCharacter();
                     },
                 },
                 State.LineComment, State.DocComment => switch (c) {
                     '\n' => break,
-                    else => self.checkLiteralCharacter(),
+                    else => {},
                 },
                 State.Zero => switch (c) {
                     'b', 'o' => {
@@ -1068,54 +1066,6 @@ pub const Tokenizer = struct {
 
         result.end = self.index;
         return result;
-    }
-
-    fn checkLiteralCharacter(self: *Tokenizer) void {
-        if (self.pending_invalid_token != null) return;
-        const invalid_length = self.getInvalidCharacterLength();
-        if (invalid_length == 0) return;
-        self.pending_invalid_token = Token{
-            .id = Token.Id.Invalid,
-            .start = self.index,
-            .end = self.index + invalid_length,
-        };
-    }
-
-    fn getInvalidCharacterLength(self: *Tokenizer) u3 {
-        const c0 = self.buffer[self.index];
-        if (c0 < 0x80) {
-            if (c0 < 0x20 or c0 == 0x7f) {
-                // ascii control codes are never allowed
-                // (note that \n was checked before we got here)
-                return 1;
-            }
-            // looks fine to me.
-            return 0;
-        } else {
-            // check utf8-encoded character.
-            const length = std.unicode.utf8ByteSequenceLength(c0) catch return 1;
-            if (self.index + length > self.buffer.len) {
-                return @intCast(u3, self.buffer.len - self.index);
-            }
-            const bytes = self.buffer[self.index .. self.index + length];
-            switch (length) {
-                2 => {
-                    const value = std.unicode.utf8Decode2(bytes) catch return length;
-                    if (value == 0x85) return length; // U+0085 (NEL)
-                },
-                3 => {
-                    const value = std.unicode.utf8Decode3(bytes) catch return length;
-                    if (value == 0x2028) return length; // U+2028 (LS)
-                    if (value == 0x2029) return length; // U+2029 (PS)
-                },
-                4 => {
-                    _ = std.unicode.utf8Decode4(bytes) catch return length;
-                },
-                else => unreachable,
-            }
-            self.index += length - 1;
-            return 0;
-        }
     }
 };
 

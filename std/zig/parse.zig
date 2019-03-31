@@ -1,6 +1,8 @@
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 const mem = std.mem;
+const ascii = std.ascii;
+const unicode = std.unicode;
 const ast = std.zig.ast;
 const Tokenizer = std.zig.Tokenizer;
 const Token = std.zig.Token;
@@ -9,7 +11,7 @@ const Error = ast.Error;
 
 /// Result should be freed with tree.deinit() when there are
 /// no more references to any of the tokens or nodes.
-pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
+pub fn parse(allocator: *mem.Allocator, source: []const u8, ret_err_off: ?*usize) !ast.Tree {
     var tree_arena = std.heap.ArenaAllocator.init(allocator);
     errdefer tree_arena.deinit();
 
@@ -26,6 +28,29 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
         // initialized when we get the eof token
         .eof_token = undefined,
     };
+
+    // TODO Do it in one pass by streaming through these two tests to the tokenizer.
+    for (source) |c, i| {
+        if (!ascii.isZig(c)) {
+            if (ret_err_off) |err_off| {
+                err_off.* = i;
+            }
+            return error.InvalidCharacter;
+        }
+    }
+    // TODO we use to ban certain Unicode characters, but this wasn't documented.
+    // Should we still ban them?
+    // U+0085 (NEL)
+    // U+2028 (LS)
+    // U+2029 (PS)
+    // If so, it would be fastest to ban them in their utf-8 representations,
+    // (because the faster utf8 validators do not get the code-points)
+    // but it would still take a whole additional streaming check.
+    // But if we do it here are other characters to ban:
+    // --Investigate anything else that might virtically effect the rendering
+    //   (so not RTL scripts).
+    // U+fffe and U+ffff (BOMs)
+    try unicode.utf8ValidateSliceWithLoc(source, ret_err_off);
 
     var tree = ast.Tree{
         .source = source,

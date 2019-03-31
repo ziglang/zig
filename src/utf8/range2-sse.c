@@ -1,3 +1,5 @@
+// Copyright (c) 2019 Yibo Cai
+// see naive.c for license
 /*
  * Process 2x16 bytes in each iteration.
  * Comments removed for brevity. See range-sse.c for details.
