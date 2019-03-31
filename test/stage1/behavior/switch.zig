@@ -283,3 +283,16 @@ test "undefined.u0" {
         0 => expect(val == 0),
     }
 }
+
+test "anon enum literal used in switch on union enum" {
+    const Foo = union(enum) {
+        a: i32,
+    };
+
+    var foo = Foo{ .a = 1234 };
+    switch (foo) {
+        .a => |x| {
+            expect(x == 1234);
+        },
+    }
+}

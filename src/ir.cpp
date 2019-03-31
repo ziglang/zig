@@ -17188,11 +17188,18 @@ static IrInstruction *ir_analyze_instruction_switch_var(IrAnalyze *ira, IrInstru
     assert(target_value_ptr->value.type->id == ZigTypeIdPointer);
     ZigType *target_type = target_value_ptr->value.type->data.pointer.child_type;
     if (target_type->id == ZigTypeIdUnion) {
-        ConstExprValue *prong_val = ir_resolve_const(ira, prong_value, UndefBad);
+        ZigType *enum_type = target_type->data.unionation.tag_type;
+        assert(enum_type != nullptr);
+        assert(enum_type->id == ZigTypeIdEnum);
+
+        IrInstruction *casted_prong_value = ir_implicit_cast(ira, prong_value, enum_type);
+        if (type_is_invalid(casted_prong_value->value.type))
+            return ira->codegen->invalid_instruction;
+
+        ConstExprValue *prong_val = ir_resolve_const(ira, casted_prong_value, UndefBad);
         if (!prong_val)
             return ira->codegen->invalid_instruction;
 
-        assert(prong_value->value.type->id == ZigTypeIdEnum);
         TypeUnionField *field = find_union_field_by_tag(target_type, &prong_val->data.x_enum_tag);
 
         if (instr_is_comptime(target_value_ptr)) {
