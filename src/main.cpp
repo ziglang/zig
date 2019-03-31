@@ -38,7 +38,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  init-exe                     initialize a `zig build` application in the cwd\n"
         "  init-lib                     initialize a `zig build` library in the cwd\n"
         "  libc [paths_file]            Display native libc paths file or validate one\n"
-        "  run [source]                 create executable and run immediately\n"
+        "  run [source] [-- [args]]     create executable and run immediately\n"
         "  translate-c [source]         convert c code to zig code\n"
         "  targets                      list available compilation targets\n"
         "  test [source]                create and run a test build\n"
@@ -617,7 +617,14 @@ int main(int argc, char **argv) {
         char *arg = argv[i];
 
         if (arg[0] == '-') {
-            if (strcmp(arg, "--release-fast") == 0) {
+            if (strcmp(arg, "--") == 0) {
+                if (cmd == CmdRun) {
+                    runtime_args_start = i + 1;
+                    break; // rest of the args are for the program
+                } else {
+                    fprintf(stderr, "Unexpected end-of-parameter mark: %s\n", arg);
+                }
+            } else if (strcmp(arg, "--release-fast") == 0) {
                 build_mode = BuildModeFastRelease;
             } else if (strcmp(arg, "--release-safe") == 0) {
                 build_mode = BuildModeSafeRelease;
@@ -880,10 +887,6 @@ int main(int argc, char **argv) {
                 case CmdLibC:
                     if (!in_file) {
                         in_file = arg;
-                        if (cmd == CmdRun) {
-                            runtime_args_start = i + 1;
-                            break; // rest of the args are for the program
-                        }
                     } else {
                         fprintf(stderr, "Unexpected extra parameter: %s\n", arg);
                         return print_error_usage(arg0);
@@ -1147,8 +1150,10 @@ int main(int argc, char **argv) {
 
                 if (cmd == CmdRun) {
                     ZigList<const char*> args = {0};
-                    for (int i = runtime_args_start; i < argc; ++i) {
-                        args.append(argv[i]);
+                    if (runtime_args_start != -1) {
+                        for (int i = runtime_args_start; i < argc; ++i) {
+                            args.append(argv[i]);
+                        }
                     }
 
                     const char *exec_path = buf_ptr(&g->output_file_path);
