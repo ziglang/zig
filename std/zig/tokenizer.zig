@@ -1118,86 +1118,12 @@ test "tokenizer - invalid token characters" {
     testTokenize("`", []Token.Id{Token.Id.Invalid});
     testTokenize("'c", []Token.Id{Token.Id.Invalid});
     testTokenize("'", []Token.Id{Token.Id.Invalid});
-    testTokenize("''", []Token.Id{ Token.Id.Invalid, Token.Id.Invalid });
-}
-
-test "tokenizer - invalid literal/comment characters" {
-    testTokenize("\"\x00\"", []Token.Id{
-        Token.Id.StringLiteral,
-        Token.Id.Invalid,
-    });
-    testTokenize("//\x00", []Token.Id{
-        Token.Id.LineComment,
-        Token.Id.Invalid,
-    });
-    testTokenize("//\x1f", []Token.Id{
-        Token.Id.LineComment,
-        Token.Id.Invalid,
-    });
-    testTokenize("//\x7f", []Token.Id{
-        Token.Id.LineComment,
-        Token.Id.Invalid,
-    });
+    //testTokenize("''", []Token.Id{ Token.Id.Invalid, Token.Id.Invalid }); Catch this in the parser.
 }
 
 test "tokenizer - utf8" {
     testTokenize("//\xc2\x80", []Token.Id{Token.Id.LineComment});
     testTokenize("//\xf4\x8f\xbf\xbf", []Token.Id{Token.Id.LineComment});
-}
-
-test "tokenizer - invalid utf8" {
-    testTokenize("//\x80", []Token.Id{
-        Token.Id.LineComment,
-        Token.Id.Invalid,
-    });
-    testTokenize("//\xbf", []Token.Id{
-        Token.Id.LineComment,
-        Token.Id.Invalid,
-    });
-    testTokenize("//\xf8", []Token.Id{
-        Token.Id.LineComment,
-        Token.Id.Invalid,
-    });
-    testTokenize("//\xff", []Token.Id{
-        Token.Id.LineComment,
-        Token.Id.Invalid,
-    });
-    testTokenize("//\xc2\xc0", []Token.Id{
-        Token.Id.LineComment,
-        Token.Id.Invalid,
-    });
-    testTokenize("//\xe0", []Token.Id{
-        Token.Id.LineComment,
-        Token.Id.Invalid,
-    });
-    testTokenize("//\xf0", []Token.Id{
-        Token.Id.LineComment,
-        Token.Id.Invalid,
-    });
-    testTokenize("//\xf0\x90\x80\xc0", []Token.Id{
-        Token.Id.LineComment,
-        Token.Id.Invalid,
-    });
-}
-
-test "tokenizer - illegal unicode codepoints" {
-    // unicode newline characters.U+0085, U+2028, U+2029
-    testTokenize("//\xc2\x84", []Token.Id{Token.Id.LineComment});
-    testTokenize("//\xc2\x85", []Token.Id{
-        Token.Id.LineComment,
-        Token.Id.Invalid,
-    });
-    testTokenize("//\xc2\x86", []Token.Id{Token.Id.LineComment});
-    testTokenize("//\xe2\x80\xa7", []Token.Id{Token.Id.LineComment});
-    testTokenize("//\xe2\x80\xa8", []Token.Id{
-        Token.Id.LineComment,
-        Token.Id.Invalid,
-    });
-    testTokenize("//\xe2\x80\xa9", []Token.Id{
-        Token.Id.LineComment,
-        Token.Id.Invalid,
-    });
-    testTokenize("//\xe2\x80\xaa", []Token.Id{Token.Id.LineComment});
 }
 
 test "tokenizer - string identifier and builtin fns" {
