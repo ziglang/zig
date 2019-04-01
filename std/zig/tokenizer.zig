@@ -440,11 +440,14 @@ pub const Tokenizer = struct {
                         result.id = Token.Id.Identifier;
                         state = State.StringLiteral;
                     },
-                    else => {
-                        // reinterpret as a builtin
-                        self.index -= 1;
+                    'a'...'z', 'A'...'Z', '_' => {
                         state = State.Builtin;
                         result.id = Token.Id.Builtin;
+                    },
+                    else => {
+                        result.id = Token.Id.Invalid;
+                        self.index += 1;
+                        break;
                     },
                 },
 
