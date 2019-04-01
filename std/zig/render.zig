@@ -1444,18 +1444,24 @@ fn renderExpression(
             try renderExpression(allocator, stream, tree, indent, start_col, for_node.array_expr, Space.None);
 
             const rparen = tree.nextToken(for_node.array_expr.lastToken());
-            const rparen_space = if (for_node.payload != null or
-                for_node.body.id == ast.Node.Id.Block) Space.Space else Space.Newline;
-            try renderToken(tree, stream, rparen, indent, start_col, rparen_space); // )
+
+            const has_payload = for_node.payload != null;
+            const body_is_block = for_node.body.id == ast.Node.Id.Block;
+            const src_one_line_to_body = !body_is_block and tree.tokensOnSameLine(rparen, for_node.body.firstToken());
+            const body_indent = if (!body_is_block and !src_one_line_to_body) indent + indent_delta else indent;
+
+            const rparen_space = if (has_payload or body_is_block or src_one_line_to_body) Space.Space else Space.Newline;
+            try renderToken(tree, stream, rparen, body_indent, start_col, rparen_space); // )
 
             if (for_node.payload) |payload| {
-                const payload_space = if (for_node.body.id == ast.Node.Id.Block) Space.Space else Space.Newline;
-                try renderExpression(allocator, stream, tree, indent, start_col, payload, payload_space);
+                const payload_space = if (body_is_block or src_one_line_to_body) Space.Space else Space.Newline;
+                try renderExpression(allocator, stream, tree, body_indent, start_col, payload, payload_space); // |x|
             }
 
             const body_space = blk: {
-                if (for_node.@"else" != null) {
-                    if (for_node.body.id == ast.Node.Id.Block) {
+                if (for_node.@"else") |@"else"| {
+                    const src_one_line_to_else = tree.tokensOnSameLine(for_node.body.lastToken(), @"else".firstToken());
+                    if (body_is_block or src_one_line_to_else) {
                         break :blk Space.Space;
                     } else {
                         break :blk Space.Newline;
@@ -1464,19 +1470,12 @@ fn renderExpression(
                     break :blk space;
                 }
             };
-            if (for_node.body.id == ast.Node.Id.Block) {
-                try renderExpression(allocator, stream, tree, indent, start_col, for_node.body, body_space);
-            } else {
-                try stream.writeByteNTimes(' ', indent + indent_delta);
-                try renderExpression(allocator, stream, tree, indent, start_col, for_node.body, body_space);
-            }
+
+            if (!body_is_block and !src_one_line_to_body) try stream.writeByteNTimes(' ', body_indent);
+            try renderExpression(allocator, stream, tree, body_indent, start_col, for_node.body, body_space);
 
             if (for_node.@"else") |@"else"| {
-                if (for_node.body.id != ast.Node.Id.Block) {
-                    try stream.writeByteNTimes(' ', indent);
-                }
-
-                return renderExpression(allocator, stream, tree, indent, start_col, &@"else".base, space);
+                return renderExpression(allocator, stream, tree, body_indent, start_col, &@"else".base, space);
             }
         },
 
