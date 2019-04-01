@@ -61,7 +61,7 @@ ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *abs_full_path, Bu
 ZigVar *find_variable(CodeGen *g, Scope *orig_context, Buf *name, ScopeFnDef **crossed_fndef_scope);
 Tld *find_decl(CodeGen *g, Scope *scope, Buf *name);
 Tld *find_container_decl(CodeGen *g, ScopeDecls *decls_scope, Buf *name);
-void resolve_top_level_decl(CodeGen *g, Tld *tld, AstNode *source_node);
+void resolve_top_level_decl(CodeGen *g, Tld *tld, AstNode *source_node, bool allow_lazy);
 
 ZigType *get_src_ptr_type(ZigType *type);
 ZigType *get_codegen_ptr_type(ZigType *type);
@@ -73,7 +73,7 @@ bool type_is_complete(ZigType *type_entry);
 bool type_is_resolved(ZigType *type_entry, ResolveStatus status);
 bool type_is_invalid(ZigType *type_entry);
 bool type_is_global_error_set(ZigType *err_set_type);
-void resolve_container_type(CodeGen *g, ZigType *type_entry);
+Error resolve_container_type(CodeGen *g, ZigType *type_entry);
 ScopeDecls *get_container_scope(ZigType *type_entry);
 TypeStructField *find_struct_type_field(ZigType *type_entry, Buf *name);
 TypeEnumField *find_enum_type_field(ZigType *enum_type, Buf *name);
@@ -246,4 +246,5 @@ Error create_c_object_cache(CodeGen *g, CacheHash **out_cache_hash, bool verbose
 
 LLVMTypeRef get_llvm_type(CodeGen *g, ZigType *type);
 ZigLLVMDIType *get_llvm_di_type(CodeGen *g, ZigType *type);
+
 #endif

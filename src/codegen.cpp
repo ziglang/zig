@@ -483,6 +483,8 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, ZigFn *fn_table_entry) {
 
 
     ZigType *fn_type = fn_table_entry->type_entry;
+    // Make the raw_type_ref populated
+    (void)get_llvm_type(g, fn_type);
     LLVMTypeRef fn_llvm_type = fn_type->data.fn.raw_type_ref;
     if (fn_table_entry->body_node == nullptr) {
         LLVMValueRef existing_llvm_fn = LLVMGetNamedFunction(g->module, buf_ptr(symbol_name));
@@ -2285,7 +2287,9 @@ void walk_function_params(CodeGen *g, ZigType *fn_type, FnWalk *fn_walk) {
 
                 if (!handle_is_ptr(variable->var_type)) {
                     clear_debug_source_node(g);
-                    gen_store_untyped(g, LLVMGetParam(llvm_fn, (unsigned)variable->gen_arg_index),
+                    ZigType *fn_type = fn_table_entry->type_entry;
+                    unsigned gen_arg_index = fn_type->data.fn.gen_param_info[variable->src_arg_index].gen_index;
+                    gen_store_untyped(g, LLVMGetParam(llvm_fn, gen_arg_index),
                             variable->value_ref, variable->align_bytes, false);
                 }
 
@@ -3354,6 +3358,8 @@ static bool value_is_all_undef_array(ConstExprValue *const_val, size_t len) {
 
 static bool value_is_all_undef(ConstExprValue *const_val) {
     switch (const_val->special) {
+        case ConstValSpecialLazy:
+            zig_unreachable();
         case ConstValSpecialRuntime:
             return false;
         case ConstValSpecialUndef:
@@ -5818,6 +5824,7 @@ static LLVMValueRef gen_const_ptr_union_recursive(CodeGen *g, ConstExprValue *un
 
 static LLVMValueRef pack_const_int(CodeGen *g, LLVMTypeRef big_int_type_ref, ConstExprValue *const_val) {
     switch (const_val->special) {
+        case ConstValSpecialLazy:
         case ConstValSpecialRuntime:
             zig_unreachable();
         case ConstValSpecialUndef:
@@ -6075,6 +6082,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
     assert(type_has_bits(type_entry));
 
     switch (const_val->special) {
+        case ConstValSpecialLazy:
         case ConstValSpecialRuntime:
             zig_unreachable();
         case ConstValSpecialUndef:
@@ -6834,9 +6842,9 @@ static void do_code_gen(CodeGen *g) {
                 fn_walk_var.data.vars.var = var;
                 iter_function_params_c_abi(g, fn_table_entry->type_entry, &fn_walk_var, var->src_arg_index);
             } else {
-                assert(var->gen_arg_index != SIZE_MAX);
                 ZigType *gen_type;
                 FnGenParamInfo *gen_info = &fn_table_entry->type_entry->data.fn.gen_param_info[var->src_arg_index];
+                assert(gen_info->gen_index != SIZE_MAX);
 
                 if (handle_is_ptr(var->var_type)) {
                     if (gen_info->is_byval) {
@@ -6844,7 +6852,7 @@ static void do_code_gen(CodeGen *g) {
                     } else {
                         gen_type = gen_info->type;
                     }
-                    var->value_ref = LLVMGetParam(fn, (unsigned)var->gen_arg_index);
+                    var->value_ref = LLVMGetParam(fn, gen_info->gen_index);
                 } else {
                     gen_type = var->var_type;
                     var->value_ref = build_alloca(g, var->var_type, buf_ptr(&var->name), var->align_bytes);
@@ -6853,7 +6861,7 @@ static void do_code_gen(CodeGen *g) {
                     var->di_loc_var = ZigLLVMCreateParameterVariable(g->dbuilder, get_di_scope(g, var->parent_scope),
                             buf_ptr(&var->name), import->data.structure.root_struct->di_file,
                             (unsigned)(var->decl_node->line + 1),
-                            get_llvm_di_type(g, gen_type), !g->strip_debug_symbols, 0, (unsigned)(var->gen_arg_index + 1));
+                            get_llvm_di_type(g, gen_type), !g->strip_debug_symbols, 0, (unsigned)(gen_info->gen_index));
                 }
 
             }
@@ -8241,7 +8249,7 @@ static void gen_root_source(CodeGen *g) {
         }
         Tld *panic_tld = find_decl(g, &get_container_scope(import_with_panic)->base, buf_create_from_str("panic"));
         assert(panic_tld != nullptr);
-        resolve_top_level_decl(g, panic_tld, nullptr);
+        resolve_top_level_decl(g, panic_tld, nullptr, false);
     }
 
 
