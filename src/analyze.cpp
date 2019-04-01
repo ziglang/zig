@@ -1642,6 +1642,7 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
                 field->bit_offset_in_host = 0;
             } else {
                 // This is a byte-aligned field (both start and end) in a packed struct.
+                host_int_bytes[gen_field_index] = field_type->size_in_bits / 8;
                 field->bit_offset_in_host = 0;
                 gen_field_index += 1;
                 // TODO: https://github.com/ziglang/zig/issues/1512
@@ -2050,8 +2051,8 @@ static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
 
     if (struct_type->data.structure.resolve_loop_flag) {
         // TODO This is a problem. I believe it can be solved with lazy values.
-        struct_type->size_in_bits = SIZE_MAX;;
-        struct_type->abi_size = SIZE_MAX;;
+        struct_type->size_in_bits = SIZE_MAX;
+        struct_type->abi_size = SIZE_MAX;
         struct_type->data.structure.resolve_status = ResolveStatusZeroBitsKnown;
         struct_type->data.structure.resolve_loop_flag = false;
         return ErrorNone;
@@ -6335,14 +6336,24 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type) {
     assert(struct_type->data.structure.resolve_status >= ResolveStatusSizeKnown);
     assert(struct_type->data.structure.fields || struct_type->data.structure.src_field_count == 0);
 
+    // Do this early for the benefit of recursion.
+    struct_type->llvm_type = type_has_bits(struct_type) ?
+        LLVMStructCreateNamed(LLVMGetGlobalContext(), buf_ptr(&struct_type->name)) : LLVMVoidType();
     AstNode *decl_node = struct_type->data.structure.decl_node;
     assert(decl_node->type == NodeTypeContainerDecl);
+    Scope *scope = &struct_type->data.structure.decls_scope->base;
+    ZigType *import = get_scope_import(scope);
+    unsigned dwarf_kind = ZigLLVMTag_DW_structure_type();
+    struct_type->llvm_di_type = ZigLLVMCreateReplaceableCompositeType(g->dbuilder,
+        dwarf_kind, buf_ptr(&struct_type->name),
+        ZigLLVMFileToScope(import->data.structure.root_struct->di_file),
+        import->data.structure.root_struct->di_file, (unsigned)(decl_node->line + 1));
+
+
 
     size_t field_count = struct_type->data.structure.src_field_count;
     size_t gen_field_count = struct_type->data.structure.gen_field_count;
     LLVMTypeRef *element_types = allocate<LLVMTypeRef>(gen_field_count);
-
-    Scope *scope = &struct_type->data.structure.decls_scope->base;
 
     size_t gen_field_index = 0;
     bool packed = (struct_type->data.structure.layout == ContainerLayoutPacked);
@@ -6394,17 +6405,11 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type) {
         gen_field_index += 1;
     }
 
-    struct_type->llvm_type = LLVMStructCreateNamed(LLVMGetGlobalContext(), buf_ptr(&struct_type->name));
-    LLVMStructSetBody(struct_type->llvm_type, element_types, (unsigned)gen_field_count, packed);
+    if (type_has_bits(struct_type)) {
+        LLVMStructSetBody(struct_type->llvm_type, element_types, (unsigned)gen_field_count, packed);
+    }
 
     ZigLLVMDIType **di_element_types = allocate<ZigLLVMDIType*>(debug_field_count);
-    ZigType *import = get_scope_import(scope);
-    unsigned dwarf_kind = ZigLLVMTag_DW_structure_type();
-    struct_type->llvm_di_type = ZigLLVMCreateReplaceableCompositeType(g->dbuilder,
-        dwarf_kind, buf_ptr(&struct_type->name),
-        ZigLLVMFileToScope(import->data.structure.root_struct->di_file),
-        import->data.structure.root_struct->di_file, (unsigned)(decl_node->line + 1));
-
     size_t debug_field_index = 0;
     for (size_t i = 0; i < field_count; i += 1) {
         AstNode *field_node = decl_node->data.container_decl.fields.at(i);
@@ -6501,6 +6506,7 @@ static void resolve_llvm_types_enum(CodeGen *g, ZigType *enum_type) {
             get_llvm_di_type(g, tag_int_type), "");
 
     enum_type->llvm_di_type = tag_di_type;
+    enum_type->llvm_type = get_llvm_type(g, tag_int_type);
 }
 
 static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type) {
@@ -6922,7 +6928,7 @@ static void resolve_llvm_types_fn(CodeGen *g, ZigType *fn_type) {
 static void resolve_llvm_types_anyerror(CodeGen *g) {
     ZigType *entry = g->builtin_types.entry_global_error_set;
     entry->llvm_type = get_llvm_type(g, g->err_tag_type);
-    ZigList<ZigLLVMDIEnumerator *> err_enumerators;
+    ZigList<ZigLLVMDIEnumerator *> err_enumerators = {};
     // reserve index 0 to indicate no error
     err_enumerators.append(ZigLLVMCreateDebugEnumerator(g->dbuilder, "(none)", 0));
     for (size_t i = 1; i < g->errors_by_index.length; i += 1) {
@@ -6945,7 +6951,6 @@ static void resolve_llvm_types_anyerror(CodeGen *g) {
 
 static void resolve_llvm_types(CodeGen *g, ZigType *type) {
     assert(type_is_resolved(type, ResolveStatusSizeKnown));
-    assert(type_has_bits(type));
     switch (type->id) {
         case ZigTypeIdInvalid:
         case ZigTypeIdFloat:
