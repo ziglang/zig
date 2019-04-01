@@ -1737,6 +1737,10 @@ test "zig fmt: switch" {
 test "zig fmt: while" {
     try testCanonical(
         \\test "while" {
+        \\    while (10 < 1) unreachable;
+        \\
+        \\    while (10 < 1) unreachable else unreachable;
+        \\
         \\    while (10 < 1) {
         \\        unreachable;
         \\    }
@@ -1803,9 +1807,26 @@ test "zig fmt: while" {
 test "zig fmt: for" {
     try testCanonical(
         \\test "for" {
+        \\    for (a) continue;
+        \\
+        \\    for (a)
+        \\        continue;
+        \\
+        \\    for (a) {
+        \\        continue;
+        \\    }
+        \\
         \\    for (a) |v| {
         \\        continue;
         \\    }
+        \\
+        \\    for (a) |v| continue;
+        \\
+        \\    for (a) |v| continue else return;
+        \\
+        \\    for (a) |v| {
+        \\        continue;
+        \\    } else return;
         \\
         \\    for (a) |v|
         \\        continue;
@@ -1819,6 +1840,17 @@ test "zig fmt: for" {
         \\
         \\    for (a) |v, i|
         \\        continue;
+        \\
+        \\    for (a) |b| switch (b) {
+        \\        c => {},
+        \\        d => {},
+        \\    };
+        \\
+        \\    for (a) |b|
+        \\        switch (b) {
+        \\            c => {},
+        \\            d => {},
+        \\        };
         \\
         \\    const res = for (a) |v, i| {
         \\        break v;
