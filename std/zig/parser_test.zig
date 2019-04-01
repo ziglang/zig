@@ -1027,6 +1027,19 @@ test "zig fmt: line comments in struct initializer" {
     );
 }
 
+test "zig fmt: first line comment in struct initializer" {
+    try testCanonical(
+        \\pub async fn acquire(self: *Self) HeldLock {
+        \\    return HeldLock{
+        \\        // TODO guaranteed allocation elision
+        \\        .held = await (async self.lock.acquire() catch unreachable),
+        \\        .value = &self.private_data,
+        \\    };
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: doc comments before struct field" {
     try testCanonical(
         \\pub const Allocator = struct {
