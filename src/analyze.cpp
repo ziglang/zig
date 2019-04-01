@@ -2038,6 +2038,8 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
 static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
     assert(struct_type->id == ZigTypeIdStruct);
 
+    Error err;
+
     if (struct_type->data.structure.resolve_status == ResolveStatusInvalid)
         return ErrorSemanticAnalyzeFail;
     if (struct_type->data.structure.resolve_status >= ResolveStatusZeroBitsKnown)
@@ -2047,13 +2049,12 @@ static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
     assert(decl_node->type == NodeTypeContainerDecl);
 
     if (struct_type->data.structure.resolve_loop_flag) {
-        if (struct_type->data.structure.resolve_status != ResolveStatusInvalid) {
-            struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-            ErrorMsg *msg = add_node_error(g, decl_node,
-                buf_sprintf("struct '%s' depends on its own size", buf_ptr(&struct_type->name)));
-            emit_error_notes_for_ref_stack(g, msg);
-        }
-        return ErrorSemanticAnalyzeFail;
+        // TODO This is a problem. I believe it can be solved with lazy values.
+        struct_type->size_in_bits = SIZE_MAX;;
+        struct_type->abi_size = SIZE_MAX;;
+        struct_type->data.structure.resolve_status = ResolveStatusZeroBitsKnown;
+        struct_type->data.structure.resolve_loop_flag = false;
+        return ErrorNone;
     }
 
     struct_type->data.structure.resolve_loop_flag = true;
@@ -2096,6 +2097,21 @@ static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
         }
         if (struct_type->data.structure.resolve_status == ResolveStatusInvalid)
             return ErrorSemanticAnalyzeFail;
+
+        if (struct_type->data.structure.layout == ContainerLayoutExtern &&
+            !type_allowed_in_extern(g, field_type))
+        {
+            add_node_error(g, field_node,
+                    buf_sprintf("extern structs cannot contain fields of type '%s'",
+                        buf_ptr(&field_type->name)));
+            struct_type->data.structure.resolve_status = ResolveStatusInvalid;
+            return ErrorSemanticAnalyzeFail;
+        } else if (struct_type->data.structure.layout == ContainerLayoutPacked) {
+            if ((err = emit_error_unless_type_allowed_in_packed_struct(g, field_type, field_node))) {
+                struct_type->data.structure.resolve_status = ResolveStatusInvalid;
+                return ErrorSemanticAnalyzeFail;
+            }
+        }
 
         type_struct_field->src_index = i;
         type_struct_field->gen_index = SIZE_MAX;
@@ -2171,49 +2187,39 @@ static Error resolve_struct_alignment(CodeGen *g, ZigType *struct_type) {
     struct_type->data.structure.resolve_loop_flag = true;
     assert(decl_node->type == NodeTypeContainerDecl);
 
-    size_t abi_align = 0;
     size_t field_count = struct_type->data.structure.src_field_count;
     bool packed = struct_type->data.structure.layout == ContainerLayoutPacked;
 
     for (size_t i = 0; i < field_count; i += 1) {
-        AstNode *field_source_node = decl_node->data.container_decl.fields.at(i);
         TypeStructField *field = &struct_type->data.structure.fields[i];
-        ZigType *field_type = field->type_entry;
-        assert(field_type != nullptr);
-
-        if ((err = type_resolve(g, field_type, ResolveStatusAlignmentKnown))) {
-            struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-            return ErrorSemanticAnalyzeFail;
-        }
-
-        if (struct_type->data.structure.layout == ContainerLayoutExtern &&
-            !type_allowed_in_extern(g, field_type))
-        {
-            add_node_error(g, field_source_node,
-                    buf_sprintf("extern structs cannot contain fields of type '%s'",
-                        buf_ptr(&field_type->name)));
-            struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-            return ErrorSemanticAnalyzeFail;
-        } else if (packed) {
-            if ((err = emit_error_unless_type_allowed_in_packed_struct(g, field_type, field_source_node))) {
-                struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-                return ErrorSemanticAnalyzeFail;
-            }
-        }
-
         if (field->gen_index == SIZE_MAX)
             continue;
 
+        size_t this_field_align;
         if (packed) {
             // TODO: https://github.com/ziglang/zig/issues/1512
-            if (1 > abi_align) {
-                abi_align = 1;
-            }
+            this_field_align = 1;
+        // TODO If we have no type_entry for the field, we've already failed to
+        // compile the program correctly. This stage1 compiler needs a deeper
+        // reworking to make this correct, or we can ignore the problem
+        // and make sure it is fixed in stage2. This workaround is for when
+        // there is a false positive of a dependency loop, of alignment depending
+        // on itself. When this false positive happens we assume a pointer-aligned
+        // field, which is usually fine but could be incorrectly over-aligned or
+        // even under-aligned. See https://github.com/ziglang/zig/issues/1512
+        } else if (field->type_entry == nullptr) {
+            this_field_align = g->builtin_types.entry_usize->abi_align;
         } else {
-            // TODO: https://github.com/ziglang/zig/issues/1512
-            if (field_type->abi_align > abi_align) {
-                abi_align = field_type->abi_align;
+            if ((err = type_resolve(g, field->type_entry, ResolveStatusAlignmentKnown))) {
+                struct_type->data.structure.resolve_status = ResolveStatusInvalid;
+                return ErrorSemanticAnalyzeFail;
             }
+            this_field_align = field->type_entry->abi_align;
+        }
+
+        // TODO: https://github.com/ziglang/zig/issues/1512
+        if (this_field_align > struct_type->abi_align) {
+            struct_type->abi_align = this_field_align;
         }
     }
 
@@ -2224,7 +2230,6 @@ static Error resolve_struct_alignment(CodeGen *g, ZigType *struct_type) {
     }
 
     struct_type->data.structure.resolve_status = ResolveStatusAlignmentKnown;
-    struct_type->abi_align = abi_align;
     return ErrorNone;
 }
 
