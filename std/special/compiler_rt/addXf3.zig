@@ -33,7 +33,8 @@ pub extern fn __subtf3(a: f128, b: f128) f128 {
     return addXf3(f128, a, neg_b);
 }
 
-inline fn normalize(comptime T: type, significand: *@IntType(false, T.bit_count)) i32 {
+// TODO: restore inline keyword, see: https://github.com/ziglang/zig/issues/2154
+fn normalize(comptime T: type, significand: *@IntType(false, T.bit_count)) i32 {
     const Z = @IntType(false, T.bit_count);
     const S = @IntType(false, T.bit_count - @clz(Z(T.bit_count) - 1));
     const significandBits = std.math.floatMantissaBits(T);
@@ -44,7 +45,8 @@ inline fn normalize(comptime T: type, significand: *@IntType(false, T.bit_count)
     return 1 - shift;
 }
 
-inline fn addXf3(comptime T: type, a: T, b: T) T {
+// TODO: restore inline keyword, see: https://github.com/ziglang/zig/issues/2154
+fn addXf3(comptime T: type, a: T, b: T) T {
     const Z = @IntType(false, T.bit_count);
     const S = @IntType(false, T.bit_count - @clz(Z(T.bit_count) - 1));
 
