@@ -641,10 +641,10 @@ fn renderExpression(
                         return renderToken(tree, stream, suffix_op.rtoken, indent, start_col, space);
                     }
 
-                    try renderExpression(allocator, stream, tree, indent, start_col, suffix_op.lhs, Space.None);
-                    try renderToken(tree, stream, lbrace, indent, start_col, Space.Newline);
-
                     const new_indent = indent + indent_delta;
+
+                    try renderExpression(allocator, stream, tree, new_indent, start_col, suffix_op.lhs, Space.None);
+                    try renderToken(tree, stream, lbrace, new_indent, start_col, Space.Newline);
 
                     var it = field_inits.iterator(0);
                     while (it.next()) |field_init| {
