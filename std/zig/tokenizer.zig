@@ -20,8 +20,8 @@ pub const Token = struct {
         Keyword{ .bytes = "async", .id = Id.Keyword_async },
         Keyword{ .bytes = "await", .id = Id.Keyword_await },
         Keyword{ .bytes = "break", .id = Id.Keyword_break },
-        Keyword{ .bytes = "catch", .id = Id.Keyword_catch },
         Keyword{ .bytes = "cancel", .id = Id.Keyword_cancel },
+        Keyword{ .bytes = "catch", .id = Id.Keyword_catch },
         Keyword{ .bytes = "comptime", .id = Id.Keyword_comptime },
         Keyword{ .bytes = "const", .id = Id.Keyword_const },
         Keyword{ .bytes = "continue", .id = Id.Keyword_continue },
@@ -37,6 +37,7 @@ pub const Token = struct {
         Keyword{ .bytes = "for", .id = Id.Keyword_for },
         Keyword{ .bytes = "if", .id = Id.Keyword_if },
         Keyword{ .bytes = "inline", .id = Id.Keyword_inline },
+        Keyword{ .bytes = "linksection", .id = Id.Keyword_linksection },
         Keyword{ .bytes = "nakedcc", .id = Id.Keyword_nakedcc },
         Keyword{ .bytes = "noalias", .id = Id.Keyword_noalias },
         Keyword{ .bytes = "null", .id = Id.Keyword_null },
@@ -47,7 +48,6 @@ pub const Token = struct {
         Keyword{ .bytes = "pub", .id = Id.Keyword_pub },
         Keyword{ .bytes = "resume", .id = Id.Keyword_resume },
         Keyword{ .bytes = "return", .id = Id.Keyword_return },
-        Keyword{ .bytes = "linksection", .id = Id.Keyword_linksection },
         Keyword{ .bytes = "stdcallcc", .id = Id.Keyword_stdcallcc },
         Keyword{ .bytes = "struct", .id = Id.Keyword_struct },
         Keyword{ .bytes = "suspend", .id = Id.Keyword_suspend },
@@ -65,12 +65,38 @@ pub const Token = struct {
         Keyword{ .bytes = "while", .id = Id.Keyword_while },
     };
 
-    // TODO perfect hash at comptime
-    fn getKeyword(bytes: []const u8) ?Id {
+    comptime {
+        var last_keyword: []const u8 = ""[0..];
         for (keywords) |kw| {
-            if (mem.eql(u8, kw.bytes, bytes)) {
-                return kw.id;
+            if (mem.compare(u8, last_keyword, kw.bytes) != .LessThan) @compileError("keywords not sorted");
+            last_keyword = kw.bytes;
+        }
+    }
+
+    // TODO perfect hash at comptime, which is still better than this binary search
+    fn getKeyword(bytes: []const u8) ?Id {
+        var len = keywords.len;
+        var clz = @clz(len);
+        var cur_bit = @intCast(u6, @typeInfo(@typeOf(len)).Int.bits - (clz + 1));
+        var index: usize = 0;
+        var maybe_overflow: bool = false;
+        while (true) : (cur_bit -= 1) {
+            var i = index | (usize(1) << cur_bit);
+            if (maybe_overflow and i >= len) {
+                if (cur_bit == 0) break;
+                continue;
             }
+            var kw = keywords[i];
+            var cmp = mem.compare(u8, bytes, kw.bytes);
+            switch (cmp) {
+            .Equal => return kw.id,
+            .LessThan => {},
+            .GreaterThan => {
+                maybe_overflow = true;
+                index |= (usize(1) << cur_bit);
+            },
+            }
+            if (cur_bit == 0) break;
         }
         return null;
     }
