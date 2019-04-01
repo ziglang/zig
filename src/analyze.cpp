@@ -902,10 +902,10 @@ ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     }
     buf_appendf(&fn_type->name, " %s", buf_ptr(&fn_type_id->return_type->name));
 
+    // The fn_type is a pointer; not to be confused with the raw function type.
     fn_type->size_in_bits = g->builtin_types.entry_usize->size_in_bits;
     fn_type->abi_size = g->builtin_types.entry_usize->abi_size;
-    // see also type_val_resolve_abi_align
-    fn_type->abi_align = (fn_type_id->alignment == 0) ? 1 : fn_type_id->alignment;
+    fn_type->abi_align = g->builtin_types.entry_usize->abi_align;
 
     g->fn_type_table.put(&fn_type->data.fn.fn_type_id, fn_type);
 
@@ -963,133 +963,14 @@ ZigType *get_partial_container_type(CodeGen *g, Scope *scope, ContainerKind kind
     return entry;
 }
 
-static ConstExprValue *analyze_const_value_allow_lazy(CodeGen *g, Scope *scope, AstNode *node, ZigType *type_entry,
-        Buf *type_name, bool allow_lazy)
+static ConstExprValue *analyze_const_value(CodeGen *g, Scope *scope, AstNode *node, ZigType *type_entry,
+        Buf *type_name)
 {
     size_t backward_branch_count = 0;
     return ir_eval_const_value(g, scope, node, type_entry,
             &backward_branch_count, default_backward_branch_quota,
-            nullptr, nullptr, node, type_name, nullptr, nullptr, allow_lazy);
+            nullptr, nullptr, node, type_name, nullptr, nullptr);
 }
-
-static ConstExprValue *analyze_const_value(CodeGen *g, Scope *scope, AstNode *node, ZigType *type_entry,
-        Buf *type_name)
-{
-    return analyze_const_value_allow_lazy(g, scope, node, type_entry, type_name, false);
-}
-
-static Error type_val_resolve_zero_bits(CodeGen *g, ConstExprValue *type_val, bool *is_zero_bits) {
-    Error err;
-    if (type_val->special != ConstValSpecialLazy) {
-        assert(type_val->special == ConstValSpecialStatic);
-        if ((err = type_resolve(g, type_val->data.x_type, ResolveStatusZeroBitsKnown)))
-            return err;
-        *is_zero_bits = (type_val->data.x_type->abi_size == 0);
-        return ErrorNone;
-    }
-    switch (type_val->data.x_lazy->id) {
-        case LazyValueIdInvalid:
-        case LazyValueIdAlignOf:
-            zig_unreachable();
-        case LazyValueIdSliceType:
-            *is_zero_bits = false;
-            return ErrorNone;
-        case LazyValueIdFnType: {
-            LazyValueFnType *lazy_fn_type = reinterpret_cast<LazyValueFnType *>(type_val->data.x_lazy);
-            *is_zero_bits = lazy_fn_type->is_generic;
-            return ErrorNone;
-        }
-    }
-    zig_unreachable();
-}
-
-static Error type_val_resolve_is_opaque_type(CodeGen *g, ConstExprValue *type_val, bool *is_opaque_type) {
-    if (type_val->special != ConstValSpecialLazy) {
-        assert(type_val->special == ConstValSpecialStatic);
-        *is_opaque_type = (type_val->data.x_type->id == ZigTypeIdOpaque);
-        return ErrorNone;
-    }
-    switch (type_val->data.x_lazy->id) {
-        case LazyValueIdInvalid:
-        case LazyValueIdAlignOf:
-            zig_unreachable();
-        case LazyValueIdSliceType:
-        case LazyValueIdFnType:
-            *is_opaque_type = false;
-            return ErrorNone;
-    }
-    zig_unreachable();
-}
-
-static ReqCompTime type_val_resolve_requires_comptime(CodeGen *g, ConstExprValue *type_val) {
-    if (type_val->special != ConstValSpecialLazy) {
-        return type_requires_comptime(g, type_val->data.x_type);
-    }
-    switch (type_val->data.x_lazy->id) {
-        case LazyValueIdInvalid:
-        case LazyValueIdAlignOf:
-            zig_unreachable();
-        case LazyValueIdSliceType: {
-            LazyValueSliceType *lazy_slice_type = reinterpret_cast<LazyValueSliceType *>(type_val->data.x_lazy);
-            return type_requires_comptime(g, lazy_slice_type->elem_type);
-        }
-        case LazyValueIdFnType: {
-            LazyValueFnType *lazy_fn_type = reinterpret_cast<LazyValueFnType *>(type_val->data.x_lazy);
-            if (lazy_fn_type->is_generic)
-                return ReqCompTimeYes;
-            switch (type_val_resolve_requires_comptime(g, lazy_fn_type->return_type)) {
-                case ReqCompTimeInvalid:
-                    return ReqCompTimeInvalid;
-                case ReqCompTimeYes:
-                    return ReqCompTimeYes;
-                case ReqCompTimeNo:
-                    break;
-            }
-            size_t param_count = lazy_fn_type->proto_node->data.fn_proto.params.length;
-            if (lazy_fn_type->is_var_args) param_count -= 1;
-            for (size_t i = 0; i < param_count; i += 1) {
-                switch (type_val_resolve_requires_comptime(g, lazy_fn_type->param_types[i])) {
-                    case ReqCompTimeInvalid:
-                        return ReqCompTimeInvalid;
-                    case ReqCompTimeYes:
-                        return ReqCompTimeYes;
-                    case ReqCompTimeNo:
-                        break;
-                }
-            }
-            return ReqCompTimeNo;
-        }
-    }
-    zig_unreachable();
-}
-
-static Error type_val_resolve_abi_align(CodeGen *g, ConstExprValue *type_val, size_t *abi_align) {
-    Error err;
-    if (type_val->special != ConstValSpecialLazy) {
-        assert(type_val->special == ConstValSpecialStatic);
-        if ((err = type_resolve(g, type_val->data.x_type, ResolveStatusAlignmentKnown)))
-            return err;
-        *abi_align = type_val->data.x_type->abi_align;
-        return ErrorNone;
-    }
-    switch (type_val->data.x_lazy->id) {
-        case LazyValueIdInvalid:
-        case LazyValueIdAlignOf:
-            zig_unreachable();
-        case LazyValueIdSliceType:
-            *abi_align = g->builtin_types.entry_usize->abi_align;
-            return ErrorNone;
-        case LazyValueIdFnType: {
-            LazyValueFnType *lazy_fn_type = reinterpret_cast<LazyValueFnType *>(type_val->data.x_lazy);
-            if (lazy_fn_type->align_val != nullptr)
-                return type_val_resolve_abi_align(g, lazy_fn_type->align_val, abi_align);
-            *abi_align = 1;
-            return ErrorNone;
-        }
-    }
-    zig_unreachable();
-}
-
 
 ZigType *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node) {
     ConstExprValue *result = analyze_const_value(g, scope, node, g->builtin_types.entry_type, nullptr);
@@ -1656,9 +1537,17 @@ ZigType *get_struct_type(CodeGen *g, const char *type_name, const char *field_na
     size_t next_offset = 0;
     for (size_t i = 0; i < field_count; i += 1) {
         TypeStructField *field = &struct_type->data.structure.fields[i];
+        if (field->gen_index == SIZE_MAX)
+            continue;
         field->offset = next_offset;
-        size_t next_abi_align = (i + 1 == field_count) ?
-            abi_align : struct_type->data.structure.fields[i + 1].type_entry->abi_align;
+        size_t next_src_field_index = i + 1;
+        for (; next_src_field_index < field_count; next_src_field_index += 1) {
+            if (struct_type->data.structure.fields[next_src_field_index].gen_index != SIZE_MAX) {
+                break;
+            }
+        }
+        size_t next_abi_align = (next_src_field_index == field_count) ?
+            abi_align : struct_type->data.structure.fields[next_src_field_index].type_entry->abi_align;
         next_offset = next_field_offset(next_offset, abi_align, field->type_entry->abi_size, next_abi_align);
     }
 
@@ -1715,43 +1604,6 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
     size_t gen_field_index = 0;
     size_t size_in_bits = 0;
     size_t abi_align = struct_type->abi_align;
-
-    // Resolve types for fields
-    for (size_t i = 0; i < field_count; i += 1) {
-        AstNode *field_source_node = decl_node->data.container_decl.fields.at(i);
-        TypeStructField *field = &struct_type->data.structure.fields[i];
-
-        if ((err = ir_resolve_lazy(g, field_source_node, field->type_val))) {
-            struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-            return err;
-        }
-        ZigType *field_type = field->type_val->data.x_type;
-        field->type_entry = field_type;
-
-        if ((err = type_resolve(g, field_type, ResolveStatusSizeKnown))) {
-            struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-            return err;
-        }
-
-        if (struct_type->data.structure.resolve_status == ResolveStatusInvalid) {
-            return ErrorSemanticAnalyzeFail;
-        }
-
-        if (packed) {
-            if ((err = emit_error_unless_type_allowed_in_packed_struct(g, field_type, field_source_node))) {
-                struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-                return ErrorSemanticAnalyzeFail;
-            }
-        } else if (struct_type->data.structure.layout == ContainerLayoutExtern &&
-                !type_allowed_in_extern(g, field_type))
-        {
-            add_node_error(g, field_source_node,
-                    buf_sprintf("extern structs cannot contain fields of type '%s'",
-                        buf_ptr(&field_type->name)));
-            struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-            return ErrorSemanticAnalyzeFail;
-        }
-    }
 
     // Calculate offsets
     for (size_t i = 0; i < field_count; i += 1) {
@@ -2186,8 +2038,6 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
 static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
     assert(struct_type->id == ZigTypeIdStruct);
 
-    Error err;
-
     if (struct_type->data.structure.resolve_status == ResolveStatusInvalid)
         return ErrorSemanticAnalyzeFail;
     if (struct_type->data.structure.resolve_status >= ResolveStatusZeroBitsKnown)
@@ -2238,36 +2088,29 @@ static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
             return ErrorSemanticAnalyzeFail;
         }
 
-        ConstExprValue *field_type_val = analyze_const_value_allow_lazy(g, scope,
-                field_node->data.struct_field.type, g->builtin_types.entry_type, nullptr, true);
-        if (type_is_invalid(field_type_val->type)) {
+        ZigType *field_type = analyze_type_expr(g, scope, field_node->data.struct_field.type);
+        type_struct_field->type_entry = field_type;
+        if (type_is_invalid(field_type)) {
             struct_type->data.structure.resolve_status = ResolveStatusInvalid;
             return ErrorSemanticAnalyzeFail;
         }
-        assert(field_type_val->special != ConstValSpecialRuntime);
-        type_struct_field->type_val = field_type_val;
-        type_struct_field->src_index = i;
-        type_struct_field->gen_index = SIZE_MAX;
-
         if (struct_type->data.structure.resolve_status == ResolveStatusInvalid)
             return ErrorSemanticAnalyzeFail;
+
+        type_struct_field->src_index = i;
+        type_struct_field->gen_index = SIZE_MAX;
 
         if (field_node->data.struct_field.value != nullptr) {
             add_node_error(g, field_node->data.struct_field.value,
                     buf_sprintf("enums, not structs, support field assignment"));
         }
-        bool field_is_opaque_type;
-        if ((err = type_val_resolve_is_opaque_type(g, field_type_val, &field_is_opaque_type))) {
-            struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-            return ErrorSemanticAnalyzeFail;
-        }
-        if (field_is_opaque_type) {
+        if (field_type->id == ZigTypeIdOpaque) {
             add_node_error(g, field_node->data.struct_field.type,
                 buf_sprintf("opaque types have unknown size and therefore cannot be directly embedded in structs"));
             struct_type->data.structure.resolve_status = ResolveStatusInvalid;
             return ErrorSemanticAnalyzeFail;
         }
-        switch (type_val_resolve_requires_comptime(g, field_type_val)) {
+        switch (type_requires_comptime(g, field_type)) {
             case ReqCompTimeYes:
                 struct_type->data.structure.requires_comptime = true;
                 break;
@@ -2278,12 +2121,7 @@ static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
                 break;
         }
 
-        bool field_is_zero_bits;
-        if ((err = type_val_resolve_zero_bits(g, field_type_val, &field_is_zero_bits))) {
-            struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-            return ErrorSemanticAnalyzeFail;
-        }
-        if (field_is_zero_bits)
+        if (!type_has_bits(field_type))
             continue;
 
         type_struct_field->gen_index = gen_field_index;
@@ -2338,7 +2176,31 @@ static Error resolve_struct_alignment(CodeGen *g, ZigType *struct_type) {
     bool packed = struct_type->data.structure.layout == ContainerLayoutPacked;
 
     for (size_t i = 0; i < field_count; i += 1) {
+        AstNode *field_source_node = decl_node->data.container_decl.fields.at(i);
         TypeStructField *field = &struct_type->data.structure.fields[i];
+        ZigType *field_type = field->type_entry;
+        assert(field_type != nullptr);
+
+        if ((err = type_resolve(g, field_type, ResolveStatusAlignmentKnown))) {
+            struct_type->data.structure.resolve_status = ResolveStatusInvalid;
+            return ErrorSemanticAnalyzeFail;
+        }
+
+        if (struct_type->data.structure.layout == ContainerLayoutExtern &&
+            !type_allowed_in_extern(g, field_type))
+        {
+            add_node_error(g, field_source_node,
+                    buf_sprintf("extern structs cannot contain fields of type '%s'",
+                        buf_ptr(&field_type->name)));
+            struct_type->data.structure.resolve_status = ResolveStatusInvalid;
+            return ErrorSemanticAnalyzeFail;
+        } else if (packed) {
+            if ((err = emit_error_unless_type_allowed_in_packed_struct(g, field_type, field_source_node))) {
+                struct_type->data.structure.resolve_status = ResolveStatusInvalid;
+                return ErrorSemanticAnalyzeFail;
+            }
+        }
+
         if (field->gen_index == SIZE_MAX)
             continue;
 
@@ -2349,13 +2211,8 @@ static Error resolve_struct_alignment(CodeGen *g, ZigType *struct_type) {
             }
         } else {
             // TODO: https://github.com/ziglang/zig/issues/1512
-            size_t field_align;
-            if ((err = type_val_resolve_abi_align(g, field->type_val, &field_align))) {
-                struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-                return err;
-            }
-            if (field_align > abi_align) {
-                abi_align = field_align;
+            if (field_type->abi_align > abi_align) {
+                abi_align = field_type->abi_align;
             }
         }
     }
@@ -2993,7 +2850,7 @@ void init_tld(Tld *tld, TldId id, Buf *name, VisibMod visib_mod, AstNode *source
 
 void update_compile_var(CodeGen *g, Buf *name, ConstExprValue *value) {
     Tld *tld = get_container_scope(g->compile_var_import)->decl_table.get(name);
-    resolve_top_level_decl(g, tld, tld->source_node, false);
+    resolve_top_level_decl(g, tld, tld->source_node);
     assert(tld->id == TldIdVar);
     TldVar *tld_var = (TldVar *)tld;
     tld_var->var->const_value = value;
@@ -3232,7 +3089,7 @@ ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf 
     return variable_entry;
 }
 
-static void resolve_decl_var(CodeGen *g, TldVar *tld_var, bool allow_lazy) {
+static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
     AstNode *source_node = tld_var->base.source_node;
     AstNodeVariableDeclaration *var_decl = &source_node->data.variable_declaration;
 
@@ -3273,8 +3130,7 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var, bool allow_lazy) {
     if (explicit_type && explicit_type->id == ZigTypeIdInvalid) {
         implicit_type = explicit_type;
     } else if (var_decl->expr) {
-        init_value = analyze_const_value_allow_lazy(g, tld_var->base.parent_scope, var_decl->expr,
-                explicit_type, var_decl->symbol, allow_lazy);
+        init_value = analyze_const_value(g, tld_var->base.parent_scope, var_decl->expr, explicit_type, var_decl->symbol);
         assert(init_value);
         implicit_type = init_value->type;
 
@@ -3337,11 +3193,11 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var, bool allow_lazy) {
     g->global_vars.append(tld_var);
 }
 
-void resolve_top_level_decl(CodeGen *g, Tld *tld, AstNode *source_node, bool allow_lazy) {
-    bool want_resolve_lazy = tld->resolution == TldResolutionOkLazy && !allow_lazy;
-    if (tld->resolution != TldResolutionUnresolved && !want_resolve_lazy)
+void resolve_top_level_decl(CodeGen *g, Tld *tld, AstNode *source_node) {
+    if (tld->resolution != TldResolutionUnresolved)
         return;
 
+    assert(tld->resolution != TldResolutionResolving);
     tld->resolution = TldResolutionResolving;
     g->tld_ref_source_node_stack.append(source_node);
 
@@ -3349,11 +3205,7 @@ void resolve_top_level_decl(CodeGen *g, Tld *tld, AstNode *source_node, bool all
         case TldIdVar:
             {
                 TldVar *tld_var = (TldVar *)tld;
-                if (want_resolve_lazy) {
-                    ir_resolve_lazy(g, source_node, tld_var->var->const_value);
-                } else {
-                    resolve_decl_var(g, tld_var, allow_lazy);
-                }
+                resolve_decl_var(g, tld_var);
                 break;
             }
         case TldIdFn:
@@ -3376,7 +3228,7 @@ void resolve_top_level_decl(CodeGen *g, Tld *tld, AstNode *source_node, bool all
             }
     }
 
-    tld->resolution = allow_lazy ? TldResolutionOkLazy : TldResolutionOk;
+    tld->resolution = TldResolutionOk;
     g->tld_ref_source_node_stack.pop();
 }
 
@@ -4045,7 +3897,7 @@ void semantic_analyze(CodeGen *g) {
         for (; g->resolve_queue_index < g->resolve_queue.length; g->resolve_queue_index += 1) {
             Tld *tld = g->resolve_queue.at(g->resolve_queue_index);
             AstNode *source_node = nullptr;
-            resolve_top_level_decl(g, tld, source_node, false);
+            resolve_top_level_decl(g, tld, source_node);
         }
 
         for (; g->fn_defs_index < g->fn_defs.length; g->fn_defs_index += 1) {
@@ -5479,9 +5331,6 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
         case ConstValSpecialRuntime:
             buf_appendf(buf, "(runtime value)");
             return;
-        case ConstValSpecialLazy:
-            buf_appendf(buf, "(lazy value)");
-            return;
         case ConstValSpecialUndef:
             buf_appendf(buf, "undefined");
             return;
@@ -6098,7 +5947,7 @@ bool type_ptr_eql(const ZigType *a, const ZigType *b) {
 
 ConstExprValue *get_builtin_value(CodeGen *codegen, const char *name) {
     Tld *tld = get_container_scope(codegen->compile_var_import)->decl_table.get(buf_create_from_str(name));
-    resolve_top_level_decl(codegen, tld, nullptr, false);
+    resolve_top_level_decl(codegen, tld, nullptr);
     assert(tld->id == TldIdVar);
     TldVar *tld_var = (TldVar *)tld;
     ConstExprValue *var_value = tld_var->var->const_value;

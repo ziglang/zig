@@ -154,7 +154,6 @@ struct ConstCastBadAllowsZero {
 enum UndefAllowed {
     UndefOk,
     UndefBad,
-    LazyOk,
 };
 
 static IrInstruction *ir_gen_node(IrBuilder *irb, AstNode *node, Scope *scope);
@@ -10257,57 +10256,32 @@ static IrInstruction *ir_get_const_ptr(IrAnalyze *ira, IrInstruction *instructio
     return const_instr;
 }
 
-static Error ir_resolve_const_val(CodeGen *codegen, IrExecutable *exec, AstNode *source_node,
-        ConstExprValue *val, UndefAllowed undef_allowed)
-{
-    Error err;
-    for (;;) {
-        switch (val->special) {
-            case ConstValSpecialStatic:
-                return ErrorNone;
-            case ConstValSpecialRuntime:
-                if (!type_has_bits(val->type))
-                    return ErrorNone;
-
-                exec_add_error_node(codegen, exec, source_node,
-                        buf_sprintf("unable to evaluate constant expression"));
-                return ErrorSemanticAnalyzeFail;
-            case ConstValSpecialUndef:
-                if (undef_allowed == UndefOk)
-                    return ErrorNone;
-
-                exec_add_error_node(codegen, exec, source_node,
-                        buf_sprintf("use of undefined value here causes undefined behavior"));
-                return ErrorSemanticAnalyzeFail;
-            case ConstValSpecialLazy:
-                if (undef_allowed == LazyOk)
-                    return ErrorNone;
-
-                if ((err = ir_resolve_lazy(codegen, source_node, val)))
-                    return err;
-
-                continue;
-        }
-    }
-}
-
 static ConstExprValue *ir_resolve_const(IrAnalyze *ira, IrInstruction *value, UndefAllowed undef_allowed) {
-    Error err;
-    if ((err = ir_resolve_const_val(ira->codegen, ira->new_irb.exec, value->source_node,
-                    &value->value, undef_allowed)))
-    {
-        return nullptr;
+    switch (value->value.special) {
+        case ConstValSpecialStatic:
+            return &value->value;
+        case ConstValSpecialRuntime:
+            if (!type_has_bits(value->value.type)) {
+                return &value->value;
+            }
+            ir_add_error(ira, value, buf_sprintf("unable to evaluate constant expression"));
+            return nullptr;
+        case ConstValSpecialUndef:
+            if (undef_allowed == UndefOk) {
+                return &value->value;
+            } else {
+                ir_add_error(ira, value, buf_sprintf("use of undefined value here causes undefined behavior"));
+                return nullptr;
+            }
     }
-    return &value->value;
+    zig_unreachable();
 }
 
 ConstExprValue *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node,
         ZigType *expected_type, size_t *backward_branch_count, size_t backward_branch_quota,
         ZigFn *fn_entry, Buf *c_import_buf, AstNode *source_node, Buf *exec_name,
-        IrExecutable *parent_exec, AstNode *expected_type_source_node, bool allow_lazy)
+        IrExecutable *parent_exec, AstNode *expected_type_source_node)
 {
-    Error err;
-
     if (expected_type != nullptr && type_is_invalid(expected_type))
         return &codegen->invalid_instruction->value;
 
@@ -10352,24 +10326,7 @@ ConstExprValue *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *nod
         fprintf(stderr, "}\n");
     }
 
-    ConstExprValue *result = ir_exec_const_result(codegen, analyzed_executable);
-
-    if (!allow_lazy) {
-        if ((err = ir_resolve_lazy(codegen, node, result)))
-            return &codegen->invalid_instruction->value;
-    }
-    return result;
-}
-
-static ZigType *ir_resolve_const_type(CodeGen *codegen, IrExecutable *exec, AstNode *source_node,
-        ConstExprValue *val)
-{
-    Error err;
-    if ((err = ir_resolve_const_val(codegen, exec, source_node, val, UndefBad)))
-        return codegen->builtin_types.entry_invalid;
-
-    assert(val->data.x_type != nullptr);
-    return val->data.x_type;
+    return ir_exec_const_result(codegen, analyzed_executable);
 }
 
 static ZigType *ir_resolve_type(IrAnalyze *ira, IrInstruction *type_value) {
@@ -10382,7 +10339,12 @@ static ZigType *ir_resolve_type(IrAnalyze *ira, IrInstruction *type_value) {
         return ira->codegen->builtin_types.entry_invalid;
     }
 
-    return ir_resolve_const_type(ira->codegen, ira->new_irb.exec, type_value->source_node, &type_value->value);
+    ConstExprValue *const_val = ir_resolve_const(ira, type_value, UndefBad);
+    if (!const_val)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    assert(const_val->data.x_type != nullptr);
+    return const_val->data.x_type;
 }
 
 static ZigType *ir_resolve_error_set_type(IrAnalyze *ira, IrInstruction *op_source, IrInstruction *type_value) {
@@ -11873,27 +11835,6 @@ static IrInstruction *ir_get_deref(IrAnalyze *ira, IrInstruction *source_instruc
     }
 }
 
-static bool ir_resolve_const_align(CodeGen *codegen, IrExecutable *exec, AstNode *source_node,
-        ConstExprValue *const_val, uint32_t *out)
-{
-    Error err;
-    if ((err = ir_resolve_const_val(codegen, exec, source_node, const_val, UndefBad)))
-        return false;
-
-    uint32_t align_bytes = bigint_as_unsigned(&const_val->data.x_bigint);
-    if (align_bytes == 0) {
-        exec_add_error_node(codegen, exec, source_node, buf_sprintf("alignment must be >= 1"));
-        return false;
-    }
-
-    if (!is_power_of_2(align_bytes)) {
-        exec_add_error_node(codegen, exec, source_node, buf_sprintf("alignment value %" PRIu32 " is not a power of 2", align_bytes));
-        return false;
-    }
-    *out = align_bytes;
-    return true;
-}
-
 static bool ir_resolve_align(IrAnalyze *ira, IrInstruction *value, uint32_t *out) {
     if (type_is_invalid(value->value.type))
         return false;
@@ -11902,7 +11843,23 @@ static bool ir_resolve_align(IrAnalyze *ira, IrInstruction *value, uint32_t *out
     if (type_is_invalid(casted_value->value.type))
         return false;
 
-    return ir_resolve_const_align(ira->codegen, ira->new_irb.exec, value->source_node, &casted_value->value, out);
+    ConstExprValue *const_val = ir_resolve_const(ira, casted_value, UndefBad);
+    if (!const_val)
+        return false;
+
+    uint32_t align_bytes = bigint_as_unsigned(&const_val->data.x_bigint);
+    if (align_bytes == 0) {
+        ir_add_error(ira, value, buf_sprintf("alignment must be >= 1"));
+        return false;
+    }
+
+    if (!is_power_of_2(align_bytes)) {
+        ir_add_error(ira, value, buf_sprintf("alignment value %" PRIu32 " is not a power of 2", align_bytes));
+        return false;
+    }
+
+    *out = align_bytes;
+    return true;
 }
 
 static bool ir_resolve_unsigned(IrAnalyze *ira, IrInstruction *value, ZigType *int_type, uint64_t *out) {
@@ -12070,140 +12027,6 @@ static Buf *ir_resolve_str(IrAnalyze *ira, IrInstruction *value) {
         buf_ptr(result)[i] = c;
     }
     return result;
-}
-
-static ZigType *ir_resolve_lazy_fn_type(CodeGen *codegen, IrExecutable *exec, AstNode *source_node,
-        LazyValueFnType *lazy_fn_type)
-{
-    AstNode *proto_node = lazy_fn_type->proto_node;
-
-    FnTypeId fn_type_id = {0};
-    init_fn_type_id(&fn_type_id, proto_node, proto_node->data.fn_proto.params.length);
-
-    for (; fn_type_id.next_param_index < fn_type_id.param_count; fn_type_id.next_param_index += 1) {
-        AstNode *param_node = proto_node->data.fn_proto.params.at(fn_type_id.next_param_index);
-        assert(param_node->type == NodeTypeParamDecl);
-
-        bool param_is_var_args = param_node->data.param_decl.is_var_args;
-        if (param_is_var_args) {
-            if (fn_type_id.cc == CallingConventionC) {
-                fn_type_id.param_count = fn_type_id.next_param_index;
-                continue;
-            } else if (fn_type_id.cc == CallingConventionUnspecified) {
-                return get_generic_fn_type(codegen, &fn_type_id);
-            } else {
-                zig_unreachable();
-            }
-        }
-        FnTypeParamInfo *param_info = &fn_type_id.param_info[fn_type_id.next_param_index];
-        param_info->is_noalias = param_node->data.param_decl.is_noalias;
-
-        if (lazy_fn_type->param_types[fn_type_id.next_param_index] == nullptr) {
-            param_info->type = nullptr;
-            return get_generic_fn_type(codegen, &fn_type_id);
-        } else {
-            ZigType *param_type = ir_resolve_const_type(codegen, exec, source_node,
-                    lazy_fn_type->param_types[fn_type_id.next_param_index]);
-            if (type_is_invalid(param_type))
-                return nullptr;
-            switch (type_requires_comptime(codegen, param_type)) {
-            case ReqCompTimeYes:
-                if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
-                    exec_add_error_node(codegen, exec, source_node,
-                        buf_sprintf("parameter of type '%s' not allowed in function with calling convention '%s'",
-                            buf_ptr(&param_type->name), calling_convention_name(fn_type_id.cc)));
-                    return nullptr;
-                }
-                param_info->type = param_type;
-                fn_type_id.next_param_index += 1;
-                return get_generic_fn_type(codegen, &fn_type_id);
-            case ReqCompTimeInvalid:
-                return nullptr;
-            case ReqCompTimeNo:
-                break;
-            }
-            if (!type_has_bits(param_type) && !calling_convention_allows_zig_types(fn_type_id.cc)) {
-                exec_add_error_node(codegen, exec, source_node,
-                    buf_sprintf("parameter of type '%s' has 0 bits; not allowed in function with calling convention '%s'",
-                        buf_ptr(&param_type->name), calling_convention_name(fn_type_id.cc)));
-                return nullptr;
-            }
-            param_info->type = param_type;
-        }
-
-    }
-
-    if (lazy_fn_type->align_val != nullptr) {
-        if (!ir_resolve_const_align(codegen, exec, source_node, lazy_fn_type->align_val, &fn_type_id.alignment))
-            return nullptr;
-    }
-
-    fn_type_id.return_type = ir_resolve_const_type(codegen, exec, source_node, lazy_fn_type->return_type);
-    if (type_is_invalid(fn_type_id.return_type))
-        return nullptr;
-    if (fn_type_id.return_type->id == ZigTypeIdOpaque) {
-        exec_add_error_node(codegen, exec, source_node,
-            buf_sprintf("return type cannot be opaque"));
-        return nullptr;
-    }
-
-    if (lazy_fn_type->async_allocator_type != nullptr) {
-        fn_type_id.async_allocator_type = ir_resolve_const_type(codegen, exec, source_node,
-                lazy_fn_type->async_allocator_type);
-        if (type_is_invalid(fn_type_id.async_allocator_type))
-            return nullptr;
-    }
-
-    return get_fn_type(codegen, &fn_type_id);
-}
-
-Error ir_resolve_lazy(CodeGen *codegen, AstNode *source_node, ConstExprValue *val) {
-    Error err;
-    if (val->special != ConstValSpecialLazy)
-        return ErrorNone;
-    IrExecutable *exec = val->data.x_lazy->exec;
-    switch (val->data.x_lazy->id) {
-        case LazyValueIdInvalid:
-            zig_unreachable();
-        case LazyValueIdAlignOf: {
-            LazyValueAlignOf *lazy_align_of = reinterpret_cast<LazyValueAlignOf *>(val->data.x_lazy);
-            if ((err = type_resolve(codegen, lazy_align_of->target_type, ResolveStatusAlignmentKnown)))
-                return err;
-            uint64_t align_in_bytes = get_abi_alignment(codegen, lazy_align_of->target_type);
-            val->special = ConstValSpecialStatic;
-            assert(val->type->id == ZigTypeIdComptimeInt);
-            bigint_init_unsigned(&val->data.x_bigint, align_in_bytes);
-            return ErrorNone;
-        }
-        case LazyValueIdSliceType: {
-            LazyValueSliceType *lazy_slice_type = reinterpret_cast<LazyValueSliceType *>(val->data.x_lazy);
-            uint32_t align_bytes = 0;
-            if (lazy_slice_type->align_val != nullptr) {
-                if (!ir_resolve_const_align(codegen, exec, source_node, lazy_slice_type->align_val, &align_bytes))
-                    return ErrorSemanticAnalyzeFail;
-            }
-            if ((err = type_resolve(codegen, lazy_slice_type->elem_type, ResolveStatusZeroBitsKnown)))
-                return err;
-            ZigType *slice_ptr_type = get_pointer_to_type_extra(codegen, lazy_slice_type->elem_type,
-                    lazy_slice_type->is_const, lazy_slice_type->is_volatile, PtrLenUnknown, align_bytes,
-                    0, 0, lazy_slice_type->is_allowzero);
-            val->special = ConstValSpecialStatic;
-            assert(val->type->id == ZigTypeIdMetaType);
-            val->data.x_type = get_slice_type(codegen, slice_ptr_type);
-            return ErrorNone;
-        }
-        case LazyValueIdFnType: {
-            ZigType *fn_type = ir_resolve_lazy_fn_type(codegen, exec, source_node,
-                    reinterpret_cast<LazyValueFnType *>(val->data.x_lazy));
-            if (fn_type == nullptr)
-                return ErrorSemanticAnalyzeFail;
-            val->special = ConstValSpecialStatic;
-            assert(val->type->id == ZigTypeIdMetaType);
-            val->data.x_type = fn_type;
-            return ErrorNone;
-        }
-    }
-    zig_unreachable();
 }
 
 static IrInstruction *ir_analyze_instruction_add_implicit_return_type(IrAnalyze *ira,
@@ -14179,7 +14002,7 @@ static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
     if (linkage_makes_it_runtime)
         goto no_mem_slot;
 
-    if (value_is_comptime(var->const_value)) {
+    if (var->const_value->special == ConstValSpecialStatic) {
         mem_slot = var->const_value;
     } else {
         if (var->mem_slot_index != SIZE_MAX && (comptime_var_mem || var->gen_is_const)) {
@@ -14197,7 +14020,6 @@ static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
             case ConstValSpecialRuntime:
                 goto no_mem_slot;
             case ConstValSpecialStatic: // fallthrough
-            case ConstValSpecialLazy: // fallthrough
             case ConstValSpecialUndef: {
                 ConstPtrMut ptr_mut;
                 if (comptime_var_mem) {
@@ -14478,7 +14300,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call
             AstNode *body_node = fn_entry->body_node;
             result = ir_eval_const_value(ira->codegen, exec_scope, body_node, return_type,
                 ira->new_irb.exec->backward_branch_count, ira->new_irb.exec->backward_branch_quota, fn_entry,
-                nullptr, call_instruction->base.source_node, nullptr, ira->new_irb.exec, return_type_node, false);
+                nullptr, call_instruction->base.source_node, nullptr, ira->new_irb.exec, return_type_node);
 
             if (inferred_err_set_type != nullptr) {
                 inferred_err_set_type->data.error_set.infer_fn = nullptr;
@@ -14674,8 +14496,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call
             ConstExprValue *align_result = ir_eval_const_value(ira->codegen, impl_fn->child_scope,
                     fn_proto_node->data.fn_proto.align_expr, get_align_amt_type(ira->codegen),
                     ira->new_irb.exec->backward_branch_count, ira->new_irb.exec->backward_branch_quota,
-                    nullptr, nullptr, fn_proto_node->data.fn_proto.align_expr, nullptr, ira->new_irb.exec, nullptr,
-                    false);
+                    nullptr, nullptr, fn_proto_node->data.fn_proto.align_expr, nullptr, ira->new_irb.exec, nullptr);
             IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(&ira->new_irb,
                     impl_fn->child_scope, fn_proto_node->data.fn_proto.align_expr);
             const_instruction->base.value = *align_result;
@@ -15808,7 +15629,7 @@ static IrInstruction *ir_analyze_container_member_access_inner(IrAnalyze *ira,
         auto entry = container_scope->decl_table.maybe_get(field_name);
         Tld *tld = entry ? entry->value : nullptr;
         if (tld && tld->id == TldIdFn) {
-            resolve_top_level_decl(ira->codegen, tld, source_instr->source_node, false);
+            resolve_top_level_decl(ira->codegen, tld, source_instr->source_node);
             if (tld->resolution == TldResolutionInvalid)
                 return ira->codegen->invalid_instruction;
             TldFn *tld_fn = (TldFn *)tld;
@@ -15999,7 +15820,7 @@ static void add_link_lib_symbol(IrAnalyze *ira, Buf *lib_name, Buf *symbol_name,
 
 
 static IrInstruction *ir_analyze_decl_ref(IrAnalyze *ira, IrInstruction *source_instruction, Tld *tld) {
-    resolve_top_level_decl(ira->codegen, tld, source_instruction->source_node, false);
+    resolve_top_level_decl(ira->codegen, tld, source_instruction->source_node);
     if (tld->resolution == TldResolutionInvalid)
         return ira->codegen->invalid_instruction;
 
@@ -16655,29 +16476,22 @@ static IrInstruction *ir_analyze_instruction_set_float_mode(IrAnalyze *ira,
 static IrInstruction *ir_analyze_instruction_slice_type(IrAnalyze *ira,
         IrInstructionSliceType *slice_type_instruction)
 {
-    IrInstruction *result = ir_const(ira, &slice_type_instruction->base, ira->codegen->builtin_types.entry_type);
-    result->value.special = ConstValSpecialLazy;
-
-    LazyValueSliceType *lazy_slice_type = allocate<LazyValueSliceType>(1);
-    result->value.data.x_lazy = &lazy_slice_type->base;
-    lazy_slice_type->base.id = LazyValueIdSliceType;
-    lazy_slice_type->base.exec = ira->new_irb.exec;
-
+    Error err;
+    uint32_t align_bytes = 0;
     if (slice_type_instruction->align_value != nullptr) {
-        lazy_slice_type->align_val = ir_resolve_const(ira, slice_type_instruction->align_value->child, LazyOk);
-        if (lazy_slice_type->align_val == nullptr)
+        if (!ir_resolve_align(ira, slice_type_instruction->align_value->child, &align_bytes))
             return ira->codegen->invalid_instruction;
     }
 
-    lazy_slice_type->elem_type = ir_resolve_type(ira, slice_type_instruction->child_type->child);
-    if (type_is_invalid(lazy_slice_type->elem_type))
+    ZigType *child_type = ir_resolve_type(ira, slice_type_instruction->child_type->child);
+    if (type_is_invalid(child_type))
         return ira->codegen->invalid_instruction;
 
-    lazy_slice_type->is_const = slice_type_instruction->is_const;
-    lazy_slice_type->is_volatile = slice_type_instruction->is_volatile;
-    lazy_slice_type->is_allowzero = slice_type_instruction->is_allow_zero;
+    bool is_const = slice_type_instruction->is_const;
+    bool is_volatile = slice_type_instruction->is_volatile;
+    bool is_allow_zero = slice_type_instruction->is_allow_zero;
 
-    switch (lazy_slice_type->elem_type->id) {
+    switch (child_type->id) {
         case ZigTypeIdInvalid: // handled above
             zig_unreachable();
         case ZigTypeIdUnreachable:
@@ -16686,7 +16500,7 @@ static IrInstruction *ir_analyze_instruction_slice_type(IrAnalyze *ira,
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
             ir_add_error_node(ira, slice_type_instruction->base.source_node,
-                    buf_sprintf("slice of type '%s' not allowed", buf_ptr(&lazy_slice_type->elem_type->name)));
+                    buf_sprintf("slice of type '%s' not allowed", buf_ptr(&child_type->name)));
             return ira->codegen->invalid_instruction;
         case ZigTypeIdMetaType:
         case ZigTypeIdVoid:
@@ -16708,7 +16522,14 @@ static IrInstruction *ir_analyze_instruction_slice_type(IrAnalyze *ira,
         case ZigTypeIdBoundFn:
         case ZigTypeIdPromise:
         case ZigTypeIdVector:
-            return result;
+            {
+                if ((err = type_resolve(ira->codegen, child_type, ResolveStatusZeroBitsKnown)))
+                    return ira->codegen->invalid_instruction;
+                ZigType *slice_ptr_type = get_pointer_to_type_extra(ira->codegen, child_type,
+                        is_const, is_volatile, PtrLenUnknown, align_bytes, 0, 0, is_allow_zero);
+                ZigType *result_type = get_slice_type(ira->codegen, slice_ptr_type);
+                return ir_const_type(ira, &slice_type_instruction->base, result_type);
+            }
     }
     zig_unreachable();
 }
@@ -16815,7 +16636,7 @@ static IrInstruction *ir_analyze_instruction_array_type(IrAnalyze *ira,
         case ZigTypeIdPromise:
         case ZigTypeIdVector:
             {
-                if ((err = type_resolve(ira->codegen, child_type, ResolveStatusSizeKnown)))
+                if ((err = ensure_complete_type(ira->codegen, child_type)))
                     return ira->codegen->invalid_instruction;
                 ZigType *result_type = get_array_type(ira->codegen, child_type, size);
                 return ir_const_type(ira, &array_type_instruction->base, result_type);
@@ -18172,7 +17993,7 @@ static Error ir_make_type_info_defs(IrAnalyze *ira, IrInstruction *source_instr,
     while ((curr_entry = decl_it.next()) != nullptr) {
         // If the definition is unresolved, force it to be resolved again.
         if (curr_entry->value->resolution == TldResolutionUnresolved) {
-            resolve_top_level_decl(ira->codegen, curr_entry->value, curr_entry->value->source_node, false);
+            resolve_top_level_decl(ira->codegen, curr_entry->value, curr_entry->value->source_node);
             if (curr_entry->value->resolution != TldResolutionOk) {
                 return ErrorSemanticAnalyzeFail;
             }
@@ -19161,7 +18982,7 @@ static IrInstruction *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruct
     ZigType *void_type = ira->codegen->builtin_types.entry_void;
     ConstExprValue *cimport_result = ir_eval_const_value(ira->codegen, &cimport_scope->base, block_node, void_type,
         ira->new_irb.exec->backward_branch_count, ira->new_irb.exec->backward_branch_quota, nullptr,
-        &cimport_scope->buf, block_node, nullptr, nullptr, nullptr, false);
+        &cimport_scope->buf, block_node, nullptr, nullptr, nullptr);
     if (type_is_invalid(cimport_result->type))
         return ira->codegen->invalid_instruction;
 
@@ -20708,10 +20529,14 @@ static IrInstruction *ir_analyze_instruction_handle(IrAnalyze *ira, IrInstructio
 }
 
 static IrInstruction *ir_analyze_instruction_align_of(IrAnalyze *ira, IrInstructionAlignOf *instruction) {
+    Error err;
     IrInstruction *type_value = instruction->type_value->child;
     if (type_is_invalid(type_value->value.type))
         return ira->codegen->invalid_instruction;
     ZigType *type_entry = ir_resolve_type(ira, type_value);
+
+    if ((err = type_resolve(ira->codegen, type_entry, ResolveStatusAlignmentKnown)))
+        return ira->codegen->invalid_instruction;
 
     switch (type_entry->id) {
         case ZigTypeIdInvalid:
@@ -20744,25 +20569,12 @@ static IrInstruction *ir_analyze_instruction_align_of(IrAnalyze *ira, IrInstruct
         case ZigTypeIdUnion:
         case ZigTypeIdFn:
         case ZigTypeIdVector:
-            break;
+            {
+                uint64_t align_in_bytes = get_abi_alignment(ira->codegen, type_entry);
+                return ir_const_unsigned(ira, &instruction->base, align_in_bytes);
+            }
     }
-    if (type_is_resolved(type_entry, ResolveStatusAlignmentKnown)) {
-        uint64_t align_in_bytes = get_abi_alignment(ira->codegen, type_entry);
-        return ir_const_unsigned(ira, &instruction->base, align_in_bytes);
-    }
-    // Here we create a lazy value in order to avoid resolving the alignment of the type
-    // immediately. This avoids false positive dependency loops such as:
-    // const Node = struct {
-    //     field: []align(@alignOf(Node)) Node,
-    // };
-    LazyValueAlignOf *lazy_align_of = allocate<LazyValueAlignOf>(1);
-    lazy_align_of->base.id = LazyValueIdAlignOf;
-    lazy_align_of->base.exec = ira->new_irb.exec;
-    lazy_align_of->target_type = type_entry;
-    IrInstruction *result = ir_const(ira, &instruction->base, ira->codegen->builtin_types.entry_num_lit_int);
-    result->value.special = ConstValSpecialLazy;
-    result->value.data.x_lazy = &lazy_align_of->base;
-    return result;
+    zig_unreachable();
 }
 
 static IrInstruction *ir_analyze_instruction_overflow_op(IrAnalyze *ira, IrInstructionOverflowOp *instruction) {
@@ -21017,77 +20829,96 @@ static IrInstruction *ir_analyze_instruction_fn_proto(IrAnalyze *ira, IrInstruct
     AstNode *proto_node = instruction->base.source_node;
     assert(proto_node->type == NodeTypeFnProto);
 
-    IrInstruction *result = ir_const(ira, &instruction->base, ira->codegen->builtin_types.entry_type);
-    result->value.special = ConstValSpecialLazy;
-
-    LazyValueFnType *lazy_fn_type = allocate<LazyValueFnType>(1);
-    result->value.data.x_lazy = &lazy_fn_type->base;
-    lazy_fn_type->base.id = LazyValueIdFnType;
-    lazy_fn_type->base.exec = ira->new_irb.exec;
-
     if (proto_node->data.fn_proto.auto_err_set) {
         ir_add_error(ira, &instruction->base,
             buf_sprintf("inferring error set of return type valid only for function definitions"));
         return ira->codegen->invalid_instruction;
     }
 
-    size_t param_count = proto_node->data.fn_proto.params.length;
-    lazy_fn_type->proto_node = proto_node;
-    lazy_fn_type->param_types = allocate<ConstExprValue *>(param_count);
+    FnTypeId fn_type_id = {0};
+    init_fn_type_id(&fn_type_id, proto_node, proto_node->data.fn_proto.params.length);
 
-    for (size_t i = 0; i < param_count; i += 1) {
-        AstNode *param_node = proto_node->data.fn_proto.params.at(i);
+    for (; fn_type_id.next_param_index < fn_type_id.param_count; fn_type_id.next_param_index += 1) {
+        AstNode *param_node = proto_node->data.fn_proto.params.at(fn_type_id.next_param_index);
         assert(param_node->type == NodeTypeParamDecl);
 
         bool param_is_var_args = param_node->data.param_decl.is_var_args;
-        lazy_fn_type->is_var_args = true;
         if (param_is_var_args) {
-            if (proto_node->data.fn_proto.cc == CallingConventionC) {
-                break;
-            } else if (proto_node->data.fn_proto.cc == CallingConventionUnspecified) {
-                lazy_fn_type->is_generic = true;
-                return result;
+            if (fn_type_id.cc == CallingConventionC) {
+                fn_type_id.param_count = fn_type_id.next_param_index;
+                continue;
+            } else if (fn_type_id.cc == CallingConventionUnspecified) {
+                return ir_const_type(ira, &instruction->base, get_generic_fn_type(ira->codegen, &fn_type_id));
             } else {
                 zig_unreachable();
             }
         }
+        FnTypeParamInfo *param_info = &fn_type_id.param_info[fn_type_id.next_param_index];
+        param_info->is_noalias = param_node->data.param_decl.is_noalias;
 
-        if (instruction->param_types[i] == nullptr) {
-            lazy_fn_type->is_generic = true;
-            return result;
+        if (instruction->param_types[fn_type_id.next_param_index] == nullptr) {
+            param_info->type = nullptr;
+            return ir_const_type(ira, &instruction->base, get_generic_fn_type(ira->codegen, &fn_type_id));
+        } else {
+            IrInstruction *param_type_value = instruction->param_types[fn_type_id.next_param_index]->child;
+            if (type_is_invalid(param_type_value->value.type))
+                return ira->codegen->invalid_instruction;
+            ZigType *param_type = ir_resolve_type(ira, param_type_value);
+            switch (type_requires_comptime(ira->codegen, param_type)) {
+            case ReqCompTimeYes:
+                if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
+                    ir_add_error(ira, param_type_value,
+                        buf_sprintf("parameter of type '%s' not allowed in function with calling convention '%s'",
+                            buf_ptr(&param_type->name), calling_convention_name(fn_type_id.cc)));
+                    return ira->codegen->invalid_instruction;
+                }
+                param_info->type = param_type;
+                fn_type_id.next_param_index += 1;
+                return ir_const_type(ira, &instruction->base, get_generic_fn_type(ira->codegen, &fn_type_id));
+            case ReqCompTimeInvalid:
+                return ira->codegen->invalid_instruction;
+            case ReqCompTimeNo:
+                break;
+            }
+            if (!type_has_bits(param_type) && !calling_convention_allows_zig_types(fn_type_id.cc)) {
+                ir_add_error(ira, param_type_value,
+                    buf_sprintf("parameter of type '%s' has 0 bits; not allowed in function with calling convention '%s'",
+                        buf_ptr(&param_type->name), calling_convention_name(fn_type_id.cc)));
+                return ira->codegen->invalid_instruction;
+            }
+            param_info->type = param_type;
         }
 
-        IrInstruction *param_type_value = instruction->param_types[i]->child;
-        if (type_is_invalid(param_type_value->value.type))
-            return ira->codegen->invalid_instruction;
-        ConstExprValue *param_type_val = ir_resolve_const(ira, param_type_value, LazyOk);
-        if (param_type_val == nullptr)
-            return ira->codegen->invalid_instruction;
-        lazy_fn_type->param_types[i] = param_type_val;
     }
 
     if (instruction->align_value != nullptr) {
-        lazy_fn_type->align_val = ir_resolve_const(ira, instruction->align_value->child, LazyOk);
-        if (lazy_fn_type->align_val == nullptr)
+        if (!ir_resolve_align(ira, instruction->align_value->child, &fn_type_id.alignment))
             return ira->codegen->invalid_instruction;
     }
 
-    lazy_fn_type->return_type = ir_resolve_const(ira, instruction->return_type->child, LazyOk);
-    if (lazy_fn_type->return_type == nullptr)
+    IrInstruction *return_type_value = instruction->return_type->child;
+    fn_type_id.return_type = ir_resolve_type(ira, return_type_value);
+    if (type_is_invalid(fn_type_id.return_type))
         return ira->codegen->invalid_instruction;
+    if (fn_type_id.return_type->id == ZigTypeIdOpaque) {
+        ir_add_error(ira, instruction->return_type,
+            buf_sprintf("return type cannot be opaque"));
+        return ira->codegen->invalid_instruction;
+    }
 
-    if (proto_node->data.fn_proto.cc == CallingConventionAsync) {
+    if (fn_type_id.cc == CallingConventionAsync) {
         if (instruction->async_allocator_type_value == nullptr) {
             ir_add_error(ira, &instruction->base,
                 buf_sprintf("async fn proto missing allocator type"));
             return ira->codegen->invalid_instruction;
         }
-        lazy_fn_type->async_allocator_type = ir_resolve_const(ira, instruction->async_allocator_type_value->child, LazyOk);
-        if (lazy_fn_type->async_allocator_type == nullptr)
+        IrInstruction *async_allocator_type_value = instruction->async_allocator_type_value->child;
+        fn_type_id.async_allocator_type = ir_resolve_type(ira, async_allocator_type_value);
+        if (type_is_invalid(fn_type_id.async_allocator_type))
             return ira->codegen->invalid_instruction;
     }
 
-    return result;
+    return ir_const_type(ira, &instruction->base, get_fn_type(ira->codegen, &fn_type_id));
 }
 
 static IrInstruction *ir_analyze_instruction_test_comptime(IrAnalyze *ira, IrInstructionTestComptime *instruction) {
@@ -21756,11 +21587,8 @@ static Error buf_read_value_bytes(IrAnalyze *ira, CodeGen *codegen, AstNode *sou
                     val->type->data.vector.len);
         case ZigTypeIdEnum:
             switch (val->type->data.enumeration.layout) {
-                case ContainerLayoutAuto: {
-                    opt_ir_add_error_node(ira, codegen, source_node,
-                        buf_sprintf("compiler bug: TODO: implement enum byte reinterpretation"));
-                    return ErrorSemanticAnalyzeFail;
-                }
+                case ContainerLayoutAuto:
+                    zig_panic("TODO buf_read_value_bytes enum auto");
                 case ContainerLayoutPacked:
                     zig_panic("TODO buf_read_value_bytes enum packed");
                 case ContainerLayoutExtern: {
@@ -22056,7 +21884,7 @@ static IrInstruction *ir_analyze_instruction_decl_ref(IrAnalyze *ira,
     Tld *tld = instruction->tld;
     LVal lval = instruction->lval;
 
-    resolve_top_level_decl(ira->codegen, tld, instruction->base.source_node, true);
+    resolve_top_level_decl(ira->codegen, tld, instruction->base.source_node);
     if (tld->resolution == TldResolutionInvalid)
         return ira->codegen->invalid_instruction;
 

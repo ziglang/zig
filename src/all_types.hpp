@@ -256,7 +256,6 @@ enum ConstValSpecial {
     ConstValSpecialRuntime,
     ConstValSpecialStatic,
     ConstValSpecialUndef,
-    ConstValSpecialLazy,
 };
 
 enum RuntimeHintErrorUnion {
@@ -292,43 +291,6 @@ struct ConstGlobalRefs {
     LLVMValueRef llvm_global;
 };
 
-enum LazyValueId {
-    LazyValueIdInvalid,
-    LazyValueIdAlignOf,
-    LazyValueIdSliceType,
-    LazyValueIdFnType,
-};
-
-struct LazyValue {
-    LazyValueId id;
-    IrExecutable *exec;
-};
-
-struct LazyValueAlignOf {
-    LazyValue base;
-    ZigType *target_type;
-};
-
-struct LazyValueSliceType {
-    LazyValue base;
-    ZigType *elem_type;
-    ConstExprValue *align_val; // can be null
-    bool is_const;
-    bool is_volatile;
-    bool is_allowzero;
-};
-
-struct LazyValueFnType {
-    LazyValue base;
-    AstNode *proto_node;
-    ConstExprValue **param_types;
-    ConstExprValue *align_val; // can be null
-    ConstExprValue *return_type;
-    ConstExprValue *async_allocator_type;
-    bool is_generic;
-    bool is_var_args;
-};
-
 struct ConstExprValue {
     ZigType *type;
     ConstValSpecial special;
@@ -356,7 +318,6 @@ struct ConstExprValue {
         ConstPtrValue x_ptr;
         ConstArgTuple x_arg_tuple;
         Buf *x_enum_literal;
-        LazyValue *x_lazy;
 
         // populated if special == ConstValSpecialRuntime
         RuntimeHintErrorUnion rh_error_union;
@@ -398,7 +359,6 @@ enum TldResolution {
     TldResolutionUnresolved,
     TldResolutionResolving,
     TldResolutionInvalid,
-    TldResolutionOkLazy,
     TldResolutionOk,
 };
 
@@ -1104,8 +1064,7 @@ struct ZigTypeArray {
 
 struct TypeStructField {
     Buf *name;
-    ZigType *type_entry; // available after ResolveStatusSizeKnown
-    ConstExprValue *type_val; // available after ResolveStatusZeroBitsKnown
+    ZigType *type_entry;
     size_t src_index;
     size_t gen_index;
     size_t offset; // byte offset from beginning of struct

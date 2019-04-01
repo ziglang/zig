@@ -3358,8 +3358,6 @@ static bool value_is_all_undef_array(ConstExprValue *const_val, size_t len) {
 
 static bool value_is_all_undef(ConstExprValue *const_val) {
     switch (const_val->special) {
-        case ConstValSpecialLazy:
-            zig_unreachable();
         case ConstValSpecialRuntime:
             return false;
         case ConstValSpecialUndef:
@@ -5824,7 +5822,6 @@ static LLVMValueRef gen_const_ptr_union_recursive(CodeGen *g, ConstExprValue *un
 
 static LLVMValueRef pack_const_int(CodeGen *g, LLVMTypeRef big_int_type_ref, ConstExprValue *const_val) {
     switch (const_val->special) {
-        case ConstValSpecialLazy:
         case ConstValSpecialRuntime:
             zig_unreachable();
         case ConstValSpecialUndef:
@@ -6082,7 +6079,6 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
     assert(type_has_bits(type_entry));
 
     switch (const_val->special) {
-        case ConstValSpecialLazy:
         case ConstValSpecialRuntime:
             zig_unreachable();
         case ConstValSpecialUndef:
@@ -8249,7 +8245,7 @@ static void gen_root_source(CodeGen *g) {
         }
         Tld *panic_tld = find_decl(g, &get_container_scope(import_with_panic)->base, buf_create_from_str("panic"));
         assert(panic_tld != nullptr);
-        resolve_top_level_decl(g, panic_tld, nullptr, false);
+        resolve_top_level_decl(g, panic_tld, nullptr);
     }
 
 
