@@ -437,6 +437,7 @@ Error cache_hit(CacheHash *ch, Buf *out_digest) {
                 return ErrorCacheUnavailable;
             }
         }
+        os_file_close(ch->manifest_file);
         return return_code;
     }
     // Cache Hit
