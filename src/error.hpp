@@ -47,6 +47,11 @@ enum Error {
     ErrorUnknownOperatingSystem,
     ErrorUnknownABI,
     ErrorInvalidFilename,
+    ErrorDiskQuota,
+    ErrorDiskSpace,
+    ErrorUnexpectedWriteFailure,
+    ErrorUnexpectedSeekFailure,
+    ErrorUnexpectedFileTruncationFailure,
 };
 
 const char *err_str(Error err);

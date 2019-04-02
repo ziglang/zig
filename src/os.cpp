@@ -2048,9 +2048,9 @@ Error os_file_overwrite(OsFile file, Buf *contents) {
     return ErrorNone;
 #else
     if (lseek(file, 0, SEEK_SET) == -1)
-        return ErrorFileSystem;
+        return ErrorUnexpectedSeekFailure;
     if (ftruncate(file, 0) == -1)
-        return ErrorFileSystem;
+        return ErrorUnexpectedFileTruncationFailure;
     for (;;) {
         if (write(file, buf_ptr(contents), buf_len(contents)) == -1) {
             switch (errno) {
@@ -2060,8 +2060,20 @@ Error os_file_overwrite(OsFile file, Buf *contents) {
                     zig_unreachable();
                 case EBADF:
                     zig_unreachable();
-                default:
+                case EFAULT:
+                    zig_unreachable();
+                case EDQUOT:
+                    return ErrorDiskQuota;
+                case ENOSPC:
+                    return ErrorDiskSpace;
+                case EFBIG:
+                    return ErrorFileTooBig;
+                case EIO:
                     return ErrorFileSystem;
+                case EPERM:
+                    return ErrorAccess;
+                default:
+                    return ErrorUnexpectedWriteFailure;
             }
         }
         return ErrorNone;

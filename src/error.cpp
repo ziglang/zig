@@ -45,6 +45,11 @@ const char *err_str(Error err) {
         case ErrorUnknownOperatingSystem: return "unrecognized operating system";
         case ErrorUnknownABI: return "unrecognized C ABI";
         case ErrorInvalidFilename: return "invalid filename";
+        case ErrorDiskQuota: return "disk space quota exceeded";
+        case ErrorDiskSpace: return "out of disk space";
+        case ErrorUnexpectedWriteFailure: return "unexpected write failure";
+        case ErrorUnexpectedSeekFailure: return "unexpected seek failure";
+        case ErrorUnexpectedFileTruncationFailure: return "unexpected file truncation failure";
     }
     return "(invalid error)";
 }
