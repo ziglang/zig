@@ -1079,6 +1079,8 @@ enum ResolveStatus {
     ResolveStatusZeroBitsKnown,
     ResolveStatusAlignmentKnown,
     ResolveStatusSizeKnown,
+    ResolveStatusLLVMFwdDecl,
+    ResolveStatusLLVMFull,
 };
 
 struct ZigPackage {
