@@ -1731,7 +1731,7 @@ static Error resolve_union_alignment(CodeGen *g, ZigType *union_type) {
             union_type->data.unionation.reported_infinite_err = true;
             union_type->data.unionation.resolve_status = ResolveStatusInvalid;
             ErrorMsg *msg = add_node_error(g, decl_node,
-                    buf_sprintf("union '%s' depends on its own alignment", buf_ptr(&union_type->name)));
+                    buf_sprintf("union '%s' contains itself", buf_ptr(&union_type->name)));
             emit_error_notes_for_ref_stack(g, msg);
         }
         return ErrorSemanticAnalyzeFail;
@@ -2225,7 +2225,7 @@ static Error resolve_struct_alignment(CodeGen *g, ZigType *struct_type) {
         if (struct_type->data.structure.resolve_status != ResolveStatusInvalid) {
             struct_type->data.structure.resolve_status = ResolveStatusInvalid;
             ErrorMsg *msg = add_node_error(g, decl_node,
-                buf_sprintf("struct '%s' depends on its own alignment", buf_ptr(&struct_type->name)));
+                buf_sprintf("struct '%s' contains itself", buf_ptr(&struct_type->name)));
             emit_error_notes_for_ref_stack(g, msg);
         }
         return ErrorSemanticAnalyzeFail;

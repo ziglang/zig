@@ -6737,6 +6737,9 @@ static void do_code_gen(CodeGen *g) {
         if (have_err_ret_trace_stack) {
             ZigType *array_type = get_array_type(g, g->builtin_types.entry_usize, stack_trace_ptr_count);
             err_ret_array_val = build_alloca(g, array_type, "error_return_trace_addresses", get_abi_alignment(g, array_type));
+
+            // populate g->stack_trace_type
+            (void)get_ptr_to_stack_trace_type(g);
             g->cur_err_ret_trace_val_stack = build_alloca(g, g->stack_trace_type, "error_return_trace", get_abi_alignment(g, g->stack_trace_type));
         } else {
             g->cur_err_ret_trace_val_stack = nullptr;
