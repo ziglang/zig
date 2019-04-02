@@ -866,17 +866,39 @@ test "fmt.parseFloat" {
     _ = @import("fmt/parse_float.zig");
 }
 
-pub fn charToDigit(c: u8, radix: u8) (error{InvalidCharacter}!u8) {
-    const value = switch (c) {
-        '0'...'9' => c - '0',
-        'A'...'Z' => c - 'A' + 10,
-        'a'...'z' => c - 'a' + 10,
-        else => return error.InvalidCharacter,
-    };
+// TODO This is not inside charToDigit() due to a bug https://github.com/ziglang/zig/issues/2128#issuecomment-477877639
+const NOT = 0xff;
+const swtch = []u8{
+//  All XDigit code points in this table are in their place in this ASCII+128 table.
+//    0,   1,   2,   3,   4,   5,   6,   7,   8,   9,  10,  11,  12,  13,  14,  15
+    NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT,
+    NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT,
+    NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT,
+      0,   1,   2,   3,   4,   5,   6,   7,   8,   9, NOT, NOT, NOT, NOT, NOT, NOT,
 
+    NOT, 0xA, 0xB, 0xC, 0xD, 0xE, 0xF,  16,  17,  18,  19,  20,  21,  22,  23,  24,
+     25,  26,  27,  28,  29,  30,  31,  32,  33,  34,  35, NOT, NOT, NOT, NOT, NOT,
+    NOT, 0xa, 0xb, 0xc, 0xd, 0xe, 0xf,  16,  17,  18,  19,  20,  21,  22,  23,  24,
+     25,  26,  27,  28,  29,  30,  31,  32,  33,  34,  35, NOT, NOT, NOT, NOT, NOT,
+
+    NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT,
+    NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT,
+    NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT,
+    NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT,
+
+    NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT,
+    NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT,
+    NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT,
+    NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT, NOT,
+};
+
+pub fn charToDigit(c: u8, radix: u8) (error{InvalidCharacter}!u6) {
+    @import("std").debug.assert(radix <= 36);
+
+    const value = swtch[c];
     if (value >= radix) return error.InvalidCharacter;
 
-    return value;
+    return @intCast(u6, value);
 }
 
 fn digitToChar(digit: u8, uppercase: bool) u8 {
@@ -1431,7 +1453,7 @@ pub fn hexToBytes(out: []u8, input: []const u8) !void {
     while (in_i != input.len) : (in_i += 2) {
         const hi = try charToDigit(input[in_i], 16);
         const lo = try charToDigit(input[in_i + 1], 16);
-        out[in_i / 2] = (hi << 4) | lo;
+        out[in_i / 2] = (u8(hi) << 4) | u8(lo);
     }
 }
 
