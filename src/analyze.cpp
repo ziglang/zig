@@ -6653,6 +6653,9 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
         if (!type_has_bits(union_field->type_entry))
             continue;
 
+        ZigLLVMDIType *field_di_type = get_llvm_di_type(g, union_field->type_entry);
+        if (union_type->data.unionation.resolve_status >= wanted_resolve_status) return;
+
         uint64_t store_size_in_bits = union_field->type_entry->size_in_bits;
         uint64_t abi_align_in_bits = 8*union_field->type_entry->abi_align;
         AstNode *field_node = decl_node->data.container_decl.fields.at(i);
@@ -6662,7 +6665,7 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
                 store_size_in_bits,
                 abi_align_in_bits,
                 0,
-                0, get_llvm_di_type(g, union_field->type_entry));
+                0, field_di_type);
 
     }
 
@@ -6670,8 +6673,6 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
         assert(most_aligned_union_member != nullptr);
 
         size_t padding_bytes = union_type->data.unionation.union_abi_size - most_aligned_union_member->abi_size;
-        (void)get_llvm_type(g, most_aligned_union_member);
-        if (union_type->data.unionation.resolve_status >= wanted_resolve_status) return;
         if (padding_bytes > 0) {
             ZigType *u8_type = get_int_type(g, false, 8);
             ZigType *padding_array = get_array_type(g, u8_type, padding_bytes);
