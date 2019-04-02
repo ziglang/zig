@@ -6443,6 +6443,16 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
     size_t first_packed_bits_offset_misalign = SIZE_MAX;
     size_t debug_field_count = 0;
 
+    // trigger all the recursive get_llvm_type calls
+    for (size_t i = 0; i < field_count; i += 1) {
+        TypeStructField *type_struct_field = &struct_type->data.structure.fields[i];
+        ZigType *field_type = type_struct_field->type_entry;
+        if (!type_has_bits(field_type))
+            continue;
+        (void)get_llvm_type(g, field_type);
+        if (struct_type->data.structure.resolve_status >= wanted_resolve_status) return;
+    }
+
     for (size_t i = 0; i < field_count; i += 1) {
         TypeStructField *type_struct_field = &struct_type->data.structure.fields[i];
         ZigType *field_type = type_struct_field->type_entry;
@@ -6661,6 +6671,7 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
 
         size_t padding_bytes = union_type->data.unionation.union_abi_size - most_aligned_union_member->abi_size;
         (void)get_llvm_type(g, most_aligned_union_member);
+        if (union_type->data.unionation.resolve_status >= wanted_resolve_status) return;
         if (padding_bytes > 0) {
             ZigType *u8_type = get_int_type(g, false, 8);
             ZigType *padding_array = get_array_type(g, u8_type, padding_bytes);
