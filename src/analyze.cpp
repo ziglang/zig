@@ -343,8 +343,9 @@ ZigType *get_promise_type(CodeGen *g, ZigType *result_type) {
     }
 
     ZigType *entry = new_type_table_entry(ZigTypeIdPromise);
-    entry->abi_size = g->pointer_size_bytes;
-    entry->size_in_bits = g->pointer_size_bytes * 8;
+    entry->abi_size = g->builtin_types.entry_usize->abi_size;
+    entry->size_in_bits = g->builtin_types.entry_usize->size_in_bits;
+    entry->abi_align = g->builtin_types.entry_usize->abi_align;
     entry->data.promise.result_type = result_type;
     buf_init_from_str(&entry->name, "promise");
     if (result_type != nullptr) {
@@ -775,9 +776,6 @@ ZigType *get_bound_fn_type(CodeGen *g, ZigFn *fn_entry) {
 
     ZigType *bound_fn_type = new_type_table_entry(ZigTypeIdBoundFn);
     bound_fn_type->data.bound_fn.fn_type = fn_type;
-    bound_fn_type->abi_size = 0;
-    bound_fn_type->size_in_bits = 0;
-    bound_fn_type->abi_align = 0;
 
     buf_resize(&bound_fn_type->name, 0);
     buf_appendf(&bound_fn_type->name, "(bound %s)", buf_ptr(&fn_type->name));
@@ -1248,6 +1246,9 @@ ZigType *get_auto_err_set_type(CodeGen *g, ZigFn *fn_entry) {
     err_set_type->data.error_set.err_count = 0;
     err_set_type->data.error_set.errors = nullptr;
     err_set_type->data.error_set.infer_fn = fn_entry;
+    err_set_type->size_in_bits = g->builtin_types.entry_global_error_set->size_in_bits;
+    err_set_type->abi_align = g->builtin_types.entry_global_error_set->abi_align;
+    err_set_type->abi_size = g->builtin_types.entry_global_error_set->abi_size;
 
     return err_set_type;
 }
@@ -1597,7 +1598,16 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
 
     uint32_t *host_int_bytes = packed ? allocate<uint32_t>(struct_type->data.structure.gen_field_count) : nullptr;
 
-    // Compute offsets for all the fields.
+    // Resolve sizes of all the field types. Done before the offset loop because the offset
+    // loop has to look ahead.
+    for (size_t i = 0; i < field_count; i += 1) {
+        TypeStructField *field = &struct_type->data.structure.fields[i];
+        if ((err = type_resolve(g, field->type_entry, ResolveStatusSizeKnown))) {
+            struct_type->data.structure.resolve_status = ResolveStatusInvalid;
+            return ErrorSemanticAnalyzeFail;
+        }
+    }
+
     size_t packed_bits_offset = 0;
     size_t next_offset = 0;
     size_t first_packed_bits_offset_misalign = SIZE_MAX;
@@ -1739,6 +1749,7 @@ static Error resolve_union_alignment(CodeGen *g, ZigType *union_type) {
     // unset temporary flag
     union_type->data.unionation.resolve_loop_flag = false;
     union_type->data.unionation.resolve_status = ResolveStatusAlignmentKnown;
+    union_type->data.unionation.most_aligned_union_member = most_aligned_union_member;
 
     ZigType *tag_type = union_type->data.unionation.tag_type;
     if (tag_type != nullptr && type_has_bits(tag_type)) {
@@ -1788,6 +1799,7 @@ static Error resolve_union_type(CodeGen *g, ZigType *union_type) {
     assert(decl_node->type == NodeTypeContainerDecl);
 
     uint32_t field_count = union_type->data.unionation.src_field_count;
+    ZigType *most_aligned_union_member = union_type->data.unionation.most_aligned_union_member;
 
     assert(union_type->data.unionation.fields);
 
@@ -1827,13 +1839,18 @@ static Error resolve_union_type(CodeGen *g, ZigType *union_type) {
         union_size_in_bits = max(union_size_in_bits, field_type->size_in_bits);
     }
 
+    // The union itself for now has to be treated as being independently aligned.
+    // See https://github.com/ziglang/zig/issues/2166.
+    if (most_aligned_union_member != nullptr) {
+        union_abi_size = align_forward(union_abi_size, most_aligned_union_member->abi_align);
+    }
+
     // unset temporary flag
     union_type->data.unionation.resolve_loop_flag = false;
     union_type->data.unionation.resolve_status = ResolveStatusSizeKnown;
     union_type->data.unionation.union_abi_size = union_abi_size;
 
     ZigType *tag_type = union_type->data.unionation.tag_type;
-    ZigType *most_aligned_union_member = union_type->data.unionation.most_aligned_union_member;
     if (tag_type != nullptr && type_has_bits(tag_type)) {
         if ((err = type_resolve(g, tag_type, ResolveStatusSizeKnown))) {
             union_type->data.unionation.resolve_status = ResolveStatusInvalid;
@@ -6340,16 +6357,25 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type) {
     struct_type->llvm_type = type_has_bits(struct_type) ?
         LLVMStructCreateNamed(LLVMGetGlobalContext(), buf_ptr(&struct_type->name)) : LLVMVoidType();
     AstNode *decl_node = struct_type->data.structure.decl_node;
-    assert(decl_node->type == NodeTypeContainerDecl);
-    Scope *scope = &struct_type->data.structure.decls_scope->base;
-    ZigType *import = get_scope_import(scope);
+    ZigLLVMDIFile *di_file;
+    ZigLLVMDIScope *di_scope;
+    unsigned line;
+    if (decl_node != nullptr) {
+        assert(decl_node->type == NodeTypeContainerDecl);
+        Scope *scope = &struct_type->data.structure.decls_scope->base;
+        ZigType *import = get_scope_import(scope);
+        di_file = import->data.structure.root_struct->di_file;
+        di_scope = ZigLLVMFileToScope(di_file);
+        line = decl_node->line + 1;
+    } else {
+        di_file = nullptr;
+        di_scope = ZigLLVMCompileUnitToScope(g->compile_unit);
+        line = 0;
+    }
     unsigned dwarf_kind = ZigLLVMTag_DW_structure_type();
     struct_type->llvm_di_type = ZigLLVMCreateReplaceableCompositeType(g->dbuilder,
         dwarf_kind, buf_ptr(&struct_type->name),
-        ZigLLVMFileToScope(import->data.structure.root_struct->di_file),
-        import->data.structure.root_struct->di_file, (unsigned)(decl_node->line + 1));
-
-
+        di_scope, di_file, line);
 
     size_t field_count = struct_type->data.structure.src_field_count;
     size_t gen_field_count = struct_type->data.structure.gen_field_count;
@@ -6412,7 +6438,6 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type) {
     ZigLLVMDIType **di_element_types = allocate<ZigLLVMDIType*>(debug_field_count);
     size_t debug_field_index = 0;
     for (size_t i = 0; i < field_count; i += 1) {
-        AstNode *field_node = decl_node->data.container_decl.fields.at(i);
         TypeStructField *type_struct_field = &struct_type->data.structure.fields[i];
         size_t gen_field_index = type_struct_field->gen_index;
         if (gen_field_index == SIZE_MAX) {
@@ -6445,9 +6470,16 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type) {
             debug_align_in_bits = 8 * field_type->abi_align;
             debug_offset_in_bits = 8 * type_struct_field->offset;
         }
+        unsigned line;
+        if (decl_node != nullptr) {
+            AstNode *field_node = decl_node->data.container_decl.fields.at(i);
+            line = field_node->line + 1;
+        } else {
+            line = 0;
+        }
         di_element_types[debug_field_index] = ZigLLVMCreateDebugMemberType(g->dbuilder,
                 ZigLLVMTypeToScope(struct_type->llvm_di_type), buf_ptr(type_struct_field->name),
-                import->data.structure.root_struct->di_file, (unsigned)(field_node->line + 1),
+                di_file, line,
                 debug_size_in_bits,
                 debug_align_in_bits,
                 debug_offset_in_bits,
@@ -6459,9 +6491,9 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type) {
     uint64_t debug_size_in_bits = get_store_size_in_bits(struct_type->size_in_bits);
     uint64_t debug_align_in_bits = 8*struct_type->abi_align;
     ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugStructType(g->dbuilder,
-            ZigLLVMFileToScope(import->data.structure.root_struct->di_file),
+            di_scope,
             buf_ptr(&struct_type->name),
-            import->data.structure.root_struct->di_file, (unsigned)(decl_node->line + 1),
+            di_file, line,
             debug_size_in_bits,
             debug_align_in_bits,
             0, nullptr, di_element_types, (int)debug_field_count, 0, nullptr, "");
@@ -6512,19 +6544,14 @@ static void resolve_llvm_types_enum(CodeGen *g, ZigType *enum_type) {
 static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type) {
     ZigType *most_aligned_union_member = union_type->data.unionation.most_aligned_union_member;
     ZigType *tag_type = union_type->data.unionation.tag_type;
-    if (tag_type == nullptr || !type_has_bits(tag_type)) {
-        assert(most_aligned_union_member != nullptr);
-        assert(union_type->data.unionation.union_abi_size >= most_aligned_union_member->abi_size);
-        union_type->llvm_type = get_llvm_type(g, most_aligned_union_member);
-        union_type->llvm_di_type = get_llvm_di_type(g, most_aligned_union_member);
-        return;
-    }
     if (most_aligned_union_member == nullptr) {
         union_type->llvm_type = get_llvm_type(g, tag_type);
         union_type->llvm_di_type = get_llvm_di_type(g, tag_type);
         return;
     }
 
+    // Do this first for the benefit of recursive calls.
+    union_type->llvm_type = LLVMStructCreateNamed(LLVMGetGlobalContext(), buf_ptr(&union_type->name));
     Scope *scope = &union_type->data.unionation.decls_scope->base;
     ZigType *import = get_scope_import(scope);
     AstNode *decl_node = union_type->data.unionation.decl_node;
@@ -6534,6 +6561,7 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type) {
         dwarf_kind, buf_ptr(&union_type->name),
         ZigLLVMFileToScope(import->data.structure.root_struct->di_file),
         import->data.structure.root_struct->di_file, (unsigned)(line + 1));
+
 
     uint32_t gen_field_count = union_type->data.unionation.gen_field_count;
     ZigLLVMDIType **union_inner_di_types = allocate<ZigLLVMDIType*>(gen_field_count);
@@ -6555,7 +6583,40 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type) {
                 0, get_llvm_di_type(g, union_field->type_entry));
 
     }
-    union_type->llvm_type = LLVMStructCreateNamed(LLVMGetGlobalContext(), buf_ptr(&union_type->name));
+
+    if (tag_type == nullptr || !type_has_bits(tag_type)) {
+        assert(most_aligned_union_member != nullptr);
+
+        size_t padding_bytes = union_type->data.unionation.union_abi_size - most_aligned_union_member->abi_size;
+        (void)get_llvm_type(g, most_aligned_union_member);
+        if (padding_bytes > 0) {
+            ZigType *u8_type = get_int_type(g, false, 8);
+            ZigType *padding_array = get_array_type(g, u8_type, padding_bytes);
+            LLVMTypeRef union_element_types[] = {
+                most_aligned_union_member->llvm_type,
+                get_llvm_type(g, padding_array),
+            };
+            LLVMStructSetBody(union_type->llvm_type, union_element_types, 2, false);
+        } else {
+            LLVMStructSetBody(union_type->llvm_type, &most_aligned_union_member->llvm_type, 1, false);
+        }
+        union_type->data.unionation.union_llvm_type = union_type->llvm_type;
+        union_type->data.unionation.gen_tag_index = SIZE_MAX;
+        union_type->data.unionation.gen_union_index = SIZE_MAX;
+
+        // create debug type for union
+        ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugUnionType(g->dbuilder,
+            ZigLLVMFileToScope(import->data.structure.root_struct->di_file), buf_ptr(&union_type->name),
+            import->data.structure.root_struct->di_file, (unsigned)(decl_node->line + 1),
+            union_type->data.unionation.union_abi_size * 8,
+            most_aligned_union_member->abi_align * 8,
+            0, union_inner_di_types,
+            gen_field_count, 0, "");
+
+        ZigLLVMReplaceTemporary(g->dbuilder, union_type->llvm_di_type, replacement_di_type);
+        union_type->llvm_di_type = replacement_di_type;
+        return;
+    }
 
     LLVMTypeRef union_type_ref;
     size_t padding_bytes = union_type->data.unionation.union_abi_size - most_aligned_union_member->abi_size;
@@ -7018,8 +7079,8 @@ LLVMTypeRef get_llvm_type(CodeGen *g, ZigType *type) {
     resolve_llvm_types(g, type);
     assert(type->llvm_type != nullptr);
     assert(type->llvm_di_type != nullptr);
-    assert(type->abi_size == LLVMABISizeOfType(g->target_data_ref, type->llvm_type));
-    assert(type->abi_align == LLVMABIAlignmentOfType(g->target_data_ref, type->llvm_type));
+    assert(type->abi_size == 0 || type->abi_size == LLVMABISizeOfType(g->target_data_ref, type->llvm_type));
+    assert(type->abi_align == 0 || type->abi_align == LLVMABIAlignmentOfType(g->target_data_ref, type->llvm_type));
     return type->llvm_type;
 }
 
@@ -7029,7 +7090,7 @@ ZigLLVMDIType *get_llvm_di_type(CodeGen *g, ZigType *type) {
     resolve_llvm_types(g, type);
     assert(type->llvm_type != nullptr);
     assert(type->llvm_di_type != nullptr);
-    assert(type->abi_size == LLVMABISizeOfType(g->target_data_ref, type->llvm_type));
-    assert(type->abi_align == LLVMABIAlignmentOfType(g->target_data_ref, type->llvm_type));
+    assert(type->abi_size == 0 || type->abi_size == LLVMABISizeOfType(g->target_data_ref, type->llvm_type));
+    assert(type->abi_align == 0 || type->abi_align == LLVMABIAlignmentOfType(g->target_data_ref, type->llvm_type));
     return type->llvm_di_type;
 }

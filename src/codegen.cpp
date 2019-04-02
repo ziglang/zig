@@ -498,6 +498,8 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, ZigFn *fn_table_entry) {
             } else {
                 assert(entry->value->id == TldIdFn);
                 TldFn *tld_fn = reinterpret_cast<TldFn *>(entry->value);
+                // Make the raw_type_ref populated
+                (void)get_llvm_type(g, tld_fn->fn_entry->type_entry);
                 tld_fn->fn_entry->llvm_value = LLVMAddFunction(g->module, buf_ptr(symbol_name),
                         tld_fn->fn_entry->type_entry->data.fn.raw_type_ref);
                 fn_table_entry->llvm_value = LLVMConstBitCast(tld_fn->fn_entry->llvm_value,
@@ -6292,13 +6294,8 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
         }
         case ZigTypeIdUnion:
             {
-                BREAKPOINT; // TODO rework this logic to take into account the new layout
-
                 // Force type_entry->data.unionation.union_llvm_type to get resolved
                 (void)get_llvm_type(g, type_entry);
-
-                LLVMTypeRef union_type_ref = type_entry->data.unionation.union_llvm_type;
-                assert(union_type_ref != nullptr);
 
                 if (type_entry->data.unionation.gen_field_count == 0) {
                     if (type_entry->data.unionation.tag_type == nullptr) {
@@ -6308,6 +6305,9 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
                             &const_val->data.x_union.tag);
                     }
                 }
+
+                LLVMTypeRef union_type_ref = type_entry->data.unionation.union_llvm_type;
+                assert(union_type_ref != nullptr);
 
                 LLVMValueRef union_value_ref;
                 bool make_unnamed_struct;
@@ -7740,8 +7740,15 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     buf_appendf(contents, "pub const valgrind_support = %s;\n", bool_to_str(want_valgrind_support(g)));
     buf_appendf(contents, "pub const position_independent_code = %s;\n", bool_to_str(g->have_pic));
 
-    buf_appendf(contents, "pub const __zig_test_fn_slice = {}; // overwritten later\n");
-
+    if (g->is_test_build) {
+        buf_appendf(contents,
+            "const TestFn = struct {\n"
+                "name: []const u8,\n"
+                "func: fn()anyerror!void,\n"
+            "};\n"
+            "pub const test_functions = {}; // overwritten later\n"
+        );
+    }
 
     return contents;
 }
@@ -8148,6 +8155,8 @@ static ZigPackage *create_panic_pkg(CodeGen *g) {
 }
 
 static void create_test_compile_var_and_add_test_runner(CodeGen *g) {
+    Error err;
+
     assert(g->is_test_build);
 
     if (g->test_fns.length == 0) {
@@ -8155,14 +8164,13 @@ static void create_test_compile_var_and_add_test_runner(CodeGen *g) {
         exit(0);
     }
 
-    ZigType *u8_ptr_type = get_pointer_to_type_extra(g, g->builtin_types.entry_u8, true, false,
-            PtrLenUnknown, get_abi_alignment(g, g->builtin_types.entry_u8), 0, 0, false);
-    ZigType *str_type = get_slice_type(g, u8_ptr_type);
     ZigType *fn_type = get_test_fn_type(g);
 
-    const char *field_names[] = { "name", "func", };
-    ZigType *field_types[] = { str_type, fn_type, };
-    ZigType *struct_type = get_struct_type(g, "ZigTestFn", field_names, field_types, 2);
+    ConstExprValue *test_fn_type_val = get_builtin_value(g, "TestFn");
+    assert(test_fn_type_val->type->id == ZigTypeIdMetaType);
+    ZigType *struct_type = test_fn_type_val->data.x_type;
+    if ((err = type_resolve(g, struct_type, ResolveStatusSizeKnown)))
+        zig_unreachable();
 
     ConstExprValue *test_fn_array = create_const_vals(1);
     test_fn_array->type = get_array_type(g, struct_type, g->test_fns.length);
@@ -8194,7 +8202,7 @@ static void create_test_compile_var_and_add_test_runner(CodeGen *g) {
 
     ConstExprValue *test_fn_slice = create_const_slice(g, test_fn_array, 0, g->test_fns.length, true);
 
-    update_compile_var(g, buf_create_from_str("__zig_test_fn_slice"), test_fn_slice);
+    update_compile_var(g, buf_create_from_str("test_functions"), test_fn_slice);
     g->test_runner_package = create_test_runner_pkg(g);
     g->test_runner_import = add_special_code(g, g->test_runner_package, "test_runner.zig");
 }

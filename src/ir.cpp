@@ -8945,11 +8945,9 @@ static ZigType *get_error_set_intersection(IrAnalyze *ira, ZigType *set1, ZigTyp
 
     err_set_type->data.error_set.err_count = intersection_list.length;
     err_set_type->data.error_set.errors = intersection_list.items;
-    if (intersection_list.length != 0) {
-        err_set_type->size_in_bits = ira->codegen->builtin_types.entry_global_error_set->size_in_bits;
-        err_set_type->abi_align = ira->codegen->builtin_types.entry_global_error_set->abi_align;
-        err_set_type->abi_size = ira->codegen->builtin_types.entry_global_error_set->abi_size;
-    }
+    err_set_type->size_in_bits = ira->codegen->builtin_types.entry_global_error_set->size_in_bits;
+    err_set_type->abi_align = ira->codegen->builtin_types.entry_global_error_set->abi_align;
+    err_set_type->abi_size = ira->codegen->builtin_types.entry_global_error_set->abi_size;
 
     buf_appendf(&err_set_type->name, "}");
 
