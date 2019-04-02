@@ -6576,9 +6576,24 @@ static void resolve_llvm_types_enum(CodeGen *g, ZigType *enum_type) {
     assert(enum_type->data.enumeration.complete);
     if (enum_type->llvm_di_type != nullptr) return;
 
+    Scope *scope = &enum_type->data.enumeration.decls_scope->base;
+    ZigType *import = get_scope_import(scope);
+    AstNode *decl_node = enum_type->data.enumeration.decl_node;
+
     if (!type_has_bits(enum_type)) {
         enum_type->llvm_type = g->builtin_types.entry_void->llvm_type;
-        enum_type->llvm_di_type = g->builtin_types.entry_void->llvm_di_type;
+
+        uint64_t debug_size_in_bits = 0;
+        uint64_t debug_align_in_bits = 0;
+        ZigLLVMDIType **di_element_types = nullptr;
+        size_t debug_field_count = 0;
+        enum_type->llvm_di_type = ZigLLVMCreateDebugStructType(g->dbuilder,
+                ZigLLVMFileToScope(import->data.structure.root_struct->di_file),
+                buf_ptr(&enum_type->name),
+                import->data.structure.root_struct->di_file, (unsigned)(decl_node->line + 1),
+                debug_size_in_bits,
+                debug_align_in_bits,
+                0, nullptr, di_element_types, (int)debug_field_count, 0, nullptr, "");
         return;
     }
 
@@ -6586,9 +6601,6 @@ static void resolve_llvm_types_enum(CodeGen *g, ZigType *enum_type) {
 
     assert(enum_type->data.enumeration.fields);
     ZigLLVMDIEnumerator **di_enumerators = allocate<ZigLLVMDIEnumerator*>(field_count);
-
-    Scope *scope = &enum_type->data.enumeration.decls_scope->base;
-    ZigType *import = get_scope_import(scope);
 
     for (uint32_t i = 0; i < field_count; i += 1) {
         TypeEnumField *enum_field = &enum_type->data.enumeration.fields[i];
@@ -6603,7 +6615,6 @@ static void resolve_llvm_types_enum(CodeGen *g, ZigType *enum_type) {
     enum_type->llvm_type = get_llvm_type(g, tag_int_type);
 
     // create debug type for tag
-    AstNode *decl_node = enum_type->data.enumeration.decl_node;
     uint64_t tag_debug_size_in_bits = tag_int_type->size_in_bits;
     uint64_t tag_debug_align_in_bits = 8*tag_int_type->abi_align;
     ZigLLVMDIType *tag_di_type = ZigLLVMCreateDebugEnumerationType(g->dbuilder,
