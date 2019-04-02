@@ -1,5 +1,4 @@
 // Does NOT look at the locale the way C89's toupper(3), isspace() et cetera does.
-// I could have taken only a u7 to make this clear, but it would be slower
 // It is my opinion that encodings other than UTF-8 should not be supported.
 //
 // (and 128 bytes is not much to pay).
@@ -7,23 +6,26 @@
 //
 // https://upload.wikimedia.org/wikipedia/commons/thumb/c/cf/USASCII_code_chart.png/1200px-USASCII_code_chart.png
 
-const tIndex = enum(u3) {
-    Alpha,
-    Hex,
-    Space,
-    Digit,
-    Lower,
-    Upper,
-    // Ctrl, < 0x20 || == DEL
-    // Print, = Graph || == ' '. NOT '\t' et cetera
-    Punct,
+const tIndex = enum(u4) {
+    Alpha, // Lower or Upper
+    Hex, // Digit or 'a'...'f' or 'A'...'F'
+    Space, // ' ', Form-feed, '\n', '\r', '\t', '\v' Vertical Tab
+    Digit, // '0'...'9'
+    Lower, // 'a'...'z'
+    Upper, // 'A'...'Z'
+    Punct, // ASCII and !DEL and !AlNum
     Graph,
+    // AlNum Alpha or Digit
+    // Table 2
+    Cntrl,// Ctrl, < 0x20 or == DEL
+    Print,// Print, = Graph or == ' '. NOT '\t' et cetera. Same as if (Ascii) !Cntrl else false
+    Blank, //isBlank, == ' ' or == '\t' Horizontal Tab
+    Zig, // !Cntrl or '\n' or UTF8
     //ASCII, | ~0b01111111
-    //isBlank, == ' ' || == '\x09'
 };
 
-const combinedTable = init: {
-    comptime var table: [256]u8 = undefined;
+const combinedTable: [512]u8 = init: {
+    comptime var table: [512]u8 = undefined;
 
     const std = @import("std");
     const mem = std.mem;
@@ -125,6 +127,68 @@ const combinedTable = init: {
         1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
     };
 
+    const cntrl = []u1{
+    //  0, 1, 2, 3, 4, 5, 6, 7 ,8, 9,10,11,12,13,14,15
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+    };
+    const print = []u1{
+    //  0, 1, 2, 3, 4, 5, 6, 7 ,8, 9,10,11,12,13,14,15
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
+    };
+    const blank = []u1{
+    //  0, 1, 2, 3, 4, 5, 6, 7 ,8, 9,10,11,12,13,14,15
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    };
+    // https://ziglang.org/documentation/master/#Source-Encoding
+    // or doc/langref.html.in
+    const zig = []u1{
+    //  0, 1, 2, 3, 4, 5, 6, 7 ,8, 9,10,11,12,13,14,15
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, // '\n'
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, // DEL
+
+        // utf8 continuation characters
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+
+        0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // Surrogate pairs
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 21-bit limit
+    };
+
     comptime var i = 0;
     inline while (i < 128) : (i += 1) {
         table[i] =
@@ -138,11 +202,30 @@ const combinedTable = init: {
             u8(graph[i]) << @enumToInt(tIndex.Graph);
     }
     mem.set(u8, table[128..256], 0);
+    i = 0;
+    inline while (i < 128) : (i += 1) {
+        table[i + 256] =
+            u8(cntrl[i]) << @truncate(u3, @enumToInt(tIndex.Cntrl) % 8) |
+            u8(print[i]) << @truncate(u3, @enumToInt(tIndex.Print) % 8) |
+            u8(blank[i]) << @truncate(u3, @enumToInt(tIndex.Blank) % 8);
+    }
+    mem.set(u8, table[256 + 128..], 0);
+    i = 0;
+    inline while (i < 256) : (i += 1) {
+        table[i + 256] |=
+            u8(zig[i]) << @truncate(u3, @enumToInt(tIndex.Zig) % 8);
+    }
     break :init table;
 };
 
 fn inTable(c: u8, t: tIndex) bool {
-    return (combinedTable[c] & (u8(1) << @enumToInt(t))) != 0;
+    var index = @enumToInt(t);
+    if (index <= 7) {
+        return (combinedTable[c] & (u8(1) << @truncate(u3, (index)))) != 0;
+    } else if (index <= 15) {
+        index %= 8;
+        return (combinedTable[u9(c) + 256] & (u8(1) << @truncate(u3, index % 8))) != 0;
+    } else unreachable;
 }
 
 pub fn isAlNum(c: u8) bool {
@@ -155,7 +238,7 @@ pub fn isAlpha(c: u8) bool {
 }
 
 pub fn isCntrl(c: u8) bool {
-    return c < 0x20 or c == 127; //DEL
+    return inTable(c, tIndex.Cntrl);
 }
 
 pub fn isDigit(c: u8) bool {
@@ -171,7 +254,7 @@ pub fn isLower(c: u8) bool {
 }
 
 pub fn isPrint(c: u8) bool {
-    return inTable(c, tIndex.Graph) or c == ' ';
+    return iGraph(c) or c == ' ';
 }
 
 pub fn isPunct(c: u8) bool {
@@ -195,7 +278,11 @@ pub fn isASCII(c: u8) bool {
 }
 
 pub fn isBlank(c: u8) bool {
-    return (c == ' ') or (c == '\x09');
+    return inTable(c, tIndex.Blank);
+}
+
+pub fn isZig(c: u8) bool {
+    return inTable(c, tIndex.Zig);
 }
 
 pub fn toUpper(c: u8) u8 {
