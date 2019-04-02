@@ -3566,7 +3566,9 @@ static LLVMValueRef ir_render_elem_ptr(CodeGen *g, IrExecutable *executable, IrI
         return LLVMBuildInBoundsGEP(g->builder, array_ptr, indices, 1, "");
     } else if (array_type->id == ZigTypeIdStruct) {
         assert(array_type->data.structure.is_slice);
-        if (!type_has_bits(instruction->base.value.type)) {
+
+        ZigType *ptr_type = instruction->base.value.type;
+        if (!type_has_bits(ptr_type)) {
             if (safety_check_on) {
                 assert(LLVMGetTypeKind(LLVMTypeOf(array_ptr)) == LLVMIntegerTypeKind);
                 add_bounds_check(g, subscript_value, LLVMIntEQ, nullptr, LLVMIntULT, array_ptr);
@@ -5695,6 +5697,7 @@ static void ir_render(CodeGen *g, ZigFn *fn_entry) {
             IrInstruction *instruction = current_block->instruction_list.at(instr_i);
             if (instruction->ref_count == 0 && !ir_has_side_effects(instruction))
                 continue;
+
             instruction->llvm_value = ir_render_instruction(g, executable, instruction);
         }
         current_block->llvm_exit_block = LLVMGetInsertBlock(g->builder);
@@ -6855,9 +6858,9 @@ static void do_code_gen(CodeGen *g) {
                 }
                 if (var->decl_node) {
                     var->di_loc_var = ZigLLVMCreateParameterVariable(g->dbuilder, get_di_scope(g, var->parent_scope),
-                            buf_ptr(&var->name), import->data.structure.root_struct->di_file,
-                            (unsigned)(var->decl_node->line + 1),
-                            get_llvm_di_type(g, gen_type), !g->strip_debug_symbols, 0, (unsigned)(gen_info->gen_index));
+                        buf_ptr(&var->name), import->data.structure.root_struct->di_file,
+                        (unsigned)(var->decl_node->line + 1),
+                        get_llvm_di_type(g, gen_type), !g->strip_debug_symbols, 0, (unsigned)(gen_info->gen_index+1));
                 }
 
             }

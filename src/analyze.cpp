@@ -6252,6 +6252,48 @@ static void resolve_llvm_types_slice(CodeGen *g, ZigType *type, ResolveStatus wa
     ZigType *ptr_type = type->data.structure.fields[slice_ptr_index].type_entry;
     ZigType *child_type = ptr_type->data.pointer.child_type;
     ZigType *usize_type = g->builtin_types.entry_usize;
+
+    bool done = false;
+    if (ptr_type->data.pointer.is_const || ptr_type->data.pointer.is_volatile ||
+        ptr_type->data.pointer.explicit_alignment != 0 || ptr_type->data.pointer.allow_zero)
+    {
+        ZigType *peer_ptr_type = get_pointer_to_type_extra(g, child_type, false, false,
+                PtrLenUnknown, 0, 0, 0, false);
+        ZigType *peer_slice_type = get_slice_type(g, peer_ptr_type);
+
+        assertNoError(type_resolve(g, peer_slice_type, wanted_resolve_status));
+        type->llvm_type = peer_slice_type->llvm_type;
+        type->llvm_di_type = peer_slice_type->llvm_di_type;
+        type->data.structure.resolve_status = peer_slice_type->data.structure.resolve_status;
+        done = true;
+    }
+
+    // If the child type is []const T then we need to make sure the type ref
+    // and debug info is the same as if the child type were []T.
+    if (is_slice(child_type)) {
+        ZigType *child_ptr_type = child_type->data.structure.fields[slice_ptr_index].type_entry;
+        assert(child_ptr_type->id == ZigTypeIdPointer);
+        if (child_ptr_type->data.pointer.is_const || child_ptr_type->data.pointer.is_volatile ||
+            child_ptr_type->data.pointer.explicit_alignment != 0 || child_ptr_type->data.pointer.allow_zero)
+        {
+            ZigType *grand_child_type = child_ptr_type->data.pointer.child_type;
+            ZigType *bland_child_ptr_type = get_pointer_to_type_extra(g, grand_child_type, false, false,
+                    PtrLenUnknown, 0, 0, 0, false);
+            ZigType *bland_child_slice = get_slice_type(g, bland_child_ptr_type);
+            ZigType *peer_ptr_type = get_pointer_to_type_extra(g, bland_child_slice, false, false,
+                    PtrLenUnknown, 0, 0, 0, false);
+            ZigType *peer_slice_type = get_slice_type(g, peer_ptr_type);
+
+            assertNoError(type_resolve(g, peer_slice_type, wanted_resolve_status));
+            type->llvm_type = peer_slice_type->llvm_type;
+            type->llvm_di_type = peer_slice_type->llvm_di_type;
+            type->data.structure.resolve_status = peer_slice_type->data.structure.resolve_status;
+            done = true;
+        }
+    }
+
+    if (done) return;
+
     LLVMTypeRef usize_llvm_type = get_llvm_type(g, usize_type);
     ZigLLVMDIType *usize_llvm_di_type = get_llvm_di_type(g, usize_type);
     ZigLLVMDIScope *compile_unit_scope = ZigLLVMCompileUnitToScope(g->compile_unit);
@@ -6259,46 +6301,6 @@ static void resolve_llvm_types_slice(CodeGen *g, ZigType *type, ResolveStatus wa
     unsigned line = 0;
 
     if (type->data.structure.resolve_status < ResolveStatusLLVMFwdDecl) {
-        bool done = false;
-        if (ptr_type->data.pointer.is_const || ptr_type->data.pointer.is_volatile ||
-            ptr_type->data.pointer.explicit_alignment != 0 || ptr_type->data.pointer.allow_zero)
-        {
-            ZigType *peer_ptr_type = get_pointer_to_type_extra(g, child_type, false, false,
-                    PtrLenUnknown, 0, 0, 0, false);
-            ZigType *peer_slice_type = get_slice_type(g, peer_ptr_type);
-
-            type->llvm_type = get_llvm_type(g, peer_slice_type);
-            type->llvm_di_type = get_llvm_di_type(g, peer_slice_type);
-            done = true;
-        }
-
-        // If the child type is []const T then we need to make sure the type ref
-        // and debug info is the same as if the child type were []T.
-        if (is_slice(child_type)) {
-            ZigType *child_ptr_type = child_type->data.structure.fields[slice_ptr_index].type_entry;
-            assert(child_ptr_type->id == ZigTypeIdPointer);
-            if (child_ptr_type->data.pointer.is_const || child_ptr_type->data.pointer.is_volatile ||
-                child_ptr_type->data.pointer.explicit_alignment != 0 || child_ptr_type->data.pointer.allow_zero)
-            {
-                ZigType *grand_child_type = child_ptr_type->data.pointer.child_type;
-                ZigType *bland_child_ptr_type = get_pointer_to_type_extra(g, grand_child_type, false, false,
-                        PtrLenUnknown, 0, 0, 0, false);
-                ZigType *bland_child_slice = get_slice_type(g, bland_child_ptr_type);
-                ZigType *peer_ptr_type = get_pointer_to_type_extra(g, bland_child_slice, false, false,
-                        PtrLenUnknown, 0, 0, 0, false);
-                ZigType *peer_slice_type = get_slice_type(g, peer_ptr_type);
-
-                type->llvm_type = get_llvm_type(g, peer_slice_type);
-                type->llvm_di_type = get_llvm_di_type(g, peer_slice_type);
-                done = true;
-            }
-        }
-
-        if (done) {
-            type->data.structure.resolve_status = ResolveStatusLLVMFull;
-            return;
-        }
-
         type->llvm_type = LLVMStructCreateNamed(LLVMGetGlobalContext(), buf_ptr(&type->name));
 
         type->llvm_di_type = ZigLLVMCreateReplaceableCompositeType(g->dbuilder,
@@ -6551,6 +6553,12 @@ static void resolve_llvm_types_enum(CodeGen *g, ZigType *enum_type) {
     assert(enum_type->data.enumeration.complete);
     if (enum_type->llvm_di_type != nullptr) return;
 
+    if (!type_has_bits(enum_type)) {
+        enum_type->llvm_type = g->builtin_types.entry_void->llvm_type;
+        enum_type->llvm_di_type = g->builtin_types.entry_void->llvm_di_type;
+        return;
+    }
+
     uint32_t field_count = enum_type->data.enumeration.src_field_count;
 
     assert(enum_type->data.enumeration.fields);
@@ -6569,6 +6577,7 @@ static void resolve_llvm_types_enum(CodeGen *g, ZigType *enum_type) {
     }
 
     ZigType *tag_int_type = enum_type->data.enumeration.tag_int_type;
+    enum_type->llvm_type = get_llvm_type(g, tag_int_type);
 
     // create debug type for tag
     AstNode *decl_node = enum_type->data.enumeration.decl_node;
@@ -6583,7 +6592,6 @@ static void resolve_llvm_types_enum(CodeGen *g, ZigType *enum_type) {
             get_llvm_di_type(g, tag_int_type), "");
 
     enum_type->llvm_di_type = tag_di_type;
-    enum_type->llvm_type = get_llvm_type(g, tag_int_type);
 }
 
 static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveStatus wanted_resolve_status) {
@@ -6764,6 +6772,7 @@ static void resolve_llvm_types_pointer(CodeGen *g, ZigType *type) {
         uint64_t debug_align_in_bits = 8*type->abi_align;
         type->llvm_di_type = ZigLLVMCreateDebugPointerType(g->dbuilder, elem_type->llvm_di_type,
                 debug_size_in_bits, debug_align_in_bits, buf_ptr(&type->name));
+        assertNoError(type_resolve(g, elem_type, ResolveStatusLLVMFull));
     } else {
         ZigType *host_int_type = get_int_type(g, false, type->data.pointer.host_int_bytes * 8);
         LLVMTypeRef host_int_llvm_type = get_llvm_type(g, host_int_type);
@@ -6939,6 +6948,12 @@ static void resolve_llvm_types_error_union(CodeGen *g, ZigType *type) {
 static void resolve_llvm_types_array(CodeGen *g, ZigType *type) {
     if (type->llvm_di_type != nullptr) return;
 
+    if (!type_has_bits(type)) {
+        type->llvm_type = g->builtin_types.entry_void->llvm_type;
+        type->llvm_di_type = g->builtin_types.entry_void->llvm_di_type;
+        return;
+    }
+
     ZigType *elem_type = type->data.array.child_type;
 
     // TODO https://github.com/ziglang/zig/issues/1424
@@ -7014,7 +7029,7 @@ static void resolve_llvm_types_fn(CodeGen *g, ZigType *fn_type) {
         gen_param_info->src_index = i;
         gen_param_info->gen_index = SIZE_MAX;
 
-        if (!type_has_bits(type_entry))
+        if (is_c_abi || !type_has_bits(type_entry))
             continue;
 
         ZigType *gen_type;
