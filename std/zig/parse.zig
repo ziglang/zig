@@ -29,27 +29,46 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8, ret_err_off: ?*usize
         .eof_token = undefined,
     };
 
-    // TODO Do it in one pass by streaming through these two tests to the tokenizer.
+    // TODO Do it in one pass by streaming through these three tests to the tokenizer.
+    var prev2: u8 = ' ';
+    var prev: u8 = ' ';
     for (source) |c, i| {
         if (!ascii.isZig(c)) {
-            if (ret_err_off) |err_off| {
-                err_off.* = i;
-            }
+            if (ret_err_off) |err_off| err_off.* = i;
             return error.InvalidCharacter;
         }
+        // Ban certain Unicode characters
+        //
+        // These first three were first banned in the tokenizer
+        // U+0085 (NEL) C2 85    -- Looks like a large > in gedit.
+        // U+2028 (LS)  E2 80 A8 -- Causes a line break in gedit even when wrap is off!
+        // U+2029 (PS)  E2 80 A9 -- Same! 
+        //
+        // UTF-16 byte-order-marks
+        // U+FFFE       EF BF BE
+        // U+FFFF       EF BF BF
+        prev2 = prev;
+        prev = c;
+        switch (u16(prev2) << 8 | prev) {
+        0xc285 => { // Doesn't catch this character if it is the last, but that isn't a big deal.
+            if (ret_err_off) |err_off| err_off.* = i - 2;
+            return error.InvalidCharacter;
+        },
+        0xe280 => {
+            if (c == 0xa8 or c == 0xa9) {
+                if (ret_err_off) |err_off| err_off.* = i - 2;
+                return error.InvalidCharacter;
+            }
+        },
+        0xefbf => {
+            if (c == 0xbe or c == 0xbf) {
+                if (ret_err_off) |err_off| err_off.* = i - 2;
+                return error.InvalidCharacter;
+            }
+        },
+        else => {},
+        }
     }
-    // TODO we use to ban certain Unicode characters, but this wasn't documented.
-    // Should we still ban them?
-    // U+0085 (NEL)
-    // U+2028 (LS)
-    // U+2029 (PS)
-    // If so, it would be fastest to ban them in their utf-8 representations,
-    // (because the faster utf8 validators do not get the code-points)
-    // but it would still take a whole additional streaming check.
-    // But if we do it here are other characters to ban:
-    // --Investigate anything else that might virtically effect the rendering
-    //   (so not RTL scripts).
-    // U+fffe and U+ffff (BOMs)
     try unicode.utf8ValidateSliceWithLoc(source, ret_err_off);
 
     var tree = ast.Tree{
