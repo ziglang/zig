@@ -4047,7 +4047,6 @@ bool handle_is_ptr(ZigType *type_entry) {
              return false;
         case ZigTypeIdArray:
         case ZigTypeIdStruct:
-        case ZigTypeIdUnion:
              return type_has_bits(type_entry);
         case ZigTypeIdErrorUnion:
              return type_has_bits(type_entry->data.error_union.payload_type);
@@ -4055,6 +4054,8 @@ bool handle_is_ptr(ZigType *type_entry) {
              return type_has_bits(type_entry->data.maybe.child_type) &&
                     !type_is_nonnull_ptr(type_entry->data.maybe.child_type) &&
                     type_entry->data.maybe.child_type->id != ZigTypeIdErrorSet;
+        case ZigTypeIdUnion:
+             return type_has_bits(type_entry) && type_entry->data.unionation.gen_field_count != 0;
 
     }
     zig_unreachable();
