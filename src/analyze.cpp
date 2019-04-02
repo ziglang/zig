@@ -6359,6 +6359,7 @@ static void resolve_llvm_types_slice(CodeGen *g, ZigType *type, ResolveStatus wa
     LLVMTypeRef element_types[2];
     element_types[slice_ptr_index] = get_llvm_type(g, ptr_type);
     element_types[slice_len_index] = get_llvm_type(g, g->builtin_types.entry_usize);
+    if (type->data.structure.resolve_status >= wanted_resolve_status) return;
     LLVMStructSetBody(type->llvm_type, element_types, 2, false);
 
     uint64_t ptr_debug_size_in_bits = ptr_type->size_in_bits;
@@ -6776,6 +6777,12 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
 static void resolve_llvm_types_pointer(CodeGen *g, ZigType *type) {
     if (type->llvm_di_type != nullptr) return;
 
+    if (!type_has_bits(type)) {
+        type->llvm_type = g->builtin_types.entry_void->llvm_type;
+        type->llvm_di_type = g->builtin_types.entry_void->llvm_di_type;
+        return;
+    }
+
     ZigType *elem_type = type->data.pointer.child_type;
 
     if (type->data.pointer.is_const || type->data.pointer.is_volatile ||
@@ -6810,6 +6817,12 @@ static void resolve_llvm_types_pointer(CodeGen *g, ZigType *type) {
 
 static void resolve_llvm_types_integer(CodeGen *g, ZigType *type) {
     if (type->llvm_di_type != nullptr) return;
+
+    if (!type_has_bits(type)) {
+        type->llvm_type = g->builtin_types.entry_void->llvm_type;
+        type->llvm_di_type = g->builtin_types.entry_void->llvm_di_type;
+        return;
+    }
 
     unsigned dwarf_tag;
     if (type->data.integral.is_signed) {
