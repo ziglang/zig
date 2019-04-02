@@ -1742,26 +1742,36 @@ static Error resolve_union_alignment(CodeGen *g, ZigType *union_type) {
 
     ZigType *most_aligned_union_member = nullptr;
     uint32_t field_count = union_type->data.unionation.src_field_count;
+    bool packed = union_type->data.unionation.layout == ContainerLayoutPacked;
 
     for (uint32_t i = 0; i < field_count; i += 1) {
-        TypeUnionField *union_field = &union_type->data.unionation.fields[i];
-        ZigType *field_type = union_field->type_entry;
-
-        if ((err = type_resolve(g, field_type, ResolveStatusAlignmentKnown))) {
-            union_type->data.unionation.resolve_status = ResolveStatusInvalid;
-            return ErrorSemanticAnalyzeFail;
-        }
-
-        if (type_is_invalid(union_type))
-            return ErrorSemanticAnalyzeFail;
-
-        if (!type_has_bits(field_type))
+        TypeUnionField *field = &union_type->data.unionation.fields[i];
+        if (field->gen_index == UINT32_MAX)
             continue;
 
+        size_t this_field_align;
+        if (packed) {
+            // TODO: https://github.com/ziglang/zig/issues/1512
+            this_field_align = 1;
+        // This is the same hack as resolve_struct_alignment. See the comment there.
+        } else if (field->type_entry == nullptr) {
+            this_field_align = g->builtin_types.entry_usize->abi_align;
+        } else {
+            if ((err = type_resolve(g, field->type_entry, ResolveStatusAlignmentKnown))) {
+                union_type->data.unionation.resolve_status = ResolveStatusInvalid;
+                return ErrorSemanticAnalyzeFail;
+            }
+
+            if (union_type->data.unionation.resolve_status == ResolveStatusInvalid)
+                return ErrorSemanticAnalyzeFail;
+
+            this_field_align = field->type_entry->abi_align;
+        }
+
         if (most_aligned_union_member == nullptr ||
-            field_type->abi_align > most_aligned_union_member->abi_align)
+            this_field_align > most_aligned_union_member->abi_align)
         {
-            most_aligned_union_member = field_type;
+            most_aligned_union_member = field->type_entry;
         }
     }
 
@@ -2395,6 +2405,7 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
         TypeUnionField *union_field = &union_type->data.unionation.fields[i];
         union_field->name = field_node->data.struct_field.name;
         union_field->decl_node = field_node;
+        union_field->gen_index = UINT32_MAX;
 
         auto field_entry = union_type->data.unionation.fields_by_name.put_unique(union_field->name, union_field);
         if (field_entry != nullptr) {
