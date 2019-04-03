@@ -1272,7 +1272,7 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
                         return error.InvalidEnumTag;
                     }
                     @compileError("Cannot meaningfully deserialize " ++ @typeName(C) ++
-                        " because it is an untagged union  Use a custom deserialize().");
+                        " because it is an untagged union. Use a custom deserialize().");
                 },
                 builtin.TypeId.Optional => {
                     const OC = comptime meta.Child(C);
@@ -1282,11 +1282,8 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
                         return;
                     }
                     
-                    //This should ensure that the optional is set to non-null.
-                    ptr.* = OC(undefined);
-                    //The way non-pointer optionals are implemented ensures a pointer to them
-                    // will point to the value. The flag is stored at the end of that data.
-                    var val_ptr = @ptrCast(*OC, ptr);
+                    ptr.* = OC(undefined); //make it non-null so the following .? is guaranteed safe
+                    const val_ptr = &ptr.*.?;
                     try self.deserializeInto(val_ptr);
                 },
                 builtin.TypeId.Enum => {
@@ -1426,7 +1423,7 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
                         unreachable;
                     }
                     @compileError("Cannot meaningfully serialize " ++ @typeName(T) ++
-                        " because it is an untagged union  Use a custom serialize().");
+                        " because it is an untagged union. Use a custom serialize().");
                 },
                 builtin.TypeId.Optional => {
                     if (value == null) {
@@ -1436,10 +1433,7 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
                     try self.serializeInt(u1(@boolToInt(true)));
 
                     const OC = comptime meta.Child(T);
-
-                    //The way non-pointer optionals are implemented ensures a pointer to them
-                    // will point to the value. The flag is stored at the end of that data.
-                    var val_ptr = @ptrCast(*const OC, &value);
+                    const val_ptr = &value.?;
                     try self.serialize(val_ptr.*);
                 },
                 builtin.TypeId.Enum => {
