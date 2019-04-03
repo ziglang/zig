@@ -1,7 +1,7 @@
 const std = @import("std");
 const io = std.io;
 const builtin = @import("builtin");
-const test_fn_list = builtin.__zig_test_fn_slice;
+const test_fn_list = builtin.test_functions;
 const warn = std.debug.warn;
 
 pub fn main() !void {

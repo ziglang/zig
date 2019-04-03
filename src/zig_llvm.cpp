@@ -548,6 +548,7 @@ ZigLLVMDILocalVariable *ZigLLVMCreateParameterVariable(ZigLLVMDIBuilder *dbuilde
         ZigLLVMDIType *type, bool always_preserve, unsigned flags, unsigned arg_no)
 {
     assert(flags == 0);
+    assert(arg_no != 0);
     DILocalVariable *result = reinterpret_cast<DIBuilder*>(dbuilder)->createParameterVariable(
             reinterpret_cast<DIScope*>(scope),
             name,

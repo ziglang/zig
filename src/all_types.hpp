@@ -1067,8 +1067,10 @@ struct TypeStructField {
     ZigType *type_entry;
     size_t src_index;
     size_t gen_index;
-    uint32_t bit_offset_in_host; // offset from the memory at gen_index
+    size_t offset; // byte offset from beginning of struct
     AstNode *decl_node;
+    uint32_t bit_offset_in_host; // offset from the memory at gen_index
+    uint32_t host_int_bytes; // size of host integer
 };
 
 enum ResolveStatus {
@@ -1077,6 +1079,8 @@ enum ResolveStatus {
     ResolveStatusZeroBitsKnown,
     ResolveStatusAlignmentKnown,
     ResolveStatusSizeKnown,
+    ResolveStatusLLVMFwdDecl,
+    ResolveStatusLLVMFull,
 };
 
 struct ZigPackage {
@@ -1101,14 +1105,13 @@ struct ZigTypeStruct {
     AstNode *decl_node;
     TypeStructField *fields;
     ScopeDecls *decls_scope;
-    uint64_t size_bytes;
     HashMap<Buf *, TypeStructField *, buf_hash, buf_eql_buf> fields_by_name;
     RootStruct *root_struct;
+    uint32_t *host_int_bytes; // available for packed structs, indexed by gen_index
 
     uint32_t src_field_count;
     uint32_t gen_field_count;
 
-    uint32_t abi_alignment; // known after ResolveStatusAlignmentKnown
     ContainerLayout layout;
     ResolveStatus resolve_status;
 
@@ -1164,39 +1167,28 @@ bool type_ptr_eql(const ZigType *a, const ZigType *b);
 
 struct ZigTypeUnion {
     AstNode *decl_node;
-    ContainerLayout layout;
+    TypeUnionField *fields;
+    ScopeDecls *decls_scope;
+    HashMap<Buf *, TypeUnionField *, buf_hash, buf_eql_buf> fields_by_name;
+    ZigType *tag_type; // always an enum or null
+    LLVMTypeRef union_llvm_type;
+    ZigType *most_aligned_union_member;
+    size_t gen_union_index;
+    size_t gen_tag_index;
+    size_t union_abi_size;
+
     uint32_t src_field_count;
     uint32_t gen_field_count;
-    TypeUnionField *fields;
-    bool is_invalid; // true if any fields are invalid
-    ZigType *tag_type; // always an enum or null
-    LLVMTypeRef union_type_ref;
 
-    ScopeDecls *decls_scope;
+    ContainerLayout layout;
+    ResolveStatus resolve_status;
 
-    // set this flag temporarily to detect infinite loops
-    bool embedded_in_current;
+    bool have_explicit_tag_type;
+    bool resolve_loop_flag; // set this flag temporarily to detect infinite loops
     bool reported_infinite_err;
-    // whether we've finished resolving it
-    bool complete;
-
     // whether any of the fields require comptime
     // the value is not valid until zero_bits_known == true
     bool requires_comptime;
-
-    bool zero_bits_loop_flag;
-    bool zero_bits_known;
-    uint32_t abi_alignment; // also figured out with zero_bits pass
-
-    size_t gen_union_index;
-    size_t gen_tag_index;
-
-    bool have_explicit_tag_type;
-
-    uint32_t union_size_bytes;
-    ZigType *most_aligned_union_member;
-
-    HashMap<Buf *, TypeUnionField *, buf_hash, buf_eql_buf> fields_by_name;
 };
 
 struct FnGenParamInfo {
@@ -1277,8 +1269,11 @@ struct ZigType {
     ZigTypeId id;
     Buf name;
 
-    LLVMTypeRef type_ref;
-    ZigLLVMDIType *di_type;
+    // These are not supposed to be accessed directly. They're
+    // null during semantic analysis, memoized with get_llvm_type
+    // and get_llvm_di_type
+    LLVMTypeRef llvm_type;
+    ZigLLVMDIType *llvm_di_type;
 
     union {
         ZigTypePointer pointer;
@@ -1308,8 +1303,14 @@ struct ZigType {
     ConstExprValue *cached_const_name_val;
 
     OnePossibleValue one_possible_value;
+    // Known after ResolveStatusAlignmentKnown.
+    uint32_t abi_align;
+    // The offset in bytes between consecutive array elements of this type. Known
+    // after ResolveStatusSizeKnown.
+    size_t abi_size;
+    // Number of bits of information in this type. Known after ResolveStatusSizeKnown.
+    size_t size_in_bits;
 
-    bool zero_bits; // this is denormalized data
     bool gen_h_loop_flag;
 };
 
@@ -1700,11 +1701,9 @@ struct CodeGen {
     ZigList<AstNode *> use_queue;
     size_t use_queue_index;
     ZigList<TimeEvent> timing_events;
-    ZigList<ZigLLVMDIType **> error_di_types;
     ZigList<AstNode *> tld_ref_source_node_stack;
     ZigList<ZigFn *> inline_fns;
     ZigList<ZigFn *> test_fns;
-    ZigList<ZigLLVMDIEnumerator *> err_enumerators;
     ZigList<ErrorTableEntry *> errors_by_index;
     ZigList<CacheHash *> caches_to_release;
     size_t largest_err_name_len;
@@ -1896,7 +1895,6 @@ struct ZigVar {
     AstNode *decl_node;
     ZigLLVMDILocalVariable *di_loc_var;
     size_t src_arg_index;
-    size_t gen_arg_index;
     Scope *parent_scope;
     Scope *child_scope;
     LLVMValueRef param_value_ref;

@@ -2112,8 +2112,8 @@ test "linked list" {
         <li>A {#link|packed enum#} field uses exactly the bit width of its integer tag type.</li>
         <li>A {#link|packed union#} field uses exactly the bit width of the union field with
         the largest bit width.</li>
-        <li>Non-byte-aligned fields are packed into the smallest possible
-        byte-aligned integers in accordance with the target endianness.
+        <li>Non-ABI-aligned fields are packed into the smallest possible
+        ABI-aligned integers in accordance with the target endianness.
         </li>
       </ul>
       <p>
@@ -2213,10 +2213,10 @@ fn bar(x: *const u3) u3 {
       {#code_end#}
       <p>
       In this case, the function {#syntax#}bar{#endsyntax#} cannot be called becuse the pointer
-      to the non-byte-aligned field mentions the bit offset, but the function expects a byte-aligned pointer.
+      to the non-ABI-aligned field mentions the bit offset, but the function expects an ABI-aligned pointer.
       </p>
       <p>
-      Pointers to non-byte-aligned fields share the same address as the other fields within their host integer:
+      Pointers to non-ABI-aligned fields share the same address as the other fields within their host integer:
       </p>
       {#code_begin|test#}
 const std = @import("std");

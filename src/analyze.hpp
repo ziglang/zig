@@ -73,7 +73,7 @@ bool type_is_complete(ZigType *type_entry);
 bool type_is_resolved(ZigType *type_entry, ResolveStatus status);
 bool type_is_invalid(ZigType *type_entry);
 bool type_is_global_error_set(ZigType *err_set_type);
-void resolve_container_type(CodeGen *g, ZigType *type_entry);
+Error resolve_container_type(CodeGen *g, ZigType *type_entry);
 ScopeDecls *get_container_scope(ZigType *type_entry);
 TypeStructField *find_struct_type_field(ZigType *type_entry, Buf *name);
 TypeEnumField *find_enum_type_field(ZigType *enum_type, Buf *name);
@@ -243,5 +243,8 @@ void typecheck_panic_fn(CodeGen *g, TldFn *tld_fn, ZigFn *panic_fn);
 Buf *type_bare_name(ZigType *t);
 Buf *type_h_name(ZigType *t);
 Error create_c_object_cache(CodeGen *g, CacheHash **out_cache_hash, bool verbose);
+
+LLVMTypeRef get_llvm_type(CodeGen *g, ZigType *type);
+ZigLLVMDIType *get_llvm_di_type(CodeGen *g, ZigType *type);
 
 #endif

@@ -256,8 +256,8 @@ const Foo96Bits = packed struct {
 
 test "packed struct 24bits" {
     comptime {
-        expect(@sizeOf(Foo24Bits) == 3);
-        expect(@sizeOf(Foo96Bits) == 12);
+        expect(@sizeOf(Foo24Bits) == 4);
+        expect(@sizeOf(Foo96Bits) == 16);
     }
 
     var value = Foo96Bits{
@@ -291,16 +291,22 @@ test "packed struct 24bits" {
     expect(value.d == 1);
 }
 
+const Foo32Bits = packed struct {
+    field: u24,
+    pad: u8,
+};
+
 const FooArray24Bits = packed struct {
     a: u16,
-    b: [2]Foo24Bits,
+    b: [2]Foo32Bits,
     c: u16,
 };
 
+// TODO revisit this test when doing https://github.com/ziglang/zig/issues/1512
 test "packed array 24bits" {
     comptime {
-        expect(@sizeOf([9]Foo24Bits) == 9 * 3);
-        expect(@sizeOf(FooArray24Bits) == 2 + 2 * 3 + 2);
+        expect(@sizeOf([9]Foo32Bits) == 9 * 4);
+        expect(@sizeOf(FooArray24Bits) == 2 + 2 * 4 + 2);
     }
 
     var bytes = []u8{0} ** (@sizeOf(FooArray24Bits) + 1);
