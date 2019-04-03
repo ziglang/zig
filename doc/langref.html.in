@@ -6257,6 +6257,28 @@ comptime {
       </p>
       {#header_close#}
 
+      {#header_open|@fshl#}
+      <pre>{#syntax#}@fshl(comptime T: type, high: T, low: T, shift: math.Log2Int(T)) T{#endsyntax#}</pre>
+      <p>{#syntax#}T{#endsyntax#} accepts any integer type.</p>
+      <p>
+      Concatenates {#syntax#}high{#endsyntax#} and {#syntax#}low{#endsyntax#},
+      shifts left by {#syntax#}shift{#endsyntax#}, and then returns the most significant bits.
+      If {#syntax#}high{#endsyntax#} and {#syntax#}low{#endsyntax#} are the same this is identical
+      to a left rotate.
+      </p>
+      {#header_close#}
+
+      {#header_open|@fshr#}
+      <pre>{#syntax#}@fshr(comptime T: type, high: T, low: T, shift: math.Log2Int(T)) T{#endsyntax#}</pre>
+      <p>{#syntax#}T{#endsyntax#} accepts any integer type.</p>
+      <p>
+      Concatenates {#syntax#}high{#endsyntax#} and {#syntax#}low{#endsyntax#},
+      shifts right by {#syntax#}shift{#endsyntax#}, and then returns the least significant bits.
+      If {#syntax#}high{#endsyntax#} and {#syntax#}low{#endsyntax#} are the same this is identical
+      to a right rotate.
+      </p>
+      {#header_close#}
+
       {#header_open|@byteOffsetOf#}
       <pre>{#syntax#}@byteOffsetOf(comptime T: type, comptime field_name: [] const u8) comptime_int{#endsyntax#}</pre>
       <p>
