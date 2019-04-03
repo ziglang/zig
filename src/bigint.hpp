@@ -83,6 +83,7 @@ size_t bigint_ctz(const BigInt *bi, size_t bit_count);
 size_t bigint_clz(const BigInt *bi, size_t bit_count);
 size_t bigint_popcount_signed(const BigInt *bi, size_t bit_count);
 size_t bigint_popcount_unsigned(const BigInt *bi);
+void bigint_fsh(BigInt *dest, const BigInt *high, const BigInt *low, const BigInt *shift, size_t bit_count, bool is_fshl);
 
 size_t bigint_bits_needed(const BigInt *op);
 

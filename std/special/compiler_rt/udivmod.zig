@@ -71,12 +71,12 @@ pub fn udivmod(comptime DoubleInt: type, a: DoubleInt, b: DoubleInt, maybe_rem: 
                 r[high] = n[high] & (d[high] - 1);
                 rem.* = @ptrCast(*align(@alignOf(SingleInt)) DoubleInt, &r[0]).*; // TODO issue #421
             }
-            return n[high] >> @intCast(Log2SingleInt, @ctz(d[high]));
+            return n[high] >> @intCast(Log2SingleInt, @ctz(SingleInt, d[high]));
         }
         // K K
         // ---
         // K 0
-        sr = @bitCast(c_uint, c_int(@clz(d[high])) - c_int(@clz(n[high])));
+        sr = @bitCast(c_uint, c_int(@clz(SingleInt, d[high])) - c_int(@clz(SingleInt, n[high])));
         // 0 <= sr <= SingleInt.bit_count - 2 or sr large
         if (sr > SingleInt.bit_count - 2) {
             if (maybe_rem) |rem| {
@@ -106,7 +106,7 @@ pub fn udivmod(comptime DoubleInt: type, a: DoubleInt, b: DoubleInt, maybe_rem: 
                 if (d[low] == 1) {
                     return a;
                 }
-                sr = @ctz(d[low]);
+                sr = @ctz(SingleInt, d[low]);
                 q[high] = n[high] >> @intCast(Log2SingleInt, sr);
                 q[low] = (n[high] << @intCast(Log2SingleInt, SingleInt.bit_count - sr)) | (n[low] >> @intCast(Log2SingleInt, sr));
                 return @ptrCast(*align(@alignOf(SingleInt)) DoubleInt, &q[0]).*; // TODO issue #421
@@ -114,7 +114,7 @@ pub fn udivmod(comptime DoubleInt: type, a: DoubleInt, b: DoubleInt, maybe_rem: 
             // K X
             // ---
             // 0 K
-            sr = 1 + SingleInt.bit_count + c_uint(@clz(d[low])) - c_uint(@clz(n[high]));
+            sr = 1 + SingleInt.bit_count + c_uint(@clz(SingleInt, d[low])) - c_uint(@clz(SingleInt, n[high]));
             // 2 <= sr <= DoubleInt.bit_count - 1
             // q.all = a << (DoubleInt.bit_count - sr);
             // r.all = a >> sr;
@@ -140,7 +140,7 @@ pub fn udivmod(comptime DoubleInt: type, a: DoubleInt, b: DoubleInt, maybe_rem: 
             // K X
             // ---
             // K K
-            sr = @bitCast(c_uint, c_int(@clz(d[high])) - c_int(@clz(n[high])));
+            sr = @bitCast(c_uint, c_int(@clz(SingleInt, d[high])) - c_int(@clz(SingleInt, n[high])));
             // 0 <= sr <= SingleInt.bit_count - 1 or sr large
             if (sr > SingleInt.bit_count - 1) {
                 if (maybe_rem) |rem| {

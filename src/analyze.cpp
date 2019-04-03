@@ -339,6 +339,19 @@ ZigType *get_smallest_unsigned_int_type(CodeGen *g, uint64_t x) {
     return get_int_type(g, false, bits_needed_for_unsigned(x));
 }
 
+static uint8_t bits_needed_for_no_zero_representation_unsigned(uint64_t x) {
+    uint8_t count = 0;
+    for (uint64_t s = x - 1;s != 0;s >>= 1)
+        count++;
+
+    return count;
+}
+
+//Equivilent to math.Log2Int. ceil log2int
+ZigType *get_shift_type(CodeGen *g, uint64_t x) {
+    return get_int_type(g, false, bits_needed_for_no_zero_representation_unsigned(x));
+}
+
 ZigType *get_promise_type(CodeGen *g, ZigType *result_type) {
     if (result_type != nullptr && result_type->promise_parent != nullptr) {
         return result_type->promise_parent;
@@ -5706,6 +5719,10 @@ uint32_t zig_llvm_fn_key_hash(ZigLLVMFnKey x) {
             return (uint32_t)(x.data.bswap.bit_count) * (uint32_t)3661994335;
         case ZigLLVMFnIdBitReverse:
             return (uint32_t)(x.data.bit_reverse.bit_count) * (uint32_t)2621398431;
+        case ZigLLVMFnIdFshl:
+            return (uint32_t)(x.data.fshl.bit_count) * (uint32_t)0xfadefade;
+        case ZigLLVMFnIdFshr:
+            return (uint32_t)(x.data.fshr.bit_count) * (uint32_t)0xedafedaf;
         case ZigLLVMFnIdOverflowArithmetic:
             return ((uint32_t)(x.data.overflow_arithmetic.bit_count) * 87135777) +
                 ((uint32_t)(x.data.overflow_arithmetic.add_sub_mul) * 31640542) +
@@ -5729,6 +5746,10 @@ bool zig_llvm_fn_key_eql(ZigLLVMFnKey a, ZigLLVMFnKey b) {
             return a.data.bswap.bit_count == b.data.bswap.bit_count;
         case ZigLLVMFnIdBitReverse:
             return a.data.bit_reverse.bit_count == b.data.bit_reverse.bit_count;
+        case ZigLLVMFnIdFshl:
+            return a.data.fshl.bit_count == b.data.fshl.bit_count;
+        case ZigLLVMFnIdFshr:
+            return a.data.fshr.bit_count == b.data.fshr.bit_count;
         case ZigLLVMFnIdFloor:
         case ZigLLVMFnIdCeil:
         case ZigLLVMFnIdSqrt:

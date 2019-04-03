@@ -114,15 +114,16 @@ test "@clz" {
 }
 
 fn testClz() void {
-    expect(clz(u8(0b00001010)) == 4);
-    expect(clz(u8(0b10001010)) == 0);
-    expect(clz(u8(0b00000000)) == 8);
-    expect(clz(u128(0xffffffffffffffff)) == 64);
-    expect(clz(u128(0x10000000000000000)) == 63);
+    expect(clz(u8, u8(0b10001010)) == 0);
+    expect(clz(u8, u8(0b00001010)) == 4);
+    expect(clz(u8, u8(0b00011010)) == 3);
+    expect(clz(u8, u8(0b00000000)) == 8);
+    expect(clz(u128, u128(0xffffffffffffffff)) == 64);
+    expect(clz(u128, u128(0x10000000000000000)) == 63);
 }
 
-fn clz(x: var) usize {
-    return @clz(x);
+fn clz(comptime T: type, x: T) usize {
+    return @clz(T, x);
 }
 
 test "@ctz" {
@@ -131,13 +132,59 @@ test "@ctz" {
 }
 
 fn testCtz() void {
-    expect(ctz(u8(0b10100000)) == 5);
-    expect(ctz(u8(0b10001010)) == 1);
-    expect(ctz(u8(0b00000000)) == 8);
+    expect(ctz(u8, u8(0b10100000)) == 5);
+    expect(ctz(u8, u8(0b10001010)) == 1);
+    expect(ctz(u8, u8(0b00000000)) == 8);
+    expect(ctz(u16, u16(0b00000000)) == 16);
 }
 
-fn ctz(x: var) usize {
-    return @ctz(x);
+fn ctz(comptime T: type, x: T) usize {
+    return @ctz(T, x);
+}
+
+test "@fshl" {
+    testFshl();
+    comptime testFshl();
+}
+
+fn testFshl() void {
+    expect(fshl(u8, u8(0), u8(0), 0) == 0);
+    expect(fshl(u8, u8(0b00001010), u8(0b11111111), 1) == 0b00010101);
+    expect(fshl(u16, u16(0b00001010), u16(0xffff), 1) == 0b00010101);
+    expect(fshl(u32, u32(0b00001010), u32(0xffffffff), 1) == 0b00010101);
+    expect(fshl(u64, u64(0xffffffffffffffff), u64(0x0000000000000000), 32) == u64(0xffffffff00000000));
+    expect(fshl(u128, u128(0xffffffffffffffffffffffffffffffff), u128(0x0000000000000000000000000000000000), 64) == u128(0xffffffffffffffff0000000000000000));
+}
+
+fn fshl(comptime T: type, high: T, low: T, shift: Log2Int(T)) T {
+    return @fshl(T, high, low, shift);
+}
+
+test "@fshl" {
+    testFshr();
+    comptime testFshr();
+}
+
+fn testFshr() void {
+    expect(fshr(u8, u8(0), u8(0), 0) == 0);
+    expect(fshr(u8, u8(0b00001010), u8(0b11111111), 1) == 0b01111111);
+    expect(fshr(u64, u64(0xffffffffffffffff), u64(0x00000000000000000), 32) == u64(0xffffffff00000000));
+    expect(fshr(u128, u128(0xffffffffffffffffffffffffffffffff), u128(0x0000000000000000000000000000000000), 64) == u128(0xffffffffffffffff0000000000000000));
+}
+
+pub fn Log2Int(comptime T: type) type {
+    // comptime ceil log2
+    comptime var count = 0;
+    comptime var s = T.bit_count - 1;
+    inline while (s != 0) : (s >>= 1) {
+        count += 1;
+    }
+
+    return @IntType(false, count);
+}
+
+fn fshr(comptime T: type, a: T, b: T, shift: Log2Int(T)) T {
+    return @fshr(T, a, b, shift);
 }
 
 test "assignment operators" {

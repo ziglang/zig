@@ -6236,8 +6236,8 @@ comptime {
 
       {#header_close#}
 
-      {#header_open|@bswap#}
-      <pre>{#syntax#}@bswap(comptime T: type, value: T) T{#endsyntax#}</pre>
+      {#header_open|@bSwap#}
+      <pre>{#syntax#}@bSwap(comptime T: type, integer: T) T{#endsyntax#}</pre>
       <p>{#syntax#}T{#endsyntax#} must be an integer type with bit count evenly divisible by 8.</p>
       <p>
       Swaps the byte order of the integer. This converts a big endian integer to a little endian integer,
@@ -6245,8 +6245,8 @@ comptime {
       </p>
       {#header_close#}
 
-      {#header_open|@bitreverse#}
-      <pre>{#syntax#}@bitreverse(comptime T: type, value: T) T{#endsyntax#}</pre>
+      {#header_open|@bitReverse#}
+      <pre>{#syntax#}@bitReverse(comptime T: type, integer: T) T{#endsyntax#}</pre>
       <p>{#syntax#}T{#endsyntax#} accepts any integer type.</p>
       <p>
       Reverses the bitpattern of an integer value, including the sign bit if applicable.
@@ -6334,14 +6334,15 @@ comptime {
       {#header_close#}
 
       {#header_open|@clz#}
-      <pre>{#syntax#}@clz(x: T) U{#endsyntax#}</pre>
+      <pre>{#syntax#}@clz(comptime T: type, integer: T) math.Log2Int(@intType(false, @typeInfo(T).Int.bits + 1)){#endsyntax#}</pre>
       <p>
       This function counts the number of leading zeroes in {#syntax#}x{#endsyntax#} which is an integer
           type {#syntax#}T{#endsyntax#}.
       </p>
       <p>
-      The return type {#syntax#}U{#endsyntax#} is an unsigned integer with the minimum number
-          of bits that can represent the value {#syntax#}T.bit_count{#endsyntax#}.
+      If {#syntax#}integer{#endsyntax#} is known at {#link|comptime#}, the return type is {#syntax#}comptime_int{#endsyntax#}.
+      Otherwise, the return type is an unsigned integer with the minimum number
+      of bits that can represent the bit count of the integer type.
       </p>
       <p>
       If {#syntax#}x{#endsyntax#} is zero, {#syntax#}@clz{#endsyntax#} returns {#syntax#}T.bit_count{#endsyntax#}.
@@ -6474,14 +6475,15 @@ test "main" {
       {#header_close#}
 
       {#header_open|@ctz#}
-      <pre>{#syntax#}@ctz(x: T) U{#endsyntax#}</pre>
+      <pre>{#syntax#}@ctz(comptime T: type, integer: T) math.Log2Int(@intType(false, @typeInfo(T).Int.bits + 1)){#endsyntax#}</pre>
       <p>
       This function counts the number of trailing zeroes in {#syntax#}x{#endsyntax#} which is an integer
           type {#syntax#}T{#endsyntax#}.
       </p>
       <p>
-      The return type {#syntax#}U{#endsyntax#} is an unsigned integer with the minimum number
-          of bits that can represent the value {#syntax#}T.bit_count{#endsyntax#}.
+      If {#syntax#}integer{#endsyntax#} is known at {#link|comptime#}, the return type is {#syntax#}comptime_int{#endsyntax#}.
+      Otherwise, the return type is an unsigned integer with the minimum number
+      of bits that can represent the bit count of the integer type.
       </p>
       <p>
       If {#syntax#}x{#endsyntax#} is zero, {#syntax#}@ctz{#endsyntax#} returns {#syntax#}T.bit_count{#endsyntax#}.
@@ -7031,7 +7033,7 @@ test "call foo" {
       {#header_close#}
 
       {#header_open|@popCount#}
-      <pre>{#syntax#}@popCount(integer: var) var{#endsyntax#}</pre>
+      <pre>{#syntax#}@popCount(comptime T: type, integer: T) math.Log2Int(@intType(false, @typeInfo(T).Int.bits + 1)){#endsyntax#}</pre>
       <p>Counts the number of bits set in an integer.</p>
       <p>
       If {#syntax#}integer{#endsyntax#} is known at {#link|comptime#}, the return type is {#syntax#}comptime_int{#endsyntax#}.

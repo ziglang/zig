@@ -260,7 +260,7 @@ fn normalize(comptime T: type, significand: *@IntType(false, T.bit_count)) i32 {
     const significandBits = std.math.floatMantissaBits(T);
     const implicitBit = Z(1) << significandBits;
 
-    const shift = @clz(significand.*) - @clz(implicitBit);
+    const shift = @clz(@IntType(false, T.bit_count), significand.*) - @clz(@IntType(false, T.bit_count), implicitBit);
     significand.* <<= @intCast(std.math.Log2Int(Z), shift);
     return 1 - shift;
 }

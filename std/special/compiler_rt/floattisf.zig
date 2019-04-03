@@ -17,7 +17,7 @@ pub extern fn __floattisf(arg: i128) f32 {
     ai = ((ai ^ si) -% si);
     var a = @bitCast(u128, ai);
 
-    const sd = @bitCast(i32, N - @clz(a)); // number of significant digits
+    const sd = @bitCast(i32, N - @clz(u128, a)); // number of significant digits
     var e: i32 = sd - 1; // exponent
 
     if (sd > FLT_MANT_DIG) {

@@ -1672,6 +1672,38 @@ size_t bigint_clz(const BigInt *bi, size_t bit_count) {
     return count;
 }
 
+void bigint_fsh(BigInt *dest, const BigInt *high, const BigInt *low, const BigInt *shift, size_t bit_count, bool is_fshl) {
+    if (bit_count == 0)
+        return bigint_init_unsigned(dest, 0);
+
+    BigInt twos_comp_high = {0};
+    to_twos_complement(&twos_comp_high, high, bit_count);
+
+    BigInt twos_comp_low = {0};
+    to_twos_complement(&twos_comp_low, low, bit_count);
+
+    BigInt bit_count_bi = {0};
+    bigint_init_unsigned(&bit_count_bi, bit_count);
+
+    BigInt high_shifted = {0};
+    bigint_shl(&high_shifted, &twos_comp_high, &bit_count_bi);
+
+    BigInt combined = {0};
+    bigint_or(&combined, &high_shifted, &twos_comp_low);
+
+    if (is_fshl) {
+        BigInt shifted = {0};
+        bigint_shl_trunc(&shifted, &combined, shift, bit_count * 2, false);
+
+        bigint_shr(dest, &shifted, &bit_count_bi);
+    } else {
+        BigInt shifted = {0};
+        bigint_shr(&shifted, &combined, shift);
+
+        bigint_truncate(dest, &shifted, bit_count, false);
+    }
+}
+
 uint64_t bigint_as_unsigned(const BigInt *bigint) {
     assert(!bigint->is_negative);
     if (bigint->digit_count == 0) {
