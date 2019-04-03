@@ -1088,6 +1088,11 @@ test "io.readLineSliceFrom" {
     testing.expectError(error.OutOfMemory, readLineSliceFrom(stream, buf[0..]));
 }
 
+pub const Packing = enum {
+    Byte,   /// Pack data to byte alignment
+    Bit,    /// Pack data to bit alignment
+};
+
 /// Creates a deserializer that deserializes types from any stream.
 ///  If `is_packed` is true, the data stream is treated as bit-packed,
 ///  otherwise data is expected to be packed to the smallest byte.
@@ -1097,18 +1102,18 @@ test "io.readLineSliceFrom" {
 ///  which will be called when the deserializer is used to deserialize
 ///  that type. It will pass a pointer to the type instance to deserialize
 ///  into and a pointer to the deserializer struct.
-pub fn Deserializer(comptime endian: builtin.Endian, is_packed: bool, comptime Error: type) type {
+pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, comptime Error: type) type {
     return struct {
         const Self = @This();
 
-        in_stream: if (is_packed) BitInStream(endian, Stream.Error) else *Stream,
+        in_stream: if (packing == .Bit) BitInStream(endian, Stream.Error) else *Stream,
 
         pub const Stream = InStream(Error);
 
         pub fn init(in_stream: *Stream) Self {
-            return Self{ .in_stream = switch (is_packed) {
-                true => BitInStream(endian, Stream.Error).init(in_stream),
-                else => in_stream,
+            return Self{ .in_stream = switch (packing) {
+                .Bit => BitInStream(endian, Stream.Error).init(in_stream),
+                .Byte => in_stream,
             } };
         }
 
@@ -1128,7 +1133,7 @@ pub fn Deserializer(comptime endian: builtin.Endian, is_packed: bool, comptime E
             const Log2U = math.Log2Int(U);
             const int_size = (U.bit_count + 7) / 8;
 
-            if (is_packed) {
+            if (packing == .Bit) {
                 const result = try self.in_stream.readBitsNoEof(U, t_bit_count);
                 return @bitCast(T, result);
             }
@@ -1211,8 +1216,8 @@ pub fn Deserializer(comptime endian: builtin.Endian, is_packed: bool, comptime E
             //custom deserializer: fn(self: *Self, deserializer: var) !void
             if (comptime trait.hasFn("deserialize")(C)) return C.deserialize(ptr, self);
 
-            if (comptime trait.isPacked(C) and !is_packed) {
-                var packed_deserializer = Deserializer(endian, true, Error).init(self.in_stream);
+            if (comptime trait.isPacked(C) and packing != .Bit) {
+                var packed_deserializer = Deserializer(endian, .Bit, Error).init(self.in_stream);
                 return packed_deserializer.deserializeInto(ptr);
             }
 
@@ -1276,14 +1281,13 @@ pub fn Deserializer(comptime endian: builtin.Endian, is_packed: bool, comptime E
                         ptr.* = null;
                         return;
                     }
-
+                    
+                    //This should ensure that the optional is set to non-null.
+                    ptr.* = OC(undefined);
                     //The way non-pointer optionals are implemented ensures a pointer to them
                     // will point to the value. The flag is stored at the end of that data.
                     var val_ptr = @ptrCast(*OC, ptr);
                     try self.deserializeInto(val_ptr);
-                    //This bit ensures the null flag isn't set. Any actual copying should be
-                    // optimized out... I hope.
-                    ptr.* = val_ptr.*;
                 },
                 builtin.TypeId.Enum => {
                     var value = try self.deserializeInt(@TagType(C));
@@ -1310,24 +1314,24 @@ pub fn Deserializer(comptime endian: builtin.Endian, is_packed: bool, comptime E
 ///  which will be called when the serializer is used to serialize that type. It will
 ///  pass a const pointer to the type instance to be serialized and a pointer
 ///  to the serializer struct.
-pub fn Serializer(comptime endian: builtin.Endian, comptime is_packed: bool, comptime Error: type) type {
+pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, comptime Error: type) type {
     return struct {
         const Self = @This();
 
-        out_stream: if (is_packed) BitOutStream(endian, Stream.Error) else *Stream,
+        out_stream: if (packing == .Bit) BitOutStream(endian, Stream.Error) else *Stream,
 
         pub const Stream = OutStream(Error);
 
         pub fn init(out_stream: *Stream) Self {
-            return Self{ .out_stream = switch (is_packed) {
-                true => BitOutStream(endian, Stream.Error).init(out_stream),
-                else => out_stream,
+            return Self{ .out_stream = switch (packing) {
+                .Bit => BitOutStream(endian, Stream.Error).init(out_stream),
+                .Byte => out_stream,
             } };
         }
 
         /// Flushes any unwritten bits to the stream
         pub fn flush(self: *Self) Error!void {
-            if (is_packed) return self.out_stream.flushBits();
+            if (packing == .Bit) return self.out_stream.flushBits();
         }
 
         fn serializeInt(self: *Self, value: var) Error!void {
@@ -1343,15 +1347,15 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime is_packed: bool, com
 
             const u_value = @bitCast(U, value);
 
-            if (is_packed) return self.out_stream.writeBits(u_value, t_bit_count);
+            if (packing == .Bit) return self.out_stream.writeBits(u_value, t_bit_count);
 
             var buffer: [int_size]u8 = undefined;
             if (int_size == 1) buffer[0] = u_value;
 
             for (buffer) |*byte, i| {
                 const idx = switch (endian) {
-                    builtin.Endian.Big => int_size - i - 1,
-                    builtin.Endian.Little => i,
+                    .Big => int_size - i - 1,
+                    .Little => i,
                 };
                 const shift = @intCast(Log2U, idx * u8_bit_count);
                 const v = u_value >> shift;
@@ -1374,8 +1378,8 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime is_packed: bool, com
             //custom serializer: fn(self: Self, serializer: var) !void
             if (comptime trait.hasFn("serialize")(T)) return T.serialize(value, self);
 
-            if (comptime trait.isPacked(T) and !is_packed) {
-                var packed_serializer = Serializer(endian, true, Error).init(self.out_stream);
+            if (comptime trait.isPacked(T) and packing != .Bit) {
+                var packed_serializer = Serializer(endian, .Bit, Error).init(self.out_stream);
                 try packed_serializer.serialize(value);
                 try packed_serializer.flush();
                 return;
