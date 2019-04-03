@@ -19,7 +19,6 @@ comptime {
     @export("__getf2", @import("compiler_rt/comparetf2.zig").__getf2, linkage);
 
     if (!is_test) {
-        // only create these aliases when not testing
         @export("__cmpsf2", @import("compiler_rt/comparesf2.zig").__lesf2, linkage);
         @export("__cmpdf2", @import("compiler_rt/comparedf2.zig").__ledf2, linkage);
         @export("__cmptf2", @import("compiler_rt/comparetf2.zig").__letf2, linkage);
@@ -599,7 +598,7 @@ extern fn __udivsi3(n: u32, d: u32) u32 {
     // special cases
     if (d == 0) return 0; // ?!
     if (n == 0) return 0;
-    var sr = @bitCast(c_uint, c_int(@clz(d)) - c_int(@clz(n)));
+    var sr = @bitCast(c_uint, c_int(@clz(u32, d)) - c_int(@clz(u32, n)));
     // 0 <= sr <= n_uword_bits - 1 or sr large
     if (sr > n_uword_bits - 1) {
         // d > r

@@ -10,7 +10,7 @@ pub extern fn __floatunsidf(arg: u32) f64 {
     if (arg == 0) return 0.0;
 
     // The exponent is the width of abs(a)
-    const exp = u64(31) - @clz(arg);
+    const exp = u64(31) - @clz(u32, arg);
     // Shift a into the significand field and clear the implicit bit
     const shift = @intCast(u6, 52 - exp);
     const mant = u64(arg) << shift ^ implicitBit;

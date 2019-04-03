@@ -213,15 +213,6 @@ static ZigType *new_container_type_entry(CodeGen *g, ZigTypeId id, AstNode *sour
     return entry;
 }
 
-static uint8_t bits_needed_for_unsigned(uint64_t x) {
-    if (x == 0) {
-        return 0;
-    }
-    uint8_t base = log2_u64(x);
-    uint64_t upper = (((uint64_t)1) << base) - 1;
-    return (upper >= x) ? base : (base + 1);
-}
-
 AstNode *type_decl_node(ZigType *type_entry) {
     switch (type_entry->id) {
         case ZigTypeIdInvalid:
@@ -335,8 +326,31 @@ static bool is_slice(ZigType *type) {
     return type->id == ZigTypeIdStruct && type->data.structure.is_slice;
 }
 
+static uint8_t bits_needed_for_unsigned(uint64_t x) {
+    if (x == 0) {
+        return 0;
+    }
+    uint8_t base = log2_u64(x);
+    uint64_t upper = (((uint64_t)1) << base) - 1;
+    return (upper >= x) ? base : (base + 1);
+}
+
+static uint8_t bits_needed_for_popcount_unsigned(uint64_t x) {
+    uint8_t count = 0;
+    for (uint64_t s = x;s != 0;s >>= 1)
+        count++;
+
+    return count;
+}
+
 ZigType *get_smallest_unsigned_int_type(CodeGen *g, uint64_t x) {
     return get_int_type(g, false, bits_needed_for_unsigned(x));
+}
+
+// This is not the same as above, because while shift by bit width is UB, @clz, @popCount, and @ctz
+// can return bit width
+ZigType *get_smallest_popcount_unsigned_int_type(CodeGen *g, uint64_t x) {
+    return get_int_type(g, false, bits_needed_for_popcount_unsigned(x));
 }
 
 ZigType *get_promise_type(CodeGen *g, ZigType *result_type) {
