@@ -222,6 +222,7 @@ pub const Rational = struct {
             exp += 1;
         }
         if (mantissa >> msize1 != 1) {
+            // NOTE: This can be hit if the limb size is small (u8/16).
             @panic("unexpected bits in result");
         }
 
@@ -421,8 +422,6 @@ pub const Rational = struct {
     }
 };
 
-var al = debug.global_allocator;
-
 const SignedDoubleLimb = @IntType(true, DoubleLimb.bit_count);
 
 fn gcd(rma: *Int, x: Int, y: Int) !void {
@@ -441,11 +440,7 @@ fn gcd(rma: *Int, x: Int, y: Int) !void {
         r.deinit();
     };
 
-    if (x.cmp(y) > 0) {
-        try gcdLehmer(r, x, y);
-    } else {
-        try gcdLehmer(r, y, x);
-    }
+    try gcdLehmer(r, x, y);
 }
 
 // Storage must live for the lifetime of the returned value
@@ -461,9 +456,6 @@ fn FixedIntFromSignedDoubleLimb(A: SignedDoubleLimb, storage: []Limb) Int {
     return Ap;
 }
 
-// Handbook of Applied Cryptography, 14.57
-//
-// r = gcd(x, y) where x, y > 0
 fn gcdLehmer(r: *Int, xa: Int, ya: Int) !void {
     var x = try xa.clone();
     x.abs();
@@ -484,18 +476,8 @@ fn gcdLehmer(r: *Int, xa: Int, ya: Int) !void {
         debug.assert(x.positive and y.positive);
         debug.assert(x.len >= y.len);
 
-        // chop the leading zeros of the limbs and normalize
-        const offset = @clz(x.limbs[x.len - 1]);
-
-        var xh: SignedDoubleLimb = math.shl(Limb, x.limbs[x.len - 1], offset) |
-            math.shr(Limb, x.limbs[x.len - 2], Limb.bit_count - offset);
-
-        var yh: SignedDoubleLimb = if (y.len == x.len)
-            math.shl(Limb, y.limbs[y.len - 1], offset) | math.shr(Limb, y.limbs[y.len - 2], Limb.bit_count - offset)
-        else if (y.len == x.len - 1)
-            math.shr(Limb, y.limbs[y.len - 2], Limb.bit_count - offset)
-        else
-            0;
+        var xh: SignedDoubleLimb = x.limbs[x.len - 1];
+        var yh: SignedDoubleLimb = if (x.len > y.len) 0 else y.limbs[x.len - 1];
 
         var A: SignedDoubleLimb = 1;
         var B: SignedDoubleLimb = 0;
@@ -546,13 +528,7 @@ fn gcdLehmer(r: *Int, xa: Int, ya: Int) !void {
             try r.add(x, r.*);
 
             x.swap(&T);
-            x.abs();
             y.swap(r);
-            y.abs();
-
-            if (x.cmp(y) < 0) {
-                x.swap(&y);
-            }
         }
     }
 
@@ -567,6 +543,10 @@ fn gcdLehmer(r: *Int, xa: Int, ya: Int) !void {
 
     r.swap(&x);
 }
+
+var buffer: [64 * 8192]u8 = undefined;
+var fixed = std.heap.FixedBufferAllocator.init(buffer[0..]);
+var al = &fixed.allocator;
 
 test "big.rational gcd non-one small" {
     var a = try Int.initSet(al, 17);
@@ -606,6 +586,16 @@ test "big.rational gcd large multi-limb result" {
     try gcd(&r, a, b);
 
     testing.expect((try r.to(u256)) == 0xf000000ff00000fff0000ffff000fffff00ffffff1);
+}
+
+test "big.rational gcd one large" {
+    var a = try Int.initSet(al, 1897056385327307);
+    var b = try Int.initSet(al, 2251799813685248);
+    var r = try Int.init(al);
+
+    try gcd(&r, a, b);
+
+    testing.expect((try r.to(u64)) == 1);
 }
 
 fn extractLowBits(a: Int, comptime T: type) T {
@@ -721,12 +711,7 @@ test "big.rational toFloat" {
 }
 
 test "big.rational set/to Float round-trip" {
-    // toFloat allocates memory in a loop so we need to free it
-    var buf: [512 * 1024]u8 = undefined;
-    var fixed = std.heap.FixedBufferAllocator.init(buf[0..]);
-
-    var a = try Rational.init(&fixed.allocator);
-
+    var a = try Rational.init(al);
     var prng = std.rand.DefaultPrng.init(0x5EED);
     var i: usize = 0;
     while (i < 512) : (i += 1) {

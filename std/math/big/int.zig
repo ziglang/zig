@@ -67,7 +67,7 @@ pub const Int = struct {
             .len = limbs.len,
         };
 
-        self.normN(limbs.len);
+        self.normalize(limbs.len);
         return self;
     }
 
@@ -508,28 +508,12 @@ pub const Int = struct {
         return cmp(a, b) == 0;
     }
 
-    // Normalize for a possible single carry digit.
-    //
-    // [1, 2, 3, 4, 0] -> [1, 2, 3, 4]
-    // [1, 2, 3, 4, 5] -> [1, 2, 3, 4, 5]
-    // [0]             -> [0]
-    fn norm1(r: *Int, length: usize) void {
-        debug.assert(length > 0);
-        debug.assert(length <= r.limbs.len);
-
-        if (r.limbs[length - 1] == 0) {
-            r.len = if (length > 1) length - 1 else 1;
-        } else {
-            r.len = length;
-        }
-    }
-
     // Normalize a possible sequence of leading zeros.
     //
     // [1, 2, 3, 4, 0] -> [1, 2, 3, 4]
     // [1, 2, 0, 0, 0] -> [1, 2]
     // [0, 0, 0, 0, 0] -> [0]
-    fn normN(r: *Int, length: usize) void {
+    fn normalize(r: *Int, length: usize) void {
         debug.assert(length > 0);
         debug.assert(length <= r.limbs.len);
 
@@ -577,11 +561,11 @@ pub const Int = struct {
             if (a.len >= b.len) {
                 try r.ensureCapacity(a.len + 1);
                 lladd(r.limbs[0..], a.limbs[0..a.len], b.limbs[0..b.len]);
-                r.norm1(a.len + 1);
+                r.normalize(a.len + 1);
             } else {
                 try r.ensureCapacity(b.len + 1);
                 lladd(r.limbs[0..], b.limbs[0..b.len], a.limbs[0..a.len]);
-                r.norm1(b.len + 1);
+                r.normalize(b.len + 1);
             }
 
             r.positive = a.positive;
@@ -630,12 +614,12 @@ pub const Int = struct {
                 if (a.cmp(b) >= 0) {
                     try r.ensureCapacity(a.len + 1);
                     llsub(r.limbs[0..], a.limbs[0..a.len], b.limbs[0..b.len]);
-                    r.normN(a.len);
+                    r.normalize(a.len);
                     r.positive = true;
                 } else {
                     try r.ensureCapacity(b.len + 1);
                     llsub(r.limbs[0..], b.limbs[0..b.len], a.limbs[0..a.len]);
-                    r.normN(b.len);
+                    r.normalize(b.len);
                     r.positive = false;
                 }
             } else {
@@ -643,12 +627,12 @@ pub const Int = struct {
                 if (a.cmp(b) < 0) {
                     try r.ensureCapacity(a.len + 1);
                     llsub(r.limbs[0..], a.limbs[0..a.len], b.limbs[0..b.len]);
-                    r.normN(a.len);
+                    r.normalize(a.len);
                     r.positive = false;
                 } else {
                     try r.ensureCapacity(b.len + 1);
                     llsub(r.limbs[0..], b.limbs[0..b.len], a.limbs[0..a.len]);
-                    r.normN(b.len);
+                    r.normalize(b.len);
                     r.positive = true;
                 }
             }
@@ -708,7 +692,7 @@ pub const Int = struct {
         }
 
         r.positive = a.positive == b.positive;
-        r.normN(a.len + b.len);
+        r.normalize(a.len + b.len);
     }
 
     // a + b * c + *carry, sets carry to the overflow bits
@@ -817,7 +801,7 @@ pub const Int = struct {
             try quo.ensureCapacity(a.len);
 
             lldiv1(quo.limbs[0..], &rem.limbs[0], a.limbs[ab_zero_limb_count..a.len], b.limbs[b.len - 1]);
-            quo.norm1(a.len - ab_zero_limb_count);
+            quo.normalize(a.len - ab_zero_limb_count);
             quo.positive = a.positive == b.positive;
 
             rem.len = 1;
@@ -846,13 +830,10 @@ pub const Int = struct {
             try divN(quo.allocator.?, quo, rem, &x, &y);
 
             quo.positive = a.positive == b.positive;
+        }
 
-            // If dividend had trailing zeros beyond divisor, add extra trailing limbs.
-            // Single-limb division never has multi-limb remainder so nothing to add.
-            if (a_zero_limb_count > b_zero_limb_count) {
-                const shift = a_zero_limb_count - b_zero_limb_count;
-                try rem.shiftLeft(rem.*, shift * Limb.bit_count);
-            }
+        if (ab_zero_limb_count != 0) {
+            try rem.shiftLeft(rem.*, ab_zero_limb_count * Limb.bit_count);
         }
     }
 
@@ -933,7 +914,7 @@ pub const Int = struct {
             tmp.limbs[0] = if (i >= 2) x.limbs[i - 2] else 0;
             tmp.limbs[1] = if (i >= 1) x.limbs[i - 1] else 0;
             tmp.limbs[2] = x.limbs[i];
-            tmp.normN(3);
+            tmp.normalize(3);
 
             while (true) {
                 // 2x1 limb multiplication unrolled against single-limb q[i-t-1]
@@ -941,7 +922,7 @@ pub const Int = struct {
                 r.limbs[0] = addMulLimbWithCarry(0, if (t >= 1) y.limbs[t - 1] else 0, q.limbs[i - t - 1], &carry);
                 r.limbs[1] = addMulLimbWithCarry(0, y.limbs[t], q.limbs[i - t - 1], &carry);
                 r.limbs[2] = carry;
-                r.normN(3);
+                r.normalize(3);
 
                 if (r.cmpAbs(tmp) <= 0) {
                     break;
@@ -964,10 +945,10 @@ pub const Int = struct {
         }
 
         // Denormalize
-        q.normN(q.len);
+        q.normalize(q.len);
 
         try r.shiftRight(x.*, norm_shift);
-        r.normN(r.len);
+        r.normalize(r.len);
     }
 
     // r = a << shift, in other words, r = a * 2^shift
@@ -976,7 +957,7 @@ pub const Int = struct {
 
         try r.ensureCapacity(a.len + (shift / Limb.bit_count) + 1);
         llshl(r.limbs[0..], a.limbs[0..a.len], shift);
-        r.norm1(a.len + (shift / Limb.bit_count) + 1);
+        r.normalize(a.len + (shift / Limb.bit_count) + 1);
         r.positive = a.positive;
     }
 
@@ -1076,11 +1057,11 @@ pub const Int = struct {
         if (a.len > b.len) {
             try r.ensureCapacity(b.len);
             lland(r.limbs[0..], a.limbs[0..a.len], b.limbs[0..b.len]);
-            r.normN(b.len);
+            r.normalize(b.len);
         } else {
             try r.ensureCapacity(a.len);
             lland(r.limbs[0..], b.limbs[0..b.len], a.limbs[0..a.len]);
-            r.normN(a.len);
+            r.normalize(a.len);
         }
     }
 
@@ -1102,11 +1083,11 @@ pub const Int = struct {
         if (a.len > b.len) {
             try r.ensureCapacity(a.len);
             llxor(r.limbs[0..], a.limbs[0..a.len], b.limbs[0..b.len]);
-            r.normN(a.len);
+            r.normalize(a.len);
         } else {
             try r.ensureCapacity(b.len);
             llxor(r.limbs[0..], b.limbs[0..b.len], a.limbs[0..a.len]);
-            r.normN(b.len);
+            r.normalize(b.len);
         }
     }
 
@@ -1130,7 +1111,9 @@ pub const Int = struct {
 // They will still run on larger than this and should pass, but the multi-limb code-paths
 // may be untested in some cases.
 
-const al = debug.global_allocator;
+var buffer: [64 * 8192]u8 = undefined;
+var fixed = std.heap.FixedBufferAllocator.init(buffer[0..]);
+const al = &fixed.allocator;
 
 test "big.int comptime_int set" {
     comptime var s = 0xefffffff00000001eeeeeeefaaaaaaab;
@@ -1179,7 +1162,7 @@ test "big.int to target too small error" {
     testing.expectError(error.TargetTooSmall, a.to(u8));
 }
 
-test "big.int norm1" {
+test "big.int normalize" {
     var a = try Int.init(al);
     try a.ensureCapacity(8);
 
@@ -1187,26 +1170,26 @@ test "big.int norm1" {
     a.limbs[1] = 2;
     a.limbs[2] = 3;
     a.limbs[3] = 0;
-    a.norm1(4);
+    a.normalize(4);
     testing.expect(a.len == 3);
 
     a.limbs[0] = 1;
     a.limbs[1] = 2;
     a.limbs[2] = 3;
-    a.norm1(3);
+    a.normalize(3);
     testing.expect(a.len == 3);
 
     a.limbs[0] = 0;
     a.limbs[1] = 0;
-    a.norm1(2);
+    a.normalize(2);
     testing.expect(a.len == 1);
 
     a.limbs[0] = 0;
-    a.norm1(1);
+    a.normalize(1);
     testing.expect(a.len == 1);
 }
 
-test "big.int normN" {
+test "big.int normalize multi" {
     var a = try Int.init(al);
     try a.ensureCapacity(8);
 
@@ -1214,24 +1197,24 @@ test "big.int normN" {
     a.limbs[1] = 2;
     a.limbs[2] = 0;
     a.limbs[3] = 0;
-    a.normN(4);
+    a.normalize(4);
     testing.expect(a.len == 2);
 
     a.limbs[0] = 1;
     a.limbs[1] = 2;
     a.limbs[2] = 3;
-    a.normN(3);
+    a.normalize(3);
     testing.expect(a.len == 3);
 
     a.limbs[0] = 0;
     a.limbs[1] = 0;
     a.limbs[2] = 0;
     a.limbs[3] = 0;
-    a.normN(4);
+    a.normalize(4);
     testing.expect(a.len == 1);
 
     a.limbs[0] = 0;
-    a.normN(1);
+    a.normalize(1);
     testing.expect(a.len == 1);
 }
 
@@ -2065,7 +2048,9 @@ test "big.int div multi-multi zero-limb trailing (with rem)" {
     try Int.divTrunc(&q, &r, a, b);
 
     testing.expect((try q.to(u128)) == 0x10000000000000000);
-    testing.expect((try r.to(u128)) == 0x44444443444444431111111111111111);
+
+    const rs = try r.toString(al, 16);
+    testing.expect(std.mem.eql(u8, rs, "4444444344444443111111111111111100000000000000000000000000000000"));
 }
 
 test "big.int div multi-multi zero-limb trailing (with rem) and dividend zero-limb count > divisor zero-limb count" {
@@ -2077,7 +2062,9 @@ test "big.int div multi-multi zero-limb trailing (with rem) and dividend zero-li
     try Int.divTrunc(&q, &r, a, b);
 
     testing.expect((try q.to(u128)) == 0x1);
-    testing.expect((try r.to(u128)) == 0x44444443444444431111111111111111);
+
+    const rs = try r.toString(al, 16);
+    testing.expect(std.mem.eql(u8, rs, "444444434444444311111111111111110000000000000000"));
 }
 
 test "big.int div multi-multi zero-limb trailing (with rem) and dividend zero-limb count < divisor zero-limb count" {
@@ -2093,6 +2080,42 @@ test "big.int div multi-multi zero-limb trailing (with rem) and dividend zero-li
 
     const rs = try r.toString(al, 16);
     testing.expect(std.mem.eql(u8, rs, "4e11f2baa5896a321d463b543d0104e30000000000000000"));
+}
+
+test "big.int div multi-multi fuzz case #1" {
+    var a = try Int.init(al);
+    var b = try Int.init(al);
+
+    try a.setString(16, "ffffffffffffffffffffffffffffc00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff80000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000");
+    try b.setString(16, "3ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe0000000000000000000000000000000000001ffffffffffffffffffffffffffffffffffffffffffffffffffc000000000000000000000000000000007fffffffffff");
+
+    var q = try Int.init(al);
+    var r = try Int.init(al);
+    try Int.divTrunc(&q, &r, a, b);
+
+    const qs = try q.toString(al, 16);
+    testing.expect(std.mem.eql(u8, qs, "3ffffffffffffffffffffffffffff0000000000000000000000000000000000001ffffffffffffffffffffffffffff7fffffffe000000000000000000000000000180000000000000000000003fffffbfffffffdfffffffffffffeffff800000100101000000100000000020003fffffdfbfffffe3ffffffffffffeffff7fffc00800a100000017ffe000002000400007efbfff7fe9f00000037ffff3fff7fffa004006100000009ffe00000190038200bf7d2ff7fefe80400060000f7d7f8fbf9401fe38e0403ffc0bdffffa51102c300d7be5ef9df4e5060007b0127ad3fa69f97d0f820b6605ff617ddf7f32ad7a05c0d03f2e7bc78a6000e087a8bbcdc59e07a5a079128a7861f553ddebed7e8e56701756f9ead39b48cd1b0831889ea6ec1fddf643d0565b075ff07e6caea4e2854ec9227fd635ed60a2f5eef2893052ffd54718fa08604acbf6a15e78a467c4a3c53c0278af06c4416573f925491b195e8fd79302cb1aaf7caf4ecfc9aec1254cc969786363ac729f914c6ddcc26738d6b0facd54eba026580aba2eb6482a088b0d224a8852420b91ec1"));
+
+    const rs = try r.toString(al, 16);
+    testing.expect(std.mem.eql(u8, rs, "310d1d4c414426b4836c2635bad1df3a424e50cbdd167ffccb4dfff57d36b4aae0d6ca0910698220171a0f3373c1060a046c2812f0027e321f72979daa5e7973214170d49e885de0c0ecc167837d44502430674a82522e5df6a0759548052420b91ec1"));
+}
+
+test "big.int div multi-multi fuzz case #2" {
+    var a = try Int.init(al);
+    var b = try Int.init(al);
+
+    try a.setString(16, "3ffffffffe00000000000000000000000000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffe000000000000000000000000000000000000000000000000000000000000001fffffffffffffffff800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ffffffffffffffffffffc000000000000000000000000000000000000000000000000000000000000000");
+    try b.setString(16, "ffc0000000000000000000000000000000000000000000000000");
+
+    var q = try Int.init(al);
+    var r = try Int.init(al);
+    try Int.divTrunc(&q, &r, a, b);
+
+    const qs = try q.toString(al, 16);
+    testing.expect(std.mem.eql(u8, qs, "40100400fe3f8fe3f8fe3f8fe3f8fe3f8fe4f93e4f93e4f93e4f93e4f93e4f93e4f93e4f93e4f93e4f93e4f93e4f91e4791e4791e4791e4791e4791e4791e4791e4791e4791e4791e4791e4791e4992649926499264991e4791e4791e4791e4791e4791e4791e4791e4791e4791e4791e4791e4791e4791e4791e4791e4791e4791e4791e4791e4791e4791e4791e4791e4792e4b92e4b92e4b92e4b92a4a92a4a92a4"));
+
+    const rs = try r.toString(al, 16);
+    testing.expect(std.mem.eql(u8, rs, "a900000000000000000000000000000000000000000000000000"));
 }
 
 test "big.int shift-right single" {
