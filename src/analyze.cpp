@@ -339,6 +339,19 @@ ZigType *get_smallest_unsigned_int_type(CodeGen *g, uint64_t x) {
     return get_int_type(g, false, bits_needed_for_unsigned(x));
 }
 
+static uint8_t bits_needed_for_no_zero_representation_unsigned(uint64_t x) {
+    uint8_t count = 0;
+    for (uint64_t s = x - 1;s != 0;s >>= 1)
+        count++;
+
+    return count;
+}
+
+//Equivilent to math.Log2Int. ceil log2int
+ZigType *get_shift_type(CodeGen *g, uint64_t x) {
+    return get_int_type(g, false, bits_needed_for_no_zero_representation_unsigned(x));
+}
+
 ZigType *get_promise_type(CodeGen *g, ZigType *result_type) {
     if (result_type != nullptr && result_type->promise_parent != nullptr) {
         return result_type->promise_parent;

@@ -121,7 +121,7 @@ pub const Int = struct {
 
     // Returns the number of bits required to represent the absolute value of self.
     fn bitCountAbs(self: Int) usize {
-        return (self.len - 1) * Limb.bit_count + (Limb.bit_count - @clz(self.limbs[self.len - 1]));
+        return (self.len - 1) * Limb.bit_count + (Limb.bit_count - @clz(Limb, self.limbs[self.len - 1]));
     }
 
     // Returns the number of bits required to represent the integer in twos-complement form.
@@ -140,9 +140,9 @@ pub const Int = struct {
         if (!self.positive) block: {
             bits += 1;
 
-            if (@popCount(self.limbs[self.len - 1]) == 1) {
+            if (@popCount(Limb, self.limbs[self.len - 1]) == 1) {
                 for (self.limbs[0 .. self.len - 1]) |limb| {
-                    if (@popCount(limb) != 0) {
+                    if (@popCount(Limb, limb) != 0) {
                         break :block;
                     }
                 }
@@ -846,7 +846,7 @@ pub const Int = struct {
         defer tmp.deinit();
 
         // Normalize so y > Limb.bit_count / 2 (i.e. leading bit is set)
-        const norm_shift = @clz(y.limbs[y.len - 1]);
+        const norm_shift = @clz(Limb, y.limbs[y.len - 1]);
         try x.shiftLeft(x.*, norm_shift);
         try y.shiftLeft(y.*, norm_shift);
 

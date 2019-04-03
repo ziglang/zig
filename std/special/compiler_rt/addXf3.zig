@@ -36,11 +36,11 @@ pub extern fn __subtf3(a: f128, b: f128) f128 {
 // TODO: restore inline keyword, see: https://github.com/ziglang/zig/issues/2154
 fn normalize(comptime T: type, significand: *@IntType(false, T.bit_count)) i32 {
     const Z = @IntType(false, T.bit_count);
-    const S = @IntType(false, T.bit_count - @clz(Z(T.bit_count) - 1));
+    const S = @IntType(false, T.bit_count - @clz(Z, Z(T.bit_count) - 1));
     const significandBits = std.math.floatMantissaBits(T);
     const implicitBit = Z(1) << significandBits;
 
-    const shift = @clz(significand.*) - @clz(implicitBit);
+    const shift = @clz(@IntType(false, T.bit_count), significand.*) - @clz(Z, implicitBit);
     significand.* <<= @intCast(S, shift);
     return 1 - shift;
 }
@@ -48,7 +48,7 @@ fn normalize(comptime T: type, significand: *@IntType(false, T.bit_count)) i32 {
 // TODO: restore inline keyword, see: https://github.com/ziglang/zig/issues/2154
 fn addXf3(comptime T: type, a: T, b: T) T {
     const Z = @IntType(false, T.bit_count);
-    const S = @IntType(false, T.bit_count - @clz(Z(T.bit_count) - 1));
+    const S = @IntType(false, T.bit_count - @clz(Z, Z(T.bit_count) - 1));
 
     const typeWidth = T.bit_count;
     const significandBits = std.math.floatMantissaBits(T);
@@ -162,7 +162,7 @@ fn addXf3(comptime T: type, a: T, b: T) T {
         // If partial cancellation occured, we need to left-shift the result
         // and adjust the exponent:
         if (aSignificand < implicitBit << 3) {
-            const shift = @intCast(i32, @clz(aSignificand)) - @intCast(i32, @clz(implicitBit << 3));
+            const shift = @intCast(i32, @clz(Z, aSignificand)) - @intCast(i32, @clz(@IntType(false, T.bit_count), implicitBit << 3));
             aSignificand <<= @intCast(S, shift);
             aExponent -= shift;
         }

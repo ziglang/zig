@@ -519,7 +519,7 @@ pub fn readIntNative(comptime T: type, bytes: *const [@divExact(T.bit_count, 8)]
 /// This function cannot fail and cannot cause undefined behavior.
 /// Assumes the endianness of memory is foreign, so it must byte-swap.
 pub fn readIntForeign(comptime T: type, bytes: *const [@divExact(T.bit_count, 8)]u8) T {
-    return @bswap(T, readIntNative(T, bytes));
+    return @bSwap(T, readIntNative(T, bytes));
 }
 
 pub const readIntLittle = switch (builtin.endian) {
@@ -549,7 +549,7 @@ pub fn readIntSliceNative(comptime T: type, bytes: []const u8) T {
 /// The bit count of T must be evenly divisible by 8.
 /// Assumes the endianness of memory is foreign, so it must byte-swap.
 pub fn readIntSliceForeign(comptime T: type, bytes: []const u8) T {
-    return @bswap(T, readIntSliceNative(T, bytes));
+    return @bSwap(T, readIntSliceNative(T, bytes));
 }
 
 pub const readIntSliceLittle = switch (builtin.endian) {
@@ -630,9 +630,9 @@ pub fn writeIntNative(comptime T: type, buf: *[(T.bit_count + 7) / 8]u8, value: 
 /// Writes an integer to memory, storing it in twos-complement.
 /// This function always succeeds, has defined behavior for all inputs, but
 /// the integer bit width must be divisible by 8.
-/// This function stores in foreign endian, which means it does a @bswap first.
+/// This function stores in foreign endian, which means it does a @bSwap first.
 pub fn writeIntForeign(comptime T: type, buf: *[@divExact(T.bit_count, 8)]u8, value: T) void {
-    writeIntNative(T, buf, @bswap(T, value));
+    writeIntNative(T, buf, @bSwap(T, value));
 }
 
 pub const writeIntLittle = switch (builtin.endian) {
@@ -1235,14 +1235,14 @@ test "std.mem.rotate" {
 pub fn littleToNative(comptime T: type, x: T) T {
     return switch (builtin.endian) {
         builtin.Endian.Little => x,
-        builtin.Endian.Big => @bswap(T, x),
+        builtin.Endian.Big => @bSwap(T, x),
     };
 }
 
 /// Converts a big-endian integer to host endianness.
 pub fn bigToNative(comptime T: type, x: T) T {
     return switch (builtin.endian) {
-        builtin.Endian.Little => @bswap(T, x),
+        builtin.Endian.Little => @bSwap(T, x),
         builtin.Endian.Big => x,
     };
 }
@@ -1267,14 +1267,14 @@ pub fn nativeTo(comptime T: type, x: T, desired_endianness: builtin.Endian) T {
 pub fn nativeToLittle(comptime T: type, x: T) T {
     return switch (builtin.endian) {
         builtin.Endian.Little => x,
-        builtin.Endian.Big => @bswap(T, x),
+        builtin.Endian.Big => @bSwap(T, x),
     };
 }
 
 /// Converts an integer which has host endianness to big endian.
 pub fn nativeToBig(comptime T: type, x: T) T {
     return switch (builtin.endian) {
-        builtin.Endian.Little => @bswap(T, x),
+        builtin.Endian.Little => @bSwap(T, x),
         builtin.Endian.Big => x,
     };
 }
