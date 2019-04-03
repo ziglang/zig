@@ -1206,6 +1206,10 @@ pub const LibExeObjStep = struct {
     pub fn setMainPkgPath(self: *LibExeObjStep, dir_path: []const u8) void {
         self.main_pkg_path = dir_path;
     }
+    
+    pub fn setDisableGenH(self: *LibExeObjStep, value: bool) void {
+        self.disable_gen_h = value;
+    }
 
     /// Unless setOutputDir was called, this function must be called only in
     /// the make step, from a step that has declared a dependency on this one.
@@ -1432,6 +1436,9 @@ pub const LibExeObjStep = struct {
         }
         if (self.is_dynamic) {
             try zig_args.append("-dynamic");
+        }
+        if (self.disable_gen_h) {
+            try zig_args.append("--disable-gen-h");
         }
 
         switch (self.target) {
