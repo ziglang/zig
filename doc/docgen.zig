@@ -385,7 +385,7 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                         last_action = Action.Open;
                     }
                     try toc.writeByteNTimes(' ', 4 + header_stack_size * 4);
-                    try toc.print("<li><a href=\"#{}\">{}</a>", urlized, content);
+                    try toc.print("<li><a id=\"toc-{}\" href=\"#{}\">{}</a>", urlized, urlized, content);
                 } else if (mem.eql(u8, tag_name, "header_close")) {
                     if (header_stack_size == 0) {
                         return parseError(tokenizer, tag_token, "unbalanced close header");
@@ -706,10 +706,10 @@ fn termColor(allocator: *mem.Allocator, input: []const u8) ![]u8 {
 }
 
 const builtin_types = [][]const u8{
-    "f16", "f32", "f64", "f128", "c_longdouble", "c_short",
-    "c_ushort", "c_int", "c_uint", "c_long", "c_ulong", "c_longlong",
-    "c_ulonglong", "c_char", "c_void", "void", "bool", "isize",
-    "usize", "noreturn", "type", "anyerror", "comptime_int", "comptime_float",
+    "f16",         "f32",      "f64",    "f128",     "c_longdouble", "c_short",
+    "c_ushort",    "c_int",    "c_uint", "c_long",   "c_ulong",      "c_longlong",
+    "c_ulonglong", "c_char",   "c_void", "void",     "bool",         "isize",
+    "usize",       "noreturn", "type",   "anyerror", "comptime_int", "comptime_float",
 };
 
 fn isType(name: []const u8) bool {
@@ -965,7 +965,15 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                 try out.write("</pre>");
             },
             Node.HeaderOpen => |info| {
-                try out.print("<h{} id=\"{}\"><a href=\"#{}\">{}</a></h{}>\n", info.n, info.url, info.url, info.name, info.n);
+                try out.print(
+                    "<h{} id=\"{}\"><a href=\"#toc-{}\">{}</a><a class=\"hdr\" href=\"#{}\">¶</a></h{}>\n",
+                    info.n,
+                    info.url,
+                    info.url,
+                    info.name,
+                    info.url,
+                    info.n,
+                );
             },
             Node.SeeAlso => |items| {
                 try out.write("<p>See also:</p><ul>\n");

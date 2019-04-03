@@ -6,12 +6,9 @@
     <title>Documentation - The Zig Programming Language</title>
     <style type="text/css">
       body{
-        background-color:#111;
-        color: #bbb;
         font-family: system-ui, -apple-system, Roboto, "Segoe UI", sans-serif;
       }
       a {
-        color: #88f;
         text-decoration: none;
       }
       table, th, td {
@@ -39,17 +36,15 @@
       .file {
         text-decoration: underline;
       }
-      code {
+      pre,code {
         font-size: 12pt;
       }
       pre > code {
         display: block;
         overflow: auto;
-
-        overflow-x: auto;
         padding: 0.5em;
-        color: #ccc;
-        background: #222;
+        color: #333;
+        background: #f8f8f8;
       }
       .table-wrapper {
         width: 100%;
@@ -57,76 +52,109 @@
       }
 
       .tok-kw {
-          color: #eee;
+          color: #333;
           font-weight: bold;
       }
       .tok-str {
-          color: #2e5;
+          color: #d14;
       }
       .tok-builtin {
-          color: #ff894c;
+          color: #0086b3;
       }
       .tok-comment {
-          color: #aa7;
+          color: #777;
           font-style: italic;
       }
       .tok-fn {
-          color: #e33;
+          color: #900;
           font-weight: bold;
       }
       .tok-null {
-          color: #ff8080;
+          color: #008080;
       }
       .tok-number {
-          color: #ff8080;
+          color: #008080;
       }
       .tok-type {
-          color: #68f;
+          color: #458;
           font-weight: bold;
       }
 
-      /* Desktop */
-      @media screen and (min-width: 56.25em) {
-        #nav {
-          width: 20em;
-          height: 100%;
-          position: fixed;
-          overflow-y: scroll;
-          left: 0;
-          top: 0;
-          padding-left: 1em;
-        }
-        #contents {
-          max-width: 60em;
-          padding-left: 22em;
-          padding: 1em;
-          padding-left: 24em;
-        }
+      #contents {
+        max-width: 60em;
+        margin: auto;
       }
-      /* Mobile */
-      @media screen and (max-width: 56.25em) {
-        body, code {
-          font-size: small;
-        }
-        #nav {
-          border-bottom: 1px solid grey;
-        }
-      }
+
       h1 a, h2 a, h3 a, h4 a, h5 a {
         text-decoration: none;
-        color: #aaa;
+        color: #333;
       }
-      #nav a {
-        color: #aaa;
-        text-decoration: none;
+
+      a.hdr {
+        visibility: hidden;
+      }
+      h1:hover > a.hdr, h2:hover > a.hdr, h3:hover > a.hdr, h4:hover > a.hdr, h5:hover > a.hdr {
+        visibility: visible;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        body{
+            background-color:#111;
+            color: #bbb;
+        }
+        a {
+            color: #88f;
+        }
+        table, th, td {
+            border-color: grey;
+        }
+        .t2_0 {
+            color: grey;
+        }
+        .t31_1 {
+            color: red;
+        }
+        .t32_1 {
+            color: green;
+        }
+        .t36_1 {
+            color: #0086b3;
+        }
+        pre > code {
+            color: #ccc;
+            background: #222;
+        }
+        .tok-kw {
+            color: #eee;
+        }
+        .tok-str {
+            color: #2e5;
+        }
+        .tok-builtin {
+            color: #ff894c;
+        }
+        .tok-comment {
+            color: #aa7;
+        }
+        .tok-fn {
+            color: #e33;
+        }
+        .tok-null {
+            color: #ff8080;
+        }
+        .tok-number {
+            color: #ff8080;
+        }
+        .tok-type {
+            color: #68f;
+        }
+        h1 a, h2 a, h3 a, h4 a, h5 a {
+            color: #aaa;
+        }
       }
     </style>
   </head>
   <body>
-    <div id="nav">
-      <h3>Index</h3>
-      {#nav#}
-    </div>
     <div id="contents">
       {#header_open|Introduction#}
       <p>
@@ -152,6 +180,11 @@
       This HTML document depends on no external files, so you can use it offline.
       </p>
       {#header_close#}
+
+      {#header_open|Index#}
+      {#nav#}
+      {#header_close#}
+
       {#header_open|Hello World#}
 
       {#code_begin|exe|hello#}
