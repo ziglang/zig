@@ -318,7 +318,7 @@ test "BitStreams with File Stream" {
     try os.deleteFile(tmp_file_name);
 }
 
-fn testIntSerializerDeserializer(comptime endian: builtin.Endian, comptime is_packed: bool) !void {
+fn testIntSerializerDeserializer(comptime endian: builtin.Endian, comptime packing: io.Packing) !void {
     //@NOTE: if this test is taking too long, reduce the maximum tested bitsize
     const max_test_bitsize = 128;
 
@@ -333,12 +333,12 @@ fn testIntSerializerDeserializer(comptime endian: builtin.Endian, comptime is_pa
     var out = io.SliceOutStream.init(data_mem[0..]);
     const OutError = io.SliceOutStream.Error;
     var out_stream = &out.stream;
-    var serializer = io.Serializer(endian, is_packed, OutError).init(out_stream);
+    var serializer = io.Serializer(endian, packing, OutError).init(out_stream);
 
     var in = io.SliceInStream.init(data_mem[0..]);
     const InError = io.SliceInStream.Error;
     var in_stream = &in.stream;
-    var deserializer = io.Deserializer(endian, is_packed, InError).init(in_stream);
+    var deserializer = io.Deserializer(endian, packing, InError).init(in_stream);
 
     comptime var i = 0;
     inline while (i <= max_test_bitsize) : (i += 1) {
@@ -366,21 +366,21 @@ fn testIntSerializerDeserializer(comptime endian: builtin.Endian, comptime is_pa
     const extra_packed_byte = @boolToInt(total_bits % u8_bit_count > 0);
     const total_packed_bytes = (total_bits / u8_bit_count) + extra_packed_byte;
 
-    expect(in.pos == if (is_packed) total_packed_bytes else total_bytes);
+    expect(in.pos == if (packing == .Bit) total_packed_bytes else total_bytes);
 
     //Verify that empty error set works with serializer.
     //deserializer is covered by SliceInStream
     const NullError = io.NullOutStream.Error;
     var null_out = io.NullOutStream.init();
     var null_out_stream = &null_out.stream;
-    var null_serializer = io.Serializer(endian, is_packed, NullError).init(null_out_stream);
+    var null_serializer = io.Serializer(endian, packing, NullError).init(null_out_stream);
     try null_serializer.serialize(data_mem[0..]);
     try null_serializer.flush();
 }
 
 test "Serializer/Deserializer Int" {
-    try testIntSerializerDeserializer(builtin.Endian.Big, false);
-    try testIntSerializerDeserializer(builtin.Endian.Little, false);
+    try testIntSerializerDeserializer(.Big, .Byte);
+    try testIntSerializerDeserializer(.Little, .Byte);
     // TODO these tests are disabled due to tripping an LLVM assertion
     // https://github.com/ziglang/zig/issues/2019
     //try testIntSerializerDeserializer(builtin.Endian.Big, true);
@@ -389,7 +389,7 @@ test "Serializer/Deserializer Int" {
 
 fn testIntSerializerDeserializerInfNaN(
     comptime endian: builtin.Endian,
-    comptime is_packed: bool,
+    comptime packing: io.Packing,
 ) !void {
     const mem_size = (16 * 2 + 32 * 2 + 64 * 2 + 128 * 2) / comptime meta.bitCount(u8);
     var data_mem: [mem_size]u8 = undefined;
@@ -397,12 +397,12 @@ fn testIntSerializerDeserializerInfNaN(
     var out = io.SliceOutStream.init(data_mem[0..]);
     const OutError = io.SliceOutStream.Error;
     var out_stream = &out.stream;
-    var serializer = io.Serializer(endian, is_packed, OutError).init(out_stream);
+    var serializer = io.Serializer(endian, packing, OutError).init(out_stream);
 
     var in = io.SliceInStream.init(data_mem[0..]);
     const InError = io.SliceInStream.Error;
     var in_stream = &in.stream;
-    var deserializer = io.Deserializer(endian, is_packed, InError).init(in_stream);
+    var deserializer = io.Deserializer(endian, packing, InError).init(in_stream);
 
     //@TODO: isInf/isNan not currently implemented for f128.
     try serializer.serialize(std.math.nan(f16));
@@ -432,17 +432,17 @@ fn testIntSerializerDeserializerInfNaN(
 }
 
 test "Serializer/Deserializer Int: Inf/NaN" {
-    try testIntSerializerDeserializerInfNaN(builtin.Endian.Big, false);
-    try testIntSerializerDeserializerInfNaN(builtin.Endian.Little, false);
-    try testIntSerializerDeserializerInfNaN(builtin.Endian.Big, true);
-    try testIntSerializerDeserializerInfNaN(builtin.Endian.Little, true);
+    try testIntSerializerDeserializerInfNaN(.Big, .Byte);
+    try testIntSerializerDeserializerInfNaN(.Little, .Byte);
+    try testIntSerializerDeserializerInfNaN(.Big, .Bit);
+    try testIntSerializerDeserializerInfNaN(.Little, .Bit);
 }
 
 fn testAlternateSerializer(self: var, serializer: var) !void {
     try serializer.serialize(self.f_f16);
 }
 
-fn testSerializerDeserializer(comptime endian: builtin.Endian, comptime is_packed: bool) !void {
+fn testSerializerDeserializer(comptime endian: builtin.Endian, comptime packing: io.Packing) !void {
     const ColorType = enum(u4) {
         RGB8 = 1,
         RA16 = 2,
@@ -529,12 +529,12 @@ fn testSerializerDeserializer(comptime endian: builtin.Endian, comptime is_packe
     var out = io.SliceOutStream.init(data_mem[0..]);
     const OutError = io.SliceOutStream.Error;
     var out_stream = &out.stream;
-    var serializer = io.Serializer(endian, is_packed, OutError).init(out_stream);
+    var serializer = io.Serializer(endian, packing, OutError).init(out_stream);
 
     var in = io.SliceInStream.init(data_mem[0..]);
     const InError = io.SliceInStream.Error;
     var in_stream = &in.stream;
-    var deserializer = io.Deserializer(endian, is_packed, InError).init(in_stream);
+    var deserializer = io.Deserializer(endian, packing, InError).init(in_stream);
 
     try serializer.serialize(my_inst);
 
@@ -543,13 +543,13 @@ fn testSerializerDeserializer(comptime endian: builtin.Endian, comptime is_packe
 }
 
 test "Serializer/Deserializer generic" {
-    try testSerializerDeserializer(builtin.Endian.Big, false);
-    try testSerializerDeserializer(builtin.Endian.Little, false);
-    try testSerializerDeserializer(builtin.Endian.Big, true);
-    try testSerializerDeserializer(builtin.Endian.Little, true);
+    try testSerializerDeserializer(builtin.Endian.Big, .Byte);
+    try testSerializerDeserializer(builtin.Endian.Little, .Byte);
+    try testSerializerDeserializer(builtin.Endian.Big, .Bit);
+    try testSerializerDeserializer(builtin.Endian.Little, .Bit);
 }
 
-fn testBadData(comptime endian: builtin.Endian, comptime is_packed: bool) !void {
+fn testBadData(comptime endian: builtin.Endian, comptime packing: io.Packing) !void {
     const E = enum(u14) {
         One = 1,
         Two = 2,
@@ -568,12 +568,12 @@ fn testBadData(comptime endian: builtin.Endian, comptime is_packed: bool) !void 
     var out = io.SliceOutStream.init(data_mem[0..]);
     const OutError = io.SliceOutStream.Error;
     var out_stream = &out.stream;
-    var serializer = io.Serializer(endian, is_packed, OutError).init(out_stream);
+    var serializer = io.Serializer(endian, packing, OutError).init(out_stream);
 
     var in = io.SliceInStream.init(data_mem[0..]);
     const InError = io.SliceInStream.Error;
     var in_stream = &in.stream;
-    var deserializer = io.Deserializer(endian, is_packed, InError).init(in_stream);
+    var deserializer = io.Deserializer(endian, packing, InError).init(in_stream);
 
     try serializer.serialize(u14(3));
     expectError(error.InvalidEnumTag, deserializer.deserialize(A));
@@ -584,8 +584,8 @@ fn testBadData(comptime endian: builtin.Endian, comptime is_packed: bool) !void 
 }
 
 test "Deserializer bad data" {
-    try testBadData(builtin.Endian.Big, false);
-    try testBadData(builtin.Endian.Little, false);
-    try testBadData(builtin.Endian.Big, true);
-    try testBadData(builtin.Endian.Little, true);
+    try testBadData(.Big, .Byte);
+    try testBadData(.Little, .Byte);
+    try testBadData(.Big, .Bit);
+    try testBadData(.Little, .Bit);
 }
