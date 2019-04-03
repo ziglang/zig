@@ -2695,6 +2695,7 @@ test "labeled break from labeled block expression" {
 }
       {#code_end#}
       <p>Here, {#syntax#}blk{#endsyntax#} can be any name.</p>
+      <p>Guaranteed to traverse forward.</p>
       {#see_also|Labeled while|Labeled for#}
 
       {#header_open|Shadowing#}
