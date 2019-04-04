@@ -1322,50 +1322,53 @@ void bigint_xor(BigInt *dest, const BigInt *op1, const BigInt *op2) {
 void bigint_shl(BigInt *dest, const BigInt *op1, const BigInt *op2) {
     assert(!op2->is_negative);
 
-    if (op2->digit_count == 0) {
-        bigint_init_bigint(dest, op1);
-        return;
-    }
+    if (op2->digit_count == 0)
+        return bigint_init_bigint(dest, op1);
 
-    if (op1->digit_count == 0) {
-        bigint_init_unsigned(dest, 0);
-        return;
-    }
-
-    if (op2->digit_count != 1) {
-        zig_panic("TODO shift left by amount greater than 64 bit integer");
-    }
+    if (op1->digit_count == 0)
+        return bigint_init_unsigned(dest, 0);
 
     const uint64_t *op1_digits = bigint_ptr(op1);
     uint64_t shift_amt = bigint_as_unsigned(op2);
 
-    if (op1->digit_count == 1 && shift_amt < 64) {
-        dest->data.digit = op1_digits[0] << shift_amt;
-        if (dest->data.digit > op1_digits[0]) {
-            dest->digit_count = 1;
-            dest->is_negative = op1->is_negative;
-            return;
-        }
+    if (op1->digit_count == 1 && op1->data.digit == 0)
+        return bigint_init_unsigned(dest, 0);
+
+    if (op1->digit_count == 1 && __builtin_clzl(op1->data.digit) >= shift_amt) {
+        dest->data.digit = op1->data.digit << shift_amt;
+        dest->digit_count = 1;
+        dest->is_negative = op1->is_negative;
+        return;
     }
 
     uint64_t digit_shift_count = shift_amt / 64;
     uint64_t leftover_shift_count = shift_amt % 64;
 
-    dest->data.digits = allocate<uint64_t>(op1->digit_count + digit_shift_count + 1);
-    dest->digit_count = digit_shift_count;
-    uint64_t carry = 0;
-    for (size_t i = 0; i < op1->digit_count; i += 1) {
-        uint64_t digit = op1_digits[i];
-        dest->data.digits[dest->digit_count] = carry | (digit << leftover_shift_count);
-        dest->digit_count += 1;
-        if (leftover_shift_count > 0) {
-            carry = digit >> (64 - leftover_shift_count);
-        } else {
-            carry = 0;
-        }
+    size_t naieve_digits_needed = op1->digit_count + digit_shift_count + 1;
+    size_t digits_needed = naieve_digits_needed;
+    if (op1->digit_count > 1) {
+        uint64_t most_sig_digit = op1->data.digits[op1->digit_count - 1];
+        if (__builtin_clzl(most_sig_digit) >= leftover_shift_count)
+            digits_needed--;
     }
-    dest->data.digits[dest->digit_count] = carry;
-    dest->digit_count += 1;
+    dest->data.digits = allocate<uint64_t>(digits_needed);
+    dest->digit_count = digits_needed;
+    uint64_t carry = 0;
+    size_t i = 0;
+    for (;i < digit_shift_count;i++)
+        dest->data.digits[i] = 0;
+    for (;i < naieve_digits_needed - 1;i++) {
+        uint64_t digit = op1_digits[i - digit_shift_count];
+        dest->data.digits[i] = carry | (digit << leftover_shift_count);
+        if (leftover_shift_count == 0)
+            carry = 0;
+        else
+            carry = digit >> (64 - leftover_shift_count);
+    };
+    if (carry) {
+        assert(digits_needed == i + 1);
+        dest->data.digits[i] = carry;
+    }
     dest->is_negative = op1->is_negative;
     bigint_normalize(dest);
 }
@@ -1379,22 +1382,18 @@ void bigint_shl_trunc(BigInt *dest, const BigInt *op1, const BigInt *op2, size_t
 void bigint_shr(BigInt *dest, const BigInt *op1, const BigInt *op2) {
     assert(!op2->is_negative);
 
-    if (op1->digit_count == 0) {
+    if (op1->digit_count == 0)
         return bigint_init_unsigned(dest, 0);
-    }
 
-    if (op2->digit_count == 0) {
+    if (op2->digit_count == 0)
         return bigint_init_bigint(dest, op1);
-    }
-
-    if (op2->digit_count != 1) {
-        zig_panic("TODO shift right by amount greater than 64 bit integer");
-    }
 
     const uint64_t *op1_digits = bigint_ptr(op1);
     uint64_t shift_amt = bigint_as_unsigned(op2);
 
     if (op1->digit_count == 1) {
+        if (shift_amt > 64)
+            return bigint_init_unsigned(dest, 0);
         dest->data.digit = op1_digits[0] >> shift_amt;
         dest->digit_count = 1;
         dest->is_negative = op1->is_negative;
@@ -1405,22 +1404,42 @@ void bigint_shr(BigInt *dest, const BigInt *op1, const BigInt *op2) {
     size_t digit_shift_count = shift_amt / 64;
     size_t leftover_shift_count = shift_amt % 64;
 
-    if (digit_shift_count >= op1->digit_count) {
+    if (digit_shift_count >= op1->digit_count)
         return bigint_init_unsigned(dest, 0);
-    }
 
-    dest->digit_count = op1->digit_count - digit_shift_count;
-    dest->data.digits = allocate<uint64_t>(dest->digit_count);
+    uint64_t naieve_digits_needed = op1->digit_count - digit_shift_count;
+    uint64_t digits_needed = naieve_digits_needed;
+    //bool most_sig_fits = false;
+    if (op1->digit_count > 1) {
+        uint64_t most_sig_digit = op1->data.digits[op1->digit_count - 1];
+        if (__builtin_clzl(most_sig_digit) + leftover_shift_count >= 64) {
+            digits_needed--;
+         //   most_sig_fits = true;
+        }
+    }
+    if (digits_needed > 1)
+        dest->data.digits = allocate<uint64_t>(digits_needed);
+    dest->digit_count = digits_needed;
     uint64_t carry = 0;
-    for (size_t op_digit_index = op1->digit_count - 1;;) {
-        uint64_t digit = op1_digits[op_digit_index];
-        size_t dest_digit_index = op_digit_index - digit_shift_count;
-        dest->data.digits[dest_digit_index] = carry | (digit >> leftover_shift_count);
-        carry = digit << (64 - leftover_shift_count);
-
-        if (dest_digit_index == 0) { break; }
-        op_digit_index -= 1;
-    }
+    size_t skip_bytes = digit_shift_count;
+    size_t i = naieve_digits_needed;
+    do {
+        i--;
+        uint64_t digit = op1_digits[skip_bytes + i];
+        uint64_t out_digit = carry | digit >> leftover_shift_count;
+        if (leftover_shift_count == 0)
+            carry = 0;
+        else
+            carry = digit << (64 - leftover_shift_count);
+        // The first round may be just to pick up the carry
+        if (out_digit && naieve_digits_needed != i - 1) {
+            assert(digits_needed >= i + 1);
+            if (digits_needed == 1)
+                dest->data.digit = out_digit;
+            else
+                dest->data.digits[i] = out_digit;
+        }
+    } while (i != 0);
     dest->is_negative = op1->is_negative;
     bigint_normalize(dest);
 }
