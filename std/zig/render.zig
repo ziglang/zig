@@ -1460,7 +1460,7 @@ fn renderExpression(
 
             const space_after_body = blk: {
                 if (for_node.@"else") |@"else"| {
-                    const src_one_line_to_else = tree.tokensOnSameLine(for_node.body.lastToken(), @"else".firstToken());
+                    const src_one_line_to_else = tree.tokensOnSameLine(rparen, @"else".firstToken());
                     if (body_is_block or src_one_line_to_else) {
                         break :blk Space.Space;
                     } else {

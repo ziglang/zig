@@ -1875,6 +1875,21 @@ test "zig fmt: for" {
         \\}
         \\
     );
+
+    try testTransform(
+        \\test "fix for" {
+        \\    for (a) |x|
+        \\        f(x) else continue;
+        \\}
+        \\
+    ,
+        \\test "fix for" {
+        \\    for (a) |x|
+        \\        f(x)
+        \\    else continue;
+        \\}
+        \\
+    );
 }
 
 test "zig fmt: if" {
