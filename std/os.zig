@@ -3142,6 +3142,8 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
                 l = mem.alignForward(l, tls_phdr.p_align);
                 tls_start_offset = l;
                 l += tls_phdr.p_memsz;
+                // the fs register address
+                l += @sizeOf(usize);
             }
         }
         break :blk l;
@@ -3184,7 +3186,7 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
         var newtls: usize = undefined;
         if (linux_tls_phdr) |tls_phdr| {
             @memcpy(@intToPtr([*]u8, mmap_addr + tls_start_offset), linux_tls_img_src, tls_phdr.p_filesz);
-            newtls = mmap_addr + mmap_len;
+            newtls = mmap_addr + mmap_len - @sizeOf(usize);
             @intToPtr(*usize, newtls).* = newtls;
             flags |= posix.CLONE_SETTLS;
         }
