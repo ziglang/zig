@@ -221,6 +221,7 @@ pub const Compare = enum {
 };
 
 /// Copy all of source into dest at position 0.
+/// source and dest must not overlap
 /// dest.len must be >= source.len.
 /// dest.ptr must be <= src.ptr.
 pub fn copy(comptime T: type, dest: []T, source: []const T) void {
@@ -229,29 +230,38 @@ pub fn copy(comptime T: type, dest: []T, source: []const T) void {
     // this and automatically omit safety checks for loops
     @setRuntimeSafety(false);
     assert(dest.len >= source.len);
-    for (source) |s, i|
-        dest[i] = s;
+    @memcpy(@ptrCast([*]u8, dest.ptr), @ptrCast([*]const u8, source.ptr), source.len * @sizeOf(T));
 }
 
 /// Copy all of source into dest at position 0.
 /// dest.len must be >= source.len.
 /// dest.ptr must be >= src.ptr.
-pub fn copyBackwards(comptime T: type, dest: []T, source: []const T) void {
+pub fn move(comptime T: type, dest: []T, source: []const T) void {
     // TODO instead of manually doing this check for the whole array
     // and turning off runtime safety, the compiler should detect loops like
     // this and automatically omit safety checks for loops
     @setRuntimeSafety(false);
+    // TODO @memmove
     assert(dest.len >= source.len);
-    var i = source.len;
-    while (i > 0) {
-        i -= 1;
-        dest[i] = source[i];
+    if (@ptrToInt(dest.ptr) < @ptrToInt(source.ptr)) {
+        for (source) |s, i|
+            dest[i] = s;
+    } else {
+        var i = source.len;
+        while (i > 0) {
+            i -= 1;
+            dest[i] = source[i];
+        }
     }
 }
 
 pub fn set(comptime T: type, dest: []T, value: T) void {
-    for (dest) |*d|
-        d.* = value;
+    if (@typeId(T) == .Int and @typeInfo(T).Int.bits == 8) {
+        @memset(@ptrCast([*]u8, dest.ptr), @bitCast(u8, value), dest.len);
+    } else {
+        for (dest) |*d|
+            d.* = value;
+    }
 }
 
 pub fn secureZero(comptime T: type, s: []T) void {
