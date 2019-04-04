@@ -6902,11 +6902,27 @@ fn add(a: i32, b: i32) i32 { return a + b; }
       </p>
       <p>
       This function is a low level intrinsic with no safety mechanisms. Most code
-      should not use this function, and instead use {#syntax#}std.mem.copy{#endsyntax#}.
+      should not use this function.
       </p>
-      <p>There is also a standard library function for this:</p>
+      <p>There is a standard library function for this:</p>
       <pre>{#syntax#}const mem = @import("std").mem;
 mem.copy(u8, dest[0..byte_count], source[0..byte_count]);{#endsyntax#}</pre>
+      {#header_close#}
+
+
+      {#header_open|@memMove#}
+      <pre>{#syntax#}@memMove(dest: [*]u8, source: [*]const u8, byte_count: usize){#endsyntax#}</pre>
+      <p>
+      This function copies bytes from one region of memory to another. {#syntax#}dest{#endsyntax#} and
+          {#syntax#}source{#endsyntax#} are both pointers and may overlap.
+      </p>
+      <p>
+      This function is a low level intrinsic with no safety mechanisms. Most code
+      should not use this function.
+      </p>
+      <p>There is a standard library function for this:</p>
+      <pre>{#syntax#}const mem = @import("std").mem;
+mem.move(u8, dest[0..byte_count], source[0..byte_count]);{#endsyntax#}</pre>
       {#header_close#}
 
       {#header_open|@memset#}
