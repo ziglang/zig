@@ -240,6 +240,13 @@ LLVMValueRef ZigLLVMBuildMemSet(LLVMBuilderRef B, LLVMValueRef Ptr, LLVMValueRef
     return wrap(call_inst);
 }
 
+LLVMValueRef ZigLLVMBuildMemMove(LLVMBuilderRef B, LLVMValueRef Dst, unsigned DstAlign,
+        LLVMValueRef Src, unsigned SrcAlign, LLVMValueRef Size, bool isVolatile)
+{
+    CallInst *call_inst = unwrap(B)->CreateMemMove(unwrap(Dst), DstAlign, unwrap(Src), SrcAlign, unwrap(Size), isVolatile);
+    return wrap(call_inst);
+}
+
 void ZigLLVMFnSetSubprogram(LLVMValueRef fn, ZigLLVMDISubprogram *subprogram) {
     assert( isa<Function>(unwrap(fn)) );
     Function *unwrapped_function = reinterpret_cast<Function*>(unwrap(fn));

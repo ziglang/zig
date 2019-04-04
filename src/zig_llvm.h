@@ -74,6 +74,9 @@ ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildMemCpy(LLVMBuilderRef B, LLVMValueRef Dst,
 ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildMemSet(LLVMBuilderRef B, LLVMValueRef Ptr, LLVMValueRef Val, LLVMValueRef Size,
         unsigned Align, bool isVolatile);
 
+ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildMemMove(LLVMBuilderRef B, LLVMValueRef Dst, unsigned DstAlign,
+        LLVMValueRef Src, unsigned SrcAlign, LLVMValueRef Size, bool isVolatile);
+
 ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildCmpXchg(LLVMBuilderRef builder, LLVMValueRef ptr, LLVMValueRef cmp,
         LLVMValueRef new_val, LLVMAtomicOrdering success_ordering,
         LLVMAtomicOrdering failure_ordering, bool is_weak);

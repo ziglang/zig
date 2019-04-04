@@ -835,6 +835,16 @@ static void ir_print_memcpy(IrPrint *irp, IrInstructionMemcpy *instruction) {
     fprintf(irp->f, ")");
 }
 
+static void ir_print_memmove(IrPrint *irp, IrInstructionMemMove *instruction) {
+    fprintf(irp->f, "@memMove(");
+    ir_print_other_instruction(irp, instruction->dest_ptr);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->src_ptr);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->count);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_slice(IrPrint *irp, IrInstructionSlice *instruction) {
     ir_print_other_instruction(irp, instruction->ptr);
     fprintf(irp->f, "[");
@@ -1701,6 +1711,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdMemcpy:
             ir_print_memcpy(irp, (IrInstructionMemcpy *)instruction);
+            break;
+        case IrInstructionIdMemMove:
+            ir_print_memmove(irp, (IrInstructionMemMove *)instruction);
             break;
         case IrInstructionIdSlice:
             ir_print_slice(irp, (IrInstructionSlice *)instruction);

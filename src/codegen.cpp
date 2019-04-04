@@ -67,6 +67,7 @@ ZigPackage *new_anonymous_package() {
 static const char *symbols_that_llvm_depends_on[] = {
     "memcpy",
     "memset",
+    "memmove",
     "sqrt",
     "powi",
     "sin",
@@ -4579,6 +4580,28 @@ static LLVMValueRef ir_render_memcpy(CodeGen *g, IrExecutable *executable, IrIns
     return nullptr;
 }
 
+static LLVMValueRef ir_render_memmove(CodeGen *g, IrExecutable *executable, IrInstructionMemMove *instruction) {
+    LLVMValueRef dest_ptr = ir_llvm_value(g, instruction->dest_ptr);
+    LLVMValueRef src_ptr = ir_llvm_value(g, instruction->src_ptr);
+    LLVMValueRef len_val = ir_llvm_value(g, instruction->count);
+
+    LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
+
+    LLVMValueRef dest_ptr_casted = LLVMBuildBitCast(g->builder, dest_ptr, ptr_u8, "");
+    LLVMValueRef src_ptr_casted = LLVMBuildBitCast(g->builder, src_ptr, ptr_u8, "");
+
+    ZigType *dest_ptr_type = instruction->dest_ptr->value.type;
+    ZigType *src_ptr_type = instruction->src_ptr->value.type;
+
+    assert(dest_ptr_type->id == ZigTypeIdPointer);
+    assert(src_ptr_type->id == ZigTypeIdPointer);
+
+    bool is_volatile = (dest_ptr_type->data.pointer.is_volatile || src_ptr_type->data.pointer.is_volatile);
+    ZigLLVMBuildMemMove(g->builder, dest_ptr_casted, get_ptr_align(g, dest_ptr_type),
+            src_ptr_casted, get_ptr_align(g, src_ptr_type), len_val, is_volatile);
+    return nullptr;
+}
+
 static LLVMValueRef ir_render_slice(CodeGen *g, IrExecutable *executable, IrInstructionSlice *instruction) {
     assert(instruction->tmp_ptr);
 
@@ -5629,6 +5652,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_memset(g, executable, (IrInstructionMemset *)instruction);
         case IrInstructionIdMemcpy:
             return ir_render_memcpy(g, executable, (IrInstructionMemcpy *)instruction);
+        case IrInstructionIdMemMove:
+            return ir_render_memmove(g, executable, (IrInstructionMemMove *)instruction);
         case IrInstructionIdSlice:
             return ir_render_slice(g, executable, (IrInstructionSlice *)instruction);
         case IrInstructionIdBreakpoint:
@@ -7265,8 +7290,9 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdReturnAddress, "returnAddress", 0);
     create_builtin_fn(g, BuiltinFnIdFrameAddress, "frameAddress", 0);
     create_builtin_fn(g, BuiltinFnIdHandle, "handle", 0);
-    create_builtin_fn(g, BuiltinFnIdMemcpy, "memcpy", 3);
-    create_builtin_fn(g, BuiltinFnIdMemset, "memset", 3);
+    create_builtin_fn(g, BuiltinFnIdMemcpy, "memcpy", 3); // TODO rename to memCpy
+    create_builtin_fn(g, BuiltinFnIdMemset, "memset", 3); // TODO rename to memSet
+    create_builtin_fn(g, BuiltinFnIdMemMove, "memMove", 3);
     create_builtin_fn(g, BuiltinFnIdSizeof, "sizeOf", 1);
     create_builtin_fn(g, BuiltinFnIdAlignOf, "alignOf", 1);
     create_builtin_fn(g, BuiltinFnIdMemberCount, "memberCount", 1);

@@ -1386,6 +1386,7 @@ enum BuiltinFnId {
     BuiltinFnIdInvalid,
     BuiltinFnIdMemcpy,
     BuiltinFnIdMemset,
+    BuiltinFnIdMemMove,
     BuiltinFnIdSizeof,
     BuiltinFnIdAlignOf,
     BuiltinFnIdMemberCount,
@@ -1664,6 +1665,7 @@ struct CodeGen {
     LLVMValueRef cur_err_ret_trace_val_arg;
     LLVMValueRef cur_err_ret_trace_val_stack;
     LLVMValueRef memcpy_fn_val;
+    LLVMValueRef memmove_fn_val;
     LLVMValueRef memset_fn_val;
     LLVMValueRef trap_fn_val;
     LLVMValueRef return_address_fn_val;
@@ -2224,6 +2226,7 @@ enum IrInstructionId {
     IrInstructionIdBoolNot,
     IrInstructionIdMemset,
     IrInstructionIdMemcpy,
+    IrInstructionIdMemMove,
     IrInstructionIdSlice,
     IrInstructionIdMemberCount,
     IrInstructionIdMemberType,
@@ -2970,7 +2973,16 @@ struct IrInstructionMemset {
     IrInstruction *count;
 };
 
+// Warning: this is casted to MemMove, so must be identical
 struct IrInstructionMemcpy {
+    IrInstruction base;
+
+    IrInstruction *dest_ptr;
+    IrInstruction *src_ptr;
+    IrInstruction *count;
+};
+
+struct IrInstructionMemMove {
     IrInstruction base;
 
     IrInstruction *dest_ptr;

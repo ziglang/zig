@@ -704,6 +704,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionMemcpy *) {
     return IrInstructionIdMemcpy;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionMemMove *) {
+    return IrInstructionIdMemMove;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionSlice *) {
     return IrInstructionIdSlice;
 }
@@ -2208,6 +2212,21 @@ static IrInstruction *ir_build_memcpy(IrBuilder *irb, Scope *scope, AstNode *sou
     IrInstruction *dest_ptr, IrInstruction *src_ptr, IrInstruction *count)
 {
     IrInstructionMemcpy *instruction = ir_build_instruction<IrInstructionMemcpy>(irb, scope, source_node);
+    instruction->dest_ptr = dest_ptr;
+    instruction->src_ptr = src_ptr;
+    instruction->count = count;
+
+    ir_ref_instruction(dest_ptr, irb->current_basic_block);
+    ir_ref_instruction(src_ptr, irb->current_basic_block);
+    ir_ref_instruction(count, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_memmove(IrBuilder *irb, Scope *scope, AstNode *source_node,
+    IrInstruction *dest_ptr, IrInstruction *src_ptr, IrInstruction *count)
+{
+    IrInstructionMemMove *instruction = ir_build_instruction<IrInstructionMemMove>(irb, scope, source_node);
     instruction->dest_ptr = dest_ptr;
     instruction->src_ptr = src_ptr;
     instruction->count = count;
@@ -4547,6 +4566,26 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
 
                 IrInstruction *ir_memset = ir_build_memset(irb, scope, node, arg0_value, arg1_value, arg2_value);
                 return ir_lval_wrap(irb, scope, ir_memset, lval);
+            }
+        case BuiltinFnIdMemMove:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                AstNode *arg2_node = node->data.fn_call_expr.params.at(2);
+                IrInstruction *arg2_value = ir_gen_node(irb, arg2_node, scope);
+                if (arg2_value == irb->codegen->invalid_instruction)
+                    return arg2_value;
+
+                IrInstruction *ir_memmove = ir_build_memmove(irb, scope, node, arg0_value, arg1_value, arg2_value);
+                return ir_lval_wrap(irb, scope, ir_memmove, lval);
             }
         case BuiltinFnIdMemberCount:
             {
@@ -20197,7 +20236,7 @@ static IrInstruction *ir_analyze_instruction_memset(IrAnalyze *ira, IrInstructio
     return result;
 }
 
-static IrInstruction *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstructionMemcpy *instruction) {
+static IrInstruction *ir_analyze_instruction_memmove(IrAnalyze *ira, IrInstructionMemMove *instruction) {
     Error err;
 
     IrInstruction *dest_ptr = instruction->dest_ptr->child;
@@ -20350,13 +20389,86 @@ static IrInstruction *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstructio
             return ira->codegen->invalid_instruction;
         }
 
-        // TODO check for noalias violations - this should be generalized to work for any function
-
         for (size_t i = 0; i < count; i += 1) {
             dest_elements[dest_start + i] = src_elements[src_start + i];
         }
 
         return ir_const_void(ira, &instruction->base);
+    }
+
+    IrInstruction *result = ir_build_memmove(&ira->new_irb, instruction->base.scope, instruction->base.source_node,
+            casted_dest_ptr, casted_src_ptr, casted_count);
+    result->value.type = ira->codegen->builtin_types.entry_void;
+    return result;
+}
+
+static IrInstruction *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstructionMemcpy *instruction) {
+    Error err;
+
+    IrInstruction *dest_ptr = instruction->dest_ptr->child;
+    if (type_is_invalid(dest_ptr->value.type))
+        return ira->codegen->invalid_instruction;
+
+    IrInstruction *src_ptr = instruction->src_ptr->child;
+    if (type_is_invalid(src_ptr->value.type))
+        return ira->codegen->invalid_instruction;
+
+    IrInstruction *count_value = instruction->count->child;
+    if (type_is_invalid(count_value->value.type))
+        return ira->codegen->invalid_instruction;
+
+    ZigType *u8 = ira->codegen->builtin_types.entry_u8;
+    ZigType *dest_uncasted_type = dest_ptr->value.type;
+    ZigType *src_uncasted_type = src_ptr->value.type;
+    bool dest_is_volatile = (dest_uncasted_type->id == ZigTypeIdPointer) &&
+        dest_uncasted_type->data.pointer.is_volatile;
+    bool src_is_volatile = (src_uncasted_type->id == ZigTypeIdPointer) &&
+        src_uncasted_type->data.pointer.is_volatile;
+
+    uint32_t dest_align;
+    if (dest_uncasted_type->id == ZigTypeIdPointer) {
+        if ((err = resolve_ptr_align(ira, dest_uncasted_type, &dest_align)))
+            return ira->codegen->invalid_instruction;
+    } else {
+        dest_align = get_abi_alignment(ira->codegen, u8);
+    }
+
+    uint32_t src_align;
+    if (src_uncasted_type->id == ZigTypeIdPointer) {
+        if ((err = resolve_ptr_align(ira, src_uncasted_type, &src_align)))
+            return ira->codegen->invalid_instruction;
+    } else {
+        src_align = get_abi_alignment(ira->codegen, u8);
+    }
+
+    ZigType *usize = ira->codegen->builtin_types.entry_usize;
+    ZigType *u8_ptr_mut = get_pointer_to_type_extra(ira->codegen, u8, false, dest_is_volatile,
+            PtrLenUnknown, dest_align, 0, 0, false);
+    ZigType *u8_ptr_const = get_pointer_to_type_extra(ira->codegen, u8, true, src_is_volatile,
+            PtrLenUnknown, src_align, 0, 0, false);
+
+    IrInstruction *casted_dest_ptr = ir_implicit_cast(ira, dest_ptr, u8_ptr_mut);
+    if (type_is_invalid(casted_dest_ptr->value.type))
+        return ira->codegen->invalid_instruction;
+
+    IrInstruction *casted_src_ptr = ir_implicit_cast(ira, src_ptr, u8_ptr_const);
+    if (type_is_invalid(casted_src_ptr->value.type))
+        return ira->codegen->invalid_instruction;
+
+    IrInstruction *casted_count = ir_implicit_cast(ira, count_value, usize);
+    if (type_is_invalid(casted_count->value.type))
+        return ira->codegen->invalid_instruction;
+
+    // TODO test this at comptime with u8 and non-u8 types
+    // TODO test with dest ptr being a global runtime variable 
+    if (casted_dest_ptr->value.special == ConstValSpecialStatic &&
+        casted_src_ptr->value.special == ConstValSpecialStatic &&
+        casted_count->value.special == ConstValSpecialStatic &&
+        casted_dest_ptr->value.data.x_ptr.special != ConstPtrSpecialHardCodedAddr)
+    {
+        // TODO check for noalias violations - this should be generalized to work for any function
+
+        return ir_analyze_instruction_memmove(ira, (IrInstructionMemMove*)instruction);
     }
 
     IrInstruction *result = ir_build_memcpy(&ira->new_irb, instruction->base.scope, instruction->base.source_node,
@@ -23243,6 +23355,8 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
             return ir_analyze_instruction_memset(ira, (IrInstructionMemset *)instruction);
         case IrInstructionIdMemcpy:
             return ir_analyze_instruction_memcpy(ira, (IrInstructionMemcpy *)instruction);
+        case IrInstructionIdMemMove:
+            return ir_analyze_instruction_memmove(ira, (IrInstructionMemMove *)instruction);
         case IrInstructionIdSlice:
             return ir_analyze_instruction_slice(ira, (IrInstructionSlice *)instruction);
         case IrInstructionIdMemberCount:
@@ -23481,6 +23595,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdFence:
         case IrInstructionIdMemset:
         case IrInstructionIdMemcpy:
+        case IrInstructionIdMemMove:
         case IrInstructionIdBreakpoint:
         case IrInstructionIdOverflowOp: // TODO when we support multiple returns this can be side effect free
         case IrInstructionIdCheckSwitchProngs:
