@@ -718,6 +718,142 @@ test "init with undefined" {
       {#header_close#}
       {#header_close#}
       {#header_close#}
+
+      {#header_open|Variables#}
+      <p>
+      A variable is a unit of {#link|Memory#} storage.
+      </p>
+      <p>
+      Variables are never allowed to shadow identifiers from an outer scope.
+      </p>
+      <p>
+      It is generally preferable to use {#syntax#}const{#endsyntax#} rather than
+      {#syntax#}var{#endsyntax#} when declaring a variable. This causes less work for both
+      humans and computers to do when reading code, and creates more optimization opportunities.
+      </p>
+      {#header_open|Global Variables#}
+      <p>
+      Global variables are considered to be a top level declaration, which means that they are
+      order-independent and lazily analyzed. The initialization value of global variables is implicitly
+      {#link|comptime#}. If a global variable is {#syntax#}const{#endsyntax#} then its value is
+      {#syntax#}comptime{#endsyntax#}-known, otherwise it is runtime-known.
+      </p>
+      {#code_begin|test|global_variables#}
+var y: i32 = add(10, x);
+const x: i32 = add(12, 34);
+
+test "global variables" {
+    assert(x == 46);
+    assert(y == 56);
+}
+
+fn add(a: i32, b: i32) i32 {
+    return a + b;
+}
+
+const std = @import("std");
+const assert = std.debug.assert;
+      {#code_end#}
+      <p>
+      Global variables may be declared inside a {#link|struct#}, {#link|union#}, or {#link|enum#}:
+      </p>
+      {#code_begin|test|namespaced_global#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+test "namespaced global variable" {
+    assert(foo() == 1235);
+    assert(foo() == 1236);
+}
+
+fn foo() i32 {
+    const S = struct {
+        var x: i32 = 1234;
+    };
+    S.x += 1;
+    return S.x;
+}
+      {#code_end#}
+      <p>
+      The {#syntax#}extern{#endsyntax#} keyword can be used to link against a variable that is exported
+      from another object. The {#syntax#}export{#endsyntax#} keyword or {#link|@export#} builtin function
+      can be used to make a variable available to other objects at link time. In both cases,
+      the type of the variable must be C ABI compatible.
+      </p>
+      {#see_also|Exporting a C Library#}
+      {#header_close#}
+
+      {#header_open|Thread Local Variables#}
+      <p>A variable may be specified to be a thread-local variable using the
+      {#syntax#}threadlocal{#endsyntax#} keyword:</p>
+      {#code_begin|test|tls#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+threadlocal var x: i32 = 1234;
+
+test "thread local storage" {
+    const thread1 = try std.os.spawnThread({}, testTls);
+    const thread2 = try std.os.spawnThread({}, testTls);
+    testTls({});
+    thread1.wait();
+    thread2.wait();
+}
+
+fn testTls(context: void) void {
+    assert(x == 1234);
+    x += 1;
+    assert(x == 1235);
+}
+      {#code_end#}
+      <p>
+      For {#link|Single Threaded Builds#}, all thread local variables are treated as {#link|Global Variables#}.
+      </p>
+      <p>
+      Thread local variables may not be {#syntax#}const{#endsyntax#}.
+      </p>
+      {#header_close#}
+
+      {#header_open|Local Variables#}
+      <p>
+      Local variables occur inside {#link|Functions#}, {#link|comptime#} blocks, and {#link|@cImport#} blocks.
+      </p>
+      <p>
+      When a local variable is {#syntax#}const{#endsyntax#}, it means that after initialization, the variable's
+      value will not change. If the initialization value of a {#syntax#}const{#endsyntax#} variable is
+      {#link|comptime#}-known, then the variable is also {#syntax#}comptime{#endsyntax#}-known.
+      </p>
+      <p>
+      A local variable may be qualified with the {#syntax#}comptime{#endsyntax#} keyword. This causes
+      the variable's value to be {#syntax#}comptime{#endsyntax#}-known, and all loads and stores of the
+      variable to happen during semantic analysis of the program, rather than at runtime.
+      All variables declared in a {#syntax#}comptime{#endsyntax#} expression are implicitly
+      {#syntax#}comptime{#endsyntax#} variables.
+      </p>
+      {#code_begin|test|comptime_vars#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+test "comptime vars" {
+    var x: i32 = 1;
+    comptime var y: i32 = 1;
+
+    x += 1;
+    y += 1;
+
+    assert(x == 2);
+    assert(y == 2);
+
+    if (y != 2) {
+        // This compile error never triggers because y is a comptime variable,
+        // and so `y != 2` is a comptime value, and this if is statically evaluated.
+        @compileError("wrong y value");
+    }
+}
+      {#code_end#}
+      {#header_close#}
+      {#header_close#}
+
       {#header_open|Integers#}
       {#header_open|Integer Literals#}
       {#code_begin|syntax#}
@@ -7568,7 +7704,7 @@ pub fn build(b: *Builder) void {
       {#header_open|Single Threaded Builds#}
       <p>Zig has a compile option <code>--single-threaded</code> which has the following effects:
       <ul>
-        <li>Variables which have Thread Local Storage instead become globals.</li>
+        <li>All {#link|Thread Local Variables#} are treated as {#link|Global Variables#}.</li>
         <li>The overhead of {#link|Coroutines#} becomes equivalent to function call overhead.
           TODO: please note this will not be implemented until the upcoming Coroutine Rewrite</li>
         <li>The {#syntax#}@import("builtin").single_threaded{#endsyntax#} becomes {#syntax#}true{#endsyntax#}
