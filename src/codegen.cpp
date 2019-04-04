@@ -7314,17 +7314,14 @@ static bool detect_dynamic_link(CodeGen *g) {
         return false;
     if (target_requires_pic(g->zig_target, g->libc_link_lib != nullptr))
         return true;
-    if (g->out_type == OutTypeExe) {
-        // If there are no dynamic libraries then we can disable PIC
-        for (size_t i = 0; i < g->link_libs_list.length; i += 1) {
-            LinkLib *link_lib = g->link_libs_list.at(i);
-            if (target_is_libc_lib_name(g->zig_target, buf_ptr(link_lib->name)))
-                continue;
-            return true;
-        }
-        return false;
+    // If there are no dynamic libraries then we can disable PIC
+    for (size_t i = 0; i < g->link_libs_list.length; i += 1) {
+        LinkLib *link_lib = g->link_libs_list.at(i);
+        if (target_is_libc_lib_name(g->zig_target, buf_ptr(link_lib->name)))
+            continue;
+        return true;
     }
-    return true;
+    return false;
 }
 
 static bool detect_pic(CodeGen *g) {

@@ -938,11 +938,6 @@ int main(int argc, char **argv) {
         return print_error_usage(arg0);
     }
 
-    if (out_type != OutTypeLib && is_dynamic) {
-        fprintf(stderr, "`-dynamic` may only be specified with `build-lib`.\n");
-        return print_error_usage(arg0);
-    }
-
     if (llvm_argv.length > 1) {
         llvm_argv.append(nullptr);
         ZigLLVMParseCommandLineOptions(llvm_argv.length - 1, llvm_argv.items);

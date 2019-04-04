@@ -134,7 +134,6 @@ inline fn callMain() u8 {
     }
 }
 
-var tls_end_addr: usize = undefined;
 const main_thread_tls_align = 32;
 var main_thread_tls_bytes: [64]u8 align(main_thread_tls_align) = [1]u8{0} ** 64;
 
@@ -156,11 +155,14 @@ fn linuxInitializeThreadLocalStorage(at_phdr: usize, at_phnum: usize, at_phent: 
     }
     const tls_phdr = std.os.linux_tls_phdr orelse return;
     std.os.linux_tls_img_src = @intToPtr([*]const u8, base + tls_phdr.p_vaddr);
-    assert(main_thread_tls_bytes.len >= tls_phdr.p_memsz); // not enough preallocated Thread Local Storage
+    const end_addr = @ptrToInt(&main_thread_tls_bytes) + tls_phdr.p_memsz;
+    const max_end_addr = @ptrToInt(&main_thread_tls_bytes) + main_thread_tls_bytes.len;
+    assert(max_end_addr >= end_addr + @sizeOf(usize)); // not enough preallocated Thread Local Storage
     assert(main_thread_tls_align >= tls_phdr.p_align); // preallocated Thread Local Storage not aligned enough
     @memcpy(&main_thread_tls_bytes, std.os.linux_tls_img_src, tls_phdr.p_filesz);
-    tls_end_addr = @ptrToInt(&main_thread_tls_bytes) + tls_phdr.p_memsz;
-    linuxSetThreadArea(@ptrToInt(&tls_end_addr));
+    const end_ptr = @intToPtr(*usize, end_addr);
+    end_ptr.* = end_addr;
+    linuxSetThreadArea(end_addr);
 }
 
 fn linuxSetThreadArea(addr: usize) void {
