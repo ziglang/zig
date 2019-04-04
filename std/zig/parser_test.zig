@@ -1828,6 +1828,15 @@ test "zig fmt: for" {
         \\        continue;
         \\    } else return;
         \\
+        \\    for (a) |v| continue else {
+        \\        return;
+        \\    }
+        \\
+        \\    for (a) |v|
+        \\        continue
+        \\    else
+        \\        return;
+        \\
         \\    for (a) |v|
         \\        continue;
         \\
