@@ -600,7 +600,7 @@ test "zig fmt: multi line arguments without last comma" {
         \\    return a + b + c + d;
         \\}
         \\
-    )
+    );
 }
 
 test "zig fmt: empty block with only comment" {
