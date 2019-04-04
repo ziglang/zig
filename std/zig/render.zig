@@ -1448,17 +1448,17 @@ fn renderExpression(
             const has_payload = for_node.payload != null;
             const body_is_block = for_node.body.id == ast.Node.Id.Block;
             const src_one_line_to_body = !body_is_block and tree.tokensOnSameLine(rparen, for_node.body.firstToken());
-            const body_indent = if (!body_is_block and !src_one_line_to_body) indent + indent_delta else indent;
+            const body_on_same_line = body_is_block or src_one_line_to_body;
 
-            const rparen_space = if (has_payload or body_is_block or src_one_line_to_body) Space.Space else Space.Newline;
-            try renderToken(tree, stream, rparen, body_indent, start_col, rparen_space); // )
+            const space_after_rparen = if (has_payload or body_on_same_line) Space.Space else Space.Newline;
+            try renderToken(tree, stream, rparen, indent, start_col, space_after_rparen); // )
 
             if (for_node.payload) |payload| {
-                const payload_space = if (body_is_block or src_one_line_to_body) Space.Space else Space.Newline;
-                try renderExpression(allocator, stream, tree, body_indent, start_col, payload, payload_space); // |x|
+                const space_after_payload = if (body_on_same_line) Space.Space else Space.Newline;
+                try renderExpression(allocator, stream, tree, indent, start_col, payload, space_after_payload); // |x|
             }
 
-            const body_space = blk: {
+            const space_after_body = blk: {
                 if (for_node.@"else") |@"else"| {
                     const src_one_line_to_else = tree.tokensOnSameLine(for_node.body.lastToken(), @"else".firstToken());
                     if (body_is_block or src_one_line_to_else) {
@@ -1471,11 +1471,13 @@ fn renderExpression(
                 }
             };
 
-            if (!body_is_block and !src_one_line_to_body) try stream.writeByteNTimes(' ', body_indent);
-            try renderExpression(allocator, stream, tree, body_indent, start_col, for_node.body, body_space);
+            const body_indent = if (body_on_same_line) indent else indent + indent_delta;
+            if (!body_on_same_line) try stream.writeByteNTimes(' ', body_indent);
+            try renderExpression(allocator, stream, tree, body_indent, start_col, for_node.body, space_after_body); // { body }
 
             if (for_node.@"else") |@"else"| {
-                return renderExpression(allocator, stream, tree, body_indent, start_col, &@"else".base, space);
+                if (space_after_body == Space.Newline) try stream.writeByteNTimes(' ', indent);
+                return renderExpression(allocator, stream, tree, indent, start_col, &@"else".base, space); // else
             }
         },
 
