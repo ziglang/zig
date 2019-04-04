@@ -2455,8 +2455,8 @@ static LLVMValueRef gen_div(CodeGen *g, bool want_runtime_safety, bool want_fast
         } else {
             zig_unreachable();
         }
-        LLVMBasicBlockRef div_zero_ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "DivZeroOk");
         LLVMBasicBlockRef div_zero_fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "DivZeroFail");
+        LLVMBasicBlockRef div_zero_ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "DivZeroOk");
         LLVMBuildCondBr(g->builder, is_zero_bit, div_zero_fail_block, div_zero_ok_block);
 
         LLVMPositionBuilderAtEnd(g->builder, div_zero_fail_block);
@@ -2469,8 +2469,8 @@ static LLVMValueRef gen_div(CodeGen *g, bool want_runtime_safety, bool want_fast
             BigInt int_min_bi = {0};
             eval_min_max_value_int(g, type_entry, &int_min_bi, false);
             LLVMValueRef int_min_value = bigint_to_llvm_const(get_llvm_type(g, type_entry), &int_min_bi);
-            LLVMBasicBlockRef overflow_ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "DivOverflowOk");
             LLVMBasicBlockRef overflow_fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "DivOverflowFail");
+            LLVMBasicBlockRef overflow_ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "DivOverflowOk");
             LLVMValueRef num_is_int_min = LLVMBuildICmp(g->builder, LLVMIntEQ, val1, int_min_value, "");
             LLVMValueRef den_is_neg_1 = LLVMBuildICmp(g->builder, LLVMIntEQ, val2, neg_1_value, "");
             LLVMValueRef overflow_fail_bit = LLVMBuildAnd(g->builder, num_is_int_min, den_is_neg_1, "");
@@ -2574,20 +2574,19 @@ static LLVMValueRef gen_div(CodeGen *g, bool want_runtime_safety, bool want_fast
                 if (!type_entry->data.integral.is_signed) {
                     return LLVMBuildUDiv(g->builder, val1, val2, "");
                 }
-                // const result = @divTrunc(a, b);
-                // if (result >= 0 or result * b == a)
-                //     return result;
-                // else
-                //     return result - 1;
+                // const d = @divTrunc(a, b);
+                // const r = @rem(a, b);
+                // return if (r == 0) d else d - ((a < 0) ^ (b < 0));
 
-                LLVMValueRef result = LLVMBuildSDiv(g->builder, val1, val2, "");
-                LLVMValueRef is_pos = LLVMBuildICmp(g->builder, LLVMIntSGE, result, zero, "");
-                LLVMValueRef orig_num = LLVMBuildNSWMul(g->builder, result, val2, "");
-                LLVMValueRef orig_ok = LLVMBuildICmp(g->builder, LLVMIntEQ, orig_num, val1, "");
-                LLVMValueRef ok_bit = LLVMBuildOr(g->builder, orig_ok, is_pos, "");
-                LLVMValueRef one = LLVMConstInt(get_llvm_type(g, type_entry), 1, true);
-                LLVMValueRef result_minus_1 = LLVMBuildNSWSub(g->builder, result, one, "");
-                return LLVMBuildSelect(g->builder, ok_bit, result, result_minus_1, "");
+                LLVMValueRef div_trunc = LLVMBuildSDiv(g->builder, val1, val2, "");
+                LLVMValueRef rem = LLVMBuildSRem(g->builder, val1, val2, "");
+                LLVMValueRef rem_eq_0 = LLVMBuildICmp(g->builder, LLVMIntEQ, rem, zero, "");
+                LLVMValueRef a_lt_0 = LLVMBuildICmp(g->builder, LLVMIntSLT, val1, zero, "");
+                LLVMValueRef b_lt_0 = LLVMBuildICmp(g->builder, LLVMIntSLT, val2, zero, "");
+                LLVMValueRef a_b_xor = LLVMBuildXor(g->builder, a_lt_0, b_lt_0, "");
+                LLVMValueRef a_b_xor_ext = LLVMBuildZExt(g->builder, a_b_xor, LLVMTypeOf(div_trunc), "");
+                LLVMValueRef d_sub_xor = LLVMBuildSub(g->builder, div_trunc, a_b_xor_ext, "");
+                return LLVMBuildSelect(g->builder, rem_eq_0, div_trunc, d_sub_xor, "");
             }
     }
     zig_unreachable();

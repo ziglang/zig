@@ -17,6 +17,7 @@ pub extern fn __mulsf3(a: f32, b: f32) f32 {
 }
 
 fn mulXf3(comptime T: type, a: T, b: T) T {
+    @setRuntimeSafety(builtin.is_test);
     const Z = @IntType(false, T.bit_count);
 
     const typeWidth = T.bit_count;
@@ -145,6 +146,7 @@ fn mulXf3(comptime T: type, a: T, b: T) T {
 }
 
 fn wideMultiply(comptime Z: type, a: Z, b: Z, hi: *Z, lo: *Z) void {
+    @setRuntimeSafety(builtin.is_test);
     switch (Z) {
         u32 => {
             // 32x32 --> 64 bit multiply
@@ -253,6 +255,7 @@ fn wideMultiply(comptime Z: type, a: Z, b: Z, hi: *Z, lo: *Z) void {
 }
 
 fn normalize(comptime T: type, significand: *@IntType(false, T.bit_count)) i32 {
+    @setRuntimeSafety(builtin.is_test);
     const Z = @IntType(false, T.bit_count);
     const significandBits = std.math.floatMantissaBits(T);
     const implicitBit = Z(1) << significandBits;
@@ -263,6 +266,7 @@ fn normalize(comptime T: type, significand: *@IntType(false, T.bit_count)) i32 {
 }
 
 fn wideRightShiftWithSticky(comptime Z: type, hi: *Z, lo: *Z, count: u32) void {
+    @setRuntimeSafety(builtin.is_test);
     const typeWidth = Z.bit_count;
     const S = std.math.Log2Int(Z);
     if (count < typeWidth) {

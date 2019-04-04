@@ -159,6 +159,7 @@ comptime {
                     @export("___chkstk_ms", ___chkstk_ms, linkage);
                 }
                 @export("__divti3", @import("compiler_rt/divti3.zig").__divti3_windows_x86_64, linkage);
+                @export("__modti3", @import("compiler_rt/modti3.zig").__modti3_windows_x86_64, linkage);
                 @export("__multi3", @import("compiler_rt/multi3.zig").__multi3_windows_x86_64, linkage);
                 @export("__muloti4", @import("compiler_rt/muloti4.zig").__muloti4_windows_x86_64, linkage);
                 @export("__udivti3", @import("compiler_rt/udivti3.zig").__udivti3_windows_x86_64, linkage);
@@ -169,6 +170,7 @@ comptime {
         }
     } else {
         @export("__divti3", @import("compiler_rt/divti3.zig").__divti3, linkage);
+        @export("__modti3", @import("compiler_rt/modti3.zig").__modti3, linkage);
         @export("__multi3", @import("compiler_rt/multi3.zig").__multi3, linkage);
         @export("__muloti4", @import("compiler_rt/muloti4.zig").__muloti4, linkage);
         @export("__udivti3", @import("compiler_rt/udivti3.zig").__udivti3, linkage);
