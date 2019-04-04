@@ -111,7 +111,7 @@ Error zig_libc_parse(ZigLibCInstallation *libc, Buf *libc_file, const ZigTarget 
     }
 
     if (buf_len(&libc->msvc_lib_dir) == 0) {
-        if (target->os == OsWindows) {
+        if (target->os == OsWindows && !target_abi_is_gnu(target->abi)) {
             if (verbose) {
                 fprintf(stderr, "msvc_lib_dir may not be empty for %s\n", target_os_name(target->os));
             }
@@ -120,7 +120,7 @@ Error zig_libc_parse(ZigLibCInstallation *libc, Buf *libc_file, const ZigTarget 
     }
 
     if (buf_len(&libc->kernel32_lib_dir) == 0) {
-        if (target->os == OsWindows) {
+        if (target->os == OsWindows && !target_abi_is_gnu(target->abi)) {
             if (verbose) {
                 fprintf(stderr, "kernel32_lib_dir may not be empty for %s\n", target_os_name(target->os));
             }
@@ -129,6 +129,183 @@ Error zig_libc_parse(ZigLibCInstallation *libc, Buf *libc_file, const ZigTarget 
     }
 
     return ErrorNone;
+}
+
+#if defined(ZIG_OS_WINDOWS)
+#define CC_EXE "cc.exe"
+#else
+#define CC_EXE "cc"
+#endif
+
+static Error zig_libc_find_native_include_dir_posix(ZigLibCInstallation *self, bool verbose) {
+    const char *cc_exe = getenv("CC");
+    cc_exe = (cc_exe == nullptr) ? CC_EXE : cc_exe;
+    ZigList<const char *> args = {};
+    args.append("-E");
+    args.append("-Wp,-v");
+    args.append("-xc");
+    #if defined(ZIG_OS_WINDOWS)
+    args.append("nul");
+    #else
+    args.append("/dev/null");
+    #endif
+
+    Termination term;
+    Buf *out_stderr = buf_alloc();
+    Buf *out_stdout = buf_alloc();
+    Error err;
+    if ((err = os_exec_process(cc_exe, args, &term, out_stderr, out_stdout))) {
+        if (verbose) {
+            fprintf(stderr, "unable to determine libc include path: executing '%s': %s\n", cc_exe, err_str(err));
+        }
+        return err;
+    }
+    if (term.how != TerminationIdClean || term.code != 0) {
+        if (verbose) {
+            fprintf(stderr, "unable to determine libc include path: executing '%s' failed\n", cc_exe);
+        }
+        return ErrorCCompileErrors;
+    }
+    char *prev_newline = buf_ptr(out_stderr);
+    ZigList<const char *> search_paths = {};
+    for (;;) {
+        char *newline = strchr(prev_newline, '\n');
+        if (newline == nullptr) {
+            break;
+        }
+
+        #if defined(ZIG_OS_WINDOWS)
+        *(newline - 1) = 0;
+        #endif
+        *newline = 0;
+
+        if (prev_newline[0] == ' ') {
+            search_paths.append(prev_newline);
+        }
+        prev_newline = newline + 1;
+    }
+    if (search_paths.length == 0) {
+        if (verbose) {
+            fprintf(stderr, "unable to determine libc include path: '%s' cannot find libc headers\n", cc_exe);
+        }
+        return ErrorCCompileErrors;
+    }
+    for (size_t i = 0; i < search_paths.length; i += 1) {
+        // search in reverse order
+        const char *search_path = search_paths.items[search_paths.length - i - 1];
+        // cut off spaces
+        while (*search_path == ' ') {
+            search_path += 1;
+        }
+
+        #if defined(ZIG_OS_WINDOWS)
+        if (buf_len(&self->include_dir) == 0) {
+            Buf *stdlib_path = buf_sprintf("%s\\stdlib.h", search_path);
+            bool exists;
+            if ((err = os_file_exists(stdlib_path, &exists))) {
+                exists = false;
+            }
+            if (exists) {
+                buf_init_from_str(&self->include_dir, search_path);
+            }
+        }
+        if (buf_len(&self->sys_include_dir) == 0) {
+            Buf *stdlib_path = buf_sprintf("%s\\sys\\types.h", search_path);
+            bool exists;
+            if ((err = os_file_exists(stdlib_path, &exists))) {
+                exists = false;
+            }
+            if (exists) {
+                buf_init_from_str(&self->sys_include_dir, search_path);
+            }
+        }
+        #else
+        if (buf_len(&self->include_dir) == 0) {
+            Buf *stdlib_path = buf_sprintf("%s/stdlib.h", search_path);
+            bool exists;
+            if ((err = os_file_exists(stdlib_path, &exists))) {
+                exists = false;
+            }
+            if (exists) {
+                buf_init_from_str(&self->include_dir, search_path);
+            }
+        }
+        if (buf_len(&self->sys_include_dir) == 0) {
+            Buf *stdlib_path = buf_sprintf("%s/sys/errno.h", search_path);
+            bool exists;
+            if ((err = os_file_exists(stdlib_path, &exists))) {
+                exists = false;
+            }
+            if (exists) {
+                buf_init_from_str(&self->sys_include_dir, search_path);
+            }
+        }
+        #endif
+
+        if (buf_len(&self->include_dir) != 0 && buf_len(&self->sys_include_dir) != 0) {
+            return ErrorNone;
+        }
+    }
+    if (verbose) {
+        if (buf_len(&self->include_dir) == 0) {
+            fprintf(stderr, "unable to determine libc include path: stdlib.h not found in '%s' search paths\n", cc_exe);
+        }
+        if (buf_len(&self->sys_include_dir) == 0) {
+            #if defined(ZIG_OS_WINDOWS)
+            fprintf(stderr, "unable to determine libc include path: sys/types.h not found in '%s' search paths\n", cc_exe);
+            #else
+            fprintf(stderr, "unable to determine libc include path: sys/errno.h not found in '%s' search paths\n", cc_exe);
+            #endif
+        }
+    }
+    return ErrorFileNotFound;
+}
+
+Error zig_libc_cc_print_file_name(const char *o_file, Buf *out, bool want_dirname, bool verbose) {
+    const char *cc_exe = getenv("CC");
+    cc_exe = (cc_exe == nullptr) ? CC_EXE : cc_exe;
+    ZigList<const char *> args = {};
+    args.append(buf_ptr(buf_sprintf("-print-file-name=%s", o_file)));
+    Termination term;
+    Buf *out_stderr = buf_alloc();
+    Buf *out_stdout = buf_alloc();
+    Error err;
+    if ((err = os_exec_process(cc_exe, args, &term, out_stderr, out_stdout))) {
+        if (verbose) {
+            fprintf(stderr, "unable to determine libc library path: executing '%s': %s\n", cc_exe, err_str(err));
+        }
+        return err;
+    }
+    if (term.how != TerminationIdClean || term.code != 0) {
+        if (verbose) {
+            fprintf(stderr, "unable to determine libc library path: executing '%s' failed\n", cc_exe);
+        }
+        return ErrorCCompileErrors;
+    }
+    #if defined(ZIG_OS_WINDOWS)
+    if (buf_ends_with_str(out_stdout, "\r\n")) {
+        buf_resize(out_stdout, buf_len(out_stdout) - 2);
+    }
+    #else
+    if (buf_ends_with_str(out_stdout, "\n")) {
+        buf_resize(out_stdout, buf_len(out_stdout) - 1);
+    }
+    #endif
+    if (buf_len(out_stdout) == 0 || buf_eql_str(out_stdout, o_file)) {
+        return ErrorCCompilerCannotFindFile;
+    }
+    if (want_dirname) {
+        os_path_dirname(out_stdout, out);
+    } else {
+        buf_init_from_buf(out, out_stdout);
+    }
+    return ErrorNone;
+}
+
+#undef CC_EXE
+
+static Error zig_libc_find_native_crt_dir_posix(ZigLibCInstallation *self, bool verbose) {
+    return zig_libc_cc_print_file_name("crt1.o", &self->crt_dir, true, verbose);
 }
 
 #if defined(ZIG_OS_WINDOWS)
@@ -142,6 +319,7 @@ static Error zig_libc_find_native_include_dir_windows(ZigLibCInstallation *self,
     }
     return ErrorNone;
 }
+
 static Error zig_libc_find_crt_dir_windows(ZigLibCInstallation *self, ZigWindowsSDK *sdk, ZigTarget *target,
         bool verbose)
 {
@@ -154,6 +332,7 @@ static Error zig_libc_find_crt_dir_windows(ZigLibCInstallation *self, ZigWindows
     }
     return ErrorNone;
 }
+
 static Error zig_libc_find_kernel32_lib_dir(ZigLibCInstallation *self, ZigWindowsSDK *sdk, ZigTarget *target,
         bool verbose)
 {
@@ -166,6 +345,7 @@ static Error zig_libc_find_kernel32_lib_dir(ZigLibCInstallation *self, ZigWindow
     }
     return ErrorNone;
 }
+
 static Error zig_libc_find_native_msvc_lib_dir(ZigLibCInstallation *self, ZigWindowsSDK *sdk, bool verbose) {
     if (sdk->msvc_lib_dir_ptr == nullptr) {
         if (verbose) {
@@ -176,6 +356,7 @@ static Error zig_libc_find_native_msvc_lib_dir(ZigLibCInstallation *self, ZigWin
     buf_init_from_mem(&self->msvc_lib_dir, sdk->msvc_lib_dir_ptr, sdk->msvc_lib_dir_len);
     return ErrorNone;
 }
+
 static Error zig_libc_find_native_msvc_include_dir(ZigLibCInstallation *self, ZigWindowsSDK *sdk, bool verbose) {
     Error err;
     if (sdk->msvc_lib_dir_ptr == nullptr) {
@@ -203,137 +384,12 @@ static Error zig_libc_find_native_msvc_include_dir(ZigLibCInstallation *self, Zi
     }
     return ErrorFileNotFound;
 }
-#else
-static Error zig_libc_find_native_include_dir_posix(ZigLibCInstallation *self, bool verbose) {
-    const char *cc_exe = getenv("CC");
-    cc_exe = (cc_exe == nullptr) ? "cc" : cc_exe;
-    ZigList<const char *> args = {};
-    args.append("-E");
-    args.append("-Wp,-v");
-    args.append("-xc");
-    args.append("/dev/null");
-    Termination term;
-    Buf *out_stderr = buf_alloc();
-    Buf *out_stdout = buf_alloc();
-    Error err;
-    if ((err = os_exec_process(cc_exe, args, &term, out_stderr, out_stdout))) {
-        if (verbose) {
-            fprintf(stderr, "unable to determine libc include path: executing '%s': %s\n", cc_exe, err_str(err));
-        }
-        return err;
-    }
-    if (term.how != TerminationIdClean || term.code != 0) {
-        if (verbose) {
-            fprintf(stderr, "unable to determine libc include path: executing '%s' failed\n", cc_exe);
-        }
-        return ErrorCCompileErrors;
-    }
-    char *prev_newline = buf_ptr(out_stderr);
-    ZigList<const char *> search_paths = {};
-    for (;;) {
-        char *newline = strchr(prev_newline, '\n');
-        if (newline == nullptr) {
-            break;
-        }
-        *newline = 0;
-        if (prev_newline[0] == ' ') {
-            search_paths.append(prev_newline);
-        }
-        prev_newline = newline + 1;
-    }
-    if (search_paths.length == 0) {
-        if (verbose) {
-            fprintf(stderr, "unable to determine libc include path: '%s' cannot find libc headers\n", cc_exe);
-        }
-        return ErrorCCompileErrors;
-    }
-    for (size_t i = 0; i < search_paths.length; i += 1) {
-        // search in reverse order
-        const char *search_path = search_paths.items[search_paths.length - i - 1];
-        // cut off spaces
-        while (*search_path == ' ') {
-            search_path += 1;
-        }
-
-        if (buf_len(&self->include_dir) == 0) {
-            Buf *stdlib_path = buf_sprintf("%s/stdlib.h", search_path);
-            bool exists;
-            if ((err = os_file_exists(stdlib_path, &exists))) {
-                exists = false;
-            }
-            if (exists) {
-                buf_init_from_str(&self->include_dir, search_path);
-            }
-        }
-        if (buf_len(&self->sys_include_dir) == 0) {
-            Buf *stdlib_path = buf_sprintf("%s/sys/errno.h", search_path);
-            bool exists;
-            if ((err = os_file_exists(stdlib_path, &exists))) {
-                exists = false;
-            }
-            if (exists) {
-                buf_init_from_str(&self->sys_include_dir, search_path);
-            }
-        }
-        if (buf_len(&self->include_dir) != 0 && buf_len(&self->sys_include_dir) != 0) {
-            return ErrorNone;
-        }
-    }
-    if (verbose) {
-        if (buf_len(&self->include_dir) == 0) {
-            fprintf(stderr, "unable to determine libc include path: stdlib.h not found in '%s' search paths\n", cc_exe);
-        }
-        if (buf_len(&self->sys_include_dir) == 0) {
-            fprintf(stderr, "unable to determine libc include path: sys/errno.h not found in '%s' search paths\n", cc_exe);
-        }
-    }
-    return ErrorFileNotFound;
-}
-#if defined(ZIG_OS_LINUX)
-Error zig_libc_cc_print_file_name(const char *o_file, Buf *out, bool want_dirname, bool verbose) {
-    const char *cc_exe = getenv("CC");
-    cc_exe = (cc_exe == nullptr) ? "cc" : cc_exe;
-    ZigList<const char *> args = {};
-    args.append(buf_ptr(buf_sprintf("-print-file-name=%s", o_file)));
-    Termination term;
-    Buf *out_stderr = buf_alloc();
-    Buf *out_stdout = buf_alloc();
-    Error err;
-    if ((err = os_exec_process(cc_exe, args, &term, out_stderr, out_stdout))) {
-        if (verbose) {
-            fprintf(stderr, "unable to determine libc include path: executing '%s': %s\n", cc_exe, err_str(err));
-        }
-        return err;
-    }
-    if (term.how != TerminationIdClean || term.code != 0) {
-        if (verbose) {
-            fprintf(stderr, "unable to determine libc include path: executing '%s' failed\n", cc_exe);
-        }
-        return ErrorCCompileErrors;
-    }
-    if (buf_ends_with_str(out_stdout, "\n")) {
-        buf_resize(out_stdout, buf_len(out_stdout) - 1);
-    }
-    if (buf_len(out_stdout) == 0 || buf_eql_str(out_stdout, o_file)) {
-        return ErrorCCompilerCannotFindFile;
-    }
-    if (want_dirname) {
-        os_path_dirname(out_stdout, out);
-    } else {
-        buf_init_from_buf(out, out_stdout);
-    }
-    return ErrorNone;
-}
-static Error zig_libc_find_native_crt_dir_posix(ZigLibCInstallation *self, bool verbose) {
-    return zig_libc_cc_print_file_name("crt1.o", &self->crt_dir, true, verbose);
-}
-#endif
 #endif
 
 void zig_libc_render(ZigLibCInstallation *self, FILE *file) {
     fprintf(file,
         "# The directory that contains `stdlib.h`.\n"
-        "# On POSIX, include directories be found with: `cc -E -Wp,-v -xc /dev/null`\n"
+        "# On POSIX-like systems, include directories be found with: `cc -E -Wp,-v -xc /dev/null`\n"
         "include_dir=%s\n"
         "# The system-specific include directory. May be the same as `include_dir`.\n"
         "# On Windows it's the directory that includes `vcruntime.h`.\n"
@@ -346,11 +402,11 @@ void zig_libc_render(ZigLibCInstallation *self, FILE *file) {
         "crt_dir=%s\n"
         "\n"
         "# The directory that contains `vcruntime.lib`.\n"
-        "# Only needed when targeting Windows.\n"
+        "# Only needed when targeting MSVC on Windows.\n"
         "msvc_lib_dir=%s\n"
         "\n"
         "# The directory that contains `kernel32.lib`.\n"
-        "# Only needed when targeting Windows.\n"
+        "# Only needed when targeting MSVC on Windows.\n"
         "kernel32_lib_dir=%s\n"
         "\n"
     ,
@@ -368,26 +424,34 @@ Error zig_libc_find_native(ZigLibCInstallation *self, bool verbose) {
 #if defined(ZIG_OS_WINDOWS)
     ZigTarget native_target;
     get_native_target(&native_target);
-    ZigWindowsSDK *sdk;
-    switch (zig_find_windows_sdk(&sdk)) {
-        case ZigFindWindowsSdkErrorNone:
-            if ((err = zig_libc_find_native_msvc_include_dir(self, sdk, verbose)))
-                return err;
-            if ((err = zig_libc_find_native_msvc_lib_dir(self, sdk, verbose)))
-                return err;
-            if ((err = zig_libc_find_kernel32_lib_dir(self, sdk, &native_target, verbose)))
-                return err;
-            if ((err = zig_libc_find_native_include_dir_windows(self, sdk, verbose)))
-                return err;
-            if ((err = zig_libc_find_crt_dir_windows(self, sdk, &native_target, verbose)))
-                return err;
-            return ErrorNone;
-        case ZigFindWindowsSdkErrorOutOfMemory:
-            return ErrorNoMem;
-        case ZigFindWindowsSdkErrorNotFound:
-            return ErrorFileNotFound;
-        case ZigFindWindowsSdkErrorPathTooLong:
-            return ErrorPathTooLong;
+    if (target_abi_is_gnu(native_target.abi)) {
+        if ((err = zig_libc_find_native_include_dir_posix(self, verbose)))
+            return err;
+        if ((err = zig_libc_find_native_crt_dir_posix(self, verbose)))
+            return err;
+        return ErrorNone;
+    } else {
+        ZigWindowsSDK *sdk;
+        switch (zig_find_windows_sdk(&sdk)) {
+            case ZigFindWindowsSdkErrorNone:
+                if ((err = zig_libc_find_native_msvc_include_dir(self, sdk, verbose)))
+                    return err;
+                if ((err = zig_libc_find_native_msvc_lib_dir(self, sdk, verbose)))
+                    return err;
+                if ((err = zig_libc_find_kernel32_lib_dir(self, sdk, &native_target, verbose)))
+                    return err;
+                if ((err = zig_libc_find_native_include_dir_windows(self, sdk, verbose)))
+                    return err;
+                if ((err = zig_libc_find_crt_dir_windows(self, sdk, &native_target, verbose)))
+                    return err;
+                return ErrorNone;
+            case ZigFindWindowsSdkErrorOutOfMemory:
+                return ErrorNoMem;
+            case ZigFindWindowsSdkErrorNotFound:
+                return ErrorFileNotFound;
+            case ZigFindWindowsSdkErrorPathTooLong:
+                return ErrorPathTooLong;
+        }
     }
     zig_unreachable();
 #else
