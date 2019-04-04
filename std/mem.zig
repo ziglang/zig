@@ -225,11 +225,9 @@ pub const Compare = enum {
 /// dest.len must be >= source.len.
 /// dest.ptr must be <= src.ptr.
 pub fn copy(comptime T: type, dest: []T, source: []const T) void {
-    // TODO instead of manually doing this check for the whole array
-    // and turning off runtime safety, the compiler should detect loops like
-    // this and automatically omit safety checks for loops
-    @setRuntimeSafety(false);
+    @setRuntimeSafety(false); // "cast causes pointer to become null"
     assert(dest.len >= source.len);
+    // The real implementation is in special/builtin.zig LLVM may inline this, or call that.
     @memcpy(@ptrCast([*]u8, dest.ptr), @ptrCast([*]const u8, source.ptr), source.len * @sizeOf(T));
 }
 
@@ -237,26 +235,16 @@ pub fn copy(comptime T: type, dest: []T, source: []const T) void {
 /// dest.len must be >= source.len.
 /// dest.ptr must be >= src.ptr.
 pub fn move(comptime T: type, dest: []T, source: []const T) void {
-    // TODO instead of manually doing this check for the whole array
-    // and turning off runtime safety, the compiler should detect loops like
-    // this and automatically omit safety checks for loops
-    @setRuntimeSafety(false);
-    // TODO @memmove
+    @setRuntimeSafety(false); // "cast causes pointer to become null"
     assert(dest.len >= source.len);
-    if (@ptrToInt(dest.ptr) < @ptrToInt(source.ptr)) {
-        for (source) |s, i|
-            dest[i] = s;
-    } else {
-        var i = source.len;
-        while (i > 0) {
-            i -= 1;
-            dest[i] = source[i];
-        }
-    }
+    // The real implementation is in special/builtin.zig LLVM may inline this, or call that.
+    @memMove(@ptrCast([*]u8, dest.ptr), @ptrCast([*]const u8, source.ptr), source.len * @sizeOf(T));
 }
 
 pub fn set(comptime T: type, dest: []T, value: T) void {
     if (@typeId(T) == .Int and @typeInfo(T).Int.bits == 8) {
+        @setRuntimeSafety(false); // "cast causes pointer to become null"
+        // LLVM may call the implementation in special/builtin.zig
         @memset(@ptrCast([*]u8, dest.ptr), @bitCast(u8, value), dest.len);
     } else {
         for (dest) |*d|
