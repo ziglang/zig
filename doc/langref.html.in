@@ -2127,6 +2127,8 @@ test "linked list" {
       {#header_open|extern struct#}
       <p>An {#syntax#}extern struct{#endsyntax#} has in-memory layout guaranteed to match the
       C ABI for the target.</p>
+      <p>This kind of struct should only be used for compatibility with the C ABI. Every other
+      use case should be solved with {#link|packed struct#} or normal {#link|struct#}.</p>
       {#see_also|extern union|extern enum#}
       {#header_close#}
 
