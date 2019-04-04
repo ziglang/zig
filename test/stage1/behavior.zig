@@ -9,6 +9,7 @@ comptime {
     _ = @import("behavior/bitreverse.zig");
     _ = @import("behavior/bool.zig");
     _ = @import("behavior/bswap.zig");
+    _ = @import("behavior/bugs/1025.zig");
     _ = @import("behavior/bugs/1076.zig");
     _ = @import("behavior/bugs/1111.zig");
     _ = @import("behavior/bugs/1120.zig");
