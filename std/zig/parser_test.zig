@@ -584,6 +584,25 @@ test "zig fmt: trailing comma on fn call" {
     );
 }
 
+test "zig fmt: multi line arguments without last comma" {
+    try testTransform(
+        \\pub fn foo(
+        \\    a: usize,
+        \\    b: usize,
+        \\    c: usize,
+        \\    d: usize
+        \\) usize {
+        \\    return a + b + c + d;
+        \\}
+        \\
+    ,
+        \\pub fn foo(a: usize, b: usize, c: usize, d: usize) usize {
+        \\    return a + b + c + d;
+        \\}
+        \\
+    )
+}
+
 test "zig fmt: empty block with only comment" {
     try testCanonical(
         \\comptime {

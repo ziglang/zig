@@ -1158,12 +1158,8 @@ fn renderExpression(
                 const maybe_comma = tree.prevToken(rparen);
                 break :blk tree.tokens.at(maybe_comma).id == Token.Id.Comma;
             };
-            const src_params_same_line = blk: {
-                const loc = tree.tokenLocation(tree.tokens.at(lparen).end, rparen);
-                break :blk loc.line == 0;
-            };
 
-            if (!src_params_trailing_comma and src_params_same_line) {
+            if (!src_params_trailing_comma) {
                 try renderToken(tree, stream, lparen, indent, start_col, Space.None); // (
 
                 // render all on one line, no trailing comma
