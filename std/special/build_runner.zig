@@ -200,7 +200,7 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: var) !void {
     );
 }
 
-fn usageAndErr(builder: *Builder, already_ran_build: bool, out_stream: var) anyerror {
+fn usageAndErr(builder: *Builder, already_ran_build: bool, out_stream: var) void {
     usage(builder, already_ran_build, out_stream) catch {};
     os.exit(1);
 }
