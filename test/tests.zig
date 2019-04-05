@@ -186,6 +186,7 @@ pub fn addPkgTests(b: *build.Builder, test_filter: ?[]const u8, root_src: []cons
                         if (link_libc) "c" else "bare",
                         if (single_threaded) "single" else "multi",
                     ));
+                    these_tests.single_threaded = single_threaded;
                     these_tests.setFilter(test_filter);
                     these_tests.setBuildMode(mode);
                     if (!is_native) {
