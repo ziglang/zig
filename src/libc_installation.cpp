@@ -304,9 +304,11 @@ Error zig_libc_cc_print_file_name(const char *o_file, Buf *out, bool want_dirnam
 
 #undef CC_EXE
 
+#if defined(ZIG_OS_WINDOWS) || defined(ZIG_OS_LINUX)
 static Error zig_libc_find_native_crt_dir_posix(ZigLibCInstallation *self, bool verbose) {
     return zig_libc_cc_print_file_name("crt1.o", &self->crt_dir, true, verbose);
 }
+#endif
 
 #if defined(ZIG_OS_WINDOWS)
 static Error zig_libc_find_native_include_dir_windows(ZigLibCInstallation *self, ZigWindowsSDK *sdk, bool verbose) {
