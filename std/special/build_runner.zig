@@ -202,7 +202,7 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: var) !void {
 
 fn usageAndErr(builder: *Builder, already_ran_build: bool, out_stream: var) anyerror {
     usage(builder, already_ran_build, out_stream) catch {};
-    return error.InvalidArgs;
+    os.exit(1);
 }
 
 const UnwrapArgError = error{OutOfMemory};
