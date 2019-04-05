@@ -567,7 +567,7 @@ fn urlize(allocator: *mem.Allocator, input: []const u8) ![]u8 {
     var out = &buf_adapter.stream;
     for (input) |c| {
         switch (c) {
-            'a'...'z', 'A'...'Z', '_', '-' => {
+            'a'...'z', 'A'...'Z', '_', '-', '0'...'9' => {
                 try out.writeByte(c);
             },
             ' ' => {
