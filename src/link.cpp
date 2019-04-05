@@ -1092,6 +1092,8 @@ static void construct_linker_job_wasm(LinkJob *lj) {
 
     lj->args.append("-error-limit=0");
     lj->args.append("--no-entry");  // So lld doesn't look for _start.
+    lj->args.append("--allow-undefined");
+    lj->args.append("--export-all");
     lj->args.append("-o");
     lj->args.append(buf_ptr(&g->output_file_path));
 
