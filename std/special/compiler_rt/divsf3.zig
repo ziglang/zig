@@ -3,8 +3,10 @@
 // https://github.com/llvm/llvm-project/commit/d674d96bc56c0f377879d01c9d8dfdaaa7859cdb/compiler-rt/lib/builtins/divsf3.c
 
 const std = @import("std");
+const builtin = @import("builtin");
 
 pub extern fn __divsf3(a: f32, b: f32) f32 {
+    @setRuntimeSafety(builtin.is_test);
     const Z = @IntType(false, f32.bit_count);
 
     const typeWidth = f32.bit_count;
@@ -37,41 +39,43 @@ pub extern fn __divsf3(a: f32, b: f32) f32 {
         const aAbs: Z = @bitCast(Z, a) & absMask;
         const bAbs: Z = @bitCast(Z, b) & absMask;
 
-        // NaN * anything = qNaN
+        // NaN / anything = qNaN
         if (aAbs > infRep) return @bitCast(f32, @bitCast(Z, a) | quietBit);
-        // anything * NaN = qNaN
+        // anything / NaN = qNaN
         if (bAbs > infRep) return @bitCast(f32, @bitCast(Z, b) | quietBit);
 
         if (aAbs == infRep) {
-            // infinity * non-zero = +/- infinity
-            if (bAbs != 0) {
+            // infinity / infinity = NaN
+            if (bAbs == infRep) {
+                return @bitCast(f32, qnanRep);
+            }
+            // infinity / anything else = +/- infinity
+            else {
                 return @bitCast(f32, aAbs | quotientSign);
-            } else {
-                // infinity * zero = NaN
-                return @bitCast(f32, qnanRep);
             }
         }
 
-        if (bAbs == infRep) {
-            //? non-zero * infinity = +/- infinity
-            if (aAbs != 0) {
-                return @bitCast(f32, bAbs | quotientSign);
-            } else {
-                // zero * infinity = NaN
+        // anything else / infinity = +/- 0
+        if (bAbs == infRep) return @bitCast(f32, quotientSign);
+
+        if (aAbs == 0) {
+            // zero / zero = NaN
+            if (bAbs == 0) {
                 return @bitCast(f32, qnanRep);
             }
+            // zero / anything else = +/- zero
+            else {
+                return @bitCast(f32, quotientSign);
+            }
         }
-
-        // zero * anything = +/- zero
-        if (aAbs == 0) return @bitCast(f32, quotientSign);
-        // anything * zero = +/- zero
-        if (bAbs == 0) return @bitCast(f32, quotientSign);
+        // anything else / zero = +/- infinity
+        if (bAbs == 0) return @bitCast(f32, infRep | quotientSign);
 
         // one or both of a or b is denormal, the other (if applicable) is a
         // normal number.  Renormalize one or both of a and b, and set scale to
         // include the necessary exponent adjustment.
         if (aAbs < implicitBit) scale +%= normalize(f32, &aSignificand);
-        if (bAbs < implicitBit) scale +%= normalize(f32, &bSignificand);
+        if (bAbs < implicitBit) scale -%= normalize(f32, &bSignificand);
     }
 
     // Or in the implicit significand bit.  (If we fell through from the
@@ -85,11 +89,7 @@ pub extern fn __divsf3(a: f32, b: f32) f32 {
     // [1, 2.0) and get a Q32 approximate reciprocal using a small minimax
     // polynomial approximation: reciprocal = 3/4 + 1/sqrt(2) - b/2.  This
     // is accurate to about 3.5 binary digits.
-    const q31b = switch (f32) {
-        f32 => bSignificand << 8,
-        f64 => bSignificand >> 21,
-        else => @compileError("Type not implemented."),
-    };
+    const q31b = bSignificand << 8;
     var reciprocal = u32(0x7504f333) -% q31b;
 
     // Now refine the reciprocal estimate using a Newton-Raphson iteration:
@@ -186,6 +186,7 @@ pub extern fn __divsf3(a: f32, b: f32) f32 {
 }
 
 fn normalize(comptime T: type, significand: *@IntType(false, T.bit_count)) i32 {
+    @setRuntimeSafety(builtin.is_test);
     const Z = @IntType(false, T.bit_count);
     const significandBits = std.math.floatMantissaBits(T);
     const implicitBit = Z(1) << significandBits;
