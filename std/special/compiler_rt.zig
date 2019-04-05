@@ -252,6 +252,8 @@ const is_arm_arch = switch (builtin.arch) {
 const is_arm_32 = is_arm_arch and !is_arm_64;
 
 const use_thumb_1 = is_arm_32 and switch (builtin.arch.arm) {
+    builtin.Arch.Arm32.v4t,
+    builtin.Arch.Arm32.v5te,
     builtin.Arch.Arm32.v6,
     builtin.Arch.Arm32.v6m,
     builtin.Arch.Arm32.v6k,
