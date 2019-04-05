@@ -1325,45 +1325,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:2:22: error: expected integer type, found 'f32'",
     );
 
-    cases.add(
-        "@bitReverse - up-cast",
-        \\comptime {
-        \\    var i: u8 = 3;
-        \\    _ = @bitReverse(u16, i);
-        \\}
-    ,
-        "tmp.zig:3:9: error: upcasting 'u8' to 'u16' changes result",
-    );
-
-    cases.add(
-        "@bswap - up-cast",
-        \\comptime {
-        \\    var i: u8 = 3;
-        \\    _ = @bswap(u16, i);
-        \\}
-    ,
-        "tmp.zig:3:9: error: upcasting 'u8' to 'u16' changes result",
-    );
-
-    cases.add(
-        "@clz - up-cast",
-        \\comptime {
-        \\    var i: u8 = 3;
-        \\    _ = @clz(u16, i);
-        \\}
-    ,
-        "tmp.zig:3:9: error: upcasting 'u8' to 'u16' changes result",
-    );
-
-    cases.add(
-        "@popCount - up-cast of negative number",
-        \\comptime {
-        \\    var i: i8 = -3;
-        \\    _ = @popCount(i16, i);
-        \\}
-    ,
-        "tmp.zig:3:9: error: upcasting 'i8' to 'i16' changes result",
-    );
     cases.addCase(x: {
         const tc = cases.create(
             "wrong same named struct",
