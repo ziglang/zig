@@ -37,8 +37,6 @@ if [ -f ~/.s3cfg ]; then
   tar cfJ "$TARBALL" "$DIRNAME"
 
   s3cmd put -P "$TARBALL" s3://ziglang.org/builds/
-  touch empty
-  s3cmd put -P empty s3://ziglang.org/builds/zig-freebsd-x86_64-$GITBRANCH.tar.xz --add-header="Cache-Control: max-age=0, must-revalidate" --add-header="x-amz-website-redirect-location:/builds/$TARBALL"
 
   SHASUM=$(shasum -a 256 $TARBALL | cut '-d ' -f1)
   BYTESIZE=$(wc -c < $TARBALL)
