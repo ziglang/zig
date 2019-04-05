@@ -7448,6 +7448,8 @@ pub const TypeInfo = union(TypeId) {
     ArgTuple: void,
     Opaque: void,
     Promise: Promise,
+    Vector: Vector,
+    EnumLiteral: void,
 
 
     pub const Int = struct {
@@ -7465,11 +7467,13 @@ pub const TypeInfo = union(TypeId) {
         is_volatile: bool,
         alignment: comptime_int,
         child: type,
+        is_allowzero: bool,
 
         pub const Size = enum {
             One,
             Many,
             Slice,
+            C,
         };
     };
 
@@ -7510,9 +7514,7 @@ pub const TypeInfo = union(TypeId) {
         value: comptime_int,
     };
 
-    pub const ErrorSet = struct {
-        errors: []Error,
-    };
+    pub const ErrorSet = ?[]Error;
 
     pub const EnumField = struct {
         name: []const u8,
@@ -7567,6 +7569,11 @@ pub const TypeInfo = union(TypeId) {
         child: ?type,
     };
 
+    pub const Vector = struct {
+        len: comptime_int,
+        child: type,
+    };
+
     pub const Definition = struct {
         name: []const u8,
         is_pub: bool,
@@ -7598,6 +7605,11 @@ pub const TypeInfo = union(TypeId) {
     };
 };
       {#code_end#}
+      <p>
+      For {#link|structs|struct#}, {#link|unions|union#}, {#link|enums|enum#}, and
+      {#link|error sets|Error Set Type#}, the fields are guaranteed to be in the same
+      order as declared. For declarations, the order is unspecified.
+      </p>
       {#header_close#}
 
       {#header_open|@typeName#}
