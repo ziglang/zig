@@ -2959,6 +2959,10 @@ pub const Thread = struct {
 
     /// Returns the handle of this thread.
     /// On Linux and POSIX, this is the same as Id.
+    /// On Linux, it is possible that the thread spawned with `spawnThread`
+    /// finishes executing entirely before the clone syscall completes. In this
+    /// case, this function will return 0 rather than the no-longer-existing thread's
+    /// pid.
     pub fn handle(self: Thread) Handle {
         return self.data.handle;
     }
@@ -2977,7 +2981,7 @@ pub const Thread = struct {
         } else switch (builtin.os) {
             builtin.Os.linux => {
                 while (true) {
-                    const pid_value = @atomicLoad(i32, &self.data.handle, builtin.AtomicOrder.SeqCst);
+                    const pid_value = @atomicLoad(i32, &self.data.handle, .SeqCst);
                     if (pid_value == 0) break;
                     const rc = linux.futex_wait(&self.data.handle, linux.FUTEX_WAIT, pid_value, null);
                     switch (linux.getErrno(rc)) {
