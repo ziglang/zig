@@ -33,6 +33,7 @@ comptime {
     @export("__multf3", @import("compiler_rt/mulXf3.zig").__multf3, linkage);
 
     @export("__divsf3", @import("compiler_rt/divsf3.zig").__divsf3, linkage);
+    @export("__divdf3", @import("compiler_rt/divdf3.zig").__divdf3, linkage);
 
     @export("__floattitf", @import("compiler_rt/floattitf.zig").__floattitf, linkage);
     @export("__floattidf", @import("compiler_rt/floattidf.zig").__floattidf, linkage);
@@ -142,6 +143,7 @@ comptime {
         @export("__aeabi_d2iz", @import("compiler_rt/fixdfsi.zig").__fixdfsi, linkage);
 
         @export("__aeabi_fdiv", @import("compiler_rt/divsf3.zig").__divsf3, linkage);
+        @export("__aeabi_ddiv", @import("compiler_rt/divdf3.zig").__divdf3, linkage);
     }
     if (builtin.os == builtin.Os.windows) {
         switch (builtin.arch) {
