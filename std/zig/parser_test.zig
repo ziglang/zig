@@ -354,6 +354,15 @@ test "zig fmt: fn decl with trailing comma" {
     );
 }
 
+test "zig fmt: var_args with trailing comma" {
+    try testCanonical(
+        \\pub fn add(
+        \\    a: ...,
+        \\) void {}
+        \\
+    );
+}
+
 test "zig fmt: enum decl with no trailing comma" {
     try testTransform(
         \\const StrLitKind = enum {Normal, C};
