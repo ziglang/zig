@@ -271,11 +271,7 @@ fn formatValue(
     const T = @typeOf(value);
     switch (@typeId(T)) {
         builtin.TypeId.Float => return formatFloatValue(value, fmt, context, Errors, output),
-        builtin.TypeId.Int => return formatIntValue(value, fmt, context, Errors, output),
-        builtin.TypeId.ComptimeInt => {
-            const Int = math.IntFittingRange(value, value);
-            return formatIntValue(Int(value), fmt, context, Errors, output);
-        },
+        builtin.TypeId.Int, builtin.TypeId.ComptimeInt => return formatIntValue(value, fmt, context, Errors, output),
         else => comptime unreachable,
     }
 }
@@ -290,13 +286,20 @@ pub fn formatIntValue(
     comptime var radix = 10;
     comptime var uppercase = false;
     comptime var width = 0;
+
+    const int_value = if (@typeOf(value) == comptime_int) blk: {
+        const Int = math.IntFittingRange(value, value);
+        break :blk Int(value);
+    } else
+        value;
+
     if (fmt.len > 0) {
         switch (fmt[0]) {
             'c' => {
-                if (@typeOf(value).bit_count <= 8) {
+                if (@typeOf(int_value).bit_count <= 8) {
                     if (fmt.len > 1)
                         @compileError("Unknown format character: " ++ []u8{fmt[1]});
-                    return formatAsciiChar(u8(value), context, Errors, output);
+                    return formatAsciiChar(u8(int_value), context, Errors, output);
                 }
             },
             'b' => {
@@ -323,7 +326,7 @@ pub fn formatIntValue(
         }
         if (fmt.len > 1) width = comptime (parseUnsigned(usize, fmt[1..], 10) catch unreachable);
     }
-    return formatInt(value, radix, uppercase, width, context, Errors, output);
+    return formatInt(int_value, radix, uppercase, width, context, Errors, output);
 }
 
 fn formatFloatValue(
@@ -686,10 +689,16 @@ pub fn formatInt(
     comptime Errors: type,
     output: fn (@typeOf(context), []const u8) Errors!void,
 ) Errors!void {
-    if (@typeOf(value).is_signed) {
-        return formatIntSigned(value, base, uppercase, width, context, Errors, output);
+    const int_value = if (@typeOf(value) == comptime_int) blk: {
+        const Int = math.IntFittingRange(value, value);
+        break :blk Int(value);
+    } else
+        value;
+
+    if (@typeOf(int_value).is_signed) {
+        return formatIntSigned(int_value, base, uppercase, width, context, Errors, output);
     } else {
-        return formatIntUnsigned(value, base, uppercase, width, context, Errors, output);
+        return formatIntUnsigned(int_value, base, uppercase, width, context, Errors, output);
     }
 }
 
@@ -1431,4 +1440,12 @@ test "fmt.hexToBytes" {
     var pb: [32]u8 = undefined;
     try hexToBytes(pb[0..], test_hex_str);
     try testFmt(test_hex_str, "{X}", pb);
+}
+
+test "fmt.formatIntValue with comptime_int" {
+    const value: comptime_int = 123456789123456789;
+
+    var buf = try std.Buffer.init(std.debug.global_allocator, "");
+    try formatIntValue(value, "", &buf, @typeOf(std.Buffer.append).ReturnType.ErrorSet, std.Buffer.append);
+    assert(mem.eql(u8, buf.toSlice(), "123456789123456789"));
 }
