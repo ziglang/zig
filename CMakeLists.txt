@@ -302,6 +302,7 @@ set(EMBEDDED_SOFTFLOAT_SOURCES
     "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f16_add.c"
     "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f16_div.c"
     "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f16_eq.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f16_isSignalingNaN.c"
     "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f16_lt.c"
     "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f16_mul.c"
     "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f16_rem.c"

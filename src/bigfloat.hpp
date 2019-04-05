@@ -48,6 +48,7 @@ void bigfloat_sqrt(BigFloat *dest, const BigFloat *op);
 void bigfloat_append_buf(Buf *buf, const BigFloat *op);
 Cmp bigfloat_cmp(const BigFloat *op1, const BigFloat *op2);
 
+bool bigfloat_is_nan(const BigFloat *op);
 
 // convenience functions
 Cmp bigfloat_cmp_zero(const BigFloat *bigfloat);

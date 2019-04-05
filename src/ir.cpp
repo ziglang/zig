@@ -17,6 +17,7 @@
 #include "util.hpp"
 
 #include <errno.h>
+#include <math.h>
 
 struct IrExecContext {
     ZigList<ConstExprValue *> mem_slot_list;
@@ -8242,6 +8243,27 @@ static void float_init_float(ConstExprValue *dest_val, ConstExprValue *src_val) 
     }
 }
 
+static bool float_is_nan(ConstExprValue *op) {
+    if (op->type->id == ZigTypeIdComptimeFloat) {
+        return bigfloat_is_nan(&op->data.x_bigfloat);
+    } else if (op->type->id == ZigTypeIdFloat) {
+        switch (op->type->data.floating.bit_count) {
+            case 16:
+                return f16_isSignalingNaN(op->data.x_f16);
+            case 32:
+                return isnan(op->data.x_f32);
+            case 64:
+                return isnan(op->data.x_f64);
+            case 128:
+                return f128M_isSignalingNaN(&op->data.x_f128);
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
 static Cmp float_cmp(ConstExprValue *op1, ConstExprValue *op2) {
     assert(op1->type == op2->type);
     if (op1->type->id == ZigTypeIdComptimeFloat) {
@@ -12378,6 +12400,9 @@ static IrInstruction *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp *
             return ira->codegen->invalid_instruction;
 
         if (resolved_type->id == ZigTypeIdComptimeFloat || resolved_type->id == ZigTypeIdFloat) {
+            if (float_is_nan(op1_val) || float_is_nan(op2_val)) {
+                return ir_const_bool(ira, &bin_op_instruction->base, op_id == IrBinOpCmpNotEq);
+            }
             Cmp cmp_result = float_cmp(op1_val, op2_val);
             bool answer = resolve_cmp_op_id(op_id, cmp_result);
             return ir_const_bool(ira, &bin_op_instruction->base, answer);

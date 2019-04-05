@@ -190,3 +190,7 @@ bool bigfloat_has_fraction(const BigFloat *bigfloat) {
 void bigfloat_sqrt(BigFloat *dest, const BigFloat *op) {
     f128M_sqrt(&op->value, &dest->value);
 }
+
+bool bigfloat_is_nan(const BigFloat *op) {
+    return f128M_isSignalingNaN(&op->value);
+}

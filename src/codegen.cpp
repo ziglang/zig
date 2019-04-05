@@ -1852,7 +1852,7 @@ static LLVMRealPredicate cmp_op_to_real_predicate(IrBinOp cmp_op) {
         case IrBinOpCmpEq:
             return LLVMRealOEQ;
         case IrBinOpCmpNotEq:
-            return LLVMRealONE;
+            return LLVMRealUNE;
         case IrBinOpCmpLessThan:
             return LLVMRealOLT;
         case IrBinOpCmpGreaterThan:

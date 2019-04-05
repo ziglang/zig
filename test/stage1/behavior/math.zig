@@ -610,3 +610,25 @@ test "vector integer addition" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "NaN comparison" {
+    testNanEqNan(f16);
+    testNanEqNan(f32);
+    testNanEqNan(f64);
+    testNanEqNan(f128);
+    comptime testNanEqNan(f16);
+    comptime testNanEqNan(f32);
+    comptime testNanEqNan(f64);
+    comptime testNanEqNan(f128);
+}
+
+fn testNanEqNan(comptime F: type) void {
+    var nan1 = std.math.nan(F);
+    var nan2 = std.math.nan(F);
+    expect(nan1 != nan2);
+    expect(!(nan1 == nan2));
+    expect(!(nan1 > nan2));
+    expect(!(nan1 >= nan2));
+    expect(!(nan1 < nan2));
+    expect(!(nan1 <= nan2));
+}
