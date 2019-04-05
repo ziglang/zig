@@ -78,7 +78,21 @@ static inline int ctzll(unsigned long long mask) {
     zig_unreachable();
 #endif
 }
+static inline int clz(unsigned mask) {
+    unsigned long lz;
+    if (_BitScanReverse(&lz, mask))
+        return static_cast<int>(63 - lz);
+    zig_unreachable();
+}
+static inline int ctz(unsigned mask) {
+    unsigned long result;
+    if (_BitScanForward(&result, mask))
+        return result;
+    zig_unreachable();
+}
 #else
+#define clz(x) __builtin_clz(x)
+#define ctz(x) __builtin_ctz(x)
 #define clzll(x) __builtin_clzll(x)
 #define ctzll(x) __builtin_ctzll(x)
 #endif

@@ -11,6 +11,7 @@
 #include "list.hpp"
 #include "os.hpp"
 #include "softfloat.hpp"
+#include "util.hpp"
 
 #include <limits>
 #include <algorithm>
@@ -1334,7 +1335,7 @@ void bigint_shl(BigInt *dest, const BigInt *op1, const BigInt *op2) {
     if (op1->digit_count == 1 && op1->data.digit == 0)
         return bigint_init_unsigned(dest, 0);
 
-    if (op1->digit_count == 1 && __builtin_clzl(op1->data.digit) >= shift_amt) {
+    if (op1->digit_count == 1 && clzll(op1->data.digit) >= shift_amt) {
         dest->data.digit = op1->data.digit << shift_amt;
         dest->digit_count = 1;
         dest->is_negative = op1->is_negative;
@@ -1348,7 +1349,7 @@ void bigint_shl(BigInt *dest, const BigInt *op1, const BigInt *op2) {
     size_t digits_needed = naieve_digits_needed;
     if (op1->digit_count > 1) {
         uint64_t most_sig_digit = op1->data.digits[op1->digit_count - 1];
-        if (__builtin_clzl(most_sig_digit) >= leftover_shift_count)
+        if (clzll(most_sig_digit) >= leftover_shift_count)
             digits_needed--;
     }
     dest->data.digits = allocate<uint64_t>(digits_needed);
@@ -1412,7 +1413,7 @@ void bigint_shr(BigInt *dest, const BigInt *op1, const BigInt *op2) {
     //bool most_sig_fits = false;
     if (op1->digit_count > 1) {
         uint64_t most_sig_digit = op1->data.digits[op1->digit_count - 1];
-        if (__builtin_clzl(most_sig_digit) + leftover_shift_count >= 64) {
+        if (clzll(most_sig_digit) + leftover_shift_count >= 64) {
             digits_needed--;
          //   most_sig_fits = true;
         }
