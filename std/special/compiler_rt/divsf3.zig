@@ -75,7 +75,7 @@ pub extern fn __divsf3(a: f32, b: f32) f32 {
         // normal number.  Renormalize one or both of a and b, and set scale to
         // include the necessary exponent adjustment.
         if (aAbs < implicitBit) scale +%= normalize(f32, &aSignificand);
-        if (bAbs < implicitBit) scale +%= normalize(f32, &bSignificand);
+        if (bAbs < implicitBit) scale -%= normalize(f32, &bSignificand);
     }
 
     // Or in the implicit significand bit.  (If we fell through from the
