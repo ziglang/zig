@@ -48,11 +48,12 @@ test "std.os.Thread.getCurrentId" {
     thread.wait();
     switch (builtin.os) {
         builtin.Os.windows => expect(os.Thread.getCurrentId() != thread_current_id),
-        else => {
+        builtin.Os.linux => {
             // If the thread completes very quickly, then thread_id can be 0. See the
             // documentation comments for `std.os.Thread.handle`.
             expect(thread_id == 0 or thread_current_id == thread_id);
         },
+        else => expect(thread_current_id == thread_id),
     }
 }
 
