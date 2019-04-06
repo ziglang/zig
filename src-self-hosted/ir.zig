@@ -1418,8 +1418,8 @@ pub const Builder = struct {
 
         var bad_index: usize = undefined;
         var buf = std.zig.parseStringLiteral(irb.comp.gpa(), str_token, &bad_index) catch |err| switch (err) {
-            .OutOfMemory => return error.OutOfMemory,
-            .UnicodeSurrogateHalf, .UnicodeCodepointTooLarge => {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.UnicodeSurrogateHalf, error.UnicodeCodepointTooLarge => {
                 var hex_string = if (mem.indexOfScalar(u8, str_token, '}')) |i| str_token[2..i] else str_token[2..str_token.len];
                 try irb.comp.addCompileError(
                     irb.code.tree_scope,
@@ -1429,15 +1429,15 @@ pub const Builder = struct {
                 );
                 return error.SemanticAnalysisFailed;
             },
-            .ExpectXDigit, .ExpectLCurly, .ExpectRCurly => {
+            error.ExpectXDigit, error.ExpectLCurly, error.ExpectRCurly => {
                 try irb.comp.addCompileError(
                     irb.code.tree_scope,
                     src_span,
                     "expected {}, got '{c}'",
                     switch (err) {
-                    .ExpectXDigit => "hexidecimal digit",
-                    .ExpectLCurly => "left curly bracket '{'",
-                    .ExpectRCurly => "right curly bracket '}'",
+                    error.ExpectXDigit => "hexidecimal digit",
+                    error.ExpectLCurly => "left curly bracket '{'",
+                    error.ExpectRCurly => "right curly bracket '}'",
                     },
                     str_token[bad_index],
                 );
