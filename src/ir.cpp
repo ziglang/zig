@@ -17,7 +17,6 @@
 #include "util.hpp"
 
 #include <errno.h>
-#include <math.h>
 
 struct IrExecContext {
     ZigList<ConstExprValue *> mem_slot_list;
@@ -8251,9 +8250,9 @@ static bool float_is_nan(ConstExprValue *op) {
             case 16:
                 return f16_isSignalingNaN(op->data.x_f16);
             case 32:
-                return isnan(op->data.x_f32);
+                return op->data.x_f32 != op->data.x_f32;
             case 64:
-                return isnan(op->data.x_f64);
+                return op->data.x_f64 != op->data.x_f64;
             case 128:
                 return f128M_isSignalingNaN(&op->data.x_f128);
             default:
