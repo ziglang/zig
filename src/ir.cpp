@@ -16309,9 +16309,6 @@ static IrInstruction *ir_analyze_instruction_to_ptr_type(IrAnalyze *ira,
 
     ZigType *ptr_type;
     if (type_entry->id == ZigTypeIdArray) {
-        // TODO: Allow capturing pointer to const array.
-        // const a = "123"; for (a) |*c| continue;
-        // error: expected type '*u8', found '*const u8'
         ptr_type = get_pointer_to_type(ira->codegen, type_entry->data.array.child_type, ptr_ptr_type->data.pointer.is_const);
     } else if (is_array_ref(type_entry)) {
         ptr_type = get_pointer_to_type(ira->codegen,
