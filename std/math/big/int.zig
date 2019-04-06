@@ -4,6 +4,7 @@ const debug = std.debug;
 const testing = std.testing;
 const math = std.math;
 const mem = std.mem;
+const fmt = std.fmt;
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
 const maxInt = std.math.maxInt;
@@ -331,16 +332,6 @@ pub const Int = struct {
         }
     }
 
-    fn charToDigit(ch: u8, base: u8) !u8 {
-        const d = switch (ch) {
-            '0'...'9' => ch - '0',
-            'a'...'f' => (ch - 'a') + 0xa,
-            else => return error.InvalidCharForDigit,
-        };
-
-        return if (d < base) d else return error.DigitTooLargeForBase;
-    }
-
     fn digitToChar(d: u8, base: u8) !u8 {
         if (d >= base) {
             return error.DigitTooLargeForBase;
@@ -370,7 +361,7 @@ pub const Int = struct {
         try self.set(0);
 
         for (value[i..]) |ch| {
-            const d = try charToDigit(ch, base);
+            const d = try fmt.charToDigit(ch, base);
 
             const ap_d = Int.initFixed(([]Limb{d})[0..]);
 
@@ -467,7 +458,7 @@ pub const Int = struct {
     /// TODO make this non-allocating
     pub fn format(
         self: Int,
-        comptime fmt: []const u8,
+        comptime fmtstr: []const u8,
         context: var,
         comptime FmtError: type,
         output: fn (@typeOf(context), []const u8) FmtError!void,
