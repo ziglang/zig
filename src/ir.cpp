@@ -13125,6 +13125,10 @@ static IrInstruction *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *i
         ZigType *ptr_type = op1_type->data.structure.fields[slice_ptr_index].type_entry;
         child_type = ptr_type->data.pointer.child_type;
         ConstExprValue *ptr_val = &op1_val->data.x_struct.fields[slice_ptr_index];
+        if (ptr_val->data.x_ptr.special == ConstPtrSpecialInvalid) {
+            ir_add_error(ira, op1, buf_sprintf("invalid slice"));
+            return ira->codegen->invalid_instruction;
+        }
         assert(ptr_val->data.x_ptr.special == ConstPtrSpecialBaseArray);
         op1_array_val = ptr_val->data.x_ptr.data.base_array.array_val;
         op1_array_index = ptr_val->data.x_ptr.data.base_array.elem_index;
@@ -13158,6 +13162,10 @@ static IrInstruction *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *i
         ZigType *ptr_type = op2_type->data.structure.fields[slice_ptr_index].type_entry;
         op2_type_valid = ptr_type->data.pointer.child_type == child_type;
         ConstExprValue *ptr_val = &op2_val->data.x_struct.fields[slice_ptr_index];
+        if (ptr_val->data.x_ptr.special == ConstPtrSpecialInvalid) {
+            ir_add_error(ira, op2, buf_sprintf("invalid slice"));
+            return ira->codegen->invalid_instruction;
+        }
         assert(ptr_val->data.x_ptr.special == ConstPtrSpecialBaseArray);
         op2_array_val = ptr_val->data.x_ptr.data.base_array.array_val;
         op2_array_index = ptr_val->data.x_ptr.data.base_array.elem_index;
