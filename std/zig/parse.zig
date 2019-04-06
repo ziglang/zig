@@ -39,29 +39,20 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8, ret_err_off: ?*usize
         }
         // Ban certain Unicode characters
         //
-        // These first three were first banned in the tokenizer
-        // U+0085 (NEL) C2 85    -- Looks like a large > in gedit.
-        // U+2028 (LS)  E2 80 A8 -- Causes a line break in gedit even when wrap is off!
-        // U+2029 (PS)  E2 80 A9 -- Same! 
+        // All three of these are line-endings.
+        // U+0085 (NEL) C2 85
+        // U+2028 (LS)  E2 80 A8
+        // U+2029 (PS)  E2 80 A9
         //
-        // UTF-16 byte-order-marks
-        // U+FFFE       EF BF BE
-        // U+FFFF       EF BF BF
         prev2 = prev;
         prev = c;
         switch (u16(prev2) << 8 | prev) {
-        0xc285 => { // Doesn't catch this character if it is the last, but that isn't a big deal.
+        0xc285 => { // Doesn't catch this character if it is the last character, but that is OK because it is the last line.
             if (ret_err_off) |err_off| err_off.* = i - 2;
             return error.InvalidCharacter;
         },
         0xe280 => {
             if (c == 0xa8 or c == 0xa9) {
-                if (ret_err_off) |err_off| err_off.* = i - 2;
-                return error.InvalidCharacter;
-            }
-        },
-        0xefbf => {
-            if (c == 0xbe or c == 0xbf) {
                 if (ret_err_off) |err_off| err_off.* = i - 2;
                 return error.InvalidCharacter;
             }
