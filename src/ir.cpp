@@ -356,6 +356,28 @@ static void ir_ref_var(ZigVar *var) {
     var->ref_count += 1;
 }
 
+ZigType *ir_analyze_type_expr(IrAnalyze *ira, Scope *scope, AstNode *node) {
+    ConstExprValue *result = ir_eval_const_value( ira->codegen
+                                                , scope
+                                                , node
+                                                , ira->codegen->builtin_types.entry_type
+                                                , ira->new_irb.exec->backward_branch_count
+                                                , ira->new_irb.exec->backward_branch_quota
+                                                , nullptr
+                                                , nullptr
+                                                , node
+                                                , nullptr
+                                                , ira->new_irb.exec
+                                                , nullptr
+                                                );
+
+    if (type_is_invalid(result->type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    assert(result->special != ConstValSpecialRuntime);
+    return result->data.x_type;
+}
+
 static IrBasicBlock *ir_create_basic_block(IrBuilder *irb, Scope *scope, const char *name_hint) {
     IrBasicBlock *result = allocate<IrBasicBlock>(1);
     result->scope = scope;
@@ -13875,7 +13897,7 @@ static bool ir_analyze_fn_call_inline_arg(IrAnalyze *ira, AstNode *fn_proto_node
     IrInstruction *casted_arg;
     if (param_decl_node->data.param_decl.var_token == nullptr) {
         AstNode *param_type_node = param_decl_node->data.param_decl.type;
-        ZigType *param_type = analyze_type_expr(ira->codegen, *exec_scope, param_type_node);
+        ZigType *param_type = ir_analyze_type_expr(ira, *exec_scope, param_type_node);
         if (type_is_invalid(param_type))
             return false;
 
@@ -13915,7 +13937,7 @@ static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_nod
     } else {
         if (param_decl_node->data.param_decl.var_token == nullptr) {
             AstNode *param_type_node = param_decl_node->data.param_decl.type;
-            ZigType *param_type = analyze_type_expr(ira->codegen, *child_scope, param_type_node);
+            ZigType *param_type = ir_analyze_type_expr(ira, *child_scope, param_type_node);
             if (type_is_invalid(param_type))
                 return false;
 
@@ -14296,7 +14318,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call
         }
 
         AstNode *return_type_node = fn_proto_node->data.fn_proto.return_type;
-        ZigType *specified_return_type = analyze_type_expr(ira->codegen, exec_scope, return_type_node);
+        ZigType *specified_return_type = ir_analyze_type_expr(ira, exec_scope, return_type_node);
         if (type_is_invalid(specified_return_type))
             return ira->codegen->invalid_instruction;
         ZigType *return_type;
@@ -14532,7 +14554,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call
 
         if (fn_proto_node->data.fn_proto.return_var_token == nullptr) {
             AstNode *return_type_node = fn_proto_node->data.fn_proto.return_type;
-            ZigType *specified_return_type = analyze_type_expr(ira->codegen, impl_fn->child_scope, return_type_node);
+            ZigType *specified_return_type = ir_analyze_type_expr(ira, impl_fn->child_scope, return_type_node);
             if (type_is_invalid(specified_return_type))
                 return ira->codegen->invalid_instruction;
             if (fn_proto_node->data.fn_proto.auto_err_set) {
@@ -14559,7 +14581,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call
         if (call_instruction->is_async) {
             AstNode *async_allocator_type_node = fn_proto_node->data.fn_proto.async_allocator_type;
             if (async_allocator_type_node != nullptr) {
-                ZigType *async_allocator_type = analyze_type_expr(ira->codegen, impl_fn->child_scope, async_allocator_type_node);
+                ZigType *async_allocator_type = ir_analyze_type_expr(ira, impl_fn->child_scope, async_allocator_type_node);
                 if (type_is_invalid(async_allocator_type))
                     return ira->codegen->invalid_instruction;
                 inst_fn_type_id.async_allocator_type = async_allocator_type;
