@@ -175,7 +175,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
             return hm.get(key) != null;
         }
 
-        pub fn remove(hm: *Self, key: K) ?*KV {
+        pub fn remove(hm: *Self, key: K) ?KV {
             if (hm.entries.len == 0) return null;
             hm.incrementModificationCount();
             const start_index = hm.keyToIndex(key);
@@ -189,13 +189,14 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
 
                     if (!eql(entry.kv.key, key)) continue;
 
+                    const removed_kv = entry.kv;
                     while (roll_over < hm.entries.len) : (roll_over += 1) {
                         const next_index = (start_index + roll_over + 1) % hm.entries.len;
                         const next_entry = &hm.entries[next_index];
                         if (!next_entry.used or next_entry.distance_from_start_index == 0) {
                             entry.used = false;
                             hm.size -= 1;
-                            return &entry.kv;
+                            return removed_kv;
                         }
                         entry.* = next_entry.*;
                         entry.distance_from_start_index -= 1;
@@ -371,7 +372,10 @@ test "basic hash map usage" {
 
     testing.expect(map.contains(2));
     testing.expect(map.get(2).?.value == 22);
-    _ = map.remove(2);
+
+    const rmv1 = map.remove(2);
+    testing.expect(rmv1.?.key == 2);
+    testing.expect(rmv1.?.value == 22);
     testing.expect(map.remove(2) == null);
     testing.expect(map.get(2) == null);
 }
