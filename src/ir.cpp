@@ -10702,15 +10702,6 @@ static IrInstruction *ir_analyze_enum_to_int(IrAnalyze *ira, IrInstruction *sour
     ZigType *tag_type = enum_type->data.enumeration.tag_int_type;
     assert(tag_type->id == ZigTypeIdInt || tag_type->id == ZigTypeIdComptimeInt);
 
-    if (instr_is_comptime(enum_target)) {
-        ConstExprValue *val = ir_resolve_const(ira, enum_target, UndefBad);
-        if (!val)
-            return ira->codegen->invalid_instruction;
-        IrInstruction *result = ir_const(ira, source_instr, tag_type);
-        init_const_bigint(&result->value, tag_type, &val->data.x_enum_tag);
-        return result;
-    }
-
     // If there is only one possible tag, then we know at comptime what it is.
     if (enum_type->data.enumeration.layout == ContainerLayoutAuto &&
         enum_type->data.enumeration.src_field_count == 1)
@@ -10719,6 +10710,15 @@ static IrInstruction *ir_analyze_enum_to_int(IrAnalyze *ira, IrInstruction *sour
         IrInstruction *result = ir_const(ira, source_instr, tag_type);
         init_const_bigint(&result->value, tag_type,
                 &enum_type->data.enumeration.fields[0].value);
+        return result;
+    }
+
+    if (instr_is_comptime(enum_target)) {
+        ConstExprValue *val = ir_resolve_const(ira, enum_target, UndefBad);
+        if (!val)
+            return ira->codegen->invalid_instruction;
+        IrInstruction *result = ir_const(ira, source_instr, tag_type);
+        init_const_bigint(&result->value, tag_type, &val->data.x_enum_tag);
         return result;
     }
 
@@ -11809,11 +11809,14 @@ static IrInstruction *ir_get_deref(IrAnalyze *ira, IrInstruction *source_instruc
         return ira->codegen->invalid_instruction;
     } else if (type_entry->id == ZigTypeIdPointer) {
         ZigType *child_type = type_entry->data.pointer.child_type;
-        // dereferencing a *u0 is comptime known to be 0
-        if (child_type->id == ZigTypeIdInt && child_type->data.integral.bit_count == 0) {
-            IrInstruction *result = ir_const(ira, source_instruction, child_type);
-            init_const_unsigned_negative(&result->value, child_type, 0, false);
-            return result;
+        // if the child type has one possible value, the deref is comptime
+        switch (type_has_one_possible_value(ira->codegen, child_type)) {
+            case OnePossibleValueInvalid:
+                return ira->codegen->invalid_instruction;
+            case OnePossibleValueYes:
+                return ir_const(ira, source_instruction, child_type);
+            case OnePossibleValueNo:
+                break;
         }
         if (instr_is_comptime(ptr)) {
             if (ptr->value.special == ConstValSpecialUndef) {
