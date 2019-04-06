@@ -1551,11 +1551,11 @@ static IrInstruction *ir_build_typeof(IrBuilder *irb, Scope *scope, AstNode *sou
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_to_ptr_type(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *value) {
+static IrInstruction *ir_build_to_ptr_type(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *ptr) {
     IrInstructionToPtrType *instruction = ir_build_instruction<IrInstructionToPtrType>(irb, scope, source_node);
-    instruction->value = value;
+    instruction->ptr = ptr;
 
-    ir_ref_instruction(value, irb->current_basic_block);
+    ir_ref_instruction(ptr, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -5689,9 +5689,7 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
     if (array_val_ptr == irb->codegen->invalid_instruction)
         return array_val_ptr;
 
-    IrInstruction *array_val = ir_build_load_ptr(irb, parent_scope, array_node, array_val_ptr);
-
-    IrInstruction *pointer_type = ir_build_to_ptr_type(irb, parent_scope, array_node, array_val);
+    IrInstruction *pointer_type = ir_build_to_ptr_type(irb, parent_scope, array_node, array_val_ptr);
     IrInstruction *elem_var_type;
     if (node->data.for_expr.elem_is_ptr) {
         elem_var_type = pointer_type;
@@ -16301,18 +16299,20 @@ static IrInstruction *ir_analyze_instruction_to_ptr_type(IrAnalyze *ira,
         IrInstructionToPtrType *to_ptr_type_instruction)
 {
     Error err;
-
-    IrInstruction *value = to_ptr_type_instruction->value->child;
-    ZigType *type_entry = value->value.type;
-    if (type_is_invalid(type_entry))
+    IrInstruction *ptr_ptr = to_ptr_type_instruction->ptr->child;
+    if (type_is_invalid(ptr_ptr->value.type))
         return ira->codegen->invalid_instruction;
+
+    ZigType *ptr_ptr_type = ptr_ptr->value.type;
+    assert(ptr_ptr_type->id == ZigTypeIdPointer);
+    ZigType *type_entry = ptr_ptr_type->data.pointer.child_type;
 
     ZigType *ptr_type;
     if (type_entry->id == ZigTypeIdArray) {
         // TODO: Allow capturing pointer to const array.
         // const a = "123"; for (a) |*c| continue;
         // error: expected type '*u8', found '*const u8'
-        ptr_type = get_pointer_to_type(ira->codegen, type_entry->data.array.child_type, false);
+        ptr_type = get_pointer_to_type(ira->codegen, type_entry->data.array.child_type, ptr_ptr_type->data.pointer.is_const);
     } else if (is_array_ref(type_entry)) {
         ptr_type = get_pointer_to_type(ira->codegen,
             type_entry->data.pointer.child_type->data.array.child_type, type_entry->data.pointer.is_const);
@@ -16329,9 +16329,6 @@ static IrInstruction *ir_analyze_instruction_to_ptr_type(IrAnalyze *ira,
             ptr_type = adjust_ptr_align(ira->codegen, ptr_type, reduced_align);
         }
     } else if (type_entry->id == ZigTypeIdArgTuple) {
-        ConstExprValue *arg_tuple_val = ir_resolve_const(ira, value, UndefBad);
-        if (!arg_tuple_val)
-            return ira->codegen->invalid_instruction;
         zig_panic("TODO for loop on var args");
     } else {
         ir_add_error_node(ira, to_ptr_type_instruction->base.source_node,

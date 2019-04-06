@@ -356,7 +356,7 @@ static void ir_print_typeof(IrPrint *irp, IrInstructionTypeOf *instruction) {
 
 static void ir_print_to_ptr_type(IrPrint *irp, IrInstructionToPtrType *instruction) {
     fprintf(irp->f, "@toPtrType(");
-    ir_print_other_instruction(irp, instruction->value);
+    ir_print_other_instruction(irp, instruction->ptr);
     fprintf(irp->f, ")");
 }
 

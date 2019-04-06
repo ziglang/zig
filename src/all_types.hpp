@@ -2621,7 +2621,7 @@ struct IrInstructionTypeOf {
 struct IrInstructionToPtrType {
     IrInstruction base;
 
-    IrInstruction *value;
+    IrInstruction *ptr;
 };
 
 struct IrInstructionPtrTypeChild {
