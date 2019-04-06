@@ -966,7 +966,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
             },
             Node.HeaderOpen => |info| {
                 try out.print(
-                    "<h{} id=\"{}\"><a href=\"#toc-{}\">{}</a><a class=\"hdr\" href=\"#{}\">§</a></h{}>\n",
+                    "<h{} id=\"{}\"><a href=\"#toc-{}\">{}</a> <a class=\"hdr\" href=\"#{}\">§</a></h{}>\n",
                     info.n,
                     info.url,
                     info.url,
