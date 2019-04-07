@@ -781,6 +781,70 @@ static LLVMValueRef get_int_overflow_fn(CodeGen *g, ZigType *operand_type, AddSu
     return fn_val;
 }
 
+static LLVMValueRef get_saturating_arithmetic_fn(CodeGen *g, ZigType *operand_type,
+        const char *signed_name, const char *unsigned_name)
+{
+    ZigType *int_type = (operand_type->id == ZigTypeIdVector) ? operand_type->data.vector.elem_type : operand_type;
+    char fn_name[64];
+
+    assert(int_type->id == ZigTypeIdInt);
+    const char *signed_str = int_type->data.integral.is_signed ? signed_name : unsigned_name;
+
+    LLVMTypeRef param_types[] = {
+        get_llvm_type(g, operand_type),
+        get_llvm_type(g, operand_type),
+    };
+
+    if (operand_type->id == ZigTypeIdVector) {
+        sprintf(fn_name, "llvm.%s.sat.v%" PRIu32 "i%" PRIu32, signed_str,
+                operand_type->data.vector.len, int_type->data.integral.bit_count);
+
+        LLVMTypeRef fn_type = LLVMFunctionType(get_llvm_type(g, int_type), param_types, 2, false);
+        LLVMValueRef fn_val = LLVMAddFunction(g->module, fn_name, fn_type);
+        assert(LLVMGetIntrinsicID(fn_val));
+        return fn_val;
+    } else {
+        sprintf(fn_name, "llvm.%s.sat.i%" PRIu32, signed_str, int_type->data.integral.bit_count);
+
+        LLVMTypeRef fn_type = LLVMFunctionType(get_llvm_type(g, int_type), param_types, 2, false);
+        LLVMValueRef fn_val = LLVMAddFunction(g->module, fn_name, fn_type);
+        assert(LLVMGetIntrinsicID(fn_val));
+        return fn_val;
+    }
+}
+
+static LLVMValueRef get_int_saturating_fn(CodeGen *g, ZigType *operand_type, AddSubMul add_sub_mul) {
+    ZigType *int_type = (operand_type->id == ZigTypeIdVector) ? operand_type->data.vector.elem_type : operand_type;
+    assert(int_type->id == ZigTypeIdInt);
+
+    ZigLLVMFnKey key = {};
+    key.id = ZigLLVMFnIdSaturatingArithmetic;
+    key.data.saturating_arithmetic.is_signed = int_type->data.integral.is_signed;
+    key.data.saturating_arithmetic.add_sub = add_sub_mul;
+    key.data.saturating_arithmetic.bit_count = (uint32_t)int_type->data.integral.bit_count;
+    key.data.saturating_arithmetic.vector_len = (operand_type->id == ZigTypeIdVector) ?
+        operand_type->data.vector.len : 0;
+
+    auto existing_entry = g->llvm_fn_table.maybe_get(key);
+    if (existing_entry)
+        return existing_entry->value;
+
+    LLVMValueRef fn_val;
+    switch (add_sub_mul) {
+        case AddSubMulAdd:
+            fn_val = get_saturating_arithmetic_fn(g, operand_type, "sadd", "uadd");
+            break;
+        case AddSubMulSub:
+            fn_val = get_saturating_arithmetic_fn(g, operand_type, "ssub", "usub");
+            break;
+        default:
+            zig_unreachable();
+    }
+
+    g->llvm_fn_table.put(key, fn_val);
+    return fn_val;
+}
+
 static LLVMValueRef get_float_fn(CodeGen *g, ZigType *type_entry, ZigLLVMFnId fn_id) {
     assert(type_entry->id == ZigTypeIdFloat);
 
@@ -4860,6 +4924,39 @@ static LLVMValueRef ir_render_overflow_op(CodeGen *g, IrExecutable *executable, 
     return overflow_bit;
 }
 
+static LLVMValueRef ir_render_saturating_op(CodeGen *g, IrExecutable *executable, IrInstructionSaturatingOp *instruction) {
+    AddSubMul add_sub_mul;
+    switch (instruction->op) {
+        case IrSaturatingOpUAdd:
+        case IrSaturatingOpSAdd:
+            add_sub_mul = AddSubMulAdd;
+            break;
+        case IrSaturatingOpUSub:
+        case IrSaturatingOpSSub:
+            add_sub_mul = AddSubMulSub;
+            break;
+        default:
+            zig_unreachable();
+    }
+
+    ZigType *int_type = instruction->base.value.type;
+    assert(!type_is_invalid(int_type));
+    assert(int_type->id == ZigTypeIdInt);
+
+    LLVMValueRef fn_val = get_int_saturating_fn(g, int_type, add_sub_mul);
+
+    LLVMValueRef op1 = ir_llvm_value(g, instruction->op1);
+    LLVMValueRef op2 = ir_llvm_value(g, instruction->op2);
+
+    LLVMValueRef params[] = {
+        op1,
+        op2,
+    };
+
+    LLVMValueRef wrong_size_int = LLVMBuildCall(g->builder, fn_val, params, 2, "");
+    return gen_widen_or_shorten(g, false, int_type, instruction->base.value.type, wrong_size_int);
+}
+
 static LLVMValueRef ir_render_test_err(CodeGen *g, IrExecutable *executable, IrInstructionTestErr *instruction) {
     ZigType *err_union_type = instruction->value->value.type;
     ZigType *payload_type = err_union_type->data.error_union.payload_type;
@@ -5666,6 +5763,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_handle(g, executable, (IrInstructionHandle *)instruction);
         case IrInstructionIdOverflowOp:
             return ir_render_overflow_op(g, executable, (IrInstructionOverflowOp *)instruction);
+        case IrInstructionIdSaturatingOp:
+            return ir_render_saturating_op(g, executable, (IrInstructionSaturatingOp *)instruction);
         case IrInstructionIdTestErr:
             return ir_render_test_err(g, executable, (IrInstructionTestErr *)instruction);
         case IrInstructionIdUnwrapErrCode:
@@ -7305,6 +7404,8 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdSubWithOverflow, "subWithOverflow", 4);
     create_builtin_fn(g, BuiltinFnIdMulWithOverflow, "mulWithOverflow", 4);
     create_builtin_fn(g, BuiltinFnIdShlWithOverflow, "shlWithOverflow", 4);
+    create_builtin_fn(g, BuiltinFnIdSaturatingSub, "satSub", 3);
+    create_builtin_fn(g, BuiltinFnIdSaturatingAdd, "satAdd", 3);
     create_builtin_fn(g, BuiltinFnIdCInclude, "cInclude", 1);
     create_builtin_fn(g, BuiltinFnIdCDefine, "cDefine", 2);
     create_builtin_fn(g, BuiltinFnIdCUndef, "cUndef", 1);

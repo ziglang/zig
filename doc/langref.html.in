@@ -7133,6 +7133,20 @@ test "call foo" {
       a calling function, the returned address will apply to the calling function.
       </p>
       {#header_close#}
+      {#header_open|@satAdd#}
+      <pre>{#syntax#}@addAdd(comptime T: type, a: T, b: T) T{#endsyntax#}</pre>
+      <p>
+      Performs {#syntax#}result.* = a + b{#endsyntax#}. If overflow or underflow occurs,
+          stores {#syntax#}math.maxInt(T){#endsyntax#} or {#syntax#}math.minInt(T){#endsyntax#} in {#syntax#}result{#endsyntax#}.
+      </p>
+      {#header_close#}
+      {#header_open|@satSud#}
+      <pre>{#syntax#}@addAdd(comptime T: type, a: T, b: T) T{#endsyntax#}</pre>
+      <p>
+      Performs {#syntax#}result.* = a - b{#endsyntax#}. If overflow or underflow occurs,
+          stores {#syntax#}math.maxInt(T){#endsyntax#} or {#syntax#}math.minInt(T){#endsyntax#} in {#syntax#}result{#endsyntax#}.
+      </p>
+      {#header_close#}
       {#header_open|@setAlignStack#}
       <pre>{#syntax#}@setAlignStack(comptime alignment: u29){#endsyntax#}</pre>
       <p>

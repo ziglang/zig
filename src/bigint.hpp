@@ -48,6 +48,7 @@ static inline const uint64_t *bigint_ptr(const BigInt *bigint) {
 }
 
 bool bigint_fits_in_bits(const BigInt *bn, size_t bit_count, bool is_signed);
+void bigint_saturate(BigInt *bn, size_t bit_count, bool is_signed);
 void bigint_write_twos_complement(const BigInt *big_int, uint8_t *buf, size_t bit_count, bool is_big_endian);
 void bigint_read_twos_complement(BigInt *dest, const uint8_t *buf, size_t bit_count, bool is_big_endian,
         bool is_signed);

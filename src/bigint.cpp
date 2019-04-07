@@ -227,8 +227,41 @@ void bigint_init_bigfloat(BigInt *dest, const BigFloat *op) {
     bigint_normalize(dest);
 }
 
+// This could be part of fits_in_bits, and not duplicate computation, but this is simpler.
+// Do that in stage2.
+void bigint_saturate(BigInt *bn, size_t bit_count, bool is_signed) {
+    BigInt one = {0};
+    bigint_init_unsigned(&one, 1);
+
+    BigInt shl_amt = {0};
+    if (is_signed) {
+        bigint_init_unsigned(&shl_amt, bit_count - 1);
+    } else {
+        bigint_init_unsigned(&shl_amt, bit_count);
+    }
+
+    BigInt max_value_plus_one = {0};
+    bigint_shl(&max_value_plus_one, &one, &shl_amt);
+
+    BigInt max_value = {0};
+    bigint_sub(&max_value, &max_value_plus_one, &one);
+
+    BigInt min_value = {0};
+    if (is_signed)
+        bigint_negate(&min_value, &max_value_plus_one);
+    else
+        bigint_init_unsigned(&min_value, 0);
+
+    Cmp min_cmp = bigint_cmp(bn, &min_value);
+    Cmp max_cmp = bigint_cmp(bn, &max_value);
+
+    if (min_cmp == CmpLT)
+        bigint_init_bigint(bn, &min_value);
+    else if (max_cmp == CmpGT)
+        bigint_init_bigint(bn, &max_value);
+}
+
 bool bigint_fits_in_bits(const BigInt *bn, size_t bit_count, bool is_signed) {
-    assert(bn->digit_count != 1 || bn->data.digit != 0);
     if (bit_count == 0) {
         return bigint_cmp_zero(bn) == CmpEQ;
     }
@@ -236,7 +269,7 @@ bool bigint_fits_in_bits(const BigInt *bn, size_t bit_count, bool is_signed) {
         return true;
     }
 
-    if (!is_signed) {
+    if (!is_signed && !bn->is_negative) {
         size_t full_bits = bn->digit_count * 64;
         size_t leading_zero_count = bigint_clz(bn, full_bits);
         return bit_count >= full_bits - leading_zero_count;
@@ -246,7 +279,10 @@ bool bigint_fits_in_bits(const BigInt *bn, size_t bit_count, bool is_signed) {
     bigint_init_unsigned(&one, 1);
 
     BigInt shl_amt = {0};
-    bigint_init_unsigned(&shl_amt, bit_count - 1);
+    if (is_signed)
+        bigint_init_unsigned(&shl_amt, bit_count - 1);
+    else
+        bigint_init_unsigned(&shl_amt, bit_count);
 
     BigInt max_value_plus_one = {0};
     bigint_shl(&max_value_plus_one, &one, &shl_amt);
@@ -255,7 +291,10 @@ bool bigint_fits_in_bits(const BigInt *bn, size_t bit_count, bool is_signed) {
     bigint_sub(&max_value, &max_value_plus_one, &one);
 
     BigInt min_value = {0};
-    bigint_negate(&min_value, &max_value_plus_one);
+    if (is_signed)
+        bigint_negate(&min_value, &max_value_plus_one);
+    else
+        bigint_init_unsigned(&min_value, 0);
 
     Cmp min_cmp = bigint_cmp(bn, &min_value);
     Cmp max_cmp = bigint_cmp(bn, &max_value);
@@ -1522,7 +1561,10 @@ void bigint_truncate(BigInt *dest, const BigInt *op, size_t bit_count, bool is_s
 }
 
 Cmp bigint_cmp(const BigInt *op1, const BigInt *op2) {
-    if (op1->is_negative && !op2->is_negative) {
+    if (op1->data.digits == 0 && op2->data.digits == 0) {
+        // Otherwise negative zero is a problem.
+        return CmpEQ;
+    } else if (op1->is_negative && !op2->is_negative) {
         return CmpLT;
     } else if (!op1->is_negative && op2->is_negative) {
         return CmpGT;

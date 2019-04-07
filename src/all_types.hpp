@@ -1399,6 +1399,8 @@ enum BuiltinFnId {
     BuiltinFnIdSubWithOverflow,
     BuiltinFnIdMulWithOverflow,
     BuiltinFnIdShlWithOverflow,
+    BuiltinFnIdSaturatingAdd,
+    BuiltinFnIdSaturatingSub,
     BuiltinFnIdCInclude,
     BuiltinFnIdCDefine,
     BuiltinFnIdCUndef,
@@ -1548,6 +1550,7 @@ enum ZigLLVMFnId {
     ZigLLVMFnIdClz,
     ZigLLVMFnIdPopCount,
     ZigLLVMFnIdOverflowArithmetic,
+    ZigLLVMFnIdSaturatingArithmetic,
     ZigLLVMFnIdFloor,
     ZigLLVMFnIdCeil,
     ZigLLVMFnIdSqrt,
@@ -1587,6 +1590,12 @@ struct ZigLLVMFnKey {
             uint32_t vector_len; // 0 means not a vector
             bool is_signed;
         } overflow_arithmetic;
+        struct {
+            AddSubMul add_sub;
+            uint32_t bit_count;
+            uint32_t vector_len; // 0 means not a vector
+            bool is_signed;
+        } saturating_arithmetic;
         struct {
             uint32_t bit_count;
         } bswap;
@@ -2237,6 +2246,7 @@ enum IrInstructionId {
     IrInstructionIdHandle,
     IrInstructionIdAlignOf,
     IrInstructionIdOverflowOp,
+    IrInstructionIdSaturatingOp,
     IrInstructionIdTestErr,
     IrInstructionIdUnwrapErrCode,
     IrInstructionIdUnwrapErrPayload,
@@ -3053,6 +3063,22 @@ struct IrInstructionOverflowOp {
     IrInstruction *result_ptr;
 
     ZigType *result_ptr_type;
+};
+
+enum IrSaturatingOp {
+    IrSaturatingOpSAdd,
+    IrSaturatingOpUAdd,
+    IrSaturatingOpSSub,
+    IrSaturatingOpUSub,
+};
+
+struct IrInstructionSaturatingOp {
+    IrInstruction base;
+
+    IrSaturatingOp op;
+    IrInstruction *type_value;
+    IrInstruction *op1;
+    IrInstruction *op2;
 };
 
 struct IrInstructionAlignOf {

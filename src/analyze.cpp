@@ -5728,6 +5728,11 @@ uint32_t zig_llvm_fn_key_hash(ZigLLVMFnKey x) {
                 ((uint32_t)(x.data.overflow_arithmetic.add_sub_mul) * 31640542) +
                 ((uint32_t)(x.data.overflow_arithmetic.is_signed) ? 1062315172 : 314955820) +
                 x.data.overflow_arithmetic.vector_len * 1435156945;
+        case ZigLLVMFnIdSaturatingArithmetic:
+            return ((uint32_t)(x.data.saturating_arithmetic.bit_count) * 87195777) +
+                ((uint32_t)(x.data.saturating_arithmetic.add_sub) * 31640512) +
+                ((uint32_t)(x.data.saturating_arithmetic.is_signed) ? 1012315172 : 317955820) +
+                x.data.saturating_arithmetic.vector_len * 1435126945;
     }
     zig_unreachable();
 }
@@ -5759,6 +5764,11 @@ bool zig_llvm_fn_key_eql(ZigLLVMFnKey a, ZigLLVMFnKey b) {
                 (a.data.overflow_arithmetic.add_sub_mul == b.data.overflow_arithmetic.add_sub_mul) &&
                 (a.data.overflow_arithmetic.is_signed == b.data.overflow_arithmetic.is_signed) &&
                 (a.data.overflow_arithmetic.vector_len == b.data.overflow_arithmetic.vector_len);
+        case ZigLLVMFnIdSaturatingArithmetic:
+            return (a.data.saturating_arithmetic.bit_count == b.data.saturating_arithmetic.bit_count) &&
+                (a.data.saturating_arithmetic.add_sub == b.data.saturating_arithmetic.add_sub) &&
+                (a.data.saturating_arithmetic.is_signed == b.data.saturating_arithmetic.is_signed) &&
+                (a.data.saturating_arithmetic.vector_len == b.data.saturating_arithmetic.vector_len);
     }
     zig_unreachable();
 }

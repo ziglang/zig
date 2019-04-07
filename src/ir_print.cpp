@@ -924,6 +924,27 @@ static void ir_print_overflow_op(IrPrint *irp, IrInstructionOverflowOp *instruct
     fprintf(irp->f, ")");
 }
 
+static void ir_print_saturating_op(IrPrint *irp, IrInstructionSaturatingOp *instruction) {
+    switch (instruction->op) {
+        case IrSaturatingOpUAdd:
+        case IrSaturatingOpSAdd:
+            fprintf(irp->f, "@satAdd(");
+            break;
+        case IrSaturatingOpUSub:
+        case IrSaturatingOpSSub:
+            fprintf(irp->f, "@satSub(");
+            break;
+        default:
+            zig_unreachable();
+    }
+    ir_print_other_instruction(irp, instruction->type_value);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->op1);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->op2);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_test_err(IrPrint *irp, IrInstructionTestErr *instruction) {
     fprintf(irp->f, "@testError(");
     ir_print_other_instruction(irp, instruction->value);
@@ -1744,6 +1765,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdOverflowOp:
             ir_print_overflow_op(irp, (IrInstructionOverflowOp *)instruction);
+            break;
+        case IrInstructionIdSaturatingOp:
+            ir_print_saturating_op(irp, (IrInstructionSaturatingOp *)instruction);
             break;
         case IrInstructionIdTestErr:
             ir_print_test_err(irp, (IrInstructionTestErr *)instruction);

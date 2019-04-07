@@ -748,6 +748,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionOverflowOp *) {
     return IrInstructionIdOverflowOp;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionSaturatingOp *) {
+    return IrInstructionIdSaturatingOp;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionTestErr *) {
     return IrInstructionIdTestErr;
 }
@@ -2325,6 +2329,24 @@ static IrInstruction *ir_build_overflow_op(IrBuilder *irb, Scope *scope, AstNode
     ir_ref_instruction(op1, irb->current_basic_block);
     ir_ref_instruction(op2, irb->current_basic_block);
     ir_ref_instruction(result_ptr, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_saturating_op(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrSaturatingOp op, IrInstruction *type_value, IrInstruction *op1, IrInstruction *op2,
+        ZigType *zig_type_value)
+{
+    IrInstructionSaturatingOp *instruction = ir_build_instruction<IrInstructionSaturatingOp>(irb, scope, source_node);
+    instruction->op = op;
+    instruction->type_value = type_value;
+    instruction->op1 = op1;
+    instruction->op2 = op2;
+    instruction->base.value.type = zig_type_value;
+
+    ir_ref_instruction(type_value, irb->current_basic_block);
+    ir_ref_instruction(op1, irb->current_basic_block);
+    ir_ref_instruction(op2, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -4013,6 +4035,28 @@ static IrInstruction *ir_gen_overflow_op(IrBuilder *irb, Scope *scope, AstNode *
     return ir_build_overflow_op(irb, scope, node, op, type_value, op1, op2, result_ptr, nullptr);
 }
 
+static IrInstruction *ir_gen_saturating_op(IrBuilder *irb, Scope *scope, AstNode *node, IrSaturatingOp op) {
+    assert(node->type == NodeTypeFnCallExpr);
+
+    AstNode *type_node = node->data.fn_call_expr.params.at(0);
+    AstNode *op1_node = node->data.fn_call_expr.params.at(1);
+    AstNode *op2_node = node->data.fn_call_expr.params.at(2);
+
+    IrInstruction *type_value = ir_gen_node(irb, type_node, scope);
+    if (type_value == irb->codegen->invalid_instruction)
+        return irb->codegen->invalid_instruction;
+
+    IrInstruction *op1 = ir_gen_node(irb, op1_node, scope);
+    if (op1 == irb->codegen->invalid_instruction)
+        return irb->codegen->invalid_instruction;
+
+    IrInstruction *op2 = ir_gen_node(irb, op2_node, scope);
+    if (op2 == irb->codegen->invalid_instruction)
+        return irb->codegen->invalid_instruction;
+
+    return ir_build_saturating_op(irb, scope, node, op, type_value, op1, op2, nullptr);
+}
+
 static IrInstruction *ir_gen_this(IrBuilder *irb, Scope *orig_scope, AstNode *node) {
     for (Scope *it_scope = orig_scope; it_scope != nullptr; it_scope = it_scope->parent) {
         if (it_scope->id == ScopeIdDecls) {
@@ -4692,6 +4736,10 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
             return ir_lval_wrap(irb, scope, ir_gen_overflow_op(irb, scope, node, IrOverflowOpMul), lval);
         case BuiltinFnIdShlWithOverflow:
             return ir_lval_wrap(irb, scope, ir_gen_overflow_op(irb, scope, node, IrOverflowOpShl), lval);
+        case BuiltinFnIdSaturatingAdd:
+            return ir_lval_wrap(irb, scope, ir_gen_saturating_op(irb, scope, node, IrSaturatingOpUAdd), lval); // fixes up the signedness for us
+        case BuiltinFnIdSaturatingSub:
+            return ir_lval_wrap(irb, scope, ir_gen_saturating_op(irb, scope, node, IrSaturatingOpUSub), lval); // fixes up the signedness for us
         case BuiltinFnIdTypeName:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
@@ -21095,6 +21143,76 @@ static IrInstruction *ir_analyze_instruction_overflow_op(IrAnalyze *ira, IrInstr
     return result;
 }
 
+static IrInstruction *ir_analyze_instruction_saturating_op(IrAnalyze *ira, IrInstructionSaturatingOp *instruction) {
+    IrInstruction *type_value = instruction->type_value->child;
+    if (type_is_invalid(type_value->value.type))
+        return ira->codegen->invalid_instruction;
+
+    ZigType *dest_type = ir_resolve_type(ira, type_value);
+    if (type_is_invalid(dest_type))
+        return ira->codegen->invalid_instruction;
+
+    // Fix up signedness
+    if (dest_type->data.integral.is_signed) {
+        if (instruction->op == IrSaturatingOpUAdd)
+            instruction->op = IrSaturatingOpSAdd;
+        else if (instruction->op == IrSaturatingOpUSub)
+            instruction->op = IrSaturatingOpSSub;
+    }
+
+    if (dest_type->id != ZigTypeIdInt) {
+        ir_add_error(ira, type_value,
+            buf_sprintf("expected integer type, found '%s'", buf_ptr(&dest_type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+
+    IrInstruction *op1 = instruction->op1->child;
+    if (type_is_invalid(op1->value.type))
+        return ira->codegen->invalid_instruction;
+
+    IrInstruction *casted_op1 = ir_implicit_cast(ira, op1, dest_type);
+    if (type_is_invalid(casted_op1->value.type))
+        return ira->codegen->invalid_instruction;
+
+    IrInstruction *op2 = instruction->op2->child;
+    if (type_is_invalid(op2->value.type))
+        return ira->codegen->invalid_instruction;
+
+    IrInstruction *casted_op2 = ir_implicit_cast(ira, op2, dest_type);
+    if (type_is_invalid(casted_op2->value.type))
+        return ira->codegen->invalid_instruction;
+
+    if (casted_op1->value.special == ConstValSpecialStatic &&
+        casted_op2->value.special == ConstValSpecialStatic)
+    {
+        BigInt *op1_bigint = &casted_op1->value.data.x_bigint;
+        BigInt *op2_bigint = &casted_op2->value.data.x_bigint;
+        IrInstruction *result = ir_const(ira, &instruction->base, dest_type);
+        BigInt *dest_bigint = &result->value.data.x_bigint;
+        switch (instruction->op) {
+            case IrSaturatingOpSAdd:
+            case IrSaturatingOpUAdd:
+                bigint_add(dest_bigint, op1_bigint, op2_bigint);
+                break;
+            case IrSaturatingOpSSub:
+            case IrSaturatingOpUSub:
+                bigint_sub(dest_bigint, op1_bigint, op2_bigint);
+                break;
+        }
+        if (!bigint_fits_in_bits(dest_bigint, dest_type->data.integral.bit_count,
+            dest_type->data.integral.is_signed)) {
+            bigint_saturate(dest_bigint, dest_type->data.integral.bit_count,
+                dest_type->data.integral.is_signed);
+        }
+        return result;
+    }
+
+    IrInstruction *result = ir_build_saturating_op(&ira->new_irb,
+            instruction->base.scope, instruction->base.source_node,
+            instruction->op, type_value, casted_op1, casted_op2, dest_type);
+    return result;
+}
+
 static IrInstruction *ir_analyze_instruction_test_err(IrAnalyze *ira, IrInstructionTestErr *instruction) {
     IrInstruction *value = instruction->value->child;
     if (type_is_invalid(value->value.type))
@@ -23377,6 +23495,8 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
             return ir_analyze_instruction_align_of(ira, (IrInstructionAlignOf *)instruction);
         case IrInstructionIdOverflowOp:
             return ir_analyze_instruction_overflow_op(ira, (IrInstructionOverflowOp *)instruction);
+        case IrInstructionIdSaturatingOp:
+            return ir_analyze_instruction_saturating_op(ira, (IrInstructionSaturatingOp *)instruction);
         case IrInstructionIdTestErr:
             return ir_analyze_instruction_test_err(ira, (IrInstructionTestErr *)instruction);
         case IrInstructionIdUnwrapErrCode:
@@ -23728,6 +23848,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdEnumToInt:
         case IrInstructionIdVectorToArray:
         case IrInstructionIdArrayToVector:
+        case IrInstructionIdSaturatingOp:
             return false;
 
         case IrInstructionIdAsm:
