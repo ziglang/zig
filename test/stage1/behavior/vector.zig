@@ -2,6 +2,21 @@ const std = @import("std");
 const mem = std.mem;
 const expect = std.testing.expect;
 
+test "vector integer addition" {
+    const S = struct {
+        fn doTheTest() void {
+            var a: @Vector(4, i32) = []i32{ 1, 2, 3, 4 };
+            var b: @Vector(4, i32) = []i32{ 5, 6, 7, 8 };
+            var result = a + b;
+            var result_array: [4]i32 = result;
+            const expected = []i32{ 6, 8, 10, 12 };
+            expectEqualSlices(i32, &expected, &result_array);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
 test "vector wrap operators" {
     const S = struct {
         fn doTheTest() void {
@@ -56,6 +71,22 @@ test "vector bit operators" {
             expect(mem.eql(u8, ([4]u8)(v ^ x), [4]u8{ 0b01011010, 0b10100101, 0b00000000, 0b11111111 }));
             expect(mem.eql(u8, ([4]u8)(v | x), [4]u8{ 0b11111010, 0b10101111, 0b10101010, 0b11111111 }));
             expect(mem.eql(u8, ([4]u8)(v & x), [4]u8{ 0b10100000, 0b00001010, 0b10101010, 0b00000000 }));
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "vector saturating operators" {
+    const S = struct {
+        fn doTheTest() void {
+            const mem = @import("std").mem;
+            var v: @Vector(4, i32) = [4]i32{ 2147483647, -2, 30, 40 };
+            var x: @Vector(4, i32) = [4]i32{ 1, 2147483647, 3, 4 };
+            expect(mem.eql(i32, ([4]i32)(@satSub(@Vector(4, i32), v, x)), [4]i32{ 2147483646, -2147483648, 27, 36 }));
+            var a: @Vector(4, u8) = [4]u8{ 1, 2, 3, 4 };
+            var b: @Vector(4, u8) = [4]u8{ 253, 253, 253, 253 };
+            expect(mem.eql(u8, ([4]u8)(@satAdd(@Vector(4, u8), a, b)), [4]u8{ 254, 255, 255, 255 }));
         }
     };
     S.doTheTest();

@@ -643,21 +643,6 @@ fn comptimeAdd(comptime a: comptime_int, comptime b: comptime_int) comptime_int 
     return a + b;
 }
 
-test "vector integer addition" {
-    const S = struct {
-        fn doTheTest() void {
-            var a: @Vector(4, i32) = []i32{ 1, 2, 3, 4 };
-            var b: @Vector(4, i32) = []i32{ 5, 6, 7, 8 };
-            var result = a + b;
-            var result_array: [4]i32 = result;
-            const expected = []i32{ 6, 8, 10, 12 };
-            expectEqualSlices(i32, &expected, &result_array);
-        }
-    };
-    S.doTheTest();
-    comptime S.doTheTest();
-}
-
 test "NaN comparison" {
     testNanEqNan(f16);
     testNanEqNan(f32);
