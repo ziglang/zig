@@ -22,5 +22,11 @@ fn testSaturating() void {
         var x: i8 = -50;
         expect(@satSub(i8, x, 127) == -128);
     }
+    {
+        const mem = @import("std").mem;
+        var v: @Vector(4, i32) = [4]i32{ 2147483647, -2, 30, 40 };
+        var x: @Vector(4, i32) = [4]i32{ 1, 2147483647, 3, 4 };
+        expect(mem.eql(i32, ([4]i32)(@satSub(@typeOf(v), v, x)), [4]i32{ 2147483646, -2147483648, 27, 36 }));
+    }
 }
 

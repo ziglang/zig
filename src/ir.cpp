@@ -21143,26 +21143,56 @@ static IrInstruction *ir_analyze_instruction_overflow_op(IrAnalyze *ira, IrInstr
     return result;
 }
 
+static void ir_eval_saturating_op_scalar(IrAnalyze *ira, IrInstructionSaturatingOp *source_instr, ZigType *scalar_type,
+        ConstExprValue *operand_op1, ConstExprValue *operand_op2, ConstExprValue *scalar_out_val)
+{
+    assert((scalar_type->id == ZigTypeIdInt));
+
+    scalar_out_val->type = scalar_type;
+    scalar_out_val->special = ConstValSpecialStatic;
+        BigInt *op1_bigint = &operand_op1->data.x_bigint;
+        BigInt *op2_bigint = &operand_op2->data.x_bigint;
+    BigInt *dest_bigint = &scalar_out_val->data.x_bigint;
+    switch (source_instr->op) {
+        case IrSaturatingOpSAdd:
+        case IrSaturatingOpUAdd:
+            bigint_add(dest_bigint, op1_bigint, op2_bigint);
+            break;
+        case IrSaturatingOpSSub:
+        case IrSaturatingOpUSub:
+            bigint_sub(dest_bigint, op1_bigint, op2_bigint);
+            break;
+    }
+    if (!bigint_fits_in_bits(dest_bigint, scalar_type->data.integral.bit_count,
+        scalar_type->data.integral.is_signed)) {
+        bigint_saturate(dest_bigint, scalar_type->data.integral.bit_count,
+            scalar_type->data.integral.is_signed);
+    }
+}
+
 static IrInstruction *ir_analyze_instruction_saturating_op(IrAnalyze *ira, IrInstructionSaturatingOp *instruction) {
     IrInstruction *type_value = instruction->type_value->child;
     if (type_is_invalid(type_value->value.type))
         return ira->codegen->invalid_instruction;
 
-    ZigType *dest_type = ir_resolve_type(ira, type_value);
-    if (type_is_invalid(dest_type))
+    ZigType *expr_type = ir_resolve_type(ira, type_value);
+    if (type_is_invalid(expr_type))
+        return ira->codegen->invalid_instruction;
+    ZigType *scalar_type = (expr_type->id == ZigTypeIdVector) ? expr_type->data.vector.elem_type : expr_type;
+    if (type_is_invalid(scalar_type))
         return ira->codegen->invalid_instruction;
 
     // Fix up signedness
-    if (dest_type->data.integral.is_signed) {
+    if (scalar_type->data.integral.is_signed) {
         if (instruction->op == IrSaturatingOpUAdd)
             instruction->op = IrSaturatingOpSAdd;
         else if (instruction->op == IrSaturatingOpUSub)
             instruction->op = IrSaturatingOpSSub;
     }
 
-    if (dest_type->id != ZigTypeIdInt) {
+    if (scalar_type->id != ZigTypeIdInt) {
         ir_add_error(ira, type_value,
-            buf_sprintf("expected integer type, found '%s'", buf_ptr(&dest_type->name)));
+            buf_sprintf("expected fixed-width integer type, found '%s'", buf_ptr(&scalar_type->name)));
         return ira->codegen->invalid_instruction;
     }
 
@@ -21170,7 +21200,7 @@ static IrInstruction *ir_analyze_instruction_saturating_op(IrAnalyze *ira, IrIns
     if (type_is_invalid(op1->value.type))
         return ira->codegen->invalid_instruction;
 
-    IrInstruction *casted_op1 = ir_implicit_cast(ira, op1, dest_type);
+    IrInstruction *casted_op1 = ir_implicit_cast(ira, op1, expr_type);
     if (type_is_invalid(casted_op1->value.type))
         return ira->codegen->invalid_instruction;
 
@@ -21178,38 +21208,47 @@ static IrInstruction *ir_analyze_instruction_saturating_op(IrAnalyze *ira, IrIns
     if (type_is_invalid(op2->value.type))
         return ira->codegen->invalid_instruction;
 
-    IrInstruction *casted_op2 = ir_implicit_cast(ira, op2, dest_type);
+    IrInstruction *casted_op2 = ir_implicit_cast(ira, op2, expr_type);
     if (type_is_invalid(casted_op2->value.type))
         return ira->codegen->invalid_instruction;
 
-    if (casted_op1->value.special == ConstValSpecialStatic &&
-        casted_op2->value.special == ConstValSpecialStatic)
-    {
-        BigInt *op1_bigint = &casted_op1->value.data.x_bigint;
-        BigInt *op2_bigint = &casted_op2->value.data.x_bigint;
-        IrInstruction *result = ir_const(ira, &instruction->base, dest_type);
-        BigInt *dest_bigint = &result->value.data.x_bigint;
-        switch (instruction->op) {
-            case IrSaturatingOpSAdd:
-            case IrSaturatingOpUAdd:
-                bigint_add(dest_bigint, op1_bigint, op2_bigint);
-                break;
-            case IrSaturatingOpSSub:
-            case IrSaturatingOpUSub:
-                bigint_sub(dest_bigint, op1_bigint, op2_bigint);
-                break;
-        }
-        if (!bigint_fits_in_bits(dest_bigint, dest_type->data.integral.bit_count,
-            dest_type->data.integral.is_signed)) {
-            bigint_saturate(dest_bigint, dest_type->data.integral.bit_count,
-                dest_type->data.integral.is_signed);
-        }
-        return result;
-    }
+    if (instr_is_comptime(casted_op1) && instr_is_comptime(casted_op2)) {
+        ConstExprValue *operand_op1 = ir_resolve_const(ira, casted_op1, UndefBad);
+        if (!operand_op1)
+            return ira->codegen->invalid_instruction;
+        ConstExprValue *operand_op2 = ir_resolve_const(ira, casted_op2, UndefBad);
+        if (!operand_op2)
+            return ira->codegen->invalid_instruction;
 
+        IrInstruction *result_instruction = ir_const(ira, &instruction->base, expr_type);
+        ConstExprValue *out_val = &result_instruction->value;
+
+        if (expr_type->id == ZigTypeIdVector) {
+            expand_undef_array(ira->codegen, operand_op1);
+            expand_undef_array(ira->codegen, operand_op2);
+            out_val->special = ConstValSpecialUndef;
+            expand_undef_array(ira->codegen, out_val);
+            size_t len = expr_type->data.vector.len;
+            for (size_t i = 0; i < len; i += 1) {
+                ConstExprValue *scalar_operand_op1 = &operand_op1->data.x_array.data.s_none.elements[i];
+                ConstExprValue *scalar_operand_op2 = &operand_op2->data.x_array.data.s_none.elements[i];
+                ConstExprValue *scalar_out_val = &out_val->data.x_array.data.s_none.elements[i];
+                assert(scalar_operand_op1->type == scalar_type);
+                assert(scalar_operand_op2->type == scalar_type);
+                assert(scalar_out_val->type == scalar_type);
+                ir_eval_saturating_op_scalar(ira, instruction, scalar_type,
+                        scalar_operand_op1, scalar_operand_op2, scalar_out_val);
+            }
+            out_val->type = expr_type;
+            out_val->special = ConstValSpecialStatic;
+        } else {
+            ir_eval_saturating_op_scalar(ira, instruction, scalar_type, operand_op1, operand_op2, out_val);
+        }
+        return result_instruction;
+    }
     IrInstruction *result = ir_build_saturating_op(&ira->new_irb,
             instruction->base.scope, instruction->base.source_node,
-            instruction->op, type_value, casted_op1, casted_op2, dest_type);
+            instruction->op, type_value, casted_op1, casted_op2, expr_type);
     return result;
 }
 

@@ -799,7 +799,7 @@ static LLVMValueRef get_saturating_arithmetic_fn(CodeGen *g, ZigType *operand_ty
         sprintf(fn_name, "llvm.%s.sat.v%" PRIu32 "i%" PRIu32, signed_str,
                 operand_type->data.vector.len, int_type->data.integral.bit_count);
 
-        LLVMTypeRef fn_type = LLVMFunctionType(get_llvm_type(g, int_type), param_types, 2, false);
+        LLVMTypeRef fn_type = LLVMFunctionType(get_llvm_type(g, operand_type), param_types, 2, false);
         LLVMValueRef fn_val = LLVMAddFunction(g->module, fn_name, fn_type);
         assert(LLVMGetIntrinsicID(fn_val));
         return fn_val;
@@ -1766,6 +1766,9 @@ static LLVMValueRef gen_widen_or_shorten(CodeGen *g, bool want_runtime_safety, Z
     } else if (actual_type->id == ZigTypeIdInt) {
         actual_bits = actual_type->data.integral.bit_count;
         wanted_bits = wanted_type->data.integral.bit_count;
+    } else if (actual_type->id == ZigTypeIdVector) {
+        actual_bits = actual_type->data.vector.elem_type->data.integral.bit_count;
+        wanted_bits = actual_type->data.vector.elem_type->data.integral.bit_count;
     } else {
         zig_unreachable();
     }
@@ -4941,7 +4944,7 @@ static LLVMValueRef ir_render_saturating_op(CodeGen *g, IrExecutable *executable
 
     ZigType *int_type = instruction->base.value.type;
     assert(!type_is_invalid(int_type));
-    assert(int_type->id == ZigTypeIdInt);
+    assert(int_type->id == ZigTypeIdInt || int_type->id == ZigTypeIdVector);
 
     LLVMValueRef fn_val = get_int_saturating_fn(g, int_type, add_sub_mul);
 
@@ -4954,6 +4957,8 @@ static LLVMValueRef ir_render_saturating_op(CodeGen *g, IrExecutable *executable
     };
 
     LLVMValueRef wrong_size_int = LLVMBuildCall(g->builder, fn_val, params, 2, "");
+    if (int_type->id == ZigTypeIdVector)
+        return wrong_size_int; // Do not implicitely widen or shorten vectors. TODO Correct?
     return gen_widen_or_shorten(g, false, int_type, instruction->base.value.type, wrong_size_int);
 }
 
