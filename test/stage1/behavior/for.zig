@@ -27,7 +27,13 @@ test "for loop with pointer elem var" {
     mem.copy(u8, target[0..], source);
     mangleString(target[0..]);
     expect(mem.eql(u8, target, "bcdefgh"));
+
+    for (source) |*c, i|
+        expect(@typeOf(c) == *const u8);
+    for (target) |*c, i|
+        expect(@typeOf(c) == *u8);
 }
+
 fn mangleString(s: []u8) void {
     for (s) |*c| {
         c.* += 1;
