@@ -5140,6 +5140,12 @@ static bool const_values_equal_array(CodeGen *g, ConstExprValue *a, ConstExprVal
 }
 
 bool const_values_equal(CodeGen *g, ConstExprValue *a, ConstExprValue *b) {
+    if (a == nullptr || b == nullptr) {
+        if (a == nullptr && b == nullptr)
+            return true;
+        else
+            return false;
+    }
     assert(a->type->id == b->type->id);
     assert(a->special == ConstValSpecialStatic);
     assert(b->special == ConstValSpecialStatic);
@@ -5223,7 +5229,8 @@ bool const_values_equal(CodeGen *g, ConstExprValue *a, ConstExprValue *b) {
                 return const_values_equal(g, a->data.x_optional, b->data.x_optional);
             }
         case ZigTypeIdErrorUnion:
-            zig_panic("TODO");
+            return const_values_equal(g, a->data.x_err_union.payload, b->data.x_err_union.payload) &&
+                   const_values_equal(g, a->data.x_err_union.error_set, b->data.x_err_union.error_set);
         case ZigTypeIdArgTuple:
             return a->data.x_arg_tuple.start_index == b->data.x_arg_tuple.start_index &&
                    a->data.x_arg_tuple.end_index == b->data.x_arg_tuple.end_index;
