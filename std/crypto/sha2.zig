@@ -186,7 +186,14 @@ fn Sha2_32(comptime params: Sha2Params32) type {
                 s[i] |= u32(b[i * 4 + 3]) << 0;
             }
             while (i < 64) : (i += 1) {
-                s[i] = s[i - 16] +% s[i - 7] +% (math.rotr(u32, s[i - 15], u32(7)) ^ math.rotr(u32, s[i - 15], u32(18)) ^ (s[i - 15] >> 3)) +% (math.rotr(u32, s[i - 2], u32(17)) ^ math.rotr(u32, s[i - 2], u32(19)) ^ (s[i - 2] >> 10));
+                s[i] = s[i - 16] +%
+                    s[i - 7] +%
+                    (math.rotr(u32, s[i - 15], 7) ^
+                        math.rotr(u32, s[i - 15], 18) ^
+                        (s[i - 15] >> 3)) +%
+                    (math.rotr(u32, s[i - 2], 17) ^
+                        math.rotr(u32, s[i - 2], 19) ^
+                        (s[i - 2] >> 10));
             }
 
             var v: [8]u32 = []u32{

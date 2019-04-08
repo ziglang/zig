@@ -135,19 +135,19 @@ fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize)
 
         fn sipRound(d: *Self) void {
             d.v0 +%= d.v1;
-            d.v1 = math.rotl(u64, d.v1, u64(13));
+            d.v1 = math.rotl(u64, d.v1, 13);
             d.v1 ^= d.v0;
-            d.v0 = math.rotl(u64, d.v0, u64(32));
+            d.v0 = math.rotl(u64, d.v0, 32);
             d.v2 +%= d.v3;
-            d.v3 = math.rotl(u64, d.v3, u64(16));
+            d.v3 = math.rotl(u64, d.v3, 16);
             d.v3 ^= d.v2;
             d.v0 +%= d.v3;
-            d.v3 = math.rotl(u64, d.v3, u64(21));
+            d.v3 = math.rotl(u64, d.v3, 21);
             d.v3 ^= d.v0;
             d.v2 +%= d.v1;
-            d.v1 = math.rotl(u64, d.v1, u64(17));
+            d.v1 = math.rotl(u64, d.v1, 17);
             d.v1 ^= d.v2;
-            d.v2 = math.rotl(u64, d.v2, u64(32));
+            d.v2 = math.rotl(u64, d.v2, 32);
         }
 
         pub fn hash(key: []const u8, input: []const u8) T {

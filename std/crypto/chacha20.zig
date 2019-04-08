@@ -49,13 +49,13 @@ fn salsa20_wordtobyte(out: []u8, input: [16]u32) void {
         // two-round cycles
         inline for (rounds) |r| {
             x[r.a] +%= x[r.b];
-            x[r.d] = std.math.rotl(u32, x[r.d] ^ x[r.a], u32(16));
+            x[r.d] = std.math.rotl(u32, x[r.d] ^ x[r.a], 16);
             x[r.c] +%= x[r.d];
-            x[r.b] = std.math.rotl(u32, x[r.b] ^ x[r.c], u32(12));
+            x[r.b] = std.math.rotl(u32, x[r.b] ^ x[r.c], 12);
             x[r.a] +%= x[r.b];
-            x[r.d] = std.math.rotl(u32, x[r.d] ^ x[r.a], u32(8));
+            x[r.d] = std.math.rotl(u32, x[r.d] ^ x[r.a], 8);
             x[r.c] +%= x[r.d];
-            x[r.b] = std.math.rotl(u32, x[r.b] ^ x[r.c], u32(7));
+            x[r.b] = std.math.rotl(u32, x[r.b] ^ x[r.c], 7);
         }
     }
 

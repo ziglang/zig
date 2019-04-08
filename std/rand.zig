@@ -632,8 +632,8 @@ pub const Xoroshiro128 = struct {
         const r = s0 +% s1;
 
         s1 ^= s0;
-        self.s[0] = math.rotl(u64, s0, u8(55)) ^ s1 ^ (s1 << 14);
-        self.s[1] = math.rotl(u64, s1, u8(36));
+        self.s[0] = math.rotl(u64, s0, 55) ^ s1 ^ (s1 << 14);
+        self.s[1] = math.rotl(u64, s1, 36);
 
         return r;
     }
