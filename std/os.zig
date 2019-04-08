@@ -3043,8 +3043,22 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
     // https://github.com/ziglang/zig/issues/157
     const default_stack_size = 8 * 1024 * 1024;
 
-    const Context = @typeOf(context);
-    comptime assert(@ArgType(@typeOf(startFn), 0) == Context);
+    comptime var Context = @typeOf(context);
+
+    const ArgType = @typeInfo(@typeOf(startFn)).Fn.args[0].arg_type.?;
+
+    comptime switch (Context) {
+        ArgType => {},
+        comptime_int => {
+            assert(@typeId(ArgType) == .Int);
+            Context = ArgType;
+        },
+        comptime_float => {
+            assert(@typeId(ArgType) == .Float);
+            Context = ArgType;
+        },
+        else => unreachable,
+    };
 
     if (builtin.os == builtin.Os.windows) {
         const WinThread = struct {

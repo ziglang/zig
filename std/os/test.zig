@@ -87,6 +87,26 @@ fn start2(ctx: *i32) u8 {
     return 0;
 }
 
+test "spawn thread with comptime_int and comptime_float context" {
+    if (builtin.single_threaded) return error.SkipZigTest;
+
+    const ival = 42;
+    const fval = 42.0;
+
+    const threadi = try std.os.spawnThread(42, start_int);
+    const threadi_const = try std.os.spawnThread(ival, start_int);
+    const threadf = try std.os.spawnThread(42.0, start_float);
+    const threadf_const = try std.os.spawnThread(fval, start_float);
+
+    threadi.wait();
+    threadi_const.wait();
+    threadf.wait();
+    threadf_const.wait();
+}
+
+fn start_int(ctx: i32) void {}
+fn start_float(ctx: f32) void {}
+
 test "cpu count" {
     const cpu_count = try std.os.cpuCount(a);
     expect(cpu_count >= 1);
