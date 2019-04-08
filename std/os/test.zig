@@ -93,15 +93,15 @@ test "spawn thread with comptime_int and comptime_float context" {
     const ival = 42;
     const fval = 42.0;
 
-    const threadi = try std.os.spawnThread(42, start_int);
-    const threadi_const = try std.os.spawnThread(ival, start_int);
-    const threadf = try std.os.spawnThread(42.0, start_float);
-    const threadf_const = try std.os.spawnThread(fval, start_float);
+    const threadi_const = try std.os.spawnThread(42, start_int);
+    const threadi = try std.os.spawnThread(ival, start_int);
+    const threadf_const = try std.os.spawnThread(42.0, start_float);
+    const threadf = try std.os.spawnThread(fval, start_float);
 
-    threadi.wait();
     threadi_const.wait();
-    threadf.wait();
+    threadi.wait();
     threadf_const.wait();
+    threadf.wait();
 }
 
 fn start_int(ctx: i32) void {}
