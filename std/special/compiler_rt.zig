@@ -240,20 +240,21 @@ const is_arm_64 = switch (builtin.arch) {
     else => false,
 };
 
-const is_arm_arch = switch (builtin.arch) {
-    builtin.Arch.arm,
-    builtin.Arch.armeb,
-    builtin.Arch.aarch64,
-    builtin.Arch.aarch64_be,
-    builtin.Arch.thumb,
-    builtin.Arch.thumbeb,
-    => true,
-    else => false,
+const arm_arch: ?builtin.Arch.Arm32 = switch (builtin.arch) {
+    builtin.Arch.arm => |res| res,
+    builtin.Arch.armeb => |res| res,
+    builtin.Arch.aarch64 => |res| res,
+    builtin.Arch.aarch64_be => |res| res,
+    builtin.Arch.thumb => |res| res,
+    builtin.Arch.thumbeb => |res| res,
+    else => (?builtin.Arch.Arm32)(null),
 };
+
+const is_arm_arch = if (arm_arch) |_| true else false;
 
 const is_arm_32 = is_arm_arch and !is_arm_64;
 
-const use_thumb_1 = is_arm_32 and switch (builtin.arch.arm) {
+const use_thumb_1 = is_arm_32 and switch (arm_arch.?) {
     builtin.Arch.Arm32.v6,
     builtin.Arch.Arm32.v6m,
     builtin.Arch.Arm32.v6k,
