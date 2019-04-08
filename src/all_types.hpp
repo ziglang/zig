@@ -266,7 +266,6 @@ enum RuntimeHintErrorUnion {
 
 enum RuntimeHintOptional {
     RuntimeHintOptionalUnknown,
-    RuntimeHintOptionalNull, // TODO is this value even possible? if this is the case it might mean the const value is compile time known.
     RuntimeHintOptionalNonNull,
 };
 
