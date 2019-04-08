@@ -1275,7 +1275,7 @@ test "big.int string negative" {
 
 test "big.int string set bad char error" {
     var a = try Int.init(al);
-    testing.expectError(error.InvalidCharForDigit, a.setString(10, "x"));
+    testing.expectError(error.InvalidCharacter, a.setString(10, "x"));
 }
 
 test "big.int string set bad base error" {

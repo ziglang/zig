@@ -792,8 +792,7 @@ pub const GetEnvVarOwnedError = error{
     EnvironmentVariableNotFound,
 
     /// See https://github.com/ziglang/zig/issues/1774
-    InvalidUtf8,
-};
+} || std.unicode.Utf8Error;
 
 /// Caller must free returned memory.
 /// TODO make this go through libc when we have it
@@ -825,12 +824,7 @@ pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwned
                 continue;
             }
 
-            return std.unicode.utf16leToUtf8Alloc(allocator, buf) catch |err| switch (err) {
-                error.DanglingSurrogateHalf => return error.InvalidUtf8,
-                error.ExpectedSecondSurrogateHalf => return error.InvalidUtf8,
-                error.UnexpectedSecondSurrogateHalf => return error.InvalidUtf8,
-                error.OutOfMemory => return error.OutOfMemory,
-            };
+            return try std.unicode.utf16leToUtf8Alloc(allocator, buf);
         }
     } else {
         const result = getEnvPosix(key) orelse return error.EnvironmentVariableNotFound;
@@ -902,12 +896,11 @@ pub fn symLink(existing_path: []const u8, new_path: []const u8) SymLinkError!voi
 
 pub const WindowsSymLinkError = error{
     NameTooLong,
-    InvalidUtf8,
     BadPathName,
 
     /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
-};
+} || std.unicode.Utf8Error;
 
 pub fn symLinkW(existing_path_w: [*]const u16, new_path_w: [*]const u16) WindowsSymLinkError!void {
     if (windows.CreateSymbolicLinkW(existing_path_w, new_path_w, 0) == 0) {
@@ -1013,16 +1006,15 @@ pub const DeleteFileError = error{
     SystemResources,
     ReadOnlyFileSystem,
 
-    /// On Windows, file paths must be valid Unicode.
-    InvalidUtf8,
-
     /// On Windows, file paths cannot contain these characters:
     /// '/', '*', '?', '"', '<', '>', '|'
     BadPathName,
 
     /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
-};
+
+    /// On Windows, file paths must be valid Unicode.
+} || std.unicode.Utf8Error;
 
 pub fn deleteFile(file_path: []const u8) DeleteFileError!void {
     if (builtin.os == Os.windows) {
@@ -1337,12 +1329,11 @@ pub const DeleteDirError = error{
     NotDir,
     DirNotEmpty,
     ReadOnlyFileSystem,
-    InvalidUtf8,
     BadPathName,
 
     /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
-};
+} || std.unicode.Utf8Error;
 
 pub fn deleteDirC(dir_path: [*]const u8) DeleteDirError!void {
     switch (builtin.os) {
@@ -1425,16 +1416,15 @@ const DeleteTreeError = error{
     DirNotEmpty,
     DeviceBusy,
 
-    /// On Windows, file paths must be valid Unicode.
-    InvalidUtf8,
-
     /// On Windows, file paths cannot contain these characters:
     /// '/', '*', '?', '"', '<', '>', '|'
     BadPathName,
 
     /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
-};
+
+    /// On Windows, file paths must be valid Unicode.
+} || std.unicode.Utf8Error;
 
 /// TODO determine if we can remove the allocator requirement
 pub fn deleteTree(allocator: *Allocator, full_path: []const u8) DeleteTreeError!void {
@@ -1448,7 +1438,11 @@ pub fn deleteTree(allocator: *Allocator, full_path: []const u8) DeleteTreeError!
             error.IsDir => {},
             error.AccessDenied => got_access_denied = true,
 
-            error.InvalidUtf8,
+            error.Utf8ShortChar,
+            error.Utf8OverlongEncoding,
+            error.Utf8InvalidStartByte,
+            error.UnicodeSurrogateHalf,
+            error.UnicodeCodepointTooLarge,
             error.SymLinkLoop,
             error.NameTooLong,
             error.SystemResources,
@@ -1483,7 +1477,11 @@ pub fn deleteTree(allocator: *Allocator, full_path: []const u8) DeleteTreeError!
                 error.NoSpaceLeft,
                 error.PathAlreadyExists,
                 error.Unexpected,
-                error.InvalidUtf8,
+                error.Utf8ShortChar,
+                error.Utf8OverlongEncoding,
+                error.Utf8InvalidStartByte,
+                error.UnicodeSurrogateHalf,
+                error.UnicodeCodepointTooLarge,
                 error.BadPathName,
                 error.DeviceBusy,
                 => return err,
@@ -1566,13 +1564,14 @@ pub const Dir = struct {
         NoSpaceLeft,
         PathAlreadyExists,
         OutOfMemory,
-        InvalidUtf8,
         BadPathName,
         DeviceBusy,
 
         /// See https://github.com/ziglang/zig/issues/1396
         Unexpected,
-    };
+
+        /// On Windows, pathnames must be valid UTF-8
+    } || std.unicode.Utf8Error;
 
     /// TODO remove the allocator requirement from this API
     pub fn open(allocator: *Allocator, dir_path: []const u8) OpenError!Dir {

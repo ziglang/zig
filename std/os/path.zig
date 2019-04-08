@@ -1159,15 +1159,14 @@ pub const RealError = error{
     BadPathName,
     DeviceBusy,
 
-    /// On Windows, file paths must be valid Unicode.
-    InvalidUtf8,
-
     /// TODO remove this possibility
     PathAlreadyExists,
 
     /// TODO remove this possibility
     Unexpected,
-};
+
+    /// On Windows, file paths must be valid Unicode.
+} || std.unicode.Utf8Error;
 
 /// Call from Windows-specific code if you already have a UTF-16LE encoded, null terminated string.
 /// Otherwise use `real` or `realC`.

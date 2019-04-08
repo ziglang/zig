@@ -115,16 +115,15 @@ pub const OpenError = error{
     PipeBusy,
     NameTooLong,
 
-    /// On Windows, file paths must be valid Unicode.
-    InvalidUtf8,
-
     /// On Windows, file paths cannot contain these characters:
     /// '/', '*', '?', '"', '<', '>', '|'
     BadPathName,
 
     /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
-};
+
+    /// On Windows, file paths must be valid Unicode.
+} || unicode.Utf8Error;
 
 pub fn windowsOpenW(
     file_path_w: [*]const u16,
@@ -308,7 +307,7 @@ pub fn sliceToPrefixedSuffixedFileW(s: []const u8, comptime suffix: []const u16)
         mem.copy(u16, result[0..], prefix);
         break :blk prefix.len;
     };
-    const end_index = start_index + try std.unicode.utf8ToUtf16Le(result[start_index..], s);
+    const end_index = start_index + (try std.unicode.utf8ToUtf16Le(result[start_index..], s));
     assert(end_index <= result.len);
     if (end_index + suffix.len > result.len) return error.NameTooLong;
     mem.copy(u16, result[end_index..], suffix);

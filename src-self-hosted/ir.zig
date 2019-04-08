@@ -1347,53 +1347,39 @@ pub const Builder = struct {
 
     pub fn genCharLit(irb: *Builder, char_lit: *ast.Node.CharLiteral, scope: *Scope) !*Inst {
         const char_token = irb.code.tree_scope.tree.tokenSlice(char_lit.token);
+        const src_span = Span.token(char_lit.token);
 
-        var char: u21 = undefined;
-        got_char: {
-            if (char_token[1] == '\\') {
-                char = switch (char_token[2]) {
-                'x' => {
-                    const hi = charToDigit(char_token[off], 16) catch unreachable;
-                    const lo = charToDigit(char_token[off + 1], 16) catch unreachable;
-                    char |= ((hi << 4) | lo) << ((hex_escape_byes - 1) * 8);
-                    break :got_char;
-                },
-                'u' => {
-                    // char_token[3] == '{';
-                    if (char_token[6] == '}') {
-                        hex_escape_bytes = 1;
-                    } else if (char_token[8] == '}') {
-                        hex_escape_bytes = 2;
-                    } else if (char_token[10] == '}') {
-                        hex_escape_bytes = 3;
-                    } else {
-                        unreachable;
-                    }
-                    var off: u8 = 4;
-                    while (hex_escape_bytes > 0) : (hex_escape_bytes -= 1) {
-                        const hi = charToDigit(char_token[off], 16) catch unreachable;
-                        const lo = charToDigit(char_token[off + 1], 16) catch unreachable;
-                        char |= ((hi << 4) | lo) << ((hex_escape_byes - 1) * 8);
-                        off += 2;
-                    }
-                    break :got_char;
-                },
-                'n' => '\n',
-                'r' => '\r',
-                '\\' => '\\',
-                '\t' => '\t',
-                '\'' => '\'',
-                '\"' => '\"',
-                else => unreachable,
-                };
-                break :got_char;
-            }
-            // This could read one byte past the end of the file, except
-            // this guarantees to not read past the first character, and we
-            // have already validated the file as UTF-8.
-            _ = utf8Decode(char_token[1..4], &char);
-            break :got_char;
-        }
+        var bad_index: usize = undefined;
+        var char = std.zig.parseCharLiteral(char_token, &bad_index) catch |err| switch (err) {
+            error.UnicodeSurrogateHalf, error.UnicodeCodepointTooLarge => {
+                var hex_string = if (mem.indexOfScalar(u8, char_token, '}')) |i| char_token[2..i] else char_token[2..char_token.len];
+                try irb.comp.addCompileError(
+                    irb.code.tree_scope,
+                    src_span,
+                    "Unicode codepoint U+{} cannot be represented in UTF-16 and is invalid",
+                    hex_string,
+                );
+                return error.SemanticAnalysisFailed;
+            },
+            error.ExpectXDigit, error.ExpectLCurly, error.ExpectRCurly, error.ExpectSQuote => {
+                try irb.comp.addCompileError(
+                    irb.code.tree_scope,
+                    src_span,
+                    "expected {}, got '{c}'",
+                    switch (err) {
+                    error.ExpectXDigit => "hexidecimal digit",
+                    error.ExpectLCurly => "left curly bracket '{'",
+                    error.ExpectRCurly => "right curly bracket '}'",
+                    error.ExpectSQuote => "single quote '''",
+                    else => unreachable,
+                    },
+                    char_token[bad_index],
+                );
+                return error.SemanticAnalysisFailed;
+            },
+            // File has already been validated as UTF8
+            error.Utf8ShortChar, error.Utf8OverlongEncoding, error.Utf8InvalidStartByte => unreachable,
+        };
 
         const comptime_int_type = Type.ComptimeInt.get(irb.comp);
         defer comptime_int_type.base.base.deref(irb.comp);
@@ -1401,7 +1387,7 @@ pub const Builder = struct {
         const int_val = Value.Int.createFromCharLiteral(
             irb.comp,
             &comptime_int_type.base,
-            rest,
+            char,
         ) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
         };
@@ -1438,7 +1424,26 @@ pub const Builder = struct {
                     error.ExpectXDigit => "hexidecimal digit",
                     error.ExpectLCurly => "left curly bracket '{'",
                     error.ExpectRCurly => "right curly bracket '}'",
+                    else => unreachable,
                     },
+                    str_token[bad_index],
+                );
+                return error.SemanticAnalysisFailed;
+            },
+            error.InvalidCharacter => {
+                assert(str_token[bad_index] == '\n');
+                try irb.comp.addCompileError(
+                    irb.code.tree_scope,
+                    src_span,
+                    "expected '\"' before newline",
+                );
+                return error.SemanticAnalysisFailed;
+            },
+            error.InvalidEscape => {
+                try irb.comp.addCompileError(
+                    irb.code.tree_scope,
+                    src_span,
+                    "invalid escape: '\\{c}'",
                     str_token[bad_index],
                 );
                 return error.SemanticAnalysisFailed;

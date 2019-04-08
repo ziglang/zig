@@ -135,7 +135,7 @@ pub fn utf8Decode(bytes: []const u8, ret: *align(4) u32) Utf8Error!u3 {
 
 pub fn utf8Decode2(bytes: []const u8) Utf8Error!u32 {
     assert(bytes.len == 2);
-    assert(bytes[0] & 0b11100000 == 0b11000000);
+    assert(@clz(~bytes[0]) == 2);
     var value: u32 = bytes[0] & 0b00011111;
 
     if (@clz(~bytes[1]) != 1) return error.Utf8ShortChar;
@@ -149,7 +149,7 @@ pub fn utf8Decode2(bytes: []const u8) Utf8Error!u32 {
 
 pub fn utf8Decode3(bytes: []const u8) Utf8Error!u32 {
     assert(bytes.len == 3);
-    assert(bytes[0] & 0b11110000 == 0b11100000);
+    assert(@clz(~bytes[0]) == 3);
     var value: u32 = bytes[0] & 0b00001111;
 
     if (@clz(~bytes[1]) != 1) return error.Utf8ShortChar;
@@ -168,10 +168,10 @@ pub fn utf8Decode3(bytes: []const u8) Utf8Error!u32 {
 
 pub fn utf8Decode4(bytes: []const u8) Utf8Error!u32 {
     assert(bytes.len == 4);
-    assert(bytes[0] & 0b11111000 == 0b11110000);
+    assert(@clz(~bytes[0]) == 4);
     var value: u32 = bytes[0] & 0b00000111;
 
-    if (@clz(~bytes[2]) != 1) return error.Utf8ShortChar;
+    if (@clz(~bytes[1]) != 1) return error.Utf8ShortChar;
     value <<= 6;
     value |= bytes[1] & 0b00111111;
 
@@ -179,7 +179,7 @@ pub fn utf8Decode4(bytes: []const u8) Utf8Error!u32 {
     value <<= 6;
     value |= bytes[2] & 0b00111111;
 
-    if (@clz(~bytes[2]) != 1) return error.Utf8ShortChar;
+    if (@clz(~bytes[3]) != 1) return error.Utf8ShortChar;
     value <<= 6;
     value |= bytes[3] & 0b00111111;
 
@@ -223,9 +223,8 @@ pub const Utf8View = struct {
     bytes: []const u8,
 
     pub fn init(s: []const u8) !Utf8View {
-        if (utf8ValidateSlice(s)) {
-            return initUnchecked(s);
-        } else return error.InvalidUtf8;
+        try utf8ValidateSliceWithLoc(s, null);
+        return initUnchecked(s);
     }
 
     pub fn initUnchecked(s: []const u8) Utf8View {
@@ -254,23 +253,23 @@ pub const Utf8Iterator = struct {
     bytes: []const u8,
     i: usize,
 
-    pub fn nextCodepointSlice(it: *Utf8Iterator) ?[]const u8 {
+    pub fn nextCodepointSlice(it: *Utf8Iterator) !?[]const u8 {
         if (it.i >= it.bytes.len) {
             return null;
         }
 
-        const cp_len = utf8ByteSequenceLength(it.bytes[it.i]) catch null;
+        const cp_len = try utf8ByteSequenceLength(it.bytes[it.i]);
         it.i += cp_len;
         return it.bytes[it.i - cp_len .. it.i];
     }
 
-    pub fn nextCodepoint(it: *Utf8Iterator) ?u21 {
+    pub fn nextCodepoint(it: *Utf8Iterator) !?u21 {
         if (it.i >= it.bytes.len) {
             return null;
         }
 
         var c: u32 = undefined;
-        it.i += utf8Decode(it.bytes[it.i..], &c) catch return null;
+        it.i += try utf8Decode(it.bytes[it.i..], &c);
         return @intCast(u21, c);
     }
 };
@@ -307,32 +306,6 @@ pub const Utf16LeIterator = struct {
     }
 };
 
-test "utf8 encode" {
-    comptime testUtf8Encode() catch unreachable;
-    try testUtf8Encode();
-}
-fn testUtf8Encode() !void {
-    // A few taken from wikipedia a few taken elsewhere
-    var array: [4]u8 = undefined;
-    testing.expect((try utf8Encode('€', array[0..])) == 3);
-    testing.expect(array[0] == 0b11100010);
-    testing.expect(array[1] == 0b10000010);
-    testing.expect(array[2] == 0b10101100);
-
-    testing.expect((try utf8Encode('$', array[0..])) == 1);
-    testing.expect(array[0] == 0b00100100);
-
-    testing.expect((try utf8Encode('¢', array[0..])) == 2);
-    testing.expect(array[0] == 0b11000010);
-    testing.expect(array[1] == 0b10100010);
-
-    testing.expect((try utf8Encode('𐍈', array[0..])) == 4);
-    testing.expect(array[0] == 0b11110000);
-    testing.expect(array[1] == 0b10010000);
-    testing.expect(array[2] == 0b10001101);
-    testing.expect(array[3] == 0b10001000);
-}
-
 test "utf8 encode error" {
     comptime testUtf8EncodeError();
     testUtf8EncodeError();
@@ -349,23 +322,23 @@ fn testErrorEncode(codePoint: u21, array: []u8, expectedErr: anyerror) void {
 }
 
 test "utf8 iterator on ascii" {
-    comptime testUtf8IteratorOnAscii();
-    testUtf8IteratorOnAscii();
+    try comptime testUtf8IteratorOnAscii();
+    try testUtf8IteratorOnAscii();
 }
-fn testUtf8IteratorOnAscii() void {
+fn testUtf8IteratorOnAscii() !void {
     const s = Utf8View.initComptime("abc");
 
     var it1 = s.iterator();
-    testing.expect(std.mem.eql(u8, "a", it1.nextCodepointSlice().?));
-    testing.expect(std.mem.eql(u8, "b", it1.nextCodepointSlice().?));
-    testing.expect(std.mem.eql(u8, "c", it1.nextCodepointSlice().?));
-    testing.expect(it1.nextCodepointSlice() == null);
+    testing.expect(std.mem.eql(u8, "a", (try it1.nextCodepointSlice()).?));
+    testing.expect(std.mem.eql(u8, "b", (try it1.nextCodepointSlice()).?));
+    testing.expect(std.mem.eql(u8, "c", (try it1.nextCodepointSlice()).?));
+    testing.expect((try it1.nextCodepointSlice()) == null);
 
     var it2 = s.iterator();
-    testing.expect(it2.nextCodepoint().? == 'a');
-    testing.expect(it2.nextCodepoint().? == 'b');
-    testing.expect(it2.nextCodepoint().? == 'c');
-    testing.expect(it2.nextCodepoint() == null);
+    testing.expect((try it2.nextCodepoint()).? == 'a');
+    testing.expect((try it2.nextCodepoint()).? == 'b');
+    testing.expect((try it2.nextCodepoint()).? == 'c');
+    testing.expect((try it2.nextCodepoint()) == null);
 }
 
 test "utf8 view bad" {
@@ -375,27 +348,27 @@ test "utf8 view bad" {
 fn testUtf8ViewBad() void {
     // Compile-time error.
     // const s3 = Utf8View.initComptime("\xfe\xf2");
-    testing.expectError(error.InvalidUtf8, Utf8View.init("hel\xadlo"));
+    testing.expectError(error.Utf8InvalidStartByte, Utf8View.init("hel\xadlo"));
 }
 
 test "utf8 view ok" {
-    comptime testUtf8ViewOk();
-    testUtf8ViewOk();
+    try comptime testUtf8ViewOk();
+    try testUtf8ViewOk();
 }
-fn testUtf8ViewOk() void {
+fn testUtf8ViewOk() !void {
     const s = Utf8View.initComptime("東京市");
 
     var it1 = s.iterator();
-    testing.expect(std.mem.eql(u8, "東", it1.nextCodepointSlice().?));
-    testing.expect(std.mem.eql(u8, "京", it1.nextCodepointSlice().?));
-    testing.expect(std.mem.eql(u8, "市", it1.nextCodepointSlice().?));
-    testing.expect(it1.nextCodepointSlice() == null);
+    testing.expect(std.mem.eql(u8, "東", (try it1.nextCodepointSlice()).?));
+    testing.expect(std.mem.eql(u8, "京", (try it1.nextCodepointSlice()).?));
+    testing.expect(std.mem.eql(u8, "市", (try it1.nextCodepointSlice()).?));
+    testing.expect((try it1.nextCodepointSlice()) == null);
 
     var it2 = s.iterator();
-    testing.expect(it2.nextCodepoint().? == 0x6771);
-    testing.expect(it2.nextCodepoint().? == 0x4eac);
-    testing.expect(it2.nextCodepoint().? == 0x5e02);
-    testing.expect(it2.nextCodepoint() == null);
+    testing.expect((try it2.nextCodepoint()).? == 0x6771);
+    testing.expect((try it2.nextCodepoint()).? == 0x4eac);
+    testing.expect((try it2.nextCodepoint()).? == 0x5e02);
+    testing.expect((try it2.nextCodepoint()) == null);
 }
 
 test "bad utf8 slice" {
@@ -592,7 +565,7 @@ pub fn utf8ToUtf16LeWithNull(allocator: *mem.Allocator, utf8: []const u8) ![]u16
 
     const view = try Utf8View.init(utf8);
     var it = view.iterator();
-    while (it.nextCodepoint()) |codepoint| {
+    while (try it.nextCodepoint()) |codepoint| {
         try result.append(@intCast(u16, codepoint)); // TODO surrogate pairs
     }
 
@@ -608,7 +581,7 @@ pub fn utf8ToUtf16Le(utf16le: []u16, utf8: []const u8) !usize {
     var end_index: usize = 0;
 
     var it = (try Utf8View.init(utf8)).iterator();
-    while (it.nextCodepoint()) |codepoint| {
+    while (try it.nextCodepoint()) |codepoint| {
         if (end_index == utf16le_as_bytes.len) return (end_index / 2) + 1;
         // TODO surrogate pairs
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[end_index..], @intCast(u16, codepoint));
@@ -616,3 +589,30 @@ pub fn utf8ToUtf16Le(utf16le: []u16, utf8: []const u8) !usize {
     }
     return end_index / 2;
 }
+
+test "utf8 encode" {
+    comptime testUtf8Encode() catch unreachable;
+    try testUtf8Encode();
+}
+fn testUtf8Encode() !void {
+    // A few taken from wikipedia a few taken elsewhere
+    var array: [4]u8 = undefined;
+    testing.expect((try utf8Encode('€', array[0..])) == 3);
+    testing.expect(array[0] == 0b11100010);
+    testing.expect(array[1] == 0b10000010);
+    testing.expect(array[2] == 0b10101100);
+
+    testing.expect((try utf8Encode('$', array[0..])) == 1);
+    testing.expect(array[0] == 0b00100100);
+
+    testing.expect((try utf8Encode('¢', array[0..])) == 2);
+    testing.expect(array[0] == 0b11000010);
+    testing.expect(array[1] == 0b10100010);
+
+    testing.expect((try utf8Encode('𐍈', array[0..])) == 4);
+    testing.expect(array[0] == 0b11110000);
+    testing.expect(array[1] == 0b10010000);
+    testing.expect(array[2] == 0b10001101);
+    testing.expect(array[3] == 0b10001000);
+}
+

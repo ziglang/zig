@@ -255,7 +255,8 @@ pub const Compilation = struct {
     const CompileErrList = std.ArrayList(*Msg);
 
     // TODO handle some of these earlier and report them in a way other than error codes
-    pub const BuildError = error{
+    pub const BuildError = std.unicode.Utf8Error || error{
+        InvalidCharacter, // !ascii.isZig() or unicode newline
         OutOfMemory,
         EndOfStream,
         IsDir,
@@ -299,7 +300,6 @@ pub const Compilation = struct {
         InvalidDarwinVersionString,
         UnsupportedLinkArchitecture,
         UserResourceLimitReached,
-        InvalidUtf8,
         BadPathName,
         DeviceBusy,
     };

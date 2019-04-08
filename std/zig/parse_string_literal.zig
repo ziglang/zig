@@ -4,7 +4,7 @@ const mem = std.mem;
 const fmt = std.fmt;
 const unicode = std.unicode;
 
-pub const ParseEscapeError = std.unicode.UnicodeError || error{
+const ParseEscapeError = std.unicode.UnicodeError || error{
     ExpectXDigit,
     ExpectLCurly,
     ExpectRCurly,
@@ -47,14 +47,14 @@ inline fn parseEscape(escape_sequence: []const u8, ret_len: *u4) ParseEscapeErro
     },
     else => unreachable,
     }}
-    unicode.isValidUnicode(ret) catch |err| return err;
+    try unicode.isValidUnicode(ret);
     return ret;
 }
 
 pub const ParseCharLiteralError = ParseEscapeError || unicode.Utf8Error || error{
     ExpectSQuote,
 };
-pub fn parseCharLiteral(char_token: []const u8) ParseCharLiteralError!u21 {
+pub fn parseCharLiteral(char_token: []const u8, maybe_ret_err: ?*usize) ParseCharLiteralError!u21 {
     var char: u21 = undefined;
     if (char_token[1] == '\\') {
         var len: u4 = undefined;
@@ -78,8 +78,8 @@ pub fn parseCharLiteral(char_token: []const u8) ParseCharLiteralError!u21 {
 
 test "zig.parseCharLiteral" {
     const expect = std.testing.expect;
-    expect(parseCharLiteral("\'0\'") catch unreachable == '0');
-    expect(parseCharLiteral("\'\x20\'") catch unreachable == ' ');
+    expect(parseCharLiteral("\'0\'", null) catch unreachable == '0');
+    expect(parseCharLiteral("\'\x20\'", null) catch unreachable == ' ');
 }
 
 const State = enum {
@@ -89,13 +89,15 @@ const State = enum {
 
 pub const ParseStringLiteralError = ParseEscapeError || error{
     OutOfMemory,
+    InvalidEscape,
+    InvalidCharacter,
 };
 
 /// caller owns returned memory
 pub fn parseStringLiteral(
     allocator: *std.mem.Allocator,
     bytes: []const u8,
-    bad_index: *usize, // populated if error.InvalidCharacter is returned
+    maybe_ret_bad_index: ?*usize, // populated if error.InvalidCharacter is returned
 ) ParseStringLiteralError![]u8 {
     const first_index = if (bytes[0] == 'c') usize(2) else usize(1);
     assert(bytes[bytes.len - 1] == '"');
@@ -114,7 +116,7 @@ pub fn parseStringLiteral(
             State.Start => switch (b) {
                 '\\' => state = State.Backslash,
                 '\n' => {
-                    bad_index.* = index;
+                    if (maybe_ret_bad_index) |i| i.* = index;
                     return error.InvalidCharacter;
                 },
                 '"' => return list.toOwnedSlice(),
@@ -123,9 +125,13 @@ pub fn parseStringLiteral(
             State.Backslash => switch (b) {
                 'x', 'u' => {
                     var encoded: [4]u8 = undefined;
-                    var len: u3 = undefined;
-                    bad_index.* = index;
-                    len = unicode.utf8Encode(try parseEscape(bytes[2..], &len), encoded[0..]) catch unreachable;
+                    var len: u4 = undefined;
+                    len = unicode.utf8Encode(parseEscape(bytes[2..], &len) catch |err| {
+                        if (maybe_ret_bad_index) |i| {
+                            i.* = index + len;
+                        }
+                        return err;
+                    }, encoded[0..]) catch unreachable;
                     try list.appendSlice(encoded[0..len]);
                     index += len;
                     state = State.Start;
@@ -155,8 +161,8 @@ pub fn parseStringLiteral(
                     state = State.Start;
                 },
                 else => {
-                    bad_index.* = index;
-                    return error.InvalidCharacter;
+                    if (maybe_ret_bad_index) |i| i.* = index;
+                    return error.InvalidEscape;
                 },
             },
             else => unreachable,
