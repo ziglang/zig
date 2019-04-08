@@ -603,19 +603,19 @@ test "string literals" {
         </tr>
         <tr>
             <td><code>\xNN</code></td>
-          <td>hexadecimal 8-bit character code (2 digits)</td>
+          <td>hexadecimal 8-bit character code (2 digits), in strings encoded as a single byte</td>
         </tr>
         <tr>
             <td><code>\u{NN}</code></td>
-          <td>hexadecimal 16-bit Unicode character code UTF-8 encoded (2 digits)</td>
+          <td>hexadecimal Unicode character code, in strings UTF-8 encoded</td>
         </tr>
         <tr>
             <td><code>\u{NNNN}</code></td>
-          <td>hexadecimal 16-bit Unicode character code UTF-8 encoded (4 digits)</td>
+          <td>hexadecimal Unicode character code, in strings UTF-8 encoded</td>
         </tr>
         <tr>
             <td><code>\u{NNNNNN}</code></td>
-          <td>hexadecimal 24-bit Unicode character code UTF-8 encoded (6 digits)</td>
+          <td>hexadecimal Unicode character code, in strings UTF-8 encoded</td>
         </tr>
       </table>
       </div>
