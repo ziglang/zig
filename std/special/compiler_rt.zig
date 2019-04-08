@@ -253,14 +253,75 @@ const is_arm_arch = switch (builtin.arch) {
 
 const is_arm_32 = is_arm_arch and !is_arm_64;
 
-const use_thumb_1 = is_arm_32 and switch (builtin.arch.arm) {
-    builtin.Arch.Arm32.v6,
-    builtin.Arch.Arm32.v6m,
-    builtin.Arch.Arm32.v6k,
-    builtin.Arch.Arm32.v6t2,
-    => true,
-    else => false,
-};
+const use_thumb_1 = usesThumb1(builtin.arch);
+
+fn usesThumb1(arch: builtin.Arch) bool {
+    return switch (arch) {
+        .arm => switch (arch.arm) {
+            .v6m => true,
+            else => false,
+        },
+        .armeb => switch (arch.armeb) {
+            .v6m => true,
+            else => false,
+        },
+        .thumb => switch (arch.thumb) {
+            .v5,
+            .v5te,
+            .v4t,
+            .v6,
+            .v6m,
+            .v6k,
+            => true,
+            else => false,
+        },
+        .thumbeb => switch (arch.thumbeb) {
+            .v5,
+            .v5te,
+            .v4t,
+            .v6,
+            .v6m,
+            .v6k,
+            => true,
+            else => false,
+        },
+        else => false,
+    };
+}
+
+test "usesThumb1" {
+    testing.expect(usesThumb1(builtin.Arch{ .arm = .v6m }));
+    testing.expect(!usesThumb1(builtin.Arch{ .arm = .v5 }));
+    //etc.
+
+    testing.expect(usesThumb1(builtin.Arch{ .armeb = .v6m }));
+    testing.expect(!usesThumb1(builtin.Arch{ .armeb = .v5 }));
+    //etc.
+
+    testing.expect(usesThumb1(builtin.Arch{ .thumb = .v5 }));
+    testing.expect(usesThumb1(builtin.Arch{ .thumb = .v5te }));
+    testing.expect(usesThumb1(builtin.Arch{ .thumb = .v4t }));
+    testing.expect(usesThumb1(builtin.Arch{ .thumb = .v6 }));
+    testing.expect(usesThumb1(builtin.Arch{ .thumb = .v6k }));
+    testing.expect(usesThumb1(builtin.Arch{ .thumb = .v6m }));
+    testing.expect(!usesThumb1(builtin.Arch{ .thumb = .v6t2 }));
+    //etc.
+
+    testing.expect(usesThumb1(builtin.Arch{ .thumbeb = .v5 }));
+    testing.expect(usesThumb1(builtin.Arch{ .thumbeb = .v5te }));
+    testing.expect(usesThumb1(builtin.Arch{ .thumbeb = .v4t }));
+    testing.expect(usesThumb1(builtin.Arch{ .thumbeb = .v6 }));
+    testing.expect(usesThumb1(builtin.Arch{ .thumbeb = .v6k }));
+    testing.expect(usesThumb1(builtin.Arch{ .thumbeb = .v6m }));
+    testing.expect(!usesThumb1(builtin.Arch{ .thumbeb = .v6t2 }));
+    //etc.
+
+    testing.expect(!usesThumb1(builtin.Arch{ .aarch64 = .v8 }));
+    testing.expect(!usesThumb1(builtin.Arch{ .aarch64_be = .v8 }));
+    testing.expect(!usesThumb1(builtin.Arch.x86_64));
+    testing.expect(!usesThumb1(builtin.Arch.riscv32));
+    //etc.
+}
 
 nakedcc fn __aeabi_uidivmod() void {
     @setRuntimeSafety(false);
