@@ -402,6 +402,7 @@ void tokenize(Buf *buf, Tokenization *out) {
     Tokenize t = {0};
     t.out = out;
     t.tokens = out->tokens = allocate<ZigList<Token>>(1);
+    t.line = 0;
     t.buf = buf;
 
     out->line_offsets = allocate<ZigList<size_t>>(1);
