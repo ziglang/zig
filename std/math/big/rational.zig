@@ -15,7 +15,7 @@ const DoubleLimb = bn.DoubleLimb;
 const Int = bn.Int;
 
 pub const Rational = struct {
-    // sign of Rational is a.positive, b.positive is ignored
+    // Sign of Rational is sign of p. Sign of q is ignored
     p: Int,
     q: Int,
 
@@ -152,7 +152,7 @@ pub const Rational = struct {
         }
 
         try self.p.set(mantissa);
-        self.p.positive = f >= 0;
+        self.p.setSign(f >= 0);
 
         try self.q.set(1);
         if (shift >= 0) {
@@ -211,7 +211,7 @@ pub const Rational = struct {
         try Int.divTrunc(&q, &r, a2, b2);
 
         var mantissa = extractLowBits(q, BitReprType);
-        var have_rem = r.len > 0;
+        var have_rem = r.len() > 0;
 
         // 3. q didn't fit in msize2 bits, redo division b2 << 1
         if (mantissa >> msize2 == 1) {
@@ -256,15 +256,16 @@ pub const Rational = struct {
             exact = false;
         }
 
-        return if (self.p.positive) f else -f;
+        return if (self.p.isPositive()) f else -f;
     }
 
     pub fn setRatio(self: *Rational, p: var, q: var) !void {
         try self.p.set(p);
         try self.q.set(q);
 
-        self.p.positive = (@boolToInt(self.p.positive) ^ @boolToInt(self.q.positive)) == 0;
-        self.q.positive = true;
+        self.p.setSign(@boolToInt(self.p.isPositive()) ^ @boolToInt(self.q.isPositive()) == 0);
+        self.q.setSign(true);
+
         try self.reduce();
 
         if (self.q.eqZero()) {
@@ -281,8 +282,9 @@ pub const Rational = struct {
         try self.p.copy(a);
         try self.q.copy(b);
 
-        self.p.positive = (@boolToInt(self.p.positive) ^ @boolToInt(self.q.positive)) == 0;
-        self.q.positive = true;
+        self.p.setSign(@boolToInt(self.p.isPositive()) ^ @boolToInt(self.q.isPositive()) == 0);
+        self.q.setSign(true);
+
         try self.reduce();
     }
 
@@ -403,11 +405,10 @@ pub const Rational = struct {
         var a = try Int.init(r.p.allocator.?);
         defer a.deinit();
 
-        const sign = r.p.positive;
-
+        const sign = r.p.isPositive();
         r.p.abs();
         try gcd(&a, r.p, r.q);
-        r.p.positive = sign;
+        r.p.setSign(sign);
 
         const one = Int.initFixed(([]Limb{1})[0..]);
         if (a.cmp(one) != 0) {
@@ -431,7 +432,7 @@ fn gcd(rma: *Int, x: Int, y: Int) !void {
 
     var sr: Int = undefined;
     if (aliased) {
-        sr = try Int.initCapacity(rma.allocator.?, math.max(x.len, y.len));
+        sr = try Int.initCapacity(rma.allocator.?, math.max(x.len(), y.len()));
         r = &sr;
         aliased = true;
     }
@@ -452,7 +453,7 @@ fn FixedIntFromSignedDoubleLimb(A: SignedDoubleLimb, storage: []Limb) Int {
     storage[0] = @truncate(Limb, Au);
     storage[1] = @truncate(Limb, Au >> Limb.bit_count);
     var Ap = Int.initFixed(storage[0..2]);
-    Ap.positive = A_is_positive;
+    Ap.setSign(A_is_positive);
     return Ap;
 }
 
@@ -472,12 +473,12 @@ fn gcdLehmer(r: *Int, xa: Int, ya: Int) !void {
     var T = try Int.init(r.allocator.?);
     defer T.deinit();
 
-    while (y.len > 1) {
-        debug.assert(x.positive and y.positive);
-        debug.assert(x.len >= y.len);
+    while (y.len() > 1) {
+        debug.assert(x.isPositive() and y.isPositive());
+        debug.assert(x.len() >= y.len());
 
-        var xh: SignedDoubleLimb = x.limbs[x.len - 1];
-        var yh: SignedDoubleLimb = if (x.len > y.len) 0 else y.limbs[x.len - 1];
+        var xh: SignedDoubleLimb = x.limbs[x.len() - 1];
+        var yh: SignedDoubleLimb = if (x.len() > y.len()) 0 else y.limbs[x.len() - 1];
 
         var A: SignedDoubleLimb = 1;
         var B: SignedDoubleLimb = 0;
@@ -506,7 +507,7 @@ fn gcdLehmer(r: *Int, xa: Int, ya: Int) !void {
         if (B == 0) {
             // T = x % y, r is unused
             try Int.divTrunc(r, &T, x, y);
-            debug.assert(T.positive);
+            debug.assert(T.isPositive());
 
             x.swap(&y);
             y.swap(&T);

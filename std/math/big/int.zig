@@ -22,13 +22,18 @@ comptime {
 }
 
 pub const Int = struct {
+    const sign_bit: usize = 1 << (usize.bit_count - 1);
+
     allocator: ?*Allocator,
-    positive: bool,
     //  - little-endian ordered
     //  - len >= 1 always
     //  - zero value -> len == 1 with limbs[0] == 0
     limbs: []Limb,
-    len: usize,
+    // High bit is the sign bit. 1 is negative, 0 positive.
+    // Remaining bits indicate the number of used limbs.
+    //
+    // If Zig gets smarter about packing data, this can be rewritten as a u1 and usize - 1 field.
+    metadata: usize,
 
     const default_capacity = 4;
 
@@ -45,14 +50,34 @@ pub const Int = struct {
     pub fn initCapacity(allocator: *Allocator, capacity: usize) !Int {
         return Int{
             .allocator = allocator,
-            .positive = true,
+            .metadata = 1,
             .limbs = block: {
                 var limbs = try allocator.alloc(Limb, math.max(default_capacity, capacity));
                 limbs[0] = 0;
                 break :block limbs;
             },
-            .len = 1,
         };
+    }
+
+    pub fn len(self: Int) usize {
+        return self.metadata & ~sign_bit;
+    }
+
+    pub fn isPositive(self: Int) bool {
+        return self.metadata & sign_bit == 0;
+    }
+
+    pub fn setSign(self: *Int, positive: bool) void {
+        if (positive) {
+            self.metadata &= ~sign_bit;
+        } else {
+            self.metadata |= sign_bit;
+        }
+    }
+
+    pub fn setLen(self: *Int, new_len: usize) void {
+        self.metadata &= sign_bit;
+        self.metadata |= new_len;
     }
 
     // Initialize an Int directly from a fixed set of limb values. This is considered read-only
@@ -61,10 +86,9 @@ pub const Int = struct {
     pub fn initFixed(limbs: []const Limb) Int {
         var self = Int{
             .allocator = null,
-            .positive = true,
+            .metadata = limbs.len,
             // Cast away the const, invalid use to pass as a pointer argument.
             .limbs = @intToPtr([*]Limb, @ptrToInt(limbs.ptr))[0..limbs.len],
-            .len = limbs.len,
         };
 
         self.normalize(limbs.len);
@@ -96,13 +120,12 @@ pub const Int = struct {
         other.assertWritable();
         return Int{
             .allocator = other.allocator,
-            .positive = other.positive,
+            .metadata = other.metadata,
             .limbs = block: {
-                var limbs = try other.allocator.?.alloc(Limb, other.len);
-                mem.copy(Limb, limbs[0..], other.limbs[0..other.len]);
+                var limbs = try other.allocator.?.alloc(Limb, other.len());
+                mem.copy(Limb, limbs[0..], other.limbs[0..other.len()]);
                 break :block limbs;
             },
-            .len = other.len,
         };
     }
 
@@ -112,10 +135,9 @@ pub const Int = struct {
             return;
         }
 
-        self.positive = other.positive;
-        try self.ensureCapacity(other.len);
-        mem.copy(Limb, self.limbs[0..], other.limbs[0..other.len]);
-        self.len = other.len;
+        try self.ensureCapacity(other.len());
+        mem.copy(Limb, self.limbs[0..], other.limbs[0..other.len()]);
+        self.metadata = other.metadata;
     }
 
     pub fn swap(self: *Int, other: *Int) void {
@@ -131,11 +153,11 @@ pub const Int = struct {
     }
 
     pub fn negate(self: *Int) void {
-        self.positive = !self.positive;
+        self.metadata ^= sign_bit;
     }
 
     pub fn abs(self: *Int) void {
-        self.positive = true;
+        self.metadata &= ~sign_bit;
     }
 
     pub fn isOdd(self: Int) bool {
@@ -148,7 +170,7 @@ pub const Int = struct {
 
     // Returns the number of bits required to represent the absolute value of self.
     fn bitCountAbs(self: Int) usize {
-        return (self.len - 1) * Limb.bit_count + (Limb.bit_count - @clz(self.limbs[self.len - 1]));
+        return (self.len() - 1) * Limb.bit_count + (Limb.bit_count - @clz(self.limbs[self.len() - 1]));
     }
 
     // Returns the number of bits required to represent the integer in twos-complement form.
@@ -164,11 +186,11 @@ pub const Int = struct {
 
         // If the entire value has only one bit set (e.g. 0b100000000) then the negation in twos
         // complement requires one less bit.
-        if (!self.positive) block: {
+        if (!self.isPositive()) block: {
             bits += 1;
 
-            if (@popCount(self.limbs[self.len - 1]) == 1) {
-                for (self.limbs[0 .. self.len - 1]) |limb| {
+            if (@popCount(self.limbs[self.len() - 1]) == 1) {
+                for (self.limbs[0 .. self.len() - 1]) |limb| {
                     if (@popCount(limb) != 0) {
                         break :block;
                     }
@@ -185,11 +207,11 @@ pub const Int = struct {
         if (self.eqZero()) {
             return true;
         }
-        if (!is_signed and !self.positive) {
+        if (!is_signed and !self.isPositive()) {
             return false;
         }
 
-        const req_bits = self.bitCountTwosComp() + @boolToInt(self.positive and is_signed);
+        const req_bits = self.bitCountTwosComp() + @boolToInt(self.isPositive() and is_signed);
         return bit_count >= req_bits;
     }
 
@@ -201,7 +223,7 @@ pub const Int = struct {
     // the minus sign. This is used for determining the number of characters needed to print the
     // value. It is inexact and will exceed the given value by 1-2 digits.
     pub fn sizeInBase(self: Int, base: usize) usize {
-        const bit_count = usize(@boolToInt(!self.positive)) + self.bitCountAbs();
+        const bit_count = usize(@boolToInt(!self.isPositive())) + self.bitCountAbs();
         return (bit_count / math.log2(base)) + 1;
     }
 
@@ -214,19 +236,19 @@ pub const Int = struct {
                 const UT = if (T.is_signed) @IntType(false, T.bit_count - 1) else T;
 
                 try self.ensureCapacity(@sizeOf(UT) / @sizeOf(Limb));
-                self.positive = value >= 0;
-                self.len = 0;
+                self.metadata = 0;
+                self.setSign(value >= 0);
 
                 var w_value: UT = if (value < 0) @intCast(UT, -value) else @intCast(UT, value);
 
                 if (info.bits <= Limb.bit_count) {
                     self.limbs[0] = Limb(w_value);
-                    self.len = 1;
+                    self.metadata += 1;
                 } else {
                     var i: usize = 0;
                     while (w_value != 0) : (i += 1) {
                         self.limbs[i] = @truncate(Limb, w_value);
-                        self.len += 1;
+                        self.metadata += 1;
 
                         // TODO: shift == 64 at compile-time fails. Fails on u128 limbs.
                         w_value >>= Limb.bit_count / 2;
@@ -240,8 +262,8 @@ pub const Int = struct {
                 const req_limbs = @divFloor(math.log2(w_value), Limb.bit_count) + 1;
                 try self.ensureCapacity(req_limbs);
 
-                self.positive = value >= 0;
-                self.len = req_limbs;
+                self.metadata = req_limbs;
+                self.setSign(value >= 0);
 
                 if (w_value <= maxInt(Limb)) {
                     self.limbs[0] = w_value;
@@ -282,17 +304,17 @@ pub const Int = struct {
                 if (@sizeOf(UT) <= @sizeOf(Limb)) {
                     r = @intCast(UT, self.limbs[0]);
                 } else {
-                    for (self.limbs[0..self.len]) |_, ri| {
-                        const limb = self.limbs[self.len - ri - 1];
+                    for (self.limbs[0..self.len()]) |_, ri| {
+                        const limb = self.limbs[self.len() - ri - 1];
                         r <<= Limb.bit_count;
                         r |= limb;
                     }
                 }
 
                 if (!T.is_signed) {
-                    return if (self.positive) @intCast(T, r) else error.NegativeIntoUnsigned;
+                    return if (self.isPositive()) @intCast(T, r) else error.NegativeIntoUnsigned;
                 } else {
-                    if (self.positive) {
+                    if (self.isPositive()) {
                         return @intCast(T, r);
                     } else {
                         if (math.cast(T, r)) |ok| {
@@ -355,7 +377,7 @@ pub const Int = struct {
             try self.mul(self.*, ap_base);
             try self.add(self.*, ap_d);
         }
-        self.positive = positive;
+        self.setSign(positive);
     }
 
     /// TODO make this call format instead of the other way around
@@ -377,7 +399,7 @@ pub const Int = struct {
         if (base & (base - 1) == 0) {
             const base_shift = math.log2_int(Limb, base);
 
-            for (self.limbs[0..self.len]) |limb| {
+            for (self.limbs[0..self.len()]) |limb| {
                 var shift: usize = 0;
                 while (shift < Limb.bit_count) : (shift += base_shift) {
                     const r = @intCast(u8, (limb >> @intCast(Log2Limb, shift)) & Limb(base - 1));
@@ -404,11 +426,11 @@ pub const Int = struct {
             }
 
             var q = try self.clone();
-            q.positive = true;
+            q.abs();
             var r = try Int.init(allocator);
             var b = try Int.initSet(allocator, limb_base);
 
-            while (q.len >= 2) {
+            while (q.len() >= 2) {
                 try Int.divTrunc(&q, &r, q, b);
 
                 var r_word = r.limbs[0];
@@ -421,7 +443,7 @@ pub const Int = struct {
             }
 
             {
-                debug.assert(q.len == 1);
+                debug.assert(q.len() == 1);
 
                 var r_word = q.limbs[0];
                 while (r_word != 0) {
@@ -432,7 +454,7 @@ pub const Int = struct {
             }
         }
 
-        if (!self.positive) {
+        if (!self.isPositive()) {
             try digits.append('-');
         }
 
@@ -460,14 +482,14 @@ pub const Int = struct {
 
     // returns -1, 0, 1 if |a| < |b|, |a| == |b| or |a| > |b| respectively.
     pub fn cmpAbs(a: Int, b: Int) i8 {
-        if (a.len < b.len) {
+        if (a.len() < b.len()) {
             return -1;
         }
-        if (a.len > b.len) {
+        if (a.len() > b.len()) {
             return 1;
         }
 
-        var i: usize = a.len - 1;
+        var i: usize = a.len() - 1;
         while (i != 0) : (i -= 1) {
             if (a.limbs[i] != b.limbs[i]) {
                 break;
@@ -485,17 +507,17 @@ pub const Int = struct {
 
     // returns -1, 0, 1 if a < b, a == b or a > b respectively.
     pub fn cmp(a: Int, b: Int) i8 {
-        if (a.positive != b.positive) {
-            return if (a.positive) i8(1) else -1;
+        if (a.isPositive() != b.isPositive()) {
+            return if (a.isPositive()) i8(1) else -1;
         } else {
             const r = cmpAbs(a, b);
-            return if (a.positive) r else -r;
+            return if (a.isPositive()) r else -r;
         }
     }
 
     // if a == 0
     pub fn eqZero(a: Int) bool {
-        return a.len == 1 and a.limbs[0] == 0;
+        return a.len() == 1 and a.limbs[0] == 0;
     }
 
     // if |a| == |b|
@@ -525,16 +547,15 @@ pub const Int = struct {
         }
 
         // Handle zero
-        r.len = if (j != 0) j else 1;
+        r.setLen(if (j != 0) j else 1);
     }
 
     // Cannot be used as a result argument to any function.
     fn readOnlyPositive(a: Int) Int {
         return Int{
             .allocator = null,
-            .positive = true,
+            .metadata = a.len(),
             .limbs = a.limbs,
-            .len = a.len,
         };
     }
 
@@ -549,8 +570,8 @@ pub const Int = struct {
             return;
         }
 
-        if (a.positive != b.positive) {
-            if (a.positive) {
+        if (a.isPositive() != b.isPositive()) {
+            if (a.isPositive()) {
                 // (a) + (-b) => a - b
                 try r.sub(a, readOnlyPositive(b));
             } else {
@@ -558,17 +579,17 @@ pub const Int = struct {
                 try r.sub(b, readOnlyPositive(a));
             }
         } else {
-            if (a.len >= b.len) {
-                try r.ensureCapacity(a.len + 1);
-                lladd(r.limbs[0..], a.limbs[0..a.len], b.limbs[0..b.len]);
-                r.normalize(a.len + 1);
+            if (a.len() >= b.len()) {
+                try r.ensureCapacity(a.len() + 1);
+                lladd(r.limbs[0..], a.limbs[0..a.len()], b.limbs[0..b.len()]);
+                r.normalize(a.len() + 1);
             } else {
-                try r.ensureCapacity(b.len + 1);
-                lladd(r.limbs[0..], b.limbs[0..b.len], a.limbs[0..a.len]);
-                r.normalize(b.len + 1);
+                try r.ensureCapacity(b.len() + 1);
+                lladd(r.limbs[0..], b.limbs[0..b.len()], a.limbs[0..a.len()]);
+                r.normalize(b.len() + 1);
             }
 
-            r.positive = a.positive;
+            r.setSign(a.isPositive());
         }
     }
 
@@ -599,41 +620,41 @@ pub const Int = struct {
     // r = a - b
     pub fn sub(r: *Int, a: Int, b: Int) !void {
         r.assertWritable();
-        if (a.positive != b.positive) {
-            if (a.positive) {
+        if (a.isPositive() != b.isPositive()) {
+            if (a.isPositive()) {
                 // (a) - (-b) => a + b
                 try r.add(a, readOnlyPositive(b));
             } else {
                 // (-a) - (b) => -(a + b)
                 try r.add(readOnlyPositive(a), b);
-                r.positive = false;
+                r.setSign(false);
             }
         } else {
-            if (a.positive) {
+            if (a.isPositive()) {
                 // (a) - (b) => a - b
                 if (a.cmp(b) >= 0) {
-                    try r.ensureCapacity(a.len + 1);
-                    llsub(r.limbs[0..], a.limbs[0..a.len], b.limbs[0..b.len]);
-                    r.normalize(a.len);
-                    r.positive = true;
+                    try r.ensureCapacity(a.len() + 1);
+                    llsub(r.limbs[0..], a.limbs[0..a.len()], b.limbs[0..b.len()]);
+                    r.normalize(a.len());
+                    r.setSign(true);
                 } else {
-                    try r.ensureCapacity(b.len + 1);
-                    llsub(r.limbs[0..], b.limbs[0..b.len], a.limbs[0..a.len]);
-                    r.normalize(b.len);
-                    r.positive = false;
+                    try r.ensureCapacity(b.len() + 1);
+                    llsub(r.limbs[0..], b.limbs[0..b.len()], a.limbs[0..a.len()]);
+                    r.normalize(b.len());
+                    r.setSign(false);
                 }
             } else {
                 // (-a) - (-b) => -(a - b)
                 if (a.cmp(b) < 0) {
-                    try r.ensureCapacity(a.len + 1);
-                    llsub(r.limbs[0..], a.limbs[0..a.len], b.limbs[0..b.len]);
-                    r.normalize(a.len);
-                    r.positive = false;
+                    try r.ensureCapacity(a.len() + 1);
+                    llsub(r.limbs[0..], a.limbs[0..a.len()], b.limbs[0..b.len()]);
+                    r.normalize(a.len());
+                    r.setSign(false);
                 } else {
-                    try r.ensureCapacity(b.len + 1);
-                    llsub(r.limbs[0..], b.limbs[0..b.len], a.limbs[0..a.len]);
-                    r.normalize(b.len);
-                    r.positive = true;
+                    try r.ensureCapacity(b.len() + 1);
+                    llsub(r.limbs[0..], b.limbs[0..b.len()], a.limbs[0..a.len()]);
+                    r.normalize(b.len());
+                    r.setSign(true);
                 }
             }
         }
@@ -674,7 +695,7 @@ pub const Int = struct {
 
         var sr: Int = undefined;
         if (aliased) {
-            sr = try Int.initCapacity(rma.allocator.?, a.len + b.len);
+            sr = try Int.initCapacity(rma.allocator.?, a.len() + b.len());
             r = &sr;
             aliased = true;
         }
@@ -683,16 +704,16 @@ pub const Int = struct {
             r.deinit();
         };
 
-        try r.ensureCapacity(a.len + b.len);
+        try r.ensureCapacity(a.len() + b.len());
 
-        if (a.len >= b.len) {
-            llmul(r.limbs, a.limbs[0..a.len], b.limbs[0..b.len]);
+        if (a.len() >= b.len()) {
+            llmul(r.limbs, a.limbs[0..a.len()], b.limbs[0..b.len()]);
         } else {
-            llmul(r.limbs, b.limbs[0..b.len], a.limbs[0..a.len]);
+            llmul(r.limbs, b.limbs[0..b.len()], a.limbs[0..a.len()]);
         }
 
-        r.positive = a.positive == b.positive;
-        r.normalize(a.len + b.len);
+        r.normalize(a.len() + b.len());
+        r.setSign(a.isPositive() == b.isPositive());
     }
 
     // a + b * c + *carry, sets carry to the overflow bits
@@ -742,17 +763,17 @@ pub const Int = struct {
         try div(q, r, a, b);
 
         // Trunc -> Floor.
-        if (!q.positive) {
+        if (!q.isPositive()) {
             const one = Int.initFixed(([]Limb{1})[0..]);
             try q.sub(q.*, one);
             try r.add(q.*, one);
         }
-        r.positive = b.positive;
+        r.setSign(b.isPositive());
     }
 
     pub fn divTrunc(q: *Int, r: *Int, a: Int, b: Int) !void {
         try div(q, r, a, b);
-        r.positive = a.positive;
+        r.setSign(a.isPositive());
     }
 
     // Truncates by default.
@@ -770,10 +791,9 @@ pub const Int = struct {
         if (a.cmpAbs(b) < 0) {
             // quo may alias a so handle rem first
             try rem.copy(a);
-            rem.positive = a.positive == b.positive;
+            rem.setSign(a.isPositive() == b.isPositive());
 
-            quo.positive = true;
-            quo.len = 1;
+            quo.metadata = 1;
             quo.limbs[0] = 0;
             return;
         }
@@ -782,14 +802,14 @@ pub const Int = struct {
         // algorithms.
         const a_zero_limb_count = blk: {
             var i: usize = 0;
-            while (i < a.len) : (i += 1) {
+            while (i < a.len()) : (i += 1) {
                 if (a.limbs[i] != 0) break;
             }
             break :blk i;
         };
         const b_zero_limb_count = blk: {
             var i: usize = 0;
-            while (i < b.len) : (i += 1) {
+            while (i < b.len()) : (i += 1) {
                 if (b.limbs[i] != 0) break;
             }
             break :blk i;
@@ -797,39 +817,37 @@ pub const Int = struct {
 
         const ab_zero_limb_count = std.math.min(a_zero_limb_count, b_zero_limb_count);
 
-        if (b.len - ab_zero_limb_count == 1) {
-            try quo.ensureCapacity(a.len);
+        if (b.len() - ab_zero_limb_count == 1) {
+            try quo.ensureCapacity(a.len());
 
-            lldiv1(quo.limbs[0..], &rem.limbs[0], a.limbs[ab_zero_limb_count..a.len], b.limbs[b.len - 1]);
-            quo.normalize(a.len - ab_zero_limb_count);
-            quo.positive = a.positive == b.positive;
+            lldiv1(quo.limbs[0..], &rem.limbs[0], a.limbs[ab_zero_limb_count..a.len()], b.limbs[b.len() - 1]);
+            quo.normalize(a.len() - ab_zero_limb_count);
+            quo.setSign(a.isPositive() == b.isPositive());
 
-            rem.len = 1;
-            rem.positive = true;
+            rem.metadata = 1;
         } else {
             // x and y are modified during division
-            var x = try Int.initCapacity(quo.allocator.?, a.len);
+            var x = try Int.initCapacity(quo.allocator.?, a.len());
             defer x.deinit();
             try x.copy(a);
 
-            var y = try Int.initCapacity(quo.allocator.?, b.len);
+            var y = try Int.initCapacity(quo.allocator.?, b.len());
             defer y.deinit();
             try y.copy(b);
 
             // x may grow one limb during normalization
-            try quo.ensureCapacity(a.len + y.len);
+            try quo.ensureCapacity(a.len() + y.len());
 
             // Shrink x, y such that the trailing zero limbs shared between are removed.
             if (ab_zero_limb_count != 0) {
                 std.mem.copy(Limb, x.limbs[0..], x.limbs[ab_zero_limb_count..]);
                 std.mem.copy(Limb, y.limbs[0..], y.limbs[ab_zero_limb_count..]);
-                x.len -= ab_zero_limb_count;
-                y.len -= ab_zero_limb_count;
+                x.metadata -= ab_zero_limb_count;
+                y.metadata -= ab_zero_limb_count;
             }
 
             try divN(quo.allocator.?, quo, rem, &x, &y);
-
-            quo.positive = a.positive == b.positive;
+            quo.setSign(a.isPositive() == b.isPositive());
         }
 
         if (ab_zero_limb_count != 0) {
@@ -868,28 +886,28 @@ pub const Int = struct {
     //
     // x = qy + r where 0 <= r < y
     fn divN(allocator: *Allocator, q: *Int, r: *Int, x: *Int, y: *Int) !void {
-        debug.assert(y.len >= 2);
-        debug.assert(x.len >= y.len);
-        debug.assert(q.limbs.len >= x.len + y.len - 1);
+        debug.assert(y.len() >= 2);
+        debug.assert(x.len() >= y.len());
+        debug.assert(q.limbs.len >= x.len() + y.len() - 1);
         debug.assert(default_capacity >= 3); // see 3.2
 
         var tmp = try Int.init(allocator);
         defer tmp.deinit();
 
         // Normalize so y > Limb.bit_count / 2 (i.e. leading bit is set) and even
-        var norm_shift = @clz(y.limbs[y.len - 1]);
+        var norm_shift = @clz(y.limbs[y.len() - 1]);
         if (norm_shift == 0 and y.isOdd()) {
             norm_shift = Limb.bit_count;
         }
         try x.shiftLeft(x.*, norm_shift);
         try y.shiftLeft(y.*, norm_shift);
 
-        const n = x.len - 1;
-        const t = y.len - 1;
+        const n = x.len() - 1;
+        const t = y.len() - 1;
 
         // 1.
-        q.len = n - t + 1;
-        mem.set(Limb, q.limbs[0..q.len], 0);
+        q.metadata = n - t + 1;
+        mem.set(Limb, q.limbs[0..q.len()], 0);
 
         // 2.
         try tmp.shiftLeft(y.*, Limb.bit_count * (n - t));
@@ -937,7 +955,7 @@ pub const Int = struct {
             try tmp.shiftLeft(tmp, Limb.bit_count * (i - t - 1));
             try x.sub(x.*, tmp);
 
-            if (!x.positive) {
+            if (!x.isPositive()) {
                 try tmp.shiftLeft(y.*, Limb.bit_count * (i - t - 1));
                 try x.add(x.*, tmp);
                 q.limbs[i - t - 1] -= 1;
@@ -945,20 +963,20 @@ pub const Int = struct {
         }
 
         // Denormalize
-        q.normalize(q.len);
+        q.normalize(q.len());
 
         try r.shiftRight(x.*, norm_shift);
-        r.normalize(r.len);
+        r.normalize(r.len());
     }
 
     // r = a << shift, in other words, r = a * 2^shift
     pub fn shiftLeft(r: *Int, a: Int, shift: usize) !void {
         r.assertWritable();
 
-        try r.ensureCapacity(a.len + (shift / Limb.bit_count) + 1);
-        llshl(r.limbs[0..], a.limbs[0..a.len], shift);
-        r.normalize(a.len + (shift / Limb.bit_count) + 1);
-        r.positive = a.positive;
+        try r.ensureCapacity(a.len() + (shift / Limb.bit_count) + 1);
+        llshl(r.limbs[0..], a.limbs[0..a.len()], shift);
+        r.normalize(a.len() + (shift / Limb.bit_count) + 1);
+        r.setSign(a.isPositive());
     }
 
     fn llshl(r: []Limb, a: []const Limb, shift: usize) void {
@@ -988,17 +1006,16 @@ pub const Int = struct {
     pub fn shiftRight(r: *Int, a: Int, shift: usize) !void {
         r.assertWritable();
 
-        if (a.len <= shift / Limb.bit_count) {
-            r.len = 1;
+        if (a.len() <= shift / Limb.bit_count) {
+            r.metadata = 1;
             r.limbs[0] = 0;
-            r.positive = true;
             return;
         }
 
-        try r.ensureCapacity(a.len - (shift / Limb.bit_count));
-        const r_len = llshr(r.limbs[0..], a.limbs[0..a.len], shift);
-        r.len = a.len - (shift / Limb.bit_count);
-        r.positive = a.positive;
+        try r.ensureCapacity(a.len() - (shift / Limb.bit_count));
+        const r_len = llshr(r.limbs[0..], a.limbs[0..a.len()], shift);
+        r.metadata = a.len() - (shift / Limb.bit_count);
+        r.setSign(a.isPositive());
     }
 
     fn llshr(r: []Limb, a: []const Limb, shift: usize) void {
@@ -1025,14 +1042,14 @@ pub const Int = struct {
     pub fn bitOr(r: *Int, a: Int, b: Int) !void {
         r.assertWritable();
 
-        if (a.len > b.len) {
-            try r.ensureCapacity(a.len);
-            llor(r.limbs[0..], a.limbs[0..a.len], b.limbs[0..b.len]);
-            r.len = a.len;
+        if (a.len() > b.len()) {
+            try r.ensureCapacity(a.len());
+            llor(r.limbs[0..], a.limbs[0..a.len()], b.limbs[0..b.len()]);
+            r.setLen(a.len());
         } else {
-            try r.ensureCapacity(b.len);
-            llor(r.limbs[0..], b.limbs[0..b.len], a.limbs[0..a.len]);
-            r.len = b.len;
+            try r.ensureCapacity(b.len());
+            llor(r.limbs[0..], b.limbs[0..b.len()], a.limbs[0..a.len()]);
+            r.setLen(b.len());
         }
     }
 
@@ -1054,14 +1071,14 @@ pub const Int = struct {
     pub fn bitAnd(r: *Int, a: Int, b: Int) !void {
         r.assertWritable();
 
-        if (a.len > b.len) {
-            try r.ensureCapacity(b.len);
-            lland(r.limbs[0..], a.limbs[0..a.len], b.limbs[0..b.len]);
-            r.normalize(b.len);
+        if (a.len() > b.len()) {
+            try r.ensureCapacity(b.len());
+            lland(r.limbs[0..], a.limbs[0..a.len()], b.limbs[0..b.len()]);
+            r.normalize(b.len());
         } else {
-            try r.ensureCapacity(a.len);
-            lland(r.limbs[0..], b.limbs[0..b.len], a.limbs[0..a.len]);
-            r.normalize(a.len);
+            try r.ensureCapacity(a.len());
+            lland(r.limbs[0..], b.limbs[0..b.len()], a.limbs[0..a.len()]);
+            r.normalize(a.len());
         }
     }
 
@@ -1080,14 +1097,14 @@ pub const Int = struct {
     pub fn bitXor(r: *Int, a: Int, b: Int) !void {
         r.assertWritable();
 
-        if (a.len > b.len) {
-            try r.ensureCapacity(a.len);
-            llxor(r.limbs[0..], a.limbs[0..a.len], b.limbs[0..b.len]);
-            r.normalize(a.len);
+        if (a.len() > b.len()) {
+            try r.ensureCapacity(a.len());
+            llxor(r.limbs[0..], a.limbs[0..a.len()], b.limbs[0..b.len()]);
+            r.normalize(a.len());
         } else {
-            try r.ensureCapacity(b.len);
-            llxor(r.limbs[0..], b.limbs[0..b.len], a.limbs[0..a.len]);
-            r.normalize(b.len);
+            try r.ensureCapacity(b.len());
+            llxor(r.limbs[0..], b.limbs[0..b.len()], a.limbs[0..a.len()]);
+            r.normalize(b.len());
         }
     }
 
@@ -1134,14 +1151,14 @@ test "big.int comptime_int set negative" {
     var a = try Int.initSet(al, -10);
 
     testing.expect(a.limbs[0] == 10);
-    testing.expect(a.positive == false);
+    testing.expect(a.isPositive() == false);
 }
 
 test "big.int int set unaligned small" {
     var a = try Int.initSet(al, u7(45));
 
     testing.expect(a.limbs[0] == 45);
-    testing.expect(a.positive == true);
+    testing.expect(a.isPositive() == true);
 }
 
 test "big.int comptime_int to" {
@@ -1171,22 +1188,22 @@ test "big.int normalize" {
     a.limbs[2] = 3;
     a.limbs[3] = 0;
     a.normalize(4);
-    testing.expect(a.len == 3);
+    testing.expect(a.len() == 3);
 
     a.limbs[0] = 1;
     a.limbs[1] = 2;
     a.limbs[2] = 3;
     a.normalize(3);
-    testing.expect(a.len == 3);
+    testing.expect(a.len() == 3);
 
     a.limbs[0] = 0;
     a.limbs[1] = 0;
     a.normalize(2);
-    testing.expect(a.len == 1);
+    testing.expect(a.len() == 1);
 
     a.limbs[0] = 0;
     a.normalize(1);
-    testing.expect(a.len == 1);
+    testing.expect(a.len() == 1);
 }
 
 test "big.int normalize multi" {
@@ -1198,24 +1215,24 @@ test "big.int normalize multi" {
     a.limbs[2] = 0;
     a.limbs[3] = 0;
     a.normalize(4);
-    testing.expect(a.len == 2);
+    testing.expect(a.len() == 2);
 
     a.limbs[0] = 1;
     a.limbs[1] = 2;
     a.limbs[2] = 3;
     a.normalize(3);
-    testing.expect(a.len == 3);
+    testing.expect(a.len() == 3);
 
     a.limbs[0] = 0;
     a.limbs[1] = 0;
     a.limbs[2] = 0;
     a.limbs[3] = 0;
     a.normalize(4);
-    testing.expect(a.len == 1);
+    testing.expect(a.len() == 1);
 
     a.limbs[0] = 0;
     a.normalize(1);
-    testing.expect(a.len == 1);
+    testing.expect(a.len() == 1);
 }
 
 test "big.int parity" {
@@ -1250,7 +1267,7 @@ test "big.int bitcount + sizeInBase" {
     try a.shiftLeft(a, 5000);
     testing.expect(a.bitCountAbs() == 5032);
     testing.expect(a.sizeInBase(2) >= 5032);
-    a.positive = false;
+    a.setSign(false);
 
     testing.expect(a.bitCountAbs() == 5032);
     testing.expect(a.sizeInBase(2) >= 5033);

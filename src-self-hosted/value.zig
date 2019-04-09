@@ -538,21 +538,21 @@ pub const Value = struct {
             switch (self.base.typ.id) {
                 Type.Id.Int => {
                     const type_ref = try self.base.typ.getLlvmType(ofile.arena, ofile.context);
-                    if (self.big_int.len == 0) {
+                    if (self.big_int.len() == 0) {
                         return llvm.ConstNull(type_ref);
                     }
-                    const unsigned_val = if (self.big_int.len == 1) blk: {
+                    const unsigned_val = if (self.big_int.len() == 1) blk: {
                         break :blk llvm.ConstInt(type_ref, self.big_int.limbs[0], @boolToInt(false));
                     } else if (@sizeOf(std.math.big.Limb) == @sizeOf(u64)) blk: {
                         break :blk llvm.ConstIntOfArbitraryPrecision(
                             type_ref,
-                            @intCast(c_uint, self.big_int.len),
+                            @intCast(c_uint, self.big_int.len()),
                             @ptrCast([*]u64, self.big_int.limbs.ptr),
                         );
                     } else {
                         @compileError("std.math.Big.Int.Limb size does not match LLVM");
                     };
-                    return if (self.big_int.positive) unsigned_val else llvm.ConstNeg(unsigned_val);
+                    return if (self.big_int.isPositive()) unsigned_val else llvm.ConstNeg(unsigned_val);
                 },
                 Type.Id.ComptimeInt => unreachable,
                 else => unreachable,
