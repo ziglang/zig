@@ -8,7 +8,7 @@
       body{
         font-family: system-ui, -apple-system, Roboto, "Segoe UI", sans-serif;
       }
-      a {
+      a:not(:hover) {
         text-decoration: none;
       }
       table, th, td {
