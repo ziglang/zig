@@ -18507,7 +18507,7 @@ static Error ir_make_type_info_defs(IrAnalyze *ira, IrInstruction *source_instr,
                         return ErrorSemanticAnalyzeFail;
                     }
 
-                    AstNodeFnProto *fn_node = (AstNodeFnProto *)(fn_entry->proto_node);
+                    AstNodeFnProto *fn_node = &fn_entry->proto_node->data.fn_proto;
 
                     ConstExprValue *fn_def_val = create_const_vals(1);
                     fn_def_val->special = ConstValSpecialStatic;
