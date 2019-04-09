@@ -59,6 +59,8 @@ pub const DirectAllocator = struct {
 
     fn alloc(allocator: *Allocator, n: usize, alignment: u29) error{OutOfMemory}![]u8 {
         const self = @fieldParentPtr(DirectAllocator, "allocator", allocator);
+        if (n == 0)
+            return (([*]u8)(undefined))[0..0];
 
         switch (builtin.os) {
             Os.linux, Os.macosx, Os.ios, Os.freebsd, Os.netbsd => {
@@ -140,7 +142,9 @@ pub const DirectAllocator = struct {
                 }
                 const result = try alloc(allocator, new_size, new_align);
                 @memcpy(result.ptr, old_mem.ptr, std.math.min(old_mem.len, result.len));
-                _ = os.posix.munmap(@ptrToInt(old_mem.ptr), old_mem.len);
+                if (old_mem.len > 0) {
+                  _ = os.posix.munmap(@ptrToInt(old_mem.ptr), old_mem.len);
+                }
                 return result;
             },
             Os.windows => {
