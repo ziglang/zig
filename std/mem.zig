@@ -34,39 +34,39 @@ pub const Allocator = struct {
     /// The returned slice must have its pointer aligned at least to `new_alignment` bytes.
     reallocFn: fn (
         self: *Allocator,
-    // Guaranteed to be the same as what was returned from most recent call to
-    // `reallocFn` or `shrinkFn`.
-    // If `old_mem.len == 0` then this is a new allocation and `new_byte_count`
-    // is guaranteed to be >= 1.
+        /// Guaranteed to be the same as what was returned from most recent call to
+        /// `reallocFn` or `shrinkFn`.
+        /// If `old_mem.len == 0` then this is a new allocation and `new_byte_count`
+        /// is guaranteed to be >= 1.
         old_mem: []u8,
-    // If `old_mem.len == 0` then this is `undefined`, otherwise:
-    // Guaranteed to be the same as what was returned from most recent call to
-    // `reallocFn` or `shrinkFn`.
-    // Guaranteed to be >= 1.
-    // Guaranteed to be a power of 2.
+        /// If `old_mem.len == 0` then this is `undefined`, otherwise:
+        /// Guaranteed to be the same as what was returned from most recent call to
+        /// `reallocFn` or `shrinkFn`.
+        /// Guaranteed to be >= 1.
+        /// Guaranteed to be a power of 2.
         old_alignment: u29,
-    // If `new_byte_count` is 0 then this is a free and it is guaranteed that
-    // `old_mem.len != 0`.
+        /// If `new_byte_count` is 0 then this is a free and it is guaranteed that
+        /// `old_mem.len != 0`.
         new_byte_count: usize,
-    // Guaranteed to be >= 1.
-    // Guaranteed to be a power of 2.
-    // Returned slice's pointer must have this alignment.
+        /// Guaranteed to be >= 1.
+        /// Guaranteed to be a power of 2.
+        /// Returned slice's pointer must have this alignment.
         new_alignment: u29,
     ) Error![]u8,
 
     /// This function deallocates memory. It must succeed.
     shrinkFn: fn (
         self: *Allocator,
-    // Guaranteed to be the same as what was returned from most recent call to
-    // `reallocFn` or `shrinkFn`.
+        /// Guaranteed to be the same as what was returned from most recent call to
+        /// `reallocFn` or `shrinkFn`.
         old_mem: []u8,
-    // Guaranteed to be the same as what was returned from most recent call to
-    // `reallocFn` or `shrinkFn`.
+        /// Guaranteed to be the same as what was returned from most recent call to
+        /// `reallocFn` or `shrinkFn`.
         old_alignment: u29,
-    // Guaranteed to be less than or equal to `old_mem.len`.
+        /// Guaranteed to be less than or equal to `old_mem.len`.
         new_byte_count: usize,
-    // If `new_byte_count == 0` then this is `undefined`, otherwise:
-    // Guaranteed to be less than or equal to `old_alignment`.
+        /// If `new_byte_count == 0` then this is `undefined`, otherwise:
+        /// Guaranteed to be less than or equal to `old_alignment`.
         new_alignment: u29,
     ) []u8,
 
