@@ -3838,7 +3838,7 @@ ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *resolved_path, Bu
     }
 
     Tokenization tokenization = {0};
-    tokenize(source_code, &tokenization);
+    tokenize(source_code, &tokenization, buf_ptr(resolved_path));
 
     if (tokenization.err) {
         ErrorMsg *err = err_msg_create_with_line(resolved_path, tokenization.err_line, tokenization.err_column,

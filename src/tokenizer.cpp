@@ -238,6 +238,8 @@ struct Tokenize {
     ZigList<Token> *tokens;
     int line;
     int column;
+    // TODO use a lookup table, so that this can go from 64-bits to maybe 12-bits for every instruction
+    char *filename;
     Token *cur_tok;
     Tokenization *out;
     uint32_t radix;
@@ -286,6 +288,7 @@ static void begin_token(Tokenize *t, TokenId id) {
     Token *token = &t->tokens->last();
     token->start_line = t->line;
     token->start_column = t->column;
+    token->filename = t->filename;
     token->start_pos = t->pos;
 
     set_token_id(t, token, id);
@@ -403,11 +406,12 @@ static void invalid_char_error(Tokenize *t, uint8_t c) {
     tokenize_error(t, "invalid character: '\\x%02x'", c);
 }
 
-void tokenize(Buf *buf, Tokenization *out) {
+void tokenize(Buf *buf, Tokenization *out, char *filename) {
     Tokenize t = {0};
     t.out = out;
     t.tokens = out->tokens = allocate<ZigList<Token>>(1);
     t.buf = buf;
+    t.filename = filename;
 
     for (size_t i=0;i<buf_len(t.buf);i++)
         if (!is_zig(buf_ptr(t.buf)[i])) {

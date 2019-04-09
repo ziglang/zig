@@ -165,6 +165,7 @@ static AstNode *ast_create_node(ParseContext *pc, NodeType type, Token *first_to
     AstNode *node = ast_create_node_no_line_info(pc, type);
     node->line = first_token->start_line;
     node->column = first_token->start_column;
+    node->filename = first_token->filename;
     return node;
 }
 
@@ -596,6 +597,7 @@ static AstNode *ast_parse_top_level_decl(ParseContext *pc, VisibMod visib_mod) {
                 assert(var_decl->type == NodeTypeVariableDeclaration);
                 var_decl->line = first->start_line;
                 var_decl->column = first->start_column;
+                var_decl->filename = first->filename;
                 var_decl->data.variable_declaration.visib_mod = visib_mod;
                 var_decl->data.variable_declaration.is_extern = first->id == TokenIdKeywordExtern;
                 var_decl->data.variable_declaration.is_export = first->id == TokenIdKeywordExport;
@@ -613,6 +615,7 @@ static AstNode *ast_parse_top_level_decl(ParseContext *pc, VisibMod visib_mod) {
             assert(fn_proto->type == NodeTypeFnProto);
             fn_proto->line = first->start_line;
             fn_proto->column = first->start_column;
+            fn_proto->filename = first->filename;
             fn_proto->data.fn_proto.visib_mod = visib_mod;
             fn_proto->data.fn_proto.is_extern = first->id == TokenIdKeywordExtern;
             fn_proto->data.fn_proto.is_export = first->id == TokenIdKeywordExport;
@@ -1547,6 +1550,7 @@ static AstNode *ast_parse_primary_type_expr(ParseContext *pc) {
         assert(res->type == NodeTypeFnCallExpr);
         res->line = at_sign->start_line;
         res->column = at_sign->start_column;
+        res->filename = at_sign->filename;
         res->data.fn_call_expr.fn_ref_expr = name_sym;
         res->data.fn_call_expr.is_builtin = true;
         return res;
@@ -1683,6 +1687,7 @@ static AstNode *ast_parse_container_decl(ParseContext *pc) {
         assert(res->type == NodeTypeContainerDecl);
         res->line = extern_token->start_line;
         res->column = extern_token->start_column;
+        res->filename = extern_token->filename;
         res->data.container_decl.layout = ContainerLayoutExtern;
         return res;
     }
@@ -1693,6 +1698,7 @@ static AstNode *ast_parse_container_decl(ParseContext *pc) {
         assert(res->type == NodeTypeContainerDecl);
         res->line = packed_token->start_line;
         res->column = packed_token->start_column;
+        res->filename = packed_token->filename;
         res->data.container_decl.layout = ContainerLayoutPacked;
         return res;
     }
@@ -1831,6 +1837,7 @@ static AstNode *ast_parse_asm_expr(ParseContext *pc) {
 
     res->line = asm_token->start_line;
     res->column = asm_token->start_column;
+    res->filename = asm_token->filename;
     res->data.asm_expr.volatile_token = volatile_token;
     res->data.asm_expr.asm_template = asm_template;
     return res;
@@ -2069,6 +2076,7 @@ static AstNode *ast_parse_param_decl(ParseContext *pc) {
     assert(res->type == NodeTypeParamDecl);
     res->line = first->start_line;
     res->column = first->start_column;
+    res->filename = first->filename;
     res->data.param_decl.name = token_buf(name);
     res->data.param_decl.is_noalias = first->id == TokenIdKeywordNoAlias;
     res->data.param_decl.is_inline = first->id == TokenIdKeywordCompTime;

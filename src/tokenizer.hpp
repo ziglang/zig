@@ -158,6 +158,7 @@ struct Token {
     size_t end_pos;
     size_t start_line;
     size_t start_column;
+    char *filename;
 
     union {
         // TokenIdIntLiteral
@@ -186,7 +187,7 @@ struct Tokenization {
     size_t err_column;
 };
 
-void tokenize(Buf *buf, Tokenization *out_tokenization);
+void tokenize(Buf *buf, Tokenization *out_tokenization, char *filename);
 
 void print_tokens(Buf *buf, ZigList<Token> *tokens);
 
