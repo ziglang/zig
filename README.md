@@ -1,7 +1,7 @@
 ![ZIG](https://ziglang.org/zig-logo.svg)
 
-A programming language designed for robustness, optimality, and
-clarity.
+Zig is an open-source programming language designed for **robustness**,
+**optimality**, and **maintainability**.
 
 [Download & Documentation](https://ziglang.org/download/)
 
