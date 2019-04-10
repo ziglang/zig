@@ -45,7 +45,7 @@ Error zig_libc_parse(ZigLibCInstallation *libc, Buf *libc_file, const ZigTarget 
     bool found_keys[array_length(zig_libc_keys)] = {};
 
     Buf *contents = buf_alloc();
-    if ((err = os_fetch_file_path(libc_file, contents, false))) {
+    if ((err = os_fetch_file_path(libc_file, contents))) {
         if (err != ErrorFileNotFound && verbose) {
             fprintf(stderr, "Unable to read '%s': %s\n", buf_ptr(libc_file), err_str(err));
         }

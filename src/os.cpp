@@ -751,38 +751,14 @@ Buf os_path_resolve(Buf **paths_ptr, size_t paths_len) {
 #endif
 }
 
-Error os_fetch_file(FILE *f, Buf *out_buf, bool skip_shebang) {
+Error os_fetch_file(FILE *f, Buf *out_buf) {
     static const ssize_t buf_size = 0x2000;
     buf_resize(out_buf, buf_size);
     ssize_t actual_buf_len = 0;
 
-    bool first_read = true;
-
     for (;;) {
         size_t amt_read = fread(buf_ptr(out_buf) + actual_buf_len, 1, buf_size, f);
         actual_buf_len += amt_read;
-
-        if (skip_shebang && first_read && buf_starts_with_str(out_buf, "#!")) {
-            size_t i = 0;
-            while (true) {
-                if (i > buf_len(out_buf)) {
-                    zig_panic("shebang line exceeded %zd characters", buf_size);
-                }
-
-                size_t current_pos = i;
-                i += 1;
-
-                if (out_buf->list.at(current_pos) == '\n') {
-                    break;
-                }
-            }
-
-            ZigList<char> *list = &out_buf->list;
-            memmove(list->items, list->items + i, list->length - i);
-            list->length -= i;
-
-            actual_buf_len -= i;
-        }
 
         if (amt_read != buf_size) {
             if (feof(f)) {
@@ -794,7 +770,6 @@ Error os_fetch_file(FILE *f, Buf *out_buf, bool skip_shebang) {
         }
 
         buf_resize(out_buf, actual_buf_len + buf_size);
-        first_read = false;
     }
     zig_unreachable();
 }
@@ -864,8 +839,8 @@ static Error os_exec_process_posix(const char *exe, ZigList<const char *> &args,
 
         FILE *stdout_f = fdopen(stdout_pipe[0], "rb");
         FILE *stderr_f = fdopen(stderr_pipe[0], "rb");
-        Error err1 = os_fetch_file(stdout_f, out_stdout, false);
-        Error err2 = os_fetch_file(stderr_f, out_stderr, false);
+        Error err1 = os_fetch_file(stdout_f, out_stdout);
+        Error err2 = os_fetch_file(stderr_f, out_stderr);
 
         fclose(stdout_f);
         fclose(stderr_f);
@@ -1097,7 +1072,7 @@ Error os_copy_file(Buf *src_path, Buf *dest_path) {
     }
 }
 
-Error os_fetch_file_path(Buf *full_path, Buf *out_contents, bool skip_shebang) {
+Error os_fetch_file_path(Buf *full_path, Buf *out_contents) {
     FILE *f = fopen(buf_ptr(full_path), "rb");
     if (!f) {
         switch (errno) {
@@ -1116,7 +1091,7 @@ Error os_fetch_file_path(Buf *full_path, Buf *out_contents, bool skip_shebang) {
                 return ErrorFileSystem;
         }
     }
-    Error result = os_fetch_file(f, out_contents, skip_shebang);
+    Error result = os_fetch_file(f, out_contents);
     fclose(f);
     return result;
 }
