@@ -1902,3 +1902,22 @@ test "json.test.i_structure_UTF-8_BOM_empty_object" {
         \\ï»¿{}
     );
 }
+
+// https://tools.ietf.org/html/rfc8259#section-8.1
+test "json.invalidutf8" {
+    err("[\"\xff\x80\x80\x80invalid\"]");
+    err("[\"\xc0\x80invalid\"]");
+    err("[\"\xed\xa0short\"]");
+    err("[\"\xf0\x80\x80\x80short\"]");
+    err("[\"\xf4\x90\x80\x80long\"]");
+    err("[\"\xc2trunc\"]");
+    err("[\"\xee\x80trunc\"]");
+    err("[\"\xf4\x80\x80trunc\"]");
+}
+
+// https://tools.ietf.org/html/rfc8259#section-8.2
+test "json.invalidunicode" {
+    err(
+        \\["\uDEAD"]
+    );
+}
