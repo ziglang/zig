@@ -1101,6 +1101,16 @@ static void construct_linker_job_wasm(LinkJob *lj) {
     for (size_t i = 0; i < g->link_objects.length; i += 1) {
         lj->args.append((const char *)buf_ptr(g->link_objects.at(i)));
     }
+
+    if (g->out_type == OutTypeExe) {
+        if (g->libc_link_lib == nullptr) {
+            Buf *builtin_a_path = build_a(g, "builtin");
+            lj->args.append(buf_ptr(builtin_a_path));
+        }
+
+        Buf *compiler_rt_o_path = build_compiler_rt(g);
+        lj->args.append(buf_ptr(compiler_rt_o_path));
+    }
 }
 
 static void coff_append_machine_arg(CodeGen *g, ZigList<const char *> *list) {
