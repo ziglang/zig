@@ -9,7 +9,7 @@ comptime {
     @export("__getf2", @import("compiler_rt/comparetf2.zig").__getf2, linkage);
 
     if (!is_test) {
-        // only create these aliases when not testing -- Yes, I can read the code, but why?
+        // Why don't we need these when testing?
         @export("__cmptf2", @import("compiler_rt/comparetf2.zig").__letf2, linkage);
         @export("__eqtf2", @import("compiler_rt/comparetf2.zig").__letf2, linkage);
         @export("__lttf2", @import("compiler_rt/comparetf2.zig").__letf2, linkage);
