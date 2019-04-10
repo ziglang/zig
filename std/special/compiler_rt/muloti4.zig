@@ -44,9 +44,9 @@ pub extern fn __muloti4(a: i128, b: i128, overflow: *c_int) i128 {
     return r;
 }
 
-pub extern fn __muloti4_windows_x86_64(a: *const i128, b: *const i128, overflow: *c_int) void {
-    @setRuntimeSafety(builtin.is_test);
-    compiler_rt.setXmm0(i128, __muloti4(a.*, b.*, overflow));
+const v128 = @Vector(2, u64);
+pub extern fn __muloti4_windows_x86_64(a: v128, b: v128, overflow: *c_int) v128 {
+    return @bitCast(v128, @inlineCall(__muloti4, @bitCast(i128, a), @bitCast(i128, b), overflow));
 }
 
 test "import muloti4" {

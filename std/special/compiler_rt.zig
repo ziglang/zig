@@ -160,6 +160,8 @@ comptime {
                     @export("__chkstk", __chkstk, strong_linkage);
                     @export("___chkstk_ms", ___chkstk_ms, linkage);
                 }
+                // The "ti" functions must use @Vector(2, u64) parameter types to adhere to the ABI
+                // that LLVM expects compiler-rt to have.
                 @export("__divti3", @import("compiler_rt/divti3.zig").__divti3_windows_x86_64, linkage);
                 @export("__modti3", @import("compiler_rt/modti3.zig").__modti3_windows_x86_64, linkage);
                 @export("__multi3", @import("compiler_rt/multi3.zig").__multi3_windows_x86_64, linkage);
@@ -196,17 +198,6 @@ pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn
     } else {
         unreachable;
     }
-}
-
-pub fn setXmm0(comptime T: type, value: T) void {
-    comptime assert(builtin.arch == builtin.Arch.x86_64);
-    const aligned_value: T align(16) = value;
-    asm volatile (
-        \\movaps (%[ptr]), %%xmm0
-            :
-        : [ptr] "r" (&aligned_value)
-        : "xmm0"
-    );
 }
 
 extern fn __udivdi3(a: u64, b: u64) u64 {
