@@ -331,7 +331,7 @@ int main(int argc, char **argv) {
             os_path_split(cwd, nullptr, cwd_basename);
 
             Buf *build_zig_contents = buf_alloc();
-            if ((err = os_fetch_file_path(build_zig_path, build_zig_contents, false))) {
+            if ((err = os_fetch_file_path(build_zig_path, build_zig_contents))) {
                 fprintf(stderr, "Unable to read %s: %s\n", buf_ptr(build_zig_path), err_str(err));
                 return EXIT_FAILURE;
             }
@@ -346,7 +346,7 @@ int main(int argc, char **argv) {
             }
 
             Buf *main_zig_contents = buf_alloc();
-            if ((err = os_fetch_file_path(main_zig_path, main_zig_contents, false))) {
+            if ((err = os_fetch_file_path(main_zig_path, main_zig_contents))) {
                 fprintf(stderr, "Unable to read %s: %s\n", buf_ptr(main_zig_path), err_str(err));
                 return EXIT_FAILURE;
             }

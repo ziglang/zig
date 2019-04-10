@@ -479,7 +479,6 @@ pub const Node = struct {
         doc_comments: ?*DocComment,
         decls: DeclList,
         eof_token: TokenIndex,
-        shebang: ?TokenIndex,
 
         pub const DeclList = SegmentedList(*Node, 4);
 
@@ -491,7 +490,6 @@ pub const Node = struct {
         }
 
         pub fn firstToken(self: *const Root) TokenIndex {
-            if (self.shebang) |shebang| return shebang;
             return if (self.decls.len == 0) self.eof_token else (self.decls.at(0).*).firstToken();
         }
 
@@ -2235,7 +2233,6 @@ test "iterate" {
         .doc_comments = null,
         .decls = Node.Root.DeclList.init(std.debug.global_allocator),
         .eof_token = 0,
-        .shebang = null,
     };
     var base = &root.base;
     testing.expect(base.iterate(0) == null);

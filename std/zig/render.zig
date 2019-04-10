@@ -73,11 +73,6 @@ fn renderRoot(
 ) (@typeOf(stream).Child.Error || Error)!void {
     var tok_it = tree.tokens.iterator(0);
 
-    // render the shebang line
-    if (tree.root_node.shebang) |shebang| {
-        try stream.write(tree.tokenSlice(shebang));
-    }
-
     // render all the line comments at the beginning of the file
     while (tok_it.next()) |token| {
         if (token.id != Token.Id.LineComment) break;
