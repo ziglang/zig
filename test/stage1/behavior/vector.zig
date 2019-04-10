@@ -120,6 +120,12 @@ test "vector @clz/@ctz" {
             expect(a[1] == 1);
             expect(a[2] == 8);
             expect(a[3] == 0);
+            v2 = @ctz(@Vector(4, u8), v);
+            a = v2;
+            expect(a[0] == 0);
+            expect(a[1] == 1);
+            expect(a[2] == 8);
+            expect(a[3] == 7);
         }
     };
     S.doTheTest();
