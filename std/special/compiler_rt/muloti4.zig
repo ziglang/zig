@@ -1,4 +1,3 @@
-const udivmod = @import("udivmod.zig").udivmod;
 const builtin = @import("builtin");
 const compiler_rt = @import("../compiler_rt.zig");
 
@@ -33,11 +32,11 @@ pub extern fn __muloti4(a: i128, b: i128, overflow: *c_int) i128 {
     }
 
     if (sa == sb) {
-        if (abs_a > @divFloor(max, abs_b)) {
+        if (abs_a > @divTrunc(max, abs_b)) {
             overflow.* = 1;
         }
     } else {
-        if (abs_a > @divFloor(min, -abs_b)) {
+        if (abs_a > @divTrunc(min, -abs_b)) {
             overflow.* = 1;
         }
     }
