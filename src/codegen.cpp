@@ -7814,7 +7814,7 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     Buf *contents;
     if (hit) {
         contents = buf_alloc();
-        if ((err = os_fetch_file_path(builtin_zig_path, contents, false))) {
+        if ((err = os_fetch_file_path(builtin_zig_path, contents))) {
             fprintf(stderr, "Unable to open '%s': %s\n", buf_ptr(builtin_zig_path), err_str(err));
             exit(1);
         }
@@ -8233,7 +8233,7 @@ static void gen_root_source(CodeGen *g) {
     Error err;
     // No need for using the caching system for this file fetch because it is handled
     // separately.
-    if ((err = os_fetch_file_path(resolved_path, source_code, true))) {
+    if ((err = os_fetch_file_path(resolved_path, source_code))) {
         fprintf(stderr, "unable to open '%s': %s\n", buf_ptr(resolved_path), err_str(err));
         exit(1);
     }
@@ -8308,7 +8308,7 @@ static void gen_global_asm(CodeGen *g) {
         Buf *asm_file = g->assembly_files.at(i);
         // No need to use the caching system for these fetches because they
         // are handled separately.
-        if ((err = os_fetch_file_path(asm_file, &contents,  false))) {
+        if ((err = os_fetch_file_path(asm_file, &contents))) {
             zig_panic("Unable to read %s: %s", buf_ptr(asm_file), err_str(err));
         }
         buf_append_buf(&g->global_asm, &contents);
