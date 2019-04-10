@@ -1574,15 +1574,19 @@ struct ZigLLVMFnKey {
     union {
         struct {
             uint32_t bit_count;
+            uint32_t vector_len; // 0 means not a vector
         } ctz;
         struct {
             uint32_t bit_count;
+            uint32_t vector_len; // 0 means not a vector
         } clz;
         struct {
             uint32_t bit_count;
+            uint32_t vector_len; // 0 means not a vector
         } pop_count;
         struct {
             uint32_t bit_count;
+            uint32_t vector_len; // 0 means not a vector
         } floating;
         struct {
             AddSubMul add_sub_mul;
@@ -1598,15 +1602,19 @@ struct ZigLLVMFnKey {
         } saturating_arithmetic;
         struct {
             uint32_t bit_count;
+            uint32_t vector_len; // 0 means not a vector
         } bswap;
         struct {
             uint32_t bit_count;
+            uint32_t vector_len; // 0 means not a vector
         } bit_reverse;
         struct {
             uint32_t bit_count;
+            uint32_t vector_len; // 0 means not a vector
         } fshl;
         struct {
             uint32_t bit_count;
+            uint32_t vector_len; // 0 means not a vector
         } fshr;
     } data;
 };

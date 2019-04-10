@@ -109,3 +109,19 @@ test "vector widen" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "vector @clz/@ctz" {
+    const S = struct {
+        fn doTheTest() void {
+            var v: @Vector(4, u8) = [4]u8{ 0b00001111, 0b01111110, 0b00000000, 0b10000000 };
+            var v2: @Vector(4, u8) = @clz(@Vector(4, u8), v);
+            var a: [4]u8 = v2;
+            expect(a[0] == 4);
+            expect(a[1] == 1);
+            expect(a[2] == 8);
+            expect(a[3] == 0);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}

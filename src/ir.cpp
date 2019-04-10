@@ -17078,43 +17078,82 @@ static IrInstruction *ir_analyze_instruction_ctz(IrAnalyze *ira, IrInstructionCt
     return result;
 }
 
+static void ir_eval_count_zeros_scalar(IrAnalyze *ira, IrInstruction *source_instr, ZigType *scalar_type,
+   ConstExprValue *operand_val, ConstExprValue *scalar_out_val, bool is_clz) {
+    scalar_out_val->special = ConstValSpecialStatic;
+
+    size_t result_usize;
+    if (is_clz)
+        result_usize = bigint_clz(&operand_val->data.x_bigint, scalar_type->data.integral.bit_count);
+    else
+        result_usize = bigint_ctz(&operand_val->data.x_bigint, scalar_type->data.integral.bit_count);
+
+    bigint_init_unsigned(&scalar_out_val->data.x_bigint, result_usize);
+}
+
 static IrInstruction *ir_analyze_instruction_clz(IrAnalyze *ira, IrInstructionClz *instruction) {
-    ZigType *int_type = ir_resolve_type(ira, instruction->type->child);
-    if (type_is_invalid(int_type))
+    ZigType *expr_type = ir_resolve_type(ira, instruction->type->child);
+    if (type_is_invalid(expr_type))
         return ira->codegen->invalid_instruction;
+    ZigType *scalar_type = (expr_type->id == ZigTypeIdVector) ? expr_type->data.vector.elem_type : expr_type;
 
     IrInstruction *op = instruction->op->child;
 
-    if (int_type->id != ZigTypeIdInt) {
+    if (scalar_type->id != ZigTypeIdInt) {
         ir_add_error(ira, instruction->type,
-            buf_sprintf("expected integer type, found '%s'", buf_ptr(&int_type->name)));
+            buf_sprintf("expected integer type, found '%s'", buf_ptr(&scalar_type->name)));
         return ira->codegen->invalid_instruction;
     }
-
-    IrInstruction *casted_op = ir_implicit_cast(ira, op, int_type);
-    if (type_is_invalid(casted_op->value.type))
-        return ira->codegen->invalid_instruction;
 
     if (op->value.type->id == ZigTypeIdComptimeInt) {
         ir_add_error(ira, instruction->op,
-            buf_sprintf("expected %s fixed-width integer type, found %s", buf_ptr(&int_type->name), buf_ptr(&op->value.type->name)));
+            buf_sprintf("expected %s fixed-width integer type, found %s", buf_ptr(&expr_type->name), buf_ptr(&op->value.type->name)));
         return ira->codegen->invalid_instruction;
     }
 
-    ZigType *return_type = get_smallest_unsigned_int_type(ira->codegen, int_type->data.integral.bit_count);
+    IrInstruction *casted_op = ir_implicit_cast(ira, op, expr_type);
+    if (type_is_invalid(casted_op->value.type))
+        return ira->codegen->invalid_instruction;
 
-    if (int_type->data.integral.bit_count == 0) {
-        IrInstruction *result = ir_const(ira, &instruction->base, return_type);
-        bigint_init_unsigned(&result->value.data.x_bigint, 0);
-        return result;
+    ZigType *scalar_return_type = get_smallest_unsigned_int_type(ira->codegen, scalar_type->data.integral.bit_count);
+    ZigType *return_type = (expr_type->id == ZigTypeIdVector) ?
+        get_vector_type(ira->codegen, expr_type->data.vector.len, scalar_return_type) : scalar_return_type;
+
+    if (scalar_type->data.integral.bit_count == 0) {
+        if (expr_type->id == ZigTypeIdVector) {
+            zig_unreachable(); //TODO
+        } else {
+            IrInstruction *result = ir_const(ira, &instruction->base, return_type);
+            bigint_init_unsigned(&result->value.data.x_bigint, 0);
+            return result;
+        }
     }
 
     if (instr_is_comptime(casted_op)) {
-        size_t result_usize = bigint_clz(&op->value.data.x_bigint,
-                op->value.type->data.integral.bit_count);
-        IrInstruction *result = ir_const(ira, &instruction->base, return_type);
-        bigint_init_unsigned(&result->value.data.x_bigint, result_usize);
-        return result;
+        ConstExprValue *operand_val = ir_resolve_const(ira, casted_op, UndefBad);
+        if (!operand_val)
+            return ira->codegen->invalid_instruction;
+
+        IrInstruction *result_instruction = ir_const(ira, &instruction->base, return_type);
+        ConstExprValue *out_val = &result_instruction->value;
+        if (expr_type->id == ZigTypeIdVector) {
+            expand_undef_array(ira->codegen, operand_val);
+            out_val->special = ConstValSpecialUndef;
+            expand_undef_array(ira->codegen, out_val);
+            size_t len = expr_type->data.vector.len;
+            for (size_t i = 0; i < len; i += 1) {
+                ConstExprValue *scalar_operand_val = &operand_val->data.x_array.data.s_none.elements[i];
+                ConstExprValue *scalar_out_val = &out_val->data.x_array.data.s_none.elements[i];
+                assert(scalar_operand_val->type == scalar_type);
+                scalar_out_val->type = scalar_return_type;
+                ir_eval_count_zeros_scalar(ira, &instruction->base, scalar_type,
+                        scalar_operand_val, scalar_out_val, true);
+            }
+            out_val->special = ConstValSpecialStatic;
+        } else {
+            ir_eval_count_zeros_scalar(ira, &instruction->base, scalar_type, operand_val, out_val, true);
+        }
+        return result_instruction;
     }
 
     IrInstruction *result = ir_build_clz(&ira->new_irb, instruction->base.scope,

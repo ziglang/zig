@@ -4096,8 +4096,11 @@ static LLVMValueRef ir_render_optional_unwrap_ptr(CodeGen *g, IrExecutable *exec
     }
 }
 
-static LLVMValueRef get_int_builtin_fn(CodeGen *g, ZigType *int_type, BuiltinFnId fn_id) {
+static LLVMValueRef get_int_builtin_fn(CodeGen *g, ZigType *type, BuiltinFnId fn_id) {
     ZigLLVMFnKey key = {};
+    bool is_vector = (type->id == ZigTypeIdVector);
+    ZigType *int_type = is_vector ? type->data.vector.elem_type : type;
+    uint32_t vector_len = is_vector ? type->data.vector.len : 0;
     const char *fn_name;
     uint32_t n_args;
     if (fn_id == BuiltinFnIdCtz) {
@@ -4105,36 +4108,43 @@ static LLVMValueRef get_int_builtin_fn(CodeGen *g, ZigType *int_type, BuiltinFnI
         n_args = 2;
         key.id = ZigLLVMFnIdCtz;
         key.data.ctz.bit_count = (uint32_t)int_type->data.integral.bit_count;
+        key.data.ctz.vector_len = vector_len;
     } else if (fn_id == BuiltinFnIdClz) {
         fn_name = "ctlz";
         n_args = 2;
         key.id = ZigLLVMFnIdClz;
         key.data.clz.bit_count = (uint32_t)int_type->data.integral.bit_count;
+        key.data.clz.vector_len = vector_len;
     } else if (fn_id == BuiltinFnIdPopCount) {
         fn_name = "ctpop";
         n_args = 1;
         key.id = ZigLLVMFnIdPopCount;
         key.data.pop_count.bit_count = (uint32_t)int_type->data.integral.bit_count;
+        key.data.pop_count.vector_len = vector_len;
     } else if (fn_id == BuiltinFnIdBswap) {
         fn_name = "bswap";
         n_args = 1;
         key.id = ZigLLVMFnIdBswap;
         key.data.bswap.bit_count = (uint32_t)int_type->data.integral.bit_count;
+        key.data.bswap.vector_len = vector_len;
     } else if (fn_id == BuiltinFnIdBitReverse) {
         fn_name = "bitreverse";
         n_args = 1;
         key.id = ZigLLVMFnIdBitReverse;
         key.data.bit_reverse.bit_count = (uint32_t)int_type->data.integral.bit_count;
+        key.data.bit_reverse.vector_len = vector_len;
     } else if (fn_id == BuiltinFnIdFshl) {
         fn_name = "fshl";
         n_args = 3;
         key.id = ZigLLVMFnIdFshl;
         key.data.fshl.bit_count = (uint32_t)int_type->data.integral.bit_count;
+        key.data.fshl.vector_len = vector_len;
     } else if (fn_id == BuiltinFnIdFshr) {
         fn_name = "fshr";
         n_args = 3;
         key.id = ZigLLVMFnIdFshr;
         key.data.fshr.bit_count = (uint32_t)int_type->data.integral.bit_count;
+        key.data.fshr.vector_len = vector_len;
     } else {
         zig_unreachable();
     }
@@ -4144,27 +4154,30 @@ static LLVMValueRef get_int_builtin_fn(CodeGen *g, ZigType *int_type, BuiltinFnI
         return existing_entry->value;
 
     char llvm_name[64];
-    sprintf(llvm_name, "llvm.%s.i%" PRIu32, fn_name, int_type->data.integral.bit_count);
+    if (is_vector)
+        sprintf(llvm_name, "llvm.%s.v%" PRIu32 "i%" PRIu32, fn_name, vector_len, int_type->data.integral.bit_count);
+    else
+        sprintf(llvm_name, "llvm.%s.i%" PRIu32, fn_name, int_type->data.integral.bit_count);
     LLVMTypeRef param_types[3];
     switch (n_args) {
     case 1:
-        param_types[0] = get_llvm_type(g, int_type);
+        param_types[0] = get_llvm_type(g, type);
         break;
     case 2: // clz and ctz
-        param_types[0] = get_llvm_type(g, int_type);
+        param_types[0] = get_llvm_type(g, type);
         param_types[1] = LLVMInt1Type();
         break;
     case 3: {
         // fshl and fshr
-        param_types[0] = get_llvm_type(g, int_type);
-        param_types[1] = get_llvm_type(g, int_type);
-        param_types[2] = get_llvm_type(g, int_type);
+        param_types[0] = get_llvm_type(g, type);
+        param_types[1] = get_llvm_type(g, type);
+        param_types[2] = get_llvm_type(g, type);
         break;
     }
     default:
         zig_unreachable();
     }
-    LLVMTypeRef fn_type = LLVMFunctionType(get_llvm_type(g, int_type), &param_types[0], n_args, false);
+    LLVMTypeRef fn_type = LLVMFunctionType(get_llvm_type(g, type), &param_types[0], n_args, false);
     LLVMValueRef fn_val = LLVMAddFunction(g->module, llvm_name, fn_type);
     assert(LLVMGetIntrinsicID(fn_val));
 

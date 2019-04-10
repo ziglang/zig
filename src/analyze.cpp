@@ -5704,25 +5704,35 @@ bool type_id_eql(TypeId a, TypeId b) {
 uint32_t zig_llvm_fn_key_hash(ZigLLVMFnKey x) {
     switch (x.id) {
         case ZigLLVMFnIdCtz:
-            return (uint32_t)(x.data.ctz.bit_count) * (uint32_t)810453934;
+            return (uint32_t)(x.data.ctz.bit_count) * (uint32_t)810453934 +
+                x.data.ctz.vector_len;
         case ZigLLVMFnIdClz:
-            return (uint32_t)(x.data.clz.bit_count) * (uint32_t)2428952817;
+            return (uint32_t)(x.data.clz.bit_count) * (uint32_t)2428952817 +
+                x.data.clz.vector_len;
         case ZigLLVMFnIdPopCount:
-            return (uint32_t)(x.data.clz.bit_count) * (uint32_t)101195049;
+            return (uint32_t)(x.data.pop_count.bit_count) * (uint32_t)101195049 +
+                x.data.pop_count.vector_len;
         case ZigLLVMFnIdFloor:
-            return (uint32_t)(x.data.floating.bit_count) * (uint32_t)1899859168;
+            return (uint32_t)(x.data.floating.bit_count) * (uint32_t)1899859168 +
+                x.data.floating.vector_len;
         case ZigLLVMFnIdCeil:
-            return (uint32_t)(x.data.floating.bit_count) * (uint32_t)1953839089;
+            return (uint32_t)(x.data.floating.bit_count) * (uint32_t)1953839089 +
+                x.data.floating.vector_len;
         case ZigLLVMFnIdSqrt:
-            return (uint32_t)(x.data.floating.bit_count) * (uint32_t)2225366385;
+            return (uint32_t)(x.data.floating.bit_count) * (uint32_t)2225366385 +
+                x.data.floating.vector_len;
         case ZigLLVMFnIdBswap:
-            return (uint32_t)(x.data.bswap.bit_count) * (uint32_t)3661994335;
+            return (uint32_t)(x.data.bswap.bit_count) * (uint32_t)3661994335 +
+                x.data.bswap.vector_len;
         case ZigLLVMFnIdBitReverse:
-            return (uint32_t)(x.data.bit_reverse.bit_count) * (uint32_t)2621398431;
+            return (uint32_t)(x.data.bit_reverse.bit_count) * (uint32_t)2621398431 +
+                x.data.bit_reverse.vector_len;
         case ZigLLVMFnIdFshl:
-            return (uint32_t)(x.data.fshl.bit_count) * (uint32_t)0xfadefade;
+            return (uint32_t)(x.data.fshl.bit_count) * (uint32_t)0xfadefade +
+                x.data.fshl.vector_len;
         case ZigLLVMFnIdFshr:
-            return (uint32_t)(x.data.fshr.bit_count) * (uint32_t)0xedafedaf;
+            return (uint32_t)(x.data.fshr.bit_count) * (uint32_t)0xedafedaf +
+                x.data.fshr.vector_len;
         case ZigLLVMFnIdOverflowArithmetic:
             return ((uint32_t)(x.data.overflow_arithmetic.bit_count) * 87135777) +
                 ((uint32_t)(x.data.overflow_arithmetic.add_sub_mul) * 31640542) +
