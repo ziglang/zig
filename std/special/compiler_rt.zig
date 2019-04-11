@@ -165,7 +165,6 @@ comptime {
                 @export("__divti3", @import("compiler_rt/divti3.zig").__divti3_windows_x86_64, linkage);
                 @export("__modti3", @import("compiler_rt/modti3.zig").__modti3_windows_x86_64, linkage);
                 @export("__multi3", @import("compiler_rt/multi3.zig").__multi3_windows_x86_64, linkage);
-                @export("__muloti4", @import("compiler_rt/muloti4.zig").__muloti4_windows_x86_64, linkage);
                 @export("__udivti3", @import("compiler_rt/udivti3.zig").__udivti3_windows_x86_64, linkage);
                 @export("__udivmodti4", @import("compiler_rt/udivmodti4.zig").__udivmodti4_windows_x86_64, linkage);
                 @export("__umodti3", @import("compiler_rt/umodti3.zig").__umodti3_windows_x86_64, linkage);
@@ -176,11 +175,11 @@ comptime {
         @export("__divti3", @import("compiler_rt/divti3.zig").__divti3, linkage);
         @export("__modti3", @import("compiler_rt/modti3.zig").__modti3, linkage);
         @export("__multi3", @import("compiler_rt/multi3.zig").__multi3, linkage);
-        @export("__muloti4", @import("compiler_rt/muloti4.zig").__muloti4, linkage);
         @export("__udivti3", @import("compiler_rt/udivti3.zig").__udivti3, linkage);
         @export("__udivmodti4", @import("compiler_rt/udivmodti4.zig").__udivmodti4, linkage);
         @export("__umodti3", @import("compiler_rt/umodti3.zig").__umodti3, linkage);
     }
+    @export("__muloti4", @import("compiler_rt/muloti4.zig").__muloti4, linkage);
 }
 
 const std = @import("std");

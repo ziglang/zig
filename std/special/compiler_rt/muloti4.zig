@@ -44,11 +44,6 @@ pub extern fn __muloti4(a: i128, b: i128, overflow: *c_int) i128 {
     return r;
 }
 
-const v128 = @Vector(2, u64);
-pub extern fn __muloti4_windows_x86_64(a: v128, b: v128, overflow: *c_int) v128 {
-    return @bitCast(v128, @inlineCall(__muloti4, @bitCast(i128, a), @bitCast(i128, b), overflow));
-}
-
 test "import muloti4" {
     _ = @import("muloti4_test.zig");
 }
