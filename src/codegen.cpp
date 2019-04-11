@@ -7953,7 +7953,8 @@ static void init(CodeGen *g) {
         }
     }
 
-    g->have_err_ret_tracing = g->build_mode != BuildModeFastRelease && g->build_mode != BuildModeSmallRelease;
+    bool is_wasm = g->zig_target->arch == ZigLLVM_wasm32 || g->zig_target->arch == ZigLLVM_wasm64;
+    g->have_err_ret_tracing = !is_wasm && g->build_mode != BuildModeFastRelease && g->build_mode != BuildModeSmallRelease;
 
     define_builtin_fns(g);
     Error err;
