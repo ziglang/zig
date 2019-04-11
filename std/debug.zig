@@ -1243,6 +1243,7 @@ const FormValue = union(enum) {
     ExprLoc: []u8,
     Flag: bool,
     SecOffset: u64,
+    Ref: u64,
     RefAddr: u64,
     String: []u8,
     StrPtr: u64,
@@ -1465,7 +1466,7 @@ fn parseFormValueTargetAddrSize(in_stream: var) !u64 {
 
 fn parseFormValueRef(allocator: *mem.Allocator, in_stream: var, size: i32) !FormValue {
     return FormValue{
-        .RefAddr = switch (size) {
+        .Ref = switch (size) {
             1  => try in_stream.readIntLittle(u8),
             2  => try in_stream.readIntLittle(u16),
             4  => try in_stream.readIntLittle(u32),
@@ -1510,7 +1511,7 @@ fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, is_64
         DW.FORM_ref_udata => parseFormValueRef(allocator, in_stream, -1),
 
         DW.FORM_ref_addr => FormValue{ .RefAddr = try parseFormValueDwarfOffsetSize(in_stream, is_64) },
-        DW.FORM_ref_sig8 => FormValue{ .RefAddr = try in_stream.readIntLittle(u64) },
+        DW.FORM_ref_sig8 => FormValue{ .Ref = try in_stream.readIntLittle(u64) },
 
         DW.FORM_string => FormValue{ .String = try readStringRaw(allocator, in_stream) },
         DW.FORM_strp => FormValue{ .StrPtr = try parseFormValueDwarfOffsetSize(in_stream, is_64) },
