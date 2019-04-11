@@ -16,6 +16,7 @@
 
 // ATTENTION: If you modify this file, be sure to update the corresponding
 // extern function declarations in the self-hosted compiler.
+// Note: not yet, we don't have the corresponding clang.zig yet.
 
 struct ZigClangSourceLocation {
     unsigned ID;
@@ -86,6 +87,7 @@ struct ZigClangStorageClass;
 struct ZigClangStringLiteral;
 struct ZigClangStringRef;
 struct ZigClangSwitchStmt;
+struct ZigClangTagDecl;
 struct ZigClangType;
 struct ZigClangTypedefNameDecl;
 struct ZigClangTypedefType;
@@ -256,4 +258,17 @@ ZIG_EXTERN_C ZigClangASTContext *ZigClangASTUnit_getASTContext(ZigClangASTUnit *
 ZIG_EXTERN_C ZigClangSourceManager *ZigClangASTUnit_getSourceManager(ZigClangASTUnit *);
 ZIG_EXTERN_C bool ZigClangASTUnit_visitLocalTopLevelDecls(ZigClangASTUnit *, void *context, 
     bool (*Fn)(void *context, const ZigClangDecl *decl));
+
+ZIG_EXTERN_C const ZigClangRecordDecl *ZigClangRecordType_getDecl(const ZigClangRecordType *record_ty);
+
+ZIG_EXTERN_C const ZigClangTagDecl *ZigClangRecordDecl_getCanonicalDecl(const ZigClangRecordDecl *record_decl);
+ZIG_EXTERN_C bool ZigClangRecordDecl_isUnion(const ZigClangRecordDecl *record_decl);
+ZIG_EXTERN_C bool ZigClangRecordDecl_isStruct(const ZigClangRecordDecl *record_decl);
+ZIG_EXTERN_C bool ZigClangRecordDecl_isAnonymousStructOrUnion(const ZigClangRecordDecl *record_decl);
+ZIG_EXTERN_C const ZigClangRecordDecl *ZigClangRecordDecl_getDefinition(const ZigClangRecordDecl *);
+ZIG_EXTERN_C ZigClangSourceLocation ZigClangRecordDecl_getLocation(const ZigClangRecordDecl *);
+
+ZIG_EXTERN_C const char *ZigClangDecl_getName_bytes_begin(const ZigClangDecl *decl);
+
+ZIG_EXTERN_C bool ZigClangSourceLocation_eq(ZigClangSourceLocation a, ZigClangSourceLocation b);
 #endif

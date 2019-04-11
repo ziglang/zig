@@ -212,3 +212,48 @@ bool ZigClangASTUnit_visitLocalTopLevelDecls(ZigClangASTUnit *self, void *contex
     return reinterpret_cast<clang::ASTUnit *>(self)->visitLocalTopLevelDecls(context,
             reinterpret_cast<bool (*)(void *, const clang::Decl *)>(Fn));
 }
+
+const ZigClangRecordDecl *ZigClangRecordType_getDecl(const ZigClangRecordType *record_ty) {
+    const clang::RecordDecl *record_decl = reinterpret_cast<const clang::RecordType *>(record_ty)->getDecl();
+    return reinterpret_cast<const ZigClangRecordDecl *>(record_decl);
+}
+
+const ZigClangTagDecl *ZigClangRecordDecl_getCanonicalDecl(const ZigClangRecordDecl *record_decl) {
+    const clang::TagDecl *tag_decl = reinterpret_cast<const clang::RecordDecl*>(record_decl)->getCanonicalDecl();
+    return reinterpret_cast<const ZigClangTagDecl *>(tag_decl);
+}
+
+const ZigClangRecordDecl *ZigClangRecordDecl_getDefinition(const ZigClangRecordDecl *zig_record_decl) {
+    const clang::RecordDecl *record_decl = reinterpret_cast<const clang::RecordDecl *>(zig_record_decl);
+    const clang::RecordDecl *definition = record_decl->getDefinition();
+    return reinterpret_cast<const ZigClangRecordDecl *>(definition);
+}
+
+bool ZigClangRecordDecl_isUnion(const ZigClangRecordDecl *record_decl) {
+    return reinterpret_cast<const clang::RecordDecl*>(record_decl)->isUnion();
+}
+
+bool ZigClangRecordDecl_isStruct(const ZigClangRecordDecl *record_decl) {
+    return reinterpret_cast<const clang::RecordDecl*>(record_decl)->isStruct();
+}
+
+bool ZigClangRecordDecl_isAnonymousStructOrUnion(const ZigClangRecordDecl *record_decl) {
+    return reinterpret_cast<const clang::RecordDecl*>(record_decl)->isAnonymousStructOrUnion();
+}
+
+const char *ZigClangDecl_getName_bytes_begin(const ZigClangDecl *zig_decl) {
+    const clang::Decl *decl = reinterpret_cast<const clang::Decl *>(zig_decl);
+    const clang::NamedDecl *named_decl = static_cast<const clang::NamedDecl *>(decl);
+    return (const char *)named_decl->getName().bytes_begin();
+}
+
+ZigClangSourceLocation ZigClangRecordDecl_getLocation(const ZigClangRecordDecl *zig_record_decl) {
+    const clang::RecordDecl *record_decl = reinterpret_cast<const clang::RecordDecl *>(zig_record_decl);
+    return bitcast(record_decl->getLocation());
+}
+
+bool ZigClangSourceLocation_eq(ZigClangSourceLocation zig_a, ZigClangSourceLocation zig_b) {
+    clang::SourceLocation a = bitcast(zig_a);
+    clang::SourceLocation b = bitcast(zig_b);
+    return a == b;
+}
