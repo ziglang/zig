@@ -521,6 +521,7 @@ set(ZIG_STD_FILES
     "math/atanh.zig"
     "math/big.zig"
     "math/big/int.zig"
+    "math/big/rational.zig"
     "math/cbrt.zig"
     "math/ceil.zig"
     "math/complex.zig"
