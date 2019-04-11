@@ -7360,20 +7360,30 @@ fn List(comptime T: type) type {
       <pre>{#syntax#}@truncate(comptime T: type, integer: var) T{#endsyntax#}</pre>
       <p>
       This function truncates bits from an integer type, resulting in a smaller
-      integer type.
+      or same-sized integer type.
       </p>
       <p>
-      The following produces a crash in {#link|Debug#} mode and {#link|Undefined Behavior#} in
-      {#link|ReleaseFast#} mode:
+      The following produces safety-checked {#link|Undefined Behavior#}:
       </p>
-      <pre>{#syntax#}const a: u16 = 0xabcd;
-const b: u8 = u8(a);{#endsyntax#}</pre>
+      {#code_begin|test_err|cast truncated bits#}
+test "integer cast panic" {
+    var a: u16 = 0xabcd;
+    var b: u8 = @intCast(u8, a);
+}
+      {#code_end#}
       <p>
       However this is well defined and working code:
       </p>
-      <pre>{#syntax#}const a: u16 = 0xabcd;
-const b: u8 = @truncate(u8, a);
-// b is now 0xcd{#endsyntax#}</pre>
+      {#code_begin|test|truncate#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+test "integer truncation" {
+    var a: u16 = 0xabcd;
+    var b: u8 = @truncate(u8, a);
+    assert(b == 0xcd);
+}
+      {#code_end#}
       <p>
       This function always truncates the significant bits of the integer, regardless
       of endianness on the target platform.
