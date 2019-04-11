@@ -1213,7 +1213,6 @@ const CompileUnit = struct {
     version: u16,
     is_64: bool,
     die: *Die,
-    index: usize,
     pc_range: ?PcRange,
 };
 
@@ -1244,21 +1243,19 @@ const FormValue = union(enum) {
     ExprLoc: []u8,
     Flag: bool,
     SecOffset: u64,
-    Ref: []u8,
+    Ref: u64,
     RefAddr: u64,
-    RefSig8: u64,
     String: []u8,
     StrPtr: u64,
 };
 
 const Constant = struct {
-    payload: []u8,
+    payload: u64,
     signed: bool,
 
     fn asUnsignedLe(self: *const Constant) !u64 {
-        if (self.payload.len > @sizeOf(u64)) return error.InvalidDebugInfo;
         if (self.signed) return error.InvalidDebugInfo;
-        return mem.readVarInt(u64, self.payload, builtin.Endian.Little);
+        return self.payload;
     }
 };
 
@@ -1443,11 +1440,18 @@ fn parseFormValueBlock(allocator: *mem.Allocator, in_stream: var, size: usize) !
     return parseFormValueBlockLen(allocator, in_stream, block_len);
 }
 
-fn parseFormValueConstant(allocator: *mem.Allocator, in_stream: var, signed: bool, size: usize) !FormValue {
+fn parseFormValueConstant(allocator: *mem.Allocator, in_stream: var, signed: bool, size: i32) !FormValue {
     return FormValue{
         .Const = Constant{
             .signed = signed,
-            .payload = try readAllocBytes(allocator, in_stream, size),
+            .payload = switch (size) {
+                1  => try in_stream.readIntLittle(u8),
+                2  => try in_stream.readIntLittle(u16),
+                4  => try in_stream.readIntLittle(u32),
+                8  => try in_stream.readIntLittle(u64),
+                -1 => if (signed) try readULeb128(in_stream) else @intCast(u64, try readILeb128(in_stream)),
+                else => unreachable,
+            },
         },
     };
 }
@@ -1460,14 +1464,17 @@ fn parseFormValueTargetAddrSize(in_stream: var) !u64 {
     return if (@sizeOf(usize) == 4) u64(try in_stream.readIntLittle(u32)) else if (@sizeOf(usize) == 8) try in_stream.readIntLittle(u64) else unreachable;
 }
 
-fn parseFormValueRefLen(allocator: *mem.Allocator, in_stream: var, size: usize) !FormValue {
-    const buf = try readAllocBytes(allocator, in_stream, size);
-    return FormValue{ .Ref = buf };
-}
-
-fn parseFormValueRef(allocator: *mem.Allocator, in_stream: var, comptime T: type) !FormValue {
-    const block_len = try in_stream.readIntLittle(T);
-    return parseFormValueRefLen(allocator, in_stream, block_len);
+fn parseFormValueRef(allocator: *mem.Allocator, in_stream: var, size: i32) !FormValue {
+    return FormValue{
+        .Ref = switch (size) {
+            1  => try in_stream.readIntLittle(u8),
+            2  => try in_stream.readIntLittle(u16),
+            4  => try in_stream.readIntLittle(u32),
+            8  => try in_stream.readIntLittle(u64),
+            -1 => try readULeb128(in_stream),
+            else => unreachable,
+        },
+    };
 }
 
 fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, is_64: bool) anyerror!FormValue {
@@ -1485,9 +1492,8 @@ fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, is_64
         DW.FORM_data4 => parseFormValueConstant(allocator, in_stream, false, 4),
         DW.FORM_data8 => parseFormValueConstant(allocator, in_stream, false, 8),
         DW.FORM_udata, DW.FORM_sdata => {
-            const block_len = try readULeb128(in_stream);
             const signed = form_id == DW.FORM_sdata;
-            return parseFormValueConstant(allocator, in_stream, signed, block_len);
+            return parseFormValueConstant(allocator, in_stream, signed, -1);
         },
         DW.FORM_exprloc => {
             const size = try readULeb128(in_stream);
@@ -1498,17 +1504,14 @@ fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, is_64
         DW.FORM_flag_present => FormValue{ .Flag = true },
         DW.FORM_sec_offset => FormValue{ .SecOffset = try parseFormValueDwarfOffsetSize(in_stream, is_64) },
 
-        DW.FORM_ref1 => parseFormValueRef(allocator, in_stream, u8),
-        DW.FORM_ref2 => parseFormValueRef(allocator, in_stream, u16),
-        DW.FORM_ref4 => parseFormValueRef(allocator, in_stream, u32),
-        DW.FORM_ref8 => parseFormValueRef(allocator, in_stream, u64),
-        DW.FORM_ref_udata => {
-            const ref_len = try readULeb128(in_stream);
-            return parseFormValueRefLen(allocator, in_stream, ref_len);
-        },
+        DW.FORM_ref1 => parseFormValueRef(allocator, in_stream, 1),
+        DW.FORM_ref2 => parseFormValueRef(allocator, in_stream, 2),
+        DW.FORM_ref4 => parseFormValueRef(allocator, in_stream, 4),
+        DW.FORM_ref8 => parseFormValueRef(allocator, in_stream, 8),
+        DW.FORM_ref_udata => parseFormValueRef(allocator, in_stream, -1),
 
         DW.FORM_ref_addr => FormValue{ .RefAddr = try parseFormValueDwarfOffsetSize(in_stream, is_64) },
-        DW.FORM_ref_sig8 => FormValue{ .RefSig8 = try in_stream.readIntLittle(u64) },
+        DW.FORM_ref_sig8 => FormValue{ .Ref = try in_stream.readIntLittle(u64) },
 
         DW.FORM_string => FormValue{ .String = try readStringRaw(allocator, in_stream) },
         DW.FORM_strp => FormValue{ .StrPtr = try parseFormValueDwarfOffsetSize(in_stream, is_64) },
@@ -1787,173 +1790,165 @@ fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: u
 
 fn getLineNumberInfoDwarf(di: *DwarfInfo, compile_unit: CompileUnit, target_address: usize) !LineInfo {
     const compile_unit_cwd = try compile_unit.die.getAttrString(di, DW.AT_comp_dir);
+    const line_info_offset = try compile_unit.die.getAttrSecOffset(DW.AT_stmt_list);
 
-    const debug_line_end = di.debug_line.offset + di.debug_line.size;
-    var this_offset = di.debug_line.offset;
-    var this_index: usize = 0;
+    assert(line_info_offset < di.debug_line.size);
 
-    while (this_offset < debug_line_end) : (this_index += 1) {
-        try di.dwarf_seekable_stream.seekTo(this_offset);
+    try di.dwarf_seekable_stream.seekTo(di.debug_line.offset + line_info_offset);
 
-        var is_64: bool = undefined;
-        const unit_length = try readInitialLength(@typeOf(di.dwarf_in_stream.readFn).ReturnType.ErrorSet, di.dwarf_in_stream, &is_64);
-        if (unit_length == 0) return error.MissingDebugInfo;
-        const next_offset = unit_length + (if (is_64) usize(12) else usize(4));
+    var is_64: bool = undefined;
+    const unit_length = try readInitialLength(@typeOf(di.dwarf_in_stream.readFn).ReturnType.ErrorSet, di.dwarf_in_stream, &is_64);
+    if (unit_length == 0) {
+        return error.MissingDebugInfo;
+    }
+    const next_offset = unit_length + (if (is_64) usize(12) else usize(4));
 
-        if (compile_unit.index != this_index) {
-            this_offset += next_offset;
-            continue;
+    const version = try di.dwarf_in_stream.readInt(u16, di.endian);
+    // TODO support 3 and 5
+    if (version != 2 and version != 4) return error.InvalidDebugInfo;
+
+    const prologue_length = if (is_64) try di.dwarf_in_stream.readInt(u64, di.endian) else try di.dwarf_in_stream.readInt(u32, di.endian);
+    const prog_start_offset = (try di.dwarf_seekable_stream.getPos()) + prologue_length;
+
+    const minimum_instruction_length = try di.dwarf_in_stream.readByte();
+    if (minimum_instruction_length == 0) return error.InvalidDebugInfo;
+
+    if (version >= 4) {
+        // maximum_operations_per_instruction
+        _ = try di.dwarf_in_stream.readByte();
+    }
+
+    const default_is_stmt = (try di.dwarf_in_stream.readByte()) != 0;
+    const line_base = try di.dwarf_in_stream.readByteSigned();
+
+    const line_range = try di.dwarf_in_stream.readByte();
+    if (line_range == 0) return error.InvalidDebugInfo;
+
+    const opcode_base = try di.dwarf_in_stream.readByte();
+
+    const standard_opcode_lengths = try di.allocator().alloc(u8, opcode_base - 1);
+
+    {
+        var i: usize = 0;
+        while (i < opcode_base - 1) : (i += 1) {
+            standard_opcode_lengths[i] = try di.dwarf_in_stream.readByte();
         }
+    }
 
-        const version = try di.dwarf_in_stream.readInt(u16, di.endian);
-        // TODO support 3 and 5
-        if (version != 2 and version != 4) return error.InvalidDebugInfo;
+    var include_directories = ArrayList([]u8).init(di.allocator());
+    try include_directories.append(compile_unit_cwd);
+    while (true) {
+        const dir = try di.readString();
+        if (dir.len == 0) break;
+        try include_directories.append(dir);
+    }
 
-        const prologue_length = if (is_64) try di.dwarf_in_stream.readInt(u64, di.endian) else try di.dwarf_in_stream.readInt(u32, di.endian);
-        const prog_start_offset = (try di.dwarf_seekable_stream.getPos()) + prologue_length;
+    var file_entries = ArrayList(FileEntry).init(di.allocator());
+    var prog = LineNumberProgram.init(default_is_stmt, include_directories.toSliceConst(), &file_entries, target_address);
 
-        const minimum_instruction_length = try di.dwarf_in_stream.readByte();
-        if (minimum_instruction_length == 0) return error.InvalidDebugInfo;
+    while (true) {
+        const file_name = try di.readString();
+        if (file_name.len == 0) break;
+        const dir_index = try readULeb128(di.dwarf_in_stream);
+        const mtime = try readULeb128(di.dwarf_in_stream);
+        const len_bytes = try readULeb128(di.dwarf_in_stream);
+        try file_entries.append(FileEntry{
+            .file_name = file_name,
+            .dir_index = dir_index,
+            .mtime = mtime,
+            .len_bytes = len_bytes,
+        });
+    }
 
-        if (version >= 4) {
-            // maximum_operations_per_instruction
-            _ = try di.dwarf_in_stream.readByte();
-        }
+    try di.dwarf_seekable_stream.seekTo(prog_start_offset);
 
-        const default_is_stmt = (try di.dwarf_in_stream.readByte()) != 0;
-        const line_base = try di.dwarf_in_stream.readByteSigned();
+    while (true) {
+        const opcode = try di.dwarf_in_stream.readByte();
 
-        const line_range = try di.dwarf_in_stream.readByte();
-        if (line_range == 0) return error.InvalidDebugInfo;
-
-        const opcode_base = try di.dwarf_in_stream.readByte();
-
-        const standard_opcode_lengths = try di.allocator().alloc(u8, opcode_base - 1);
-
-        {
-            var i: usize = 0;
-            while (i < opcode_base - 1) : (i += 1) {
-                standard_opcode_lengths[i] = try di.dwarf_in_stream.readByte();
+        if (opcode == DW.LNS_extended_op) {
+            const op_size = try readULeb128(di.dwarf_in_stream);
+            if (op_size < 1) return error.InvalidDebugInfo;
+            var sub_op = try di.dwarf_in_stream.readByte();
+            switch (sub_op) {
+                DW.LNE_end_sequence => {
+                    prog.end_sequence = true;
+                    if (try prog.checkLineMatch()) |info| return info;
+                    return error.MissingDebugInfo;
+                },
+                DW.LNE_set_address => {
+                    const addr = try di.dwarf_in_stream.readInt(usize, di.endian);
+                    prog.address = addr;
+                },
+                DW.LNE_define_file => {
+                    const file_name = try di.readString();
+                    const dir_index = try readULeb128(di.dwarf_in_stream);
+                    const mtime = try readULeb128(di.dwarf_in_stream);
+                    const len_bytes = try readULeb128(di.dwarf_in_stream);
+                    try file_entries.append(FileEntry{
+                        .file_name = file_name,
+                        .dir_index = dir_index,
+                        .mtime = mtime,
+                        .len_bytes = len_bytes,
+                    });
+                },
+                else => {
+                    const fwd_amt = math.cast(isize, op_size - 1) catch return error.InvalidDebugInfo;
+                    try di.dwarf_seekable_stream.seekForward(fwd_amt);
+                },
+            }
+        } else if (opcode >= opcode_base) {
+            // special opcodes
+            const adjusted_opcode = opcode - opcode_base;
+            const inc_addr = minimum_instruction_length * (adjusted_opcode / line_range);
+            const inc_line = i32(line_base) + i32(adjusted_opcode % line_range);
+            prog.line += inc_line;
+            prog.address += inc_addr;
+            if (try prog.checkLineMatch()) |info| return info;
+            prog.basic_block = false;
+        } else {
+            switch (opcode) {
+                DW.LNS_copy => {
+                    if (try prog.checkLineMatch()) |info| return info;
+                    prog.basic_block = false;
+                },
+                DW.LNS_advance_pc => {
+                    const arg = try readULeb128(di.dwarf_in_stream);
+                    prog.address += arg * minimum_instruction_length;
+                },
+                DW.LNS_advance_line => {
+                    const arg = try readILeb128(di.dwarf_in_stream);
+                    prog.line += arg;
+                },
+                DW.LNS_set_file => {
+                    const arg = try readULeb128(di.dwarf_in_stream);
+                    prog.file = arg;
+                },
+                DW.LNS_set_column => {
+                    const arg = try readULeb128(di.dwarf_in_stream);
+                    prog.column = arg;
+                },
+                DW.LNS_negate_stmt => {
+                    prog.is_stmt = !prog.is_stmt;
+                },
+                DW.LNS_set_basic_block => {
+                    prog.basic_block = true;
+                },
+                DW.LNS_const_add_pc => {
+                    const inc_addr = minimum_instruction_length * ((255 - opcode_base) / line_range);
+                    prog.address += inc_addr;
+                },
+                DW.LNS_fixed_advance_pc => {
+                    const arg = try di.dwarf_in_stream.readInt(u16, di.endian);
+                    prog.address += arg;
+                },
+                DW.LNS_set_prologue_end => {},
+                else => {
+                    if (opcode - 1 >= standard_opcode_lengths.len) return error.InvalidDebugInfo;
+                    const len_bytes = standard_opcode_lengths[opcode - 1];
+                    try di.dwarf_seekable_stream.seekForward(len_bytes);
+                },
             }
         }
-
-        var include_directories = ArrayList([]u8).init(di.allocator());
-        try include_directories.append(compile_unit_cwd);
-        while (true) {
-            const dir = try di.readString();
-            if (dir.len == 0) break;
-            try include_directories.append(dir);
-        }
-
-        var file_entries = ArrayList(FileEntry).init(di.allocator());
-        var prog = LineNumberProgram.init(default_is_stmt, include_directories.toSliceConst(), &file_entries, target_address);
-
-        while (true) {
-            const file_name = try di.readString();
-            if (file_name.len == 0) break;
-            const dir_index = try readULeb128(di.dwarf_in_stream);
-            const mtime = try readULeb128(di.dwarf_in_stream);
-            const len_bytes = try readULeb128(di.dwarf_in_stream);
-            try file_entries.append(FileEntry{
-                .file_name = file_name,
-                .dir_index = dir_index,
-                .mtime = mtime,
-                .len_bytes = len_bytes,
-            });
-        }
-
-        try di.dwarf_seekable_stream.seekTo(prog_start_offset);
-
-        while (true) {
-            const opcode = try di.dwarf_in_stream.readByte();
-
-            if (opcode == DW.LNS_extended_op) {
-                const op_size = try readULeb128(di.dwarf_in_stream);
-                if (op_size < 1) return error.InvalidDebugInfo;
-                var sub_op = try di.dwarf_in_stream.readByte();
-                switch (sub_op) {
-                    DW.LNE_end_sequence => {
-                        prog.end_sequence = true;
-                        if (try prog.checkLineMatch()) |info| return info;
-                        return error.MissingDebugInfo;
-                    },
-                    DW.LNE_set_address => {
-                        const addr = try di.dwarf_in_stream.readInt(usize, di.endian);
-                        prog.address = addr;
-                    },
-                    DW.LNE_define_file => {
-                        const file_name = try di.readString();
-                        const dir_index = try readULeb128(di.dwarf_in_stream);
-                        const mtime = try readULeb128(di.dwarf_in_stream);
-                        const len_bytes = try readULeb128(di.dwarf_in_stream);
-                        try file_entries.append(FileEntry{
-                            .file_name = file_name,
-                            .dir_index = dir_index,
-                            .mtime = mtime,
-                            .len_bytes = len_bytes,
-                        });
-                    },
-                    else => {
-                        const fwd_amt = math.cast(isize, op_size - 1) catch return error.InvalidDebugInfo;
-                        try di.dwarf_seekable_stream.seekForward(fwd_amt);
-                    },
-                }
-            } else if (opcode >= opcode_base) {
-                // special opcodes
-                const adjusted_opcode = opcode - opcode_base;
-                const inc_addr = minimum_instruction_length * (adjusted_opcode / line_range);
-                const inc_line = i32(line_base) + i32(adjusted_opcode % line_range);
-                prog.line += inc_line;
-                prog.address += inc_addr;
-                if (try prog.checkLineMatch()) |info| return info;
-                prog.basic_block = false;
-            } else {
-                switch (opcode) {
-                    DW.LNS_copy => {
-                        if (try prog.checkLineMatch()) |info| return info;
-                        prog.basic_block = false;
-                    },
-                    DW.LNS_advance_pc => {
-                        const arg = try readULeb128(di.dwarf_in_stream);
-                        prog.address += arg * minimum_instruction_length;
-                    },
-                    DW.LNS_advance_line => {
-                        const arg = try readILeb128(di.dwarf_in_stream);
-                        prog.line += arg;
-                    },
-                    DW.LNS_set_file => {
-                        const arg = try readULeb128(di.dwarf_in_stream);
-                        prog.file = arg;
-                    },
-                    DW.LNS_set_column => {
-                        const arg = try readULeb128(di.dwarf_in_stream);
-                        prog.column = arg;
-                    },
-                    DW.LNS_negate_stmt => {
-                        prog.is_stmt = !prog.is_stmt;
-                    },
-                    DW.LNS_set_basic_block => {
-                        prog.basic_block = true;
-                    },
-                    DW.LNS_const_add_pc => {
-                        const inc_addr = minimum_instruction_length * ((255 - opcode_base) / line_range);
-                        prog.address += inc_addr;
-                    },
-                    DW.LNS_fixed_advance_pc => {
-                        const arg = try di.dwarf_in_stream.readInt(u16, di.endian);
-                        prog.address += arg;
-                    },
-                    DW.LNS_set_prologue_end => {},
-                    else => {
-                        if (opcode - 1 >= standard_opcode_lengths.len) return error.InvalidDebugInfo;
-                        const len_bytes = standard_opcode_lengths[opcode - 1];
-                        try di.dwarf_seekable_stream.seekForward(len_bytes);
-                    },
-                }
-            }
-        }
-
-        this_offset += next_offset;
     }
 
     return error.MissingDebugInfo;
@@ -1962,7 +1957,6 @@ fn getLineNumberInfoDwarf(di: *DwarfInfo, compile_unit: CompileUnit, target_addr
 fn scanAllCompileUnits(di: *DwarfInfo) !void {
     const debug_info_end = di.debug_info.offset + di.debug_info.size;
     var this_unit_offset = di.debug_info.offset;
-    var cu_index: usize = 0;
 
     while (this_unit_offset < debug_info_end) {
         try di.dwarf_seekable_stream.seekTo(this_unit_offset);
@@ -2019,11 +2013,9 @@ fn scanAllCompileUnits(di: *DwarfInfo) !void {
             .is_64 = is_64,
             .pc_range = pc_range,
             .die = compile_unit_die,
-            .index = cu_index,
         });
 
         this_unit_offset += next_offset;
-        cu_index += 1;
     }
 }
 
