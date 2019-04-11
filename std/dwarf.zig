@@ -241,6 +241,9 @@ pub const AT_const_expr = 0x6c;
 pub const AT_enum_class = 0x6d;
 pub const AT_linkage_name = 0x6e;
 
+// DWARF 5
+pub const AT_alignment = 0x88;
+
 pub const AT_lo_user = 0x2000; // Implementation-defined range start.
 pub const AT_hi_user = 0x3fff; // Implementation-defined range end.
 
