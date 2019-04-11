@@ -1178,7 +1178,7 @@ pub const DwarfInfo = struct {
 };
 
 pub const DebugInfo = switch (builtin.os) {
-    builtin.Os.macosx => struct {
+    builtin.Os.macosx, builtin.Os.ios => struct {
         symbols: []const MachoSymbol,
         strings: []const u8,
         ofiles: OFileTable,

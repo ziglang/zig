@@ -1562,16 +1562,6 @@ static void construct_linker_job_macho(LinkJob *lj) {
         lj->args.append("dynamic_lookup");
     }
 
-    if (platform.kind == MacOS) {
-        if (darwin_version_lt(&platform, 10, 5)) {
-            lj->args.append("-lgcc_s.10.4");
-        } else if (darwin_version_lt(&platform, 10, 6)) {
-            lj->args.append("-lgcc_s.10.5");
-        }
-    } else {
-        zig_panic("TODO");
-    }
-
     for (size_t i = 0; i < g->darwin_frameworks.length; i += 1) {
         lj->args.append("-framework");
         lj->args.append(buf_ptr(g->darwin_frameworks.at(i)));
