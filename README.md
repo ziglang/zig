@@ -104,7 +104,8 @@ Zig is an open-source programming language designed for **robustness**,
 |bpf          | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | N/A    | Tier 3 |
 |hexagon      | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | N/A    | Tier 3 |
 |mips         | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | N/A    | Tier 3 |
-|powerpc      | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | N/A    | Tier 3 |
+|powerpc32    | Tier 3       | Tier 3 | Tier 4 | N/A     | Tier 3  | Tier 3 | N/A    | Tier 3 |
+|powerpc64    | Tier 3       | Tier 3 | Tier 4 | N/A     | Tier 3  | Tier 3 | N/A    | Tier 3 |
 |amdgcn       | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | N/A    | Tier 3 |
 |sparc        | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | N/A    | Tier 3 |
 |s390x        | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | N/A    | Tier 3 |
