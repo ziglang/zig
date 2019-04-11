@@ -1426,18 +1426,6 @@ static void get_darwin_platform(LinkJob *lj, DarwinPlatform *platform) {
     }
 }
 
-static bool darwin_version_lt(DarwinPlatform *platform, int major, int minor) {
-    if (platform->major < major) {
-        return true;
-    } else if (platform->major > major) {
-        return false;
-    }
-    if (platform->minor < minor) {
-        return true;
-    }
-    return false;
-}
-
 static void construct_linker_job_macho(LinkJob *lj) {
     CodeGen *g = lj->codegen;
 
