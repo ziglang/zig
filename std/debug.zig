@@ -1243,9 +1243,7 @@ const FormValue = union(enum) {
     ExprLoc: []u8,
     Flag: bool,
     SecOffset: u64,
-    Ref: []u8,
     RefAddr: u64,
-    RefSig8: u64,
     String: []u8,
     StrPtr: u64,
 };
@@ -1465,14 +1463,17 @@ fn parseFormValueTargetAddrSize(in_stream: var) !u64 {
     return if (@sizeOf(usize) == 4) u64(try in_stream.readIntLittle(u32)) else if (@sizeOf(usize) == 8) try in_stream.readIntLittle(u64) else unreachable;
 }
 
-fn parseFormValueRefLen(allocator: *mem.Allocator, in_stream: var, size: usize) !FormValue {
-    const buf = try readAllocBytes(allocator, in_stream, size);
-    return FormValue{ .Ref = buf };
-}
-
-fn parseFormValueRef(allocator: *mem.Allocator, in_stream: var, comptime T: type) !FormValue {
-    const block_len = try in_stream.readIntLittle(T);
-    return parseFormValueRefLen(allocator, in_stream, block_len);
+fn parseFormValueRef(allocator: *mem.Allocator, in_stream: var, size: i32) !FormValue {
+    return FormValue{
+        .RefAddr = switch (size) {
+            1  => try in_stream.readIntLittle(u8),
+            2  => try in_stream.readIntLittle(u16),
+            4  => try in_stream.readIntLittle(u32),
+            8  => try in_stream.readIntLittle(u64),
+            -1 => try readULeb128(in_stream),
+            else => unreachable,
+        },
+    };
 }
 
 fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, is_64: bool) anyerror!FormValue {
@@ -1502,17 +1503,14 @@ fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, is_64
         DW.FORM_flag_present => FormValue{ .Flag = true },
         DW.FORM_sec_offset => FormValue{ .SecOffset = try parseFormValueDwarfOffsetSize(in_stream, is_64) },
 
-        DW.FORM_ref1 => parseFormValueRef(allocator, in_stream, u8),
-        DW.FORM_ref2 => parseFormValueRef(allocator, in_stream, u16),
-        DW.FORM_ref4 => parseFormValueRef(allocator, in_stream, u32),
-        DW.FORM_ref8 => parseFormValueRef(allocator, in_stream, u64),
-        DW.FORM_ref_udata => {
-            const ref_len = try readULeb128(in_stream);
-            return parseFormValueRefLen(allocator, in_stream, ref_len);
-        },
+        DW.FORM_ref1 => parseFormValueRef(allocator, in_stream, 1),
+        DW.FORM_ref2 => parseFormValueRef(allocator, in_stream, 2),
+        DW.FORM_ref4 => parseFormValueRef(allocator, in_stream, 4),
+        DW.FORM_ref8 => parseFormValueRef(allocator, in_stream, 8),
+        DW.FORM_ref_udata => parseFormValueRef(allocator, in_stream, -1),
 
         DW.FORM_ref_addr => FormValue{ .RefAddr = try parseFormValueDwarfOffsetSize(in_stream, is_64) },
-        DW.FORM_ref_sig8 => FormValue{ .RefSig8 = try in_stream.readIntLittle(u64) },
+        DW.FORM_ref_sig8 => FormValue{ .RefAddr = try in_stream.readIntLittle(u64) },
 
         DW.FORM_string => FormValue{ .String = try readStringRaw(allocator, in_stream) },
         DW.FORM_strp => FormValue{ .StrPtr = try parseFormValueDwarfOffsetSize(in_stream, is_64) },
