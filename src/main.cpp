@@ -1144,14 +1144,15 @@ int main(int argc, char **argv) {
                     codegen_print_timing_report(g, stdout);
 
                 if (cmd == CmdRun) {
+                    const char *exec_path = buf_ptr(&g->output_file_path);
                     ZigList<const char*> args = {0};
+
+                    args.append(exec_path);
                     if (runtime_args_start != -1) {
                         for (int i = runtime_args_start; i < argc; ++i) {
                             args.append(argv[i]);
                         }
                     }
-
-                    const char *exec_path = buf_ptr(&g->output_file_path);
                     args.append(nullptr);
 
                     os_execv(exec_path, args.items);
