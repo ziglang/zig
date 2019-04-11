@@ -113,7 +113,7 @@ static TransScopeSwitch *trans_scope_switch_create(Context *c, TransScope *paren
 static TransScopeBlock *trans_scope_block_find(TransScope *scope);
 
 static AstNode *resolve_record_decl(Context *c, const ZigClangRecordDecl *record_decl);
-static AstNode *resolve_enum_decl(Context *c, const clang::EnumDecl *enum_decl);
+static AstNode *resolve_enum_decl(Context *c, const ZigClangEnumDecl *enum_decl);
 static AstNode *resolve_typedef_decl(Context *c, const clang::TypedefNameDecl *typedef_decl);
 
 static int trans_stmt_extra(Context *c, TransScope *scope, const clang::Stmt *stmt,
@@ -1128,8 +1128,8 @@ static AstNode *trans_type(Context *c, const clang::Type *ty, ZigClangSourceLoca
             }
         case clang::Type::Enum:
             {
-                const clang::EnumType *enum_ty = static_cast<const clang::EnumType*>(ty);
-                return resolve_enum_decl(c, enum_ty->getDecl());
+                const ZigClangEnumType *enum_ty = reinterpret_cast<const ZigClangEnumType*>(ty);
+                return resolve_enum_decl(c, ZigClangEnumType_getDecl(enum_ty));
             }
         case clang::Type::ConstantArray:
             {
@@ -2673,8 +2673,8 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
 
         case clang::Type::Enum:
         {
-            const clang::EnumType *enum_ty = static_cast<const clang::EnumType*>(ty);
-            AstNode *enum_type = resolve_enum_decl(c, enum_ty->getDecl());
+            const ZigClangEnumType *enum_ty = reinterpret_cast<const ZigClangEnumType *>(ty);
+            AstNode *enum_type = resolve_enum_decl(c, ZigClangEnumType_getDecl(enum_ty));
             return to_enum_zero_cmp(c, res, enum_type);
         }
 
@@ -4013,23 +4013,23 @@ static AstNode *resolve_typedef_decl(Context *c, const clang::TypedefNameDecl *t
     return symbol_node;
 }
 
-struct AstNode *demote_enum_to_opaque(Context *c, const clang::EnumDecl *enum_decl,
-        Buf *full_type_name, Buf *bare_name)
+struct AstNode *demote_enum_to_opaque(Context *c, const ZigClangEnumDecl *enum_decl, Buf *full_type_name,
+        Buf *bare_name)
 {
     AstNode *opaque_node = trans_create_node_opaque(c);
     if (full_type_name == nullptr) {
-        c->decl_table.put(enum_decl->getCanonicalDecl(), opaque_node);
+        c->decl_table.put(ZigClangEnumDecl_getCanonicalDecl(enum_decl), opaque_node);
         return opaque_node;
     }
     AstNode *symbol_node = trans_create_node_symbol(c, full_type_name);
     add_global_weak_alias(c, bare_name, full_type_name);
     add_global_var(c, full_type_name, opaque_node);
-    c->decl_table.put(enum_decl->getCanonicalDecl(), symbol_node);
+    c->decl_table.put(ZigClangEnumDecl_getCanonicalDecl(enum_decl), symbol_node);
     return symbol_node;
 }
 
-static AstNode *resolve_enum_decl(Context *c, const clang::EnumDecl *enum_decl) {
-    auto existing_entry = c->decl_table.maybe_get((void*)enum_decl->getCanonicalDecl());
+static AstNode *resolve_enum_decl(Context *c, const ZigClangEnumDecl *enum_decl) {
+    auto existing_entry = c->decl_table.maybe_get(ZigClangEnumDecl_getCanonicalDecl(enum_decl));
     if (existing_entry) {
         return existing_entry->value;
     }
@@ -4039,7 +4039,7 @@ static AstNode *resolve_enum_decl(Context *c, const clang::EnumDecl *enum_decl) 
     Buf *bare_name = is_anonymous ? nullptr : buf_create_from_str(raw_name);
     Buf *full_type_name = is_anonymous ? nullptr : buf_sprintf("enum_%s", buf_ptr(bare_name));
 
-    const clang::EnumDecl *enum_def = enum_decl->getDefinition();
+    const ZigClangEnumDecl *enum_def = ZigClangEnumDecl_getDefinition(enum_decl);
     if (!enum_def) {
         return demote_enum_to_opaque(c, enum_decl, full_type_name, bare_name);
     }
@@ -4047,8 +4047,8 @@ static AstNode *resolve_enum_decl(Context *c, const clang::EnumDecl *enum_decl) 
 
     bool pure_enum = true;
     uint32_t field_count = 0;
-    for (auto it = enum_def->enumerator_begin(),
-              it_end = enum_def->enumerator_end();
+    for (auto it = reinterpret_cast<const clang::EnumDecl *>(enum_def)->enumerator_begin(),
+              it_end = reinterpret_cast<const clang::EnumDecl *>(enum_def)->enumerator_end();
               it != it_end; ++it, field_count += 1)
     {
         const clang::EnumConstantDecl *enum_const = *it;
@@ -4056,7 +4056,9 @@ static AstNode *resolve_enum_decl(Context *c, const clang::EnumDecl *enum_decl) 
             pure_enum = false;
         }
     }
-    AstNode *tag_int_type = trans_qual_type(c, enum_decl->getIntegerType(), bitcast(enum_decl->getLocation()));
+    AstNode *tag_int_type = trans_qual_type(c,
+            bitcast(ZigClangEnumDecl_getIntegerType(enum_decl)),
+            ZigClangEnumDecl_getLocation(enum_decl));
     assert(tag_int_type);
 
     AstNode *enum_node = trans_create_node(c, NodeTypeContainerDecl);
@@ -4065,15 +4067,15 @@ static AstNode *resolve_enum_decl(Context *c, const clang::EnumDecl *enum_decl) 
     // TODO only emit this tag type if the enum tag type is not the default.
     // I don't know what the default is, need to figure out how clang is deciding.
     // it appears to at least be different across gcc/msvc
-    if (!c_is_builtin_type(c, enum_decl->getIntegerType(), clang::BuiltinType::UInt) &&
-        !c_is_builtin_type(c, enum_decl->getIntegerType(), clang::BuiltinType::Int))
+    if (!c_is_builtin_type(c, bitcast(ZigClangEnumDecl_getIntegerType(enum_decl)), clang::BuiltinType::UInt) &&
+        !c_is_builtin_type(c, bitcast(ZigClangEnumDecl_getIntegerType(enum_decl)), clang::BuiltinType::Int))
     {
         enum_node->data.container_decl.init_arg_expr = tag_int_type;
     }
     enum_node->data.container_decl.fields.resize(field_count);
     uint32_t i = 0;
-    for (auto it = enum_def->enumerator_begin(),
-            it_end = enum_def->enumerator_end();
+    for (auto it = reinterpret_cast<const clang::EnumDecl *>(enum_def)->enumerator_begin(),
+            it_end = reinterpret_cast<const clang::EnumDecl *>(enum_def)->enumerator_end();
             it != it_end; ++it, i += 1)
     {
         const clang::EnumConstantDecl *enum_const = *it;
@@ -4106,13 +4108,13 @@ static AstNode *resolve_enum_decl(Context *c, const clang::EnumDecl *enum_decl) 
     }
 
     if (is_anonymous) {
-        c->decl_table.put(enum_decl->getCanonicalDecl(), enum_node);
+        c->decl_table.put(ZigClangEnumDecl_getCanonicalDecl(enum_decl), enum_node);
         return enum_node;
     } else {
         AstNode *symbol_node = trans_create_node_symbol(c, full_type_name);
         add_global_weak_alias(c, bare_name, full_type_name);
         add_global_var(c, full_type_name, enum_node);
-        c->decl_table.put(enum_decl->getCanonicalDecl(), symbol_node);
+        c->decl_table.put(ZigClangEnumDecl_getCanonicalDecl(enum_decl), symbol_node);
         return enum_node;
     }
 }
@@ -4398,7 +4400,7 @@ static bool decl_visitor(void *context, const ZigClangDecl *zdecl) {
             resolve_typedef_decl(c, static_cast<const clang::TypedefNameDecl *>(decl));
             break;
         case clang::Decl::Enum:
-            resolve_enum_decl(c, static_cast<const clang::EnumDecl *>(decl));
+            resolve_enum_decl(c, reinterpret_cast<const ZigClangEnumDecl *>(decl));
             break;
         case clang::Decl::Record:
             resolve_record_decl(c, (const ZigClangRecordDecl *)(decl));

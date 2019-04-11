@@ -260,13 +260,22 @@ ZIG_EXTERN_C bool ZigClangASTUnit_visitLocalTopLevelDecls(ZigClangASTUnit *, voi
     bool (*Fn)(void *context, const ZigClangDecl *decl));
 
 ZIG_EXTERN_C const ZigClangRecordDecl *ZigClangRecordType_getDecl(const ZigClangRecordType *record_ty);
+ZIG_EXTERN_C const ZigClangEnumDecl *ZigClangEnumType_getDecl(const ZigClangEnumType *record_ty);
 
 ZIG_EXTERN_C const ZigClangTagDecl *ZigClangRecordDecl_getCanonicalDecl(const ZigClangRecordDecl *record_decl);
+ZIG_EXTERN_C const ZigClangTagDecl *ZigClangEnumDecl_getCanonicalDecl(const ZigClangEnumDecl *);
+
+ZIG_EXTERN_C const ZigClangRecordDecl *ZigClangRecordDecl_getDefinition(const ZigClangRecordDecl *);
+ZIG_EXTERN_C const ZigClangEnumDecl *ZigClangEnumDecl_getDefinition(const ZigClangEnumDecl *);
+
+ZIG_EXTERN_C ZigClangSourceLocation ZigClangRecordDecl_getLocation(const ZigClangRecordDecl *);
+ZIG_EXTERN_C ZigClangSourceLocation ZigClangEnumDecl_getLocation(const ZigClangEnumDecl *);
+
 ZIG_EXTERN_C bool ZigClangRecordDecl_isUnion(const ZigClangRecordDecl *record_decl);
 ZIG_EXTERN_C bool ZigClangRecordDecl_isStruct(const ZigClangRecordDecl *record_decl);
 ZIG_EXTERN_C bool ZigClangRecordDecl_isAnonymousStructOrUnion(const ZigClangRecordDecl *record_decl);
-ZIG_EXTERN_C const ZigClangRecordDecl *ZigClangRecordDecl_getDefinition(const ZigClangRecordDecl *);
-ZIG_EXTERN_C ZigClangSourceLocation ZigClangRecordDecl_getLocation(const ZigClangRecordDecl *);
+
+ZIG_EXTERN_C ZigClangQualType ZigClangEnumDecl_getIntegerType(const ZigClangEnumDecl *);
 
 ZIG_EXTERN_C const char *ZigClangDecl_getName_bytes_begin(const ZigClangDecl *decl);
 

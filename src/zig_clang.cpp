@@ -218,8 +218,18 @@ const ZigClangRecordDecl *ZigClangRecordType_getDecl(const ZigClangRecordType *r
     return reinterpret_cast<const ZigClangRecordDecl *>(record_decl);
 }
 
+const ZigClangEnumDecl *ZigClangEnumType_getDecl(const ZigClangEnumType *enum_ty) {
+    const clang::EnumDecl *enum_decl = reinterpret_cast<const clang::EnumType *>(enum_ty)->getDecl();
+    return reinterpret_cast<const ZigClangEnumDecl *>(enum_decl);
+}
+
 const ZigClangTagDecl *ZigClangRecordDecl_getCanonicalDecl(const ZigClangRecordDecl *record_decl) {
     const clang::TagDecl *tag_decl = reinterpret_cast<const clang::RecordDecl*>(record_decl)->getCanonicalDecl();
+    return reinterpret_cast<const ZigClangTagDecl *>(tag_decl);
+}
+
+const ZigClangTagDecl *ZigClangEnumDecl_getCanonicalDecl(const ZigClangEnumDecl *enum_decl) {
+    const clang::TagDecl *tag_decl = reinterpret_cast<const clang::EnumDecl*>(enum_decl)->getCanonicalDecl();
     return reinterpret_cast<const ZigClangTagDecl *>(tag_decl);
 }
 
@@ -227,6 +237,12 @@ const ZigClangRecordDecl *ZigClangRecordDecl_getDefinition(const ZigClangRecordD
     const clang::RecordDecl *record_decl = reinterpret_cast<const clang::RecordDecl *>(zig_record_decl);
     const clang::RecordDecl *definition = record_decl->getDefinition();
     return reinterpret_cast<const ZigClangRecordDecl *>(definition);
+}
+
+const ZigClangEnumDecl *ZigClangEnumDecl_getDefinition(const ZigClangEnumDecl *zig_enum_decl) {
+    const clang::EnumDecl *enum_decl = reinterpret_cast<const clang::EnumDecl *>(zig_enum_decl);
+    const clang::EnumDecl *definition = enum_decl->getDefinition();
+    return reinterpret_cast<const ZigClangEnumDecl *>(definition);
 }
 
 bool ZigClangRecordDecl_isUnion(const ZigClangRecordDecl *record_decl) {
@@ -252,8 +268,17 @@ ZigClangSourceLocation ZigClangRecordDecl_getLocation(const ZigClangRecordDecl *
     return bitcast(record_decl->getLocation());
 }
 
+ZigClangSourceLocation ZigClangEnumDecl_getLocation(const ZigClangEnumDecl *self) {
+    auto casted = reinterpret_cast<const clang::EnumDecl *>(self);
+    return bitcast(casted->getLocation());
+}
+
 bool ZigClangSourceLocation_eq(ZigClangSourceLocation zig_a, ZigClangSourceLocation zig_b) {
     clang::SourceLocation a = bitcast(zig_a);
     clang::SourceLocation b = bitcast(zig_b);
     return a == b;
+}
+
+ZigClangQualType ZigClangEnumDecl_getIntegerType(const ZigClangEnumDecl *self) {
+    return bitcast(reinterpret_cast<const clang::EnumDecl *>(self)->getIntegerType());
 }
