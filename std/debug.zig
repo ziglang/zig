@@ -1251,13 +1251,12 @@ const FormValue = union(enum) {
 };
 
 const Constant = struct {
-    payload: []u8,
+    payload: u64,
     signed: bool,
 
     fn asUnsignedLe(self: *const Constant) !u64 {
-        if (self.payload.len > @sizeOf(u64)) return error.InvalidDebugInfo;
         if (self.signed) return error.InvalidDebugInfo;
-        return mem.readVarInt(u64, self.payload, builtin.Endian.Little);
+        return self.payload;
     }
 };
 
@@ -1442,11 +1441,18 @@ fn parseFormValueBlock(allocator: *mem.Allocator, in_stream: var, size: usize) !
     return parseFormValueBlockLen(allocator, in_stream, block_len);
 }
 
-fn parseFormValueConstant(allocator: *mem.Allocator, in_stream: var, signed: bool, size: usize) !FormValue {
+fn parseFormValueConstant(allocator: *mem.Allocator, in_stream: var, signed: bool, size: i32) !FormValue {
     return FormValue{
         .Const = Constant{
             .signed = signed,
-            .payload = try readAllocBytes(allocator, in_stream, size),
+            .payload = switch (size) {
+                1  => try in_stream.readIntLittle(u8),
+                2  => try in_stream.readIntLittle(u16),
+                4  => try in_stream.readIntLittle(u32),
+                8  => try in_stream.readIntLittle(u64),
+                -1 => if (signed) try readULeb128(in_stream) else @intCast(u64, try readILeb128(in_stream)),
+                else => unreachable,
+            },
         },
     };
 }
@@ -1484,9 +1490,8 @@ fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, is_64
         DW.FORM_data4 => parseFormValueConstant(allocator, in_stream, false, 4),
         DW.FORM_data8 => parseFormValueConstant(allocator, in_stream, false, 8),
         DW.FORM_udata, DW.FORM_sdata => {
-            const block_len = try readULeb128(in_stream);
             const signed = form_id == DW.FORM_sdata;
-            return parseFormValueConstant(allocator, in_stream, signed, block_len);
+            return parseFormValueConstant(allocator, in_stream, signed, -1);
         },
         DW.FORM_exprloc => {
             const size = try readULeb128(in_stream);
