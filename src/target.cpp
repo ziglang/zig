@@ -965,6 +965,8 @@ const char *target_exe_file_ext(const ZigTarget *target) {
         return ".exe";
     } else if (target->os == OsUefi) {
         return ".efi";
+    } else if (target_is_wasm(target)) {
+        return ".wasm";
     } else {
         return "";
     }
@@ -1363,6 +1365,10 @@ bool target_is_glibc(const ZigTarget *target) {
 
 bool target_is_musl(const ZigTarget *target) {
     return target->os == OsLinux && target_abi_is_musl(target->abi);
+}
+
+bool target_is_wasm(const ZigTarget *target) {
+    return target->arch == ZigLLVM_wasm32 || target->arch == ZigLLVM_wasm64;
 }
 
 ZigLLVM_EnvironmentType target_default_abi(ZigLLVM_ArchType arch, Os os) {
