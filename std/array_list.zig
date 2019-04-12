@@ -111,6 +111,17 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
             new_item_ptr.* = item;
         }
 
+        pub fn orderedRemove(self: *Self, i: usize) T {
+            const newlen = self.len - 1;
+            if (newlen == i) return self.pop();
+
+            const old_item = self.at(i);
+            for (self.items[i..newlen]) |*b, j| b.* = self.items[i + 1 + j];
+            self.items[newlen] = undefined;
+            self.len = newlen;
+            return old_item;
+        }
+
         /// Removes the element at the specified index and returns it.
         /// The empty slot is filled from the end of the list.
         pub fn swapRemove(self: *Self, i: usize) T {
@@ -277,6 +288,33 @@ test "std.ArrayList.basic" {
 
     testing.expect(list.pop() == 42);
     testing.expect(list.pop() == 33);
+}
+
+test "std.ArrayList.orderedRemove" {
+    var list = ArrayList(i32).init(debug.global_allocator);
+    defer list.deinit();
+
+    try list.append(1);
+    try list.append(2);
+    try list.append(3);
+    try list.append(4);
+    try list.append(5);
+    try list.append(6);
+    try list.append(7);
+
+    //remove from middle
+    testing.expectEqual(i32(4), list.orderedRemove(3));
+    testing.expectEqual(i32(5), list.at(3));
+    testing.expectEqual(usize(6), list.len);
+
+    //remove from end
+    testing.expectEqual(i32(7), list.orderedRemove(5));
+    testing.expectEqual(usize(5), list.len);
+
+    //remove from front
+    testing.expectEqual(i32(1), list.orderedRemove(0));
+    testing.expectEqual(i32(2), list.at(0));
+    testing.expectEqual(usize(4), list.len);
 }
 
 test "std.ArrayList.swapRemove" {
