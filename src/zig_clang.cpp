@@ -101,7 +101,7 @@ static_assert((clang::BinaryOperatorKind)ZigClangBO_SubAssign == clang::BO_SubAs
 static_assert((clang::BinaryOperatorKind)ZigClangBO_Xor == clang::BO_Xor, "");
 static_assert((clang::BinaryOperatorKind)ZigClangBO_XorAssign == clang::BO_XorAssign, "");
 
-// This function detects additions to the enum
+// Detect additions to the enum
 void zig2clang_UO(clang::UnaryOperatorKind op) {
     switch (op) {
         case clang::UO_AddrOf:
@@ -137,6 +137,7 @@ static_assert((clang::UnaryOperatorKind)ZigClangUO_PreDec == clang::UO_PreDec, "
 static_assert((clang::UnaryOperatorKind)ZigClangUO_PreInc == clang::UO_PreInc, "");
 static_assert((clang::UnaryOperatorKind)ZigClangUO_Real == clang::UO_Real, "");
 
+// Detect additions to the enum
 void zig2clang_TypeClass(clang::Type::TypeClass ty) {
     switch (ty) {
         case clang::Type::Builtin:
@@ -237,6 +238,408 @@ static_assert((clang::Type::TypeClass)ZigClangType_ObjCInterface == clang::Type:
 static_assert((clang::Type::TypeClass)ZigClangType_ObjCObjectPointer == clang::Type::ObjCObjectPointer, "");
 static_assert((clang::Type::TypeClass)ZigClangType_Pipe == clang::Type::Pipe, "");
 static_assert((clang::Type::TypeClass)ZigClangType_Atomic == clang::Type::Atomic, "");
+
+// Detect additions to the enum
+void zig2clang_StmtClass(clang::Stmt::StmtClass x) {
+    switch (x) {
+        case clang::Stmt::NoStmtClass:
+        case clang::Stmt::NullStmtClass:
+        case clang::Stmt::CompoundStmtClass:
+        case clang::Stmt::LabelStmtClass:
+        case clang::Stmt::AttributedStmtClass:
+        case clang::Stmt::IfStmtClass:
+        case clang::Stmt::SwitchStmtClass:
+        case clang::Stmt::WhileStmtClass:
+        case clang::Stmt::DoStmtClass:
+        case clang::Stmt::ForStmtClass:
+        case clang::Stmt::GotoStmtClass:
+        case clang::Stmt::IndirectGotoStmtClass:
+        case clang::Stmt::ContinueStmtClass:
+        case clang::Stmt::BreakStmtClass:
+        case clang::Stmt::ReturnStmtClass:
+        case clang::Stmt::DeclStmtClass:
+        case clang::Stmt::CaseStmtClass:
+        case clang::Stmt::DefaultStmtClass:
+        case clang::Stmt::CapturedStmtClass:
+        case clang::Stmt::GCCAsmStmtClass:
+        case clang::Stmt::MSAsmStmtClass:
+        case clang::Stmt::ObjCAtTryStmtClass:
+        case clang::Stmt::ObjCAtCatchStmtClass:
+        case clang::Stmt::ObjCAtFinallyStmtClass:
+        case clang::Stmt::ObjCAtThrowStmtClass:
+        case clang::Stmt::ObjCAtSynchronizedStmtClass:
+        case clang::Stmt::ObjCForCollectionStmtClass:
+        case clang::Stmt::ObjCAutoreleasePoolStmtClass:
+        case clang::Stmt::CXXCatchStmtClass:
+        case clang::Stmt::CXXTryStmtClass:
+        case clang::Stmt::CXXForRangeStmtClass:
+        case clang::Stmt::CoroutineBodyStmtClass:
+        case clang::Stmt::CoreturnStmtClass:
+        case clang::Stmt::PredefinedExprClass:
+        case clang::Stmt::DeclRefExprClass:
+        case clang::Stmt::IntegerLiteralClass:
+        case clang::Stmt::FixedPointLiteralClass:
+        case clang::Stmt::FloatingLiteralClass:
+        case clang::Stmt::ImaginaryLiteralClass:
+        case clang::Stmt::StringLiteralClass:
+        case clang::Stmt::CharacterLiteralClass:
+        case clang::Stmt::ParenExprClass:
+        case clang::Stmt::UnaryOperatorClass:
+        case clang::Stmt::OffsetOfExprClass:
+        case clang::Stmt::UnaryExprOrTypeTraitExprClass:
+        case clang::Stmt::ArraySubscriptExprClass:
+        case clang::Stmt::OMPArraySectionExprClass:
+        case clang::Stmt::CallExprClass:
+        case clang::Stmt::MemberExprClass:
+        case clang::Stmt::BinaryOperatorClass:
+        case clang::Stmt::CompoundAssignOperatorClass:
+        case clang::Stmt::ConditionalOperatorClass:
+        case clang::Stmt::BinaryConditionalOperatorClass:
+        case clang::Stmt::ImplicitCastExprClass:
+        case clang::Stmt::CStyleCastExprClass:
+        case clang::Stmt::CompoundLiteralExprClass:
+        case clang::Stmt::ExtVectorElementExprClass:
+        case clang::Stmt::InitListExprClass:
+        case clang::Stmt::DesignatedInitExprClass:
+        case clang::Stmt::DesignatedInitUpdateExprClass:
+        case clang::Stmt::ImplicitValueInitExprClass:
+        case clang::Stmt::NoInitExprClass:
+        case clang::Stmt::ArrayInitLoopExprClass:
+        case clang::Stmt::ArrayInitIndexExprClass:
+        case clang::Stmt::ParenListExprClass:
+        case clang::Stmt::VAArgExprClass:
+        case clang::Stmt::GenericSelectionExprClass:
+        case clang::Stmt::PseudoObjectExprClass:
+        case clang::Stmt::ConstantExprClass:
+        case clang::Stmt::AtomicExprClass:
+        case clang::Stmt::AddrLabelExprClass:
+        case clang::Stmt::StmtExprClass:
+        case clang::Stmt::ChooseExprClass:
+        case clang::Stmt::GNUNullExprClass:
+        case clang::Stmt::CXXOperatorCallExprClass:
+        case clang::Stmt::CXXMemberCallExprClass:
+        case clang::Stmt::CXXStaticCastExprClass:
+        case clang::Stmt::CXXDynamicCastExprClass:
+        case clang::Stmt::CXXReinterpretCastExprClass:
+        case clang::Stmt::CXXConstCastExprClass:
+        case clang::Stmt::CXXFunctionalCastExprClass:
+        case clang::Stmt::CXXTypeidExprClass:
+        case clang::Stmt::UserDefinedLiteralClass:
+        case clang::Stmt::CXXBoolLiteralExprClass:
+        case clang::Stmt::CXXNullPtrLiteralExprClass:
+        case clang::Stmt::CXXThisExprClass:
+        case clang::Stmt::CXXThrowExprClass:
+        case clang::Stmt::CXXDefaultArgExprClass:
+        case clang::Stmt::CXXDefaultInitExprClass:
+        case clang::Stmt::CXXScalarValueInitExprClass:
+        case clang::Stmt::CXXStdInitializerListExprClass:
+        case clang::Stmt::CXXNewExprClass:
+        case clang::Stmt::CXXDeleteExprClass:
+        case clang::Stmt::CXXPseudoDestructorExprClass:
+        case clang::Stmt::TypeTraitExprClass:
+        case clang::Stmt::ArrayTypeTraitExprClass:
+        case clang::Stmt::ExpressionTraitExprClass:
+        case clang::Stmt::DependentScopeDeclRefExprClass:
+        case clang::Stmt::CXXConstructExprClass:
+        case clang::Stmt::CXXInheritedCtorInitExprClass:
+        case clang::Stmt::CXXBindTemporaryExprClass:
+        case clang::Stmt::ExprWithCleanupsClass:
+        case clang::Stmt::CXXTemporaryObjectExprClass:
+        case clang::Stmt::CXXUnresolvedConstructExprClass:
+        case clang::Stmt::CXXDependentScopeMemberExprClass:
+        case clang::Stmt::UnresolvedLookupExprClass:
+        case clang::Stmt::UnresolvedMemberExprClass:
+        case clang::Stmt::CXXNoexceptExprClass:
+        case clang::Stmt::PackExpansionExprClass:
+        case clang::Stmt::SizeOfPackExprClass:
+        case clang::Stmt::SubstNonTypeTemplateParmExprClass:
+        case clang::Stmt::SubstNonTypeTemplateParmPackExprClass:
+        case clang::Stmt::FunctionParmPackExprClass:
+        case clang::Stmt::MaterializeTemporaryExprClass:
+        case clang::Stmt::LambdaExprClass:
+        case clang::Stmt::CXXFoldExprClass:
+        case clang::Stmt::CoawaitExprClass:
+        case clang::Stmt::DependentCoawaitExprClass:
+        case clang::Stmt::CoyieldExprClass:
+        case clang::Stmt::ObjCStringLiteralClass:
+        case clang::Stmt::ObjCBoxedExprClass:
+        case clang::Stmt::ObjCArrayLiteralClass:
+        case clang::Stmt::ObjCDictionaryLiteralClass:
+        case clang::Stmt::ObjCEncodeExprClass:
+        case clang::Stmt::ObjCMessageExprClass:
+        case clang::Stmt::ObjCSelectorExprClass:
+        case clang::Stmt::ObjCProtocolExprClass:
+        case clang::Stmt::ObjCIvarRefExprClass:
+        case clang::Stmt::ObjCPropertyRefExprClass:
+        case clang::Stmt::ObjCIsaExprClass:
+        case clang::Stmt::ObjCIndirectCopyRestoreExprClass:
+        case clang::Stmt::ObjCBoolLiteralExprClass:
+        case clang::Stmt::ObjCSubscriptRefExprClass:
+        case clang::Stmt::ObjCAvailabilityCheckExprClass:
+        case clang::Stmt::ObjCBridgedCastExprClass:
+        case clang::Stmt::CUDAKernelCallExprClass:
+        case clang::Stmt::ShuffleVectorExprClass:
+        case clang::Stmt::ConvertVectorExprClass:
+        case clang::Stmt::BlockExprClass:
+        case clang::Stmt::OpaqueValueExprClass:
+        case clang::Stmt::TypoExprClass:
+        case clang::Stmt::MSPropertyRefExprClass:
+        case clang::Stmt::MSPropertySubscriptExprClass:
+        case clang::Stmt::CXXUuidofExprClass:
+        case clang::Stmt::SEHTryStmtClass:
+        case clang::Stmt::SEHExceptStmtClass:
+        case clang::Stmt::SEHFinallyStmtClass:
+        case clang::Stmt::SEHLeaveStmtClass:
+        case clang::Stmt::MSDependentExistsStmtClass:
+        case clang::Stmt::AsTypeExprClass:
+        case clang::Stmt::OMPParallelDirectiveClass:
+        case clang::Stmt::OMPSimdDirectiveClass:
+        case clang::Stmt::OMPForDirectiveClass:
+        case clang::Stmt::OMPForSimdDirectiveClass:
+        case clang::Stmt::OMPSectionsDirectiveClass:
+        case clang::Stmt::OMPSectionDirectiveClass:
+        case clang::Stmt::OMPSingleDirectiveClass:
+        case clang::Stmt::OMPMasterDirectiveClass:
+        case clang::Stmt::OMPCriticalDirectiveClass:
+        case clang::Stmt::OMPParallelForDirectiveClass:
+        case clang::Stmt::OMPParallelForSimdDirectiveClass:
+        case clang::Stmt::OMPParallelSectionsDirectiveClass:
+        case clang::Stmt::OMPTaskDirectiveClass:
+        case clang::Stmt::OMPTaskyieldDirectiveClass:
+        case clang::Stmt::OMPBarrierDirectiveClass:
+        case clang::Stmt::OMPTaskwaitDirectiveClass:
+        case clang::Stmt::OMPTaskgroupDirectiveClass:
+        case clang::Stmt::OMPFlushDirectiveClass:
+        case clang::Stmt::OMPOrderedDirectiveClass:
+        case clang::Stmt::OMPAtomicDirectiveClass:
+        case clang::Stmt::OMPTargetDirectiveClass:
+        case clang::Stmt::OMPTargetDataDirectiveClass:
+        case clang::Stmt::OMPTargetEnterDataDirectiveClass:
+        case clang::Stmt::OMPTargetExitDataDirectiveClass:
+        case clang::Stmt::OMPTargetParallelDirectiveClass:
+        case clang::Stmt::OMPTargetParallelForDirectiveClass:
+        case clang::Stmt::OMPTargetUpdateDirectiveClass:
+        case clang::Stmt::OMPTeamsDirectiveClass:
+        case clang::Stmt::OMPCancellationPointDirectiveClass:
+        case clang::Stmt::OMPCancelDirectiveClass:
+        case clang::Stmt::OMPTaskLoopDirectiveClass:
+        case clang::Stmt::OMPTaskLoopSimdDirectiveClass:
+        case clang::Stmt::OMPDistributeDirectiveClass:
+        case clang::Stmt::OMPDistributeParallelForDirectiveClass:
+        case clang::Stmt::OMPDistributeParallelForSimdDirectiveClass:
+        case clang::Stmt::OMPDistributeSimdDirectiveClass:
+        case clang::Stmt::OMPTargetParallelForSimdDirectiveClass:
+        case clang::Stmt::OMPTargetSimdDirectiveClass:
+        case clang::Stmt::OMPTeamsDistributeDirectiveClass:
+        case clang::Stmt::OMPTeamsDistributeSimdDirectiveClass:
+        case clang::Stmt::OMPTeamsDistributeParallelForSimdDirectiveClass:
+        case clang::Stmt::OMPTeamsDistributeParallelForDirectiveClass:
+        case clang::Stmt::OMPTargetTeamsDirectiveClass:
+        case clang::Stmt::OMPTargetTeamsDistributeDirectiveClass:
+        case clang::Stmt::OMPTargetTeamsDistributeParallelForDirectiveClass:
+        case clang::Stmt::OMPTargetTeamsDistributeParallelForSimdDirectiveClass:
+        case clang::Stmt::OMPTargetTeamsDistributeSimdDirectiveClass:
+            break;
+    }
+}
+
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_NoStmtClass == clang::Stmt::NoStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_NullStmtClass == clang::Stmt::NullStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CompoundStmtClass == clang::Stmt::CompoundStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_LabelStmtClass == clang::Stmt::LabelStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_AttributedStmtClass == clang::Stmt::AttributedStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_IfStmtClass == clang::Stmt::IfStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_SwitchStmtClass == clang::Stmt::SwitchStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_WhileStmtClass == clang::Stmt::WhileStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_DoStmtClass == clang::Stmt::DoStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ForStmtClass == clang::Stmt::ForStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_GotoStmtClass == clang::Stmt::GotoStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_IndirectGotoStmtClass == clang::Stmt::IndirectGotoStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ContinueStmtClass == clang::Stmt::ContinueStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_BreakStmtClass == clang::Stmt::BreakStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ReturnStmtClass == clang::Stmt::ReturnStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_DeclStmtClass == clang::Stmt::DeclStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CaseStmtClass == clang::Stmt::CaseStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_DefaultStmtClass == clang::Stmt::DefaultStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CapturedStmtClass == clang::Stmt::CapturedStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_GCCAsmStmtClass == clang::Stmt::GCCAsmStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_MSAsmStmtClass == clang::Stmt::MSAsmStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ObjCAtTryStmtClass == clang::Stmt::ObjCAtTryStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ObjCAtCatchStmtClass == clang::Stmt::ObjCAtCatchStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ObjCAtFinallyStmtClass == clang::Stmt::ObjCAtFinallyStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ObjCAtThrowStmtClass == clang::Stmt::ObjCAtThrowStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ObjCAtSynchronizedStmtClass == clang::Stmt::ObjCAtSynchronizedStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ObjCForCollectionStmtClass == clang::Stmt::ObjCForCollectionStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ObjCAutoreleasePoolStmtClass == clang::Stmt::ObjCAutoreleasePoolStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXCatchStmtClass == clang::Stmt::CXXCatchStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXTryStmtClass == clang::Stmt::CXXTryStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXForRangeStmtClass == clang::Stmt::CXXForRangeStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CoroutineBodyStmtClass == clang::Stmt::CoroutineBodyStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CoreturnStmtClass == clang::Stmt::CoreturnStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_PredefinedExprClass == clang::Stmt::PredefinedExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_DeclRefExprClass == clang::Stmt::DeclRefExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_IntegerLiteralClass == clang::Stmt::IntegerLiteralClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_FixedPointLiteralClass == clang::Stmt::FixedPointLiteralClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_FloatingLiteralClass == clang::Stmt::FloatingLiteralClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ImaginaryLiteralClass == clang::Stmt::ImaginaryLiteralClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_StringLiteralClass == clang::Stmt::StringLiteralClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CharacterLiteralClass == clang::Stmt::CharacterLiteralClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ParenExprClass == clang::Stmt::ParenExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_UnaryOperatorClass == clang::Stmt::UnaryOperatorClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OffsetOfExprClass == clang::Stmt::OffsetOfExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_UnaryExprOrTypeTraitExprClass == clang::Stmt::UnaryExprOrTypeTraitExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ArraySubscriptExprClass == clang::Stmt::ArraySubscriptExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPArraySectionExprClass == clang::Stmt::OMPArraySectionExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CallExprClass == clang::Stmt::CallExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_MemberExprClass == clang::Stmt::MemberExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_BinaryOperatorClass == clang::Stmt::BinaryOperatorClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CompoundAssignOperatorClass == clang::Stmt::CompoundAssignOperatorClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ConditionalOperatorClass == clang::Stmt::ConditionalOperatorClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_BinaryConditionalOperatorClass == clang::Stmt::BinaryConditionalOperatorClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ImplicitCastExprClass == clang::Stmt::ImplicitCastExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CStyleCastExprClass == clang::Stmt::CStyleCastExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CompoundLiteralExprClass == clang::Stmt::CompoundLiteralExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ExtVectorElementExprClass == clang::Stmt::ExtVectorElementExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_InitListExprClass == clang::Stmt::InitListExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_DesignatedInitExprClass == clang::Stmt::DesignatedInitExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_DesignatedInitUpdateExprClass == clang::Stmt::DesignatedInitUpdateExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ImplicitValueInitExprClass == clang::Stmt::ImplicitValueInitExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_NoInitExprClass == clang::Stmt::NoInitExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ArrayInitLoopExprClass == clang::Stmt::ArrayInitLoopExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ArrayInitIndexExprClass == clang::Stmt::ArrayInitIndexExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ParenListExprClass == clang::Stmt::ParenListExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_VAArgExprClass == clang::Stmt::VAArgExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_GenericSelectionExprClass == clang::Stmt::GenericSelectionExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_PseudoObjectExprClass == clang::Stmt::PseudoObjectExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ConstantExprClass == clang::Stmt::ConstantExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_AtomicExprClass == clang::Stmt::AtomicExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_AddrLabelExprClass == clang::Stmt::AddrLabelExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_StmtExprClass == clang::Stmt::StmtExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ChooseExprClass == clang::Stmt::ChooseExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_GNUNullExprClass == clang::Stmt::GNUNullExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXOperatorCallExprClass == clang::Stmt::CXXOperatorCallExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXMemberCallExprClass == clang::Stmt::CXXMemberCallExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXStaticCastExprClass == clang::Stmt::CXXStaticCastExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXDynamicCastExprClass == clang::Stmt::CXXDynamicCastExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXReinterpretCastExprClass == clang::Stmt::CXXReinterpretCastExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXConstCastExprClass == clang::Stmt::CXXConstCastExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXFunctionalCastExprClass == clang::Stmt::CXXFunctionalCastExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXTypeidExprClass == clang::Stmt::CXXTypeidExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_UserDefinedLiteralClass == clang::Stmt::UserDefinedLiteralClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXBoolLiteralExprClass == clang::Stmt::CXXBoolLiteralExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXNullPtrLiteralExprClass == clang::Stmt::CXXNullPtrLiteralExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXThisExprClass == clang::Stmt::CXXThisExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXThrowExprClass == clang::Stmt::CXXThrowExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXDefaultArgExprClass == clang::Stmt::CXXDefaultArgExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXDefaultInitExprClass == clang::Stmt::CXXDefaultInitExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXScalarValueInitExprClass == clang::Stmt::CXXScalarValueInitExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXStdInitializerListExprClass == clang::Stmt::CXXStdInitializerListExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXNewExprClass == clang::Stmt::CXXNewExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXDeleteExprClass == clang::Stmt::CXXDeleteExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXPseudoDestructorExprClass == clang::Stmt::CXXPseudoDestructorExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_TypeTraitExprClass == clang::Stmt::TypeTraitExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ArrayTypeTraitExprClass == clang::Stmt::ArrayTypeTraitExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ExpressionTraitExprClass == clang::Stmt::ExpressionTraitExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_DependentScopeDeclRefExprClass == clang::Stmt::DependentScopeDeclRefExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXConstructExprClass == clang::Stmt::CXXConstructExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXInheritedCtorInitExprClass == clang::Stmt::CXXInheritedCtorInitExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXBindTemporaryExprClass == clang::Stmt::CXXBindTemporaryExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ExprWithCleanupsClass == clang::Stmt::ExprWithCleanupsClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXTemporaryObjectExprClass == clang::Stmt::CXXTemporaryObjectExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXUnresolvedConstructExprClass == clang::Stmt::CXXUnresolvedConstructExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXDependentScopeMemberExprClass == clang::Stmt::CXXDependentScopeMemberExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_UnresolvedLookupExprClass == clang::Stmt::UnresolvedLookupExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_UnresolvedMemberExprClass == clang::Stmt::UnresolvedMemberExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXNoexceptExprClass == clang::Stmt::CXXNoexceptExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_PackExpansionExprClass == clang::Stmt::PackExpansionExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_SizeOfPackExprClass == clang::Stmt::SizeOfPackExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_SubstNonTypeTemplateParmExprClass == clang::Stmt::SubstNonTypeTemplateParmExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_SubstNonTypeTemplateParmPackExprClass == clang::Stmt::SubstNonTypeTemplateParmPackExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_FunctionParmPackExprClass == clang::Stmt::FunctionParmPackExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_MaterializeTemporaryExprClass == clang::Stmt::MaterializeTemporaryExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_LambdaExprClass == clang::Stmt::LambdaExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXFoldExprClass == clang::Stmt::CXXFoldExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CoawaitExprClass == clang::Stmt::CoawaitExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_DependentCoawaitExprClass == clang::Stmt::DependentCoawaitExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CoyieldExprClass == clang::Stmt::CoyieldExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ObjCStringLiteralClass == clang::Stmt::ObjCStringLiteralClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ObjCBoxedExprClass == clang::Stmt::ObjCBoxedExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ObjCArrayLiteralClass == clang::Stmt::ObjCArrayLiteralClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ObjCDictionaryLiteralClass == clang::Stmt::ObjCDictionaryLiteralClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ObjCEncodeExprClass == clang::Stmt::ObjCEncodeExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ObjCMessageExprClass == clang::Stmt::ObjCMessageExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ObjCSelectorExprClass == clang::Stmt::ObjCSelectorExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ObjCProtocolExprClass == clang::Stmt::ObjCProtocolExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ObjCIvarRefExprClass == clang::Stmt::ObjCIvarRefExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ObjCPropertyRefExprClass == clang::Stmt::ObjCPropertyRefExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ObjCIsaExprClass == clang::Stmt::ObjCIsaExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ObjCIndirectCopyRestoreExprClass == clang::Stmt::ObjCIndirectCopyRestoreExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ObjCBoolLiteralExprClass == clang::Stmt::ObjCBoolLiteralExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ObjCSubscriptRefExprClass == clang::Stmt::ObjCSubscriptRefExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ObjCAvailabilityCheckExprClass == clang::Stmt::ObjCAvailabilityCheckExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ObjCBridgedCastExprClass == clang::Stmt::ObjCBridgedCastExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CUDAKernelCallExprClass == clang::Stmt::CUDAKernelCallExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ShuffleVectorExprClass == clang::Stmt::ShuffleVectorExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_ConvertVectorExprClass == clang::Stmt::ConvertVectorExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_BlockExprClass == clang::Stmt::BlockExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OpaqueValueExprClass == clang::Stmt::OpaqueValueExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_TypoExprClass == clang::Stmt::TypoExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_MSPropertyRefExprClass == clang::Stmt::MSPropertyRefExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_MSPropertySubscriptExprClass == clang::Stmt::MSPropertySubscriptExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXUuidofExprClass == clang::Stmt::CXXUuidofExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_SEHTryStmtClass == clang::Stmt::SEHTryStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_SEHExceptStmtClass == clang::Stmt::SEHExceptStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_SEHFinallyStmtClass == clang::Stmt::SEHFinallyStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_SEHLeaveStmtClass == clang::Stmt::SEHLeaveStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_MSDependentExistsStmtClass == clang::Stmt::MSDependentExistsStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_AsTypeExprClass == clang::Stmt::AsTypeExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPParallelDirectiveClass == clang::Stmt::OMPParallelDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPSimdDirectiveClass == clang::Stmt::OMPSimdDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPForDirectiveClass == clang::Stmt::OMPForDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPForSimdDirectiveClass == clang::Stmt::OMPForSimdDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPSectionsDirectiveClass == clang::Stmt::OMPSectionsDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPSectionDirectiveClass == clang::Stmt::OMPSectionDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPSingleDirectiveClass == clang::Stmt::OMPSingleDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPMasterDirectiveClass == clang::Stmt::OMPMasterDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPCriticalDirectiveClass == clang::Stmt::OMPCriticalDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPParallelForDirectiveClass == clang::Stmt::OMPParallelForDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPParallelForSimdDirectiveClass == clang::Stmt::OMPParallelForSimdDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPParallelSectionsDirectiveClass == clang::Stmt::OMPParallelSectionsDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTaskDirectiveClass == clang::Stmt::OMPTaskDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTaskyieldDirectiveClass == clang::Stmt::OMPTaskyieldDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPBarrierDirectiveClass == clang::Stmt::OMPBarrierDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTaskwaitDirectiveClass == clang::Stmt::OMPTaskwaitDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTaskgroupDirectiveClass == clang::Stmt::OMPTaskgroupDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPFlushDirectiveClass == clang::Stmt::OMPFlushDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPOrderedDirectiveClass == clang::Stmt::OMPOrderedDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPAtomicDirectiveClass == clang::Stmt::OMPAtomicDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTargetDirectiveClass == clang::Stmt::OMPTargetDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTargetDataDirectiveClass == clang::Stmt::OMPTargetDataDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTargetEnterDataDirectiveClass == clang::Stmt::OMPTargetEnterDataDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTargetExitDataDirectiveClass == clang::Stmt::OMPTargetExitDataDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTargetParallelDirectiveClass == clang::Stmt::OMPTargetParallelDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTargetParallelForDirectiveClass == clang::Stmt::OMPTargetParallelForDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTargetUpdateDirectiveClass == clang::Stmt::OMPTargetUpdateDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTeamsDirectiveClass == clang::Stmt::OMPTeamsDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPCancellationPointDirectiveClass == clang::Stmt::OMPCancellationPointDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPCancelDirectiveClass == clang::Stmt::OMPCancelDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTaskLoopDirectiveClass == clang::Stmt::OMPTaskLoopDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTaskLoopSimdDirectiveClass == clang::Stmt::OMPTaskLoopSimdDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPDistributeDirectiveClass == clang::Stmt::OMPDistributeDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPDistributeParallelForDirectiveClass == clang::Stmt::OMPDistributeParallelForDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPDistributeParallelForSimdDirectiveClass == clang::Stmt::OMPDistributeParallelForSimdDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPDistributeSimdDirectiveClass == clang::Stmt::OMPDistributeSimdDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTargetParallelForSimdDirectiveClass == clang::Stmt::OMPTargetParallelForSimdDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTargetSimdDirectiveClass == clang::Stmt::OMPTargetSimdDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTeamsDistributeDirectiveClass == clang::Stmt::OMPTeamsDistributeDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTeamsDistributeSimdDirectiveClass == clang::Stmt::OMPTeamsDistributeSimdDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTeamsDistributeParallelForSimdDirectiveClass == clang::Stmt::OMPTeamsDistributeParallelForSimdDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTeamsDistributeParallelForDirectiveClass == clang::Stmt::OMPTeamsDistributeParallelForDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTargetTeamsDirectiveClass == clang::Stmt::OMPTargetTeamsDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTargetTeamsDistributeDirectiveClass == clang::Stmt::OMPTargetTeamsDistributeDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTargetTeamsDistributeParallelForDirectiveClass == clang::Stmt::OMPTargetTeamsDistributeParallelForDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTargetTeamsDistributeParallelForSimdDirectiveClass == clang::Stmt::OMPTargetTeamsDistributeParallelForSimdDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTargetTeamsDistributeSimdDirectiveClass == clang::Stmt::OMPTargetTeamsDistributeSimdDirectiveClass, "");
 
 
 static_assert(sizeof(ZigClangSourceLocation) == sizeof(clang::SourceLocation), "");

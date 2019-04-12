@@ -509,11 +509,11 @@ static const ZigClangType *qual_type_canon(ZigClangQualType qt) {
 
 static ZigClangQualType get_expr_qual_type(Context *c, const clang::Expr *expr) {
     // String literals in C are `char *` but they should really be `const char *`.
-    if (expr->getStmtClass() == clang::Stmt::ImplicitCastExprClass) {
+    if ((ZigClangStmtClass)expr->getStmtClass() == ZigClangStmt_ImplicitCastExprClass) {
         const clang::ImplicitCastExpr *cast_expr = static_cast<const clang::ImplicitCastExpr *>(expr);
         if (cast_expr->getCastKind() == clang::CK_ArrayToPointerDecay) {
             const clang::Expr *sub_expr = cast_expr->getSubExpr();
-            if (sub_expr->getStmtClass() == clang::Stmt::StringLiteralClass) {
+            if ((ZigClangStmtClass)sub_expr->getStmtClass() == ZigClangStmt_StringLiteralClass) {
                 ZigClangQualType array_qt = bitcast(sub_expr->getType());
                 const clang::ArrayType *array_type = reinterpret_cast<const clang::ArrayType *>(
                         ZigClangQualType_getTypePtr(array_qt));
@@ -527,7 +527,7 @@ static ZigClangQualType get_expr_qual_type(Context *c, const clang::Expr *expr) 
 }
 
 static ZigClangQualType get_expr_qual_type_before_implicit_cast(Context *c, const clang::Expr *expr) {
-    if (expr->getStmtClass() == clang::Stmt::ImplicitCastExprClass) {
+    if ((ZigClangStmtClass)expr->getStmtClass() == ZigClangStmt_ImplicitCastExprClass) {
         const clang::ImplicitCastExpr *cast_expr = static_cast<const clang::ImplicitCastExpr *>(expr);
         return get_expr_qual_type(c, cast_expr->getSubExpr());
     }
@@ -2791,10 +2791,10 @@ static AstNode *trans_call_expr(Context *c, ResultUsed result_used, TransScope *
     const clang::FunctionProtoType *fn_ty = qual_type_get_fn_proto(bitcast(stmt->getCallee()->getType()), &is_ptr);
     AstNode *callee_node = nullptr;
     if (is_ptr && fn_ty) {
-        if (stmt->getCallee()->getStmtClass() == clang::Stmt::ImplicitCastExprClass) {
+        if ((ZigClangStmtClass)stmt->getCallee()->getStmtClass() == ZigClangStmt_ImplicitCastExprClass) {
             const clang::ImplicitCastExpr *implicit_cast = static_cast<const clang::ImplicitCastExpr *>(stmt->getCallee());
             if (implicit_cast->getCastKind() == clang::CK_FunctionToPointerDecay) {
-                if (implicit_cast->getSubExpr()->getStmtClass() == clang::Stmt::DeclRefExprClass) {
+                if ((ZigClangStmtClass)implicit_cast->getSubExpr()->getStmtClass() == ZigClangStmt_DeclRefExprClass) {
                     const clang::DeclRefExpr *decl_ref = static_cast<const clang::DeclRefExpr *>(implicit_cast->getSubExpr());
                     const clang::Decl *decl = decl_ref->getFoundDecl();
                     if (decl->getKind() == clang::Decl::Function) {
@@ -2898,7 +2898,7 @@ static AstNode *trans_do_loop(Context *c, TransScope *parent_scope, const clang:
 
     AstNode *body_node;
     TransScope *child_scope;
-    if (stmt->getBody()->getStmtClass() == clang::Stmt::CompoundStmtClass) {
+    if ((ZigClangStmtClass)stmt->getBody()->getStmtClass() == ZigClangStmt_CompoundStmtClass) {
         // there's already a block in C, so we'll append our condition to it.
         // c: do {
         // c:   a;
@@ -3051,7 +3051,7 @@ static AstNode *trans_switch_stmt(Context *c, TransScope *parent_scope, const cl
 
     AstNode *body_node;
     const clang::Stmt *body_stmt = stmt->getBody();
-    if (body_stmt->getStmtClass() == clang::Stmt::CompoundStmtClass) {
+    if ((ZigClangStmtClass)body_stmt->getStmtClass() == ZigClangStmt_CompoundStmtClass) {
         if (trans_compound_stmt_inline(c, &switch_scope->base, (const clang::CompoundStmt *)body_stmt,
                                        block_scope->node, nullptr))
         {
@@ -3224,40 +3224,40 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const clang::Stmt *st
         AstNode **out_node, TransScope **out_child_scope,
         TransScope **out_node_scope)
 {
-    clang::Stmt::StmtClass sc = stmt->getStmtClass();
+    ZigClangStmtClass sc = (ZigClangStmtClass)stmt->getStmtClass();
     switch (sc) {
-        case clang::Stmt::ReturnStmtClass:
+        case ZigClangStmt_ReturnStmtClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_return_stmt(c, scope, (const clang::ReturnStmt *)stmt));
-        case clang::Stmt::CompoundStmtClass:
+        case ZigClangStmt_CompoundStmtClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_compound_stmt(c, scope, (const clang::CompoundStmt *)stmt, out_node_scope));
-        case clang::Stmt::IntegerLiteralClass:
+        case ZigClangStmt_IntegerLiteralClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_integer_literal(c, result_used, (const clang::IntegerLiteral *)stmt));
-        case clang::Stmt::ConditionalOperatorClass:
+        case ZigClangStmt_ConditionalOperatorClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_conditional_operator(c, result_used, scope, (const clang::ConditionalOperator *)stmt));
-        case clang::Stmt::BinaryOperatorClass:
+        case ZigClangStmt_BinaryOperatorClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_binary_operator(c, result_used, scope, (const clang::BinaryOperator *)stmt));
-        case clang::Stmt::CompoundAssignOperatorClass:
+        case ZigClangStmt_CompoundAssignOperatorClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_compound_assign_operator(c, result_used, scope, (const clang::CompoundAssignOperator *)stmt));
-        case clang::Stmt::ImplicitCastExprClass:
+        case ZigClangStmt_ImplicitCastExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_implicit_cast_expr(c, result_used, scope, (const clang::ImplicitCastExpr *)stmt));
-        case clang::Stmt::DeclRefExprClass:
+        case ZigClangStmt_DeclRefExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_decl_ref_expr(c, scope, (const clang::DeclRefExpr *)stmt, lrvalue));
-        case clang::Stmt::UnaryOperatorClass:
+        case ZigClangStmt_UnaryOperatorClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_unary_operator(c, result_used, scope, (const clang::UnaryOperator *)stmt));
-        case clang::Stmt::DeclStmtClass:
+        case ZigClangStmt_DeclStmtClass:
             return trans_local_declaration(c, scope, (const clang::DeclStmt *)stmt, out_node, out_child_scope);
-        case clang::Stmt::DoStmtClass:
-        case clang::Stmt::WhileStmtClass: {
-            AstNode *while_node = sc == clang::Stmt::DoStmtClass
+        case ZigClangStmt_DoStmtClass:
+        case ZigClangStmt_WhileStmtClass: {
+            AstNode *while_node = sc == ZigClangStmt_DoStmtClass
                 ? trans_do_loop(c, scope, (const clang::DoStmt *)stmt)
                 : trans_while_loop(c, scope, (const clang::WhileStmt *)stmt);
 
@@ -3270,559 +3270,559 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const clang::Stmt *st
 
             return wrap_stmt(out_node, out_child_scope, scope, while_node);
         }
-        case clang::Stmt::IfStmtClass:
+        case ZigClangStmt_IfStmtClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_if_statement(c, scope, (const clang::IfStmt *)stmt));
-        case clang::Stmt::CallExprClass:
+        case ZigClangStmt_CallExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_call_expr(c, result_used, scope, (const clang::CallExpr *)stmt));
-        case clang::Stmt::NullStmtClass:
+        case ZigClangStmt_NullStmtClass:
             *out_node = trans_create_node(c, NodeTypeBlock);
             *out_child_scope = scope;
             return ErrorNone;
-        case clang::Stmt::MemberExprClass:
+        case ZigClangStmt_MemberExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_member_expr(c, result_used, scope, (const clang::MemberExpr *)stmt));
-        case clang::Stmt::ArraySubscriptExprClass:
+        case ZigClangStmt_ArraySubscriptExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_array_subscript_expr(c, result_used, scope, (const clang::ArraySubscriptExpr *)stmt));
-        case clang::Stmt::CStyleCastExprClass:
+        case ZigClangStmt_CStyleCastExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_c_style_cast_expr(c, result_used, scope, (const clang::CStyleCastExpr *)stmt, lrvalue));
-        case clang::Stmt::UnaryExprOrTypeTraitExprClass:
+        case ZigClangStmt_UnaryExprOrTypeTraitExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_unary_expr_or_type_trait_expr(c, result_used, scope, (const clang::UnaryExprOrTypeTraitExpr *)stmt));
-        case clang::Stmt::ForStmtClass: {
+        case ZigClangStmt_ForStmtClass: {
             AstNode *node = trans_for_loop(c, scope, (const clang::ForStmt *)stmt);
             return wrap_stmt(out_node, out_child_scope, scope, node);
         }
-        case clang::Stmt::StringLiteralClass:
+        case ZigClangStmt_StringLiteralClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_string_literal(c, result_used, scope, (const clang::StringLiteral *)stmt));
-        case clang::Stmt::BreakStmtClass:
+        case ZigClangStmt_BreakStmtClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_break_stmt(c, scope, (const clang::BreakStmt *)stmt));
-        case clang::Stmt::ContinueStmtClass:
+        case ZigClangStmt_ContinueStmtClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_continue_stmt(c, scope, (const clang::ContinueStmt *)stmt));
-        case clang::Stmt::ParenExprClass:
+        case ZigClangStmt_ParenExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_expr(c, result_used, scope, ((const clang::ParenExpr*)stmt)->getSubExpr(), lrvalue));
-        case clang::Stmt::SwitchStmtClass:
+        case ZigClangStmt_SwitchStmtClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                              trans_switch_stmt(c, scope, (const clang::SwitchStmt *)stmt));
-        case clang::Stmt::CaseStmtClass:
+        case ZigClangStmt_CaseStmtClass:
             return trans_switch_case(c, scope, (const clang::CaseStmt *)stmt, out_node, out_child_scope);
-        case clang::Stmt::DefaultStmtClass:
+        case ZigClangStmt_DefaultStmtClass:
             return trans_switch_default(c, scope, (const clang::DefaultStmt *)stmt, out_node, out_child_scope);
-        case clang::Stmt::ConstantExprClass:
+        case ZigClangStmt_ConstantExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_constant_expr(c, result_used, (const clang::ConstantExpr *)stmt));
-        case clang::Stmt::PredefinedExprClass:
+        case ZigClangStmt_PredefinedExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                              trans_predefined_expr(c, result_used, scope, (const clang::PredefinedExpr *)stmt));
-        case clang::Stmt::StmtExprClass:
+        case ZigClangStmt_StmtExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_stmt_expr(c, result_used, scope, (const clang::StmtExpr *)stmt, out_node_scope));
-        case clang::Stmt::NoStmtClass:
+        case ZigClangStmt_NoStmtClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C NoStmtClass");
             return ErrorUnexpected;
-        case clang::Stmt::GCCAsmStmtClass:
+        case ZigClangStmt_GCCAsmStmtClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C GCCAsmStmtClass");
             return ErrorUnexpected;
-        case clang::Stmt::MSAsmStmtClass:
+        case ZigClangStmt_MSAsmStmtClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C MSAsmStmtClass");
             return ErrorUnexpected;
-        case clang::Stmt::AttributedStmtClass:
+        case ZigClangStmt_AttributedStmtClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C AttributedStmtClass");
             return ErrorUnexpected;
-        case clang::Stmt::CXXCatchStmtClass:
+        case ZigClangStmt_CXXCatchStmtClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CXXCatchStmtClass");
             return ErrorUnexpected;
-        case clang::Stmt::CXXForRangeStmtClass:
+        case ZigClangStmt_CXXForRangeStmtClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CXXForRangeStmtClass");
             return ErrorUnexpected;
-        case clang::Stmt::CXXTryStmtClass:
+        case ZigClangStmt_CXXTryStmtClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CXXTryStmtClass");
             return ErrorUnexpected;
-        case clang::Stmt::CapturedStmtClass:
+        case ZigClangStmt_CapturedStmtClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CapturedStmtClass");
             return ErrorUnexpected;
-        case clang::Stmt::CoreturnStmtClass:
+        case ZigClangStmt_CoreturnStmtClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CoreturnStmtClass");
             return ErrorUnexpected;
-        case clang::Stmt::CoroutineBodyStmtClass:
+        case ZigClangStmt_CoroutineBodyStmtClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CoroutineBodyStmtClass");
             return ErrorUnexpected;
-        case clang::Stmt::BinaryConditionalOperatorClass:
+        case ZigClangStmt_BinaryConditionalOperatorClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C BinaryConditionalOperatorClass");
             return ErrorUnexpected;
-        case clang::Stmt::AddrLabelExprClass:
+        case ZigClangStmt_AddrLabelExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C AddrLabelExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::ArrayInitIndexExprClass:
+        case ZigClangStmt_ArrayInitIndexExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ArrayInitIndexExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::ArrayInitLoopExprClass:
+        case ZigClangStmt_ArrayInitLoopExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ArrayInitLoopExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::ArrayTypeTraitExprClass:
+        case ZigClangStmt_ArrayTypeTraitExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ArrayTypeTraitExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::AsTypeExprClass:
+        case ZigClangStmt_AsTypeExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C AsTypeExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::AtomicExprClass:
+        case ZigClangStmt_AtomicExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C AtomicExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::BlockExprClass:
+        case ZigClangStmt_BlockExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C BlockExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::CXXBindTemporaryExprClass:
+        case ZigClangStmt_CXXBindTemporaryExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CXXBindTemporaryExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::CXXBoolLiteralExprClass:
+        case ZigClangStmt_CXXBoolLiteralExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CXXBoolLiteralExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::CXXConstructExprClass:
+        case ZigClangStmt_CXXConstructExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CXXConstructExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::CXXTemporaryObjectExprClass:
+        case ZigClangStmt_CXXTemporaryObjectExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CXXTemporaryObjectExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::CXXDefaultArgExprClass:
+        case ZigClangStmt_CXXDefaultArgExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CXXDefaultArgExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::CXXDefaultInitExprClass:
+        case ZigClangStmt_CXXDefaultInitExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CXXDefaultInitExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::CXXDeleteExprClass:
+        case ZigClangStmt_CXXDeleteExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CXXDeleteExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::CXXDependentScopeMemberExprClass:
+        case ZigClangStmt_CXXDependentScopeMemberExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CXXDependentScopeMemberExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::CXXFoldExprClass:
+        case ZigClangStmt_CXXFoldExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CXXFoldExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::CXXInheritedCtorInitExprClass:
+        case ZigClangStmt_CXXInheritedCtorInitExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CXXInheritedCtorInitExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::CXXNewExprClass:
+        case ZigClangStmt_CXXNewExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CXXNewExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::CXXNoexceptExprClass:
+        case ZigClangStmt_CXXNoexceptExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CXXNoexceptExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::CXXNullPtrLiteralExprClass:
+        case ZigClangStmt_CXXNullPtrLiteralExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CXXNullPtrLiteralExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::CXXPseudoDestructorExprClass:
+        case ZigClangStmt_CXXPseudoDestructorExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CXXPseudoDestructorExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::CXXScalarValueInitExprClass:
+        case ZigClangStmt_CXXScalarValueInitExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CXXScalarValueInitExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::CXXStdInitializerListExprClass:
+        case ZigClangStmt_CXXStdInitializerListExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CXXStdInitializerListExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::CXXThisExprClass:
+        case ZigClangStmt_CXXThisExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CXXThisExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::CXXThrowExprClass:
+        case ZigClangStmt_CXXThrowExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CXXThrowExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::CXXTypeidExprClass:
+        case ZigClangStmt_CXXTypeidExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CXXTypeidExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::CXXUnresolvedConstructExprClass:
+        case ZigClangStmt_CXXUnresolvedConstructExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CXXUnresolvedConstructExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::CXXUuidofExprClass:
+        case ZigClangStmt_CXXUuidofExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CXXUuidofExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::CUDAKernelCallExprClass:
+        case ZigClangStmt_CUDAKernelCallExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CUDAKernelCallExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::CXXMemberCallExprClass:
+        case ZigClangStmt_CXXMemberCallExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CXXMemberCallExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::CXXOperatorCallExprClass:
+        case ZigClangStmt_CXXOperatorCallExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CXXOperatorCallExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::UserDefinedLiteralClass:
+        case ZigClangStmt_UserDefinedLiteralClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C UserDefinedLiteralClass");
             return ErrorUnexpected;
-        case clang::Stmt::CXXFunctionalCastExprClass:
+        case ZigClangStmt_CXXFunctionalCastExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CXXFunctionalCastExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::CXXConstCastExprClass:
+        case ZigClangStmt_CXXConstCastExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CXXConstCastExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::CXXDynamicCastExprClass:
+        case ZigClangStmt_CXXDynamicCastExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CXXDynamicCastExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::CXXReinterpretCastExprClass:
+        case ZigClangStmt_CXXReinterpretCastExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CXXReinterpretCastExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::CXXStaticCastExprClass:
+        case ZigClangStmt_CXXStaticCastExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CXXStaticCastExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::ObjCBridgedCastExprClass:
+        case ZigClangStmt_ObjCBridgedCastExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ObjCBridgedCastExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::CharacterLiteralClass:
+        case ZigClangStmt_CharacterLiteralClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CharacterLiteralClass");
             return ErrorUnexpected;
-        case clang::Stmt::ChooseExprClass:
+        case ZigClangStmt_ChooseExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ChooseExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::CompoundLiteralExprClass:
+        case ZigClangStmt_CompoundLiteralExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CompoundLiteralExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::ConvertVectorExprClass:
+        case ZigClangStmt_ConvertVectorExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ConvertVectorExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::CoawaitExprClass:
+        case ZigClangStmt_CoawaitExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CoawaitExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::CoyieldExprClass:
+        case ZigClangStmt_CoyieldExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CoyieldExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::DependentCoawaitExprClass:
+        case ZigClangStmt_DependentCoawaitExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C DependentCoawaitExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::DependentScopeDeclRefExprClass:
+        case ZigClangStmt_DependentScopeDeclRefExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C DependentScopeDeclRefExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::DesignatedInitExprClass:
+        case ZigClangStmt_DesignatedInitExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C DesignatedInitExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::DesignatedInitUpdateExprClass:
+        case ZigClangStmt_DesignatedInitUpdateExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C DesignatedInitUpdateExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::ExpressionTraitExprClass:
+        case ZigClangStmt_ExpressionTraitExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ExpressionTraitExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::ExtVectorElementExprClass:
+        case ZigClangStmt_ExtVectorElementExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ExtVectorElementExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::FixedPointLiteralClass:
+        case ZigClangStmt_FixedPointLiteralClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C FixedPointLiteralClass");
             return ErrorUnexpected;
-        case clang::Stmt::FloatingLiteralClass:
+        case ZigClangStmt_FloatingLiteralClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C FloatingLiteralClass");
             return ErrorUnexpected;
-        case clang::Stmt::ExprWithCleanupsClass:
+        case ZigClangStmt_ExprWithCleanupsClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ExprWithCleanupsClass");
             return ErrorUnexpected;
-        case clang::Stmt::FunctionParmPackExprClass:
+        case ZigClangStmt_FunctionParmPackExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C FunctionParmPackExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::GNUNullExprClass:
+        case ZigClangStmt_GNUNullExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C GNUNullExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::GenericSelectionExprClass:
+        case ZigClangStmt_GenericSelectionExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C GenericSelectionExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::ImaginaryLiteralClass:
+        case ZigClangStmt_ImaginaryLiteralClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ImaginaryLiteralClass");
             return ErrorUnexpected;
-        case clang::Stmt::ImplicitValueInitExprClass:
+        case ZigClangStmt_ImplicitValueInitExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ImplicitValueInitExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::InitListExprClass:
+        case ZigClangStmt_InitListExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C InitListExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::LambdaExprClass:
+        case ZigClangStmt_LambdaExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C LambdaExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::MSPropertyRefExprClass:
+        case ZigClangStmt_MSPropertyRefExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C MSPropertyRefExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::MSPropertySubscriptExprClass:
+        case ZigClangStmt_MSPropertySubscriptExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C MSPropertySubscriptExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::MaterializeTemporaryExprClass:
+        case ZigClangStmt_MaterializeTemporaryExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C MaterializeTemporaryExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::NoInitExprClass:
+        case ZigClangStmt_NoInitExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C NoInitExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPArraySectionExprClass:
+        case ZigClangStmt_OMPArraySectionExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPArraySectionExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::ObjCArrayLiteralClass:
+        case ZigClangStmt_ObjCArrayLiteralClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ObjCArrayLiteralClass");
             return ErrorUnexpected;
-        case clang::Stmt::ObjCAvailabilityCheckExprClass:
+        case ZigClangStmt_ObjCAvailabilityCheckExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ObjCAvailabilityCheckExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::ObjCBoolLiteralExprClass:
+        case ZigClangStmt_ObjCBoolLiteralExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ObjCBoolLiteralExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::ObjCBoxedExprClass:
+        case ZigClangStmt_ObjCBoxedExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ObjCBoxedExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::ObjCDictionaryLiteralClass:
+        case ZigClangStmt_ObjCDictionaryLiteralClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ObjCDictionaryLiteralClass");
             return ErrorUnexpected;
-        case clang::Stmt::ObjCEncodeExprClass:
+        case ZigClangStmt_ObjCEncodeExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ObjCEncodeExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::ObjCIndirectCopyRestoreExprClass:
+        case ZigClangStmt_ObjCIndirectCopyRestoreExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ObjCIndirectCopyRestoreExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::ObjCIsaExprClass:
+        case ZigClangStmt_ObjCIsaExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ObjCIsaExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::ObjCIvarRefExprClass:
+        case ZigClangStmt_ObjCIvarRefExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ObjCIvarRefExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::ObjCMessageExprClass:
+        case ZigClangStmt_ObjCMessageExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ObjCMessageExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::ObjCPropertyRefExprClass:
+        case ZigClangStmt_ObjCPropertyRefExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ObjCPropertyRefExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::ObjCProtocolExprClass:
+        case ZigClangStmt_ObjCProtocolExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ObjCProtocolExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::ObjCSelectorExprClass:
+        case ZigClangStmt_ObjCSelectorExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ObjCSelectorExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::ObjCStringLiteralClass:
+        case ZigClangStmt_ObjCStringLiteralClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ObjCStringLiteralClass");
             return ErrorUnexpected;
-        case clang::Stmt::ObjCSubscriptRefExprClass:
+        case ZigClangStmt_ObjCSubscriptRefExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ObjCSubscriptRefExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OffsetOfExprClass:
+        case ZigClangStmt_OffsetOfExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OffsetOfExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::OpaqueValueExprClass:
+        case ZigClangStmt_OpaqueValueExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OpaqueValueExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::UnresolvedLookupExprClass:
+        case ZigClangStmt_UnresolvedLookupExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C UnresolvedLookupExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::UnresolvedMemberExprClass:
+        case ZigClangStmt_UnresolvedMemberExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C UnresolvedMemberExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::PackExpansionExprClass:
+        case ZigClangStmt_PackExpansionExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C PackExpansionExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::ParenListExprClass:
+        case ZigClangStmt_ParenListExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ParenListExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::PseudoObjectExprClass:
+        case ZigClangStmt_PseudoObjectExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C PseudoObjectExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::ShuffleVectorExprClass:
+        case ZigClangStmt_ShuffleVectorExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ShuffleVectorExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::SizeOfPackExprClass:
+        case ZigClangStmt_SizeOfPackExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C SizeOfPackExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::SubstNonTypeTemplateParmExprClass:
+        case ZigClangStmt_SubstNonTypeTemplateParmExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C SubstNonTypeTemplateParmExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::SubstNonTypeTemplateParmPackExprClass:
+        case ZigClangStmt_SubstNonTypeTemplateParmPackExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C SubstNonTypeTemplateParmPackExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::TypeTraitExprClass:
+        case ZigClangStmt_TypeTraitExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C TypeTraitExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::TypoExprClass:
+        case ZigClangStmt_TypoExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C TypoExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::VAArgExprClass:
+        case ZigClangStmt_VAArgExprClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C VAArgExprClass");
             return ErrorUnexpected;
-        case clang::Stmt::GotoStmtClass:
+        case ZigClangStmt_GotoStmtClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C GotoStmtClass");
             return ErrorUnexpected;
-        case clang::Stmt::IndirectGotoStmtClass:
+        case ZigClangStmt_IndirectGotoStmtClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C IndirectGotoStmtClass");
             return ErrorUnexpected;
-        case clang::Stmt::LabelStmtClass:
+        case ZigClangStmt_LabelStmtClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C LabelStmtClass");
             return ErrorUnexpected;
-        case clang::Stmt::MSDependentExistsStmtClass:
+        case ZigClangStmt_MSDependentExistsStmtClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C MSDependentExistsStmtClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPAtomicDirectiveClass:
+        case ZigClangStmt_OMPAtomicDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPAtomicDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPBarrierDirectiveClass:
+        case ZigClangStmt_OMPBarrierDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPBarrierDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPCancelDirectiveClass:
+        case ZigClangStmt_OMPCancelDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPCancelDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPCancellationPointDirectiveClass:
+        case ZigClangStmt_OMPCancellationPointDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPCancellationPointDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPCriticalDirectiveClass:
+        case ZigClangStmt_OMPCriticalDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPCriticalDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPFlushDirectiveClass:
+        case ZigClangStmt_OMPFlushDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPFlushDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPDistributeDirectiveClass:
+        case ZigClangStmt_OMPDistributeDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPDistributeDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPDistributeParallelForDirectiveClass:
+        case ZigClangStmt_OMPDistributeParallelForDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPDistributeParallelForDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPDistributeParallelForSimdDirectiveClass:
+        case ZigClangStmt_OMPDistributeParallelForSimdDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPDistributeParallelForSimdDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPDistributeSimdDirectiveClass:
+        case ZigClangStmt_OMPDistributeSimdDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPDistributeSimdDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPForDirectiveClass:
+        case ZigClangStmt_OMPForDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPForDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPForSimdDirectiveClass:
+        case ZigClangStmt_OMPForSimdDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPForSimdDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPParallelForDirectiveClass:
+        case ZigClangStmt_OMPParallelForDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPParallelForDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPParallelForSimdDirectiveClass:
+        case ZigClangStmt_OMPParallelForSimdDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPParallelForSimdDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPSimdDirectiveClass:
+        case ZigClangStmt_OMPSimdDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPSimdDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTargetParallelForSimdDirectiveClass:
+        case ZigClangStmt_OMPTargetParallelForSimdDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPTargetParallelForSimdDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTargetSimdDirectiveClass:
+        case ZigClangStmt_OMPTargetSimdDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPTargetSimdDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTargetTeamsDistributeDirectiveClass:
+        case ZigClangStmt_OMPTargetTeamsDistributeDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPTargetTeamsDistributeDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTargetTeamsDistributeParallelForDirectiveClass:
+        case ZigClangStmt_OMPTargetTeamsDistributeParallelForDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPTargetTeamsDistributeParallelForDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTargetTeamsDistributeParallelForSimdDirectiveClass:
+        case ZigClangStmt_OMPTargetTeamsDistributeParallelForSimdDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPTargetTeamsDistributeParallelForSimdDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTargetTeamsDistributeSimdDirectiveClass:
+        case ZigClangStmt_OMPTargetTeamsDistributeSimdDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPTargetTeamsDistributeSimdDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTaskLoopDirectiveClass:
+        case ZigClangStmt_OMPTaskLoopDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPTaskLoopDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTaskLoopSimdDirectiveClass:
+        case ZigClangStmt_OMPTaskLoopSimdDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPTaskLoopSimdDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTeamsDistributeDirectiveClass:
+        case ZigClangStmt_OMPTeamsDistributeDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPTeamsDistributeDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTeamsDistributeParallelForDirectiveClass:
+        case ZigClangStmt_OMPTeamsDistributeParallelForDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPTeamsDistributeParallelForDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTeamsDistributeParallelForSimdDirectiveClass:
+        case ZigClangStmt_OMPTeamsDistributeParallelForSimdDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPTeamsDistributeParallelForSimdDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTeamsDistributeSimdDirectiveClass:
+        case ZigClangStmt_OMPTeamsDistributeSimdDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPTeamsDistributeSimdDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPMasterDirectiveClass:
+        case ZigClangStmt_OMPMasterDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPMasterDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPOrderedDirectiveClass:
+        case ZigClangStmt_OMPOrderedDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPOrderedDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPParallelDirectiveClass:
+        case ZigClangStmt_OMPParallelDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPParallelDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPParallelSectionsDirectiveClass:
+        case ZigClangStmt_OMPParallelSectionsDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPParallelSectionsDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPSectionDirectiveClass:
+        case ZigClangStmt_OMPSectionDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPSectionDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPSectionsDirectiveClass:
+        case ZigClangStmt_OMPSectionsDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPSectionsDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPSingleDirectiveClass:
+        case ZigClangStmt_OMPSingleDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPSingleDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTargetDataDirectiveClass:
+        case ZigClangStmt_OMPTargetDataDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPTargetDataDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTargetDirectiveClass:
+        case ZigClangStmt_OMPTargetDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPTargetDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTargetEnterDataDirectiveClass:
+        case ZigClangStmt_OMPTargetEnterDataDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPTargetEnterDataDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTargetExitDataDirectiveClass:
+        case ZigClangStmt_OMPTargetExitDataDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPTargetExitDataDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTargetParallelDirectiveClass:
+        case ZigClangStmt_OMPTargetParallelDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPTargetParallelDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTargetParallelForDirectiveClass:
+        case ZigClangStmt_OMPTargetParallelForDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPTargetParallelForDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTargetTeamsDirectiveClass:
+        case ZigClangStmt_OMPTargetTeamsDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPTargetTeamsDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTargetUpdateDirectiveClass:
+        case ZigClangStmt_OMPTargetUpdateDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPTargetUpdateDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTaskDirectiveClass:
+        case ZigClangStmt_OMPTaskDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPTaskDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTaskgroupDirectiveClass:
+        case ZigClangStmt_OMPTaskgroupDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPTaskgroupDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTaskwaitDirectiveClass:
+        case ZigClangStmt_OMPTaskwaitDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPTaskwaitDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTaskyieldDirectiveClass:
+        case ZigClangStmt_OMPTaskyieldDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPTaskyieldDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::OMPTeamsDirectiveClass:
+        case ZigClangStmt_OMPTeamsDirectiveClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPTeamsDirectiveClass");
             return ErrorUnexpected;
-        case clang::Stmt::ObjCAtCatchStmtClass:
+        case ZigClangStmt_ObjCAtCatchStmtClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ObjCAtCatchStmtClass");
             return ErrorUnexpected;
-        case clang::Stmt::ObjCAtFinallyStmtClass:
+        case ZigClangStmt_ObjCAtFinallyStmtClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ObjCAtFinallyStmtClass");
             return ErrorUnexpected;
-        case clang::Stmt::ObjCAtSynchronizedStmtClass:
+        case ZigClangStmt_ObjCAtSynchronizedStmtClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ObjCAtSynchronizedStmtClass");
             return ErrorUnexpected;
-        case clang::Stmt::ObjCAtThrowStmtClass:
+        case ZigClangStmt_ObjCAtThrowStmtClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ObjCAtThrowStmtClass");
             return ErrorUnexpected;
-        case clang::Stmt::ObjCAtTryStmtClass:
+        case ZigClangStmt_ObjCAtTryStmtClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ObjCAtTryStmtClass");
             return ErrorUnexpected;
-        case clang::Stmt::ObjCAutoreleasePoolStmtClass:
+        case ZigClangStmt_ObjCAutoreleasePoolStmtClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ObjCAutoreleasePoolStmtClass");
             return ErrorUnexpected;
-        case clang::Stmt::ObjCForCollectionStmtClass:
+        case ZigClangStmt_ObjCForCollectionStmtClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ObjCForCollectionStmtClass");
             return ErrorUnexpected;
-        case clang::Stmt::SEHExceptStmtClass:
+        case ZigClangStmt_SEHExceptStmtClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C SEHExceptStmtClass");
             return ErrorUnexpected;
-        case clang::Stmt::SEHFinallyStmtClass:
+        case ZigClangStmt_SEHFinallyStmtClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C SEHFinallyStmtClass");
             return ErrorUnexpected;
-        case clang::Stmt::SEHLeaveStmtClass:
+        case ZigClangStmt_SEHLeaveStmtClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C SEHLeaveStmtClass");
             return ErrorUnexpected;
-        case clang::Stmt::SEHTryStmtClass:
+        case ZigClangStmt_SEHTryStmtClass:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C SEHTryStmtClass");
             return ErrorUnexpected;
     }
