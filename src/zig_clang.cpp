@@ -871,3 +871,17 @@ const char *ZigClangType_getTypeClassName(const ZigClangType *self) {
     return casted->getTypeClassName();
 }
 
+ZigClangSourceLocation ZigClangStmt_getBeginLoc(const ZigClangStmt *self) {
+    auto casted = reinterpret_cast<const clang::Stmt *>(self);
+    return bitcast(casted->getBeginLoc());
+}
+
+bool ZigClangStmt_classof_Expr(const ZigClangStmt *self) {
+    auto casted = reinterpret_cast<const clang::Stmt *>(self);
+    return clang::Expr::classof(casted);
+}
+
+ZigClangStmtClass ZigClangStmt_getStmtClass(const ZigClangStmt *self) {
+    auto casted = reinterpret_cast<const clang::Stmt *>(self);
+    return (ZigClangStmtClass)casted->getStmtClass();
+}

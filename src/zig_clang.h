@@ -547,4 +547,9 @@ ZIG_EXTERN_C bool ZigClangQualType_isRestrictQualified(ZigClangQualType);
 ZIG_EXTERN_C ZigClangTypeClass ZigClangType_getTypeClass(const ZigClangType *self);
 ZIG_EXTERN_C bool ZigClangType_isVoidType(const ZigClangType *self);
 ZIG_EXTERN_C const char *ZigClangType_getTypeClassName(const ZigClangType *self);
+
+ZIG_EXTERN_C ZigClangSourceLocation ZigClangStmt_getBeginLoc(const ZigClangStmt *self);
+ZIG_EXTERN_C ZigClangStmtClass ZigClangStmt_getStmtClass(const ZigClangStmt *self);
+ZIG_EXTERN_C bool ZigClangStmt_classof_Expr(const ZigClangStmt *self);
+
 #endif
