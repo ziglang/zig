@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
     <title>Documentation - The Zig Programming Language</title>
+    <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxNSAxMCIgZmlsbD0iI2Y3YTQxZCI+PHBhdGggZD0iTTAsMSBIMy41IFYzIEgyIFY3IEgzLjY4MiBMMS44ODEsOSBIMCBaIE0xNSw5IEgxMS41IFY3IEgxMyBWMyBIMTEuMzE4IEwxMy4xMTksMSBIMTUgWiBNNCwxIEg5LjkxMiBMMTMuMzI4LDAuMDIxIEw3LjA0NSw3IEgxMSBWOSBINS4wODggTDEuNjcyLDkuOTc5IEw3Ljk1NSwzIEg0IFoiLz48L3N2Zz4="/>
     <style type="text/css">
       body{
         font-family: system-ui, -apple-system, Roboto, "Segoe UI", sans-serif;
