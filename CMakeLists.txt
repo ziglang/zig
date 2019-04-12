@@ -521,6 +521,8 @@ set(ZIG_STD_FILES
     "hash/siphash.zig"
     "hash_map.zig"
     "heap.zig"
+    "http.zig"
+    "http/headers.zig"
     "io.zig"
     "io/c_out_stream.zig"
     "io/seekable_stream.zig"
