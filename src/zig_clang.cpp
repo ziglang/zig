@@ -233,6 +233,11 @@ const ZigClangTagDecl *ZigClangEnumDecl_getCanonicalDecl(const ZigClangEnumDecl 
     return reinterpret_cast<const ZigClangTagDecl *>(tag_decl);
 }
 
+const ZigClangTypedefNameDecl *ZigClangTypedefNameDecl_getCanonicalDecl(const ZigClangTypedefNameDecl *self) {
+    const clang::TypedefNameDecl *decl = reinterpret_cast<const clang::TypedefNameDecl*>(self)->getCanonicalDecl();
+    return reinterpret_cast<const ZigClangTypedefNameDecl *>(decl);
+}
+
 const ZigClangRecordDecl *ZigClangRecordDecl_getDefinition(const ZigClangRecordDecl *zig_record_decl) {
     const clang::RecordDecl *record_decl = reinterpret_cast<const clang::RecordDecl *>(zig_record_decl);
     const clang::RecordDecl *definition = record_decl->getDefinition();
@@ -273,6 +278,11 @@ ZigClangSourceLocation ZigClangEnumDecl_getLocation(const ZigClangEnumDecl *self
     return bitcast(casted->getLocation());
 }
 
+ZigClangSourceLocation ZigClangTypedefNameDecl_getLocation(const ZigClangTypedefNameDecl *self) {
+    auto casted = reinterpret_cast<const clang::TypedefNameDecl *>(self);
+    return bitcast(casted->getLocation());
+}
+
 bool ZigClangSourceLocation_eq(ZigClangSourceLocation zig_a, ZigClangSourceLocation zig_b) {
     clang::SourceLocation a = bitcast(zig_a);
     clang::SourceLocation b = bitcast(zig_b);
@@ -281,4 +291,16 @@ bool ZigClangSourceLocation_eq(ZigClangSourceLocation zig_a, ZigClangSourceLocat
 
 ZigClangQualType ZigClangEnumDecl_getIntegerType(const ZigClangEnumDecl *self) {
     return bitcast(reinterpret_cast<const clang::EnumDecl *>(self)->getIntegerType());
+}
+
+const ZigClangTypedefNameDecl *ZigClangTypedefType_getDecl(const ZigClangTypedefType *self) {
+    auto casted = reinterpret_cast<const clang::TypedefType *>(self);
+    const clang::TypedefNameDecl *name_decl = casted->getDecl();
+    return reinterpret_cast<const ZigClangTypedefNameDecl *>(name_decl);
+}
+
+ZigClangQualType ZigClangTypedefNameDecl_getUnderlyingType(const ZigClangTypedefNameDecl *self) {
+    auto casted = reinterpret_cast<const clang::TypedefNameDecl *>(self);
+    clang::QualType ty = casted->getUnderlyingType();
+    return bitcast(ty);
 }

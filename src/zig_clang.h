@@ -264,12 +264,14 @@ ZIG_EXTERN_C const ZigClangEnumDecl *ZigClangEnumType_getDecl(const ZigClangEnum
 
 ZIG_EXTERN_C const ZigClangTagDecl *ZigClangRecordDecl_getCanonicalDecl(const ZigClangRecordDecl *record_decl);
 ZIG_EXTERN_C const ZigClangTagDecl *ZigClangEnumDecl_getCanonicalDecl(const ZigClangEnumDecl *);
+ZIG_EXTERN_C const ZigClangTypedefNameDecl *ZigClangTypedefNameDecl_getCanonicalDecl(const ZigClangTypedefNameDecl *);
 
 ZIG_EXTERN_C const ZigClangRecordDecl *ZigClangRecordDecl_getDefinition(const ZigClangRecordDecl *);
 ZIG_EXTERN_C const ZigClangEnumDecl *ZigClangEnumDecl_getDefinition(const ZigClangEnumDecl *);
 
 ZIG_EXTERN_C ZigClangSourceLocation ZigClangRecordDecl_getLocation(const ZigClangRecordDecl *);
 ZIG_EXTERN_C ZigClangSourceLocation ZigClangEnumDecl_getLocation(const ZigClangEnumDecl *);
+ZIG_EXTERN_C ZigClangSourceLocation ZigClangTypedefNameDecl_getLocation(const ZigClangTypedefNameDecl *);
 
 ZIG_EXTERN_C bool ZigClangRecordDecl_isUnion(const ZigClangRecordDecl *record_decl);
 ZIG_EXTERN_C bool ZigClangRecordDecl_isStruct(const ZigClangRecordDecl *record_decl);
@@ -280,4 +282,7 @@ ZIG_EXTERN_C ZigClangQualType ZigClangEnumDecl_getIntegerType(const ZigClangEnum
 ZIG_EXTERN_C const char *ZigClangDecl_getName_bytes_begin(const ZigClangDecl *decl);
 
 ZIG_EXTERN_C bool ZigClangSourceLocation_eq(ZigClangSourceLocation a, ZigClangSourceLocation b);
+
+ZIG_EXTERN_C const ZigClangTypedefNameDecl *ZigClangTypedefType_getDecl(const ZigClangTypedefType *);
+ZIG_EXTERN_C ZigClangQualType ZigClangTypedefNameDecl_getUnderlyingType(const ZigClangTypedefNameDecl *);
 #endif

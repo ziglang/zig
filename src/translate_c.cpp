@@ -114,7 +114,7 @@ static TransScopeBlock *trans_scope_block_find(TransScope *scope);
 
 static AstNode *resolve_record_decl(Context *c, const ZigClangRecordDecl *record_decl);
 static AstNode *resolve_enum_decl(Context *c, const ZigClangEnumDecl *enum_decl);
-static AstNode *resolve_typedef_decl(Context *c, const clang::TypedefNameDecl *typedef_decl);
+static AstNode *resolve_typedef_decl(Context *c, const ZigClangTypedefNameDecl *typedef_decl);
 
 static int trans_stmt_extra(Context *c, TransScope *scope, const clang::Stmt *stmt,
         ResultUsed result_used, TransLRValue lrval,
@@ -592,7 +592,7 @@ static bool qual_type_is_fn_ptr(clang::QualType qt) {
     return false;
 }
 
-static uint32_t qual_type_int_bit_width(Context *c, const clang::QualType &qt, ZigClangSourceLocation source_loc) {
+static uint32_t qual_type_int_bit_width(Context *c, const clang::QualType qt, ZigClangSourceLocation source_loc) {
     const clang::Type *ty = qt.getTypePtr();
     switch (ty->getTypeClass()) {
         case clang::Type::Builtin:
@@ -614,8 +614,8 @@ static uint32_t qual_type_int_bit_width(Context *c, const clang::QualType &qt, Z
             }
         case clang::Type::Typedef:
             {
-                const clang::TypedefType *typedef_ty = static_cast<const clang::TypedefType*>(ty);
-                const clang::TypedefNameDecl *typedef_decl = typedef_ty->getDecl();
+                const ZigClangTypedefType *typedef_ty = reinterpret_cast<const ZigClangTypedefType*>(ty);
+                const ZigClangTypedefNameDecl *typedef_decl = ZigClangTypedefType_getDecl(typedef_ty);
                 const char *type_name = ZigClangDecl_getName_bytes_begin((const ZigClangDecl *)typedef_decl);
                 if (strcmp(type_name, "uint8_t") == 0 || strcmp(type_name, "int8_t") == 0) {
                     return 8;
@@ -636,7 +636,7 @@ static uint32_t qual_type_int_bit_width(Context *c, const clang::QualType &qt, Z
 }
 
 
-static AstNode *qual_type_to_log2_int_ref(Context *c, const clang::QualType &qt,
+static AstNode *qual_type_to_log2_int_ref(Context *c, const clang::QualType qt,
         ZigClangSourceLocation source_loc)
 {
     uint32_t int_bit_width = qual_type_int_bit_width(c, qt, source_loc);
@@ -669,7 +669,7 @@ static AstNode *qual_type_to_log2_int_ref(Context *c, const clang::QualType &qt,
     return log2int_fn_call;
 }
 
-static bool qual_type_child_is_fn_proto(const clang::QualType &qt) {
+static bool qual_type_child_is_fn_proto(const clang::QualType qt) {
     if (qt.getTypePtr()->getTypeClass() == clang::Type::Paren) {
         const clang::ParenType *paren_type = static_cast<const clang::ParenType *>(qt.getTypePtr());
         if (paren_type->getInnerType()->getTypeClass() == clang::Type::FunctionProto) {
@@ -797,9 +797,11 @@ static bool type_is_opaque(Context *c, const clang::Type *ty, ZigClangSourceLoca
             return type_is_opaque(c, elaborated_ty->getNamedType().getTypePtr(), source_loc);
         }
         case clang::Type::Typedef: {
-            const clang::TypedefType *typedef_ty = static_cast<const clang::TypedefType*>(ty);
-            const clang::TypedefNameDecl *typedef_decl = typedef_ty->getDecl();
-            return type_is_opaque(c, typedef_decl->getUnderlyingType().getTypePtr(), source_loc);
+            const ZigClangTypedefType *typedef_ty = reinterpret_cast<const ZigClangTypedefType*>(ty);
+            const ZigClangTypedefNameDecl *typedef_decl = ZigClangTypedefType_getDecl(typedef_ty);
+            ZigClangQualType underlying_type = ZigClangTypedefNameDecl_getUnderlyingType(typedef_decl);
+            clang::QualType qt = bitcast(underlying_type);
+            return type_is_opaque(c, qt.getTypePtr(), source_loc);
         }
         default:
             return false;
@@ -978,8 +980,8 @@ static AstNode *trans_type(Context *c, const clang::Type *ty, ZigClangSourceLoca
             }
         case clang::Type::Typedef:
             {
-                const clang::TypedefType *typedef_ty = static_cast<const clang::TypedefType*>(ty);
-                const clang::TypedefNameDecl *typedef_decl = typedef_ty->getDecl();
+                const ZigClangTypedefType *typedef_ty = reinterpret_cast<const ZigClangTypedefType*>(ty);
+                const ZigClangTypedefNameDecl *typedef_decl = ZigClangTypedefType_getDecl(typedef_ty);
                 return resolve_typedef_decl(c, typedef_decl);
             }
         case clang::Type::Elaborated:
@@ -2661,9 +2663,9 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
 
         case clang::Type::Typedef:
         {
-            const clang::TypedefType *typedef_ty = static_cast<const clang::TypedefType*>(ty);
-            const clang::TypedefNameDecl *typedef_decl = typedef_ty->getDecl();
-            auto existing_entry = c->decl_table.maybe_get((void*)typedef_decl->getCanonicalDecl());
+            const ZigClangTypedefType *typedef_ty = reinterpret_cast<const ZigClangTypedefType*>(ty);
+            const ZigClangTypedefNameDecl *typedef_decl = ZigClangTypedefType_getDecl(typedef_ty);
+            auto existing_entry = c->decl_table.maybe_get((void*)ZigClangTypedefNameDecl_getCanonicalDecl(typedef_decl));
             if (existing_entry) {
                 return existing_entry->value;
             }
@@ -3952,19 +3954,19 @@ static void visit_fn_decl(Context *c, const clang::FunctionDecl *fn_decl) {
     add_top_level_decl(c, fn_def_node->data.fn_def.fn_proto->data.fn_proto.name, fn_def_node);
 }
 
-static AstNode *resolve_typdef_as_builtin(Context *c, const clang::TypedefNameDecl *typedef_decl, const char *primitive_name) {
+static AstNode *resolve_typdef_as_builtin(Context *c, const ZigClangTypedefNameDecl *typedef_decl, const char *primitive_name) {
     AstNode *node = trans_create_node_symbol_str(c, primitive_name);
     c->decl_table.put(typedef_decl, node);
     return node;
 }
 
-static AstNode *resolve_typedef_decl(Context *c, const clang::TypedefNameDecl *typedef_decl) {
-    auto existing_entry = c->decl_table.maybe_get((void*)typedef_decl->getCanonicalDecl());
+static AstNode *resolve_typedef_decl(Context *c, const ZigClangTypedefNameDecl *typedef_decl) {
+    auto existing_entry = c->decl_table.maybe_get((void*)ZigClangTypedefNameDecl_getCanonicalDecl(typedef_decl));
     if (existing_entry) {
         return existing_entry->value;
     }
 
-    clang::QualType child_qt = typedef_decl->getUnderlyingType();
+    ZigClangQualType child_qt = ZigClangTypedefNameDecl_getUnderlyingType(typedef_decl);
     Buf *type_name = buf_create_from_str(ZigClangDecl_getName_bytes_begin((const ZigClangDecl *)typedef_decl));
 
     if (buf_eql_str(type_name, "uint8_t")) {
@@ -3999,11 +4001,12 @@ static AstNode *resolve_typedef_decl(Context *c, const clang::TypedefNameDecl *t
 
     // trans_qual_type here might cause us to look at this typedef again so we put the item in the map first
     AstNode *symbol_node = trans_create_node_symbol(c, type_name);
-    c->decl_table.put(typedef_decl->getCanonicalDecl(), symbol_node);
+    c->decl_table.put(ZigClangTypedefNameDecl_getCanonicalDecl(typedef_decl), symbol_node);
 
-    AstNode *type_node = trans_qual_type(c, child_qt, bitcast(typedef_decl->getLocation()));
+    AstNode *type_node = trans_qual_type(c, bitcast(child_qt), ZigClangTypedefNameDecl_getLocation(typedef_decl));
     if (type_node == nullptr) {
-        emit_warning(c, bitcast(typedef_decl->getLocation()), "typedef %s - unresolved child type", buf_ptr(type_name));
+        emit_warning(c, ZigClangTypedefNameDecl_getLocation(typedef_decl),
+                "typedef %s - unresolved child type", buf_ptr(type_name));
         c->decl_table.put(typedef_decl, nullptr);
         // TODO add global var with type_name equal to @compileError("unable to resolve C type") 
         return nullptr;
@@ -4397,7 +4400,7 @@ static bool decl_visitor(void *context, const ZigClangDecl *zdecl) {
             visit_fn_decl(c, static_cast<const clang::FunctionDecl*>(decl));
             break;
         case clang::Decl::Typedef:
-            resolve_typedef_decl(c, static_cast<const clang::TypedefNameDecl *>(decl));
+            resolve_typedef_decl(c, reinterpret_cast<const ZigClangTypedefNameDecl *>(decl));
             break;
         case clang::Decl::Enum:
             resolve_enum_decl(c, reinterpret_cast<const ZigClangEnumDecl *>(decl));
