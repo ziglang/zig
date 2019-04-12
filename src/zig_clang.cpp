@@ -28,41 +28,41 @@
 #endif
 
 // Detect additions to the enum
-void zig2clang_BO(ZigClangBO op) {
+void zig2clang_BO(clang::BinaryOperatorKind op) {
     switch (op) {
-        case ZigClangBO_PtrMemD:
-        case ZigClangBO_PtrMemI:
-        case ZigClangBO_Cmp:
-        case ZigClangBO_Mul:
-        case ZigClangBO_Div:
-        case ZigClangBO_Rem:
-        case ZigClangBO_Add:
-        case ZigClangBO_Sub:
-        case ZigClangBO_Shl:
-        case ZigClangBO_Shr:
-        case ZigClangBO_LT:
-        case ZigClangBO_GT:
-        case ZigClangBO_LE:
-        case ZigClangBO_GE:
-        case ZigClangBO_EQ:
-        case ZigClangBO_NE:
-        case ZigClangBO_And:
-        case ZigClangBO_Xor:
-        case ZigClangBO_Or:
-        case ZigClangBO_LAnd:
-        case ZigClangBO_LOr:
-        case ZigClangBO_Assign:
-        case ZigClangBO_Comma:
-        case ZigClangBO_MulAssign:
-        case ZigClangBO_DivAssign:
-        case ZigClangBO_RemAssign:
-        case ZigClangBO_AddAssign:
-        case ZigClangBO_SubAssign:
-        case ZigClangBO_ShlAssign:
-        case ZigClangBO_ShrAssign:
-        case ZigClangBO_AndAssign:
-        case ZigClangBO_XorAssign:
-        case ZigClangBO_OrAssign:
+        case clang::BO_PtrMemD:
+        case clang::BO_PtrMemI:
+        case clang::BO_Cmp:
+        case clang::BO_Mul:
+        case clang::BO_Div:
+        case clang::BO_Rem:
+        case clang::BO_Add:
+        case clang::BO_Sub:
+        case clang::BO_Shl:
+        case clang::BO_Shr:
+        case clang::BO_LT:
+        case clang::BO_GT:
+        case clang::BO_LE:
+        case clang::BO_GE:
+        case clang::BO_EQ:
+        case clang::BO_NE:
+        case clang::BO_And:
+        case clang::BO_Xor:
+        case clang::BO_Or:
+        case clang::BO_LAnd:
+        case clang::BO_LOr:
+        case clang::BO_Assign:
+        case clang::BO_Comma:
+        case clang::BO_MulAssign:
+        case clang::BO_DivAssign:
+        case clang::BO_RemAssign:
+        case clang::BO_AddAssign:
+        case clang::BO_SubAssign:
+        case clang::BO_ShlAssign:
+        case clang::BO_ShrAssign:
+        case clang::BO_AndAssign:
+        case clang::BO_XorAssign:
+        case clang::BO_OrAssign:
             break;
     }
 }
@@ -102,22 +102,22 @@ static_assert((clang::BinaryOperatorKind)ZigClangBO_Xor == clang::BO_Xor, "");
 static_assert((clang::BinaryOperatorKind)ZigClangBO_XorAssign == clang::BO_XorAssign, "");
 
 // This function detects additions to the enum
-void zig2clang_UO(ZigClangUO op) {
+void zig2clang_UO(clang::UnaryOperatorKind op) {
     switch (op) {
-        case ZigClangUO_AddrOf:
-        case ZigClangUO_Coawait:
-        case ZigClangUO_Deref:
-        case ZigClangUO_Extension:
-        case ZigClangUO_Imag:
-        case ZigClangUO_LNot:
-        case ZigClangUO_Minus:
-        case ZigClangUO_Not:
-        case ZigClangUO_Plus:
-        case ZigClangUO_PostDec:
-        case ZigClangUO_PostInc:
-        case ZigClangUO_PreDec:
-        case ZigClangUO_PreInc:
-        case ZigClangUO_Real:
+        case clang::UO_AddrOf:
+        case clang::UO_Coawait:
+        case clang::UO_Deref:
+        case clang::UO_Extension:
+        case clang::UO_Imag:
+        case clang::UO_LNot:
+        case clang::UO_Minus:
+        case clang::UO_Not:
+        case clang::UO_Plus:
+        case clang::UO_PostDec:
+        case clang::UO_PostInc:
+        case clang::UO_PreDec:
+        case clang::UO_PreInc:
+        case clang::UO_Real:
             break;
     }
 }
@@ -136,6 +136,108 @@ static_assert((clang::UnaryOperatorKind)ZigClangUO_PostInc == clang::UO_PostInc,
 static_assert((clang::UnaryOperatorKind)ZigClangUO_PreDec == clang::UO_PreDec, "");
 static_assert((clang::UnaryOperatorKind)ZigClangUO_PreInc == clang::UO_PreInc, "");
 static_assert((clang::UnaryOperatorKind)ZigClangUO_Real == clang::UO_Real, "");
+
+void zig2clang_TypeClass(clang::Type::TypeClass ty) {
+    switch (ty) {
+        case clang::Type::Builtin:
+        case clang::Type::Complex:
+        case clang::Type::Pointer:
+        case clang::Type::BlockPointer:
+        case clang::Type::LValueReference:
+        case clang::Type::RValueReference:
+        case clang::Type::MemberPointer:
+        case clang::Type::ConstantArray:
+        case clang::Type::IncompleteArray:
+        case clang::Type::VariableArray:
+        case clang::Type::DependentSizedArray:
+        case clang::Type::DependentSizedExtVector:
+        case clang::Type::DependentAddressSpace:
+        case clang::Type::Vector:
+        case clang::Type::DependentVector:
+        case clang::Type::ExtVector:
+        case clang::Type::FunctionProto:
+        case clang::Type::FunctionNoProto:
+        case clang::Type::UnresolvedUsing:
+        case clang::Type::Paren:
+        case clang::Type::Typedef:
+        case clang::Type::Adjusted:
+        case clang::Type::Decayed:
+        case clang::Type::TypeOfExpr:
+        case clang::Type::TypeOf:
+        case clang::Type::Decltype:
+        case clang::Type::UnaryTransform:
+        case clang::Type::Record:
+        case clang::Type::Enum:
+        case clang::Type::Elaborated:
+        case clang::Type::Attributed:
+        case clang::Type::TemplateTypeParm:
+        case clang::Type::SubstTemplateTypeParm:
+        case clang::Type::SubstTemplateTypeParmPack:
+        case clang::Type::TemplateSpecialization:
+        case clang::Type::Auto:
+        case clang::Type::DeducedTemplateSpecialization:
+        case clang::Type::InjectedClassName:
+        case clang::Type::DependentName:
+        case clang::Type::DependentTemplateSpecialization:
+        case clang::Type::PackExpansion:
+        case clang::Type::ObjCTypeParam:
+        case clang::Type::ObjCObject:
+        case clang::Type::ObjCInterface:
+        case clang::Type::ObjCObjectPointer:
+        case clang::Type::Pipe:
+        case clang::Type::Atomic:
+            break;
+    }
+}
+
+static_assert((clang::Type::TypeClass)ZigClangType_Builtin == clang::Type::Builtin, "");
+static_assert((clang::Type::TypeClass)ZigClangType_Complex == clang::Type::Complex, "");
+static_assert((clang::Type::TypeClass)ZigClangType_Pointer == clang::Type::Pointer, "");
+static_assert((clang::Type::TypeClass)ZigClangType_BlockPointer == clang::Type::BlockPointer, "");
+static_assert((clang::Type::TypeClass)ZigClangType_LValueReference == clang::Type::LValueReference, "");
+static_assert((clang::Type::TypeClass)ZigClangType_RValueReference == clang::Type::RValueReference, "");
+static_assert((clang::Type::TypeClass)ZigClangType_MemberPointer == clang::Type::MemberPointer, "");
+static_assert((clang::Type::TypeClass)ZigClangType_ConstantArray == clang::Type::ConstantArray, "");
+static_assert((clang::Type::TypeClass)ZigClangType_IncompleteArray == clang::Type::IncompleteArray, "");
+static_assert((clang::Type::TypeClass)ZigClangType_VariableArray == clang::Type::VariableArray, "");
+static_assert((clang::Type::TypeClass)ZigClangType_DependentSizedArray == clang::Type::DependentSizedArray, "");
+static_assert((clang::Type::TypeClass)ZigClangType_DependentSizedExtVector == clang::Type::DependentSizedExtVector, "");
+static_assert((clang::Type::TypeClass)ZigClangType_DependentAddressSpace == clang::Type::DependentAddressSpace, "");
+static_assert((clang::Type::TypeClass)ZigClangType_Vector == clang::Type::Vector, "");
+static_assert((clang::Type::TypeClass)ZigClangType_DependentVector == clang::Type::DependentVector, "");
+static_assert((clang::Type::TypeClass)ZigClangType_ExtVector == clang::Type::ExtVector, "");
+static_assert((clang::Type::TypeClass)ZigClangType_FunctionProto == clang::Type::FunctionProto, "");
+static_assert((clang::Type::TypeClass)ZigClangType_FunctionNoProto == clang::Type::FunctionNoProto, "");
+static_assert((clang::Type::TypeClass)ZigClangType_UnresolvedUsing == clang::Type::UnresolvedUsing, "");
+static_assert((clang::Type::TypeClass)ZigClangType_Paren == clang::Type::Paren, "");
+static_assert((clang::Type::TypeClass)ZigClangType_Typedef == clang::Type::Typedef, "");
+static_assert((clang::Type::TypeClass)ZigClangType_Adjusted == clang::Type::Adjusted, "");
+static_assert((clang::Type::TypeClass)ZigClangType_Decayed == clang::Type::Decayed, "");
+static_assert((clang::Type::TypeClass)ZigClangType_TypeOfExpr == clang::Type::TypeOfExpr, "");
+static_assert((clang::Type::TypeClass)ZigClangType_TypeOf == clang::Type::TypeOf, "");
+static_assert((clang::Type::TypeClass)ZigClangType_Decltype == clang::Type::Decltype, "");
+static_assert((clang::Type::TypeClass)ZigClangType_UnaryTransform == clang::Type::UnaryTransform, "");
+static_assert((clang::Type::TypeClass)ZigClangType_Record == clang::Type::Record, "");
+static_assert((clang::Type::TypeClass)ZigClangType_Enum == clang::Type::Enum, "");
+static_assert((clang::Type::TypeClass)ZigClangType_Elaborated == clang::Type::Elaborated, "");
+static_assert((clang::Type::TypeClass)ZigClangType_Attributed == clang::Type::Attributed, "");
+static_assert((clang::Type::TypeClass)ZigClangType_TemplateTypeParm == clang::Type::TemplateTypeParm, "");
+static_assert((clang::Type::TypeClass)ZigClangType_SubstTemplateTypeParm == clang::Type::SubstTemplateTypeParm, "");
+static_assert((clang::Type::TypeClass)ZigClangType_SubstTemplateTypeParmPack == clang::Type::SubstTemplateTypeParmPack, "");
+static_assert((clang::Type::TypeClass)ZigClangType_TemplateSpecialization == clang::Type::TemplateSpecialization, "");
+static_assert((clang::Type::TypeClass)ZigClangType_Auto == clang::Type::Auto, "");
+static_assert((clang::Type::TypeClass)ZigClangType_DeducedTemplateSpecialization == clang::Type::DeducedTemplateSpecialization, "");
+static_assert((clang::Type::TypeClass)ZigClangType_InjectedClassName == clang::Type::InjectedClassName, "");
+static_assert((clang::Type::TypeClass)ZigClangType_DependentName == clang::Type::DependentName, "");
+static_assert((clang::Type::TypeClass)ZigClangType_DependentTemplateSpecialization == clang::Type::DependentTemplateSpecialization, "");
+static_assert((clang::Type::TypeClass)ZigClangType_PackExpansion == clang::Type::PackExpansion, "");
+static_assert((clang::Type::TypeClass)ZigClangType_ObjCTypeParam == clang::Type::ObjCTypeParam, "");
+static_assert((clang::Type::TypeClass)ZigClangType_ObjCObject == clang::Type::ObjCObject, "");
+static_assert((clang::Type::TypeClass)ZigClangType_ObjCInterface == clang::Type::ObjCInterface, "");
+static_assert((clang::Type::TypeClass)ZigClangType_ObjCObjectPointer == clang::Type::ObjCObjectPointer, "");
+static_assert((clang::Type::TypeClass)ZigClangType_Pipe == clang::Type::Pipe, "");
+static_assert((clang::Type::TypeClass)ZigClangType_Atomic == clang::Type::Atomic, "");
+
 
 static_assert(sizeof(ZigClangSourceLocation) == sizeof(clang::SourceLocation), "");
 static ZigClangSourceLocation bitcast(clang::SourceLocation src) {
@@ -304,3 +406,65 @@ ZigClangQualType ZigClangTypedefNameDecl_getUnderlyingType(const ZigClangTypedef
     clang::QualType ty = casted->getUnderlyingType();
     return bitcast(ty);
 }
+
+ZigClangQualType ZigClangQualType_getCanonicalType(ZigClangQualType self) {
+    clang::QualType qt = bitcast(self);
+    return bitcast(qt.getCanonicalType());
+}
+
+const ZigClangType *ZigClangQualType_getTypePtr(ZigClangQualType self) {
+    clang::QualType qt = bitcast(self);
+    const clang::Type *ty = qt.getTypePtr();
+    return reinterpret_cast<const ZigClangType *>(ty);
+}
+
+void ZigClangQualType_addConst(ZigClangQualType *self) {
+    reinterpret_cast<clang::QualType *>(self)->addConst();
+}
+
+bool ZigClangQualType_eq(ZigClangQualType zig_t1, ZigClangQualType zig_t2) {
+    clang::QualType t1 = bitcast(zig_t1);
+    clang::QualType t2 = bitcast(zig_t2);
+    if (t1.isConstQualified() != t2.isConstQualified()) {
+        return false;
+    }
+    if (t1.isVolatileQualified() != t2.isVolatileQualified()) {
+        return false;
+    }
+    if (t1.isRestrictQualified() != t2.isRestrictQualified()) {
+        return false;
+    }
+    return t1.getTypePtr() == t2.getTypePtr();
+}
+
+bool ZigClangQualType_isConstQualified(ZigClangQualType self) {
+    clang::QualType qt = bitcast(self);
+    return qt.isConstQualified();
+}
+
+bool ZigClangQualType_isVolatileQualified(ZigClangQualType self) {
+    clang::QualType qt = bitcast(self);
+    return qt.isVolatileQualified();
+}
+
+bool ZigClangQualType_isRestrictQualified(ZigClangQualType self) {
+    clang::QualType qt = bitcast(self);
+    return qt.isRestrictQualified();
+}
+
+ZigClangTypeClass ZigClangType_getTypeClass(const ZigClangType *self) {
+    auto casted = reinterpret_cast<const clang::Type *>(self);
+    clang::Type::TypeClass tc = casted->getTypeClass();
+    return (ZigClangTypeClass)tc;
+}
+
+bool ZigClangType_isVoidType(const ZigClangType *self) {
+    auto casted = reinterpret_cast<const clang::Type *>(self);
+    return casted->isVoidType();
+}
+
+const char *ZigClangType_getTypeClassName(const ZigClangType *self) {
+    auto casted = reinterpret_cast<const clang::Type *>(self);
+    return casted->getTypeClassName();
+}
+

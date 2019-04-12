@@ -150,6 +150,56 @@ enum ZigClangUO {
     ZigClangUO_Coawait,
 };
 
+enum ZigClangTypeClass {
+    ZigClangType_Builtin,
+    ZigClangType_Complex,
+    ZigClangType_Pointer,
+    ZigClangType_BlockPointer,
+    ZigClangType_LValueReference,
+    ZigClangType_RValueReference,
+    ZigClangType_MemberPointer,
+    ZigClangType_ConstantArray,
+    ZigClangType_IncompleteArray,
+    ZigClangType_VariableArray,
+    ZigClangType_DependentSizedArray,
+    ZigClangType_DependentSizedExtVector,
+    ZigClangType_DependentAddressSpace,
+    ZigClangType_Vector,
+    ZigClangType_DependentVector,
+    ZigClangType_ExtVector,
+    ZigClangType_FunctionProto,
+    ZigClangType_FunctionNoProto,
+    ZigClangType_UnresolvedUsing,
+    ZigClangType_Paren,
+    ZigClangType_Typedef,
+    ZigClangType_Adjusted,
+    ZigClangType_Decayed,
+    ZigClangType_TypeOfExpr,
+    ZigClangType_TypeOf,
+    ZigClangType_Decltype,
+    ZigClangType_UnaryTransform,
+    ZigClangType_Record,
+    ZigClangType_Enum,
+    ZigClangType_Elaborated,
+    ZigClangType_Attributed,
+    ZigClangType_TemplateTypeParm,
+    ZigClangType_SubstTemplateTypeParm,
+    ZigClangType_SubstTemplateTypeParmPack,
+    ZigClangType_TemplateSpecialization,
+    ZigClangType_Auto,
+    ZigClangType_DeducedTemplateSpecialization,
+    ZigClangType_InjectedClassName,
+    ZigClangType_DependentName,
+    ZigClangType_DependentTemplateSpecialization,
+    ZigClangType_PackExpansion,
+    ZigClangType_ObjCTypeParam,
+    ZigClangType_ObjCObject,
+    ZigClangType_ObjCInterface,
+    ZigClangType_ObjCObjectPointer,
+    ZigClangType_Pipe,
+    ZigClangType_Atomic,
+};
+
 //struct ZigClangCC_AAPCS;
 //struct ZigClangCC_AAPCS_VFP;
 //struct ZigClangCC_C;
@@ -285,4 +335,16 @@ ZIG_EXTERN_C bool ZigClangSourceLocation_eq(ZigClangSourceLocation a, ZigClangSo
 
 ZIG_EXTERN_C const ZigClangTypedefNameDecl *ZigClangTypedefType_getDecl(const ZigClangTypedefType *);
 ZIG_EXTERN_C ZigClangQualType ZigClangTypedefNameDecl_getUnderlyingType(const ZigClangTypedefNameDecl *);
+
+ZIG_EXTERN_C ZigClangQualType ZigClangQualType_getCanonicalType(ZigClangQualType);
+ZIG_EXTERN_C const ZigClangType *ZigClangQualType_getTypePtr(ZigClangQualType);
+ZIG_EXTERN_C void ZigClangQualType_addConst(ZigClangQualType *);
+ZIG_EXTERN_C bool ZigClangQualType_eq(ZigClangQualType, ZigClangQualType);
+ZIG_EXTERN_C bool ZigClangQualType_isConstQualified(ZigClangQualType);
+ZIG_EXTERN_C bool ZigClangQualType_isVolatileQualified(ZigClangQualType);
+ZIG_EXTERN_C bool ZigClangQualType_isRestrictQualified(ZigClangQualType);
+
+ZIG_EXTERN_C ZigClangTypeClass ZigClangType_getTypeClass(const ZigClangType *self);
+ZIG_EXTERN_C bool ZigClangType_isVoidType(const ZigClangType *self);
+ZIG_EXTERN_C const char *ZigClangType_getTypeClassName(const ZigClangType *self);
 #endif

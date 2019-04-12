@@ -122,9 +122,9 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const clang::Stmt *st
         TransScope **out_node_scope);
 static TransScope *trans_stmt(Context *c, TransScope *scope, const clang::Stmt *stmt, AstNode **out_node);
 static AstNode *trans_expr(Context *c, ResultUsed result_used, TransScope *scope, const clang::Expr *expr, TransLRValue lrval);
-static AstNode *trans_qual_type(Context *c, clang::QualType qt, ZigClangSourceLocation source_loc);
+static AstNode *trans_qual_type(Context *c, ZigClangQualType qt, ZigClangSourceLocation source_loc);
 static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *scope, const clang::Expr *expr, TransLRValue lrval);
-static AstNode *trans_ap_value(Context *c, clang::APValue *ap_value, clang::QualType qt, ZigClangSourceLocation source_loc);
+static AstNode *trans_ap_value(Context *c, clang::APValue *ap_value, ZigClangQualType qt, ZigClangSourceLocation source_loc);
 
 static ZigClangSourceLocation bitcast(clang::SourceLocation src) {
     ZigClangSourceLocation dest;
@@ -136,11 +136,11 @@ static ZigClangQualType bitcast(clang::QualType src) {
     memcpy(&dest, static_cast<void *>(&src), sizeof(ZigClangQualType));
     return dest;
 }
-static clang::QualType bitcast(ZigClangQualType src) {
-    clang::QualType dest;
-    memcpy(&dest, static_cast<void *>(&src), sizeof(ZigClangQualType));
-    return dest;
-}
+//static clang::QualType bitcast(ZigClangQualType src) {
+//    clang::QualType dest;
+//    memcpy(&dest, static_cast<void *>(&src), sizeof(ZigClangQualType));
+//    return dest;
+//}
 
 ATTRIBUTE_PRINTF(3, 4)
 static void emit_warning(Context *c, ZigClangSourceLocation sl, const char *format, ...) {
@@ -502,51 +502,40 @@ static AstNode *trans_create_node_apint(Context *c, const llvm::APSInt &aps_int)
 
 }
 
-static const clang::Type *qual_type_canon(clang::QualType qt) {
-    return qt.getCanonicalType().getTypePtr();
+static const ZigClangType *qual_type_canon(ZigClangQualType qt) {
+    ZigClangQualType canon = ZigClangQualType_getCanonicalType(qt);
+    return ZigClangQualType_getTypePtr(canon);
 }
 
-static clang::QualType get_expr_qual_type(Context *c, const clang::Expr *expr) {
+static ZigClangQualType get_expr_qual_type(Context *c, const clang::Expr *expr) {
     // String literals in C are `char *` but they should really be `const char *`.
     if (expr->getStmtClass() == clang::Stmt::ImplicitCastExprClass) {
         const clang::ImplicitCastExpr *cast_expr = static_cast<const clang::ImplicitCastExpr *>(expr);
         if (cast_expr->getCastKind() == clang::CK_ArrayToPointerDecay) {
             const clang::Expr *sub_expr = cast_expr->getSubExpr();
             if (sub_expr->getStmtClass() == clang::Stmt::StringLiteralClass) {
-                clang::QualType array_qt = sub_expr->getType();
-                const clang::ArrayType *array_type = static_cast<const clang::ArrayType *>(array_qt.getTypePtr());
-                clang::QualType pointee_qt = array_type->getElementType();
-                pointee_qt.addConst();
-                return bitcast(ZigClangASTContext_getPointerType(c->ctx, bitcast(pointee_qt)));
+                ZigClangQualType array_qt = bitcast(sub_expr->getType());
+                const clang::ArrayType *array_type = reinterpret_cast<const clang::ArrayType *>(
+                        ZigClangQualType_getTypePtr(array_qt));
+                ZigClangQualType pointee_qt = bitcast(array_type->getElementType());
+                ZigClangQualType_addConst(&pointee_qt);
+                return ZigClangASTContext_getPointerType(c->ctx, pointee_qt);
             }
         }
     }
-    return expr->getType();
+    return bitcast(expr->getType());
 }
 
-static clang::QualType get_expr_qual_type_before_implicit_cast(Context *c, const clang::Expr *expr) {
+static ZigClangQualType get_expr_qual_type_before_implicit_cast(Context *c, const clang::Expr *expr) {
     if (expr->getStmtClass() == clang::Stmt::ImplicitCastExprClass) {
         const clang::ImplicitCastExpr *cast_expr = static_cast<const clang::ImplicitCastExpr *>(expr);
         return get_expr_qual_type(c, cast_expr->getSubExpr());
     }
-    return expr->getType();
+    return bitcast(expr->getType());
 }
 
 static AstNode *get_expr_type(Context *c, const clang::Expr *expr) {
     return trans_qual_type(c, get_expr_qual_type(c, expr), bitcast(expr->getBeginLoc()));
-}
-
-static bool qual_types_equal(clang::QualType t1, clang::QualType t2) {
-    if (t1.isConstQualified() != t2.isConstQualified()) {
-        return false;
-    }
-    if (t1.isVolatileQualified() != t2.isVolatileQualified()) {
-        return false;
-    }
-    if (t1.isRestrictQualified() != t2.isRestrictQualified()) {
-        return false;
-    }
-    return t1.getTypePtr() == t2.getTypePtr();
 }
 
 static bool is_c_void_type(AstNode *node) {
@@ -554,36 +543,36 @@ static bool is_c_void_type(AstNode *node) {
 }
 
 static bool expr_types_equal(Context *c, const clang::Expr *expr1, const clang::Expr *expr2) {
-    clang::QualType t1 = get_expr_qual_type(c, expr1);
-    clang::QualType t2 = get_expr_qual_type(c, expr2);
+    ZigClangQualType t1 = get_expr_qual_type(c, expr1);
+    ZigClangQualType t2 = get_expr_qual_type(c, expr2);
 
-    return qual_types_equal(t1, t2);
+    return ZigClangQualType_eq(t1, t2);
 }
 
-static bool qual_type_is_ptr(clang::QualType qt) {
-    const clang::Type *ty = qual_type_canon(qt);
-    return ty->getTypeClass() == clang::Type::Pointer;
+static bool qual_type_is_ptr(ZigClangQualType qt) {
+    const ZigClangType *ty = qual_type_canon(qt);
+    return ZigClangType_getTypeClass(ty) == ZigClangType_Pointer;
 }
 
-static const clang::FunctionProtoType *qual_type_get_fn_proto(clang::QualType qt, bool *is_ptr) {
-    const clang::Type *ty = qual_type_canon(qt);
+static const clang::FunctionProtoType *qual_type_get_fn_proto(ZigClangQualType qt, bool *is_ptr) {
+    const ZigClangType *ty = qual_type_canon(qt);
     *is_ptr = false;
 
-    if (ty->getTypeClass() == clang::Type::Pointer) {
+    if (ZigClangType_getTypeClass(ty) == ZigClangType_Pointer) {
         *is_ptr = true;
-        const clang::PointerType *pointer_ty = static_cast<const clang::PointerType*>(ty);
-        clang::QualType child_qt = pointer_ty->getPointeeType();
-        ty = child_qt.getTypePtr();
+        const clang::PointerType *pointer_ty = reinterpret_cast<const clang::PointerType*>(ty);
+        ZigClangQualType child_qt = bitcast(pointer_ty->getPointeeType());
+        ty = ZigClangQualType_getTypePtr(child_qt);
     }
 
-    if (ty->getTypeClass() == clang::Type::FunctionProto) {
-        return static_cast<const clang::FunctionProtoType*>(ty);
+    if (ZigClangType_getTypeClass(ty) == ZigClangType_FunctionProto) {
+        return reinterpret_cast<const clang::FunctionProtoType*>(ty);
     }
 
     return nullptr;
 }
 
-static bool qual_type_is_fn_ptr(clang::QualType qt) {
+static bool qual_type_is_fn_ptr(ZigClangQualType qt) {
     bool is_ptr;
     if (qual_type_get_fn_proto(qt, &is_ptr)) {
         return is_ptr;
@@ -592,12 +581,12 @@ static bool qual_type_is_fn_ptr(clang::QualType qt) {
     return false;
 }
 
-static uint32_t qual_type_int_bit_width(Context *c, const clang::QualType qt, ZigClangSourceLocation source_loc) {
-    const clang::Type *ty = qt.getTypePtr();
-    switch (ty->getTypeClass()) {
-        case clang::Type::Builtin:
+static uint32_t qual_type_int_bit_width(Context *c, const ZigClangQualType qt, ZigClangSourceLocation source_loc) {
+    const ZigClangType *ty = ZigClangQualType_getTypePtr(qt);
+    switch (ZigClangType_getTypeClass(ty)) {
+        case ZigClangType_Builtin:
             {
-                const clang::BuiltinType *builtin_ty = static_cast<const clang::BuiltinType*>(ty);
+                const clang::BuiltinType *builtin_ty = reinterpret_cast<const clang::BuiltinType*>(ty);
                 switch (builtin_ty->getKind()) {
                     case clang::BuiltinType::Char_U:
                     case clang::BuiltinType::UChar:
@@ -612,7 +601,7 @@ static uint32_t qual_type_int_bit_width(Context *c, const clang::QualType qt, Zi
                 }
                 zig_unreachable();
             }
-        case clang::Type::Typedef:
+        case ZigClangType_Typedef:
             {
                 const ZigClangTypedefType *typedef_ty = reinterpret_cast<const ZigClangTypedefType*>(ty);
                 const ZigClangTypedefNameDecl *typedef_decl = ZigClangTypedefType_getDecl(typedef_ty);
@@ -636,7 +625,7 @@ static uint32_t qual_type_int_bit_width(Context *c, const clang::QualType qt, Zi
 }
 
 
-static AstNode *qual_type_to_log2_int_ref(Context *c, const clang::QualType qt,
+static AstNode *qual_type_to_log2_int_ref(Context *c, const ZigClangQualType qt,
         ZigClangSourceLocation source_loc)
 {
     uint32_t int_bit_width = qual_type_int_bit_width(c, qt, source_loc);
@@ -669,30 +658,31 @@ static AstNode *qual_type_to_log2_int_ref(Context *c, const clang::QualType qt,
     return log2int_fn_call;
 }
 
-static bool qual_type_child_is_fn_proto(const clang::QualType qt) {
-    if (qt.getTypePtr()->getTypeClass() == clang::Type::Paren) {
-        const clang::ParenType *paren_type = static_cast<const clang::ParenType *>(qt.getTypePtr());
+static bool qual_type_child_is_fn_proto(ZigClangQualType qt) {
+    const ZigClangType *ty = ZigClangQualType_getTypePtr(qt);
+    if (ZigClangType_getTypeClass(ty) == ZigClangType_Paren) {
+        const clang::ParenType *paren_type = reinterpret_cast<const clang::ParenType *>(ty);
         if (paren_type->getInnerType()->getTypeClass() == clang::Type::FunctionProto) {
             return true;
         }
-    } else if (qt.getTypePtr()->getTypeClass() == clang::Type::Attributed) {
-        const clang::AttributedType *attr_type = static_cast<const clang::AttributedType *>(qt.getTypePtr());
-        return qual_type_child_is_fn_proto(attr_type->getEquivalentType());
+    } else if (ZigClangType_getTypeClass(ty) == ZigClangType_Attributed) {
+        const clang::AttributedType *attr_type = reinterpret_cast<const clang::AttributedType *>(ty);
+        return qual_type_child_is_fn_proto(bitcast(attr_type->getEquivalentType()));
     }
     return false;
 }
 
-static AstNode* trans_c_cast(Context *c, ZigClangSourceLocation source_location, clang::QualType dest_type,
-        clang::QualType src_type, AstNode *expr)
+static AstNode* trans_c_cast(Context *c, ZigClangSourceLocation source_location, ZigClangQualType dest_type,
+        ZigClangQualType src_type, AstNode *expr)
 {
     // The only way void pointer casts are valid C code, is if
     // the value of the expression is ignored. We therefore just
     // return the expr, and let the system that ignores values
     // translate this correctly.
-    if (qual_type_canon(dest_type)->isVoidType()) {
+    if (ZigClangType_isVoidType(qual_type_canon(dest_type))) {
         return expr;
     }
-    if (qual_types_equal(dest_type, src_type)) {
+    if (ZigClangQualType_eq(dest_type, src_type)) {
         return expr;
     }
     if (qual_type_is_ptr(dest_type) && qual_type_is_ptr(src_type)) {
@@ -707,11 +697,11 @@ static AstNode* trans_c_cast(Context *c, ZigClangSourceLocation source_location,
     return trans_create_node_fn_call_1(c, trans_qual_type(c, dest_type, source_location), expr);
 }
 
-static bool c_is_signed_integer(Context *c, clang::QualType qt) {
-    const clang::Type *c_type = qual_type_canon(qt);
-    if (c_type->getTypeClass() != clang::Type::Builtin)
+static bool c_is_signed_integer(Context *c, ZigClangQualType qt) {
+    const ZigClangType *c_type = qual_type_canon(qt);
+    if (ZigClangType_getTypeClass(c_type) != ZigClangType_Builtin)
         return false;
-    const clang::BuiltinType *builtin_ty = static_cast<const clang::BuiltinType*>(c_type);
+    const clang::BuiltinType *builtin_ty = reinterpret_cast<const clang::BuiltinType*>(c_type);
     switch (builtin_ty->getKind()) {
         case clang::BuiltinType::SChar:
         case clang::BuiltinType::Short:
@@ -726,11 +716,11 @@ static bool c_is_signed_integer(Context *c, clang::QualType qt) {
     }
 }
 
-static bool c_is_unsigned_integer(Context *c, clang::QualType qt) {
-    const clang::Type *c_type = qual_type_canon(qt);
-    if (c_type->getTypeClass() != clang::Type::Builtin)
+static bool c_is_unsigned_integer(Context *c, ZigClangQualType qt) {
+    const ZigClangType *c_type = qual_type_canon(qt);
+    if (ZigClangType_getTypeClass(c_type) != ZigClangType_Builtin)
         return false;
-    const clang::BuiltinType *builtin_ty = static_cast<const clang::BuiltinType*>(c_type);
+    const clang::BuiltinType *builtin_ty = reinterpret_cast<const clang::BuiltinType*>(c_type);
     switch (builtin_ty->getKind()) {
         case clang::BuiltinType::Char_U:
         case clang::BuiltinType::UChar:
@@ -747,19 +737,19 @@ static bool c_is_unsigned_integer(Context *c, clang::QualType qt) {
     }
 }
 
-static bool c_is_builtin_type(Context *c, clang::QualType qt, clang::BuiltinType::Kind kind) {
-    const clang::Type *c_type = qual_type_canon(qt);
-    if (c_type->getTypeClass() != clang::Type::Builtin)
+static bool c_is_builtin_type(Context *c, ZigClangQualType qt, clang::BuiltinType::Kind kind) {
+    const ZigClangType *c_type = qual_type_canon(qt);
+    if (ZigClangType_getTypeClass(c_type) != ZigClangType_Builtin)
         return false;
-    const clang::BuiltinType *builtin_ty = static_cast<const clang::BuiltinType*>(c_type);
+    const clang::BuiltinType *builtin_ty = reinterpret_cast<const clang::BuiltinType*>(c_type);
     return builtin_ty->getKind() == kind;
 }
 
-static bool c_is_float(Context *c, clang::QualType qt) {
-    const clang::Type *c_type = qt.getTypePtr();
-    if (c_type->getTypeClass() != clang::Type::Builtin)
+static bool c_is_float(Context *c, ZigClangQualType qt) {
+    const ZigClangType *c_type = ZigClangQualType_getTypePtr(qt);
+    if (ZigClangType_getTypeClass(c_type) != ZigClangType_Builtin)
         return false;
-    const clang::BuiltinType *builtin_ty = static_cast<const clang::BuiltinType*>(c_type);
+    const clang::BuiltinType *builtin_ty = reinterpret_cast<const clang::BuiltinType*>(c_type);
     switch (builtin_ty->getKind()) {
         case clang::BuiltinType::Half:
         case clang::BuiltinType::Float:
@@ -772,7 +762,7 @@ static bool c_is_float(Context *c, clang::QualType qt) {
     }
 }
 
-static bool qual_type_has_wrapping_overflow(Context *c, clang::QualType qt) {
+static bool qual_type_has_wrapping_overflow(Context *c, ZigClangQualType qt) {
     if (c_is_signed_integer(c, qt) || c_is_float(c, qt)) {
         // float and signed integer overflow is undefined behavior.
         return false;
@@ -782,37 +772,37 @@ static bool qual_type_has_wrapping_overflow(Context *c, clang::QualType qt) {
     }
 }
 
-static bool type_is_opaque(Context *c, const clang::Type *ty, ZigClangSourceLocation source_loc) {
-    switch (ty->getTypeClass()) {
-        case clang::Type::Builtin: {
-            const clang::BuiltinType *builtin_ty = static_cast<const clang::BuiltinType*>(ty);
+static bool type_is_opaque(Context *c, const ZigClangType *ty, ZigClangSourceLocation source_loc) {
+    switch (ZigClangType_getTypeClass(ty)) {
+        case ZigClangType_Builtin: {
+            const clang::BuiltinType *builtin_ty = reinterpret_cast<const clang::BuiltinType*>(ty);
             return builtin_ty->getKind() == clang::BuiltinType::Void;
         }
-        case clang::Type::Record: {
-            const clang::RecordType *record_ty = static_cast<const clang::RecordType*>(ty);
+        case ZigClangType_Record: {
+            const clang::RecordType *record_ty = reinterpret_cast<const clang::RecordType*>(ty);
             return record_ty->getDecl()->getDefinition() == nullptr;
         }
-        case clang::Type::Elaborated: {
-            const clang::ElaboratedType *elaborated_ty = static_cast<const clang::ElaboratedType*>(ty);
-            return type_is_opaque(c, elaborated_ty->getNamedType().getTypePtr(), source_loc);
+        case ZigClangType_Elaborated: {
+            const clang::ElaboratedType *elaborated_ty = reinterpret_cast<const clang::ElaboratedType*>(ty);
+            ZigClangQualType qt = bitcast(elaborated_ty->getNamedType());
+            return type_is_opaque(c, ZigClangQualType_getTypePtr(qt), source_loc);
         }
-        case clang::Type::Typedef: {
+        case ZigClangType_Typedef: {
             const ZigClangTypedefType *typedef_ty = reinterpret_cast<const ZigClangTypedefType*>(ty);
             const ZigClangTypedefNameDecl *typedef_decl = ZigClangTypedefType_getDecl(typedef_ty);
             ZigClangQualType underlying_type = ZigClangTypedefNameDecl_getUnderlyingType(typedef_decl);
-            clang::QualType qt = bitcast(underlying_type);
-            return type_is_opaque(c, qt.getTypePtr(), source_loc);
+            return type_is_opaque(c, ZigClangQualType_getTypePtr(underlying_type), source_loc);
         }
         default:
             return false;
     }
 }
 
-static AstNode *trans_type(Context *c, const clang::Type *ty, ZigClangSourceLocation source_loc) {
-    switch (ty->getTypeClass()) {
-        case clang::Type::Builtin:
+static AstNode *trans_type(Context *c, const ZigClangType *ty, ZigClangSourceLocation source_loc) {
+    switch (ZigClangType_getTypeClass(ty)) {
+        case ZigClangType_Builtin:
             {
-                const clang::BuiltinType *builtin_ty = static_cast<const clang::BuiltinType*>(ty);
+                const clang::BuiltinType *builtin_ty = reinterpret_cast<const clang::BuiltinType*>(ty);
                 switch (builtin_ty->getKind()) {
                     case clang::BuiltinType::Void:
                         return trans_create_node_symbol_str(c, "c_void");
@@ -955,10 +945,10 @@ static AstNode *trans_type(Context *c, const clang::Type *ty, ZigClangSourceLoca
                 }
                 break;
             }
-        case clang::Type::Pointer:
+        case ZigClangType_Pointer:
             {
-                const clang::PointerType *pointer_ty = static_cast<const clang::PointerType*>(ty);
-                clang::QualType child_qt = pointer_ty->getPointeeType();
+                const clang::PointerType *pointer_ty = reinterpret_cast<const clang::PointerType*>(ty);
+                ZigClangQualType child_qt = bitcast(pointer_ty->getPointeeType());
                 AstNode *child_node = trans_qual_type(c, child_qt, source_loc);
                 if (child_node == nullptr) {
                     emit_warning(c, source_loc, "pointer to unsupported type");
@@ -969,29 +959,33 @@ static AstNode *trans_type(Context *c, const clang::Type *ty, ZigClangSourceLoca
                     return trans_create_node_prefix_op(c, PrefixOpOptional, child_node);
                 }
 
-                if (type_is_opaque(c, child_qt.getTypePtr(), source_loc)) {
-                    AstNode *pointer_node = trans_create_node_ptr_type(c, child_qt.isConstQualified(),
-                            child_qt.isVolatileQualified(), child_node, PtrLenSingle);
+                if (type_is_opaque(c, ZigClangQualType_getTypePtr(child_qt), source_loc)) {
+                    AstNode *pointer_node = trans_create_node_ptr_type(c,
+                            ZigClangQualType_isConstQualified(child_qt),
+                            ZigClangQualType_isVolatileQualified(child_qt),
+                            child_node, PtrLenSingle);
                     return trans_create_node_prefix_op(c, PrefixOpOptional, pointer_node);
                 } else {
-                    return trans_create_node_ptr_type(c, child_qt.isConstQualified(),
-                            child_qt.isVolatileQualified(), child_node, PtrLenC);
+                    return trans_create_node_ptr_type(c,
+                            ZigClangQualType_isConstQualified(child_qt),
+                            ZigClangQualType_isVolatileQualified(child_qt),
+                            child_node, PtrLenC);
                 }
             }
-        case clang::Type::Typedef:
+        case ZigClangType_Typedef:
             {
                 const ZigClangTypedefType *typedef_ty = reinterpret_cast<const ZigClangTypedefType*>(ty);
                 const ZigClangTypedefNameDecl *typedef_decl = ZigClangTypedefType_getDecl(typedef_ty);
                 return resolve_typedef_decl(c, typedef_decl);
             }
-        case clang::Type::Elaborated:
+        case ZigClangType_Elaborated:
             {
-                const clang::ElaboratedType *elaborated_ty = static_cast<const clang::ElaboratedType*>(ty);
+                const clang::ElaboratedType *elaborated_ty = reinterpret_cast<const clang::ElaboratedType*>(ty);
                 switch (elaborated_ty->getKeyword()) {
                     case clang::ETK_Struct:
                     case clang::ETK_Enum:
                     case clang::ETK_Union:
-                        return trans_qual_type(c, elaborated_ty->getNamedType(), source_loc);
+                        return trans_qual_type(c, bitcast(elaborated_ty->getNamedType()), source_loc);
                     case clang::ETK_Interface:
                     case clang::ETK_Class:
                     case clang::ETK_Typename:
@@ -1000,10 +994,10 @@ static AstNode *trans_type(Context *c, const clang::Type *ty, ZigClangSourceLoca
                         return nullptr;
                 }
             }
-        case clang::Type::FunctionProto:
-        case clang::Type::FunctionNoProto:
+        case ZigClangType_FunctionProto:
+        case ZigClangType_FunctionNoProto:
             {
-                const clang::FunctionType *fn_ty = static_cast<const clang::FunctionType*>(ty);
+                const clang::FunctionType *fn_ty = reinterpret_cast<const clang::FunctionType*>(ty);
 
                 AstNode *proto_node = trans_create_node(c, NodeTypeFnProto);
                 switch (fn_ty->getCallConv()) {
@@ -1067,14 +1061,14 @@ static AstNode *trans_type(Context *c, const clang::Type *ty, ZigClangSourceLoca
                 if (fn_ty->getNoReturnAttr()) {
                     proto_node->data.fn_proto.return_type = trans_create_node_symbol_str(c, "noreturn");
                 } else {
-                    proto_node->data.fn_proto.return_type = trans_qual_type(c, fn_ty->getReturnType(),
+                    proto_node->data.fn_proto.return_type = trans_qual_type(c, bitcast(fn_ty->getReturnType()),
                             source_loc);
                     if (proto_node->data.fn_proto.return_type == nullptr) {
                         emit_warning(c, source_loc, "unsupported function proto return type");
                         return nullptr;
                     }
                     // convert c_void to actual void (only for return type)
-                    // we do want to look at the AstNode instead of clang::QualType, because
+                    // we do want to look at the AstNode instead of ZigClangQualType, because
                     // if they do something like:
                     //     typedef Foo void;
                     //     void foo(void) -> Foo;
@@ -1090,17 +1084,17 @@ static AstNode *trans_type(Context *c, const clang::Type *ty, ZigClangSourceLoca
                     proto_node->data.fn_proto.name = buf_create_from_str(fn_name);
                 }
 
-                if (ty->getTypeClass() == clang::Type::FunctionNoProto) {
+                if (ZigClangType_getTypeClass(ty) == ZigClangType_FunctionNoProto) {
                     return proto_node;
                 }
 
-                const clang::FunctionProtoType *fn_proto_ty = static_cast<const clang::FunctionProtoType*>(ty);
+                const clang::FunctionProtoType *fn_proto_ty = reinterpret_cast<const clang::FunctionProtoType*>(ty);
 
                 proto_node->data.fn_proto.is_var_args = fn_proto_ty->isVariadic();
                 size_t param_count = fn_proto_ty->getNumParams();
 
                 for (size_t i = 0; i < param_count; i += 1) {
-                    clang::QualType qt = fn_proto_ty->getParamType(i);
+                    ZigClangQualType qt = bitcast(fn_proto_ty->getParamType(i));
                     AstNode *param_type_node = trans_qual_type(c, qt, source_loc);
 
                     if (param_type_node == nullptr) {
@@ -1114,7 +1108,7 @@ static AstNode *trans_type(Context *c, const clang::Type *ty, ZigClangSourceLoca
                     if (param_name != nullptr) {
                         param_node->data.param_decl.name = buf_create_from_str(param_name);
                     }
-                    param_node->data.param_decl.is_noalias = qt.isRestrictQualified();
+                    param_node->data.param_decl.is_noalias = ZigClangQualType_isRestrictQualified(qt);
                     param_node->data.param_decl.type = param_type_node;
                     proto_node->data.fn_proto.params.append(param_node);
                 }
@@ -1123,20 +1117,20 @@ static AstNode *trans_type(Context *c, const clang::Type *ty, ZigClangSourceLoca
 
                 return proto_node;
             }
-        case clang::Type::Record:
+        case ZigClangType_Record:
             {
                 const ZigClangRecordType *record_ty = reinterpret_cast<const ZigClangRecordType*>(ty);
                 return resolve_record_decl(c, ZigClangRecordType_getDecl(record_ty));
             }
-        case clang::Type::Enum:
+        case ZigClangType_Enum:
             {
                 const ZigClangEnumType *enum_ty = reinterpret_cast<const ZigClangEnumType*>(ty);
                 return resolve_enum_decl(c, ZigClangEnumType_getDecl(enum_ty));
             }
-        case clang::Type::ConstantArray:
+        case ZigClangType_ConstantArray:
             {
-                const clang::ConstantArrayType *const_arr_ty = static_cast<const clang::ConstantArrayType *>(ty);
-                AstNode *child_type_node = trans_qual_type(c, const_arr_ty->getElementType(), source_loc);
+                const clang::ConstantArrayType *const_arr_ty = reinterpret_cast<const clang::ConstantArrayType *>(ty);
+                AstNode *child_type_node = trans_qual_type(c, bitcast(const_arr_ty->getElementType()), source_loc);
                 if (child_type_node == nullptr) {
                     emit_warning(c, source_loc, "unresolved array element type");
                     return nullptr;
@@ -1145,76 +1139,78 @@ static AstNode *trans_type(Context *c, const clang::Type *ty, ZigClangSourceLoca
                 AstNode *size_node = trans_create_node_unsigned(c, size);
                 return trans_create_node_array_type(c, size_node, child_type_node);
             }
-        case clang::Type::Paren:
+        case ZigClangType_Paren:
             {
-                const clang::ParenType *paren_ty = static_cast<const clang::ParenType *>(ty);
-                return trans_qual_type(c, paren_ty->getInnerType(), source_loc);
+                const clang::ParenType *paren_ty = reinterpret_cast<const clang::ParenType *>(ty);
+                return trans_qual_type(c, bitcast(paren_ty->getInnerType()), source_loc);
             }
-        case clang::Type::Decayed:
+        case ZigClangType_Decayed:
             {
-                const clang::DecayedType *decayed_ty = static_cast<const clang::DecayedType *>(ty);
-                return trans_qual_type(c, decayed_ty->getDecayedType(), source_loc);
+                const clang::DecayedType *decayed_ty = reinterpret_cast<const clang::DecayedType *>(ty);
+                return trans_qual_type(c, bitcast(decayed_ty->getDecayedType()), source_loc);
             }
-        case clang::Type::Attributed:
+        case ZigClangType_Attributed:
             {
-                const clang::AttributedType *attributed_ty = static_cast<const clang::AttributedType *>(ty);
-                return trans_qual_type(c, attributed_ty->getEquivalentType(), source_loc);
+                const clang::AttributedType *attributed_ty = reinterpret_cast<const clang::AttributedType *>(ty);
+                return trans_qual_type(c, bitcast(attributed_ty->getEquivalentType()), source_loc);
             }
-        case clang::Type::IncompleteArray:
+        case ZigClangType_IncompleteArray:
             {
-                const clang::IncompleteArrayType *incomplete_array_ty = static_cast<const clang::IncompleteArrayType *>(ty);
-                clang::QualType child_qt = incomplete_array_ty->getElementType();
+                const clang::IncompleteArrayType *incomplete_array_ty = reinterpret_cast<const clang::IncompleteArrayType *>(ty);
+                ZigClangQualType child_qt = bitcast(incomplete_array_ty->getElementType());
                 AstNode *child_type_node = trans_qual_type(c, child_qt, source_loc);
                 if (child_type_node == nullptr) {
                     emit_warning(c, source_loc, "unresolved array element type");
                     return nullptr;
                 }
-                AstNode *pointer_node = trans_create_node_ptr_type(c, child_qt.isConstQualified(),
-                        child_qt.isVolatileQualified(), child_type_node, PtrLenC);
+                AstNode *pointer_node = trans_create_node_ptr_type(c,
+                        ZigClangQualType_isConstQualified(child_qt),
+                        ZigClangQualType_isVolatileQualified(child_qt),
+                        child_type_node, PtrLenC);
                 return pointer_node;
             }
-        case clang::Type::BlockPointer:
-        case clang::Type::LValueReference:
-        case clang::Type::RValueReference:
-        case clang::Type::MemberPointer:
-        case clang::Type::VariableArray:
-        case clang::Type::DependentSizedArray:
-        case clang::Type::DependentSizedExtVector:
-        case clang::Type::Vector:
-        case clang::Type::ExtVector:
-        case clang::Type::UnresolvedUsing:
-        case clang::Type::Adjusted:
-        case clang::Type::TypeOfExpr:
-        case clang::Type::TypeOf:
-        case clang::Type::Decltype:
-        case clang::Type::UnaryTransform:
-        case clang::Type::TemplateTypeParm:
-        case clang::Type::SubstTemplateTypeParm:
-        case clang::Type::SubstTemplateTypeParmPack:
-        case clang::Type::TemplateSpecialization:
-        case clang::Type::Auto:
-        case clang::Type::InjectedClassName:
-        case clang::Type::DependentName:
-        case clang::Type::DependentTemplateSpecialization:
-        case clang::Type::PackExpansion:
-        case clang::Type::ObjCObject:
-        case clang::Type::ObjCInterface:
-        case clang::Type::Complex:
-        case clang::Type::ObjCObjectPointer:
-        case clang::Type::Atomic:
-        case clang::Type::Pipe:
-        case clang::Type::ObjCTypeParam:
-        case clang::Type::DeducedTemplateSpecialization:
-        case clang::Type::DependentAddressSpace:
-        case clang::Type::DependentVector:
-            emit_warning(c, source_loc, "unsupported type: '%s'", ty->getTypeClassName());
+        case ZigClangType_BlockPointer:
+        case ZigClangType_LValueReference:
+        case ZigClangType_RValueReference:
+        case ZigClangType_MemberPointer:
+        case ZigClangType_VariableArray:
+        case ZigClangType_DependentSizedArray:
+        case ZigClangType_DependentSizedExtVector:
+        case ZigClangType_Vector:
+        case ZigClangType_ExtVector:
+        case ZigClangType_UnresolvedUsing:
+        case ZigClangType_Adjusted:
+        case ZigClangType_TypeOfExpr:
+        case ZigClangType_TypeOf:
+        case ZigClangType_Decltype:
+        case ZigClangType_UnaryTransform:
+        case ZigClangType_TemplateTypeParm:
+        case ZigClangType_SubstTemplateTypeParm:
+        case ZigClangType_SubstTemplateTypeParmPack:
+        case ZigClangType_TemplateSpecialization:
+        case ZigClangType_Auto:
+        case ZigClangType_InjectedClassName:
+        case ZigClangType_DependentName:
+        case ZigClangType_DependentTemplateSpecialization:
+        case ZigClangType_PackExpansion:
+        case ZigClangType_ObjCObject:
+        case ZigClangType_ObjCInterface:
+        case ZigClangType_Complex:
+        case ZigClangType_ObjCObjectPointer:
+        case ZigClangType_Atomic:
+        case ZigClangType_Pipe:
+        case ZigClangType_ObjCTypeParam:
+        case ZigClangType_DeducedTemplateSpecialization:
+        case ZigClangType_DependentAddressSpace:
+        case ZigClangType_DependentVector:
+            emit_warning(c, source_loc, "unsupported type: '%s'", ZigClangType_getTypeClassName(ty));
             return nullptr;
     }
     zig_unreachable();
 }
 
-static AstNode *trans_qual_type(Context *c, clang::QualType qt, ZigClangSourceLocation source_loc) {
-    return trans_type(c, qt.getTypePtr(), source_loc);
+static AstNode *trans_qual_type(Context *c, ZigClangQualType qt, ZigClangSourceLocation source_loc) {
+    return trans_type(c, ZigClangQualType_getTypePtr(qt), source_loc);
 }
 
 static int trans_compound_stmt_inline(Context *c, TransScope *scope, const clang::CompoundStmt *stmt,
@@ -1300,7 +1296,7 @@ static AstNode *trans_constant_expr(Context *c, ResultUsed result_used, const cl
         emit_warning(c, bitcast(expr->getBeginLoc()), "invalid constant expression");
         return nullptr;
     }
-    AstNode *node = trans_ap_value(c, &result.Val, expr->getType(), bitcast(expr->getBeginLoc()));
+    AstNode *node = trans_ap_value(c, &result.Val, bitcast(expr->getType()), bitcast(expr->getBeginLoc()));
     return maybe_suppress_result(c, result_used, node);
 }
 
@@ -1410,7 +1406,7 @@ static AstNode *trans_create_assign(Context *c, ResultUsed result_used, TransSco
     }
 }
 
-static AstNode *trans_create_shift_op(Context *c, TransScope *scope, clang::QualType result_type,
+static AstNode *trans_create_shift_op(Context *c, TransScope *scope, ZigClangQualType result_type,
         clang::Expr *lhs_expr, BinOpType bin_op, clang::Expr *rhs_expr)
 {
     ZigClangSourceLocation rhs_location = bitcast(rhs_expr->getBeginLoc());
@@ -1440,12 +1436,12 @@ static AstNode *trans_binary_operator(Context *c, ResultUsed result_used, TransS
             return nullptr;
         case clang::BO_Mul: {
             AstNode *node = trans_create_bin_op(c, scope, stmt->getLHS(),
-                qual_type_has_wrapping_overflow(c, stmt->getType()) ? BinOpTypeMultWrap : BinOpTypeMult,
+                qual_type_has_wrapping_overflow(c, bitcast(stmt->getType())) ? BinOpTypeMultWrap : BinOpTypeMult,
                 stmt->getRHS());
             return maybe_suppress_result(c, result_used, node);
         }
         case clang::BO_Div:
-            if (qual_type_has_wrapping_overflow(c, stmt->getType())) {
+            if (qual_type_has_wrapping_overflow(c, bitcast(stmt->getType()))) {
                 // unsigned/float division uses the operator
                 AstNode *node = trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeDiv, stmt->getRHS());
                 return maybe_suppress_result(c, result_used, node);
@@ -1461,7 +1457,7 @@ static AstNode *trans_binary_operator(Context *c, ResultUsed result_used, TransS
                 return maybe_suppress_result(c, result_used, fn_call);
             }
         case clang::BO_Rem:
-            if (qual_type_has_wrapping_overflow(c, stmt->getType())) {
+            if (qual_type_has_wrapping_overflow(c, bitcast(stmt->getType()))) {
                 // unsigned/float division uses the operator
                 AstNode *node = trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeMod, stmt->getRHS());
                 return maybe_suppress_result(c, result_used, node);
@@ -1478,22 +1474,22 @@ static AstNode *trans_binary_operator(Context *c, ResultUsed result_used, TransS
             }
         case clang::BO_Add: {
             AstNode *node = trans_create_bin_op(c, scope, stmt->getLHS(),
-                qual_type_has_wrapping_overflow(c, stmt->getType()) ? BinOpTypeAddWrap : BinOpTypeAdd,
+                qual_type_has_wrapping_overflow(c, bitcast(stmt->getType())) ? BinOpTypeAddWrap : BinOpTypeAdd,
                 stmt->getRHS());
             return maybe_suppress_result(c, result_used, node);
         }
         case clang::BO_Sub: {
             AstNode *node = trans_create_bin_op(c, scope, stmt->getLHS(),
-                qual_type_has_wrapping_overflow(c, stmt->getType()) ? BinOpTypeSubWrap : BinOpTypeSub,
+                qual_type_has_wrapping_overflow(c, bitcast(stmt->getType())) ? BinOpTypeSubWrap : BinOpTypeSub,
                 stmt->getRHS());
             return maybe_suppress_result(c, result_used, node);
         }
         case clang::BO_Shl: {
-            AstNode *node = trans_create_shift_op(c, scope, stmt->getType(), stmt->getLHS(), BinOpTypeBitShiftLeft, stmt->getRHS());
+            AstNode *node = trans_create_shift_op(c, scope, bitcast(stmt->getType()), stmt->getLHS(), BinOpTypeBitShiftLeft, stmt->getRHS());
             return maybe_suppress_result(c, result_used, node);
         }
         case clang::BO_Shr: {
-            AstNode *node = trans_create_shift_op(c, scope, stmt->getType(), stmt->getLHS(), BinOpTypeBitShiftRight, stmt->getRHS());
+            AstNode *node = trans_create_shift_op(c, scope, bitcast(stmt->getType()), stmt->getLHS(), BinOpTypeBitShiftRight, stmt->getRHS());
             return maybe_suppress_result(c, result_used, node);
         }
         case clang::BO_LT: {
@@ -1581,7 +1577,7 @@ static AstNode *trans_create_compound_assign_shift(Context *c, ResultUsed result
         const clang::CompoundAssignOperator *stmt, BinOpType assign_op, BinOpType bin_op)
 {
     ZigClangSourceLocation rhs_location = bitcast(stmt->getRHS()->getBeginLoc());
-    AstNode *rhs_type = qual_type_to_log2_int_ref(c, stmt->getComputationLHSType(), rhs_location);
+    AstNode *rhs_type = qual_type_to_log2_int_ref(c, bitcast(stmt->getComputationLHSType()), rhs_location);
 
     bool use_intermediate_casts = stmt->getComputationLHSType().getTypePtr() != stmt->getComputationResultType().getTypePtr();
     if (!use_intermediate_casts && result_used == ResultUsedNo) {
@@ -1626,14 +1622,14 @@ static AstNode *trans_create_compound_assign_shift(Context *c, ResultUsed result
 
         // operation_type(*_ref)
         AstNode *operation_type_cast = trans_c_cast(c, rhs_location,
-            stmt->getComputationLHSType(),
-            stmt->getLHS()->getType(),
+            bitcast(stmt->getComputationLHSType()),
+            bitcast(stmt->getLHS()->getType()),
             trans_create_node_ptr_deref(c, trans_create_node_symbol(c, tmp_var_name)));
 
         // result_type(... >> u5(rhs))
         AstNode *result_type_cast = trans_c_cast(c, rhs_location,
-            stmt->getComputationResultType(),
-            stmt->getComputationLHSType(),
+            bitcast(stmt->getComputationResultType()),
+            bitcast(stmt->getComputationLHSType()),
             trans_create_node_bin_op(c,
                 operation_type_cast,
                 bin_op,
@@ -1724,7 +1720,7 @@ static AstNode *trans_compound_assign_operator(Context *c, ResultUsed result_use
 {
     switch (stmt->getOpcode()) {
         case clang::BO_MulAssign:
-            if (qual_type_has_wrapping_overflow(c, stmt->getType()))
+            if (qual_type_has_wrapping_overflow(c, bitcast(stmt->getType())))
                 return trans_create_compound_assign(c, result_used, scope, stmt, BinOpTypeAssignTimesWrap, BinOpTypeMultWrap);
             else
                 return trans_create_compound_assign(c, result_used, scope, stmt, BinOpTypeAssignTimes, BinOpTypeMult);
@@ -1738,12 +1734,12 @@ static AstNode *trans_compound_assign_operator(Context *c, ResultUsed result_use
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle more C compound assign operators: BO_Cmp");
             return nullptr;
         case clang::BO_AddAssign:
-            if (qual_type_has_wrapping_overflow(c, stmt->getType()))
+            if (qual_type_has_wrapping_overflow(c, bitcast(stmt->getType())))
                 return trans_create_compound_assign(c, result_used, scope, stmt, BinOpTypeAssignPlusWrap, BinOpTypeAddWrap);
             else
                 return trans_create_compound_assign(c, result_used, scope, stmt, BinOpTypeAssignPlus, BinOpTypeAdd);
         case clang::BO_SubAssign:
-            if (qual_type_has_wrapping_overflow(c, stmt->getType()))
+            if (qual_type_has_wrapping_overflow(c, bitcast(stmt->getType())))
                 return trans_create_compound_assign(c, result_used, scope, stmt, BinOpTypeAssignMinusWrap, BinOpTypeSubWrap);
             else
                 return trans_create_compound_assign(c, result_used, scope, stmt, BinOpTypeAssignMinus, BinOpTypeSub);
@@ -1794,8 +1790,8 @@ static AstNode *trans_implicit_cast_expr(Context *c, ResultUsed result_used, Tra
                 AstNode *target_node = trans_expr(c, ResultUsedYes, scope, stmt->getSubExpr(), TransRValue);
                 if (target_node == nullptr)
                     return nullptr;
-                AstNode *node = trans_c_cast(c, bitcast(stmt->getExprLoc()), stmt->getType(),
-                        stmt->getSubExpr()->getType(), target_node);
+                AstNode *node = trans_c_cast(c, bitcast(stmt->getExprLoc()), bitcast(stmt->getType()),
+                        bitcast(stmt->getSubExpr()->getType()), target_node);
                 return maybe_suppress_result(c, result_used, node);
             }
         case clang::CK_FunctionToPointerDecay:
@@ -2106,22 +2102,22 @@ static AstNode *trans_create_pre_crement(Context *c, ResultUsed result_used, Tra
 static AstNode *trans_unary_operator(Context *c, ResultUsed result_used, TransScope *scope, const clang::UnaryOperator *stmt) {
     switch (stmt->getOpcode()) {
         case clang::UO_PostInc:
-            if (qual_type_has_wrapping_overflow(c, stmt->getType()))
+            if (qual_type_has_wrapping_overflow(c, bitcast(stmt->getType())))
                 return trans_create_post_crement(c, result_used, scope, stmt, BinOpTypeAssignPlusWrap);
             else
                 return trans_create_post_crement(c, result_used, scope, stmt, BinOpTypeAssignPlus);
         case clang::UO_PostDec:
-            if (qual_type_has_wrapping_overflow(c, stmt->getType()))
+            if (qual_type_has_wrapping_overflow(c, bitcast(stmt->getType())))
                 return trans_create_post_crement(c, result_used, scope, stmt, BinOpTypeAssignMinusWrap);
             else
                 return trans_create_post_crement(c, result_used, scope, stmt, BinOpTypeAssignMinus);
         case clang::UO_PreInc:
-            if (qual_type_has_wrapping_overflow(c, stmt->getType()))
+            if (qual_type_has_wrapping_overflow(c, bitcast(stmt->getType())))
                 return trans_create_pre_crement(c, result_used, scope, stmt, BinOpTypeAssignPlusWrap);
             else
                 return trans_create_pre_crement(c, result_used, scope, stmt, BinOpTypeAssignPlus);
         case clang::UO_PreDec:
-            if (qual_type_has_wrapping_overflow(c, stmt->getType()))
+            if (qual_type_has_wrapping_overflow(c, bitcast(stmt->getType())))
                 return trans_create_pre_crement(c, result_used, scope, stmt, BinOpTypeAssignMinusWrap);
             else
                 return trans_create_pre_crement(c, result_used, scope, stmt, BinOpTypeAssignMinus);
@@ -2137,7 +2133,7 @@ static AstNode *trans_unary_operator(Context *c, ResultUsed result_used, TransSc
                 AstNode *value_node = trans_expr(c, result_used, scope, stmt->getSubExpr(), TransRValue);
                 if (value_node == nullptr)
                     return nullptr;
-                bool is_fn_ptr = qual_type_is_fn_ptr(stmt->getSubExpr()->getType());
+                bool is_fn_ptr = qual_type_is_fn_ptr(bitcast(stmt->getSubExpr()->getType()));
                 if (is_fn_ptr)
                     return value_node;
                 AstNode *unwrapped = trans_create_node_unwrap_null(c, value_node);
@@ -2149,7 +2145,7 @@ static AstNode *trans_unary_operator(Context *c, ResultUsed result_used, TransSc
         case clang::UO_Minus:
             {
                 clang::Expr *op_expr = stmt->getSubExpr();
-                if (!qual_type_has_wrapping_overflow(c, op_expr->getType())) {
+                if (!qual_type_has_wrapping_overflow(c, bitcast(op_expr->getType()))) {
                     AstNode *node = trans_create_node(c, NodeTypePrefixOpExpr);
                     node->data.prefix_op_expr.prefix_op = PrefixOpNegation;
 
@@ -2158,7 +2154,7 @@ static AstNode *trans_unary_operator(Context *c, ResultUsed result_used, TransSc
                         return nullptr;
 
                     return node;
-                } else if (c_is_unsigned_integer(c, op_expr->getType())) {
+                } else if (c_is_unsigned_integer(c, bitcast(op_expr->getType()))) {
                     // we gotta emit 0 -% x
                     AstNode *node = trans_create_node(c, NodeTypeBinOpExpr);
                     node->data.bin_op_expr.op1 = trans_create_node_unsigned(c, 0);
@@ -2221,7 +2217,7 @@ static int trans_local_declaration(Context *c, TransScope *scope, const clang::D
         switch (decl->getKind()) {
             case clang::Decl::Var: {
                 clang::VarDecl *var_decl = (clang::VarDecl *)decl;
-                clang::QualType qual_type = var_decl->getTypeSourceInfo()->getType();
+                ZigClangQualType qual_type = bitcast(var_decl->getTypeSourceInfo()->getType());
                 AstNode *init_node = nullptr;
                 if (var_decl->hasInit()) {
                     init_node = trans_expr(c, ResultUsedYes, scope, var_decl->getInit(), TransRValue);
@@ -2240,7 +2236,8 @@ static int trans_local_declaration(Context *c, TransScope *scope, const clang::D
                 TransScopeVar *var_scope = trans_scope_var_create(c, scope, c_symbol_name);
                 scope = &var_scope->base;
 
-                AstNode *node = trans_create_node_var_decl_local(c, qual_type.isConstQualified(),
+                AstNode *node = trans_create_node_var_decl_local(c,
+                        ZigClangQualType_isConstQualified(qual_type),
                         var_scope->zig_name, type_node, init_node);
 
                 scope_block->node->data.block.statements.append(node);
@@ -2526,12 +2523,12 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
     }
 
 
-    const clang::Type *ty = get_expr_qual_type_before_implicit_cast(c, expr).getTypePtr();
-    auto classs = ty->getTypeClass();
+    const ZigClangType *ty = ZigClangQualType_getTypePtr(get_expr_qual_type_before_implicit_cast(c, expr));
+    auto classs = ZigClangType_getTypeClass(ty);
     switch (classs) {
-        case clang::Type::Builtin:
+        case ZigClangType_Builtin:
         {
-            const clang::BuiltinType *builtin_ty = static_cast<const clang::BuiltinType*>(ty);
+            const clang::BuiltinType *builtin_ty = reinterpret_cast<const clang::BuiltinType*>(ty);
             switch (builtin_ty->getKind()) {
                 case clang::BuiltinType::Bool:
                 case clang::BuiltinType::Char_U:
@@ -2657,11 +2654,11 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
             }
             break;
         }
-        case clang::Type::Pointer:
+        case ZigClangType_Pointer:
             return trans_create_node_bin_op(c, res, BinOpTypeCmpNotEq,
                     trans_create_node_unsigned(c, 0));
 
-        case clang::Type::Typedef:
+        case ZigClangType_Typedef:
         {
             const ZigClangTypedefType *typedef_ty = reinterpret_cast<const ZigClangTypedefType*>(ty);
             const ZigClangTypedefNameDecl *typedef_decl = ZigClangTypedefType_getDecl(typedef_ty);
@@ -2673,19 +2670,20 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
             return res;
         }
 
-        case clang::Type::Enum:
+        case ZigClangType_Enum:
         {
             const ZigClangEnumType *enum_ty = reinterpret_cast<const ZigClangEnumType *>(ty);
             AstNode *enum_type = resolve_enum_decl(c, ZigClangEnumType_getDecl(enum_ty));
             return to_enum_zero_cmp(c, res, enum_type);
         }
 
-        case clang::Type::Elaborated:
+        case ZigClangType_Elaborated:
         {
-            const clang::ElaboratedType *elaborated_ty = static_cast<const clang::ElaboratedType*>(ty);
+            const clang::ElaboratedType *elaborated_ty = reinterpret_cast<const clang::ElaboratedType*>(ty);
             switch (elaborated_ty->getKeyword()) {
                 case clang::ETK_Enum: {
-                    AstNode *enum_type = trans_qual_type(c, elaborated_ty->getNamedType(), bitcast(expr->getBeginLoc()));
+                    AstNode *enum_type = trans_qual_type(c, bitcast(elaborated_ty->getNamedType()),
+                            bitcast(expr->getBeginLoc()));
                     return to_enum_zero_cmp(c, res, enum_type);
                 }
                 case clang::ETK_Struct:
@@ -2698,48 +2696,48 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
             }
         }
 
-        case clang::Type::FunctionProto:
-        case clang::Type::Record:
-        case clang::Type::ConstantArray:
-        case clang::Type::Paren:
-        case clang::Type::Decayed:
-        case clang::Type::Attributed:
-        case clang::Type::IncompleteArray:
-        case clang::Type::BlockPointer:
-        case clang::Type::LValueReference:
-        case clang::Type::RValueReference:
-        case clang::Type::MemberPointer:
-        case clang::Type::VariableArray:
-        case clang::Type::DependentSizedArray:
-        case clang::Type::DependentSizedExtVector:
-        case clang::Type::Vector:
-        case clang::Type::ExtVector:
-        case clang::Type::FunctionNoProto:
-        case clang::Type::UnresolvedUsing:
-        case clang::Type::Adjusted:
-        case clang::Type::TypeOfExpr:
-        case clang::Type::TypeOf:
-        case clang::Type::Decltype:
-        case clang::Type::UnaryTransform:
-        case clang::Type::TemplateTypeParm:
-        case clang::Type::SubstTemplateTypeParm:
-        case clang::Type::SubstTemplateTypeParmPack:
-        case clang::Type::TemplateSpecialization:
-        case clang::Type::Auto:
-        case clang::Type::InjectedClassName:
-        case clang::Type::DependentName:
-        case clang::Type::DependentTemplateSpecialization:
-        case clang::Type::PackExpansion:
-        case clang::Type::ObjCObject:
-        case clang::Type::ObjCInterface:
-        case clang::Type::Complex:
-        case clang::Type::ObjCObjectPointer:
-        case clang::Type::Atomic:
-        case clang::Type::Pipe:
-        case clang::Type::ObjCTypeParam:
-        case clang::Type::DeducedTemplateSpecialization:
-        case clang::Type::DependentAddressSpace:
-        case clang::Type::DependentVector:
+        case ZigClangType_FunctionProto:
+        case ZigClangType_Record:
+        case ZigClangType_ConstantArray:
+        case ZigClangType_Paren:
+        case ZigClangType_Decayed:
+        case ZigClangType_Attributed:
+        case ZigClangType_IncompleteArray:
+        case ZigClangType_BlockPointer:
+        case ZigClangType_LValueReference:
+        case ZigClangType_RValueReference:
+        case ZigClangType_MemberPointer:
+        case ZigClangType_VariableArray:
+        case ZigClangType_DependentSizedArray:
+        case ZigClangType_DependentSizedExtVector:
+        case ZigClangType_Vector:
+        case ZigClangType_ExtVector:
+        case ZigClangType_FunctionNoProto:
+        case ZigClangType_UnresolvedUsing:
+        case ZigClangType_Adjusted:
+        case ZigClangType_TypeOfExpr:
+        case ZigClangType_TypeOf:
+        case ZigClangType_Decltype:
+        case ZigClangType_UnaryTransform:
+        case ZigClangType_TemplateTypeParm:
+        case ZigClangType_SubstTemplateTypeParm:
+        case ZigClangType_SubstTemplateTypeParmPack:
+        case ZigClangType_TemplateSpecialization:
+        case ZigClangType_Auto:
+        case ZigClangType_InjectedClassName:
+        case ZigClangType_DependentName:
+        case ZigClangType_DependentTemplateSpecialization:
+        case ZigClangType_PackExpansion:
+        case ZigClangType_ObjCObject:
+        case ZigClangType_ObjCInterface:
+        case ZigClangType_Complex:
+        case ZigClangType_ObjCObjectPointer:
+        case ZigClangType_Atomic:
+        case ZigClangType_Pipe:
+        case ZigClangType_ObjCTypeParam:
+        case ZigClangType_DeducedTemplateSpecialization:
+        case ZigClangType_DependentAddressSpace:
+        case ZigClangType_DependentVector:
             return res;
     }
     zig_unreachable();
@@ -2790,7 +2788,7 @@ static AstNode *trans_call_expr(Context *c, ResultUsed result_used, TransScope *
         return nullptr;
 
     bool is_ptr = false;
-    const clang::FunctionProtoType *fn_ty = qual_type_get_fn_proto(stmt->getCallee()->getType(), &is_ptr);
+    const clang::FunctionProtoType *fn_ty = qual_type_get_fn_proto(bitcast(stmt->getCallee()->getType()), &is_ptr);
     AstNode *callee_node = nullptr;
     if (is_ptr && fn_ty) {
         if (stmt->getCallee()->getStmtClass() == clang::Stmt::ImplicitCastExprClass) {
@@ -2824,7 +2822,9 @@ static AstNode *trans_call_expr(Context *c, ResultUsed result_used, TransScope *
         node->data.fn_call_expr.params.append(arg_node);
     }
 
-    if (result_used == ResultUsedNo && fn_ty && !qual_type_canon(fn_ty->getReturnType())->isVoidType()) {
+    if (result_used == ResultUsedNo && fn_ty &&
+        !ZigClangType_isVoidType(qual_type_canon(bitcast(fn_ty->getReturnType()))))
+    {
         node = trans_create_node_bin_op(c, trans_create_node_symbol_str(c, "_"), BinOpTypeAssign, node);
     }
 
@@ -2871,7 +2871,8 @@ static AstNode *trans_c_style_cast_expr(Context *c, ResultUsed result_used, Tran
     if (sub_expr_node == nullptr)
         return nullptr;
 
-    AstNode *cast = trans_c_cast(c, bitcast(stmt->getBeginLoc()), stmt->getType(), stmt->getSubExpr()->getType(), sub_expr_node);
+    AstNode *cast = trans_c_cast(c, bitcast(stmt->getBeginLoc()), bitcast(stmt->getType()),
+            bitcast(stmt->getSubExpr()->getType()), sub_expr_node);
     if (cast == nullptr)
         return nullptr;
 
@@ -2881,7 +2882,7 @@ static AstNode *trans_c_style_cast_expr(Context *c, ResultUsed result_used, Tran
 static AstNode *trans_unary_expr_or_type_trait_expr(Context *c, ResultUsed result_used,
         TransScope *scope, const clang::UnaryExprOrTypeTraitExpr *stmt)
 {
-    AstNode *type_node = trans_qual_type(c, stmt->getTypeOfArgument(), bitcast(stmt->getBeginLoc()));
+    AstNode *type_node = trans_qual_type(c, bitcast(stmt->getTypeOfArgument()), bitcast(stmt->getBeginLoc()));
     if (type_node == nullptr)
         return nullptr;
 
@@ -3858,7 +3859,7 @@ static void visit_fn_decl(Context *c, const clang::FunctionDecl *fn_decl) {
         return;
     }
 
-    AstNode *proto_node = trans_qual_type(c, fn_decl->getType(), bitcast(fn_decl->getLocation()));
+    AstNode *proto_node = trans_qual_type(c, bitcast(fn_decl->getType()), bitcast(fn_decl->getLocation()));
     if (proto_node == nullptr) {
         emit_warning(c, bitcast(fn_decl->getLocation()), "unable to resolve prototype of function '%s'", buf_ptr(fn_name));
         return;
@@ -4003,7 +4004,7 @@ static AstNode *resolve_typedef_decl(Context *c, const ZigClangTypedefNameDecl *
     AstNode *symbol_node = trans_create_node_symbol(c, type_name);
     c->decl_table.put(ZigClangTypedefNameDecl_getCanonicalDecl(typedef_decl), symbol_node);
 
-    AstNode *type_node = trans_qual_type(c, bitcast(child_qt), ZigClangTypedefNameDecl_getLocation(typedef_decl));
+    AstNode *type_node = trans_qual_type(c, child_qt, ZigClangTypedefNameDecl_getLocation(typedef_decl));
     if (type_node == nullptr) {
         emit_warning(c, ZigClangTypedefNameDecl_getLocation(typedef_decl),
                 "typedef %s - unresolved child type", buf_ptr(type_name));
@@ -4059,8 +4060,7 @@ static AstNode *resolve_enum_decl(Context *c, const ZigClangEnumDecl *enum_decl)
             pure_enum = false;
         }
     }
-    AstNode *tag_int_type = trans_qual_type(c,
-            bitcast(ZigClangEnumDecl_getIntegerType(enum_decl)),
+    AstNode *tag_int_type = trans_qual_type(c, ZigClangEnumDecl_getIntegerType(enum_decl),
             ZigClangEnumDecl_getLocation(enum_decl));
     assert(tag_int_type);
 
@@ -4070,8 +4070,8 @@ static AstNode *resolve_enum_decl(Context *c, const ZigClangEnumDecl *enum_decl)
     // TODO only emit this tag type if the enum tag type is not the default.
     // I don't know what the default is, need to figure out how clang is deciding.
     // it appears to at least be different across gcc/msvc
-    if (!c_is_builtin_type(c, bitcast(ZigClangEnumDecl_getIntegerType(enum_decl)), clang::BuiltinType::UInt) &&
-        !c_is_builtin_type(c, bitcast(ZigClangEnumDecl_getIntegerType(enum_decl)), clang::BuiltinType::Int))
+    if (!c_is_builtin_type(c, ZigClangEnumDecl_getIntegerType(enum_decl), clang::BuiltinType::UInt) &&
+        !c_is_builtin_type(c, ZigClangEnumDecl_getIntegerType(enum_decl), clang::BuiltinType::Int))
     {
         enum_node->data.container_decl.init_arg_expr = tag_int_type;
     }
@@ -4209,7 +4209,7 @@ static AstNode *resolve_record_decl(Context *c, const ZigClangRecordDecl *record
 
         AstNode *field_node = trans_create_node(c, NodeTypeStructField);
         field_node->data.struct_field.name = buf_create_from_str(ZigClangDecl_getName_bytes_begin((const ZigClangDecl *)field_decl));
-        field_node->data.struct_field.type = trans_qual_type(c, field_decl->getType(),
+        field_node->data.struct_field.type = trans_qual_type(c, bitcast(field_decl->getType()),
                 bitcast(field_decl->getLocation()));
 
         if (field_node->data.struct_field.type == nullptr) {
@@ -4233,7 +4233,7 @@ static AstNode *resolve_record_decl(Context *c, const ZigClangRecordDecl *record
     }
 }
 
-static AstNode *trans_ap_value(Context *c, clang::APValue *ap_value, clang::QualType qt, ZigClangSourceLocation source_loc) {
+static AstNode *trans_ap_value(Context *c, clang::APValue *ap_value, ZigClangQualType qt, ZigClangSourceLocation source_loc) {
     switch (ap_value->getKind()) {
         case clang::APValue::Int:
             return trans_create_node_apint(c, ap_value->getInt());
@@ -4253,7 +4253,8 @@ static AstNode *trans_ap_value(Context *c, clang::APValue *ap_value, clang::Qual
             init_node->data.container_init_expr.type = arr_type_node;
             init_node->data.container_init_expr.kind = ContainerInitKindArray;
 
-            clang::QualType child_qt = qt.getTypePtr()->getAsArrayTypeUnsafe()->getElementType();
+            const clang::Type *qt_type = reinterpret_cast<const clang::Type *>(ZigClangQualType_getTypePtr(qt));
+            ZigClangQualType child_qt = bitcast(qt_type->getAsArrayTypeUnsafe()->getElementType());
 
             for (size_t i = 0; i < init_count; i += 1) {
                 clang::APValue &elem_ap_val = ap_value->getArrayInitializedElt(i);
@@ -4347,7 +4348,7 @@ static void visit_var_decl(Context *c, const clang::VarDecl *var_decl) {
             return;
     }
 
-    clang::QualType qt = var_decl->getType();
+    ZigClangQualType qt = bitcast(var_decl->getType());
     AstNode *var_type = trans_qual_type(c, qt, bitcast(var_decl->getLocation()));
     if (var_type == nullptr) {
         emit_warning(c, bitcast(var_decl->getLocation()), "ignoring variable '%s' - unresolved type", buf_ptr(name));
@@ -4356,7 +4357,7 @@ static void visit_var_decl(Context *c, const clang::VarDecl *var_decl) {
 
     bool is_extern = var_decl->hasExternalStorage();
     bool is_static = var_decl->isFileVarDecl();
-    bool is_const = qt.isConstQualified();
+    bool is_const = ZigClangQualType_isConstQualified(qt);
 
     if (is_static && !is_extern) {
         AstNode *init_node;
