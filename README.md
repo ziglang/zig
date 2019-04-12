@@ -160,6 +160,23 @@ Note that you can
 
 #### Instructions
 
+##### Optionally building LLVM
+
+If the native LLVM provided on you system is not the current version needed by zig or
+for for some other reason, such as linking LLVM statically, you may need to build
+LLVM from sources. See [How to build LLVM, libclang, and liblld from source](https://github.com/ziglang/zig/wiki/How-to-build-LLVM,-libclang,-and-liblld-from-source) for more information.
+
+Typically you'll need to append `-DCMAKE_PREFIX_PATH=<path to llvm>` to the zig cmake line and if
+linking llvm statically also append `-DLLVM_STATIC=on`. For example, if llvm is
+installed at $HOME/local then for POSIX the cmake line `cmake ..` becomes:
+```
+cmake .. -DCMAKE_PREFIX_PATH=$HOME/local
+```
+And if statically linking LLVM:
+```
+cmake .. -DCMAKE_PREFIX_PATH=$HOME/local -DLLVM_STATIC=on
+```
+
 ##### POSIX
 
 ```
