@@ -357,19 +357,9 @@ static void ir_ref_var(ZigVar *var) {
 }
 
 ZigType *ir_analyze_type_expr(IrAnalyze *ira, Scope *scope, AstNode *node) {
-    ConstExprValue *result = ir_eval_const_value( ira->codegen
-                                                , scope
-                                                , node
-                                                , ira->codegen->builtin_types.entry_type
-                                                , ira->new_irb.exec->backward_branch_count
-                                                , ira->new_irb.exec->backward_branch_quota
-                                                , nullptr
-                                                , nullptr
-                                                , node
-                                                , nullptr
-                                                , ira->new_irb.exec
-                                                , nullptr
-                                                );
+    ConstExprValue *result = ir_eval_const_value(ira->codegen, scope, node, ira->codegen->builtin_types.entry_type,
+            ira->new_irb.exec->backward_branch_count, ira->new_irb.exec->backward_branch_quota, nullptr, nullptr,
+            node, nullptr, ira->new_irb.exec, nullptr);
 
     if (type_is_invalid(result->type))
         return ira->codegen->builtin_types.entry_invalid;
@@ -7965,7 +7955,7 @@ static ConstExprValue *ir_exec_const_result(CodeGen *codegen, IrExecutable *exec
             return &codegen->invalid_instruction->value;
         }
     }
-    return &codegen->invalid_instruction->value;
+    zig_unreachable();
 }
 
 static bool ir_emit_global_runtime_side_effect(IrAnalyze *ira, IrInstruction *source_instruction) {
@@ -10227,16 +10217,18 @@ static IrInstruction *ir_unreach_error(IrAnalyze *ira) {
 
 static bool ir_emit_backward_branch(IrAnalyze *ira, IrInstruction *source_instruction) {
     size_t *bbc = ira->new_irb.exec->backward_branch_count;
-    size_t quota = ira->new_irb.exec->backward_branch_quota;
+    size_t *quota = ira->new_irb.exec->backward_branch_quota;
 
     // If we're already over quota, we've already given an error message for this.
-    if (*bbc > quota) {
+    if (*bbc > *quota) {
+        assert(ira->codegen->errors.length > 0);
         return false;
     }
 
     *bbc += 1;
-    if (*bbc > quota) {
-        ir_add_error(ira, source_instruction, buf_sprintf("evaluation exceeded %" ZIG_PRI_usize " backwards branches", quota));
+    if (*bbc > *quota) {
+        ir_add_error(ira, source_instruction,
+                buf_sprintf("evaluation exceeded %" ZIG_PRI_usize " backwards branches", *quota));
         return false;
     }
     return true;
@@ -10317,7 +10309,7 @@ static ConstExprValue *ir_resolve_const(IrAnalyze *ira, IrInstruction *value, Un
 }
 
 ConstExprValue *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node,
-        ZigType *expected_type, size_t *backward_branch_count, size_t backward_branch_quota,
+        ZigType *expected_type, size_t *backward_branch_count, size_t *backward_branch_quota,
         ZigFn *fn_entry, Buf *c_import_buf, AstNode *source_node, Buf *exec_name,
         IrExecutable *parent_exec, AstNode *expected_type_source_node)
 {
@@ -18983,8 +18975,8 @@ static IrInstruction *ir_analyze_instruction_set_eval_branch_quota(IrAnalyze *ir
     if (!ir_resolve_usize(ira, instruction->new_quota->child, &new_quota))
         return ira->codegen->invalid_instruction;
 
-    if (new_quota > ira->new_irb.exec->backward_branch_quota) {
-        ira->new_irb.exec->backward_branch_quota = new_quota;
+    if (new_quota > *ira->new_irb.exec->backward_branch_quota) {
+        *ira->new_irb.exec->backward_branch_quota = new_quota;
     }
 
     return ir_const_void(ira, &instruction->base);

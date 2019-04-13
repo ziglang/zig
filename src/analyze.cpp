@@ -969,8 +969,9 @@ static ConstExprValue *analyze_const_value(CodeGen *g, Scope *scope, AstNode *no
         Buf *type_name)
 {
     size_t backward_branch_count = 0;
+    size_t backward_branch_quota = default_backward_branch_quota;
     return ir_eval_const_value(g, scope, node, type_entry,
-            &backward_branch_count, default_backward_branch_quota,
+            &backward_branch_count, &backward_branch_quota,
             nullptr, nullptr, node, type_name, nullptr, nullptr);
 }
 
@@ -2623,9 +2624,11 @@ static void get_fully_qualified_decl_name(Buf *buf, Tld *tld) {
 ZigFn *create_fn_raw(CodeGen *g, FnInline inline_value) {
     ZigFn *fn_entry = allocate<ZigFn>(1);
 
+    fn_entry->prealloc_backward_branch_quota = default_backward_branch_quota;
+
     fn_entry->codegen = g;
     fn_entry->analyzed_executable.backward_branch_count = &fn_entry->prealloc_bbc;
-    fn_entry->analyzed_executable.backward_branch_quota = default_backward_branch_quota;
+    fn_entry->analyzed_executable.backward_branch_quota = &fn_entry->prealloc_backward_branch_quota;
     fn_entry->analyzed_executable.fn_entry = fn_entry;
     fn_entry->ir_executable.fn_entry = fn_entry;
     fn_entry->fn_inline = inline_value;
