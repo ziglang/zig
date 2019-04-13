@@ -921,6 +921,10 @@ int main(int argc, char **argv) {
         }
     }
 
+    if (target_is_single_threaded(&target)) {
+        is_single_threaded = true;
+    }
+
     if (output_dir != nullptr && enable_cache == CacheOptOn) {
         fprintf(stderr, "`--output-dir` is incompatible with --cache on.\n");
         return print_error_usage(arg0);
