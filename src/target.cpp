@@ -1371,6 +1371,10 @@ bool target_is_wasm(const ZigTarget *target) {
     return target->arch == ZigLLVM_wasm32 || target->arch == ZigLLVM_wasm64;
 }
 
+bool target_is_single_threaded(const ZigTarget *target) {
+    return target_is_wasm(target);
+}
+
 ZigLLVM_EnvironmentType target_default_abi(ZigLLVM_ArchType arch, Os os) {
     switch (os) {
         case OsFreestanding:
