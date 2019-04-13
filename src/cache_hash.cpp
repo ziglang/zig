@@ -437,7 +437,7 @@ Error cache_hit(CacheHash *ch, Buf *out_digest) {
                 return ErrorCacheUnavailable;
             }
         }
-        if (return_code != ErrorNone) {
+        if (return_code != ErrorNone && return_code != ErrorInvalidFormat) {
             os_file_close(&ch->manifest_file);
         }
         return return_code;
