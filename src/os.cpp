@@ -2081,11 +2081,13 @@ Error os_file_overwrite(OsFile file, Buf *contents) {
 #endif
 }
 
-void os_file_close(OsFile file) {
+void os_file_close(OsFile *file) {
 #if defined(ZIG_OS_WINDOWS)
-    CloseHandle(file);
+    CloseHandle(*file);
+    *file = NULL;
 #else
-    close(file);
+    close(*file);
+    *file = -1;
 #endif
 }
 
