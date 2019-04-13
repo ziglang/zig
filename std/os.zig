@@ -23,6 +23,7 @@ test "std.os" {
     _ = @import("os/time.zig");
     _ = @import("os/windows.zig");
     _ = @import("os/uefi.zig");
+    _ = @import("os/wasi.zig");
     _ = @import("os/get_app_data_dir.zig");
 }
 
@@ -33,6 +34,7 @@ pub const freebsd = @import("os/freebsd.zig");
 pub const netbsd = @import("os/netbsd.zig");
 pub const zen = @import("os/zen.zig");
 pub const uefi = @import("os/uefi.zig");
+pub const wasi = @import("os/wasi.zig");
 
 pub const posix = switch (builtin.os) {
     Os.linux => linux,
@@ -40,6 +42,7 @@ pub const posix = switch (builtin.os) {
     Os.freebsd => freebsd,
     Os.netbsd => netbsd,
     Os.zen => zen,
+    Os.wasi => wasi,
     else => @compileError("Unsupported OS"),
 };
 
@@ -187,7 +190,7 @@ pub fn abort() noreturn {
         c.abort();
     }
     switch (builtin.os) {
-        Os.linux, Os.macosx, Os.ios, Os.freebsd, Os.netbsd => {
+        Os.linux, Os.macosx, Os.ios, Os.freebsd, Os.netbsd, Os.wasi => {
             _ = posix.raise(posix.SIGABRT);
             _ = posix.raise(posix.SIGKILL);
             while (true) {}
