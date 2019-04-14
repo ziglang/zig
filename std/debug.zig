@@ -225,6 +225,36 @@ pub fn writeStackTrace(
     }
 }
 
+const UnwindCBData = struct {
+    debug_info: *DebugInfo,
+    tty_color: bool,
+    first_addr: ?usize,
+    out_stream: *io.OutStream(os.File.WriteError),
+};
+
+extern fn _Unwind_Backtrace(trace: *const c_void, trace_argument: *c_void) c_int;
+extern fn _Unwind_GetIP(context: *c_void) usize;
+
+const URC_NO_REASON = 0;
+const URC_END_OF_STACK = 5;
+
+export fn unwind_cb(context: *c_void, trace_argument: *c_void) c_int {
+    const data = @ptrCast(*UnwindCBData, @alignCast(8, trace_argument));
+    const addr = _Unwind_GetIP(context);
+
+    // Start printing the stack trace after first_addr is found
+    if (data.first_addr) |first_addr| {
+        if (addr != first_addr) {
+            return URC_NO_REASON;
+        }
+        data.first_addr = null;
+    }
+
+    printSourceAtAddress(data.debug_info, data.out_stream, addr, data.tty_color) catch unreachable;
+
+    return URC_NO_REASON;
+}
+
 pub const StackIterator = struct {
     first_addr: ?usize,
     fp: usize,
@@ -259,6 +289,19 @@ pub const StackIterator = struct {
 pub fn writeCurrentStackTrace(out_stream: var, debug_info: *DebugInfo, tty_color: bool, start_addr: ?usize) !void {
     switch (builtin.os) {
         builtin.Os.windows => return writeCurrentStackTraceWindows(out_stream, debug_info, tty_color, start_addr),
+        builtin.Os.linux => {
+            var data = UnwindCBData {
+                .debug_info = debug_info,
+                .tty_color = tty_color,
+                .first_addr = start_addr,
+                .out_stream = out_stream,
+            };
+            if (_Unwind_Backtrace(@ptrCast(*const c_void, unwind_cb),
+                                  @ptrCast(*c_void, &data)) != URC_END_OF_STACK) {
+                return error.UnwindError;
+            }
+            return;
+        },
         else => {},
     }
     var it = StackIterator.init(start_addr);
