@@ -15836,10 +15836,10 @@ static void add_link_lib_symbol(IrAnalyze *ira, Buf *lib_name, Buf *symbol_name,
         ira->codegen->reported_bad_link_libc_error = true;
     }
 
-    bool is_wasi = ira->codegen->zig_target->os == OsWASI;
-    if (!is_wasi && buf_eql_str(lib_name, "wasi")) {
+    bool is_wasi = buf_eql_str(lib_name, "wasi");
+    if (is_wasi && ira->codegen->zig_target->os != OsWASI) {
         ir_add_error_node(ira, source_node,
-            buf_sprintf("linking against wasi libarry"));
+            buf_sprintf("linking against wasi library"));
         ira->codegen->reported_bad_link_libc_error = true;
     }
 
@@ -15851,7 +15851,7 @@ static void add_link_lib_symbol(IrAnalyze *ira, Buf *lib_name, Buf *symbol_name,
         }
     }
 
-    if (!is_libc && !ira->codegen->have_pic && !ira->codegen->reported_bad_link_libc_error && !is_wasi) {
+    if (!is_libc && !is_wasi && !ira->codegen->have_pic && !ira->codegen->reported_bad_link_libc_error) {
         ErrorMsg *msg = ir_add_error_node(ira, source_node,
             buf_sprintf("dependency on dynamic library '%s' requires enabling Position Independent Code",
                 buf_ptr(lib_name)));
