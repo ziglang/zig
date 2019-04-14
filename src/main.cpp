@@ -450,7 +450,7 @@ int main(int argc, char **argv) {
     int runtime_args_start = -1;
     bool system_linker_hack = false;
     TargetSubsystem subsystem = TargetSubsystemAuto;
-    bool is_single_threaded = false;
+    bool want_single_threaded = false;
     bool disable_gen_h = false;
     Buf *override_std_dir = nullptr;
     Buf *main_pkg_path = nullptr;
@@ -590,7 +590,7 @@ int main(int argc, char **argv) {
         CodeGen *g = codegen_create(main_pkg_path, fmt_runner_path, &target, OutTypeExe,
                 BuildModeDebug, get_zig_lib_dir(), nullptr, nullptr, cache_dir_buf);
         g->valgrind_support = valgrind_support;
-        g->is_single_threaded = true;
+        g->want_single_threaded = true;
         codegen_set_out_name(g, buf_create_from_str("fmt"));
         g->enable_cache = true;
 
@@ -671,7 +671,7 @@ int main(int argc, char **argv) {
             } else if (strcmp(arg, "--system-linker-hack") == 0) {
                 system_linker_hack = true;
             } else if (strcmp(arg, "--single-threaded") == 0) {
-                is_single_threaded = true;
+                want_single_threaded = true;
             } else if (strcmp(arg, "--disable-gen-h") == 0) {
                 disable_gen_h = true;
             } else if (strcmp(arg, "--test-cmd-bin") == 0) {
@@ -921,10 +921,6 @@ int main(int argc, char **argv) {
         }
     }
 
-    if (target_is_single_threaded(&target)) {
-        is_single_threaded = true;
-    }
-
     if (output_dir != nullptr && enable_cache == CacheOptOn) {
         fprintf(stderr, "`--output-dir` is incompatible with --cache on.\n");
         return print_error_usage(arg0);
@@ -966,7 +962,7 @@ int main(int argc, char **argv) {
                 out_type, build_mode, get_zig_lib_dir(), override_std_dir, nullptr, nullptr);
         g->valgrind_support = valgrind_support;
         g->want_pic = want_pic;
-        g->is_single_threaded = is_single_threaded;
+        g->want_single_threaded = want_single_threaded;
         Buf *builtin_source = codegen_generate_builtin_source(g);
         if (fwrite(buf_ptr(builtin_source), 1, buf_len(builtin_source), stdout) != buf_len(builtin_source)) {
             fprintf(stderr, "unable to write to stdout: %s\n", strerror(ferror(stdout)));
@@ -1064,7 +1060,7 @@ int main(int argc, char **argv) {
             codegen_set_out_name(g, buf_out_name);
             codegen_set_lib_version(g, ver_major, ver_minor, ver_patch);
             codegen_set_is_test(g, cmd == CmdTest);
-            g->is_single_threaded = is_single_threaded;
+            g->want_single_threaded = want_single_threaded;
             codegen_set_linker_script(g, linker_script);
             if (each_lib_rpath)
                 codegen_set_each_lib_rpath(g, each_lib_rpath);

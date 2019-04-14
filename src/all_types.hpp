@@ -1856,6 +1856,7 @@ struct CodeGen {
     bool strip_debug_symbols;
     bool is_test_build;
     bool is_single_threaded;
+    bool want_single_threaded;
     bool linker_rdynamic;
     bool each_lib_rpath;
     bool is_dummy_so;

@@ -7337,9 +7337,26 @@ static bool detect_pic(CodeGen *g) {
     zig_unreachable();
 }
 
+static bool detect_single_threaded(CodeGen *g) {
+    if (g->want_single_threaded)
+        return true;
+    if (target_is_single_threaded(g->zig_target)) {
+        return true;
+    }
+    return false;
+}
+
+static bool detect_err_ret_tracing(CodeGen *g) {
+    return !target_is_wasm(g->zig_target) &&
+        g->build_mode != BuildModeFastRelease &&
+        g->build_mode != BuildModeSmallRelease;
+}
+
 Buf *codegen_generate_builtin_source(CodeGen *g) {
     g->have_dynamic_link = detect_dynamic_link(g);
     g->have_pic = detect_pic(g);
+    g->is_single_threaded = detect_single_threaded(g);
+    g->have_err_ret_tracing = detect_err_ret_tracing(g);
 
     Buf *contents = buf_alloc();
 
@@ -7844,6 +7861,12 @@ static void init(CodeGen *g) {
 
     g->have_dynamic_link = detect_dynamic_link(g);
     g->have_pic = detect_pic(g);
+    g->is_single_threaded = detect_single_threaded(g);
+    g->have_err_ret_tracing = detect_err_ret_tracing(g);
+
+    if (target_is_single_threaded(g->zig_target)) {
+        g->is_single_threaded = true;
+    }
 
     if (g->is_test_build) {
         g->subsystem = TargetSubsystemConsole;
@@ -7952,8 +7975,6 @@ static void init(CodeGen *g) {
             g->panic_msg_vals[i].global_refs = &global_refs[i];
         }
     }
-
-    g->have_err_ret_tracing = !target_is_wasm(g->zig_target) && g->build_mode != BuildModeFastRelease && g->build_mode != BuildModeSmallRelease;
 
     define_builtin_fns(g);
     Error err;
@@ -9268,6 +9289,8 @@ void codegen_build_and_link(CodeGen *g) {
 
     g->have_dynamic_link = detect_dynamic_link(g);
     g->have_pic = detect_pic(g);
+    g->is_single_threaded = detect_single_threaded(g);
+    g->have_err_ret_tracing = detect_err_ret_tracing(g);
     detect_libc(g);
     detect_dynamic_linker(g);
 
