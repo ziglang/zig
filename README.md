@@ -101,6 +101,7 @@ Zig is an open-source programming language designed for **robustness**,
 |i386         | Tier 2       | Tier 2 | Tier 4 | Tier 2  | Tier 3  | Tier 3 | Tier 3 | Tier 3 |
 |arm          | Tier 2       | Tier 3 | Tier 3 | Tier 3  | Tier 3  | Tier 3 | Tier 3 | Tier 3 |
 |arm64        | Tier 2       | Tier 2 | Tier 3 | Tier 3  | Tier 3  | Tier 3 | Tier 3 | Tier 3 |
+|wasm32       | Tier 2       | N/A    | N/A    | N/A     | N/A     | N/A    | N/A    | Tier 2 |
 |bpf          | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | N/A    | Tier 3 |
 |hexagon      | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | N/A    | Tier 3 |
 |mips         | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | N/A    | Tier 3 |
@@ -110,8 +111,7 @@ Zig is an open-source programming language designed for **robustness**,
 |sparc        | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | N/A    | Tier 3 |
 |s390x        | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | N/A    | Tier 3 |
 |lanai        | Tier 3       | Tier 3 | N/A    | N/A     | Tier 3  | Tier 3 | N/A    | Tier 3 |
-|wasm32       | Tier 3       | N/A    | N/A    | N/A     | N/A     | N/A    | N/A    | N/A    |
-|wasm64       | Tier 3       | N/A    | N/A    | N/A     | N/A     | N/A    | N/A    | N/A    |
+|wasm64       | Tier 4       | N/A    | N/A    | N/A     | N/A     | N/A    | N/A    | N/A    |
 |avr          | Tier 4       | Tier 4 | N/A    | N/A     | Tier 4  | Tier 4 | N/A    | Tier 4 |
 |riscv32      | Tier 4       | Tier 4 | N/A    | N/A     | Tier 4  | Tier 4 | Tier 4 | Tier 4 |
 |riscv64      | Tier 4       | Tier 4 | N/A    | N/A     | Tier 4  | Tier 4 | Tier 4 | Tier 4 |
