@@ -607,6 +607,8 @@ set(ZIG_STD_FILES
     "os/path.zig"
     "os/time.zig"
     "os/uefi.zig"
+    "os/wasi.zig"
+    "os/wasi/core.zig"
     "os/windows.zig"
     "os/windows/advapi32.zig"
     "os/windows/error.zig"
