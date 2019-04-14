@@ -899,6 +899,9 @@ static void add_rpath(LinkJob *lj, Buf *rpath) {
 static void construct_linker_job_elf(LinkJob *lj) {
     CodeGen *g = lj->codegen;
 
+    // Emit the eh_frame_hdr section beside the usual eh_frame. This is needed
+    // for libunwinder to detect the section in the ELF binary.
+    lj->args.append("--eh-frame-hdr");
     lj->args.append("-error-limit=0");
 
     if (g->linker_script) {
