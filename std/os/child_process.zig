@@ -15,12 +15,10 @@ const LinkedList = std.LinkedList;
 const windows_util = @import("windows/util.zig");
 const maxInt = std.math.maxInt;
 
-const is_windows = builtin.os == Os.windows;
-
 pub const ChildProcess = struct {
-    pub pid: if (is_windows) void else i32,
-    pub handle: if (is_windows) windows.HANDLE else void,
-    pub thread_handle: if (is_windows) windows.HANDLE else void,
+    pub pid: if (os.is_windows) void else i32,
+    pub handle: if (os.is_windows) windows.HANDLE else void,
+    pub thread_handle: if (os.is_windows) windows.HANDLE else void,
 
     pub allocator: *mem.Allocator,
 
@@ -40,16 +38,16 @@ pub const ChildProcess = struct {
     pub stderr_behavior: StdIo,
 
     /// Set to change the user id when spawning the child process.
-    pub uid: if (is_windows) void else ?u32,
+    pub uid: if (os.is_windows) void else ?u32,
 
     /// Set to change the group id when spawning the child process.
-    pub gid: if (is_windows) void else ?u32,
+    pub gid: if (os.is_windows) void else ?u32,
 
     /// Set to change the current working directory when spawning the child process.
     pub cwd: ?[]const u8,
 
-    err_pipe: if (is_windows) void else [2]i32,
-    llnode: if (is_windows) void else LinkedList(*ChildProcess).Node,
+    err_pipe: if (os.is_windows) void else [2]i32,
+    llnode: if (os.is_windows) void else LinkedList(*ChildProcess).Node,
 
     pub const SpawnError = error{
         ProcessFdQuotaExceeded,
@@ -99,9 +97,9 @@ pub const ChildProcess = struct {
             .term = null,
             .env_map = null,
             .cwd = null,
-            .uid = if (is_windows) {} else
+            .uid = if (os.is_windows) {} else
                 null,
-            .gid = if (is_windows) {} else
+            .gid = if (os.is_windows) {} else
                 null,
             .stdin = null,
             .stdout = null,
@@ -122,7 +120,7 @@ pub const ChildProcess = struct {
 
     /// On success must call `kill` or `wait`.
     pub fn spawn(self: *ChildProcess) !void {
-        if (is_windows) {
+        if (os.is_windows) {
             return self.spawnWindows();
         } else {
             return self.spawnPosix();
@@ -136,7 +134,7 @@ pub const ChildProcess = struct {
 
     /// Forcibly terminates child process and then cleans up all resources.
     pub fn kill(self: *ChildProcess) !Term {
-        if (is_windows) {
+        if (os.is_windows) {
             return self.killWindows(1);
         } else {
             return self.killPosix();
@@ -180,7 +178,7 @@ pub const ChildProcess = struct {
 
     /// Blocks until child process terminates and then cleans up all resources.
     pub fn wait(self: *ChildProcess) !Term {
-        if (is_windows) {
+        if (os.is_windows) {
             return self.waitWindows();
         } else {
             return self.waitPosix();

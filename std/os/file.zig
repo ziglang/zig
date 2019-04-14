@@ -11,9 +11,6 @@ const Os = builtin.Os;
 const windows_util = @import("windows/util.zig");
 const maxInt = std.math.maxInt;
 
-const is_posix = builtin.os != builtin.Os.windows;
-const is_windows = builtin.os == builtin.Os.windows;
-
 pub const File = struct {
     /// The OS-specific file descriptor or file handle.
     handle: os.FileHandle,
@@ -32,12 +29,12 @@ pub const File = struct {
 
     /// `openRead` except with a null terminated path
     pub fn openReadC(path: [*]const u8) OpenError!File {
-        if (is_posix) {
+        if (os.is_posix) {
             const flags = posix.O_LARGEFILE | posix.O_RDONLY;
             const fd = try os.posixOpenC(path, flags, 0);
             return openHandle(fd);
         }
-        if (is_windows) {
+        if (os.is_windows) {
             return openRead(mem.toSliceConst(u8, path));
         }
         @compileError("Unsupported OS");
@@ -45,11 +42,11 @@ pub const File = struct {
 
     /// Call close to clean up.
     pub fn openRead(path: []const u8) OpenError!File {
-        if (is_posix) {
+        if (os.is_posix) {
             const path_c = try os.toPosixPath(path);
             return openReadC(&path_c);
         }
-        if (is_windows) {
+        if (os.is_windows) {
             const path_w = try windows_util.sliceToPrefixedFileW(path);
             return openReadW(&path_w);
         }
@@ -76,11 +73,11 @@ pub const File = struct {
     /// If a file already exists in the destination it will be truncated.
     /// Call close to clean up.
     pub fn openWriteMode(path: []const u8, file_mode: Mode) OpenError!File {
-        if (is_posix) {
+        if (os.is_posix) {
             const flags = posix.O_LARGEFILE | posix.O_WRONLY | posix.O_CREAT | posix.O_CLOEXEC | posix.O_TRUNC;
             const fd = try os.posixOpen(path, flags, file_mode);
             return openHandle(fd);
-        } else if (is_windows) {
+        } else if (os.is_windows) {
             const path_w = try windows_util.sliceToPrefixedFileW(path);
             return openWriteModeW(&path_w, file_mode);
         } else {
@@ -103,10 +100,10 @@ pub const File = struct {
     /// If a file already exists in the destination this returns OpenError.PathAlreadyExists
     /// Call close to clean up.
     pub fn openWriteNoClobber(path: []const u8, file_mode: Mode) OpenError!File {
-        if (is_posix) {
+        if (os.is_posix) {
             const path_c = try os.toPosixPath(path);
             return openWriteNoClobberC(&path_c, file_mode);
-        } else if (is_windows) {
+        } else if (os.is_windows) {
             const path_w = try windows_util.sliceToPrefixedFileW(path);
             return openWriteNoClobberW(&path_w, file_mode);
         } else {
@@ -115,11 +112,11 @@ pub const File = struct {
     }
 
     pub fn openWriteNoClobberC(path: [*]const u8, file_mode: Mode) OpenError!File {
-        if (is_posix) {
+        if (os.is_posix) {
             const flags = posix.O_LARGEFILE | posix.O_WRONLY | posix.O_CREAT | posix.O_CLOEXEC | posix.O_EXCL;
             const fd = try os.posixOpenC(path, flags, file_mode);
             return openHandle(fd);
-        } else if (is_windows) {
+        } else if (os.is_windows) {
             const path_w = try windows_util.cStrToPrefixedFileW(path);
             return openWriteNoClobberW(&path_w, file_mode);
         } else {
@@ -175,11 +172,11 @@ pub const File = struct {
     /// Call if you have a UTF-8 encoded, null-terminated string.
     /// Otherwise use `access` or `accessW`.
     pub fn accessC(path: [*]const u8) AccessError!void {
-        if (is_windows) {
+        if (os.is_windows) {
             const path_w = try windows_util.cStrToPrefixedFileW(path);
             return accessW(&path_w);
         }
-        if (is_posix) {
+        if (os.is_posix) {
             const result = posix.access(path, posix.F_OK);
             const err = posix.getErrno(result);
             switch (err) {
@@ -203,11 +200,11 @@ pub const File = struct {
     }
 
     pub fn access(path: []const u8) AccessError!void {
-        if (is_windows) {
+        if (os.is_windows) {
             const path_w = try windows_util.sliceToPrefixedFileW(path);
             return accessW(&path_w);
         }
-        if (is_posix) {
+        if (os.is_posix) {
             var path_with_null: [posix.PATH_MAX]u8 = undefined;
             if (path.len >= posix.PATH_MAX) return error.NameTooLong;
             mem.copy(u8, path_with_null[0..], path);
@@ -344,10 +341,10 @@ pub const File = struct {
     }
 
     pub fn getEndPos(self: File) GetSeekPosError!usize {
-        if (is_posix) {
+        if (os.is_posix) {
             const stat = try os.posixFStat(self.handle);
             return @intCast(usize, stat.size);
-        } else if (is_windows) {
+        } else if (os.is_windows) {
             var file_size: windows.LARGE_INTEGER = undefined;
             if (windows.GetFileSizeEx(self.handle, &file_size) == 0) {
                 const err = windows.GetLastError();
@@ -369,7 +366,7 @@ pub const File = struct {
     };
 
     pub fn mode(self: File) ModeError!Mode {
-        if (is_posix) {
+        if (os.is_posix) {
             var stat: posix.Stat = undefined;
             const err = posix.getErrno(posix.fstat(self.handle, &stat));
             if (err > 0) {
@@ -385,7 +382,7 @@ pub const File = struct {
             // TODO: we should be able to cast u16 to ModeError!u32, making this
             // explicit cast not necessary
             return Mode(stat.mode);
-        } else if (is_windows) {
+        } else if (os.is_windows) {
             return {};
         } else {
             @compileError("TODO support file mode on this OS");
@@ -395,9 +392,9 @@ pub const File = struct {
     pub const ReadError = os.WindowsReadError || os.PosixReadError;
 
     pub fn read(self: File, buffer: []u8) ReadError!usize {
-        if (is_posix) {
+        if (os.is_posix) {
             return os.posixRead(self.handle, buffer);
-        } else if (is_windows) {
+        } else if (os.is_windows) {
             var index: usize = 0;
             while (index < buffer.len) {
                 const want_read_count = @intCast(windows.DWORD, math.min(windows.DWORD(maxInt(windows.DWORD)), buffer.len - index));
@@ -422,9 +419,9 @@ pub const File = struct {
     pub const WriteError = os.WindowsWriteError || os.PosixWriteError;
 
     pub fn write(self: File, bytes: []const u8) WriteError!void {
-        if (is_posix) {
+        if (os.is_posix) {
             try os.posixWrite(self.handle, bytes);
-        } else if (is_windows) {
+        } else if (os.is_windows) {
             try os.windowsWrite(self.handle, bytes);
         } else {
             @compileError("Unsupported OS");

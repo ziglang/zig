@@ -1,8 +1,8 @@
 const std = @import("std.zig");
 const builtin = @import("builtin");
 const Os = builtin.Os;
-const is_windows = builtin.os == Os.windows;
-const is_posix = switch (builtin.os) {
+pub const is_windows = builtin.os == Os.windows;
+pub const is_posix = switch (builtin.os) {
     builtin.Os.linux, builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => true,
     else => false,
 };
@@ -1028,7 +1028,7 @@ pub const DeleteFileError = error{
 };
 
 pub fn deleteFile(file_path: []const u8) DeleteFileError!void {
-    if (builtin.os == Os.windows) {
+    if (is_windows) {
         const file_path_w = try windows_util.sliceToPrefixedFileW(file_path);
         return deleteFileW(&file_path_w);
     } else {
@@ -2125,7 +2125,7 @@ pub const ArgIteratorWindows = struct {
 };
 
 pub const ArgIterator = struct {
-    const InnerType = if (builtin.os == Os.windows) ArgIteratorWindows else ArgIteratorPosix;
+    const InnerType = if (is_windows) ArgIteratorWindows else ArgIteratorPosix;
 
     inner: InnerType,
 
@@ -2137,7 +2137,7 @@ pub const ArgIterator = struct {
 
     /// You must free the returned memory when done.
     pub fn next(self: *ArgIterator, allocator: *Allocator) ?(NextError![]u8) {
-        if (builtin.os == Os.windows) {
+        if (is_windows) {
             return self.inner.next(allocator);
         } else {
             return mem.dupe(allocator, u8, self.inner.next() orelse return null);

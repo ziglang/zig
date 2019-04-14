@@ -36,7 +36,7 @@ pub const DirectAllocator = struct {
     allocator: Allocator,
     heap_handle: ?HeapHandle,
 
-    const HeapHandle = if (builtin.os == Os.windows) os.windows.HANDLE else void;
+    const HeapHandle = if (os.is_windows) os.windows.HANDLE else void;
 
     pub fn init() DirectAllocator {
         return DirectAllocator{
@@ -44,7 +44,7 @@ pub const DirectAllocator = struct {
                 .reallocFn = realloc,
                 .shrinkFn = shrink,
             },
-            .heap_handle = if (builtin.os == Os.windows) null else {},
+            .heap_handle = if (os.is_windows) null else {},
         };
     }
 
