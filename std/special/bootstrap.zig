@@ -14,14 +14,16 @@ comptime {
         @export("main", main, strong_linkage);
     } else if (builtin.os == builtin.Os.windows) {
         @export("WinMainCRTStartup", WinMainCRTStartup, strong_linkage);
-    } else if (builtin.os == builtin.Os.wasi) {
-        @export("_start", wasiStart, strong_linkage);
     } else {
         @export("_start", _start, strong_linkage);
     }
 }
 
 nakedcc fn _start() noreturn {
+    if (builtin.os == builtin.Os.wasi) {
+        std.os.wasi.__wasi_proc_exit(callMain());
+    }
+
     switch (builtin.arch) {
         builtin.Arch.x86_64 => {
             argc_ptr = asm ("lea (%%rsp), %[argc]"
@@ -43,16 +45,6 @@ nakedcc fn _start() noreturn {
     // If LLVM inlines stack variables into _start, they will overwrite
     // the command line argument data.
     @noInlineCall(posixCallMainAndExit);
-}
-
-nakedcc fn wasiStart() noreturn {
-    // TODO: Decide if alloc at init is acceptable for args and env
-    // @llvm.wasm.mem.grow.i32
-    // __wasi_args_get()
-    // __wasi_args_sizes_get()
-    // __wasi_environ_get()
-    // __wasi_environ_sizes_get()
-    std.os.posix.exit(callMain());
 }
 
 extern fn WinMainCRTStartup() noreturn {

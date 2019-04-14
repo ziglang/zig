@@ -1,4 +1,4 @@
-use @import("wasi/core.zig");
+pub use @import("wasi/core.zig");
 
 pub const STDIN_FILENO = 0;
 pub const STDOUT_FILENO = 1;
