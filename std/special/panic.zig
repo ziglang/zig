@@ -10,9 +10,13 @@ pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn
     @setCold(true);
     switch (builtin.os) {
         // TODO: fix panic in zen
-        // TODO: fix panic in wasi
-        builtin.Os.freestanding, builtin.Os.zen, builtin.Os.wasi => {
+        builtin.Os.freestanding, builtin.Os.zen => {
             while (true) {}
+        },
+        builtin.Os.wasi => {
+            std.debug.warn("{}", msg);
+            _ = std.os.wasi.__wasi_proc_raise(std.os.wasi.__WASI_SIGABRT);
+            unreachable;
         },
         builtin.Os.uefi => {
             // TODO look into using the debug info and logging helpful messages
