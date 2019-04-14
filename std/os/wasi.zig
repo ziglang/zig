@@ -1,5 +1,8 @@
 pub use @import("wasi/core.zig");
 
+// Based on https://github.com/CraneStation/wasi-sysroot/blob/wasi/libc-bottom-half/headers/public/wasi/core.h
+// and https://github.com/CraneStation/wasmtime/blob/master/docs/WASI-api.md
+
 pub const STDIN_FILENO = 0;
 pub const STDOUT_FILENO = 1;
 pub const STDERR_FILENO = 2;
@@ -82,7 +85,7 @@ pub const ETXTBSY = 74;
 pub const EXDEV = 75;
 pub const ENOTCAPABLE = 76;
 
-// TODO: figure out what's going on here
+// TODO: implement this like darwin does
 pub fn getErrno(r: usize) usize {
     const signed_r = @bitCast(isize, r);
     return if (signed_r > -4096 and signed_r < 0) @intCast(usize, -signed_r) else 0;
