@@ -129,6 +129,7 @@ static const char *build_libunwind(CodeGen *parent) {
                 break;
             case SrcCpp:
                 c_file->args.append("-fno-rtti");
+                c_file->args.append("-fno-exceptions");
                 c_file->args.append("-I");
                 c_file->args.append(path_from_zig_lib(parent, "libcxx", "include"));
                 break;
