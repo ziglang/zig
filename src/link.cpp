@@ -1091,7 +1091,9 @@ static void construct_linker_job_wasm(LinkJob *lj) {
     CodeGen *g = lj->codegen;
 
     lj->args.append("-error-limit=0");
-    lj->args.append("--no-entry");  // So lld doesn't look for _start.
+    if (g->zig_target->os != OsWASI) {
+	    lj->args.append("--no-entry");  // So lld doesn't look for _start.
+    }
     lj->args.append("--allow-undefined");
     lj->args.append("--export-all");
     lj->args.append("-o");
