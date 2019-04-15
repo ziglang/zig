@@ -365,3 +365,40 @@ test "@enumToInt works on unions" {
     expect(@enumToInt(b) == 1);
     expect(@enumToInt(c) == 2);
 }
+
+const Attribute = union(enum) {
+    A: bool,
+    B: u8,
+};
+
+fn setAttribute(attr: Attribute) void {}
+
+fn Setter(attr: Attribute) type {
+    return struct{
+        fn set() void {
+            setAttribute(attr);
+        }
+    };
+}
+
+test "comptime union field value equality" {
+    const a0 = Setter(Attribute{ .A = false });
+    const a1 = Setter(Attribute{ .A = true });
+    const a2 = Setter(Attribute{ .A = false });
+
+    const b0 = Setter(Attribute{ .B = 5 });
+    const b1 = Setter(Attribute{ .B = 9 });
+    const b2 = Setter(Attribute{ .B = 5 });
+
+    expect(a0 == a0);
+    expect(a1 == a1);
+    expect(a0 == a2);
+
+    expect(b0 == b0);
+    expect(b1 == b1);
+    expect(b0 == b2);
+
+    expect(a0 != b0);
+    expect(a0 != a1);
+    expect(b0 != b1);
+}
