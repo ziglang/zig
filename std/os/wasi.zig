@@ -92,17 +92,17 @@ pub fn getErrno(r: usize) usize {
 }
 
 pub fn exit(status: i32) noreturn {
-    __wasi_proc_exit(@bitCast(__wasi_exitcode_t, isize(status)));
+    proc_exit(@bitCast(exitcode_t, isize(status)));
 }
 
 pub fn write(fd: i32, buf: [*]const u8, count: usize) usize {
     var nwritten: usize = undefined;
 
-    const iovs = []__wasi_ciovec_t{__wasi_ciovec_t{
+    const iovs = []ciovec_t{ciovec_t{
         .buf = buf,
         .buf_len = count,
     }};
 
-    _ = __wasi_fd_write(@bitCast(__wasi_fd_t, isize(fd)), &iovs[0], iovs.len, &nwritten);
+    _ = fd_write(@bitCast(fd_t, isize(fd)), &iovs[0], iovs.len, &nwritten);
     return nwritten;
 }

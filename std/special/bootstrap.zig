@@ -21,7 +21,7 @@ comptime {
 
 nakedcc fn _start() noreturn {
     if (builtin.os == builtin.Os.wasi) {
-        std.os.wasi.__wasi_proc_exit(callMain());
+        std.os.wasi.proc_exit(callMain());
     }
 
     switch (builtin.arch) {
