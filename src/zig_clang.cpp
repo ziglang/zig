@@ -138,6 +138,132 @@ static_assert((clang::UnaryOperatorKind)ZigClangUO_PreInc == clang::UO_PreInc, "
 static_assert((clang::UnaryOperatorKind)ZigClangUO_Real == clang::UO_Real, "");
 
 // Detect additions to the enum
+void zig2clang_CK(clang::CastKind x) {
+    switch (x) {
+        case clang::CK_ARCConsumeObject:
+        case clang::CK_ARCExtendBlockObject:
+        case clang::CK_ARCProduceObject:
+        case clang::CK_ARCReclaimReturnedObject:
+        case clang::CK_AddressSpaceConversion:
+        case clang::CK_AnyPointerToBlockPointerCast:
+        case clang::CK_ArrayToPointerDecay:
+        case clang::CK_AtomicToNonAtomic:
+        case clang::CK_BaseToDerived:
+        case clang::CK_BaseToDerivedMemberPointer:
+        case clang::CK_BitCast:
+        case clang::CK_BlockPointerToObjCPointerCast:
+        case clang::CK_BooleanToSignedIntegral:
+        case clang::CK_BuiltinFnToFnPtr:
+        case clang::CK_CPointerToObjCPointerCast:
+        case clang::CK_ConstructorConversion:
+        case clang::CK_CopyAndAutoreleaseBlockObject:
+        case clang::CK_Dependent:
+        case clang::CK_DerivedToBase:
+        case clang::CK_DerivedToBaseMemberPointer:
+        case clang::CK_Dynamic:
+        case clang::CK_FloatingCast:
+        case clang::CK_FloatingComplexCast:
+        case clang::CK_FloatingComplexToBoolean:
+        case clang::CK_FloatingComplexToIntegralComplex:
+        case clang::CK_FloatingComplexToReal:
+        case clang::CK_FloatingRealToComplex:
+        case clang::CK_FloatingToBoolean:
+        case clang::CK_FloatingToIntegral:
+        case clang::CK_FunctionToPointerDecay:
+        case clang::CK_IntToOCLSampler:
+        case clang::CK_IntegralCast:
+        case clang::CK_IntegralComplexCast:
+        case clang::CK_IntegralComplexToBoolean:
+        case clang::CK_IntegralComplexToFloatingComplex:
+        case clang::CK_IntegralComplexToReal:
+        case clang::CK_IntegralRealToComplex:
+        case clang::CK_IntegralToBoolean:
+        case clang::CK_IntegralToFloating:
+        case clang::CK_IntegralToPointer:
+        case clang::CK_LValueBitCast:
+        case clang::CK_LValueToRValue:
+        case clang::CK_MemberPointerToBoolean:
+        case clang::CK_NoOp:
+        case clang::CK_NonAtomicToAtomic:
+        case clang::CK_NullToMemberPointer:
+        case clang::CK_NullToPointer:
+        case clang::CK_ObjCObjectLValueCast:
+        case clang::CK_PointerToBoolean:
+        case clang::CK_PointerToIntegral:
+        case clang::CK_ReinterpretMemberPointer:
+        case clang::CK_ToUnion:
+        case clang::CK_ToVoid:
+        case clang::CK_UncheckedDerivedToBase:
+        case clang::CK_UserDefinedConversion:
+        case clang::CK_VectorSplat:
+        case clang::CK_ZeroToOCLOpaqueType:
+        case clang::CK_FixedPointCast:
+        case clang::CK_FixedPointToBoolean:
+            break;
+    }
+};
+
+static_assert((clang::CastKind)ZigClangCK_Dependent == clang::CK_Dependent, "");
+static_assert((clang::CastKind)ZigClangCK_BitCast == clang::CK_BitCast, "");
+static_assert((clang::CastKind)ZigClangCK_LValueBitCast == clang::CK_LValueBitCast, "");
+static_assert((clang::CastKind)ZigClangCK_LValueToRValue == clang::CK_LValueToRValue, "");
+static_assert((clang::CastKind)ZigClangCK_NoOp == clang::CK_NoOp, "");
+static_assert((clang::CastKind)ZigClangCK_BaseToDerived == clang::CK_BaseToDerived, "");
+static_assert((clang::CastKind)ZigClangCK_DerivedToBase == clang::CK_DerivedToBase, "");
+static_assert((clang::CastKind)ZigClangCK_UncheckedDerivedToBase == clang::CK_UncheckedDerivedToBase, "");
+static_assert((clang::CastKind)ZigClangCK_Dynamic == clang::CK_Dynamic, "");
+static_assert((clang::CastKind)ZigClangCK_ToUnion == clang::CK_ToUnion, "");
+static_assert((clang::CastKind)ZigClangCK_ArrayToPointerDecay == clang::CK_ArrayToPointerDecay, "");
+static_assert((clang::CastKind)ZigClangCK_FunctionToPointerDecay == clang::CK_FunctionToPointerDecay, "");
+static_assert((clang::CastKind)ZigClangCK_NullToPointer == clang::CK_NullToPointer, "");
+static_assert((clang::CastKind)ZigClangCK_NullToMemberPointer == clang::CK_NullToMemberPointer, "");
+static_assert((clang::CastKind)ZigClangCK_BaseToDerivedMemberPointer == clang::CK_BaseToDerivedMemberPointer, "");
+static_assert((clang::CastKind)ZigClangCK_DerivedToBaseMemberPointer == clang::CK_DerivedToBaseMemberPointer, "");
+static_assert((clang::CastKind)ZigClangCK_MemberPointerToBoolean == clang::CK_MemberPointerToBoolean, "");
+static_assert((clang::CastKind)ZigClangCK_ReinterpretMemberPointer == clang::CK_ReinterpretMemberPointer, "");
+static_assert((clang::CastKind)ZigClangCK_UserDefinedConversion == clang::CK_UserDefinedConversion, "");
+static_assert((clang::CastKind)ZigClangCK_ConstructorConversion == clang::CK_ConstructorConversion, "");
+static_assert((clang::CastKind)ZigClangCK_IntegralToPointer == clang::CK_IntegralToPointer, "");
+static_assert((clang::CastKind)ZigClangCK_PointerToIntegral == clang::CK_PointerToIntegral, "");
+static_assert((clang::CastKind)ZigClangCK_PointerToBoolean == clang::CK_PointerToBoolean, "");
+static_assert((clang::CastKind)ZigClangCK_ToVoid == clang::CK_ToVoid, "");
+static_assert((clang::CastKind)ZigClangCK_VectorSplat == clang::CK_VectorSplat, "");
+static_assert((clang::CastKind)ZigClangCK_IntegralCast == clang::CK_IntegralCast, "");
+static_assert((clang::CastKind)ZigClangCK_IntegralToBoolean == clang::CK_IntegralToBoolean, "");
+static_assert((clang::CastKind)ZigClangCK_IntegralToFloating == clang::CK_IntegralToFloating, "");
+static_assert((clang::CastKind)ZigClangCK_FixedPointCast == clang::CK_FixedPointCast, "");
+static_assert((clang::CastKind)ZigClangCK_FixedPointToBoolean == clang::CK_FixedPointToBoolean, "");
+static_assert((clang::CastKind)ZigClangCK_FloatingToIntegral == clang::CK_FloatingToIntegral, "");
+static_assert((clang::CastKind)ZigClangCK_FloatingToBoolean == clang::CK_FloatingToBoolean, "");
+static_assert((clang::CastKind)ZigClangCK_BooleanToSignedIntegral == clang::CK_BooleanToSignedIntegral, "");
+static_assert((clang::CastKind)ZigClangCK_FloatingCast == clang::CK_FloatingCast, "");
+static_assert((clang::CastKind)ZigClangCK_CPointerToObjCPointerCast == clang::CK_CPointerToObjCPointerCast, "");
+static_assert((clang::CastKind)ZigClangCK_BlockPointerToObjCPointerCast == clang::CK_BlockPointerToObjCPointerCast, "");
+static_assert((clang::CastKind)ZigClangCK_AnyPointerToBlockPointerCast == clang::CK_AnyPointerToBlockPointerCast, "");
+static_assert((clang::CastKind)ZigClangCK_ObjCObjectLValueCast == clang::CK_ObjCObjectLValueCast, "");
+static_assert((clang::CastKind)ZigClangCK_FloatingRealToComplex == clang::CK_FloatingRealToComplex, "");
+static_assert((clang::CastKind)ZigClangCK_FloatingComplexToReal == clang::CK_FloatingComplexToReal, "");
+static_assert((clang::CastKind)ZigClangCK_FloatingComplexToBoolean == clang::CK_FloatingComplexToBoolean, "");
+static_assert((clang::CastKind)ZigClangCK_FloatingComplexCast == clang::CK_FloatingComplexCast, "");
+static_assert((clang::CastKind)ZigClangCK_FloatingComplexToIntegralComplex == clang::CK_FloatingComplexToIntegralComplex, "");
+static_assert((clang::CastKind)ZigClangCK_IntegralRealToComplex == clang::CK_IntegralRealToComplex, "");
+static_assert((clang::CastKind)ZigClangCK_IntegralComplexToReal == clang::CK_IntegralComplexToReal, "");
+static_assert((clang::CastKind)ZigClangCK_IntegralComplexToBoolean == clang::CK_IntegralComplexToBoolean, "");
+static_assert((clang::CastKind)ZigClangCK_IntegralComplexCast == clang::CK_IntegralComplexCast, "");
+static_assert((clang::CastKind)ZigClangCK_IntegralComplexToFloatingComplex == clang::CK_IntegralComplexToFloatingComplex, "");
+static_assert((clang::CastKind)ZigClangCK_ARCProduceObject == clang::CK_ARCProduceObject, "");
+static_assert((clang::CastKind)ZigClangCK_ARCConsumeObject == clang::CK_ARCConsumeObject, "");
+static_assert((clang::CastKind)ZigClangCK_ARCReclaimReturnedObject == clang::CK_ARCReclaimReturnedObject, "");
+static_assert((clang::CastKind)ZigClangCK_ARCExtendBlockObject == clang::CK_ARCExtendBlockObject, "");
+static_assert((clang::CastKind)ZigClangCK_AtomicToNonAtomic == clang::CK_AtomicToNonAtomic, "");
+static_assert((clang::CastKind)ZigClangCK_NonAtomicToAtomic == clang::CK_NonAtomicToAtomic, "");
+static_assert((clang::CastKind)ZigClangCK_CopyAndAutoreleaseBlockObject == clang::CK_CopyAndAutoreleaseBlockObject, "");
+static_assert((clang::CastKind)ZigClangCK_BuiltinFnToFnPtr == clang::CK_BuiltinFnToFnPtr, "");
+static_assert((clang::CastKind)ZigClangCK_ZeroToOCLOpaqueType == clang::CK_ZeroToOCLOpaqueType, "");
+static_assert((clang::CastKind)ZigClangCK_AddressSpaceConversion == clang::CK_AddressSpaceConversion, "");
+static_assert((clang::CastKind)ZigClangCK_IntToOCLSampler == clang::CK_IntToOCLSampler, "");
+
+// Detect additions to the enum
 void zig2clang_TypeClass(clang::Type::TypeClass ty) {
     switch (ty) {
         case clang::Type::Builtin:
@@ -884,4 +1010,19 @@ bool ZigClangStmt_classof_Expr(const ZigClangStmt *self) {
 ZigClangStmtClass ZigClangStmt_getStmtClass(const ZigClangStmt *self) {
     auto casted = reinterpret_cast<const clang::Stmt *>(self);
     return (ZigClangStmtClass)casted->getStmtClass();
+}
+
+ZigClangStmtClass ZigClangExpr_getStmtClass(const ZigClangExpr *self) {
+    auto casted = reinterpret_cast<const clang::Expr *>(self);
+    return (ZigClangStmtClass)casted->getStmtClass();
+}
+
+ZigClangQualType ZigClangExpr_getType(const ZigClangExpr *self) {
+    auto casted = reinterpret_cast<const clang::Expr *>(self);
+    return bitcast(casted->getType());
+}
+
+ZigClangSourceLocation ZigClangExpr_getBeginLoc(const ZigClangExpr *self) {
+    auto casted = reinterpret_cast<const clang::Expr *>(self);
+    return bitcast(casted->getBeginLoc());
 }

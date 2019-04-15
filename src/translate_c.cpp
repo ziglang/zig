@@ -121,13 +121,18 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const ZigClangStmt *s
         AstNode **out_node, TransScope **out_child_scope,
         TransScope **out_node_scope);
 static TransScope *trans_stmt(Context *c, TransScope *scope, const ZigClangStmt *stmt, AstNode **out_node);
-static AstNode *trans_expr(Context *c, ResultUsed result_used, TransScope *scope, const clang::Expr *expr, TransLRValue lrval);
+static AstNode *trans_expr(Context *c, ResultUsed result_used, TransScope *scope, const ZigClangExpr *expr, TransLRValue lrval);
 static AstNode *trans_qual_type(Context *c, ZigClangQualType qt, ZigClangSourceLocation source_loc);
-static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *scope, const clang::Expr *expr, TransLRValue lrval);
+static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *scope,
+        const ZigClangExpr *expr, TransLRValue lrval);
 static AstNode *trans_ap_value(Context *c, clang::APValue *ap_value, ZigClangQualType qt, ZigClangSourceLocation source_loc);
 
 static const ZigClangStmt *bitcast(const clang::Stmt *src) {
     return reinterpret_cast<const ZigClangStmt *>(src);
+}
+
+static const ZigClangExpr *bitcast(const clang::Expr *src) {
+    return reinterpret_cast<const ZigClangExpr *>(src);
 }
 
 static ZigClangSourceLocation bitcast(clang::SourceLocation src) {
@@ -511,14 +516,14 @@ static const ZigClangType *qual_type_canon(ZigClangQualType qt) {
     return ZigClangQualType_getTypePtr(canon);
 }
 
-static ZigClangQualType get_expr_qual_type(Context *c, const clang::Expr *expr) {
+static ZigClangQualType get_expr_qual_type(Context *c, const ZigClangExpr *expr) {
     // String literals in C are `char *` but they should really be `const char *`.
-    if ((ZigClangStmtClass)expr->getStmtClass() == ZigClangStmt_ImplicitCastExprClass) {
-        const clang::ImplicitCastExpr *cast_expr = static_cast<const clang::ImplicitCastExpr *>(expr);
-        if (cast_expr->getCastKind() == clang::CK_ArrayToPointerDecay) {
-            const clang::Expr *sub_expr = cast_expr->getSubExpr();
-            if ((ZigClangStmtClass)sub_expr->getStmtClass() == ZigClangStmt_StringLiteralClass) {
-                ZigClangQualType array_qt = bitcast(sub_expr->getType());
+    if (ZigClangExpr_getStmtClass(expr) == ZigClangStmt_ImplicitCastExprClass) {
+        const clang::ImplicitCastExpr *cast_expr = reinterpret_cast<const clang::ImplicitCastExpr *>(expr);
+        if ((ZigClangCK)cast_expr->getCastKind() == ZigClangCK_ArrayToPointerDecay) {
+            const ZigClangExpr *sub_expr = bitcast(cast_expr->getSubExpr());
+            if (ZigClangExpr_getStmtClass(sub_expr) == ZigClangStmt_StringLiteralClass) {
+                ZigClangQualType array_qt = ZigClangExpr_getType(sub_expr);
                 const clang::ArrayType *array_type = reinterpret_cast<const clang::ArrayType *>(
                         ZigClangQualType_getTypePtr(array_qt));
                 ZigClangQualType pointee_qt = bitcast(array_type->getElementType());
@@ -527,26 +532,26 @@ static ZigClangQualType get_expr_qual_type(Context *c, const clang::Expr *expr) 
             }
         }
     }
-    return bitcast(expr->getType());
+    return ZigClangExpr_getType(expr);
 }
 
-static ZigClangQualType get_expr_qual_type_before_implicit_cast(Context *c, const clang::Expr *expr) {
-    if ((ZigClangStmtClass)expr->getStmtClass() == ZigClangStmt_ImplicitCastExprClass) {
-        const clang::ImplicitCastExpr *cast_expr = static_cast<const clang::ImplicitCastExpr *>(expr);
-        return get_expr_qual_type(c, cast_expr->getSubExpr());
+static ZigClangQualType get_expr_qual_type_before_implicit_cast(Context *c, const ZigClangExpr *expr) {
+    if (ZigClangExpr_getStmtClass(expr) == ZigClangStmt_ImplicitCastExprClass) {
+        const clang::ImplicitCastExpr *cast_expr = reinterpret_cast<const clang::ImplicitCastExpr *>(expr);
+        return get_expr_qual_type(c, bitcast(cast_expr->getSubExpr()));
     }
-    return bitcast(expr->getType());
+    return ZigClangExpr_getType(expr);
 }
 
-static AstNode *get_expr_type(Context *c, const clang::Expr *expr) {
-    return trans_qual_type(c, get_expr_qual_type(c, expr), bitcast(expr->getBeginLoc()));
+static AstNode *get_expr_type(Context *c, const ZigClangExpr *expr) {
+    return trans_qual_type(c, get_expr_qual_type(c, expr), ZigClangExpr_getBeginLoc(expr));
 }
 
 static bool is_c_void_type(AstNode *node) {
     return (node->type == NodeTypeSymbol && buf_eql_str(node->data.symbol_expr.symbol, "c_void"));
 }
 
-static bool expr_types_equal(Context *c, const clang::Expr *expr1, const clang::Expr *expr2) {
+static bool expr_types_equal(Context *c, const ZigClangExpr *expr1, const ZigClangExpr *expr2) {
     ZigClangQualType t1 = get_expr_qual_type(c, expr1);
     ZigClangQualType t2 = get_expr_qual_type(c, expr2);
 
@@ -1272,7 +1277,7 @@ static AstNode *trans_stmt_expr(Context *c, ResultUsed result_used, TransScope *
 }
 
 static AstNode *trans_return_stmt(Context *c, TransScope *scope, const clang::ReturnStmt *stmt) {
-    const clang::Expr *value_expr = stmt->getRetValue();
+    const ZigClangExpr *value_expr = bitcast(stmt->getRetValue());
     if (value_expr == nullptr) {
         return trans_create_node(c, NodeTypeReturnExpr);
     } else {
@@ -1311,9 +1316,9 @@ static AstNode *trans_conditional_operator(Context *c, ResultUsed result_used, T
 {
     AstNode *node = trans_create_node(c, NodeTypeIfBoolExpr);
 
-    clang::Expr *cond_expr = stmt->getCond();
-    clang::Expr *true_expr = stmt->getTrueExpr();
-    clang::Expr *false_expr = stmt->getFalseExpr();
+    const ZigClangExpr *cond_expr = bitcast(stmt->getCond());
+    const ZigClangExpr *true_expr = bitcast(stmt->getTrueExpr());
+    const ZigClangExpr *false_expr = bitcast(stmt->getFalseExpr());
 
     node->data.if_bool_expr.condition = trans_expr(c, ResultUsedYes, scope, cond_expr, TransRValue);
     if (node->data.if_bool_expr.condition == nullptr)
@@ -1330,7 +1335,9 @@ static AstNode *trans_conditional_operator(Context *c, ResultUsed result_used, T
     return maybe_suppress_result(c, result_used, node);
 }
 
-static AstNode *trans_create_bin_op(Context *c, TransScope *scope, clang::Expr *lhs, BinOpType bin_op, clang::Expr *rhs) {
+static AstNode *trans_create_bin_op(Context *c, TransScope *scope, const ZigClangExpr *lhs,
+        BinOpType bin_op, const ZigClangExpr *rhs)
+{
     AstNode *node = trans_create_node(c, NodeTypeBinOpExpr);
     node->data.bin_op_expr.bin_op = bin_op;
 
@@ -1345,7 +1352,9 @@ static AstNode *trans_create_bin_op(Context *c, TransScope *scope, clang::Expr *
     return node;
 }
 
-static AstNode *trans_create_bool_bin_op(Context *c, TransScope *scope, clang::Expr *lhs, BinOpType bin_op, clang::Expr *rhs) {
+static AstNode *trans_create_bool_bin_op(Context *c, TransScope *scope, const ZigClangExpr *lhs,
+        BinOpType bin_op, const ZigClangExpr *rhs)
+{
     assert(bin_op == BinOpTypeBoolAnd || bin_op == BinOpTypeBoolOr);
     AstNode *node = trans_create_node(c, NodeTypeBinOpExpr);
     node->data.bin_op_expr.bin_op = bin_op;
@@ -1361,7 +1370,9 @@ static AstNode *trans_create_bool_bin_op(Context *c, TransScope *scope, clang::E
     return node;
 }
 
-static AstNode *trans_create_assign(Context *c, ResultUsed result_used, TransScope *scope, clang::Expr *lhs, clang::Expr *rhs) {
+static AstNode *trans_create_assign(Context *c, ResultUsed result_used, TransScope *scope,
+        const ZigClangExpr *lhs, const ZigClangExpr *rhs)
+{
     if (result_used == ResultUsedNo) {
         // common case
         AstNode *node = trans_create_node(c, NodeTypeBinOpExpr);
@@ -1413,9 +1424,9 @@ static AstNode *trans_create_assign(Context *c, ResultUsed result_used, TransSco
 }
 
 static AstNode *trans_create_shift_op(Context *c, TransScope *scope, ZigClangQualType result_type,
-        clang::Expr *lhs_expr, BinOpType bin_op, clang::Expr *rhs_expr)
+        const ZigClangExpr *lhs_expr, BinOpType bin_op, const ZigClangExpr *rhs_expr)
 {
-    ZigClangSourceLocation rhs_location = bitcast(rhs_expr->getBeginLoc());
+    ZigClangSourceLocation rhs_location = ZigClangExpr_getBeginLoc(rhs_expr);
     AstNode *rhs_type = qual_type_to_log2_int_ref(c, result_type, rhs_location);
     // lhs >> u5(rh)
 
@@ -1441,23 +1452,23 @@ static AstNode *trans_binary_operator(Context *c, ResultUsed result_used, TransS
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle more C binary operators: BO_Cmp");
             return nullptr;
         case clang::BO_Mul: {
-            AstNode *node = trans_create_bin_op(c, scope, stmt->getLHS(),
+            AstNode *node = trans_create_bin_op(c, scope, bitcast(stmt->getLHS()),
                 qual_type_has_wrapping_overflow(c, bitcast(stmt->getType())) ? BinOpTypeMultWrap : BinOpTypeMult,
-                stmt->getRHS());
+                bitcast(stmt->getRHS()));
             return maybe_suppress_result(c, result_used, node);
         }
         case clang::BO_Div:
             if (qual_type_has_wrapping_overflow(c, bitcast(stmt->getType()))) {
                 // unsigned/float division uses the operator
-                AstNode *node = trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeDiv, stmt->getRHS());
+                AstNode *node = trans_create_bin_op(c, scope, bitcast(stmt->getLHS()), BinOpTypeDiv, bitcast(stmt->getRHS()));
                 return maybe_suppress_result(c, result_used, node);
             } else {
                 // signed integer division uses @divTrunc
                 AstNode *fn_call = trans_create_node_builtin_fn_call_str(c, "divTrunc");
-                AstNode *lhs = trans_expr(c, ResultUsedYes, scope, stmt->getLHS(), TransLValue);
+                AstNode *lhs = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getLHS()), TransLValue);
                 if (lhs == nullptr) return nullptr;
                 fn_call->data.fn_call_expr.params.append(lhs);
-                AstNode *rhs = trans_expr(c, ResultUsedYes, scope, stmt->getRHS(), TransLValue);
+                AstNode *rhs = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getRHS()), TransLValue);
                 if (rhs == nullptr) return nullptr;
                 fn_call->data.fn_call_expr.params.append(rhs);
                 return maybe_suppress_result(c, result_used, fn_call);
@@ -1465,97 +1476,97 @@ static AstNode *trans_binary_operator(Context *c, ResultUsed result_used, TransS
         case clang::BO_Rem:
             if (qual_type_has_wrapping_overflow(c, bitcast(stmt->getType()))) {
                 // unsigned/float division uses the operator
-                AstNode *node = trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeMod, stmt->getRHS());
+                AstNode *node = trans_create_bin_op(c, scope, bitcast(stmt->getLHS()), BinOpTypeMod, bitcast(stmt->getRHS()));
                 return maybe_suppress_result(c, result_used, node);
             } else {
                 // signed integer division uses @rem
                 AstNode *fn_call = trans_create_node_builtin_fn_call_str(c, "rem");
-                AstNode *lhs = trans_expr(c, ResultUsedYes, scope, stmt->getLHS(), TransLValue);
+                AstNode *lhs = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getLHS()), TransLValue);
                 if (lhs == nullptr) return nullptr;
                 fn_call->data.fn_call_expr.params.append(lhs);
-                AstNode *rhs = trans_expr(c, ResultUsedYes, scope, stmt->getRHS(), TransLValue);
+                AstNode *rhs = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getRHS()), TransLValue);
                 if (rhs == nullptr) return nullptr;
                 fn_call->data.fn_call_expr.params.append(rhs);
                 return maybe_suppress_result(c, result_used, fn_call);
             }
         case clang::BO_Add: {
-            AstNode *node = trans_create_bin_op(c, scope, stmt->getLHS(),
+            AstNode *node = trans_create_bin_op(c, scope, bitcast(stmt->getLHS()),
                 qual_type_has_wrapping_overflow(c, bitcast(stmt->getType())) ? BinOpTypeAddWrap : BinOpTypeAdd,
-                stmt->getRHS());
+                bitcast(stmt->getRHS()));
             return maybe_suppress_result(c, result_used, node);
         }
         case clang::BO_Sub: {
-            AstNode *node = trans_create_bin_op(c, scope, stmt->getLHS(),
+            AstNode *node = trans_create_bin_op(c, scope, bitcast(stmt->getLHS()),
                 qual_type_has_wrapping_overflow(c, bitcast(stmt->getType())) ? BinOpTypeSubWrap : BinOpTypeSub,
-                stmt->getRHS());
+                bitcast(stmt->getRHS()));
             return maybe_suppress_result(c, result_used, node);
         }
         case clang::BO_Shl: {
-            AstNode *node = trans_create_shift_op(c, scope, bitcast(stmt->getType()), stmt->getLHS(), BinOpTypeBitShiftLeft, stmt->getRHS());
+            AstNode *node = trans_create_shift_op(c, scope, bitcast(stmt->getType()), bitcast(stmt->getLHS()), BinOpTypeBitShiftLeft, bitcast(stmt->getRHS()));
             return maybe_suppress_result(c, result_used, node);
         }
         case clang::BO_Shr: {
-            AstNode *node = trans_create_shift_op(c, scope, bitcast(stmt->getType()), stmt->getLHS(), BinOpTypeBitShiftRight, stmt->getRHS());
+            AstNode *node = trans_create_shift_op(c, scope, bitcast(stmt->getType()), bitcast(stmt->getLHS()), BinOpTypeBitShiftRight, bitcast(stmt->getRHS()));
             return maybe_suppress_result(c, result_used, node);
         }
         case clang::BO_LT: {
-            AstNode *node =trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeCmpLessThan, stmt->getRHS());
+            AstNode *node =trans_create_bin_op(c, scope, bitcast(stmt->getLHS()), BinOpTypeCmpLessThan, bitcast(stmt->getRHS()));
             return maybe_suppress_result(c, result_used, node);
         }
         case clang::BO_GT: {
-            AstNode *node = trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeCmpGreaterThan, stmt->getRHS());
+            AstNode *node = trans_create_bin_op(c, scope, bitcast(stmt->getLHS()), BinOpTypeCmpGreaterThan, bitcast(stmt->getRHS()));
             return maybe_suppress_result(c, result_used, node);
         }
         case clang::BO_LE: {
-            AstNode *node = trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeCmpLessOrEq, stmt->getRHS());
+            AstNode *node = trans_create_bin_op(c, scope, bitcast(stmt->getLHS()), BinOpTypeCmpLessOrEq, bitcast(stmt->getRHS()));
             return maybe_suppress_result(c, result_used, node);
         }
         case clang::BO_GE: {
-            AstNode *node = trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeCmpGreaterOrEq, stmt->getRHS());
+            AstNode *node = trans_create_bin_op(c, scope, bitcast(stmt->getLHS()), BinOpTypeCmpGreaterOrEq, bitcast(stmt->getRHS()));
             return maybe_suppress_result(c, result_used, node);
         }
         case clang::BO_EQ: {
-            AstNode *node = trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeCmpEq, stmt->getRHS());
+            AstNode *node = trans_create_bin_op(c, scope, bitcast(stmt->getLHS()), BinOpTypeCmpEq, bitcast(stmt->getRHS()));
             return maybe_suppress_result(c, result_used, node);
         }
         case clang::BO_NE: {
-            AstNode *node = trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeCmpNotEq, stmt->getRHS());
+            AstNode *node = trans_create_bin_op(c, scope, bitcast(stmt->getLHS()), BinOpTypeCmpNotEq, bitcast(stmt->getRHS()));
             return maybe_suppress_result(c, result_used, node);
         }
         case clang::BO_And: {
-            AstNode *node = trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeBinAnd, stmt->getRHS());
+            AstNode *node = trans_create_bin_op(c, scope, bitcast(stmt->getLHS()), BinOpTypeBinAnd, bitcast(stmt->getRHS()));
             return maybe_suppress_result(c, result_used, node);
         }
         case clang::BO_Xor: {
-            AstNode *node = trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeBinXor, stmt->getRHS());
+            AstNode *node = trans_create_bin_op(c, scope, bitcast(stmt->getLHS()), BinOpTypeBinXor, bitcast(stmt->getRHS()));
             return maybe_suppress_result(c, result_used, node);
         }
         case clang::BO_Or: {
-            AstNode *node = trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeBinOr, stmt->getRHS());
+            AstNode *node = trans_create_bin_op(c, scope, bitcast(stmt->getLHS()), BinOpTypeBinOr, bitcast(stmt->getRHS()));
             return maybe_suppress_result(c, result_used, node);
         }
         case clang::BO_LAnd: {
-            AstNode *node = trans_create_bool_bin_op(c, scope, stmt->getLHS(), BinOpTypeBoolAnd, stmt->getRHS());
+            AstNode *node = trans_create_bool_bin_op(c, scope, bitcast(stmt->getLHS()), BinOpTypeBoolAnd, bitcast(stmt->getRHS()));
             return maybe_suppress_result(c, result_used, node);
         }
         case clang::BO_LOr: {
-            AstNode *node = trans_create_bool_bin_op(c, scope, stmt->getLHS(), BinOpTypeBoolOr, stmt->getRHS());
+            AstNode *node = trans_create_bool_bin_op(c, scope, bitcast(stmt->getLHS()), BinOpTypeBoolOr, bitcast(stmt->getRHS()));
             return maybe_suppress_result(c, result_used, node);
         }
         case clang::BO_Assign:
-            return trans_create_assign(c, result_used, scope, stmt->getLHS(), stmt->getRHS());
+            return trans_create_assign(c, result_used, scope, bitcast(stmt->getLHS()), bitcast(stmt->getRHS()));
         case clang::BO_Comma:
             {
                 TransScopeBlock *scope_block = trans_scope_block_create(c, scope);
                 Buf *label_name = buf_create_from_str("x");
                 scope_block->node->data.block.name = label_name;
 
-                AstNode *lhs = trans_expr(c, ResultUsedNo, &scope_block->base, stmt->getLHS(), TransRValue);
+                AstNode *lhs = trans_expr(c, ResultUsedNo, &scope_block->base, bitcast(stmt->getLHS()), TransRValue);
                 if (lhs == nullptr)
                     return nullptr;
                 scope_block->node->data.block.statements.append(lhs);
 
-                AstNode *rhs = trans_expr(c, ResultUsedYes, &scope_block->base, stmt->getRHS(), TransRValue);
+                AstNode *rhs = trans_expr(c, ResultUsedYes, &scope_block->base, bitcast(stmt->getRHS()), TransRValue);
                 if (rhs == nullptr)
                     return nullptr;
 
@@ -1589,10 +1600,10 @@ static AstNode *trans_create_compound_assign_shift(Context *c, ResultUsed result
     if (!use_intermediate_casts && result_used == ResultUsedNo) {
         // simple common case, where the C and Zig are identical:
         // lhs >>= rhs
-        AstNode *lhs = trans_expr(c, ResultUsedYes, scope, stmt->getLHS(), TransLValue);
+        AstNode *lhs = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getLHS()), TransLValue);
         if (lhs == nullptr) return nullptr;
 
-        AstNode *rhs = trans_expr(c, ResultUsedYes, scope, stmt->getRHS(), TransRValue);
+        AstNode *rhs = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getRHS()), TransRValue);
         if (rhs == nullptr) return nullptr;
         AstNode *coerced_rhs = trans_create_node_fn_call_1(c, rhs_type, rhs);
 
@@ -1612,7 +1623,7 @@ static AstNode *trans_create_compound_assign_shift(Context *c, ResultUsed result
         child_scope->node->data.block.name = label_name;
 
         // const _ref = &lhs;
-        AstNode *lhs = trans_expr(c, ResultUsedYes, &child_scope->base, stmt->getLHS(), TransLValue);
+        AstNode *lhs = trans_expr(c, ResultUsedYes, &child_scope->base, bitcast(stmt->getLHS()), TransLValue);
         if (lhs == nullptr) return nullptr;
         AstNode *addr_of_lhs = trans_create_node_addr_of(c, lhs);
         // TODO: avoid name collisions with generated variable names
@@ -1622,7 +1633,7 @@ static AstNode *trans_create_compound_assign_shift(Context *c, ResultUsed result
 
         // *_ref = result_type(operation_type(*_ref) >> u5(rhs));
 
-        AstNode *rhs = trans_expr(c, ResultUsedYes, &child_scope->base, stmt->getRHS(), TransRValue);
+        AstNode *rhs = trans_expr(c, ResultUsedYes, &child_scope->base, bitcast(stmt->getRHS()), TransRValue);
         if (rhs == nullptr) return nullptr;
         AstNode *coerced_rhs = trans_create_node_fn_call_1(c, rhs_type, rhs);
 
@@ -1667,9 +1678,9 @@ static AstNode *trans_create_compound_assign(Context *c, ResultUsed result_used,
     if (result_used == ResultUsedNo) {
         // simple common case, where the C and Zig are identical:
         // lhs += rhs
-        AstNode *lhs = trans_expr(c, ResultUsedYes, scope, stmt->getLHS(), TransLValue);
+        AstNode *lhs = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getLHS()), TransLValue);
         if (lhs == nullptr) return nullptr;
-        AstNode *rhs = trans_expr(c, ResultUsedYes, scope, stmt->getRHS(), TransRValue);
+        AstNode *rhs = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getRHS()), TransRValue);
         if (rhs == nullptr) return nullptr;
         return trans_create_node_bin_op(c, lhs, assign_op, rhs);
     } else {
@@ -1686,7 +1697,7 @@ static AstNode *trans_create_compound_assign(Context *c, ResultUsed result_used,
         child_scope->node->data.block.name = label_name;
 
         // const _ref = &lhs;
-        AstNode *lhs = trans_expr(c, ResultUsedYes, &child_scope->base, stmt->getLHS(), TransLValue);
+        AstNode *lhs = trans_expr(c, ResultUsedYes, &child_scope->base, bitcast(stmt->getLHS()), TransLValue);
         if (lhs == nullptr) return nullptr;
         AstNode *addr_of_lhs = trans_create_node_addr_of(c, lhs);
         // TODO: avoid name collisions with generated variable names
@@ -1696,7 +1707,7 @@ static AstNode *trans_create_compound_assign(Context *c, ResultUsed result_used,
 
         // *_ref = *_ref + rhs;
 
-        AstNode *rhs = trans_expr(c, ResultUsedYes, &child_scope->base, stmt->getRHS(), TransRValue);
+        AstNode *rhs = trans_expr(c, ResultUsedYes, &child_scope->base, bitcast(stmt->getRHS()), TransRValue);
         if (rhs == nullptr) return nullptr;
 
         AstNode *assign_statement = trans_create_node_bin_op(c,
@@ -1788,201 +1799,201 @@ static AstNode *trans_compound_assign_operator(Context *c, ResultUsed result_use
 }
 
 static AstNode *trans_implicit_cast_expr(Context *c, ResultUsed result_used, TransScope *scope, const clang::ImplicitCastExpr *stmt) {
-    switch (stmt->getCastKind()) {
-        case clang::CK_LValueToRValue:
-            return trans_expr(c, ResultUsedYes, scope, stmt->getSubExpr(), TransRValue);
-        case clang::CK_IntegralCast:
+    switch ((ZigClangCK)stmt->getCastKind()) {
+        case ZigClangCK_LValueToRValue:
+            return trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getSubExpr()), TransRValue);
+        case ZigClangCK_IntegralCast:
             {
-                AstNode *target_node = trans_expr(c, ResultUsedYes, scope, stmt->getSubExpr(), TransRValue);
+                AstNode *target_node = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getSubExpr()), TransRValue);
                 if (target_node == nullptr)
                     return nullptr;
                 AstNode *node = trans_c_cast(c, bitcast(stmt->getExprLoc()), bitcast(stmt->getType()),
                         bitcast(stmt->getSubExpr()->getType()), target_node);
                 return maybe_suppress_result(c, result_used, node);
             }
-        case clang::CK_FunctionToPointerDecay:
-        case clang::CK_ArrayToPointerDecay:
+        case ZigClangCK_FunctionToPointerDecay:
+        case ZigClangCK_ArrayToPointerDecay:
             {
-                AstNode *target_node = trans_expr(c, ResultUsedYes, scope, stmt->getSubExpr(), TransRValue);
+                AstNode *target_node = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getSubExpr()), TransRValue);
                 if (target_node == nullptr)
                     return nullptr;
                 return maybe_suppress_result(c, result_used, target_node);
             }
-        case clang::CK_BitCast:
+        case ZigClangCK_BitCast:
             {
-                AstNode *target_node = trans_expr(c, ResultUsedYes, scope, stmt->getSubExpr(), TransRValue);
+                AstNode *target_node = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getSubExpr()), TransRValue);
                 if (target_node == nullptr)
                     return nullptr;
 
-                if (expr_types_equal(c, stmt, stmt->getSubExpr())) {
+                if (expr_types_equal(c, (const ZigClangExpr *)stmt, bitcast(stmt->getSubExpr()))) {
                     return target_node;
                 }
 
-                AstNode *dest_type_node = get_expr_type(c, stmt);
+                AstNode *dest_type_node = get_expr_type(c, (const ZigClangExpr *)stmt);
 
                 AstNode *node = trans_create_node_builtin_fn_call_str(c, "ptrCast");
                 node->data.fn_call_expr.params.append(dest_type_node);
                 node->data.fn_call_expr.params.append(target_node);
                 return maybe_suppress_result(c, result_used, node);
             }
-        case clang::CK_NullToPointer:
+        case ZigClangCK_NullToPointer:
             return trans_create_node_unsigned(c, 0);
-        case clang::CK_NoOp:
-            return trans_expr(c, ResultUsedYes, scope, stmt->getSubExpr(), TransRValue);
-        case clang::CK_Dependent:
+        case ZigClangCK_NoOp:
+            return trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getSubExpr()), TransRValue);
+        case ZigClangCK_Dependent:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C translation cast CK_Dependent");
             return nullptr;
-        case clang::CK_LValueBitCast:
+        case ZigClangCK_LValueBitCast:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C translation cast CK_LValueBitCast");
             return nullptr;
-        case clang::CK_BaseToDerived:
+        case ZigClangCK_BaseToDerived:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C translation cast CK_BaseToDerived");
             return nullptr;
-        case clang::CK_DerivedToBase:
+        case ZigClangCK_DerivedToBase:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C translation cast CK_DerivedToBase");
             return nullptr;
-        case clang::CK_UncheckedDerivedToBase:
+        case ZigClangCK_UncheckedDerivedToBase:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C translation cast CK_UncheckedDerivedToBase");
             return nullptr;
-        case clang::CK_Dynamic:
+        case ZigClangCK_Dynamic:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C translation cast CK_Dynamic");
             return nullptr;
-        case clang::CK_ToUnion:
+        case ZigClangCK_ToUnion:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C translation cast CK_ToUnion");
             return nullptr;
-        case clang::CK_NullToMemberPointer:
+        case ZigClangCK_NullToMemberPointer:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C translation cast CK_NullToMemberPointer");
             return nullptr;
-        case clang::CK_BaseToDerivedMemberPointer:
+        case ZigClangCK_BaseToDerivedMemberPointer:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C translation cast CK_BaseToDerivedMemberPointer");
             return nullptr;
-        case clang::CK_DerivedToBaseMemberPointer:
+        case ZigClangCK_DerivedToBaseMemberPointer:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C translation cast CK_DerivedToBaseMemberPointer");
             return nullptr;
-        case clang::CK_MemberPointerToBoolean:
+        case ZigClangCK_MemberPointerToBoolean:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C translation cast CK_MemberPointerToBoolean");
             return nullptr;
-        case clang::CK_ReinterpretMemberPointer:
+        case ZigClangCK_ReinterpretMemberPointer:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C translation cast CK_ReinterpretMemberPointer");
             return nullptr;
-        case clang::CK_UserDefinedConversion:
+        case ZigClangCK_UserDefinedConversion:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C translation cast CK_UserDefinedConversion");
             return nullptr;
-        case clang::CK_ConstructorConversion:
+        case ZigClangCK_ConstructorConversion:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_ConstructorConversion");
             return nullptr;
-        case clang::CK_IntegralToPointer:
+        case ZigClangCK_IntegralToPointer:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_IntegralToPointer");
             return nullptr;
-        case clang::CK_PointerToIntegral:
+        case ZigClangCK_PointerToIntegral:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_PointerToIntegral");
             return nullptr;
-        case clang::CK_PointerToBoolean:
+        case ZigClangCK_PointerToBoolean:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_PointerToBoolean");
             return nullptr;
-        case clang::CK_ToVoid:
+        case ZigClangCK_ToVoid:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_ToVoid");
             return nullptr;
-        case clang::CK_VectorSplat:
+        case ZigClangCK_VectorSplat:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_VectorSplat");
             return nullptr;
-        case clang::CK_IntegralToBoolean:
+        case ZigClangCK_IntegralToBoolean:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_IntegralToBoolean");
             return nullptr;
-        case clang::CK_IntegralToFloating:
+        case ZigClangCK_IntegralToFloating:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_IntegralToFloating");
             return nullptr;
-        case clang::CK_FixedPointCast:
+        case ZigClangCK_FixedPointCast:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_FixedPointCast");
             return nullptr;
-        case clang::CK_FixedPointToBoolean:
+        case ZigClangCK_FixedPointToBoolean:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_FixedPointToBoolean");
             return nullptr;
-        case clang::CK_FloatingToIntegral:
+        case ZigClangCK_FloatingToIntegral:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_FloatingToIntegral");
             return nullptr;
-        case clang::CK_FloatingToBoolean:
+        case ZigClangCK_FloatingToBoolean:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_FloatingToBoolean");
             return nullptr;
-        case clang::CK_BooleanToSignedIntegral:
+        case ZigClangCK_BooleanToSignedIntegral:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_BooleanToSignedIntegral");
             return nullptr;
-        case clang::CK_FloatingCast:
+        case ZigClangCK_FloatingCast:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_FloatingCast");
             return nullptr;
-        case clang::CK_CPointerToObjCPointerCast:
+        case ZigClangCK_CPointerToObjCPointerCast:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_CPointerToObjCPointerCast");
             return nullptr;
-        case clang::CK_BlockPointerToObjCPointerCast:
+        case ZigClangCK_BlockPointerToObjCPointerCast:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_BlockPointerToObjCPointerCast");
             return nullptr;
-        case clang::CK_AnyPointerToBlockPointerCast:
+        case ZigClangCK_AnyPointerToBlockPointerCast:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_AnyPointerToBlockPointerCast");
             return nullptr;
-        case clang::CK_ObjCObjectLValueCast:
+        case ZigClangCK_ObjCObjectLValueCast:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_ObjCObjectLValueCast");
             return nullptr;
-        case clang::CK_FloatingRealToComplex:
+        case ZigClangCK_FloatingRealToComplex:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_FloatingRealToComplex");
             return nullptr;
-        case clang::CK_FloatingComplexToReal:
+        case ZigClangCK_FloatingComplexToReal:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_FloatingComplexToReal");
             return nullptr;
-        case clang::CK_FloatingComplexToBoolean:
+        case ZigClangCK_FloatingComplexToBoolean:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_FloatingComplexToBoolean");
             return nullptr;
-        case clang::CK_FloatingComplexCast:
+        case ZigClangCK_FloatingComplexCast:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_FloatingComplexCast");
             return nullptr;
-        case clang::CK_FloatingComplexToIntegralComplex:
+        case ZigClangCK_FloatingComplexToIntegralComplex:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_FloatingComplexToIntegralComplex");
             return nullptr;
-        case clang::CK_IntegralRealToComplex:
+        case ZigClangCK_IntegralRealToComplex:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_IntegralRealToComplex");
             return nullptr;
-        case clang::CK_IntegralComplexToReal:
+        case ZigClangCK_IntegralComplexToReal:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_IntegralComplexToReal");
             return nullptr;
-        case clang::CK_IntegralComplexToBoolean:
+        case ZigClangCK_IntegralComplexToBoolean:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_IntegralComplexToBoolean");
             return nullptr;
-        case clang::CK_IntegralComplexCast:
+        case ZigClangCK_IntegralComplexCast:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_IntegralComplexCast");
             return nullptr;
-        case clang::CK_IntegralComplexToFloatingComplex:
+        case ZigClangCK_IntegralComplexToFloatingComplex:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_IntegralComplexToFloatingComplex");
             return nullptr;
-        case clang::CK_ARCProduceObject:
+        case ZigClangCK_ARCProduceObject:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_ARCProduceObject");
             return nullptr;
-        case clang::CK_ARCConsumeObject:
+        case ZigClangCK_ARCConsumeObject:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_ARCConsumeObject");
             return nullptr;
-        case clang::CK_ARCReclaimReturnedObject:
+        case ZigClangCK_ARCReclaimReturnedObject:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_ARCReclaimReturnedObject");
             return nullptr;
-        case clang::CK_ARCExtendBlockObject:
+        case ZigClangCK_ARCExtendBlockObject:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_ARCExtendBlockObject");
             return nullptr;
-        case clang::CK_AtomicToNonAtomic:
+        case ZigClangCK_AtomicToNonAtomic:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_AtomicToNonAtomic");
             return nullptr;
-        case clang::CK_NonAtomicToAtomic:
+        case ZigClangCK_NonAtomicToAtomic:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_NonAtomicToAtomic");
             return nullptr;
-        case clang::CK_CopyAndAutoreleaseBlockObject:
+        case ZigClangCK_CopyAndAutoreleaseBlockObject:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_CopyAndAutoreleaseBlockObject");
             return nullptr;
-        case clang::CK_BuiltinFnToFnPtr:
+        case ZigClangCK_BuiltinFnToFnPtr:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_BuiltinFnToFnPtr");
             return nullptr;
-        case clang::CK_ZeroToOCLOpaqueType:
+        case ZigClangCK_ZeroToOCLOpaqueType:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_ZeroToOCLOpaqueType");
             return nullptr;
-        case clang::CK_AddressSpaceConversion:
+        case ZigClangCK_AddressSpaceConversion:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_AddressSpaceConversion");
             return nullptr;
-        case clang::CK_IntToOCLSampler:
+        case ZigClangCK_IntToOCLSampler:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_IntToOCLSampler");
             return nullptr;
     }
@@ -2002,7 +2013,7 @@ static AstNode *trans_decl_ref_expr(Context *c, TransScope *scope, const clang::
 static AstNode *trans_create_post_crement(Context *c, ResultUsed result_used, TransScope *scope,
         const clang::UnaryOperator *stmt, BinOpType assign_op)
 {
-    clang::Expr *op_expr = stmt->getSubExpr();
+    const ZigClangExpr *op_expr = bitcast(stmt->getSubExpr());
 
     if (result_used == ResultUsedNo) {
         // common case
@@ -2058,7 +2069,7 @@ static AstNode *trans_create_post_crement(Context *c, ResultUsed result_used, Tr
 static AstNode *trans_create_pre_crement(Context *c, ResultUsed result_used, TransScope *scope,
         const clang::UnaryOperator *stmt, BinOpType assign_op)
 {
-    clang::Expr *op_expr = stmt->getSubExpr();
+    const ZigClangExpr *op_expr = bitcast(stmt->getSubExpr());
 
     if (result_used == ResultUsedNo) {
         // common case
@@ -2129,14 +2140,14 @@ static AstNode *trans_unary_operator(Context *c, ResultUsed result_used, TransSc
                 return trans_create_pre_crement(c, result_used, scope, stmt, BinOpTypeAssignMinus);
         case clang::UO_AddrOf:
             {
-                AstNode *value_node = trans_expr(c, result_used, scope, stmt->getSubExpr(), TransLValue);
+                AstNode *value_node = trans_expr(c, result_used, scope, bitcast(stmt->getSubExpr()), TransLValue);
                 if (value_node == nullptr)
                     return value_node;
                 return trans_create_node_addr_of(c, value_node);
             }
         case clang::UO_Deref:
             {
-                AstNode *value_node = trans_expr(c, result_used, scope, stmt->getSubExpr(), TransRValue);
+                AstNode *value_node = trans_expr(c, result_used, scope, bitcast(stmt->getSubExpr()), TransRValue);
                 if (value_node == nullptr)
                     return nullptr;
                 bool is_fn_ptr = qual_type_is_fn_ptr(bitcast(stmt->getSubExpr()->getType()));
@@ -2150,8 +2161,8 @@ static AstNode *trans_unary_operator(Context *c, ResultUsed result_used, TransSc
             return nullptr;
         case clang::UO_Minus:
             {
-                clang::Expr *op_expr = stmt->getSubExpr();
-                if (!qual_type_has_wrapping_overflow(c, bitcast(op_expr->getType()))) {
+                const ZigClangExpr *op_expr = bitcast(stmt->getSubExpr());
+                if (!qual_type_has_wrapping_overflow(c, ZigClangExpr_getType(op_expr))) {
                     AstNode *node = trans_create_node(c, NodeTypePrefixOpExpr);
                     node->data.prefix_op_expr.prefix_op = PrefixOpNegation;
 
@@ -2160,7 +2171,7 @@ static AstNode *trans_unary_operator(Context *c, ResultUsed result_used, TransSc
                         return nullptr;
 
                     return node;
-                } else if (c_is_unsigned_integer(c, bitcast(op_expr->getType()))) {
+                } else if (c_is_unsigned_integer(c, ZigClangExpr_getType(op_expr))) {
                     // we gotta emit 0 -% x
                     AstNode *node = trans_create_node(c, NodeTypeBinOpExpr);
                     node->data.bin_op_expr.op1 = trans_create_node_unsigned(c, 0);
@@ -2178,7 +2189,7 @@ static AstNode *trans_unary_operator(Context *c, ResultUsed result_used, TransSc
             }
         case clang::UO_Not:
             {
-                clang::Expr *op_expr = stmt->getSubExpr();
+                const ZigClangExpr *op_expr = bitcast(stmt->getSubExpr());
                 AstNode *sub_node = trans_expr(c, ResultUsedYes, scope, op_expr, TransRValue);
                 if (sub_node == nullptr)
                     return nullptr;
@@ -2187,7 +2198,7 @@ static AstNode *trans_unary_operator(Context *c, ResultUsed result_used, TransSc
             }
         case clang::UO_LNot:
             {
-                clang::Expr *op_expr = stmt->getSubExpr();
+                const ZigClangExpr *op_expr = bitcast(stmt->getSubExpr());
                 AstNode *sub_node = trans_bool_expr(c, ResultUsedYes, scope, op_expr, TransRValue);
                 if (sub_node == nullptr)
                     return nullptr;
@@ -2201,7 +2212,7 @@ static AstNode *trans_unary_operator(Context *c, ResultUsed result_used, TransSc
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C translation UO_Imag");
             return nullptr;
         case clang::UO_Extension:
-            return trans_expr(c, result_used, scope, stmt->getSubExpr(), TransLValue);
+            return trans_expr(c, result_used, scope, bitcast(stmt->getSubExpr()), TransLValue);
         case clang::UO_Coawait:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C translation UO_Coawait");
             return nullptr;
@@ -2226,7 +2237,7 @@ static int trans_local_declaration(Context *c, TransScope *scope, const clang::D
                 ZigClangQualType qual_type = bitcast(var_decl->getTypeSourceInfo()->getType());
                 AstNode *init_node = nullptr;
                 if (var_decl->hasInit()) {
-                    init_node = trans_expr(c, ResultUsedYes, scope, var_decl->getInit(), TransRValue);
+                    init_node = trans_expr(c, ResultUsedYes, scope, bitcast(var_decl->getInit()), TransRValue);
                     if (init_node == nullptr)
                         return ErrorUnexpected;
 
@@ -2492,7 +2503,7 @@ static AstNode *to_enum_zero_cmp(Context *c, AstNode *expr, AstNode *enum_type) 
     return trans_create_node_bin_op(c, expr, BinOpTypeCmpNotEq, bitcast);
 }
 
-static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *scope, const clang::Expr *expr, TransLRValue lrval) {
+static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *scope, const ZigClangExpr *expr, TransLRValue lrval) {
     AstNode *res = trans_expr(c, result_used, scope, expr, lrval);
     if (res == nullptr)
         return nullptr;
@@ -2689,7 +2700,7 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
             switch (elaborated_ty->getKeyword()) {
                 case clang::ETK_Enum: {
                     AstNode *enum_type = trans_qual_type(c, bitcast(elaborated_ty->getNamedType()),
-                            bitcast(expr->getBeginLoc()));
+                            ZigClangExpr_getBeginLoc(expr));
                     return to_enum_zero_cmp(c, res, enum_type);
                 }
                 case clang::ETK_Struct:
@@ -2752,7 +2763,8 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
 static AstNode *trans_while_loop(Context *c, TransScope *scope, const clang::WhileStmt *stmt) {
     TransScopeWhile *while_scope = trans_scope_while_create(c, scope);
 
-    while_scope->node->data.while_expr.condition = trans_bool_expr(c, ResultUsedYes, scope, stmt->getCond(), TransRValue);
+    while_scope->node->data.while_expr.condition = trans_bool_expr(c, ResultUsedYes, scope,
+            bitcast(stmt->getCond()), TransRValue);
     if (while_scope->node->data.while_expr.condition == nullptr)
         return nullptr;
 
@@ -2779,7 +2791,8 @@ static AstNode *trans_if_statement(Context *c, TransScope *scope, const clang::I
             return nullptr;
     }
 
-    if_node->data.if_bool_expr.condition = trans_bool_expr(c, ResultUsedYes, scope, stmt->getCond(), TransRValue);
+    if_node->data.if_bool_expr.condition = trans_bool_expr(c, ResultUsedYes, scope, bitcast(stmt->getCond()),
+            TransRValue);
     if (if_node->data.if_bool_expr.condition == nullptr)
         return nullptr;
 
@@ -2789,7 +2802,7 @@ static AstNode *trans_if_statement(Context *c, TransScope *scope, const clang::I
 static AstNode *trans_call_expr(Context *c, ResultUsed result_used, TransScope *scope, const clang::CallExpr *stmt) {
     AstNode *node = trans_create_node(c, NodeTypeFnCallExpr);
 
-    AstNode *callee_raw_node = trans_expr(c, ResultUsedYes, scope, stmt->getCallee(), TransRValue);
+    AstNode *callee_raw_node = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getCallee()), TransRValue);
     if (callee_raw_node == nullptr)
         return nullptr;
 
@@ -2799,7 +2812,7 @@ static AstNode *trans_call_expr(Context *c, ResultUsed result_used, TransScope *
     if (is_ptr && fn_ty) {
         if ((ZigClangStmtClass)stmt->getCallee()->getStmtClass() == ZigClangStmt_ImplicitCastExprClass) {
             const clang::ImplicitCastExpr *implicit_cast = static_cast<const clang::ImplicitCastExpr *>(stmt->getCallee());
-            if (implicit_cast->getCastKind() == clang::CK_FunctionToPointerDecay) {
+            if ((ZigClangCK)implicit_cast->getCastKind() == ZigClangCK_FunctionToPointerDecay) {
                 if ((ZigClangStmtClass)implicit_cast->getSubExpr()->getStmtClass() == ZigClangStmt_DeclRefExprClass) {
                     const clang::DeclRefExpr *decl_ref = static_cast<const clang::DeclRefExpr *>(implicit_cast->getSubExpr());
                     const clang::Decl *decl = decl_ref->getFoundDecl();
@@ -2819,7 +2832,7 @@ static AstNode *trans_call_expr(Context *c, ResultUsed result_used, TransScope *
     node->data.fn_call_expr.fn_ref_expr = callee_node;
 
     unsigned num_args = stmt->getNumArgs();
-    const clang::Expr * const* args = stmt->getArgs();
+    const ZigClangExpr * const* args = reinterpret_cast<const ZigClangExpr * const*>(stmt->getArgs());
     for (unsigned i = 0; i < num_args; i += 1) {
         AstNode *arg_node = trans_expr(c, ResultUsedYes, scope, args[i], TransRValue);
         if (arg_node == nullptr)
@@ -2840,7 +2853,7 @@ static AstNode *trans_call_expr(Context *c, ResultUsed result_used, TransScope *
 static AstNode *trans_member_expr(Context *c, ResultUsed result_used, TransScope *scope,
     const clang::MemberExpr *stmt)
 {
-    AstNode *container_node = trans_expr(c, ResultUsedYes, scope, stmt->getBase(), TransRValue);
+    AstNode *container_node = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getBase()), TransRValue);
     if (container_node == nullptr)
         return nullptr;
 
@@ -2855,11 +2868,11 @@ static AstNode *trans_member_expr(Context *c, ResultUsed result_used, TransScope
 }
 
 static AstNode *trans_array_subscript_expr(Context *c, ResultUsed result_used, TransScope *scope, const clang::ArraySubscriptExpr *stmt) {
-    AstNode *container_node = trans_expr(c, ResultUsedYes, scope, stmt->getBase(), TransRValue);
+    AstNode *container_node = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getBase()), TransRValue);
     if (container_node == nullptr)
         return nullptr;
 
-    AstNode *idx_node = trans_expr(c, ResultUsedYes, scope, stmt->getIdx(), TransRValue);
+    AstNode *idx_node = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getIdx()), TransRValue);
     if (idx_node == nullptr)
         return nullptr;
 
@@ -2873,7 +2886,7 @@ static AstNode *trans_array_subscript_expr(Context *c, ResultUsed result_used, T
 static AstNode *trans_c_style_cast_expr(Context *c, ResultUsed result_used, TransScope *scope,
         const clang::CStyleCastExpr *stmt, TransLRValue lrvalue)
 {
-    AstNode *sub_expr_node = trans_expr(c, ResultUsedYes, scope, stmt->getSubExpr(), lrvalue);
+    AstNode *sub_expr_node = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getSubExpr()), lrvalue);
     if (sub_expr_node == nullptr)
         return nullptr;
 
@@ -2943,7 +2956,7 @@ static AstNode *trans_do_loop(Context *c, TransScope *parent_scope, const clang:
     }
 
     // if (!cond) break;
-    AstNode *condition_node = trans_expr(c, ResultUsedYes, child_scope, stmt->getCond(), TransRValue);
+    AstNode *condition_node = trans_expr(c, ResultUsedYes, child_scope, bitcast(stmt->getCond()), TransRValue);
     if (condition_node == nullptr) return nullptr;
     AstNode *terminator_node = trans_create_node(c, NodeTypeIfBoolExpr);
     terminator_node->data.if_bool_expr.condition = trans_create_node_prefix_op(c, PrefixOpBoolNot, condition_node);
@@ -2982,29 +2995,21 @@ static AstNode *trans_for_loop(Context *c, TransScope *parent_scope, const clang
         child_scope->node->data.block.statements.append(while_scope->node);
     }
 
-    const ZigClangStmt *cond_stmt = bitcast(stmt->getCond());
-    if (cond_stmt == nullptr) {
+    const ZigClangExpr *cond_expr = bitcast(stmt->getCond());
+    if (cond_expr == nullptr) {
         while_scope->node->data.while_expr.condition = trans_create_node_bool(c, true);
     } else {
-        if (ZigClangStmt_classof_Expr(cond_stmt)) {
-            const clang::Expr *cond_expr = reinterpret_cast<const clang::Expr*>(cond_stmt);
-            while_scope->node->data.while_expr.condition = trans_bool_expr(c, ResultUsedYes, cond_scope, cond_expr, TransRValue);
+        while_scope->node->data.while_expr.condition = trans_bool_expr(c, ResultUsedYes, cond_scope,
+                cond_expr, TransRValue);
 
-            if (while_scope->node->data.while_expr.condition == nullptr)
-                return nullptr;
-        } else {
-            TransScope *end_cond_scope = trans_stmt(c, cond_scope, cond_stmt,
-                                                    &while_scope->node->data.while_expr.condition);
-            if (end_cond_scope == nullptr)
-                return nullptr;
-        }
+        if (while_scope->node->data.while_expr.condition == nullptr)
+            return nullptr;
     }
 
-    const ZigClangStmt *inc_stmt = bitcast(stmt->getInc());
-    if (inc_stmt != nullptr) {
-        AstNode *inc_node;
-        TransScope *inc_scope = trans_stmt(c, cond_scope, inc_stmt, &inc_node);
-        if (inc_scope == nullptr)
+    const ZigClangExpr *inc_expr = bitcast(stmt->getInc());
+    if (inc_expr != nullptr) {
+        AstNode *inc_node = trans_expr(c, ResultUsedNo, cond_scope, inc_expr, TransRValue);
+        if (inc_node == nullptr)
             return nullptr;
         while_scope->node->data.while_expr.continue_expr = inc_node;
     }
@@ -3047,7 +3052,7 @@ static AstNode *trans_switch_stmt(Context *c, TransScope *parent_scope, const cl
     switch_scope->end_label_name = end_label_name;
     block_scope->node->data.block.name = end_label_name;
 
-    const clang::Expr *cond_expr = stmt->getCond();
+    const ZigClangExpr *cond_expr = bitcast(stmt->getCond());
     assert(cond_expr != nullptr);
 
     AstNode *expr_node = trans_expr(c, ResultUsedYes, &block_scope->base, cond_expr, TransRValue);
@@ -3108,7 +3113,7 @@ static int trans_switch_case(Context *c, TransScope *parent_scope, const clang::
     {
         // Add the prong
         AstNode *prong_node = trans_create_node(c, NodeTypeSwitchProng);
-        AstNode *item_node = trans_expr(c, ResultUsedYes, &switch_scope->base, stmt->getLHS(), TransRValue);
+        AstNode *item_node = trans_expr(c, ResultUsedYes, &switch_scope->base, bitcast(stmt->getLHS()), TransRValue);
         if (item_node == nullptr)
             return ErrorUnexpected;
         prong_node->data.switch_prong.items.append(item_node);
@@ -3313,7 +3318,8 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const ZigClangStmt *s
                     trans_continue_stmt(c, scope, (const clang::ContinueStmt *)stmt));
         case ZigClangStmt_ParenExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_expr(c, result_used, scope, ((const clang::ParenExpr*)stmt)->getSubExpr(), lrvalue));
+                    trans_expr(c, result_used, scope,
+                        bitcast(((const clang::ParenExpr*)stmt)->getSubExpr()), lrvalue));
         case ZigClangStmt_SwitchStmtClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                              trans_switch_stmt(c, scope, (const clang::SwitchStmt *)stmt));
@@ -3836,7 +3842,7 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const ZigClangStmt *s
 }
 
 // Returns null if there was an error
-static AstNode *trans_expr(Context *c, ResultUsed result_used, TransScope *scope, const clang::Expr *expr,
+static AstNode *trans_expr(Context *c, ResultUsed result_used, TransScope *scope, const ZigClangExpr *expr,
         TransLRValue lrval)
 {
     AstNode *result_node;
@@ -4304,7 +4310,7 @@ static AstNode *trans_ap_value(Context *c, clang::APValue *ap_value, ZigClangQua
         case clang::APValue::LValue: {
             const clang::APValue::LValueBase lval_base = ap_value->getLValueBase();
             if (const clang::Expr *expr = lval_base.dyn_cast<const clang::Expr *>()) {
-                return trans_expr(c, ResultUsedYes, &c->global_scope->base, expr, TransRValue);
+                return trans_expr(c, ResultUsedYes, &c->global_scope->base, bitcast(expr), TransRValue);
             }
             //const clang::ValueDecl *value_decl = lval_base.get<const clang::ValueDecl *>();
             emit_warning(c, source_loc, "TODO handle initializer LValue clang::ValueDecl");

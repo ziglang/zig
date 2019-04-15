@@ -418,64 +418,67 @@ enum ZigClangStmtClass {
 //struct ZigClangCC_X86VectorCall;
 //struct ZigClangCC_X86_64SysV;
 
-//struct ZigClangCK_ARCConsumeObject;
-//struct ZigClangCK_ARCExtendBlockObject;
-//struct ZigClangCK_ARCProduceObject;
-//struct ZigClangCK_ARCReclaimReturnedObject;
-//struct ZigClangCK_AddressSpaceConversion;
-//struct ZigClangCK_AnyPointerToBlockPointerCast;
-//struct ZigClangCK_ArrayToPointerDecay;
-//struct ZigClangCK_AtomicToNonAtomic;
-//struct ZigClangCK_BaseToDerived;
-//struct ZigClangCK_BaseToDerivedMemberPointer;
-//struct ZigClangCK_BitCast;
-//struct ZigClangCK_BlockPointerToObjCPointerCast;
-//struct ZigClangCK_BooleanToSignedIntegral;
-//struct ZigClangCK_BuiltinFnToFnPtr;
-//struct ZigClangCK_CPointerToObjCPointerCast;
-//struct ZigClangCK_ConstructorConversion;
-//struct ZigClangCK_CopyAndAutoreleaseBlockObject;
-//struct ZigClangCK_Dependent;
-//struct ZigClangCK_DerivedToBase;
-//struct ZigClangCK_DerivedToBaseMemberPointer;
-//struct ZigClangCK_Dynamic;
-//struct ZigClangCK_FloatingCast;
-//struct ZigClangCK_FloatingComplexCast;
-//struct ZigClangCK_FloatingComplexToBoolean;
-//struct ZigClangCK_FloatingComplexToIntegralComplex;
-//struct ZigClangCK_FloatingComplexToReal;
-//struct ZigClangCK_FloatingRealToComplex;
-//struct ZigClangCK_FloatingToBoolean;
-//struct ZigClangCK_FloatingToIntegral;
-//struct ZigClangCK_FunctionToPointerDecay;
-//struct ZigClangCK_IntToOCLSampler;
-//struct ZigClangCK_IntegralCast;
-//struct ZigClangCK_IntegralComplexCast;
-//struct ZigClangCK_IntegralComplexToBoolean;
-//struct ZigClangCK_IntegralComplexToFloatingComplex;
-//struct ZigClangCK_IntegralComplexToReal;
-//struct ZigClangCK_IntegralRealToComplex;
-//struct ZigClangCK_IntegralToBoolean;
-//struct ZigClangCK_IntegralToFloating;
-//struct ZigClangCK_IntegralToPointer;
-//struct ZigClangCK_LValueBitCast;
-//struct ZigClangCK_LValueToRValue;
-//struct ZigClangCK_MemberPointerToBoolean;
-//struct ZigClangCK_NoOp;
-//struct ZigClangCK_NonAtomicToAtomic;
-//struct ZigClangCK_NullToMemberPointer;
-//struct ZigClangCK_NullToPointer;
-//struct ZigClangCK_ObjCObjectLValueCast;
-//struct ZigClangCK_PointerToBoolean;
-//struct ZigClangCK_PointerToIntegral;
-//struct ZigClangCK_ReinterpretMemberPointer;
-//struct ZigClangCK_ToUnion;
-//struct ZigClangCK_ToVoid;
-//struct ZigClangCK_UncheckedDerivedToBase;
-//struct ZigClangCK_UserDefinedConversion;
-//struct ZigClangCK_VectorSplat;
-//struct ZigClangCK_ZeroToOCLEvent;
-//struct ZigClangCK_ZeroToOCLQueue;
+enum ZigClangCK {
+    ZigClangCK_Dependent,
+    ZigClangCK_BitCast,
+    ZigClangCK_LValueBitCast,
+    ZigClangCK_LValueToRValue,
+    ZigClangCK_NoOp,
+    ZigClangCK_BaseToDerived,
+    ZigClangCK_DerivedToBase,
+    ZigClangCK_UncheckedDerivedToBase,
+    ZigClangCK_Dynamic,
+    ZigClangCK_ToUnion,
+    ZigClangCK_ArrayToPointerDecay,
+    ZigClangCK_FunctionToPointerDecay,
+    ZigClangCK_NullToPointer,
+    ZigClangCK_NullToMemberPointer,
+    ZigClangCK_BaseToDerivedMemberPointer,
+    ZigClangCK_DerivedToBaseMemberPointer,
+    ZigClangCK_MemberPointerToBoolean,
+    ZigClangCK_ReinterpretMemberPointer,
+    ZigClangCK_UserDefinedConversion,
+    ZigClangCK_ConstructorConversion,
+    ZigClangCK_IntegralToPointer,
+    ZigClangCK_PointerToIntegral,
+    ZigClangCK_PointerToBoolean,
+    ZigClangCK_ToVoid,
+    ZigClangCK_VectorSplat,
+    ZigClangCK_IntegralCast,
+    ZigClangCK_IntegralToBoolean,
+    ZigClangCK_IntegralToFloating,
+    ZigClangCK_FixedPointCast,
+    ZigClangCK_FixedPointToBoolean,
+    ZigClangCK_FloatingToIntegral,
+    ZigClangCK_FloatingToBoolean,
+    ZigClangCK_BooleanToSignedIntegral,
+    ZigClangCK_FloatingCast,
+    ZigClangCK_CPointerToObjCPointerCast,
+    ZigClangCK_BlockPointerToObjCPointerCast,
+    ZigClangCK_AnyPointerToBlockPointerCast,
+    ZigClangCK_ObjCObjectLValueCast,
+    ZigClangCK_FloatingRealToComplex,
+    ZigClangCK_FloatingComplexToReal,
+    ZigClangCK_FloatingComplexToBoolean,
+    ZigClangCK_FloatingComplexCast,
+    ZigClangCK_FloatingComplexToIntegralComplex,
+    ZigClangCK_IntegralRealToComplex,
+    ZigClangCK_IntegralComplexToReal,
+    ZigClangCK_IntegralComplexToBoolean,
+    ZigClangCK_IntegralComplexCast,
+    ZigClangCK_IntegralComplexToFloatingComplex,
+    ZigClangCK_ARCProduceObject,
+    ZigClangCK_ARCConsumeObject,
+    ZigClangCK_ARCReclaimReturnedObject,
+    ZigClangCK_ARCExtendBlockObject,
+    ZigClangCK_AtomicToNonAtomic,
+    ZigClangCK_NonAtomicToAtomic,
+    ZigClangCK_CopyAndAutoreleaseBlockObject,
+    ZigClangCK_BuiltinFnToFnPtr,
+    ZigClangCK_ZeroToOCLOpaqueType,
+    ZigClangCK_AddressSpaceConversion,
+    ZigClangCK_IntToOCLSampler,
+};
 
 //struct ZigClangETK_Class;
 //struct ZigClangETK_Enum;
@@ -552,4 +555,7 @@ ZIG_EXTERN_C ZigClangSourceLocation ZigClangStmt_getBeginLoc(const ZigClangStmt 
 ZIG_EXTERN_C ZigClangStmtClass ZigClangStmt_getStmtClass(const ZigClangStmt *self);
 ZIG_EXTERN_C bool ZigClangStmt_classof_Expr(const ZigClangStmt *self);
 
+ZIG_EXTERN_C ZigClangStmtClass ZigClangExpr_getStmtClass(const ZigClangExpr *self);
+ZIG_EXTERN_C ZigClangQualType ZigClangExpr_getType(const ZigClangExpr *self);
+ZIG_EXTERN_C ZigClangSourceLocation ZigClangExpr_getBeginLoc(const ZigClangExpr *self);
 #endif
