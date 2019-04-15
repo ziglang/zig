@@ -5158,11 +5158,10 @@ bool const_values_equal(CodeGen *g, ConstExprValue *a, ConstExprValue *b) {
             if (bigint_cmp(&union1->tag, &union2->tag) == CmpEQ) {
                 TypeUnionField *field = find_union_field_by_tag(a->type, &union1->tag);
                 assert(field != nullptr);
-                if (type_has_bits(field->type_entry)) {
-                    zig_panic("TODO const expr analyze union field value for equality");
-                } else {
+                if (!type_has_bits(field->type_entry))
                     return true;
-                }
+                assert(find_union_field_by_tag(a->type, &union2->tag) != nullptr);
+                return const_values_equal(g, union1->payload, union2->payload);
             }
             return false;
         }
