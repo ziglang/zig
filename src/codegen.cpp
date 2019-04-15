@@ -495,6 +495,14 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, ZigFn *fn_table_entry) {
             auto entry = g->exported_symbol_names.maybe_get(symbol_name);
             if (entry == nullptr) {
                 fn_table_entry->llvm_value = LLVMAddFunction(g->module, buf_ptr(symbol_name), fn_llvm_type);
+
+                if (target_is_wasm(g->zig_target)) {
+                    assert(fn_table_entry->proto_node->type == NodeTypeFnProto);
+                    AstNodeFnProto *fn_proto = &fn_table_entry->proto_node->data.fn_proto;
+                    if (fn_proto-> is_extern && fn_proto->lib_name != nullptr ) {
+                        addLLVMFnAttrStr(fn_table_entry->llvm_value, "wasm-import-module", buf_ptr(fn_proto->lib_name));
+                    }
+                }
             } else {
                 assert(entry->value->id == TldIdFn);
                 TldFn *tld_fn = reinterpret_cast<TldFn *>(entry->value);
