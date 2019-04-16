@@ -118,22 +118,14 @@ pub const DirectAllocator = struct {
                 }
                 return old_mem[0..new_size];
             },
-            Os.windows => {
-                if (new_size == 0) {
-                    const self = @fieldParentPtr(DirectAllocator, "allocator", allocator);
-                    _ = os.windows.HeapFree(self.heap_handle.?, 0, old_mem.ptr);
-                    return old_mem[0..new_size];
-                }
-
-                return realloc(allocator, old_mem, old_align, new_size, new_align) catch {
-                    const old_adjusted_addr = @ptrToInt(old_mem.ptr);
-                    const old_record_addr = old_adjusted_addr + old_mem.len;
-                    const root_addr = @intToPtr(*align(1) usize, old_record_addr).*;
-                    const old_ptr = @intToPtr(*c_void, root_addr);
-                    const new_record_addr = old_record_addr - new_size + old_mem.len;
-                    @intToPtr(*align(1) usize, new_record_addr).* = root_addr;
-                    return old_mem[0..new_size];
-                };
+            Os.windows => return realloc(allocator, old_mem, old_align, new_size, new_align) catch {
+                const old_adjusted_addr = @ptrToInt(old_mem.ptr);
+                const old_record_addr = old_adjusted_addr + old_mem.len;
+                const root_addr = @intToPtr(*align(1) usize, old_record_addr).*;
+                const old_ptr = @intToPtr(*c_void, root_addr);
+                const new_record_addr = old_record_addr - new_size + old_mem.len;
+                @intToPtr(*align(1) usize, new_record_addr).* = root_addr;
+                return old_mem[0..new_size];
             },
             else => @compileError("Unsupported OS"),
         }
@@ -151,7 +143,6 @@ pub const DirectAllocator = struct {
                 return result;
             },
             Os.windows => {
-                assert(new_size > 0);
                 if (old_mem.len == 0) return alloc(allocator, new_size, new_align);
 
                 const self = @fieldParentPtr(DirectAllocator, "allocator", allocator);
