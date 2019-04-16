@@ -522,7 +522,18 @@ static AstNode *trans_create_node_apint(Context *c, const ZigClangAPSInt *aps_in
             ZigClangAPSInt_getNumWords(negated), true);
     ZigClangAPSInt_free(negated);
     return node;
+}
 
+static AstNode *trans_create_node_apfloat(Context *c, const llvm::APFloat &ap_float) {
+    uint8_t buf[128];
+    size_t written = ap_float.convertToHexString((char *)buf, 0, false,
+                                                 llvm::APFloat::rmNearestTiesToEven);
+    AstNode *node = trans_create_node(c, NodeTypeFloatLiteral);
+    node->data.float_literal.bigfloat = allocate<BigFloat>(1);
+    if (bigfloat_init_buf(node->data.float_literal.bigfloat, buf, written)) {
+        node->data.float_literal.overflow = true;
+    }
+    return node;
 }
 
 static const ZigClangType *qual_type_canon(ZigClangQualType qt) {
@@ -1310,6 +1321,16 @@ static AstNode *trans_integer_literal(Context *c, ResultUsed result_used, const 
         return nullptr;
     }
     AstNode *node = trans_create_node_apint(c, bitcast(&result.Val.getInt()));
+    return maybe_suppress_result(c, result_used, node);
+}
+
+static AstNode *trans_floating_literal(Context *c, ResultUsed result_used, const clang::FloatingLiteral *stmt) {
+    llvm::APFloat result{0.0f};
+    if (!stmt->EvaluateAsFloat(result, *reinterpret_cast<clang::ASTContext *>(c->ctx))) {
+        emit_warning(c, bitcast(stmt->getBeginLoc()), "invalid floating literal");
+        return nullptr;
+    }
+    AstNode *node = trans_create_node_apfloat(c, result);
     return maybe_suppress_result(c, result_used, node);
 }
 
@@ -3549,8 +3570,8 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const ZigClangStmt *s
             emit_warning(c, ZigClangStmt_getBeginLoc(stmt), "TODO handle C FixedPointLiteralClass");
             return ErrorUnexpected;
         case ZigClangStmt_FloatingLiteralClass:
-            emit_warning(c, ZigClangStmt_getBeginLoc(stmt), "TODO handle C FloatingLiteralClass");
-            return ErrorUnexpected;
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_floating_literal(c, result_used, (const clang::FloatingLiteral *)stmt));
         case ZigClangStmt_ExprWithCleanupsClass:
             emit_warning(c, ZigClangStmt_getBeginLoc(stmt), "TODO handle C ExprWithCleanupsClass");
             return ErrorUnexpected;
