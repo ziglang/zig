@@ -8531,6 +8531,9 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
             args.append("-target");
             args.append(buf_ptr(&g->triple_str));
         }
+        if (g->zig_target->os == OsFreestanding) {
+            args.append("-ffreestanding");
+        }
 
         if (!g->strip_debug_symbols) {
             args.append("-g");

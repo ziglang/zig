@@ -4988,6 +4988,9 @@ Error parse_h_file(AstNode **out_root_node, ZigList<ErrorMsg *> *errors, const c
         clang_argv.append("-target");
         clang_argv.append(buf_ptr(&c->codegen->triple_str));
     }
+    if (c->codegen->zig_target->os == OsFreestanding) {
+        clang_argv.append("-ffreestanding");
+    }
 
     clang_argv.append(target_file);
 
