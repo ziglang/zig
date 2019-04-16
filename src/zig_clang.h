@@ -8,6 +8,8 @@
 #ifndef ZIG_ZIG_CLANG_H
 #define ZIG_ZIG_CLANG_H
 
+#include <inttypes.h>
+
 #ifdef __cplusplus
 #define ZIG_EXTERN_C extern "C"
 #else
@@ -26,7 +28,14 @@ struct ZigClangQualType {
     void *ptr;
 };
 
+struct ZigClangAPValueLValueBase {
+    void *Ptr;
+    unsigned CallIndex;
+    unsigned Version;
+};
+
 struct ZigClangAPValue;
+struct ZigClangAPSInt;
 struct ZigClangASTContext;
 struct ZigClangASTUnit;
 struct ZigClangArraySubscriptExpr;
@@ -400,24 +409,6 @@ enum ZigClangStmtClass {
     ZigClangStmt_WhileStmtClass,
 };
 
-//struct ZigClangCC_AAPCS;
-//struct ZigClangCC_AAPCS_VFP;
-//struct ZigClangCC_C;
-//struct ZigClangCC_IntelOclBicc;
-//struct ZigClangCC_OpenCLKernel;
-//struct ZigClangCC_PreserveAll;
-//struct ZigClangCC_PreserveMost;
-//struct ZigClangCC_SpirFunction;
-//struct ZigClangCC_Swift;
-//struct ZigClangCC_Win64;
-//struct ZigClangCC_X86FastCall;
-//struct ZigClangCC_X86Pascal;
-//struct ZigClangCC_X86RegCall;
-//struct ZigClangCC_X86StdCall;
-//struct ZigClangCC_X86ThisCall;
-//struct ZigClangCC_X86VectorCall;
-//struct ZigClangCC_X86_64SysV;
-
 enum ZigClangCK {
     ZigClangCK_Dependent,
     ZigClangCK_BitCast,
@@ -480,19 +471,20 @@ enum ZigClangCK {
     ZigClangCK_IntToOCLSampler,
 };
 
-//struct ZigClangETK_Class;
-//struct ZigClangETK_Enum;
-//struct ZigClangETK_Interface;
-//struct ZigClangETK_None;
-//struct ZigClangETK_Struct;
-//struct ZigClangETK_Typename;
-//struct ZigClangETK_Union;
-
-//struct ZigClangSC_None;
-//struct ZigClangSC_PrivateExtern;
-//struct ZigClangSC_Static;
-
-//struct ZigClangTU_Complete;
+enum ZigClangAPValueKind {
+    ZigClangAPValueUninitialized,
+    ZigClangAPValueInt,
+    ZigClangAPValueFloat,
+    ZigClangAPValueComplexInt,
+    ZigClangAPValueComplexFloat,
+    ZigClangAPValueLValue,
+    ZigClangAPValueVector,
+    ZigClangAPValueArray,
+    ZigClangAPValueStruct,
+    ZigClangAPValueUnion,
+    ZigClangAPValueMemberPointer,
+    ZigClangAPValueAddrLabelDiff,
+};
 
 ZIG_EXTERN_C ZigClangSourceLocation ZigClangSourceManager_getSpellingLoc(const ZigClangSourceManager *,
         ZigClangSourceLocation Loc);
@@ -558,4 +550,22 @@ ZIG_EXTERN_C bool ZigClangStmt_classof_Expr(const ZigClangStmt *self);
 ZIG_EXTERN_C ZigClangStmtClass ZigClangExpr_getStmtClass(const ZigClangExpr *self);
 ZIG_EXTERN_C ZigClangQualType ZigClangExpr_getType(const ZigClangExpr *self);
 ZIG_EXTERN_C ZigClangSourceLocation ZigClangExpr_getBeginLoc(const ZigClangExpr *self);
+
+ZIG_EXTERN_C ZigClangAPValueKind ZigClangAPValue_getKind(const ZigClangAPValue *self);
+ZIG_EXTERN_C const ZigClangAPSInt *ZigClangAPValue_getInt(const ZigClangAPValue *self);
+ZIG_EXTERN_C unsigned ZigClangAPValue_getArrayInitializedElts(const ZigClangAPValue *self);
+ZIG_EXTERN_C const ZigClangAPValue *ZigClangAPValue_getArrayInitializedElt(const ZigClangAPValue *self, unsigned i);
+ZIG_EXTERN_C const ZigClangAPValue *ZigClangAPValue_getArrayFiller(const ZigClangAPValue *self);
+ZIG_EXTERN_C unsigned ZigClangAPValue_getArraySize(const ZigClangAPValue *self);
+ZIG_EXTERN_C ZigClangAPValueLValueBase ZigClangAPValue_getLValueBase(const ZigClangAPValue *self);
+
+ZIG_EXTERN_C bool ZigClangAPSInt_isSigned(const ZigClangAPSInt *self);
+ZIG_EXTERN_C bool ZigClangAPSInt_isNegative(const ZigClangAPSInt *self);
+ZIG_EXTERN_C const ZigClangAPSInt *ZigClangAPSInt_negate(const ZigClangAPSInt *self);
+ZIG_EXTERN_C void ZigClangAPSInt_free(const ZigClangAPSInt *self);
+ZIG_EXTERN_C const uint64_t *ZigClangAPSInt_getRawData(const ZigClangAPSInt *self);
+ZIG_EXTERN_C unsigned ZigClangAPSInt_getNumWords(const ZigClangAPSInt *self);
+
+ZIG_EXTERN_C const ZigClangExpr *ZigClangAPValueLValueBase_dyn_cast_Expr(ZigClangAPValueLValueBase self);
+
 #endif

@@ -125,7 +125,16 @@ static AstNode *trans_expr(Context *c, ResultUsed result_used, TransScope *scope
 static AstNode *trans_qual_type(Context *c, ZigClangQualType qt, ZigClangSourceLocation source_loc);
 static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *scope,
         const ZigClangExpr *expr, TransLRValue lrval);
-static AstNode *trans_ap_value(Context *c, clang::APValue *ap_value, ZigClangQualType qt, ZigClangSourceLocation source_loc);
+static AstNode *trans_ap_value(Context *c, const ZigClangAPValue *ap_value, ZigClangQualType qt,
+        ZigClangSourceLocation source_loc);
+
+static const ZigClangAPSInt *bitcast(const llvm::APSInt *src) {
+    return reinterpret_cast<const ZigClangAPSInt *>(src);
+}
+
+static const ZigClangAPValue *bitcast(const clang::APValue *src) {
+    return reinterpret_cast<const ZigClangAPValue *>(src);
+}
 
 static const ZigClangStmt *bitcast(const clang::Stmt *src) {
     return reinterpret_cast<const ZigClangStmt *>(src);
@@ -497,16 +506,21 @@ static Buf *string_ref_to_buf(llvm::StringRef string_ref) {
     return buf_create_from_mem((const char *)string_ref.bytes_begin(), string_ref.size());
 }
 
-static AstNode *trans_create_node_apint(Context *c, const llvm::APSInt &aps_int) {
+static AstNode *trans_create_node_apint(Context *c, const ZigClangAPSInt *aps_int) {
     AstNode *node = trans_create_node(c, NodeTypeIntLiteral);
     node->data.int_literal.bigint = allocate<BigInt>(1);
-    bool is_negative = aps_int.isSigned() && aps_int.isNegative();
+    bool is_negative = ZigClangAPSInt_isSigned(aps_int) && ZigClangAPSInt_isNegative(aps_int);
     if (!is_negative) {
-        bigint_init_data(node->data.int_literal.bigint, aps_int.getRawData(), aps_int.getNumWords(), false);
+        bigint_init_data(node->data.int_literal.bigint,
+                ZigClangAPSInt_getRawData(aps_int),
+                ZigClangAPSInt_getNumWords(aps_int),
+                false);
         return node;
     }
-    llvm::APSInt negated = -aps_int;
-    bigint_init_data(node->data.int_literal.bigint, negated.getRawData(), negated.getNumWords(), true);
+    const ZigClangAPSInt *negated = ZigClangAPSInt_negate(aps_int);
+    bigint_init_data(node->data.int_literal.bigint, ZigClangAPSInt_getRawData(negated),
+            ZigClangAPSInt_getNumWords(negated), true);
+    ZigClangAPSInt_free(negated);
     return node;
 
 }
@@ -1295,7 +1309,7 @@ static AstNode *trans_integer_literal(Context *c, ResultUsed result_used, const 
         emit_warning(c, bitcast(stmt->getBeginLoc()), "invalid integer literal");
         return nullptr;
     }
-    AstNode *node = trans_create_node_apint(c, result.Val.getInt());
+    AstNode *node = trans_create_node_apint(c, bitcast(&result.Val.getInt()));
     return maybe_suppress_result(c, result_used, node);
 }
 
@@ -1307,7 +1321,7 @@ static AstNode *trans_constant_expr(Context *c, ResultUsed result_used, const cl
         emit_warning(c, bitcast(expr->getBeginLoc()), "invalid constant expression");
         return nullptr;
     }
-    AstNode *node = trans_ap_value(c, &result.Val, bitcast(expr->getType()), bitcast(expr->getBeginLoc()));
+    AstNode *node = trans_ap_value(c, bitcast(&result.Val), bitcast(expr->getType()), bitcast(expr->getBeginLoc()));
     return maybe_suppress_result(c, result_used, node);
 }
 
@@ -4103,7 +4117,8 @@ static AstNode *resolve_enum_decl(Context *c, const ZigClangEnumDecl *enum_decl)
             field_name = enum_val_name;
         }
 
-        AstNode *int_node = pure_enum && !is_anonymous ? nullptr : trans_create_node_apint(c, enum_const->getInitVal());
+        AstNode *int_node = pure_enum && !is_anonymous ?
+            nullptr : trans_create_node_apint(c, bitcast(&enum_const->getInitVal()));
         AstNode *field_node = trans_create_node(c, NodeTypeStructField);
         field_node->data.struct_field.name = field_name;
         field_node->data.struct_field.type = nullptr;
@@ -4245,17 +4260,19 @@ static AstNode *resolve_record_decl(Context *c, const ZigClangRecordDecl *record
     }
 }
 
-static AstNode *trans_ap_value(Context *c, clang::APValue *ap_value, ZigClangQualType qt, ZigClangSourceLocation source_loc) {
-    switch (ap_value->getKind()) {
-        case clang::APValue::Int:
-            return trans_create_node_apint(c, ap_value->getInt());
-        case clang::APValue::Uninitialized:
+static AstNode *trans_ap_value(Context *c, const ZigClangAPValue *ap_value, ZigClangQualType qt,
+        ZigClangSourceLocation source_loc)
+{
+    switch (ZigClangAPValue_getKind(ap_value)) {
+        case ZigClangAPValueInt:
+            return trans_create_node_apint(c, ZigClangAPValue_getInt(ap_value));
+        case ZigClangAPValueUninitialized:
             return trans_create_node(c, NodeTypeUndefinedLiteral);
-        case clang::APValue::Array: {
+        case ZigClangAPValueArray: {
             emit_warning(c, source_loc, "TODO add a test case for this code");
 
-            unsigned init_count = ap_value->getArrayInitializedElts();
-            unsigned all_count = ap_value->getArraySize();
+            unsigned init_count = ZigClangAPValue_getArrayInitializedElts(ap_value);
+            unsigned all_count = ZigClangAPValue_getArraySize(ap_value);
             unsigned leftover_count = all_count - init_count;
             AstNode *init_node = trans_create_node(c, NodeTypeContainerInitExpr);
             AstNode *arr_type_node = trans_qual_type(c, qt, source_loc);
@@ -4269,8 +4286,8 @@ static AstNode *trans_ap_value(Context *c, clang::APValue *ap_value, ZigClangQua
             ZigClangQualType child_qt = bitcast(qt_type->getAsArrayTypeUnsafe()->getElementType());
 
             for (size_t i = 0; i < init_count; i += 1) {
-                clang::APValue &elem_ap_val = ap_value->getArrayInitializedElt(i);
-                AstNode *elem_node = trans_ap_value(c, &elem_ap_val, child_qt, source_loc);
+                const ZigClangAPValue *elem_ap_val = ZigClangAPValue_getArrayInitializedElt(ap_value, i);
+                AstNode *elem_node = trans_ap_value(c, elem_ap_val, child_qt, source_loc);
                 if (elem_node == nullptr)
                     return nullptr;
                 init_node->data.container_init_expr.entries.append(elem_node);
@@ -4279,8 +4296,8 @@ static AstNode *trans_ap_value(Context *c, clang::APValue *ap_value, ZigClangQua
                 return init_node;
             }
 
-            clang::APValue &filler_ap_val = ap_value->getArrayFiller();
-            AstNode *filler_node = trans_ap_value(c, &filler_ap_val, child_qt, source_loc);
+            const ZigClangAPValue *filler_ap_val = ZigClangAPValue_getArrayFiller(ap_value);
+            AstNode *filler_node = trans_ap_value(c, filler_ap_val, child_qt, source_loc);
             if (filler_node == nullptr)
                 return nullptr;
 
@@ -4307,37 +4324,37 @@ static AstNode *trans_ap_value(Context *c, clang::APValue *ap_value, ZigClangQua
 
             return trans_create_node_bin_op(c, init_node, BinOpTypeArrayCat, rhs_node);
         }
-        case clang::APValue::LValue: {
-            const clang::APValue::LValueBase lval_base = ap_value->getLValueBase();
-            if (const clang::Expr *expr = lval_base.dyn_cast<const clang::Expr *>()) {
-                return trans_expr(c, ResultUsedYes, &c->global_scope->base, bitcast(expr), TransRValue);
+        case ZigClangAPValueLValue: {
+            const ZigClangAPValueLValueBase lval_base = ZigClangAPValue_getLValueBase(ap_value);
+            if (const ZigClangExpr *expr = ZigClangAPValueLValueBase_dyn_cast_Expr(lval_base)) {
+                return trans_expr(c, ResultUsedYes, &c->global_scope->base, expr, TransRValue);
             }
             //const clang::ValueDecl *value_decl = lval_base.get<const clang::ValueDecl *>();
             emit_warning(c, source_loc, "TODO handle initializer LValue clang::ValueDecl");
             return nullptr;
         }
-        case clang::APValue::Float:
+        case ZigClangAPValueFloat:
             emit_warning(c, source_loc, "unsupported initializer value kind: Float");
             return nullptr;
-        case clang::APValue::ComplexInt:
+        case ZigClangAPValueComplexInt:
             emit_warning(c, source_loc, "unsupported initializer value kind: ComplexInt");
             return nullptr;
-        case clang::APValue::ComplexFloat:
+        case ZigClangAPValueComplexFloat:
             emit_warning(c, source_loc, "unsupported initializer value kind: ComplexFloat");
             return nullptr;
-        case clang::APValue::Vector:
+        case ZigClangAPValueVector:
             emit_warning(c, source_loc, "unsupported initializer value kind: Vector");
             return nullptr;
-        case clang::APValue::Struct:
+        case ZigClangAPValueStruct:
             emit_warning(c, source_loc, "unsupported initializer value kind: Struct");
             return nullptr;
-        case clang::APValue::Union:
+        case ZigClangAPValueUnion:
             emit_warning(c, source_loc, "unsupported initializer value kind: Union");
             return nullptr;
-        case clang::APValue::MemberPointer:
+        case ZigClangAPValueMemberPointer:
             emit_warning(c, source_loc, "unsupported initializer value kind: MemberPointer");
             return nullptr;
-        case clang::APValue::AddrLabelDiff:
+        case ZigClangAPValueAddrLabelDiff:
             emit_warning(c, source_loc, "unsupported initializer value kind: AddrLabelDiff");
             return nullptr;
     }
@@ -4374,7 +4391,7 @@ static void visit_var_decl(Context *c, const clang::VarDecl *var_decl) {
     if (is_static && !is_extern) {
         AstNode *init_node;
         if (var_decl->hasInit()) {
-            clang::APValue *ap_value = var_decl->evaluateValue();
+            const ZigClangAPValue *ap_value = bitcast(var_decl->evaluateValue());
             if (ap_value == nullptr) {
                 emit_warning(c, bitcast(var_decl->getLocation()),
                         "ignoring variable '%s' - unable to evaluate initializer", buf_ptr(name));
