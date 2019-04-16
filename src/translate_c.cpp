@@ -1928,12 +1928,6 @@ static AstNode *trans_implicit_cast_expr(Context *c, ResultUsed result_used, Tra
         case ZigClangCK_ConstructorConversion:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_ConstructorConversion");
             return nullptr;
-        case ZigClangCK_IntegralToPointer:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_IntegralToPointer");
-            return nullptr;
-        case ZigClangCK_PointerToIntegral:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_PointerToIntegral");
-            return nullptr;
         case ZigClangCK_PointerToBoolean:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_PointerToBoolean");
             return nullptr;
@@ -1961,6 +1955,41 @@ static AstNode *trans_implicit_cast_expr(Context *c, ResultUsed result_used, Tra
                 // Translate as val != 0
                 return trans_create_node_bin_op(c, val, BinOpTypeCmpNotEq, zero);
             }
+        case ZigClangCK_PointerToIntegral:
+            {
+                AstNode *target_node = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getSubExpr()), TransRValue);
+                if (target_node == nullptr)
+                    return nullptr;
+
+                AstNode *dest_type_node = get_expr_type(c, (const ZigClangExpr *)stmt);
+                if (dest_type_node == nullptr)
+                    return nullptr;
+
+                AstNode *val_node = trans_create_node_builtin_fn_call_str(c, "ptrToInt");
+                val_node->data.fn_call_expr.params.append(target_node);
+                // @ptrToInt always returns a usize
+                AstNode *node = trans_create_node_builtin_fn_call_str(c, "intCast");
+                node->data.fn_call_expr.params.append(dest_type_node);
+                node->data.fn_call_expr.params.append(val_node);
+
+                return maybe_suppress_result(c, result_used, node);
+            }
+        case ZigClangCK_IntegralToPointer:
+            {
+                AstNode *target_node = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getSubExpr()), TransRValue);
+                if (target_node == nullptr)
+                    return nullptr;
+
+                AstNode *dest_type_node = get_expr_type(c, (const ZigClangExpr *)stmt);
+                if (dest_type_node == nullptr)
+                    return nullptr;
+
+                AstNode *node = trans_create_node_builtin_fn_call_str(c, "intToPtr");
+                node->data.fn_call_expr.params.append(dest_type_node);
+                node->data.fn_call_expr.params.append(target_node);
+
+                return maybe_suppress_result(c, result_used, node);
+            }
         case ZigClangCK_IntegralToFloating:
         case ZigClangCK_FloatingToIntegral:
             {
@@ -1972,11 +2001,12 @@ static AstNode *trans_implicit_cast_expr(Context *c, ResultUsed result_used, Tra
                 if (dest_type_node == nullptr)
                     return nullptr;
 
-                const bool int_to_float = (ZigClangCK)stmt->getCastKind() == ZigClangCK_IntegralToFloating;
-                const char *fn = int_to_float ? "intToFloat" : "floatToInt";
+                char const *fn = (ZigClangCK)stmt->getCastKind() == ZigClangCK_IntegralToFloating ?
+                    "intToFloat" : "floatToInt";
                 AstNode *node = trans_create_node_builtin_fn_call_str(c, fn);
                 node->data.fn_call_expr.params.append(dest_type_node);
                 node->data.fn_call_expr.params.append(target_node);
+
                 return maybe_suppress_result(c, result_used, node);
             }
         case ZigClangCK_FixedPointCast:
