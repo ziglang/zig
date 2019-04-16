@@ -1915,16 +1915,28 @@ static AstNode *trans_implicit_cast_expr(Context *c, ResultUsed result_used, Tra
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_IntegralToBoolean");
             return nullptr;
         case ZigClangCK_IntegralToFloating:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_IntegralToFloating");
-            return nullptr;
+        case ZigClangCK_FloatingToIntegral:
+            {
+                AstNode *target_node = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getSubExpr()), TransRValue);
+                if (target_node == nullptr)
+                    return nullptr;
+
+                AstNode *dest_type_node = get_expr_type(c, (const ZigClangExpr *)stmt);
+                if (dest_type_node == nullptr)
+                    return nullptr;
+
+                const bool int_to_float = (ZigClangCK)stmt->getCastKind() == ZigClangCK_IntegralToFloating;
+                const char *fn = int_to_float ? "intToFloat" : "floatToInt";
+                AstNode *node = trans_create_node_builtin_fn_call_str(c, fn);
+                node->data.fn_call_expr.params.append(dest_type_node);
+                node->data.fn_call_expr.params.append(target_node);
+                return maybe_suppress_result(c, result_used, node);
+            }
         case ZigClangCK_FixedPointCast:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_FixedPointCast");
             return nullptr;
         case ZigClangCK_FixedPointToBoolean:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_FixedPointToBoolean");
-            return nullptr;
-        case ZigClangCK_FloatingToIntegral:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_FloatingToIntegral");
             return nullptr;
         case ZigClangCK_FloatingToBoolean:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_FloatingToBoolean");
