@@ -1944,8 +1944,23 @@ static AstNode *trans_implicit_cast_expr(Context *c, ResultUsed result_used, Tra
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_VectorSplat");
             return nullptr;
         case ZigClangCK_IntegralToBoolean:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_IntegralToBoolean");
-            return nullptr;
+            {
+                const clang::Expr *expr = stmt->getSubExpr();
+
+                bool expr_val;
+                if (expr->EvaluateAsBooleanCondition(expr_val, *reinterpret_cast<clang::ASTContext *>(c->ctx))) {
+                    return trans_create_node_bool(c, expr_val);
+                }
+
+                AstNode *val = trans_expr(c, ResultUsedYes, scope, bitcast(expr), TransRValue);
+                if (val == nullptr)
+                    return nullptr;
+
+                AstNode *zero = trans_create_node_unsigned(c, 0);
+
+                // Translate as val != 0
+                return trans_create_node_bin_op(c, val, BinOpTypeCmpNotEq, zero);
+            }
         case ZigClangCK_IntegralToFloating:
         case ZigClangCK_FloatingToIntegral:
             {
