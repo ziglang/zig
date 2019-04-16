@@ -318,9 +318,10 @@ pub const FixedBufferAllocator = struct {
     }
 };
 
+// FIXME: Exposed LLVM intrinsics is a bug
+// See: https://github.com/ziglang/zig/issues/2291
 extern fn @"llvm.wasm.memory.size.i32"(u32) u32;
 extern fn @"llvm.wasm.memory.grow.i32"(u32, u32) i32;
-const WASM_PAGE_SIZE = 64 * 1024; // 64 kilobytes
 
 pub const wasm_allocator = &wasm_allocator_state.allocator;
 var wasm_allocator_state = WasmAllocator{
@@ -333,7 +334,7 @@ var wasm_allocator_state = WasmAllocator{
     .end_index = 0,
 };
 
-pub const WasmAllocator = struct {
+const WasmAllocator = struct {
     allocator: Allocator,
     start_ptr: [*]u8,
     num_pages: usize,
@@ -347,11 +348,11 @@ pub const WasmAllocator = struct {
         const adjusted_index = self.end_index + (adjusted_addr - addr);
         const new_end_index = adjusted_index + size;
 
-        const required_memory = new_end_index - (self.num_pages * WASM_PAGE_SIZE);
+        if (new_end_index > self.num_pages * os.page_size) {
+            const required_memory = new_end_index - (self.num_pages * os.page_size);
 
-        if (required_memory > 0) {
-            var num_pages: u32 = @divTrunc(required_memory, WASM_PAGE_SIZE);
-            if (@rem(required_memory, WASM_PAGE_SIZE) != 0) {
+            var num_pages: u32 = required_memory / os.page_size;
+            if (required_memory % os.page_size != 0) {
                 num_pages += 1;
             }
 
@@ -369,7 +370,7 @@ pub const WasmAllocator = struct {
         return result;
     }
 
-    // Check if memory is the last "item" and it aligns. That lets us expand or reclaim memory
+    // Check if memory is the last "item" and is aligned correctly
     fn is_last_item(allocator: *Allocator, memory: []u8, alignment: u29) bool {
         const self = @fieldParentPtr(WasmAllocator, "allocator", allocator);
         return memory.ptr == self.start_ptr + self.end_index - memory.len and mem.alignForward(@ptrToInt(memory.ptr), alignment) == @ptrToInt(memory.ptr);
@@ -380,14 +381,14 @@ pub const WasmAllocator = struct {
 
         // Initialize start_ptr at the first realloc
         if (self.num_pages == 0) {
-            self.start_ptr = @intToPtr([*]u8, @intCast(usize, @"llvm.wasm.memory.size.i32"(0)) * WASM_PAGE_SIZE);
+            self.start_ptr = @intToPtr([*]u8, @intCast(usize, @"llvm.wasm.memory.size.i32"(0)) * os.page_size);
         }
 
         if (is_last_item(allocator, old_mem, new_align)) {
             const start_index = self.end_index - old_mem.len;
             const new_end_index = start_index + new_size;
 
-            if (new_end_index > self.num_pages * WASM_PAGE_SIZE) {
+            if (new_end_index > self.num_pages * os.page_size) {
                 _ = try alloc(allocator, new_end_index - self.end_index, new_align);
             }
             const result = self.start_ptr[start_index..new_end_index];
@@ -404,7 +405,6 @@ pub const WasmAllocator = struct {
     }
 
     fn shrink(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
-        // TODO: Use is_last_item or other heuristic here
         return old_mem[0..new_size];
     }
 };
