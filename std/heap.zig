@@ -318,6 +318,51 @@ pub const FixedBufferAllocator = struct {
     }
 };
 
+extern fn @"llvm.wasm.memory.grow.i32"(u32, u32) i32;
+
+/// This allocator tries to allocate the specified number of 64 KB pages and uses FixedBufferAllocator internally
+pub const WasmAllocator = blk: {
+    if (builtin.arch != builtin.Arch.wasm32) {
+        @compileError("only supported in wasm32");
+    } else {
+        const mem_grow = @"llvm.wasm.memory.grow.i32";
+
+        const WASM_PAGE_SIZE = 64 * 1024; // 64 kilobytes
+
+        break :blk struct {
+            allocator: Allocator,
+            fb_allocator: FixedBufferAllocator,
+
+            pub fn init(num_pages: u32) !WasmAllocator {
+                const prev_block = mem_grow(0, num_pages);
+                if (prev_block == -1) {
+                    return error.OutOfMemory;
+                }
+
+                const buffer_slice = @intToPtr([*]u8, @intCast(usize, prev_block) * WASM_PAGE_SIZE)[0..(WASM_PAGE_SIZE * num_pages)];
+
+                return WasmAllocator{
+                    .allocator = Allocator{
+                        .reallocFn = realloc,
+                        .shrinkFn = shrink,
+                    },
+                    .fb_allocator = FixedBufferAllocator.init(buffer_slice),
+                };
+            }
+
+            fn realloc(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
+                const self = @fieldParentPtr(WasmAllocator, "allocator", allocator);
+                return FixedBufferAllocator.realloc(&self.fb_allocator.allocator, old_mem, old_align, new_size, new_align);
+            }
+
+            fn shrink(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
+                const self = @fieldParentPtr(WasmAllocator, "allocator", allocator);
+                return FixedBufferAllocator.shrink(&self.fb_allocator.allocator, old_mem, old_align, new_size, new_align);
+            }
+        };
+    }
+};
+
 pub const ThreadSafeFixedBufferAllocator = blk: {
     if (builtin.single_threaded) {
         break :blk FixedBufferAllocator;
