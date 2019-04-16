@@ -159,13 +159,15 @@
     <div id="contents">
       {#header_open|Introduction#}
       <p>
-      Zig is an open-source programming language designed for <strong>robustness</strong>,
-      <strong>optimality</strong>, and <strong>clarity</strong>.
+      Zig is a general-purpose programming language designed for <strong>robustness</strong>,
+      <strong>optimality</strong>, and <strong>maintainability</strong>.
       </p>
       <ul>
         <li><strong>Robust</strong> - behavior is correct even for edge cases such as out of memory.</li>
         <li><strong>Optimal</strong> - write programs the best way they can behave and perform.</li>
-        <li><strong>Clear</strong> - precisely communicate your intent to the compiler and other programmers. The language imposes a low overhead to reading code.</li>
+        <li><strong>Maintainable</strong> - precisely communicate intent to the compiler and other programmers.
+            The language imposes a low overhead to reading code and is resilient to changing requirements
+            and environments.</li>
       </ul>
       <p>
       Often the most efficient way to learn something new is to see examples, so
