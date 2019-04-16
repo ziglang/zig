@@ -53,7 +53,11 @@ pub const path = @import("os/path.zig");
 pub const File = @import("os/file.zig").File;
 pub const time = @import("os/time.zig");
 
-pub const page_size = 4 * 1024;
+pub const page_size = switch (builtin.arch) {
+    .wasm32, .wasm64 => 64 * 1024,
+    else => 4 * 1024,
+};
+
 pub const MAX_PATH_BYTES = switch (builtin.os) {
     Os.linux, Os.macosx, Os.ios, Os.freebsd, Os.netbsd => posix.PATH_MAX,
     // Each UTF-16LE character may be expanded to 3 UTF-8 bytes.
