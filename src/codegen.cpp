@@ -19,6 +19,7 @@
 #include "target.hpp"
 #include "util.hpp"
 #include "zig_llvm.h"
+#include "userland.h"
 
 #include <stdio.h>
 #include <errno.h>
@@ -92,7 +93,7 @@ static const char *symbols_that_llvm_depends_on[] = {
 };
 
 CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget *target,
-    OutType out_type, BuildMode build_mode, Buf *zig_lib_dir, Buf *override_std_dir,
+    OutType out_type, BuildMode build_mode, Buf *override_lib_dir, Buf *override_std_dir,
     ZigLibCInstallation *libc, Buf *cache_dir)
 {
     CodeGen *g = allocate<CodeGen>(1);
@@ -100,19 +101,24 @@ CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget 
     codegen_add_time_event(g, "Initialize");
 
     g->libc = libc;
-    g->zig_lib_dir = zig_lib_dir;
     g->zig_target = target;
     g->cache_dir = cache_dir;
 
+    if (override_lib_dir == nullptr) {
+        g->zig_lib_dir = get_zig_lib_dir();
+    } else {
+        g->zig_lib_dir = override_lib_dir;
+    }
+
     if (override_std_dir == nullptr) {
         g->zig_std_dir = buf_alloc();
-        os_path_join(zig_lib_dir, buf_create_from_str("std"), g->zig_std_dir);
+        os_path_join(g->zig_lib_dir, buf_create_from_str("std"), g->zig_std_dir);
     } else {
         g->zig_std_dir = override_std_dir;
     }
 
     g->zig_c_headers_dir = buf_alloc();
-    os_path_join(zig_lib_dir, buf_create_from_str("include"), g->zig_c_headers_dir);
+    os_path_join(g->zig_lib_dir, buf_create_from_str("include"), g->zig_c_headers_dir);
 
     g->build_mode = build_mode;
     g->out_type = out_type;
@@ -8147,7 +8153,7 @@ static void detect_libc(CodeGen *g) {
     }
 }
 
-AstNode *codegen_translate_c(CodeGen *g, Buf *full_path) {
+AstNode *codegen_translate_c(CodeGen *g, Buf *full_path, bool use_userland_implementation) {
     Buf *src_basename = buf_alloc();
     Buf *src_dirname = buf_alloc();
     os_path_split(full_path, src_dirname, src_basename);
@@ -8158,6 +8164,12 @@ AstNode *codegen_translate_c(CodeGen *g, Buf *full_path) {
     detect_libc(g);
 
     init(g);
+
+    if (use_userland_implementation) {
+        // TODO improve this
+        stage2_translate_c();
+        zig_panic("TODO");
+    }
 
     ZigList<ErrorMsg *> errors = {0};
     AstNode *root_node;

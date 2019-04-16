@@ -858,23 +858,7 @@ fn cmdHelp(allocator: *Allocator, args: []const []const u8) !void {
     try stdout.write(usage);
 }
 
-const info_zen =
-    \\
-    \\ * Communicate intent precisely.
-    \\ * Edge cases matter.
-    \\ * Favor reading code over writing code.
-    \\ * Only one obvious way to do things.
-    \\ * Runtime crashes are better than bugs.
-    \\ * Compile errors are better than runtime crashes.
-    \\ * Incremental improvements.
-    \\ * Avoid local maximums.
-    \\ * Reduce the amount one must remember.
-    \\ * Minimize energy spent on coding style.
-    \\ * Together we serve end users.
-    \\
-    \\
-;
-
+const info_zen = @import("stage1.zig").info_zen;
 fn cmdZen(allocator: *Allocator, args: []const []const u8) !void {
     try stdout.write(info_zen);
 }

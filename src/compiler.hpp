@@ -16,7 +16,7 @@ Error get_compiler_id(Buf **result);
 Buf *get_self_dynamic_linker_path(void);
 
 Buf *get_zig_lib_dir(void);
-Buf *get_zig_special_dir(void);
-Buf *get_zig_std_dir(void);
+Buf *get_zig_special_dir(Buf *zig_lib_dir);
+Buf *get_zig_std_dir(Buf *zig_lib_dir);
 
 #endif

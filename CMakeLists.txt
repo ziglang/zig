@@ -407,6 +407,12 @@ set(SOFTFLOAT_LIBRARIES embedded_softfloat)
 
 find_package(Threads)
 
+# CMake doesn't let us create an empty executable, so we hang on to this one separately.
+set(ZIG_MAIN_SRC "${CMAKE_SOURCE_DIR}/src/main.cpp")
+
+# This is our shim which will be replaced by libuserland written in Zig.
+set(ZIG1_SHIM_SRC "${CMAKE_SOURCE_DIR}/src/userland.cpp")
+
 set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/analyze.cpp"
     "${CMAKE_SOURCE_DIR}/src/ast_render.cpp"
@@ -423,7 +429,6 @@ set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/ir_print.cpp"
     "${CMAKE_SOURCE_DIR}/src/libc_installation.cpp"
     "${CMAKE_SOURCE_DIR}/src/link.cpp"
-    "${CMAKE_SOURCE_DIR}/src/main.cpp"
     "${CMAKE_SOURCE_DIR}/src/os.cpp"
     "${CMAKE_SOURCE_DIR}/src/parser.cpp"
     "${CMAKE_SOURCE_DIR}/src/range_set.cpp"
@@ -6635,19 +6640,19 @@ add_library(zig_cpp STATIC ${ZIG_CPP_SOURCES})
 set_target_properties(zig_cpp PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
 )
+install(TARGETS zig_cpp DESTINATION "${ZIG_CPP_LIB_DIR}")
 
 add_library(opt_c_util STATIC ${OPTIMIZED_C_SOURCES})
 set_target_properties(opt_c_util PROPERTIES
     COMPILE_FLAGS "${OPTIMIZED_C_FLAGS}"
 )
 
-add_executable(zig ${ZIG_SOURCES})
-set_target_properties(zig PROPERTIES
+add_library(compiler STATIC ${ZIG_SOURCES})
+set_target_properties(compiler PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
     LINK_FLAGS ${EXE_LDFLAGS}
 )
-
-target_link_libraries(zig LINK_PUBLIC
+target_link_libraries(compiler LINK_PUBLIC
     zig_cpp
     opt_c_util
     ${SOFTFLOAT_LIBRARIES}
@@ -6656,24 +6661,58 @@ target_link_libraries(zig LINK_PUBLIC
     ${LLVM_LIBRARIES}
     ${CMAKE_THREAD_LIBS_INIT}
 )
-
 if(NOT MSVC)
-    target_link_libraries(zig LINK_PUBLIC ${LIBXML2})
+    target_link_libraries(compiler LINK_PUBLIC ${LIBXML2})
 endif()
 
 if(MINGW)
-    target_link_libraries(zig LINK_PUBLIC ${Z3_LIBRARIES})
+    target_link_libraries(compiler LINK_PUBLIC ${Z3_LIBRARIES})
 endif()
 
 if(ZIG_DIA_GUIDS_LIB)
-    target_link_libraries(zig LINK_PUBLIC ${ZIG_DIA_GUIDS_LIB})
+    target_link_libraries(compiler LINK_PUBLIC ${ZIG_DIA_GUIDS_LIB})
 endif()
 
 if(MSVC OR MINGW)
-    target_link_libraries(zig LINK_PUBLIC version)
+    target_link_libraries(compiler LINK_PUBLIC version)
 endif()
+
+add_executable(zig1 "${ZIG_MAIN_SRC}" "${ZIG1_SHIM_SRC}")
+set_target_properties(zig1 PROPERTIES
+    COMPILE_FLAGS ${EXE_CFLAGS}
+    LINK_FLAGS ${EXE_LDFLAGS}
+)
+target_link_libraries(zig1 compiler)
+
+if(WIN32)
+    set(LIBUSERLAND "${CMAKE_BINARY_DIR}/userland.lib")
+elseif(APPLE)
+    set(LIBUSERLAND "${CMAKE_BINARY_DIR}/userland.o")
+else()
+    set(LIBUSERLAND "${CMAKE_BINARY_DIR}/libuserland.a")
+endif()
+add_custom_command(
+    OUTPUT "${LIBUSERLAND}"
+    COMMAND zig1 ARGS build
+        --override-std-dir std
+        --override-lib-dir "${CMAKE_SOURCE_DIR}"
+        libuserland
+        "-Doutput-dir=${CMAKE_BINARY_DIR}"
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    DEPENDS
+        "${CMAKE_SOURCE_DIR}/src-self-hosted/stage1.zig"
+        "${CMAKE_SOURCE_DIR}/src-self-hosted/translate_c.zig"
+)
+add_custom_target(userland_target DEPENDS "${LIBUSERLAND}")
+add_executable(zig "${ZIG_MAIN_SRC}")
+set_target_properties(zig PROPERTIES
+    COMPILE_FLAGS ${EXE_CFLAGS}
+    LINK_FLAGS ${EXE_LDFLAGS}
+)
+target_link_libraries(zig compiler "${LIBUSERLAND}")
+add_dependencies(zig userland_target)
 install(TARGETS zig DESTINATION bin)
-install(TARGETS zig_cpp DESTINATION "${ZIG_CPP_LIB_DIR}")
+
 
 foreach(file ${ZIG_C_HEADER_FILES})
     get_filename_component(file_dir "${C_HEADERS_DEST}/${file}" DIRECTORY)
