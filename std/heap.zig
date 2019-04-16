@@ -366,8 +366,6 @@ pub const WasmAllocator = struct {
         const result = self.start_ptr[adjusted_index..new_end_index];
         self.end_index = new_end_index;
 
-
-
         return result;
     }
 
