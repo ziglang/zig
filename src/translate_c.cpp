@@ -1334,6 +1334,17 @@ static AstNode *trans_floating_literal(Context *c, ResultUsed result_used, const
     return maybe_suppress_result(c, result_used, node);
 }
 
+static AstNode *trans_character_literal(Context *c, ResultUsed result_used, const clang::CharacterLiteral *stmt) {
+    clang::Expr::EvalResult result;
+    if (!stmt->EvaluateAsInt(result, *reinterpret_cast<clang::ASTContext *>(c->ctx))) {
+        emit_warning(c, bitcast(stmt->getBeginLoc()), "invalid character literal");
+        return nullptr;
+    }
+    AstNode *node = trans_create_node(c, NodeTypeCharLiteral);
+    node->data.char_literal.value = result.Val.getInt().getExtValue();
+    return maybe_suppress_result(c, result_used, node);
+}
+
 static AstNode *trans_constant_expr(Context *c, ResultUsed result_used, const clang::ConstantExpr *expr) {
     clang::Expr::EvalResult result;
     if (!expr->EvaluateAsConstantExpr(result, clang::Expr::EvaluateForCodeGen,
@@ -3531,7 +3542,8 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const ZigClangStmt *s
             emit_warning(c, ZigClangStmt_getBeginLoc(stmt), "TODO handle C ObjCBridgedCastExprClass");
             return ErrorUnexpected;
         case ZigClangStmt_CharacterLiteralClass:
-            emit_warning(c, ZigClangStmt_getBeginLoc(stmt), "TODO handle C CharacterLiteralClass");
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_character_literal(c, result_used, (const clang::CharacterLiteral *)stmt));
             return ErrorUnexpected;
         case ZigClangStmt_ChooseExprClass:
             emit_warning(c, ZigClangStmt_getBeginLoc(stmt), "TODO handle C ChooseExprClass");
