@@ -1549,11 +1549,19 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
     LLVMValueRef offset_buf_ptr = LLVMConstInBoundsGEP(global_array, offset_ptr_indices, 2);
 
     Buf *fn_name = get_mangled_name(g, buf_create_from_str("__zig_fail_unwrap"), false);
-    LLVMTypeRef arg_types[] = {
-        get_llvm_type(g, g->ptr_to_stack_trace_type),
-        get_llvm_type(g, g->err_tag_type),
-    };
-    LLVMTypeRef fn_type_ref = LLVMFunctionType(LLVMVoidType(), arg_types, 2, false);
+    LLVMTypeRef fn_type_ref;
+    if (g->have_err_ret_tracing) {
+        LLVMTypeRef arg_types[] = {
+            get_llvm_type(g, g->ptr_to_stack_trace_type),
+            get_llvm_type(g, g->err_tag_type),
+        };
+        fn_type_ref = LLVMFunctionType(LLVMVoidType(), arg_types, 2, false);
+    } else {
+        LLVMTypeRef arg_types[] = {
+            get_llvm_type(g, g->err_tag_type),
+        };
+        fn_type_ref = LLVMFunctionType(LLVMVoidType(), arg_types, 1, false);
+    }
     LLVMValueRef fn_val = LLVMAddFunction(g->module, buf_ptr(fn_name), fn_type_ref);
     addLLVMFnAttr(fn_val, "noreturn");
     addLLVMFnAttr(fn_val, "cold");
@@ -1575,7 +1583,15 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
     LLVMPositionBuilderAtEnd(g->builder, entry_block);
     ZigLLVMClearCurrentDebugLocation(g->builder);
 
-    LLVMValueRef err_val = LLVMGetParam(fn_val, 1);
+    LLVMValueRef err_ret_trace_arg;
+    LLVMValueRef err_val;
+    if (g->have_err_ret_tracing) {
+        err_ret_trace_arg = LLVMGetParam(fn_val, 0);
+        err_val = LLVMGetParam(fn_val, 1);
+    } else {
+        err_ret_trace_arg = nullptr;
+        err_val = LLVMGetParam(fn_val, 0);
+    }
 
     LLVMValueRef err_table_indices[] = {
         LLVMConstNull(g->builtin_types.entry_usize->llvm_type),
@@ -1597,7 +1613,7 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
     LLVMValueRef global_slice_len_field_ptr = LLVMBuildStructGEP(g->builder, global_slice, slice_len_index, "");
     gen_store(g, full_buf_len, global_slice_len_field_ptr, u8_ptr_type);
 
-    gen_panic(g, global_slice, LLVMGetParam(fn_val, 0));
+    gen_panic(g, global_slice, err_ret_trace_arg);
 
     LLVMPositionBuilderAtEnd(g->builder, prev_block);
     LLVMSetCurrentDebugLocation(g->builder, prev_debug_location);
@@ -1633,17 +1649,26 @@ static LLVMValueRef get_cur_err_ret_trace_val(CodeGen *g, Scope *scope) {
 
 static void gen_safety_crash_for_err(CodeGen *g, LLVMValueRef err_val, Scope *scope) {
     LLVMValueRef safety_crash_err_fn = get_safety_crash_err_fn(g);
-    LLVMValueRef err_ret_trace_val = get_cur_err_ret_trace_val(g, scope);
-    if (err_ret_trace_val == nullptr) {
-        ZigType *ptr_to_stack_trace_type = get_ptr_to_stack_trace_type(g);
-        err_ret_trace_val = LLVMConstNull(get_llvm_type(g, ptr_to_stack_trace_type));
+    LLVMValueRef call_instruction;
+    if (g->have_err_ret_tracing) {
+        LLVMValueRef err_ret_trace_val = get_cur_err_ret_trace_val(g, scope);
+        if (err_ret_trace_val == nullptr) {
+            ZigType *ptr_to_stack_trace_type = get_ptr_to_stack_trace_type(g);
+            err_ret_trace_val = LLVMConstNull(get_llvm_type(g, ptr_to_stack_trace_type));
+        }
+        LLVMValueRef args[] = {
+            err_ret_trace_val,
+            err_val,
+        };
+        call_instruction = ZigLLVMBuildCall(g->builder, safety_crash_err_fn, args, 2,
+                get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAuto, "");
+    } else {
+        LLVMValueRef args[] = {
+            err_val,
+        };
+        call_instruction = ZigLLVMBuildCall(g->builder, safety_crash_err_fn, args, 1,
+                get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAuto, "");
     }
-    LLVMValueRef args[] = {
-        err_ret_trace_val,
-        err_val,
-    };
-    LLVMValueRef call_instruction = ZigLLVMBuildCall(g->builder, safety_crash_err_fn, args, 2, get_llvm_cc(g, CallingConventionUnspecified),
-        ZigLLVM_FnInlineAuto, "");
     LLVMSetTailCall(call_instruction, true);
     LLVMBuildUnreachable(g->builder);
 }
