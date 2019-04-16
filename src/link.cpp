@@ -1091,6 +1091,11 @@ static void construct_linker_job_wasm(LinkJob *lj) {
     CodeGen *g = lj->codegen;
 
     lj->args.append("-error-limit=0");
+
+    // This works around a deadlock in LLD's wasm code.
+    // See https://github.com/ziglang/zig/issues/2283.
+    lj->args.append("--no-threads");
+
     if (g->zig_target->os != OsWASI) {
 	    lj->args.append("--no-entry");  // So lld doesn't look for _start.
     }
