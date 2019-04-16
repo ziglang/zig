@@ -327,6 +327,97 @@ pub const FixedBufferAllocator = struct {
     }
 };
 
+// FIXME: Exposed LLVM intrinsics is a bug
+// See: https://github.com/ziglang/zig/issues/2291
+extern fn @"llvm.wasm.memory.size.i32"(u32) u32;
+extern fn @"llvm.wasm.memory.grow.i32"(u32, u32) i32;
+
+pub const wasm_allocator = &wasm_allocator_state.allocator;
+var wasm_allocator_state = WasmAllocator{
+    .allocator = Allocator{
+        .reallocFn = WasmAllocator.realloc,
+        .shrinkFn = WasmAllocator.shrink,
+    },
+    .start_ptr = undefined,
+    .num_pages = 0,
+    .end_index = 0,
+};
+
+const WasmAllocator = struct {
+    allocator: Allocator,
+    start_ptr: [*]u8,
+    num_pages: usize,
+    end_index: usize,
+
+    fn alloc(allocator: *Allocator, size: usize, alignment: u29) ![]u8 {
+        const self = @fieldParentPtr(WasmAllocator, "allocator", allocator);
+
+        const addr = @ptrToInt(self.start_ptr) + self.end_index;
+        const adjusted_addr = mem.alignForward(addr, alignment);
+        const adjusted_index = self.end_index + (adjusted_addr - addr);
+        const new_end_index = adjusted_index + size;
+
+        if (new_end_index > self.num_pages * os.page_size) {
+            const required_memory = new_end_index - (self.num_pages * os.page_size);
+
+            var num_pages: u32 = required_memory / os.page_size;
+            if (required_memory % os.page_size != 0) {
+                num_pages += 1;
+            }
+
+            const prev_page = @"llvm.wasm.memory.grow.i32"(0, num_pages);
+            if (prev_page == -1) {
+                return error.OutOfMemory;
+            }
+
+            self.num_pages += num_pages;
+        }
+
+        const result = self.start_ptr[adjusted_index..new_end_index];
+        self.end_index = new_end_index;
+
+        return result;
+    }
+
+    // Check if memory is the last "item" and is aligned correctly
+    fn is_last_item(allocator: *Allocator, memory: []u8, alignment: u29) bool {
+        const self = @fieldParentPtr(WasmAllocator, "allocator", allocator);
+        return memory.ptr == self.start_ptr + self.end_index - memory.len and mem.alignForward(@ptrToInt(memory.ptr), alignment) == @ptrToInt(memory.ptr);
+    }
+
+    fn realloc(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
+        const self = @fieldParentPtr(WasmAllocator, "allocator", allocator);
+
+        // Initialize start_ptr at the first realloc
+        if (self.num_pages == 0) {
+            self.start_ptr = @intToPtr([*]u8, @intCast(usize, @"llvm.wasm.memory.size.i32"(0)) * os.page_size);
+        }
+
+        if (is_last_item(allocator, old_mem, new_align)) {
+            const start_index = self.end_index - old_mem.len;
+            const new_end_index = start_index + new_size;
+
+            if (new_end_index > self.num_pages * os.page_size) {
+                _ = try alloc(allocator, new_end_index - self.end_index, new_align);
+            }
+            const result = self.start_ptr[start_index..new_end_index];
+
+            self.end_index = new_end_index;
+            return result;
+        } else if (new_size <= old_mem.len and new_align <= old_align) {
+            return error.OutOfMemory;
+        } else {
+            const result = try alloc(allocator, new_size, new_align);
+            mem.copy(u8, result, old_mem);
+            return result;
+        }
+    }
+
+    fn shrink(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
+        return old_mem[0..new_size];
+    }
+};
+
 pub const ThreadSafeFixedBufferAllocator = blk: {
     if (builtin.single_threaded) {
         break :blk FixedBufferAllocator;
