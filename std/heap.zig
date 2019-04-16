@@ -318,48 +318,96 @@ pub const FixedBufferAllocator = struct {
     }
 };
 
+extern fn @"llvm.wasm.memory.size.i32"(u32) u32;
 extern fn @"llvm.wasm.memory.grow.i32"(u32, u32) i32;
+const WASM_PAGE_SIZE = 64 * 1024; // 64 kilobytes
 
-/// This allocator tries to allocate the specified number of 64 KB pages and uses FixedBufferAllocator internally
-pub const WasmAllocator = blk: {
-    if (builtin.arch != builtin.Arch.wasm32) {
-        @compileError("only supported in wasm32");
-    } else {
-        const mem_grow = @"llvm.wasm.memory.grow.i32";
+pub const wasm_allocator = &wasm_allocator_state.allocator;
+var wasm_allocator_state = WasmAllocator{
+    .allocator = Allocator{
+        .reallocFn = WasmAllocator.realloc,
+        .shrinkFn = WasmAllocator.shrink,
+    },
+    .start_ptr = undefined,
+    .num_pages = 0,
+    .end_index = 0,
+};
 
-        const WASM_PAGE_SIZE = 64 * 1024; // 64 kilobytes
+pub const WasmAllocator = struct {
+    allocator: Allocator,
+    start_ptr: [*]u8,
+    num_pages: usize,
+    end_index: usize,
 
-        break :blk struct {
-            allocator: Allocator,
-            fb_allocator: FixedBufferAllocator,
+    fn alloc(allocator: *Allocator, size: usize, alignment: u29) ![]u8 {
+        const self = @fieldParentPtr(WasmAllocator, "allocator", allocator);
 
-            pub fn init(num_pages: u32) !WasmAllocator {
-                const prev_block = mem_grow(0, num_pages);
-                if (prev_block == -1) {
-                    return error.OutOfMemory;
-                }
+        const addr = @ptrToInt(self.start_ptr) + self.end_index;
+        const adjusted_addr = mem.alignForward(addr, alignment);
+        const adjusted_index = self.end_index + (adjusted_addr - addr);
+        const new_end_index = adjusted_index + size;
 
-                const buffer_slice = @intToPtr([*]u8, @intCast(usize, prev_block) * WASM_PAGE_SIZE)[0..(WASM_PAGE_SIZE * num_pages)];
+        const required_memory = new_end_index - (self.num_pages * WASM_PAGE_SIZE);
 
-                return WasmAllocator{
-                    .allocator = Allocator{
-                        .reallocFn = realloc,
-                        .shrinkFn = shrink,
-                    },
-                    .fb_allocator = FixedBufferAllocator.init(buffer_slice),
-                };
+        if (required_memory > 0) {
+            var num_pages: u32 = @divTrunc(required_memory, WASM_PAGE_SIZE);
+            if (@rem(required_memory, WASM_PAGE_SIZE) != 0) {
+                num_pages += 1;
             }
 
-            fn realloc(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
-                const self = @fieldParentPtr(WasmAllocator, "allocator", allocator);
-                return FixedBufferAllocator.realloc(&self.fb_allocator.allocator, old_mem, old_align, new_size, new_align);
+            const prev_page = @"llvm.wasm.memory.grow.i32"(0, num_pages);
+            if (prev_page == -1) {
+                return error.OutOfMemory;
             }
 
-            fn shrink(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
-                const self = @fieldParentPtr(WasmAllocator, "allocator", allocator);
-                return FixedBufferAllocator.shrink(&self.fb_allocator.allocator, old_mem, old_align, new_size, new_align);
+            self.num_pages += num_pages;
+        }
+
+        const result = self.start_ptr[adjusted_index..new_end_index];
+        self.end_index = new_end_index;
+
+
+
+        return result;
+    }
+
+    // Check if memory is the last "item" and it aligns. That lets us expand or reclaim memory
+    fn is_last_item(allocator: *Allocator, memory: []u8, alignment: u29) bool {
+        const self = @fieldParentPtr(WasmAllocator, "allocator", allocator);
+        return memory.ptr == self.start_ptr + self.end_index - memory.len and mem.alignForward(@ptrToInt(memory.ptr), alignment) == @ptrToInt(memory.ptr);
+    }
+
+    fn realloc(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
+        const self = @fieldParentPtr(WasmAllocator, "allocator", allocator);
+
+        // Initialize start_ptr at the first realloc
+        if (self.num_pages == 0) {
+            self.start_ptr = @intToPtr([*]u8, @intCast(usize, @"llvm.wasm.memory.size.i32"(0)) * WASM_PAGE_SIZE);
+        }
+
+        if (is_last_item(allocator, old_mem, new_align)) {
+            const start_index = self.end_index - old_mem.len;
+            const new_end_index = start_index + new_size;
+
+            if (new_end_index > self.num_pages * WASM_PAGE_SIZE) {
+                _ = try alloc(allocator, new_end_index - self.end_index, new_align);
             }
-        };
+            const result = self.start_ptr[start_index..new_end_index];
+
+            self.end_index = new_end_index;
+            return result;
+        } else if (new_size <= old_mem.len and new_align <= old_align) {
+            return error.OutOfMemory;
+        } else {
+            const result = try alloc(allocator, new_size, new_align);
+            mem.copy(u8, result, old_mem);
+            return result;
+        }
+    }
+
+    fn shrink(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
+        // TODO: Use is_last_item or other heuristic here
+        return old_mem[0..new_size];
     }
 };
 
