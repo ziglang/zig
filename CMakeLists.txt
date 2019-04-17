@@ -411,7 +411,7 @@ find_package(Threads)
 set(ZIG_MAIN_SRC "${CMAKE_SOURCE_DIR}/src/main.cpp")
 
 # This is our shim which will be replaced by libuserland written in Zig.
-set(ZIG1_SHIM_SRC "${CMAKE_SOURCE_DIR}/src/userland.cpp")
+set(ZIG0_SHIM_SRC "${CMAKE_SOURCE_DIR}/src/userland.cpp")
 
 set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/analyze.cpp"
@@ -6677,12 +6677,12 @@ if(MSVC OR MINGW)
     target_link_libraries(compiler LINK_PUBLIC version)
 endif()
 
-add_executable(zig1 "${ZIG_MAIN_SRC}" "${ZIG1_SHIM_SRC}")
-set_target_properties(zig1 PROPERTIES
+add_executable(zig0 "${ZIG_MAIN_SRC}" "${ZIG0_SHIM_SRC}")
+set_target_properties(zig0 PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
     LINK_FLAGS ${EXE_LDFLAGS}
 )
-target_link_libraries(zig1 compiler)
+target_link_libraries(zig0 compiler)
 
 if(WIN32)
     set(LIBUSERLAND "${CMAKE_BINARY_DIR}/userland.lib")
@@ -6693,7 +6693,7 @@ else()
 endif()
 add_custom_command(
     OUTPUT "${LIBUSERLAND}"
-    COMMAND zig1 ARGS build
+    COMMAND zig0 ARGS build
         --override-std-dir std
         --override-lib-dir "${CMAKE_SOURCE_DIR}"
         libuserland
