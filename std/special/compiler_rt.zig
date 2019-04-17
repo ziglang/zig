@@ -6,26 +6,33 @@ comptime {
     const strong_linkage = if (is_test) builtin.GlobalLinkage.Internal else builtin.GlobalLinkage.Strong;
 
     @export("__lesf2", @import("compiler_rt/comparesf2.zig").__lesf2, linkage);
+    @export("__ledf2", @import("compiler_rt/comparedf2.zig").__ledf2, linkage);
     @export("__letf2", @import("compiler_rt/comparetf2.zig").__letf2, linkage);
 
     @export("__gesf2", @import("compiler_rt/comparesf2.zig").__gesf2, linkage);
+    @export("__gedf2", @import("compiler_rt/comparedf2.zig").__gedf2, linkage);
     @export("__getf2", @import("compiler_rt/comparetf2.zig").__getf2, linkage);
 
     if (!is_test) {
         // only create these aliases when not testing
         @export("__cmpsf2", @import("compiler_rt/comparesf2.zig").__lesf2, linkage);
+        @export("__cmpdf2", @import("compiler_rt/comparedf2.zig").__ledf2, linkage);
         @export("__cmptf2", @import("compiler_rt/comparetf2.zig").__letf2, linkage);
 
         @export("__eqsf2", @import("compiler_rt/comparesf2.zig").__eqsf2, linkage);
+        @export("__eqdf2", @import("compiler_rt/comparedf2.zig").__eqdf2, linkage);
         @export("__eqtf2", @import("compiler_rt/comparetf2.zig").__letf2, linkage);
 
         @export("__ltsf2", @import("compiler_rt/comparesf2.zig").__ltsf2, linkage);
+        @export("__ltdf2", @import("compiler_rt/comparedf2.zig").__ltdf2, linkage);
         @export("__lttf2", @import("compiler_rt/comparetf2.zig").__letf2, linkage);
 
         @export("__nesf2", @import("compiler_rt/comparesf2.zig").__nesf2, linkage);
+        @export("__nedf2", @import("compiler_rt/comparedf2.zig").__nedf2, linkage);
         @export("__netf2", @import("compiler_rt/comparetf2.zig").__letf2, linkage);
 
         @export("__gtsf2", @import("compiler_rt/comparesf2.zig").__gtsf2, linkage);
+        @export("__gtdf2", @import("compiler_rt/comparedf2.zig").__gtdf2, linkage);
         @export("__gttf2", @import("compiler_rt/comparetf2.zig").__getf2, linkage);
 
         @export("__gnu_h2f_ieee", @import("compiler_rt/extendXfYf2.zig").__extendhfsf2, linkage);
@@ -33,6 +40,7 @@ comptime {
     }
 
     @export("__unordsf2", @import("compiler_rt/comparesf2.zig").__unordsf2, linkage);
+    @export("__unorddf2", @import("compiler_rt/comparedf2.zig").__unorddf2, linkage);
     @export("__unordtf2", @import("compiler_rt/comparetf2.zig").__unordtf2, linkage);
 
     @export("__addsf3", @import("compiler_rt/addXf3.zig").__addsf3, linkage);
@@ -165,6 +173,13 @@ comptime {
         @export("__aeabi_fcmpge", @import("compiler_rt/arm/aeabi_fcmp.zig").__aeabi_fcmpge, linkage);
         @export("__aeabi_fcmpgt", @import("compiler_rt/arm/aeabi_fcmp.zig").__aeabi_fcmpgt, linkage);
         @export("__aeabi_fcmpun", @import("compiler_rt/comparesf2.zig").__unordsf2, linkage);
+
+        @export("__aeabi_dcmpeq", @import("compiler_rt/arm/aeabi_dcmp.zig").__aeabi_dcmpeq, linkage);
+        @export("__aeabi_dcmplt", @import("compiler_rt/arm/aeabi_dcmp.zig").__aeabi_dcmplt, linkage);
+        @export("__aeabi_dcmple", @import("compiler_rt/arm/aeabi_dcmp.zig").__aeabi_dcmple, linkage);
+        @export("__aeabi_dcmpge", @import("compiler_rt/arm/aeabi_dcmp.zig").__aeabi_dcmpge, linkage);
+        @export("__aeabi_dcmpgt", @import("compiler_rt/arm/aeabi_dcmp.zig").__aeabi_dcmpgt, linkage);
+        @export("__aeabi_dcmpun", @import("compiler_rt/comparedf2.zig").__unorddf2, linkage);
     }
     if (builtin.os == builtin.Os.windows) {
         switch (builtin.arch) {
