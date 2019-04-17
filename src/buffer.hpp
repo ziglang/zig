@@ -10,7 +10,6 @@
 
 #include "list.hpp"
 
-#include <assert.h>
 #include <stdint.h>
 #include <ctype.h>
 #include <stdarg.h>

@@ -25,3 +25,7 @@ export fn stage2_zen(ptr: *[*]const u8, len: *usize) void {
     ptr.* = &info_zen;
     len.* = info_zen.len;
 }
+
+export fn stage2_panic(ptr: [*]const u8, len: usize) void {
+    @panic(ptr[0..len]);
+}

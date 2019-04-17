@@ -8,8 +8,6 @@
 #ifndef ERROR_HPP
 #define ERROR_HPP
 
-#include <assert.h>
-
 enum Error {
     ErrorNone,
     ErrorNoMem,
@@ -56,8 +54,6 @@ enum Error {
 
 const char *err_str(Error err);
 
-static inline void assertNoError(Error err) {
-    assert(err == ErrorNone);
-}
+#define assertNoError(err) assert((err) == ErrorNone);
 
 #endif

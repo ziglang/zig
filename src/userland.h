@@ -20,4 +20,6 @@ ZIG_USERLAND_EXTERN_C void stage2_translate_c(void);
 
 ZIG_USERLAND_EXTERN_C void stage2_zen(const char **ptr, size_t *len);
 
+ZIG_USERLAND_EXTERN_C void stage2_panic(const char *ptr, size_t len);
+
 #endif
