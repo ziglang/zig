@@ -233,63 +233,83 @@ inline fn inTable(c: u8, t: tIndex) bool {
     } else unreachable;
 }
 
+/// isAlpha(c) or isDigit(c)
 pub fn isAlNum(c: u8) bool {
     return (combinedTable[c] & ((u8(1) << @truncate(u3, @enumToInt(tIndex.Alpha))) | 
                                  u8(1) << @truncate(u3, @enumToInt(tIndex.Digit)))) != 0;
 }
 
+/// 'a'...'z', 'A'...'Z'
 pub fn isAlpha(c: u8) bool {
     return inTable(c, tIndex.Alpha);
 }
 
+/// c < 0x20 or c == 127 (DEL)
 pub fn isCntrl(c: u8) bool {
     return inTable(c, tIndex.Cntrl);
 }
 
+/// '0'...'9'
 pub fn isDigit(c: u8) bool {
     return inTable(c, tIndex.Digit);
 }
 
+/// !isCtrl(c) and c != 0x20 (space)
 pub fn isGraph(c: u8) bool {
     return inTable(c, tIndex.Graph);
 }
 
+/// 'a'...'z'
 pub fn isLower(c: u8) bool {
     return inTable(c, tIndex.Lower);
 }
 
+/// !isCtrl(c)
 pub fn isPrint(c: u8) bool {
     return inTable(c, tIndex.Print);
 }
 
+/// !isGraph(c) and !isAlNum(c)
 pub fn isPunct(c: u8) bool {
     return inTable(c, tIndex.Punct);
 }
 
+/// space, form-feed, newline, carriage return, horizontal tab, and vertical tab
 pub fn isSpace(c: u8) bool {
     return inTable(c, tIndex.Space);
 }
 
+/// 'A'...'Z'
 pub fn isUpper(c: u8) bool {
     return inTable(c, tIndex.Upper);
 }
 
+/// '0'...'9' or 'a'...'f' or 'A'...'F'
 pub fn isXDigit(c: u8) bool {
     return inTable(c, tIndex.Hex);
 }
 
+/// c < 128
 pub fn isASCII(c: u8) bool {
     return c < 128;
 }
 
+/// space or horizontal tab
 pub fn isBlank(c: u8) bool {
     return inTable(c, tIndex.Blank);
 }
 
+/// Is a byte allowed in Zig source code.
+/// Specifically, valid UTF-8 bytes, and ASCII
+/// with only newline of the control characters allowed.
+/// see doc/langref.html.in online at https://ziglang.org/documentation/master/#Source-Encoding
+/// Does not validate UTF-8 or check for prohibited Unicode code-points.
 pub fn isZig(c: u8) bool {
     return inTable(c, tIndex.Zig);
 }
 
+/// Converts a isLower(c) character to upper case,
+/// or returns the input.
 pub fn toUpper(c: u8) u8 {
     if (isLower(c)) {
         return c & 0b11011111;
@@ -298,6 +318,8 @@ pub fn toUpper(c: u8) u8 {
     }
 }
 
+/// Converts a isUpper(c) character to lower case,
+/// or returns the input.
 pub fn toLower(c: u8) u8 {
     if (isUpper(c)) {
         return c | 0b00100000;
