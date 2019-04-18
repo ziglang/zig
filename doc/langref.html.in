@@ -3128,7 +3128,7 @@ test "while null capture" {
     while (eventuallyNullSequence()) |value| {
         sum2 += value;
     } else {
-        assert(sum1 == 3);
+        assert(sum2 == 3);
     }
 }
 
