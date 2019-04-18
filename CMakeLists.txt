@@ -62,6 +62,16 @@ endif()
 
 set(ZIG_CPP_LIB_DIR "${CMAKE_BINARY_DIR}/zig_cpp")
 
+# Handle multi-config builds and place each into a common lib. The VS generator
+# for example will append a Debug folder by default if not explicitly specified.
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${ZIG_CPP_LIB_DIR})
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${ZIG_CPP_LIB_DIR})
+foreach(CONFIG_TYPE ${CMAKE_CONFIGURATION_TYPES})
+    string(TOUPPER ${CONFIG_TYPE} CONFIG_TYPE)
+    set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_${CONFIG_TYPE} ${ZIG_CPP_LIB_DIR})
+    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_${CONFIG_TYPE} ${ZIG_CPP_LIB_DIR})
+endforeach(CONFIG_TYPE CMAKE_CONFIGURATION_TYPES)
+
 if(ZIG_FORCE_EXTERNAL_LLD)
     find_package(lld)
     include_directories(${LLVM_INCLUDE_DIRS})
@@ -257,7 +267,6 @@ else()
         embedded_lld_wasm
         embedded_lld_lib
     )
-    install(TARGETS embedded_lld_elf embedded_lld_coff embedded_lld_mingw embedded_lld_wasm embedded_lld_lib DESTINATION "${ZIG_CPP_LIB_DIR}")
 endif()
 
 # No patches have been applied to SoftFloat-3e
