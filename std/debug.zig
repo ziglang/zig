@@ -1440,7 +1440,7 @@ fn parseFormValueBlock(allocator: *mem.Allocator, in_stream: var, size: usize) !
     return parseFormValueBlockLen(allocator, in_stream, block_len);
 }
 
-fn parseFormValueConstant(allocator: *mem.Allocator, in_stream: var, signed: bool, size: i32) !FormValue {
+fn parseFormValueConstant(allocator: *mem.Allocator, in_stream: var, signed: bool, comptime size: i32) !FormValue {
     return FormValue{
         .Const = Constant{
             .signed = signed,
@@ -1449,8 +1449,9 @@ fn parseFormValueConstant(allocator: *mem.Allocator, in_stream: var, signed: boo
                 2  => try in_stream.readIntLittle(u16),
                 4  => try in_stream.readIntLittle(u32),
                 8  => try in_stream.readIntLittle(u64),
-                -1 => if (signed) try readULeb128(in_stream) else @intCast(u64, try readILeb128(in_stream)),
-                else => unreachable,
+                -1 => if (signed) @intCast(u64, try readILeb128(in_stream))
+                      else try readULeb128(in_stream),
+                else => @compileError("Invalid size"),
             },
         },
     };
