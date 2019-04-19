@@ -44,7 +44,6 @@ pub const FailingAllocator = struct {
         } else {
             self.allocated_bytes += new_size - old_mem.len;
         }
-        self.deallocations += 1;
         self.index += 1;
         return result;
     }
@@ -52,6 +51,7 @@ pub const FailingAllocator = struct {
     fn shrink(allocator: *mem.Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
         const self = @fieldParentPtr(FailingAllocator, "allocator", allocator);
         self.freed_bytes += old_mem.len - new_size;
+        self.deallocations += 1;
         return self.internal_allocator.shrinkFn(self.internal_allocator, old_mem, old_align, new_size, new_align);
     }
 };
