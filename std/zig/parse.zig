@@ -629,6 +629,35 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         });
                         continue;
                     },
+                    Token.Id.Keyword_comptime => {
+                        const block = try arena.create(ast.Node.Block);
+                        block.* = ast.Node.Block{
+                            .base = ast.Node{ .id = ast.Node.Id.Block },
+                            .label = null,
+                            .lbrace = undefined,
+                            .statements = ast.Node.Block.StatementList.init(arena),
+                            .rbrace = undefined,
+                        };
+
+                        const node = try arena.create(ast.Node.Comptime);
+                        node.* = ast.Node.Comptime{
+                            .base = ast.Node{ .id = ast.Node.Id.Comptime },
+                            .comptime_token = token_index,
+                            .expr = &block.base,
+                            .doc_comments = comments,
+                        };
+                        try container_decl.fields_and_decls.push(&node.base);
+
+                        stack.append(State{ .ContainerDecl = container_decl }) catch unreachable;
+                        try stack.append(State{ .Block = block });
+                        try stack.append(State{
+                            .ExpectTokenSave = ExpectTokenSave{
+                                .id = Token.Id.LBrace,
+                                .ptr = &block.lbrace,
+                            },
+                        });
+                        continue;
+                    },
                     Token.Id.RBrace => {
                         if (comments != null) {
                             ((try tree.errors.addOne())).* = Error{ .UnattachedDocComment = Error.UnattachedDocComment{ .token = token_index } };

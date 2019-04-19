@@ -2118,6 +2118,21 @@ test "zig fmt: error return" {
     );
 }
 
+test "zig fmt: comptime block in container" {
+    try testCanonical(
+        \\pub fn container() type {
+        \\    return struct {
+        \\        comptime {
+        \\            if (false) {
+        \\                unreachable;
+        \\            }
+        \\        }
+        \\    };
+        \\}
+        \\
+    );
+}
+
 const std = @import("std");
 const mem = std.mem;
 const warn = std.debug.warn;
