@@ -1179,7 +1179,7 @@ static const char *get_libc_static_file(ZigLibCInstallation *lib, const char *fi
     return buf_ptr(out_buf);
 }
 
-static void add_gnu_link_args(LinkJob *lj, bool is_library) {
+static void add_mingw_link_args(LinkJob *lj, bool is_library) {
     CodeGen *g = lj->codegen;
 
     bool is_dll = g->out_type == OutTypeLib && g->is_dynamic;
@@ -1232,7 +1232,7 @@ static void add_gnu_link_args(LinkJob *lj, bool is_library) {
 static void add_win_link_args(LinkJob *lj, bool is_library) {
     if (lj->link_in_crt) {
         if (target_abi_is_gnu(lj->codegen->zig_target->abi)) {
-            add_gnu_link_args(lj, is_library);
+            add_mingw_link_args(lj, is_library);
         } else {
             add_msvc_link_args(lj, is_library);
         }
