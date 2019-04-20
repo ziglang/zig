@@ -151,6 +151,13 @@ pub const DirectAllocator = struct {
                 const old_record_addr = old_adjusted_addr + old_mem.len;
                 const root_addr = @intToPtr(*align(1) usize, old_record_addr).*;
                 const old_ptr = @intToPtr(*c_void, root_addr);
+                
+                if(new_size == 0)
+                {
+                    if(os.windows.HeapFree(self.heap_handle.?, 0, old_ptr) == 0) unreachable;
+                    return old_mem[0..0];
+                }
+                
                 const amt = new_size + new_align + @sizeOf(usize);
                 const new_ptr = os.windows.HeapReAlloc(
                     self.heap_handle.?,
