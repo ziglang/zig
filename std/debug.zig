@@ -376,7 +376,6 @@ fn printSourceAtAddressWindows(di: *DebugInfo, out_stream: var, relocated_addres
                         // There is an unknown number of LineBlockFragmentHeaders (and their accompanying line and column records)
                         // from now on. We will iterate through them, and eventually find a LineInfo that we're interested in,
                         // breaking out to :subsections. If not, we will make sure to not read anything outside of this subsection.
-
                         const subsection_end_index = sect_offset + subsect_hdr.Length;
 
                         while (line_index < subsection_end_index) {
@@ -692,7 +691,7 @@ pub fn printSourceAtAddressDwarf(
     const compile_unit_name = try compile_unit.die.getAttrString(debug_info, DW.AT_name);
     if (getLineNumberInfoDwarf(debug_info, compile_unit.*, address - 1)) |line_info| {
         defer line_info.deinit();
-        const symbol_name = getSymbolNameDwarf(debug_info, address - 1) orelse "???"[0..2];
+        const symbol_name = getSymbolNameDwarf(debug_info, address - 1) orelse "???";
         try printLineInfo(
             out_stream,
             line_info,
@@ -1457,12 +1456,11 @@ fn parseFormValueConstant(allocator: *mem.Allocator, in_stream: var, signed: boo
         .Const = Constant{
             .signed = signed,
             .payload = switch (size) {
-                1  => try in_stream.readIntLittle(u8),
-                2  => try in_stream.readIntLittle(u16),
-                4  => try in_stream.readIntLittle(u32),
-                8  => try in_stream.readIntLittle(u64),
-                -1 => if (signed) @intCast(u64, try readILeb128(in_stream))
-                      else try readULeb128(in_stream),
+                1 => try in_stream.readIntLittle(u8),
+                2 => try in_stream.readIntLittle(u16),
+                4 => try in_stream.readIntLittle(u32),
+                8 => try in_stream.readIntLittle(u64),
+                -1 => if (signed) @intCast(u64, try readILeb128(in_stream)) else try readULeb128(in_stream),
                 else => @compileError("Invalid size"),
             },
         },
@@ -1480,10 +1478,10 @@ fn parseFormValueTargetAddrSize(in_stream: var) !u64 {
 fn parseFormValueRef(allocator: *mem.Allocator, in_stream: var, size: i32) !FormValue {
     return FormValue{
         .Ref = switch (size) {
-            1  => try in_stream.readIntLittle(u8),
-            2  => try in_stream.readIntLittle(u16),
-            4  => try in_stream.readIntLittle(u32),
-            8  => try in_stream.readIntLittle(u64),
+            1 => try in_stream.readIntLittle(u8),
+            2 => try in_stream.readIntLittle(u16),
+            4 => try in_stream.readIntLittle(u32),
+            8 => try in_stream.readIntLittle(u64),
             -1 => try readULeb128(in_stream),
             else => unreachable,
         },
@@ -1992,7 +1990,7 @@ const Func = struct {
     name: ?[]u8,
 };
 
-fn getSymbolNameDwarf(di: *DwarfInfo, address: u64) ?[]u8 {
+fn getSymbolNameDwarf(di: *DwarfInfo, address: u64) ?[]const u8 {
     for (di.func_list.toSliceConst()) |*func| {
         if (func.pc_range) |range| {
             if (address >= range.start and address < range.end) {
@@ -2036,10 +2034,7 @@ fn scanAllFunctions(di: *DwarfInfo) !void {
             const after_die_offset = try di.dwarf_seekable_stream.getPos();
 
             switch (die_obj.tag_id) {
-                DW.TAG_subprogram,
-                DW.TAG_inlined_subroutine,
-                DW.TAG_subroutine,
-                DW.TAG_entry_point => {
+                DW.TAG_subprogram, DW.TAG_inlined_subroutine, DW.TAG_subroutine, DW.TAG_entry_point => {
                     const fn_name = x: {
                         var depth: i32 = 3;
                         var this_die_obj = die_obj;
@@ -2048,22 +2043,19 @@ fn scanAllFunctions(di: *DwarfInfo) !void {
                             if (this_die_obj.getAttr(DW.AT_name)) |_| {
                                 const name = try this_die_obj.getAttrString(di, DW.AT_name);
                                 break :x name;
-                            }
-                            else if (this_die_obj.getAttr(DW.AT_abstract_origin)) |ref| {
+                            } else if (this_die_obj.getAttr(DW.AT_abstract_origin)) |ref| {
                                 // Follow the DIE it points to and repeat
                                 const ref_offset = try this_die_obj.getAttrRef(DW.AT_abstract_origin);
                                 if (ref_offset > next_offset) return error.InvalidDebugInfo;
                                 try di.dwarf_seekable_stream.seekTo(this_unit_offset + ref_offset);
                                 this_die_obj = (try parseDie1(di, abbrev_table, is_64)) orelse return error.InvalidDebugInfo;
-                            }
-                            else if (this_die_obj.getAttr(DW.AT_specification)) |ref| {
+                            } else if (this_die_obj.getAttr(DW.AT_specification)) |ref| {
                                 // Follow the DIE it points to and repeat
                                 const ref_offset = try this_die_obj.getAttrRef(DW.AT_abstract_origin);
                                 if (ref_offset > next_offset) return error.InvalidDebugInfo;
                                 try di.dwarf_seekable_stream.seekTo(this_unit_offset + ref_offset);
                                 this_die_obj = (try parseDie1(di, abbrev_table, is_64)) orelse return error.InvalidDebugInfo;
-                            }
-                            else {
+                            } else {
                                 break :x null;
                             }
                         }
@@ -2102,7 +2094,7 @@ fn scanAllFunctions(di: *DwarfInfo) !void {
                 },
                 else => {
                     continue;
-                }
+                },
             }
 
             try di.dwarf_seekable_stream.seekTo(after_die_offset);
