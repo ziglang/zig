@@ -139,7 +139,11 @@ pub const DirectAllocator = struct {
                     return shrink(allocator, old_mem, old_align, new_size, new_align);
                 }
                 const result = try alloc(allocator, new_size, new_align);
-                mem.copy(u8, result, old_mem);
+                if (result.len >= old_mem.len) {
+                    mem.copy(u8, result, old_mem);
+                } else {
+                    @memcpy(result.ptr, old_mem.ptr, new_size);
+                }
                 _ = os.posix.munmap(@ptrToInt(old_mem.ptr), old_mem.len);
                 return result;
             },
@@ -258,7 +262,11 @@ pub const ArenaAllocator = struct {
             return error.OutOfMemory;
         } else {
             const result = try alloc(allocator, new_size, new_align);
-            mem.copy(u8, result, old_mem);
+            if (result.len >= old_mem.len) {
+                mem.copy(u8, result, old_mem);
+            } else {
+                @memcpy(result.ptr, old_mem.ptr, new_size);
+            }
             return result;
         }
     }
@@ -316,7 +324,11 @@ pub const FixedBufferAllocator = struct {
             return error.OutOfMemory;
         } else {
             const result = try alloc(allocator, new_size, new_align);
-            mem.copy(u8, result, old_mem);
+            if (result.len >= old_mem.len) {
+                mem.copy(u8, result, old_mem);
+            } else {
+                @memcpy(result.ptr, old_mem.ptr, new_size);
+            }
             return result;
         }
     }
@@ -459,7 +471,11 @@ pub const ThreadSafeFixedBufferAllocator = blk: {
                     return error.OutOfMemory;
                 } else {
                     const result = try alloc(allocator, new_size, new_align);
-                    mem.copy(u8, result, old_mem);
+                    if (result.len >= old_mem.len) {
+                        mem.copy(u8, result, old_mem);
+                    } else {
+                        @memcpy(result.ptr, old_mem.ptr, new_size);
+                    }
                     return result;
                 }
             }
@@ -569,6 +585,7 @@ test "DirectAllocator" {
     try testAllocator(allocator);
     try testAllocatorAligned(allocator, 16);
     try testAllocatorLargeAlignment(allocator);
+    try testAllocatorAlignedShrink(allocator);
 }
 
 test "ArenaAllocator" {
@@ -581,6 +598,7 @@ test "ArenaAllocator" {
     try testAllocator(&arena_allocator.allocator);
     try testAllocatorAligned(&arena_allocator.allocator, 16);
     try testAllocatorLargeAlignment(&arena_allocator.allocator);
+    try testAllocatorAlignedShrink(&arena_allocator.allocator);
 }
 
 var test_fixed_buffer_allocator_memory: [30000 * @sizeOf(usize)]u8 = undefined;
@@ -590,6 +608,7 @@ test "FixedBufferAllocator" {
     try testAllocator(&fixed_buffer_allocator.allocator);
     try testAllocatorAligned(&fixed_buffer_allocator.allocator, 16);
     try testAllocatorLargeAlignment(&fixed_buffer_allocator.allocator);
+    try testAllocatorAlignedShrink(&fixed_buffer_allocator.allocator);
 }
 
 test "FixedBufferAllocator Reuse memory on realloc" {
@@ -627,6 +646,7 @@ test "ThreadSafeFixedBufferAllocator" {
     try testAllocator(&fixed_buffer_allocator.allocator);
     try testAllocatorAligned(&fixed_buffer_allocator.allocator, 16);
     try testAllocatorLargeAlignment(&fixed_buffer_allocator.allocator);
+    try testAllocatorAlignedShrink(&fixed_buffer_allocator.allocator);
 }
 
 fn testAllocator(allocator: *mem.Allocator) !void {
@@ -708,4 +728,29 @@ fn testAllocatorLargeAlignment(allocator: *mem.Allocator) mem.Allocator.Error!vo
     testing.expect(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
 
     allocator.free(slice);
+}
+
+fn testAllocatorAlignedShrink(allocator: *mem.Allocator) mem.Allocator.Error!void {
+    var debug_buffer: [1000]u8 = undefined;
+    const debug_allocator = &FixedBufferAllocator.init(&debug_buffer).allocator;
+
+    const alloc_size = os.page_size * 2 + 50;
+    var slice = try allocator.alignedAlloc(u8, 16, alloc_size);
+    defer allocator.free(slice);
+
+    var stuff_to_free = std.ArrayList([]align(16) u8).init(debug_allocator);
+    while (@ptrToInt(slice.ptr) == mem.alignForward(@ptrToInt(slice.ptr), os.page_size * 2)) {
+        try stuff_to_free.append(slice);
+        slice = try allocator.alignedAlloc(u8, 16, alloc_size);
+    }
+    while (stuff_to_free.popOrNull()) |item| {
+        allocator.free(item);
+    }
+    slice[0] = 0x12;
+    slice[60] = 0x34;
+
+    // realloc to a smaller size but with a larger alignment
+    slice = try allocator.alignedRealloc(slice, os.page_size * 2, alloc_size / 2);
+    testing.expect(slice[0] == 0x12);
+    testing.expect(slice[60] == 0x34);
 }
