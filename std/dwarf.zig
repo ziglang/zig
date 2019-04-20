@@ -13,6 +13,7 @@ pub const TAG_reference_type = 0x10;
 pub const TAG_compile_unit = 0x11;
 pub const TAG_string_type = 0x12;
 pub const TAG_structure_type = 0x13;
+pub const TAG_subroutine = 0x14;
 pub const TAG_subroutine_type = 0x15;
 pub const TAG_typedef = 0x16;
 pub const TAG_union_type = 0x17;
