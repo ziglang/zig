@@ -1335,14 +1335,33 @@ static AstNode *trans_floating_literal(Context *c, ResultUsed result_used, const
 }
 
 static AstNode *trans_character_literal(Context *c, ResultUsed result_used, const clang::CharacterLiteral *stmt) {
-    clang::Expr::EvalResult result;
-    if (!stmt->EvaluateAsInt(result, *reinterpret_cast<clang::ASTContext *>(c->ctx))) {
-        emit_warning(c, bitcast(stmt->getBeginLoc()), "invalid character literal");
-        return nullptr;
+    switch (stmt->getKind()) {
+        case clang::CharacterLiteral::CharacterKind::Ascii:
+            {
+                unsigned val = stmt->getValue();
+                // C has a somewhat obscure feature called multi-character character
+                // constant
+                if (val > 255)
+                    return trans_create_node_unsigned(c, val);
+            }
+            // fallthrough
+        case clang::CharacterLiteral::CharacterKind::UTF8:
+            {
+                AstNode *node = trans_create_node(c, NodeTypeCharLiteral);
+                node->data.char_literal.value = stmt->getValue();
+                return maybe_suppress_result(c, result_used, node);
+            }
+        case clang::CharacterLiteral::CharacterKind::UTF16:
+            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO support UTF16 character literals");
+            return nullptr;
+        case clang::CharacterLiteral::CharacterKind::UTF32:
+            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO support UTF32 character literals");
+            return nullptr;
+        case clang::CharacterLiteral::CharacterKind::Wide:
+            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO support wide character literals");
+            return nullptr;
     }
-    AstNode *node = trans_create_node(c, NodeTypeCharLiteral);
-    node->data.char_literal.value = result.Val.getInt().getExtValue();
-    return maybe_suppress_result(c, result_used, node);
+    zig_unreachable();
 }
 
 static AstNode *trans_constant_expr(Context *c, ResultUsed result_used, const clang::ConstantExpr *expr) {
