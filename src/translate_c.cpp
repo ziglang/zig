@@ -709,9 +709,9 @@ static AstNode* trans_c_cast(Context *c, ZigClangSourceLocation source_location,
         return expr;
     }
     if (qual_type_is_ptr(dest_type) && qual_type_is_ptr(src_type)) {
-        unsigned int src_align = ZigClangASTContext_getTypeAlignIfKnown(c->ctx, src_type);
-        unsigned int dest_align = ZigClangASTContext_getTypeAlignIfKnown(c->ctx, dest_type);
-        if (src_align < dest_align) {
+        unsigned int src_align_bits = ZigClangASTContext_getTypeAlignIfKnown(c->ctx, src_type);
+        unsigned int dest_align_bits = ZigClangASTContext_getTypeAlignIfKnown(c->ctx, dest_type);
+        if (src_align_bits < dest_align_bits) {
             AstNode *align_of_node = trans_create_node_builtin_fn_call_str(c, "alignOf");
             align_of_node->data.fn_call_expr.params.append(trans_qual_type(c, dest_type, source_location));
             AstNode *align_cast_node = trans_create_node_builtin_fn_call_str(c, "alignCast");
@@ -1857,12 +1857,28 @@ static AstNode *trans_implicit_cast_expr(Context *c, ResultUsed result_used, Tra
                     return target_node;
                 }
 
-                AstNode *dest_type_node = get_expr_type(c, (const ZigClangExpr *)stmt);
+                ZigClangQualType dest_qual_type = get_expr_qual_type(c, (const ZigClangExpr *)stmt);
+                unsigned int dest_align_bits = ZigClangASTContext_getTypeAlignIfKnown(c->ctx, dest_qual_type);
 
-                AstNode *node = trans_create_node_builtin_fn_call_str(c, "ptrCast");
-                node->data.fn_call_expr.params.append(dest_type_node);
-                node->data.fn_call_expr.params.append(target_node);
-                return maybe_suppress_result(c, result_used, node);
+                ZigClangQualType src_qual_type = get_expr_qual_type(c, bitcast(stmt->getSubExpr()));
+                unsigned int src_align_bits = ZigClangASTContext_getTypeAlignIfKnown(c->ctx, src_qual_type);
+                
+                if (src_align_bits < dest_align_bits) {
+                    AstNode *align_of_node = trans_create_node_builtin_fn_call_str(c, "alignOf");
+                    align_of_node->data.fn_call_expr.params.append(get_expr_type(c, (const ZigClangExpr *)stmt));
+                    AstNode *align_cast_node = trans_create_node_builtin_fn_call_str(c, "alignCast");
+                    align_cast_node->data.fn_call_expr.params.append(align_of_node);
+                    align_cast_node->data.fn_call_expr.params.append(target_node);     
+                    AstNode *ptr_cast_node = trans_create_node_builtin_fn_call_str(c, "ptrCast");
+                    ptr_cast_node->data.fn_call_expr.params.append(get_expr_type(c, (const ZigClangExpr *)stmt));
+                    ptr_cast_node->data.fn_call_expr.params.append(align_cast_node);
+                    return maybe_suppress_result(c, result_used, ptr_cast_node);   
+                } else {
+                    AstNode *ptr_cast_node = trans_create_node_builtin_fn_call_str(c, "ptrCast");
+                    ptr_cast_node->data.fn_call_expr.params.append(get_expr_type(c, (const ZigClangExpr *)stmt));
+                    ptr_cast_node->data.fn_call_expr.params.append(target_node);
+                    return maybe_suppress_result(c, result_used, ptr_cast_node);
+                }
             }
         case ZigClangCK_NullToPointer:
             return trans_create_node_unsigned(c, 0);
