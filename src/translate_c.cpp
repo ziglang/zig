@@ -4390,16 +4390,14 @@ static void visit_var_decl(Context *c, const clang::VarDecl *var_decl) {
 
     if (is_static && !is_extern) {
         AstNode *init_node;
-        if (var_decl->hasInit()) {
-            const ZigClangAPValue *ap_value = bitcast(var_decl->evaluateValue());
-            if (ap_value == nullptr) {
+        const clang::Expr *init_expr = var_decl->getInit();
+        if (init_expr) {
+            init_node = trans_expr(c, ResultUsedYes, &c->global_scope->base, bitcast(init_expr), TransRValue);
+            if (init_node == nullptr) {
                 emit_warning(c, bitcast(var_decl->getLocation()),
                         "ignoring variable '%s' - unable to evaluate initializer", buf_ptr(name));
                 return;
             }
-            init_node = trans_ap_value(c, ap_value, qt, bitcast(var_decl->getLocation()));
-            if (init_node == nullptr)
-                return;
         } else {
             init_node = trans_create_node(c, NodeTypeUndefinedLiteral);
         }
