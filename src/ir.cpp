@@ -8100,6 +8100,8 @@ static void float_init_bigfloat(ConstExprValue *dest_val, BigFloat *bigfloat) {
             case 64:
                 dest_val->data.x_f64 = bigfloat_to_f64(bigfloat);
                 break;
+            case 80:
+                zig_panic("TODO");
             case 128:
                 dest_val->data.x_f128 = bigfloat_to_f128(bigfloat);
                 break;
@@ -9961,6 +9963,8 @@ static bool eval_const_expr_implicit_cast(IrAnalyze *ira, IrInstruction *source_
                     case 64:
                         const_val->data.x_f64 = bigfloat_to_f64(&other_val->data.x_bigfloat);
                         break;
+                    case 80:
+                        zig_panic("TODO");
                     case 128:
                         const_val->data.x_f128 = bigfloat_to_f128(&other_val->data.x_bigfloat);
                         break;
@@ -9990,6 +9994,8 @@ static bool eval_const_expr_implicit_cast(IrAnalyze *ira, IrInstruction *source_
                     case 64:
                         const_val->data.x_f64 = bigfloat_to_f64(&bigfloat);
                         break;
+                    case 80:
+                        zig_panic("TODO");
                     case 128:
                         const_val->data.x_f128 = bigfloat_to_f128(&bigfloat);
                         break;
