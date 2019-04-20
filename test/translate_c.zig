@@ -1334,7 +1334,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     ,
         \\fn ptrcast(a: [*c]c_int) [*c]f32 {
-        \\    return @ptrCast([*c]f32, a);
+        \\    return @ptrCast([*c]f32, @alignCast(@alignOf(f32), a));
         \\}
     );
 
@@ -1605,6 +1605,40 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    fn_bool(@ptrToInt(&fn_int) != 0);
         \\    fn_int(@intCast(c_int, @ptrToInt(&fn_int)));
         \\    fn_ptr(@intToPtr(?*c_void, 42));
+        \\}
+    );
+
+    cases.addC("pointer conversion with different alignment",
+        \\void test_ptr_cast() {
+        \\    void *p;
+        \\    {
+        \\        char *to_char = (char *)p;
+        \\        short *to_short = (short *)p;
+        \\        int *to_int = (int *)p;
+        \\        long long *to_longlong = (long long *)p;
+        \\    }
+        \\    {
+        \\        char *to_char = p;
+        \\        short *to_short = p;
+        \\        int *to_int = p;
+        \\        long long *to_longlong = p;
+        \\    }
+        \\}
+        ,
+        \\pub export fn test_ptr_cast() void {
+        \\    var p: ?*c_void = undefined;
+        \\    {
+        \\        var to_char: [*c]u8 = @ptrCast([*c]u8, @alignCast(@alignOf(u8), p));
+        \\        var to_short: [*c]c_short = @ptrCast([*c]c_short, @alignCast(@alignOf(c_short), p));
+        \\        var to_int: [*c]c_int = @ptrCast([*c]c_int, @alignCast(@alignOf(c_int), p));
+        \\        var to_longlong: [*c]c_longlong = @ptrCast([*c]c_longlong, @alignCast(@alignOf(c_longlong), p));
+        \\    }
+        \\    {
+        \\        var to_char: [*c]u8 = @ptrCast([*c]u8, @alignCast(@alignOf(u8), p));
+        \\        var to_short: [*c]c_short = @ptrCast([*c]c_short, @alignCast(@alignOf(c_short), p));
+        \\        var to_int: [*c]c_int = @ptrCast([*c]c_int, @alignCast(@alignOf(c_int), p));
+        \\        var to_longlong: [*c]c_longlong = @ptrCast([*c]c_longlong, @alignCast(@alignOf(c_longlong), p));
+        \\    }
         \\}
     );
 

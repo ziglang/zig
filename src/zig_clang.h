@@ -543,6 +543,7 @@ ZIG_EXTERN_C bool ZigClangQualType_isVolatileQualified(struct ZigClangQualType);
 ZIG_EXTERN_C bool ZigClangQualType_isRestrictQualified(struct ZigClangQualType);
 
 ZIG_EXTERN_C enum ZigClangTypeClass ZigClangType_getTypeClass(const struct ZigClangType *self);
+ZIG_EXTERN_C ZigClangQualType ZigClangType_getPointeeType(const ZigClangType *self);
 ZIG_EXTERN_C bool ZigClangType_isVoidType(const struct ZigClangType *self);
 ZIG_EXTERN_C const char *ZigClangType_getTypeClassName(const struct ZigClangType *self);
 
