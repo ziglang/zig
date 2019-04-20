@@ -121,6 +121,7 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const ZigClangStmt *s
         TransScope **out_node_scope);
 static TransScope *trans_stmt(Context *c, TransScope *scope, const ZigClangStmt *stmt, AstNode **out_node);
 static AstNode *trans_expr(Context *c, ResultUsed result_used, TransScope *scope, const ZigClangExpr *expr, TransLRValue lrval);
+static AstNode *trans_type(Context *c, const ZigClangType *ty, ZigClangSourceLocation source_loc);
 static AstNode *trans_qual_type(Context *c, ZigClangQualType qt, ZigClangSourceLocation source_loc);
 static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *scope,
         const ZigClangExpr *expr, TransLRValue lrval);
@@ -575,13 +576,6 @@ static bool is_c_void_type(AstNode *node) {
     return (node->type == NodeTypeSymbol && buf_eql_str(node->data.symbol_expr.symbol, "c_void"));
 }
 
-static bool expr_types_equal(Context *c, const ZigClangExpr *expr1, const ZigClangExpr *expr2) {
-    ZigClangQualType t1 = get_expr_qual_type(c, expr1);
-    ZigClangQualType t2 = get_expr_qual_type(c, expr2);
-
-    return ZigClangQualType_eq(t1, t2);
-}
-
 static bool qual_type_is_ptr(ZigClangQualType qt) {
     const ZigClangType *ty = qual_type_canon(qt);
     return ZigClangType_getTypeClass(ty) == ZigClangType_Pointer;
@@ -593,8 +587,7 @@ static const clang::FunctionProtoType *qual_type_get_fn_proto(ZigClangQualType q
 
     if (ZigClangType_getTypeClass(ty) == ZigClangType_Pointer) {
         *is_ptr = true;
-        const clang::PointerType *pointer_ty = reinterpret_cast<const clang::PointerType*>(ty);
-        ZigClangQualType child_qt = bitcast(pointer_ty->getPointeeType());
+        ZigClangQualType child_qt = ZigClangType_getPointeeType(ty);
         ty = ZigClangQualType_getTypePtr(child_qt);
     }
 
@@ -705,6 +698,36 @@ static bool qual_type_child_is_fn_proto(ZigClangQualType qt) {
     return false;
 }
 
+static AstNode* trans_c_ptr_cast(Context *c, ZigClangSourceLocation source_location, ZigClangQualType dest_type,
+                                 ZigClangQualType src_type, AstNode *expr)
+{
+    const ZigClangType *ty = ZigClangQualType_getTypePtr(dest_type);
+    const ZigClangQualType child_type = ZigClangType_getPointeeType(ty);
+
+    AstNode *dest_type_node = trans_type(c, ty, source_location);
+    AstNode *child_type_node = trans_qual_type(c, child_type, source_location);
+
+    // Implicit downcasting from higher to lower alignment values is forbidden,
+    // use @alignCast to side-step this problem
+    AstNode *ptrcast_node = trans_create_node_builtin_fn_call_str(c, "ptrCast");
+    ptrcast_node->data.fn_call_expr.params.append(dest_type_node);
+
+    if (ZigClangType_isVoidType(qual_type_canon(child_type))) {
+        // void has 1-byte alignment
+        ptrcast_node->data.fn_call_expr.params.append(expr);
+    } else {
+        AstNode *alignof_node = trans_create_node_builtin_fn_call_str(c, "alignOf");
+        alignof_node->data.fn_call_expr.params.append(child_type_node);
+        AstNode *aligncast_node = trans_create_node_builtin_fn_call_str(c, "alignCast");
+        aligncast_node->data.fn_call_expr.params.append(alignof_node);
+        aligncast_node->data.fn_call_expr.params.append(expr);
+
+        ptrcast_node->data.fn_call_expr.params.append(aligncast_node);
+    }
+
+    return ptrcast_node;
+}
+
 static AstNode* trans_c_cast(Context *c, ZigClangSourceLocation source_location, ZigClangQualType dest_type,
         ZigClangQualType src_type, AstNode *expr)
 {
@@ -719,10 +742,7 @@ static AstNode* trans_c_cast(Context *c, ZigClangSourceLocation source_location,
         return expr;
     }
     if (qual_type_is_ptr(dest_type) && qual_type_is_ptr(src_type)) {
-        AstNode *ptr_cast_node = trans_create_node_builtin_fn_call_str(c, "ptrCast");
-        ptr_cast_node->data.fn_call_expr.params.append(trans_qual_type(c, dest_type, source_location));
-        ptr_cast_node->data.fn_call_expr.params.append(expr);
-        return ptr_cast_node;
+        return trans_c_ptr_cast(c, source_location, dest_type, src_type, expr);
     }
     // TODO: maybe widen to increase size
     // TODO: maybe bitcast to change sign
@@ -980,8 +1000,7 @@ static AstNode *trans_type(Context *c, const ZigClangType *ty, ZigClangSourceLoc
             }
         case ZigClangType_Pointer:
             {
-                const clang::PointerType *pointer_ty = reinterpret_cast<const clang::PointerType*>(ty);
-                ZigClangQualType child_qt = bitcast(pointer_ty->getPointeeType());
+                ZigClangQualType child_qt = ZigClangType_getPointeeType(ty);
                 AstNode *child_node = trans_qual_type(c, child_qt, source_loc);
                 if (child_node == nullptr) {
                     emit_warning(c, source_loc, "pointer to unsupported type");
@@ -1889,16 +1908,10 @@ static AstNode *trans_implicit_cast_expr(Context *c, ResultUsed result_used, Tra
                 if (target_node == nullptr)
                     return nullptr;
 
-                if (expr_types_equal(c, (const ZigClangExpr *)stmt, bitcast(stmt->getSubExpr()))) {
-                    return target_node;
-                }
+                const ZigClangQualType dest_type = get_expr_qual_type(c, bitcast(stmt));
+                const ZigClangQualType src_type = get_expr_qual_type(c, bitcast(stmt->getSubExpr()));
 
-                AstNode *dest_type_node = get_expr_type(c, (const ZigClangExpr *)stmt);
-
-                AstNode *node = trans_create_node_builtin_fn_call_str(c, "ptrCast");
-                node->data.fn_call_expr.params.append(dest_type_node);
-                node->data.fn_call_expr.params.append(target_node);
-                return maybe_suppress_result(c, result_used, node);
+                return trans_c_cast(c, bitcast(stmt->getBeginLoc()), dest_type, src_type, target_node);
             }
         case ZigClangCK_NullToPointer:
             return trans_create_node_unsigned(c, 0);
