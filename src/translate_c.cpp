@@ -1948,8 +1948,20 @@ static AstNode *trans_implicit_cast_expr(Context *c, ResultUsed result_used, Tra
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_ConstructorConversion");
             return nullptr;
         case ZigClangCK_PointerToBoolean:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_PointerToBoolean");
-            return nullptr;
+            {
+                const clang::Expr *expr = stmt->getSubExpr();
+                AstNode *val = trans_expr(c, ResultUsedYes, scope, bitcast(expr), TransRValue);
+                if (val == nullptr)
+                    return nullptr;
+
+                AstNode *val_ptr = trans_create_node_builtin_fn_call_str(c, "ptrToInt");
+                val_ptr->data.fn_call_expr.params.append(val);
+
+                AstNode *zero = trans_create_node_unsigned(c, 0);
+
+                // Translate as @ptrToInt((&val) != 0)
+                return trans_create_node_bin_op(c, val_ptr, BinOpTypeCmpNotEq, zero);
+            }
         case ZigClangCK_ToVoid:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_ToVoid");
             return nullptr;
