@@ -709,9 +709,15 @@ static AstNode* trans_c_cast(Context *c, ZigClangSourceLocation source_location,
         return expr;
     }
     if (qual_type_is_ptr(dest_type) && qual_type_is_ptr(src_type)) {
-        unsigned int src_align_bits = ZigClangASTContext_getTypeAlignIfKnown(c->ctx, src_type);
-        unsigned int dest_align_bits = ZigClangASTContext_getTypeAlignIfKnown(c->ctx, dest_type);
-        if (src_align_bits < dest_align_bits) {
+        const clang::PointerType *dest_ptr_type = reinterpret_cast<const clang::PointerType*>(qual_type_canon(dest_type));
+        ZigClangQualType dest_pointee = bitcast(dest_ptr_type->getPointeeType());
+        unsigned int dest_pointee_align_bits = ZigClangASTContext_getTypeAlignIfKnown(c->ctx, dest_pointee);
+        
+        const clang::PointerType *src_pte = reinterpret_cast<const clang::PointerType*>(qual_type_canon(src_type));
+        ZigClangQualType src_pointee_qual_type = bitcast(src_pte->getPointeeType());
+        unsigned int src_pointee_align_bits = ZigClangASTContext_getTypeAlignIfKnown(c->ctx, src_pointee_qual_type);
+
+        if (src_pointee_align_bits < dest_pointee_align_bits) {
             AstNode *align_of_node = trans_create_node_builtin_fn_call_str(c, "alignOf");
             align_of_node->data.fn_call_expr.params.append(trans_qual_type(c, dest_type, source_location));
             AstNode *align_cast_node = trans_create_node_builtin_fn_call_str(c, "alignCast");
@@ -1858,12 +1864,16 @@ static AstNode *trans_implicit_cast_expr(Context *c, ResultUsed result_used, Tra
                 }
 
                 ZigClangQualType dest_qual_type = get_expr_qual_type(c, (const ZigClangExpr *)stmt);
-                unsigned int dest_align_bits = ZigClangASTContext_getTypeAlignIfKnown(c->ctx, dest_qual_type);
+                const clang::PointerType *pointer_ty = reinterpret_cast<const clang::PointerType*>(qual_type_canon(dest_qual_type));
+                ZigClangQualType child_qt = bitcast(pointer_ty->getPointeeType());
+                unsigned int dest_pointee_align_bits = ZigClangASTContext_getTypeAlignIfKnown(c->ctx, child_qt);
 
                 ZigClangQualType src_qual_type = get_expr_qual_type(c, bitcast(stmt->getSubExpr()));
-                unsigned int src_align_bits = ZigClangASTContext_getTypeAlignIfKnown(c->ctx, src_qual_type);
+                const clang::PointerType *src_pointer_ty = reinterpret_cast<const clang::PointerType*>(qual_type_canon(src_qual_type));
+                ZigClangQualType src_pointee_qual_type = bitcast(src_pointer_ty->getPointeeType());
+                unsigned int src_pointee_align_bits = ZigClangASTContext_getTypeAlignIfKnown(c->ctx, src_pointee_qual_type);
                 
-                if (src_align_bits < dest_align_bits) {
+                if (src_pointee_align_bits < dest_pointee_align_bits) {
                     AstNode *align_of_node = trans_create_node_builtin_fn_call_str(c, "alignOf");
                     align_of_node->data.fn_call_expr.params.append(get_expr_type(c, (const ZigClangExpr *)stmt));
                     AstNode *align_cast_node = trans_create_node_builtin_fn_call_str(c, "alignCast");
