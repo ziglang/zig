@@ -68,21 +68,22 @@ pub const DirectAllocator = struct {
                 if (addr == p.MAP_FAILED) return error.OutOfMemory;
                 if (alloc_size == n) return @intToPtr([*]u8, addr)[0..n];
 
-                const aligned_addr = (addr & ~usize(alignment - 1)) + alignment;
+                const aligned_addr = mem.alignForward(addr, alignment);
 
-                // We can unmap the unused portions of our mmap, but we must only
-                // pass munmap bytes that exist outside our allocated pages or it
-                // will happily eat us too.
-
-                // Since alignment > page_size, we are by definition on a page boundary.
-                const unused_start = addr;
-                const unused_len = aligned_addr - 1 - unused_start;
-
-                const err = p.munmap(unused_start, unused_len);
-                assert(p.getErrno(err) == 0);
-
-                // It is impossible that there is an unoccupied page at the top of our
-                // mmap.
+                // Unmap the extra bytes that were only requested in order to guarantee
+                // that the range of memory we were provided had a proper alignment in
+                // it somewhere. The extra bytes could be at the beginning, or end, or both.
+                const unused_start_len = aligned_addr - addr;
+                if (unused_start_len != 0) {
+                    const err = p.munmap(addr, unused_start_len);
+                    assert(p.getErrno(err) == 0);
+                }
+                const aligned_end_addr = std.mem.alignForward(aligned_addr + n, os.page_size);
+                const unused_end_len = addr + alloc_size - aligned_end_addr;
+                if (unused_end_len != 0) {
+                    const err = p.munmap(aligned_end_addr, unused_end_len);
+                    assert(p.getErrno(err) == 0);
+                }
 
                 return @intToPtr([*]u8, aligned_addr)[0..n];
             },
