@@ -870,6 +870,10 @@ ZigClangQualType ZigClangASTContext_getPointerType(const ZigClangASTContext* sel
     return bitcast(reinterpret_cast<const clang::ASTContext *>(self)->getPointerType(bitcast(T)));
 }
 
+unsigned ZigClangASTContext_getTypeAlignIfKnown(const ZigClangASTContext* self, ZigClangQualType T) {
+    return reinterpret_cast<const clang::ASTContext *>(self)->getTypeAlignIfKnown(bitcast(T));
+}
+
 ZigClangASTContext *ZigClangASTUnit_getASTContext(ZigClangASTUnit *self) {
     clang::ASTContext *result = &reinterpret_cast<clang::ASTUnit *>(self)->getASTContext();
     return reinterpret_cast<ZigClangASTContext *>(result);

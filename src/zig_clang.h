@@ -498,6 +498,7 @@ ZIG_EXTERN_C const char* ZigClangSourceManager_getCharacterData(const ZigClangSo
         ZigClangSourceLocation SL);
 
 ZIG_EXTERN_C ZigClangQualType ZigClangASTContext_getPointerType(const ZigClangASTContext*, ZigClangQualType T);
+ZIG_EXTERN_C unsigned ZigClangASTContext_getTypeAlignIfKnown(const ZigClangASTContext* self, ZigClangQualType T);
 
 ZIG_EXTERN_C ZigClangASTContext *ZigClangASTUnit_getASTContext(ZigClangASTUnit *);
 ZIG_EXTERN_C ZigClangSourceManager *ZigClangASTUnit_getSourceManager(ZigClangASTUnit *);

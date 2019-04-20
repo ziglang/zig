@@ -709,15 +709,24 @@ static AstNode* trans_c_cast(Context *c, ZigClangSourceLocation source_location,
         return expr;
     }
     if (qual_type_is_ptr(dest_type) && qual_type_is_ptr(src_type)) {
-        AstNode *align_of_node = trans_create_node_builtin_fn_call_str(c, "alignOf");
-        align_of_node->data.fn_call_expr.params.append(trans_qual_type(c, dest_type, source_location));
-        AstNode *align_cast_node = trans_create_node_builtin_fn_call_str(c, "alignCast");
-        align_cast_node->data.fn_call_expr.params.append(align_of_node);
-        align_cast_node->data.fn_call_expr.params.append(expr);     
-        AstNode *ptr_cast_node = trans_create_node_builtin_fn_call_str(c, "ptrCast");
-        ptr_cast_node->data.fn_call_expr.params.append(trans_qual_type(c, dest_type, source_location));
-        ptr_cast_node->data.fn_call_expr.params.append(align_cast_node);
-        return ptr_cast_node;
+        unsigned int src_align = ZigClangASTContext_getTypeAlignIfKnown(c->ctx, src_type);
+        unsigned int dest_align = ZigClangASTContext_getTypeAlignIfKnown(c->ctx, dest_type);
+        if (src_align < dest_align) {
+            AstNode *align_of_node = trans_create_node_builtin_fn_call_str(c, "alignOf");
+            align_of_node->data.fn_call_expr.params.append(trans_qual_type(c, dest_type, source_location));
+            AstNode *align_cast_node = trans_create_node_builtin_fn_call_str(c, "alignCast");
+            align_cast_node->data.fn_call_expr.params.append(align_of_node);
+            align_cast_node->data.fn_call_expr.params.append(expr);     
+            AstNode *ptr_cast_node = trans_create_node_builtin_fn_call_str(c, "ptrCast");
+            ptr_cast_node->data.fn_call_expr.params.append(trans_qual_type(c, dest_type, source_location));
+            ptr_cast_node->data.fn_call_expr.params.append(align_cast_node);
+            return ptr_cast_node;   
+        } else {
+            AstNode *ptr_cast_node = trans_create_node_builtin_fn_call_str(c, "ptrCast");
+            ptr_cast_node->data.fn_call_expr.params.append(trans_qual_type(c, dest_type, source_location));
+            ptr_cast_node->data.fn_call_expr.params.append(expr);
+            return ptr_cast_node;
+        }
     }
     // TODO: maybe widen to increase size
     // TODO: maybe bitcast to change sign
@@ -4745,16 +4754,9 @@ static AstNode *parse_ctok_primary_expr(Context *c, CTokenize *ctok, size_t *tok
                 inner_if_then->data.fn_call_expr.params.append(node_to_cast);
                 AstNode *inner_if_else = trans_create_node_cast(c, inner_node, node_to_cast);
                 AstNode *inner_if = trans_create_node_if(c, inner_if_cond, inner_if_then, inner_if_else);
-
-                AstNode *align_of_node = trans_create_node_builtin_fn_call_str(c, "alignOf");
-                align_of_node->data.fn_call_expr.params.append(inner_node);
-                AstNode *align_cast_node = trans_create_node_builtin_fn_call_str(c, "alignCast");
-                align_cast_node->data.fn_call_expr.params.append(align_of_node);
-                align_cast_node->data.fn_call_expr.params.append(node_to_cast);     
                 AstNode *outer_if_then = trans_create_node_builtin_fn_call_str(c, "ptrCast");
                 outer_if_then->data.fn_call_expr.params.append(inner_node);
-                outer_if_then->data.fn_call_expr.params.append(align_cast_node);
-                
+                outer_if_then->data.fn_call_expr.params.append(node_to_cast);
                 return trans_create_node_if(c, outer_if_cond, outer_if_then, inner_if);
             }
         case CTokIdDot:
