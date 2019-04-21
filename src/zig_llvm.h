@@ -394,6 +394,8 @@ enum ZigLLVM_EnvironmentType {
     ZigLLVM_CoreCLR,
     ZigLLVM_Simulator,
 
+    ZigLLVM_WASISysroot,
+
     ZigLLVM_LastEnvironmentType = ZigLLVM_Simulator
 };
 

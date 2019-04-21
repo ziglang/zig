@@ -200,6 +200,7 @@ static const ZigLLVM_EnvironmentType abi_list[] = {
     ZigLLVM_Cygnus,
     ZigLLVM_CoreCLR,
     ZigLLVM_Simulator,
+    ZigLLVM_WASISysroot,
 };
 
 static const ZigLLVM_ObjectFormatType oformat_list[] = {
@@ -463,6 +464,8 @@ ZigLLVM_EnvironmentType target_abi_enum(size_t index) {
 const char *target_abi_name(ZigLLVM_EnvironmentType abi) {
     if (abi == ZigLLVM_UnknownEnvironment)
         return "none";
+    if (abi == ZigLLVM_WASISysroot)
+        return "sysroot";
     return ZigLLVMGetEnvironmentTypeName(abi);
 }
 
@@ -721,7 +724,7 @@ void get_target_triple(Buf *triple, const ZigTarget *target) {
             ZigLLVMGetSubArchTypeName(target->sub_arch),
             ZigLLVMGetVendorTypeName(target->vendor),
             ZigLLVMGetOSTypeName(get_llvm_os_type(target->os)),
-            ZigLLVMGetEnvironmentTypeName(target->abi));
+            target_abi_name(target->abi));
 }
 
 bool target_os_is_darwin(Os os) {
@@ -1415,8 +1418,9 @@ ZigLLVM_EnvironmentType target_default_abi(ZigLLVM_ArchType arch, Os os) {
         case OsUefi:
             return ZigLLVM_MSVC;
         case OsLinux:
-        case OsWASI:
             return ZigLLVM_Musl;
+        case OsWASI:
+            return ZigLLVM_WASISysroot;
     }
     zig_unreachable();
 }
@@ -1490,6 +1494,7 @@ static const AvailableLibC libcs_available[] = {
     {ZigLLVM_systemz, OsLinux, ZigLLVM_Musl},
     {ZigLLVM_sparc, OsLinux, ZigLLVM_GNU},
     {ZigLLVM_sparcv9, OsLinux, ZigLLVM_GNU},
+    {ZigLLVM_wasm32, OsWASI, ZigLLVM_WASISysroot},
     {ZigLLVM_x86_64, OsLinux, ZigLLVM_GNU},
     {ZigLLVM_x86_64, OsLinux, ZigLLVM_GNUX32},
     {ZigLLVM_x86_64, OsLinux, ZigLLVM_Musl},
@@ -1508,6 +1513,9 @@ bool target_can_build_libc(const ZigTarget *target) {
 }
 
 const char *target_libc_generic_name(const ZigTarget *target) {
+    if (target->abi == ZigLLVM_WASISysroot) {
+      return "sysroot";
+    }
     assert(target->os == OsLinux);
     switch (target->abi) {
         case ZigLLVM_GNU:
@@ -1521,6 +1529,7 @@ const char *target_libc_generic_name(const ZigTarget *target) {
         case ZigLLVM_MuslEABI:
         case ZigLLVM_MuslEABIHF:
             return "musl";
+        case ZigLLVM_WASISysroot:
         case ZigLLVM_CODE16:
         case ZigLLVM_EABI:
         case ZigLLVM_EABIHF:
