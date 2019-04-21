@@ -2,6 +2,7 @@ const std = @import("../../std.zig");
 const linux = std.os.linux;
 const socklen_t = linux.socklen_t;
 const iovec = linux.iovec;
+const iovec_const = linux.iovec_const;
 
 pub const SYS_io_setup = 0;
 pub const SYS_io_destroy = 1;
@@ -418,6 +419,18 @@ pub const msghdr = extern struct {
     msg_name: ?*sockaddr,
     msg_namelen: socklen_t,
     msg_iov: [*]iovec,
+    msg_iovlen: i32,
+    __pad1: i32,
+    msg_control: ?*c_void,
+    msg_controllen: socklen_t,
+    __pad2: socklen_t,
+    msg_flags: i32,
+};
+
+pub const msghdr_const = extern struct {
+    msg_name: ?*const sockaddr,
+    msg_namelen: socklen_t,
+    msg_iov: [*]iovec_const,
     msg_iovlen: i32,
     __pad1: i32,
     msg_control: ?*c_void,

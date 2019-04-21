@@ -1213,7 +1213,7 @@ pub fn getsockopt(fd: i32, level: u32, optname: u32, noalias optval: [*]u8, noal
     return syscall5(SYS_getsockopt, @bitCast(usize, isize(fd)), level, optname, @ptrToInt(optval), @ptrToInt(optlen));
 }
 
-pub fn sendmsg(fd: i32, msg: *const msghdr, flags: u32) usize {
+pub fn sendmsg(fd: i32, msg: *msghdr_const, flags: u32) usize {
     return syscall3(SYS_sendmsg, @bitCast(usize, isize(fd)), @ptrToInt(msg), flags);
 }
 
