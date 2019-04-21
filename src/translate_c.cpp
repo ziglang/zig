@@ -76,10 +76,9 @@ struct TransScopeWhile {
 };
 
 struct Context {
-    ZigList<ErrorMsg *> *errors;
+    AstNode *root;
     VisibMod visib_mod;
     bool want_export;
-    AstNode *root;
     HashMap<const void *, AstNode *, ptr_hash, ptr_eq> decl_table;
     HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> macro_table;
     HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> global_table;
@@ -5018,13 +5017,14 @@ static void process_preprocessor_entities(Context *c, ZigClangASTUnit *zunit) {
     }
 }
 
-Error parse_h_file(CodeGen *codegen, AstNode **out_root_node, const char **args_begin, const char **args_end,
-        Stage2TranslateMode mode, ZigList<ErrorMsg *> *errors)
+Error parse_h_file(CodeGen *codegen, AstNode **out_root_node,
+        Stage2ErrorMsg **errors_ptr, size_t *errors_len,
+        const char **args_begin, const char **args_end,
+        Stage2TranslateMode mode, const char *resources_path)
 {
     Context context = {0};
     Context *c = &context;
     c->warnings_on = codegen->verbose_cimport;
-    c->errors = errors;
     if (mode == Stage2TranslateModeImport) {
         c->visib_mod = VisibModPub;
         c->want_export = false;
@@ -5039,78 +5039,10 @@ Error parse_h_file(CodeGen *codegen, AstNode **out_root_node, const char **args_
     c->codegen = codegen;
     c->global_scope = trans_scope_root_create(c);
 
-
-    clang::IntrusiveRefCntPtr<clang::DiagnosticsEngine> diags(clang::CompilerInstance::createDiagnostics(new clang::DiagnosticOptions));
-
-    std::shared_ptr<clang::PCHContainerOperations> pch_container_ops = std::make_shared<clang::PCHContainerOperations>();
-
-    bool only_local_decls = true;
-    bool capture_diagnostics = true;
-    bool user_files_are_volatile = true;
-    bool allow_pch_with_compiler_errors = false;
-    bool single_file_parse = false;
-    bool for_serialization = false;
-    const char *resources_path = buf_ptr(codegen->zig_c_headers_dir);
-    std::unique_ptr<clang::ASTUnit> err_unit;
-    ZigClangASTUnit *ast_unit = reinterpret_cast<ZigClangASTUnit *>(clang::ASTUnit::LoadFromCommandLine(
-            args_begin, args_end,
-            pch_container_ops, diags, resources_path,
-            only_local_decls, capture_diagnostics, clang::None, true, 0, clang::TU_Complete,
-            false, false, allow_pch_with_compiler_errors, clang::SkipFunctionBodiesScope::None,
-            single_file_parse, user_files_are_volatile, for_serialization, clang::None, &err_unit,
-            nullptr));
-
-    // Early failures in LoadFromCommandLine may return with ErrUnit unset.
-    if (!ast_unit && !err_unit) {
-        return ErrorFileSystem;
-    }
-
-    if (diags->getClient()->getNumErrors() > 0) {
-        if (ast_unit) {
-            err_unit = std::unique_ptr<clang::ASTUnit>(reinterpret_cast<clang::ASTUnit *>(ast_unit));
-        }
-
-        for (clang::ASTUnit::stored_diag_iterator it = err_unit->stored_diag_begin(),
-                it_end = err_unit->stored_diag_end();
-                it != it_end; ++it)
-        {
-            switch (it->getLevel()) {
-                case clang::DiagnosticsEngine::Ignored:
-                case clang::DiagnosticsEngine::Note:
-                case clang::DiagnosticsEngine::Remark:
-                case clang::DiagnosticsEngine::Warning:
-                    continue;
-                case clang::DiagnosticsEngine::Error:
-                case clang::DiagnosticsEngine::Fatal:
-                    break;
-            }
-            llvm::StringRef msg_str_ref = it->getMessage();
-            Buf *msg = string_ref_to_buf(msg_str_ref);
-            clang::FullSourceLoc fsl = it->getLocation();
-            if (fsl.hasManager()) {
-                clang::FileID file_id = fsl.getFileID();
-                clang::StringRef filename = fsl.getManager().getFilename(fsl);
-                unsigned line = fsl.getSpellingLineNumber() - 1;
-                unsigned column = fsl.getSpellingColumnNumber() - 1;
-                unsigned offset = fsl.getManager().getFileOffset(fsl);
-                const char *source = (const char *)fsl.getManager().getBufferData(file_id).bytes_begin();
-                Buf *path;
-                if (filename.empty()) {
-                    path = buf_alloc();
-                } else {
-                    path = string_ref_to_buf(filename);
-                }
-
-                ErrorMsg *err_msg = err_msg_create_with_offset(path, line, column, offset, source, msg);
-
-                c->errors->append(err_msg);
-            } else {
-                // NOTE the only known way this gets triggered right now is if you have a lot of errors
-                // clang emits "too many errors emitted, stopping now"
-                fprintf(stderr, "unexpected error from clang: %s\n", buf_ptr(msg));
-            }
-        }
-
+    ZigClangASTUnit *ast_unit = ZigClangLoadFromCommandLine(args_begin, args_end, errors_ptr, errors_len,
+            resources_path);
+    if (ast_unit == nullptr) {
+        if (*errors_len == 0) return ErrorNoMem;
         return ErrorCCompileErrors;
     }
 

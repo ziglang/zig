@@ -19103,25 +19103,32 @@ static IrInstruction *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruct
 
         clang_argv.append(nullptr); // to make the [start...end] argument work
 
-        ZigList<ErrorMsg *> errors = {0};
         AstNode *root_node;
+        Stage2ErrorMsg *errors_ptr;
+        size_t errors_len;
 
-        if ((err = parse_h_file(ira->codegen, &root_node, &clang_argv.at(0), &clang_argv.last(),
-                        Stage2TranslateModeImport, &errors)))
+        const char *resources_path = buf_ptr(ira->codegen->zig_c_headers_dir);
+
+        if ((err = parse_h_file(ira->codegen, &root_node, &errors_ptr, &errors_len,
+            &clang_argv.at(0), &clang_argv.last(), Stage2TranslateModeImport, resources_path)))
         {
             if (err != ErrorCCompileErrors) {
                 ir_add_error_node(ira, node, buf_sprintf("C import failed: %s", err_str(err)));
                 return ira->codegen->invalid_instruction;
             }
-            assert(errors.length > 0);
 
             ErrorMsg *parent_err_msg = ir_add_error_node(ira, node, buf_sprintf("C import failed"));
             if (ira->codegen->libc_link_lib == nullptr) {
                 add_error_note(ira->codegen, parent_err_msg, node,
                     buf_sprintf("libc headers not available; compilation does not link against libc"));
             }
-            for (size_t i = 0; i < errors.length; i += 1) {
-                ErrorMsg *err_msg = errors.at(i);
+            for (size_t i = 0; i < errors_len; i += 1) {
+                Stage2ErrorMsg *clang_err = &errors_ptr[i];
+                ErrorMsg *err_msg = err_msg_create_with_offset(
+                    clang_err->filename_ptr ?
+                        buf_create_from_mem(clang_err->filename_ptr, clang_err->filename_len) : buf_alloc(),
+                    clang_err->line, clang_err->column, clang_err->offset, clang_err->source,
+                    buf_create_from_mem(clang_err->msg_ptr, clang_err->msg_len));
                 err_msg_add_note(parent_err_msg, err_msg);
             }
 

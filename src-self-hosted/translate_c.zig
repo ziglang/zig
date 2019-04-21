@@ -10,6 +10,17 @@ pub const Mode = enum {
     translate,
 };
 
-pub fn translate(args_begin: [*]?[*]const u8, args_end: [*]?[*]const u8, mode: Mode) !*ast.Tree {
+pub const ClangErrMsg = Stage2ErrorMsg;
+
+pub fn translate(
+    args_begin: [*]?[*]const u8,
+    args_end: [*]?[*]const u8,
+    mode: Mode,
+    errors: *[]ClangErrMsg,
+) !*ast.Tree {
     return error.Unimplemented;
+}
+
+pub fn freeErrors(errors: []ClangErrMsg) void {
+    ZigClangErrorMsg_delete(errors.ptr, errors.len);
 }

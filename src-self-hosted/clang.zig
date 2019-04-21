@@ -862,6 +862,7 @@ pub extern fn ZigClangAPSInt_free(self: ?*const struct_ZigClangAPSInt) void;
 pub extern fn ZigClangAPSInt_getRawData(self: ?*const struct_ZigClangAPSInt) [*c]const u64;
 pub extern fn ZigClangAPSInt_getNumWords(self: ?*const struct_ZigClangAPSInt) c_uint;
 pub extern fn ZigClangAPValueLValueBase_dyn_cast_Expr(self: struct_ZigClangAPValueLValueBase) ?*const struct_ZigClangExpr;
+pub extern fn ZigClangASTUnit_delete(arg0: ?*struct_ZigClangASTUnit) void;
 pub const ZigClangSourceLocation = struct_ZigClangSourceLocation;
 pub const ZigClangQualType = struct_ZigClangQualType;
 pub const ZigClangAPValueLValueBase = struct_ZigClangAPValueLValueBase;
@@ -942,3 +943,19 @@ pub const ZigClangTypeClass = enum_ZigClangTypeClass;
 pub const ZigClangStmtClass = enum_ZigClangStmtClass;
 pub const ZigClangCK = enum_ZigClangCK;
 pub const ZigClangAPValueKind = enum_ZigClangAPValueKind;
+
+pub const Stage2ErrorMsg = extern struct {
+    filename_ptr: ?[*]const u8,
+    filename_len: usize,
+    msg_ptr: [*]const u8,
+    msg_len: usize,
+    // valid until the ASTUnit is freed
+    source: ?[*]const u8,
+    // 0 based
+    line: c_uint,
+    // 0 based
+    column: c_uint,
+    // byte offset into source
+    offset: c_uint,
+};
+pub extern fn ZigClangErrorMsg_delete(ptr: [*c]Stage2ErrorMsg, len: usize) void;

@@ -3,37 +3,25 @@
 
 const std = @import("std");
 
-pub const info_zen =
-    \\
-    \\ * Communicate intent precisely.
-    \\ * Edge cases matter.
-    \\ * Favor reading code over writing code.
-    \\ * Only one obvious way to do things.
-    \\ * Runtime crashes are better than bugs.
-    \\ * Compile errors are better than runtime crashes.
-    \\ * Incremental improvements.
-    \\ * Avoid local maximums.
-    \\ * Reduce the amount one must remember.
-    \\ * Minimize energy spent on coding style.
-    \\ * Together we serve end users.
-    \\
-    \\
-;
-
+// ABI warning
 export fn stage2_zen(ptr: *[*]const u8, len: *usize) void {
+    const info_zen = @import("main.zig").info_zen;
     ptr.* = &info_zen;
     len.* = info_zen.len;
 }
 
+// ABI warning
 export fn stage2_panic(ptr: [*]const u8, len: usize) void {
     @panic(ptr[0..len]);
 }
 
+// ABI warning
 const TranslateMode = extern enum {
     import,
     translate,
 };
 
+// ABI warning
 const Error = extern enum {
     None,
     OutOfMemory,
@@ -84,22 +72,31 @@ const Error = extern enum {
 
 const FILE = std.c.FILE;
 const ast = std.zig.ast;
+const translate_c = @import("translate_c.zig");
 
 /// Args should have a null terminating last arg.
 export fn stage2_translate_c(
     out_ast: **ast.Tree,
+    out_errors_ptr: *[*]translate_c.ClangErrMsg,
+    out_errors_len: *usize,
     args_begin: [*]?[*]const u8,
     args_end: [*]?[*]const u8,
     mode: TranslateMode,
+    resources_path: [*]const u8,
 ) Error {
-    const translate_c = @import("translate_c.zig");
+    var errors: []translate_c.ClangErrMsg = undefined;
     out_ast.* = translate_c.translate(args_begin, args_end, switch (mode) {
         .import => translate_c.Mode.import,
         .translate => translate_c.Mode.translate,
-    }) catch |err| switch (err) {
+    }, &errors) catch |err| switch (err) {
         error.Unimplemented => return Error.Unimplemented,
     };
+
     return Error.None;
+}
+
+export fn stage2_free_clang_errors(errors_ptr: [*]translate_c.ClangErrMsg, errors_len: usize) void {
+    translate_c.freeErrors(errors_ptr[0..errors_len]);
 }
 
 export fn stage2_render_ast(tree: *ast.Tree, output_file: *FILE) Error {

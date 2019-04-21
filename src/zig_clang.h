@@ -8,14 +8,9 @@
 #ifndef ZIG_ZIG_CLANG_H
 #define ZIG_ZIG_CLANG_H
 
+#include "userland.h"
 #include <inttypes.h>
 #include <stdbool.h>
-
-#ifdef __cplusplus
-#define ZIG_EXTERN_C extern "C"
-#else
-#define ZIG_EXTERN_C
-#endif
 
 // ATTENTION: If you modify this file, be sure to update the corresponding
 // extern function declarations in the self-hosted compiler file
@@ -499,6 +494,13 @@ ZIG_EXTERN_C const char* ZigClangSourceManager_getCharacterData(const struct Zig
         struct ZigClangSourceLocation SL);
 
 ZIG_EXTERN_C struct ZigClangQualType ZigClangASTContext_getPointerType(const struct ZigClangASTContext*, struct ZigClangQualType T);
+
+
+// Can return null.
+ZIG_EXTERN_C struct ZigClangASTUnit *ZigClangLoadFromCommandLine(const char **args_begin, const char **args_end,
+        struct Stage2ErrorMsg **errors_ptr, size_t *errors_len, const char *resources_path);
+ZIG_EXTERN_C void ZigClangASTUnit_delete(struct ZigClangASTUnit *);
+ZIG_EXTERN_C void ZigClangErrorMsg_delete(struct Stage2ErrorMsg *ptr, size_t len);
 
 ZIG_EXTERN_C struct ZigClangASTContext *ZigClangASTUnit_getASTContext(struct ZigClangASTUnit *);
 ZIG_EXTERN_C struct ZigClangSourceManager *ZigClangASTUnit_getSourceManager(struct ZigClangASTUnit *);

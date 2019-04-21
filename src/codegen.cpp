@@ -8298,31 +8298,42 @@ void codegen_translate_c(CodeGen *g, Buf *full_path, FILE *out_file, bool use_us
 
     clang_argv.append(nullptr); // to make the [start...end] argument work
 
+    const char *resources_path = buf_ptr(g->zig_c_headers_dir);
+    Stage2ErrorMsg *errors_ptr;
+    size_t errors_len;
+    Stage2Ast *ast;
+    AstNode *root_node;
+
     if (use_userland_implementation) {
-        Stage2Ast *ast;
-        if ((err = stage2_translate_c(&ast, &clang_argv.at(0), &clang_argv.last(), trans_mode))) {
-            zig_panic("TODO");
+        err = stage2_translate_c(&ast, &errors_ptr, &errors_len,
+                        &clang_argv.at(0), &clang_argv.last(), trans_mode, resources_path);
+    } else {
+        err = parse_h_file(g, &root_node, &errors_ptr, &errors_len, &clang_argv.at(0), &clang_argv.last(),
+                trans_mode, resources_path);
+    }
+
+    if (err == ErrorCCompileErrors && errors_len > 0) {
+        for (size_t i = 0; i < errors_len; i += 1) {
+            Stage2ErrorMsg *clang_err = &errors_ptr[i];
+            ErrorMsg *err_msg = err_msg_create_with_offset(
+                    clang_err->filename_ptr ?
+                        buf_create_from_mem(clang_err->filename_ptr, clang_err->filename_len) : buf_alloc(),
+                    clang_err->line, clang_err->column, clang_err->offset, clang_err->source,
+                    buf_create_from_mem(clang_err->msg_ptr, clang_err->msg_len));
+            print_err_msg(err_msg, g->err_color);
         }
+        exit(1);
+    }
+
+    if (err) {
+        fprintf(stderr, "unable to parse C file: %s\n", err_str(err));
+        exit(1);
+    }
+
+
+    if (use_userland_implementation) {
         stage2_render_ast(ast, out_file);
     } else {
-        ZigList<ErrorMsg *> errors = {0};
-        AstNode *root_node;
-
-        err = parse_h_file(g, &root_node, &clang_argv.at(0), &clang_argv.last(), trans_mode, &errors);
-
-        if (err == ErrorCCompileErrors && errors.length > 0) {
-            for (size_t i = 0; i < errors.length; i += 1) {
-                ErrorMsg *err_msg = errors.at(i);
-                print_err_msg(err_msg, g->err_color);
-            }
-            exit(1);
-        }
-
-        if (err) {
-            fprintf(stderr, "unable to parse C file: %s\n", err_str(err));
-            exit(1);
-        }
-
         ast_render(out_file, root_node, 4);
     }
 }
