@@ -754,6 +754,22 @@ test "writeIntBig and writeIntLittle" {
     testing.expect(eql_slice_u8(buf2[0..], []u8{ 0xfc, 0xff }));
 }
 
+pub fn nativeIntToBig(comptime T: type, x: T) T {
+    comptime assert(T.bit_count % 8 == 0);
+    switch (builtin.endian) {
+        builtin.Endian.Little => return @bswap(T, x),
+        builtin.Endian.Big => return x,
+    }
+}
+
+pub fn nativeIntToLittle(comptime T: type, x: T) T {
+    comptime assert(T.bit_count % 8 == 0);
+    switch (builtin.endian) {
+        builtin.Endian.Little => return x,
+        builtin.Endian.Big => return @bswap(T, x),
+    }
+}
+
 pub fn hash_slice_u8(k: []const u8) u32 {
     // FNV 32-bit hash
     var h: u32 = 2166136261;
