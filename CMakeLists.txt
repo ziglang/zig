@@ -50,10 +50,6 @@ option(ZIG_FORCE_EXTERNAL_LLD "If your system has the LLD patches use it instead
 find_package(llvm)
 find_package(clang)
 
-if(MINGW)
-    find_package(z3)
-endif()
-
 if(APPLE AND ZIG_STATIC)
     list(REMOVE_ITEM LLVM_LIBRARIES "-lz")
     find_library(ZLIB NAMES z zlib libz)
@@ -6668,6 +6664,7 @@ if(NOT MSVC)
 endif()
 
 if(MINGW)
+    find_library(Z3_LIBRARIES NAMES z3 z3.dll)
     target_link_libraries(compiler LINK_PUBLIC ${Z3_LIBRARIES})
 endif()
 
@@ -6707,6 +6704,9 @@ add_custom_command(
 )
 add_custom_target(userland_target DEPENDS "${LIBUSERLAND}")
 add_executable(zig "${ZIG_MAIN_SRC}")
+if(MINGW)
+    set(EXE_LDFLAGS "${EXE_LDFLAGS} -fstack-protector")
+endif()
 set_target_properties(zig PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
     LINK_FLAGS ${EXE_LDFLAGS}
