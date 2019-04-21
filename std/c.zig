@@ -12,6 +12,10 @@ pub use switch (builtin.os) {
 
 // TODO https://github.com/ziglang/zig/issues/265 on this whole file
 
+pub const FILE = @OpaqueType();
+pub extern "c" fn fwrite(ptr: [*]const u8, size_of_type: usize, item_count: usize, stream: *FILE) usize;
+pub extern "c" fn fread(ptr: [*]u8, size_of_type: usize, item_count: usize, stream: *FILE) usize;
+
 pub extern "c" fn abort() noreturn;
 pub extern "c" fn exit(code: c_int) noreturn;
 pub extern "c" fn isatty(fd: c_int) c_int;

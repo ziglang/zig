@@ -247,4 +247,6 @@ Error create_c_object_cache(CodeGen *g, CacheHash **out_cache_hash, bool verbose
 LLVMTypeRef get_llvm_type(CodeGen *g, ZigType *type);
 ZigLLVMDIType *get_llvm_di_type(CodeGen *g, ZigType *type);
 
+void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_path, bool translate_c);
+
 #endif

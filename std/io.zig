@@ -36,6 +36,7 @@ pub fn getStdIn() GetStdIoErrs!File {
 }
 
 pub const SeekableStream = @import("io/seekable_stream.zig").SeekableStream;
+pub const COutStream = @import("io/c_out_stream.zig").COutStream;
 
 pub fn InStream(comptime ReadError: type) type {
     return struct {
@@ -1089,8 +1090,10 @@ test "io.readLineSliceFrom" {
 }
 
 pub const Packing = enum {
-    Byte,   /// Pack data to byte alignment
-    Bit,    /// Pack data to bit alignment
+    /// Pack data to byte alignment
+    Byte,
+    /// Pack data to bit alignment
+    Bit,
 };
 
 /// Creates a deserializer that deserializes types from any stream.
@@ -1111,10 +1114,12 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
         pub const Stream = InStream(Error);
 
         pub fn init(in_stream: *Stream) Self {
-            return Self{ .in_stream = switch (packing) {
-                .Bit => BitInStream(endian, Stream.Error).init(in_stream),
-                .Byte => in_stream,
-            } };
+            return Self{
+                .in_stream = switch (packing) {
+                    .Bit => BitInStream(endian, Stream.Error).init(in_stream),
+                    .Byte => in_stream,
+                },
+            };
         }
 
         pub fn alignToByte(self: *Self) void {
@@ -1281,7 +1286,7 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
                         ptr.* = null;
                         return;
                     }
-                    
+
                     ptr.* = OC(undefined); //make it non-null so the following .? is guaranteed safe
                     const val_ptr = &ptr.*.?;
                     try self.deserializeInto(val_ptr);
@@ -1320,10 +1325,12 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
         pub const Stream = OutStream(Error);
 
         pub fn init(out_stream: *Stream) Self {
-            return Self{ .out_stream = switch (packing) {
-                .Bit => BitOutStream(endian, Stream.Error).init(out_stream),
-                .Byte => out_stream,
-            } };
+            return Self{
+                .out_stream = switch (packing) {
+                    .Bit => BitOutStream(endian, Stream.Error).init(out_stream),
+                    .Byte => out_stream,
+                },
+            };
         }
 
         /// Flushes any unwritten bits to the stream
@@ -1450,4 +1457,3 @@ test "import io tests" {
         _ = @import("io_test.zig");
     }
 }
-

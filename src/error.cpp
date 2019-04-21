@@ -50,6 +50,10 @@ const char *err_str(Error err) {
         case ErrorUnexpectedWriteFailure: return "unexpected write failure";
         case ErrorUnexpectedSeekFailure: return "unexpected seek failure";
         case ErrorUnexpectedFileTruncationFailure: return "unexpected file truncation failure";
+        case ErrorUnimplemented: return "unimplemented";
+        case ErrorOperationAborted: return "operation aborted";
+        case ErrorBrokenPipe: return "broken pipe";
+        case ErrorNoSpaceLeft: return "no space left";
     }
     return "(invalid error)";
 }

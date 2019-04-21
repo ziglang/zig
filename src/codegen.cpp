@@ -8153,7 +8153,128 @@ static void detect_libc(CodeGen *g) {
     }
 }
 
-AstNode *codegen_translate_c(CodeGen *g, Buf *full_path, bool use_userland_implementation) {
+// does not add the "cc" arg
+void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_path, bool translate_c) {
+    if (out_dep_path != nullptr) {
+        args.append("-MD");
+        args.append("-MV");
+        args.append("-MF");
+        args.append(out_dep_path);
+    }
+
+    args.append("-nostdinc");
+    args.append("-fno-spell-checking");
+
+    if (translate_c) {
+        // TODO these args shouldn't be special from the non-translate-c args, probably.
+        args.append("-nobuiltininc");
+        args.append("-nostdinc++");
+        if (g->libc_link_lib == nullptr) {
+            args.append("-nolibc");
+        }
+
+        // this gives us access to preprocessing entities, presumably at
+        // the cost of performance
+        args.append("-Xclang");
+        args.append("-detailed-preprocessing-record");
+    } else {
+        switch (g->err_color) {
+            case ErrColorAuto:
+                break;
+            case ErrColorOff:
+                args.append("-fno-color-diagnostics");
+                args.append("-fno-caret-diagnostics");
+                break;
+            case ErrColorOn:
+                args.append("-fcolor-diagnostics");
+                args.append("-fcaret-diagnostics");
+                break;
+        }
+    }
+
+    args.append("-isystem");
+    args.append(buf_ptr(g->zig_c_headers_dir));
+
+    for (size_t i = 0; i < g->libc_include_dir_len; i += 1) {
+        Buf *include_dir = g->libc_include_dir_list[i];
+        args.append("-isystem");
+        args.append(buf_ptr(include_dir));
+    }
+
+    if (g->zig_target->is_native) {
+        args.append("-march=native");
+    } else {
+        args.append("-target");
+        args.append(buf_ptr(&g->triple_str));
+    }
+    if (g->zig_target->os == OsFreestanding) {
+        args.append("-ffreestanding");
+    }
+
+    if (!g->strip_debug_symbols) {
+        args.append("-g");
+    }
+
+    switch (g->build_mode) {
+        case BuildModeDebug:
+            // windows c runtime requires -D_DEBUG if using debug libraries
+            args.append("-D_DEBUG");
+
+            if (g->libc_link_lib != nullptr) {
+                args.append("-fstack-protector-strong");
+                args.append("--param");
+                args.append("ssp-buffer-size=4");
+            } else {
+                args.append("-fno-stack-protector");
+            }
+            args.append("-fno-omit-frame-pointer");
+            break;
+        case BuildModeSafeRelease:
+            // See the comment in the BuildModeFastRelease case for why we pass -O2 rather
+            // than -O3 here.
+            args.append("-O2");
+            if (g->libc_link_lib != nullptr) {
+                args.append("-D_FORTIFY_SOURCE=2");
+                args.append("-fstack-protector-strong");
+                args.append("--param");
+                args.append("ssp-buffer-size=4");
+            } else {
+                args.append("-fno-stack-protector");
+            }
+            args.append("-fomit-frame-pointer");
+            break;
+        case BuildModeFastRelease:
+            args.append("-DNDEBUG");
+            // Here we pass -O2 rather than -O3 because, although we do the equivalent of
+            // -O3 in Zig code, the justification for the difference here is that Zig
+            // has better detection and prevention of undefined behavior, so -O3 is safer for
+            // Zig code than it is for C code. Also, C programmers are used to their code
+            // running in -O2 and thus the -O3 path has been tested less.
+            args.append("-O2");
+            args.append("-fno-stack-protector");
+            args.append("-fomit-frame-pointer");
+            break;
+        case BuildModeSmallRelease:
+            args.append("-DNDEBUG");
+            args.append("-Os");
+            args.append("-fno-stack-protector");
+            args.append("-fomit-frame-pointer");
+            break;
+    }
+
+    if (target_supports_fpic(g->zig_target) && g->have_pic) {
+        args.append("-fPIC");
+    }
+
+    for (size_t arg_i = 0; arg_i < g->clang_argv_len; arg_i += 1) {
+        args.append(g->clang_argv[arg_i]);
+    }
+
+
+}
+
+void codegen_translate_c(CodeGen *g, Buf *full_path, FILE *out_file, bool use_userland_implementation) {
+    Error err;
     Buf *src_basename = buf_alloc();
     Buf *src_dirname = buf_alloc();
     os_path_split(full_path, src_dirname, src_basename);
@@ -8165,30 +8286,45 @@ AstNode *codegen_translate_c(CodeGen *g, Buf *full_path, bool use_userland_imple
 
     init(g);
 
+    Stage2TranslateMode trans_mode = buf_ends_with_str(full_path, ".h") ?
+        Stage2TranslateModeImport : Stage2TranslateModeTranslate;
+
+
+    ZigList<const char *> clang_argv = {0};
+    add_cc_args(g, clang_argv, nullptr, true);
+
+    clang_argv.append("-c");
+    clang_argv.append(buf_ptr(full_path));
+
+    clang_argv.append(nullptr); // to make the [start...end] argument work
+
     if (use_userland_implementation) {
-        // TODO improve this
-        stage2_translate_c();
-        zig_panic("TODO");
-    }
-
-    ZigList<ErrorMsg *> errors = {0};
-    AstNode *root_node;
-    Error err = parse_h_file(&root_node, &errors, buf_ptr(full_path), g, nullptr);
-
-    if (err == ErrorCCompileErrors && errors.length > 0) {
-        for (size_t i = 0; i < errors.length; i += 1) {
-            ErrorMsg *err_msg = errors.at(i);
-            print_err_msg(err_msg, g->err_color);
+        Stage2Ast *ast;
+        if ((err = stage2_translate_c(&ast, &clang_argv.at(0), &clang_argv.last(), trans_mode))) {
+            zig_panic("TODO");
         }
-        exit(1);
-    }
+        stage2_render_ast(ast, out_file);
+    } else {
+        ZigList<ErrorMsg *> errors = {0};
+        AstNode *root_node;
 
-    if (err) {
-        fprintf(stderr, "unable to parse C file: %s\n", err_str(err));
-        exit(1);
-    }
+        err = parse_h_file(g, &root_node, &clang_argv.at(0), &clang_argv.last(), trans_mode, &errors);
 
-    return root_node;
+        if (err == ErrorCCompileErrors && errors.length > 0) {
+            for (size_t i = 0; i < errors.length; i += 1) {
+                ErrorMsg *err_msg = errors.at(i);
+                print_err_msg(err_msg, g->err_color);
+            }
+            exit(1);
+        }
+
+        if (err) {
+            fprintf(stderr, "unable to parse C file: %s\n", err_str(err));
+            exit(1);
+        }
+
+        ast_render(out_file, root_node, 4);
+    }
 }
 
 static ZigType *add_special_code(CodeGen *g, ZigPackage *package, const char *basename) {
@@ -8507,93 +8643,7 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
         args.append("cc");
 
         Buf *out_dep_path = buf_sprintf("%s.d", buf_ptr(out_obj_path));
-        args.append("-MD");
-        args.append("-MV");
-        args.append("-MF");
-        args.append(buf_ptr(out_dep_path));
-
-        args.append("-nostdinc");
-        args.append("-fno-spell-checking");
-
-        switch (g->err_color) {
-            case ErrColorAuto:
-                break;
-            case ErrColorOff:
-                args.append("-fno-color-diagnostics");
-                args.append("-fno-caret-diagnostics");
-                break;
-            case ErrColorOn:
-                args.append("-fcolor-diagnostics");
-                args.append("-fcaret-diagnostics");
-                break;
-        }
-
-        args.append("-isystem");
-        args.append(buf_ptr(g->zig_c_headers_dir));
-
-        for (size_t i = 0; i < g->libc_include_dir_len; i += 1) {
-            Buf *include_dir = g->libc_include_dir_list[i];
-            args.append("-isystem");
-            args.append(buf_ptr(include_dir));
-        }
-
-        if (g->zig_target->is_native) {
-            args.append("-march=native");
-        } else {
-            args.append("-target");
-            args.append(buf_ptr(&g->triple_str));
-        }
-        if (g->zig_target->os == OsFreestanding) {
-            args.append("-ffreestanding");
-        }
-
-        if (!g->strip_debug_symbols) {
-            args.append("-g");
-        }
-
-        switch (g->build_mode) {
-            case BuildModeDebug:
-                if (g->libc_link_lib != nullptr) {
-                    args.append("-fstack-protector-strong");
-                    args.append("--param");
-                    args.append("ssp-buffer-size=4");
-                } else {
-                    args.append("-fno-stack-protector");
-                }
-                args.append("-fno-omit-frame-pointer");
-                break;
-            case BuildModeSafeRelease:
-                // See the comment in the BuildModeFastRelease case for why we pass -O2 rather
-                // than -O3 here.
-                args.append("-O2");
-                if (g->libc_link_lib != nullptr) {
-                    args.append("-D_FORTIFY_SOURCE=2");
-                    args.append("-fstack-protector-strong");
-                    args.append("--param");
-                    args.append("ssp-buffer-size=4");
-                } else {
-                    args.append("-fno-stack-protector");
-                }
-                args.append("-fomit-frame-pointer");
-                break;
-            case BuildModeFastRelease:
-                args.append("-DNDEBUG");
-                // Here we pass -O2 rather than -O3 because, although we do the equivalent of
-                // -O3 in Zig code, the justification for the difference here is that Zig
-                // has better detection and prevention of undefined behavior, so -O3 is safer for
-                // Zig code than it is for C code. Also, C programmers are used to their code
-                // running in -O2 and thus the -O3 path has been tested less.
-                args.append("-O2");
-                args.append("-fno-stack-protector");
-                args.append("-fomit-frame-pointer");
-                break;
-            case BuildModeSmallRelease:
-                args.append("-DNDEBUG");
-                args.append("-Os");
-                args.append("-fno-stack-protector");
-                args.append("-fomit-frame-pointer");
-                break;
-        }
+        add_cc_args(g, args, buf_ptr(out_dep_path), false);
 
         args.append("-o");
         args.append(buf_ptr(out_obj_path));
@@ -8601,18 +8651,9 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
         args.append("-c");
         args.append(buf_ptr(c_source_file));
 
-        if (target_supports_fpic(g->zig_target) && g->have_pic) {
-            args.append("-fPIC");
-        }
-
-        for (size_t arg_i = 0; arg_i < g->clang_argv_len; arg_i += 1) {
-            args.append(g->clang_argv[arg_i]);
-        }
-
         for (size_t arg_i = 0; arg_i < c_file->args.length; arg_i += 1) {
             args.append(c_file->args.at(arg_i));
         }
-
 
         if (g->verbose_cc) {
             print_zig_cc_cmd("zig", &args);

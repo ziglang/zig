@@ -3725,7 +3725,7 @@ static void analyze_fn_body(CodeGen *g, ZigFn *fn_table_entry) {
     }
     if (g->verbose_ir) {
         fprintf(stderr, "\n");
-        ast_render(g, stderr, fn_table_entry->body_node, 4);
+        ast_render(stderr, fn_table_entry->body_node, 4);
         fprintf(stderr, "\n{ // (IR)\n");
         ir_print(g, stderr, &fn_table_entry->ir_executable, 4);
         fprintf(stderr, "}\n");

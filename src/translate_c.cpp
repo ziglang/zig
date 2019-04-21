@@ -5018,14 +5018,14 @@ static void process_preprocessor_entities(Context *c, ZigClangASTUnit *zunit) {
     }
 }
 
-Error parse_h_file(AstNode **out_root_node, ZigList<ErrorMsg *> *errors, const char *target_file,
-        CodeGen *codegen, Buf *tmp_dep_file)
+Error parse_h_file(CodeGen *codegen, AstNode **out_root_node, const char **args_begin, const char **args_end,
+        Stage2TranslateMode mode, ZigList<ErrorMsg *> *errors)
 {
     Context context = {0};
     Context *c = &context;
     c->warnings_on = codegen->verbose_cimport;
     c->errors = errors;
-    if (buf_ends_with_str(buf_create_from_str(target_file), ".h")) {
+    if (mode == Stage2TranslateModeImport) {
         c->visib_mod = VisibModPub;
         c->want_export = false;
     } else {
@@ -5039,92 +5039,6 @@ Error parse_h_file(AstNode **out_root_node, ZigList<ErrorMsg *> *errors, const c
     c->codegen = codegen;
     c->global_scope = trans_scope_root_create(c);
 
-    ZigList<const char *> clang_argv = {0};
-
-    clang_argv.append("-x");
-    clang_argv.append("c");
-
-    if (tmp_dep_file != nullptr) {
-        clang_argv.append("-MD");
-        clang_argv.append("-MV");
-        clang_argv.append("-MF");
-        clang_argv.append(buf_ptr(tmp_dep_file));
-    }
-
-    if (c->codegen->zig_target->is_native) {
-        char *ZIG_PARSEC_CFLAGS = getenv("ZIG_NATIVE_PARSEC_CFLAGS");
-        if (ZIG_PARSEC_CFLAGS) {
-            Buf tmp_buf = BUF_INIT;
-            char *start = ZIG_PARSEC_CFLAGS;
-            char *space = strstr(start, " ");
-            while (space) {
-                if (space - start > 0) {
-                    buf_init_from_mem(&tmp_buf, start, space - start);
-                    clang_argv.append(buf_ptr(buf_create_from_buf(&tmp_buf)));
-                }
-                start = space + 1;
-                space = strstr(start, " ");
-            }
-            buf_init_from_str(&tmp_buf, start);
-            clang_argv.append(buf_ptr(buf_create_from_buf(&tmp_buf)));
-        }
-    }
-
-    clang_argv.append("-nobuiltininc");
-    clang_argv.append("-nostdinc");
-    clang_argv.append("-nostdinc++");
-    if (codegen->libc_link_lib == nullptr) {
-        clang_argv.append("-nolibc");
-    }
-
-    clang_argv.append("-isystem");
-    clang_argv.append(buf_ptr(codegen->zig_c_headers_dir));
-
-    for (size_t i = 0; i < codegen->libc_include_dir_len; i += 1) {
-        Buf *include_dir = codegen->libc_include_dir_list[i];
-        clang_argv.append("-isystem");
-        clang_argv.append(buf_ptr(include_dir));
-    }
-
-    // windows c runtime requires -D_DEBUG if using debug libraries
-    if (codegen->build_mode == BuildModeDebug) {
-        clang_argv.append("-D_DEBUG");
-    }
-
-    for (size_t i = 0; i < codegen->clang_argv_len; i += 1) {
-        clang_argv.append(codegen->clang_argv[i]);
-    }
-
-    // we don't need spell checking and it slows things down
-    clang_argv.append("-fno-spell-checking");
-
-    // this gives us access to preprocessing entities, presumably at
-    // the cost of performance
-    clang_argv.append("-Xclang");
-    clang_argv.append("-detailed-preprocessing-record");
-
-    if (c->codegen->zig_target->is_native) {
-        clang_argv.append("-march=native");
-    } else {
-        clang_argv.append("-target");
-        clang_argv.append(buf_ptr(&c->codegen->triple_str));
-    }
-    if (c->codegen->zig_target->os == OsFreestanding) {
-        clang_argv.append("-ffreestanding");
-    }
-
-    clang_argv.append(target_file);
-
-    if (codegen->verbose_cc) {
-        fprintf(stderr, "clang");
-        for (size_t i = 0; i < clang_argv.length; i += 1) {
-            fprintf(stderr, " %s", clang_argv.at(i));
-        }
-        fprintf(stderr, "\n");
-    }
-
-    // to make the [start...end] argument work
-    clang_argv.append(nullptr);
 
     clang::IntrusiveRefCntPtr<clang::DiagnosticsEngine> diags(clang::CompilerInstance::createDiagnostics(new clang::DiagnosticOptions));
 
@@ -5139,7 +5053,7 @@ Error parse_h_file(AstNode **out_root_node, ZigList<ErrorMsg *> *errors, const c
     const char *resources_path = buf_ptr(codegen->zig_c_headers_dir);
     std::unique_ptr<clang::ASTUnit> err_unit;
     ZigClangASTUnit *ast_unit = reinterpret_cast<ZigClangASTUnit *>(clang::ASTUnit::LoadFromCommandLine(
-            &clang_argv.at(0), &clang_argv.last(),
+            args_begin, args_end,
             pch_container_ops, diags, resources_path,
             only_local_decls, capture_diagnostics, clang::None, true, 0, clang::TU_Complete,
             false, false, allow_pch_with_compiler_errors, clang::SkipFunctionBodiesScope::None,

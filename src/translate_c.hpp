@@ -11,7 +11,7 @@
 
 #include "all_types.hpp"
 
-Error parse_h_file(AstNode **out_root_node, ZigList<ErrorMsg *> *errors, const char *target_file,
-        CodeGen *codegen, Buf *tmp_dep_file);
+Error parse_h_file(CodeGen *codegen, AstNode **out_root_node, const char **args_begin, const char **args_end,
+        Stage2TranslateMode mode, ZigList<ErrorMsg *> *errors);
 
 #endif
