@@ -223,3 +223,43 @@ use stage 1.
 ```
 ./stage2/bin/zig build --build-file ../build.zig install -Drelease-fast
 ```
+
+## Developing Zig
+
+### Standard Library
+
+First, build the Stage 1 compiler as described in [the Building section](#building).
+
+Then, make your changes to the standard library files in `std`. After every change,
+(from the build directory you used to build the compiler) run either `make install`
+(on POSIX) or `msbuild -p:Configuration=Release INSTALL.vcxproj` (on Windows) as
+well as the relevant tests using `bin/zig test <file>`.
+
+Once your changes are finished, run all the zig tests (while skipping the longer
+test process for all possible platforms) by running the following (also from the
+build directory you used to build the compiler):
+
+```
+bin/zig build --build-file ../build.zig test -Dskip-release
+```
+
+For example, when making changes to `std/heap.zig` on POSIX:
+
+```sh
+# build and install compiler in 'build' directory
+mkdir build
+cd build
+...
+# make changes to std/heap.zig
+nano ../std/heap.zig
+# install and test changes
+make install
+bin/zig test std/heap.zig
+# more changes to std/heap.zig
+nano ../std/heap.zig
+# install and test changes
+make install
+bin/zig test std/heap.zig
+# run all the tests
+bin/zig build --build-file ../build.zig test -Dskip-release
+```
