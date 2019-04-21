@@ -12,6 +12,7 @@ pub use switch (builtin.arch) {
 pub use @import("linux/errno.zig");
 
 pub const PATH_MAX = 4096;
+pub const IOV_MAX = 1024;
 
 pub const STDIN_FILENO = 0;
 pub const STDOUT_FILENO = 1;
@@ -1193,6 +1194,16 @@ pub const iovec_const = extern struct {
     iov_len: usize,
 };
 
+pub const mmsghdr = extern struct {
+    msg_hdr: msghdr,
+    msg_len: u32,
+};
+
+pub const mmsghdr_const = extern struct {
+    msg_hdr: msghdr_const,
+    msg_len: u32,
+};
+
 pub fn getsockname(fd: i32, noalias addr: *sockaddr, noalias len: *socklen_t) usize {
     return syscall3(SYS_getsockname, @bitCast(usize, isize(fd)), @ptrToInt(addr), @ptrToInt(len));
 }
@@ -1215,6 +1226,46 @@ pub fn getsockopt(fd: i32, level: u32, optname: u32, noalias optval: [*]u8, noal
 
 pub fn sendmsg(fd: i32, msg: *msghdr_const, flags: u32) usize {
     return syscall3(SYS_sendmsg, @bitCast(usize, isize(fd)), @ptrToInt(msg), flags);
+}
+
+pub fn sendmmsg(fd: i32, msgvec: [*]mmsghdr_const, vlen: u32, flags: u32) usize {
+    if (@typeInfo(usize).Int.bits > @typeInfo(@typeOf(mmsghdr(undefined).msg_len)).Int.bits) {
+        // workaround kernel brokenness:
+        // if adding up all iov_len overflows a i32 then split into multiple calls
+        // see https://www.openwall.com/lists/musl/2014/06/07/5
+        const kvlen = if (vlen > IOV_MAX) IOV_MAX else vlen; // matches kernel
+        var next_unsent: usize = 0;
+        for (msgvec[0..kvlen]) |*msg, i| {
+            var size: i32 = 0;
+            const msg_iovlen = @intCast(usize, msg.msg_hdr.msg_iovlen); // kernel side this is treated as unsigned
+            for (msg.msg_hdr.msg_iov[0..msg_iovlen]) |iov, j| {
+                if (iov.iov_len > std.math.maxInt(i32) or @addWithOverflow(i32, size, @intCast(i32, iov.iov_len), &size)) {
+                    // batch-send all messages up to the current message
+                    if (next_unsent < i) {
+                        const batch_size = i - next_unsent;
+                        const r = syscall4(SYS_sendmmsg, @bitCast(usize, isize(fd)), @ptrToInt(&msgvec[next_unsent]), batch_size, flags);
+                        if (getErrno(r) != 0) return next_unsent;
+                        if (r < batch_size) return next_unsent + r;
+                    }
+                    // send current message as own packet
+                    const r = sendmsg(fd, &msg.msg_hdr, flags);
+                    if (getErrno(r) != 0) return r;
+                    // Linux limits the total bytes sent by sendmsg to INT_MAX, so this cast is safe.
+                    msg.msg_len = @intCast(u32, r);
+                    next_unsent = i + 1;
+                    break;
+                }
+            }
+        }
+        if (next_unsent < kvlen or next_unsent == 0) { // want to make sure at least one syscall occurs (e.g. to trigger MSG_EOR)
+            const batch_size = kvlen - next_unsent;
+            const r = syscall4(SYS_sendmmsg, @bitCast(usize, isize(fd)), @ptrToInt(&msgvec[next_unsent]), batch_size, flags);
+            if (getErrno(r) != 0) return r;
+            return next_unsent + r;
+        }
+        return kvlen;
+    }
+    return syscall4(SYS_sendmmsg, @bitCast(usize, isize(fd)), @ptrToInt(msgvec), vlen, flags);
 }
 
 pub fn connect(fd: i32, addr: *const c_void, len: socklen_t) usize {
