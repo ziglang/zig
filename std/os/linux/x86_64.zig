@@ -1,5 +1,6 @@
 const std = @import("../../std.zig");
 const linux = std.os.linux;
+const sockaddr = linux.sockaddr;
 const socklen_t = linux.socklen_t;
 const iovec = linux.iovec;
 
@@ -483,12 +484,12 @@ pub nakedcc fn restore_rt() void {
 }
 
 pub const msghdr = extern struct {
-    msg_name: *u8,
+    msg_name: ?*sockaddr,
     msg_namelen: socklen_t,
-    msg_iov: *iovec,
+    msg_iov: [*]iovec,
     msg_iovlen: i32,
     __pad1: i32,
-    msg_control: *u8,
+    msg_control: ?*c_void,
     msg_controllen: socklen_t,
     __pad2: socklen_t,
     msg_flags: i32,

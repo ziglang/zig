@@ -415,12 +415,12 @@ pub fn syscall6(
 pub extern fn clone(func: extern fn (arg: usize) u8, stack: usize, flags: u32, arg: usize, ptid: *i32, tls: usize, ctid: *i32) usize;
 
 pub const msghdr = extern struct {
-    msg_name: *u8,
+    msg_name: ?*sockaddr,
     msg_namelen: socklen_t,
-    msg_iov: *iovec,
+    msg_iov: [*]iovec,
     msg_iovlen: i32,
     __pad1: i32,
-    msg_control: *u8,
+    msg_control: ?*c_void,
     msg_controllen: socklen_t,
     __pad2: socklen_t,
     msg_flags: i32,
