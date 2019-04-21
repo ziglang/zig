@@ -755,7 +755,11 @@ int main(int argc, char **argv) {
                         if (argv[i][0] == '-') {
                             c_file->args.append(argv[i]);
                             i += 1;
-                            continue;
+                            if (i < argc) {
+                                continue;
+                            }
+
+                            break;
                         } else {
                             c_file->source_path = argv[i];
                             c_source_files.append(c_file);
