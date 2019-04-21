@@ -959,3 +959,11 @@ pub const Stage2ErrorMsg = extern struct {
     offset: c_uint,
 };
 pub extern fn ZigClangErrorMsg_delete(ptr: [*c]Stage2ErrorMsg, len: usize) void;
+
+pub extern fn ZigClangLoadFromCommandLine(
+    args_begin: [*]?[*]const u8,
+    args_end: [*]?[*]const u8,
+    errors_ptr: *[*]Stage2ErrorMsg,
+    errors_len: *usize,
+    resources_path: [*c]const u8,
+) ?*ZigClangASTUnit;

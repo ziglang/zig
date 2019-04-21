@@ -88,10 +88,15 @@ export fn stage2_translate_c(
     out_ast.* = translate_c.translate(args_begin, args_end, switch (mode) {
         .import => translate_c.Mode.import,
         .translate => translate_c.Mode.translate,
-    }, &errors) catch |err| switch (err) {
+    }, &errors, resources_path) catch |err| switch (err) {
         error.Unimplemented => return Error.Unimplemented,
+        error.SemanticAnalyzeFail => {
+            out_errors_ptr.* = errors.ptr;
+            out_errors_len.* = errors.len;
+            return Error.CCompileErrors;
+        },
+        error.OutOfMemory => return Error.OutOfMemory,
     };
-
     return Error.None;
 }
 

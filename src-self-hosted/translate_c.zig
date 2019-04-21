@@ -17,7 +17,19 @@ pub fn translate(
     args_end: [*]?[*]const u8,
     mode: Mode,
     errors: *[]ClangErrMsg,
+    resources_path: [*]const u8,
 ) !*ast.Tree {
+    const ast_unit = ZigClangLoadFromCommandLine(
+        args_begin,
+        args_end,
+        &errors.ptr,
+        &errors.len,
+        resources_path,
+    ) orelse {
+        if (errors.len == 0) return error.OutOfMemory;
+        return error.SemanticAnalyzeFail;
+    };
+
     return error.Unimplemented;
 }
 
