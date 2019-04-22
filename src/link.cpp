@@ -1109,6 +1109,20 @@ static void construct_linker_job_wasm(LinkJob *lj) {
         if (g->libc_link_lib == nullptr) {
             Buf *builtin_a_path = build_a(g, "builtin");
             lj->args.append(buf_ptr(builtin_a_path));
+        } else if (g->zig_target->abi == ZigLLVM_WASISysroot) {
+            lj->args.append(path_from_libc(g, "wasi-sysroot" OS_SEP "crt1.o"));
+            lj->args.append(path_from_libc(g, "wasi-sysroot" OS_SEP "libc-printscan-long-double.a"));
+            lj->args.append(path_from_libc(g, "wasi-sysroot" OS_SEP "libc-printscan-no-floating-point.a"));
+            lj->args.append(path_from_libc(g, "wasi-sysroot" OS_SEP "libc.a"));
+            lj->args.append(path_from_libc(g, "wasi-sysroot" OS_SEP "libcrypt.a"));
+            lj->args.append(path_from_libc(g, "wasi-sysroot" OS_SEP "libdl.a"));
+            lj->args.append(path_from_libc(g, "wasi-sysroot" OS_SEP "libm.a"));
+            lj->args.append(path_from_libc(g, "wasi-sysroot" OS_SEP "libpthread.a"));
+            lj->args.append(path_from_libc(g, "wasi-sysroot" OS_SEP "libresolv.a"));
+            lj->args.append(path_from_libc(g, "wasi-sysroot" OS_SEP "librt.a"));
+            lj->args.append(path_from_libc(g, "wasi-sysroot" OS_SEP "libutil.a"));
+            lj->args.append(path_from_libc(g, "wasi-sysroot" OS_SEP "libwasi-emulated-mman.a"));
+            lj->args.append(path_from_libc(g, "wasi-sysroot" OS_SEP "libxnet.a"));
         }
 
         Buf *compiler_rt_o_path = build_compiler_rt(g);
