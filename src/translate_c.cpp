@@ -2864,6 +2864,42 @@ static AstNode *trans_call_expr(Context *c, ResultUsed result_used, TransScope *
     return node;
 }
 
+static AstNode *zero_init_for_type(Context *c, ZigClangQualType qt)
+{
+    const clang::Type *ty = reinterpret_cast<const clang::Type *>(qual_type_canon(qt));
+
+    if (ty->isBooleanType()) {
+        return trans_create_node_bool(c, false);
+    }
+
+    if (ty->isIntegerType()) {
+        return trans_create_node_unsigned(c, 0);
+    }
+
+    if (ty->isPointerType()) {
+        return trans_create_node(c, NodeTypeNullLiteral);
+    }
+
+    if (ty->isFloatingType()) {
+        return trans_create_node_float_lit(c, 0);
+    }
+
+    return nullptr;
+}
+
+static AstNode *trans_ivi_expr(Context *c, ResultUsed result_used, TransScope *scope,
+    const clang::ImplicitValueInitExpr *stmt)
+{
+    AstNode *zero_init = zero_init_for_type(c, bitcast(stmt->getType()));
+
+    if (zero_init == nullptr) {
+        emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO unsupported ImplicitValueInitExpr");
+        return nullptr;
+    }
+
+    return zero_init;
+}
+
 static AstNode *trans_member_expr(Context *c, ResultUsed result_used, TransScope *scope,
     const clang::MemberExpr *stmt)
 {
@@ -3244,6 +3280,127 @@ static int wrap_stmt(AstNode **out_node, TransScope **out_scope, TransScope *in_
     return ErrorNone;
 }
 
+static AstNode *trans_struct_initializer(Context *c, ResultUsed result_used, TransScope *scope,
+    const clang::InitListExpr *il_expr, TransLRValue lrval)
+{
+    const clang::RecordType *record_ty = il_expr->getType()->getAs<clang::RecordType>();
+    assert(record_ty != nullptr);
+    const clang::RecordDecl *record_def = record_ty->getDecl()->getDefinition();
+    assert(record_def != nullptr);
+
+    AstNode *ty = trans_qual_type(c, bitcast(il_expr->getType()), bitcast(il_expr->getBeginLoc()));
+    AstNode *init_node = trans_create_node(c, NodeTypeContainerInitExpr);
+    init_node->data.container_init_expr.type = ty;
+    init_node->data.container_init_expr.kind = ContainerInitKindStruct;
+
+    unsigned i = 0;
+    for (auto it = record_def->field_begin(), it_end = record_def->field_end(); it != it_end; ++it)
+    {
+        const clang::FieldDecl *field_decl = *it;
+
+        if (record_ty->isUnionType() && field_decl != il_expr->getInitializedFieldInUnion()) {
+            continue;
+        }
+
+        if (field_decl->isBitField()) {
+            emit_warning(c, bitcast(field_decl->getBeginLoc()), "Bitfields initialization is unsupported");
+            return nullptr;
+        }
+
+        AstNode *val_node = nullptr;
+        if (i < il_expr->getNumInits()) {
+            // Use the value from the initializer list
+            val_node = trans_expr(c, result_used, scope, bitcast(il_expr->getInit(i++)), lrval);
+        } else {
+            // No value was specified for this field
+            val_node = trans_create_node(c, NodeTypeUndefinedLiteral);
+        }
+
+        if (val_node == nullptr) return nullptr;
+
+        AstNode *field_node = trans_create_node(c, NodeTypeStructValueField);
+        field_node->data.struct_val_field.name = buf_create_from_str(ZigClangDecl_getName_bytes_begin((const ZigClangDecl *)field_decl));
+        field_node->data.struct_val_field.expr = val_node;
+
+        init_node->data.container_init_expr.entries.append(field_node);
+    }
+
+    return init_node;
+}
+
+static AstNode *trans_array_initializer(Context *c, ResultUsed result_used, TransScope *scope,
+    const clang::InitListExpr *il_expr, TransLRValue lrval)
+{
+    clang::ASTContext *ctx = reinterpret_cast<clang::ASTContext *>(c->ctx);
+    const clang::ConstantArrayType *ca_ty = ctx->getAsConstantArrayType(il_expr->getType());
+
+    const unsigned array_size = ca_ty->getSize().getZExtValue();
+    const unsigned init_size = il_expr->getNumInits();
+
+    AstNode *ty = trans_qual_type(c, bitcast(il_expr->getType()), bitcast(il_expr->getBeginLoc()));
+
+    AstNode *init_node = nullptr;
+    AstNode *fill_rest_node = nullptr;
+
+    if (init_size) {
+        init_node = trans_create_node(c, NodeTypeContainerInitExpr);
+        init_node->data.container_init_expr.type = ty;
+        init_node->data.container_init_expr.kind = ContainerInitKindArray;
+
+        for (unsigned i = 0; i < il_expr->getNumInits(); i++) {
+            const clang::Expr *expr = il_expr->getInit(i);
+            AstNode *val_node = trans_expr(c, result_used, scope, bitcast(expr), lrval);
+            if (val_node == nullptr) return nullptr;
+            init_node->data.container_init_expr.entries.append(val_node);
+        }
+    }
+
+    if (array_size - init_size) {
+        const unsigned remaining = array_size - init_size;
+
+        const clang::Expr *filler_expr = il_expr->getArrayFiller();
+        assert(filler_expr != nullptr);
+        AstNode *filler_node = trans_expr(c, result_used, scope, bitcast(filler_expr), lrval);
+        if (filler_node == nullptr) return nullptr;
+
+        if (init_node != nullptr && remaining < 8) {
+            // Stuff the remaining elements in the lhs if possible
+            for (unsigned i = 0; i < remaining; i++) {
+                init_node->data.container_init_expr.entries.append(filler_node);
+            }
+        } else {
+            AstNode* rest_ty = trans_create_node(c, NodeTypeArrayType);
+            *rest_ty = *ty;
+            rest_ty->data.array_type.size = nullptr;
+
+            AstNode *rest_node = trans_create_node(c, NodeTypeContainerInitExpr);
+            rest_node->data.container_init_expr.kind = ContainerInitKindArray;
+            rest_node->data.container_init_expr.type = rest_ty;
+            rest_node->data.container_init_expr.entries.append(filler_node);
+
+            // Generate the remaining part of the array as []ty{value} ** remaining
+            fill_rest_node = trans_create_node_bin_op(c, rest_node, BinOpTypeArrayMult,
+                                                      trans_create_node_unsigned(c, remaining));
+        }
+    }
+
+    // Stitch the lhs and the rhs together
+    if (init_node != nullptr && fill_rest_node != nullptr) {
+        return trans_create_node_bin_op(c, init_node, BinOpTypeArrayCat, fill_rest_node);
+    }
+
+    if (init_node != nullptr) {
+        return init_node;
+    }
+
+    if (fill_rest_node != nullptr) {
+        return fill_rest_node;
+    }
+
+    // We emit undefined for zero-sized arrays
+    return trans_create_node(c, NodeTypeUndefinedLiteral);
+}
+
 static int trans_stmt_extra(Context *c, TransScope *scope, const ZigClangStmt *stmt,
         ResultUsed result_used, TransLRValue lrvalue,
         AstNode **out_node, TransScope **out_child_scope,
@@ -3555,11 +3712,25 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const ZigClangStmt *s
             emit_warning(c, ZigClangStmt_getBeginLoc(stmt), "TODO handle C ImaginaryLiteralClass");
             return ErrorUnexpected;
         case ZigClangStmt_ImplicitValueInitExprClass:
-            emit_warning(c, ZigClangStmt_getBeginLoc(stmt), "TODO handle C ImplicitValueInitExprClass");
-            return ErrorUnexpected;
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_ivi_expr(c, result_used, scope, (const clang::ImplicitValueInitExpr *)stmt));
         case ZigClangStmt_InitListExprClass:
-            emit_warning(c, ZigClangStmt_getBeginLoc(stmt), "TODO handle C InitListExprClass");
-            return ErrorUnexpected;
+            {
+                const clang::InitListExpr *ile_expr = (const clang::InitListExpr *)stmt;
+                const clang::Type *base_ty = ile_expr->getType().getTypePtr();
+
+                if (base_ty->isArrayType()) {
+                    return wrap_stmt(out_node, out_child_scope, scope,
+                                     trans_array_initializer(c, result_used, scope, ile_expr, lrvalue));
+                }
+                if (base_ty->isRecordType()) {
+                    return wrap_stmt(out_node, out_child_scope, scope,
+                                     trans_struct_initializer(c, result_used, scope, ile_expr, lrvalue));
+                }
+
+                emit_warning(c, ZigClangStmt_getBeginLoc(stmt), "TODO handle missing InitListExprClass case");
+                return ErrorUnexpected;
+            }
         case ZigClangStmt_LambdaExprClass:
             emit_warning(c, ZigClangStmt_getBeginLoc(stmt), "TODO handle C LambdaExprClass");
             return ErrorUnexpected;
@@ -4392,7 +4563,13 @@ static void visit_var_decl(Context *c, const clang::VarDecl *var_decl) {
         AstNode *init_node;
         const clang::Expr *init_expr = var_decl->getInit();
         if (init_expr) {
-            init_node = trans_expr(c, ResultUsedYes, &c->global_scope->base, bitcast(init_expr), TransRValue);
+            const ZigClangAPValue *ap_value = bitcast(var_decl->evaluateValue());
+            if (ap_value != nullptr) {
+                init_node = trans_ap_value(c, ap_value, qt, bitcast(var_decl->getLocation()));
+            } else {
+                init_node = trans_expr(c, ResultUsedYes, &c->global_scope->base, bitcast(init_expr), TransRValue);
+            }
+
             if (init_node == nullptr) {
                 emit_warning(c, bitcast(var_decl->getLocation()),
                         "ignoring variable '%s' - unable to evaluate initializer", buf_ptr(name));
