@@ -229,37 +229,20 @@ use stage 1.
 ### Standard Library
 
 First, build the Stage 1 compiler as described in [the Building section](#building).
+Then, make your changes to the standard library files in `std` (note: not
+`build/lib/zig/std`). To test changes to the standard library, do the following
+from the build directory:
 
-Then, make your changes to the standard library files in `std`. After every change,
-(from the build directory you used to build the compiler) run either `make install`
-(on POSIX) or `msbuild -p:Configuration=Release INSTALL.vcxproj` (on Windows) as
-well as the relevant tests using `bin/zig test <file>`.
+1. Run `make install` (on POSIX) or `msbuild -p:Configuration=Release INSTALL.vcxproj`
+   (on Windows).
+2. Test your changes with `bin/zig test <changed file>` (e.g. `bin/zig test std/heap.zig`).
 
-Once your changes are finished, run all the zig tests (while skipping the longer
-test process for all possible platforms) by running the following (also from the
-build directory you used to build the compiler):
+Once your changes are finished, run all the zig tests from the build directory:
 
 ```
 bin/zig build --build-file ../build.zig test -Dskip-release
 ```
 
-For example, when making changes to `std/heap.zig` on POSIX:
-
-```sh
-# build and install compiler in 'build' directory
-mkdir build
-cd build
-...
-# make changes to std/heap.zig
-nano ../std/heap.zig
-# install and test changes
-make install
-bin/zig test std/heap.zig
-# more changes to std/heap.zig
-nano ../std/heap.zig
-# install and test changes
-make install
-bin/zig test std/heap.zig
-# run all the tests
-bin/zig build --build-file ../build.zig test -Dskip-release
-```
+*Note: The `-Dskip-release` flag will skip running the longer test process that tests
+all possible build configurations. This shorter test process is good enough when
+submitting pull requests*
