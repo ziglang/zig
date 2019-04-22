@@ -156,9 +156,8 @@ pub const DirectAllocator = struct {
                 const root_addr = @intToPtr(*align(1) usize, old_record_addr).*;
                 const old_ptr = @intToPtr(*c_void, root_addr);
                 
-                if(new_size == 0)
-                {
-                    if(os.windows.HeapFree(self.heap_handle.?, 0, old_ptr) == 0) unreachable;
+                if(new_size == 0) {
+                    if (os.windows.HeapFree(self.heap_handle.?, 0, old_ptr) == 0) unreachable;
                     return old_mem[0..0];
                 }
                 
@@ -171,8 +170,17 @@ pub const DirectAllocator = struct {
                 ) orelse return error.OutOfMemory;
                 const offset = old_adjusted_addr - root_addr;
                 const new_root_addr = @ptrToInt(new_ptr);
-                const new_adjusted_addr = new_root_addr + offset;
-                assert(new_adjusted_addr % new_align == 0);
+                const adjusted_addr = new_root_addr + offset;
+                const new_adjusted_addr = mem.alignForward(new_root_addr, new_align);
+                // If HeapReAlloc didn't happen to move the memory to the new alignment
+                // then we need to copy it
+                if (new_adjusted_addr != adjusted_addr) {
+                    @memcpy(
+                        @intToPtr([*]u8, new_adjusted_addr),
+                        @intToPtr([*]u8, adjusted_addr),
+                        std.math.min(old_mem.len, new_size),
+                    );
+                }
                 const new_record_addr = new_adjusted_addr + new_size;
                 @intToPtr(*align(1) usize, new_record_addr).* = new_root_addr;
                 return @intToPtr([*]u8, new_adjusted_addr)[0..new_size];
