@@ -8155,6 +8155,11 @@ static void detect_libc(CodeGen *g) {
 
 // does not add the "cc" arg
 void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_path, bool translate_c) {
+    if (translate_c) {
+        args.append("-x");
+        args.append("c");
+    }
+
     if (out_dep_path != nullptr) {
         args.append("-MD");
         args.append("-MV");
@@ -8166,13 +8171,6 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
     args.append("-fno-spell-checking");
 
     if (translate_c) {
-        // TODO these args shouldn't be special from the non-translate-c args, probably.
-        args.append("-nobuiltininc");
-        args.append("-nostdinc++");
-        if (g->libc_link_lib == nullptr) {
-            args.append("-nolibc");
-        }
-
         // this gives us access to preprocessing entities, presumably at
         // the cost of performance
         args.append("-Xclang");
@@ -8293,8 +8291,15 @@ void codegen_translate_c(CodeGen *g, Buf *full_path, FILE *out_file, bool use_us
     ZigList<const char *> clang_argv = {0};
     add_cc_args(g, clang_argv, nullptr, true);
 
-    clang_argv.append("-c");
     clang_argv.append(buf_ptr(full_path));
+
+    if (g->verbose_cc) {
+        fprintf(stderr, "clang");
+        for (size_t i = 0; i < clang_argv.length; i += 1) {
+            fprintf(stderr, " %s", clang_argv.at(i));
+        }
+        fprintf(stderr, "\n");
+    }
 
     clang_argv.append(nullptr); // to make the [start...end] argument work
 

@@ -19098,8 +19098,15 @@ static IrInstruction *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruct
 
         add_cc_args(ira->codegen, clang_argv, buf_ptr(tmp_dep_file), true);
 
-        clang_argv.append("-c");
         clang_argv.append(buf_ptr(&tmp_c_file_path));
+
+        if (ira->codegen->verbose_cc) {
+            fprintf(stderr, "clang");
+            for (size_t i = 0; i < clang_argv.length; i += 1) {
+                fprintf(stderr, " %s", clang_argv.at(i));
+            }
+            fprintf(stderr, "\n");
+        }
 
         clang_argv.append(nullptr); // to make the [start...end] argument work
 
