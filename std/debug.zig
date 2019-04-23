@@ -2051,7 +2051,7 @@ fn scanAllFunctions(di: *DwarfInfo) !void {
                                 this_die_obj = (try parseDie1(di, abbrev_table, is_64)) orelse return error.InvalidDebugInfo;
                             } else if (this_die_obj.getAttr(DW.AT_specification)) |ref| {
                                 // Follow the DIE it points to and repeat
-                                const ref_offset = try this_die_obj.getAttrRef(DW.AT_abstract_origin);
+                                const ref_offset = try this_die_obj.getAttrRef(DW.AT_specification);
                                 if (ref_offset > next_offset) return error.InvalidDebugInfo;
                                 try di.dwarf_seekable_stream.seekTo(this_unit_offset + ref_offset);
                                 this_die_obj = (try parseDie1(di, abbrev_table, is_64)) orelse return error.InvalidDebugInfo;
