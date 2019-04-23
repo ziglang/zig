@@ -31,10 +31,10 @@ pub fn parse(allocator: *Allocator, source: []const u8) !Tree {
         .tokens = token_list,
         .errors = Tree.ErrorList.init(arena),
         // TODO: Remove (not used/needed anywhere)
-        .arena_allocator = undefined,
+        .arena_allocator = tree_arena,
     };
 
-    tree.root_node = try parseRoot(arena, &it, &tree);
+    tree.root_node = try parseRoot(&tree.arena_allocator.allocator, &it, &tree);
 
     return tree;
 }
