@@ -1460,7 +1460,7 @@ fn parseFormValueConstant(allocator: *mem.Allocator, in_stream: var, signed: boo
                 2 => try in_stream.readIntLittle(u16),
                 4 => try in_stream.readIntLittle(u32),
                 8 => try in_stream.readIntLittle(u64),
-                -1 => if (signed) @intCast(u64, try readILeb128(in_stream)) else try readULeb128(in_stream),
+                -1 => if (signed) @bitCast(u64, try readILeb128(in_stream)) else try readULeb128(in_stream),
                 else => @compileError("Invalid size"),
             },
         },
@@ -2272,14 +2272,15 @@ fn readILeb128Mem(ptr: *[*]const u8) !i64 {
         const byte = ptr.*[i];
         i += 1;
 
-        var operand: i64 = undefined;
-        if (@shlWithOverflow(i64, byte & 0b01111111, @intCast(u6, shift), &operand)) return error.InvalidDebugInfo;
+        if (shift > @sizeOf(i64) * 8) return error.InvalidDebugInfo;
 
-        result |= operand;
+        result |= i64(byte & 0b01111111) << @intCast(u6, shift);
         shift += 7;
 
         if ((byte & 0b10000000) == 0) {
-            if (shift < @sizeOf(i64) * 8 and (byte & 0b01000000) != 0) result |= -(i64(1) << @intCast(u6, shift));
+            if (shift < @sizeOf(i64) * 8 and (byte & 0b01000000) != 0) {
+                result |= -(i64(1) << @intCast(u6, shift));
+            }
             ptr.* += i;
             return result;
         }
@@ -2323,15 +2324,15 @@ fn readILeb128(in_stream: var) !i64 {
     while (true) {
         const byte = try in_stream.readByte();
 
-        var operand: i64 = undefined;
+        if (shift > @sizeOf(i64) * 8) return error.InvalidDebugInfo;
 
-        if (@shlWithOverflow(i64, byte & 0b01111111, @intCast(u6, shift), &operand)) return error.InvalidDebugInfo;
-
-        result |= operand;
+        result |= i64(byte & 0b01111111) << @intCast(u6, shift);
         shift += 7;
 
         if ((byte & 0b10000000) == 0) {
-            if (shift < @sizeOf(i64) * 8 and (byte & 0b01000000) != 0) result |= -(i64(1) << @intCast(u6, shift));
+            if (shift < @sizeOf(i64) * 8 and (byte & 0b01000000) != 0) {
+                result |= -(i64(1) << @intCast(u6, shift));
+            }
             return result;
         }
     }
