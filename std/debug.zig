@@ -221,7 +221,7 @@ pub fn writeStackTrace(
         frame_index = (frame_index + 1) % stack_trace.instruction_addresses.len;
     }) {
         const return_address = stack_trace.instruction_addresses[frame_index];
-        try printSourceAtAddress(debug_info, out_stream, return_address, tty_color);
+        try printSourceAtAddress(debug_info, out_stream, return_address - 1, tty_color);
     }
 }
 
@@ -263,7 +263,7 @@ pub fn writeCurrentStackTrace(out_stream: var, debug_info: *DebugInfo, tty_color
     }
     var it = StackIterator.init(start_addr);
     while (it.next()) |return_address| {
-        try printSourceAtAddress(debug_info, out_stream, return_address, tty_color);
+        try printSourceAtAddress(debug_info, out_stream, return_address - 1, tty_color);
     }
 }
 
@@ -689,9 +689,9 @@ pub fn printSourceAtAddressDwarf(
         return;
     };
     const compile_unit_name = try compile_unit.die.getAttrString(debug_info, DW.AT_name);
-    if (getLineNumberInfoDwarf(debug_info, compile_unit.*, address - 1)) |line_info| {
+    if (getLineNumberInfoDwarf(debug_info, compile_unit.*, address)) |line_info| {
         defer line_info.deinit();
-        const symbol_name = getSymbolNameDwarf(debug_info, address - 1) orelse "???";
+        const symbol_name = getSymbolNameDwarf(debug_info, address) orelse "???";
         try printLineInfo(
             out_stream,
             line_info,
