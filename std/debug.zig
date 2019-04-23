@@ -221,7 +221,7 @@ pub fn writeStackTrace(
         frame_index = (frame_index + 1) % stack_trace.instruction_addresses.len;
     }) {
         const return_address = stack_trace.instruction_addresses[frame_index];
-        try printSourceAtAddress(debug_info, out_stream, return_address, tty_color);
+        try printSourceAtAddress(debug_info, out_stream, return_address - 1, tty_color);
     }
 }
 
@@ -263,7 +263,7 @@ pub fn writeCurrentStackTrace(out_stream: var, debug_info: *DebugInfo, tty_color
     }
     var it = StackIterator.init(start_addr);
     while (it.next()) |return_address| {
-        try printSourceAtAddress(debug_info, out_stream, return_address, tty_color);
+        try printSourceAtAddress(debug_info, out_stream, return_address - 1, tty_color);
     }
 }
 
@@ -689,9 +689,9 @@ pub fn printSourceAtAddressDwarf(
         return;
     };
     const compile_unit_name = try compile_unit.die.getAttrString(debug_info, DW.AT_name);
-    if (getLineNumberInfoDwarf(debug_info, compile_unit.*, address - 1)) |line_info| {
+    if (getLineNumberInfoDwarf(debug_info, compile_unit.*, address)) |line_info| {
         defer line_info.deinit();
-        const symbol_name = getSymbolNameDwarf(debug_info, address - 1) orelse "???";
+        const symbol_name = getSymbolNameDwarf(debug_info, address) orelse "???";
         try printLineInfo(
             out_stream,
             line_info,
@@ -1460,7 +1460,7 @@ fn parseFormValueConstant(allocator: *mem.Allocator, in_stream: var, signed: boo
                 2 => try in_stream.readIntLittle(u16),
                 4 => try in_stream.readIntLittle(u32),
                 8 => try in_stream.readIntLittle(u64),
-                -1 => if (signed) @intCast(u64, try readILeb128(in_stream)) else try readULeb128(in_stream),
+                -1 => if (signed) @bitCast(u64, try readILeb128(in_stream)) else try readULeb128(in_stream),
                 else => @compileError("Invalid size"),
             },
         },
@@ -2051,7 +2051,7 @@ fn scanAllFunctions(di: *DwarfInfo) !void {
                                 this_die_obj = (try parseDie1(di, abbrev_table, is_64)) orelse return error.InvalidDebugInfo;
                             } else if (this_die_obj.getAttr(DW.AT_specification)) |ref| {
                                 // Follow the DIE it points to and repeat
-                                const ref_offset = try this_die_obj.getAttrRef(DW.AT_abstract_origin);
+                                const ref_offset = try this_die_obj.getAttrRef(DW.AT_specification);
                                 if (ref_offset > next_offset) return error.InvalidDebugInfo;
                                 try di.dwarf_seekable_stream.seekTo(this_unit_offset + ref_offset);
                                 this_die_obj = (try parseDie1(di, abbrev_table, is_64)) orelse return error.InvalidDebugInfo;
@@ -2272,14 +2272,15 @@ fn readILeb128Mem(ptr: *[*]const u8) !i64 {
         const byte = ptr.*[i];
         i += 1;
 
-        var operand: i64 = undefined;
-        if (@shlWithOverflow(i64, byte & 0b01111111, @intCast(u6, shift), &operand)) return error.InvalidDebugInfo;
+        if (shift > @sizeOf(i64) * 8) return error.InvalidDebugInfo;
 
-        result |= operand;
+        result |= i64(byte & 0b01111111) << @intCast(u6, shift);
         shift += 7;
 
         if ((byte & 0b10000000) == 0) {
-            if (shift < @sizeOf(i64) * 8 and (byte & 0b01000000) != 0) result |= -(i64(1) << @intCast(u6, shift));
+            if (shift < @sizeOf(i64) * 8 and (byte & 0b01000000) != 0) {
+                result |= -(i64(1) << @intCast(u6, shift));
+            }
             ptr.* += i;
             return result;
         }
@@ -2323,15 +2324,15 @@ fn readILeb128(in_stream: var) !i64 {
     while (true) {
         const byte = try in_stream.readByte();
 
-        var operand: i64 = undefined;
+        if (shift > @sizeOf(i64) * 8) return error.InvalidDebugInfo;
 
-        if (@shlWithOverflow(i64, byte & 0b01111111, @intCast(u6, shift), &operand)) return error.InvalidDebugInfo;
-
-        result |= operand;
+        result |= i64(byte & 0b01111111) << @intCast(u6, shift);
         shift += 7;
 
         if ((byte & 0b10000000) == 0) {
-            if (shift < @sizeOf(i64) * 8 and (byte & 0b01000000) != 0) result |= -(i64(1) << @intCast(u6, shift));
+            if (shift < @sizeOf(i64) * 8 and (byte & 0b01000000) != 0) {
+                result |= -(i64(1) << @intCast(u6, shift));
+            }
             return result;
         }
     }
