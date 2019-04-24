@@ -188,6 +188,19 @@ static ConstExprValue *const_ptr_pointee_unchecked(CodeGen *g, ConstExprValue *c
     assert(get_src_ptr_type(const_val->type) != nullptr);
     assert(const_val->special == ConstValSpecialStatic);
     ConstExprValue *result;
+    
+    switch (type_has_one_possible_value(g, const_val->type->data.pointer.child_type)) {
+        case OnePossibleValueInvalid:
+            zig_unreachable();
+        case OnePossibleValueYes:
+            result = create_const_vals(1);
+            result->type = const_val->type->data.pointer.child_type;
+            result->special = ConstValSpecialStatic;
+            return result;
+        case OnePossibleValueNo:
+            break;
+    }
+    
     switch (const_val->data.x_ptr.special) {
         case ConstPtrSpecialInvalid:
             zig_unreachable();
