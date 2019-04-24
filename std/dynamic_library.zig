@@ -19,6 +19,85 @@ pub const DynLib = switch (builtin.os) {
     else => void,
 };
 
+const LinkMap = extern struct {
+    l_addr: usize,
+    l_name: [*]u8,
+    l_ld: [*c]elf.Dyn,
+    l_next: [*c]LinkMap,
+    l_prev: [*c]LinkMap,
+
+    pub const Iterator = struct {
+        lm_ptr: [*c]LinkMap,
+
+        fn end(self: *const Iterator) bool {
+            return self.lm_ptr == 0;
+        }
+
+        fn next(self: *Iterator) ?*LinkMap {
+            if (self.lm_ptr != 0) {
+                const ptr = self.lm_ptr;
+                self.lm_ptr = self.lm_ptr.*.l_next;
+                return ptr;
+            }
+            return null;
+        }
+    };
+};
+
+const RDebug = extern struct {
+    r_version: i32,
+    r_map: [*c]LinkMap,
+    r_brk: usize,
+    r_ldbase: usize,
+};
+
+fn elf_get_va_offset(phdrs: []elf.Phdr) !usize {
+    for (phdrs) |*phdr| {
+        if (phdr.p_type == elf.PT_LOAD) {
+            return @ptrToInt(phdr) - phdr.p_vaddr;
+        }
+    }
+    return error.InvalidExe;
+}
+
+pub fn linkmap_iterator(phdrs: []elf.Phdr) !LinkMap.Iterator {
+    const va_offset = try elf_get_va_offset(phdrs);
+
+    const dyn_table = init: {
+        for (phdrs) |*phdr| {
+            if (phdr.p_type == elf.PT_DYNAMIC) {
+                const ptr = @intToPtr([*]elf.Dyn, va_offset + phdr.p_vaddr);
+                break :init ptr[0..phdr.p_memsz / @sizeOf(elf.Dyn)];
+            }
+        }
+        // No PT_DYNAMIC means this is either a statically-linked program or a
+        // badly corrupted one
+        return LinkMap.Iterator{.lm_ptr = 0};
+    };
+
+    const link_map_ptr = init: {
+        for (dyn_table) |*dyn| {
+            switch (dyn.d_tag) {
+                elf.DT_DEBUG => {
+                    const r_debug = @intToPtr(*RDebug, dyn.d_un.d_ptr);
+                    if (r_debug.r_version != 1) return error.InvalidExe;
+                    break :init r_debug.r_map;
+                },
+                elf.DT_PLTGOT => {
+                    const got_table = @intToPtr([*]usize, dyn.d_un.d_ptr);
+                    // The address to the link_map structure is stored in the
+                    // second slot
+                    break :init @intToPtr([*c]LinkMap, got_table[1]);
+                },
+                else => { }
+            }
+        }
+        return error.InvalidExe;
+    };
+
+    return LinkMap.Iterator{.lm_ptr = link_map_ptr};
+}
+
 pub const LinuxDynLib = struct {
     elf_lib: ElfLib,
     fd: i32,
