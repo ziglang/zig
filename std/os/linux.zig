@@ -2,6 +2,7 @@ const std = @import("../std.zig");
 const assert = std.debug.assert;
 const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
+const elf = std.elf;
 const vdso = @import("linux/vdso.zig");
 pub use switch (builtin.arch) {
     builtin.Arch.x86_64 => @import("linux/x86_64.zig"),
@@ -1533,6 +1534,68 @@ pub const dirent64 = extern struct {
     d_type: u8,
     d_name: u8, // field address is the address of first byte of name https://github.com/ziglang/zig/issues/173
 };
+
+pub const dl_phdr_info = extern struct {
+    dlpi_addr: usize,
+    dlpi_name: [*c]const u8,
+    dlpi_phdr: [*c]*c_void,
+    dlpi_phnum: u16,
+};
+
+const DynLib = @import("../dynamic_library.zig");
+
+// XXX: This should be weak
+extern const __ehdr_start: elf.Ehdr = undefined;
+
+pub fn dl_iterate_phdr(callback: extern fn (info: *dl_phdr_info, size: usize, data: ?*c_void) i32, data: ?*c_void) isize {
+    if (builtin.link_libc) {
+        return std.c.dl_iterate_phdr(@ptrCast(*const c_void, callback), data);
+    }
+
+    const elf_base = @ptrToInt(&__ehdr_start);
+    const n_phdr = __ehdr_start.e_phnum;
+    const phdrs = (@intToPtr([*]elf.Phdr, elf_base + __ehdr_start.e_phoff))[0..n_phdr];
+
+    var it = DynLib.linkmap_iterator(phdrs) catch return 0;
+    if (it.end()) {
+        // The executable has no dynamic link infos, create a single info
+        // struct for the whole ELF image
+        var info = dl_phdr_info{
+            .dlpi_addr = elf_base,
+            .dlpi_name = c"/proc/self/exe",
+            .dlpi_phdr = @intToPtr([*c]*c_void, elf_base + __ehdr_start.e_phoff),
+            .dlpi_phnum = __ehdr_start.e_phnum,
+        };
+
+        return callback(&info, @sizeOf(dl_phdr_info), data);
+    }
+
+    // Last return value from the callback function
+    var last_r: isize = 0;
+    while (it.next()) |entry| {
+        var info = dl_phdr_info{
+            .dlpi_addr = entry.l_addr,
+            .dlpi_name = entry.l_name,
+            .dlpi_phdr = 0,
+            .dlpi_phnum = 0,
+        };
+
+        if (entry.l_addr != 0) {
+            const elf_header = @intToPtr(*elf.Ehdr, entry.l_addr);
+            info.dlpi_phdr = @intToPtr([*c]*c_void, entry.l_addr + elf_header.e_phoff);
+            info.dlpi_phnum = elf_header.e_phnum;
+        } else {
+            // This is the running ELF image
+            info.dlpi_phdr = @intToPtr([*c]*c_void, elf_base + __ehdr_start.e_phoff);
+            info.dlpi_phnum = __ehdr_start.e_phnum;
+        }
+
+        last_r = callback(&info, @sizeOf(dl_phdr_info), data);
+        if (last_r != 0) break;
+    }
+
+    return last_r;
+}
 
 test "import" {
     if (builtin.os == builtin.Os.linux) {

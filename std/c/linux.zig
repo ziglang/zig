@@ -11,3 +11,5 @@ pub const pthread_attr_t = extern struct {
 
 /// See std.elf for constants for this
 pub extern fn getauxval(__type: c_ulong) c_ulong;
+
+pub extern fn dl_iterate_phdr(callback: *const c_void, data: ?*c_void) i32;
