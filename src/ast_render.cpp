@@ -633,7 +633,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 if (is_printable(c)) {
                     fprintf(ar->f, "'%c'", c);
                 } else {
-                    fprintf(ar->f, "'\\x%x'", (int)c);
+                    fprintf(ar->f, "'\\x%02x'", (int)c);
                 }
                 break;
             }

@@ -1553,6 +1553,61 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         "pub const NOT_ZERO = ~c_uint(0);",
     );
 
+    cases.addC("implicit casts",
+        \\#include <stdbool.h>
+        \\
+        \\void fn_int(int x);
+        \\void fn_f32(float x);
+        \\void fn_f64(double x);
+        \\void fn_char(char x);
+        \\void fn_bool(bool x);
+        \\void fn_ptr(void *x);
+        \\
+        \\void call(int q) {
+        \\    fn_int(3.0f);
+        \\    fn_int(3.0);
+        \\    fn_int(3.0L);
+        \\    fn_int('ABCD');
+        \\    fn_f32(3);
+        \\    fn_f64(3);
+        \\    fn_char('3');
+        \\    fn_char('\x1');
+        \\    fn_char(0);
+        \\    fn_f32(3.0f);
+        \\    fn_f64(3.0);
+        \\    fn_bool(123);
+        \\    fn_bool(0);
+        \\    fn_bool(&fn_int);
+        \\    fn_int(&fn_int);
+        \\    fn_ptr(42);
+        \\}
+        ,
+        \\pub extern fn fn_int(x: c_int) void;
+        \\pub extern fn fn_f32(x: f32) void;
+        \\pub extern fn fn_f64(x: f64) void;
+        \\pub extern fn fn_char(x: u8) void;
+        \\pub extern fn fn_bool(x: bool) void;
+        \\pub extern fn fn_ptr(x: ?*c_void) void;
+        \\pub export fn call(q: c_int) void {
+        \\    fn_int(@floatToInt(c_int, 3.000000));
+        \\    fn_int(@floatToInt(c_int, 3.000000));
+        \\    fn_int(@floatToInt(c_int, 3.000000));
+        \\    fn_int(1094861636);
+        \\    fn_f32(@intToFloat(f32, 3));
+        \\    fn_f64(@intToFloat(f64, 3));
+        \\    fn_char(u8('3'));
+        \\    fn_char(u8('\x01'));
+        \\    fn_char(u8(0));
+        \\    fn_f32(3.000000);
+        \\    fn_f64(3.000000);
+        \\    fn_bool(true);
+        \\    fn_bool(false);
+        \\    fn_bool(@ptrToInt(&fn_int) != 0);
+        \\    fn_int(@intCast(c_int, @ptrToInt(&fn_int)));
+        \\    fn_ptr(@intToPtr(?*c_void, 42));
+        \\}
+    );
+
     // cases.add("empty array with initializer",
     //     "int a[4] = {};"
     // ,

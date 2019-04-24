@@ -522,7 +522,18 @@ static AstNode *trans_create_node_apint(Context *c, const ZigClangAPSInt *aps_in
             ZigClangAPSInt_getNumWords(negated), true);
     ZigClangAPSInt_free(negated);
     return node;
+}
 
+static AstNode *trans_create_node_apfloat(Context *c, const llvm::APFloat &ap_float) {
+    uint8_t buf[128];
+    size_t written = ap_float.convertToHexString((char *)buf, 0, false,
+                                                 llvm::APFloat::rmNearestTiesToEven);
+    AstNode *node = trans_create_node(c, NodeTypeFloatLiteral);
+    node->data.float_literal.bigfloat = allocate<BigFloat>(1);
+    if (bigfloat_init_buf(node->data.float_literal.bigfloat, buf, written)) {
+        node->data.float_literal.overflow = true;
+    }
+    return node;
 }
 
 static const ZigClangType *qual_type_canon(ZigClangQualType qt) {
@@ -1313,6 +1324,46 @@ static AstNode *trans_integer_literal(Context *c, ResultUsed result_used, const 
     return maybe_suppress_result(c, result_used, node);
 }
 
+static AstNode *trans_floating_literal(Context *c, ResultUsed result_used, const clang::FloatingLiteral *stmt) {
+    llvm::APFloat result{0.0f};
+    if (!stmt->EvaluateAsFloat(result, *reinterpret_cast<clang::ASTContext *>(c->ctx))) {
+        emit_warning(c, bitcast(stmt->getBeginLoc()), "invalid floating literal");
+        return nullptr;
+    }
+    AstNode *node = trans_create_node_apfloat(c, result);
+    return maybe_suppress_result(c, result_used, node);
+}
+
+static AstNode *trans_character_literal(Context *c, ResultUsed result_used, const clang::CharacterLiteral *stmt) {
+    switch (stmt->getKind()) {
+        case clang::CharacterLiteral::CharacterKind::Ascii:
+            {
+                unsigned val = stmt->getValue();
+                // C has a somewhat obscure feature called multi-character character
+                // constant
+                if (val > 255)
+                    return trans_create_node_unsigned(c, val);
+            }
+            // fallthrough
+        case clang::CharacterLiteral::CharacterKind::UTF8:
+            {
+                AstNode *node = trans_create_node(c, NodeTypeCharLiteral);
+                node->data.char_literal.value = stmt->getValue();
+                return maybe_suppress_result(c, result_used, node);
+            }
+        case clang::CharacterLiteral::CharacterKind::UTF16:
+            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO support UTF16 character literals");
+            return nullptr;
+        case clang::CharacterLiteral::CharacterKind::UTF32:
+            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO support UTF32 character literals");
+            return nullptr;
+        case clang::CharacterLiteral::CharacterKind::Wide:
+            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO support wide character literals");
+            return nullptr;
+    }
+    zig_unreachable();
+}
+
 static AstNode *trans_constant_expr(Context *c, ResultUsed result_used, const clang::ConstantExpr *expr) {
     clang::Expr::EvalResult result;
     if (!expr->EvaluateAsConstantExpr(result, clang::Expr::EvaluateForCodeGen,
@@ -1896,15 +1947,21 @@ static AstNode *trans_implicit_cast_expr(Context *c, ResultUsed result_used, Tra
         case ZigClangCK_ConstructorConversion:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_ConstructorConversion");
             return nullptr;
-        case ZigClangCK_IntegralToPointer:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_IntegralToPointer");
-            return nullptr;
-        case ZigClangCK_PointerToIntegral:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_PointerToIntegral");
-            return nullptr;
         case ZigClangCK_PointerToBoolean:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_PointerToBoolean");
-            return nullptr;
+            {
+                const clang::Expr *expr = stmt->getSubExpr();
+                AstNode *val = trans_expr(c, ResultUsedYes, scope, bitcast(expr), TransRValue);
+                if (val == nullptr)
+                    return nullptr;
+
+                AstNode *val_ptr = trans_create_node_builtin_fn_call_str(c, "ptrToInt");
+                val_ptr->data.fn_call_expr.params.append(val);
+
+                AstNode *zero = trans_create_node_unsigned(c, 0);
+
+                // Translate as @ptrToInt((&val) != 0)
+                return trans_create_node_bin_op(c, val_ptr, BinOpTypeCmpNotEq, zero);
+            }
         case ZigClangCK_ToVoid:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_ToVoid");
             return nullptr;
@@ -1912,19 +1969,82 @@ static AstNode *trans_implicit_cast_expr(Context *c, ResultUsed result_used, Tra
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_VectorSplat");
             return nullptr;
         case ZigClangCK_IntegralToBoolean:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_IntegralToBoolean");
-            return nullptr;
+            {
+                const clang::Expr *expr = stmt->getSubExpr();
+
+                bool expr_val;
+                if (expr->EvaluateAsBooleanCondition(expr_val, *reinterpret_cast<clang::ASTContext *>(c->ctx))) {
+                    return trans_create_node_bool(c, expr_val);
+                }
+
+                AstNode *val = trans_expr(c, ResultUsedYes, scope, bitcast(expr), TransRValue);
+                if (val == nullptr)
+                    return nullptr;
+
+                AstNode *zero = trans_create_node_unsigned(c, 0);
+
+                // Translate as val != 0
+                return trans_create_node_bin_op(c, val, BinOpTypeCmpNotEq, zero);
+            }
+        case ZigClangCK_PointerToIntegral:
+            {
+                AstNode *target_node = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getSubExpr()), TransRValue);
+                if (target_node == nullptr)
+                    return nullptr;
+
+                AstNode *dest_type_node = get_expr_type(c, (const ZigClangExpr *)stmt);
+                if (dest_type_node == nullptr)
+                    return nullptr;
+
+                AstNode *val_node = trans_create_node_builtin_fn_call_str(c, "ptrToInt");
+                val_node->data.fn_call_expr.params.append(target_node);
+                // @ptrToInt always returns a usize
+                AstNode *node = trans_create_node_builtin_fn_call_str(c, "intCast");
+                node->data.fn_call_expr.params.append(dest_type_node);
+                node->data.fn_call_expr.params.append(val_node);
+
+                return maybe_suppress_result(c, result_used, node);
+            }
+        case ZigClangCK_IntegralToPointer:
+            {
+                AstNode *target_node = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getSubExpr()), TransRValue);
+                if (target_node == nullptr)
+                    return nullptr;
+
+                AstNode *dest_type_node = get_expr_type(c, (const ZigClangExpr *)stmt);
+                if (dest_type_node == nullptr)
+                    return nullptr;
+
+                AstNode *node = trans_create_node_builtin_fn_call_str(c, "intToPtr");
+                node->data.fn_call_expr.params.append(dest_type_node);
+                node->data.fn_call_expr.params.append(target_node);
+
+                return maybe_suppress_result(c, result_used, node);
+            }
         case ZigClangCK_IntegralToFloating:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_IntegralToFloating");
-            return nullptr;
+        case ZigClangCK_FloatingToIntegral:
+            {
+                AstNode *target_node = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getSubExpr()), TransRValue);
+                if (target_node == nullptr)
+                    return nullptr;
+
+                AstNode *dest_type_node = get_expr_type(c, (const ZigClangExpr *)stmt);
+                if (dest_type_node == nullptr)
+                    return nullptr;
+
+                char const *fn = (ZigClangCK)stmt->getCastKind() == ZigClangCK_IntegralToFloating ?
+                    "intToFloat" : "floatToInt";
+                AstNode *node = trans_create_node_builtin_fn_call_str(c, fn);
+                node->data.fn_call_expr.params.append(dest_type_node);
+                node->data.fn_call_expr.params.append(target_node);
+
+                return maybe_suppress_result(c, result_used, node);
+            }
         case ZigClangCK_FixedPointCast:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_FixedPointCast");
             return nullptr;
         case ZigClangCK_FixedPointToBoolean:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_FixedPointToBoolean");
-            return nullptr;
-        case ZigClangCK_FloatingToIntegral:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_FloatingToIntegral");
             return nullptr;
         case ZigClangCK_FloatingToBoolean:
             emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_FloatingToBoolean");
@@ -3498,7 +3618,8 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const ZigClangStmt *s
             emit_warning(c, ZigClangStmt_getBeginLoc(stmt), "TODO handle C ObjCBridgedCastExprClass");
             return ErrorUnexpected;
         case ZigClangStmt_CharacterLiteralClass:
-            emit_warning(c, ZigClangStmt_getBeginLoc(stmt), "TODO handle C CharacterLiteralClass");
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_character_literal(c, result_used, (const clang::CharacterLiteral *)stmt));
             return ErrorUnexpected;
         case ZigClangStmt_ChooseExprClass:
             emit_warning(c, ZigClangStmt_getBeginLoc(stmt), "TODO handle C ChooseExprClass");
@@ -3537,8 +3658,8 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const ZigClangStmt *s
             emit_warning(c, ZigClangStmt_getBeginLoc(stmt), "TODO handle C FixedPointLiteralClass");
             return ErrorUnexpected;
         case ZigClangStmt_FloatingLiteralClass:
-            emit_warning(c, ZigClangStmt_getBeginLoc(stmt), "TODO handle C FloatingLiteralClass");
-            return ErrorUnexpected;
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_floating_literal(c, result_used, (const clang::FloatingLiteral *)stmt));
         case ZigClangStmt_ExprWithCleanupsClass:
             emit_warning(c, ZigClangStmt_getBeginLoc(stmt), "TODO handle C ExprWithCleanupsClass");
             return ErrorUnexpected;
