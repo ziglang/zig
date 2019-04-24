@@ -16,6 +16,8 @@
 #define ZIG_USERLAND_EXTERN_C
 #endif
 
+ZIG_USERLAND_EXTERN_C void stage2_attach_segv_handler(void);
+
 ZIG_USERLAND_EXTERN_C void stage2_translate_c(void);
 
 ZIG_USERLAND_EXTERN_C void stage2_zen(const char **ptr, size_t *len);

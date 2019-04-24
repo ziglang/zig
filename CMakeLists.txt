@@ -6701,6 +6701,10 @@ add_custom_command(
     DEPENDS
         "${CMAKE_SOURCE_DIR}/src-self-hosted/stage1.zig"
         "${CMAKE_SOURCE_DIR}/src-self-hosted/translate_c.zig"
+        "${CMAKE_SOURCE_DIR}/src-self-hosted/segv_handler/handler.zig"
+        "${CMAKE_SOURCE_DIR}/src-self-hosted/segv_handler/c.zig"
+        "${CMAKE_SOURCE_DIR}/src-self-hosted/segv_handler/x86_64-linux.zig"
+        "${CMAKE_SOURCE_DIR}/src-self-hosted/segv_handler/i386-linux.zig"
         "${CMAKE_SOURCE_DIR}/build.zig"
 )
 add_custom_target(userland_target DEPENDS "${LIBUSERLAND}")

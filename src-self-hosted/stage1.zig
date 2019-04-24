@@ -21,6 +21,13 @@ pub const info_zen =
     \\
 ;
 
+export fn stage2_attach_segv_handler() void {
+    const builtin = @import("builtin");
+    if (builtin.os == .linux and (builtin.arch == .x86_64 or builtin.arch == .i386)) {
+        @import("segv_handler/handler.zig").attach();
+    }
+}
+
 export fn stage2_zen(ptr: *[*]const u8, len: *usize) void {
     ptr.* = &info_zen;
     len.* = info_zen.len;

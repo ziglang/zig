@@ -6,6 +6,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+void stage2_attach_segv_handler(void) {
+    // do nothing in stage0
+}
+
 void stage2_translate_c(void) {
     const char *msg = "stage0 called stage2_translate_c";
     stage2_panic(msg, strlen(msg));
