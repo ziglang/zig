@@ -116,3 +116,7 @@ pub extern fn __nesf2(a: fp_t, b: fp_t) c_int {
 pub extern fn __gtsf2(a: fp_t, b: fp_t) c_int {
     return __gesf2(a, b);
 }
+
+test "import comparesf2" {
+    _ = @import("comparesf2_test.zig");
+}
