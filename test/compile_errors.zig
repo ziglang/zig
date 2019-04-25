@@ -3,6 +3,15 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "@sizeOf bad type",
+        \\export fn entry() void {
+        \\    _ = @sizeOf(@typeOf(null));
+        \\}
+    ,
+        "tmp.zig:2:17: error: no size available for type '(null)'",
+    );
+
+    cases.add(
         "Generic function where return type is self-referenced",
         \\fn Foo(comptime T: type) Foo(T) {
         \\    return struct{ x: T };

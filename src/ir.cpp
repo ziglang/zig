@@ -16729,16 +16729,16 @@ static IrInstruction *ir_analyze_instruction_size_of(IrAnalyze *ira,
         case ZigTypeIdUnreachable:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
-        case ZigTypeIdComptimeFloat:
-        case ZigTypeIdComptimeInt:
-        case ZigTypeIdEnumLiteral:
         case ZigTypeIdBoundFn:
-        case ZigTypeIdMetaType:
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
-            ir_add_error_node(ira, size_of_instruction->base.source_node,
+            ir_add_error_node(ira, type_value->source_node,
                     buf_sprintf("no size available for type '%s'", buf_ptr(&type_entry->name)));
             return ira->codegen->invalid_instruction;
+        case ZigTypeIdMetaType:
+        case ZigTypeIdEnumLiteral:
+        case ZigTypeIdComptimeFloat:
+        case ZigTypeIdComptimeInt:
         case ZigTypeIdVoid:
         case ZigTypeIdBool:
         case ZigTypeIdInt:

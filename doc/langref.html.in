@@ -7275,6 +7275,10 @@ test "@setRuntimeSafety" {
       consider whether you want to use {#syntax#}@sizeOf(T){#endsyntax#} or
       {#syntax#}@typeInfo(T).Int.bits{#endsyntax#}.
       </p>
+      <p>
+      This function measures the size at runtime. For types that are disallowed at runtime, such as
+      {#syntax#}comptime_int{#endsyntax#} and {#syntax#}type{#endsyntax#}, the result is {#syntax#}0{#endsyntax#}.
+      </p>
       {#see_also|@typeInfo#}
       {#header_close#}
 
