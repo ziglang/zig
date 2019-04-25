@@ -139,7 +139,11 @@ pub const DirectAllocator = struct {
                     return shrink(allocator, old_mem, old_align, new_size, new_align);
                 }
                 const result = try alloc(allocator, new_size, new_align);
-                mem.copy(u8, result, old_mem);
+                if (result.len >= old_mem.len) {
+                    mem.copy(u8, result, old_mem);
+                } else {
+                    @memcpy(result.ptr, old_mem.ptr, new_size);
+                }
                 _ = os.posix.munmap(@ptrToInt(old_mem.ptr), old_mem.len);
                 return result;
             },
@@ -152,9 +156,8 @@ pub const DirectAllocator = struct {
                 const root_addr = @intToPtr(*align(1) usize, old_record_addr).*;
                 const old_ptr = @intToPtr(*c_void, root_addr);
                 
-                if(new_size == 0)
-                {
-                    if(os.windows.HeapFree(self.heap_handle.?, 0, old_ptr) == 0) unreachable;
+                if(new_size == 0) {
+                    if (os.windows.HeapFree(self.heap_handle.?, 0, old_ptr) == 0) unreachable;
                     return old_mem[0..0];
                 }
                 
@@ -167,8 +170,17 @@ pub const DirectAllocator = struct {
                 ) orelse return error.OutOfMemory;
                 const offset = old_adjusted_addr - root_addr;
                 const new_root_addr = @ptrToInt(new_ptr);
-                const new_adjusted_addr = new_root_addr + offset;
-                assert(new_adjusted_addr % new_align == 0);
+                const adjusted_addr = new_root_addr + offset;
+                const new_adjusted_addr = mem.alignForward(new_root_addr, new_align);
+                // If HeapReAlloc didn't happen to move the memory to the new alignment
+                // then we need to copy it
+                if (new_adjusted_addr != adjusted_addr) {
+                    @memcpy(
+                        @intToPtr([*]u8, new_adjusted_addr),
+                        @intToPtr([*]u8, adjusted_addr),
+                        std.math.min(old_mem.len, new_size),
+                    );
+                }
                 const new_record_addr = new_adjusted_addr + new_size;
                 @intToPtr(*align(1) usize, new_record_addr).* = new_root_addr;
                 return @intToPtr([*]u8, new_adjusted_addr)[0..new_size];
@@ -258,7 +270,11 @@ pub const ArenaAllocator = struct {
             return error.OutOfMemory;
         } else {
             const result = try alloc(allocator, new_size, new_align);
-            mem.copy(u8, result, old_mem);
+            if (result.len >= old_mem.len) {
+                mem.copy(u8, result, old_mem);
+            } else {
+                @memcpy(result.ptr, old_mem.ptr, new_size);
+            }
             return result;
         }
     }
@@ -316,7 +332,11 @@ pub const FixedBufferAllocator = struct {
             return error.OutOfMemory;
         } else {
             const result = try alloc(allocator, new_size, new_align);
-            mem.copy(u8, result, old_mem);
+            if (result.len >= old_mem.len) {
+                mem.copy(u8, result, old_mem);
+            } else {
+                @memcpy(result.ptr, old_mem.ptr, new_size);
+            }
             return result;
         }
     }
@@ -459,7 +479,11 @@ pub const ThreadSafeFixedBufferAllocator = blk: {
                     return error.OutOfMemory;
                 } else {
                     const result = try alloc(allocator, new_size, new_align);
-                    mem.copy(u8, result, old_mem);
+                    if (result.len >= old_mem.len) {
+                        mem.copy(u8, result, old_mem);
+                    } else {
+                        @memcpy(result.ptr, old_mem.ptr, new_size);
+                    }
                     return result;
                 }
             }
@@ -569,6 +593,7 @@ test "DirectAllocator" {
     try testAllocator(allocator);
     try testAllocatorAligned(allocator, 16);
     try testAllocatorLargeAlignment(allocator);
+    try testAllocatorAlignedShrink(allocator);
 }
 
 test "ArenaAllocator" {
@@ -581,15 +606,17 @@ test "ArenaAllocator" {
     try testAllocator(&arena_allocator.allocator);
     try testAllocatorAligned(&arena_allocator.allocator, 16);
     try testAllocatorLargeAlignment(&arena_allocator.allocator);
+    try testAllocatorAlignedShrink(&arena_allocator.allocator);
 }
 
-var test_fixed_buffer_allocator_memory: [30000 * @sizeOf(usize)]u8 = undefined;
+var test_fixed_buffer_allocator_memory: [40000 * @sizeOf(usize)]u8 = undefined;
 test "FixedBufferAllocator" {
     var fixed_buffer_allocator = FixedBufferAllocator.init(test_fixed_buffer_allocator_memory[0..]);
 
     try testAllocator(&fixed_buffer_allocator.allocator);
     try testAllocatorAligned(&fixed_buffer_allocator.allocator, 16);
     try testAllocatorLargeAlignment(&fixed_buffer_allocator.allocator);
+    try testAllocatorAlignedShrink(&fixed_buffer_allocator.allocator);
 }
 
 test "FixedBufferAllocator Reuse memory on realloc" {
@@ -627,6 +654,7 @@ test "ThreadSafeFixedBufferAllocator" {
     try testAllocator(&fixed_buffer_allocator.allocator);
     try testAllocatorAligned(&fixed_buffer_allocator.allocator, 16);
     try testAllocatorLargeAlignment(&fixed_buffer_allocator.allocator);
+    try testAllocatorAlignedShrink(&fixed_buffer_allocator.allocator);
 }
 
 fn testAllocator(allocator: *mem.Allocator) !void {
@@ -708,4 +736,29 @@ fn testAllocatorLargeAlignment(allocator: *mem.Allocator) mem.Allocator.Error!vo
     testing.expect(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
 
     allocator.free(slice);
+}
+
+fn testAllocatorAlignedShrink(allocator: *mem.Allocator) mem.Allocator.Error!void {
+    var debug_buffer: [1000]u8 = undefined;
+    const debug_allocator = &FixedBufferAllocator.init(&debug_buffer).allocator;
+
+    const alloc_size = os.page_size * 2 + 50;
+    var slice = try allocator.alignedAlloc(u8, 16, alloc_size);
+    defer allocator.free(slice);
+
+    var stuff_to_free = std.ArrayList([]align(16) u8).init(debug_allocator);
+    while (@ptrToInt(slice.ptr) == mem.alignForward(@ptrToInt(slice.ptr), os.page_size * 2)) {
+        try stuff_to_free.append(slice);
+        slice = try allocator.alignedAlloc(u8, 16, alloc_size);
+    }
+    while (stuff_to_free.popOrNull()) |item| {
+        allocator.free(item);
+    }
+    slice[0] = 0x12;
+    slice[60] = 0x34;
+
+    // realloc to a smaller size but with a larger alignment
+    slice = try allocator.alignedRealloc(slice, os.page_size * 2, alloc_size / 2);
+    testing.expect(slice[0] == 0x12);
+    testing.expect(slice[60] == 0x34);
 }
