@@ -76,10 +76,9 @@ struct TransScopeWhile {
 };
 
 struct Context {
-    ZigList<ErrorMsg *> *errors;
+    AstNode *root;
     VisibMod visib_mod;
     bool want_export;
-    AstNode *root;
     HashMap<const void *, AstNode *, ptr_hash, ptr_eq> decl_table;
     HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> macro_table;
     HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> global_table;
@@ -5018,14 +5017,15 @@ static void process_preprocessor_entities(Context *c, ZigClangASTUnit *zunit) {
     }
 }
 
-Error parse_h_file(AstNode **out_root_node, ZigList<ErrorMsg *> *errors, const char *target_file,
-        CodeGen *codegen, Buf *tmp_dep_file)
+Error parse_h_file(CodeGen *codegen, AstNode **out_root_node,
+        Stage2ErrorMsg **errors_ptr, size_t *errors_len,
+        const char **args_begin, const char **args_end,
+        Stage2TranslateMode mode, const char *resources_path)
 {
     Context context = {0};
     Context *c = &context;
     c->warnings_on = codegen->verbose_cimport;
-    c->errors = errors;
-    if (buf_ends_with_str(buf_create_from_str(target_file), ".h")) {
+    if (mode == Stage2TranslateModeImport) {
         c->visib_mod = VisibModPub;
         c->want_export = false;
     } else {
@@ -5039,164 +5039,10 @@ Error parse_h_file(AstNode **out_root_node, ZigList<ErrorMsg *> *errors, const c
     c->codegen = codegen;
     c->global_scope = trans_scope_root_create(c);
 
-    ZigList<const char *> clang_argv = {0};
-
-    clang_argv.append("-x");
-    clang_argv.append("c");
-
-    if (tmp_dep_file != nullptr) {
-        clang_argv.append("-MD");
-        clang_argv.append("-MV");
-        clang_argv.append("-MF");
-        clang_argv.append(buf_ptr(tmp_dep_file));
-    }
-
-    if (c->codegen->zig_target->is_native) {
-        char *ZIG_PARSEC_CFLAGS = getenv("ZIG_NATIVE_PARSEC_CFLAGS");
-        if (ZIG_PARSEC_CFLAGS) {
-            Buf tmp_buf = BUF_INIT;
-            char *start = ZIG_PARSEC_CFLAGS;
-            char *space = strstr(start, " ");
-            while (space) {
-                if (space - start > 0) {
-                    buf_init_from_mem(&tmp_buf, start, space - start);
-                    clang_argv.append(buf_ptr(buf_create_from_buf(&tmp_buf)));
-                }
-                start = space + 1;
-                space = strstr(start, " ");
-            }
-            buf_init_from_str(&tmp_buf, start);
-            clang_argv.append(buf_ptr(buf_create_from_buf(&tmp_buf)));
-        }
-    }
-
-    clang_argv.append("-nobuiltininc");
-    clang_argv.append("-nostdinc");
-    clang_argv.append("-nostdinc++");
-    if (codegen->libc_link_lib == nullptr) {
-        clang_argv.append("-nolibc");
-    }
-
-    clang_argv.append("-isystem");
-    clang_argv.append(buf_ptr(codegen->zig_c_headers_dir));
-
-    for (size_t i = 0; i < codegen->libc_include_dir_len; i += 1) {
-        Buf *include_dir = codegen->libc_include_dir_list[i];
-        clang_argv.append("-isystem");
-        clang_argv.append(buf_ptr(include_dir));
-    }
-
-    // windows c runtime requires -D_DEBUG if using debug libraries
-    if (codegen->build_mode == BuildModeDebug) {
-        clang_argv.append("-D_DEBUG");
-    }
-
-    for (size_t i = 0; i < codegen->clang_argv_len; i += 1) {
-        clang_argv.append(codegen->clang_argv[i]);
-    }
-
-    // we don't need spell checking and it slows things down
-    clang_argv.append("-fno-spell-checking");
-
-    // this gives us access to preprocessing entities, presumably at
-    // the cost of performance
-    clang_argv.append("-Xclang");
-    clang_argv.append("-detailed-preprocessing-record");
-
-    if (c->codegen->zig_target->is_native) {
-        clang_argv.append("-march=native");
-    } else {
-        clang_argv.append("-target");
-        clang_argv.append(buf_ptr(&c->codegen->triple_str));
-    }
-    if (c->codegen->zig_target->os == OsFreestanding) {
-        clang_argv.append("-ffreestanding");
-    }
-
-    clang_argv.append(target_file);
-
-    if (codegen->verbose_cc) {
-        fprintf(stderr, "clang");
-        for (size_t i = 0; i < clang_argv.length; i += 1) {
-            fprintf(stderr, " %s", clang_argv.at(i));
-        }
-        fprintf(stderr, "\n");
-    }
-
-    // to make the [start...end] argument work
-    clang_argv.append(nullptr);
-
-    clang::IntrusiveRefCntPtr<clang::DiagnosticsEngine> diags(clang::CompilerInstance::createDiagnostics(new clang::DiagnosticOptions));
-
-    std::shared_ptr<clang::PCHContainerOperations> pch_container_ops = std::make_shared<clang::PCHContainerOperations>();
-
-    bool only_local_decls = true;
-    bool capture_diagnostics = true;
-    bool user_files_are_volatile = true;
-    bool allow_pch_with_compiler_errors = false;
-    bool single_file_parse = false;
-    bool for_serialization = false;
-    const char *resources_path = buf_ptr(codegen->zig_c_headers_dir);
-    std::unique_ptr<clang::ASTUnit> err_unit;
-    ZigClangASTUnit *ast_unit = reinterpret_cast<ZigClangASTUnit *>(clang::ASTUnit::LoadFromCommandLine(
-            &clang_argv.at(0), &clang_argv.last(),
-            pch_container_ops, diags, resources_path,
-            only_local_decls, capture_diagnostics, clang::None, true, 0, clang::TU_Complete,
-            false, false, allow_pch_with_compiler_errors, clang::SkipFunctionBodiesScope::None,
-            single_file_parse, user_files_are_volatile, for_serialization, clang::None, &err_unit,
-            nullptr));
-
-    // Early failures in LoadFromCommandLine may return with ErrUnit unset.
-    if (!ast_unit && !err_unit) {
-        return ErrorFileSystem;
-    }
-
-    if (diags->getClient()->getNumErrors() > 0) {
-        if (ast_unit) {
-            err_unit = std::unique_ptr<clang::ASTUnit>(reinterpret_cast<clang::ASTUnit *>(ast_unit));
-        }
-
-        for (clang::ASTUnit::stored_diag_iterator it = err_unit->stored_diag_begin(),
-                it_end = err_unit->stored_diag_end();
-                it != it_end; ++it)
-        {
-            switch (it->getLevel()) {
-                case clang::DiagnosticsEngine::Ignored:
-                case clang::DiagnosticsEngine::Note:
-                case clang::DiagnosticsEngine::Remark:
-                case clang::DiagnosticsEngine::Warning:
-                    continue;
-                case clang::DiagnosticsEngine::Error:
-                case clang::DiagnosticsEngine::Fatal:
-                    break;
-            }
-            llvm::StringRef msg_str_ref = it->getMessage();
-            Buf *msg = string_ref_to_buf(msg_str_ref);
-            clang::FullSourceLoc fsl = it->getLocation();
-            if (fsl.hasManager()) {
-                clang::FileID file_id = fsl.getFileID();
-                clang::StringRef filename = fsl.getManager().getFilename(fsl);
-                unsigned line = fsl.getSpellingLineNumber() - 1;
-                unsigned column = fsl.getSpellingColumnNumber() - 1;
-                unsigned offset = fsl.getManager().getFileOffset(fsl);
-                const char *source = (const char *)fsl.getManager().getBufferData(file_id).bytes_begin();
-                Buf *path;
-                if (filename.empty()) {
-                    path = buf_alloc();
-                } else {
-                    path = string_ref_to_buf(filename);
-                }
-
-                ErrorMsg *err_msg = err_msg_create_with_offset(path, line, column, offset, source, msg);
-
-                c->errors->append(err_msg);
-            } else {
-                // NOTE the only known way this gets triggered right now is if you have a lot of errors
-                // clang emits "too many errors emitted, stopping now"
-                fprintf(stderr, "unexpected error from clang: %s\n", buf_ptr(msg));
-            }
-        }
-
+    ZigClangASTUnit *ast_unit = ZigClangLoadFromCommandLine(args_begin, args_end, errors_ptr, errors_len,
+            resources_path);
+    if (ast_unit == nullptr) {
+        if (*errors_len == 0) return ErrorNoMem;
         return ErrorCCompileErrors;
     }
 
@@ -5213,6 +5059,8 @@ Error parse_h_file(AstNode **out_root_node, ZigList<ErrorMsg *> *errors, const c
     render_aliases(c);
 
     *out_root_node = c->root;
+
+    ZigClangASTUnit_delete(ast_unit);
 
     return ErrorNone;
 }

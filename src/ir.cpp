@@ -10350,7 +10350,7 @@ ConstExprValue *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *nod
 
     if (codegen->verbose_ir) {
         fprintf(stderr, "\nSource: ");
-        ast_render(codegen, stderr, node, 4);
+        ast_render(stderr, node, 4);
         fprintf(stderr, "\n{ // (IR)\n");
         ir_print(codegen, stderr, ir_executable, 2);
         fprintf(stderr, "}\n");
@@ -19092,24 +19092,50 @@ static IrInstruction *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruct
             fprintf(stderr, "@cImport source: %s\n", buf_ptr(&tmp_c_file_path));
         }
 
-        ZigList<ErrorMsg *> errors = {0};
-
         Buf *tmp_dep_file = buf_sprintf("%s.d", buf_ptr(&tmp_c_file_path));
+
+        ZigList<const char *> clang_argv = {0};
+
+        add_cc_args(ira->codegen, clang_argv, buf_ptr(tmp_dep_file), true);
+
+        clang_argv.append(buf_ptr(&tmp_c_file_path));
+
+        if (ira->codegen->verbose_cc) {
+            fprintf(stderr, "clang");
+            for (size_t i = 0; i < clang_argv.length; i += 1) {
+                fprintf(stderr, " %s", clang_argv.at(i));
+            }
+            fprintf(stderr, "\n");
+        }
+
+        clang_argv.append(nullptr); // to make the [start...end] argument work
+
         AstNode *root_node;
-        if ((err = parse_h_file(&root_node, &errors, buf_ptr(&tmp_c_file_path), ira->codegen, tmp_dep_file))) {
+        Stage2ErrorMsg *errors_ptr;
+        size_t errors_len;
+
+        const char *resources_path = buf_ptr(ira->codegen->zig_c_headers_dir);
+
+        if ((err = parse_h_file(ira->codegen, &root_node, &errors_ptr, &errors_len,
+            &clang_argv.at(0), &clang_argv.last(), Stage2TranslateModeImport, resources_path)))
+        {
             if (err != ErrorCCompileErrors) {
                 ir_add_error_node(ira, node, buf_sprintf("C import failed: %s", err_str(err)));
                 return ira->codegen->invalid_instruction;
             }
-            assert(errors.length > 0);
 
             ErrorMsg *parent_err_msg = ir_add_error_node(ira, node, buf_sprintf("C import failed"));
             if (ira->codegen->libc_link_lib == nullptr) {
                 add_error_note(ira->codegen, parent_err_msg, node,
                     buf_sprintf("libc headers not available; compilation does not link against libc"));
             }
-            for (size_t i = 0; i < errors.length; i += 1) {
-                ErrorMsg *err_msg = errors.at(i);
+            for (size_t i = 0; i < errors_len; i += 1) {
+                Stage2ErrorMsg *clang_err = &errors_ptr[i];
+                ErrorMsg *err_msg = err_msg_create_with_offset(
+                    clang_err->filename_ptr ?
+                        buf_create_from_mem(clang_err->filename_ptr, clang_err->filename_len) : buf_alloc(),
+                    clang_err->line, clang_err->column, clang_err->offset, clang_err->source,
+                    buf_create_from_mem(clang_err->msg_ptr, clang_err->msg_len));
                 err_msg_add_note(parent_err_msg, err_msg);
             }
 
@@ -19139,7 +19165,7 @@ static IrInstruction *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruct
                     buf_sprintf("C import failed: unable to open output file: %s", strerror(errno)));
             return ira->codegen->invalid_instruction;
         }
-        ast_render(ira->codegen, out_file, root_node, 4);
+        ast_render(out_file, root_node, 4);
         if (fclose(out_file) != 0) {
             ir_add_error_node(ira, node,
                     buf_sprintf("C import failed: unable to write to output file: %s", strerror(errno)));

@@ -296,7 +296,6 @@ void ast_print(FILE *f, AstNode *node, int indent) {
 
 
 struct AstRender {
-    CodeGen *codegen;
     int indent;
     int indent_size;
     FILE *f;
@@ -1170,9 +1169,8 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
 }
 
 
-void ast_render(CodeGen *codegen, FILE *f, AstNode *node, int indent_size) {
+void ast_render(FILE *f, AstNode *node, int indent_size) {
     AstRender ar = {0};
-    ar.codegen = codegen;
     ar.f = f;
     ar.indent_size = indent_size;
     ar.indent = 0;

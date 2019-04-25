@@ -12,6 +12,7 @@
 #include "errmsg.hpp"
 #include "target.hpp"
 #include "libc_installation.hpp"
+#include "userland.h"
 
 #include <stdio.h>
 
@@ -50,7 +51,7 @@ ZigPackage *codegen_create_package(CodeGen *g, const char *root_src_dir, const c
 void codegen_add_assembly(CodeGen *g, Buf *path);
 void codegen_add_object(CodeGen *g, Buf *object_path);
 
-AstNode *codegen_translate_c(CodeGen *g, Buf *path, bool use_userland_implementation);
+void codegen_translate_c(CodeGen *g, Buf *full_path, FILE *out_file, bool use_userland_implementation);
 
 Buf *codegen_generate_builtin_source(CodeGen *g);
 

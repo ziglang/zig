@@ -1188,8 +1188,7 @@ int main(int argc, char **argv) {
                     zig_unreachable();
                 }
             } else if (cmd == CmdTranslateC || cmd == CmdTranslateCUserland) {
-                AstNode *root_node = codegen_translate_c(g, in_file_buf, cmd == CmdTranslateCUserland);
-                ast_render(g, stdout, root_node, 4);
+                codegen_translate_c(g, in_file_buf, stdout, cmd == CmdTranslateCUserland);
                 if (timing_info)
                     codegen_print_timing_report(g, stderr);
                 return EXIT_SUCCESS;

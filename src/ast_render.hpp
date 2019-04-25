@@ -15,6 +15,6 @@
 
 void ast_print(FILE *f, AstNode *node, int indent);
 
-void ast_render(CodeGen *codegen, FILE *f, AstNode *node, int indent_size);
+void ast_render(FILE *f, AstNode *node, int indent_size);
 
 #endif

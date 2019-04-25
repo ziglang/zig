@@ -1147,3 +1147,115 @@ ZigClangAPValueLValueBase ZigClangAPValue_getLValueBase(const ZigClangAPValue *s
     clang::APValue::LValueBase lval_base = casted->getLValueBase();
     return bitcast(lval_base);
 }
+
+ZigClangASTUnit *ZigClangLoadFromCommandLine(const char **args_begin, const char **args_end,
+    struct Stage2ErrorMsg **errors_ptr, size_t *errors_len, const char *resources_path)
+{
+    clang::IntrusiveRefCntPtr<clang::DiagnosticsEngine> diags(clang::CompilerInstance::createDiagnostics(new clang::DiagnosticOptions));
+
+    std::shared_ptr<clang::PCHContainerOperations> pch_container_ops = std::make_shared<clang::PCHContainerOperations>();
+
+    bool only_local_decls = true;
+    bool capture_diagnostics = true;
+    bool user_files_are_volatile = true;
+    bool allow_pch_with_compiler_errors = false;
+    bool single_file_parse = false;
+    bool for_serialization = false;
+    std::unique_ptr<clang::ASTUnit> *err_unit = new std::unique_ptr<clang::ASTUnit>();
+    clang::ASTUnit *ast_unit = clang::ASTUnit::LoadFromCommandLine(
+            args_begin, args_end,
+            pch_container_ops, diags, resources_path,
+            only_local_decls, capture_diagnostics, clang::None, true, 0, clang::TU_Complete,
+            false, false, allow_pch_with_compiler_errors, clang::SkipFunctionBodiesScope::None,
+            single_file_parse, user_files_are_volatile, for_serialization, clang::None, err_unit,
+            nullptr);
+
+    // Early failures in LoadFromCommandLine may return with ErrUnit unset.
+    if (!ast_unit && !err_unit) {
+        return nullptr;
+    }
+
+    if (diags->getClient()->getNumErrors() > 0) {
+        if (ast_unit) {
+            *err_unit = std::unique_ptr<clang::ASTUnit>(ast_unit);
+        }
+
+        size_t cap = 4;
+        *errors_len = 0;
+        *errors_ptr = reinterpret_cast<Stage2ErrorMsg*>(malloc(cap * sizeof(Stage2ErrorMsg)));
+        if (*errors_ptr == nullptr) {
+            return nullptr;
+        }
+
+        for (clang::ASTUnit::stored_diag_iterator it = (*err_unit)->stored_diag_begin(),
+                it_end = (*err_unit)->stored_diag_end();
+                it != it_end; ++it)
+        {
+            switch (it->getLevel()) {
+                case clang::DiagnosticsEngine::Ignored:
+                case clang::DiagnosticsEngine::Note:
+                case clang::DiagnosticsEngine::Remark:
+                case clang::DiagnosticsEngine::Warning:
+                    continue;
+                case clang::DiagnosticsEngine::Error:
+                case clang::DiagnosticsEngine::Fatal:
+                    break;
+            }
+            llvm::StringRef msg_str_ref = it->getMessage();
+            if (*errors_len >= cap) {
+                cap *= 2;
+                Stage2ErrorMsg *new_errors = reinterpret_cast<Stage2ErrorMsg *>(
+                        realloc(*errors_ptr, cap * sizeof(Stage2ErrorMsg)));
+                if (new_errors == nullptr) {
+                    free(*errors_ptr);
+                    *errors_ptr = nullptr;
+                    *errors_len = 0;
+                    return nullptr;
+                }
+                *errors_ptr = new_errors;
+            }
+            Stage2ErrorMsg *msg = *errors_ptr + *errors_len;
+            *errors_len += 1;
+            msg->msg_ptr = (const char *)msg_str_ref.bytes_begin();
+            msg->msg_len = msg_str_ref.size();
+
+            clang::FullSourceLoc fsl = it->getLocation();
+            if (fsl.hasManager()) {
+                clang::FileID file_id = fsl.getFileID();
+                clang::StringRef filename = fsl.getManager().getFilename(fsl);
+                if (filename.empty()) {
+                    msg->filename_ptr = nullptr;
+                } else {
+                    msg->filename_ptr = (const char *)filename.bytes_begin();
+                    msg->filename_len = filename.size();
+                }
+                msg->source = (const char *)fsl.getManager().getBufferData(file_id).bytes_begin();
+                msg->line = fsl.getSpellingLineNumber() - 1;
+                msg->column = fsl.getSpellingColumnNumber() - 1;
+                msg->offset = fsl.getManager().getFileOffset(fsl);
+            } else {
+                // The only known way this gets triggered right now is if you have a lot of errors
+                // clang emits "too many errors emitted, stopping now"
+                msg->filename_ptr = nullptr;
+                msg->source = nullptr;
+            }
+        }
+
+        if (*errors_len == 0) {
+            free(*errors_ptr);
+            *errors_ptr = nullptr;
+        }
+
+        return nullptr;
+    }
+
+    return reinterpret_cast<ZigClangASTUnit *>(ast_unit);
+}
+
+void ZigClangErrorMsg_delete(Stage2ErrorMsg *ptr, size_t len) {
+    free(ptr);
+}
+
+void ZigClangASTUnit_delete(struct ZigClangASTUnit *self) {
+    delete reinterpret_cast<clang::ASTUnit *>(self);
+}
