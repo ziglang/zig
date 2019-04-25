@@ -24,6 +24,10 @@ pub const COutStream = struct {
         const self = @fieldParentPtr(COutStream, "stream", out_stream);
         const amt_written = std.c.fwrite(bytes.ptr, 1, bytes.len, self.c_file);
         if (amt_written == bytes.len) return;
+        // TODO errno on windows. should we have a posix layer for windows?
+        if (builtin.os == .windows) {
+            return error.InputOutput;
+        }
         const errno = std.c._errno().*;
         switch (errno) {
             0 => unreachable,

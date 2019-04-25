@@ -1092,6 +1092,7 @@ test "io.readLineSliceFrom" {
 pub const Packing = enum {
     /// Pack data to byte alignment
     Byte,
+
     /// Pack data to bit alignment
     Bit,
 };
@@ -1454,6 +1455,6 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
 
 test "import io tests" {
     comptime {
-        _ = @import("io_test.zig");
+        _ = @import("io/test.zig");
     }
 }
