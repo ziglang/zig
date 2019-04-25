@@ -2790,7 +2790,10 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
     } else if (source_node->type == NodeTypeTestDecl) {
         ZigFn *fn_table_entry = create_fn_raw(g, FnInlineAuto);
 
-        get_fully_qualified_decl_name(&fn_table_entry->symbol_name, &tld_fn->base);
+	Buf test_fn_name = BUF_INIT;
+	get_fully_qualified_decl_name(&test_fn_name, &tld_fn->base);
+	buf_resize(&fn_table_entry->symbol_name, 0);
+	buf_appendf(&fn_table_entry->symbol_name, "test \"%s\"", buf_ptr(&test_fn_name));
 
         tld_fn->fn_entry = fn_table_entry;
 
