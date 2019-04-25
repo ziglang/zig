@@ -139,11 +139,7 @@ pub const DirectAllocator = struct {
                     return shrink(allocator, old_mem, old_align, new_size, new_align);
                 }
                 const result = try alloc(allocator, new_size, new_align);
-                if (result.len >= old_mem.len) {
-                    mem.copy(u8, result, old_mem);
-                } else {
-                    @memcpy(result.ptr, old_mem.ptr, new_size);
-                }
+                @memcpy(result.ptr, old_mem.ptr, std.math.min(old_mem.len, result.len));
                 _ = os.posix.munmap(@ptrToInt(old_mem.ptr), old_mem.len);
                 return result;
             },
@@ -274,11 +270,7 @@ pub const ArenaAllocator = struct {
             return error.OutOfMemory;
         } else {
             const result = try alloc(allocator, new_size, new_align);
-            if (result.len >= old_mem.len) {
-                mem.copy(u8, result, old_mem);
-            } else {
-                @memcpy(result.ptr, old_mem.ptr, new_size);
-            }
+            @memcpy(result.ptr, old_mem.ptr, std.math.min(old_mem.len, result.len));
             return result;
         }
     }
@@ -336,11 +328,7 @@ pub const FixedBufferAllocator = struct {
             return error.OutOfMemory;
         } else {
             const result = try alloc(allocator, new_size, new_align);
-            if (result.len >= old_mem.len) {
-                mem.copy(u8, result, old_mem);
-            } else {
-                @memcpy(result.ptr, old_mem.ptr, new_size);
-            }
+            @memcpy(result.ptr, old_mem.ptr, std.math.min(old_mem.len, result.len));
             return result;
         }
     }
@@ -483,11 +471,7 @@ pub const ThreadSafeFixedBufferAllocator = blk: {
                     return error.OutOfMemory;
                 } else {
                     const result = try alloc(allocator, new_size, new_align);
-                    if (result.len >= old_mem.len) {
-                        mem.copy(u8, result, old_mem);
-                    } else {
-                        @memcpy(result.ptr, old_mem.ptr, new_size);
-                    }
+                    @memcpy(result.ptr, old_mem.ptr, std.math.min(old_mem.len, result.len));
                     return result;
                 }
             }
