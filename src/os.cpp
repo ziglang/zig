@@ -1747,8 +1747,14 @@ Error os_get_app_data_dir(Buf *out_path, const char *appname) {
         // TODO use /etc/passwd
         return ErrorFileNotFound;
     }
-    buf_resize(out_path, 0);
-    buf_appendf(out_path, "%s/.local/share/%s", home_dir, appname);
+    if (home_dir[0] == 0) {
+        return ErrorFileNotFound;
+    }
+    buf_init_from_str(out_path, home_dir);
+    if (buf_ptr(out_path)[buf_len(out_path) - 1] != '/') {
+        buf_append_char(out_path, '/');
+    }
+    buf_appendf(out_path, ".local/share/%s", appname);
     return ErrorNone;
 #endif
 }
