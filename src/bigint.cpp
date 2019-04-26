@@ -1395,7 +1395,7 @@ void bigint_shr(BigInt *dest, const BigInt *op1, const BigInt *op2) {
     uint64_t shift_amt = bigint_as_unsigned(op2);
 
     if (op1->digit_count == 1) {
-        dest->data.digit = op1_digits[0] >> shift_amt;
+        dest->data.digit = (shift_amt < 64) ? op1_digits[0] >> shift_amt : 0;
         dest->digit_count = 1;
         dest->is_negative = op1->is_negative;
         bigint_normalize(dest);
