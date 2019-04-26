@@ -235,7 +235,7 @@ from the build directory:
 
 1. Run `make install` (on POSIX) or `msbuild -p:Configuration=Release INSTALL.vcxproj`
    (on Windows).
-2. Test your changes with `bin/zig test <changed file>` (e.g. `bin/zig test std/heap.zig`).
+2. Test your changes with `bin/zig test lib/zig/std/<changed file>` (e.g. `bin/zig test lib/zig/std/heap.zig`).
 
 Once your changes are finished, run all the zig tests from the build directory:
 
