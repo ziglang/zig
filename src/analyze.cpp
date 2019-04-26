@@ -2608,7 +2608,7 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
     return ErrorNone;
 }
 
-static void get_fully_qualified_decl_name(Buf *buf, Tld *tld) {
+static void get_fully_qualified_decl_name(Buf *buf, Tld *tld, bool is_test) {
     buf_resize(buf, 0);
 
     Scope *scope = tld->parent_scope;
@@ -2618,7 +2618,13 @@ static void get_fully_qualified_decl_name(Buf *buf, Tld *tld) {
     ScopeDecls *decls_scope = reinterpret_cast<ScopeDecls *>(scope);
     buf_append_buf(buf, &decls_scope->container_type->name);
     if (buf_len(buf) != 0) buf_append_char(buf, NAMESPACE_SEP_CHAR);
-    buf_append_buf(buf, tld->name);
+    if (is_test) {
+        buf_append_str(buf, "test \"");
+        buf_append_buf(buf, tld->name);
+        buf_append_char(buf, '"');
+    } else {
+        buf_append_buf(buf, tld->name);
+    }
 }
 
 ZigFn *create_fn_raw(CodeGen *g, FnInline inline_value) {
@@ -2729,7 +2735,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
         if (fn_proto->is_export || is_extern) {
             buf_init_from_buf(&fn_table_entry->symbol_name, tld_fn->base.name);
         } else {
-            get_fully_qualified_decl_name(&fn_table_entry->symbol_name, &tld_fn->base);
+            get_fully_qualified_decl_name(&fn_table_entry->symbol_name, &tld_fn->base, false);
         }
 
         if (fn_proto->is_export) {
@@ -2790,10 +2796,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
     } else if (source_node->type == NodeTypeTestDecl) {
         ZigFn *fn_table_entry = create_fn_raw(g, FnInlineAuto);
 
-	Buf test_fn_name = BUF_INIT;
-	get_fully_qualified_decl_name(&test_fn_name, &tld_fn->base);
-	buf_resize(&fn_table_entry->symbol_name, 0);
-	buf_appendf(&fn_table_entry->symbol_name, "test \"%s\"", buf_ptr(&test_fn_name));
+        get_fully_qualified_decl_name(&fn_table_entry->symbol_name, &tld_fn->base, true);
 
         tld_fn->fn_entry = fn_table_entry;
 
