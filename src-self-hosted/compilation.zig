@@ -569,9 +569,9 @@ pub const Compilation = struct {
                 'i', 'u' => blk: {
                     for (name[1..]) |byte|
                         switch (byte) {
-                        '0'...'9' => {},
-                        else => break :blk,
-                    };
+                            '0'...'9' => {},
+                            else => break :blk,
+                        };
                     const is_signed = name[0] == 'i';
                     const bit_count = std.fmt.parseUnsigned(u32, name[1..], 10) catch |err| switch (err) {
                         error.Overflow => return error.Overflow,
@@ -841,11 +841,9 @@ pub const Compilation = struct {
             };
             errdefer self.gpa().free(source_code);
 
-            const tree = try self.gpa().create(ast.Tree);
-            tree.* = try std.zig.parse(self.gpa(), source_code);
+            const tree = try std.zig.parse(self.gpa(), source_code);
             errdefer {
                 tree.deinit();
-                self.gpa().destroy(tree);
             }
 
             break :blk try Scope.AstTree.create(self, tree, root_scope);

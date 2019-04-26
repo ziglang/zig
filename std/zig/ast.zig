@@ -18,7 +18,11 @@ pub const Tree = struct {
     pub const ErrorList = SegmentedList(Error, 0);
 
     pub fn deinit(self: *Tree) void {
-        self.arena_allocator.deinit();
+        // Here we copy the arena allocator into stack memory, because
+        // otherwise it would destroy itself while it was still working.
+        var arena_allocator = self.arena_allocator;
+        arena_allocator.deinit();
+        // self is destroyed
     }
 
     pub fn renderError(self: *Tree, parse_error: *Error, stream: var) !void {

@@ -85,11 +85,10 @@ export fn stage2_translate_c(
     resources_path: [*]const u8,
 ) Error {
     var errors: []translate_c.ClangErrMsg = undefined;
-    out_ast.* = translate_c.translate(args_begin, args_end, switch (mode) {
+    out_ast.* = translate_c.translate(std.heap.c_allocator, args_begin, args_end, switch (mode) {
         .import => translate_c.Mode.import,
         .translate => translate_c.Mode.translate,
     }, &errors, resources_path) catch |err| switch (err) {
-        error.Unimplemented => return Error.Unimplemented,
         error.SemanticAnalyzeFail => {
             out_errors_ptr.* = errors.ptr;
             out_errors_len.* = errors.len;

@@ -163,7 +163,6 @@ pub const Scope = struct {
         pub fn destroy(self: *AstTree, comp: *Compilation) void {
             comp.gpa().free(self.tree.source);
             self.tree.deinit();
-            comp.gpa().destroy(self.tree);
             comp.gpa().destroy(self);
         }
 
