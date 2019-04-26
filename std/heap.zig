@@ -139,11 +139,7 @@ pub const DirectAllocator = struct {
                     return shrink(allocator, old_mem, old_align, new_size, new_align);
                 }
                 const result = try alloc(allocator, new_size, new_align);
-                if (result.len >= old_mem.len) {
-                    mem.copy(u8, result, old_mem);
-                } else {
-                    @memcpy(result.ptr, old_mem.ptr, new_size);
-                }
+                @memcpy(result.ptr, old_mem.ptr, std.math.min(old_mem.len, result.len));
                 _ = os.posix.munmap(@ptrToInt(old_mem.ptr), old_mem.len);
                 return result;
             },
@@ -170,16 +166,20 @@ pub const DirectAllocator = struct {
                 ) orelse return error.OutOfMemory;
                 const offset = old_adjusted_addr - root_addr;
                 const new_root_addr = @ptrToInt(new_ptr);
-                const adjusted_addr = new_root_addr + offset;
-                const new_adjusted_addr = mem.alignForward(new_root_addr, new_align);
-                // If HeapReAlloc didn't happen to move the memory to the new alignment
-                // then we need to copy it
-                if (new_adjusted_addr != adjusted_addr) {
+                var new_adjusted_addr = new_root_addr + offset;
+                const offset_is_valid = new_adjusted_addr + new_size + @sizeOf(usize) <= new_root_addr + amt;
+                const offset_is_aligned = new_adjusted_addr % new_align == 0;
+                if (!offset_is_valid or !offset_is_aligned) {
+                    // If HeapReAlloc didn't happen to move the memory to the new alignment,
+                    // or the memory starting at the old offset would be outside of the new allocation,
+                    // then we need to copy the memory to a valid aligned address and use that
+                    const new_aligned_addr = mem.alignForward(new_root_addr, new_align);
                     @memcpy(
+                        @intToPtr([*]u8, new_aligned_addr),
                         @intToPtr([*]u8, new_adjusted_addr),
-                        @intToPtr([*]u8, adjusted_addr),
                         std.math.min(old_mem.len, new_size),
                     );
+                    new_adjusted_addr = new_aligned_addr;
                 }
                 const new_record_addr = new_adjusted_addr + new_size;
                 @intToPtr(*align(1) usize, new_record_addr).* = new_root_addr;
@@ -270,11 +270,7 @@ pub const ArenaAllocator = struct {
             return error.OutOfMemory;
         } else {
             const result = try alloc(allocator, new_size, new_align);
-            if (result.len >= old_mem.len) {
-                mem.copy(u8, result, old_mem);
-            } else {
-                @memcpy(result.ptr, old_mem.ptr, new_size);
-            }
+            @memcpy(result.ptr, old_mem.ptr, std.math.min(old_mem.len, result.len));
             return result;
         }
     }
@@ -332,11 +328,7 @@ pub const FixedBufferAllocator = struct {
             return error.OutOfMemory;
         } else {
             const result = try alloc(allocator, new_size, new_align);
-            if (result.len >= old_mem.len) {
-                mem.copy(u8, result, old_mem);
-            } else {
-                @memcpy(result.ptr, old_mem.ptr, new_size);
-            }
+            @memcpy(result.ptr, old_mem.ptr, std.math.min(old_mem.len, result.len));
             return result;
         }
     }
@@ -479,11 +471,7 @@ pub const ThreadSafeFixedBufferAllocator = blk: {
                     return error.OutOfMemory;
                 } else {
                     const result = try alloc(allocator, new_size, new_align);
-                    if (result.len >= old_mem.len) {
-                        mem.copy(u8, result, old_mem);
-                    } else {
-                        @memcpy(result.ptr, old_mem.ptr, new_size);
-                    }
+                    @memcpy(result.ptr, old_mem.ptr, std.math.min(old_mem.len, result.len));
                     return result;
                 }
             }
