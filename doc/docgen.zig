@@ -1067,6 +1067,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                                 (builtin.os != builtin.Os.linux or builtin.arch != builtin.Arch.x86_64))
                             {
                                 // skip execution
+                                try out.print("\n$ # Skipping execution because it is non-native.</code></pre>\n");
                                 break :code_block;
                             }
                         }
