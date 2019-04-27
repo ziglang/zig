@@ -812,7 +812,7 @@ pub fn sigaction(sig: u5, noalias act: *const Sigaction, noalias oact: ?*Sigacti
         .sa_mask = act.mask,
     };
     var coact: c.Sigaction = undefined;
-    const result = errnoWrap(c.sigaction(sig, *cact, *coact));
+    const result = errnoWrap(c.sigaction(sig, &cact, &coact));
     if (result != 0) {
         return result;
     }
