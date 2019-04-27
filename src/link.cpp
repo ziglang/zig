@@ -1096,9 +1096,15 @@ static void construct_linker_job_wasm(LinkJob *lj) {
 	    lj->args.append("--no-entry");  // So lld doesn't look for _start.
     }
     lj->args.append("--allow-undefined");
-    lj->args.append("--export-all");
     lj->args.append("-o");
     lj->args.append(buf_ptr(&g->output_file_path));
+
+    auto export_it = g->exported_symbol_names.entry_iterator();
+    decltype(g->exported_symbol_names)::Entry *curr_entry = nullptr;
+    while ((curr_entry = export_it.next()) != nullptr) {
+        Buf *arg = buf_sprintf("--export=%s", buf_ptr(curr_entry->key));
+        lj->args.append(buf_ptr(arg));
+    }
 
     // .o files
     for (size_t i = 0; i < g->link_objects.length; i += 1) {
