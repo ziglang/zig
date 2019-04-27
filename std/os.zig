@@ -2134,6 +2134,10 @@ pub const ArgIterator = struct {
     inner: InnerType,
 
     pub fn init() ArgIterator {
+        if (builtin.os == Os.wasi) {
+            @compileError("ArgIterator is not yet supported in WASI. Use argsAlloc and argsFree instead.");
+        }
+
         return ArgIterator{ .inner = InnerType.init() };
     }
 
@@ -2166,6 +2170,28 @@ pub fn args() ArgIterator {
 
 /// Caller must call argsFree on result.
 pub fn argsAlloc(allocator: *mem.Allocator) ![]const []u8 {
+    if (builtin.os == Os.wasi) {
+        var count: usize = undefined;
+        var buf_size: usize = undefined;
+
+        _ = os.wasi.args_sizes_get(&count, &buf_size);
+
+        var argv = try allocator.alloc([*]u8, count);
+        defer allocator.free(argv);
+
+        var argv_buf = try allocator.alloc(u8, buf_size);
+        _ = os.wasi.args_get(argv.ptr, argv_buf.ptr);
+
+        var result_slice = try allocator.alloc([]u8, count);
+        
+        var i: usize = 0;
+        while (i < count) : (i += 1) {
+            result_slice[i] = mem.toSlice(u8, argv[i]);
+        }
+
+        return result_slice;
+    }
+
     // TODO refactor to only make 1 allocation.
     var it = args();
     var contents = try Buffer.initSize(allocator, 0);
@@ -2203,6 +2229,16 @@ pub fn argsAlloc(allocator: *mem.Allocator) ![]const []u8 {
 }
 
 pub fn argsFree(allocator: *mem.Allocator, args_alloc: []const []u8) void {
+    if (builtin.os == Os.wasi) {
+        const last_item = args_alloc[args_alloc.len - 1];
+        const last_byte_addr = @ptrToInt(last_item.ptr) + last_item.len + 1; // null terminated
+        const first_item_ptr = args_alloc[0].ptr;
+        const len = last_byte_addr - @ptrToInt(first_item_ptr);
+        allocator.free(first_item_ptr[0..len]);
+
+        return allocator.free(args_alloc);
+    }
+
     var total_bytes: usize = 0;
     for (args_alloc) |arg| {
         total_bytes += @sizeOf([]u8) + arg.len;
