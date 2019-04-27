@@ -588,37 +588,7 @@ int main(int argc, char **argv) {
         }
         return (term.how == TerminationIdClean) ? term.code : -1;
     } else if (argc >= 2 && strcmp(argv[1], "fmt") == 0) {
-        init_all_targets();
-        ZigTarget target;
-        get_native_target(&target);
-        Buf *zig_lib_dir = (override_lib_dir == nullptr) ? get_zig_lib_dir() : override_lib_dir;
-        Buf *fmt_runner_path = buf_alloc();
-        os_path_join(get_zig_special_dir(zig_lib_dir), buf_create_from_str("fmt_runner.zig"), fmt_runner_path);
-        Buf *cache_dir_buf = buf_create_from_str(cache_dir ? cache_dir : default_zig_cache_name);
-        CodeGen *g = codegen_create(main_pkg_path, fmt_runner_path, &target, OutTypeExe,
-                BuildModeDebug, zig_lib_dir, nullptr, nullptr, cache_dir_buf);
-        g->valgrind_support = valgrind_support;
-        g->want_single_threaded = true;
-        codegen_set_out_name(g, buf_create_from_str("fmt"));
-        g->enable_cache = true;
-
-        codegen_build_and_link(g);
-
-        // TODO standardize os.cpp so that the args are supposed to have the exe
-        ZigList<const char*> args_with_exe = {0};
-        ZigList<const char*> args_without_exe = {0};
-        const char *exec_path = buf_ptr(&g->output_file_path);
-        args_with_exe.append(exec_path);
-        for (int i = 2; i < argc; i += 1) {
-            args_with_exe.append(argv[i]);
-            args_without_exe.append(argv[i]);
-        }
-        args_with_exe.append(nullptr);
-        os_execv(exec_path, args_with_exe.items);
-
-        Termination term;
-        os_spawn_process(exec_path, args_without_exe, &term);
-        return term.code;
+        return stage2_fmt(argc, argv);
     }
 
     for (int i = 1; i < argc; i += 1) {

@@ -685,7 +685,6 @@ set(ZIG_STD_FILES
     "special/compiler_rt/udivmodti4.zig"
     "special/compiler_rt/udivti3.zig"
     "special/compiler_rt/umodti3.zig"
-    "special/fmt_runner.zig"
     "special/init-exe/build.zig"
     "special/init-exe/src/main.zig"
     "special/init-lib/build.zig"
@@ -6744,7 +6743,3 @@ foreach(file ${ZIG_LIBCXX_FILES})
     get_filename_component(file_dir "${LIBCXX_FILES_DEST}/${file}" DIRECTORY)
     install(FILES "${CMAKE_SOURCE_DIR}/libcxx/${file}" DESTINATION "${file_dir}")
 endforeach()
-
-install(FILES "${CMAKE_SOURCE_DIR}/src-self-hosted/arg.zig" DESTINATION "${ZIG_STD_DEST}/special/fmt/")
-install(FILES "${CMAKE_SOURCE_DIR}/src-self-hosted/main.zig" DESTINATION "${ZIG_STD_DEST}/special/fmt/")
-install(FILES "${CMAKE_SOURCE_DIR}/src-self-hosted/errmsg.zig" DESTINATION "${ZIG_STD_DEST}/special/fmt/")

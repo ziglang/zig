@@ -37,3 +37,8 @@ void stage2_render_ast(struct Stage2Ast *ast, FILE *output_file) {
     const char *msg = "stage0 called stage2_render_ast";
     stage2_panic(msg, strlen(msg));
 }
+
+int stage2_fmt(int argc, char **argv) {
+    const char *msg = "stage0 called stage2_fmt";
+    stage2_panic(msg, strlen(msg));
+}

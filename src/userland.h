@@ -114,4 +114,7 @@ ZIG_EXTERN_C void stage2_zen(const char **ptr, size_t *len);
 // ABI warning
 ZIG_EXTERN_C ZIG_ATTRIBUTE_NORETURN void stage2_panic(const char *ptr, size_t len);
 
+// ABI warning
+ZIG_EXTERN_C int stage2_fmt(int argc, char **argv);
+
 #endif
