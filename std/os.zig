@@ -2176,7 +2176,7 @@ pub fn argsAlloc(allocator: *mem.Allocator) ![]const []u8 {
 
         const args_sizes_get_ret = os.wasi.args_sizes_get(&count, &buf_size);
         if (args_sizes_get_ret != os.wasi.ESUCCESS) {
-            return error.ArgsSizesGetFailed;
+            return unexpectedErrorPosix(args_sizes_get_ret);
         }
 
         var argv = try allocator.alloc([*]u8, count);
@@ -2185,7 +2185,7 @@ pub fn argsAlloc(allocator: *mem.Allocator) ![]const []u8 {
         var argv_buf = try allocator.alloc(u8, buf_size);
         const args_get_ret = os.wasi.args_get(argv.ptr, argv_buf.ptr);
         if (args_get_ret != os.wasi.ESUCCESS) {
-            return error.ArgsGetFailed;
+            return unexpectedErrorPosix(args_get_ret);
         }
 
         var result_slice = try allocator.alloc([]u8, count);
