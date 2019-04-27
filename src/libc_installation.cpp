@@ -273,7 +273,7 @@ static Error zig_libc_find_native_include_dir_posix(ZigLibCInstallation *self, b
     return ErrorFileNotFound;
 }
 
-static Error zig_libc_cc_print_file_name(const char *o_file, Buf *out, bool want_dirname, bool verbose) {
+Error zig_libc_cc_print_file_name(const char *o_file, Buf *out, bool want_dirname, bool verbose) {
     const char *cc_exe = getenv("CC");
     cc_exe = (cc_exe == nullptr) ? CC_EXE : cc_exe;
     ZigList<const char *> args = {};

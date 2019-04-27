@@ -30,4 +30,6 @@ void zig_libc_render(ZigLibCInstallation *self, FILE *file);
 
 Error ATTRIBUTE_MUST_USE zig_libc_find_native(ZigLibCInstallation *self, bool verbose);
 
+Error zig_libc_cc_print_file_name(const char *o_file, Buf *out, bool want_dirname, bool verbose);
+
 #endif
