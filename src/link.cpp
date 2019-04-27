@@ -1170,12 +1170,8 @@ static const char *get_libc_file(ZigLibCInstallation *lib, const char *file) {
 }
 
 static const char *get_libc_static_file(ZigLibCInstallation *lib, const char *file) {
-    Buf *static_crt_dir = buf_alloc();
     Buf *out_buf = buf_alloc();
-    if (zig_libc_cc_print_file_name(file, static_crt_dir, true, true) != ErrorNone) {
-        abort();
-    }
-    os_path_join(static_crt_dir, buf_create_from_str(file), out_buf);
+    os_path_join(&lib->static_crt_dir, buf_create_from_str(file), out_buf);
     return buf_ptr(out_buf);
 }
 
@@ -1198,35 +1194,33 @@ static void add_mingw_link_args(LinkJob *lj, bool is_library) {
 
     lj->args.append(get_libc_static_file(g->libc, "crtbegin.o"));
 
-    if (g->libc_link_lib != nullptr) {
-        lj->args.append("libmingw32.a");
+    lj->args.append(get_libc_file(g->libc, "libmingw32.a"));
 
-        if (is_dll) {
-            lj->args.append(get_libc_static_file(g->libc, "libgcc_s.a"));
-            lj->args.append(get_libc_static_file(g->libc, "libgcc.a"));
-        } else {
-            lj->args.append(get_libc_static_file(g->libc, "libgcc.a"));
-            lj->args.append(get_libc_static_file(g->libc, "libgcc_eh.a"));
-        }
-
-        lj->args.append(get_libc_static_file(g->libc, "libssp.a"));
-        lj->args.append("libmoldname.a");
-        lj->args.append("libmingwex.a");
-        lj->args.append("libmsvcrt.a");
-
-        if (g->subsystem == TargetSubsystemWindows) {
-            lj->args.append("libgdi32.a");
-            lj->args.append("libcomdlg32.a");
-        }
-
-        lj->args.append("libadvapi32.a");
-        lj->args.append("libadvapi32.a");
-        lj->args.append("libshell32.a");
-        lj->args.append("libuser32.a");
-        lj->args.append("libkernel32.a");
-
-        lj->args.append(get_libc_static_file(g->libc, "crtend.o"));
+    if (is_dll) {
+        lj->args.append(get_libc_static_file(g->libc, "libgcc_s.a"));
+        lj->args.append(get_libc_static_file(g->libc, "libgcc.a"));
+    } else {
+        lj->args.append(get_libc_static_file(g->libc, "libgcc.a"));
+        lj->args.append(get_libc_static_file(g->libc, "libgcc_eh.a"));
     }
+
+    lj->args.append(get_libc_static_file(g->libc, "libssp.a"));
+    lj->args.append(get_libc_file(g->libc, "libmoldname.a"));
+    lj->args.append(get_libc_file(g->libc, "libmingwex.a"));
+    lj->args.append(get_libc_file(g->libc, "libmsvcrt.a"));
+
+    if (g->subsystem == TargetSubsystemWindows) {
+        lj->args.append(get_libc_file(g->libc, "libgdi32.a"));
+        lj->args.append(get_libc_file(g->libc, "libcomdlg32.a"));
+    }
+
+    lj->args.append(get_libc_file(g->libc, "libadvapi32.a"));
+    lj->args.append(get_libc_file(g->libc, "libadvapi32.a"));
+    lj->args.append(get_libc_file(g->libc, "libshell32.a"));
+    lj->args.append(get_libc_file(g->libc, "libuser32.a"));
+    lj->args.append(get_libc_file(g->libc, "libkernel32.a"));
+
+    lj->args.append(get_libc_static_file(g->libc, "crtend.o"));
 }
 
 static void add_win_link_args(LinkJob *lj, bool is_library) {
@@ -1359,25 +1353,8 @@ static void construct_linker_job_coff(LinkJob *lj) {
         }
         if (link_lib->provided_explicitly) {
             if (target_abi_is_gnu(lj->codegen->zig_target->abi)) {
-                static const char *test_names[3] = { "%s\\lib%s.dll.a", "%s\\lib%s.a", nullptr };
-                bool exists = false;
-
-                for (size_t i = 0; test_names[i] != nullptr && !exists; i++) {
-                    for (size_t j = 0; j < g->lib_dirs.length; j += 1) {
-                        const char *lib_dir = g->lib_dirs.at(j);
-                        Buf *test_path = buf_sprintf(test_names[i], lib_dir, buf_ptr(link_lib->name));
-                        if (os_file_exists(test_path, &exists) != ErrorNone) {
-                            zig_panic("link: unable to check if file exists: %s", buf_ptr(test_path));
-                        } else if (exists) {
-                            lj->args.append(buf_ptr(test_path));
-                            break;
-                        }
-                    }
-                }
-
-                if (!exists) {
-                    zig_panic("link: unable to find library: %s", buf_ptr(link_lib->name));
-                }
+                Buf *lib_name = buf_sprintf("lib%s.a", buf_ptr(link_lib->name));
+                lj->args.append(buf_ptr(lib_name));
             } else {
                 lj->args.append(buf_ptr(link_lib->name));
             }
