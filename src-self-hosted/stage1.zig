@@ -129,7 +129,7 @@ export fn stage2_fmt(argc: c_int, argv: [*]const [*]const u8) c_int {
         fmtMain(argc, argv) catch |e| {
             std.debug.warn("{}\n", @errorName(e));
             return -1;
-        }
+        };
     }
     return 0;
 }
