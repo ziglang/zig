@@ -9931,6 +9931,7 @@ static void ir_add_alloca(IrAnalyze *ira, IrInstruction *instruction, ZigType *t
 
 static void copy_const_val(ConstExprValue *dest, ConstExprValue *src, bool same_global_refs) {
     ConstGlobalRefs *global_refs = dest->global_refs;
+    assert(!same_global_refs || src->global_refs != nullptr);
     *dest = *src;
     if (!same_global_refs) {
         dest->global_refs = global_refs;
@@ -17468,6 +17469,7 @@ static IrInstruction *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstruc
     ConstExprValue const_val = {};
     const_val.special = ConstValSpecialStatic;
     const_val.type = container_type;
+    // const_val.global_refs = allocate<ConstGlobalRefs>(1);
     const_val.data.x_struct.fields = create_const_vals(actual_field_count);
     for (size_t i = 0; i < instr_field_count; i += 1) {
         IrInstructionContainerInitFieldsField *field = &fields[i];
@@ -17531,7 +17533,7 @@ static IrInstruction *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstruc
     if (const_val.special == ConstValSpecialStatic) {
         IrInstruction *result = ir_const(ira, instruction, nullptr);
         ConstExprValue *out_val = &result->value;
-        copy_const_val(out_val, &const_val, true);
+        copy_const_val(out_val, &const_val, false);
         out_val->type = container_type;
 
         for (size_t i = 0; i < instr_field_count; i += 1) {
@@ -17603,6 +17605,7 @@ static IrInstruction *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
         ConstExprValue const_val = {};
         const_val.special = ConstValSpecialStatic;
         const_val.type = fixed_size_array_type;
+        // const_val.global_refs = allocate<ConstGlobalRefs>(1);
         const_val.data.x_array.data.s_none.elements = create_const_vals(elem_count);
 
         bool is_comptime = ir_should_inline(ira->new_irb.exec, instruction->base.scope);
@@ -17639,8 +17642,6 @@ static IrInstruction *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
         if (const_val.special == ConstValSpecialStatic) {
             IrInstruction *result = ir_const(ira, &instruction->base, nullptr);
             ConstExprValue *out_val = &result->value;
-            // Make sure to pass same_global_refs=false here in order not to
-            // zero the global_refs field for `result` (#1608)
             copy_const_val(out_val, &const_val, false);
             result->value.type = fixed_size_array_type;
             for (size_t i = 0; i < elem_count; i += 1) {
@@ -21319,7 +21320,7 @@ static IrInstruction *ir_align_cast(IrAnalyze *ira, IrInstruction *target, uint3
         }
 
         IrInstruction *result = ir_const(ira, target, result_type);
-        copy_const_val(&result->value, val, false);
+        copy_const_val(&result->value, val, true);
         result->value.type = result_type;
         return result;
     }
@@ -21389,7 +21390,7 @@ static IrInstruction *ir_analyze_ptr_cast(IrAnalyze *ira, IrInstruction *source_
         }
 
         IrInstruction *result = ir_const(ira, source_instr, dest_type);
-        copy_const_val(&result->value, val, false);
+        copy_const_val(&result->value, val, true);
         result->value.type = dest_type;
 
         // Keep the bigger alignment, it can only help-
