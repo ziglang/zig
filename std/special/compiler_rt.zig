@@ -102,6 +102,7 @@ comptime {
     @export("__udivmoddi4", @import("compiler_rt/udivmoddi4.zig").__udivmoddi4, linkage);
     @export("__popcountdi2", @import("compiler_rt/popcountdi2.zig").__popcountdi2, linkage);
 
+    @export("__divsi3", __divsi3, linkage);
     @export("__udivsi3", __udivsi3, linkage);
     @export("__udivdi3", __udivdi3, linkage);
     @export("__umoddi3", __umoddi3, linkage);
@@ -113,6 +114,8 @@ comptime {
     if (is_arm_arch and !is_arm_64) {
         @export("__aeabi_uldivmod", __aeabi_uldivmod, linkage);
         @export("__aeabi_uidivmod", __aeabi_uidivmod, linkage);
+
+        @export("__aeabi_idiv", __divsi3, linkage);
         @export("__aeabi_uidiv", __udivsi3, linkage);
 
         @export("__aeabi_memcpy", __aeabi_memcpy, linkage);
@@ -564,6 +567,20 @@ extern fn __udivmodsi4(a: u32, b: u32, rem: *u32) u32 {
     const d = __udivsi3(a, b);
     rem.* = @bitCast(u32, @bitCast(i32, a) -% (@bitCast(i32, d) * @bitCast(i32, b)));
     return d;
+}
+
+extern fn __divsi3(n: i32, d: i32) i32 {
+    @setRuntimeSafety(is_test);
+
+    // Set aside the sign of the quotient.
+    const sign = @bitCast(u32, (n ^ d) >> 31);
+    // Take absolute value of a and b via abs(x) = (x^(x >> 31)) - (x >> 31).
+    const abs_n = (n ^ (n >> 31)) -% (n >> 31);
+    const abs_d = (d ^ (d >> 31)) -% (d >> 31);
+    // abs(a) / abs(b)
+    const res = @bitCast(u32, abs_n) / @bitCast(u32, abs_d);
+    // Apply sign of quotient to result and return.
+    return @bitCast(i32, (res ^ sign) -% sign);
 }
 
 extern fn __udivsi3(n: u32, d: u32) u32 {
@@ -1291,5 +1308,30 @@ test "test_udivsi3" {
 
 fn test_one_udivsi3(a: u32, b: u32, expected_q: u32) void {
     const q: u32 = __udivsi3(a, b);
+    testing.expect(q == expected_q);
+}
+
+test "test_divsi3" {
+    const cases = [][3]i32{
+        []i32{ 0,  1,  0},
+        []i32{ 0, -1,  0},
+        []i32{ 2,  1,  2},
+        []i32{ 2, -1, -2},
+        []i32{-2,  1, -2},
+        []i32{-2, -1,  2},
+
+        []i32{@bitCast(i32, u32(0x80000000)),  1, @bitCast(i32, u32(0x80000000))},
+        []i32{@bitCast(i32, u32(0x80000000)), -1, @bitCast(i32, u32(0x80000000))},
+        []i32{@bitCast(i32, u32(0x80000000)), -2, 0x40000000},
+        []i32{@bitCast(i32, u32(0x80000000)),  2, @bitCast(i32, u32(0xC0000000))},
+    };
+
+    for (cases) |case| {
+        test_one_divsi3(case[0], case[1], case[2]);
+    }
+}
+
+fn test_one_divsi3(a: i32, b: i32, expected_q: i32) void {
+    const q: i32 = __divsi3(a, b);
     testing.expect(q == expected_q);
 }
