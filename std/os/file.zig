@@ -235,7 +235,7 @@ pub const File = struct {
         Unexpected,
     };
 
-    pub fn seekForward(self: File, amount: isize) SeekError!void {
+    pub fn seekForward(self: File, amount: i64) SeekError!void {
         switch (builtin.os) {
             Os.linux, Os.macosx, Os.ios, Os.freebsd, Os.netbsd => {
                 const result = posix.lseek(self.handle, amount, posix.SEEK_CUR);
@@ -266,7 +266,7 @@ pub const File = struct {
         }
     }
 
-    pub fn seekTo(self: File, pos: usize) SeekError!void {
+    pub fn seekTo(self: File, pos: u64) SeekError!void {
         switch (builtin.os) {
             Os.linux, Os.macosx, Os.ios, Os.freebsd, Os.netbsd => {
                 const ipos = try math.cast(isize, pos);
@@ -307,7 +307,7 @@ pub const File = struct {
         Unexpected,
     };
 
-    pub fn getPos(self: File) GetSeekPosError!usize {
+    pub fn getPos(self: File) GetSeekPosError!u64 {
         switch (builtin.os) {
             Os.linux, Os.macosx, Os.ios, Os.freebsd, Os.netbsd => {
                 const result = posix.lseek(self.handle, 0, posix.SEEK_CUR);
@@ -324,7 +324,7 @@ pub const File = struct {
                         else => os.unexpectedErrorPosix(err),
                     };
                 }
-                return result;
+                return @intCast(u64, result);
             },
             Os.windows => {
                 var pos: windows.LARGE_INTEGER = undefined;
@@ -337,16 +337,16 @@ pub const File = struct {
                 }
 
                 assert(pos >= 0);
-                return math.cast(usize, pos);
+                return math.cast(u64, pos);
             },
             else => @compileError("unsupported OS"),
         }
     }
 
-    pub fn getEndPos(self: File) GetSeekPosError!usize {
+    pub fn getEndPos(self: File) GetSeekPosError!u64 {
         if (is_posix) {
             const stat = try os.posixFStat(self.handle);
-            return @intCast(usize, stat.size);
+            return @intCast(u64, stat.size);
         } else if (is_windows) {
             var file_size: windows.LARGE_INTEGER = undefined;
             if (windows.GetFileSizeEx(self.handle, &file_size) == 0) {
@@ -357,7 +357,7 @@ pub const File = struct {
             }
             if (file_size < 0)
                 return error.Overflow;
-            return math.cast(usize, @intCast(u64, file_size));
+            return @intCast(u64, file_size);
         } else {
             @compileError("TODO support getEndPos on this OS");
         }
@@ -492,22 +492,22 @@ pub const File = struct {
 
         pub const Stream = io.SeekableStream(SeekError, GetSeekPosError);
 
-        pub fn seekToFn(seekable_stream: *Stream, pos: usize) SeekError!void {
+        pub fn seekToFn(seekable_stream: *Stream, pos: u64) SeekError!void {
             const self = @fieldParentPtr(SeekableStream, "stream", seekable_stream);
             return self.file.seekTo(pos);
         }
 
-        pub fn seekForwardFn(seekable_stream: *Stream, amt: isize) SeekError!void {
+        pub fn seekForwardFn(seekable_stream: *Stream, amt: i64) SeekError!void {
             const self = @fieldParentPtr(SeekableStream, "stream", seekable_stream);
             return self.file.seekForward(amt);
         }
 
-        pub fn getEndPosFn(seekable_stream: *Stream) GetSeekPosError!usize {
+        pub fn getEndPosFn(seekable_stream: *Stream) GetSeekPosError!u64 {
             const self = @fieldParentPtr(SeekableStream, "stream", seekable_stream);
             return self.file.getEndPos();
         }
 
-        pub fn getPosFn(seekable_stream: *Stream) GetSeekPosError!usize {
+        pub fn getPosFn(seekable_stream: *Stream) GetSeekPosError!u64 {
             const self = @fieldParentPtr(SeekableStream, "stream", seekable_stream);
             return self.file.getPos();
         }

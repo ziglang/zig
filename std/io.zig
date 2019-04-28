@@ -195,8 +195,8 @@ pub fn InStream(comptime ReadError: type) type {
             return mem.readVarInt(ReturnType, bytes, endian);
         }
 
-        pub fn skipBytes(self: *Self, num_bytes: usize) !void {
-            var i: usize = 0;
+        pub fn skipBytes(self: *Self, num_bytes: u64) !void {
+            var i: u64 = 0;
             while (i < num_bytes) : (i += 1) {
                 _ = try self.readByte();
             }
@@ -232,9 +232,9 @@ pub fn OutStream(comptime WriteError: type) type {
             return self.writeFn(self, slice);
         }
 
-        pub fn writeByteNTimes(self: *Self, byte: u8, n: usize) Error!void {
+        pub fn writeByteNTimes(self: *Self, byte: u8, n: u64) Error!void {
             const slice = (*const [1]u8)(&byte)[0..];
-            var i: usize = 0;
+            var i: u64 = 0;
             while (i < n) : (i += 1) {
                 try self.writeFn(self, slice);
             }
@@ -743,7 +743,7 @@ pub fn CountingOutStream(comptime OutStreamError: type) type {
         pub const Error = OutStreamError;
 
         pub stream: Stream,
-        pub bytes_written: usize,
+        pub bytes_written: u64,
         child_stream: *Stream,
 
         pub fn init(child_stream: *Stream) Self {

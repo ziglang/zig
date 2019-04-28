@@ -7,25 +7,25 @@ pub fn SeekableStream(comptime SeekErrorType: type, comptime GetSeekPosErrorType
         pub const SeekError = SeekErrorType;
         pub const GetSeekPosError = GetSeekPosErrorType;
 
-        seekToFn: fn (self: *Self, pos: usize) SeekError!void,
-        seekForwardFn: fn (self: *Self, pos: isize) SeekError!void,
+        seekToFn: fn (self: *Self, pos: u64) SeekError!void,
+        seekForwardFn: fn (self: *Self, pos: i64) SeekError!void,
 
-        getPosFn: fn (self: *Self) GetSeekPosError!usize,
-        getEndPosFn: fn (self: *Self) GetSeekPosError!usize,
+        getPosFn: fn (self: *Self) GetSeekPosError!u64,
+        getEndPosFn: fn (self: *Self) GetSeekPosError!u64,
 
-        pub fn seekTo(self: *Self, pos: usize) SeekError!void {
+        pub fn seekTo(self: *Self, pos: u64) SeekError!void {
             return self.seekToFn(self, pos);
         }
 
-        pub fn seekForward(self: *Self, amt: isize) SeekError!void {
+        pub fn seekForward(self: *Self, amt: i64) SeekError!void {
             return self.seekForwardFn(self, amt);
         }
 
-        pub fn getEndPos(self: *Self) GetSeekPosError!usize {
+        pub fn getEndPos(self: *Self) GetSeekPosError!u64 {
             return self.getEndPosFn(self);
         }
 
-        pub fn getPos(self: *Self) GetSeekPosError!usize {
+        pub fn getPos(self: *Self) GetSeekPosError!u64 {
             return self.getPosFn(self);
         }
     };
