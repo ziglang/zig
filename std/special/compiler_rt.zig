@@ -106,6 +106,7 @@ comptime {
     @export("__udivsi3", __udivsi3, linkage);
     @export("__udivdi3", __udivdi3, linkage);
     @export("__umoddi3", __umoddi3, linkage);
+    @export("__divmodsi4", __divmodsi4, linkage);
     @export("__udivmodsi4", __udivmodsi4, linkage);
 
     @export("__negsf2", @import("compiler_rt/negXf2.zig").__negsf2, linkage);
@@ -113,10 +114,11 @@ comptime {
 
     if (is_arm_arch and !is_arm_64) {
         @export("__aeabi_uldivmod", __aeabi_uldivmod, linkage);
-        @export("__aeabi_uidivmod", __aeabi_uidivmod, linkage);
 
         @export("__aeabi_idiv", __divsi3, linkage);
+        @export("__aeabi_idivmod", __divmodsi4, linkage);
         @export("__aeabi_uidiv", __udivsi3, linkage);
+        @export("__aeabi_uidivmod", __aeabi_uidivmod, linkage);
 
         @export("__aeabi_memcpy", __aeabi_memcpy, linkage);
         @export("__aeabi_memcpy4", __aeabi_memcpy, linkage);
@@ -559,6 +561,14 @@ nakedcc fn ___chkstk_ms() align(4) void {
         \\        pop    %%rcx
         \\        ret
     );
+}
+
+extern fn __divmodsi4(a: i32, b: i32, rem: *i32) i32 {
+    @setRuntimeSafety(is_test);
+
+    const d = __divsi3(a, b);
+    rem.* = a -% (d * b);
+    return d;
 }
 
 extern fn __udivmodsi4(a: u32, b: u32, rem: *u32) u32 {
@@ -1334,4 +1344,32 @@ test "test_divsi3" {
 fn test_one_divsi3(a: i32, b: i32, expected_q: i32) void {
     const q: i32 = __divsi3(a, b);
     testing.expect(q == expected_q);
+}
+
+test "test_divmodsi4" {
+    const cases = [][4]i32{
+        []i32{ 0,  1,  0,  0},
+        []i32{ 0, -1,  0,  0},
+        []i32{ 2,  1,  2,  0},
+        []i32{ 2, -1, -2,  0},
+        []i32{-2,  1, -2,  0},
+        []i32{-2, -1,  2,  0},
+        []i32{ 7,  5,  1,  2},
+        []i32{-7,  5, -1, -2},
+        []i32{19,  5,  3,  4},
+        []i32{19, -5, -3,  4},
+
+        []i32{@bitCast(i32, u32(0x80000000)), 8, @bitCast(i32, u32(0xf0000000)), 0},
+        []i32{@bitCast(i32, u32(0x80000007)), 8, @bitCast(i32, u32(0xf0000001)), -1},
+    };
+
+    for (cases) |case| {
+        test_one_divmodsi4(case[0], case[1], case[2], case[3]);
+    }
+}
+
+fn test_one_divmodsi4(a: i32, b: i32, expected_q: i32, expected_r: i32) void {
+    var r: i32 = undefined;
+    const q: i32 = __divmodsi4(a, b, &r);
+    testing.expect(q == expected_q and r == expected_r);
 }
