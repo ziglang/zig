@@ -216,6 +216,7 @@ comptime {
         @export("__umodti3", @import("compiler_rt/umodti3.zig").__umodti3, linkage);
     }
     @export("__muloti4", @import("compiler_rt/muloti4.zig").__muloti4, linkage);
+    @export("__mulodi4", @import("compiler_rt/mulodi4.zig").__mulodi4, linkage);
 }
 
 const std = @import("std");
