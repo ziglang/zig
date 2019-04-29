@@ -135,7 +135,7 @@ Zig is an open-source programming language designed for **robustness**,
  * Reddit: [/r/zig](https://www.reddit.com/r/zig)
  * Email list: [~andrewrk/ziglang@lists.sr.ht](https://lists.sr.ht/%7Eandrewrk/ziglang)
 
-## Building
+## Building from Source
 
 [![Build Status](https://dev.azure.com/ziglang/zig/_apis/build/status/ziglang.zig?branchName=master)](https://dev.azure.com/ziglang/zig/_build/latest?definitionId=1&branchName=master)
 
@@ -151,12 +151,14 @@ Note that you can
  * cmake >= 2.8.5
  * gcc >= 5.0.0 or clang >= 3.6.0
  * LLVM, Clang, LLD development libraries == 8.x, compiled with the same gcc or clang version above
+   - Use the system package manager, or [build from source](https://github.com/ziglang/zig/wiki/How-to-build-LLVM,-libclang,-and-liblld-from-source#posix).
 
 ##### Windows
 
  * cmake >= 2.8.5
  * Microsoft Visual Studio 2017 (version 15.8)
  * LLVM, Clang, LLD development libraries == 8.x, compiled with the same MSVC version above
+   - Use the [pre-built binaries](https://github.com/ziglang/zig/wiki/How-to-build-LLVM,-libclang,-and-liblld-from-source#pre-built-binaries) or [build from source](https://github.com/ziglang/zig/wiki/How-to-build-LLVM,-libclang,-and-liblld-from-source#windows).
 
 #### Instructions
 
@@ -166,9 +168,7 @@ Note that you can
 mkdir build
 cd build
 cmake ..
-make
 make install
-bin/zig build --build-file ../build.zig test
 ```
 
 ##### MacOS
@@ -180,7 +180,6 @@ mkdir build
 cd build
 cmake .. -DCMAKE_PREFIX_PATH=/usr/local/Cellar/llvm/8.0.0
 make install
-bin/zig build --build-file ../build.zig test
 ```
 
 ##### Windows
@@ -224,25 +223,94 @@ use stage 1.
 ./stage2/bin/zig build --build-file ../build.zig install -Drelease-fast
 ```
 
-## Developing Zig
+## Contributing
 
-### Standard Library
+### Start a Project Using Zig
+
+One of the best ways you can contribute to Zig is to start using it for a
+personal project. Here are some great examples:
+
+ * [Oxid](https://github.com/dbandstra/oxid) - arcade style game
+ * [TM35-Metronome](https://github.com/TM35-Metronome) - tools for modifying and randomizing Pokémon games
+ * [trOS](https://github.com/sjdh02/trOS) - tiny aarch64 baremetal OS thingy
+
+Without fail, these projects lead to discovering bugs and helping flesh out use
+cases, which lead to further design iterations of Zig. Importantly, each issue
+found this way comes with a real world motivations, so it is easy to explain
+your reasoning behind proposals and feature requests.
+
+Ideally, such a project will help you to learn new skills and add something
+to your personal portfolio at the same time.
+
+### Spread the Word
+
+Another way to contribute is to write about Zig, or speak about Zig at a
+conference, or do either of those things for your project which uses Zig.
+Here are some examples:
+
+ * [Iterative Replacement of C with Zig](http://tiehuis.github.io/blog/zig1.html)
+ * [The Right Tool for the Right Job: Redis Modules & Zig](https://www.youtube.com/watch?v=eCHM8-_poZY)
+
+Zig is a brand new language, with no advertising budget. Word of mouth is the
+only way people find out about the project, and the more people hear about it,
+the more people will use it, and the better chance we have to take over the
+world.
+
+### Finding Contributor Friendly Issues
+
+Please note that issues labeled
+[Proposal](https://github.com/ziglang/zig/issues?q=is%3Aissue+is%3Aopen+label%3Aproposal)
+but do not also have the
+[Accepted](https://github.com/ziglang/zig/issues?q=is%3Aissue+is%3Aopen+label%3Aaccepted)
+label are still under consideration, and efforts to implement such a proposal
+have a high risk of being wasted. If you are interested in a proposal which is
+still under consideration, please express your interest in the issue tracker,
+providing extra insights and considerations that others have not yet expressed.
+The most highly regarded argument in such a discussion is a real world use case.
+
+The issue label
+[Contributor Friendly](https://github.com/ziglang/zig/issues?q=is%3Aissue+is%3Aopen+label%3A%22contributor+friendly%22)
+exists to help contributors find issues that are "limited in scope and/or
+knowledge of Zig internals."
+
+### Editing Source Code
 
 First, build the Stage 1 compiler as described in [the Building section](#building).
-Then, make your changes to the standard library files in `std` (note: not
-`build/lib/zig/std`). To test changes to the standard library, do the following
-from the build directory:
 
-1. Run `make install` (on POSIX) or `msbuild -p:Configuration=Release INSTALL.vcxproj`
-   (on Windows).
-2. Test your changes with `bin/zig test lib/zig/std/<changed file>` (e.g. `bin/zig test lib/zig/std/heap.zig`).
+When making changes to the standard library, be sure to edit the files in the
+`std` directory and not the installed copy in the build directory. If you add a
+new file to the standard library, you must also add the file path in
+CMakeLists.txt.
 
-Once your changes are finished, run all the zig tests from the build directory:
+To test changes, do the following from the build directory:
 
-```
-bin/zig build --build-file ../build.zig test -Dskip-release
-```
+1. Run `make install` (on POSIX) or
+   `msbuild -p:Configuration=Release INSTALL.vcxproj` (on Windows).
+2. `bin/zig build --build-file ../build.zig test` (on POSIX) or
+   `bin\zig.exe build --build-file ..\build.zig test` (on Windows).
 
-*Note: The `-Dskip-release` flag will skip running the longer test process that tests
-all possible build configurations. This shorter test process is good enough when
-submitting pull requests*
+That runs the whole test suite, which does a lot of extra testing that you
+likely won't always need, and can take upwards of 2 hours. This is what the
+CI server runs when you make a pull request.
+
+To save time, you can add the `--help` option to the `zig build` command and
+see what options are available. One of the most helpful ones is
+`-Dskip-release`. Adding this option to the command in step 2 above will take
+the time down from around 2 hours to about 6 minutes, and this is a good
+enough amount of testing before making a pull request.
+
+Another example is choosing a different set of things to test. For example,
+`test-std` instead of `test` will only run the standard library tests, and
+not the other ones. Combining this suggestion with the previous one, you could
+do this:
+
+`bin/zig build --build-file ../build.zig test-std -Dskip-release` (on POSIX) or
+`bin\zig.exe build --build-file ..\build.zig test-std -Dskip-release` (on Windows).
+
+This will run only the standard library tests, in debug mode only, for all
+targets (it will cross-compile the tests for non-native targets but not run
+them).
+
+When making changes to the compiler source code, the most helpful test step to
+run is `test-behavior`. When editing documentation it is `docs`. You can find
+this information and more in the `--help` menu.
