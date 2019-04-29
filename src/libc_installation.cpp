@@ -322,11 +322,11 @@ static Error zig_libc_find_native_crt_dir_posix(ZigLibCInstallation *self, bool 
 }
 #endif
 
+#if defined(ZIG_OS_WINDOWS)
 static Error zig_libc_find_native_static_crt_dir_posix(ZigLibCInstallation *self, bool verbose) {
     return zig_libc_cc_print_file_name("crtbegin.o", &self->static_crt_dir, true, verbose);
 }
 
-#if defined(ZIG_OS_WINDOWS)
 static Error zig_libc_find_native_include_dir_windows(ZigLibCInstallation *self, ZigWindowsSDK *sdk, bool verbose) {
     Error err;
     if ((err = os_get_win32_ucrt_include_path(sdk, &self->include_dir))) {
