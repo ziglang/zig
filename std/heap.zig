@@ -141,8 +141,8 @@ pub const DirectAllocator = struct {
                     return shrink(allocator, old_mem, old_align, new_size, new_align);
                 }
                 const result = try alloc(allocator, new_size, new_align);
-                @memcpy(result.ptr, old_mem.ptr, std.math.min(old_mem.len, result.len));
-                if (old_mem.len > 0) {
+                if (old_mem.len != 0) {
+                    @memcpy(result.ptr, old_mem.ptr, std.math.min(old_mem.len, result.len));
                   _ = os.posix.munmap(@ptrToInt(old_mem.ptr), old_mem.len);
                 }
                 return result;
