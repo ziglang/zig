@@ -1137,53 +1137,121 @@ static bool zig_lld_link(ZigLLVM_ObjectFormatType oformat, const char **args, si
 }
 
 static void add_uefi_link_args(LinkJob *lj) {
-    lj->args.append("/BASE:0");
-    lj->args.append("/ENTRY:EfiMain");
-    lj->args.append("/OPT:REF");
-    lj->args.append("/SAFESEH:NO");
-    lj->args.append("/MERGE:.rdata=.data");
-    lj->args.append("/ALIGN:32");
-    lj->args.append("/NODEFAULTLIB");
-    lj->args.append("/SECTION:.xdata,D");
+    lj->args.append("-BASE:0");
+    lj->args.append("-ENTRY:EfiMain");
+    lj->args.append("-OPT:REF");
+    lj->args.append("-SAFESEH:NO");
+    lj->args.append("-MERGE:.rdata=.data");
+    lj->args.append("-ALIGN:32");
+    lj->args.append("-NODEFAULTLIB");
+    lj->args.append("-SECTION:.xdata,D");
 }
 
-static void add_nt_link_args(LinkJob *lj, bool is_library) {
+static void add_msvc_link_args(LinkJob *lj, bool is_library) {
     CodeGen *g = lj->codegen;
 
-    if (lj->link_in_crt) {
-        // TODO: https://github.com/ziglang/zig/issues/2064
-        bool is_dynamic = true; // g->is_dynamic;
-        const char *lib_str = is_dynamic ? "" : "lib";
-        const char *d_str = (g->build_mode == BuildModeDebug) ? "d" : "";
+    // TODO: https://github.com/ziglang/zig/issues/2064
+    bool is_dynamic = true; // g->is_dynamic;
+    const char *lib_str = is_dynamic ? "" : "lib";
+    const char *d_str = (g->build_mode == BuildModeDebug) ? "d" : "";
 
-        if (!is_dynamic) {
-            Buf *cmt_lib_name = buf_sprintf("libcmt%s.lib", d_str);
-            lj->args.append(buf_ptr(cmt_lib_name));
-        } else {
-            Buf *msvcrt_lib_name = buf_sprintf("msvcrt%s.lib", d_str);
-            lj->args.append(buf_ptr(msvcrt_lib_name));
-        }
-
-        Buf *vcruntime_lib_name = buf_sprintf("%svcruntime%s.lib", lib_str, d_str);
-        lj->args.append(buf_ptr(vcruntime_lib_name));
-
-        Buf *crt_lib_name = buf_sprintf("%sucrt%s.lib", lib_str, d_str);
-        lj->args.append(buf_ptr(crt_lib_name));
-
-        //Visual C++ 2015 Conformance Changes
-        //https://msdn.microsoft.com/en-us/library/bb531344.aspx
-        lj->args.append("legacy_stdio_definitions.lib");
-
-        // msvcrt depends on kernel32 and ntdll
-        lj->args.append("kernel32.lib");
-        lj->args.append("ntdll.lib");
+    if (!is_dynamic) {
+        Buf *cmt_lib_name = buf_sprintf("libcmt%s.lib", d_str);
+        lj->args.append(buf_ptr(cmt_lib_name));
     } else {
-        lj->args.append("/NODEFAULTLIB");
+        Buf *msvcrt_lib_name = buf_sprintf("msvcrt%s.lib", d_str);
+        lj->args.append(buf_ptr(msvcrt_lib_name));
+    }
+
+    Buf *vcruntime_lib_name = buf_sprintf("%svcruntime%s.lib", lib_str, d_str);
+    lj->args.append(buf_ptr(vcruntime_lib_name));
+
+    Buf *crt_lib_name = buf_sprintf("%sucrt%s.lib", lib_str, d_str);
+    lj->args.append(buf_ptr(crt_lib_name));
+
+    //Visual C++ 2015 Conformance Changes
+    //https://msdn.microsoft.com/en-us/library/bb531344.aspx
+    lj->args.append("legacy_stdio_definitions.lib");
+
+    // msvcrt depends on kernel32 and ntdll
+    lj->args.append("kernel32.lib");
+    lj->args.append("ntdll.lib");
+}
+
+static const char *get_libc_file(ZigLibCInstallation *lib, const char *file) {
+    Buf *out_buf = buf_alloc();
+    os_path_join(&lib->crt_dir, buf_create_from_str(file), out_buf);
+    return buf_ptr(out_buf);
+}
+
+static const char *get_libc_static_file(ZigLibCInstallation *lib, const char *file) {
+    Buf *out_buf = buf_alloc();
+    os_path_join(&lib->static_crt_dir, buf_create_from_str(file), out_buf);
+    return buf_ptr(out_buf);
+}
+
+static void add_mingw_link_args(LinkJob *lj, bool is_library) {
+    CodeGen *g = lj->codegen;
+
+    bool is_dll = g->out_type == OutTypeLib && g->is_dynamic;
+
+    if (g->zig_target->arch == ZigLLVM_x86) {
+        lj->args.append("-ALTERNATENAME:__image_base__=___ImageBase");
+    } else {
+        lj->args.append("-ALTERNATENAME:__image_base__=__ImageBase");
+    }
+
+    if (is_dll) {
+       lj->args.append(get_libc_file(g->libc, "dllcrt2.o"));
+    } else {
+       lj->args.append(get_libc_file(g->libc, "crt2.o"));
+    }
+
+    lj->args.append(get_libc_static_file(g->libc, "crtbegin.o"));
+
+    lj->args.append(get_libc_file(g->libc, "libmingw32.a"));
+
+    if (is_dll) {
+        lj->args.append(get_libc_static_file(g->libc, "libgcc_s.a"));
+        lj->args.append(get_libc_static_file(g->libc, "libgcc.a"));
+    } else {
+        lj->args.append(get_libc_static_file(g->libc, "libgcc.a"));
+        lj->args.append(get_libc_static_file(g->libc, "libgcc_eh.a"));
+    }
+
+    lj->args.append(get_libc_static_file(g->libc, "libssp.a"));
+    lj->args.append(get_libc_file(g->libc, "libmoldname.a"));
+    lj->args.append(get_libc_file(g->libc, "libmingwex.a"));
+    lj->args.append(get_libc_file(g->libc, "libmsvcrt.a"));
+
+    if (g->subsystem == TargetSubsystemWindows) {
+        lj->args.append(get_libc_file(g->libc, "libgdi32.a"));
+        lj->args.append(get_libc_file(g->libc, "libcomdlg32.a"));
+    }
+
+    lj->args.append(get_libc_file(g->libc, "libadvapi32.a"));
+    lj->args.append(get_libc_file(g->libc, "libadvapi32.a"));
+    lj->args.append(get_libc_file(g->libc, "libshell32.a"));
+    lj->args.append(get_libc_file(g->libc, "libuser32.a"));
+    lj->args.append(get_libc_file(g->libc, "libkernel32.a"));
+
+    lj->args.append(get_libc_static_file(g->libc, "crtend.o"));
+}
+
+static void add_win_link_args(LinkJob *lj, bool is_library) {
+    if (lj->link_in_crt) {
+        if (target_abi_is_gnu(lj->codegen->zig_target->abi)) {
+            add_mingw_link_args(lj, is_library);
+        } else {
+            add_msvc_link_args(lj, is_library);
+        }
+    } else {
+        lj->args.append("-NODEFAULTLIB");
         if (!is_library) {
-            if (g->have_winmain) {
-                lj->args.append("/ENTRY:WinMain");
+            if (lj->codegen->have_winmain) {
+                lj->args.append("-ENTRY:WinMain");
             } else {
-                lj->args.append("/ENTRY:WinMainCRTStartup");
+                lj->args.append("-ENTRY:WinMainCRTStartup");
             }
         }
     }
@@ -1193,62 +1261,24 @@ static void construct_linker_job_coff(LinkJob *lj) {
     Error err;
     CodeGen *g = lj->codegen;
 
-    lj->args.append("/ERRORLIMIT:0");
+    lj->args.append("-ERRORLIMIT:0");
 
-    lj->args.append("/NOLOGO");
+    lj->args.append("-NOLOGO");
 
     if (!g->strip_debug_symbols) {
-        lj->args.append("/DEBUG");
+        lj->args.append("-DEBUG");
     }
 
     if (g->out_type == OutTypeExe) {
         // TODO compile time stack upper bound detection
-        lj->args.append("/STACK:16777216");
+        lj->args.append("-STACK:16777216");
     }
 
     coff_append_machine_arg(g, &lj->args);
 
     bool is_library = g->out_type == OutTypeLib;
-    switch (g->subsystem) {
-        case TargetSubsystemAuto:
-            if (g->zig_target->os == OsUefi) {
-                add_uefi_link_args(lj);
-            } else {
-                add_nt_link_args(lj, is_library);
-            }
-            break;
-        case TargetSubsystemConsole:
-            lj->args.append("/SUBSYSTEM:console");
-            add_nt_link_args(lj, is_library);
-            break;
-        case TargetSubsystemEfiApplication:
-            lj->args.append("/SUBSYSTEM:efi_application");
-            add_uefi_link_args(lj);
-            break;
-        case TargetSubsystemEfiBootServiceDriver:
-            lj->args.append("/SUBSYSTEM:efi_boot_service_driver");
-            add_uefi_link_args(lj);
-            break;
-        case TargetSubsystemEfiRom:
-            lj->args.append("/SUBSYSTEM:efi_rom");
-            add_uefi_link_args(lj);
-            break;
-        case TargetSubsystemEfiRuntimeDriver:
-            lj->args.append("/SUBSYSTEM:efi_runtime_driver");
-            add_uefi_link_args(lj);
-            break;
-        case TargetSubsystemNative:
-            lj->args.append("/SUBSYSTEM:native");
-            add_nt_link_args(lj, is_library);
-            break;
-        case TargetSubsystemPosix:
-            lj->args.append("/SUBSYSTEM:posix");
-            add_nt_link_args(lj, is_library);
-            break;
-        case TargetSubsystemWindows:
-            lj->args.append("/SUBSYSTEM:windows");
-            add_nt_link_args(lj, is_library);
-            break;
+    if (is_library && g->is_dynamic) {
+        lj->args.append("-DLL");
     }
 
     lj->args.append(buf_ptr(buf_sprintf("-OUT:%s", buf_ptr(&g->output_file_path))));
@@ -1256,13 +1286,15 @@ static void construct_linker_job_coff(LinkJob *lj) {
     if (g->libc_link_lib != nullptr) {
         assert(g->libc != nullptr);
 
-        lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(&g->libc->msvc_lib_dir))));
-        lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(&g->libc->kernel32_lib_dir))));
         lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(&g->libc->crt_dir))));
-    }
 
-    if (is_library && g->is_dynamic) {
-        lj->args.append("-DLL");
+        if (target_abi_is_gnu(g->zig_target->abi)) {
+            lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(&g->libc->sys_include_dir))));
+            lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(&g->libc->include_dir))));
+        } else {
+            lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(&g->libc->msvc_lib_dir))));
+            lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(&g->libc->kernel32_lib_dir))));
+        }
     }
 
     for (size_t i = 0; i < g->lib_dirs.length; i += 1) {
@@ -1272,6 +1304,48 @@ static void construct_linker_job_coff(LinkJob *lj) {
 
     for (size_t i = 0; i < g->link_objects.length; i += 1) {
         lj->args.append((const char *)buf_ptr(g->link_objects.at(i)));
+    }
+
+    switch (g->subsystem) {
+        case TargetSubsystemAuto:
+            if (g->zig_target->os == OsUefi) {
+                add_uefi_link_args(lj);
+            } else {
+                add_win_link_args(lj, is_library);
+            }
+            break;
+        case TargetSubsystemConsole:
+            lj->args.append("-SUBSYSTEM:console");
+            add_win_link_args(lj, is_library);
+            break;
+        case TargetSubsystemEfiApplication:
+            lj->args.append("-SUBSYSTEM:efi_application");
+            add_uefi_link_args(lj);
+            break;
+        case TargetSubsystemEfiBootServiceDriver:
+            lj->args.append("-SUBSYSTEM:efi_boot_service_driver");
+            add_uefi_link_args(lj);
+            break;
+        case TargetSubsystemEfiRom:
+            lj->args.append("-SUBSYSTEM:efi_rom");
+            add_uefi_link_args(lj);
+            break;
+        case TargetSubsystemEfiRuntimeDriver:
+            lj->args.append("-SUBSYSTEM:efi_runtime_driver");
+            add_uefi_link_args(lj);
+            break;
+        case TargetSubsystemNative:
+            lj->args.append("-SUBSYSTEM:native");
+            add_win_link_args(lj, is_library);
+            break;
+        case TargetSubsystemPosix:
+            lj->args.append("-SUBSYSTEM:posix");
+            add_win_link_args(lj, is_library);
+            break;
+        case TargetSubsystemWindows:
+            lj->args.append("-SUBSYSTEM:windows");
+            add_win_link_args(lj, is_library);
+            break;
     }
 
     if (g->out_type == OutTypeExe || (g->out_type == OutTypeLib && g->is_dynamic)) {
@@ -1293,11 +1367,10 @@ static void construct_linker_job_coff(LinkJob *lj) {
             continue;
         }
         if (link_lib->provided_explicitly) {
-            if (lj->codegen->zig_target->abi == ZigLLVM_GNU) {
-                Buf *arg = buf_sprintf("-l%s", buf_ptr(link_lib->name));
-                lj->args.append(buf_ptr(arg));
-            }
-            else {
+            if (target_abi_is_gnu(lj->codegen->zig_target->abi)) {
+                Buf *lib_name = buf_sprintf("lib%s.a", buf_ptr(link_lib->name));
+                lj->args.append(buf_ptr(lib_name));
+            } else {
                 lj->args.append(buf_ptr(link_lib->name));
             }
         } else {
