@@ -1,7 +1,7 @@
 pub use @import("wasi/core.zig");
 
 // Based on https://github.com/CraneStation/wasi-sysroot/blob/wasi/libc-bottom-half/headers/public/wasi/core.h
-// and https://github.com/CraneStation/wasmtime/blob/master/docs/WASI-api.md
+// and https://github.com/WebAssembly/WASI/blob/master/design/WASI-core.md
 
 pub const STDIN_FILENO = 0;
 pub const STDOUT_FILENO = 1;
