@@ -4554,28 +4554,27 @@ static void visit_var_decl(Context *c, const clang::VarDecl *var_decl) {
     return;
 }
 
-static bool decl_visitor(void *context, const ZigClangDecl *zdecl) {
-    const clang::Decl *decl = reinterpret_cast<const clang::Decl *>(zdecl);
+static bool decl_visitor(void *context, const ZigClangDecl *decl) {
     Context *c = (Context*)context;
 
-    switch (decl->getKind()) {
-        case clang::Decl::Function:
-            visit_fn_decl(c, static_cast<const clang::FunctionDecl*>(decl));
+    switch (ZigClangDecl_getKind(decl)) {
+        case ZigClangDeclFunction:
+            visit_fn_decl(c, reinterpret_cast<const clang::FunctionDecl*>(decl));
             break;
-        case clang::Decl::Typedef:
+        case ZigClangDeclTypedef:
             resolve_typedef_decl(c, reinterpret_cast<const ZigClangTypedefNameDecl *>(decl));
             break;
-        case clang::Decl::Enum:
+        case ZigClangDeclEnum:
             resolve_enum_decl(c, reinterpret_cast<const ZigClangEnumDecl *>(decl));
             break;
-        case clang::Decl::Record:
-            resolve_record_decl(c, (const ZigClangRecordDecl *)(decl));
+        case ZigClangDeclRecord:
+            resolve_record_decl(c, reinterpret_cast<const ZigClangRecordDecl *>(decl));
             break;
-        case clang::Decl::Var:
-            visit_var_decl(c, static_cast<const clang::VarDecl *>(decl));
+        case ZigClangDeclVar:
+            visit_var_decl(c, reinterpret_cast<const clang::VarDecl *>(decl));
             break;
         default:
-            emit_warning(c, bitcast(decl->getLocation()), "ignoring %s decl", decl->getDeclKindName());
+            emit_warning(c, ZigClangDecl_getLocation(decl), "ignoring %s decl", ZigClangDecl_getDeclKindName(decl));
     }
 
     return true;

@@ -482,6 +482,83 @@ enum ZigClangAPValueKind {
     ZigClangAPValueAddrLabelDiff,
 };
 
+enum ZigClangDeclKind {
+    ZigClangDeclAccessSpec,
+    ZigClangDeclBlock,
+    ZigClangDeclCaptured,
+    ZigClangDeclClassScopeFunctionSpecialization,
+    ZigClangDeclEmpty,
+    ZigClangDeclExport,
+    ZigClangDeclExternCContext,
+    ZigClangDeclFileScopeAsm,
+    ZigClangDeclFriend,
+    ZigClangDeclFriendTemplate,
+    ZigClangDeclImport,
+    ZigClangDeclLinkageSpec,
+    ZigClangDeclLabel,
+    ZigClangDeclNamespace,
+    ZigClangDeclNamespaceAlias,
+    ZigClangDeclObjCCompatibleAlias,
+    ZigClangDeclObjCCategory,
+    ZigClangDeclObjCCategoryImpl,
+    ZigClangDeclObjCImplementation,
+    ZigClangDeclObjCInterface,
+    ZigClangDeclObjCProtocol,
+    ZigClangDeclObjCMethod,
+    ZigClangDeclObjCProperty,
+    ZigClangDeclBuiltinTemplate,
+    ZigClangDeclClassTemplate,
+    ZigClangDeclFunctionTemplate,
+    ZigClangDeclTypeAliasTemplate,
+    ZigClangDeclVarTemplate,
+    ZigClangDeclTemplateTemplateParm,
+    ZigClangDeclEnum,
+    ZigClangDeclRecord,
+    ZigClangDeclCXXRecord,
+    ZigClangDeclClassTemplateSpecialization,
+    ZigClangDeclClassTemplatePartialSpecialization,
+    ZigClangDeclTemplateTypeParm,
+    ZigClangDeclObjCTypeParam,
+    ZigClangDeclTypeAlias,
+    ZigClangDeclTypedef,
+    ZigClangDeclUnresolvedUsingTypename,
+    ZigClangDeclUsing,
+    ZigClangDeclUsingDirective,
+    ZigClangDeclUsingPack,
+    ZigClangDeclUsingShadow,
+    ZigClangDeclConstructorUsingShadow,
+    ZigClangDeclBinding,
+    ZigClangDeclField,
+    ZigClangDeclObjCAtDefsField,
+    ZigClangDeclObjCIvar,
+    ZigClangDeclFunction,
+    ZigClangDeclCXXDeductionGuide,
+    ZigClangDeclCXXMethod,
+    ZigClangDeclCXXConstructor,
+    ZigClangDeclCXXConversion,
+    ZigClangDeclCXXDestructor,
+    ZigClangDeclMSProperty,
+    ZigClangDeclNonTypeTemplateParm,
+    ZigClangDeclVar,
+    ZigClangDeclDecomposition,
+    ZigClangDeclImplicitParam,
+    ZigClangDeclOMPCapturedExpr,
+    ZigClangDeclParmVar,
+    ZigClangDeclVarTemplateSpecialization,
+    ZigClangDeclVarTemplatePartialSpecialization,
+    ZigClangDeclEnumConstant,
+    ZigClangDeclIndirectField,
+    ZigClangDeclOMPDeclareReduction,
+    ZigClangDeclUnresolvedUsingValue,
+    ZigClangDeclOMPRequires,
+    ZigClangDeclOMPThreadPrivate,
+    ZigClangDeclObjCPropertyImpl,
+    ZigClangDeclPragmaComment,
+    ZigClangDeclPragmaDetectMismatch,
+    ZigClangDeclStaticAssert,
+    ZigClangDeclTranslationUnit,
+};
+
 ZIG_EXTERN_C struct ZigClangSourceLocation ZigClangSourceManager_getSpellingLoc(const struct ZigClangSourceManager *,
         struct ZigClangSourceLocation Loc);
 ZIG_EXTERN_C const char *ZigClangSourceManager_getFilename(const struct ZigClangSourceManager *,
@@ -520,6 +597,7 @@ ZIG_EXTERN_C const struct ZigClangEnumDecl *ZigClangEnumDecl_getDefinition(const
 ZIG_EXTERN_C struct ZigClangSourceLocation ZigClangRecordDecl_getLocation(const struct ZigClangRecordDecl *);
 ZIG_EXTERN_C struct ZigClangSourceLocation ZigClangEnumDecl_getLocation(const struct ZigClangEnumDecl *);
 ZIG_EXTERN_C struct ZigClangSourceLocation ZigClangTypedefNameDecl_getLocation(const struct ZigClangTypedefNameDecl *);
+ZIG_EXTERN_C struct ZigClangSourceLocation ZigClangDecl_getLocation(const struct ZigClangDecl *);
 
 ZIG_EXTERN_C bool ZigClangRecordDecl_isUnion(const struct ZigClangRecordDecl *record_decl);
 ZIG_EXTERN_C bool ZigClangRecordDecl_isStruct(const struct ZigClangRecordDecl *record_decl);
@@ -528,6 +606,8 @@ ZIG_EXTERN_C bool ZigClangRecordDecl_isAnonymousStructOrUnion(const struct ZigCl
 ZIG_EXTERN_C struct ZigClangQualType ZigClangEnumDecl_getIntegerType(const struct ZigClangEnumDecl *);
 
 ZIG_EXTERN_C const char *ZigClangDecl_getName_bytes_begin(const struct ZigClangDecl *decl);
+ZIG_EXTERN_C enum ZigClangDeclKind ZigClangDecl_getKind(const struct ZigClangDecl *decl);
+ZIG_EXTERN_C const char *ZigClangDecl_getDeclKindName(const struct ZigClangDecl *decl);
 
 ZIG_EXTERN_C bool ZigClangSourceLocation_eq(struct ZigClangSourceLocation a, struct ZigClangSourceLocation b);
 
@@ -543,7 +623,7 @@ ZIG_EXTERN_C bool ZigClangQualType_isVolatileQualified(struct ZigClangQualType);
 ZIG_EXTERN_C bool ZigClangQualType_isRestrictQualified(struct ZigClangQualType);
 
 ZIG_EXTERN_C enum ZigClangTypeClass ZigClangType_getTypeClass(const struct ZigClangType *self);
-ZIG_EXTERN_C ZigClangQualType ZigClangType_getPointeeType(const ZigClangType *self);
+ZIG_EXTERN_C struct ZigClangQualType ZigClangType_getPointeeType(const struct ZigClangType *self);
 ZIG_EXTERN_C bool ZigClangType_isVoidType(const struct ZigClangType *self);
 ZIG_EXTERN_C const char *ZigClangType_getTypeClassName(const struct ZigClangType *self);
 

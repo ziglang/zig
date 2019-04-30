@@ -1,5 +1,5 @@
 // This is the userland implementation of translate-c which will be used by both stage1
-// and stage2. Currently it's not used by anything, as it's not feature complete.
+// and stage2. Currently the only way it is used is with `zig translate-c-2`.
 
 const std = @import("std");
 const ast = std.zig.ast;
@@ -12,6 +12,16 @@ pub const Mode = enum {
 };
 
 pub const ClangErrMsg = Stage2ErrorMsg;
+
+pub const Error = error {
+    OutOfMemory,
+};
+
+const Context = struct {
+    tree: *ast.Tree,
+    source_buffer: *std.Buffer,
+    err: Error,
+};
 
 pub fn translate(
     backing_allocator: *std.mem.Allocator,
@@ -57,23 +67,65 @@ pub fn translate(
 
     var source_buffer = try std.Buffer.initSize(arena, 0);
 
-    try appendToken(tree, &source_buffer, "// TODO: implement more than just an empty source file", .LineComment);
+    var context = Context{
+        .tree = tree,
+        .source_buffer = &source_buffer,
+        .err = undefined,
+    };
 
-    try appendToken(tree, &source_buffer, "", .Eof);
+    if (!ZigClangASTUnit_visitLocalTopLevelDecls(ast_unit, &context, declVisitorC)) {
+        return context.err;
+    }
+
+    try appendToken(&context, .Eof, "");
     tree.source = source_buffer.toOwnedSlice();
     return tree;
 }
 
-fn appendToken(tree: *ast.Tree, source_buffer: *std.Buffer, src_text: []const u8, token_id: Token.Id) !void {
-    const start_index = source_buffer.len();
-    try source_buffer.append(src_text);
-    const end_index = source_buffer.len();
-    const new_token = try tree.tokens.addOne();
+extern fn declVisitorC(context: ?*c_void, decl: *const ZigClangDecl) bool {
+    const c = @ptrCast(*Context, @alignCast(@alignOf(Context), context));
+    declVisitor(c, decl) catch |err| {
+        c.err = err;
+        return false;
+    };
+    return true;
+}
+
+fn declVisitor(c: *Context, decl: *const ZigClangDecl) Error!void {
+    switch (ZigClangDecl_getKind(decl)) {
+        .Function => {
+            try appendToken(c, .LineComment, "// TODO translate function decl");
+        },
+        .Typedef => {
+            try appendToken(c, .LineComment, "// TODO translate typedef");
+        },
+        .Enum => {
+            try appendToken(c, .LineComment, "// TODO translate enum");
+        },
+        .Record => {
+            try appendToken(c, .LineComment, "// TODO translate struct");
+        },
+        .Var => {
+            try appendToken(c, .LineComment, "// TODO translate variable");
+        },
+        else => {
+            // TODO emit_warning(c, bitcast(decl->getLocation()), "ignoring %s decl", decl->getDeclKindName());
+            try appendToken(c, .LineComment, "// TODO translate unknown decl");
+        },
+    }
+}
+
+fn appendToken(c: *Context, token_id: Token.Id, src_text: []const u8) !void {
+    const start_index = c.source_buffer.len();
+    try c.source_buffer.append(src_text);
+    const end_index = c.source_buffer.len();
+    const new_token = try c.tree.tokens.addOne();
     new_token.* = Token{
         .id = token_id,
         .start = start_index,
         .end = end_index,
     };
+    try c.source_buffer.appendByte('\n');
 }
 
 pub fn freeErrors(errors: []ClangErrMsg) void {
