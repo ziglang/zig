@@ -800,7 +800,7 @@ static_assert((clang::APValue::ValueKind)ZigClangAPValueAddrLabelDiff == clang::
 
 
 void ZigClang_detect_enum_DeclKind(clang::Decl::Kind x) {
-    switch (x) {
+    switch ((ZigClangDeclKind)x) {
         case ZigClangDeclAccessSpec:
         case ZigClangDeclBlock:
         case ZigClangDeclCaptured:
