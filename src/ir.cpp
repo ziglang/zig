@@ -13633,6 +13633,12 @@ static IrInstruction *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructio
                 case CallingConventionNaked:
                 case CallingConventionCold:
                 case CallingConventionStdcall:
+                case CallingConventionArmInterruptGeneric:
+                case CallingConventionArmInterruptIRQ:
+                case CallingConventionArmInterruptFIQ:
+                case CallingConventionArmInterruptSWI:
+                case CallingConventionArmInterruptABORT:
+                case CallingConventionArmInterruptUNDEF:
                     add_fn_export(ira->codegen, fn_entry, symbol_name, global_linkage_id, cc == CallingConventionC);
                     break;
             }

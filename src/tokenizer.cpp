@@ -110,6 +110,12 @@ static const struct ZigKeyword zig_keywords[] = {
     {"allowzero", TokenIdKeywordAllowZero},
     {"and", TokenIdKeywordAnd},
     {"anyerror", TokenIdKeywordAnyerror},
+    {"arminterruptcc", TokenIdKeywordArmInterruptCC},
+    {"armirqcc", TokenIdKeywordArmIrqCC},
+    {"armfiqcc", TokenIdKeywordArmFiqCC},
+    {"armswicc", TokenIdKeywordArmSwiCC},
+    {"armabortcc", TokenIdKeywordArmAbortCC},
+    {"armundefcc", TokenIdKeywordArmUndefCC},
     {"asm", TokenIdKeywordAsm},
     {"async", TokenIdKeywordAsync},
     {"await", TokenIdKeywordAwait},
@@ -1496,6 +1502,12 @@ const char * token_name(TokenId id) {
         case TokenIdIntLiteral: return "IntLiteral";
         case TokenIdKeywordAsync: return "async";
         case TokenIdKeywordAnyerror: return "anyerror";
+        case TokenIdKeywordArmInterruptCC: return "arminterruptcc";
+        case TokenIdKeywordArmIrqCC: return "armirqcc";
+        case TokenIdKeywordArmFiqCC: return "armfiqcc";
+        case TokenIdKeywordArmSwiCC: return "armswicc";
+        case TokenIdKeywordArmAbortCC: return "armabortcc";
+        case TokenIdKeywordArmUndefCC: return "armundefcc";
         case TokenIdKeywordAllowZero: return "allowzero";
         case TokenIdKeywordAwait: return "await";
         case TokenIdKeywordResume: return "resume";

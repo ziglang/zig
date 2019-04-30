@@ -379,6 +379,12 @@ static LLVMCallConv get_llvm_cc(CodeGen *g, CallingConvention cc) {
             }
             break;
         case CallingConventionNaked:
+        case CallingConventionArmInterruptGeneric:
+        case CallingConventionArmInterruptIRQ:
+        case CallingConventionArmInterruptFIQ:
+        case CallingConventionArmInterruptSWI:
+        case CallingConventionArmInterruptABORT:
+        case CallingConventionArmInterruptUNDEF:
             zig_unreachable();
         case CallingConventionStdcall:
             // stdcall calling convention only works on x86.
@@ -447,6 +453,12 @@ static void maybe_import_dll(CodeGen *g, LLVMValueRef global_value, GlobalLinkag
 static bool cc_want_sret_attr(CallingConvention cc) {
     switch (cc) {
         case CallingConventionNaked:
+        case CallingConventionArmInterruptGeneric:
+        case CallingConventionArmInterruptIRQ:
+        case CallingConventionArmInterruptFIQ:
+        case CallingConventionArmInterruptSWI:
+        case CallingConventionArmInterruptABORT:
+        case CallingConventionArmInterruptUNDEF:
             zig_unreachable();
         case CallingConventionC:
         case CallingConventionCold:
@@ -549,11 +561,33 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, ZigFn *fn_table_entry) {
             break;
     }
 
-    if (cc == CallingConventionNaked) {
-        addLLVMFnAttr(fn_table_entry->llvm_value, "naked");
-    } else {
-        LLVMSetFunctionCallConv(fn_table_entry->llvm_value, get_llvm_cc(g, fn_type->data.fn.fn_type_id.cc));
-    }
+    switch (cc) {
+        case CallingConventionNaked:
+            addLLVMFnAttr(fn_table_entry->llvm_value, "naked");
+            break;
+        case CallingConventionArmInterruptGeneric:
+            addLLVMFnAttrStr(fn_table_entry->llvm_value, "interrupt", "");
+            break;
+        case CallingConventionArmInterruptIRQ:
+            addLLVMFnAttrStr(fn_table_entry->llvm_value, "interrupt", "IRQ");
+            break;
+        case CallingConventionArmInterruptFIQ:
+            addLLVMFnAttrStr(fn_table_entry->llvm_value, "interrupt", "FIQ");
+            break;
+        case CallingConventionArmInterruptSWI:
+            addLLVMFnAttrStr(fn_table_entry->llvm_value, "interrupt", "SWI");
+            break;
+        case CallingConventionArmInterruptABORT:
+            addLLVMFnAttrStr(fn_table_entry->llvm_value, "interrupt", "ABORT");
+            break;
+        case CallingConventionArmInterruptUNDEF:
+            addLLVMFnAttrStr(fn_table_entry->llvm_value, "interrupt", "UNDEF");
+            break;
+        default:
+            LLVMSetFunctionCallConv(fn_table_entry->llvm_value, get_llvm_cc(g, fn_type->data.fn.fn_type_id.cc));
+            break;
+    };
+
     if (cc == CallingConventionAsync) {
         addLLVMFnAttr(fn_table_entry->llvm_value, "optnone");
         addLLVMFnAttr(fn_table_entry->llvm_value, "noinline");
@@ -594,6 +628,24 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, ZigFn *fn_table_entry) {
 
     if (fn_table_entry->alignstack_value != 0) {
         addLLVMFnAttrInt(fn_table_entry->llvm_value, "alignstack", fn_table_entry->alignstack_value);
+    } else {
+        switch (cc) {
+        // AAPCS guarantees that sp will be 8-byte aligned on any public interface,
+        // however this is not necessarily true on taking any interrupt. Instruct
+        // the backend to perform a realignment as part of the function prologue.
+        // NOTE: Clang only does this for AAPCS, but it won't hurt APCS, and
+        // can be overriden by @setAlignStack if required by user
+            case CallingConventionArmInterruptGeneric:
+            case CallingConventionArmInterruptIRQ:
+            case CallingConventionArmInterruptFIQ:
+            case CallingConventionArmInterruptSWI:
+            case CallingConventionArmInterruptABORT:
+            case CallingConventionArmInterruptUNDEF:
+                addLLVMFnAttrInt(fn_table_entry->llvm_value, "alignstack", 8);
+                break;
+            default:
+                break;
+        };
     }
 
     addLLVMFnAttr(fn_table_entry->llvm_value, "nounwind");
@@ -7693,6 +7745,12 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             "        Naked,\n"
             "        Stdcall,\n"
             "        Async,\n"
+            "        ArmInterruptGeneric,\n"
+            "        ArmInterruptIRQ,\n"
+            "        ArmInterruptFIQ,\n"
+            "        ArmInterruptSWI,\n"
+            "        ArmInterruptABORT,\n"
+            "        ArmInterruptUNDEF,\n"
             "    };\n"
             "\n"
             "    pub const FnArg = struct {\n"
@@ -7759,6 +7817,12 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
         assert(CallingConventionNaked == 3);
         assert(CallingConventionStdcall == 4);
         assert(CallingConventionAsync == 5);
+        assert(CallingConventionArmInterruptGeneric == 6);
+        assert(CallingConventionArmInterruptIRQ == 7);
+        assert(CallingConventionArmInterruptFIQ == 8);
+        assert(CallingConventionArmInterruptSWI == 9);
+        assert(CallingConventionArmInterruptABORT == 10);
+        assert(CallingConventionArmInterruptUNDEF == 11);
 
         assert(FnInlineAuto == 0);
         assert(FnInlineAlways == 1);

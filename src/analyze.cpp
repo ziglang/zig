@@ -796,6 +796,12 @@ const char *calling_convention_name(CallingConvention cc) {
         case CallingConventionNaked: return "nakedcc";
         case CallingConventionStdcall: return "stdcallcc";
         case CallingConventionAsync: return "async";
+        case CallingConventionArmInterruptGeneric: return "arminterruptcc";
+        case CallingConventionArmInterruptIRQ: return "armirqcc";
+        case CallingConventionArmInterruptFIQ: return "armfiqcc";
+        case CallingConventionArmInterruptSWI: return "armswicc";
+        case CallingConventionArmInterruptABORT: return "armabortcc";
+        case CallingConventionArmInterruptUNDEF: return "armundefcc";
     }
     zig_unreachable();
 }
@@ -808,6 +814,12 @@ static const char *calling_convention_fn_type_str(CallingConvention cc) {
         case CallingConventionNaked: return "nakedcc ";
         case CallingConventionStdcall: return "stdcallcc ";
         case CallingConventionAsync: return "async ";
+        case CallingConventionArmInterruptGeneric: return "arminterruptcc ";
+        case CallingConventionArmInterruptIRQ: return "armirqcc ";
+        case CallingConventionArmInterruptFIQ: return "armfiqcc ";
+        case CallingConventionArmInterruptSWI: return "armswicc ";
+        case CallingConventionArmInterruptABORT: return "armabortcc ";
+        case CallingConventionArmInterruptUNDEF: return "armundefcc ";
     }
     zig_unreachable();
 }
@@ -821,6 +833,12 @@ bool calling_convention_allows_zig_types(CallingConvention cc) {
         case CallingConventionCold:
         case CallingConventionNaked:
         case CallingConventionStdcall:
+        case CallingConventionArmInterruptGeneric:
+        case CallingConventionArmInterruptIRQ:
+        case CallingConventionArmInterruptFIQ:
+        case CallingConventionArmInterruptSWI:
+        case CallingConventionArmInterruptABORT:
+        case CallingConventionArmInterruptUNDEF:
             return false;
     }
     zig_unreachable();

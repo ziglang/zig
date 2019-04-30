@@ -120,6 +120,12 @@ static const char *export_string(bool is_export) {
 //        case CallingConventionCold: return "coldcc ";
 //        case CallingConventionNaked: return "nakedcc ";
 //        case CallingConventionStdcall: return "stdcallcc ";
+//        case CallingConventionArmInterruptGeneric: return "arminterruptcc";
+//        case CallingConventionArmInterruptIRQ: return "armirqcc";
+//        case CallingConventionArmInterruptFIQ: return "armfiqcc";
+//        case CallingConventionArmInterruptSWI: return "armswicc";
+//        case CallingConventionArmInterruptABORT: return "armabortcc";
+//        case CallingConventionArmInterruptUNDEF: return "armundefcc";
 //    }
 //    zig_unreachable();
 //}

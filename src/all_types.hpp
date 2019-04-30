@@ -479,6 +479,12 @@ enum CallingConvention {
     CallingConventionNaked,
     CallingConventionStdcall,
     CallingConventionAsync,
+    CallingConventionArmInterruptGeneric,
+    CallingConventionArmInterruptIRQ,
+    CallingConventionArmInterruptFIQ,
+    CallingConventionArmInterruptSWI,
+    CallingConventionArmInterruptABORT,
+    CallingConventionArmInterruptUNDEF,
 };
 
 struct AstNodeFnProto {

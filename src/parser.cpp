@@ -2032,6 +2032,30 @@ static Optional<AstNodeFnProto> ast_parse_fn_cc(ParseContext *pc) {
         expect_token(pc, TokenIdCmpGreaterThan);
         return Optional<AstNodeFnProto>::some(res);
     }
+    if (eat_token_if(pc, TokenIdKeywordArmInterruptCC) != nullptr) {
+        res.cc = CallingConventionArmInterruptGeneric;
+        return Optional<AstNodeFnProto>::some(res);
+    }
+    if (eat_token_if(pc, TokenIdKeywordArmIrqCC) != nullptr) {
+        res.cc = CallingConventionArmInterruptIRQ;
+        return Optional<AstNodeFnProto>::some(res);
+    }
+    if (eat_token_if(pc, TokenIdKeywordArmFiqCC) != nullptr) {
+        res.cc = CallingConventionArmInterruptFIQ;
+        return Optional<AstNodeFnProto>::some(res);
+    }
+    if (eat_token_if(pc, TokenIdKeywordArmSwiCC) != nullptr) {
+        res.cc = CallingConventionArmInterruptSWI;
+        return Optional<AstNodeFnProto>::some(res);
+    }
+    if (eat_token_if(pc, TokenIdKeywordArmAbortCC) != nullptr) {
+        res.cc = CallingConventionArmInterruptABORT;
+        return Optional<AstNodeFnProto>::some(res);
+    }
+    if (eat_token_if(pc, TokenIdKeywordArmUndefCC) != nullptr) {
+        res.cc = CallingConventionArmInterruptUNDEF;
+        return Optional<AstNodeFnProto>::some(res);
+    }
 
     return Optional<AstNodeFnProto>::none();
 }
