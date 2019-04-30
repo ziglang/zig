@@ -13,7 +13,7 @@ pub const SIGABRT: signal_t = 6;
 pub extern "wasi_unstable" fn args_get(argv: [*][*]u8, argv_buf: [*]u8) errno_t;
 pub extern "wasi_unstable" fn args_sizes_get(argc: *usize, argv_buf_size: *usize) errno_t;
 
-pub extern "wasi_unstable" fn environ_get(environ: [*][*]u8, environ_buf: [*]u8) errno_t;
+pub extern "wasi_unstable" fn environ_get(environ: [*]?[*]u8, environ_buf: [*]u8) errno_t;
 pub extern "wasi_unstable" fn environ_sizes_get(environ_count: *usize, environ_buf_size: *usize) errno_t;
 
 pub extern "wasi_unstable" fn proc_raise(sig: signal_t) errno_t;

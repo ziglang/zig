@@ -756,6 +756,44 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
 
             try result.setMove(key, value);
         }
+    } else if (builtin.os == Os.wasi) {
+        var environ_count: usize = undefined;
+        var environ_buf_size: usize = undefined;
+
+        const environ_sizes_get_ret = std.os.wasi.environ_sizes_get(&environ_count, &environ_buf_size);
+        if (environ_sizes_get_ret != os.wasi.ESUCCESS) {
+            return unexpectedErrorPosix(environ_sizes_get_ret);
+        }
+
+        // TODO: Verify that the documentation is incorrect
+        // https://github.com/WebAssembly/WASI/issues/27
+        var environ = try allocator.alloc(?[*]u8, environ_count + 1);
+        defer allocator.free(environ);
+        var environ_buf = try std.heap.wasm_allocator.alloc(u8, environ_buf_size);
+        defer allocator.free(environ_buf);
+
+        const environ_get_ret = std.os.wasi.environ_get(environ.ptr, environ_buf.ptr);
+        if (environ_get_ret != os.wasi.ESUCCESS) {
+            return unexpectedErrorPosix(environ_get_ret);
+        }
+
+        for (environ) |env| {
+            if (env) |ptr| {
+                var line_i: usize = 0;
+                while (ptr[line_i] != 0 and ptr[line_i] != '=') : (line_i += 1) {}
+                if (ptr[line_i] != '=') {
+                    return error.Unexpected;
+                }
+                const key = ptr[0..line_i];
+
+                var end_i: usize = line_i;
+                while (ptr[end_i] != 0) : (end_i += 1) {}
+                const value = ptr[line_i + 1 .. end_i];
+
+                try result.set(key, value);
+            }
+        }
+        return result;
     } else {
         for (posix_environ_raw) |ptr| {
             var line_i: usize = 0;
@@ -2190,7 +2228,7 @@ pub fn argsAlloc(allocator: *mem.Allocator) ![]const []u8 {
         }
 
         var result_slice = try allocator.alloc([]u8, count);
-        
+
         var i: usize = 0;
         while (i < count) : (i += 1) {
             result_slice[i] = mem.toSlice(u8, argv[i]);
