@@ -779,17 +779,10 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
 
         for (environ) |env| {
             if (env) |ptr| {
-                var line_i: usize = 0;
-                while (ptr[line_i] != 0 and ptr[line_i] != '=') : (line_i += 1) {}
-                if (ptr[line_i] != '=') {
-                    return error.Unexpected;
-                }
-                const key = ptr[0..line_i];
-
-                var end_i: usize = line_i;
-                while (ptr[end_i] != 0) : (end_i += 1) {}
-                const value = ptr[line_i + 1 .. end_i];
-
+                const pair = mem.toSlice(u8, ptr);
+                var parts = mem.separate(pair, "=");
+                const key = parts.next().?;
+                const value = parts.next().?;
                 try result.set(key, value);
             }
         }
