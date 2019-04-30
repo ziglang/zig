@@ -2135,6 +2135,7 @@ pub const ArgIterator = struct {
 
     pub fn init() ArgIterator {
         if (builtin.os == Os.wasi) {
+            // TODO: Figure out a compatible interface accomodating WASI
             @compileError("ArgIterator is not yet supported in WASI. Use argsAlloc and argsFree instead.");
         }
 
