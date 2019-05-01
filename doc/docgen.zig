@@ -512,6 +512,10 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                             target_str = "x86_64-windows";
                         } else if (mem.eql(u8, end_tag_name, "target_linux_x86_64")) {
                             target_str = "x86_64-linux";
+                        } else if (mem.eql(u8, end_tag_name, "target_wasm")) {
+                            target_str = "wasm32-freestanding";
+                        } else if (mem.eql(u8, end_tag_name, "target_wasi")) {
+                            target_str = "wasm32-wasi";
                         } else if (mem.eql(u8, end_tag_name, "link_libc")) {
                             link_libc = true;
                         } else if (mem.eql(u8, end_tag_name, "code_end")) {
@@ -1101,7 +1105,8 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         _ = exec(allocator, &env_map, build_args.toSliceConst()) catch return parseError(tokenizer, code.source_token, "example failed to compile");
 
                         if (code.target_str) |triple| {
-                            if (mem.startsWith(u8, triple, "x86_64-linux") and
+                            if (mem.startsWith(u8, triple, "wasm32") or
+                                mem.startsWith(u8, triple, "x86_64-linux") and
                                 (builtin.os != builtin.Os.linux or builtin.arch != builtin.Arch.x86_64))
                             {
                                 // skip execution

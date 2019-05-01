@@ -8958,6 +8958,33 @@ all your base are belong to us</code></pre>
       {#see_also|Targets|Zig Build System#}
       {#header_close#}
       {#header_close#}
+      {#header_open|WebAssembly#}
+      {#header_open|Freestanding#}
+      {#code_begin|exe|wasm#}
+      {#target_wasm#}
+extern fn print(i32) void;
+
+export fn add(a: i32, b: i32) void {
+    print(a + b);
+}
+      {#code_end#}
+      {#header_close#}
+      {#header_open|WASI#}
+      {#code_begin|exe|wasi#}
+      {#target_wasi#}
+const std = @import("std");
+
+pub fn main() !void {
+    const args = try std.os.argsAlloc(std.heap.wasm_allocator);
+    defer std.os.argsFree(std.heap.wasm_allocator, args);
+
+    for (args) |arg, i| {
+        std.debug.warn("{}: {}\n", i, arg);
+    }
+}
+      {#code_end#}
+      {#header_close#}
+      {#header_close#}
       {#header_open|Targets#}
       <p>
       Zig supports generating code for all targets that LLVM supports. Here is
