@@ -7,6 +7,7 @@ const testing = std.testing;
 const windows = std.os.windows;
 const linux = std.os.linux;
 const darwin = std.os.darwin;
+const wasi = std.os.wasi;
 const posix = std.os.posix;
 
 pub const epoch = @import("epoch.zig");
@@ -64,8 +65,20 @@ pub const milliTimestamp = switch (builtin.os) {
     Os.windows => milliTimestampWindows,
     Os.linux, Os.freebsd, Os.netbsd => milliTimestampPosix,
     Os.macosx, Os.ios => milliTimestampDarwin,
+    Os.wasi => milliTimestampWasi,
     else => @compileError("Unsupported OS"),
 };
+
+fn milliTimestampWasi() u64 {
+    var ns: wasi.timestamp_t = undefined;
+
+    // TODO: Verify that precision is ignored
+    const err = wasi.clock_time_get(wasi.CLOCK_REALTIME, 1, &ns);
+    debug.assert(err == wasi.ESUCCESS);
+
+    const ns_per_ms = 1000;
+    return @divFloor(ns, ns_per_ms);
+}
 
 fn milliTimestampWindows() u64 {
     //FileTime has a granularity of 100 nanoseconds
