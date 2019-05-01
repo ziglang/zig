@@ -6650,7 +6650,6 @@ add_library(zig_cpp STATIC ${ZIG_CPP_SOURCES})
 set_target_properties(zig_cpp PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
 )
-install(TARGETS zig_cpp DESTINATION "${ZIG_CPP_LIB_DIR}")
 
 add_library(opt_c_util STATIC ${OPTIMIZED_C_SOURCES})
 set_target_properties(opt_c_util PROPERTIES
