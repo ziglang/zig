@@ -21,32 +21,49 @@ comptime {
     debug.assert(Limb.is_signed == false);
 }
 
+/// An arbitrary-precision big integer.
+///
+/// Memory is allocated by an Int as needed to ensure operations never overflow. The range of an
+/// Int is bounded only by available memory.
 pub const Int = struct {
     const sign_bit: usize = 1 << (usize.bit_count - 1);
 
+    /// Default number of limbs to allocate on creation of an Int.
+    pub const default_capacity = 4;
+
+    /// Allocator used by the Int when requesting memory.
     allocator: ?*Allocator,
-    //  - little-endian ordered
-    //  - len >= 1 always
-    //  - zero value -> len == 1 with limbs[0] == 0
+
+    /// Raw digits. These are:
+    ///
+    /// * Little-endian ordered
+    /// * limbs.len >= 1
+    /// * Zero is represent as Int.len() == 1 with limbs[0] == 0.
+    ///
+    /// Accessing limbs directly should be avoided.
     limbs: []Limb,
-    // High bit is the sign bit. 1 is negative, 0 positive.
-    // Remaining bits indicate the number of used limbs.
-    //
-    // If Zig gets smarter about packing data, this can be rewritten as a u1 and usize - 1 field.
+
+    /// High bit is the sign bit. If set, Int is negative, else Int is positive.
+    /// The remaining bits represent the number of limbs used by Int.
     metadata: usize,
 
-    const default_capacity = 4;
-
+    /// Creates a new Int. default_capacity limbs will be allocated immediately.
+    /// Int will be zeroed.
     pub fn init(allocator: *Allocator) !Int {
         return try Int.initCapacity(allocator, default_capacity);
     }
 
+    /// Creates a new Int. Int will be set to `value`.
+    ///
+    /// This is identical to an `init`, followed by a `set`.
     pub fn initSet(allocator: *Allocator, value: var) !Int {
         var s = try Int.init(allocator);
         try s.set(value);
         return s;
     }
 
+    /// Creates a new Int with a specific capacity. If capacity < default_capacity then the
+    /// default capacity will be used instead.
     pub fn initCapacity(allocator: *Allocator, capacity: usize) !Int {
         return Int{
             .allocator = allocator,
@@ -59,14 +76,17 @@ pub const Int = struct {
         };
     }
 
+    /// Returns the number of limbs currently in use.
     pub fn len(self: Int) usize {
         return self.metadata & ~sign_bit;
     }
 
+    /// Returns whether an Int is positive.
     pub fn isPositive(self: Int) bool {
         return self.metadata & sign_bit == 0;
     }
 
+    /// Sets the sign of an Int.
     pub fn setSign(self: *Int, positive: bool) void {
         if (positive) {
             self.metadata &= ~sign_bit;
@@ -75,14 +95,17 @@ pub const Int = struct {
         }
     }
 
+    /// Sets the length of an Int.
+    ///
+    /// If setLen is used, then the Int must be normalized to suit.
     pub fn setLen(self: *Int, new_len: usize) void {
         self.metadata &= sign_bit;
         self.metadata |= new_len;
     }
 
-    // Initialize an Int directly from a fixed set of limb values. This is considered read-only
-    // and cannot be used as a receiver argument to any functions. If this tries to allocate
-    // at any point a panic will occur due to the null allocator.
+    /// Returns an Int backed by a fixed set of limb values.
+    /// This is read-only and cannot be used as a result argument. If the Int tries to allocate
+    /// memory a runtime panic will occur.
     pub fn initFixed(limbs: []const Limb) Int {
         var self = Int{
             .allocator = null,
@@ -95,6 +118,9 @@ pub const Int = struct {
         return self;
     }
 
+    /// Ensures an Int has enough space allocated for capacity limbs. If the Int does not have
+    /// sufficient capacity, the exact amount will be allocated. This occurs even if the requested
+    /// capacity is only greater than the current capacity by one limb.
     pub fn ensureCapacity(self: *Int, capacity: usize) !void {
         self.assertWritable();
         if (capacity <= self.limbs.len) {
@@ -110,12 +136,15 @@ pub const Int = struct {
         }
     }
 
+    /// Frees all memory associated with an Int.
     pub fn deinit(self: *Int) void {
         self.assertWritable();
         self.allocator.?.free(self.limbs);
         self.* = undefined;
     }
 
+    /// Clones an Int and returns a new Int with the same value. The new Int is a deep copy and
+    /// can be modified separately from the original.
     pub fn clone(other: Int) !Int {
         other.assertWritable();
         return Int{
@@ -129,6 +158,8 @@ pub const Int = struct {
         };
     }
 
+    /// Copies the value of an Int to an existing Int so that they both have the same value.
+    /// Extra memory will be allocated if the receiver does not have enough capacity.
     pub fn copy(self: *Int, other: Int) !void {
         self.assertWritable();
         if (self.limbs.ptr == other.limbs.ptr) {
@@ -140,6 +171,8 @@ pub const Int = struct {
         self.metadata = other.metadata;
     }
 
+    /// Efficiently swap an Int with another. This swaps the limb pointers and a full copy is not
+    /// performed. The address of the limbs field will not be the same after this function.
     pub fn swap(self: *Int, other: *Int) void {
         self.assertWritable();
         mem.swap(Int, self, other);
@@ -152,35 +185,39 @@ pub const Int = struct {
         debug.warn("\n");
     }
 
+    /// Negate the sign of an Int.
     pub fn negate(self: *Int) void {
         self.metadata ^= sign_bit;
     }
 
+    /// Make an Int positive.
     pub fn abs(self: *Int) void {
         self.metadata &= ~sign_bit;
     }
 
+    /// Returns true if an Int is odd.
     pub fn isOdd(self: Int) bool {
         return self.limbs[0] & 1 != 0;
     }
 
+    /// Returns true if an Int is even.
     pub fn isEven(self: Int) bool {
         return !self.isOdd();
     }
 
-    // Returns the number of bits required to represent the absolute value of self.
+    /// Returns the number of bits required to represent the absolute value an Int.
     fn bitCountAbs(self: Int) usize {
         return (self.len() - 1) * Limb.bit_count + (Limb.bit_count - @clz(self.limbs[self.len() - 1]));
     }
 
-    // Returns the number of bits required to represent the integer in twos-complement form.
-    //
-    // If the integer is negative the value returned is the number of bits needed by a signed
-    // integer to represent the value. If positive the value is the number of bits for an
-    // unsigned integer. Any unsigned integer will fit in the signed integer with bitcount
-    // one greater than the returned value.
-    //
-    // e.g. -127 returns 8 as it will fit in an i8. 127 returns 7 since it fits in a u7.
+    /// Returns the number of bits required to represent the integer in twos-complement form.
+    ///
+    /// If the integer is negative the value returned is the number of bits needed by a signed
+    /// integer to represent the value. If positive the value is the number of bits for an
+    /// unsigned integer. Any unsigned integer will fit in the signed integer with bitcount
+    /// one greater than the returned value.
+    ///
+    /// e.g. -127 returns 8 as it will fit in an i8. 127 returns 7 since it fits in a u7.
     fn bitCountTwosComp(self: Int) usize {
         var bits = self.bitCountAbs();
 
@@ -203,7 +240,7 @@ pub const Int = struct {
         return bits;
     }
 
-    pub fn fitsInTwosComp(self: Int, is_signed: bool, bit_count: usize) bool {
+    fn fitsInTwosComp(self: Int, is_signed: bool, bit_count: usize) bool {
         if (self.eqZero()) {
             return true;
         }
@@ -215,18 +252,20 @@ pub const Int = struct {
         return bit_count >= req_bits;
     }
 
+    /// Returns whether self can fit into an integer of the requested type.
     pub fn fits(self: Int, comptime T: type) bool {
         return self.fitsInTwosComp(T.is_signed, T.bit_count);
     }
 
-    // Returns the approximate size of the integer in the given base. Negative values accommodate for
-    // the minus sign. This is used for determining the number of characters needed to print the
-    // value. It is inexact and will exceed the given value by 1-2 digits.
+    /// Returns the approximate size of the integer in the given base. Negative values accommodate for
+    /// the minus sign. This is used for determining the number of characters needed to print the
+    /// value. It is inexact and may exceed the given value by ~1-2 bytes.
     pub fn sizeInBase(self: Int, base: usize) usize {
         const bit_count = usize(@boolToInt(!self.isPositive())) + self.bitCountAbs();
         return (bit_count / math.log2(base)) + 1;
     }
 
+    /// Sets an Int to value. Value must be an primitive integer type.
     pub fn set(self: *Int, value: var) Allocator.Error!void {
         self.assertWritable();
         const T = @typeOf(value);
@@ -290,6 +329,9 @@ pub const Int = struct {
         TargetTooSmall,
     };
 
+    /// Convert self to type T.
+    ///
+    /// Returns an error if self cannot be narrowed into the requested type without truncation.
     pub fn to(self: Int, comptime T: type) ConvertError!T {
         switch (@typeId(T)) {
             TypeId.Int => {
@@ -353,6 +395,13 @@ pub const Int = struct {
         };
     }
 
+    /// Set self from the string representation `value`.
+    ///
+    /// value must contain only digits <= `base`. Base prefixes are not allowed (e.g. 0x43 should
+    /// simply be 43).
+    ///
+    /// Returns an error if memory could not be allocated or `value` has invalid digits for the
+    /// requested base.
     pub fn setString(self: *Int, base: u8, value: []const u8) !void {
         self.assertWritable();
         if (base < 2 or base > 16) {
@@ -380,6 +429,8 @@ pub const Int = struct {
         self.setSign(positive);
     }
 
+    /// Converts self to a string in the requested base. Memory is allocated from the provided
+    /// allocator and not the one present in self.
     /// TODO make this call format instead of the other way around
     pub fn toString(self: Int, allocator: *Allocator, base: u8) ![]const u8 {
         if (base < 2 or base > 16) {
@@ -463,7 +514,7 @@ pub const Int = struct {
         return s;
     }
 
-    /// for the std lib format function
+    /// To allow `std.fmt.printf` to work with Int.
     /// TODO make this non-allocating
     pub fn format(
         self: Int,
@@ -480,7 +531,7 @@ pub const Int = struct {
         return output(context, str);
     }
 
-    // returns -1, 0, 1 if |a| < |b|, |a| == |b| or |a| > |b| respectively.
+    /// Returns -1, 0, 1 if |a| < |b|, |a| == |b| or |a| > |b| respectively.
     pub fn cmpAbs(a: Int, b: Int) i8 {
         if (a.len() < b.len()) {
             return -1;
@@ -505,7 +556,7 @@ pub const Int = struct {
         }
     }
 
-    // returns -1, 0, 1 if a < b, a == b or a > b respectively.
+    /// Returns -1, 0, 1 if a < b, a == b or a > b respectively.
     pub fn cmp(a: Int, b: Int) i8 {
         if (a.isPositive() != b.isPositive()) {
             return if (a.isPositive()) i8(1) else -1;
@@ -515,17 +566,17 @@ pub const Int = struct {
         }
     }
 
-    // if a == 0
+    /// Returns true if a == 0.
     pub fn eqZero(a: Int) bool {
         return a.len() == 1 and a.limbs[0] == 0;
     }
 
-    // if |a| == |b|
+    /// Returns true if |a| == |b|.
     pub fn eqAbs(a: Int, b: Int) bool {
         return cmpAbs(a, b) == 0;
     }
 
-    // if a == b
+    /// Returns true if a == b.
     pub fn eq(a: Int, b: Int) bool {
         return cmp(a, b) == 0;
     }
@@ -559,7 +610,11 @@ pub const Int = struct {
         };
     }
 
-    // r = a + b
+    /// r = a + b
+    ///
+    /// r, a and b may be aliases.
+    ///
+    /// Returns an error if memory could not be allocated.
     pub fn add(r: *Int, a: Int, b: Int) Allocator.Error!void {
         r.assertWritable();
         if (a.eqZero()) {
@@ -617,7 +672,11 @@ pub const Int = struct {
         r[i] = carry;
     }
 
-    // r = a - b
+    /// r = a - b
+    ///
+    /// r, a and b may be aliases.
+    ///
+    /// Returns an error if memory could not be allocated.
     pub fn sub(r: *Int, a: Int, b: Int) !void {
         r.assertWritable();
         if (a.isPositive() != b.isPositive()) {
@@ -684,9 +743,11 @@ pub const Int = struct {
         debug.assert(borrow == 0);
     }
 
-    // rma = a * b
-    //
-    // For greatest efficiency, ensure rma does not alias a or b.
+    /// rma = a * b
+    ///
+    /// rma, a and b may be aliases. However, it is more efficient if rma does not alias a or b.
+    ///
+    /// Returns an error if memory could not be allocated.
     pub fn mul(rma: *Int, a: Int, b: Int) !void {
         rma.assertWritable();
 
@@ -759,6 +820,9 @@ pub const Int = struct {
         }
     }
 
+    /// q = a / b (rem r)
+    ///
+    /// a / b are floored (rounded towards 0).
     pub fn divFloor(q: *Int, r: *Int, a: Int, b: Int) !void {
         try div(q, r, a, b);
 
@@ -771,6 +835,9 @@ pub const Int = struct {
         r.setSign(b.isPositive());
     }
 
+    /// q = a / b (rem r)
+    ///
+    /// a / b are truncated (rounded towards -inf).
     pub fn divTrunc(q: *Int, r: *Int, a: Int, b: Int) !void {
         try div(q, r, a, b);
         r.setSign(a.isPositive());
@@ -969,7 +1036,7 @@ pub const Int = struct {
         r.normalize(r.len());
     }
 
-    // r = a << shift, in other words, r = a * 2^shift
+    /// r = a << shift, in other words, r = a * 2^shift
     pub fn shiftLeft(r: *Int, a: Int, shift: usize) !void {
         r.assertWritable();
 
@@ -1002,7 +1069,7 @@ pub const Int = struct {
         mem.set(Limb, r[0 .. limb_shift - 1], 0);
     }
 
-    // r = a >> shift
+    /// r = a >> shift
     pub fn shiftRight(r: *Int, a: Int, shift: usize) !void {
         r.assertWritable();
 
@@ -1038,7 +1105,9 @@ pub const Int = struct {
         }
     }
 
-    // r = a | b
+    /// r = a | b
+    ///
+    /// a and b are zero-extended to the longer of a or b.
     pub fn bitOr(r: *Int, a: Int, b: Int) !void {
         r.assertWritable();
 
@@ -1067,7 +1136,7 @@ pub const Int = struct {
         }
     }
 
-    // r = a & b
+    /// r = a & b
     pub fn bitAnd(r: *Int, a: Int, b: Int) !void {
         r.assertWritable();
 
@@ -1093,7 +1162,7 @@ pub const Int = struct {
         }
     }
 
-    // r = a ^ b
+    /// r = a ^ b
     pub fn bitXor(r: *Int, a: Int, b: Int) !void {
         r.assertWritable();
 
@@ -1279,10 +1348,8 @@ test "big.int bitcount/to" {
     try a.set(0);
     testing.expect(a.bitCountTwosComp() == 0);
 
-    // TODO: stack smashing
-    // testing.expect((try a.to(u0)) == 0);
-    // TODO: sigsegv
-    // testing.expect((try a.to(i0)) == 0);
+    testing.expect((try a.to(u0)) == 0);
+    testing.expect((try a.to(i0)) == 0);
 
     try a.set(-1);
     testing.expect(a.bitCountTwosComp() == 1);

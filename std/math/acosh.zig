@@ -1,13 +1,19 @@
-// Special Cases:
+// Ported from musl, which is licensed under the MIT license:
+// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
-// - acosh(x)   = snan if x < 1
-// - acosh(nan) = nan
+// https://git.musl-libc.org/cgit/musl/tree/src/math/acoshf.c
+// https://git.musl-libc.org/cgit/musl/tree/src/math/acosh.c
 
 const builtin = @import("builtin");
 const std = @import("../std.zig");
 const math = std.math;
 const expect = std.testing.expect;
 
+/// Returns the hyperbolic arc-cosine of x.
+///
+/// Special cases:
+///  - acosh(x)   = snan if x < 1
+///  - acosh(nan) = nan
 pub fn acosh(x: var) @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {

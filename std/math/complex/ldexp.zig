@@ -1,9 +1,16 @@
+// Ported from musl, which is licensed under the MIT license:
+// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
+//
+// https://git.musl-libc.org/cgit/musl/tree/src/complex/__cexpf.c
+// https://git.musl-libc.org/cgit/musl/tree/src/complex/__cexp.c
+
 const std = @import("../../std.zig");
 const debug = std.debug;
 const math = std.math;
 const cmath = math.complex;
 const Complex = cmath.Complex;
 
+/// Returns exp(z) scaled to avoid overflow.
 pub fn ldexp_cexp(z: var, expt: i32) @typeOf(z) {
     const T = @typeOf(z.re);
 

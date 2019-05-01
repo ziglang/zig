@@ -1,14 +1,20 @@
-// Special Cases:
+// Ported from musl, which is licensed under the MIT license:
+// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
-// - ceil(+-0)   = +-0
-// - ceil(+-inf) = +-inf
-// - ceil(nan)   = nan
+// https://git.musl-libc.org/cgit/musl/tree/src/math/ceilf.c
+// https://git.musl-libc.org/cgit/musl/tree/src/math/ceil.c
 
 const builtin = @import("builtin");
 const std = @import("../std.zig");
 const math = std.math;
 const expect = std.testing.expect;
 
+/// Returns the least integer value greater than of equal to x.
+///
+/// Special Cases:
+///  - ceil(+-0)   = +-0
+///  - ceil(+-inf) = +-inf
+///  - ceil(nan)   = nan
 pub fn ceil(x: var) @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {

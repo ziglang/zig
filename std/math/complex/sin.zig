@@ -4,6 +4,7 @@ const math = std.math;
 const cmath = math.complex;
 const Complex = cmath.Complex;
 
+/// Returns the sine of z.
 pub fn sin(z: var) Complex(@typeOf(z.re)) {
     const T = @typeOf(z.re);
     const p = Complex(T).new(-z.im, z.re);

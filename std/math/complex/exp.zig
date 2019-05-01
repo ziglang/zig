@@ -1,3 +1,9 @@
+// Ported from musl, which is licensed under the MIT license:
+// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
+//
+// https://git.musl-libc.org/cgit/musl/tree/src/complex/cexpf.c
+// https://git.musl-libc.org/cgit/musl/tree/src/complex/cexp.c
+
 const std = @import("../../std.zig");
 const testing = std.testing;
 const math = std.math;
@@ -6,6 +12,7 @@ const Complex = cmath.Complex;
 
 const ldexp_cexp = @import("ldexp.zig").ldexp_cexp;
 
+/// Returns e raised to the power of z (e^z).
 pub fn exp(z: var) @typeOf(z) {
     const T = @typeOf(z.re);
 

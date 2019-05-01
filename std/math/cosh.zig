@@ -1,8 +1,8 @@
-// Special Cases:
+// Ported from musl, which is licensed under the MIT license:
+// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
-// - cosh(+-0)   = 1
-// - cosh(+-inf) = +inf
-// - cosh(nan)   = nan
+// https://git.musl-libc.org/cgit/musl/tree/src/math/coshf.c
+// https://git.musl-libc.org/cgit/musl/tree/src/math/cosh.c
 
 const builtin = @import("builtin");
 const std = @import("../std.zig");
@@ -11,6 +11,12 @@ const expo2 = @import("expo2.zig").expo2;
 const expect = std.testing.expect;
 const maxInt = std.math.maxInt;
 
+/// Returns the hyperbolic cosine of x.
+///
+/// Special Cases:
+///  - cosh(+-0)   = 1
+///  - cosh(+-inf) = +inf
+///  - cosh(nan)   = nan
 pub fn cosh(x: var) @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {

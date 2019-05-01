@@ -1,16 +1,22 @@
-// Special Cases:
+// Ported from musl, which is licensed under the MIT license:
+// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
-// - log1p(+inf)  = +inf
-// - log1p(+-0)   = +-0
-// - log1p(-1)    = -inf
-// - log1p(x)     = nan if x < -1
-// - log1p(nan)   = nan
+// https://git.musl-libc.org/cgit/musl/tree/src/math/log1pf.c
+// https://git.musl-libc.org/cgit/musl/tree/src/math/log1p.c
 
 const builtin = @import("builtin");
 const std = @import("../std.zig");
 const math = std.math;
 const expect = std.testing.expect;
 
+/// Returns the natural logarithm of 1 + x with greater accuracy when x is near zero.
+///
+/// Special Cases:
+///  - log1p(+inf)  = +inf
+///  - log1p(+-0)   = +-0
+///  - log1p(-1)    = -inf
+///  - log1p(x)     = nan if x < -1
+///  - log1p(nan)   = nan
 pub fn log1p(x: var) @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {

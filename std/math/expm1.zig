@@ -1,14 +1,23 @@
-// Special Cases:
+// Ported from musl, which is licensed under the MIT license:
+// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
-// - expm1(+inf) = +inf
-// - expm1(-inf) = -1
-// - expm1(nan)  = nan
+// https://git.musl-libc.org/cgit/musl/tree/src/math/expmf.c
+// https://git.musl-libc.org/cgit/musl/tree/src/math/expm.c
+
+// TODO: Updated recently.
 
 const builtin = @import("builtin");
 const std = @import("../std.zig");
 const math = std.math;
 const expect = std.testing.expect;
 
+/// Returns e raised to the power of x, minus 1 (e^x - 1). This is more accurate than exp(e, x) - 1
+/// when x is near 0.
+///
+/// Special Cases:
+///  - expm1(+inf) = +inf
+///  - expm1(-inf) = -1
+///  - expm1(nan)  = nan
 pub fn expm1(x: var) @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {

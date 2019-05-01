@@ -1,15 +1,21 @@
-// Special Cases:
+// Ported from musl, which is licensed under the MIT license:
+// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
-// - hypot(+-inf, y)  = +inf
-// - hypot(x, +-inf)  = +inf
-// - hypot(nan, y)    = nan
-// - hypot(x, nan)    = nan
+// https://git.musl-libc.org/cgit/musl/tree/src/math/hypotf.c
+// https://git.musl-libc.org/cgit/musl/tree/src/math/hypot.c
 
 const std = @import("../std.zig");
 const math = std.math;
 const expect = std.testing.expect;
 const maxInt = std.math.maxInt;
 
+/// Returns sqrt(x * x + y * y), avoiding unncessary overflow and underflow.
+///
+/// Special Cases:
+///  - hypot(+-inf, y)  = +inf
+///  - hypot(x, +-inf)  = +inf
+///  - hypot(nan, y)    = nan
+///  - hypot(x, nan)    = nan
 pub fn hypot(comptime T: type, x: T, y: T) T {
     return switch (T) {
         f32 => hypot32(x, y),

@@ -1,14 +1,20 @@
-// Special Cases:
+// Ported from musl, which is licensed under the MIT license:
+// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
-// - round(+-0)   = +-0
-// - round(+-inf) = +-inf
-// - round(nan)   = nan
+// https://git.musl-libc.org/cgit/musl/tree/src/math/roundf.c
+// https://git.musl-libc.org/cgit/musl/tree/src/math/round.c
 
 const builtin = @import("builtin");
 const expect = std.testing.expect;
 const std = @import("../std.zig");
 const math = std.math;
 
+/// Returns x rounded to the nearest integer, rounding half away from zero.
+///
+/// Special Cases:
+///  - round(+-0)   = +-0
+///  - round(+-inf) = +-inf
+///  - round(nan)   = nan
 pub fn round(x: var) @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {

@@ -4,6 +4,7 @@ const math = std.math;
 const cmath = math.complex;
 const Complex = cmath.Complex;
 
+/// Returns z raised to the complex power of c.
 pub fn pow(comptime T: type, z: T, c: T) T {
     const p = cmath.log(z);
     const q = c.mul(p);

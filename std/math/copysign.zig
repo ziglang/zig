@@ -1,8 +1,15 @@
+// Ported from musl, which is licensed under the MIT license:
+// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
+//
+// https://git.musl-libc.org/cgit/musl/tree/src/math/copysignf.c
+// https://git.musl-libc.org/cgit/musl/tree/src/math/copysign.c
+
 const std = @import("../std.zig");
 const math = std.math;
 const expect = std.testing.expect;
 const maxInt = std.math.maxInt;
 
+/// Returns a value with the magnitude of x and the sign of y.
 pub fn copysign(comptime T: type, x: T, y: T) T {
     return switch (T) {
         f16 => copysign16(x, y),

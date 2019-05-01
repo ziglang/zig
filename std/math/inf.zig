@@ -1,6 +1,7 @@
 const std = @import("../std.zig");
 const math = std.math;
 
+/// Returns value inf for the type T.
 pub fn inf(comptime T: type) T {
     return switch (T) {
         f16 => math.inf_f16,

@@ -1,9 +1,17 @@
+// Ported from musl, which is licensed under the MIT license:
+// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
+//
+// https://git.musl-libc.org/cgit/musl/tree/src/complex/csqrtf.c
+// https://git.musl-libc.org/cgit/musl/tree/src/complex/csqrt.c
+
 const std = @import("../../std.zig");
 const testing = std.testing;
 const math = std.math;
 const cmath = math.complex;
 const Complex = cmath.Complex;
 
+/// Returns the square root of z. The real and imaginary parts of the result have the same sign
+/// as the imaginary part of z.
 pub fn sqrt(z: var) @typeOf(z) {
     const T = @typeOf(z.re);
 

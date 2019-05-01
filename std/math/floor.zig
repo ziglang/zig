@@ -1,14 +1,20 @@
-// Special Cases:
+// Ported from musl, which is licensed under the MIT license:
+// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
-// - floor(+-0)   = +-0
-// - floor(+-inf) = +-inf
-// - floor(nan)   = nan
+// https://git.musl-libc.org/cgit/musl/tree/src/math/floorf.c
+// https://git.musl-libc.org/cgit/musl/tree/src/math/floor.c
 
 const builtin = @import("builtin");
 const expect = std.testing.expect;
 const std = @import("../std.zig");
 const math = std.math;
 
+/// Returns the greatest integer value less than or equal to x.
+///
+/// Special Cases:
+///  - floor(+-0)   = +-0
+///  - floor(+-inf) = +-inf
+///  - floor(nan)   = nan
 pub fn floor(x: var) @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {
