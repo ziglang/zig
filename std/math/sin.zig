@@ -1,19 +1,24 @@
-// Special Cases:
+// Ported from go, which is licensed under a BSD-3 license.
+// https://golang.org/LICENSE
 //
-// - sin(+-0)   = +-0
-// - sin(+-inf) = nan
-// - sin(nan)   = nan
+// https://golang.org/src/math/sin.go
 
 const builtin = @import("builtin");
 const std = @import("../std.zig");
 const math = std.math;
 const expect = std.testing.expect;
 
+/// Returns the sine of the radian value x.
+///
+/// Special Cases:
+///  - sin(+-0)   = +-0
+///  - sin(+-inf) = nan
+///  - sin(nan)   = nan
 pub fn sin(x: var) @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {
-        f32 => sin32(x),
-        f64 => sin64(x),
+        f32 => sin_(T, x),
+        f64 => sin_(T, x),
         else => @compileError("sin not implemented for " ++ @typeName(T)),
     };
 }
@@ -34,31 +39,27 @@ const C3 = 2.48015872888517045348E-5;
 const C4 = -1.38888888888730564116E-3;
 const C5 = 4.16666666666665929218E-2;
 
-// NOTE: This is taken from the go stdlib. The musl implementation is much more complex.
-//
-// This may have slight differences on some edge cases and may need to replaced if so.
-fn sin32(x_: f32) f32 {
-    const pi4a = 7.85398125648498535156e-1;
-    const pi4b = 3.77489470793079817668E-8;
-    const pi4c = 2.69515142907905952645E-15;
-    const m4pi = 1.273239544735162542821171882678754627704620361328125;
+const pi4a = 7.85398125648498535156e-1;
+const pi4b = 3.77489470793079817668E-8;
+const pi4c = 2.69515142907905952645E-15;
+const m4pi = 1.273239544735162542821171882678754627704620361328125;
+
+fn sin_(comptime T: type, x_: T) T {
+    const I = @IntType(true, T.bit_count);
 
     var x = x_;
     if (x == 0 or math.isNan(x)) {
         return x;
     }
     if (math.isInf(x)) {
-        return math.nan(f32);
+        return math.nan(T);
     }
 
-    var sign = false;
-    if (x < 0) {
-        x = -x;
-        sign = true;
-    }
+    var sign = x < 0;
+    x = math.fabs(x);
 
     var y = math.floor(x * m4pi);
-    var j = @floatToInt(i64, y);
+    var j = @floatToInt(I, y);
 
     if (j & 1 == 1) {
         j += 1;
@@ -74,113 +75,56 @@ fn sin32(x_: f32) f32 {
     const z = ((x - y * pi4a) - y * pi4b) - y * pi4c;
     const w = z * z;
 
-    const r = r: {
-        if (j == 1 or j == 2) {
-            break :r 1.0 - 0.5 * w + w * w * (C5 + w * (C4 + w * (C3 + w * (C2 + w * (C1 + w * C0)))));
-        } else {
-            break :r z + z * w * (S5 + w * (S4 + w * (S3 + w * (S2 + w * (S1 + w * S0)))));
-        }
-    };
+    const r = if (j == 1 or j == 2)
+        1.0 - 0.5 * w + w * w * (C5 + w * (C4 + w * (C3 + w * (C2 + w * (C1 + w * C0)))))
+    else
+        z + z * w * (S5 + w * (S4 + w * (S3 + w * (S2 + w * (S1 + w * S0)))));
 
-    if (sign) {
-        return -r;
-    } else {
-        return r;
-    }
-}
-
-fn sin64(x_: f64) f64 {
-    const pi4a = 7.85398125648498535156e-1;
-    const pi4b = 3.77489470793079817668E-8;
-    const pi4c = 2.69515142907905952645E-15;
-    const m4pi = 1.273239544735162542821171882678754627704620361328125;
-
-    var x = x_;
-    if (x == 0 or math.isNan(x)) {
-        return x;
-    }
-    if (math.isInf(x)) {
-        return math.nan(f64);
-    }
-
-    var sign = false;
-    if (x < 0) {
-        x = -x;
-        sign = true;
-    }
-
-    var y = math.floor(x * m4pi);
-    var j = @floatToInt(i64, y);
-
-    if (j & 1 == 1) {
-        j += 1;
-        y += 1;
-    }
-
-    j &= 7;
-    if (j > 3) {
-        j -= 4;
-        sign = !sign;
-    }
-
-    const z = ((x - y * pi4a) - y * pi4b) - y * pi4c;
-    const w = z * z;
-
-    const r = r: {
-        if (j == 1 or j == 2) {
-            break :r 1.0 - 0.5 * w + w * w * (C5 + w * (C4 + w * (C3 + w * (C2 + w * (C1 + w * C0)))));
-        } else {
-            break :r z + z * w * (S5 + w * (S4 + w * (S3 + w * (S2 + w * (S1 + w * S0)))));
-        }
-    };
-
-    if (sign) {
-        return -r;
-    } else {
-        return r;
-    }
+    return if (sign) -r else r;
 }
 
 test "math.sin" {
-    expect(sin(f32(0.0)) == sin32(0.0));
-    expect(sin(f64(0.0)) == sin64(0.0));
+    expect(sin(f32(0.0)) == sin_(f32, 0.0));
+    expect(sin(f64(0.0)) == sin_(f64, 0.0));
     expect(comptime (math.sin(f64(2))) == math.sin(f64(2)));
 }
 
 test "math.sin32" {
     const epsilon = 0.000001;
 
-    expect(math.approxEq(f32, sin32(0.0), 0.0, epsilon));
-    expect(math.approxEq(f32, sin32(0.2), 0.198669, epsilon));
-    expect(math.approxEq(f32, sin32(0.8923), 0.778517, epsilon));
-    expect(math.approxEq(f32, sin32(1.5), 0.997495, epsilon));
-    expect(math.approxEq(f32, sin32(37.45), -0.246544, epsilon));
-    expect(math.approxEq(f32, sin32(89.123), 0.916166, epsilon));
+    expect(math.approxEq(f32, sin_(f32, 0.0), 0.0, epsilon));
+    expect(math.approxEq(f32, sin_(f32, 0.2), 0.198669, epsilon));
+    expect(math.approxEq(f32, sin_(f32, 0.8923), 0.778517, epsilon));
+    expect(math.approxEq(f32, sin_(f32, 1.5), 0.997495, epsilon));
+    expect(math.approxEq(f32, sin_(f32, -1.5), -0.997495, epsilon));
+    expect(math.approxEq(f32, sin_(f32, 37.45), -0.246544, epsilon));
+    expect(math.approxEq(f32, sin_(f32, 89.123), 0.916166, epsilon));
 }
 
 test "math.sin64" {
     const epsilon = 0.000001;
 
-    expect(math.approxEq(f64, sin64(0.0), 0.0, epsilon));
-    expect(math.approxEq(f64, sin64(0.2), 0.198669, epsilon));
-    expect(math.approxEq(f64, sin64(0.8923), 0.778517, epsilon));
-    expect(math.approxEq(f64, sin64(1.5), 0.997495, epsilon));
-    expect(math.approxEq(f64, sin64(37.45), -0.246543, epsilon));
-    expect(math.approxEq(f64, sin64(89.123), 0.916166, epsilon));
+    expect(math.approxEq(f64, sin_(f64, 0.0), 0.0, epsilon));
+    expect(math.approxEq(f64, sin_(f64, 0.2), 0.198669, epsilon));
+    expect(math.approxEq(f64, sin_(f64, 0.8923), 0.778517, epsilon));
+    expect(math.approxEq(f64, sin_(f64, 1.5), 0.997495, epsilon));
+    expect(math.approxEq(f64, sin_(f64, -1.5), -0.997495, epsilon));
+    expect(math.approxEq(f64, sin_(f64, 37.45), -0.246543, epsilon));
+    expect(math.approxEq(f64, sin_(f64, 89.123), 0.916166, epsilon));
 }
 
 test "math.sin32.special" {
-    expect(sin32(0.0) == 0.0);
-    expect(sin32(-0.0) == -0.0);
-    expect(math.isNan(sin32(math.inf(f32))));
-    expect(math.isNan(sin32(-math.inf(f32))));
-    expect(math.isNan(sin32(math.nan(f32))));
+    expect(sin_(f32, 0.0) == 0.0);
+    expect(sin_(f32, -0.0) == -0.0);
+    expect(math.isNan(sin_(f32, math.inf(f32))));
+    expect(math.isNan(sin_(f32, -math.inf(f32))));
+    expect(math.isNan(sin_(f32, math.nan(f32))));
 }
 
 test "math.sin64.special" {
-    expect(sin64(0.0) == 0.0);
-    expect(sin64(-0.0) == -0.0);
-    expect(math.isNan(sin64(math.inf(f64))));
-    expect(math.isNan(sin64(-math.inf(f64))));
-    expect(math.isNan(sin64(math.nan(f64))));
+    expect(sin_(f64, 0.0) == 0.0);
+    expect(sin_(f64, -0.0) == -0.0);
+    expect(math.isNan(sin_(f64, math.inf(f64))));
+    expect(math.isNan(sin_(f64, -math.inf(f64))));
+    expect(math.isNan(sin_(f64, math.nan(f64))));
 }

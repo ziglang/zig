@@ -1,7 +1,14 @@
+// Ported from musl, which is licensed under the MIT license:
+// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
+//
+// https://git.musl-libc.org/cgit/musl/tree/src/math/fmaf.c
+// https://git.musl-libc.org/cgit/musl/tree/src/math/fma.c
+
 const std = @import("../std.zig");
 const math = std.math;
 const expect = std.testing.expect;
 
+/// Returns x * y + z with a single rounding error.
 pub fn fma(comptime T: type, x: T, y: T, z: T) T {
     return switch (T) {
         f32 => fma32(x, y, z),
@@ -16,7 +23,7 @@ fn fma32(x: f32, y: f32, z: f32) f32 {
     const u = @bitCast(u64, xy_z);
     const e = (u >> 52) & 0x7FF;
 
-    if ((u & 0x1FFFFFFF) != 0x10000000 or e == 0x7FF or xy_z - xy == z) {
+    if ((u & 0x1FFFFFFF) != 0x10000000 or e == 0x7FF or (xy_z - xy == z and xy_z - z == xy)) {
         return @floatCast(f32, xy_z);
     } else {
         // TODO: Handle inexact case with double-rounding
@@ -24,6 +31,7 @@ fn fma32(x: f32, y: f32, z: f32) f32 {
     }
 }
 
+// NOTE: Upstream fma.c has been rewritten completely to raise fp exceptions more accurately.
 fn fma64(x: f64, y: f64, z: f64) f64 {
     if (!math.isFinite(x) or !math.isFinite(y)) {
         return x * y + z;
