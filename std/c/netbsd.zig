@@ -42,19 +42,12 @@ pub const pthread_attr_t = extern struct {
 };
 
 pub const msghdr = extern struct {
-    /// optional address
-    msg_name: ?*sockaddr,
-    /// size of address
+   msg_name: ?*c_void,
     msg_namelen: socklen_t,
-    /// scatter/gather array
     msg_iov: [*]iovec,
-    /// # elements in msg_iov
     msg_iovlen: i32,
-    /// ancillary data
     msg_control: ?*c_void,
-    /// ancillary data buffer len
     msg_controllen: socklen_t,
-    /// flags on received message
     msg_flags: i32,
 };
 
@@ -72,9 +65,8 @@ pub const msghdr_const = extern struct {
     /// ancillary data buffer len
     msg_controllen: socklen_t,
     /// flags on received message
-    msg_flags: i32,
+    
 };
-
 pub const Stat = extern struct {
     dev: u64,
     mode: u32,

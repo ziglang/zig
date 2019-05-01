@@ -673,7 +673,7 @@ pub fn fstat(fd: i32, buf: *c.Stat) usize {
     return errnoWrap(c.fstat(fd, buf));
 }
 pub const iovec = extern struct {
-    iov_base: [*]u8,
+    iov_base: ?*c_void,
     iov_len: usize,
 };
 
