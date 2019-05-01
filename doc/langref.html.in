@@ -7220,6 +7220,8 @@ test "@setRuntimeSafety" {
     }
 }
       {#code_end#}
+      <p>Note: it is <a href="https://github.com/ziglang/zig/issues/978">planned</a> to replace
+      {#syntax#}@setRuntimeSafety{#endsyntax#} with <code>@optimizeFor</code></p>
 
       {#header_close#}
 
