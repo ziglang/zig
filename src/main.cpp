@@ -54,11 +54,11 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  --cache [auto|off|on]        build in cache, print output path to stdout\n"
         "  --color [auto|off|on]        enable or disable colored error messages\n"
         "  --disable-gen-h              do not generate a C header file (.h)\n"
-        "  --disable-pic                disable Position Independent Code\n"
-        "  --enable-pic                 enable Position Independent Code\n"
         "  --disable-valgrind           omit valgrind client requests in debug builds\n"
         "  --enable-valgrind            include valgrind client requests release builds\n"
         "  --emit [asm|bin|llvm-ir]     emit a specific file format as compilation output\n"
+        "  -fPIC                        enable Position Independent Code\n"
+        "  -fno-PIC                     disable Position Independent Code\n"
         "  -ftime-report                print timing diagnostics\n"
         "  --libc [file]                Provide a file which specifies libc paths\n"
         "  --name [name]                override output name\n"
@@ -642,9 +642,9 @@ int main(int argc, char **argv) {
                 valgrind_support = ValgrindSupportEnabled;
             } else if (strcmp(arg, "--disable-valgrind") == 0) {
                 valgrind_support = ValgrindSupportDisabled;
-            } else if (strcmp(arg, "--enable-pic") == 0) {
+            } else if (strcmp(arg, "-fPIC") == 0) {
                 want_pic = WantPICEnabled;
-            } else if (strcmp(arg, "--disable-pic") == 0) {
+            } else if (strcmp(arg, "-fno-PIC") == 0) {
                 want_pic = WantPICDisabled;
             } else if (strcmp(arg, "--system-linker-hack") == 0) {
                 system_linker_hack = true;
