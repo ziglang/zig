@@ -188,7 +188,7 @@ static void ir_print_decl_var_src(IrPrint *irp, IrInstructionDeclVarSrc *decl_va
         fprintf(irp->f, " ");
     }
     fprintf(irp->f, "= ");
-    ir_print_other_instruction(irp, decl_var_instruction->init_value);
+    ir_print_other_instruction(irp, decl_var_instruction->ptr);
     if (decl_var_instruction->var->is_comptime != nullptr) {
         fprintf(irp->f, " // comptime = ");
         ir_print_other_instruction(irp, decl_var_instruction->var->is_comptime);
@@ -201,7 +201,29 @@ static void ir_print_cast(IrPrint *irp, IrInstructionCast *cast_instruction) {
     fprintf(irp->f, " to %s", buf_ptr(&cast_instruction->dest_type->name));
 }
 
-static void ir_print_call(IrPrint *irp, IrInstructionCall *call_instruction) {
+static void ir_print_result_loc_var(IrPrint *irp, ResultLocVar *result_loc_var) {
+    fprintf(irp->f, "var(");
+    ir_print_other_instruction(irp, result_loc_var->base.source_instruction);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_result_loc(IrPrint *irp, ResultLoc *result_loc) {
+    switch (result_loc->id) {
+        case ResultLocIdInvalid:
+            zig_unreachable();
+        case ResultLocIdNone:
+            fprintf(irp->f, "none");
+            return;
+        case ResultLocIdReturn:
+            fprintf(irp->f, "return");
+            return;
+        case ResultLocIdVar:
+            return ir_print_result_loc_var(irp, (ResultLocVar *)result_loc);
+    }
+    zig_unreachable();
+}
+
+static void ir_print_call_src(IrPrint *irp, IrInstructionCallSrc *call_instruction) {
     if (call_instruction->is_async) {
         fprintf(irp->f, "async");
         if (call_instruction->async_allocator != nullptr) {
@@ -224,7 +246,35 @@ static void ir_print_call(IrPrint *irp, IrInstructionCall *call_instruction) {
             fprintf(irp->f, ", ");
         ir_print_other_instruction(irp, arg);
     }
-    fprintf(irp->f, ")");
+    fprintf(irp->f, ")result=");
+    ir_print_result_loc(irp, call_instruction->result_loc);
+}
+
+static void ir_print_call_gen(IrPrint *irp, IrInstructionCallGen *call_instruction) {
+    if (call_instruction->is_async) {
+        fprintf(irp->f, "async");
+        if (call_instruction->async_allocator != nullptr) {
+            fprintf(irp->f, "<");
+            ir_print_other_instruction(irp, call_instruction->async_allocator);
+            fprintf(irp->f, ">");
+        }
+        fprintf(irp->f, " ");
+    }
+    if (call_instruction->fn_entry) {
+        fprintf(irp->f, "%s", buf_ptr(&call_instruction->fn_entry->symbol_name));
+    } else {
+        assert(call_instruction->fn_ref);
+        ir_print_other_instruction(irp, call_instruction->fn_ref);
+    }
+    fprintf(irp->f, "(");
+    for (size_t i = 0; i < call_instruction->arg_count; i += 1) {
+        IrInstruction *arg = call_instruction->args[i];
+        if (i != 0)
+            fprintf(irp->f, ", ");
+        ir_print_other_instruction(irp, arg);
+    }
+    fprintf(irp->f, ")result=");
+    ir_print_other_instruction(irp, call_instruction->result_loc);
 }
 
 static void ir_print_cond_br(IrPrint *irp, IrInstructionCondBr *cond_br_instruction) {
@@ -329,6 +379,10 @@ static void ir_print_elem_ptr(IrPrint *irp, IrInstructionElemPtr *instruction) {
 
 static void ir_print_var_ptr(IrPrint *irp, IrInstructionVarPtr *instruction) {
     fprintf(irp->f, "&%s", buf_ptr(&instruction->var->name));
+}
+
+static void ir_print_return_ptr(IrPrint *irp, IrInstructionReturnPtr *instruction) {
+    fprintf(irp->f, "@ReturnPtr");
 }
 
 static void ir_print_load_ptr(IrPrint *irp, IrInstructionLoadPtr *instruction) {
@@ -1064,6 +1118,16 @@ static void ir_print_resize_slice(IrPrint *irp, IrInstructionResizeSlice *instru
     fprintf(irp->f, ")");
 }
 
+static void ir_print_alloca_src(IrPrint *irp, IrInstructionAllocaSrc *instruction) {
+    fprintf(irp->f, "Alloca(align=");
+    ir_print_other_instruction(irp, instruction->align);
+    fprintf(irp->f, ",name=%s)", instruction->name_hint);
+}
+
+static void ir_print_alloca_gen(IrPrint *irp, IrInstructionAllocaGen *instruction) {
+    fprintf(irp->f, "Alloca(align=%" PRIu32 ",name=%s)", instruction->align, instruction->name_hint);
+}
+
 static void ir_print_int_to_err(IrPrint *irp, IrInstructionIntToErr *instruction) {
     fprintf(irp->f, "inttoerr ");
     ir_print_other_instruction(irp, instruction->target);
@@ -1446,7 +1510,7 @@ static void ir_print_decl_var_gen(IrPrint *irp, IrInstructionDeclVarGen *decl_va
     fprintf(irp->f, "%s %s: %s align(%u) = ", var_or_const, name, buf_ptr(&var->var_type->name),
             var->align_bytes);
 
-    ir_print_other_instruction(irp, decl_var_instruction->init_value);
+    ir_print_other_instruction(irp, decl_var_instruction->var_ptr);
     if (decl_var_instruction->var->is_comptime != nullptr) {
         fprintf(irp->f, " // comptime = ");
         ir_print_other_instruction(irp, decl_var_instruction->var->is_comptime);
@@ -1485,8 +1549,11 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdCast:
             ir_print_cast(irp, (IrInstructionCast *)instruction);
             break;
-        case IrInstructionIdCall:
-            ir_print_call(irp, (IrInstructionCall *)instruction);
+        case IrInstructionIdCallSrc:
+            ir_print_call_src(irp, (IrInstructionCallSrc *)instruction);
+            break;
+        case IrInstructionIdCallGen:
+            ir_print_call_gen(irp, (IrInstructionCallGen *)instruction);
             break;
         case IrInstructionIdUnOp:
             ir_print_un_op(irp, (IrInstructionUnOp *)instruction);
@@ -1520,6 +1587,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdVarPtr:
             ir_print_var_ptr(irp, (IrInstructionVarPtr *)instruction);
+            break;
+        case IrInstructionIdReturnPtr:
+            ir_print_return_ptr(irp, (IrInstructionReturnPtr *)instruction);
             break;
         case IrInstructionIdLoadPtr:
             ir_print_load_ptr(irp, (IrInstructionLoadPtr *)instruction);
@@ -1937,6 +2007,12 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdUndeclaredIdent:
             ir_print_undeclared_ident(irp, (IrInstructionUndeclaredIdent *)instruction);
+            break;
+        case IrInstructionIdAllocaSrc:
+            ir_print_alloca_src(irp, (IrInstructionAllocaSrc *)instruction);
+            break;
+        case IrInstructionIdAllocaGen:
+            ir_print_alloca_gen(irp, (IrInstructionAllocaGen *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

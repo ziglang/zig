@@ -34,12 +34,14 @@ struct CodeGen;
 struct ConstExprValue;
 struct IrInstruction;
 struct IrInstructionCast;
+struct IrInstructionAllocaGen;
 struct IrBasicBlock;
 struct ScopeDecls;
 struct ZigWindowsSDK;
 struct Tld;
 struct TldExport;
 struct IrAnalyze;
+struct ResultLoc;
 
 enum X64CABIClass {
     X64CABIClass_Unknown,
@@ -1359,6 +1361,7 @@ struct ZigFn {
     AstNode *fn_static_eval_set_node;
 
     ZigList<IrInstruction *> alloca_list;
+    ZigList<IrInstructionAllocaGen *> alloca_gen_list;
     ZigList<ZigVar *> variable_list;
 
     Buf *section_name;
@@ -2171,7 +2174,9 @@ enum IrInstructionId {
     IrInstructionIdUnionFieldPtr,
     IrInstructionIdElemPtr,
     IrInstructionIdVarPtr,
-    IrInstructionIdCall,
+    IrInstructionIdReturnPtr,
+    IrInstructionIdCallSrc,
+    IrInstructionIdCallGen,
     IrInstructionIdConst,
     IrInstructionIdReturn,
     IrInstructionIdCast,
@@ -2308,6 +2313,8 @@ enum IrInstructionId {
     IrInstructionIdAssertNonNull,
     IrInstructionIdHasDecl,
     IrInstructionIdUndeclaredIdent,
+    IrInstructionIdAllocaSrc,
+    IrInstructionIdAllocaGen,
 };
 
 struct IrInstruction {
@@ -2335,14 +2342,14 @@ struct IrInstructionDeclVarSrc {
     ZigVar *var;
     IrInstruction *var_type;
     IrInstruction *align_value;
-    IrInstruction *init_value;
+    IrInstruction *ptr;
 };
 
 struct IrInstructionDeclVarGen {
     IrInstruction base;
 
     ZigVar *var;
-    IrInstruction *init_value;
+    IrInstruction *var_ptr;
 };
 
 struct IrInstructionCondBr {
@@ -2528,20 +2535,42 @@ struct IrInstructionVarPtr {
     ScopeFnDef *crossed_fndef_scope;
 };
 
-struct IrInstructionCall {
+// For functions that have a return type for which handle_is_ptr is true, a
+// result location pointer is the secret first parameter ("sret"). This
+// instruction returns that pointer.
+struct IrInstructionReturnPtr {
+    IrInstruction base;
+};
+
+struct IrInstructionCallSrc {
     IrInstruction base;
 
     IrInstruction *fn_ref;
     ZigFn *fn_entry;
     size_t arg_count;
     IrInstruction **args;
-    LLVMValueRef tmp_ptr;
+    ResultLoc *result_loc;
 
     IrInstruction *async_allocator;
     IrInstruction *new_stack;
     FnInline fn_inline;
     bool is_async;
     bool is_comptime;
+};
+
+struct IrInstructionCallGen {
+    IrInstruction base;
+
+    IrInstruction *fn_ref;
+    ZigFn *fn_entry;
+    size_t arg_count;
+    IrInstruction **args;
+    IrInstruction *result_loc;
+
+    IrInstruction *async_allocator;
+    IrInstruction *new_stack;
+    FnInline fn_inline;
+    bool is_async;
 };
 
 struct IrInstructionConst {
@@ -3527,6 +3556,47 @@ struct IrInstructionUndeclaredIdent {
     Buf *name;
 };
 
+struct IrInstructionAllocaSrc {
+    IrInstruction base;
+
+    IrInstruction *align;
+    IrInstruction *is_comptime;
+    const char *name_hint;
+};
+
+struct IrInstructionAllocaGen {
+    IrInstruction base;
+
+    uint32_t align;
+    const char *name_hint;
+};
+
+enum ResultLocId {
+    ResultLocIdInvalid,
+    ResultLocIdNone,
+    ResultLocIdVar,
+    ResultLocIdReturn,
+};
+
+struct ResultLoc {
+    ResultLocId id;
+    IrInstruction *source_instruction;
+};
+
+struct ResultLocNone {
+    ResultLoc base;
+};
+
+struct ResultLocVar {
+    ResultLoc base;
+
+    ZigVar *var;
+};
+
+struct ResultLocReturn {
+    ResultLoc base;
+};
+
 static const size_t slice_ptr_index = 0;
 static const size_t slice_len_index = 1;
 
@@ -3574,7 +3644,7 @@ struct FnWalkAttrs {
 
 struct FnWalkCall {
     ZigList<LLVMValueRef> *gen_param_values;
-    IrInstructionCall *inst;
+    IrInstructionCallGen *inst;
     bool is_var_args;
 };
 

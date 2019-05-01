@@ -1982,6 +1982,7 @@ static LLVMValueRef gen_assign_raw(CodeGen *g, LLVMValueRef ptr, ZigType *ptr_ty
 }
 
 static void gen_var_debug_decl(CodeGen *g, ZigVar *var) {
+    if (g->strip_debug_symbols) return;
     assert(var->di_loc_var != nullptr);
     AstNode *source_node = var->decl_node;
     ZigLLVMDILocation *debug_loc = ZigLLVMGetDebugLoc((unsigned)source_node->line + 1,
@@ -2288,7 +2289,7 @@ void walk_function_params(CodeGen *g, ZigType *fn_type, FnWalk *fn_walk) {
         return;
     }
     if (fn_walk->id == FnWalkIdCall) {
-        IrInstructionCall *instruction = fn_walk->data.call.inst;
+        IrInstructionCallGen *instruction = fn_walk->data.call.inst;
         bool is_var_args = fn_walk->data.call.is_var_args;
         for (size_t call_i = 0; call_i < instruction->arg_count; call_i += 1) {
             IrInstruction *param_instruction = instruction->args[call_i];
@@ -3328,10 +3329,8 @@ static LLVMValueRef ir_render_bool_not(CodeGen *g, IrExecutable *executable, IrI
     return LLVMBuildICmp(g->builder, LLVMIntEQ, value, zero, "");
 }
 
-static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable,
-        IrInstructionDeclVarGen *decl_var_instruction)
-{
-    ZigVar *var = decl_var_instruction->var;
+static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable, IrInstructionDeclVarGen *instruction) {
+    ZigVar *var = instruction->var;
 
     if (!type_has_bits(var->var_type))
         return nullptr;
@@ -3339,20 +3338,7 @@ static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable,
     if (var->ref_count == 0 && g->build_mode != BuildModeDebug)
         return nullptr;
 
-    IrInstruction *init_value = decl_var_instruction->init_value;
-
-    bool have_init_expr = !value_is_all_undef(&init_value->value);
-
-    if (have_init_expr) {
-        ZigType *var_ptr_type = get_pointer_to_type_extra(g, var->var_type, false, false,
-                PtrLenSingle, var->align_bytes, 0, 0, false);
-        LLVMValueRef llvm_init_val = ir_llvm_value(g, init_value);
-        gen_assign_raw(g, var->value_ref, var_ptr_type, llvm_init_val);
-    } else if (ir_want_runtime_safety(g, &decl_var_instruction->base)) {
-        uint32_t align_bytes = (var->align_bytes == 0) ? get_abi_alignment(g, var->var_type) : var->align_bytes;
-        gen_undef_init(g, align_bytes, var->var_type, var->value_ref);
-    }
-
+    var->value_ref = ir_llvm_value(g, instruction->var_ptr);
     gen_var_debug_decl(g, var);
     return nullptr;
 }
@@ -3568,6 +3554,13 @@ static LLVMValueRef ir_render_var_ptr(CodeGen *g, IrExecutable *executable, IrIn
     }
 }
 
+static LLVMValueRef ir_render_return_ptr(CodeGen *g, IrExecutable *executable,
+        IrInstructionReturnPtr *instruction)
+{
+    assert(g->cur_ret_ptr != nullptr || !type_has_bits(instruction->base.value.type));
+    return g->cur_ret_ptr;
+}
+
 static LLVMValueRef ir_render_elem_ptr(CodeGen *g, IrExecutable *executable, IrInstructionElemPtr *instruction) {
     LLVMValueRef array_ptr_ptr = ir_llvm_value(g, instruction->array_ptr);
     ZigType *array_ptr_type = instruction->array_ptr->value.type;
@@ -3719,7 +3712,7 @@ static void set_call_instr_sret(CodeGen *g, LLVMValueRef call_instr) {
     LLVMAddCallSiteAttribute(call_instr, 1, sret_attr);
 }
 
-static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstructionCall *instruction) {
+static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstructionCallGen *instruction) {
     LLVMValueRef fn_val;
     ZigType *fn_type;
     if (instruction->fn_entry) {
@@ -3742,8 +3735,9 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     bool prefix_arg_err_ret_stack = get_prefix_arg_err_ret_stack(g, fn_type_id);
     bool is_var_args = fn_type_id->is_var_args;
     ZigList<LLVMValueRef> gen_param_values = {};
+    LLVMValueRef result_loc = first_arg_ret ? ir_llvm_value(g, instruction->result_loc) : nullptr;
     if (first_arg_ret) {
-        gen_param_values.append(instruction->tmp_ptr);
+        gen_param_values.append(result_loc);
     }
     if (prefix_arg_err_ret_stack) {
         gen_param_values.append(get_cur_err_ret_trace_val(g, instruction->base.scope));
@@ -3751,7 +3745,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     if (instruction->is_async) {
         gen_param_values.append(ir_llvm_value(g, instruction->async_allocator));
 
-        LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, err_union_err_index, "");
+        LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, result_loc, err_union_err_index, "");
         gen_param_values.append(err_val_ptr);
     }
     FnWalk fn_walk = {};
@@ -3794,9 +3788,9 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
 
 
     if (instruction->is_async) {
-        LLVMValueRef payload_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, err_union_payload_index, "");
+        LLVMValueRef payload_ptr = LLVMBuildStructGEP(g->builder, result_loc, err_union_payload_index, "");
         LLVMBuildStore(g->builder, result, payload_ptr);
-        return instruction->tmp_ptr;
+        return result_loc;
     }
 
     if (src_return_type->id == ZigTypeIdUnreachable) {
@@ -3805,11 +3799,11 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
         return nullptr;
     } else if (first_arg_ret) {
         set_call_instr_sret(g, result);
-        return instruction->tmp_ptr;
+        return result_loc;
     } else if (handle_is_ptr(src_return_type)) {
-        auto store_instr = LLVMBuildStore(g->builder, result, instruction->tmp_ptr);
-        LLVMSetAlignment(store_instr, LLVMGetAlignment(instruction->tmp_ptr));
-        return instruction->tmp_ptr;
+        LLVMValueRef store_instr = LLVMBuildStore(g->builder, result, result_loc);
+        LLVMSetAlignment(store_instr, LLVMGetAlignment(result_loc));
+        return result_loc;
     } else {
         return result;
     }
@@ -5535,7 +5529,9 @@ static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
 }
 
 static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, IrInstruction *instruction) {
-    set_debug_location(g, instruction);
+    if (!g->strip_debug_symbols) {
+        set_debug_location(g, instruction);
+    }
 
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -5608,7 +5604,12 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdGlobalAsm:
         case IrInstructionIdHasDecl:
         case IrInstructionIdUndeclaredIdent:
+        case IrInstructionIdCallSrc:
+        case IrInstructionIdAllocaSrc:
             zig_unreachable();
+
+        case IrInstructionIdAllocaGen:
+            return nullptr;
 
         case IrInstructionIdDeclVarGen:
             return ir_render_decl_var(g, executable, (IrInstructionDeclVarGen *)instruction);
@@ -5632,10 +5633,12 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_store_ptr(g, executable, (IrInstructionStorePtr *)instruction);
         case IrInstructionIdVarPtr:
             return ir_render_var_ptr(g, executable, (IrInstructionVarPtr *)instruction);
+        case IrInstructionIdReturnPtr:
+            return ir_render_return_ptr(g, executable, (IrInstructionReturnPtr *)instruction);
         case IrInstructionIdElemPtr:
             return ir_render_elem_ptr(g, executable, (IrInstructionElemPtr *)instruction);
-        case IrInstructionIdCall:
-            return ir_render_call(g, executable, (IrInstructionCall *)instruction);
+        case IrInstructionIdCallGen:
+            return ir_render_call(g, executable, (IrInstructionCallGen *)instruction);
         case IrInstructionIdStructFieldPtr:
             return ir_render_struct_field_ptr(g, executable, (IrInstructionStructFieldPtr *)instruction);
         case IrInstructionIdUnionFieldPtr:
@@ -6851,6 +6854,26 @@ static void do_code_gen(CodeGen *g) {
         }
 
         // allocate temporary stack data
+        for (size_t alloca_i = 0; alloca_i < fn_table_entry->alloca_gen_list.length; alloca_i += 1) {
+            IrInstructionAllocaGen *instruction = fn_table_entry->alloca_gen_list.at(alloca_i);
+            ZigType *ptr_type = instruction->base.value.type;
+            assert(ptr_type->id == ZigTypeIdPointer);
+            ZigType *child_type = ptr_type->data.pointer.child_type;
+            if (!type_has_bits(child_type))
+                continue;
+            if (instruction->base.ref_count == 0)
+                continue;
+            if (instruction->base.value.special != ConstValSpecialRuntime) {
+                if (const_ptr_pointee(nullptr, g, &instruction->base.value, nullptr)->special !=
+                        ConstValSpecialRuntime)
+                {
+                    continue;
+                }
+            }
+            instruction->base.llvm_value = build_alloca(g, child_type, instruction->name_hint,
+                    get_ptr_align(g, ptr_type));
+        }
+
         for (size_t alloca_i = 0; alloca_i < fn_table_entry->alloca_list.length; alloca_i += 1) {
             IrInstruction *instruction = fn_table_entry->alloca_list.at(alloca_i);
             LLVMValueRef *slot;
@@ -6873,9 +6896,6 @@ static void do_code_gen(CodeGen *g) {
             } else if (instruction->id == IrInstructionIdUnionInit) {
                 IrInstructionUnionInit *union_init_instruction = (IrInstructionUnionInit *)instruction;
                 slot = &union_init_instruction->tmp_ptr;
-            } else if (instruction->id == IrInstructionIdCall) {
-                IrInstructionCall *call_instruction = (IrInstructionCall *)instruction;
-                slot = &call_instruction->tmp_ptr;
             } else if (instruction->id == IrInstructionIdSlice) {
                 IrInstructionSlice *slice_instruction = (IrInstructionSlice *)instruction;
                 slot = &slice_instruction->tmp_ptr;
@@ -6939,8 +6959,6 @@ static void do_code_gen(CodeGen *g) {
             }
 
             if (var->src_arg_index == SIZE_MAX) {
-                var->value_ref = build_alloca(g, var->var_type, buf_ptr(&var->name), var->align_bytes);
-
                 var->di_loc_var = ZigLLVMCreateAutoVariable(g->dbuilder, get_di_scope(g, var->parent_scope),
                         buf_ptr(&var->name), import->data.structure.root_struct->di_file, (unsigned)(var->decl_node->line + 1),
                         get_llvm_di_type(g, var->var_type), !g->strip_debug_symbols, 0);

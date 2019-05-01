@@ -1,0 +1,10 @@
+Scratch pad for stuff to do before merging master
+=================================================
+
+look at all the ir_gen_node ir_gen_node_extra calls and make sure result locations are properly propagated
+
+migrate all the alloca_list to alloca_gen_list
+
+migrate ir_build_var_decl_src to use ir_build_alloca_src and explicitly initialize
+
+inferred comptime
