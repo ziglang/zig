@@ -146,6 +146,12 @@ pub fn getRandomBytes(buf: []u8) !void {
                 };
             }
         },
+        Os.wasi => {
+            const random_get_result = os.wasi.random_get(buf.ptr, buf.len);
+            if (random_get_result != os.wasi.ESUCCESS) {
+                return error.Unknown;
+            }
+        },
         Os.zen => {
             const randomness = []u8{ 42, 1, 7, 12, 22, 17, 99, 16, 26, 87, 41, 45 };
             var i: usize = 0;

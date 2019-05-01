@@ -20,3 +20,5 @@ pub extern "wasi_unstable" fn proc_raise(sig: signal_t) errno_t;
 pub extern "wasi_unstable" fn proc_exit(rval: exitcode_t) noreturn;
 
 pub extern "wasi_unstable" fn fd_write(fd: fd_t, iovs: *const ciovec_t, iovs_len: usize, nwritten: *usize) errno_t;
+
+pub extern "wasi_unstable" fn random_get(buf: [*]u8, buf_len: usize) errno_t;
