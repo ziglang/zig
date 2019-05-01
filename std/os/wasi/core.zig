@@ -10,10 +10,10 @@ pub const ciovec_t = extern struct {
     buf_len: usize,
 };
 
-pub const CLOCK_REALTIME = 0;
-pub const CLOCK_MONOTONIC = 1;
-pub const CLOCK_PROCESS_CPUTIME_ID = 2;
-pub const CLOCK_THREAD_CPUTIME_ID = 3;
+pub const CLOCK_REALTIME: clockid_t = 0;
+pub const CLOCK_MONOTONIC: clockid_t = 1;
+pub const CLOCK_PROCESS_CPUTIME_ID: clockid_t = 2;
+pub const CLOCK_THREAD_CPUTIME_ID: clockid_t = 3;
 
 pub const SIGABRT: signal_t = 6;
 
