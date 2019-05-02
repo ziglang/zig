@@ -141,8 +141,15 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
             if (new_capacity <= self.entries.len) {
                 return;
             }
+            // make sure capacity is a power of two
+            var capacity = new_capacity;
+            const is_power_of_two = capacity & (capacity-1) == 0;
+            if (!is_power_of_two) {
+                const pow = math.log2_int_ceil(usize, capacity);
+                capacity = math.pow(usize, 2, pow);
+            }
             const old_entries = self.entries;
-            try self.initCapacity(new_capacity);
+            try self.initCapacity(capacity);
             if (old_entries.len > 0) {
                 // dump all of the old elements into the new table
                 for (old_entries) |*old_entry| {
