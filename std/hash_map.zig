@@ -118,7 +118,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
                 };
             }
             self.incrementModificationCount();
-            try self.ensureCapacity();
+            try self.autoCapacity();
             const put_result = self.internalPut(key);
             assert(put_result.old_kv == null);
             return GetOrPutResult{
@@ -135,15 +135,15 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
             return res.kv;
         }
 
-        fn ensureCapacity(self: *Self) !void {
-            if (self.entries.len == 0) {
-                return self.initCapacity(16);
+        /// Sets the capacity to the new capacity if the new
+        /// capacity is greater than the current capacity.
+        pub fn ensureCapacity(self: *Self, new_capacity: usize) !void {
+            if (new_capacity <= self.entries.len) {
+                return;
             }
-
-            // if we get too full (60%), double the capacity
-            if (self.size * 5 >= self.entries.len * 3) {
-                const old_entries = self.entries;
-                try self.initCapacity(self.entries.len * 2);
+            const old_entries = self.entries;
+            try self.initCapacity(new_capacity);
+            if (old_entries.len > 0) {
                 // dump all of the old elements into the new table
                 for (old_entries) |*old_entry| {
                     if (old_entry.used) {
@@ -157,7 +157,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
         /// Returns the kv pair that was already there.
         pub fn put(self: *Self, key: K, value: V) !?KV {
             self.incrementModificationCount();
-            try self.ensureCapacity();
+            try self.autoCapacity();
 
             const put_result = self.internalPut(key);
             put_result.new_entry.kv.value = value;
@@ -225,6 +225,16 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
                 assert((try other.put(entry.key, entry.value)) == null);
             }
             return other;
+        }
+
+        fn autoCapacity(self: *Self) !void {
+            if (self.entries.len == 0) {
+                return self.ensureCapacity(16);
+            }
+            // if we get too full (60%), double the capacity
+            if (self.size * 5 >= self.entries.len * 3) {
+                return self.ensureCapacity(self.entries.len * 2);
+            }
         }
 
         fn initCapacity(hm: *Self, capacity: usize) !void {
