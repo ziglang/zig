@@ -36,28 +36,31 @@ if(MSVC)
   )
 
 else()
-  find_path(CLANG_INCLUDE_DIRS NAMES clang/Frontend/ASTUnit.h
-      PATHS
-          /usr/lib/llvm/8/include
-          /usr/lib/llvm-8/include
-          /usr/lib/llvm-8.0/include
-          /usr/local/llvm80/include
-          /mingw64/include)
+  find_path(CLANG_INCLUDE_DIRS
+    NAMES clang/Frontend/ASTUnit.h
+    PATHS
+    ${LLVM_INCLUDE_DIRS}
+    /usr/lib/llvm/8/include
+    /usr/lib/llvm-8/include
+    /usr/lib/llvm-8.0/include
+    /usr/local/llvm80/include
+    /mingw64/include)
 
   macro(FIND_AND_ADD_CLANG_LIB _libname_)
       string(TOUPPER ${_libname_} _prettylibname_)
-      find_library(CLANG_${_prettylibname_}_LIB NAMES ${_libname_}
+      find_library(CLANG_${_prettylibname_}_LIB
+          NAMES ${_libname_}
           PATHS
-              ${CLANG_LIBDIRS}
-              /usr/lib/llvm/8/lib
-              /usr/lib/llvm-8/lib
-              /usr/lib/llvm-8.0/lib
-              /usr/local/llvm80/lib
-              /mingw64/lib
-              /c/msys64/mingw64/lib
-              c:\\msys64\\mingw64\\lib)
+          ${LLVM_LIBDIRS}
+          /usr/lib/llvm/8/lib
+          /usr/lib/llvm-8/lib
+          /usr/lib/llvm-8.0/lib
+          /usr/local/llvm80/lib
+          /mingw64/lib
+          /c/msys64/mingw64/lib
+          c:\\msys64\\mingw64\\lib)
       if(CLANG_${_prettylibname_}_LIB)
-          set(CLANG_LIBRARIES ${CLANG_LIBRARIES} ${CLANG_${_prettylibname_}_LIB})
+        set(CLANG_LIBRARIES ${CLANG_LIBRARIES} ${CLANG_${_prettylibname_}_LIB})
       endif()
   endmacro(FIND_AND_ADD_CLANG_LIB)
 

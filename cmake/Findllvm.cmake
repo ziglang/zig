@@ -7,47 +7,50 @@
 # LLVM_LIBRARIES
 # LLVM_LIBDIRS
 
-find_program(LLVM_CONFIG_EXE
+if (NOT DEFINED LLVM_ROOT)
+  find_program(LLVM_CONFIG_EXE
     NAMES llvm-config-8 llvm-config-8.0 llvm-config80 llvm-config
     PATHS
-        "/mingw64/bin"
-        "/c/msys64/mingw64/bin"
-        "c:/msys64/mingw64/bin"
-        "C:/Libraries/llvm-8.0.0/bin")
-
-if ("${LLVM_CONFIG_EXE}" STREQUAL "LLVM_CONFIG_EXE-NOTFOUND")
-  message(FATAL_ERROR "unable to find llvm-config")
+    "/mingw64/bin"
+    "/c/msys64/mingw64/bin"
+    "c:/msys64/mingw64/bin"
+    "C:/Libraries/llvm-8.0.0/bin")
+else()
+  message(STATUS "Using user-specified LLVM_ROOT")
+  find_program(LLVM_CONFIG_EXE
+    NAMES llvm-config
+    PATHS
+    ${LLVM_ROOT}/bin
+    NO_DEFAULT_PATH)
 endif()
 
-if ("${LLVM_CONFIG_EXE}" STREQUAL "LLVM_CONFIG_EXE-NOTFOUND")
+if (${LLVM_CONFIG_EXE} STREQUAL "LLVM_CONFIG_EXE-NOTFOUND")
   message(FATAL_ERROR "unable to find llvm-config")
 endif()
 
 execute_process(
-	COMMAND ${LLVM_CONFIG_EXE} --version
-	OUTPUT_VARIABLE LLVM_CONFIG_VERSION
-	OUTPUT_STRIP_TRAILING_WHITESPACE)
+  COMMAND ${LLVM_CONFIG_EXE} --version
+  OUTPUT_VARIABLE LLVM_CONFIG_VERSION
+  OUTPUT_STRIP_TRAILING_WHITESPACE)
 
-if("${LLVM_CONFIG_VERSION}" VERSION_LESS 8)
-  message(FATAL_ERROR "expected LLVM 8.x but found ${LLVM_CONFIG_VERSION}")
-endif()
-if("${LLVM_CONFIG_VERSION}" VERSION_EQUAL 9)
-  message(FATAL_ERROR "expected LLVM 8.x but found ${LLVM_CONFIG_VERSION}")
-endif()
-if("${LLVM_CONFIG_VERSION}" VERSION_GREATER 9)
+message(STATUS "Found LLVM version: ${LLVM_CONFIG_VERSION}")
+
+if(NOT ${LLVM_CONFIG_VERSION} MATCHES "^8.")
   message(FATAL_ERROR "expected LLVM 8.x but found ${LLVM_CONFIG_VERSION}")
 endif()
 
 execute_process(
-	COMMAND ${LLVM_CONFIG_EXE} --targets-built
-    OUTPUT_VARIABLE LLVM_TARGETS_BUILT_SPACES
-	OUTPUT_STRIP_TRAILING_WHITESPACE)
+  COMMAND ${LLVM_CONFIG_EXE} --targets-built
+  OUTPUT_VARIABLE LLVM_TARGETS_BUILT_SPACES
+  OUTPUT_STRIP_TRAILING_WHITESPACE)
+
 string(REPLACE " " ";" LLVM_TARGETS_BUILT "${LLVM_TARGETS_BUILT_SPACES}")
+
 function(NEED_TARGET TARGET_NAME)
-    list (FIND LLVM_TARGETS_BUILT "${TARGET_NAME}" _index)
-    if (${_index} EQUAL -1)
-        message(FATAL_ERROR "LLVM is missing target ${TARGET_NAME}. Zig requires LLVM to be built with all default targets enabled.")
-    endif()
+  list (FIND LLVM_TARGETS_BUILT "${TARGET_NAME}" _index)
+  if (${_index} EQUAL -1)
+    message(FATAL_ERROR "LLVM is missing target ${TARGET_NAME}. Zig requires LLVM to be built with all default targets enabled.")
+  endif()
 endfunction(NEED_TARGET)
 NEED_TARGET("AArch64")
 NEED_TARGET("AMDGPU")
@@ -66,43 +69,28 @@ NEED_TARGET("X86")
 NEED_TARGET("XCore")
 
 if(NOT(CMAKE_BUILD_TYPE STREQUAL "Debug") OR ZIG_STATIC)
-  execute_process(
-      COMMAND ${LLVM_CONFIG_EXE} --libfiles --link-static
-      OUTPUT_VARIABLE LLVM_LIBRARIES_SPACES
-      OUTPUT_STRIP_TRAILING_WHITESPACE)
-  string(REPLACE " " ";" LLVM_LIBRARIES "${LLVM_LIBRARIES_SPACES}")
-
-  execute_process(
-      COMMAND ${LLVM_CONFIG_EXE} --system-libs --link-static
-      OUTPUT_VARIABLE LLVM_SYSTEM_LIBS_SPACES
-      OUTPUT_STRIP_TRAILING_WHITESPACE)
-  string(REPLACE " " ";" LLVM_SYSTEM_LIBS "${LLVM_SYSTEM_LIBS_SPACES}")
-
-  execute_process(
-      COMMAND ${LLVM_CONFIG_EXE} --libdir --link-static
-      OUTPUT_VARIABLE LLVM_LIBDIRS_SPACES
-      OUTPUT_STRIP_TRAILING_WHITESPACE)
-  string(REPLACE " " ";" LLVM_LIBDIRS "${LLVM_LIBDIRS_SPACES}")
+  set(CFG_LINK_MODE --link-static)
 endif()
-if(NOT LLVM_LIBRARIES)
-  execute_process(
-      COMMAND ${LLVM_CONFIG_EXE} --libs
-      OUTPUT_VARIABLE LLVM_LIBRARIES_SPACES
-      OUTPUT_STRIP_TRAILING_WHITESPACE)
-  string(REPLACE " " ";" LLVM_LIBRARIES "${LLVM_LIBRARIES_SPACES}")
 
-  execute_process(
-      COMMAND ${LLVM_CONFIG_EXE} --system-libs
-      OUTPUT_VARIABLE LLVM_SYSTEM_LIBS_SPACES
-      OUTPUT_STRIP_TRAILING_WHITESPACE)
-  string(REPLACE " " ";" LLVM_SYSTEM_LIBS "${LLVM_SYSTEM_LIBS_SPACES}")
+execute_process(
+  COMMAND ${LLVM_CONFIG_EXE} --libs ${CFG_LINK_MODE}
+  OUTPUT_VARIABLE LLVM_LIBRARIES_SPACES
+  OUTPUT_STRIP_TRAILING_WHITESPACE)
+string(REPLACE " " ";" LLVM_LIBRARIES "${LLVM_LIBRARIES_SPACES}")
 
-  execute_process(
-      COMMAND ${LLVM_CONFIG_EXE} --libdir
-      OUTPUT_VARIABLE LLVM_LIBDIRS_SPACES
-      OUTPUT_STRIP_TRAILING_WHITESPACE)
-  string(REPLACE " " ";" LLVM_LIBDIRS "${LLVM_LIBDIRS_SPACES}")
-endif()
+execute_process(
+    COMMAND ${LLVM_CONFIG_EXE} --system-libs ${CFG_LINK_MODE}
+    OUTPUT_VARIABLE LLVM_SYSTEM_LIBS_SPACES
+    OUTPUT_STRIP_TRAILING_WHITESPACE)
+string(REPLACE " " ";" LLVM_SYSTEM_LIBS "${LLVM_SYSTEM_LIBS_SPACES}")
+
+execute_process(
+    COMMAND ${LLVM_CONFIG_EXE} --libdir ${CFG_LINK_MODE}
+    OUTPUT_VARIABLE LLVM_LIBDIRS_SPACES
+    OUTPUT_STRIP_TRAILING_WHITESPACE)
+string(REPLACE " " ";" LLVM_LIBDIRS "${LLVM_LIBDIRS_SPACES}")
+
+unset(CFG_LINK_MODE)
 
 execute_process(
     COMMAND ${LLVM_CONFIG_EXE} --includedir

@@ -47,8 +47,8 @@ option(ZIG_TEST_COVERAGE "Build Zig with test coverage instrumentation" OFF)
 # git log -p -- deps/lld
 option(ZIG_FORCE_EXTERNAL_LLD "If your system has the LLD patches use it instead of the embedded LLD" OFF)
 
-find_package(llvm)
-find_package(clang)
+find_package(llvm REQUIRED)
+find_package(clang REQUIRED)
 
 if(APPLE AND ZIG_STATIC)
     list(REMOVE_ITEM LLVM_LIBRARIES "-lz")
@@ -69,7 +69,7 @@ foreach(CONFIG_TYPE ${CMAKE_CONFIGURATION_TYPES})
 endforeach(CONFIG_TYPE CMAKE_CONFIGURATION_TYPES)
 
 if(ZIG_FORCE_EXTERNAL_LLD)
-    find_package(lld)
+    find_package(lld REQUIRED)
     include_directories(${LLVM_INCLUDE_DIRS})
     include_directories(${LLD_INCLUDE_DIRS})
     include_directories(${CLANG_INCLUDE_DIRS})
