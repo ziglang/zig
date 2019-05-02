@@ -10,10 +10,6 @@ pub fn getErrno(r: usize) usize {
     return if (signed_r > -4096 and signed_r < 0) @intCast(usize, -signed_r) else 0;
 }
 
-pub fn exit(status: i32) noreturn {
-    proc_exit(@bitCast(exitcode_t, isize(status)));
-}
-
 pub fn write(fd: i32, buf: [*]const u8, count: usize) usize {
     var nwritten: usize = undefined;
 
