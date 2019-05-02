@@ -143,7 +143,7 @@ pub const DirectAllocator = struct {
                 const result = try alloc(allocator, new_size, new_align);
                 if (old_mem.len != 0) {
                     @memcpy(result.ptr, old_mem.ptr, std.math.min(old_mem.len, result.len));
-                  _ = os.posix.munmap(@ptrToInt(old_mem.ptr), old_mem.len);
+                    _ = os.posix.munmap(@ptrToInt(old_mem.ptr), old_mem.len);
                 }
                 return result;
             },
@@ -155,12 +155,12 @@ pub const DirectAllocator = struct {
                 const old_record_addr = old_adjusted_addr + old_mem.len;
                 const root_addr = @intToPtr(*align(1) usize, old_record_addr).*;
                 const old_ptr = @intToPtr(*c_void, root_addr);
-                
-                if(new_size == 0) {
+
+                if (new_size == 0) {
                     if (os.windows.HeapFree(self.heap_handle.?, 0, old_ptr) == 0) unreachable;
                     return old_mem[0..0];
                 }
-                
+
                 const amt = new_size + new_align + @sizeOf(usize);
                 const new_ptr = os.windows.HeapReAlloc(
                     self.heap_handle.?,
@@ -178,11 +178,7 @@ pub const DirectAllocator = struct {
                     // or the memory starting at the old offset would be outside of the new allocation,
                     // then we need to copy the memory to a valid aligned address and use that
                     const new_aligned_addr = mem.alignForward(new_root_addr, new_align);
-                    @memcpy(
-                        @intToPtr([*]u8, new_aligned_addr),
-                        @intToPtr([*]u8, new_adjusted_addr),
-                        std.math.min(old_mem.len, new_size),
-                    );
+                    @memcpy(@intToPtr([*]u8, new_aligned_addr), @intToPtr([*]u8, new_adjusted_addr), std.math.min(old_mem.len, new_size));
                     new_adjusted_addr = new_aligned_addr;
                 }
                 const new_record_addr = new_adjusted_addr + new_size;
@@ -364,6 +360,12 @@ const WasmAllocator = struct {
     num_pages: usize,
     end_index: usize,
 
+    comptime {
+        if (builtin.arch != .wasm32) {
+            @compileError("WasmAllocator is only available for wasm32 arch");
+        }
+    }
+
     fn alloc(allocator: *Allocator, size: usize, alignment: u29) ![]u8 {
         const self = @fieldParentPtr(WasmAllocator, "allocator", allocator);
 
@@ -375,12 +377,12 @@ const WasmAllocator = struct {
         if (new_end_index > self.num_pages * os.page_size) {
             const required_memory = new_end_index - (self.num_pages * os.page_size);
 
-            var num_pages: u32 = required_memory / os.page_size;
+            var num_pages: usize = required_memory / os.page_size;
             if (required_memory % os.page_size != 0) {
                 num_pages += 1;
             }
 
-            const prev_page = @"llvm.wasm.memory.grow.i32"(0, num_pages);
+            const prev_page = @"llvm.wasm.memory.grow.i32"(0, @intCast(u32, num_pages));
             if (prev_page == -1) {
                 return error.OutOfMemory;
             }
