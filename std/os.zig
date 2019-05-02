@@ -245,6 +245,9 @@ pub fn exit(status: u8) noreturn {
         Os.windows => {
             windows.ExitProcess(status);
         },
+        Os.wasi => {
+            wasi.proc_exit(status);
+        },
         else => @compileError("Unsupported OS"),
     }
 }
