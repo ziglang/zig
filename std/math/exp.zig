@@ -1,13 +1,19 @@
-// Special Cases:
+// Ported from musl, which is licensed under the MIT license:
+// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
-// - exp(+inf) = +inf
-// - exp(nan)  = nan
+// https://git.musl-libc.org/cgit/musl/tree/src/math/expf.c
+// https://git.musl-libc.org/cgit/musl/tree/src/math/exp.c
 
 const std = @import("../std.zig");
 const math = std.math;
 const assert = std.debug.assert;
 const builtin = @import("builtin");
 
+/// Returns e raised to the power of x (e^x).
+///
+/// Special Cases:
+///  - exp(+inf) = +inf
+///  - exp(nan)  = nan
 pub fn exp(x: var) @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {

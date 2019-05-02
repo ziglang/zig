@@ -1,8 +1,8 @@
-// Special Cases:
+// Ported from musl, which is licensed under the MIT license:
+// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
-// - ilogb(+-inf) = maxInt(i32)
-// - ilogb(0)     = maxInt(i32)
-// - ilogb(nan)   = maxInt(i32)
+// https://git.musl-libc.org/cgit/musl/tree/src/math/ilogbf.c
+// https://git.musl-libc.org/cgit/musl/tree/src/math/ilogb.c
 
 const std = @import("../std.zig");
 const math = std.math;
@@ -10,6 +10,12 @@ const expect = std.testing.expect;
 const maxInt = std.math.maxInt;
 const minInt = std.math.minInt;
 
+/// Returns the binary exponent of x as an integer.
+///
+/// Special Cases:
+///  - ilogb(+-inf) = maxInt(i32)
+///  - ilogb(0)     = maxInt(i32)
+///  - ilogb(nan)   = maxInt(i32)
 pub fn ilogb(x: var) i32 {
     const T = @typeOf(x);
     return switch (T) {

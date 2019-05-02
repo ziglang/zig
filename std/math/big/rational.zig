@@ -14,11 +14,22 @@ const Limb = bn.Limb;
 const DoubleLimb = bn.DoubleLimb;
 const Int = bn.Int;
 
+/// An arbitrary-precision rational number.
+///
+/// Memory is allocated as needed for operations to ensure full precision is kept. The precision
+/// of a Rational is only bounded by memory.
+///
+/// Rational's are always normalized. That is, for a Rational r = p/q where p and q are integers,
+/// gcd(p, q) = 1 always.
 pub const Rational = struct {
-    // Sign of Rational is sign of p. Sign of q is ignored
+    /// Numerator. Determines the sign of the Rational.
     p: Int,
+
+    /// Denominator. Sign is ignored.
     q: Int,
 
+    /// Create a new Rational. A small amount of memory will be allocated on initialization.
+    /// This will be 2 * Int.default_capacity.
     pub fn init(a: *Allocator) !Rational {
         return Rational{
             .p = try Int.init(a),
@@ -26,18 +37,21 @@ pub const Rational = struct {
         };
     }
 
+    /// Frees all memory associated with a Rational.
     pub fn deinit(self: *Rational) void {
         self.p.deinit();
         self.q.deinit();
     }
 
+    /// Set a Rational from a primitive integer type.
     pub fn setInt(self: *Rational, a: var) !void {
         try self.p.set(a);
         try self.q.set(1);
     }
 
-    // TODO: Accept a/b fractions and exponent form
+    /// Set a Rational from a string of the form `A/B` where A and B are base-10 integers.
     pub fn setFloatString(self: *Rational, str: []const u8) !void {
+        // TODO: Accept a/b fractions and exponent form
         if (str.len == 0) {
             return error.InvalidFloatString;
         }
@@ -111,8 +125,10 @@ pub const Rational = struct {
         }
     }
 
-    // Translated from golang.go/src/math/big/rat.go.
+    /// Set a Rational from a floating-point value. The rational will have enough precision to
+    /// completely represent the provided float.
     pub fn setFloat(self: *Rational, comptime T: type, f: T) !void {
+        // Translated from golang.go/src/math/big/rat.go.
         debug.assert(@typeId(T) == builtin.TypeId.Float);
 
         const UnsignedIntType = @IntType(false, T.bit_count);
@@ -164,8 +180,13 @@ pub const Rational = struct {
         try self.reduce();
     }
 
-    // Translated from golang.go/src/math/big/rat.go.
+    /// Return a floating-point value that is the closest value to a Rational.
+    ///
+    /// The result may not be exact if the Rational is too precise or too large for the
+    /// target type.
     pub fn toFloat(self: Rational, comptime T: type) !T {
+        // Translated from golang.go/src/math/big/rat.go.
+        // TODO: Indicate whether the result is not exact.
         debug.assert(@typeId(T) == builtin.TypeId.Float);
 
         const fsize = T.bit_count;
@@ -259,6 +280,7 @@ pub const Rational = struct {
         return if (self.p.isPositive()) f else -f;
     }
 
+    /// Set a rational from an integer ratio.
     pub fn setRatio(self: *Rational, p: var, q: var) !void {
         try self.p.set(p);
         try self.q.set(q);
@@ -273,11 +295,13 @@ pub const Rational = struct {
         }
     }
 
+    /// Set a Rational directly from an Int.
     pub fn copyInt(self: *Rational, a: Int) !void {
         try self.p.copy(a);
         try self.q.set(1);
     }
 
+    /// Set a Rational directly from a ratio of two Int's.
     pub fn copyRatio(self: *Rational, a: Int, b: Int) !void {
         try self.p.copy(a);
         try self.q.copy(b);
@@ -288,23 +312,29 @@ pub const Rational = struct {
         try self.reduce();
     }
 
+    /// Make a Rational positive.
     pub fn abs(r: *Rational) void {
         r.p.abs();
     }
 
+    /// Negate the sign of a Rational.
     pub fn negate(r: *Rational) void {
         r.p.negate();
     }
 
+    /// Efficiently swap a Rational with another. This swaps the limb pointers and a full copy is not
+    /// performed. The address of the limbs field will not be the same after this function.
     pub fn swap(r: *Rational, other: *Rational) void {
         r.p.swap(&other.p);
         r.q.swap(&other.q);
     }
 
+    /// Returns -1, 0, 1 if a < b, a == b or a > b respectively.
     pub fn cmp(a: Rational, b: Rational) !i8 {
         return cmpInternal(a, b, true);
     }
 
+    /// Returns -1, 0, 1 if |a| < |b|, |a| == |b| or |a| > |b| respectively.
     pub fn cmpAbs(a: Rational, b: Rational) !i8 {
         return cmpInternal(a, b, false);
     }
@@ -325,9 +355,11 @@ pub const Rational = struct {
         return if (is_abs) q.cmpAbs(p) else q.cmp(p);
     }
 
-    // r/q = ap/aq + bp/bq = (ap*bq + bp*aq) / (aq*bq)
-    //
-    // For best performance, rma should not alias a or b.
+    /// rma = a + b.
+    ///
+    /// rma, a and b may be aliases. However, it is more efficient if rma does not alias a or b.
+    ///
+    /// Returns an error if memory could not be allocated.
     pub fn add(rma: *Rational, a: Rational, b: Rational) !void {
         var r = rma;
         var aliased = rma.p.limbs.ptr == a.p.limbs.ptr or rma.p.limbs.ptr == b.p.limbs.ptr;
@@ -351,9 +383,11 @@ pub const Rational = struct {
         try r.reduce();
     }
 
-    // r/q = ap/aq - bp/bq = (ap*bq - bp*aq) / (aq*bq)
-    //
-    // For best performance, rma should not alias a or b.
+    /// rma = a - b.
+    ///
+    /// rma, a and b may be aliases. However, it is more efficient if rma does not alias a or b.
+    ///
+    /// Returns an error if memory could not be allocated.
     pub fn sub(rma: *Rational, a: Rational, b: Rational) !void {
         var r = rma;
         var aliased = rma.p.limbs.ptr == a.p.limbs.ptr or rma.p.limbs.ptr == b.p.limbs.ptr;
@@ -377,14 +411,22 @@ pub const Rational = struct {
         try r.reduce();
     }
 
-    // r/q = ap/aq * bp/bq = ap*bp / aq*bq
+    /// rma = a * b.
+    ///
+    /// rma, a and b may be aliases. However, it is more efficient if rma does not alias a or b.
+    ///
+    /// Returns an error if memory could not be allocated.
     pub fn mul(r: *Rational, a: Rational, b: Rational) !void {
         try r.p.mul(a.p, b.p);
         try r.q.mul(a.q, b.q);
         try r.reduce();
     }
 
-    // r/q = (ap/aq) / (bp/bq) = ap*bq / bp*aq
+    /// rma = a / b.
+    ///
+    /// rma, a and b may be aliases. However, it is more efficient if rma does not alias a or b.
+    ///
+    /// Returns an error if memory could not be allocated.
     pub fn div(r: *Rational, a: Rational, b: Rational) !void {
         if (b.p.eqZero()) {
             @panic("division by zero");
@@ -395,7 +437,7 @@ pub const Rational = struct {
         try r.reduce();
     }
 
-    // r/q = q/r
+    /// Invert the numerator and denominator fields of a Rational. p/q => q/p.
     pub fn invert(r: *Rational) void {
         Int.swap(&r.p, &r.q);
     }

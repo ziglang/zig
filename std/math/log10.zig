@@ -1,9 +1,8 @@
-// Special Cases:
+// Ported from musl, which is licensed under the MIT license:
+// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
-// - log10(+inf)  = +inf
-// - log10(0)     = -inf
-// - log10(x)     = nan if x < 0
-// - log10(nan)   = nan
+// https://git.musl-libc.org/cgit/musl/tree/src/math/log10f.c
+// https://git.musl-libc.org/cgit/musl/tree/src/math/log10.c
 
 const std = @import("../std.zig");
 const math = std.math;
@@ -12,6 +11,13 @@ const builtin = @import("builtin");
 const TypeId = builtin.TypeId;
 const maxInt = std.math.maxInt;
 
+/// Returns the base-10 logarithm of x.
+///
+/// Special Cases:
+///  - log10(+inf)  = +inf
+///  - log10(0)     = -inf
+///  - log10(x)     = nan if x < 0
+///  - log10(nan)   = nan
 pub fn log10(x: var) @typeOf(x) {
     const T = @typeOf(x);
     switch (@typeId(T)) {

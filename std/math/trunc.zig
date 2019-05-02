@@ -1,14 +1,20 @@
-// Special Cases:
+// Ported from musl, which is licensed under the MIT license:
+// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
-// - trunc(+-0)   = +-0
-// - trunc(+-inf) = +-inf
-// - trunc(nan)   = nan
+// https://git.musl-libc.org/cgit/musl/tree/src/math/truncf.c
+// https://git.musl-libc.org/cgit/musl/tree/src/math/trunc.c
 
 const std = @import("../std.zig");
 const math = std.math;
 const expect = std.testing.expect;
 const maxInt = std.math.maxInt;
 
+/// Returns the integer value of x.
+///
+/// Special Cases:
+///  - trunc(+-0)   = +-0
+///  - trunc(+-inf) = +-inf
+///  - trunc(nan)   = nan
 pub fn trunc(x: var) @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {

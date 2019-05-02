@@ -1,7 +1,8 @@
-// Special Cases:
+// Ported from musl, which is licensed under the MIT license:
+// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
-// - modf(+-inf) = +-inf, nan
-// - modf(nan)   = nan, nan
+// https://git.musl-libc.org/cgit/musl/tree/src/math/modff.c
+// https://git.musl-libc.org/cgit/musl/tree/src/math/modf.c
 
 const std = @import("../std.zig");
 const math = std.math;
@@ -17,6 +18,12 @@ fn modf_result(comptime T: type) type {
 pub const modf32_result = modf_result(f32);
 pub const modf64_result = modf_result(f64);
 
+/// Returns the integer and fractional floating-point numbers that sum to x. The sign of each
+/// result is the same as the sign of x.
+///
+/// Special Cases:
+///  - modf(+-inf) = +-inf, nan
+///  - modf(nan)   = nan, nan
 pub fn modf(x: var) modf_result(@typeOf(x)) {
     const T = @typeOf(x);
     return switch (T) {

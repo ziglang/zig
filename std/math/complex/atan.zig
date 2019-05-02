@@ -1,9 +1,16 @@
+// Ported from musl, which is licensed under the MIT license:
+// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
+//
+// https://git.musl-libc.org/cgit/musl/tree/src/complex/catanf.c
+// https://git.musl-libc.org/cgit/musl/tree/src/complex/catan.c
+
 const std = @import("../../std.zig");
 const testing = std.testing;
 const math = std.math;
 const cmath = math.complex;
 const Complex = cmath.Complex;
 
+/// Returns the arc-tangent of z.
 pub fn atan(z: var) @typeOf(z) {
     const T = @typeOf(z.re);
     return switch (T) {

@@ -4,6 +4,7 @@ const math = std.math;
 const cmath = math.complex;
 const Complex = cmath.Complex;
 
+/// Returns the natural logarithm of z.
 pub fn log(z: var) Complex(@typeOf(z.re)) {
     const T = @typeOf(z.re);
     const r = cmath.abs(z);

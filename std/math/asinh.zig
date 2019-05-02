@@ -1,14 +1,20 @@
-// Special Cases:
+// Ported from musl, which is licensed under the MIT license:
+// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
-// - asinh(+-0)   = +-0
-// - asinh(+-inf) = +-inf
-// - asinh(nan)   = nan
+// https://git.musl-libc.org/cgit/musl/tree/src/math/asinhf.c
+// https://git.musl-libc.org/cgit/musl/tree/src/math/asinh.c
 
 const std = @import("../std.zig");
 const math = std.math;
 const expect = std.testing.expect;
 const maxInt = std.math.maxInt;
 
+/// Returns the hyperbolic arc-sin of x.
+///
+/// Special Cases:
+///  - asinh(+-0)   = +-0
+///  - asinh(+-inf) = +-inf
+///  - asinh(nan)   = nan
 pub fn asinh(x: var) @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {

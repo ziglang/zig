@@ -2,6 +2,7 @@ const std = @import("../std.zig");
 const math = std.math;
 const expect = std.testing.expect;
 
+/// Returns whether x is negative or negative 0.
 pub fn signbit(x: var) bool {
     const T = @typeOf(x);
     return switch (T) {

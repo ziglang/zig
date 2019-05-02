@@ -4,6 +4,7 @@ const math = std.math;
 const cmath = math.complex;
 const Complex = cmath.Complex;
 
+// Returns the arc-sine of z.
 pub fn asin(z: var) Complex(@typeOf(z.re)) {
     const T = @typeOf(z.re);
     const x = z.re;
