@@ -200,7 +200,7 @@ pub fn abort() noreturn {
         c.abort();
     }
     switch (builtin.os) {
-        Os.linux, Os.macosx, Os.ios, Os.freebsd, Os.netbsd, Os.wasi => {
+        Os.linux, Os.macosx, Os.ios, Os.freebsd, Os.netbsd => {
             _ = posix.raise(posix.SIGABRT);
             _ = posix.raise(posix.SIGKILL);
             while (true) {}
@@ -210,6 +210,12 @@ pub fn abort() noreturn {
                 @breakpoint();
             }
             windows.ExitProcess(3);
+        },
+        Os.wasi => {
+            _ = wasi.proc_raise(wasi.SIGABRT);
+            // TODO: Is SIGKILL even necessary?
+            _ = wasi.proc_raise(wasi.SIGKILL);
+            while (true) {}
         },
         Os.uefi => {
             // TODO there's gotta be a better thing to do here than loop forever
