@@ -48,7 +48,7 @@ fn cos_(comptime T: type, x_: T) T {
 
     var x = x_;
     if (math.isNan(x) or math.isInf(x)) {
-        return math.nan(f32);
+        return math.nan(T);
     }
 
     var sign = false;
