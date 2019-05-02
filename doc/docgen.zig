@@ -1068,6 +1068,9 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         }
                         if (code.target_str) |triple| {
                             try build_args.appendSlice([][]const u8{ "-target", triple });
+                            if (!code.is_inline) {
+                                try out.print(" -target {}", triple);
+                            }
                         }
                         if (expected_outcome == .BuildFail) {
                             const result = try os.ChildProcess.exec(
@@ -1110,7 +1113,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                                 (builtin.os != builtin.Os.linux or builtin.arch != builtin.Arch.x86_64))
                             {
                                 // skip execution
-                                try out.print("\n$ # Skipping execution because it is non-native.</code></pre>\n");
+                                try out.print("</code></pre>\n");
                                 break :code_block;
                             }
                         }
@@ -1174,6 +1177,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         }
                         if (code.target_str) |triple| {
                             try test_args.appendSlice([][]const u8{ "-target", triple });
+                            try out.print(" -target {}", triple);
                         }
                         const result = exec(allocator, &env_map, test_args.toSliceConst()) catch return parseError(tokenizer, code.source_token, "test failed");
                         const escaped_stderr = try escapeHtml(allocator, result.stderr);
@@ -1352,6 +1356,11 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                                     try out.print(" --release-small");
                                 }
                             },
+                        }
+
+                        if (code.target_str) |triple| {
+                            try build_args.appendSlice([][]const u8{ "-target", triple });
+                            try out.print(" -target {}", triple);
                         }
 
                         if (maybe_error_match) |error_match| {
