@@ -743,22 +743,6 @@ fn printLineInfo(
             symbol_name,
             compile_unit_name,
         );
-        if (printLineFromFile(out_stream, line_info)) {
-            if (line_info.column == 0) {
-                try out_stream.write("\n");
-            } else {
-                {
-                    var col_i: usize = 1;
-                    while (col_i < line_info.column) : (col_i += 1) {
-                        try out_stream.writeByte(' ');
-                    }
-                }
-                try out_stream.write(GREEN ++ "^" ++ RESET ++ "\n");
-            }
-        } else |err| switch (err) {
-            error.EndOfFile => {},
-            else => return err,
-        }
     } else {
         try out_stream.print(
             "{}:{}:{}: 0x{x} in {} ({})\n",
@@ -769,6 +753,27 @@ fn printLineInfo(
             symbol_name,
             compile_unit_name,
         );
+    }
+
+    if (printLineFromFile(out_stream, line_info)) {
+        if (line_info.column == 0) {
+            try out_stream.write("\n");
+        } else {
+            {
+                var col_i: usize = 1;
+                while (col_i < line_info.column) : (col_i += 1) {
+                    try out_stream.writeByte(' ');
+                }
+            }
+            if (tty_color) {
+                try out_stream.write(GREEN ++ "^" ++ RESET ++ "\n");
+            } else {
+                try out_stream.write("^\n");
+            }
+        }
+    } else |err| switch (err) {
+        error.EndOfFile => {},
+        else => return err,
     }
 }
 
