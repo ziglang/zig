@@ -103,8 +103,10 @@ comptime {
     @export("__popcountdi2", @import("compiler_rt/popcountdi2.zig").__popcountdi2, linkage);
 
     @export("__divsi3", __divsi3, linkage);
+    @export("__divdi3", __divdi3, linkage);
     @export("__udivsi3", __udivsi3, linkage);
     @export("__udivdi3", __udivdi3, linkage);
+    @export("__moddi3", __moddi3, linkage);
     @export("__umoddi3", __umoddi3, linkage);
     @export("__divmodsi4", __divmodsi4, linkage);
     @export("__udivmodsi4", __udivmodsi4, linkage);
@@ -239,6 +241,33 @@ pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn
     } else {
         unreachable;
     }
+}
+
+extern fn __divdi3(a: i64, b: i64) i64 {
+    @setRuntimeSafety(is_test);
+
+    // Set aside the sign of the quotient.
+    const sign = @bitCast(u64, (a ^ b) >> 63);
+    // Take absolute value of a and b via abs(x) = (x^(x >> 63)) - (x >> 63).
+    const abs_a = (a ^ (a >> 63)) -% (a >> 63);
+    const abs_b = (b ^ (b >> 63)) -% (b >> 63);
+    // Unsigned division
+    const res = __udivmoddi4(@bitCast(u64, abs_a), @bitCast(u64, abs_b), null);
+    // Apply sign of quotient to result and return.
+    return @bitCast(i64, (res ^ sign) -% sign);
+}
+
+extern fn __moddi3(a: i64, b: i64) i64 {
+    @setRuntimeSafety(is_test);
+
+    // Take absolute value of a and b via abs(x) = (x^(x >> 63)) - (x >> 63).
+    const abs_a = (a ^ (a >> 63)) -% (a >> 63);
+    const abs_b = (b ^ (b >> 63)) -% (b >> 63);
+    // Unsigned division
+    var r: u64 = undefined;
+    _ = __udivmoddi4(@bitCast(u64, abs_a), @bitCast(u64, abs_b), &r);
+    // Apply the sign of the dividend and return.
+    return (@bitCast(i64, r) ^ (a >> 63)) -% (a >> 63);
 }
 
 extern fn __udivdi3(a: u64, b: u64) u64 {
@@ -1373,4 +1402,56 @@ fn test_one_divmodsi4(a: i32, b: i32, expected_q: i32, expected_r: i32) void {
     var r: i32 = undefined;
     const q: i32 = __divmodsi4(a, b, &r);
     testing.expect(q == expected_q and r == expected_r);
+}
+
+test "test_divdi3" {
+    const cases = [][3]i64{
+        []i64{ 0,  1,  0},
+        []i64{ 0, -1,  0},
+        []i64{ 2,  1,  2},
+        []i64{ 2, -1, -2},
+        []i64{-2,  1, -2},
+        []i64{-2, -1,  2},
+
+        []i64{@bitCast(i64, u64(0x8000000000000000)),  1, @bitCast(i64, u64(0x8000000000000000))},
+        []i64{@bitCast(i64, u64(0x8000000000000000)), -1, @bitCast(i64, u64(0x8000000000000000))},
+        []i64{@bitCast(i64, u64(0x8000000000000000)), -2, 0x4000000000000000},
+        []i64{@bitCast(i64, u64(0x8000000000000000)),  2, @bitCast(i64, u64(0xC000000000000000))},
+    };
+
+    for (cases) |case| {
+        test_one_divdi3(case[0], case[1], case[2]);
+    }
+}
+
+fn test_one_divdi3(a: i64, b: i64, expected_q: i64) void {
+    const q: i64 = __divdi3(a, b);
+    testing.expect(q == expected_q);
+}
+
+test "test_moddi3" {
+    const cases = [][3]i64{
+        []i64{0, 1, 0},
+        []i64{0, -1, 0},
+        []i64{5, 3, 2},
+        []i64{5, -3, 2},
+        []i64{-5, 3, -2},
+        []i64{-5, -3, -2},
+
+        []i64{@bitCast(i64, @intCast(u64, 0x8000000000000000)),  1,  0},
+        []i64{@bitCast(i64, @intCast(u64, 0x8000000000000000)), -1,  0},
+        []i64{@bitCast(i64, @intCast(u64, 0x8000000000000000)),  2,  0},
+        []i64{@bitCast(i64, @intCast(u64, 0x8000000000000000)), -2,  0},
+        []i64{@bitCast(i64, @intCast(u64, 0x8000000000000000)),  3, -2},
+        []i64{@bitCast(i64, @intCast(u64, 0x8000000000000000)), -3, -2},
+    };
+
+    for (cases) |case| {
+        test_one_moddi3(case[0], case[1], case[2]);
+    }
+}
+
+fn test_one_moddi3(a: i64, b: i64, expected_r: i64) void {
+    const r: i64 = __moddi3(a, b);
+    testing.expect(r == expected_r);
 }
