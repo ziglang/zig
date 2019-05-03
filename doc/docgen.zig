@@ -944,7 +944,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
     var code_progress_index: usize = 0;
 
     var env_map = try os.getEnvMap(allocator);
-    try env_map.set("ZIG_DEBUG_COLOR", "1");
+    try env_map.set("ZIG_DEBUG_COLOR", "always");
 
     const builtin_code = try getBuiltinCode(allocator, &env_map, zig_exe);
 

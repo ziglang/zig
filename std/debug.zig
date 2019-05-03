@@ -73,7 +73,14 @@ pub fn getSelfDebugInfo() !*DebugInfo {
 fn wantTtyColor() bool {
     var bytes: [128]u8 = undefined;
     const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
-    return if (std.os.getEnvVarOwned(allocator, "ZIG_DEBUG_COLOR")) |_| true else |_| stderr_file.isTty();
+    if (std.os.getEnvVarOwned(allocator, "ZIG_DEBUG_COLOR")) |sval| {
+        if (mem.eql(u8, sval, "always")) {
+            return true;
+        } else if (mem.eql(u8, sval, "never")) {
+            return false;
+        }
+    } else |_| {}
+    return stderr_file.isTty();
 }
 
 /// Tries to print the current stack trace to stderr, unbuffered, and ignores any error returned.
