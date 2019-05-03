@@ -1036,7 +1036,7 @@ static LLVMValueRef get_write_register_fn_val(CodeGen *g) {
     // !0 = !{!"sp\00"}
 
     LLVMTypeRef param_types[] = {
-        LLVMMetadataTypeInContext(LLVMGetGlobalContext()), 
+        LLVMMetadataTypeInContext(LLVMGetGlobalContext()),
         LLVMIntType(g->pointer_size_bytes * 8),
     };
 
@@ -3491,6 +3491,15 @@ static bool want_valgrind_support(CodeGen *g) {
     zig_unreachable();
 }
 
+static void gen_valgrind_undef(CodeGen *g, LLVMValueRef dest_ptr, LLVMValueRef byte_count) {
+    static const uint32_t VG_USERREQ__MAKE_MEM_UNDEFINED = 1296236545;
+    ZigType *usize = g->builtin_types.entry_usize;
+    LLVMValueRef zero = LLVMConstInt(usize->llvm_type, 0, false);
+    LLVMValueRef req = LLVMConstInt(usize->llvm_type, VG_USERREQ__MAKE_MEM_UNDEFINED, false);
+    LLVMValueRef ptr_as_usize = LLVMBuildPtrToInt(g->builder, dest_ptr, usize->llvm_type, "");
+    gen_valgrind_client_request(g, zero, req, ptr_as_usize, byte_count, zero, zero, zero);
+}
+
 static void gen_undef_init(CodeGen *g, uint32_t ptr_align_bytes, ZigType *value_type, LLVMValueRef ptr) {
     assert(type_has_bits(value_type));
     uint64_t size_bytes = LLVMStoreSizeOfType(g->target_data_ref, get_llvm_type(g, value_type));
@@ -3505,11 +3514,7 @@ static void gen_undef_init(CodeGen *g, uint32_t ptr_align_bytes, ZigType *value_
     ZigLLVMBuildMemSet(g->builder, dest_ptr, fill_char, byte_count, ptr_align_bytes, false);
     // then tell valgrind that the memory is undefined even though we just memset it
     if (want_valgrind_support(g)) {
-        static const uint32_t VG_USERREQ__MAKE_MEM_UNDEFINED = 1296236545;
-        LLVMValueRef zero = LLVMConstInt(usize->llvm_type, 0, false);
-        LLVMValueRef req = LLVMConstInt(usize->llvm_type, VG_USERREQ__MAKE_MEM_UNDEFINED, false);
-        LLVMValueRef ptr_as_usize = LLVMBuildPtrToInt(g->builder, dest_ptr, usize->llvm_type, "");
-        gen_valgrind_client_request(g, zero, req, ptr_as_usize, byte_count, zero, zero, zero);
+        gen_valgrind_undef(g, dest_ptr, byte_count);
     }
 }
 
@@ -3519,14 +3524,14 @@ static LLVMValueRef ir_render_store_ptr(CodeGen *g, IrExecutable *executable, Ir
     if (!type_has_bits(ptr_type))
         return nullptr;
 
-    bool have_init_expr = !value_is_all_undef(&instruction->value->value); 
+    bool have_init_expr = !value_is_all_undef(&instruction->value->value);
     if (have_init_expr) {
         LLVMValueRef ptr = ir_llvm_value(g, instruction->ptr);
         LLVMValueRef value = ir_llvm_value(g, instruction->value);
         gen_assign_raw(g, ptr, ptr_type, value);
     } else if (ir_want_runtime_safety(g, &instruction->base)) {
         gen_undef_init(g, get_ptr_align(g, ptr_type), instruction->value->value.type,
-            ir_llvm_value(g, instruction->ptr)); 
+            ir_llvm_value(g, instruction->ptr));
     }
     return nullptr;
 }
@@ -3729,7 +3734,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     }
     FnWalk fn_walk = {};
     fn_walk.id = FnWalkIdCall;
-    fn_walk.data.call.inst = instruction; 
+    fn_walk.data.call.inst = instruction;
     fn_walk.data.call.is_var_args = is_var_args;
     fn_walk.data.call.gen_param_values = &gen_param_values;
     walk_function_params(g, fn_type, &fn_walk);
@@ -3749,7 +3754,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
 
     LLVMCallConv llvm_cc = get_llvm_cc(g, cc);
     LLVMValueRef result;
-    
+
     if (instruction->new_stack == nullptr) {
         result = ZigLLVMBuildCall(g->builder, fn_val,
                 gen_param_values.items, (unsigned)gen_param_values.length, llvm_cc, fn_inline, "");
@@ -4229,7 +4234,7 @@ static LLVMValueRef get_enum_tag_name_function(CodeGen *g, ZigType *enum_type) {
     LLVMTypeRef tag_int_llvm_type = get_llvm_type(g, tag_int_type);
     LLVMTypeRef fn_type_ref = LLVMFunctionType(LLVMPointerType(get_llvm_type(g, u8_slice_type), 0),
             &tag_int_llvm_type, 1, false);
-    
+
     Buf *fn_name = get_mangled_name(g, buf_sprintf("__zig_tag_name_%s", buf_ptr(&enum_type->name)), false);
     LLVMValueRef fn_val = LLVMAddFunction(g->module, buf_ptr(fn_name), fn_type_ref);
     LLVMSetLinkage(fn_val, LLVMInternalLinkage);
@@ -4529,17 +4534,27 @@ static LLVMValueRef ir_render_truncate(CodeGen *g, IrExecutable *executable, IrI
 
 static LLVMValueRef ir_render_memset(CodeGen *g, IrExecutable *executable, IrInstructionMemset *instruction) {
     LLVMValueRef dest_ptr = ir_llvm_value(g, instruction->dest_ptr);
-    LLVMValueRef char_val = ir_llvm_value(g, instruction->byte);
     LLVMValueRef len_val = ir_llvm_value(g, instruction->count);
 
     LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
-
     LLVMValueRef dest_ptr_casted = LLVMBuildBitCast(g->builder, dest_ptr, ptr_u8, "");
 
     ZigType *ptr_type = instruction->dest_ptr->value.type;
     assert(ptr_type->id == ZigTypeIdPointer);
 
-    ZigLLVMBuildMemSet(g->builder, dest_ptr_casted, char_val, len_val, get_ptr_align(g, ptr_type), ptr_type->data.pointer.is_volatile);
+    bool val_is_undef = value_is_all_undef(&instruction->byte->value);
+    LLVMValueRef fill_char;
+    if (val_is_undef) {
+        fill_char = LLVMConstInt(LLVMInt8Type(), 0xaa, false);
+    } else {
+        fill_char = ir_llvm_value(g, instruction->byte);
+    }
+    ZigLLVMBuildMemSet(g->builder, dest_ptr_casted, fill_char, len_val, get_ptr_align(g, ptr_type),
+            ptr_type->data.pointer.is_volatile);
+
+    if (val_is_undef && want_valgrind_support(g)) {
+        gen_valgrind_undef(g, dest_ptr_casted, len_val);
+    }
     return nullptr;
 }
 
@@ -6944,7 +6959,7 @@ static void do_code_gen(CodeGen *g) {
         ir_render(g, fn_table_entry);
 
     }
-    
+
     assert(!g->errors.length);
 
     if (buf_len(&g->global_asm) != 0) {
@@ -7752,7 +7767,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
         assert(ContainerLayoutAuto == 0);
         assert(ContainerLayoutExtern == 1);
         assert(ContainerLayoutPacked == 2);
-    
+
         assert(CallingConventionUnspecified == 0);
         assert(CallingConventionC == 1);
         assert(CallingConventionCold == 2);
