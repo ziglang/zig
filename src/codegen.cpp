@@ -6639,7 +6639,7 @@ static void validate_inline_fns(CodeGen *g) {
 }
 
 static void set_global_tls(CodeGen *g, ZigVar *var, LLVMValueRef global_value) {
-    if (var->is_thread_local && !g->is_single_threaded) {
+    if (var->is_thread_local && (!g->is_single_threaded || var->linkage != VarLinkageInternal)) {
         LLVMSetThreadLocalMode(global_value, LLVMGeneralDynamicTLSModel);
     }
 }
