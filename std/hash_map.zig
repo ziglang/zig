@@ -135,21 +135,39 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
             return res.kv;
         }
 
+        fn optimizedCapacity(expected_count: usize) usize {
+            // ensure that the hash map will be at most 60% full if
+            // new_capacity items are put into the hash map
+            var optimized_capacity = expected_count * 5 / 3;
+            // round capacity to the next power of two
+            const is_power_of_two = optimized_capacity & (optimized_capacity-1) == 0;
+            if (!is_power_of_two) {
+                const pow = math.log2_int_ceil(usize, optimized_capacity);
+                optimized_capacity = math.pow(usize, 2, pow);
+            }
+            return optimized_capacity;
+        }
+
+        /// Increase capacity so that the hash map will be at most
+        /// 60% full when expected_count items are put into it
+        pub fn ensureCapacity(self: *Self, expected_count: usize) !void {
+            const optimized_capacity = optimizedCapacity(expected_count);
+            return self.ensureCapacityExact(optimized_capacity);
+        }
+
         /// Sets the capacity to the new capacity if the new
         /// capacity is greater than the current capacity.
-        pub fn ensureCapacity(self: *Self, new_capacity: usize) !void {
+        /// New capacity must be a power of two.
+        pub fn ensureCapacityExact(self: *Self, new_capacity: usize) !void {
+            const is_power_of_two = new_capacity & (new_capacity-1) == 0;
+            assert(is_power_of_two);
+
             if (new_capacity <= self.entries.len) {
                 return;
             }
-            // make sure capacity is a power of two
-            var capacity = new_capacity;
-            const is_power_of_two = capacity & (capacity-1) == 0;
-            if (!is_power_of_two) {
-                const pow = math.log2_int_ceil(usize, capacity);
-                capacity = math.pow(usize, 2, pow);
-            }
+
             const old_entries = self.entries;
-            try self.initCapacity(capacity);
+            try self.initCapacity(new_capacity);
             if (old_entries.len > 0) {
                 // dump all of the old elements into the new table
                 for (old_entries) |*old_entry| {
@@ -236,11 +254,11 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
 
         fn autoCapacity(self: *Self) !void {
             if (self.entries.len == 0) {
-                return self.ensureCapacity(16);
+                return self.ensureCapacityExact(16);
             }
             // if we get too full (60%), double the capacity
             if (self.size * 5 >= self.entries.len * 3) {
-                return self.ensureCapacity(self.entries.len * 2);
+                return self.ensureCapacityExact(self.entries.len * 2);
             }
         }
 
