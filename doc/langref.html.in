@@ -7183,14 +7183,6 @@ pub const FloatMode = enum {
       {#see_also|Floating Point Operations#}
       {#header_close#}
 
-      {#header_open|@setGlobalLinkage#}
-      <pre>{#syntax#}@setGlobalLinkage(global_variable_name, comptime linkage: GlobalLinkage){#endsyntax#}</pre>
-      <p>
-      {#syntax#}GlobalLinkage{#endsyntax#} can be found with {#syntax#}@import("builtin").GlobalLinkage{#endsyntax#}.
-      </p>
-      {#see_also|Compile Variables#}
-      {#header_close#}
-
       {#header_open|@setRuntimeSafety#}
       <pre>{#syntax#}@setRuntimeSafety(safety_on: bool){#endsyntax#}</pre>
       <p>
