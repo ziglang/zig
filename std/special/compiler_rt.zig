@@ -106,7 +106,9 @@ comptime {
     @export("__divdi3", __divdi3, linkage);
     @export("__udivsi3", __udivsi3, linkage);
     @export("__udivdi3", __udivdi3, linkage);
+    @export("__modsi3", __modsi3, linkage);
     @export("__moddi3", __moddi3, linkage);
+    @export("__umodsi3", __umodsi3, linkage);
     @export("__umoddi3", __umoddi3, linkage);
     @export("__divmodsi4", __divmodsi4, linkage);
     @export("__udivmodsi4", __udivmodsi4, linkage);
@@ -662,6 +664,18 @@ extern fn __udivsi3(n: u32, d: u32) u32 {
     }
     q = (q << 1) | carry;
     return q;
+}
+
+extern fn __modsi3(n: i32, d: i32) i32 {
+    @setRuntimeSafety(is_test);
+
+    return n -% __divsi3(n, d) *% d;
+}
+
+extern fn __umodsi3(n: u32, d: u32) u32 {
+    @setRuntimeSafety(is_test);
+
+    return n -% __udivsi3(n, d) *% d;
 }
 
 test "test_umoddi3" {
@@ -1453,5 +1467,176 @@ test "test_moddi3" {
 
 fn test_one_moddi3(a: i64, b: i64, expected_r: i64) void {
     const r: i64 = __moddi3(a, b);
+    testing.expect(r == expected_r);
+}
+
+test "test_modsi3" {
+    const cases = [][3]i32{
+        []i32{0, 1, 0},
+        []i32{0, -1, 0},
+        []i32{5, 3, 2},
+        []i32{5, -3, 2},
+        []i32{-5, 3, -2},
+        []i32{-5, -3, -2},
+        []i32{@bitCast(i32, @intCast(u32, 0x80000000)), 1, 0x0},
+        []i32{@bitCast(i32, @intCast(u32, 0x80000000)), 2, 0x0},
+        []i32{@bitCast(i32, @intCast(u32, 0x80000000)), -2, 0x0},
+        []i32{@bitCast(i32, @intCast(u32, 0x80000000)), 3, -2},
+        []i32{@bitCast(i32, @intCast(u32, 0x80000000)), -3, -2},
+    };
+
+    for (cases) |case| {
+        test_one_modsi3(case[0], case[1], case[2]);
+    }
+}
+
+fn test_one_modsi3(a: i32, b: i32, expected_r: i32) void {
+    const r: i32 = __modsi3(a, b);
+    testing.expect(r == expected_r);
+}
+
+test "test_umodsi3" {
+    const cases = [][3]u32{
+        []u32{0x00000000, 0x00000001, 0x00000000},
+        []u32{0x00000000, 0x00000002, 0x00000000},
+        []u32{0x00000000, 0x00000003, 0x00000000},
+        []u32{0x00000000, 0x00000010, 0x00000000},
+        []u32{0x00000000, 0x078644FA, 0x00000000},
+        []u32{0x00000000, 0x0747AE14, 0x00000000},
+        []u32{0x00000000, 0x7FFFFFFF, 0x00000000},
+        []u32{0x00000000, 0x80000000, 0x00000000},
+        []u32{0x00000000, 0xFFFFFFFD, 0x00000000},
+        []u32{0x00000000, 0xFFFFFFFE, 0x00000000},
+        []u32{0x00000000, 0xFFFFFFFF, 0x00000000},
+        []u32{0x00000001, 0x00000001, 0x00000000},
+        []u32{0x00000001, 0x00000002, 0x00000001},
+        []u32{0x00000001, 0x00000003, 0x00000001},
+        []u32{0x00000001, 0x00000010, 0x00000001},
+        []u32{0x00000001, 0x078644FA, 0x00000001},
+        []u32{0x00000001, 0x0747AE14, 0x00000001},
+        []u32{0x00000001, 0x7FFFFFFF, 0x00000001},
+        []u32{0x00000001, 0x80000000, 0x00000001},
+        []u32{0x00000001, 0xFFFFFFFD, 0x00000001},
+        []u32{0x00000001, 0xFFFFFFFE, 0x00000001},
+        []u32{0x00000001, 0xFFFFFFFF, 0x00000001},
+        []u32{0x00000002, 0x00000001, 0x00000000},
+        []u32{0x00000002, 0x00000002, 0x00000000},
+        []u32{0x00000002, 0x00000003, 0x00000002},
+        []u32{0x00000002, 0x00000010, 0x00000002},
+        []u32{0x00000002, 0x078644FA, 0x00000002},
+        []u32{0x00000002, 0x0747AE14, 0x00000002},
+        []u32{0x00000002, 0x7FFFFFFF, 0x00000002},
+        []u32{0x00000002, 0x80000000, 0x00000002},
+        []u32{0x00000002, 0xFFFFFFFD, 0x00000002},
+        []u32{0x00000002, 0xFFFFFFFE, 0x00000002},
+        []u32{0x00000002, 0xFFFFFFFF, 0x00000002},
+        []u32{0x00000003, 0x00000001, 0x00000000},
+        []u32{0x00000003, 0x00000002, 0x00000001},
+        []u32{0x00000003, 0x00000003, 0x00000000},
+        []u32{0x00000003, 0x00000010, 0x00000003},
+        []u32{0x00000003, 0x078644FA, 0x00000003},
+        []u32{0x00000003, 0x0747AE14, 0x00000003},
+        []u32{0x00000003, 0x7FFFFFFF, 0x00000003},
+        []u32{0x00000003, 0x80000000, 0x00000003},
+        []u32{0x00000003, 0xFFFFFFFD, 0x00000003},
+        []u32{0x00000003, 0xFFFFFFFE, 0x00000003},
+        []u32{0x00000003, 0xFFFFFFFF, 0x00000003},
+        []u32{0x00000010, 0x00000001, 0x00000000},
+        []u32{0x00000010, 0x00000002, 0x00000000},
+        []u32{0x00000010, 0x00000003, 0x00000001},
+        []u32{0x00000010, 0x00000010, 0x00000000},
+        []u32{0x00000010, 0x078644FA, 0x00000010},
+        []u32{0x00000010, 0x0747AE14, 0x00000010},
+        []u32{0x00000010, 0x7FFFFFFF, 0x00000010},
+        []u32{0x00000010, 0x80000000, 0x00000010},
+        []u32{0x00000010, 0xFFFFFFFD, 0x00000010},
+        []u32{0x00000010, 0xFFFFFFFE, 0x00000010},
+        []u32{0x00000010, 0xFFFFFFFF, 0x00000010},
+        []u32{0x078644FA, 0x00000001, 0x00000000},
+        []u32{0x078644FA, 0x00000002, 0x00000000},
+        []u32{0x078644FA, 0x00000003, 0x00000000},
+        []u32{0x078644FA, 0x00000010, 0x0000000A},
+        []u32{0x078644FA, 0x078644FA, 0x00000000},
+        []u32{0x078644FA, 0x0747AE14, 0x003E96E6},
+        []u32{0x078644FA, 0x7FFFFFFF, 0x078644FA},
+        []u32{0x078644FA, 0x80000000, 0x078644FA},
+        []u32{0x078644FA, 0xFFFFFFFD, 0x078644FA},
+        []u32{0x078644FA, 0xFFFFFFFE, 0x078644FA},
+        []u32{0x078644FA, 0xFFFFFFFF, 0x078644FA},
+        []u32{0x0747AE14, 0x00000001, 0x00000000},
+        []u32{0x0747AE14, 0x00000002, 0x00000000},
+        []u32{0x0747AE14, 0x00000003, 0x00000002},
+        []u32{0x0747AE14, 0x00000010, 0x00000004},
+        []u32{0x0747AE14, 0x078644FA, 0x0747AE14},
+        []u32{0x0747AE14, 0x0747AE14, 0x00000000},
+        []u32{0x0747AE14, 0x7FFFFFFF, 0x0747AE14},
+        []u32{0x0747AE14, 0x80000000, 0x0747AE14},
+        []u32{0x0747AE14, 0xFFFFFFFD, 0x0747AE14},
+        []u32{0x0747AE14, 0xFFFFFFFE, 0x0747AE14},
+        []u32{0x0747AE14, 0xFFFFFFFF, 0x0747AE14},
+        []u32{0x7FFFFFFF, 0x00000001, 0x00000000},
+        []u32{0x7FFFFFFF, 0x00000002, 0x00000001},
+        []u32{0x7FFFFFFF, 0x00000003, 0x00000001},
+        []u32{0x7FFFFFFF, 0x00000010, 0x0000000F},
+        []u32{0x7FFFFFFF, 0x078644FA, 0x00156B65},
+        []u32{0x7FFFFFFF, 0x0747AE14, 0x043D70AB},
+        []u32{0x7FFFFFFF, 0x7FFFFFFF, 0x00000000},
+        []u32{0x7FFFFFFF, 0x80000000, 0x7FFFFFFF},
+        []u32{0x7FFFFFFF, 0xFFFFFFFD, 0x7FFFFFFF},
+        []u32{0x7FFFFFFF, 0xFFFFFFFE, 0x7FFFFFFF},
+        []u32{0x7FFFFFFF, 0xFFFFFFFF, 0x7FFFFFFF},
+        []u32{0x80000000, 0x00000001, 0x00000000},
+        []u32{0x80000000, 0x00000002, 0x00000000},
+        []u32{0x80000000, 0x00000003, 0x00000002},
+        []u32{0x80000000, 0x00000010, 0x00000000},
+        []u32{0x80000000, 0x078644FA, 0x00156B66},
+        []u32{0x80000000, 0x0747AE14, 0x043D70AC},
+        []u32{0x80000000, 0x7FFFFFFF, 0x00000001},
+        []u32{0x80000000, 0x80000000, 0x00000000},
+        []u32{0x80000000, 0xFFFFFFFD, 0x80000000},
+        []u32{0x80000000, 0xFFFFFFFE, 0x80000000},
+        []u32{0x80000000, 0xFFFFFFFF, 0x80000000},
+        []u32{0xFFFFFFFD, 0x00000001, 0x00000000},
+        []u32{0xFFFFFFFD, 0x00000002, 0x00000001},
+        []u32{0xFFFFFFFD, 0x00000003, 0x00000001},
+        []u32{0xFFFFFFFD, 0x00000010, 0x0000000D},
+        []u32{0xFFFFFFFD, 0x078644FA, 0x002AD6C9},
+        []u32{0xFFFFFFFD, 0x0747AE14, 0x01333341},
+        []u32{0xFFFFFFFD, 0x7FFFFFFF, 0x7FFFFFFE},
+        []u32{0xFFFFFFFD, 0x80000000, 0x7FFFFFFD},
+        []u32{0xFFFFFFFD, 0xFFFFFFFD, 0x00000000},
+        []u32{0xFFFFFFFD, 0xFFFFFFFE, 0xFFFFFFFD},
+        []u32{0xFFFFFFFD, 0xFFFFFFFF, 0xFFFFFFFD},
+        []u32{0xFFFFFFFE, 0x00000001, 0x00000000},
+        []u32{0xFFFFFFFE, 0x00000002, 0x00000000},
+        []u32{0xFFFFFFFE, 0x00000003, 0x00000002},
+        []u32{0xFFFFFFFE, 0x00000010, 0x0000000E},
+        []u32{0xFFFFFFFE, 0x078644FA, 0x002AD6CA},
+        []u32{0xFFFFFFFE, 0x0747AE14, 0x01333342},
+        []u32{0xFFFFFFFE, 0x7FFFFFFF, 0x00000000},
+        []u32{0xFFFFFFFE, 0x80000000, 0x7FFFFFFE},
+        []u32{0xFFFFFFFE, 0xFFFFFFFD, 0x00000001},
+        []u32{0xFFFFFFFE, 0xFFFFFFFE, 0x00000000},
+        []u32{0xFFFFFFFE, 0xFFFFFFFF, 0xFFFFFFFE},
+        []u32{0xFFFFFFFF, 0x00000001, 0x00000000},
+        []u32{0xFFFFFFFF, 0x00000002, 0x00000001},
+        []u32{0xFFFFFFFF, 0x00000003, 0x00000000},
+        []u32{0xFFFFFFFF, 0x00000010, 0x0000000F},
+        []u32{0xFFFFFFFF, 0x078644FA, 0x002AD6CB},
+        []u32{0xFFFFFFFF, 0x0747AE14, 0x01333343},
+        []u32{0xFFFFFFFF, 0x7FFFFFFF, 0x00000001},
+        []u32{0xFFFFFFFF, 0x80000000, 0x7FFFFFFF},
+        []u32{0xFFFFFFFF, 0xFFFFFFFD, 0x00000002},
+        []u32{0xFFFFFFFF, 0xFFFFFFFE, 0x00000001},
+        []u32{0xFFFFFFFF, 0xFFFFFFFF, 0x00000000}
+    };
+
+    for (cases) |case| {
+        test_one_umodsi3(case[0], case[1], case[2]);
+    }
+}
+
+fn test_one_umodsi3(a: u32, b: u32, expected_r: u32) void {
+    const r: u32 = __umodsi3(a, b);
     testing.expect(r == expected_r);
 }
