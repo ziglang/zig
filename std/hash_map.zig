@@ -181,8 +181,13 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
 
         /// Returns the kv pair that was already there.
         pub fn put(self: *Self, key: K, value: V) !?KV {
-            self.incrementModificationCount();
             try self.autoCapacity();
+            return putAssumeCapacity(self, key, value);
+        }
+
+        pub fn putAssumeCapacity(self: *Self, key: K, value: V) ?KV {
+            assert(self.count() < self.entries.len);
+            self.incrementModificationCount();
 
             const put_result = self.internalPut(key);
             put_result.new_entry.kv.value = value;
