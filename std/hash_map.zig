@@ -158,7 +158,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
         /// Sets the capacity to the new capacity if the new
         /// capacity is greater than the current capacity.
         /// New capacity must be a power of two.
-        pub fn ensureCapacityExact(self: *Self, new_capacity: usize) !void {
+        fn ensureCapacityExact(self: *Self, new_capacity: usize) !void {
             const is_power_of_two = new_capacity & (new_capacity-1) == 0;
             assert(is_power_of_two);
 
