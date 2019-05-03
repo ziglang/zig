@@ -1100,8 +1100,8 @@ pub fn sigaction(sig: u6, noalias act: *const Sigaction, noalias oact: ?*Sigacti
 
 const NSIG = 65;
 const sigset_t = [128 / @sizeOf(usize)]usize;
-const all_mask = []usize{maxInt(usize)};
-const app_mask = []usize{0xfffffffc7fffffff};
+const all_mask = []u32{0xffffffff, 0xffffffff};
+const app_mask = []u32{0xfffffffc, 0x7fffffff};
 
 const k_sigaction = extern struct {
     handler: extern fn (i32) void,

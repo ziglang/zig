@@ -31,8 +31,8 @@ pub fn sleep(nanoseconds: u64) void {
 
 pub fn posixSleep(seconds: u63, nanoseconds: u63) void {
     var req = posix.timespec{
-        .tv_sec = seconds,
-        .tv_nsec = nanoseconds,
+        .tv_sec = @intCast(isize, seconds),
+        .tv_nsec = @intCast(isize, nanoseconds),
     };
     var rem: posix.timespec = undefined;
     while (true) {
