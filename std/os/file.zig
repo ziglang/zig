@@ -301,7 +301,6 @@ pub const File = struct {
     }
 
     pub const GetSeekPosError = error{
-        Overflow,
         SystemResources,
         Unseekable,
         Unexpected,
@@ -324,7 +323,7 @@ pub const File = struct {
                         else => os.unexpectedErrorPosix(err),
                     };
                 }
-                return @intCast(u64, result);
+                return u64(result);
             },
             Os.windows => {
                 var pos: windows.LARGE_INTEGER = undefined;
@@ -336,8 +335,7 @@ pub const File = struct {
                     };
                 }
 
-                assert(pos >= 0);
-                return math.cast(u64, pos);
+                return @intCast(u64, pos);
             },
             else => @compileError("unsupported OS"),
         }
@@ -355,8 +353,6 @@ pub const File = struct {
                     else => os.unexpectedErrorWindows(err),
                 };
             }
-            if (file_size < 0)
-                return error.Overflow;
             return @intCast(u64, file_size);
         } else {
             @compileError("TODO support getEndPos on this OS");
