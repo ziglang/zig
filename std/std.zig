@@ -13,6 +13,7 @@ pub const PackedIntArray = @import("packed_int_array.zig").PackedIntArray;
 pub const PackedIntSliceEndian = @import("packed_int_array.zig").PackedIntSliceEndian;
 pub const PackedIntSlice = @import("packed_int_array.zig").PackedIntSlice;
 pub const PriorityQueue = @import("priority_queue.zig").PriorityQueue;
+pub const SinglyLinkedList = @import("linked_list.zig").SinglyLinkedList;
 pub const StaticallyInitializedMutex = @import("statically_initialized_mutex.zig").StaticallyInitializedMutex;
 pub const SegmentedList = @import("segmented_list.zig").SegmentedList;
 pub const SpinLock = @import("spinlock.zig").SpinLock;
