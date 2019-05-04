@@ -171,7 +171,7 @@ pub fn PackedIntIo(comptime Int: type) type
     };
 }
 
-///Creates a bit-packed array of int_count integers of type Int. Bits
+///Creates a bit-packed array of integers of type Int. Bits
 /// are packed using native endianess and without storing any meta
 /// data. PackedIntArray(i3, 8) will occupy exactly 3 bytes of memory.
 pub fn PackedIntArray(comptime Int: type, comptime int_count: usize) type
