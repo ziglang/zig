@@ -137,18 +137,14 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
 
         fn optimizedCapacity(expected_count: usize) usize {
             // ensure that the hash map will be at most 60% full if
-            // new_capacity items are put into the hash map
+            // expected_count items are put into it
             var optimized_capacity = expected_count * 5 / 3;
             // round capacity to the next power of two
-            const is_power_of_two = optimized_capacity & (optimized_capacity-1) == 0;
-            if (!is_power_of_two) {
-                const pow = math.log2_int_ceil(usize, optimized_capacity);
-                optimized_capacity = math.pow(usize, 2, pow);
-            }
-            return optimized_capacity;
+            const pow = math.log2_int_ceil(usize, optimized_capacity);
+            return math.pow(usize, 2, pow);
         }
 
-        /// Increase capacity so that the hash map will be at most
+        /// Increases capacity so that the hash map will be at most
         /// 60% full when expected_count items are put into it
         pub fn ensureCapacity(self: *Self, expected_count: usize) !void {
             const optimized_capacity = optimizedCapacity(expected_count);
@@ -168,6 +164,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
 
             const old_entries = self.entries;
             try self.initCapacity(new_capacity);
+            self.incrementModificationCount();
             if (old_entries.len > 0) {
                 // dump all of the old elements into the new table
                 for (old_entries) |*old_entry| {
@@ -465,6 +462,24 @@ test "iterator hash map" {
     var entry = it.next().?;
     testing.expect(entry.key == keys[0]);
     testing.expect(entry.value == values[0]);
+}
+
+test "ensure capacity" {
+    var direct_allocator = std.heap.DirectAllocator.init();
+    defer direct_allocator.deinit();
+
+    var map = AutoHashMap(i32, i32).init(&direct_allocator.allocator);
+    defer map.deinit();
+
+    try map.ensureCapacity(20);
+    const initialCapacity = map.entries.len;
+    testing.expect(initialCapacity >= 20);
+    var i : i32 = 0;
+    while (i < 20) : (i += 1) {
+        testing.expect(map.putAssumeCapacity(i, i+10) == null);
+    }
+    // shouldn't resize from putAssumeCapacity
+    testing.expect(initialCapacity == map.entries.len);
 }
 
 pub fn getHashPtrAddrFn(comptime K: type) (fn (K) u32) {
