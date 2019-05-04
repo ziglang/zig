@@ -768,10 +768,10 @@ pub const Isaac64 = struct {
         const x = self.m[base + m1];
         self.a = mix +% self.m[base + m2];
 
-        const y = self.a +% self.b +% self.m[(x >> 3) % self.m.len];
+        const y = self.a +% self.b +% self.m[@intCast(usize, (x >> 3) % self.m.len)];
         self.m[base + m1] = y;
 
-        self.b = x +% self.m[(y >> 11) % self.m.len];
+        self.b = x +% self.m[@intCast(usize, (y >> 11) % self.m.len)];
         self.r[self.r.len - 1 - base - m1] = self.b;
     }
 
