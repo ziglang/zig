@@ -3,6 +3,7 @@ const assert = std.debug.assert;
 const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
 const elf = std.elf;
+pub const tls = @import("linux/tls.zig");
 const vdso = @import("linux/vdso.zig");
 const dl = @import("../dynamic_library.zig");
 pub use switch (builtin.arch) {

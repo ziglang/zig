@@ -3126,9 +3126,6 @@ pub const SpawnThreadError = error{
     Unexpected,
 };
 
-pub var linux_tls_phdr: ?*std.elf.Phdr = null;
-pub var linux_tls_img_src: [*]const u8 = undefined; // defined if linux_tls_phdr is
-
 /// caller must call wait on the returned thread
 /// fn startFn(@typeOf(context)) T
 /// where T is u8, noreturn, void, or !void
@@ -3238,12 +3235,10 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
         }
         // Finally, the Thread Local Storage, if any.
         if (!Thread.use_pthreads) {
-            if (linux_tls_phdr) |tls_phdr| {
-                l = mem.alignForward(l, tls_phdr.p_align);
+            if (linux.tls.tls_image) |tls_img| {
+                l = mem.alignForward(l, @alignOf(usize));
                 tls_start_offset = l;
-                l += tls_phdr.p_memsz;
-                // the fs register address
-                l += @sizeOf(usize);
+                l += tls_img.alloc_size;
             }
         }
         break :blk l;
@@ -3284,10 +3279,8 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
             posix.CLONE_THREAD | posix.CLONE_SYSVSEM | posix.CLONE_PARENT_SETTID | posix.CLONE_CHILD_CLEARTID |
             posix.CLONE_DETACHED;
         var newtls: usize = undefined;
-        if (linux_tls_phdr) |tls_phdr| {
-            @memcpy(@intToPtr([*]u8, mmap_addr + tls_start_offset), linux_tls_img_src, tls_phdr.p_filesz);
-            newtls = mmap_addr + mmap_len - @sizeOf(usize);
-            @intToPtr(*usize, newtls).* = newtls;
+        if (linux.tls.tls_image) |tls_img| {
+            newtls = linux.tls.copyTLS(mmap_addr + tls_start_offset);
             flags |= posix.CLONE_SETTLS;
         }
         const rc = posix.clone(MainFuncs.linuxThreadMain, mmap_addr + stack_end_offset, flags, arg, &thread_ptr.data.handle, newtls, &thread_ptr.data.handle);
