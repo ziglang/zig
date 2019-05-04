@@ -13,7 +13,7 @@ const BufMap = std.BufMap;
 const Buffer = std.Buffer;
 const builtin = @import("builtin");
 const Os = builtin.Os;
-const LinkedList = std.LinkedList;
+const TailQueue = std.TailQueue;
 const maxInt = std.math.maxInt;
 
 pub const ChildProcess = struct {
@@ -48,7 +48,7 @@ pub const ChildProcess = struct {
     pub cwd: ?[]const u8,
 
     err_pipe: if (os.windows.is_the_target) void else [2]os.fd_t,
-    llnode: if (os.windows.is_the_target) void else LinkedList(*ChildProcess).Node,
+    llnode: if (os.windows.is_the_target) void else TailQueue(*ChildProcess).Node,
 
     pub const SpawnError = error{OutOfMemory} || os.ExecveError || os.SetIdError ||
         os.ChangeCurDirError || windows.CreateProcessError;
@@ -388,7 +388,7 @@ pub const ChildProcess = struct {
 
         self.pid = pid;
         self.err_pipe = err_pipe;
-        self.llnode = LinkedList(*ChildProcess).Node.init(self);
+        self.llnode = TailQueue(*ChildProcess).Node.init(self);
         self.term = null;
 
         if (self.stdin_behavior == StdIo.Pipe) {

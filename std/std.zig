@@ -7,7 +7,6 @@ pub const Buffer = @import("buffer.zig").Buffer;
 pub const BufferOutStream = @import("io.zig").BufferOutStream;
 pub const DynLib = @import("dynamic_library.zig").DynLib;
 pub const HashMap = @import("hash_map.zig").HashMap;
-pub const LinkedList = @import("linked_list.zig").LinkedList;
 pub const Mutex = @import("mutex.zig").Mutex;
 pub const PackedIntArrayEndian = @import("packed_int_array.zig").PackedIntArrayEndian;
 pub const PackedIntArray = @import("packed_int_array.zig").PackedIntArray;
@@ -18,6 +17,7 @@ pub const StaticallyInitializedMutex = @import("statically_initialized_mutex.zig
 pub const SegmentedList = @import("segmented_list.zig").SegmentedList;
 pub const SpinLock = @import("spinlock.zig").SpinLock;
 pub const ChildProcess = @import("child_process.zig").ChildProcess;
+pub const TailQueue = @import("linked_list.zig").TailQueue;
 pub const Thread = @import("thread.zig").Thread;
 
 pub const atomic = @import("atomic.zig");

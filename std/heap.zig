@@ -347,10 +347,10 @@ pub const ArenaAllocator = struct {
     pub allocator: Allocator,
 
     child_allocator: *Allocator,
-    buffer_list: std.LinkedList([]u8),
+    buffer_list: std.TailQueue([]u8),
     end_index: usize,
 
-    const BufNode = std.LinkedList([]u8).Node;
+    const BufNode = std.TailQueue([]u8).Node;
 
     pub fn init(child_allocator: *Allocator) ArenaAllocator {
         return ArenaAllocator{
@@ -359,7 +359,7 @@ pub const ArenaAllocator = struct {
                 .shrinkFn = shrink,
             },
             .child_allocator = child_allocator,
-            .buffer_list = std.LinkedList([]u8).init(),
+            .buffer_list = std.TailQueue([]u8).init(),
             .end_index = 0,
         };
     }

@@ -5,8 +5,13 @@ const testing = std.testing;
 const mem = std.mem;
 const Allocator = mem.Allocator;
 
-/// Generic doubly linked list.
-pub fn LinkedList(comptime T: type) type {
+/// A tail queue is headed by a pair of pointers, one to the head of the
+/// list and the other to the tail of the list. The elements are doubly
+/// linked so that an arbitrary element can be removed without a need to
+/// traverse the list. New elements can be added to the list before or
+/// after an existing element, at the head of the list, or at the end of
+/// the list. A tail queue may be traversed in either direction.
+pub fn TailQueue(comptime T: type) type {
     return struct {
         const Self = @This();
 
@@ -219,9 +224,9 @@ pub fn LinkedList(comptime T: type) type {
     };
 }
 
-test "basic linked list test" {
+test "basic TailQueue test" {
     const allocator = debug.global_allocator;
-    var list = LinkedList(u32).init();
+    var list = TailQueue(u32).init();
 
     var one = try list.createNode(1, allocator);
     var two = try list.createNode(2, allocator);
@@ -271,10 +276,10 @@ test "basic linked list test" {
     testing.expect(list.len == 2);
 }
 
-test "linked list concatenation" {
+test "TailQueue concatenation" {
     const allocator = debug.global_allocator;
-    var list1 = LinkedList(u32).init();
-    var list2 = LinkedList(u32).init();
+    var list1 = TailQueue(u32).init();
+    var list2 = TailQueue(u32).init();
 
     var one = try list1.createNode(1, allocator);
     defer list1.destroyNode(one, allocator);
