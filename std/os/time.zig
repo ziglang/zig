@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const Os = builtin.Os;
 const debug = std.debug;
 const testing = std.testing;
+const math = std.math;
 
 const windows = std.os.windows;
 const linux = std.os.linux;
@@ -30,16 +31,26 @@ pub fn sleep(nanoseconds: u64) void {
 }
 
 pub fn posixSleep(seconds: u63, nanoseconds: u63) void {
-    var req = posix.timespec{
-        .tv_sec = seconds,
-        .tv_nsec = nanoseconds,
-    };
+    var req: posix.timespec = undefined;
     var rem: posix.timespec = undefined;
+
+    var req_sec = seconds;
+    var req_nsec = nanoseconds;
+
     while (true) {
+        req.tv_sec = math.min(math.maxInt(isize), req_sec);
+        req.tv_nsec = @intCast(isize, req_nsec);
+
+        req_sec -= @intCast(u63, req.tv_sec);
+        req_nsec = 0;
+
         const ret_val = posix.nanosleep(&req, &rem);
         const err = posix.getErrno(ret_val);
-        if (err == 0) return;
         switch (err) {
+            0 => {
+                // If there's still time to wait keep running the loop
+                if (req_sec == 0 and req_nsec == 0) return;
+            },
             posix.EFAULT => unreachable,
             posix.EINVAL => {
                 // Sometimes Darwin returns EINVAL for no reason.
@@ -47,7 +58,8 @@ pub fn posixSleep(seconds: u63, nanoseconds: u63) void {
                 return;
             },
             posix.EINTR => {
-                req = rem;
+                req_sec += @intCast(u63, rem.tv_sec);
+                req_nsec = @intCast(u63, rem.tv_nsec);
                 continue;
             },
             else => return,

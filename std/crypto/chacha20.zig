@@ -142,7 +142,7 @@ pub fn chaCha20With64BitNonce(out: []u8, in: []const u8, counter: u64, key: [32]
     assert(in.len >= out.len);
     assert(counter +% (in.len >> 6) >= counter);
 
-    var cursor: u64 = 0;
+    var cursor: usize = 0;
     var k: [8]u32 = undefined;
     var c: [4]u32 = undefined;
 
@@ -161,7 +161,8 @@ pub fn chaCha20With64BitNonce(out: []u8, in: []const u8, counter: u64, key: [32]
     c[3] = mem.readIntSliceLittle(u32, nonce[4..8]);
 
     const block_size = (1 << 6);
-    const big_block = (block_size << 32);
+    // The full block size is greater than the address space on a 32bit machine
+    const big_block = if (@sizeOf(usize) > 4) (block_size << 32) else maxInt(usize);
 
     // first partial big block
     if (((@intCast(u64, maxInt(u32) - @truncate(u32, counter)) + 1) << 6) < in.len) {

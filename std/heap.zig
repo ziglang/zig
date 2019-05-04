@@ -603,7 +603,7 @@ test "ArenaAllocator" {
     try testAllocatorAlignedShrink(&arena_allocator.allocator);
 }
 
-var test_fixed_buffer_allocator_memory: [40000 * @sizeOf(usize)]u8 = undefined;
+var test_fixed_buffer_allocator_memory: [40000 * @sizeOf(u64)]u8 = undefined;
 test "FixedBufferAllocator" {
     var fixed_buffer_allocator = FixedBufferAllocator.init(test_fixed_buffer_allocator_memory[0..]);
 
