@@ -1,6 +1,6 @@
 const std = @import("std");
 const mem = std.mem;
-const posix = std.posix;
+const posix = std.os.posix;
 const elf = std.elf;
 const builtin = @import("builtin");
 const assert = std.debug.assert;
@@ -234,9 +234,18 @@ pub fn copyTLS(addr: usize) usize {
     return addr + tls_img.tcb_offset + tls_tp_offset;
 }
 
-var main_thread_tls_buffer: [64]u8 align(32) = undefined;
+var main_thread_tls_buffer: [256]u8 align(32) = undefined;
 
 pub fn allocateTLS(size: usize) usize {
-    assert(size < main_thread_tls_buffer.len);
-    return @ptrToInt(&main_thread_tls_buffer);
+    // Small TLS allocation, use our local buffer
+    if (size < main_thread_tls_buffer.len) {
+        return @ptrToInt(&main_thread_tls_buffer);
+    }
+
+    const addr = posix.mmap(null, size, posix.PROT_READ | posix.PROT_WRITE,
+                            posix.MAP_PRIVATE | posix.MAP_ANONYMOUS, -1, 0);
+
+    if (posix.getErrno(addr) != 0) @panic("allocateTLS failed to allocate memory");
+
+    return addr;
 }
