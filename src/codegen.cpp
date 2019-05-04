@@ -9420,13 +9420,19 @@ void codegen_build_and_link(CodeGen *g) {
         os_path_join(g->cache_dir, buf_create_from_str(CACHE_HASH_SUBDIR), manifest_dir);
 
         if ((err = check_cache(g, manifest_dir, &digest))) {
-            if (err == ErrorCacheUnavailable) {
-                // message already printed
-            } else if (err == ErrorNotDir) {
-                fprintf(stderr, "Unable to check cache: %s is not a directory\n",
-                    buf_ptr(manifest_dir));
+            Buf* full_manifest_path = buf_alloc();
+            Error real_err = os_path_real(manifest_dir, full_manifest_path);
+            if (real_err != ErrorNone) {
+                fprintf(stderr, "Error trying to resolve full path of '%s': %s\n", buf_ptr(manifest_dir), err_str(real_err));
             } else {
-                fprintf(stderr, "Unable to check cache: %s\n", err_str(err));
+                if (err == ErrorCacheUnavailable) {
+                    // message already printed
+                } else if (err == ErrorNotDir) {
+                    fprintf(stderr, "Unable to check cache: %s is not a directory\n",
+                        buf_ptr(full_manifest_path));
+                } else {
+                    fprintf(stderr, "Unable to check cache '%s': %s\n", buf_ptr(full_manifest_path), err_str(err));
+                }
             }
             exit(1);
         }
