@@ -629,6 +629,7 @@ set(ZIG_STD_FILES
     "os/windows/shell32.zig"
     "os/windows/util.zig"
     "os/zen.zig"
+    "packed_int_array.zig"
     "pdb.zig"
     "priority_queue.zig"
     "rand.zig"
