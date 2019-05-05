@@ -19,25 +19,29 @@ pub const DynLib = switch (builtin.os) {
     else => void,
 };
 
+// The link_map structure is not completely specified beside the fields
+// reported below, any libc is free to store additional data in the remaining
+// space.
+// An iterator is provided in order to traverse the linked list in a idiomatic
+// fashion.
 const LinkMap = extern struct {
     l_addr: usize,
-    l_name: [*]u8,
-    l_ld: [*c]elf.Dyn,
-    l_next: [*c]LinkMap,
-    l_prev: [*c]LinkMap,
+    l_name: [*]const u8,
+    l_ld: ?*elf.Dyn,
+    l_next: ?*LinkMap,
+    l_prev: ?*LinkMap,
 
     pub const Iterator = struct {
-        lm_ptr: [*c]LinkMap,
+        current: ?*LinkMap,
 
-        fn end(self: *const Iterator) bool {
-            return self.lm_ptr == 0;
+        fn end(self: *Iterator) bool {
+            return self.current == null;
         }
 
         fn next(self: *Iterator) ?*LinkMap {
-            if (self.lm_ptr != 0) {
-                const ptr = self.lm_ptr;
-                self.lm_ptr = self.lm_ptr.*.l_next;
-                return ptr;
+            if (self.current) |it| {
+                self.current = it.l_next;
+                return it;
             }
             return null;
         }
@@ -46,7 +50,7 @@ const LinkMap = extern struct {
 
 const RDebug = extern struct {
     r_version: i32,
-    r_map: [*c]LinkMap,
+    r_map: ?*LinkMap,
     r_brk: usize,
     r_ldbase: usize,
 };
@@ -72,7 +76,7 @@ pub fn linkmap_iterator(phdrs: []elf.Phdr) !LinkMap.Iterator {
         }
         // No PT_DYNAMIC means this is either a statically-linked program or a
         // badly corrupted one
-        return LinkMap.Iterator{.lm_ptr = 0};
+        return LinkMap.Iterator{.current = null};
     };
 
     const link_map_ptr = init: {
@@ -87,7 +91,7 @@ pub fn linkmap_iterator(phdrs: []elf.Phdr) !LinkMap.Iterator {
                     const got_table = @intToPtr([*]usize, dyn.d_un.d_ptr);
                     // The address to the link_map structure is stored in the
                     // second slot
-                    break :init @intToPtr([*c]LinkMap, got_table[1]);
+                    break :init @intToPtr(?*LinkMap, got_table[1]);
                 },
                 else => { }
             }
@@ -95,7 +99,7 @@ pub fn linkmap_iterator(phdrs: []elf.Phdr) !LinkMap.Iterator {
         return error.InvalidExe;
     };
 
-    return LinkMap.Iterator{.lm_ptr = link_map_ptr};
+    return LinkMap.Iterator{.current = link_map_ptr};
 }
 
 pub const LinuxDynLib = struct {
