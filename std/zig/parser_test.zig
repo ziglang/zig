@@ -2215,7 +2215,7 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
                         needed_alloc_count,
                         failing_allocator.allocated_bytes,
                         failing_allocator.freed_bytes,
-                        failing_allocator.index,
+                        failing_allocator.allocations,
                         failing_allocator.deallocations,
                     );
                     return error.MemoryLeakDetected;
