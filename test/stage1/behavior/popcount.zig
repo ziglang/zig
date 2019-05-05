@@ -7,6 +7,14 @@ test "@popCount" {
 
 fn testPopCount() void {
     {
+        var x: u32 = 0xffffffff;
+        expect(@popCount(u32, x) == 32);
+    }
+    {
+        var x: u5 = 0x1f;
+        expect(@popCount(u5, x) == 5);
+    }
+    {
         var x: u32 = 0xaa;
         expect(@popCount(u32, x) == 4);
     }

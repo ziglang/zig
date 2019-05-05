@@ -539,7 +539,7 @@ static void ir_print_pop_count(IrPrint *irp, IrInstructionPopCount *instruction)
 }
 
 static void ir_print_bswap(IrPrint *irp, IrInstructionBswap *instruction) {
-    fprintf(irp->f, "@bSwap(");
+    fprintf(irp->f, "@byteSwap(");
     if (instruction->type != nullptr) {
         ir_print_other_instruction(irp, instruction->type);
     } else {

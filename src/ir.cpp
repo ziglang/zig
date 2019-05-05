@@ -16845,13 +16845,7 @@ static IrInstruction *ir_analyze_instruction_ctz(IrAnalyze *ira, IrInstructionCt
     if (type_is_invalid(casted_op->value.type))
         return ira->codegen->invalid_instruction;
 
-    if (op->value.type->id == ZigTypeIdComptimeInt) {
-        ir_add_error(ira, instruction->op,
-            buf_sprintf("expected %s fixed-width integer type, found %s", buf_ptr(&int_type->name), buf_ptr(&op->value.type->name)));
-        return ira->codegen->invalid_instruction;
-    }
-
-    ZigType *return_type = get_smallest_unsigned_int_type(ira->codegen, int_type->data.integral.bit_count);
+    ZigType *return_type = get_smallest_popcount_unsigned_int_type(ira->codegen, int_type->data.integral.bit_count);
 
     if (int_type->data.integral.bit_count == 0) {
         IrInstruction *result = ir_const(ira, &instruction->base, return_type);
@@ -16890,13 +16884,7 @@ static IrInstruction *ir_analyze_instruction_clz(IrAnalyze *ira, IrInstructionCl
     if (type_is_invalid(casted_op->value.type))
         return ira->codegen->invalid_instruction;
 
-    if (op->value.type->id == ZigTypeIdComptimeInt) {
-        ir_add_error(ira, instruction->op,
-            buf_sprintf("expected %s fixed-width integer type, found %s", buf_ptr(&int_type->name), buf_ptr(&op->value.type->name)));
-        return ira->codegen->invalid_instruction;
-    }
-
-    ZigType *return_type = get_smallest_unsigned_int_type(ira->codegen, int_type->data.integral.bit_count);
+    ZigType *return_type = get_smallest_popcount_unsigned_int_type(ira->codegen, int_type->data.integral.bit_count);
 
     if (int_type->data.integral.bit_count == 0) {
         IrInstruction *result = ir_const(ira, &instruction->base, return_type);
@@ -16935,7 +16923,7 @@ static IrInstruction *ir_analyze_instruction_pop_count(IrAnalyze *ira, IrInstruc
     if (type_is_invalid(casted_op->value.type))
         return ira->codegen->invalid_instruction;
 
-    ZigType *return_type = get_smallest_unsigned_int_type(ira->codegen, int_type->data.integral.bit_count);
+    ZigType *return_type = get_smallest_popcount_unsigned_int_type(ira->codegen, int_type->data.integral.bit_count);
 
     if (int_type->data.integral.bit_count == 0) {
         IrInstruction *result = ir_const(ira, &instruction->base, return_type);
@@ -16951,14 +16939,6 @@ static IrInstruction *ir_analyze_instruction_pop_count(IrAnalyze *ira, IrInstruc
         if (bigint_cmp_zero(&val->data.x_bigint) != CmpLT) {
             size_t result = bigint_popcount_unsigned(&val->data.x_bigint);
             return ir_const_unsigned(ira, &instruction->base, result);
-        }
-        if (op->value.type->id == ZigTypeIdComptimeInt) {
-            Buf *val_buf = buf_alloc();
-            bigint_append_buf(val_buf, &val->data.x_bigint, 10);
-            ir_add_error(ira, &instruction->base,
-                buf_sprintf("@popCount on negative values (got '%s') must be fixed width, not %s",
-                    buf_ptr(val_buf), buf_ptr(&op->value.type->name)));
-            return ira->codegen->invalid_instruction;
         }
         size_t result = bigint_popcount_signed(&val->data.x_bigint, op->value.type->data.integral.bit_count);
         return ir_const_unsigned(ira, &instruction->base, result);
@@ -22698,14 +22678,8 @@ static IrInstruction *ir_analyze_instruction_bswap(IrAnalyze *ira, IrInstruction
 
     if (int_type->data.integral.bit_count % 8 != 0) {
         ir_add_error(ira, instruction->op,
-            buf_sprintf("@bSwap integer type '%s' has %" PRIu32 " bits which is not evenly divisible by 8",
+            buf_sprintf("@byteSwap integer type '%s' has %" PRIu32 " bits which is not evenly divisible by 8",
                 buf_ptr(&int_type->name), int_type->data.integral.bit_count));
-        return ira->codegen->invalid_instruction;
-    }
-
-    if (op->value.type->id == ZigTypeIdComptimeInt) {
-        ir_add_error(ira, instruction->op,
-            buf_sprintf("expected %s fixed-width integer type, found %s", buf_ptr(&int_type->name), buf_ptr(&op->value.type->name)));
         return ira->codegen->invalid_instruction;
     }
 

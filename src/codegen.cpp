@@ -7236,7 +7236,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdCtz, "ctz", 2);
     create_builtin_fn(g, BuiltinFnIdClz, "clz", 2);
     create_builtin_fn(g, BuiltinFnIdPopCount, "popCount", 2);
-    create_builtin_fn(g, BuiltinFnIdBswap, "bSwap", 2);
+    create_builtin_fn(g, BuiltinFnIdBswap, "byteSwap", 2);
     create_builtin_fn(g, BuiltinFnIdBitReverse, "bitReverse", 2);
     create_builtin_fn(g, BuiltinFnIdImport, "import", 1);
     create_builtin_fn(g, BuiltinFnIdCImport, "cImport", 1);
