@@ -20,6 +20,10 @@ comptime {
 }
 
 nakedcc fn _start() noreturn {
+    if (builtin.os == builtin.Os.wasi) {
+        std.os.wasi.proc_exit(callMain());
+    }
+
     switch (builtin.arch) {
         builtin.Arch.x86_64 => {
             argc_ptr = asm ("lea (%%rsp), %[argc]"

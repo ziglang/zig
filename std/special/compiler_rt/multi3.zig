@@ -14,9 +14,9 @@ pub extern fn __multi3(a: i128, b: i128) i128 {
     return r.all;
 }
 
-pub extern fn __multi3_windows_x86_64(a: *const i128, b: *const i128) void {
-    @setRuntimeSafety(builtin.is_test);
-    compiler_rt.setXmm0(i128, __multi3(a.*, b.*));
+const v128 = @Vector(2, u64);
+pub extern fn __multi3_windows_x86_64(a: v128, b: v128) v128 {
+    return @bitCast(v128, @inlineCall(__multi3, @bitCast(i128, a), @bitCast(i128, b)));
 }
 
 fn __mulddi3(a: u64, b: u64) i128 {

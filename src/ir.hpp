@@ -14,7 +14,7 @@ bool ir_gen(CodeGen *g, AstNode *node, Scope *scope, IrExecutable *ir_executable
 bool ir_gen_fn(CodeGen *g, ZigFn *fn_entry);
 
 ConstExprValue *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node,
-        ZigType *expected_type, size_t *backward_branch_count, size_t backward_branch_quota,
+        ZigType *expected_type, size_t *backward_branch_count, size_t *backward_branch_quota,
         ZigFn *fn_entry, Buf *c_import_buf, AstNode *source_node, Buf *exec_name,
         IrExecutable *parent_exec, AstNode *expected_type_source_node);
 

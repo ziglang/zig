@@ -1,9 +1,8 @@
-// Special Cases:
+// Ported from musl, which is licensed under the MIT license:
+// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
-// - log2(+inf)  = +inf
-// - log2(0)     = -inf
-// - log2(x)     = nan if x < 0
-// - log2(nan)   = nan
+// https://git.musl-libc.org/cgit/musl/tree/src/math/log2f.c
+// https://git.musl-libc.org/cgit/musl/tree/src/math/log2.c
 
 const std = @import("../std.zig");
 const math = std.math;
@@ -12,6 +11,13 @@ const builtin = @import("builtin");
 const TypeId = builtin.TypeId;
 const maxInt = std.math.maxInt;
 
+/// Returns the base-2 logarithm of x.
+///
+/// Special Cases:
+///  - log2(+inf)  = +inf
+///  - log2(0)     = -inf
+///  - log2(x)     = nan if x < 0
+///  - log2(nan)   = nan
 pub fn log2(x: var) @typeOf(x) {
     const T = @typeOf(x);
     switch (@typeId(T)) {

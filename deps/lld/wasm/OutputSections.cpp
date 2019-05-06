@@ -111,8 +111,8 @@ void CodeSection::writeTo(uint8_t *Buf) {
   memcpy(Buf, CodeSectionHeader.data(), CodeSectionHeader.size());
 
   // Write code section bodies
-  parallelForEach(Functions,
-                  [&](const InputChunk *Chunk) { Chunk->writeTo(Buf); });
+  for (const InputChunk *Chunk : Functions)
+    Chunk->writeTo(Buf);
 }
 
 uint32_t CodeSection::numRelocations() const {
@@ -176,7 +176,7 @@ void DataSection::writeTo(uint8_t *Buf) {
   // Write data section headers
   memcpy(Buf, DataSectionHeader.data(), DataSectionHeader.size());
 
-  parallelForEach(Segments, [&](const OutputSegment *Segment) {
+  for (const OutputSegment *Segment : Segments) {
     // Write data segment header
     uint8_t *SegStart = Buf + Segment->SectionOffset;
     memcpy(SegStart, Segment->Header.data(), Segment->Header.size());
@@ -184,7 +184,7 @@ void DataSection::writeTo(uint8_t *Buf) {
     // Write segment data payload
     for (const InputChunk *Chunk : Segment->InputSegments)
       Chunk->writeTo(Buf);
-  });
+  }
 }
 
 uint32_t DataSection::numRelocations() const {
@@ -232,8 +232,8 @@ void CustomSection::writeTo(uint8_t *Buf) {
   Buf += NameData.size();
 
   // Write custom sections payload
-  parallelForEach(InputSections,
-                  [&](const InputSection *Section) { Section->writeTo(Buf); });
+  for (const InputSection *Section : InputSections)
+    Section->writeTo(Buf);
 }
 
 uint32_t CustomSection::numRelocations() const {

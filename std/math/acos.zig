@@ -1,11 +1,17 @@
-// Special Cases:
+// Ported from musl, which is licensed under the MIT license:
+// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
-// - acos(x)   = nan if x < -1 or x > 1
+// https://git.musl-libc.org/cgit/musl/tree/src/math/acosf.c
+// https://git.musl-libc.org/cgit/musl/tree/src/math/acos.c
 
 const std = @import("../std.zig");
 const math = std.math;
 const expect = std.testing.expect;
 
+/// Returns the arc-cosine of x.
+///
+/// Special cases:
+///  - acos(x)   = nan if x < -1 or x > 1
 pub fn acos(x: var) @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {

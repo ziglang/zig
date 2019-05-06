@@ -3,6 +3,7 @@ const math = std.math;
 const expect = std.testing.expect;
 const maxInt = std.math.maxInt;
 
+/// Returns whether x is an infinity, ignoring sign.
 pub fn isInf(x: var) bool {
     const T = @typeOf(x);
     switch (T) {
@@ -28,6 +29,7 @@ pub fn isInf(x: var) bool {
     }
 }
 
+/// Returns whether x is an infinity with a positive sign.
 pub fn isPositiveInf(x: var) bool {
     const T = @typeOf(x);
     switch (T) {
@@ -49,6 +51,7 @@ pub fn isPositiveInf(x: var) bool {
     }
 }
 
+/// Returns whether x is an infinity with a negative sign.
 pub fn isNegativeInf(x: var) bool {
     const T = @typeOf(x);
     switch (T) {

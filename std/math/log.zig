@@ -1,9 +1,16 @@
+// Ported from musl, which is licensed under the MIT license:
+// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
+//
+// https://git.musl-libc.org/cgit/musl/tree/src/math/logf.c
+// https://git.musl-libc.org/cgit/musl/tree/src/math/log.c
+
 const std = @import("../std.zig");
 const math = std.math;
 const builtin = @import("builtin");
 const TypeId = builtin.TypeId;
 const expect = std.testing.expect;
 
+/// Returns the logarithm of x for the provided base.
 pub fn log(comptime T: type, base: T, x: T) T {
     if (base == 2) {
         return math.log2(x);

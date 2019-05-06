@@ -188,6 +188,19 @@ static ConstExprValue *const_ptr_pointee_unchecked(CodeGen *g, ConstExprValue *c
     assert(get_src_ptr_type(const_val->type) != nullptr);
     assert(const_val->special == ConstValSpecialStatic);
     ConstExprValue *result;
+    
+    switch (type_has_one_possible_value(g, const_val->type->data.pointer.child_type)) {
+        case OnePossibleValueInvalid:
+            zig_unreachable();
+        case OnePossibleValueYes:
+            result = create_const_vals(1);
+            result->type = const_val->type->data.pointer.child_type;
+            result->special = ConstValSpecialStatic;
+            return result;
+        case OnePossibleValueNo:
+            break;
+    }
+    
     switch (const_val->data.x_ptr.special) {
         case ConstPtrSpecialInvalid:
             zig_unreachable();
@@ -357,19 +370,9 @@ static void ir_ref_var(ZigVar *var) {
 }
 
 ZigType *ir_analyze_type_expr(IrAnalyze *ira, Scope *scope, AstNode *node) {
-    ConstExprValue *result = ir_eval_const_value( ira->codegen
-                                                , scope
-                                                , node
-                                                , ira->codegen->builtin_types.entry_type
-                                                , ira->new_irb.exec->backward_branch_count
-                                                , ira->new_irb.exec->backward_branch_quota
-                                                , nullptr
-                                                , nullptr
-                                                , node
-                                                , nullptr
-                                                , ira->new_irb.exec
-                                                , nullptr
-                                                );
+    ConstExprValue *result = ir_eval_const_value(ira->codegen, scope, node, ira->codegen->builtin_types.entry_type,
+            ira->new_irb.exec->backward_branch_count, ira->new_irb.exec->backward_branch_quota, nullptr, nullptr,
+            node, nullptr, ira->new_irb.exec, nullptr);
 
     if (type_is_invalid(result->type))
         return ira->codegen->builtin_types.entry_invalid;
@@ -7949,7 +7952,7 @@ static ConstExprValue *ir_exec_const_result(CodeGen *codegen, IrExecutable *exec
             return &codegen->invalid_instruction->value;
         }
     }
-    return &codegen->invalid_instruction->value;
+    zig_unreachable();
 }
 
 static bool ir_emit_global_runtime_side_effect(IrAnalyze *ira, IrInstruction *source_instruction) {
@@ -8094,6 +8097,8 @@ static void float_init_bigfloat(ConstExprValue *dest_val, BigFloat *bigfloat) {
             case 64:
                 dest_val->data.x_f64 = bigfloat_to_f64(bigfloat);
                 break;
+            case 80:
+                zig_panic("TODO");
             case 128:
                 dest_val->data.x_f128 = bigfloat_to_f128(bigfloat);
                 break;
@@ -9910,6 +9915,7 @@ static void ir_add_alloca(IrAnalyze *ira, IrInstruction *instruction, ZigType *t
 
 static void copy_const_val(ConstExprValue *dest, ConstExprValue *src, bool same_global_refs) {
     ConstGlobalRefs *global_refs = dest->global_refs;
+    assert(!same_global_refs || src->global_refs != nullptr);
     *dest = *src;
     if (!same_global_refs) {
         dest->global_refs = global_refs;
@@ -9955,6 +9961,8 @@ static bool eval_const_expr_implicit_cast(IrAnalyze *ira, IrInstruction *source_
                     case 64:
                         const_val->data.x_f64 = bigfloat_to_f64(&other_val->data.x_bigfloat);
                         break;
+                    case 80:
+                        zig_panic("TODO");
                     case 128:
                         const_val->data.x_f128 = bigfloat_to_f128(&other_val->data.x_bigfloat);
                         break;
@@ -9984,6 +9992,8 @@ static bool eval_const_expr_implicit_cast(IrAnalyze *ira, IrInstruction *source_
                     case 64:
                         const_val->data.x_f64 = bigfloat_to_f64(&bigfloat);
                         break;
+                    case 80:
+                        zig_panic("TODO");
                     case 128:
                         const_val->data.x_f128 = bigfloat_to_f128(&bigfloat);
                         break;
@@ -10211,16 +10221,18 @@ static IrInstruction *ir_unreach_error(IrAnalyze *ira) {
 
 static bool ir_emit_backward_branch(IrAnalyze *ira, IrInstruction *source_instruction) {
     size_t *bbc = ira->new_irb.exec->backward_branch_count;
-    size_t quota = ira->new_irb.exec->backward_branch_quota;
+    size_t *quota = ira->new_irb.exec->backward_branch_quota;
 
     // If we're already over quota, we've already given an error message for this.
-    if (*bbc > quota) {
+    if (*bbc > *quota) {
+        assert(ira->codegen->errors.length > 0);
         return false;
     }
 
     *bbc += 1;
-    if (*bbc > quota) {
-        ir_add_error(ira, source_instruction, buf_sprintf("evaluation exceeded %" ZIG_PRI_usize " backwards branches", quota));
+    if (*bbc > *quota) {
+        ir_add_error(ira, source_instruction,
+                buf_sprintf("evaluation exceeded %" ZIG_PRI_usize " backwards branches", *quota));
         return false;
     }
     return true;
@@ -10301,7 +10313,7 @@ static ConstExprValue *ir_resolve_const(IrAnalyze *ira, IrInstruction *value, Un
 }
 
 ConstExprValue *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node,
-        ZigType *expected_type, size_t *backward_branch_count, size_t backward_branch_quota,
+        ZigType *expected_type, size_t *backward_branch_count, size_t *backward_branch_quota,
         ZigFn *fn_entry, Buf *c_import_buf, AstNode *source_node, Buf *exec_name,
         IrExecutable *parent_exec, AstNode *expected_type_source_node)
 {
@@ -10323,7 +10335,7 @@ ConstExprValue *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *nod
 
     if (codegen->verbose_ir) {
         fprintf(stderr, "\nSource: ");
-        ast_render(codegen, stderr, node, 4);
+        ast_render(stderr, node, 4);
         fprintf(stderr, "\n{ // (IR)\n");
         ir_print(codegen, stderr, ir_executable, 2);
         fprintf(stderr, "}\n");
@@ -15828,7 +15840,7 @@ static void add_link_lib_symbol(IrAnalyze *ira, Buf *lib_name, Buf *symbol_name,
         }
     }
 
-    if (!is_libc && !ira->codegen->have_pic && !ira->codegen->reported_bad_link_libc_error) {
+    if (!is_libc && !target_is_wasm(ira->codegen->zig_target) && !ira->codegen->have_pic && !ira->codegen->reported_bad_link_libc_error) {
         ErrorMsg *msg = ir_add_error_node(ira, source_node,
             buf_sprintf("dependency on dynamic library '%s' requires enabling Position Independent Code",
                 buf_ptr(lib_name)));
@@ -16702,16 +16714,16 @@ static IrInstruction *ir_analyze_instruction_size_of(IrAnalyze *ira,
         case ZigTypeIdUnreachable:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
-        case ZigTypeIdComptimeFloat:
-        case ZigTypeIdComptimeInt:
-        case ZigTypeIdEnumLiteral:
         case ZigTypeIdBoundFn:
-        case ZigTypeIdMetaType:
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
-            ir_add_error_node(ira, size_of_instruction->base.source_node,
+            ir_add_error_node(ira, type_value->source_node,
                     buf_sprintf("no size available for type '%s'", buf_ptr(&type_entry->name)));
             return ira->codegen->invalid_instruction;
+        case ZigTypeIdMetaType:
+        case ZigTypeIdEnumLiteral:
+        case ZigTypeIdComptimeFloat:
+        case ZigTypeIdComptimeInt:
         case ZigTypeIdVoid:
         case ZigTypeIdBool:
         case ZigTypeIdInt:
@@ -17474,6 +17486,7 @@ static IrInstruction *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstruc
     ConstExprValue const_val = {};
     const_val.special = ConstValSpecialStatic;
     const_val.type = container_type;
+    // const_val.global_refs = allocate<ConstGlobalRefs>(1);
     const_val.data.x_struct.fields = create_const_vals(actual_field_count);
     for (size_t i = 0; i < instr_field_count; i += 1) {
         IrInstructionContainerInitFieldsField *field = &fields[i];
@@ -17537,7 +17550,7 @@ static IrInstruction *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstruc
     if (const_val.special == ConstValSpecialStatic) {
         IrInstruction *result = ir_const(ira, instruction, nullptr);
         ConstExprValue *out_val = &result->value;
-        copy_const_val(out_val, &const_val, true);
+        copy_const_val(out_val, &const_val, false);
         out_val->type = container_type;
 
         for (size_t i = 0; i < instr_field_count; i += 1) {
@@ -17609,6 +17622,7 @@ static IrInstruction *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
         ConstExprValue const_val = {};
         const_val.special = ConstValSpecialStatic;
         const_val.type = fixed_size_array_type;
+        // const_val.global_refs = allocate<ConstGlobalRefs>(1);
         const_val.data.x_array.data.s_none.elements = create_const_vals(elem_count);
 
         bool is_comptime = ir_should_inline(ira->new_irb.exec, instruction->base.scope);
@@ -17645,8 +17659,6 @@ static IrInstruction *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
         if (const_val.special == ConstValSpecialStatic) {
             IrInstruction *result = ir_const(ira, &instruction->base, nullptr);
             ConstExprValue *out_val = &result->value;
-            // Make sure to pass same_global_refs=false here in order not to
-            // zero the global_refs field for `result` (#1608)
             copy_const_val(out_val, &const_val, false);
             result->value.type = fixed_size_array_type;
             for (size_t i = 0; i < elem_count; i += 1) {
@@ -19000,8 +19012,8 @@ static IrInstruction *ir_analyze_instruction_set_eval_branch_quota(IrAnalyze *ir
     if (!ir_resolve_usize(ira, instruction->new_quota->child, &new_quota))
         return ira->codegen->invalid_instruction;
 
-    if (new_quota > ira->new_irb.exec->backward_branch_quota) {
-        ira->new_irb.exec->backward_branch_quota = new_quota;
+    if (new_quota > *ira->new_irb.exec->backward_branch_quota) {
+        *ira->new_irb.exec->backward_branch_quota = new_quota;
     }
 
     return ir_const_void(ira, &instruction->base);
@@ -19098,24 +19110,50 @@ static IrInstruction *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruct
             fprintf(stderr, "@cImport source: %s\n", buf_ptr(&tmp_c_file_path));
         }
 
-        ZigList<ErrorMsg *> errors = {0};
-
         Buf *tmp_dep_file = buf_sprintf("%s.d", buf_ptr(&tmp_c_file_path));
+
+        ZigList<const char *> clang_argv = {0};
+
+        add_cc_args(ira->codegen, clang_argv, buf_ptr(tmp_dep_file), true);
+
+        clang_argv.append(buf_ptr(&tmp_c_file_path));
+
+        if (ira->codegen->verbose_cc) {
+            fprintf(stderr, "clang");
+            for (size_t i = 0; i < clang_argv.length; i += 1) {
+                fprintf(stderr, " %s", clang_argv.at(i));
+            }
+            fprintf(stderr, "\n");
+        }
+
+        clang_argv.append(nullptr); // to make the [start...end] argument work
+
         AstNode *root_node;
-        if ((err = parse_h_file(&root_node, &errors, buf_ptr(&tmp_c_file_path), ira->codegen, tmp_dep_file))) {
+        Stage2ErrorMsg *errors_ptr;
+        size_t errors_len;
+
+        const char *resources_path = buf_ptr(ira->codegen->zig_c_headers_dir);
+
+        if ((err = parse_h_file(ira->codegen, &root_node, &errors_ptr, &errors_len,
+            &clang_argv.at(0), &clang_argv.last(), Stage2TranslateModeImport, resources_path)))
+        {
             if (err != ErrorCCompileErrors) {
                 ir_add_error_node(ira, node, buf_sprintf("C import failed: %s", err_str(err)));
                 return ira->codegen->invalid_instruction;
             }
-            assert(errors.length > 0);
 
             ErrorMsg *parent_err_msg = ir_add_error_node(ira, node, buf_sprintf("C import failed"));
             if (ira->codegen->libc_link_lib == nullptr) {
                 add_error_note(ira->codegen, parent_err_msg, node,
                     buf_sprintf("libc headers not available; compilation does not link against libc"));
             }
-            for (size_t i = 0; i < errors.length; i += 1) {
-                ErrorMsg *err_msg = errors.at(i);
+            for (size_t i = 0; i < errors_len; i += 1) {
+                Stage2ErrorMsg *clang_err = &errors_ptr[i];
+                ErrorMsg *err_msg = err_msg_create_with_offset(
+                    clang_err->filename_ptr ?
+                        buf_create_from_mem(clang_err->filename_ptr, clang_err->filename_len) : buf_alloc(),
+                    clang_err->line, clang_err->column, clang_err->offset, clang_err->source,
+                    buf_create_from_mem(clang_err->msg_ptr, clang_err->msg_len));
                 err_msg_add_note(parent_err_msg, err_msg);
             }
 
@@ -19145,7 +19183,7 @@ static IrInstruction *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruct
                     buf_sprintf("C import failed: unable to open output file: %s", strerror(errno)));
             return ira->codegen->invalid_instruction;
         }
-        ast_render(ira->codegen, out_file, root_node, 4);
+        ast_render(out_file, root_node, 4);
         if (fclose(out_file) != 0) {
             ir_add_error_node(ira, node,
                     buf_sprintf("C import failed: unable to write to output file: %s", strerror(errno)));
@@ -21299,7 +21337,7 @@ static IrInstruction *ir_align_cast(IrAnalyze *ira, IrInstruction *target, uint3
         }
 
         IrInstruction *result = ir_const(ira, target, result_type);
-        copy_const_val(&result->value, val, false);
+        copy_const_val(&result->value, val, true);
         result->value.type = result_type;
         return result;
     }
@@ -21369,7 +21407,7 @@ static IrInstruction *ir_analyze_ptr_cast(IrAnalyze *ira, IrInstruction *source_
         }
 
         IrInstruction *result = ir_const(ira, source_instr, dest_type);
-        copy_const_val(&result->value, val, false);
+        copy_const_val(&result->value, val, true);
         result->value.type = dest_type;
 
         // Keep the bigger alignment, it can only help-

@@ -1,12 +1,18 @@
-// Special Cases:
+// Ported from musl, which is licensed under the MIT license:
+// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
-// - exp2(+inf) = +inf
-// - exp2(nan)  = nan
+// https://git.musl-libc.org/cgit/musl/tree/src/math/exp2f.c
+// https://git.musl-libc.org/cgit/musl/tree/src/math/exp2.c
 
 const std = @import("../std.zig");
 const math = std.math;
 const expect = std.testing.expect;
 
+/// Returns 2 raised to the power of x (2^x).
+///
+/// Special Cases:
+///  - exp2(+inf) = +inf
+///  - exp2(nan)  = nan
 pub fn exp2(x: var) @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {

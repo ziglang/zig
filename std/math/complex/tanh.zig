@@ -1,9 +1,16 @@
+// Ported from musl, which is licensed under the MIT license:
+// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
+//
+// https://git.musl-libc.org/cgit/musl/tree/src/complex/ctanhf.c
+// https://git.musl-libc.org/cgit/musl/tree/src/complex/ctanh.c
+
 const std = @import("../../std.zig");
 const testing = std.testing;
 const math = std.math;
 const cmath = math.complex;
 const Complex = cmath.Complex;
 
+/// Returns the hyperbolic tangent of z.
 pub fn tanh(z: var) @typeOf(z) {
     const T = @typeOf(z.re);
     return switch (T) {

@@ -625,7 +625,7 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
         const source_code = try stdin.stream.readAllAlloc(allocator, max_src_size);
         defer allocator.free(source_code);
 
-        var tree = std.zig.parse(allocator, source_code) catch |err| {
+        const tree = std.zig.parse(allocator, source_code) catch |err| {
             try stderr.print("error parsing stdin: {}\n", err);
             os.exit(1);
         };
@@ -633,7 +633,7 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
 
         var error_it = tree.errors.iterator(0);
         while (error_it.next()) |parse_error| {
-            const msg = try errmsg.Msg.createFromParseError(allocator, parse_error, &tree, "<stdin>");
+            const msg = try errmsg.Msg.createFromParseError(allocator, parse_error, tree, "<stdin>");
             defer msg.destroy();
 
             try msg.printToFile(stderr_file, color);
@@ -642,12 +642,12 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
             os.exit(1);
         }
         if (flags.present("check")) {
-            const anything_changed = try std.zig.render(allocator, io.null_out_stream, &tree);
+            const anything_changed = try std.zig.render(allocator, io.null_out_stream, tree);
             const code = if (anything_changed) u8(1) else u8(0);
             os.exit(code);
         }
 
-        _ = try std.zig.render(allocator, stdout, &tree);
+        _ = try std.zig.render(allocator, stdout, tree);
         return;
     }
 
@@ -768,7 +768,7 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtErro
     };
     defer fmt.loop.allocator.free(source_code);
 
-    var tree = std.zig.parse(fmt.loop.allocator, source_code) catch |err| {
+    const tree = std.zig.parse(fmt.loop.allocator, source_code) catch |err| {
         try stderr.print("error parsing file '{}': {}\n", file_path, err);
         fmt.any_error = true;
         return;
@@ -777,7 +777,7 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtErro
 
     var error_it = tree.errors.iterator(0);
     while (error_it.next()) |parse_error| {
-        const msg = try errmsg.Msg.createFromParseError(fmt.loop.allocator, parse_error, &tree, file_path);
+        const msg = try errmsg.Msg.createFromParseError(fmt.loop.allocator, parse_error, tree, file_path);
         defer fmt.loop.allocator.destroy(msg);
 
         try msg.printToFile(stderr_file, fmt.color);
@@ -788,7 +788,7 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtErro
     }
 
     if (check_mode) {
-        const anything_changed = try std.zig.render(fmt.loop.allocator, io.null_out_stream, &tree);
+        const anything_changed = try std.zig.render(fmt.loop.allocator, io.null_out_stream, tree);
         if (anything_changed) {
             try stderr.print("{}\n", file_path);
             fmt.any_error = true;
@@ -798,7 +798,7 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtErro
         const baf = try io.BufferedAtomicFile.create(fmt.loop.allocator, file_path);
         defer baf.destroy();
 
-        const anything_changed = try std.zig.render(fmt.loop.allocator, baf.stream(), &tree);
+        const anything_changed = try std.zig.render(fmt.loop.allocator, baf.stream(), tree);
         if (anything_changed) {
             try stderr.print("{}\n", file_path);
             try baf.finish();
@@ -858,7 +858,7 @@ fn cmdHelp(allocator: *Allocator, args: []const []const u8) !void {
     try stdout.write(usage);
 }
 
-const info_zen =
+pub const info_zen =
     \\
     \\ * Communicate intent precisely.
     \\ * Edge cases matter.

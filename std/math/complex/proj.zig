@@ -4,6 +4,7 @@ const math = std.math;
 const cmath = math.complex;
 const Complex = cmath.Complex;
 
+/// Returns the projection of z onto the riemann sphere.
 pub fn proj(z: var) Complex(@typeOf(z.re)) {
     const T = @typeOf(z.re);
 

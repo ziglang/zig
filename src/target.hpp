@@ -170,6 +170,8 @@ bool target_abi_is_gnu(ZigLLVM_EnvironmentType abi);
 bool target_abi_is_musl(ZigLLVM_EnvironmentType abi);
 bool target_is_glibc(const ZigTarget *target);
 bool target_is_musl(const ZigTarget *target);
+bool target_is_wasm(const ZigTarget *target);
+bool target_is_single_threaded(const ZigTarget *target);
 
 uint32_t target_arch_pointer_bit_width(ZigLLVM_ArchType arch);
 

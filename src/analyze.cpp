@@ -983,8 +983,9 @@ static ConstExprValue *analyze_const_value(CodeGen *g, Scope *scope, AstNode *no
         Buf *type_name)
 {
     size_t backward_branch_count = 0;
+    size_t backward_branch_quota = default_backward_branch_quota;
     return ir_eval_const_value(g, scope, node, type_entry,
-            &backward_branch_count, default_backward_branch_quota,
+            &backward_branch_count, &backward_branch_quota,
             nullptr, nullptr, node, type_name, nullptr, nullptr);
 }
 
@@ -2621,7 +2622,7 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
     return ErrorNone;
 }
 
-static void get_fully_qualified_decl_name(Buf *buf, Tld *tld) {
+static void get_fully_qualified_decl_name(Buf *buf, Tld *tld, bool is_test) {
     buf_resize(buf, 0);
 
     Scope *scope = tld->parent_scope;
@@ -2631,15 +2632,23 @@ static void get_fully_qualified_decl_name(Buf *buf, Tld *tld) {
     ScopeDecls *decls_scope = reinterpret_cast<ScopeDecls *>(scope);
     buf_append_buf(buf, &decls_scope->container_type->name);
     if (buf_len(buf) != 0) buf_append_char(buf, NAMESPACE_SEP_CHAR);
-    buf_append_buf(buf, tld->name);
+    if (is_test) {
+        buf_append_str(buf, "test \"");
+        buf_append_buf(buf, tld->name);
+        buf_append_char(buf, '"');
+    } else {
+        buf_append_buf(buf, tld->name);
+    }
 }
 
 ZigFn *create_fn_raw(CodeGen *g, FnInline inline_value) {
     ZigFn *fn_entry = allocate<ZigFn>(1);
 
+    fn_entry->prealloc_backward_branch_quota = default_backward_branch_quota;
+
     fn_entry->codegen = g;
     fn_entry->analyzed_executable.backward_branch_count = &fn_entry->prealloc_bbc;
-    fn_entry->analyzed_executable.backward_branch_quota = default_backward_branch_quota;
+    fn_entry->analyzed_executable.backward_branch_quota = &fn_entry->prealloc_backward_branch_quota;
     fn_entry->analyzed_executable.fn_entry = fn_entry;
     fn_entry->ir_executable.fn_entry = fn_entry;
     fn_entry->fn_inline = inline_value;
@@ -2740,7 +2749,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
         if (fn_proto->is_export || is_extern) {
             buf_init_from_buf(&fn_table_entry->symbol_name, tld_fn->base.name);
         } else {
-            get_fully_qualified_decl_name(&fn_table_entry->symbol_name, &tld_fn->base);
+            get_fully_qualified_decl_name(&fn_table_entry->symbol_name, &tld_fn->base, false);
         }
 
         if (fn_proto->is_export) {
@@ -2801,7 +2810,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
     } else if (source_node->type == NodeTypeTestDecl) {
         ZigFn *fn_table_entry = create_fn_raw(g, FnInlineAuto);
 
-        get_fully_qualified_decl_name(&fn_table_entry->symbol_name, &tld_fn->base);
+        get_fully_qualified_decl_name(&fn_table_entry->symbol_name, &tld_fn->base, true);
 
         tld_fn->fn_entry = fn_table_entry;
 
@@ -3736,7 +3745,7 @@ static void analyze_fn_body(CodeGen *g, ZigFn *fn_table_entry) {
     }
     if (g->verbose_ir) {
         fprintf(stderr, "\n");
-        ast_render(g, stderr, fn_table_entry->body_node, 4);
+        ast_render(stderr, fn_table_entry->body_node, 4);
         fprintf(stderr, "\n{ // (IR)\n");
         ir_print(g, stderr, &fn_table_entry->ir_executable, 4);
         fprintf(stderr, "}\n");
@@ -5169,11 +5178,10 @@ bool const_values_equal(CodeGen *g, ConstExprValue *a, ConstExprValue *b) {
             if (bigint_cmp(&union1->tag, &union2->tag) == CmpEQ) {
                 TypeUnionField *field = find_union_field_by_tag(a->type, &union1->tag);
                 assert(field != nullptr);
-                if (type_has_bits(field->type_entry)) {
-                    zig_panic("TODO const expr analyze union field value for equality");
-                } else {
+                if (!type_has_bits(field->type_entry))
                     return true;
-                }
+                assert(find_union_field_by_tag(a->type, &union2->tag) != nullptr);
+                return const_values_equal(g, union1->payload, union2->payload);
             }
             return false;
         }
@@ -6084,7 +6092,7 @@ Error file_fetch(CodeGen *g, Buf *resolved_path, Buf *contents) {
     if (g->enable_cache) {
         return cache_add_file_fetch(&g->cache_hash, resolved_path, contents);
     } else {
-        return os_fetch_file_path(resolved_path, contents, false);
+        return os_fetch_file_path(resolved_path, contents);
     }
 }
 

@@ -8,6 +8,8 @@ const builtin = @import("builtin");
 const errol = @import("fmt/errol.zig");
 const lossyCast = std.math.lossyCast;
 
+pub const default_max_depth = 3;
+
 /// Renders fmt string with args, calling output with slices of bytes.
 /// If `output` returns an error, the error is returned from `format` and
 /// `output` is not called again.
@@ -49,7 +51,7 @@ pub fn format(context: var, comptime Errors: type, output: fn (@typeOf(context),
                     start_index = i;
                 },
                 '}' => {
-                    try formatType(args[next_arg], fmt[0..0], context, Errors, output);
+                    try formatType(args[next_arg], fmt[0..0], context, Errors, output, default_max_depth);
                     next_arg += 1;
                     state = State.Start;
                     start_index = i + 1;
@@ -69,7 +71,7 @@ pub fn format(context: var, comptime Errors: type, output: fn (@typeOf(context),
             State.FormatString => switch (c) {
                 '}' => {
                     const s = start_index + 1;
-                    try formatType(args[next_arg], fmt[s..i], context, Errors, output);
+                    try formatType(args[next_arg], fmt[s..i], context, Errors, output, default_max_depth);
                     next_arg += 1;
                     state = State.Start;
                     start_index = i + 1;
@@ -108,6 +110,7 @@ pub fn formatType(
     context: var,
     comptime Errors: type,
     output: fn (@typeOf(context), []const u8) Errors!void,
+    max_depth: usize,
 ) Errors!void {
     const T = @typeOf(value);
     switch (@typeInfo(T)) {
@@ -122,16 +125,16 @@ pub fn formatType(
         },
         builtin.TypeId.Optional => {
             if (value) |payload| {
-                return formatType(payload, fmt, context, Errors, output);
+                return formatType(payload, fmt, context, Errors, output, max_depth);
             } else {
                 return output(context, "null");
             }
         },
         builtin.TypeId.ErrorUnion => {
             if (value) |payload| {
-                return formatType(payload, fmt, context, Errors, output);
+                return formatType(payload, fmt, context, Errors, output, max_depth);
             } else |err| {
-                return formatType(err, fmt, context, Errors, output);
+                return formatType(err, fmt, context, Errors, output, max_depth);
             }
         },
         builtin.TypeId.ErrorSet => {
@@ -164,10 +167,13 @@ pub fn formatType(
             switch (comptime @typeId(T)) {
                 builtin.TypeId.Enum => {
                     try output(context, ".");
-                    try formatType(@tagName(value), "", context, Errors, output);
+                    try formatType(@tagName(value), "", context, Errors, output, max_depth);
                     return;
                 },
                 builtin.TypeId.Struct => {
+                    if (max_depth == 0) {
+                        return output(context, "{ ... }");
+                    }
                     comptime var field_i = 0;
                     inline while (field_i < @memberCount(T)) : (field_i += 1) {
                         if (field_i == 0) {
@@ -177,11 +183,14 @@ pub fn formatType(
                         }
                         try output(context, @memberName(T, field_i));
                         try output(context, " = ");
-                        try formatType(@field(value, @memberName(T, field_i)), "", context, Errors, output);
+                        try formatType(@field(value, @memberName(T, field_i)), "", context, Errors, output, max_depth-1);
                     }
                     try output(context, " }");
                 },
                 builtin.TypeId.Union => {
+                    if (max_depth == 0) {
+                        return output(context, "{ ... }");
+                    }
                     const info = @typeInfo(T).Union;
                     if (info.tag_type) |UnionTagType| {
                         try output(context, "{ .");
@@ -189,7 +198,7 @@ pub fn formatType(
                         try output(context, " = ");
                         inline for (info.fields) |u_field| {
                             if (@enumToInt(UnionTagType(value)) == u_field.enum_field.?.value) {
-                                try formatType(@field(value, u_field.name), "", context, Errors, output);
+                                try formatType(@field(value, u_field.name), "", context, Errors, output, max_depth-1);
                             }
                         }
                         try output(context, " }");
@@ -210,7 +219,7 @@ pub fn formatType(
                     return format(context, Errors, output, "{}@{x}", @typeName(T.Child), @ptrToInt(value));
                 },
                 builtin.TypeId.Enum, builtin.TypeId.Union, builtin.TypeId.Struct => {
-                    return formatType(value.*, fmt, context, Errors, output);
+                    return formatType(value.*, fmt, context, Errors, output, max_depth);
                 },
                 else => return format(context, Errors, output, "{}@{x}", @typeName(T.Child), @ptrToInt(value)),
             },
@@ -986,17 +995,17 @@ test "fmt.format" {
     {
         var buf1: [32]u8 = undefined;
         var context = BufPrintContext{ .remaining = buf1[0..] };
-        try formatType(1234, "", &context, error{BufferTooSmall}, bufPrintWrite);
+        try formatType(1234, "", &context, error{BufferTooSmall}, bufPrintWrite, default_max_depth);
         var res = buf1[0 .. buf1.len - context.remaining.len];
         testing.expect(mem.eql(u8, res, "1234"));
 
         context = BufPrintContext{ .remaining = buf1[0..] };
-        try formatType('a', "c", &context, error{BufferTooSmall}, bufPrintWrite);
+        try formatType('a', "c", &context, error{BufferTooSmall}, bufPrintWrite, default_max_depth);
         res = buf1[0 .. buf1.len - context.remaining.len];
         testing.expect(mem.eql(u8, res, "a"));
 
         context = BufPrintContext{ .remaining = buf1[0..] };
-        try formatType(0b1100, "b", &context, error{BufferTooSmall}, bufPrintWrite);
+        try formatType(0b1100, "b", &context, error{BufferTooSmall}, bufPrintWrite, default_max_depth);
         res = buf1[0 .. buf1.len - context.remaining.len];
         testing.expect(mem.eql(u8, res, "1100"));
     }
@@ -1364,6 +1373,20 @@ test "fmt.format" {
 
         try testFmt("E.Two", "{}", inst);
     }
+    //self-referential struct format
+    {
+        const S = struct {
+            const SelfType = @This();
+            a: ?*SelfType,
+        };
+
+        var inst = S{
+            .a = null,
+        };
+        inst.a = &inst;
+
+        try testFmt("S{ .a = S{ .a = S{ .a = S{ ... } } } }", "{}", inst);
+    }
     //print bytes as hex
     {
         const some_bytes = "\xCA\xFE\xBA\xBE";
@@ -1448,4 +1471,65 @@ test "fmt.formatIntValue with comptime_int" {
     var buf = try std.Buffer.init(std.debug.global_allocator, "");
     try formatIntValue(value, "", &buf, @typeOf(std.Buffer.append).ReturnType.ErrorSet, std.Buffer.append);
     assert(mem.eql(u8, buf.toSlice(), "123456789123456789"));
+}
+
+test "fmt.formatType max_depth" {
+    const Vec2 = struct {
+        const SelfType = @This();
+        x: f32,
+        y: f32,
+
+        pub fn format(
+            self: SelfType,
+            comptime fmt: []const u8,
+            context: var,
+            comptime Errors: type,
+            output: fn (@typeOf(context), []const u8) Errors!void,
+        ) Errors!void {
+            return std.fmt.format(context, Errors, output, "({.3},{.3})", self.x, self.y);
+        }
+    };
+    const E = enum {
+        One,
+        Two,
+        Three,
+    };
+    const TU = union(enum) {
+        const SelfType = @This();
+        float: f32,
+        int: u32,
+        ptr: ?*SelfType,
+    };
+    const S = struct {
+        const SelfType = @This();
+        a: ?*SelfType,
+        tu: TU,
+        e: E,
+        vec: Vec2,
+    };
+
+    var inst = S{
+        .a = null,
+        .tu = TU{ .ptr = null },
+        .e = E.Two,
+        .vec = Vec2{ .x = 10.2, .y = 2.22 },
+    };
+    inst.a = &inst;
+    inst.tu.ptr = &inst.tu;
+
+    var buf0 = try std.Buffer.init(std.debug.global_allocator, "");
+    try formatType(inst, "", &buf0, @typeOf(std.Buffer.append).ReturnType.ErrorSet, std.Buffer.append, 0);
+    assert(mem.eql(u8, buf0.toSlice(), "S{ ... }"));
+
+    var buf1 = try std.Buffer.init(std.debug.global_allocator, "");
+    try formatType(inst, "", &buf1, @typeOf(std.Buffer.append).ReturnType.ErrorSet, std.Buffer.append, 1);
+    assert(mem.eql(u8, buf1.toSlice(), "S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }"));
+
+    var buf2 = try std.Buffer.init(std.debug.global_allocator, "");
+    try formatType(inst, "", &buf2, @typeOf(std.Buffer.append).ReturnType.ErrorSet, std.Buffer.append, 2);
+    assert(mem.eql(u8, buf2.toSlice(), "S{ .a = S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ ... } }, .e = E.Two, .vec = (10.200,2.220) }"));
+
+    var buf3 = try std.Buffer.init(std.debug.global_allocator, "");
+    try formatType(inst, "", &buf3, @typeOf(std.Buffer.append).ReturnType.ErrorSet, std.Buffer.append, 3);
+    assert(mem.eql(u8, buf3.toSlice(), "S{ .a = S{ .a = S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ ... } }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ .ptr = TU{ ... } } }, .e = E.Two, .vec = (10.200,2.220) }"));
 }

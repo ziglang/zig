@@ -1400,3 +1400,7 @@ test "json.parser.dynamic" {
     const double = image.Object.get("double").?.value;
     testing.expect(double.Float == 1.3412);
 }
+
+test "import more json tests" {
+    _ = @import("json/test.zig");
+}

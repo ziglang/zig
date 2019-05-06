@@ -9,7 +9,7 @@ const Error = ast.Error;
 
 /// Result should be freed with tree.deinit() when there are
 /// no more references to any of the tokens or nodes.
-pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
+pub fn parse(allocator: *mem.Allocator, source: []const u8) !*ast.Tree {
     var tree_arena = std.heap.ArenaAllocator.init(allocator);
     errdefer tree_arena.deinit();
 
@@ -22,12 +22,12 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
         .base = ast.Node{ .id = ast.Node.Id.Root },
         .decls = ast.Node.Root.DeclList.init(arena),
         .doc_comments = null,
-        .shebang = null,
         // initialized when we get the eof token
         .eof_token = undefined,
     };
 
-    var tree = ast.Tree{
+    const tree = try arena.create(ast.Tree);
+    tree.* = ast.Tree{
         .source = source,
         .root_node = root_node,
         .arena_allocator = tree_arena,
@@ -42,15 +42,6 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
         if (token_ptr.id == Token.Id.Eof) break;
     }
     var tok_it = tree.tokens.iterator(0);
-
-    // skip over shebang line
-    shebang: {
-        const shebang_tok_index = tok_it.index;
-        const shebang_tok_ptr = tok_it.peek() orelse break :shebang;
-        if (shebang_tok_ptr.id != Token.Id.ShebangLine) break :shebang;
-        root_node.shebang = shebang_tok_index;
-        _ = tok_it.next();
-    }
 
     // skip over line comments at the top of the file
     while (true) {
@@ -67,9 +58,9 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
 
         switch (state) {
             State.TopLevel => {
-                const comments = try eatDocComments(arena, &tok_it, &tree);
+                const comments = try eatDocComments(arena, &tok_it, tree);
 
-                const token = nextToken(&tok_it, &tree);
+                const token = nextToken(&tok_it, tree);
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 switch (token_ptr.id) {
@@ -150,7 +141,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     else => {
-                        prevToken(&tok_it, &tree);
+                        prevToken(&tok_it, tree);
                         stack.append(State.TopLevel) catch unreachable;
                         try stack.append(State{
                             .TopLevelExtern = TopLevelDeclCtx{
@@ -166,7 +157,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 }
             },
             State.TopLevelExtern => |ctx| {
-                const token = nextToken(&tok_it, &tree);
+                const token = nextToken(&tok_it, tree);
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 switch (token_ptr.id) {
@@ -201,7 +192,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     else => {
-                        prevToken(&tok_it, &tree);
+                        prevToken(&tok_it, tree);
                         stack.append(State{ .TopLevelDecl = ctx }) catch unreachable;
                         continue;
                     },
@@ -209,11 +200,11 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
             State.TopLevelLibname => |ctx| {
                 const lib_name = blk: {
-                    const lib_name_token = nextToken(&tok_it, &tree);
+                    const lib_name_token = nextToken(&tok_it, tree);
                     const lib_name_token_index = lib_name_token.index;
                     const lib_name_token_ptr = lib_name_token.ptr;
-                    break :blk (try parseStringLiteral(arena, &tok_it, lib_name_token_ptr, lib_name_token_index, &tree)) orelse {
-                        prevToken(&tok_it, &tree);
+                    break :blk (try parseStringLiteral(arena, &tok_it, lib_name_token_ptr, lib_name_token_index, tree)) orelse {
+                        prevToken(&tok_it, tree);
                         break :blk null;
                     };
                 };
@@ -230,7 +221,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 continue;
             },
             State.ThreadLocal => |ctx| {
-                const token = nextToken(&tok_it, &tree);
+                const token = nextToken(&tok_it, tree);
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 switch (token_ptr.id) {
@@ -256,7 +247,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 }
             },
             State.TopLevelDecl => |ctx| {
-                const token = nextToken(&tok_it, &tree);
+                const token = nextToken(&tok_it, tree);
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 switch (token_ptr.id) {
@@ -397,7 +388,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 }
             },
             State.TopLevelExternOrField => |ctx| {
-                if (eatToken(&tok_it, &tree, Token.Id.Identifier)) |identifier| {
+                if (eatToken(&tok_it, tree, Token.Id.Identifier)) |identifier| {
                     const node = try arena.create(ast.Node.StructField);
                     node.* = ast.Node.StructField{
                         .base = ast.Node{ .id = ast.Node.Id.StructField },
@@ -434,11 +425,11 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.FieldInitValue => |ctx| {
-                const eq_tok = nextToken(&tok_it, &tree);
+                const eq_tok = nextToken(&tok_it, tree);
                 const eq_tok_index = eq_tok.index;
                 const eq_tok_ptr = eq_tok.ptr;
                 if (eq_tok_ptr.id != Token.Id.Equal) {
-                    prevToken(&tok_it, &tree);
+                    prevToken(&tok_it, tree);
                     continue;
                 }
                 stack.append(State{ .Expression = ctx }) catch unreachable;
@@ -446,7 +437,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.ContainerKind => |ctx| {
-                const token = nextToken(&tok_it, &tree);
+                const token = nextToken(&tok_it, tree);
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 const node = try arena.create(ast.Node.ContainerDecl);
@@ -479,7 +470,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.ContainerInitArgStart => |container_decl| {
-                if (eatToken(&tok_it, &tree, Token.Id.LParen) == null) {
+                if (eatToken(&tok_it, tree, Token.Id.LParen) == null) {
                     continue;
                 }
 
@@ -489,24 +480,24 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.ContainerInitArg => |container_decl| {
-                const init_arg_token = nextToken(&tok_it, &tree);
+                const init_arg_token = nextToken(&tok_it, tree);
                 const init_arg_token_index = init_arg_token.index;
                 const init_arg_token_ptr = init_arg_token.ptr;
                 switch (init_arg_token_ptr.id) {
                     Token.Id.Keyword_enum => {
                         container_decl.init_arg_expr = ast.Node.ContainerDecl.InitArg{ .Enum = null };
-                        const lparen_tok = nextToken(&tok_it, &tree);
+                        const lparen_tok = nextToken(&tok_it, tree);
                         const lparen_tok_index = lparen_tok.index;
                         const lparen_tok_ptr = lparen_tok.ptr;
                         if (lparen_tok_ptr.id == Token.Id.LParen) {
                             try stack.append(State{ .ExpectToken = Token.Id.RParen });
                             try stack.append(State{ .Expression = OptionalCtx{ .RequiredNull = &container_decl.init_arg_expr.Enum } });
                         } else {
-                            prevToken(&tok_it, &tree);
+                            prevToken(&tok_it, tree);
                         }
                     },
                     else => {
-                        prevToken(&tok_it, &tree);
+                        prevToken(&tok_it, tree);
                         container_decl.init_arg_expr = ast.Node.ContainerDecl.InitArg{ .Type = undefined };
                         stack.append(State{ .Expression = OptionalCtx{ .Required = &container_decl.init_arg_expr.Type } }) catch unreachable;
                     },
@@ -515,8 +506,8 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.ContainerDecl => |container_decl| {
-                const comments = try eatDocComments(arena, &tok_it, &tree);
-                const token = nextToken(&tok_it, &tree);
+                const comments = try eatDocComments(arena, &tok_it, tree);
+                const token = nextToken(&tok_it, tree);
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 switch (token_ptr.id) {
@@ -629,6 +620,35 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         });
                         continue;
                     },
+                    Token.Id.Keyword_comptime => {
+                        const block = try arena.create(ast.Node.Block);
+                        block.* = ast.Node.Block{
+                            .base = ast.Node{ .id = ast.Node.Id.Block },
+                            .label = null,
+                            .lbrace = undefined,
+                            .statements = ast.Node.Block.StatementList.init(arena),
+                            .rbrace = undefined,
+                        };
+
+                        const node = try arena.create(ast.Node.Comptime);
+                        node.* = ast.Node.Comptime{
+                            .base = ast.Node{ .id = ast.Node.Id.Comptime },
+                            .comptime_token = token_index,
+                            .expr = &block.base,
+                            .doc_comments = comments,
+                        };
+                        try container_decl.fields_and_decls.push(&node.base);
+
+                        stack.append(State{ .ContainerDecl = container_decl }) catch unreachable;
+                        try stack.append(State{ .Block = block });
+                        try stack.append(State{
+                            .ExpectTokenSave = ExpectTokenSave{
+                                .id = Token.Id.LBrace,
+                                .ptr = &block.lbrace,
+                            },
+                        });
+                        continue;
+                    },
                     Token.Id.RBrace => {
                         if (comments != null) {
                             ((try tree.errors.addOne())).* = Error{ .UnattachedDocComment = Error.UnattachedDocComment{ .token = token_index } };
@@ -638,7 +658,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     else => {
-                        prevToken(&tok_it, &tree);
+                        prevToken(&tok_it, tree);
                         stack.append(State{ .ContainerDecl = container_decl }) catch unreachable;
                         try stack.append(State{
                             .TopLevelExtern = TopLevelDeclCtx{
@@ -690,7 +710,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             State.VarDeclAlign => |var_decl| {
                 try stack.append(State{ .VarDeclSection = var_decl });
 
-                const next_token = nextToken(&tok_it, &tree);
+                const next_token = nextToken(&tok_it, tree);
                 const next_token_index = next_token.index;
                 const next_token_ptr = next_token.ptr;
                 if (next_token_ptr.id == Token.Id.Keyword_align) {
@@ -700,13 +720,13 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     continue;
                 }
 
-                prevToken(&tok_it, &tree);
+                prevToken(&tok_it, tree);
                 continue;
             },
             State.VarDeclSection => |var_decl| {
                 try stack.append(State{ .VarDeclEq = var_decl });
 
-                const next_token = nextToken(&tok_it, &tree);
+                const next_token = nextToken(&tok_it, tree);
                 const next_token_index = next_token.index;
                 const next_token_ptr = next_token.ptr;
                 if (next_token_ptr.id == Token.Id.Keyword_linksection) {
@@ -716,11 +736,11 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     continue;
                 }
 
-                prevToken(&tok_it, &tree);
+                prevToken(&tok_it, tree);
                 continue;
             },
             State.VarDeclEq => |var_decl| {
-                const token = nextToken(&tok_it, &tree);
+                const token = nextToken(&tok_it, tree);
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 switch (token_ptr.id) {
@@ -742,7 +762,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.VarDeclSemiColon => |var_decl| {
-                const semicolon_token = nextToken(&tok_it, &tree);
+                const semicolon_token = nextToken(&tok_it, tree);
 
                 if (semicolon_token.ptr.id != Token.Id.Semicolon) {
                     ((try tree.errors.addOne())).* = Error{
@@ -756,18 +776,18 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
 
                 var_decl.semicolon_token = semicolon_token.index;
 
-                if (eatToken(&tok_it, &tree, Token.Id.DocComment)) |doc_comment_token| {
+                if (eatToken(&tok_it, tree, Token.Id.DocComment)) |doc_comment_token| {
                     const loc = tree.tokenLocation(semicolon_token.ptr.end, doc_comment_token);
                     if (loc.line == 0) {
                         try pushDocComment(arena, doc_comment_token, &var_decl.doc_comments);
                     } else {
-                        prevToken(&tok_it, &tree);
+                        prevToken(&tok_it, tree);
                     }
                 }
             },
 
             State.FnDef => |fn_proto| {
-                const token = nextToken(&tok_it, &tree);
+                const token = nextToken(&tok_it, tree);
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 switch (token_ptr.id) {
@@ -796,7 +816,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 try stack.append(State{ .ParamDecl = fn_proto });
                 try stack.append(State{ .ExpectToken = Token.Id.LParen });
 
-                if (eatToken(&tok_it, &tree, Token.Id.Identifier)) |name_token| {
+                if (eatToken(&tok_it, tree, Token.Id.Identifier)) |name_token| {
                     fn_proto.name_token = name_token;
                 }
                 continue;
@@ -804,7 +824,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             State.FnProtoAlign => |fn_proto| {
                 stack.append(State{ .FnProtoSection = fn_proto }) catch unreachable;
 
-                if (eatToken(&tok_it, &tree, Token.Id.Keyword_align)) |align_token| {
+                if (eatToken(&tok_it, tree, Token.Id.Keyword_align)) |align_token| {
                     try stack.append(State{ .ExpectToken = Token.Id.RParen });
                     try stack.append(State{ .Expression = OptionalCtx{ .RequiredNull = &fn_proto.align_expr } });
                     try stack.append(State{ .ExpectToken = Token.Id.LParen });
@@ -814,7 +834,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             State.FnProtoSection => |fn_proto| {
                 stack.append(State{ .FnProtoReturnType = fn_proto }) catch unreachable;
 
-                if (eatToken(&tok_it, &tree, Token.Id.Keyword_linksection)) |align_token| {
+                if (eatToken(&tok_it, tree, Token.Id.Keyword_linksection)) |align_token| {
                     try stack.append(State{ .ExpectToken = Token.Id.RParen });
                     try stack.append(State{ .Expression = OptionalCtx{ .RequiredNull = &fn_proto.section_expr } });
                     try stack.append(State{ .ExpectToken = Token.Id.LParen });
@@ -822,7 +842,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 continue;
             },
             State.FnProtoReturnType => |fn_proto| {
-                const token = nextToken(&tok_it, &tree);
+                const token = nextToken(&tok_it, tree);
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 switch (token_ptr.id) {
@@ -845,7 +865,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                             }
                         }
 
-                        prevToken(&tok_it, &tree);
+                        prevToken(&tok_it, tree);
                         fn_proto.return_type = ast.Node.FnProto.ReturnType{ .Explicit = undefined };
                         stack.append(State{ .TypeExprBegin = OptionalCtx{ .Required = &fn_proto.return_type.Explicit } }) catch unreachable;
                         continue;
@@ -854,8 +874,8 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.ParamDecl => |fn_proto| {
-                const comments = try eatDocComments(arena, &tok_it, &tree);
-                if (eatToken(&tok_it, &tree, Token.Id.RParen)) |_| {
+                const comments = try eatDocComments(arena, &tok_it, tree);
+                if (eatToken(&tok_it, tree, Token.Id.RParen)) |_| {
                     continue;
                 }
                 const param_decl = try arena.create(ast.Node.ParamDecl);
@@ -881,9 +901,9 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 continue;
             },
             State.ParamDeclAliasOrComptime => |param_decl| {
-                if (eatToken(&tok_it, &tree, Token.Id.Keyword_comptime)) |comptime_token| {
+                if (eatToken(&tok_it, tree, Token.Id.Keyword_comptime)) |comptime_token| {
                     param_decl.comptime_token = comptime_token;
-                } else if (eatToken(&tok_it, &tree, Token.Id.Keyword_noalias)) |noalias_token| {
+                } else if (eatToken(&tok_it, tree, Token.Id.Keyword_noalias)) |noalias_token| {
                     param_decl.noalias_token = noalias_token;
                 }
                 continue;
@@ -891,20 +911,20 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             State.ParamDeclName => |param_decl| {
                 // TODO: Here, we eat two tokens in one state. This means that we can't have
                 //       comments between these two tokens.
-                if (eatToken(&tok_it, &tree, Token.Id.Identifier)) |ident_token| {
-                    if (eatToken(&tok_it, &tree, Token.Id.Colon)) |_| {
+                if (eatToken(&tok_it, tree, Token.Id.Identifier)) |ident_token| {
+                    if (eatToken(&tok_it, tree, Token.Id.Colon)) |_| {
                         param_decl.name_token = ident_token;
                     } else {
-                        prevToken(&tok_it, &tree);
+                        prevToken(&tok_it, tree);
                     }
                 }
                 continue;
             },
             State.ParamDeclEnd => |ctx| {
-                if (eatToken(&tok_it, &tree, Token.Id.Ellipsis3)) |ellipsis3| {
+                if (eatToken(&tok_it, tree, Token.Id.Ellipsis3)) |ellipsis3| {
                     ctx.param_decl.var_args_token = ellipsis3;
 
-                    switch (expectCommaOrEnd(&tok_it, &tree, Token.Id.RParen)) {
+                    switch (expectCommaOrEnd(&tok_it, tree, Token.Id.RParen)) {
                         ExpectCommaOrEndResult.end_token => |t| {
                             if (t == null) {
                                 stack.append(State{ .ExpectToken = Token.Id.RParen }) catch unreachable;
@@ -924,7 +944,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 continue;
             },
             State.ParamDeclComma => |fn_proto| {
-                switch (expectCommaOrEnd(&tok_it, &tree, Token.Id.RParen)) {
+                switch (expectCommaOrEnd(&tok_it, tree, Token.Id.RParen)) {
                     ExpectCommaOrEndResult.end_token => |t| {
                         if (t == null) {
                             stack.append(State{ .ParamDecl = fn_proto }) catch unreachable;
@@ -939,7 +959,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.MaybeLabeledExpression => |ctx| {
-                if (eatToken(&tok_it, &tree, Token.Id.Colon)) |_| {
+                if (eatToken(&tok_it, tree, Token.Id.Colon)) |_| {
                     stack.append(State{
                         .LabeledExpression = LabelCtx{
                             .label = ctx.label,
@@ -953,7 +973,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 continue;
             },
             State.LabeledExpression => |ctx| {
-                const token = nextToken(&tok_it, &tree);
+                const token = nextToken(&tok_it, tree);
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 switch (token_ptr.id) {
@@ -1008,13 +1028,13 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                             return tree;
                         }
 
-                        prevToken(&tok_it, &tree);
+                        prevToken(&tok_it, tree);
                         continue;
                     },
                 }
             },
             State.Inline => |ctx| {
-                const token = nextToken(&tok_it, &tree);
+                const token = nextToken(&tok_it, tree);
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 switch (token_ptr.id) {
@@ -1046,7 +1066,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                             return tree;
                         }
 
-                        prevToken(&tok_it, &tree);
+                        prevToken(&tok_it, tree);
                         continue;
                     },
                 }
@@ -1103,7 +1123,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 continue;
             },
             State.Else => |dest| {
-                if (eatToken(&tok_it, &tree, Token.Id.Keyword_else)) |else_token| {
+                if (eatToken(&tok_it, tree, Token.Id.Keyword_else)) |else_token| {
                     const node = try arena.create(ast.Node.Else);
                     node.* = ast.Node.Else{
                         .base = ast.Node{ .id = ast.Node.Id.Else },
@@ -1122,7 +1142,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.Block => |block| {
-                const token = nextToken(&tok_it, &tree);
+                const token = nextToken(&tok_it, tree);
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 switch (token_ptr.id) {
@@ -1131,7 +1151,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     else => {
-                        prevToken(&tok_it, &tree);
+                        prevToken(&tok_it, tree);
                         stack.append(State{ .Block = block }) catch unreachable;
 
                         try stack.append(State{ .Statement = block });
@@ -1140,7 +1160,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 }
             },
             State.Statement => |block| {
-                const token = nextToken(&tok_it, &tree);
+                const token = nextToken(&tok_it, tree);
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 switch (token_ptr.id) {
@@ -1197,7 +1217,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     else => {
-                        prevToken(&tok_it, &tree);
+                        prevToken(&tok_it, tree);
                         const statement = try block.statements.addOne();
                         try stack.append(State{ .Semicolon = statement });
                         try stack.append(State{ .AssignmentExpressionBegin = OptionalCtx{ .Required = statement } });
@@ -1206,7 +1226,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 }
             },
             State.ComptimeStatement => |ctx| {
-                const token = nextToken(&tok_it, &tree);
+                const token = nextToken(&tok_it, tree);
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 switch (token_ptr.id) {
@@ -1226,8 +1246,8 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     else => {
-                        prevToken(&tok_it, &tree);
-                        prevToken(&tok_it, &tree);
+                        prevToken(&tok_it, tree);
+                        prevToken(&tok_it, tree);
                         const statement = try ctx.block.statements.addOne();
                         try stack.append(State{ .Semicolon = statement });
                         try stack.append(State{ .Expression = OptionalCtx{ .Required = statement } });
@@ -1245,11 +1265,11 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.AsmOutputItems => |items| {
-                const lbracket = nextToken(&tok_it, &tree);
+                const lbracket = nextToken(&tok_it, tree);
                 const lbracket_index = lbracket.index;
                 const lbracket_ptr = lbracket.ptr;
                 if (lbracket_ptr.id != Token.Id.LBracket) {
-                    prevToken(&tok_it, &tree);
+                    prevToken(&tok_it, tree);
                     continue;
                 }
 
@@ -1280,7 +1300,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 continue;
             },
             State.AsmOutputReturnOrType => |node| {
-                const token = nextToken(&tok_it, &tree);
+                const token = nextToken(&tok_it, tree);
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 switch (token_ptr.id) {
@@ -1300,11 +1320,11 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 }
             },
             State.AsmInputItems => |items| {
-                const lbracket = nextToken(&tok_it, &tree);
+                const lbracket = nextToken(&tok_it, tree);
                 const lbracket_index = lbracket.index;
                 const lbracket_ptr = lbracket.ptr;
                 if (lbracket_ptr.id != Token.Id.LBracket) {
-                    prevToken(&tok_it, &tree);
+                    prevToken(&tok_it, tree);
                     continue;
                 }
 
@@ -1335,16 +1355,16 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 continue;
             },
             State.AsmClobberItems => |items| {
-                while (eatToken(&tok_it, &tree, Token.Id.StringLiteral)) |strlit| {
+                while (eatToken(&tok_it, tree, Token.Id.StringLiteral)) |strlit| {
                     try items.push(strlit);
-                    if (eatToken(&tok_it, &tree, Token.Id.Comma) == null)
+                    if (eatToken(&tok_it, tree, Token.Id.Comma) == null)
                         break;
                 }
                 continue;
             },
 
             State.ExprListItemOrEnd => |list_state| {
-                if (eatToken(&tok_it, &tree, list_state.end)) |token_index| {
+                if (eatToken(&tok_it, tree, list_state.end)) |token_index| {
                     (list_state.ptr).* = token_index;
                     continue;
                 }
@@ -1354,7 +1374,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 continue;
             },
             State.ExprListCommaOrEnd => |list_state| {
-                switch (expectCommaOrEnd(&tok_it, &tree, list_state.end)) {
+                switch (expectCommaOrEnd(&tok_it, tree, list_state.end)) {
                     ExpectCommaOrEndResult.end_token => |maybe_end| if (maybe_end) |end| {
                         (list_state.ptr).* = end;
                         continue;
@@ -1369,7 +1389,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 }
             },
             State.FieldInitListItemOrEnd => |list_state| {
-                if (eatToken(&tok_it, &tree, Token.Id.RBrace)) |rbrace| {
+                if (eatToken(&tok_it, tree, Token.Id.RBrace)) |rbrace| {
                     (list_state.ptr).* = rbrace;
                     continue;
                 }
@@ -1401,7 +1421,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 continue;
             },
             State.FieldInitListCommaOrEnd => |list_state| {
-                switch (expectCommaOrEnd(&tok_it, &tree, Token.Id.RBrace)) {
+                switch (expectCommaOrEnd(&tok_it, tree, Token.Id.RBrace)) {
                     ExpectCommaOrEndResult.end_token => |maybe_end| if (maybe_end) |end| {
                         (list_state.ptr).* = end;
                         continue;
@@ -1416,17 +1436,17 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 }
             },
             State.FieldListCommaOrEnd => |field_ctx| {
-                const end_token = nextToken(&tok_it, &tree);
+                const end_token = nextToken(&tok_it, tree);
                 const end_token_index = end_token.index;
                 const end_token_ptr = end_token.ptr;
                 switch (end_token_ptr.id) {
                     Token.Id.Comma => {
-                        if (eatToken(&tok_it, &tree, Token.Id.DocComment)) |doc_comment_token| {
+                        if (eatToken(&tok_it, tree, Token.Id.DocComment)) |doc_comment_token| {
                             const loc = tree.tokenLocation(end_token_ptr.end, doc_comment_token);
                             if (loc.line == 0) {
                                 try pushDocComment(arena, doc_comment_token, field_ctx.doc_comments);
                             } else {
-                                prevToken(&tok_it, &tree);
+                                prevToken(&tok_it, tree);
                             }
                         }
 
@@ -1449,7 +1469,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 }
             },
             State.ErrorTagListItemOrEnd => |list_state| {
-                if (eatToken(&tok_it, &tree, Token.Id.RBrace)) |rbrace| {
+                if (eatToken(&tok_it, tree, Token.Id.RBrace)) |rbrace| {
                     (list_state.ptr).* = rbrace;
                     continue;
                 }
@@ -1461,7 +1481,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 continue;
             },
             State.ErrorTagListCommaOrEnd => |list_state| {
-                switch (expectCommaOrEnd(&tok_it, &tree, Token.Id.RBrace)) {
+                switch (expectCommaOrEnd(&tok_it, tree, Token.Id.RBrace)) {
                     ExpectCommaOrEndResult.end_token => |maybe_end| if (maybe_end) |end| {
                         (list_state.ptr).* = end;
                         continue;
@@ -1476,12 +1496,12 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 }
             },
             State.SwitchCaseOrEnd => |list_state| {
-                if (eatToken(&tok_it, &tree, Token.Id.RBrace)) |rbrace| {
+                if (eatToken(&tok_it, tree, Token.Id.RBrace)) |rbrace| {
                     (list_state.ptr).* = rbrace;
                     continue;
                 }
 
-                const comments = try eatDocComments(arena, &tok_it, &tree);
+                const comments = try eatDocComments(arena, &tok_it, tree);
                 const node = try arena.create(ast.Node.SwitchCase);
                 node.* = ast.Node.SwitchCase{
                     .base = ast.Node{ .id = ast.Node.Id.SwitchCase },
@@ -1500,7 +1520,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.SwitchCaseCommaOrEnd => |list_state| {
-                switch (expectCommaOrEnd(&tok_it, &tree, Token.Id.RBrace)) {
+                switch (expectCommaOrEnd(&tok_it, tree, Token.Id.RBrace)) {
                     ExpectCommaOrEndResult.end_token => |maybe_end| if (maybe_end) |end| {
                         (list_state.ptr).* = end;
                         continue;
@@ -1516,7 +1536,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.SwitchCaseFirstItem => |switch_case| {
-                const token = nextToken(&tok_it, &tree);
+                const token = nextToken(&tok_it, tree);
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 if (token_ptr.id == Token.Id.Keyword_else) {
@@ -1535,26 +1555,26 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     });
                     continue;
                 } else {
-                    prevToken(&tok_it, &tree);
+                    prevToken(&tok_it, tree);
                     stack.append(State{ .SwitchCaseItemCommaOrEnd = switch_case }) catch unreachable;
                     try stack.append(State{ .RangeExpressionBegin = OptionalCtx{ .Required = try switch_case.items.addOne() } });
                     continue;
                 }
             },
             State.SwitchCaseItemOrEnd => |switch_case| {
-                const token = nextToken(&tok_it, &tree);
+                const token = nextToken(&tok_it, tree);
                 if (token.ptr.id == Token.Id.EqualAngleBracketRight) {
                     switch_case.arrow_token = token.index;
                     continue;
                 } else {
-                    prevToken(&tok_it, &tree);
+                    prevToken(&tok_it, tree);
                     stack.append(State{ .SwitchCaseItemCommaOrEnd = switch_case }) catch unreachable;
                     try stack.append(State{ .RangeExpressionBegin = OptionalCtx{ .Required = try switch_case.items.addOne() } });
                     continue;
                 }
             },
             State.SwitchCaseItemCommaOrEnd => |switch_case| {
-                switch (expectCommaOrEnd(&tok_it, &tree, Token.Id.EqualAngleBracketRight)) {
+                switch (expectCommaOrEnd(&tok_it, tree, Token.Id.EqualAngleBracketRight)) {
                     ExpectCommaOrEndResult.end_token => |end_token| {
                         if (end_token) |t| {
                             switch_case.arrow_token = t;
@@ -1572,14 +1592,14 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.SuspendBody => |suspend_node| {
-                const token = nextToken(&tok_it, &tree);
+                const token = nextToken(&tok_it, tree);
                 switch (token.ptr.id) {
                     Token.Id.Semicolon => {
-                        prevToken(&tok_it, &tree);
+                        prevToken(&tok_it, tree);
                         continue;
                     },
                     Token.Id.LBrace => {
-                        prevToken(&tok_it, &tree);
+                        prevToken(&tok_it, tree);
                         try stack.append(State{ .AssignmentExpressionBegin = OptionalCtx{ .RequiredNull = &suspend_node.body } });
                         continue;
                     },
@@ -1589,7 +1609,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 }
             },
             State.AsyncAllocator => |async_node| {
-                if (eatToken(&tok_it, &tree, Token.Id.AngleBracketLeft) == null) {
+                if (eatToken(&tok_it, tree, Token.Id.AngleBracketLeft) == null) {
                     continue;
                 }
 
@@ -1630,7 +1650,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.ExternType => |ctx| {
-                if (eatToken(&tok_it, &tree, Token.Id.Keyword_fn)) |fn_token| {
+                if (eatToken(&tok_it, tree, Token.Id.Keyword_fn)) |fn_token| {
                     const fn_proto = try arena.create(ast.Node.FnProto);
                     fn_proto.* = ast.Node.FnProto{
                         .base = ast.Node{ .id = ast.Node.Id.FnProto },
@@ -1663,7 +1683,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 continue;
             },
             State.SliceOrArrayAccess => |node| {
-                const token = nextToken(&tok_it, &tree);
+                const token = nextToken(&tok_it, tree);
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 switch (token_ptr.id) {
@@ -1696,7 +1716,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 }
             },
             State.SliceOrArrayType => |node| {
-                if (eatToken(&tok_it, &tree, Token.Id.RBracket)) |_| {
+                if (eatToken(&tok_it, tree, Token.Id.RBracket)) |_| {
                     node.op = ast.Node.PrefixOp.Op{
                         .SliceType = ast.Node.PrefixOp.PtrInfo{
                             .align_info = null,
@@ -1718,7 +1738,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.PtrTypeModifiers => |addr_of_info| {
-                const token = nextToken(&tok_it, &tree);
+                const token = nextToken(&tok_it, tree);
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 switch (token_ptr.id) {
@@ -1768,14 +1788,14 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     else => {
-                        prevToken(&tok_it, &tree);
+                        prevToken(&tok_it, tree);
                         continue;
                     },
                 }
             },
 
             State.AlignBitRange => |align_info| {
-                const token = nextToken(&tok_it, &tree);
+                const token = nextToken(&tok_it, tree);
                 switch (token.ptr.id) {
                     Token.Id.Colon => {
                         align_info.bit_range = ast.Node.PrefixOp.PtrInfo.Align.BitRange(undefined);
@@ -1798,7 +1818,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.Payload => |opt_ctx| {
-                const token = nextToken(&tok_it, &tree);
+                const token = nextToken(&tok_it, tree);
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 if (token_ptr.id != Token.Id.Pipe) {
@@ -1812,7 +1832,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         return tree;
                     }
 
-                    prevToken(&tok_it, &tree);
+                    prevToken(&tok_it, tree);
                     continue;
                 }
 
@@ -1835,7 +1855,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 continue;
             },
             State.PointerPayload => |opt_ctx| {
-                const token = nextToken(&tok_it, &tree);
+                const token = nextToken(&tok_it, tree);
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 if (token_ptr.id != Token.Id.Pipe) {
@@ -1849,7 +1869,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         return tree;
                     }
 
-                    prevToken(&tok_it, &tree);
+                    prevToken(&tok_it, tree);
                     continue;
                 }
 
@@ -1879,7 +1899,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 continue;
             },
             State.PointerIndexPayload => |opt_ctx| {
-                const token = nextToken(&tok_it, &tree);
+                const token = nextToken(&tok_it, tree);
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 if (token_ptr.id != Token.Id.Pipe) {
@@ -1893,7 +1913,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         return tree;
                     }
 
-                    prevToken(&tok_it, &tree);
+                    prevToken(&tok_it, tree);
                     continue;
                 }
 
@@ -1927,7 +1947,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.Expression => |opt_ctx| {
-                const token = nextToken(&tok_it, &tree);
+                const token = nextToken(&tok_it, tree);
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 switch (token_ptr.id) {
@@ -1981,7 +2001,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     },
                     else => {
                         if (!try parseBlockExpr(&stack, arena, opt_ctx, token_ptr.*, token_index)) {
-                            prevToken(&tok_it, &tree);
+                            prevToken(&tok_it, tree);
                             stack.append(State{ .UnwrapExpressionBegin = opt_ctx }) catch unreachable;
                         }
                         continue;
@@ -1996,7 +2016,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             State.RangeExpressionEnd => |opt_ctx| {
                 const lhs = opt_ctx.get() orelse continue;
 
-                if (eatToken(&tok_it, &tree, Token.Id.Ellipsis3)) |ellipsis3| {
+                if (eatToken(&tok_it, tree, Token.Id.Ellipsis3)) |ellipsis3| {
                     const node = try arena.create(ast.Node.InfixOp);
                     node.* = ast.Node.InfixOp{
                         .base = ast.Node{ .id = ast.Node.Id.InfixOp },
@@ -2019,7 +2039,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             State.AssignmentExpressionEnd => |opt_ctx| {
                 const lhs = opt_ctx.get() orelse continue;
 
-                const token = nextToken(&tok_it, &tree);
+                const token = nextToken(&tok_it, tree);
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 if (tokenIdToAssignment(token_ptr.id)) |ass_id| {
@@ -2036,7 +2056,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     try stack.append(State{ .Expression = OptionalCtx{ .Required = &node.rhs } });
                     continue;
                 } else {
-                    prevToken(&tok_it, &tree);
+                    prevToken(&tok_it, tree);
                     continue;
                 }
             },
@@ -2050,7 +2070,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             State.UnwrapExpressionEnd => |opt_ctx| {
                 const lhs = opt_ctx.get() orelse continue;
 
-                const token = nextToken(&tok_it, &tree);
+                const token = nextToken(&tok_it, tree);
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 if (tokenIdToUnwrapExpr(token_ptr.id)) |unwrap_id| {
@@ -2072,7 +2092,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     }
                     continue;
                 } else {
-                    prevToken(&tok_it, &tree);
+                    prevToken(&tok_it, tree);
                     continue;
                 }
             },
@@ -2086,7 +2106,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             State.BoolOrExpressionEnd => |opt_ctx| {
                 const lhs = opt_ctx.get() orelse continue;
 
-                if (eatToken(&tok_it, &tree, Token.Id.Keyword_or)) |or_token| {
+                if (eatToken(&tok_it, tree, Token.Id.Keyword_or)) |or_token| {
                     const node = try arena.create(ast.Node.InfixOp);
                     node.* = ast.Node.InfixOp{
                         .base = ast.Node{ .id = ast.Node.Id.InfixOp },
@@ -2111,7 +2131,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             State.BoolAndExpressionEnd => |opt_ctx| {
                 const lhs = opt_ctx.get() orelse continue;
 
-                if (eatToken(&tok_it, &tree, Token.Id.Keyword_and)) |and_token| {
+                if (eatToken(&tok_it, tree, Token.Id.Keyword_and)) |and_token| {
                     const node = try arena.create(ast.Node.InfixOp);
                     node.* = ast.Node.InfixOp{
                         .base = ast.Node{ .id = ast.Node.Id.InfixOp },
@@ -2136,7 +2156,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             State.ComparisonExpressionEnd => |opt_ctx| {
                 const lhs = opt_ctx.get() orelse continue;
 
-                const token = nextToken(&tok_it, &tree);
+                const token = nextToken(&tok_it, tree);
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 if (tokenIdToComparison(token_ptr.id)) |comp_id| {
@@ -2153,7 +2173,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     try stack.append(State{ .BinaryOrExpressionBegin = OptionalCtx{ .Required = &node.rhs } });
                     continue;
                 } else {
-                    prevToken(&tok_it, &tree);
+                    prevToken(&tok_it, tree);
                     continue;
                 }
             },
@@ -2167,7 +2187,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             State.BinaryOrExpressionEnd => |opt_ctx| {
                 const lhs = opt_ctx.get() orelse continue;
 
-                if (eatToken(&tok_it, &tree, Token.Id.Pipe)) |pipe| {
+                if (eatToken(&tok_it, tree, Token.Id.Pipe)) |pipe| {
                     const node = try arena.create(ast.Node.InfixOp);
                     node.* = ast.Node.InfixOp{
                         .base = ast.Node{ .id = ast.Node.Id.InfixOp },
@@ -2192,7 +2212,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             State.BinaryXorExpressionEnd => |opt_ctx| {
                 const lhs = opt_ctx.get() orelse continue;
 
-                if (eatToken(&tok_it, &tree, Token.Id.Caret)) |caret| {
+                if (eatToken(&tok_it, tree, Token.Id.Caret)) |caret| {
                     const node = try arena.create(ast.Node.InfixOp);
                     node.* = ast.Node.InfixOp{
                         .base = ast.Node{ .id = ast.Node.Id.InfixOp },
@@ -2217,7 +2237,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             State.BinaryAndExpressionEnd => |opt_ctx| {
                 const lhs = opt_ctx.get() orelse continue;
 
-                if (eatToken(&tok_it, &tree, Token.Id.Ampersand)) |ampersand| {
+                if (eatToken(&tok_it, tree, Token.Id.Ampersand)) |ampersand| {
                     const node = try arena.create(ast.Node.InfixOp);
                     node.* = ast.Node.InfixOp{
                         .base = ast.Node{ .id = ast.Node.Id.InfixOp },
@@ -2242,7 +2262,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             State.BitShiftExpressionEnd => |opt_ctx| {
                 const lhs = opt_ctx.get() orelse continue;
 
-                const token = nextToken(&tok_it, &tree);
+                const token = nextToken(&tok_it, tree);
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 if (tokenIdToBitShift(token_ptr.id)) |bitshift_id| {
@@ -2259,7 +2279,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     try stack.append(State{ .AdditionExpressionBegin = OptionalCtx{ .Required = &node.rhs } });
                     continue;
                 } else {
-                    prevToken(&tok_it, &tree);
+                    prevToken(&tok_it, tree);
                     continue;
                 }
             },
@@ -2273,7 +2293,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             State.AdditionExpressionEnd => |opt_ctx| {
                 const lhs = opt_ctx.get() orelse continue;
 
-                const token = nextToken(&tok_it, &tree);
+                const token = nextToken(&tok_it, tree);
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 if (tokenIdToAddition(token_ptr.id)) |add_id| {
@@ -2290,7 +2310,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     try stack.append(State{ .MultiplyExpressionBegin = OptionalCtx{ .Required = &node.rhs } });
                     continue;
                 } else {
-                    prevToken(&tok_it, &tree);
+                    prevToken(&tok_it, tree);
                     continue;
                 }
             },
@@ -2304,7 +2324,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             State.MultiplyExpressionEnd => |opt_ctx| {
                 const lhs = opt_ctx.get() orelse continue;
 
-                const token = nextToken(&tok_it, &tree);
+                const token = nextToken(&tok_it, tree);
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 if (tokenIdToMultiply(token_ptr.id)) |mult_id| {
@@ -2321,7 +2341,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     try stack.append(State{ .CurlySuffixExpressionBegin = OptionalCtx{ .Required = &node.rhs } });
                     continue;
                 } else {
-                    prevToken(&tok_it, &tree);
+                    prevToken(&tok_it, tree);
                     continue;
                 }
             },
@@ -2386,7 +2406,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             State.TypeExprEnd => |opt_ctx| {
                 const lhs = opt_ctx.get() orelse continue;
 
-                if (eatToken(&tok_it, &tree, Token.Id.Bang)) |bang| {
+                if (eatToken(&tok_it, tree, Token.Id.Bang)) |bang| {
                     const node = try arena.create(ast.Node.InfixOp);
                     node.* = ast.Node.InfixOp{
                         .base = ast.Node{ .id = ast.Node.Id.InfixOp },
@@ -2403,7 +2423,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.PrefixOpExpression => |opt_ctx| {
-                const token = nextToken(&tok_it, &tree);
+                const token = nextToken(&tok_it, tree);
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 if (tokenIdToPrefixOp(token_ptr.id)) |prefix_id| {
@@ -2435,14 +2455,14 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     }
                     continue;
                 } else {
-                    prevToken(&tok_it, &tree);
+                    prevToken(&tok_it, tree);
                     stack.append(State{ .SuffixOpExpressionBegin = opt_ctx }) catch unreachable;
                     continue;
                 }
             },
 
             State.SuffixOpExpressionBegin => |opt_ctx| {
-                if (eatToken(&tok_it, &tree, Token.Id.Keyword_async)) |async_token| {
+                if (eatToken(&tok_it, tree, Token.Id.Keyword_async)) |async_token| {
                     const async_node = try arena.create(ast.Node.AsyncAttribute);
                     async_node.* = ast.Node.AsyncAttribute{
                         .base = ast.Node{ .id = ast.Node.Id.AsyncAttribute },
@@ -2470,7 +2490,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             State.SuffixOpExpressionEnd => |opt_ctx| {
                 const lhs = opt_ctx.get() orelse continue;
 
-                const token = nextToken(&tok_it, &tree);
+                const token = nextToken(&tok_it, tree);
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 switch (token_ptr.id) {
@@ -2515,7 +2535,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     Token.Id.Period => {
-                        if (eatToken(&tok_it, &tree, Token.Id.Asterisk)) |asterisk_token| {
+                        if (eatToken(&tok_it, tree, Token.Id.Asterisk)) |asterisk_token| {
                             const node = try arena.create(ast.Node.SuffixOp);
                             node.* = ast.Node.SuffixOp{
                                 .base = ast.Node{ .id = ast.Node.Id.SuffixOp },
@@ -2527,7 +2547,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                             stack.append(State{ .SuffixOpExpressionEnd = opt_ctx.toRequired() }) catch unreachable;
                             continue;
                         }
-                        if (eatToken(&tok_it, &tree, Token.Id.QuestionMark)) |question_token| {
+                        if (eatToken(&tok_it, tree, Token.Id.QuestionMark)) |question_token| {
                             const node = try arena.create(ast.Node.SuffixOp);
                             node.* = ast.Node.SuffixOp{
                                 .base = ast.Node{ .id = ast.Node.Id.SuffixOp },
@@ -2554,21 +2574,21 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     else => {
-                        prevToken(&tok_it, &tree);
+                        prevToken(&tok_it, tree);
                         continue;
                     },
                 }
             },
 
             State.PrimaryExpression => |opt_ctx| {
-                const token = nextToken(&tok_it, &tree);
+                const token = nextToken(&tok_it, tree);
                 switch (token.ptr.id) {
                     Token.Id.IntegerLiteral => {
                         _ = try createToCtxLiteral(arena, opt_ctx, ast.Node.IntegerLiteral, token.index);
                         continue;
                     },
                     Token.Id.Period => {
-                        const name_token = nextToken(&tok_it, &tree);
+                        const name_token = nextToken(&tok_it, tree);
                         if (name_token.ptr.id != Token.Id.Identifier) {
                             ((try tree.errors.addOne())).* = Error{
                                 .ExpectedToken = Error.ExpectedToken{
@@ -2624,11 +2644,11 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                             .result = null,
                         };
                         opt_ctx.store(&node.base);
-                        const next_token = nextToken(&tok_it, &tree);
+                        const next_token = nextToken(&tok_it, tree);
                         const next_token_index = next_token.index;
                         const next_token_ptr = next_token.ptr;
                         if (next_token_ptr.id != Token.Id.Arrow) {
-                            prevToken(&tok_it, &tree);
+                            prevToken(&tok_it, tree);
                             continue;
                         }
                         node.result = ast.Node.PromiseType.Result{
@@ -2640,7 +2660,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     Token.Id.StringLiteral, Token.Id.MultilineStringLiteralLine => {
-                        opt_ctx.store((try parseStringLiteral(arena, &tok_it, token.ptr, token.index, &tree)) orelse unreachable);
+                        opt_ctx.store((try parseStringLiteral(arena, &tok_it, token.ptr, token.index, tree)) orelse unreachable);
                         continue;
                     },
                     Token.Id.LParen => {
@@ -2728,7 +2748,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                         continue;
                     },
                     Token.Id.Keyword_struct, Token.Id.Keyword_union, Token.Id.Keyword_enum => {
-                        prevToken(&tok_it, &tree);
+                        prevToken(&tok_it, tree);
                         stack.append(State{
                             .ContainerKind = ContainerKindCtx{
                                 .opt_ctx = opt_ctx,
@@ -2845,7 +2865,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                     },
                     else => {
                         if (!try parseBlockExpr(&stack, arena, opt_ctx, token.ptr.*, token.index)) {
-                            prevToken(&tok_it, &tree);
+                            prevToken(&tok_it, tree);
                             if (opt_ctx != OptionalCtx.Optional) {
                                 ((try tree.errors.addOne())).* = Error{ .ExpectedPrimaryExpr = Error.ExpectedPrimaryExpr{ .token = token.index } };
                                 return tree;
@@ -2857,7 +2877,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.ErrorTypeOrSetDecl => |ctx| {
-                if (eatToken(&tok_it, &tree, Token.Id.LBrace) == null) {
+                if (eatToken(&tok_it, tree, Token.Id.LBrace) == null) {
                     const node = try arena.create(ast.Node.InfixOp);
                     node.* = ast.Node.InfixOp{
                         .base = ast.Node{ .id = ast.Node.Id.InfixOp },
@@ -2895,11 +2915,11 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 continue;
             },
             State.StringLiteral => |opt_ctx| {
-                const token = nextToken(&tok_it, &tree);
+                const token = nextToken(&tok_it, tree);
                 const token_index = token.index;
                 const token_ptr = token.ptr;
-                opt_ctx.store((try parseStringLiteral(arena, &tok_it, token_ptr, token_index, &tree)) orelse {
-                    prevToken(&tok_it, &tree);
+                opt_ctx.store((try parseStringLiteral(arena, &tok_it, token_ptr, token_index, tree)) orelse {
+                    prevToken(&tok_it, tree);
                     if (opt_ctx != OptionalCtx.Optional) {
                         ((try tree.errors.addOne())).* = Error{ .ExpectedPrimaryExpr = Error.ExpectedPrimaryExpr{ .token = token_index } };
                         return tree;
@@ -2910,13 +2930,13 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.Identifier => |opt_ctx| {
-                if (eatToken(&tok_it, &tree, Token.Id.Identifier)) |ident_token| {
+                if (eatToken(&tok_it, tree, Token.Id.Identifier)) |ident_token| {
                     _ = try createToCtxLiteral(arena, opt_ctx, ast.Node.Identifier, ident_token);
                     continue;
                 }
 
                 if (opt_ctx != OptionalCtx.Optional) {
-                    const token = nextToken(&tok_it, &tree);
+                    const token = nextToken(&tok_it, tree);
                     const token_index = token.index;
                     const token_ptr = token.ptr;
                     ((try tree.errors.addOne())).* = Error{
@@ -2930,8 +2950,8 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.ErrorTag => |node_ptr| {
-                const comments = try eatDocComments(arena, &tok_it, &tree);
-                const ident_token = nextToken(&tok_it, &tree);
+                const comments = try eatDocComments(arena, &tok_it, tree);
+                const ident_token = nextToken(&tok_it, tree);
                 const ident_token_index = ident_token.index;
                 const ident_token_ptr = ident_token.ptr;
                 if (ident_token_ptr.id != Token.Id.Identifier) {
@@ -2955,7 +2975,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
             },
 
             State.ExpectToken => |token_id| {
-                const token = nextToken(&tok_it, &tree);
+                const token = nextToken(&tok_it, tree);
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 if (token_ptr.id != token_id) {
@@ -2970,7 +2990,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 continue;
             },
             State.ExpectTokenSave => |expect_token_save| {
-                const token = nextToken(&tok_it, &tree);
+                const token = nextToken(&tok_it, tree);
                 const token_index = token.index;
                 const token_ptr = token.ptr;
                 if (token_ptr.id != expect_token_save.id) {
@@ -2986,7 +3006,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 continue;
             },
             State.IfToken => |token_id| {
-                if (eatToken(&tok_it, &tree, token_id)) |_| {
+                if (eatToken(&tok_it, tree, token_id)) |_| {
                     continue;
                 }
 
@@ -2994,7 +3014,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 continue;
             },
             State.IfTokenSave => |if_token_save| {
-                if (eatToken(&tok_it, &tree, if_token_save.id)) |token_index| {
+                if (eatToken(&tok_it, tree, if_token_save.id)) |token_index| {
                     (if_token_save.ptr).* = token_index;
                     continue;
                 }
@@ -3003,7 +3023,7 @@ pub fn parse(allocator: *mem.Allocator, source: []const u8) !ast.Tree {
                 continue;
             },
             State.OptionalTokenSave => |optional_token_save| {
-                if (eatToken(&tok_it, &tree, optional_token_save.id)) |token_index| {
+                if (eatToken(&tok_it, tree, optional_token_save.id)) |token_index| {
                     (optional_token_save.ptr).* = token_index;
                     continue;
                 }

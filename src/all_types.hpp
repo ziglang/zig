@@ -55,7 +55,7 @@ struct IrExecutable {
     size_t mem_slot_count;
     size_t next_debug_id;
     size_t *backward_branch_count;
-    size_t backward_branch_quota;
+    size_t *backward_branch_quota;
     ZigFn *fn_entry;
     Buf *c_import_buf;
     AstNode *source_node;
@@ -1350,6 +1350,7 @@ struct ZigFn {
     IrExecutable ir_executable;
     IrExecutable analyzed_executable;
     size_t prealloc_bbc;
+    size_t prealloc_backward_branch_quota;
     AstNode **param_source_nodes;
     Buf **param_names;
 
@@ -1855,6 +1856,7 @@ struct CodeGen {
     bool strip_debug_symbols;
     bool is_test_build;
     bool is_single_threaded;
+    bool want_single_threaded;
     bool linker_rdynamic;
     bool each_lib_rpath;
     bool is_dummy_so;

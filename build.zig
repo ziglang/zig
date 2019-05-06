@@ -65,6 +65,8 @@ pub fn build(b: *Builder) !void {
 
     b.default_step.dependOn(&exe.step);
 
+    addLibUserlandStep(b);
+
     const skip_release = b.option(bool, "skip-release", "Main test suite skips release builds") orelse false;
     const skip_release_small = b.option(bool, "skip-release-small", "Main test suite skips release-small builds") orelse skip_release;
     const skip_release_fast = b.option(bool, "skip-release-fast", "Main test suite skips release-fast builds") orelse skip_release;
@@ -380,3 +382,22 @@ const Context = struct {
     dia_guids_lib: []const u8,
     llvm: LibraryDep,
 };
+
+fn addLibUserlandStep(b: *Builder) void {
+    const artifact = if (builtin.os == .macosx)
+        b.addObject("userland", "src-self-hosted/stage1.zig")
+    else
+        b.addStaticLibrary("userland", "src-self-hosted/stage1.zig");
+    artifact.disable_gen_h = true;
+    artifact.setTarget(builtin.arch, builtin.os, builtin.abi);
+    artifact.linkSystemLibrary("c");
+    const libuserland_step = b.step("libuserland", "Build the userland compiler library for use in stage1");
+    libuserland_step.dependOn(&artifact.step);
+
+    const output_dir = b.option(
+        []const u8,
+        "output-dir",
+        "For libuserland step, where to put the output",
+    ) orelse return;
+    artifact.setOutputDir(output_dir);
+}

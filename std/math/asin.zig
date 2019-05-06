@@ -1,12 +1,18 @@
-// Special Cases:
+// Ported from musl, which is licensed under the MIT license:
+// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
-// - asin(+-0) = +-0
-// - asin(x)   = nan if x < -1 or x > 1
+// https://git.musl-libc.org/cgit/musl/tree/src/math/asinf.c
+// https://git.musl-libc.org/cgit/musl/tree/src/math/asin.c
 
 const std = @import("../std.zig");
 const math = std.math;
 const expect = std.testing.expect;
 
+/// Returns the arc-sin of x.
+///
+/// Special Cases:
+///  - asin(+-0) = +-0
+///  - asin(x)   = nan if x < -1 or x > 1
 pub fn asin(x: var) @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {

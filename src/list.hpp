@@ -10,8 +10,6 @@
 
 #include "util.hpp"
 
-#include <assert.h>
-
 template<typename T>
 struct ZigList {
     void deinit() {

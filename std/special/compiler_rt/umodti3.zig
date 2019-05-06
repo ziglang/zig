@@ -9,7 +9,7 @@ pub extern fn __umodti3(a: u128, b: u128) u128 {
     return r;
 }
 
-pub extern fn __umodti3_windows_x86_64(a: *const u128, b: *const u128) void {
-    @setRuntimeSafety(builtin.is_test);
-    compiler_rt.setXmm0(u128, __umodti3(a.*, b.*));
+const v128 = @Vector(2, u64);
+pub extern fn __umodti3_windows_x86_64(a: v128, b: v128) v128 {
+    return @bitCast(v128, @inlineCall(__umodti3, @bitCast(u128, a), @bitCast(u128, b)));
 }

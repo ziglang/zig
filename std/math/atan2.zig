@@ -1,27 +1,33 @@
-// Special Cases:
+// Ported from musl, which is licensed under the MIT license:
+// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
-//  atan2(y, nan)     = nan
-//  atan2(nan, x)     = nan
-//  atan2(+0, x>=0)   = +0
-//  atan2(-0, x>=0)   = -0
-//  atan2(+0, x<=-0)  = +pi
-//  atan2(-0, x<=-0)  = -pi
-//  atan2(y>0, 0)     = +pi/2
-//  atan2(y<0, 0)     = -pi/2
-//  atan2(+inf, +inf) = +pi/4
-//  atan2(-inf, +inf) = -pi/4
-//  atan2(+inf, -inf) = 3pi/4
-//  atan2(-inf, -inf) = -3pi/4
-//  atan2(y, +inf)    = 0
-//  atan2(y>0, -inf)  = +pi
-//  atan2(y<0, -inf)  = -pi
-//  atan2(+inf, x)    = +pi/2
-//  atan2(-inf, x)    = -pi/2
+// https://git.musl-libc.org/cgit/musl/tree/src/math/atan2f.c
+// https://git.musl-libc.org/cgit/musl/tree/src/math/atan2.c
 
 const std = @import("../std.zig");
 const math = std.math;
 const expect = std.testing.expect;
 
+/// Returns the arc-tangent of y/x.
+///
+/// Special Cases:
+///  - atan2(y, nan)     = nan
+///  - atan2(nan, x)     = nan
+///  - atan2(+0, x>=0)   = +0
+///  - atan2(-0, x>=0)   = -0
+///  - atan2(+0, x<=-0)  = +pi
+///  - atan2(-0, x<=-0)  = -pi
+///  - atan2(y>0, 0)     = +pi/2
+///  - atan2(y<0, 0)     = -pi/2
+///  - atan2(+inf, +inf) = +pi/4
+///  - atan2(-inf, +inf) = -pi/4
+///  - atan2(+inf, -inf) = 3pi/4
+///  - atan2(-inf, -inf) = -3pi/4
+///  - atan2(y, +inf)    = 0
+///  - atan2(y>0, -inf)  = +pi
+///  - atan2(y<0, -inf)  = -pi
+///  - atan2(+inf, x)    = +pi/2
+///  - atan2(-inf, x)    = -pi/2
 pub fn atan2(comptime T: type, y: T, x: T) T {
     return switch (T) {
         f32 => atan2_32(y, x),

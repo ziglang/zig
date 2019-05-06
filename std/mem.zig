@@ -104,10 +104,7 @@ pub const Allocator = struct {
         const byte_count = math.mul(usize, @sizeOf(T), n) catch return Error.OutOfMemory;
         const byte_slice = try self.reallocFn(self, ([*]u8)(undefined)[0..0], undefined, byte_count, alignment);
         assert(byte_slice.len == byte_count);
-        // This loop gets optimized out in ReleaseFast mode
-        for (byte_slice) |*byte| {
-            byte.* = undefined;
-        }
+        @memset(byte_slice.ptr, undefined, byte_slice.len);
         return @bytesToSlice(T, @alignCast(alignment, byte_slice));
     }
 
@@ -153,10 +150,7 @@ pub const Allocator = struct {
         const byte_slice = try self.reallocFn(self, old_byte_slice, Slice.alignment, byte_count, new_alignment);
         assert(byte_slice.len == byte_count);
         if (new_n > old_mem.len) {
-            // This loop gets optimized out in ReleaseFast mode
-            for (byte_slice[old_byte_slice.len..]) |*byte| {
-                byte.* = undefined;
-            }
+            @memset(byte_slice.ptr + old_byte_slice.len, undefined, byte_slice.len - old_byte_slice.len);
         }
         return @bytesToSlice(T, @alignCast(new_alignment, byte_slice));
     }

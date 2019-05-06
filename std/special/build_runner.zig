@@ -94,6 +94,16 @@ pub fn main() !void {
                     return usageAndErr(&builder, false, try stderr_stream);
                 });
                 builder.addSearchPrefix(search_prefix);
+            } else if (mem.eql(u8, arg, "--override-std-dir")) {
+                builder.override_std_dir = try unwrapArg(arg_it.next(allocator) orelse {
+                    warn("Expected argument after --override-std-dir\n\n");
+                    return usageAndErr(&builder, false, try stderr_stream);
+                });
+            } else if (mem.eql(u8, arg, "--override-lib-dir")) {
+                builder.override_lib_dir = try unwrapArg(arg_it.next(allocator) orelse {
+                    warn("Expected argument after --override-lib-dir\n\n");
+                    return usageAndErr(&builder, false, try stderr_stream);
+                });
             } else if (mem.eql(u8, arg, "--verbose-tokenize")) {
                 builder.verbose_tokenize = true;
             } else if (mem.eql(u8, arg, "--verbose-ast")) {
@@ -187,15 +197,17 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: var) !void {
     try out_stream.write(
         \\
         \\Advanced Options:
-        \\  --build-file [file]    Override path to build.zig
-        \\  --cache-dir [path]     Override path to zig cache directory
-        \\  --verbose-tokenize     Enable compiler debug output for tokenization
-        \\  --verbose-ast          Enable compiler debug output for parsing into an AST
-        \\  --verbose-link         Enable compiler debug output for linking
-        \\  --verbose-ir           Enable compiler debug output for Zig IR
-        \\  --verbose-llvm-ir      Enable compiler debug output for LLVM IR
-        \\  --verbose-cimport      Enable compiler debug output for C imports
-        \\  --verbose-cc           Enable compiler debug output for C compilation
+        \\  --build-file [file]      Override path to build.zig
+        \\  --cache-dir [path]       Override path to zig cache directory
+        \\  --override-std-dir [arg] Override path to Zig standard library
+        \\  --override-lib-dir [arg] Override path to Zig lib directory
+        \\  --verbose-tokenize       Enable compiler debug output for tokenization
+        \\  --verbose-ast            Enable compiler debug output for parsing into an AST
+        \\  --verbose-link           Enable compiler debug output for linking
+        \\  --verbose-ir             Enable compiler debug output for Zig IR
+        \\  --verbose-llvm-ir        Enable compiler debug output for LLVM IR
+        \\  --verbose-cimport        Enable compiler debug output for C imports
+        \\  --verbose-cc             Enable compiler debug output for C compilation
         \\
     );
 }

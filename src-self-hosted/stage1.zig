@@ -1,32 +1,147 @@
+// This is Zig code that is used by both stage1 and stage2.
+// The prototypes in src/userland.h must match these definitions.
+
 const std = @import("std");
 const builtin = @import("builtin");
 
-const os = std.os;
-const io = std.io;
-const mem = std.mem;
-const Allocator = mem.Allocator;
-const ArrayList = std.ArrayList;
-const Buffer = std.Buffer;
+// ABI warning
+export fn stage2_zen(ptr: *[*]const u8, len: *usize) void {
+    const info_zen = @import("main.zig").info_zen;
+    ptr.* = &info_zen;
+    len.* = info_zen.len;
+}
+
+// ABI warning
+export fn stage2_panic(ptr: [*]const u8, len: usize) void {
+    @panic(ptr[0..len]);
+}
+
+// ABI warning
+const TranslateMode = extern enum {
+    import,
+    translate,
+};
+
+// ABI warning
+const Error = extern enum {
+    None,
+    OutOfMemory,
+    InvalidFormat,
+    SemanticAnalyzeFail,
+    AccessDenied,
+    Interrupted,
+    SystemResources,
+    FileNotFound,
+    FileSystem,
+    FileTooBig,
+    DivByZero,
+    Overflow,
+    PathAlreadyExists,
+    Unexpected,
+    ExactDivRemainder,
+    NegativeDenominator,
+    ShiftedOutOneBits,
+    CCompileErrors,
+    EndOfFile,
+    IsDir,
+    NotDir,
+    UnsupportedOperatingSystem,
+    SharingViolation,
+    PipeBusy,
+    PrimitiveTypeNotFound,
+    CacheUnavailable,
+    PathTooLong,
+    CCompilerCannotFindFile,
+    ReadingDepFile,
+    InvalidDepFile,
+    MissingArchitecture,
+    MissingOperatingSystem,
+    UnknownArchitecture,
+    UnknownOperatingSystem,
+    UnknownABI,
+    InvalidFilename,
+    DiskQuota,
+    DiskSpace,
+    UnexpectedWriteFailure,
+    UnexpectedSeekFailure,
+    UnexpectedFileTruncationFailure,
+    Unimplemented,
+    OperationAborted,
+    BrokenPipe,
+    NoSpaceLeft,
+};
+
+const FILE = std.c.FILE;
 const ast = std.zig.ast;
+const translate_c = @import("translate_c.zig");
 
-const arg = @import("fmt/arg.zig");
-const self_hosted_main = @import("fmt/main.zig");
-const Args = arg.Args;
-const Flag = arg.Flag;
-const errmsg = @import("fmt/errmsg.zig");
+/// Args should have a null terminating last arg.
+export fn stage2_translate_c(
+    out_ast: **ast.Tree,
+    out_errors_ptr: *[*]translate_c.ClangErrMsg,
+    out_errors_len: *usize,
+    args_begin: [*]?[*]const u8,
+    args_end: [*]?[*]const u8,
+    mode: TranslateMode,
+    resources_path: [*]const u8,
+) Error {
+    var errors: []translate_c.ClangErrMsg = undefined;
+    out_ast.* = translate_c.translate(std.heap.c_allocator, args_begin, args_end, switch (mode) {
+        .import => translate_c.Mode.import,
+        .translate => translate_c.Mode.translate,
+    }, &errors, resources_path) catch |err| switch (err) {
+        error.SemanticAnalyzeFail => {
+            out_errors_ptr.* = errors.ptr;
+            out_errors_len.* = errors.len;
+            return Error.CCompileErrors;
+        },
+        error.OutOfMemory => return Error.OutOfMemory,
+    };
+    return Error.None;
+}
 
-var stderr_file: os.File = undefined;
-var stderr: *io.OutStream(os.File.WriteError) = undefined;
-var stdout: *io.OutStream(os.File.WriteError) = undefined;
+export fn stage2_free_clang_errors(errors_ptr: [*]translate_c.ClangErrMsg, errors_len: usize) void {
+    translate_c.freeErrors(errors_ptr[0..errors_len]);
+}
 
-// This brings `zig fmt` to stage 1.
-pub fn main() !void {
-    // Here we use an ArenaAllocator backed by a DirectAllocator because `zig fmt` is a short-lived,
-    // one shot program. We don't need to waste time freeing memory and finding places to squish
-    // bytes into. So we free everything all at once at the very end.
-    var direct_allocator = std.heap.DirectAllocator.init();
-    var arena = std.heap.ArenaAllocator.init(&direct_allocator.allocator);
-    const allocator = &arena.allocator;
+export fn stage2_render_ast(tree: *ast.Tree, output_file: *FILE) Error {
+    const c_out_stream = &std.io.COutStream.init(output_file).stream;
+    _ = std.zig.render(std.heap.c_allocator, c_out_stream, tree) catch |e| switch (e) {
+        error.SystemResources => return Error.SystemResources,
+        error.OperationAborted => return Error.OperationAborted,
+        error.BrokenPipe => return Error.BrokenPipe,
+        error.DiskQuota => return Error.DiskQuota,
+        error.FileTooBig => return Error.FileTooBig,
+        error.NoSpaceLeft => return Error.NoSpaceLeft,
+        error.AccessDenied => return Error.AccessDenied,
+        error.OutOfMemory => return Error.OutOfMemory,
+        error.Unexpected => return Error.Unexpected,
+        error.InputOutput => return Error.FileSystem,
+    };
+    return Error.None;
+}
+
+// TODO: just use the actual self-hosted zig fmt. Until the coroutine rewrite, we use a blocking implementation.
+export fn stage2_fmt(argc: c_int, argv: [*]const [*]const u8) c_int {
+    if (std.debug.runtime_safety) {
+        fmtMain(argc, argv) catch unreachable;
+    } else {
+        fmtMain(argc, argv) catch |e| {
+            std.debug.warn("{}\n", @errorName(e));
+            return -1;
+        };
+    }
+    return 0;
+}
+
+fn fmtMain(argc: c_int, argv: [*]const [*]const u8) !void {
+    const allocator = std.heap.c_allocator;
+    var args_list = std.ArrayList([]const u8).init(allocator);
+    const argc_usize = @intCast(usize, argc);
+    var arg_i: usize = 0;
+    while (arg_i < argc_usize) : (arg_i += 1) {
+        try args_list.append(std.mem.toSliceConst(u8, argv[arg_i]));
+    }
 
     var stdout_file = try std.io.getStdOut();
     var stdout_out_stream = stdout_file.outStream();
@@ -35,9 +150,9 @@ pub fn main() !void {
     stderr_file = try std.io.getStdErr();
     var stderr_out_stream = stderr_file.outStream();
     stderr = &stderr_out_stream.stream;
-    const args = try std.os.argsAlloc(allocator);
 
-    var flags = try Args.parse(allocator, self_hosted_main.args_fmt_spec, args[1..]);
+    const args = args_list.toSliceConst();
+    var flags = try Args.parse(allocator, self_hosted_main.args_fmt_spec, args[2..]);
     defer flags.deinit();
 
     if (flags.present("help")) {
@@ -71,7 +186,7 @@ pub fn main() !void {
         const source_code = try stdin.stream.readAllAlloc(allocator, self_hosted_main.max_src_size);
         defer allocator.free(source_code);
 
-        var tree = std.zig.parse(allocator, source_code) catch |err| {
+        const tree = std.zig.parse(allocator, source_code) catch |err| {
             try stderr.print("error parsing stdin: {}\n", err);
             os.exit(1);
         };
@@ -79,18 +194,18 @@ pub fn main() !void {
 
         var error_it = tree.errors.iterator(0);
         while (error_it.next()) |parse_error| {
-            try printErrMsgToFile(allocator, parse_error, &tree, "<stdin>", stderr_file, color);
+            try printErrMsgToFile(allocator, parse_error, tree, "<stdin>", stderr_file, color);
         }
         if (tree.errors.len != 0) {
             os.exit(1);
         }
         if (flags.present("check")) {
-            const anything_changed = try std.zig.render(allocator, io.null_out_stream, &tree);
+            const anything_changed = try std.zig.render(allocator, io.null_out_stream, tree);
             const code = if (anything_changed) u8(1) else u8(0);
             os.exit(code);
         }
 
-        _ = try std.zig.render(allocator, stdout, &tree);
+        _ = try std.zig.render(allocator, stdout, tree);
         return;
     }
 
@@ -166,7 +281,7 @@ fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtError!void
     };
     defer fmt.allocator.free(source_code);
 
-    var tree = std.zig.parse(fmt.allocator, source_code) catch |err| {
+    const tree = std.zig.parse(fmt.allocator, source_code) catch |err| {
         try stderr.print("error parsing file '{}': {}\n", file_path, err);
         fmt.any_error = true;
         return;
@@ -175,7 +290,7 @@ fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtError!void
 
     var error_it = tree.errors.iterator(0);
     while (error_it.next()) |parse_error| {
-        try printErrMsgToFile(fmt.allocator, parse_error, &tree, file_path, stderr_file, fmt.color);
+        try printErrMsgToFile(fmt.allocator, parse_error, tree, file_path, stderr_file, fmt.color);
     }
     if (tree.errors.len != 0) {
         fmt.any_error = true;
@@ -183,17 +298,16 @@ fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtError!void
     }
 
     if (check_mode) {
-        const anything_changed = try std.zig.render(fmt.allocator, io.null_out_stream, &tree);
+        const anything_changed = try std.zig.render(fmt.allocator, io.null_out_stream, tree);
         if (anything_changed) {
             try stderr.print("{}\n", file_path);
             fmt.any_error = true;
         }
     } else {
-        // TODO make this evented
         const baf = try io.BufferedAtomicFile.create(fmt.allocator, file_path);
         defer baf.destroy();
 
-        const anything_changed = try std.zig.render(fmt.allocator, baf.stream(), &tree);
+        const anything_changed = try std.zig.render(fmt.allocator, baf.stream(), tree);
         if (anything_changed) {
             try stderr.print("{}\n", file_path);
             try baf.finish();
@@ -210,9 +324,14 @@ const Fmt = struct {
     const SeenMap = std.HashMap([]const u8, void, mem.hash_slice_u8, mem.eql_slice_u8);
 };
 
-fn printErrMsgToFile(allocator: *mem.Allocator, parse_error: *const ast.Error, tree: *ast.Tree,
-    path: []const u8, file: os.File, color: errmsg.Color,) !void
-{
+fn printErrMsgToFile(
+    allocator: *mem.Allocator,
+    parse_error: *const ast.Error,
+    tree: *ast.Tree,
+    path: []const u8,
+    file: os.File,
+    color: errmsg.Color,
+) !void {
     const color_on = switch (color) {
         errmsg.Color.Auto => file.isTty(),
         errmsg.Color.On => true,
@@ -258,3 +377,20 @@ fn printErrMsgToFile(allocator: *mem.Allocator, parse_error: *const ast.Error, t
     try stream.writeByteNTimes('~', last_token.end - first_token.start);
     try stream.write("\n");
 }
+
+const os = std.os;
+const io = std.io;
+const mem = std.mem;
+const Allocator = mem.Allocator;
+const ArrayList = std.ArrayList;
+const Buffer = std.Buffer;
+
+const arg = @import("arg.zig");
+const self_hosted_main = @import("main.zig");
+const Args = arg.Args;
+const Flag = arg.Flag;
+const errmsg = @import("errmsg.zig");
+
+var stderr_file: os.File = undefined;
+var stderr: *io.OutStream(os.File.WriteError) = undefined;
+var stdout: *io.OutStream(os.File.WriteError) = undefined;

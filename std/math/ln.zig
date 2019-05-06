@@ -1,9 +1,8 @@
-// Special Cases:
+// Ported from musl, which is licensed under the MIT license:
+// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
-// - ln(+inf)  = +inf
-// - ln(0)     = -inf
-// - ln(x)     = nan if x < 0
-// - ln(nan)   = nan
+// https://git.musl-libc.org/cgit/musl/tree/src/math/lnf.c
+// https://git.musl-libc.org/cgit/musl/tree/src/math/ln.c
 
 const std = @import("../std.zig");
 const math = std.math;
@@ -11,6 +10,13 @@ const expect = std.testing.expect;
 const builtin = @import("builtin");
 const TypeId = builtin.TypeId;
 
+/// Returns the natural logarithm of x.
+///
+/// Special Cases:
+///  - ln(+inf)  = +inf
+///  - ln(0)     = -inf
+///  - ln(x)     = nan if x < 0
+///  - ln(nan)   = nan
 pub fn ln(x: var) @typeOf(x) {
     const T = @typeOf(x);
     switch (@typeId(T)) {

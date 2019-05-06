@@ -86,3 +86,13 @@ fn testShardedTable(comptime Key: type, comptime mask_bit_count: comptime_int, c
         expect(table.get(@intCast(Key, i)) == node);
     }
 }
+
+// #2225
+test "comptime shr of BigInt" {
+    comptime {
+        var n0 = 0xdeadbeef0000000000000000;
+        std.debug.assert(n0 >> 64 == 0xdeadbeef);
+        var n1 = 17908056155735594659;
+        std.debug.assert(n1 >> 64 == 0);
+    }
+}

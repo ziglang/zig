@@ -1,3 +1,9 @@
+// Ported from musl, which is licensed under the MIT license:
+// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
+//
+// https://git.musl-libc.org/cgit/musl/tree/src/complex/ccoshf.c
+// https://git.musl-libc.org/cgit/musl/tree/src/complex/ccosh.c
+
 const std = @import("../../std.zig");
 const testing = std.testing;
 const math = std.math;
@@ -6,6 +12,7 @@ const Complex = cmath.Complex;
 
 const ldexp_cexp = @import("ldexp.zig").ldexp_cexp;
 
+/// Returns the hyperbolic arc-cosine of z.
 pub fn cosh(z: var) Complex(@typeOf(z.re)) {
     const T = @typeOf(z.re);
     return switch (T) {

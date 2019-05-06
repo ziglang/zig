@@ -256,10 +256,10 @@ static Error populate_file_hash(CacheHash *ch, CacheHashFile *chf, Buf *contents
     }
 
     if ((err = hash_file(chf->bin_digest, this_file, contents))) {
-        os_file_close(this_file);
+        os_file_close(&this_file);
         return err;
     }
-    os_file_close(this_file);
+    os_file_close(&this_file);
 
     blake2b_update(&ch->blake, chf->bin_digest, 48);
 
@@ -300,7 +300,7 @@ Error cache_hit(CacheHash *ch, Buf *out_digest) {
     Buf line_buf = BUF_INIT;
     buf_resize(&line_buf, 512);
     if ((err = os_file_read_all(ch->manifest_file, &line_buf))) {
-        os_file_close(ch->manifest_file);
+        os_file_close(&ch->manifest_file);
         return err;
     }
 
@@ -389,14 +389,14 @@ Error cache_hit(CacheHash *ch, Buf *out_digest) {
         OsFileAttr actual_attr;
         if ((err = os_file_open_r(chf->path, &this_file, &actual_attr))) {
             fprintf(stderr, "Unable to open %s\n: %s", buf_ptr(chf->path), err_str(err));
-            os_file_close(ch->manifest_file);
+            os_file_close(&ch->manifest_file);
             return ErrorCacheUnavailable;
         }
         if (chf->attr.mtime.sec == actual_attr.mtime.sec &&
             chf->attr.mtime.nsec == actual_attr.mtime.nsec &&
             chf->attr.inode == actual_attr.inode)
         {
-            os_file_close(this_file);
+            os_file_close(&this_file);
         } else {
             // we have to recompute the digest.
             // later we'll rewrite the manifest with the new mtime/digest values
@@ -411,11 +411,11 @@ Error cache_hit(CacheHash *ch, Buf *out_digest) {
 
             uint8_t actual_digest[48];
             if ((err = hash_file(actual_digest, this_file, nullptr))) {
-                os_file_close(this_file);
-                os_file_close(ch->manifest_file);
+                os_file_close(&this_file);
+                os_file_close(&ch->manifest_file);
                 return err;
             }
-            os_file_close(this_file);
+            os_file_close(&this_file);
             if (memcmp(chf->bin_digest, actual_digest, 48) != 0) {
                 memcpy(chf->bin_digest, actual_digest, 48);
                 // keep going until we have the input file digests
@@ -433,12 +433,12 @@ Error cache_hit(CacheHash *ch, Buf *out_digest) {
             CacheHashFile *chf = &ch->files.at(file_i);
             if ((err = populate_file_hash(ch, chf, nullptr))) {
                 fprintf(stderr, "Unable to hash %s: %s\n", buf_ptr(chf->path), err_str(err));
-                os_file_close(ch->manifest_file);
+                os_file_close(&ch->manifest_file);
                 return ErrorCacheUnavailable;
             }
         }
-        if (return_code != ErrorNone) {
-            os_file_close(ch->manifest_file);
+        if (return_code != ErrorNone && return_code != ErrorInvalidFormat) {
+            os_file_close(&ch->manifest_file);
         }
         return return_code;
     }
@@ -453,7 +453,7 @@ Error cache_add_file_fetch(CacheHash *ch, Buf *resolved_path, Buf *contents) {
     CacheHashFile *chf = ch->files.add_one();
     chf->path = resolved_path;
     if ((err = populate_file_hash(ch, chf, contents))) {
-        os_file_close(ch->manifest_file);
+        os_file_close(&ch->manifest_file);
         return err;
     }
 
@@ -469,7 +469,7 @@ Error cache_add_file(CacheHash *ch, Buf *path) {
 Error cache_add_dep_file(CacheHash *ch, Buf *dep_file_path, bool verbose) {
     Error err;
     Buf *contents = buf_alloc();
-    if ((err = os_fetch_file_path(dep_file_path, contents, false))) {
+    if ((err = os_fetch_file_path(dep_file_path, contents))) {
         if (verbose) {
             fprintf(stderr, "unable to read .d file: %s\n", err_str(err));
         }
@@ -586,6 +586,6 @@ void cache_release(CacheHash *ch) {
         }
     }
 
-    os_file_close(ch->manifest_file);
+    os_file_close(&ch->manifest_file);
 }
 
