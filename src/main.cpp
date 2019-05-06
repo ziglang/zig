@@ -18,6 +18,12 @@
 
 #include <stdio.h>
 
+// Define this symbol here so that we can link with the zig objects during the
+// compiler bootstrap phase
+extern "C" {
+    void __zig_probe_stack(void) { }
+}
+
 static int print_error_usage(const char *arg0) {
     fprintf(stderr, "See `%s --help` for detailed usage information\n", arg0);
     return EXIT_FAILURE;
