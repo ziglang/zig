@@ -399,6 +399,15 @@ static void add_uwtable_attr(CodeGen *g, LLVMValueRef fn_val) {
     }
 }
 
+static void add_probe_stack_attr(CodeGen *g, LLVMValueRef fn_val) {
+    // Windows already emits its own stack probes
+    if (g->zig_target->os != OsWindows &&
+        (g->zig_target->arch == ZigLLVM_x86 ||
+         g->zig_target->arch == ZigLLVM_x86_64)) {
+        addLLVMFnAttrStr(fn_val, "probe-stack", "__zig_probe_stack");
+    }
+}
+
 static LLVMLinkage to_llvm_linkage(GlobalLinkageId id) {
     switch (id) {
         case GlobalLinkageIdInternal:
@@ -587,6 +596,8 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, ZigFn *fn_table_entry) {
                 addLLVMFnAttr(fn_table_entry->llvm_value, "sspstrong");
                 addLLVMFnAttrStr(fn_table_entry->llvm_value, "stack-protector-buffer-size", "4");
             }
+
+            add_probe_stack_attr(g, fn_table_entry->llvm_value);
         }
     } else {
         maybe_import_dll(g, fn_table_entry->llvm_value, linkage);

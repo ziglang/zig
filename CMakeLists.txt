@@ -643,6 +643,7 @@ set(ZIG_STD_FILES
     "special/build_runner.zig"
     "special/builtin.zig"
     "special/compiler_rt.zig"
+    "special/compiler_rt/stack_probe.zig"
     "special/compiler_rt/arm/aeabi_fcmp.zig"
     "special/compiler_rt/arm/aeabi_dcmp.zig"
     "special/compiler_rt/addXf3.zig"

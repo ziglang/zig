@@ -1,9 +1,16 @@
 const builtin = @import("builtin");
 const is_test = builtin.is_test;
 
+const stack_probe = @import("compiler_rt/stack_probe.zig");
+
 comptime {
     const linkage = if (is_test) builtin.GlobalLinkage.Internal else builtin.GlobalLinkage.Weak;
     const strong_linkage = if (is_test) builtin.GlobalLinkage.Internal else builtin.GlobalLinkage.Strong;
+
+    switch (builtin.arch) {
+        .i386, .x86_64 => @export("__zig_probe_stack", @import("compiler_rt/stack_probe.zig").zig_probe_stack, linkage),
+        else => { }
+    }
 
     @export("__lesf2", @import("compiler_rt/comparesf2.zig").__lesf2, linkage);
     @export("__ledf2", @import("compiler_rt/comparedf2.zig").__ledf2, linkage);
@@ -191,20 +198,20 @@ comptime {
         @export("__aeabi_dcmpun", @import("compiler_rt/comparedf2.zig").__unorddf2, linkage);
     }
     if (builtin.os == builtin.Os.windows) {
+        if (!builtin.link_libc) {
+            @export("_chkstk", @import("compiler_rt/stack_probe.zig")._chkstk, strong_linkage);
+            @export("__chkstk", @import("compiler_rt/stack_probe.zig").__chkstk, strong_linkage);
+            @export("___chkstk", @import("compiler_rt/stack_probe.zig").___chkstk, strong_linkage);
+            @export("__chkstk_ms", @import("compiler_rt/stack_probe.zig").__chkstk_ms, strong_linkage);
+            @export("___chkstk_ms", @import("compiler_rt/stack_probe.zig").___chkstk_ms, strong_linkage);
+        }
+
         switch (builtin.arch) {
             builtin.Arch.i386 => {
-                if (!builtin.link_libc) {
-                    @export("_chkstk", _chkstk, strong_linkage);
-                    @export("__chkstk_ms", __chkstk_ms, linkage);
-                }
                 @export("_aulldiv", @import("compiler_rt/aulldiv.zig")._aulldiv, strong_linkage);
                 @export("_aullrem", @import("compiler_rt/aullrem.zig")._aullrem, strong_linkage);
             },
             builtin.Arch.x86_64 => {
-                if (!builtin.link_libc) {
-                    @export("__chkstk", __chkstk, strong_linkage);
-                    @export("___chkstk_ms", ___chkstk_ms, linkage);
-                }
                 // The "ti" functions must use @Vector(2, u64) parameter types to adhere to the ABI
                 // that LLVM expects compiler-rt to have.
                 @export("__divti3", @import("compiler_rt/divti3.zig").__divti3_windows_x86_64, linkage);
@@ -492,108 +499,6 @@ nakedcc fn __aeabi_memcmp() noreturn {
     unreachable;
 }
 
-// _chkstk (_alloca) routine - probe stack between %esp and (%esp-%eax) in 4k increments,
-// then decrement %esp by %eax.  Preserves all registers except %esp and flags.
-// This routine is windows specific
-// http://msdn.microsoft.com/en-us/library/ms648426.aspx
-nakedcc fn _chkstk() align(4) void {
-    @setRuntimeSafety(false);
-
-    asm volatile (
-        \\         push   %%ecx
-        \\         push   %%eax
-        \\         cmp    $0x1000,%%eax
-        \\         lea    12(%%esp),%%ecx
-        \\         jb     1f
-        \\ 2:
-        \\         sub    $0x1000,%%ecx
-        \\         test   %%ecx,(%%ecx)
-        \\         sub    $0x1000,%%eax
-        \\         cmp    $0x1000,%%eax
-        \\         ja     2b
-        \\ 1:
-        \\         sub    %%eax,%%ecx
-        \\         test   %%ecx,(%%ecx)
-        \\         pop    %%eax
-        \\         pop    %%ecx
-        \\         ret
-    );
-}
-
-nakedcc fn __chkstk() align(4) void {
-    @setRuntimeSafety(false);
-
-    asm volatile (
-        \\        push   %%rcx
-        \\        push   %%rax
-        \\        cmp    $0x1000,%%rax
-        \\        lea    24(%%rsp),%%rcx
-        \\        jb     1f
-        \\2:
-        \\        sub    $0x1000,%%rcx
-        \\        test   %%rcx,(%%rcx)
-        \\        sub    $0x1000,%%rax
-        \\        cmp    $0x1000,%%rax
-        \\        ja     2b
-        \\1:
-        \\        sub    %%rax,%%rcx
-        \\        test   %%rcx,(%%rcx)
-        \\        pop    %%rax
-        \\        pop    %%rcx
-        \\        ret
-    );
-}
-
-// _chkstk routine
-// This routine is windows specific
-// http://msdn.microsoft.com/en-us/library/ms648426.aspx
-nakedcc fn __chkstk_ms() align(4) void {
-    @setRuntimeSafety(false);
-
-    asm volatile (
-        \\         push   %%ecx
-        \\         push   %%eax
-        \\         cmp    $0x1000,%%eax
-        \\         lea    12(%%esp),%%ecx
-        \\         jb     1f
-        \\ 2:
-        \\         sub    $0x1000,%%ecx
-        \\         test   %%ecx,(%%ecx)
-        \\         sub    $0x1000,%%eax
-        \\         cmp    $0x1000,%%eax
-        \\         ja     2b
-        \\ 1:
-        \\         sub    %%eax,%%ecx
-        \\         test   %%ecx,(%%ecx)
-        \\         pop    %%eax
-        \\         pop    %%ecx
-        \\         ret
-    );
-}
-
-nakedcc fn ___chkstk_ms() align(4) void {
-    @setRuntimeSafety(false);
-
-    asm volatile (
-        \\        push   %%rcx
-        \\        push   %%rax
-        \\        cmp    $0x1000,%%rax
-        \\        lea    24(%%rsp),%%rcx
-        \\        jb     1f
-        \\2:
-        \\        sub    $0x1000,%%rcx
-        \\        test   %%rcx,(%%rcx)
-        \\        sub    $0x1000,%%rax
-        \\        cmp    $0x1000,%%rax
-        \\        ja     2b
-        \\1:
-        \\        sub    %%rax,%%rcx
-        \\        test   %%rcx,(%%rcx)
-        \\        pop    %%rax
-        \\        pop    %%rcx
-        \\        ret
-    );
-}
 
 extern fn __divmodsi4(a: i32, b: i32, rem: *i32) i32 {
     @setRuntimeSafety(is_test);
