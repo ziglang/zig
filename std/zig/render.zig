@@ -748,7 +748,7 @@ fn renderExpression(
                             counting_stream.bytes_written = 0;
                             var dummy_col: usize = 0;
                             try renderExpression(allocator, &counting_stream.stream, tree, 0, &dummy_col, expr.*, Space.None);
-                            const width = counting_stream.bytes_written;
+                            const width = @intCast(usize, counting_stream.bytes_written);
                             const col = i % row_size;
                             column_widths[col] = std.math.max(column_widths[col], width);
                             expr_widths[i] = width;

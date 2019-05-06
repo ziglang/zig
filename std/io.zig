@@ -290,7 +290,7 @@ pub fn readFileAllocAligned(allocator: *mem.Allocator, path: []const u8, comptim
     var file = try File.openRead(path);
     defer file.close();
 
-    const size = try file.getEndPos();
+    const size = try math.cast(usize, try file.getEndPos());
     const buf = try allocator.alignedAlloc(u8, A, size);
     errdefer allocator.free(buf);
 
