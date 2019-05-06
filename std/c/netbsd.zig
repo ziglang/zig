@@ -42,7 +42,7 @@ pub const pthread_attr_t = extern struct {
 };
 
 pub const msghdr = extern struct {
-   msg_name: ?*c_void,
+    msg_name: ?[*]u8,
     msg_namelen: socklen_t,
     msg_iov: [*]iovec,
     msg_iovlen: i32,
