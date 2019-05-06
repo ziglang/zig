@@ -87,7 +87,7 @@ inline fn aeabi_dcmp(comptime cond: ConditionalOperator) void {
         .Ge => asm volatile (
             \\ bl        __ltdf2
             \\ cmp       r0, #0
-            \\ blt 1f
+            \\ bge 1f
             \\ movs      r0, #0
             \\ pop       { r4, pc }
             \\ 1:
