@@ -851,6 +851,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionTypeInfo *) {
     return IrInstructionIdTypeInfo;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionHasField *) {
+    return IrInstructionIdHasField;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionTypeId *) {
     return IrInstructionIdTypeId;
 }
@@ -1276,6 +1280,20 @@ static IrInstruction *ir_build_field_ptr(IrBuilder *irb, Scope *scope, AstNode *
     instruction->field_name_expr = nullptr;
 
     ir_ref_instruction(container_ptr, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_has_field(IrBuilder *irb, Scope *scope, AstNode *source_node,
+    IrInstruction *container_type, IrInstruction *field_name_expr)
+{
+    IrInstructionHasField *instruction = ir_build_instruction<IrInstructionHasField>(irb, scope, source_node);
+    instruction->container_type = container_type;
+    instruction->field_name_buffer = nullptr;
+    instruction->field_name_expr = field_name_expr;
+
+    ir_ref_instruction(container_type, irb->current_basic_block);
+    ir_ref_instruction(field_name_expr, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -4597,6 +4615,21 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return ptr_instruction;
 
                 return ir_build_load_ptr(irb, scope, node, ptr_instruction);
+            }
+        case BuiltinFnIdHasField:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                IrInstruction *type_info = ir_build_has_field(irb, scope, node, arg0_value, arg1_value);
+                return ir_lval_wrap(irb, scope, type_info, lval);
             }
         case BuiltinFnIdTypeInfo:
             {
@@ -20578,6 +20611,40 @@ static IrInstruction *ir_analyze_instruction_member_name(IrAnalyze *ira, IrInstr
     }
 }
 
+static IrInstruction *ir_analyze_instruction_has_field(IrAnalyze *ira, IrInstructionHasField *instruction) {
+    Error err;
+    IrInstruction *container_type_value = instruction->container_type->child;
+    ZigType *container_type = ir_resolve_type(ira, container_type_value);
+    if (type_is_invalid(container_type))
+        return ira->codegen->invalid_instruction;
+
+    if ((err = ensure_complete_type(ira->codegen, container_type)))
+        return ira->codegen->invalid_instruction;
+
+    Buf *field_name = instruction->field_name_buffer;
+    if (!field_name) {
+        IrInstruction *field_name_expr = instruction->field_name_expr->child;
+        field_name = ir_resolve_str(ira, field_name_expr);
+        if (!field_name)
+            return ira->codegen->invalid_instruction;
+    }
+
+    bool result;
+    if (container_type->id == ZigTypeIdStruct)
+        result = (bool)find_struct_type_field(container_type, field_name);
+    else if (container_type->id == ZigTypeIdEnum)
+        result = (bool)find_enum_type_field(container_type, field_name);
+    else if (container_type->id == ZigTypeIdUnion)
+        result = (bool)find_union_type_field(container_type, field_name);
+    else {
+        ir_add_error(ira, container_type_value,
+            buf_sprintf("type '%s' does not support @memberName", buf_ptr(&container_type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+    return ir_build_const_bool(&ira->new_irb,
+            instruction->base.scope, instruction->base.source_node, result);
+}
+
 static IrInstruction *ir_analyze_instruction_breakpoint(IrAnalyze *ira, IrInstructionBreakpoint *instruction) {
     IrInstruction *result = ir_build_breakpoint(&ira->new_irb,
         instruction->base.scope, instruction->base.source_node);
@@ -23068,6 +23135,8 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
             return ir_analyze_instruction_bit_offset_of(ira, (IrInstructionBitOffsetOf *)instruction);
         case IrInstructionIdTypeInfo:
             return ir_analyze_instruction_type_info(ira, (IrInstructionTypeInfo *) instruction);
+        case IrInstructionIdHasField:
+            return ir_analyze_instruction_has_field(ira, (IrInstructionHasField *) instruction);
         case IrInstructionIdTypeId:
             return ir_analyze_instruction_type_id(ira, (IrInstructionTypeId *)instruction);
         case IrInstructionIdSetEvalBranchQuota:
@@ -23355,6 +23424,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdByteOffsetOf:
         case IrInstructionIdBitOffsetOf:
         case IrInstructionIdTypeInfo:
+        case IrInstructionIdHasField:
         case IrInstructionIdTypeId:
         case IrInstructionIdAlignCast:
         case IrInstructionIdOpaqueType:
