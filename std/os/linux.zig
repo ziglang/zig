@@ -1390,17 +1390,19 @@ pub fn sched_getaffinity(pid: i32, set: []usize) usize {
     return syscall3(SYS_sched_getaffinity, @bitCast(usize, isize(pid)), set.len * @sizeOf(usize), @ptrToInt(set.ptr));
 }
 
-pub const epoll_data = packed union {
+pub const epoll_data = extern union {
     ptr: usize,
     fd: i32,
     @"u32": u32,
     @"u64": u64,
 };
 
-pub const epoll_event = packed struct {
-    events: u32,
-    data: epoll_data,
-};
+// On x86_64 the structure is packed so that it matches the definition of its
+// 32bit counterpart
+pub const epoll_event = if (builtin.arch != .x86_64)
+        extern struct { events: u32, data: epoll_data }
+    else
+        packed struct { events: u32, data: epoll_data };
 
 pub fn epoll_create() usize {
     return epoll_create1(0);
