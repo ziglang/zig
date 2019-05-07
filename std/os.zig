@@ -35,6 +35,7 @@ pub const netbsd = @import("os/netbsd.zig");
 pub const zen = @import("os/zen.zig");
 pub const uefi = @import("os/uefi.zig");
 pub const wasi = @import("os/wasi.zig");
+pub const nspire = @import("os/nspire.zig");
 
 pub const posix = switch (builtin.os) {
     Os.linux => linux,
@@ -43,6 +44,7 @@ pub const posix = switch (builtin.os) {
     Os.netbsd => netbsd,
     Os.zen => zen,
     Os.wasi => wasi,
+    Os.nspire => nspire,
     else => @compileError("Unsupported OS"),
 };
 

@@ -181,7 +181,7 @@ var panicking: u8 = 0; // TODO make this a bool
 pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, comptime format: []const u8, args: ...) noreturn {
     @setCold(true);
 
-    if (@atomicRmw(u8, &panicking, builtin.AtomicRmwOp.Xchg, 1, builtin.AtomicOrder.SeqCst) == 1) {
+    if (panicking == 1) {
         // Panicked during a panic.
 
         // TODO detect if a different thread caused the panic, because in that case
@@ -1204,6 +1204,7 @@ pub const DebugInfo = switch (builtin.os) {
         modules: []Module,
     },
     builtin.Os.linux, builtin.Os.freebsd, builtin.Os.netbsd => DwarfInfo,
+    builtin.Os.nspire => struct {},
     else => @compileError("Unsupported OS"),
 };
 

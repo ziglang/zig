@@ -105,6 +105,31 @@ pub const DirectAllocator = struct {
                 @intToPtr(*align(1) usize, record_addr).* = root_addr;
                 return @intToPtr([*]u8, adjusted_addr)[0..n];
             },
+            Os.nspire => {
+                const total_size: usize = n + (2 * alignment) + @sizeOf(usize);
+
+                // use malloc to allocate the memory.
+                var data = @ptrToInt(c.malloc(@sizeOf(u8) * total_size) orelse return error.OutOfMemory);
+
+                // store the original start of the malloc'd data.
+                const data_start = data;
+
+                // dedicate enough space to the book-keeping.
+                data += @sizeOf(usize);
+
+                // find a memory location with correct alignment.  the alignment minus 
+                // the remainder of this mod operation is how many bytes forward we need 
+                // to move to find an aligned byte.
+                const offset = alignment - (data % alignment);
+
+                // set data to the aligned memory.
+                data += offset;
+
+                // write the book-keeping.
+                @intToPtr(*usize, data - @sizeOf(usize)).* = data_start;
+
+                return @intToPtr([*]u8, data)[0..n];
+            },
             else => @compileError("Unsupported OS"),
         }
     }
@@ -130,6 +155,7 @@ pub const DirectAllocator = struct {
                 @intToPtr(*align(1) usize, new_record_addr).* = root_addr;
                 return old_mem[0..new_size];
             },
+            Os.nspire => return realloc(allocator, old_mem, old_align, new_size, new_align) catch unreachable,
             else => @compileError("Unsupported OS"),
         }
     }
@@ -184,6 +210,20 @@ pub const DirectAllocator = struct {
                 const new_record_addr = new_adjusted_addr + new_size;
                 @intToPtr(*align(1) usize, new_record_addr).* = new_root_addr;
                 return @intToPtr([*]u8, new_adjusted_addr)[0..new_size];
+            },
+            Os.nspire => {
+                // we have to assume this memory was allocated with malloc_aligned.  
+                // this means the sizeof(size_t) bytes before data are the book-keeping 
+                // which points to the location we need to pass to free.
+                const data = @ptrToInt(&old_mem[0]) - @sizeOf(usize);
+
+                // set data to the location stored in book-keeping.
+                const dataUnadjusted = @intToPtr(**u8, data).*;
+
+                // free the memory.
+                c.free(dataUnadjusted);
+
+                return alloc(allocator, new_size, new_align);
             },
             else => @compileError("Unsupported OS"),
         }

@@ -296,6 +296,7 @@ pub const File = struct {
                     };
                 }
             },
+            Os.nspire => return error.Unseekable,
             else => @compileError("unsupported OS: " ++ @tagName(builtin.os)),
         }
     }

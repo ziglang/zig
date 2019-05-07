@@ -176,6 +176,7 @@ static const Os os_list[] = {
     OsWASI,
     OsZen,
     OsUefi,
+    OsNspire,
 };
 
 // Coordinate with zig_llvm.h
@@ -260,6 +261,7 @@ ZigLLVM_OSType get_llvm_os_type(Os os_type) {
     switch (os_type) {
         case OsFreestanding:
         case OsZen:
+        case OsNspire:
             return ZigLLVM_UnknownOS;
         case OsAnanas:
             return ZigLLVM_Ananas;
@@ -415,6 +417,8 @@ const char *target_os_name(Os os_type) {
             return "zen";
         case OsUefi:
             return "uefi";
+        case OsNspire:
+            return "nspire";
         case OsAnanas:
         case OsCloudABI:
         case OsDragonFly:
@@ -861,6 +865,7 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
         case OsNetBSD:
         case OsOpenBSD:
         case OsWASI:
+        case OsNspire:
             switch (id) {
                 case CIntTypeShort:
                 case CIntTypeUShort:
@@ -1174,6 +1179,7 @@ const char *target_dynamic_linker(const ZigTarget *target) {
         case OsHermitCore:
         case OsHurd:
         case OsWASI:
+        case OsNspire:
             zig_panic("TODO implement target_dynamic_linker for this OS");
     }
     zig_unreachable();
@@ -1399,6 +1405,7 @@ ZigLLVM_EnvironmentType target_default_abi(ZigLLVM_ArchType arch, Os os) {
         case OsAMDPAL:
         case OsZen:
         case OsHermitCore:
+        case OsNspire:
             return ZigLLVM_EABI;
         case OsOpenBSD:
         case OsMacOSX:
