@@ -69,16 +69,16 @@ fn posixCallMainAndExit() noreturn {
     const envp = @ptrCast([*][*]u8, envp_optional)[0..envp_count];
 
     if (builtin.os == builtin.Os.linux) {
+        // Find the beginning of the auxiliary vector
         const auxv = @ptrCast([*]std.elf.Auxv, envp.ptr + envp_count + 1);
         std.os.linux_elf_aux_maybe = auxv;
-
+        // Initialize the TLS area
         std.os.linux.tls.initTLS();
-        if (!builtin.single_threaded) {
-            if (std.os.linux.tls.tls_image) |tls_img| {
-                const tls_addr = std.os.linux.tls.allocateTLS(tls_img.alloc_size);
-                const tp = std.os.linux.tls.copyTLS(tls_addr);
-                std.os.linux.tls.setThreadPointer(tp);
-            }
+
+        if (std.os.linux.tls.tls_image) |tls_img| {
+            const tls_addr = std.os.linux.tls.allocateTLS(tls_img.alloc_size);
+            const tp = std.os.linux.tls.copyTLS(tls_addr);
+            std.os.linux.tls.setThreadPointer(tp);
         }
     }
 
