@@ -128,36 +128,33 @@ pub fn initTLS() void {
     var tls_phdr: ?*elf.Phdr = null;
     var img_base: usize = 0;
 
-    if (std.os.linux_elf_aux_maybe) |auxv| {
-        var at_phent: usize = undefined;
-        var at_phnum: usize = undefined;
-        var at_phdr: usize = undefined;
+    const auxv = std.os.linux_elf_aux_maybe.?;
+    var at_phent: usize = undefined;
+    var at_phnum: usize = undefined;
+    var at_phdr: usize = undefined;
 
-        var i: usize = 0;
-        while (auxv[i].a_type != std.elf.AT_NULL) : (i += 1) {
-            switch (auxv[i].a_type) {
-                elf.AT_PHENT => at_phent = auxv[i].a_un.a_val,
-                elf.AT_PHNUM => at_phnum = auxv[i].a_un.a_val,
-                elf.AT_PHDR  => at_phdr  = auxv[i].a_un.a_val,
-                else => continue,
-            }
+    var i: usize = 0;
+    while (auxv[i].a_type != std.elf.AT_NULL) : (i += 1) {
+        switch (auxv[i].a_type) {
+            elf.AT_PHENT => at_phent = auxv[i].a_un.a_val,
+            elf.AT_PHNUM => at_phnum = auxv[i].a_un.a_val,
+            elf.AT_PHDR  => at_phdr  = auxv[i].a_un.a_val,
+            else => continue,
         }
+    }
 
-        // Sanity check
-        assert(at_phent == @sizeOf(elf.Phdr));
+    // Sanity check
+    assert(at_phent == @sizeOf(elf.Phdr));
 
-        // Search the TLS section
-        const phdrs = (@intToPtr([*]elf.Phdr, at_phdr))[0..at_phnum];
+    // Search the TLS section
+    const phdrs = (@intToPtr([*]elf.Phdr, at_phdr))[0..at_phnum];
 
-        for (phdrs) |*phdr| {
-            switch (phdr.p_type) {
-                elf.PT_PHDR => img_base = at_phdr - phdr.p_vaddr,
-                elf.PT_TLS  => tls_phdr = phdr,
-                else => continue,
-            }
+    for (phdrs) |*phdr| {
+        switch (phdr.p_type) {
+            elf.PT_PHDR => img_base = at_phdr - phdr.p_vaddr,
+            elf.PT_TLS  => tls_phdr = phdr,
+            else => continue,
         }
-    } else {
-        @panic("no auxv vector available!");
     }
 
     if (tls_phdr) |phdr| {
@@ -212,7 +209,7 @@ pub fn initTLS() void {
 }
 
 pub fn copyTLS(addr: usize) usize {
-    const tls_img = tls_image orelse @panic("copyTLS called with no TLS section!");
+    const tls_img = tls_image.?;
 
     // Be paranoid, clear the area we're going to use
     @memset(@intToPtr([*]u8, addr), 0, tls_img.alloc_size);
@@ -245,7 +242,7 @@ pub fn allocateTLS(size: usize) usize {
     const addr = posix.mmap(null, size, posix.PROT_READ | posix.PROT_WRITE,
                             posix.MAP_PRIVATE | posix.MAP_ANONYMOUS, -1, 0);
 
-    if (posix.getErrno(addr) != 0) @panic("allocateTLS failed to allocate memory");
+    if (posix.getErrno(addr) != 0) @panic("out of memory");
 
     return addr;
 }
