@@ -388,6 +388,11 @@ pub const VDSO_CGT_VER = "LINUX_2.6";
 pub const VDSO_GETCPU_SYM = "__vdso_getcpu";
 pub const VDSO_GETCPU_VER = "LINUX_2.6";
 
+pub const ARCH_SET_GS = 0x1001;
+pub const ARCH_SET_FS = 0x1002;
+pub const ARCH_GET_FS = 0x1003;
+pub const ARCH_GET_GS = 0x1004;
+
 pub fn syscall0(number: usize) usize {
     return asm volatile ("syscall"
         : [ret] "={rax}" (-> usize)
