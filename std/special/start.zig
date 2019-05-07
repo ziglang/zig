@@ -61,7 +61,9 @@ extern fn WinMainCRTStartup() noreturn {
     if (!builtin.single_threaded) {
         _ = @import("start_windows_tls.zig");
     }
-    std.os.windows.kernel32.ExitProcess(callMain());
+    var err_mode = std.os.windows.GetErrorMode();
+    _ = std.os.windows.SetErrorMode(err_mode | std.os.windows.SEM_FAILCRITICALERRORS | std.os.windows.SEM_NOGPFAULTERRORBOX);
+    std.os.windows.ExitProcess(callMain());
 }
 
 // TODO https://github.com/ziglang/zig/issues/265

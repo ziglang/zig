@@ -63,6 +63,7 @@ pub extern "kernel32" stdcallcc fn GetConsoleScreenBufferInfo(hConsoleOutput: HA
 pub extern "kernel32" stdcallcc fn GetCurrentDirectoryW(nBufferLength: DWORD, lpBuffer: ?[*]WCHAR) DWORD;
 
 pub extern "kernel32" stdcallcc fn GetCurrentThread() HANDLE;
+
 pub extern "kernel32" stdcallcc fn GetCurrentThreadId() DWORD;
 
 pub extern "kernel32" stdcallcc fn GetEnvironmentStringsW() ?[*]u16;
@@ -101,13 +102,19 @@ pub extern "kernel32" stdcallcc fn GetProcessHeap() ?HANDLE;
 pub extern "kernel32" stdcallcc fn GetQueuedCompletionStatus(CompletionPort: HANDLE, lpNumberOfBytesTransferred: LPDWORD, lpCompletionKey: *ULONG_PTR, lpOverlapped: *?*OVERLAPPED, dwMilliseconds: DWORD) BOOL;
 
 pub extern "kernel32" stdcallcc fn GetSystemInfo(lpSystemInfo: *SYSTEM_INFO) void;
+
 pub extern "kernel32" stdcallcc fn GetSystemTimeAsFileTime(*FILETIME) void;
 
 pub extern "kernel32" stdcallcc fn HeapCreate(flOptions: DWORD, dwInitialSize: SIZE_T, dwMaximumSize: SIZE_T) ?HANDLE;
+
 pub extern "kernel32" stdcallcc fn HeapDestroy(hHeap: HANDLE) BOOL;
+
 pub extern "kernel32" stdcallcc fn HeapReAlloc(hHeap: HANDLE, dwFlags: DWORD, lpMem: *c_void, dwBytes: SIZE_T) ?*c_void;
+
 pub extern "kernel32" stdcallcc fn HeapSize(hHeap: HANDLE, dwFlags: DWORD, lpMem: *const c_void) SIZE_T;
+
 pub extern "kernel32" stdcallcc fn HeapCompact(hHeap: HANDLE, dwFlags: DWORD) SIZE_T;
+
 pub extern "kernel32" stdcallcc fn HeapSummary(hHeap: HANDLE, dwFlags: DWORD, lpSummary: LPHEAP_SUMMARY) BOOL;
 
 pub extern "kernel32" stdcallcc fn GetStdHandle(in_nStdHandle: DWORD) ?HANDLE;
@@ -163,6 +170,10 @@ pub extern "kernel32" stdcallcc fn SetFilePointerEx(
     in_dwMoveMethod: DWORD,
 ) BOOL;
 
+pub extern "kernel32" stdcallcc fn SetErrorMode(uMode: UINT) UINT;
+
+pub extern "kernel32" stdcallcc fn GetErrorMode() UINT;
+
 pub extern "kernel32" stdcallcc fn SetHandleInformation(hObject: HANDLE, dwMask: DWORD, dwFlags: DWORD) BOOL;
 
 pub extern "kernel32" stdcallcc fn Sleep(dwMilliseconds: DWORD) void;
@@ -192,8 +203,23 @@ pub extern "kernel32" stdcallcc fn GetProcAddress(hModule: HMODULE, lpProcName: 
 pub extern "kernel32" stdcallcc fn FreeLibrary(hModule: HMODULE) BOOL;
 
 pub extern "kernel32" stdcallcc fn InitializeCriticalSection(lpCriticalSection: *CRITICAL_SECTION) void;
+
 pub extern "kernel32" stdcallcc fn EnterCriticalSection(lpCriticalSection: *CRITICAL_SECTION) void;
+
 pub extern "kernel32" stdcallcc fn LeaveCriticalSection(lpCriticalSection: *CRITICAL_SECTION) void;
+
 pub extern "kernel32" stdcallcc fn DeleteCriticalSection(lpCriticalSection: *CRITICAL_SECTION) void;
 
 pub extern "kernel32" stdcallcc fn InitOnceExecuteOnce(InitOnce: *INIT_ONCE, InitFn: INIT_ONCE_FN, Parameter: ?*c_void, Context: ?*c_void) BOOL;
+
+pub const INIT_ONCE_FN = extern fn (InitOnce: *INIT_ONCE, Parameter: ?*c_void, Context: ?*c_void) BOOL;
+
+pub const RTL_RUN_ONCE = extern struct {
+    Ptr: ?*c_void,
+};
+
+pub const RTL_RUN_ONCE_INIT = RTL_RUN_ONCE{ .Ptr = null };
+
+pub const SEM_FAILCRITICALERRORS = 0x0001;
+
+pub const SEM_NOGPFAULTERRORBOX = 0x0002;
