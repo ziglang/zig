@@ -1914,7 +1914,7 @@ static AstNode *trans_implicit_cast_expr(Context *c, ResultUsed result_used, Tra
                 return trans_c_cast(c, bitcast(stmt->getBeginLoc()), dest_type, src_type, target_node);
             }
         case ZigClangCK_NullToPointer:
-            return trans_create_node_unsigned(c, 0);
+            return trans_create_node(c, NodeTypeNullLiteral);
         case ZigClangCK_NoOp:
             return trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getSubExpr()), TransRValue);
         case ZigClangCK_Dependent:
@@ -2721,7 +2721,7 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
                     return trans_create_node_bin_op(c, res, BinOpTypeCmpNotEq, trans_create_node_unsigned_negative(c, 0, false));
                 case clang::BuiltinType::NullPtr:
                     return trans_create_node_bin_op(c, res, BinOpTypeCmpNotEq,
-                            trans_create_node_unsigned(c, 0));
+                            trans_create_node(c, NodeTypeNullLiteral));
 
                 case clang::BuiltinType::Void:
                 case clang::BuiltinType::Half:
@@ -2818,8 +2818,7 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
             break;
         }
         case ZigClangType_Pointer:
-            return trans_create_node_bin_op(c, res, BinOpTypeCmpNotEq,
-                    trans_create_node_unsigned(c, 0));
+            return trans_create_node_bin_op(c, res, BinOpTypeCmpNotEq, trans_create_node(c, NodeTypeNullLiteral));
 
         case ZigClangType_Typedef:
         {
