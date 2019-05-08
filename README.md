@@ -110,7 +110,7 @@ personal project. Here are some great examples:
 
 Without fail, these projects lead to discovering bugs and helping flesh out use
 cases, which lead to further design iterations of Zig. Importantly, each issue
-found this way comes with a real world motivations, so it is easy to explain
+found this way comes with real world motivations, so it is easy to explain
 your reasoning behind proposals and feature requests.
 
 Ideally, such a project will help you to learn new skills and add something
