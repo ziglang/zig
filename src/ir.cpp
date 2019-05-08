@@ -16848,11 +16848,30 @@ static IrInstruction *ir_analyze_instruction_size_of(IrAnalyze *ira,
 static IrInstruction *ir_analyze_test_non_null(IrAnalyze *ira, IrInstruction *source_inst, IrInstruction *value) {
     ZigType *type_entry = value->value.type;
 
-    if (type_entry->id == ZigTypeIdOptional) {
+    if (type_entry->id == ZigTypeIdPointer && type_entry->data.pointer.allow_zero) {
         if (instr_is_comptime(value)) {
-            ConstExprValue *maybe_val = ir_resolve_const(ira, value, UndefBad);
-            if (!maybe_val)
+            ConstExprValue *c_ptr_val = ir_resolve_const(ira, value, UndefOk);
+            if (c_ptr_val == nullptr)
                 return ira->codegen->invalid_instruction;
+            if (c_ptr_val->special == ConstValSpecialUndef)
+                return ir_const_undef(ira, source_inst, ira->codegen->builtin_types.entry_bool);
+            bool is_null = c_ptr_val->data.x_ptr.special == ConstPtrSpecialNull ||
+                (c_ptr_val->data.x_ptr.special == ConstPtrSpecialHardCodedAddr &&
+                    c_ptr_val->data.x_ptr.data.hard_coded_addr.addr == 0);
+            return ir_const_bool(ira, source_inst, !is_null);
+        }
+
+        IrInstruction *result = ir_build_test_nonnull(&ira->new_irb,
+            source_inst->scope, source_inst->source_node, value);
+        result->value.type = ira->codegen->builtin_types.entry_bool;
+        return result;
+    } else if (type_entry->id == ZigTypeIdOptional) {
+        if (instr_is_comptime(value)) {
+            ConstExprValue *maybe_val = ir_resolve_const(ira, value, UndefOk);
+            if (maybe_val == nullptr)
+                return ira->codegen->invalid_instruction;
+            if (maybe_val->special == ConstValSpecialUndef)
+                return ir_const_undef(ira, source_inst, ira->codegen->builtin_types.entry_bool);
 
             return ir_const_bool(ira, source_inst, !optional_value_is_null(maybe_val));
         }
