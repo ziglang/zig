@@ -63,6 +63,16 @@ pub extern fn __floatsidf(arg: i32) f64 {
     return @inlineCall(floatsiXf, f64, arg);
 }
 
+pub extern fn __floatsitf(arg: i32) f128 {
+    @setRuntimeSafety(builtin.is_test);
+    return @inlineCall(floatsiXf, f128, arg);
+}
+
+fn test_one_floatsitf(a: i32, expected: u128) void {
+    const r = __floatsitf(a);
+    std.testing.expect(@bitCast(u128, r) == expected);
+}
+
 fn test_one_floatsidf(a: i32, expected: u64) void {
     const r = __floatsidf(a);
     std.testing.expect(@bitCast(u64, r) == expected);
@@ -87,4 +97,13 @@ test "floatsisf" {
     test_one_floatsisf(-1, 0xbf800000);
     test_one_floatsisf(0x7FFFFFFF, 0x4f000000);
     test_one_floatsisf(@bitCast(i32, @intCast(u32, 0x80000000)), 0xcf000000);
+}
+
+test "floatsitf" {
+    test_one_floatsitf(0, 0);
+    test_one_floatsitf(0x7FFFFFFF, 0x401dfffffffc00000000000000000000);
+    test_one_floatsitf(0x12345678, 0x401b2345678000000000000000000000);
+    test_one_floatsitf(-0x12345678, 0xc01b2345678000000000000000000000);
+    test_one_floatsitf(@bitCast(i32, @intCast(u32, 0xffffffff)), 0xbfff0000000000000000000000000000);
+    test_one_floatsitf(@bitCast(i32, @intCast(u32, 0x80000000)), 0xc01e0000000000000000000000000000);
 }

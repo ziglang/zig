@@ -67,6 +67,7 @@ comptime {
     @export("__floatsidf", @import("compiler_rt/floatsiXf.zig").__floatsidf, linkage);
     @export("__floatsisf", @import("compiler_rt/floatsiXf.zig").__floatsisf, linkage);
     @export("__floatdidf", @import("compiler_rt/floatdidf.zig").__floatdidf, linkage);
+    @export("__floatsitf", @import("compiler_rt/floatsiXf.zig").__floatsitf, linkage);
     @export("__floatunsidf", @import("compiler_rt/floatunsidf.zig").__floatunsidf, linkage);
     @export("__floatundidf", @import("compiler_rt/floatundidf.zig").__floatundidf, linkage);
 
