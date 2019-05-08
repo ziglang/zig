@@ -214,7 +214,7 @@ pub fn writeStackTrace(
     tty_color: bool,
 ) !void {
     var frame_index: usize = 0;
-    var frames_left: usize = stack_trace.index;
+    var frames_left: usize = std.math.min(stack_trace.index, stack_trace.instruction_addresses.len);
 
     while (frames_left != 0) : ({
         frames_left -= 1;
