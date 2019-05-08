@@ -135,6 +135,10 @@ comptime {
     @export("__negdf2", @import("compiler_rt/negXf2.zig").__negdf2, linkage);
 
     if (is_arm_arch and !is_arm_64) {
+        @export("__aeabi_unwind_cpp_pr0", __aeabi_unwind_cpp_pr0, strong_linkage);
+        @export("__aeabi_unwind_cpp_pr1", __aeabi_unwind_cpp_pr1, linkage);
+        @export("__aeabi_unwind_cpp_pr2", __aeabi_unwind_cpp_pr2, linkage);
+
         @export("__aeabi_ldivmod", __aeabi_ldivmod, linkage);
         @export("__aeabi_uldivmod", __aeabi_uldivmod, linkage);
 
@@ -271,6 +275,16 @@ pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn
     } else {
         unreachable;
     }
+}
+
+extern fn __aeabi_unwind_cpp_pr0() void {
+    unreachable;
+}
+extern fn __aeabi_unwind_cpp_pr1() void {
+    unreachable;
+}
+extern fn __aeabi_unwind_cpp_pr2() void {
+    unreachable;
 }
 
 extern fn __divmoddi4(a: i64, b: i64, rem: *i64) i64 {
