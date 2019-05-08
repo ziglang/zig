@@ -92,6 +92,8 @@ comptime {
 
     @export("__truncdfsf2", @import("compiler_rt/truncXfYf2.zig").__truncdfsf2, linkage);
 
+    @export("__extendsfdf2", @import("compiler_rt/extendXfYf2.zig").__extendsfdf2, linkage);
+
     @export("__fixunssfsi", @import("compiler_rt/fixunssfsi.zig").__fixunssfsi, linkage);
     @export("__fixunssfdi", @import("compiler_rt/fixunssfdi.zig").__fixunssfdi, linkage);
     @export("__fixunssfti", @import("compiler_rt/fixunssfti.zig").__fixunssfti, linkage);
@@ -161,6 +163,7 @@ comptime {
         @export("__aeabi_memcmp4", __aeabi_memcmp, linkage);
         @export("__aeabi_memcmp8", __aeabi_memcmp, linkage);
 
+        @export("__aeabi_f2d", @import("compiler_rt/extendXfYf2.zig").__extendsfdf2, linkage);
         @export("__aeabi_i2d", @import("compiler_rt/floatsiXf.zig").__floatsidf, linkage);
         @export("__aeabi_l2d", @import("compiler_rt/floatdidf.zig").__floatdidf, linkage);
         @export("__aeabi_ui2d", @import("compiler_rt/floatunsidf.zig").__floatunsidf, linkage);
