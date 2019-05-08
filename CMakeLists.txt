@@ -677,6 +677,7 @@ set(ZIG_STD_FILES
     "special/compiler_rt/fixunstfdi.zig"
     "special/compiler_rt/fixunstfsi.zig"
     "special/compiler_rt/fixunstfti.zig"
+    "special/compiler_rt/floatsiXf.zig"
     "special/compiler_rt/floattidf.zig"
     "special/compiler_rt/floattisf.zig"
     "special/compiler_rt/floattitf.zig"
