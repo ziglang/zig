@@ -159,10 +159,10 @@ test "assign null directly to C pointer and test null equality" {
     expect(!(null != x));
 
     const y: [*c]i32 = null;
-    expect(y == null);
-    expect(null == y);
-    expect(!(y != null));
-    expect(!(null != y));
+    comptime expect(y == null);
+    comptime expect(null == y);
+    comptime expect(!(y != null));
+    comptime expect(!(null != y));
 
     var n: i32 = 1234;
     var x1: [*c]i32 = &n;
@@ -170,11 +170,13 @@ test "assign null directly to C pointer and test null equality" {
     expect(!(null == x1));
     expect(x1 != null);
     expect(null != x1);
+    expect(x1.?.* == 1234);
 
     const nc: i32 = 1234;
     const y1: [*c]const i32 = &nc;
-    expect(!(y1 == null));
-    expect(!(null == y1));
-    expect(y1 != null);
-    expect(null != y1);
+    comptime expect(!(y1 == null));
+    comptime expect(!(null == y1));
+    comptime expect(y1 != null);
+    comptime expect(null != y1);
+    comptime expect(y1.?.* == 1234);
 }

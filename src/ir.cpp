@@ -1003,6 +1003,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionAssertZero *) {
     return IrInstructionIdAssertZero;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionAssertNonNull *) {
+    return IrInstructionIdAssertNonNull;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -3028,6 +3032,19 @@ static IrInstruction *ir_build_assert_zero(IrAnalyze *ira, IrInstruction *source
         IrInstruction *target)
 {
     IrInstructionAssertZero *instruction = ir_build_instruction<IrInstructionAssertZero>(&ira->new_irb,
+        source_instruction->scope, source_instruction->source_node);
+    instruction->base.value.type = ira->codegen->builtin_types.entry_void;
+    instruction->target = target;
+
+    ir_ref_instruction(target, ira->new_irb.current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_assert_non_null(IrAnalyze *ira, IrInstruction *source_instruction,
+        IrInstruction *target)
+{
+    IrInstructionAssertNonNull *instruction = ir_build_instruction<IrInstructionAssertNonNull>(&ira->new_irb,
         source_instruction->scope, source_instruction->source_node);
     instruction->base.value.type = ira->codegen->builtin_types.entry_void;
     instruction->target = target;
@@ -16869,6 +16886,32 @@ static IrInstruction *ir_analyze_unwrap_optional_payload(IrAnalyze *ira, IrInstr
     if (type_is_invalid(type_entry))
         return ira->codegen->invalid_instruction;
 
+    if (type_entry->id == ZigTypeIdPointer && type_entry->data.pointer.ptr_len == PtrLenC) {
+        if (instr_is_comptime(base_ptr)) {
+            ConstExprValue *val = ir_resolve_const(ira, base_ptr, UndefBad);
+            if (!val)
+                return ira->codegen->invalid_instruction;
+            if (val->data.x_ptr.mut != ConstPtrMutRuntimeVar) {
+                ConstExprValue *c_ptr_val = const_ptr_pointee(ira, ira->codegen, val, source_instr->source_node);
+                if (c_ptr_val == nullptr)
+                    return ira->codegen->invalid_instruction;
+                bool is_null = c_ptr_val->data.x_ptr.special == ConstPtrSpecialNull ||
+                    (c_ptr_val->data.x_ptr.special == ConstPtrSpecialHardCodedAddr &&
+                        c_ptr_val->data.x_ptr.data.hard_coded_addr.addr == 0);
+                if (is_null) {
+                    ir_add_error(ira, source_instr, buf_sprintf("unable to unwrap null"));
+                    return ira->codegen->invalid_instruction;
+                }
+                return base_ptr;
+            }
+        }
+        if (!safety_check_on)
+            return base_ptr;
+        IrInstruction *c_ptr_val = ir_get_deref(ira, source_instr, base_ptr);
+        ir_build_assert_non_null(ira, source_instr, c_ptr_val);
+        return base_ptr;
+    }
+
     if (type_entry->id != ZigTypeIdOptional) {
         ir_add_error_node(ira, base_ptr->source_node,
                 buf_sprintf("expected optional type, found '%s'", buf_ptr(&type_entry->name)));
@@ -16883,11 +16926,11 @@ static IrInstruction *ir_analyze_unwrap_optional_payload(IrAnalyze *ira, IrInstr
         ConstExprValue *val = ir_resolve_const(ira, base_ptr, UndefBad);
         if (!val)
             return ira->codegen->invalid_instruction;
-        ConstExprValue *maybe_val = const_ptr_pointee(ira, ira->codegen, val, source_instr->source_node);
-        if (maybe_val == nullptr)
-            return ira->codegen->invalid_instruction;
-
         if (val->data.x_ptr.mut != ConstPtrMutRuntimeVar) {
+            ConstExprValue *maybe_val = const_ptr_pointee(ira, ira->codegen, val, source_instr->source_node);
+            if (maybe_val == nullptr)
+                return ira->codegen->invalid_instruction;
+
             if (optional_value_is_null(maybe_val)) {
                 ir_add_error(ira, source_instr, buf_sprintf("unable to unwrap null"));
                 return ira->codegen->invalid_instruction;
@@ -22942,6 +22985,7 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
         case IrInstructionIdArrayToVector:
         case IrInstructionIdVectorToArray:
         case IrInstructionIdAssertZero:
+        case IrInstructionIdAssertNonNull:
         case IrInstructionIdResizeSlice:
         case IrInstructionIdLoadPtrGen:
         case IrInstructionIdBitCastGen:
@@ -23346,6 +23390,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdCmpxchgGen:
         case IrInstructionIdCmpxchgSrc:
         case IrInstructionIdAssertZero:
+        case IrInstructionIdAssertNonNull:
         case IrInstructionIdResizeSlice:
         case IrInstructionIdGlobalAsm:
             return true;

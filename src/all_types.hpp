@@ -2293,6 +2293,7 @@ enum IrInstructionId {
     IrInstructionIdVectorToArray,
     IrInstructionIdArrayToVector,
     IrInstructionIdAssertZero,
+    IrInstructionIdAssertNonNull,
 };
 
 struct IrInstruction {
@@ -3477,6 +3478,12 @@ struct IrInstructionVectorToArray {
 };
 
 struct IrInstructionAssertZero {
+    IrInstruction base;
+
+    IrInstruction *target;
+};
+
+struct IrInstructionAssertNonNull {
     IrInstruction base;
 
     IrInstruction *target;

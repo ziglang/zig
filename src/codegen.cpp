@@ -1008,8 +1008,17 @@ static void gen_panic(CodeGen *g, LLVMValueRef msg_arg, LLVMValueRef stack_trace
     LLVMBuildUnreachable(g->builder);
 }
 
+// TODO update most callsites to call gen_assertion instead of this
 static void gen_safety_crash(CodeGen *g, PanicMsgId msg_id) {
     gen_panic(g, get_panic_msg_ptr_val(g, msg_id), nullptr);
+}
+
+static void gen_assertion(CodeGen *g, PanicMsgId msg_id, IrInstruction *source_instruction) {
+    if (ir_want_runtime_safety(g, source_instruction)) {
+        gen_safety_crash(g, msg_id);
+    } else {
+        LLVMBuildUnreachable(g->builder);
+    }
 }
 
 static LLVMValueRef get_stacksave_fn_val(CodeGen *g) {
@@ -4056,8 +4065,8 @@ static LLVMValueRef ir_render_optional_unwrap_ptr(CodeGen *g, IrExecutable *exec
     if (ir_want_runtime_safety(g, &instruction->base) && instruction->safety_check_on) {
         LLVMValueRef maybe_handle = get_handle_value(g, maybe_ptr, maybe_type, ptr_type);
         LLVMValueRef non_null_bit = gen_non_null_bit(g, maybe_type, maybe_handle);
-        LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "UnwrapOptionalOk");
         LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "UnwrapOptionalFail");
+        LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "UnwrapOptionalOk");
         LLVMBuildCondBr(g->builder, non_null_bit, ok_block, fail_block);
 
         LLVMPositionBuilderAtEnd(g->builder, fail_block);
@@ -5487,6 +5496,31 @@ static LLVMValueRef ir_render_assert_zero(CodeGen *g, IrExecutable *executable,
     return nullptr;
 }
 
+static LLVMValueRef ir_render_assert_non_null(CodeGen *g, IrExecutable *executable,
+        IrInstructionAssertNonNull *instruction)
+{
+    LLVMValueRef target = ir_llvm_value(g, instruction->target);
+    ZigType *target_type = instruction->target->value.type;
+
+    if (target_type->id == ZigTypeIdPointer) {
+        assert(target_type->data.pointer.ptr_len == PtrLenC);
+        LLVMValueRef non_null_bit = LLVMBuildICmp(g->builder, LLVMIntNE, target,
+                LLVMConstNull(get_llvm_type(g, target_type)), "");
+
+        LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "AssertNonNullFail");
+        LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "AssertNonNullOk");
+        LLVMBuildCondBr(g->builder, non_null_bit, ok_block, fail_block);
+
+        LLVMPositionBuilderAtEnd(g->builder, fail_block);
+        gen_assertion(g, PanicMsgIdUnwrapOptionalFail, &instruction->base);
+
+        LLVMPositionBuilderAtEnd(g->builder, ok_block);
+    } else {
+        zig_unreachable();
+    }
+    return nullptr;
+}
+
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
     Scope *scope = instruction->scope;
@@ -5741,6 +5775,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_vector_to_array(g, executable, (IrInstructionVectorToArray *)instruction);
         case IrInstructionIdAssertZero:
             return ir_render_assert_zero(g, executable, (IrInstructionAssertZero *)instruction);
+        case IrInstructionIdAssertNonNull:
+            return ir_render_assert_non_null(g, executable, (IrInstructionAssertNonNull *)instruction);
         case IrInstructionIdResizeSlice:
             return ir_render_resize_slice(g, executable, (IrInstructionResizeSlice *)instruction);
     }

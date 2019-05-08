@@ -1003,6 +1003,12 @@ static void ir_print_assert_zero(IrPrint *irp, IrInstructionAssertZero *instruct
     fprintf(irp->f, ")");
 }
 
+static void ir_print_assert_non_null(IrPrint *irp, IrInstructionAssertNonNull *instruction) {
+    fprintf(irp->f, "AssertNonNull(");
+    ir_print_other_instruction(irp, instruction->target);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_resize_slice(IrPrint *irp, IrInstructionResizeSlice *instruction) {
     fprintf(irp->f, "@resizeSlice(");
     ir_print_other_instruction(irp, instruction->operand);
@@ -1879,6 +1885,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdAssertZero:
             ir_print_assert_zero(irp, (IrInstructionAssertZero *)instruction);
+            break;
+        case IrInstructionIdAssertNonNull:
+            ir_print_assert_non_null(irp, (IrInstructionAssertNonNull *)instruction);
             break;
         case IrInstructionIdResizeSlice:
             ir_print_resize_slice(irp, (IrInstructionResizeSlice *)instruction);
