@@ -150,3 +150,31 @@ test "allowzero pointer and slice" {
     expect(@typeInfo(@typeOf(ptr)).Pointer.is_allowzero);
     expect(@typeInfo(@typeOf(slice)).Pointer.is_allowzero);
 }
+
+test "assign null directly to C pointer and test null equality" {
+    var x: [*c]i32 = null;
+    expect(x == null);
+    expect(null == x);
+    expect(!(x != null));
+    expect(!(null != x));
+
+    const y: [*c]i32 = null;
+    expect(y == null);
+    expect(null == y);
+    expect(!(y != null));
+    expect(!(null != y));
+
+    var n: i32 = 1234;
+    var x1: [*c]i32 = &n;
+    expect(!(x1 == null));
+    expect(!(null == x1));
+    expect(x1 != null);
+    expect(null != x1);
+
+    const nc: i32 = 1234;
+    const y1: [*c]const i32 = &nc;
+    expect(!(y1 == null));
+    expect(!(null == y1));
+    expect(y1 != null);
+    expect(null != y1);
+}

@@ -4023,19 +4023,19 @@ static LLVMValueRef ir_render_asm(CodeGen *g, IrExecutable *executable, IrInstru
 }
 
 static LLVMValueRef gen_non_null_bit(CodeGen *g, ZigType *maybe_type, LLVMValueRef maybe_handle) {
-    assert(maybe_type->id == ZigTypeIdOptional);
+    assert(maybe_type->id == ZigTypeIdOptional ||
+            (maybe_type->id == ZigTypeIdPointer && maybe_type->data.pointer.allow_zero));
+
     ZigType *child_type = maybe_type->data.maybe.child_type;
-    if (!type_has_bits(child_type)) {
+    if (!type_has_bits(child_type))
         return maybe_handle;
-    } else {
-        bool is_scalar = !handle_is_ptr(maybe_type);
-        if (is_scalar) {
-            return LLVMBuildICmp(g->builder, LLVMIntNE, maybe_handle, LLVMConstNull(get_llvm_type(g, maybe_type)), "");
-        } else {
-            LLVMValueRef maybe_field_ptr = LLVMBuildStructGEP(g->builder, maybe_handle, maybe_null_index, "");
-            return gen_load_untyped(g, maybe_field_ptr, 0, false, "");
-        }
-    }
+
+    bool is_scalar = !handle_is_ptr(maybe_type);
+    if (is_scalar)
+        return LLVMBuildICmp(g->builder, LLVMIntNE, maybe_handle, LLVMConstNull(get_llvm_type(g, maybe_type)), "");
+
+    LLVMValueRef maybe_field_ptr = LLVMBuildStructGEP(g->builder, maybe_handle, maybe_null_index, "");
+    return gen_load_untyped(g, maybe_field_ptr, 0, false, "");
 }
 
 static LLVMValueRef ir_render_test_non_null(CodeGen *g, IrExecutable *executable,

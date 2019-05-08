@@ -863,7 +863,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = &x == null;
         \\}
     ,
-        "tmp.zig:3:12: error: only optionals (not '*i32') can compare to null",
+        "tmp.zig:3:12: error: comparison of '*i32' with null",
     );
 
     cases.add(
