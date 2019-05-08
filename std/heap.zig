@@ -280,7 +280,8 @@ pub const HeapAllocator = switch (builtin.os) {
             const amt = n + alignment + @sizeOf(usize);
             const optional_heap_handle = @atomicLoad(?HeapHandle, &self.heap_handle, builtin.AtomicOrder.SeqCst);
             const heap_handle = optional_heap_handle orelse blk: {
-                const hh = os.windows.HeapCreate(0, amt, 0) orelse return error.OutOfMemory;
+                const options = if (builtin.single_threaded) os.windows.HEAP_NO_SERIALIZE else 0;
+                const hh = os.windows.HeapCreate(options, amt, 0) orelse return error.OutOfMemory;
                 const other_hh = @cmpxchgStrong(?HeapHandle, &self.heap_handle, null, hh, builtin.AtomicOrder.SeqCst, builtin.AtomicOrder.SeqCst) orelse break :blk hh;
                 _ = os.windows.HeapDestroy(hh);
                 break :blk other_hh.?; // can't be null because of the cmpxchg
