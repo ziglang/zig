@@ -190,6 +190,104 @@ pub const DirectAllocator = struct {
     }
 };
 
+pub const HeapAllocator = switch (builtin.os) {
+    .windows => struct {
+        allocator: Allocator,
+        heap_handle: ?HeapHandle,
+
+        const HeapHandle = os.windows.HANDLE;
+
+        pub fn init() HeapAllocator {
+            return HeapAllocator{
+                .allocator = Allocator{
+                    .reallocFn = realloc,
+                    .shrinkFn = shrink,
+                },
+                .heap_handle = null,
+            };
+        }
+
+        pub fn deinit(self: *HeapAllocator) void {
+            if (self.heap_handle) |heap_handle| {
+                _ = os.windows.HeapDestroy(heap_handle);
+            }
+        }
+
+        fn alloc(allocator: *Allocator, n: usize, alignment: u29) error{OutOfMemory}![]u8 {
+            const self = @fieldParentPtr(HeapAllocator, "allocator", allocator);
+            if (n == 0)
+                return (([*]u8)(undefined))[0..0];
+
+            const amt = n + alignment + @sizeOf(usize);
+            const optional_heap_handle = @atomicLoad(?HeapHandle, &self.heap_handle, builtin.AtomicOrder.SeqCst);
+            const heap_handle = optional_heap_handle orelse blk: {
+                const hh = os.windows.HeapCreate(0, amt, 0) orelse return error.OutOfMemory;
+                const other_hh = @cmpxchgStrong(?HeapHandle, &self.heap_handle, null, hh, builtin.AtomicOrder.SeqCst, builtin.AtomicOrder.SeqCst) orelse break :blk hh;
+                _ = os.windows.HeapDestroy(hh);
+                break :blk other_hh.?; // can't be null because of the cmpxchg
+            };
+            const ptr = os.windows.HeapAlloc(heap_handle, 0, amt) orelse return error.OutOfMemory;
+            const root_addr = @ptrToInt(ptr);
+            const adjusted_addr = mem.alignForward(root_addr, alignment);
+            const record_addr = adjusted_addr + n;
+            @intToPtr(*align(1) usize, record_addr).* = root_addr;
+            return @intToPtr([*]u8, adjusted_addr)[0..n];
+        }
+
+        fn shrink(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
+            return realloc(allocator, old_mem, old_align, new_size, new_align) catch {
+                const old_adjusted_addr = @ptrToInt(old_mem.ptr);
+                const old_record_addr = old_adjusted_addr + old_mem.len;
+                const root_addr = @intToPtr(*align(1) usize, old_record_addr).*;
+                const old_ptr = @intToPtr(*c_void, root_addr);
+                const new_record_addr = old_record_addr - new_size + old_mem.len;
+                @intToPtr(*align(1) usize, new_record_addr).* = root_addr;
+                return old_mem[0..new_size];
+            };
+        }
+
+        fn realloc(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
+            if (old_mem.len == 0) return alloc(allocator, new_size, new_align);
+
+            const self = @fieldParentPtr(HeapAllocator, "allocator", allocator);
+            const old_adjusted_addr = @ptrToInt(old_mem.ptr);
+            const old_record_addr = old_adjusted_addr + old_mem.len;
+            const root_addr = @intToPtr(*align(1) usize, old_record_addr).*;
+            const old_ptr = @intToPtr(*c_void, root_addr);
+
+            if (new_size == 0) {
+                if (os.windows.HeapFree(self.heap_handle.?, 0, old_ptr) == 0) unreachable;
+                return old_mem[0..0];
+            }
+
+            const amt = new_size + new_align + @sizeOf(usize);
+            const new_ptr = os.windows.HeapReAlloc(
+                self.heap_handle.?,
+                0,
+                old_ptr,
+                amt,
+            ) orelse return error.OutOfMemory;
+            const offset = old_adjusted_addr - root_addr;
+            const new_root_addr = @ptrToInt(new_ptr);
+            var new_adjusted_addr = new_root_addr + offset;
+            const offset_is_valid = new_adjusted_addr + new_size + @sizeOf(usize) <= new_root_addr + amt;
+            const offset_is_aligned = new_adjusted_addr % new_align == 0;
+            if (!offset_is_valid or !offset_is_aligned) {
+                // If HeapReAlloc didn't happen to move the memory to the new alignment,
+                // or the memory starting at the old offset would be outside of the new allocation,
+                // then we need to copy the memory to a valid aligned address and use that
+                const new_aligned_addr = mem.alignForward(new_root_addr, new_align);
+                @memcpy(@intToPtr([*]u8, new_aligned_addr), @intToPtr([*]u8, new_adjusted_addr), std.math.min(old_mem.len, new_size));
+                new_adjusted_addr = new_aligned_addr;
+            }
+            const new_record_addr = new_adjusted_addr + new_size;
+            @intToPtr(*align(1) usize, new_record_addr).* = new_root_addr;
+            return @intToPtr([*]u8, new_adjusted_addr)[0..new_size];
+        }
+    },
+    else => @compileError("Unsupported OS"),
+};
+
 /// This allocator takes an existing allocator, wraps it, and provides an interface
 /// where you can allocate without freeing, and then free it all together.
 pub const ArenaAllocator = struct {
@@ -588,6 +686,19 @@ test "DirectAllocator" {
     try testAllocatorAligned(allocator, 16);
     try testAllocatorLargeAlignment(allocator);
     try testAllocatorAlignedShrink(allocator);
+}
+
+test "HeapAllocator" {
+    if (builtin.os == .windows) {
+        var heap_allocator = HeapAllocator.init();
+        defer heap_allocator.deinit();
+
+        const allocator = &heap_allocator.allocator;
+        try testAllocator(allocator);
+        try testAllocatorAligned(allocator, 16);
+        try testAllocatorLargeAlignment(allocator);
+        try testAllocatorAlignedShrink(allocator);
+    }
 }
 
 test "ArenaAllocator" {
