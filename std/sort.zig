@@ -732,6 +732,34 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn (lhs: T, rhs: T) bool) vo
     }
 }
 
+pub const Hint enum = {
+    MaybeSorted,
+    PartiallySorted,
+    Random,
+};
+
+/// For when data may be fully or partially sorted. May use a specialized sort like timsort in the future.
+/// http://svn.python.org/projects/python/trunk/Objects/listsort.txt
+pub fn sortWithHint(comptime T: type, items: []T, lessThan: fn (lhs: T, rhs: T) bool, hint: enum Hint) void {
+    if (hint == .MaybeSorted) {
+        if (isSorted(T, items, lessThan)) return;
+    }
+    sort(T, items, lessThan);
+}
+
+/// Is items sorted?
+/// Special case: items.len == 0 => true
+pub fn isSorted(comptime T: type, items: []T, lessThan: fn (lhs: T, rhs: T) bool) bool {
+    if (items.len == 0) return true;
+    var prev: T = items[0];
+    var i: usize = 1;
+    while (i < items.len) : (i += 1) {
+        if (lessThan(items[i], prev)) return false;
+        prev = items[i];
+    }
+    return true;
+}
+
 // merge operation without a buffer
 fn mergeInPlace(comptime T: type, items: []T, A_arg: Range, B_arg: Range, lessThan: fn (T, T) bool) void {
     if (A_arg.length() == 0 or B_arg.length() == 0) return;

@@ -1088,7 +1088,7 @@ fn openSelfDebugInfoMacOs(allocator: *mem.Allocator) !DebugInfo {
     // Even though lld emits symbols in ascending order, this debug code
     // should work for programs linked in any valid way.
     // This sort is so that we can binary search later.
-    std.sort.sort(MachoSymbol, symbols, MachoSymbol.addressLessThan);
+    std.sort.sortWithHint(MachoSymbol, symbols, MachoSymbol.addressLessThan, std.sort.Hint.MaybeSorted);
 
     return DebugInfo{
         .ofiles = DebugInfo.OFileTable.init(allocator),
