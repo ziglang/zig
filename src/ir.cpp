@@ -7933,6 +7933,11 @@ static ErrorMsg *ir_add_error(IrAnalyze *ira, IrInstruction *source_instruction,
     return ir_add_error_node(ira, source_instruction->source_node, msg);
 }
 
+static void ir_assert(bool ok, IrInstruction *source_instruction) {
+    if (ok) return;
+    src_assert(ok, source_instruction->source_node);
+}
+
 // This function takes a comptime ptr and makes the child const value conform to the type
 // described by the pointer.
 static Error eval_comptime_ptr_reinterpret(IrAnalyze *ira, CodeGen *codegen, AstNode *source_node,
@@ -13944,11 +13949,12 @@ IrInstruction *ir_get_implicit_allocator(IrAnalyze *ira, IrInstruction *source_i
     zig_unreachable();
 }
 
-static IrInstruction *ir_analyze_async_call(IrAnalyze *ira, IrInstructionCall *call_instruction, ZigFn *fn_entry, ZigType *fn_type,
-    IrInstruction *fn_ref, IrInstruction **casted_args, size_t arg_count, IrInstruction *async_allocator_inst)
+static IrInstruction *ir_analyze_async_call(IrAnalyze *ira, IrInstructionCall *call_instruction, ZigFn *fn_entry,
+        ZigType *fn_type, IrInstruction *fn_ref, IrInstruction **casted_args, size_t arg_count,
+        IrInstruction *async_allocator_inst)
 {
     Buf *realloc_field_name = buf_create_from_str(ASYNC_REALLOC_FIELD_NAME);
-    assert(async_allocator_inst->value.type->id == ZigTypeIdPointer);
+    ir_assert(async_allocator_inst->value.type->id == ZigTypeIdPointer, &call_instruction->base);
     ZigType *container_type = async_allocator_inst->value.type->data.pointer.child_type;
     IrInstruction *field_ptr_inst = ir_analyze_container_field_ptr(ira, realloc_field_name, &call_instruction->base,
             async_allocator_inst, container_type);
@@ -13956,7 +13962,7 @@ static IrInstruction *ir_analyze_async_call(IrAnalyze *ira, IrInstructionCall *c
         return ira->codegen->invalid_instruction;
     }
     ZigType *ptr_to_realloc_fn_type = field_ptr_inst->value.type;
-    assert(ptr_to_realloc_fn_type->id == ZigTypeIdPointer);
+    ir_assert(ptr_to_realloc_fn_type->id == ZigTypeIdPointer, &call_instruction->base);
 
     ZigType *realloc_fn_type = ptr_to_realloc_fn_type->data.pointer.child_type;
     if (realloc_fn_type->id != ZigTypeIdFn) {
@@ -21227,10 +21233,10 @@ static IrInstruction *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira,
             if (type_is_invalid(end_value->value.type))
                 return ira->codegen->invalid_instruction;
 
-            assert(start_value->value.type->id == ZigTypeIdErrorSet);
+            ir_assert(start_value->value.type->id == ZigTypeIdErrorSet, &instruction->base);
             uint32_t start_index = start_value->value.data.x_err_set->value;
 
-            assert(end_value->value.type->id == ZigTypeIdErrorSet);
+            ir_assert(end_value->value.type->id == ZigTypeIdErrorSet, &instruction->base);
             uint32_t end_index = end_value->value.data.x_err_set->value;
 
             if (start_index != end_index) {
@@ -21755,7 +21761,7 @@ static Error buf_read_value_bytes_array(IrAnalyze *ira, CodeGen *codegen, AstNod
 
 static Error buf_read_value_bytes(IrAnalyze *ira, CodeGen *codegen, AstNode *source_node, uint8_t *buf, ConstExprValue *val) {
     Error err;
-    assert(val->special == ConstValSpecialStatic);
+    src_assert(val->special == ConstValSpecialStatic, source_node);
     switch (val->type->id) {
         case ZigTypeIdInvalid:
         case ZigTypeIdMetaType:
@@ -21805,7 +21811,7 @@ static Error buf_read_value_bytes(IrAnalyze *ira, CodeGen *codegen, AstNode *sou
                     zig_panic("TODO buf_read_value_bytes enum packed");
                 case ContainerLayoutExtern: {
                     ZigType *tag_int_type = val->type->data.enumeration.tag_int_type;
-                    assert(tag_int_type->id == ZigTypeIdInt);
+                    src_assert(tag_int_type->id == ZigTypeIdInt, source_node);
                     bigint_read_twos_complement(&val->data.x_enum_tag, buf, tag_int_type->data.integral.bit_count,
                             codegen->is_big_endian, tag_int_type->data.integral.is_signed);
                     return ErrorNone;
@@ -21860,7 +21866,7 @@ static Error buf_read_value_bytes(IrAnalyze *ira, CodeGen *codegen, AstNode *sou
                         bigint_read_twos_complement(&big_int, buf + offset, big_int_byte_count * 8, is_big_endian, false);
                         while (src_i < src_field_count) {
                             TypeStructField *field = &val->type->data.structure.fields[src_i];
-                            assert(field->gen_index != SIZE_MAX);
+                            src_assert(field->gen_index != SIZE_MAX, source_node);
                             if (field->gen_index != gen_i)
                                 break;
                             ConstExprValue *field_val = &val->data.x_struct.fields[src_i];
@@ -21936,10 +21942,10 @@ static IrInstruction *ir_analyze_bit_cast(IrAnalyze *ira, IrInstruction *source_
     Error err;
 
     ZigType *src_type = value->value.type;
-    assert(get_codegen_ptr_type(src_type) == nullptr);
-    assert(type_can_bit_cast(src_type));
-    assert(get_codegen_ptr_type(dest_type) == nullptr);
-    assert(type_can_bit_cast(dest_type));
+    ir_assert(get_codegen_ptr_type(src_type) == nullptr, source_instr);
+    ir_assert(type_can_bit_cast(src_type), source_instr);
+    ir_assert(get_codegen_ptr_type(dest_type) == nullptr, source_instr);
+    ir_assert(type_can_bit_cast(dest_type), source_instr);
 
     if ((err = type_resolve(ira->codegen, dest_type, ResolveStatusSizeKnown)))
         return ira->codegen->invalid_instruction;
@@ -22029,8 +22035,8 @@ static IrInstruction *ir_analyze_instruction_bit_cast(IrAnalyze *ira, IrInstruct
 static IrInstruction *ir_analyze_int_to_ptr(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *target,
         ZigType *ptr_type)
 {
-    assert(get_src_ptr_type(ptr_type) != nullptr);
-    assert(type_has_bits(ptr_type));
+    ir_assert(get_src_ptr_type(ptr_type) != nullptr, source_instr);
+    ir_assert(type_has_bits(ptr_type), source_instr);
 
     IrInstruction *casted_int = ir_implicit_cast(ira, target, ira->codegen->builtin_types.entry_usize);
     if (type_is_invalid(casted_int->value.type))
@@ -22129,7 +22135,7 @@ static IrInstruction *ir_analyze_instruction_decl_ref(IrAnalyze *ira,
         case TldIdFn: {
             TldFn *tld_fn = (TldFn *)tld;
             ZigFn *fn_entry = tld_fn->fn_entry;
-            assert(fn_entry->type_entry);
+            ir_assert(fn_entry->type_entry, &instruction->base);
 
             if (tld_fn->extern_lib_name != nullptr) {
                 add_link_lib_symbol(ira, tld_fn->extern_lib_name, &fn_entry->symbol_name, instruction->base.source_node);
@@ -22327,7 +22333,7 @@ static IrInstruction *ir_analyze_instruction_arg_type(IrAnalyze *ira, IrInstruct
     ZigType *result_type = fn_type_id->param_info[arg_index].type;
     if (result_type == nullptr) {
         // Args are only unresolved if our function is generic.
-        assert(fn_type->data.fn.is_generic);
+        ir_assert(fn_type->data.fn.is_generic, &instruction->base);
 
         ir_add_error(ira, arg_index_inst,
             buf_sprintf("@ArgType could not resolve the type of arg %" ZIG_PRI_u64 " because '%s' is generic",
@@ -22413,7 +22419,7 @@ static IrInstruction *ir_analyze_instruction_coro_begin(IrAnalyze *ira, IrInstru
         return ira->codegen->invalid_instruction;
 
     ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
-    assert(fn_entry != nullptr);
+    ir_assert(fn_entry != nullptr, &instruction->base);
     IrInstruction *result = ir_build_coro_begin(&ira->new_irb, instruction->base.scope, instruction->base.source_node,
             coro_id, coro_mem_ptr);
     result->value.type = get_promise_type(ira->codegen, fn_entry->type_entry->data.fn.fn_type_id.return_type);
@@ -22651,7 +22657,7 @@ static IrInstruction *ir_analyze_instruction_atomic_load(IrAnalyze *ira, IrInstr
     }
 
     if (ordering == AtomicOrderRelease || ordering == AtomicOrderAcqRel) {
-        assert(instruction->ordering != nullptr);
+        ir_assert(instruction->ordering != nullptr, &instruction->base);
         ir_add_error(ira, instruction->ordering,
             buf_sprintf("@atomicLoad atomic ordering must not be Release or AcqRel"));
         return ira->codegen->invalid_instruction;
@@ -22659,7 +22665,7 @@ static IrInstruction *ir_analyze_instruction_atomic_load(IrAnalyze *ira, IrInstr
 
     if (instr_is_comptime(casted_ptr)) {
         IrInstruction *result = ir_get_deref(ira, &instruction->base, casted_ptr);
-        assert(result->value.type != nullptr);
+        ir_assert(result->value.type != nullptr, &instruction->base);
         return result;
     }
 
@@ -22689,7 +22695,7 @@ static IrInstruction *ir_analyze_instruction_await_bookkeeping(IrAnalyze *ira, I
         return ira->codegen->invalid_instruction;
 
     ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
-    assert(fn_entry != nullptr);
+    ir_assert(fn_entry != nullptr, &instruction->base);
 
     if (type_can_fail(promise_result_type)) {
         fn_entry->calls_or_awaits_errorable_fn = true;
@@ -22705,9 +22711,9 @@ static IrInstruction *ir_analyze_instruction_merge_err_ret_traces(IrAnalyze *ira
     if (type_is_invalid(coro_promise_ptr->value.type))
         return ira->codegen->invalid_instruction;
 
-    assert(coro_promise_ptr->value.type->id == ZigTypeIdPointer);
+    ir_assert(coro_promise_ptr->value.type->id == ZigTypeIdPointer, &instruction->base);
     ZigType *promise_frame_type = coro_promise_ptr->value.type->data.pointer.child_type;
-    assert(promise_frame_type->id == ZigTypeIdStruct);
+    ir_assert(promise_frame_type->id == ZigTypeIdStruct, &instruction->base);
     ZigType *promise_result_type = promise_frame_type->data.structure.fields[1].type_entry;
 
     if (!type_can_fail(promise_result_type)) {
@@ -22799,7 +22805,7 @@ static IrInstruction *ir_analyze_instruction_sqrt(IrAnalyze *ira, IrInstructionS
         return result;
     }
 
-    assert(float_type->id == ZigTypeIdFloat);
+    ir_assert(float_type->id == ZigTypeIdFloat, &instruction->base);
     if (float_type->data.floating.bit_count != 16 &&
         float_type->data.floating.bit_count != 32 &&
         float_type->data.floating.bit_count != 64) {
@@ -23290,7 +23296,7 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
 
 static IrInstruction *ir_analyze_instruction(IrAnalyze *ira, IrInstruction *old_instruction) {
     IrInstruction *new_instruction = ir_analyze_instruction_nocast(ira, old_instruction);
-    assert(new_instruction->value.type != nullptr);
+    ir_assert(new_instruction->value.type != nullptr, old_instruction);
     old_instruction->child = new_instruction;
     return new_instruction;
 }
