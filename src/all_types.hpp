@@ -1861,6 +1861,7 @@ struct CodeGen {
     bool each_lib_rpath;
     bool is_dummy_so;
     bool disable_gen_h;
+    bool bundle_compiler_rt;
 
     Buf *mmacosx_version_min;
     Buf *mios_version_min;

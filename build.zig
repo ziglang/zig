@@ -389,6 +389,7 @@ fn addLibUserlandStep(b: *Builder) void {
     else
         b.addStaticLibrary("userland", "src-self-hosted/stage1.zig");
     artifact.disable_gen_h = true;
+    artifact.bundle_compiler_rt = true;
     artifact.setTarget(builtin.arch, builtin.os, builtin.abi);
     artifact.linkSystemLibrary("c");
     const libuserland_step = b.step("libuserland", "Build the userland compiler library for use in stage1");

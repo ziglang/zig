@@ -13,14 +13,21 @@ pub const Mode = enum {
 
 pub const ClangErrMsg = Stage2ErrorMsg;
 
-pub const Error = error {
-    OutOfMemory,
-};
+pub const Error = error{OutOfMemory};
 
 const Context = struct {
     tree: *ast.Tree,
     source_buffer: *std.Buffer,
     err: Error,
+
+    fn a(c: *Context) *std.mem.Allocator {
+        return &c.tree.arena_allocator.allocator;
+    }
+
+    /// Convert a null-terminated C string to a slice allocated in the arena
+    fn str(c: *Context, s: [*]const u8) ![]u8 {
+        return std.mem.dupe(c.a(), u8, std.mem.toSliceConst(u8, s));
+    }
 };
 
 pub fn translate(
@@ -60,12 +67,13 @@ pub fn translate(
     tree.* = ast.Tree{
         .source = undefined, // need to use Buffer.toOwnedSlice later
         .root_node = root_node,
-        .arena_allocator = tree_arena,
+        .arena_allocator = undefined,
         .tokens = ast.Tree.TokenList.init(arena),
         .errors = ast.Tree.ErrorList.init(arena),
     };
+    tree.arena_allocator = tree_arena;
 
-    var source_buffer = try std.Buffer.initSize(arena, 0);
+    var source_buffer = try std.Buffer.initSize(&tree.arena_allocator.allocator, 0);
 
     var context = Context{
         .tree = tree,
@@ -94,7 +102,7 @@ extern fn declVisitorC(context: ?*c_void, decl: *const ZigClangDecl) bool {
 fn declVisitor(c: *Context, decl: *const ZigClangDecl) Error!void {
     switch (ZigClangDecl_getKind(decl)) {
         .Function => {
-            try appendToken(c, .LineComment, "// TODO translate function decl");
+            return visitFnDecl(c, @ptrCast(*const ZigClangFunctionDecl, decl));
         },
         .Typedef => {
             try appendToken(c, .LineComment, "// TODO translate typedef");
@@ -115,11 +123,25 @@ fn declVisitor(c: *Context, decl: *const ZigClangDecl) Error!void {
     }
 }
 
-fn appendToken(c: *Context, token_id: Token.Id, src_text: []const u8) !void {
+fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
+    const fn_name = c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, fn_decl)));
+    try appendToken(c, .LineComment, "// TODO translate function '{}'", fn_name);
+}
+
+fn appendToken(c: *Context, token_id: Token.Id, comptime format: []const u8, args: ...) !void {
+    const S = struct {
+        fn callback(context: *Context, bytes: []const u8) Error!void {
+            return context.source_buffer.append(bytes);
+        }
+    };
     const start_index = c.source_buffer.len();
-    try c.source_buffer.append(src_text);
+    errdefer c.source_buffer.shrink(start_index);
+
+    try std.fmt.format(c, Error, S.callback, format, args);
     const end_index = c.source_buffer.len();
     const new_token = try c.tree.tokens.addOne();
+    errdefer c.tree.tokens.shrink(c.tree.tokens.len - 1);
+
     new_token.* = Token{
         .id = token_id,
         .start = start_index,
