@@ -581,6 +581,33 @@ static bool qual_type_is_ptr(ZigClangQualType qt) {
     return ZigClangType_getTypeClass(ty) == ZigClangType_Pointer;
 }
 
+static bool qual_type_is_int(ZigClangQualType qt) {
+    const ZigClangType *ty = qual_type_canon(qt);
+    if (ZigClangType_getTypeClass(ty) != ZigClangType_Builtin)
+        return false;
+    const clang::BuiltinType *builtin_ty = reinterpret_cast<const clang::BuiltinType*>(ty);
+    switch (builtin_ty->getKind()) {
+        case clang::BuiltinType::Char_U:
+        case clang::BuiltinType::UChar:
+        case clang::BuiltinType::Char_S:
+        case clang::BuiltinType::Char8:
+        case clang::BuiltinType::SChar:
+        case clang::BuiltinType::UShort:
+        case clang::BuiltinType::UInt:
+        case clang::BuiltinType::ULong:
+        case clang::BuiltinType::ULongLong:
+        case clang::BuiltinType::Short:
+        case clang::BuiltinType::Int:
+        case clang::BuiltinType::Long:
+        case clang::BuiltinType::LongLong:
+        case clang::BuiltinType::UInt128:
+        case clang::BuiltinType::Int128:
+            return true;
+        default:
+            return false;
+    }
+}
+
 static const clang::FunctionProtoType *qual_type_get_fn_proto(ZigClangQualType qt, bool *is_ptr) {
     const ZigClangType *ty = qual_type_canon(qt);
     *is_ptr = false;
@@ -743,6 +770,17 @@ static AstNode* trans_c_cast(Context *c, ZigClangSourceLocation source_location,
     }
     if (qual_type_is_ptr(dest_type) && qual_type_is_ptr(src_type)) {
         return trans_c_ptr_cast(c, source_location, dest_type, src_type, expr);
+    }
+    if (qual_type_is_int(dest_type) && qual_type_is_ptr(src_type)) {
+        AstNode *addr_node = trans_create_node_builtin_fn_call_str(c, "ptrToInt");
+        addr_node->data.fn_call_expr.params.append(expr);
+        return trans_create_node_fn_call_1(c, trans_qual_type(c, dest_type, source_location), addr_node);
+    }
+    if (qual_type_is_int(src_type) && qual_type_is_ptr(dest_type)) {
+        AstNode *ptr_node = trans_create_node_builtin_fn_call_str(c, "intToPtr");
+        ptr_node->data.fn_call_expr.params.append(trans_qual_type(c, dest_type, source_location));
+        ptr_node->data.fn_call_expr.params.append(expr);
+        return ptr_node;
     }
     // TODO: maybe widen to increase size
     // TODO: maybe bitcast to change sign

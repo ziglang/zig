@@ -2,6 +2,20 @@ const tests = @import("tests.zig");
 const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
+    cases.add("casting pointers to ints and ints to pointers",
+        \\void foo(void);
+        \\void bar(void) {
+        \\    void *func_ptr = foo;
+        \\    void (*typed_func_ptr)(void) = (void (*)(void)) (unsigned long) func_ptr;
+        \\}
+    ,
+        \\pub extern fn foo() void;
+        \\pub fn bar() void {
+        \\    var func_ptr: ?*c_void = @ptrCast(?*c_void, foo);
+        \\    var typed_func_ptr: ?extern fn() void = @intToPtr(?extern fn() void, c_ulong(@ptrToInt(func_ptr)));
+        \\}
+    );
+
     if (builtin.os != builtin.Os.windows) {
         // Windows treats this as an enum with type c_int
         cases.add("big negative enum init values when C ABI supports long long enums",
