@@ -1908,6 +1908,30 @@ static Error resolve_union_type(CodeGen *g, ZigType *union_type) {
     return ErrorNone;
 }
 
+static bool type_is_int_compatible(ZigType *t1, ZigType *t2) {
+    assert(t1->id == ZigTypeIdInt);
+    assert(t2->id == ZigTypeIdInt);
+
+    if (t1 == t2)
+        return true;
+
+    return (t1->data.integral.bit_count == t2->data.integral.bit_count &&
+            t1->data.integral.is_signed == t2->data.integral.is_signed);
+}
+
+static bool type_is_valid_extern_enum_tag(CodeGen *g, ZigType *ty) {
+    // According to the ANSI C standard:
+    // Each enumerated type shall be compatible with char, a signed integer
+    // type, or an unsigned integer type.
+    ZigType *c_uint_type = get_c_int_type(g, CIntTypeInt);
+    ZigType *c_int_type = get_c_int_type(g, CIntTypeInt);
+    ZigType *c_schar_type = g->builtin_types.entry_i8;
+
+    return (type_is_int_compatible(ty, c_schar_type) ||
+            type_is_int_compatible(ty, c_int_type)   ||
+            type_is_int_compatible(ty, c_uint_type));
+}
+
 static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
     assert(enum_type->id == ZigTypeIdEnum);
 
@@ -1965,7 +1989,6 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
     enum_type->abi_size = tag_int_type->abi_size;
     enum_type->abi_align = tag_int_type->abi_align;
 
-    // TODO: Are extern enums allowed to have an init_arg_expr?
     if (decl_node->data.container_decl.init_arg_expr != nullptr) {
         ZigType *wanted_tag_int_type = analyze_type_expr(g, scope, decl_node->data.container_decl.init_arg_expr);
         if (type_is_invalid(wanted_tag_int_type)) {
@@ -1974,6 +1997,14 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
             enum_type->data.enumeration.is_invalid = true;
             add_node_error(g, decl_node->data.container_decl.init_arg_expr,
                 buf_sprintf("expected integer, found '%s'", buf_ptr(&wanted_tag_int_type->name)));
+        } else if (enum_type->data.enumeration.layout == ContainerLayoutExtern &&
+                   !type_is_valid_extern_enum_tag(g, wanted_tag_int_type)) {
+            enum_type->data.enumeration.is_invalid = true;
+            ErrorMsg *msg = add_node_error(g, decl_node->data.container_decl.init_arg_expr,
+                buf_sprintf("'%s' is not a valid tag type for an extern union",
+                            buf_ptr(&wanted_tag_int_type->name)));
+            add_error_note(g, msg, decl_node->data.container_decl.init_arg_expr,
+                buf_sprintf("valid types are 'i8', 'c_int' and 'c_uint' or compatible types"));
         } else if (wanted_tag_int_type->data.integral.is_signed) {
             enum_type->data.enumeration.is_invalid = true;
             add_node_error(g, decl_node->data.container_decl.init_arg_expr,
@@ -1987,6 +2018,7 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
             tag_int_type = wanted_tag_int_type;
         }
     }
+
     enum_type->data.enumeration.tag_int_type = tag_int_type;
     enum_type->size_in_bits = tag_int_type->size_in_bits;
     enum_type->abi_size = tag_int_type->abi_size;
